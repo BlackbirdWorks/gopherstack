@@ -178,6 +178,7 @@ import (
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	gcpsqlbackend "github.com/blackbirdworks/gopherstack/services/gcpsql"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
@@ -592,6 +593,7 @@ type CLI struct {
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
 	GCPIAM                        gcpiambackend.Settings            `embed:"" prefix:"gcp-iam-"`
 	GCPBigQuery                   gcpbigquerybackend.Settings       `embed:"" prefix:"gcp-bigquery-"`
+	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -706,6 +708,9 @@ func (c *CLI) GetGCPFunctionsSettings() gcpfunctionsbackend.Settings { return c.
 
 // GetGCPBigQuerySettings returns Google BigQuery settings (gcpbigquery.ConfigProvider).
 func (c *CLI) GetGCPBigQuerySettings() gcpbigquerybackend.Settings { return c.GCPBigQuery }
+
+// GetGCPSQLSettings returns Google Cloud SQL settings (gcpsql.ConfigProvider).
+func (c *CLI) GetGCPSQLSettings() gcpsqlbackend.Settings { return c.GCPSQL }
 
 // GetGCPIAMSettings returns Google Cloud IAM admin settings (gcpiam.ConfigProvider).
 func (c *CLI) GetGCPIAMSettings() gcpiambackend.Settings { return c.GCPIAM }
@@ -2334,6 +2339,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPFunctions", "gcpfunctions", cli.GCPFunctions.Port},
 		{"GCPFunctionsIngress", "gcpfunctions-ingress", cli.GCPFunctions.IngressPort},
 		{"GCPBigQuery", "gcpbigquery", cli.GCPBigQuery.Port},
+		{"GCPSQL", "gcpsql", cli.GCPSQL.Port},
 		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
@@ -3491,6 +3497,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireGCPScheduler(byName)
 	wireGCPFunctions(byName)
 	wireGCPBigQuery(byName)
+	wireGCPSQL(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4732,6 +4739,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcprunbackend.Provider{},
 		&gcpfunctionsbackend.Provider{},
 		&gcpbigquerybackend.Provider{},
+		&gcpsqlbackend.Provider{},
 		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},

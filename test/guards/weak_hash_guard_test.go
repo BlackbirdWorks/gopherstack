@@ -30,6 +30,10 @@ func allowedWeakHashFiles() map[string]string {
 		// GoogleSQL defines MD5() and SHA1() as those digests of the argument; a content hash, never a credential.
 		"services/gcpbigquery/bqsql/udf_str.go": "GoogleSQL MD5()/SHA1() function parity, verified",
 
+		// Cloud SQL addresses client certificates by sha1Fingerprint (sslCerts.get/delete path parameter);
+		// a certificate identifier, never a credential.
+		"services/gcpsql/certs.go": "Cloud SQL sslCert sha1Fingerprint parity, verified",
+
 		// CloudFront Functions' crypto module exposes createHash/createHmac with md5 and sha1;
 		// user-script digests, never credential storage.
 		"services/cloudfront/function_runtime.go": "CloudFront Functions crypto md5/sha1 parity, verified",
