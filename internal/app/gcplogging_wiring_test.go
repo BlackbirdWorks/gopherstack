@@ -53,11 +53,11 @@ func (f *logSinkFixture) sink(t *testing.T, name, dest string, opts ...func(*log
 	require.NoError(t, err)
 }
 
-func (f *logSinkFixture) write(t *testing.T, logID, text string) {
+func (f *logSinkFixture) write(t *testing.T, text string) {
 	t.Helper()
 
 	err := f.logging.Backend.WriteLogEntries(t.Context(), &loggingpb.WriteLogEntriesRequest{
-		LogName:  "projects/p/logs/" + logID,
+		LogName:  "projects/p/logs/app",
 		Resource: &monitoredres.MonitoredResource{Type: "global"},
 		Entries:  []*loggingpb.LogEntry{{Payload: &loggingpb.LogEntry_TextPayload{TextPayload: text}}},
 	})
@@ -73,14 +73,18 @@ func TestLogSinkToPubSub(t *testing.T) {
 	_, err := f.pubsub.Backend.CreateTopic(&pubsubpb.Topic{Name: topic})
 	require.NoError(t, err)
 
-	_, err = f.pubsub.Backend.CreateSubscription(&pubsubpb.Subscription{Name: "projects/p/subscriptions/logsub", Topic: topic})
+	_, err = f.pubsub.Backend.CreateSubscription(
+		&pubsubpb.Subscription{Name: "projects/p/subscriptions/logsub", Topic: topic},
+	)
 	require.NoError(t, err)
 
 	f.sink(t, "to-topic", "pubsub.googleapis.com/"+topic)
-	f.write(t, "app", "hello sink")
+	f.write(t, "hello sink")
 
 	resp, err := f.pubsub.SubscriberAPI().Pull(t.Context(), &pubsubpb.PullRequest{
-		Subscription: "projects/p/subscriptions/logsub", MaxMessages: 5, ReturnImmediately: true, //nolint:staticcheck // immediate pull
+		Subscription:      "projects/p/subscriptions/logsub",
+		MaxMessages:       5,
+		ReturnImmediately: true, //nolint:staticcheck // immediate pull
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.GetReceivedMessages(), 1)
@@ -99,8 +103,8 @@ func TestLogSinkToStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	f.sink(t, "to-gcs", "storage.googleapis.com/archive")
-	f.write(t, "app", "first")
-	f.write(t, "app", "second")
+	f.write(t, "first")
+	f.write(t, "second")
 
 	store := gcsObjectStore{b: f.gcs.Backend}
 	names, err := store.ListObjects("archive", "app/")
@@ -122,14 +126,19 @@ func TestLogSinkToBigQuery(t *testing.T) {
 
 	f := newLogSinkFixture(t)
 
-	_, err := f.bq.Backend.CreateDataset("p", map[string]any{"datasetReference": map[string]any{"projectId": "p", "datasetId": "logs"}})
+	_, err := f.bq.Backend.CreateDataset(
+		"p",
+		map[string]any{"datasetReference": map[string]any{"projectId": "p", "datasetId": "logs"}},
+	)
 	require.NoError(t, err)
 
 	f.sink(t, "to-bq", "bigquery.googleapis.com/projects/p/datasets/logs", func(s *loggingpb.LogSink) {
-		s.Options = &loggingpb.LogSink_BigqueryOptions{BigqueryOptions: &loggingpb.BigQueryOptions{UsePartitionedTables: true}}
+		s.Options = &loggingpb.LogSink_BigqueryOptions{
+			BigqueryOptions: &loggingpb.BigQueryOptions{UsePartitionedTables: true},
+		}
 	})
-	f.write(t, "app", "row one")
-	f.write(t, "app", "row two")
+	f.write(t, "row one")
+	f.write(t, "row two")
 
 	res, err := f.bq.Backend.ListData("p", "logs", "app", gcpbigquerybackend.DataOptions{})
 	require.NoError(t, err)

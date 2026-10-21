@@ -17,6 +17,8 @@ type logSinkPublisher struct {
 	b *gcppubsubbackend.InMemoryBackend
 }
 
+var errLogSinkRowsRejected = errors.New("rejected rows")
+
 func (p logSinkPublisher) Publish(topic string, data []byte, attrs map[string]string) error {
 	_, err := p.b.Publish(&pubsubpb.PublishRequest{
 		Topic:    topic,
@@ -81,7 +83,7 @@ func (t logSinkTables) InsertRows(project, dataset, table string, rows []map[str
 	}
 
 	if errs, bad := res["insertErrors"]; bad {
-		return fmt.Errorf("insert into %s.%s rejected rows: %v", dataset, table, errs)
+		return fmt.Errorf("insert into %s.%s: %w: %v", dataset, table, errLogSinkRowsRejected, errs)
 	}
 
 	return nil
@@ -105,4 +107,6 @@ func wireGCPLogging(byName map[string]service.Registerable) {
 	if bq, isBQ := byName["GCPBigQuery"].(*gcpbigquerybackend.Handler); isBQ {
 		logH.Backend.SetTableStore(logSinkTables{b: bq.Backend})
 	}
+
+	wireGCPLogCapture(byName)
 }
