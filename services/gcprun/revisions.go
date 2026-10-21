@@ -236,6 +236,8 @@ func (b *InMemoryBackend) launch(rev *runpb.Revision) (string, int, error) {
 		return "", 0, fmt.Errorf("start container: %w", err)
 	}
 
+	b.captureOutput(runner, id, rev)
+
 	if err = gcpserve.WaitReady(ctx, port); err != nil {
 		b.stopContainer(runner, id)
 		b.releasePort(port)

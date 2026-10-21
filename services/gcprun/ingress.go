@@ -67,22 +67,14 @@ func (b *InMemoryBackend) serveIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b.mu.RLock("serveIngress")
-	rev := b.revisions[revName]
-	port := 0
-
-	if rev != nil {
-		port = rev.hostPort
-	}
-	b.mu.RUnlock()
-
+	port, target := b.ingressTarget(revName)
 	if port == 0 {
 		http.Error(w, "revision was removed", http.StatusServiceUnavailable)
 
 		return
 	}
 
-	b.proxy(port).ServeHTTP(w, r)
+	b.serveLogged(w, r, port, target)
 }
 
 func (b *InMemoryBackend) proxy(port int) *httputil.ReverseProxy {

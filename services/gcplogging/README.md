@@ -9,13 +9,12 @@
 | --- | --- |
 | PARITY entries audited | 40 (35 ok, 3 partial, 2 gap) |
 | Feature families | 7 (2 ok, 5 partial) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Cloud Run and Cloud Functions container output is not written to Cloud Logging: those emulators do not capture container stdout, so there is no hook yet.
 - Linked datasets (CreateLink, GetLink, ListLinks, DeleteLink) and CopyLogEntries return UNIMPLEMENTED.
 - Sinks on folders, organizations and billing accounts are stored, but include_children aggregation is not applied: only entries written to that parent's own logs are routed.
 - Sink destinations are not checked for existence at create time, and a missing destination only logs a warning when an entry is exported.

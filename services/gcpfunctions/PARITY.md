@@ -25,8 +25,9 @@ families:
   persistence: {status: partial, note: "Functions (protojson), source zips, upload slots and operations persist. Containers and in-flight work do not: interrupted deployments end FAILED and a restored function starts its container again on its first request. Trigger subscriptions persist with Pub/Sub, not here."}
   auth: {status: partial, note: "No request is authenticated; ingress_settings, service accounts, vpc_connector, kms_key_name, security_level and binary_authorization are stored but not enforced."}
   iam: {status: gap, note: "GetIamPolicy, SetIamPolicy, TestIamPermissions and the Locations service are not served (gRPC UNIMPLEMENTED)."}
-  observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; container logs are not collected."}
+  observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; container stdout/stderr and HTTP invocations are written to Cloud Logging when gcplogging is enabled (internal/app wiring), on a cloud_run_revision resource as for GEN_2 (logs run.googleapis.com/stdout|stderr|requests; JSON lines become jsonPayload)."}
 items_still_open:
+  - "Pub/Sub event-triggered deliveries write container output to Cloud Logging but no run.googleapis.com/requests entry; the Docker log stream is covered by a unit test, not a live daemon run."
   - "GEN_1 functions (cloudfunctions.v1 API), repo_source/git_uri builds and Cloud Build are not implemented."
   - "Event types other than Pub/Sub messagePublished (Cloud Storage, Firestore, audit logs, custom channels) and event_filters are rejected."
   - "secret_environment_variables and secret_volumes are rejected; memory, cpu, concurrency, min/max instances, vpc_connector and ingress_settings are stored but not applied."

@@ -15,7 +15,6 @@ import (
 	"cloud.google.com/go/functions/apiv2/functionspb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 )
 
 const (
@@ -231,7 +230,7 @@ func (b *InMemoryBackend) serveInvoke(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), t.timeout)
 	defer cancel()
 
-	gcpserve.Proxy(port, b.transport).ServeHTTP(w, r.WithContext(ctx))
+	b.serveLogged(w, r.WithContext(ctx), port, b.invokeTarget(t.name))
 }
 
 type pushMessage struct {

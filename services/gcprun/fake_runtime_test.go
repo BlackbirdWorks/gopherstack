@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -47,10 +48,17 @@ type fakeRuntime struct {
 	boxes   map[string]*fakeContainer
 	exitFn  func(env func(string) string) int
 	gate    chan struct{}
+	lines   []fakeLine
 	started []container.Spec
 	removed []string
+	streams atomic.Int64
 	seq     atomic.Int64
 	mu      sync.Mutex
+}
+
+type fakeLine struct {
+	text   string
+	stderr bool
 }
 
 func newFakeRuntime() *fakeRuntime {
@@ -187,4 +195,36 @@ func envOf(spec container.Spec, key string) string {
 	}
 
 	return ""
+}
+
+// StreamLogs emits the configured lines, then blocks until the container exits or is removed.
+func (f *fakeRuntime) StreamLogs(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	f.mu.Lock()
+	c := f.boxes[id]
+	f.mu.Unlock()
+
+	if c == nil {
+		return nil
+	}
+
+	f.streams.Add(1)
+	defer f.streams.Add(-1)
+
+	for _, l := range f.lines {
+		w := stdout
+		if l.stderr {
+			w = stderr
+		}
+
+		if _, err := io.WriteString(w, l.text+"\n"); err != nil {
+			return err
+		}
+	}
+
+	select {
+	case <-c.exited:
+	case <-ctx.Done():
+	}
+
+	return nil
 }

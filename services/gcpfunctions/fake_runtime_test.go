@@ -25,21 +25,29 @@ type received struct {
 
 type fakeContainer struct {
 	srv  *http.Server
+	gone chan struct{}
 	spec container.Spec
 }
 
 // fakeRuntime stands in for the container runtime: every container serves HTTP on its published port and
 // answers with a JSON description of the request it received.
 type fakeRuntime struct {
-	gate    chan struct{}
 	failRun error
+	gate    chan struct{}
 	boxes   map[string]*fakeContainer
 	started []container.Spec
 	reqs    []received
+	lines   []fakeLine
 	removed []string
-	reply   atomic.Int32
+	streams atomic.Int64
 	seq     atomic.Int64
 	mu      sync.Mutex
+	reply   atomic.Int32
+}
+
+type fakeLine struct {
+	text   string
+	stderr bool
 }
 
 func newFakeRuntime() *fakeRuntime {
@@ -81,7 +89,7 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 	}
 
 	env := envMap(spec)
-	c := &fakeContainer{spec: spec}
+	c := &fakeContainer{spec: spec, gone: make(chan struct{})}
 	c.srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.UserAgent() == gcpserve.ProbeUserAgent {
 			return
@@ -125,6 +133,8 @@ func (f *fakeRuntime) StopAndRemove(_ context.Context, id string) error {
 
 	if c != nil {
 		_ = c.srv.Close()
+
+		close(c.gone)
 	}
 
 	return nil
@@ -163,4 +173,36 @@ func (f *fakeRuntime) serve(c *fakeContainer, l net.Listener, addr string) {
 	}
 
 	_ = c.srv.Serve(l)
+}
+
+// StreamLogs emits the configured lines, then blocks until the container is removed or ctx ends.
+func (f *fakeRuntime) StreamLogs(ctx context.Context, id string, stdout, stderr io.Writer) error {
+	f.mu.Lock()
+	c := f.boxes[id]
+	f.mu.Unlock()
+
+	if c == nil {
+		return nil
+	}
+
+	f.streams.Add(1)
+	defer f.streams.Add(-1)
+
+	for _, l := range f.lines {
+		w := stdout
+		if l.stderr {
+			w = stderr
+		}
+
+		if _, err := io.WriteString(w, l.text+"\n"); err != nil {
+			return err
+		}
+	}
+
+	select {
+	case <-c.gone:
+	case <-ctx.Done():
+	}
+
+	return nil
 }

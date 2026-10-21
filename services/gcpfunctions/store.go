@@ -72,6 +72,7 @@ type InMemoryBackend struct {
 	objects        ObjectReader
 	transport      *http.Transport
 	ops            *gcplro.Store
+	logs           *gcpserve.LogCapture
 	wg             *sync.WaitGroup
 	functions      map[string]*fnRec
 	uploads        map[string]*uploadRec
@@ -87,6 +88,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		now:            time.Now,
 		runCtx:         context.Background(),
 		ops:            gcplro.New("gcpfunctions"),
+		logs:           gcpserve.NewLogCapture("gcpfunctions.logs"),
 		wg:             &sync.WaitGroup{},
 		transport:      httpclient.NewTransport(),
 		startupTimeout: DefaultStartupTimeout,
@@ -114,6 +116,8 @@ func (b *InMemoryBackend) Reset() {
 	for _, x := range boxes {
 		b.teardown(x)
 	}
+
+	b.logs.Wait()
 }
 
 // SetRuntime wires the container runtime source; nil disables functions.
@@ -198,6 +202,7 @@ func (b *InMemoryBackend) Close() {
 		b.teardown(x)
 	}
 
+	b.logs.Wait()
 	b.transport.CloseIdleConnections()
 
 	if hook != nil {

@@ -56,7 +56,6 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; writer identities receive no permissions."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state. RPC failures are logged at debug; gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
-  - "Cloud Run and Cloud Functions container output is not written to Cloud Logging: those emulators do not capture container stdout, so there is no hook yet."
   - "Linked datasets (CreateLink, GetLink, ListLinks, DeleteLink) and CopyLogEntries return UNIMPLEMENTED."
   - "Sinks on folders, organizations and billing accounts are stored, but include_children aggregation is not applied: only entries written to that parent's own logs are routed."
   - "Sink destinations are not checked for existence at create time, and a missing destination only logs a warning when an entry is exported."

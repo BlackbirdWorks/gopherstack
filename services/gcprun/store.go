@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -71,6 +72,7 @@ type InMemoryBackend struct {
 	ports          PortPool
 	transport      *http.Transport
 	ops            *gcplro.Store
+	logs           *gcpserve.LogCapture
 	wg             *sync.WaitGroup
 	services       map[string]*svcRec
 	revisions      map[string]*revRec
@@ -89,6 +91,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		now:            time.Now,
 		runCtx:         context.Background(),
 		ops:            gcplro.New("gcprun"),
+		logs:           gcpserve.NewLogCapture("gcprun.logs"),
 		wg:             &sync.WaitGroup{},
 		transport:      httpclient.NewTransport(),
 		startupTimeout: DefaultStartupTimeout,
@@ -121,6 +124,7 @@ func (b *InMemoryBackend) Reset() {
 	}
 
 	b.wg.Wait()
+	b.logs.Wait()
 }
 
 // SetRuntime wires the container runtime source; nil disables workloads.
@@ -193,6 +197,7 @@ func (b *InMemoryBackend) Close() {
 		b.teardown(r)
 	}
 
+	b.logs.Wait()
 	b.transport.CloseIdleConnections()
 
 	b.mu.RLock("Close.hook")
