@@ -875,6 +875,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 13 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | B | 32 | 10 gaps |
 | [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 19 gaps |
@@ -891,6 +892,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 7 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
+| [Cloud Logging](services/gcplogging/README.md) | B | 40 | 9 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 6 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 38 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
@@ -908,7 +910,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amp](services/amp/README.md) | B | 44 | 11 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Appintegrations](services/appintegrations/README.md) | B | 23 | 4 gaps; 1 structural gap |
-| [Azurearm](services/azurearm/README.md) | B | 19 | 8 gaps; 3 deferred |
+| [Azurearm](services/azurearm/README.md) | B | 20 | 8 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
 | [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 13 gaps; 2 structural gaps |
