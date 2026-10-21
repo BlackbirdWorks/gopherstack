@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 9 (5 ok, 3 partial, 1 gap) |
-| Known gaps | 6 |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Cloud Run job task output is not written to Cloud Logging (cloud_run_job resource); only service containers and ingress requests are. The Docker log stream is covered by a unit test of DockerRuntime.StreamLogs, not a live daemon run.
 - Services/Jobs IAM policy RPCs, WorkerPools, Instances, Builds and Locations are not served.
 - Only the ingress container (the one declaring ports, else the first) of a revision and only the first container of a task are run; sidecars, volumes, probes, scaling, VPC access, secrets and resource limits are stored but not applied.
 - Revision scaling is one container per revision (no autoscaling, max_instance_request_concurrency or min_instances); idle revisions are stopped when they leave the traffic split.

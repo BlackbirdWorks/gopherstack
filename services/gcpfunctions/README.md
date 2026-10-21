@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 8 (8 ok) |
 | Feature families | 10 (4 ok, 5 partial, 1 gap) |
-| Known gaps | 7 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Pub/Sub event-triggered deliveries write container output to Cloud Logging but no run.googleapis.com/requests entry; the Docker log stream is covered by a unit test, not a live daemon run.
 - GEN_1 functions (cloudfunctions.v1 API), repo_source/git_uri builds and Cloud Build are not implemented.
 - Event types other than Pub/Sub messagePublished (Cloud Storage, Firestore, audit logs, custom channels) and event_filters are rejected.
 - secret_environment_variables and secret_volumes are rejected; memory, cpu, concurrency, min/max instances, vpc_connector and ingress_settings are stored but not applied.
