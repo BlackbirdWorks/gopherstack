@@ -12920,6 +12920,8 @@
       "Cluster.Tags *tags.Tags",
       "Cluster.TransitEncryptionEnabled bool",
       "Cluster.TransitEncryptionMode string",
+      "Cluster.front *sgfilter.Proxy",
+      "Cluster.gate *redisengine.Gate",
       "Cluster.mini *miniredis.Miniredis",
       "DataStorageLimit.Maximum int32 `json:\"maximum,omitempty\"`",
       "DataStorageLimit.Minimum int32 `json:\"minimum,omitempty\"`",
