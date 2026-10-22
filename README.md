@@ -894,7 +894,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 23 | 10 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
-| [Cloud Build](services/gcpcloudbuild/README.md) | B | 19 | 12 gaps |
+| [Cloud Build](services/gcpcloudbuild/README.md) | B | 19 | 11 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 40 | 7 gaps |
