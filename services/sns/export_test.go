@@ -68,6 +68,12 @@ func MatchesFilterPolicyAttributesForTest(policy string, attrs map[string][2]str
 // Use this in tests after Publish to synchronize before asserting DLQ or delivery state.
 func WaitDeliveriesForTest(b *InMemoryBackend) {
 	b.deliveryWg.Wait()
+
+	b.mu.RLock("WaitDeliveriesForTest")
+	client := b.httpClient
+	b.mu.RUnlock()
+
+	client.CloseIdleConnections()
 }
 
 // SigningCertURLForTest exposes the signer's certURL so tests can verify it
