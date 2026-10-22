@@ -177,19 +177,24 @@ func (b *InMemoryBackend) functionForURLID(urlID string) (string, string, bool) 
 	return "", "", false
 }
 
-// FunctionURLAuthTypeForHost returns the AuthType of the URL a host names, or "".
-func (b *InMemoryBackend) FunctionURLAuthTypeForHost(host string) string {
+// FunctionURLConfigForHost returns the function URL config a host names, or nil.
+func (b *InMemoryBackend) FunctionURLConfigForHost(host string) *FunctionURLConfig {
 	urlID, _, ok := parseFunctionURLHost(host)
 	if !ok {
-		return ""
+		return nil
 	}
 
 	name, qualifier, found := b.functionForURLID(urlID)
 	if !found {
-		return ""
+		return nil
 	}
 
-	if cfg := b.lookupFunctionURLConfig(urlConfigKey(name, qualifier)); cfg != nil {
+	return b.lookupFunctionURLConfig(urlConfigKey(name, qualifier))
+}
+
+// FunctionURLAuthTypeForHost returns the AuthType of the URL a host names, or "".
+func (b *InMemoryBackend) FunctionURLAuthTypeForHost(host string) string {
+	if cfg := b.FunctionURLConfigForHost(host); cfg != nil {
 		return cfg.AuthType
 	}
 

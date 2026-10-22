@@ -399,6 +399,11 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
+	scope, _ := requestScopeFromProviders(r, cfg.ActionExtractors)
+	if scope.Anonymous {
+		return enforceAnonymousScope(c, next, cfg, scope)
+	}
+
 	policyDocs, boundaryDoc, condCtx, callerName, enforced := resolveCallerIdentityPolicies(ctx, r, backend)
 	if !enforced {
 		if failClosedAccount(ctx, backend) {
@@ -440,6 +445,8 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	}
 
 	resourceARN := extractResourceARN(r, accountID, region)
+	resourceARN, action, condCtx = scope.override(resourceARN, action, condCtx)
+
 	resourceDocs := canonicalDocs(collectResourcePolicies(ctx, cfg.ResourceProviders, resourceARN))
 
 	matchResource := arn.Canonical(resourceARN)
@@ -452,7 +459,7 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 		boundaryDocs = []string{boundaryDoc}
 	}
 
-	dec := decideRequest(policyDocs, boundaryDocs, resourceDocs, action, matchResource, condCtx)
+	dec := decideScoped(policyDocs, boundaryDocs, resourceDocs, action, matchResource, condCtx, scope)
 	if cfg.Recorder != nil {
 		dec = dec.attribute(backend, attribution{
 			principalArn: condCtx.PrincipalARN, resourceArn: resourceARN, identity: policyDocs, resource: resourceDocs,
@@ -476,7 +483,7 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 		"caller", callerName, "action", action, "resource", matchResource, "reason", dec.reason,
 		"matchedSid", dec.match.Sid)
 
-	return writeAccessDenied(c, action, matchResource)
+	return scope.deny(c, action, matchResource)
 }
 
 // decideRequest applies identity, boundary and resource policies to one request.
