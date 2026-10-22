@@ -33,6 +33,14 @@ var regions = []region{ //nolint:gochecknoglobals // immutable catalog input
 	{"eu-central-1", "EU (Frankfurt)", 1.15},
 	{"ap-south-1", "Asia Pacific (Mumbai)", 1.08},
 	{"ap-northeast-1", "Asia Pacific (Tokyo)", 1.27},
+	{"us-east-2", "US East (Ohio)", 1.0},
+	{"us-west-1", "US West (N. California)", 1.17},
+	{"eu-west-2", "EU (London)", 1.12},
+	{"ap-southeast-1", "Asia Pacific (Singapore)", 1.18},
+	{"ap-southeast-2", "Asia Pacific (Sydney)", 1.2},
+	{"ap-northeast-2", "Asia Pacific (Seoul)", 1.2},
+	{"sa-east-1", "South America (Sao Paulo)", 1.5},
+	{"ca-central-1", "Canada (Central)", 1.1},
 }
 
 var serviceNames = map[string]string{ //nolint:gochecknoglobals // immutable catalog input
@@ -41,6 +49,12 @@ var serviceNames = map[string]string{ //nolint:gochecknoglobals // immutable cat
 	svcLambda:   "AWS Lambda",
 	svcDynamoDB: "Amazon DynamoDB",
 	svcRDS:      "Amazon Relational Database Service",
+
+	svcSQS:         "Amazon Simple Queue Service",
+	svcSNS:         "Amazon Simple Notification Service",
+	svcCloudFront:  "Amazon CloudFront",
+	svcElastiCache: "Amazon ElastiCache",
+	svcECS:         "Amazon Elastic Container Service",
 }
 
 type catalog struct {
@@ -52,7 +66,8 @@ type catalog struct {
 var theCatalog = sync.OnceValue(buildCatalog) //nolint:gochecknoglobals // immutable embedded catalog
 
 func buildCatalog() *catalog {
-	specs := slices.Concat(ec2Specs(), s3Specs(), lambdaSpecs(), dynamoSpecs(), rdsSpecs())
+	specs := slices.Concat(ec2Specs(), s3Specs(), lambdaSpecs(), dynamoSpecs(), rdsSpecs(),
+		sqsSpecs(), snsSpecs(), cloudFrontSpecs(), elastiCacheSpecs(), ecsSpecs())
 	c := &catalog{byService: map[string][]*entry{}}
 
 	for i := range specs {
@@ -107,22 +122,7 @@ func render(s *spec) *entry {
 	}}
 
 	if s.reserved {
-		terms.Reserved = map[string]termJSON{
-			sku + "." + reserved1yTerm: buildTerm(
-				sku,
-				reserved1yTerm,
-				reservedAttrs("1yr"),
-				hourly(s.dims),
-				reserved1yRatio,
-			),
-			sku + "." + reserved3yTerm: buildTerm(
-				sku,
-				reserved3yTerm,
-				reservedAttrs("3yr"),
-				hourly(s.dims),
-				reserved3yRatio,
-			),
-		}
+		terms.Reserved = reservedTerms(sku, s.dims)
 	}
 
 	item := priceItem{
@@ -144,12 +144,6 @@ func hourly(dims []dim) []dim {
 	}
 
 	return out
-}
-
-func reservedAttrs(lease string) map[string]string {
-	return map[string]string{
-		"LeaseContractLength": lease, "OfferingClass": "standard", "PurchaseOption": "No Upfront",
-	}
 }
 
 func buildTerm(sku, code string, termAttrs map[string]string, dims []dim, ratio float64) termJSON {

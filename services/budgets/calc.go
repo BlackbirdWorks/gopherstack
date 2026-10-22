@@ -1,6 +1,7 @@
 package budgets
 
 import (
+	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -177,7 +178,58 @@ func (b *InMemoryBackend) periodSpendLocked(bg *Budget, start, end time.Time) (f
 		return 0, false
 	}
 
-	return b.spend.Spend(start, end, filtersOf(bg), metricFor(bg))
+	return b.spend.Spend(start, end, spendFilters(bg), metricFor(bg))
+}
+
+// ExcludeChargeTypeFilter is the SpendSource filter key whose values are charge types to leave out of spend.
+const ExcludeChargeTypeFilter = "ExcludeChargeType"
+
+// spendFilters returns the budget's filters plus the charge types its CostTypes flags exclude.
+func spendFilters(bg *Budget) map[string][]string {
+	base := filtersOf(bg)
+
+	excluded := excludedChargeTypes(bg.CostTypes)
+	if len(excluded) == 0 {
+		return base
+	}
+
+	out := make(map[string][]string, len(base)+1)
+	maps.Copy(out, base)
+	out[ExcludeChargeTypeFilter] = excluded
+
+	return out
+}
+
+// excludedChargeTypes maps each Include* flag set to false onto the Cost Explorer RECORD_TYPE values it removes.
+func excludedChargeTypes(ct *CostTypes) []string {
+	if ct == nil {
+		return nil
+	}
+
+	flags := []struct {
+		include *bool
+		types   []string
+	}{
+		{ct.IncludeTax, []string{"Tax"}},
+		{ct.IncludeCredit, []string{"Credit"}},
+		{ct.IncludeRefund, []string{"Refund"}},
+		{ct.IncludeSupport, []string{"Support"}},
+		{ct.IncludeDiscount, []string{"Discount"}},
+		{ct.IncludeSubscription, []string{"Subscription"}},
+		{ct.IncludeOtherSubscription, []string{"Fee"}},
+		{ct.IncludeUpfront, []string{"Upfront", "SavingsPlanUpfrontFee"}},
+		{ct.IncludeRecurring, []string{"RIFee", "SavingsPlanRecurringFee"}},
+	}
+
+	var out []string
+
+	for _, f := range flags {
+		if f.include != nil && !*f.include {
+			out = append(out, f.types...)
+		}
+	}
+
+	return out
 }
 
 // limitForPeriod returns the limit that applies to the period starting at start.

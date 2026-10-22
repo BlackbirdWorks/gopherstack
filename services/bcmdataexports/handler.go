@@ -40,7 +40,7 @@ func bind[I, O any](fn func(*Handler, context.Context, *I) (*O, error)) opFunc {
 
 		if len(body) > 0 {
 			if err := json.Unmarshal(body, &in); err != nil {
-				return nil, fail(ErrValidation, "malformed request body: %v", err)
+				return nil, failReason(reasonCannotParse, "malformed request body: %v", err)
 			}
 		}
 
@@ -230,7 +230,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			logger.Load(ctx).ErrorContext(ctx, "bcmdataexports: read body failed", "error", err)
 
-			return h.writeError(c, fail(ErrValidation, "could not read the request body"))
+			return h.writeError(c, failReason(reasonCannotParse, "could not read the request body"))
 		}
 
 		op := h.ExtractOperation(c)
@@ -258,5 +258,5 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 			"bcmdataexports: internal error", "error", err)
 	}
 
-	return awserr.Write(c, awserr.ProtocolJSON11, apiErr)
+	return writeErrorBody(c, apiErr, errorDetail(err))
 }

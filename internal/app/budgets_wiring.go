@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -23,11 +24,17 @@ import (
 const (
 	budgetsSender = "no-reply-aws@amazon.com"
 	dateLayout    = "2006-01-02"
+
+	arnFields     = 6
+	arnServiceIdx = 2
+	arnRegionIdx  = 3
 )
 
 var (
 	errBudgetsNoBackend = errors.New("backend is not running")
 	errBudgetsAction    = errors.New("unsupported budget action")
+	errBudgetsTopicARN  = errors.New("subscriber address is not a regional SNS topic ARN")
+	errBudgetsRole      = errors.New("execution role cannot be assumed")
 )
 
 type budgetsCESpend struct{ ce *cebackend.InMemoryBackend }
@@ -41,7 +48,7 @@ type budgetsNotifier struct {
 	ses *sesbackend.InMemoryBackend
 }
 
-func (n *budgetsNotifier) Notify(_ context.Context, d budgetsbackend.Delivery) error {
+func (n *budgetsNotifier) Notify(ctx context.Context, d budgetsbackend.Delivery) error {
 	var errs []error
 
 	for _, s := range d.Subscribers {
@@ -53,8 +60,8 @@ func (n *budgetsNotifier) Notify(_ context.Context, d budgetsbackend.Delivery) e
 				continue
 			}
 
-			if _, err := n.sns.Publish(s.Address, d.Message, d.Subject, "", nil); err != nil {
-				errs = append(errs, fmt.Errorf("sns publish %s: %w", s.Address, err))
+			if err := n.publishSNS(ctx, s.Address, d); err != nil {
+				errs = append(errs, err)
 			}
 		case "EMAIL":
 			errs = append(errs, n.email(s.Address, d))
@@ -62,6 +69,20 @@ func (n *budgetsNotifier) Notify(_ context.Context, d budgetsbackend.Delivery) e
 	}
 
 	return errors.Join(errs...)
+}
+
+// publishSNS publishes to the topic named by its ARN, in the region that ARN carries.
+func (n *budgetsNotifier) publishSNS(ctx context.Context, topicArn string, d budgetsbackend.Delivery) error {
+	parts := strings.SplitN(topicArn, ":", arnFields)
+	if len(parts) < arnFields || parts[arnServiceIdx] != "sns" || parts[arnRegionIdx] == "" {
+		return fmt.Errorf("%w: %q", errBudgetsTopicARN, topicArn)
+	}
+
+	if _, err := n.sns.PublishContext(ctx, topicArn, d.Message, d.Subject, "", nil); err != nil {
+		return fmt.Errorf("sns publish %s (%s): %w", topicArn, parts[arnRegionIdx], err)
+	}
+
+	return nil
 }
 
 func (n *budgetsNotifier) email(to string, d budgetsbackend.Delivery) error {
@@ -98,6 +119,10 @@ func (e *budgetsExecutor) Run(ctx context.Context, _ string, a budgetsbackend.Ac
 		return fmt.Errorf("%w: missing definition", errBudgetsAction)
 	}
 
+	if err := e.checkRole(a.ExecutionRoleArn); err != nil {
+		return err
+	}
+
 	switch a.ActionType {
 	case "APPLY_IAM_POLICY":
 		return e.runIAM(a.Definition.IamActionDefinition, reverse)
@@ -108,6 +133,20 @@ func (e *budgetsExecutor) Run(ctx context.Context, _ string, a budgetsbackend.Ac
 	default:
 		return fmt.Errorf("%w: %s", errBudgetsAction, a.ActionType)
 	}
+}
+
+// checkRole requires the execution role to exist in IAM; it is skipped when IAM is not running.
+func (e *budgetsExecutor) checkRole(roleArn string) error {
+	if e.iam == nil {
+		return nil
+	}
+
+	name := roleArn[strings.LastIndex(roleArn, "/")+1:]
+	if _, err := e.iam.Backend.GetRole(name); err != nil {
+		return fmt.Errorf("%w: %s: %w", errBudgetsRole, roleArn, err)
+	}
+
+	return nil
 }
 
 func (e *budgetsExecutor) runIAM(d *budgetsbackend.IamActionDefinition, reverse bool) error {

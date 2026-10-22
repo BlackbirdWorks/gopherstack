@@ -3,31 +3,33 @@ package pricing
 import "fmt"
 
 const (
-	svcEC2         = "AmazonEC2"
-	svcS3          = "AmazonS3"
-	svcLambda      = "AWSLambda"
-	svcDynamoDB    = "AmazonDynamoDB"
-	svcRDS         = "AmazonRDS"
-	mem4           = "4 GiB"
-	mem16          = "16 GiB"
-	volGeneral     = "General Purpose"
-	osWindows      = "Windows"
-	attrOperation  = "operation"
-	attrUsage      = "usagetype"
-	attrVolumeType = "volumeType"
-	attrGroup      = "group"
-	unitGBMo       = "GB-Mo"
-	opInvoke       = "Invoke"
-	perThousand    = 1000
-	famProvisioned = "Provisioned IOPS"
-	famServerless  = "Serverless"
-	s3RequestSpecs = 2
-	multiAZFactor  = 2
-	tier2Factor    = 0.96
-	tier3Factor    = 0.91
-	rdsStorageUSD  = 0.115
-	lambdaSpecsPer = 3
-	dynamoItems    = 5
+	svcEC2           = "AmazonEC2"
+	svcS3            = "AmazonS3"
+	svcLambda        = "AWSLambda"
+	svcDynamoDB      = "AmazonDynamoDB"
+	svcRDS           = "AmazonRDS"
+	mem4             = "4 GiB"
+	mem16            = "16 GiB"
+	volGeneral       = "General Purpose"
+	osWindows        = "Windows"
+	attrOperation    = "operation"
+	attrInstanceType = "instanceType"
+	storageStandard  = "Standard"
+	attrUsage        = "usagetype"
+	attrVolumeType   = "volumeType"
+	attrGroup        = "group"
+	unitGBMo         = "GB-Mo"
+	opInvoke         = "Invoke"
+	perThousand      = 1000
+	famProvisioned   = "Provisioned IOPS"
+	famServerless    = "Serverless"
+	s3RequestSpecs   = 2
+	multiAZFactor    = 2
+	tier2Factor      = 0.96
+	tier3Factor      = 0.91
+	rdsStorageUSD    = 0.115
+	lambdaSpecsPer   = 3
+	dynamoItems      = 5
 
 	lambdaRequestUSD = 0.0000002
 	lambdaX86USD     = 0.0000166667
@@ -77,7 +79,7 @@ func ec2Specs() []spec {
 					region:   r,
 					reserved: true,
 					attrs: map[string]string{
-						"instanceType": it.name, "vcpu": it.vcpu, "memory": it.memory, "operatingSystem": os,
+						attrInstanceType: it.name, "vcpu": it.vcpu, "memory": it.memory, "operatingSystem": os,
 						"tenancy": "Shared", "preInstalledSw": "NA", "capacitystatus": "Used",
 						attrOperation: map[string]string{"Linux": "RunInstances", osWindows: "RunInstances:0002"}[os],
 						attrUsage:     fmt.Sprintf("BoxUsage:%s", it.name), "instanceFamily": "General purpose",
@@ -119,7 +121,7 @@ func s3Specs() []spec {
 		gbMonth       float64
 	}{
 		{
-			"Standard",
+			storageStandard,
 			"TimedStorage-ByteHrs",
 			0.023,
 		},
@@ -142,7 +144,7 @@ func s3Specs() []spec {
 				),
 			}
 
-			if c.volume == "Standard" {
+			if c.volume == storageStandard {
 				dims = []dim{
 					{
 						unit:  unitGBMo,
@@ -329,7 +331,7 @@ func rdsSpecs() []spec {
 						region:   r,
 						reserved: true,
 						attrs: map[string]string{
-							"instanceType": c.name, "vcpu": c.vcpu, "memory": c.memory, "databaseEngine": engine,
+							attrInstanceType: c.name, "vcpu": c.vcpu, "memory": c.memory, "databaseEngine": engine,
 							"deploymentOption": deploy, attrUsage: "InstanceUsage:" + c.name,
 							attrOperation: "CreateDBInstance:0002",
 						},

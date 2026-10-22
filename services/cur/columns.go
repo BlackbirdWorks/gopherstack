@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
@@ -60,13 +61,14 @@ func lineItemID(r *rowCtx) string {
 }
 
 func baseColumns() []colDef {
-	return []colDef{
+	return slices.Concat([]colDef{
 		col("identity", "LineItemId", typeString, func(r *rowCtx) any { return lineItemID(r) }),
 		col("identity", "TimeInterval", typeString, func(r *rowCtx) any {
 			return r.start.Format(isoSecond) + "/" + r.end.Format(isoSecond)
 		}),
 		col(catBill, "InvoiceId", typeString, func(*rowCtx) any { return "" }),
 		col(catBill, "BillingEntity", typeString, func(*rowCtx) any { return "AWS" }),
+		col(catBill, "InvoicingEntity", typeString, func(*rowCtx) any { return "Amazon Web Services, Inc." }),
 		col(catBill, "BillType", typeString, func(*rowCtx) any { return "Anniversary" }),
 		col(catBill, "PayerAccountId", typeString, func(r *rowCtx) any { return r.payer }),
 		col(
@@ -78,6 +80,7 @@ func baseColumns() []colDef {
 		col(catBill, "BillingPeriodEndDate", typeString, func(r *rowCtx) any { return r.billEnd.Format(isoSecond) }),
 		col(catLineItem, "UsageAccountId", typeString, func(r *rowCtx) any { return r.line.Account }),
 		col(catLineItem, "LineItemType", typeString, func(*rowCtx) any { return "Usage" }),
+		col(catLineItem, "LegalEntity", typeString, func(*rowCtx) any { return "Amazon Web Services, Inc." }),
 		col(catLineItem, "UsageStartDate", typeString, func(r *rowCtx) any { return r.start.Format(isoSecond) }),
 		col(catLineItem, "UsageEndDate", typeString, func(r *rowCtx) any { return r.end.Format(isoSecond) }),
 		col(
@@ -87,7 +90,11 @@ func baseColumns() []colDef {
 			func(r *rowCtx) any { return billingexport.ProductCode(r.line.Service) },
 		),
 		col(catLineItem, "UsageType", typeString, func(r *rowCtx) any { return r.line.UsageType }),
+		blank(catLineItem, "Operation", typeString),
+		blank(catLineItem, "AvailabilityZone", typeString),
 		col(catLineItem, "UsageAmount", typeDouble, func(r *rowCtx) any { return r.line.Usage * r.frac }),
+		blank(catLineItem, "NormalizationFactor", typeDouble),
+		blank(catLineItem, "NormalizedUsageAmount", typeDouble),
 		col(catLineItem, "CurrencyCode", typeString, func(*rowCtx) any { return "USD" }),
 		col(
 			catLineItem,
@@ -106,7 +113,15 @@ func baseColumns() []colDef {
 		col(catLineItem, "LineItemDescription", typeString, func(r *rowCtx) any {
 			return fmt.Sprintf("%s %s usage", r.line.Service, r.line.UsageType)
 		}),
+		blank(catLineItem, "TaxType", typeString),
 		col(catProduct, "ProductName", typeString, func(r *rowCtx) any { return r.line.Service }),
+		blank(catProduct, "instanceType", typeString),
+		blank(catProduct, "location", typeString),
+		blank(catProduct, "locationType", typeString),
+		blank(catProduct, "productFamily", typeString),
+		col(catProduct, "servicename", typeString, func(r *rowCtx) any { return r.line.Service }),
+		blank(catProduct, "sku", typeString),
+		col(catProduct, "usagetype", typeString, func(r *rowCtx) any { return r.line.UsageType }),
 		col(catProduct, "region", typeString, func(r *rowCtx) any { return r.line.Region }),
 		col(
 			catProduct,
@@ -115,7 +130,8 @@ func baseColumns() []colDef {
 			func(r *rowCtx) any { return billingexport.ProductCode(r.line.Service) },
 		),
 		col("pricing", "unit", typeString, func(*rowCtx) any { return "Quantity" }),
-	}
+	}, pricingColumns(), blankGroup("reservation", reservationColumns), blankGroup("savingsPlan", savingsPlanColumns),
+		blankGroup("discount", discountColumns))
 }
 
 func rateString(cost, usage float64) any {

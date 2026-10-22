@@ -65,7 +65,10 @@ func TestDescribeServices(t *testing.T) {
 		codes = append(codes, aws.ToString(s.ServiceCode))
 	}
 
-	assert.ElementsMatch(t, []string{"AmazonEC2", "AmazonS3", "AWSLambda", "AmazonDynamoDB", "AmazonRDS"}, codes)
+	assert.ElementsMatch(t, []string{
+		"AmazonEC2", "AmazonS3", "AWSLambda", "AmazonDynamoDB", "AmazonRDS",
+		"AmazonSQS", "AmazonSNS", "AmazonCloudFront", "AmazonElastiCache", "AmazonECS",
+	}, codes)
 
 	one, err := c.DescribeServices(t.Context(), &psdk.DescribeServicesInput{ServiceCode: aws.String("AmazonEC2")})
 	require.NoError(t, err)
@@ -207,7 +210,7 @@ func TestProductShape(t *testing.T) {
 	assert.Equal(t, "AmazonEC2", item.ServiceCode)
 	assert.Equal(t, "Compute Instance", item.Product.ProductFamily)
 	assert.Equal(t, "US East (N. Virginia)", item.Product.Attributes["location"])
-	assert.Len(t, item.Terms.Reserved, 2)
+	assert.Len(t, item.Terms.Reserved, 12)
 
 	od := item.Terms.OnDemand[item.Product.SKU+".JRTCKXETXF"]
 	require.Len(t, od.PriceDimensions, 1)
@@ -236,8 +239,8 @@ func TestGetProductsPagination(t *testing.T) {
 		pages++
 	}
 
-	assert.Equal(t, 18, total)
-	assert.Equal(t, 3, pages)
+	assert.Equal(t, 42, total)
+	assert.Equal(t, 6, pages)
 
 	_, err := c.GetProducts(t.Context(), &psdk.GetProductsInput{
 		ServiceCode: aws.String("AWSLambda"), NextToken: aws.String("%%%"),

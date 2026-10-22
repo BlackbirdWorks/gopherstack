@@ -53,7 +53,8 @@ func TestBudgetsExecutorIAM(t *testing.T) {
 
 			x := &budgetsExecutor{iam: iambackend.NewHandler(b)}
 			err = x.Run(t.Context(), "123456789012", budgetsbackend.Action{
-				ActionType: "APPLY_IAM_POLICY",
+				ActionType:       "APPLY_IAM_POLICY",
+				ExecutionRoleArn: "arn:aws:iam::123456789012:role/" + role,
 				Definition: &budgetsbackend.Definition{IamActionDefinition: &budgetsbackend.IamActionDefinition{
 					PolicyArn: pol.Arn, Roles: []string{role},
 				}},
@@ -128,4 +129,81 @@ func TestBudgetsCESpend(t *testing.T) {
 	got, ok := budgetsCESpend{ce: ce}.Spend(now.AddDate(0, 0, -5), now, nil, "UnblendedCost")
 	assert.True(t, ok)
 	assert.Positive(t, got)
+}
+
+func TestBudgetsExecutorChecksExecutionRole(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		roleArn string
+		wantErr bool
+	}{
+		{name: "exists", roleArn: "arn:aws:iam::123456789012:role/exec"},
+		{name: "pathed", roleArn: "arn:aws:iam::123456789012:role/svc/exec"},
+		{name: "missing", roleArn: "arn:aws:iam::123456789012:role/ghost", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iambackend.NewInMemoryBackend()
+			_, err := b.CreateRole("exec", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
+			require.NoError(t, err)
+
+			x := &budgetsExecutor{iam: iambackend.NewHandler(b)}
+			err = x.Run(t.Context(), "123456789012", budgetsbackend.Action{
+				ActionType:       "APPLY_IAM_POLICY",
+				ExecutionRoleArn: tc.roleArn,
+				Definition: &budgetsbackend.Definition{
+					IamActionDefinition: &budgetsbackend.IamActionDefinition{},
+				},
+			}, false)
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, errBudgetsRole)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestBudgetsNotifierSNSRegions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		region string
+	}{
+		{name: "home", region: "us-east-1"},
+		{name: "other", region: "eu-west-1"},
+		{name: "asia", region: "ap-southeast-2"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sns := snsbackend.NewInMemoryBackend()
+			topic, err := sns.CreateTopicInRegion("alerts", tc.region, nil)
+			require.NoError(t, err)
+			assert.Contains(t, topic.TopicArn, ":"+tc.region+":")
+
+			n := &budgetsNotifier{sns: sns}
+			require.NoError(t, n.Notify(t.Context(), budgetsbackend.Delivery{
+				Subject: "s", Message: "m",
+				Subscribers: []budgetsbackend.Subscriber{{Address: topic.TopicArn, SubscriptionType: "SNS"}},
+			}))
+		})
+	}
+
+	n := &budgetsNotifier{sns: snsbackend.NewInMemoryBackend()}
+	err := n.Notify(t.Context(), budgetsbackend.Delivery{
+		Subscribers: []budgetsbackend.Subscriber{{Address: "not-an-arn", SubscriptionType: "SNS"}},
+	})
+	require.ErrorIs(t, err, errBudgetsTopicARN)
 }

@@ -26,7 +26,7 @@ items_still_open:
   - columns: COST_AND_USAGE_REPORT carries about 40 of the real CUR 2.0 columns and FOCUS_1_0_AWS the 43 FOCUS 1.0 columns plus 5 x_ extensions; the exact x_ set is unverified
   - CARBON_EMISSIONS and COST_OPTIMIZATION_RECOMMENDATIONS: schemas only, exports contain headers and no rows (no emissions or recommendation data source)
   - manifest: the metadata manifest layout is an emulator shape, not verified against the real service
-  - error bodies: ResourceNotFoundException omits ResourceId/ResourceType, ValidationException omits Reason/Fields
+  - error bodies: ResourceNotFoundException carries ResourceId/ResourceType and ValidationException carries Reason/Fields where the field is known; ServiceQuotaExceeded ResourceId/ResourceType/QuotaCode/ServiceCode and Throttling QuotaCode/ServiceCode are not set; query-parser validation errors report Reason other without Fields
   - MaxResults bounds: 1-100 assumed
 gaps: []
 structural_gaps: []

@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"io"
+	"slices"
 	"testing"
 	"time"
 
@@ -97,7 +98,15 @@ func TestDelivery_CSVGzip(t *testing.T) {
 	require.Len(t, rows, 3)
 	assert.Equal(t, "identity/LineItemId", rows[0][0])
 	assert.Contains(t, rows[0], "lineItem/ResourceId")
-	assert.Equal(t, testAccount, rows[1][8])
+	assert.Equal(t, testAccount, rows[1][slices.Index(rows[0], "lineItem/UsageAccountId")])
+
+	for _, want := range []string{
+		"bill/InvoicingEntity", "lineItem/Operation", "lineItem/TaxType", "product/servicename",
+		"pricing/publicOnDemandCost", "reservation/EffectiveCost", "reservation/ReservationARN",
+		"savingsPlan/SavingsPlanEffectiveCost", "discount/TotalDiscount",
+	} {
+		assert.Contains(t, rows[0], want)
+	}
 
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(f.object(t, manifestKey), &m))
@@ -140,6 +149,11 @@ func TestDelivery_Variants(t *testing.T) {
 			d.ReportVersioning = curtypes.ReportVersioningOverwriteReport
 			d.AdditionalArtifacts = []curtypes.AdditionalArtifact{curtypes.AdditionalArtifactAthena}
 		}, "athena", "year=2026/month=3/athena-00001.snappy.parquet", 0},
+		{func(d *curtypes.ReportDefinition) {
+			d.Format, d.Compression = curtypes.ReportFormatParquet, curtypes.CompressionFormatParquet
+			d.ReportVersioning = curtypes.ReportVersioningOverwriteReport
+			d.AdditionalArtifacts = []curtypes.AdditionalArtifact{curtypes.AdditionalArtifactAthena}
+		}, "athena-status", "cost_and_usage_data_status/cost_and_usage_data_status.parquet", 0},
 	}
 
 	for _, tc := range cases {
