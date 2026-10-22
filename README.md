@@ -892,7 +892,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
-| [Cloud Logging](services/gcplogging/README.md) | B | 40 | 8 gaps |
+| [Cloud Logging](services/gcplogging/README.md) | B | 40 | 7 gaps |
+| [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 39 | 10 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 7 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 38 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
@@ -902,6 +903,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 35 | 6 gaps |
 | [Google Cloud Storage](services/gcpstorage/README.md) | B | 23 | 8 gaps |
 | [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 15 | 4 gaps |
+| [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 7 gaps |
 
 ### Other
 

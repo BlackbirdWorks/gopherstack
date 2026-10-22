@@ -46,8 +46,8 @@ func TestGCSRedisStore(t *testing.T) {
 
 			require.NoError(t, writeErr)
 
-			got, err := store.ReadObject(tt.bucket, "a/dump.rdb")
-			require.NoError(t, err)
+			got, readErr := store.ReadObject(tt.bucket, "a/dump.rdb")
+			require.NoError(t, readErr)
 			assert.Equal(t, []byte("data"), got)
 		})
 	}

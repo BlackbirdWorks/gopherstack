@@ -14960,6 +14960,43 @@
     ],
     "version": 1
   },
+  "gcpmonitoring": {
+    "fields": [
+      "Incident.Condition string `json:\"condition\"`",
+      "Incident.ConditionDisplayName string `json:\"conditionDisplayName\"`",
+      "Incident.EndedAt time.Time `json:\"endedAt\"`",
+      "Incident.ID string `json:\"id\"`",
+      "Incident.Key string `json:\"key\"`",
+      "Incident.MetricLabels map[string]string `json:\"metricLabels,omitempty\"`",
+      "Incident.MetricType string `json:\"metricType\"`",
+      "Incident.Observed float64 `json:\"observed\"`",
+      "Incident.Policy string `json:\"policy\"`",
+      "Incident.PolicyDisplayName string `json:\"policyDisplayName\"`",
+      "Incident.Project string `json:\"project\"`",
+      "Incident.ResourceLabels map[string]string `json:\"resourceLabels,omitempty\"`",
+      "Incident.ResourceType string `json:\"resourceType\"`",
+      "Incident.StartedAt time.Time `json:\"startedAt\"`",
+      "Incident.State string `json:\"state\"`",
+      "Incident.Threshold float64 `json:\"threshold\"`",
+      "backendSnapshot.Channels map[string]channelSnap `json:\"channels\"`",
+      "backendSnapshot.Descriptors map[string]json.RawMessage `json:\"descriptors\"`",
+      "backendSnapshot.Groups map[string]json.RawMessage `json:\"groups\"`",
+      "backendSnapshot.Incidents []Incident `json:\"incidents\"`",
+      "backendSnapshot.Policies map[string]json.RawMessage `json:\"policies\"`",
+      "backendSnapshot.Series []seriesSnap `json:\"series\"`",
+      "backendSnapshot.Uptime map[string]uptimeSnap `json:\"uptime\"`",
+      "channelSnap.Channel json.RawMessage `json:\"channel\"`",
+      "channelSnap.Code string `json:\"code,omitempty\"`",
+      "channelSnap.CodeAt time.Time `json:\"codeAt\"`",
+      "channelSnap.Sensitive map[string]string `json:\"sensitive,omitempty\"`",
+      "seriesSnap.Project string `json:\"project\"`",
+      "seriesSnap.Series json.RawMessage `json:\"series\"`",
+      "seriesSnap.Unit string `json:\"unit,omitempty\"`",
+      "uptimeSnap.Config json.RawMessage `json:\"config\"`",
+      "uptimeSnap.LastRun time.Time `json:\"lastRun\"`"
+    ],
+    "version": 1
+  },
   "gcppubsub": {
     "fields": [
       "backendSnapshot.LastMsg int64 `json:\"lastMsg\"`",
@@ -14996,6 +15033,16 @@
       "subSnap.Sub json.RawMessage `json:\"sub\"`",
       "topicSnap.Retained []*message `json:\"retained,omitempty\"`",
       "topicSnap.Topic json.RawMessage `json:\"topic\"`"
+    ],
+    "version": 1
+  },
+  "gcpredis": {
+    "fields": [
+      "backendSnapshot.Instances map[string]instSnap `json:\"instances\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "instSnap.AuthString string `json:\"authString,omitempty\"`",
+      "instSnap.Instance json.RawMessage `json:\"instance\"`",
+      "instSnap.Keyspace []byte `json:\"keyspace,omitempty\"`"
     ],
     "version": 1
   },
