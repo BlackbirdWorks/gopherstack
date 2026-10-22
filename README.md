@@ -923,7 +923,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
 | [Bedrockagentcore](services/bedrockagentcore/README.md) | B | 30 | 11 gaps; 2 structural gaps |
 | [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 12 gaps; 2 structural gaps |
-| [Budgets](services/budgets/README.md) | B | 26 | 9 gaps |
+| [Budgets](services/budgets/README.md) | B | 26 | 8 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 9 gaps; 3 structural gaps |
 | [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 6 gaps; 2 structural gaps |
@@ -946,7 +946,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
 | [Oam](services/oam/README.md) | B | 15 | 4 gaps; 1 structural gap |
 | [Outposts](services/outposts/README.md) | A | 43 | 2 gaps; 7 structural gaps |
-| [Pricing](services/pricing/README.md) | B | 5 | 4 gaps |
+| [Pricing](services/pricing/README.md) | B | 5 | 5 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
 | [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 27 | 13 gaps; 1 structural gap |
 | [Rum](services/rum/README.md) | B | 20 | 9 gaps; 2 structural gaps |
