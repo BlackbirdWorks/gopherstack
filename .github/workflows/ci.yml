@@ -60,6 +60,30 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
           fetch-depth: 0
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -116,6 +140,30 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ env.GH_CI_TOKEN }}
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -244,6 +292,30 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
           persist-credentials: false
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -304,6 +376,30 @@ jobs:
         with:
           token: ${{ env.GH_CI_TOKEN }}
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -353,6 +449,30 @@ jobs:
         with:
           token: ${{ env.GH_CI_TOKEN }}
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -401,6 +521,19 @@ jobs:
           large-packages: false
           docker-images: false
           swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -485,6 +618,30 @@ jobs:
         with:
           token: ${{ env.GH_CI_TOKEN }}
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -536,6 +693,19 @@ jobs:
           large-packages: false
           docker-images: false
           swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -606,6 +776,30 @@ jobs:
         with:
           token: ${{ env.GH_CI_TOKEN }}
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -659,6 +853,19 @@ jobs:
           large-packages: false
           docker-images: false
           swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -745,6 +952,30 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ env.GH_CI_TOKEN }}
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -862,6 +1093,19 @@ jobs:
         with:
           token: ${{ env.GH_CI_TOKEN }}
           fetch-depth: 0
+
+      - name: Use /mnt for Go temp files and build cache
+        run: |
+          if mountpoint -q /mnt; then
+            sudo mkdir -p /mnt/gotmp /mnt/gocache
+            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
+            {
+              echo "GOTMPDIR=/mnt/gotmp"
+              echo "TMPDIR=/mnt/gotmp"
+              echo "GOCACHE=/mnt/gocache"
+            } >> "$GITHUB_ENV"
+          fi
+          df -h / /mnt || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
