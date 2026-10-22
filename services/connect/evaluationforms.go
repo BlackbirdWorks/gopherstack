@@ -142,7 +142,8 @@ type FormRequest struct {
 	AsDraft    bool
 }
 
-type formOut struct {
+// FormOut is the wire shape of an evaluation form operation result.
+type FormOut struct {
 	Arn     string `json:"EvaluationFormArn"`
 	ID      string `json:"EvaluationFormId"`
 	Version int32  `json:"EvaluationFormVersion,omitempty"`
@@ -378,12 +379,12 @@ func (b *Backend) newFormVersion(ctx context.Context, n int32, asDraft bool, c *
 }
 
 // CreateEvaluationForm creates an evaluation form with its first version.
-func (b *Backend) CreateEvaluationForm(ctx context.Context, in *FormRequest) (*formOut, error) {
+func (b *Backend) CreateEvaluationForm(ctx context.Context, in *FormRequest) (*FormOut, error) {
 	if err := firstError(checkFormContent(&in.formContent), checkTags(in.Tags)); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateEvaluationForm", in.InstanceID, func(inst string) (*formOut, error) {
+	return writeInstance(b, "CreateEvaluationForm", in.InstanceID, func(inst string) (*FormOut, error) {
 		if formTitleTaken(b, inst, in.Title, "") {
 			return nil, duplicateErr("EvaluationForm", in.Title)
 		}
@@ -400,17 +401,17 @@ func (b *Backend) CreateEvaluationForm(ctx context.Context, in *FormRequest) (*f
 		}
 		b.evalForms.put(rec)
 
-		return &formOut{Arn: rec.Arn, ID: id}, nil
+		return &FormOut{Arn: rec.Arn, ID: id}, nil
 	})
 }
 
 // UpdateEvaluationForm edits a draft version in place, or creates a new version of a locked one.
-func (b *Backend) UpdateEvaluationForm(ctx context.Context, in *FormRequest) (*formOut, error) {
+func (b *Backend) UpdateEvaluationForm(ctx context.Context, in *FormRequest) (*FormOut, error) {
 	if err := checkFormContent(&in.formContent); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "UpdateEvaluationForm", in.InstanceID, func(inst string) (*formOut, error) {
+	return writeInstance(b, "UpdateEvaluationForm", in.InstanceID, func(inst string) (*FormOut, error) {
 		r, err := b.formByID(inst, in.FormID)
 		if err != nil {
 			return nil, err
@@ -437,11 +438,11 @@ func (b *Backend) UpdateEvaluationForm(ctx context.Context, in *FormRequest) (*f
 			b.activate(ctx, r, v)
 		}
 
-		return &formOut{Arn: r.Arn, ID: r.ID, Version: v.Version}, nil
+		return &FormOut{Arn: r.Arn, ID: r.ID, Version: v.Version}, nil
 	})
 }
 
-func (b *Backend) reviseLocked(ctx context.Context, r *evalFormRec, in *FormRequest) (*formOut, error) {
+func (b *Backend) reviseLocked(ctx context.Context, r *evalFormRec, in *FormRequest) (*FormOut, error) {
 	if in.CreateNewVersion == nil || !*in.CreateNewVersion {
 		return nil, resourceConflictErr("version %d is locked; set CreateNewVersion to change it", in.Version)
 	}
@@ -454,7 +455,7 @@ func (b *Backend) reviseLocked(ctx context.Context, r *evalFormRec, in *FormRequ
 		b.activate(ctx, r, r.latest())
 	}
 
-	return &formOut{Arn: r.Arn, ID: r.ID, Version: next}, nil
+	return &FormOut{Arn: r.Arn, ID: r.ID, Version: next}, nil
 }
 
 // activate makes v the single active version; the previous one returns to draft but stays locked.
@@ -575,8 +576,8 @@ func (b *Backend) ListEvaluationFormVersions(in *FormRequest) ([]FormVersionSumm
 	return paged(all, in.NextToken, in.MaxResults)
 }
 
-func (b *Backend) setFormStatus(ctx context.Context, op string, in *FormRequest, on bool) (*formOut, error) {
-	return writeInstance(b, op, in.InstanceID, func(inst string) (*formOut, error) {
+func (b *Backend) setFormStatus(ctx context.Context, op string, in *FormRequest, on bool) (*FormOut, error) {
+	return writeInstance(b, op, in.InstanceID, func(inst string) (*FormOut, error) {
 		r, err := b.formByID(inst, in.FormID)
 		if err != nil {
 			return nil, err
@@ -599,17 +600,17 @@ func (b *Backend) setFormStatus(ctx context.Context, op string, in *FormRequest,
 
 		v.LastModifiedTime, v.LastModifiedBy = awstime.NewEpochTime(b.now()), b.callerARN(ctx)
 
-		return &formOut{Arn: r.Arn, ID: r.ID, Version: v.Version}, nil
+		return &FormOut{Arn: r.Arn, ID: r.ID, Version: v.Version}, nil
 	})
 }
 
 // ActivateEvaluationForm makes a version the active one.
-func (b *Backend) ActivateEvaluationForm(ctx context.Context, in *FormRequest) (*formOut, error) {
+func (b *Backend) ActivateEvaluationForm(ctx context.Context, in *FormRequest) (*FormOut, error) {
 	return b.setFormStatus(ctx, "ActivateEvaluationForm", in, true)
 }
 
 // DeactivateEvaluationForm returns an active version to draft.
-func (b *Backend) DeactivateEvaluationForm(ctx context.Context, in *FormRequest) (*formOut, error) {
+func (b *Backend) DeactivateEvaluationForm(ctx context.Context, in *FormRequest) (*FormOut, error) {
 	return b.setFormStatus(ctx, "DeactivateEvaluationForm", in, false)
 }
 
@@ -648,8 +649,8 @@ func (b *Backend) DeleteEvaluationForm(in *FormRequest) (*empty, error) {
 }
 
 // StartEvaluationFormValidation validates a version and records the findings.
-func (b *Backend) StartEvaluationFormValidation(in *FormRequest) (*formOut, error) {
-	return writeInstance(b, "StartEvaluationFormValidation", in.InstanceID, func(inst string) (*formOut, error) {
+func (b *Backend) StartEvaluationFormValidation(in *FormRequest) (*FormOut, error) {
+	return writeInstance(b, "StartEvaluationFormValidation", in.InstanceID, func(inst string) (*FormOut, error) {
 		r, err := b.formByID(inst, in.FormID)
 		if err != nil {
 			return nil, err
@@ -663,7 +664,7 @@ func (b *Backend) StartEvaluationFormValidation(in *FormRequest) (*formOut, erro
 		now := awstime.NewEpochTime(b.now())
 		v.ValidationStarted, v.Findings = &now, inspectForm(v.Content.Items).findings
 
-		return &formOut{Arn: r.Arn, ID: r.ID, Version: v.Version}, nil
+		return &FormOut{Arn: r.Arn, ID: r.ID, Version: v.Version}, nil
 	})
 }
 
@@ -697,7 +698,7 @@ func (b *Backend) GetEvaluationFormValidation(in *FormRequest) (*FormValidationO
 }
 
 // SearchEvaluationForms searches forms by title and description.
-func (b *Backend) SearchEvaluationForms(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchEvaluationForms(in *SearchRequest) (*SearchResult, error) {
 	if err := rejectCriteria(
 		in.SearchCriteria,
 		"BooleanCondition",

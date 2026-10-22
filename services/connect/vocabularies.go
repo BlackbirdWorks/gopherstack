@@ -111,18 +111,21 @@ type ListDefaultVocabulariesInput struct {
 	MaxResults int32
 }
 
-type vocabularyOut struct {
+// VocabularyOut is the wire shape of a vocabulary.
+type VocabularyOut struct {
 	State         string `json:"State"`
 	VocabularyArn string `json:"VocabularyArn"`
 	VocabularyID  string `json:"VocabularyId"`
 }
 
-type searchVocabulariesOut struct {
+// SearchVocabulariesOut is the SearchVocabularies response body.
+type SearchVocabulariesOut struct {
 	NextToken             string              `json:"NextToken,omitempty"`
 	VocabularySummaryList []VocabularySummary `json:"VocabularySummaryList"`
 }
 
-type listDefaultVocabulariesOut struct {
+// ListDefaultVocabulariesOut is the ListDefaultVocabularies response body.
+type ListDefaultVocabulariesOut struct {
 	NextToken             string              `json:"NextToken,omitempty"`
 	DefaultVocabularyList []DefaultVocabulary `json:"DefaultVocabularyList"`
 }
@@ -174,7 +177,7 @@ func vocabSummary(v *Vocabulary) VocabularySummary {
 }
 
 // CreateVocabulary creates a custom vocabulary; invalid content fails asynchronously like Transcribe.
-func (b *Backend) CreateVocabulary(ctx context.Context, in *CreateVocabularyInput) (*vocabularyOut, error) {
+func (b *Backend) CreateVocabulary(ctx context.Context, in *CreateVocabularyInput) (*VocabularyOut, error) {
 	if err := firstError(
 		checkName("VocabularyName", in.VocabularyName, maxVocabularyName),
 		oneOf("LanguageCode", in.LanguageCode, vocabLanguages...),
@@ -187,7 +190,7 @@ func (b *Backend) CreateVocabulary(ctx context.Context, in *CreateVocabularyInpu
 		return nil, invalidParamErr("VocabularyName or Content is not valid")
 	}
 
-	return writeInstance(b, "CreateVocabulary", in.InstanceID, func(inst string) (*vocabularyOut, error) {
+	return writeInstance(b, "CreateVocabulary", in.InstanceID, func(inst string) (*VocabularyOut, error) {
 		for _, r := range b.vocabularies.in(inst) {
 			if r.Vocabulary.Name == in.VocabularyName {
 				return nil, inUseErr("Vocabulary %q already exists", in.VocabularyName)
@@ -202,7 +205,7 @@ func (b *Backend) CreateVocabulary(ctx context.Context, in *CreateVocabularyInpu
 		}
 		b.vocabularies.put(&vocabularyRec{InstanceID: inst, Vocabulary: v})
 
-		return &vocabularyOut{State: vocabCreating, VocabularyArn: v.Arn, VocabularyID: id}, nil
+		return &VocabularyOut{State: vocabCreating, VocabularyArn: v.Arn, VocabularyID: id}, nil
 	})
 }
 
@@ -221,7 +224,7 @@ func (b *Backend) DescribeVocabulary(inst, id string) (*Vocabulary, error) {
 }
 
 // SearchVocabularies pages through vocabularies filtered by language, state and name prefix.
-func (b *Backend) SearchVocabularies(in *SearchVocabulariesInput) (*searchVocabulariesOut, error) {
+func (b *Backend) SearchVocabularies(in *SearchVocabulariesInput) (*SearchVocabulariesOut, error) {
 	if in.LanguageCode != "" {
 		if err := oneOf("LanguageCode", in.LanguageCode, vocabLanguages...); err != nil {
 			return nil, err
@@ -247,12 +250,12 @@ func (b *Backend) SearchVocabularies(in *SearchVocabulariesInput) (*searchVocabu
 		return nil, err
 	}
 
-	return &searchVocabulariesOut{NextToken: next, VocabularySummaryList: orEmpty(items)}, nil
+	return &SearchVocabulariesOut{NextToken: next, VocabularySummaryList: orEmpty(items)}, nil
 }
 
 // DeleteVocabulary removes a vocabulary that is not the default of a language.
-func (b *Backend) DeleteVocabulary(inst, id string) (*vocabularyOut, error) {
-	return writeInstance(b, "DeleteVocabulary", inst, func(inst string) (*vocabularyOut, error) {
+func (b *Backend) DeleteVocabulary(inst, id string) (*VocabularyOut, error) {
+	return writeInstance(b, "DeleteVocabulary", inst, func(inst string) (*VocabularyOut, error) {
 		r, err := b.vocabularies.get(inst, id)
 		if err != nil {
 			return nil, err
@@ -266,7 +269,7 @@ func (b *Backend) DeleteVocabulary(inst, id string) (*vocabularyOut, error) {
 
 		b.vocabularies.table.Delete(inst + "/" + id)
 
-		return &vocabularyOut{State: vocabDeleting, VocabularyArn: r.Vocabulary.Arn, VocabularyID: id}, nil
+		return &VocabularyOut{State: vocabDeleting, VocabularyArn: r.Vocabulary.Arn, VocabularyID: id}, nil
 	})
 }
 
@@ -305,7 +308,7 @@ func (b *Backend) AssociateDefaultVocabulary(in *AssociateDefaultVocabularyInput
 }
 
 // ListDefaultVocabularies pages through per-language default vocabularies.
-func (b *Backend) ListDefaultVocabularies(in *ListDefaultVocabulariesInput) (*listDefaultVocabulariesOut, error) {
+func (b *Backend) ListDefaultVocabularies(in *ListDefaultVocabulariesInput) (*ListDefaultVocabulariesOut, error) {
 	if in.LanguageCode != "" {
 		if err := oneOf("LanguageCode", in.LanguageCode, vocabLanguages...); err != nil {
 			return nil, err
@@ -329,5 +332,5 @@ func (b *Backend) ListDefaultVocabularies(in *ListDefaultVocabulariesInput) (*li
 		return nil, err
 	}
 
-	return &listDefaultVocabulariesOut{NextToken: next, DefaultVocabularyList: orEmpty(items)}, nil
+	return &ListDefaultVocabulariesOut{NextToken: next, DefaultVocabularyList: orEmpty(items)}, nil
 }

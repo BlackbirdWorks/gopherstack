@@ -932,7 +932,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Directconnect](services/directconnect/README.md) | A | 64 | 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 3 structural gaps |
 | [Ecrpublic](services/ecrpublic/README.md) | A | 23 | 3 structural gaps |
-| [Globalaccelerator](services/globalaccelerator/README.md) | B | 56 | 7 gaps; 2 structural gaps |
+| [Globalaccelerator](services/globalaccelerator/README.md) | B | 56 | 4 gaps; 2 structural gaps |
 | [Grafana](services/grafana/README.md) | A | 25 | 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 5 structural gaps; 1 deferred |
 | [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 gaps; 3 structural gaps |

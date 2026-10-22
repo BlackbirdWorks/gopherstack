@@ -111,7 +111,8 @@ type EffectiveHoursInput struct {
 	instPath
 }
 
-type overrideOut struct {
+// OverrideOut is the wire shape of an hours of operation override.
+type OverrideOut struct {
 	ID string `json:"HoursOfOperationOverrideId"`
 }
 
@@ -230,7 +231,7 @@ func overrideNameTaken(b *Backend, inst, hoursID, name, except string) bool {
 // CreateHoursOfOperationOverride creates a dated exception to a schedule.
 func (b *Backend) CreateHoursOfOperationOverride(
 	ctx context.Context, in *CreateHoursOfOperationOverrideInput,
-) (*overrideOut, error) {
+) (*OverrideOut, error) {
 	o := overrideFromBody(&in.overrideBody)
 	o.HoursOfOperationID = in.HoursID
 
@@ -242,7 +243,7 @@ func (b *Backend) CreateHoursOfOperationOverride(
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateHoursOfOperationOverride", in.InstanceID, func(inst string) (*overrideOut, error) {
+	return writeInstance(b, "CreateHoursOfOperationOverride", in.InstanceID, func(inst string) (*OverrideOut, error) {
 		h, err := b.hours.get(inst, in.HoursID)
 		if err != nil {
 			return nil, err
@@ -257,7 +258,7 @@ func (b *Backend) CreateHoursOfOperationOverride(
 		b.hoursOverrides.put(&hoursOverrideRec{InstanceID: inst, Override: o})
 		h.Hours.Stamp = b.stamp(ctx)
 
-		return &overrideOut{ID: o.HoursOfOperationOverrideID}, nil
+		return &OverrideOut{ID: o.HoursOfOperationOverrideID}, nil
 	})
 }
 

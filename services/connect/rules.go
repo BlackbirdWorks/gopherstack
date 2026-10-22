@@ -107,7 +107,8 @@ type UpdateRuleInput struct {
 	Actions              []json.RawMessage
 }
 
-type ruleOut struct {
+// RuleOut is the wire shape of a rule.
+type RuleOut struct {
 	RuleArn string `json:"RuleArn"`
 	RuleID  string `json:"RuleId"`
 }
@@ -209,12 +210,12 @@ func ruleNameTaken(b *Backend, inst, name, except string) bool {
 }
 
 // CreateRule creates a rule.
-func (b *Backend) CreateRule(ctx context.Context, in *CreateRuleInput) (*ruleOut, error) {
+func (b *Backend) CreateRule(ctx context.Context, in *CreateRuleInput) (*RuleOut, error) {
 	if err := firstError(b.checkRuleFields(in.Name, in.Function, in.PublishStatus), checkTags(in.Tags)); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateRule", in.InstanceID, func(inst string) (*ruleOut, error) {
+	return writeInstance(b, "CreateRule", in.InstanceID, func(inst string) (*RuleOut, error) {
 		if err := firstError(
 			b.checkRuleSource(inst, in.TriggerEventSource),
 			b.checkRuleActions(inst, in.Actions),
@@ -236,7 +237,7 @@ func (b *Backend) CreateRule(ctx context.Context, in *CreateRuleInput) (*ruleOut
 		}}
 		b.rules.put(rec)
 
-		return &ruleOut{RuleArn: rec.Rule.RuleArn, RuleID: id}, nil
+		return &RuleOut{RuleArn: rec.Rule.RuleArn, RuleID: id}, nil
 	})
 }
 

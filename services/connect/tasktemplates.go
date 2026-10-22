@@ -131,7 +131,8 @@ type UpdateContactTaskTemplateInput struct {
 	InstanceID     string `json:"InstanceId"`
 }
 
-type taskTemplateOut struct {
+// TaskTemplateOut is the wire shape of a task template.
+type TaskTemplateOut struct {
 	Arn string `json:"Arn"`
 	ID  string `json:"Id"`
 }
@@ -228,8 +229,8 @@ func templateNameTaken(b *Backend, inst, name, except string) bool {
 }
 
 // CreateTaskTemplate creates a task template.
-func (b *Backend) CreateTaskTemplate(ctx context.Context, in *CreateTaskTemplateInput) (*taskTemplateOut, error) {
-	return writeInstance(b, "CreateTaskTemplate", in.InstanceID, func(inst string) (*taskTemplateOut, error) {
+func (b *Backend) CreateTaskTemplate(ctx context.Context, in *CreateTaskTemplateInput) (*TaskTemplateOut, error) {
+	return writeInstance(b, "CreateTaskTemplate", in.InstanceID, func(inst string) (*TaskTemplateOut, error) {
 		if err := b.checkTemplateBody(inst, &in.taskTemplateBody); err != nil {
 			return nil, err
 		}
@@ -252,7 +253,7 @@ func (b *Backend) CreateTaskTemplate(ctx context.Context, in *CreateTaskTemplate
 		}}
 		b.taskTemplates.put(rec)
 
-		return &taskTemplateOut{Arn: rec.Template.Arn, ID: id}, nil
+		return &TaskTemplateOut{Arn: rec.Template.Arn, ID: id}, nil
 	})
 }
 

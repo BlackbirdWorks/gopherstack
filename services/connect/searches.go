@@ -18,13 +18,14 @@ type SearchRequest struct {
 	MaxResults     int32
 }
 
-type searchResult = map[string]any
+// SearchResult is the response body of a Search* operation.
+type SearchResult = map[string]any
 
 // runSearch filters the records of one family and pages the matches.
 func runSearch[V, O any](
 	b *Backend, op, key string, in *SearchRequest, f family[V], spec searchSpec,
 	subj func(*V) searchSubject, out func(*V) O,
-) (*searchResult, error) {
+) (*SearchResult, error) {
 	crit, filt, err := parseSearch(in.SearchCriteria, in.SearchFilter, spec)
 	if err != nil {
 		return nil, err
@@ -50,7 +51,7 @@ func runSearch[V, O any](
 		return nil, err
 	}
 
-	body := searchResult{key: orEmpty(page), "ApproximateTotalCount": int64(len(all))}
+	body := SearchResult{key: orEmpty(page), "ApproximateTotalCount": int64(len(all))}
 	if next != "" {
 		body["NextToken"] = next
 	}
@@ -65,7 +66,7 @@ func nameDesc(name, desc string) map[string]string {
 func nameDescSpec() searchSpec { return searchSpec{fields: []string{fieldName, fieldDescription}} }
 
 // SearchQueues searches queues.
-func (b *Backend) SearchQueues(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchQueues(in *SearchRequest) (*SearchResult, error) {
 	spec := nameDescSpec()
 
 	return runSearch(b, "SearchQueues", "Queues", in, b.queues, spec,
@@ -89,7 +90,7 @@ func withTags[T any](v T, tags func(*T) *map[string]string) T {
 }
 
 // SearchHoursOfOperations searches schedules.
-func (b *Backend) SearchHoursOfOperations(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchHoursOfOperations(in *SearchRequest) (*SearchResult, error) {
 	spec := searchSpec{fields: []string{fieldName, fieldDescription, "timezone"}}
 
 	return runSearch(b, "SearchHoursOfOperations", "HoursOfOperations", in, b.hours, spec,
@@ -108,7 +109,7 @@ func (b *Backend) SearchHoursOfOperations(in *SearchRequest) (*searchResult, err
 }
 
 // SearchHoursOfOperationOverrides searches schedule overrides.
-func (b *Backend) SearchHoursOfOperationOverrides(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchHoursOfOperationOverrides(in *SearchRequest) (*SearchResult, error) {
 	return runSearch(b, "SearchHoursOfOperationOverrides", "HoursOfOperationOverrides", in, b.hoursOverrides,
 		nameDescSpec(),
 		func(o *hoursOverrideRec) searchSubject {
@@ -130,7 +131,7 @@ func (b *Backend) SearchHoursOfOperationOverrides(in *SearchRequest) (*searchRes
 }
 
 // SearchPrompts searches prompts.
-func (b *Backend) SearchPrompts(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchPrompts(in *SearchRequest) (*SearchResult, error) {
 	return runSearch(b, "SearchPrompts", "Prompts", in, b.prompts, nameDescSpec(),
 		func(p *promptRec) searchSubject {
 			return searchSubject{fields: nameDesc(p.Prompt.Name, p.Prompt.Description), tags: p.Prompt.Tags}
@@ -141,7 +142,7 @@ func (b *Backend) SearchPrompts(in *SearchRequest) (*searchResult, error) {
 }
 
 // SearchQuickConnects searches quick connects.
-func (b *Backend) SearchQuickConnects(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchQuickConnects(in *SearchRequest) (*SearchResult, error) {
 	return runSearch(b, "SearchQuickConnects", "QuickConnects", in, b.quickConnects, nameDescSpec(),
 		func(q *quickConnectRec) searchSubject {
 			return searchSubject{fields: nameDesc(q.Connect.Name, q.Connect.Description), tags: q.Connect.Tags}
@@ -152,7 +153,7 @@ func (b *Backend) SearchQuickConnects(in *SearchRequest) (*searchResult, error) 
 }
 
 // SearchAgentStatuses searches agent statuses.
-func (b *Backend) SearchAgentStatuses(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchAgentStatuses(in *SearchRequest) (*SearchResult, error) {
 	return runSearch(b, "SearchAgentStatuses", "AgentStatuses", in, b.agentStatuses, nameDescSpec(),
 		func(a *agentStatusRec) searchSubject {
 			return searchSubject{fields: nameDesc(a.Status.Name, a.Status.Description), tags: a.Status.Tags}
@@ -163,7 +164,7 @@ func (b *Backend) SearchAgentStatuses(in *SearchRequest) (*searchResult, error) 
 }
 
 // SearchRoutingProfiles searches routing profiles.
-func (b *Backend) SearchRoutingProfiles(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchRoutingProfiles(in *SearchRequest) (*SearchResult, error) {
 	return runSearch(b, "SearchRoutingProfiles", "RoutingProfiles", in, b.routingProfiles, nameDescSpec(),
 		func(p *routingProfileRec) searchSubject {
 			return searchSubject{fields: nameDesc(p.Profile.Name, p.Profile.Description), tags: p.Profile.Tags}
@@ -188,7 +189,7 @@ func (b *Backend) routingProfileView(p *routingProfileRec) RoutingProfile {
 }
 
 // SearchContactFlows searches contact flows.
-func (b *Backend) SearchContactFlows(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchContactFlows(in *SearchRequest) (*SearchResult, error) {
 	return runSearch(b, "SearchContactFlows", "ContactFlows", in, b.flows, nameDescSpec(),
 		func(f *flowRec) searchSubject {
 			return searchSubject{
@@ -202,7 +203,7 @@ func (b *Backend) SearchContactFlows(in *SearchRequest) (*searchResult, error) {
 }
 
 // SearchContactFlowModules searches contact flow modules.
-func (b *Backend) SearchContactFlowModules(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchContactFlowModules(in *SearchRequest) (*SearchResult, error) {
 	return runSearch(b, "SearchContactFlowModules", "ContactFlowModules", in, b.modules, nameDescSpec(),
 		func(m *moduleRec) searchSubject {
 			return searchSubject{
@@ -224,7 +225,7 @@ type securityProfileSummary struct {
 }
 
 // SearchSecurityProfiles searches security profiles.
-func (b *Backend) SearchSecurityProfiles(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchSecurityProfiles(in *SearchRequest) (*SearchResult, error) {
 	spec := searchSpec{fields: []string{fieldName, fieldDescription, "securityprofilename"}}
 
 	return runSearch(b, "SearchSecurityProfiles", "SecurityProfiles", in, b.securityProfiles, spec,
@@ -243,7 +244,7 @@ func (b *Backend) SearchSecurityProfiles(in *SearchRequest) (*searchResult, erro
 }
 
 // SearchUserHierarchyGroups searches hierarchy groups.
-func (b *Backend) SearchUserHierarchyGroups(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchUserHierarchyGroups(in *SearchRequest) (*SearchResult, error) {
 	spec := searchSpec{fields: []string{fieldName}}
 
 	return runSearch(b, "SearchUserHierarchyGroups", "UserHierarchyGroups", in, b.hierarchyGroups, spec,
@@ -276,7 +277,7 @@ func (b *Backend) groupChain(inst, id string) []string {
 }
 
 // SearchUsers searches users.
-func (b *Backend) SearchUsers(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchUsers(in *SearchRequest) (*SearchResult, error) {
 	spec := searchSpec{fields: []string{
 		"username", "firstname", "lastname", "email", "secondaryemail", "mobile",
 	}}
@@ -303,7 +304,7 @@ func (b *Backend) SearchUsers(in *SearchRequest) (*searchResult, error) {
 }
 
 // SearchPredefinedAttributes searches predefined attributes.
-func (b *Backend) SearchPredefinedAttributes(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchPredefinedAttributes(in *SearchRequest) (*SearchResult, error) {
 	spec := searchSpec{fields: []string{fieldName}}
 
 	return runSearch(b, "SearchPredefinedAttributes", "PredefinedAttributes", in, b.predefined, spec,
@@ -314,7 +315,7 @@ func (b *Backend) SearchPredefinedAttributes(in *SearchRequest) (*searchResult, 
 }
 
 // SearchViews searches views.
-func (b *Backend) SearchViews(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchViews(in *SearchRequest) (*SearchResult, error) {
 	return runSearch(b, "SearchViews", "Views", in, b.views, nameDescSpec(),
 		func(v *viewRec) searchSubject {
 			return searchSubject{
@@ -331,7 +332,7 @@ type ruleSearchSummary struct {
 }
 
 // SearchRules searches rules.
-func (b *Backend) SearchRules(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchRules(in *SearchRequest) (*SearchResult, error) {
 	spec := searchSpec{fields: []string{fieldName, "eventsourcename", "publishstatus"}}
 
 	return runSearch(b, "SearchRules", "Rules", in, b.rules, spec,
@@ -447,7 +448,7 @@ func parseTagSearch(raw json.RawMessage) (func(k, v string) bool, error) {
 }
 
 // SearchResourceTags returns the distinct tag key and value pairs of an instance's resources.
-func (b *Backend) SearchResourceTags(in *SearchRequest) (*searchResult, error) {
+func (b *Backend) SearchResourceTags(in *SearchRequest) (*SearchResult, error) {
 	match, err := parseTagSearch(in.SearchCriteria)
 	if err != nil {
 		return nil, err
@@ -485,7 +486,7 @@ func (b *Backend) SearchResourceTags(in *SearchRequest) (*searchResult, error) {
 		return nil, err
 	}
 
-	body := searchResult{"Tags": orEmpty(page)}
+	body := SearchResult{"Tags": orEmpty(page)}
 	if next != "" {
 		body["NextToken"] = next
 	}

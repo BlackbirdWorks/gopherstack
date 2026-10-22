@@ -268,7 +268,7 @@ func (h *Handler) viewOps(ops map[string]restroute.OpFunc) {
 func (h *Handler) searchOps(ops map[string]restroute.OpFunc) {
 	b := h.Backend
 
-	for op, fn := range map[string]func(*SearchRequest) (*searchResult, error){
+	for op, fn := range map[string]func(*SearchRequest) (*SearchResult, error){
 		"SearchAgentStatuses":             b.SearchAgentStatuses,
 		"SearchContactFlowModules":        b.SearchContactFlowModules,
 		"SearchContactFlows":              b.SearchContactFlows,
@@ -306,7 +306,7 @@ func (h *Handler) evaluationFormOps(ops map[string]restroute.OpFunc) {
 
 	ops["CreateEvaluationForm"] = replay(
 		h, "CreateEvaluationForm", func(in *FormRequest) string { return in.ClientToken },
-		func(ctx context.Context, in *FormRequest) (*formOut, error) { return b.CreateEvaluationForm(ctx, in) })
+		func(ctx context.Context, in *FormRequest) (*FormOut, error) { return b.CreateEvaluationForm(ctx, in) })
 	ops["UpdateEvaluationForm"] = typedCtx(b.UpdateEvaluationForm)
 	ops["ActivateEvaluationForm"] = typedCtx(b.ActivateEvaluationForm)
 	ops["DeactivateEvaluationForm"] = typedCtx(b.DeactivateEvaluationForm)
@@ -338,7 +338,7 @@ func (h *Handler) trafficOps(ops map[string]restroute.OpFunc) {
 
 	ops["CreateTrafficDistributionGroup"] = replay(
 		h, "CreateTrafficDistributionGroup", func(in *TDGRequest) string { return in.ClientToken },
-		func(ctx context.Context, in *TDGRequest) (*tdgOut, error) {
+		func(ctx context.Context, in *TDGRequest) (*TrafficDistributionGroupOut, error) {
 			return b.CreateTrafficDistributionGroup(ctx, in)
 		})
 	ops["DescribeTrafficDistributionGroup"] = func(_ context.Context, req *restroute.Request) (any, int, error) {

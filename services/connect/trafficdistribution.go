@@ -103,7 +103,8 @@ type TrafficDistributionOut struct {
 	SignInConfig    SignInConfig       `json:"SignInConfig"`
 }
 
-type tdgOut struct {
+// TrafficDistributionGroupOut is the wire shape of a traffic distribution group.
+type TrafficDistributionGroupOut struct {
 	Arn string `json:"Arn"`
 	ID  string `json:"Id"`
 }
@@ -180,35 +181,52 @@ func checkSignIn(c *SignInConfig) error {
 }
 
 // CreateTrafficDistributionGroup creates a traffic distribution group for an instance.
-func (b *Backend) CreateTrafficDistributionGroup(ctx context.Context, in *TDGRequest) (*tdgOut, error) {
+func (b *Backend) CreateTrafficDistributionGroup(
+	ctx context.Context,
+	in *TDGRequest,
+) (*TrafficDistributionGroupOut, error) {
 	if err := firstError(
 		checkName("Name", in.Name, maxNameLen), checkDescription(in.Description), checkTags(in.Tags),
 	); err != nil {
 		return nil, err
 	}
 
-	return writeInstance(b, "CreateTrafficDistributionGroup", in.InstanceID, func(inst string) (*tdgOut, error) {
-		for _, t := range b.trafficGroups.table.All() {
-			if strings.EqualFold(t.Name, in.Name) {
-				return nil, duplicateErr("TrafficDistributionGroup", in.Name)
+	return writeInstance(
+		b,
+		"CreateTrafficDistributionGroup",
+		in.InstanceID,
+		func(inst string) (*TrafficDistributionGroupOut, error) {
+			for _, t := range b.trafficGroups.table.All() {
+				if strings.EqualFold(t.Name, in.Name) {
+					return nil, duplicateErr("TrafficDistributionGroup", in.Name)
+				}
 			}
-		}
 
-		_, region := b.scope(ctx)
-		id := newID()
-		ir, _ := b.instanceLocked(inst)
-		rec := &tdgRec{
-			Telephony: DistributionConfig{Distributions: []Distribution{{Region: region, Percentage: percentTotal}}},
-			Agent:     DistributionConfig{Distributions: []Distribution{{Region: region, Percentage: percentTotal}}},
-			SignIn:    SignInConfig{Distributions: []SignInDistribution{{Region: region, Enabled: true}}},
-			Created:   awstime.NewEpochTime(b.now()), Tags: cloneTags(in.Tags), InstanceID: inst, ID: id,
-			Arn:  b.buildARN(ctx, "traffic-distribution-group/"+id),
-			Name: in.Name, Desc: in.Description, InstArn: ir.Instance.Arn,
-		}
-		b.trafficGroups.put(rec)
+			_, region := b.scope(ctx)
+			id := newID()
+			ir, _ := b.instanceLocked(inst)
+			rec := &tdgRec{
+				Telephony: DistributionConfig{
+					Distributions: []Distribution{{Region: region, Percentage: percentTotal}},
+				},
+				Agent: DistributionConfig{
+					Distributions: []Distribution{{Region: region, Percentage: percentTotal}},
+				},
+				SignIn:     SignInConfig{Distributions: []SignInDistribution{{Region: region, Enabled: true}}},
+				Created:    awstime.NewEpochTime(b.now()),
+				Tags:       cloneTags(in.Tags),
+				InstanceID: inst,
+				ID:         id,
+				Arn:        b.buildARN(ctx, "traffic-distribution-group/"+id),
+				Name:       in.Name,
+				Desc:       in.Description,
+				InstArn:    ir.Instance.Arn,
+			}
+			b.trafficGroups.put(rec)
 
-		return &tdgOut{Arn: rec.Arn, ID: id}, nil
-	})
+			return &TrafficDistributionGroupOut{Arn: rec.Arn, ID: id}, nil
+		},
+	)
 }
 
 func (b *Backend) tdgView(t *tdgRec) TrafficDistributionGroup {
