@@ -57,6 +57,8 @@ type Spec struct {
 	Image   string
 	Name    string
 	Network string
+	// WorkingDir overrides the image's working directory; empty keeps it.
+	WorkingDir string
 	// OCIRuntime selects the daemon-registered OCI runtime (e.g. runsc); empty uses the daemon default.
 	OCIRuntime string
 	Env        []string

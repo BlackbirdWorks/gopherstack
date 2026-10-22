@@ -33,6 +33,7 @@ var gcpPorts = []string{ //nolint:gochecknoglobals // static port table consumed
 	"8132",
 	"8133",
 	"8135",
+	"8136",
 	"9050",
 }
 

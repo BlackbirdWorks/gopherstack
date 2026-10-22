@@ -107,6 +107,7 @@ import (
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
+	azuresqlbackend "github.com/blackbirdworks/gopherstack/services/azuresql"
 	azurestoragevhostbackend "github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
@@ -174,6 +175,7 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
+	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
@@ -578,9 +580,11 @@ type CLI struct {
 	AzureAppConfig                azureappconfigbackend.Settings    `embed:"" prefix:"azure-appconfig-"`
 	AzureACR                      azureacrbackend.Settings          `embed:"" prefix:"azure-acr-"`
 	AzureRedis                    azureredisbackend.Settings        `embed:"" prefix:"azure-redis-"`
+	AzureSQL                      azuresqlbackend.Settings          `embed:"" prefix:"azure-sql-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
+	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
 	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
@@ -744,6 +748,9 @@ func (c *CLI) GetGCPRedisSettings() gcpredisbackend.Settings { return c.GCPRedis
 // GetGCPSpannerSettings returns Google Cloud Spanner settings (gcpspanner.ConfigProvider).
 func (c *CLI) GetGCPSpannerSettings() gcpspannerbackend.Settings { return c.GCPSpanner }
 
+// GetGCPCloudBuildSettings returns Google Cloud Build settings (gcpcloudbuild.ConfigProvider).
+func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return c.GCPCloudBuild }
+
 // GetGCPSQLSettings returns Google Cloud SQL settings (gcpsql.ConfigProvider).
 func (c *CLI) GetGCPSQLSettings() gcpsqlbackend.Settings { return c.GCPSQL }
 
@@ -788,6 +795,9 @@ func (c *CLI) GetAzureAppConfigSettings() azureappconfigbackend.Settings {
 
 // GetAzureRedisSettings returns Azure Cache for Redis settings (azureredis.ConfigProvider).
 func (c *CLI) GetAzureRedisSettings() azureredisbackend.Settings { return c.AzureRedis }
+
+// GetAzureSQLSettings returns Azure SQL Database settings (azuresql.ConfigProvider).
+func (c *CLI) GetAzureSQLSettings() azuresqlbackend.Settings { return c.AzureSQL }
 
 // GetAzureEventGridSettings returns Azure Event Grid settings
 // (azureeventgrid.ConfigProvider).
@@ -2390,6 +2400,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPFunctionsIngress", "gcpfunctions-ingress", cli.GCPFunctions.IngressPort},
 		{"GCPBigQuery", "gcpbigquery", cli.GCPBigQuery.Port},
 		{"GCPSQL", "gcpsql", cli.GCPSQL.Port},
+		{"GCPCloudBuild", "gcpcloudbuild", cli.GCPCloudBuild.Port},
 		{"GCPSpanner", "gcpspanner", cli.GCPSpanner.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
@@ -3564,8 +3575,8 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireGCPSQL(byName)
 	wireGCPLogging(byName)
 	wireGCPMonitoring(byName)
-	wireGCPRedis(byName)
-	wireAzureRedis(byName)
+	wireGCPStorageConsumers(byName)
+	wireAzureData(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4797,6 +4808,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&azureappconfigbackend.Provider{},
 		&azureacrbackend.Provider{},
 		&azureredisbackend.Provider{},
+		&azuresqlbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
 		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},
@@ -4815,6 +4827,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
 		&gcparbackend.Provider{},
+		&gcpcloudbuildbackend.Provider{},
 		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},

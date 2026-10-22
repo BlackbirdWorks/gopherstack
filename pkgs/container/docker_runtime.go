@@ -84,6 +84,10 @@ type realDockerClient struct {
 	c *client.Client
 }
 
+func (r *realDockerClient) ImagePush(ctx context.Context, ref string) (string, error) {
+	return r.c.ImagePush(ctx, ref)
+}
+
 func (r *realDockerClient) ImageTag(ctx context.Context, source, target string) error {
 	return r.c.ImageTag(ctx, source, target)
 }
@@ -272,6 +276,8 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	if len(spec.Entrypoint) > 0 {
 		cfg.Entrypoint = spec.Entrypoint
 	}
+
+	cfg.WorkingDir = spec.WorkingDir
 
 	hostCfg := &dockercontainer.HostConfig{
 		Binds:      spec.Mounts,

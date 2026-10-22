@@ -33,6 +33,7 @@ type armSnapshot struct {
 	AppConfig           *appConfigSnapshot         `json:"appConfig,omitempty"`
 	ContainerRegistry   *containerRegistrySnapshot `json:"containerRegistry,omitempty"`
 	Redis               *redisSnapshot             `json:"redis,omitempty"`
+	SQL                 *sqlSnapshot               `json:"sql,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -191,6 +192,10 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.Redis = p.snapshot()
 	}
 
+	if p, ok := h.sqlProvider(); ok {
+		st.SQL = p.snapshot()
+	}
+
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
 
@@ -227,6 +232,10 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.redisProvider(); ok {
 		p.restore(snap.Redis)
+	}
+
+	if p, ok := h.sqlProvider(); ok {
+		p.restore(snap.SQL)
 	}
 
 	return nil

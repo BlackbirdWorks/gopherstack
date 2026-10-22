@@ -29,6 +29,7 @@ const (
 	slugAzureACR        = "azurecontainerregistry"
 	slugCosmosDB        = "cosmosdb"
 	slugAzureRedis      = "azureredis"
+	slugAzureSQL        = "azuresql"
 	slugGCPStorage      = "gcpstorage"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
@@ -44,6 +45,7 @@ const (
 	slugGCPRedis        = "gcpredis"
 	slugGCPArtifactReg  = "gcpartifactregistry"
 	slugGCPSpanner      = "gcpspanner"
+	slugGCPCloudBuild   = "gcpcloudbuild"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
 )
@@ -137,12 +139,14 @@ func categoryGroups() []categoryGroup {
 				slugAzureACR,
 				slugCosmosDB,
 				slugAzureRedis,
+				slugAzureSQL,
 			},
 		},
 		{"GCP", []string{
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
 			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery, slugGCPSQL,
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
+			slugGCPCloudBuild,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -220,6 +224,7 @@ func displayNamesA() map[string]string {
 		slugAzureAppConfig:        "Azure App Configuration",
 		slugAzureACR:              "Azure Container Registry",
 		slugAzureRedis:            "Azure Cache for Redis",
+		slugAzureSQL:              "Azure SQL Database",
 		"backup":                  "Backup",
 		"batch":                   "Batch",
 		"bedrock":                 "Bedrock",
@@ -264,6 +269,7 @@ func displayNamesB() map[string]string {
 		slugGCPRedis:       "Memorystore for Redis",
 		slugGCPArtifactReg: "Artifact Registry",
 		slugGCPSpanner:     "Cloud Spanner",
+		slugGCPCloudBuild:  "Cloud Build",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",
 		"databrew":         "Glue DataBrew",

@@ -186,3 +186,30 @@ func RedisRestoreJSON(t *testing.T, p *RedisProvider, data []byte) {
 	require.NoError(t, json.Unmarshal(data, &s))
 	p.restore(&s)
 }
+
+// NewTestHandlerWithSQL builds a Handler with a Microsoft.Sql provider over dataPlane.
+func NewTestHandlerWithSQL(dataPlane SQL) (*Handler, *SQLProvider) {
+	backend := NewInMemoryBackend()
+	registry := NewRegistry(backend)
+	p := NewSQLProvider(dataPlane)
+	registry.Register(p)
+
+	return NewHandler(backend, registry, nil, DefaultSettings()), p
+}
+
+// SQLSnapshotJSON marshals the provider's ARM-side snapshot.
+func SQLSnapshotJSON(p *SQLProvider) []byte {
+	b, _ := json.Marshal(p.snapshot())
+
+	return b
+}
+
+// SQLRestoreJSON restores a provider from SQLSnapshotJSON output.
+func SQLRestoreJSON(t *testing.T, p *SQLProvider, data []byte) {
+	t.Helper()
+
+	var s sqlSnapshot
+
+	require.NoError(t, json.Unmarshal(data, &s))
+	p.restore(&s)
+}

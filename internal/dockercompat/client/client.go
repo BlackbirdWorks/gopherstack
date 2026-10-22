@@ -3,9 +3,11 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -69,6 +71,58 @@ func (c *Client) ImageTag(ctx context.Context, source, target string) error {
 
 	return err
 }
+
+// ImagePush pushes ref to its registry and returns the pushed manifest digest when the daemon reports one.
+func (c *Client) ImagePush(ctx context.Context, ref string) (string, error) {
+	resp, err := c.inner.ImagePush(ctx, ref, mobyclient.ImagePushOptions{RegistryAuth: pushAnonymousAuth})
+	if err != nil {
+		return "", err
+	}
+
+	defer func() { _ = resp.Close() }()
+
+	digest := ""
+
+	for msg, mErr := range resp.JSONMessages(ctx) {
+		if mErr != nil {
+			return "", mErr
+		}
+
+		if msg.Error != nil {
+			return "", fmt.Errorf("%w: %s", errPushRejected, msg.Error.Message)
+		}
+
+		digest = pushDigest(msg.Aux, msg.Status, digest)
+	}
+
+	return digest, nil
+}
+
+var errPushRejected = errors.New("image push failed")
+
+// pushAnonymousAuth is the base64 of "{}": the X-Registry-Auth header for a registry without credentials.
+const pushAnonymousAuth = "e30="
+
+func pushDigest(aux *json.RawMessage, statusLine, prev string) string {
+	if aux != nil {
+		var a struct {
+			Digest string `json:"Digest"`
+		}
+
+		if json.Unmarshal(*aux, &a) == nil && a.Digest != "" {
+			return a.Digest
+		}
+	}
+
+	if m := pushStatusDigest.FindStringSubmatch(statusLine); m != nil {
+		return m[1]
+	}
+
+	return prev
+}
+
+// pushStatusDigest matches the closing status line of a push: "v1: digest: sha256:... size: 527".
+var pushStatusDigest = regexp.MustCompile(`digest: (sha256:[0-9a-f]{64})`)
 
 // ImageList lists local images.
 func (c *Client) ImageList(

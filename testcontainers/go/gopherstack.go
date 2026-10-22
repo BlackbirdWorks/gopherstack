@@ -74,6 +74,7 @@ func gcpPorts() map[string]string {
 		"redis":            "8133",
 		"artifactregistry": "8134",
 		"spanner":          "8135",
+		"cloudbuild":       "8136",
 		"bigquery":         "9050",
 	}
 }
