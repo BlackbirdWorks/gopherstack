@@ -13,6 +13,7 @@ var (
 	ErrBucketAlreadyExists     = awserr.New("BucketAlreadyExists", awserr.ErrAlreadyExists)
 	ErrBucketAlreadyOwnedByYou = awserr.New("BucketAlreadyOwnedByYou", awserr.ErrAlreadyExists)
 	ErrNoSuchBucket            = awserr.New("NoSuchBucket", awserr.ErrNotFound)
+	ErrTooManyBuckets          = awserr.New("TooManyBuckets", awserr.ErrInvalidParameter)
 	ErrNoSuchKey               = awserr.New("NoSuchKey", awserr.ErrNotFound)
 	ErrInvalidBucketName       = errors.New("InvalidBucketName")
 	ErrBucketNotEmpty          = errors.New(
@@ -236,6 +237,11 @@ func coreErrorTableBucket() []s3ErrorEntry {
 			"BucketAlreadyOwnedByYou",
 			"Your previous request to create the named bucket succeeded and you already own it.",
 			http.StatusConflict,
+		}},
+		{ErrTooManyBuckets, s3ErrorInfo{
+			"TooManyBuckets",
+			"You have attempted to create more buckets than allowed.",
+			http.StatusBadRequest,
 		}},
 		{ErrBucketAlreadyExists, s3ErrorInfo{
 			"BucketAlreadyExists",

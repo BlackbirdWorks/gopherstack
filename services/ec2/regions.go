@@ -155,6 +155,7 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend, region string) {
 	b.compute = compute
 	b.dnsRegistrar = dns
 	b.sgEnforcer = enf
+	b.quotaGate = home.quotaGate
 	b.appConfig = cfg
 	b.regionBackend = resolve
 	b.allBackends = all

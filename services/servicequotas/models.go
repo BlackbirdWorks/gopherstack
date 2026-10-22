@@ -8,6 +8,7 @@ const (
 	statusCaseOpened  = "CASE_OPENED"
 	statusApproved    = "APPROVED"
 	statusNotApproved = "NOT_APPROVED"
+	statusDenied      = "DENIED"
 )
 
 // Utilization report statuses.

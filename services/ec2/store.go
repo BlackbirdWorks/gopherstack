@@ -11,6 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -336,6 +337,7 @@ type Subnet struct {
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
+	quotaGate    *quotalimit.Gate
 	metrics      cwmetric.Sink
 	lastUsage    map[string]InstanceUsage
 	usageMu      *lockmetrics.RWMutex
@@ -770,6 +772,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := newInMemoryBackendMaps()
 	b.AccountID = accountID
 	b.Region = region
+	b.quotaGate = &quotalimit.Gate{}
 	b.mu = lockmetrics.New("ec2")
 	b.usageMu = lockmetrics.New("ec2.usage")
 	b.lifecycleStop = make(chan struct{})

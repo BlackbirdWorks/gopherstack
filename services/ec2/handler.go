@@ -703,6 +703,8 @@ var errCodeLookup = []struct {
 	{ErrVolumeNotFound, "InvalidVolume.NotFound"},
 	{ErrVolumeInUse, "VolumeInUse"},
 	{ErrAddressNotFound, "InvalidAllocationID.NotFound"},
+	{ErrVpcLimitExceeded, "VpcLimitExceeded"},
+	{ErrAddressLimitExceeded, "AddressLimitExceeded"},
 	{ErrInternetGatewayNotFound, "InvalidInternetGatewayID.NotFound"},
 	{ErrDhcpOptionsNotFound, "InvalidDhcpOptionsID.NotFound"},
 	{ErrSnapshotNotFound, "InvalidSnapshotID.NotFound"},

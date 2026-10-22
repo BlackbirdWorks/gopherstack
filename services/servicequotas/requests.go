@@ -55,8 +55,15 @@ func (b *InMemoryBackend) openCaseLocked(r *Request, at time.Time) {
 }
 
 func (b *InMemoryBackend) approveLocked(r *Request, at time.Time) {
-	r.Status = statusApproved
 	r.LastUpdated = at
+
+	if _, def, ok := b.catalog.Quota(r.ServiceCode, r.QuotaCode); ok && def.Max > 0 && r.DesiredValue > def.Max {
+		r.Status = statusDenied
+
+		return
+	}
+
+	r.Status = statusApproved
 
 	s := scope{account: r.Account, region: r.Region}
 	key := appliedKey(s, r.ServiceCode, r.QuotaCode)
@@ -215,7 +222,7 @@ type RequestFilter struct {
 }
 
 var requestStatuses = []string{ //nolint:gochecknoglobals // immutable enum
-	statusPending, statusCaseOpened, statusApproved, "DENIED", "CASE_CLOSED", statusNotApproved, "INVALID_REQUEST",
+	statusPending, statusCaseOpened, statusApproved, statusDenied, "CASE_CLOSED", statusNotApproved, "INVALID_REQUEST",
 }
 
 // ListRequests returns the request history, oldest first.

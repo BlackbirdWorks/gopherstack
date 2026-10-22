@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const targetPrefix = "ServiceQuotasV20190624."
@@ -22,6 +24,8 @@ const targetPrefix = "ServiceQuotasV20190624."
 // Handler serves the Service Quotas awsjson1.1 API.
 type Handler struct {
 	Backend *InMemoryBackend
+	tickRun worker.SingleRun
+	tick    time.Duration
 }
 
 // NewHandler wraps a backend.
@@ -55,6 +59,24 @@ var operations = sync.OnceValue(func() map[string]opFunc { //nolint:gochecknoglo
 
 	return ops
 })
+
+// SetTickInterval overrides how often automatic quota management evaluates utilization.
+func (h *Handler) SetTickInterval(d time.Duration) { h.tick = d }
+
+// StartWorker starts the automatic quota management ticker. Implements service.BackgroundWorker.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	interval := h.tick
+	if interval <= 0 {
+		interval = defaultTick
+	}
+
+	h.tickRun.Start(ctx, tickRunner{b: h.Backend, interval: interval})
+
+	return nil
+}
+
+// Shutdown stops the ticker. Implements service.Shutdowner.
+func (h *Handler) Shutdown(ctx context.Context) { h.tickRun.Stop(ctx) }
 
 // Reset clears all state.
 func (h *Handler) Reset() { h.Backend.Reset() }

@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -207,6 +208,7 @@ const (
 // their value type (time.Time) carries no identity a store.Table key
 // function could extract -- see store_setup.go's doc comment.
 type InMemoryDB struct {
+	quotaGate            quotalimit.Gate
 	kmsKeys              KMSKeyStateChecker
 	s3                   S3Accessor
 	kinesisEmitter       KinesisEmitter

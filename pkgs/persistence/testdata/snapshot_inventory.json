@@ -30743,6 +30743,8 @@
       "AutoManagement.OptInType string `json:\"optInType\"`",
       "AutoManagement.Region string `json:\"region\"`",
       "AutoManagement.Status string `json:\"status\"`",
+      "AutoNotice.Key string `json:\"key\"`",
+      "AutoNotice.Level int `json:\"level\"`",
       "Report.Account string `json:\"account\"`",
       "Report.Created time.Time `json:\"created\"`",
       "Report.Generated time.Time `json:\"generated\"`",

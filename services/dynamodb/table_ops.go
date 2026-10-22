@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -191,10 +192,16 @@ func (db *InMemoryDB) CreateTable(
 	}
 
 	// Minimal critical section: check for duplicate, then insert into the shared maps.
-	if !db.insertNewTableLocked(region, tableName, newTable) {
+	limit, account := db.tableLimit(ctx, region)
+
+	if res := db.insertTable(region, tableName, newTable, limit, account); res != insertOK {
 		// Release resources we allocated before discovering the duplicate.
 		stopTableTimers(newTable)
 		newTable.mu.Close()
+
+		if res == insertOverLimit {
+			return nil, NewLimitExceededException("Subscriber limit exceeded: Number of tables exceeds the quota")
+		}
 
 		return nil, NewResourceInUseException("table already exists: " + tableName)
 	}
@@ -224,11 +231,29 @@ func activateTableLocked(newTable *Table) {
 // returns false so the caller can release newTable's own resources outside
 // this lock.
 func (db *InMemoryDB) insertNewTableLocked(region, tableName string, newTable *Table) bool {
+	return db.insertTable(region, tableName, newTable, quotalimit.Limit{}, "") == insertOK
+}
+
+type insertResult int
+
+const (
+	insertOK insertResult = iota
+	insertDuplicate
+	insertOverLimit
+)
+
+func (db *InMemoryDB) insertTable(
+	region, tableName string, newTable *Table, limit quotalimit.Limit, account string,
+) insertResult {
 	db.mu.Lock("CreateTable")
 	defer db.mu.Unlock()
 
 	if _, exists := db.tables.Get(tableKey(region, tableName)); exists {
-		return false
+		return insertDuplicate
+	}
+
+	if limit.Reached(db.tableCountLocked(account, region)) {
+		return insertOverLimit
 	}
 
 	db.tables.Put(newTable)
@@ -238,7 +263,7 @@ func (db *InMemoryDB) insertNewTableLocked(region, tableName string, newTable *T
 		db.streamARNIndex.Put(newTable)
 	}
 
-	return true
+	return insertOK
 }
 
 // newTableFromCreateInput allocates and initialises a Table from a CreateTable request.

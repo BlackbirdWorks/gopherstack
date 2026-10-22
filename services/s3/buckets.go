@@ -47,6 +47,8 @@ func (b *InMemoryBackend) CreateBucket(
 		region = string(input.CreateBucketConfiguration.LocationConstraint)
 	}
 
+	limit := b.bucketLimit(ctx, region)
+
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()
 
@@ -59,6 +61,10 @@ func (b *InMemoryBackend) CreateBucket(
 	// matching real S3 behaviour (you must wait for deletion to complete).
 	if b.buckets.Has(bucketName) {
 		return nil, ErrBucketAlreadyOwnedByYou
+	}
+
+	if limit.Reached(b.bucketCountLocked(awsmeta.Account(ctx))) {
+		return nil, ErrTooManyBuckets
 	}
 
 	var tags []types.Tag

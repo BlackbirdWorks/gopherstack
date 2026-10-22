@@ -18,11 +18,17 @@ import (
 func (b *InMemoryBackend) CreateRole(
 	roleName, path, assumeRolePolicyDocument, permissionsBoundary string,
 ) (*Role, error) {
+	limit := b.quotaLimit(quotaRoles)
+
 	b.mu.Lock("CreateRole")
 	defer b.mu.Unlock()
 
 	if _, exists := b.roles.Get(roleName); exists {
 		return nil, fmt.Errorf("%w: role %q already exists", ErrRoleAlreadyExists, roleName)
+	}
+
+	if limit.Reached(len(b.sortedRoleNames)) {
+		return nil, quotaExceeded("RolesPerAccount", limit)
 	}
 
 	if assumeRolePolicyDocument != "" && !json.Valid([]byte(assumeRolePolicyDocument)) {

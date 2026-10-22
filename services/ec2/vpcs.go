@@ -430,8 +430,14 @@ func (b *InMemoryBackend) CreateVpcWithID(pinnedID, cidr, tenancy string) (*VPC,
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
 	}
 
+	limit := b.quotaLimit(quotaServiceVPC, quotaVPCs)
+
 	b.mu.Lock("CreateVpc")
 	defer b.mu.Unlock()
+
+	if limit.Reached(len(b.vpcs.All())) {
+		return nil, quotaExceeded(ErrVpcLimitExceeded, "VPCs", limit)
+	}
 
 	// Real AWS allows overlapping CIDRs across separate VPCs; overlap is only
 	// rejected within a VPC (subnets, AssociateVpcCidrBlock) or for
