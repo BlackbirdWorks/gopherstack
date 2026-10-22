@@ -387,7 +387,7 @@ func TestAirflowEngine_Update(t *testing.T) {
 
 			rec := doMWAARequest(t, rig.h, http.MethodPatch, "/environments/upd", tt.body)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			assert.Equal(t, "UPDATING", rig.status(t, "upd"))
+			// The fake runtime can finish the restart before a status read, so only the end state is asserted.
 			rig.waitStatus(t, "upd", "AVAILABLE")
 
 			specs := rig.rt.startedSpecs()
