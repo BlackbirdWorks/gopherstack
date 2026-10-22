@@ -468,6 +468,7 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrLimitExceeded, ErrLimitExceeded.Error()},
 	{ErrCodeDeliveryFailure, ErrCodeDeliveryFailure.Error()},
 	{ErrInvalidSMSRoleTrust, ErrInvalidSMSRoleTrust.Error()},
+	{ErrInvalidEmailRoleAccessPolicy, ErrInvalidEmailRoleAccessPolicy.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 

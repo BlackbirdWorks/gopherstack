@@ -63,6 +63,7 @@ const (
 type InMemoryBackend struct {
 	lambdaInvoker                 LambdaTriggerInvoker
 	messageSender                 MessageSender
+	codeEncrypter                 CodeEncrypter
 	smsRoleAssumer                SMSRoleAssumer
 	domains                       *store.Table[UserPoolDomain]
 	resourceServers               *store.Table[ResourceServer]

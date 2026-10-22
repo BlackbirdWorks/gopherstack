@@ -122,6 +122,12 @@ func lambdaConfigARN(cfg map[string]any, triggerKey string) string {
 		return s
 	}
 
+	if nested, nestedOK := cfg[triggerKey].(map[string]any); nestedOK {
+		if s, sOK := nested["LambdaArn"].(string); sOK {
+			return s
+		}
+	}
+
 	if nested, nestedOK := cfg[triggerKey+"Config"].(map[string]any); nestedOK {
 		if s, sOK := nested["LambdaArn"].(string); sOK {
 			return s

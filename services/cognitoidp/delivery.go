@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -102,6 +103,7 @@ type MessageRequest struct {
 	Destination   string
 	CustomMessage string
 	CustomSubject string
+	Flow          string
 	Mediums       []string
 	Kind          MessageKind
 }
@@ -120,8 +122,9 @@ type deliveryTarget struct {
 
 // sendJob is a fully rendered message, safe to send without b.mu.
 type sendJob struct {
+	custom                                                        *customSender
 	medium, dest, subject, body, from, replyTo, sourceARN, poolID string
-	snsCallerArn, externalID                                      string
+	snsCallerArn, externalID, code                                string
 	lenient                                                       bool // quota-limited default sender: failures only log
 }
 
@@ -132,7 +135,7 @@ func (b *InMemoryBackend) DeliverMessage(ctx context.Context, req *MessageReques
 	sender, assumer := b.messageSender, b.smsRoleAssumer
 	b.mu.RUnlock()
 
-	if sender == nil {
+	if sender == nil && !hasCustomSender(jobs) {
 		return res, nil
 	}
 
@@ -176,7 +179,8 @@ func (b *InMemoryBackend) prepareDeliveryLocked(req *MessageRequest) (MessageRes
 			snsCallerArn: roleARN, externalID: externalID,
 			medium: t.medium, dest: t.dest, subject: subject, body: body,
 			from: from, replyTo: replyTo, sourceARN: sourceARN, poolID: pool.ID,
-			lenient: t.medium == mediumEmailName && !developerEmail(pool),
+			lenient: t.medium == mediumEmailName && !developerEmail(pool), code: req.Code,
+			custom: b.customSenderFor(pool, user, req, t.medium),
 		})
 	}
 
@@ -208,7 +212,19 @@ func assumeSMSRole(ctx context.Context, assumer SMSRoleAssumer, j *sendJob) erro
 	return nil
 }
 
+func hasCustomSender(jobs []sendJob) bool {
+	return slices.ContainsFunc(jobs, func(j sendJob) bool { return j.custom != nil })
+}
+
 func sendJobTo(ctx context.Context, sender MessageSender, assumer SMSRoleAssumer, j *sendJob) error {
+	if j.custom != nil {
+		return j.custom.send(ctx, j.code)
+	}
+
+	if sender == nil {
+		return nil
+	}
+
 	if err := assumeSMSRole(ctx, assumer, j); err != nil {
 		logger.Load(ctx).WarnContext(ctx, "cognitoidp: SMS role assumption failed", "pool", j.poolID, "error", err)
 
@@ -229,6 +245,10 @@ func sendJobTo(ctx context.Context, sender MessageSender, assumer SMSRoleAssumer
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "cognitoidp: message delivery failed",
 			"pool", j.poolID, "medium", j.medium, "error", err)
+
+		if errors.Is(err, ErrInvalidEmailRoleAccessPolicy) {
+			return err
+		}
 
 		if j.lenient {
 			return nil
@@ -491,7 +511,7 @@ func maskDestination(medium, dest string) string {
 func (b *InMemoryBackend) sendMFACodeLocked(pool *UserPool, clientID, username, challenge, code string) {
 	override := b.mfaCustomMessageLocked(pool, clientID, username)
 
-	if b.messageSender == nil {
+	if b.messageSender == nil && b.lambdaInvoker == nil {
 		return
 	}
 
@@ -500,7 +520,9 @@ func (b *InMemoryBackend) sendMFACodeLocked(pool *UserPool, clientID, username, 
 		kind = MessageMFAEmail
 	}
 
-	_, jobs := b.prepareDeliveryLocked(&MessageRequest{PoolID: pool.ID, Username: username, Code: code, Kind: kind})
+	_, jobs := b.prepareDeliveryLocked(&MessageRequest{
+		PoolID: pool.ID, Username: username, Code: code, Kind: kind, Flow: FlowAuthentication,
+	})
 	override.apply(jobs, code)
 
 	for i := range jobs {

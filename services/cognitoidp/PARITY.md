@@ -151,7 +151,7 @@ ops:
 gaps: []
 items_still_open:
   - "Federation (gopherstack-49qct.35 follow-up): SAML SHA-1 signatures and digests are rejected, SAML attribute multi-values keep the first value only, encrypted NameID (EncryptedID) in LogoutRequest is rejected, SLO is single-session per IdP (no cross-IdP fan-out), RSA-1.5 key transport is refused by design. Social providers (Google, Facebook, LoginWithAmazon, SignInWithApple) share the OIDC code path with built-in endpoint defaults; DescribeIdentityProvider does not echo those defaults, Google people-API attributes and Apple's first-login `user` form field are not read, and no live provider is exercised in tests."
-  - "Code delivery (gopherstack-49qct.19): needs MessageSender wired (internal/app/cognito_delivery.go -> SES/SNS). COGNITO_DEFAULT email send failures only log (the emulator's SES quota would otherwise break sign-up), DEVELOPER email and SMS failures return CodeDeliveryFailureException; EmailConfiguration.SourceArn identity ownership is not checked against the caller account."
+  - "Code delivery (gopherstack-49qct.19): CustomEmailSender/CustomSMSSender triggers receive the code as base64 of a plain KMS Encrypt ciphertext, not the AWS Encryption SDK message format, and carry no clientMetadata; COGNITO_DEFAULT email send failures only log (the emulator's SES quota would otherwise break sign-up); SES SourceArn region/account are not matched against the caller; no Cognito-side delivery rate limit (LimitExceededException) is modelled."
   - "WebAuthnMfaSettings (passkey MFA applies only when passkey is the first factor, which USER_AUTH here does not offer) and the SignUp/ConfirmSignUp Session auto sign-in are not modelled: the SDK docs for SignUp/ConfirmSignUp/InitiateAuth state the Session is usable with USER_AUTH but name no auth parameter or challenge for consuming it."
   - "domains: DomainDescriptionType.Version (app version) is not documented beyond its name, so it stays unpopulated rather than fabricated."
   - "MFA_SETUP/AssociateSoftwareToken/VerifySoftwareToken session single-use/rotation semantics across the three-call round trip are not stated anywhere in the SDK's doc prose, so this backend echoes the same session token unchanged through all three (only the final RespondToAuthChallenge deletes it) rather than inventing rotation behavior AWS never documents."
@@ -190,7 +190,10 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
   VerificationMessageTemplate and the CustomMessage trigger. CodeDeliveryDetails now carry the user's masked real
   destination. The `ConfirmationCode` dev field is unchanged. Tests: `saml_federation_test.go`,
   `federation_providers_test.go`, `federation_link_triggers_test.go`, `delivery_test.go`,
-  `internal/app/cognito_delivery_test.go`.
+  `internal/app/cognito_delivery_test.go`, `internal/app/cognito_delivery_sdk_test.go`.
+  A DEVELOPER pool's SourceArn SES identity must exist and be verified (else InvalidEmailRoleAccessPolicyException);
+  CustomEmailSender/CustomSMSSender (`delivery_custom_sender.go`) replace SES/SNS and invoke the Lambda with a
+  KMS-encrypted code (`KMSKeyID`).
 
 ### 2026-10-08: attribute-verification CustomMessage and device authentication
 

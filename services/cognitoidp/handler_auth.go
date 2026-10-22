@@ -159,7 +159,8 @@ func (h *Handler) handleAdminResetUserPassword(
 	}
 
 	if err = h.deliverCode(ctx, in.UserPoolID, &MessageRequest{
-		Username: in.Username, Code: code, Kind: MessageForgotPassword, CustomMessage: message, CustomSubject: subject,
+		Username: in.Username, Code: code, Kind: MessageForgotPassword, Flow: FlowForgotPassword,
+		CustomMessage: message, CustomSubject: subject,
 	}, nil); err != nil {
 		return nil, err
 	}
@@ -374,7 +375,7 @@ func (h *Handler) handleSignUpAccurate(
 		}
 
 		if err = h.deliverCode(ctx, user.UserPoolID, &MessageRequest{
-			Username: user.Username, Code: user.ConfirmCode, Kind: MessageVerification,
+			Username: user.Username, Code: user.ConfirmCode, Kind: MessageVerification, Flow: FlowSignUp,
 			CustomMessage: message, CustomSubject: subject,
 		}, out.CodeDeliveryDetails); err != nil {
 			return nil, err
@@ -567,7 +568,7 @@ func (h *Handler) handleForgotPasswordAccurate(
 	}
 
 	if err = h.deliverForClient(ctx, in.ClientID, &MessageRequest{
-		Username: in.Username, Code: code, Kind: MessageForgotPassword,
+		Username: in.Username, Code: code, Kind: MessageForgotPassword, Flow: FlowForgotPassword,
 		CustomMessage: message, CustomSubject: subject,
 	}, details); err != nil {
 		return nil, err
@@ -629,7 +630,7 @@ func (h *Handler) handleResendConfirmationCodeAccurate(
 	}
 
 	if err = h.deliverForClient(ctx, in.ClientID, &MessageRequest{
-		Username: in.Username, Code: code, Kind: MessageVerification,
+		Username: in.Username, Code: code, Kind: MessageVerification, Flow: FlowResendCode,
 		CustomMessage: message, CustomSubject: subject,
 	}, details); err != nil {
 		return nil, err
