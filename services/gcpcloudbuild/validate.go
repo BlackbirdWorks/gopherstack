@@ -197,5 +197,13 @@ func validateSource(s *cloudbuildpb.Source) error {
 		return errInvalid("Invalid build: source.storage_source needs a bucket and an object.")
 	}
 
+	if gs := s.GetGitSource(); gs != nil && gs.GetUrl() == "" {
+		return errInvalid("Invalid build: source.git_source needs a url.")
+	}
+
+	if rs := s.GetRepoSource(); rs != nil && rs.GetRepoName() == "" {
+		return errInvalid("Invalid build: source.repo_source needs a repo_name.")
+	}
+
 	return nil
 }

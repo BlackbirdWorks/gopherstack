@@ -227,7 +227,7 @@ func (r *runner) drain(done <-chan struct{}) {
 // stepSpec builds the container specification for step i.
 func (r *runner) stepSpec(i int, step *cloudbuildpb.BuildStep) (container.Spec, error) {
 	spec := container.Spec{
-		Image: step.GetName(), Cmd: step.GetArgs(), Env: r.stepEnv(step), WorkingDir: workingDir(step.GetDir()),
+		Image: step.GetName(), Cmd: step.GetArgs(), Env: r.stepEnv(step), WorkingDir: r.workingDir(step.GetDir()),
 	}
 
 	if step.GetEntrypoint() != "" {
@@ -253,16 +253,13 @@ func (r *runner) stepSpec(i int, step *cloudbuildpb.BuildStep) (container.Spec, 
 	return spec, nil
 }
 
-func workingDir(dir string) string {
-	if dir == "" {
-		return workspace
-	}
-
+// workingDir resolves a step's dir: absolute paths stand, relative ones sit under the source's dir.
+func (r *runner) workingDir(dir string) string {
 	if path.IsAbs(dir) {
 		return path.Clean(dir)
 	}
 
-	return path.Join(workspace, dir)
+	return path.Join(workspace, r.srcDir, dir)
 }
 
 func (r *runner) stepEnv(step *cloudbuildpb.BuildStep) []string {

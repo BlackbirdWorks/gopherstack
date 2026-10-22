@@ -74,6 +74,7 @@ func (b *InMemoryBackend) newBuild(in buildInput) (*longrunningpb.Operation, err
 	}
 
 	b.initBuild(pb, r, in.trigger)
+	holdForApproval(pb, in)
 
 	rec := &buildRec{pb: pb, ref: r, opName: buildOpName(r), orig: orig}
 
@@ -92,9 +93,27 @@ func (b *InMemoryBackend) newBuild(in buildInput) (*longrunningpb.Operation, err
 	b.mu.Unlock()
 
 	b.notify(snap)
-	b.launch(r)
+
+	if snap.GetStatus() == cloudbuildpb.Build_QUEUED {
+		b.launch(r)
+	}
 
 	return op, nil
+}
+
+// holdForApproval parks a trigger-started build in PENDING when its template asks for approval. v1.30's
+// BuildTrigger has no approval_config, so the request is read from build.approval.config.
+func holdForApproval(pb *cloudbuildpb.Build, in buildInput) {
+	cfg := in.build.GetApproval().GetConfig()
+	if in.trigger == "" || !cfg.GetApprovalRequired() {
+		return
+	}
+
+	pb.Status = cloudbuildpb.Build_PENDING
+	pb.Approval = &cloudbuildpb.BuildApproval{
+		State:  cloudbuildpb.BuildApproval_PENDING,
+		Config: &cloudbuildpb.ApprovalConfig{ApprovalRequired: true},
+	}
 }
 
 func mergeSubs(layers ...map[string]string) map[string]string {

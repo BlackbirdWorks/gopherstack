@@ -17,11 +17,17 @@ type substituter struct {
 	err   error
 	vals  map[string]string
 	loose bool
+	// dynamic enables bash-style ${VAR<op>} expansions (options.dynamic_substitutions).
+	dynamic bool
 }
 
 func (s *substituter) expand(in string) string {
 	if !strings.Contains(in, "$") {
 		return in
+	}
+
+	if s.dynamic {
+		return s.expandDynamic(in)
 	}
 
 	return substRef.ReplaceAllStringFunc(in, func(m string) string {
@@ -38,12 +44,7 @@ func (s *substituter) expand(in string) string {
 			return ""
 		}
 
-		if s.err == nil {
-			s.err = errInvalid(
-				"key in the template %q is not matched in the substitutions map.",
-				name,
-			)
-		}
+		s.fail(name, nil)
 
 		return m
 	})
@@ -73,6 +74,7 @@ func validateSubstitutionKeys(subs map[string]string) error {
 func substituteBuild(b *cloudbuildpb.Build, vals map[string]string) error {
 	s := &substituter{
 		vals: vals, loose: b.GetOptions().GetSubstitutionOption() == cloudbuildpb.BuildOptions_ALLOW_LOOSE,
+		dynamic: b.GetOptions().GetDynamicSubstitutions(),
 	}
 
 	for _, st := range b.GetSteps() {
@@ -109,11 +111,32 @@ func substituteBuild(b *cloudbuildpb.Build, vals map[string]string) error {
 		}
 	}
 
-	if ss := b.GetSource().GetStorageSource(); ss != nil {
+	substituteSource(b.GetSource(), s)
+
+	return s.err
+}
+
+func substituteSource(src *cloudbuildpb.Source, s *substituter) {
+	if ss := src.GetStorageSource(); ss != nil {
 		ss.Bucket, ss.Object = s.expand(ss.GetBucket()), s.expand(ss.GetObject())
 	}
 
-	return s.err
+	if gs := src.GetGitSource(); gs != nil {
+		gs.Url, gs.Revision, gs.Dir = s.expand(gs.GetUrl()), s.expand(gs.GetRevision()), s.expand(gs.GetDir())
+	}
+
+	if rs := src.GetRepoSource(); rs != nil {
+		rs.RepoName, rs.Dir = s.expand(rs.GetRepoName()), s.expand(rs.GetDir())
+
+		switch rev := rs.GetRevision().(type) {
+		case *cloudbuildpb.RepoSource_BranchName:
+			rev.BranchName = s.expand(rev.BranchName)
+		case *cloudbuildpb.RepoSource_TagName:
+			rev.TagName = s.expand(rev.TagName)
+		case *cloudbuildpb.RepoSource_CommitSha:
+			rev.CommitSha = s.expand(rev.CommitSha)
+		}
+	}
 }
 
 func substituteArtifacts(a *cloudbuildpb.Artifacts, s *substituter) {

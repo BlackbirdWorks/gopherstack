@@ -30,6 +30,7 @@ type env struct {
 	pub     *fakePublisher
 	logs    *fakeLogs
 	timers  *manualTimers
+	svc     gcpcloudbuild.Services
 	opts    []option.ClientOption
 }
 
@@ -49,7 +50,7 @@ func newEnv(t *testing.T, behaviors map[string]behavior) *env {
 	b.SetWorkDir(t.TempDir())
 	b.SetRuntime(e.rt)
 	b.SetClock(time.Now, e.timers.start)
-	b.SetServices(gcpcloudbuild.Services{
+	e.svc = gcpcloudbuild.Services{
 		Store:        e.store,
 		Pub:          e.pub,
 		Logs:         e.logs,
@@ -58,7 +59,8 @@ func newEnv(t *testing.T, behaviors map[string]behavior) *env {
 			"projects/p/secrets/s/versions/1":    "hunter2",
 			"projects/p/secrets/hook/versions/1": "whsec",
 		},
-	})
+	}
+	b.SetServices(e.svc)
 
 	h := gcpcloudbuild.NewHandler(b)
 	h.Port = 0
@@ -135,3 +137,9 @@ func (e *env) get(t *testing.T, name string) *cloudbuildpb.Build {
 }
 
 func timeout(d time.Duration) *durationpb.Duration { return durationpb.New(d) }
+
+// configure changes the backend services after newEnv.
+func (e *env) configure(mut func(*gcpcloudbuild.Services)) {
+	mut(&e.svc)
+	e.backend.SetServices(e.svc)
+}

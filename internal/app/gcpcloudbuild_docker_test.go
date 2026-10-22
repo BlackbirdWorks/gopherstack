@@ -33,6 +33,7 @@ import (
 const buildImage = "alpine:3.20"
 
 type buildEnv struct {
+	rt      container.Runtime
 	cb      *gcpcloudbuildbackend.Handler
 	gcs     *gcpstoragebackend.InMemoryBackend
 	logs    *gcploggingbackend.InMemoryBackend
@@ -89,6 +90,7 @@ func newBuildEnv(t *testing.T) *buildEnv {
 	}
 
 	e := &buildEnv{
+		rt:   rt,
 		gcs:  gcpstoragebackend.NewInMemoryBackend(),
 		logs: gcploggingbackend.NewInMemoryBackend(),
 		ps:   gcppubsubbackend.NewInMemoryBackend(),

@@ -49,6 +49,11 @@ type Services struct {
 	Logs    gcpserve.LogSink
 	// RegistryAddr is the Artifact Registry emulator's host:port as the docker daemon reaches it.
 	RegistryAddr string
+	// GitImage runs git for gitSource and repoSource; empty uses DefaultGitImage.
+	GitImage string
+	// RepoBase is the base URL (http, https or file) repoSource repo_names resolve under as
+	// <RepoBase>/<project>/<repo>; empty uses Cloud Source Repositories' address.
+	RepoBase string
 }
 
 // timerFunc starts a timer; the channel fires after d and stop cancels it.

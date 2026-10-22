@@ -8,20 +8,19 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 19 (19 ok) |
-| Feature families | 11 (9 ok, 2 partial) |
-| Known gaps | 12 |
+| Feature families | 13 (10 ok, 3 partial) |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
 ### Known gaps
 
-- Only storageSource is fetched: repoSource, gitSource, connectedRepository and storageSourceManifest builds fail with FETCH_SOURCE_FAILED, and triggers that read cloudbuild.yaml from a repository can be stored but not run.
+- connectedRepository and storageSourceManifest builds fail with FETCH_SOURCE_FAILED; repoSource branch_name is a literal ref, not a regex; repository_event_config and git_file_source triggers cannot resolve a repository, and triggers that read cloudbuild.yaml from a repository can be stored but not run.
 - Event triggers (trigger_template, github, pubsub_config, repository_event_config) are stored and never fire; builds start only from CreateBuild, RetryBuild, RunBuildTrigger and ReceiveTriggerWebhook.
-- KMS-encrypted secrets, dynamic (bash) substitutions and automap_substitutions are not supported.
-- Approvals cannot be exercised: no trigger setting creates a PENDING build.
-- Worker pools are stored only; options.pool, machine_type and disk_size_gb do not change where or how steps run, and queue_ttl never expires a build.
-- results.build_step_images, build_step_outputs, source_provenance hashes, warnings and the FETCHSOURCE/PUSH timing entries are not populated; only the BUILD timing, step timing and artifact timing are.
-- Artifacts other than artifacts.objects (Maven, Python, npm, Go modules) are not uploaded, and artifacts.images is not honoured beyond images.
+- KMS-encrypted secrets and automap_substitutions are not supported.
+- options.pool, machine_type and disk_size_gb do not change where or how steps run, and queue_ttl never expires a build.
+- results.build_step_images, build_step_outputs, source_provenance file hashes, warnings and the FETCHSOURCE/PUSH timing entries are not populated; only the BUILD timing, step timing and artifact timing are.
+- Artifacts other than artifacts.objects (Maven, Python, npm, Go modules) are not uploaded because the Artifact Registry emulator only stores Docker images, and artifacts.images is not honoured beyond images.
 - Images can only be pushed to the Artifact Registry emulator; gcr.io and other registries fail the build.
 - Step containers share the host Docker daemon (and its socket when present), so builds are not isolated from each other or from the host.
 - Locations are path parameters only: the v1 API has no ListLocations, and any location id is accepted.

@@ -124,11 +124,11 @@ func TestSourceFailures(t *testing.T) {
 			want: "failed to fetch source: read gs://b/nope.tgz",
 		},
 		{
-			name: "git source needs a git host",
-			source: &cloudbuildpb.Source{Source: &cloudbuildpb.Source_RepoSource{
-				RepoSource: &cloudbuildpb.RepoSource{RepoName: "r"},
+			name: "connected repository is not supported",
+			source: &cloudbuildpb.Source{Source: &cloudbuildpb.Source_ConnectedRepository{
+				ConnectedRepository: &cloudbuildpb.ConnectedRepository{Repository: "r"},
 			}},
-			want: "failed to fetch source: only storageSource is supported",
+			want: "failed to fetch source: only storageSource, gitSource and repoSource are supported",
 		},
 	}
 

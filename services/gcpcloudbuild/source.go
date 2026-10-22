@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 )
 
 const (
@@ -26,26 +28,31 @@ const (
 var (
 	errNoStore        = errors.New("cloud storage is not available to this build")
 	errUnsupportedSrc = errors.New(
-		"only storageSource is supported; repoSource, gitSource, storageSourceManifest " +
-			"and connectedRepository need a Git host",
+		"only storageSource, gitSource and repoSource are supported; storageSourceManifest " +
+			"and connectedRepository are not",
 	)
 	errArchiveFormat   = errors.New("source archive must be a .tar.gz or .zip file")
 	errArchiveTooLarge = errors.New("source archive is too large")
 	errUnsafePath      = errors.New("source archive entry escapes the workspace")
 )
 
-// fetchSource unpacks the build's storageSource into the workspace; a build without a source starts empty.
+// fetchSource places the build's source in the workspace; a build without a source starts empty.
 func (r *runner) fetchSource(ctx context.Context) error {
 	src := r.build.GetSource()
-	if src == nil || src.GetSource() == nil {
-		return nil
-	}
 
-	ss := src.GetStorageSource()
-	if ss == nil {
+	switch s := src.GetSource().(type) {
+	case nil:
+		return nil
+	case *cloudbuildpb.Source_StorageSource:
+		return r.fetchStorage(ctx, s.StorageSource)
+	case *cloudbuildpb.Source_GitSource, *cloudbuildpb.Source_RepoSource:
+		return r.fetchGit(ctx, src)
+	default:
 		return errUnsupportedSrc
 	}
+}
 
+func (r *runner) fetchStorage(ctx context.Context, ss *cloudbuildpb.StorageSource) error {
 	if r.svc.Store == nil {
 		return errNoStore
 	}

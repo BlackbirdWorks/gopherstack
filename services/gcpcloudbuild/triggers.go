@@ -367,6 +367,10 @@ func (b *InMemoryBackend) runTrigger(
 		t.GetSubstitutions(),
 		src.GetSubstitutions(),
 	)
+	if build.GetSource() == nil {
+		build.Source = triggerSource(t, src)
+	}
+
 	build.Tags = append(build.GetTags(), t.GetTags()...)
 	build.Tags = append(build.Tags, "trigger-"+t.GetId())
 
@@ -439,7 +443,27 @@ func (b *InMemoryBackend) ReceiveTriggerWebhook(
 		return err
 	}
 
+	if err = bindWebhook(t, in.GetBody().GetData()); err != nil {
+		return err
+	}
+
 	_, err = b.runTrigger(r, t, nil)
+
+	return err
+}
+
+// bindWebhook resolves payload bindings in the trigger's substitutions and its build template's.
+func bindWebhook(t *cloudbuildpb.BuildTrigger, body []byte) error {
+	subs, err := bindPayload(t.GetSubstitutions(), body)
+	if err != nil {
+		return err
+	}
+
+	t.Substitutions = subs
+
+	if tpl, ok := t.GetBuildTemplate().(*cloudbuildpb.BuildTrigger_Build); ok && tpl.Build != nil {
+		tpl.Build.Substitutions, err = bindPayload(tpl.Build.GetSubstitutions(), body)
+	}
 
 	return err
 }
@@ -459,4 +483,42 @@ func checkWebhookSecret(res SecretResolver, version, got string) error {
 	}
 
 	return nil
+}
+
+// triggerSource is the repository a trigger run builds: the request's repo and revision over the trigger's own
+// trigger_template or GitHub repository.
+func triggerSource(t *cloudbuildpb.BuildTrigger, src *cloudbuildpb.RepoSource) *cloudbuildpb.Source {
+	if gh := t.GetGithub(); gh != nil && gh.GetOwner() != "" && gh.GetName() != "" {
+		return &cloudbuildpb.Source{Source: &cloudbuildpb.Source_GitSource{GitSource: &cloudbuildpb.GitSource{
+			Url: "https://github.com/" + gh.GetOwner() + "/" + gh.GetName() + ".git", Revision: repoRevision(src),
+			Dir: src.GetDir(),
+		}}}
+	}
+
+	repo, _ := proto.Clone(t.GetTriggerTemplate()).(*cloudbuildpb.RepoSource)
+	if repo == nil {
+		if src.GetRepoName() == "" {
+			return nil
+		}
+
+		repo = &cloudbuildpb.RepoSource{}
+	}
+
+	if src.GetRepoName() != "" {
+		repo.RepoName, repo.ProjectId = src.GetRepoName(), src.GetProjectId()
+	}
+
+	if src.GetRevision() != nil {
+		repo.Revision = src.GetRevision()
+	}
+
+	if src.GetDir() != "" {
+		repo.Dir = src.GetDir()
+	}
+
+	if repo.GetRepoName() == "" {
+		return nil
+	}
+
+	return &cloudbuildpb.Source{Source: &cloudbuildpb.Source_RepoSource{RepoSource: repo}}
 }

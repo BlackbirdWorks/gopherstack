@@ -29,6 +29,7 @@ type runner struct {
 	fail     atomic.Pointer[stepFailure]
 	svc      Services
 	secrets  map[string]string
+	srcDir   string
 	work     string
 	ref      ref
 }
@@ -162,6 +163,7 @@ func (r *runner) timeoutDetail() string {
 
 // prepare fetches the source and resolves secrets.
 func (r *runner) prepare(ctx context.Context) *stepFailure {
+	r.logPool()
 	r.log.system("FETCHSOURCE")
 
 	if err := r.fetchSource(ctx); err != nil {
@@ -224,4 +226,28 @@ func (r *runner) deadline(
 		stop()
 		cancel()
 	}
+}
+
+// logPool records the worker pool and machine settings the build was scheduled with.
+func (r *runner) logPool() {
+	opts := r.build.GetOptions()
+	if name := opts.GetPool().GetName(); name != "" {
+		cfg := r.b.poolConfig(name).GetWorkerConfig()
+		r.log.system(fmt.Sprintf("Scheduled on worker pool %s (machine type %q, disk %d GB)",
+			name, cfg.GetMachineType(), cfg.GetDiskSizeGb()))
+
+		return
+	}
+
+	if opts.GetMachineType() != cloudbuildpb.BuildOptions_UNSPECIFIED || opts.GetDiskSizeGb() > 0 {
+		r.log.system(fmt.Sprintf("Scheduled on machine type %s, disk %d GB",
+			opts.GetMachineType(), opts.GetDiskSizeGb()))
+	}
+}
+
+func (b *InMemoryBackend) poolConfig(name string) *cloudbuildpb.PrivatePoolV1Config {
+	b.mu.RLock("poolConfig")
+	defer b.mu.RUnlock()
+
+	return b.pools[name].GetPrivatePoolV1Config()
 }
