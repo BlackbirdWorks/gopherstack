@@ -166,10 +166,36 @@ func (p *parser) binModifiers(bin *Binary, prec int) error {
 
 	bin.MatchLabels = names
 
-	if g := p.peek(); g.kind == tokIdent &&
-		(strings.EqualFold(g.text, "group_left") || strings.EqualFold(g.text, "group_right")) {
-		return syntaxErr(g.pos, "%s matching is not supported", g.text)
+	return p.groupModifier(bin)
+}
+
+func (p *parser) groupModifier(bin *Binary) error {
+	g := p.peek()
+	if g.kind != tokIdent {
+		return nil
 	}
+
+	switch {
+	case strings.EqualFold(g.text, "group_left"):
+		bin.Card = CardManyToOne
+	case strings.EqualFold(g.text, "group_right"):
+		bin.Card = CardOneToMany
+	default:
+		return nil
+	}
+
+	p.advance()
+
+	if !p.isOp("(") {
+		return nil
+	}
+
+	names, err := p.labelList()
+	if err != nil {
+		return err
+	}
+
+	bin.Include = names
 
 	return nil
 }
@@ -230,6 +256,8 @@ func (p *parser) postfix() (Expr, error) {
 			e, err = p.rangeSuffix(e)
 		case p.peek().kind == tokIdent && strings.EqualFold(p.peek().text, "offset"):
 			e, err = p.offsetSuffix(e)
+		case p.isOp("@"):
+			e, err = p.atSuffix(e)
 		default:
 			return e, nil
 		}
@@ -241,11 +269,6 @@ func (p *parser) postfix() (Expr, error) {
 }
 
 func (p *parser) rangeSuffix(e Expr) (Expr, error) {
-	vs, ok := e.(*VectorSelector)
-	if !ok {
-		return nil, syntaxErr(p.peek().pos, "range selector requires a vector selector (subqueries are not supported)")
-	}
-
 	p.advance()
 
 	d := p.advance()
@@ -253,13 +276,46 @@ func (p *parser) rangeSuffix(e Expr) (Expr, error) {
 		return nil, syntaxErr(d.pos, "expected duration in range selector")
 	}
 
+	if p.isOp(":") {
+		return p.subquerySuffix(e, d.dur)
+	}
+
+	vs, ok := e.(*VectorSelector)
+	if !ok {
+		return nil, syntaxErr(d.pos, "ranges only allowed for vector selectors")
+	}
+
 	if !p.isOp("]") {
-		return nil, syntaxErr(p.peek().pos, "expected \"]\" (subqueries are not supported)")
+		return nil, syntaxErr(p.peek().pos, "expected \"]\"")
 	}
 
 	p.advance()
 
 	return &MatrixSelector{VS: vs, Range: d.dur}, nil
+}
+
+func (p *parser) subquerySuffix(e Expr, rng time.Duration) (Expr, error) {
+	p.advance()
+
+	var step time.Duration
+
+	if t := p.peek(); t.kind == tokDuration {
+		step = t.dur
+
+		p.advance()
+	}
+
+	if !p.isOp("]") {
+		return nil, syntaxErr(p.peek().pos, "expected \"]\" in subquery")
+	}
+
+	p.advance()
+
+	if _, isMatrix := e.(*MatrixSelector); isMatrix {
+		return nil, syntaxErr(p.peek().pos, "subquery is only allowed on instant vector, got range vector")
+	}
+
+	return &Subquery{Expr: e, Range: rng, Step: step}, nil
 }
 
 func (p *parser) offsetSuffix(e Expr) (Expr, error) {
@@ -287,8 +343,46 @@ func (p *parser) offsetSuffix(e Expr) (Expr, error) {
 		x.Offset = off
 	case *MatrixSelector:
 		x.VS.Offset = off
+	case *Subquery:
+		x.Offset = off
 	default:
-		return nil, syntaxErr(d.pos, "offset is only valid on a selector")
+		return nil, syntaxErr(d.pos, "offset is only valid on a selector or subquery")
+	}
+
+	return e, nil
+}
+
+func (p *parser) atSuffix(e Expr) (Expr, error) {
+	p.advance()
+
+	neg := false
+	if p.isOp("-") {
+		p.advance()
+
+		neg = true
+	}
+
+	n := p.advance()
+	if n.kind != tokNumber {
+		return nil, syntaxErr(n.pos, "expected timestamp after @")
+	}
+
+	secs := n.num
+	if neg {
+		secs = -secs
+	}
+
+	ms := int64(secs * msPerSecond)
+
+	switch x := e.(type) {
+	case *VectorSelector:
+		x.At = &ms
+	case *MatrixSelector:
+		x.VS.At = &ms
+	case *Subquery:
+		x.At = &ms
+	default:
+		return nil, syntaxErr(n.pos, "@ modifier is only valid on a selector or subquery")
 	}
 
 	return e, nil
@@ -345,13 +439,14 @@ func (p *parser) opPrimary() (Expr, error) {
 
 var aggregators = map[string]bool{ //nolint:gochecknoglobals // immutable lookup
 	"sum": true, "avg": true, "min": true, "max": true, "count": true, "group": true,
-	"stddev": true, "stdvar": true, opTopK: true, opBottomK: true, "quantile": true,
+	"stddev": true, "stdvar": true, opTopK: true, opBottomK: true, "quantile": true, opCountValues: true,
 }
 
 var paramAggregators = map[string]bool{ //nolint:gochecknoglobals // immutable lookup
-	opTopK:     true,
-	opBottomK:  true,
-	"quantile": true,
+	opBottomK:     true,
+	opTopK:        true,
+	"quantile":    true,
+	opCountValues: true,
 }
 
 func (p *parser) identExpr() (Expr, error) {
@@ -566,6 +661,10 @@ func (p *parser) matchers(vs *VectorSelector) error {
 
 // selectorRange returns the lookback bounds a selector needs around t (Unix ms).
 func selectorRange(vs *VectorSelector, t int64, window time.Duration) (int64, int64) {
+	if vs.At != nil {
+		t = *vs.At
+	}
+
 	end := t - vs.Offset.Milliseconds()
 
 	return end - window.Milliseconds(), end

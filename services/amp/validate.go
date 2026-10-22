@@ -157,6 +157,10 @@ func validateRules(data []byte) error {
 		}
 	}
 
+	if _, perr := parseRuleFile(data); perr != nil {
+		return cannotParse("rule groups namespace is invalid: %v", perr)
+	}
+
 	return nil
 }
 
@@ -180,8 +184,12 @@ func validateRuleGroup(i int, gm map[string]any) error {
 		}
 
 		expr, _ := rm["expr"].(string)
-		if strings.TrimSpace(expr) == "" || !balanced(expr) {
+		if strings.TrimSpace(expr) == "" {
 			return cannotParse("groups[%d].rules[%d] has an invalid expr", i, j)
+		}
+
+		if _, perr := promql.Parse(expr); perr != nil {
+			return cannotParse("groups[%d].rules[%d] has an invalid expr: %v", i, j, perr)
 		}
 
 		if f, isStr := rm["for"].(string); isStr && f != "" {
@@ -232,6 +240,10 @@ func validateAlertManager(data []byte) error {
 
 	if recv, _ := route["receiver"].(string); !names[recv] {
 		return cannotParse("route receiver %q is not defined in receivers", recv)
+	}
+
+	if _, perr := parseAlertManagerConfig([]byte(raw)); perr != nil {
+		return cannotParse("alertmanager_config is invalid: %v", perr)
 	}
 
 	return nil

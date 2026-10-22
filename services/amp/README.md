@@ -8,21 +8,20 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
-| Feature families | 8 (8 ok) |
-| Known gaps | 11 |
+| Feature families | 9 (9 ok) |
+| Known gaps | 10 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- PromQL: subqueries, the @ modifier, histogram_quantile and other histogram functions, label_replace, label_join, group_left and group_right matching, count_values, predict_linear, deriv, holt_winters and the date and time functions are not implemented (a parse error is returned)
-- RuleGroupsNamespace: rules are validated and stored but never evaluated, so recording rules produce no series and alerts never fire; rule expressions get only a balanced-bracket check, not a full parse
-- AlertManagerDefinition: validated and stored; no alert manager runs and no notification is sent
+- PromQL: holt_winters/double_exponential_smoothing, native-histogram functions (histogram_count, histogram_sum, histogram_fraction), start() and end() in the @ modifier, limitk and limit_ratio, absent_over_time and sort_by_label are not implemented (a parse error is returned)
+- AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); silences, the v1 API and template_files are not served; sigv4 settings are accepted and ignored; the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
 - Scraper: stored with a real ACTIVE lifecycle but nothing scrapes the EKS or VPC source
-- WorkspaceConfiguration: retentionPeriodInDays, outOfOrderTimeWindowInSeconds, ruleQueryOffsetInSeconds and limitsPerLabelSet are stored and returned but not enforced on ingest or query
+- WorkspaceConfiguration: retentionPeriodInDays, outOfOrderTimeWindowInSeconds and limitsPerLabelSet are stored and returned but not enforced on ingest or query
 - RemoteWrite: out-of-order samples are always accepted, native histograms and exemplars in the request are ignored, per-workspace ingestion limits and throttling do not exist
-- Query: query_exemplars, metadata, targets, rules, alerts and status endpoints are not served; the query timeout parameter is ignored
+- Query: query_exemplars always returns no exemplars (none are ingested); targets and status config, flags, runtimeinfo and tsdb endpoints are not served
 - LoggingConfiguration: the CloudWatch Logs log group ARN is checked for shape only, never looked up, and no log is delivered
 - Authorization: SigV4 signatures and resource policies are not evaluated on the data plane
 - CreateWorkspace: the 25 workspaces per Region quota and KMS key existence are not enforced

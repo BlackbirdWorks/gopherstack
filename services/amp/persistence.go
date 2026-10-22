@@ -50,6 +50,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		logger.Load(ctx).WarnContext(ctx, "amp: discarding incompatible snapshot",
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 		b.registry.ResetAll()
+		b.resetRuntimeLocked()
 
 		return nil
 	}
@@ -58,6 +59,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("amp: restore snapshot tables: %w", err)
 	}
 
+	b.resetRuntimeLocked()
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

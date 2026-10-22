@@ -14,6 +14,7 @@ type StringLit struct{ V string }
 // VectorSelector selects the latest sample per series.
 type VectorSelector struct {
 	Name     string
+	At       *int64
 	Matchers []*Matcher
 	Offset   time.Duration
 }
@@ -44,8 +45,29 @@ type Binary struct {
 	L, R        Expr
 	Op          string
 	MatchLabels []string
+	Include     []string
+	Card        Cardinality
 	On          bool
 	ReturnBool  bool
+}
+
+// Cardinality is the vector matching cardinality of a binary operation.
+type Cardinality int
+
+// Matching cardinalities; group_left is many-to-one, group_right one-to-many.
+const (
+	CardOneToOne Cardinality = iota
+	CardManyToOne
+	CardOneToMany
+)
+
+// Subquery evaluates Expr over Range at Step resolution; a zero Step uses DefaultSubqueryStep.
+type Subquery struct {
+	Expr   Expr
+	At     *int64
+	Range  time.Duration
+	Step   time.Duration
+	Offset time.Duration
 }
 
 // Unary negates its operand.
@@ -59,3 +81,4 @@ func (*Call) isExpr()           {}
 func (*Aggregation) isExpr()    {}
 func (*Binary) isExpr()         {}
 func (*Unary) isExpr()          {}
+func (*Subquery) isExpr()       {}

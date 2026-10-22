@@ -27,8 +27,16 @@ const (
 	opSeries      = "Series"
 	opLabels      = "Labels"
 	opLabelValues = "LabelValues"
+	opRules       = "Rules"
+	opAlerts      = "Alerts"
+	opMetadata    = "Metadata"
+	opBuildInfo   = "BuildInfo"
+	opExemplars   = "QueryExemplars"
+	opAMAlerts    = "AlertManagerAlerts"
+	opAMPostAlert = "AlertManagerPostAlerts"
 
 	promBase = "/workspaces/{workspaceId}/api/v1/"
+	amBase   = "/workspaces/{workspaceId}/alertmanager/api/v2/"
 )
 
 func dataRoutes() []restroute.Route {
@@ -43,6 +51,14 @@ func dataRoutes() []restroute.Route {
 		{Method: http.MethodGet, Path: promBase + "labels", Op: opLabels},
 		{Method: http.MethodPost, Path: promBase + "labels", Op: opLabels},
 		{Method: http.MethodGet, Path: promBase + "label/{name}/values", Op: opLabelValues},
+		{Method: http.MethodGet, Path: promBase + "rules", Op: opRules},
+		{Method: http.MethodGet, Path: promBase + "alerts", Op: opAlerts},
+		{Method: http.MethodGet, Path: promBase + "metadata", Op: opMetadata},
+		{Method: http.MethodGet, Path: promBase + "status/buildinfo", Op: opBuildInfo},
+		{Method: http.MethodGet, Path: promBase + "query_exemplars", Op: opExemplars},
+		{Method: http.MethodPost, Path: promBase + "query_exemplars", Op: opExemplars},
+		{Method: http.MethodGet, Path: amBase + "alerts", Op: opAMAlerts},
+		{Method: http.MethodPost, Path: amBase + "alerts", Op: opAMPostAlert},
 	}
 }
 
@@ -193,12 +209,18 @@ func (h *Handler) serveData(c *echo.Context, op string, params map[string]string
 		return h.remoteWrite(c, wsID)
 	}
 
+	if op == opAMPostAlert {
+		return h.postAlerts(c, wsID)
+	}
+
 	vals, err := promParams(c)
 	if err != nil {
 		return promError(c, http.StatusBadRequest, "bad_data", "cannot read request parameters")
 	}
 
 	switch op {
+	case opRules, opAlerts, opMetadata, opBuildInfo, opExemplars, opAMAlerts:
+		return h.serveStatus(c, op, wsID, vals)
 	case opQuery:
 		return h.instantQuery(c, wsID, vals)
 	case opQueryRange:
@@ -233,6 +255,10 @@ func (h *Handler) remoteWrite(c *echo.Context, wsID string) error {
 		return h.server.WriteErr(c, ierr)
 	}
 
+	if ierr := h.Backend.IngestMetadata(c.Request().Context(), wsID, decodeWriteMetadata(body)); ierr != nil {
+		return h.server.WriteErr(c, ierr)
+	}
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -254,8 +280,14 @@ func (h *Handler) instantQuery(c *echo.Context, wsID string, vals url.Values) er
 		qerr error
 	)
 
+	qctx, cancel, terr := queryContext(ctx, vals)
+	if terr != nil {
+		return promError(c, http.StatusBadRequest, "bad_data", "invalid parameter \"timeout\": "+terr.Error())
+	}
+	defer cancel()
+
 	if ierr := h.Backend.withStorage(ctx, wsID, func(st promql.Storage) {
-		val, qerr = (&promql.Engine{Store: st}).Instant(q, ts)
+		val, qerr = (&promql.Engine{Ctx: qctx, Store: st}).Instant(q, ts)
 	}); ierr != nil {
 		return h.server.WriteErr(c, ierr)
 	}
@@ -268,6 +300,10 @@ func (h *Handler) instantQuery(c *echo.Context, wsID string, vals url.Values) er
 }
 
 func queryError(c *echo.Context, err error) error {
+	if errors.Is(err, promql.ErrTimeout) {
+		return promError(c, http.StatusServiceUnavailable, "timeout", err.Error())
+	}
+
 	if errors.Is(err, promql.ErrSyntax) {
 		return promError(c, http.StatusBadRequest, "bad_data", err.Error())
 	}
@@ -298,8 +334,14 @@ func (h *Handler) rangeQuery(c *echo.Context, wsID string, vals url.Values) erro
 		qerr error
 	)
 
+	qctx, cancel, terr := queryContext(ctx, vals)
+	if terr != nil {
+		return promError(c, http.StatusBadRequest, "bad_data", "invalid parameter \"timeout\": "+terr.Error())
+	}
+	defer cancel()
+
 	if err := h.Backend.withStorage(ctx, wsID, func(st promql.Storage) {
-		m, qerr = (&promql.Engine{Store: st}).Range(vals.Get("query"), start, end, step)
+		m, qerr = (&promql.Engine{Ctx: qctx, Store: st}).Range(vals.Get("query"), start, end, step)
 	}); err != nil {
 		return h.server.WriteErr(c, err)
 	}
