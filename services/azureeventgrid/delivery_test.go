@@ -571,7 +571,7 @@ func TestSubscriptionRoundTripAndLifecycle(t *testing.T) {
 func TestSnapshotRestoreKeepsPendingDeliveries(t *testing.T) {
 	t.Parallel()
 
-	b, _, rec := newBackend(t)
+	b, clk, rec := newBackend(t)
 	dest := map[string]any{
 		"endpointType": "StorageQueue",
 		"properties":   map[string]any{"resourceId": storageID, "queueName": "q"},
@@ -584,6 +584,7 @@ func TestSnapshotRestoreKeepsPendingDeliveries(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 
 	b2 := azureeventgrid.NewInMemoryBackend()
+	azureeventgrid.SetNow(b2, clk.Now)
 	b2.SetTargets(rec)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, azureeventgrid.PendingCount(b2, "t1", "s1"))
