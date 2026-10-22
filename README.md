@@ -950,7 +950,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 27 | 13 gaps; 1 structural gap |
 | [Rum](services/rum/README.md) | B | 20 | 9 gaps; 2 structural gaps |
 | [S3vectors](services/s3vectors/README.md) | B | 21 | 8 gaps; 1 structural gap |
-| [Servicecatalog](services/servicecatalog/README.md) | B | 89 | 14 gaps; 1 structural gap |
+| [Servicecatalog](services/servicecatalog/README.md) | B | 90 | 9 gaps; 1 structural gap |
 | [Servicequotas](services/servicequotas/README.md) | B | 26 | 8 gaps; 1 structural gap |
 | [Support](services/support/README.md) | A | 16 | 1 structural gap; 1 deferred |
 | [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 5 gaps; 3 structural gaps |
