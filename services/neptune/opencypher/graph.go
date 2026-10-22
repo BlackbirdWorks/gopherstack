@@ -114,7 +114,11 @@ func (g *Graph) addNode(id string, labels []string, props map[string]any) (*Node
 }
 
 func (g *Graph) addRel(typ string, from, to *Node, props map[string]any) *Rel {
-	r := &Rel{ID: uuid.NewString(), Type: typ, Start: from.ID, End: to.ID, Props: props, seq: g.nextSeq()}
+	return g.addRelID(uuid.NewString(), typ, from, to, props)
+}
+
+func (g *Graph) addRelID(id, typ string, from, to *Node, props map[string]any) *Rel {
+	r := &Rel{ID: id, Type: typ, Start: from.ID, End: to.ID, Props: props, seq: g.nextSeq()}
 	if r.Props == nil {
 		r.Props = map[string]any{}
 	}

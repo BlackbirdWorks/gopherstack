@@ -39,6 +39,7 @@ require (
 	github.com/alecthomas/kong v1.16.1
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/andybalholm/brotli v1.2.6
+	github.com/apache/tinkerpop/gremlin-go/v3 v3.7.7
 	github.com/aws/aws-dax-go v1.2.15
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/aws/aws-sdk-go-v2 v1.47.3
@@ -385,6 +386,7 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/nicksnyder/go-i18n/v2 v2.5.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/palkan/mulint v1.1.0 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect

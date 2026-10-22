@@ -14,7 +14,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
-const cypherStatusPath = "/opencypher/status"
+const (
+	cypherStatusPath  = "/opencypher/status"
+	gremlinStatusPath = "/gremlin/status"
+)
 
 var errQueryCancelled = errors.New("query cancelled by user")
 
@@ -70,21 +73,29 @@ func (q *runningQuery) status() queryStatus {
 
 // serveQueryStatus answers the neptunedata Get/List/CancelOpenCypherQuery routes; false when r is not one.
 func (f *cypherFront) serveQueryStatus(w http.ResponseWriter, r *http.Request) bool {
+	if serveStatusFor(w, r, cypherStatusPath, f.queries) {
+		return true
+	}
+
+	return f.gremlin != nil && serveStatusFor(w, r, gremlinStatusPath, f.gremlinQueries)
+}
+
+func serveStatusFor(w http.ResponseWriter, r *http.Request, base string, q *queryTracker) bool {
 	path := strings.TrimRight(strings.ToLower(r.URL.Path), "/")
-	if path != cypherStatusPath && !strings.HasPrefix(path, cypherStatusPath+"/") {
+	if path != base && !strings.HasPrefix(path, base+"/") {
 		return false
 	}
 
-	id := strings.TrimPrefix(r.URL.Path[len(cypherStatusPath):], "/")
+	id := strings.TrimPrefix(r.URL.Path[len(base):], "/")
 	id = strings.TrimRight(id, "/")
 
 	switch {
 	case id == "" && r.Method == http.MethodGet:
-		f.listQueries(w)
+		listQueries(w, q)
 	case id != "" && r.Method == http.MethodGet:
-		f.getQuery(w, id)
+		getQuery(w, q, id)
 	case id != "" && r.Method == http.MethodDelete:
-		f.cancelQuery(w, id)
+		cancelQuery(w, q, id)
 	default:
 		w.Header().Set("Allow", "GET, DELETE")
 		writeCypherError(w, http.StatusMethodNotAllowed, "BadRequestException", "Unsupported method for this path")
@@ -93,8 +104,8 @@ func (f *cypherFront) serveQueryStatus(w http.ResponseWriter, r *http.Request) b
 	return true
 }
 
-func (f *cypherFront) listQueries(w http.ResponseWriter) {
-	qs := f.queries.running.Values()
+func listQueries(w http.ResponseWriter, t *queryTracker) {
+	qs := t.running.Values()
 	out := make([]queryStatus, 0, len(qs))
 
 	for _, q := range qs {
@@ -106,8 +117,8 @@ func (f *cypherFront) listQueries(w http.ResponseWriter) {
 	})
 }
 
-func (f *cypherFront) getQuery(w http.ResponseWriter, id string) {
-	q, ok := f.queries.running.Get(id)
+func getQuery(w http.ResponseWriter, t *queryTracker, id string) {
+	q, ok := t.running.Get(id)
 	if !ok {
 		writeCypherError(w, http.StatusBadRequest, opencypher.CodeInvalidParameter,
 			"Query "+strconv.Quote(id)+" does not exist or has already finished")
@@ -118,8 +129,8 @@ func (f *cypherFront) getQuery(w http.ResponseWriter, id string) {
 	writeCypherJSON(w, http.StatusOK, q.status())
 }
 
-func (f *cypherFront) cancelQuery(w http.ResponseWriter, id string) {
-	q, ok := f.queries.running.Get(id)
+func cancelQuery(w http.ResponseWriter, t *queryTracker, id string) {
+	q, ok := t.running.Get(id)
 	if !ok {
 		writeCypherError(w, http.StatusBadRequest, opencypher.CodeInvalidParameter,
 			"Query "+strconv.Quote(id)+" does not exist or has already finished")

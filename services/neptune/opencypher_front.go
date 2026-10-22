@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
+	"github.com/blackbirdworks/gopherstack/services/neptune/gremlin"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
@@ -33,19 +34,22 @@ const (
 	codeMissingParam   = "MissingParameterException"
 )
 
-// cypherFront serves a cluster's Neptune port: /openCypher is answered in-process and everything else
-// (the Gremlin WebSocket) is proxied to the Gremlin Server container.
+// cypherFront serves a cluster's Neptune port: /openCypher, Bolt and (with no upstream) /gremlin are answered
+// in-process over one graph; with an upstream, /gremlin is proxied to the Gremlin Server container instead.
 type cypherFront struct {
-	srv     *http.Server
-	proxy   *httputil.ReverseProxy
-	tr      *http.Transport
-	graph   *opencypher.Graph
-	queries *queryTracker
-	ctx     context.Context //nolint:containedctx // lifetime of the listener
-	cancel  context.CancelFunc
-	up      atomic.Bool
+	srv            *http.Server
+	proxy          *httputil.ReverseProxy
+	tr             *http.Transport
+	graph          *opencypher.Graph
+	queries        *queryTracker
+	gremlin        *gremlin.Server
+	gremlinQueries *queryTracker
+	ctx            context.Context //nolint:containedctx // lifetime of the listener
+	cancel         context.CancelFunc
+	up             atomic.Bool
 }
 
+// startCypherFront listens on port. An empty innerAddr serves Gremlin in-process over graph.
 func startCypherFront(
 	host string, port int, innerAddr string, graph *opencypher.Graph, admit sgfilter.Admitter,
 ) (*cypherFront, error) {
@@ -61,9 +65,15 @@ func startCypherFront(
 
 	f := &cypherFront{graph: graph, queries: newQueryTracker(), tr: httpclient.NewTransport()}
 	f.ctx, f.cancel = context.WithCancel(context.Background())
-	target := &url.URL{Scheme: "http", Host: innerAddr}
-	f.proxy = httputil.NewSingleHostReverseProxy(target)
-	f.proxy.Transport = f.tr
+
+	if innerAddr == "" {
+		f.gremlinQueries = newQueryTracker()
+		f.gremlin = gremlin.NewServer(f.ctx, graph, gremlin.Options{Track: f.gremlinQueries.begin})
+	} else {
+		f.proxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: innerAddr})
+		f.proxy.Transport = f.tr
+	}
+
 	f.srv = &http.Server{Handler: f, ReadHeaderTimeout: cypherReadHeader}
 
 	go func() { _ = f.srv.Serve(bolt.Split(sgfilter.Guard(ln, admit), f.serveBolt)) }()
@@ -98,6 +108,18 @@ func (f *cypherFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if f.serveQueryStatus(w, r) {
+		return
+	}
+
+	if f.gremlin != nil && strings.EqualFold(strings.TrimRight(r.URL.Path, "/"), gremlinPath) {
+		f.gremlin.ServeHTTP(w, r)
+
+		return
+	}
+
+	if f.proxy == nil {
+		writeCypherError(w, http.StatusNotFound, "BadRequestException", "Unknown path "+r.URL.Path)
+
 		return
 	}
 

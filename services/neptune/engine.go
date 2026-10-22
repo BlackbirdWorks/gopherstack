@@ -25,6 +25,8 @@ import (
 const (
 	EngineStub   = "stub"
 	EngineDocker = "docker"
+	// EngineEmbedded serves Gremlin, openCypher and Bolt in-process over one graph; no container runtime needed.
+	EngineEmbedded = "embedded"
 )
 
 const (
@@ -45,7 +47,7 @@ const (
 	statusStarting = "starting"
 )
 
-// EngineModeConfig exposes the Neptune engine mode (stub or docker).
+// EngineModeConfig exposes the Neptune engine mode (stub, embedded or docker).
 type EngineModeConfig interface {
 	GetNeptuneEngine() string
 }
@@ -66,6 +68,8 @@ type EngineConfig struct {
 	Host         string
 	StartTimeout time.Duration
 	OpenCypher   bool
+	// InProcessGremlin serves Gremlin from the cluster's shared graph instead of a Gremlin Server container.
+	InProcessGremlin bool
 }
 
 type liveCluster struct {
@@ -274,6 +278,12 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 	c.Status = statusCreating
 	c.readyAt = time.Time{}
 
+	if e.cfg.InProcessGremlin {
+		e.wg.Go(func() { b.runEmbeddedUnit(lb) })
+
+		return
+	}
+
 	e.wg.Go(func() { b.runUnit(lb) })
 }
 
@@ -341,6 +351,41 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 	}
 
 	b.awaitAndMark(lb)
+}
+
+// runEmbeddedUnit opens the cluster's listener over its shared graph; no container is involved.
+func (b *InMemoryBackend) runEmbeddedUnit(lb *liveCluster) {
+	e := b.engine
+
+	port, err := e.acquirePort()
+	if err != nil {
+		b.failUnit(lb)
+
+		return
+	}
+
+	if !b.recordPort(lb, port, 0) {
+		e.releasePort(port)
+
+		return
+	}
+
+	front, err := startCypherFront(e.cfg.Host, port, "", lb.graph, b.clusterAdmit(lb))
+	if err != nil {
+		e.releasePort(port)
+		b.failUnit(lb)
+
+		return
+	}
+
+	if !b.recordContainer(lb, "", front, nil) {
+		front.Close()
+		e.releasePort(port)
+
+		return
+	}
+
+	b.markUnitReady(lb)
 }
 
 func (b *InMemoryBackend) recordPort(lb *liveCluster, port, inner int) bool {
@@ -508,6 +553,16 @@ func (b *InMemoryBackend) runUnitOpLocked(lb *liveCluster, op unitOp) {
 }
 
 func (b *InMemoryBackend) execUnitOp(lb *liveCluster, id string, op unitOp) {
+	if b.engine.cfg.InProcessGremlin {
+		if op == opStop {
+			b.markUnitStopped(lb)
+		} else {
+			b.markUnitReady(lb)
+		}
+
+		return
+	}
+
 	rt := b.engine.cfg.Runtime
 	ctx, cancel := context.WithTimeout(lb.ctx, engineStopTimeout)
 
