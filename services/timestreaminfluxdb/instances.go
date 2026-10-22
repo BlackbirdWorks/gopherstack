@@ -5,6 +5,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -157,7 +158,7 @@ func (b *InMemoryBackend) buildInstanceLocked(sc scope, in *InstanceInput, id st
 		ID: id, Name: in.Name, ARN: sc.arn("db-instance/" + id), AccountID: sc.account, Region: sc.region,
 		Username: in.Username, Organization: in.Organization, Bucket: in.Bucket, Password: in.Password,
 		AZ: az, StandbyAZ: standby, EngineType: engineV2, Tags: maps.Clone(in.Tags), CreatedAt: b.now(),
-		Placement: in.placement(), Pending: b.pend(statusCreating, false), Mode: modePrimary,
+		Placement: in.placement(), Pending: b.pend(statusCreating, false), Mode: modePrimary, Token: newToken(),
 	}
 }
 
@@ -193,6 +194,16 @@ func (b *InMemoryBackend) CreateDBInstance(ctx context.Context, in InstanceInput
 	}
 
 	inst := b.buildInstanceLocked(sc, &in, newID())
+
+	arn, err := b.authSecretLocked(sc, inst.ID, authSecret{
+		Username: inst.Username, Password: inst.Password, Organization: inst.Organization,
+		Bucket: inst.Bucket, Token: inst.Token,
+	})
+	if err != nil {
+		return wInstance{}, err
+	}
+
+	inst.SecretARN = arn
 	b.instances.Put(inst)
 	b.startEngineLocked(inst, statusCreating)
 
@@ -389,13 +400,17 @@ func (b *InMemoryBackend) UpdateDBInstance(ctx context.Context, id string, u Ins
 		return wInstance{}, ierr
 	}
 
-	kind := applyInstanceUpdate(i, u)
-	i.Pending = b.pend(kind, false)
+	groupChanged := u.ParameterGroupID != "" && u.ParameterGroupID != i.Placement.ParameterGroupID
+	kind := applyInstanceUpdate(i, u, b.now())
+
+	if !groupChanged || !b.recreateEngineLocked(i, kind) {
+		i.Pending = b.pend(kind, false)
+	}
 
 	return b.wireInstance(sc, i), nil
 }
 
-func applyInstanceUpdate(i *DBInstance, u InstanceUpdate) string {
+func applyInstanceUpdate(i *DBInstance, u InstanceUpdate, now time.Time) string {
 	kind := statusUpdating
 	p := &i.Placement
 
@@ -439,7 +454,7 @@ func applyInstanceUpdate(i *DBInstance, u InstanceUpdate) string {
 	}
 
 	if u.HasBackupConfigs {
-		p.BackupConfigs = slices.Clone(u.BackupConfigs)
+		p.BackupConfigs = stampBackupConfigs(u.BackupConfigs, now)
 	}
 
 	return kind
@@ -476,14 +491,17 @@ func (b *InMemoryBackend) DeleteDBInstance(ctx context.Context, id string) (wIns
 	i.Pending = b.pend(statusDeleting, false)
 	out.Status = statusDeleting
 	handles := b.detachEnginesLocked([]*DBInstance{i})
+	b.deleteSecretLocked(i.Region, i.SecretARN)
+	dir := b.instanceDirLocked(i.ID)
 	b.mu.Unlock()
 
 	b.stopEngines(handles)
+	removeDir(dir)
 
 	return out, nil
 }
 
-// RebootDBInstance moves an instance through REBOOTING back to AVAILABLE.
+// RebootDBInstance moves an instance through REBOOTING back to AVAILABLE, restarting its server.
 func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (wInstance, error) {
 	sc := b.scopeOf(ctx)
 
@@ -501,7 +519,9 @@ func (b *InMemoryBackend) RebootDBInstance(ctx context.Context, id string) (wIns
 		return wInstance{}, conflict("DB instance %s is %s", id, st)
 	}
 
-	i.Pending = b.pend(statusRebooting, false)
+	if !b.restartEngineLocked(i, statusRebooting) {
+		i.Pending = b.pend(statusRebooting, false)
+	}
 
 	return b.wireInstance(sc, i), nil
 }

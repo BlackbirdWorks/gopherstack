@@ -8,21 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 24 (24 ok) |
-| Feature families | 6 (6 ok) |
-| Known gaps | 10 |
-| Structural gaps (can't be emulated) | 2 |
+| Feature families | 7 (7 ok) |
+| Known gaps | 5 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- DockerEngine: only CreateDbInstance starts a container; cluster members and restored instances stay metadata-only, and a restored instance starts empty because backups carry no data
-- DockerEngine: RebootDbInstance does not restart the container and UpdateDbInstance does not reconfigure it (no volume is kept, so a restart would lose data)
-- InfluxAuthParametersSecretArn: no Secrets Manager secret is created, so instances report no secret ARN; log in to a docker-backed instance with the username and password
-- DbParameterGroup: parameters are stored and returned but not applied to the engine; InfluxDBv3 parameter groups have no matching engine
-- DbBackupConfigurations: schedules are stored and NextAutomatedBackupTime is computed for HOURLY, DAILY, WEEKLY and MONTHLY, but automated and CONTINUOUS backups are never taken, so ListDbBackups only shows ON_DEMAND backups
-- LogDeliveryConfiguration: the S3 bucket name is checked for shape only and no logs are delivered
-- MaintenanceSchedule: NextMaintenanceTime is derived from the window but no maintenance ever runs (LastMaintenanceTime is never set)
+- DbParameterGroup: InfluxDBv3 parameter groups are stored and returned but have no matching engine, so they are not applied
+- DbBackupConfigurations: CUSTOM_SCHEDULE (cron) and CONTINUOUS configurations are stored but never run; HOURLY, DAILY, WEEKLY and MONTHLY run on the backend clock
 - VpcSubnetIds: existence is checked through EC2 when wired, but all subnets belonging to one VPC and the security groups are not verified
 - AccessDeniedException: never raised; no IAM authorization is modeled
 - ResourceGroupsTaggingAPI: Timestream for InfluxDB tags are not exposed through the tagging API
@@ -32,6 +27,7 @@
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
 - InfluxDB v3 Core and Enterprise engines and multi-node clusters have no container image the emulator can run; cluster data planes cannot exist.
+- Cluster members run as independent servers: there is no replication between them, and a cluster backup is taken from the PRIMARY member.
 - Multi-AZ standby failover, storage throughput tiers and instance classes are labels only: a single local container has no standby or hardware.
 
 ## More

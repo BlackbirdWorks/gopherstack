@@ -9,7 +9,7 @@ import (
 
 const engineStartTimeout = 5 * time.Minute
 
-// SetEngine switches the backend to engine mode: new instances run a real InfluxDB server.
+// SetEngine switches the backend to engine mode: instances run a real InfluxDB server.
 func (b *InMemoryBackend) SetEngine(e Engine) {
 	b.mu.Lock("SetEngine")
 	defer b.mu.Unlock()
@@ -20,8 +20,22 @@ func (b *InMemoryBackend) SetEngine(e Engine) {
 		b.live = map[string]EngineHandle{}
 	}
 
+	b.ensureBGLocked()
+}
+
+func (b *InMemoryBackend) ensureBGLocked() {
 	if b.bg == nil {
 		b.bg, b.cancel = context.WithCancel(context.Background())
+	}
+}
+
+func (b *InMemoryBackend) engineSpecLocked(inst *DBInstance) EngineSpec {
+	return EngineSpec{
+		Name: inst.ID, Username: inst.Username, Password: inst.Password, Organization: inst.Organization,
+		Bucket: inst.Bucket, Token: inst.Token, RestoreFrom: inst.RestoreFrom,
+		Env:        b.paramEnvLocked(inst.Placement.ParameterGroupID),
+		DataDir:    b.instanceDirLocked(inst.ID),
+		BackupsDir: b.backupsDirLocked(),
 	}
 }
 
@@ -34,17 +48,53 @@ func (b *InMemoryBackend) startEngineLocked(inst *DBInstance, kind string) {
 
 	inst.Pending = b.pend(kind, true)
 
-	spec := EngineSpec{
-		Name: inst.ID, Username: inst.Username, Password: inst.Password,
-		Organization: inst.Organization, Bucket: inst.Bucket,
-	}
-	eng, id := b.engine, inst.ID
+	spec, eng := b.engineSpecLocked(inst), b.engine
 
+	b.goEngine(inst.ID, func(ctx context.Context) (EngineHandle, error) {
+		if err := ensureDirs(spec); err != nil {
+			return EngineHandle{}, err
+		}
+
+		return eng.Start(ctx, spec)
+	})
+}
+
+// restartEngineLocked restarts the running server of inst; false when inst has none.
+func (b *InMemoryBackend) restartEngineLocked(inst *DBInstance, kind string) bool {
+	h, ok := b.live[inst.ID]
+	if !ok || b.engine == nil || b.closed {
+		return false
+	}
+
+	inst.Pending = b.pend(kind, true)
+	eng := b.engine
+
+	b.goEngine(inst.ID, func(ctx context.Context) (EngineHandle, error) { return eng.Restart(ctx, h) })
+
+	return true
+}
+
+// recreateEngineLocked rebuilds the running server of inst from its current settings; false when inst has none.
+func (b *InMemoryBackend) recreateEngineLocked(inst *DBInstance, kind string) bool {
+	h, ok := b.live[inst.ID]
+	if !ok || b.engine == nil || b.closed {
+		return false
+	}
+
+	inst.Pending = b.pend(kind, true)
+	spec, eng := b.engineSpecLocked(inst), b.engine
+
+	b.goEngine(inst.ID, func(ctx context.Context) (EngineHandle, error) { return eng.Recreate(ctx, h, spec) })
+
+	return true
+}
+
+func (b *InMemoryBackend) goEngine(id string, op func(ctx context.Context) (EngineHandle, error)) {
 	b.wg.Go(func() {
 		ctx, cancel := context.WithTimeout(b.bg, engineStartTimeout)
 		defer cancel()
 
-		h, err := eng.Start(ctx, spec)
+		h, err := op(ctx)
 		b.finishEngine(id, h, err)
 	})
 }
@@ -76,6 +126,7 @@ func (b *InMemoryBackend) finishEngine(id string, h EngineHandle, startErr error
 
 	b.live[id] = h
 	inst.EngineHost, inst.EnginePort = h.Host, h.Port
+	inst.RestoreFrom = ""
 	inst.Pending = Pending{}
 	b.mu.Unlock()
 }
@@ -135,4 +186,5 @@ func (b *InMemoryBackend) Close() {
 
 	b.wg.Wait()
 	b.stopEngines(handles)
+	b.dropTempRoot()
 }

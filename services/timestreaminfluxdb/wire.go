@@ -37,6 +37,7 @@ type wClusterConfig struct {
 }
 
 type wInstance struct {
+	InfluxAuthSecretARN       *string         `json:"influxAuthParametersSecretArn,omitempty"`
 	LastMaintenanceTime       *string         `json:"lastMaintenanceTime,omitempty"`
 	NextMaintenanceTime       *string         `json:"nextMaintenanceTime,omitempty"`
 	LogDeliveryConfiguration  *wLogDelivery   `json:"logDeliveryConfiguration,omitempty"`
@@ -82,6 +83,7 @@ type wInstanceSummary struct {
 }
 
 type wCluster struct {
+	InfluxAuthSecretARN                 *string         `json:"influxAuthParametersSecretArn,omitempty"`
 	LastMaintenanceTime                 *string         `json:"lastMaintenanceTime,omitempty"`
 	NextMaintenanceTime                 *string         `json:"nextMaintenanceTime,omitempty"`
 	ClusterConfiguration                *wClusterConfig `json:"clusterConfiguration,omitempty"`
@@ -184,6 +186,14 @@ type wBackupSummary struct {
 
 // dateTime renders a smithy date-time, the timestamp format this SDK parses (deserializers.go ParseDateTime).
 func dateTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return &s
+}
 
 func timePtr(t time.Time) *string {
 	if t.IsZero() {
@@ -339,6 +349,8 @@ func (b *InMemoryBackend) wireInstance(sc scope, i *DBInstance) wInstance {
 		),
 		DBBackupConfigurations: b.wireBackupConfigs(p.BackupConfigs),
 		NextMaintenanceTime:    timePtr(nextMaintenance(b.now(), p.Maintenance)),
+		LastMaintenanceTime:    timePtr(i.LastMaintenance),
+		InfluxAuthSecretARN:    strPtr(i.SecretARN),
 	}
 
 	if i.Mode != "" {
@@ -376,7 +388,7 @@ func (b *InMemoryBackend) summarizeInstance(sc scope, i *DBInstance) wInstanceSu
 }
 
 func (b *InMemoryBackend) wireCluster(sc scope, c *DBCluster) wCluster {
-	st := b.state(c.Pending)
+	st := b.clusterStateLocked(c)
 	p := c.Placement
 
 	w := wCluster{
@@ -403,6 +415,8 @@ func (b *InMemoryBackend) wireCluster(sc scope, c *DBCluster) wCluster {
 		MaintenanceSchedule:                 wireMaintenance(p.Maintenance),
 		DBBackupConfigurations:              b.wireBackupConfigs(p.BackupConfigs),
 		NextMaintenanceTime:                 timePtr(nextMaintenance(b.now(), p.Maintenance)),
+		LastMaintenanceTime:                 timePtr(c.LastMaintenance),
+		InfluxAuthSecretARN:                 strPtr(c.SecretARN),
 	}
 
 	if st != statusCreating && st != statusRestoring {

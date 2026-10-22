@@ -278,6 +278,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	}
 
 	cfg.WorkingDir = spec.WorkingDir
+	cfg.User = spec.User
 
 	hostCfg := &dockercontainer.HostConfig{
 		Binds:      spec.Mounts,

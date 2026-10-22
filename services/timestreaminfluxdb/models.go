@@ -55,10 +55,11 @@ type Maintenance struct {
 
 // BackupConfig is an automated backup schedule.
 type BackupConfig struct {
-	CustomSchedule string `json:"customSchedule,omitempty"`
-	Type           string `json:"type"`
-	RetentionDays  int32  `json:"retentionDays"`
-	Enabled        bool   `json:"enabled"`
+	CustomSchedule string    `json:"customSchedule,omitempty"`
+	LastRun        time.Time `json:"lastRun,omitzero"`
+	Type           string    `json:"type"`
+	RetentionDays  int32     `json:"retentionDays"`
+	Enabled        bool      `json:"enabled"`
 }
 
 // ClusterConfig describes a cluster's node roles.
@@ -88,47 +89,55 @@ type Placement struct {
 
 // DBInstance is a Timestream for InfluxDB instance.
 type DBInstance struct {
-	CreatedAt    time.Time         `json:"createdAt"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	Mode         string            `json:"mode,omitempty"`
-	Username     string            `json:"username"`
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	ARN          string            `json:"arn"`
-	AccountID    string            `json:"accountId"`
-	Region       string            `json:"region"`
-	ClusterID    string            `json:"clusterId,omitempty"`
-	Password     string            `json:"-"`
-	Failed       string            `json:"failed,omitempty"`
-	Organization string            `json:"organization"`
-	Bucket       string            `json:"bucket"`
-	AZ           string            `json:"az"`
-	StandbyAZ    string            `json:"standbyAz,omitempty"`
-	EngineType   string            `json:"engineType"`
-	EngineHost   string            `json:"engineHost,omitempty"`
-	Pending      Pending           `json:"pending"`
-	Placement    Placement         `json:"placement"`
-	EnginePort   int32             `json:"enginePort,omitempty"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	LastLogShip     time.Time         `json:"lastLogShip,omitzero"`
+	LastMaintenance time.Time         `json:"lastMaintenance,omitzero"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	Token           string            `json:"token,omitempty"`
+	Organization    string            `json:"organization"`
+	ARN             string            `json:"arn"`
+	AccountID       string            `json:"accountId"`
+	Region          string            `json:"region"`
+	ClusterID       string            `json:"clusterId,omitempty"`
+	Password        string            `json:"-"`
+	RestoreFrom     string            `json:"-"`
+	ID              string            `json:"id"`
+	SecretARN       string            `json:"secretArn,omitempty"`
+	Failed          string            `json:"failed,omitempty"`
+	Name            string            `json:"name"`
+	Bucket          string            `json:"bucket"`
+	AZ              string            `json:"az"`
+	StandbyAZ       string            `json:"standbyAz,omitempty"`
+	EngineType      string            `json:"engineType"`
+	EngineHost      string            `json:"engineHost,omitempty"`
+	Mode            string            `json:"mode,omitempty"`
+	Username        string            `json:"username"`
+	Pending         Pending           `json:"pending"`
+	Placement       Placement         `json:"placement"`
+	EnginePort      int32             `json:"enginePort,omitempty"`
 }
 
 // DBCluster is a Timestream for InfluxDB cluster.
 type DBCluster struct {
-	CreatedAt    time.Time         `json:"createdAt"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	Config       *ClusterConfig    `json:"config,omitempty"`
-	Password     string            `json:"-"`
-	Pending      Pending           `json:"pending"`
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	ARN          string            `json:"arn"`
-	AccountID    string            `json:"accountId"`
-	Region       string            `json:"region"`
-	Username     string            `json:"username"`
-	Organization string            `json:"organization"`
-	Bucket       string            `json:"bucket"`
-	EngineType   string            `json:"engineType"`
-	FailoverMode string            `json:"failoverMode"`
-	Placement    Placement         `json:"placement"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	LastMaintenance time.Time         `json:"lastMaintenance,omitzero"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	Config          *ClusterConfig    `json:"config,omitempty"`
+	Name            string            `json:"name"`
+	Region          string            `json:"region"`
+	Password        string            `json:"-"`
+	ID              string            `json:"id"`
+	Token           string            `json:"token,omitempty"`
+	ARN             string            `json:"arn"`
+	AccountID       string            `json:"accountId"`
+	SecretARN       string            `json:"secretArn,omitempty"`
+	Username        string            `json:"username"`
+	Organization    string            `json:"organization"`
+	Bucket          string            `json:"bucket"`
+	EngineType      string            `json:"engineType"`
+	FailoverMode    string            `json:"failoverMode"`
+	Pending         Pending           `json:"pending"`
+	Placement       Placement         `json:"placement"`
 }
 
 // DBParameterGroup is a named set of InfluxDB parameters.
@@ -148,20 +157,24 @@ type DBBackup struct {
 	CreatedAt     time.Time         `json:"createdAt"`
 	Tags          map[string]string `json:"tags,omitempty"`
 	ClusterConfig *ClusterConfig    `json:"clusterConfig,omitempty"`
-	Pending       Pending           `json:"pending"`
-	ID            string            `json:"id"`
+	ResourceType  string            `json:"resourceType"`
+	FailoverMode  string            `json:"failoverMode,omitempty"`
 	Name          string            `json:"name"`
 	ARN           string            `json:"arn"`
 	AccountID     string            `json:"accountId"`
 	Region        string            `json:"region"`
 	ResourceID    string            `json:"resourceId"`
-	ResourceType  string            `json:"resourceType"`
+	Bucket        string            `json:"bucket"`
+	SourceID      string            `json:"sourceId,omitempty"`
+	Organization  string            `json:"organization"`
+	Token         string            `json:"token,omitempty"`
+	Password      string            `json:"-"`
 	EngineType    string            `json:"engineType"`
-	FailoverMode  string            `json:"failoverMode,omitempty"`
+	ID            string            `json:"id"`
 	Type          string            `json:"type"`
 	Username      string            `json:"username"`
-	Organization  string            `json:"organization"`
-	Bucket        string            `json:"bucket"`
+	Pending       Pending           `json:"pending"`
 	Placement     Placement         `json:"placement"`
 	RetentionDays int32             `json:"retentionDays"`
+	HasData       bool              `json:"hasData,omitempty"`
 }

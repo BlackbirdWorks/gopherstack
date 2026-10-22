@@ -59,6 +59,8 @@ type Spec struct {
 	Network string
 	// WorkingDir overrides the image's working directory; empty keeps it.
 	WorkingDir string
+	// User runs the container process as uid[:gid]; empty keeps the image's user.
+	User string
 	// OCIRuntime selects the daemon-registered OCI runtime (e.g. runsc); empty uses the daemon default.
 	OCIRuntime string
 	Env        []string

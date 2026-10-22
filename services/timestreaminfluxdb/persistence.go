@@ -60,8 +60,25 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.relaunchEnginesLocked()
 
 	return nil
+}
+
+// relaunchEnginesLocked starts a server again for every restored instance whose data outlived the process.
+func (b *InMemoryBackend) relaunchEnginesLocked() {
+	if b.engine == nil || !b.persistentRoot() {
+		return
+	}
+
+	for _, i := range b.instances.All() {
+		if b.gone(i.Pending) || i.Pending.Kind == statusDeleting {
+			continue
+		}
+
+		i.EngineHost, i.EnginePort = "", 0
+		b.startEngineLocked(i, statusRebooting)
+	}
 }
 
 // Snapshot implements persistence.Persistable.

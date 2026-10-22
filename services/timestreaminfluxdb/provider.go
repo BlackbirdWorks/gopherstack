@@ -18,6 +18,11 @@ const (
 	EngineDockerMode = "docker"
 )
 
+// DataDirConfig locates the directory instance data and backups persist in; empty keeps them in a temporary one.
+type DataDirConfig interface {
+	GetTimestreamInfluxDBDataDir() string
+}
+
 // Provider implements service.Provider for Amazon Timestream for InfluxDB.
 type Provider struct{}
 
@@ -31,6 +36,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID, region := service.AccountRegionOrDefault(ctx)
 	backend := NewInMemoryBackend(accountID, region)
 
+	if dc, ok := ctx.Config.(DataDirConfig); ok {
+		backend.SetDataDir(dc.GetTimestreamInfluxDBDataDir())
+	}
+
 	if os.Getenv(EngineEnv) == EngineDockerMode {
 		rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
 		if err != nil {
@@ -39,10 +48,16 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 				"error",
 				err,
 			)
+		} else if cr, ok := rt.(ContainerRuntime); ok {
+			backend.SetEngine(&DockerEngine{Runtime: cr, Ports: ctx.PortAlloc, Host: os.Getenv(HostEnv)})
 		} else {
-			backend.SetEngine(&DockerEngine{Runtime: rt, Ports: ctx.PortAlloc, Host: os.Getenv(HostEnv)})
+			ctx.Logger.Warn(
+				"TimestreamInfluxDB: container runtime cannot restart containers; instances stay metadata-only",
+			)
 		}
 	}
+
+	backend.StartScheduler(0)
 
 	return NewHandler(backend), nil
 }
