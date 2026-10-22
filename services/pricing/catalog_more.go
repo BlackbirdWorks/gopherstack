@@ -120,7 +120,7 @@ func elastiCacheSpecs() []spec {
 			for _, engine := range []string{cacheEngineRedis, cacheEngineMemcch} {
 				price := n.hourly * r.factor
 				out = append(out, simpleSpec(svcElastiCache, "Cache Instance", r, map[string]string{
-					attrInstanceType: n.name, "vcpu": n.vcpu, "memory": n.memory, "cacheEngine": engine,
+					attrInstanceType: n.name, attrVCPU: n.vcpu, attrMemory: n.memory, "cacheEngine": engine,
 					attrUsage: "NodeUsage:" + n.name, attrOperation: "CreateCacheCluster",
 				}, "Hrs", fmt.Sprintf("$%.3f per %s %s node hour", price, n.name, engine), price))
 			}

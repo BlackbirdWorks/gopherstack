@@ -71,7 +71,11 @@ func TestIntegration_Budgets_AutoAdjustRoundTrip(t *testing.T) {
 	_, err := c.CreateBudget(t.Context(), &budgets.CreateBudgetInput{
 		AccountId: aws.String("000000000000"),
 		Budget: &budgetstypes.Budget{
-			BudgetName: aws.String(name), BudgetType: budgetstypes.BudgetTypeCost, TimeUnit: budgetstypes.TimeUnitMonthly,
+			BudgetName: aws.String(
+				name,
+			),
+			BudgetType: budgetstypes.BudgetTypeCost,
+			TimeUnit:   budgetstypes.TimeUnitMonthly,
 			AutoAdjustData: &budgetstypes.AutoAdjustData{
 				AutoAdjustType:    budgetstypes.AutoAdjustTypeHistorical,
 				HistoricalOptions: &budgetstypes.HistoricalOptions{BudgetAdjustmentPeriod: aws.Int32(1)},

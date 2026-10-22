@@ -14,6 +14,8 @@ const (
 	osWindows        = "Windows"
 	attrOperation    = "operation"
 	attrInstanceType = "instanceType"
+	attrMemory       = "memory"
+	attrVCPU         = "vcpu"
 	storageStandard  = "Standard"
 	attrUsage        = "usagetype"
 	attrVolumeType   = "volumeType"
@@ -79,7 +81,7 @@ func ec2Specs() []spec {
 					region:   r,
 					reserved: true,
 					attrs: map[string]string{
-						attrInstanceType: it.name, "vcpu": it.vcpu, "memory": it.memory, "operatingSystem": os,
+						attrInstanceType: it.name, attrVCPU: it.vcpu, attrMemory: it.memory, "operatingSystem": os,
 						"tenancy": "Shared", "preInstalledSw": "NA", "capacitystatus": "Used",
 						attrOperation: map[string]string{"Linux": "RunInstances", osWindows: "RunInstances:0002"}[os],
 						attrUsage:     fmt.Sprintf("BoxUsage:%s", it.name), "instanceFamily": "General purpose",
@@ -331,7 +333,7 @@ func rdsSpecs() []spec {
 						region:   r,
 						reserved: true,
 						attrs: map[string]string{
-							attrInstanceType: c.name, "vcpu": c.vcpu, "memory": c.memory, "databaseEngine": engine,
+							attrInstanceType: c.name, attrVCPU: c.vcpu, attrMemory: c.memory, "databaseEngine": engine,
 							"deploymentOption": deploy, attrUsage: "InstanceUsage:" + c.name,
 							attrOperation: "CreateDBInstance:0002",
 						},
