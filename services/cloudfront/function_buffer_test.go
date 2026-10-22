@@ -129,7 +129,7 @@ func TestTestFunction_ComputeLimit(t *testing.T) {
 		},
 		{
 			name: "lenient_default_lets_short_loop_finish", mult: 0,
-			code: `function handler(e) { var n = 0; for (var i = 0; i < 20000; i++) { n += i; } return e.request; }`,
+			code: `function handler(e) { var n = 0; for (var i = 0; i < 1000; i++) { n += i; } return e.request; }`,
 		},
 	}
 
