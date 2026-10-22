@@ -368,6 +368,8 @@ type HoursOfOperation struct {
 	Name                string                   `json:"Name"`
 	TimeZone            string                   `json:"TimeZone"`
 	Config              []HoursOfOperationConfig `json:"Config"`
+
+	ParentHoursOfOperations []HoursIdentifier `json:"ParentHoursOfOperations,omitempty"`
 }
 
 // QuickConnectConfig is what a quick connect transfers to.

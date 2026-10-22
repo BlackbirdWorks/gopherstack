@@ -134,4 +134,5 @@ func (b *Backend) provisionDefaults(ctx context.Context, r *instanceRec) {
 
 	b.agentStatuses.put(b.newAgentStatus(ctx, inst, "Available", "", "ENABLED", "ROUTABLE", orderAvailable, nil))
 	b.agentStatuses.put(b.newAgentStatus(ctx, inst, "Offline", "", "ENABLED", "OFFLINE", orderOffline, nil))
+	b.provisionFlows(ctx, inst)
 }

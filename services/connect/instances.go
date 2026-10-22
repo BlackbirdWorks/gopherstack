@@ -275,6 +275,7 @@ func (b *Backend) DeleteInstance(ctx context.Context, ref string) error {
 	b.prompts.dropInstance(id)
 	b.contacts.dropInstance(id)
 	b.integrations.dropInstance(id)
+	b.dropExtras(id)
 
 	for _, p := range b.phoneNumbers.All() {
 		if p.InstanceID == id {

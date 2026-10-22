@@ -24,6 +24,7 @@ func routes() []restroute.Route {
 		profileRoutes(),
 		flowsRoutes(),
 		contactsRoutes(),
+		extraRoutes(),
 	)
 }
 
@@ -302,16 +303,16 @@ func flowsRoutes() []restroute.Route {
 		{Method: http.MethodPost, Path: "/phone-number/claim", Op: "ClaimPhoneNumber"},
 		{Method: http.MethodPut, Path: "/contact-flows/{InstanceId}", Op: "CreateContactFlow"},
 		{Method: http.MethodPut, Path: "/contact-flow-modules/{InstanceId}", Op: "CreateContactFlowModule"},
-		{Method: http.MethodDelete, Path: "/contact-flows/{InstanceId}/{ContactFlowId}", Op: "DeleteContactFlow"},
+		{Method: http.MethodDelete, Path: pathFlowBase, Op: "DeleteContactFlow"},
 		{
 			Method: http.MethodDelete,
-			Path:   "/contact-flow-modules/{InstanceId}/{ContactFlowModuleId}",
+			Path:   pathModuleBase,
 			Op:     "DeleteContactFlowModule",
 		},
-		{Method: http.MethodGet, Path: "/contact-flows/{InstanceId}/{ContactFlowId}", Op: "DescribeContactFlow"},
+		{Method: http.MethodGet, Path: pathFlowBase, Op: "DescribeContactFlow"},
 		{
 			Method: http.MethodGet,
-			Path:   "/contact-flow-modules/{InstanceId}/{ContactFlowModuleId}",
+			Path:   pathModuleBase,
 			Op:     "DescribeContactFlowModule",
 		},
 		{Method: http.MethodGet, Path: pathPhoneNumberPhonenumberid, Op: "DescribePhoneNumber"},

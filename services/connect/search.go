@@ -91,7 +91,7 @@ func parseCriteria(raw json.RawMessage) (*ContactSearchCriteria, error) {
 	}
 
 	for _, k := range unsupportedCriteria {
-		if v, ok := members[k]; ok && string(v) != "null" {
+		if v, ok := members[k]; ok && string(v) != jsonNull {
 			return nil, invalidRequestErr("search criterion %s is not supported", k)
 		}
 	}

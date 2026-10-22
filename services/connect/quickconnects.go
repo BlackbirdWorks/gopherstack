@@ -30,7 +30,7 @@ type UpdateQuickConnectInput struct {
 
 func (b *Backend) checkQuickConnectConfig(inst string, c *QuickConnectConfig) error {
 	switch c.QuickConnectType {
-	case "USER":
+	case entityUser:
 		if c.UserConfig == nil || !b.users.has(inst, c.UserConfig.UserID) ||
 			!b.flows.has(inst, c.UserConfig.ContactFlowID) {
 			return invalidParamErr("UserConfig must reference an existing user and contact flow")

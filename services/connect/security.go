@@ -95,7 +95,13 @@ func (b *Backend) CreateSecurityProfile(
 		return nil, duplicateErr("SecurityProfile", in.SecurityProfileName)
 	}
 
+	extras, err := b.checkSecurityExtras(inst, in.AllowedAIAgents, in.Applications, in.AllowedFlowModules)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := b.newSecurityProfile(ctx, inst, in.SecurityProfileName, in.Description, in.Permissions)
+	rec.Extras = extras
 	rec.Profile.Tags = cloneTags(in.Tags)
 	rec.Profile.AllowedAccessControlTags = cloneTags(in.AllowedAccessControlTags)
 	rec.Profile.AllowedAccessControlHierarchyGroupID = in.AllowedAccessControlHierarchyGroupID
@@ -204,6 +210,11 @@ func (b *Backend) UpdateSecurityProfile(ctx context.Context, in *UpdateSecurityP
 		return nil, err
 	}
 
+	extras, err := b.checkSecurityExtras(p.InstanceID, in.AllowedAIAgents, in.Applications, in.AllowedFlowModules)
+	if err != nil {
+		return nil, err
+	}
+
 	if in.AllowedAccessControlHierarchyGroupID != nil {
 		if err = b.checkHierarchyRef(p.InstanceID, *in.AllowedAccessControlHierarchyGroupID); err != nil {
 			return nil, err
@@ -212,6 +223,7 @@ func (b *Backend) UpdateSecurityProfile(ctx context.Context, in *UpdateSecurityP
 		p.Profile.AllowedAccessControlHierarchyGroupID = *in.AllowedAccessControlHierarchyGroupID
 	}
 
+	p.Extras.merge(extras)
 	setIf(&p.Profile.Description, in.Description)
 
 	if in.Permissions != nil {

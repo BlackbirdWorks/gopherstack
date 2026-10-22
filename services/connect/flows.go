@@ -202,6 +202,7 @@ func (b *Backend) CreateContactFlow(ctx context.Context, in *CreateContactFlowIn
 		Type:   in.Type,
 	}}
 	b.flows.put(rec)
+	b.snapshotInitial(ctx, inst, kindFlow, id, in.Status)
 
 	return &contactFlowOut{
 		ContactFlowArn:    rec.Flow.Arn,
@@ -381,6 +382,14 @@ func (b *Backend) DeleteContactFlow(inst, id string) (*empty, error) {
 		}
 	}
 
+	for _, a := range b.flowAssocs.in(i) {
+		if a.FlowID == id {
+			return nil, inUseErr("ContactFlow %q is associated with %s %s", id, a.ResourceType, a.ResourceID)
+		}
+	}
+
+	b.dropVersioned(i, kindFlow, id)
+
 	return nil, b.flows.del(i, id)
 }
 
@@ -452,6 +461,7 @@ func (b *Backend) CreateContactFlowModule(ctx context.Context, in *CreateContact
 		Status:                          flowPublished,
 	}}
 	b.modules.put(rec)
+	b.snapshotInitial(ctx, inst, kindModule, id, flowPublished)
 
 	return &moduleOut{Arn: rec.Module.Arn, ID: id}, nil
 }
@@ -618,6 +628,8 @@ func (b *Backend) DeleteContactFlowModule(inst, id string) (*empty, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	b.dropVersioned(r.Instance.ID, kindModule, id)
 
 	return nil, b.modules.del(r.Instance.ID, id)
 }

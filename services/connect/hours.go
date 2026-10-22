@@ -34,7 +34,8 @@ type CreateHoursOfOperationInput struct {
 	Description string
 	TimeZone    string
 	instPath
-	Config []HoursOfOperationConfig
+	Config                        []HoursOfOperationConfig
+	ParentHoursOfOperationConfigs []ParentHoursConfig
 }
 
 // UpdateHoursOfOperationInput is the UpdateHoursOfOperation request.
@@ -115,7 +116,13 @@ func (b *Backend) CreateHoursOfOperation(ctx context.Context, in *CreateHoursOfO
 		return nil, duplicateErr("HoursOfOperation", in.Name)
 	}
 
+	parents, err := b.checkParentHours(r.Instance.ID, "", in.ParentHoursOfOperationConfigs)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := b.newHours(ctx, r.Instance.ID, in.Name, in.Description, in.TimeZone, in.Config, in.Tags)
+	rec.Parents = parents
 	b.hours.put(rec)
 
 	return &idArnOut{ID: rec.Hours.HoursOfOperationID, Arn: rec.Hours.HoursOfOperationArn}, nil
@@ -149,6 +156,7 @@ func (b *Backend) DescribeHoursOfOperation(inst, id string) (*HoursOfOperation, 
 
 	out := h.Hours
 	out.Tags = cloneTags(out.Tags)
+	out.ParentHoursOfOperations = b.hoursIdentifiers(r.Instance.ID, h.Parents)
 
 	return &out, nil
 }
@@ -252,6 +260,19 @@ func (b *Backend) DeleteHoursOfOperation(inst, id string) (*empty, error) {
 		func(q *queueRec) bool { return q.Queue.HoursOfOperationID == id },
 	) {
 		return nil, inUseErr("HoursOfOperation %q is used by a queue", id)
+	}
+
+	if slices.ContainsFunc(
+		b.hours.in(r.Instance.ID),
+		func(h *hoursRec) bool { return slices.Contains(h.Parents, id) },
+	) {
+		return nil, inUseErr("HoursOfOperation %q is the parent of another schedule", id)
+	}
+
+	for _, o := range b.hoursOverrides.in(r.Instance.ID) {
+		if o.Override.HoursOfOperationID == id {
+			b.hoursOverrides.table.Delete(r.Instance.ID + "/" + o.Override.HoursOfOperationOverrideID)
+		}
 	}
 
 	return nil, b.hours.del(r.Instance.ID, id)
