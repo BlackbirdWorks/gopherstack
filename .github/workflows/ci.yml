@@ -71,18 +71,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -152,18 +152,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -303,18 +303,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -387,18 +387,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -460,18 +460,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -522,18 +522,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -629,18 +629,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -694,18 +694,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -787,18 +787,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -854,18 +854,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -964,18 +964,18 @@ jobs:
           docker-images: false
           swap-storage: false
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -1094,18 +1094,18 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
           fetch-depth: 0
 
-      - name: Use /mnt for Go temp files and build cache
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
-          if mountpoint -q /mnt; then
-            sudo mkdir -p /mnt/gotmp /mnt/gocache
-            sudo chown -R "$(id -u):$(id -g)" /mnt/gotmp /mnt/gocache
-            {
-              echo "GOTMPDIR=/mnt/gotmp"
-              echo "TMPDIR=/mnt/gotmp"
-              echo "GOCACHE=/mnt/gocache"
-            } >> "$GITHUB_ENV"
-          fi
-          df -h / /mnt || true
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
