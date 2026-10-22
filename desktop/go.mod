@@ -9,6 +9,7 @@ require (
 
 require (
 	cloud.google.com/go/artifactregistry v1.26.0 // indirect
+	cloud.google.com/go/cloudbuild v1.30.0 // indirect
 	cloud.google.com/go/cloudtasks v1.20.0 // indirect
 	cloud.google.com/go/firestore v1.26.0 // indirect
 	cloud.google.com/go/functions v1.26.0 // indirect

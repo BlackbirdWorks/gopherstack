@@ -3145,6 +3145,7 @@
       "armSnapshot.RegisteredProviders map[string]map[string]bool `json:\"registeredProviders\"`",
       "armSnapshot.ResourceGroups map[string]*ResourceGroup `json:\"resourceGroups\"`",
       "armSnapshot.Resources map[string]*Resource `json:\"resources\"`",
+      "armSnapshot.SQL *sqlSnapshot `json:\"sql,omitempty\"`",
       "containerRegistrySnapshot.Resources map[string]acrRecord `json:\"resources,omitempty\"`",
       "cosmosAccountRecord.Host string `json:\"host,omitempty\"`",
       "cosmosAccountRecord.Identity any `json:\"identity,omitempty\"`",
@@ -3238,7 +3239,47 @@
       "redisRecord.SKU string `json:\"sku\"`",
       "redisRecord.Tags map[string]string `json:\"tags,omitempty\"`",
       "redisRecord.Zones []any `json:\"zones,omitempty\"`",
-      "redisSnapshot.Caches map[string]*redisRecord `json:\"caches,omitempty\"`"
+      "redisSnapshot.Caches map[string]*redisRecord `json:\"caches,omitempty\"`",
+      "sqlAdmin.Login string `json:\"login\"`",
+      "sqlAdmin.SID string `json:\"sid\"`",
+      "sqlAdmin.TenantID string `json:\"tenantId\"`",
+      "sqlDatabase.Collation string `json:\"collation\"`",
+      "sqlDatabase.CreatedAt time.Time `json:\"createdAt\"`",
+      "sqlDatabase.DatabaseID string `json:\"databaseId\"`",
+      "sqlDatabase.Extra map[string]any `json:\"extra,omitempty\"`",
+      "sqlDatabase.Location string `json:\"location\"`",
+      "sqlDatabase.MaxSize int64 `json:\"maxSize\"`",
+      "sqlDatabase.Name string `json:\"name\"`",
+      "sqlDatabase.PoolID string `json:\"poolId,omitempty\"`",
+      "sqlDatabase.SKU map[string]any `json:\"sku,omitempty\"`",
+      "sqlDatabase.Settings map[string]any `json:\"settings,omitempty\"`",
+      "sqlDatabase.Tags map[string]string `json:\"tags,omitempty\"`",
+      "sqlFirewall.End string `json:\"end\"`",
+      "sqlFirewall.Name string `json:\"name\"`",
+      "sqlFirewall.Start string `json:\"start\"`",
+      "sqlPool.CreatedAt time.Time `json:\"createdAt\"`",
+      "sqlPool.Extra map[string]any `json:\"extra,omitempty\"`",
+      "sqlPool.Location string `json:\"location\"`",
+      "sqlPool.MaxSize int64 `json:\"maxSize\"`",
+      "sqlPool.Name string `json:\"name\"`",
+      "sqlPool.SKU map[string]any `json:\"sku,omitempty\"`",
+      "sqlPool.Tags map[string]string `json:\"tags,omitempty\"`",
+      "sqlServer.Admin *sqlAdmin `json:\"admin,omitempty\"`",
+      "sqlServer.CreatedAt time.Time `json:\"createdAt\"`",
+      "sqlServer.Databases map[string]*sqlDatabase `json:\"databases,omitempty\"`",
+      "sqlServer.Extra map[string]any `json:\"extra,omitempty\"`",
+      "sqlServer.Firewall map[string]sqlFirewall `json:\"firewall,omitempty\"`",
+      "sqlServer.Identity map[string]any `json:\"identity,omitempty\"`",
+      "sqlServer.Location string `json:\"location\"`",
+      "sqlServer.Login string `json:\"login,omitempty\"`",
+      "sqlServer.MinTLS string `json:\"minTls\"`",
+      "sqlServer.Name string `json:\"name\"`",
+      "sqlServer.Pools map[string]*sqlPool `json:\"pools,omitempty\"`",
+      "sqlServer.PublicAccess string `json:\"publicAccess\"`",
+      "sqlServer.ResourceGrp string `json:\"resourceGroup\"`",
+      "sqlServer.Settings map[string]map[string]any `json:\"settings,omitempty\"`",
+      "sqlServer.Tags map[string]string `json:\"tags,omitempty\"`",
+      "sqlSnapshot.Servers map[string]*sqlServer `json:\"servers,omitempty\"`"
     ],
     "version": 1
   },
@@ -3572,6 +3613,18 @@
       "storedTopic.CreatedAt time.Time",
       "storedTopic.Name string",
       "storedTopic.Subscriptions map[string]*storedSubscription"
+    ],
+    "version": 1
+  },
+  "azuresql": {
+    "fields": [
+      "Database.Collation string `json:\"collation,omitempty\"`",
+      "Database.Name string `json:\"name\"`",
+      "Spec.AdminLogin string `json:\"adminLogin\"`",
+      "Spec.AdminPassword string `json:\"adminPassword\"`",
+      "backendSnapshot.Servers map[string]serverSnap `json:\"servers\"`",
+      "serverSnap.Databases []Database `json:\"databases,omitempty\"`",
+      "serverSnap.Spec Spec `json:\"spec\"`"
     ],
     "version": 1
   },
@@ -14937,6 +14990,18 @@
       "tableRef.DatasetID string `json:\"datasetId\"`",
       "tableRef.ProjectID string `json:\"projectId\"`",
       "tableRef.TableID string `json:\"tableId\"`"
+    ],
+    "version": 1
+  },
+  "gcpcloudbuild": {
+    "fields": [
+      "backendSnapshot.Builds map[string]buildSnap `json:\"builds\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "backendSnapshot.Pools map[string]json.RawMessage `json:\"workerPools\"`",
+      "backendSnapshot.Triggers map[string]json.RawMessage `json:\"triggers\"`",
+      "buildSnap.Build json.RawMessage `json:\"build\"`",
+      "buildSnap.OpName string `json:\"opName\"`",
+      "buildSnap.Orig json.RawMessage `json:\"orig\"`"
     ],
     "version": 1
   },

@@ -10,6 +10,8 @@ cloud.google.com/go/auth/oauth2adapt v0.2.8 h1:keo8NaayQZ6wimpNSmW5OPc283g65QNIi
 cloud.google.com/go/auth/oauth2adapt v0.2.8/go.mod h1:XQ9y31RkqZCcwJWNSx2Xvric3RrU88hAYYbjDWYDL+c=
 cloud.google.com/go/bigquery v1.85.0 h1:zsFsa8jOVkU4c7CWE1cbrfsemtNbM3YRUmtFRYXYN58=
 cloud.google.com/go/bigquery v1.85.0/go.mod h1:oBma1P5/b1Jtd8xRLKoyTeNIMlACGHbSMLudzxHGHgc=
+cloud.google.com/go/cloudbuild v1.30.0 h1:iOvtaQAcMmdLJaseR6qV76RgFHAAwZlwbpHwWMTqIdo=
+cloud.google.com/go/cloudbuild v1.30.0/go.mod h1:rg52xEmndQQPiC9NV/8sCaVtKxHMU9D9MeU+oE9VGKA=
 cloud.google.com/go/cloudtasks v1.20.0 h1:v0xfHn7t84PVRr2LrflMVqunBG/keh0CmcWpGYICftA=
 cloud.google.com/go/cloudtasks v1.20.0/go.mod h1:qhHo3AHGV3EDX8OpVR+dEI8tRt/tnWSWAoYE5LlABJk=
 cloud.google.com/go/compute v1.63.0 h1:KsBourH0wajM4RhzwPwRMKbxHVdvzGsk7StvACoWXD8=
@@ -73,6 +75,8 @@ github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armconta
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry v1.2.0/go.mod h1:E7ltexgRDmeJ0fJWv0D/HLwY2xbDdN+uv+X2uZtOx3w=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3 v3.3.0 h1:EkL5dmUoy1OlzVfsbkcHayOvOJgheyRYL3wM/RHizzg=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3 v3.3.0/go.mod h1:DiazWkJHUUKUZGpIdV7JhDTjebBxdfsJ386dE5w7G3o=
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/sql/armsql v1.2.0 h1:S087deZ0kP1RUg4pU7w9U9xpUedTCbOtz+mnd0+hrkQ=
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/sql/armsql v1.2.0/go.mod h1:B4cEyXrWBmbfMDAPnpJ1di7MAt5DKP57jPEObAvZChg=
 github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azcertificates v1.5.0 h1:15MiSirdxWpIKFEHwfwfMWYieETCUnPTERPIlnytQeo=
 github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azcertificates v1.5.0/go.mod h1:0AAf/fHAqhIsvD6XGKlCsDO8u+cCiYBBuro+lWS6os4=
 github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.5.0 h1:MaKvxE6D0KkjOg6Wd9M00iqP5PR0kUxCfiezes4JweM=

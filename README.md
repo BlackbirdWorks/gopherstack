@@ -884,6 +884,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 9 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
+| [Azure SQL Database](services/azuresql/README.md) | B | 14 | 11 gaps |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 14 | 4 gaps; 3 deferred |
 
@@ -893,6 +894,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 23 | 10 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
+| [Cloud Build](services/gcpcloudbuild/README.md) | B | 19 | 12 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 40 | 7 gaps |
