@@ -86,6 +86,9 @@ const (
 	// hostPortAppConfig is services/azureappconfig's published HTTPS port;
 	// AZURE_ARM_ADVERTISE_APPCONFIG_ENDPOINT points ARM's store endpoints at it.
 	hostPortAppConfig = "18008"
+	// hostPortACR is services/azurecontainerregistry's published HTTP port;
+	// AZURE_ARM_ADVERTISE_ACR_ENDPOINT points ARM's loginServer at it.
+	hostPortACR = "18011"
 )
 
 // containerCertPath/containerKeyPath are where the stable dev certificate
@@ -280,6 +283,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 			"5673/tcp",
 			"10007/tcp",
 			"10008/tcp",
+			"10011/tcp",
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = mustFixedPortMap(map[string]string{
@@ -294,6 +298,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 				"5673/tcp":  hostPortEventHubsAMQP,
 				"10007/tcp": hostPortEventGrid,
 				"10008/tcp": hostPortAppConfig,
+				"10011/tcp": hostPortACR,
 			})
 		},
 		// M8: services/azurearm's advertiseVHostEndpoint (rp_storage.go)
@@ -337,9 +342,12 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 			"AZURE_ARM_ADVERTISE_EVENTHUB_ENDPOINT":   "localhost:" + hostPortEventHubsAMQP,
 			"AZURE_ARM_ADVERTISE_EVENTGRID_ENDPOINT":  "localhost:" + hostPortEventGrid,
 			"AZURE_ARM_ADVERTISE_APPCONFIG_ENDPOINT":  "azconfig.localhost:" + hostPortAppConfig,
+			"AZURE_ARM_ADVERTISE_ACR_ENDPOINT":        "azurecr.localhost:" + hostPortACR,
 			"AZURE_APPCONFIG_TLS_CERT":                containerCertPath,
 			"AZURE_APPCONFIG_TLS_KEY":                 containerKeyPath,
 			"AZURE_APPCONFIG_VALIDATE_HMAC":           "true",
+			"AZURE_REDIS_TLS_CERT":                    containerCertPath,
+			"AZURE_REDIS_TLS_KEY":                     containerKeyPath,
 			"AZURE_EVENTGRID_TLS_CERT":                containerCertPath,
 			"AZURE_EVENTGRID_TLS_KEY":                 containerKeyPath,
 			"COSMOSDB_VALIDATE_AUTH":                  "true",

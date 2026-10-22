@@ -57,63 +57,82 @@ func (s *Server) addServices(srv *grpc.Server) {
 
 func (s *Server) addService(svc protoreflect.ServiceDescriptor) {
 	for i := range svc.Methods().Len() {
-		md := svc.Methods().Get(i)
-		if md.IsStreamingClient() {
-			continue
+		s.addMethod(svc, svc.Methods().Get(i))
+	}
+}
+
+func (s *Server) addMethod(svc protoreflect.ServiceDescriptor, md protoreflect.MethodDescriptor) {
+	rule := httpRule(md)
+	if md.IsStreamingClient() || rule == nil {
+		return
+	}
+
+	t := &target{
+		in: md.Input(), out: md.Output(), stream: md.IsStreamingServer(),
+		full: "/" + string(svc.FullName()) + "/" + string(md.Name()),
+	}
+
+	for _, r := range append([]*annotations.HttpRule{rule}, rule.GetAdditionalBindings()...) {
+		if rt := newRoute(r, t); rt != nil {
+			s.routes = append(s.routes, rt)
 		}
 
-		rule := httpRule(md)
-		if rule == nil {
-			continue
+		if svc.FullName() == lroService {
+			s.addScopedOperations(r, t)
 		}
+	}
+}
 
-		t := &target{
-			in: md.Input(), out: md.Output(), stream: md.IsStreamingServer(),
-			full: "/" + string(svc.FullName()) + "/" + string(md.Name()),
-		}
-
-		for _, r := range append([]*annotations.HttpRule{rule}, rule.GetAdditionalBindings()...) {
-			if rt := newRoute(r, t); rt != nil {
-				s.routes = append(s.routes, rt)
-			}
-
-			if svc.FullName() == lroService {
-				if rt := newRoute(scopedOperationRule(r), t); rt != nil {
-					s.routes = append(s.routes, rt)
-				}
-			}
+func (s *Server) addScopedOperations(r *annotations.HttpRule, t *target) {
+	for _, sr := range scopedOperationRules(r) {
+		if rt := newRoute(sr, t); rt != nil {
+			s.routes = append(s.routes, rt)
 		}
 	}
 }
 
 const lroService = "google.longrunning.Operations"
 
-// scopedOperationRule rewrites a google.longrunning.Operations rule onto the resource-scoped operation names
-// (projects/*/locations/*/operations/*, any API version) that Google APIs bind through their service config
-// rather than their protos. A rule with no such form comes back empty.
-func scopedOperationRule(r *annotations.HttpRule) *annotations.HttpRule {
+// operationScopes are the parent resources whose operations Google APIs bind through their service config
+// rather than their protos.
+var operationScopes = []string{ //nolint:gochecknoglobals // immutable catalog
+	"projects/*/locations/*",
+	"projects/*/instances/*",
+	"projects/*/instances/*/databases/*",
+	"projects/*/instances/*/backups/*",
+	"projects/*/instanceConfigs/*",
+}
+
+// scopedOperationRules rewrites a google.longrunning.Operations rule onto the resource-scoped operation names
+// of operationScopes (any API version). A rule with no such form yields none.
+func scopedOperationRules(r *annotations.HttpRule) []*annotations.HttpRule {
 	method, path := ruleVerb(r)
+	out := make([]*annotations.HttpRule, 0, len(operationScopes))
 
-	scoped := strings.Replace(path, "/v1/{name=operations/**}", "/*/{name=projects/*/locations/*/operations/*}", 1)
-	if scoped == path {
-		scoped = strings.Replace(path, "/v1/{name=operations}", "/*/{name=projects/*/locations/*}/operations", 1)
-	}
+	for _, scope := range operationScopes {
+		scoped := strings.Replace(path, "/v1/{name=operations/**}", "/*/{name="+scope+"/operations/*}", 1)
+		if scoped == path {
+			scoped = strings.Replace(path, "/v1/{name=operations}", "/*/{name="+scope+"}/operations", 1)
+		}
 
-	if scoped == path {
-		return &annotations.HttpRule{}
-	}
+		if scoped == path {
+			return nil
+		}
 
-	out := &annotations.HttpRule{Body: r.GetBody(), ResponseBody: r.GetResponseBody()}
+		rule := &annotations.HttpRule{Body: r.GetBody(), ResponseBody: r.GetResponseBody()}
 
-	switch method {
-	case http.MethodGet:
-		out.Pattern = &annotations.HttpRule_Get{Get: scoped}
-	case http.MethodDelete:
-		out.Pattern = &annotations.HttpRule_Delete{Delete: scoped}
-	case http.MethodPost:
-		out.Pattern = &annotations.HttpRule_Post{Post: scoped}
-	default:
-		return &annotations.HttpRule{}
+		switch method {
+		case http.MethodGet:
+			rule.Pattern = &annotations.HttpRule_Get{Get: scoped}
+		case http.MethodDelete:
+			rule.Pattern = &annotations.HttpRule_Delete{Delete: scoped}
+		case http.MethodPost:
+			rule.Pattern = &annotations.HttpRule_Post{Post: scoped}
+		default:
+			return nil
+		}
+
+		out = append(out, rule)
 	}
 
 	return out

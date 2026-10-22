@@ -443,6 +443,14 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(containerRegistryRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(redisRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(armResourceRoutes, h, c, segs); handled {
 		return err
 	}

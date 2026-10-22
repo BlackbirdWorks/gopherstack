@@ -163,6 +163,19 @@ func (r *Registry) SetAppConfig(a AppConfig) {
 	}
 }
 
+// SetContainerRegistries gives the registered Microsoft.ContainerRegistry provider (if any) a real data-plane
+// adapter, replacing its no-op default.
+func (r *Registry) SetContainerRegistries(c ContainerRegistries) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftContainerRegistry)
+	if !ok {
+		return
+	}
+
+	if cp, cpOk := p.(*ContainerRegistryProvider); cpOk {
+		cp.dataPlane = c
+	}
+}
+
 // SetKeyVaults gives the registered Microsoft.KeyVault provider (if any) a
 // real KeyVaults adapter, replacing its no-op default.
 func (r *Registry) SetKeyVaults(k KeyVaults) {

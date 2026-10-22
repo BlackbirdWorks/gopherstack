@@ -186,6 +186,13 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		Port:     settings.AppConfigPort,
 	}, nil))
 
+	registry.Register(NewContainerRegistryProvider(ContainerRegistryEndpointConfig{
+		Override: settings.AdvertiseACR,
+		Port:     settings.ACRPort,
+	}, nil))
+
+	registry.Register(NewRedisProvider(nil))
+
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
 	issuer, err := aadauth.NewIssuer()

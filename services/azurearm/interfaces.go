@@ -399,3 +399,48 @@ func (noopAppConfig) DeleteKeyValue(string, string, string) error { return nil }
 func (noopAppConfig) ListKeyValues(string) ([]AppConfigKV, error) { return nil, nil }
 
 var _ AppConfig = noopAppConfig{}
+
+// ContainerRegistryInfo is the data plane's view of a registry.
+type ContainerRegistryInfo struct {
+	CreatedAt    time.Time
+	AdminEnabled bool
+}
+
+// ContainerRegistryCredentials are a registry's admin-user credentials.
+type ContainerRegistryCredentials struct {
+	Username  string
+	Password  string
+	Password2 string
+}
+
+// ContainerRegistries is the seam the Microsoft.ContainerRegistry resource provider uses to keep the registry
+// data plane in step with ARM. Primitive types only, so this package never imports the data-plane service.
+type ContainerRegistries interface {
+	PutRegistry(name string, adminEnabled bool) (ContainerRegistryInfo, error)
+	RegistryInfo(name string) (ContainerRegistryInfo, bool)
+	DeleteRegistry(name string) error
+	Credentials(name string) (ContainerRegistryCredentials, error)
+	RegenerateCredential(name, which string) (ContainerRegistryCredentials, error)
+}
+
+type noopContainerRegistries struct{}
+
+func (noopContainerRegistries) PutRegistry(string, bool) (ContainerRegistryInfo, error) {
+	return ContainerRegistryInfo{}, ErrACRUnavailable
+}
+
+func (noopContainerRegistries) RegistryInfo(string) (ContainerRegistryInfo, bool) {
+	return ContainerRegistryInfo{}, false
+}
+
+func (noopContainerRegistries) DeleteRegistry(string) error { return nil }
+
+func (noopContainerRegistries) Credentials(string) (ContainerRegistryCredentials, error) {
+	return ContainerRegistryCredentials{}, ErrACRUnavailable
+}
+
+func (noopContainerRegistries) RegenerateCredential(string, string) (ContainerRegistryCredentials, error) {
+	return ContainerRegistryCredentials{}, ErrACRUnavailable
+}
+
+var _ ContainerRegistries = noopContainerRegistries{}

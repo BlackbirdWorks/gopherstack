@@ -100,10 +100,12 @@ import (
 	azureappconfigbackend "github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azureacrbackend "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
+	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azurestoragevhostbackend "github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
@@ -170,6 +172,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -183,6 +186,7 @@ import (
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	gcpspannerbackend "github.com/blackbirdworks/gopherstack/services/gcpspanner"
 	gcpsqlbackend "github.com/blackbirdworks/gopherstack/services/gcpsql"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
@@ -572,8 +576,12 @@ type CLI struct {
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	AzureAppConfig                azureappconfigbackend.Settings    `embed:"" prefix:"azure-appconfig-"`
+	AzureACR                      azureacrbackend.Settings          `embed:"" prefix:"azure-acr-"`
+	AzureRedis                    azureredisbackend.Settings        `embed:"" prefix:"azure-redis-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
+	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
+	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
 	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
@@ -733,6 +741,9 @@ func (c *CLI) GetGCPMonitoringSettings() gcpmonitoringbackend.Settings { return 
 // GetGCPRedisSettings returns Google Memorystore for Redis settings (gcpredis.ConfigProvider).
 func (c *CLI) GetGCPRedisSettings() gcpredisbackend.Settings { return c.GCPRedis }
 
+// GetGCPSpannerSettings returns Google Cloud Spanner settings (gcpspanner.ConfigProvider).
+func (c *CLI) GetGCPSpannerSettings() gcpspannerbackend.Settings { return c.GCPSpanner }
+
 // GetGCPSQLSettings returns Google Cloud SQL settings (gcpsql.ConfigProvider).
 func (c *CLI) GetGCPSQLSettings() gcpsqlbackend.Settings { return c.GCPSQL }
 
@@ -774,6 +785,9 @@ func (c *CLI) GetCosmosDBSettings() cosmosdbbackend.Settings {
 func (c *CLI) GetAzureAppConfigSettings() azureappconfigbackend.Settings {
 	return c.AzureAppConfig
 }
+
+// GetAzureRedisSettings returns Azure Cache for Redis settings (azureredis.ConfigProvider).
+func (c *CLI) GetAzureRedisSettings() azureredisbackend.Settings { return c.AzureRedis }
 
 // GetAzureEventGridSettings returns Azure Event Grid settings
 // (azureeventgrid.ConfigProvider).
@@ -2376,9 +2390,11 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPFunctionsIngress", "gcpfunctions-ingress", cli.GCPFunctions.IngressPort},
 		{"GCPBigQuery", "gcpbigquery", cli.GCPBigQuery.Port},
 		{"GCPSQL", "gcpsql", cli.GCPSQL.Port},
+		{"GCPSpanner", "gcpspanner", cli.GCPSpanner.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
+		{"GCPArtifactRegistry", "gcpartifactregistry", cli.GCPArtifactRegistry.Port},
 		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
@@ -2393,6 +2409,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventHubsAMQPTLS", "azureeventhubs-amqp-tls", cli.AzureEventHubs.AMQPTLSPort},
 		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
 		{"AzureAppConfig", "azureappconfig", cli.AzureAppConfig.Port},
+		{"AzureContainerRegistry", "azurecontainerregistry", cli.AzureACR.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 	}
@@ -3547,6 +3564,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireGCPLogging(byName)
 	wireGCPMonitoring(byName)
 	wireGCPRedis(byName)
+	wireAzureRedis(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4766,7 +4784,8 @@ func getNewestServiceProviders() []service.Provider {
 	}, getMostRecentServiceProviders()...)
 }
 
-func getMostRecentServiceProviders() []service.Provider {
+// getLeadingRecentServiceProviders returns the first part of the most recent providers, up to and including Azure ARM.
+func getLeadingRecentServiceProviders() []service.Provider {
 	return []service.Provider{
 		&azureblobbackend.Provider{},
 		&azurequeuebackend.Provider{},
@@ -4775,6 +4794,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azureeventhubsbackend.Provider{},
 		&azureeventgridbackend.Provider{},
 		&azureappconfigbackend.Provider{},
+		&azureacrbackend.Provider{},
+		&azureredisbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
 		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},
@@ -4788,12 +4809,19 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpfunctionsbackend.Provider{},
 		&gcpbigquerybackend.Provider{},
 		&gcpsqlbackend.Provider{},
+		&gcpspannerbackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
+		&gcparbackend.Provider{},
 		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},
+	}
+}
+
+func getMostRecentServiceProviders() []service.Provider {
+	return append(getLeadingRecentServiceProviders(), []service.Provider{
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&codegurureviewerbackend.Provider{},
@@ -4863,7 +4891,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&lightsailbackend.Provider{},
 		&oambackend.Provider{},
 		&servicequotasbackend.Provider{},
-	}
+	}...)
 }
 
 // startPurgeWorker runs the auto-purge ticker loop.

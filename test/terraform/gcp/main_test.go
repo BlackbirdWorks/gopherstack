@@ -44,6 +44,10 @@ const (
 	hostRedisPort           = "18133"
 	containerMonitoringPort = "8132/tcp"
 	hostMonitoringPort      = "18132"
+	containerSpannerPort    = "8135/tcp"
+	hostSpannerPort         = "18135"
+	containerArtifactPort   = "8134/tcp"
+	hostArtifactPort        = "18134"
 
 	containerPubSubPort   = "8085/tcp"
 	containerSecretsPort  = "8086/tcp"
@@ -75,6 +79,8 @@ var (
 	loggingEndpoint    = "http://localhost:" + hostLoggingPort + "/v2/"
 	redisEndpoint      = "http://localhost:" + hostRedisPort + "/v1/"
 	monitoringEndpoint = "http://localhost:" + hostMonitoringPort + "/"
+	spannerEndpoint    = "http://localhost:" + hostSpannerPort + "/v1/"
+	artifactEndpoint   = "http://localhost:" + hostArtifactPort + "/v1/"
 )
 
 func TestMain(m *testing.M) {
@@ -182,7 +188,8 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 		ExposedPorts: []string{
 			containerStoragePort, containerBigQueryPort, containerPubSubPort, containerSecretsPort,
 			containerKMSPort, containerTasksPort, containerSchedulePort, containerSQLPort,
-			containerLoggingPort, containerRedisPort, containerMonitoringPort,
+			containerLoggingPort, containerRedisPort, containerMonitoringPort, containerSpannerPort,
+			containerArtifactPort,
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = fixedPortMap(map[string]string{
@@ -197,6 +204,8 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 				containerLoggingPort:    hostLoggingPort,
 				containerRedisPort:      hostRedisPort,
 				containerMonitoringPort: hostMonitoringPort,
+				containerSpannerPort:    hostSpannerPort,
+				containerArtifactPort:   hostArtifactPort,
 			})
 		},
 		WaitingFor: wait.ForAll(
@@ -211,6 +220,8 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 			wait.ForListeningPort(containerLoggingPort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerRedisPort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerMonitoringPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerSpannerPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerArtifactPort).WithStartupTimeout(60*time.Second),
 		),
 	}
 

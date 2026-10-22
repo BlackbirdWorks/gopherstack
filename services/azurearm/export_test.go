@@ -3,6 +3,7 @@ package azurearm
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -129,3 +130,57 @@ func EscapeKVName(key, label string) string {
 
 // DecodeKVName splits an ARM key-value name into key and label.
 func DecodeKVName(name string) (string, string, error) { return decodeKVName(name) }
+
+// NewTestHandlerWithContainerRegistry builds a Handler with a Microsoft.ContainerRegistry provider over dataPlane.
+func NewTestHandlerWithContainerRegistry(dataPlane ContainerRegistries, settings Settings) *Handler {
+	backend := NewInMemoryBackend()
+	registry := NewRegistry(backend)
+	registry.Register(NewContainerRegistryProvider(ContainerRegistryEndpointConfig{Override: settings.AdvertiseACR}, dataPlane))
+
+	return NewHandler(backend, registry, nil, settings)
+}
+
+// ContainerRegistrySnapshotJSON marshals the provider's ARM-side snapshot.
+func ContainerRegistrySnapshotJSON(p *ContainerRegistryProvider) []byte {
+	b, _ := json.Marshal(p.snapshot())
+
+	return b
+}
+
+// ContainerRegistryRestoreJSON restores a provider from ContainerRegistrySnapshotJSON output.
+func ContainerRegistryRestoreJSON(t *testing.T, p *ContainerRegistryProvider, data []byte) {
+	t.Helper()
+
+	var s containerRegistrySnapshot
+
+	require.NoError(t, json.Unmarshal(data, &s))
+	p.restore(&s)
+}
+
+// NewTestHandlerWithRedis builds a Handler with a Microsoft.Cache provider over dataPlane, reading time from now.
+func NewTestHandlerWithRedis(dataPlane Redis, now func() time.Time) (*Handler, *RedisProvider) {
+	backend := NewInMemoryBackend()
+	registry := NewRegistry(backend)
+	p := NewRedisProvider(dataPlane)
+	p.now = now
+	registry.Register(p)
+
+	return NewHandler(backend, registry, nil, DefaultSettings()), p
+}
+
+// RedisSnapshotJSON marshals the provider's ARM-side snapshot.
+func RedisSnapshotJSON(p *RedisProvider) []byte {
+	b, _ := json.Marshal(p.snapshot())
+
+	return b
+}
+
+// RedisRestoreJSON restores a provider from RedisSnapshotJSON output.
+func RedisRestoreJSON(t *testing.T, p *RedisProvider, data []byte) {
+	t.Helper()
+
+	var s redisSnapshot
+
+	require.NoError(t, json.Unmarshal(data, &s))
+	p.restore(&s)
+}

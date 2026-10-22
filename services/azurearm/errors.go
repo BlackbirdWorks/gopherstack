@@ -45,6 +45,16 @@ var (
 	ErrAppConfigPurgeProtected   = errors.New("azurearm: app configuration store has purge protection enabled")
 	ErrAppConfigUnavailable      = errors.New("azurearm: app configuration data plane is not available")
 
+	ErrACRRegistryNotFound    = errors.New("azurearm: container registry not found")
+	ErrACRReplicationNotFound = errors.New("azurearm: container registry replication not found")
+	ErrACRWebhookNotFound     = errors.New("azurearm: container registry webhook not found")
+	ErrACRNameTaken           = errors.New("azurearm: container registry name is already in use")
+	ErrACRAdminDisabled       = errors.New("azurearm: container registry admin user is not enabled")
+	ErrACRInvalidSKU          = errors.New("azurearm: container registry sku name must be Basic, Standard or Premium")
+	ErrACRPremiumRequired     = errors.New("azurearm: georeplication requires a Premium registry")
+	ErrACRInvalidCredential   = errors.New("azurearm: credential name must be password or password2")
+	ErrACRUnavailable         = errors.New("azurearm: container registry data plane is not available")
+
 	ErrCosmosAccountNotFound    = errors.New("azurearm: cosmos db account not found")
 	ErrCosmosDatabaseNotFound   = errors.New("azurearm: cosmos db database not found")
 	ErrCosmosContainerNotFound  = errors.New("azurearm: cosmos db container not found")

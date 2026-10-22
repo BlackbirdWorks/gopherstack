@@ -6,6 +6,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -37,6 +38,12 @@ func New(srv *grpc.Server, conn *grpc.ClientConn) *Server {
 // connection preface. REST calls reach the handlers through an in-memory pipe, never the network.
 // Stopping srv closes l and the REST server with it.
 func Serve(srv *grpc.Server, l net.Listener) error {
+	return ServeWithFallback(srv, l, nil)
+}
+
+// ServeWithFallback is Serve with one extra HTTP handler: requests under /v2 (the Docker Registry API) go to
+// fallback instead of the REST transcoder. A nil fallback behaves like Serve.
+func ServeWithFallback(srv *grpc.Server, l net.Listener, fallback http.Handler) error {
 	pipe := bufconn.Listen(pipeBuffer)
 
 	conn, err := grpc.NewClient(
@@ -53,10 +60,29 @@ func Serve(srv *grpc.Server, l net.Listener) error {
 
 	go func() { _ = srv.Serve(pipe) }()
 
-	rest := &http.Server{Handler: New(srv, conn).Handler(), ReadHeaderTimeout: readHeaderTimeout}
+	rest := &http.Server{
+		Handler:           withFallback(New(srv, conn).Handler(), fallback),
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
 	sp := newSplitter(l, rest)
 
 	go sp.run()
 
 	return srv.Serve(sp)
+}
+
+func withFallback(rest, fallback http.Handler) http.Handler {
+	if fallback == nil {
+		return rest
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2" || strings.HasPrefix(r.URL.Path, "/v2/") {
+			fallback.ServeHTTP(w, r)
+
+			return
+		}
+
+		rest.ServeHTTP(w, r)
+	})
 }

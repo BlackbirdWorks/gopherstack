@@ -51,34 +51,37 @@ const (
 	AzureARM          = "10006"
 	AzureEventGrid    = "10007"
 	AzureAppConfig    = "10008"
+	AzureACR          = "10011"
 	AzureStorageVHost = "10010"
 	AzureCosmosDB     = "8081"
 )
 
 func gcpPorts() map[string]string {
 	return map[string]string{
-		"storage":       "4443",
-		"firestore":     "8080",
-		"pubsub":        "8085",
-		"secretmanager": "8086",
-		"kms":           "8087",
-		"cloudtasks":    "8123",
-		"scheduler":     "8124",
-		"iam":           "8125",
-		"run":           "8126",
-		"functions":     "8128",
-		"sql":           "8130",
-		"logging":       "8131",
-		"monitoring":    "8132",
-		"redis":         "8133",
-		"bigquery":      "9050",
+		"storage":          "4443",
+		"firestore":        "8080",
+		"pubsub":           "8085",
+		"secretmanager":    "8086",
+		"kms":              "8087",
+		"cloudtasks":       "8123",
+		"scheduler":        "8124",
+		"iam":              "8125",
+		"run":              "8126",
+		"functions":        "8128",
+		"sql":              "8130",
+		"logging":          "8131",
+		"monitoring":       "8132",
+		"redis":            "8133",
+		"artifactregistry": "8134",
+		"spanner":          "8135",
+		"bigquery":         "9050",
 	}
 }
 
 func azurePorts() []string {
 	return []string{
 		AzureBlobPort, AzureQueuePort, AzureTablePort, AzureServiceBus, AzureKeyVault,
-		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureStorageVHost, AzureCosmosDB,
+		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureACR, AzureStorageVHost, AzureCosmosDB,
 	}
 }
 
@@ -250,12 +253,12 @@ func (c *Container) AWSConfig(ctx context.Context) (aws.Config, error) {
 
 // AzureEndpoints returns the base URL (http://host:port, no account path) of
 // every Azure listener, keyed by "blob", "queue", "table", "servicebus",
-// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "storagevhost", "cosmosdb".
+// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "acr", "storagevhost", "cosmosdb".
 func (c *Container) AzureEndpoints(ctx context.Context) (map[string]string, error) {
 	named := map[string]string{
 		"blob": AzureBlobPort, "queue": AzureQueuePort, "table": AzureTablePort,
 		"servicebus": AzureServiceBus, "keyvault": AzureKeyVault, "eventhubs": AzureEventHubs,
-		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig,
+		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "acr": AzureACR,
 		"storagevhost": AzureStorageVHost, "cosmosdb": AzureCosmosDB,
 	}
 	out := make(map[string]string, len(named))

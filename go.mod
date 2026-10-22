@@ -3,6 +3,7 @@ module github.com/blackbirdworks/gopherstack
 go 1.27.0
 
 require (
+	cloud.google.com/go/artifactregistry v1.26.0
 	cloud.google.com/go/bigquery v1.85.0
 	cloud.google.com/go/cloudtasks v1.20.0
 	cloud.google.com/go/firestore v1.26.0
@@ -17,6 +18,7 @@ require (
 	cloud.google.com/go/run v1.23.0
 	cloud.google.com/go/scheduler v1.17.0
 	cloud.google.com/go/secretmanager v1.22.0
+	cloud.google.com/go/spanner v1.95.0
 	cloud.google.com/go/storage v1.65.1
 	connectrpc.com/connect v1.20.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
@@ -27,6 +29,8 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus v1.10.0
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/eventgrid/azeventgrid v1.0.0
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/eventgrid/aznamespaces v1.0.0
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry v1.2.0
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3 v3.3.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azcertificates v1.5.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.5.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.5.0
@@ -299,6 +303,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.2.0 // indirect
 	github.com/Azure/go-amqp v1.5.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
+	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.6.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.33.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.57.0 // indirect

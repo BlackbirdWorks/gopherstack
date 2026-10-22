@@ -339,6 +339,7 @@ func errorProbeUnreachable() map[string]string {
 	return map[string]string{
 		"APIGatewayManagementAPI": "path-routed REST (@connections)",
 		"AzureAppConfig":          "non-AWS",
+		"AzureContainerRegistry":  "non-AWS",
 		"AzureARM":                "non-AWS",
 		"AzureKeyVault":           "non-AWS",
 		"AzureEventGrid":          "non-AWS",
@@ -357,6 +358,9 @@ func errorProbeUnreachable() map[string]string {
 		"GCPLogging":              "non-AWS",
 		"GCPMonitoring":           "non-AWS",
 		"GCPRedis":                "non-AWS",
+		"GCPArtifactRegistry":     "non-AWS",
+		"GCPSpanner":              "non-AWS",
+		"AzureRedis":              "non-AWS",
 		"GCPFirestore":            "non-AWS",
 		"GCPIAM":                  "non-AWS",
 		"Dashboard":               "not an AWS API",

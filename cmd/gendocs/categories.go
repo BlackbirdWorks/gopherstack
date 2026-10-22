@@ -26,7 +26,9 @@ const (
 	slugAzureEventHubs  = "azureeventhubs"
 	slugAzureEventGrid  = "azureeventgrid"
 	slugAzureAppConfig  = "azureappconfig"
+	slugAzureACR        = "azurecontainerregistry"
 	slugCosmosDB        = "cosmosdb"
+	slugAzureRedis      = "azureredis"
 	slugGCPStorage      = "gcpstorage"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
@@ -40,6 +42,8 @@ const (
 	slugGCPLogging      = "gcplogging"
 	slugGCPMonitoring   = "gcpmonitoring"
 	slugGCPRedis        = "gcpredis"
+	slugGCPArtifactReg  = "gcpartifactregistry"
+	slugGCPSpanner      = "gcpspanner"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
 )
@@ -130,13 +134,15 @@ func categoryGroups() []categoryGroup {
 				slugAzureEventHubs,
 				slugAzureEventGrid,
 				slugAzureAppConfig,
+				slugAzureACR,
 				slugCosmosDB,
+				slugAzureRedis,
 			},
 		},
 		{"GCP", []string{
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
 			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery, slugGCPSQL,
-			slugGCPLogging, slugGCPMonitoring, slugGCPRedis,
+			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -212,6 +218,8 @@ func displayNamesA() map[string]string {
 		slugAzureEventHubs:        "Azure Event Hubs",
 		slugAzureEventGrid:        "Azure Event Grid",
 		slugAzureAppConfig:        "Azure App Configuration",
+		slugAzureACR:              "Azure Container Registry",
+		slugAzureRedis:            "Azure Cache for Redis",
 		"backup":                  "Backup",
 		"batch":                   "Batch",
 		"bedrock":                 "Bedrock",
@@ -254,6 +262,8 @@ func displayNamesB() map[string]string {
 		slugGCPLogging:     "Cloud Logging",
 		slugGCPMonitoring:  "Cloud Monitoring",
 		slugGCPRedis:       "Memorystore for Redis",
+		slugGCPArtifactReg: "Artifact Registry",
+		slugGCPSpanner:     "Cloud Spanner",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",
 		"databrew":         "Glue DataBrew",

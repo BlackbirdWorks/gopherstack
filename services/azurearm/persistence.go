@@ -31,13 +31,15 @@ type armSnapshot struct {
 	EventHub            *eventHubSnapshot          `json:"eventHub,omitempty"`
 	EventGrid           *eventGridSnapshot         `json:"eventGrid,omitempty"`
 	AppConfig           *appConfigSnapshot         `json:"appConfig,omitempty"`
+	ContainerRegistry   *containerRegistrySnapshot `json:"containerRegistry,omitempty"`
+	Redis               *redisSnapshot             `json:"redis,omitempty"`
 	Version             int                        `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil, nil, nil, nil, nil))
+	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil, nil, nil, nil, nil, nil))
 }
 
 func (b *InMemoryBackend) snapshotState(
@@ -46,6 +48,7 @@ func (b *InMemoryBackend) snapshotState(
 	eh *eventHubSnapshot,
 	eg *eventGridSnapshot,
 	ac *appConfigSnapshot,
+	cr *containerRegistrySnapshot,
 ) armSnapshot {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
@@ -56,6 +59,7 @@ func (b *InMemoryBackend) snapshotState(
 		EventHub:            eh,
 		EventGrid:           eg,
 		AppConfig:           ac,
+		ContainerRegistry:   cr,
 		Version:             armSnapshotVersion,
 		ResourceGroups:      b.resourceGroups,
 		Resources:           b.resources,
@@ -177,7 +181,17 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		ac = p.snapshot()
 	}
 
-	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv, cosmos, eh, eg, ac))
+	var cr *containerRegistrySnapshot
+	if p, ok := h.containerRegistryProvider(); ok {
+		cr = p.snapshot()
+	}
+
+	st := h.Backend.snapshotState(kv, cosmos, eh, eg, ac, cr)
+	if p, ok := h.redisProvider(); ok {
+		st.Redis = p.snapshot()
+	}
+
+	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
 
 // Restore implements persistence.Persistable.
@@ -205,6 +219,14 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.appConfigProvider(); ok {
 		p.restore(snap.AppConfig)
+	}
+
+	if p, ok := h.containerRegistryProvider(); ok {
+		p.restore(snap.ContainerRegistry)
+	}
+
+	if p, ok := h.redisProvider(); ok {
+		p.restore(snap.Redis)
 	}
 
 	return nil

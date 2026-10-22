@@ -28,6 +28,7 @@ AZURE_PORTS = {
     "arm": 10006,
     "eventgrid": 10007,
     "appconfig": 10008,
+    "acr": 10011,
     "storagevhost": 10010,
     "cosmosdb": 8081,
 }
@@ -47,6 +48,8 @@ GCP_PORTS = {
     "logging": 8131,
     "monitoring": 8132,
     "redis": 8133,
+    "artifactregistry": 8134,
+    "spanner": 8135,
     "bigquery": 9050,
 }
 
