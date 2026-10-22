@@ -25,6 +25,7 @@ const (
 	keyUpdated      = "lastUpdateTime"
 	keyChangeable   = "changeableAttributes"
 	keyDigest       = "digest"
+	keyRegistry     = "registry"
 	keyImageName    = "imageName"
 )
 
@@ -213,7 +214,7 @@ func (h *Handler) acrRepo(w http.ResponseWriter, r *http.Request, reg string, rt
 	switch r.Method {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, map[string]any{
-			"registry": r.Host, keyImageName: rt.repo, keyCreated: stamp(v.Created),
+			keyRegistry: r.Host, keyImageName: rt.repo, keyCreated: stamp(v.Created),
 			keyUpdated: stamp(v.Updated), "manifestCount": v.ManifestCount, "tagCount": v.TagCount,
 			keyChangeable: wireAttrs(v.Attrs),
 		})
@@ -343,7 +344,7 @@ func (h *Handler) listTags(w http.ResponseWriter, r *http.Request, _ string, rt 
 	}
 
 	setNextLink(w, r, p, next)
-	writeJSON(w, http.StatusOK, map[string]any{"registry": r.Host, keyImageName: rt.repo, "tags": items})
+	writeJSON(w, http.StatusOK, map[string]any{keyRegistry: r.Host, keyImageName: rt.repo, "tags": items})
 }
 
 // pageItems applies the last/n cursor over items whose cursor key is key(item), preserving item order.
@@ -390,7 +391,7 @@ func (h *Handler) tagItem(w http.ResponseWriter, r *http.Request, reg string, rt
 
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"registry": r.Host, keyImageName: rt.repo, "tag": tagWire(*found)})
+		writeJSON(w, http.StatusOK, map[string]any{keyRegistry: r.Host, keyImageName: rt.repo, "tag": tagWire(*found)})
 	case http.MethodPatch:
 		h.patchAttrs(w, r, func(p AttrPatch) error { return h.Backend.PatchTag(reg, rt.repo, rt.item, p) })
 	case http.MethodDelete:
@@ -528,7 +529,7 @@ func (h *Handler) listManifests(w http.ResponseWriter, r *http.Request, reg stri
 	}
 
 	setNextLink(w, r, p, next)
-	writeJSON(w, http.StatusOK, map[string]any{"registry": r.Host, keyImageName: rt.repo, "manifests": out})
+	writeJSON(w, http.StatusOK, map[string]any{keyRegistry: r.Host, keyImageName: rt.repo, "manifests": out})
 }
 
 func (h *Handler) manifestItem(w http.ResponseWriter, r *http.Request, reg string, rt acrRoute, list []ManifestView) {
@@ -549,7 +550,7 @@ func (h *Handler) manifestItem(w http.ResponseWriter, r *http.Request, reg strin
 	switch r.Method {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, map[string]any{
-			"registry": r.Host, keyImageName: rt.repo, "manifest": h.describe(r.Context(), reg, rt.repo, *found),
+			keyRegistry: r.Host, keyImageName: rt.repo, "manifest": h.describe(r.Context(), reg, rt.repo, *found),
 		})
 	case http.MethodPatch:
 		h.patchAttrs(w, r, func(p AttrPatch) error { return h.Backend.PatchManifest(reg, rt.repo, rt.item, p) })
