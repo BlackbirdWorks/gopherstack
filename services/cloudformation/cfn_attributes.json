@@ -558,6 +558,22 @@
     "Arn",
     "RuleName"
   ],
+  "AWS::GlobalAccelerator::Accelerator": [
+    "AcceleratorArn",
+    "DnsName",
+    "DualStackDnsName",
+    "Ipv4Addresses",
+    "Ipv6Addresses"
+  ],
+  "AWS::GlobalAccelerator::CrossAccountAttachment": [
+    "AttachmentArn"
+  ],
+  "AWS::GlobalAccelerator::EndpointGroup": [
+    "EndpointGroupArn"
+  ],
+  "AWS::GlobalAccelerator::Listener": [
+    "ListenerArn"
+  ],
   "AWS::Glue::Blueprint": [
     "Arn",
     "CreatedOn",

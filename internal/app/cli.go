@@ -4620,6 +4620,7 @@ func registerCloudFormationAndDashboard(
 	// exist yet when that runs.
 	wireLightsailCloudFormation(byName["Lightsail"], cfnSvc)
 	wireServiceCatalogEngine(byName["ServiceCatalog"], cfnSvc)
+	wireGlobalAcceleratorCloudFormation(byName["GlobalAccelerator"], cfnSvc)
 
 	// Wire CloudFormation -> Organizations so SERVICE_MANAGED StackSets can
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU

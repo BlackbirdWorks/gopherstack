@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	gasdk "github.com/aws/aws-sdk-go-v2/service/globalaccelerator"
 	gatypes "github.com/aws/aws-sdk-go-v2/service/globalaccelerator/types"
 	"github.com/stretchr/testify/assert"
@@ -54,11 +55,16 @@ func TestIntegration_GlobalAccelerator_Lifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	instance, err := createEC2Client(t).RunInstances(ctx, &ec2sdk.RunInstancesInput{
+		ImageId: aws.String("ami-12345678"), MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+
 	group, err := client.CreateEndpointGroup(ctx, &gasdk.CreateEndpointGroupInput{
 		ListenerArn:         listener.Listener.ListenerArn,
 		EndpointGroupRegion: aws.String("us-west-2"),
 		EndpointConfigurations: []gatypes.EndpointConfiguration{
-			{EndpointId: aws.String("i-0123456789abcdef0"), Weight: aws.Int32(100)},
+			{EndpointId: instance.Instances[0].InstanceId, Weight: aws.Int32(100)},
 		},
 	})
 	require.NoError(t, err)

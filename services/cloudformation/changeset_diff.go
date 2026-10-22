@@ -76,7 +76,7 @@ func requiresRecreation(resType, propName string) string {
 		return alwaysIfOneOf(propName, "LogGroupName")
 	}
 
-	return recreateNever
+	return globalAcceleratorRecreation(resType, propName)
 }
 
 // alwaysIfOneOf returns recreateAlways when propName is one of the listed

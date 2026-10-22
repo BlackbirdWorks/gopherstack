@@ -28,6 +28,7 @@ func wireResourceGroupsTaggingSweep7(
 	wireTaggingDataBrew(bk, byName["DataBrew"])
 	wireTaggingKafka(bk, byName["Kafka"])
 	wireTaggingTextract(bk, byName["Textract"])
+	wireTaggingGlobalAccelerator(bk, byName["GlobalAccelerator"])
 }
 
 func toTaggedResources[T ~struct {

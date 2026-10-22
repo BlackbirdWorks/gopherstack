@@ -8,6 +8,10 @@ vi.mock("#lib/aws-client.ts", () => ({
   getGlobalAcceleratorClient: () => ({ send: mockSend }),
 }));
 
+vi.mock("#lib/confirm-dialog.ts", () => ({
+  confirmDestructive: vi.fn().mockResolvedValue(true),
+}));
+
 vi.mock("svelte-sonner", () => ({
   toast: {
     success: vi.fn(),
@@ -189,6 +193,100 @@ describe("GlobalAccelerator Page", () => {
         expect(vi.mocked(toast.error)).toHaveBeenCalled();
       },
       { timeout: 3000 },
+    );
+  });
+
+  it("shows listeners with their endpoint groups and endpoints", async () => {
+    mockSend.mockResolvedValueOnce({
+      Accelerators: [
+        {
+          AcceleratorArn: "arn:abc",
+          Name: "my-accel",
+          Status: "DEPLOYED",
+          Enabled: true,
+          IpAddressType: "DUAL_STACK",
+          DnsName: "a1.awsglobalaccelerator.com",
+          IpSets: [
+            { IpAddressFamily: "IPv4", IpAddresses: ["75.2.0.1"] },
+            { IpAddressFamily: "IPv6", IpAddresses: ["2600:9000:a000::1"] },
+          ],
+        },
+      ],
+    });
+    mockSend.mockResolvedValueOnce({
+      Listeners: [
+        {
+          ListenerArn: "arn:l1",
+          Protocol: "TCP",
+          ClientAffinity: "NONE",
+          PortRanges: [{ FromPort: 80, ToPort: 80 }],
+        },
+        {
+          ListenerArn: "arn:l2",
+          Protocol: "UDP",
+          ClientAffinity: "NONE",
+          PortRanges: [{ FromPort: 53, ToPort: 60 }],
+        },
+      ],
+    });
+    mockSend.mockResolvedValueOnce({
+      EndpointGroups: [
+        {
+          EndpointGroupArn: "arn:g1",
+          EndpointGroupRegion: "us-east-1",
+          TrafficDialPercentage: 100,
+          EndpointDescriptions: [{ EndpointId: "i-0abc", Weight: 128, HealthState: "HEALTHY" }],
+        },
+      ],
+    });
+    mockSend.mockResolvedValueOnce({
+      EndpointGroups: [
+        { EndpointGroupArn: "arn:g2", EndpointGroupRegion: "eu-west-1", EndpointDescriptions: [] },
+      ],
+    });
+
+    render(GlobalAcceleratorPage);
+
+    await waitFor(() => expect(screen.getByText("my-accel")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(screen.getByText("my-accel"));
+
+    await waitFor(() => expect(screen.getByText("i-0abc")).toBeInTheDocument(), { timeout: 3000 });
+    expect(screen.getByText("75.2.0.1")).toBeInTheDocument();
+    expect(screen.getByText("2600:9000:a000::1")).toBeInTheDocument();
+    expect(screen.getByText(/UDP ports 53-60/)).toBeInTheDocument();
+    expect(screen.getByText(/eu-west-1/)).toBeInTheDocument();
+    expect(screen.getByText("No endpoints.")).toBeInTheDocument();
+  });
+
+  it("disables an enabled accelerator before deleting it", async () => {
+    mockSend.mockResolvedValueOnce({
+      Accelerators: [
+        { AcceleratorArn: "arn:abc", Name: "my-accel", Status: "DEPLOYED", Enabled: true },
+      ],
+    });
+    mockSend.mockResolvedValueOnce({ Listeners: [] });
+    mockSend.mockResolvedValue({ Accelerators: [] });
+
+    render(GlobalAcceleratorPage);
+
+    await waitFor(() => expect(screen.getByText("my-accel")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(screen.getByText("my-accel"));
+    await fireEvent.click(await screen.findByLabelText("Delete accelerator"));
+
+    await waitFor(
+      () => {
+        const names = mockSend.mock.calls.map((c) => c[0].constructor.name);
+        expect(names).toContain("DeleteAcceleratorCommand");
+      },
+      { timeout: 3000 },
+    );
+    const names = mockSend.mock.calls.map((c) => c[0].constructor.name);
+    expect(names.indexOf("UpdateAcceleratorCommand")).toBeLessThan(
+      names.indexOf("DeleteAcceleratorCommand"),
     );
   });
 });

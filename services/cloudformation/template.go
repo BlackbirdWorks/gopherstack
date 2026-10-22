@@ -1581,6 +1581,7 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeNMCoreNetwork, resTypeNMVpcAttachment, resTypeNMSiteToSiteVpnAttachment,
 			resTypeNMConnectAttachment, resTypeNMConnectPeer, resTypeNMTransitGatewayPeering,
 			resTypeNMTransitGatewayRouteTableAttach, resTypeNMDirectConnectGatewayAttachment,
+			resTypeGAAccelerator, resTypeGAListener, resTypeGAEndpointGroup, resTypeGAAttachment,
 			directconnectbackend.CFNConnection, directconnectbackend.CFNLag, directconnectbackend.CFNDirectConnectGateway,
 			directconnectbackend.CFNGatewayAssociation, directconnectbackend.CFNPrivateVirtualInterface,
 			directconnectbackend.CFNPublicVirtualInterface, directconnectbackend.CFNTransitVirtualInterface:

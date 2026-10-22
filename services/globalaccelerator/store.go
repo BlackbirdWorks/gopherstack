@@ -23,6 +23,11 @@ type SubnetResolver interface {
 	SubnetCIDR(region, subnetID string) (string, bool)
 }
 
+// EndpointResolver reports whether an ELBv2 load balancer, EC2 instance or EIP allocation exists.
+type EndpointResolver interface {
+	EndpointExists(region, endpointID string) bool
+}
+
 // InMemoryBackend is the Global Accelerator state; one coarse lock guards every table.
 type InMemoryBackend struct {
 	accelerators   *store.Table[Accelerator]
@@ -34,6 +39,7 @@ type InMemoryBackend struct {
 	mu             *lockmetrics.RWMutex
 	now            func() time.Time
 	resolver       SubnetResolver
+	endpoints      EndpointResolver
 	accountID      string
 	region         string
 	seq            int64
@@ -79,6 +85,14 @@ func (b *InMemoryBackend) SetSubnetResolver(r SubnetResolver) {
 	defer b.mu.Unlock()
 
 	b.resolver = r
+}
+
+// SetEndpointResolver wires the ELBv2/EC2 lookup used to verify standard endpoints.
+func (b *InMemoryBackend) SetEndpointResolver(r EndpointResolver) {
+	b.mu.Lock("SetEndpointResolver")
+	defer b.mu.Unlock()
+
+	b.endpoints = r
 }
 
 // Reset clears every table.

@@ -8,21 +8,18 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 56 (56 ok) |
-| Feature families | 7 (7 ok) |
-| Known gaps | 7 |
+| Feature families | 8 (8 ok) |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- EndpointId: endpoint IDs (ALB/NLB ARN, EC2 instance, EIP allocation) are format-checked only, never looked up in the ELB/EC2 backends
 - AccessDeniedException: never raised; no IAM or BYOIP-ownership authorization is modeled
 - TransactionInProgressException: never raised; changes are not gated on an IN_PROGRESS accelerator
 - IpSets.IpAddressDetails: NetworkZone is not emitted, only IpAddresses and IpAddressFamily
 - CreateCrossAccountAttachment: Organizations OU/organization ARN principals are accepted but not expanded to member accounts
-- ResourceGroupsTaggingAPI: accelerator tags are not exposed through the tagging API
-- CloudFormation: AWS::GlobalAccelerator::* resources are not provisioned by the CloudFormation emulator
 
 ### Structural gaps
 

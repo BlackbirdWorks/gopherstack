@@ -36,6 +36,8 @@ func (rc *ResourceCreator) UpdateInPlace(
 		return true, rc.updateSQSQueue(physicalID, props, params, physicalIDs)
 	case resTypeStepFunctionsStateMachine:
 		return true, rc.updateStepFunctionsStateMachine(physicalID, props, params, physicalIDs)
+	case resTypeGAAccelerator, resTypeGAListener, resTypeGAEndpointGroup, resTypeGAAttachment:
+		return true, rc.updateGlobalAcceleratorResource(resourceType, physicalID, props, params, physicalIDs)
 	}
 
 	return false, nil

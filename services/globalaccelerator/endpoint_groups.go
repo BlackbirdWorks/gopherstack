@@ -94,12 +94,18 @@ func (b *InMemoryBackend) newGroupLocked(l *Listener, region string, custom bool
 	}, nil
 }
 
-func (b *InMemoryBackend) buildEndpointsLocked(cfgs []EndpointConfig, existing []Endpoint) ([]Endpoint, error) {
+func (b *InMemoryBackend) buildEndpointsLocked(
+	region string, cfgs []EndpointConfig, existing []Endpoint,
+) ([]Endpoint, error) {
 	out := slices.Clone(existing)
 	now := b.now()
 
 	for _, c := range cfgs {
 		if err := validateEndpointID(c.EndpointID); err != nil {
+			return nil, err
+		}
+
+		if err := b.checkEndpointExistsLocked(region, c); err != nil {
 			return nil, err
 		}
 
@@ -248,7 +254,7 @@ func (b *InMemoryBackend) CreateEndpointGroup(listenerARN string, in EndpointGro
 		return nil, err
 	}
 
-	if g.Endpoints, err = b.buildEndpointsLocked(in.Endpoints, nil); err != nil {
+	if g.Endpoints, err = b.buildEndpointsLocked(g.Region, in.Endpoints, nil); err != nil {
 		return nil, err
 	}
 
@@ -312,7 +318,7 @@ func (b *InMemoryBackend) UpdateEndpointGroup(arn string, in EndpointGroupInput)
 	}
 
 	if in.Endpoints != nil {
-		next.Endpoints, err = b.replaceEndpointsLocked(g.Endpoints, in.Endpoints)
+		next.Endpoints, err = b.replaceEndpointsLocked(g.Region, g.Endpoints, in.Endpoints)
 		if err != nil {
 			return nil, err
 		}
@@ -325,8 +331,10 @@ func (b *InMemoryBackend) UpdateEndpointGroup(arn string, in EndpointGroupInput)
 }
 
 // replaceEndpointsLocked builds the new member list, keeping AddedAt of members that stay.
-func (b *InMemoryBackend) replaceEndpointsLocked(old []Endpoint, cfgs []EndpointConfig) ([]Endpoint, error) {
-	next, err := b.buildEndpointsLocked(cfgs, nil)
+func (b *InMemoryBackend) replaceEndpointsLocked(
+	region string, old []Endpoint, cfgs []EndpointConfig,
+) ([]Endpoint, error) {
+	next, err := b.buildEndpointsLocked(region, cfgs, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +381,7 @@ func (b *InMemoryBackend) AddEndpoints(arn string, cfgs []EndpointConfig) (*Endp
 		return nil, nil, err
 	}
 
-	next, err := b.buildEndpointsLocked(cfgs, g.Endpoints)
+	next, err := b.buildEndpointsLocked(g.Region, cfgs, g.Endpoints)
 	if err != nil {
 		return nil, nil, err
 	}
