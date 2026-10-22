@@ -58,7 +58,7 @@ func (h *Handler) serveStatus(c *echo.Context, op, wsID string, vals url.Values)
 	case opMetadata:
 		data, err = h.metadataData(ctx, wsID, vals)
 	case opAMAlerts:
-		out, aerr := h.Backend.AlertManagerAlerts(ctx, wsID)
+		out, aerr := h.Backend.alertManagerAlerts(ctx, wsID)
 		if aerr != nil {
 			return h.server.WriteErr(c, aerr)
 		}
@@ -90,7 +90,7 @@ type promParamError string
 func (e promParamError) Error() string { return string(e) }
 
 func (h *Handler) alertsData(ctx context.Context, wsID string) (any, error) {
-	alerts, err := h.Backend.AlertsStatus(ctx, wsID)
+	alerts, err := h.Backend.alertsStatus(ctx, wsID)
 
 	return map[string]any{"alerts": alerts}, err
 }
@@ -101,7 +101,7 @@ func (h *Handler) rulesData(ctx context.Context, wsID string, vals url.Values) (
 		return nil, promParamError("invalid query parameter \"type\"")
 	}
 
-	groups, err := h.Backend.RulesStatus(ctx, wsID)
+	groups, err := h.Backend.rulesStatus(ctx, wsID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (h *Handler) metadataData(ctx context.Context, wsID string, vals url.Values
 		limit = n
 	}
 
-	return h.Backend.Metadata(ctx, wsID, vals.Get("metric"), limit)
+	return h.Backend.metadataFamilies(ctx, wsID, vals.Get("metric"), limit)
 }
 
 type postableAlert struct {

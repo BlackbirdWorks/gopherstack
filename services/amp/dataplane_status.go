@@ -42,8 +42,8 @@ type metadataJSON struct {
 	Unit string `json:"unit"`
 }
 
-// Metadata returns stored metadata by metric family, optionally for one metric and capped at limit families.
-func (b *InMemoryBackend) Metadata(
+// metadataFamilies returns stored metadata by metric family, optionally for one metric and capped at limit families.
+func (b *InMemoryBackend) metadataFamilies(
 	ctx context.Context, wsID, metric string, limit int,
 ) (map[string][]metadataJSON, error) {
 	b.mu.RLock("Metadata")
@@ -188,8 +188,8 @@ func (g *groupRuntime) json() groupJSON {
 	return out
 }
 
-// RulesStatus reports the evaluated rule groups of a workspace.
-func (b *InMemoryBackend) RulesStatus(ctx context.Context, wsID string) ([]groupJSON, error) {
+// rulesStatus reports the evaluated rule groups of a workspace.
+func (b *InMemoryBackend) rulesStatus(ctx context.Context, wsID string) ([]groupJSON, error) {
 	b.mu.RLock("RulesStatus")
 	defer b.mu.RUnlock()
 
@@ -217,9 +217,9 @@ func (b *InMemoryBackend) RulesStatus(ctx context.Context, wsID string) ([]group
 	return out, nil
 }
 
-// AlertsStatus lists the pending and firing alerts of a workspace.
-func (b *InMemoryBackend) AlertsStatus(ctx context.Context, wsID string) ([]alertJSON, error) {
-	groups, err := b.RulesStatus(ctx, wsID)
+// alertsStatus lists the pending and firing alerts of a workspace.
+func (b *InMemoryBackend) alertsStatus(ctx context.Context, wsID string) ([]alertJSON, error) {
+	groups, err := b.rulesStatus(ctx, wsID)
 	if err != nil {
 		return nil, err
 	}
@@ -270,8 +270,8 @@ func (b *InMemoryBackend) managerLocked(sc scope, wsID string) (*alertManager, e
 	return m, nil
 }
 
-// AlertManagerAlerts lists the alerts the workspace's alert manager holds.
-func (b *InMemoryBackend) AlertManagerAlerts(ctx context.Context, wsID string) ([]amAlertJSON, error) {
+// alertManagerAlerts lists the alerts the workspace's alert manager holds.
+func (b *InMemoryBackend) alertManagerAlerts(ctx context.Context, wsID string) ([]amAlertJSON, error) {
 	b.mu.RLock("AlertManagerAlerts")
 	m, err := b.managerLocked(b.scopeOf(ctx), wsID)
 	now := b.now()
