@@ -135,7 +135,9 @@ func DecodeKVName(name string) (string, string, error) { return decodeKVName(nam
 func NewTestHandlerWithContainerRegistry(dataPlane ContainerRegistries, settings Settings) *Handler {
 	backend := NewInMemoryBackend()
 	registry := NewRegistry(backend)
-	registry.Register(NewContainerRegistryProvider(ContainerRegistryEndpointConfig{Override: settings.AdvertiseACR}, dataPlane))
+	registry.Register(NewContainerRegistryProvider(
+		ContainerRegistryEndpointConfig{Override: settings.AdvertiseACR}, dataPlane,
+	))
 
 	return NewHandler(backend, registry, nil, settings)
 }

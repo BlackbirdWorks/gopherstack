@@ -80,7 +80,7 @@ func (p *EventGridProvider) namespaceBody(id ResourceID, rec *storedEG) map[stri
 		fieldProvisioningState: provisioningStateSucceeded,
 		"topicsConfiguration":  map[string]any{"hostname": p.hostPort(rec)},
 		"topicSpacesConfiguration": map[string]any{
-			"state": "Disabled", "hostname": p.hostPort(rec),
+			"state": redisPublicDisabled, "hostname": p.hostPort(rec),
 		},
 	})
 

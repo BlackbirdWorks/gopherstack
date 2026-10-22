@@ -8,8 +8,11 @@ import (
 )
 
 const (
-	acrCredPassword  = "password"
-	acrCredPassword2 = "password2"
+	acrFieldDefaultAction = "defaultAction"
+	acrStatusDisabled     = "disabled"
+	acrRetentionDays      = 7
+	acrCredPassword       = "password"
+	acrCredPassword2      = "password2"
 )
 
 func (p *ContainerRegistryProvider) registryBody(
@@ -20,7 +23,7 @@ func (p *ContainerRegistryProvider) registryBody(
 		"loginServer":          p.loginServer(rec.name, rec.host),
 		"creationDate":         rec.createdAt.UTC().Format(time.RFC3339),
 		acrPropAdmin:           info.AdminEnabled,
-		"status":               map[string]any{"displayStatus": "Ready", "message": "The registry is ready."},
+		acrPropStatus:          map[string]any{"displayStatus": "Ready", fieldMessage: "The registry is ready."},
 	})
 
 	out := map[string]any{
@@ -38,23 +41,23 @@ func (p *ContainerRegistryProvider) registryBody(
 
 func acrDefaultProps() map[string]any {
 	return map[string]any{
-		"networkRuleSet":           map[string]any{"defaultAction": "Allow", "ipRules": []any{}},
+		"networkRuleSet":           map[string]any{acrFieldDefaultAction: "Allow", ehFieldIPRules: []any{}},
 		cosmosFieldPublicNetwork:   kvPublicNetworkEnabled,
 		"networkRuleBypassOptions": "AzureServices",
 		"dataEndpointEnabled":      false,
 		"dataEndpointHostNames":    []any{},
-		"zoneRedundancy":           "Disabled",
+		"zoneRedundancy":           redisPublicDisabled,
 		"anonymousPullEnabled":     false,
-		"encryption":               map[string]any{"status": "disabled"},
+		"encryption":               map[string]any{acrPropStatus: acrStatusDisabled},
 		"policies": map[string]any{
-			"quarantinePolicy": map[string]any{"status": "disabled"},
-			"trustPolicy":      map[string]any{"type": "Notary", "status": "disabled"},
-			"retentionPolicy":  map[string]any{"days": 7, "status": "disabled"},
+			"quarantinePolicy": map[string]any{acrPropStatus: acrStatusDisabled},
+			"trustPolicy":      map[string]any{"type": "Notary", acrPropStatus: acrStatusDisabled},
+			"retentionPolicy":  map[string]any{"days": acrRetentionDays, acrPropStatus: acrStatusDisabled},
 			"exportPolicy":     map[string]any{"status": "enabled"},
 			"azureADAuthenticationAsArmPolicy": map[string]any{
 				"status": "enabled",
 			},
-			"softDeletePolicy": map[string]any{"retentionDays": 7, "status": "disabled"},
+			"softDeletePolicy": map[string]any{"retentionDays": acrRetentionDays, acrPropStatus: acrStatusDisabled},
 		},
 	}
 }
@@ -63,7 +66,7 @@ func (p *ContainerRegistryProvider) childBody(id ResourceID, rec *storedACR) map
 	props := map[string]any{fieldProvisioningState: provisioningStateSucceeded}
 
 	if rec.kind == acrKindReplication {
-		props["status"] = map[string]any{"displayStatus": "Ready", "message": "The replication is ready."}
+		props["status"] = map[string]any{"displayStatus": "Ready", fieldMessage: "The replication is ready."}
 		props["regionEndpointEnabled"] = true
 		props["zoneRedundancy"] = "Disabled"
 	}

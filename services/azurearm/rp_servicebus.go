@@ -528,10 +528,10 @@ func (p *ServiceBusProvider) buildNetworkRuleSetBody(id ResourceID, props map[st
 		fieldName: sbDefaultNetworkRuleSetName,
 		fieldType: namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbNetworkRuleSetType,
 		fieldProperties: map[string]any{
-			"defaultAction":               defaultAction,
+			acrFieldDefaultAction:         defaultAction,
 			"publicNetworkAccess":         publicNetworkAccess,
 			"trustedServiceAccessEnabled": trustedServiceAccessEnabled,
-			"ipRules":                     ipRules,
+			ehFieldIPRules:                ipRules,
 			"virtualNetworkRules":         vnetRules,
 		},
 	}
@@ -959,7 +959,7 @@ func (p *ServiceBusProvider) buildNamespaceBody(id ResourceID, ns *storedSBNames
 		"sku":         sku,
 		fieldProperties: map[string]any{
 			fieldProvisioningState: provisioningStateSucceeded,
-			"status":               "Active",
+			acrPropStatus:          "Active",
 			"serviceBusEndpoint":   advertiseServiceBusEndpoint(p.cfg.Override, ns.host, p.cfg.Port),
 		},
 	}

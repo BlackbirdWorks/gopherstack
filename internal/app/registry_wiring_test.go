@@ -13,7 +13,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -72,59 +71,93 @@ func (s *acrStack) clients(t *testing.T) *armcontainerregistry.ClientFactory {
 	t.Helper()
 
 	f, err := armcontainerregistry.NewClientFactory("00000000-0000-0000-0000-000000000000", staticCredential{},
-		&arm.ClientOptions{ClientOptions: policy.ClientOptions{
+		&arm.ClientOptions{
 			Cloud: cloud.Configuration{Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
 				cloud.ResourceManager: {Endpoint: s.arm.URL, Audience: "https://management.core.windows.net/"},
 			}},
 			Transport: s.arm.Client(),
-			Retry:     policy.RetryOptions{MaxRetries: -1},
-		}})
+			Retry:     policy.RetryOptions{MaxRetries: -1}})
 	require.NoError(t, err)
 
 	return f
 }
 
-func TestAzureContainerRegistryARMSDK(t *testing.T) {
-	t.Parallel()
+type acrFixture struct {
+	*acrStack
+
+	f       *armcontainerregistry.ClientFactory
+	regs    *armcontainerregistry.RegistriesClient
+	created armcontainerregistry.RegistriesClientCreateResponse
+}
+
+func newACRFixture(t *testing.T) *acrFixture {
+	t.Helper()
 
 	s := newACRStack(t)
 	f := s.clients(t)
 	regs := f.NewRegistriesClient()
-	ctx := t.Context()
 
-	create, err := regs.BeginCreate(ctx, "sdk-rg", "sdkregistry", armcontainerregistry.Registry{
-		Location: to.Ptr("local"),
-		SKU:      &armcontainerregistry.SKU{Name: to.Ptr(armcontainerregistry.SKUNamePremium)},
-		Tags:     map[string]*string{"env": to.Ptr("test")},
+	create, err := regs.BeginCreate(t.Context(), "sdk-rg", "sdkregistry", armcontainerregistry.Registry{
+		Location: new("local"),
+		SKU:      &armcontainerregistry.SKU{Name: new(armcontainerregistry.SKUNamePremium)},
+		Tags:     map[string]*string{"env": new("test")},
 		Properties: &armcontainerregistry.RegistryProperties{
-			AdminUserEnabled: to.Ptr(true),
+			AdminUserEnabled: new(true),
 		},
 	}, nil)
 	require.NoError(t, err)
 
-	created, err := create.PollUntilDone(ctx, nil)
+	created, err := create.PollUntilDone(t.Context(), nil)
 	require.NoError(t, err)
-	assert.Equal(t, "sdkregistry", *created.Name)
-	assert.Equal(t, armcontainerregistry.ProvisioningStateSucceeded, *created.Properties.ProvisioningState)
-	assert.Equal(t, "sdkregistry.azurecr.127.0.0.1:10011", *created.Properties.LoginServer)
-	assert.True(t, *created.Properties.AdminUserEnabled)
+
+	return &acrFixture{acrStack: s, f: f, regs: regs, created: created}
+}
+
+func TestAzureContainerRegistryARMSDK(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create", func(t *testing.T) {
+		t.Parallel()
+
+		created := newACRFixture(t).created
+		assert.Equal(t, "sdkregistry", *created.Name)
+		assert.Equal(t, armcontainerregistry.ProvisioningStateSucceeded, *created.Properties.ProvisioningState)
+		assert.Equal(t, "sdkregistry.azurecr.127.0.0.1:10011", *created.Properties.LoginServer)
+		assert.True(t, *created.Properties.AdminUserEnabled)
+	})
 
 	t.Run("credentials", func(t *testing.T) {
+		t.Parallel()
+
+		fx := newACRFixture(t)
+		regs, ctx := fx.regs, t.Context()
+
 		creds, credErr := regs.ListCredentials(ctx, "sdk-rg", "sdkregistry", nil)
 		require.NoError(t, credErr)
 		assert.Equal(t, "sdkregistry", *creds.Username)
 		require.Len(t, creds.Passwords, 2)
 		assert.Equal(t, armcontainerregistry.PasswordNamePassword, *creds.Passwords[0].Name)
 
-		next, regErr := regs.RegenerateCredential(ctx, "sdk-rg", "sdkregistry", armcontainerregistry.RegenerateCredentialParameters{
-			Name: to.Ptr(armcontainerregistry.PasswordNamePassword),
-		}, nil)
+		next, regErr := regs.RegenerateCredential(
+			ctx,
+			"sdk-rg",
+			"sdkregistry",
+			armcontainerregistry.RegenerateCredentialParameters{
+				Name: new(armcontainerregistry.PasswordNamePassword),
+			},
+			nil,
+		)
 		require.NoError(t, regErr)
 		assert.NotEqual(t, *creds.Passwords[0].Value, *next.Passwords[0].Value)
 		assert.Equal(t, *creds.Passwords[1].Value, *next.Passwords[1].Value)
 	})
 
 	t.Run("data plane push and pull with the admin credentials", func(t *testing.T) {
+		t.Parallel()
+
+		fx := newACRFixture(t)
+		s, regs, ctx := fx.acrStack, fx.regs, t.Context()
+
 		creds, credErr := regs.ListCredentials(ctx, "sdk-rg", "sdkregistry", nil)
 		require.NoError(t, credErr)
 
@@ -148,9 +181,14 @@ func TestAzureContainerRegistryARMSDK(t *testing.T) {
 	})
 
 	t.Run("update", func(t *testing.T) {
+		t.Parallel()
+
+		fx := newACRFixture(t)
+		s, regs, ctx := fx.acrStack, fx.regs, t.Context()
+
 		upd, updErr := regs.BeginUpdate(ctx, "sdk-rg", "sdkregistry", armcontainerregistry.RegistryUpdateParameters{
-			Tags:       map[string]*string{"env": to.Ptr("prod")},
-			Properties: &armcontainerregistry.RegistryPropertiesUpdateParameters{AdminUserEnabled: to.Ptr(false)},
+			Tags:       map[string]*string{"env": new("prod")},
+			Properties: &armcontainerregistry.RegistryPropertiesUpdateParameters{AdminUserEnabled: new(false)},
 		}, nil)
 		require.NoError(t, updErr)
 
@@ -167,22 +205,32 @@ func TestAzureContainerRegistryARMSDK(t *testing.T) {
 	})
 
 	t.Run("name availability", func(t *testing.T) {
+		t.Parallel()
+
+		fx := newACRFixture(t)
+		regs, ctx := fx.regs, t.Context()
+
 		taken, nameErr := regs.CheckNameAvailability(ctx, armcontainerregistry.RegistryNameCheckRequest{
-			Name: to.Ptr("sdkregistry"), Type: to.Ptr("Microsoft.ContainerRegistry/registries"),
+			Name: new("sdkregistry"), Type: new("Microsoft.ContainerRegistry/registries"),
 		}, nil)
 		require.NoError(t, nameErr)
 		assert.False(t, *taken.NameAvailable)
 
 		free, nameErr := regs.CheckNameAvailability(ctx, armcontainerregistry.RegistryNameCheckRequest{
-			Name: to.Ptr("freeregistry"), Type: to.Ptr("Microsoft.ContainerRegistry/registries"),
+			Name: new("freeregistry"), Type: new("Microsoft.ContainerRegistry/registries"),
 		}, nil)
 		require.NoError(t, nameErr)
 		assert.True(t, *free.NameAvailable)
 	})
 
 	t.Run("replications and webhooks", func(t *testing.T) {
+		t.Parallel()
+
+		fx := newACRFixture(t)
+		f, ctx := fx.f, t.Context()
+
 		rep, repErr := f.NewReplicationsClient().BeginCreate(ctx, "sdk-rg", "sdkregistry", "westus",
-			armcontainerregistry.Replication{Location: to.Ptr("westus")}, nil)
+			armcontainerregistry.Replication{Location: new("westus")}, nil)
 		require.NoError(t, repErr)
 
 		_, repErr = rep.PollUntilDone(ctx, nil)
@@ -190,10 +238,10 @@ func TestAzureContainerRegistryARMSDK(t *testing.T) {
 
 		hook, hookErr := f.NewWebhooksClient().BeginCreate(ctx, "sdk-rg", "sdkregistry", "deployhook",
 			armcontainerregistry.WebhookCreateParameters{
-				Location: to.Ptr("local"),
+				Location: new("local"),
 				Properties: &armcontainerregistry.WebhookPropertiesCreateParameters{
-					ServiceURI: to.Ptr("https://example.com/hook"),
-					Actions:    []*armcontainerregistry.WebhookAction{to.Ptr(armcontainerregistry.WebhookActionPush)},
+					ServiceURI: new("https://example.com/hook"),
+					Actions:    []*armcontainerregistry.WebhookAction{new(armcontainerregistry.WebhookActionPush)},
 				},
 			}, nil)
 		require.NoError(t, hookErr)
@@ -213,6 +261,11 @@ func TestAzureContainerRegistryARMSDK(t *testing.T) {
 	})
 
 	t.Run("list and delete", func(t *testing.T) {
+		t.Parallel()
+
+		fx := newACRFixture(t)
+		s, regs, ctx := fx.acrStack, fx.regs, t.Context()
+
 		pager := regs.NewListByResourceGroupPager("sdk-rg", nil)
 		page, pageErr := pager.NextPage(ctx)
 		require.NoError(t, pageErr)
@@ -265,11 +318,11 @@ func TestRegistryDataDir(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		persist bool
 		want    string
+		persist bool
 	}{
-		{"off", false, ""},
-		{"on", true, "/data/registries"},
+		{"off", "", false},
+		{"on", "/data/registries", true},
 	}
 
 	for _, tt := range tests {

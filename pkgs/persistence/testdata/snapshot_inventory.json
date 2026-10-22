@@ -3103,6 +3103,18 @@
       "ResourceID.ResourceGroup string",
       "ResourceID.SubscriptionID string",
       "ResourceID.Types []string",
+      "acrRecord.CreatedAt time.Time `json:\"createdAt\"`",
+      "acrRecord.Extra map[string]any `json:\"extra,omitempty\"`",
+      "acrRecord.Host string `json:\"host,omitempty\"`",
+      "acrRecord.Identity map[string]any `json:\"identity,omitempty\"`",
+      "acrRecord.Kind int `json:\"kind\"`",
+      "acrRecord.Location string `json:\"location\"`",
+      "acrRecord.Name string `json:\"name\"`",
+      "acrRecord.Props map[string]any `json:\"props,omitempty\"`",
+      "acrRecord.Registry string `json:\"registry,omitempty\"`",
+      "acrRecord.ResourceGroup string `json:\"resourceGroup\"`",
+      "acrRecord.SKU string `json:\"sku,omitempty\"`",
+      "acrRecord.Tags map[string]string `json:\"tags,omitempty\"`",
       "appConfigDeletedRecord.DeletedAt time.Time `json:\"deletedAt\"`",
       "appConfigDeletedRecord.Location string `json:\"location\"`",
       "appConfigDeletedRecord.Name string `json:\"name\"`",
@@ -3124,13 +3136,16 @@
       "appConfigSnapshot.Deleted map[string]appConfigDeletedRecord `json:\"deleted,omitempty\"`",
       "appConfigSnapshot.Resources map[string]appConfigRecord `json:\"resources,omitempty\"`",
       "armSnapshot.AppConfig *appConfigSnapshot `json:\"appConfig,omitempty\"`",
+      "armSnapshot.ContainerRegistry *containerRegistrySnapshot `json:\"containerRegistry,omitempty\"`",
       "armSnapshot.Cosmos *cosmosSnapshot `json:\"cosmos,omitempty\"`",
       "armSnapshot.EventGrid *eventGridSnapshot `json:\"eventGrid,omitempty\"`",
       "armSnapshot.EventHub *eventHubSnapshot `json:\"eventHub,omitempty\"`",
       "armSnapshot.KeyVault *keyVaultSnapshot `json:\"keyVault,omitempty\"`",
+      "armSnapshot.Redis *redisSnapshot `json:\"redis,omitempty\"`",
       "armSnapshot.RegisteredProviders map[string]map[string]bool `json:\"registeredProviders\"`",
       "armSnapshot.ResourceGroups map[string]*ResourceGroup `json:\"resourceGroups\"`",
       "armSnapshot.Resources map[string]*Resource `json:\"resources\"`",
+      "containerRegistrySnapshot.Resources map[string]acrRecord `json:\"resources,omitempty\"`",
       "cosmosAccountRecord.Host string `json:\"host,omitempty\"`",
       "cosmosAccountRecord.Identity any `json:\"identity,omitempty\"`",
       "cosmosAccountRecord.InstanceID string `json:\"instanceId\"`",
@@ -3196,7 +3211,34 @@
       "keyVaultRecord.Subscription string `json:\"subscription\"`",
       "keyVaultRecord.Tags map[string]string `json:\"tags,omitempty\"`",
       "keyVaultSnapshot.Deleted map[string]deletedKeyVaultRecord `json:\"deleted,omitempty\"`",
-      "keyVaultSnapshot.Vaults map[string]keyVaultRecord `json:\"vaults,omitempty\"`"
+      "keyVaultSnapshot.Vaults map[string]keyVaultRecord `json:\"vaults,omitempty\"`",
+      "redisFirewall.End string `json:\"end\"`",
+      "redisFirewall.Name string `json:\"name\"`",
+      "redisFirewall.Start string `json:\"start\"`",
+      "redisLinked.LinkedID string `json:\"linkedId\"`",
+      "redisLinked.Location string `json:\"location\"`",
+      "redisLinked.Name string `json:\"name\"`",
+      "redisLinked.Role string `json:\"role\"`",
+      "redisRecord.Capacity int `json:\"capacity\"`",
+      "redisRecord.Config map[string]string `json:\"config,omitempty\"`",
+      "redisRecord.CreatedAt time.Time `json:\"createdAt\"`",
+      "redisRecord.Extra map[string]any `json:\"extra,omitempty\"`",
+      "redisRecord.Family string `json:\"family\"`",
+      "redisRecord.Firewall map[string]redisFirewall `json:\"firewall,omitempty\"`",
+      "redisRecord.Identity map[string]any `json:\"identity,omitempty\"`",
+      "redisRecord.Linked map[string]redisLinked `json:\"linked,omitempty\"`",
+      "redisRecord.Location string `json:\"location\"`",
+      "redisRecord.MinTLS string `json:\"minTls\"`",
+      "redisRecord.Name string `json:\"name\"`",
+      "redisRecord.NonSSL bool `json:\"nonSsl,omitempty\"`",
+      "redisRecord.Patch []any `json:\"patch,omitempty\"`",
+      "redisRecord.PublicAccess string `json:\"publicAccess\"`",
+      "redisRecord.ReadyAt time.Time `json:\"readyAt\"`",
+      "redisRecord.ResourceGrp string `json:\"resourceGroup\"`",
+      "redisRecord.SKU string `json:\"sku\"`",
+      "redisRecord.Tags map[string]string `json:\"tags,omitempty\"`",
+      "redisRecord.Zones []any `json:\"zones,omitempty\"`",
+      "redisSnapshot.Caches map[string]*redisRecord `json:\"caches,omitempty\"`"
     ],
     "version": 1
   },
@@ -3230,6 +3272,20 @@
       "storedContainer.Metadata map[string]string",
       "storedContainer.Name string",
       "storedContainer.PublicAccess string"
+    ],
+    "version": 1
+  },
+  "azurecontainerregistry": {
+    "fields": [
+      "backendSnapshot.Registries map[string]*registry `json:\"registries\"`",
+      "registry.Admin bool `json:\"admin\"`",
+      "registry.CreatedAt time.Time `json:\"createdAt\"`",
+      "registry.Name string `json:\"name\"`",
+      "registry.Password1 string `json:\"password1\"`",
+      "registry.Password2 string `json:\"password2\"`",
+      "registry.Repos ociregistry.Ledger `json:\"repos\"`",
+      "registry.app http.Handler",
+      "registry.raw http.Handler"
     ],
     "version": 1
   },
@@ -3444,6 +3500,21 @@
       "storedQueue.Metadata map[string]string `json:\"Metadata,omitempty\"`",
       "storedQueue.Name string",
       "storedQueue.idx queueIndex"
+    ],
+    "version": 1
+  },
+  "azureredis": {
+    "fields": [
+      "Spec.AuthNotRequired bool `json:\"authNotRequired,omitempty\"`",
+      "Spec.EnableNonSSLPort bool `json:\"enableNonSslPort\"`",
+      "Spec.MinTLS string `json:\"minTls\"`",
+      "Spec.Persistence bool `json:\"persistence\"`",
+      "Spec.SKU string `json:\"sku\"`",
+      "backendSnapshot.Caches map[string]cacheSnap `json:\"caches\"`",
+      "cacheSnap.Keyspace []byte `json:\"keyspace,omitempty\"`",
+      "cacheSnap.Primary string `json:\"primary\"`",
+      "cacheSnap.Second string `json:\"secondary\"`",
+      "cacheSnap.Spec Spec `json:\"spec\"`"
     ],
     "version": 1
   },
@@ -14813,6 +14884,16 @@
     ],
     "version": 2
   },
+  "gcpartifactregistry": {
+    "fields": [
+      "backendSnapshot.Ledger ociregistry.Ledger `json:\"ledger\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "backendSnapshot.Repositories map[string]repoSnap `json:\"repositories\"`",
+      "repoSnap.IAM json.RawMessage `json:\"iam,omitempty\"`",
+      "repoSnap.Repository json.RawMessage `json:\"repository\"`"
+    ],
+    "version": 1
+  },
   "gcpbigquery": {
     "fields": [
       "Dataset.Created int64 `json:\"created\"`",
@@ -15086,6 +15167,19 @@
       "secretSnap.Versions []versionSnap `json:\"versions,omitempty\"`",
       "versionSnap.Data []byte `json:\"data,omitempty\"`",
       "versionSnap.Num int64 `json:\"num\"`"
+    ],
+    "version": 1
+  },
+  "gcpspanner": {
+    "fields": [
+      "backendSnapshot.EtagSeq uint64 `json:\"etagSeq\"`",
+      "backendSnapshot.Instances map[string]instSnap `json:\"instances\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "dbSnap.DDL []string `json:\"ddl,omitempty\"`",
+      "dbSnap.Database json.RawMessage `json:\"database\"`",
+      "instSnap.Databases map[string]dbSnap `json:\"databases,omitempty\"`",
+      "instSnap.Instance json.RawMessage `json:\"instance\"`",
+      "instSnap.Policy json.RawMessage `json:\"policy,omitempty\"`"
     ],
     "version": 1
   },

@@ -83,13 +83,13 @@ func (p *AppConfigProvider) CheckName(_ context.Context, name string) map[string
 	case len(name) < acMinName || len(name) > acMaxName || !acNameChars(name):
 		return map[string]any{
 			acFieldAvailable: false, acFieldReason: "Invalid",
-			"message": "The name must be 5 to 50 characters of letters, digits and hyphens.",
+			fieldMessage: "The name must be 5 to 50 characters of letters, digits and hyphens.",
 		}
 	case p.nameInUse(name):
 		return map[string]any{
 			acFieldAvailable: false,
 			acFieldReason:    "AlreadyExists",
-			"message":        "The configuration store name is already in use.",
+			fieldMessage:     "The configuration store name is already in use.",
 		}
 	}
 

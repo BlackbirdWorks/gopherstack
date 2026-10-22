@@ -112,7 +112,8 @@ func newACRHandler(t *testing.T, premium bool) *azurearm.Handler {
 		sku = "Premium"
 	}
 
-	body := `{"location":"local","sku":{"name":"` + sku + `"},"tags":{"env":"test"},"properties":{"adminUserEnabled":true}}`
+	body := `{"location":"local","sku":{"name":"` + sku + `"},"tags":{"env":"test"},` +
+		`"properties":{"adminUserEnabled":true}}`
 	st, out := doRequest(t, h, http.MethodPut, acrBase+acrVersion, []byte(body))
 	require.Equal(t, http.StatusOK, st, "%v", out)
 
@@ -164,9 +165,9 @@ func TestContainerRegistryPut(t *testing.T) {
 	}{
 		{"missing sku", acrBase + "new", `{"location":"local"}`, http.StatusBadRequest},
 		{"bad sku", acrBase, `{"sku":{"name":"Gold"}}`, http.StatusBadRequest},
-		{"short name rejected by data plane", "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/abc",
+		{"short name rejected by data plane", acrProviderPath("rg", "abc"),
 			`{"sku":{"name":"Basic"}}`, http.StatusBadRequest},
-		{"other group name taken", "/subscriptions/sub/resourceGroups/rg2/providers/Microsoft.ContainerRegistry/registries/GopherReg",
+		{"other group name taken", acrProviderPath("rg2", "GopherReg"),
 			`{"sku":{"name":"Basic"}}`, http.StatusConflict},
 		{"ok", acrBase, `{"sku":{"name":"Standard"}}`, http.StatusOK},
 	}
@@ -195,7 +196,13 @@ func TestContainerRegistryCredentials(t *testing.T) {
 	require.Len(t, pws, 2)
 	assert.Equal(t, map[string]any{"name": "password", "value": "pw1-gopherreg"}, pws[0])
 
-	st, creds = doRequest(t, h, http.MethodPost, acrBase+"/regenerateCredential"+acrVersion, []byte(`{"name":"password2"}`))
+	st, creds = doRequest(
+		t,
+		h,
+		http.MethodPost,
+		acrBase+"/regenerateCredential"+acrVersion,
+		[]byte(`{"name":"password2"}`),
+	)
 	require.Equal(t, http.StatusOK, st)
 	assert.Equal(t, "pw2-gopherreg-new", creds["passwords"].([]any)[1].(map[string]any)["value"])
 
@@ -308,8 +315,7 @@ func TestContainerRegistryReplications(t *testing.T) {
 		t.Parallel()
 
 		h := newACRHandler(t, true)
-		st, _ := doRequest(t, h, http.MethodGet,
-			"/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/nope/replications"+acrVersion, nil)
+		st, _ := doRequest(t, h, http.MethodGet, acrProviderPath("rg", "nope")+"/replications"+acrVersion, nil)
 		assert.Equal(t, http.StatusNotFound, st)
 	})
 }
@@ -321,8 +327,6 @@ func TestContainerRegistryWebhooks(t *testing.T) {
 	good := `{"location":"local","properties":{"serviceUri":"https://example.com/h","actions":["push"],` +
 		`"customHeaders":{"Authorization":"secret"},"scope":"app:*"}}`
 
-	h := newACRHandler(t, false)
-
 	tests := []struct {
 		name   string
 		path   string
@@ -330,41 +334,57 @@ func TestContainerRegistryWebhooks(t *testing.T) {
 		status int
 	}{
 		{"missing uri", hook, `{"location":"local","properties":{"actions":["push"]}}`, http.StatusBadRequest},
-		{"missing actions", hook, `{"location":"local","properties":{"serviceUri":"https://e"}}`, http.StatusBadRequest},
+		{
+			"missing actions",
+			hook,
+			`{"location":"local","properties":{"serviceUri":"https://e"}}`,
+			http.StatusBadRequest,
+		},
 		{"bad name", acrBase + "/webhooks/x", good, http.StatusBadRequest},
 		{"ok", hook, good, http.StatusOK},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newACRHandler(t, false)
 			st, _ := doRequest(t, h, http.MethodPut, tt.path+acrVersion, []byte(tt.body))
 			assert.Equal(t, tt.status, st)
 		})
 	}
 
-	st, got := doRequest(t, h, http.MethodGet, hook+acrVersion, nil)
-	require.Equal(t, http.StatusOK, st)
+	t.Run("lifecycle", func(t *testing.T) {
+		t.Parallel()
 
-	pr := props(got)
-	assert.Equal(t, "enabled", pr["status"])
-	assert.Equal(t, "app:*", pr["scope"])
-	assert.NotContains(t, pr, "customHeaders", "headers are only returned by getCallbackConfig")
+		h := newACRHandler(t, false)
+		st, _ := doRequest(t, h, http.MethodPut, hook+acrVersion, []byte(good))
+		require.Equal(t, http.StatusOK, st)
 
-	st, cfg := doRequest(t, h, http.MethodPost, hook+"/getCallbackConfig"+acrVersion, nil)
-	require.Equal(t, http.StatusOK, st)
-	assert.Equal(t, "https://example.com/h", cfg["serviceUri"])
-	assert.Equal(t, map[string]any{"Authorization": "secret"}, cfg["customHeaders"])
+		st, got := doRequest(t, h, http.MethodGet, hook+acrVersion, nil)
+		require.Equal(t, http.StatusOK, st)
 
-	st, list := doRequest(t, h, http.MethodGet, acrBase+"/webhooks"+acrVersion, nil)
-	require.Equal(t, http.StatusOK, st)
-	assert.Len(t, list["value"], 1)
+		pr := props(got)
+		assert.Equal(t, "enabled", pr["status"])
+		assert.Equal(t, "app:*", pr["scope"])
+		assert.NotContains(t, pr, "customHeaders", "headers are only returned by getCallbackConfig")
 
-	// Deleting the registry removes its children.
-	st, _ = doRequest(t, h, http.MethodDelete, acrBase+acrVersion, nil)
-	require.Equal(t, http.StatusOK, st)
+		st, cfg := doRequest(t, h, http.MethodPost, hook+"/getCallbackConfig"+acrVersion, nil)
+		require.Equal(t, http.StatusOK, st)
+		assert.Equal(t, "https://example.com/h", cfg["serviceUri"])
+		assert.Equal(t, map[string]any{"Authorization": "secret"}, cfg["customHeaders"])
 
-	st, _ = doRequest(t, h, http.MethodGet, hook+acrVersion, nil)
-	assert.Equal(t, http.StatusNotFound, st)
+		st, list := doRequest(t, h, http.MethodGet, acrBase+"/webhooks"+acrVersion, nil)
+		require.Equal(t, http.StatusOK, st)
+		assert.Len(t, list["value"], 1)
+
+		// Deleting the registry removes its children.
+		st, _ = doRequest(t, h, http.MethodDelete, acrBase+acrVersion, nil)
+		require.Equal(t, http.StatusOK, st)
+
+		st, _ = doRequest(t, h, http.MethodGet, hook+acrVersion, nil)
+		assert.Equal(t, http.StatusNotFound, st)
+	})
 }
 
 func TestContainerRegistrySnapshot(t *testing.T) {
@@ -410,4 +430,8 @@ func TestContainerRegistryNoDataPlane(t *testing.T) {
 
 	_, err := p.Put(t.Context(), id, map[string]any{"sku": map[string]any{"name": "Basic"}})
 	require.ErrorIs(t, err, azurearm.ErrACRUnavailable)
+}
+
+func acrProviderPath(group, name string) string {
+	return "/subscriptions/sub/resourceGroups/" + group + "/providers/Microsoft.ContainerRegistry/registries/" + name
 }

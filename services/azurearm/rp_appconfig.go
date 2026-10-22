@@ -471,7 +471,8 @@ func (p *AppConfigProvider) DeleteResourcesInGroup(_ context.Context, resourceGr
 // providerErrorDetails looks err up in every dedicated resource provider's error table.
 func providerErrorDetails(err error) (errorEntry, bool) {
 	for _, lookup := range []func(error) (errorEntry, bool){
-		cosmosErrorDetails, eventHubErrorDetails, eventGridErrorDetails, appConfigErrorDetails, acrErrorDetails, redisErrorDetails,
+		cosmosErrorDetails, eventHubErrorDetails, eventGridErrorDetails,
+		appConfigErrorDetails, acrErrorDetails, redisErrorDetails,
 	} {
 		if e, ok := lookup(err); ok {
 			return e, true

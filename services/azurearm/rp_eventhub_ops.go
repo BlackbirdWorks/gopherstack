@@ -416,7 +416,7 @@ func networkRuleSetBody(id ResourceID, props map[string]any) map[string]any {
 	return map[string]any{
 		"id": id.ARMID(), fieldName: "default", fieldType: ehTypeName(id), fieldLocation: "",
 		fieldProperties: map[string]any{
-			"defaultAction":               str("defaultAction", "Allow"),
+			acrFieldDefaultAction:         str(acrFieldDefaultAction, "Allow"),
 			cosmosFieldPublicNetwork:      str(cosmosFieldPublicNetwork, kvPublicNetworkEnabled),
 			"trustedServiceAccessEnabled": trusted,
 			ehFieldIPRules:                list(ehFieldIPRules),

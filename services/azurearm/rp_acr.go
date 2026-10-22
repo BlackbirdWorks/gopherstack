@@ -183,7 +183,9 @@ func badACRRequest(err error) error {
 }
 
 // Put implements ResourceProvider.
-func (p *ContainerRegistryProvider) Put(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
+func (p *ContainerRegistryProvider) Put(
+	ctx context.Context, id ResourceID, body map[string]any,
+) (map[string]any, error) {
 	kind := classifyACRPath(id)
 	if kind == acrKindUnsupported {
 		return nil, errUnsupportedACRType(id)
@@ -360,7 +362,11 @@ func childProps(kind acrKind, id ResourceID, parent *storedACR, body map[string]
 }
 
 // Patch updates tags, SKU, identity and properties of a registry in place (ARM PATCH).
-func (p *ContainerRegistryProvider) Patch(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
+func (p *ContainerRegistryProvider) Patch(
+	_ context.Context,
+	id ResourceID,
+	body map[string]any,
+) (map[string]any, error) {
 	if classifyACRPath(id) != acrKindRegistry {
 		return nil, errUnsupportedACRType(id)
 	}
@@ -494,7 +500,8 @@ func (p *ContainerRegistryProvider) deleteRegistry(rg, name string) error {
 	}
 
 	for k, r := range p.res {
-		if r.kind != acrKindRegistry && resourceGroupsEqual(r.resourceGroup, rg) && strings.EqualFold(r.registry, name) {
+		if r.kind != acrKindRegistry && resourceGroupsEqual(r.resourceGroup, rg) &&
+			strings.EqualFold(r.registry, name) {
 			delete(p.res, k)
 		}
 	}
@@ -642,8 +649,8 @@ func acrErrorDetails(err error) (errorEntry, bool) {
 func (p *ContainerRegistryProvider) CheckName(name string) map[string]any {
 	if !acrNameRe.MatchString(name) {
 		return map[string]any{
-			"nameAvailable": false, "reason": "Invalid",
-			"message": "The registry name must contain only alphanumeric characters and be 5 to 50 characters long.",
+			acFieldAvailable: false, acFieldReason: "Invalid",
+			fieldMessage: "The registry name must contain only alphanumeric characters and be 5 to 50 characters long.",
 		}
 	}
 
@@ -653,8 +660,8 @@ func (p *ContainerRegistryProvider) CheckName(name string) map[string]any {
 	for _, r := range p.res {
 		if r.kind == acrKindRegistry && strings.EqualFold(r.name, name) {
 			return map[string]any{
-				"nameAvailable": false, "reason": "AlreadyExists",
-				"message": "The registry " + name + " is already in use.",
+				acFieldAvailable: false, acFieldReason: "AlreadyExists",
+				fieldMessage: "The registry " + name + " is already in use.",
 			}
 		}
 	}

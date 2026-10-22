@@ -471,7 +471,7 @@ func cosmosAccountDefaults(*storedCosmosAccount) map[string]any {
 		"enableMultipleWriteLocations":       false,
 		"isVirtualNetworkFilterEnabled":      false,
 		"virtualNetworkRules":                []any{},
-		"ipRules":                            []any{},
+		ehFieldIPRules:                       []any{},
 		"capabilities":                       []any{},
 		"cors":                               []any{},
 		"enableFreeTier":                     false,

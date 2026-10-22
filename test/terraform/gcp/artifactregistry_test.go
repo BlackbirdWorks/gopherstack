@@ -54,7 +54,8 @@ func TestTerraformGCP_ArtifactRegistry(t *testing.T) {
 		c := ocitest.Client{
 			T: t, Base: "http://localhost:" + hostArtifactPort,
 			Prepare: func(req *http.Request) {
-				req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("oauth2accesstoken:fake")))
+				req.Header.Set("Authorization", "Basic "+
+					base64.StdEncoding.EncodeToString([]byte("oauth2accesstoken:fake")))
 			},
 		}
 

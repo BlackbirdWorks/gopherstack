@@ -170,7 +170,7 @@ func (p *KeyVaultProvider) PurgeDeleted(sub, location, name string) error {
 func (p *KeyVaultProvider) CheckNameAvailability(name string) map[string]any {
 	if len(name) < kvNameMinLen || len(name) > kvNameMaxLen || !kvNameRe.MatchString(name) {
 		return map[string]any{
-			kvFieldNameAvailable: false, "reason": kvReasonInvalid, fieldMessage: kvNameInvalidMessage,
+			kvFieldNameAvailable: false, acFieldReason: kvReasonInvalid, fieldMessage: kvNameInvalidMessage,
 		}
 	}
 

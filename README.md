@@ -877,6 +877,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 13 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
+| [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 13 gaps |
+| [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 10 gaps |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | B | 32 | 10 gaps |
 | [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 19 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 9 gaps |
@@ -889,6 +891,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Artifact Registry](services/gcpartifactregistry/README.md) | B | 23 | 10 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
@@ -897,6 +900,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 7 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 38 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
+| [Cloud Spanner](services/gcpspanner/README.md) | B | 18 | 6 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 3 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
