@@ -2,6 +2,7 @@ package azureeventgrid
 
 import (
 	"net/http"
+	"net/netip"
 	"time"
 )
 
@@ -52,3 +53,19 @@ func SubscriptionState(b *InMemoryBackend, topicName, sub string) string {
 
 // Backoff exposes the retry schedule.
 func Backoff(failed int) time.Duration { return backoff(failed) }
+
+// WebhookTargetErr returns the error for a blocked dial target.
+func WebhookTargetErr() error { return errWebhookTarget }
+
+// ParseWebhookURL exposes parseWebhookURL.
+func ParseWebhookURL(raw string) error {
+	_, err := parseWebhookURL(raw)
+
+	return err
+}
+
+// BlockedWebhookAddr exposes blockedWebhookAddr.
+func BlockedWebhookAddr(a netip.Addr) bool { return blockedWebhookAddr(a) }
+
+// NewWebhookClient exposes newWebhookClient.
+func NewWebhookClient(d time.Duration) *http.Client { return newWebhookClient(d) }

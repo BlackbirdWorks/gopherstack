@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -34,7 +33,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		topics:     map[string]*topic{},
 		namespaces: map[string]*namespace{},
 		targets:    noTargets{},
-		httpc:      httpclient.New(webhookTimeout),
+		httpc:      newWebhookClient(webhookTimeout),
 		now:        time.Now,
 		kick:       make(chan struct{}, 1),
 		pullWake:   make(chan struct{}),

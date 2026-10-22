@@ -43,10 +43,14 @@ func (b *InMemoryBackend) serveLogged(w http.ResponseWriter, r *http.Request, po
 		return
 	}
 
-	rec := gcpserve.NewRequestRecorder(w)
+	rec := gcpserve.NewRequestRecorder()
+	proxy := b.proxy(port)
+
+	rec.Attach(proxy)
+
 	start := b.now()
 
-	b.proxy(port).ServeHTTP(rec, r)
+	proxy.ServeHTTP(w, r)
 	b.logs.Request(b.baseCtx(), t, r, rec, b.now().Sub(start))
 }
 

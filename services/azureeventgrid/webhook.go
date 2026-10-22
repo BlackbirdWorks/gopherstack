@@ -109,7 +109,12 @@ func (b *InMemoryBackend) postHandshake(
 		return false, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	target, err := parseWebhookURL(endpoint)
+	if err != nil {
+		return false, ErrWebhookValidation
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(body))
 	if err != nil {
 		return false, ErrWebhookValidation
 	}
@@ -140,7 +145,12 @@ func (b *InMemoryBackend) postHandshake(
 
 // optionsHandshake performs the CloudEvents abuse-protection OPTIONS handshake.
 func (b *InMemoryBackend) optionsHandshake(ctx context.Context, endpoint, validationURL string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodOptions, endpoint, http.NoBody)
+	target, err := parseWebhookURL(endpoint)
+	if err != nil {
+		return false, ErrWebhookValidation
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodOptions, target.String(), http.NoBody)
 	if err != nil {
 		return false, ErrWebhookValidation
 	}

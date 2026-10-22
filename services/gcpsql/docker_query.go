@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 )
 
 const maxQueryCells = 20_000_000
@@ -65,26 +63,8 @@ func (e *dockerEngine) Query(ctx context.Context, db, query string) ([][]string,
 	return out, nil
 }
 
-func (e *dockerEngine) quoteTable(table string) string {
-	parts := strings.Split(table, ".")
-
-	if e.kind == kindPostgres {
-		return pgx.Identifier(parts).Sanitize()
-	}
-
-	for i, p := range parts {
-		parts[i] = myIdent(p)
-	}
-
-	return strings.Join(parts, ".")
-}
-
-func (e *dockerEngine) quoteColumn(c string) string {
-	if e.kind == kindPostgres {
-		return pgx.Identifier{c}.Sanitize()
-	}
-
-	return myIdent(c)
+func (e *dockerEngine) quoteTable(ctx context.Context, q rowQuerier, table string) (string, error) {
+	return e.quoteDotted(ctx, q, table)
 }
 
 // InsertRows implements Engine.
@@ -101,7 +81,10 @@ func (e *dockerEngine) InsertRows(ctx context.Context, db, table string, columns
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	stmt := e.insertStmt(table, columns, len(rows[0]))
+	stmt, err := e.insertStmt(ctx, conn, table, columns, len(rows[0]))
+	if err != nil {
+		return err
+	}
 
 	for _, r := range rows {
 		args := make([]any, len(r))
@@ -121,12 +104,19 @@ func (e *dockerEngine) InsertRows(ctx context.Context, db, table string, columns
 	return nil
 }
 
-func (e *dockerEngine) insertStmt(table string, columns []string, width int) string {
+func (e *dockerEngine) insertStmt(
+	ctx context.Context, q rowQuerier, table string, columns []string, width int,
+) (string, error) {
 	var cols, marks []string
 
 	for i := range width {
 		if i < len(columns) {
-			cols = append(cols, e.quoteColumn(columns[i]))
+			col, err := e.quoteIdent(ctx, q, columns[i])
+			if err != nil {
+				return "", err
+			}
+
+			cols = append(cols, col)
 		}
 
 		if e.kind == kindPostgres {
@@ -141,5 +131,10 @@ func (e *dockerEngine) insertStmt(table string, columns []string, width int) str
 		colList = " (" + strings.Join(cols, ", ") + ")"
 	}
 
-	return "INSERT INTO " + e.quoteTable(table) + colList + " VALUES (" + strings.Join(marks, ", ") + ")"
+	tbl, err := e.quoteTable(ctx, q, table)
+	if err != nil {
+		return "", err
+	}
+
+	return "INSERT INTO " + tbl + colList + " VALUES (" + strings.Join(marks, ", ") + ")", nil
 }

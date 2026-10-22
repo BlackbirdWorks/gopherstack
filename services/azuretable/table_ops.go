@@ -78,7 +78,7 @@ func (h *Handler) listTables(c *echo.Context) error {
 	start := c.QueryParam(headerNextTableNameParam)
 	level := odataLevelFromAccept(c.Request().Header.Get("Accept"))
 	tables := h.Backend.ListTables()
-	values := make([]map[string]any, 0, min(len(tables), top))
+	values := make([]map[string]any, 0, len(tables))
 
 	for _, ti := range tables {
 		if ti.Name < start {

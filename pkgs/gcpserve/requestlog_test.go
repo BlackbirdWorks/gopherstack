@@ -3,6 +3,8 @@ package gcpserve_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"testing"
 	"time"
 
@@ -74,16 +76,46 @@ func TestRequestEntry(t *testing.T) {
 func TestRequestRecorder(t *testing.T) {
 	t.Parallel()
 
-	w := httptest.NewRecorder()
-	rec := gcpserve.NewRequestRecorder(w)
+	tests := []struct {
+		name     string
+		down     bool
+		wantCode int
+		wantSize int64
+	}{
+		{name: "upstream response", wantCode: http.StatusTeapot, wantSize: 3},
+		{name: "upstream down", down: true, wantCode: http.StatusBadGateway},
+	}
 
-	assert.Equal(t, http.StatusOK, rec.Status())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	rec.WriteHeader(http.StatusTeapot)
-	_, err := rec.Write([]byte("abc"))
-	require.NoError(t, err)
-	rec.Flush()
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusTeapot)
+				_, _ = w.Write([]byte("abc"))
+			}))
+			t.Cleanup(up.Close)
 
-	assert.Equal(t, http.StatusTeapot, rec.Status())
-	assert.Equal(t, http.StatusTeapot, w.Code)
+			u, err := url.Parse(up.URL)
+			require.NoError(t, err)
+
+			if tt.down {
+				u = &url.URL{Scheme: "http", Host: "127.0.0.1:1"}
+			}
+
+			rec := gcpserve.NewRequestRecorder()
+			assert.Equal(t, http.StatusOK, rec.Status())
+
+			p := httputil.NewSingleHostReverseProxy(u)
+			p.Transport = &http.Transport{DisableKeepAlives: true}
+			rec.Attach(p)
+
+			w := httptest.NewRecorder()
+			p.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+
+			assert.Equal(t, tt.wantCode, rec.Status())
+			assert.Equal(t, tt.wantCode, w.Code)
+			assert.Equal(t, tt.wantSize, rec.Size())
+		})
+	}
 }

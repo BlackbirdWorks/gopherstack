@@ -24,9 +24,12 @@ func (b *InMemoryBackend) deliverWebhook(ctx context.Context, j job) outcome {
 		body, ctype = j.eventObject(), "application/cloudevents+json; charset=utf-8"
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, j.spec.Destination.str(propEndpointURL), bytes.NewReader(body),
-	)
+	target, err := parseWebhookURL(j.spec.Destination.str(propEndpointURL))
+	if err != nil {
+		return outcome{label: outcomeGeneric, permanent: true}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(body))
 	if err != nil {
 		return outcome{label: outcomeGeneric, permanent: true}
 	}

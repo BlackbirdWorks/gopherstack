@@ -78,42 +78,113 @@ func (e *dockerEngine) bootstrap(ctx context.Context) error {
 	return nil
 }
 
-func pgLiteral(s string) (string, error) {
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// quoteIdent has the server quote s, so no client-built string reaches the DDL statement.
+func (e *dockerEngine) quoteIdent(ctx context.Context, q rowQuerier, s string) (string, error) {
 	if strings.ContainsRune(s, 0) {
 		return "", errBadValue
 	}
 
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'", nil
+	query := "SELECT quote_ident($1::text)"
+	if e.kind != kindPostgres {
+		query = "SELECT CONCAT('`', REPLACE(?, '`', '``'), '`')"
+	}
+
+	var out string
+	if err := q.QueryRowContext(ctx, query, s).Scan(&out); err != nil {
+		return "", fmt.Errorf("sql: %w", err)
+	}
+
+	return out, nil
 }
 
-func myIdent(s string) string { return "`" + strings.ReplaceAll(s, "`", "``") + "`" }
+// quoteDotted quotes each dot-separated part of s and rejoins them.
+func (e *dockerEngine) quoteDotted(ctx context.Context, q rowQuerier, s string) (string, error) {
+	parts := strings.Split(s, ".")
+
+	for i, p := range parts {
+		qp, err := e.quoteIdent(ctx, q, p)
+		if err != nil {
+			return "", err
+		}
+
+		parts[i] = qp
+	}
+
+	return strings.Join(parts, "."), nil
+}
+
+// quoteLiteral has the PostgreSQL server quote s as a string literal.
+func (e *dockerEngine) quoteLiteral(ctx context.Context, q rowQuerier, s string) (string, error) {
+	if strings.ContainsRune(s, 0) {
+		return "", errBadValue
+	}
+
+	var out string
+	if err := q.QueryRowContext(ctx, "SELECT quote_literal($1::text)", s).Scan(&out); err != nil {
+		return "", fmt.Errorf("sql: %w", err)
+	}
+
+	return out, nil
+}
+
+func (e *dockerEngine) adminConn() (*sql.DB, error) { return e.open(e.adminDB()) }
 
 // CreateDatabase implements Engine.
 func (e *dockerEngine) CreateDatabase(ctx context.Context, name, charset, collation string) error {
-	if e.kind == kindPostgres {
-		return e.exec(ctx, pgAdminUser, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize())
+	conn, err := e.adminConn()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	ident, err := e.quoteIdent(ctx, conn, name)
+	if err != nil {
+		return err
 	}
 
-	stmt := "CREATE DATABASE " + myIdent(name)
+	if e.kind == kindPostgres {
+		return e.exec(ctx, pgAdminUser, "CREATE DATABASE "+ident)
+	}
+
+	stmt, args := "CREATE DATABASE "+ident, []any{}
 
 	if charset != "" && charsetRe.MatchString(charset) {
-		stmt += " CHARACTER SET " + charset
+		stmt += " CHARACTER SET ?"
+
+		args = append(args, charset)
 	}
 
 	if collation != "" && charsetRe.MatchString(collation) {
-		stmt += " COLLATE " + collation
+		stmt += " COLLATE ?"
+
+		args = append(args, collation)
 	}
 
-	return e.exec(ctx, "", stmt)
+	return e.exec(ctx, "", stmt, args...)
 }
 
 // DropDatabase implements Engine.
 func (e *dockerEngine) DropDatabase(ctx context.Context, name string) error {
-	if e.kind == kindPostgres {
-		return e.exec(ctx, pgAdminUser, "DROP DATABASE "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
+	conn, err := e.adminConn()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	ident, err := e.quoteIdent(ctx, conn, name)
+	if err != nil {
+		return err
 	}
 
-	return e.exec(ctx, "", "DROP DATABASE "+myIdent(name))
+	if e.kind == kindPostgres {
+		return e.exec(ctx, pgAdminUser, "DROP DATABASE "+ident+" WITH (FORCE)")
+	}
+
+	return e.exec(ctx, "", "DROP DATABASE "+ident)
 }
 
 // ListDatabases implements Engine.
@@ -164,23 +235,27 @@ func (e *dockerEngine) adminUser() string {
 }
 
 func (e *dockerEngine) upsertPGUser(ctx context.Context, u UserSpec) error {
-	ident := pgx.Identifier{u.Name}.Sanitize()
-	pw := ""
-
-	if u.Password != "" {
-		lit, err := pgLiteral(u.Password)
-		if err != nil {
-			return err
-		}
-
-		pw = " PASSWORD " + lit
-	}
-
 	conn, err := e.open(pgAdminUser)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+
+	ident, err := e.quoteIdent(ctx, conn, u.Name)
+	if err != nil {
+		return err
+	}
+
+	pw := ""
+
+	if u.Password != "" {
+		lit, litErr := e.quoteLiteral(ctx, conn, u.Password)
+		if litErr != nil {
+			return litErr
+		}
+
+		pw = " PASSWORD " + lit
+	}
 
 	var exists bool
 	if err = conn.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", u.Name).
@@ -233,11 +308,22 @@ func (e *dockerEngine) upsertMySQLUser(ctx context.Context, u UserSpec) error {
 
 // DropUser implements Engine.
 func (e *dockerEngine) DropUser(ctx context.Context, name, host string) error {
-	if e.kind == kindPostgres {
-		return e.exec(ctx, pgAdminUser, "DROP ROLE "+pgx.Identifier{name}.Sanitize())
+	if e.kind != kindPostgres {
+		return e.exec(ctx, "", "DROP USER ?@?", name, host)
 	}
 
-	return e.exec(ctx, "", "DROP USER ?@?", name, host)
+	conn, err := e.open(pgAdminUser)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	ident, err := e.quoteIdent(ctx, conn, name)
+	if err != nil {
+		return err
+	}
+
+	return e.exec(ctx, pgAdminUser, "DROP ROLE "+ident)
 }
 
 // Restart implements Engine.
@@ -277,7 +363,18 @@ var mysqlBareValue = regexp.MustCompile(`^(-?[0-9]+(\.[0-9]+)?|ON|OFF|TRUE|FALSE
 
 // setMySQLFlag persists a server variable; numbers and booleans must not be quoted.
 func (e *dockerEngine) setMySQLFlag(ctx context.Context, f Flag) error {
-	stmt := "SET PERSIST_ONLY " + f.Name + " = "
+	conn, err := e.open("")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	name, err := e.quoteDotted(ctx, conn, f.Name)
+	if err != nil {
+		return err
+	}
+
+	stmt := "SET PERSIST_ONLY " + name + " = "
 
 	if mysqlBareValue.MatchString(strings.ToUpper(f.Value)) {
 		return e.exec(ctx, "", stmt+strings.ToUpper(f.Value))
@@ -291,17 +388,28 @@ func (e *dockerEngine) applyPGFlags(ctx context.Context, flags []Flag) error {
 		return err
 	}
 
+	conn, err := e.open(pgAdminUser)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
 	for _, f := range flags {
 		if !flagNameRe.MatchString(f.Name) {
 			return errInvalid("flag name %q is invalid", f.Name)
 		}
 
-		lit, err := pgLiteral(f.Value)
-		if err != nil {
-			return err
+		name, nameErr := e.quoteDotted(ctx, conn, f.Name)
+		if nameErr != nil {
+			return nameErr
 		}
 
-		if err = e.exec(ctx, pgAdminUser, "ALTER SYSTEM SET "+f.Name+" = "+lit); err != nil {
+		lit, litErr := e.quoteLiteral(ctx, conn, f.Value)
+		if litErr != nil {
+			return litErr
+		}
+
+		if err = e.exec(ctx, pgAdminUser, "ALTER SYSTEM SET "+name+" = "+lit); err != nil {
 			return err
 		}
 	}

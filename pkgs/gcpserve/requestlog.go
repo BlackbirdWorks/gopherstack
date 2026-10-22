@@ -2,10 +2,13 @@ package gcpserve
 
 import (
 	"context"
+	"errors"
+	"io"
 	"maps"
 	"math"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 	"time"
 
@@ -14,49 +17,56 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-// RequestRecorder wraps a ResponseWriter to remember the status code and response size.
+// RequestRecorder remembers the status and response size of a proxied request without wrapping the ResponseWriter.
 type RequestRecorder struct {
-	http.ResponseWriter
-
 	status int
 	size   int64
 }
 
-// NewRequestRecorder wraps w.
-func NewRequestRecorder(w http.ResponseWriter) *RequestRecorder {
-	return &RequestRecorder{ResponseWriter: w}
-}
+// NewRequestRecorder returns an empty recorder; Attach it to the proxy before serving.
+func NewRequestRecorder() *RequestRecorder { return &RequestRecorder{} }
 
-// WriteHeader records the status.
-func (r *RequestRecorder) WriteHeader(code int) {
-	if r.status == 0 {
-		r.status = code
+// Attach records p's upstream status and body size and its error responses.
+func (r *RequestRecorder) Attach(p *httputil.ReverseProxy) {
+	p.ModifyResponse = func(resp *http.Response) error {
+		r.status = resp.StatusCode
+		resp.Body = &countingBody{ReadCloser: resp.Body, n: &r.size}
+
+		return nil
 	}
 
-	r.ResponseWriter.WriteHeader(code)
+	onErr := p.ErrorHandler
+	p.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		r.status = http.StatusBadGateway
+		if errors.Is(req.Context().Err(), context.DeadlineExceeded) {
+			r.status = http.StatusGatewayTimeout
+		}
+
+		if onErr != nil {
+			onErr(w, req, err)
+
+			return
+		}
+
+		w.WriteHeader(r.status)
+	}
 }
 
-// Write records the size.
-func (r *RequestRecorder) Write(p []byte) (int, error) {
-	if r.status == 0 {
-		r.status = http.StatusOK
-	}
+type countingBody struct {
+	io.ReadCloser
 
-	n, err := r.ResponseWriter.Write(p)
-	r.size += int64(n)
+	n *int64
+}
+
+func (c *countingBody) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	*c.n += int64(n)
 
 	return n, err
 }
 
-// Flush forwards to the underlying writer so streaming responses keep working.
-func (r *RequestRecorder) Flush() {
-	if f, ok := r.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// Unwrap lets http.ResponseController reach the underlying writer.
-func (r *RequestRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+// Size returns the response bytes read from the upstream.
+func (r *RequestRecorder) Size() int64 { return r.size }
 
 // Status returns the recorded status, 200 when the handler wrote nothing.
 func (r *RequestRecorder) Status() int {
@@ -75,7 +85,7 @@ func (t LogTarget) LogRequest(
 	rec *RequestRecorder,
 	took time.Duration,
 ) {
-	t.write(ctx, sink, t.RequestEntry(r, rec.Status(), rec.size, took))
+	t.write(ctx, sink, t.RequestEntry(r, rec.Status(), rec.Size(), took))
 }
 
 // RequestEntry builds the request-log entry with its httpRequest fields.

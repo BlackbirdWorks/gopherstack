@@ -77,7 +77,10 @@ func TestClientWriteAndAdminRead(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, false)
-	lg := e.logger(t).Logger("app", logging.CommonLabels(map[string]string{"env": "it"}))
+	// CommonResource skips GCE metadata detection, whose pooled HTTP connection outlives the test.
+	lg := e.logger(t).Logger("app", logging.CommonResource(&monitoredres.MonitoredResource{
+		Type: "project", Labels: map[string]string{"project_id": testProject},
+	}), logging.CommonLabels(map[string]string{"env": "it"}))
 	now := time.Now()
 
 	lg.Log(logging.Entry{Payload: "plain text", Severity: logging.Info, Timestamp: now.Add(-3 * time.Second)})

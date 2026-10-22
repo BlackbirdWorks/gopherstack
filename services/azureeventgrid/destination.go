@@ -2,7 +2,6 @@ package azureeventgrid
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 )
 
@@ -58,8 +57,7 @@ func validateDestination(d Destination) error {
 }
 
 func validateWebhook(d Destination) error {
-	u, err := url.Parse(d.str(propEndpointURL))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if _, err := parseWebhookURL(d.str(propEndpointURL)); err != nil {
 		return invalidSpec("WebHook destination needs an http(s) endpointUrl")
 	}
 
