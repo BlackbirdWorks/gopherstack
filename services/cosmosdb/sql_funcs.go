@@ -15,6 +15,7 @@ const (
 	nullText         = "null"
 	arityPair        = 2
 	arityTriple      = 3
+	arityQuad        = 4
 	maxDateTimeParts = 7
 	datePartYearLong = "yyyy"
 	datePartYear     = "year"
@@ -96,6 +97,12 @@ const (
 	biTrim                      = "TRIM"
 	biTrunc                     = "TRUNC"
 	biUpper                     = "UPPER"
+	biVectorDistance            = "VECTORDISTANCE"
+	biFullTextContains          = "FULLTEXTCONTAINS"
+	biFullTextContainsAll       = "FULLTEXTCONTAINSALL"
+	biFullTextContainsAny       = "FULLTEXTCONTAINSANY"
+	biFullTextScore             = "FULLTEXTSCORE"
+	biRRF                       = "RRF"
 )
 
 // fnKind groups built-in functions by implementation family.
@@ -111,6 +118,9 @@ const (
 	fnAggregate
 	fnUDF
 	fnSpatial
+	fnVector
+	fnFullText
+	fnRank
 )
 
 // udfNamespace is the prefix of a user-defined function call: udf.name(args).
@@ -124,6 +134,12 @@ func builtinKind(name string) fnKind {
 		return fnString
 	case biStDistance, biStWithin, biStIntersects, biStIsValid, biStIsValidDetailed:
 		return fnSpatial
+	case biVectorDistance:
+		return fnVector
+	case biFullTextContains, biFullTextContainsAll, biFullTextContainsAny, biFullTextScore:
+		return fnFullText
+	case biRRF:
+		return fnRank
 	case biAbs,
 		biCeiling,
 		biFloor,
@@ -160,8 +176,12 @@ func builtinArity(name string) (int, int) {
 	case biPi, biGetcurrentdatetime, biGetcurrentdatetimestatic, biGetcurrenttimestamp,
 		biGetcurrenttimestampstatic, biGetcurrentticks, biGetcurrentticksstatic:
 		return 0, 0
-	case biConcat, biArrayConcat:
+	case biConcat, biArrayConcat, biFullTextContainsAll, biFullTextContainsAny, biFullTextScore, biRRF:
 		return arityPair, -1
+	case biVectorDistance:
+		return arityPair, arityQuad
+	case biFullTextContains:
+		return arityPair, arityPair
 	case biDatetimefromparts:
 		return arityTriple, maxDateTimeParts
 	case biStDistance, biStWithin, biStIntersects:

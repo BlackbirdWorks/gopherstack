@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -71,15 +72,66 @@ func (p ContainerPolicies) validate() error {
 		return err
 	}
 
-	for name, raw := range map[string]json.RawMessage{
-		"vectorEmbeddingPolicy": p.VectorEmbeddingPolicy, "fullTextPolicy": p.FullTextPolicy,
-	} {
-		if !isJSONNull(raw) && !json.Valid(raw) {
-			return fmt.Errorf("%w: %s is not valid JSON", ErrInvalidContainerPolicy, name)
-		}
+	if err := validateVectorPolicy(p.VectorEmbeddingPolicy); err != nil {
+		return err
 	}
 
-	return nil
+	return validateFullTextPolicy(p.FullTextPolicy)
+}
+
+// validateSearchIndexes checks the indexing policy's vector and full-text indexes against the policies they
+// refer to.
+func validateSearchIndexes(indexing json.RawMessage, p ContainerPolicies) error {
+	if len(indexing) == 0 {
+		return nil
+	}
+
+	var pol indexingPolicy
+	if err := json.Unmarshal(indexing, &pol); err != nil {
+		return fmt.Errorf("%w: indexingPolicy is malformed", ErrInvalidContainerPolicy)
+	}
+
+	vp, err := parseVectorPolicy(p.VectorEmbeddingPolicy)
+	if err != nil {
+		return err
+	}
+
+	if err = validateVectorIndexes(pol, vp); err != nil {
+		return err
+	}
+
+	fp, err := parseFullTextPolicy(p.FullTextPolicy)
+	if err != nil {
+		return err
+	}
+
+	return validateFullTextIndexes(pol, fp)
+}
+
+// checkReplaceIndexes validates a replace request's indexing policy against the policies that will be in force.
+func (c *storedContainer) checkReplaceIndexes(spec ContainerSpec) error {
+	eff := spec.ContainerPolicies.stored()
+	if eff.VectorEmbeddingPolicy == nil {
+		eff.VectorEmbeddingPolicy = c.VectorEmbeddingPolicy
+	}
+
+	if eff.FullTextPolicy == nil {
+		eff.FullTextPolicy = c.FullTextPolicy
+	}
+
+	indexing := spec.IndexingPolicy
+	if len(indexing) == 0 {
+		indexing = c.IndexingPolicy
+	}
+
+	return validateSearchIndexes(indexing, eff)
+}
+
+// sameJSON reports whether two raw JSON values are semantically equal.
+func sameJSON(a, b json.RawMessage) bool {
+	var va, vb any
+
+	return json.Unmarshal(a, &va) == nil && json.Unmarshal(b, &vb) == nil && reflect.DeepEqual(va, vb)
 }
 
 func parseUniqueKeyPolicy(raw json.RawMessage) (uniqueKeyPolicy, error) {
@@ -223,6 +275,12 @@ func (c *storedContainer) applyPolicies(p ContainerPolicies, replacing bool) err
 		return ErrUniqueKeyPolicyImmutable
 	}
 
+	if replacing && (policyChanged(c.VectorEmbeddingPolicy, p.VectorEmbeddingPolicy) ||
+		policyChanged(c.FullTextPolicy, p.FullTextPolicy)) {
+		return fmt.Errorf("%w: vectorEmbeddingPolicy and fullTextPolicy cannot be modified after creation",
+			ErrInvalidContainerPolicy)
+	}
+
 	if !replacing || p.UniqueKeyPolicy != nil {
 		c.UniqueKeyPolicy = p.UniqueKeyPolicy
 	}
@@ -239,6 +297,11 @@ func (c *storedContainer) applyPolicies(p ContainerPolicies, replacing bool) err
 	}
 
 	return nil
+}
+
+// policyChanged reports whether a replace request carries a setting different from the stored one.
+func policyChanged(stored, requested json.RawMessage) bool {
+	return requested != nil && !sameJSON(stored, requested)
 }
 
 func (c *storedContainer) policies() ContainerPolicies {

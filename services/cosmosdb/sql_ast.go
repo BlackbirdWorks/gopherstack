@@ -131,4 +131,5 @@ type sqlSelectStmt struct {
 	selectValue bool
 	distinct    bool
 	hasAgg      bool
+	rank        bool
 }

@@ -212,5 +212,5 @@ func (b *InMemoryBackend) queryLocked(
 	udf := b.newUDFRuntime(c.UDFs)
 	defer udf.close()
 
-	return executeStatementWith(stmt, params, rows, udf)
+	return executeStatementWith(stmt, params, rows, udf, b.newQueryColl(c))
 }

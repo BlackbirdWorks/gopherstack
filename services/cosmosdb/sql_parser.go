@@ -440,6 +440,10 @@ func (p *sqlParser) parseOrderBy(stmt *sqlSelectStmt) error {
 		return err
 	}
 
+	if p.cur.typ == sqlTokIdent && strings.EqualFold(p.cur.lit, "RANK") && p.peek().typ == sqlTokIdent {
+		return p.parseOrderByRank(stmt)
+	}
+
 	for {
 		x, err := p.parseExpr()
 		if err != nil {
@@ -466,6 +470,29 @@ func (p *sqlParser) parseOrderBy(stmt *sqlSelectStmt) error {
 
 		p.advance()
 	}
+}
+
+// parseOrderByRank parses `ORDER BY RANK FullTextScore(...)` or `RANK RRF(...)`, which stand alone.
+func (p *sqlParser) parseOrderByRank(stmt *sqlSelectStmt) error {
+	p.advance()
+
+	x, err := p.parseExpr()
+	if err != nil {
+		return err
+	}
+
+	if err = validateRankExpr(x); err != nil {
+		return err
+	}
+
+	if p.cur.typ == sqlTokComma {
+		return p.errorf("ORDER BY RANK cannot be combined with other sort keys")
+	}
+
+	stmt.rank = true
+	stmt.orderBy = append(stmt.orderBy, sqlOrderKey{expr: x, desc: true})
+
+	return nil
 }
 
 func (p *sqlParser) parseOffsetLimit(stmt *sqlSelectStmt) error {

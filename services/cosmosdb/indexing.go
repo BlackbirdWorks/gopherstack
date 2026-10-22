@@ -29,6 +29,13 @@ type indexingPolicy struct {
 	ExcludedPaths []struct {
 		Path string `json:"path"`
 	} `json:"excludedPaths"`
+	VectorIndexes []struct {
+		Path string `json:"path"`
+		Type string `json:"type"`
+	} `json:"vectorIndexes"`
+	FullTextIndexes []struct {
+		Path string `json:"path"`
+	} `json:"fullTextIndexes"`
 	CompositeIndexes [][]struct {
 		Path  string `json:"path"`
 		Order string `json:"order"`

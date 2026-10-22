@@ -32,9 +32,28 @@ func (b *InMemoryBackend) beginTx(dbID, collID string) (*containerTx, error) {
 }
 
 func (tx *containerTx) put(key documentCompositeKey, doc *storedDocument) {
-	tx.undo = append(tx.undo, undoEntry{key: key, prev: tx.c.Documents[key]})
+	prev := tx.c.Documents[key]
+	tx.undo = append(tx.undo, undoEntry{key: key, prev: prev})
+
+	rec := &changeRecord{
+		Time:             doc.Timestamp,
+		Current:          doc,
+		Op:               opCreate,
+		ID:               doc.ID,
+		PartitionKeyJSON: doc.PartitionKeyJSON,
+	}
+
+	if prev != nil {
+		if tx.c.alive(prev, tx.now) {
+			rec.Op, rec.Previous, rec.PrevSeq = opReplace, prev, prev.Seq
+		} else {
+			tx.c.recordExpired(prev)
+		}
+	}
+
 	tx.c.ChangeSeq++
-	doc.Seq = tx.c.ChangeSeq
+	doc.Seq, rec.Seq = tx.c.ChangeSeq, tx.c.ChangeSeq
+	tx.c.appendChange(rec)
 	tx.c.Documents[key] = doc
 	tx.c.sorted.Store(nil)
 }
@@ -46,6 +65,11 @@ func (tx *containerTx) remove(key documentCompositeKey) {
 	}
 
 	tx.undo = append(tx.undo, undoEntry{key: key, prev: prev})
+	tx.c.ChangeSeq++
+	tx.c.appendChange(&changeRecord{
+		Time: tx.now, Previous: prev, Op: opDelete, ID: prev.ID, PartitionKeyJSON: prev.PartitionKeyJSON,
+		Seq: tx.c.ChangeSeq, PrevSeq: prev.Seq,
+	})
 	delete(tx.c.Documents, key)
 	tx.c.sorted.Store(nil)
 }
@@ -61,6 +85,7 @@ func (tx *containerTx) rollback() {
 
 	tx.undo = nil
 	tx.c.ChangeSeq = tx.seq0
+	tx.c.truncateChangeLog(tx.seq0)
 	tx.c.sorted.Store(nil)
 }
 

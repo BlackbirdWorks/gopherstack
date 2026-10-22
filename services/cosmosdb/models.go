@@ -156,17 +156,16 @@ type storedDatabase struct {
 
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
-	Modified         time.Time                `json:"Modified"`
-	Offer            *storedOffer             `json:"Offer,omitempty"`
-	Triggers         map[string]*storedScript `json:"Triggers,omitempty"`
-	sorted           atomic.Pointer[[]*storedDocument]
-	Sprocs           map[string]*storedScript `json:"Sprocs,omitempty"`
-	Documents        map[documentCompositeKey]*storedDocument
-	UDFs             map[string]*storedScript `json:"UDFs,omitempty"`
-	DefaultTTL       *int                     `json:"DefaultTTL,omitempty"`
-	ID               string
-	PartitionKeyPath string
-	// ConflictResolutionPolicy is stored and echoed only: a single-region emulator never produces conflicts.
+	Modified                 time.Time                `json:"Modified"`
+	Offer                    *storedOffer             `json:"Offer,omitempty"`
+	Triggers                 map[string]*storedScript `json:"Triggers,omitempty"`
+	sorted                   atomic.Pointer[[]*storedDocument]
+	Sprocs                   map[string]*storedScript `json:"Sprocs,omitempty"`
+	Documents                map[documentCompositeKey]*storedDocument
+	UDFs                     map[string]*storedScript `json:"UDFs,omitempty"`
+	DefaultTTL               *int                     `json:"DefaultTTL,omitempty"`
+	ID                       string
+	PartitionKeyPath         string
 	ConflictResolutionPolicy json.RawMessage `json:"ConflictResolutionPolicy,omitempty"`
 	IndexingPolicy           json.RawMessage `json:"IndexingPolicy,omitempty"`
 	PartitionKeyPaths        []string        `json:"PartitionKeyPaths,omitempty"`
@@ -175,6 +174,7 @@ type storedContainer struct {
 	VectorEmbeddingPolicy    json.RawMessage `json:"VectorEmbeddingPolicy,omitempty"`
 	FullTextPolicy           json.RawMessage `json:"FullTextPolicy,omitempty"`
 	ComputedProperties       json.RawMessage `json:"ComputedProperties,omitempty"`
+	ChangeLog                []*changeRecord `json:"ChangeLog,omitempty"`
 	ChangeSeq                int64           `json:"ChangeSeq,omitempty"`
 }
 

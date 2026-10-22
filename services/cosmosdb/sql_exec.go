@@ -103,16 +103,23 @@ func (r mapRows) count() int       { return len(r) }
 func (r mapRows) row(i int) sqlRow { return sqlRow{m: r[i]} }
 
 func executeStatement(stmt *sqlSelectStmt, params []QueryParameter, rs queryRows) (QueryResult, error) {
-	return executeStatementWith(stmt, params, rs, nil)
+	return executeStatementWith(stmt, params, rs, nil, nil)
 }
 
 // executeStatementWith is executeStatement with the container's user-defined functions available.
 func executeStatementWith(
-	stmt *sqlSelectStmt, params []QueryParameter, rs queryRows, udf *udfRuntime,
+	stmt *sqlSelectStmt, params []QueryParameter, rs queryRows, udf *udfRuntime, coll *queryColl,
 ) (QueryResult, error) {
 	ec := newEvalCtx(params)
 	if udf != nil {
 		ec.udf = udf
+	}
+
+	if coll != nil {
+		coll.rows, ec.coll = rs, coll
+		if err := coll.checkStmt(ec, stmt); err != nil {
+			return QueryResult{}, err
+		}
 	}
 
 	rows, err := ec.runStmt(stmt, nil, rs)
@@ -229,7 +236,11 @@ func (rs *runState) emit(env []any) bool {
 
 	out := outRow{val: val}
 
-	if len(rs.stmt.orderBy) > 0 {
+	if rs.stmt.rank {
+		for _, comp := range rankComponents(rs.stmt) {
+			out.keys = append(out.keys, rs.ec.eval(comp, env))
+		}
+	} else if len(rs.stmt.orderBy) > 0 {
 		out.keys = make([]any, len(rs.stmt.orderBy))
 		for i, k := range rs.stmt.orderBy {
 			out.keys[i] = rs.ec.eval(k.expr, env)
@@ -284,8 +295,11 @@ func (ec *evalCtx) runStmt(stmt *sqlSelectStmt, outer []any, rows queryRows) ([]
 		})
 	}
 
-	if len(stmt.orderBy) > 0 {
-		sortOutputs(st.outs, stmt.orderBy)
+	switch {
+	case stmt.rank:
+		ec.rankOutputs(st.outs, stmt)
+	case len(stmt.orderBy) > 0:
+		sortOutputs(st.outs, ec.effectiveOrder(stmt.orderBy))
 	}
 
 	vals := make([]any, len(st.outs))

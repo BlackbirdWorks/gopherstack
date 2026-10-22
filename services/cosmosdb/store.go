@@ -17,25 +17,16 @@ import (
 // InMemoryBackend implements StorageBackend using an in-memory map guarded
 // by a single RWMutex. Shaped after services/azuretable's InMemoryBackend.
 type InMemoryBackend struct {
-	mu        *lockmetrics.RWMutex
-	databases map[string]*storedDatabase
-	// nowFunc is the backend's time source, overridable in tests (see
-	// export_test.go's SetNowFunc) for deterministic Timestamp/ETag
-	// assertions.
-	nowFunc func() time.Time
-	// etagFunc derives a document's ETag from its Timestamp, overridable in
-	// tests (see export_test.go's SetETagFunc).
-	etagFunc func(time.Time) string
-	// parsed caches parsed SQL statements by query text.
-	parsed *safemap.Map[string, *sqlSelectStmt]
-	// tableAPI is the Table API backend snapshotted and restored alongside this one; nil when detached.
-	tableAPI tableSnapshotter
-	// scriptTimeout bounds one stored procedure, trigger or UDF run; zero means the 5s default.
+	tableAPI      tableSnapshotter
+	mu            *lockmetrics.RWMutex
+	databases     map[string]*storedDatabase
+	nowFunc       func() time.Time
+	etagFunc      func(time.Time) string
+	parsed        *safemap.Map[string, *sqlSelectStmt]
+	regions       AccountRegions
 	scriptTimeout time.Duration
-	// serverless rejects provisioned throughput and caps every container at serverlessBurstRUs.
-	serverless bool
-	// budgetEpoch changes whenever an offer is set, resetting the handler's RU meters.
-	budgetEpoch int64
+	budgetEpoch   int64
+	serverless    bool
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
@@ -179,6 +170,10 @@ func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (Cont
 		return ContainerInfo{}, polErr
 	}
 
+	if idxErr := validateSearchIndexes(spec.IndexingPolicy, spec.ContainerPolicies.stored()); idxErr != nil {
+		return ContainerInfo{}, idxErr
+	}
+
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
@@ -237,6 +232,10 @@ func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (Con
 
 	if !slices.Equal(paths, c.paths()) {
 		return ContainerInfo{}, ErrPartitionKeyImmutable
+	}
+
+	if idxErr := c.checkReplaceIndexes(spec); idxErr != nil {
+		return ContainerInfo{}, idxErr
 	}
 
 	if polErr := c.applyPolicies(spec.ContainerPolicies, true); polErr != nil {
@@ -589,6 +588,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.databases = make(map[string]*storedDatabase)
+	b.regions = AccountRegions{}
 }
 
 type tableSnapshotter interface {

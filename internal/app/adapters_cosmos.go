@@ -26,6 +26,20 @@ func (a *azureCosmosAdapter) MasterKey() string     { return a.handler.MasterKey
 func (a *azureCosmosAdapter) AcceptKey(key string)  { a.handler.AcceptKey(key) }
 func (a *azureCosmosAdapter) RevokeKey(key string)  { a.handler.RevokeKey(key) }
 
+func (a *azureCosmosAdapter) SetRegions(regions []azurearm.CosmosRegion, multiWrite bool) {
+	setter, ok := a.handler.Backend.(interface{ SetAccountRegions(cosmosdb.AccountRegions) })
+	if !ok {
+		return
+	}
+
+	out := cosmosdb.AccountRegions{MultiWrite: multiWrite}
+	for _, r := range regions {
+		out.Regions = append(out.Regions, cosmosdb.AccountRegion{Name: r.Name, FailoverPriority: r.Priority})
+	}
+
+	setter.SetAccountRegions(out)
+}
+
 func cosmosErr(err error) error {
 	switch {
 	case err == nil:

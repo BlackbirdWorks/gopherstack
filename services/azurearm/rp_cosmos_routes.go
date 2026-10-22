@@ -27,6 +27,7 @@ const (
 	cosmosActionReadonlyKeys = "readonlykeys"
 	cosmosActionConnStrings  = "listConnectionStrings"
 	cosmosActionRegenerate   = "regenerateKey"
+	cosmosActionFailover     = "failoverPriorityChange"
 )
 
 func isCosmosScope(segs []string) bool {
@@ -101,6 +102,12 @@ var cosmosRoutes = []armRoute{
 		handle: func(h *Handler, c *echo.Context, segs []string) error {
 			return h.handleCosmosKeysAction(c, segs, (*CosmosProvider).ConnectionStrings)
 		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return isCosmosAction(segs, cosmosActionFailover) && r.Method == http.MethodPost
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleCosmosFailover(c, segs) },
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
@@ -212,6 +219,29 @@ func (h *Handler) handleCosmosRegenerate(c *echo.Context, segs []string) error {
 	return h.writeJSON(c, http.StatusOK, map[string]any{})
 }
 
+func (h *Handler) handleCosmosFailover(c *echo.Context, segs []string) error {
+	cp, ok := h.cosmosProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	if err = cp.FailoverPriorityChange(c.Request().Context(), id, body); err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeAccepted(c, id, namespaceMicrosoftDocumentDB, cosmosOperationsStatus)
+}
+
 func isCosmosOperationPath(segs []string) bool {
 	return isSubscriptionScoped(segs) && segAt(segs, providersOrResourceGroupsIdx, providersSegment) &&
 		strings.EqualFold(
@@ -238,6 +268,11 @@ func (h *Handler) deleteAsync(c *echo.Context, segs []string, providerNS, opsSeg
 		return h.writeAPIError(c, err)
 	}
 
+	return h.writeAccepted(c, id, providerNS, opsSegment)
+}
+
+// writeAccepted answers 202 with an operationsStatus URL under providerNS; the operation is already complete.
+func (h *Handler) writeAccepted(c *echo.Context, id ResourceID, providerNS, opsSegment string) error {
 	op := h.baseURLFor(c.Request()) + "/subscriptions/" + id.SubscriptionID + "/providers/" +
 		providerNS + "/locations/" + DefaultLocation + "/" + opsSegment + "/" + uuid.NewString()
 	c.Response().Header().Set("Azure-Asyncoperation", op)

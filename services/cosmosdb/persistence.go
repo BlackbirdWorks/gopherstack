@@ -20,6 +20,7 @@ const cosmosdbSnapshotVersion = 1
 // backendSnapshot is the top-level on-disk shape for the Cosmos DB backend.
 type backendSnapshot struct {
 	Databases map[string]*storedDatabase `json:"databases"`
+	Regions   *AccountRegions            `json:"regions,omitempty"`
 	TableAPI  json.RawMessage            `json:"tableApi,omitempty"`
 	Version   int                        `json:"version"`
 }
@@ -37,6 +38,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	if b.tableAPI != nil {
 		snap.TableAPI = b.tableAPI.Snapshot(ctx)
+	}
+
+	if len(b.regions.Regions) > 0 || b.regions.MultiWrite {
+		regions := b.regions
+		snap.Regions = &regions
 	}
 
 	return persistence.MarshalSnapshot(ctx, "cosmosdb", snap)
@@ -86,6 +92,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.databases = snap.Databases
+	b.regions = AccountRegions{}
+
+	if snap.Regions != nil {
+		b.regions = snap.Regions.normalized()
+	}
 
 	return nil
 }

@@ -219,6 +219,15 @@ type CosmosResources interface {
 	GetThroughput(db, container string) (CosmosThroughput, error)
 	// PutThroughput creates or replaces that offer.
 	PutThroughput(db, container string, t CosmosThroughput) error
+
+	// SetRegions publishes the account's regional topology (the lowest priority is the write region).
+	SetRegions(regions []CosmosRegion, multiWrite bool)
+}
+
+// CosmosRegion is one account location and its failover priority.
+type CosmosRegion struct {
+	Name     string
+	Priority int
 }
 
 type noopCosmosResources struct{}
@@ -251,6 +260,8 @@ func (noopCosmosResources) GetThroughput(string, string) (CosmosThroughput, erro
 func (noopCosmosResources) PutThroughput(string, string, CosmosThroughput) error {
 	return ErrCosmosUnavailable
 }
+
+func (noopCosmosResources) SetRegions([]CosmosRegion, bool) {}
 
 var _ CosmosResources = noopCosmosResources{}
 

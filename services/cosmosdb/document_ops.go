@@ -133,7 +133,8 @@ func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
 			"Operation cannot be performed because one of the specified precondition is not met.")
 	case errors.Is(err, ErrInvalidDocument), errors.Is(err, ErrPartitionKeyMismatch), errors.Is(err, ErrInvalidPatch),
-		errors.Is(err, ErrBatchTooLarge), errors.Is(err, ErrInvalidTrigger), errors.Is(err, ErrInvalidPKRange):
+		errors.Is(err, ErrBatchTooLarge), errors.Is(err, ErrInvalidTrigger), errors.Is(err, ErrInvalidPKRange),
+		errors.Is(err, ErrChangeFeedStart):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
 	case errors.Is(err, ErrScriptNotFound):
 		return h.writeError(c, http.StatusNotFound, "NotFound", "Resource Not Found")

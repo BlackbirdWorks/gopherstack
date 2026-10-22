@@ -24,13 +24,15 @@ const (
 )
 
 type fakeCosmos struct {
-	dbs      map[string]map[string]azurearm.CosmosContainer
-	accepted map[string]bool
-	tps      map[string]azurearm.CosmosThroughput
-	mu       sync.Mutex
-	rid      int
-	port     int
-	tls      bool
+	dbs        map[string]map[string]azurearm.CosmosContainer
+	accepted   map[string]bool
+	tps        map[string]azurearm.CosmosThroughput
+	regions    []azurearm.CosmosRegion
+	rid        int
+	port       int
+	mu         sync.Mutex
+	multiWrite bool
+	tls        bool
 }
 
 func newFakeCosmos() *fakeCosmos {
@@ -54,6 +56,12 @@ func (f *fakeCosmos) AcceptKey(k string) {
 func (f *fakeCosmos) RevokeKey(k string) {
 	f.mu.Lock()
 	delete(f.accepted, k)
+	f.mu.Unlock()
+}
+
+func (f *fakeCosmos) SetRegions(r []azurearm.CosmosRegion, multi bool) {
+	f.mu.Lock()
+	f.regions, f.multiWrite = r, multi
 	f.mu.Unlock()
 }
 

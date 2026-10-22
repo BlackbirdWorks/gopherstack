@@ -203,6 +203,7 @@ func (p *CosmosProvider) Put(ctx context.Context, id ResourceID, body map[string
 
 	a := p.buildAccount(ctx, id, body, existing)
 	p.accounts[key] = a
+	p.syncRegions(a)
 
 	if !existed {
 		p.authorizeKeys(a.keys)
@@ -294,6 +295,7 @@ func (p *CosmosProvider) Patch(ctx context.Context, id ResourceID, body map[stri
 
 	if props, _ := body[fieldProperties].(map[string]any); props != nil {
 		maps.Copy(a.properties, props)
+		p.syncRegions(a)
 	}
 
 	return p.accountBody(ctx, id, a), nil
@@ -348,6 +350,10 @@ func (p *CosmosProvider) dropAccountLocked(a *storedCosmosAccount) {
 	}
 
 	delete(p.accounts, acct)
+
+	if len(p.accounts) == 0 {
+		p.dataPlane.SetRegions(nil, false)
+	}
 }
 
 // List implements ResourceProvider; id's Names holds the parent chain for child lists.

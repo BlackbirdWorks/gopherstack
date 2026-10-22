@@ -34,12 +34,16 @@ type changeFeedRequest struct {
 	AfterSeq     int64
 	Limit        int
 	FromNow      bool
+	// AllVersions selects the all-versions-and-deletes mode; Started is set once the request names a start.
+	AllVersions bool
+	Started     bool
 }
 
 type changeFeedPage struct {
-	RID  string
-	Docs []DocumentInfo
-	Seq  int64
+	RID      string
+	Docs     []DocumentInfo
+	Versions []ChangeVersion
+	Seq      int64
 }
 
 func etagForSeq(seq int64) string { return `"` + strconv.FormatInt(seq, 10) + `"` }
@@ -48,6 +52,7 @@ func parseChangeFeedRequest(r *http.Request) (changeFeedRequest, error) {
 	var req changeFeedRequest
 
 	req.RangeID = r.Header.Get(headerPKRangeID)
+	req.AllVersions = r.Header.Get(headerWireFormat) != ""
 
 	scope, err := queryPartitionScope(r)
 	if err != nil {
@@ -67,21 +72,21 @@ func applyChangeFeedStart(req *changeFeedRequest, r *http.Request) error {
 
 	switch {
 	case inm == "*":
-		req.FromNow = true
+		req.FromNow, req.Started = true, true
 	case inm != "":
 		seq, err := strconv.ParseInt(strings.Trim(inm, `"`), 10, 64)
 		if err != nil || seq < 0 {
 			return ErrInvalidContinuation
 		}
 
-		req.AfterSeq = seq
+		req.AfterSeq, req.Started = seq, true
 	case r.Header.Get(headerIfModified) != "":
 		since, err := parseHTTPDate(r.Header.Get(headerIfModified))
 		if err != nil {
 			return fmt.Errorf("%w: invalid %s header", ErrInvalidDocument, headerIfModified)
 		}
 
-		req.Since = since
+		req.Since, req.Started = since, true
 	}
 
 	return nil
@@ -116,6 +121,10 @@ func (b *InMemoryBackend) readChangeFeed(dbID, collID string, req changeFeedRequ
 		return changeFeedPage{RID: rid, Seq: c.ChangeSeq}, nil
 	}
 
+	if req.AllVersions {
+		return b.readVersionFeed(dbID, collID, c, rid, req)
+	}
+
 	docs := changedDocs(c.liveDocs(b.now()), req)
 	sort.Slice(docs, func(i, j int) bool { return docs[i].Seq < docs[j].Seq })
 
@@ -131,6 +140,31 @@ func (b *InMemoryBackend) readChangeFeed(dbID, collID string, req changeFeedRequ
 	}
 
 	return changeFeedPage{RID: rid, Docs: infos, Seq: seq}, nil
+}
+
+// readVersionFeed serves the all-versions-and-deletes mode: every create, replace and delete (TTL expiry
+// included) after the start, which must be "now", a continuation or a start time.
+func (b *InMemoryBackend) readVersionFeed(
+	dbID, collID string, c *storedContainer, rid string, req changeFeedRequest,
+) (changeFeedPage, error) {
+	if !req.Started {
+		return changeFeedPage{}, ErrChangeFeedStart
+	}
+
+	recs := c.changedVersions(req)
+	seq := c.ChangeSeq
+
+	if req.Limit > 0 && len(recs) > req.Limit {
+		recs = recs[:req.Limit]
+		seq = recs[len(recs)-1].Seq
+	}
+
+	versions := make([]ChangeVersion, 0, len(recs))
+	for _, r := range recs {
+		versions = append(versions, b.changeVersion(dbID, collID, c, r))
+	}
+
+	return changeFeedPage{RID: rid, Versions: versions, Seq: seq}, nil
 }
 
 // resolveRange validates the requested partition key range id against the container's current ranges; the lock
@@ -204,10 +238,14 @@ func (h *Handler) readChangeFeed(c *echo.Context, dbID, collID string) error {
 
 	c.Response().Header().Set("ETag", etagForSeq(pg.Seq))
 
-	if len(pg.Docs) == 0 {
+	if len(pg.Docs) == 0 && len(pg.Versions) == 0 {
 		setCharge(c, ruReadBase)
 
 		return c.NoContent(http.StatusNotModified)
+	}
+
+	if req.AllVersions {
+		return h.writeVersionFeed(c, pg)
 	}
 
 	values := make([]map[string]any, 0, len(pg.Docs))
@@ -222,6 +260,48 @@ func (h *Handler) readChangeFeed(c *echo.Context, dbID, collID string) error {
 
 	return h.writeJSONCharged(c, http.StatusOK,
 		map[string]any{sysPropRID: pg.RID, listDocumentsKey: values, sysPropCount: len(values)}, readCharge)
+}
+
+// writeVersionFeed renders the all-versions-and-deletes page: {current, previous, metadata} per entry.
+func (h *Handler) writeVersionFeed(c *echo.Context, pg changeFeedPage) error {
+	values := make([]map[string]any, 0, len(pg.Versions))
+
+	for _, v := range pg.Versions {
+		values = append(values, h.encodeVersion(v))
+	}
+
+	setPageHeaders(c, len(values), "")
+
+	return h.writeJSONCharged(c, http.StatusOK,
+		map[string]any{sysPropRID: pg.RID, listDocumentsKey: values, sysPropCount: len(values)}, readCharge)
+}
+
+func (h *Handler) encodeVersion(v ChangeVersion) map[string]any {
+	meta := map[string]any{
+		"lsn": v.LSN, "crts": v.CRTS, "operationType": v.Op, "id": v.ID, "partitionKey": v.PartitionKey,
+	}
+
+	if v.PreviousLSN > 0 {
+		meta["previousImageLSN"] = v.PreviousLSN
+	}
+
+	out := map[string]any{"current": map[string]any{}, "metadata": meta}
+
+	if v.Current != nil {
+		cur := h.encodeDocument(*v.Current)
+		cur["_lsn"] = v.Current.Seq
+		out["current"] = cur
+	}
+
+	if v.Previous != nil {
+		out["previous"] = h.encodeDocument(*v.Previous)
+	}
+
+	if v.Op == opDelete {
+		meta["timeToLiveExpired"] = v.TTLExpired
+	}
+
+	return out
 }
 
 func (h *Handler) handlePKRanges(c *echo.Context, dbID, collID string) error {
