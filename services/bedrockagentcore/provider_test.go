@@ -21,8 +21,8 @@ func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		ctx  *service.AppContext
+		name string
 	}{
 		{name: "no config provider", ctx: &service.AppContext{Logger: slog.Default()}},
 		{
