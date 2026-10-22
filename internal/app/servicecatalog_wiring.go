@@ -9,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	budgetsbackend "github.com/blackbirdworks/gopherstack/services/budgets"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	servicecatalogbackend "github.com/blackbirdworks/gopherstack/services/servicecatalog"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -387,7 +388,9 @@ func wireServiceCatalogEngine(scReg, cfnReg service.Registerable) {
 	}
 
 	if cfnH, isCFN := cfnReg.(*cfnbackend.Handler); isCFN {
-		scH.Backend.SetStackEngine(&serviceCatalogStacks{cfn: cfnH})
+		stacks := &serviceCatalogStacks{cfn: cfnH}
+		scH.Backend.SetStackEngine(stacks)
+		scH.Backend.SetStackSetEngine(stacks)
 	}
 }
 
@@ -406,6 +409,10 @@ func wireServiceCatalog(byName map[string]service.Registerable) {
 
 	if ssmH, isSSM := byName["SSM"].(*ssmbackend.Handler); isSSM {
 		scH.Backend.SetAutomationRunner(&serviceCatalogAutomation{ssm: ssmH.Backend})
+	}
+
+	if ec2H, isEC2 := byName["EC2"].(*ec2backend.Handler); isEC2 {
+		scH.Backend.SetResourceLookup(serviceCatalogResources{ec2: ec2H.Backend})
 	}
 
 	if bH, isBudgets := byName["Budgets"].(*budgetsbackend.Handler); isBudgets {

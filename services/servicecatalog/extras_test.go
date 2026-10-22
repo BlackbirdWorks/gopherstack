@@ -813,16 +813,3 @@ func TestResetClearsState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list.PortfolioDetails)
 }
-
-func TestUnroutedOperation(t *testing.T) {
-	t.Parallel()
-
-	c := newFixture(t).client(t)
-
-	_, err := c.ListStackInstancesForProvisionedProduct(
-		t.Context(),
-		&sdk.ListStackInstancesForProvisionedProductInput{ProvisionedProductId: aws.String("pp-1")},
-	)
-	require.Error(t, err)
-	assert.Equal(t, "InvalidParametersException", apiCode(err))
-}

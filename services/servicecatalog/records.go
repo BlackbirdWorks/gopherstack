@@ -99,7 +99,7 @@ type DescribeProvisionedProductInput struct {
 // DescribeProvisionedProductOutput is the DescribeProvisionedProduct response.
 type DescribeProvisionedProductOutput struct {
 	ProvisionedProductDetail *ProvisionedProductDetail `json:"ProvisionedProductDetail"`
-	CloudWatchDashboards     []map[string]string       `json:"CloudWatchDashboards"`
+	CloudWatchDashboards     []CloudWatchDashboard     `json:"CloudWatchDashboards"`
 }
 
 // DescribeProvisionedProduct returns a provisioned product by ID or name.
@@ -108,18 +108,29 @@ func (b *InMemoryBackend) DescribeProvisionedProduct(
 	in *DescribeProvisionedProductInput,
 ) (*DescribeProvisionedProductOutput, error) {
 	b.mu.RLock("DescribeProvisionedProduct")
-	defer b.mu.RUnlock()
-
 	pp, err := b.provisionedLocked(b.callerAccount(ctx), b.callerRegion(ctx), in.ID, in.Name)
+
+	var (
+		d     ProvisionedProductDetail
+		stack string
+	)
+
+	if err == nil {
+		d, stack = b.ppDetail(pp), pp.StackName
+		if pp.Type == ppTypeCFNStackSet {
+			stack = ""
+		}
+	}
+
+	b.mu.RUnlock()
+
 	if err != nil {
 		return nil, err
 	}
 
-	d := b.ppDetail(pp)
-
 	return &DescribeProvisionedProductOutput{
 		ProvisionedProductDetail: &d,
-		CloudWatchDashboards:     []map[string]string{},
+		CloudWatchDashboards:     b.dashboardsOf(ctx, stack),
 	}, nil
 }
 

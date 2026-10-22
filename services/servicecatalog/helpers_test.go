@@ -54,6 +54,7 @@ type fakeEngine struct {
 	changeSet map[string]servicecatalog.ChangeSetInfo
 	csReq     map[string]servicecatalog.StackRequest
 	requests  []servicecatalog.StackRequest
+	extra     []servicecatalog.StackResource
 	mu        sync.Mutex
 }
 
@@ -242,7 +243,10 @@ func (f *fakeEngine) StackResources(_ context.Context, name string) ([]serviceca
 		return nil, servicecatalog.ErrStackNotFound
 	}
 
-	return []servicecatalog.StackResource{{LogicalID: "Q", PhysicalID: "i-0abc", Type: "AWS::EC2::Instance"}}, nil
+	return append(
+		[]servicecatalog.StackResource{{LogicalID: "Q", PhysicalID: "i-0abc", Type: "AWS::EC2::Instance"}},
+		f.extra...,
+	), nil
 }
 
 func (f *fakeEngine) CreateChangeSet(
@@ -424,4 +428,8 @@ func serve(t *testing.T, b *servicecatalog.InMemoryBackend) string {
 	t.Helper()
 
 	return sdktest.Serve(t, servicecatalog.NewHandler(b))
+}
+
+func stackResource(name, typ string) servicecatalog.StackResource {
+	return servicecatalog.StackResource{LogicalID: "L" + name, PhysicalID: name, Type: typ}
 }

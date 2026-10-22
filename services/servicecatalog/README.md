@@ -7,29 +7,24 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 89 (89 ok) |
+| PARITY entries audited | 90 (90 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 14 |
+| Known gaps | 9 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- ListStackInstancesForProvisionedProduct: not implemented; STACKSET products are not provisioned
-- CreateConstraint STACKSET: accepted and stored, but ProvisionProduct and CreateProvisionedProductPlan on such a path return OperationNotSupportedException
-- CreateConstraint TEMPLATE: only Fn::Equals/Not/And/Or/Contains/EachMemberEquals/EachMemberIn/Ref rules are evaluated; an assertion using any other function passes
-- CreateConstraint LAUNCH: the role is passed to CloudFormation as RoleARN but never assumed or checked in IAM
-- DescribeProvisionedProduct: CloudWatchDashboards is always empty
+- UpdateProvisionedProduct and CreateProvisionedProductPlan on a STACKSET product return OperationNotSupportedException: the CloudFormation emulator's UpdateStackSet and UpdateStackInstances do not re-deploy instance stacks
 - CreateProduct SourceConnection: the CodeStar repository is stored but never synced, so LastSync and SourceRevision stay empty
 - Notify*EngineWorkflowResult: no channel hands the workflow token to an engine; it is wf-<RecordId>
 - CreatePortfolioShare: SharePrincipals and ShareTagOptions are recorded but recipients get no copy of principals or tag options
 - AcceptPortfolioShare: AWS_SERVICECATALOG shares do not exist, so only IMPORTED and AWS_ORGANIZATIONS are acceptable
 - SearchProducts: a caller with an unresolved identity (no principal) sees every accessible portfolio; a resolved non-root identity needs a principal association
-- ProvisionProduct ProvisioningPreferences: accepted and ignored (StackSet-only)
 - CreateProduct MARKETPLACE: rejected with InvalidParametersException
-- TagOptions: not applied as tags on launched stacks
-- ErrorClasses: several error classes (ResourceInUse on disassociating a constrained product, InvalidParameters for an under-change provisioned product, DuplicateResource on re-imports) are chosen from documented behaviour, not SDK evidence
+- TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; the SDK models only ResourceNotFoundException for the operation, so the class is a guess
+- TEMPLATE rules: Fn::RefAll, Fn::ValueOf and Fn::ValueOfAll resolve AWS::EC2::VPC/Subnet/SecurityGroup/Instance::Id only; other AWS-specific parameter types leave the assertion unevaluated (it passes)
 
 ### Structural gaps
 

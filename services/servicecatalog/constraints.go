@@ -38,9 +38,12 @@ func validateConstraintParameters(typ, params string) error {
 	case constraintNotify:
 		return validateNotificationConstraint(doc)
 	case constraintTemplate:
-		if _, ok := doc["Rules"].(map[string]any); !ok {
+		rules, ok := doc["Rules"].(map[string]any)
+		if !ok {
 			return invalid("a TEMPLATE constraint needs a Rules object")
 		}
+
+		return validateTemplateRules(rules)
 	case constraintStackSet:
 		return validateStackSetConstraint(doc)
 	case constraintResource:
@@ -88,8 +91,21 @@ func validateStackSetConstraint(doc map[string]any) error {
 		return invalid("a STACKSET constraint needs a Version")
 	}
 
-	if _, ok := doc["Properties"].(map[string]any); !ok {
+	props, ok := doc["Properties"].(map[string]any)
+	if !ok {
 		return invalid("a STACKSET constraint needs a Properties object")
+	}
+
+	for _, k := range []string{"AccountList", "RegionList"} {
+		if len(stringList(props[k])) == 0 {
+			return invalid("a STACKSET constraint needs a non-empty %s", k)
+		}
+	}
+
+	for _, k := range []string{"AdminRole", "ExecutionRole"} {
+		if stringField(props, k) == "" {
+			return invalid("a STACKSET constraint needs %s", k)
+		}
 	}
 
 	return nil

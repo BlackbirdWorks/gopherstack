@@ -119,6 +119,11 @@ type BudgetChecker interface {
 	BudgetExists(ctx context.Context, name string) bool
 }
 
+// RoleChecker verifies Service Catalog can assume a launch constraint role.
+type RoleChecker interface {
+	CheckLaunchRole(ctx context.Context, roleARN string) error
+}
+
 // InMemoryBackend is the Service Catalog state; one coarse lock guards every table.
 type InMemoryBackend struct {
 	portfolios    *store.Table[Portfolio]
@@ -146,6 +151,9 @@ type InMemoryBackend struct {
 	org           OrgDirectory
 	runner        AutomationRunner
 	budgets       BudgetChecker
+	sets          StackSetEngine
+	roles         RoleChecker
+	lookup        ResourceLookup
 	accountID     string
 	region        string
 	dwell         time.Duration
@@ -170,6 +178,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 	return b
 }
+
+// ServicePrincipal is the service principal Service Catalog assumes launch roles as.
+func ServicePrincipal() string { return servicePrincipal }
 
 // Region returns the default Region.
 func (b *InMemoryBackend) Region() string { return b.region }
@@ -207,6 +218,30 @@ func (b *InMemoryBackend) SetBudgetChecker(c BudgetChecker) {
 	defer b.mu.Unlock()
 
 	b.budgets = c
+}
+
+// SetStackSetEngine wires the CloudFormation StackSet engine used by STACKSET products.
+func (b *InMemoryBackend) SetStackSetEngine(e StackSetEngine) {
+	b.mu.Lock("SetStackSetEngine")
+	defer b.mu.Unlock()
+
+	b.sets = e
+}
+
+// SetRoleChecker wires the launch role trust check.
+func (b *InMemoryBackend) SetRoleChecker(r RoleChecker) {
+	b.mu.Lock("SetRoleChecker")
+	defer b.mu.Unlock()
+
+	b.roles = r
+}
+
+// SetResourceLookup wires the account resource lookup used by TEMPLATE rule functions.
+func (b *InMemoryBackend) SetResourceLookup(l ResourceLookup) {
+	b.mu.Lock("SetResourceLookup")
+	defer b.mu.Unlock()
+
+	b.lookup = l
 }
 
 // SetLifecycleDelay keeps records IN_PROGRESS and copy operations pending for d; zero settles immediately.

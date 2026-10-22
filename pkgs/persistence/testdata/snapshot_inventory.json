@@ -30563,6 +30563,7 @@
       "Record.ID string `json:\"id\"`",
       "Record.LaunchRoleArn string `json:\"launchRoleArn,omitempty\"`",
       "Record.Outputs []Output `json:\"outputs,omitempty\"`",
+      "Record.PPType string `json:\"provisionedProductType,omitempty\"`",
       "Record.PathID string `json:\"pathID,omitempty\"`",
       "Record.ProductID string `json:\"productID\"`",
       "Record.ProvisionedProductID string `json:\"provisionedProductID\"`",
