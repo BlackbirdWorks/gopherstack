@@ -115,6 +115,7 @@ import (
 	bcmdataexportsbackend "github.com/blackbirdworks/gopherstack/services/bcmdataexports"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockagentbackend "github.com/blackbirdworks/gopherstack/services/bedrockagent"
+	agentcorebackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 	bedrockagentcorecontrolbackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcorecontrol"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	budgetsbackend "github.com/blackbirdworks/gopherstack/services/budgets"
@@ -584,6 +585,7 @@ type CLI struct {
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
+	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
 	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
@@ -753,6 +755,12 @@ func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return 
 
 // GetGCPSQLSettings returns Google Cloud SQL settings (gcpsql.ConfigProvider).
 func (c *CLI) GetGCPSQLSettings() gcpsqlbackend.Settings { return c.GCPSQL }
+
+// GetAgentCoreSettings returns AgentCore data-plane settings (bedrockagentcore.ConfigProvider).
+func (c *CLI) GetAgentCoreSettings() agentcorebackend.Settings { return c.AgentCore }
+
+// GetAgentCoreEndpointURL returns the gopherstack URL as seen from AgentCore containers.
+func (c *CLI) GetAgentCoreEndpointURL() string { return c.GetFlinkEndpointURL() }
 
 // GetGCPIAMSettings returns Google Cloud IAM admin settings (gcpiam.ConfigProvider).
 func (c *CLI) GetGCPIAMSettings() gcpiambackend.Settings { return c.GCPIAM }
@@ -4645,6 +4653,7 @@ func getServiceProviders() []service.Provider {
 		&ampbackend.Provider{},
 		&timestreaminfluxdbbackend.Provider{},
 		&bedrockagentcorecontrolbackend.Provider{},
+		&agentcorebackend.Provider{},
 		&s3vectorsbackend.Provider{},
 		&cloudhsmv2backend.Provider{},
 		&rumbackend.Provider{},

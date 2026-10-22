@@ -1,6 +1,7 @@
 package bedrockagentcorecontrol
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -299,13 +300,64 @@ func (b *InMemoryBackend) validateProviderUpdate(r *Resource, patch map[string]a
 	return b.checkSecretRefs(patch)
 }
 
+// managedSecret stores value as a Secrets Manager secret when a store is wired and returns its ARN; without a
+// store the ARN is synthesized and the value is dropped.
+func (b *InMemoryBackend) managedSecret(sc scope, kind, name, member string, value any) string {
+	st, _ := b.refs.(SecretStore)
+	text, _ := value.(string)
+
+	if st == nil || text == "" {
+		return b.managedSecretARN(sc, kind, name, member)
+	}
+
+	payload, _ := json.Marshal(map[string]string{member: text})
+	secretName := fmt.Sprintf("%s%s/%s/%s", managedSecretName, kind, name, member)
+
+	if secretARN, err := st.PutSecret(sc.account, sc.region, secretName, string(payload)); err == nil {
+		return secretARN
+	}
+
+	return b.managedSecretARN(sc, kind, name, member)
+}
+
+// releaseSecrets deletes the managed secrets a removed credential provider owned.
+func (b *InMemoryBackend) releaseSecrets(r *Resource) {
+	st, _ := b.refs.(SecretStore)
+	if st == nil {
+		return
+	}
+
+	walkSecretARNs(r.Doc, func(id string) {
+		if strings.Contains(id, ":secret:"+managedSecretName) {
+			st.DeleteSecret(id)
+		}
+	})
+}
+
+func walkSecretARNs(v any, f func(id string)) {
+	switch t := v.(type) {
+	case map[string]any:
+		if id, ok := t["secretArn"].(string); ok {
+			f(id)
+		}
+
+		for _, c := range t {
+			walkSecretARNs(c, f)
+		}
+	case []any:
+		for _, c := range t {
+			walkSecretARNs(c, f)
+		}
+	}
+}
+
 func (b *InMemoryBackend) managedSecretARN(sc scope, kind, name, suffix string) string {
 	return arn.Build(
 		"secretsmanager",
 		sc.region,
 		sc.account,
 		fmt.Sprintf(
-			"secret:bedrock-agentcore-identity!default/%s/%s/%s-%s",
+			"secret:"+managedSecretPrefix+"%s/%s/%s-%s",
 			kind,
 			name,
 			suffix,
@@ -327,7 +379,7 @@ func (b *InMemoryBackend) secretMembers(sc scope, kind, name string, cfg map[str
 				ref["secretId"],
 			), ref["jsonKey"], "EXTERNAL"
 		case strings.HasSuffix(k, "Secret") || strings.HasSuffix(k, "PrivateKey") || k == keyAPIKey:
-			out[k+"Arn"] = secretRef(b.managedSecretARN(sc, kind, name, k))
+			out[k+"Arn"] = secretRef(b.managedSecret(sc, kind, name, k, v))
 			out[k+"JsonKey"] = k
 			out[k+"Source"] = "MANAGED"
 		case strings.HasSuffix(k, "Source"):

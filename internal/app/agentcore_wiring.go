@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -9,12 +11,15 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	agentcoredataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 	agentcorebackend "github.com/blackbirdworks/gopherstack/services/bedrockagentcorecontrol"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
+
+var errAgentCoreNoSecrets = errors.New("secrets manager is not wired")
 
 const (
 	maxAgentCoreObjectBytes = 64 << 20
@@ -76,6 +81,67 @@ func (r agentCoreRefs) SecretExists(secretARN string) bool {
 	return err == nil
 }
 
+// PutSecret creates the secret or stores value as its new current version.
+func (r agentCoreRefs) PutSecret(account, region, name, value string) (string, error) {
+	if r.secrets == nil {
+		return "", errAgentCoreNoSecrets
+	}
+
+	ctx := scopedCtx(account, region)
+
+	existing, derr := r.secrets.Backend.DescribeSecret(ctx, &secretsmanagerbackend.DescribeSecretInput{SecretID: name})
+	if derr == nil {
+		out, perr := r.secrets.Backend.PutSecretValue(ctx,
+			&secretsmanagerbackend.PutSecretValueInput{SecretID: existing.ARN, SecretString: value})
+		if perr != nil {
+			return "", fmt.Errorf("put secret value: %w", perr)
+		}
+
+		return out.ARN, nil
+	}
+
+	out, err := r.secrets.Backend.CreateSecret(
+		ctx,
+		&secretsmanagerbackend.CreateSecretInput{
+			Name:         name,
+			SecretString: value,
+			Description:  "Bedrock AgentCore identity",
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("create secret: %w", err)
+	}
+
+	return out.ARN, nil
+}
+
+// GetSecret returns the current string value of the secret.
+func (r agentCoreRefs) GetSecret(secretARN string) (string, bool) {
+	parts := strings.Split(secretARN, ":")
+	if r.secrets == nil || len(parts) < arnResourceFields {
+		return "", false
+	}
+
+	out, err := r.secrets.Backend.GetSecretValue(scopedCtx(parts[4], parts[3]),
+		&secretsmanagerbackend.GetSecretValueInput{SecretID: secretARN})
+	if err != nil {
+		return "", false
+	}
+
+	return out.SecretString, true
+}
+
+// DeleteSecret removes the secret without a recovery window.
+func (r agentCoreRefs) DeleteSecret(secretARN string) {
+	parts := strings.Split(secretARN, ":")
+	if r.secrets == nil || len(parts) < arnResourceFields {
+		return
+	}
+
+	_, _ = r.secrets.Backend.DeleteSecret(scopedCtx(parts[4], parts[3]),
+		&secretsmanagerbackend.DeleteSecretInput{SecretID: secretARN, ForceDeleteWithoutRecovery: true})
+}
+
 func (r agentCoreRefs) ReadObject(bucket, key string) ([]byte, bool) {
 	if r.s3 == nil {
 		return nil, false
@@ -110,4 +176,8 @@ func wireAgentCore(byName map[string]service.Registerable) {
 	refs.s3, _ = byName["S3"].(*s3backend.S3Handler)
 
 	h.Backend.SetReferences(refs)
+
+	if dp, found := byName["BedrockAgentCore"].(*agentcoredataplane.Handler); found {
+		dp.Backend.SetControl(h.Backend.DataPlane())
+	}
 }

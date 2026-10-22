@@ -431,6 +431,7 @@ func (b *InMemoryBackend) del(sc scope, k *kindSpec, op string, in args) (*reply
 // removeLocked deletes r (and its dependants) now, or marks it DELETING for the lifecycle window.
 func (b *InMemoryBackend) removeLocked(sc scope, k *kindSpec, r *Resource) {
 	b.cascade(sc, k, r)
+	b.releaseSecrets(r)
 
 	if b.dwell > 0 && !k.Terminal {
 		r.Deleting = true
