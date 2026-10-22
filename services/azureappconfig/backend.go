@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -246,4 +247,19 @@ func formatSyncToken(name string, seq int64) string {
 	val := base64.StdEncoding.EncodeToString([]byte(id))
 
 	return "gs" + id + "=" + val + ";sn=" + itoa(seq)
+}
+
+// StoreNames returns the store names sorted.
+func (b *InMemoryBackend) StoreNames() []string {
+	b.mu.RLock("StoreNames")
+	defer b.mu.RUnlock()
+
+	out := make([]string, 0, len(b.stores))
+	for _, s := range b.stores {
+		out = append(out, s.Name)
+	}
+
+	sort.Strings(out)
+
+	return out
 }

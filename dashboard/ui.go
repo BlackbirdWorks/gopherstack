@@ -44,8 +44,11 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	azureappconfigbackend "github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
+	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -96,10 +99,12 @@ import (
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
+	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	gcpsqlbackend "github.com/blackbirdworks/gopherstack/services/gcpsql"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -543,6 +548,16 @@ type Config struct {
 	AzureServiceBusOps *azureservicebusbackend.Handler
 	// AzureKeyVaultOps is dispatched in-process by the /dashboard/api/v1/azure/keyvault proxy.
 	AzureKeyVaultOps *azurekeyvaultbackend.Handler
+	// AzureEventHubsOps is called in-process by the /dashboard/api/v1/azure/eventhubs proxy.
+	AzureEventHubsOps *azureeventhubsbackend.Handler
+	// AzureEventGridOps is called in-process by the /dashboard/api/v1/azure/eventgrid proxy.
+	AzureEventGridOps *azureeventgridbackend.Handler
+	// AzureAppConfigOps is called in-process by the /dashboard/api/v1/azure/appconfig proxy.
+	AzureAppConfigOps *azureappconfigbackend.Handler
+	// GCPSQLOps is dispatched in-process by the /dashboard/api/v1/gcp/sql proxy.
+	GCPSQLOps *gcpsqlbackend.Handler
+	// GCPLoggingOps is called in-process by the /dashboard/api/v1/gcp/logging proxy.
+	GCPLoggingOps *gcploggingbackend.Handler
 	// AzureCosmosOps is dispatched in-process by the /dashboard/api/v1/azure/cosmos proxy.
 	AzureCosmosOps *cosmosdbbackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
@@ -798,6 +813,11 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureCosmosRoutes()
 	h.registerAzureCosmosTableRoutes()
 	h.registerAzureKeyVaultRoutes()
+	h.registerAzureEventHubsRoutes()
+	h.registerAzureEventGridRoutes()
+	h.registerAzureAppConfigRoutes()
+	h.registerGCPSQLRoutes()
+	h.registerGCPLoggingRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()
@@ -2049,7 +2069,12 @@ func (h *DashboardHandler) registerSPAFallbackRoutes() {
 	// SPA fallback
 	h.SubRouter.Any("/dashboard/*", h.spaFallbackHandler())
 	h.SubRouter.Any("/dashboard", func(c *echo.Context) error {
-		return c.Redirect(http.StatusMovedPermanently, "/dashboard/")
+		target := "/dashboard/"
+		if q := c.Request().URL.RawQuery; q != "" {
+			target += "?" + q
+		}
+
+		return c.Redirect(http.StatusMovedPermanently, target)
 	})
 }
 

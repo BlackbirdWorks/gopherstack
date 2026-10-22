@@ -10,7 +10,7 @@
 	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
 	import RegionPicker from '#lib/components/RegionPicker.svelte';
 	import CloudSwitcher from '#lib/components/CloudSwitcher.svelte';
-	import { categoriesForCloud, CLOUD_PARAM } from '#lib/cloud.ts';
+	import { categoriesForCloud, cloudFromPath, CLOUD_PARAM } from '#lib/cloud.ts';
 	import { currentCloud, loadBackendInfo, servedAzureServices, servedGcpServices, syncCloudFromUrl, isRouteDisabled } from '#lib/cloud.svelte.ts';
 	import { registerConfirmDialog, unregisterConfirmDialog } from '#lib/confirm-dialog.ts';
 
@@ -30,7 +30,7 @@
 	let confirmDialog = $state<ConfirmDialog | null>(null);
 
 	$effect(() => {
-		syncCloudFromUrl(page.url.searchParams.get(CLOUD_PARAM));
+		syncCloudFromUrl(page.url.searchParams.get(CLOUD_PARAM) ?? cloudFromPath(page.url.pathname));
 	});
 
 	const cloud = $derived(currentCloud());

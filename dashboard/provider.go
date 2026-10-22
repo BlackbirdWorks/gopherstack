@@ -16,8 +16,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 	"github.com/blackbirdworks/gopherstack/services/autoscaling"
+	"github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
+	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
+	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -41,10 +44,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
+	"github.com/blackbirdworks/gopherstack/services/gcplogging"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcprun"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	"github.com/blackbirdworks/gopherstack/services/gcpsql"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/iot"
@@ -148,6 +153,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		conf.AzureCosmosOps, _ = getHandler[*cosmosdb.Handler](cp.GetCosmosDBHandler())
 	}
 
+	linkCloudExtras(&conf, ctx.Config)
+
 	h := NewHandler(conf)
 
 	return h, nil
@@ -249,5 +256,29 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 
 	if gp, hasIAM := ctx.Config.(interface{ GetGCPIAMHandler() service.Registerable }); hasIAM {
 		conf.GCPIAMOps, _ = getHandler[*gcpiam.Handler](gp.GetGCPIAMHandler())
+	}
+}
+
+// linkCloudExtras resolves the Event Hubs, Event Grid, App Configuration, Cloud SQL and
+// Cloud Logging handlers the dashboard proxies call in-process.
+func linkCloudExtras(conf *Config, cfg any) {
+	if p, ok := cfg.(interface{ GetAzureEventHubsHandler() service.Registerable }); ok {
+		conf.AzureEventHubsOps, _ = getHandler[*azureeventhubs.Handler](p.GetAzureEventHubsHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureEventGridHandler() service.Registerable }); ok {
+		conf.AzureEventGridOps, _ = getHandler[*azureeventgrid.Handler](p.GetAzureEventGridHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureAppConfigHandler() service.Registerable }); ok {
+		conf.AzureAppConfigOps, _ = getHandler[*azureappconfig.Handler](p.GetAzureAppConfigHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPSQLHandler() service.Registerable }); ok {
+		conf.GCPSQLOps, _ = getHandler[*gcpsql.Handler](p.GetGCPSQLHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPLoggingHandler() service.Registerable }); ok {
+		conf.GCPLoggingOps, _ = getHandler[*gcplogging.Handler](p.GetGCPLoggingHandler())
 	}
 }

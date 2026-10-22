@@ -12,6 +12,8 @@
 	import RunDashboard from '#lib/components/gcp/RunDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/gcp/FunctionsDashboard.svelte';
 	import BigQueryDashboard from '#lib/components/gcp/BigQueryDashboard.svelte';
+	import SqlDashboard from '#lib/components/gcp/SqlDashboard.svelte';
+	import LoggingDashboard from '#lib/components/gcp/LoggingDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -47,6 +49,10 @@
 	<BigQueryDashboard />
 {:else if service?.id === 'firestore'}
 	<FirestoreDashboard />
+{:else if service?.id === 'sql'}
+	<SqlDashboard />
+{:else if service?.id === 'logging'}
+	<LoggingDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

@@ -425,6 +425,11 @@ type CLI struct {
 	azureTableHandler             service.Registerable
 	azureServiceBusHandler        service.Registerable
 	azureKeyVaultHandler          service.Registerable
+	azureEventHubsHandler         service.Registerable
+	azureEventGridHandler         service.Registerable
+	azureAppConfigHandler         service.Registerable
+	gcpSQLHandler                 service.Registerable
+	gcpLoggingHandler             service.Registerable
 	cosmosDBHandler               service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
@@ -3207,6 +3212,11 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.azureTableHandler = byName["AzureTable"]
 	cli.azureServiceBusHandler = byName["AzureServiceBus"]
 	cli.azureKeyVaultHandler = byName["AzureKeyVault"]
+	cli.azureEventHubsHandler = byName["AzureEventHubs"]
+	cli.azureEventGridHandler = byName["AzureEventGrid"]
+	cli.azureAppConfigHandler = byName["AzureAppConfig"]
+	cli.gcpSQLHandler = byName["GCPSQL"]
+	cli.gcpLoggingHandler = byName["GCPLogging"]
 	cli.cosmosDBHandler = byName["CosmosDB"]
 	cli.ceHandler = byName["Ce"]
 	cli.cloudcontrolHandler = byName["CloudControl"]

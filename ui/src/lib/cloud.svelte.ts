@@ -4,6 +4,7 @@ import {
   type GcpService,
   availableAzureServices,
   availableGcpServices,
+  parseCloud,
   readStoredCloud,
   resolveCloud,
   writeStoredCloud,
@@ -15,9 +16,11 @@ export function currentCloud(): Cloud {
   return cloud;
 }
 
-/** Adopts the URL's ?cloud= (falling back to storage) without writing storage. */
+/** Adopts the URL's ?cloud= (falling back to storage); a valid param is persisted so in-app links, which carry no param, keep the deep-linked cloud. */
 export function syncCloudFromUrl(urlValue: string | null): void {
-  cloud = resolveCloud(urlValue, readStoredCloud());
+  const fromUrl = parseCloud(urlValue);
+  cloud = fromUrl ?? resolveCloud(null, readStoredCloud());
+  if (fromUrl && fromUrl !== parseCloud(readStoredCloud())) writeStoredCloud(fromUrl);
 }
 
 export function setCloud(next: Cloud): void {
@@ -73,10 +76,13 @@ export async function loadBackendInfo(fetchFn: typeof fetch = fetch): Promise<vo
     const res = await fetchFn("/dashboard/api/system/state");
     if (res.ok) {
       const body = (await res.json()) as {
-        allocated?: { label?: string; port?: number }[];
+        allocated?: { label?: string; port?: number; fixed?: boolean }[];
       };
       for (const a of body.allocated ?? []) {
-        if (typeof a.label === "string" && typeof a.port === "number") ports[a.label] = a.port;
+        if (typeof a.label !== "string" || typeof a.port !== "number") continue;
+        // dynamic leases (e.g. Cloud SQL engine ports) reuse the service label; they never replace the fixed port
+        if (a.fixed === false && a.label in ports) continue;
+        ports[a.label] = a.port;
       }
     }
   } catch {

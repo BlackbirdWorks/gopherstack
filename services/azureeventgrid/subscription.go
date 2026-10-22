@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"sort"
 	"time"
 )
 
@@ -260,4 +261,39 @@ func (b *InMemoryBackend) ConfirmValidation(code string) bool {
 	}
 
 	return false
+}
+
+// TopicNames returns the custom topic names sorted.
+func (b *InMemoryBackend) TopicNames() []string {
+	b.mu.RLock("TopicNames")
+	defer b.mu.RUnlock()
+
+	out := make([]string, 0, len(b.topics))
+	for name := range b.topics {
+		out = append(out, name)
+	}
+
+	sort.Strings(out)
+
+	return out
+}
+
+// SubscriptionNames returns a custom topic's event subscription names sorted.
+func (b *InMemoryBackend) SubscriptionNames(topicName string) ([]string, error) {
+	b.mu.RLock("SubscriptionNames")
+	defer b.mu.RUnlock()
+
+	t, err := b.topicLocked(topicName)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(t.Subs))
+	for name := range t.Subs {
+		out = append(out, name)
+	}
+
+	sort.Strings(out)
+
+	return out, nil
 }

@@ -30,13 +30,20 @@ describe("cloud store", () => {
     expect(window.localStorage.getItem(CLOUD_STORAGE_KEY)).toBe("azure");
   });
 
-  it("URL param wins over storage and does not overwrite it", () => {
+  it("URL param wins over storage and is persisted for param-less in-app links", () => {
     setCloud("gcp");
     syncCloudFromUrl("azure");
     expect(currentCloud()).toBe("azure");
-    expect(window.localStorage.getItem(CLOUD_STORAGE_KEY)).toBe("gcp");
+    expect(window.localStorage.getItem(CLOUD_STORAGE_KEY)).toBe("azure");
     syncCloudFromUrl(null);
+    expect(currentCloud()).toBe("azure");
+  });
+
+  it("ignores an invalid URL param", () => {
+    setCloud("gcp");
+    syncCloudFromUrl("nope");
     expect(currentCloud()).toBe("gcp");
+    expect(window.localStorage.getItem(CLOUD_STORAGE_KEY)).toBe("gcp");
   });
 });
 
@@ -54,6 +61,30 @@ describe("loadBackendInfo", () => {
     expect(servedAzureServices().map((s) => s.id)).toEqual(["blob", "cosmosdb"]);
     expect(backendInfo().ports).toEqual({ azureblob: 10000 });
     expect(backendInfo().loaded).toBe(true);
+  });
+
+  it.each([
+    [
+      [
+        { label: "gcpsql", port: 8130, fixed: true },
+        { label: "gcpsql", port: 40009, fixed: false },
+      ],
+    ],
+    [
+      [
+        { label: "gcpsql", port: 40009, fixed: false },
+        { label: "gcpsql", port: 8130, fixed: true },
+      ],
+    ],
+  ])("keeps the fixed port over dynamic leases of the same label", async (allocated) => {
+    const fetchFn = ((url: string) =>
+      Promise.resolve(
+        url.includes("health")
+          ? jsonResponse({ services: ["GCPSQL"] })
+          : jsonResponse({ allocated }),
+      )) as unknown as typeof fetch;
+    await loadBackendInfo(fetchFn);
+    expect(backendInfo().ports).toEqual({ gcpsql: 8130 });
   });
 
   it("reports unreachable backend as null services", async () => {

@@ -514,3 +514,18 @@ func (b *InMemoryBackend) DeleteRule(nsName, hubName, name string) error {
 
 	return nil
 }
+
+// NamespaceNames returns the namespace names sorted.
+func (b *InMemoryBackend) NamespaceNames() []string {
+	b.mu.RLock("NamespaceNames")
+	defer b.mu.RUnlock()
+
+	out := make([]string, 0, len(b.namespaces))
+	for name := range b.namespaces {
+		out = append(out, name)
+	}
+
+	sort.Strings(out)
+
+	return out
+}
