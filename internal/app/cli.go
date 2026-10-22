@@ -177,7 +177,9 @@ import (
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
+	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpredisbackend "github.com/blackbirdworks/gopherstack/services/gcpredis"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -600,6 +602,8 @@ type CLI struct {
 	GCPIAM                        gcpiambackend.Settings            `embed:"" prefix:"gcp-iam-"`
 	GCPBigQuery                   gcpbigquerybackend.Settings       `embed:"" prefix:"gcp-bigquery-"`
 	GCPLogging                    gcploggingbackend.Settings        `embed:"" prefix:"gcp-logging-"`
+	GCPMonitoring                 gcpmonitoringbackend.Settings     `embed:"" prefix:"gcp-monitoring-"`
+	GCPRedis                      gcpredisbackend.Settings          `embed:"" prefix:"gcp-redis-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -717,6 +721,12 @@ func (c *CLI) GetGCPBigQuerySettings() gcpbigquerybackend.Settings { return c.GC
 
 // GetGCPLoggingSettings returns Google Cloud Logging settings (gcplogging.ConfigProvider).
 func (c *CLI) GetGCPLoggingSettings() gcploggingbackend.Settings { return c.GCPLogging }
+
+// GetGCPMonitoringSettings returns Google Cloud Monitoring settings (gcpmonitoring.ConfigProvider).
+func (c *CLI) GetGCPMonitoringSettings() gcpmonitoringbackend.Settings { return c.GCPMonitoring }
+
+// GetGCPRedisSettings returns Google Memorystore for Redis settings (gcpredis.ConfigProvider).
+func (c *CLI) GetGCPRedisSettings() gcpredisbackend.Settings { return c.GCPRedis }
 
 // GetGCPSQLSettings returns Google Cloud SQL settings (gcpsql.ConfigProvider).
 func (c *CLI) GetGCPSQLSettings() gcpsqlbackend.Settings { return c.GCPSQL }
@@ -2362,6 +2372,8 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPBigQuery", "gcpbigquery", cli.GCPBigQuery.Port},
 		{"GCPSQL", "gcpsql", cli.GCPSQL.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
+		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
+		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
 		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
@@ -3523,6 +3535,8 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireGCPBigQuery(byName)
 	wireGCPSQL(byName)
 	wireGCPLogging(byName)
+	wireGCPMonitoring(byName)
+	wireGCPRedis(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
 	// and scale-in terminates them there too, instead of Auto Scaling
@@ -4765,6 +4779,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&gcpbigquerybackend.Provider{},
 		&gcpsqlbackend.Provider{},
 		&gcploggingbackend.Provider{},
+		&gcpmonitoringbackend.Provider{},
+		&gcpredisbackend.Provider{},
 		&gcpiambackend.Provider{},
 		&gcpfirestorebackend.Provider{},
 		&azurearmbackend.Provider{},

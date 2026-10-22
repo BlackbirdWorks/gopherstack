@@ -51,6 +51,7 @@ type MetricPoint struct {
 	BucketCounts []int64
 	Count        int64
 	Sum          float64
+	SumSqDev     float64
 }
 
 func parseExtractor(src string) (*extractor, error) {
@@ -276,7 +277,10 @@ func (b *InMemoryBackend) MetricPoints(name string) ([]MetricPoint, error) {
 	for _, s := range rec.series {
 		out = append(
 			out,
-			MetricPoint{Labels: s.labels, Count: s.count, Sum: s.sum, BucketCounts: append([]int64(nil), s.buckets...)},
+			MetricPoint{
+				Labels: s.labels, Count: s.count, Sum: s.sum, SumSqDev: s.ssd,
+				BucketCounts: append([]int64(nil), s.buckets...),
+			},
 		)
 	}
 

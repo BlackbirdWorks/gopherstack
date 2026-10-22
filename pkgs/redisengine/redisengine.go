@@ -4,6 +4,7 @@ package redisengine
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strconv"
@@ -31,6 +32,11 @@ type Engine struct {
 // Start launches a server. With a non-nil allocator the port is acquired from it
 // under label and bound on all interfaces; otherwise an ephemeral loopback port is used.
 func Start(alloc *portalloc.Allocator, label string) (*Engine, error) {
+	return StartTLS(alloc, label, nil)
+}
+
+// StartTLS is Start serving TLS with cfg; a nil cfg serves plaintext.
+func StartTLS(alloc *portalloc.Allocator, label string, cfg *tls.Config) (*Engine, error) {
 	mr := miniredis.NewMiniRedis()
 	e := &Engine{Mini: mr, alloc: alloc}
 
@@ -40,14 +46,14 @@ func Start(alloc *portalloc.Allocator, label string) (*Engine, error) {
 			return nil, fmt.Errorf("allocate miniredis port: %w", err)
 		}
 
-		if startErr := mr.StartAddr(fmt.Sprintf("0.0.0.0:%d", port)); startErr != nil {
+		if startErr := listenAddr(mr, fmt.Sprintf("0.0.0.0:%d", port), cfg); startErr != nil {
 			_ = alloc.Release(port)
 
 			return nil, fmt.Errorf("start miniredis on port %d: %w", port, startErr)
 		}
 
 		e.AllocatedPort = port
-	} else if err := mr.Start(); err != nil {
+	} else if err := listenAddr(mr, "127.0.0.1:0", cfg); err != nil {
 		return nil, fmt.Errorf("start miniredis: %w", err)
 	}
 
@@ -60,6 +66,14 @@ func Start(alloc *portalloc.Allocator, label string) (*Engine, error) {
 	}
 
 	return e, nil
+}
+
+func listenAddr(mr *miniredis.Miniredis, addr string, cfg *tls.Config) error {
+	if cfg != nil {
+		return mr.StartAddrTLS(addr, cfg)
+	}
+
+	return mr.StartAddr(addr)
 }
 
 // Gate holds a connection check installed after the engine starts, once its owner can name the target;

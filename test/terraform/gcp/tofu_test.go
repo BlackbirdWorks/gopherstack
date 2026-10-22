@@ -35,9 +35,11 @@ provider "google" {
   cloud_scheduler_custom_endpoint = %q
   sql_custom_endpoint             = %q
   logging_custom_endpoint         = %q
+  redis_custom_endpoint           = %q
+  monitoring_custom_endpoint      = %q
 }
 `, googleProviderVersion, storageEndpoint, bigQueryEndpoint, pubSubEndpoint, secretsEndpoint, kmsEndpoint,
-		tasksEndpoint, schedulerEndpoint, sqlEndpoint, loggingEndpoint)
+		tasksEndpoint, schedulerEndpoint, sqlEndpoint, loggingEndpoint, redisEndpoint, monitoringEndpoint)
 }
 
 type tofuRunner struct {
@@ -90,8 +92,31 @@ func (r *tofuRunner) run(args ...string) (int, error) {
 	return 0, err
 }
 
+// output returns a raw root-module output value.
+func (r *tofuRunner) output(name string) string {
+	r.t.Helper()
+
+	cmd := exec.Command(tofuBinaryPath, "output", "-raw", name)
+	cmd.Dir = r.dir
+	cmd.Env = r.env
+
+	out, err := cmd.Output()
+	if err != nil {
+		r.t.Fatalf("tofu output %s: %v", name, err)
+	}
+
+	return string(out)
+}
+
 // lifecycle runs init, apply, a no-drift re-plan and (via cleanup) destroy.
 func (r *tofuRunner) lifecycle() {
+	r.t.Helper()
+
+	r.lifecycleThen(nil)
+}
+
+// lifecycleThen is lifecycle with inspect run against the applied, drift-free state before destroy.
+func (r *tofuRunner) lifecycleThen(inspect func()) {
 	r.t.Helper()
 
 	if _, err := r.run("init", "-no-color"); err != nil {
@@ -115,5 +140,9 @@ func (r *tofuRunner) lifecycle() {
 
 	if err != nil {
 		r.t.Fatalf("tofu plan failed: %v", err)
+	}
+
+	if inspect != nil {
+		inspect()
 	}
 }

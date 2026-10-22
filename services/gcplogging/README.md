@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 40 (35 ok, 3 partial, 2 gap) |
-| Feature families | 7 (2 ok, 5 partial) |
-| Known gaps | 8 |
+| Feature families | 7 (3 ok, 4 partial) |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,7 +19,6 @@
 - Sinks on folders, organizations and billing accounts are stored, but include_children aggregation is not applied: only entries written to that parent's own logs are routed.
 - Sink destinations are not checked for existence at create time, and a missing destination only logs a warning when an entry is exported.
 - Cloud Storage export appends to the hourly object immediately instead of batching with the live service's delay; BigQuery tables use a fixed schema with JSON columns instead of the live typed schema, and partitioned tables are plain tables.
-- Log-based metric series are kept in memory and persisted but are not exposed through a Cloud Monitoring API.
 - CMEK keys and settings are stored only; nothing is encrypted and the key is not validated against Cloud KMS.
 - Error messages and the edge cases of the live service (entry timestamp bounds, quota errors, SaveStatus details) were not verified against it; ListLogEntries default page size and Tail buffer_window behaviour are approximations.
 - Bucket index_configs, restricted_fields and analytics_enabled are stored but have no effect on queries.

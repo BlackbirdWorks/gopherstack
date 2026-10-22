@@ -34,6 +34,10 @@ func allowedWeakHashFiles() map[string]string {
 		// a certificate identifier, never a credential.
 		"services/gcpsql/certs.go": "Cloud SQL sslCert sha1Fingerprint parity, verified",
 
+		// Memorystore TlsCertificate.sha1_fingerprint is defined as the SHA-1 of the CA certificate; a certificate
+		// identifier, never a credential.
+		"services/gcpredis/engine.go": "Memorystore TlsCertificate.sha1_fingerprint parity, verified",
+
 		// CloudFront Functions' crypto module exposes createHash/createHmac with md5 and sha1;
 		// user-script digests, never credential storage.
 		"services/cloudfront/function_runtime.go": "CloudFront Functions crypto md5/sha1 parity, verified",

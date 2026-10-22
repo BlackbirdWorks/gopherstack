@@ -69,6 +69,8 @@ func gcpPorts() map[string]string {
 		"functions":     "8128",
 		"sql":           "8130",
 		"logging":       "8131",
+		"monitoring":    "8132",
+		"redis":         "8133",
 		"bigquery":      "9050",
 	}
 }

@@ -355,6 +355,8 @@ func errorProbeUnreachable() map[string]string {
 		"GCPBigQuery":             "non-AWS",
 		"GCPSQL":                  "non-AWS",
 		"GCPLogging":              "non-AWS",
+		"GCPMonitoring":           "non-AWS",
+		"GCPRedis":                "non-AWS",
 		"GCPFirestore":            "non-AWS",
 		"GCPIAM":                  "non-AWS",
 		"Dashboard":               "not an AWS API",

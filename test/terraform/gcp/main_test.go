@@ -32,14 +32,18 @@ import (
 )
 
 const (
-	containerStoragePort  = "4443/tcp"
-	containerBigQueryPort = "9050/tcp"
-	hostStoragePort       = "14443"
-	hostBigQueryPort      = "19050"
-	containerSQLPort      = "8130/tcp"
-	hostSQLPort           = "18130"
-	containerLoggingPort  = "8131/tcp"
-	hostLoggingPort       = "18131"
+	containerStoragePort    = "4443/tcp"
+	containerBigQueryPort   = "9050/tcp"
+	hostStoragePort         = "14443"
+	hostBigQueryPort        = "19050"
+	containerSQLPort        = "8130/tcp"
+	hostSQLPort             = "18130"
+	containerLoggingPort    = "8131/tcp"
+	hostLoggingPort         = "18131"
+	containerRedisPort      = "8133/tcp"
+	hostRedisPort           = "18133"
+	containerMonitoringPort = "8132/tcp"
+	hostMonitoringPort      = "18132"
 
 	containerPubSubPort   = "8085/tcp"
 	containerSecretsPort  = "8086/tcp"
@@ -57,18 +61,20 @@ var errDockerPanic = errors.New("docker check panicked")
 
 //nolint:gochecknoglobals // set once in TestMain, read-only during tests
 var (
-	tofuBinaryPath    string
-	sharedContainer   testcontainers.Container
-	providerCacheDir  = filepath.Join(os.TempDir(), "gopherstack-tofu-google-provider-cache")
-	storageEndpoint   = "http://localhost:" + hostStoragePort + "/storage/v1/"
-	bigQueryEndpoint  = "http://localhost:" + hostBigQueryPort + "/bigquery/v2/"
-	pubSubEndpoint    = "http://localhost:" + hostPubSubPort + "/v1/"
-	secretsEndpoint   = "http://localhost:" + hostSecretsPort + "/v1/"
-	kmsEndpoint       = "http://localhost:" + hostKMSPort + "/v1/"
-	tasksEndpoint     = "http://localhost:" + hostTasksPort + "/v2/"
-	schedulerEndpoint = "http://localhost:" + hostSchedulePort + "/v1/"
-	sqlEndpoint       = "http://localhost:" + hostSQLPort + "/sql/v1beta4/"
-	loggingEndpoint   = "http://localhost:" + hostLoggingPort + "/v2/"
+	tofuBinaryPath     string
+	sharedContainer    testcontainers.Container
+	providerCacheDir   = filepath.Join(os.TempDir(), "gopherstack-tofu-google-provider-cache")
+	storageEndpoint    = "http://localhost:" + hostStoragePort + "/storage/v1/"
+	bigQueryEndpoint   = "http://localhost:" + hostBigQueryPort + "/bigquery/v2/"
+	pubSubEndpoint     = "http://localhost:" + hostPubSubPort + "/v1/"
+	secretsEndpoint    = "http://localhost:" + hostSecretsPort + "/v1/"
+	kmsEndpoint        = "http://localhost:" + hostKMSPort + "/v1/"
+	tasksEndpoint      = "http://localhost:" + hostTasksPort + "/v2/"
+	schedulerEndpoint  = "http://localhost:" + hostSchedulePort + "/v1/"
+	sqlEndpoint        = "http://localhost:" + hostSQLPort + "/sql/v1beta4/"
+	loggingEndpoint    = "http://localhost:" + hostLoggingPort + "/v2/"
+	redisEndpoint      = "http://localhost:" + hostRedisPort + "/v1/"
+	monitoringEndpoint = "http://localhost:" + hostMonitoringPort + "/"
 )
 
 func TestMain(m *testing.M) {
@@ -176,19 +182,21 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 		ExposedPorts: []string{
 			containerStoragePort, containerBigQueryPort, containerPubSubPort, containerSecretsPort,
 			containerKMSPort, containerTasksPort, containerSchedulePort, containerSQLPort,
-			containerLoggingPort,
+			containerLoggingPort, containerRedisPort, containerMonitoringPort,
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = fixedPortMap(map[string]string{
-				containerStoragePort:  hostStoragePort,
-				containerBigQueryPort: hostBigQueryPort,
-				containerPubSubPort:   hostPubSubPort,
-				containerSecretsPort:  hostSecretsPort,
-				containerKMSPort:      hostKMSPort,
-				containerTasksPort:    hostTasksPort,
-				containerSchedulePort: hostSchedulePort,
-				containerSQLPort:      hostSQLPort,
-				containerLoggingPort:  hostLoggingPort,
+				containerStoragePort:    hostStoragePort,
+				containerBigQueryPort:   hostBigQueryPort,
+				containerPubSubPort:     hostPubSubPort,
+				containerSecretsPort:    hostSecretsPort,
+				containerKMSPort:        hostKMSPort,
+				containerTasksPort:      hostTasksPort,
+				containerSchedulePort:   hostSchedulePort,
+				containerSQLPort:        hostSQLPort,
+				containerLoggingPort:    hostLoggingPort,
+				containerRedisPort:      hostRedisPort,
+				containerMonitoringPort: hostMonitoringPort,
 			})
 		},
 		WaitingFor: wait.ForAll(
@@ -201,6 +209,8 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 			wait.ForListeningPort(containerSchedulePort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerSQLPort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerLoggingPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerRedisPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerMonitoringPort).WithStartupTimeout(60*time.Second),
 		),
 	}
 

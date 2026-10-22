@@ -211,6 +211,13 @@ func TestServeREST(t *testing.T) {
 				`"response":{"@type":"type.googleapis.com/google.cloud.secretmanager.v1.Secret"}}`,
 		},
 		{
+			name: "lro resource-scoped name", method: http.MethodGet,
+			path:       "/v1/projects/p/locations/l/operations/op-1",
+			wantStatus: 200,
+			wantJSON: `{"name":"projects/p/locations/l/operations/op-1","done":true,` +
+				`"response":{"@type":"type.googleapis.com/google.cloud.secretmanager.v1.Secret"}}`,
+		},
+		{
 			name: "not found maps to 404", method: http.MethodGet, path: "/v1/projects/p/secrets/missing",
 			wantStatus: 404,
 			wantJSON:   `{"error":{"message":"no such secret","status":"NOT_FOUND","details":[],"code":404}}`,

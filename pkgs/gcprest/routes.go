@@ -76,8 +76,47 @@ func (s *Server) addService(svc protoreflect.ServiceDescriptor) {
 			if rt := newRoute(r, t); rt != nil {
 				s.routes = append(s.routes, rt)
 			}
+
+			if svc.FullName() == lroService {
+				if rt := newRoute(scopedOperationRule(r), t); rt != nil {
+					s.routes = append(s.routes, rt)
+				}
+			}
 		}
 	}
+}
+
+const lroService = "google.longrunning.Operations"
+
+// scopedOperationRule rewrites a google.longrunning.Operations rule onto the resource-scoped operation names
+// (projects/*/locations/*/operations/*, any API version) that Google APIs bind through their service config
+// rather than their protos. A rule with no such form comes back empty.
+func scopedOperationRule(r *annotations.HttpRule) *annotations.HttpRule {
+	method, path := ruleVerb(r)
+
+	scoped := strings.Replace(path, "/v1/{name=operations/**}", "/*/{name=projects/*/locations/*/operations/*}", 1)
+	if scoped == path {
+		scoped = strings.Replace(path, "/v1/{name=operations}", "/*/{name=projects/*/locations/*}/operations", 1)
+	}
+
+	if scoped == path {
+		return &annotations.HttpRule{}
+	}
+
+	out := &annotations.HttpRule{Body: r.GetBody(), ResponseBody: r.GetResponseBody()}
+
+	switch method {
+	case http.MethodGet:
+		out.Pattern = &annotations.HttpRule_Get{Get: scoped}
+	case http.MethodDelete:
+		out.Pattern = &annotations.HttpRule_Delete{Delete: scoped}
+	case http.MethodPost:
+		out.Pattern = &annotations.HttpRule_Post{Post: scoped}
+	default:
+		return &annotations.HttpRule{}
+	}
+
+	return out
 }
 
 // rank puts verb-suffixed templates first so ".../x:verb" is never swallowed by ".../{name}"; the rest
