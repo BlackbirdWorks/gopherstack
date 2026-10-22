@@ -1,6 +1,7 @@
 package asl
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -104,4 +105,22 @@ func httpConnectionARN(input any) string {
 	}
 
 	return ""
+}
+
+// getS3Object reads an object under the execution role's s3:GetObject permission.
+func (e *Executor) getS3Object(ctx context.Context, bucket, key string) ([]byte, error) {
+	if err := e.authorizeRole("S3", "s3:GetObject", arn.BuildS3(bucket+"/"+key)); err != nil {
+		return nil, err
+	}
+
+	return e.s3.GetObjectBytes(ctx, bucket, key)
+}
+
+// putS3Object writes an object under the execution role's s3:PutObject permission.
+func (e *Executor) putS3Object(ctx context.Context, bucket, key string, data []byte) error {
+	if err := e.authorizeRole("S3", "s3:PutObject", arn.BuildS3(bucket+"/"+key)); err != nil {
+		return err
+	}
+
+	return e.s3w.PutObjectBytes(ctx, bucket, key, data)
 }

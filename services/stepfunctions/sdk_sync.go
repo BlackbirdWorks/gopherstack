@@ -24,14 +24,16 @@ type syncSpec struct {
 	pollAction string
 	failed     []string
 	running    []string
+	// goneIsDone treats a ResourceNotFoundException from the poll as completion (delete flows).
+	goneIsDone bool
 }
 
 type syncRequest struct {
 	client  any
 	started any
 	prefix  string
-	spec    syncSpec
 	call    asl.SDKCall
+	spec    syncSpec
 }
 
 func syncSpecFor(svc, action string) (syncSpec, bool) {
@@ -79,7 +81,7 @@ func syncSpecFor(svc, action string) (syncSpec, bool) {
 	case "glue.startJobRun":
 		return glueStartJobRunSyncSpec(), true
 	default:
-		return syncSpec{}, false
+		return eksSyncSpecFor(svc + "." + action)
 	}
 }
 
@@ -226,6 +228,10 @@ func (a *sdkAdapter) waitSync(ctx context.Context, req syncRequest) (any, error)
 	for {
 		out, err := invokeSDKMethod(ctx, req.client, req.call.Service, req.spec.pollAction, params)
 		if err != nil {
+			if req.spec.goneIsDone && isNotFound(err) {
+				return req.started, nil
+			}
+
 			return nil, sdkFailure(req.prefix, err)
 		}
 

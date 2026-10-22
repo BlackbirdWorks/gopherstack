@@ -734,6 +734,30 @@ func writeJSONRPCAccessDenied(c *echo.Context, action string) error {
 	return c.Blob(http.StatusBadRequest, "application/x-amz-json-1.0", body)
 }
 
+// restJSONActionPrefixes are IAM service prefixes whose SDKs use the REST-JSON protocol.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table
+var restJSONActionPrefixes = []string{"eks:", "bedrock:", "lambda:", "apigateway:"}
+
+func isRESTJSONAction(action string) bool {
+	for _, p := range restJSONActionPrefixes {
+		if strings.HasPrefix(action, p) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// writeRESTJSONAccessDenied answers with the code in X-Amzn-Errortype, which REST-JSON SDKs read first.
+func writeRESTJSONAccessDenied(c *echo.Context, action string) error {
+	c.Response().Header().Set("X-Amzn-Errortype", "AccessDeniedException")
+
+	return c.JSON(http.StatusForbidden, map[string]string{
+		"message": "User is not authorized to perform: " + action,
+	})
+}
+
 func writeS3AccessDenied(c *echo.Context, resource string) error {
 	reqID := c.Response().Header().Get("X-Amz-Request-Id")
 	if reqID == "" {
@@ -784,6 +808,10 @@ func writeAccessDenied(c *echo.Context, action, resource string) error {
 	r := c.Request()
 	if isJSONRPCRequest(r) {
 		return writeJSONRPCAccessDenied(c, action)
+	}
+
+	if isRESTJSONAction(action) {
+		return writeRESTJSONAccessDenied(c, action)
 	}
 
 	if isS3Request(r) {

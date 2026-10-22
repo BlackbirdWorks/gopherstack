@@ -146,7 +146,7 @@ func sdkServices2() map[string]sdkService {
 		"codebuild": {prefix: "CodeBuild", build: func(c aws.Config) any {
 			return xcodebuild.NewFromConfig(c)
 		}},
-		"bedrockruntime": {prefix: "BedrockRuntime", build: func(c aws.Config) any {
+		svcBedrockRuntime: {prefix: "BedrockRuntime", build: func(c aws.Config) any {
 			return xbedrockruntime.NewFromConfig(c)
 		}},
 		"bedrock": {prefix: "Bedrock", build: func(c aws.Config) any {

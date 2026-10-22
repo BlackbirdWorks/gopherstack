@@ -171,7 +171,7 @@ func (e *Executor) exportMapResults(
 		return nil, 0, fmt.Errorf("ResultWriter: marshal manifest: %w", err)
 	}
 
-	if putErr := e.s3w.PutObjectBytes(ctx, bucket, manifestKey, manifestBytes); putErr != nil {
+	if putErr := e.putS3Object(ctx, bucket, manifestKey, manifestBytes); putErr != nil {
 		return nil, 0, fmt.Errorf("ResultWriter: write manifest: %w", putErr)
 	}
 
@@ -503,7 +503,7 @@ func (e *Executor) writeMapResultFile(
 	}
 
 	key := fmt.Sprintf("%s%s_%d.json", folder, status, resultWriterFileIndex)
-	if putErr := e.s3w.PutObjectBytes(ctx, bucket, key, data); putErr != nil {
+	if putErr := e.putS3Object(ctx, bucket, key, data); putErr != nil {
 		return resultManifestFile{}, fmt.Errorf("write %s results: %w", status, putErr)
 	}
 
