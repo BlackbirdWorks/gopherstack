@@ -480,7 +480,12 @@ func (p *pgProxy) dialUpstream(
 		}
 	}
 
-	hj, err := pc.Hijack()
+	var hj *pgconn.HijackedConn
+
+	if err = pc.SyncConn(ctx); err == nil {
+		hj, err = pc.Hijack()
+	}
+
 	if err != nil {
 		_ = pc.Close(ctx)
 

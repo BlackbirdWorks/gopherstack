@@ -50,7 +50,7 @@ func queryNames(t *testing.T, kind string, inst rds.DBInstance) []string {
 	t.Helper()
 
 	db := openEngineDB(t, kind, inst, "firstpass1")
-	rows, err := db.QueryContext(t.Context(), "SELECT name FROM items ORDER BY id")
+	rows, err := db.QueryContext(dbCtx(t), "SELECT name FROM items ORDER BY id")
 	require.NoError(t, err)
 
 	defer func() { _ = rows.Close() }()
@@ -90,15 +90,15 @@ func TestEngineDockerPointInTimeRestore(t *testing.T) {
 			}, dockerEngineWait, 500*time.Millisecond)
 
 			db := openEngineDB(t, engine, src, "firstpass1")
-			_, err = db.ExecContext(t.Context(), createItems)
+			_, err = db.ExecContext(dbCtx(t), createItems)
 			require.NoError(t, err)
-			_, err = db.ExecContext(t.Context(), insertItem)
+			_, err = db.ExecContext(dbCtx(t), insertItem)
 			require.NoError(t, err)
 
 			clock.advance(10 * time.Minute)
 			rds.RecordRestorePointsForTest(b)
 
-			_, err = db.ExecContext(t.Context(), "INSERT INTO items VALUES (2, 'beta')")
+			_, err = db.ExecContext(dbCtx(t), "INSERT INTO items VALUES (2, 'beta')")
 			require.NoError(t, err)
 
 			clock.advance(10 * time.Minute)
@@ -158,9 +158,9 @@ func TestEngineDockerClusterEndpointListener(t *testing.T) {
 	inst := rds.DBInstance{Endpoint: host, Port: port}
 
 	db := openEngineDB(t, "postgres", inst, "firstpass1")
-	_, err = db.ExecContext(t.Context(), createItems)
+	_, err = db.ExecContext(dbCtx(t), createItems)
 	require.NoError(t, err)
-	_, err = db.ExecContext(t.Context(), insertItem)
+	_, err = db.ExecContext(dbCtx(t), insertItem)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"alpha"}, queryNames(t, "postgres", inst))
