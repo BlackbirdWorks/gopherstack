@@ -115,6 +115,10 @@ func (e *extractor) account(size int64) error {
 }
 
 func (e *extractor) file(name string, mode os.FileMode, r io.Reader) error {
+	if strings.Contains(name, "..") || filepath.IsAbs(name) {
+		return fmt.Errorf("%w: %q", errUnsafePath, name)
+	}
+
 	path, err := target(e.dest, name)
 	if err != nil {
 		return err
@@ -147,6 +151,10 @@ func (e *extractor) file(name string, mode os.FileMode, r io.Reader) error {
 }
 
 func (e *extractor) dir(name string) error {
+	if strings.Contains(name, "..") || filepath.IsAbs(name) {
+		return fmt.Errorf("%w: %q", errUnsafePath, name)
+	}
+
 	path, err := target(e.dest, name)
 	if err != nil {
 		return err

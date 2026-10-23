@@ -3,6 +3,7 @@ package globalaccelerator
 import (
 	"errors"
 	"maps"
+	"math"
 	"strconv"
 )
 
@@ -64,6 +65,10 @@ func cfnFloat(v any) (float64, bool) {
 func cfnOptInt32(v any) *int32 {
 	f, ok := cfnFloat(v)
 	if !ok {
+		return nil
+	}
+
+	if math.IsNaN(f) || f > math.MaxInt32 || f < math.MinInt32 {
 		return nil
 	}
 

@@ -16,7 +16,10 @@ import (
 
 const connectTimeout = 5 * time.Second
 
-var errBadValue = errors.New("value contains a NUL byte")
+var (
+	errBadValue = errors.New("value contains a NUL byte")
+	identRe     = regexp.MustCompile(`^[\p{L}\p{N}_ $.@#-]{1,128}$`)
+)
 
 func (e *dockerEngine) open(db string) (*sql.DB, error) {
 	h, p := e.Endpoint()
@@ -84,8 +87,8 @@ type rowQuerier interface {
 
 // quoteIdent has the server quote s, so no client-built string reaches the DDL statement.
 func (e *dockerEngine) quoteIdent(ctx context.Context, q rowQuerier, s string) (string, error) {
-	if strings.ContainsRune(s, 0) {
-		return "", errBadValue
+	if !identRe.MatchString(s) {
+		return "", errInvalid("identifier %q is invalid", s)
 	}
 
 	query := "SELECT quote_ident($1::text)"

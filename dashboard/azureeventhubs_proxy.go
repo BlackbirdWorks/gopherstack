@@ -195,6 +195,10 @@ func (a *azureEventHubsAPI) events(c *echo.Context) error {
 func (a *azureEventHubsAPI) peek(
 	ctx context.Context, ref eventhubsbackend.HubRef, pid int, info eventhubsbackend.PartitionInfo, limit int,
 ) ([]eventHubsEventJSON, error) {
+	if limit > eventHubsMaxPeek {
+		limit = eventHubsMaxPeek
+	}
+
 	start := max(info.BeginSequence, info.LastSequence-int64(limit)+1)
 	out := make([]eventHubsEventJSON, 0, limit)
 

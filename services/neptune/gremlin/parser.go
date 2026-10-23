@@ -1,6 +1,7 @@
 package gremlin
 
 import (
+	"math"
 	"strconv"
 )
 
@@ -178,7 +179,9 @@ func skipSourceStep(name string) bool {
 
 func termCount(args []any) int {
 	if len(args) == 1 && isInt(args[0]) {
-		return int(toInt(args[0]))
+		if n := toInt(args[0]); n <= math.MaxInt32 && n >= math.MinInt32 {
+			return int(n)
+		}
 	}
 
 	return 0

@@ -68,6 +68,8 @@ func TestExtractArchive(t *testing.T) {
 			data:    evil("../escape.txt", tar.TypeReg),
 			wantErr: "escapes the workspace",
 		},
+		{name: "dir traversal", data: evil("../d", tar.TypeDir), wantErr: "escapes the workspace"},
+		{name: "nested traversal", data: evil("a/../../x", tar.TypeReg), wantErr: "escapes the workspace"},
 		{name: "absolute", data: evil("/abs.txt", tar.TypeReg), wantErr: "escapes the workspace"},
 		{name: "symlinks are skipped", data: evil("link", tar.TypeSymlink)},
 		{name: "not an archive", data: []byte("plain text"), wantErr: "must be a .tar.gz or .zip"},

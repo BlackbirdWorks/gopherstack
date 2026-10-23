@@ -3,6 +3,7 @@ package gremlin
 import (
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type tokKind int
@@ -180,10 +181,10 @@ func unescape(src string, j *int) string {
 		return "\r"
 	case 'u':
 		if *j+4 < len(src) {
-			if r, err := strconv.ParseUint(src[*j+1:*j+5], 16, 32); err == nil {
+			if r, err := strconv.ParseUint(src[*j+1:*j+5], 16, 32); err == nil && r <= unicode.MaxRune {
 				*j += 4
 
-				return string(rune(r)) //nolint:gosec // 16-bit code point
+				return string(rune(r))
 			}
 		}
 

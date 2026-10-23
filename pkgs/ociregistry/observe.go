@@ -28,14 +28,6 @@ func (c *capture) WriteHeader(code int) {
 	c.ResponseWriter.WriteHeader(code)
 }
 
-func (c *capture) Write(p []byte) (int, error) {
-	if c.status == 0 {
-		c.status = http.StatusOK
-	}
-
-	return c.ResponseWriter.Write(p)
-}
-
 func (c *capture) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 
 // SplitManifestPath parses /v2/<repo>/manifests/<ref>; ok is false for every other path.

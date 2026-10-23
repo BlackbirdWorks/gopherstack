@@ -199,3 +199,42 @@ func TestTaggedResources(t *testing.T) {
 	assert.Equal(t, accARN, got[0].ARN)
 	assert.Equal(t, map[string]string{"env": "t"}, got[0].Tags)
 }
+
+func TestCFN_ThresholdCountOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value any
+		name  string
+	}{
+		{name: "overflow float", value: float64(3e9)},
+		{name: "overflow string", value: "4294967297"},
+		{name: "underflow", value: float64(-3e9)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := globalaccelerator.NewInMemoryBackend("123456789012", "")
+			_, lisARN, _ := cfnStack(t, bk)
+
+			def, _, err := bk.CreateCFNResource(globalaccelerator.CFNEndpointGroup, map[string]any{
+				"ListenerArn": lisARN, "EndpointGroupRegion": "eu-west-1",
+			})
+			require.NoError(t, err)
+
+			arn, _, err := bk.CreateCFNResource(globalaccelerator.CFNEndpointGroup, map[string]any{
+				"ListenerArn": lisARN, "EndpointGroupRegion": "eu-west-2", "ThresholdCount": tt.value,
+			})
+			require.NoError(t, err)
+
+			want, err := bk.GetEndpointGroup(def, false)
+			require.NoError(t, err)
+
+			got, err := bk.GetEndpointGroup(arn, false)
+			require.NoError(t, err)
+			assert.Equal(t, want.ThresholdCount, got.ThresholdCount)
+		})
+	}
+}

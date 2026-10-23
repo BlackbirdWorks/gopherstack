@@ -176,3 +176,49 @@ func TestMutates(t *testing.T) {
 		assert.Equal(t, tt.want, stmts[0].Tr.Mutates(), tt.script)
 	}
 }
+
+func TestParseScriptTerminalCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		script string
+		want   int
+	}{
+		{name: "in range", script: `g.V().next(5)`, want: 5},
+		{name: "overflow", script: `g.V().next(5000000000)`, want: 0},
+		{name: "underflow", script: `g.V().next(-5000000000)`, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stmts, err := gremlin.ParseScript(tt.script, nil)
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+			assert.Equal(t, tt.want, stmts[0].N)
+		})
+	}
+}
+
+func TestParseScriptUnicodeEscape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		script string
+	}{
+		{name: "bmp", script: `g.V().has('k','\u00e9')`},
+		{name: "short", script: `g.V().has('k','\u00e')`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := gremlin.ParseScript(tt.script, nil)
+			require.NoError(t, err)
+		})
+	}
+}

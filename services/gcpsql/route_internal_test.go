@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseRoute(t *testing.T) {
@@ -59,4 +60,29 @@ func TestParseRoute(t *testing.T) {
 	}
 
 	_ = http.MethodGet
+}
+
+func TestQuoteIdentRejectsUnsafe(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+	}{
+		{name: "backtick", in: "a`b"},
+		{name: "double quote", in: `a"b`},
+		{name: "semicolon", in: "a;drop"},
+		{name: "nul", in: "a\x00b"},
+		{name: "empty", in: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := &dockerEngine{}
+			_, err := e.quoteIdent(t.Context(), nil, tt.in)
+			require.Error(t, err)
+		})
+	}
 }
