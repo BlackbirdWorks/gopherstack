@@ -89,7 +89,7 @@ func countItems(t *testing.T, db *sql.DB) (int, error) {
 
 	var n int
 
-	err := db.QueryRowContext(t.Context(), "SELECT count(*) FROM items").Scan(&n)
+	err := db.QueryRowContext(dbCtx(t), "SELECT count(*) FROM items").Scan(&n)
 
 	return n, err
 }
@@ -112,9 +112,9 @@ func createDockerSource(t *testing.T, b *rds.InMemoryBackend, tc replicaDockerCa
 	require.NoError(t, err)
 
 	db := openEngineDB(t, tc.kind, awaitDockerInstance(t, b, "src"), "firstpass1")
-	_, err = db.ExecContext(t.Context(), createItems)
+	_, err = db.ExecContext(dbCtx(t), createItems)
 	require.NoError(t, err)
-	_, err = db.ExecContext(t.Context(), insertItem)
+	_, err = db.ExecContext(dbCtx(t), insertItem)
 	require.NoError(t, err)
 
 	return db
@@ -173,12 +173,12 @@ func TestEngineDockerStreamingReplicaAndPromote(t *testing.T) {
 			repDB := openEngineDB(t, tc.kind, replica, "firstpass1")
 
 			awaitItems(t, repDB, 1)
-			_, err = srcDB.ExecContext(t.Context(), "INSERT INTO items VALUES (2, 'beta')")
+			_, err = srcDB.ExecContext(dbCtx(t), "INSERT INTO items VALUES (2, 'beta')")
 			require.NoError(t, err)
 			awaitItems(t, repDB, 2)
 			requireReplicating(t, b, "replica")
 
-			_, err = repDB.ExecContext(t.Context(), "INSERT INTO items VALUES (3, 'gamma')")
+			_, err = repDB.ExecContext(dbCtx(t), "INSERT INTO items VALUES (3, 'gamma')")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.readOnlyMsg)
 
@@ -187,12 +187,12 @@ func TestEngineDockerStreamingReplicaAndPromote(t *testing.T) {
 			awaitDockerInstance(t, b, "replica")
 
 			require.Eventually(t, func() bool {
-				_, werr := repDB.ExecContext(t.Context(), "INSERT INTO items VALUES (3, 'gamma')")
+				_, werr := repDB.ExecContext(dbCtx(t), "INSERT INTO items VALUES (3, 'gamma')")
 
 				return werr == nil
 			}, time.Minute, 250*time.Millisecond)
 
-			_, err = srcDB.ExecContext(t.Context(), "INSERT INTO items VALUES (4, 'delta')")
+			_, err = srcDB.ExecContext(dbCtx(t), "INSERT INTO items VALUES (4, 'delta')")
 			require.NoError(t, err)
 
 			n, err := countItems(t, repDB)
@@ -236,7 +236,7 @@ func TestEngineDockerDeleteSourcePromotesReplica(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Eventually(t, func() bool {
-				_, werr := repDB.ExecContext(t.Context(), "INSERT INTO items VALUES (9, 'solo')")
+				_, werr := repDB.ExecContext(dbCtx(t), "INSERT INTO items VALUES (9, 'solo')")
 
 				return werr == nil
 			}, time.Minute, 250*time.Millisecond)
@@ -271,9 +271,9 @@ func TestEngineDockerReplicaSurvivesRestart(t *testing.T) {
 			require.NoError(t, err)
 
 			srcDB := openEngineDB(t, tc.kind, awaitDockerInstance(t, b1, "src"), "firstpass1")
-			_, err = srcDB.ExecContext(t.Context(), createItems)
+			_, err = srcDB.ExecContext(dbCtx(t), createItems)
 			require.NoError(t, err)
-			_, err = srcDB.ExecContext(t.Context(), insertItem)
+			_, err = srcDB.ExecContext(dbCtx(t), insertItem)
 			require.NoError(t, err)
 
 			_, err = b1.CreateDBInstanceReadReplica("replica", "src", "", "", "", rds.DBInstanceOptions{})
@@ -294,7 +294,7 @@ func TestEngineDockerReplicaSurvivesRestart(t *testing.T) {
 			repDB := openEngineDB(t, tc.kind, awaitDockerInstance(t, b2, "replica"), "firstpass1")
 			awaitItems(t, repDB, 1)
 
-			_, err = srcDB.ExecContext(t.Context(), "INSERT INTO items VALUES (2, 'beta')")
+			_, err = srcDB.ExecContext(dbCtx(t), "INSERT INTO items VALUES (2, 'beta')")
 			require.NoError(t, err)
 			awaitItems(t, repDB, 2)
 			requireReplicating(t, b2, "replica")
