@@ -50,9 +50,9 @@ func TestEngineDockerSnapshotReplicaAndPortChange(t *testing.T) {
 
 			src := awaitDockerInstance(t, b, "src")
 			db := openEngineDB(t, tt.engine, src, "firstpass1")
-			_, err = db.ExecContext(t.Context(), createItems)
+			_, err = db.ExecContext(dbCtx(t), createItems)
 			require.NoError(t, err)
-			_, err = db.ExecContext(t.Context(), insertItem)
+			_, err = db.ExecContext(dbCtx(t), insertItem)
 			require.NoError(t, err)
 
 			_, err = b.CreateDBSnapshot("snap1", "src")
@@ -71,7 +71,7 @@ func TestEngineDockerSnapshotReplicaAndPortChange(t *testing.T) {
 				var name string
 
 				copyDB := openEngineDB(t, tt.engine, inst, "firstpass1")
-				require.NoError(t, copyDB.QueryRowContext(t.Context(),
+				require.NoError(t, copyDB.QueryRowContext(dbCtx(t),
 					"SELECT name FROM items WHERE id = 1").Scan(&name), id)
 				assert.Equal(t, "alpha", name, id)
 			}
@@ -85,7 +85,7 @@ func TestEngineDockerSnapshotReplicaAndPortChange(t *testing.T) {
 
 			var name string
 
-			require.NoError(t, openEngineDB(t, tt.engine, moved, "firstpass1").QueryRowContext(t.Context(),
+			require.NoError(t, openEngineDB(t, tt.engine, moved, "firstpass1").QueryRowContext(dbCtx(t),
 				"SELECT name FROM items WHERE id = 1").Scan(&name))
 			assert.Equal(t, "alpha", name)
 
