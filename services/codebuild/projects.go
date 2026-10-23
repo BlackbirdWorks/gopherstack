@@ -363,9 +363,16 @@ func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility, resour
 // InvalidateProjectCache drops the project's build caches (engine mode) after confirming it exists.
 func (b *InMemoryBackend) InvalidateProjectCache(ctx context.Context, projectName string) error {
 	b.mu.RLock("InvalidateProjectCache")
-	defer b.mu.RUnlock()
+	found, ok := b.projects.Get(projectName)
 
-	proj, ok := b.projects.Get(projectName)
+	var proj *Project
+	if ok {
+		cp := *found
+		proj = &cp
+	}
+
+	b.mu.RUnlock()
+
 	if !ok {
 		return fmt.Errorf("%w: Project cannot be found: %s", ErrNotFound, b.buildProjectARN(projectName))
 	}

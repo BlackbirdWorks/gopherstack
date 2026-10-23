@@ -27,6 +27,7 @@ const (
 
 	nanosPerSecond = 1e9
 	percentScale   = 100
+	roundingFactor = 100
 )
 
 var errUnsupportedReportFormat = errors.New("report file format has no parser in the emulator")
@@ -125,7 +126,7 @@ func junitTestCase(c junitCase, suite, reportArn, source string) TestCase {
 
 // summarizeTests aggregates test cases and derives the report status.
 func summarizeTests(cases []TestCase) (*TestReportSummary, string) {
-	sum := &TestReportSummary{StatusCounts: map[string]int32{}, Total: int32(len(cases))} //nolint:gosec // bounded
+	sum := &TestReportSummary{StatusCounts: map[string]int32{}, Total: clampInt32(len(cases))}
 
 	status := testStatusSucceeded
 
@@ -217,13 +218,17 @@ func addClassCoverage(files map[string]*fileCoverage, c coberturaClass) {
 	}
 }
 
+func clampInt32(n int) int32 {
+	return int32(min(max(n, 0), math.MaxInt32))
+}
+
 func pct(covered, missed int32) float64 {
 	total := covered + missed
 	if total == 0 {
 		return 0
 	}
 
-	return math.Round(float64(covered)/float64(total)*percentScale*100) / 100 //nolint:mnd // two decimals
+	return math.Round(float64(covered)/float64(total)*percentScale*roundingFactor) / roundingFactor
 }
 
 func toCodeCoverage(reportArn, file string, fc fileCoverage) CodeCoverage {

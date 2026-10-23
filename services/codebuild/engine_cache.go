@@ -300,17 +300,30 @@ func (r *buildRunner) saveSourceCache(dir string) {
 		return
 	}
 
-	tmp := filepath.Join(r.cacheRoot(), cacheSourceDir+".tmp")
-	_ = os.RemoveAll(tmp)
-
-	if err := copyTree(filepath.Join(dir, ".git"), filepath.Join(tmp, ".git"), false); err != nil {
+	root := r.cacheRoot()
+	if err := os.MkdirAll(root, dirPerm); err != nil {
 		r.warnCache("save source cache", err)
 
 		return
 	}
 
-	_ = os.RemoveAll(filepath.Join(r.cacheRoot(), cacheSourceDir))
-	_ = os.Rename(tmp, filepath.Join(r.cacheRoot(), cacheSourceDir))
+	tmp, err := os.MkdirTemp(root, cacheSourceDir+".tmp-")
+	if err != nil {
+		r.warnCache("save source cache", err)
+
+		return
+	}
+
+	defer os.RemoveAll(tmp)
+
+	if err = copyTree(filepath.Join(dir, ".git"), filepath.Join(tmp, ".git"), false); err != nil {
+		r.warnCache("save source cache", err)
+
+		return
+	}
+
+	_ = os.RemoveAll(filepath.Join(root, cacheSourceDir))
+	_ = os.Rename(tmp, filepath.Join(root, cacheSourceDir))
 }
 
 func copyFile(src, dst string) error {
@@ -362,20 +375,28 @@ func copyTree(src, dst string, skipExisting bool) error {
 
 // replaceTree swaps dst for a copy of src.
 func replaceTree(src, dst string) error {
-	tmp := dst + ".tmp"
-	_ = os.RemoveAll(tmp)
-
-	if err := os.MkdirAll(tmp, dirPerm); err != nil {
-		return fmt.Errorf("mkdir %s: %w", tmp, err)
+	if err := os.MkdirAll(filepath.Dir(dst), dirPerm); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)
 	}
 
-	if err := copyTree(src, tmp, false); err != nil {
+	tmp, err := os.MkdirTemp(filepath.Dir(dst), filepath.Base(dst)+".tmp-")
+	if err != nil {
+		return fmt.Errorf("mkdir temp for %s: %w", dst, err)
+	}
+
+	defer os.RemoveAll(tmp)
+
+	if err = copyTree(src, tmp, false); err != nil {
 		return err
 	}
 
 	_ = os.RemoveAll(dst)
 
-	if err := os.Rename(tmp, dst); err != nil {
+	if err = os.Rename(tmp, dst); err != nil {
+		if _, serr := os.Stat(dst); serr == nil {
+			return nil // a concurrent build already persisted a complete tree
+		}
+
 		return fmt.Errorf("persist cache: %w", err)
 	}
 

@@ -88,7 +88,32 @@ func ruleFor(req kmsg.Request) (rule, bool) {
 		return r, true
 	}
 
-	return groupRuleFor(req)
+	if r, ok := groupRuleFor(req); ok {
+		return r, true
+	}
+
+	return adminRuleFor(req)
+}
+
+// adminRuleFor gates destructive requests; a nil deny closes the connection on rejection.
+func adminRuleFor(req kmsg.Request) (rule, bool) {
+	switch r := req.(type) {
+	case *kmsg.DeleteRecordsRequest:
+		names := make([]string, 0, len(r.Topics))
+		for _, t := range r.Topics {
+			names = append(names, t.Topic)
+		}
+
+		return rule{accesses: topicAccesses("DeleteTopic", names...)}, true
+	case *kmsg.TxnOffsetCommitRequest:
+		return rule{accesses: []access{{action: actionAlterGroup, kind: kindGroup, name: r.Group}}}, true
+	case *kmsg.CreateACLsRequest, *kmsg.DeleteACLsRequest, *kmsg.AlterPartitionAssignmentsRequest,
+		*kmsg.ElectLeadersRequest, *kmsg.AlterUserSCRAMCredentialsRequest, *kmsg.AlterReplicaLogDirsRequest,
+		*kmsg.AlterClientQuotasRequest:
+		return rule{accesses: []access{{action: "AlterCluster", kind: kindCluster}}}, true
+	}
+
+	return rule{}, false
 }
 
 func topicRuleFor(req kmsg.Request) (rule, bool) {

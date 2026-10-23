@@ -310,3 +310,59 @@ func TestClientEndpointFor(t *testing.T) {
 		})
 	}
 }
+
+func TestSecurityUpdate_SupersededOperationSettles(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		stop func(t *testing.T, f *brokerFixture, arn string)
+		name string
+	}{
+		{
+			name: "second_update",
+			stop: func(t *testing.T, f *brokerFixture, arn string) {
+				t.Helper()
+
+				_, err := f.backend.UpdateSecurity(t.Context(), arn, kafka.UpdateSecuritySettings{
+					EncryptionInfo: &kafka.EncryptionInfo{
+						EncryptionInTransit: &kafka.EncryptionInTransit{ClientBroker: "TLS_PLAINTEXT"},
+					},
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "delete_cluster",
+			stop: func(t *testing.T, f *brokerFixture, arn string) {
+				t.Helper()
+				require.NoError(t, f.backend.DeleteCluster(t.Context(), arn))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rt := &fakeBrokerRuntime{}
+			f := newBrokerFixture(t, rt, 0)
+			f.ready.Store(true)
+
+			arn := f.create(t, "superseded")
+			f.awaitState(t, arn, kafka.ClusterStateActive)
+			f.ready.Store(false)
+
+			first, err := f.backend.UpdateSecurity(t.Context(), arn, kafka.UpdateSecuritySettings{
+				EncryptionInfo: &kafka.EncryptionInfo{
+					EncryptionInTransit: &kafka.EncryptionInTransit{ClientBroker: "TLS"},
+				},
+			})
+			require.NoError(t, err)
+
+			tt.stop(t, f, arn)
+
+			assert.Equal(t, kafka.ClusterOperationStateUpdateFailed,
+				operationByArn(t, f.backend, first.ClusterOperationArn).OperationState)
+		})
+	}
+}

@@ -227,6 +227,7 @@ func (b *InMemoryBackend) DeleteCluster(_ context.Context, clusterArn string) er
 
 	b.clusters.Delete(clusterArn)
 	lb = b.detachBrokerLocked(clusterArn)
+	b.failSupersededOpLocked(clusterArn, lb)
 	delete(b.scramSecrets, clusterArn)
 	delete(b.clusterPolicies, clusterArn)
 	delete(b.clusterPolicyVersions, clusterArn)

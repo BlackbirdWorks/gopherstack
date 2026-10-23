@@ -41,7 +41,7 @@ func TestCertificatePEMForARN(t *testing.T) {
 				arn = ca.ARN
 			}
 
-			pem, err := h.Backend.CertificatePEMForARN(arn)
+			pem, err := h.Backend.CertificatePEMForARN(t.Context(), arn)
 			if tt.wantErr {
 				require.Error(t, err)
 

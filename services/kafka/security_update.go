@@ -71,6 +71,7 @@ func (b *InMemoryBackend) relaunchForSecurityLocked(c *Cluster, op *ClusterOpera
 	op.OperationState, op.EndTime = stored.OperationState, ""
 
 	old := b.detachBrokerLocked(c.ClusterArn)
+	b.failSupersededOpLocked(c.ClusterArn, old)
 
 	c.State, c.StateInfo = ClusterStateUpdating, nil
 	c.ActiveOperationArn = op.ClusterOperationArn
@@ -79,6 +80,17 @@ func (b *InMemoryBackend) relaunchForSecurityLocked(c *Cluster, op *ClusterOpera
 	b.launchBrokerLocked(c.ClusterArn, c.ClusterName, op.ClusterOperationArn)
 
 	return old
+}
+
+// failSupersededOpLocked fails the operation of a detached broker that never became reachable.
+func (b *InMemoryBackend) failSupersededOpLocked(clusterArn string, old *liveBroker) {
+	if old == nil || old.opArn == "" {
+		return
+	}
+
+	if prev, ok := b.clusterOperations.Get(old.opArn); ok && prev.awaitBroker {
+		b.settleBrokerOpLocked(clusterArn, old.opArn, ClusterOperationStateUpdateFailed)
+	}
 }
 
 // settleBrokerOpLocked records the outcome of the operation a broker relaunch was started for.

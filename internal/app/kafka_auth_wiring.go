@@ -78,8 +78,8 @@ func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM boo
 	}
 
 	if pcaH != nil {
-		bk.SetClientCAResolver(func(_ context.Context, caArn string) ([]byte, error) {
-			return pcaH.Backend.CertificatePEMForARN(caArn)
+		bk.SetClientCAResolver(func(ctx context.Context, caArn string) ([]byte, error) {
+			return pcaH.Backend.CertificatePEMForARN(ctx, caArn)
 		})
 	}
 
