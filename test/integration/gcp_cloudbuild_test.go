@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,12 +88,15 @@ func TestIntegration_GCP_CloudBuild_BuildAndNotifications(t *testing.T) {
 	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	var mu sync.Mutex
 	seen := map[string]bool{}
 
 	require.NoError(t, ps.Subscriber(sub).Receive(rctx, func(_ context.Context, m *pubsub.Message) {
 		m.Ack()
 
+		mu.Lock()
 		seen[m.Attributes["status"]] = true
+		mu.Unlock()
 
 		if m.Attributes["buildId"] == built.GetId() &&
 			m.Attributes["status"] == built.GetStatus().String() {
