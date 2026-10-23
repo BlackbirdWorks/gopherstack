@@ -232,14 +232,14 @@ func TestEngineDockerRealDatabases(t *testing.T) {
 			assert.Equal(t, "127.0.0.1", inst.Endpoint)
 
 			db := openEngineDB(t, tt.kind, inst, "firstpass1")
-			require.NoError(t, db.PingContext(t.Context()))
-			_, err = db.ExecContext(t.Context(), tt.createStmt)
+			require.NoError(t, db.PingContext(dbCtx(t)))
+			_, err = db.ExecContext(dbCtx(t), tt.createStmt)
 			require.NoError(t, err)
-			_, err = db.ExecContext(t.Context(), tt.insertStmt)
+			_, err = db.ExecContext(dbCtx(t), tt.insertStmt)
 			require.NoError(t, err)
 
 			var name string
-			require.NoError(t, db.QueryRowContext(t.Context(), "SELECT name FROM items WHERE id = 1").Scan(&name))
+			require.NoError(t, db.QueryRowContext(dbCtx(t), "SELECT name FROM items WHERE id = 1").Scan(&name))
 			assert.Equal(t, "alpha", name)
 
 			_, err = b.ModifyDBInstance("it1", "", 0,
@@ -247,11 +247,11 @@ func TestEngineDockerRealDatabases(t *testing.T) {
 			require.NoError(t, err)
 
 			fresh := openEngineDB(t, tt.kind, inst, "secondpass2")
-			require.NoError(t, fresh.PingContext(t.Context()))
-			require.NoError(t, fresh.QueryRowContext(t.Context(), "SELECT name FROM items WHERE id = 1").Scan(&name))
+			require.NoError(t, fresh.PingContext(dbCtx(t)))
+			require.NoError(t, fresh.QueryRowContext(dbCtx(t), "SELECT name FROM items WHERE id = 1").Scan(&name))
 
 			old := openEngineDB(t, tt.kind, inst, "firstpass1")
-			require.Error(t, old.PingContext(t.Context()))
+			require.Error(t, old.PingContext(dbCtx(t)))
 
 			ids := rec.containerIDs()
 			require.Len(t, ids, 1)
@@ -264,4 +264,14 @@ func TestEngineDockerRealDatabases(t *testing.T) {
 				time.Minute, 250*time.Millisecond)
 		})
 	}
+}
+
+// dbCtx bounds a database call so a stalled proxy fails the test instead of hanging to the package timeout.
+func dbCtx(t *testing.T) context.Context {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), dockerEngineWait)
+	t.Cleanup(cancel)
+
+	return ctx
 }

@@ -56,14 +56,14 @@ func TestEngineDockerSecurityGroupEnforcement(t *testing.T) {
 			}, dockerEngineWait, 500*time.Millisecond)
 
 			refused := openEngineDB(t, tt.kind, inst, "firstpass1")
-			require.Error(t, refused.PingContext(t.Context()), "SG admits only a foreign CIDR")
+			require.Error(t, refused.PingContext(dbCtx(t)), "SG admits only a foreign CIDR")
 
 			require.NoError(t, ecb.AuthorizeSecurityGroupIngress(sg.ID, []ec2.SecurityGroupRule{
 				{Protocol: "tcp", IPRange: "127.0.0.1/32", FromPort: tt.port, ToPort: tt.port},
 			}))
 
 			admitted := openEngineDB(t, tt.kind, inst, "firstpass1")
-			require.NoError(t, admitted.PingContext(t.Context()), "rule added live admits loopback")
+			require.NoError(t, admitted.PingContext(dbCtx(t)), "rule added live admits loopback")
 
 			_, _, err = ecb.RevokeSecurityGroupIngress(sg.ID, []ec2.SecurityGroupRule{
 				{Protocol: "tcp", IPRange: "127.0.0.1/32", FromPort: tt.port, ToPort: tt.port},
@@ -71,7 +71,7 @@ func TestEngineDockerSecurityGroupEnforcement(t *testing.T) {
 			require.NoError(t, err)
 
 			again := openEngineDB(t, tt.kind, inst, "firstpass1")
-			require.Error(t, again.PingContext(t.Context()), "revoked rule refuses new connections")
+			require.Error(t, again.PingContext(dbCtx(t)), "revoked rule refuses new connections")
 
 			_, err = b.DeleteDBInstanceWithOptions("sg1", true, "", true)
 			require.NoError(t, err)
