@@ -103,6 +103,7 @@ type Operation struct {
 	InsertTime    string           `json:"insertTime"`
 	StartTime     string           `json:"startTime,omitempty"`
 	EndTime       string           `json:"endTime,omitempty"`
+	seq           int64
 }
 
 // Database is the sql#database resource.

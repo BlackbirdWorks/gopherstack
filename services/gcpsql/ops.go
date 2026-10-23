@@ -39,6 +39,8 @@ func (b *InMemoryBackend) newOpLocked(project, instance, opType string, m opMeta
 		), SelfLink: baseLink + "/projects/" + project + "/operations/" + name,
 		ExportContext: m.export, ImportContext: m.imp, BackupContext: m.backup,
 	}
+	b.seq++
+	op.seq = b.seq
 	b.ops[instKey(project, name)] = op
 	b.pruneOpsLocked()
 
@@ -191,6 +193,10 @@ func (b *InMemoryBackend) ListOperations(project, instance, token string, limit 
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].InsertTime != all[j].InsertTime {
 			return all[i].InsertTime > all[j].InsertTime
+		}
+
+		if all[i].seq != all[j].seq {
+			return all[i].seq > all[j].seq
 		}
 
 		return all[i].Name < all[j].Name
