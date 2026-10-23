@@ -182,6 +182,8 @@ func TestEngineRestorableWindowIsReported(t *testing.T) {
 	assert.Equal(t, f.t0.Add(20*time.Minute), inst.LatestRestorableTime)
 
 	f.readyClusterWithRetention(t, "c1", 7)
+	require.Eventually(t, func() bool { return !f.cluster(t, "c1").LatestRestorableTime.IsZero() },
+		engineWait, 5*time.Millisecond)
 	f.tick(5 * time.Minute)
 
 	c := f.cluster(t, "c1")
