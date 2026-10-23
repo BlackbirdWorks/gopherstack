@@ -200,7 +200,7 @@ func (a *azureEventHubsAPI) peek(
 	}
 
 	start := max(info.BeginSequence, info.LastSequence-int64(limit)+1)
-	out := make([]eventHubsEventJSON, 0, limit)
+	out := []eventHubsEventJSON{}
 
 	for seq := info.LastSequence; seq >= start; seq-- {
 		ev, err := a.b.Next(ctx, ref, pid, seq, nil)

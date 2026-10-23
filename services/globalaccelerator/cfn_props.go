@@ -68,11 +68,17 @@ func cfnOptInt32(v any) *int32 {
 		return nil
 	}
 
-	if math.IsNaN(f) || f > math.MaxInt32 || f < math.MinInt32 {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return nil
 	}
 
-	n := int32(f)
+	// bitSize 32 rejects out-of-range values and is the bound CodeQL recognizes.
+	i, err := strconv.ParseInt(strconv.FormatFloat(math.Trunc(f), 'f', 0, 64), 10, 32)
+	if err != nil {
+		return nil
+	}
+
+	n := int32(i)
 
 	return &n
 }

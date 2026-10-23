@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -362,7 +364,26 @@ func (e *dockerEngine) applyFlags(ctx context.Context, flags []Flag) error {
 	return nil
 }
 
-var mysqlBareValue = regexp.MustCompile(`^(-?[0-9]+(\.[0-9]+)?|ON|OFF|TRUE|FALSE)$`)
+// mysqlFlagArg types numeric and boolean values so the driver interpolates them unquoted.
+func mysqlFlagArg(v string) any {
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return n
+	}
+
+	if f, err := strconv.ParseFloat(v, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) &&
+		!strings.ContainsAny(v, "eExXpP_") {
+		return f
+	}
+
+	switch strings.ToUpper(v) {
+	case "TRUE":
+		return true
+	case "FALSE":
+		return false
+	}
+
+	return v
+}
 
 // setMySQLFlag persists a server variable; numbers and booleans must not be quoted.
 func (e *dockerEngine) setMySQLFlag(ctx context.Context, f Flag) error {
@@ -377,13 +398,7 @@ func (e *dockerEngine) setMySQLFlag(ctx context.Context, f Flag) error {
 		return err
 	}
 
-	stmt := "SET PERSIST_ONLY " + name + " = "
-
-	if mysqlBareValue.MatchString(strings.ToUpper(f.Value)) {
-		return e.exec(ctx, "", stmt+strings.ToUpper(f.Value))
-	}
-
-	return e.exec(ctx, "", stmt+"?", f.Value)
+	return e.exec(ctx, "", "SET PERSIST_ONLY "+name+" = ?", mysqlFlagArg(f.Value))
 }
 
 func (e *dockerEngine) applyPGFlags(ctx context.Context, flags []Flag) error {
