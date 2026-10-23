@@ -1,5 +1,6 @@
 # One grouped PR per ecosystem: every directory and both version and
 # security updates land in the same PR instead of one PR per dependency.
+# cooldown: releases must be at least 14 days old before they are proposed.
 version: 2
 updates:
   - package-ecosystem: "gomod"
@@ -11,6 +12,8 @@ updates:
       - "/examples/*/lambda"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
     groups:
       go-dependencies:
         applies-to: version-updates
@@ -25,6 +28,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
     groups:
       actions-dependencies:
         applies-to: version-updates
@@ -43,6 +48,8 @@ updates:
       - "/examples/*/src"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
     groups:
       npm-dependencies:
         applies-to: version-updates
@@ -59,6 +66,8 @@ updates:
       - "/test/e2e/crosssdk"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
     groups:
       python-dependencies:
         applies-to: version-updates
