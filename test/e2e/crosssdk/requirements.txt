@@ -7,29 +7,29 @@ azure-core==1.41.0 \
     #   azure-data-tables
     #   azure-storage-blob
     #   azure-storage-queue
-azure-cosmos==4.16.4 \
-    --hash=sha256:5a98d33ce6d539a926f47c67b14587fbb8ba4fd662751ff8b0ebe7f9d3765a2e \
-    --hash=sha256:89bf558203335efc39551dccef6782aa2f286d94cc87dd9bd98efc37d8c69303
+azure-cosmos==4.17.1 \
+    --hash=sha256:a33b796d055d1923b6dc7b6195aa1cfb5ae786dbc38771bb4ad702b0e5ec18db \
+    --hash=sha256:d692928a54d88163e96d41d8f899229ca2f6a6bf21973ece2bfc1f72d4b4edd8
     # via -r requirements.in
 azure-data-tables==12.7.0 \
     --hash=sha256:24ed9b5690aa46c213182e32bb1b39a68dd9f526d84f447c287e3a401b437c10 \
     --hash=sha256:b14fc94a3223a2835ff5688e17d8e107b27c7cd7c4114138f2ac81373723705d
     # via -r requirements.in
-azure-storage-blob==12.30.1 \
-    --hash=sha256:7a24f978c51d56a0375beebffcbe8453e59ae390d2695705848edc75083e4184 \
-    --hash=sha256:7dc09c37f4f58508e20532b4b4c178f4763f41b01e0b9063835b994fd9d2a7b3
+azure-storage-blob==12.31.0 \
+    --hash=sha256:0c0cb601d3462491d09ea96023cd791bb9dd4b173bf950daf3cff34ff47ba5b5 \
+    --hash=sha256:997b393cfcbdc4b186d5911790d91f80387f7edc12c4d73eab963a2d26e5b2a9
     # via -r requirements.in
-azure-storage-queue==12.17.0 \
-    --hash=sha256:6eb108a88554be371feb2eba9715fa0e3f7baca7b3f00c19ec417fc7ce5b3834 \
-    --hash=sha256:aaef08ee2613f84a3a85e60a059d29567361e5a2af455298bb0e529f0b47d5a1
+azure-storage-queue==12.18.0 \
+    --hash=sha256:672dac5a7df2e93134f1b8ac6dc0df29823b9daa490b61bda1f88601403b5aa9 \
+    --hash=sha256:a91e5dce29279aa8528ee6a43a5aed10e22de94dae9a4c5dccbd4d1aee2cc5c1
     # via -r requirements.in
 boto3==1.43.100 \
     --hash=sha256:49785c310057c2c650d62ca3ba28e88ad87c3827b490312711e81968a9d21fd8 \
     --hash=sha256:ae8d81e1f14699959eb38757c2e0044f4e3a303a57a0335d0be4cd3c07529763
     # via -r requirements.in
-botocore==1.43.100 \
-    --hash=sha256:34c3232bc0f895091a15249903b3cab1148f5787f12389caa2d54a9175428d51 \
-    --hash=sha256:b6e64e38e3c03663a0c20d3d207afd97a0409dbc27e4e43384ac3f93cb61279f
+botocore==1.43.115 \
+    --hash=sha256:9ceda640c868bc15f5399129e8cfdef8cbb4b350e8a99547c9b5f477cfb9619a \
+    --hash=sha256:aa4d9c4e7ef99988b7347e0cd276ba84e1eb1625510557b0e36cd57ecb19bbf2
     # via
     #   -r requirements.in
     #   boto3
@@ -721,9 +721,9 @@ requests==2.34.2 \
     --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0 \
     --hash=sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed
     # via azure-core
-s3transfer==0.19.2 \
-    --hash=sha256:ba0309fd86be3c27dbf78cdd813c13c5e1df16e5874b99d2535ebbdfb9892993 \
-    --hash=sha256:d8168eccca828cbb2cd573675333f3bddd254313a9c42494b84c76b539e8ba25
+s3transfer==0.19.3 \
+    --hash=sha256:24eb7535804306355e31c952a90022bf5b2f9d760f9a11062c7493a217c08553 \
+    --hash=sha256:8326acc3d056d7f7b8a37110c7d2aea41f67e83f6ae79cd3b5fbcca34c726406
     # via
     #   -r requirements.in
     #   boto3
