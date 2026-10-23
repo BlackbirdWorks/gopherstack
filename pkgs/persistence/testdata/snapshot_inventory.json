@@ -15383,6 +15383,7 @@
       "Operation.TargetLink string `json:\"targetLink\"`",
       "Operation.TargetProject string `json:\"targetProject\"`",
       "Operation.User string `json:\"user,omitempty\"`",
+      "Operation.seq int64",
       "OperationError.Code string `json:\"code\"`",
       "OperationError.Kind string `json:\"kind\"`",
       "OperationError.Message string `json:\"message\"`",
