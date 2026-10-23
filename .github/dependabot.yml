@@ -1,11 +1,23 @@
+# One grouped PR per ecosystem: every directory and both version and
+# security updates land in the same PR instead of one PR per dependency.
 version: 2
 updates:
   - package-ecosystem: "gomod"
-    directory: "/"
+    directories:
+      - "/"
+      - "/desktop"
+      - "/testcontainers/go"
+      - "/examples/*"
+      - "/examples/*/lambda"
     schedule:
       interval: "weekly"
     groups:
-      all-go-dependencies:
+      go-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      go-security:
+        applies-to: security-updates
         patterns:
           - "*"
 
@@ -14,15 +26,45 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      all-actions-dependencies:
+      actions-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      actions-security:
+        applies-to: security-updates
         patterns:
           - "*"
 
   - package-ecosystem: "npm"
-    directory: "/ui"
+    directories:
+      - "/ui"
+      - "/testcontainers/node"
+      - "/test/e2e/crosssdk"
+      - "/examples/*/src"
     schedule:
       interval: "weekly"
     groups:
-      ui-dependencies:
+      npm-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directories:
+      - "/testcontainers/python"
+      - "/test/e2e/crosssdk"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      python-security:
+        applies-to: security-updates
         patterns:
           - "*"
