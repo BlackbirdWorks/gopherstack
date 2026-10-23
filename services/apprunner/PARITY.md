@@ -1,6 +1,6 @@
 ---
 service: apprunner
-sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
+sdk_module: aws-sdk-go-v2/service/apprunner@v1.48.3
 last_audit_commit: 22b4f068c
 last_audit_date: 2026-10-07
 overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit,

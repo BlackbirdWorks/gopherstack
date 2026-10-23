@@ -1,6 +1,6 @@
 ---
 service: autoscaling
-sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
+sdk_module: aws-sdk-go-v2/service/autoscaling@v1.78.3
 last_audit_commit: cd027034c  # autoscaling-dynamodb-kms-and-cloudwatch terraform sweep: DescribeAutoScalingGroups/DescribeLaunchConfigurations names-filter fix
 last_audit_date: 2026-10-07
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every

@@ -19,5 +19,10 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := kinesis.NewInMemoryBackend()
 	h := kinesis.NewHandler(backend)
 
-	sdkcheck.CheckCompleteness(t, &kinesissdk.Client{}, h.GetSupportedOperations(), nil)
+	sdkcheck.CheckCompleteness(
+		t,
+		&kinesissdk.Client{},
+		h.GetSupportedOperations(),
+		[]string{"UpdateStreamRecordDistributionStrategy"},
+	)
 }

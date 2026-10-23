@@ -1,6 +1,6 @@
 ---
 service: networkmonitor
-sdk_module: aws-sdk-go-v2/service/networkmonitor@v1.16.4
+sdk_module: aws-sdk-go-v2/service/networkmonitor@v1.21.3
 last_audit_commit: 9bcb4b792
 last_audit_date: 2026-10-07
 overall: A

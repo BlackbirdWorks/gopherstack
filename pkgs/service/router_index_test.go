@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type diffService struct {
@@ -164,6 +165,70 @@ func TestValidGate(t *testing.T) {
 
 			got := validGate(tt.prefixes, tt.minLen)
 			assert.Equal(t, tt.wantNil, got == nil)
+		})
+	}
+}
+
+func TestRouterCBORGate(t *testing.T) {
+	t.Parallel()
+
+	const (
+		alphaShape = "Alpha_20230101"
+		betaShape  = "Beta_20240202"
+	)
+
+	tests := []struct {
+		name, path, target, want string
+	}{
+		{"alpha_cbor", "/service/" + alphaShape + "/operation/Get", "", "alpha"},
+		{"beta_cbor", "/service/" + betaShape + "/operation/Get", "", "beta"},
+		{"alpha_target", "/", "Alpha_20230101.Get", "alpha"},
+		{"other_service_shape", "/service/Gamma_1/operation/Get", "", ""},
+		{"alpha_shape_prefix_only", "/service/" + alphaShape + "x/operation/Get", "", ""},
+		{"no_operation", "/service/" + alphaShape + "/operation/", "", ""},
+		{"no_operation_segment", "/service/" + alphaShape, "", ""},
+		{"bare_root", "/", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			reg := NewRegistry()
+
+			for name, shape := range map[string]string{"alpha": alphaShape, "beta": betaShape} {
+				require.NoError(t, reg.Register(&diffService{
+					name: name,
+					match: func(c *echo.Context) bool {
+						r := c.Request()
+
+						return strings.HasPrefix(r.Header.Get(amzTargetHeader), shape+".") ||
+							IsRPCv2CBORRequest(r, rpcv2PathPrefix+shape+rpcv2PathInfix)
+					},
+				}))
+			}
+
+			router := NewServiceRouter(reg).
+				WithTargetGates(map[string][]string{"alpha": {alphaShape + "."}, "beta": {betaShape + "."}}).
+				WithCBORGates(map[string]string{"alpha": alphaShape, "beta": betaShape})
+
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req.Header.Set("Smithy-Protocol", "rpc-v2-cbor")
+
+			if tt.target != "" {
+				req.Header.Set(amzTargetHeader, tt.target)
+			}
+
+			got := router.Lookup(echo.NewContext(req, httptest.NewRecorder()))
+
+			if tt.want == "" {
+				assert.Nil(t, got)
+
+				return
+			}
+
+			require.NotNil(t, got)
+			assert.Equal(t, tt.want, got.Registerable.Name())
 		})
 	}
 }

@@ -161,6 +161,7 @@ func TestRoutingIndexMatchesLinearScan(t *testing.T) {
 	cases := loadRoutingCorpus(t)
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates())
 
 	all := make([]routingCase, 0, len(cases)*(1+indexVariantsPerCase)+indexCrossCases)
@@ -247,6 +248,7 @@ func TestRoutingPathGatedAlternatives(t *testing.T) {
 	reg, _ := routingFixture(t)
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates())
 
 	tests := []struct {
@@ -297,6 +299,7 @@ func TestRoutingLambdaFunctionURLHost(t *testing.T) {
 	reg, _ := routingFixture(t)
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates())
 
 	tests := []struct {
@@ -317,6 +320,50 @@ func TestRoutingLambdaFunctionURLHost(t *testing.T) {
 			rc := routingCase{method: tt.method, host: tt.host, uri: tt.uri}
 			got := router.Lookup(echo.NewContext(rc.request(t), httptest.NewRecorder()))
 			assert.Equal(t, tt.wantLambda, entryName(got) == "Lambda")
+		})
+	}
+}
+
+func TestRoutingRPCv2CBORGates(t *testing.T) {
+	t.Parallel()
+
+	reg, _ := routingFixture(t)
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
+		WithPathGates(routegates.PathGates())
+
+	tests := []struct {
+		name, uri, want, notWant string
+	}{
+		{"codeconnections", "/service/CodeConnections_20231201/operation/ListConnections", "CodeConnections", ""},
+		{"translate", "/service/AWSShineFrontendService_20170701/operation/ListLanguages", "Translate", ""},
+		{"unknown_shape", "/service/Unknown_20200101/operation/ListConnections", "", "CodeConnections"},
+		{"unknown_shape_translate", "/service/Unknown_20200101/operation/ListLanguages", "", "Translate"},
+		{"suffixed_shape", "/service/CodeConnections_20231201x/operation/ListConnections", "", "CodeConnections"},
+		{"suffixed_translate", "/service/AWSShineFrontendService_20170701x/operation/ListLanguages", "", "Translate"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rc := routingCase{
+				method: "POST", host: "localhost:4566", uri: tt.uri,
+				ctype: "application/cbor", body: "",
+			}
+			req := rc.request(t)
+			req.Header.Set("Smithy-Protocol", "rpc-v2-cbor")
+
+			got := router.Lookup(echo.NewContext(req, httptest.NewRecorder()))
+
+			if tt.want != "" {
+				assert.Equal(t, tt.want, entryName(got))
+			}
+
+			if tt.notWant != "" {
+				assert.NotEqual(t, tt.notWant, entryName(got))
+			}
 		})
 	}
 }

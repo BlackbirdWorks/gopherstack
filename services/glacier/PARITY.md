@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: glacier
-sdk_module: aws-sdk-go-v2/service/glacier@v1.35.4
+sdk_module: aws-sdk-go-v2/service/glacier@v1.41.3
 last_audit_commit: c9523cebb
 last_audit_date: 2026-10-10
 overall: A            # wrapper-key/header/nested-shape sweep (2026-08-20): 1 real wire bug found and fixed (SelectParameters InputSerialization/OutputSerialization.Csv wire key was "Csv", real AWS is lowercase "csv"); 2 suspected wrapper-key bugs (GetVaultAccessPolicy/GetVaultNotifications) investigated and found to be FALSE POSITIVES -- gopherstack's existing flat shape was already correct, the wrapping helper in the real SDK's deserializers.go is dead code never reached from HandleDeserialize. All HTTP-header-bound response members (13 across 8 ops) audited against live HandleDeserialize/HttpBindings functions and found correct. Tree-hash algorithm cross-checked against the pinned SDK's own client-side implementation (internal/customizations/treehash.go), not just self-consistency.

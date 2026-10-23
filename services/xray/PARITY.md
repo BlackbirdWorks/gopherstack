@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: xray
-sdk_module: aws-sdk-go-v2/service/xray@v1.39.4   # version audited against (go.mod pin; was stale at v1.36.20)
+sdk_module: aws-sdk-go-v2/service/xray@v1.45.3   # version audited against (go.mod pin; was stale at v1.36.20)
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: b4c2391e7                       # HEAD when this manifest was last rewritten
 last_audit_date: 2026-10-10  # prior: 2026-09-18
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op

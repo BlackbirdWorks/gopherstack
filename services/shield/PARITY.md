@@ -1,6 +1,6 @@
 ---
 service: shield
-sdk_module: aws-sdk-go-v2/service/shield@v1.37.4
+sdk_module: aws-sdk-go-v2/service/shield@v1.43.3
 last_audit_commit: 0c1472972  # terraform-coverage pass: ProtectionGroup tagging; prior: 2d47b51d4
 last_audit_date: 2026-10-10  # prior: 2026-07-29
 overall: A            # all documented gaps from the prior sweep closed; one invented op deleted

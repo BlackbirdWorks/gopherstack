@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: textract
-sdk_module: aws-sdk-go-v2/service/textract@v1.43.4   # bumped from v1.41.0 pin; AdaptersConfig/HumanLoopConfig field-diffed this pass
+sdk_module: aws-sdk-go-v2/service/textract@v1.49.3   # bumped from v1.41.0 pin; AdaptersConfig/HumanLoopConfig field-diffed this pass
 last_audit_commit: 49cff86c4
 last_audit_date: 2026-10-07
 overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real pattern-(a) fixes

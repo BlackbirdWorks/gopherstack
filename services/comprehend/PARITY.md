@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: comprehend
-sdk_module: aws-sdk-go-v2/service/comprehend@v1.43.4
+sdk_module: aws-sdk-go-v2/service/comprehend@v1.49.3
 last_audit_commit: a2084957b
 last_audit_date: 2026-10-07
 overall: A            # 2026-08-29 (later same day, wrapper-key/constraint-parameter sweep): the

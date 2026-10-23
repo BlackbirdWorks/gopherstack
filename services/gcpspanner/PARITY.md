@@ -1,6 +1,6 @@
 ---
 service: gcpspanner
-sdk_module: cloud.google.com/go/spanner@v1.95.0
+sdk_module: cloud.google.com/go/spanner@v1.96.1
 last_audit_commit: 364908f83
 last_audit_date: 2026-10-22
 overall: B

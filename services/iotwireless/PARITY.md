@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: iotwireless
-sdk_module: aws-sdk-go-v2/service/iotwireless@v1.59.4   # version audited against; bumped from v1.54.7 by gopherstack-jvqt (LoRaWAN/Sidewalk typing) -- no op surface changes between the two, only this manifest's citations needed updating
+sdk_module: aws-sdk-go-v2/service/iotwireless@v1.65.3   # version audited against; bumped from v1.54.7 by gopherstack-jvqt (LoRaWAN/Sidewalk typing) -- no op surface changes between the two, only this manifest's citations needed updating
 last_audit_commit: da97fccdb
 last_audit_date: 2026-10-07
 overall: A                # all 4 prior gaps + 9 deferred families field-diffed and fixed this pass;

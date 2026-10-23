@@ -1,6 +1,6 @@
 ---
 service: sqs
-sdk_module: aws-sdk-go-v2/service/sqs@v1.51.0
+sdk_module: aws-sdk-go-v2/service/sqs@v1.52.3
 last_audit_commit: e13b41148  # 2026-09-24 terraform-coverage sweep; prior: f51bf624e
 last_audit_date: 2026-10-07
 overall: A            # 2026-09-24: fixed a real bug -- JSON-protocol error responses never

@@ -18,5 +18,10 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := sesv2.NewInMemoryBackend()
 	h := sesv2.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &sesv2sdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &sesv2sdk.Client{}, h.GetSupportedOperations(), []string{
+		"AssociateEmailIdentityCertificate",
+		"DisassociateEmailIdentityCertificate",
+		"ListEmailIdentityCertificates",
+		"UpdateConfigurationSet",
+	})
 }

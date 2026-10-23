@@ -43,7 +43,7 @@ func gremlinG(t *testing.T, c neptune.DBCluster) *gremlingo.GraphTraversalSource
 	require.NoError(t, err)
 	t.Cleanup(drc.Close)
 
-	return gremlingo.Traversal_().WithRemote(drc)
+	return gremlingo.Traversal_().With(drc)
 }
 
 func gremlinClient(t *testing.T, c neptune.DBCluster) *gremlingo.Client {

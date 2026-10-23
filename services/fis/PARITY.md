@@ -1,6 +1,6 @@
 ---
 service: fis
-sdk_module: aws-sdk-go-v2/service/fis@v1.40.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/fis@v1.46.3   # version audited against
 last_audit_commit: 576e42c5c
 last_audit_date: 2026-10-10
 overall: A            # genuine wire/error-code fixes found and applied

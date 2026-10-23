@@ -1,6 +1,6 @@
 ---
 service: managedblockchain
-sdk_module: aws-sdk-go-v2/service/managedblockchain@v1.34.4
+sdk_module: aws-sdk-go-v2/service/managedblockchain@v1.40.3
 last_audit_commit: a5efc2c05
 last_audit_date: 2026-10-07
 overall: A

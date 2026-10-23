@@ -18,5 +18,10 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := identitystore.NewInMemoryBackend("000000000000", "us-east-1")
 	h := identitystore.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &identitystoresdk.Client{}, h.GetSupportedOperations(), nil)
+	sdkcheck.CheckCompleteness(
+		t,
+		&identitystoresdk.Client{},
+		h.GetSupportedOperations(),
+		[]string{"DescribeIdentityStore", "ListIdentityStores", "UpdateIdentityStore"},
+	)
 }

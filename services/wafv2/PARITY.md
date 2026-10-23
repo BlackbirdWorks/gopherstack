@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: wafv2
-sdk_module: aws-sdk-go-v2/service/wafv2@v1.77.3   # version audited against (bumped from v1.76.0; go.mod pin was stale)
+sdk_module: aws-sdk-go-v2/service/wafv2@v1.83.3   # version audited against (bumped from v1.76.0; go.mod pin was stale)
 last_audit_commit: 1d121bbad                      # over-wide census sweep, ListAPIKeys/GetDecryptedAPIKey Scope leak
 last_audit_date: 2026-10-07
 overall: A            # New this pass: the AI-bot pay-per-crawl monetization-reporting family

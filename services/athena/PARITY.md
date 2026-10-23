@@ -1,6 +1,6 @@
 ---
 service: athena
-sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
+sdk_module: aws-sdk-go-v2/service/athena@v1.66.3
 last_audit_commit: 0c1472972  # 2026-09-23 lakeformation-appsync-neptune-and-athena terraform coverage; prior: d522d763f
 last_audit_date: 2026-10-11
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service

@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.26.2-alpine@sha256:d826a798b3c959dcfb1807661ceb3856b3e8e19e763137cc3542472d82935cf3 AS builder
+FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS builder
 
 ENV GOTOOLCHAIN=auto
 

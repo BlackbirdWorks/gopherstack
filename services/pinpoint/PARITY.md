@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: pinpoint
-sdk_module: aws-sdk-go-v2/service/pinpoint@v1.42.4
+sdk_module: aws-sdk-go-v2/service/pinpoint@v1.48.3
 last_audit_commit: 24813b443 # re-verified this pass; original required-output-member sweep landed at 1b9f9d3d8
 last_audit_date: 2026-10-10
 overall: A            # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up): all

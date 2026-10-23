@@ -1,6 +1,6 @@
 ---
 service: gcplogging
-sdk_module: cloud.google.com/go/logging@v1.18.0
+sdk_module: cloud.google.com/go/logging@v1.19.0
 last_audit_commit: b1f3fa139
 last_audit_date: 2026-10-21
 overall: B

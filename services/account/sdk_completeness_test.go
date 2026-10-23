@@ -18,7 +18,10 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := account.NewInMemoryBackend("000000000000", "us-east-1")
 	h := account.NewHandler(backend)
 
-	notImplemented := []string{}
+	notImplemented := []string{
+		"SendPhoneNumberVerification",
+		"VerifyPhoneNumber",
+	}
 
 	sdkcheck.CheckCompleteness(t, &accountsdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

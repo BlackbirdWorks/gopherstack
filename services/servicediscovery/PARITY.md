@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: servicediscovery
-sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against; matches go.mod (verified)
+sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.49.3   # version audited against; matches go.mod (verified)
 botocore_model: servicediscovery/2017-03-14/service-2.json (botocore 1.43.56)  # for shape constraints not carried into the Go SDK comments
 last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass); prior: e50f52dce                      # this pass (2026-08-28, write-only-state sweep)
 last_audit_date: 2026-10-10

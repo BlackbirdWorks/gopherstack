@@ -1,6 +1,6 @@
 ---
 service: ec2
-sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
+sdk_module: aws-sdk-go-v2/service/ec2@v1.338.3   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit: 5cb6665a0   # was 30db30dd8
 last_audit_date: 2026-10-11
 overall: A   # Filter.N sweep, 2026-10-01 second pass: DescribeRegions (endpoint, region-name),
@@ -574,6 +574,7 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateCapacityReservationDateChangeQuote, DeleteClientVpnEndpointAuthorizationPolicy, DescribeCapacityReservationDateChangeQuotes, GetClientVpnEndpointAuthorizationPolicy, ModifyClientVpnEndpointAuthorizationPolicy."
   - "RunInstances accepts any syntactically valid InstanceType and any ami-prefixed ImageId: the instance-type catalog is partial and many in-repo callers launch synthetic AMIs, so unknown-but-well-formed values are not rejected."
   - "CreateVolume goes straight to available (no creating state)."
   - "Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only \"the tags assigned\"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only)."

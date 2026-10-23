@@ -1,6 +1,6 @@
 ---
 service: ecs
-sdk_module: aws-sdk-go-v2/service/ecs@v1.96.0
+sdk_module: aws-sdk-go-v2/service/ecs@v1.100.2
 last_audit_commit: 30db30dd8  # 2026-09-24 INACTIVE service TTL eviction fix; prior: 1598513da
 last_audit_date: 2026-10-07
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op

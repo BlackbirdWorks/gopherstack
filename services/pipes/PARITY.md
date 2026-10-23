@@ -1,6 +1,6 @@
 ---
 service: pipes
-sdk_module: aws-sdk-go-v2/service/pipes@v1.26.4
+sdk_module: aws-sdk-go-v2/service/pipes@v1.32.3
 last_audit_commit: 302aa4e3c  # zeroguard: UpdatePipe Target/Enrichment omitted-member fix
 last_audit_date: 2026-10-11
 overall: A            # both execution gaps closed for real (runner.go source pollers + internal/app/cli.go target/DLQ wiring); the only remaining gap is a proven genuine impossibility (no in-repo Kafka/AMQP broker)

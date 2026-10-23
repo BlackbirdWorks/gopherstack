@@ -1,5 +1,5 @@
 service: vpclattice
-sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
+sdk_module: aws-sdk-go-v2/service/vpclattice@v1.33.3
 last_audit_commit: 2bc650bf9
 last_audit_date: 2026-10-10
 # 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit

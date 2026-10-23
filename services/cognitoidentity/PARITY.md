@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cognitoidentity
-sdk_module: aws-sdk-go-v2/service/cognitoidentity@v1.36.4
+sdk_module: aws-sdk-go-v2/service/cognitoidentity@v1.42.3
 last_audit_commit: 81a1aabf0
 last_audit_date: 2026-10-12
 # 2026-10-10 realism pass: IdentityPoolName (1-128, [\w\s+=,.@-]) and DeveloperProviderName ([\w.-]) validated;

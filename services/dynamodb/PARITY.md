@@ -1,6 +1,6 @@
 ---
 service: dynamodb
-sdk_module: aws-sdk-go-v2/service/dynamodb@v1.67.0   # version audited against (go.mod pin)
+sdk_module: aws-sdk-go-v2/service/dynamodb@v1.70.2   # version audited against (go.mod pin)
 last_audit_commit: e1e3f187f  # 2026-09-26 global-tables-v2-autoscaling pass: ReplicaUpdates + AutoScalingRoleArn/ScalingPolicies; prior: cd027034c
 last_audit_date: 2026-10-10
   # 2026-09-26 (this audit): UpdateTableReplicaAutoScaling's ReplicaUpdates

@@ -4,7 +4,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
-sdk_module: aws-sdk-go-v2/service/rds@v1.124.1
+sdk_module: aws-sdk-go-v2/service/rds@v1.130.2
 last_audit_commit: 68761ba3a
 last_audit_date: 2026-10-11
 overall: A              # RESTORED A->A (gopherstack-vhw2 strict-phantom-check pass, 2026-08-05):

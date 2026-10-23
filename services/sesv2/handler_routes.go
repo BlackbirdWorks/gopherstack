@@ -58,6 +58,8 @@ func parseMiscPaths(method string, segments []string) (string, string) {
 var onceSingleSegmentPostOps = sync.OnceValue(func() map[string]string {
 	return map[string]string{
 		"list-export-jobs":                    opListExportJobs,
+		"list-identities":                     opListEmailIdentities,
+		"list-configuration-sets":             opListConfigurationSets,
 		"custom-verification-email-templates": opCreateCustomVerificationEmailTemplate,
 		"dedicated-ip-pools":                  opCreateDedicatedIPPool,
 		"templates":                           opCreateEmailTemplate,

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appstream
-sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
+sdk_module: aws-sdk-go-v2/service/appstream@v1.71.2
 last_audit_commit: 5c20d9fd7
 last_audit_date: 2026-10-10
 overall: A            # 2026-08-23: closed the one remaining named-and-flagged gap this file

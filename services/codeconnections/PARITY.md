@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codeconnections
-sdk_module: aws-sdk-go-v2/service/codeconnections@v1.13.4   # unchanged this pass; still the go.mod pin
+sdk_module: aws-sdk-go-v2/service/codeconnections@v1.20.0   # unchanged this pass; still the go.mod pin
 last_audit_commit: bb9dd1e99                      # HEAD at the start of this pass (gopherstack-2y2); this pass's changes are uncommitted working-tree changes on top
 last_audit_date: 2026-10-10
 overall: A            # true-parity pass: closed every gaps/deferred item from the prior audit, plus new

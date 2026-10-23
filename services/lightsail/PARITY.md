@@ -10,7 +10,7 @@
 # build`/`go vet`/`go test -race`/`golangci-lint` against the already-committed tree, plus direct
 # reading of services/lightsail/*.go and the relevant internal/app/cli.go wiring lines, never modifying either).
 service: lightsail
-sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.4   # gopherstack-u8my: was recorded v1.58.3 but
+sdk_module: aws-sdk-go-v2/service/lightsail@v1.66.3   # gopherstack-u8my: was recorded v1.58.3 but
 # go.mod actually pinned v1.58.4 -- the "confirmed unchanged" claim below was wrong. Diffed v1.58.3
 # vs v1.58.4: types/{types,enums,errors}.go, serializers.go, deserializers.go, validators.go are all
 # byte-identical; only client middleware plumbing differs. No wire-shape claim in this file rested
@@ -95,6 +95,7 @@ families:
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
 gaps: []
 items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetProfile."
   - "InstanceState and RelationalDatabaseState have no typed SDK enum; the constants in consts.go are commented UNCONFIRMED conventions pending external evidence."
 structural_gaps:
   - "5 of 8 wire exceptions (AccessDenied/AccountSetupInProgress/OperationFailure/RegionSetupInProgress/Unauthenticated) are classified in errors.go but never raised: each needs a permission or account/region provisioning-state model this backend lacks."

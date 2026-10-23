@@ -1,6 +1,6 @@
 ---
 service: dlm
-sdk_module: aws-sdk-go-v2/service/dlm@v1.39.4   # version audited against (go.mod pin)
+sdk_module: aws-sdk-go-v2/service/dlm@v1.45.3   # version audited against (go.mod pin)
 last_audit_commit: ed6ef1a53
 last_audit_date: 2026-10-10
 overall: A            # gopherstack-x009: DefaultPolicy echo + LimitExceededException quota added; StatusMessage confirmed honest

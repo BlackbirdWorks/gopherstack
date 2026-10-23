@@ -1,6 +1,6 @@
 ---
 service: kinesisvideo
-sdk_module: aws-sdk-go-v2/service/kinesisvideo@v1.41.1
+sdk_module: aws-sdk-go-v2/service/kinesisvideo@v1.41.3
 last_audit_commit: 5bb0d02ee
 last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_KinesisVideo_StreamLifecycle + TestIntegration_KinesisVideo_SignalingChannelLifecycle (test/integration/kinesisvideo_test.go) + every buildable gap closed; remaining divergences are structural_gaps.

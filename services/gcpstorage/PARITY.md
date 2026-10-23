@@ -1,6 +1,6 @@
 ---
 service: gcpstorage
-sdk_module: cloud.google.com/go/storage@v1.65.1
+sdk_module: cloud.google.com/go/storage@v1.69.0
 last_audit_commit: 3a537de68
 last_audit_date: 2026-10-18
 overall: B

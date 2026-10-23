@@ -18,5 +18,9 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := glue.NewInMemoryBackend("000000000000", "us-east-1")
 	h := glue.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &gluesdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &gluesdk.Client{}, h.GetSupportedOperations(), []string{
+		"GetSystemLogsForJobRun",
+		"GetSystemLogsForSession",
+		"ListIntegrationTableProperties",
+	})
 }

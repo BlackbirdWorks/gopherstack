@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: accessanalyzer
-sdk_module: aws-sdk-go-v2/service/accessanalyzer@v1.51.4
+sdk_module: aws-sdk-go-v2/service/accessanalyzer@v1.57.3
 last_audit_commit: 49cff86c4                             # HEAD when this manifest was written
 last_audit_date: 2026-10-10
 overall: A            # gopherstack-r80d batch 18 (required-output-member cut): Location.Span (nested 3 levels below ValidatePolicyOutput, invisible to a flat per-op required-field scan) was never emitted; fixed. Every other domain struct reachable from an Output field was re-verified end to end against accessanalyzer@v1.51.4/types/types.go and confirmed already correct, mostly by the 2026-08-15 gopherstack-6flj pass and gopherstack-kwht before it (re-confirmed, not re-litigated); prior 2026-08-10 wire-shape audit (19eea66b2) also re-confirmed, not re-litigated

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: mediatailor
-sdk_module: aws-sdk-go-v2/service/mediatailor@v1.63.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/mediatailor@v1.72.2   # version audited against
 last_audit_commit: ed6ef1a53                              # HEAD when this manifest was written
 last_audit_date: 2026-10-07
                        # 2026-08-30: pagination-tie sweep (does a name-sorted List op lose a

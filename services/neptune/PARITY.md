@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: neptune
-sdk_module: aws-sdk-go-v2/service/neptune@v1.48.4
+sdk_module: aws-sdk-go-v2/service/neptune@v1.53.3
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 064cc837d
 last_audit_date: 2026-10-12  # prior: 2026-09-17
 overall: A            # every previously-open gap this pass either genuinely fixed or re-verified as correct-as-is

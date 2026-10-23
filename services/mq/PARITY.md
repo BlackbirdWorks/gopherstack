@@ -1,5 +1,5 @@
 service: mq
-sdk_module: aws-sdk-go-v2/service/mq@v1.39.4   # audited against; go.mod pins this version
+sdk_module: aws-sdk-go-v2/service/mq@v1.45.3   # audited against; go.mod pins this version
 last_audit_commit: d4dc4a723
 last_audit_date: 2026-10-10
 overall: A                # genuine fixes found (reboot-gated staging, persistence data loss, missing pagination/fields, wrapper-key/nested-shape sweep this pass)

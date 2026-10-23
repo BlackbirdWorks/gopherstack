@@ -1,6 +1,6 @@
 ---
 service: securityhub
-sdk_module: aws-sdk-go-v2/service/securityhub@v1.75.4
+sdk_module: aws-sdk-go-v2/service/securityhub@v1.84.0
 last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (guardduty-and-securityhub); prior: 75c14a90f
 last_audit_date: 2026-10-07
 overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, SecurityHub V2 opt-in
@@ -142,6 +142,7 @@ families:
   Persistence: {status: ok, note: "Handler.Snapshot/Restore (persistence.go) delegate to InMemoryBackend.Snapshot/Restore (backend.go), which round-trips every store.Table via registry.SnapshotAll/RestoreAll (store_setup.go) plus the 5 plain-map fields (tags, findings, controlParams, productSubscriptions, orgAdminAccounts) and all scalar/pointer fields. Verified store_setup.go registers exactly the set of *store.Table fields declared on InMemoryBackend -- no orphaned or unregistered table."}
 gaps: []
 items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CancelExportJobV2, GetExportJobV2, GetRemediationsV2, ListExportJobsV2, ListExposuresByRemediationV2, ListFreeTrialStatusesV2, StartExportJobV2."
   - "GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is range-checked (1-400) but not applied as a cap: API_GetFindingStatisticsV2.html says only \"the maximum number of results to be returned\", not whether it limits groups or values per group."
   - "vulnerabilities.is_fix_available matches YES/NO only: neither the SDK nor API_OcsfBooleanFilter/API_CompositeFilter define how the ASFF FixAvailable value PARTIAL maps to an OCSF boolean."
 structural_gaps:

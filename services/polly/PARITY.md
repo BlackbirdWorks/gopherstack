@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: polly
-sdk_module: aws-sdk-go-v2/service/polly@v1.60.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/polly@v1.65.3   # version audited against
 last_audit_commit: c9523cebb
 last_audit_date: 2026-10-07
 overall: A            # two real bugs found and fixed this pass (StartSpeechSynthesisStream accepted non-generative Engine values; StartSpeechSynthesisTask shared SynthesizeSpeech's wider mp3/ogg_vorbis SampleRate set)

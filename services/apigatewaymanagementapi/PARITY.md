@@ -1,6 +1,6 @@
 ---
 service: apigatewaymanagementapi
-sdk_module: aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4
+sdk_module: aws-sdk-go-v2/service/apigatewaymanagementapi@v1.41.0
 last_audit_commit: f16ac0367
 last_audit_date: 2026-10-10
 overall: A            # zero-bug wrapper-key/nested-shape sweep this pass; re-verified every op field-by-field against the pinned SDK source, added a real-SDK-client wire round-trip test (previously only raw-HTTP unit tests existed)

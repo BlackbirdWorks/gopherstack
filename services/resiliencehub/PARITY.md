@@ -11,7 +11,7 @@
 # services/mgn's cross_service.go pattern. The original pre-implementation
 # audit body (Sections 1-4 below) is kept as reference material.
 service: resiliencehub
-sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.38.3
+sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.44.3
 last_audit_commit: 576e42c5c
 last_audit_date: 2026-10-10
 # Grade A: 63/63 ops routed with real state/persistence, a Docker-backed

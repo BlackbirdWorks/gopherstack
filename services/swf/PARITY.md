@@ -1,6 +1,6 @@
 ---
 service: swf
-sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
+sdk_module: aws-sdk-go-v2/service/swf@v1.43.3   # verified this pass; go.mod pin, was stale at v1.33.14
 last_audit_commit: 49cff86c4                     # HEAD at close of the 2026-09-18 ledger burn-down pass
 last_audit_date: 2026-10-10
 overall: A            # genuine fixes found this pass, plus a wrapper-key/nested-shape sweep

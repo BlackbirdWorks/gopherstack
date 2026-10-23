@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: iotdataplane
-sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.35.4   # bumped from v1.32.20; +3 new ops (device connection/messaging introspection)
+sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.40.3   # bumped from v1.32.20; +3 new ops (device connection/messaging introspection)
 last_audit_commit: 2dfc55a39
 last_audit_date: 2026-10-07  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. 5
                               # tier-1 findings: ListSubscriptions.MaxResults + SendDirectMessage.

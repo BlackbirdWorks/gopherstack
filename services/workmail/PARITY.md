@@ -1,6 +1,6 @@
 ---
 service: workmail
-sdk_module: aws-sdk-go-v2/service/workmail@v1.39.4
+sdk_module: aws-sdk-go-v2/service/workmail@v1.45.3
 last_audit_commit: dc877102
 last_audit_date: 2026-10-10
 # 2026-08-30: pagination-tie sweep (separate from the cursor-population sweep below -- this one

@@ -1,6 +1,6 @@
 ---
 service: sso
-sdk_module: aws-sdk-go-v2/service/sso@v1.37.0   # version audited against
+sdk_module: aws-sdk-go-v2/service/sso@v1.38.3   # version audited against
 last_audit_commit: 94a8059bf
 last_audit_date: 2026-10-12
 overall: B            # new service; every op checked field-by-field against the pinned serializers/deserializers/types

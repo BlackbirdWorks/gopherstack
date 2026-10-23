@@ -1,6 +1,6 @@
 ---
 service: bedrockagentcore
-sdk_module: aws-sdk-go-v2/service/bedrockagentcore@v1.50.2
+sdk_module: aws-sdk-go-v2/service/bedrockagentcore@v1.50.3
 last_audit_commit: 71065ec09
 last_audit_date: 2026-10-22
 overall: B            # 30 of 67 data-plane operations are served with real behavior; the rest (A/B tests, payments, evaluation runs, recommendations, harness invoke, memory extraction, browser automation) are not served.

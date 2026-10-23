@@ -1,6 +1,6 @@
 ---
 service: azureservicebus
-sdk_module: azure-sdk-for-go/sdk/messaging/azservicebus@v1.10.0   # go.mod dependency (test-only): drives the AMQP 1.0 listener in amqp_sdk_test.go
+sdk_module: azure-sdk-for-go/sdk/messaging/azservicebus@v1.11.0   # go.mod dependency (test-only): drives the AMQP 1.0 listener in amqp_sdk_test.go
 last_audit_commit: a5f048bc5
 last_audit_date: 2026-10-20
 overall: B

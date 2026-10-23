@@ -1,6 +1,6 @@
 ---
 service: sagemakerruntime
-sdk_module: aws-sdk-go-v2/service/sagemakerruntime@v1.43.4
+sdk_module: aws-sdk-go-v2/service/sagemakerruntime@v1.49.3
 last_audit_commit: ab7ac08a7
 last_audit_date: 2026-10-10
 overall: A            # 2026-09-18: fixed InvokeEndpointAsync.Filename (was read nowhere; now shapes the generated OutputLocation's final path segment, per its doc "generates a filename based on the inference ID"); InvocationTimeoutSeconds/RequestTTLSeconds recorded as structural (no output member, no queue to expire)

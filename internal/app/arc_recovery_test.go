@@ -54,6 +54,7 @@ func arcStack(t *testing.T) aws.Config {
 	e.Use(
 		service.NewServiceRouter(registry).
 			WithTargetGates(routegates.TargetGates()).
+			WithCBORGates(routegates.CBORGates()).
 			WithPathGates(routegates.PathGates()).
 			RouteHandler(),
 	)

@@ -1,6 +1,6 @@
 ---
 service: gcpartifactregistry
-sdk_module: cloud.google.com/go/artifactregistry@v1.26.0
+sdk_module: cloud.google.com/go/artifactregistry@v1.27.0
 last_audit_commit: 364908f83
 last_audit_date: 2026-10-22
 overall: B

@@ -1,6 +1,6 @@
 ---
 service: gcpcloudbuild
-sdk_module: cloud.google.com/go/cloudbuild@v1.30.0
+sdk_module: cloud.google.com/go/cloudbuild@v1.34.0
 last_audit_commit: 1c0729588
 last_audit_date: 2026-10-22
 overall: B

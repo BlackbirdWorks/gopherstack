@@ -1,6 +1,6 @@
 ---
 service: kafka
-sdk_module: aws-sdk-go-v2/service/kafka@v1.57.2
+sdk_module: aws-sdk-go-v2/service/kafka@v1.65.3
 last_audit_commit: 7480cad08
 last_audit_date: 2026-10-12
 overall: A            # topic/replicator field-name/shape gaps closed; two prior "ok" families had a real wire bug each, now fixed
