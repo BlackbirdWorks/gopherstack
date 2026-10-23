@@ -60,8 +60,10 @@ func TestUpdateSecurity_RelaunchesBroker(t *testing.T) {
 			f.awaitState(t, arn, kafka.ClusterStateActive)
 
 			f.ready.Store(false)
+			gate := make(chan struct{})
 			rt.mu.Lock()
 			rt.startErr = tt.startErr
+			rt.gate = gate
 			rt.mu.Unlock()
 
 			op, err := f.backend.UpdateSecurity(t.Context(), arn, kafka.UpdateSecuritySettings{
@@ -85,6 +87,7 @@ func TestUpdateSecurity_RelaunchesBroker(t *testing.T) {
 			assert.Equal(t, "UPDATE_SECURITY", ops[0].OperationType)
 
 			f.ready.Store(true)
+			close(gate)
 			f.awaitState(t, arn, tt.wantState)
 
 			done := operationByArn(t, f.backend, op.ClusterOperationArn)
