@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -503,21 +505,21 @@ func (r *Runner) dispatchTarget(ctx context.Context, s *Schedule, payload []byte
 	}
 
 	switch {
-	case strings.HasPrefix(targetARN, "arn:aws:lambda:"):
+	case arnpkg.HasService(targetARN, "lambda"):
 		return r.invokeLambdaTarget(ctx, s, payload, log)
-	case strings.HasPrefix(targetARN, "arn:aws:sqs:"):
+	case arnpkg.HasService(targetARN, "sqs"):
 		return r.invokeSQSTarget(ctx, s, payload, log)
-	case strings.HasPrefix(targetARN, "arn:aws:sns:"):
+	case arnpkg.HasService(targetARN, "sns"):
 		return r.invokeSNSTarget(ctx, s, payload, log)
-	case strings.HasPrefix(targetARN, "arn:aws:states:"):
+	case arnpkg.HasService(targetARN, "states"):
 		return r.invokeSFNTarget(ctx, s, payload, log)
-	case strings.HasPrefix(targetARN, "arn:aws:events:"):
+	case arnpkg.HasService(targetARN, "events"):
 		return r.invokeEventBusTarget(ctx, s, payload, log)
-	case strings.HasPrefix(targetARN, "arn:aws:kinesis:"):
+	case arnpkg.HasService(targetARN, "kinesis"):
 		return r.invokeKinesisTarget(ctx, s, payload, log)
-	case strings.HasPrefix(targetARN, "arn:aws:sagemaker:"):
+	case arnpkg.HasService(targetARN, "sagemaker"):
 		return r.invokeSageMakerTarget(ctx, s, log)
-	case strings.HasPrefix(targetARN, "arn:aws:ecs:"):
+	case arnpkg.HasService(targetARN, "ecs"):
 		return r.invokeECSTarget(ctx, s, log)
 	default:
 		if handled, err := r.invokeExtraTarget(ctx, s, payload); handled {

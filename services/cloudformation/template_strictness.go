@@ -319,6 +319,15 @@ func validateRequiredProperties(tmpl *Template) error {
 	return nil
 }
 
+// validateTemplateProperties runs the required-key and vendored-schema checks.
+func validateTemplateProperties(tmpl *Template) error {
+	if err := validateRequiredProperties(tmpl); err != nil {
+		return err
+	}
+
+	return validatePropertySchemas(tmpl, embeddedPropertySchemas())
+}
+
 // evaluateRules checks Rules assertions against the resolved parameter values.
 func evaluateRules(tmpl *Template, resolved map[string]string) error {
 	for _, name := range sortedKeys(tmpl.Rules) {

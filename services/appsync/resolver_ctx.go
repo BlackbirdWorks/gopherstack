@@ -8,12 +8,14 @@ const keyHeaders = "headers"
 // mappings and every pipeline function: stash, identity, info and the sink
 // for $util.appendError.
 type callCtx struct {
-	stash    map[string]any
-	identity any
-	info     map[string]any
-	request  map[string]any
-	sink     func(graphqlError)
-	util     *utilEnv
+	stash      map[string]any
+	identity   any
+	info       map[string]any
+	request    map[string]any
+	sink       func(graphqlError)
+	headerSink func(name, value string)
+	util       *utilEnv
+	authType   AuthenticationType
 }
 
 func (c *callCtx) stashMap() map[string]any {
@@ -26,7 +28,7 @@ func (c *callCtx) stashMap() map[string]any {
 
 func (c *callCtx) utilEnv() *utilEnv {
 	if c.util == nil {
-		c.util = &utilEnv{appendErr: func(e *resolverError) {
+		c.util = &utilEnv{authType: c.authType, headerSink: c.headerSink, appendErr: func(e *resolverError) {
 			if c.sink != nil {
 				c.sink(e.graphql())
 			}

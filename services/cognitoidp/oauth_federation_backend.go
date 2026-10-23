@@ -43,6 +43,7 @@ type idpState struct {
 	IDPRedirect   string
 	SAMLRequestID string
 	Scopes        []string
+	Logout        bool
 }
 
 type identityRecord struct {

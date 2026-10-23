@@ -165,7 +165,7 @@ func (p *StorageProvider) Put(ctx context.Context, id ResourceID, body map[strin
 		resourceGroup: id.ResourceGroup,
 		location:      location,
 		tags:          stringTags(body["tags"]),
-		properties:    map[string]any{},
+		properties:    storageAccountProperties(body, existing),
 		host:          host,
 	}
 
@@ -191,6 +191,30 @@ func (p *StorageProvider) Put(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	return p.buildBody(id, acct), nil
+}
+
+// storageAccountProperties merges the request's writable properties over the
+// existing account's (or the defaults for a new account), so values the
+// azurerm provider sends are read back unchanged.
+func storageAccountProperties(body map[string]any, existing *storedStorageAccount) map[string]any {
+	props := map[string]any{
+		"supportsHttpsTrafficOnly": true,
+		"minimumTlsVersion":        "TLS1_2",
+	}
+
+	if existing != nil {
+		maps.Copy(props, existing.properties)
+	}
+
+	if in, ok := body[fieldProperties].(map[string]any); ok {
+		for k, v := range in {
+			if k != fieldProvisioningState && k != "primaryEndpoints" {
+				props[k] = v
+			}
+		}
+	}
+
+	return props
 }
 
 // resourceGroupsEqual compares two resource-group names case-insensitively,

@@ -20,12 +20,18 @@
 #   scripts/lint-changed.sh --wip          # only uncommitted + last commit (HEAD~1) changes (fast on huge branches)
 #   scripts/lint-changed.sh --base <ref>   # diff against <ref> instead of origin/main
 #   scripts/lint-changed.sh FILE...        # lint only these files' packages
+#
+# Env: LINT_BATCH (15) max packages per golangci-lint/go vet invocation,
+#      LINT_TIMEOUT (30m) per-batch limit, LINT_CONCURRENCY (from GOFLAGS -p, else nproc/2),
+#      LINT_LOCK_RETRIES (20) x 15s waits when another golangci-lint holds the lock.
 
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-BATCH_SIZE=300
+BATCH_SIZE="${LINT_BATCH:-15}"
+LINT_TIMEOUT="${LINT_TIMEOUT:-30m}"
+LOCK_RETRIES="${LINT_LOCK_RETRIES:-20}"
 BASE_REF="${LINT_BASE:-}"
 WIP_ONLY=0
 
@@ -46,6 +52,28 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+bash "$(dirname -- "${BASH_SOURCE[0]}")/gocache-trim.sh" --if-low || true
+
+lint_conc="${LINT_CONCURRENCY:-}"
+if [[ -z "$lint_conc" ]]; then
+  if [[ "${GOFLAGS:-}" =~ -p=([0-9]+) ]]; then
+    lint_conc="${BASH_REMATCH[1]}"
+  else
+    lint_conc=$(( $(nproc) / 2 ))
+    [[ "$lint_conc" -lt 1 ]] && lint_conc=1
+  fi
+fi
+
+timeout_secs() {
+  case "$1" in
+    *h) echo $(( ${1%h} * 3600 )) ;;
+    *m) echo $(( ${1%m} * 60 )) ;;
+    *s) echo "${1%s}" ;;
+    *) echo "$1" ;;
+  esac
+}
+hard_timeout=$(( $(timeout_secs "$LINT_TIMEOUT") + 120 ))
 
 for bin in golangci-lint go; do
   command -v "$bin" >/dev/null 2>&1 || {
@@ -159,6 +187,32 @@ for p in "${sorted_patterns[@]}"; do
   fi
 done
 
+# run_one DESC CMD... -- bounded by a hard timeout, retried while another
+# golangci-lint run holds the lock, and names the batch on timeout.
+run_one() {
+  local desc="$1" attempt=0 rc out
+  shift
+  out=$(mktemp)
+  while :; do
+    set +e
+    timeout --foreground "$hard_timeout" "$@" 2>&1 | tee "$out"
+    rc=${PIPESTATUS[0]}
+    set -e
+    if [[ $rc -ne 0 ]] && grep -q 'parallel golangci-lint is running' "$out" && [[ $attempt -lt $LOCK_RETRIES ]]; then
+      attempt=$((attempt + 1))
+      echo "lint-changed: another golangci-lint holds the lock; retry $attempt/$LOCK_RETRIES in 15s"
+      sleep 15
+      continue
+    fi
+    break
+  done
+  if [[ $rc -eq 124 ]] || grep -q 'context deadline exceeded' "$out"; then
+    echo "lint-changed: TIMEOUT (LINT_TIMEOUT=$LINT_TIMEOUT) in $desc -- raise LINT_TIMEOUT or lower LINT_BATCH" >&2
+  fi
+  rm -f "$out"
+  return "$rc"
+}
+
 # Batched, not one giant argv, so a large diff can't silently hit an OS
 # argv limit -- every package printed above is guaranteed to land in some
 # batch and every batch's result is folded into the final exit status.
@@ -178,7 +232,7 @@ run_batched() {
   local status=0 i=0 n=${#pats[@]}
   while [[ $i -lt $n ]]; do
     local batch=("${pats[@]:$i:$BATCH_SIZE}")
-    "${cmd[@]}" "${batch[@]}" || status=1
+    run_one "$desc batch $((i / BATCH_SIZE + 1))/$(((n + BATCH_SIZE - 1) / BATCH_SIZE)) (${batch[0]} ... ${batch[-1]})" "${cmd[@]}" "${batch[@]}" || status=1
     i=$((i + BATCH_SIZE))
   done
   if [[ $status -ne 0 ]]; then
@@ -196,13 +250,7 @@ group_keys=("")
 for k in "${!group_pats[@]}"; do group_keys+=("$k"); done
 for tags in "${group_keys[@]}"; do
   if [[ -z "$tags" && ${#tagless[@]} -eq 0 ]]; then continue; fi
-  if [[ -z "$tags" ]]; then
-    run_batched "golangci-lint" "" --build-tags golangci-lint run --timeout 20m || overall=1
-  else
-    while IFS= read -r p; do
-      [[ -n "$p" ]] && echo "lint-changed: golangci-lint skipped for build-tagged package $p (CI does not lint it)"
-    done <<<"${group_pats[$tags]}"
-  fi
+  run_batched "golangci-lint" "$tags" --build-tags golangci-lint run --timeout "$LINT_TIMEOUT" --concurrency "$lint_conc" || overall=1
   run_batched "go vet" "$tags" -tags go vet || overall=1
   if [[ -n "$mulint_bin" ]]; then
     run_batched "mulint-vet" "$tags" -tags go vet -vettool="$mulint_bin" || overall=1

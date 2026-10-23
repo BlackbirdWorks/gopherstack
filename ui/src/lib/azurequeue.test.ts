@@ -7,6 +7,7 @@ import {
   deleteMessage,
   escapeXml,
   fromBase64,
+  getQueueProperties,
   listQueues,
   parseMessages,
   peekMessages,
@@ -15,6 +16,7 @@ import {
   receiveMessages,
   sendQuery,
   toBase64,
+  updateMessage,
   validateQueueName,
   validateSeconds,
 } from "./azurequeue";
@@ -180,5 +182,40 @@ describe("helpers", () => {
     expect(fromBase64(toBase64("héllo"))).toBe("héllo");
     expect(fromBase64("hello world")).toBeNull();
     expect(fromBase64("")).toBeNull();
+  });
+});
+
+describe("queue properties and update message", () => {
+  it("reads the approximate count and metadata from headers", async () => {
+    const r = recorder(
+      () =>
+        new Response(null, {
+          status: 200,
+          headers: { "x-ms-approximate-messages-count": "4", "x-ms-meta-owner": "me" },
+        }),
+    );
+    const props = await getQueueProperties("a", "q", r.fn);
+    expect(r.calls[0].url).toBe("/dashboard/api/v1/azure/queue/a/q?comp=metadata");
+    expect(props).toEqual({ approximateMessages: 4, metadata: { owner: "me" } });
+  });
+
+  it.each([
+    [undefined, undefined],
+    ["a<b", "<QueueMessage><MessageText>a&lt;b</MessageText></QueueMessage>"],
+  ])("updates a message with text %s", async (text, body) => {
+    const r = recorder(
+      () =>
+        new Response(null, {
+          status: 204,
+          headers: { "x-ms-popreceipt": "new", "x-ms-time-next-visible": "soon" },
+        }),
+    );
+    const res = await updateMessage("a", "q", "m1", "old/=", 45, text, r.fn);
+    expect(r.calls[0].url).toBe(
+      "/dashboard/api/v1/azure/queue/a/q/messages/m1?popreceipt=old%2F%3D&visibilitytimeout=45",
+    );
+    expect(r.calls[0].init.method).toBe("PUT");
+    expect(r.calls[0].init.body).toBe(body);
+    expect(res).toEqual({ popReceipt: "new", timeNextVisible: "soon" });
   });
 });

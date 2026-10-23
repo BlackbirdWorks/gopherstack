@@ -99,7 +99,7 @@ func TestTerraform_Azure_StorageDataPlane(t *testing.T) {
 	dir := t.TempDir()
 	hcl := azurermProviderBlock(endpoint) + azureStorageDataPlaneFixture
 
-	applyAzureTofu(t, dir, hcl)
+	applyAzureTofuNoDrift(t, dir, hcl)
 
 	ctx := t.Context()
 

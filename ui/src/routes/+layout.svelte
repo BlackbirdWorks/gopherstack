@@ -10,8 +10,8 @@
 	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
 	import RegionPicker from '#lib/components/RegionPicker.svelte';
 	import CloudSwitcher from '#lib/components/CloudSwitcher.svelte';
-	import { categoriesForCloud, CLOUD_PARAM } from '#lib/cloud.ts';
-	import { currentCloud, loadBackendInfo, servedAzureServices, servedGcpServices, syncCloudFromUrl } from '#lib/cloud.svelte.ts';
+	import { categoriesForCloud, cloudFromPath, CLOUD_PARAM } from '#lib/cloud.ts';
+	import { currentCloud, loadBackendInfo, servedAzureServices, servedGcpServices, syncCloudFromUrl, isRouteDisabled } from '#lib/cloud.svelte.ts';
 	import { registerConfirmDialog, unregisterConfirmDialog } from '#lib/confirm-dialog.ts';
 
 	let { children } = $props();
@@ -30,7 +30,7 @@
 	let confirmDialog = $state<ConfirmDialog | null>(null);
 
 	$effect(() => {
-		syncCloudFromUrl(page.url.searchParams.get(CLOUD_PARAM));
+		syncCloudFromUrl(page.url.searchParams.get(CLOUD_PARAM) ?? cloudFromPath(page.url.pathname));
 	});
 
 	const cloud = $derived(currentCloud());
@@ -49,7 +49,7 @@
 			.map((category) => ({
 				...category,
 				routes: category.routes.filter((route) =>
-					implementedDashboardRouteIds.has(route.id) &&
+					implementedDashboardRouteIds.has(route.id) && !isRouteDisabled(route.id) &&
 					(commonServiceIds.has(route.id) || uncommonServiceIds.has(route.id))
 				)
 			}))
@@ -67,7 +67,7 @@
 		for (const category of isAws ? sidebarCategories : categoriesForCloud(cloud, sidebarCategories, servedAzureServices(), servedGcpServices())) {
 			for (const route of category.routes) {
 				if ((route.label.toLowerCase().includes(query) || route.id.toLowerCase().includes(query)) &&
-					(!isAws || implementedDashboardRouteIds.has(route.id))) {
+					(!isAws || (implementedDashboardRouteIds.has(route.id) && !isRouteDisabled(route.id)))) {
 					results.push({ ...route, categoryLabel: category.label });
 				}
 			}

@@ -1,6 +1,10 @@
 package redshift
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
 
 // CreateQev2IdcApplication creates a new Amazon Redshift Query Editor (QEV2)
 // IAM Identity Center application. Real CreateQev2IdcApplicationInput
@@ -37,7 +41,7 @@ func (b *InMemoryBackend) CreateQev2IdcApplication(
 		return nil, fmt.Errorf("%w: application %s already exists", ErrQev2IdcApplicationAlreadyExists, appName)
 	}
 
-	arn := "arn:aws:redshift:" + b.region + ":" + b.accountID + ":qev2idcapplication/" + appName
+	arn := arn.Build("redshift", b.region, b.accountID, "qev2idcapplication/"+appName)
 	managedArn := "arn:aws:sso::" + b.accountID + ":application/" + idcInstanceArn + "/" + appName
 
 	app := &Qev2IdcApplication{

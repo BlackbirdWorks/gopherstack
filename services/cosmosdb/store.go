@@ -17,19 +17,16 @@ import (
 // InMemoryBackend implements StorageBackend using an in-memory map guarded
 // by a single RWMutex. Shaped after services/azuretable's InMemoryBackend.
 type InMemoryBackend struct {
-	mu        *lockmetrics.RWMutex
-	databases map[string]*storedDatabase
-	// nowFunc is the backend's time source, overridable in tests (see
-	// export_test.go's SetNowFunc) for deterministic Timestamp/ETag
-	// assertions.
-	nowFunc func() time.Time
-	// etagFunc derives a document's ETag from its Timestamp, overridable in
-	// tests (see export_test.go's SetETagFunc).
-	etagFunc func(time.Time) string
-	// parsed caches parsed SQL statements by query text.
-	parsed *safemap.Map[string, *sqlSelectStmt]
-	// tableAPI is the Table API backend snapshotted and restored alongside this one; nil when detached.
-	tableAPI tableSnapshotter
+	tableAPI      tableSnapshotter
+	mu            *lockmetrics.RWMutex
+	databases     map[string]*storedDatabase
+	nowFunc       func() time.Time
+	etagFunc      func(time.Time) string
+	parsed        *safemap.Map[string, *sqlSelectStmt]
+	regions       AccountRegions
+	scriptTimeout time.Duration
+	budgetEpoch   int64
+	serverless    bool
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
@@ -44,6 +41,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) now() time.Time { return b.nowFunc().UTC() }
+
+func databaseInfo(d *storedDatabase) DatabaseInfo {
+	return DatabaseInfo{ID: d.ID, RID: fakeRID("dbs/" + d.ID), Modified: d.Modified}
+}
 
 // bumpTimestamp returns the Timestamp a mutated document should receive,
 // identical in spirit to services/azuretable/store.go's bumpTimestamp:
@@ -100,9 +101,10 @@ func (b *InMemoryBackend) CreateDatabase(id string) (DatabaseInfo, error) {
 		return DatabaseInfo{}, ErrDatabaseAlreadyExists
 	}
 
-	b.databases[id] = &storedDatabase{ID: id, Containers: make(map[string]*storedContainer)}
+	d := &storedDatabase{ID: id, Containers: make(map[string]*storedContainer), Modified: b.now()}
+	b.databases[id] = d
 
-	return DatabaseInfo{ID: id, RID: fakeRID("dbs/" + id)}, nil
+	return databaseInfo(d), nil
 }
 
 // GetDatabase retrieves a single database. Returns ErrDatabaseNotFound if
@@ -116,7 +118,7 @@ func (b *InMemoryBackend) GetDatabase(id string) (DatabaseInfo, error) {
 		return DatabaseInfo{}, ErrDatabaseNotFound
 	}
 
-	return DatabaseInfo{ID: d.ID, RID: fakeRID("dbs/" + d.ID)}, nil
+	return databaseInfo(d), nil
 }
 
 // ListDatabases returns a snapshot of all databases, sorted by ID.
@@ -126,7 +128,7 @@ func (b *InMemoryBackend) ListDatabases() []DatabaseInfo {
 
 	out := make([]DatabaseInfo, 0, len(b.databases))
 	for _, d := range b.databases {
-		out = append(out, DatabaseInfo{ID: d.ID, RID: fakeRID("dbs/" + d.ID)})
+		out = append(out, databaseInfo(d))
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -164,6 +166,14 @@ func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (Cont
 		return ContainerInfo{}, ttlErr
 	}
 
+	if polErr := spec.ContainerPolicies.validate(); polErr != nil {
+		return ContainerInfo{}, polErr
+	}
+
+	if idxErr := validateSearchIndexes(spec.IndexingPolicy, spec.ContainerPolicies.stored()); idxErr != nil {
+		return ContainerInfo{}, idxErr
+	}
+
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
@@ -182,10 +192,15 @@ func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (Cont
 		DefaultTTL:       spec.DefaultTTL,
 		IndexingPolicy:   spec.IndexingPolicy,
 		Documents:        make(map[documentCompositeKey]*storedDocument),
+
+		ConflictResolutionPolicy: spec.ConflictResolutionPolicy,
+		Modified:                 b.now(),
 	}
 	if len(paths) > 1 {
 		c.PartitionKeyPaths = paths
 	}
+
+	_ = c.applyPolicies(spec.ContainerPolicies, false)
 
 	d.Containers[spec.ID] = c
 
@@ -203,6 +218,10 @@ func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (Con
 		return ContainerInfo{}, ttlErr
 	}
 
+	if polErr := spec.ContainerPolicies.validate(); polErr != nil {
+		return ContainerInfo{}, polErr
+	}
+
 	b.mu.Lock("ReplaceContainer")
 	defer b.mu.Unlock()
 
@@ -215,10 +234,24 @@ func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (Con
 		return ContainerInfo{}, ErrPartitionKeyImmutable
 	}
 
+	if idxErr := c.checkReplaceIndexes(spec); idxErr != nil {
+		return ContainerInfo{}, idxErr
+	}
+
+	if polErr := c.applyPolicies(spec.ContainerPolicies, true); polErr != nil {
+		return ContainerInfo{}, polErr
+	}
+
 	c.DefaultTTL = spec.DefaultTTL
 	if len(spec.IndexingPolicy) > 0 {
 		c.IndexingPolicy = spec.IndexingPolicy
 	}
+
+	if len(spec.ConflictResolutionPolicy) > 0 {
+		c.ConflictResolutionPolicy = spec.ConflictResolutionPolicy
+	}
+
+	c.touch(b.now())
 
 	return b.containerInfo(dbID, c), nil
 }
@@ -231,6 +264,10 @@ func (b *InMemoryBackend) containerInfo(dbID string, c *storedContainer) Contain
 		PartitionKeyPaths: slices.Clone(c.paths()),
 		DefaultTTL:        c.DefaultTTL,
 		IndexingPolicy:    c.IndexingPolicy,
+		Modified:          c.Modified,
+
+		ConflictResolutionPolicy: c.ConflictResolutionPolicy,
+		ContainerPolicies:        c.policies(),
 	}
 }
 
@@ -379,47 +416,21 @@ func resolveDocumentID(body map[string]any) (string, error) {
 	return s, nil
 }
 
-// CreateDocument creates (or, if upsert, inserts-or-replaces) a document.
-// See StorageBackend's doc comment.
+// CreateDocument creates (or, if upsert, inserts-or-replaces) a document. See StorageBackend's doc comment.
 func (b *InMemoryBackend) CreateDocument(
 	dbID, containerID string, body map[string]any, upsert bool,
 ) (DocumentInfo, error) {
 	b.mu.Lock("CreateDocument")
 	defer b.mu.Unlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	tx, err := b.beginTx(dbID, containerID)
 	if err != nil {
 		return DocumentInfo{}, err
 	}
 
-	id, pkJSON, clean, err := prepareDocumentBody(body, c.paths())
-	if err != nil {
-		return DocumentInfo{}, err
-	}
+	info, _, err := tx.createDoc("", body, upsert)
 
-	key := documentCompositeKey{PartitionKeyJSON: pkJSON, ID: id}
-	now := b.now()
-
-	existing, exists := c.lookup(key, now)
-	if exists && !upsert {
-		return DocumentInfo{}, ErrDocumentAlreadyExists
-	}
-
-	prevTimestamp := now
-	if exists {
-		prevTimestamp = existing.Timestamp
-	}
-
-	doc := &storedDocument{
-		ID:               id,
-		PartitionKeyJSON: pkJSON,
-		Body:             clean,
-		Timestamp:        bumpTimestampFrom(now, prevTimestamp, exists),
-	}
-	c.Documents[key] = doc
-	c.sorted.Store(nil)
-
-	return b.documentInfo(dbID, containerID, doc), nil
+	return info, err
 }
 
 func (b *InMemoryBackend) documentInfo(dbID, containerID string, d *storedDocument) DocumentInfo {
@@ -449,6 +460,7 @@ func (b *InMemoryBackend) documentInfoShared(dbID, containerID string, d *stored
 		Timestamp:        d.Timestamp,
 		PartitionKeyJSON: d.PartitionKeyJSON,
 		Body:             d.Body,
+		Seq:              d.Seq,
 	}
 }
 
@@ -457,21 +469,12 @@ func (b *InMemoryBackend) GetDocument(dbID, containerID, partitionKey, id string
 	b.mu.RLock("GetDocument")
 	defer b.mu.RUnlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	tx, err := b.beginTx(dbID, containerID)
 	if err != nil {
 		return DocumentInfo{}, err
 	}
 
-	if pkErr := c.checkPartitionKey(partitionKey); pkErr != nil {
-		return DocumentInfo{}, pkErr
-	}
-
-	d, ok := c.lookup(documentCompositeKey{PartitionKeyJSON: partitionKey, ID: id}, b.now())
-	if !ok {
-		return DocumentInfo{}, ErrDocumentNotFound
-	}
-
-	return b.documentInfo(dbID, containerID, d), nil
+	return tx.readDoc(partitionKey, id)
 }
 
 // checkIfMatch validates ifMatch against a document's current
@@ -492,76 +495,34 @@ func (b *InMemoryBackend) checkIfMatch(d *storedDocument, exists bool, ifMatch s
 	return nil
 }
 
-// ReplaceDocument fully replaces an existing document's body (its "id" and
-// partition key value are fixed by the path/header and cannot be changed by
-// the replacement body's own "id"/partition key field -- consistent with
-// real Cosmos DB, which rejects a partition-key-changing Replace outright;
-// this emulator instead just always keys off the caller-supplied
-// partitionKey/id).
+// ReplaceDocument fully replaces an existing document's body; id and partition key are fixed by the request.
 func (b *InMemoryBackend) ReplaceDocument(
 	dbID, containerID, partitionKey, id string, body map[string]any, ifMatch string,
 ) (DocumentInfo, error) {
 	b.mu.Lock("ReplaceDocument")
 	defer b.mu.Unlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	tx, err := b.beginTx(dbID, containerID)
 	if err != nil {
 		return DocumentInfo{}, err
 	}
 
-	if pkErr := c.checkPartitionKey(partitionKey); pkErr != nil {
-		return DocumentInfo{}, pkErr
-	}
+	return tx.replaceDoc(partitionKey, id, body, ifMatch)
+}
 
-	key := documentCompositeKey{PartitionKeyJSON: partitionKey, ID: id}
-	existing, exists := c.lookup(key, b.now())
+// PatchDocument applies a partial update to an existing document.
+func (b *InMemoryBackend) PatchDocument(
+	dbID, containerID, partitionKey, id string, req patchRequest, ifMatch string,
+) (DocumentInfo, error) {
+	b.mu.Lock("PatchDocument")
+	defer b.mu.Unlock()
 
-	if matchErr := b.checkIfMatch(existing, exists, ifMatch); matchErr != nil {
-		return DocumentInfo{}, matchErr
-	}
-
-	clean, err := deepCopyBody(body)
+	tx, err := b.beginTx(dbID, containerID)
 	if err != nil {
 		return DocumentInfo{}, err
 	}
 
-	stripSystemProperties(clean)
-
-	if ttlErr := validateItemTTL(clean); ttlErr != nil {
-		return DocumentInfo{}, ttlErr
-	}
-
-	clean["id"] = id
-
-	// A body that declares partition key value(s) must agree with the request's key (ErrPartitionKeyMismatch).
-	if bodyDeclaresPartitionKey(clean, c.paths()) {
-		bodyPK, pkErr := partitionKeyForBody(clean, c.paths())
-		if pkErr != nil {
-			return DocumentInfo{}, pkErr
-		}
-
-		if bodyPK != partitionKey {
-			return DocumentInfo{}, ErrPartitionKeyMismatch
-		}
-	}
-
-	now := b.now()
-
-	prevTimestamp := now
-	if exists {
-		prevTimestamp = existing.Timestamp
-	}
-
-	doc := &storedDocument{
-		ID:               id,
-		PartitionKeyJSON: partitionKey,
-		Body:             clean,
-		Timestamp:        bumpTimestampFrom(now, prevTimestamp, exists),
-	}
-	c.Documents[key] = doc
-	c.sorted.Store(nil)
-
-	return b.documentInfo(dbID, containerID, doc), nil
+	return tx.patchDoc(partitionKey, id, req, ifMatch)
 }
 
 // DeleteDocument removes a document after verifying ifMatch.
@@ -569,37 +530,12 @@ func (b *InMemoryBackend) DeleteDocument(dbID, containerID, partitionKey, id, if
 	b.mu.Lock("DeleteDocument")
 	defer b.mu.Unlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	tx, err := b.beginTx(dbID, containerID)
 	if err != nil {
 		return err
 	}
 
-	if pkErr := c.checkPartitionKey(partitionKey); pkErr != nil {
-		return pkErr
-	}
-
-	key := documentCompositeKey{PartitionKeyJSON: partitionKey, ID: id}
-
-	existing, exists := c.lookup(key, b.now())
-	if !exists {
-		// checkIfMatch alone is not sufficient here: with ifMatch == "" it
-		// returns nil unconditionally (that's the correct contract for
-		// Replace's upsert semantics -- see StorageBackend's doc comment),
-		// which would make deleting an already-absent document silently
-		// "succeed" (204) instead of reporting 404. Delete, unlike
-		// Replace, has no upsert concept -- there's nothing to "delete
-		// into" -- so absence is always an error regardless of ifMatch.
-		return ErrDocumentNotFound
-	}
-
-	if matchErr := b.checkIfMatch(existing, exists, ifMatch); matchErr != nil {
-		return matchErr
-	}
-
-	delete(c.Documents, key)
-	c.sorted.Store(nil)
-
-	return nil
+	return tx.deleteDoc(partitionKey, id, ifMatch)
 }
 
 // ListDocuments returns every live document in containerID, ordered by ID.
@@ -652,6 +588,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.databases = make(map[string]*storedDatabase)
+	b.regions = AccountRegions{}
 }
 
 type tableSnapshotter interface {

@@ -511,7 +511,7 @@ func validateTarget(target Target) error {
 	}
 
 	if target.DeadLetterConfig != nil && target.DeadLetterConfig.Arn != "" {
-		if !strings.HasPrefix(target.DeadLetterConfig.Arn, "arn:aws:sqs:") {
+		if !arn.HasService(target.DeadLetterConfig.Arn, "sqs") {
 			return fmt.Errorf("%w: DeadLetterConfig.Arn must be an SQS ARN (arn:aws:sqs:...)", ErrValidation)
 		}
 	}

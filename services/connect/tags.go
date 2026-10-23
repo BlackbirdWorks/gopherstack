@@ -18,11 +18,11 @@ func (b *Backend) tagsOfLocked(resourceARN string) (*map[string]string, error) {
 		}
 	}
 
-	for _, find := range []func(string) *map[string]string{
+	for _, find := range append(b.extraFinders(), []func(string) *map[string]string{
 		b.users.findARN, b.routingProfiles.findARN, b.securityProfiles.findARN, b.hierarchyGroups.findARN,
 		b.queues.findARN, b.hours.findARN, b.quickConnects.findARN, b.flows.findARN, b.modules.findARN,
 		b.agentStatuses.findARN, b.prompts.findARN, b.contacts.findARN, b.integrations.findARN,
-	} {
+	}...) {
 		if t := find(resourceARN); t != nil {
 			return t, nil
 		}

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // DescribeAutoScalingNotificationTypes returns the supported notification types.
@@ -29,7 +31,7 @@ func (b *InMemoryBackend) PutNotificationConfiguration(groupName, topicARN strin
 
 	// Validate SNS ARN format
 	if topicARN != "" &&
-		!strings.HasPrefix(topicARN, "arn:aws:sns:") &&
+		!arn.HasService(topicARN, "sns") &&
 		!strings.HasPrefix(topicARN, "arn:aws-cn:sns:") &&
 		!strings.HasPrefix(topicARN, "arn:aws-us-gov:sns:") {
 		return fmt.Errorf("%w: TopicARN must be a valid SNS ARN", ErrInvalidParameter)

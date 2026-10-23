@@ -390,10 +390,61 @@ func (h *Handler) startInbound(ctx context.Context) error {
 
 	h.inbound = s
 
+	return h.startRegionalInbound(ctx)
+}
+
+func (h *Handler) startRegionalInbound(ctx context.Context) error {
+	for region, addr := range h.inboundCfg.RegionAddrs {
+		rb, ok := h.RegionHandler(region).Backend.(*InMemoryBackend)
+		if !ok {
+			continue
+		}
+
+		cfg := *h.inboundCfg
+		cfg.Addr = addr
+
+		s, err := startInboundServer(ctx, rb, cfg)
+		if err != nil {
+			return err
+		}
+
+		h.inboundRegional = append(h.inboundRegional, s)
+	}
+
 	return nil
 }
 
+// InboundRegionAddr returns the listener address serving region, or "" when none is running.
+func (h *Handler) InboundRegionAddr(region string) string {
+	for _, s := range h.inboundRegional {
+		if s.b.region == region {
+			return s.addr()
+		}
+	}
+
+	return ""
+}
+
+// ParseInboundRegions parses "region=host:port,region=host:port".
+func ParseInboundRegions(spec string) map[string]string {
+	out := map[string]string{}
+
+	for part := range strings.SplitSeq(spec, ",") {
+		if r, a, ok := strings.Cut(strings.TrimSpace(part), "="); ok && r != "" && a != "" {
+			out[strings.TrimSpace(r)] = strings.TrimSpace(a)
+		}
+	}
+
+	return out
+}
+
 func (h *Handler) stopInbound() {
+	for _, s := range h.inboundRegional {
+		s.close()
+	}
+
+	h.inboundRegional = nil
+
 	if h.inbound != nil {
 		h.inbound.close()
 		h.inbound = nil

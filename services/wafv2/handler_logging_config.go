@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -324,7 +326,7 @@ func validateLoggingDestinationName(dest string) error {
 	switch {
 	case strings.HasPrefix(dest, "arn:aws:s3:::"):
 		name, _, _ = strings.Cut(strings.TrimPrefix(dest, "arn:aws:s3:::"), "/")
-	case strings.HasPrefix(dest, "arn:aws:firehose:"):
+	case arnpkg.HasService(dest, "firehose"):
 		name = dest[strings.LastIndex(dest, "/")+1:]
 	default:
 		parts := strings.SplitN(dest, ":", logGroupARNFields)

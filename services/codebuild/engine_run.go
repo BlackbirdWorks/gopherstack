@@ -48,6 +48,7 @@ type buildRunner struct {
 	workDir       string
 	containerID   string
 	region        string
+	cacheStage    string
 	srcDir        string
 	cfg           EngineConfig
 	masked        []string
@@ -331,10 +332,15 @@ func (r *buildRunner) provision() outcome {
 		image = r.build.Environment.Image
 	}
 
+	cacheMounts, err := r.cacheMounts()
+	if err != nil {
+		return clientError("Failed to prepare cache: %v", err)
+	}
+
 	spec := container.Spec{
 		Image:      resolveImage(image, r.cfg.DefaultImage),
 		Entrypoint: []string{"tail", "-f", "/dev/null"},
-		Mounts:     []string{dir + ":" + r.srcDir},
+		Mounts:     append([]string{dir + ":" + r.srcDir}, cacheMounts...),
 		Privileged: r.build.Environment != nil && r.build.Environment.PrivilegedMode,
 	}
 
@@ -388,6 +394,10 @@ func (r *buildRunner) cleanup() {
 		_ = os.RemoveAll(r.workDir)
 	}
 
+	if r.cacheStage != "" {
+		_ = os.RemoveAll(r.cacheStage)
+	}
+
 	r.b.finishRun(r.build.ID)
 }
 
@@ -407,6 +417,7 @@ func (r *buildRunner) downloadSource() outcome {
 	}
 
 	r.spec = spec
+	r.restoreCache()
 
 	return r.exportEnv()
 }
@@ -439,8 +450,14 @@ func (r *buildRunner) exportEnv() outcome {
 }
 
 func (r *buildRunner) upload() outcome {
+	r.processReports()
+
 	if err := r.uploadArtifacts(r.ctx, r.workDir); err != nil {
 		return outcome{status: buildStatusFailed, code: codeClientError, msg: err.Error()}
+	}
+
+	if err := r.saveCache(); err != nil {
+		r.warnCache("save", err)
 	}
 
 	return outcome{}
@@ -539,18 +556,15 @@ func (r *buildRunner) runPhaseCommands(ph specPhase) outcome {
 
 func (r *buildRunner) runScripts(scripts []string) outcome {
 	for _, s := range scripts {
-		res, err := r.rt.Exec(r.ctx, r.containerID, shellInvocation(s))
+		out, code, err := r.execLogged(s)
 		if err != nil {
 			return outcome{status: buildStatusFailed, code: codeClientError, msg: err.Error()}
 		}
 
-		out := res.Stdout + res.Stderr
-		r.log.write(r.ctx, out)
-
-		if res.ExitCode != 0 {
+		if code != 0 {
 			return outcome{
 				status: buildStatusFailed, code: "COMMAND_EXECUTION_ERROR",
-				msg: failureMessage(out, res.ExitCode),
+				msg: failureMessage(out, code),
 			}
 		}
 	}
@@ -570,6 +584,8 @@ func (b *InMemoryBackend) mutateBuild(id string, fn func(*Build)) {
 
 // completeBuild records the terminal status unless StopBuild already did.
 func (b *InMemoryBackend) completeBuild(id, status string) {
+	defer b.reconcileBatchOf(id)
+
 	b.mutateBuild(id, func(bd *Build) {
 		now := awstime.Epoch(time.Now())
 
@@ -588,11 +604,11 @@ func (b *InMemoryBackend) finishRun(id string) {
 	delete(b.runs, id)
 }
 
-// stopRunLocked cancels an executing build. The caller holds b.mu; it reports whether one was running.
-func (b *InMemoryBackend) stopRunLocked(build *Build) bool {
+// stopRunLocked cancels an executing build. The caller holds b.mu.
+func (b *InMemoryBackend) stopRunLocked(build *Build) {
 	run, ok := b.runs[build.ID]
 	if !ok {
-		return false
+		return
 	}
 
 	run.cancel()
@@ -603,8 +619,6 @@ func (b *InMemoryBackend) stopRunLocked(build *Build) bool {
 			build.Phases[i].EndTime = awstime.Epoch(time.Now())
 		}
 	}
-
-	return true
 }
 
 // cancelRunsLocked cancels every executing build. The caller holds b.mu.
@@ -621,4 +635,24 @@ func (b *InMemoryBackend) buildExecuting(id string) bool {
 	_, ok := b.runs[id]
 
 	return ok
+}
+
+// reconcileBatchOf advances the batch a finished child build belongs to.
+func (b *InMemoryBackend) reconcileBatchOf(id string) {
+	b.mu.Lock("reconcileBatchOf")
+	defer b.mu.Unlock()
+
+	bd, ok := b.builds.Get(id)
+	if !ok || bd.BuildBatchArn == "" {
+		return
+	}
+
+	for _, batch := range b.buildBatchesByARN.Get(bd.BuildBatchArn) {
+		def, err := parseBatchDefinition(sourceBuildspec(batch.Source))
+		if err != nil {
+			continue
+		}
+
+		b.reconcileBatch(batch, def, float64(time.Now().Unix()))
+	}
 }

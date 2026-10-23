@@ -165,7 +165,7 @@ func TestIntegration_CFN_Phase2_ElastiCache(t *testing.T) {
 "Type": "AWS::ElastiCache::SubnetGroup",
 "Properties": {
 "CacheSubnetGroupName": "cfn-ecsg-` + cfnStackID() + `",
-"CacheSubnetGroupDescription": "test subnet group",
+"Description": "test subnet group",
 "SubnetIds": ["subnet-default"]
 }
 }
@@ -600,7 +600,7 @@ func TestIntegration_CFN_Phase2_Cognito(t *testing.T) {
 "MyPool": {
 "Type": "AWS::Cognito::UserPool",
 "Properties": {
-"PoolName": "cfn-pool-` + cfnStackID() + `"
+"UserPoolName": "cfn-pool-` + cfnStackID() + `"
 }
 }
 }
@@ -730,7 +730,7 @@ func TestIntegration_CFN_Phase2_CognitoUserPoolClient(t *testing.T) {
 "MyPool": {
 "Type": "AWS::Cognito::UserPool",
 "Properties": {
-"PoolName": "` + poolName + `"
+"UserPoolName": "` + poolName + `"
 }
 },
 "MyClient": {

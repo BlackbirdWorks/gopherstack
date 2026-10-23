@@ -15,6 +15,7 @@ import (
 
 // TestCodeBuildDashboard verifies the CodeBuild dashboard UI renders projects.
 func TestCodeBuildDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodeBuildHandler.Backend.CreateProject(codebuildbackend.ProjectConfig{
@@ -55,13 +56,13 @@ func TestCodeBuildDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-project")
 	assert.Contains(t, content, "e2e-test-project")
 }
 
 // TestCodeBuildDashboard_Empty verifies the CodeBuild dashboard renders with no projects.
 func TestCodeBuildDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -89,14 +90,14 @@ func TestCodeBuildDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CodeBuild Operations", "No build projects found.")
 	assert.Contains(t, content, "CodeBuild Operations")
 	assert.Contains(t, content, "No build projects found.")
 }
 
 // TestCodeBuildDashboard_CreateProject verifies creating a project via the dashboard.
 func TestCodeBuildDashboard_CreateProject(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -138,7 +139,6 @@ func TestCodeBuildDashboard_CreateProject(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-created-project")
 	assert.Contains(t, content, "e2e-created-project")
 }

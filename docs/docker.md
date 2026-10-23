@@ -15,6 +15,8 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
+Testcontainers modules for Go, Python and Node: see [testcontainers.md](testcontainers.md).
+
 ## Docker Compose
 
 The repository ships a ready-to-use `docker-compose.yml`:
@@ -177,3 +179,23 @@ services:
 ```
 
 See [Lambda architecture](architecture/lambda.md) for details.
+
+## Registry credentials and mirrors
+
+Every image pull Gopherstack makes (Lambda container and runtime images, ECS tasks, EC2-docker, CodeBuild, extensions, and so on) goes through `pkgs/registryauth`.
+
+Credentials are resolved per registry host, in this order:
+
+1. `--docker-registry-auth host=user:pass` (env `GOPHERSTACK_DOCKER_REGISTRY_AUTH`, one entry per line; repeat the flag for several registries).
+2. Gopherstack's own ECR emulator registry host (automatic, using the token `GetAuthorizationToken` returns).
+3. The standard Docker config: `$DOCKER_CONFIG/config.json` or `~/.docker/config.json`. Static `auths` entries (`auth` base64 `user:pass`, `username`/`password`, or `identitytoken`) and `credHelpers` / `credsStore` helpers (`docker-credential-<name> get`) are supported.
+
+`docker.io`, `index.docker.io` and `registry-1.docker.io` are treated as the same registry. Secrets are never logged.
+
+Pull mirrors rewrite the registry host of an image reference, keeping its tag:
+
+```
+--docker-registry-mirror docker.io=mirror.example.com,ghcr.io=ghcr-mirror.example.com
+```
+
+(env `GOPHERSTACK_DOCKER_REGISTRY_MIRROR`). The image is pulled from the mirror, using credentials for the mirror host, and retagged to the original reference so lookups by name keep working. If the mirror pull fails, a warning is logged and the original registry is used. References pinned by digest bypass mirrors.

@@ -1,0 +1,12 @@
+services:
+  gopherstack:
+    build: ../..
+    ports:
+      - "8000:8000"
+      - "10004:10004"
+    healthcheck:
+      test: ["CMD", "./gopherstack", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s

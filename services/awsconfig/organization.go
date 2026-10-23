@@ -1,6 +1,10 @@
 package awsconfig
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
 
 const orgRuleStatusCreateSuccessful = "CREATE_SUCCESSFUL"
 
@@ -64,9 +68,11 @@ func (b *InMemoryBackend) organizationConfigRuleArnLocked(name string) string {
 
 	b.orgRuleCounter++
 
-	return fmt.Sprintf(
-		"arn:aws:config:%s:%s:organization-config-rule/organization-config-rule-%08d",
-		b.region, b.accountID, b.orgRuleCounter,
+	return arn.Build(
+		"config",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("organization-config-rule/organization-config-rule-%08d", b.orgRuleCounter),
 	)
 }
 
@@ -114,9 +120,15 @@ func (b *InMemoryBackend) PutOrganizationConformancePackFull(
 		pack.OrganizationConformancePackArn = existing.OrganizationConformancePackArn
 	} else {
 		b.orgPackCounter++
-		pack.OrganizationConformancePackArn = fmt.Sprintf(
-			"arn:aws:config:%s:%s:organization-conformance-pack/%s-%08d",
-			b.region, b.accountID, pack.OrganizationConformancePackName, b.orgPackCounter,
+		pack.OrganizationConformancePackArn = arn.Build(
+			"config",
+			b.region,
+			b.accountID,
+			fmt.Sprintf(
+				"organization-conformance-pack/%s-%08d",
+				pack.OrganizationConformancePackName,
+				b.orgPackCounter,
+			),
 		)
 	}
 

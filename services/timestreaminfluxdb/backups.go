@@ -79,6 +79,7 @@ func (b *InMemoryBackend) CreateDBBackup(ctx context.Context, in BackupInput) (w
 	bk.RetentionDays, bk.Tags, bk.CreatedAt = days, cloneTags(in.Tags), b.now()
 	bk.Pending = b.pend(statusCreating, false)
 	b.backups.Put(bk)
+	b.startBackupLocked(bk)
 
 	return b.wireBackup(bk), nil
 }
@@ -93,6 +94,7 @@ func (b *InMemoryBackend) snapshotLocked(sc scope, resourceID string) (*DBBackup
 		return &DBBackup{
 			ResourceID: i.ID, ResourceType: resInstance, EngineType: i.EngineType, Username: i.Username,
 			Organization: i.Organization, Bucket: i.Bucket, Placement: clonePlacement(i.Placement),
+			SourceID: i.ID, Token: i.Token, Password: i.Password,
 		}, nil
 	}
 
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) snapshotLocked(sc scope, resourceID string) (*DBBackup
 		return nil, notFound("DB instance or cluster", resourceID)
 	}
 
-	if st := b.state(c.Pending); st != statusAvailable {
+	if st := b.clusterStateLocked(c); st != statusAvailable {
 		return nil, conflict("DB cluster %s is %s", resourceID, st)
 	}
 
@@ -110,8 +112,19 @@ func (b *InMemoryBackend) snapshotLocked(sc scope, resourceID string) (*DBBackup
 	return &DBBackup{
 		ResourceID: c.ID, ResourceType: resCluster, EngineType: c.EngineType, FailoverMode: c.FailoverMode,
 		Username: c.Username, Organization: c.Organization, Bucket: c.Bucket, ClusterConfig: &cfg,
-		Placement: clonePlacement(c.Placement),
+		Placement: clonePlacement(c.Placement), SourceID: b.primaryIDLocked(c.ID), Token: c.Token,
+		Password: c.Password,
 	}, nil
+}
+
+func (b *InMemoryBackend) primaryIDLocked(clusterID string) string {
+	for _, m := range b.membersLocked(clusterID) {
+		if m.Mode == modePrimary {
+			return m.ID
+		}
+	}
+
+	return ""
 }
 
 func clonePlacement(p Placement) Placement {
@@ -231,6 +244,7 @@ func (b *InMemoryBackend) DeleteDBBackup(ctx context.Context, id string) (wBacku
 	}
 
 	bk.Pending = b.pend(statusDeleting, false)
+	removeDir(b.backupDirLocked(bk.ID))
 
 	return b.wireBackup(bk), nil
 }
@@ -353,6 +367,7 @@ func (b *InMemoryBackend) restoreInPlaceLocked(sc scope, bk *DBBackup) (RestoreR
 		c.Placement = clonePlacement(bk.Placement)
 		c.Pending = b.pend(statusRestoring, false)
 		b.setMembersLocked(c.ID, c.Pending, nil)
+		b.restoreMembersLocked(c.ID, bk)
 
 		return res, nil
 	}
@@ -368,6 +383,7 @@ func (b *InMemoryBackend) restoreInPlaceLocked(sc scope, bk *DBBackup) (RestoreR
 
 	i.Placement = clonePlacement(bk.Placement)
 	i.Pending = b.pend(statusRestoring, false)
+	b.restoreEngineLocked(i, bk)
 
 	return res, nil
 }
@@ -441,11 +457,17 @@ func (b *InMemoryBackend) restoreNewLocked(sc scope, bk *DBBackup, in RestoreInp
 		}
 
 		c := b.restoredClusterLocked(sc, bk, p, in)
-		b.clusters.Put(c)
 
-		for n := 1; n <= clusterNodes; n++ {
-			b.instances.Put(b.buildMemberLocked(sc, c, n))
+		arn, err := b.authSecretLocked(sc, c.ID, authSecret{
+			Username: c.Username, Password: c.Password, Organization: c.Organization, Bucket: c.Bucket, Token: c.Token,
+		})
+		if err != nil {
+			return RestoreResult{}, err
 		}
+
+		c.SecretARN = arn
+		b.clusters.Put(c)
+		b.putMembersLocked(sc, c, bk.restoreSource())
 
 		res.ResourceID = c.ID
 
@@ -457,7 +479,17 @@ func (b *InMemoryBackend) restoreNewLocked(sc scope, bk *DBBackup, in RestoreInp
 	}
 
 	i := b.restoredInstanceLocked(sc, bk, p, in)
+
+	arn, err := b.authSecretLocked(sc, i.ID, authSecret{
+		Username: i.Username, Password: i.Password, Organization: i.Organization, Bucket: i.Bucket, Token: i.Token,
+	})
+	if err != nil {
+		return RestoreResult{}, err
+	}
+
+	i.SecretARN, i.RestoreFrom = arn, bk.restoreSource()
 	b.instances.Put(i)
+	b.startEngineLocked(i, statusRestoring)
 	res.ResourceID = i.ID
 
 	return res, nil
@@ -485,9 +517,11 @@ func (b *InMemoryBackend) restoredInstanceLocked(sc scope, bk *DBBackup, p Place
 		EngineType:   bk.EngineType,
 		Tags:         maps.Clone(in.Tags),
 		CreatedAt:    b.now(),
-		Placement:    p,
+		Placement:    stampedPlacement(p, b.now()),
 		Mode:         modePrimary,
 		Pending:      b.pend(statusRestoring, false),
+		Password:     bk.Password,
+		Token:        cmp.Or(bk.Token, newToken()),
 	}
 }
 
@@ -504,7 +538,8 @@ func (b *InMemoryBackend) restoredClusterLocked(sc scope, bk *DBBackup, p Placem
 	return &DBCluster{
 		ID: id, Name: in.Name, ARN: sc.arn("db-cluster/" + id), AccountID: sc.account, Region: sc.region,
 		Username: bk.Username, Organization: bk.Organization, Bucket: bk.Bucket, EngineType: bk.EngineType,
-		FailoverMode: bk.FailoverMode, Tags: maps.Clone(in.Tags), CreatedAt: b.now(), Config: cfg, Placement: p,
-		Pending: b.pend(statusRestoring, false),
+		FailoverMode: bk.FailoverMode, Tags: maps.Clone(in.Tags), CreatedAt: b.now(), Config: cfg,
+		Placement: stampedPlacement(p, b.now()), Pending: b.pend(statusRestoring, false), Password: bk.Password,
+		Token: cmp.Or(bk.Token, newToken()),
 	}
 }

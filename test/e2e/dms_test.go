@@ -16,6 +16,7 @@ import (
 
 // TestDMSDashboard verifies the DMS dashboard UI renders replication instances.
 func TestDMSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.DMSHandler.Backend.CreateReplicationInstance(
@@ -49,13 +50,13 @@ func TestDMSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-rep-inst")
 	assert.Contains(t, content, "e2e-rep-inst")
 }
 
 // TestDMSDashboard_Empty verifies the DMS dashboard empty state renders correctly.
 func TestDMSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -83,7 +84,6 @@ func TestDMSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No replication instances")
 	assert.Contains(t, content, "No replication instances")
 }

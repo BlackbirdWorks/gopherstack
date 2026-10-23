@@ -20,7 +20,7 @@ func (rc *ResourceCreator) createCognitoUserPool(
 		return logicalID + "-stub", nil
 	}
 
-	poolName := strProp(props, "PoolName", params, physicalIDs)
+	poolName := strProp(props, "UserPoolName", params, physicalIDs)
 	if poolName == "" {
 		poolName = logicalID
 	}

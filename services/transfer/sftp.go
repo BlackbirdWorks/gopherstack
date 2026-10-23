@@ -35,6 +35,12 @@ type SFTPConfig struct {
 	Store ObjectStore
 	// Lambda backs AWS_LAMBDA identity providers; nil rejects those logins.
 	Lambda LambdaInvoker
+	// APIGateway backs API_GATEWAY identity providers; nil rejects those logins.
+	APIGateway APIGatewayClient
+	// Policies supplies IAM role policies; nil (or an unknown role) disables role enforcement.
+	Policies RolePolicySource
+	// EFS backs Domain=EFS servers; nil rejects their logins.
+	EFS EFSStorage
 	// Host is the interface listeners bind to; default 127.0.0.1.
 	Host string
 }

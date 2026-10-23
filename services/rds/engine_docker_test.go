@@ -29,8 +29,56 @@ const (
 
 type recordingEngineRuntime struct {
 	rds.EngineRuntime
-	ids []string
-	mu  sync.Mutex
+	ids    []string
+	netIDs []string
+	mu     sync.Mutex
+}
+
+func (r *recordingEngineRuntime) network() (container.NetworkRuntime, bool) {
+	n, ok := r.EngineRuntime.(container.NetworkRuntime)
+
+	return n, ok
+}
+
+func (r *recordingEngineRuntime) CreateNetwork(ctx context.Context, name string) (string, error) {
+	n, ok := r.network()
+	if !ok {
+		return "", container.ErrNetworkUnsupported
+	}
+
+	id, err := n.CreateNetwork(ctx, name)
+	if err == nil {
+		r.mu.Lock()
+		r.netIDs = append(r.netIDs, id)
+		r.mu.Unlock()
+	}
+
+	return id, err
+}
+
+func (r *recordingEngineRuntime) ConnectNetwork(ctx context.Context, networkID, containerID string) error {
+	n, ok := r.network()
+	if !ok {
+		return container.ErrNetworkUnsupported
+	}
+
+	return n.ConnectNetwork(ctx, networkID, containerID)
+}
+
+func (r *recordingEngineRuntime) RemoveNetwork(ctx context.Context, networkID string) error {
+	n, ok := r.network()
+	if !ok {
+		return container.ErrNetworkUnsupported
+	}
+
+	return n.RemoveNetwork(ctx, networkID)
+}
+
+func (r *recordingEngineRuntime) networkIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]string(nil), r.netIDs...)
 }
 
 func (r *recordingEngineRuntime) CreateAndStart(ctx context.Context, spec container.Spec) (string, error) {

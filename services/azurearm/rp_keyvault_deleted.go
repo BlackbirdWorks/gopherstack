@@ -170,7 +170,7 @@ func (p *KeyVaultProvider) PurgeDeleted(sub, location, name string) error {
 func (p *KeyVaultProvider) CheckNameAvailability(name string) map[string]any {
 	if len(name) < kvNameMinLen || len(name) > kvNameMaxLen || !kvNameRe.MatchString(name) {
 		return map[string]any{
-			kvFieldNameAvailable: false, "reason": kvReasonInvalid, fieldMessage: kvNameInvalidMessage,
+			kvFieldNameAvailable: false, acFieldReason: kvReasonInvalid, fieldMessage: kvNameInvalidMessage,
 		}
 	}
 
@@ -196,6 +196,9 @@ const (
 	kvCheckNameSegs    = 5
 	kvDeletedGetSegs   = 8
 	kvDeletedPurgeSegs = 9
+	kvOperationSegs    = 8
+
+	kvOperationResultsType = "operationResults"
 )
 
 func isKeyVaultScope(segs []string) bool {
@@ -230,6 +233,13 @@ var keyVaultRoutes = []armRoute{
 				isDeletedVaultPath(segs, kvDeletedPurgeSegs) && strings.EqualFold(segs[8], "purge")
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleKVPurge(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return len(segs) == kvOperationSegs && r.Method == http.MethodGet && isKeyVaultScope(segs) &&
+				segAt(segs, kvLocationsIdx, "locations") && segAt(segs, kvDeletedVaultsIdx, kvOperationResultsType)
+		},
+		handle: func(h *Handler, c *echo.Context, _ []string) error { return h.handleKVOperationResult(c) },
 	},
 }
 
@@ -289,5 +299,16 @@ func (h *Handler) handleKVPurge(c *echo.Context, segs []string) error {
 		return h.writeAPIError(c, err)
 	}
 
-	return h.writeJSON(c, http.StatusOK, map[string]any{})
+	loc := h.baseURLFor(c.Request()) + "/subscriptions/" + segs[1] + "/providers/" + namespaceMicrosoftKeyVault +
+		"/locations/" + segs[5] + "/" + kvOperationResultsType + "/purge-" + segs[7]
+	c.Response().Header().Set("Location", loc)
+	c.Response().Header().Set("Retry-After", "1")
+
+	return h.writeJSON(c, http.StatusAccepted, map[string]any{})
+}
+
+// handleKVOperationResult completes the purge long-running operation polled
+// via the Location header handleKVPurge returns.
+func (h *Handler) handleKVOperationResult(c *echo.Context) error {
+	return h.writeJSON(c, http.StatusOK, map[string]any{sbPropStatus: "Succeeded"})
 }

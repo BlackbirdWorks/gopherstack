@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -55,6 +56,7 @@ func regionFromARN(resourceARN, defaultRegion string) string {
 // an existing ARN need no region resolution at all. See store_setup.go for
 // the full table/index registration and the rationale for each one.
 type InMemoryBackend struct {
+	sgEnforcer                 *sgfilter.Enforcer
 	vpcConnectionsByCluster    *store.Index[VpcConnection]
 	clusterPolicyVersions      map[string]string
 	clustersByRegion           *store.Index[Cluster]
@@ -78,6 +80,7 @@ type InMemoryBackend struct {
 	engine                     *brokerEngine
 	scramSecretSource          ScramSecretResolver
 	iamAuth                    IAMAuthResolver
+	clientCAs                  ClientCAResolver
 	mu                         *lockmetrics.RWMutex
 	clusterOperations          *store.Table[ClusterOperation]
 	region                     string

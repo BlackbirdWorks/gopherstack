@@ -38,7 +38,7 @@ func (b *InMemoryBackend) newMFASession(pool *UserPool, clientID, username, chal
 
 	if challengeType == challengeSMSMFA || challengeType == challengeEmailOTP {
 		entry.Code = randomNumeric(totpCodeLen)
-		b.sendMFACodeLocked(pool, username, challengeType, entry.Code)
+		b.sendMFACodeLocked(pool, clientID, username, challengeType, entry.Code)
 	}
 
 	b.mfaSessions[sessionToken] = entry

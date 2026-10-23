@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -13,6 +14,9 @@ import (
 
 // ErrCodeDeliveryFailure is returned when a verification or invitation message cannot be delivered.
 var ErrCodeDeliveryFailure = awserr.New("CodeDeliveryFailureException", awserr.ErrInvalidParameter)
+
+// ErrInvalidSMSRoleTrust is returned when the pool's SnsCallerArn role cannot be assumed.
+var ErrInvalidSMSRoleTrust = awserr.New("InvalidSmsRoleTrustRelationshipException", awserr.ErrInvalidParameter)
 
 const (
 	defaultEmailSender    = "no-reply@verificationemail.com"
@@ -56,6 +60,19 @@ type MessageSender interface {
 	SendSMS(ctx context.Context, m SMSMessage) error
 }
 
+// SMSRoleAssumer assumes the SnsCallerArn role of a pool's SmsConfiguration before an SMS is published.
+type SMSRoleAssumer interface {
+	AssumeSMSRole(ctx context.Context, roleARN, externalID string) error
+}
+
+// SetSMSRoleAssumer wires the STS-backed role assumption used for SnsCallerArn; nil skips the check.
+func (b *InMemoryBackend) SetSMSRoleAssumer(a SMSRoleAssumer) {
+	b.mu.Lock("SetSMSRoleAssumer")
+	defer b.mu.Unlock()
+
+	b.smsRoleAssumer = a
+}
+
 // SetMessageSender wires the sender used for real code delivery; nil keeps codes retrievable only.
 func (b *InMemoryBackend) SetMessageSender(s MessageSender) {
 	b.mu.Lock("SetMessageSender")
@@ -86,6 +103,7 @@ type MessageRequest struct {
 	Destination   string
 	CustomMessage string
 	CustomSubject string
+	Flow          string
 	Mediums       []string
 	Kind          MessageKind
 }
@@ -104,7 +122,9 @@ type deliveryTarget struct {
 
 // sendJob is a fully rendered message, safe to send without b.mu.
 type sendJob struct {
+	custom                                                        *customSender
 	medium, dest, subject, body, from, replyTo, sourceARN, poolID string
+	snsCallerArn, externalID, code                                string
 	lenient                                                       bool // quota-limited default sender: failures only log
 }
 
@@ -112,15 +132,15 @@ type sendJob struct {
 func (b *InMemoryBackend) DeliverMessage(ctx context.Context, req *MessageRequest) (MessageResult, error) {
 	b.mu.RLock("DeliverMessage")
 	res, jobs := b.prepareDeliveryLocked(req)
-	sender := b.messageSender
+	sender, assumer := b.messageSender, b.smsRoleAssumer
 	b.mu.RUnlock()
 
-	if sender == nil {
+	if sender == nil && !hasCustomSender(jobs) {
 		return res, nil
 	}
 
 	for i := range jobs {
-		if err := sendJobTo(ctx, sender, &jobs[i]); err != nil {
+		if err := sendJobTo(ctx, sender, assumer, &jobs[i]); err != nil {
 			return res, err
 		}
 	}
@@ -154,17 +174,63 @@ func (b *InMemoryBackend) prepareDeliveryLocked(req *MessageRequest) (MessageRes
 	for _, t := range targets {
 		subject, body := renderMessage(pool, b.poolMfaConfigs[pool.ID], req, user.Username, t.medium)
 		from, replyTo, sourceARN := emailSender(pool)
+		roleARN, externalID := smsRole(pool, b.poolMfaConfigs[pool.ID], req.Kind)
 		jobs = append(jobs, sendJob{
+			snsCallerArn: roleARN, externalID: externalID,
 			medium: t.medium, dest: t.dest, subject: subject, body: body,
 			from: from, replyTo: replyTo, sourceARN: sourceARN, poolID: pool.ID,
-			lenient: t.medium == mediumEmailName && !developerEmail(pool),
+			lenient: t.medium == mediumEmailName && !developerEmail(pool), code: req.Code,
+			custom: b.customSenderFor(pool, user, req, t.medium),
 		})
 	}
 
 	return res, jobs
 }
 
-func sendJobTo(ctx context.Context, sender MessageSender, j *sendJob) error {
+// smsRole returns the SnsCallerArn/ExternalId of the SmsConfiguration that applies to kind.
+func smsRole(pool *UserPool, mfa *UserPoolMfaFullConfig, kind MessageKind) (string, string) {
+	if kind == MessageMFASMS && mfa != nil && mfa.SmsMfaConfiguration != nil &&
+		mfa.SmsMfaConfiguration.SmsConfiguration != nil && mfa.SmsMfaConfiguration.SmsConfiguration.SnsCallerArn != "" {
+		cfg := mfa.SmsMfaConfiguration.SmsConfiguration
+
+		return cfg.SnsCallerArn, cfg.ExternalID
+	}
+
+	return templateString(pool.Settings.SmsConfiguration, "SnsCallerArn"),
+		templateString(pool.Settings.SmsConfiguration, "ExternalId")
+}
+
+func assumeSMSRole(ctx context.Context, assumer SMSRoleAssumer, j *sendJob) error {
+	if assumer == nil || j.medium != mediumSMSName || j.snsCallerArn == "" {
+		return nil
+	}
+
+	if err := assumer.AssumeSMSRole(ctx, j.snsCallerArn, j.externalID); err != nil {
+		return fmt.Errorf("%w: assuming SnsCallerArn %s: %w", ErrInvalidSMSRoleTrust, j.snsCallerArn, err)
+	}
+
+	return nil
+}
+
+func hasCustomSender(jobs []sendJob) bool {
+	return slices.ContainsFunc(jobs, func(j sendJob) bool { return j.custom != nil })
+}
+
+func sendJobTo(ctx context.Context, sender MessageSender, assumer SMSRoleAssumer, j *sendJob) error {
+	if j.custom != nil {
+		return j.custom.send(ctx, j.code)
+	}
+
+	if sender == nil {
+		return nil
+	}
+
+	if err := assumeSMSRole(ctx, assumer, j); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "cognitoidp: SMS role assumption failed", "pool", j.poolID, "error", err)
+
+		return err
+	}
+
 	var err error
 
 	if j.medium == mediumSMSName {
@@ -179,6 +245,10 @@ func sendJobTo(ctx context.Context, sender MessageSender, j *sendJob) error {
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "cognitoidp: message delivery failed",
 			"pool", j.poolID, "medium", j.medium, "error", err)
+
+		if errors.Is(err, ErrInvalidEmailRoleAccessPolicy) {
+			return err
+		}
 
 		if j.lenient {
 			return nil
@@ -435,10 +505,13 @@ func maskDestination(medium, dest string) string {
 	return maskEmail(dest)
 }
 
-// sendMFACodeLocked delivers an SMS/email one-time code for a challenge; failures only log, the
-// code stays valid on the session. Caller holds b.mu.
-func (b *InMemoryBackend) sendMFACodeLocked(pool *UserPool, username, challenge, code string) {
-	if b.messageSender == nil {
+// sendMFACodeLocked delivers an SMS/email one-time code for a challenge, letting the
+// CustomMessage_Authentication trigger rewrite the message; failures only log, the code stays
+// valid on the session. Caller holds the write lock.
+func (b *InMemoryBackend) sendMFACodeLocked(pool *UserPool, clientID, username, challenge, code string) {
+	override := b.mfaCustomMessageLocked(pool, clientID, username)
+
+	if b.messageSender == nil && b.lambdaInvoker == nil {
 		return
 	}
 
@@ -447,9 +520,13 @@ func (b *InMemoryBackend) sendMFACodeLocked(pool *UserPool, username, challenge,
 		kind = MessageMFAEmail
 	}
 
-	_, jobs := b.prepareDeliveryLocked(&MessageRequest{PoolID: pool.ID, Username: username, Code: code, Kind: kind})
+	_, jobs := b.prepareDeliveryLocked(&MessageRequest{
+		PoolID: pool.ID, Username: username, Code: code, Kind: kind, Flow: FlowAuthentication,
+	})
+	override.apply(jobs, code)
+
 	for i := range jobs {
-		_ = sendJobTo(context.Background(), b.messageSender, &jobs[i])
+		_ = sendJobTo(context.Background(), b.messageSender, b.smsRoleAssumer, &jobs[i])
 	}
 }
 

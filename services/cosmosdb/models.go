@@ -26,6 +26,9 @@ const (
 	sysPropAttachments = "_attachments"
 	sysPropCount       = "_count"
 	collsSegment       = "colls"
+	dbsSegment         = "dbs"
+	docsSegment        = "docs"
+	listDocumentsKey   = "Documents"
 )
 
 // stripSystemProperties deletes every system property key from m in place,
@@ -93,8 +96,9 @@ func etagFor(t time.Time) string {
 // DatabaseInfo is a read-only snapshot of a database, returned by the
 // StorageBackend database accessors.
 type DatabaseInfo struct {
-	ID  string
-	RID string
+	Modified time.Time
+	ID       string
+	RID      string
 }
 
 // ContainerSpec is the caller-supplied shape for creating or replacing a container. PartitionKeyPaths (up to
@@ -105,6 +109,9 @@ type ContainerSpec struct {
 	PartitionKeyPath  string
 	PartitionKeyPaths []string
 	IndexingPolicy    json.RawMessage
+
+	ConflictResolutionPolicy json.RawMessage
+	ContainerPolicies
 }
 
 // ContainerInfo is a read-only snapshot of a container, returned by the
@@ -116,6 +123,10 @@ type ContainerInfo struct {
 	PartitionKeyPath  string
 	PartitionKeyPaths []string
 	IndexingPolicy    json.RawMessage
+	Modified          time.Time
+
+	ConflictResolutionPolicy json.RawMessage
+	ContainerPolicies
 }
 
 // DocumentInfo is a read-only snapshot of a document, returned by the
@@ -131,23 +142,40 @@ type DocumentInfo struct {
 	Self             string
 	ETag             string
 	PartitionKeyJSON string
+	Seq              int64
 }
 
 // storedDatabase is the backend's internal representation of a database.
 type storedDatabase struct {
+	Modified   time.Time    `json:"Modified"`
+	Offer      *storedOffer `json:"Offer,omitempty"`
 	Containers map[string]*storedContainer
+	Users      map[string]*storedUser `json:"Users,omitempty"`
 	ID         string
 }
 
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
-	Documents         map[documentCompositeKey]*storedDocument
-	DefaultTTL        *int `json:"DefaultTTL,omitempty"`
-	sorted            atomic.Pointer[[]*storedDocument]
-	ID                string
-	PartitionKeyPath  string
-	PartitionKeyPaths []string        `json:"PartitionKeyPaths,omitempty"`
-	IndexingPolicy    json.RawMessage `json:"IndexingPolicy,omitempty"`
+	Modified                 time.Time                `json:"Modified"`
+	Offer                    *storedOffer             `json:"Offer,omitempty"`
+	Triggers                 map[string]*storedScript `json:"Triggers,omitempty"`
+	sorted                   atomic.Pointer[[]*storedDocument]
+	Sprocs                   map[string]*storedScript `json:"Sprocs,omitempty"`
+	Documents                map[documentCompositeKey]*storedDocument
+	UDFs                     map[string]*storedScript `json:"UDFs,omitempty"`
+	DefaultTTL               *int                     `json:"DefaultTTL,omitempty"`
+	ID                       string
+	PartitionKeyPath         string
+	ConflictResolutionPolicy json.RawMessage `json:"ConflictResolutionPolicy,omitempty"`
+	IndexingPolicy           json.RawMessage `json:"IndexingPolicy,omitempty"`
+	PartitionKeyPaths        []string        `json:"PartitionKeyPaths,omitempty"`
+	UniqueKeyPolicy          json.RawMessage `json:"UniqueKeyPolicy,omitempty"`
+	GeospatialConfig         json.RawMessage `json:"GeospatialConfig,omitempty"`
+	VectorEmbeddingPolicy    json.RawMessage `json:"VectorEmbeddingPolicy,omitempty"`
+	FullTextPolicy           json.RawMessage `json:"FullTextPolicy,omitempty"`
+	ComputedProperties       json.RawMessage `json:"ComputedProperties,omitempty"`
+	ChangeLog                []*changeRecord `json:"ChangeLog,omitempty"`
+	ChangeSeq                int64           `json:"ChangeSeq,omitempty"`
 }
 
 // storedDocument is the backend's internal representation of a document.
@@ -156,6 +184,7 @@ type storedDocument struct {
 	Body             map[string]any
 	ID               string
 	PartitionKeyJSON string
+	Seq              int64
 }
 
 // storedDocumentWire is storedDocument's on-disk (persistence snapshot)
@@ -171,6 +200,7 @@ type storedDocumentWire struct {
 	ID               string          `json:"ID"`
 	PartitionKeyJSON string          `json:"PartitionKeyJSON"`
 	Body             json.RawMessage `json:"Body"`
+	Seq              int64           `json:"Seq,omitempty"`
 }
 
 // MarshalJSON implements json.Marshaler for persistence snapshots.
@@ -181,7 +211,7 @@ func (d *storedDocument) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(storedDocumentWire{
-		Body: bodyBytes, Timestamp: d.Timestamp, ID: d.ID, PartitionKeyJSON: d.PartitionKeyJSON,
+		Body: bodyBytes, Timestamp: d.Timestamp, ID: d.ID, PartitionKeyJSON: d.PartitionKeyJSON, Seq: d.Seq,
 	})
 }
 
@@ -215,7 +245,7 @@ func (d *storedDocument) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("cosmosdb: unmarshal stored document body: %w", err)
 	}
 
-	d.Body, d.Timestamp, d.ID, d.PartitionKeyJSON = body, wire.Timestamp, wire.ID, wire.PartitionKeyJSON
+	d.Body, d.Timestamp, d.ID, d.PartitionKeyJSON, d.Seq = body, wire.Timestamp, wire.ID, wire.PartitionKeyJSON, wire.Seq
 
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 
 // TestSESDashboard verifies the rewritten SES dashboard identities and send-email flows.
 func TestSESDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -64,8 +65,7 @@ func TestSESDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Success")
 	assert.Contains(t, content, "Success")
 
 	// Use the current Send Email tab and verify the backend receives the message.

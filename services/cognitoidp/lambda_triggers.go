@@ -59,6 +59,7 @@ const (
 	triggerSourceCustomMessageForgotPwd    = "CustomMessage_ForgotPassword"
 	triggerSourceCustomMessageUpdateAttr   = "CustomMessage_UpdateUserAttribute"
 	triggerSourceCustomMessageVerifyAttr   = "CustomMessage_VerifyUserAttribute"
+	triggerSourceCustomMessageAuth         = "CustomMessage_Authentication"
 	triggerSourcePreAuthentication         = "PreAuthentication_Authentication"
 	triggerSourcePostAuthentication        = "PostAuthentication_Authentication"
 	triggerSourceDefineAuthChallenge       = "DefineAuthChallenge_Authentication"
@@ -119,6 +120,12 @@ func lambdaConfigARN(cfg map[string]any, triggerKey string) string {
 
 	if s, ok := cfg[triggerKey].(string); ok && s != "" {
 		return s
+	}
+
+	if nested, nestedOK := cfg[triggerKey].(map[string]any); nestedOK {
+		if s, sOK := nested["LambdaArn"].(string); sOK {
+			return s
+		}
 	}
 
 	if nested, nestedOK := cfg[triggerKey+"Config"].(map[string]any); nestedOK {

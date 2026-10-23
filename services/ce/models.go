@@ -106,6 +106,7 @@ type CostEntry struct {
 	Region        string            `json:"region"`
 	UsageType     string            `json:"usageType"`
 	Account       string            `json:"account"`
+	ChargeType    string            `json:"chargeType,omitempty"`
 	BlendedCost   float64           `json:"blendedCost"`
 	UnblendedCost float64           `json:"unblendedCost"`
 	UsageQuantity float64           `json:"usageQuantity"`

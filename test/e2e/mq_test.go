@@ -13,6 +13,7 @@ import (
 
 // TestMQDashboard verifies the Amazon MQ dashboard UI renders broker data.
 func TestMQDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.MQHandler.Backend.CreateBroker(
@@ -55,14 +56,14 @@ func TestMQDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-broker", "Create Broker")
 	assert.Contains(t, content, "e2e-test-broker")
 	assert.Contains(t, content, "Create Broker")
 }
 
 // TestMQDashboard_Empty verifies the Amazon MQ dashboard renders correctly with no brokers.
 func TestMQDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -90,7 +91,6 @@ func TestMQDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No brokers found")
 	assert.Contains(t, content, "No brokers found")
 }

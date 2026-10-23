@@ -13,6 +13,7 @@ import (
 
 // TestBedrockDashboard verifies the Bedrock dashboard UI renders foundation models.
 func TestBedrockDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	var err error
 
@@ -41,8 +42,7 @@ func TestBedrockDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Bedrock", "Foundation Models", "amazon.titan-text-express-v1")
 	assert.Contains(t, content, "Amazon Bedrock")
 	assert.Contains(t, content, "Foundation Models")
 	assert.Contains(t, content, "amazon.titan-text-express-v1")
@@ -50,6 +50,7 @@ func TestBedrockDashboard(t *testing.T) {
 
 // TestBedrockDashboard_Empty verifies the Bedrock dashboard empty state (only foundation models).
 func TestBedrockDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -77,14 +78,14 @@ func TestBedrockDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Bedrock", "amazon.titan-text-express-v1")
 	assert.Contains(t, content, "Amazon Bedrock")
 	assert.Contains(t, content, "amazon.titan-text-express-v1")
 }
 
 // TestBedrockDashboard_CustomModels verifies the custom models tab renders.
 func TestBedrockDashboard_CustomModels(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -120,8 +121,7 @@ func TestBedrockDashboard_CustomModels(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Custom Models", "No custom models found")
 	assert.Contains(t, content, "Custom Models")
 	assert.Contains(t, content, "No custom models found")
 }

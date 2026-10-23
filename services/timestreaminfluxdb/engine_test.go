@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,12 +30,66 @@ var (
 )
 
 type fakeEngine struct {
-	startErr error
-	gate     chan struct{}
-	specs    []timestreaminfluxdb.EngineSpec
-	stopped  []string
-	mu       sync.Mutex
-	next     atomic.Int32
+	startErr  error
+	backupErr error
+	gate      chan struct{}
+	specs     []timestreaminfluxdb.EngineSpec
+	recreated []timestreaminfluxdb.EngineSpec
+	stopped   []string
+	restarted []string
+	backups   []string
+	logs      []byte
+	mu        sync.Mutex
+	next      atomic.Int32
+}
+
+func (e *fakeEngine) Restart(
+	_ context.Context, h timestreaminfluxdb.EngineHandle,
+) (timestreaminfluxdb.EngineHandle, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.restarted = append(e.restarted, h.ContainerID)
+
+	return h, nil
+}
+
+func (e *fakeEngine) Recreate(
+	_ context.Context, h timestreaminfluxdb.EngineHandle, spec timestreaminfluxdb.EngineSpec,
+) (timestreaminfluxdb.EngineHandle, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.recreated = append(e.recreated, spec)
+	h.ContainerID += "+"
+
+	return h, nil
+}
+
+func (e *fakeEngine) Backup(_ context.Context, h timestreaminfluxdb.EngineHandle, token, id string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.backups = append(e.backups, h.ContainerID+"|"+token+"|"+id)
+
+	return e.backupErr
+}
+
+func (e *fakeEngine) DrainLogs(timestreaminfluxdb.EngineHandle) []byte {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	out := e.logs
+	e.logs = nil
+
+	return out
+}
+
+func (e *fakeEngine) snapshot() ([]timestreaminfluxdb.EngineSpec, []timestreaminfluxdb.EngineSpec, []string, []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	return slices.Clone(e.specs), slices.Clone(e.recreated), slices.Clone(e.restarted), slices.Clone(e.backups)
 }
 
 func (e *fakeEngine) Start(
@@ -137,15 +193,12 @@ func TestEngineBackedInstance(t *testing.T) {
 				assert.Equal(t, int32(18001), aws.ToInt32(got.Port))
 
 				require.Len(t, eng.specs, 1)
-				assert.Equal(t, timestreaminfluxdb.EngineSpec{
-					Name: aws.ToString(
-						out.Id,
-					),
-					Username:     "alice",
-					Password:     "Passw0rdPassw0rd",
-					Organization: "acme",
-					Bucket:       "metrics",
-				}, eng.specs[0])
+				assert.Equal(t, aws.ToString(out.Id), eng.specs[0].Name)
+				assert.Equal(t, "alice", eng.specs[0].Username)
+				assert.Equal(t, "Passw0rdPassw0rd", eng.specs[0].Password)
+				assert.Equal(t, "acme", eng.specs[0].Organization)
+				assert.Equal(t, "metrics", eng.specs[0].Bucket)
+				assert.Len(t, eng.specs[0].Token, 64)
 
 				_, err = f.client.DeleteDbInstance(t.Context(), &sdk.DeleteDbInstanceInput{Identifier: out.Id})
 				require.NoError(t, err)
@@ -252,6 +305,9 @@ type fakeRuntime struct {
 	pulled    []string
 	specs     []container.Spec
 	removed   []string
+	calls     []string
+	execs     []string
+	execExit  int
 	mu        sync.Mutex
 	hasImage  bool
 }
@@ -277,7 +333,34 @@ func (r *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 
 	r.specs = append(r.specs, spec)
 
-	return "ctr-1", nil
+	return "ctr-" + strconv.Itoa(len(r.specs)), nil
+}
+
+func (r *fakeRuntime) StopContainer(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.calls = append(r.calls, "stop:"+id)
+
+	return nil
+}
+
+func (r *fakeRuntime) StartContainer(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.calls = append(r.calls, "start:"+id)
+
+	return nil
+}
+
+func (r *fakeRuntime) Exec(_ context.Context, id string, cmd []string) (container.ExecResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.execs = append(r.execs, id+" "+strings.Join(cmd, " "))
+
+	return container.ExecResult{ExitCode: r.execExit, Stderr: "boom"}, nil
 }
 
 func (r *fakeRuntime) StopAndRemove(_ context.Context, id string) error {
@@ -405,12 +488,14 @@ func TestDockerEngine(t *testing.T) {
 		assert.Empty(t, ports.Allocated())
 	})
 
-	t.Run("no allocator", func(t *testing.T) {
+	t.Run("no allocator falls back to an ephemeral port", func(t *testing.T) {
 		t.Parallel()
 
-		eng := &timestreaminfluxdb.DockerEngine{Runtime: &fakeRuntime{hasImage: true}}
-		_, err := eng.Start(t.Context(), spec)
-		require.Error(t, err)
+		eng := &timestreaminfluxdb.DockerEngine{Runtime: &fakeRuntime{hasImage: true}, HTTP: &fakeHealth{}}
+		h, err := eng.Start(t.Context(), spec)
+		require.NoError(t, err)
+		assert.Positive(t, h.Port)
+		require.NoError(t, eng.Stop(t.Context(), h))
 	})
 }
 

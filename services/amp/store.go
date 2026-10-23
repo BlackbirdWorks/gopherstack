@@ -32,11 +32,17 @@ type InMemoryBackend struct {
 	detectors     *store.Table[AnomalyDetector]
 	series        *store.Table[SeriesRecord]
 	seriesByWS    *store.Index[SeriesRecord]
+	metadata      *store.Table[MetadataRecord]
+	metadataByWS  *store.Index[MetadataRecord]
 	registry      *store.Registry
 	mu            *lockmetrics.RWMutex
 	now           func() time.Time
 	clusters      ClusterResolver
 	idem          *idempotency.Memo
+	publisher     SNSPublisher
+	groups        map[string]*groupRuntime
+	parsed        map[string]*parsedNamespace
+	ams           map[string]*alertManager
 	accountID     string
 	region        string
 	dwellOverride time.Duration
@@ -58,6 +64,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 
 	registerAllTables(b)
+	b.resetRuntimeLocked()
 
 	return b
 }
@@ -88,6 +95,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.idem.Clear()
+	b.resetRuntimeLocked()
 }
 
 func (b *InMemoryBackend) dwell() time.Duration {
@@ -186,6 +194,10 @@ func (b *InMemoryBackend) dropWorkspaceLocked(id string) {
 
 	for _, s := range slices.Clone(b.seriesByWS.Get(id)) {
 		b.series.Delete(s.Key)
+	}
+
+	for _, m := range slices.Clone(b.metadataByWS.Get(id)) {
+		b.metadata.Delete(m.Key)
 	}
 }
 

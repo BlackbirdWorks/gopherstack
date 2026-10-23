@@ -1,6 +1,10 @@
 package cognitoidp
 
-import "time"
+import (
+	"crypto/rsa"
+	"slices"
+	"time"
+)
 
 // UserPoolCount returns the number of user pools in the backend. For testing only.
 func (b *InMemoryBackend) UserPoolCount() int {
@@ -236,9 +240,33 @@ func ValidateSAMLResponseForTest(raw, metadata []byte, poolID, acs, requestID st
 		return err
 	}
 
-	_, err = validateSAMLResponse(raw, md, &idpState{PoolID: poolID, IDPRedirect: acs, SAMLRequestID: requestID}, now)
+	_, err = validateSAMLResponse(raw, md, &samlExpect{poolID: poolID, acs: acs, requestID: requestID}, now)
 
 	return err
+}
+
+// ValidateSAMLResponseWithKeyForTest is ValidateSAMLResponseForTest with the SP key used to decrypt assertions.
+func ValidateSAMLResponseWithKeyForTest(
+	raw, metadata []byte, poolID, acs, requestID string, sp *rsa.PrivateKey, now time.Time,
+) error {
+	md, err := parseSAMLMetadata(metadata)
+	if err != nil {
+		return err
+	}
+
+	_, err = validateSAMLResponse(raw, md, &samlExpect{poolID: poolID, acs: acs, requestID: requestID, sp: sp}, now)
+
+	return err
+}
+
+// PoolSAMLKeyForTest returns the pool's SAML SP private key and certificate DER. For testing only.
+func PoolSAMLKeyForTest(b *InMemoryBackend, poolID string) (*rsa.PrivateKey, []byte, error) {
+	sp, err := b.spIdentity(poolID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return sp.key, sp.certDER, nil
 }
 
 // SAMLSigningKeyCount parses IdP metadata and returns its signing key count. For testing only.
@@ -249,4 +277,23 @@ func SAMLSigningKeyCount(metadata []byte) (int, error) {
 	}
 
 	return len(md.keys), nil
+}
+
+// VerifyRootSignatureForTest checks that raw's root element carries an enveloped signature valid for pub.
+func VerifyRootSignatureForTest(raw []byte, pub *rsa.PublicKey) error {
+	root, err := parseXML(raw)
+	if err != nil {
+		return err
+	}
+
+	signed, err := verifiedElements(root, []*rsa.PublicKey{pub})
+	if err != nil {
+		return err
+	}
+
+	if !slices.Contains(signed, root) {
+		return sigErrorf("root not signed")
+	}
+
+	return nil
 }

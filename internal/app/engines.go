@@ -57,6 +57,8 @@ func engineEntries() []engineEntry {
 		{func(c *CLI) *string { return &c.ElastiCacheEngine }, "elasticache-engine", "ELASTICACHE_ENGINE", "embedded"},
 		{func(c *CLI) *string { return &c.MemoryDBEngine }, "memorydb-engine", "MEMORYDB_ENGINE", "embedded"},
 		{func(c *CLI) *string { return &c.KafkaEngine }, "kafka-engine", "KAFKA_ENGINE", enginesStub},
+		{func(c *CLI) *string { return &c.FlinkEngine }, "flink-engine", "FLINK_ENGINE", enginesStub},
+		{func(c *CLI) *string { return &c.MWAAEngine }, "mwaa-engine", "MWAA_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.MQEngine }, "mq-engine", "MQ_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.EKSEngine }, "eks-engine", "EKS_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.RDSEngine }, "rds-engine", "RDS_ENGINE", enginesStub},

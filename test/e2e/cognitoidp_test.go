@@ -13,6 +13,7 @@ import (
 
 // TestCognitoIDPDashboard verifies the Cognito IDP dashboard UI renders user pools.
 func TestCognitoIDPDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CognitoIDPHandler.Backend.CreateUserPool("e2e-test-pool")
@@ -43,13 +44,13 @@ func TestCognitoIDPDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-pool")
 	assert.Contains(t, content, "e2e-test-pool")
 }
 
 // TestCognitoIDPDashboard_Empty verifies the empty state renders correctly.
 func TestCognitoIDPDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -77,13 +78,13 @@ func TestCognitoIDPDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Cognito User Pools")
 	assert.Contains(t, content, "Cognito User Pools")
 }
 
 // TestCognitoIDPDashboard_CreateAndDeleteUserPool verifies the create-pool and delete-pool UI flows.
 func TestCognitoIDPDashboard_CreateAndDeleteUserPool(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

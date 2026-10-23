@@ -14,7 +14,9 @@ type DeleteResponse = mobyimage.DeleteResponse
 
 // PullOptions models the subset of image pull options used in this repo.
 type PullOptions struct {
-	All bool
+	// RegistryAuth is the base64url-encoded AuthConfig JSON sent as X-Registry-Auth.
+	RegistryAuth string
+	All          bool
 }
 
 // ListOptions models the subset of image list options used in this repo.

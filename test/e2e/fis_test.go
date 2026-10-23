@@ -15,6 +15,7 @@ import (
 
 // TestFISDashboard verifies the FIS dashboard renders template data in the current UI.
 func TestFISDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed an experiment template via the backend.
@@ -82,14 +83,14 @@ func TestFISDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Experiment Templates", "Stop DynamoDB writes")
 	assert.Contains(t, content, "Experiment Templates")
 	assert.Contains(t, content, "Stop DynamoDB writes")
 }
 
 // TestFISDashboard_Empty verifies the FIS dashboard renders correctly with no data.
 func TestFISDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -117,14 +118,14 @@ func TestFISDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS Fault Injection Simulator", "No experiment templates found")
 	assert.Contains(t, content, "AWS Fault Injection Simulator")
 	assert.Contains(t, content, "No experiment templates found")
 }
 
 // TestFISDashboard_TemplatesTab verifies the templates tab lists seeded templates.
 func TestFISDashboard_TemplatesTab(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.FISHandler.Backend.CreateExperimentTemplate(
@@ -183,13 +184,13 @@ func TestFISDashboard_TemplatesTab(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "E2E template")
 	assert.Contains(t, content, "E2E template")
 }
 
 // TestFISDashboard_StartAndStopExperiment verifies starting and stopping an experiment.
 func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Pre-create a template.
@@ -270,8 +271,7 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "running")
 	assert.Contains(t, content, "running")
 
 	err = page.Locator("button[title='Stop']").Click()

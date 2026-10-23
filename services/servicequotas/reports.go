@@ -30,33 +30,43 @@ func (b *InMemoryBackend) settleReportsLocked(now time.Time, dwell time.Duration
 	}
 }
 
+func utilization(usage, applied float64) float64 {
+	if applied <= 0 {
+		return 0
+	}
+
+	return usage / applied * percent
+}
+
 func (b *InMemoryBackend) buildReportLocked(s scope) []UtilizationEntry {
 	var out []UtilizationEntry
 
 	for _, svc := range b.catalog.Services() {
 		for i := range svc.Quotas {
 			def := &svc.Quotas[i]
-			if def.Usage == nil {
+
+			var usage float64
+
+			tracked := false
+			if b.usage != nil {
+				usage, tracked = b.usage.QuotaUsage(s.account, s.region, svc.Code, def.Code)
+			}
+
+			if def.Usage == nil && !tracked {
 				continue
 			}
 
 			applied, _ := b.appliedValueLocked(s, svc.Code, def)
-
-			var usage float64
-
-			if b.usage != nil {
-				usage, _ = b.usage.QuotaUsage(s.account, s.region, svc.Code, def.Code)
+			entry := UtilizationEntry{
+				ServiceCode: svc.Code, QuotaCode: def.Code, Applied: applied, Default: def.Default,
+				Utilization: utilization(usage, applied), Adjustable: def.Adjustable,
 			}
 
-			var util float64
-			if applied > 0 {
-				util = usage / applied * percent
+			if def.Usage != nil {
+				entry.Namespace = def.Usage.Namespace
 			}
 
-			out = append(out, UtilizationEntry{
-				ServiceCode: svc.Code, QuotaCode: def.Code, Namespace: def.Usage.Namespace,
-				Applied: applied, Default: def.Default, Utilization: util, Adjustable: def.Adjustable,
-			})
+			out = append(out, entry)
 		}
 	}
 

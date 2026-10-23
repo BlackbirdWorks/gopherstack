@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net/url"
 	"slices"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -291,4 +292,13 @@ func applySnapshotAttributeChange(
 	attr.AttributeValues = slices.DeleteFunc(attr.AttributeValues, func(v string) bool {
 		return slices.Contains(valuesToRemove, v)
 	})
+}
+
+// formatOptionalTime renders a query-protocol timestamp; the zero time yields "" so the element is omitted.
+func formatOptionalTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.UTC().Format(time.RFC3339)
 }

@@ -29,13 +29,14 @@ const (
 	kindProduct       = "Product"
 	queryStatus       = "status"
 
-	recProvision   = "PROVISION_PRODUCT"
-	recUpdate      = "UPDATE_PROVISIONED_PRODUCT"
-	recTerminate   = "TERMINATE_PROVISIONED_PRODUCT"
-	recImport      = "IMPORT_PROVISIONED_PRODUCT"
-	recProperties  = "UPDATE_PROVISIONED_PRODUCT_PROPERTIES"
-	recServiceAct  = "EXECUTE_PROFILE_SERVICE_ACTION"
-	ppTypeCFNStack = "CFN_STACK"
+	recProvision      = "PROVISION_PRODUCT"
+	recUpdate         = "UPDATE_PROVISIONED_PRODUCT"
+	recTerminate      = "TERMINATE_PROVISIONED_PRODUCT"
+	recImport         = "IMPORT_PROVISIONED_PRODUCT"
+	recProperties     = "UPDATE_PROVISIONED_PRODUCT_PROPERTIES"
+	recServiceAct     = "EXECUTE_PROFILE_SERVICE_ACTION"
+	ppTypeCFNStack    = "CFN_STACK"
+	ppTypeCFNStackSet = "CFN_STACKSET"
 
 	constraintLaunch   = "LAUNCH"
 	constraintNotify   = "NOTIFICATION"
@@ -257,6 +258,7 @@ type Record struct {
 	PathID                 string            `json:"pathID,omitempty"`
 	LaunchRoleArn          string            `json:"launchRoleArn,omitempty"`
 	WorkflowToken          string            `json:"workflowToken,omitempty"`
+	PPType                 string            `json:"provisionedProductType,omitempty"`
 	Errors                 []RecordError     `json:"errors,omitempty"`
 	Outputs                []Output          `json:"outputs,omitempty"`
 	AwaitingEngine         bool              `json:"awaitingEngine,omitempty"`

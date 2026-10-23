@@ -115,16 +115,16 @@ func TestHandler_HeadObjectWithMetadata(t *testing.T) {
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
-			assert.Equal(t, "Antigravity", rec.Header().Get("X-Amz-Meta-Author"))
-			assert.Equal(t, "High", rec.Header().Get("X-Amz-Meta-Priority"))
+			assert.Equal(t, "Antigravity", metaHeader(rec.Header(), "Author"))
+			assert.Equal(t, "High", metaHeader(rec.Header(), "Priority"))
 
 			req = httptest.NewRequest(http.MethodGet, "/bkt/meta", nil)
 			rec = httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
-			assert.Equal(t, "Antigravity", rec.Header().Get("X-Amz-Meta-Author"))
-			assert.Equal(t, "High", rec.Header().Get("X-Amz-Meta-Priority"))
+			assert.Equal(t, "Antigravity", metaHeader(rec.Header(), "Author"))
+			assert.Equal(t, "High", metaHeader(rec.Header(), "Priority"))
 		})
 	}
 }

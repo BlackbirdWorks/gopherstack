@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -499,7 +500,7 @@ func (b *InMemoryBackend) DisassociateConnectionFromLag(connectionID, lagID stri
 // synthesizeMacSecSecretARN builds an unbacked secret ARN, used only when no
 // MacSecSecretCreator is wired.
 func (b *InMemoryBackend) synthesizeMacSecSecretARN(id string) string {
-	return "arn:aws:secretsmanager:" + b.region + ":" + b.accountID + ":secret:directconnect!" + id
+	return arn.Build("secretsmanager", b.region, b.accountID, "secret:directconnect!"+id)
 }
 
 // macSecSecretARNLocked stores a raw CAK/CKN pair in Secrets Manager when a

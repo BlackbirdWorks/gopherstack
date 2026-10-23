@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -43,19 +45,19 @@ func (r *Runner) invokeExtraTarget(ctx context.Context, s *Schedule, payload []b
 	switch {
 	case strings.HasPrefix(arn, universalTargetPrefix):
 		return true, r.invokeUniversalTarget(ctx, s)
-	case strings.HasPrefix(arn, "arn:aws:firehose:"):
+	case arnpkg.HasService(arn, "firehose"):
 		if r.extra.Firehose == nil {
 			return true, fmt.Errorf("%w: firehose target %q", errTargetUnwired, arn)
 		}
 
 		return true, r.extra.Firehose.PutRecord(ctx, arn, payload)
-	case strings.HasPrefix(arn, "arn:aws:codebuild:"):
+	case arnpkg.HasService(arn, "codebuild"):
 		if r.extra.CodeBuild == nil {
 			return true, fmt.Errorf("%w: codebuild target %q", errTargetUnwired, arn)
 		}
 
 		return true, r.extra.CodeBuild.StartCodeBuild(ctx, arn)
-	case strings.HasPrefix(arn, "arn:aws:codepipeline:"):
+	case arnpkg.HasService(arn, "codepipeline"):
 		if r.extra.CodePipeline == nil {
 			return true, fmt.Errorf("%w: codepipeline target %q", errTargetUnwired, arn)
 		}

@@ -12,6 +12,7 @@ import (
 
 // TestRDSDataDashboard verifies the restored RDSData dashboard loads correctly.
 func TestRDSDataDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -48,6 +49,7 @@ func TestRDSDataDashboard(t *testing.T) {
 // deprecated ExecuteSql op; Tabs.svelte renders each as role="tab", not
 // role="button", so the locators below match on the real role too.
 func TestRDSDataDashboard_SQLRunner(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

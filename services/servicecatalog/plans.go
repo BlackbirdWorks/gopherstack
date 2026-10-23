@@ -119,7 +119,7 @@ func (b *InMemoryBackend) CreateProvisionedProductPlan(
 		return nil, err
 	}
 
-	if lp.stackSet || isExternalProduct(lp.prod.Type) {
+	if lp.stackSet != nil || isExternalProduct(lp.prod.Type) {
 		return nil, fail(
 			ErrOperationNotSupported,
 			"plans are only supported for CloudFormation products without STACKSET constraints",
@@ -159,7 +159,7 @@ func (b *InMemoryBackend) createPlan(
 		return nil, err
 	}
 
-	if err = checkTemplateRules(lp.templateRule, ruleValues(info, params)); err != nil {
+	if err = b.checkRules(ctx, lp, info, params); err != nil {
 		return nil, err
 	}
 
@@ -221,6 +221,9 @@ func (b *InMemoryBackend) stackTagsFor(
 	pp *ProvisionedProduct,
 	user map[string]string,
 ) map[string]string {
+	b.mu.RLock("stackTagsFor")
+	defer b.mu.RUnlock()
+
 	return b.stackTags(ctx, lp, pp.ARN, user)
 }
 

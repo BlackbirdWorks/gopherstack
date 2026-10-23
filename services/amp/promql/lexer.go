@@ -96,9 +96,10 @@ func ParseDuration(s string) (time.Duration, error) {
 }
 
 type lexer struct {
-	src  string
-	toks []token
-	pos  int
+	src   string
+	toks  []token
+	pos   int
+	depth int
 }
 
 func tokenize(src string) ([]token, error) {
@@ -146,6 +147,8 @@ func (lx *lexer) next() error {
 	c := lx.src[lx.pos]
 
 	switch {
+	case c == ':' && lx.depth > 0:
+		return lx.operator()
 	case isIdentStart(c):
 		lx.ident()
 	case isDigit(c) || (c == '.' && lx.pos+1 < len(lx.src) && isDigit(lx.src[lx.pos+1])):
@@ -293,8 +296,15 @@ func (lx *lexer) operator() error {
 	}
 
 	c := lx.src[lx.pos]
-	if strings.IndexByte("+-*/%^=<>(){}[],", c) < 0 {
+	if strings.IndexByte("+-*/%^=<>(){}[],@:", c) < 0 {
 		return syntaxErr(lx.pos, "unexpected character %q", c)
+	}
+
+	switch c {
+	case '[':
+		lx.depth++
+	case ']':
+		lx.depth--
 	}
 
 	lx.toks = append(lx.toks, token{kind: tokOp, text: string(c), pos: lx.pos})

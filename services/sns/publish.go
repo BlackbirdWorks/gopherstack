@@ -1,6 +1,7 @@
 package sns
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 )
 
@@ -383,7 +385,7 @@ func eventNeedsSignature(subs []events.SNSSubscriptionSnapshot) bool {
 // emitPublishedEvent broadcasts ev to the publish emitter (e.g. to SQS). It is
 // a no-op when no emitter has been registered. b.emitter is captured under the
 // read lock since SetPublishEmitter mutates it under the write lock.
-func (b *InMemoryBackend) emitPublishedEvent(ev *events.SNSPublishedEvent) {
+func (b *InMemoryBackend) emitPublishedEvent(ctx context.Context, ev *events.SNSPublishedEvent) {
 	b.mu.RLock("emitPublishedEvent")
 	emitter := b.emitter
 	b.mu.RUnlock()
@@ -392,7 +394,7 @@ func (b *InMemoryBackend) emitPublishedEvent(ev *events.SNSPublishedEvent) {
 		return
 	}
 
-	_ = emitter.Emit(b.svcCtx, ev)
+	_ = emitter.Emit(ctx, ev)
 }
 
 // Publish delivers a message to all subscriptions of topicArn. HTTP/HTTPS
@@ -402,6 +404,15 @@ func (b *InMemoryBackend) emitPublishedEvent(ev *events.SNSPublishedEvent) {
 // calls) or exit early if the backend is shutting down.
 // All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
 func (b *InMemoryBackend) Publish(
+	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
+) (string, error) {
+	return b.PublishContext(b.svcCtx, topicArn, message, subject, messageStructure, attrs)
+}
+
+// PublishContext is Publish with the originating request's context, so
+// subscription deliveries are traced as children of that request.
+func (b *InMemoryBackend) PublishContext(
+	reqCtx context.Context,
 	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
 ) (string, error) {
 	if err := validatePublishMessage(message, subject, messageStructure, attrs); err != nil {
@@ -511,9 +522,10 @@ func (b *InMemoryBackend) Publish(
 		topicArn, messageID, message, subject, attrs, targets.subs, sigVersion, publishTimestamp, signed,
 	)
 
-	b.emitPublishedEvent(ev)
-	b.deliverToLambdaSubscriptions(ev)
-	b.deliverToFirehoseSubscriptions(ev)
+	dctx := apptrace.Link(reqCtx, b.svcCtx)
+	b.emitPublishedEvent(dctx, ev)
+	b.deliverToLambdaSubscriptions(dctx, ev)
+	b.deliverToFirehoseSubscriptions(dctx, ev)
 	b.deliverToSMSSubscriptions(ev)
 	b.deliverToApplicationSubscriptions(ev)
 

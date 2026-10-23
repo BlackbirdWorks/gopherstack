@@ -2,6 +2,7 @@ package lambda
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -13,7 +14,6 @@ import (
 // mutate the stored provider in place.
 func cloneCapacityProvider(cp *CapacityProvider) *CapacityProvider {
 	out := *cp
-	out.AssignedFunctionVersions = append([]string(nil), cp.AssignedFunctionVersions...)
 
 	return &out
 }
@@ -40,7 +40,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 		KmsKeyArn:                     input.KmsKeyArn,
 		PropagateTags:                 input.PropagateTags,
 		TelemetryConfig:               input.TelemetryConfig,
-		State:                         CapacityProviderStateActive,
+		State:                         CapacityProviderStatePending,
 		LastModified:                  now,
 	}
 
@@ -49,15 +49,25 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 	return cloneCapacityProvider(cp), nil
 }
 
+// settleCapacityProviderLocked completes the Pending to Active transition the
+// first time a provider is observed after creation. Caller holds b.mu for write.
+func settleCapacityProviderLocked(cp *CapacityProvider) {
+	if cp.State == CapacityProviderStatePending {
+		cp.State = CapacityProviderStateActive
+	}
+}
+
 // GetCapacityProvider retrieves a capacity provider by name.
 func (b *InMemoryBackend) GetCapacityProvider(name string) (*CapacityProvider, error) {
-	b.mu.RLock("GetCapacityProvider")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetCapacityProvider")
+	defer b.mu.Unlock()
 
 	cp, ok := b.capacityProviders.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
+
+	settleCapacityProviderLocked(cp)
 
 	return cloneCapacityProvider(cp), nil
 }
@@ -75,9 +85,16 @@ func (b *InMemoryBackend) DeleteCapacityProvider(name string) (*CapacityProvider
 		return nil, ErrFunctionNotFound
 	}
 
+	if len(b.capacityProviderUsersLocked(cp.CapacityProviderArn)) > 0 {
+		return nil, ErrCapacityProviderInUse
+	}
+
 	b.capacityProviders.Delete(name)
 
-	return cloneCapacityProvider(cp), nil
+	out := cloneCapacityProvider(cp)
+	out.State = CapacityProviderStateDeleting
+
+	return out, nil
 }
 
 // UpdateCapacityProvider updates an existing capacity provider.
@@ -92,6 +109,8 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
+
+	settleCapacityProviderLocked(cp)
 
 	if input.CapacityProviderScalingConfig != nil {
 		cp.CapacityProviderScalingConfig = input.CapacityProviderScalingConfig
@@ -113,12 +132,14 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 
 // ListCapacityProviders returns one name-ordered page, optionally narrowed to a State.
 func (b *InMemoryBackend) ListCapacityProviders(state, marker string, maxItems int) page.Page[*CapacityProvider] {
-	b.mu.RLock("ListCapacityProviders")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListCapacityProviders")
+	defer b.mu.Unlock()
 
 	out := make([]*CapacityProvider, 0)
 
 	for _, cp := range b.capacityProviders.All() {
+		settleCapacityProviderLocked(cp)
+
 		if state == "" || cp.State == state {
 			out = append(out, cloneCapacityProvider(cp))
 		}
@@ -131,48 +152,81 @@ func (b *InMemoryBackend) ListCapacityProviders(state, marker string, maxItems i
 	return page.New(out, marker, maxItems, lambdaDefaultMaxItems)
 }
 
-// SeedCapacityProviderFunctionVersions assigns the given function-version ARNs to
-// the named capacity provider. AWS exposes no public assignment API in this
-// emulator's surface, so this internal helper is the only way to populate the
-// assignments observed by ListFunctionVersionsByCapacityProvider (primarily for
-// tests). It returns ErrFunctionNotFound if the provider does not exist.
-func (b *InMemoryBackend) SeedCapacityProviderFunctionVersions(
-	name string,
-	versions ...string,
-) error {
-	b.mu.Lock("SeedCapacityProviderFunctionVersions")
-	defer b.mu.Unlock()
-
-	cp, ok := b.capacityProviders.Get(name)
-	if !ok {
-		return ErrFunctionNotFound
-	}
-
-	cp.AssignedFunctionVersions = append(cp.AssignedFunctionVersions, versions...)
-
-	return nil
+// CapacityProviderFunctionVersion is one function version using a capacity provider.
+type CapacityProviderFunctionVersion struct {
+	FunctionArn string
+	State       string
 }
 
-// ListFunctionVersionsByCapacityProvider returns a page of function-version ARNs
-// assigned to the named capacity provider. It returns ErrFunctionNotFound if the
-// provider does not exist. Assignments are populated only via the internal
-// SeedCapacityProviderFunctionVersions helper, since AWS exposes no public
-// assignment API in this emulator's surface.
+// capacityProviderUsersLocked returns every function ($LATEST) and published
+// version whose CapacityProviderConfig references cpArn, ordered by ARN.
+func (b *InMemoryBackend) capacityProviderUsersLocked(cpArn string) []CapacityProviderFunctionVersion {
+	var out []CapacityProviderFunctionVersion
+
+	for _, fn := range b.functions.All() {
+		if !referencesCapacityProvider(fn.CapacityProviderConfig, cpArn) {
+			continue
+		}
+
+		out = append(out, CapacityProviderFunctionVersion{
+			FunctionArn: fn.FunctionArn + ":" + versionLatest,
+			State:       string(fn.State),
+		})
+
+		for _, v := range b.versions[fn.FunctionName] {
+			if referencesCapacityProvider(v.CapacityProviderConfig, cpArn) {
+				out = append(out, CapacityProviderFunctionVersion{FunctionArn: v.FunctionArn, State: string(v.State)})
+			}
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].FunctionArn < out[j].FunctionArn })
+
+	return out
+}
+
+func referencesCapacityProvider(cfg *CapacityProviderConfig, cpArn string) bool {
+	return cfg != nil && cfg.ManagedInstances != nil && cfg.ManagedInstances.CapacityProviderArn == cpArn
+}
+
+// capacityProviderNameFromARN extracts the provider name from a capacity provider ARN.
+func capacityProviderNameFromARN(cpArn string) (string, bool) {
+	_, name, ok := strings.Cut(cpArn, ":capacity-provider:")
+
+	return name, ok && name != ""
+}
+
+// CapacityProviderExists reports whether cpArn names an existing capacity provider.
+func (b *InMemoryBackend) CapacityProviderExists(cpArn string) bool {
+	name, ok := capacityProviderNameFromARN(cpArn)
+	if !ok {
+		return false
+	}
+
+	b.mu.RLock("CapacityProviderExists")
+	defer b.mu.RUnlock()
+
+	cp, found := b.capacityProviders.Get(name)
+
+	return found && cp.CapacityProviderArn == cpArn
+}
+
+// ListFunctionVersionsByCapacityProvider returns a page of the function versions
+// whose CapacityProviderConfig references the named capacity provider, along
+// with the provider's ARN. It returns ErrFunctionNotFound for an unknown provider.
 func (b *InMemoryBackend) ListFunctionVersionsByCapacityProvider(
 	name, marker string,
 	maxItems int,
-) (page.Page[string], error) {
+) (page.Page[CapacityProviderFunctionVersion], string, error) {
 	b.mu.RLock("ListFunctionVersionsByCapacityProvider")
 	defer b.mu.RUnlock()
 
 	cp, ok := b.capacityProviders.Get(name)
 	if !ok {
-		return page.Page[string]{}, ErrFunctionNotFound
+		return page.Page[CapacityProviderFunctionVersion]{}, "", ErrFunctionNotFound
 	}
 
-	versions := make([]string, len(cp.AssignedFunctionVersions))
-	copy(versions, cp.AssignedFunctionVersions)
-	sort.Strings(versions)
+	users := b.capacityProviderUsersLocked(cp.CapacityProviderArn)
 
-	return page.New(versions, marker, maxItems, lambdaDefaultMaxItems), nil
+	return page.New(users, marker, maxItems, lambdaDefaultMaxItems), cp.CapacityProviderArn, nil
 }

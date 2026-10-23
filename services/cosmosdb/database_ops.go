@@ -66,6 +66,11 @@ func (h *Handler) createDatabase(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "id must not be empty.")
 	}
 
+	spec, hasOffer, specOK := h.checkCreateThroughput(c, false)
+	if !specOK {
+		return nil
+	}
+
 	info, createErr := h.Backend.CreateDatabase(req.ID)
 	if createErr != nil {
 		if errors.Is(createErr, ErrDatabaseAlreadyExists) {
@@ -73,6 +78,12 @@ func (h *Handler) createDatabase(c *echo.Context) error {
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", createErr.Error())
+	}
+
+	if hasOffer {
+		if offerErr := h.provisionOffer(c, req.ID, "", spec); offerErr != nil {
+			return offerErr
+		}
 	}
 
 	c.Response().Header().Set("ETag", databaseETag(info))
@@ -131,12 +142,9 @@ func (h *Handler) deleteDatabase(c *echo.Context, dbID string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// databaseETag returns a static, non-versioned ETag for a database. Real
-// Cosmos databases carry an _etag too, but nothing in this milestone ever
-// mutates a database in place (there is no "update database" operation), so
-// a fixed value derived from its RID is sufficient -- see PARITY.md.
+// databaseETag is derived from the database's creation stamp; databases have no replace operation.
 func databaseETag(info DatabaseInfo) string {
-	return `"` + info.RID + `"`
+	return resourceETag(info.Modified, info.RID)
 }
 
 // databaseBody builds a Cosmos DB database resource's JSON response body.
@@ -146,7 +154,7 @@ func databaseBody(info DatabaseInfo) map[string]any {
 		sysPropRID:  info.RID,
 		sysPropSelf: "dbs/" + info.RID + "/",
 		sysPropETag: databaseETag(info),
-		sysPropTS:   1,
+		sysPropTS:   resourceTS(info.Modified),
 		"_colls":    collsSegment + "/",
 		"_users":    "users/",
 	}

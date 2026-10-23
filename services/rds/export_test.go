@@ -208,3 +208,8 @@ func PIMetricsCountForTest(b *InMemoryBackend) int {
 
 	return len(b.piMetrics)
 }
+
+// RecordRestorePointsForTest dumps every eligible unit once, as the periodic loop would.
+func RecordRestorePointsForTest(b *InMemoryBackend) { b.recordRestorePoints() }
+
+func MySQLAccount(user string) (string, error) { return mysqlAccount(user) }

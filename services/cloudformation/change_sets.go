@@ -200,17 +200,32 @@ func (b *InMemoryBackend) computeChanges(templateBody string, stack *Stack, para
 	return diffTemplates(oldTmpl, newTmpl, b.resources[stack.StackID])
 }
 
+// resolveChangeSetLocked finds a change set by name (within stackName) or by
+// change set ARN. AWS accepts either in ChangeSetName, and the AWS CLI's
+// deploy waiter passes the ARN. Callers hold b.mu.
+func (b *InMemoryBackend) resolveChangeSetLocked(stackName, nameOrARN string) (string, string, *ChangeSet) {
+	if cs, ok := b.changeSets[stackName][nameOrARN]; ok {
+		return stackName, nameOrARN, cs
+	}
+
+	for stack, csMap := range b.changeSets {
+		for name, cs := range csMap {
+			if cs.ChangeSetID == nameOrARN {
+				return stack, name, cs
+			}
+		}
+	}
+
+	return "", "", nil
+}
+
 // DescribeChangeSet returns details for a change set.
 func (b *InMemoryBackend) DescribeChangeSet(stackName, changeSetName string) (*ChangeSet, error) {
 	b.mu.RLock("DescribeChangeSet")
 	defer b.mu.RUnlock()
 
-	csMap, ok := b.changeSets[stackName]
-	if !ok {
-		return nil, ErrChangeSetNotFound
-	}
-	cs, ok := csMap[changeSetName]
-	if !ok {
+	_, _, cs := b.resolveChangeSetLocked(stackName, changeSetName)
+	if cs == nil {
 		return nil, ErrChangeSetNotFound
 	}
 
@@ -253,9 +268,8 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 		b.mu.Lock("ExecuteChangeSet")
 		defer b.mu.Unlock()
 
-		var ok bool
-		cs, ok = b.changeSets[stackName][changeSetName]
-		if !ok {
+		stackName, changeSetName, cs = b.resolveChangeSetLocked(stackName, changeSetName)
+		if cs == nil {
 			return ErrChangeSetNotFound
 		}
 		if cs.ExecutionStatus != executionStatusAvailable {
@@ -311,10 +325,8 @@ func (b *InMemoryBackend) DeleteChangeSet(stackName, changeSetName string) error
 	b.mu.Lock("DeleteChangeSet")
 	defer b.mu.Unlock()
 
-	if b.changeSets[stackName] == nil {
-		return ErrChangeSetNotFound
-	}
-	if _, ok := b.changeSets[stackName][changeSetName]; !ok {
+	stackName, changeSetName, cs := b.resolveChangeSetLocked(stackName, changeSetName)
+	if cs == nil {
 		return ErrChangeSetNotFound
 	}
 	delete(b.changeSets[stackName], changeSetName)

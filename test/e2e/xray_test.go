@@ -13,6 +13,7 @@ import (
 
 // TestXrayDashboard verifies the X-Ray dashboard UI renders groups.
 func TestXrayDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.XrayHandler.Backend.CreateGroup("test-group", `service("my-service")`)
@@ -43,21 +44,21 @@ func TestXrayDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Groups')")
+	err = page.Locator("button:has-text('Groups')").First().Click()
 	require.NoError(t, err)
 	require.NoError(t, page.Locator("button:has-text('Groups')").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	}))
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS X-Ray", "Groups")
 	assert.Contains(t, content, "AWS X-Ray")
 	assert.Contains(t, content, "Groups")
 }
 
 // TestXrayDashboard_Empty verifies the empty state renders correctly.
 func TestXrayDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -85,17 +86,17 @@ func TestXrayDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Groups')")
+	err = page.Locator("button:has-text('Groups')").First().Click()
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS X-Ray", "Groups")
 	assert.Contains(t, content, "AWS X-Ray")
 	assert.Contains(t, content, "Groups")
 }
 
 // TestXrayDashboard_CreateGroup verifies the create group form works.
 func TestXrayDashboard_CreateGroup(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.XrayHandler.Backend.CreateGroup("e2e-group", `service("e2e-service")`)
@@ -126,11 +127,10 @@ func TestXrayDashboard_CreateGroup(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Groups')")
+	err = page.Locator("button:has-text('Groups')").First().Click()
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS X-Ray", "Groups")
 	assert.Contains(t, content, "AWS X-Ray")
 	assert.Contains(t, content, "Groups")
 }

@@ -170,7 +170,7 @@ func (b *InMemoryBackend) StartReportJob(reportPlanName string) *ReportJob {
 	now := time.Now().UTC()
 	job := &ReportJob{
 		ReportJobID:   "report-job-" + uuid.NewString()[:8],
-		ReportPlanArn: "arn:aws:backup:" + b.region + ":" + b.accountID + ":report-plan:" + reportPlanName,
+		ReportPlanArn: arn.Build("backup", b.region, b.accountID, "report-plan:"+reportPlanName),
 		Status:        statusCompleted,
 		CreationTime:  now,
 	}

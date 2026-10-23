@@ -36,6 +36,7 @@ const (
 	exceptionSuffix        = "Exception"
 	sdkClientException     = "SdkClientException"
 	headerAccountID        = "X-Amz-Account-Id"
+	svcBedrockRuntime      = "bedrockruntime"
 )
 
 // modeledErrorCode maps wire codes an SDK cannot resolve to its modeled error
@@ -65,7 +66,7 @@ func optimizedPrefix(svc string) string {
 		return "SNS"
 	case "sfn":
 		return prefixStepFunctions
-	case "bedrockruntime":
+	case svcBedrockRuntime:
 		return "Bedrock"
 	default:
 		return ""
@@ -210,6 +211,10 @@ func (a *sdkAdapter) SFNCallSDK(ctx context.Context, call asl.SDKCall) (any, err
 		return a.invokeHTTP(ctx, call)
 	}
 
+	if call.Service == "eks" && call.Action == eksCallAction {
+		return a.invokeEKSCall(ctx, call)
+	}
+
 	svc, ok := a.services[call.Service]
 	if !ok {
 		return nil, &asl.FailError{
@@ -293,6 +298,8 @@ func prepareParams(svc, action string, params any) any {
 	switch svc + "." + action {
 	case "lambda.invoke":
 		return withJSONString(m, "Payload", true)
+	case svcBedrockRuntime + ".invokeModel":
+		return withJSONString(m, "Body", true)
 	case "sfn.startExecution", "sfn.startSyncExecution":
 		return withJSONString(m, "Input", false)
 	default:
@@ -329,6 +336,10 @@ func withJSONString(m map[string]any, key string, blob bool) map[string]any {
 // JSON string, as the aws-sdk integration returns it.
 func shapeOutput(svc, action string, res reflect.Value) any {
 	out := encodeSDKOutput(res)
+
+	if svc == svcBedrockRuntime && action == "invokeModel" {
+		return invokeModelOutput(out)
+	}
 
 	m, ok := out.(map[string]any)
 	if !ok || svc != awsServiceLambda || action != "invoke" {

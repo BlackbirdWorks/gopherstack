@@ -4,7 +4,8 @@ import (
 	"context"
 	"maps"
 	"net/http"
-	"strings"
+
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httptarget"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -27,7 +28,7 @@ type APIGatewayInvoker interface {
 }
 
 func isAPIGatewayARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:execute-api:")
+	return arnpkg.HasService(arn, "execute-api")
 }
 
 // BuildAPIGatewayRequest turns an execute-api target ARN, its HttpParameters and the payload into a request.

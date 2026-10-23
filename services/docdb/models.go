@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -422,6 +423,7 @@ type EventCategoryMap struct {
 // store_setup.go's doc comment for the full rationale).
 type InMemoryBackend struct {
 	engine                         *dbEngine
+	sgEnforcer                     *sgfilter.Enforcer
 	secrets                        SecretsStore
 	subnets                        SubnetResolver
 	eventSubscriptions             *store.Table[EventSubscription]

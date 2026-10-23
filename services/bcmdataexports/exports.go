@@ -30,15 +30,15 @@ var nameRe = regexp.MustCompile(`^[0-9A-Za-z\-_]+$`)
 
 func validateExport(w *exportWire) (*Export, error) {
 	if w == nil {
-		return nil, fail(ErrValidation, "Export is required")
+		return nil, failField("Export", "Export is required")
 	}
 
 	if w.Name == "" || len(w.Name) > maxNameLen || !nameRe.MatchString(w.Name) {
-		return nil, fail(ErrValidation, "Export name %q is invalid", w.Name)
+		return nil, failField("Export.Name", "Export name %q is invalid", w.Name)
 	}
 
 	if len(w.Description) > maxDescLen {
-		return nil, fail(ErrValidation, "Description is too long")
+		return nil, failField("Export.Description", "Description is too long")
 	}
 
 	e := &Export{Name: w.Name, Description: w.Description}
@@ -48,7 +48,7 @@ func validateExport(w *exportWire) (*Export, error) {
 	}
 
 	if w.RefreshCadence == nil || w.RefreshCadence.Frequency != freqSync {
-		return nil, fail(ErrValidation, "RefreshCadence.Frequency must be %s", freqSync)
+		return nil, failField("Export.RefreshCadence.Frequency", "RefreshCadence.Frequency must be %s", freqSync)
 	}
 
 	e.Frequency = w.RefreshCadence.Frequency
@@ -62,12 +62,18 @@ func validateExport(w *exportWire) (*Export, error) {
 
 func fillDestination(e *Export, w *exportWire) error {
 	if w.DestinationConfigurations == nil || w.DestinationConfigurations.S3Destination == nil {
-		return fail(ErrValidation, "DestinationConfigurations.S3Destination is required")
+		return failField(
+			"Export.DestinationConfigurations.S3Destination",
+			"DestinationConfigurations.S3Destination is required",
+		)
 	}
 
 	d := w.DestinationConfigurations.S3Destination
 	if d.S3Bucket == "" || d.S3Region == "" || d.S3OutputConfigurations == nil {
-		return fail(ErrValidation, "S3Destination requires S3Bucket, S3Region and S3OutputConfigurations")
+		return failField(
+			"Export.DestinationConfigurations.S3Destination",
+			"S3Destination requires S3Bucket, S3Region and S3OutputConfigurations",
+		)
 	}
 
 	o := d.S3OutputConfigurations
@@ -97,7 +103,7 @@ func fillDestination(e *Export, w *exportWire) error {
 
 func fillQuery(e *Export, w *exportWire) error {
 	if w.DataQuery == nil || w.DataQuery.QueryStatement == "" || len(w.DataQuery.QueryStatement) > maxQueryLen {
-		return fail(ErrValidation, "DataQuery.QueryStatement is required")
+		return failField("Export.DataQuery.QueryStatement", "DataQuery.QueryStatement is required")
 	}
 
 	q, err := parseQuery(w.DataQuery.QueryStatement)
@@ -169,7 +175,7 @@ func limitOf(maxResults *int32) (int, error) {
 	}
 
 	if *maxResults < 1 || int(*maxResults) > maxPageSize {
-		return 0, fail(ErrValidation, "MaxResults must be between 1 and %d", maxPageSize)
+		return 0, failField("MaxResults", "MaxResults must be between 1 and %d", maxPageSize)
 	}
 
 	return int(*maxResults), nil
@@ -177,7 +183,7 @@ func limitOf(maxResults *int32) (int, error) {
 
 func tokenOK(token string) error {
 	if err := page.ValidateToken(token); err != nil {
-		return fail(ErrValidation, "NextToken is invalid")
+		return failField("NextToken", "NextToken is invalid")
 	}
 
 	return nil
@@ -186,7 +192,7 @@ func tokenOK(token string) error {
 func (b *InMemoryBackend) exportLocked(exportArn string) (*Export, error) {
 	e, ok := b.exports.Get(exportArn)
 	if !ok {
-		return nil, fail(ErrResourceNotFound, "export %q not found", exportArn)
+		return nil, notFound("Export", exportArn, "export %q not found", exportArn)
 	}
 
 	return e, nil
@@ -292,7 +298,7 @@ func (b *InMemoryBackend) DeleteExport(exportArn string) (string, error) {
 	defer b.mu.Unlock()
 
 	if !b.exports.Delete(exportArn) {
-		return "", fail(ErrResourceNotFound, "export %q not found", exportArn)
+		return "", notFound("Export", exportArn, "export %q not found", exportArn)
 	}
 
 	for _, x := range b.executions.All() {
@@ -391,7 +397,7 @@ func (b *InMemoryBackend) GetExecution(exportArn, id string) (getExecResp, error
 
 	x, ok := b.executions.Get(exportArn + "|" + id)
 	if !ok {
-		return getExecResp{}, fail(ErrResourceNotFound, "execution %q not found", id)
+		return getExecResp{}, notFound("Execution", id, "execution %q not found", id)
 	}
 
 	return getExecResp{ExecutionID: x.ID, ExecutionStatus: execStatusToWire(x), Export: exportToWire(&x.Export)}, nil
@@ -474,7 +480,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 func GetTable(name string, props map[string]string) (getTableResp, error) {
 	t, ok := findTable(name)
 	if !ok {
-		return getTableResp{}, fail(ErrResourceNotFound, "table %q not found", name)
+		return getTableResp{}, notFound("Table", name, "table %q not found", name)
 	}
 
 	resolved, err := t.resolveProps(props)

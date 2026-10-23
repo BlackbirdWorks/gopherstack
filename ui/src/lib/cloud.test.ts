@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AZURE_SERVICES,
+  cloudFromPath,
   CLOUD_STORAGE_KEY,
   availableAzureServices,
   availableGcpServices,
@@ -136,4 +137,15 @@ describe("withCloud", () => {
     const url = new URL("http://x/dashboard?cloud=gcp");
     expect(withCloud(url, "aws")).toBe("/dashboard");
   });
+});
+
+describe("cloudFromPath", () => {
+  it.each([
+    ["/dashboard/azure/blob", "azure"],
+    ["/dashboard/gcp", "gcp"],
+    ["/dashboard/gcp/sql", "gcp"],
+    ["/dashboard/s3", null],
+    ["/dashboard/gcpfoo", null],
+    ["/dashboard/", null],
+  ])("%s", (path, want) => expect(cloudFromPath(path)).toBe(want));
 });

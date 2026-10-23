@@ -31,6 +31,10 @@ var (
 	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.
 	ErrInvalidDBInstanceState = awserr.New("InvalidDBInstanceState", awserr.ErrConflict)
+	// ErrInvalidRestore is returned when a point-in-time restore targets a time with no restorable data.
+	ErrInvalidRestore = awserr.New("InvalidRestoreFault", awserr.ErrInvalidParameter)
+	// ErrPointInTimeRestoreNotEnabled is returned when the source has automated backups disabled.
+	ErrPointInTimeRestoreNotEnabled = awserr.New("PointInTimeRestoreNotEnabled", awserr.ErrInvalidParameter)
 	// ErrResourceNotFound is the generic not-found error for operations whose
 	// ResourceArn/ResourceIdentifier can name more than one resource type
 	// (verified against aws-sdk-go-v2/service/rds@v1.124.1's deserializers.go

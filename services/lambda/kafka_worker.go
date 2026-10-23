@@ -65,12 +65,25 @@ func kafkaSpecFor(m *EventSourceMapping) (kafkaWorkerSpec, bool) {
 }
 
 // mskSpecFor returns the worker spec for an MSK mapping whose cluster has a reachable real broker.
-func (p *EventSourcePoller) mskSpecFor(m *EventSourceMapping) (kafkaWorkerSpec, bool) {
+func (p *EventSourcePoller) mskSpecFor(ctx context.Context, m *EventSourceMapping) (kafkaWorkerSpec, bool) {
 	if !strings.HasPrefix(m.EventSourceARN, kafkaMSKARNPrefix) {
 		return kafkaWorkerSpec{}, false
 	}
 
-	return buildKafkaSpec(m, kafkaEventSourceMSK, m.EventSourceARN, p.mskBrokers(m.EventSourceARN))
+	if brokers := p.mskBrokers(m.EventSourceARN); len(brokers) > 0 {
+		return buildKafkaSpec(m, kafkaEventSourceMSK, m.EventSourceARN, brokers)
+	}
+
+	conn, ok := p.mskConnection(ctx, m.EventSourceARN, m.SourceAccessConfigurations)
+	if !ok {
+		return kafkaWorkerSpec{}, false
+	}
+
+	spec, ok := buildKafkaSpec(m, kafkaEventSourceMSK, m.EventSourceARN, conn.Brokers)
+	spec.Consumer.RootCAPEM = conn.RootCAPEM
+	spec.Consumer.Username, spec.Consumer.Password = conn.Username, conn.Password
+
+	return spec, ok
 }
 
 func buildKafkaSpec(m *EventSourceMapping, source, sourceARN string, brokers []string) (kafkaWorkerSpec, bool) {
@@ -129,7 +142,7 @@ func (p *EventSourcePoller) reconcileKafka(ctx context.Context, mappings []*Even
 			continue
 		}
 
-		if spec, ok := p.kafkaSpecForMapping(m); ok {
+		if spec, ok := p.kafkaSpecForMapping(ctx, m); ok {
 			wanted[m.UUID] = spec
 		} else if strings.HasPrefix(m.EventSourceARN, kafkaMSKARNPrefix) {
 			p.noteUnsupportedBroker(ctx, m)
@@ -159,8 +172,8 @@ func (p *EventSourcePoller) reconcileKafka(ctx context.Context, mappings []*Even
 	}
 }
 
-func (p *EventSourcePoller) kafkaSpecForMapping(m *EventSourceMapping) (kafkaWorkerSpec, bool) {
-	if spec, ok := p.mskSpecFor(m); ok {
+func (p *EventSourcePoller) kafkaSpecForMapping(ctx context.Context, m *EventSourceMapping) (kafkaWorkerSpec, bool) {
+	if spec, ok := p.mskSpecFor(ctx, m); ok {
 		return spec, true
 	}
 
@@ -377,6 +390,14 @@ func (p *EventSourcePoller) commitKafka(
 }
 
 func (p *EventSourcePoller) invokeKafka(ctx context.Context, functionARN string, payload []byte) error {
+	sctx, span := startESMSpan(ctx, functionARN, "")
+	err := p.invokeKafkaUntraced(sctx, functionARN, payload)
+	span.FinishErr(err)
+
+	return err
+}
+
+func (p *EventSourcePoller) invokeKafkaUntraced(ctx context.Context, functionARN string, payload []byte) error {
 	fnName, qualifier := functionNameAndQualifierFromARN(functionARN)
 	if fnName == "" {
 		fnName = functionARN

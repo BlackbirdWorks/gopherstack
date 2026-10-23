@@ -16,6 +16,7 @@ import (
 
 // TestElasticbeanstalkDashboard verifies the Elastic Beanstalk dashboard UI renders applications and environments.
 func TestElasticbeanstalkDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ElasticbeanstalkHandler.Backend.CreateApplication(
@@ -80,6 +81,7 @@ func TestElasticbeanstalkDashboard(t *testing.T) {
 
 // TestElasticbeanstalkDashboard_Empty verifies the Elastic Beanstalk dashboard empty state renders correctly.
 func TestElasticbeanstalkDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -107,8 +109,7 @@ func TestElasticbeanstalkDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No applications found")
 	assert.Contains(t, content, "No applications found")
 
 	err = page.Locator("button:has-text('Environments')").Click()

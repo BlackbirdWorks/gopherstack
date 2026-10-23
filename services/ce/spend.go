@@ -2,6 +2,19 @@ package ce
 
 import "strings"
 
+// ExcludeChargeTypeFilter is the LedgerSpend filter key listing charge types to leave out.
+const ExcludeChargeTypeFilter = "ExcludeChargeType"
+
+const chargeTypeUsage = "Usage"
+
+func entryChargeType(e CostEntry) string {
+	if e.ChargeType == "" {
+		return chargeTypeUsage
+	}
+
+	return e.ChargeType
+}
+
 // budgetFilterDims maps Budgets cost-filter keys onto the ledger dimensions this backend models.
 var budgetFilterDims = map[string]string{ //nolint:gochecknoglobals // immutable lookup
 	"Service":       dimKeyService,
@@ -30,6 +43,14 @@ func (b *InMemoryBackend) LedgerSpend(start, end string, filters map[string][]st
 func ledgerMatches(e CostEntry, filters map[string][]string) bool {
 	for key, vals := range filters {
 		if len(vals) == 0 {
+			continue
+		}
+
+		if key == ExcludeChargeTypeFilter {
+			if stringSliceContainsFold(vals, entryChargeType(e)) {
+				return false
+			}
+
 			continue
 		}
 
@@ -64,4 +85,12 @@ func tagKeyValueMatches(e CostEntry, vals []string) bool {
 	}
 
 	return false
+}
+
+// RecordCharge appends an entry (for example a Tax or Support charge) to the cost ledger.
+func (b *InMemoryBackend) RecordCharge(e CostEntry) {
+	b.mu.Lock("RecordCharge")
+	defer b.mu.Unlock()
+
+	b.costLedger = append(b.costLedger, e)
 }

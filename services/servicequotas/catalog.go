@@ -27,6 +27,7 @@ type QuotaDef struct {
 	Description string       `json:"description,omitempty"`
 	Unit        string       `json:"unit"`
 	Default     float64      `json:"default"`
+	Max         float64      `json:"max,omitempty"`
 	Adjustable  bool         `json:"adjustable"`
 	Global      bool         `json:"global,omitempty"`
 }

@@ -13,6 +13,7 @@ import (
 
 // TestShieldDashboard verifies the Shield Advanced dashboard UI renders protection data.
 func TestShieldDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.ShieldHandler.Backend.CreateSubscription()
@@ -52,13 +53,13 @@ func TestShieldDashboard(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Shield Advanced")
 	assert.Contains(t, content, "Shield Advanced")
 }
 
 // TestShieldDashboard_NoSubscription verifies the Shield Advanced dashboard renders correctly with no subscription.
 func TestShieldDashboard_NoSubscription(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -86,7 +87,6 @@ func TestShieldDashboard_NoSubscription(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Enable Shield Advanced")
 	assert.Contains(t, content, "Enable Shield Advanced")
 }

@@ -1,4 +1,6 @@
 <script lang="ts">
+import { ICON_IDS } from '#lib/icon-manifest.ts';
+
 type Props = {
 	icon: string;
 	label: string;
@@ -8,6 +10,7 @@ type Props = {
 let { icon, label, class: className = 'w-5 h-5' }: Props = $props();
 
 let failed = $state(false);
+let missing = $derived(!ICON_IDS.has(icon));
 
 // Deterministic color per first letter (A=0 … Z=25)
 const COLORS = [
@@ -27,7 +30,7 @@ let letter = $derived(label.charAt(0).toUpperCase());
 let bg = $derived(colorFor(letter));
 </script>
 
-{#if !failed}
+{#if !failed && !missing}
 	<img
 		src={`/dashboard/static/icons/${icon}.svg`}
 		alt={label}

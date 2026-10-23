@@ -13,6 +13,7 @@ import (
 
 // TestSSMDashboard UI behavior.
 func TestSSMDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -43,20 +44,25 @@ func TestSSMDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 1: Create a parameter via modal.
-	err = page.Click("button:has-text('Create Parameter')")
+	err = page.Locator("button:has-text('Create Parameter')").First().Click()
 	require.NoError(t, err)
 
 	err = page.Locator("h2:has-text('Create Parameter')").
 		WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)})
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("input[placeholder='e.g. /myapp/database/password']", "test-database-password"))
-	_, err = page.SelectOption("select", playwright.SelectOptionValues{Values: &[]string{"SecureString"}})
+	require.NoError(
+		t,
+		page.Locator("input[placeholder='e.g. /myapp/database/password']").First().Fill("test-database-password"),
+	)
+	_, err = page.Locator("select").
+		First().
+		SelectOption(playwright.SelectOptionValues{Values: &[]string{"SecureString"}})
 	require.NoError(t, err)
-	require.NoError(t, page.Fill("textarea[placeholder='Parameter value...']", "super_secret_e2e_pass"))
-	require.NoError(t, page.Fill("input[placeholder='Parameter description...']", "E2E Test Password"))
+	require.NoError(t, page.Locator("textarea[placeholder='Parameter value...']").First().Fill("super_secret_e2e_pass"))
+	require.NoError(t, page.Locator("input[placeholder='Parameter description...']").First().Fill("E2E Test Password"))
 
-	err = page.Click("button[type='submit']:has-text('Create')")
+	err = page.Locator("button[type='submit']:has-text('Create')").First().Click()
 	require.NoError(t, err)
 
 	paramRow := page.Locator("button:has-text('test-database-password')").First()
@@ -70,16 +76,16 @@ func TestSSMDashboard(t *testing.T) {
 	err = paramRow.Click()
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Edit')")
+	err = page.Locator("button:has-text('Edit')").First().Click()
 	require.NoError(t, err)
 
 	err = page.Locator("h2:has-text('Edit Parameter')").
 		WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)})
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("textarea[placeholder='Parameter value...']", "new_super_secret"))
+	require.NoError(t, page.Locator("textarea[placeholder='Parameter value...']").First().Fill("new_super_secret"))
 
-	err = page.Click("button[type='submit']:has-text('Update')")
+	err = page.Locator("button[type='submit']:has-text('Update')").First().Click()
 	require.NoError(t, err)
 
 	err = paramRow.WaitFor(playwright.LocatorWaitForOptions{
@@ -89,7 +95,7 @@ func TestSSMDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 3: Delete the selected parameter.
-	err = page.Click("button:has-text('Delete')")
+	err = page.Locator("button:has-text('Delete')").First().Click()
 	require.NoError(t, err)
 	confirmDialog := page.Locator("[role='alertdialog']")
 	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{

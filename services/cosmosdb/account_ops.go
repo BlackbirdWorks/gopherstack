@@ -62,7 +62,13 @@ func (h *Handler) accountPropertiesBody(r *http.Request) map[string]any {
 
 	endpoint := scheme + "://" + r.Host + "/"
 
-	location := map[string]any{"name": accountRegionName, "databaseAccountEndpoint": endpoint}
+	regions := h.accountRegions()
+	readable := locationEntries(regions.Regions, endpoint)
+	writable := readable[:1]
+
+	if regions.MultiWrite {
+		writable = readable
+	}
 
 	return map[string]any{
 		sysPropSelf:                    "",
@@ -71,9 +77,9 @@ func (h *Handler) accountPropertiesBody(r *http.Request) map[string]any {
 		"media":                        "//media/",
 		"addresses":                    "//addresses/",
 		"_dbs":                         "//dbs/",
-		"writableLocations":            []map[string]any{location},
-		"readableLocations":            []map[string]any{location},
-		"enableMultipleWriteLocations": false,
+		"writableLocations":            writable,
+		"readableLocations":            readable,
+		"enableMultipleWriteLocations": regions.MultiWrite,
 		"userConsistencyPolicy":        map[string]any{"defaultConsistencyLevel": "Session"},
 	}
 }

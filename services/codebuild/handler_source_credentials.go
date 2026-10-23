@@ -62,7 +62,7 @@ func (h *Handler) handleImportSourceCredentials(
 		shouldOverwrite = *in.ShouldOverwrite
 	}
 
-	arnStr, err := h.Backend.ImportSourceCredentials(in.AuthType, in.ServerType, in.Token, shouldOverwrite)
+	arnStr, err := h.Backend.ImportSourceCredentials(in.AuthType, in.ServerType, in.Token, in.Username, shouldOverwrite)
 	if err != nil {
 		return nil, err
 	}

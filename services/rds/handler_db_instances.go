@@ -396,6 +396,7 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 		PerformanceInsightsEnabled:         inst.PerformanceInsightsEnabled,
 		EngineLifecycleSupport:             inst.EngineLifecycleSupport,
 		InstanceCreateTime:                 instanceCreateTime,
+		LatestRestorableTime:               formatOptionalTime(inst.LatestRestorableTime),
 		AutoMinorVersionUpgrade:            inst.AutoMinorVersionUpgrade,
 		BackupTarget:                       inst.BackupTarget,
 		MultiTenant:                        inst.MultiTenant,
@@ -458,6 +459,8 @@ func toXMLInstance(inst *DBInstance, roles []DBInstanceRole) xmlDBInstance {
 // group, and option group membership fields of result from inst. Split out
 // of toXMLInstance to keep that function under the funlen limit.
 func applyXMLInstanceGroups(inst *DBInstance, result *xmlDBInstance) {
+	result.StatusInfos = xmlStatusInfos(inst.StatusInfos)
+
 	if inst.DBInstanceStatus == instanceStatusModifying {
 		if pv := inst.PendingModifiedValues; pv != nil {
 			xpv := &xmlPendingModifiedValues{
@@ -612,6 +615,7 @@ type xmlDBInstance struct {
 	VpcSecurityGroups                *xmlVpcSecurityGroupList      `xml:"VpcSecurityGroups,omitempty"`
 	DBSecurityGroups                 *xmlDBSecGroupList            `xml:"DBSecurityGroups,omitempty"`
 	ReadReplicaDBInstanceIdentifiers *xmlReadReplicaIdentifierList `xml:"ReadReplicaDBInstanceIdentifiers,omitempty"`
+	StatusInfos                      *xmlStatusInfoList            `xml:"StatusInfos,omitempty"`
 	EnabledCloudwatchLogsExports     *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	PendingModifiedValues            *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
 	OptionGroupMemberships           *xmlOptionGroupMembershipList `xml:"OptionGroupMemberships,omitempty"`
@@ -644,6 +648,7 @@ type xmlDBInstance struct {
 	DBInstanceArn                     string `xml:"DBInstanceArn,omitempty"`
 	KmsKeyID                          string `xml:"KmsKeyId,omitempty"`
 	InstanceCreateTime                string `xml:"InstanceCreateTime,omitempty"`
+	LatestRestorableTime              string `xml:"LatestRestorableTime,omitempty"`
 	EngineLifecycleSupport            string `xml:"EngineLifecycleSupport,omitempty"`
 	BackupTarget                      string `xml:"BackupTarget,omitempty"`
 	ReplicaMode                       string `xml:"ReplicaMode,omitempty"`
@@ -667,6 +672,30 @@ type xmlDBInstance struct {
 	MultiAZ                          bool `xml:"MultiAZ"`
 	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
 	MultiTenant                      bool `xml:"MultiTenant,omitempty"`
+}
+
+type xmlStatusInfo struct {
+	StatusType string `xml:"StatusType"`
+	Status     string `xml:"Status"`
+	Message    string `xml:"Message,omitempty"`
+	Normal     bool   `xml:"Normal"`
+}
+
+type xmlStatusInfoList struct {
+	Members []xmlStatusInfo `xml:"DBInstanceStatusInfo"`
+}
+
+func xmlStatusInfos(infos []DBInstanceStatusInfo) *xmlStatusInfoList {
+	if len(infos) == 0 {
+		return nil
+	}
+
+	members := make([]xmlStatusInfo, 0, len(infos))
+	for _, si := range infos {
+		members = append(members, xmlStatusInfo(si))
+	}
+
+	return &xmlStatusInfoList{Members: members}
 }
 
 type xmlEndpoint struct {
@@ -911,6 +940,13 @@ func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, er
 	}
 	opts := parseRestoreDBInstanceOptions(vals)
 
+	var err error
+	if opts.RestoreTime, err = parseRestoreTime(vals, "RestoreTime"); err != nil {
+		return nil, err
+	}
+
+	opts.UseLatestRestorableTime = vals.Get("UseLatestRestorableTime") == formTrue
+
 	inst, err := h.Backend.RestoreDBInstanceToPointInTime(id, sourceID, opts)
 	if err != nil {
 		return nil, err
@@ -1020,6 +1056,21 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 		Xmlns:      rdsXMLNS,
 		DBInstance: toXMLInstance(inst, h.Backend.InstanceAssociatedRoles(inst.DBInstanceIdentifier)),
 	}, nil
+}
+
+// parseRestoreTime reads an ISO8601 timestamp parameter; absent yields the zero time.
+func parseRestoreTime(vals url.Values, key string) (time.Time, error) {
+	raw := vals.Get(key)
+	if raw == "" {
+		return time.Time{}, nil
+	}
+
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: %s %q is not a valid timestamp", ErrInvalidParameter, key, raw)
+	}
+
+	return t.UTC(), nil
 }
 
 // rejectRestoreTimeConflict enforces the SDK-documented exclusivity of the

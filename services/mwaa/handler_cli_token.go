@@ -22,7 +22,7 @@ func (h *Handler) handleCreateCliToken(c *echo.Context, name string) error {
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
 		"CliToken":          token,
-		"WebServerHostname": hostname,
+		"WebServerHostname": h.webHostname(c, hostname),
 	})
 
 	return nil

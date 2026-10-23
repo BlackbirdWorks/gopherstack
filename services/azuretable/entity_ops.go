@@ -119,16 +119,24 @@ func (h *Handler) queryEntities(c *echo.Context, table string) error {
 		filter = node
 	}
 
-	infos, err := h.Backend.QueryEntities(table, filter, top)
+	page, err := h.Backend.QueryEntitiesPage(
+		table, filter, top, c.QueryParam(headerNextPartitionKeyParam), c.QueryParam(headerNextRowKeyParam),
+	)
 	if err != nil {
 		return h.writeTableNotFoundError(c)
+	}
+
+	if page.HasMore {
+		hdr := c.Response().Header()
+		hdr.Set(headerNextPartitionKey, page.NextPartitionKey)
+		hdr.Set(headerNextRowKey, page.NextRowKey)
 	}
 
 	level := odataLevelFromAccept(c.Request().Header.Get("Accept"))
 	selectParam := c.QueryParam("$select")
 
-	values := make([]map[string]any, 0, len(infos))
-	for _, info := range infos {
+	values := make([]map[string]any, 0, len(page.Entities))
+	for _, info := range page.Entities {
 		values = append(values, h.encodeEntity(info, table, level, selectParam))
 	}
 

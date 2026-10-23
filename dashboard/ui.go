@@ -44,8 +44,11 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	azureappconfigbackend "github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
+	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -90,13 +93,18 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
+	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	gcpsqlbackend "github.com/blackbirdworks/gopherstack/services/gcpsql"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -511,6 +519,8 @@ type Config struct {
 	AzureARMOps *azurearmbackend.Handler
 	// GCPStorageOps is dispatched in-process by the /dashboard/api/v1/gcp/storage proxy.
 	GCPStorageOps *gcpstoragebackend.Handler
+	// GCPBigQueryOps is dispatched in-process by the /dashboard/api/v1/gcp/bigquery proxy.
+	GCPBigQueryOps *gcpbigquerybackend.Handler
 	// GCPPubSubOps and GCPSecretManagerOps are called in-process by their dashboard proxies.
 	GCPPubSubOps        *gcppubsubbackend.Handler
 	GCPSecretManagerOps *gcpsecretmanagerbackend.Handler
@@ -520,6 +530,10 @@ type Config struct {
 	GCPCloudTasksOps *gcpcloudtasksbackend.Handler
 	// GCPSchedulerOps is called in-process by the /dashboard/api/v1/gcp/scheduler proxy.
 	GCPSchedulerOps *gcpschedulerbackend.Handler
+	// GCPRunOps is called in-process by the /dashboard/api/v1/gcp/run proxy.
+	GCPRunOps *gcprunbackend.Handler
+	// GCPFunctionsOps is called in-process by the /dashboard/api/v1/gcp/functions proxy.
+	GCPFunctionsOps *gcpfunctionsbackend.Handler
 	// GCPIAMOps is called in-process by the /dashboard/api/v1/gcp/iam proxy.
 	GCPIAMOps *gcpiambackend.Handler
 	// GCPFirestoreOps is called in-process by the /dashboard/api/v1/gcp/firestore proxy.
@@ -534,6 +548,16 @@ type Config struct {
 	AzureServiceBusOps *azureservicebusbackend.Handler
 	// AzureKeyVaultOps is dispatched in-process by the /dashboard/api/v1/azure/keyvault proxy.
 	AzureKeyVaultOps *azurekeyvaultbackend.Handler
+	// AzureEventHubsOps is called in-process by the /dashboard/api/v1/azure/eventhubs proxy.
+	AzureEventHubsOps *azureeventhubsbackend.Handler
+	// AzureEventGridOps is called in-process by the /dashboard/api/v1/azure/eventgrid proxy.
+	AzureEventGridOps *azureeventgridbackend.Handler
+	// AzureAppConfigOps is called in-process by the /dashboard/api/v1/azure/appconfig proxy.
+	AzureAppConfigOps *azureappconfigbackend.Handler
+	// GCPSQLOps is dispatched in-process by the /dashboard/api/v1/gcp/sql proxy.
+	GCPSQLOps *gcpsqlbackend.Handler
+	// GCPLoggingOps is called in-process by the /dashboard/api/v1/gcp/logging proxy.
+	GCPLoggingOps *gcploggingbackend.Handler
 	// AzureCosmosOps is dispatched in-process by the /dashboard/api/v1/azure/cosmos proxy.
 	AzureCosmosOps *cosmosdbbackend.Handler
 	// CognitoIDPOps provides access to the Cognito IDP backend.
@@ -773,18 +797,27 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureARMRoutes()
 	h.registerAzureBlobRoutes()
 	h.registerGCPStorageRoutes()
+	h.registerGCPBigQueryRoutes()
 	h.registerGCPPubSubRoutes()
 	h.registerGCPSecretManagerRoutes()
 	h.registerGCPKMSRoutes()
 	h.registerGCPCloudTasksRoutes()
 	h.registerGCPSchedulerRoutes()
+	h.registerGCPRunRoutes()
+	h.registerGCPFunctionsRoutes()
 	h.registerGCPIAMRoutes()
 	h.registerGCPFirestoreRoutes()
 	h.registerAzureQueueRoutes()
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()
 	h.registerAzureCosmosRoutes()
+	h.registerAzureCosmosTableRoutes()
 	h.registerAzureKeyVaultRoutes()
+	h.registerAzureEventHubsRoutes()
+	h.registerAzureEventGridRoutes()
+	h.registerAzureAppConfigRoutes()
+	h.registerGCPSQLRoutes()
+	h.registerGCPLoggingRoutes()
 	h.registerSTSMetricsRoute()
 	h.registerCodeStarConnectionsMutationRoutes()
 	h.registerCognitoUserPoolRoutes()
@@ -853,11 +886,6 @@ func (h *DashboardHandler) registerSystemRoutes() {
 			defaultPortRangeEnd   = 10000
 		)
 
-		type allocatedPort struct {
-			Label string `json:"label"`
-			Port  int    `json:"port"`
-		}
-
 		portRangeStart := defaultPortRangeStart
 		portRangeEnd := defaultPortRangeEnd
 		if h.ConfigManager != nil {
@@ -870,17 +898,7 @@ func (h *DashboardHandler) registerSystemRoutes() {
 			}
 		}
 
-		allocated := make([]allocatedPort, 0)
-		if h.config.PortAlloc != nil {
-			snapshot := h.config.PortAlloc.Allocated()
-			allocated = make([]allocatedPort, 0, len(snapshot))
-			for port, label := range snapshot {
-				allocated = append(allocated, allocatedPort{Port: port, Label: label})
-			}
-			sort.Slice(allocated, func(i, j int) bool {
-				return allocated[i].Port < allocated[j].Port
-			})
-		}
+		allocated := CollectAllocatedPorts(h.config.PortAlloc)
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"portRangeStart": portRangeStart,
@@ -2051,7 +2069,12 @@ func (h *DashboardHandler) registerSPAFallbackRoutes() {
 	// SPA fallback
 	h.SubRouter.Any("/dashboard/*", h.spaFallbackHandler())
 	h.SubRouter.Any("/dashboard", func(c *echo.Context) error {
-		return c.Redirect(http.StatusMovedPermanently, "/dashboard/")
+		target := "/dashboard/"
+		if q := c.Request().URL.RawQuery; q != "" {
+			target += "?" + q
+		}
+
+		return c.Redirect(http.StatusMovedPermanently, target)
 	})
 }
 

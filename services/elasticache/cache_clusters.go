@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -37,9 +39,12 @@ func defaultEngineVersion(engine string) string {
 // pass-through port) for a cluster, produced outside the backend lock.
 type clusterEngine struct {
 	mini          *miniredis.Miniredis
+	front         *sgfilter.Proxy
+	gate          *redisengine.Gate
 	connectAddr   string
 	port          int
 	allocatedPort int
+	svcPort       int
 }
 
 // startClusterEngine starts the data-plane engine for a cluster WITHOUT holding
@@ -56,13 +61,16 @@ func (b *InMemoryBackend) startClusterEngine(port int) (*clusterEngine, error) {
 		return &clusterEngine{port: p}, nil
 	}
 
-	re, err := redisengine.Start(b.allocator, "elasticache")
+	re, err := b.startRedis()
 	if err != nil {
 		return nil, err
 	}
 
 	return &clusterEngine{
 		mini:          re.Mini,
+		front:         re.Front,
+		gate:          re.Gate,
+		svcPort:       cmp.Or(port, defaultRedisPort),
 		connectAddr:   re.Addr(),
 		port:          re.Port,
 		allocatedPort: re.AllocatedPort,
@@ -74,6 +82,9 @@ func (b *InMemoryBackend) startClusterEngine(port int) (*clusterEngine, error) {
 func (b *InMemoryBackend) releaseEngine(eng *clusterEngine) {
 	if eng == nil {
 		return
+	}
+	if eng.front != nil {
+		eng.front.Close()
 	}
 	if eng.mini != nil {
 		eng.mini.Close()
@@ -115,6 +126,8 @@ func (b *InMemoryBackend) insertClusterLocked(
 		PreferredMaintenanceWindow: maintenanceWindow,
 		SnapshotWindow:             snapshotWindow,
 		mini:                       eng.mini,
+		front:                      eng.front,
+		gate:                       eng.gate,
 		Port:                       eng.port,
 		AllocatedPort:              eng.allocatedPort,
 		ConnectAddress:             eng.connectAddr,
@@ -126,6 +139,7 @@ func (b *InMemoryBackend) insertClusterLocked(
 	b.registerClusterDNSLocked(c)
 
 	b.clustersStore(region).Put(c)
+	b.armGateLocked(c, eng.svcPort)
 	b.appendEventLocked(id, "cache-cluster", "cluster created")
 
 	return c
@@ -263,7 +277,7 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, id string) error {
 	// engine stays live and the entry is reaped by the next write op once the
 	// deadline passes. Without a delay (default), delete synchronously.
 	if d := b.pendingUntil(); !d.IsZero() {
-		handoverEngineLocked(tbl, c)
+		b.handoverEngineLocked(tbl, c)
 		c.PendingStatus = statusDeleting
 		c.AvailableAt = d
 		b.appendEventLocked(id, "cache-cluster", "cluster deleting")

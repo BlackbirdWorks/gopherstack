@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -76,8 +78,11 @@ func (b *InMemoryBackend) GenerateEmbedURLForAnonymousUser(
 	}
 
 	sessionID := uuid.New().String()
-	anonymousUserArn := fmt.Sprintf(
-		"arn:aws:quicksight:%s:%s:user/%s/embed-session-%s", b.region, accountID, namespace, sessionID,
+	anonymousUserArn := arn.Build(
+		"quicksight",
+		b.region,
+		accountID,
+		fmt.Sprintf("user/%s/embed-session-%s", namespace, sessionID),
 	)
 
 	return b.generateEmbedURL(experienceResourceHint(experienceConfiguration)), anonymousUserArn, nil

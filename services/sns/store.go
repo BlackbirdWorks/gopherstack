@@ -334,6 +334,14 @@ func (b *InMemoryBackend) WaitDeliveries() {
 	// can race with WaitDeliveries.
 	b.closing.Store(true)
 	b.deliveryWg.Wait()
+
+	b.mu.RLock("WaitDeliveries")
+	client := b.httpClient
+	b.mu.RUnlock()
+
+	if client != nil {
+		client.CloseIdleConnections()
+	}
 }
 
 // Purge removes all SNS resources created before the given cutoff time.

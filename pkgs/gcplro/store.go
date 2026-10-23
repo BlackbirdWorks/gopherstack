@@ -81,6 +81,19 @@ func (s *Store) Lookup(name string) (*longrunningpb.Operation, bool) {
 	return clone(op), true
 }
 
+// AbortPending resolves every unfinished operation with st, for operations whose worker did not survive a restore.
+func (s *Store) AbortPending(st *status.Status) {
+	s.mu.Lock("AbortPending")
+	defer s.mu.Unlock()
+
+	for _, op := range s.ops {
+		if !op.GetDone() {
+			op.Done = true
+			op.Result = &longrunningpb.Operation_Error{Error: st.Proto()}
+		}
+	}
+}
+
 // Reset drops every operation.
 func (s *Store) Reset() {
 	s.mu.Lock("Reset")

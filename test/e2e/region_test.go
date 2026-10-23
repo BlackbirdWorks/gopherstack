@@ -206,6 +206,7 @@ func switchRegion(t *testing.T, page playwright.Page, region string) {
 // spec), and instead sticks to the part of the fix that is real and
 // verified.
 func TestE2E_Region_ClientConstructionHonorsSelector(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -296,6 +297,7 @@ func waitForDynamoDBPage(t *testing.T, page playwright.Page) {
 //     one ListTables request per mount/refetch (no per-table DescribeTable
 //     fan-out to complicate request counting).
 func TestE2E_Region_MidSessionSwitchRefetchesWithNewRegion(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -334,6 +336,7 @@ func TestE2E_Region_MidSessionSwitchRefetchesWithNewRegion(t *testing.T) {
 }
 
 func TestE2E_Region_AdminFetchCarriesRegionHeader(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

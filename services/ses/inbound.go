@@ -27,8 +27,10 @@ type InboundLambdaInvoker interface {
 
 // InboundConfig configures the opt-in inbound SMTP listener.
 type InboundConfig struct {
-	Addr    string
-	MaxSize int64
+	// RegionAddrs maps a region to an extra listener whose mail is processed by that region's rule sets.
+	RegionAddrs map[string]string
+	Addr        string
+	MaxSize     int64
 }
 
 // InboundExecution records one rule's run against a received message.
@@ -47,8 +49,12 @@ type InboundMessage struct {
 	MessageID  string
 	Source     string
 	ClientIP   string
+	SPF        string
+	DKIM       string
+	DMARC      string
 	Recipients []string
 	Executions []InboundExecution
+	Notes      []string
 	Size       int
 	TLS        bool
 }
@@ -91,6 +97,8 @@ func (b *InMemoryBackend) recordInbound(m InboundMessage) {
 type inboundPlan struct {
 	store      InboundObjectStore
 	lambda     InboundLambdaInvoker
+	kms        InboundKMS
+	dns        InboundTXTResolver
 	sns        SNSPublisher
 	rules      []ReceiptRule
 	ruleSet    string
@@ -104,7 +112,7 @@ func (b *InMemoryBackend) inboundSnapshot() inboundPlan {
 	defer b.mu.RUnlock()
 
 	p := inboundPlan{
-		store: b.inboundStore, lambda: b.inboundLambda, sns: b.snsPublisher,
+		store: b.inboundStore, lambda: b.inboundLambda, sns: b.snsPublisher, kms: b.inboundKMS, dns: b.inboundDNS,
 		ruleSet: b.activeRuleSet, accountID: b.accountID, region: b.region,
 	}
 

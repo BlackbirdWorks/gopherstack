@@ -32,25 +32,62 @@ const (
 	ReasonUnresolvedCaller = "unresolved-principal"
 )
 
+// Deny-kind values recorded on a denied Event.
+const (
+	DenyExplicit = "explicit"
+	DenyImplicit = "implicit"
+)
+
+// Policy-type values recorded on a PolicyRef.
+const (
+	PolicyManaged  = "managed"
+	PolicyInline   = "inline"
+	PolicyResource = "resource"
+	PolicyBoundary = "permission-boundary"
+	PolicyIdentity = "identity"
+)
+
+// PolicyRef names the policy that produced the deciding statement. Owner is the
+// principal (user/NAME, group/NAME, role/NAME) for an inline policy and the
+// resource ARN for a resource policy.
+type PolicyRef struct {
+	Type  string `json:"type"`
+	Arn   string `json:"arn,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Owner string `json:"owner,omitempty"`
+}
+
+// BoundaryRef records how the caller's permissions boundary evaluated the
+// request. Matched is false when no boundary statement applied.
+type BoundaryRef struct {
+	Arn          string `json:"arn,omitempty"`
+	Sid          string `json:"sid,omitempty"`
+	StatementIdx int    `json:"statementIndex"`
+	Matched      bool   `json:"matched"`
+}
+
 // Event is one evaluated request.
 type Event struct {
-	Time         time.Time `json:"timestamp"`
-	RequestID    string    `json:"requestId,omitempty"`
-	Service      string    `json:"service"`
-	Operation    string    `json:"operation"`
-	Action       string    `json:"action"`
-	Resource     string    `json:"resource"`
-	Principal    string    `json:"principal"`
-	Decision     string    `json:"decision"`
-	Reason       string    `json:"reason,omitempty"`
-	MatchedSid   string    `json:"matchedSid,omitempty"`
-	MatchedBy    string    `json:"matchedBy,omitempty"`
-	Suggested    *Policy   `json:"suggestedPolicy,omitempty"`
-	ConditionKey []string  `json:"conditionKeys,omitempty"`
-	Seq          uint64    `json:"seq"`
-	StatementIdx int       `json:"matchedStatementIndex"`
-	PolicyIdx    int       `json:"matchedPolicyIndex"`
-	Enforced     bool      `json:"enforced"`
+	Time         time.Time    `json:"timestamp"`
+	RequestID    string       `json:"requestId,omitempty"`
+	Service      string       `json:"service"`
+	Operation    string       `json:"operation"`
+	Action       string       `json:"action"`
+	Resource     string       `json:"resource"`
+	Principal    string       `json:"principal"`
+	Decision     string       `json:"decision"`
+	Reason       string       `json:"reason,omitempty"`
+	MatchedSid   string       `json:"matchedSid,omitempty"`
+	MatchedBy    string       `json:"matchedBy,omitempty"`
+	DenyType     string       `json:"denyType,omitempty"`
+	Policy       *PolicyRef   `json:"policy,omitempty"`
+	Boundary     *BoundaryRef `json:"boundary,omitempty"`
+	Suggested    *Policy      `json:"suggestedPolicy,omitempty"`
+	ConditionKey []string     `json:"conditionKeys,omitempty"`
+	Seq          uint64       `json:"seq"`
+	StatementIdx int          `json:"matchedStatementIndex"`
+	PolicyIdx    int          `json:"matchedPolicyIndex"`
+	Enforced     bool         `json:"enforced"`
 }
 
 // Recorder is a bounded, concurrency-safe event ring with live fan-out.

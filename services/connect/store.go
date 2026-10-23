@@ -129,6 +129,7 @@ func (f family[V]) findARN(resourceARN string) *map[string]string {
 
 // Backend holds all Amazon Connect state behind one coarse lock.
 type Backend struct {
+	extras
 	modules          family[moduleRec]
 	hierarchyGroups  family[hierarchyGroupRec]
 	integrations     family[integrationRec]

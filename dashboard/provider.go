@@ -16,8 +16,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 	"github.com/blackbirdworks/gopherstack/services/autoscaling"
+	"github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
+	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
+	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -35,13 +38,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
+	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
+	"github.com/blackbirdworks/gopherstack/services/gcplogging"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	"github.com/blackbirdworks/gopherstack/services/gcprun"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	"github.com/blackbirdworks/gopherstack/services/gcpsql"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/iot"
@@ -145,6 +153,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		conf.AzureCosmosOps, _ = getHandler[*cosmosdb.Handler](cp.GetCosmosDBHandler())
 	}
 
+	linkCloudExtras(&conf, ctx.Config)
+
 	h := NewHandler(conf)
 
 	return h, nil
@@ -208,6 +218,10 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 		conf.GCPStorageOps, _ = getHandler[*gcpstorage.Handler](gp.GetGCPStorageHandler())
 	}
 
+	if gp, hasBQ := ctx.Config.(interface{ GetGCPBigQueryHandler() service.Registerable }); hasBQ {
+		conf.GCPBigQueryOps, _ = getHandler[*gcpbigquery.Handler](gp.GetGCPBigQueryHandler())
+	}
+
 	if gp, hasPubSub := ctx.Config.(interface{ GetGCPPubSubHandler() service.Registerable }); hasPubSub {
 		conf.GCPPubSubOps, _ = getHandler[*gcppubsub.Handler](gp.GetGCPPubSubHandler())
 	}
@@ -232,7 +246,39 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 		conf.GCPSchedulerOps, _ = getHandler[*gcpscheduler.Handler](gp.GetGCPSchedulerHandler())
 	}
 
+	if gp, hasRun := ctx.Config.(interface{ GetGCPRunHandler() service.Registerable }); hasRun {
+		conf.GCPRunOps, _ = getHandler[*gcprun.Handler](gp.GetGCPRunHandler())
+	}
+
+	if gp, hasFn := ctx.Config.(interface{ GetGCPFunctionsHandler() service.Registerable }); hasFn {
+		conf.GCPFunctionsOps, _ = getHandler[*gcpfunctions.Handler](gp.GetGCPFunctionsHandler())
+	}
+
 	if gp, hasIAM := ctx.Config.(interface{ GetGCPIAMHandler() service.Registerable }); hasIAM {
 		conf.GCPIAMOps, _ = getHandler[*gcpiam.Handler](gp.GetGCPIAMHandler())
+	}
+}
+
+// linkCloudExtras resolves the Event Hubs, Event Grid, App Configuration, Cloud SQL and
+// Cloud Logging handlers the dashboard proxies call in-process.
+func linkCloudExtras(conf *Config, cfg any) {
+	if p, ok := cfg.(interface{ GetAzureEventHubsHandler() service.Registerable }); ok {
+		conf.AzureEventHubsOps, _ = getHandler[*azureeventhubs.Handler](p.GetAzureEventHubsHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureEventGridHandler() service.Registerable }); ok {
+		conf.AzureEventGridOps, _ = getHandler[*azureeventgrid.Handler](p.GetAzureEventGridHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureAppConfigHandler() service.Registerable }); ok {
+		conf.AzureAppConfigOps, _ = getHandler[*azureappconfig.Handler](p.GetAzureAppConfigHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPSQLHandler() service.Registerable }); ok {
+		conf.GCPSQLOps, _ = getHandler[*gcpsql.Handler](p.GetGCPSQLHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPLoggingHandler() service.Registerable }); ok {
+		conf.GCPLoggingOps, _ = getHandler[*gcplogging.Handler](p.GetGCPLoggingHandler())
 	}
 }

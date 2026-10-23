@@ -2,6 +2,7 @@ package elasticache
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
@@ -9,6 +10,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -18,6 +21,8 @@ type Cluster struct {
 	AvailableAt                time.Time
 	CreatedAt                  time.Time
 	mini                       *miniredis.Miniredis
+	front                      *sgfilter.Proxy
+	gate                       *redisengine.Gate
 	Tags                       *tags.Tags
 	AutoMinorVersionUpgrade    *bool
 	KmsKeyID                   string
@@ -519,6 +524,7 @@ type dnsRecordRegistrar interface {
 // same-named resources in different regions are fully isolated. GlobalReplicationGroups
 // are global/partition-scoped (like AWS) and therefore are NOT region-nested.
 type InMemoryBackend struct {
+	sgEnforcer                atomic.Pointer[sgfilter.Enforcer]
 	dnsRegistrar              DNSRegistrar
 	registry                  *store.Registry
 	globalReplicationGroups   *store.Table[GlobalReplicationGroup]

@@ -34,6 +34,12 @@ type StorageBackend interface {
 		topicArn, message, subject, messageStructure string,
 		attrs map[string]MessageAttribute,
 	) (string, error)
+	// PublishContext is Publish carrying the originating request's context.
+	PublishContext(
+		ctx context.Context,
+		topicArn, message, subject, messageStructure string,
+		attrs map[string]MessageAttribute,
+	) (string, error)
 	// PublishToTargetArn publishes directly to a platform endpoint ARN.
 	// In the mock, this generates and returns a unique message ID without real delivery.
 	PublishToTargetArn(

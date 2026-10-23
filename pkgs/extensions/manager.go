@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 // Status is an extension's lifecycle state.
@@ -202,24 +202,6 @@ func newToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-var errNotTCP = errors.New("listener is not tcp")
-
-func freePort() (int, error) {
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-
-	defer func() { _ = l.Close() }()
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, errNotTCP
-	}
-
-	return addr.Port, nil
-}
-
 // prepare issues a fresh token and port. The previous registration stays until the new
 // incarnation registers, so claimed routes answer 503 rather than falling through to built-ins.
 func (m *Manager) prepare(e *extension) (string, int, error) {
@@ -230,13 +212,17 @@ func (m *Manager) prepare(e *extension) (string, int, error) {
 
 	port := e.spec.Port
 	if port == 0 {
-		if port, err = freePort(); err != nil {
+		if port, err = portalloc.AcquireEphemeral(); err != nil {
 			return "", 0, err
 		}
 	}
 
 	m.mu.Lock("prepare")
 	defer m.mu.Unlock()
+
+	if e.spec.Port == 0 && e.port != 0 {
+		portalloc.ReleaseEphemeral(e.port)
+	}
 
 	e.token, e.port = token, port
 	e.registered = make(chan struct{})

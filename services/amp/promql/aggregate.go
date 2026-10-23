@@ -3,6 +3,7 @@ package promql
 import (
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -15,6 +16,10 @@ func (e *Engine) evalAggregation(a *Aggregation, t int64) (Value, error) {
 	vec, err := e.instantArg(a.Expr, t, a.Op)
 	if err != nil {
 		return nil, err
+	}
+
+	if a.Op == opCountValues {
+		return e.countValues(a, vec, t)
 	}
 
 	param := 0.0
@@ -151,3 +156,45 @@ func quantile(q float64, vals []float64) float64 {
 
 	return sorted[int(lo)]*(1-(rank-lo)) + sorted[int(hi)]*(rank-lo)
 }
+
+const opCountValues = "count_values"
+
+func (e *Engine) countValues(a *Aggregation, vec Vector, t int64) (Value, error) {
+	label, err := e.stringArg(a.Param, t, a.Op)
+	if err != nil {
+		return nil, err
+	}
+
+	if !validLabelName(label) {
+		return nil, evalErr("invalid label name %q", label)
+	}
+
+	counts := map[string]*VectorSample{}
+	order := []string{}
+
+	for _, s := range vec {
+		gl := s.Metric.without(NameLabel).pick(a.Grouping, !a.Without)
+		gl[label] = formatFloat(s.V)
+		k := Fingerprint(gl)
+
+		c, ok := counts[k]
+		if !ok {
+			c = &VectorSample{Metric: gl, T: t}
+			counts[k] = c
+			order = append(order, k)
+		}
+
+		c.V++
+	}
+
+	out := make(Vector, 0, len(order))
+	for _, k := range order {
+		out = append(out, *counts[k])
+	}
+
+	sortVector(out)
+
+	return out, nil
+}
+
+func formatFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }

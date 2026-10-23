@@ -3,6 +3,7 @@ package rds
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 
@@ -86,6 +87,14 @@ func (s *portSwitch) commit() {
 		return
 	default:
 	}
+
+	if s.port <= 0 || s.port > math.MaxUint16 {
+		s.abort()
+
+		return
+	}
+
+	s.lb.dbPort.Store(int32(s.port))
 
 	if s.lb.kind == enginePostgres {
 		p := &pgProxy{be: s.be, lb: s.lb, ln: s.ln, port: s.port, tlsCfg: s.be.engine.serverTLS()}

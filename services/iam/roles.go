@@ -18,11 +18,17 @@ import (
 func (b *InMemoryBackend) CreateRole(
 	roleName, path, assumeRolePolicyDocument, permissionsBoundary string,
 ) (*Role, error) {
+	limit := b.quotaLimit(quotaRoles)
+
 	b.mu.Lock("CreateRole")
 	defer b.mu.Unlock()
 
 	if _, exists := b.roles.Get(roleName); exists {
 		return nil, fmt.Errorf("%w: role %q already exists", ErrRoleAlreadyExists, roleName)
+	}
+
+	if limit.Reached(len(b.sortedRoleNames)) {
+		return nil, quotaExceeded("RolesPerAccount", limit)
 	}
 
 	if assumeRolePolicyDocument != "" && !json.Valid([]byte(assumeRolePolicyDocument)) {
@@ -742,8 +748,8 @@ func (b *InMemoryBackend) validateAWSPrincipal(a string, i int) error {
 		accountID := parts[4]
 		resource := parts[5]
 
-		if accountID != b.accountID && accountID != "" && !b.knownAccount(accountID) {
-			return fmt.Errorf("%w: invalid cross-account principal", ErrMalformedPolicyDocument)
+		if accountID != "" && !isAccountID(accountID) {
+			return fmt.Errorf("%w: invalid principal in policy", ErrMalformedPolicyDocument)
 		}
 		if accountID == b.accountID {
 			if err := b.validatePrincipalResource(resource); err != nil {

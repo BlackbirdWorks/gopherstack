@@ -15,11 +15,17 @@ import (
 
 // CreateUser creates a new IAM user.
 func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string) (*User, error) {
+	limit := b.quotaLimit(quotaUsers)
+
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
 	if _, exists := b.users.Get(userName); exists {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, userName)
+	}
+
+	if limit.Reached(len(b.sortedUserNames)) {
+		return nil, quotaExceeded("UsersPerAccount", limit)
 	}
 
 	if err := b.requireBoundaryLocked(permissionsBoundary); err != nil {

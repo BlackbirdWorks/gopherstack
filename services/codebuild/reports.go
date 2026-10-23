@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -32,7 +33,7 @@ func (b *InMemoryBackend) CreateReportGroup(
 		Arn:          b.buildReportGroupARN(name),
 		Name:         name,
 		Type:         rtype,
-		Status:       "ACTIVE",
+		Status:       reportGroupActive,
 		ExportConfig: exportConfig,
 		Tags:         tagsCopy,
 		Created:      now,
@@ -114,6 +115,7 @@ func (b *InMemoryBackend) DeleteReport(arnStr string) error {
 	defer b.mu.Unlock()
 
 	b.reports.Delete(arnStr)
+	b.reportDetails.Delete(arnStr)
 
 	return nil
 }
@@ -195,6 +197,7 @@ func (b *InMemoryBackend) DeleteReportGroup(arnStr string, deleteReports bool) e
 
 		for _, r := range group {
 			b.reports.Delete(r.Arn)
+			b.reportDetails.Delete(r.Arn)
 		}
 	}
 
@@ -269,20 +272,57 @@ func (b *InMemoryBackend) ListSharedReportGroups() []string {
 	return []string{}
 }
 
-// DescribeCodeCoverages returns an empty list; no coverage-content ingestion
-// pipeline exists. Unlike DescribeTestCases/GetReportGroupTrend below, this
-// op's real error set has no ResourceNotFoundException (botocore
-// codebuild/2016-10-06/service-2.json operations.DescribeCodeCoverages.errors:
-// only InvalidInputException), so a nonexistent reportArn is correctly not
-// rejected here.
-func (b *InMemoryBackend) DescribeCodeCoverages(_ string) ([]CodeCoverage, error) {
-	return []CodeCoverage{}, nil
+// CoverageQuery narrows and orders DescribeCodeCoverages results.
+type CoverageQuery struct {
+	MinLine   *float64
+	MaxLine   *float64
+	SortBy    string
+	SortOrder string
 }
 
-// DescribeTestCases returns an empty list once reportArn is confirmed to
-// exist; no test-case-content ingestion pipeline exists. Real AWS declares
-// ResourceNotFoundException for this op (unlike DescribeCodeCoverages).
-func (b *InMemoryBackend) DescribeTestCases(reportArn string) ([]TestCase, error) {
+// TestCaseQuery narrows DescribeTestCases results (status exact, keyword on name or prefix).
+type TestCaseQuery struct {
+	Status  string
+	Keyword string
+}
+
+// DescribeCodeCoverages returns the per-file coverage parsed from the report. Unlike
+// DescribeTestCases/GetReportGroupTrend, the real op declares no ResourceNotFoundException
+// (botocore codebuild/2016-10-06/service-2.json), so an unknown reportArn yields an empty list.
+func (b *InMemoryBackend) DescribeCodeCoverages(reportArn string, q CoverageQuery) ([]CodeCoverage, error) {
+	b.mu.RLock("DescribeCodeCoverages")
+	defer b.mu.RUnlock()
+
+	out := []CodeCoverage{}
+
+	if d, ok := b.reportDetails.Get(reportArn); ok {
+		for _, c := range d.Coverages {
+			if (q.MinLine == nil || c.LineCoveragePercentage >= *q.MinLine) &&
+				(q.MaxLine == nil || c.LineCoveragePercentage <= *q.MaxLine) {
+				out = append(out, c)
+			}
+		}
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		x, y := out[i], out[j]
+		if q.SortOrder == "DESCENDING" {
+			x, y = y, x
+		}
+
+		if q.SortBy == "LINE_COVERAGE_PERCENTAGE" && x.LineCoveragePercentage != y.LineCoveragePercentage {
+			return x.LineCoveragePercentage < y.LineCoveragePercentage
+		}
+
+		return x.FilePath < y.FilePath
+	})
+
+	return out, nil
+}
+
+// DescribeTestCases returns the test cases parsed from the report; real AWS declares
+// ResourceNotFoundException for an unknown reportArn (unlike DescribeCodeCoverages).
+func (b *InMemoryBackend) DescribeTestCases(reportArn string, q TestCaseQuery) ([]TestCase, error) {
 	b.mu.RLock("DescribeTestCases")
 	defer b.mu.RUnlock()
 
@@ -290,7 +330,18 @@ func (b *InMemoryBackend) DescribeTestCases(reportArn string) ([]TestCase, error
 		return nil, ErrNotFound
 	}
 
-	return []TestCase{}, nil
+	out := []TestCase{}
+
+	if d, ok := b.reportDetails.Get(reportArn); ok {
+		for _, tc := range d.TestCases {
+			if (q.Status == "" || tc.Status == q.Status) &&
+				(q.Keyword == "" || strings.Contains(tc.Name, q.Keyword) || strings.Contains(tc.Prefix, q.Keyword)) {
+				out = append(out, tc)
+			}
+		}
+	}
+
+	return out, nil
 }
 
 // GetReportGroupTrend returns an empty stats map once reportGroupArn is

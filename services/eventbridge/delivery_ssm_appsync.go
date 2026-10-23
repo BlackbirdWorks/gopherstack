@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // arnParts is the field count of arn:partition:service:region:account:resource.
@@ -49,15 +51,15 @@ type AppSyncExecutor interface {
 }
 
 func isSSMDocumentARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:ssm:") && strings.Contains(arn, ":document/")
+	return arnpkg.HasService(arn, "ssm") && strings.Contains(arn, ":document/")
 }
 
 func isSSMAutomationARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:ssm:") && strings.Contains(arn, ":automation-definition/")
+	return arnpkg.HasService(arn, "ssm") && strings.Contains(arn, ":automation-definition/")
 }
 
 func isAppSyncARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:appsync:") && strings.Contains(arn, ":apis/")
+	return arnpkg.HasService(arn, "appsync") && strings.Contains(arn, ":apis/")
 }
 
 func arnRegionOf(arn string) string {

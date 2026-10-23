@@ -46,3 +46,13 @@ Auth verification is off by default for all four gopherstack Azure services (see
 ## Go driver
 
 `../azure_crosssdk_test.go`'s `TestE2E_AzureCrossSDK` skips cleanly (not a failure) when `node`, `python3`, or either script's SDK dependencies are missing, so `go test -tags=e2e ./test/e2e/...` still passes on a bare dev machine.
+
+## AWS suites
+
+`aws_smoke.py` (boto3), `aws_smoke.mjs` (AWS SDK v3) and `aws_cli_smoke.sh` (AWS CLI + jq) exercise common S3/DynamoDB/SQS/SNS/Lambda/STS/IAM/Secrets Manager/KMS/Logs/EventBridge/Step Functions flows (the CLI suite also covers CloudFormation deploy). Each prints `PASS`/`FAIL` per case and exits non-zero on failure; Lambda cases skip when docker is unavailable or `GS_SKIP_LAMBDA=1`.
+
+```bash
+test/e2e/crosssdk/run_aws_suites.sh /path/to/gopherstack   # starts the binary on a free port, runs all three, stops it
+```
+
+Or point them at a running server with `AWS_ENDPOINT_URL=http://localhost:8000`. CI runs this in the `e2e-tests` job.

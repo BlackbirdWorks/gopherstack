@@ -12,6 +12,7 @@ import (
 
 // TestCloudFrontDashboard verifies the CloudFront dashboard UI renders distributions.
 func TestCloudFrontDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	rawConfig := `<DistributionConfig>` +
@@ -57,6 +58,7 @@ func TestCloudFrontDashboard(t *testing.T) {
 
 // TestCloudFrontDashboard_Empty verifies the CloudFront dashboard empty state renders correctly.
 func TestCloudFrontDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -126,6 +127,7 @@ type DBInstance struct {
 	ResumeFullAutomationModeTime       time.Time                    `json:"resumeFullAutomationModeTime,omitzero"`
 	AutomationMode                     string                       `json:"automationMode,omitempty"`
 	InstanceCreateTime                 time.Time                    `json:"instanceCreateTime"`
+	LatestRestorableTime               time.Time                    `json:"-"`
 	PendingModifiedValues              *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
 	EngineLifecycleSupport             string                       `json:"engineLifecycleSupport,omitempty"`
 	DBSubnetGroupName                  string                       `json:"dbSubnetGroupName"`
@@ -160,6 +162,7 @@ type DBInstance struct {
 	NetworkType                        string                       `json:"networkType,omitempty"`
 	VpcSecurityGroups                  []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
 	DBSecurityGroups                   []DBSecurityGroupMembership  `json:"dbSecurityGroups,omitempty"`
+	StatusInfos                        []DBInstanceStatusInfo       `json:"-"`
 	ReadReplicaIdentifiers             []string                     `json:"readReplicaIdentifiers,omitempty"`
 	EnabledCloudwatchLogsExports       []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
 	PerformanceInsightsRetentionPeriod int                          `json:"performanceInsightsRetentionPeriod,omitempty"`
@@ -287,6 +290,8 @@ type ServerlessV2ScalingConfiguration struct {
 type DBCluster struct {
 	MasterSecret
 	ClusterCreateTime         time.Time                         `json:"clusterCreateTime"`
+	EarliestRestorableTime    time.Time                         `json:"-"`
+	LatestRestorableTime      time.Time                         `json:"-"`
 	ServerlessV2ScalingConfig *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
 
 	MonitoringRoleArn               string `json:"monitoringRoleArn,omitempty"`
@@ -391,6 +396,15 @@ type DBClusterEndpoint struct {
 	EndpointType                string `json:"endpointType"`
 	Status                      string `json:"status"`
 	Endpoint                    string `json:"endpoint"`
+	// StaticMembers and ExcludedMembers are mutually exclusive member selectors.
+	StaticMembers   []string `json:"staticMembers,omitempty"`
+	ExcludedMembers []string `json:"excludedMembers,omitempty"`
+}
+
+// ClusterEndpointOptions selects the member instances behind a custom cluster endpoint.
+type ClusterEndpointOptions struct {
+	StaticMembers   []string
+	ExcludedMembers []string
 }
 
 // ExportTask represents an RDS export task.
@@ -729,6 +743,7 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
+	RestoreTime                  time.Time
 	PinnedDbiResourceID          string
 	SourceDBClusterIdentifier    string
 	DBClusterIdentifier          string
@@ -765,6 +780,7 @@ type DBInstanceOptions struct {
 	MonitoringInterval                 int
 	PerformanceInsightsRetentionPeriod int
 	PromotionTier                      int
+	UseLatestRestorableTime            bool
 	AllowMajorVersionUpgrade           bool
 	MultiAZSet                         bool
 	CopyTagsToSnapshot                 bool
@@ -794,10 +810,10 @@ type CopyDBSnapshotOptions struct {
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
+	RestoreTime                  time.Time
 	ServerlessV2Scaling          *ServerlessV2ScalingConfiguration
-	PreferredBackupWindow        string
-	StorageType                  string
-	DBClusterParameterGroupName  string
+	NetworkType                  string
+	EngineLifecycleSupport       string
 	GlobalClusterIdentifier      string
 	MasterUserPassword           string
 	EngineVersion                string
@@ -805,34 +821,36 @@ type DBClusterOptions struct {
 	DBSubnetGroupName            string
 	DatabaseName                 string
 	PreferredMaintenanceWindow   string
-	MonitoringRoleArn            string
-	NetworkType                  string
-	EngineLifecycleSupport       string
 	ReplicationSourceIdentifier  string
+	DBClusterParameterGroupName  string
+	StorageType                  string
+	MonitoringRoleArn            string
 	OptionGroupName              string
 	ClusterScalabilityType       string
 	DBInstanceParameterGroupName string
 	PerformanceInsightsKMSKeyID  string
-	EnabledCloudwatchLogsExports []string
+	PreferredBackupWindow        string
 	VpcSecurityGroupIDs          []string
 	MasterSecretRequest
 	AvailabilityZones                  []string
-	Port                               int
+	EnabledCloudwatchLogsExports       []string
 	BacktrackWindow                    int64
 	BackupRetentionPeriod              int
 	MonitoringInterval                 int
 	PerformanceInsightsRetentionPeriod int
 	AllocatedStorage                   int
 	Iops                               int
-	StorageEncrypted                   bool
+	Port                               int
+	DeletionProtection                 bool
+	AutoMinorVersionUpgrade            bool
 	PubliclyAccessible                 bool
 	AllowMajorVersionUpgrade           bool
 	StorageEncryptedChanged            bool
 	CopyTagsToSnapshot                 bool
-	DeletionProtection                 bool
+	UseLatestRestorableTime            bool
 	DeletionProtectionSet              bool
 	OptimizedWrites                    bool
-	AutoMinorVersionUpgrade            bool
+	StorageEncrypted                   bool
 	MultiAZ                            bool
 	EnableIAMDatabaseAuthentication    bool
 	EnableGlobalWriteForwarding        bool
@@ -848,6 +866,7 @@ type InMemoryBackend struct {
 	metrics                   cwmetric.Sink
 	dnsRegistrar              DNSRegistrar
 	secrets                   SecretsStore
+	sgEnforcer                *sgfilter.Enforcer
 	engine                    *dbEngine
 	pause                     map[string]*pauseTracker
 	registry                  *store.Registry

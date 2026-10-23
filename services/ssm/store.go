@@ -431,7 +431,7 @@ const (
 	// patch_baseline validates baseline_id against this pattern client-side).
 	baselineIDHexLen           = 17
 	opsItemIDPrefix            = "oi-"
-	opsMetadataArnTpl          = "arn:aws:ssm:%s:%s:opsmetadata/%s"
+	opsMetadataArnTpl          = "opsmetadata/%s"
 	defaultAccountID           = "123456789012"
 	defaultRegion              = "us-east-1"
 	defaultOpsItemStatus       = "Open"

@@ -39,8 +39,14 @@ func (b *InMemoryBackend) allocElasticIP() string {
 
 // AllocateAddress allocates a new Elastic IP address.
 func (b *InMemoryBackend) AllocateAddress() (*Address, error) {
+	limit := b.quotaLimit(quotaServiceEC2, quotaElasticIPs)
+
 	b.mu.Lock("AllocateAddress")
 	defer b.mu.Unlock()
+
+	if limit.Reached(len(b.addresses.All())) {
+		return nil, quotaExceeded(ErrAddressLimitExceeded, "Elastic IP addresses", limit)
+	}
 
 	id := newEIPAllocationID()
 	addr := &Address{

@@ -74,6 +74,25 @@ func (b *InMemoryBackend) normalizeLocked(bg *Budget) {
 	}
 }
 
+// rolloverLocked re-derives an auto-adjusted limit once the budget enters a period it has not adjusted for.
+func (b *InMemoryBackend) rolloverLocked(bg *Budget) {
+	a := bg.AutoAdjustData
+	if a == nil || bg.TimeUnit == timeUnitCustom {
+		return
+	}
+
+	now := b.now()
+	if _, _, in := currentPeriod(bg, now); !in {
+		return
+	}
+
+	if a.LastAutoAdjustTime != nil && !a.LastAutoAdjustTime.Time.Before(periodStart(bg.TimeUnit, now)) {
+		return
+	}
+
+	b.autoAdjustLocked(bg)
+}
+
 // autoAdjustLocked derives the limit from past periods' spend and stamps the adjust time.
 func (b *InMemoryBackend) autoAdjustLocked(bg *Budget) {
 	now := b.now()

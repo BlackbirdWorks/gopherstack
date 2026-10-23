@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -195,7 +197,7 @@ func (b *InMemoryBackend) replicationConfigsStoreRO(region string) map[string][]
 // stored name. An ARN that does not match the stored secret resolves to a key
 // that can never exist.
 func (b *InMemoryBackend) resolveName(region, secretID string) string {
-	if !strings.HasPrefix(secretID, "arn:aws:secretsmanager:") {
+	if !arnpkg.HasService(secretID, "secretsmanager") {
 		return secretID
 	}
 

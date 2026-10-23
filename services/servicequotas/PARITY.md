@@ -40,11 +40,11 @@ families:
 items_still_open:
   - Catalog: only the 11 services above are catalogued; ListServices omits the rest of AWS and codes outside the catalog return NoSuchResourceException. Codes and defaults come from public AWS documentation and are not verified against the live API.
   - ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException
-  - QuotaUtilization: usage comes from an optional UsageSource that is not wired in production, so Utilization is 0 for every quota
-  - AutoManagement: configuration is stored but no automatic quota adjustment or notification is performed
-  - AppliedQuotaEnforcement: emulated services do not read the applied quota values when enforcing their own limits
+  - QuotaUtilization: only S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups and DynamoDB tables report usage; the other catalogued quotas have no live counter
+  - AutoManagement: NotifyAndAdjust only notifies (80% and 95% thresholds to the SNS topic); no automatic quota increase is filed
+  - AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups and DynamoDB tables only; other quotas are never enforced and SQS/SNS/Lambda are not catalogued
   - Template: associating the template does not file increase requests for accounts that join the organization later
-  - RequestStatus: requests always reach APPROVED; DENIED, NOT_APPROVED, CASE_CLOSED and INVALID_REQUEST are never entered
+  - RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, groups, customer managed policies, instance profiles; from public docs, unverified); NOT_APPROVED, CASE_CLOSED and INVALID_REQUEST are never entered
   - Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TemplatesNotAvailableInRegion, TooManyRequests and ServiceException are not raised
 gaps: []
 structural_gaps:
@@ -61,6 +61,8 @@ Emulator choices the SDK does not document:
 
 - Applied quota values are per account and Region; an approved request stores the desired value as the applied override.
 - A request needs DesiredValue above the current applied value; a quota that is not adjustable is IllegalArgumentException.
+- Auto management is evaluated by a one-minute ticker (`Handler.SetTickInterval`); each quota notifies once per threshold crossing (80%, then 95%) and re-arms after utilization falls below 80%.
+- Utilization usage and enforcement limits are read through `UsageSource` and `quotalimit.Func` wired in `internal/app/service_quotas_wiring.go`; enforcement of the owning services applies the default or approved value of the caller account and Region.
 - Template operations need an organization with all features and service access for `servicequotas.amazonaws.com` enabled, wired from the Organizations backend; a standalone backend without a directory reports NoAvailableOrganizationException.
 - Get, List and Delete on template entries do not require an association; only Disassociate does.
 - Tag ARNs must name a catalogued quota of the caller account and Region.

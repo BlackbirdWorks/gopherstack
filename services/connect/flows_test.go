@@ -157,9 +157,19 @@ func TestContactFlowLifecycle(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Len(t, list.ContactFlowSummaryList, 1)
-	assert.Equal(t, types.ContactFlowStateArchived, list.ContactFlowSummaryList[0].ContactFlowState)
-	assert.Equal(t, "Renamed", aws.ToString(list.ContactFlowSummaryList[0].Name))
+	require.Len(t, list.ContactFlowSummaryList, 2, "the sample inbound flow plus the new one")
+
+	var renamed *types.ContactFlowSummary
+
+	for i := range list.ContactFlowSummaryList {
+		if aws.ToString(list.ContactFlowSummaryList[i].Id) == aws.ToString(created.ContactFlowId) {
+			renamed = &list.ContactFlowSummaryList[i]
+		}
+	}
+
+	require.NotNil(t, renamed)
+	assert.Equal(t, types.ContactFlowStateArchived, renamed.ContactFlowState)
+	assert.Equal(t, "Renamed", aws.ToString(renamed.Name))
 
 	none, err := f.client.ListContactFlows(
 		t.Context(),
@@ -169,7 +179,8 @@ func TestContactFlowLifecycle(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	assert.Empty(t, none.ContactFlowSummaryList)
+	require.Len(t, none.ContactFlowSummaryList, 1)
+	assert.Equal(t, "Default agent hold", aws.ToString(none.ContactFlowSummaryList[0].Name))
 
 	_, err = f.client.DeleteContactFlow(
 		t.Context(),

@@ -127,6 +127,9 @@ func sortedKeys(l Labels) []string {
 	return keys
 }
 
+// Clone returns a copy of l.
+func (l Labels) Clone() Labels { return l.clone() }
+
 func (l Labels) clone() Labels {
 	out := make(Labels, len(l))
 	maps.Copy(out, l)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -52,7 +53,7 @@ func (b *InMemoryBackend) UploadServerCertificate(
 		UploadDate:            time.Now().UTC(),
 		ServerCertificateName: name,
 		ServerCertificateID:   newServerCertID(),
-		Arn:                   "arn:aws:iam::" + b.accountID + ":server-certificate" + normalizedPath + name,
+		Arn:                   arn.Build("iam", "", b.accountID, "server-certificate"+normalizedPath+name),
 		Path:                  normalizedPath,
 		CertificateBody:       certBody,
 		CertificateChain:      certChain,
@@ -125,13 +126,13 @@ func (b *InMemoryBackend) UpdateServerCertificate(name, newName, newPath string)
 		// contract (see store_setup.go).
 		b.serverCertificates.Delete(name)
 		cert.ServerCertificateName = newName
-		cert.Arn = "arn:aws:iam::" + b.accountID + ":server-certificate" + cert.Path + newName
+		cert.Arn = arn.Build("iam", "", b.accountID, "server-certificate"+cert.Path+newName)
 	}
 
 	if newPath != "" {
 		normalizedPath := normPath(newPath)
 		cert.Path = normalizedPath
-		cert.Arn = "arn:aws:iam::" + b.accountID + ":server-certificate" + normalizedPath + cert.ServerCertificateName
+		cert.Arn = arn.Build("iam", "", b.accountID, "server-certificate"+normalizedPath+cert.ServerCertificateName)
 	}
 
 	b.serverCertificates.Put(cert)

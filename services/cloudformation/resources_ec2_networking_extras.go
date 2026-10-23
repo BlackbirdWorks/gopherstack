@@ -99,10 +99,7 @@ func (rc *ResourceCreator) createEC2PlacementGroup(
 		return logicalID + "-stub", nil
 	}
 
-	name := strProp(props, "GroupName", params, physicalIDs)
-	if name == "" {
-		name = logicalID
-	}
+	name := logicalID
 
 	pg, err := rc.backends.EC2.Backend.CreatePlacementGroup(
 		name, strProp(props, "Strategy", params, physicalIDs), tagListProp(props, params, physicalIDs),
@@ -129,7 +126,7 @@ func (rc *ResourceCreator) createEC2NetworkInterfacePermission(
 	perm, err := rc.backends.EC2.Backend.CreateNetworkInterfacePermission(
 		strProp(props, "NetworkInterfaceId", params, physicalIDs),
 		strProp(props, "AwsAccountId", params, physicalIDs),
-		strProp(props, "AwsService", params, physicalIDs),
+		"",
 		strProp(props, "Permission", params, physicalIDs),
 	)
 	if err != nil {

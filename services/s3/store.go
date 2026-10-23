@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 
@@ -102,6 +103,7 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
+	quotaGate  quotalimit.Gate
 	metrics    cwmetric.Sink
 	compressor Compressor
 	// serviceCtx is the long-lived context for background work (replication).

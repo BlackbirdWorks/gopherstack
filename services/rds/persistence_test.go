@@ -144,7 +144,7 @@ func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
 	// Add cluster endpoint.
 	_, err = b1.CreateDBCluster("cluster1", "aurora-mysql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
-	_, err = b1.CreateDBClusterEndpoint("ep1", "cluster1", "READER")
+	_, err = b1.CreateDBClusterEndpoint("ep1", "cluster1", "READER", rds.ClusterEndpointOptions{})
 	require.NoError(t, err)
 
 	// Start export task.
@@ -402,7 +402,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.ModifyDBClusterSnapshotAttribute("csnap1", "restore", []string{"all"}, nil)
 	require.NoError(t, err)
-	_, err = b.CreateDBClusterEndpoint("cep1", cluster.DBClusterIdentifier, "READER")
+	_, err = b.CreateDBClusterEndpoint("cep1", cluster.DBClusterIdentifier, "READER", rds.ClusterEndpointOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, b.CreateDBClusterAutomatedBackup(cluster.DBClusterIdentifier))
 

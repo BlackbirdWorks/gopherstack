@@ -50,3 +50,30 @@ func TestLedgerSpend(t *testing.T) {
 		})
 	}
 }
+
+func TestLedgerSpendExcludesChargeTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		exclude []string
+		want    float64
+	}{
+		{name: "none", want: 17},
+		{name: "tax", exclude: []string{"Tax"}, want: 10},
+		{name: "usage", exclude: []string{"usage"}, want: 7},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ce.NewInMemoryBackend("123456789012", "us-east-1")
+			b.RecordCharge(ce.CostEntry{Date: "2001-01-01", Service: "X", UnblendedCost: 10})
+			b.RecordCharge(ce.CostEntry{Date: "2001-01-01", Service: "X", UnblendedCost: 7, ChargeType: "Tax"})
+
+			filters := map[string][]string{ce.ExcludeChargeTypeFilter: tc.exclude}
+			assert.InDelta(t, tc.want, b.LedgerSpend("2001-01-01", "2001-01-02", filters, "UnblendedCost"), 1e-9)
+		})
+	}
+}

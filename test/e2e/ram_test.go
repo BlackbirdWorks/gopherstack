@@ -13,6 +13,7 @@ import (
 
 // TestRAMDashboard verifies the RAM dashboard UI renders resource share data.
 func TestRAMDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.RAMHandler.Backend.CreateResourceShare("e2e-test-share", true, map[string]string{
@@ -45,14 +46,14 @@ func TestRAMDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS Resource Access Manager", "Resource Shares")
 	assert.Contains(t, content, "AWS Resource Access Manager")
 	assert.Contains(t, content, "Resource Shares")
 }
 
 // TestRAMDashboard_Empty verifies the RAM dashboard renders correctly with no resource shares.
 func TestRAMDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -80,7 +81,6 @@ func TestRAMDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No resource shares found")
 	assert.Contains(t, content, "No resource shares found")
 }

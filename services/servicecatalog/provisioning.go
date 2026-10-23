@@ -19,6 +19,7 @@ func registerProvisioningOps(m map[string]opFunc, b *InMemoryBackend) {
 	m["ImportAsProvisionedProduct"] = op(b.ImportAsProvisionedProduct)
 	m["UpdateProvisionedProductProperties"] = op(b.UpdateProvisionedProductProperties)
 	m["DescribeProvisionedProduct"] = op(b.DescribeProvisionedProduct)
+	m["ListStackInstancesForProvisionedProduct"] = op(b.ListStackInstancesForProvisionedProduct)
 	m["SearchProvisionedProducts"] = op(b.SearchProvisionedProducts)
 	m["ScanProvisionedProducts"] = op(b.ScanProvisionedProducts)
 	m["GetProvisionedProductOutputs"] = op(b.GetProvisionedProductOutputs)
@@ -89,6 +90,7 @@ func (b *InMemoryBackend) newRecordLocked(account, region, typ string, pp *Provi
 		ArtifactID:             pp.ArtifactID,
 		PathID:                 pp.PathID,
 		LaunchRoleArn:          pp.LaunchRoleArn,
+		PPType:                 pp.Type,
 	}
 	b.records.Put(r)
 
@@ -120,7 +122,7 @@ func (b *InMemoryBackend) recordDetailLocked(r *Record, justCreated bool) *Recor
 		ProductID:              r.ProductID,
 		ProvisionedProductID:   r.ProvisionedProductID,
 		ProvisionedProductName: r.ProvisionedProductName,
-		ProvisionedProductType: ppTypeCFNStack,
+		ProvisionedProductType: strOr(r.PPType, ppTypeCFNStack),
 		ProvisioningArtifactID: r.ArtifactID,
 		RecordID:               r.ID,
 		RecordType:             r.Type,
@@ -146,10 +148,10 @@ type launchPlan struct {
 	art          *Artifact
 	path         *Portfolio
 	productTags  map[string]string
+	stackSet     *stackSetConfig
 	roleARN      string
 	templateRule []string
 	notify       []string
-	stackSet     bool
 	tagUpdateOff bool
 }
 
@@ -238,7 +240,7 @@ func applyConstraint(lp *launchPlan, c *Constraint, account string) {
 	case constraintTemplate:
 		lp.templateRule = append(lp.templateRule, c.Parameters)
 	case constraintStackSet:
-		lp.stackSet = true
+		lp.stackSet = parseStackSetConfig(doc)
 	case constraintResource:
 		lp.tagUpdateOff = stringField(doc, "TagUpdateOnProvisionedProduct") == "NOT_ALLOWED"
 	}
@@ -323,6 +325,7 @@ func (b *InMemoryBackend) stackTags(
 		tags = map[string]string{}
 	}
 
+	maps.Copy(tags, b.tagOptionTags(lp))
 	maps.Copy(tags, user)
 
 	tags["aws:servicecatalog:productArn"] = lp.prod.ARN
@@ -350,18 +353,18 @@ func stackSucceeded(status string) bool {
 
 // ProvisionProductInput is the ProvisionProduct request.
 type ProvisionProductInput struct {
-	ProvisioningPreferences  map[string]any          `json:"ProvisioningPreferences,omitempty"`
-	ProvisionToken           string                  `json:"ProvisionToken"`
-	ProvisionedProductName   string                  `json:"ProvisionedProductName"`
-	PathID                   string                  `json:"PathId,omitempty"`
-	PathName                 string                  `json:"PathName,omitempty"`
-	ProductID                string                  `json:"ProductId,omitempty"`
-	ProductName              string                  `json:"ProductName,omitempty"`
-	ProvisioningArtifactID   string                  `json:"ProvisioningArtifactId,omitempty"`
-	ProvisioningArtifactName string                  `json:"ProvisioningArtifactName,omitempty"`
-	NotificationArns         []string                `json:"NotificationArns,omitempty"`
-	ProvisioningParameters   []ProvisioningParameter `json:"ProvisioningParameters,omitempty"`
-	Tags                     []Tag                   `json:"Tags,omitempty"`
+	ProvisioningPreferences  *ProvisioningPreferences `json:"ProvisioningPreferences,omitempty"`
+	ProvisionToken           string                   `json:"ProvisionToken"`
+	ProvisionedProductName   string                   `json:"ProvisionedProductName"`
+	PathID                   string                   `json:"PathId,omitempty"`
+	PathName                 string                   `json:"PathName,omitempty"`
+	ProductID                string                   `json:"ProductId,omitempty"`
+	ProductName              string                   `json:"ProductName,omitempty"`
+	ProvisioningArtifactID   string                   `json:"ProvisioningArtifactId,omitempty"`
+	ProvisioningArtifactName string                   `json:"ProvisioningArtifactName,omitempty"`
+	NotificationArns         []string                 `json:"NotificationArns,omitempty"`
+	ProvisioningParameters   []ProvisioningParameter  `json:"ProvisioningParameters,omitempty"`
+	Tags                     []Tag                    `json:"Tags,omitempty"`
 }
 
 // ProvisioningParameter is the ProvisioningParameter shape.
@@ -432,11 +435,11 @@ func (b *InMemoryBackend) launch(
 	in *ProvisionProductInput,
 	given, userTags map[string]string,
 ) (*RecordOutputDetail, error) {
-	if lp.stackSet {
-		return nil, fail(ErrOperationNotSupported, "STACKSET launch constraints are not supported")
-	}
-
 	external := isExternalProduct(lp.prod.Type)
+
+	if err := b.checkStackSetLaunch(lp, external, in.ProvisioningPreferences); err != nil {
+		return nil, err
+	}
 
 	var (
 		template string
@@ -453,11 +456,15 @@ func (b *InMemoryBackend) launch(
 			return nil, err
 		}
 
-		if err = checkTemplateRules(lp.templateRule, ruleValues(info, params)); err != nil {
+		if err = b.checkRules(ctx, lp, info, params); err != nil {
 			return nil, err
 		}
 
 		template = body
+	}
+
+	if err := b.checkLaunchRole(ctx, lp.roleARN); err != nil {
+		return nil, err
 	}
 
 	pp, rec, err := b.startProvisioning(ctx, account, region, lp, in, params, userTags)
@@ -469,6 +476,10 @@ func (b *InMemoryBackend) launch(
 		return b.detailOf(rec, true), nil
 	}
 
+	if lp.stackSet != nil {
+		return b.createStackSet(ctx, lp, pp, rec, in, template, params), nil
+	}
+
 	req := StackRequest{
 		Name: pp.StackName, Template: template, Parameters: params, Tags: rec.Tags, RoleARN: lp.roleARN,
 		NotificationARNs: slices.Concat(in.NotificationArns, lp.notify),
@@ -477,6 +488,37 @@ func (b *InMemoryBackend) launch(
 	st, serr := b.engineOrNil().CreateStack(ctx, req)
 
 	return b.finish(pp.ID, rec.ID, st, serr, false), nil
+}
+
+// checkStackSetLaunch validates the StackSet side of a launch before anything is created.
+func (b *InMemoryBackend) checkStackSetLaunch(lp *launchPlan, external bool, prefs *ProvisioningPreferences) error {
+	if err := prefs.validate(); err != nil {
+		return err
+	}
+
+	if lp.stackSet == nil {
+		return nil
+	}
+
+	if external {
+		return invalid("a STACKSET constraint applies to CloudFormation products only")
+	}
+
+	if b.stackSetEngine() == nil {
+		return fail(ErrOperationNotSupported, "%v", errStackEngineUnavailable)
+	}
+
+	_, _, err := lp.stackSet.targets(prefs)
+
+	return err
+}
+
+func launchType(lp *launchPlan) string {
+	if lp.stackSet != nil {
+		return ppTypeCFNStackSet
+	}
+
+	return ppTypeCFNStack
 }
 
 func (b *InMemoryBackend) detailOf(rec *Record, created bool) *RecordOutputDetail {
@@ -510,7 +552,7 @@ func (b *InMemoryBackend) startProvisioning(
 		AccountID:        account,
 		Region:           region,
 		Name:             in.ProvisionedProductName,
-		Type:             ppTypeCFNStack,
+		Type:             launchType(lp),
 		Status:           ppUnderChange,
 		ProductID:        lp.prod.ID,
 		ArtifactID:       lp.art.ID,
@@ -581,7 +623,7 @@ func (b *InMemoryBackend) finish(ppID, recID string, st StackInfo, serr error, u
 
 // UpdateProvisionedProductInput is the UpdateProvisionedProduct request.
 type UpdateProvisionedProductInput struct {
-	ProvisioningPreferences  map[string]any                `json:"ProvisioningPreferences,omitempty"`
+	ProvisioningPreferences  *ProvisioningPreferences      `json:"ProvisioningPreferences,omitempty"`
 	UpdateToken              string                        `json:"UpdateToken"`
 	ProvisionedProductID     string                        `json:"ProvisionedProductId,omitempty"`
 	ProvisionedProductName   string                        `json:"ProvisionedProductName,omitempty"`
@@ -678,8 +720,8 @@ func (b *InMemoryBackend) resolveUpdateLocked(
 		return nil, err
 	}
 
-	if lp.stackSet {
-		return nil, fail(ErrOperationNotSupported, "STACKSET launch constraints are not supported")
+	if lp.stackSet != nil || pp.Type == ppTypeCFNStackSet {
+		return nil, fail(ErrOperationNotSupported, "updating a STACKSET provisioned product is not supported")
 	}
 
 	return lp, nil
@@ -716,11 +758,15 @@ func (b *InMemoryBackend) updateStack(
 			return nil, err
 		}
 
-		if err = checkTemplateRules(lp.templateRule, ruleValues(info, params)); err != nil {
+		if err = b.checkRules(ctx, lp, info, params); err != nil {
 			return nil, err
 		}
 
 		template = body
+	}
+
+	if err := b.checkLaunchRole(ctx, lp.roleARN); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("UpdateProvisionedProduct")
@@ -794,7 +840,7 @@ func (b *InMemoryBackend) TerminateProvisionedProduct(
 		pp.Status = ppUnderChange
 		rec := b.newRecordLocked(account, region, recTerminate, pp)
 		pp.LastRecordID = rec.ID
-		stack := pp.StackName
+		stack, typ := pp.StackName, pp.Type
 
 		if stack == "" {
 			rec.WorkflowToken = workflowTokenFor(rec.ID)
@@ -808,7 +854,7 @@ func (b *InMemoryBackend) TerminateProvisionedProduct(
 
 		var derr error
 		if !in.RetainPhysicalResources {
-			derr = b.engineOrNil().DeleteStack(ctx, stack)
+			derr = b.deleteBacking(ctx, typ, stack)
 		}
 
 		return b.finishTerminate(pp.ID, rec.ID, derr, in.IgnoreErrors), nil

@@ -16,6 +16,7 @@ import (
 
 // TestCodePipelineDashboard verifies the CodePipeline dashboard UI renders pipelines.
 func TestCodePipelineDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodePipelineHandler.Backend.CreatePipeline(
@@ -73,13 +74,13 @@ func TestCodePipelineDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-pipeline")
 	assert.Contains(t, content, "e2e-test-pipeline")
 }
 
 // TestCodePipelineDashboard_Empty verifies the CodePipeline dashboard renders with no pipelines.
 func TestCodePipelineDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -107,14 +108,14 @@ func TestCodePipelineDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CodePipeline Engine", "No pipelines provisioned.")
 	assert.Contains(t, content, "CodePipeline Engine")
 	assert.Contains(t, content, "No pipelines provisioned.")
 }
 
 // TestCodePipelineDashboard_CreatePipeline verifies creating a pipeline via the dashboard.
 func TestCodePipelineDashboard_CreatePipeline(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -156,7 +157,6 @@ func TestCodePipelineDashboard_CreatePipeline(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-created-pipeline")
 	assert.Contains(t, content, "e2e-created-pipeline")
 }

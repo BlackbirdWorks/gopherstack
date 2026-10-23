@@ -96,6 +96,10 @@ func (h *Handler) handleCreateCapacityProvider(c *echo.Context, bk *InMemoryBack
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
 	}
 
+	if len(input.Tags) > 0 {
+		h.setTags(cp.CapacityProviderArn, input.Tags)
+	}
+
 	return c.JSON(http.StatusCreated, &CreateCapacityProviderOutput{CapacityProvider: cp})
 }
 
@@ -125,8 +129,15 @@ func (h *Handler) handleDeleteCapacityProvider(c *echo.Context, bk *InMemoryBack
 				"Capacity provider not found: "+name)
 		}
 
+		if errors.Is(err, ErrCapacityProviderInUse) {
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				"Capacity provider is in use by function versions: "+name)
+		}
+
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
+
+	h.deleteTags(cp.CapacityProviderArn)
 
 	return c.JSON(http.StatusOK, &DeleteCapacityProviderOutput{CapacityProvider: cp})
 }
@@ -171,8 +182,7 @@ func (h *Handler) handleListCapacityProviders(c *echo.Context, bk *InMemoryBacke
 // --- ListFunctionVersionsByCapacityProvider ---
 
 // functionVersionsByCapacityProviderListItem mirrors
-// types.FunctionVersionsByCapacityProviderListItem: each entry on the wire is
-// an object with FunctionArn and State, not a bare ARN string.
+// types.FunctionVersionsByCapacityProviderListItem.
 type functionVersionsByCapacityProviderListItem struct {
 	FunctionArn string `json:"FunctionArn"`
 	State       string `json:"State"`
@@ -184,44 +194,27 @@ type listFunctionVersionsByCapacityProviderOutput struct {
 	FunctionVersions    []functionVersionsByCapacityProviderListItem `json:"FunctionVersions"`
 }
 
-// handleListFunctionVersionsByCapacityProvider returns the function-version ARNs
-// assigned to the named capacity provider, with Marker/MaxItems pagination. It
-// returns ResourceNotFoundException when the provider does not exist.
-//
-// AWS exposes no public API to assign function versions to a capacity provider in
-// this emulator's surface, so assignments are populated only via the internal
-// SeedCapacityProviderFunctionVersions helper (used by tests). When no versions
-// have been seeded, an empty list is returned for a valid provider. This backend
-// doesn't track per-assignment lifecycle state, so every seeded version reports
-// State "Active" -- the value real ECS-managed function versions settle into.
+// handleListFunctionVersionsByCapacityProvider lists the function versions that
+// reference the named capacity provider, with Marker/MaxItems pagination.
 func (h *Handler) handleListFunctionVersionsByCapacityProvider(
 	c *echo.Context, bk *InMemoryBackend, name string,
 ) error {
 	marker, maxItems := parsePaginationParams(c.Request())
 
-	p, err := bk.ListFunctionVersionsByCapacityProvider(name, marker, maxItems)
-	if err != nil {
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-			"Capacity provider not found: "+name)
-	}
-
-	cp, err := bk.GetCapacityProvider(name)
+	p, cpArn, err := bk.ListFunctionVersionsByCapacityProvider(name, marker, maxItems)
 	if err != nil {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 			"Capacity provider not found: "+name)
 	}
 
 	items := make([]functionVersionsByCapacityProviderListItem, 0, len(p.Data))
-	for _, versionArn := range p.Data {
-		items = append(items, functionVersionsByCapacityProviderListItem{
-			FunctionArn: versionArn,
-			State:       string(FunctionStateActive),
-		})
+	for _, v := range p.Data {
+		items = append(items, functionVersionsByCapacityProviderListItem(v))
 	}
 
 	return c.JSON(http.StatusOK, &listFunctionVersionsByCapacityProviderOutput{
 		FunctionVersions:    items,
 		NextMarker:          p.Next,
-		CapacityProviderArn: cp.CapacityProviderArn,
+		CapacityProviderArn: cpArn,
 	})
 }

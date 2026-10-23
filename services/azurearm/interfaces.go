@@ -1,6 +1,9 @@
 package azurearm
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // StorageAccounts is the narrow, consumer-defined seam the Microsoft.Storage
 // resource provider (rp_storage.go) delegates account lifecycle events
@@ -89,6 +92,60 @@ func (noopServiceBusEntities) SubscriptionExists(string, string) bool  { return 
 
 var _ ServiceBusEntities = noopServiceBusEntities{}
 
+// EventHubInfo is the data plane's view of an event hub.
+type EventHubInfo struct {
+	CreatedAt    time.Time
+	PartitionIDs []string
+	Retention    time.Duration
+}
+
+// EventHubRule is the data plane's view of an authorization rule.
+type EventHubRule struct {
+	PrimaryKey   string
+	SecondaryKey string
+	Rights       []string
+}
+
+// EventHubs is the seam the Microsoft.EventHub resource provider uses to keep
+// the Event Hubs data plane in step with ARM. Primitive types only, so this
+// package never imports services/azureeventhubs. hub is empty for
+// namespace-scoped rules.
+type EventHubs interface {
+	EnsureNamespace(name string) error
+	DeleteNamespace(name string) error
+	CreateHub(ns, name string, partitionCount int, retention time.Duration) (EventHubInfo, error)
+	HubInfo(ns, name string) (EventHubInfo, bool)
+	DeleteHub(ns, name string) error
+	CreateConsumerGroup(ns, hub, name string) error
+	DeleteConsumerGroup(ns, hub, name string) error
+	PutRule(ns, hub, name string, rights []string) (EventHubRule, error)
+	GetRule(ns, hub, name string) (EventHubRule, bool)
+	DeleteRule(ns, hub, name string) error
+}
+
+type noopEventHubs struct{}
+
+func (noopEventHubs) EnsureNamespace(string) error { return nil }
+func (noopEventHubs) DeleteNamespace(string) error { return nil }
+func (noopEventHubs) CreateHub(string, string, int, time.Duration) (EventHubInfo, error) {
+	return EventHubInfo{}, ErrEventHubNotFound
+}
+func (noopEventHubs) HubInfo(string, string) (EventHubInfo, bool) { return EventHubInfo{}, false }
+func (noopEventHubs) DeleteHub(string, string) error              { return nil }
+func (noopEventHubs) CreateConsumerGroup(string, string, string) error {
+	return nil
+}
+func (noopEventHubs) DeleteConsumerGroup(string, string, string) error { return nil }
+func (noopEventHubs) PutRule(string, string, string, []string) (EventHubRule, error) {
+	return EventHubRule{}, ErrEventHubRuleNotFound
+}
+func (noopEventHubs) GetRule(string, string, string) (EventHubRule, bool) {
+	return EventHubRule{}, false
+}
+func (noopEventHubs) DeleteRule(string, string, string) error { return nil }
+
+var _ EventHubs = noopEventHubs{}
+
 // KeyVaults is the seam the Microsoft.KeyVault resource provider uses to
 // register and remove vaults in the Key Vault data plane. Primitive types only,
 // so this package never imports services/azurekeyvault.
@@ -112,3 +169,289 @@ func (noopKeyVaults) RecoverVault(string)           {}
 func (noopKeyVaults) PurgeVault(string)             {}
 
 var _ KeyVaults = noopKeyVaults{}
+
+// CosmosDatabase is a Cosmos DB database as the data plane reports it.
+type CosmosDatabase struct {
+	Modified time.Time
+	ID       string
+	RID      string
+}
+
+// CosmosContainer is a Cosmos DB container as the data plane reports it; the policy fields are raw JSON.
+type CosmosContainer struct {
+	Modified                 time.Time
+	DefaultTTL               *int
+	ID                       string
+	RID                      string
+	PartitionKeyPaths        []string
+	IndexingPolicy           []byte
+	UniqueKeyPolicy          []byte
+	ConflictResolutionPolicy []byte
+}
+
+// CosmosThroughput is a provisioned-throughput setting: manual RU/s or an autoscale maximum.
+type CosmosThroughput = cosmosThroughput
+
+// CosmosResources is the seam the Microsoft.DocumentDB resource provider uses to reach the Cosmos DB data plane.
+// Errors are the package's ErrCosmos* sentinels.
+type CosmosResources interface {
+	// Endpoint reports the data-plane listener's port and whether it serves TLS.
+	Endpoint() (port int, tls bool)
+	// MasterKey is the data plane's configured master key.
+	MasterKey() string
+	// AcceptKey and RevokeKey manage extra keys the data plane authorizes.
+	AcceptKey(key string)
+	RevokeKey(key string)
+
+	CreateDatabase(id string) (CosmosDatabase, error)
+	GetDatabase(id string) (CosmosDatabase, error)
+	ListDatabases() []CosmosDatabase
+	DeleteDatabase(id string) error
+
+	// PutContainer creates the container, or replaces its mutable settings when it already exists.
+	PutContainer(db string, c CosmosContainer) (CosmosContainer, error)
+	GetContainer(db, id string) (CosmosContainer, error)
+	ListContainers(db string) ([]CosmosContainer, error)
+	DeleteContainer(db, id string) error
+
+	// GetThroughput reads the offer of a database (container == "") or container; ErrCosmosThroughputNotFound
+	// when none is provisioned.
+	GetThroughput(db, container string) (CosmosThroughput, error)
+	// PutThroughput creates or replaces that offer.
+	PutThroughput(db, container string, t CosmosThroughput) error
+
+	// SetRegions publishes the account's regional topology (the lowest priority is the write region).
+	SetRegions(regions []CosmosRegion, multiWrite bool)
+}
+
+// CosmosRegion is one account location and its failover priority.
+type CosmosRegion struct {
+	Name     string
+	Priority int
+}
+
+type noopCosmosResources struct{}
+
+func (noopCosmosResources) Endpoint() (int, bool) { return DefaultCosmosDBPort, false }
+func (noopCosmosResources) MasterKey() string     { return "" }
+func (noopCosmosResources) AcceptKey(string)      {}
+func (noopCosmosResources) RevokeKey(string)      {}
+func (noopCosmosResources) CreateDatabase(string) (CosmosDatabase, error) {
+	return CosmosDatabase{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) GetDatabase(string) (CosmosDatabase, error) {
+	return CosmosDatabase{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) ListDatabases() []CosmosDatabase { return nil }
+func (noopCosmosResources) DeleteDatabase(string) error     { return ErrCosmosUnavailable }
+func (noopCosmosResources) PutContainer(string, CosmosContainer) (CosmosContainer, error) {
+	return CosmosContainer{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) GetContainer(string, string) (CosmosContainer, error) {
+	return CosmosContainer{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) ListContainers(string) ([]CosmosContainer, error) {
+	return nil, ErrCosmosUnavailable
+}
+func (noopCosmosResources) DeleteContainer(string, string) error { return ErrCosmosUnavailable }
+func (noopCosmosResources) GetThroughput(string, string) (CosmosThroughput, error) {
+	return CosmosThroughput{}, ErrCosmosUnavailable
+}
+func (noopCosmosResources) PutThroughput(string, string, CosmosThroughput) error {
+	return ErrCosmosUnavailable
+}
+
+func (noopCosmosResources) SetRegions([]CosmosRegion, bool) {}
+
+var _ CosmosResources = noopCosmosResources{}
+
+// EventGridTopic is the data plane's view of a custom topic.
+type EventGridTopic struct {
+	CreatedAt   time.Time
+	InputSchema string
+}
+
+// EventGrid is the seam the Microsoft.EventGrid resource provider uses to keep
+// the Event Grid data plane in step with ARM. Subscription and namespace-topic
+// subscription properties cross as ARM property maps, so this package never
+// imports services/azureeventgrid.
+type EventGrid interface {
+	PutTopic(name, resourceID, inputSchema string) (EventGridTopic, error)
+	TopicInfo(name string) (EventGridTopic, bool)
+	DeleteTopic(name string) error
+	TopicKeys(name string) (key1, key2 string, err error)
+	RegenerateTopicKey(name, keyName string) (key1, key2 string, err error)
+
+	PutSubscription(ctx context.Context, topic, name string, props map[string]any) (map[string]any, error)
+	GetSubscription(topic, name string) (map[string]any, bool)
+	DeleteSubscription(topic, name string) error
+	SubscriptionFullURL(topic, name string) (string, error)
+
+	PutNamespace(name string) error
+	DeleteNamespace(name string) error
+	NamespaceKeys(name string) (key1, key2 string, err error)
+	RegenerateNamespaceKey(name, keyName string) (key1, key2 string, err error)
+	PutNamespaceTopic(ns, name string) (time.Time, error)
+	NamespaceTopicCreated(ns, name string) (time.Time, bool)
+	DeleteNamespaceTopic(ns, name string) error
+
+	PutPullSubscription(ns, topic, name string, props map[string]any) (map[string]any, error)
+	GetPullSubscription(ns, topic, name string) (map[string]any, bool)
+	DeletePullSubscription(ns, topic, name string) error
+}
+
+type noopEventGrid struct{}
+
+func (noopEventGrid) PutTopic(string, string, string) (EventGridTopic, error) {
+	return EventGridTopic{}, ErrEventGridUnavailable
+}
+func (noopEventGrid) TopicInfo(string) (EventGridTopic, bool) { return EventGridTopic{}, false }
+func (noopEventGrid) DeleteTopic(string) error                { return nil }
+func (noopEventGrid) TopicKeys(string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) RegenerateTopicKey(string, string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) PutSubscription(context.Context, string, string, map[string]any) (map[string]any, error) {
+	return nil, ErrEventGridUnavailable
+}
+func (noopEventGrid) GetSubscription(string, string) (map[string]any, bool) { return nil, false }
+func (noopEventGrid) DeleteSubscription(string, string) error               { return nil }
+func (noopEventGrid) SubscriptionFullURL(string, string) (string, error) {
+	return "", ErrEventGridUnavailable
+}
+func (noopEventGrid) PutNamespace(string) error    { return ErrEventGridUnavailable }
+func (noopEventGrid) DeleteNamespace(string) error { return nil }
+func (noopEventGrid) NamespaceKeys(string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) RegenerateNamespaceKey(string, string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) PutNamespaceTopic(string, string) (time.Time, error) {
+	return time.Time{}, ErrEventGridUnavailable
+}
+func (noopEventGrid) NamespaceTopicCreated(string, string) (time.Time, bool) {
+	return time.Time{}, false
+}
+func (noopEventGrid) DeleteNamespaceTopic(string, string) error { return nil }
+func (noopEventGrid) PutPullSubscription(string, string, string, map[string]any) (map[string]any, error) {
+	return nil, ErrEventGridUnavailable
+}
+func (noopEventGrid) GetPullSubscription(string, string, string) (map[string]any, bool) {
+	return nil, false
+}
+func (noopEventGrid) DeletePullSubscription(string, string, string) error { return nil }
+
+var _ EventGrid = noopEventGrid{}
+
+// AppConfigKey is one of a configuration store's access keys.
+type AppConfigKey struct {
+	LastModified time.Time
+	ID           string
+	Name         string
+	Value        string
+	ReadOnly     bool
+}
+
+// AppConfigKV is a key-value as the ARM keyValues resources see it.
+type AppConfigKV struct {
+	LastModified time.Time
+	Value        *string
+	ContentType  *string
+	Tags         map[string]string
+	Key          string
+	Label        string
+	ETag         string
+	Locked       bool
+}
+
+// AppConfig is the seam the Microsoft.AppConfiguration resource provider uses to keep the
+// App Configuration data plane in step with ARM, so stores, access keys and key-values are
+// shared between both planes.
+type AppConfig interface {
+	PutStore(name string) (time.Time, error)
+	StoreCreated(name string) (time.Time, bool)
+	DeleteStore(name string) error
+	StoreKeys(name string) ([]AppConfigKey, error)
+	RegenerateStoreKey(name, keyID string) (AppConfigKey, error)
+
+	PutKeyValue(store string, kv AppConfigKV) (AppConfigKV, error)
+	GetKeyValue(store, key, label string) (AppConfigKV, bool)
+	DeleteKeyValue(store, key, label string) error
+	ListKeyValues(store string) ([]AppConfigKV, error)
+}
+
+type noopAppConfig struct{}
+
+func (noopAppConfig) PutStore(string) (time.Time, error)    { return time.Time{}, ErrAppConfigUnavailable }
+func (noopAppConfig) StoreCreated(string) (time.Time, bool) { return time.Time{}, false }
+func (noopAppConfig) DeleteStore(string) error              { return nil }
+func (noopAppConfig) StoreKeys(string) ([]AppConfigKey, error) {
+	return nil, ErrAppConfigUnavailable
+}
+
+func (noopAppConfig) RegenerateStoreKey(string, string) (AppConfigKey, error) {
+	return AppConfigKey{}, ErrAppConfigUnavailable
+}
+
+func (noopAppConfig) PutKeyValue(string, AppConfigKV) (AppConfigKV, error) {
+	return AppConfigKV{}, ErrAppConfigUnavailable
+}
+func (noopAppConfig) GetKeyValue(string, string, string) (AppConfigKV, bool) {
+	return AppConfigKV{}, false
+}
+func (noopAppConfig) DeleteKeyValue(string, string, string) error { return nil }
+func (noopAppConfig) ListKeyValues(string) ([]AppConfigKV, error) { return nil, nil }
+
+var _ AppConfig = noopAppConfig{}
+
+// ContainerRegistryInfo is the data plane's view of a registry.
+type ContainerRegistryInfo struct {
+	CreatedAt    time.Time
+	AdminEnabled bool
+}
+
+// ContainerRegistryCredentials are a registry's admin-user credentials.
+type ContainerRegistryCredentials struct {
+	Username  string
+	Password  string
+	Password2 string
+}
+
+// ContainerRegistries is the seam the Microsoft.ContainerRegistry resource provider uses to keep the registry
+// data plane in step with ARM. Primitive types only, so this package never imports the data-plane service.
+type ContainerRegistries interface {
+	PutRegistry(name string, adminEnabled bool) (ContainerRegistryInfo, error)
+	RegistryInfo(name string) (ContainerRegistryInfo, bool)
+	DeleteRegistry(name string) error
+	Credentials(name string) (ContainerRegistryCredentials, error)
+	RegenerateCredential(name, which string) (ContainerRegistryCredentials, error)
+}
+
+type noopContainerRegistries struct{}
+
+func (noopContainerRegistries) PutRegistry(string, bool) (ContainerRegistryInfo, error) {
+	return ContainerRegistryInfo{}, ErrACRUnavailable
+}
+
+func (noopContainerRegistries) RegistryInfo(string) (ContainerRegistryInfo, bool) {
+	return ContainerRegistryInfo{}, false
+}
+
+func (noopContainerRegistries) DeleteRegistry(string) error { return nil }
+
+func (noopContainerRegistries) Credentials(string) (ContainerRegistryCredentials, error) {
+	return ContainerRegistryCredentials{}, ErrACRUnavailable
+}
+
+func (noopContainerRegistries) RegenerateCredential(string, string) (ContainerRegistryCredentials, error) {
+	return ContainerRegistryCredentials{}, ErrACRUnavailable
+}
+
+var _ ContainerRegistries = noopContainerRegistries{}

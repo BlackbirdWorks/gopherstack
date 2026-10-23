@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -140,8 +141,12 @@ func (b *InMemoryBackend) CreateIpamExternalResourceVerificationToken(
 	now := time.Now().UTC()
 	token := &IpamExternalResourceVerificationToken{
 		IpamExternalResourceVerificationTokenID: id,
-		IpamExternalResourceVerificationTokenARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
-			":ipam-external-resource-verification-token/" + id,
+		IpamExternalResourceVerificationTokenARN: arn.Build(
+			"ec2",
+			b.Region,
+			b.AccountID,
+			"ipam-external-resource-verification-token/"+id,
+		),
 		IpamID:     ipamID,
 		IpamARN:    ipam.IpamARN,
 		IpamRegion: b.Region,

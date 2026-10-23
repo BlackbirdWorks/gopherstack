@@ -13,6 +13,7 @@ import (
 
 // TestTextractDashboard verifies the rewritten Textract dashboard renders adapter-focused UI.
 func TestTextractDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -40,8 +41,7 @@ func TestTextractDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Textract", "Adapters", "Adapter Versions", "No adapters found")
 	assert.Contains(t, content, "Amazon Textract")
 	assert.Contains(t, content, "Adapters")
 	assert.Contains(t, content, "Adapter Versions")
@@ -50,6 +50,7 @@ func TestTextractDashboard(t *testing.T) {
 
 // TestTextractDashboard_Empty verifies the empty adapter state renders correctly.
 func TestTextractDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -77,8 +78,7 @@ func TestTextractDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No adapters found")
 	assert.Contains(t, content, "No adapters found")
 }
 
@@ -88,6 +88,7 @@ func TestTextractDashboard_Empty(t *testing.T) {
 // (that message only appears once an adapter is selected and it has zero
 // versions -- see TestTextractDashboard for the analogous adapters-empty case).
 func TestTextractDashboard_VersionsTab(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -123,7 +124,6 @@ func TestTextractDashboard_VersionsTab(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Select an adapter to view its versions")
 	assert.Contains(t, content, "Select an adapter to view its versions")
 }

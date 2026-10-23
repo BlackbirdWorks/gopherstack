@@ -177,6 +177,12 @@ func writeReport(
 		return fmt.Errorf("put %s: %w", dataKey, err)
 	}
 
+	if athena {
+		if err = writeDataStatus(ctx, objects, r); err != nil {
+			return err
+		}
+	}
+
 	extras, err := writeArtifacts(ctx, objects, r, t, periodDir, dataDir)
 	if err != nil {
 		return err
@@ -363,4 +369,20 @@ Resources:
         S3Targets:
           - Path: %[2]s
 `, strings.ReplaceAll(strings.ToLower(name), "-", "_"), dataURI))
+}
+
+// writeDataStatus publishes cost_and_usage_data_status for Athena-integrated reports.
+func writeDataStatus(ctx context.Context, objects billingexport.ObjectStore, r *Report) error {
+	body, _, err := billingexport.Encode(dataStatusTable(), billingexport.FormatParquet, billingexport.CompressNone, "")
+	if err != nil {
+		return fmt.Errorf("encode data status: %w", err)
+	}
+
+	key := path.Join(strings.Trim(r.S3Prefix, "/"), r.ReportName, "cost_and_usage_data_status",
+		"cost_and_usage_data_status.parquet")
+	if err = billingexport.Put(ctx, objects, r.S3Bucket, key, body, ""); err != nil {
+		return fmt.Errorf("put %s: %w", key, err)
+	}
+
+	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
 
 // defaultIdleTimeout is the duration after which an idle container is reaped.
@@ -61,9 +62,34 @@ type ExecAPIClient interface {
 	) (stdout, stderr []byte, exitCode int, err error)
 }
 
+// ExecStreamAPIClient is implemented by clients that can stream a command's output while it runs.
+type ExecStreamAPIClient interface {
+	ContainerExecStream(
+		ctx context.Context,
+		containerID string,
+		cmd []string,
+		stdout, stderr io.Writer,
+	) (int, error)
+}
+
+// NetworkAPIClient is implemented by clients that can manage user-defined networks.
+type NetworkAPIClient interface {
+	NetworkCreate(ctx context.Context, name string) (string, error)
+	NetworkConnect(ctx context.Context, networkID, containerID string) error
+	NetworkRemove(ctx context.Context, networkID string) error
+}
+
 // realDockerClient wraps the standard Docker SDK client to satisfy APIClient.
 type realDockerClient struct {
 	c *client.Client
+}
+
+func (r *realDockerClient) ImagePush(ctx context.Context, ref string) (string, error) {
+	return r.c.ImagePush(ctx, ref)
+}
+
+func (r *realDockerClient) ImageTag(ctx context.Context, source, target string) error {
+	return r.c.ImageTag(ctx, source, target)
 }
 
 func (r *realDockerClient) ImagePull(
@@ -121,8 +147,33 @@ func (r *realDockerClient) ContainerExec(
 	return r.c.ContainerExec(ctx, containerID, cmd)
 }
 
+func (r *realDockerClient) ContainerExecStream(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+	stdout, stderr io.Writer,
+) (int, error) {
+	return r.c.ContainerExecStream(ctx, containerID, cmd, stdout, stderr)
+}
+
+func (r *realDockerClient) NetworkCreate(ctx context.Context, name string) (string, error) {
+	return r.c.NetworkCreate(ctx, name)
+}
+
+func (r *realDockerClient) NetworkConnect(ctx context.Context, networkID, containerID string) error {
+	return r.c.NetworkConnect(ctx, networkID, containerID)
+}
+
+func (r *realDockerClient) NetworkRemove(ctx context.Context, networkID string) error {
+	return r.c.NetworkRemove(ctx, networkID)
+}
+
 func (r *realDockerClient) Ping(ctx context.Context) (any, error) {
 	return r.c.Ping(ctx)
+}
+
+func (r *realDockerClient) Runtimes(ctx context.Context) ([]string, error) {
+	return r.c.Runtimes(ctx)
 }
 
 func (r *realDockerClient) Close() error {
@@ -184,9 +235,13 @@ func (r *DockerRuntime) Ping(ctx context.Context) error {
 
 // PullImage pulls the specified image from the registry.
 func (r *DockerRuntime) PullImage(ctx context.Context, imageRef string) error {
-	rc, err := r.docker.ImagePull(ctx, imageRef, image.PullOptions{})
+	return registryauth.Pull(ctx, imageRef, r.pullOnce, registryauth.TaggerFrom(r.docker))
+}
+
+func (r *DockerRuntime) pullOnce(ctx context.Context, ref, auth string) error {
+	rc, err := r.docker.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
-		return fmt.Errorf("image pull %q: %w", imageRef, err)
+		return fmt.Errorf("image pull %q: %w", ref, err)
 	}
 	defer rc.Close()
 
@@ -222,9 +277,17 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		cfg.Entrypoint = spec.Entrypoint
 	}
 
+	cfg.WorkingDir = spec.WorkingDir
+	cfg.User = spec.User
+
 	hostCfg := &dockercontainer.HostConfig{
 		Binds:      spec.Mounts,
 		Privileged: spec.Privileged,
+		Runtime:    spec.OCIRuntime,
+	}
+
+	if spec.Network != "" {
+		hostCfg.NetworkMode = dockercontainer.NetworkMode(spec.Network)
 	}
 
 	r.cfg.Injection.apply(cfg, hostCfg)
@@ -325,6 +388,36 @@ func (r *DockerRuntime) StartContainer(ctx context.Context, containerID string) 
 	return nil
 }
 
+// CreateNetwork creates a bridge network and returns its ID.
+func (r *DockerRuntime) CreateNetwork(ctx context.Context, name string) (string, error) {
+	api, ok := r.docker.(NetworkAPIClient)
+	if !ok {
+		return "", ErrNetworkUnsupported
+	}
+
+	return api.NetworkCreate(ctx, name)
+}
+
+// ConnectNetwork attaches a running container to the network.
+func (r *DockerRuntime) ConnectNetwork(ctx context.Context, networkID, containerID string) error {
+	api, ok := r.docker.(NetworkAPIClient)
+	if !ok {
+		return ErrNetworkUnsupported
+	}
+
+	return api.NetworkConnect(ctx, networkID, containerID)
+}
+
+// RemoveNetwork deletes the network.
+func (r *DockerRuntime) RemoveNetwork(ctx context.Context, networkID string) error {
+	api, ok := r.docker.(NetworkAPIClient)
+	if !ok {
+		return ErrNetworkUnsupported
+	}
+
+	return api.NetworkRemove(ctx, networkID)
+}
+
 // Exec runs cmd inside a running container and waits for it to finish.
 func (r *DockerRuntime) Exec(ctx context.Context, containerID string, cmd []string) (ExecResult, error) {
 	api, ok := r.docker.(ExecAPIClient)
@@ -338,6 +431,21 @@ func (r *DockerRuntime) Exec(ctx context.Context, containerID string, cmd []stri
 	}
 
 	return ExecResult{Stdout: string(stdout), Stderr: string(stderr), ExitCode: code}, nil
+}
+
+// ExecStream runs cmd like Exec but writes stdout and stderr to out as the command produces them.
+func (r *DockerRuntime) ExecStream(ctx context.Context, containerID string, cmd []string, out io.Writer) (int, error) {
+	api, ok := r.docker.(ExecStreamAPIClient)
+	if !ok {
+		return 0, ErrExecUnsupported
+	}
+
+	code, err := api.ContainerExecStream(ctx, containerID, cmd, out, out)
+	if err != nil {
+		return 0, fmt.Errorf("container exec %q: %w", containerID, err)
+	}
+
+	return code, nil
 }
 
 // AcquireWarm returns a warm container from the pool for the given image.

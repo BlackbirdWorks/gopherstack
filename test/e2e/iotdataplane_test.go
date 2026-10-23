@@ -13,6 +13,7 @@ import (
 
 // TestIoTDataPlaneDashboard verifies the IoT Data Plane dashboard renders correctly.
 func TestIoTDataPlaneDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -40,8 +41,7 @@ func TestIoTDataPlaneDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "IoT Data Plane", "Publish", "Thing Shadows")
 	assert.Contains(t, content, "IoT Data Plane")
 	assert.Contains(t, content, "Publish")
 	assert.Contains(t, content, "Thing Shadows")
@@ -49,6 +49,7 @@ func TestIoTDataPlaneDashboard(t *testing.T) {
 
 // TestIoTDataPlaneDashboard_Snippet verifies the IoT Data Plane dashboard snippet data renders.
 func TestIoTDataPlaneDashboard_Snippet(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -76,7 +77,6 @@ func TestIoTDataPlaneDashboard_Snippet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Retained Messages")
 	assert.Contains(t, content, "Retained Messages")
 }

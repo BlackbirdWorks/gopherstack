@@ -14,6 +14,7 @@ import (
 
 // TestWafv2Dashboard verifies the WAFv2 dashboard UI renders Web ACL data.
 func TestWafv2Dashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.Wafv2Handler.Backend.CreateWebACL(
@@ -56,14 +57,14 @@ func TestWafv2Dashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-acl", "REGIONAL")
 	assert.Contains(t, content, "e2e-test-acl")
 	assert.Contains(t, content, "REGIONAL")
 }
 
 // TestWafv2Dashboard_Empty verifies the WAFv2 dashboard renders correctly with no Web ACLs.
 func TestWafv2Dashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -91,7 +92,6 @@ func TestWafv2Dashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No Web ACLs found")
 	assert.Contains(t, content, "No Web ACLs found")
 }

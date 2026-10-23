@@ -16,6 +16,7 @@ import (
 
 // TestKinesisDashboard verifies the Kinesis dashboard UI renders streams.
 func TestKinesisDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.KinesisHandler.Backend.CreateStream(context.Background(), &kinesisbackend.CreateStreamInput{
@@ -49,13 +50,13 @@ func TestKinesisDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-stream")
 	assert.Contains(t, content, "test-stream")
 }
 
 // TestKinesisDashboard_Empty verifies the empty state renders correctly.
 func TestKinesisDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -83,8 +84,7 @@ func TestKinesisDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Kinesis Data Streams", "No streams found")
 	assert.Contains(t, content, "Kinesis Data Streams")
 	assert.Contains(t, content, "No streams found")
 }

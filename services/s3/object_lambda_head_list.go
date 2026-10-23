@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -104,8 +105,12 @@ func (h *S3Handler) newObjectLambdaEvent(r *http.Request, route objectLambdaRout
 
 	if route.ap != nil {
 		ev.Configuration = &objectLambdaConfiguration{
-			AccessPointARN: fmt.Sprintf("arn:aws:s3-object-lambda:%s:%s:accesspoint/%s",
-				regionFromRequest(r, h.DefaultRegion), route.ap.AccountID, route.ap.Name),
+			AccessPointARN: arn.Build(
+				"s3-object-lambda",
+				regionFromRequest(r, h.DefaultRegion),
+				route.ap.AccountID,
+				"accesspoint/"+route.ap.Name,
+			),
 			SupportingAccessPointARN: route.ap.SupportingAccessPointARN,
 			Payload:                  route.ap.Payload,
 		}

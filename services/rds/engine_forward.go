@@ -97,6 +97,10 @@ func (f *tcpForwarder) acceptLoop() {
 func (f *tcpForwarder) serve(client net.Conn) {
 	defer func() { _ = client.Close() }()
 
+	if !f.be.admitClient(f.lb, client.RemoteAddr()) {
+		return
+	}
+
 	release, ok := f.be.beginConn(f.lb)
 	if !ok {
 		return

@@ -47,14 +47,34 @@ func (h *Handler) oauthOp(r *http.Request) string {
 		}
 
 		return ""
-	case pathSAMLIDPResponse:
-		return methodOp(r, http.MethodPost, opSAMLIDPResponse)
+	case pathSAMLIDPResponse, pathSAMLLogout, pathSAMLMetadata:
+		return samlOp(r)
 	case rootDiscoveryPath, rootJWKSPath:
 		return h.rootWellKnownOp(r)
 	}
 
 	if poolPathPrefix(r.URL.Path, discoverySuffix) != "" && r.Method == http.MethodGet {
 		return opOIDCDiscovery
+	}
+
+	if poolPathPrefix(r.URL.Path, pathSAMLMetadata) != "" && r.Method == http.MethodGet {
+		return opSAMLMetadata
+	}
+
+	return ""
+}
+
+// samlOp classifies the SP-side SAML endpoints.
+func samlOp(r *http.Request) string {
+	switch r.URL.Path {
+	case pathSAMLIDPResponse:
+		return methodOp(r, http.MethodPost, opSAMLIDPResponse)
+	case pathSAMLLogout:
+		if r.Method == http.MethodGet || r.Method == http.MethodPost {
+			return opSAMLLogout
+		}
+	case pathSAMLMetadata:
+		return methodOp(r, http.MethodGet, opSAMLMetadata)
 	}
 
 	return ""
@@ -162,6 +182,10 @@ func (h *Handler) handleOAuth(c *echo.Context, op string) error {
 		return h.handleIDPResponse(c)
 	case opSAMLIDPResponse:
 		return h.handleSAMLResponse(c)
+	case opSAMLLogout:
+		return h.handleSAMLLogout(c)
+	case opSAMLMetadata:
+		return h.handleSAMLMetadata(c)
 	case opHostedLogin:
 		return h.handleHostedLogin(c)
 	case opHostedLogout:

@@ -43,6 +43,7 @@ func makeS3Client(t *testing.T, serverURL, region string) *s3.Client {
 // created with a non-default LocationConstraint (e.g. us-west-2) can be written
 // to and read from without a 404 (regression for the region-scoped getBucket bug).
 func TestE2E_S3_LocationConstraint_PutObjectAfterCreate(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

@@ -22,7 +22,7 @@ CodeGuruReviewer	/associations /codereviews /feedback /tags
 Connect	/agent-status /analytics-data /associate-security-profiles /attached-files /auth /chat-integration-event /contact /cross-region-routing /data-tables /default-vocabulary /disassociate-security-profiles /effective-hours-of-operations /email-addresses /entity-security-profiles-summary /evaluation-forms /extraction-definitions /flow-associations /hours-of-operations /instance /metrics /notifications /phone-number /predefined-attributes /prompts /push-notification /queues /quick-connects /routing-profiles /rules /search- /security-profiles /tags /test-case /traffic-distribution /user /views /vocabulary /workspaces
 DLM	/policies /tags
 DSQL	/cluster /stream /tags
-Dashboard	/dashboard
+Dashboard	/dashboard /gopherstack.dashboard.v1.DashboardService
 Detective	/graph /investigations /invitation /membership /orgs /tags
 EFS	/2015-02-01
 EKS	/_gopherstack/eks /access-policies /addons /cluster-registrations /cluster-versions /clusters /eks-anywhere-subscriptions /id /tags

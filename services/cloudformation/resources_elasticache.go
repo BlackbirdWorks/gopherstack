@@ -56,7 +56,7 @@ func (rc *ResourceCreator) createElastiCacheSubnetGroup(
 		name = strings.ToLower(logicalID)
 	}
 
-	description := strProp(props, "CacheSubnetGroupDescription", params, physicalIDs)
+	description := strProp(props, "Description", params, physicalIDs)
 
 	var subnetIDs []string
 	if list, ok := props["SubnetIds"].([]any); ok {

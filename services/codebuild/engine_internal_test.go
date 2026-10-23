@@ -27,6 +27,7 @@ var (
 
 type fakeRule struct {
 	create func(hostDir string)
+	codeFn func() int
 	match  string
 	out    string
 	code   int
@@ -40,6 +41,7 @@ type fakeRuntime struct {
 	started   chan struct{}
 	rules     []fakeRule
 	scripts   []string
+	mounts    []string
 	removed   int
 }
 
@@ -54,6 +56,7 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 
 	f.mu.Lock("create")
 	f.hostDir, _, _ = strings.Cut(spec.Mounts[0], ":")
+	f.mounts = append(f.mounts, spec.Mounts...)
 	f.mu.Unlock()
 
 	return "cid", nil
@@ -91,7 +94,12 @@ func (f *fakeRuntime) Exec(ctx context.Context, _ string, cmd []string) (contain
 			return container.ExecResult{}, ctx.Err()
 		}
 
-		return container.ExecResult{Stdout: r.out, ExitCode: r.code}, nil
+		code := r.code
+		if r.codeFn != nil {
+			code = r.codeFn()
+		}
+
+		return container.ExecResult{Stdout: r.out, ExitCode: code}, nil
 	}
 
 	return container.ExecResult{}, nil
@@ -208,13 +216,27 @@ type engineHarness struct {
 func newHarness(t *testing.T, rt *fakeRuntime) *engineHarness {
 	t.Helper()
 
+	return newHarnessWith(t, rt, nil)
+}
+
+func newHarnessWith(t *testing.T, rt EngineRuntime, tweak func(*EngineConfig)) *engineHarness {
+	t.Helper()
+
 	h := &engineHarness{
 		b:     NewInMemoryBackend("000000000000", "us-east-1"),
-		rt:    rt,
 		store: newFakeStore(),
 		logs:  &fakeLogs{mu: lockmetrics.New("fakelogs")},
 	}
-	h.b.EnableEngine(EngineConfig{Runtime: rt, WorkDir: t.TempDir(), TimeoutUnit: 100 * time.Millisecond})
+	if f, ok := rt.(*fakeRuntime); ok {
+		h.rt = f
+	}
+
+	cfg := EngineConfig{Runtime: rt, WorkDir: t.TempDir(), CacheDir: t.TempDir(), TimeoutUnit: 100 * time.Millisecond}
+	if tweak != nil {
+		tweak(&cfg)
+	}
+
+	h.b.EnableEngine(cfg)
 	h.b.SetEngineServices(EngineServices{Store: h.store, Logs: h.logs, Values: fakeValues{}})
 
 	return h
@@ -703,11 +725,11 @@ func TestEngineBuildspecOverrideAndS3Logs(t *testing.T) {
 	assert.Contains(t, h.store.keys(), "logbucket/pre/"+strings.TrimPrefix(b.ID, "proj:")+".gz")
 }
 
-func TestEngineUnsupportedSourceFails(t *testing.T) {
+func TestEngineInvalidGitLocationFails(t *testing.T) {
 	t.Parallel()
 
 	h := newHarness(t, newFakeRuntime())
-	h.project(t, ProjectConfig{Source: &ProjectSource{Type: "GITHUB", Location: "https://github.com/x/y.git"}})
+	h.project(t, ProjectConfig{Source: &ProjectSource{Type: "GITHUB", Location: "not-a-url"}})
 
 	b := h.run(t, StartBuildConfig{})
 

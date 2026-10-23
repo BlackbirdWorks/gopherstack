@@ -17,6 +17,7 @@ import (
 // TestE2E_DynamoDBPartiQL verifies that the PartiQL tab on the DynamoDB table detail page
 // renders correctly and can execute a SELECT statement.
 func TestE2E_DynamoDBPartiQL(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Create a table to test against.
@@ -97,6 +98,7 @@ func TestE2E_DynamoDBPartiQL(t *testing.T) {
 
 // TestE2E_DynamoDBPartiQL_TabVisible verifies the PartiQL tab is visible in the table detail tabs.
 func TestE2E_DynamoDBPartiQL_TabVisible(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateDDBTable(t, "TabVisibleTable")
 

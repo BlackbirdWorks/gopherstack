@@ -19,6 +19,7 @@ const testTaggingARN = "arn:aws:s3:::e2e-tagged-bucket"
 // TestResourceGroupsTaggingAPIDashboard verifies the Resource Groups Tagging API dashboard
 // renders tagged resources seeded via a registered resource provider.
 func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	stack.ResourceGroupsTaggingHandler.Backend.RegisterProvider(
@@ -58,14 +59,14 @@ func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, testTaggingARN, "env=e2e")
 	assert.Contains(t, content, testTaggingARN)
 	assert.Contains(t, content, "env=e2e")
 }
 
 // TestResourceGroupsTaggingAPIDashboard_Empty verifies the empty state renders correctly.
 func TestResourceGroupsTaggingAPIDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -93,7 +94,6 @@ func TestResourceGroupsTaggingAPIDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No tagged resources found")
 	assert.Contains(t, content, "No tagged resources found")
 }

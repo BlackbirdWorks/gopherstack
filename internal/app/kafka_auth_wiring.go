@@ -9,9 +9,11 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 	"github.com/blackbirdworks/gopherstack/services/kafkaconnect"
+	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
@@ -55,28 +57,8 @@ func (s kafkaScramSource) ResolveScramSecret(ctx context.Context, secretArn stri
 // wireKafkaAuth connects MSK client authentication to Secrets Manager (SASL/SCRAM), IAM and STS (AWS_MSK_IAM)
 // and serves the broker CA at kafkaCAPath.
 func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM bool) {
-	var (
-		kafkaH *kafka.Handler
-		iamH   *iambackend.Handler
-		stsH   *stsbackend.Handler
-		smH    *secretsmanagerbackend.Handler
-		kcH    *kafkaconnect.Handler
-	)
-
-	for _, svc := range services {
-		switch h := svc.(type) {
-		case *kafka.Handler:
-			kafkaH = h
-		case *iambackend.Handler:
-			iamH = h
-		case *stsbackend.Handler:
-			stsH = h
-		case *secretsmanagerbackend.Handler:
-			smH = h
-		case *kafkaconnect.Handler:
-			kcH = h
-		}
-	}
+	hs := collectKafkaAuthHandlers(services)
+	kafkaH, iamH, stsH, smH, kcH, pcaH := hs.kafka, hs.iam, hs.sts, hs.sm, hs.kc, hs.pca
 
 	if kafkaH == nil {
 		return
@@ -93,6 +75,12 @@ func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM boo
 		if smBk, smOk := smH.Backend.(*secretsmanagerbackend.InMemoryBackend); smOk {
 			bk.SetScramSecretResolver(kafkaScramSource{backend: smBk})
 		}
+	}
+
+	if pcaH != nil {
+		bk.SetClientCAResolver(func(ctx context.Context, caArn string) ([]byte, error) {
+			return pcaH.Backend.CertificatePEMForARN(ctx, caArn)
+		})
 	}
 
 	if kcH != nil {
@@ -113,6 +101,38 @@ func wireKafkaAuth(e *echo.Echo, services []service.Registerable, enforceIAM boo
 	})
 }
 
+type kafkaAuthHandlers struct {
+	kafka *kafka.Handler
+	iam   *iambackend.Handler
+	sts   *stsbackend.Handler
+	sm    *secretsmanagerbackend.Handler
+	kc    *kafkaconnect.Handler
+	pca   *acmpcabackend.Handler
+}
+
+func collectKafkaAuthHandlers(services []service.Registerable) kafkaAuthHandlers {
+	var hs kafkaAuthHandlers
+
+	for _, svc := range services {
+		switch h := svc.(type) {
+		case *kafka.Handler:
+			hs.kafka = h
+		case *iambackend.Handler:
+			hs.iam = h
+		case *stsbackend.Handler:
+			hs.sts = h
+		case *secretsmanagerbackend.Handler:
+			hs.sm = h
+		case *kafkaconnect.Handler:
+			hs.kc = h
+		case *acmpcabackend.Handler:
+			hs.pca = h
+		}
+	}
+
+	return hs
+}
+
 func kafkaIAMAuthConfig(iamH *iambackend.Handler, stsH *stsbackend.Handler, enforceIAM bool) kafka.IAMAuthConfig {
 	cfg := kafka.IAMAuthConfig{Enforce: enforceIAM}
 
@@ -129,4 +149,36 @@ func kafkaIAMAuthConfig(iamH *iambackend.Handler, stsH *stsbackend.Handler, enfo
 	}
 
 	return cfg
+}
+
+const scramSourceAccessType = "SASL_SCRAM_512_AUTH"
+
+// kafkaLambdaResolver lets Lambda MSK event source mappings reach plaintext, TLS and SASL/SCRAM clusters.
+type kafkaLambdaResolver struct {
+	bk *kafka.InMemoryBackend
+}
+
+func (r kafkaLambdaResolver) BootstrapServers(clusterARN string) []string {
+	return r.bk.BootstrapServers(clusterARN)
+}
+
+func (r kafkaLambdaResolver) MSKConnection(
+	ctx context.Context, clusterARN string, access []lambdabackend.SourceAccessConfiguration,
+) (lambdabackend.MSKConnection, bool) {
+	secret := ""
+
+	for _, a := range access {
+		if a.Type == scramSourceAccessType {
+			secret = a.URI
+		}
+	}
+
+	ep, ok := r.bk.ClientEndpointFor(ctx, clusterARN, secret)
+	if !ok {
+		return lambdabackend.MSKConnection{}, false
+	}
+
+	return lambdabackend.MSKConnection{
+		Brokers: ep.Brokers, RootCAPEM: ep.RootCAPEM, Username: ep.Username, Password: ep.Password,
+	}, true
 }

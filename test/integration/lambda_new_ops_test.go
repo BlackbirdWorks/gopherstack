@@ -382,7 +382,7 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	cpData, ok := createOut["CapacityProvider"].(map[string]any)
 	require.True(t, ok, "expected CapacityProvider in response")
 	assert.Contains(t, cpData["CapacityProviderArn"], "test-provider")
-	assert.Equal(t, "Active", cpData["State"])
+	assert.Equal(t, "Pending", cpData["State"], "create returns Pending; the first read reports Active")
 	assert.NotEmpty(t, cpData["LastModified"])
 
 	// Create duplicate should conflict

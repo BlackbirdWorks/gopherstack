@@ -13,6 +13,7 @@ import (
 
 // TestRedshiftDataDashboard verifies the RedshiftData dashboard UI renders the SQL editor.
 func TestRedshiftDataDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_ = stack.RedshiftDataHandler
@@ -42,14 +43,14 @@ func TestRedshiftDataDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Redshift Data", "Run Query")
 	assert.Contains(t, content, "Redshift Data")
 	assert.Contains(t, content, "Run Query")
 }
 
 // TestRedshiftDataDashboard_Empty verifies the RedshiftData dashboard empty state.
 func TestRedshiftDataDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_ = stack.RedshiftDataHandler
@@ -79,8 +80,7 @@ func TestRedshiftDataDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Redshift Data")
 	assert.Contains(t, content, "Redshift Data")
 	// The rebuilt page's default tab (Query Console) renders its SQL
 	// textarea with aria-label "SQL Query" (see +page.svelte's `rd-sql`

@@ -15,7 +15,11 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 // between the wire handler and storage, so handler tests can substitute a
 // fake.
 type StorageBackend interface {
-	CreateQueue(name string) (created bool, err error)
+	// CreateQueueWithMetadata returns ErrQueueAlreadyExists when the queue
+	// exists with different metadata.
+	CreateQueueWithMetadata(name string, metadata map[string]string) (created bool, err error)
+	SetQueueMetadata(name string, metadata map[string]string) error
+	GetQueueProperties(name string) (QueueProperties, error)
 	DeleteQueue(name string) error
 	ListQueues() []QueueInfo
 

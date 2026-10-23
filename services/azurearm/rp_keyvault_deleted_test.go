@@ -2,6 +2,9 @@ package azurearm_test
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -86,7 +89,7 @@ func TestKeyVault_DeletedVaultLifecycle(t *testing.T) {
 				deleteVault(t, h, "kv1")
 
 				st, _ := doRequest(t, h, "POST", deletedPath+"kv1/purge", nil)
-				assert.Equal(t, 200, st)
+				assert.Equal(t, 202, st)
 				assert.Contains(t, fake.calls, "PurgeVault:kv1")
 
 				st, _ = doRequest(t, h, "GET", deletedPath+"kv1", nil)
@@ -215,4 +218,32 @@ func TestKeyVault_SnapshotRestoreKeepsVaultsAndDeleted(t *testing.T) {
 		kvBase+"/providers/Microsoft.KeyVault/locations/westus/deletedVaults/gone1", nil)
 	require.Equal(t, 200, st)
 	assert.Equal(t, "gone1", body["name"])
+}
+
+func TestKeyVaultPurge_LocationPollCompletes(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newKVHandler()
+	require.Less(t, putVault(t, h, "kv1", map[string]any{}), 300)
+	deleteVault(t, h, "kv1")
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		kvBase+"/providers/Microsoft.KeyVault/locations/westus/deletedVaults/kv1/purge",
+		http.NoBody,
+	)
+	req.Host = "localhost:18006"
+	rec := httptest.NewRecorder()
+	newEchoServer(h).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	loc, err := url.Parse(rec.Header().Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "localhost:18006", loc.Host)
+	assert.Contains(t, loc.Path, "/operationResults/")
+
+	st, body := doRequest(t, h, http.MethodGet, loc.Path, nil)
+	assert.Equal(t, http.StatusOK, st)
+	assert.Equal(t, "Succeeded", body["status"])
 }

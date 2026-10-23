@@ -1,7 +1,10 @@
 /** Client for the Azure Table emulator via the dashboard's in-process proxy. */
 
 export const TABLE_PROXY_BASE = "/dashboard/api/v1/azure/table";
+export const COSMOS_TABLE_PROXY_BASE = "/dashboard/api/v1/azure/cosmos-table";
 export const DEFAULT_ACCOUNT = "devstoreaccount1";
+/** Selects the Cosmos DB Table API proxy; Cosmos has no account path segment, the name is a placeholder. */
+export const COSMOS_TABLE_ACCOUNT = "cosmosdb";
 export const PAGE_SIZES = [25, 50, 100, 250] as const;
 export const DEFAULT_PAGE_SIZE = 25;
 export const SYSTEM_PROPERTIES = ["PartitionKey", "RowKey", "Timestamp"] as const;
@@ -73,7 +76,8 @@ export function keyPredicate(partitionKey: string, rowKey: string): string {
 }
 
 export function tableUrl(account: string, resource = "", query = ""): string {
-  let url = `${TABLE_PROXY_BASE}/${encodeURIComponent(account)}`;
+  const base = account === COSMOS_TABLE_ACCOUNT ? COSMOS_TABLE_PROXY_BASE : TABLE_PROXY_BASE;
+  let url = `${base}/${encodeURIComponent(account)}`;
   if (resource) url += `/${resource}`;
   return query ? `${url}?${query}` : url;
 }
@@ -197,10 +201,7 @@ function isEdmType(s: unknown): s is EdmType {
   return typeof s === "string" && (EDM_TYPES as readonly string[]).includes(s);
 }
 
-/**
- * Number without an annotation: the emulator never annotates Edm.Double, so a
- * whole number cannot be told from an Int32 and is shown as Int32.
- */
+/** Number without an annotation: a whole number reads as Int32, any other as Double. */
 function inferType(v: unknown): TypedValue {
   if (typeof v === "boolean") return { type: "Edm.Boolean", value: String(v) };
   if (typeof v === "number") {
@@ -270,12 +271,14 @@ export function buildFilter(conds: FilterCondition[], join: "and" | "or" = "and"
 
 export function queryString(opts: {
   filter?: string;
+  select?: string[];
   top?: number;
   next?: Continuation | null;
 }): string {
   const params: string[] = [];
   const f = opts.filter?.trim();
   if (f) params.push(`$filter=${encodeURIComponent(f)}`);
+  if (opts.select?.length) params.push(`$select=${encodeURIComponent(opts.select.join(","))}`);
   if (opts.top) params.push(`$top=${opts.top}`);
   if (opts.next) {
     params.push(
@@ -358,7 +361,7 @@ export async function deleteTable(
 export async function queryEntities(
   account: string,
   table: string,
-  opts: { filter?: string; top?: number; next?: Continuation | null } = {},
+  opts: { filter?: string; select?: string[]; top?: number; next?: Continuation | null } = {},
   fetchFn: FetchFn = fetch,
 ): Promise<EntityPage> {
   const res = await send(

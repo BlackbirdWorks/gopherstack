@@ -57,6 +57,10 @@ func (h *Handler) buildPeer(ctx context.Context, home *InMemoryBackend, region s
 		r.SetContainerAttacher(nb.attachLinkLocal)
 	}
 
+	if r, ok := runner.(admitHookRunner); ok {
+		r.SetAdmitHook(nb.taskAdmit)
+	}
+
 	cwl := home.currentCWLogs()
 	if h.cwLogsFor != nil {
 		cwl = h.cwLogsFor(region)
@@ -132,6 +136,7 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	b.endpointURL = home.endpointURL
 	b.linkLocal = home.linkLocal
 	b.metrics.Set(home.metrics.Emitter())
+	inheritEnforcer(b, home)
 	b.stopDelay = home.stopDelay
 	b.startDelay = home.startDelay
 }

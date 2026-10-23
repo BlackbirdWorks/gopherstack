@@ -26,7 +26,7 @@ func TestSNSHTTPDelivery(t *testing.T) {
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	b := sns.NewInMemoryBackend()
 	tp, err := b.CreateTopic("http-topic", nil)
@@ -325,7 +325,7 @@ func TestGoroutineContextCancellationDrains(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	cancelCh := make(chan struct{})
 	doneCh := make(chan struct{})
@@ -381,7 +381,7 @@ func TestHTTPSSubscriptionDelivery(t *testing.T) {
 		received <- string(body)
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	client := ts.Client()
 	tr, ok := client.Transport.(*http.Transport)

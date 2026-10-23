@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -332,6 +333,7 @@ const (
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	quotaGate                  quotalimit.Gate
 	policyVersionCounters      map[string]int
 	groups                     *store.Table[Group]
 	policies                   *store.Table[Policy]

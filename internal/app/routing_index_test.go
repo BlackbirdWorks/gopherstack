@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/dashboard/api/v1/dashboardv1connect"
 	"github.com/blackbirdworks/gopherstack/internal/routegates"
 
 	"math/rand/v2"
@@ -256,6 +257,14 @@ func TestRoutingPathGatedAlternatives(t *testing.T) {
 		{"apigateway", "POST", "/", "APIGateway.GetRestApis", "APIGateway"},
 		{"lambda", "POST", "/", "AWSLambda.ListFunctions", "Lambda"},
 		{"iotdataplane_admin", "POST", "/_admin/connections/client-1", "", "IoTDataPlane"},
+		{
+			"dashboard_stream_console", "POST",
+			dashboardv1connect.DashboardServiceStreamConsoleProcedure, "", "Dashboard",
+		},
+		{
+			"dashboard_stream_metrics", "POST",
+			dashboardv1connect.DashboardServiceStreamMetricsProcedure, "", "Dashboard",
+		},
 	}
 
 	for _, tt := range tests {
@@ -280,4 +289,34 @@ func strideSample(in []routingCase, stride int) []routingCase {
 	}
 
 	return out
+}
+
+func TestRoutingLambdaFunctionURLHost(t *testing.T) {
+	t.Parallel()
+
+	reg, _ := routingFixture(t)
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithPathGates(routegates.PathGates())
+
+	tests := []struct {
+		name, method, host, uri string
+		wantLambda              bool
+	}{
+		{"on_aws_root", "GET", "abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws", "/", true},
+		{"on_aws_path_post", "POST", "abcdef0123456789abcdef0123456789.lambda-url.eu-west-1.on.aws", "/a/b?x=1", true},
+		{"localhost_zone", "GET", "abcdef0123456789abcdef0123456789.lambda-url.us-east-1.localhost:4566", "/", true},
+		{"s3_path_style", "GET", "localhost:4566", "/bucket/key", false},
+		{"s3_vhost", "GET", "bkt.s3.us-east-1.amazonaws.com", "/key", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rc := routingCase{method: tt.method, host: tt.host, uri: tt.uri}
+			got := router.Lookup(echo.NewContext(rc.request(t), httptest.NewRecorder()))
+			assert.Equal(t, tt.wantLambda, entryName(got) == "Lambda")
+		})
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -36,9 +37,11 @@ func (b *InMemoryBackend) CreateLiveSource(
 	cfgs := make([]HTTPPackageConfiguration, len(httpPackageConfigurations))
 	copy(cfgs, httpPackageConfigurations)
 
-	lsARN := fmt.Sprintf(
-		"arn:aws:mediatailor:%s:%s:sourceLocation/%s/liveSource/%s",
-		b.region, b.accountID, sourceLocationName, liveSourceName,
+	lsARN := arn.Build(
+		"mediatailor",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("sourceLocation/%s/liveSource/%s", sourceLocationName, liveSourceName),
 	)
 	now := time.Now().UTC()
 	ls := &LiveSource{

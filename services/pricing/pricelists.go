@@ -52,6 +52,10 @@ func priceListExists(code, ver, region string) bool {
 		return false
 	}
 
+	if code == svcComputeSP {
+		return regionLocation(region) != ""
+	}
+
 	for _, e := range theCatalog().byService[code] {
 		if e.region == region {
 			return true
@@ -59,6 +63,27 @@ func priceListExists(code, ver, region string) bool {
 	}
 
 	return false
+}
+
+// listFormats returns the regions and file formats of a service's price lists.
+func listFormats(code string) ([]string, []string, bool) {
+	if code == svcComputeSP {
+		codes := make([]string, len(regions))
+		for i, r := range regions {
+			codes[i] = r.code
+		}
+
+		sort.Strings(codes)
+
+		return codes, []string{formatJSON}, true
+	}
+
+	list, ok := theCatalog().byService[code]
+	if !ok {
+		return nil, nil, false
+	}
+
+	return regionsOf(list), []string{formatCSV, formatJSON}, true
 }
 
 func regionsOf(list []*entry) []string {
@@ -85,7 +110,7 @@ func PriceLists(
 		return nil, "", fail(ErrInvalidParameter, "CurrencyCode %q is not supported; use %s", cur, currency)
 	}
 
-	list, ok := theCatalog().byService[code]
+	regionCodes, formats, ok := listFormats(code)
 	if !ok {
 		return nil, "", fail(ErrResourceNotFound, "service code %q not found", code)
 	}
@@ -95,11 +120,11 @@ func PriceLists(
 	var infos []PriceListInfo
 
 	if !effective.Before(published) {
-		for _, r := range regionsOf(list) {
+		for _, r := range regionCodes {
 			if regionCode == "" || regionCode == r {
 				infos = append(infos, PriceListInfo{
 					CurrencyCode: currency, PriceListArn: priceListARN(code, catalogVersion, r),
-					RegionCode: r, FileFormats: []string{formatCSV, formatJSON},
+					RegionCode: r, FileFormats: formats,
 				})
 			}
 		}
@@ -120,6 +145,15 @@ func FileKind(arn, format string) (string, string, string, string, error) {
 	code, ver, region, ok := parsePriceListARN(arn)
 	if !ok {
 		return "", "", "", "", fail(ErrResourceNotFound, "price list %q not found", arn)
+	}
+
+	if code == svcComputeSP && kind != formatJSON {
+		return "", "", "", "", fail(
+			ErrInvalidParameter,
+			"FileFormat %q is not available for %s; use json",
+			format,
+			code,
+		)
 	}
 
 	return code, ver, region, kind, nil
@@ -152,6 +186,10 @@ func regionEntries(code, region string) []*entry {
 func RenderFile(code, ver, region, kind string) ([]byte, string, bool) {
 	if !priceListExists(code, ver, region) {
 		return nil, "", false
+	}
+
+	if code == svcComputeSP {
+		return renderSavingsPlans(region), "application/json", true
 	}
 
 	entries := regionEntries(code, region)

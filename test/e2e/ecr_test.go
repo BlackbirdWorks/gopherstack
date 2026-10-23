@@ -13,6 +13,7 @@ import (
 
 // TestECRDashboard verifies the ECR dashboard UI: repositories render correctly.
 func TestECRDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ECRHandler.Backend.CreateRepository(t.Context(), "demo-app/backend", "", false, "", "")
@@ -47,14 +48,14 @@ func TestECRDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "demo-app/backend", "demo-app/frontend")
 	assert.Contains(t, content, "demo-app/backend")
 	assert.Contains(t, content, "demo-app/frontend")
 }
 
 // TestECRDashboard_Empty verifies the ECR dashboard empty state renders correctly.
 func TestECRDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -83,14 +84,14 @@ func TestECRDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Repositories", "No repositories found")
 	assert.Contains(t, content, "Repositories")
 	assert.Contains(t, content, "No repositories found")
 }
 
 // TestECRDashboard_CreateAndDeleteRepository verifies the create and delete repository UI flows.
 func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -136,8 +137,7 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-repo")
 	assert.Contains(t, content, "e2e-test-repo")
 
 	// Delete the repository

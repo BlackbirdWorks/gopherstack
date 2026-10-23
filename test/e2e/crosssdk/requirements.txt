@@ -10,19 +10,30 @@ azure-core==1.41.0 \
 azure-cosmos==4.16.4 \
     --hash=sha256:5a98d33ce6d539a926f47c67b14587fbb8ba4fd662751ff8b0ebe7f9d3765a2e \
     --hash=sha256:89bf558203335efc39551dccef6782aa2f286d94cc87dd9bd98efc37d8c69303
-    # via -r /mnt/fast/gotmp/claude-1000/-home-agbishop-gopherstack/d3942c94-6fc4-40f5-88fc-1debcda5da78/scratchpad/requirements.in
+    # via -r requirements.in
 azure-data-tables==12.7.0 \
     --hash=sha256:24ed9b5690aa46c213182e32bb1b39a68dd9f526d84f447c287e3a401b437c10 \
     --hash=sha256:b14fc94a3223a2835ff5688e17d8e107b27c7cd7c4114138f2ac81373723705d
-    # via -r /mnt/fast/gotmp/claude-1000/-home-agbishop-gopherstack/d3942c94-6fc4-40f5-88fc-1debcda5da78/scratchpad/requirements.in
+    # via -r requirements.in
 azure-storage-blob==12.30.1 \
     --hash=sha256:7a24f978c51d56a0375beebffcbe8453e59ae390d2695705848edc75083e4184 \
     --hash=sha256:7dc09c37f4f58508e20532b4b4c178f4763f41b01e0b9063835b994fd9d2a7b3
-    # via -r /mnt/fast/gotmp/claude-1000/-home-agbishop-gopherstack/d3942c94-6fc4-40f5-88fc-1debcda5da78/scratchpad/requirements.in
+    # via -r requirements.in
 azure-storage-queue==12.17.0 \
     --hash=sha256:6eb108a88554be371feb2eba9715fa0e3f7baca7b3f00c19ec417fc7ce5b3834 \
     --hash=sha256:aaef08ee2613f84a3a85e60a059d29567361e5a2af455298bb0e529f0b47d5a1
-    # via -r /mnt/fast/gotmp/claude-1000/-home-agbishop-gopherstack/d3942c94-6fc4-40f5-88fc-1debcda5da78/scratchpad/requirements.in
+    # via -r requirements.in
+boto3==1.43.100 \
+    --hash=sha256:49785c310057c2c650d62ca3ba28e88ad87c3827b490312711e81968a9d21fd8 \
+    --hash=sha256:ae8d81e1f14699959eb38757c2e0044f4e3a303a57a0335d0be4cd3c07529763
+    # via -r requirements.in
+botocore==1.43.100 \
+    --hash=sha256:34c3232bc0f895091a15249903b3cab1148f5787f12389caa2d54a9175428d51 \
+    --hash=sha256:b6e64e38e3c03663a0c20d3d207afd97a0409dbc27e4e43384ac3f93cb61279f
+    # via
+    #   -r requirements.in
+    #   boto3
+    #   s3transfer
 certifi==2026.7.22 \
     --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775 \
     --hash=sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55
@@ -379,6 +390,12 @@ isodate==0.7.2 \
     #   azure-data-tables
     #   azure-storage-blob
     #   azure-storage-queue
+jmespath==1.1.0 \
+    --hash=sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d \
+    --hash=sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64
+    # via
+    #   boto3
+    #   botocore
 multidict==7.0.0 \
     --hash=sha256:021bf646def71ddfc234d886f80df2cfe5cb57339ee9537ca5d6402c5457079f \
     --hash=sha256:03cc4027103bb61feac20336a15fced1a6a369fed6a61c516353921207e4578c \
@@ -696,10 +713,24 @@ pycparser==3.0 \
     --hash=sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29 \
     --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
     # via cffi
+python-dateutil==2.9.0.post0 \
+    --hash=sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3 \
+    --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
+    # via botocore
 requests==2.34.2 \
     --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0 \
     --hash=sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed
     # via azure-core
+s3transfer==0.19.2 \
+    --hash=sha256:ba0309fd86be3c27dbf78cdd813c13c5e1df16e5874b99d2535ebbdfb9892993 \
+    --hash=sha256:d8168eccca828cbb2cd573675333f3bddd254313a9c42494b84c76b539e8ba25
+    # via
+    #   -r requirements.in
+    #   boto3
+six==1.17.0 \
+    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
+    --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81
+    # via python-dateutil
 typing-extensions==4.16.0 \
     --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
@@ -712,7 +743,9 @@ typing-extensions==4.16.0 \
 urllib3==2.8.0 \
     --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
     --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
-    # via requests
+    # via
+    #   botocore
+    #   requests
 yarl==1.25.1 \
     --hash=sha256:0136d640dfa9b0523853e411430a99f8a91eca85774c6420285a33b755bc6de3 \
     --hash=sha256:03dd38de09bc213e9a8b29761eec33ee1d5318dac0e49d8af36e4d27830e23a7 \

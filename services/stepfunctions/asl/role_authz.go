@@ -1,9 +1,11 @@
 package asl
 
 import (
+	"context"
 	"errors"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -58,7 +60,7 @@ func (e *Executor) authorizeHTTPTask(input any) error {
 
 	region, account := e.regionAndAccount()
 	_, name, _ := strings.Cut(connARN, "connection/")
-	secretARN := "arn:aws:secretsmanager:" + region + ":" + account + ":secret:events!connection/" + name
+	secretARN := arn.Build("secretsmanager", region, account, "secret:events!connection/"+name)
 
 	for _, check := range [][2]string{
 		{"events:RetrieveConnectionCredentials", connARN},
@@ -103,4 +105,22 @@ func httpConnectionARN(input any) string {
 	}
 
 	return ""
+}
+
+// getS3Object reads an object under the execution role's s3:GetObject permission.
+func (e *Executor) getS3Object(ctx context.Context, bucket, key string) ([]byte, error) {
+	if err := e.authorizeRole("S3", "s3:GetObject", arn.BuildS3(bucket+"/"+key)); err != nil {
+		return nil, err
+	}
+
+	return e.s3.GetObjectBytes(ctx, bucket, key)
+}
+
+// putS3Object writes an object under the execution role's s3:PutObject permission.
+func (e *Executor) putS3Object(ctx context.Context, bucket, key string, data []byte) error {
+	if err := e.authorizeRole("S3", "s3:PutObject", arn.BuildS3(bucket+"/"+key)); err != nil {
+		return err
+	}
+
+	return e.s3w.PutObjectBytes(ctx, bucket, key, data)
 }

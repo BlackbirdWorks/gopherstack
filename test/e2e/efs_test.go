@@ -16,6 +16,7 @@ import (
 
 // TestEFSDashboard verifies the EFS dashboard UI renders file systems.
 func TestEFSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EFSHandler.Backend.CreateFileSystem(context.Background(), efsbackend.CreateFileSystemRequest{
@@ -61,6 +62,7 @@ func TestEFSDashboard(t *testing.T) {
 
 // TestEFSDashboard_Empty verifies the EFS dashboard empty state renders correctly.
 func TestEFSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -88,8 +90,7 @@ func TestEFSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No file systems found")
 	assert.Contains(t, content, "No file systems found")
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -98,9 +99,11 @@ func (b *InMemoryBackend) buildNewAutoScalingGroup(
 ) *AutoScalingGroup {
 	return &AutoScalingGroup{
 		AutoScalingGroupName: input.AutoScalingGroupName,
-		AutoScalingGroupARN: fmt.Sprintf(
-			"arn:aws:autoscaling:%s:%s:autoScalingGroup:%s:autoScalingGroupName/%s",
-			b.region, b.accountID, uuid.NewString(), input.AutoScalingGroupName,
+		AutoScalingGroupARN: arn.Build(
+			"autoscaling",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("autoScalingGroup:%s:autoScalingGroupName/%s", uuid.NewString(), input.AutoScalingGroupName),
 		),
 		ServiceLinkedRoleARN:             input.ServiceLinkedRoleARN,
 		LaunchConfigurationName:          input.LaunchConfigurationName,

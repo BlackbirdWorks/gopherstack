@@ -15,6 +15,7 @@ import (
 
 // TestIoTWirelessDashboard verifies the IoT Wireless dashboard UI renders service profile data.
 func TestIoTWirelessDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.IoTHandler.Backend.CreateThing(&iotbackend.CreateThingInput{
@@ -47,14 +48,14 @@ func TestIoTWirelessDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-thing", "AWS IoT Core")
 	assert.Contains(t, content, "e2e-test-thing")
 	assert.Contains(t, content, "AWS IoT Core")
 }
 
 // TestIoTWirelessDashboard_Empty verifies the IoT Wireless dashboard renders correctly with no data.
 func TestIoTWirelessDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -82,7 +83,6 @@ func TestIoTWirelessDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No IoT things found")
 	assert.Contains(t, content, "No IoT things found")
 }

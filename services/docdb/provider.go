@@ -54,5 +54,5 @@ func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
 	}
 
 	backend.EnableEngine(EngineConfig{Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("DOCDB_HOST"),
-		TLS: os.Getenv("DOCDB_TLS") == "true"})
+		TLS: os.Getenv("DOCDB_TLS") != "false"})
 }

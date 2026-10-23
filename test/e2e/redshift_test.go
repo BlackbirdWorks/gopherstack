@@ -15,6 +15,7 @@ import (
 
 // TestRedshiftDashboard verifies the Redshift dashboard UI renders clusters.
 func TestRedshiftDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.RedshiftHandler.Backend.CreateCluster(
@@ -47,13 +48,13 @@ func TestRedshiftDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-cluster")
 	assert.Contains(t, content, "test-cluster")
 }
 
 // TestRedshiftDashboard_Empty verifies the empty state renders correctly.
 func TestRedshiftDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -81,7 +82,6 @@ func TestRedshiftDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No clusters found")
 	assert.Contains(t, content, "No clusters found")
 }

@@ -1,7 +1,9 @@
 package neptune
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,12 +17,16 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
+	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
 // Engine modes for Neptune.
 const (
 	EngineStub   = "stub"
 	EngineDocker = "docker"
+	// EngineEmbedded serves Gremlin, openCypher and Bolt in-process over one graph; no container runtime needed.
+	EngineEmbedded = "embedded"
 )
 
 const (
@@ -41,7 +47,7 @@ const (
 	statusStarting = "starting"
 )
 
-// EngineModeConfig exposes the Neptune engine mode (stub or docker).
+// EngineModeConfig exposes the Neptune engine mode (stub, embedded or docker).
 type EngineModeConfig interface {
 	GetNeptuneEngine() string
 }
@@ -62,12 +68,16 @@ type EngineConfig struct {
 	Host         string
 	StartTimeout time.Duration
 	OpenCypher   bool
+	// InProcessGremlin serves Gremlin from the cluster's shared graph instead of a Gremlin Server container.
+	InProcessGremlin bool
 }
 
 type liveCluster struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	front       *cypherFront
+	relay       *sgfilter.Proxy
+	graph       *opencypher.Graph
 	key         string
 	region      string
 	id          string
@@ -75,6 +85,7 @@ type liveCluster struct {
 	containerID string
 	port        int
 	innerPort   int
+	svcPort     int
 	ready       bool
 }
 
@@ -153,29 +164,11 @@ func (e *dbEngine) addr(lb *liveCluster) string {
 }
 
 func (e *dbEngine) acquirePort() (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("neptune") //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	a, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return a.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "neptune")
 }
 
 func (e *dbEngine) releasePort(port int) {
-	if e.cfg.Ports != nil && port != 0 {
-		_ = e.cfg.Ports.Release(port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
 func (e *dbEngine) remove(containerID string, ports ...int) {
@@ -202,11 +195,9 @@ func (e *dbEngine) reap(lbs ...*liveCluster) {
 
 		lb.cancel()
 
-		id, port, inner, front := lb.containerID, lb.port, lb.innerPort, lb.front
+		id, port, inner, front, relay := lb.containerID, lb.port, lb.innerPort, lb.front, lb.relay
 		e.wg.Go(func() {
-			if front != nil {
-				front.Close()
-			}
+			closeFronts(front, relay)
 
 			e.remove(id, port, inner)
 		})
@@ -235,6 +226,8 @@ func (b *InMemoryBackend) dropUnitLocked(region, id string) {
 		delete(b.engine.units, key)
 		b.engine.reap(lb)
 	}
+
+	delete(b.graphs, key)
 }
 
 func (b *InMemoryBackend) dropAllUnitsLocked() {
@@ -251,8 +244,14 @@ func (b *InMemoryBackend) dropAllUnitsLocked() {
 func (b *InMemoryBackend) rekeyUnitLocked(region, oldID, newID string) {
 	if lb := b.unitLocked(region, oldID); lb != nil {
 		delete(b.engine.units, lb.key)
+		oldKey := lb.key
 		lb.id, lb.key = newID, regionKey(region, newID)
 		b.engine.units[lb.key] = lb
+
+		if g, ok := b.graphs[oldKey]; ok {
+			delete(b.graphs, oldKey)
+			b.graphs[lb.key] = g
+		}
 	}
 }
 
@@ -267,6 +266,8 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 	lb := &liveCluster{
 		ctx: ctx, cancel: cancel, key: regionKey(c.region, c.DBClusterIdentifier), region: c.region,
 		id: c.DBClusterIdentifier, version: gremlinTag(c.EngineVersion),
+		graph:   b.graphLocked(regionKey(c.region, c.DBClusterIdentifier)),
+		svcPort: cmp.Or(c.Port, defaultNeptunePort),
 	}
 
 	if old, ok := e.units[lb.key]; ok {
@@ -277,10 +278,83 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 	c.Status = statusCreating
 	c.readyAt = time.Time{}
 
+	if e.cfg.InProcessGremlin {
+		e.wg.Go(func() { b.runEmbeddedUnit(lb) })
+
+		return
+	}
+
 	e.wg.Go(func() { b.runUnit(lb) })
 }
 
+var errUnitDetached = errors.New("engine unit detached")
+
 func (b *InMemoryBackend) runUnit(lb *liveCluster) {
+	e := b.engine
+
+	var port, inner int
+
+	id, err := container.CreateAndStartRetry(lb.ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			var perr error
+
+			if port, perr = e.acquirePort(); perr != nil {
+				return container.Spec{}, perr
+			}
+
+			inner = 0
+
+			if e.cfg.OpenCypher || b.enforcing() {
+				if inner, perr = e.acquirePort(); perr != nil {
+					e.releasePort(port)
+
+					return container.Spec{}, perr
+				}
+			}
+
+			if !b.recordPort(lb, port, inner) {
+				e.releasePort(port)
+				e.releasePort(inner)
+
+				return container.Spec{}, errUnitDetached
+			}
+
+			return e.spec(lb), nil
+		},
+		func() {
+			e.releasePort(port)
+			e.releasePort(inner)
+			b.recordPort(lb, 0, 0)
+		})
+	if err != nil {
+		if !errors.Is(err, errUnitDetached) {
+			b.failUnit(lb)
+		}
+
+		return
+	}
+
+	front, relay, err := b.startFronts(lb, port, inner)
+	if err != nil {
+		e.remove(id, port, inner)
+		b.failUnit(lb)
+
+		return
+	}
+
+	if !b.recordContainer(lb, id, front, relay) {
+		closeFronts(front, relay)
+
+		e.remove(id, port, inner)
+
+		return
+	}
+
+	b.awaitAndMark(lb)
+}
+
+// runEmbeddedUnit opens the cluster's listener over its shared graph; no container is involved.
+func (b *InMemoryBackend) runEmbeddedUnit(lb *liveCluster) {
 	e := b.engine
 
 	port, err := e.acquirePort()
@@ -290,54 +364,28 @@ func (b *InMemoryBackend) runUnit(lb *liveCluster) {
 		return
 	}
 
-	inner := 0
-
-	if e.cfg.OpenCypher {
-		if inner, err = e.acquirePort(); err != nil {
-			e.releasePort(port)
-			b.failUnit(lb)
-
-			return
-		}
-	}
-
-	if !b.recordPort(lb, port, inner) {
+	if !b.recordPort(lb, port, 0) {
 		e.releasePort(port)
-		e.releasePort(inner)
 
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(lb.ctx, e.spec(lb))
+	front, err := startCypherFront(e.cfg.Host, port, "", lb.graph, b.clusterAdmit(lb))
 	if err != nil {
+		e.releasePort(port)
 		b.failUnit(lb)
 
 		return
 	}
 
-	var front *cypherFront
-
-	if inner != 0 {
-		front, err = startCypherFront(e.cfg.Host, port, net.JoinHostPort(container.LoopbackHost, strconv.Itoa(inner)))
-		if err != nil {
-			e.remove(id, port, inner)
-			b.failUnit(lb)
-
-			return
-		}
-	}
-
-	if !b.recordContainer(lb, id, front) {
-		if front != nil {
-			front.Close()
-		}
-
-		e.remove(id, port, inner)
+	if !b.recordContainer(lb, "", front, nil) {
+		front.Close()
+		e.releasePort(port)
 
 		return
 	}
 
-	b.awaitAndMark(lb)
+	b.markUnitReady(lb)
 }
 
 func (b *InMemoryBackend) recordPort(lb *liveCluster, port, inner int) bool {
@@ -353,7 +401,9 @@ func (b *InMemoryBackend) recordPort(lb *liveCluster, port, inner int) bool {
 	return true
 }
 
-func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string, front *cypherFront) bool {
+func (b *InMemoryBackend) recordContainer(
+	lb *liveCluster, id string, front *cypherFront, relay *sgfilter.Proxy,
+) bool {
 	b.mu.Lock("neptuneEngineContainer")
 	defer b.mu.Unlock()
 
@@ -361,7 +411,7 @@ func (b *InMemoryBackend) recordContainer(lb *liveCluster, id string, front *cyp
 		return false
 	}
 
-	lb.containerID, lb.front = id, front
+	lb.containerID, lb.front, lb.relay = id, front, relay
 
 	return true
 }
@@ -503,6 +553,16 @@ func (b *InMemoryBackend) runUnitOpLocked(lb *liveCluster, op unitOp) {
 }
 
 func (b *InMemoryBackend) execUnitOp(lb *liveCluster, id string, op unitOp) {
+	if b.engine.cfg.InProcessGremlin {
+		if op == opStop {
+			b.markUnitStopped(lb)
+		} else {
+			b.markUnitReady(lb)
+		}
+
+		return
+	}
+
 	rt := b.engine.cfg.Runtime
 	ctx, cancel := context.WithTimeout(lb.ctx, engineStopTimeout)
 
@@ -568,7 +628,7 @@ func (b *InMemoryBackend) startUnitLocked(c *DBCluster) bool {
 	return true
 }
 
-// relaunchClustersLocked starts an empty container per restored cluster; graph data is not persisted.
+// relaunchClustersLocked starts a container per restored cluster (the Gremlin graph is not persisted).
 func (b *InMemoryBackend) relaunchClustersLocked() {
 	if b.engine == nil {
 		return

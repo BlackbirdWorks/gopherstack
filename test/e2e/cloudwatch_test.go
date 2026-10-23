@@ -13,6 +13,7 @@ import (
 
 // TestCloudWatchDashboard verifies the CloudWatch dashboard UI renders metrics.
 func TestCloudWatchDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -48,14 +49,14 @@ func TestCloudWatchDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CloudWatch", "No metrics found")
 	assert.Contains(t, content, "CloudWatch")
 	assert.Contains(t, content, "No metrics found")
 }
 
 // TestCloudWatchDashboard_Empty verifies the empty state renders correctly.
 func TestCloudWatchDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -83,14 +84,14 @@ func TestCloudWatchDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CloudWatch", "No alarms found")
 	assert.Contains(t, content, "CloudWatch")
 	assert.Contains(t, content, "No alarms found")
 }
 
 // TestCloudWatchDashboard_Dashboards verifies the dashboards section renders correctly.
 func TestCloudWatchDashboard_Dashboards(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -126,8 +127,7 @@ func TestCloudWatchDashboard_Dashboards(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Dashboards", "No dashboards found")
 	assert.Contains(t, content, "Dashboards")
 	assert.Contains(t, content, "No dashboards found")
 }

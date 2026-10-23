@@ -222,7 +222,7 @@ func (h *Handler) handleAdminCreateUserFull(
 		}
 
 		if err = h.deliverCode(ctx, in.UserPoolID, &MessageRequest{
-			Username: user.Username, Code: user.TemporaryPassword, Kind: MessageInvite,
+			Username: user.Username, Code: user.TemporaryPassword, Kind: MessageInvite, Flow: FlowAdminCreateUser,
 			Mediums: in.DesiredDeliveryMediums, CustomMessage: message, CustomSubject: subject,
 		}, nil); err != nil {
 			return nil, err

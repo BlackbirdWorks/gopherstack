@@ -131,6 +131,8 @@ func sweepMessageQueueLocked(mq *messageQueue, cfg EntityConfig, now time.Time) 
 			// not subject to the entity's message TTL. Give it a fresh
 			// window instead.
 			msg.ExpiresAt = now.Add(DefaultMessageTTL)
+			msg.DeadLetterReason = ReasonTTLExpired
+			msg.DeadLetterErrorDescription = descTTLExpired
 			mq.DeadLetter = append(mq.DeadLetter, msg)
 
 			stats.Expired++
@@ -156,6 +158,8 @@ func sweepMessageQueueLocked(mq *messageQueue, cfg EntityConfig, now time.Time) 
 			notifyNeeded = true
 
 			if msg.DeliveryCount >= cfg.maxDeliveryCount() {
+				msg.DeadLetterReason = ReasonMaxDeliveryCountExceeded
+				msg.DeadLetterErrorDescription = descMaxDeliveryCountExceeded
 				mq.DeadLetter = append(mq.DeadLetter, msg)
 				stats.DeadLettered++
 
@@ -172,6 +176,10 @@ func sweepMessageQueueLocked(mq *messageQueue, cfg EntityConfig, now time.Time) 
 
 	if len(final) != liveBefore {
 		mq.reindexLive()
+	}
+
+	if mq.sweepSessionsLocked(now) {
+		notifyNeeded = true
 	}
 
 	if notifyNeeded {

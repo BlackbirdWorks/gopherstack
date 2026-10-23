@@ -15,6 +15,7 @@ import (
 
 // TestAmplifyDashboard verifies the Amplify dashboard UI renders apps.
 func TestAmplifyDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.AmplifyHandler.Backend.CreateApp(
@@ -61,6 +62,7 @@ func TestAmplifyDashboard(t *testing.T) {
 
 // TestAmplifyDashboard_Empty verifies the Amplify dashboard empty state renders correctly.
 func TestAmplifyDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -88,7 +90,6 @@ func TestAmplifyDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amplify Full-Stack")
 	assert.Contains(t, content, "Amplify Full-Stack")
 }

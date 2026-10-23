@@ -9,23 +9,27 @@
 | --- | --- |
 | PARITY entries audited | 59 (58 ok, 1 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 3 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Docker engine (--codebuild-engine=docker, gopherstack-49qct.14): GITHUB/GITHUB_ENTERPRISE/BITBUCKET/GITLAB sources are not cloned (the build FAILs in DOWNLOAD_SOURCE); only S3 zip/object, CODECOMMIT, NO_SOURCE and CODEPIPELINE-with-buildspec are materialised, and S3 folder-prefix sources are not.
-- Docker engine: command output reaches CloudWatch Logs when each buildspec phase script finishes, not line by line while it runs (the container runtime's Exec returns buffered output).
-- Docker engine: buildspec reports, cache, exported-variables, runtime-versions, proxy, run-as and artifact-name $(command) substitution are parsed-and-ignored; build batches and BuildGroups still use the simulated path; AWS_ENDPOINT_URL for the emulator is not injected into the container.
+- Docker engine git sources (GITHUB/GITHUB_ENTERPRISE/BITBUCKET/GITLAB/GITLAB_SELF_MANAGED): cloned with the host git CLI (not inside the build container), so git must be installed on the emulator host; file:// locations are rejected unless EngineConfig.AllowFileGitSources is set (no CLI flag yet); credentials resolve by serverType only (the project source `auth` block and per-project OAuth connections are ignored); PR refs map pr/N to GitHub refs/pull, GitLab refs/merge-requests and Bitbucket Server refs/pull-requests (Bitbucket Cloud exposes no PR refs); gitCloneDepth 0 means a full clone; buildStatusConfig/reportBuildStatus status reporting back to the Git host is not done.
+- Docker engine sources: S3 folder-prefix sources and secondarySources are not materialised (only the primary source is fetched).
+- Docker engine logs stream line by line only when the container runtime implements container.StreamExecer (DockerRuntime does); any other EngineRuntime falls back to buffered per-script output.
+- Docker engine reports: only JUNITXML and COBERTURAXML are parsed. CUCUMBERJSON, TESTNGXML, NUNITXML, VISUALSTUDIOTRX, CLOVERXML, JACOCOXML and SIMPLECOV files are matched and recorded as a report with status INCOMPLETE and no test cases/coverage rows (the build log says the format has no parser). Report group exportConfig S3 raw-data export, report expiry and Report.truncated are not modelled; GetReportGroupTrend still returns empty stats/rawData.
+- Docker engine cache: buildspec `cache.key` and `cache.action` are ignored; one archive per project is used (S3: <prefix>/<project>/cache.tar.gz). Absolute cache paths archive the whole directory before the first glob character (e.g. /root/.m2/**/* caches /root/.m2). Caches are saved only when no phase failed; local caches live under EngineConfig.CacheDir with no eviction; LOCAL_DOCKER_LAYER_CACHE only mounts /var/lib/docker for privileged-mode builds; LOCAL_SOURCE_CACHE applies to git sources only.
+- Docker engine batch builds: child builds run through the engine, but BuildBatchConfig.CombineArtifacts and BatchReportMode remain config-only, and batch-level (not per-child) reports/artifacts are not aggregated.
+- Docker engine: exported-variables, runtime-versions, proxy, run-as and artifact-name $(command) substitution are parsed-and-ignored; AWS_ENDPOINT_URL for the emulator is not injected into the container.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend return empty content: report data is ingested on AWS by the managed build agent parsing buildspec reports and artifact files. Default (stub) mode runs no build commands; docker engine mode runs them but does not parse report files.
 - BuildBatchConfig.CombineArtifacts and BatchReportMode are round-tripped config only: no artifact store to merge into and no Git host to report status to.
+- Default (stub) engine mode runs no build commands, so reports/test cases/coverage are only produced in docker engine mode.
 
 ### Deferred
 

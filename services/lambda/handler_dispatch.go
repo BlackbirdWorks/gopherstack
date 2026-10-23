@@ -133,6 +133,10 @@ func extractLayerOperation(rest, method string) string {
 // It implements iam.ActionExtractor, providing per-service action extraction
 // for Lambda REST API paths that are not covered by the global action mapper.
 func (h *Handler) IAMAction(r *http.Request) string {
+	if IsFunctionURLHost(r.Host) {
+		return h.functionURLIAMAction(r.Host)
+	}
+
 	path := r.URL.Path
 	method := r.Method
 
@@ -589,3 +593,12 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 // layerPathMaxParts is the maximum number of path segments to split when parsing a layer route.
 // Format: layerName / "versions" / versionNumber / "policy" / statementId.
 const layerPathMaxParts = 5
+
+// functionURLIAMAction is lambda:InvokeFunctionUrl for AWS_IAM URLs; NONE URLs are not IAM-gated.
+func (h *Handler) functionURLIAMAction(host string) string {
+	if bk, ok := h.Backend.(*InMemoryBackend); ok && bk.FunctionURLAuthTypeForHost(host) == functionURLAuthAWSIAM {
+		return "lambda:InvokeFunctionUrl"
+	}
+
+	return ""
+}

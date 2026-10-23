@@ -287,12 +287,11 @@ func (b *InMemoryBackend) newServiceLocked(
 
 	return &Service{
 		CreatedAt: time.Now(),
-		ServiceArn: fmt.Sprintf(
-			"arn:aws:ecs:%s:%s:service/%s/%s",
+		ServiceArn: arn.Build(
+			"ecs",
 			b.region,
 			b.accountID,
-			clusterName,
-			input.ServiceName,
+			fmt.Sprintf("service/%s/%s", clusterName, input.ServiceName),
 		),
 		ServiceName: input.ServiceName,
 		ClusterArn: arn.Build(

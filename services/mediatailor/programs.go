@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -189,9 +190,11 @@ func (b *InMemoryBackend) CreateProgram(
 		return nil, err
 	}
 
-	progARN := fmt.Sprintf(
-		"arn:aws:mediatailor:%s:%s:channel/%s/program/%s",
-		b.region, b.accountID, channelName, programName,
+	progARN := arn.Build(
+		"mediatailor",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("channel/%s/program/%s", channelName, programName),
 	)
 	prog := &Program{
 		Tags:               copyTags(tags),

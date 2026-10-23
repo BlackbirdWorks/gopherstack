@@ -5,6 +5,8 @@ import (
 	"maps"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // CreateDomainName creates a new custom domain name.
@@ -45,7 +47,7 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 
 	dn := &DomainName{
 		DomainNameValue:          input.DomainName,
-		DomainNameArnValue:       "arn:aws:apigateway:" + b.region + "::/domainnames/" + input.DomainName,
+		DomainNameArnValue:       arn.Build("apigateway", b.region, "", "/domainnames/"+input.DomainName),
 		CertificateARN:           input.CertificateARN,
 		RegionalCertificateARN:   input.RegionalCertificateARN,
 		SecurityPolicy:           securityPolicy,
@@ -100,7 +102,7 @@ func (b *InMemoryBackend) CreateDomainNameAccessAssociation(
 	b.mu.Lock("CreateDomainNameAccessAssociation")
 	defer b.mu.Unlock()
 
-	assocARN := "arn:aws:apigateway:" + b.region + "::/accessassociations/" + randomID(apiIDLength)
+	assocARN := arn.Build("apigateway", b.region, "", "/accessassociations/"+randomID(apiIDLength))
 	assoc := &DomainNameAccessAssociation{
 		DomainNameAccessAssociationARN: assocARN,
 		DomainNameARN:                  input.DomainNameARN,

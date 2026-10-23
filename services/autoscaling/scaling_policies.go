@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -129,8 +131,12 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 		return nil, err
 	}
 
-	arn := "arn:aws:autoscaling:" + b.region + ":" + b.accountID + ":scalingPolicy:" +
-		uuid.NewString() + ":autoScalingGroupName/" + input.AutoScalingGroupName + ":policyName/" + input.PolicyName
+	arn := arn.Build(
+		"autoscaling",
+		b.region,
+		b.accountID,
+		"scalingPolicy:"+uuid.NewString()+":autoScalingGroupName/"+input.AutoScalingGroupName+":policyName/"+input.PolicyName,
+	)
 
 	// Preserve ARN if policy already exists
 	if existing, ok := b.scalingPolicies.Get(scopedKey(input.AutoScalingGroupName, input.PolicyName)); ok {

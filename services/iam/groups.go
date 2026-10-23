@@ -13,11 +13,17 @@ import (
 
 // CreateGroup creates a new IAM group.
 func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
+	limit := b.quotaLimit(quotaGroups)
+
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
 	if _, exists := b.groups.Get(groupName); exists {
 		return nil, fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, groupName)
+	}
+
+	if limit.Reached(len(b.sortedGroupNames)) {
+		return nil, quotaExceeded("GroupsPerAccount", limit)
 	}
 
 	p := normPath(path)

@@ -13,6 +13,7 @@ import (
 
 // TestSecretsManagerDashboard tests the Secrets Manager dashboard UI: create, view, delete.
 func TestSecretsManagerDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -54,7 +55,7 @@ func TestSecretsManagerDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Open the Create Secret modal.
-	err = page.Click("button:has-text('Create Secret')")
+	err = page.Locator("button:has-text('Create Secret')").First().Click()
 	require.NoError(t, err)
 
 	err = page.Locator("h2:has-text('Create Secret')").WaitFor(playwright.LocatorWaitForOptions{
@@ -64,10 +65,10 @@ func TestSecretsManagerDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fill in the secret name and value.
-	err = page.Fill("#secret-name", "e2e/test/db-password")
+	err = page.Locator("#secret-name").First().Fill("e2e/test/db-password")
 	require.NoError(t, err)
 
-	err = page.Fill("#secret-value", `{"username":"admin","password":"s3cr3t"}`)
+	err = page.Locator("#secret-value").First().Fill(`{"username":"admin","password":"s3cr3t"}`)
 	require.NoError(t, err)
 
 	// Submit the create form.

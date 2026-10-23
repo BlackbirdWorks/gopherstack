@@ -15,6 +15,7 @@ import (
 
 // TestTranscribeDashboard verifies the Transcribe dashboard UI renders transcription jobs.
 func TestTranscribeDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.TranscribeHandler.Backend.StartTranscriptionJob(
@@ -51,14 +52,14 @@ func TestTranscribeDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Transcribe", "Transcription Jobs")
 	assert.Contains(t, content, "Amazon Transcribe")
 	assert.Contains(t, content, "Transcription Jobs")
 }
 
 // TestTranscribeDashboard_Empty verifies the empty state renders correctly.
 func TestTranscribeDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -86,13 +87,13 @@ func TestTranscribeDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No transcription jobs found")
 	assert.Contains(t, content, "No transcription jobs found")
 }
 
 // TestTranscribeDashboard_StartJob verifies transcription jobs are displayed on the current UI.
 func TestTranscribeDashboard_StartJob(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.TranscribeHandler.Backend.StartTranscriptionJob(
@@ -129,7 +130,6 @@ func TestTranscribeDashboard_StartJob(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Transcribe")
 	assert.Contains(t, content, "Amazon Transcribe")
 }

@@ -16,6 +16,10 @@ const (
 	arnService    = "bedrock-agentcore"
 	defaultRegion = "us-east-1"
 	vaultKey      = "default"
+
+	managedSecretPrefix = "bedrock-agentcore-identity!default/"
+	// managedSecretName is the Secrets Manager name prefix of stored secrets; "!" is not a legal name character.
+	managedSecretName = "bedrock-agentcore-identity-default/"
 )
 
 // References resolves resources owned by other emulated services; nil members skip the check.
@@ -24,6 +28,13 @@ type References interface {
 	LambdaFunctionExists(arn string) bool
 	SecretExists(arn string) bool
 	ReadObject(bucket, key string) ([]byte, bool)
+}
+
+// SecretStore is the optional References extension that persists credential provider secrets in Secrets Manager.
+type SecretStore interface {
+	PutSecret(account, region, name, value string) (string, error)
+	GetSecret(arn string) (string, bool)
+	DeleteSecret(arn string)
 }
 
 // InMemoryBackend is the AgentCore control-plane state; one coarse lock guards every table.

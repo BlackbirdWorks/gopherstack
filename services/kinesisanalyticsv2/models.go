@@ -132,10 +132,11 @@ type S3CodeLocationDesc struct {
 
 // CodeContentDescription describes the location and content of application code.
 type CodeContentDescription struct {
-	S3ApplicationCodeLocationDescription *S3CodeLocationDesc `json:"S3ApplicationCodeLocationDescription,omitempty"` //nolint:lll // AWS API name
+	S3ApplicationCodeLocationDescription *S3CodeLocationDesc `json:"S3ApplicationCodeLocationDescription,omitempty"`
 	TextContent                          string              `json:"TextContent,omitempty"`
 	CodeMD5                              string              `json:"CodeMD5,omitempty"`
-	CodeSize                             int64               `json:"CodeSize,omitempty"`
+	zipContent                           []byte
+	CodeSize                             int64 `json:"CodeSize,omitempty"`
 }
 
 // ApplicationCodeConfigDesc describes an application's code configuration.
@@ -511,7 +512,8 @@ type Snapshot struct {
 	// dedicated snapshotDetail response DTO.
 	Region             string `json:"-"`
 	AppName            string `json:"-"`
-	ApplicationVersion int64  `json:"ApplicationVersionId"`
+	savepointPath      string
+	ApplicationVersion int64 `json:"ApplicationVersionId"`
 }
 
 // applicationSummary is a compact view of an application used in listings.

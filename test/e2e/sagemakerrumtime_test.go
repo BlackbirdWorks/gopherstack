@@ -13,6 +13,7 @@ import (
 
 // TestSageMakerRuntimeDashboard verifies the SageMaker Runtime dashboard UI renders invocation data.
 func TestSageMakerRuntimeDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -40,14 +41,14 @@ func TestSageMakerRuntimeDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon SageMaker", "Endpoints")
 	assert.Contains(t, content, "Amazon SageMaker")
 	assert.Contains(t, content, "Endpoints")
 }
 
 // TestSageMakerRuntimeDashboard_Empty verifies the SageMaker Runtime dashboard renders correctly with no invocations.
 func TestSageMakerRuntimeDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -75,7 +76,6 @@ func TestSageMakerRuntimeDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No notebook instances found")
 	assert.Contains(t, content, "No notebook instances found")
 }

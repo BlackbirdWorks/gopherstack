@@ -23,6 +23,8 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -1583,6 +1585,16 @@ func (e *Executor) recordTaskFailed(executionARN, stateName, resource, errCode, 
 
 // invokeTask performs the actual task invocation.
 func (e *Executor) invokeTask(ctx context.Context, state *State, input any, heartbeatSeconds int) (any, error) {
+	sctx, span := apptrace.StartChild(ctx, taskSpanInfo(state.Resource))
+	out, err := e.invokeTaskUntraced(sctx, state, input, heartbeatSeconds)
+	span.FinishErr(err)
+
+	return out, err
+}
+
+func (e *Executor) invokeTaskUntraced(
+	ctx context.Context, state *State, input any, heartbeatSeconds int,
+) (any, error) {
 	if err := checkSyncPatternSupported(state.Resource); err != nil {
 		return nil, err
 	}
@@ -2731,7 +2743,7 @@ func (e *Executor) resolveItemsFromS3GetObject(ctx context.Context, reader *Item
 	bucket, _ := reader.Parameters["Bucket"].(string)
 	key, _ := reader.Parameters["Key"].(string)
 
-	data, err := e.s3.GetObjectBytes(ctx, bucket, key)
+	data, err := e.getS3Object(ctx, bucket, key)
 	if err != nil {
 		return nil, fmt.Errorf("ItemReader S3 get error: %w", err)
 	}
@@ -2760,6 +2772,10 @@ func (e *Executor) resolveItemsFromS3List(ctx context.Context, reader *ItemReade
 
 	bucket, _ := reader.Parameters["Bucket"].(string)
 	prefix, _ := reader.Parameters["Prefix"].(string)
+
+	if authErr := e.authorizeRole("S3", "s3:ListBucket", arn.BuildS3(bucket)); authErr != nil {
+		return nil, authErr
+	}
 
 	objs, err := lister.ListObjectsV2Items(ctx, bucket, prefix)
 	if err != nil {
@@ -2809,7 +2825,7 @@ func (e *Executor) flattenListedObjects(
 			continue
 		}
 
-		data, err := e.s3.GetObjectBytes(ctx, bucket, o.Key)
+		data, err := e.getS3Object(ctx, bucket, o.Key)
 		if err != nil {
 			return nil, fmt.Errorf("ItemReader flatten %q: %w", o.Key, err)
 		}
@@ -2893,7 +2909,7 @@ func (e *Executor) resolveAthenaManifest(ctx context.Context, manifestData []byt
 			return nil, fmt.Errorf("%w: Athena manifest entry %q is not an s3:// URI", ErrItemReaderInvalidData, uri)
 		}
 
-		data, err := e.s3.GetObjectBytes(ctx, bucket, key)
+		data, err := e.getS3Object(ctx, bucket, key)
 		if err != nil {
 			return nil, fmt.Errorf("ItemReader Athena data file %q: %w", uri, err)
 		}
@@ -2941,7 +2957,7 @@ func (e *Executor) resolveS3InventoryManifest(
 	var items []any
 
 	for _, f := range manifest.Files {
-		data, err := e.s3.GetObjectBytes(ctx, bucket, f.Key)
+		data, err := e.getS3Object(ctx, bucket, f.Key)
 		if err != nil {
 			return nil, fmt.Errorf("ItemReader manifest data file %q: %w", f.Key, err)
 		}
@@ -4304,7 +4320,7 @@ func isActivityResource(resource string) bool {
 // isLambdaResource returns true if the resource ARN is a Lambda function.
 func isLambdaResource(resource string) bool {
 	return strings.Contains(resource, ":lambda:") ||
-		strings.HasPrefix(resource, "arn:aws:lambda:") ||
+		arn.HasService(resource, "lambda") ||
 		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:lambda:")
 }
 

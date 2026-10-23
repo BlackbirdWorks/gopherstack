@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	sdks3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -102,6 +104,20 @@ func newLeakEnv(t *testing.T) *leakEnv {
 	return &leakEnv{cfg: cfg, resetBounded: ct.Reset}
 }
 
+// leakOwnedSeries reports whether the series carries a label value naming a
+// resource created by this suite (all prefixed "leak"). The default registry
+// is process-wide, so unrelated tests creating or sweeping series concurrently
+// must not count toward a leak test's budget.
+func leakOwnedSeries(m *dto.Metric) bool {
+	for _, lp := range m.GetLabel() {
+		if strings.Contains(lp.GetValue(), "leak") {
+			return true
+		}
+	}
+
+	return false
+}
+
 func takeLeakSnapshot(t *testing.T, env *leakEnv) leakSnapshot {
 	t.Helper()
 
@@ -119,7 +135,11 @@ func takeLeakSnapshot(t *testing.T, env *leakEnv) leakSnapshot {
 
 	series := 0
 	for _, mf := range mfs {
-		series += len(mf.GetMetric())
+		for _, m := range mf.GetMetric() {
+			if leakOwnedSeries(m) {
+				series++
+			}
+		}
 	}
 
 	return leakSnapshot{

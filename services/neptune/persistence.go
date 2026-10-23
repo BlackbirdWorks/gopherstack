@@ -8,6 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
 // neptuneSnapshotVersion identifies the shape of [backendSnapshot]. It must be
@@ -60,6 +61,7 @@ type backendSnapshot struct {
 	ClusterParameterOverrides map[string]map[string]ParameterValue           `json:"clusterParameterOverrides"`
 	PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:"pendingMaintenanceActions"`
 	EventsLog                 map[string][]Event                             `json:"eventsLog"`
+	OpenCypherGraphs          map[string]json.RawMessage                     `json:"openCypherGraphs,omitempty"`
 	AccountID                 string                                         `json:"accountID"`
 	Region                    string                                         `json:"region"`
 	Version                   int                                            `json:"version"`
@@ -173,6 +175,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ClusterParameterOverrides: b.clusterParameterOverrides,
 		PendingMaintenanceActions: b.pendingMaintenanceActions,
 		EventsLog:                 b.eventsLog,
+		OpenCypherGraphs:          b.exportGraphsLocked(ctx),
 		AccountID:                 b.accountID,
 		Region:                    b.region,
 	}
@@ -212,6 +215,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.clusterParameterOverrides = make(map[string]map[string]ParameterValue)
 		b.pendingMaintenanceActions = make(map[string]map[string]PendingMaintenanceAction)
 		b.eventsLog = make(map[string][]Event)
+		b.graphs = make(map[string]*opencypher.Graph)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -251,6 +255,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.EventsLog = make(map[string][]Event)
 	}
 	b.eventsLog = snap.EventsLog
+	b.importGraphsLocked(ctx, snap.OpenCypherGraphs)
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -324,4 +329,51 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
+}
+
+// graphLocked returns the cluster's openCypher graph, creating it on first use. Callers hold b.mu.
+func (b *InMemoryBackend) graphLocked(key string) *opencypher.Graph {
+	g, ok := b.graphs[key]
+	if !ok {
+		g = opencypher.NewGraph()
+		b.graphs[key] = g
+	}
+
+	return g
+}
+
+func (b *InMemoryBackend) exportGraphsLocked(ctx context.Context) map[string]json.RawMessage {
+	if len(b.graphs) == 0 {
+		return nil
+	}
+
+	out := make(map[string]json.RawMessage, len(b.graphs))
+
+	for key, g := range b.graphs {
+		raw, err := g.Export(ctx)
+		if err != nil {
+			logger.Load(ctx).WarnContext(ctx, "neptune: openCypher graph export failed", "cluster", key, "error", err)
+
+			continue
+		}
+
+		out[key] = raw
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) importGraphsLocked(ctx context.Context, dumps map[string]json.RawMessage) {
+	b.graphs = make(map[string]*opencypher.Graph, len(dumps))
+
+	for key, raw := range dumps {
+		g := opencypher.NewGraph()
+		if err := g.Import(ctx, raw); err != nil {
+			logger.Load(ctx).WarnContext(ctx, "neptune: openCypher graph import failed", "cluster", key, "error", err)
+
+			continue
+		}
+
+		b.graphs[key] = g
+	}
 }

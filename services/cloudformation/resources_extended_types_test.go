@@ -222,9 +222,9 @@ func TestResourceCreator_AdditionalTypes_NilBackends(t *testing.T) {
 			logicalID:    "MyECSubnet",
 			resourceType: "AWS::ElastiCache::SubnetGroup",
 			props: map[string]any{
-				"CacheSubnetGroupName":        "stub-ecsg",
-				"CacheSubnetGroupDescription": "desc",
-				"SubnetIds":                   []any{"s-1"},
+				"CacheSubnetGroupName": "stub-ecsg",
+				"Description":          "desc",
+				"SubnetIds":            []any{"s-1"},
 			},
 		},
 		{
@@ -302,7 +302,7 @@ func TestResourceCreator_AdditionalTypes_NilBackends(t *testing.T) {
 		},
 		{
 			name: "cognito_user_pool", logicalID: "MyPool", resourceType: "AWS::Cognito::UserPool",
-			props: map[string]any{"PoolName": "stub-pool"},
+			props: map[string]any{"UserPoolName": "stub-pool"},
 		},
 		{
 			name: "cognito_user_pool_client", logicalID: "MyClient", resourceType: "AWS::Cognito::UserPoolClient",
@@ -403,9 +403,9 @@ func TestResourceCreator_AdditionalTypes_RealBackends(t *testing.T) {
 			logicalID:    "MyECSubnet",
 			resourceType: "AWS::ElastiCache::SubnetGroup",
 			props: map[string]any{
-				"CacheSubnetGroupName":        "unit-test-ecsg",
-				"CacheSubnetGroupDescription": "desc",
-				"SubnetIds":                   []any{"subnet-1"},
+				"CacheSubnetGroupName": "unit-test-ecsg",
+				"Description":          "desc",
+				"SubnetIds":            []any{"subnet-1"},
 			},
 			wantPhysID: "unit-test-ecsg",
 		},
@@ -524,7 +524,7 @@ func TestResourceCreator_AdditionalTypes_RealBackends(t *testing.T) {
 			name:         "cognito_user_pool",
 			logicalID:    "MyPool",
 			resourceType: "AWS::Cognito::UserPool",
-			props:        map[string]any{"PoolName": "unit-test-pool"},
+			props:        map[string]any{"UserPoolName": "unit-test-pool"},
 			wantNotEmpty: true,
 		},
 		{
@@ -580,7 +580,7 @@ func TestResourceCreator_CognitoUserPoolWithClient(t *testing.T) {
 
 	// Create pool first.
 	poolID, err := rc.Create(ctx, "MyPool", "AWS::Cognito::UserPool",
-		map[string]any{"PoolName": "test-pool"}, nil, nil)
+		map[string]any{"UserPoolName": "test-pool"}, nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, poolID)
 

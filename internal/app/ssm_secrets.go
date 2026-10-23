@@ -121,6 +121,8 @@ func iamPrincipalArn(callerArn string) string {
 
 // wireSSMSecrets lets SSM serve /aws/reference/secretsmanager/* from Secrets Manager.
 func wireSSMSecrets(cli *CLI, byName map[string]service.Registerable) {
+	wireServiceCatalogRoles(cli, byName)
+
 	ssmH, ok := byName["SSM"].(*ssmbackend.Handler)
 	if !ok {
 		return

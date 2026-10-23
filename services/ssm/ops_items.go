@@ -180,7 +180,7 @@ func (b *InMemoryBackend) CreateOpsMetadata(
 	}
 
 	metaID := uuid.NewString()
-	arn := fmt.Sprintf(opsMetadataArnTpl, region, defaultAccountID, metaID)
+	arn := arn.Build("ssm", region, defaultAccountID, fmt.Sprintf(opsMetadataArnTpl, metaID))
 	now := UnixTimeFloat(time.Now())
 
 	meta := OpsMetadata{

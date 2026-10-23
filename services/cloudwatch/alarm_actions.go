@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -76,7 +78,7 @@ func (b *InMemoryBackend) executeActions(
 		var actionResult string
 
 		switch {
-		case strings.HasPrefix(action, "arn:aws:sns:"):
+		case arnpkg.HasService(action, "sns"):
 			actionResult = "SNS"
 			if deps.snsPub != nil {
 				if err := deps.snsPub.PublishToTopic(action, string(payload)); err != nil {
@@ -85,7 +87,7 @@ func (b *InMemoryBackend) executeActions(
 					actionResult = "SNS (failed)"
 				}
 			}
-		case strings.HasPrefix(action, "arn:aws:lambda:"):
+		case arnpkg.HasService(action, "lambda"):
 			actionResult = "Lambda"
 			if deps.lambdaInv != nil {
 				if _, _, err := deps.lambdaInv.InvokeFunction(ctx, action, "Event", payload); err != nil {
@@ -94,9 +96,9 @@ func (b *InMemoryBackend) executeActions(
 					actionResult = "Lambda (failed)"
 				}
 			}
-		case strings.HasPrefix(action, "arn:aws:automate:"):
+		case arnpkg.HasService(action, "automate"):
 			actionResult = b.executeEC2Action(ctx, action, deps)
-		case strings.HasPrefix(action, "arn:aws:autoscaling:"):
+		case arnpkg.HasService(action, "autoscaling"):
 			actionResult = b.executeAutoScalingAction(ctx, action, deps)
 		default:
 			log.WarnContext(ctx, "cloudwatch: unrecognised alarm action skipped",

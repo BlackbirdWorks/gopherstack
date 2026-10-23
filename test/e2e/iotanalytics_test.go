@@ -14,6 +14,7 @@ import (
 
 // TestIoTAnalyticsDashboard verifies the IoT Analytics dashboard renders channels correctly.
 func TestIoTAnalyticsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.IoTAnalyticsHandler.Backend.CreateChannel(
@@ -47,14 +48,14 @@ func TestIoTAnalyticsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "IoT Analytics", "e2e_test_channel")
 	assert.Contains(t, content, "IoT Analytics")
 	assert.Contains(t, content, "e2e_test_channel")
 }
 
 // TestIoTAnalyticsDashboard_Empty verifies the IoT Analytics dashboard renders correctly with no data.
 func TestIoTAnalyticsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -82,14 +83,14 @@ func TestIoTAnalyticsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "IoT Analytics", "No channels found")
 	assert.Contains(t, content, "IoT Analytics")
 	assert.Contains(t, content, "No channels found")
 }
 
 // TestIoTAnalyticsDashboard_CreateAndDeleteChannel tests channel creation and deletion via UI.
 func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -131,8 +132,7 @@ func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "ui_test_channel")
 	assert.Contains(t, content, "ui_test_channel")
 
 	err = page.Locator("button:has-text('Delete')").First().Click()

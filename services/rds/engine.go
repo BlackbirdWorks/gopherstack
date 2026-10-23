@@ -6,9 +6,11 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -16,8 +18,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -83,36 +83,43 @@ type EngineLogin struct {
 
 // EngineConfig configures docker-backed RDS databases.
 type EngineConfig struct {
-	Runtime EngineRuntime
-	// Ports hands out host ports; nil falls back to OS-chosen free ports.
-	Ports *portalloc.Allocator
-	// Probe returns nil once the login works against the engine; nil uses the real drivers.
-	Probe func(ctx context.Context, l EngineLogin) error
-	// SetPassword changes the login's own password inside the engine; nil uses the real drivers.
-	SetPassword func(ctx context.Context, l EngineLogin, newPassword string) error
-	// Host is the address clients use to reach published ports; default 127.0.0.1.
-	Host string
-	// CADir persists the local CA that signs the postgres proxy certificate; empty keeps it in memory.
-	CADir string
-	// StartTimeout bounds how long a database may stay unreachable before it is marked failed.
-	StartTimeout time.Duration
+	Runtime              EngineRuntime
+	Ports                *portalloc.Allocator
+	Probe                func(ctx context.Context, l EngineLogin) error
+	SetPassword          func(ctx context.Context, l EngineLogin, newPassword string) error
+	Now                  func() time.Time
+	ReplicaStatus        func(ctx context.Context, l EngineLogin) (ReplicaStatus, error)
+	Host                 string
+	CADir                string
+	DumpDir              string
+	ReplicaPollInterval  time.Duration
+	StartTimeout         time.Duration
+	RestorePointInterval time.Duration
 }
 
 type liveDB struct {
 	gone        chan struct{}
 	proxy       atomic.Pointer[pgProxy]
 	fwd         atomic.Pointer[tcpForwarder]
-	seed        engineSeed
-	password    string
+	net         atomic.Pointer[replNet]
+	repl        *replicaState
+	eps         sync.Map
 	kind        string
+	containerID string
+	replPass    string
+	ctrName     string
+	key         string
 	version     string
 	user        string
 	resourceID  string
 	dbName      string
-	containerID string
-	key         string
+	password    string
+	seed        engineSeed
 	port        int
 	once        sync.Once
+	serverID    uint32
+	monitoring  atomic.Bool
+	dbPort      atomic.Int32
 	ready       bool
 	paused      bool
 }
@@ -128,6 +135,14 @@ func (lb *liveDB) release() {
 		if f := lb.fwd.Load(); f != nil {
 			f.close()
 		}
+
+		lb.eps.Range(func(_, v any) bool {
+			if l, ok := v.(*endpointListener); ok {
+				l.close()
+			}
+
+			return true
+		})
 	})
 }
 
@@ -166,13 +181,17 @@ func (lb *liveDB) opContext(timeout time.Duration) (context.Context, context.Can
 }
 
 type dbEngine struct {
-	units   map[string]*liveDB
-	data    map[string]engineData
-	ca      *engineCA
-	tlsCfg  *tls.Config
-	cfg     EngineConfig
-	wg      sync.WaitGroup
-	tlsOnce sync.Once
+	units      map[string]*liveDB
+	data       map[string]engineData
+	points     map[string][]restorePoint
+	checked    map[string]time.Time
+	store      *dumpStore
+	ca         *engineCA
+	tlsCfg     *tls.Config
+	cfg        EngineConfig
+	wg         sync.WaitGroup
+	tlsOnce    sync.Once
+	execBroken atomic.Bool
 }
 
 // EnableEngine switches the backend to docker mode: postgres/mysql/mariadb (and Aurora) get a real container.
@@ -189,6 +208,10 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 		cfg.Probe = probeEngine
 	}
 
+	if cfg.ReplicaStatus == nil {
+		cfg.ReplicaStatus = queryReplicaStatus
+	}
+
 	if cfg.SetPassword == nil {
 		cfg.SetPassword = setEnginePassword
 	}
@@ -196,7 +219,21 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 	b.mu.Lock("EnableEngine")
 	defer b.mu.Unlock()
 
-	b.engine = &dbEngine{cfg: cfg, units: make(map[string]*liveDB), data: make(map[string]engineData)}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+
+	b.engine = &dbEngine{
+		cfg: cfg, units: make(map[string]*liveDB), data: make(map[string]engineData),
+		points: make(map[string][]restorePoint), checked: make(map[string]time.Time),
+	}
+
+	if cfg.DumpDir != "" {
+		b.engine.store = newDumpStore(filepath.Join(cfg.DumpDir, b.region))
+		b.engine.loadDumps()
+	}
+
+	b.startRestorePointLoop()
 }
 
 // engineKind maps an RDS engine name to its base database; "" means no real engine is available.
@@ -271,14 +308,18 @@ func engineEnv(lb *liveDB) []string {
 	return env
 }
 
-func (e *dbEngine) spec(lb *liveDB) container.Spec {
-	return container.Spec{
-		Name:  "gopherstack-rds-" + uuid.NewString()[:12],
+func (e *dbEngine) spec(lb *liveDB, plan replPlan) container.Spec {
+	s := container.Spec{
+		Name:  lb.ctrName,
 		Image: engineImage(lb.kind, lb.version),
 		Env:   engineEnv(lb),
 		Ports: []string{container.PortSpec(
 			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(engineContainerPort(lb.kind)))},
+		Network: plan.network,
 	}
+	applyReplicationFlags(&s, lb, plan)
+
+	return s
 }
 
 func (e *dbEngine) login(lb *liveDB) EngineLogin {
@@ -292,29 +333,11 @@ func (e *dbEngine) login(lb *liveDB) EngineLogin {
 }
 
 func (e *dbEngine) acquirePort() (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("rds") //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	a, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return a.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "rds")
 }
 
 func (e *dbEngine) releasePort(port int) {
-	if e.cfg.Ports != nil && port != 0 {
-		_ = e.cfg.Ports.Release(port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
 func (e *dbEngine) remove(containerID string, port int) {
@@ -341,6 +364,7 @@ func (e *dbEngine) reap(lbs ...*liveDB) {
 		lb.release()
 
 		id, port := lb.containerID, lb.port
+		netw := lb.net.Load()
 		e.wg.Go(func() {
 			if p := lb.proxy.Load(); p != nil {
 				p.wg.Wait()
@@ -350,7 +374,16 @@ func (e *dbEngine) reap(lbs ...*liveDB) {
 				f.wg.Wait()
 			}
 
+			lb.eps.Range(func(_, v any) bool {
+				if l, ok := v.(*endpointListener); ok {
+					l.wg.Wait()
+				}
+
+				return true
+			})
+
 			e.remove(id, port)
+			e.releaseNet(netw)
 		})
 	}
 }
@@ -403,6 +436,8 @@ func (b *InMemoryBackend) dropUnitLocked(key string) {
 		return
 	}
 
+	b.dropPointsLocked(key)
+
 	if lb, ok := b.engine.units[key]; ok {
 		delete(b.engine.units, key)
 		b.engine.reap(lb)
@@ -419,7 +454,11 @@ func (b *InMemoryBackend) dropAllUnitsLocked() {
 		b.engine.reap(lb)
 	}
 
-	clear(b.engine.data)
+	if b.engine.store == nil {
+		clear(b.engine.data)
+		clear(b.engine.points)
+		clear(b.engine.checked)
+	}
 }
 
 // launchSeededUnitLocked registers a database unit and starts its container in the background; the seed is
@@ -439,7 +478,14 @@ func (b *InMemoryBackend) launchSeededUnitLocked(
 	lb := &liveDB{
 		gone: make(chan struct{}), key: key, resourceID: resourceID, kind: engineKind(engine),
 		version: version, user: user, password: password, dbName: dbName, seed: seed,
+		ctrName: "gopherstack-rds-" + randomPassword(), serverID: randomServerID(),
 	}
+	lb.dbPort.Store(int32(b.recordedPortLocked(lb))) //nolint:gosec // TCP port fits int32
+	if seed.replicate {
+		lb.repl = &replicaState{srcKey: seed.fromKey}
+		lb.net.Store(seed.net)
+	}
+
 	e.units[key] = lb
 
 	e.wg.Go(func() { b.runUnit(lb) })
@@ -496,28 +542,48 @@ func (b *InMemoryBackend) provisionSeededClusterLocked(c *DBCluster, password st
 	return true
 }
 
+var errUnitDetached = errors.New("engine unit detached")
+
 func (b *InMemoryBackend) runUnit(lb *liveDB) {
 	e := b.engine
 	ctx, cancel := lb.opContext(0)
 
 	defer cancel()
 
-	port, err := e.acquirePort()
+	var port int
+
+	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			p, err := e.acquirePort()
+			if err != nil {
+				return container.Spec{}, err
+			}
+
+			port = p
+
+			if !b.recordPort(lb, p) {
+				e.releasePort(p)
+
+				return container.Spec{}, errUnitDetached
+			}
+
+			plan, err := b.replicaPlan(ctx, lb)
+			if err != nil {
+				e.releasePort(p)
+
+				return container.Spec{}, err
+			}
+
+			return e.spec(lb, plan), nil
+		},
+		func() {
+			e.releasePort(port)
+			b.recordPort(lb, 0)
+		})
 	if err != nil {
-		b.failUnit(ctx, lb)
-
-		return
-	}
-
-	if !b.recordPort(lb, port) {
-		e.releasePort(port)
-
-		return
-	}
-
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(lb))
-	if err != nil {
-		b.failUnit(ctx, lb)
+		if !errors.Is(err, errUnitDetached) {
+			b.failUnit(ctx, lb)
+		}
 
 		return
 	}
@@ -569,7 +635,7 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	ctx, cancel := context.WithTimeout(ctx, b.engine.cfg.StartTimeout)
 	defer cancel()
 
-	if b.engine.awaitReady(ctx, login) != nil || b.applySeed(ctx, lb) != nil {
+	if b.engine.awaitReady(ctx, login) != nil || b.applySeed(ctx, lb) != nil || b.guardReplica(ctx, lb) != nil {
 		b.failUnit(ctx, lb)
 
 		return
@@ -592,6 +658,8 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	}
 
 	b.markUnitReady(lb)
+	b.startReplicaMonitor(lb)
+	b.recordRestorePoint(lb)
 }
 
 func (e *dbEngine) awaitReady(ctx context.Context, login EngineLogin) error {
@@ -656,6 +724,8 @@ func (b *InMemoryBackend) markUnitReady(lb *liveDB) {
 
 	lb.ready = true
 	host := b.engine.cfg.Host
+
+	defer b.syncClusterEndpointsLocked(lb)
 
 	b.unitStatusesLocked(lb, func(inst *DBInstance) {
 		inst.Endpoint, inst.Port = host, lb.advertisedPort()

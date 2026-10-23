@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -147,7 +148,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	go func() {
 		defer h.wg.Done()
 
-		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
+		if serveErr := gcprest.Serve(srv, listener); serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
 			log.ErrorContext(workerCtx, "gcpsecretmanager: listener stopped", "error", serveErr)
 		}
 	}()

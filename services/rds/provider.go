@@ -21,6 +21,11 @@ type EngineCADirConfig interface {
 	GetRDSCADir() string
 }
 
+// EngineDumpDirConfig locates the directory persisting snapshot dumps and restore points; empty keeps them in memory.
+type EngineDumpDirConfig interface {
+	GetRDSDumpDir() string
+}
+
 // Provider implements service.Provider for RDS.
 type Provider struct{}
 
@@ -69,8 +74,13 @@ func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
 		caDir = cc.GetRDSCADir()
 	}
 
+	var dumpDir string
+	if dc, isDump := ctx.Config.(EngineDumpDirConfig); isDump {
+		dumpDir = dc.GetRDSDumpDir()
+	}
+
 	backend.SetAutoPause(AutoPauseConfigFromEnv())
 	backend.EnableEngine(EngineConfig{
-		Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("RDS_DB_HOST"), CADir: caDir,
+		Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("RDS_DB_HOST"), CADir: caDir, DumpDir: dumpDir,
 	})
 }

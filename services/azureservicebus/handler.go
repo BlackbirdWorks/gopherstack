@@ -3,6 +3,7 @@ package azureservicebus
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
@@ -57,6 +59,9 @@ const (
 	opPeekLockMessage    = "PeekLockMessage"
 	opCompleteMessage    = "CompleteMessage"
 	opAbandonMessage     = "AbandonMessage"
+	opPeekMessages       = "PeekMessages"
+	opReceiveAndDelete   = "ReceiveAndDeleteMessage"
+	opDeadLetterMessage  = "DeadLetterMessage"
 	unknownOperation     = "Unknown"
 )
 
@@ -75,20 +80,17 @@ const MaxPeekLockWaitTimeout = 30 * time.Second
 
 // Handler is the Echo HTTP handler for Azure Service Bus operations.
 type Handler struct {
-	Backend StorageBackend
-	srv     *http.Server
-	janitor *Janitor
-	// Endpoint is e.g. "http://127.0.0.1:10003".
-	Endpoint string
-	// SASKeyValue is the base64 key WithSASValidation checks signatures
-	// against. Defaults to DefaultKeyValue when empty.
+	Backend     StorageBackend
+	srv         *http.Server
+	janitor     *Janitor
+	AMQPCert    *tls.Certificate
+	amqp        *amqpService
+	amqpMu      *lockmetrics.RWMutex
+	Endpoint    string
 	SASKeyValue string
-	// Port is the TCP port StartWorker binds. Set from Settings at Init time
-	// (see provider.go); defaults to DefaultPort. Single fixed,
-	// protocol-conventional port -- no fallback pool.
-	Port int
-	// ValidateSAS opts checkAuth into cryptographic SAS verification. See
-	// WithSASValidation.
+	Port        int
+	AMQPPort    int
+	AMQPTLSPort int
 	ValidateSAS bool
 }
 
@@ -96,8 +98,11 @@ type Handler struct {
 // DefaultPort; callers (typically provider.go) override it from Settings.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend: backend,
-		Port:    DefaultPort,
+		Backend:     backend,
+		Port:        DefaultPort,
+		AMQPPort:    DefaultAMQPPort,
+		AMQPTLSPort: DefaultAMQPTLSPort,
+		amqpMu:      lockmetrics.New("azureservicebus.amqp"),
 	}
 }
 
@@ -149,6 +154,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateTopic, opDeleteTopic, opGetTopic, opListTopics,
 		opCreateSubscription, opDeleteSubscription, opGetSubscription, opListSubscriptions,
 		opSendMessage, opPeekLockMessage, opCompleteMessage, opAbandonMessage,
+		opPeekMessages, opReceiveAndDelete, opDeadLetterMessage,
 	}
 }
 
@@ -481,17 +487,14 @@ func operationFor(method string, req parsedRequest) string {
 	case segSubscription:
 		return entityOperationFor(method, true)
 	case segMessages:
-		if method == http.MethodPost {
-			return opSendMessage
-		}
-
-		return unknownOperation
+		return methodOperation(
+			method,
+			map[string]string{http.MethodPost: opSendMessage, http.MethodGet: opPeekMessages},
+		)
 	case segMessagesHead:
-		if method == http.MethodPost {
-			return opPeekLockMessage
-		}
-
-		return unknownOperation
+		return methodOperation(method, map[string]string{
+			http.MethodPost: opPeekLockMessage, http.MethodDelete: opReceiveAndDelete,
+		})
 	case segMessageByID:
 		switch method {
 		case http.MethodDelete:
@@ -516,6 +519,15 @@ func operationFor(method string, req parsedRequest) string {
 	default:
 		return unknownOperation
 	}
+}
+
+// methodOperation looks method up in ops, defaulting to unknownOperation.
+func methodOperation(method string, ops map[string]string) string {
+	if op, ok := ops[method]; ok {
+		return op
+	}
+
+	return unknownOperation
 }
 
 // getOnlyOperationFor returns op if method is GET, else unknownOperation --
@@ -810,17 +822,19 @@ func (h *Handler) handleListSubscriptionsLevel(c *echo.Context, req parsedReques
 // set populated by gopherstack), matching real Service Bus's REST wire
 // format for this header.
 type brokerProperties struct {
-	MessageID       string  `json:"MessageId,omitempty"`
-	CorrelationID   string  `json:"CorrelationId,omitempty"`
-	SessionID       string  `json:"SessionId,omitempty"`
-	Label           string  `json:"Label,omitempty"`
-	ReplyTo         string  `json:"ReplyTo,omitempty"`
-	LockToken       string  `json:"LockToken,omitempty"`
-	LockedUntilUtc  string  `json:"LockedUntilUtc,omitempty"`
-	EnqueuedTimeUtc string  `json:"EnqueuedTimeUtc,omitempty"`
-	TimeToLive      float64 `json:"TimeToLive,omitempty"`
-	SequenceNumber  int64   `json:"SequenceNumber,omitempty"`
-	DeliveryCount   int64   `json:"DeliveryCount,omitempty"`
+	LockedUntilUtc             string  `json:"LockedUntilUtc,omitempty"`
+	CorrelationID              string  `json:"CorrelationId,omitempty"`
+	SessionID                  string  `json:"SessionId,omitempty"`
+	Label                      string  `json:"Label,omitempty"`
+	ReplyTo                    string  `json:"ReplyTo,omitempty"`
+	LockToken                  string  `json:"LockToken,omitempty"`
+	MessageID                  string  `json:"MessageId,omitempty"`
+	EnqueuedTimeUtc            string  `json:"EnqueuedTimeUtc,omitempty"`
+	DeadLetterReason           string  `json:"DeadLetterReason,omitempty"`
+	DeadLetterErrorDescription string  `json:"DeadLetterErrorDescription,omitempty"`
+	TimeToLive                 float64 `json:"TimeToLive,omitempty"`
+	SequenceNumber             int64   `json:"SequenceNumber,omitempty"`
+	DeliveryCount              int64   `json:"DeliveryCount,omitempty"`
 }
 
 // brokerPropertiesFromHeader parses the BrokerProperties request header, if
@@ -845,6 +859,10 @@ func brokerPropertiesFromHeader(r *http.Request) brokerProperties {
 // subscription path is not a valid Service Bus operation (subscriptions are
 // receive-only) and is rejected with 405.
 func (h *Handler) handleSendLevel(c *echo.Context, req parsedRequest) error {
+	if c.Request().Method == http.MethodGet {
+		return h.handlePeekMessages(c, req)
+	}
+
 	if c.Request().Method != http.MethodPost {
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
@@ -869,6 +887,7 @@ func (h *Handler) handleSendLevel(c *echo.Context, req parsedRequest) error {
 		CorrelationID: bp.CorrelationID,
 		ReplyTo:       bp.ReplyTo,
 		SessionID:     bp.SessionID,
+		CustomHeaders: customHeadersFrom(c.Request().Header),
 		TimeToLive:    time.Duration(bp.TimeToLive * float64(time.Second)),
 	}
 
@@ -884,6 +903,10 @@ func (h *Handler) handleSendLevel(c *echo.Context, req parsedRequest) error {
 	}
 
 	if _, sendErr := h.Backend.Send(ref, newMsg); sendErr != nil {
+		if errors.Is(sendErr, ErrSessionIDRequired) {
+			return h.writeError(c, http.StatusBadRequest, "BadRequest", sendErr.Error())
+		}
+
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", sendErr.Error())
 	}
 
@@ -898,6 +921,10 @@ func (h *Handler) handleSendLevel(c *echo.Context, req parsedRequest) error {
 // disconnecting client releases the handler goroutine right away. See
 // PARITY.md.
 func (h *Handler) handlePeekLockLevel(c *echo.Context, req parsedRequest) error {
+	if c.Request().Method == http.MethodDelete {
+		return h.handleReceiveAndDelete(c, req)
+	}
+
 	if c.Request().Method != http.MethodPost {
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
@@ -948,18 +975,9 @@ func parsePeekLockTimeout(raw string) time.Duration {
 // BrokerProperties header describing the lock, a Location header giving the
 // complete/abandon URI, and the message body.
 func (h *Handler) writeLockedMessage(c *echo.Context, req parsedRequest, info MessageInfo) error {
-	bp := brokerProperties{
-		MessageID:       info.MessageID,
-		CorrelationID:   info.CorrelationID,
-		SessionID:       info.SessionID,
-		Label:           info.Label,
-		ReplyTo:         info.ReplyTo,
-		LockToken:       info.LockToken,
-		LockedUntilUtc:  info.LockedUntil.UTC().Format(http.TimeFormat),
-		EnqueuedTimeUtc: info.EnqueuedTime.UTC().Format(http.TimeFormat),
-		SequenceNumber:  info.SequenceNumber,
-		DeliveryCount:   info.DeliveryCount,
-	}
+	bp := brokerPropertiesFor(info)
+	bp.LockToken = info.LockToken
+	bp.LockedUntilUtc = info.LockedUntil.UTC().Format(http.TimeFormat)
 
 	bpJSON, err := json.Marshal(bp)
 	if err != nil {
@@ -970,6 +988,7 @@ func (h *Handler) writeLockedMessage(c *echo.Context, req parsedRequest, info Me
 	hdr.Set(brokerPropertiesHeader, string(bpJSON))
 	hdr.Set("Location", completeMessagePath(req, info.MessageID, info.LockToken))
 	hdr.Set("X-Ms-Request-Id", newRequestID())
+	setCustomHeaders(hdr, info)
 
 	contentType := info.ContentType
 	if contentType == "" {
@@ -1019,6 +1038,10 @@ func (h *Handler) handleCompleteAbandonLevel(c *echo.Context, req parsedRequest)
 
 		return c.NoContent(http.StatusOK)
 	case http.MethodPut:
+		if reason, desc, ok := deadLetterRequest(c.Request()); ok {
+			return h.deadLetterMessage(c, req, reason, desc)
+		}
+
 		if err := h.Backend.Abandon(ref, req.DeadLetter, req.MessageID, req.LockToken); err != nil {
 			return h.writeLockOpError(c, err)
 		}
@@ -1054,6 +1077,8 @@ func (h *Handler) writeEntityLookupError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrQueueNotFound), errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound):
 		return h.writeError(c, http.StatusNotFound, "NotFound", "The messaging entity could not be found.")
+	case errors.Is(err, ErrSessionRequired):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
 	default:
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
@@ -1066,6 +1091,9 @@ func (h *Handler) writeEntityLookupError(c *echo.Context, err error) error {
 // valid" -- gopherstack mirrors that single status code for both cases.
 func (h *Handler) writeLockOpError(c *echo.Context, err error) error {
 	switch {
+	case errors.Is(err, ErrDeadLetterSource):
+		return h.writeError(c, http.StatusBadRequest, "BadRequest",
+			"A dead-lettered message cannot be dead-lettered again.")
 	case errors.Is(err, ErrMessageNotFound), errors.Is(err, ErrLockTokenMismatch), errors.Is(err, ErrMessageNotLocked):
 		return h.writeError(c, http.StatusGone, "MessageLockLost", "The lock supplied is invalid or has expired.")
 	case errors.Is(err, ErrQueueNotFound), errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound):
@@ -1115,7 +1143,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		go h.janitor.Run(ctx)
 	}
 
-	return nil
+	return h.startAMQP(ctx)
 }
 
 // Timeouts for the dedicated Service Bus http.Server. Mirrors
@@ -1129,6 +1157,8 @@ const (
 // Shutdown stops the dedicated Service Bus listener. Mirrors
 // services/azurequeue's Shutdown.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.stopAMQP()
+
 	srv := h.srv
 	h.srv = nil
 

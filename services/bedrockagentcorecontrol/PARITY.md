@@ -1,15 +1,15 @@
 ---
 service: bedrockagentcorecontrol
 sdk_module: aws-sdk-go-v2/service/bedrockagentcorecontrol@v1.73.0
-last_audit_commit: c1af87ba3
-last_audit_date: 2026-10-18
-overall: B            # all 171 control-plane operations hold real state and are driven through the SDK client; the data plane is absent and several behaviours (policy generation, evaluation runs, tool discovery) have no emulator engine.
+last_audit_commit: 71065ec09
+last_audit_date: 2026-10-22
+overall: B            # all 171 control-plane operations hold real state and are driven through the SDK client; the data plane lives in services/bedrockagentcore and several behaviours (policy generation, evaluation runs, tool discovery) have no emulator engine.
 ops:
   AddDatasetExamples: {wire: ok, errors: ok, state: ok, persist: ok, note: "draft examples only; ids generated unless supplied"}
   BatchPutGatewayRateLimits: {wire: ok, errors: ok, state: ok, persist: ok, note: "replaces the gateway rate limits atomically"}
   CreateAgentRuntime: {wire: ok, errors: ok, state: ok, persist: ok, note: "name pattern, ECR image URI shape (repository checked against the ECR backend when wired), exactly one artifact variant, VPC needs subnets and security groups, JWT discovery URL; creates a DEFAULT endpoint and a managed workload identity; CREATING then READY"}
   CreateAgentRuntimeEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "DEFAULT is reserved; version must exist; liveVersion and targetVersion start equal"}
-  CreateApiKeyCredentialProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "the key is discarded and a managed secret ARN is synthesized; external secrets are checked against Secrets Manager when wired"}
+  CreateApiKeyCredentialProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "the key is stored in a Secrets Manager secret (bedrock-agentcore-identity-default/apikey/<name>/apiKey) when Secrets Manager is wired, else the managed ARN is synthesized and the value dropped; external secrets are checked against Secrets Manager when wired"}
   CreateBrowser: {wire: ok, errors: ok, state: ok, persist: ok, note: "mode PUBLIC or VPC; the service-owned aws.browser.v1 browser is listed as SYSTEM"}
   CreateBrowserProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "deletion blocked while a runtime uses it"}
@@ -186,18 +186,17 @@ families:
   Bundles: {status: ok, note: "Configuration bundles with branches, parent-version lineage and per-branch reads."}
   Policy: {status: ok, note: "Engines, policies (cedar statement required), generations (always GENERATE_FAILED), summaries."}
   Registry: {status: ok, note: "Registries and records with the DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, DEPRECATED workflow and auto-approval."}
-  Identity: {status: ok, note: "Workload identities, API key, OAuth2 and payment credential providers, token vault. Secret inputs never come back; secret ARNs are synthesized for managed secrets."}
+  Identity: {status: ok, note: "Workload identities, API key, OAuth2 and payment credential providers, token vault. Secret inputs never come back; managed secrets are written to Secrets Manager when it is wired (read by the data plane, rotated on update, deleted with the provider) and synthesized otherwise."}
   Payments: {status: ok, note: "Payment managers, connectors, credential rotation."}
   Tagging: {status: ok, note: "Tags and resource policies address any ARN the service issued."}
   Lifecycle: {status: ok, note: "Status is a lazy deadline (Transition until SettleAt) evaluated on read; no goroutines. Responses to create, update and delete report the transitional status; the lifecycle delay defaults to 0 so a follow-up read is already settled."}
   Wire: {status: ok, note: "Operation routes, member sets, required members, enums and per-shape timestamp formats (epoch seconds or date-time) are extracted from the pinned SDK serializers, deserializers and validators into ops.json; outputs are projected onto exactly the SDK output members."}
 gaps: []
 items_still_open:
-  - Data plane: the bedrockagentcore module is not a dependency, so InvokeAgentRuntime, browser and code-interpreter sessions, memory events and records, and the gateway MCP endpoint are not served
+  - Gateway MCP endpoint: the gateway URL is generated but nothing serves MCP tool calls on it
   - Update semantics: PUT-style updates (UpdateAgentRuntime, UpdateGateway, UpdateGatewayTarget) merge supplied members instead of clearing omitted optional ones
   - Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
   - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
-  - Credential providers: API key and client secret values are discarded, and managed secret ARNs are synthesized rather than written to Secrets Manager
   - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
   - Gateway targets: SynchronizeGatewayTargets only stamps lastSynchronizedAt; Lambda, OpenAPI and MCP tool discovery never runs and OAuth targets never reach a PENDING_AUTH status
   - Registry records: synchronizationConfiguration is stored but nothing synchronizes

@@ -2,10 +2,12 @@ package ecs
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -69,6 +71,8 @@ type svcRef struct {
 // keep new fields grouped with their kind rather than by logical concern.
 type InMemoryBackend struct {
 	runner TaskRunner
+	// sgEnforcer, when set, fronts awsvpc tasks' published ports with a security-group check.
+	sgEnforcer atomic.Pointer[sgfilter.Enforcer]
 	// cwLogs, when set (see SetCWLogsBackend), makes an awslogs-driver
 	// container's log group/stream discoverable in CloudWatch Logs. Nil
 	// preserves the historical behavior of LogConfiguration being stored

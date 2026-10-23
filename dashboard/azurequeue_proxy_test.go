@@ -30,32 +30,42 @@ func TestAzureQueueProxy(t *testing.T) {
 		wantCode int
 		seed     bool
 	}{
-		{name: "create queue", method: http.MethodPut, path: base + "/q1", wantCode: http.StatusCreated},
+		{name: "create queue", method: http.MethodPut, path: base + "/queue1", wantCode: http.StatusCreated},
 		{
 			name: "list queues", method: http.MethodGet, path: base + "?comp=list",
-			seed: true, wantCode: http.StatusOK, wantBody: "q1",
+			seed: true, wantCode: http.StatusOK, wantBody: "queue1",
 		},
 		{
-			name: "put message", method: http.MethodPost, path: base + "/q1/messages?messagettl=60",
+			name: "put message", method: http.MethodPost, path: base + "/queue1/messages?messagettl=60",
 			body: msgBody, seed: true, wantCode: http.StatusCreated, wantBody: "MessageId",
 		},
 		{
-			name: "peek message", method: http.MethodGet, path: base + "/q1/messages?peekonly=true",
+			name: "peek message", method: http.MethodGet, path: base + "/queue1/messages?peekonly=true",
 			seed: true, wantCode: http.StatusOK, wantBody: "hi",
 		},
 		{
-			name: "clear messages", method: http.MethodDelete, path: base + "/q1/messages",
+			name: "clear messages", method: http.MethodDelete, path: base + "/queue1/messages",
 			seed: true, wantCode: http.StatusNoContent,
 		},
 		{name: "missing queue", method: http.MethodDelete, path: base + "/nope", wantCode: http.StatusNotFound},
-		{name: "traversal blocked", method: http.MethodGet, path: base + "/q1/../x", wantCode: http.StatusBadRequest},
+		{
+			name:     "traversal blocked",
+			method:   http.MethodGet,
+			path:     base + "/queue1/../x",
+			wantCode: http.StatusBadRequest,
+		},
 		{
 			name:     "unknown subresource",
 			method:   http.MethodGet,
-			path:     base + "/q1/other",
+			path:     base + "/queue1/other",
 			wantCode: http.StatusBadRequest,
 		},
-		{name: "too deep", method: http.MethodGet, path: base + "/q1/messages/a/b", wantCode: http.StatusBadRequest},
+		{
+			name:     "too deep",
+			method:   http.MethodGet,
+			path:     base + "/queue1/messages/a/b",
+			wantCode: http.StatusBadRequest,
+		},
 		{
 			name:     "no account",
 			method:   http.MethodGet,
@@ -72,10 +82,10 @@ func TestAzureQueueProxy(t *testing.T) {
 			h := dashboard.NewHandler(dashboard.Config{AzureQueueOps: q})
 
 			if tt.seed {
-				seed := httptest.NewRequest(http.MethodPut, base+"/q1", nil)
+				seed := httptest.NewRequest(http.MethodPut, base+"/queue1", nil)
 				require.NoError(t, h.Handler()(echo.NewContext(seed, httptest.NewRecorder())))
 
-				put := httptest.NewRequest(http.MethodPost, base+"/q1/messages", strings.NewReader(msgBody))
+				put := httptest.NewRequest(http.MethodPost, base+"/queue1/messages", strings.NewReader(msgBody))
 				require.NoError(t, h.Handler()(echo.NewContext(put, httptest.NewRecorder())))
 			}
 

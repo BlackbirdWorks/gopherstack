@@ -45,6 +45,8 @@ func reportGroupARNKeyFn(v *ReportGroup) string { return v.Arn }
 func reportKeyFn(v *Report) string         { return v.Arn }
 func reportGroupArnKeyFn(v *Report) string { return v.ReportGroupArn }
 
+func reportDetailKeyFn(v *reportDetail) string { return v.ReportArn }
+
 func buildBatchKeyFn(v *BuildBatch) string        { return v.ID }
 func buildBatchARNKeyFn(v *BuildBatch) string     { return v.Arn }
 func buildBatchProjectKeyFn(v *BuildBatch) string { return v.ProjectName }
@@ -80,6 +82,8 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.reports = store.Register(b.registry, "reports", store.New(reportKeyFn))
 	b.reportsByGroup = b.reports.AddIndex("byGroup", reportGroupArnKeyFn)
+
+	b.reportDetails = store.Register(b.registry, "reportDetails", store.New(reportDetailKeyFn))
 
 	b.buildBatches = store.Register(b.registry, "buildBatches", store.New(buildBatchKeyFn))
 	b.buildBatchesByARN = b.buildBatches.AddIndex("byARN", buildBatchARNKeyFn)

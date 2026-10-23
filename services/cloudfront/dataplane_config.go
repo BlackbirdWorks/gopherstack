@@ -29,6 +29,7 @@ type dpDistConfig struct {
 	XMLName           xml.Name          `xml:"DistributionConfig"`
 	DefaultRootObject string            `xml:"DefaultRootObject"`
 	Origins           []dpOrigin        `xml:"Origins>Items>Origin"`
+	Groups            []dpOriginGroup   `xml:"OriginGroups>Items>OriginGroup"`
 	Behaviors         []dpBehavior      `xml:"CacheBehaviors>Items>CacheBehavior"`
 	ErrorResponses    []dpErrorResponse `xml:"CustomErrorResponses>Items>CustomErrorResponse"`
 	Default           dpBehavior        `xml:"DefaultCacheBehavior"`
@@ -43,6 +44,15 @@ type dpOrigin struct {
 	Path    string          `xml:"OriginPath"`
 	OACID   string          `xml:"OriginAccessControlId"`
 	Headers []dpHeaderPair  `xml:"CustomHeaders>Items>OriginCustomHeader"`
+
+	ConnAttempts int `xml:"ConnectionAttempts"`
+	ConnTimeout  int `xml:"ConnectionTimeout"`
+}
+
+type dpOriginGroup struct {
+	ID      string   `xml:"Id"`
+	Members []string `xml:"Members>Items>OriginGroupMember>OriginId"`
+	Codes   []int    `xml:"FailoverCriteria>StatusCodes>Items>StatusCode"`
 }
 
 type dpHeaderPair struct {
@@ -58,6 +68,9 @@ type dpCustomOrigin struct {
 	Policy    string `xml:"OriginProtocolPolicy"`
 	HTTPPort  int    `xml:"HTTPPort"`
 	HTTPSPort int    `xml:"HTTPSPort"`
+
+	ReadTimeout int `xml:"OriginReadTimeout"`
+	KeepAlive   int `xml:"OriginKeepaliveTimeout"`
 }
 
 type dpTrustedKeyGroups struct {
@@ -70,14 +83,15 @@ type dpBehavior struct {
 	DefaultTTL            *int64             `xml:"DefaultTTL"`
 	MaxTTL                *int64             `xml:"MaxTTL"`
 	Forwarded             *dpForwarded       `xml:"ForwardedValues"`
-	PathPattern           string             `xml:"PathPattern"`
-	TargetOriginID        string             `xml:"TargetOriginId"`
 	ViewerProtocolPolicy  string             `xml:"ViewerProtocolPolicy"`
+	TargetOriginID        string             `xml:"TargetOriginId"`
+	PathPattern           string             `xml:"PathPattern"`
 	CachePolicyID         string             `xml:"CachePolicyId"`
 	OriginRequestPolicyID string             `xml:"OriginRequestPolicyId"`
 	ResponseHeadersID     string             `xml:"ResponseHeadersPolicyId"`
 	Methods               []string           `xml:"AllowedMethods>Items>Method"`
 	CachedMethods         []string           `xml:"AllowedMethods>CachedMethods>Items>Method"`
+	Functions             []dpFunctionAssoc  `xml:"FunctionAssociations>Items>FunctionAssociation"`
 	KeyGroups             dpTrustedKeyGroups `xml:"TrustedKeyGroups"`
 }
 

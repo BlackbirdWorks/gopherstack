@@ -1,6 +1,9 @@
 package azurearm
 
-import "errors"
+import (
+	"errors"
+	"net/http"
+)
 
 // Sentinel errors for Azure Resource Manager (ARM) emulation. Mapped to ARM
 // error codes/HTTP statuses in the errorDetails table (handler.go), modeled
@@ -20,6 +23,48 @@ var (
 	ErrServiceBusSubscriptionNotFound = errors.New("azurearm: service bus subscription not found")
 
 	ErrKeyVaultNotFound = errors.New("azurearm: key vault not found")
+
+	ErrEventHubNamespaceNotFound     = errors.New("azurearm: event hubs namespace not found")
+	ErrEventHubNotFound              = errors.New("azurearm: event hub not found")
+	ErrEventHubConsumerGroupNotFound = errors.New("azurearm: event hubs consumer group not found")
+	ErrEventHubRuleNotFound          = errors.New("azurearm: event hubs authorization rule not found")
+
+	ErrEventGridTopicNotFound          = errors.New("azurearm: event grid topic not found")
+	ErrEventGridSubscriptionNotFound   = errors.New("azurearm: event subscription not found")
+	ErrEventGridNamespaceNotFound      = errors.New("azurearm: event grid namespace not found")
+	ErrEventGridNamespaceTopicNotFound = errors.New("azurearm: event grid namespace topic not found")
+	ErrEventGridUnavailable            = errors.New("azurearm: event grid data plane is not available")
+
+	ErrAppConfigStoreNotFound    = errors.New("azurearm: app configuration store not found")
+	ErrAppConfigKeyValueNotFound = errors.New("azurearm: app configuration key-value not found")
+	ErrAppConfigReplicaNotFound  = errors.New("azurearm: app configuration replica not found")
+	ErrAppConfigDeletedNotFound  = errors.New("azurearm: deleted app configuration store not found")
+	ErrAppConfigKeyLocked        = errors.New("azurearm: app configuration key-value is read-only")
+	ErrAppConfigNameTaken        = errors.New("azurearm: app configuration store name is already in use")
+	ErrAppConfigSoftDeleted      = errors.New("azurearm: app configuration store name is soft-deleted")
+	ErrAppConfigPurgeProtected   = errors.New("azurearm: app configuration store has purge protection enabled")
+	ErrAppConfigUnavailable      = errors.New("azurearm: app configuration data plane is not available")
+
+	ErrACRRegistryNotFound    = errors.New("azurearm: container registry not found")
+	ErrACRReplicationNotFound = errors.New("azurearm: container registry replication not found")
+	ErrACRWebhookNotFound     = errors.New("azurearm: container registry webhook not found")
+	ErrACRNameTaken           = errors.New("azurearm: container registry name is already in use")
+	ErrACRAdminDisabled       = errors.New("azurearm: container registry admin user is not enabled")
+	ErrACRInvalidSKU          = errors.New("azurearm: container registry sku name must be Basic, Standard or Premium")
+	ErrACRPremiumRequired     = errors.New("azurearm: georeplication requires a Premium registry")
+	ErrACRInvalidCredential   = errors.New("azurearm: credential name must be password or password2")
+	ErrACRUnavailable         = errors.New("azurearm: container registry data plane is not available")
+
+	ErrCosmosAccountNotFound    = errors.New("azurearm: cosmos db account not found")
+	ErrCosmosDatabaseNotFound   = errors.New("azurearm: cosmos db database not found")
+	ErrCosmosContainerNotFound  = errors.New("azurearm: cosmos db container not found")
+	ErrCosmosThroughputNotFound = errors.New("azurearm: cosmos db throughput settings not found")
+	ErrCosmosConflict           = errors.New("azurearm: cosmos db resource conflict")
+	ErrCosmosBadRequest         = errors.New("azurearm: cosmos db invalid request")
+	ErrCosmosUnavailable        = errors.New("azurearm: cosmos db data plane unavailable")
+	errCosmosAccountOtherGroup  = errors.New(
+		"azurearm: cosmos db account name already exists in another resource group",
+	)
 
 	errVaultSoftDeleted     = errors.New("azurearm: key vault name is in use by a soft-deleted vault")
 	ErrDeletedVaultNotFound = errors.New("azurearm: deleted key vault not found")
@@ -42,4 +87,58 @@ type errorEntry struct {
 	code    string
 	message string
 	status  int
+}
+
+// cosmosErrorDetails maps the Microsoft.DocumentDB sentinels to their ARM error entries.
+func cosmosErrorDetails(err error) (errorEntry, bool) {
+	table := []struct {
+		err   error
+		entry errorEntry
+	}{
+		{
+			ErrCosmosAccountNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Cosmos DB account was not found.", http.StatusNotFound},
+		},
+		{
+			ErrCosmosDatabaseNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Cosmos DB database was not found.", http.StatusNotFound},
+		},
+		{
+			ErrCosmosContainerNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Cosmos DB container was not found.", http.StatusNotFound},
+		},
+		{
+			ErrCosmosThroughputNotFound,
+			errorEntry{
+				armErrorCodeResourceNotFound,
+				"Throughput is not configured for the resource.",
+				http.StatusNotFound,
+			},
+		},
+		{
+			errCosmosAccountOtherGroup,
+			errorEntry{"AccountNameAlreadyExists", "The Cosmos DB account name is already taken.", http.StatusConflict},
+		},
+		{
+			ErrCosmosConflict,
+			errorEntry{"Conflict", "The Cosmos DB resource conflicts with an existing one.", http.StatusConflict},
+		},
+		{ErrCosmosBadRequest, errorEntry{"BadRequest", "The Cosmos DB request is invalid.", http.StatusBadRequest}},
+		{
+			ErrCosmosUnavailable,
+			errorEntry{
+				"ServiceUnavailable",
+				"The Cosmos DB data plane is not available.",
+				http.StatusServiceUnavailable,
+			},
+		},
+	}
+
+	for _, e := range table {
+		if errors.Is(err, e.err) {
+			return e.entry, true
+		}
+	}
+
+	return errorEntry{}, false
 }

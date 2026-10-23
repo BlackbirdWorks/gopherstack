@@ -13,6 +13,7 @@ import (
 
 // TestEKSDashboard verifies the EKS dashboard UI renders clusters.
 func TestEKSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EKSHandler.Backend.CreateCluster("e2e-test-cluster", "1.32", "", nil, nil, nil)
@@ -43,13 +44,13 @@ func TestEKSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-cluster")
 	assert.Contains(t, content, "e2e-test-cluster")
 }
 
 // TestEKSDashboard_Empty verifies the EKS dashboard renders correctly when there are no clusters.
 func TestEKSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -77,7 +78,6 @@ func TestEKSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "EKS Clusters")
 	assert.Contains(t, content, "EKS Clusters")
 }

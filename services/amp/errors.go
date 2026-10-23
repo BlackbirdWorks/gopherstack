@@ -1,6 +1,7 @@
 package amp
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
@@ -33,3 +34,11 @@ func invalid(format string, args ...any) error {
 func cannotParse(format string, args ...any) error {
 	return restroute.Validation(format, args...).With("reason", "CANNOT_PARSE")
 }
+
+var (
+	errBadRuleDuration  = errors.New("invalid duration in rule group")
+	errTooManyRules     = errors.New("too many rule groups or rules")
+	errTemplateTooLarge = errors.New("template output too large")
+)
+
+var errNoPublisher = errors.New("no SNS publisher is wired")

@@ -18,6 +18,7 @@ package azure_test
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -69,6 +71,24 @@ const (
 	// serviceBusEndpoint at (container-internal 10003 isn't reachable from
 	// the host-side tofu process, mirroring hostPortStorageVHost's rationale).
 	hostPortServiceBus = "18003"
+	// hostPortKeyVault is services/azurekeyvault's published HTTPS port;
+	// AZURE_ARM_ADVERTISE_KEYVAULT_ENDPOINT points ARM's vaultUri at it.
+	hostPortKeyVault = "18004"
+	// hostPortCosmos is services/cosmosdb's published port; AZURE_ARM_ADVERTISE_COSMOSDB_ENDPOINT
+	// points ARM's documentEndpoint at it.
+	hostPortCosmos = "18081"
+	// hostPortEventHubsAMQP is services/azureeventhubs's published plain AMQP port;
+	// AZURE_ARM_ADVERTISE_EVENTHUB_ENDPOINT points ARM's connection strings at it.
+	hostPortEventHubsAMQP = "15673"
+	// hostPortEventGrid is services/azureeventgrid's published HTTPS port;
+	// AZURE_ARM_ADVERTISE_EVENTGRID_ENDPOINT points ARM's topic endpoints at it.
+	hostPortEventGrid = "18007"
+	// hostPortAppConfig is services/azureappconfig's published HTTPS port;
+	// AZURE_ARM_ADVERTISE_APPCONFIG_ENDPOINT points ARM's store endpoints at it.
+	hostPortAppConfig = "18008"
+	// hostPortACR is services/azurecontainerregistry's published HTTP port;
+	// AZURE_ARM_ADVERTISE_ACR_ENDPOINT points ARM's loginServer at it.
+	hostPortACR = "18011"
 )
 
 // containerCertPath/containerKeyPath are where the stable dev certificate
@@ -252,7 +272,18 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 		},
 		AutoRemove: true,
 		ExposedPorts: []string{
-			"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10010/tcp", "10003/tcp",
+			"10006/tcp",
+			"10000/tcp",
+			"10001/tcp",
+			"10002/tcp",
+			"10010/tcp",
+			"10003/tcp",
+			"10004/tcp",
+			"8081/tcp",
+			"5673/tcp",
+			"10007/tcp",
+			"10008/tcp",
+			"10011/tcp",
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = mustFixedPortMap(map[string]string{
@@ -262,6 +293,12 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 				"10002/tcp": hostPortTable,
 				"10010/tcp": hostPortStorageVHost,
 				"10003/tcp": hostPortServiceBus,
+				"10004/tcp": hostPortKeyVault,
+				"8081/tcp":  hostPortCosmos,
+				"5673/tcp":  hostPortEventHubsAMQP,
+				"10007/tcp": hostPortEventGrid,
+				"10008/tcp": hostPortAppConfig,
+				"10011/tcp": hostPortACR,
 			})
 		},
 		// M8: services/azurearm's advertiseVHostEndpoint (rp_storage.go)
@@ -300,7 +337,23 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 			// container-internal port 10003, which a host-side tofu process
 			// cannot reach.
 			"AZURE_ARM_ADVERTISE_SERVICEBUS_ENDPOINT": "localhost:" + hostPortServiceBus,
-			"LOG_LEVEL": "debug",
+			"AZURE_ARM_ADVERTISE_KEYVAULT_ENDPOINT":   "vault.localhost:" + hostPortKeyVault,
+			"AZURE_ARM_ADVERTISE_COSMOSDB_ENDPOINT":   "localhost:" + hostPortCosmos,
+			"AZURE_ARM_ADVERTISE_EVENTHUB_ENDPOINT":   "localhost:" + hostPortEventHubsAMQP,
+			"AZURE_ARM_ADVERTISE_EVENTGRID_ENDPOINT":  "localhost:" + hostPortEventGrid,
+			"AZURE_ARM_ADVERTISE_APPCONFIG_ENDPOINT":  "azconfig.localhost:" + hostPortAppConfig,
+			"AZURE_ARM_ADVERTISE_ACR_ENDPOINT":        "azurecr.localhost:" + hostPortACR,
+			"AZURE_APPCONFIG_TLS_CERT":                containerCertPath,
+			"AZURE_APPCONFIG_TLS_KEY":                 containerKeyPath,
+			"AZURE_APPCONFIG_VALIDATE_HMAC":           "true",
+			"AZURE_REDIS_TLS_CERT":                    containerCertPath,
+			"AZURE_REDIS_TLS_KEY":                     containerKeyPath,
+			"AZURE_EVENTGRID_TLS_CERT":                containerCertPath,
+			"AZURE_EVENTGRID_TLS_KEY":                 containerKeyPath,
+			"COSMOSDB_VALIDATE_AUTH":                  "true",
+			"AZURE_KEYVAULT_TLS_CERT":                 containerCertPath,
+			"AZURE_KEYVAULT_TLS_KEY":                  containerKeyPath,
+			"LOG_LEVEL":                               "debug",
 			// A stable cert/key (see prepareStableCert), copied into the
 			// container below via Files, rather than services/azurearm's
 			// default of generating a fresh self-signed certificate on every
@@ -467,7 +520,9 @@ func prepareStableCert(logger *slog.Logger) string {
 		return ""
 	}
 
-	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM("localhost", "127.0.0.1")
+	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM(
+		"localhost", "*.vault.localhost", "*.azconfig.localhost", "127.0.0.1",
+	)
 	if err != nil {
 		return fmt.Sprintf("could not generate stable ARM dev certificate: %v", err)
 	}
@@ -500,9 +555,15 @@ func certExistsAndParses(certPath, keyPath string) bool {
 		return false
 	}
 
-	_, err = tls.X509KeyPair(certPEM, keyPEM)
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil || len(pair.Certificate) == 0 {
+		return false
+	}
 
-	return err == nil
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+
+	return err == nil && slices.Contains(leaf.DNSNames, "*.vault.localhost") &&
+		slices.Contains(leaf.DNSNames, "*.azconfig.localhost")
 }
 
 // azurermProviderBlock returns the HCL required_providers + provider
@@ -561,14 +622,17 @@ output "storage_account_id" {
 }
 `
 
-// applyAzureTofu writes hcl to dir/main.tf and runs tofu/terraform init,
-// apply, and (via t.Cleanup) destroy against it, trusting
-// services/azurearm's self-signed certificate via SSL_CERT_FILE (AZURE.md
-// section 10.8). Unlike test/terraform's applyTofu, this doesn't reuse a
-// pre-initialized .terraform directory across tests -- there is currently
-// only one Azure Terraform test, so the AWS suite's parallel-test disk/lock
-// optimization isn't worth the complexity here yet.
-func applyAzureTofu(t *testing.T, dir, hcl string) {
+// applyAzureTofuNoDrift runs init, apply and (via t.Cleanup) destroy against hcl,
+// trusting services/azurearm's self-signed certificate via SSL_CERT_FILE, then
+// requires an empty second plan (`-detailed-exitcode` == 0) so every attribute
+// the provider reads back round-trips.
+func applyAzureTofuNoDrift(t *testing.T, dir, hcl string) {
+	t.Helper()
+
+	applyAzureTofuOpts(t, dir, hcl, true)
+}
+
+func applyAzureTofuOpts(t *testing.T, dir, hcl string, checkDrift bool) {
 	t.Helper()
 
 	cfgPath := filepath.Join(dir, "main.tf")
@@ -616,11 +680,15 @@ func applyAzureTofu(t *testing.T, dir, hcl string) {
 			"see AZURE.md section 10.8 and services/azurearm/PARITY.md for this suite's known environment limitations")
 	}
 
-	run(true, "apply", "-auto-approve", "-no-color")
-
 	t.Cleanup(func() {
 		run(false, "destroy", "-auto-approve", "-no-color")
 	})
+
+	run(true, "apply", "-auto-approve", "-no-color")
+
+	if checkDrift {
+		run(true, "plan", "-detailed-exitcode", "-no-color")
+	}
 }
 
 // TestTerraform_Azure_ResourceGroupAndStorageAccount proves that an
@@ -638,5 +706,5 @@ func TestTerraform_Azure_ResourceGroupAndStorageAccount(t *testing.T) {
 	dir := t.TempDir()
 	hcl := azurermProviderBlock(endpoint) + azureResourceGroupAndStorageAccountFixture
 
-	applyAzureTofu(t, dir, hcl)
+	applyAzureTofuNoDrift(t, dir, hcl)
 }

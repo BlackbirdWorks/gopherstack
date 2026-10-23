@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -41,8 +42,12 @@ func (b *InMemoryBackend) CreateIpamInternetRegistryAssociation(
 	id := awsid.New("ipam-ira-")
 	assoc := &IpamInternetRegistryAssociation{
 		IpamInternetRegistryAssociationID: id,
-		IpamInternetRegistryAssociationARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
-			":ipam-internet-registry-association/" + id,
+		IpamInternetRegistryAssociationARN: arn.Build(
+			"ec2",
+			b.Region,
+			b.AccountID,
+			"ipam-internet-registry-association/"+id,
+		),
 		IpamID:             ipamID,
 		IpamRegion:         ipam.Region,
 		OrganizationHandle: organizationHandle,

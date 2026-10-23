@@ -51,3 +51,19 @@ func VersionsMapKeyCount(b *InMemoryBackend, region string) int {
 
 	return len(b.versions[region])
 }
+
+// SetZipCodeForTest stores ZIPFILE application code on an existing application.
+func SetZipCodeForTest(b *InMemoryBackend, name string, zip []byte) {
+	b.mu.Lock("SetZipCodeForTest")
+	defer b.mu.Unlock()
+
+	app, ok := b.findApplication(b.defaultRegion, name)
+	if !ok {
+		return
+	}
+
+	app.CodeConfig = &ApplicationCodeConfigDesc{
+		CodeContentType:        "ZIPFILE",
+		CodeContentDescription: buildCodeContentDescription("", zip, "", "", ""),
+	}
+}

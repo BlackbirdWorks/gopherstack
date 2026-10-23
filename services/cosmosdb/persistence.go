@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -19,6 +20,7 @@ const cosmosdbSnapshotVersion = 1
 // backendSnapshot is the top-level on-disk shape for the Cosmos DB backend.
 type backendSnapshot struct {
 	Databases map[string]*storedDatabase `json:"databases"`
+	Regions   *AccountRegions            `json:"regions,omitempty"`
 	TableAPI  json.RawMessage            `json:"tableApi,omitempty"`
 	Version   int                        `json:"version"`
 }
@@ -36,6 +38,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	if b.tableAPI != nil {
 		snap.TableAPI = b.tableAPI.Snapshot(ctx)
+	}
+
+	if len(b.regions.Regions) > 0 || b.regions.MultiWrite {
+		regions := b.regions
+		snap.Regions = &regions
 	}
 
 	return persistence.MarshalSnapshot(ctx, "cosmosdb", snap)
@@ -85,6 +92,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.databases = snap.Databases
+	b.regions = AccountRegions{}
+
+	if snap.Regions != nil {
+		b.regions = snap.Regions.normalized()
+	}
 
 	return nil
 }
@@ -127,6 +139,30 @@ func validateSnapshotDatabases(databases map[string]*storedDatabase) error {
 		if err := validateSnapshotContainers(dbName, d.Containers); err != nil {
 			return err
 		}
+
+		if err := validateSnapshotUsers(dbName, d); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateSnapshotUsers(dbName string, d *storedDatabase) error {
+	for id, u := range d.Users {
+		if u == nil {
+			return fmt.Errorf("%w: %s/%s", ErrSnapshotUserNull, dbName, id)
+		}
+
+		if u.Permissions == nil {
+			u.Permissions = make(map[string]*storedPermission)
+		}
+
+		for pid, p := range u.Permissions {
+			if p == nil {
+				return fmt.Errorf("%w: %s/%s/%s", ErrSnapshotPermissionNull, dbName, id, pid)
+			}
+		}
 	}
 
 	return nil
@@ -147,9 +183,37 @@ func validateSnapshotContainers(dbName string, containers map[string]*storedCont
 				return fmt.Errorf("%w: %s/%s key %v", ErrSnapshotDocumentNull, dbName, collName, key)
 			}
 		}
+
+		backfillChangeSeq(c)
 	}
 
 	return nil
+}
+
+// backfillChangeSeq gives documents persisted before the change feed existed a sequence, oldest first.
+func backfillChangeSeq(c *storedContainer) {
+	var unset []*storedDocument
+
+	for _, d := range c.Documents {
+		c.ChangeSeq = max(c.ChangeSeq, d.Seq)
+
+		if d.Seq == 0 {
+			unset = append(unset, d)
+		}
+	}
+
+	sort.Slice(unset, func(i, j int) bool {
+		if !unset[i].Timestamp.Equal(unset[j].Timestamp) {
+			return unset[i].Timestamp.Before(unset[j].Timestamp)
+		}
+
+		return unset[i].ID < unset[j].ID
+	})
+
+	for _, d := range unset {
+		c.ChangeSeq++
+		d.Seq = c.ChangeSeq
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

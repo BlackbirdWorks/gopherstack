@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/quotalimit"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -335,11 +337,13 @@ type Subnet struct {
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
+	quotaGate    *quotalimit.Gate
 	metrics      cwmetric.Sink
 	lastUsage    map[string]InstanceUsage
 	usageMu      *lockmetrics.RWMutex
 	compute      Compute
 	dnsRegistrar DNSRegistrar
+	sgEnforcer   *sgfilter.Enforcer
 	// appConfig is the service.AppContext.Config value Provider.Init
 	// received, recorded so RunInstances/TerminateInstances can resolve the
 	// Outposts backend on demand -- see cross_service.go's SetAppConfig doc
@@ -768,6 +772,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := newInMemoryBackendMaps()
 	b.AccountID = accountID
 	b.Region = region
+	b.quotaGate = &quotalimit.Gate{}
 	b.mu = lockmetrics.New("ec2")
 	b.usageMu = lockmetrics.New("ec2.usage")
 	b.lifecycleStop = make(chan struct{})

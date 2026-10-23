@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -24,6 +25,10 @@ type containerBodyRequest struct {
 	ID             string              `json:"id"`
 	PartitionKey   partitionKeyDefSpec `json:"partitionKey"`
 	IndexingPolicy json.RawMessage     `json:"indexingPolicy"`
+
+	ConflictResolutionPolicy json.RawMessage `json:"conflictResolutionPolicy"`
+
+	ContainerPolicies
 }
 
 const partitionKindMultiHash = "MultiHash"
@@ -31,6 +36,7 @@ const partitionKindMultiHash = "MultiHash"
 func (r containerBodyRequest) spec() ContainerSpec {
 	spec := ContainerSpec{
 		ID: r.ID, DefaultTTL: r.DefaultTTL, PartitionKeyPaths: r.PartitionKey.Paths, IndexingPolicy: r.IndexingPolicy,
+		ConflictResolutionPolicy: r.ConflictResolutionPolicy, ContainerPolicies: r.ContainerPolicies,
 	}
 	if len(r.PartitionKey.Paths) > 0 {
 		spec.PartitionKeyPath = r.PartitionKey.Paths[0]
@@ -126,9 +132,20 @@ func (h *Handler) createContainer(c *echo.Context, dbID string) error {
 		return nil
 	}
 
+	spec, hasOffer, specOK := h.checkCreateThroughput(c, true)
+	if !specOK {
+		return nil
+	}
+
 	info, createErr := h.Backend.CreateContainer(dbID, req.spec())
 	if createErr != nil {
 		return h.writeContainerError(c, createErr)
+	}
+
+	if hasOffer {
+		if offerErr := h.provisionOffer(c, dbID, info.ID, spec); offerErr != nil {
+			return offerErr
+		}
 	}
 
 	c.Response().Header().Set("ETag", containerETag(info))
@@ -179,7 +196,8 @@ func (h *Handler) writeContainerError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrContainerAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "Conflict", "A container with the specified id already exists.")
 	case errors.Is(err, ErrInvalidPartitionKeyPath), errors.Is(err, ErrInvalidDefaultTTL),
-		errors.Is(err, ErrPartitionKeyImmutable):
+		errors.Is(err, ErrPartitionKeyImmutable), errors.Is(err, ErrInvalidContainerPolicy),
+		errors.Is(err, ErrUniqueKeyPolicyImmutable):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
 	default:
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", err.Error())
@@ -247,11 +265,50 @@ func (h *Handler) deleteContainer(c *echo.Context, dbID, collID string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// containerETag returns a static, non-versioned ETag for a container. See
-// databaseETag's identical rationale -- there is no "update container"
-// operation in this milestone.
+// containerETag is derived from the container's modification stamp, so a replace changes it.
 func containerETag(info ContainerInfo) string {
-	return `"` + info.RID + `"`
+	return resourceETag(info.Modified, info.RID)
+}
+
+// resourceETag formats a modification stamp as an ETag; a resource restored without one keeps its RID-based tag.
+func resourceETag(modified time.Time, rid string) string {
+	if modified.IsZero() {
+		return `"` + rid + `"`
+	}
+
+	return etagFor(modified)
+}
+
+func resourceTS(modified time.Time) int64 {
+	if modified.IsZero() {
+		return 1
+	}
+
+	return modified.Unix()
+}
+
+// echoOrDefault returns raw, or def when raw is unset.
+func echoOrDefault(raw json.RawMessage, def string) json.RawMessage {
+	if len(raw) > 0 {
+		return raw
+	}
+
+	return json.RawMessage(def)
+}
+
+// addPolicyFields echoes the container policies; unset unique-key and geospatial settings show their defaults.
+func addPolicyFields(body map[string]any, p ContainerPolicies) {
+	body["uniqueKeyPolicy"] = echoOrDefault(p.UniqueKeyPolicy, defaultUniqueKeyPol)
+	body["geospatialConfig"] = echoOrDefault(p.GeospatialConfig, defaultGeoConfig)
+
+	for key, raw := range map[string]json.RawMessage{
+		"vectorEmbeddingPolicy": p.VectorEmbeddingPolicy, "fullTextPolicy": p.FullTextPolicy,
+		"computedProperties": p.ComputedProperties,
+	} {
+		if len(raw) > 0 {
+			body[key] = raw
+		}
+	}
 }
 
 // partitionKeyDefVersion is the "version" field real Cosmos DB stamps on
@@ -262,6 +319,10 @@ const partitionKeyDefVersion = 2
 // defaultIndexingPolicy is what the service reports for a container created without one.
 const defaultIndexingPolicy = `{"indexingMode":"consistent","automatic":true,"includedPaths":[{"path":"/*"}],` +
 	`"excludedPaths":[{"path":"/\"_etag\"/?"}]}`
+
+// defaultConflictResolutionPolicy is reported for a container created without one (last-writer-wins on _ts).
+const defaultConflictResolutionPolicy = `{"mode":"LastWriterWins","conflictResolutionPath":"/_ts",` +
+	`"conflictResolutionProcedure":""}`
 
 // containerBody builds a Cosmos DB container (DocumentCollection) resource's JSON response body.
 func containerBody(info ContainerInfo) map[string]any {
@@ -280,7 +341,7 @@ func containerBody(info ContainerInfo) map[string]any {
 		sysPropRID:  info.RID,
 		sysPropSelf: collsSegment + "/" + info.RID + "/",
 		sysPropETag: containerETag(info),
-		sysPropTS:   1,
+		sysPropTS:   resourceTS(info.Modified),
 		"_docs":     "docs/",
 		"partitionKey": map[string]any{
 			"paths":   info.PartitionKeyPaths,
@@ -292,6 +353,13 @@ func containerBody(info ContainerInfo) map[string]any {
 
 	if info.DefaultTTL != nil {
 		body["defaultTtl"] = *info.DefaultTTL
+	}
+
+	addPolicyFields(body, info.ContainerPolicies)
+
+	body["conflictResolutionPolicy"] = json.RawMessage(defaultConflictResolutionPolicy)
+	if len(info.ConflictResolutionPolicy) > 0 {
+		body["conflictResolutionPolicy"] = info.ConflictResolutionPolicy
 	}
 
 	return body

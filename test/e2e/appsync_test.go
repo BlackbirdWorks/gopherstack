@@ -15,6 +15,7 @@ import (
 
 // TestAppSyncDashboard verifies the AppSync dashboard UI renders GraphQL APIs.
 func TestAppSyncDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.AppSyncHandler.Backend.CreateGraphqlAPI(
@@ -54,13 +55,13 @@ func TestAppSyncDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-api")
 	assert.Contains(t, content, "e2e-test-api")
 }
 
 // TestAppSyncDashboard_Empty verifies the empty state renders correctly.
 func TestAppSyncDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -88,7 +89,6 @@ func TestAppSyncDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AppSync")
 	assert.Contains(t, content, "AppSync")
 }

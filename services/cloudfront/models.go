@@ -296,21 +296,23 @@ type Function struct {
 	Comment          string            `json:"comment,omitempty"`
 	Runtime          string            `json:"runtime"`
 	FunctionCode     string            `json:"functionCode"`
-	Status           string            `json:"status"` // DEVELOPMENT or LIVE
+	Status           string            `json:"status"`
 	ETag             string            `json:"eTag"`
 	ARN              string            `json:"arn"`
 	CreatedTime      string            `json:"createdTime"`
 	LastModifiedTime string            `json:"lastModifiedTime"`
+	KVSARNs          []string          `json:"kvsArns,omitempty"`
 }
 
 // FunctionLive is the published (LIVE stage) snapshot of a Function, which outlives later
 // UpdateFunction calls on the DEVELOPMENT stage.
 type FunctionLive struct {
-	Comment          string `json:"comment,omitempty"`
-	Runtime          string `json:"runtime"`
-	FunctionCode     string `json:"functionCode"`
-	ETag             string `json:"eTag"`
-	LastModifiedTime string `json:"lastModifiedTime"`
+	Comment          string   `json:"comment,omitempty"`
+	Runtime          string   `json:"runtime"`
+	FunctionCode     string   `json:"functionCode"`
+	ETag             string   `json:"eTag"`
+	LastModifiedTime string   `json:"lastModifiedTime"`
+	KVSARNs          []string `json:"kvsArns,omitempty"`
 }
 
 // ORPHeadersConfig controls which request headers are forwarded to the origin.

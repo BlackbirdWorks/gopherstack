@@ -15,6 +15,7 @@ import (
 
 // TestChaosDashboard verifies the Chaos Engineering dashboard renders correctly.
 func TestChaosDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -42,8 +43,7 @@ func TestChaosDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Fault Rules", "Network Effects", "Activity Log", "Add Fault")
 	assert.Contains(t, content, "Fault Rules")
 	assert.Contains(t, content, "Network Effects")
 	assert.Contains(t, content, "Activity Log")
@@ -52,6 +52,7 @@ func TestChaosDashboard(t *testing.T) {
 
 // TestChaosDashboard_WithExistingFault verifies faults seeded via backend appear in the UI.
 func TestChaosDashboard_WithExistingFault(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed a fault directly in the store.
@@ -94,14 +95,14 @@ func TestChaosDashboard_WithExistingFault(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "s3", "50% probability")
 	assert.Contains(t, content, "s3")
 	assert.Contains(t, content, "50% probability")
 }
 
 // TestChaosDashboard_AddFault verifies the Add Fault form works end-to-end.
 func TestChaosDashboard_AddFault(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -147,13 +148,13 @@ func TestChaosDashboard_AddFault(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "dynamodb")
 	assert.Contains(t, content, "dynamodb")
 }
 
 // TestChaosDashboard_NoError verifies that the chaos page does not show an error on load.
 func TestChaosDashboard_NoError(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

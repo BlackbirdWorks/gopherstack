@@ -34,7 +34,7 @@ func (b *InMemoryBackend) CreateBucket(accountID, outpostID, bucketName string) 
 		outpostID = defaultOutpostID
 	}
 
-	arn := fmt.Sprintf(arnFmtOutpostsBucket, b.region, accountID, outpostID, bucketName)
+	arn := resourceARN("s3-outposts", b.region, accountID, arnFmtOutpostsBucket, outpostID, bucketName)
 
 	bkt := &OutpostsBucket{
 		AccountID: accountID,

@@ -8,7 +8,7 @@ import (
 )
 
 func channels() []string {
-	return []string{channelVoice, channelChat, channelTask, "EMAIL"}
+	return []string{channelVoice, channelChat, channelTask, emailValue}
 }
 
 const maxQueueConfigs = 100

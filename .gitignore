@@ -64,6 +64,7 @@ e2e.test
 .beads-credential-key
 *.py
 !test/e2e/crosssdk/*.py
+!testcontainers/python/**/*.py
 node_modules/
 .terraform
 *.tfstate

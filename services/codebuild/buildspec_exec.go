@@ -33,10 +33,12 @@ func execPhaseNames() []string {
 }
 
 type specFile struct {
-	Env       *specEnv             `yaml:"env"`
-	Phases    map[string]specPhase `yaml:"phases"`
-	Artifacts *specArtifacts       `yaml:"artifacts"`
-	Version   string               `yaml:"version"`
+	Env       *specEnv              `yaml:"env"`
+	Phases    map[string]specPhase  `yaml:"phases"`
+	Artifacts *specArtifacts        `yaml:"artifacts"`
+	Reports   map[string]specReport `yaml:"reports"`
+	Cache     *specCache            `yaml:"cache"`
+	Version   string                `yaml:"version"`
 }
 
 type specEnv struct {

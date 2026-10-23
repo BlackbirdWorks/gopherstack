@@ -346,6 +346,7 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 	}
 
 	b.detachClusterReplicaLocked(inst)
+	b.promoteReplicasOfLocked(inst)
 
 	// Remove this instance from its cluster's DBClusterMembers, if any.
 	if inst.DBClusterIdentifier != "" {
@@ -423,13 +424,18 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 				return
 			}
 			result = []DBInstance{*inst}
+			b.overlayInstanceRestorableRLocked(&result[0])
+			b.overlayInstanceReplicaRLocked(&result[0])
 
 			return
 		}
 
 		instances := make([]DBInstance, 0, b.instances.Len())
 		for _, inst := range b.instances.All() {
-			instances = append(instances, *inst)
+			cp := *inst
+			b.overlayInstanceRestorableRLocked(&cp)
+			b.overlayInstanceReplicaRLocked(&cp)
+			instances = append(instances, cp)
 		}
 		result = instances
 	}()
@@ -826,41 +832,25 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 			opts.DBParameterGroupName = source.DBParameterGroupName
 		}
 
+		srcUnit := b.instanceUnitLocked(source)
+
+		var seed engineSeed
+		seed, err = b.restoreSeedLocked(
+			srcUnit, opts.restoreRequest(), source.InstanceCreateTime, source.BackupRetentionPeriod)
+		if err != nil {
+			return
+		}
+
 		var secret MasterSecret
 		if secret, err = b.createMasterSecret("db", source.MasterUsername, opts.MasterSecretRequest, ""); err != nil {
 			return
 		}
 
 		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
-		inst := &DBInstance{
-			MasterSecret:                     secret,
-			DBInstanceIdentifier:             id,
-			DBInstanceArn:                    b.rdsARN("db", id),
-			DbiResourceID:                    id,
-			DBInstanceClass:                  source.DBInstanceClass,
-			Engine:                           source.Engine,
-			EngineVersion:                    source.EngineVersion,
-			DBInstanceStatus:                 instanceStatusAvailable,
-			MasterUsername:                   source.MasterUsername,
-			DBName:                           source.DBName,
-			Endpoint:                         endpoint,
-			Port:                             source.Port,
-			AllocatedStorage:                 source.AllocatedStorage,
-			DBParameterGroupName:             opts.DBParameterGroupName,
-			OptionGroupName:                  opts.OptionGroupName,
-			StorageType:                      opts.StorageType,
-			StorageEncrypted:                 source.StorageEncrypted,
-			AvailabilityZone:                 opts.AvailabilityZone,
-			MultiAZ:                          opts.MultiAZ,
-			DeletionProtection:               opts.DeletionProtection,
-			IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
-			UseDefaultProcessorFeatures:      opts.UseDefaultProcessorFeatures,
-			BackupTarget:                     opts.BackupTarget,
-			EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
-		}
+		inst := b.pitrInstance(id, endpoint, source, opts, secret)
 		applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 		b.instances.Put(inst)
-		b.seedFromLiveSourceLocked(inst, b.instanceUnitLocked(source))
+		b.seedRestoredInstanceLocked(inst, srcUnit, seed)
 		b.publishInstanceEventLocked(id, "DB instance restored to point in time")
 		cp := *inst
 		result = &cp
@@ -875,6 +865,37 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 	}
 
 	return result, nil
+}
+
+func (b *InMemoryBackend) pitrInstance(
+	id, endpoint string, source *DBInstance, opts DBInstanceOptions, secret MasterSecret,
+) *DBInstance {
+	return &DBInstance{
+		MasterSecret:                     secret,
+		DBInstanceIdentifier:             id,
+		DBInstanceArn:                    b.rdsARN("db", id),
+		DbiResourceID:                    id,
+		DBInstanceClass:                  source.DBInstanceClass,
+		Engine:                           source.Engine,
+		EngineVersion:                    source.EngineVersion,
+		DBInstanceStatus:                 instanceStatusAvailable,
+		MasterUsername:                   source.MasterUsername,
+		DBName:                           source.DBName,
+		Endpoint:                         endpoint,
+		Port:                             source.Port,
+		AllocatedStorage:                 source.AllocatedStorage,
+		DBParameterGroupName:             opts.DBParameterGroupName,
+		OptionGroupName:                  opts.OptionGroupName,
+		StorageType:                      opts.StorageType,
+		StorageEncrypted:                 source.StorageEncrypted,
+		AvailabilityZone:                 opts.AvailabilityZone,
+		MultiAZ:                          opts.MultiAZ,
+		DeletionProtection:               opts.DeletionProtection,
+		IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
+		UseDefaultProcessorFeatures:      opts.UseDefaultProcessorFeatures,
+		BackupTarget:                     opts.BackupTarget,
+		EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
+	}
 }
 
 // StartDBInstance starts a stopped DB instance.
@@ -1036,7 +1057,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 	applyReplicaOverrides(replica, &inherited, opts)
 	applyVpcSecurityGroups(replica, opts.VpcSecurityGroupIDs)
 	b.instances.Put(replica)
-	b.seedFromLiveSourceLocked(replica, b.replicaSourceUnitLocked(source, sourceCluster))
+	b.seedReplicaLocked(replica, b.replicaSourceUnitLocked(source, sourceCluster))
 	b.publishInstanceEventLocked(id, "DB read replica created")
 
 	// Track reverse read replica reference on source instance or cluster.
@@ -1067,8 +1088,8 @@ func (b *InMemoryBackend) replicaSourceUnitLocked(source *DBInstance, sourceClus
 	}
 }
 
-// seedFromLiveSourceLocked gives inst its own engine loaded with a copy of src's data; no-op without a live src.
-func (b *InMemoryBackend) seedFromLiveSourceLocked(inst *DBInstance, src *liveDB) {
+// seedRestoredInstanceLocked gives inst its own engine loaded with seed; no-op without a live src.
+func (b *InMemoryBackend) seedRestoredInstanceLocked(inst *DBInstance, src *liveDB, seed engineSeed) {
 	if src == nil {
 		return
 	}
@@ -1076,7 +1097,7 @@ func (b *InMemoryBackend) seedFromLiveSourceLocked(inst *DBInstance, src *liveDB
 	inst.DBName = cmp.Or(inst.DBName, src.dbName)
 	inst.DBInstanceStatus = instanceStatusCreating
 
-	if !b.provisionSeededInstanceLocked(inst, "", liveSeedLocked(src)) {
+	if !b.provisionSeededInstanceLocked(inst, "", seed) {
 		inst.DBInstanceStatus = instanceStatusAvailable
 	}
 }
@@ -1159,6 +1180,7 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 
 	b.detachClusterReplicaLocked(inst)
 	inst.ReplicaSourceDBInstanceIdentifier = ""
+	b.promoteReplicaUnitLocked(inst)
 	cp := *inst
 
 	return &cp, nil

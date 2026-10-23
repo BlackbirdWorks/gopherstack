@@ -62,6 +62,10 @@ func (r *buildRunner) fetchSource(ctx context.Context, dir string) error {
 	case sourceTypeCodeCommit:
 		return r.fetchCodeCommitSource(ctx, src.Location, dir)
 	default:
+		if isGitSourceType(src.Type) {
+			return r.fetchGitSource(ctx, dir)
+		}
+
 		return fmt.Errorf("%w: %s", errSourceUnsupported, src.Type)
 	}
 }

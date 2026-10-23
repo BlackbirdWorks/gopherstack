@@ -501,7 +501,7 @@ func dimensionFieldValue(e CostEntry, dimension string) (string, bool) {
 	case "PURCHASE_TYPE":
 		return "On Demand", true
 	case "RECORD_TYPE":
-		return "Usage", true
+		return entryChargeType(e), true
 	default:
 		return "", false
 	}

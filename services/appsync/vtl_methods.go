@@ -10,6 +10,7 @@ import (
 const (
 	mToString   = "toString"
 	mContains   = "contains"
+	mBeginsWith = "beginsWith"
 	mIsEmpty    = "isEmpty"
 	mMatches    = "matches"
 	mSet        = "set"
@@ -72,7 +73,7 @@ func javaMethod(cur any, name string, args []any) (any, error) {
 		return vrender(cur), nil
 	case mEquals:
 		return vequal(cur, argAt(args, 0)), nil
-	case "intValue", "longValue":
+	case "intValue", rdsLongValue:
 		if f, _, ok := toNum(cur); ok {
 			return int64(f), nil
 		}

@@ -349,6 +349,15 @@ var armResourceRoutes = []armRoute{
 		},
 	},
 	{
+		match: func(segs []string, r *http.Request) bool {
+			return len(segs) == 3 && isSubscriptionScoped(segs) && r.Method == http.MethodGet &&
+				segAt(segs, providersOrResourceGroupsIdx, resourcesSegment)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleListSubscriptionResources(c, segs[1])
+		},
+	},
+	{
 		match: func(segs []string, _ *http.Request) bool {
 			return len(segs) == 3 && isSubscriptionScoped(segs) &&
 				segAt(segs, providersOrResourceGroupsIdx, resourceGroupsSegment)
@@ -422,6 +431,30 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(cosmosRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(eventGridRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(appConfigRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(containerRegistryRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(redisRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(sqlRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(armResourceRoutes, h, c, segs); handled {
 		return err
 	}
@@ -472,6 +505,8 @@ func operationForSubscriptionPath(method string, segs []string) string {
 		return opGetProvider
 	case len(segs) == 5 && strings.EqualFold(segs[2], providersSegment):
 		return opRegisterProvider
+	case len(segs) == 3 && strings.EqualFold(segs[2], resourcesSegment):
+		return opListResources
 	case len(segs) == 3 && strings.EqualFold(segs[2], resourceGroupsSegment):
 		return opListResourceGroups
 	case len(segs) == 4 && strings.EqualFold(segs[2], resourceGroupsSegment):
@@ -565,6 +600,10 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 // errorDetails maps a sentinel error to its ARM error code, message, and
 // HTTP status, mirroring services/sqs's errorDetails pattern.
 func errorDetails(err error) errorEntry {
+	if e, ok := providerErrorDetails(err); ok {
+		return e
+	}
+
 	table := []struct {
 		err   error
 		entry errorEntry

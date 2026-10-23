@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // PutDestination creates or updates a log routing destination.
@@ -29,7 +31,7 @@ func (b *InMemoryBackend) PutDestination(name, targetArn, roleArn string) (*CWLD
 		DestinationName: name,
 		TargetArn:       targetArn,
 		RoleArn:         roleArn,
-		Arn:             "arn:aws:logs:" + b.region + ":" + b.accountID + ":destination:" + name,
+		Arn:             arn.Build("logs", b.region, b.accountID, "destination:"+name),
 		CreatedAt:       time.Now().UTC(),
 	}
 	stored := dest

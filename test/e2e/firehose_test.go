@@ -15,6 +15,7 @@ import (
 
 // TestFirehoseDashboard verifies the Firehose dashboard UI renders delivery streams.
 func TestFirehoseDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.FirehoseHandler.Backend.CreateDeliveryStream(
@@ -47,13 +48,13 @@ func TestFirehoseDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-delivery-stream")
 	assert.Contains(t, content, "test-delivery-stream")
 }
 
 // TestFirehoseDashboard_Empty verifies the empty state renders correctly.
 func TestFirehoseDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -81,7 +82,6 @@ func TestFirehoseDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon Data Firehose")
 	assert.Contains(t, content, "Amazon Data Firehose")
 }

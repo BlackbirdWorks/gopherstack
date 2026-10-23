@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 60 (60 ok) |
 | Feature families | 18 (18 ok) |
-| Known gaps | 2 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 4 |
 | Resource leaks | clean |
@@ -18,12 +18,13 @@
 
 - Data plane unverified against real AWS: disabled distribution answers 403, redirect-to-https answers 301 (GET/HEAD) or 307 (other methods), POST to an S3 origin answers 403, and non-trailing-wildcard aliases are not matched.
 - AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says: the pinned SDK documents no ipv6 or dualstack address count, so the dualstack shape is unverifiable.
+- CloudFront Functions origin helpers: parameters are validated against the documented shape but sslProtocols, ipAddressType, originShield, connectionTimeout, keepAliveTimeout and originAccessControlConfig signing settings have no data-plane effect; the exact AWS validation messages and the originIds object form are unverified against real AWS. The origin choice does not enter the cache key.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- CloudFront Functions (viewer-request/response), Lambda@Edge and field-level encryption are not executed on the data plane: the repo vendors no JavaScript engine and edge Lambda needs a regional edge runtime.
+- Lambda@Edge and field-level encryption are not executed on the data plane: edge Lambda needs a regional edge runtime. CloudFront Functions (viewer-request/response) do run (dataplane_function.go).
 - Viewer TLS is not terminated here: https is inferred from X-Forwarded-Proto/CloudFront-Forwarded-Proto or a TLS listener, so viewer certificates and SNI are not modelled.
 - Real edge-location behaviour (multi-POP caches, origin shield, regional edge caches, Range-request caching, ErrorCachingMinTTL, origin failover groups, WAF, real-time logs) is not emulated.
 - ManagedCertificateRequest: ValidationTokenHost is stored and reflected by GetManagedCertificateDetails, but the certificate itself needs real ACM DNS/HTTP validation, which no emulator performs.

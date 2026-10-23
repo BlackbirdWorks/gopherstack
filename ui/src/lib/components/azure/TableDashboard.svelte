@@ -6,6 +6,7 @@
 	import Modal from '#lib/components/Modal.svelte';
 	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import {
+		COSMOS_TABLE_ACCOUNT,
 		DEFAULT_ACCOUNT,
 		DEFAULT_PAGE_SIZE,
 		EDM_TYPES,
@@ -16,6 +17,7 @@
 		deleteEntity,
 		deleteTable,
 		entityToDrafts,
+		getEntity,
 		insertEntity,
 		listTables,
 		propertyColumns,
@@ -33,7 +35,13 @@
 		type UpdateMode
 	} from '#lib/azuretable.ts';
 
-	const account = DEFAULT_ACCOUNT;
+	let { account = DEFAULT_ACCOUNT }: { account?: string } = $props();
+
+	const isCosmos = $derived(account === COSMOS_TABLE_ACCOUNT);
+	const title = $derived(isCosmos ? 'Cosmos DB Table API' : 'Table Storage');
+	const description = $derived(
+		isCosmos ? 'Azure Cosmos DB (Table API): tables and entities' : 'Azure Table Storage: tables and entities'
+	);
 
 	let tables = $state<TableInfo[]>([]);
 	let current = $state<string | null>(null);
@@ -47,6 +55,9 @@
 
 	let filterText = $state('');
 	let appliedFilter = $state('');
+	let knownColumns = $state<string[]>([]);
+	let pickedCols = $state<string[]>([]);
+	let appliedSelect = $state<string[]>([]);
 	let pageSize = $state<number>(DEFAULT_PAGE_SIZE);
 	let top = $state<number>(DEFAULT_PAGE_SIZE);
 
@@ -81,7 +92,7 @@
 	const formInvalid = $derived(
 		Boolean(pkError || rkError) || propErrors.some((e) => e.name || e.value)
 	);
-	const hasMore = $derived(next !== null || (entities.length > 0 && entities.length >= top));
+	const hasMore = $derived(next !== null);
 
 	function describe(e: unknown): string {
 		if (e instanceof TableError) return e.code ? `${e.code}: ${e.message}` : e.message;
@@ -109,11 +120,13 @@
 		try {
 			const page = await queryEntities(account, current, {
 				filter: appliedFilter,
+				select: appliedSelect,
 				top: append && next ? pageSize : top,
 				next: append ? next : null
 			});
 			entities = append && next ? [...entities, ...page.entities] : page.entities;
 			next = page.next;
+			if (appliedSelect.length === 0) knownColumns = [...new Set([...knownColumns, ...propertyColumns(entities)])].toSorted((a, b) => a.localeCompare(b));
 			if (selected) {
 				const keep = entities.find((x) => x.partitionKey === selected?.partitionKey && x.rowKey === selected?.rowKey);
 				selected = keep ?? null;
@@ -139,6 +152,9 @@
 		selected = null;
 		filterText = '';
 		appliedFilter = '';
+		knownColumns = [];
+		pickedCols = [];
+		appliedSelect = [];
 		top = pageSize;
 		queryError = '';
 		if (name) void loadEntities();
@@ -147,6 +163,7 @@
 	function runQuery(event?: Event) {
 		event?.preventDefault();
 		appliedFilter = filterText.trim();
+		appliedSelect = [...pickedCols];
 		top = pageSize;
 		selected = null;
 		void loadEntities();
@@ -154,7 +171,24 @@
 
 	function clearFilter() {
 		filterText = '';
+		pickedCols = [];
 		runQuery();
+	}
+
+	function toggleColumn(name: string) {
+		pickedCols = pickedCols.includes(name) ? pickedCols.filter((c) => c !== name) : [...pickedCols, name];
+	}
+
+	async function editEntity(e: Entity) {
+		if (!current || appliedSelect.length === 0) {
+			openEntityForm(e);
+			return;
+		}
+		try {
+			openEntityForm(await getEntity(account, current, e.partitionKey, e.rowKey));
+		} catch (err) {
+			toast.error(`Failed to load entity: ${describe(err)}`);
+		}
 	}
 
 	function changePageSize() {
@@ -295,8 +329,8 @@
 <div class="space-y-6 pb-20" data-testid="table-dashboard">
 	<PageHeader
 		icon={Table2}
-		title="Table Storage"
-		description="Azure Table Storage: tables and entities"
+		{title}
+		{description}
 		color="blue"
 		onRefresh={refresh}
 	>
@@ -311,13 +345,15 @@
 		{/snippet}
 	</PageHeader>
 
-	<p class="text-xs text-gray-500 dark:text-gray-400">
-		Storage account <span class="font-mono" data-testid="table-account">{account}</span>
-	</p>
+	{#if !isCosmos}
+		<p class="text-xs text-gray-500 dark:text-gray-400">
+			Storage account <span class="font-mono" data-testid="table-account">{account}</span>
+		</p>
+	{/if}
 
 	{#if loadError}
 		<div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" role="alert" data-testid="table-error">
-			<p class="font-medium">Could not reach Azure Table Storage</p>
+			<p class="font-medium">Could not reach {isCosmos ? 'the Cosmos DB Table API' : 'Azure Table Storage'}</p>
 			<p>{loadError}</p>
 			<button class="mt-2 underline" onclick={loadTables}>Retry</button>
 		</div>
@@ -377,10 +413,26 @@
 						<button type="submit" class="flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50" disabled={loadingEntities}>
 							<Search class="h-4 w-4" /> Query
 						</button>
-						{#if appliedFilter || filterText}
+						{#if appliedFilter || filterText || appliedSelect.length > 0 || pickedCols.length > 0}
 							<button type="button" class="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onclick={clearFilter}>Clear</button>
 						{/if}
 					</form>
+
+					{#if knownColumns.length > 0}
+						<details class="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm" data-testid="table-select-picker">
+							<summary class="cursor-pointer font-medium text-gray-700 dark:text-gray-300">
+								Columns ($select){appliedSelect.length > 0 ? `: ${appliedSelect.join(', ')}` : ': all'}
+							</summary>
+							<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+								{#each knownColumns as col (col)}
+									<label class="flex items-center gap-1.5 text-gray-700 dark:text-gray-300">
+										<input type="checkbox" checked={pickedCols.includes(col)} onchange={() => toggleColumn(col)} aria-label="Select column {col}" /> {col}
+									</label>
+								{/each}
+							</div>
+							<p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Choose columns and press Query. PartitionKey, RowKey and Timestamp are always returned.</p>
+						</details>
+					{/if}
 
 					{#if queryError}
 						<div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" role="alert" data-testid="table-query-error">{queryError}</div>
@@ -463,7 +515,7 @@
 								</div>
 							{/if}
 							<div class="flex flex-wrap gap-2">
-								<button class="flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700" onclick={() => selected && openEntityForm(selected)}><Pencil class="h-4 w-4" /> Edit</button>
+								<button class="flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700" onclick={() => selected && editEntity(selected)}><Pencil class="h-4 w-4" /> Edit</button>
 								<button class="flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onclick={() => selected && filterToPartition(selected)}><Filter class="h-4 w-4" /> Filter to partition</button>
 								<button class="flex items-center gap-2 rounded-md border border-red-200 dark:border-red-900 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950" onclick={() => selected && removeEntity(selected)}><Trash2 class="h-4 w-4" /> Delete</button>
 							</div>

@@ -151,6 +151,7 @@ func (h *Handler) ops() map[string]restroute.OpFunc {
 	h.phoneOps(ops)
 	h.contactOps(ops)
 	h.tagOps(ops)
+	h.extraOps(ops)
 
 	return ops
 }

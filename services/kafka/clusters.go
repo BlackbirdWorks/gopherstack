@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateCluster(
 		cluster.readyAt = b.now().Add(b.lifecycleDelay)
 	}
 	b.clusters.Put(cluster)
-	b.launchBrokerLocked(clusterArn, name)
+	b.launchBrokerLocked(clusterArn, name, "")
 
 	return cloneCluster(cluster), nil
 }
@@ -227,6 +227,7 @@ func (b *InMemoryBackend) DeleteCluster(_ context.Context, clusterArn string) er
 
 	b.clusters.Delete(clusterArn)
 	lb = b.detachBrokerLocked(clusterArn)
+	b.failSupersededOpLocked(clusterArn, lb)
 	delete(b.scramSecrets, clusterArn)
 	delete(b.clusterPolicies, clusterArn)
 	delete(b.clusterPolicyVersions, clusterArn)

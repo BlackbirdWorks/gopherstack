@@ -524,14 +524,14 @@ func (b *InMemoryBackend) removeMemberLocked(clusters *store.Table[Cluster], id 
 		return
 	}
 
-	handoverEngineLocked(clusters, c)
+	b.handoverEngineLocked(clusters, c)
 	b.releaseClusterLocked(c)
 	clusters.Delete(id)
 }
 
 // handoverEngineLocked moves c's miniredis instance and port to another cluster
 // serving the same data plane, so deleting c leaves the shard's replicas usable.
-func handoverEngineLocked(clusters *store.Table[Cluster], c *Cluster) {
+func (b *InMemoryBackend) handoverEngineLocked(clusters *store.Table[Cluster], c *Cluster) {
 	if (c.mini == nil && c.AllocatedPort == 0) || c.ReplicationGroupID == "" {
 		return
 	}
@@ -540,7 +540,9 @@ func handoverEngineLocked(clusters *store.Table[Cluster], c *Cluster) {
 		if other.ClusterID != c.ClusterID && other.ReplicationGroupID == c.ReplicationGroupID &&
 			other.mini == nil && other.AllocatedPort == 0 && other.ConnectAddress == c.ConnectAddress {
 			other.mini, other.AllocatedPort = c.mini, c.AllocatedPort
-			c.mini, c.AllocatedPort = nil, 0
+			other.front, other.gate = c.front, c.gate
+			c.mini, c.AllocatedPort, c.front, c.gate = nil, 0, nil, nil
+			b.armGateLocked(other, defaultRedisPort)
 
 			return
 		}

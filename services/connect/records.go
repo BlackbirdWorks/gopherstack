@@ -22,6 +22,7 @@ type userRec struct {
 	InstanceID    string             `json:"instanceId"`
 	AgentStatusID string             `json:"agentStatusId,omitempty"`
 	User          User               `json:"user"`
+	Proficiencies []UserProficiency  `json:"proficiencies,omitempty"`
 }
 
 type routingProfileRec struct {
@@ -35,6 +36,7 @@ type securityProfileRec struct {
 	InstanceID  string          `json:"instanceId"`
 	Profile     SecurityProfile `json:"profile"`
 	Permissions []string        `json:"permissions,omitempty"`
+	Extras      securityExtras  `json:"extras"`
 }
 
 type hierarchyGroupRec struct {
@@ -57,6 +59,7 @@ type queueRec struct {
 type hoursRec struct {
 	InstanceID string           `json:"instanceId"`
 	Hours      HoursOfOperation `json:"hours"`
+	Parents    []string         `json:"parents,omitempty"`
 }
 
 type quickConnectRec struct {
@@ -90,6 +93,7 @@ type contactRec struct {
 	ParticipantID    string          `json:"participantId,omitempty"`
 	ParticipantToken string          `json:"participantToken,omitempty"`
 	FlowID           string          `json:"flowId,omitempty"`
+	TaskTemplateID   string          `json:"taskTemplateId,omitempty"`
 	Contact          Contact         `json:"contact"`
 	References       json.RawMessage `json:"references,omitempty"`
 }
@@ -107,6 +111,24 @@ type phoneNumberRec struct {
 	Phone      ClaimedPhoneNumberSummary `json:"phone"`
 	InstanceID string                    `json:"instanceId"`
 	FlowID     string                    `json:"flowId,omitempty"`
+}
+
+// extras holds the resource families added after the original service surface.
+type extras struct {
+	rules             family[ruleRec]
+	taskTemplates     family[taskTemplateRec]
+	predefined        family[predefinedRec]
+	hoursOverrides    family[hoursOverrideRec]
+	vocabularies      family[vocabularyRec]
+	defaultVocabs     family[defaultVocabRec]
+	flowVersions      family[flowVersionRec]
+	flowAliases       family[flowAliasRec]
+	views             family[viewRec]
+	evalForms         family[evalFormRec]
+	trafficGroups     family[tdgRec]
+	flowAssocs        family[flowAssocRec]
+	entityProfileRecs family[entityProfilesRec]
+	viewSnapshots     family[viewVersionRec]
 }
 
 func (b *Backend) registerTables() {
@@ -150,6 +172,7 @@ func (b *Backend) registerTables() {
 	b.phoneNumbers = store.Register(r, "phoneNumbers",
 		store.New(func(v *phoneNumberRec) string { return v.Phone.PhoneNumberID }))
 
+	b.registerExtras()
 	b.registerTagAccessors()
 }
 

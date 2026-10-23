@@ -13,6 +13,7 @@ import (
 
 // TestTimestreamQueryDashboard verifies the Timestream Query dashboard UI renders scheduled queries.
 func TestTimestreamQueryDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.TimestreamQueryHandler.Backend.CreateScheduledQuery(
@@ -52,7 +53,7 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("#tab-scheduledQueries")
+	err = page.Locator("#tab-scheduledQueries").First().Click()
 	require.NoError(t, err)
 
 	// Switching tabs kicks off ListScheduledQueries via the shared tab
@@ -67,14 +68,14 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-query", "ENABLED")
 	assert.Contains(t, content, "e2e-test-query")
 	assert.Contains(t, content, "ENABLED")
 }
 
 // TestTimestreamQueryDashboard_Empty verifies the empty state renders correctly.
 func TestTimestreamQueryDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -102,7 +103,7 @@ func TestTimestreamQueryDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("#tab-scheduledQueries")
+	err = page.Locator("#tab-scheduledQueries").First().Click()
 	require.NoError(t, err)
 
 	// Same async tab-loader race as TestTimestreamQueryDashboard: wait for
@@ -113,13 +114,13 @@ func TestTimestreamQueryDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No scheduled queries found")
 	assert.Contains(t, content, "No scheduled queries found")
 }
 
 // TestTimestreamQueryDashboard_Create verifies scheduled queries are displayed on the current dashboard.
 func TestTimestreamQueryDashboard_Create(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.TimestreamQueryHandler.Backend.CreateScheduledQuery(
@@ -159,7 +160,7 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("#tab-scheduledQueries")
+	err = page.Locator("#tab-scheduledQueries").First().Click()
 	require.NoError(t, err)
 
 	// Wait for the row itself rather than re-waiting on h1 (which was
@@ -173,7 +174,6 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "ui-test-query")
 	assert.Contains(t, content, "ui-test-query")
 }

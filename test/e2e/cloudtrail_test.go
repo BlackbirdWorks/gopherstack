@@ -13,6 +13,7 @@ import (
 
 // TestCloudTrailDashboard verifies the CloudTrail dashboard UI renders trails.
 func TestCloudTrailDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CloudTrailHandler.Backend.CreateTrail(
@@ -46,13 +47,13 @@ func TestCloudTrailDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-trail")
 	assert.Contains(t, content, "e2e-test-trail")
 }
 
 // TestCloudTrailDashboard_Empty verifies the CloudTrail dashboard renders with no trails.
 func TestCloudTrailDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -80,7 +81,6 @@ func TestCloudTrailDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No trails found")
 	assert.Contains(t, content, "No trails found")
 }

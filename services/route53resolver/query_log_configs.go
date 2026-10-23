@@ -105,9 +105,9 @@ func queryLogDestinationKind(destinationARN string) string {
 	switch {
 	case strings.HasPrefix(destinationARN, "arn:aws:s3:::"):
 		return "S3"
-	case strings.HasPrefix(destinationARN, "arn:aws:logs:"):
+	case arn.HasService(destinationARN, "logs"):
 		return "CloudWatchLogs"
-	case strings.HasPrefix(destinationARN, "arn:aws:firehose:"):
+	case arn.HasService(destinationARN, "firehose"):
 		return "KinesisFirehose"
 	default:
 		return ""

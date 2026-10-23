@@ -364,7 +364,12 @@ func (h *Handler) putGenericResource(c *echo.Context, id ResourceID) error {
 	// every such client accepts, and it costs nothing here since AZURE.md
 	// section 10.3 already commits this emulator to always-synchronous
 	// (no real LRO) semantics.
-	return h.writeJSON(c, http.StatusOK, respBody)
+	status := http.StatusOK
+	if strings.EqualFold(id.Namespace, namespaceMicrosoftEventGrid) {
+		status = http.StatusCreated // go-azure-sdk's Event Grid PUT clients accept only 201
+	}
+
+	return h.writeJSON(c, status, respBody)
 }
 
 func (h *Handler) getGenericResource(c *echo.Context, id ResourceID) error {

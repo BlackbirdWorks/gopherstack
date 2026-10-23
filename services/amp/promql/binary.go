@@ -163,45 +163,101 @@ func indexBySignature(b *Binary, v Vector) (map[string]VectorSample, bool) {
 }
 
 func vectorVector(b *Binary, l, r Vector, t int64) (Value, error) {
-	ridx, ok := indexBySignature(b, r)
-	if !ok {
-		return nil, evalErr("found duplicate series for the match group on the right hand-side of the operation")
+	many, one := l, r
+	if b.Card == CardOneToMany {
+		many, one = r, l
 	}
 
-	if _, iok := indexBySignature(b, l); !iok {
-		return nil, evalErr("found duplicate series for the match group on the left hand-side of the operation")
+	oneIdx, ok := indexBySignature(b, one)
+	if !ok {
+		return nil, evalErr("found duplicate series for the match group on the %s hand-side of the operation",
+			oneSide(b))
+	}
+
+	if b.Card == CardOneToOne {
+		if _, iok := indexBySignature(b, many); !iok {
+			return nil, evalErr("found duplicate series for the match group on the left hand-side of the operation")
+		}
 	}
 
 	out := Vector{}
+	seen := map[string]bool{}
 
-	for _, ls := range l {
-		rs, found := ridx[signature(b, ls.Metric)]
+	for _, m := range many {
+		o, found := oneIdx[signature(b, m.Metric)]
 		if !found {
 			continue
 		}
 
-		val, keep := applyOp(b.Op, ls.V, rs.V)
-
-		metric := ls.Metric.without(NameLabel)
-		if b.On || len(b.MatchLabels) > 0 {
-			metric = metric.pick(b.MatchLabels, b.On)
+		lv, rv := m, o
+		if b.Card == CardOneToMany {
+			lv, rv = o, m
 		}
 
-		switch {
-		case isComparison(b.Op) && b.ReturnBool:
-			out = append(out, VectorSample{Metric: metric, T: t, V: boolValue(keep)})
-		case isComparison(b.Op):
-			if keep {
-				out = append(out, VectorSample{Metric: ls.Metric, T: t, V: ls.V})
-			}
-		default:
-			out = append(out, VectorSample{Metric: metric, T: t, V: val})
+		smp, keep := combine(b, lv, rv, m.Metric, o.Metric, t)
+		if !keep {
+			continue
 		}
+
+		k := Fingerprint(smp.Metric)
+		if seen[k] {
+			return nil, evalErr("multiple matches for labels: grouping labels must ensure unique matches")
+		}
+
+		seen[k] = true
+
+		out = append(out, smp)
 	}
 
 	sortVector(out)
 
 	return out, nil
+}
+
+func oneSide(b *Binary) string {
+	if b.Card == CardOneToMany {
+		return "left"
+	}
+
+	return "right"
+}
+
+func combine(b *Binary, lv, rv VectorSample, manyM, oneM Labels, t int64) (VectorSample, bool) {
+	val, keep := applyOp(b.Op, lv.V, rv.V)
+
+	switch {
+	case isComparison(b.Op) && b.ReturnBool:
+		return VectorSample{Metric: resultMetric(b, manyM, oneM, true), T: t, V: boolValue(keep)}, true
+	case isComparison(b.Op):
+		return VectorSample{Metric: resultMetric(b, manyM, oneM, false), T: t, V: lv.V}, keep
+	}
+
+	return VectorSample{Metric: resultMetric(b, manyM, oneM, true), T: t, V: val}, true
+}
+
+func resultMetric(b *Binary, many, one Labels, dropName bool) Labels {
+	metric := many.clone()
+	if dropName {
+		delete(metric, NameLabel)
+	}
+
+	if b.Card == CardOneToOne {
+		if dropName && (b.On || len(b.MatchLabels) > 0) {
+			metric = metric.pick(b.MatchLabels, b.On)
+		}
+
+		return metric
+	}
+
+	for _, n := range b.Include {
+		if v, ok := one[n]; ok {
+			metric[n] = v
+		} else {
+			delete(metric, n)
+		}
+	}
+
+	return metric
 }
 
 func setOp(b *Binary, l, r Vector, t int64) Vector {

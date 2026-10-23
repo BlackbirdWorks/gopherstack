@@ -68,12 +68,19 @@ func (b *InMemoryBackend) EvaluateMappingTemplate(template, contextJSON string) 
 // EvaluateCode runs an APPSYNC_JS module's request or response handler against
 // the context JSON and returns the JSON-stringified return value.
 func (b *InMemoryBackend) EvaluateCode(code, contextJSON, function, runtime string) (string, error) {
+	res, _, err := b.EvaluateCodeLogs(code, contextJSON, function, runtime)
+
+	return res, err
+}
+
+// EvaluateCodeLogs is EvaluateCode that also returns the console output.
+func (b *InMemoryBackend) EvaluateCodeLogs(code, contextJSON, function, runtime string) (string, []string, error) {
 	if code == "" {
-		return "", fmt.Errorf("%w: code is required", ErrValidation)
+		return "", nil, fmt.Errorf("%w: code is required", ErrValidation)
 	}
 
 	if runtime != "" && runtime != "APPSYNC_JS" {
-		return "", fmt.Errorf("%w: unsupported runtime %q", ErrValidation, runtime)
+		return "", nil, fmt.Errorf("%w: unsupported runtime %q", ErrValidation, runtime)
 	}
 
 	if function == "" {
@@ -81,12 +88,12 @@ func (b *InMemoryBackend) EvaluateCode(code, contextJSON, function, runtime stri
 	}
 
 	if function != jsHandlerRequest && function != jsHandlerResponse {
-		return "", fmt.Errorf("%w: function must be 'request' or 'response'", ErrValidation)
+		return "", nil, fmt.Errorf("%w: function must be 'request' or 'response'", ErrValidation)
 	}
 
 	ctx, err := evalContext(contextJSON)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	cc := &callCtx{}
@@ -94,16 +101,16 @@ func (b *InMemoryBackend) EvaluateCode(code, contextJSON, function, runtime stri
 	out, err := runJS(code, function, ctx, cc.utilEnv())
 	if err != nil {
 		if handlerMissing(err) {
-			return "", fmt.Errorf("%w: no %s handler found in code", ErrValidation, function)
+			return "", out.Logs, fmt.Errorf("%w: no %s handler found in code", ErrValidation, function)
 		}
 
-		return "", err
+		return "", out.Logs, err
 	}
 
 	raw, err := json.Marshal(out.Value)
 	if err != nil {
-		return "", fmt.Errorf("%w: result is not JSON-serializable", ErrValidation)
+		return "", out.Logs, fmt.Errorf("%w: result is not JSON-serializable", ErrValidation)
 	}
 
-	return string(raw), nil
+	return string(raw), out.Logs, nil
 }

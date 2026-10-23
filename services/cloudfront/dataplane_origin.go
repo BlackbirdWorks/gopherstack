@@ -236,13 +236,37 @@ func (h *Handler) forwardALB(o *dpOrigin, req *http.Request, v *viewerReq) (orig
 func (h *Handler) fetchCustom(
 	ctx context.Context, o *dpOrigin, pol *dpPolicy, v *viewerReq, reqPath string,
 ) originResp {
+	if o.Custom != nil && o.Custom.ReadTimeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(o.Custom.ReadTimeout)*time.Second)
+		defer cancel()
+	}
+
+	var resp originResp
+
+	for range max(o.ConnAttempts, 1) {
+		var connFailed bool
+
+		if resp, connFailed = h.fetchCustomOnce(ctx, o, pol, v, reqPath); !connFailed {
+			break
+		}
+	}
+
+	return resp
+}
+
+// fetchCustomOnce makes one attempt; connFailed reports a transport failure worth retrying.
+func (h *Handler) fetchCustomOnce(
+	ctx context.Context, o *dpOrigin, pol *dpPolicy, v *viewerReq, reqPath string,
+) (originResp, bool) {
 	req, err := h.outboundRequest(ctx, o, pol, v, reqPath)
 	if err != nil {
-		return httpErrorResp(http.StatusBadGateway, "The origin request could not be built.")
+		return httpErrorResp(http.StatusBadGateway, "The origin request could not be built."), false
 	}
 
 	if resp, ok := h.forwardALB(o, req, v); ok {
-		return resp
+		return resp, false
 	}
 
 	resp, err := h.dp.client.Do(req)
@@ -252,19 +276,19 @@ func (h *Handler) fetchCustom(
 			return httpErrorResp(
 				http.StatusGatewayTimeout,
 				"CloudFront attempted to establish a connection with the origin, but the attempt failed.",
-			)
+			), true
 		}
 
-		return httpErrorResp(http.StatusBadGateway, "CloudFront wasn't able to connect to the origin.")
+		return httpErrorResp(http.StatusBadGateway, "CloudFront wasn't able to connect to the origin."), true
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxOriginBody))
 	if err != nil {
-		return httpErrorResp(http.StatusBadGateway, "The origin response could not be read.")
+		return httpErrorResp(http.StatusBadGateway, "The origin response could not be read."), false
 	}
 
-	return originResp{status: resp.StatusCode, header: resp.Header, body: body}
+	return originResp{status: resp.StatusCode, header: resp.Header, body: body}, false
 }
 
 // cacheKey folds the cache-policy-selected path, query, headers and cookies into one key.

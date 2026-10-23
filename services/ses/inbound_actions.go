@@ -97,6 +97,7 @@ type notifReceipt struct {
 	SPFVerdict           sesVerdict  `json:"spfVerdict"`
 	DKIMVerdict          sesVerdict  `json:"dkimVerdict"`
 	DMARCVerdict         sesVerdict  `json:"dmarcVerdict"`
+	DMARCPolicy          string      `json:"dmarcPolicy,omitempty"`
 	Recipients           []string    `json:"recipients"`
 	ProcessingTimeMillis int         `json:"processingTimeMillis"`
 }
@@ -137,6 +138,8 @@ type inboundRun struct {
 	start   time.Time
 	reject  *inboundReply
 	exec    *InboundExecution
+	b       *InMemoryBackend
+	auth    authVerdicts
 	msgID   string
 	plan    inboundPlan
 	matched []string
@@ -157,8 +160,19 @@ func (b *InMemoryBackend) deliverInbound(ctx context.Context, env inboundEnvelop
 	reply := inboundReply{code: smtpOK, text: "2.0.0 Ok: queued as " + msgID}
 
 	run := &inboundRun{
-		env: env, plan: plan, msgID: msgID, start: start,
+		b: b, env: env, plan: plan, msgID: msgID, start: start,
 		mail: buildNotifMail(env, msgID, start),
+		auth: evaluateAuth(ctx, plan.dns, env),
+	}
+
+	rec.SPF, rec.DKIM, rec.DMARC = run.auth.spf, run.auth.dkim, run.auth.dmarc
+
+	if run.auth.dmarc == verdictFail && run.auth.dmarcPolicy == "reject" {
+		reply = inboundReply{code: smtpMailboxErr, text: "5.7.1 Message rejected due to DMARC policy"}
+		rec.Notes = append(rec.Notes, "dmarc policy reject")
+		b.recordInbound(rec)
+
+		return reply
 	}
 
 rules:
@@ -258,11 +272,7 @@ func (r *inboundRun) s3Action(ctx context.Context, a ReceiptAction) error {
 		key = p + "/" + r.msgID
 	}
 
-	if a.S3KMSKeyARN != "" {
-		r.exec.Notes = append(r.exec.Notes, "s3 kms key recorded, object not encrypted: "+a.S3KMSKeyARN)
-	}
-
-	if err := r.plan.store.PutObject(ctx, a.S3BucketName, key, r.env.data); err != nil {
+	if err := r.putS3(ctx, a, key); err != nil {
 		return fmt.Errorf("s3 put %s/%s: %w", a.S3BucketName, key, err)
 	}
 
@@ -270,6 +280,27 @@ func (r *inboundRun) s3Action(ctx context.Context, a ReceiptAction) error {
 		Type: "S3", TopicARN: a.S3TopicARN, BucketName: a.S3BucketName,
 		ObjectKeyPrefix: a.S3KeyPrefix, ObjectKey: key,
 	}, ""))
+}
+
+// putS3 stores the message, envelope-encrypted under the action's KMS key when one is set.
+func (r *inboundRun) putS3(ctx context.Context, a ReceiptAction, key string) error {
+	if a.S3KMSKeyARN == "" {
+		return r.plan.store.PutObject(ctx, a.S3BucketName, key, r.env.data)
+	}
+
+	ms, ok := r.plan.store.(InboundMetadataStore)
+	if r.plan.kms == nil || !ok {
+		return errInboundNoKMS
+	}
+
+	encCtx := map[string]string{"aws:ses:message-id": r.msgID, "aws:ses:rule-name": r.rule.Name}
+
+	body, meta, err := sealEnvelope(ctx, r.plan.kms, a.S3KMSKeyARN, encCtx, r.env.data)
+	if err != nil {
+		return err
+	}
+
+	return ms.PutObjectWithMetadata(ctx, a.S3BucketName, key, body, meta)
 }
 
 func (r *inboundRun) snsAction(a ReceiptAction) error {
@@ -355,6 +386,8 @@ func (r *inboundRun) bounceAction(a ReceiptAction) (ruleFlow, error) {
 
 	r.reject = &inboundReply{code: code, text: text}
 
+	r.b.sendDSN(r, a, code)
+
 	return flowReject, err
 }
 
@@ -367,8 +400,6 @@ func (r *inboundRun) notification(a notifAction, content string) receiptNotifica
 		return sesVerdict{Status: verdictDisabled}
 	}
 
-	gray := sesVerdict{Status: verdictGray}
-
 	return receiptNotification{
 		NotificationType: "Received",
 		Content:          content,
@@ -379,9 +410,10 @@ func (r *inboundRun) notification(a notifAction, content string) receiptNotifica
 			Recipients:           r.matched,
 			SpamVerdict:          verdict(r.rule.ScanEnabled),
 			VirusVerdict:         verdict(r.rule.ScanEnabled),
-			SPFVerdict:           gray,
-			DKIMVerdict:          gray,
-			DMARCVerdict:         gray,
+			SPFVerdict:           sesVerdict{Status: r.auth.spf},
+			DKIMVerdict:          sesVerdict{Status: r.auth.dkim},
+			DMARCVerdict:         sesVerdict{Status: r.auth.dmarc},
+			DMARCPolicy:          r.auth.dmarcPolicy,
 			Action:               a,
 		},
 	}

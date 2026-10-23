@@ -12,6 +12,7 @@ const maxParsedQueries = 256
 // docSource identifies the container a lazily-resolved sqlRow belongs to.
 type docSource struct {
 	b           *InMemoryBackend
+	computed    map[string]sqlExpr
 	dbID        string
 	containerID string
 }
@@ -47,11 +48,25 @@ func (r sqlRow) lookup(seg string) (any, bool) {
 	}
 
 	v, ok := r.m[seg]
+	if !ok && r.src != nil {
+		if expr, isComputed := r.src.computed[seg]; isComputed {
+			return r.computedValue(expr), true
+		}
+	}
+
 	if i, isInt := v.(int64); isInt {
 		return json.Number(strconv.FormatInt(i, 10)), true
 	}
 
 	return v, ok
+}
+
+// computedValue evaluates a computed property's expression against the stored document.
+func (r sqlRow) computedValue(expr sqlExpr) any {
+	plain := *r.src
+	plain.computed = nil
+
+	return newEvalCtx(nil).eval(expr, []any{&sqlRow{m: r.m, doc: r.doc, src: &plain}})
 }
 
 func (r sqlRow) full() map[string]any {
@@ -141,6 +156,37 @@ func (b *InMemoryBackend) RunQuery(
 		return QueryResult{}, err
 	}
 
+	return b.queryLocked(c, dbID, containerID, query, params, partitionKey)
+}
+
+// RunQueryOpts is RunQuery with the indexing policy enforced: opts carries the request's scan switch.
+func (b *InMemoryBackend) RunQueryOpts(
+	dbID, containerID, query string, params []QueryParameter, partitionKey string, opts QueryOptions,
+) (QueryResult, error) {
+	b.mu.RLock("QueryDocuments")
+	defer b.mu.RUnlock()
+
+	c, err := b.findContainer(dbID, containerID)
+	if err != nil {
+		return QueryResult{}, err
+	}
+
+	stmt, err := b.parseCached(query)
+	if err != nil {
+		return QueryResult{}, err
+	}
+
+	if idxErr := checkQueryIndexing(stmt, c.IndexingPolicy, opts); idxErr != nil {
+		return QueryResult{}, idxErr
+	}
+
+	return b.queryLocked(c, dbID, containerID, query, params, partitionKey)
+}
+
+// queryLocked runs a query over c; the caller holds the backend lock (read or write).
+func (b *InMemoryBackend) queryLocked(
+	c *storedContainer, dbID, containerID, query string, params []QueryParameter, partitionKey string,
+) (QueryResult, error) {
 	stmt, err := b.parseCached(query)
 	if err != nil {
 		return QueryResult{}, err
@@ -159,7 +205,12 @@ func (b *InMemoryBackend) RunQuery(
 		docs = scoped
 	}
 
-	rows := storedRows{docs: docs, src: &docSource{b: b, dbID: dbID, containerID: containerID}}
+	rows := storedRows{docs: docs, src: &docSource{
+		b: b, dbID: dbID, containerID: containerID, computed: b.computedExprs(c),
+	}}
 
-	return executeStatement(stmt, params, rows)
+	udf := b.newUDFRuntime(c.UDFs)
+	defer udf.close()
+
+	return executeStatementWith(stmt, params, rows, udf, b.newQueryColl(c))
 }

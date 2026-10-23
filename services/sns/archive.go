@@ -117,9 +117,9 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 
 		switch sub.Protocol {
 		case protocolLambda:
-			b.deliverToLambdaSubscriptions(replayEv)
+			b.deliverToLambdaSubscriptions(b.svcCtx, replayEv)
 		case protocolFirehose:
-			b.deliverToFirehoseSubscriptions(replayEv)
+			b.deliverToFirehoseSubscriptions(b.svcCtx, replayEv)
 		}
 	}
 }

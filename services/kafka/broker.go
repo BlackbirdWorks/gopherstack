@@ -24,6 +24,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 const (
@@ -70,17 +71,20 @@ type liveBroker struct {
 	res          *brokerRes
 	scramApplied map[string]string
 	syncGate     chan struct{}
+	endpoints    ManagedEndpoints
 	containerID  string
 	adminAddr    string
-	endpoints    ManagedEndpoints
+	opArn        string
 	plan         brokerPlan
 	ready        bool
 }
 
 type brokerEngine struct {
 	brokers map[string]*liveBroker
-	cfg     BrokerConfig
-	wg      sync.WaitGroup
+	// admit returns the security-group check for a cluster's client port; nil result means not enforced.
+	admit func(clusterArn string, port int) sgfilter.Admitter
+	cfg   BrokerConfig
+	wg    sync.WaitGroup
 }
 
 // EnableBrokers switches the backend to docker mode: provisioned clusters get a real broker.
@@ -114,7 +118,7 @@ func (b *InMemoryBackend) EnableBrokers(cfg BrokerConfig) {
 	b.mu.Lock("EnableBrokers")
 	defer b.mu.Unlock()
 
-	b.engine = &brokerEngine{cfg: cfg, brokers: make(map[string]*liveBroker)}
+	b.engine = &brokerEngine{cfg: cfg, brokers: make(map[string]*liveBroker), admit: b.clusterAdmit}
 }
 
 // ManagedBootstrap returns the real broker addresses of a docker-backed cluster.
@@ -245,9 +249,7 @@ func (e *brokerEngine) reap(lbs []*liveBroker) {
 }
 
 func (e *brokerEngine) releasePort(port int) {
-	if e.cfg.Ports != nil && port > 0 {
-		_ = e.cfg.Ports.Release(port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
 func (e *brokerEngine) teardown(lb *liveBroker) {
@@ -269,6 +271,10 @@ func (e *brokerEngine) teardown(lb *liveBroker) {
 		lb.res.proxy.close()
 	}
 
+	for _, r := range lb.res.relays {
+		r.Close()
+	}
+
 	if lb.res.keystoreDir != "" {
 		_ = os.RemoveAll(lb.res.keystoreDir)
 	}
@@ -279,7 +285,9 @@ func (e *brokerEngine) teardown(lb *liveBroker) {
 }
 
 // provision allocates ports, the TLS keystore and the IAM proxy a broker of plan needs.
-func (e *brokerEngine) provision(name string, plan brokerPlan, auth iamAuthFunc) (*brokerRes, error) {
+func (e *brokerEngine) provision(
+	name string, plan brokerPlan, trust []byte, clusterArn string, auth iamAuthFunc,
+) (*brokerRes, error) {
 	res := &brokerRes{ports: make(map[string]int)}
 
 	fail := func(err error) (*brokerRes, error) {
@@ -297,8 +305,12 @@ func (e *brokerEngine) provision(name string, plan brokerPlan, auth iamAuthFunc)
 		res.ports[l] = p
 	}
 
+	if err := e.startRelays(res, plan, clusterArn); err != nil {
+		return fail(err)
+	}
+
 	if plan.needsKeystore() {
-		dir, err := e.writeKeystore()
+		dir, err := e.writeKeystore(trust)
 		if err != nil {
 			return fail(err)
 		}
@@ -307,7 +319,7 @@ func (e *brokerEngine) provision(name string, plan brokerPlan, auth iamAuthFunc)
 	}
 
 	if plan.iam {
-		if err := e.startProxy(res, auth); err != nil {
+		if err := e.startProxy(res, clusterArn, auth); err != nil {
 			return fail(err)
 		}
 	}
@@ -346,7 +358,7 @@ func (e *brokerEngine) tlsHosts() []string {
 }
 
 // writeKeystore writes a PEM keystore (PKCS8 key + chain) the broker mounts for its TLS listeners.
-func (e *brokerEngine) writeKeystore() (string, error) {
+func (e *brokerEngine) writeKeystore(trust []byte) (string, error) {
 	if e.cfg.CA == nil {
 		return "", errNoBrokerCA
 	}
@@ -383,10 +395,18 @@ func (e *brokerEngine) writeKeystore() (string, error) {
 		return "", fmt.Errorf("write keystore: %w", err)
 	}
 
+	if len(trust) > 0 {
+		if err = os.WriteFile(filepath.Join(dir, truststoreFile), trust, keystoreFileMode); err != nil {
+			_ = os.RemoveAll(dir)
+
+			return "", fmt.Errorf("write truststore: %w", err)
+		}
+	}
+
 	return dir, nil
 }
 
-func (e *brokerEngine) startProxy(res *brokerRes, auth iamAuthFunc) error {
+func (e *brokerEngine) startProxy(res *brokerRes, clusterArn string, auth iamAuthFunc) error {
 	cert, err := e.cfg.CA.Issue(e.tlsHosts()...)
 	if err != nil {
 		return fmt.Errorf("issue proxy certificate: %w", err)
@@ -404,33 +424,17 @@ func (e *brokerEngine) startProxy(res *brokerRes, auth iamAuthFunc) error {
 
 	res.proxy, err = startIAMProxy(bind, &tls.Config{
 		Certificates: []tls.Certificate{*cert}, MinVersion: tls.VersionTLS12,
-	}, backend, res.iamPassword, auth)
+	}, backend, res.iamPassword, clusterArn, auth, e.admitFor(clusterArn, iamClientPort))
 
 	return err
 }
 
 func (e *brokerEngine) acquirePort(name string) (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("msk-" + name) //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return addr.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "msk-"+name)
 }
 
 // launchBrokerLocked registers a pending broker for cluster and starts it in the background.
-func (b *InMemoryBackend) launchBrokerLocked(clusterArn, name string) {
+func (b *InMemoryBackend) launchBrokerLocked(clusterArn, name, opArn string) {
 	e := b.engine
 	if e == nil {
 		return
@@ -442,7 +446,7 @@ func (b *InMemoryBackend) launchBrokerLocked(clusterArn, name string) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	lb := &liveBroker{cancel: cancel, plan: plan, syncGate: make(chan struct{}, 1)}
+	lb := &liveBroker{cancel: cancel, plan: plan, opArn: opArn, syncGate: make(chan struct{}, 1)}
 	e.brokers[clusterArn] = lb
 
 	e.wg.Go(func() { b.runBroker(ctx, clusterArn, name, plan, lb) })
@@ -451,19 +455,42 @@ func (b *InMemoryBackend) launchBrokerLocked(clusterArn, name string) {
 func (b *InMemoryBackend) runBroker(ctx context.Context, clusterArn, name string, plan brokerPlan, lb *liveBroker) {
 	e := b.engine
 
-	res, err := e.provision(name, plan, func(payload []byte, remote string) error {
-		return b.authenticateIAM(clusterArn, payload, remote, time.Now())
-	})
+	trust, err := b.clientTrust(ctx, plan)
 	if err != nil {
-		b.finishBroker(ctx, clusterArn, lb, fmt.Errorf("provision broker resources: %w", err))
+		b.finishBroker(ctx, clusterArn, lb, err)
 
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, plan, res))
+	var res *brokerRes
+
+	provisionFailed := false
+
+	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			r, perr := e.provision(name, plan, trust, clusterArn,
+				func(payload []byte, remote string) (iamAuthorizer, error) {
+					return b.authenticateIAM(clusterArn, payload, remote, time.Now())
+				})
+			if perr != nil {
+				provisionFailed = true
+
+				return container.Spec{}, perr
+			}
+
+			res = r
+
+			return e.spec(name, plan, r), nil
+		},
+		func() { e.teardown(&liveBroker{res: res}) })
 	if err != nil {
-		e.teardown(&liveBroker{res: res})
-		b.finishBroker(ctx, clusterArn, lb, fmt.Errorf("start broker container: %w", err))
+		if provisionFailed {
+			err = fmt.Errorf("provision broker resources: %w", err)
+		} else {
+			err = fmt.Errorf("start broker container: %w", err)
+		}
+
+		b.finishBroker(ctx, clusterArn, lb, err)
 
 		return
 	}
@@ -494,7 +521,7 @@ func (e *brokerEngine) probeAddress(plan brokerPlan, res *brokerRes) string {
 	}
 
 	host := brokerDefaultHost
-	if !plan.secure {
+	if !plan.secure && res.ports[listenerPlaintext+relaySuffix] == 0 {
 		host = e.cfg.Host
 	}
 
@@ -502,7 +529,7 @@ func (e *brokerEngine) probeAddress(plan brokerPlan, res *brokerRes) string {
 }
 
 func (e *brokerEngine) endpoints(plan brokerPlan, res *brokerRes) ManagedEndpoints {
-	at := func(name string) string { return net.JoinHostPort(e.cfg.Host, strconv.Itoa(res.ports[name])) }
+	at := func(name string) string { return net.JoinHostPort(e.cfg.Host, strconv.Itoa(res.clientPort(name))) }
 
 	var ep ManagedEndpoints
 
@@ -549,9 +576,11 @@ func (b *InMemoryBackend) markActive(clusterArn string, lb *liveBroker, ep Manag
 
 	lb.endpoints, lb.ready = ep, true
 
-	if c, ok := b.clusters.Get(clusterArn); ok && c.State == ClusterStateCreating {
+	if c, ok := b.clusters.Get(clusterArn); ok && (c.State == ClusterStateCreating || c.State == ClusterStateUpdating) {
 		c.State = ClusterStateActive
 	}
+
+	b.settleBrokerOpLocked(clusterArn, lb.opArn, ClusterOperationStateUpdateComplete)
 }
 
 // brokerStartFailedCode is logged instead of the cause, which may echo container env.
@@ -573,6 +602,8 @@ func (b *InMemoryBackend) finishBroker(ctx context.Context, clusterArn string, l
 		c.State = ClusterStateFailed
 		c.StateInfo = &StateInfo{Code: brokerStartFailedCode, Message: cause.Error()}
 	}
+
+	b.settleBrokerOpLocked(clusterArn, lb.opArn, ClusterOperationStateUpdateFailed)
 
 	b.mu.Unlock()
 
@@ -631,6 +662,58 @@ func (b *InMemoryBackend) relaunchBrokersLocked() {
 
 		c.State = ClusterStateCreating
 		c.StateInfo = nil
-		b.launchBrokerLocked(c.ClusterArn, c.ClusterName)
+		b.launchBrokerLocked(c.ClusterArn, c.ClusterName, "")
 	}
+}
+
+// ClientEndpoint is how an in-process client (such as a Lambda event source poller) dials a docker-backed cluster.
+type ClientEndpoint struct {
+	Username  string
+	Password  string
+	Brokers   []string
+	RootCAPEM []byte
+}
+
+// ClientEndpointFor picks the endpoint an in-process consumer can use: plaintext if offered,
+// else SASL/SCRAM when scramSecretArn names a credential, else server-TLS. Mutual-TLS-only and
+// AWS_MSK_IAM-only clusters report false.
+func (b *InMemoryBackend) ClientEndpointFor(
+	ctx context.Context, clusterArn, scramSecretArn string,
+) (ClientEndpoint, bool) {
+	b.mu.RLock("ClientEndpointFor")
+	lb, ok := b.managedBrokerLocked(clusterArn)
+
+	var (
+		ep   ManagedEndpoints
+		mtls bool
+		ca   []byte
+	)
+
+	if ok && lb.ready {
+		ep, mtls = lb.endpoints, lb.plan.mtls
+		if b.engine.cfg.CA != nil {
+			ca = b.engine.cfg.CA.CertPEM()
+		}
+	}
+
+	src := b.scramSecretSource
+	b.mu.RUnlock()
+
+	switch {
+	case ep.Plaintext != "":
+		return ClientEndpoint{Brokers: []string{ep.Plaintext}}, true
+	case ep.SaslScram != "" && scramSecretArn != "" && src != nil:
+		cred, err := src.ResolveScramSecret(ctx, scramSecretArn)
+		if err != nil {
+			return ClientEndpoint{}, false
+		}
+
+		return ClientEndpoint{
+			Brokers: []string{ep.SaslScram}, RootCAPEM: ca, Username: cred.Username, Password: cred.Password,
+		}, true
+	case ep.TLS != "" && !mtls:
+		return ClientEndpoint{Brokers: []string{ep.TLS}, RootCAPEM: ca}, true
+	}
+
+	return ClientEndpoint{}, false
 }

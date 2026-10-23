@@ -16,6 +16,11 @@ var functions = map[string]funcSpec{ //nolint:gochecknoglobals // immutable look
 	"abs": {1, 1}, "ceil": {1, 1}, "floor": {1, 1}, "sqrt": {1, 1}, "exp": {1, 1}, "ln": {1, 1},
 	"log2": {1, 1}, "log10": {1, 1}, "round": {1, 2}, "clamp": {3, 3}, "clamp_min": {2, 2}, "clamp_max": {2, 2},
 	"absent": {1, 1}, "time": {0, 0}, nameVector: {1, 1}, nameScalar: {1, 1}, "sort": {1, 1}, fnSortDesc: {1, 1},
+	"label_replace": {5, 5}, "label_join": {3, maxArgs}, "histogram_quantile": {2, 2},
+	"deriv": {1, 1}, "predict_linear": {2, 2}, "quantile_over_time": {2, 2},
+	"stddev_over_time": {1, 1}, "stdvar_over_time": {1, 1}, "present_over_time": {1, 1},
+	"minute": {0, 1}, "hour": {0, 1}, "month": {0, 1}, "year": {0, 1}, "day_of_month": {0, 1},
+	"day_of_week": {0, 1}, "day_of_year": {0, 1}, "days_in_month": {0, 1}, "timestamp": {1, 1},
 }
 
 const (
@@ -24,6 +29,7 @@ const (
 	half        = 2
 	fnSortDesc  = "sort_desc"
 	minSamples  = 2
+	maxArgs     = 1 << 10
 )
 
 func (e *Engine) evalCall(c *Call, t int64) (Value, error) {
@@ -38,6 +44,10 @@ func (e *Engine) evalCall(c *Call, t int64) (Value, error) {
 		return e.callAbsent(c, t)
 	case "sort", fnSortDesc:
 		return e.callSort(c, t)
+	}
+
+	if v, ok, err := e.callExtra(c, t); ok {
+		return v, err
 	}
 
 	if rangeFuncs[c.Func] != nil {
@@ -232,19 +242,23 @@ func plainMath(name string) func(float64) float64 {
 type rangeFn func(samples []Sample, start, end int64) (float64, bool)
 
 var rangeFuncs = map[string]rangeFn{ //nolint:gochecknoglobals // immutable lookup
-	"rate":            func(s []Sample, a, b int64) (float64, bool) { return extrapolatedRate(s, a, b, true, true) },
-	"increase":        func(s []Sample, a, b int64) (float64, bool) { return extrapolatedRate(s, a, b, true, false) },
-	"delta":           func(s []Sample, a, b int64) (float64, bool) { return extrapolatedRate(s, a, b, false, false) },
-	"irate":           func(s []Sample, _, _ int64) (float64, bool) { return instantRate(s, true) },
-	"idelta":          func(s []Sample, _, _ int64) (float64, bool) { return instantRate(s, false) },
-	"avg_over_time":   overTime(func(v []float64) float64 { return sum(v) / float64(len(v)) }),
-	"sum_over_time":   overTime(sum),
-	"min_over_time":   overTime(slices.Min[[]float64]),
-	"max_over_time":   overTime(slices.Max[[]float64]),
-	"count_over_time": overTime(func(v []float64) float64 { return float64(len(v)) }),
-	"last_over_time":  overTime(func(v []float64) float64 { return v[len(v)-1] }),
-	"changes":         func(s []Sample, _, _ int64) (float64, bool) { return countTransitions(s, false), true },
-	"resets":          func(s []Sample, _, _ int64) (float64, bool) { return countTransitions(s, true), true },
+	"rate":              func(s []Sample, a, b int64) (float64, bool) { return extrapolatedRate(s, a, b, true, true) },
+	"increase":          func(s []Sample, a, b int64) (float64, bool) { return extrapolatedRate(s, a, b, true, false) },
+	"delta":             func(s []Sample, a, b int64) (float64, bool) { return extrapolatedRate(s, a, b, false, false) },
+	"irate":             func(s []Sample, _, _ int64) (float64, bool) { return instantRate(s, true) },
+	"idelta":            func(s []Sample, _, _ int64) (float64, bool) { return instantRate(s, false) },
+	"avg_over_time":     overTime(func(v []float64) float64 { return sum(v) / float64(len(v)) }),
+	"sum_over_time":     overTime(sum),
+	"min_over_time":     overTime(slices.Min[[]float64]),
+	"max_over_time":     overTime(slices.Max[[]float64]),
+	"count_over_time":   overTime(func(v []float64) float64 { return float64(len(v)) }),
+	"last_over_time":    overTime(func(v []float64) float64 { return v[len(v)-1] }),
+	"deriv":             derivFn,
+	"stddev_over_time":  overTime(func(v []float64) float64 { return math.Sqrt(variance(v)) }),
+	"stdvar_over_time":  overTime(variance),
+	"present_over_time": overTime(func([]float64) float64 { return 1 }),
+	"changes":           func(s []Sample, _, _ int64) (float64, bool) { return countTransitions(s, false), true },
+	"resets":            func(s []Sample, _, _ int64) (float64, bool) { return countTransitions(s, true), true },
 }
 
 func sum(v []float64) float64 {
@@ -361,16 +375,19 @@ func extrapolatedRate(samples []Sample, rangeStart, rangeEnd int64, isCounter, i
 }
 
 func (e *Engine) callRange(c *Call, t int64) (Value, error) {
-	ms, ok := c.Args[0].(*MatrixSelector)
-	if !ok {
-		return nil, evalErr("expected type range vector in call to function %q", c.Func)
+	return e.rangeOver(c.Args[0], t, c.Func, rangeFuncs[c.Func])
+}
+
+// rangeOver applies fn to every series of a range-vector argument (selector or subquery).
+func (e *Engine) rangeOver(arg Expr, t int64, name string, fn rangeFn) (Value, error) {
+	m, start, end, err := e.rangeArg(arg, t, name)
+	if err != nil {
+		return nil, err
 	}
 
-	fn := rangeFuncs[c.Func]
-	start, end := selectorRange(ms.VS, t, ms.Range)
 	out := Vector{}
 
-	for _, s := range e.evalMatrix(ms, t) {
+	for _, s := range m {
 		if v, iok := fn(s.Samples, start, end); iok {
 			out = append(out, VectorSample{Metric: s.Labels.without(NameLabel), T: t, V: v})
 		}
@@ -379,4 +396,20 @@ func (e *Engine) callRange(c *Call, t int64) (Value, error) {
 	sortVector(out)
 
 	return out, nil
+}
+
+func (e *Engine) rangeArg(arg Expr, t int64, name string) (Matrix, int64, int64, error) {
+	switch x := arg.(type) {
+	case *MatrixSelector:
+		start, end := selectorRange(x.VS, t, x.Range)
+
+		return e.evalMatrix(x, t), start, end, nil
+	case *Subquery:
+		m, err := e.evalSubquery(x, t)
+		start, end := x.window(t)
+
+		return m, start, end, err
+	}
+
+	return nil, 0, 0, evalErr("expected type range vector in call to function %q", name)
 }

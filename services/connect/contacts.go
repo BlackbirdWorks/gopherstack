@@ -407,11 +407,7 @@ func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInpu
 		return nil, invalidParamErr("Name is required")
 	}
 
-	if in.TaskTemplateID != "" {
-		return nil, invalidRequestErr("task templates are not supported by this emulator")
-	}
-
-	if in.ContactFlowID == "" {
+	if in.ContactFlowID == "" && in.TaskTemplateID == "" {
 		return nil, invalidParamErr("ContactFlowId is required")
 	}
 
@@ -437,6 +433,10 @@ func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInpu
 
 	inst := r.Instance.ID
 
+	if err = b.applyTaskTemplate(inst, in); err != nil {
+		return nil, err
+	}
+
 	if err = b.requireFlow(inst, in.ContactFlowID); err != nil {
 		return nil, err
 	}
@@ -446,7 +446,7 @@ func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInpu
 	}
 
 	c := b.newContact(ctx, inst, channelTask, "API")
-	c.FlowID, c.References = in.ContactFlowID, in.References
+	c.FlowID, c.References, c.TaskTemplateID = in.ContactFlowID, in.References, in.TaskTemplateID
 	c.Contact.Name, c.Contact.Description = in.Name, in.Description
 	c.Contact.Attributes, c.Contact.SegmentAttributes = cloneTags(in.Attributes), in.SegmentAttributes
 	c.Contact.RelatedContactID = in.RelatedContactID

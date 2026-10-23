@@ -12,6 +12,7 @@ import (
 
 // TestARCDashboards verifies each Application Recovery Controller dashboard page renders its header and tabs.
 func TestARCDashboards(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		route   string
@@ -26,6 +27,8 @@ func TestARCDashboards(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			stack := newStack(t)
 
 			server := httptest.NewServer(stack.Echo)

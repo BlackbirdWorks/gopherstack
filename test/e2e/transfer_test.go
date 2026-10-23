@@ -14,6 +14,7 @@ import (
 
 // TestTransferDashboard verifies the Transfer dashboard UI renders servers.
 func TestTransferDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	srv, err := stack.TransferHandler.Backend.CreateServer([]string{"SFTP"}, nil)
@@ -54,14 +55,14 @@ func TestTransferDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "SFTP", "ONLINE")
 	assert.Contains(t, content, "SFTP")
 	assert.Contains(t, content, "ONLINE")
 }
 
 // TestTransferDashboard_Empty verifies the empty state renders correctly.
 func TestTransferDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -89,13 +90,13 @@ func TestTransferDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No Transfer Family servers found")
 	assert.Contains(t, content, "No Transfer Family servers found")
 }
 
 // TestTransferDashboard_CreateServer verifies the create server form works.
 func TestTransferDashboard_CreateServer(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -143,7 +144,6 @@ func TestTransferDashboard_CreateServer(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Transfer Family")
 	assert.Contains(t, content, "Transfer Family")
 }

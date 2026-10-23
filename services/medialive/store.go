@@ -165,7 +165,7 @@ func seedOfferings(region string) []*Offering {
 	return []*Offering{
 		{
 			OfferingID:            "87654321",
-			Arn:                   "arn:aws:medialive:" + region + "::offering:87654321",
+			Arn:                   arn.Build("medialive", region, "", "offering:87654321"),
 			OfferingDescription:   "HD AVC output at 10-20 Mbps, 30 fps, standard VQ in " + region,
 			OfferingType:          offeringTypeNoUpfront,
 			CurrencyCode:          offeringCurrencyUSD,
@@ -178,7 +178,7 @@ func seedOfferings(region string) []*Offering {
 		},
 		{
 			OfferingID:            "12345678",
-			Arn:                   "arn:aws:medialive:" + region + "::offering:12345678",
+			Arn:                   arn.Build("medialive", region, "", "offering:12345678"),
 			OfferingDescription:   "UHD HEVC output at 20-50 Mbps, 60 fps, standard VQ in " + region,
 			OfferingType:          offeringTypeNoUpfront,
 			CurrencyCode:          offeringCurrencyUSD,
@@ -191,7 +191,7 @@ func seedOfferings(region string) []*Offering {
 		},
 		{
 			OfferingID:            "11223344",
-			Arn:                   "arn:aws:medialive:" + region + "::offering:11223344",
+			Arn:                   arn.Build("medialive", region, "", "offering:11223344"),
 			OfferingDescription:   "HD AVC input at 10-20 Mbps, 30 fps, standard VQ in " + region,
 			OfferingType:          offeringTypeNoUpfront,
 			CurrencyCode:          offeringCurrencyUSD,

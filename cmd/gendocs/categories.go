@@ -23,13 +23,29 @@ const (
 	slugAzureQueue      = "azurequeue"
 	slugAzureTable      = "azuretable"
 	slugAzureServiceBus = "azureservicebus"
+	slugAzureEventHubs  = "azureeventhubs"
+	slugAzureEventGrid  = "azureeventgrid"
+	slugAzureAppConfig  = "azureappconfig"
+	slugAzureACR        = "azurecontainerregistry"
 	slugCosmosDB        = "cosmosdb"
+	slugAzureRedis      = "azureredis"
+	slugAzureSQL        = "azuresql"
 	slugGCPStorage      = "gcpstorage"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
 	slugGCPKMS          = "gcpkms"
 	slugGCPCloudTasks   = "gcpcloudtasks"
 	slugGCPScheduler    = "gcpscheduler"
+	slugGCPRun          = "gcprun"
+	slugGCPFunctions    = "gcpfunctions"
+	slugGCPBigQuery     = "gcpbigquery"
+	slugGCPSQL          = "gcpsql"
+	slugGCPLogging      = "gcplogging"
+	slugGCPMonitoring   = "gcpmonitoring"
+	slugGCPRedis        = "gcpredis"
+	slugGCPArtifactReg  = "gcpartifactregistry"
+	slugGCPSpanner      = "gcpspanner"
+	slugGCPCloudBuild   = "gcpcloudbuild"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
 )
@@ -109,12 +125,28 @@ func categoryGroups() []categoryGroup {
 		{"Migration & Transfer", []string{
 			"datasync", "dms", "transfer",
 		}},
-		{"Azure", []string{
-			slugAzureBlob, slugAzureKeyVault, slugAzureQueue, slugAzureTable, slugAzureServiceBus, slugCosmosDB,
-		}},
+		{
+			"Azure",
+			[]string{
+				slugAzureBlob,
+				slugAzureKeyVault,
+				slugAzureQueue,
+				slugAzureTable,
+				slugAzureServiceBus,
+				slugAzureEventHubs,
+				slugAzureEventGrid,
+				slugAzureAppConfig,
+				slugAzureACR,
+				slugCosmosDB,
+				slugAzureRedis,
+				slugAzureSQL,
+			},
+		},
 		{"GCP", []string{
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
-			slugGCPFirestore, slugGCPIAM,
+			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery, slugGCPSQL,
+			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
+			slugGCPCloudBuild,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -187,6 +219,12 @@ func displayNamesA() map[string]string {
 		slugAzureQueue:            "Azure Queue Storage",
 		slugAzureTable:            "Azure Table Storage",
 		slugAzureServiceBus:       "Azure Service Bus",
+		slugAzureEventHubs:        "Azure Event Hubs",
+		slugAzureEventGrid:        "Azure Event Grid",
+		slugAzureAppConfig:        "Azure App Configuration",
+		slugAzureACR:              "Azure Container Registry",
+		slugAzureRedis:            "Azure Cache for Redis",
+		slugAzureSQL:              "Azure SQL Database",
 		"backup":                  "Backup",
 		"batch":                   "Batch",
 		"bedrock":                 "Bedrock",
@@ -222,6 +260,16 @@ func displayNamesB() map[string]string {
 		slugGCPKMS:         "Google Cloud KMS",
 		slugGCPCloudTasks:  "Cloud Tasks",
 		slugGCPScheduler:   "Cloud Scheduler",
+		slugGCPRun:         "Cloud Run",
+		slugGCPFunctions:   "Cloud Functions",
+		slugGCPBigQuery:    "BigQuery",
+		slugGCPSQL:         "Cloud SQL",
+		slugGCPLogging:     "Cloud Logging",
+		slugGCPMonitoring:  "Cloud Monitoring",
+		slugGCPRedis:       "Memorystore for Redis",
+		slugGCPArtifactReg: "Artifact Registry",
+		slugGCPSpanner:     "Cloud Spanner",
+		slugGCPCloudBuild:  "Cloud Build",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",
 		"databrew":         "Glue DataBrew",

@@ -22,7 +22,9 @@ import (
 )
 
 var (
-	pw      *playwright.Playwright
+	//nolint:gochecknoglobals // shared Playwright handles, set once in TestMain
+	pw *playwright.Playwright
+	//nolint:gochecknoglobals // shared browser, set once in TestMain
 	browser playwright.Browser
 )
 
@@ -83,6 +85,7 @@ func waitForSPA(t *testing.T, page playwright.Page) {
 }
 
 func TestE2E_DynamoDB_CreateTable(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -114,7 +117,7 @@ func TestE2E_DynamoDB_CreateTable(t *testing.T) {
 	switchRegion(t, page, "us-east-1")
 
 	// Open create modal
-	err = page.Click("#create-table-btn")
+	err = page.Locator("#create-table-btn").First().Click()
 	require.NoError(t, err)
 
 	modal := page.Locator("[role='dialog']")
@@ -125,11 +128,11 @@ func TestE2E_DynamoDB_CreateTable(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fill form
-	require.NoError(t, page.Fill("#tableName", "TestTable"))
-	require.NoError(t, page.Fill("#partitionKey", "pk"))
+	require.NoError(t, page.Locator("#tableName").First().Fill("TestTable"))
+	require.NoError(t, page.Locator("#partitionKey").First().Fill("pk"))
 
 	// Submit
-	require.NoError(t, page.Click("#confirm-create-table-btn"))
+	require.NoError(t, page.Locator("#confirm-create-table-btn").First().Click())
 
 	// Verify table appears in list
 	tableCard := page.Locator("#table-TestTable")
@@ -147,6 +150,7 @@ func TestE2E_DynamoDB_CreateTable(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_DeleteTable(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateDDBTable(t, "Movies")
 
@@ -220,6 +224,7 @@ func TestE2E_DynamoDB_DeleteTable(t *testing.T) {
 }
 
 func TestE2E_S3_CreateBucket(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -244,7 +249,7 @@ func TestE2E_S3_CreateBucket(t *testing.T) {
 	waitForSPA(t, page)
 
 	// Open create modal
-	err = page.Click("#create-bucket-btn")
+	err = page.Locator("#create-bucket-btn").First().Click()
 	require.NoError(t, err)
 
 	modal := page.Locator("[role='dialog']")
@@ -254,8 +259,8 @@ func TestE2E_S3_CreateBucket(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("#bucketName", "test-bucket"))
-	require.NoError(t, page.Click("#confirm-create-bucket-btn"))
+	require.NoError(t, page.Locator("#bucketName").First().Fill("test-bucket"))
+	require.NoError(t, page.Locator("#confirm-create-bucket-btn").First().Click())
 
 	// Verify bucket appears
 	bucketCard := page.Locator("#bucket-test-bucket")
@@ -273,6 +278,7 @@ func TestE2E_S3_CreateBucket(t *testing.T) {
 }
 
 func TestE2E_S3_DeleteBucket(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateS3Bucket(t, "trash-bucket")
 
@@ -328,6 +334,7 @@ func TestE2E_S3_DeleteBucket(t *testing.T) {
 }
 
 func TestE2E_S3_UploadFile(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateS3Bucket(t, "upload-bucket")
 
@@ -382,7 +389,7 @@ func TestE2E_S3_UploadFile(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set file
-	err = page.SetInputFiles("#file_input", []playwright.InputFile{
+	err = page.Locator("#file_input").First().SetInputFiles([]playwright.InputFile{
 		{
 			Name:     "test-upload.txt",
 			MimeType: "text/plain",
@@ -392,7 +399,7 @@ func TestE2E_S3_UploadFile(t *testing.T) {
 	require.NoError(t, err)
 
 	// Submit
-	require.NoError(t, page.Click("[role='dialog'] button:has-text('Upload')"))
+	require.NoError(t, page.Locator("[role='dialog'] button:has-text('Upload')").First().Click())
 
 	// Verify file in backend
 	require.Eventually(t, func() bool {
@@ -406,6 +413,7 @@ func TestE2E_S3_UploadFile(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateDDBTable(t, "Items")
 
@@ -463,14 +471,14 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("#newItemJson", `{"id": "test-1", "name": "Gopher"}`))
-	require.NoError(t, page.Click("[role='dialog'] button:has-text('Create')"))
+	require.NoError(t, page.Locator("#newItemJson").First().Fill(`{"id": "test-1", "name": "Gopher"}`))
+	require.NoError(t, page.Locator("[role='dialog'] button:has-text('Create')").First().Click())
 
 	// Switch to Scan tab and execute scan
-	err = page.Click("button:has-text('Scan')")
+	err = page.Locator("button:has-text('Scan')").First().Click()
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Execute Scan')")
+	err = page.Locator("button:has-text('Execute Scan')").First().Click()
 	require.NoError(t, err)
 
 	// Verify item appears in scan results
@@ -490,6 +498,7 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 }
 
 func TestE2E_S3_FolderNavigation(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateS3Bucket(t, "nav-bucket")
 
@@ -571,6 +580,7 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_Search(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateDDBTable(t, "Alpha")
 	stack.CreateDDBTable(t, "Beta")
@@ -609,7 +619,7 @@ func TestE2E_DynamoDB_Search(t *testing.T) {
 	require.NoError(t, err)
 
 	// Search for Beta
-	require.NoError(t, page.Fill("#table-search", "Beta"))
+	require.NoError(t, page.Locator("#table-search").First().Fill("Beta"))
 
 	// Verify only Beta is visible
 	require.Eventually(t, func() bool {
@@ -621,6 +631,7 @@ func TestE2E_DynamoDB_Search(t *testing.T) {
 }
 
 func TestE2E_S3_Search(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateS3Bucket(t, "bucket-alpha")
 	stack.CreateS3Bucket(t, "bucket-beta")
@@ -654,7 +665,7 @@ func TestE2E_S3_Search(t *testing.T) {
 	require.NoError(t, err)
 
 	// Search for beta
-	require.NoError(t, page.Fill("#bucket-search", "beta"))
+	require.NoError(t, page.Locator("#bucket-search").First().Fill("beta"))
 
 	require.Eventually(t, func() bool {
 		visible, _ := page.Locator("#bucket-bucket-beta").First().IsVisible()
@@ -665,6 +676,7 @@ func TestE2E_S3_Search(t *testing.T) {
 }
 
 func TestE2E_MetricsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -718,6 +730,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 }
 
 func TestE2E_Console(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -770,6 +783,7 @@ func TestE2E_Console(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_Pagination(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	const tableCount = 15
@@ -829,6 +843,7 @@ func TestE2E_DynamoDB_Pagination(t *testing.T) {
 }
 
 func TestE2E_S3_Pagination(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	const bucketCount = 15
@@ -883,6 +898,7 @@ func TestE2E_S3_Pagination(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateDDBTable(t, "purge-one")
 	stack.CreateDDBTable(t, "purge-two")
@@ -920,7 +936,7 @@ func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("#purge-all-btn")
+	err = page.Locator("#purge-all-btn").First().Click()
 	require.NoError(t, err)
 	confirmDialog := page.Locator("[role='alertdialog']")
 	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
@@ -945,6 +961,7 @@ func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 }
 
 func TestE2E_S3_PurgeAll(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 	stack.CreateS3Bucket(t, "purge-one")
 	stack.CreateS3Bucket(t, "purge-two")
@@ -976,7 +993,7 @@ func TestE2E_S3_PurgeAll(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Click("#purge-all-btn")
+	err = page.Locator("#purge-all-btn").First().Click()
 	require.NoError(t, err)
 	confirmDialog := page.Locator("[role='alertdialog']")
 	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
@@ -1001,6 +1018,7 @@ func TestE2E_S3_PurgeAll(t *testing.T) {
 }
 
 func TestE2E_ThemeSelector(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -1040,7 +1058,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	require.NoError(t, err)
 
 	// Select Dark theme
-	err = page.Click("button[data-theme='dark']")
+	err = page.Locator("button[data-theme='dark']").First().Click()
 	require.NoError(t, err)
 
 	hasDark, err = page.Evaluate("() => document.documentElement.classList.contains('dark')")
@@ -1054,7 +1072,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	// Select Ocean theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button[data-theme='ocean']")
+	err = page.Locator("button[data-theme='ocean']").First().Click()
 	require.NoError(t, err)
 
 	hasThemeOcean, err := page.Evaluate("() => document.documentElement.classList.contains('theme-ocean')")
@@ -1064,7 +1082,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	// Select GitHub theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button[data-theme='github']")
+	err = page.Locator("button[data-theme='github']").First().Click()
 	require.NoError(t, err)
 
 	hasThemeGithub, err := page.Evaluate("() => document.documentElement.classList.contains('theme-github')")
@@ -1078,7 +1096,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	// Select GitHub Light theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button[data-theme='github-light']")
+	err = page.Locator("button[data-theme='github-light']").First().Click()
 	require.NoError(t, err)
 
 	hasThemeGithubLight, err := page.Evaluate("() => document.documentElement.classList.contains('theme-github-light')")
@@ -1092,7 +1110,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 	// Select Light theme
 	err = themeBtn.Click()
 	require.NoError(t, err)
-	err = page.Click("button[data-theme='light']")
+	err = page.Locator("button[data-theme='light']").First().Click()
 	require.NoError(t, err)
 
 	hasThemeLight, err := page.Evaluate("() => document.documentElement.classList.contains('theme-light')")
@@ -1101,6 +1119,7 @@ func TestE2E_ThemeSelector(t *testing.T) {
 }
 
 func TestE2E_SidebarNavigation(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -1133,7 +1152,7 @@ func TestE2E_SidebarNavigation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Click DynamoDB in sidebar using its ID
-	err = page.Click("#nav-dynamodb")
+	err = page.Locator("#nav-dynamodb").First().Click()
 	require.NoError(t, err)
 
 	// Should navigate to DynamoDB page
@@ -1144,7 +1163,7 @@ func TestE2E_SidebarNavigation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Navigate to S3 via sidebar using its ID
-	err = page.Click("#nav-s3")
+	err = page.Locator("#nav-s3").First().Click()
 	require.NoError(t, err)
 
 	err = page.Locator("text=Create Bucket").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -1152,4 +1171,36 @@ func TestE2E_SidebarNavigation(t *testing.T) {
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
+}
+
+// pageContentContaining polls the rendered DOM until it contains every want
+// string (the SPA renders after load) and returns the final content.
+func pageContentContaining(t *testing.T, page playwright.Page, want ...string) string {
+	t.Helper()
+
+	var content string
+	deadline := time.Now().Add(30 * time.Second)
+
+	for {
+		c, err := page.Content()
+		require.NoError(t, err)
+
+		content = c
+
+		missing := false
+
+		for _, w := range want {
+			if !strings.Contains(content, w) {
+				missing = true
+
+				break
+			}
+		}
+
+		if !missing || time.Now().After(deadline) {
+			return content
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
 }

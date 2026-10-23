@@ -13,6 +13,7 @@ import (
 
 // TestStepFunctionsDashboard verifies the Step Functions dashboard UI renders state machines.
 func TestStepFunctionsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.StepFunctionsHandler.Backend.CreateStateMachine(
@@ -49,13 +50,13 @@ func TestStepFunctionsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-state-machine")
 	assert.Contains(t, content, "test-state-machine")
 }
 
 // TestStepFunctionsDashboard_Empty verifies the empty state renders correctly.
 func TestStepFunctionsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -83,7 +84,6 @@ func TestStepFunctionsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Step Functions")
 	assert.Contains(t, content, "Step Functions")
 }

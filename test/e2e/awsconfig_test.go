@@ -13,6 +13,7 @@ import (
 
 // TestAWSConfigDashboard verifies the AWS Config dashboard UI renders configuration recorders.
 func TestAWSConfigDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.AWSConfigHandler.Backend.PutConfigurationRecorder(
@@ -55,13 +56,13 @@ func TestAWSConfigDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "default")
 	assert.Contains(t, content, "default")
 }
 
 // TestAWSConfigDashboard_Empty verifies the empty state renders correctly.
 func TestAWSConfigDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -92,8 +93,7 @@ func TestAWSConfigDashboard_Empty(t *testing.T) {
 	err = page.Locator("button:has-text('Recorder')").Click()
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "AWS Config", "Configuration Recorder")
 	assert.Contains(t, content, "AWS Config")
 	assert.Contains(t, content, "Configuration Recorder")
 }

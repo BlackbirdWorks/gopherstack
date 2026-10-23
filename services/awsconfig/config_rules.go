@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // PutConfigRule creates or updates a config rule with full metadata.
@@ -40,9 +42,11 @@ func (b *InMemoryBackend) putConfigRuleLocked(input *ConfigRule) {
 		input.ConfigRuleID = existing.ConfigRuleID
 	} else {
 		b.ruleCounter++
-		input.ConfigRuleArn = fmt.Sprintf(
-			"arn:aws:config:%s:%s:config-rule/config-rule-%08d",
-			b.region, b.accountID, b.ruleCounter,
+		input.ConfigRuleArn = arn.Build(
+			"config",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("config-rule/config-rule-%08d", b.ruleCounter),
 		)
 		input.ConfigRuleID = fmt.Sprintf("config-rule-%08d", b.ruleCounter)
 		b.ruleActivity[input.ConfigRuleName] = &ruleActivity{activated: float64(b.now().Unix())}

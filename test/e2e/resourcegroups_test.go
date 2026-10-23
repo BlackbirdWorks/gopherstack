@@ -13,6 +13,7 @@ import (
 
 // TestResourceGroupsDashboard verifies the Resource Groups dashboard UI renders groups.
 func TestResourceGroupsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ResourceGroupsHandler.Backend.CreateGroup(
@@ -50,13 +51,13 @@ func TestResourceGroupsDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-group")
 	assert.Contains(t, content, "test-group")
 }
 
 // TestResourceGroupsDashboard_Empty verifies the empty state renders correctly.
 func TestResourceGroupsDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -84,7 +85,6 @@ func TestResourceGroupsDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Resource Groups")
 	assert.Contains(t, content, "Resource Groups")
 }

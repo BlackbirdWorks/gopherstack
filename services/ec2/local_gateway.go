@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ---- errors ----
@@ -228,7 +230,7 @@ func (b *InMemoryBackend) SeedLocalGatewayVirtualInterfaceGroup(
 // ---- Local Gateway Virtual Interface Groups (Create/Delete API) ----
 
 func localGatewayVifGroupArn(b *InMemoryBackend, id string) string {
-	return "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":local-gateway-virtual-interface-group/" + id
+	return arn.Build("ec2", b.Region, b.AccountID, "local-gateway-virtual-interface-group/"+id)
 }
 
 // CreateLocalGatewayVirtualInterfaceGroup creates a virtual interface group on a real
@@ -304,7 +306,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterfaceGroup(
 // ---- Local Gateway Virtual Interfaces (Create/Delete API) ----
 
 func localGatewayVifArn(b *InMemoryBackend, id string) string {
-	return "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":local-gateway-virtual-interface/" + id
+	return arn.Build("ec2", b.Region, b.AccountID, "local-gateway-virtual-interface/"+id)
 }
 
 // LocalGatewayVirtualInterfaceParams holds the parameters accepted by
@@ -500,7 +502,7 @@ func (b *InMemoryBackend) DescribeLocalGatewayVirtualInterfaceGroups(
 // ---- Local Gateway Route Tables ----
 
 func localGatewayRouteTableArn(b *InMemoryBackend, id string) string {
-	return "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":local-gateway-route-table/" + id
+	return arn.Build("ec2", b.Region, b.AccountID, "local-gateway-route-table/"+id)
 }
 
 // CreateLocalGatewayRouteTable creates a new local gateway route table.

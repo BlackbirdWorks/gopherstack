@@ -10,8 +10,11 @@ import (
 	"sync"
 	"time"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -500,13 +503,21 @@ func attemptDelivery(
 		dt.obs.retried()
 	}
 
+	spanCtx, span := apptrace.StartChild(ctx, targetSpanInfo(target.Arn))
+
 	var delivErr bool
 	if timeout <= 0 {
-		delivErr = deliverToTarget(ctx, target, envelope, dt)
+		delivErr = deliverToTarget(spanCtx, target, envelope, dt)
 	} else {
-		tCtx, cancel := context.WithTimeout(ctx, timeout)
+		tCtx, cancel := context.WithTimeout(spanCtx, timeout)
 		delivErr = deliverToTarget(tCtx, target, envelope, dt)
 		cancel()
+	}
+
+	if delivErr {
+		span.Finish(errCodeTargetDelivery)
+	} else {
+		span.Finish("")
 	}
 
 	if attempt == 0 {
@@ -521,6 +532,52 @@ func attemptDelivery(
 	dt.obs.latency("IngestionToInvocationSuccessLatency", extractEventAge(envelope))
 
 	return true
+}
+
+const errCodeTargetDelivery = "DeliveryFailed"
+
+const (
+	opPutEvents       = "PutEvents"
+	opPutRecord       = "PutRecord"
+	arnFieldsWithAcct = 5
+)
+
+// targetSpanOp names the downstream API call for an ARN service segment.
+func targetSpanOp(service string) string {
+	switch service {
+	case "lambda", "execute-api":
+		return "Invoke"
+	case "sqs":
+		return "SendMessage"
+	case "sns":
+		return "Publish"
+	case "kinesis", "firehose":
+		return opPutRecord
+	case "states":
+		return "StartExecution"
+	case "events":
+		return opPutEvents
+	case "logs":
+		return "PutLogEvents"
+	case "ecs":
+		return "RunTask"
+	}
+
+	return "Deliver"
+}
+
+// targetSpanInfo names the downstream call a target ARN resolves to.
+func targetSpanInfo(targetARN string) apptrace.ChildInfo {
+	parts := strings.SplitN(targetARN, ":", arnFieldsWithAcct)
+	if len(parts) < arnFieldsWithAcct {
+		return apptrace.ChildInfo{Service: "events", Operation: "Deliver", Resource: targetARN}
+	}
+
+	acct, _, _ := strings.Cut(parts[4], ":")
+
+	return apptrace.ChildInfo{
+		Service: parts[2], Operation: targetSpanOp(parts[2]), Resource: targetARN, Region: parts[3], Account: acct,
+	}
 }
 
 // waitRetryBackoff pauses before the next attempt; EventBridge retries with exponential backoff.
@@ -963,17 +1020,17 @@ func buildDeliveryEnvelopeWithDetail(entry EventEntry, accountID, region string,
 
 // isLambdaARN returns true if the ARN identifies a Lambda function.
 func isLambdaARN(arn string) bool {
-	return strings.Contains(arn, ":lambda:") || strings.HasPrefix(arn, "arn:aws:lambda:")
+	return strings.Contains(arn, ":lambda:") || arnpkg.HasService(arn, "lambda")
 }
 
 // isSQSARN returns true if the ARN identifies an SQS queue.
 func isSQSARN(arn string) bool {
-	return strings.Contains(arn, ":sqs:") || strings.HasPrefix(arn, "arn:aws:sqs:")
+	return strings.Contains(arn, ":sqs:") || arnpkg.HasService(arn, "sqs")
 }
 
 // isSNSARN returns true if the ARN identifies an SNS topic.
 func isSNSARN(arn string) bool {
-	return strings.Contains(arn, ":sns:") || strings.HasPrefix(arn, "arn:aws:sns:")
+	return strings.Contains(arn, ":sns:") || arnpkg.HasService(arn, "sns")
 }
 
 // isKinesisFirehoseARN returns true if the ARN identifies a Kinesis Data Firehose delivery stream.
@@ -1015,16 +1072,16 @@ func deliverToStepFunctions(
 }
 
 func isCloudWatchLogsARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:logs:")
+	return arnpkg.HasService(arn, "logs")
 }
 
 func isAPIDestinationARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:events:") && strings.Contains(arn, ":api-destination/")
+	return arnpkg.HasService(arn, "events") && strings.Contains(arn, ":api-destination/")
 }
 
 // isEventBusARN returns true if the ARN identifies an EventBridge event bus.
 func isEventBusARN(arn string) bool {
-	return strings.HasPrefix(arn, "arn:aws:events:") && strings.Contains(arn, ":event-bus/")
+	return arnpkg.HasService(arn, "events") && strings.Contains(arn, ":event-bus/")
 }
 
 func deliverToEventBus(ctx context.Context, router EventBusRouter, arn string, envelope map[string]any) bool {

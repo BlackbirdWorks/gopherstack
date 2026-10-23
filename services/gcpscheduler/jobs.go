@@ -459,6 +459,10 @@ func (b *InMemoryBackend) ResumeJob(name string) (*schedulerpb.Job, error) {
 		return nil, errJobMissing()
 	}
 
+	if r.pb.GetState() == schedulerpb.Job_ENABLED {
+		return cloneJob(r.pb), nil
+	}
+
 	if r.pb.GetState() != schedulerpb.Job_PAUSED {
 		return nil, errPrecondition("Job must be PAUSED to be resumed; it is %s.", r.pb.GetState())
 	}

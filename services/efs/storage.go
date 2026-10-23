@@ -212,3 +212,24 @@ func (b *InMemoryBackend) CheckMountTarget(accessPointARN string, subnetIDs []st
 
 	return fmt.Errorf("%w: file system %s", ErrNoMountTarget, ap.FileSystemID)
 }
+
+// FileSystemHostDir returns the host directory backing a file system's data, creating it when missing.
+func (b *InMemoryBackend) FileSystemHostDir(region, fsID string) (string, error) {
+	b.mu.Lock("FileSystemHostDir")
+	defer b.mu.Unlock()
+
+	if _, ok := b.fileSystems.Get(regionKey(region, fsID)); !ok {
+		return "", fmt.Errorf("%w: file system %s", ErrNotFound, fsID)
+	}
+
+	dir, err := b.fileSystemDirLocked(region, fsID)
+	if err != nil {
+		return "", err
+	}
+
+	if mkErr := os.MkdirAll(dir, storageDirPerm); mkErr != nil {
+		return "", fmt.Errorf("create file system dir: %w", mkErr)
+	}
+
+	return dir, nil
+}

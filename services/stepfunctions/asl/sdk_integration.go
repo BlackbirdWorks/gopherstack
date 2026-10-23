@@ -55,6 +55,8 @@ func optimizedSDKService(name string) (string, bool) {
 		return sdkServiceStates, true
 	case "bedrock":
 		return "bedrockruntime", true
+	case "eks":
+		return "eks", true
 	default:
 		return "", false
 	}

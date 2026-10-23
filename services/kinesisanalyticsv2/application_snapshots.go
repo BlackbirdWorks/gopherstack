@@ -2,7 +2,6 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"slices"
 	"sort"
 	"time"
 )
@@ -40,6 +39,10 @@ func (b *InMemoryBackend) CreateApplicationSnapshot(
 		ApplicationVersion: app.ApplicationVersionID,
 		SnapshotCreation:   time.Now().UTC(),
 	}
+	if lj, managed := b.flinkManagedLocked(applicationKey(region, appName)); managed && lj.jobID != "" {
+		b.startFlinkSnapshotLocked(lj, snap)
+	}
+
 	b.snapshots.Put(snap)
 
 	return snap, nil
@@ -64,7 +67,9 @@ func (b *InMemoryBackend) DescribeApplicationSnapshot(
 		return nil, ErrNotFound
 	}
 
-	return s, nil
+	cp := *s
+
+	return &cp, nil
 }
 
 // ListApplicationSnapshots returns snapshots for an application with optional pagination, sorted by creation time.
@@ -82,7 +87,13 @@ func (b *InMemoryBackend) ListApplicationSnapshots(
 		return nil, "", ErrNotFound
 	}
 
-	out := slices.Clone(b.snapshotsByApp.Get(appParentKey(region, appName)))
+	live := b.snapshotsByApp.Get(appParentKey(region, appName))
+	out := make([]*Snapshot, len(live))
+
+	for i, s := range live {
+		cp := *s
+		out[i] = &cp
+	}
 
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].SnapshotCreation.Equal(out[j].SnapshotCreation) {
@@ -108,9 +119,18 @@ func (b *InMemoryBackend) DeleteApplicationSnapshot(ctx context.Context, appName
 		return ErrNotFound
 	}
 
-	if !b.snapshots.Delete(snapshotKey(region, appName, snapshotName)) {
+	key := snapshotKey(region, appName, snapshotName)
+
+	s, ok := b.snapshots.Get(key)
+	if !ok {
 		return ErrNotFound
 	}
+
+	if b.flink != nil {
+		b.removeSavepointLocked(applicationKey(region, appName), s)
+	}
+
+	b.snapshots.Delete(key)
 
 	return nil
 }

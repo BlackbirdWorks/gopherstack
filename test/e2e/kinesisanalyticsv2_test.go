@@ -16,6 +16,7 @@ import (
 
 // TestKinesisAnalyticsV2Dashboard verifies the Kinesis Data Analytics v2 dashboard renders with application list.
 func TestKinesisAnalyticsV2Dashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed an application via the backend.
@@ -50,14 +51,14 @@ func TestKinesisAnalyticsV2Dashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Kinesis Data Streams", "my-test-stream")
 	assert.Contains(t, content, "Kinesis Data Streams")
 	assert.Contains(t, content, "my-test-stream")
 }
 
 // TestKinesisAnalyticsV2Dashboard_CreateApplication verifies creating an application via the dashboard form.
 func TestKinesisAnalyticsV2Dashboard_CreateApplication(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -109,7 +110,6 @@ func TestKinesisAnalyticsV2Dashboard_CreateApplication(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-analytics-stream")
 	assert.Contains(t, content, "e2e-analytics-stream")
 }

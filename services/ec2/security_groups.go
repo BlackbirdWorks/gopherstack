@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // AuthorizeSecurityGroupIngress adds ingress rules to a security group.
@@ -749,7 +751,7 @@ func (b *InMemoryBackend) CreateSecurityGroupWithID(
 		Name:        name,
 		Description: description,
 		VPCID:       vpcID,
-		ARN:         "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":security-group/" + id,
+		ARN:         arn.Build("ec2", b.Region, b.AccountID, "security-group/"+id),
 		// Real AWS creates new security groups with a default allow-all egress rule.
 		EgressRules: []SecurityGroupRule{
 			{ID: newSecurityGroupRuleID(), Protocol: "-1", IPRange: cidrAllIPv4},

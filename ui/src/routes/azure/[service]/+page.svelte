@@ -3,7 +3,10 @@
 	import { page } from '$app/state';
 	import { azureServiceById } from '#lib/cloud.ts';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
-	import CosmosDashboard from '#lib/components/azure/CosmosDashboard.svelte';
+	import EventHubsDashboard from '#lib/components/azure/EventHubsDashboard.svelte';
+	import EventGridDashboard from '#lib/components/azure/EventGridDashboard.svelte';
+	import AppConfigDashboard from '#lib/components/azure/AppConfigDashboard.svelte';
+	import CosmosHub from '#lib/components/azure/CosmosHub.svelte';
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
 	import KeyVaultDashboard from '#lib/components/azure/KeyVaultDashboard.svelte';
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
@@ -32,9 +35,15 @@
 {:else if service?.id === 'keyvault'}
 	<KeyVaultDashboard />
 {:else if service?.id === 'cosmosdb'}
-	<CosmosDashboard />
+	<CosmosHub />
 {:else if service?.id === 'table'}
 	<TableDashboard />
+{:else if service?.id === 'eventhubs'}
+	<EventHubsDashboard />
+{:else if service?.id === 'eventgrid'}
+	<EventGridDashboard />
+{:else if service?.id === 'appconfig'}
+	<AppConfigDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

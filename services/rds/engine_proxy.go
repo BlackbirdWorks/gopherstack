@@ -313,6 +313,10 @@ func (p *pgProxy) forwardCancel(m *pgproto3.CancelRequest) {
 func (p *pgProxy) serve(raw net.Conn) {
 	defer func() { _ = raw.Close() }()
 
+	if !p.be.admitClient(p.lb, raw.RemoteAddr()) {
+		return
+	}
+
 	release, ok := p.be.beginConn(p.lb)
 	if !ok {
 		return

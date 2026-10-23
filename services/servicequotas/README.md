@@ -18,11 +18,11 @@
 
 - Catalog: only the 11 services above are catalogued; ListServices omits the rest of AWS and codes outside the catalog return NoSuchResourceException. Codes and defaults come from public AWS documentation and are not verified against the live API.
 - ContextId/QuotaContext: resource-level quotas are not modeled; ContextId is rejected with IllegalArgumentException
-- QuotaUtilization: usage comes from an optional UsageSource that is not wired in production, so Utilization is 0 for every quota
-- AutoManagement: configuration is stored but no automatic quota adjustment or notification is performed
-- AppliedQuotaEnforcement: emulated services do not read the applied quota values when enforcing their own limits
+- QuotaUtilization: only S3 buckets, EC2 Elastic IPs, VPCs, IAM roles/users/groups and DynamoDB tables report usage; the other catalogued quotas have no live counter
+- AutoManagement: NotifyAndAdjust only notifies (80% and 95% thresholds to the SNS topic); no automatic quota increase is filed
+- AppliedQuotaEnforcement: opt-in (--enforce-service-quotas) for S3 buckets, EC2 Elastic IPs and VPCs, IAM roles/users/groups and DynamoDB tables only; other quotas are never enforced and SQS/SNS/Lambda are not catalogued
 - Template: associating the template does not file increase requests for accounts that join the organization later
-- RequestStatus: requests always reach APPROVED; DENIED, NOT_APPROVED, CASE_CLOSED and INVALID_REQUEST are never entered
+- RequestStatus: DENIED is entered only for desired values above the catalogued hard max (IAM roles, groups, customer managed policies, instance profiles; from public docs, unverified); NOT_APPROVED, CASE_CLOSED and INVALID_REQUEST are never entered
 - Errors: AccessDenied for non-template operations, DependencyAccessDenied, TagPolicyViolation, TemplatesNotAvailableInRegion, TooManyRequests and ServiceException are not raised
 
 ### Structural gaps

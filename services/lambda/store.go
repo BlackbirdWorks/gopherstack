@@ -103,6 +103,7 @@ type InMemoryBackend struct {
 	endpointURL        string
 	metrics            cwmetric.Sink
 	docker             container.Runtime
+	ociRuntime         string
 	dnsRegistrar       DNSRegistrar
 	ctx                context.Context
 	logSem             chan struct{}
@@ -342,11 +343,7 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 
 	for _, srv := range urlServers {
 		wg.Go(func() {
-			_ = srv.server.Shutdown(ctx)
-
-			if b.portAlloc != nil {
-				_ = b.portAlloc.Release(srv.port)
-			}
+			b.stopURLListener(ctx, srv)
 		})
 	}
 

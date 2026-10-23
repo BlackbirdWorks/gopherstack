@@ -15,6 +15,7 @@ import (
 
 // TestEventBridgeDashboard verifies the EventBridge dashboard UI renders event buses.
 func TestEventBridgeDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EventBridgeHandler.Backend.CreateEventBus(t.Context(), ebbackend.CreateEventBusParams{
@@ -48,13 +49,13 @@ func TestEventBridgeDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-bus")
 	assert.Contains(t, content, "test-bus")
 }
 
 // TestEventBridgeDashboard_Rules verifies the EventBridge rules page.
 func TestEventBridgeDashboard_Rules(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EventBridgeHandler.Backend.CreateEventBus(t.Context(), ebbackend.CreateEventBusParams{
@@ -103,8 +104,7 @@ func TestEventBridgeDashboard_Rules(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-rule", "rules-bus")
 	assert.Contains(t, content, "test-rule")
 	assert.Contains(t, content, "rules-bus")
 }

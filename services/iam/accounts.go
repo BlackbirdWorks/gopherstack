@@ -181,13 +181,6 @@ func (b *InMemoryBackend) resetShards() {
 	}
 }
 
-// knownAccount reports whether acct is the default account or holds IAM state.
-func (b *InMemoryBackend) knownAccount(acct string) bool {
-	_, ok := b.existingShard(acct)
-
-	return ok
-}
-
 // forRequest returns the handler serving the account named on ctx.
 func (h *Handler) forRequest(ctx context.Context) *Handler {
 	root, ok := h.Backend.(*InMemoryBackend)

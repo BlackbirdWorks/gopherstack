@@ -9,6 +9,11 @@
 	import CloudTasksDashboard from '#lib/components/gcp/CloudTasksDashboard.svelte';
 	import IamDashboard from '#lib/components/gcp/IamDashboard.svelte';
 	import SchedulerDashboard from '#lib/components/gcp/SchedulerDashboard.svelte';
+	import RunDashboard from '#lib/components/gcp/RunDashboard.svelte';
+	import FunctionsDashboard from '#lib/components/gcp/FunctionsDashboard.svelte';
+	import BigQueryDashboard from '#lib/components/gcp/BigQueryDashboard.svelte';
+	import SqlDashboard from '#lib/components/gcp/SqlDashboard.svelte';
+	import LoggingDashboard from '#lib/components/gcp/LoggingDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -34,10 +39,20 @@
 	<CloudTasksDashboard />
 {:else if service?.id === 'scheduler'}
 	<SchedulerDashboard />
+{:else if service?.id === 'run'}
+	<RunDashboard />
+{:else if service?.id === 'functions'}
+	<FunctionsDashboard />
 {:else if service?.id === 'iam'}
 	<IamDashboard />
+{:else if service?.id === 'bigquery'}
+	<BigQueryDashboard />
 {:else if service?.id === 'firestore'}
 	<FirestoreDashboard />
+{:else if service?.id === 'sql'}
+	<SqlDashboard />
+{:else if service?.id === 'logging'}
+	<LoggingDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

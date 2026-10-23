@@ -258,13 +258,13 @@ func (c IAMAuthConfig) sessionPrincipal(s *sts.SessionInfo) *iamPrincipal {
 	return p
 }
 
-func (p *iamPrincipal) allows(clusterArn, region, sourceIP string) bool {
+func (p *iamPrincipal) allows(action, resource, region, sourceIP string) bool {
 	cc := iam.ConditionContext{
 		PrincipalARN: p.arn, PrincipalAccount: p.account, RequestedRegion: region,
 		SourceIP: sourceIP, SecureTransport: "true",
 	}
 
-	if iam.EvaluatePolicies(p.policies, iamAuthAction, clusterArn, cc) != iam.EvalAllow {
+	if iam.EvaluatePolicies(p.policies, action, resource, cc) != iam.EvalAllow {
 		return false
 	}
 
@@ -272,11 +272,14 @@ func (p *iamPrincipal) allows(clusterArn, region, sourceIP string) bool {
 		return true
 	}
 
-	return iam.EvaluatePolicies([]string{p.boundary}, iamAuthAction, clusterArn, cc) == iam.EvalAllow
+	return iam.EvaluatePolicies([]string{p.boundary}, action, resource, cc) == iam.EvalAllow
 }
 
 // authenticateIAM validates an AWS_MSK_IAM payload presented to clusterArn's IAM listener.
-func (b *InMemoryBackend) authenticateIAM(clusterArn string, raw []byte, sourceIP string, now time.Time) error {
+// The returned authorizer gates later requests on the connection; nil means IAM is not enforced.
+func (b *InMemoryBackend) authenticateIAM(
+	clusterArn string, raw []byte, sourceIP string, now time.Time,
+) (iamAuthorizer, error) {
 	b.mu.RLock("authenticateIAM")
 	resolve := b.iamAuth
 	b.mu.RUnlock()
@@ -289,32 +292,39 @@ func (b *InMemoryBackend) authenticateIAM(clusterArn string, raw []byte, sourceI
 	return authenticateIAMPayload(cfg, clusterArn, raw, sourceIP, now)
 }
 
-func authenticateIAMPayload(cfg IAMAuthConfig, clusterArn string, raw []byte, sourceIP string, now time.Time) error {
+func authenticateIAMPayload(
+	cfg IAMAuthConfig, clusterArn string, raw []byte, sourceIP string, now time.Time,
+) (iamAuthorizer, error) {
 	p, err := parseIAMPayload(raw)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if p.region != regionFromARN(clusterArn, p.region) {
-		return errIAMRegion
+		return nil, errIAMRegion
 	}
 
 	if err = p.checkTime(now); err != nil {
-		return err
+		return nil, err
 	}
 
 	pr, err := cfg.principalFor(p)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err = p.verifySignature(pr.secret); err != nil {
-		return err
+		return nil, err
 	}
 
-	if cfg.Enforce && !pr.allows(clusterArn, p.region, sourceIP) {
-		return errIAMDenied
+	if !cfg.Enforce {
+		return nil, nil //nolint:nilnil // nil authorizer means every action is allowed
 	}
 
-	return nil
+	authz := func(action, resource string) bool { return pr.allows(action, resource, p.region, sourceIP) }
+	if !authz(iamAuthAction, clusterArn) {
+		return nil, errIAMDenied
+	}
+
+	return authz, nil
 }

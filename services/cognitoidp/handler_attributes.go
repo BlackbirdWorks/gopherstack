@@ -99,7 +99,8 @@ func (h *Handler) deliverAttributeCodes(
 
 		if err = h.deliverCode(ctx, res.PoolID, &MessageRequest{
 			Username: res.Username, Code: d.Code, Kind: MessageVerification, Attribute: d.AttributeName,
-			Medium: d.DeliveryMedium, Destination: d.Raw, CustomMessage: message, CustomSubject: subject,
+			Flow: FlowUpdateAttribute, Medium: d.DeliveryMedium, Destination: d.Raw,
+			CustomMessage: message, CustomSubject: subject,
 		}, nil); err != nil {
 			return nil, err
 		}
@@ -171,7 +172,7 @@ func (h *Handler) handleGetUserAttributeVerificationCodeFull(
 
 	if err = h.deliverCode(ctx, poolID, &MessageRequest{
 		Username: username, Code: code, Kind: MessageVerification, Attribute: in.AttributeName,
-		CustomMessage: message, CustomSubject: subject,
+		Flow: FlowVerifyAttribute, CustomMessage: message, CustomSubject: subject,
 	}, nil); err != nil {
 		return nil, err
 	}

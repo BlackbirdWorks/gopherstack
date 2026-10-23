@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -165,6 +166,14 @@ func (h *S3Handler) putBucketPolicy(
 	// checks against.
 	if shapeErr := validateBucketPolicyDocument(body); shapeErr != nil {
 		httputils.WriteS3ErrorResponse(ctx, w, r, *shapeErr, http.StatusBadRequest)
+
+		return
+	}
+
+	if bad := foreignPolicyARN(r, body); bad != "" {
+		httputils.WriteS3ErrorResponse(ctx, w, r,
+			ErrorResponse{Code: errMalformedPolicy, Message: "Policy has invalid resource: " + bad},
+			http.StatusBadRequest)
 
 		return
 	}
@@ -580,4 +589,17 @@ func (h *S3Handler) handlePutBucketAbac(
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// foreignPolicyARN returns the first ARN in a bucket policy that is outside the request's partition, or "" when
+// strict partition checking is disabled or none is found.
+func foreignPolicyARN(r *http.Request, body []byte) string {
+	if !arn.PartitionStrict() {
+		return ""
+	}
+
+	partition := arn.PartitionForRegion(regionFromRequest(r, ""))
+	bad, _ := arn.FindMismatch(string(body), partition, false)
+
+	return bad
 }

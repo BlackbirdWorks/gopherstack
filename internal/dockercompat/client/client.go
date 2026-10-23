@@ -3,9 +3,11 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -57,8 +59,70 @@ func (c *Client) ImagePull(
 	refStr string,
 	options compatimage.PullOptions,
 ) (io.ReadCloser, error) {
-	return c.inner.ImagePull(ctx, refStr, mobyclient.ImagePullOptions{All: options.All})
+	return c.inner.ImagePull(ctx, refStr, mobyclient.ImagePullOptions{
+		All:          options.All,
+		RegistryAuth: options.RegistryAuth,
+	})
 }
+
+// ImageTag adds the target tag to the source image.
+func (c *Client) ImageTag(ctx context.Context, source, target string) error {
+	_, err := c.inner.ImageTag(ctx, mobyclient.ImageTagOptions{Source: source, Target: target})
+
+	return err
+}
+
+// ImagePush pushes ref to its registry and returns the pushed manifest digest when the daemon reports one.
+func (c *Client) ImagePush(ctx context.Context, ref string) (string, error) {
+	resp, err := c.inner.ImagePush(ctx, ref, mobyclient.ImagePushOptions{RegistryAuth: pushAnonymousAuth})
+	if err != nil {
+		return "", err
+	}
+
+	defer func() { _ = resp.Close() }()
+
+	digest := ""
+
+	for msg, mErr := range resp.JSONMessages(ctx) {
+		if mErr != nil {
+			return "", mErr
+		}
+
+		if msg.Error != nil {
+			return "", fmt.Errorf("%w: %s", errPushRejected, msg.Error.Message)
+		}
+
+		digest = pushDigest(msg.Aux, msg.Status, digest)
+	}
+
+	return digest, nil
+}
+
+var errPushRejected = errors.New("image push failed")
+
+// pushAnonymousAuth is the base64 of "{}": the X-Registry-Auth header for a registry without credentials.
+const pushAnonymousAuth = "e30="
+
+func pushDigest(aux *json.RawMessage, statusLine, prev string) string {
+	if aux != nil {
+		var a struct {
+			Digest string `json:"Digest"`
+		}
+
+		if json.Unmarshal(*aux, &a) == nil && a.Digest != "" {
+			return a.Digest
+		}
+	}
+
+	if m := pushStatusDigest.FindStringSubmatch(statusLine); m != nil {
+		return m[1]
+	}
+
+	return prev
+}
+
+// pushStatusDigest matches the closing status line of a push: "v1: digest: sha256:... size: 527".
+var pushStatusDigest = regexp.MustCompile(`digest: (sha256:[0-9a-f]{64})`)
 
 // ImageList lists local images.
 func (c *Client) ImageList(
@@ -263,6 +327,21 @@ func (c *Client) Ping(ctx context.Context) (any, error) {
 	return struct{}{}, nil
 }
 
+// Runtimes lists the OCI runtime names registered with the daemon.
+func (c *Client) Runtimes(ctx context.Context) ([]string, error) {
+	res, err := c.inner.Info(ctx, mobyclient.InfoOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(res.Info.Runtimes))
+	for name := range res.Info.Runtimes {
+		names = append(names, name)
+	}
+
+	return names, nil
+}
+
 // Close releases the underlying client.
 func (c *Client) Close() error {
 	return c.inner.Close()
@@ -276,25 +355,41 @@ func (c *Client) ContainerExec(
 	containerID string,
 	cmd []string,
 ) ([]byte, []byte, int, error) {
+	var stdout, stderr bytes.Buffer
+
+	code, err := c.ContainerExecStream(ctx, containerID, cmd, &stdout, &stderr)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	return stdout.Bytes(), stderr.Bytes(), code, nil
+}
+
+// ContainerExecStream runs cmd in a running container, writing demultiplexed output to the writers as it arrives.
+func (c *Client) ContainerExecStream(
+	ctx context.Context,
+	containerID string,
+	cmd []string,
+	stdout, stderr io.Writer,
+) (int, error) {
 	created, err := c.inner.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmd,
 	})
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("exec create: %w", err)
+		return 0, fmt.Errorf("exec create: %w", err)
 	}
 
 	attached, err := c.inner.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{})
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("exec attach: %w", err)
+		return 0, fmt.Errorf("exec attach: %w", err)
 	}
 
 	defer attached.Close()
 
-	var stdout, stderr bytes.Buffer
-	if _, err = stdcopy.StdCopy(&stdout, &stderr, attached.Reader); err != nil {
-		return nil, nil, 0, fmt.Errorf("exec read: %w", err)
+	if _, err = stdcopy.StdCopy(stdout, stderr, attached.Reader); err != nil {
+		return 0, fmt.Errorf("exec read: %w", err)
 	}
 
 	ticker := time.NewTicker(execPollInterval)
@@ -303,19 +398,48 @@ func (c *Client) ContainerExec(
 	for {
 		info, ierr := c.inner.ExecInspect(ctx, created.ID, mobyclient.ExecInspectOptions{})
 		if ierr != nil {
-			return nil, nil, 0, fmt.Errorf("exec inspect: %w", ierr)
+			return 0, fmt.Errorf("exec inspect: %w", ierr)
 		}
 
 		if !info.Running {
-			return stdout.Bytes(), stderr.Bytes(), info.ExitCode, nil
+			return info.ExitCode, nil
 		}
 
 		select {
 		case <-ctx.Done():
-			return nil, nil, 0, fmt.Errorf("exec wait: %w", ctx.Err())
+			return 0, fmt.Errorf("exec wait: %w", ctx.Err())
 		case <-ticker.C:
 		}
 	}
+}
+
+// NetworkCreate creates a bridge network and returns its ID.
+func (c *Client) NetworkCreate(ctx context.Context, name string) (string, error) {
+	res, err := c.inner.NetworkCreate(ctx, name, mobyclient.NetworkCreateOptions{Driver: "bridge"})
+	if err != nil {
+		return "", fmt.Errorf("network create: %w", err)
+	}
+
+	return res.ID, nil
+}
+
+// NetworkConnect attaches a container to a network.
+func (c *Client) NetworkConnect(ctx context.Context, networkID, containerID string) error {
+	_, err := c.inner.NetworkConnect(ctx, networkID, mobyclient.NetworkConnectOptions{Container: containerID})
+	if err != nil {
+		return fmt.Errorf("network connect: %w", err)
+	}
+
+	return nil
+}
+
+// NetworkRemove deletes a network.
+func (c *Client) NetworkRemove(ctx context.Context, networkID string) error {
+	if _, err := c.inner.NetworkRemove(ctx, networkID, mobyclient.NetworkRemoveOptions{}); err != nil {
+		return fmt.Errorf("network remove: %w", err)
+	}
+
+	return nil
 }
 
 // ErrNoContainerIP is returned when a container has no network address.

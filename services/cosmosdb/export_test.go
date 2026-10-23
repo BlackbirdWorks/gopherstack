@@ -1,6 +1,7 @@
 package cosmosdb
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -107,3 +108,15 @@ func DocumentCount(b *InMemoryBackend, dbID, containerID string) int {
 
 	return len(c.Documents)
 }
+
+// SetScriptTimeout overrides the stored procedure / trigger / UDF time limit.
+func SetScriptTimeout(b *InMemoryBackend, d time.Duration) { b.scriptTimeout = d }
+
+// RangeIndex exposes rangeIndex for external tests.
+func RangeIndex(pkJSON string, n int) int { return rangeIndex(pkJSON, n) }
+
+// RangeBounds exposes the EPK bounds of range i of n.
+func RangeBounds(i, n int) (string, string) { return rangeBound(i, n), rangeBound(i+1, n) }
+
+// EPKHex exposes the hex hash of a canonical partition key.
+func EPKHex(pkJSON string) string { return fmt.Sprintf("%016X", epkHash(pkJSON)) }

@@ -17,6 +17,6 @@ func TestSDKCompleteness(t *testing.T) {
 		t,
 		&sdk.Client{},
 		h.GetSupportedOperations(),
-		[]string{"ListStackInstancesForProvisionedProduct"},
+		nil,
 	)
 }

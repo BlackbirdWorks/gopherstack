@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { ListOrdered, Plus, Trash2, Send, Eraser, Download, RefreshCw, X, Inbox, Copy } from 'lucide-svelte';
+	import { ListOrdered, Plus, Trash2, Send, Eraser, Download, RefreshCw, X, Inbox, Copy, Pencil } from 'lucide-svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Modal from '#lib/components/Modal.svelte';
 	import { confirmDestructive } from '#lib/confirm-dialog.ts';
@@ -16,14 +16,17 @@
 		deleteMessage,
 		deleteQueue,
 		fromBase64,
+		getQueueProperties,
 		listQueues,
 		peekMessages,
 		putMessage,
 		receiveMessages,
 		toBase64,
+		updateMessage,
 		validateQueueName,
 		validateSeconds,
 		type QueueInfo,
+		type QueueProperties,
 		type QueueMessage
 	} from '#lib/azurequeue.ts';
 
@@ -50,6 +53,14 @@
 	let sendTtl = $state('');
 	let sending = $state(false);
 
+	let props = $state<QueueProperties | null>(null);
+
+	let updateModal = $state<Modal | null>(null);
+	let updVisibility = $state('30');
+	let updText = $state('');
+	let updChangeText = $state(false);
+	let updating = $state(false);
+
 	let recvCount = $state('1');
 	let recvVisibility = $state(String(DEFAULT_RECEIVE_VISIBILITY));
 	let receiving = $state(false);
@@ -59,6 +70,7 @@
 	const ttlError = $derived(validateSeconds(sendTtl, 1, MAX_VISIBILITY_SECONDS, true));
 	const countError = $derived(validateSeconds(recvCount, 1, MAX_MESSAGES));
 	const recvVisError = $derived(validateSeconds(recvVisibility, 1, MAX_VISIBILITY_SECONDS));
+	const updVisError = $derived(validateSeconds(updVisibility, 0, MAX_VISIBILITY_SECONDS));
 	const sendBlocked = $derived(Boolean(visError || ttlError) || sending);
 	const decoded = $derived(selected ? fromBase64(selected.text) : null);
 
@@ -86,12 +98,19 @@
 		loadingMessages = true;
 		try {
 			peeked = await peekMessages(account, current);
-			if (selected && !peeked.some((m) => m.id === selected?.id) && !received.some((m) => m.id === selected?.id)) selected = null;
+			props = await getQueueProperties(account, current).catch(() => null);
+			refreshSelected();
 		} catch (e) {
 			toast.error(`Failed to peek messages: ${describe(e)}`);
 		} finally {
 			loadingMessages = false;
 		}
+	}
+
+	function refreshSelected() {
+		if (!selected) return;
+		const id = selected.id;
+		selected = received.find((m) => m.id === id) ?? peeked.find((m) => m.id === id) ?? null;
 	}
 
 	async function refresh() {
@@ -104,6 +123,7 @@
 		peeked = [];
 		received = [];
 		selected = null;
+		props = null;
 		if (name) void loadMessages();
 	}
 
@@ -177,13 +197,41 @@
 		receiving = true;
 		try {
 			const got = await receiveMessages(account, current, Number(recvCount || '1'), Number(recvVisibility || DEFAULT_RECEIVE_VISIBILITY));
-			received = [...got, ...received];
+			received = [...got, ...received.filter((r) => !got.some((g) => g.id === r.id))];
 			toast.success(got.length === 0 ? 'No visible messages to receive' : `Received ${got.length} message${got.length === 1 ? '' : 's'}`);
 			await loadMessages();
 		} catch (e) {
 			toast.error(`Failed to receive messages: ${describe(e)}`);
 		} finally {
 			receiving = false;
+		}
+	}
+
+	function openUpdate(m: QueueMessage) {
+		updVisibility = String(DEFAULT_RECEIVE_VISIBILITY);
+		updText = fromBase64(m.text) ?? m.text;
+		updChangeText = false;
+		updateModal?.open();
+	}
+
+	async function submitUpdate(event: Event) {
+		event.preventDefault();
+		const m = selected;
+		if (!current || !m || updVisError || updating) return;
+		updating = true;
+		try {
+			const text = updChangeText ? (fromBase64(m.text) === null ? updText : toBase64(updText)) : undefined;
+			const res = await updateMessage(account, current, m.id, m.popReceipt, Number(updVisibility || '0'), text);
+			const next: QueueMessage = { ...m, popReceipt: res.popReceipt, timeNextVisible: res.timeNextVisible, text: text ?? m.text };
+			received = [next, ...received.filter((r) => r.id !== m.id)];
+			toast.success(`Updated message ${m.id}`);
+			updateModal?.close('updated');
+			await loadMessages();
+			selected = next;
+		} catch (e) {
+			toast.error(`Failed to update message: ${describe(e)}`);
+		} finally {
+			updating = false;
 		}
 	}
 
@@ -298,7 +346,14 @@
 					</div>
 				{:else}
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h2 class="text-lg font-semibold text-gray-900 dark:text-white break-all" data-testid="queue-current">{current}</h2>
+						<div class="min-w-0">
+							<h2 class="text-lg font-semibold text-gray-900 dark:text-white break-all" data-testid="queue-current">{current}</h2>
+							{#if props}
+								<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="queue-properties">
+									Approximate messages: <span data-testid="queue-approx-count">{props.approximateMessages}</span>{#each Object.entries(props.metadata) as [k, v] (k)} · {k}={v}{/each}
+								</p>
+							{/if}
+						</div>
 						<div class="flex flex-wrap items-center gap-2">
 							<button class="flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700" onclick={openSend}>
 								<Send class="h-4 w-4" /> Send message
@@ -422,6 +477,7 @@
 							</dl>
 							{#if selected.popReceipt}
 								<div class="flex gap-2">
+									<button class="flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onclick={() => selected && openUpdate(selected)}><Pencil class="h-4 w-4" /> Update message</button>
 									<button class="flex items-center gap-2 rounded-md border border-red-200 dark:border-red-900 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950" onclick={() => selected && removeMessage(selected)}><Trash2 class="h-4 w-4" /> Delete message</button>
 								</div>
 							{/if}
@@ -429,7 +485,7 @@
 					{/if}
 
 					<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="queue-unsupported-note">
-						Queue metadata, approximate message count, access policies and updating a message in place are not modeled or exposed by this page. Message text is stored exactly as sent (SDKs normally base64-encode it).
+						Queue access policies are not modeled by this page. Message text is stored exactly as sent (SDKs normally base64-encode it).
 					</p>
 				{/if}
 			</section>
@@ -451,6 +507,33 @@
 		<button type="button" class="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onclick={() => queueModal?.close()}>Cancel</button>
 		<button type="submit" form="queue-create-form" class="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50" disabled={creating}>
 			{creating ? 'Creating…' : 'Create'}
+		</button>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={updateModal} title="Update message" titleId="queue-update-title">
+	{#snippet children()}
+		<form id="queue-update-form" class="space-y-3" onsubmit={submitUpdate} novalidate>
+			<label class="block space-y-1 text-sm">
+				<span class="font-medium text-gray-700 dark:text-gray-300">New visibility timeout (seconds)</span>
+				<input class={input} bind:value={updVisibility} inputmode="numeric" aria-label="Update visibility timeout" />
+				{#if updVisError}<span class="block text-xs text-red-600 dark:text-red-400">{updVisError}</span>{/if}
+			</label>
+			<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+				<input type="checkbox" bind:checked={updChangeText} aria-label="Change text" /> Replace the message text
+			</label>
+			{#if updChangeText}
+				<label class="block space-y-1 text-sm">
+					<span class="font-medium text-gray-700 dark:text-gray-300">Message text</span>
+					<textarea class={input} rows="4" bind:value={updText} aria-label="Update message text"></textarea>
+				</label>
+			{/if}
+		</form>
+	{/snippet}
+	{#snippet footer()}
+		<button type="button" class="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onclick={() => updateModal?.close()}>Cancel</button>
+		<button type="submit" form="queue-update-form" class="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50" disabled={Boolean(updVisError) || updating}>
+			{updating ? 'Updating…' : 'Update'}
 		</button>
 	{/snippet}
 </Modal>

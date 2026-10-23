@@ -24,11 +24,31 @@ const (
 
 // worldOpenPorts lists the TCP/UDP ports open to the world in groups, excluding SSH and ranges wider than the cap.
 func worldOpenPorts(groups []*SecurityGroup) []PortSpec {
+	return collectPorts(groups, ruleWorldPorts)
+}
+
+// declaredTCPPorts lists every TCP port any ingress rule names, whatever its source, for relays that decide
+// per connection; UDP cannot be relayed.
+func declaredTCPPorts(groups []*SecurityGroup) []PortSpec {
+	return collectPorts(groups, func(r SecurityGroupRule) []PortSpec {
+		var out []PortSpec
+
+		for _, s := range ruleSpecPorts(r) {
+			if s.Protocol == protoTCP {
+				out = append(out, s)
+			}
+		}
+
+		return out
+	})
+}
+
+func collectPorts(groups []*SecurityGroup, rulePorts func(SecurityGroupRule) []PortSpec) []PortSpec {
 	seen := make(map[PortSpec]struct{})
 
 	for _, sg := range groups {
 		for _, r := range sg.IngressRules {
-			for _, spec := range ruleWorldPorts(r) {
+			for _, spec := range rulePorts(r) {
 				seen[spec] = struct{}{}
 			}
 		}
@@ -59,6 +79,10 @@ func ruleWorldPorts(r SecurityGroupRule) []PortSpec {
 		return nil
 	}
 
+	return ruleSpecPorts(r)
+}
+
+func ruleSpecPorts(r SecurityGroupRule) []PortSpec {
 	proto := normalizePortProtocol(r.Protocol)
 	if proto == "" || r.FromPort < 1 || r.ToPort < r.FromPort || r.ToPort-r.FromPort >= maxPublishedPorts {
 		return nil
@@ -104,6 +128,10 @@ func (b *InMemoryBackend) ComputeNetworkContext(inst *Instance) (string, []PortS
 		if sg, ok := b.securityGroups.Get(id); ok {
 			groups = append(groups, sg)
 		}
+	}
+
+	if b.sgEnforcer != nil {
+		return cidr, declaredTCPPorts(groups)
 	}
 
 	return cidr, worldOpenPorts(groups)
@@ -169,6 +197,10 @@ func formatPublishedPorts(pp []PublishedPort) string {
 
 // PublishedPorts reports the host mappings of a running container's security-group ports.
 func (d *DockerCompute) PublishedPorts(ctx context.Context, providerID string) ([]PublishedPort, error) {
+	if f, ok := d.fronts.get(providerID); ok {
+		return append([]PublishedPort(nil), f.ports...), nil
+	}
+
 	res, err := d.api.ContainerInspect(ctx, providerID, mobyclient.ContainerInspectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("container inspect: %w", err)

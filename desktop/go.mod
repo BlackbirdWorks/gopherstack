@@ -8,14 +8,22 @@ require (
 )
 
 require (
+	cloud.google.com/go/artifactregistry v1.26.0 // indirect
+	cloud.google.com/go/cloudbuild v1.30.0 // indirect
 	cloud.google.com/go/cloudtasks v1.20.0 // indirect
 	cloud.google.com/go/firestore v1.26.0 // indirect
+	cloud.google.com/go/functions v1.26.0 // indirect
 	cloud.google.com/go/iam v1.11.0 // indirect
 	cloud.google.com/go/kms v1.35.0 // indirect
+	cloud.google.com/go/logging v1.18.0 // indirect
 	cloud.google.com/go/longrunning v1.2.0 // indirect
+	cloud.google.com/go/monitoring v1.29.0 // indirect
 	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
+	cloud.google.com/go/redis v1.26.0 // indirect
+	cloud.google.com/go/run v1.23.0 // indirect
 	cloud.google.com/go/scheduler v1.17.0 // indirect
 	cloud.google.com/go/secretmanager v1.22.0 // indirect
+	cloud.google.com/go/spanner v1.95.0 // indirect
 	connectrpc.com/connect v1.20.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect

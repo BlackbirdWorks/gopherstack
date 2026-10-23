@@ -13,6 +13,7 @@ import (
 
 // TestSWFDashboard verifies the SWF dashboard UI renders domains.
 func TestSWFDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.SWFHandler.Backend.RegisterDomain("test-domain", "an e2e test domain", "NONE")
@@ -43,13 +44,13 @@ func TestSWFDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-domain")
 	assert.Contains(t, content, "test-domain")
 }
 
 // TestSWFDashboard_Empty verifies the empty state renders correctly.
 func TestSWFDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -77,7 +78,6 @@ func TestSWFDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No domains found")
 	assert.Contains(t, content, "No domains found")
 }

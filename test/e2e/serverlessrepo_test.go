@@ -13,6 +13,7 @@ import (
 
 // TestServerlessRepoDashboard verifies the Serverless Application Repository dashboard UI renders application data.
 func TestServerlessRepoDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ServerlessRepoHandler.Backend.CreateApplication(
@@ -53,14 +54,14 @@ func TestServerlessRepoDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-app", "Publish App")
 	assert.Contains(t, content, "e2e-test-app")
 	assert.Contains(t, content, "Publish App")
 }
 
 // TestServerlessRepoDashboard_Empty verifies the dashboard renders correctly with no applications.
 func TestServerlessRepoDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -88,7 +89,6 @@ func TestServerlessRepoDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No serverless applications found")
 	assert.Contains(t, content, "No serverless applications found")
 }

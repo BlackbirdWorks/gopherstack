@@ -152,11 +152,17 @@ func (b *InMemoryBackend) CreateDBCluster(ctx context.Context, in ClusterInput) 
 	}
 
 	c := b.buildClusterLocked(sc, &in)
-	b.clusters.Put(c)
 
-	for n := 1; n <= clusterNodes; n++ {
-		b.instances.Put(b.buildMemberLocked(sc, c, n))
+	arn, err := b.authSecretLocked(sc, c.ID, authSecret{
+		Username: c.Username, Password: c.Password, Organization: c.Organization, Bucket: c.Bucket, Token: c.Token,
+	})
+	if err != nil {
+		return "", "", err
 	}
+
+	c.SecretARN = arn
+	b.clusters.Put(c)
+	b.putMembersLocked(sc, c, "")
 
 	return c.ID, b.state(c.Pending), nil
 }
@@ -187,6 +193,7 @@ func (b *InMemoryBackend) buildClusterLocked(sc scope, in *ClusterInput) *DBClus
 		ID: id, Name: in.Name, ARN: sc.arn("db-cluster/" + id), AccountID: sc.account, Region: sc.region,
 		Username: in.Username, Organization: in.Organization, Bucket: in.Bucket, Password: in.Password,
 		EngineType: engineV2, FailoverMode: in.FailoverMode, Tags: maps.Clone(in.Tags), CreatedAt: b.now(),
+		Token:     newToken(),
 		Config:    &ClusterConfig{DedicatedCompactor: &no, IngestQueryInstances: &one, QueryOnlyInstances: &two},
 		Placement: p, Pending: b.pend(statusCreating, false),
 	}
@@ -205,11 +212,55 @@ func (b *InMemoryBackend) buildMemberLocked(sc scope, c *DBCluster, n int) *DBIn
 	p.SubnetIDs, p.SecurityGroupIDs = slices.Clone(p.SubnetIDs), slices.Clone(p.SecurityGroupIDs)
 
 	return &DBInstance{
-		ID: id, Name: fmt.Sprintf("%s-%d", c.Name, n), ARN: sc.arn("db-instance/" + id), AccountID: sc.account,
-		Region: sc.region, ClusterID: c.ID, Mode: mode, Username: c.Username, Organization: c.Organization,
-		Bucket: c.Bucket, AZ: sc.region + string(rune('a'+(n-1)%clusterNodes)), EngineType: c.EngineType,
-		CreatedAt: b.now(), Placement: p, Pending: c.Pending,
+		ID:           id,
+		Name:         fmt.Sprintf("%s-%d", c.Name, n),
+		ARN:          sc.arn("db-instance/" + id),
+		AccountID:    sc.account,
+		Region:       sc.region,
+		ClusterID:    c.ID,
+		Mode:         mode,
+		Username:     c.Username,
+		Organization: c.Organization,
+		Password:     c.Password,
+		Token:        c.Token,
+		Bucket:       c.Bucket,
+		AZ:           sc.region + string(rune('a'+(n-1)%clusterNodes)),
+		EngineType:   c.EngineType,
+		CreatedAt:    b.now(),
+		Placement:    p,
+		Pending:      c.Pending,
 	}
+}
+
+// putMembersLocked stores the cluster's member instances and starts their servers; restoreFrom restores them.
+func (b *InMemoryBackend) putMembersLocked(sc scope, c *DBCluster, restoreFrom string) {
+	kind := statusCreating
+	if restoreFrom != "" {
+		kind = statusRestoring
+	}
+
+	for n := 1; n <= clusterNodes; n++ {
+		m := b.buildMemberLocked(sc, c, n)
+		m.RestoreFrom = restoreFrom
+		b.instances.Put(m)
+		b.startEngineLocked(m, kind)
+	}
+}
+
+// clusterStateLocked is the cluster status; a member that is not available holds the cluster back.
+func (b *InMemoryBackend) clusterStateLocked(c *DBCluster) string {
+	st := b.state(c.Pending)
+	if st != statusAvailable {
+		return st
+	}
+
+	for _, m := range b.membersLocked(c.ID) {
+		if ms := b.state(m.Pending); ms != statusAvailable {
+			return ms
+		}
+	}
+
+	return st
 }
 
 func (b *InMemoryBackend) clusterNameTakenLocked(sc scope, name string) bool {
@@ -307,32 +358,40 @@ type ClusterUpdate struct {
 	HasBackupConfigs bool
 }
 
-// UpdateDBCluster changes a cluster and moves it to an updating status.
-func (b *InMemoryBackend) UpdateDBCluster(ctx context.Context, id string, u ClusterUpdate) (string, error) {
+func validateClusterUpdate(u ClusterUpdate) error {
 	for _, err := range []error{
 		validateLogDelivery(u.LogDelivery), validateMaintenance(u.Maintenance), validateBackupConfigs(u.BackupConfigs),
 	} {
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
 
 	if u.Port != nil {
 		if err := validatePort(*u.Port); err != nil {
-			return "", err
+			return err
 		}
 	}
 
 	if u.DBInstanceType != "" {
 		if err := oneOf("dbInstanceType", u.DBInstanceType, instanceTypes()); err != nil {
-			return "", err
+			return err
 		}
 	}
 
 	if u.FailoverMode != "" {
 		if err := oneOf("failoverMode", u.FailoverMode, failoverMods()); err != nil {
-			return "", err
+			return err
 		}
+	}
+
+	return nil
+}
+
+// UpdateDBCluster changes a cluster and moves it to an updating status.
+func (b *InMemoryBackend) UpdateDBCluster(ctx context.Context, id string, u ClusterUpdate) (string, error) {
+	if err := validateClusterUpdate(u); err != nil {
+		return "", err
 	}
 
 	sc := b.scopeOf(ctx)
@@ -347,7 +406,7 @@ func (b *InMemoryBackend) UpdateDBCluster(ctx context.Context, id string, u Clus
 		return "", err
 	}
 
-	if st := b.state(c.Pending); st != statusAvailable {
+	if st := b.clusterStateLocked(c); st != statusAvailable {
 		return "", conflict("DB cluster %s is %s", id, st)
 	}
 
@@ -356,6 +415,7 @@ func (b *InMemoryBackend) UpdateDBCluster(ctx context.Context, id string, u Clus
 	}
 
 	kind := statusUpdating
+	groupChanged := u.ParameterGroupID != "" && u.ParameterGroupID != c.Placement.ParameterGroupID
 
 	if u.DBInstanceType != "" && u.DBInstanceType != c.Placement.DBInstanceType {
 		kind = statusUpdatingInstanceType
@@ -366,6 +426,10 @@ func (b *InMemoryBackend) UpdateDBCluster(ctx context.Context, id string, u Clus
 	b.applyClusterUpdate(c, u)
 	c.Pending = b.pend(kind, false)
 	b.setMembersLocked(id, c.Pending, nil)
+
+	if groupChanged {
+		b.recreateMembersLocked(id, kind)
+	}
 
 	return b.state(c.Pending), nil
 }
@@ -398,7 +462,7 @@ func (b *InMemoryBackend) applyClusterUpdate(c *DBCluster, u ClusterUpdate) {
 	}
 
 	if u.HasBackupConfigs {
-		c.Placement.BackupConfigs = slices.Clone(u.BackupConfigs)
+		c.Placement.BackupConfigs = stampBackupConfigs(u.BackupConfigs, b.now())
 	}
 
 	for _, m := range b.membersLocked(c.ID) {
@@ -412,23 +476,51 @@ func (b *InMemoryBackend) DeleteDBCluster(ctx context.Context, id string) (strin
 	sc := b.scopeOf(ctx)
 
 	b.mu.Lock("DeleteDbCluster")
-	defer b.mu.Unlock()
 
 	b.purgeLocked()
 
-	c, err := b.clusterLocked(sc, id)
+	handles, dirs, err := b.deleteClusterLocked(sc, id)
+
+	b.mu.Unlock()
+
 	if err != nil {
 		return "", err
 	}
 
-	if st := b.state(c.Pending); st != statusAvailable && st != statusFailed {
-		return "", conflict("DB cluster %s is %s", id, st)
+	b.stopEngines(handles)
+
+	for _, d := range dirs {
+		removeDir(d)
+	}
+
+	return statusDeleting, nil
+}
+
+// deleteClusterLocked marks the cluster and members deleting; the caller stops the returned servers
+// and removes the returned data directories after unlocking.
+func (b *InMemoryBackend) deleteClusterLocked(sc scope, id string) ([]EngineHandle, []string, error) {
+	c, err := b.clusterLocked(sc, id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if st := b.clusterStateLocked(c); st != statusAvailable && st != statusFailed {
+		return nil, nil, conflict("DB cluster %s is %s", id, st)
 	}
 
 	c.Pending = b.pend(statusDeleting, false)
 	b.setMembersLocked(id, c.Pending, nil)
 
-	return statusDeleting, nil
+	members := b.membersLocked(id)
+	handles := b.detachEnginesLocked(members)
+	b.deleteSecretLocked(c.Region, c.SecretARN)
+
+	dirs := make([]string, 0, len(members))
+	for _, m := range members {
+		dirs = append(dirs, b.instanceDirLocked(m.ID))
+	}
+
+	return handles, dirs, nil
 }
 
 // RebootDBCluster reboots a cluster, or only the listed member instances.
@@ -445,7 +537,7 @@ func (b *InMemoryBackend) RebootDBCluster(ctx context.Context, id string, instan
 		return "", err
 	}
 
-	if st := b.state(c.Pending); st != statusAvailable {
+	if st := b.clusterStateLocked(c); st != statusAvailable {
 		return "", conflict("DB cluster %s is %s", id, st)
 	}
 
@@ -459,6 +551,23 @@ func (b *InMemoryBackend) RebootDBCluster(ctx context.Context, id string, instan
 
 	c.Pending = b.pend(statusRebooting, false)
 	b.setMembersLocked(id, c.Pending, instanceIDs)
+	b.restartMembersLocked(id, instanceIDs)
 
 	return statusRebooting, nil
+}
+
+// recreateMembersLocked rebuilds the servers of the cluster's running members from their current settings.
+func (b *InMemoryBackend) recreateMembersLocked(clusterID, kind string) {
+	for _, m := range b.membersLocked(clusterID) {
+		b.recreateEngineLocked(m, kind)
+	}
+}
+
+// restartMembersLocked restarts the servers of the listed members, or of all members when none are listed.
+func (b *InMemoryBackend) restartMembersLocked(clusterID string, only []string) {
+	for _, m := range b.membersLocked(clusterID) {
+		if len(only) == 0 || slices.Contains(only, m.ID) {
+			b.restartEngineLocked(m, statusRebooting)
+		}
+	}
 }

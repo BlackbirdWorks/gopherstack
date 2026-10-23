@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -111,7 +112,7 @@ func (b *InMemoryBackend) CreateIpamPolicy(ipamID string) (*IpamPolicy, error) {
 	id := awsid.New("ipam-policy-")
 	policy := &IpamPolicy{
 		IpamPolicyID:     id,
-		IpamPolicyARN:    "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-policy/" + id,
+		IpamPolicyARN:    arn.Build("ec2", b.Region, b.AccountID, "ipam-policy/"+id),
 		IpamPolicyRegion: b.Region,
 		IpamID:           ipamID,
 		OwnerID:          b.AccountID,

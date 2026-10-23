@@ -10,7 +10,14 @@ import (
 // slice so callers cannot mutate backend state through it.
 type QueueInfo struct {
 	CreatedAt time.Time
+	Metadata  map[string]string
 	Name      string
+}
+
+// QueueProperties is what Get Queue Metadata reports.
+type QueueProperties struct {
+	Metadata                map[string]string
+	ApproximateMessageCount int
 }
 
 // MessageInfo is a read-only snapshot of a message, returned by the
@@ -82,6 +89,7 @@ func (m *storedMessage) isExpired(now time.Time) bool {
 // message first, matching Azure Queue Storage's approximately-FIFO ordering.
 type storedQueue struct {
 	CreatedAt time.Time
+	Metadata  map[string]string `json:"Metadata,omitempty"`
 	Name      string
 	Messages  []*storedMessage
 	idx       queueIndex
@@ -116,7 +124,18 @@ type queueList struct {
 }
 
 type queueEntry struct {
-	Name string `xml:"Name"`
+	Metadata *metadataXML `xml:"Metadata"`
+	Name     string       `xml:"Name"`
+}
+
+// metadataXML renders metadata as <Metadata><key>value</key>...</Metadata>.
+type metadataXML struct {
+	Items []metadataItem `xml:",any"`
+}
+
+type metadataItem struct {
+	XMLName xml.Name
+	Value   string `xml:",chardata"`
 }
 
 // storageServiceProperties is the minimal (all-empty) response body for Get

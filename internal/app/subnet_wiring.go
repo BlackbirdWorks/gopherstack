@@ -126,6 +126,7 @@ func wireSubnetLookups(byName map[string]service.Registerable) {
 	wireCloudHSMNetwork(byName)
 	wireRUMCloudWatch(byName)
 	wireConnectIntegrations(byName)
+	wireGlobalAcceleratorIntegrations(byName)
 
 	ec2H, ok := byName["EC2"].(*ec2backend.Handler)
 	if !ok {
@@ -178,6 +179,8 @@ func (a macSecSecretAdapter) CreateMacSecSecret(region, name, secretString strin
 
 // wireDirectConnectMacSecSecrets gives Direct Connect a Secrets Manager store for MACsec keys.
 func wireDirectConnectMacSecSecrets(byName map[string]service.Registerable) {
+	wireTimestreamInfluxDBIntegrations(byName)
+
 	dcH, ok := byName["DirectConnect"].(*directconnectbackend.Handler)
 	if !ok {
 		return

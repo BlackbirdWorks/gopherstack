@@ -83,6 +83,7 @@ type ChildInfo struct {
 	Service   string
 	Operation string
 	Resource  string
+	Path      string
 	Region    string
 	Account   string
 }
@@ -104,6 +105,7 @@ func StartChild(ctx context.Context, info ChildInfo) (context.Context, *Span) {
 		Service:   info.Service,
 		Operation: info.Operation,
 		Resource:  info.Resource,
+		Path:      info.Path,
 		Region:    info.Region,
 		Account:   info.Account,
 		tracer:    parent.tracer,
@@ -111,6 +113,71 @@ func StartChild(ctx context.Context, info ChildInfo) (context.Context, *Span) {
 
 	return WithSpan(ctx, child), child
 }
+
+type tracerKey struct{}
+
+// WithTracer returns ctx carrying t so background work with no originating
+// request can open root spans via [StartRoot].
+func WithTracer(ctx context.Context, t *Tracer) context.Context {
+	return context.WithValue(ctx, tracerKey{}, t)
+}
+
+// TracerFrom returns the tracer stored by [WithTracer], or nil.
+func TracerFrom(ctx context.Context) *Tracer {
+	t, _ := ctx.Value(tracerKey{}).(*Tracer)
+
+	return t
+}
+
+// StartRoot opens a parentless internal span that begins a new trace, for
+// work (such as event-source-mapping polls) with no originating request.
+// Returns ctx and a nil span when no enabled tracer is in ctx.
+func StartRoot(ctx context.Context, info ChildInfo) (context.Context, *Span) {
+	t := TracerFrom(ctx)
+	if t == nil || !t.Enabled() {
+		return ctx, nil
+	}
+
+	id := t.childID("root")
+	root := &Span{
+		ID: id, TraceID: id, Kind: KindInternal, Start: time.Now(),
+		Service: info.Service, Operation: info.Operation, Resource: info.Resource, Path: info.Path,
+		Region: info.Region, Account: info.Account, tracer: t,
+	}
+
+	return WithSpan(ctx, root), root
+}
+
+// Link returns base carrying the identity of the span in ctx, so work handed
+// to a detached goroutine (whose context is not derived from the request)
+// still nests under the originating request. It returns base unchanged when
+// ctx is untraced.
+func Link(ctx, base context.Context) context.Context {
+	parent := FromContext(ctx)
+	if parent == nil || parent.tracer == nil || !parent.tracer.Enabled() {
+		return base
+	}
+
+	return WithSpan(base, &Span{ID: parent.ID, TraceID: parent.TraceID, tracer: parent.tracer})
+}
+
+// FinishErr commits a child span, recording err (if any) as the error code.
+// Safe on nil.
+func (s *Span) FinishErr(err error) {
+	if s == nil {
+		return
+	}
+
+	if err != nil {
+		s.Finish(errorLabel)
+
+		return
+	}
+
+	s.Finish("")
+}
+
+const errorLabel = "DeliveryFailed"
 
 // Finish commits a child span. errCode is empty on success. Safe on nil.
 func (s *Span) Finish(errCode string) {

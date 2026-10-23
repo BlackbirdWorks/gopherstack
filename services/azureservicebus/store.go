@@ -37,40 +37,62 @@ const (
 // subscription's delivery/lock/dead-letter state evolves independently, the
 // same way real Service Bus subscriptions behave.
 type storedMessage struct {
-	EnqueuedTime   time.Time
-	LockedUntil    time.Time // zero value = not locked
-	ExpiresAt      time.Time
-	CustomHeaders  map[string]string
-	ContentType    string
-	Label          string
-	CorrelationID  string
-	MessageID      string
-	ReplyTo        string
-	SessionID      string
-	LockToken      string
-	Body           []byte
-	SequenceNumber int64
-	DeliveryCount  int64
+	EnqueuedTime               time.Time
+	LockedUntil                time.Time
+	ExpiresAt                  time.Time
+	CustomHeaders              map[string]string
+	AppProps                   map[string]any
+	ScheduledFor               time.Time
+	To                         string
+	ReplyToSessionID           string
+	ReplyTo                    string
+	Label                      string
+	CorrelationID              string
+	MessageID                  string
+	ContentType                string
+	SessionID                  string
+	LockToken                  string
+	DeadLetterReason           string
+	DeadLetterErrorDescription string
+	Body                       []byte
+	SequenceNumber             int64
+	DeliveryCount              int64
+	SchedGroup                 int64
+	Deferred                   bool
 }
 
 func (m *storedMessage) isExpired(now time.Time) bool { return !now.Before(m.ExpiresAt) }
 func (m *storedMessage) isLocked(now time.Time) bool  { return m.LockedUntil.After(now) }
 
 func (m *storedMessage) info() MessageInfo {
+	lockedUntil := m.LockedUntil
+	if m.LockToken == "" {
+		lockedUntil = time.Time{}
+	}
+
 	return MessageInfo{
-		MessageID:      m.MessageID,
-		SequenceNumber: m.SequenceNumber,
-		Body:           append([]byte(nil), m.Body...),
-		ContentType:    m.ContentType,
-		Label:          m.Label,
-		CorrelationID:  m.CorrelationID,
-		ReplyTo:        m.ReplyTo,
-		SessionID:      m.SessionID,
-		EnqueuedTime:   m.EnqueuedTime,
-		DeliveryCount:  m.DeliveryCount,
-		LockToken:      m.LockToken,
-		LockedUntil:    m.LockedUntil,
-		CustomHeaders:  m.CustomHeaders,
+		To:               m.To,
+		ReplyToSessionID: m.ReplyToSessionID,
+		AppProps:         m.AppProps,
+		ScheduledFor:     m.ScheduledFor,
+		ExpiresAt:        m.ExpiresAt,
+		Deferred:         m.Deferred,
+		MessageID:        m.MessageID,
+		SequenceNumber:   m.SequenceNumber,
+		Body:             append([]byte(nil), m.Body...),
+		ContentType:      m.ContentType,
+		Label:            m.Label,
+		CorrelationID:    m.CorrelationID,
+		ReplyTo:          m.ReplyTo,
+		SessionID:        m.SessionID,
+		EnqueuedTime:     m.EnqueuedTime,
+		DeliveryCount:    m.DeliveryCount,
+		LockToken:        m.LockToken,
+		LockedUntil:      lockedUntil,
+		CustomHeaders:    m.CustomHeaders,
+
+		DeadLetterReason:           m.DeadLetterReason,
+		DeadLetterErrorDescription: m.DeadLetterErrorDescription,
 	}
 }
 
@@ -81,6 +103,7 @@ type messageQueue struct {
 	notify     chan struct{}
 	Messages   []*storedMessage
 	DeadLetter []*storedMessage
+	Sessions   map[string]*sessionRecord `json:"Sessions,omitempty"`
 	idx        mqIndex
 }
 

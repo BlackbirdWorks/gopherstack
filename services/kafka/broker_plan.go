@@ -2,10 +2,12 @@ package kafka
 
 import (
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 )
 
 const (
@@ -23,6 +25,7 @@ const (
 
 	keystoreMountDir = "/etc/kafka/secrets"
 	keystoreFile     = "keystore.pem"
+	truststoreFile   = "truststore.pem"
 
 	scramJAAS = "org.apache.kafka.common.security.scram.ScramLoginModule required;"
 	plainJAAS = "org.apache.kafka.common.security.plain.PlainLoginModule required user_" +
@@ -32,11 +35,14 @@ const (
 // brokerPlan is the set of listeners a cluster's security settings call for.
 // A cluster without explicit encryption or authentication keeps the original single plaintext listener.
 type brokerPlan struct {
-	plaintext bool
-	tls       bool
-	scram     bool
-	iam       bool
-	secure    bool
+	caArns       []string
+	plaintext    bool
+	mtls         bool
+	mtlsOptional bool
+	tls          bool
+	scram        bool
+	iam          bool
+	secure       bool
 }
 
 // planFor derives listeners from EncryptionInfo and ClientAuthentication the way MSK does:
@@ -64,7 +70,29 @@ func planFor(c *Cluster) brokerPlan {
 
 	p.tls = p.tls || (auth != nil && auth.TLS != nil && auth.TLS.Enabled)
 
+	return p.withMutualTLS(auth)
+}
+
+// withMutualTLS requires client certificates on the TLS listener when TLS authentication names CAs;
+// an enabled unauthenticated mode keeps the certificate optional, as MSK does.
+func (p brokerPlan) withMutualTLS(auth *ClientAuthentication) brokerPlan {
+	if auth == nil || auth.TLS == nil || !auth.TLS.Enabled || len(auth.TLS.CertificateAuthorityArnList) == 0 {
+		return p
+	}
+
+	p.mtls = true
+	p.caArns = slices.Clone(auth.TLS.CertificateAuthorityArnList)
+	p.mtlsOptional = auth.Unauthenticated != nil && auth.Unauthenticated.Enabled
+
 	return p
+}
+
+func (p brokerPlan) clientAuthMode() string {
+	if p.mtlsOptional {
+		return "requested"
+	}
+
+	return "required"
 }
 
 func (p brokerPlan) needsKeystore() bool { return p.tls || p.scram || p.iam }
@@ -82,6 +110,7 @@ type brokerRes struct {
 	ports       map[string]int
 	keystoreDir string
 	iamPassword string
+	relays      []*sgfilter.Proxy
 }
 
 type listenerDef struct {
@@ -97,14 +126,16 @@ func (e *brokerEngine) listenerDefs(plan brokerPlan, res *brokerRes) []listenerD
 	local := func(name, protocol, cport string, public bool) listenerDef {
 		host, bind := brokerDefaultHost, container.LoopbackHost
 		if public {
-			host, bind = e.cfg.Host, container.BindHostFor(e.cfg.Host)
+			host = e.cfg.Host
+
+			if res.ports[name+relaySuffix] == 0 {
+				bind = container.BindHostFor(e.cfg.Host)
+			}
 		}
 
-		port := res.ports[name]
-
 		return listenerDef{
-			name: name, protocol: protocol, cport: cport, hostPort: port, bind: bind,
-			advertised: net.JoinHostPort(host, strconv.Itoa(port)),
+			name: name, protocol: protocol, cport: cport, hostPort: res.ports[name], bind: bind,
+			advertised: net.JoinHostPort(host, strconv.Itoa(res.clientPort(name))),
 		}
 	}
 
@@ -200,6 +231,13 @@ func (e *brokerEngine) spec(name string, plan brokerPlan, res *brokerRes) contai
 		s.Env = append(s.Env,
 			"KAFKA_SSL_KEYSTORE_TYPE=PEM",
 			"KAFKA_SSL_KEYSTORE_LOCATION="+keystoreMountDir+"/"+keystoreFile)
+	}
+
+	if plan.mtls {
+		s.Env = append(s.Env,
+			"KAFKA_SSL_TRUSTSTORE_TYPE=PEM",
+			"KAFKA_SSL_TRUSTSTORE_LOCATION="+keystoreMountDir+"/"+truststoreFile,
+			"KAFKA_LISTENER_NAME_TLS_SSL_CLIENT_AUTH="+plan.clientAuthMode())
 	}
 
 	if plan.scram {

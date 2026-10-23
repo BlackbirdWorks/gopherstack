@@ -15,6 +15,7 @@ import (
 
 // TestIoTDashboard verifies the IoT dashboard UI: things and rules render correctly.
 func TestIoTDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.IoTHandler.Backend.CreateThing(&iotbackend.CreateThingInput{
@@ -52,14 +53,14 @@ func TestIoTDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-device-1", "test-device-2")
 	assert.Contains(t, content, "test-device-1")
 	assert.Contains(t, content, "test-device-2")
 }
 
 // TestIoTDashboard_Empty verifies the IoT dashboard empty state renders correctly.
 func TestIoTDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -87,14 +88,14 @@ func TestIoTDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Things", "No IoT things found")
 	assert.Contains(t, content, "Things")
 	assert.Contains(t, content, "No IoT things found")
 }
 
 // TestIoTDashboard_CreateAndDeleteThing verifies the create and delete thing UI flows.
 func TestIoTDashboard_CreateAndDeleteThing(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -140,8 +141,7 @@ func TestIoTDashboard_CreateAndDeleteThing(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-device")
 	assert.Contains(t, content, "e2e-test-device")
 
 	// Delete the thing

@@ -170,6 +170,33 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		Port:     settings.KeyVaultPort,
 	}, nil))
 
+	registry.Register(NewEventHubProvider(EventHubEndpointConfig{
+		Override: settings.AdvertiseEventHub,
+		Port:     settings.EventHubPort,
+		AMQPPort: settings.EventHubAMQPPort,
+	}, nil))
+
+	registry.Register(NewEventGridProvider(EventGridEndpointConfig{
+		Override: settings.AdvertiseEventGrid,
+		Port:     settings.EventGridPort,
+	}, nil))
+
+	registry.Register(NewAppConfigProvider(AppConfigEndpointConfig{
+		Override: settings.AdvertiseAppConfig,
+		Port:     settings.AppConfigPort,
+	}, nil))
+
+	registry.Register(NewContainerRegistryProvider(ContainerRegistryEndpointConfig{
+		Override: settings.AdvertiseACR,
+		Port:     settings.ACRPort,
+	}, nil))
+
+	registry.Register(NewRedisProvider(nil))
+
+	registry.Register(NewSQLProvider(nil))
+
+	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
+
 	issuer, err := aadauth.NewIssuer()
 	if err != nil {
 		return nil, err

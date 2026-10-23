@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -115,7 +117,7 @@ func buildMetadataConfigurationResult(
 		return createXML, nil
 	}
 
-	tableBucketArn := "arn:aws:s3tables:" + region + ":" + account + ":bucket/" + metadataTableBucketName
+	tableBucketArn := arn.Build("s3tables", region, account, "bucket/"+metadataTableBucketName)
 
 	resp := getBucketMetadataConfigurationResponse{Xmlns: xmlNamespaceS3}
 	resp.Result.Destination = metadataDestinationResultXML{

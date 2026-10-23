@@ -261,6 +261,16 @@ func (b *InMemoryBackend) UpdateSecurity(
 	ctx context.Context,
 	clusterArn string, settings UpdateSecuritySettings,
 ) (*ClusterOperation, error) {
+	op, old, err := b.updateSecurity(ctx, clusterArn, settings)
+	b.reapDetached(old)
+
+	return op, err
+}
+
+func (b *InMemoryBackend) updateSecurity(
+	ctx context.Context,
+	clusterArn string, settings UpdateSecuritySettings,
+) (*ClusterOperation, *liveBroker, error) {
 	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
 
 	b.mu.Lock("UpdateSecurity")
@@ -268,7 +278,7 @@ func (b *InMemoryBackend) UpdateSecurity(
 
 	c, ok := b.clusters.Get(clusterArn)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, nil, ErrNotFound
 	}
 
 	source := &MutableClusterInfo{
@@ -289,7 +299,7 @@ func (b *InMemoryBackend) UpdateSecurity(
 
 	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_SECURITY", source, target)
 
-	return op, nil
+	return op, b.relaunchForSecurityLocked(c, op), nil
 }
 
 // UpdateStorage updates broker storage settings for a cluster, persisting the new

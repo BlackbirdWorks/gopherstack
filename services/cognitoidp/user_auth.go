@@ -245,7 +245,7 @@ func (b *InMemoryBackend) newFirstFactorChallengeSession(
 
 	if factor == challengeEmailOTP || factor == authFactorSMSOTP {
 		entry.Code = randomNumeric(totpCodeLen)
-		b.sendMFACodeLocked(pool, username, factor, entry.Code)
+		b.sendMFACodeLocked(pool, clientID, username, factor, entry.Code)
 	}
 
 	b.mfaSessions[sessionToken] = entry

@@ -281,8 +281,8 @@ func (b *exprBuilder) op(field, op string, v any) (string, error) {
 	}
 
 	switch op {
-	case mContains, "beginsWith":
-		fn := map[string]string{mContains: mContains, "beginsWith": "begins_with"}[op]
+	case mContains, mBeginsWith:
+		fn := map[string]string{mContains: mContains, mBeginsWith: "begins_with"}[op]
 
 		return fn + "(" + n + ", " + b.value(field, op, v) + ")", nil
 	case "notContains":

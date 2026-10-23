@@ -1,6 +1,7 @@
 package promql
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -25,8 +26,26 @@ const (
 // MaxRangeSteps bounds a range query's resolution like Prometheus.
 const MaxRangeSteps = 11000
 
+// DefaultSubqueryStep is the resolution of a subquery without an explicit step.
+const DefaultSubqueryStep = time.Minute
+
+// maxSubquerySteps bounds the inner evaluations one query may perform.
+const maxSubquerySteps = 10 * MaxRangeSteps
+
 // ErrEval marks an evaluation failure.
 var ErrEval = errors.New("execution error")
+
+// ErrTimeout marks a query that outlived its context.
+var ErrTimeout = errors.New("query timed out in expression evaluation")
+
+// staleBits is Prometheus' stale-marker NaN payload.
+const staleBits uint64 = 0x7ff0000000000002
+
+// StaleNaN returns the stale marker value that ends a series.
+func StaleNaN() float64 { return math.Float64frombits(staleBits) }
+
+// IsStale reports whether v is a stale marker.
+func IsStale(v float64) bool { return math.Float64bits(v) == staleBits }
 
 func evalErr(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrEval, fmt.Sprintf(format, args...))
@@ -70,8 +89,19 @@ func ResultType(v Value) string { return v.valueType() }
 
 // Engine evaluates expressions against a Storage.
 type Engine struct {
+	Ctx      context.Context //nolint:containedctx // bounds one query's evaluation
 	Store    Storage
 	Lookback time.Duration
+	steps    int
+}
+
+func isRangeExpr(x Expr) bool {
+	switch x.(type) {
+	case *MatrixSelector, *Subquery:
+		return true
+	}
+
+	return false
 }
 
 func (e *Engine) lookback() time.Duration {
@@ -89,6 +119,11 @@ func (e *Engine) Instant(src string, ts time.Time) (Value, error) {
 		return nil, err
 	}
 
+	return e.InstantExpr(expr, ts)
+}
+
+// InstantExpr evaluates a parsed expression at ts.
+func (e *Engine) InstantExpr(expr Expr, ts time.Time) (Value, error) {
 	t := ts.UnixMilli()
 
 	v, err := e.eval(expr, t)
@@ -122,7 +157,7 @@ func (e *Engine) Range(src string, start, end time.Time, step time.Duration) (Ma
 		return nil, err
 	}
 
-	if _, isMatrix := expr.(*MatrixSelector); isMatrix {
+	if isRangeExpr(expr) {
 		return nil, evalErr(
 			"invalid expression type \"range vector\" for range query, must be Scalar or instant Vector",
 		)
@@ -177,6 +212,10 @@ func sortSeries(m Matrix) {
 }
 
 func (e *Engine) eval(expr Expr, t int64) (Value, error) {
+	if e.Ctx != nil && e.Ctx.Err() != nil {
+		return nil, ErrTimeout
+	}
+
 	switch x := expr.(type) {
 	case *NumberLit:
 		return Scalar{T: t, V: x.V}, nil
@@ -186,6 +225,8 @@ func (e *Engine) eval(expr Expr, t int64) (Value, error) {
 		return e.evalVector(x, t), nil
 	case *MatrixSelector:
 		return e.evalMatrix(x, t), nil
+	case *Subquery:
+		return e.evalSubquery(x, t)
 	case *Unary:
 		return e.evalUnary(x, t)
 	case *Call:
@@ -223,7 +264,7 @@ func lastAtOrBefore(samples []Sample, maxT, minT int64) (Sample, bool) {
 		}
 
 		if p.T > minT {
-			return samples[i], true
+			return samples[i], !IsStale(p.V)
 		}
 
 		break
@@ -241,7 +282,7 @@ func (e *Engine) evalMatrix(ms *MatrixSelector, t int64) Matrix {
 		var win []Sample
 
 		for _, p := range s.Samples {
-			if p.T > minT && p.T <= maxT {
+			if p.T > minT && p.T <= maxT && !IsStale(p.V) {
 				win = append(win, p)
 			}
 		}

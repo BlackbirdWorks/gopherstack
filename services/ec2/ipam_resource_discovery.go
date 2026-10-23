@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -19,14 +20,13 @@ func (b *InMemoryBackend) CreateIpamResourceDiscovery(
 
 	id := awsid.New("ipam-res-disco-")
 	d := &IpamResourceDiscovery{
-		IpamResourceDiscoveryID: id,
-		IpamResourceDiscoveryARN: "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
-			":ipam-resource-discovery/" + id,
-		OwnerID:          b.AccountID,
-		Region:           b.Region,
-		State:            ipamStateCreateComplete,
-		Description:      description,
-		OperatingRegions: append([]string(nil), operatingRegions...),
+		IpamResourceDiscoveryID:  id,
+		IpamResourceDiscoveryARN: arn.Build("ec2", b.Region, b.AccountID, "ipam-resource-discovery/"+id),
+		OwnerID:                  b.AccountID,
+		Region:                   b.Region,
+		State:                    ipamStateCreateComplete,
+		Description:              description,
+		OperatingRegions:         append([]string(nil), operatingRegions...),
 	}
 	b.ipamResourceDiscoveries.Put(d)
 
@@ -107,8 +107,12 @@ func (b *InMemoryBackend) AssociateIpamResourceDiscovery(
 		ResourceDiscoveryStatus:            ipamResourceDiscoveryAssocStatus,
 		State:                              ipamAssocStateAssociateComplete,
 	}
-	assoc.IpamResourceDiscoveryAssociationARN = "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
-		":ipam-resource-discovery-association/" + assocID
+	assoc.IpamResourceDiscoveryAssociationARN = arn.Build(
+		"ec2",
+		b.Region,
+		b.AccountID,
+		"ipam-resource-discovery-association/"+assocID,
+	)
 	b.ipamResourceDiscoveryAssocs.Put(assoc)
 	ipam.ResourceDiscoveryAssociationCount++
 

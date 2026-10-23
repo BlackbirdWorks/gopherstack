@@ -13,6 +13,7 @@ import (
 
 // TestServiceDiscoveryDashboard verifies the Service Discovery dashboard UI renders namespace data.
 func TestServiceDiscoveryDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ServiceDiscoveryHandler.Backend.CreateHTTPNamespace("e2e-namespace", "e2e test namespace", nil)
@@ -43,14 +44,14 @@ func TestServiceDiscoveryDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-namespace", "Namespaces")
 	assert.Contains(t, content, "e2e-namespace")
 	assert.Contains(t, content, "Namespaces")
 }
 
 // TestServiceDiscoveryDashboard_Empty verifies the Service Discovery dashboard renders with no namespaces.
 func TestServiceDiscoveryDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -78,7 +79,6 @@ func TestServiceDiscoveryDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No namespaces found")
 	assert.Contains(t, content, "No namespaces found")
 }

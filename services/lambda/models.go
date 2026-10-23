@@ -831,7 +831,6 @@ type CapacityProvider struct {
 	LastModified                  string                             `json:"LastModified"`
 	State                         string                             `json:"State"`
 	Name                          string                             `json:"-"`
-	AssignedFunctionVersions      []string                           `json:"-"`
 }
 
 // CapacityProviderPermissionsConfig holds the IAM role the capacity provider

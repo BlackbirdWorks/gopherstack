@@ -105,7 +105,7 @@ func (b *InMemoryBackend) CreateDomainName(
 			input.DomainNameConfigurations, input.DomainNameValue, regionFromCtx(ctx))
 	}
 
-	domainNameArn := "arn:aws:apigateway:" + regionFromCtx(ctx) + "::/domainnames/" + input.DomainNameValue
+	domainNameArn := arn.Build("apigateway", regionFromCtx(ctx), "", "/domainnames/"+input.DomainNameValue)
 
 	dn := &DomainName{
 		DomainNameValue:          input.DomainNameValue,

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // IdcApplicationExtras holds the optional Create/ModifyRedshiftIdcApplication members.
@@ -30,7 +32,7 @@ func (b *InMemoryBackend) CreateIdcApplication(
 		return nil, fmt.Errorf("%w: application %s already exists", ErrIdcApplicationAlreadyExists, appName)
 	}
 
-	arn := "arn:aws:redshift:" + b.region + ":" + b.accountID + ":redshiftidcapplication/" + appName
+	arn := arn.Build("redshift", b.region, b.accountID, "redshiftidcapplication/"+appName)
 	app := &IdcApplication{
 		IdcApplicationArn:  arn,
 		IdcApplicationName: appName,

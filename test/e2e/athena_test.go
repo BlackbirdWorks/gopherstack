@@ -15,6 +15,7 @@ import (
 
 // TestAthenaDashboard verifies the Athena dashboard UI renders workgroups.
 func TestAthenaDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.AthenaHandler.Backend.CreateWorkGroup(
@@ -51,14 +52,14 @@ func TestAthenaDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-wg", "primary")
 	assert.Contains(t, content, "e2e-test-wg")
 	assert.Contains(t, content, "primary")
 }
 
 // TestAthenaDashboard_Empty verifies the Athena dashboard empty state (only primary workgroup).
 func TestAthenaDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -86,8 +87,7 @@ func TestAthenaDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Athena", "primary")
 	assert.Contains(t, content, "Athena")
 	assert.Contains(t, content, "primary")
 }

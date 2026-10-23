@@ -1,6 +1,10 @@
 package ec2
 
-import "context"
+import (
+	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
+)
 
 // Compute is the optional pluggable hook that backs EC2 instances with a real
 // runtime (such as a Docker container). When the InMemoryBackend is configured
@@ -30,19 +34,18 @@ type Compute interface {
 
 // LaunchRequest describes a new instance the Compute provider should back.
 type LaunchRequest struct {
+	// Admit, when set, makes the provider front every published port with a relay that admits only clients
+	// the instance's live security groups allow.
+	Admit func(proto string, port int) sgfilter.Admitter `json:"-"`
 	// InstanceID is the synthetic EC2 instance ID (i-...).
 	InstanceID string `json:"instanceID,omitempty"`
-	// ImageID is the AMI ID requested by the caller. The Compute provider may
-	// use this to pick a Docker image but is also free to ignore it and use
-	// a configured default image.
+	// ImageID is the AMI ID requested by the caller; the provider may ignore it.
 	ImageID string `json:"imageID,omitempty"`
 	// InstanceType is the requested EC2 instance type (e.g. t3.micro).
 	InstanceType string `json:"instanceType,omitempty"`
 	// KeyName is the EC2 key pair name (may be empty).
 	KeyName string `json:"keyName,omitempty"`
-	// AuthorizedKey is the OpenSSH-format public key derived from the named
-	// EC2 key pair. When non-empty the provider should write it to the
-	// container's ~ec2-user/.ssh/authorized_keys so the demo can ssh in.
+	// AuthorizedKey is the OpenSSH-format public key of the key pair, written to ~ec2-user/.ssh/authorized_keys.
 	AuthorizedKey string `json:"authorizedKey,omitempty"`
 	// UserData is the raw (already base64-decoded) user data, if any.
 	UserData string `json:"userData,omitempty"`
@@ -54,7 +57,7 @@ type LaunchRequest struct {
 	VPCCIDR string `json:"vpcCIDR,omitempty"`
 	// PrivateIP is the address allocated from the instance's subnet.
 	PrivateIP string `json:"privateIP,omitempty"`
-	// PublishPorts are the ports the instance's security groups open to the world.
+	// PublishPorts are the ports to publish: those opened to the world, or every TCP rule port when enforcing.
 	PublishPorts []PortSpec `json:"publishPorts,omitempty"`
 }
 

@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
 // nowISO8601 returns the current UTC time formatted as the ISO8601/RFC3339
@@ -143,6 +145,7 @@ const (
 // (a bare []string / []Tag) carry no identity of their own to key a
 // store.Table by (see store_setup.go's doc comment for the full rationale).
 type InMemoryBackend struct {
+	sgEnforcer                     *sgfilter.Enforcer
 	subnets                        SubnetResolver
 	clusterEndpoints               *store.Table[DBClusterEndpoint]
 	eventsLog                      map[string][]Event
@@ -169,6 +172,7 @@ type InMemoryBackend struct {
 	pendingMaintenanceActions      map[string]map[string]PendingMaintenanceAction
 	registry                       *store.Registry
 	engine                         *dbEngine
+	graphs                         map[string]*opencypher.Graph
 	mu                             *lockmetrics.RWMutex
 	accountID                      string
 	region                         string
@@ -186,6 +190,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusterParameterOverrides: make(map[string]map[string]ParameterValue),
 		pendingMaintenanceActions: make(map[string]map[string]PendingMaintenanceAction),
 		eventsLog:                 make(map[string][]Event),
+		graphs:                    make(map[string]*opencypher.Graph),
 		accountID:                 accountID,
 		region:                    region,
 		mu:                        lockmetrics.New("neptune"),
@@ -263,6 +268,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 	b.dropAllUnitsLocked()
+	b.graphs = make(map[string]*opencypher.Graph)
 	b.registry.ResetAll()
 	b.clusterRoles = make(map[string]map[string][]string)
 	b.tags = make(map[string]map[string][]Tag)

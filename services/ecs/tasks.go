@@ -407,7 +407,7 @@ func newTaskEntryLocked(
 		taskID = input.PinnedTaskID
 	}
 
-	taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", region, accountID, clusterName, taskID)
+	taskArn := arn.Build("ecs", region, accountID, fmt.Sprintf("task/%s/%s", clusterName, taskID))
 	now := time.Now()
 
 	// Resolve the effective task IAM role: per-run override takes precedence.
@@ -1238,7 +1238,7 @@ func (b *InMemoryBackend) validatePinnedTaskIDLocked(clusterName, pinned string,
 		return fmt.Errorf("%w: %w", ErrInvalidParameter, err)
 	}
 
-	arnStr := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", b.region, b.accountID, clusterName, pinned)
+	arnStr := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("task/%s/%s", clusterName, pinned))
 	if b.tasks.Has(arnStr) {
 		return fmt.Errorf("%w: task %q already exists", ErrTaskIDInUse, pinned)
 	}

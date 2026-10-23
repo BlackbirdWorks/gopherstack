@@ -30,6 +30,17 @@ var (
 	// ErrPartitionKeyImmutable is returned when a container replace tries to change the partition key.
 	ErrPartitionKeyImmutable = errors.New("cosmosdb: the partition key of an existing container cannot be changed")
 
+	// ErrInvalidContainerPolicy is returned for a malformed unique-key, geospatial, vector or computed-property setting.
+	ErrInvalidContainerPolicy = errors.New("cosmosdb: invalid container policy")
+
+	// ErrUniqueKeyPolicyImmutable is returned when a container replace tries to change the unique key policy.
+	ErrUniqueKeyPolicyImmutable = errors.New(
+		"cosmosdb: the unique key policy of an existing container cannot be changed",
+	)
+
+	// ErrUniqueKeyViolation is returned when a write would duplicate a unique key value within a logical partition.
+	ErrUniqueKeyViolation = errors.New("cosmosdb: unique index constraint violation")
+
 	// ErrInvalidContinuation is returned for a malformed x-ms-continuation token.
 	ErrInvalidContinuation = errors.New("cosmosdb: invalid continuation token")
 
@@ -45,6 +56,9 @@ var (
 	ErrSnapshotDatabaseNull  = errors.New("cosmosdb: restore snapshot: database is null")
 	ErrSnapshotContainerNull = errors.New("cosmosdb: restore snapshot: container is null")
 	ErrSnapshotDocumentNull  = errors.New("cosmosdb: restore snapshot: document is null")
+
+	ErrSnapshotUserNull       = errors.New("cosmosdb: restore snapshot: user is null")
+	ErrSnapshotPermissionNull = errors.New("cosmosdb: restore snapshot: permission is null")
 
 	// ErrPartitionKeyMismatch is returned by ReplaceDocument when the
 	// replacement body's own partition-key-path field is present but
@@ -72,4 +86,17 @@ var (
 	// meaning the input carried more than the one JSON value callers
 	// require.
 	ErrUnexpectedTrailingJSON = errors.New("cosmosdb: unexpected additional JSON value")
+
+	ErrInvalidPatch         = errors.New("cosmosdb: invalid patch request")
+	ErrPatchConditionFailed = errors.New("cosmosdb: patch condition not satisfied")
+	ErrBatchTooLarge        = errors.New("cosmosdb: batch has more operations than the 100 allowed")
+	ErrScriptNotFound       = errors.New("cosmosdb: script not found")
+	ErrScriptAlreadyExists  = errors.New("cosmosdb: script already exists")
+	ErrInvalidScript        = errors.New("cosmosdb: invalid script definition")
+	ErrScriptFailed         = errors.New("cosmosdb: script execution failed")
+	ErrScriptTimeout        = errors.New("cosmosdb: script execution timed out")
+	ErrInvalidTrigger       = errors.New("cosmosdb: trigger not usable for this operation")
+	ErrInvalidPKRange       = errors.New("cosmosdb: unknown partition key range")
+	// ErrChangeFeedStart is returned when an all-versions-and-deletes read names no start.
+	ErrChangeFeedStart = errors.New("cosmosdb: all versions and deletes change feed cannot start from the beginning")
 )

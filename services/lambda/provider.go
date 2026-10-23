@@ -41,6 +41,15 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		runtime = rt
 	}
 
+	ociRuntime, err := resolveIsolation(ctx.JanitorCtx, settings.Isolation, runtime)
+	if err != nil {
+		if runtime != nil {
+			_ = runtime.Close()
+		}
+
+		return nil, err
+	}
+
 	backend := NewInMemoryBackendWithContext(
 		ctx.JanitorCtx,
 		runtime,
@@ -49,6 +58,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		accountID,
 		region,
 	)
+
+	backend.ociRuntime = ociRuntime
 
 	handler := NewHandler(backend)
 	handler.DefaultRegion = region

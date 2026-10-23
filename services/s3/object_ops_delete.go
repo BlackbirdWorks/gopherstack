@@ -114,7 +114,7 @@ func (h *S3Handler) deleteObject(
 		); ncErr == nil &&
 			notifXML != "" {
 			go h.notifier.DispatchObjectDeleted(
-				h.notificationDispatchContext(),
+				h.notificationLinkedContext(ctx),
 				bucketName,
 				key,
 				notifXML,
@@ -223,7 +223,7 @@ func (h *S3Handler) deleteObjects(
 			for _, d := range out.Deleted {
 				key := aws.ToString(d.Key)
 				go h.notifier.DispatchObjectDeleted(
-					h.notificationDispatchContext(),
+					h.notificationLinkedContext(ctx),
 					bucketName,
 					key,
 					notifXML,

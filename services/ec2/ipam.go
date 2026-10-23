@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
@@ -28,11 +29,11 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 
 	ipamID := awsid.New("ipam-")
 
-	ipamARN := "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID
+	ipamARN := arn.Build("ec2", b.Region, b.AccountID, "ipam/"+ipamID)
 
 	privScope := &IpamScope{
 		IpamScopeID:   awsid.New("ipam-scope-"),
-		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/",
+		IpamScopeARN:  arn.Build("ec2", b.Region, b.AccountID, "ipam-scope/"),
 		IpamID:        ipamID,
 		IpamARN:       ipamARN,
 		IpamRegion:    b.Region,
@@ -45,7 +46,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 
 	pubScope := &IpamScope{
 		IpamScopeID:   awsid.New("ipam-scope-"),
-		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/",
+		IpamScopeARN:  arn.Build("ec2", b.Region, b.AccountID, "ipam-scope/"),
 		IpamID:        ipamID,
 		IpamARN:       ipamARN,
 		IpamRegion:    b.Region,
@@ -63,8 +64,12 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 		IsDefault:               true,
 		State:                   ipamStateCreateComplete,
 	}
-	discovery.IpamResourceDiscoveryARN = "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
-		":ipam-resource-discovery/" + discovery.IpamResourceDiscoveryID
+	discovery.IpamResourceDiscoveryARN = arn.Build(
+		"ec2",
+		b.Region,
+		b.AccountID,
+		"ipam-resource-discovery/"+discovery.IpamResourceDiscoveryID,
+	)
 	b.ipamResourceDiscoveries.Put(discovery)
 
 	assoc := &IpamResourceDiscoveryAssociation{
@@ -78,8 +83,12 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 		ResourceDiscoveryStatus:            ipamResourceDiscoveryAssocStatus,
 		State:                              ipamStateCreateComplete,
 	}
-	assoc.IpamResourceDiscoveryAssociationARN = "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
-		":ipam-resource-discovery-association/" + assoc.IpamResourceDiscoveryAssociationID
+	assoc.IpamResourceDiscoveryAssociationARN = arn.Build(
+		"ec2",
+		b.Region,
+		b.AccountID,
+		"ipam-resource-discovery-association/"+assoc.IpamResourceDiscoveryAssociationID,
+	)
 	b.ipamResourceDiscoveryAssocs.Put(assoc)
 
 	ipam := &Ipam{
@@ -266,9 +275,9 @@ func (b *InMemoryBackend) CreateIpamScope(ipamID, description string) (*IpamScop
 	scopeID := awsid.New("ipam-scope-")
 	scope := &IpamScope{
 		IpamScopeID:   scopeID,
-		IpamScopeARN:  "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/" + scopeID,
+		IpamScopeARN:  arn.Build("ec2", b.Region, b.AccountID, "ipam-scope/"+scopeID),
 		IpamID:        ipamID,
-		IpamARN:       "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID,
+		IpamARN:       arn.Build("ec2", b.Region, b.AccountID, "ipam/"+ipamID),
 		IpamRegion:    b.Region,
 		IpamScopeType: ipamScopeTypePrivate,
 		State:         ipamStateCreateComplete,
@@ -406,11 +415,11 @@ func (b *InMemoryBackend) CreateIpamPool(
 	poolID := awsid.New("ipam-pool-")
 	pool := &IpamPool{
 		IpamPoolID:                     poolID,
-		IpamPoolARN:                    "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-pool/" + poolID,
+		IpamPoolARN:                    arn.Build("ec2", b.Region, b.AccountID, "ipam-pool/"+poolID),
 		IpamID:                         ipamID,
-		IpamARN:                        "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam/" + ipamID,
+		IpamARN:                        arn.Build("ec2", b.Region, b.AccountID, "ipam/"+ipamID),
 		IpamScopeID:                    scopeID,
-		IpamScopeARN:                   "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":ipam-scope/" + scopeID,
+		IpamScopeARN:                   arn.Build("ec2", b.Region, b.AccountID, "ipam-scope/"+scopeID),
 		IpamRegion:                     b.Region,
 		State:                          ipamStateCreateComplete,
 		Locale:                         locale,

@@ -144,7 +144,7 @@ func (h *Handler) closePeers(release bool) {
 
 func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend, region string) {
 	home.mu.RLock("inheritWiring")
-	compute, dns, cfg := home.compute, home.dnsRegistrar, home.appConfig
+	compute, dns, cfg, enf := home.compute, home.dnsRegistrar, home.appConfig, home.sgEnforcer
 	resolve, all := home.regionBackend, home.allBackends
 	home.mu.RUnlock()
 
@@ -154,6 +154,8 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend, region string) {
 
 	b.compute = compute
 	b.dnsRegistrar = dns
+	b.sgEnforcer = enf
+	b.quotaGate = home.quotaGate
 	b.appConfig = cfg
 	b.regionBackend = resolve
 	b.allBackends = all

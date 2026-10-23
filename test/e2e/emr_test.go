@@ -16,6 +16,7 @@ import (
 
 // TestEMRDashboard verifies the EMR dashboard UI renders clusters.
 func TestEMRDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.EMRHandler.Backend.RunJobFlow(context.Background(), emr.RunJobFlowParams{
@@ -49,13 +50,13 @@ func TestEMRDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-cluster")
 	assert.Contains(t, content, "e2e-test-cluster")
 }
 
 // TestEMRDashboard_Empty verifies the EMR dashboard empty state renders correctly.
 func TestEMRDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -83,7 +84,6 @@ func TestEMRDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon EMR")
 	assert.Contains(t, content, "Amazon EMR")
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -125,7 +126,7 @@ func buildFirehoseEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscript
 // deliverToLambdaSubscriptions invokes each Lambda-protocol subscription endpoint.
 // On invocation failure, the message is forwarded to the subscription DLQ when
 // a RedrivePolicy is configured and a SQSSender is wired.
-func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEvent) {
+func (b *InMemoryBackend) deliverToLambdaSubscriptions(ctx context.Context, ev *events.SNSPublishedEvent) {
 	var (
 		lambda               LambdaInvoker
 		sqsSender            SQSSender
@@ -163,14 +164,20 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 			numRetries = -1
 		}
 
+		spanCtx, span := apptrace.StartChild(ctx, apptrace.ChildInfo{
+			Service: protocolLambda, Operation: "Invoke", Resource: sub.Endpoint, Region: arnRegion(sub.Endpoint),
+		})
+
 		for i := 0; i <= numRetries; i++ {
-			_, _, err = lambda.InvokeFunction(b.svcCtx, sub.Endpoint, snsLambdaInvocationType, payload)
+			_, _, err = lambda.InvokeFunction(spanCtx, sub.Endpoint, snsLambdaInvocationType, payload)
 			if err == nil {
 				b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolLambda, sub.Endpoint, "SUCCESS", nil)
 
 				break
 			}
 		}
+
+		span.FinishErr(err)
 
 		if err != nil {
 			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolLambda, sub.Endpoint, "FAILURE", err)
@@ -186,7 +193,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 // the full SNS Notification JSON envelope, matching real AWS SNS→Firehose delivery; RawMessageDelivery=true
 // delivers the bare message body. On delivery failure, the message is forwarded to the subscription DLQ
 // when a RedrivePolicy is configured and a SQSSender is wired — matching the HTTP/HTTPS and Lambda paths.
-func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublishedEvent) {
+func (b *InMemoryBackend) deliverToFirehoseSubscriptions(_ context.Context, ev *events.SNSPublishedEvent) {
 	var (
 		firehose             FirehosePutter
 		sqsSender            SQSSender

@@ -6,6 +6,8 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // trunk_enclave.go implements two small, unrelated families that share a file for
@@ -222,7 +224,7 @@ func (b *InMemoryBackend) AssociateEnclaveCertificateIamRole(
 		RoleArn:                 roleArn,
 		CertificateS3BucketName: "aws-nitro-enclaves-" + b.AccountID,
 		CertificateS3ObjectKey:  roleArn + "/" + certificateArn,
-		EncryptionKmsKeyID:      "arn:aws:kms:" + b.Region + ":" + b.AccountID + ":key/" + uuid.New().String(),
+		EncryptionKmsKeyID:      arn.Build("kms", b.Region, b.AccountID, "key/"+uuid.New().String()),
 	}
 	b.enclaveCertIamRoles[certificateArn] = append(b.enclaveCertIamRoles[certificateArn], assoc)
 

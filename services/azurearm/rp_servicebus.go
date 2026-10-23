@@ -3,6 +3,7 @@ package azurearm
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"sort"
 	"strconv"
@@ -78,6 +79,7 @@ type storedSBNamespace struct {
 }
 
 type storedSBQueue struct {
+	extra             map[string]any
 	name              string
 	namespace         string
 	resourceGroup     string
@@ -87,6 +89,7 @@ type storedSBQueue struct {
 }
 
 type storedSBTopic struct {
+	extra             map[string]any
 	name              string
 	namespace         string
 	resourceGroup     string
@@ -94,6 +97,7 @@ type storedSBTopic struct {
 }
 
 type storedSBSubscription struct {
+	extra            map[string]any
 	name             string
 	namespace        string
 	topic            string
@@ -338,6 +342,7 @@ func (p *ServiceBusProvider) putQueue(ctx context.Context, id ResourceID, body m
 		lockDuration:      lockDuration,
 		defaultMessageTTL: defaultTTL,
 		maxDeliveryCount:  maxDeliveryCount,
+		extra:             sbExtraProps(body),
 	}
 	p.queues[sbKey(id.ResourceGroup, nsName, name)] = q
 	p.mu.Unlock()
@@ -366,7 +371,8 @@ func (p *ServiceBusProvider) putTopic(ctx context.Context, id ResourceID, body m
 	}
 
 	nsName, name := id.Names[0], id.LeafName()
-	t := &storedSBTopic{name: name, namespace: nsName, resourceGroup: id.ResourceGroup, defaultMessageTTL: defaultTTL}
+	t := &storedSBTopic{name: name, namespace: nsName, resourceGroup: id.ResourceGroup, defaultMessageTTL: defaultTTL,
+		extra: sbExtraProps(body)}
 	p.topics[sbKey(id.ResourceGroup, nsName, name)] = t
 	p.mu.Unlock()
 
@@ -412,6 +418,7 @@ func (p *ServiceBusProvider) putSubscription(
 		resourceGroup:    id.ResourceGroup,
 		lockDuration:     lockDuration,
 		maxDeliveryCount: maxDeliveryCount,
+		extra:            sbExtraProps(body),
 	}
 	p.subscriptions[sbKey(id.ResourceGroup, nsName, topicName, name)] = s
 	p.mu.Unlock()
@@ -521,10 +528,10 @@ func (p *ServiceBusProvider) buildNetworkRuleSetBody(id ResourceID, props map[st
 		fieldName: sbDefaultNetworkRuleSetName,
 		fieldType: namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbNetworkRuleSetType,
 		fieldProperties: map[string]any{
-			"defaultAction":               defaultAction,
+			acrFieldDefaultAction:         defaultAction,
 			"publicNetworkAccess":         publicNetworkAccess,
 			"trustedServiceAccessEnabled": trustedServiceAccessEnabled,
-			"ipRules":                     ipRules,
+			ehFieldIPRules:                ipRules,
 			"virtualNetworkRules":         vnetRules,
 		},
 	}
@@ -952,7 +959,7 @@ func (p *ServiceBusProvider) buildNamespaceBody(id ResourceID, ns *storedSBNames
 		"sku":         sku,
 		fieldProperties: map[string]any{
 			fieldProvisioningState: provisioningStateSucceeded,
-			"status":               "Active",
+			acrPropStatus:          "Active",
 			"serviceBusEndpoint":   advertiseServiceBusEndpoint(p.cfg.Override, ns.host, p.cfg.Port),
 		},
 	}
@@ -964,14 +971,19 @@ func (p *ServiceBusProvider) buildQueueBody(id ResourceID, q *storedSBQueue) map
 		fieldName:     q.name,
 		fieldType:     namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbQueuesType,
 		fieldLocation: "",
-		fieldProperties: map[string]any{
-			fieldProvisioningState:             provisioningStateSucceeded,
-			"lockDuration":                     iso8601.Format(q.lockDuration),
-			"defaultMessageTimeToLive":         iso8601.Format(q.defaultMessageTTL),
-			"maxDeliveryCount":                 q.maxDeliveryCount,
-			"requiresDuplicateDetection":       false,
-			"deadLetteringOnMessageExpiration": false,
-		},
+		fieldProperties: sbMergeProps(map[string]any{
+			"enableBatchedOperations":             true,
+			"duplicateDetectionHistoryTimeWindow": "PT10M",
+			sbPropAutoDelete:                      sbMaxDuration,
+			sbPropStatus:                          sbStatusActive,
+			"requiresDuplicateDetection":          false,
+			"deadLetteringOnMessageExpiration":    false,
+		}, q.extra, map[string]any{
+			fieldProvisioningState: provisioningStateSucceeded,
+			sbPropLockDuration:     iso8601.Format(q.lockDuration),
+			sbPropDefaultTTL:       iso8601.Format(q.defaultMessageTTL),
+			sbPropMaxDelivery:      q.maxDeliveryCount,
+		}),
 	}
 }
 
@@ -980,43 +992,80 @@ func (p *ServiceBusProvider) buildTopicBody(id ResourceID, t *storedSBTopic) map
 		"id":      id.ARMID(),
 		fieldName: t.name,
 		fieldType: namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbTopicsType,
-		fieldProperties: map[string]any{
-			fieldProvisioningState:       provisioningStateSucceeded,
-			"defaultMessageTimeToLive":   iso8601.Format(t.defaultMessageTTL),
+		fieldProperties: sbMergeProps(map[string]any{
+			sbPropAutoDelete:             sbMaxDuration,
+			sbPropStatus:                 sbStatusActive,
 			"requiresDuplicateDetection": false,
 			"supportOrdering":            false,
-		},
+		}, t.extra, map[string]any{
+			fieldProvisioningState: provisioningStateSucceeded,
+			sbPropDefaultTTL:       iso8601.Format(t.defaultMessageTTL),
+		}),
 	}
 }
 
 func (p *ServiceBusProvider) buildSubscriptionBody(id ResourceID, s *storedSBSubscription) map[string]any {
+	// "status" must never be omitted: terraform-provider-azurerm's
+	// servicebus_subscription_resource.go:315 dereferences *props.Status
+	// unconditionally and panics the plugin on nil.
 	return map[string]any{
 		"id":      id.ARMID(),
 		fieldName: s.name,
 		fieldType: namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbTopicsType + "/" + sbSubscriptionsType,
-		fieldProperties: map[string]any{
+		fieldProperties: sbMergeProps(map[string]any{
+			sbPropStatus:     sbStatusActive,
+			sbPropAutoDelete: sbMaxDuration,
+			sbPropDefaultTTL: sbMaxDuration,
+			"deadLetteringOnFilterEvaluationExceptions": true,
+			"deadLetteringOnMessageExpiration":          false,
+			"requiresSession":                           false,
+		}, s.extra, map[string]any{
 			fieldProvisioningState: provisioningStateSucceeded,
-			// "status" must never be omitted here: unlike the queue/topic
-			// Read functions (servicebus_queue_resource.go's
-			// pointer.From(props.Status), servicebus_topic_resource.go's
-			// nil-guarded "if v := props.Status; v != nil"),
-			// terraform-provider-azurerm v4.81.0's
-			// resourceServiceBusSubscriptionRead unconditionally
-			// dereferences *props.Status
-			// (servicebus_subscription_resource.go:315) with no nil check
-			// at all -- omitting this field (as this function used to do)
-			// makes the SDK decode a nil *EntityStatus and panics the whole
-			// provider plugin process on every subscription create/read.
-			// Confirmed via a local reproduction (TF_LOG=debug tofu apply)
-			// that captured the exact panic stack trace; see AZURE.md
-			// section 10.10's M9 entry, bug (4).
-			"status":                           "Active",
-			"lockDuration":                     iso8601.Format(s.lockDuration),
-			"maxDeliveryCount":                 s.maxDeliveryCount,
-			"deadLetteringOnMessageExpiration": false,
-			"requiresSession":                  false,
-		},
+			sbPropLockDuration:     iso8601.Format(s.lockDuration),
+			sbPropMaxDelivery:      s.maxDeliveryCount,
+		}),
 	}
+}
+
+const (
+	sbPropStatus       = "status"
+	sbPropAutoDelete   = "autoDeleteOnIdle"
+	sbPropLockDuration = "lockDuration"
+	sbPropDefaultTTL   = "defaultMessageTimeToLive"
+	sbPropMaxDelivery  = "maxDeliveryCount"
+
+	sbMaxDuration  = "P10675199DT2H48M5.4775807S"
+	sbStatusActive = "Active"
+)
+
+// sbExtraProps returns the request's writable properties other than the
+// typed ones the emulator tracks itself, so they read back unchanged.
+func sbExtraProps(body map[string]any) map[string]any {
+	in, _ := body[fieldProperties].(map[string]any)
+	out := make(map[string]any, len(in))
+
+	for k, v := range in {
+		switch k {
+		case fieldProvisioningState, sbPropLockDuration, sbPropDefaultTTL, sbPropMaxDelivery:
+		default:
+			out[k] = v
+		}
+	}
+
+	if affine, _ := in["isClientAffine"].(bool); !affine {
+		delete(out, "clientAffineProperties")
+	}
+
+	return out
+}
+
+// sbMergeProps layers defaults, then the caller's extra properties, then the
+// emulator-owned typed properties.
+func sbMergeProps(defaults, extra, typed map[string]any) map[string]any {
+	maps.Copy(defaults, extra)
+	maps.Copy(defaults, typed)
+
+	return defaults
 }
 
 // advertiseServiceBusEndpoint builds the serviceBusEndpoint/connection-string

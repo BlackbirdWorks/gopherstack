@@ -272,12 +272,7 @@ func (b *InMemoryBackend) buildNewCluster(
 	}
 	if opts.ManageMasterUserPassword {
 		cluster.MasterUserManagedSecret = &MasterUserManagedSecret{
-			SecretARN: fmt.Sprintf(
-				"arn:aws:secretsmanager:%s:%s:secret:rds!cluster-%s",
-				region,
-				b.accountID,
-				id,
-			),
+			SecretARN:    arn.Build("secretsmanager", region, b.accountID, fmt.Sprintf("secret:rds!cluster-%s", id)),
 			SecretStatus: subscriptionStatusActive,
 		}
 	}
@@ -673,12 +668,7 @@ func (b *InMemoryBackend) applyClusterMasterSecret(
 		return
 	}
 	c.MasterUserManagedSecret = &MasterUserManagedSecret{
-		SecretARN: fmt.Sprintf(
-			"arn:aws:secretsmanager:%s:%s:secret:rds!cluster-%s",
-			region,
-			b.accountID,
-			id,
-		),
+		SecretARN:    arn.Build("secretsmanager", region, b.accountID, fmt.Sprintf("secret:rds!cluster-%s", id)),
 		SecretStatus: subscriptionStatusActive,
 	}
 }

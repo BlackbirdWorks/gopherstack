@@ -26,12 +26,13 @@ var ErrInvalidRange = errors.New("invalid port range: start must be ≥ 1 and en
 // Allocator manages a pool of ports within a configurable range.
 // It is safe for concurrent use.
 type Allocator struct {
-	used  map[int]string
-	fixed map[int]string
-	mu    *lockmetrics.RWMutex
-	start int
-	end   int
-	next  int
+	used     map[int]string
+	fixed    map[int]string
+	reserved map[int]string
+	mu       *lockmetrics.RWMutex
+	start    int
+	end      int
+	next     int
 }
 
 // New creates a new Allocator for the half-open range [start, end).
@@ -42,12 +43,13 @@ func New(start, end int) (*Allocator, error) {
 	}
 
 	return &Allocator{
-		start: start,
-		end:   end,
-		next:  start,
-		used:  make(map[int]string),
-		fixed: make(map[int]string),
-		mu:    lockmetrics.New("portalloc"),
+		start:    start,
+		end:      end,
+		next:     start,
+		used:     make(map[int]string),
+		fixed:    make(map[int]string),
+		reserved: make(map[int]string),
+		mu:       lockmetrics.New("portalloc"),
 	}, nil
 }
 
@@ -104,8 +106,13 @@ func (a *Allocator) Reserve(port int, label string) error {
 	a.mu.Lock("Reserve")
 	defer a.mu.Unlock()
 
+	if port <= 0 {
+		return nil
+	}
+
 	if port < a.start || port >= a.end {
 		a.fixed[port] = label
+		a.reserved[port] = label
 
 		return nil
 	}
@@ -115,8 +122,17 @@ func (a *Allocator) Reserve(port int, label string) error {
 	}
 
 	a.used[port] = label
+	a.reserved[port] = label
 
 	return nil
+}
+
+// Reserved returns the ports marked via Reserve (in or out of range), with labels.
+func (a *Allocator) Reserved() map[int]string {
+	a.mu.RLock("Reserved")
+	defer a.mu.RUnlock()
+
+	return maps.Clone(a.reserved)
 }
 
 func (a *Allocator) advanceNext(port int) {

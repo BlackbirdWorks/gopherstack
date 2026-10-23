@@ -9,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/billingexport"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -31,6 +32,9 @@ type InMemoryBackend struct {
 	resolver      SubnetResolver
 	bg            context.Context
 	engine        Engine
+	secrets       SecretStore
+	logSink       billingexport.ObjectStore
+	rootDir       string
 	registry      *store.Registry
 	clusters      *store.Table[DBCluster]
 	mu            *lockmetrics.RWMutex
@@ -45,6 +49,7 @@ type InMemoryBackend struct {
 	wg            sync.WaitGroup
 	dwellOverride time.Duration
 	closed        bool
+	rootOwned     bool
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -85,7 +90,7 @@ func (b *InMemoryBackend) SetSubnetResolver(r SubnetResolver) {
 	b.resolver = r
 }
 
-// Reset clears every table and stops engine containers.
+// Reset clears every table, stops engine containers and deletes their data.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 
@@ -97,10 +102,12 @@ func (b *InMemoryBackend) Reset() {
 	})
 
 	handles := b.detachEnginesLocked(live)
+	b.deleteAllSecretsLocked()
 	b.registry.ResetAll()
 	b.mu.Unlock()
 
 	b.stopEngines(handles)
+	b.removeAllData()
 }
 
 func (b *InMemoryBackend) dwell() time.Duration {

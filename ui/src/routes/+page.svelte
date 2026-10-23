@@ -7,7 +7,9 @@
 	import type { CapturedRequest, DashboardMetrics } from '#lib/api/gopherstack/dashboard/v1/dashboard_pb.ts';
 
 	type PortAllocation = {
+		fixed?: boolean;
 		label: string;
+		listening?: boolean;
 		port: number;
 	};
 
@@ -126,6 +128,8 @@
 
 		return buckets;
 	});
+
+	const fixedPorts = $derived(allocatedPorts.filter((entry) => entry.fixed));
 
 	const systemStats = $derived.by(() => [
 		{
@@ -574,6 +578,25 @@
 							<p class="text-[10px] text-slate-500 italic">Hover an active block to see service and port.</p>
 						{/if}
 					</div>
+					{#if fixedPorts.length > 0}
+						<div class="mt-6">
+							<span class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Dedicated Service Ports</span>
+							<ul class="mt-3 space-y-1" data-testid="fixed-ports">
+								{#each fixedPorts as entry (entry.port)}
+									<li class="flex items-center justify-between text-[10px] font-mono text-slate-300">
+										<span>{formatPortLabel(entry.label)}</span>
+										<span class="flex items-center gap-2">
+											{entry.port}
+											<span
+												class={`inline-block h-2 w-2 rounded-full ${entry.listening ? 'bg-emerald-500' : 'bg-rose-500'}`}
+												title={entry.listening ? 'listening' : 'not listening'}
+											></span>
+										</span>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
 				</div>
 			</div>
 		</section>

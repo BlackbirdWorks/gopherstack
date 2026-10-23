@@ -164,7 +164,7 @@ func (h *S3Handler) notifyObjectCreated(ctx context.Context, bucketName, key str
 	}
 
 	go h.notifier.DispatchObjectCreated(
-		h.notificationDispatchContext(),
+		h.notificationLinkedContext(ctx),
 		bucketName,
 		key,
 		aws.ToString(ver.ETag),

@@ -40,6 +40,9 @@ type StorageBackend interface {
 	) ([]StateMachineAlias, string, error)
 	StartExecution(stateMachineArn, name, input string) (*Execution, error)
 	StartExecutionWithTrace(stateMachineArn, name, input, traceHeader string) (*Execution, error)
+	StartExecutionWithTraceContext(
+		ctx context.Context, stateMachineArn, name, input, traceHeader string,
+	) (*Execution, error)
 	StartSyncExecution(stateMachineArn, name, input string) (*SyncExecutionResult, error)
 	StopExecution(executionArn, errCode, cause string) error
 	RedriveExecution(executionARN string) (*Execution, error)

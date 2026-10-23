@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
-	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
 )
 
 // Engine mode constants. Only embedded starts a server; stub and docker keep
@@ -33,7 +32,7 @@ func (b *InMemoryBackend) startEngineLocked(c *Cluster) error {
 		return nil
 	}
 
-	eng, err := redisengine.Start(b.allocator, engineLabel)
+	eng, err := b.startRedis(c)
 	if err != nil {
 		return fmt.Errorf("start data plane for cluster %q: %w", c.Name, err)
 	}

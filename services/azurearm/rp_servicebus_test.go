@@ -703,3 +703,82 @@ func TestServiceBusProvider_NetworkRuleSet_ParentNamespaceMissing(t *testing.T) 
 	_, err = sp.Put(t.Context(), sbNetworkRuleSetID("missingns"), map[string]any{})
 	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 }
+
+func TestServiceBusProvider_EntityPropertyDefaultsAndRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	sp := azurearm.NewServiceBusProvider(azurearm.ServiceBusEndpointConfig{}, newFakeServiceBusEntities())
+	ctx := t.Context()
+
+	_, err := sp.Put(ctx, sbNamespaceID("rg1", "ns1"), map[string]any{"location": "westus"})
+	require.NoError(t, err)
+
+	_, err = sp.Put(ctx, sbTopicID("ns1"), map[string]any{"properties": map[string]any{"status": "Disabled"}})
+	require.NoError(t, err)
+
+	tests := []struct {
+		want map[string]any
+		sent map[string]any
+		name string
+		id   azurearm.ResourceID
+	}{
+		{
+			name: "queue defaults",
+			id:   sbQueueID("rg1", "ns1", "q1"),
+			want: map[string]any{
+				"enableBatchedOperations": true, "duplicateDetectionHistoryTimeWindow": "PT10M", "status": "Active",
+			},
+		},
+		{
+			name: "queue override",
+			id:   sbQueueID("rg1", "ns1", "q2"),
+			sent: map[string]any{"enableBatchedOperations": false},
+			want: map[string]any{"enableBatchedOperations": false},
+		},
+		{
+			name: "subscription drops unused client affine block",
+			id:   sbSubscriptionID("ns1", "t1", "s2"),
+			sent: map[string]any{"clientAffineProperties": map[string]any{"isDurable": false}},
+			want: map[string]any{"clientAffineProperties": nil},
+		},
+		{
+			name: "topic sent status",
+			id:   sbTopicID("ns1"),
+			want: map[string]any{"status": "Disabled"},
+		},
+		{
+			name: "subscription defaults",
+			id:   sbSubscriptionID("ns1", "t1", "s1"),
+			want: map[string]any{
+				"status": "Active", "deadLetteringOnFilterEvaluationExceptions": true,
+				"autoDeleteOnIdle": "P10675199DT2H48M5.4775807S",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := map[string]any{}
+			if tt.sent != nil {
+				body["properties"] = tt.sent
+			}
+
+			if tt.name != "topic sent status" {
+				_, putErr := sp.Put(ctx, tt.id, body)
+				require.NoError(t, putErr)
+			}
+
+			got, getErr := sp.Get(ctx, tt.id)
+			require.NoError(t, getErr)
+
+			props, ok := got["properties"].(map[string]any)
+			require.True(t, ok)
+
+			for k, v := range tt.want {
+				assert.Equal(t, v, props[k], k)
+			}
+		})
+	}
+}

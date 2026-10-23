@@ -13,6 +13,7 @@ import (
 
 // TestMediaStoreDataDashboard verifies the MediaStore Data dashboard UI renders object data.
 func TestMediaStoreDataDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, _ = stack.MediaStoreDataHandler.Backend.PutObject(
@@ -75,13 +76,13 @@ func TestMediaStoreDataDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-clip.mp4")
 	assert.Contains(t, content, "e2e-clip.mp4")
 }
 
 // TestMediaStoreDataDashboard_Empty verifies the MediaStore Data dashboard renders correctly with no data.
 func TestMediaStoreDataDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -109,8 +110,7 @@ func TestMediaStoreDataDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No objects or folders here. Upload a file to get started.")
 	// The rebuilt page's DataTable emptyMessage for an empty root listing
 	// (see +page.svelte: emptyMessage on the browser DataTable) -- "No
 	// objects stored." was the previous page's text and is not what this

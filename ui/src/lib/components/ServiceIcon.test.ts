@@ -11,7 +11,7 @@ describe("ServiceIcon", () => {
   });
 
   it("shows fallback letter span when image fails to load", async () => {
-    render(ServiceIcon, { props: { icon: "missing-icon", label: "Bedrock" } });
+    render(ServiceIcon, { props: { icon: "s3", label: "Bedrock" } });
     const img = screen.getByRole("img", { name: "Bedrock" });
     // Simulate image load failure
     await fireEvent.error(img);
@@ -21,7 +21,7 @@ describe("ServiceIcon", () => {
   });
 
   it("fallback shows the first letter of the label", async () => {
-    render(ServiceIcon, { props: { icon: "no-such-icon", label: "Lambda" } });
+    render(ServiceIcon, { props: { icon: "s3", label: "Lambda" } });
     const img = screen.getByRole("img", { name: "Lambda" });
     await fireEvent.error(img);
     expect(screen.getByText("L")).toBeInTheDocument();
@@ -35,7 +35,7 @@ describe("ServiceIcon", () => {
   });
 
   it("applies custom class to the fallback span", async () => {
-    render(ServiceIcon, { props: { icon: "missing", label: "SQS", class: "w-8 h-8" } });
+    render(ServiceIcon, { props: { icon: "s3", label: "SQS", class: "w-8 h-8" } });
     const img = screen.getByRole("img", { name: "SQS" });
     await fireEvent.error(img);
     const span = screen.getByText("S");
@@ -51,9 +51,15 @@ describe("ServiceIcon", () => {
   });
 
   it("renders uppercase first letter in fallback", async () => {
-    render(ServiceIcon, { props: { icon: "none", label: "ec2" } });
+    render(ServiceIcon, { props: { icon: "s3", label: "ec2" } });
     const img = screen.getByRole("img", { name: "ec2" });
     await fireEvent.error(img);
     expect(screen.getByText("E")).toBeInTheDocument();
+  });
+
+  it("renders the letter without requesting an icon missing from the manifest", () => {
+    render(ServiceIcon, { props: { icon: "no-such-icon", label: "Zed" } });
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByText("Z")).toBeInTheDocument();
   });
 });

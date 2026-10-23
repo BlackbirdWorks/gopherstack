@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // PutRemediationConfigurations stores remediation configurations keyed by rule name.
@@ -14,9 +16,11 @@ func (b *InMemoryBackend) PutRemediationConfigurations(configs []RemediationConf
 	for i := range configs {
 		cp := configs[i]
 		if cp.Arn == "" {
-			cp.Arn = fmt.Sprintf(
-				"arn:aws:config:%s:%s:remediation-configuration/%s",
-				b.region, b.accountID, cp.ConfigRuleName,
+			cp.Arn = arn.Build(
+				"config",
+				b.region,
+				b.accountID,
+				fmt.Sprintf("remediation-configuration/%s", cp.ConfigRuleName),
 			)
 		}
 

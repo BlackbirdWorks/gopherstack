@@ -1,6 +1,9 @@
 package opencypher
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
 const maxVarHops = 64
 
@@ -170,6 +173,10 @@ func (x *exec) expand(
 	path *Path,
 	emit func(row) error,
 ) error {
+	if err := x.ctx.Err(); err != nil {
+		return fmt.Errorf("query cancelled: %w", err)
+	}
+
 	if i == len(p.rels) {
 		out := r
 		if p.pathVar != "" {

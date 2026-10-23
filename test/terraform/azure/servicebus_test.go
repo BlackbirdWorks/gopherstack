@@ -118,7 +118,7 @@ func TestTerraform_Azure_ServiceBus(t *testing.T) {
 	dir := t.TempDir()
 	hcl := azurermProviderBlock(endpoint) + azureServiceBusFixture
 
-	applyAzureTofu(t, dir, hcl)
+	applyAzureTofuNoDrift(t, dir, hcl)
 
 	// Both subtests exercise independent, already-Terraform-created
 	// resources (the queue vs. the topic/subscription pair) against

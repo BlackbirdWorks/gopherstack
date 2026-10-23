@@ -16,6 +16,7 @@ import (
 
 // TestCloudFormationDashboard verifies the CloudFormation dashboard UI renders stacks.
 func TestCloudFormationDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CloudFormationHandler.Backend.CreateStack(
@@ -52,13 +53,13 @@ func TestCloudFormationDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-stack")
 	assert.Contains(t, content, "e2e-test-stack")
 }
 
 // TestCloudFormationDashboard_Empty verifies the empty state renders correctly.
 func TestCloudFormationDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -86,7 +87,6 @@ func TestCloudFormationDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "CloudFormation")
 	assert.Contains(t, content, "CloudFormation")
 }

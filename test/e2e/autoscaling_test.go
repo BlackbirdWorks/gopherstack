@@ -15,6 +15,7 @@ import (
 
 // TestAutoscalingDashboard verifies the Autoscaling dashboard UI renders groups and launch configurations.
 func TestAutoscalingDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.AutoscalingHandler.Backend.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
@@ -58,14 +59,14 @@ func TestAutoscalingDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-asg", "Auto Scaling Groups")
 	assert.Contains(t, content, "e2e-test-asg")
 	assert.Contains(t, content, "Auto Scaling Groups")
 }
 
 // TestAutoscalingDashboard_Empty verifies the Autoscaling dashboard empty state renders correctly.
 func TestAutoscalingDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -93,7 +94,6 @@ func TestAutoscalingDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Auto Scaling")
 	assert.Contains(t, content, "Auto Scaling")
 }

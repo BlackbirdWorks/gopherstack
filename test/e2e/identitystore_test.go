@@ -17,6 +17,7 @@ const testE2EStoreID = "d-0000000000"
 
 // TestIdentityStoreDashboard verifies the Identity Store dashboard renders with seeded data.
 func TestIdentityStoreDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed a user.
@@ -76,8 +77,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "alice.smith", "Alice Smith", "Engineering")
 	assert.Contains(t, content, "alice.smith")
 	assert.Contains(t, content, "Alice Smith")
 	assert.Contains(t, content, "Engineering")
@@ -85,6 +85,7 @@ func TestIdentityStoreDashboard(t *testing.T) {
 
 // TestIdentityStoreDashboard_Empty verifies the Identity Store dashboard renders with no data.
 func TestIdentityStoreDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -112,13 +113,13 @@ func TestIdentityStoreDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Identity Store")
 	assert.Contains(t, content, "Identity Store")
 }
 
 // TestIdentityStoreDashboard_CreateUser verifies the create user form flow.
 func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -168,14 +169,14 @@ func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "bob.jones", "Bob Jones")
 	assert.Contains(t, content, "bob.jones")
 	assert.Contains(t, content, "Bob Jones")
 }
 
 // TestIdentityStoreDashboard_CreateGroup verifies the create group form flow.
 func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -235,14 +236,14 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Platform Team")
 	assert.Contains(t, content, "Platform Team")
 }
 
 // TestIdentityStoreDashboard_MembershipAndProfileFlow verifies profile editing,
 // group membership add/remove, and identity store selector behavior.
 func TestIdentityStoreDashboard_MembershipAndProfileFlow(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

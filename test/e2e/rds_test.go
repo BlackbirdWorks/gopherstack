@@ -15,6 +15,7 @@ import (
 
 // TestRDSDashboard verifies the RDS dashboard UI renders instances.
 func TestRDSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.RDSHandler.Backend.CreateDBInstance(
@@ -47,14 +48,14 @@ func TestRDSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-db", "postgres")
 	assert.Contains(t, content, "test-db")
 	assert.Contains(t, content, "postgres")
 }
 
 // TestRDSDashboard_Empty verifies the empty state renders correctly.
 func TestRDSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -82,13 +83,13 @@ func TestRDSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No RDS instances")
 	assert.Contains(t, content, "No RDS instances")
 }
 
 // TestRDSDashboard_CreateAndDelete verifies the create-instance modal behavior in the current UI.
 func TestRDSDashboard_CreateAndDelete(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -126,8 +127,7 @@ func TestRDSDashboard_CreateAndDelete(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Use the AWS console or CLI")
 	assert.Contains(t, content, "Use the AWS console or CLI")
 
 	err = page.Locator("button:has-text('Close')").First().Click()

@@ -22,6 +22,8 @@ type InMemoryBackend struct {
 	snsPublisher         SNSPublisher
 	inboundStore         InboundObjectStore
 	inboundLambda        InboundLambdaInvoker
+	inboundKMS           InboundKMS
+	inboundDNS           InboundTXTResolver
 	inboundLog           []InboundMessage
 	relay                *smtprelay.Relay
 	customVerifTemplates *store.Table[CustomVerificationEmailTemplate]

@@ -11,7 +11,7 @@ package lambda
 //
 // Lambda has a wrinkle the ec2/sqs/dynamodb conversions did not: several
 // resource maps that DO have a pure key function were never wired into
-// backendSnapshot (codeSigningConfigs, capacityProviders,
+// backendSnapshot (codeSigningConfigs,
 // provisionedConcurrencies -- see persistence.go's backendSnapshot for the
 // exact set that WAS already persisted before this refactor). Registering
 // those three into the same registry Snapshot()/Restore() use would silently
@@ -182,7 +182,11 @@ func codeSigningConfigKeyFn(v *CodeSigningConfig) string { return v.CodeSigningC
 
 // capacityProviderKeyFn is the store.Table key function for
 // b.capacityProviders.
-func capacityProviderKeyFn(v *CapacityProvider) string { return v.Name }
+func capacityProviderKeyFn(v *CapacityProvider) string {
+	name, _ := capacityProviderNameFromARN(v.CapacityProviderArn)
+
+	return name
+}
 
 // provisionedConcurrencyKeyFn is the store.Table key function for
 // b.provisionedConcurrencies. FunctionArn is built via buildAliasARN
@@ -225,7 +229,7 @@ func registerAllTables(b *InMemoryBackend) {
 	b.permissionsByTarget = b.permissions.AddIndex("target", permissionTargetKeyFn)
 
 	b.codeSigningConfigs = store.Register(b.ephemeralRegistry, "codeSigningConfigs", store.New(codeSigningConfigKeyFn))
-	b.capacityProviders = store.Register(b.ephemeralRegistry, "capacityProviders", store.New(capacityProviderKeyFn))
+	b.capacityProviders = store.Register(b.registry, "capacityProviders", store.New(capacityProviderKeyFn))
 
 	b.provisionedConcurrencies = store.Register(
 		b.ephemeralRegistry, "provisionedConcurrencies", store.New(provisionedConcurrencyKeyFn),

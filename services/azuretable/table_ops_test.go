@@ -85,8 +85,8 @@ func TestListTables(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"b"}`))
-	doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"a"}`))
+	doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"tableb"}`))
+	doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"tablea"}`))
 
 	rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/Tables", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -96,15 +96,15 @@ func TestListTables(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Value, 2)
-	assert.Equal(t, "a", body.Value[0]["TableName"])
-	assert.Equal(t, "b", body.Value[1]["TableName"])
+	assert.Equal(t, "tablea", body.Value[0]["TableName"])
+	assert.Equal(t, "tableb", body.Value[1]["TableName"])
 }
 
 func TestListTables_NoMetadataLevel(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"a"}`))
+	doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"tablea"}`))
 
 	req := httptest.NewRequest(http.MethodGet, "/"+testAccount+"/Tables", http.NoBody)
 	req.Header.Set("Accept", "application/json;odata=nometadata")
@@ -127,7 +127,7 @@ func TestListTables_FullMetadataLevel(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"a"}`))
+	doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"tablea"}`))
 
 	req := httptest.NewRequest(http.MethodGet, "/"+testAccount+"/Tables", http.NoBody)
 	req.Header.Set("Accept", "application/json;odata=fullmetadata")

@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func tenantKey(instanceID, tenantDBName string) string {
@@ -53,9 +55,11 @@ func (b *InMemoryBackend) CreateTenantDatabaseWithSecret(
 		DBInstanceIdentifier: instanceID,
 		TenantDBName:         tenantDBName,
 		MasterUsername:       masterUsername,
-		TenantDatabaseARN: fmt.Sprintf(
-			"arn:aws:rds:%s:%s:tenant-database:%s/%s",
-			b.region, b.accountID, instanceID, tenantDBName,
+		TenantDatabaseARN: arn.Build(
+			"rds",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("tenant-database:%s/%s", instanceID, tenantDBName),
 		),
 		DbiResourceID: fmt.Sprintf("db-%s-%s", instanceID, tenantDBName),
 		Status:        tenantStatusAvailableInternal,
@@ -258,9 +262,11 @@ func (b *InMemoryBackend) ModifyTenantDatabaseWithSecret(
 
 		b.tenantDatabases.Delete(key)
 		tdb.TenantDBName = newTenantDBName
-		tdb.TenantDatabaseARN = fmt.Sprintf(
-			"arn:aws:rds:%s:%s:tenant-database:%s/%s",
-			b.region, b.accountID, instanceID, newTenantDBName,
+		tdb.TenantDatabaseARN = arn.Build(
+			"rds",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("tenant-database:%s/%s", instanceID, newTenantDBName),
 		)
 		b.tenantDatabases.Put(tdb)
 	}

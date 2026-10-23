@@ -254,8 +254,6 @@ func TestParseErrors(t *testing.T) {
 		{name: "unknown func", query: `bogus(up)`},
 		{name: "bad regex", query: `up{job=~"("}`},
 		{name: "trailing", query: `up up`},
-		{name: "subquery", query: `rate(up[5m:1m])`},
-		{name: "group_left", query: `up * on(job) group_left up`},
 		{name: "bad arity", query: `rate(up[1m], 3)`},
 		{name: "dangling op", query: `up +`},
 	}

@@ -1763,7 +1763,7 @@ End-to-end CLI/SDK flows (cp/sync/mv, multipart, object lock, CORS, conditional 
 - CORS `AllowedHeader` honours a single `*` wildcard (`x-amz-*`); preflight and actual responses carry `Vary`. Proof: `TestCORSPreflightHeaderWildcard`.
 - A lifecycle rule with no action is 400 InvalidRequest. Proof: `TestLifecycleRuleRequiresAction`.
 
-Kept lenient: CORS `Access-Control-Allow-Origin` echoes the origin even for a `*` rule; static website serving stays on `/_gopherstack/website/{bucket}/{key}` (no Host-based endpoint); presigned URLs are not method-bound.
+Kept lenient: CORS `Access-Control-Allow-Origin` echoes the origin even for a `*` rule; static website serving lives on `/_gopherstack/website/{bucket}/{key}`; `<bucket>.s3-website-<region>` hosts reach it only through the transparent listeners (`pkgs/transparent` `S3HostRouter`); presigned URLs are not method-bound.
 
 ## 2026-10-18: SelectObjectContent Parquet input (cefu7.36)
 

@@ -174,7 +174,7 @@ func (b *InMemoryBackend) applyPlan(ctx context.Context, lb *liveBroker, plan re
 	}
 
 	for _, n := range lb.nodes() {
-		if err := e.awaitReady(ctx, probe, e.nodeAddr(n, consumerPortName(lb.engine))); err != nil {
+		if err := e.awaitReady(ctx, probe, e.probeAddr(n, consumerPortName(lb.engine))); err != nil {
 			return err
 		}
 	}

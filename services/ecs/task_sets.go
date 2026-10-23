@@ -65,9 +65,11 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 	}
 
 	id := newTaskSetSuffix()
-	taskSetArn := fmt.Sprintf(
-		"arn:aws:ecs:%s:%s:task-set/%s/%s/ecs-svc/%s",
-		b.region, b.accountID, clusterName, svcKey, id,
+	taskSetArn := arn.Build(
+		"ecs",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("task-set/%s/%s/ecs-svc/%s", clusterName, svcKey, id),
 	)
 
 	launchType := input.LaunchType

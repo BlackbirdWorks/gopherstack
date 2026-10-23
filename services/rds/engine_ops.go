@@ -186,8 +186,9 @@ func (b *InMemoryBackend) applyMasterPassword(key, newPassword string, stateErr 
 	return nil
 }
 
-// relaunchUnitsLocked starts an empty container per restored resource; passwords are not persisted, so each
-// relaunched engine gets a random one.
+// relaunchUnitsLocked starts a container per restored resource, loaded from its last captured dump. Read
+// replicas are rebuilt from their relaunched source and replicate again. Passwords are not persisted, so an
+// engine without a captured dump gets a random one.
 func (b *InMemoryBackend) relaunchUnitsLocked() {
 	if b.engine == nil {
 		return
@@ -198,23 +199,85 @@ func (b *InMemoryBackend) relaunchUnitsLocked() {
 			continue
 		}
 
-		b.provisionClusterLocked(c, "")
+		seed := b.latestPointSeedLocked(unitKeyForCluster(c.DBClusterIdentifier))
+		b.provisionSeededClusterLocked(c, "", seed)
 		delete(b.clusterReadyAt, c.DBClusterIdentifier)
 	}
+
+	var replicas []*DBInstance
 
 	for _, inst := range b.instances.All() {
 		if engineKind(inst.Engine) == "" || inst.DBInstanceStatus == instanceStatusDeleting {
 			continue
 		}
 
-		inst.DBInstanceStatus = instanceStatusCreating
+		if b.engine.canStream() && inst.DBClusterIdentifier == "" && isReplicaInstance(inst) {
+			replicas = append(replicas, inst)
 
-		if b.provisionInstanceLocked(inst, "") {
-			delete(b.instanceReadyAt, inst.DBInstanceIdentifier)
-		} else {
-			inst.DBInstanceStatus = instanceStatusAvailable
+			continue
 		}
+
+		b.relaunchStandaloneLocked(inst)
 	}
+
+	b.relaunchReplicasLocked(replicas)
+}
+
+func isReplicaInstance(inst *DBInstance) bool {
+	return inst.ReplicaSourceDBInstanceIdentifier != "" || inst.ReplicaSourceDBClusterIdentifier != ""
+}
+
+func (b *InMemoryBackend) relaunchStandaloneLocked(inst *DBInstance) {
+	inst.DBInstanceStatus = instanceStatusCreating
+	delete(b.instanceReadyAt, inst.DBInstanceIdentifier)
+
+	seed := b.latestPointSeedLocked(unitKeyForInstance(inst.DBInstanceIdentifier))
+	if !b.provisionSeededInstanceLocked(inst, "", seed) {
+		inst.DBInstanceStatus = instanceStatusAvailable
+	}
+}
+
+// relaunchReplicasLocked starts each replica once its source unit exists, so cascading replicas follow their
+// parents. A replica whose source is gone comes back as a primary from its own dump.
+func (b *InMemoryBackend) relaunchReplicasLocked(pending []*DBInstance) {
+	for len(pending) > 0 {
+		var waiting []*DBInstance
+
+		for _, inst := range pending {
+			if src := b.restoredReplicaSourceLocked(inst); src != nil {
+				inst.DBInstanceStatus = instanceStatusCreating
+				delete(b.instanceReadyAt, inst.DBInstanceIdentifier)
+				b.seedReplicaLocked(inst, src)
+
+				continue
+			}
+
+			waiting = append(waiting, inst)
+		}
+
+		if len(waiting) == len(pending) {
+			for _, inst := range waiting {
+				b.relaunchStandaloneLocked(inst)
+			}
+
+			return
+		}
+
+		pending = waiting
+	}
+}
+
+func (b *InMemoryBackend) restoredReplicaSourceLocked(inst *DBInstance) *liveDB {
+	if inst.ReplicaSourceDBClusterIdentifier != "" {
+		return b.clusterUnitLocked(inst.ReplicaSourceDBClusterIdentifier)
+	}
+
+	src, ok := b.instances.Get(normalizeID(inst.ReplicaSourceDBInstanceIdentifier))
+	if !ok {
+		return nil
+	}
+
+	return b.instanceUnitLocked(src)
 }
 
 // engineManaged reports whether docker mode backs the given RDS engine with a real container.

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // validateCreatePortalAuthorization enforces Authorization's required
@@ -129,7 +131,7 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 	}
 	portal := &Portal{
 		PortalID:                  id,
-		PortalArn:                 "arn:aws:apigateway:" + b.region + "::/portals/" + id,
+		PortalArn:                 arn.Build("apigateway", b.region, "", "/portals/"+id),
 		LogoURI:                   input.LogoURI,
 		LastModified:              &now,
 		Tags:                      copyTags(input.Tags),
@@ -186,7 +188,7 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 	now := isoTime{time.Now()}
 	product := &PortalProduct{
 		PortalProductID:  id,
-		PortalProductArn: "arn:aws:apigateway:" + b.region + "::/portalproducts/" + id,
+		PortalProductArn: arn.Build("apigateway", b.region, "", "/portalproducts/"+id),
 		DisplayName:      input.DisplayName,
 		Description:      input.Description,
 		LastModified:     &now,
@@ -226,7 +228,7 @@ func (b *InMemoryBackend) CreateProductPage(
 	id := randomID()
 	page := &ProductPage{
 		ProductPageID:   id,
-		ProductPageArn:  "arn:aws:apigateway:" + b.region + "::/portalproducts/" + portalProductID + "/pages/" + id,
+		ProductPageArn:  arn.Build("apigateway", b.region, "", "/portalproducts/"+portalProductID+"/pages/"+id),
 		PortalProductID: portalProductID,
 		DisplayContent:  input.DisplayContent,
 		PageTitle:       displayContentTitle(input.DisplayContent),
@@ -362,8 +364,12 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 	id := randomID()
 	page := &ProductRestEndpointPage{
 		ProductRestEndpointPageID: id,
-		ProductRestEndpointPageArn: "arn:aws:apigateway:" + b.region +
-			"::/portalproducts/" + portalProductID + "/restendpointpages/" + id,
+		ProductRestEndpointPageArn: arn.Build(
+			"apigateway",
+			b.region,
+			"",
+			"/portalproducts/"+portalProductID+"/restendpointpages/"+id,
+		),
 		PortalProductID:        portalProductID,
 		LastModified:           &now,
 		RestEndpointIdentifier: input.RestEndpointIdentifier,

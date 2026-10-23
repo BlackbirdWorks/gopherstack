@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
@@ -191,7 +192,7 @@ func buildS3EventPayload(
 			ConfigurationID: configID,
 			Bucket: s3EventBucket{
 				Name: bucket,
-				ARN:  arn.BuildS3(bucket),
+				ARN:  arn.S3(region, bucket),
 			},
 			Object: s3EventObject{
 				Key:       key,
@@ -434,7 +435,8 @@ func (d *inMemoryNotificationDispatcher) dispatchToQueue(
 	}
 
 	if d.targets != nil && d.targets.SQSSender != nil {
-		_ = d.targets.SQSSender.SendMessageToQueue(ctx, qc.Queue, payload)
+		cctx, sp := d.startSpan(ctx, "sqs", "SendMessage", qc.Queue)
+		sp.FinishErr(d.targets.SQSSender.SendMessageToQueue(cctx, qc.Queue, payload))
 	}
 }
 
@@ -454,7 +456,8 @@ func (d *inMemoryNotificationDispatcher) dispatchToTopic(
 	}
 
 	if d.targets != nil && d.targets.SNSPublisher != nil {
-		_ = d.targets.SNSPublisher.PublishToTopic(ctx, tc.Topic, payload, "S3Notification")
+		cctx, sp := d.startSpan(ctx, "sns", "Publish", tc.Topic)
+		sp.FinishErr(d.targets.SNSPublisher.PublishToTopic(cctx, tc.Topic, payload, "S3Notification"))
 	}
 }
 
@@ -474,13 +477,18 @@ func (d *inMemoryNotificationDispatcher) dispatchToLambda(
 	}
 
 	if d.targets != nil && d.targets.LambdaInvoker != nil {
-		_, _, _ = d.targets.LambdaInvoker.InvokeFunction(
-			ctx,
-			lc.CloudFunc,
-			"Event",
-			[]byte(payload),
-		)
+		cctx, sp := d.startSpan(ctx, "lambda", "Invoke", lc.CloudFunc)
+		_, _, err = d.targets.LambdaInvoker.InvokeFunction(cctx, lc.CloudFunc, "Event", []byte(payload))
+		sp.FinishErr(err)
 	}
+}
+
+func (d *inMemoryNotificationDispatcher) startSpan(
+	ctx context.Context, svc, op, resource string,
+) (context.Context, *apptrace.Span) {
+	return apptrace.StartChild(ctx, apptrace.ChildInfo{
+		Service: svc, Operation: op, Resource: resource, Region: d.region,
+	})
 }
 
 // matchesAnyEvent returns true if eventName matches any of the given event patterns.
@@ -511,5 +519,7 @@ func (d *inMemoryNotificationDispatcher) dispatchToEventBridge(
 		return
 	}
 
-	d.targets.EventBridgePublisher.PublishS3Event(ctx, "aws.s3", detailType, detail)
+	cctx, sp := d.startSpan(ctx, "events", "PutEvents", "aws.s3 "+detailType)
+	d.targets.EventBridgePublisher.PublishS3Event(cctx, "aws.s3", detailType, detail)
+	sp.Finish("")
 }

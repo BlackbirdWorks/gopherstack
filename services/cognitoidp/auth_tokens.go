@@ -717,14 +717,19 @@ func (b *InMemoryBackend) AdminUserGlobalSignOut(userPoolID, username string) er
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
+	b.signOutUserLocked(userPoolID, username)
+
+	return nil
+}
+
+// signOutUserLocked revokes the user's refresh tokens, earlier access tokens and hosted sessions.
+func (b *InMemoryBackend) signOutUserLocked(userPoolID, username string) {
 	b.deleteRefreshTokensForUserLocked(userPoolID, username)
 
 	key := userPoolID + ":" + username
 	b.tokenRevokedBeforeSeq[key] = b.tokenSeq
 	b.tokenRevokedBefore[key] = time.Now().UTC()
 	b.dropHostedSessionsLocked(userPoolID, username)
-
-	return nil
 }
 
 // GlobalSignOut signs out the authenticated user by revoking their refresh tokens

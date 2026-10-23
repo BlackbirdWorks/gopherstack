@@ -50,6 +50,8 @@ type InMemoryBackend struct {
 	catalog       *Catalog
 	orgs          OrgDirectory
 	usage         UsageSource
+	notifier      Notifier
+	notices       *store.Table[AutoNotice]
 	accountID     string
 	region        string
 	seq           int64

@@ -3,6 +3,7 @@ package azureservicebus
 import (
 	"encoding/xml"
 	"strconv"
+	"strings"
 )
 
 // This file implements two directions of Service Bus's Atom+XML management
@@ -72,6 +73,7 @@ type entityDescriptionIn struct {
 	LockDuration             string `xml:"LockDuration"`
 	MaxDeliveryCount         string `xml:"MaxDeliveryCount"`
 	DefaultMessageTimeToLive string `xml:"DefaultMessageTimeToLive"`
+	RequiresSession          string `xml:"RequiresSession"`
 }
 
 // toConfig converts d's string fields to an EntityConfig, silently leaving a
@@ -101,6 +103,8 @@ func (d *entityDescriptionIn) toConfig() EntityConfig {
 			cfg.MaxDeliveryCount = n
 		}
 	}
+
+	cfg.RequiresSession = strings.EqualFold(strings.TrimSpace(d.RequiresSession), "true")
 
 	return cfg
 }
@@ -161,10 +165,28 @@ func parseAtomEntityBody(body []byte) (parsedEntityBody, bool) {
 // full QueueDescription/TopicDescription/SubscriptionDescription can carry
 // -- see PARITY.md's Get/List fidelity note.
 type queueDescriptionOut struct {
-	Xmlns                    string `xml:"xmlns,attr"`
-	LockDuration             string `xml:"LockDuration"`
-	DefaultMessageTimeToLive string `xml:"DefaultMessageTimeToLive"`
-	MaxDeliveryCount         int    `xml:"MaxDeliveryCount"`
+	Xmlns                    string          `xml:"xmlns,attr"`
+	LockDuration             string          `xml:"LockDuration"`
+	DefaultMessageTimeToLive string          `xml:"DefaultMessageTimeToLive"`
+	CountDetails             countDetailsOut `xml:"CountDetails"`
+	MaxDeliveryCount         int             `xml:"MaxDeliveryCount"`
+	MessageCount             int             `xml:"MessageCount"`
+	RequiresSession          bool            `xml:"RequiresSession"`
+}
+
+// countDetailsOut is the CountDetails element real Service Bus embeds in
+// queue and subscription descriptions.
+type countDetailsOut struct {
+	Xmlns                          string `xml:"xmlns,attr"`
+	ActiveMessageCount             int    `xml:"ActiveMessageCount"`
+	DeadLetterMessageCount         int    `xml:"DeadLetterMessageCount"`
+	ScheduledMessageCount          int    `xml:"ScheduledMessageCount"`
+	TransferMessageCount           int    `xml:"TransferMessageCount"`
+	TransferDeadLetterMessageCount int    `xml:"TransferDeadLetterMessageCount"`
+}
+
+func newCountDetails(active, deadLetter int) countDetailsOut {
+	return countDetailsOut{Xmlns: sbDescriptionNS, ActiveMessageCount: active, DeadLetterMessageCount: deadLetter}
 }
 
 type topicDescriptionOut struct {
@@ -173,9 +195,12 @@ type topicDescriptionOut struct {
 }
 
 type subscriptionDescriptionOut struct {
-	Xmlns            string `xml:"xmlns,attr"`
-	LockDuration     string `xml:"LockDuration"`
-	MaxDeliveryCount int    `xml:"MaxDeliveryCount"`
+	Xmlns            string          `xml:"xmlns,attr"`
+	LockDuration     string          `xml:"LockDuration"`
+	CountDetails     countDetailsOut `xml:"CountDetails"`
+	MaxDeliveryCount int             `xml:"MaxDeliveryCount"`
+	MessageCount     int             `xml:"MessageCount"`
+	RequiresSession  bool            `xml:"RequiresSession"`
 }
 
 // atomContentOut wraps exactly one *Description in the "application/xml"
@@ -216,6 +241,9 @@ func queueEntryXML(info QueueInfo) atomEntryOut {
 				LockDuration:             formatISO8601Duration(info.LockDuration),
 				MaxDeliveryCount:         info.MaxDeliveryCount,
 				DefaultMessageTimeToLive: formatISO8601Duration(info.DefaultMessageTTL),
+				RequiresSession:          info.RequiresSession,
+				MessageCount:             info.ActiveMessageCount + info.DeadLetterMessageCount,
+				CountDetails:             newCountDetails(info.ActiveMessageCount, info.DeadLetterMessageCount),
 			},
 		},
 	}
@@ -245,6 +273,9 @@ func subscriptionEntryXML(info SubscriptionInfo) atomEntryOut {
 				Xmlns:            sbDescriptionNS,
 				LockDuration:     formatISO8601Duration(info.LockDuration),
 				MaxDeliveryCount: info.MaxDeliveryCount,
+				RequiresSession:  info.RequiresSession,
+				MessageCount:     info.ActiveMessageCount + info.DeadLetterMessageCount,
+				CountDetails:     newCountDetails(info.ActiveMessageCount, info.DeadLetterMessageCount),
 			},
 		},
 	}

@@ -1,0 +1,69 @@
+---
+service: gcpsql
+sdk_module: hashicorp/terraform-provider-google@v8.5.0
+last_audit_commit: c7d1c8106
+last_audit_date: 2026-10-20
+overall: B
+# Per-op or per-op-family status. Values: ok | partial | gap | deferred.
+# wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
+ops:
+  InsertInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /projects/{p}/instances. Name [a-z][-a-z0-9]*, databaseVersion POSTGRES_14..17 or MYSQL_8_0/MYSQL_8_4 (SQLSERVER and older versions are a 400 naming the supported list; default MYSQL_8_0), settings.tier required, region defaults us-central1. Returns a PENDING CREATE operation; the instance is PENDING_CREATE until the engine accepts connections, then RUNNABLE and the operation DONE. 409 instanceAlreadyExists on reuse."}
+  GetInstance: {wire: ok, errors: ok, state: ok, persist: n/a, note: "404 instanceDoesNotExist. Settings echo what was sent plus the API defaults (activationPolicy, availabilityType, dataDiskSizeGb, dataDiskType, pricingPlan, backupConfiguration, ipConfiguration, locationPreference, settingsVersion...). ipAddresses has the PRIMARY address 127.0.0.1; the published host port is in the non-standard gopherstackEndpoint field."}
+  ListInstances: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Sorted by name, paged with maxResults/pageToken; the filter parameter is ignored."}
+  PatchInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "Merge patch of settings (objects merge, lists and scalars replace); settingsVersion increments. activationPolicy NEVER stops the container (state SUSPENDED) and ALWAYS starts it; a changed databaseFlags list is applied to the engine with a restart. databaseVersion changes are a 400."}
+  UpdateInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT replaces settings and re-applies defaults; a stale settingsVersion is 412 conditionNotMet."}
+  DeleteInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "State PENDING_DELETE, then the container, host port and dump directory are released and the instance disappears. deletionProtectionEnabled is a 400."}
+  RestartInstance: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Persists databaseFlags in the data directory (ALTER SYSTEM / SET PERSIST_ONLY) and restarts the container; 409 while SUSPENDED."}
+  CloneInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "New instance with copied settings, databases, accounts (with passwords) and data (logical dump restored into the new engine). pointInTime and pitrTimestampMs are a 400."}
+  ExportInstance: {wire: ok, errors: ok, state: ok, persist: n/a, note: "SQL (pg_dump / mysqldump via the container) or CSV (selectQuery) to gs:// in the GCS emulator; .gz objects are gzipped. SQL exports omit owners and privileges so they load elsewhere. BAK is a 400. State-only instances fail the operation."}
+  ImportInstance: {wire: ok, errors: ok, state: ok, persist: n/a, note: "SQL (psql / mysql source) or CSV (table, columns) from gs://; gzip is detected by magic bytes. Databases the file creates are added to the instance. BAK is a 400."}
+  RestoreBackup: {wire: ok, errors: ok, state: ok, persist: ok, note: "restoreBackupContext.backupRunId (same instance or instanceId) restores the logical dump; the engine family must match."}
+  InsertDatabase: {wire: ok, errors: partial, state: ok, persist: ok, note: "Created in the engine with CREATE DATABASE; MySQL honours charset/collation, PostgreSQL stores them only. 409 on duplicates (reason unverified). Failed engine work removes the record again."}
+  GetDatabase: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListDatabases: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Includes the built-in databases (postgres; information_schema, mysql, performance_schema, sys)."}
+  PatchDatabase: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Accepts the current charset and collation only; a change is a 400 because the engine cannot alter them."}
+  UpdateDatabase: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Same as PatchDatabase."}
+  DeleteDatabase: {wire: ok, errors: ok, state: ok, persist: ok, note: "DROP DATABASE; built-in databases are a 400."}
+  InsertUser: {wire: ok, errors: partial, state: ok, persist: ok, note: "BUILT_IN accounts get CREATE ROLE ... LOGIN PASSWORD (PostgreSQL, member of cloudsqlsuperuser) or CREATE USER ... GRANT ALL (MySQL, host defaults to %). IAM types are stored and created without a password. PostgreSQL ignores host."}
+  UpdateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /users?name=&host= changes the password in the engine; updating postgres/root also changes the admin credential the emulator uses."}
+  GetUser: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Passwords are never returned."}
+  ListUsers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Includes the built-in postgres / root@% account."}
+  DeleteUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "DROP ROLE / DROP USER; the built-in admin is removed from the list only."}
+  InsertBackupRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "On-demand logical dump of every user database (256 MiB cap), kept in memory and in the snapshot. State-only instances record the run without data."}
+  GetBackupRun: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListBackupRuns: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Newest first."}
+  DeleteBackupRun: {wire: ok, errors: ok, state: ok, persist: ok}
+  InsertSslCert: {wire: ok, errors: ok, state: ok, persist: ok, note: "Client certificate and private key signed by the per-instance CA (ECDSA P-256)."}
+  GetSslCert: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Addressed by sha1Fingerprint."}
+  ListSslCerts: {wire: ok, errors: ok, state: ok, persist: n/a}
+  DeleteSslCert: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateEphemeral: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Signs the supplied RSA/ECDSA/Ed25519 public key for at most one hour."}
+  GenerateEphemeralCert: {wire: ok, errors: ok, state: ok, persist: n/a, note: "POST /instances/{i}:generateEphemeralCert with public_key and validDuration."}
+  GetConnectSettings: {wire: ok, errors: ok, state: ok, persist: n/a, note: "serverCaCert, ipAddresses, region, databaseVersion, backendType."}
+  GetOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "status PENDING, RUNNING, DONE with error.errors on failure; operations of one instance run in submission order."}
+  ListOperations: {wire: ok, errors: ok, state: ok, persist: ok, note: "Newest first, optional instance filter, paged."}
+  CancelOperation: {wire: ok, errors: partial, state: ok, persist: n/a, note: "Only operations that have not started and are IMPORT or EXPORT are cancelled; others are left alone."}
+  ListFlags: {wire: partial, errors: ok, state: ok, persist: n/a, note: "Static subset of the real flag catalogue (12 PostgreSQL, 11 MySQL flags), filtered by databaseVersion."}
+  ListTiers: {wire: partial, errors: ok, state: ok, persist: n/a, note: "Static list: db-f1-micro, db-g1-small, db-n1-standard-N, db-n1-highmem-N."}
+families:
+  engines: {status: ok, note: "PostgreSQL 14-17 and MySQL 8.0/8.4 run as containers (postgres:N, mysql:N) through pkgs/container with a host port from the shared pool (portalloc.AcquireFrom, CreateAndStartRetry). Admin SQL runs from the emulator over the published port (pgx, go-sql-driver); dumps and restores run pg_dump/psql/mysqldump/mysql inside the container against a bind-mounted temp directory. Verified end to end with real containers in TestDockerEngines (flags, users, databases, export, import, clone, backup, restore)."}
+  state_only: {status: partial, note: "With --gcp-sql-engine=none, or when no container runtime is reachable, instances are state-only: they reach RUNNABLE immediately, databases and users are records only, and export, import and clone data copy fail or skip. This is what the Terraform suite runs (the gopherstack container has no runtime socket)."}
+  connecting: {status: partial, note: "Real Cloud SQL listens on 5432/3306 at the instance IP. The emulator publishes each engine on 127.0.0.1 and a pooled host port, reported in the non-standard instance and connectSettings field gopherstackEndpoint (host:port); ipAddresses carries only 127.0.0.1. Connect with psql -h 127.0.0.1 -p <port> -U <user>. The engine speaks plain TCP: serverCaCert and client certificates are issued but not enforced."}
+  lro: {status: ok, note: "Every mutation returns a sql#operation (PENDING, RUNNING, DONE) that a per-instance queue executes in order; operations.get and list expose them. Clients poll; there is no wait endpoint in this API."}
+  error_envelope: {status: ok, note: "Errors are {error:{code,message,errors:[{message,domain,reason}],status}} with reasons instanceDoesNotExist, instanceAlreadyExists, notFound, invalid, conditionNotMet, operationInProgress."}
+  routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --gcp-sql-port / GCP_SQL_PORT (default 8130, fails fast if taken); never registered on the shared AWS router; cli.go reserves the port in the shared PortAlloc pool. Paths work under /v1/, /sql/v1/ and /sql/v1beta4/ (terraform sql_custom_endpoint = http://localhost:8130/sql/v1beta4/; Go client option.WithEndpoint(http://localhost:8130))."}
+  persistence: {status: partial, note: "Instances with settings, databases, accounts (including passwords), backups with their dumps, client certificates, the CA key and operations persist in one snapshot (version 1). Engine data does not: restored instances relaunch an empty engine and replay databases, users and flags."}
+  auth: {status: partial, note: "No request is authenticated or authorised. Passwords are never logged or returned."}
+  observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards all state."}
+items_still_open:
+  - "Not served: SQL Server, read replicas and replica operations (promote, startReplica, stopReplica, failover, switchover, demote), point-in-time recovery and recovery-time queries, maintenance windows and reschedule, executeSql, resetSslConfig, rotateServerCa and the other certificate rotation calls, truncateLog, major version upgrade, the projects/backups resource, DNS connect settings, Auth Proxy and IAM database authentication."
+  - "Engine data is not persisted across a gopherstack restart: a restored instance starts an empty engine with its databases, users and flags replayed. Stored backup dumps are not applied automatically."
+  - "Settings are stored and echoed but only activationPolicy and databaseFlags reach the engine: tier, disk size and type, availabilityType, ipConfiguration (authorizedNetworks, sslMode, requireSsl), backupConfiguration schedule (no automated backups run), maintenanceWindow, insightsConfig and passwordValidationPolicy have no effect."
+  - "PostgreSQL ignores database charset and collation (stored only); MySQL users get GRANT ALL on *.*; PostgreSQL users join a cloudsqlsuperuser role the emulator creates. Backups keep object ownership, so restoring one into a different instance needs the same roles to exist."
+  - "Flags are validated by the engine when the restart applies them, not when the patch is accepted; flags.list is a static subset and tiers.list a fixed list. Duplicate database and user inserts return 409 but the real reason strings were not verified against the live service."
+  - "Docker engines need the container runtime to see the emulator's temp directory (bind mount), so a gopherstack running inside a container that talks to a remote daemon cannot export, import, back up or clone; admin SQL still works."
+  - "Instance name reuse after delete is allowed (the real service blocks it for a week); automatic backups, binary logging and point-in-time settings are accepted but not acted on."
+leaks: {status: clean, note: "Containers, host ports, dump directories and connections are released on delete, Reset and Close; goleak runs in TestMain and TestDockerEngines asserts no gopherstack-gcpsql containers remain."}
+---
+
+Initial implementation (2026-10-20): Cloud SQL Admin API v1/v1beta4 verified through google.golang.org/api/sqladmin/v1 in the package tests (instance lifecycle with settings merge and settingsVersion checks, databases, users, backups, clone, export and import against a fake object store, certificates verified with crypto/x509, operations, persistence) and through hashicorp/google 8.5.0 in test/terraform/gcp (apply, no-drift re-plan, destroy of PostgreSQL and MySQL instances with databases and users, state-only). Real PostgreSQL 16 and MySQL 8.4 containers back TestDockerEngines. Wire shapes were read from sqladmin-api.json and sqladmin-gen.go in the pinned module; behaviour of the live service was not available for comparison.

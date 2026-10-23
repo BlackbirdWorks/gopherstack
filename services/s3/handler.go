@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
@@ -150,6 +151,13 @@ func (h *S3Handler) notificationDispatchContext() context.Context {
 	}
 
 	return context.Background()
+}
+
+// notificationLinkedContext is the detached dispatch context carrying the
+// originating request's trace identity, so notification fan-out spans nest
+// under the request.
+func (h *S3Handler) notificationLinkedContext(reqCtx context.Context) context.Context {
+	return apptrace.Link(reqCtx, h.notificationDispatchContext())
 }
 
 // SetNotificationDispatcher attaches a NotificationDispatcher that delivers

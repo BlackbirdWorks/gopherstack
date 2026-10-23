@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -72,7 +73,7 @@ func (rc *ResourceCreator) createIoTTopicRule(
 		return "", fmt.Errorf("create IoT topic rule %s: %w", ruleName, err)
 	}
 
-	return "arn:aws:iot:" + rc.backends.Region + ":" + rc.backends.AccountID + ":rule/" + ruleName, nil
+	return arn.Build("iot", rc.backends.Region, rc.backends.AccountID, "rule/"+ruleName), nil
 }
 
 func (rc *ResourceCreator) deleteIoTTopicRule(arn string) error {

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func (b *InMemoryBackend) GetRegistrationCode() string {
@@ -67,7 +69,7 @@ func (b *InMemoryBackend) RegisterThing(input *RegisterThingInput) (*RegisterThi
 		thingName = "thing-" + uuid.NewString()
 	}
 
-	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thing/%s", b.region, b.accountID, thingName)
+	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", thingName))
 
 	if t, exists := b.things.Get(thingName); exists {
 		if t.Attributes == nil {
@@ -244,7 +246,7 @@ const envGreengrassV2 = "AWS_Greengrass_V2"
 // mutated by the account, so the catalog is derived (not stored per-account).
 func (b *InMemoryBackend) managedJobTemplateCatalog() []*ManagedJobTemplate {
 	arn := func(name string) string {
-		return fmt.Sprintf("arn:aws:iot:%s::managedjobtemplate/%s", b.region, name)
+		return arn.Build("iot", b.region, "", fmt.Sprintf("managedjobtemplate/%s", name))
 	}
 	doc := func(body string) string {
 		return fmt.Sprintf(`{"version":%q,"steps":[%s]}`, managedJobTemplateVersion, body)

@@ -973,7 +973,7 @@ func resolveRef(ref string, ctx resolveCtx) string {
 	case "AWS::NoValue":
 		return awsNoValueSentinel
 	case "AWS::StackId":
-		return "arn:aws:cloudformation:" + ctx.region + ":" + ctx.accountID + ":stack/" + ctx.stackName + "/unknown"
+		return arn.Build("cloudformation", ctx.region, ctx.accountID, "stack/"+ctx.stackName+"/unknown")
 	case "AWS::NotificationARNs":
 		return ""
 	}
@@ -1581,6 +1581,7 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeNMCoreNetwork, resTypeNMVpcAttachment, resTypeNMSiteToSiteVpnAttachment,
 			resTypeNMConnectAttachment, resTypeNMConnectPeer, resTypeNMTransitGatewayPeering,
 			resTypeNMTransitGatewayRouteTableAttach, resTypeNMDirectConnectGatewayAttachment,
+			resTypeGAAccelerator, resTypeGAListener, resTypeGAEndpointGroup, resTypeGAAttachment,
 			directconnectbackend.CFNConnection, directconnectbackend.CFNLag, directconnectbackend.CFNDirectConnectGateway,
 			directconnectbackend.CFNGatewayAssociation, directconnectbackend.CFNPrivateVirtualInterface,
 			directconnectbackend.CFNPublicVirtualInterface, directconnectbackend.CFNTransitVirtualInterface:

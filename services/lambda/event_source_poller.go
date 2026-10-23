@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -189,12 +191,42 @@ type MSKBrokerResolver interface {
 	BootstrapServers(clusterARN string) []string
 }
 
+// MSKConnection is how the poller dials an MSK cluster that is not plaintext.
+// RootCAPEM enables TLS; a username and password select SASL/SCRAM-SHA-512.
+type MSKConnection struct {
+	Username  string
+	Password  string
+	Brokers   []string
+	RootCAPEM []byte
+}
+
+// MSKConnectionResolver is implemented by an MSKBrokerResolver that can reach TLS and SASL/SCRAM clusters.
+// access carries the mapping's SourceAccessConfigurations (SASL_SCRAM_512_AUTH names the credential secret).
+type MSKConnectionResolver interface {
+	MSKConnection(ctx context.Context, clusterARN string, access []SourceAccessConfiguration) (MSKConnection, bool)
+}
+
 // SetMSKBrokerResolver sets the resolver used to poll MSK event sources.
 func (p *EventSourcePoller) SetMSKBrokerResolver(r MSKBrokerResolver) {
 	p.mu.Lock("SetMSKBrokerResolver")
 	defer p.mu.Unlock()
 
 	p.mskResolver = r
+}
+
+func (p *EventSourcePoller) mskConnection(
+	ctx context.Context, clusterARN string, access []SourceAccessConfiguration,
+) (MSKConnection, bool) {
+	p.mu.RLock("mskConnection")
+	r := p.mskResolver
+	p.mu.RUnlock()
+
+	cr, ok := r.(MSKConnectionResolver)
+	if !ok {
+		return MSKConnection{}, false
+	}
+
+	return cr.MSKConnection(ctx, clusterARN, access)
 }
 
 func (p *EventSourcePoller) mskBrokers(clusterARN string) []string {
@@ -651,12 +683,12 @@ func functionNameFromARN(arn string) string {
 
 // isSQSARN reports whether the given ARN identifies an SQS queue.
 func isSQSARN(resourceARN string) bool {
-	return strings.HasPrefix(resourceARN, "arn:aws:sqs:")
+	return arnpkg.HasService(resourceARN, "sqs")
 }
 
 // isDynamoDBStreamARN reports whether the given ARN identifies a DynamoDB stream.
 func isDynamoDBStreamARN(resourceARN string) bool {
-	return strings.HasPrefix(resourceARN, "arn:aws:dynamodb:") && strings.Contains(resourceARN, "/stream/")
+	return arnpkg.HasService(resourceARN, "dynamodb") && strings.Contains(resourceARN, "/stream/")
 }
 
 // processDynamoDBStreamMapping polls all shards of a DynamoDB stream and invokes Lambda.
@@ -1060,11 +1092,15 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 		invokeErr error
 	)
 
+	sctx, span := startESMSpan(ctx, m.FunctionARN, m.EventSourceARN)
+
 	if p.sqsInvoker != nil {
-		respBody, invokeErr = p.sqsInvoker(ctx, fnName)
+		respBody, invokeErr = p.sqsInvoker(sctx, fnName)
 	} else {
-		respBody, invokeErr = p.invokeESMFunctionEvent(ctx, fnName, qualifier, payload)
+		respBody, invokeErr = p.invokeESMFunctionEvent(sctx, fnName, qualifier, payload)
 	}
+
+	span.FinishErr(invokeErr)
 
 	if invokeErr != nil {
 		p.esmInvokeMetrics(m, len(msgs), len(msgs))

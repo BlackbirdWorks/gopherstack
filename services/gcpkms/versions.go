@@ -187,11 +187,6 @@ func (b *InMemoryBackend) DestroyCryptoKeyVersion(
 			req.GetName(), v.pb.GetState())
 	}
 
-	if k.primary == v.id {
-		return nil, errPrecondition("CryptoKeyVersion %s is the primary version and cannot be destroyed.",
-			req.GetName())
-	}
-
 	now := b.now()
 	v.pb.State = kmspb.CryptoKeyVersion_DESTROY_SCHEDULED
 	v.pb.DestroyTime = tsOf(now.Add(destroyTTLOf(k).AsDuration()))

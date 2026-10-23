@@ -572,10 +572,7 @@ func (b *InMemoryBackend) attachReplicaLocked(region string, rg *ReplicationGrou
 		return fmt.Errorf("%w: cluster engine must match the replication group", ErrInvalidParameterCombination)
 	}
 
-	if c.mini != nil {
-		c.mini.Close()
-		c.mini = nil
-	}
+	closeEngine(c)
 
 	if b.allocator != nil && c.AllocatedPort > 0 {
 		_ = b.allocator.Release(c.AllocatedPort)

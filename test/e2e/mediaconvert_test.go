@@ -13,6 +13,7 @@ import (
 
 // TestMediaConvertDashboard verifies the MediaConvert dashboard UI renders queue data.
 func TestMediaConvertDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.MediaConvertHandler.Backend.CreateQueue(
@@ -49,13 +50,13 @@ func TestMediaConvertDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-queue")
 	assert.Contains(t, content, "e2e-test-queue")
 }
 
 // TestMediaConvertDashboard_Empty verifies the MediaConvert dashboard lists the SYSTEM Default queue on a fresh stack.
 func TestMediaConvertDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -88,8 +89,7 @@ func TestMediaConvertDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Default")
 	assert.Contains(t, content, "Default")
 	assert.NotContains(t, content, "No queues found")
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // builtinCapacityProviders returns a synthesized CapacityProvider for FARGATE or
@@ -65,8 +67,11 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 
 	cp := &CapacityProvider{
 		CreatedAt: time.Now(),
-		CapacityProviderArn: fmt.Sprintf(
-			"arn:aws:ecs:%s:%s:capacity-provider/%s", b.region, b.accountID, input.Name,
+		CapacityProviderArn: arn.Build(
+			"ecs",
+			b.region,
+			b.accountID,
+			fmt.Sprintf("capacity-provider/%s", input.Name),
 		),
 		Name:                     input.Name,
 		Status:                   statusActive,

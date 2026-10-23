@@ -16,6 +16,7 @@ import (
 
 // TestKafkaDashboard verifies the Kafka (MSK) dashboard renders with cluster list.
 func TestKafkaDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Seed a cluster via the backend.
@@ -63,14 +64,14 @@ func TestKafkaDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Clusters", "my-test-cluster")
 	assert.Contains(t, content, "Clusters")
 	assert.Contains(t, content, "my-test-cluster")
 }
 
 // TestKafkaDashboard_CreateCluster verifies creating a cluster via the dashboard form.
 func TestKafkaDashboard_CreateCluster(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -116,7 +117,6 @@ func TestKafkaDashboard_CreateCluster(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-cluster")
 	assert.Contains(t, content, "e2e-cluster")
 }

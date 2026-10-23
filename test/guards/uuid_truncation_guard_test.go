@@ -25,7 +25,6 @@ type truncationAllowance struct {
 // hyphen (the result then contains "-"), keyed by path with the permitted count.
 func hyphenatedTruncations() map[string]truncationAllowance {
 	return map[string]truncationAllowance{
-		"services/rds/engine.go":               {"Docker container name, hyphen is legal", 1},
 		"services/neptune/engine.go":           {"Docker container name, hyphen is legal", 1},
 		"services/docdb/engine.go":             {"Docker container name, hyphen is legal", 1},
 		"services/redshift/engine.go":          {"Docker container name, hyphen is legal", 1},

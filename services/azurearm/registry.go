@@ -124,6 +124,58 @@ func (r *Registry) SetServiceBusEntities(e ServiceBusEntities) {
 	}
 }
 
+// SetEventHubs gives the registered Microsoft.EventHub provider (if any) a
+// real data-plane adapter, replacing its no-op default.
+func (r *Registry) SetEventHubs(e EventHubs) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftEventHub)
+	if !ok {
+		return
+	}
+
+	if eh, ehOk := p.(*EventHubProvider); ehOk {
+		eh.dataPlane = e
+	}
+}
+
+// SetEventGrid gives the registered Microsoft.EventGrid provider (if any) a real
+// data-plane adapter, replacing its no-op default.
+func (r *Registry) SetEventGrid(e EventGrid) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftEventGrid)
+	if !ok {
+		return
+	}
+
+	if eg, egOk := p.(*EventGridProvider); egOk {
+		eg.dataPlane = e
+	}
+}
+
+// SetAppConfig gives the registered Microsoft.AppConfiguration provider (if any) a real
+// data-plane adapter, replacing its no-op default.
+func (r *Registry) SetAppConfig(a AppConfig) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftAppConfig)
+	if !ok {
+		return
+	}
+
+	if ac, acOk := p.(*AppConfigProvider); acOk {
+		ac.dataPlane = a
+	}
+}
+
+// SetContainerRegistries gives the registered Microsoft.ContainerRegistry provider (if any) a real data-plane
+// adapter, replacing its no-op default.
+func (r *Registry) SetContainerRegistries(c ContainerRegistries) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftContainerRegistry)
+	if !ok {
+		return
+	}
+
+	if cp, cpOk := p.(*ContainerRegistryProvider); cpOk {
+		cp.dataPlane = c
+	}
+}
+
 // SetKeyVaults gives the registered Microsoft.KeyVault provider (if any) a
 // real KeyVaults adapter, replacing its no-op default.
 func (r *Registry) SetKeyVaults(k KeyVaults) {
@@ -134,6 +186,19 @@ func (r *Registry) SetKeyVaults(k KeyVaults) {
 
 	if kv, kvOk := p.(*KeyVaultProvider); kvOk {
 		kv.dataPlane = k
+	}
+}
+
+// SetCosmosResources gives the registered Microsoft.DocumentDB provider (if any) a real data-plane adapter,
+// replacing its no-op default.
+func (r *Registry) SetCosmosResources(c CosmosResources) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftDocumentDB)
+	if !ok {
+		return
+	}
+
+	if cp, cpOk := p.(*CosmosProvider); cpOk {
+		cp.dataPlane = c
 	}
 }
 

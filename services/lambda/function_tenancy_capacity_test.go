@@ -39,7 +39,8 @@ func TestCreateFunction_TenancyAndCapacityProviderConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, _ := newInMemoryHandler(t)
+			h, bk := newInMemoryHandler(t)
+			createCPTestProvider(t, bk, "cp1")
 
 			body := `{"FunctionName":"tenant-fn","PackageType":"Image","Role":"arn:aws:iam::000000000000:role/r",` +
 				`"Code":{"ImageUri":"x"}` + tt.extra + `}`
@@ -84,6 +85,7 @@ func TestUpdateFunctionConfiguration_CapacityProviderConfig(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)
+	createCPTestProvider(t, bk, "cp2")
 	createFunctionForTest(t, h, "cap-upd-fn")
 
 	rec := callInMemoryHandler(t, h, http.MethodPut, "/2015-03-31/functions/cap-upd-fn/configuration",

@@ -21,9 +21,14 @@ const (
 // requestDecision is the outcome of evaluating one request. For a deny, reason
 // names the policy type responsible; for an allow, the type that granted it.
 type requestDecision struct {
-	reason string
-	match  EvalMatch
-	allow  bool
+	policy      *iampolicystream.PolicyRef
+	reason      string
+	boundaryArn string
+	match       EvalMatch
+	boundary    boundaryTrace
+	source      decisionSource
+	allow       bool
+	explicit    bool
 }
 
 // record publishes dec to cfg.Recorder; a deny that an identity Allow could fix
@@ -61,6 +66,9 @@ func (cfg EnforcementConfig) record(
 		StatementIdx: dec.match.StatementIdx,
 		PolicyIdx:    dec.match.PolicyIndex,
 		Enforced:     !cfg.Audit,
+		DenyType:     dec.denyType(),
+		Policy:       dec.policy,
+		Boundary:     dec.boundaryRef(),
 	}
 
 	if dec.allow {

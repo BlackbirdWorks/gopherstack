@@ -82,11 +82,14 @@ func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 // routing conflicts with other services that share similar REST paths.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
+		path := c.Request().URL.Path
+		if path == pathAirflowCLI || path == pathAirflowSSO {
+			return true
+		}
+
 		if httputils.ExtractServiceFromRequest(c.Request()) != mwaaService {
 			return false
 		}
-
-		path := c.Request().URL.Path
 
 		mwaaPathPrefixes := []string{
 			pathEnvironments, pathTagsPrefix, pathCliTokenPrefix,
@@ -111,6 +114,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 
 	switch {
+	case path == pathAirflowCLI:
+		return "AirflowCli"
+	case path == pathAirflowSSO:
+		return "AirflowWebLogin"
 	case strings.HasPrefix(path, pathCliTokenPrefix):
 		return "CreateCliToken"
 	case strings.HasPrefix(path, pathWebTokenPrefix):
@@ -223,6 +230,10 @@ func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
 // ServeHTTP dispatches MWAA API requests.
 func (h *Handler) ServeHTTP(c *echo.Context) error {
 	path := c.Request().URL.Path
+
+	if served, err := h.serveAirflowPath(c, path); served {
+		return err
+	}
 
 	switch {
 	case strings.HasPrefix(path, pathCliTokenPrefix):

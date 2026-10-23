@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 26 (26 ok) |
 | Feature families | 5 (4 ok, 1 partial) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,10 +18,9 @@
 - CalculatedSpend: spend comes from the Cost Explorer ledger, which is synthetic seed data (90 days), not real usage
 - CalculatedSpend: RI/Savings Plans utilization and coverage budgets report 0 PERCENTAGE; no utilization source is wired
 - CostFilters: AZ, InstanceType, Operation, PurchaseType, UsageTypeGroup, etc. do not narrow spend (the ledger does not model them); FilterExpression is flattened to And-of-Dimensions only, Or/Not/Tags/CostCategories are ignored for spend
-- CostTypes: Include* flags do not change computed spend; only UseAmortized/UseBlended select the metric
-- AutoAdjustData: the limit is recomputed on create/update only, not at period rollover
-- Alerting: SNS delivery uses the default-region SNS backend (topics in other regions are unreachable); topic policies granting budgets.amazonaws.com are not checked; evaluator cadence is 1 minute versus AWS several times a day
-- ExecuteBudgetAction: ExecutionRoleArn is shape-checked only, never assumed or looked up in IAM; SSM actions start AWS-Stop*/Start* automation documents through the SSM backend
+- CostTypes: Include* flags exclude ledger entries by charge type (ce CostEntry.ChargeType, RECORD_TYPE-style values), but the synthetic seed ledger only holds Usage entries, so flags change spend only for entries added with RecordCharge; the flag-to-charge-type mapping (Subscription, Fee, Discount) is unverified
+- Alerting: topic policies granting budgets.amazonaws.com are not checked; evaluator cadence is 1 minute versus AWS several times a day
+- ExecuteBudgetAction: ExecutionRoleArn must exist in IAM when the action runs (a missing role fails the execution) but its trust policy is never evaluated or assumed; SSM actions start AWS-Stop*/Start* automation documents through the SSM backend
 - BillingViewArn: format-checked only; HealthStatus is always HEALTHY
 - AccessDeniedException, ThrottlingException, InternalErrorException, ExpiredNextTokenException, BillingViewHealthStatusException, ServiceQuotaExceededException: never raised
 

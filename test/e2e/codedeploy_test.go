@@ -13,6 +13,7 @@ import (
 
 // TestCodeDeployDashboard verifies the CodeDeploy dashboard UI renders applications.
 func TestCodeDeployDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CodeDeployHandler.Backend.CreateApplication("e2e-test-app", "Server", nil)
@@ -43,13 +44,13 @@ func TestCodeDeployDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-app")
 	assert.Contains(t, content, "e2e-test-app")
 }
 
 // TestCodeDeployDashboard_Empty verifies the CodeDeploy dashboard empty state renders correctly.
 func TestCodeDeployDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -77,7 +78,6 @@ func TestCodeDeployDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No applications found")
 	assert.Contains(t, content, "No applications found")
 }

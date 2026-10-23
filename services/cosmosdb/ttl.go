@@ -109,9 +109,10 @@ func (b *InMemoryBackend) SweepExpired() int {
 
 			before := removed
 
-			for k, d := range c.Documents {
+			for _, d := range c.sortedDocs() {
 				if !c.alive(d, now) {
-					delete(c.Documents, k)
+					c.recordExpired(d)
+					delete(c.Documents, documentCompositeKey{PartitionKeyJSON: d.PartitionKeyJSON, ID: d.ID})
 
 					removed++
 				}

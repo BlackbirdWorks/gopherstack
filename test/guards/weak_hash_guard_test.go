@@ -27,10 +27,29 @@ func allowedWeakHashFiles() map[string]string {
 		// base64 MD5 of the content; integrity checksum, never a credential.
 		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
 
+		// GoogleSQL defines MD5() and SHA1() as those digests of the argument; a content hash, never a credential.
+		"services/gcpbigquery/bqsql/udf_str.go": "GoogleSQL MD5()/SHA1() function parity, verified",
+
+		// Cloud SQL addresses client certificates by sha1Fingerprint (sslCerts.get/delete path parameter);
+		// a certificate identifier, never a credential.
+		"services/gcpsql/certs.go": "Cloud SQL sslCert sha1Fingerprint parity, verified",
+
+		// Memorystore TlsCertificate.sha1_fingerprint is defined as the SHA-1 of the CA certificate; a certificate
+		// identifier, never a credential.
+		"services/gcpredis/engine.go": "Memorystore TlsCertificate.sha1_fingerprint parity, verified",
+
+		// CloudFront Functions' crypto module exposes createHash/createHmac with md5 and sha1;
+		// user-script digests, never credential storage.
+		"services/cloudfront/function_runtime.go": "CloudFront Functions crypto md5/sha1 parity, verified",
+
 		// Key Vault: RSA-OAEP is defined over SHA-1 (JWA RFC 7518 4.3) and the
 		// certificate x5t claim is a SHA-1 thumbprint (RFC 7515 4.1.7).
 		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
 		"services/azurekeyvault/certpolicy.go": "certificate x5t SHA-1 thumbprint, verified",
+
+		// XML-Enc rsa-oaep-mgf1p defaults to SHA-1 (W3C xmlenc-core1 5.4.2); the digest is OAEP
+		// padding for an IdP-encrypted SAML assertion, never a credential hash.
+		"services/cognitoidp/saml_decrypt.go": "XML-Enc rsa-oaep-mgf1p default SHA-1 digest, verified",
 
 		"services/neptune/engine_probe.go": "RFC 6455 WebSocket Sec-WebSocket-Accept mandates SHA-1, verified",
 		"services/ssm/document_hashes.go":  "DocumentDescription.Sha1 parity, verified",

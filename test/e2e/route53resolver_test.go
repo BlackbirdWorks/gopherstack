@@ -15,6 +15,7 @@ import (
 
 // TestRoute53ResolverDashboard verifies the Route53 Resolver dashboard UI renders endpoints.
 func TestRoute53ResolverDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.Route53ResolverHandler.Backend.CreateResolverEndpoint(
@@ -57,14 +58,14 @@ func TestRoute53ResolverDashboard(t *testing.T) {
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "test-endpoint", "INBOUND")
 	assert.Contains(t, content, "test-endpoint")
 	assert.Contains(t, content, "INBOUND")
 }
 
 // TestRoute53ResolverDashboard_Empty verifies the empty state renders correctly.
 func TestRoute53ResolverDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -90,13 +91,13 @@ func TestRoute53ResolverDashboard_Empty(t *testing.T) {
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No resolver endpoints found")
 	assert.Contains(t, content, "No resolver endpoints found")
 }
 
 // TestRoute53ResolverDashboard_CreateAndDelete verifies list updates after backend create/delete while viewing UI.
 func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

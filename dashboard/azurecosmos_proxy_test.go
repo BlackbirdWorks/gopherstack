@@ -185,3 +185,56 @@ func TestAzureCosmosProxy_SignsWhenAuthValidationEnabled(t *testing.T) {
 		})
 	}
 }
+
+func TestAzureCosmosTableProxy(t *testing.T) {
+	t.Parallel()
+
+	const base = "/dashboard/api/v1/azure/cosmos-table/cosmosdb"
+
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		wantBody string
+		wantCode int
+	}{
+		{"create table", http.MethodPost, base + "/Tables", `{"TableName":"People"}`, "", http.StatusCreated},
+		{"list tables", http.MethodGet, base + "/Tables", "", "People", http.StatusOK},
+		{
+			"insert entity", http.MethodPost, base + "/People",
+			`{"PartitionKey":"p","RowKey":"r","N":1}`, "", http.StatusCreated,
+		},
+		{"query entities", http.MethodGet, base + "/People()?$filter=N%20eq%201", "", `"RowKey":"r"`, http.StatusOK},
+		{"sql resource refused", http.MethodGet, base + "/dbs", "", "", http.StatusBadRequest},
+		{"offers refused", http.MethodGet, base + "/offers", "", "", http.StatusBadRequest},
+		{"batch refused", http.MethodPost, base + "/$batch", "", "", http.StatusBadRequest},
+		{"nested refused", http.MethodGet, base + "/People/x", "", "", http.StatusBadRequest},
+		{"delete collection refused", http.MethodDelete, base + "/Tables", "", "", http.StatusBadRequest},
+	}
+
+	for _, validate := range []bool{false, true} {
+		name := "open"
+		if validate {
+			name = "signed"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cosmos := cosmosdb.NewHandler(cosmosdb.NewInMemoryBackend())
+			cosmos.ValidateAuth = validate
+			h := dashboard.NewHandler(dashboard.Config{AzureCosmosOps: cosmos})
+
+			for _, tc := range tests {
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+				req.Header.Set("Authorization", "garbage")
+
+				require.NoError(t, h.Handler()(echo.NewContext(req, rec)))
+				require.Equal(t, tc.wantCode, rec.Code, "%s: %s", tc.name, rec.Body.String())
+				assert.Contains(t, rec.Body.String(), tc.wantBody, tc.name)
+			}
+		})
+	}
+}

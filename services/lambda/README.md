@@ -7,11 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| Feature families | 10 (10 ok) |
-| Known gaps | none |
+| Feature families | 11 (11 ok) |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 10 |
 | Deferred items | 0 |
 | Resource leaks | ok |
+
+### Known gaps
+
+- --lambda-isolation=firecracker is rejected at startup: no firecracker binary is installed on the build host, so no microVM runner exists. Design: export the function image with `docker export` into an ext4 rootfs, boot it under firecracker with a configured kernel image (--lambda-firecracker-kernel), and reach the Runtime API over vsock (or a TAP device) instead of the docker bridge. Needs /dev/kvm access and a firecracker binary to build and test (gopherstack-cefu7.7).
 
 ### Structural gaps
 
@@ -26,7 +30,7 @@ These do not block an A grade — no implementation could produce real data here
 - ESM ScalingConfig.MaximumConcurrency and ProvisionedPollerConfig are validated and stored but cannot bind: the poller is a single serial loop per mapping, so there is no fleet to cap or size.
 - Function-level KMSKeyArn and UpdateFunctionCode SourceKMSKeyArn are stored and echoed only: no environment-variable or package encryption exists to apply the key to.
 - FileSystemConfigs: EFS access points are bind-mounted at LocalMountPath from a host directory (data dir with --persist, else a temp dir); the PosixUser uid:gid is not applied to the function process (runtime images run as root; no NFS-level identity enforcement), and mount-target subnet/AZ and security-group NFS reachability are checked only as VPC membership. EFSIO/EFSMount* exceptions are never raised. Deleting an access point a function references is allowed, as no EFS error documents otherwise.
-- CapacityProviderConfig is stored and echoed (including on published versions) but invocations are not routed to a capacity provider: Lambda-managed instances compute does not exist here.
+- CapacityProviderConfig is validated against provider existence and stored (including on published versions) but invocations are not routed to a capacity provider: Lambda-managed instances compute does not exist here.
 
 ## More
 

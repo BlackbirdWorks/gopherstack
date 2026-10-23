@@ -18,6 +18,8 @@ const (
 	ClusterOperationStateUpdateComplete = "UPDATE_COMPLETE"
 	// ClusterOperationStateUpdateInProgress indicates an operation that has not finished.
 	ClusterOperationStateUpdateInProgress = "UPDATE_IN_PROGRESS"
+	// ClusterOperationStateUpdateFailed indicates an operation that failed.
+	ClusterOperationStateUpdateFailed = "UPDATE_FAILED"
 	// NodeTypeBroker is the only real value of types.NodeType (enums.go:320).
 	NodeTypeBroker = "BROKER"
 	// DefaultClusterVersion is the default MSK cluster version identifier.
@@ -680,6 +682,7 @@ type ClusterOperation struct {
 	ClientRequestID     string              `json:"clientRequestId,omitempty"`
 	CreationTime        string              `json:"creationTime,omitempty"`
 	EndTime             string              `json:"endTime,omitempty"`
+	awaitBroker         bool
 }
 
 // MutableClusterInfo captures the subset of cluster configuration that an update

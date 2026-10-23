@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ListCopyJobs returns all copy jobs.
@@ -135,7 +137,7 @@ func (b *InMemoryBackend) StartCopyJobWithLifecycle(
 
 	now := time.Now().UTC()
 	copyJobID := "copy-job-" + uuid.NewString()[:8]
-	destRPArn := "arn:aws:backup:" + b.region + ":" + b.accountID + ":recovery-point:" + copyJobID
+	destRPArn := arn.Build("backup", b.region, b.accountID, "recovery-point:"+copyJobID)
 
 	job := &CopyJob{
 		CopyJobID:                   copyJobID,

@@ -133,15 +133,6 @@ func TestHandler_TableAPI_EntityLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestHandler_TableAPI_Batch_NotImplemented(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodPost, "/$batch", nil, []byte(""))
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
-}
-
 func TestHandler_TableAPI_Reset_ClearsTableBackend(t *testing.T) {
 	t.Parallel()
 

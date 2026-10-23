@@ -13,6 +13,7 @@ import (
 
 // TestSupportDashboard verifies the Support dashboard UI renders support cases.
 func TestSupportDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.SupportHandler.Backend.CreateCase(
@@ -45,14 +46,14 @@ func TestSupportDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Test support case", "amazon-s3")
 	assert.Contains(t, content, "Test support case")
 	assert.Contains(t, content, "amazon-s3")
 }
 
 // TestSupportDashboard_Empty verifies the empty state renders correctly.
 func TestSupportDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -80,13 +81,13 @@ func TestSupportDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No support cases found")
 	assert.Contains(t, content, "No support cases found")
 }
 
 // TestSupportDashboard_CreateCase verifies support cases are rendered in the current UI.
 func TestSupportDashboard_CreateCase(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.SupportHandler.Backend.CreateCase(
@@ -119,7 +120,6 @@ func TestSupportDashboard_CreateCase(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "UI created case")
 	assert.Contains(t, content, "UI created case")
 }

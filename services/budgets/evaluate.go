@@ -102,6 +102,8 @@ func (b *InMemoryBackend) evaluate(ctx context.Context, key string) {
 	}
 
 	bg := &rec.Budget
+	b.rolloverLocked(bg)
+
 	calc := b.calcSpendLocked(bg)
 
 	if calc.ForecastedSpend == nil {

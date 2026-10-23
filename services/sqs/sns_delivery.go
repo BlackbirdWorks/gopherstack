@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -44,9 +45,9 @@ type snsEnvelope struct {
 // by unsubscribing the old listener before registering the new one, preventing
 // stale listeners from accumulating in the emitter on repeated calls.
 func (b *InMemoryBackend) SubscribeToSNS(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
-	unsubscribe := emitter.Subscribe(func(_ context.Context, ev *events.SNSPublishedEvent) error {
+	unsubscribe := emitter.Subscribe(func(ctx context.Context, ev *events.SNSPublishedEvent) error {
 		for _, sub := range ev.Subscriptions {
-			b.deliverSNSSubscription(ev, sub)
+			b.deliverSNSSubscription(ctx, ev, sub)
 		}
 
 		return nil
@@ -64,6 +65,7 @@ func (b *InMemoryBackend) SubscribeToSNS(emitter events.EventEmitter[*events.SNS
 
 // deliverSNSSubscription delivers a single SNS published event to an SQS subscription.
 func (b *InMemoryBackend) deliverSNSSubscription(
+	ctx context.Context,
 	ev *events.SNSPublishedEvent,
 	sub events.SNSSubscriptionSnapshot,
 ) {
@@ -106,8 +108,13 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 		input.MessageAttributes = msgAttrs
 	}
 
+	_, span := apptrace.StartChild(ctx, apptrace.ChildInfo{
+		Service: sqsJanitorService, Operation: "SendMessage", Resource: sub.Endpoint, Region: queueRegion,
+	})
+
 	// Best-effort delivery: on failure, route to the dead-letter queue if configured.
 	_, err := b.SendMessage(input)
+	span.FinishErr(err)
 	if err != nil && sub.RedrivePolicy != "" {
 		b.deliverToDLQ(sub.RedrivePolicy, body, msgAttrs)
 	}

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // fargateCPUMemoryPairs returns valid Fargate CPU/memory combinations per the AWS docs.
@@ -105,12 +107,11 @@ func (b *InMemoryBackend) RegisterTaskDefinition(
 
 	td := &TaskDefinition{
 		RegisteredAt: time.Now(),
-		TaskDefinitionArn: fmt.Sprintf(
-			"arn:aws:ecs:%s:%s:task-definition/%s:%d",
+		TaskDefinitionArn: arn.Build(
+			"ecs",
 			b.region,
 			b.accountID,
-			input.Family,
-			revision,
+			fmt.Sprintf("task-definition/%s:%d", input.Family, revision),
 		),
 		Family:                  input.Family,
 		TaskRoleArn:             input.TaskRoleArn,

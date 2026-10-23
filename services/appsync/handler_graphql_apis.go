@@ -153,6 +153,8 @@ func (h *Handler) handleGraphQL(ctx context.Context, c *echo.Context, apiID stri
 		Request:   c.Request(),
 	}
 
+	ctx = respHeaderKey.Set(ctx, func(name, value string) { c.Response().Header().Add(name, value) })
+
 	result, execErr := h.Backend.ExecuteGraphQL(ctx, apiID, req.Query, req.OperationName, req.Variables, auth)
 	if execErr != nil {
 		if errors.Is(execErr, ErrUnauthorized) {

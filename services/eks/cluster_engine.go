@@ -230,29 +230,11 @@ func (e *clusterEngine) log(ctx context.Context) *slog.Logger {
 }
 
 func (e *clusterEngine) acquirePort(name string) (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("eks-" + name) //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	a, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("find free port: %w", io.ErrUnexpectedEOF)
-	}
-
-	return a.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "eks-"+name)
 }
 
 func (e *clusterEngine) releasePort(port int) {
-	if e.cfg.Ports != nil && port != 0 {
-		_ = e.cfg.Ports.Release(port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
 func (e *clusterEngine) remove(containerID string, port int) {
@@ -372,24 +354,28 @@ func (b *InMemoryBackend) launchClusterLocked(name, version string) {
 func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, lc *liveCluster) {
 	e := b.clusterEng
 
-	port, err := e.acquirePort(name)
-	if err != nil {
-		b.failCluster(ctx, name, lc, err)
-
-		return
-	}
-
 	ca, err := newClusterCA(name)
 	if err != nil {
-		e.releasePort(port)
 		b.failCluster(ctx, name, lc, err)
 
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(name, lc, port, ca))
+	var port int
+
+	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			p, perr := e.acquirePort(name)
+			if perr != nil {
+				return container.Spec{}, perr
+			}
+
+			port = p
+
+			return e.spec(name, lc, p, ca), nil
+		},
+		func() { e.releasePort(port) })
 	if err != nil {
-		e.releasePort(port)
 		b.failCluster(ctx, name, lc, err)
 
 		return

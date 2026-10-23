@@ -15,6 +15,7 @@ import (
 
 // TestLakeFormationDashboard verifies the Lake Formation dashboard UI renders resource data.
 func TestLakeFormationDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	err := stack.LakeFormationHandler.Backend.RegisterResource(
@@ -49,13 +50,13 @@ func TestLakeFormationDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Lake Formation")
 	assert.Contains(t, content, "Lake Formation")
 }
 
 // TestLakeFormationDashboard_Empty verifies the Lake Formation dashboard renders correctly with no data.
 func TestLakeFormationDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -83,7 +84,6 @@ func TestLakeFormationDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No resources registered")
 	assert.Contains(t, content, "No resources registered")
 }

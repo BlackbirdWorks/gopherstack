@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	configtypes "github.com/aws/aws-sdk-go-v2/service/configservice/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // PutConfigurationRecorder creates or updates the customer managed configuration
@@ -98,7 +100,7 @@ func (b *InMemoryBackend) hasCustomerManagedRecorderLocked() bool {
 // matching the "arn" field the real service serializes on ConfigurationRecorder
 // (aws-sdk-go-v2/service/configservice/types.ConfigurationRecorder.Arn).
 func (b *InMemoryBackend) recorderArn(name string) string {
-	return fmt.Sprintf("arn:aws:config:%s:%s:config-recorder/%s", b.region, b.accountID, name)
+	return arn.Build("config", b.region, b.accountID, fmt.Sprintf("config-recorder/%s", name))
 }
 
 // DescribeConfigurationRecorders returns configuration recorders filtered by the
@@ -524,10 +526,7 @@ func (b *InMemoryBackend) ListConfigurationRecorders() []ConfigurationRecorderSu
 	out := make([]ConfigurationRecorderSummary, 0, len(all))
 
 	for _, r := range all {
-		arn := fmt.Sprintf(
-			"arn:aws:config:%s:%s:config-recorder/%s",
-			b.region, b.accountID, r.Name,
-		)
+		arn := arn.Build("config", b.region, b.accountID, fmt.Sprintf("config-recorder/%s", r.Name))
 		out = append(out, ConfigurationRecorderSummary{
 			Arn:            arn,
 			Name:           r.Name,

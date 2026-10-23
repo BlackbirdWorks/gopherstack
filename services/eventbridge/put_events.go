@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 )
 
 // maxPutEventsEntries is AWS's per-request cap on PutEvents/PutPartnerEvents
@@ -167,6 +169,7 @@ func (b *InMemoryBackend) putEventsInRegion(ctx context.Context, entries []Event
 		entriesCopy := make([]EventEntry, len(accepted))
 		copy(entriesCopy, accepted)
 		dtCopy := *dt
+		deliveryCtx := apptrace.Link(ctx, svcCtx)
 		b.wg.Go(func() {
 			// Acquire a worker slot or abort if the backend is shutting down.
 			select {
@@ -175,7 +178,7 @@ func (b *InMemoryBackend) putEventsInRegion(ctx context.Context, entries []Event
 			case <-svcCtx.Done():
 				return
 			}
-			b.deliverEvents(svcCtx, region, entriesCopy, dtCopy, delivTimeout, nil)
+			b.deliverEvents(deliveryCtx, region, entriesCopy, dtCopy, delivTimeout, nil)
 		})
 	}
 

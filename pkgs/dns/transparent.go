@@ -15,7 +15,7 @@ const (
 
 // DefaultTransparentSuffixes lists the real AWS endpoint zones answered in transparent mode.
 func DefaultTransparentSuffixes() []string {
-	return []string{"amazonaws.com", "amazonaws.com.cn", "api.aws"}
+	return []string{"amazonaws.com", "amazonaws.com.cn", "api.aws", "on.aws"}
 }
 
 // TransparentConfig makes the server answer real AWS endpoint names with ResolveIP

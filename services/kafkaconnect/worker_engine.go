@@ -258,29 +258,11 @@ func (e *workerEngine) teardown(lw *liveWorker) {
 		_ = os.RemoveAll(lw.dir)
 	}
 
-	if e.cfg.Ports != nil && lw.port > 0 {
-		_ = e.cfg.Ports.Release(lw.port)
-	}
+	portalloc.ReleaseTo(e.cfg.Ports, lw.port)
 }
 
 func (e *workerEngine) acquirePort(name string) (int, error) {
-	if e.cfg.Ports != nil {
-		return e.cfg.Ports.Acquire("mskc-" + name) //nolint:wrapcheck // allocator error is self-describing
-	}
-
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("find free port: %w", err)
-	}
-
-	defer func() { _ = l.Close() }()
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, io.ErrUnexpectedEOF
-	}
-
-	return addr.Port, nil
+	return portalloc.AcquireFrom(e.cfg.Ports, "mskc-"+name)
 }
 
 // launchWorkerLocked registers the connector's worker and starts it in the background.
@@ -374,9 +356,25 @@ func (b *InMemoryBackend) runWorker(ctx context.Context, connectorArn string, lw
 		return
 	}
 
-	id, err := e.cfg.Runtime.CreateAndStart(ctx, e.spec(in.conn.Name, dir, port))
+	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
+		func() (container.Spec, error) {
+			if port == 0 {
+				p, perr := e.acquirePort(in.conn.Name)
+				if perr != nil {
+					return container.Spec{}, perr
+				}
+
+				port = p
+			}
+
+			return e.spec(in.conn.Name, dir, port), nil
+		},
+		func() {
+			portalloc.ReleaseTo(e.cfg.Ports, port)
+			port = 0
+		})
 	if err != nil {
-		e.teardown(&liveWorker{dir: dir, port: port})
+		e.teardown(&liveWorker{dir: dir})
 		b.failWorker(ctx, connectorArn, lw, fmt.Errorf("start worker container: %w", err))
 
 		return

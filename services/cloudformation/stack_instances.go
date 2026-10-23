@@ -234,7 +234,10 @@ func (b *InMemoryBackend) provisionStackInstance(
 
 	var instanceStackID string
 	if ss.TemplateBody != "" {
-		child, err := b.createStackLocked(ctx, childName, ss.TemplateBody, nil, StackOptions{}, "")
+		child, err := b.createStackLocked(
+			ctx, childName, ss.TemplateBody, ss.Parameters,
+			StackOptions{Capabilities: ss.Capabilities, Tags: ss.Tags}, "",
+		)
 		switch {
 		case err != nil:
 			status = statusOutdated

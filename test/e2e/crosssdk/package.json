@@ -1,13 +1,30 @@
 {
-  "name": "gopherstack-azure-crosssdk-smoke",
+  "name": "gopherstack-crosssdk",
   "private": true,
   "version": "1.0.0",
-  "description": "Node.js cross-SDK smoke test proving @azure/storage-blob, @azure/storage-queue, @azure/data-tables, and @azure/cosmos work unmodified against gopherstack -- see test/e2e/azure_crosssdk_test.go.",
+  "description": "Node.js cross-SDK suites: Azure SDKs (azure_smoke.mjs) and AWS SDK v3 (aws_smoke.mjs) against gopherstack.",
   "type": "module",
   "scripts": {
-    "smoke": "node azure_smoke.mjs"
+    "smoke": "node azure_smoke.mjs",
+    "aws-smoke": "node aws_smoke.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch-logs": "3.1146.0",
+    "@aws-sdk/client-dynamodb": "3.1146.0",
+    "@aws-sdk/client-dynamodb-streams": "3.1146.0",
+    "@aws-sdk/client-eventbridge": "3.1146.0",
+    "@aws-sdk/client-iam": "3.1146.0",
+    "@aws-sdk/client-kms": "3.1146.0",
+    "@aws-sdk/client-lambda": "3.1146.0",
+    "@aws-sdk/client-s3": "3.1146.0",
+    "@aws-sdk/client-secrets-manager": "3.1146.0",
+    "@aws-sdk/client-sfn": "3.1146.0",
+    "@aws-sdk/client-sns": "3.1146.0",
+    "@aws-sdk/client-sqs": "3.1146.0",
+    "@aws-sdk/client-sts": "3.1146.0",
+    "@aws-sdk/lib-dynamodb": "3.1146.0",
+    "@aws-sdk/lib-storage": "3.1146.0",
+    "@aws-sdk/s3-request-presigner": "3.1146.0",
     "@azure/cosmos": "4.10.0",
     "@azure/data-tables": "13.3.2",
     "@azure/storage-blob": "12.33.0",

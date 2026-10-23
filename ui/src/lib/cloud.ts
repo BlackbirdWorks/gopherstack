@@ -65,6 +65,30 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     defaultPort: 10004,
   },
   {
+    id: "eventhubs",
+    label: "Event Hubs",
+    description: "Azure Event Hubs",
+    healthName: "AzureEventHubs",
+    portLabel: "azureeventhubs",
+    defaultPort: 10005,
+  },
+  {
+    id: "eventgrid",
+    label: "Event Grid",
+    description: "Azure Event Grid",
+    healthName: "AzureEventGrid",
+    portLabel: "azureeventgrid",
+    defaultPort: 10007,
+  },
+  {
+    id: "appconfig",
+    label: "App Configuration",
+    description: "Azure App Configuration",
+    healthName: "AzureAppConfig",
+    portLabel: "azureappconfig",
+    defaultPort: 10008,
+  },
+  {
     id: "arm",
     label: "Resource Manager",
     description: "Azure Resource Manager (ARM)",
@@ -143,6 +167,46 @@ export const GCP_SERVICES: readonly GcpService[] = [
     defaultPort: 8124,
   },
   {
+    id: "run",
+    label: "Cloud Run",
+    description: "Google Cloud Run",
+    healthName: "GCPRun",
+    portLabel: "gcprun",
+    defaultPort: 8126,
+  },
+  {
+    id: "functions",
+    label: "Cloud Functions",
+    description: "Google Cloud Functions",
+    healthName: "GCPFunctions",
+    portLabel: "gcpfunctions",
+    defaultPort: 8128,
+  },
+  {
+    id: "bigquery",
+    label: "BigQuery",
+    description: "Google BigQuery",
+    healthName: "GCPBigQuery",
+    portLabel: "gcpbigquery",
+    defaultPort: 9050,
+  },
+  {
+    id: "sql",
+    label: "Cloud SQL",
+    description: "Google Cloud SQL",
+    healthName: "GCPSQL",
+    portLabel: "gcpsql",
+    defaultPort: 8130,
+  },
+  {
+    id: "logging",
+    label: "Cloud Logging",
+    description: "Google Cloud Logging",
+    healthName: "GCPLogging",
+    portLabel: "gcplogging",
+    defaultPort: 8131,
+  },
+  {
     id: "iam",
     label: "Cloud IAM",
     description: "Google Cloud IAM",
@@ -163,6 +227,12 @@ export const GCP_SERVICES: readonly GcpService[] = [
 export function parseCloud(value: string | null | undefined): Cloud | null {
   const v = value?.trim().toLowerCase();
   return CLOUDS.find((c) => c.id === v)?.id ?? null;
+}
+
+/** The cloud a dashboard path belongs to (/dashboard/azure/..., /dashboard/gcp/...), else null. */
+export function cloudFromPath(pathname: string): Cloud | null {
+  const m = /^\/dashboard\/(azure|gcp)(\/|$)/.exec(pathname);
+  return m ? parseCloud(m[1]) : null;
 }
 
 /** URL param wins over the stored choice; AWS is the default. */

@@ -92,6 +92,7 @@ tasks:
   build-check:
     desc: Compile under default, e2e and integration tags (go vet type-checks _test.go files)
     cmds:
+      - bash scripts/gocache-trim.sh --if-low
       - go build ./...
       - go vet -tags e2e ./...
       - go vet -tags integration ./...
@@ -256,6 +257,7 @@ tasks:
   lint:
     desc: Full lint (golangci-lint, mulint vet, govulncheck binary mode, UI lint/fmt/check, build-check)
     cmds:
+      - bash scripts/gocache-trim.sh --if-low
       - task: install-deps
       - task: ui-lint
       - task: ui-fmt
@@ -265,6 +267,12 @@ tasks:
       - golangci-lint run --timeout 20m ./...
       - go vet -vettool=$(go tool -n mulint-vet) ./...
       - go tool govulncheck -mode=binary bin/{{.BINARY_NAME}}-linux
+
+  gocache-trim:
+    desc: Trim old GOCACHE entries (GOCACHE_TRIM_MINUTES=180; go clean -cache if over GOCACHE_CLEAN_GB=200)
+    silent: true
+    cmds:
+      - bash scripts/gocache-trim.sh
 
   lint-changed:
     desc: Lint and vet only packages touched by the diff (branch vs origin/main + working tree)
@@ -294,6 +302,7 @@ tasks:
   test:
     desc: Unit tests (-race -short)
     cmds:
+      - bash scripts/gocache-trim.sh --if-low
       - go tool gotestsum --format pkgname -- -race -shuffle on -short ./...
 
   leak-test:
@@ -304,6 +313,7 @@ tasks:
   integration-test:
     desc: Integration tests (builds the linux binary first)
     cmds:
+      - bash scripts/gocache-trim.sh --if-low
       - task: build-linux
       - go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
@@ -409,6 +419,11 @@ tasks:
     desc: Regenerate services/cloudformation/cfn_attributes.json
     cmds:
       - go run ./cmd/cfnattrgen -spec cmd/cfnattrgen/testdata/cfn_resource_spec.json -src services/cloudformation -out services/cloudformation/cfn_attributes.json -services-out services/cloudformation/cfn_resource_services.json -types-out services/cloudformation/cfn_provisionable_types.json
+
+  cfn-props-gen:
+    desc: Regenerate cfn_property_schemas.json from the full CFN spec (SPEC=/path/to/CloudFormationResourceSpecification.json)
+    cmds:
+      - go run ./cmd/cfnpropgen -spec {{.SPEC}} -types services/cloudformation/cfn_provisionable_types.json -out services/cloudformation/cfn_property_schemas.json
 
   cfn-attrs-spec-refresh:
     desc: Refresh the CloudFormation resource spec fixture (then run cfn-attrs-gen)

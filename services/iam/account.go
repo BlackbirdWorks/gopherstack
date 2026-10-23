@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -377,7 +378,7 @@ func (b *InMemoryBackend) GetCredentialReport() string {
 	lines = append(lines, credentialReportHeader)
 
 	// Root account row (always present in real AWS).
-	rootArn := "arn:aws:iam::" + b.accountID + ":root"
+	rootArn := arn.Build("iam", "", b.accountID, "root")
 	lines = append(lines, strings.Join([]string{
 		"<root_account>", rootArn, time.Now().UTC().Format(time.RFC3339),
 		notApplicable, credNoInfo, notApplicable, notApplicable, credFalse,

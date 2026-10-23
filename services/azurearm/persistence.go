@@ -27,21 +27,40 @@ type armSnapshot struct {
 	Resources           map[string]*Resource       `json:"resources"`
 	RegisteredProviders map[string]map[string]bool `json:"registeredProviders"`
 	KeyVault            *keyVaultSnapshot          `json:"keyVault,omitempty"`
+	Cosmos              *cosmosSnapshot            `json:"cosmos,omitempty"`
+	EventHub            *eventHubSnapshot          `json:"eventHub,omitempty"`
+	EventGrid           *eventGridSnapshot         `json:"eventGrid,omitempty"`
+	AppConfig           *appConfigSnapshot         `json:"appConfig,omitempty"`
+	ContainerRegistry   *containerRegistrySnapshot `json:"containerRegistry,omitempty"`
+	Redis               *redisSnapshot             `json:"redis,omitempty"`
+	SQL                 *sqlSnapshot               `json:"sql,omitempty"`
 	Version             int                        `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil))
+	return persistence.MarshalSnapshot(ctx, "azurearm", b.snapshotState(nil, nil, nil, nil, nil, nil))
 }
 
-func (b *InMemoryBackend) snapshotState(kv *keyVaultSnapshot) armSnapshot {
+func (b *InMemoryBackend) snapshotState(
+	kv *keyVaultSnapshot,
+	cosmos *cosmosSnapshot,
+	eh *eventHubSnapshot,
+	eg *eventGridSnapshot,
+	ac *appConfigSnapshot,
+	cr *containerRegistrySnapshot,
+) armSnapshot {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	return armSnapshot{
 		KeyVault:            kv,
+		Cosmos:              cosmos,
+		EventHub:            eh,
+		EventGrid:           eg,
+		AppConfig:           ac,
+		ContainerRegistry:   cr,
 		Version:             armSnapshotVersion,
 		ResourceGroups:      b.resourceGroups,
 		Resources:           b.resources,
@@ -143,7 +162,41 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		kv = p.snapshot()
 	}
 
-	return persistence.MarshalSnapshot(ctx, "azurearm", h.Backend.snapshotState(kv))
+	var cosmos *cosmosSnapshot
+	if p, ok := h.cosmosProvider(); ok {
+		cosmos = p.snapshot()
+	}
+
+	var eh *eventHubSnapshot
+	if p, ok := h.eventHubProvider(); ok {
+		eh = p.snapshot()
+	}
+
+	var eg *eventGridSnapshot
+	if p, ok := h.eventGridProvider(); ok {
+		eg = p.snapshot()
+	}
+
+	var ac *appConfigSnapshot
+	if p, ok := h.appConfigProvider(); ok {
+		ac = p.snapshot()
+	}
+
+	var cr *containerRegistrySnapshot
+	if p, ok := h.containerRegistryProvider(); ok {
+		cr = p.snapshot()
+	}
+
+	st := h.Backend.snapshotState(kv, cosmos, eh, eg, ac, cr)
+	if p, ok := h.redisProvider(); ok {
+		st.Redis = p.snapshot()
+	}
+
+	if p, ok := h.sqlProvider(); ok {
+		st.SQL = p.snapshot()
+	}
+
+	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
 
 // Restore implements persistence.Persistable.
@@ -155,6 +208,34 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.keyVaultProvider(); ok {
 		p.restore(snap.KeyVault)
+	}
+
+	if p, ok := h.cosmosProvider(); ok {
+		p.restore(snap.Cosmos)
+	}
+
+	if p, ok := h.eventHubProvider(); ok {
+		p.restore(snap.EventHub)
+	}
+
+	if p, ok := h.eventGridProvider(); ok {
+		p.restore(snap.EventGrid)
+	}
+
+	if p, ok := h.appConfigProvider(); ok {
+		p.restore(snap.AppConfig)
+	}
+
+	if p, ok := h.containerRegistryProvider(); ok {
+		p.restore(snap.ContainerRegistry)
+	}
+
+	if p, ok := h.redisProvider(); ok {
+		p.restore(snap.Redis)
+	}
+
+	if p, ok := h.sqlProvider(); ok {
+		p.restore(snap.SQL)
 	}
 
 	return nil

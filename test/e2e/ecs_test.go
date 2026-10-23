@@ -15,6 +15,7 @@ import (
 
 // TestECSDashboard verifies the ECS dashboard UI: clusters render correctly.
 func TestECSDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ECSHandler.Backend.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "demo-cluster"})
@@ -49,14 +50,14 @@ func TestECSDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "demo-cluster", "production-cluster")
 	assert.Contains(t, content, "demo-cluster")
 	assert.Contains(t, content, "production-cluster")
 }
 
 // TestECSDashboard_Empty verifies the ECS dashboard empty state renders correctly.
 func TestECSDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -84,8 +85,7 @@ func TestECSDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Amazon ECS", "No clusters found")
 	// Rebuilt page titles the header "Amazon ECS" (not "ECS Clusters") and the
 	// Clusters tab's empty state reads "No clusters found" (not "No ECS
 	// clusters found") — same page heading and empty-state protections, new
@@ -96,6 +96,7 @@ func TestECSDashboard_Empty(t *testing.T) {
 
 // TestECSDashboard_CapacityProvidersTab verifies the Capacity Providers tab renders.
 func TestECSDashboard_CapacityProvidersTab(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.ECSHandler.Backend.CreateCluster(ecsbackend.CreateClusterInput{ClusterName: "cap-cluster"})
@@ -142,6 +143,7 @@ func TestECSDashboard_CapacityProvidersTab(t *testing.T) {
 
 // Note: Create/Delete UI flow via dashboard is not currently implemented.
 func TestECSDashboard_CreateAndDeleteCluster(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	// Create cluster via SDK

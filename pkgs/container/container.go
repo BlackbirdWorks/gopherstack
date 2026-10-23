@@ -10,6 +10,7 @@ package container
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"time"
 )
@@ -53,23 +54,21 @@ type Config struct {
 
 // Spec holds the specification for creating a container.
 type Spec struct {
-	// Image is the container image reference.
-	Image string
-	// Name is an optional container name.
-	Name string
-	// Env is a list of environment variables in KEY=VALUE format.
-	Env []string
-	// Mounts is a list of bind-mount strings in HOST:CONTAINER[:OPTIONS] format.
-	Mounts []string
-	// Cmd overrides the image's default CMD.
-	Cmd []string
-	// Entrypoint overrides the image's default ENTRYPOINT.
+	Image   string
+	Name    string
+	Network string
+	// WorkingDir overrides the image's working directory; empty keeps it.
+	WorkingDir string
+	// User runs the container process as uid[:gid]; empty keeps the image's user.
+	User string
+	// OCIRuntime selects the daemon-registered OCI runtime (e.g. runsc); empty uses the daemon default.
+	OCIRuntime string
+	Env        []string
+	Mounts     []string
+	Cmd        []string
 	Entrypoint []string
-	// Ports publishes TCP ports as [IP:]HOST:CONTAINER (e.g. "127.0.0.1:19092:9092"); no IP binds all interfaces.
-	Ports []string
-	// Tmpfs mounts an in-memory tmpfs at each listed container path.
-	Tmpfs []string
-	// Privileged runs the container with full host privileges (needed by k3s).
+	Ports      []string
+	Tmpfs      []string
 	Privileged bool
 }
 
@@ -80,6 +79,25 @@ type ExecResult struct {
 	Stderr string
 	// ExitCode is the command's exit status.
 	ExitCode int
+}
+
+// StreamExecer is implemented by runtimes that can stream a command's output while it runs.
+type StreamExecer interface {
+	// ExecStream runs cmd, writing combined stdout and stderr to out as produced; it returns the exit status.
+	ExecStream(ctx context.Context, containerID string, cmd []string, out io.Writer) (int, error)
+}
+
+// ErrNetworkUnsupported is returned when the underlying client cannot manage networks.
+var ErrNetworkUnsupported = errors.New("container networks are not supported by this runtime client")
+
+// NetworkRuntime is implemented by runtimes that can manage user-defined container networks.
+type NetworkRuntime interface {
+	// CreateNetwork creates a bridge network and returns its ID.
+	CreateNetwork(ctx context.Context, name string) (string, error)
+	// ConnectNetwork attaches a running container to the network.
+	ConnectNetwork(ctx context.Context, networkID, containerID string) error
+	// RemoveNetwork deletes the network.
+	RemoveNetwork(ctx context.Context, networkID string) error
 }
 
 // PooledContainer tracks a container managed by the warm pool.

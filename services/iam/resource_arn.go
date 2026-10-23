@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -98,7 +99,7 @@ func extractDynamoDBResourceARN(tableName, region, accountID string) string {
 		return tableName
 	}
 
-	return "arn:aws:dynamodb:" + region + ":" + accountID + ":table/" + tableName
+	return arn.Build("dynamodb", region, accountID, "table/"+tableName)
 }
 
 func extractKMSResourceARN(keyID, region, accountID string) string {
@@ -110,10 +111,10 @@ func extractKMSResourceARN(keyID, region, accountID string) string {
 	}
 
 	if strings.HasPrefix(keyID, "alias/") {
-		return "arn:aws:kms:" + region + ":" + accountID + ":" + keyID
+		return arn.Build("kms", region, accountID, keyID)
 	}
 
-	return "arn:aws:kms:" + region + ":" + accountID + ":key/" + keyID
+	return arn.Build("kms", region, accountID, "key/"+keyID)
 }
 
 func extractSecretsManagerResourceARN(secretID, region, accountID string) string {
@@ -124,7 +125,7 @@ func extractSecretsManagerResourceARN(secretID, region, accountID string) string
 		return secretID
 	}
 
-	return "arn:aws:secretsmanager:" + region + ":" + accountID + ":secret:" + secretID
+	return arn.Build("secretsmanager", region, accountID, "secret:"+secretID)
 }
 
 func extractSSMResourceARN(name, region, accountID string) string {
@@ -133,7 +134,7 @@ func extractSSMResourceARN(name, region, accountID string) string {
 	}
 	paramName := strings.TrimPrefix(name, "/")
 
-	return "arn:aws:ssm:" + region + ":" + accountID + ":parameter/" + paramName
+	return arn.Build("ssm", region, accountID, "parameter/"+paramName)
 }
 
 func extractEventBridgeResourceARN(payload jsonTargetResourcePayload, region, accountID string) string {
@@ -142,14 +143,14 @@ func extractEventBridgeResourceARN(payload jsonTargetResourcePayload, region, ac
 			return payload.EventBusName
 		}
 
-		return "arn:aws:events:" + region + ":" + accountID + ":event-bus/" + payload.EventBusName
+		return arn.Build("events", region, accountID, "event-bus/"+payload.EventBusName)
 	}
 	if payload.Rule != "" {
 		if strings.HasPrefix(payload.Rule, "arn:") {
 			return payload.Rule
 		}
 
-		return "arn:aws:events:" + region + ":" + accountID + ":rule/" + payload.Rule
+		return arn.Build("events", region, accountID, "rule/"+payload.Rule)
 	}
 
 	return ""
@@ -168,7 +169,7 @@ func extractKinesisResourceARN(payload jsonTargetResourcePayload, region, accoun
 		return payload.StreamARN
 	}
 	if payload.StreamName != "" {
-		return "arn:aws:kinesis:" + region + ":" + accountID + ":stream/" + payload.StreamName
+		return arn.Build("kinesis", region, accountID, "stream/"+payload.StreamName)
 	}
 
 	return ""
@@ -179,7 +180,7 @@ func extractECRResourceARN(repoName, region, accountID string) string {
 		return ""
 	}
 
-	return "arn:aws:ecr:" + region + ":" + accountID + ":repository/" + repoName
+	return arn.Build("ecr", region, accountID, "repository/"+repoName)
 }
 
 func extractSQSTargetResourceARN(payload jsonTargetResourcePayload, region, accountID string) string {
@@ -191,7 +192,7 @@ func extractSQSTargetResourceARN(payload jsonTargetResourcePayload, region, acco
 		}
 	}
 	if payload.QueueName != "" {
-		return "arn:aws:sqs:" + region + ":" + accountID + ":" + payload.QueueName
+		return arn.Build("sqs", region, accountID, payload.QueueName)
 	}
 
 	return ""
@@ -323,10 +324,10 @@ func extractVirtualHostedResourceARN(r *http.Request, path string) string {
 	}
 
 	if path == "" {
-		return "arn:aws:s3:::" + vhBucket
+		return arn.S3("", vhBucket)
 	}
 
-	return "arn:aws:s3:::" + vhBucket + "/" + path
+	return arn.S3("", vhBucket+"/"+path)
 }
 
 func extractPathBasedResourceARN(path, region, accountID string) string {
@@ -344,7 +345,7 @@ func extractPathBasedResourceARN(path, region, accountID string) string {
 		}
 
 		if region != "" && accountID != "" {
-			return "arn:aws:lambda:" + region + ":" + accountID + ":function:" + fnName
+			return arn.Build("lambda", region, accountID, "function:"+fnName)
 		}
 	}
 
@@ -399,10 +400,10 @@ func extractSQSResourceARN(path, region, accountID string) string {
 		return ""
 	}
 
-	return "arn:aws:sqs:" + region + ":" + accountID + ":" + queueName
+	return arn.Build("sqs", region, accountID, queueName)
 }
 
 // extractS3ResourceARN builds an S3 ARN from a path-style S3 URL path.
 func extractS3ResourceARN(path string) string {
-	return "arn:aws:s3:::" + path
+	return arn.S3("", path)
 }

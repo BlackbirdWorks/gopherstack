@@ -68,16 +68,14 @@ families:
   CustomRouting: {status: ok, note: "Port mappings are computed, not stored: listener ports are consumed in order across groups, endpoints, subnet hosts (network, three reserved and broadcast addresses excluded) and destination ports."}
   CrossAccountAttachment: {status: ok, note: "Owner is the caller account; shared-with is matched on exact principal account IDs."}
   Byoip: {status: ok, note: "Transitional states are lazy deadlines evaluated on read, no goroutines."}
+  CloudFormation: {status: ok, note: "AWS::GlobalAccelerator::Accelerator, Listener, EndpointGroup and CrossAccountAttachment provision, update in place and delete through the backend; Ref is the ARN and GetAtt covers AcceleratorArn, DnsName, DualStackDnsName, Ipv4Addresses, Ipv6Addresses, ListenerArn, EndpointGroupArn, AttachmentArn (list attributes are comma-joined)."}
   Tags: {status: ok, note: "Accelerators (either kind) and attachments are taggable; listener and endpoint group ARNs are rejected with InvalidArgumentException."}
 gaps: []
 items_still_open:
-  - EndpointId: endpoint IDs (ALB/NLB ARN, EC2 instance, EIP allocation) are format-checked only, never looked up in the ELB/EC2 backends
   - AccessDeniedException: never raised; no IAM or BYOIP-ownership authorization is modeled
   - TransactionInProgressException: never raised; changes are not gated on an IN_PROGRESS accelerator
   - IpSets.IpAddressDetails: NetworkZone is not emitted, only IpAddresses and IpAddressFamily
   - CreateCrossAccountAttachment: Organizations OU/organization ARN principals are accepted but not expanded to member accounts
-  - ResourceGroupsTaggingAPI: accelerator tags are not exposed through the tagging API
-  - CloudFormation: AWS::GlobalAccelerator::* resources are not provisioned by the CloudFormation emulator
 structural_gaps:
   - "No data plane: nothing listens on the anycast addresses or DnsName, custom routing port mappings route no packets, and endpoint health is modeled (INITIAL then HEALTHY after the dwell) because no health checker or real endpoint exists."
   - "BYOIP authorization context is not cryptographically verified and FAILED_* states are never entered: there is no RIR/ROA source to fail against."
@@ -91,6 +89,8 @@ Protocol is awsjson1.1 with target prefix `GlobalAccelerator_V20180706.`; timest
 
 Emulator choices the SDK does not document, kept here so a later audit can re-check them against AWS:
 
+- Standard endpoints are looked up when added: ELBv2 load balancer ARNs in the ARN's region, EC2 instance IDs and EIP allocation IDs in any region; a miss is InvalidArgumentException (the SDK documents no dedicated code). Cross-account (attachment) endpoints and non-ELB ARNs are not checked. A standalone backend without a resolver accepts any well-formed ID.
+- Accelerators (either kind) and attachments with tags are listed by the Resource Groups Tagging API under `globalaccelerator:accelerator` and `globalaccelerator:attachment`.
 - Static addresses come from a deterministic first-free pool: IPv4 `75.2.0.0/16` (octets .0 and .255 skipped) and IPv6 `2600:9000:a000::/48`. Released addresses are reused immediately.
 - Custom routing traffic starts DENY for every destination until AllowCustomRoutingTraffic.
 - The IN_PROGRESS window follows `GLOBALACCELERATOR_LIFECYCLE_DELAY` (default 500ms) and restarts after any listener or endpoint group change.

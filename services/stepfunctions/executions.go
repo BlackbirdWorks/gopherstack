@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
@@ -461,6 +462,15 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 func (b *InMemoryBackend) StartExecutionWithTrace(
 	stateMachineArn, name, input, traceHeader string,
 ) (*Execution, error) {
+	return b.StartExecutionWithTraceContext(b.svcCtx, stateMachineArn, name, input, traceHeader)
+}
+
+// StartExecutionWithTraceContext is StartExecutionWithTrace carrying the
+// originating request's context so task invocations nest under that request
+// in the App Inspector.
+func (b *InMemoryBackend) StartExecutionWithTraceContext(
+	reqCtx context.Context, stateMachineArn, name, input, traceHeader string,
+) (*Execution, error) {
 	if err := validateExecutionInput(input); err != nil {
 		return nil, err
 	}
@@ -489,7 +499,7 @@ func (b *InMemoryBackend) StartExecutionWithTrace(
 
 	// Run the ASL interpreter asynchronously.
 	go b.runParsedExecution(
-		started.ctx,
+		apptrace.Link(reqCtx, started.ctx),
 		started.execArn,
 		started.parsedSM,
 		input,

@@ -1,14 +1,29 @@
-// Package kinesisanalyticsv2 provides an in-memory stub of AWS Kinesis Data Analytics v2.
+// Package kinesisanalyticsv2 emulates AWS Managed Service for Apache Flink (Kinesis Data Analytics v2).
 package kinesisanalyticsv2
 
 import (
 	"errors"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // ErrNilAppContext is returned by Provider.Init when a nil AppContext is supplied.
 var ErrNilAppContext = errors.New("kinesisanalyticsv2: AppContext must not be nil")
+
+// EngineDocker is the engine mode that runs real Flink jobs for StartApplication.
+const EngineDocker = "docker"
+
+// EngineConfig exposes the Flink engine mode (stub or docker) and the endpoint containers use to reach gopherstack.
+type EngineConfig interface {
+	GetFlinkEngine() string
+	GetFlinkEndpointURL() string
+}
+
+// DataDirConfig locates the directory persisting application code and savepoints; empty keeps them in temp dirs.
+type DataDirConfig interface {
+	GetFlinkDataDir() string
+}
 
 // Provider implements service.Provider for Kinesis Data Analytics v2.
 type Provider struct{}
@@ -27,7 +42,30 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID, region := service.AccountRegionOrDefault(ctx)
 
 	backend := NewInMemoryBackend(accountID, region)
-	handler := NewHandler(backend)
+	backend.SetAppConfig(ctx.Config)
 
-	return handler, nil
+	if ec, ok := ctx.Config.(EngineConfig); ok && ec.GetFlinkEngine() == EngineDocker {
+		enableDockerFlink(ctx, backend, ec.GetFlinkEndpointURL(), flinkDataDir(ctx.Config))
+	}
+
+	return NewHandler(backend), nil
+}
+
+func flinkDataDir(cfg any) string {
+	if dc, ok := cfg.(DataDirConfig); ok {
+		return dc.GetFlinkDataDir()
+	}
+
+	return ""
+}
+
+func enableDockerFlink(ctx *service.AppContext, backend *InMemoryBackend, endpoint, dataDir string) {
+	rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
+	if err != nil {
+		ctx.Logger.Warn("KinesisAnalyticsV2: container runtime unavailable; applications stay state-only", "error", err)
+
+		return
+	}
+
+	backend.EnableFlink(FlinkConfig{Runtime: rt, Ports: ctx.PortAlloc, EndpointURL: endpoint, DataDir: dataDir})
 }

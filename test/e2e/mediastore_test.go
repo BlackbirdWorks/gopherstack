@@ -13,6 +13,7 @@ import (
 
 // TestMediaStoreDashboard verifies the MediaStore dashboard UI renders container data.
 func TestMediaStoreDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.MediaStoreHandler.Backend.CreateContainer(
@@ -48,14 +49,14 @@ func TestMediaStoreDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-container", "New Container")
 	assert.Contains(t, content, "e2e-test-container")
 	assert.Contains(t, content, "New Container")
 }
 
 // TestMediaStoreDashboard_Empty verifies the MediaStore dashboard renders correctly with no data.
 func TestMediaStoreDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -83,7 +84,6 @@ func TestMediaStoreDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "No containers found")
 	assert.Contains(t, content, "No containers found")
 }

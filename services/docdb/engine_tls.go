@@ -10,25 +10,29 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
-	"os"
-	"path/filepath"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
-	tlsMountDir   = "/gopherstack-tls"
-	tlsServerFile = "server.pem"
-	tlsCAFile     = "ca.pem"
 	tlsCertTTL    = 10 * 365 * 24 * time.Hour
 	tlsSerialBits = 62
-	tlsDirPerm    = 0o755
-	tlsFilePerm   = 0o644
+	tlsPipes      = 2
+	tlsHandshake  = 10 * time.Second
 	tlsServerName = "localhost"
 )
 
-// tlsAuthority is the per-backend CA that signs each cluster's mongod server certificate.
+// tlsAuthority is the per-backend CA that signs each cluster's TLS-terminating front certificate.
 type tlsAuthority struct {
 	cert *x509.Certificate
 	key  *ecdsa.PrivateKey
@@ -88,16 +92,16 @@ func newTLSAuthority() (*tlsAuthority, error) {
 	}, nil
 }
 
-// serverPEM issues a certificate for localhost, loopback and host, concatenated with its key as mongod expects.
-func (a *tlsAuthority) serverPEM(host string) ([]byte, error) {
+// serverCert issues a certificate for localhost, loopback and host.
+func (a *tlsAuthority) serverCert(host string) (tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("generate server key: %w", err)
+		return tls.Certificate{}, fmt.Errorf("generate server key: %w", err)
 	}
 
 	serial, err := randSerial()
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 
 	tmpl := &x509.Certificate{
@@ -119,63 +123,136 @@ func (a *tlsAuthority) serverPEM(host string) ([]byte, error) {
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, a.cert, &key.PublicKey, a.key)
 	if err != nil {
-		return nil, fmt.Errorf("sign server cert: %w", err)
+		return tls.Certificate{}, fmt.Errorf("sign server cert: %w", err)
 	}
 
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("marshal server key: %w", err)
-	}
-
-	out := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-
-	return append(out, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})...), nil
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }
 
-// writeDir writes the server cert+key and CA into a fresh directory that is bind-mounted into the container.
-func (a *tlsAuthority) writeDir(host string) (string, error) {
-	srv, err := a.serverPEM(host)
+// tlsProxy is the public listener of a docker cluster: it terminates TLS while the cluster's tls parameter is
+// enabled and forwards plaintext otherwise, so a reboot flips the mode without recreating the container.
+type tlsProxy struct {
+	ln       net.Listener
+	cfg      *tls.Config
+	ctx      context.Context
+	cancel   context.CancelFunc
+	admit    sgfilter.Admitter
+	upstream string
+	wg       sync.WaitGroup
+	require  atomic.Bool
+}
+
+func (a *tlsAuthority) startProxy(
+	host string, port int, upstream string, require bool, admit sgfilter.Admitter,
+) (*tlsProxy, error) {
+	cert, err := a.serverCert(host)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	dir, err := os.MkdirTemp("", "gopherstack-docdb-tls-")
+	p, err := newFrontProxy(host, port, upstream, admit)
 	if err != nil {
-		return "", fmt.Errorf("tls dir: %w", err)
+		return nil, err
 	}
 
-	files := map[string][]byte{tlsServerFile: srv, tlsCAFile: a.pem}
-	for name, data := range files {
-		if err = os.WriteFile(filepath.Join(dir, name), data, tlsFilePerm); err != nil {
-			_ = os.RemoveAll(dir)
+	p.cfg = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	p.require.Store(require)
+	p.wg.Go(p.accept)
 
-			return "", fmt.Errorf("write %s: %w", name, err)
+	return p, nil
+}
+
+// startPlainProxy fronts a plaintext cluster with a security-group check only.
+func startPlainProxy(host string, port int, upstream string, admit sgfilter.Admitter) (*tlsProxy, error) {
+	p, err := newFrontProxy(host, port, upstream, admit)
+	if err != nil {
+		return nil, err
+	}
+
+	p.wg.Go(p.accept)
+
+	return p, nil
+}
+
+func newFrontProxy(host string, port int, upstream string, admit sgfilter.Admitter) (*tlsProxy, error) {
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp",
+		net.JoinHostPort(container.BindHostFor(host), strconv.Itoa(port)))
+	if err != nil {
+		return nil, fmt.Errorf("listen for docdb: %w", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	return &tlsProxy{ln: ln, ctx: ctx, cancel: cancel, upstream: upstream, admit: admit}, nil
+}
+
+func (p *tlsProxy) accept() {
+	for {
+		conn, err := p.ln.Accept()
+		if err != nil {
+			return
 		}
-	}
 
-	if err = os.Chmod(dir, tlsDirPerm); err != nil {
-		_ = os.RemoveAll(dir)
-
-		return "", fmt.Errorf("chmod tls dir: %w", err)
-	}
-
-	return dir, nil
-}
-
-func (a *tlsAuthority) clientConfig() *tls.Config {
-	return &tls.Config{RootCAs: a.pool, ServerName: tlsServerName, MinVersion: tls.VersionTLS12}
-}
-
-// tlsArgs are the mongod flags that require TLS using the mounted server certificate.
-func tlsArgs() []string {
-	return []string{
-		"mongod", "--tlsMode", "requireTLS", "--tlsCertificateKeyFile", tlsMountDir + "/" + tlsServerFile,
-		"--tlsCAFile", tlsMountDir + "/" + tlsCAFile, "--tlsAllowConnectionsWithoutCertificates", "--bind_ip_all",
+		p.wg.Go(func() { p.serve(conn) })
 	}
 }
 
-// TLSCAPEM returns the CA certificate (PEM) that signs the docker engine's mongod certificates, or nil when
-// TLS is off; clients pass it as tlsCAFile.
+func (p *tlsProxy) serve(raw net.Conn) {
+	stop := context.AfterFunc(p.ctx, func() { _ = raw.Close() })
+	defer stop()
+	defer func() { _ = raw.Close() }()
+
+	client := raw
+
+	if p.admit != nil && !p.admit(client.RemoteAddr()) {
+		return
+	}
+
+	if p.cfg != nil && p.require.Load() {
+		tc := tls.Server(client, p.cfg)
+
+		hctx, cancel := context.WithTimeout(p.ctx, tlsHandshake)
+		err := tc.HandshakeContext(hctx)
+
+		cancel()
+
+		if err != nil {
+			return
+		}
+
+		client = tc
+	}
+
+	up, err := (&net.Dialer{Timeout: tlsHandshake}).DialContext(p.ctx, "tcp", p.upstream)
+	if err != nil {
+		return
+	}
+
+	defer func() { _ = up.Close() }()
+
+	stopUp := context.AfterFunc(p.ctx, func() { _ = up.Close() })
+	defer stopUp()
+
+	done := make(chan struct{}, tlsPipes)
+	pipe := func(dst, src net.Conn) {
+		_, _ = io.Copy(dst, src)
+		done <- struct{}{}
+	}
+
+	go pipe(up, client)
+	go pipe(client, up)
+	<-done
+}
+
+// Close stops accepting, drops live connections and waits for the handlers to finish.
+func (p *tlsProxy) Close() {
+	p.cancel()
+	_ = p.ln.Close()
+	p.wg.Wait()
+}
+
+// TLSCAPEM returns the CA certificate (PEM) that signs the docker engine's certificates, or nil when TLS is
+// off; clients pass it as tlsCAFile.
 func (b *InMemoryBackend) TLSCAPEM() []byte {
 	b.mu.RLock("TLSCAPEM")
 	defer b.mu.RUnlock()
@@ -187,8 +264,36 @@ func (b *InMemoryBackend) TLSCAPEM() []byte {
 	return append([]byte(nil), b.engine.tls.pem...)
 }
 
-func probeMongoTLS(cfg *tls.Config) func(context.Context, string) error {
-	return func(ctx context.Context, addr string) error {
-		return probeMongoConn(ctx, addr, cfg)
+// clusterTLSEnabled reports whether c's parameter group enables TLS; a missing group or value means enabled.
+func (b *InMemoryBackend) clusterTLSEnabled(c *DBCluster) bool {
+	pg, ok := b.clusterParameterGroupGet(c.region, c.DBClusterParameterGroupName)
+	if !ok {
+		return true
+	}
+
+	v, set := pg.Parameters["tls"]
+
+	return !set || !strs.Equal(v, "disabled")
+}
+
+func (b *InMemoryBackend) clusterTLSByID(region, id string) bool {
+	c, ok := b.clusterGet(region, id)
+
+	return !ok || b.clusterTLSEnabled(c)
+}
+
+// applyTLSMode points the cluster's front at its current tls parameter; a no-op without a docker front.
+func (b *InMemoryBackend) applyTLSMode(region, clusterID string) {
+	b.mu.RLock("docdbEngineTLS")
+	defer b.mu.RUnlock()
+
+	lb := b.unitLocked(region, clusterID)
+	if lb == nil || lb.proxy == nil {
+		return
+	}
+
+	want := b.clusterTLSByID(region, clusterID)
+	if lb.proxy.require.Swap(want) != want {
+		logger.Load(lb.ctx).InfoContext(lb.ctx, "docdb: tls parameter applied", "cluster", clusterID, "tls", want)
 	}
 }

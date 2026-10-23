@@ -131,35 +131,36 @@ func (rc *ResourceCreator) deleteAccessAnalyzerArchiveRule(
 	return rc.backends.AccessAnalyzer.Backend.DeleteArchiveRule(analyzerName, ruleName)
 }
 
-// accessAnalyzerFilter converts a CFN Filter property (a list of
-// {Property, Eq, Neq, Contains, Exists} maps) into the backend's
-// map[string]FilterCriterion keyed by Property.
+// accessAnalyzerFilter converts the CFN Filter property (a map keyed by
+// property name to FilterItems {Eq, Neq, Contains, Exists}).
 func accessAnalyzerFilter(
 	v any, params, physicalIDs map[string]string,
 ) map[string]accessanalyzerbackend.FilterCriterion {
-	list, ok := v.([]any)
+	filters, ok := v.(map[string]any)
 	if !ok {
 		return nil
 	}
 
-	out := make(map[string]accessanalyzerbackend.FilterCriterion, len(list))
+	out := make(map[string]accessanalyzerbackend.FilterCriterion, len(filters))
 
-	for _, item := range list {
+	for property, item := range filters {
 		m, isMap := item.(map[string]any)
 		if !isMap {
 			continue
 		}
 
-		property := strProp(m, "Property", params, physicalIDs)
-		if property == "" {
-			continue
-		}
-
-		out[property] = accessanalyzerbackend.FilterCriterion{
+		crit := accessanalyzerbackend.FilterCriterion{
 			Contains: strSliceProp(m["Contains"], params, physicalIDs),
 			Eq:       strSliceProp(m["Eq"], params, physicalIDs),
 			Neq:      strSliceProp(m["Neq"], params, physicalIDs),
 		}
+
+		if raw, has := m["Exists"]; has {
+			exists := strProp(map[string]any{"v": raw}, "v", params, physicalIDs) == boolTrue
+			crit.Exists = &exists
+		}
+
+		out[property] = crit
 	}
 
 	return out

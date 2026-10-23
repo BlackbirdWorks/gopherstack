@@ -12,6 +12,7 @@ import (
 
 // TestKinesisAnalyticsDashboard verifies the KinesisAnalytics dashboard loads.
 func TestKinesisAnalyticsDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)

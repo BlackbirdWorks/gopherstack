@@ -371,7 +371,7 @@ func TestChatAndTaskContacts(t *testing.T) {
 			TaskTemplateId: aws.String("tmpl"),
 		},
 	)
-	assert.Equal(t, "InvalidRequestException", apiCode(err))
+	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }
 
 func TestContactIdempotency(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 
 // TestCognitoIdentityDashboard verifies the Cognito Identity dashboard UI renders identity pools.
 func TestCognitoIdentityDashboard(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	_, err := stack.CognitoIdentityHandler.Backend.CreateIdentityPool(
@@ -52,13 +53,13 @@ func TestCognitoIdentityDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "e2e-test-pool")
 	assert.Contains(t, content, "e2e-test-pool")
 }
 
 // TestCognitoIdentityDashboard_Empty verifies the empty state renders correctly.
 func TestCognitoIdentityDashboard_Empty(t *testing.T) {
+	t.Parallel()
 	stack := newStack(t)
 
 	server := httptest.NewServer(stack.Echo)
@@ -86,8 +87,7 @@ func TestCognitoIdentityDashboard_Empty(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	content, err := page.Content()
-	require.NoError(t, err)
+	content := pageContentContaining(t, page, "Cognito Identity", "No identity pools found")
 	assert.Contains(t, content, "Cognito Identity")
 	assert.Contains(t, content, "No identity pools found")
 }
