@@ -22,7 +22,6 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
@@ -31,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"

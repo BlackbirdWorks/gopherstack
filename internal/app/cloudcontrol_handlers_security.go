@@ -11,12 +11,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	smtypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 

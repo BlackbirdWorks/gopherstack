@@ -7,7 +7,8 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
 )
 
 func (r *run) replicateSecrets(ctx context.Context) {

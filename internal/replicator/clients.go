@@ -17,7 +17,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -25,6 +24,7 @@ import (
 	"github.com/aws/smithy-go"
 
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 

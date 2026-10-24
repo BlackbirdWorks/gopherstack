@@ -19,7 +19,6 @@ import (
 	kintypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
@@ -27,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
