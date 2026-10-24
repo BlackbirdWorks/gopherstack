@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -6042,11 +6043,105 @@ func lockDetective(t *testing.T) {
 	t.Cleanup(detectiveMu.Unlock)
 }
 
-// lockAWSConfig holds awsConfigMu until the test's destroy cleanup has run.
+// lockAWSConfig holds awsConfigMu until the test's destroy cleanup has run,
+// then sweeps any recorder/channel a failed destroy leaked (AWS allows one of
+// each per account+region, and the emulator enforces it).
 func lockAWSConfig(t *testing.T) {
 	t.Helper()
 	awsConfigMu.Lock()
 	t.Cleanup(awsConfigMu.Unlock)
+	t.Cleanup(func() { sweepAWSConfig(t) })
+}
+
+func sweepAWSConfig(t *testing.T) {
+	t.Helper()
+
+	ctx := context.WithoutCancel(t.Context())
+	client := createAWSConfigClient(t)
+
+	recs, err := client.DescribeConfigurationRecorders(ctx, &configsvc.DescribeConfigurationRecordersInput{})
+	if err != nil {
+		t.Logf("sweep: describe recorders: %v", err)
+
+		return
+	}
+
+	for _, r := range recs.ConfigurationRecorders {
+		_, _ = client.StopConfigurationRecorder(ctx, &configsvc.StopConfigurationRecorderInput{
+			ConfigurationRecorderName: r.Name,
+		})
+	}
+
+	chans, err := client.DescribeDeliveryChannels(ctx, &configsvc.DescribeDeliveryChannelsInput{})
+	if err == nil {
+		for _, c := range chans.DeliveryChannels {
+			_, err = client.DeleteDeliveryChannel(ctx, &configsvc.DeleteDeliveryChannelInput{
+				DeliveryChannelName: c.Name,
+			})
+			if err != nil {
+				t.Logf("sweep: delete channel %s: %v", aws.ToString(c.Name), err)
+			}
+		}
+	}
+
+	for _, r := range recs.ConfigurationRecorders {
+		_, err = client.DeleteConfigurationRecorder(ctx, &configsvc.DeleteConfigurationRecorderInput{
+			ConfigurationRecorderName: r.Name,
+		})
+		if err != nil {
+			t.Logf("sweep: delete recorder %s: %v", aws.ToString(r.Name), err)
+		}
+	}
+}
+
+// TestConfigRecorderFixturesAreLocked fails when a fixture declaring a
+// customer-managed Config recorder is used by a test that skips lockAWSConfig.
+func TestConfigRecorderFixturesAreLocked(t *testing.T) {
+	t.Parallel()
+
+	var fixtures []string
+
+	err := fs.WalkDir(fixtureFS, "fixtures", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".tf") {
+			return err
+		}
+
+		b, rerr := fixtureFS.ReadFile(path)
+		if rerr == nil && strings.Contains(string(b), `resource "aws_config_configuration_recorder"`) {
+			name := strings.TrimSuffix(strings.TrimPrefix(path, "fixtures/"), ".tf")
+			fixtures = append(fixtures, name)
+		}
+
+		return rerr
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, fixtures)
+
+	srcs, err := filepath.Glob("*_test.go")
+	require.NoError(t, err)
+
+	for _, name := range fixtures {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			users := 0
+
+			for _, src := range srcs {
+				b, rerr := os.ReadFile(src)
+				require.NoError(t, rerr)
+
+				if !strings.Contains(string(b), fmt.Sprintf("fixture: %q", name)) {
+					continue
+				}
+
+				users++
+
+				assert.Contains(t, string(b), "lockAWSConfig(t)", "%s uses %s without lockAWSConfig", src, name)
+			}
+
+			assert.Positive(t, users, "no test uses fixture %s", name)
+		})
+	}
 }
 
 // TestTerraform_MWAA provisions an MWAA environment via Terraform, then verifies
