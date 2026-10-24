@@ -29,6 +29,10 @@ These do not block an A grade — no implementation could produce real data here
 - ItemReader InputType=PARQUET (asl.ErrParquetUnsupported) fails with a sentinel error: no pure-Go Parquet reader is in go.mod.
 - TestState RevealSecrets has no effect and TRACE adds no HTTP request/response: the executor runs without SDK integrations, so HTTP Tasks and EventBridge connection secrets are unavailable.
 
+## SDK integrations
+
+`aws-sdk:<service>:<action>` Tasks call the emulator's own handlers through `sdkwire`, which drives the smithy-go protocol codecs with Smithy schemas instead of linking the SDK service clients. Services whose pinned client ships a `schemas` package use it directly; the rest use models extracted from their generated clients (`sdkwire/legacy`). `go run ./cmd/sfnschemagen` (from the repo root) regenerates `sdkwire/registry_gen.go`, `sdkwire/legacy/*.json.gz` and `sdk_dispatch_gen.go` after an SDK bump, and `go test ./services/stepfunctions/sdkwire` checks request and response parity with every real client operation. S3 and Route 53 still go through their generated clients via a static table.
+
 ## More
 
 - [Full parity audit](PARITY.md)

@@ -30,7 +30,7 @@ func (in *input) Serialize(s smithy.ShapeSerializer) {
 	in.writeStruct(s, in.schema, in.value)
 }
 
-func (in *input) fail(format string, args ...any) {
+func (in *input) failf(format string, args ...any) {
 	if in.err == nil {
 		in.err = fmt.Errorf("%w: %s", ErrBadValue, fmt.Sprintf(format, args...))
 	}
@@ -39,7 +39,7 @@ func (in *input) fail(format string, args ...any) {
 func (in *input) writeStruct(s smithy.ShapeSerializer, schema *smithy.Schema, v any) {
 	m, ok := v.(map[string]any)
 	if !ok {
-		in.fail("expected object for %s", schema.ID())
+		in.failf("expected object for %s", schema.ID())
 
 		return
 	}
@@ -79,7 +79,7 @@ func lookupKey(m map[string]any, name string) (any, bool) {
 }
 
 func (in *input) write(s smithy.ShapeSerializer, ms *smithy.Schema, v any) {
-	switch ms.Type() { //nolint:exhaustive // other shape types are not data
+	switch ms.Type() {
 	case smithy.ShapeTypeStructure:
 		in.writeStruct(s, ms, v)
 	case smithy.ShapeTypeUnion:
@@ -98,7 +98,7 @@ func (in *input) write(s smithy.ShapeSerializer, ms *smithy.Schema, v any) {
 func (in *input) writeUnion(s smithy.ShapeSerializer, ms *smithy.Schema, v any) {
 	m, ok := v.(map[string]any)
 	if !ok || len(m) != 1 {
-		in.fail("union %s must hold exactly one member", ms.ID())
+		in.failf("union %s must hold exactly one member", ms.ID())
 
 		return
 	}
@@ -116,7 +116,7 @@ func (in *input) writeUnion(s smithy.ShapeSerializer, ms *smithy.Schema, v any) 
 		}
 
 		if variant == nil {
-			in.fail("unknown member %q of union %s", key, ms.ID())
+			in.failf("unknown member %q of union %s", key, ms.ID())
 
 			return
 		}
@@ -130,7 +130,7 @@ func (in *input) writeUnion(s smithy.ShapeSerializer, ms *smithy.Schema, v any) 
 func (in *input) writeList(s smithy.ShapeSerializer, ms *smithy.Schema, v any) {
 	items, ok := v.([]any)
 	if !ok {
-		in.fail("expected array for %s", ms.ID())
+		in.failf("expected array for %s", ms.ID())
 
 		return
 	}
@@ -147,7 +147,7 @@ func (in *input) writeList(s smithy.ShapeSerializer, ms *smithy.Schema, v any) {
 func (in *input) writeMap(s smithy.ShapeSerializer, ms *smithy.Schema, v any) {
 	m, ok := v.(map[string]any)
 	if !ok {
-		in.fail("expected object for %s", ms.ID())
+		in.failf("expected object for %s", ms.ID())
 
 		return
 	}
@@ -172,7 +172,7 @@ func (in *input) writeMap(s smithy.ShapeSerializer, ms *smithy.Schema, v any) {
 func (in *input) writeScalar(s smithy.ShapeSerializer, ms *smithy.Schema, v any) {
 	var err error
 
-	switch ms.Type() { //nolint:exhaustive // aggregate types are handled by write
+	switch ms.Type() {
 	case smithy.ShapeTypeString, smithy.ShapeTypeEnum:
 		var str string
 		if str, err = scalarString(v); err == nil {
@@ -200,7 +200,7 @@ func (in *input) writeScalar(s smithy.ShapeSerializer, ms *smithy.Schema, v any)
 	}
 
 	if err != nil {
-		in.fail("%s: %v", ms.ID(), err)
+		in.failf("%s: %v", ms.ID(), err)
 	}
 }
 
@@ -210,7 +210,7 @@ func (in *input) writeNumber(s smithy.ShapeSerializer, ms *smithy.Schema, v any)
 		return err
 	}
 
-	switch ms.Type() { //nolint:exhaustive // only numeric shape types reach here
+	switch ms.Type() {
 	case smithy.ShapeTypeByte:
 		s.WriteInt8(ms, int8(f))
 	case smithy.ShapeTypeShort:

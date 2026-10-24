@@ -60,7 +60,7 @@ func readStruct(d smithy.ShapeDeserializer, schema *smithy.Schema) (map[string]a
 }
 
 func read(d smithy.ShapeDeserializer, s *smithy.Schema) (any, bool, error) {
-	switch s.Type() { //nolint:exhaustive // other shape types are not data
+	switch s.Type() {
 	case smithy.ShapeTypeStructure:
 		v, err := readStruct(d, s)
 
@@ -188,7 +188,7 @@ func fromDocument(v document.Value) (any, bool) {
 }
 
 func readScalar(d smithy.ShapeDeserializer, s *smithy.Schema) (any, bool, error) {
-	switch s.Type() { //nolint:exhaustive // aggregate types are handled by read
+	switch s.Type() {
 	case smithy.ShapeTypeString, smithy.ShapeTypeEnum:
 		var v string
 
@@ -224,7 +224,7 @@ func readNumber(d smithy.ShapeDeserializer, s *smithy.Schema) (any, bool, error)
 		err error
 	)
 
-	switch s.Type() { //nolint:exhaustive // only numeric shape types reach here
+	switch s.Type() {
 	case smithy.ShapeTypeByte:
 		var v int8
 

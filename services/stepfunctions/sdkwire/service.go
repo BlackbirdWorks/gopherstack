@@ -29,7 +29,7 @@ type Service struct {
 	UserAgentAPI string
 }
 
-var registry = map[string]func() *Service{}
+var registry = map[string]func() *Service{} //nolint:gochecknoglobals // filled by the generated init
 
 func register(key string, build func() *Service) {
 	registry[key] = sync.OnceValue(build)

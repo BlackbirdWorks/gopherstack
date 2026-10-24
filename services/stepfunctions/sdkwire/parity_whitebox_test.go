@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -20,11 +22,14 @@ import (
 	"github.com/aws/smithy-go/middleware"
 	"github.com/aws/smithy-go/traits"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+	"github.com/aws/smithy-go/transport/http/protocol/restxml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const testEndpoint = "http://sfn-sdk-integration.local"
+
+var errSDKPanic = errors.New("sdk call panicked")
 
 // capturingClient records the request and answers with a canned response.
 type capturingClient struct {
@@ -109,22 +114,24 @@ func sdkOps(client any) []sdkOp {
 func callSDK(op sdkOp, in reflect.Value) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic: %v", r)
+			err = fmt.Errorf("%w: %v", errSDKPanic, r)
 		}
 	}()
 
 	res := op.method.Call([]reflect.Value{reflect.ValueOf(context.Background()), in})
-	err, _ = res[1].Interface().(error)
+	err, _ = reflect.TypeAssert[error](res[1])
 
 	return err
 }
 
-var ignoredHeaders = map[string]bool{
-	"Authorization": true, "X-Amz-Date": true, "User-Agent": true, "Amz-Sdk-Invocation-Id": true,
-	"Amz-Sdk-Request": true, "X-Amz-Security-Token": true, "X-Amz-Content-Sha256": true, "Accept-Encoding": true,
-	"X-Amz-User-Agent": true, "Content-Length": true, "X-Amz-Account-Id": true, "Host": true,
-	"X-Amz-Sdk-Checksum-Algorithm": true, "Content-Md5": true, "Trailer": true, "Content-Encoding": true,
-	"X-Amz-Decoded-Content-Length": true, "Expect": true, "X-Amz-Region-Set": true,
+func ignoredHeaders() map[string]bool {
+	return map[string]bool{
+		"Authorization": true, "X-Amz-Date": true, "User-Agent": true, "Amz-Sdk-Invocation-Id": true,
+		"Amz-Sdk-Request": true, "X-Amz-Security-Token": true, "X-Amz-Content-Sha256": true, "Accept-Encoding": true,
+		"X-Amz-User-Agent": true, "Content-Length": true, "X-Amz-Account-Id": true, "Host": true,
+		"X-Amz-Sdk-Checksum-Algorithm": true, "Content-Md5": true, "Trailer": true, "Content-Encoding": true,
+		"X-Amz-Decoded-Content-Length": true, "Expect": true, "X-Amz-Region-Set": true,
+	}
 }
 
 func headerDiff(want, got http.Header) []string {
@@ -140,7 +147,7 @@ func headerDiff(want, got http.Header) []string {
 	}
 
 	for k := range keys {
-		if ignoredHeaders[k] || strings.HasPrefix(k, "X-Amz-Checksum-") {
+		if ignoredHeaders()[k] || strings.HasPrefix(k, "X-Amz-Checksum-") {
 			continue
 		}
 
@@ -152,34 +159,40 @@ func headerDiff(want, got http.Header) []string {
 	return diffs
 }
 
+func decodeJSONBody(raw []byte) (any, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return map[string]any{}, true
+	}
+
+	var v any
+
+	return v, json.Unmarshal(raw, &v) == nil
+}
+
 func bodyDiff(contentType string, want, got []byte) string {
 	if bytes.Equal(want, got) {
 		return ""
 	}
 
-	if strings.Contains(contentType, "json") {
-		var w, g any
-
-		if len(bytes.TrimSpace(want)) == 0 {
-			w = map[string]any{}
-		} else if json.Unmarshal(want, &w) != nil {
-			return fmt.Sprintf("body: sdk not json: %s", want)
-		}
-
-		if len(bytes.TrimSpace(got)) == 0 {
-			g = map[string]any{}
-		} else if json.Unmarshal(got, &g) != nil {
-			return fmt.Sprintf("body: ours not json: %s", got)
-		}
-
-		if w, g = dropDefaults(w), dropDefaults(g); reflect.DeepEqual(w, g) {
-			return ""
-		}
-
-		return "body " + jsonDiff("", w, g)
+	if !strings.Contains(contentType, "json") {
+		return fmt.Sprintf("body: sdk=%.300q ours=%.300q", want, got)
 	}
 
-	return fmt.Sprintf("body: sdk=%.300q ours=%.300q", want, got)
+	w, wok := decodeJSONBody(want)
+	if !wok {
+		return fmt.Sprintf("body: sdk not json: %s", want)
+	}
+
+	g, gok := decodeJSONBody(got)
+	if !gok {
+		return fmt.Sprintf("body: ours not json: %s", got)
+	}
+
+	if w, g = dropDefaults(w), dropDefaults(g); reflect.DeepEqual(w, g) {
+		return ""
+	}
+
+	return "body " + jsonDiff("", w, g)
 }
 
 func requestDiff(sdkReq *http.Request, sdkBody []byte, ours *http.Request, ourBody []byte) []string {
@@ -207,10 +220,14 @@ func requestDiff(sdkReq *http.Request, sdkBody []byte, ours *http.Request, ourBo
 }
 
 // sqsChecksummed operations fail the SDK's client-side MD5 check on sentinel data.
-var sqsChecksummed = map[string]bool{"ReceiveMessage": true, "SendMessage": true, "SendMessageBatch": true}
+func sqsChecksummed(op string) bool {
+	return op == "ReceiveMessage" || op == "SendMessage" || op == "SendMessageBatch"
+}
 
 // compressedRequests are gzipped by the SDK; the emulator reads plain bodies.
-var compressedRequests = map[string]bool{"PutMetricData": true}
+func compressedRequests(op string) bool {
+	return op == "PutMetricData"
+}
 
 func serviceKeys() []string {
 	keys := Keys()
@@ -258,7 +275,7 @@ func requestParityOp(svc *Service, cc *capturingClient, op sdkOp) []string {
 		return []string{"operation missing from registry"}
 	}
 
-	if o.Schema.IsInputEventStream() || o.Schema.IsOutputEventStream() || compressedRequests[opName] {
+	if o.Schema.IsInputEventStream() || o.Schema.IsOutputEventStream() || compressedRequests(opName) {
 		return nil
 	}
 
@@ -386,8 +403,16 @@ func wireResponse(svc *Service, o *Op, value any) (http.Header, []byte, error) {
 
 	in := &input{value: value, schema: o.Schema.Output}
 
+	proto := svc.Protocol
+
+	xmlWrap := xmlWrapper(svc.Protocol.ID().Name, o.Schema.ID().Name)
+	if xmlWrap != nil {
+		proto = restxml.New(smithy.NewServiceSchema(
+			smithy.NewSchema(smithy.ShapeID{Namespace: "test", Name: "Svc"}, smithy.ShapeTypeService, 0), "1"))
+	}
+
 	ctx := middleware.WithOperationName(context.Background(), "Response")
-	if err := svc.Protocol.SerializeRequest(ctx, synthetic, in, sreq); err != nil {
+	if err := proto.SerializeRequest(ctx, synthetic, in, sreq); err != nil {
 		return nil, nil, err
 	}
 
@@ -402,7 +427,43 @@ func wireResponse(svc *Service, o *Op, value any) (http.Header, []byte, error) {
 		body, _ = io.ReadAll(req.Body)
 	}
 
+	if xmlWrap != nil {
+		body = xmlWrap(body)
+		req.Header = http.Header{"Content-Type": {"text/xml"}}
+	}
+
 	return req.Header, body, nil
+}
+
+// xmlWrapper turns the XML a restXml serializer wrote for the output shape
+// into the response envelope of the query family, nil for other protocols.
+func xmlWrapper(protocol, op string) func([]byte) []byte {
+	var open, closing string
+
+	switch protocol {
+	case "awsQuery":
+		open = "<" + op + "Response><" + op + "Result>"
+		closing = "</" + op + "Result></" + op + "Response>"
+	case "ec2Query":
+		open = "<" + op + "Response>"
+		closing = "</" + op + "Response>"
+	default:
+		return nil
+	}
+
+	return func(doc []byte) []byte {
+		s := string(doc)
+		if start := strings.Index(s, ">"); start >= 0 && strings.HasSuffix(s, ">") &&
+			!strings.HasSuffix(s[:start], "/") {
+			if end := strings.LastIndex(s, "</"); end > start {
+				s = s[start+1 : end]
+			}
+		} else {
+			s = ""
+		}
+
+		return []byte(open + s + closing)
+	}
 }
 
 func TestResponseParity(t *testing.T) {
@@ -437,7 +498,7 @@ func responseParityOp(svc *Service, build func(aws.Config) any, op sdkOp) string
 	}
 
 	if o.Schema.IsInputEventStream() || o.Schema.IsOutputEventStream() || o.Schema.Output == nil ||
-		sqsChecksummed[op.name] {
+		sqsChecksummed(op.name) {
 		return ""
 	}
 
@@ -456,17 +517,17 @@ func responseParityOp(svc *Service, build func(aws.Config) any, op sdkOp) string
 	in := fill(op.in, 0, map[reflect.Type]int{})
 	params, _ := toValue(in)
 
-	res := reflect.ValueOf(client).MethodByName(op.name).Call([]reflect.Value{reflect.ValueOf(context.Background()), in})
-	if err, _ := res[1].Interface().(error); err != nil {
-		return "sdk: " + err.Error()
+	res := reflect.ValueOf(client).
+		MethodByName(op.name).
+		Call([]reflect.Value{reflect.ValueOf(context.Background()), in})
+	if sdkErr, _ := reflect.TypeAssert[error](res[1]); sdkErr != nil {
+		return "sdk: " + sdkErr.Error()
 	}
 
 	sdkValue, _ := toValue(res[0])
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		for k, v := range header {
-			w.Header()[k] = v
-		}
+		maps.Copy(w.Header(), header)
 
 		_, _ = w.Write(body)
 	})

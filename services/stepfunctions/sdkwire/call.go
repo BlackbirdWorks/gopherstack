@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,6 +25,7 @@ import (
 )
 
 const (
+	splitOnce       = 2
 	headerAccountID = "X-Amz-Account-Id"
 	userAgent       = "aws-sdk-go-v2/gopherstack-sfn "
 )
@@ -72,9 +74,9 @@ func (s *Service) Call(ctx context.Context, tgt Target, op string, params any) (
 	resp := &smithyhttp.Response{Response: res}
 	out := &output{schema: o.Schema.Output}
 
-	if err := s.Protocol.DeserializeResponse(ctx, o.Schema, &smithy.TypeRegistry{}, resp, out); err != nil {
+	if derr := s.Protocol.DeserializeResponse(ctx, o.Schema, &smithy.TypeRegistry{}, resp, out); derr != nil {
 		return nil, &awshttp.ResponseError{
-			ResponseError: &smithyhttp.ResponseError{Response: resp, Err: err},
+			ResponseError: &smithyhttp.ResponseError{Response: resp, Err: derr},
 			RequestID:     requestID(res.Header),
 		}
 	}
@@ -100,8 +102,8 @@ func (s *Service) buildRequest(ctx context.Context, tgt Target, op string, o *Op
 		in.value = map[string]any{}
 	}
 
-	if err := s.Protocol.SerializeRequest(middleware.WithOperationName(ctx, op), o.Schema, in, sreq); err != nil {
-		return nil, fmt.Errorf("serialize request: %w", err)
+	if serr := s.Protocol.SerializeRequest(middleware.WithOperationName(ctx, op), o.Schema, in, sreq); serr != nil {
+		return nil, fmt.Errorf("serialize request: %w", serr)
 	}
 
 	if in.err != nil {
@@ -109,6 +111,10 @@ func (s *Service) buildRequest(ctx context.Context, tgt Target, op string, o *Op
 	}
 
 	req := sreq.Build(ctx)
+	if req.Body == nil {
+		req.Body = http.NoBody
+	}
+
 	req.Header.Set("User-Agent", userAgent+s.UserAgentAPI)
 
 	for k, v := range s.Headers {
@@ -138,11 +144,13 @@ func (s *Service) sign(ctx context.Context, tgt Target, req *http.Request) error
 		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 
+	req.ContentLength = int64(len(body))
+
 	sum := sha256.Sum256(body)
 
 	signingName := s.SigningName
 	if signingName == "" {
-		signingName = strings.TrimPrefix(strings.SplitN(s.UserAgentAPI, "#", 2)[0], "api/")
+		signingName = strings.TrimPrefix(strings.SplitN(s.UserAgentAPI, "#", splitOnce)[0], "api/")
 	}
 
 	return v4.NewSigner().SignHTTP(ctx, creds, req, hex.EncodeToString(sum[:]), signingName, tgt.Region, time.Now())
@@ -174,9 +182,7 @@ func withToken(o *Op, params any) any {
 	}
 
 	out := make(map[string]any, len(m)+1)
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 
 	out[o.Token] = uuid.NewString()
 

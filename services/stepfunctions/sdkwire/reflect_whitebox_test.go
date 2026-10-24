@@ -9,14 +9,16 @@ import (
 	"time"
 )
 
-var fixedTime = time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+func fixedTime() time.Time {
+	return time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+}
 
 const maxDepth = 5
 
 // fill builds a value of type t with deterministic sentinels: every scalar
 // set, one element per list or map, unions and documents left nil.
 func fill(t reflect.Type, depth int, seen map[reflect.Type]int) reflect.Value {
-	switch t.Kind() { //nolint:exhaustive // unsupported kinds stay zero
+	switch t.Kind() {
 	case reflect.Pointer:
 		if depth > maxDepth {
 			return reflect.Zero(t)
@@ -57,7 +59,7 @@ func fillStruct(t reflect.Type, depth int, seen map[reflect.Type]int) reflect.Va
 	v := reflect.New(t).Elem()
 
 	if t == reflect.TypeFor[time.Time]() {
-		v.Set(reflect.ValueOf(fixedTime))
+		v.Set(reflect.ValueOf(fixedTime()))
 
 		return v
 	}
@@ -103,7 +105,7 @@ func toValue(v reflect.Value) (any, bool) {
 		return nil, false
 	}
 
-	switch v.Kind() { //nolint:exhaustive // unsupported kinds are omitted
+	switch v.Kind() {
 	case reflect.Pointer:
 		if v.IsNil() {
 			return nil, false
@@ -186,7 +188,7 @@ func toStruct(v reflect.Value) any {
 }
 
 func isZeroScalar(v reflect.Value) bool {
-	switch v.Kind() { //nolint:exhaustive // only scalar kinds are omitted when zero
+	switch v.Kind() {
 	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
 		return v.IsZero()

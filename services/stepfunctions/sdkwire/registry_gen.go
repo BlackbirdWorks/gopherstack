@@ -3225,4 +3225,52 @@ func init() {
 			},
 		}
 	})
+	register("autoscaling", func() *Service {
+		return legacyService("autoscaling", "autoscaling", "api/autoscaling#1.78.3", queryProtocol)
+	})
+	register("cloudformation", func() *Service {
+		return legacyService("cloudformation", "cloudformation", "api/cloudformation#1.82.0", queryProtocol)
+	})
+	register("ec2", func() *Service {
+		return legacyService("ec2", "ec2", "api/ec2#1.338.3", ec2queryProtocol)
+	})
+	register("efs", func() *Service {
+		return legacyService("efs", "elasticfilesystem", "api/efs#1.49.3", restjson1Protocol)
+	})
+	register("elasticache", func() *Service {
+		return legacyService("elasticache", "elasticache", "api/elasticache#1.63.2", queryProtocol)
+	})
+	register("elasticloadbalancingv2", func() *Service {
+		return legacyService("elasticloadbalancingv2", "elasticloadbalancing", "api/elasticloadbalancingv2#1.63.3", queryProtocol)
+	})
+	register("iam", func() *Service {
+		return legacyService("iam", "iam", "api/iam#1.64.3", queryProtocol)
+	})
+	register("rds", func() *Service {
+		return legacyService("rds", "rds", "api/rds#1.130.2", queryProtocol)
+	})
+	register("redshift", func() *Service {
+		return legacyService("redshift", "redshift", "api/redshift#1.71.3", queryProtocol)
+	})
+	register("redshiftdata", func() *Service {
+		return legacyService("redshiftdata", "redshift-data", "api/redshiftdata#1.49.2", awsjson11Protocol)
+	})
+	register("rekognition", func() *Service {
+		return legacyService("rekognition", "rekognition", "api/rekognition#1.60.2", awsjson11Protocol)
+	})
+	register("scheduler", func() *Service {
+		return legacyService("scheduler", "scheduler", "api/scheduler#1.25.3", restjson1Protocol)
+	})
+	register("ses", func() *Service {
+		return legacyService("ses", "ses", "api/ses#1.42.3", queryProtocol)
+	})
+	register("sns", func() *Service {
+		return legacyService("sns", "sns", "api/sns#1.47.4", queryProtocol)
+	})
+	register("ssm", func() *Service {
+		return legacyService("ssm", "ssm", "api/ssm#1.79.2", awsjson11Protocol)
+	})
+	register("sts", func() *Service {
+		return legacyService("sts", "sts", "api/sts#1.51.3", queryProtocol)
+	})
 }
