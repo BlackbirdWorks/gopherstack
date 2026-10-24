@@ -52,17 +52,20 @@ type MacSecSecretCreator interface {
 // one table while mutating another), so the invariant boundary is the whole
 // backend -- see .claude/memories/pkgs-catalog.md's locking rule.
 type InMemoryBackend struct {
-	connections       *store.Table[Connection]
-	lags              *store.Table[Lag]
-	interconnects     *store.Table[Interconnect]
-	virtualInterfaces *store.Table[VirtualInterface]
-	vifsByConnection  *store.Index[VirtualInterface]
-	gateways          *store.Table[DirectConnectGateway]
-	associations      *store.Table[GatewayAssociation]
-	proposals         *store.Table[GatewayAssociationProposal]
-	vifTests          *store.Table[VifTestHistory]
-	vifTestsByVif     *store.Index[VifTestHistory]
-	registry          *store.Registry
+	connections           *store.Table[Connection]
+	lags                  *store.Table[Lag]
+	interconnects         *store.Table[Interconnect]
+	virtualInterfaces     *store.Table[VirtualInterface]
+	vifsByConnection      *store.Index[VirtualInterface]
+	gateways              *store.Table[DirectConnectGateway]
+	associations          *store.Table[GatewayAssociation]
+	proposals             *store.Table[GatewayAssociationProposal]
+	vifTests              *store.Table[VifTestHistory]
+	vifTestsByVif         *store.Index[VifTestHistory]
+	resiliencyGroups      *store.Table[ResiliencyGroup]
+	rgAssociations        *store.Table[ResiliencyGroupAssociation]
+	rgAssociationsByGroup *store.Index[ResiliencyGroupAssociation]
+	registry              *store.Registry
 
 	ec2Resolver EC2GatewayResolver
 	macSecStore MacSecSecretCreator
@@ -159,6 +162,12 @@ func (b *InMemoryBackend) Reset() {
 	}
 
 	for _, g := range b.gateways.All() {
+		if g.Tags != nil {
+			g.Tags.Close()
+		}
+	}
+
+	for _, g := range b.resiliencyGroups.All() {
 		if g.Tags != nil {
 			g.Tags.Close()
 		}

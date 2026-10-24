@@ -43,6 +43,12 @@ func (b *InMemoryBackend) resolveTaggableLocked(resourceArn string) (*tags.Tags,
 		}
 	}
 
+	if id, ok := resourceIDFromARN(resourceArn, ":dxrg/"); ok {
+		if g, found := b.resiliencyGroups.Get(id); found {
+			return g.Tags, true
+		}
+	}
+
 	if id, ok := resourceIDFromARN(resourceArn, ":dx-gateway/"); ok {
 		if b.gatewayHome != nil {
 			return b.gatewayHome.gatewayTags(id)
