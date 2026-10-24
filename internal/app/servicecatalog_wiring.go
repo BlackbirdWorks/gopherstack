@@ -12,6 +12,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	servicecatalogbackend "github.com/blackbirdworks/gopherstack/services/servicecatalog"
+	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -412,7 +413,13 @@ func wireServiceCatalog(byName map[string]service.Registerable) {
 	}
 
 	if ec2H, isEC2 := byName["EC2"].(*ec2backend.Handler); isEC2 {
-		scH.Backend.SetResourceLookup(serviceCatalogResources{ec2: ec2H.Backend})
+		lookup := serviceCatalogResources{ec2: ec2H.Backend}
+
+		if r53H, isR53 := byName["Route53"].(*route53backend.Handler); isR53 {
+			lookup.route53 = r53H.Backend
+		}
+
+		scH.Backend.SetResourceLookup(lookup)
 	}
 
 	if bH, isBudgets := byName["Budgets"].(*budgetsbackend.Handler); isBudgets {
