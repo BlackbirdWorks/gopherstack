@@ -371,6 +371,36 @@ func (p *EventGridProvider) putDataPlane(
 	return errUnsupportedEventGridType(id)
 }
 
+// PatchSubscription applies an EventSubscriptionUpdateParameters body to an existing
+// topic, domain or domain topic event subscription and returns the updated resource.
+func (p *EventGridProvider) PatchSubscription(
+	ctx context.Context, id ResourceID, body map[string]any,
+) (map[string]any, error) {
+	kind := classifyEventGridPath(id)
+	if !isEventSubscriptionKind(kind) {
+		return nil, errUnsupportedEventGridType(id)
+	}
+
+	p.mu.Lock("PatchSubscription")
+	defer p.mu.Unlock()
+
+	rec, ok := p.get(id, kind)
+	if !ok {
+		return nil, ErrEventGridSubscriptionNotFound
+	}
+
+	domain, topic := egScopeOf(rec.names, kind)
+	if _, err := p.dataPlane.PatchScopedSubscription(ctx, domain, topic, rec.name, body); err != nil {
+		if isEventGridNotFound(err) {
+			return nil, err
+		}
+
+		return nil, badEventGridRequest(err)
+	}
+
+	return p.bodyOf(id, rec)
+}
+
 // Get implements ResourceProvider.
 func (p *EventGridProvider) Get(_ context.Context, id ResourceID) (map[string]any, error) {
 	kind := classifyEventGridPath(id)

@@ -67,6 +67,30 @@ func (p *EventGridProvider) PutScopeSubscription(
 	return p.scopeSubBody(rec)
 }
 
+// PatchScopeSubscription applies an EventSubscriptionUpdateParameters body to an existing
+// event subscription of an ARM scope.
+func (p *EventGridProvider) PatchScopeSubscription(
+	ctx context.Context, scope EventSubscriptionScope, name string, body map[string]any,
+) (map[string]any, error) {
+	p.mu.Lock("PatchScopeSubscription")
+	defer p.mu.Unlock()
+
+	rec, ok := p.scopeSubRecord(scope, name)
+	if !ok {
+		return nil, ErrEventGridSubscriptionNotFound
+	}
+
+	if _, err := p.dataPlane.PatchResourceSubscription(ctx, scope.ID, name, body); err != nil {
+		if isEventGridNotFound(err) {
+			return nil, err
+		}
+
+		return nil, badEventGridRequest(err)
+	}
+
+	return p.scopeSubBody(rec)
+}
+
 // ScopeSubscription returns an event subscription of an ARM scope.
 func (p *EventGridProvider) ScopeSubscription(scope EventSubscriptionScope, name string) (map[string]any, error) {
 	p.mu.RLock("ScopeSubscription")

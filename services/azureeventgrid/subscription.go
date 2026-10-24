@@ -180,6 +180,92 @@ func (b *InMemoryBackend) storeSubscription(
 	return specProps(spec, s.State, info.rid), nil
 }
 
+var patchableMembers = []string{ //nolint:gochecknoglobals // static lookup
+	"destination", "filter", "labels", "expirationTimeUtc", "eventDeliverySchema", "retryPolicy",
+	"deadLetterDestination",
+}
+
+var identityMembers = []string{ //nolint:gochecknoglobals // static lookup
+	"deliveryWithResourceIdentity", "deadLetterWithResourceIdentity",
+}
+
+// mergeSpecPatch overlays the members of an EventSubscriptionUpdateParameters body
+// onto the current spec; a supplied member replaces the stored one, a member that is
+// absent or null keeps it.
+func mergeSpecPatch(cur Spec, patch map[string]any) (map[string]any, error) {
+	for _, k := range identityMembers {
+		if patch[k] != nil {
+			return nil, invalidSpec("%s is not supported", k)
+		}
+	}
+
+	raw, err := json.Marshal(cur)
+	if err != nil {
+		return nil, invalidSpec("current spec is not valid JSON")
+	}
+
+	merged := map[string]any{}
+	if err = json.Unmarshal(raw, &merged); err != nil {
+		return nil, invalidSpec("current spec is not valid JSON")
+	}
+
+	for _, k := range patchableMembers {
+		if v := patch[k]; v != nil {
+			merged[k] = v
+		}
+	}
+
+	return merged, nil
+}
+
+// PatchScopedSubscription applies an EventSubscriptionUpdateParameters body to an
+// existing event subscription and returns its ARM properties. Only the supplied
+// members change; the merged result is validated exactly as a PUT.
+func (b *InMemoryBackend) PatchScopedSubscription(
+	ctx context.Context, sc Scope, name string, patch map[string]any,
+) (map[string]any, error) {
+	b.mu.RLock("PatchSubscription.read")
+	info, s, err := b.subAtLocked(sc, name)
+
+	var cur Spec
+	if err == nil {
+		cur = s.Spec
+	}
+
+	b.mu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	merged, err := mergeSpecPatch(cur, patch)
+	if err != nil {
+		return nil, err
+	}
+
+	spec, err := parseSpec(merged, info.schema)
+	if err != nil {
+		return nil, err
+	}
+
+	state, code, err := b.validateEndpoint(ctx, sc, info.rid, name, spec)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("PatchSubscription")
+	defer b.mu.Unlock()
+
+	info, s, err = b.subAtLocked(sc, name)
+	if err != nil {
+		return nil, err
+	}
+
+	s.Spec, s.State, s.ValidationCode = spec, state, code
+
+	return specProps(spec, s.State, info.rid), nil
+}
+
 // Subscription returns the ARM properties of a custom topic's event subscription.
 func (b *InMemoryBackend) Subscription(topicName, name string) (map[string]any, error) {
 	return b.ScopedSubscription(Scope{Topic: topicName}, name)

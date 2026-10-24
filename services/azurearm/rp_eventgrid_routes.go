@@ -35,8 +35,22 @@ func isEventGridAction(segs []string, action string, r *http.Request) bool {
 		strings.EqualFold(segs[len(segs)-1], action)
 }
 
+func isEventSubscriptionPatch(segs []string, r *http.Request) bool {
+	if r.Method != http.MethodPatch || !isEventGridScope(segs) {
+		return false
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs))
+
+	return err == nil && isEventSubscriptionKind(classifyEventGridPath(id))
+}
+
 //nolint:gochecknoglobals // static route table, read-only after init
 var eventGridRoutes = []armRoute{
+	{
+		match:  isEventSubscriptionPatch,
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleEventSubscriptionPatch(c, segs) },
+	},
 	{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodDelete && isEventGridScope(segs)
@@ -74,6 +88,32 @@ var eventGridRoutes = []armRoute{
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleListDomainTopics(c, segs) },
 	},
+}
+
+// handleEventSubscriptionPatch serves EventSubscriptionsClient.BeginUpdate (PATCH with a flat
+// EventSubscriptionUpdateParameters body); like PUT it answers 201 with the subscription.
+func (h *Handler) handleEventSubscriptionPatch(c *echo.Context, segs []string) error {
+	p, ok := h.eventGridProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := p.PatchSubscription(c.Request().Context(), id, body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusCreated, out)
 }
 
 func (h *Handler) handleListDomainTopics(c *echo.Context, segs []string) error {
