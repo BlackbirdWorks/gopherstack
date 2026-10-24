@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 )
 
 const (
+	actionPull        = "pull"
 	actionPush        = "push"
 	actionDelete      = "delete"
 	actionChartPush   = "chart_push"
@@ -296,9 +298,7 @@ func (b *InMemoryBackend) send(ctx context.Context, reg string, w Webhook, conte
 	}
 
 	headers := map[string]string{"Content-Type": "application/json"}
-	for k, v := range w.Headers {
-		headers[k] = v
-	}
+	maps.Copy(headers, w.Headers)
 
 	ev := WebhookEvent{
 		ID: content.ID,
@@ -312,7 +312,12 @@ func (b *InMemoryBackend) send(ctx context.Context, reg string, w Webhook, conte
 	b.record(reg, w.Name, ev)
 }
 
-func (b *InMemoryBackend) post(ctx context.Context, uri string, headers map[string]string, body []byte) *EventResponseMessage {
+func (b *InMemoryBackend) post(
+	ctx context.Context,
+	uri string,
+	headers map[string]string,
+	body []byte,
+) *EventResponseMessage {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uri, bytes.NewReader(body))
 	if err != nil {
 		return &EventResponseMessage{ReasonPhrase: err.Error(), Version: httpVersion, Headers: map[string]string{}}
@@ -363,7 +368,7 @@ func (b *InMemoryBackend) record(reg, name string, ev WebhookEvent) {
 		r.Events = map[string][]WebhookEvent{}
 	}
 
-	events := append(r.Events[key], ev)
+	events := slices.Concat(r.Events[key], []WebhookEvent{ev})
 	if len(events) > maxEventsPerHook {
 		events = slices.Clone(events[len(events)-maxEventsPerHook:])
 	}

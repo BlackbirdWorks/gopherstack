@@ -19,8 +19,8 @@ import (
 type hookSink struct {
 	srv  *httptest.Server
 	got  []map[string]any
-	mu   sync.Mutex
 	hdrs []http.Header
+	mu   sync.Mutex
 }
 
 func newHookSink(t *testing.T) *hookSink {
@@ -60,18 +60,25 @@ func TestAzureContainerRegistryWebhooksSDK(t *testing.T) {
 	sink := newHookSink(t)
 	hooks := fx.f.NewWebhooksClient()
 
-	poller, err := hooks.BeginCreate(ctx, "sdk-rg", "sdkregistry", "deployhook", armcontainerregistry.WebhookCreateParameters{
-		Location: new("local"),
-		Properties: &armcontainerregistry.WebhookPropertiesCreateParameters{
-			ServiceURI:    new(sink.srv.URL),
-			CustomHeaders: map[string]*string{"X-Deploy-Key": new("k1")},
-			Scope:         new("app:*"),
-			Status:        new(armcontainerregistry.WebhookStatusEnabled),
-			Actions: []*armcontainerregistry.WebhookAction{
-				new(armcontainerregistry.WebhookActionPush), new(armcontainerregistry.WebhookActionDelete),
+	poller, err := hooks.BeginCreate(
+		ctx,
+		"sdk-rg",
+		"sdkregistry",
+		"deployhook",
+		armcontainerregistry.WebhookCreateParameters{
+			Location: new("local"),
+			Properties: &armcontainerregistry.WebhookPropertiesCreateParameters{
+				ServiceURI:    new(sink.srv.URL),
+				CustomHeaders: map[string]*string{"X-Deploy-Key": new("k1")},
+				Scope:         new("app:*"),
+				Status:        new(armcontainerregistry.WebhookStatusEnabled),
+				Actions: []*armcontainerregistry.WebhookAction{
+					new(armcontainerregistry.WebhookActionPush), new(armcontainerregistry.WebhookActionDelete),
+				},
 			},
 		},
-	}, nil)
+		nil,
+	)
 	require.NoError(t, err)
 
 	_, err = poller.PollUntilDone(ctx, nil)

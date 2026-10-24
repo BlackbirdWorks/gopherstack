@@ -29,8 +29,8 @@ type delivery struct {
 
 type receiver struct {
 	srv   *httptest.Server
-	got   []delivery
 	reply string
+	got   []delivery
 	mu    sync.Mutex
 }
 
@@ -266,7 +266,7 @@ func TestWebhookPayloadAndEvents(t *testing.T) {
 		assert.Equal(t, "push", ev.Action)
 
 		_, err := time.Parse(time.RFC3339Nano, ev.Timestamp)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		require.NotNil(t, ev.Target)
 		assert.Equal(t, ocitest.ManifestMediaType, ev.Target.MediaType)
@@ -357,10 +357,10 @@ func TestWebhookPing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		reg     string
 		hook    string
-		wantErr error
 	}{
 		{name: "ok", reg: "pingreg", hook: "pinger"},
 		{name: "missing webhook", reg: "pingreg", hook: "nope", wantErr: acr.ErrWebhookNotFound},

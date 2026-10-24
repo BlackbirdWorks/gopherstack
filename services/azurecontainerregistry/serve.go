@@ -221,7 +221,7 @@ func v2Needs(r *http.Request) []need {
 		out := []need{{typ: "repository", name: rest[:i], action: action, hint: hint}}
 
 		if from := r.URL.Query().Get("from"); r.Method == http.MethodPost && from != "" {
-			out = append(out, need{typ: "repository", name: from, action: "pull", hint: "pull"})
+			out = append(out, need{typ: "repository", name: from, action: actionPull, hint: actionPull})
 		}
 
 		return out
@@ -233,7 +233,7 @@ func v2Needs(r *http.Request) []need {
 func actionsFor(method string) (string, string) {
 	switch method {
 	case http.MethodGet, http.MethodHead:
-		return "pull", "pull"
+		return actionPull, actionPull
 	case http.MethodDelete:
 		return "delete", "delete"
 	}

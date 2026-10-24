@@ -22,8 +22,8 @@ func TestTokenScopeEnforced(t *testing.T) {
 		name      string
 		method    string
 		path      string
-		scopes    []string
 		wantScope string
+		scopes    []string
 		want      int
 		viaBasic  bool
 	}{

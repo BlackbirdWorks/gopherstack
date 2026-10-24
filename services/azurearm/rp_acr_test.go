@@ -124,17 +124,17 @@ func (f *fakeRegistries) DeleteWebhook(registry, name string) error {
 	return nil
 }
 
-func (f *fakeRegistries) hook(registry, name string) (azurearm.ContainerRegistryWebhook, bool) {
+func (f *fakeRegistries) hasHook(registry, name string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	w, ok := f.regs[registry].hooks[name]
+	_, ok := f.regs[registry].hooks[name]
 
-	return w, ok
+	return ok
 }
 
 func (f *fakeRegistries) PingWebhook(registry, name string) (string, error) {
-	if _, ok := f.hook(registry, name); !ok {
+	if !f.hasHook(registry, name) {
 		return "", azurearm.ErrACRWebhookNotFound
 	}
 
@@ -142,7 +142,7 @@ func (f *fakeRegistries) PingWebhook(registry, name string) (string, error) {
 }
 
 func (f *fakeRegistries) WebhookEvents(registry, name string) ([]map[string]any, error) {
-	if _, ok := f.hook(registry, name); !ok {
+	if !f.hasHook(registry, name) {
 		return nil, azurearm.ErrACRWebhookNotFound
 	}
 
