@@ -3,18 +3,20 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 268 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 134 are unrouted and listed in items_still_open.
+overall: B            # 278 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 124 are unrouted and listed in items_still_open.
 ops:
   ActivateEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateApprovedOrigin: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateBot: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateDefaultVocabulary: {wire: ok, errors: ok, state: ok, persist: ok}
+  AssociateEmailAddressAlias: {wire: ok, errors: ok, state: ok, persist: ok, note: "the alias must exist and neither be an alias nor have aliases; the primary must not itself be an alias"}
   AssociateFlow: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceIds are opaque; VOICE_PHONE_NUMBER associations are read from the claimed phone numbers"}
   AssociateHoursOfOperations: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateInstanceStorageConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "storage type is checked per resource type; S3 bucket existence is checked against the S3 emulator when wired"}
   AssociateLambdaFunction: {wire: ok, errors: ok, state: ok, persist: ok, note: "function existence checked against the Lambda emulator"}
   AssociateLexBot: {wire: ok, errors: ok, state: ok, persist: ok, note: "shape-checked only: the emulator has no Lex service"}
   AssociatePhoneNumberContactFlow: {wire: ok, errors: ok, state: ok, persist: ok}
+  AssociateQueueEmailAddresses: {wire: ok, errors: ok, state: ok, persist: ok, note: "up to 49 additional addresses per queue; re-associating one is a no-op"}
   AssociateQueueQuickConnects: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateRoutingProfileQueues: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateSecurityKey: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -38,6 +40,7 @@ ops:
   CreateContactFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "snapshots a PUBLISHED flow; version 1 is taken when the flow is created"}
   CreateDataTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "names unique per instance case-insensitively, 100 tables per instance; tags join the tag model"}
   CreateDataTableAttribute: {wire: ok, errors: ok, state: ok, persist: ok, note: "a new primary attribute gives existing records the empty value of its type"}
+  CreateEmailAddress: {wire: ok, errors: ok, state: ok, persist: ok, note: "addresses are unique per instance case-insensitively and must be plain addr-specs; ClientToken replays"}
   CreateEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok, note: "items are stored as given after structural checks (unique RefIds, titles, question types and properties); AsDraft=false activates version 1"}
   CreateHoursOfOperation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateHoursOfOperationOverride: {wire: ok, errors: ok, state: ok, persist: ok, note: "dates are YYYY-MM-DD, STANDARD overrides need Config; names unique per schedule"}
@@ -67,6 +70,7 @@ ops:
   DeleteContactFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "DataTableId accepts the ID or ARN, with an optional $LATEST or $SAVED alias"}
   DeleteDataTableAttribute: {wire: ok, errors: ok, state: ok, persist: ok, note: "dropping a primary attribute fails with ResourceConflictException if two records would collide"}
+  DeleteEmailAddress: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceInUseException while the address is an alias, has aliases, or is associated with or the default outbound address of a queue"}
   DeleteEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteHoursOfOperation: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteHoursOfOperationOverride: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -95,6 +99,7 @@ ops:
   DescribeContactFlowModuleAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDataTable: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDataTableAttribute: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeEmailAddress: {wire: ok, errors: ok, state: ok, persist: ok, note: "timestamps are ISO 8601 strings"}
   DescribeEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeHoursOfOperation: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeHoursOfOperationOverride: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -117,12 +122,14 @@ ops:
   DescribeVocabulary: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateApprovedOrigin: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateBot: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisassociateEmailAddressAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateFlow: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateHoursOfOperations: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateInstanceStorageConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateLambdaFunction: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateLexBot: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociatePhoneNumberContactFlow: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisassociateQueueEmailAddresses: {wire: ok, errors: ok, state: ok, persist: ok, note: "an address that is not associated answers ResourceNotFoundException"}
   DisassociateQueueQuickConnects: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateRoutingProfileQueues: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateSecurityKey: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -175,6 +182,7 @@ ops:
   ListPhoneNumbersV2: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPredefinedAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPrompts: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListQueueEmailAddresses: {wire: ok, errors: ok, state: ok, persist: ok, note: "the queue default outbound address comes first with IsDefaultOutboundEmail"}
   ListQueueQuickConnects: {wire: ok, errors: ok, state: ok, persist: ok}
   ListQueues: {wire: ok, errors: ok, state: ok, persist: ok}
   ListQuickConnects: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -211,6 +219,7 @@ ops:
   SearchContactFlows: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchContacts: {wire: ok, errors: ok, state: ok, persist: ok, note: "time range plus AgentIds, Channels, InitiationMethods, QueueIds, Name and SearchableContactAttributes criteria; other criteria are refused with InvalidRequestException"}
   SearchDataTables: {wire: ok, errors: ok, state: ok, persist: ok, note: "name and description string conditions plus tag filters"}
+  SearchEmailAddresses: {wire: ok, errors: ok, state: ok, persist: ok, note: "EmailAddress, DisplayName and Description string conditions plus tag filters"}
   SearchEvaluationForms: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchHoursOfOperationOverrides: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchHoursOfOperations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -251,6 +260,7 @@ ops:
   UpdateDataTableAttribute: {wire: ok, errors: ok, state: ok, persist: ok, note: "full replace as AWS specifies; changing Primary re-keys records and fails on collisions"}
   UpdateDataTableMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "omitted members keep their value"}
   UpdateDataTablePrimaryValues: {wire: ok, errors: ok, state: ok, persist: ok, note: "values follow the record to its new key"}
+  UpdateEmailAddressMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "omitted members keep their value"}
   UpdateEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateHoursOfOperation: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateHoursOfOperationOverride: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -292,11 +302,11 @@ ops:
 families:
 gaps: []
 items_still_open:
-  - "Search*: SearchContactEvaluations SearchEmailAddresses SearchMetrics SearchNotifications SearchTestCases SearchWorkspaceAssociations SearchWorkspaces are not routed"
+  - "Search*: SearchContactEvaluations SearchMetrics SearchNotifications SearchTestCases SearchWorkspaceAssociations SearchWorkspaces are not routed"
   - "EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed"
   - "Workspaces: AssociateWorkspace CreateWorkspace CreateWorkspacePage DeleteWorkspace DeleteWorkspaceMedia DeleteWorkspacePage DescribeWorkspace DisassociateWorkspace ImportWorkspaceMedia ListWorkspaceMedia ListWorkspacePages ListWorkspaces UpdateWorkspaceMetadata UpdateWorkspacePage UpdateWorkspaceTheme UpdateWorkspaceVisibility are not routed"
   - "TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed"
-  - "Email: AssociateEmailAddressAlias AssociateQueueEmailAddresses CreateEmailAddress DeleteEmailAddress DescribeEmailAddress DisassociateEmailAddressAlias DisassociateQueueEmailAddresses ListQueueEmailAddresses SendOutboundEmail StartEmailContact StartOutboundEmailContact UpdateEmailAddressMetadata are not routed"
+  - "Email: SendOutboundEmail StartEmailContact StartOutboundEmailContact are not routed"
   - "Notifications: CreateNotification CreatePushNotificationRegistration DeleteNotification DeletePushNotificationRegistration DescribeNotification ListNotifications ListUserNotifications SendOutboundWebNotification UpdateNotificationContent UpdateUserNotificationStatus are not routed"
   - "Metrics definitions: CreateMetric DeleteMetric DescribeMetric GetContactMetrics ListMetrics UpdateMetricContent UpdateMetricMetadata are not routed"
   - "AttachedFiles: BatchGetAttachedFileMetadata CompleteAttachedFileUpload CreateAttachedFile DeleteAttachedFile DescribeAttachedFilesConfiguration GetAttachedFile GetPromptFile ListAttachedFilesConfigurations StartAttachedFileUpload UpdateAttachedFilesConfiguration are not routed"
@@ -334,3 +344,4 @@ Emulator choices the SDK does not document:
 - Cross-service checks (Lambda, S3 buckets and prompt objects, AppIntegrations, EventBridge) run through `internal/app/connect_wiring.go` and are skipped when a service is wired standalone.
 - Credentials do not matter: the account in ARNs comes from the request metadata, falling back to the configured account.
 - Data tables: lock versions are opaque UUIDs. Updates honor them only at the table's `ValueLockLevel` (DATA_TABLE, PRIMARY_VALUE, ATTRIBUTE, VALUE compare the matching member; NONE ignores them) and an unset member never conflicts. Batch value operations fail per item; `UpdateDataTablePrimaryValues` answers `ConditionalOperationFailedException`. List values (`TEXT_LIST`, `NUMBER_LIST`) are JSON arrays; `MinValues`/`MaxValues` bound their length. A `Validation` field of 0 means unset (the SDK cannot tell 0 from absent). No version aliases beyond `$LATEST`/`$SAVED` exist and both read the live table.
+- `CreateQueue` and `UpdateQueueOutboundEmailConfig` now require the outbound email address to exist in the instance (ResourceNotFoundException).

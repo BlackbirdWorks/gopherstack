@@ -21,6 +21,7 @@ func (h *Handler) extraOps(ops map[string]restroute.OpFunc) {
 	h.flowAssociationOps(ops)
 	h.securityExtraOps(ops)
 	h.dataTableOps(ops)
+	h.emailOps(ops)
 }
 
 func (h *Handler) ruleOps(ops map[string]restroute.OpFunc) {
@@ -274,6 +275,7 @@ func (h *Handler) searchOps(ops map[string]restroute.OpFunc) {
 		"SearchContactFlowModules":        b.SearchContactFlowModules,
 		"SearchContactFlows":              b.SearchContactFlows,
 		"SearchDataTables":                b.SearchDataTables,
+		"SearchEmailAddresses":            b.SearchEmailAddresses,
 		"SearchEvaluationForms":           b.SearchEvaluationForms,
 		"SearchHoursOfOperationOverrides": b.SearchHoursOfOperationOverrides,
 		"SearchHoursOfOperations":         b.SearchHoursOfOperations,

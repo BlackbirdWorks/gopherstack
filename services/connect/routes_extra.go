@@ -23,6 +23,7 @@ func extraRoutes() []restroute.Route {
 		flowAssociationRoutes(),
 		securityExtraRoutes(),
 		dataTableRoutes(),
+		emailRoutes(),
 	)
 }
 
@@ -176,6 +177,7 @@ func searchOps() map[string]string {
 		"SearchContactFlowModules":        "/search-contact-flow-modules",
 		"SearchContactFlows":              "/search-contact-flows",
 		"SearchDataTables":                "/search-data-tables",
+		"SearchEmailAddresses":            "/search-email-addresses",
 		"SearchEvaluationForms":           "/search-evaluation-forms",
 		"SearchHoursOfOperationOverrides": "/search-hours-of-operation-overrides",
 		"SearchHoursOfOperations":         "/search-hours-of-operations",
