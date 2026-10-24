@@ -132,6 +132,7 @@ type extras struct {
 	viewSnapshots     family[viewVersionRec]
 	dataTables        family[dataTableRec]
 	emails            family[emailAddressRec]
+	workspaces        family[workspaceRec]
 }
 
 func (b *Backend) registerTables() {

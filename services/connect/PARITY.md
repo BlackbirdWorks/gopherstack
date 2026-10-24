@@ -3,7 +3,7 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 278 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 124 are unrouted and listed in items_still_open.
+overall: B            # 296 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 106 are unrouted and listed in items_still_open.
 ops:
   ActivateEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateApprovedOrigin: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -23,6 +23,7 @@ ops:
   AssociateSecurityProfiles: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateTrafficDistributionGroupUser: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateUserProficiencies: {wire: ok, errors: ok, state: ok, persist: ok, note: "attribute must be a predefined attribute, value-checked when validation on association is enabled; level 1.0 to 5.0 in 0.5 steps"}
+  AssociateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "users and routing profiles only (checked against the instance); per-resource results in SuccessfulList/FailedList; re-associating is a no-op"}
   BatchCreateDataTableValue: {wire: ok, errors: ok, state: ok, persist: ok, note: "values for primary attributes are not creatable: they are the record key; each item succeeds or fails alone; values are validated against type and validation"}
   BatchDeleteDataTableValue: {wire: ok, errors: ok, state: ok, persist: ok, note: "a record with no values left disappears"}
   BatchDescribeDataTableValue: {wire: ok, errors: ok, state: ok, persist: ok, note: "a primary attribute describes the record key"}
@@ -61,6 +62,8 @@ ops:
   CreateView: {wire: ok, errors: ok, state: ok, persist: ok, note: "template must be JSON; InputSchema is derived from the $.Name references of the template; PUBLISHED creates a numbered version"}
   CreateViewVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateVocabulary: {wire: ok, errors: ok, state: ok, persist: ok, note: "content is checked as a tab-separated Transcribe table; invalid content ends in CREATION_FAILED after the lifecycle delay, valid content in ACTIVE"}
+  CreateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "names unique per instance case-insensitively; the theme is stored as sent after a Light/Dark object check; new workspaces start ASSIGNED"}
+  CreateWorkspacePage: {wire: ok, errors: ok, state: ok, persist: ok, note: "the view ARN must resolve to a view of the instance; InputData must be a JSON object; custom pages cannot start with aws: or connect:"}
   DeactivateEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteContactFlow: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteContactFlowAlias: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -91,6 +94,9 @@ ops:
   DeleteView: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteViewVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVocabulary: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "pages, media and assignments go with it"}
+  DeleteWorkspaceMedia: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteWorkspacePage: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAgentStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeContact: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeContactFlow: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -120,6 +126,7 @@ ops:
   DescribeUserHierarchyStructure: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeView: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeVocabulary: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeWorkspace: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateApprovedOrigin: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateBot: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateEmailAddressAlias: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -136,6 +143,7 @@ ops:
   DisassociateSecurityProfiles: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateTrafficDistributionGroupUser: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateUserProficiencies: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisassociateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources that are not associated are reported in FailedList"}
   EvaluateDataTableValues: {wire: ok, errors: ok, state: ok, persist: ok, note: "values are never expressions here, so evaluation returns the stored value; no access audit is kept"}
   EvaluationForm: {status: ok, note: "Versions live inside one form record; DRAFT versions edit in place, locked ones need CreateNewVersion; one ACTIVE version at a time."}
   FlowVersions: {status: ok, note: "Flows and flow modules snapshot on CreateContactFlowVersion; aliases point at a version and block its deletion."}
@@ -150,6 +158,7 @@ ops:
   GetTrafficDistribution: {wire: ok, errors: ok, state: ok, persist: ok}
   Hierarchy: {status: ok, note: "Levels must be defined top-down before groups can be created at that depth; a group needs the level above it."}
   HoursOfOperation: {status: ok, note: "Config day and times validated, TimeZone must be a valid IANA zone; delete refused while a queue uses it."}
+  ImportWorkspaceMedia: {wire: ok, errors: ok, state: ok, persist: ok, note: "MediaSource is an http(s) URL or base64 text and is stored as given (nothing is fetched); one asset per media type"}
   Instance: {status: ok, note: "Attributes default to the console defaults and INBOUND_CALLS/OUTBOUND_CALLS drive the instance flags; approved origins (https, max 100), Lambda functions, Lex bots (V1 and V2), security keys (max 2) and storage configs live on the instance record."}
   ListAgentStatuses: {wire: ok, errors: ok, state: ok, persist: ok}
   ListApprovedOrigins: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -205,6 +214,9 @@ ops:
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok}
   ListViewVersions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListViews: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListWorkspaceMedia: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListWorkspacePages: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok}
   PhoneNumber: {status: ok, note: "Pool-based; UpdatePhoneNumber to another instance drops the flow association."}
   PutUserStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   Queue: {status: ok, note: "Delete refused while a routing profile or quick connect references the queue; AGENT queues are not modeled so ListQueues with AGENT is empty."}
@@ -235,6 +247,8 @@ ops:
   SearchUsers: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchViews: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchVocabularies: {wire: ok, errors: ok, state: ok, persist: ok}
+  SearchWorkspaceAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "WorkspaceId, ResourceId, ResourceType and ResourceName string conditions; tags are the workspace tags"}
+  SearchWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "name, description, title and visibility string conditions plus tag filters"}
   StartChatContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "creates a CHAT contact with ParticipantId and ParticipantToken; PersistentChat continues an ended chat"}
   StartEvaluationFormValidation: {wire: ok, errors: ok, state: ok, persist: ok, note: "findings come from the same structural walk used on create; IN_PROGRESS until the lifecycle delay"}
   StartOutboundVoiceContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "creates a real contact record: instance must allow outbound calls, flow published, source number claimed by the instance (or taken from the queue caller ID), queue enabled; ClientToken replays"}
@@ -298,13 +312,16 @@ ops:
   UpdateUserSecurityProfiles: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateViewContent: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateViewMetadata: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateWorkspaceMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "omitted members keep their value"}
+  UpdateWorkspacePage: {wire: ok, errors: ok, state: ok, persist: ok, note: "NewPage renames the page"}
+  UpdateWorkspaceTheme: {wire: ok, errors: ok, state: ok, persist: ok, note: "replaces the whole theme"}
+  UpdateWorkspaceVisibility: {wire: ok, errors: ok, state: ok, persist: ok}
   Users: {status: ok, note: "Username unique per instance (case-insensitive); routing profile, security profiles and hierarchy group must exist; status set through PutUserStatus."}
 families:
 gaps: []
 items_still_open:
-  - "Search*: SearchContactEvaluations SearchMetrics SearchNotifications SearchTestCases SearchWorkspaceAssociations SearchWorkspaces are not routed"
+  - "Search*: SearchContactEvaluations SearchMetrics SearchNotifications SearchTestCases are not routed"
   - "EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed"
-  - "Workspaces: AssociateWorkspace CreateWorkspace CreateWorkspacePage DeleteWorkspace DeleteWorkspaceMedia DeleteWorkspacePage DescribeWorkspace DisassociateWorkspace ImportWorkspaceMedia ListWorkspaceMedia ListWorkspacePages ListWorkspaces UpdateWorkspaceMetadata UpdateWorkspacePage UpdateWorkspaceTheme UpdateWorkspaceVisibility are not routed"
   - "TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed"
   - "Email: SendOutboundEmail StartEmailContact StartOutboundEmailContact are not routed"
   - "Notifications: CreateNotification CreatePushNotificationRegistration DeleteNotification DeletePushNotificationRegistration DescribeNotification ListNotifications ListUserNotifications SendOutboundWebNotification UpdateNotificationContent UpdateUserNotificationStatus are not routed"
@@ -345,3 +362,4 @@ Emulator choices the SDK does not document:
 - Credentials do not matter: the account in ARNs comes from the request metadata, falling back to the configured account.
 - Data tables: lock versions are opaque UUIDs. Updates honor them only at the table's `ValueLockLevel` (DATA_TABLE, PRIMARY_VALUE, ATTRIBUTE, VALUE compare the matching member; NONE ignores them) and an unset member never conflicts. Batch value operations fail per item; `UpdateDataTablePrimaryValues` answers `ConditionalOperationFailedException`. List values (`TEXT_LIST`, `NUMBER_LIST`) are JSON arrays; `MinValues`/`MaxValues` bound their length. A `Validation` field of 0 means unset (the SDK cannot tell 0 from absent). No version aliases beyond `$LATEST`/`$SAVED` exist and both read the live table.
 - `CreateQueue` and `UpdateQueueOutboundEmailConfig` now require the outbound email address to exist in the instance (ResourceNotFoundException).
+- Workspaces: the theme and media are stored exactly as sent; the emulator does not render them or fetch media URLs. `Visibility` of a new workspace is ASSIGNED.
