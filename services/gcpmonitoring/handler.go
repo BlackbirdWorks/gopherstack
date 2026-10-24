@@ -75,6 +75,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListUptimeCheckConfigs", "GetUptimeCheckConfig", "CreateUptimeCheckConfig", "UpdateUptimeCheckConfig",
 		"DeleteUptimeCheckConfig", "ListUptimeCheckIps",
 		"ListGroups", "GetGroup", "CreateGroup", "UpdateGroup", "DeleteGroup", "ListGroupMembers",
+		"CreateSnooze", "GetSnooze", "ListSnoozes", "UpdateSnooze",
+		"CreateService", "GetService", "ListServices", "UpdateService", "DeleteService",
+		"CreateServiceLevelObjective", "GetServiceLevelObjective", "ListServiceLevelObjectives",
+		"UpdateServiceLevelObjective", "DeleteServiceLevelObjective",
 	}
 }
 
@@ -131,6 +135,8 @@ func registerServers(srv *grpc.Server, b *InMemoryBackend) {
 	monitoringpb.RegisterNotificationChannelServiceServer(srv, &channelServer{b: b})
 	monitoringpb.RegisterUptimeCheckServiceServer(srv, &uptimeServer{b: b})
 	monitoringpb.RegisterGroupServiceServer(srv, &groupServer{b: b})
+	monitoringpb.RegisterSnoozeServiceServer(srv, &snoozeServer{b: b})
+	monitoringpb.RegisterServiceMonitoringServiceServer(srv, &serviceServer{b: b})
 }
 
 // StartWorker binds the dedicated listener synchronously so a port conflict is returned to the caller.
@@ -163,7 +169,9 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log.InfoContext(workerCtx, "gcpmonitoring: starting dedicated gRPC listener", "port", h.Port)
 
 	h.wg.Go(func() {
-		if serveErr := gcprest.Serve(srv, listener); serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
+		if serveErr := gcprest.ServeWithExtras(srv, listener, nil, gcprest.Extra{
+			Match: IsPrometheusPath, Handler: h.Backend.PrometheusHandler(),
+		}); serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
 			log.ErrorContext(workerCtx, "gcpmonitoring: listener stopped", "error", serveErr)
 		}
 	})
