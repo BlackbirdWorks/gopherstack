@@ -79,7 +79,6 @@
   "AWS::CloudFront::RealtimeLogConfig",
   "AWS::CloudFront::ResponseHeadersPolicy",
   "AWS::CloudHSM::Cluster",
-  "AWS::CloudHSM::HSM",
   "AWS::CloudTrail::Channel",
   "AWS::CloudTrail::EventDataStore",
   "AWS::CloudTrail::Trail",

@@ -54,8 +54,6 @@ func monitoringRecreation(resourceType, propName string) string {
 		return alwaysIfOneOf(propName, "SinkIdentifier", "LabelTemplate")
 	case resTypeCloudHSMCluster:
 		return alwaysIfOneOf(propName, "HsmType", "SubnetIds", "Mode", "NetworkType", "SourceBackupIdentifier")
-	case resTypeCloudHSMHsm:
-		return alwaysIfOneOf(propName, "ClusterId", "AvailabilityZone", "IpAddress")
 	default:
 		return recreateNever
 	}

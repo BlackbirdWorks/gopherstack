@@ -73,10 +73,6 @@ const cloudHSMTemplate = `{
     "SubnetIds": ["subnet-a"],
     "BackupRetentionPolicy": {"Type": "DAYS", "Value": "%s"},
     "Tags": [{"Key": "Team", "Value": "%s"}]
-  }},
-  "Hsm": {"Type": "AWS::CloudHSM::HSM", "Properties": {
-    "ClusterId": {"Ref": "Cluster"},
-    "AvailabilityZone": "us-east-1a"
   }}
 },
 "Outputs": {
@@ -84,9 +80,7 @@ const cloudHSMTemplate = `{
   "ClusterId": {"Value": {"Fn::GetAtt": ["Cluster", "ClusterId"]}},
   "Arn": {"Value": {"Fn::GetAtt": ["Cluster", "Arn"]}},
   "SecurityGroup": {"Value": {"Fn::GetAtt": ["Cluster", "SecurityGroup"]}},
-  "VpcId": {"Value": {"Fn::GetAtt": ["Cluster", "VpcId"]}},
-  "HsmRef": {"Value": {"Ref": "Hsm"}},
-  "HsmEniIp": {"Value": {"Fn::GetAtt": ["Hsm", "EniIp"]}}
+  "VpcId": {"Value": {"Fn::GetAtt": ["Cluster", "VpcId"]}}
 }
 }`
 
@@ -107,15 +101,11 @@ func TestCreateStack_CloudHSM(t *testing.T) {
 			assert.Equal(t, "arn:aws:cloudhsm:us-east-1:000000000000:cluster/"+out["ClusterRef"], out["Arn"])
 			assert.Equal(t, "vpc-1", out["VpcId"])
 			assert.Regexp(t, `^sg-`, out["SecurityGroup"])
-			assert.Regexp(t, `^hsm-`, out["HsmRef"])
-			assert.NotEmpty(t, out["HsmEniIp"])
 
 			p, err := env.backend.DescribeClusters(t.Context(), nil, "", nil)
 			require.NoError(t, err)
 			require.Len(t, p.Data, 1)
 			assert.Equal(t, "10", p.Data[0].BackupRetentionPolicy.Value)
-			require.Len(t, p.Data[0].Hsms, 1)
-			assert.Equal(t, out["HsmRef"], p.Data[0].Hsms[0].HsmID)
 
 			tags, err := env.backend.ListTags(t.Context(), out["ClusterRef"], "", nil)
 			require.NoError(t, err)

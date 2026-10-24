@@ -27,17 +27,6 @@ type CFNCluster struct {
 	BackupPolicy  string
 }
 
-// CFNHsm is the attribute set of an HSM.
-type CFNHsm struct {
-	ID           string
-	ClusterID    string
-	Zone         string
-	EniID        string
-	EniIP        string
-	State        string
-	StateMessage string
-}
-
 func (s CFNClusterSpec) retention() *wireRetention {
 	if s.RetentionType == "" && s.RetentionValue == "" {
 		return nil
@@ -126,51 +115,6 @@ func (b *InMemoryBackend) CFNUpdateCluster(ctx context.Context, id string, spec 
 // CFNDeleteCluster starts deleting a cluster.
 func (b *InMemoryBackend) CFNDeleteCluster(ctx context.Context, id string) error {
 	_, err := b.DeleteCluster(ctx, id)
-
-	return err
-}
-
-// CFNCreateHsm adds an HSM to a cluster.
-func (b *InMemoryBackend) CFNCreateHsm(ctx context.Context, clusterID, zone, ip string) (CFNHsm, error) {
-	h, err := b.CreateHsm(ctx, clusterID, zone, ip)
-	if err != nil {
-		return CFNHsm{}, err
-	}
-
-	return cfnHsmOf(h), nil
-}
-
-func cfnHsmOf(h wireHsm) CFNHsm {
-	return CFNHsm{
-		ID: h.HsmID, ClusterID: h.ClusterID, Zone: h.AZ, EniID: h.EniID, EniIP: h.EniIP,
-		State: h.State, StateMessage: h.StateMessage,
-	}
-}
-
-// CFNDescribeHsm returns an HSM, or ErrResourceNotFound once it is gone.
-func (b *InMemoryBackend) CFNDescribeHsm(ctx context.Context, id string) (CFNHsm, error) {
-	sc := b.scopeOf(ctx)
-
-	b.mu.RLock("CFNDescribeHsm")
-	defer b.mu.RUnlock()
-
-	h, ok := b.hsms.Get(id)
-	if !ok || h.Account != sc.account || h.Region != sc.region ||
-		(!h.DeletedAt.IsZero() && !b.now().Before(h.DeleteUntil)) {
-		return CFNHsm{}, fail(ErrResourceNotFound, "HSM %s not found", id)
-	}
-
-	return cfnHsmOf(b.wireHsmLocked(h)), nil
-}
-
-// CFNDeleteHsm starts deleting an HSM by its ID alone.
-func (b *InMemoryBackend) CFNDeleteHsm(ctx context.Context, id string) error {
-	h, err := b.CFNDescribeHsm(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	_, err = b.DeleteHsm(ctx, DeleteHsmInput{ClusterID: h.ClusterID, HsmID: id})
 
 	return err
 }

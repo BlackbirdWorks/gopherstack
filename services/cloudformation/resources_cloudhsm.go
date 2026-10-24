@@ -9,7 +9,6 @@ import (
 
 const (
 	resTypeCloudHSMCluster = "AWS::CloudHSM::Cluster"
-	resTypeCloudHSMHsm     = "AWS::CloudHSM::HSM"
 
 	hsmClusterCreating     = "CREATE_IN_PROGRESS"
 	hsmClusterModifying    = "MODIFY_IN_PROGRESS"
@@ -28,17 +27,13 @@ func (rc *ResourceCreator) createCloudHSMResource(
 		id, err := rc.createCloudHSMCluster(ctx, logicalID, props, params, physicalIDs)
 
 		return id, true, err
-	case resTypeCloudHSMHsm:
-		id, err := rc.createCloudHSMHsm(ctx, logicalID, props, params, physicalIDs)
-
-		return id, true, err
 	default:
 		return "", false, nil
 	}
 }
 
 func (rc *ResourceCreator) deleteCloudHSMResource(ctx context.Context, resourceType, physicalID string) (bool, error) {
-	if resourceType != resTypeCloudHSMCluster && resourceType != resTypeCloudHSMHsm {
+	if resourceType != resTypeCloudHSMCluster {
 		return false, nil
 	}
 
@@ -47,18 +42,6 @@ func (rc *ResourceCreator) deleteCloudHSMResource(ctx context.Context, resourceT
 	}
 
 	be := rc.backends.CloudHSMV2.Backend
-
-	if resourceType == resTypeCloudHSMHsm {
-		if err := be.CFNDeleteHsm(ctx, physicalID); err != nil {
-			return true, ignoreNotFound(err, cloudhsmv2backend.ErrResourceNotFound)
-		}
-
-		return true, awaitGone("CloudHSM HSM "+physicalID, func() error {
-			_, err := be.CFNDescribeHsm(ctx, physicalID)
-
-			return err
-		}, cloudhsmv2backend.ErrResourceNotFound)
-	}
 
 	if err := be.CFNDeleteCluster(ctx, physicalID); err != nil {
 		return true, ignoreNotFound(err, cloudhsmv2backend.ErrResourceNotFound)
@@ -154,48 +137,4 @@ func (rc *ResourceCreator) updateCloudHSMCluster(
 	}
 
 	return nil
-}
-
-// createCloudHSMHsm provisions an AWS::CloudHSM::HSM. Ref returns the HsmId.
-func (rc *ResourceCreator) createCloudHSMHsm(
-	ctx context.Context,
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.CloudHSMV2 == nil {
-		return logicalID + "-stub", nil
-	}
-
-	be := rc.backends.CloudHSMV2.Backend
-
-	hsm, err := be.CFNCreateHsm(ctx,
-		strProp(props, "ClusterId", params, physicalIDs),
-		strProp(props, "AvailabilityZone", params, physicalIDs),
-		strProp(props, "IpAddress", params, physicalIDs),
-	)
-	if err != nil {
-		return "", fmt.Errorf("create CloudHSM HSM %s: %w", logicalID, err)
-	}
-
-	err = awaitResource("CloudHSM HSM "+hsm.ID, func() (bool, error) {
-		cur, derr := be.CFNDescribeHsm(ctx, hsm.ID)
-		if derr != nil {
-			return false, derr
-		}
-
-		hsm = cur
-
-		return cur.State == hsmStateActive, nil
-	})
-	if err != nil {
-		return "", fmt.Errorf("create CloudHSM HSM %s: %w", logicalID, err)
-	}
-
-	physicalIDs[logicalID+"/EniId"] = hsm.EniID
-	physicalIDs[logicalID+"/EniIp"] = hsm.EniIP
-	physicalIDs[logicalID+"/State"] = hsm.State
-	physicalIDs[logicalID+"/StateMessage"] = hsm.StateMessage
-
-	return hsm.ID, nil
 }
