@@ -103,7 +103,11 @@ func (f *fakeDockerClient) ContainerStop(_ context.Context, containerID string, 
 	return nil
 }
 
-func (f *fakeDockerClient) ContainerRemove(_ context.Context, containerID string, opts dockertypes.RemoveOptions) error {
+func (f *fakeDockerClient) ContainerRemove(
+	_ context.Context,
+	containerID string,
+	opts dockertypes.RemoveOptions,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

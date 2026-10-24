@@ -13,7 +13,9 @@ import (
 
 var (
 	containerRemoveCall    = regexp.MustCompile(`\.ContainerRemove\(`)
-	containerRemoveLiteral = regexp.MustCompile(`(?:\bContainerRemoveOptions|\b\w*container\w*\.RemoveOptions|\bdockertypes\.RemoveOptions)\{`)
+	containerRemoveLiteral = regexp.MustCompile(
+		`(?:\bContainerRemoveOptions|\b\w*container\w*\.RemoveOptions|\bdockertypes\.RemoveOptions)\{`,
+	)
 )
 
 // containerRemovePassthrough lists wrappers that forward caller-supplied options verbatim.
@@ -67,12 +69,24 @@ func TestContainerRemoveWithoutVolumes(t *testing.T) {
 		want int
 	}{
 		{name: "force_only", src: `c.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})`, want: 1},
-		{name: "with_volumes", src: `c.ContainerRemove(ctx, id, container.RemoveOptions{Force: true, RemoveVolumes: true})`, want: 0},
+		{
+			name: "with_volumes",
+			src:  `c.ContainerRemove(ctx, id, container.RemoveOptions{Force: true, RemoveVolumes: true})`,
+			want: 0,
+		},
 		{name: "moby_force_only", src: `x := mobyclient.ContainerRemoveOptions{Force: true}`, want: 1},
-		{name: "moby_with_volumes", src: `x := mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true}`, want: 0},
+		{
+			name: "moby_with_volumes",
+			src:  `x := mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true}`,
+			want: 0,
+		},
 		{name: "variable_options", src: `c.ContainerRemove(ctx, id, opts)`, want: 1},
 		{name: "image_options", src: `c.ImageRemove(ctx, id, image.RemoveOptions{Force: true})`, want: 0},
-		{name: "multiline", src: "d.api.ContainerRemove(\n ctx, id,\n mobyclient.ContainerRemoveOptions{Force: true},\n)", want: 1},
+		{
+			name: "multiline",
+			src:  "d.api.ContainerRemove(\n ctx, id,\n mobyclient.ContainerRemoveOptions{Force: true},\n)",
+			want: 1,
+		},
 	}
 
 	for _, tt := range tests {

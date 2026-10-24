@@ -133,7 +133,11 @@ func TestDockerRunnerLiveRelativeCredentialsURI(t *testing.T) {
 	require.Len(t, ids, 1)
 
 	t.Cleanup(func() {
-		_, _ = probe.ContainerRemove(context.Background(), ids[0], mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		_, _ = probe.ContainerRemove(
+			context.Background(),
+			ids[0],
+			mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+		)
 		_ = mgr.Remove(context.Background())
 	})
 
