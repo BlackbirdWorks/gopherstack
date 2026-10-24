@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	logstypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/cloudwatchlogs"
 )
 
 func (r *run) replicateLogs(ctx context.Context) {

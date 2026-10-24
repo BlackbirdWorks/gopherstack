@@ -7,12 +7,12 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/internal/awswire/cloudwatch"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -399,31 +399,35 @@ type ccEvaluationWindow struct {
 	WallClockWindow *struct{ Timezone *string }
 }
 
-func (w *ccEvaluationWindow) sdk() (cwtypes.EvaluationWindow, error) {
+func (w *ccEvaluationWindow) sdk() (map[string]any, error) {
 	switch {
 	case w.SlidingWindow != nil && w.WallClockWindow != nil:
 		return nil, fmt.Errorf("%w: EvaluationWindow takes exactly one of SlidingWindow or WallClockWindow",
 			cloudcontrolbackend.ErrValidation)
 	case w.WallClockWindow != nil:
-		return &cwtypes.EvaluationWindowMemberWallClockWindow{
-			Value: cwtypes.WallClockWindow{Timezone: w.WallClockWindow.Timezone},
-		}, nil
+		wc := map[string]any{}
+		if w.WallClockWindow.Timezone != nil {
+			wc["Timezone"] = aws.ToString(w.WallClockWindow.Timezone)
+		}
+
+		return map[string]any{"WallClockWindow": wc}, nil
 	case w.SlidingWindow != nil:
-		return &cwtypes.EvaluationWindowMemberSlidingWindow{}, nil
+		return map[string]any{"SlidingWindow": map[string]any{}}, nil
 	default:
 		return nil, fmt.Errorf("%w: EvaluationWindow takes exactly one of SlidingWindow or WallClockWindow",
 			cloudcontrolbackend.ErrValidation)
 	}
 }
 
-func ccEvaluationWindowModel(w cwtypes.EvaluationWindow) any {
-	switch v := w.(type) {
-	case *cwtypes.EvaluationWindowMemberSlidingWindow:
+func ccEvaluationWindowModel(w map[string]any) any {
+	switch {
+	case w["SlidingWindow"] != nil:
 		return map[string]any{"SlidingWindow": map[string]any{}}
-	case *cwtypes.EvaluationWindowMemberWallClockWindow:
+	case w["WallClockWindow"] != nil:
 		wc := map[string]any{}
-		if v.Value.Timezone != nil {
-			wc["Timezone"] = aws.ToString(v.Value.Timezone)
+
+		if m, ok := w["WallClockWindow"].(map[string]any); ok && m["Timezone"] != nil {
+			wc["Timezone"] = m["Timezone"]
 		}
 
 		return map[string]any{"WallClockWindow": wc}
@@ -464,7 +468,7 @@ func (h *ccAlarm) put(ctx context.Context, name string, desired map[string]any, 
 		return err
 	}
 
-	var window cwtypes.EvaluationWindow
+	var window map[string]any
 
 	if spec.EvaluationWindow != nil {
 		if window, err = spec.EvaluationWindow.sdk(); err != nil {
@@ -522,7 +526,7 @@ func (h *ccAlarm) Create(ctx context.Context, desired map[string]any) (string, e
 	return name, h.put(ctx, name, desired, tags)
 }
 
-func (h *ccAlarm) describe(ctx context.Context, name string) (*cwtypes.MetricAlarm, error) {
+func (h *ccAlarm) describe(ctx context.Context, name string) (*cloudwatch.MetricAlarm, error) {
 	out, err := h.client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{
 		AlarmNames: []string{name}, AlarmTypes: []cwtypes.AlarmType{cwtypes.AlarmTypeMetricAlarm},
 	})

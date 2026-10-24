@@ -5,8 +5,9 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kintypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kinesis"
 )
 
 const kinesisDefaultRetentionHours = 24

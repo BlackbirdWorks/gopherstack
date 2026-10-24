@@ -1,6 +1,12 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sns"
+	sqssdk "github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
+	ssmsdk "github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	"github.com/blackbirdworks/gopherstack/internal/routegates"
 
 	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
@@ -36,13 +42,7 @@ import (
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	awsddbstreams "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	ddbstreamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/sns"
-	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
-	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
 

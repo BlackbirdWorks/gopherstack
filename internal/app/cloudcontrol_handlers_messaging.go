@@ -12,21 +12,21 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
-	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kintypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
-	"github.com/aws/aws-sdk-go-v2/service/sns"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
+	"github.com/blackbirdworks/gopherstack/internal/awswire/eventbridge"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kinesis"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/lambda"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sfn"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sns"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -457,12 +457,7 @@ const (
 )
 
 func (h *ccStream) waitActive(ctx context.Context, name string) error {
-	w := kinesis.NewStreamExistsWaiter(h.client, func(o *kinesis.StreamExistsWaiterOptions) {
-		o.MinDelay = ccStreamPollFloor
-		o.MaxDelay = ccStreamPollCeil
-	})
-
-	return ccMapError(w.Wait(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(name)}, ccStreamWait))
+	return ccMapError(awaitStream(ctx, h.client, name, false, ccStreamWait))
 }
 
 func (h *ccStream) setRetention(ctx context.Context, name string, have, want int32) error {
@@ -579,12 +574,7 @@ func (h *ccStream) Delete(ctx context.Context, id string) error {
 		return ccMapError(err)
 	}
 
-	w := kinesis.NewStreamNotExistsWaiter(h.client, func(o *kinesis.StreamNotExistsWaiterOptions) {
-		o.MinDelay = ccStreamPollFloor
-		o.MaxDelay = ccStreamPollCeil
-	})
-
-	return ccMapError(w.Wait(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(id)}, ccStreamWait))
+	return ccMapError(awaitStream(ctx, h.client, id, true, ccStreamWait))
 }
 
 func (h *ccStream) List(ctx context.Context) ([]string, error) {

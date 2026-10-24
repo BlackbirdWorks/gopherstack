@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
 )
 
 const kmsSourceTag = "gopherstack:replicated-from"
