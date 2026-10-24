@@ -7,15 +7,14 @@
 
 | Metric | Value |
 | --- | --- |
-| Feature families | 28 (19 ok, 9 partial) |
-| Known gaps | 2 |
+| Feature families | 29 (20 ok, 9 partial) |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetProfile.
 - InstanceState and RelationalDatabaseState have no typed SDK enum; the constants in consts.go are commented UNCONFIRMED conventions pending external evidence.
 
 ### Structural gaps

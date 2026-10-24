@@ -7,15 +7,11 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 45 (41 ok, 4 partial) |
-| Known gaps | 1 |
+| PARITY entries audited | 48 (44 ok, 4 partial) |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CancelJobs, TerminateJobs, TerminateServiceJobs.
 
 ### Structural gaps
 

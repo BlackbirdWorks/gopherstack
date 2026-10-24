@@ -7,16 +7,12 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 16 (16 ok) |
+| PARITY entries audited | 18 (18 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): SendPhoneNumberVerification, VerifyPhoneNumber.
 
 ### Structural gaps
 
