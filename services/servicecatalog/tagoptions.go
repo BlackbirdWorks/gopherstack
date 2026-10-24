@@ -187,7 +187,15 @@ func (b *InMemoryBackend) DescribeTagOption(ctx context.Context, in *DescribeTag
 	b.mu.RLock("DescribeTagOption")
 	defer b.mu.RUnlock()
 
-	t, err := b.tagOptionLocked(b.callerAccount(ctx), b.callerRegion(ctx), in.ID)
+	account, region := b.callerAccount(ctx), b.callerRegion(ctx)
+
+	t, err := b.tagOptionLocked(account, region, in.ID)
+	if err != nil {
+		if shared, ok := b.sharedTagOptionsLocked(account, region)[in.ID]; ok {
+			t, err = shared, nil
+		}
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -225,8 +233,10 @@ func (b *InMemoryBackend) ListTagOptions(ctx context.Context, in *ListTagOptions
 
 	var all []TagOptionDetail
 
+	shared := b.sharedTagOptionsLocked(account, region)
+
 	for _, t := range b.tagOptions.All() {
-		if t.AccountID != account || t.Region != region {
+		if _, isShared := shared[t.ID]; (t.AccountID != account || t.Region != region) && !isShared {
 			continue
 		}
 

@@ -596,13 +596,14 @@ func (b *InMemoryBackend) userCanLaunchLocked(ctx context.Context, portfolioID, 
 		return true
 	}
 
-	for _, pr := range b.principalsOfPortfolioLocked(portfolioID) {
-		if pr.AccountID == account && principalMatches(pr, caller) {
-			return true
-		}
+	p, ok := b.portfolios.Get(portfolioID)
+	if !ok {
+		return false
 	}
 
-	return false
+	return slices.ContainsFunc(b.principalsForAccountLocked(p, account), func(pr *Principal) bool {
+		return principalMatches(pr, caller)
+	})
 }
 
 func principalMatches(pr *Principal, caller string) bool {
