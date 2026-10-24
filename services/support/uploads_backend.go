@@ -1,7 +1,7 @@
 package support
 
 import (
-	"crypto/md5" //nolint:gosec // S3-style part ETag, not a security primitive
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -78,9 +78,9 @@ func newLinkToken() string {
 }
 
 func partETag(data []byte) string {
-	sum := md5.Sum(data) //nolint:gosec // S3-style part ETag, not a security primitive
+	sum := sha256.Sum256(data)
 
-	return `"` + hex.EncodeToString(sum[:]) + `"`
+	return `"` + hex.EncodeToString(sum[:16]) + `"`
 }
 
 func normalizeETag(etag string) string { return strings.Trim(etag, `"`) }
