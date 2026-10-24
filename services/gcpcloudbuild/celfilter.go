@@ -7,7 +7,14 @@ import (
 	"strings"
 )
 
-var errUnboundVariable = errors.New("variable is not defined")
+var (
+	errUnboundVariable = errors.New("variable is not defined")
+	errFilterSyntax    = errors.New("unsupported filter")
+)
+
+func celErr(format string, args ...any) error {
+	return fmt.Errorf("%s: %w", fmt.Sprintf(format, args...), errFilterSyntax)
+}
 
 // celExpr is a compiled trigger filter over substitution variables.
 type celExpr func(vars map[string]string) (celVal, error)
@@ -34,7 +41,7 @@ func compileFilter(src string) (celExpr, error) {
 	}
 
 	if p.skip(); p.pos != len(p.src) {
-		return nil, fmt.Errorf("unexpected %q at offset %d", p.src[p.pos:], p.pos)
+		return nil, celErr("unexpected %q at offset %d", p.src[p.pos:], p.pos)
 	}
 
 	return e, nil
@@ -48,7 +55,7 @@ func evalFilter(e celExpr, vars map[string]string) (bool, error) {
 	}
 
 	if !v.isBool {
-		return false, errors.New("filter must evaluate to a bool")
+		return false, celErr("filter must evaluate to a bool")
 	}
 
 	return v.b, nil
@@ -128,7 +135,7 @@ func asBool(e celExpr, vars map[string]string) (bool, error) {
 	}
 
 	if !v.isBool {
-		return false, errors.New("logical operands must be bool")
+		return false, celErr("logical operands must be bool")
 	}
 
 	return v.b, nil
@@ -189,7 +196,7 @@ func (p *celParser) compare() (celExpr, error) {
 		}
 
 		if a.isBool != c.isBool {
-			return celVal{}, errors.New("cannot compare a string with a bool")
+			return celVal{}, celErr("cannot compare a string with a bool")
 		}
 
 		eq := a == c
@@ -202,7 +209,7 @@ func (p *celParser) primary() (celExpr, error) {
 	p.skip()
 
 	if p.pos >= len(p.src) {
-		return nil, errors.New("unexpected end of filter")
+		return nil, celErr("unexpected end of filter")
 	}
 
 	var (
@@ -219,7 +226,7 @@ func (p *celParser) primary() (celExpr, error) {
 		}
 
 		if !p.eat(")") {
-			return nil, errors.New("missing closing parenthesis")
+			return nil, celErr("missing closing parenthesis")
 		}
 	case c == '"' || c == '\'':
 		var s string
@@ -232,7 +239,7 @@ func (p *celParser) primary() (celExpr, error) {
 	case c == '_' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z':
 		e = p.ident()
 	default:
-		return nil, fmt.Errorf("unexpected %q at offset %d", string(c), p.pos)
+		return nil, celErr("unexpected %q at offset %d", string(c), p.pos)
 	}
 
 	return p.methods(e)
@@ -283,7 +290,7 @@ func (p *celParser) str() (string, error) {
 		}
 	}
 
-	return "", errors.New("unterminated string literal")
+	return "", celErr("unterminated string literal")
 }
 
 func (p *celParser) methods(recv celExpr) (celExpr, error) {
@@ -298,13 +305,13 @@ func (p *celParser) methods(recv celExpr) (celExpr, error) {
 		name := p.src[start:p.pos]
 
 		if !p.eat("(") {
-			return nil, fmt.Errorf("field selection .%s is not supported", name)
+			return nil, celErr("field selection .%s is not supported", name)
 		}
 
 		p.skip()
 
 		if p.pos >= len(p.src) || p.src[p.pos] != '"' && p.src[p.pos] != '\'' {
-			return nil, fmt.Errorf("%s() takes a string literal", name)
+			return nil, celErr("%s() takes a string literal", name)
 		}
 
 		arg, err := p.str()
@@ -313,7 +320,7 @@ func (p *celParser) methods(recv celExpr) (celExpr, error) {
 		}
 
 		if !p.eat(")") {
-			return nil, errors.New("missing closing parenthesis")
+			return nil, celErr("missing closing parenthesis")
 		}
 
 		if recv, err = method(recv, name, arg); err != nil {
@@ -342,7 +349,7 @@ func method(recv celExpr, name, arg string) (celExpr, error) {
 	case "endsWith":
 		test = func(s string) bool { return strings.HasSuffix(s, arg) }
 	default:
-		return nil, fmt.Errorf("method %s() is not supported", name)
+		return nil, celErr("method %s() is not supported", name)
 	}
 
 	return func(vars map[string]string) (celVal, error) {
@@ -352,7 +359,7 @@ func method(recv celExpr, name, arg string) (celExpr, error) {
 		}
 
 		if v.isBool {
-			return celVal{}, fmt.Errorf("%s() needs a string receiver", name)
+			return celVal{}, celErr("%s() needs a string receiver", name)
 		}
 
 		return celVal{b: test(v.s), isBool: true}, nil

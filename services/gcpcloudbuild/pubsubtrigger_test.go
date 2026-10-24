@@ -3,6 +3,7 @@ package gcpcloudbuild_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"maps"
 	"testing"
 
@@ -38,7 +39,9 @@ func newPublishEnv(t *testing.T) *publishEnv {
 	ps := gcppubsub.NewInMemoryBackend()
 
 	ps.ObservePublishes(func(topic string, m *pubsubpb.PubsubMessage) {
-		e.backend.HandlePubsubMessage(topic, m.GetData(), m.GetAttributes(), m.GetMessageId(), m.GetPublishTime().AsTime())
+		e.backend.HandlePubsubMessage(
+			topic, m.GetData(), m.GetAttributes(), m.GetMessageId(), m.GetPublishTime().AsTime(),
+		)
 	})
 
 	h := gcppubsub.NewHandler(ps)
@@ -81,7 +84,7 @@ func (p *publishEnv) builds(t *testing.T) []*cloudbuildpb.Build {
 
 	for {
 		b, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return out
 		}
 

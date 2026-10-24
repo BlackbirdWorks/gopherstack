@@ -162,9 +162,11 @@ func TestWireGCPCloudBuild_PubsubTrigger(t *testing.T) {
 	trigger, err := cb.Backend.CreateBuildTrigger(&cloudbuildpb.CreateBuildTriggerRequest{
 		Parent: "projects/p/locations/global",
 		Trigger: &cloudbuildpb.BuildTrigger{
-			Name:          "on-deploy",
-			PubsubConfig:  &cloudbuildpb.PubsubConfig{Topic: topic},
-			BuildTemplate: &cloudbuildpb.BuildTrigger_Build{Build: &cloudbuildpb.Build{Steps: []*cloudbuildpb.BuildStep{{Name: "img"}}}},
+			Name:         "on-deploy",
+			PubsubConfig: &cloudbuildpb.PubsubConfig{Topic: topic},
+			BuildTemplate: &cloudbuildpb.BuildTrigger_Build{Build: &cloudbuildpb.Build{
+				Steps: []*cloudbuildpb.BuildStep{{Name: "img"}},
+			}},
 		},
 	})
 	require.NoError(t, err)
