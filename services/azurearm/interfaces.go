@@ -432,6 +432,20 @@ type ContainerRegistries interface {
 	DeleteRegistry(name string) error
 	Credentials(name string) (ContainerRegistryCredentials, error)
 	RegenerateCredential(name, which string) (ContainerRegistryCredentials, error)
+	SetWebhook(registry string, w ContainerRegistryWebhook) error
+	DeleteWebhook(registry, name string) error
+	PingWebhook(registry, name string) (string, error)
+	WebhookEvents(registry, name string) ([]map[string]any, error)
+}
+
+// ContainerRegistryWebhook is a registry webhook the data plane fires on image and chart pushes and deletes.
+type ContainerRegistryWebhook struct {
+	Headers    map[string]string
+	Name       string
+	ServiceURI string
+	Scope      string
+	Status     string
+	Actions    []string
 }
 
 type noopContainerRegistries struct{}
@@ -452,6 +466,18 @@ func (noopContainerRegistries) Credentials(string) (ContainerRegistryCredentials
 
 func (noopContainerRegistries) RegenerateCredential(string, string) (ContainerRegistryCredentials, error) {
 	return ContainerRegistryCredentials{}, ErrACRUnavailable
+}
+
+func (noopContainerRegistries) SetWebhook(string, ContainerRegistryWebhook) error { return nil }
+
+func (noopContainerRegistries) DeleteWebhook(string, string) error { return nil }
+
+func (noopContainerRegistries) PingWebhook(string, string) (string, error) {
+	return "", ErrACRUnavailable
+}
+
+func (noopContainerRegistries) WebhookEvents(string, string) ([]map[string]any, error) {
+	return nil, ErrACRUnavailable
 }
 
 var _ ContainerRegistries = noopContainerRegistries{}

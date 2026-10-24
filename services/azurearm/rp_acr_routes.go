@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,8 @@ const (
 	acrActionRegenerate       = "regenerateCredential"
 	acrActionCheckName        = "checkNameAvailability"
 	acrActionCallbackConfig   = "getCallbackConfig"
+	acrActionPing             = "ping"
+	acrActionListEvents       = "listEvents"
 	acrSubCheckLen            = 5
 	acrRegistryLen            = 8
 	acrRegistryActionLen      = 9
@@ -89,6 +92,45 @@ var containerRegistryRoutes = []armRoute{
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACRCallbackConfig(c, segs) },
 	},
+	{
+		match: func(segs []string, r *http.Request) bool { return isACRWebhookAction(segs, r, acrActionPing) },
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleACRWebhookAction(c, segs, (*ContainerRegistryProvider).PingWebhook)
+		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool { return isACRWebhookAction(segs, r, acrActionListEvents) },
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleACRWebhookAction(c, segs, (*ContainerRegistryProvider).WebhookEvents)
+		},
+	},
+}
+
+func isACRWebhookAction(segs []string, r *http.Request, action string) bool {
+	return r.Method == http.MethodPost && isACRScope(segs, acrWebhookActionLen) &&
+		segAt(segs, acrWebhookTypeIdx, acrWebhooksType) && strings.EqualFold(segs[len(segs)-1], action)
+}
+
+func (h *Handler) handleACRWebhookAction(
+	c *echo.Context, segs []string,
+	fn func(*ContainerRegistryProvider, context.Context, ResourceID) (map[string]any, error),
+) error {
+	p, err := h.acrProviderOrNotFound(c)
+	if p == nil {
+		return err
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := fn(p, c.Request().Context(), id)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
 }
 
 func (h *Handler) acrProviderOrNotFound(c *echo.Context) (*ContainerRegistryProvider, error) {

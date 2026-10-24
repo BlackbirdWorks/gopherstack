@@ -321,9 +321,38 @@ func (p *ContainerRegistryProvider) putChild(
 		rec.host = h
 	}
 
+	if kind == acrKindWebhook {
+		if err = p.dataPlane.SetWebhook(parent.name, webhookOf(rec)); err != nil {
+			return nil, badACRRequest(err)
+		}
+	}
+
 	p.res[acrKey(id.ResourceGroup, kind, id.Names[0], rec.name)] = rec
 
 	return p.childBody(id, rec), nil
+}
+
+func webhookOf(rec *storedACR) ContainerRegistryWebhook {
+	w := ContainerRegistryWebhook{Name: rec.name, Headers: map[string]string{}}
+	w.ServiceURI, _ = rec.props[acrPropServiceURI].(string)
+	w.Scope, _ = rec.props[acrPropScope].(string)
+	w.Status, _ = rec.props[acrPropStatus].(string)
+
+	actions, _ := rec.props[acrPropActions].([]any)
+	for _, a := range actions {
+		if s, ok := a.(string); ok {
+			w.Actions = append(w.Actions, s)
+		}
+	}
+
+	headers, _ := rec.props["customHeaders"].(map[string]any)
+	for k, v := range headers {
+		if s, ok := v.(string); ok {
+			w.Headers[k] = s
+		}
+	}
+
+	return w
 }
 
 var (
@@ -487,6 +516,12 @@ func (p *ContainerRegistryProvider) Delete(_ context.Context, id ResourceID) err
 	key := acrKey(id.ResourceGroup, kind, id.Names[0], id.LeafName())
 	if _, ok := p.res[key]; !ok {
 		return acrNotFound(kind)
+	}
+
+	if kind == acrKindWebhook {
+		if err := p.dataPlane.DeleteWebhook(id.Names[0], id.LeafName()); err != nil {
+			return err
+		}
 	}
 
 	delete(p.res, key)

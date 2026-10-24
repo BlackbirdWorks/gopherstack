@@ -138,7 +138,7 @@ func TestTokenFlows(t *testing.T) {
 
 		got := anon.Do(http.MethodPost, "/oauth2/token", form(
 			"grant_type", "refresh_token", "service", host("tokenreg"),
-			"scope", "repository:app:pull,push", "refresh_token", refresh), formHdr)
+			"scope", "registry:catalog:*", "refresh_token", refresh), formHdr)
 		require.Equal(t, http.StatusOK, got.Status, string(got.Body))
 
 		access, _ := decode(t, got.Body)["access_token"].(string)
