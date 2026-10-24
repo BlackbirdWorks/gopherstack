@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -39,8 +41,10 @@ type Credentials struct {
 }
 
 type registry struct {
-	CreatedAt time.Time          `json:"createdAt"`
-	Repos     ociregistry.Ledger `json:"repos"`
+	CreatedAt time.Time                 `json:"createdAt"`
+	Repos     ociregistry.Ledger        `json:"repos"`
+	Webhooks  map[string]*Webhook       `json:"webhooks,omitempty"`
+	Events    map[string][]WebhookEvent `json:"events,omitempty"`
 	raw       http.Handler
 	app       http.Handler
 	Name      string `json:"name"`
@@ -55,6 +59,8 @@ type InMemoryBackend struct {
 	now     func() time.Time
 	ctx     context.Context //nolint:containedctx // lifetime of the lazily built registries
 	mu      *lockmetrics.RWMutex
+	httpc   *http.Client
+	hooks   *worker.Group
 	regs    map[string]*registry
 	dataDir string
 	secret  []byte
@@ -68,6 +74,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		now: time.Now, ctx: context.Background(), secret: secret,
 		mu: lockmetrics.New("azurecontainerregistry"), regs: map[string]*registry{},
+		httpc: httpclient.New(deliveryTimeout),
 	}
 }
 
@@ -251,12 +258,34 @@ func (b *InMemoryBackend) Reset() {
 	b.regs = map[string]*registry{}
 }
 
-// Close releases every registry's storage handler without deleting stored images.
+// workers returns the delivery worker group, starting it on first use.
+func (b *InMemoryBackend) workers() *worker.Group {
+	b.mu.Lock("workers")
+	defer b.mu.Unlock()
+
+	if b.hooks == nil {
+		b.hooks = worker.NewGroup(b.ctx, "azurecontainerregistry")
+	}
+
+	return b.hooks
+}
+
+// Close stops webhook deliveries and releases every registry's storage handler without deleting stored images.
 func (b *InMemoryBackend) Close() {
 	b.mu.Lock("Close")
-	defer b.mu.Unlock()
+
+	hooks := b.hooks
+	b.hooks = nil
 
 	for _, r := range b.regs {
 		b.release(r, false)
 	}
+
+	b.mu.Unlock()
+
+	if hooks != nil {
+		hooks.Stop()
+	}
+
+	b.httpc.CloseIdleConnections()
 }

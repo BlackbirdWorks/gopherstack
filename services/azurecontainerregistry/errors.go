@@ -8,6 +8,7 @@ var (
 	ErrInvalidName      = errors.New("azurecontainerregistry: invalid registry name")
 	ErrAdminDisabled    = errors.New("azurecontainerregistry: admin user is not enabled")
 	ErrInvalidCred      = errors.New("azurecontainerregistry: credential name must be password or password2")
+	ErrWebhookNotFound  = errors.New("azurecontainerregistry: webhook not found")
 	ErrNilAppContext    = errors.New("azurecontainerregistry: nil app context")
 	ErrNotFound         = errors.New("azurecontainerregistry: not found")
 	ErrDenied           = errors.New("azurecontainerregistry: operation is disabled by the resource's attributes")

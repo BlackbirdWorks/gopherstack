@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
@@ -104,9 +105,15 @@ func scheme(r *http.Request) string {
 	return "http"
 }
 
-// authenticate accepts the registry's admin credentials, a refresh token as the Basic password, or a
-// Bearer access token.
-func (h *Handler) authenticate(r *http.Request, reg string) bool {
+// principal is an authenticated caller; scoped callers are limited to the access their token records.
+type principal struct {
+	access []tokenAccess
+	scoped bool
+}
+
+// authenticate accepts the registry's admin credentials, a refresh token as the Basic password, or an access
+// token as the Bearer token (or Basic password).
+func (h *Handler) authenticate(r *http.Request, reg string) (principal, bool) {
 	auth := r.Header.Get("Authorization")
 	b := h.Backend
 
@@ -114,24 +121,58 @@ func (h *Handler) authenticate(r *http.Request, reg string) bool {
 	case hasFold(auth, "Basic "):
 		raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(auth[len("Basic "):]))
 		if err != nil {
-			return false
+			return principal{}, false
 		}
 
 		user, pass, ok := strings.Cut(string(raw), ":")
+		if !ok {
+			return principal{}, false
+		}
 
-		return ok && (b.VerifyAdmin(reg, user, pass) || b.VerifyRefresh(pass, reg) || b.VerifyAccess(pass, reg))
+		if b.VerifyAdmin(reg, user, pass) || b.VerifyRefresh(pass, reg) {
+			return principal{}, true
+		}
+
+		access, valid := b.accessScopes(pass, reg)
+
+		return principal{access: access, scoped: valid}, valid
 	case hasFold(auth, "Bearer "):
-		return b.VerifyAccess(strings.TrimSpace(auth[len("Bearer "):]), reg)
+		access, valid := b.accessScopes(strings.TrimSpace(auth[len("Bearer "):]), reg)
+
+		return principal{access: access, scoped: valid}, valid
 	}
 
-	return false
+	return principal{}, false
+}
+
+// need is one access a request requires: action on the named resource.
+type need struct {
+	typ    string
+	name   string
+	action string
+	hint   string
+}
+
+func (n need) scope() string { return n.typ + ":" + n.name + ":" + n.hint }
+
+func (p principal) allows(n need) bool {
+	if !p.scoped {
+		return true
+	}
+
+	return slices.ContainsFunc(p.access, func(a tokenAccess) bool {
+		return a.Type == n.typ && a.Name == n.name &&
+			(slices.Contains(a.Actions, n.action) || slices.Contains(a.Actions, "*"))
+	})
 }
 
 func hasFold(s, prefix string) bool {
 	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
-func challenge(w http.ResponseWriter, r *http.Request, scope string) {
+const unauthorizedMessage = "authentication required, visit https://aka.ms/acr/authorization for more information."
+
+func setChallengeHeader(w http.ResponseWriter, r *http.Request, scope, errCode string) {
 	realm := scheme(r) + "://" + r.Host + "/oauth2/token"
 	value := `Bearer realm="` + realm + `",service="` + r.Host + `"`
 
@@ -139,38 +180,77 @@ func challenge(w http.ResponseWriter, r *http.Request, scope string) {
 		value += `,scope="` + scope + `"`
 	}
 
+	if errCode != "" {
+		value += `,error="` + errCode + `"`
+	}
+
 	w.Header().Set("WWW-Authenticate", value)
 	w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
-	writeJSON(w, http.StatusUnauthorized, errorBody{Errors: []errorEntry{{
-		Code:    "UNAUTHORIZED",
-		Message: "authentication required, visit https://aka.ms/acr/authorization for more information.",
-	}}})
+}
+
+func challenge(w http.ResponseWriter, r *http.Request, scope string) {
+	setChallengeHeader(w, r, scope, "")
+	writeRegistryError(w, http.StatusUnauthorized, "UNAUTHORIZED", unauthorizedMessage)
 }
 
 func v2Scope(r *http.Request) string {
+	needs := v2Needs(r)
+	scopes := make([]string, 0, len(needs))
+
+	for _, n := range needs {
+		scopes = append(scopes, n.scope())
+	}
+
+	return strings.Join(scopes, " ")
+}
+
+// v2Needs lists the accesses a registry request requires, per the distribution token scope rules.
+func v2Needs(r *http.Request) []need {
 	rest := strings.TrimPrefix(r.URL.Path, prefixV2+"/")
 	if rest == "_catalog" {
-		return "registry:catalog:*"
+		return []need{{typ: scopeCatalog, name: "catalog", action: "*", hint: "*"}}
 	}
 
 	for _, kind := range []string{"/manifests/", "/blobs/", "/tags/"} {
-		if i := strings.Index(rest, kind); i > 0 {
-			return "repository:" + rest[:i] + ":" + actionsFor(r.Method)
+		i := strings.Index(rest, kind)
+		if i <= 0 {
+			continue
 		}
+
+		action, hint := actionsFor(r.Method)
+		out := []need{{typ: "repository", name: rest[:i], action: action, hint: hint}}
+
+		if from := r.URL.Query().Get("from"); r.Method == http.MethodPost && from != "" {
+			out = append(out, need{typ: "repository", name: from, action: "pull", hint: "pull"})
+		}
+
+		return out
 	}
 
-	return ""
+	return nil
 }
 
-func actionsFor(method string) string {
+func actionsFor(method string) (string, string) {
 	switch method {
 	case http.MethodGet, http.MethodHead:
-		return "pull"
+		return "pull", "pull"
 	case http.MethodDelete:
-		return "delete"
+		return "delete", "delete"
 	}
 
-	return "pull,push"
+	return "push", "pull,push"
+}
+
+func denyScope(w http.ResponseWriter, r *http.Request, needs []need) {
+	detail := make([]tokenAccess, 0, len(needs))
+	for _, n := range needs {
+		detail = append(detail, tokenAccess{Type: n.typ, Name: n.name, Actions: strings.Split(n.hint, ",")})
+	}
+
+	setChallengeHeader(w, r, v2Scope(r), "insufficient_scope")
+	writeJSON(w, http.StatusUnauthorized, errorBody{Errors: []errorEntry{{
+		Code: "UNAUTHORIZED", Message: unauthorizedMessage, Detail: detail,
+	}}})
 }
 
 func (h *Handler) serveRegistry(w http.ResponseWriter, r *http.Request) {
@@ -181,8 +261,15 @@ func (h *Handler) serveRegistry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.authenticate(r, reg) {
+	who, ok := h.authenticate(r, reg)
+	if !ok {
 		challenge(w, r, v2Scope(r))
+
+		return
+	}
+
+	if needs := v2Needs(r); !who.allowsAll(needs) {
+		denyScope(w, r, needs)
 
 		return
 	}
@@ -194,19 +281,11 @@ func (h *Handler) serveRegistry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ociregistry.ServeObserved(app, w, r, ociregistry.Observer{
-		Permit: func(w http.ResponseWriter, repo, ref, op string) bool {
-			if h.Backend.Allowed(reg, repo, ref, op) {
-				return true
-			}
+	ociregistry.ServeObserved(app, w, r, h.observer(reg, app, r))
+}
 
-			writeRegistryError(w, http.StatusForbidden, "DENIED", "The operation is disabled.")
-
-			return false
-		},
-		Put:    func(repo, ref, digest string) { h.Backend.RecordManifestPut(reg, repo, ref, digest) },
-		Delete: func(repo, ref string) { h.Backend.RecordManifestDelete(reg, repo, ref) },
-	})
+func (p principal) allowsAll(needs []need) bool {
+	return slices.IndexFunc(needs, func(n need) bool { return !p.allows(n) }) < 0
 }
 
 func parseForm(w http.ResponseWriter, r *http.Request) (url.Values, bool) {

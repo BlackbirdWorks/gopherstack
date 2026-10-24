@@ -18,6 +18,7 @@ type fakeRegistries struct {
 }
 
 type fakeReg struct {
+	hooks    map[string]azurearm.ContainerRegistryWebhook
 	pw1, pw2 string
 	admin    bool
 }
@@ -92,6 +93,60 @@ func (f *fakeRegistries) RegenerateCredential(name, which string) (azurearm.Cont
 	}
 
 	return azurearm.ContainerRegistryCredentials{Username: name, Password: r.pw1, Password2: r.pw2}, nil
+}
+
+func (f *fakeRegistries) SetWebhook(registry string, w azurearm.ContainerRegistryWebhook) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	r, ok := f.regs[registry]
+	if !ok {
+		return azurearm.ErrACRRegistryNotFound
+	}
+
+	if r.hooks == nil {
+		r.hooks = map[string]azurearm.ContainerRegistryWebhook{}
+	}
+
+	r.hooks[w.Name] = w
+
+	return nil
+}
+
+func (f *fakeRegistries) DeleteWebhook(registry, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if r, ok := f.regs[registry]; ok {
+		delete(r.hooks, name)
+	}
+
+	return nil
+}
+
+func (f *fakeRegistries) hook(registry, name string) (azurearm.ContainerRegistryWebhook, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	w, ok := f.regs[registry].hooks[name]
+
+	return w, ok
+}
+
+func (f *fakeRegistries) PingWebhook(registry, name string) (string, error) {
+	if _, ok := f.hook(registry, name); !ok {
+		return "", azurearm.ErrACRWebhookNotFound
+	}
+
+	return "ping-" + name, nil
+}
+
+func (f *fakeRegistries) WebhookEvents(registry, name string) ([]map[string]any, error) {
+	if _, ok := f.hook(registry, name); !ok {
+		return nil, azurearm.ErrACRWebhookNotFound
+	}
+
+	return []map[string]any{{"id": "ev-" + name}}, nil
 }
 
 const (
@@ -377,6 +432,19 @@ func TestContainerRegistryWebhooks(t *testing.T) {
 		st, list := doRequest(t, h, http.MethodGet, acrBase+"/webhooks"+acrVersion, nil)
 		require.Equal(t, http.StatusOK, st)
 		assert.Len(t, list["value"], 1)
+
+		st, ping := doRequest(t, h, http.MethodPost, hook+"/ping"+acrVersion, nil)
+		require.Equal(t, http.StatusOK, st)
+		assert.Equal(t, "ping-deployhook", ping["id"])
+
+		st, events := doRequest(t, h, http.MethodPost, hook+"/listEvents"+acrVersion, nil)
+		require.Equal(t, http.StatusOK, st)
+		assert.Equal(t, []any{map[string]any{"id": "ev-deployhook"}}, events["value"])
+
+		for _, action := range []string{"ping", "listEvents"} {
+			st, _ = doRequest(t, h, http.MethodPost, acrBase+"/webhooks/missing/"+action+acrVersion, nil)
+			assert.Equal(t, http.StatusNotFound, st, action)
+		}
 
 		// Deleting the registry removes its children.
 		st, _ = doRequest(t, h, http.MethodDelete, acrBase+acrVersion, nil)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 
@@ -76,6 +77,48 @@ func (a *azureContainerRegistryAdapter) RegenerateCredential(
 	return registryCredentials(creds), mapRegistryError(err)
 }
 
+func (a *azureContainerRegistryAdapter) SetWebhook(registry string, w azurearm.ContainerRegistryWebhook) error {
+	return mapRegistryError(a.backend.SetWebhook(registry, acr.Webhook{
+		Name: w.Name, ServiceURI: w.ServiceURI, Scope: w.Scope, Status: w.Status, Actions: w.Actions,
+		Headers: w.Headers,
+	}))
+}
+
+func (a *azureContainerRegistryAdapter) DeleteWebhook(registry, name string) error {
+	return mapRegistryError(a.backend.DeleteWebhook(registry, name))
+}
+
+func (a *azureContainerRegistryAdapter) PingWebhook(registry, name string) (string, error) {
+	id, err := a.backend.PingWebhook(registry, name)
+
+	return id, mapRegistryError(err)
+}
+
+func (a *azureContainerRegistryAdapter) WebhookEvents(registry, name string) ([]map[string]any, error) {
+	events, err := a.backend.WebhookEvents(registry, name)
+	if err != nil {
+		return nil, mapRegistryError(err)
+	}
+
+	out := make([]map[string]any, 0, len(events))
+
+	for _, ev := range events {
+		raw, marshalErr := json.Marshal(ev)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+
+		var m map[string]any
+		if unmarshalErr := json.Unmarshal(raw, &m); unmarshalErr != nil {
+			return nil, unmarshalErr
+		}
+
+		out = append(out, m)
+	}
+
+	return out, nil
+}
+
 func registryCredentials(c acr.Credentials) azurearm.ContainerRegistryCredentials {
 	return azurearm.ContainerRegistryCredentials{Username: c.Username, Password: c.Password1, Password2: c.Password2}
 }
@@ -88,6 +131,8 @@ func mapRegistryError(err error) error {
 		return azurearm.ErrACRInvalidCredential
 	case errors.Is(err, acr.ErrRegistryNotFound):
 		return azurearm.ErrACRRegistryNotFound
+	case errors.Is(err, acr.ErrWebhookNotFound):
+		return azurearm.ErrACRWebhookNotFound
 	}
 
 	return err
