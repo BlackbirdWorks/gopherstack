@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -63,11 +64,13 @@ func (h *S3Handler) listObjects(
 	marker := r.URL.Query().Get("marker")
 	encodingType := r.URL.Query().Get("encoding-type")
 
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 listObjects input",
-		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
-	)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(
+			ctx,
+			"S3 listObjects input",
+			"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
+		)
+	}
 
 	maxKeys, mkErr := parseMaxKeys(r.URL.Query().Get("max-keys"))
 	if mkErr != nil {

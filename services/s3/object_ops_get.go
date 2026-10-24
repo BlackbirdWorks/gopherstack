@@ -54,16 +54,7 @@ func (h *S3Handler) getObject(
 	ctx = newCtx
 
 	versionID := queryParam(r, "versionId")
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 getObject input",
-		"bucket",
-		bucketName,
-		"key",
-		key,
-		"versionId",
-		versionID,
-	)
+	logGetObjectInput(ctx, bucketName, key, versionID)
 
 	var vid *string
 	if versionID != "" {
@@ -107,12 +98,7 @@ func (h *S3Handler) getObject(
 		return
 	}
 
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 getObject output",
-		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
-		"contentLength", aws.ToInt64(ver.ContentLength),
-	)
+	logGetObjectOutput(ctx, bucketName, key, ver)
 
 	w.WriteHeader(http.StatusOK)
 

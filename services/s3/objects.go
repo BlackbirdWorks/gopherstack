@@ -10,6 +10,7 @@ import (
 	"errors"
 	"hash"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -404,10 +405,12 @@ func (b *InMemoryBackend) PutObject(
 	b.evictStaleNullTags(bucketName, key, newVersionID, input.Tagging)
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
-	logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
-		"bucket", bucketName, "key", key,
-		"contentType", aws.ToString(input.ContentType),
-		"versionId", newVersionID)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
+			"bucket", bucketName, "key", key,
+			"contentType", aws.ToString(input.ContentType),
+			"versionId", newVersionID)
+	}
 
 	// Async replication to configured destination buckets, parented to the
 	// service context (cancellable on shutdown) rather than the request context.
@@ -492,8 +495,10 @@ func (b *InMemoryBackend) prepareObjectData(
 		return 0, nil, false, "", "", err
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "prepareObjectData trace",
-		"n", n, "dataLen", len(data), "etag", etag)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "prepareObjectData trace",
+			"n", n, "dataLen", len(data), "etag", etag)
+	}
 
 	// 2. Validate Content-MD5 from context if present.
 	if vErr := b.validateContentMD5(ctx, data, etag); vErr != nil {
@@ -1053,10 +1058,12 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrLatestDeleteMarker
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "S3 Backend HeadObject",
-		"bucket", bucketName, "key", key,
-		"versionId", aws.ToString(versionID),
-		"foundContentType", ver.ContentType)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 Backend HeadObject",
+			"bucket", bucketName, "key", key,
+			"versionId", aws.ToString(versionID),
+			"foundContentType", ver.ContentType)
+	}
 
 	return b.buildHeadObjectOutput(bucketName, key, ver), nil
 }

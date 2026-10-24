@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -561,7 +562,9 @@ func (h *S3Handler) createBucket(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "CreateBucket")
-	logger.Load(ctx).DebugContext(ctx, "S3 createBucket input", "bucket", bucketName)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 createBucket input", "bucket", bucketName)
+	}
 
 	region, tags, err := parseCreateBucketRequest(ctx, r)
 	if err != nil {
@@ -615,8 +618,10 @@ func (h *S3Handler) createBucket(
 		return
 	}
 
-	logger.Load(ctx).
-		DebugContext(ctx, "S3 createBucket output", "bucket", bucketName)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).
+			DebugContext(ctx, "S3 createBucket output", "bucket", bucketName)
+	}
 
 	// Set Location header from output
 	if output.Location != nil {
@@ -632,7 +637,9 @@ func (h *S3Handler) deleteBucket(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "DeleteBucket")
-	logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket input", "bucket", bucketName)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket input", "bucket", bucketName)
+	}
 
 	_, err := h.Backend.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
@@ -653,7 +660,9 @@ func (h *S3Handler) deleteBucket(
 		return
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

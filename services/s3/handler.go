@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -275,8 +276,6 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 		sw.Header().Set("X-Amz-Request-Id", uuid.NewString())
 		sw.Header().Set("X-Amz-Id-2", uuid.NewString()) // Mock ID-2
 
-		log := logger.Load(ctx)
-
 		// Validate presigned URL expiry before processing.
 		if isPresignedRequest(requestWithCtx) &&
 			!h.validatePresignedRequest(ctx, sw, requestWithCtx) {
@@ -314,16 +313,18 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 
 		metrics.bucket = bucketName
 
-		log.DebugContext(
-			ctx,
-			"S3 request",
-			"method",
-			requestWithCtx.Method,
-			"bucket",
-			bucketName,
-			"key",
-			key,
-		)
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			logger.Load(ctx).DebugContext(
+				ctx,
+				"S3 request",
+				"method",
+				requestWithCtx.Method,
+				"bucket",
+				bucketName,
+				"key",
+				key,
+			)
+		}
 
 		if bucketName == "" {
 			h.handleRootRequest(ctx, sw, requestWithCtx)
