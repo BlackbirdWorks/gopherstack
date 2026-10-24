@@ -213,6 +213,51 @@ func (h *Handler) handleGetBlob(body []byte) (any, error) {
 	}, nil
 }
 
+func (h *Handler) handleGetBlobDifferences(body []byte) (any, error) {
+	var req struct {
+		ContextLines     *int   `json:"contextLines"`
+		MaxResults       *int   `json:"MaxResults"`
+		IgnoreWhitespace *bool  `json:"ignoreWhitespace"`
+		RepositoryName   string `json:"repositoryName"`
+		AfterBlobID      string `json:"afterBlobId"`
+		BeforeBlobID     string `json:"beforeBlobId"`
+		NextToken        string `json:"NextToken"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	if req.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
+
+	if req.AfterBlobID == "" {
+		return nil, fmt.Errorf("%w: afterBlobId is required", ErrBlobIDRequired)
+	}
+
+	diff, err := h.Backend.GetBlobDifferences(req.RepositoryName, req.BeforeBlobID, req.AfterBlobID, BlobDiffOptions{
+		ContextLines:     req.ContextLines,
+		MaxResults:       req.MaxResults,
+		NextToken:        req.NextToken,
+		IgnoreWhitespace: req.IgnoreWhitespace != nil && *req.IgnoreWhitespace,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp := map[string]any{
+		"hunks":          append([]DiffHunk{}, diff.Hunks.Data...),
+		"isBinary":       diff.IsBinary,
+		"beforeBlobSize": diff.BeforeBlobSize,
+		"afterBlobSize":  diff.AfterBlobSize,
+	}
+	if diff.Hunks.Next != "" {
+		resp["NextToken"] = diff.Hunks.Next
+	}
+
+	return resp, nil
+}
+
 func (h *Handler) handleListFileCommitHistory(body []byte) (any, error) {
 	var req struct {
 		RepositoryName string `json:"repositoryName"`
