@@ -55,6 +55,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -546,6 +547,10 @@ type CLI struct {
 	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"                           default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
 	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"                        default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"                   default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	SQSEndpointStrategy           string                            `                                       name:"sqs-endpoint-strategy" env:"SQS_ENDPOINT_STRATEGY" default:"" help:"Queue URL format: standard, domain, path, off or dynamic (empty keeps http://host/account/name)."` //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEndpointStrategy    string                            `                                       name:"opensearch-endpoint-strategy" env:"OPENSEARCH_ENDPOINT_STRATEGY" default:"" help:"OpenSearch domain endpoint format: domain or path (empty keeps the AWS-style es.amazonaws.com host)."` //nolint:lll // config struct tags are intentionally verbose
+	GraphQLEndpointStrategy       string                            `                                       name:"graphql-endpoint-strategy" env:"GRAPHQL_ENDPOINT_STRATEGY" default:"" help:"AppSync GraphQL URL format: legacy, domain or path (empty keeps /v1/apis/ID/graphql)."` //nolint:lll // config struct tags are intentionally verbose
+	ECREndpointStrategy           string                            `                                       name:"ecr-endpoint-strategy" env:"ECR_ENDPOINT_STRATEGY" default:"" help:"ECR repositoryUri host format: domain or off (empty keeps the request host)."` //nolint:lll // config struct tags are intentionally verbose
 	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"                default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
 	MemoryDBEngine                string                            `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                     default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"                          default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
@@ -860,6 +865,17 @@ func (c *CLI) GetEndpoint() string {
 	port := strings.TrimPrefix(c.Port, ":")
 
 	return "http://localhost:" + port
+}
+
+// EndpointStrategies returns the *_ENDPOINT_STRATEGY selections (endpointstrategy.Provider).
+func (c *CLI) EndpointStrategies() endpointstrategy.Config {
+	return endpointstrategy.Config{
+		SQS:        c.SQSEndpointStrategy,
+		OpenSearch: c.OpenSearchEndpointStrategy,
+		GraphQL:    c.GraphQLEndpointStrategy,
+		ECR:        c.ECREndpointStrategy,
+		HostPort:   c.GetS3Endpoint(),
+	}
 }
 
 // GetLambdaSettings returns Lambda settings (lambda.SettingsProvider).

@@ -2,6 +2,7 @@ package appsync
 
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -31,8 +32,19 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		}
 	}
 
+	var strategies endpointstrategy.Config
+	if ctx != nil {
+		strategies = endpointstrategy.From(ctx.Config)
+		if err := strategies.Validate(); err != nil {
+			return nil, err
+		}
+	}
+
 	backend := NewInMemoryBackend(accountID, region, endpoint)
+	backend.SetGraphQLEndpointStrategy(strategies.GraphQL)
+
 	handler := NewHandler(backend)
+	handler.graphqlStrategy = strategies.GraphQL
 	handler.DefaultRegion = region
 	handler.AccountID = accountID
 	handler.EnableRegions()

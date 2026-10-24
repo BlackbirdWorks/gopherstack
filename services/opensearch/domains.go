@@ -34,7 +34,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 	}
 
 	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+input.Name)
-	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", input.Name, b.accountID, b.region)
+	endpoint := b.domainEndpointLocked(input.Name, input.EngineVersion)
 	domainID := fmt.Sprintf("%s/%s", b.accountID, input.Name)
 
 	if input.ClusterConfig.InstanceCount == 0 {
@@ -83,7 +83,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 
 	b.domains.Put(d)
 
-	if b.dnsRegistrar != nil {
+	if b.dnsRegistrar != nil && b.endpoints.OpenSearch == "" {
 		b.dnsRegistrar.Register(endpoint)
 	}
 
@@ -368,7 +368,7 @@ func (b *InMemoryBackend) AddDomainInternal(name, engineVersion string) {
 	defer b.mu.Unlock()
 
 	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
-	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", name, b.accountID, b.region)
+	endpoint := b.domainEndpointLocked(name, engineVersion)
 	b.domains.Put(&Domain{
 		Name:          name,
 		ARN:           domainARN,

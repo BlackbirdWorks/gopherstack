@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -118,12 +119,13 @@ const (
 
 // Handler is the Echo HTTP handler for AppSync operations.
 type Handler struct {
-	Backend       StorageBackend
-	peers         *regionpeers.Set[Handler]
-	workerCtx     atomic.Pointer[context.Context]
-	stopJanitor   atomic.Pointer[context.CancelFunc]
-	DefaultRegion string
-	AccountID     string
+	Backend         StorageBackend
+	peers           *regionpeers.Set[Handler]
+	workerCtx       atomic.Pointer[context.Context]
+	stopJanitor     atomic.Pointer[context.CancelFunc]
+	DefaultRegion   string
+	AccountID       string
+	graphqlStrategy string
 }
 
 // NewHandler creates a new AppSync handler.
@@ -302,6 +304,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		if _, ok := h.graphqlStrategyPath(c.Request()); ok {
+			return true
+		}
+
 		if strings.HasPrefix(path, appsyncV2PathPrefix) {
 			return service.MatchesUserAgentMarker(c.Request().Header, "api/appsync")
 		}
@@ -350,12 +356,21 @@ func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 // ExtractOperation extracts the AppSync operation from the request path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if canon, ok := h.graphqlStrategyPath(c.Request()); ok {
+		return parseOperation(c.Request().Method, canon)
+	}
+
 	return parseOperation(c.Request().Method, c.Request().URL.Path)
 }
 
 // ExtractResource extracts the API ID from the request path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	segs := splitPath(c.Request().URL.Path)
+	path := c.Request().URL.Path
+	if canon, ok := h.graphqlStrategyPath(c.Request()); ok {
+		path = canon
+	}
+
+	segs := splitPath(path)
 	// Path: /v1/apis/{apiId}/... or /v2/apis/{apiId}/...
 	const apiIDIndex = 2
 	if len(segs) > apiIDIndex && (segs[0] == pathSegV1 || segs[0] == pathSegV2) && segs[1] == pathSegAPIs {
@@ -973,6 +988,13 @@ func splitPath(path string) []string {
 // Handler returns the Echo handler function for AppSync requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if canon, ok := h.graphqlStrategyPath(c.Request()); ok {
+			r2 := c.Request().Clone(c.Request().Context())
+			r2.URL.Path = canon
+			r2.URL.RawPath = ""
+			c.SetRequest(r2)
+		}
+
 		ctx := c.Request().Context()
 		method := c.Request().Method
 		path := c.Request().URL.Path
@@ -1148,4 +1170,19 @@ func (h *Handler) handleAPIByID(ctx context.Context, c *echo.Context, apiID stri
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 	}
+}
+
+// graphqlStrategyPath maps a strategy-addressed GraphQL request (/graphql/ID, /appsync-api/ID/graphql,
+// ID.appsync-api.<local domain>) to its canonical /v1/apis/ID/graphql path.
+func (h *Handler) graphqlStrategyPath(r *http.Request) (string, bool) {
+	if h.graphqlStrategy == "" {
+		return "", false
+	}
+
+	id, rest, ok := endpointstrategy.ParseGraphQLRequest(r.Host, r.URL.Path)
+	if !ok {
+		return "", false
+	}
+
+	return appsyncPathPrefix + "/" + id + "/graphql" + rest, true
 }

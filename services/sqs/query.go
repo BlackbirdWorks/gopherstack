@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -66,6 +67,10 @@ func (h *Handler) handleQueryProtocol(c *echo.Context) error {
 			"The action "+action+" is not valid for this endpoint.",
 			http.StatusBadRequest,
 		)
+	}
+
+	if vals.Get("QueueUrl") == "" && r.URL.Path != "/" && endpointstrategy.IsSQSQueuePath(r.URL.Path) {
+		vals.Set("QueueUrl", r.URL.Path)
 	}
 
 	region := h.requestScope(r)

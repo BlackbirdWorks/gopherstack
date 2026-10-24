@@ -295,6 +295,7 @@ type InMemoryBackend struct {
 	accountID              string
 	region                 string
 	endpoint               string
+	graphqlStrategy        string
 	// sigv4Secret is the AWS_IAM verification secret; empty uses the validator default.
 	sigv4Secret string
 }
@@ -313,6 +314,14 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	registerAllTables(b)
 
 	return b
+}
+
+// SetGraphQLEndpointStrategy selects the GraphQL URI format (see pkgs/endpointstrategy).
+func (b *InMemoryBackend) SetGraphQLEndpointStrategy(strategy string) {
+	b.mu.Lock("SetGraphQLEndpointStrategy")
+	defer b.mu.Unlock()
+
+	b.graphqlStrategy = strategy
 }
 
 // Reset clears all state from the backend, returning it to a clean initial state.

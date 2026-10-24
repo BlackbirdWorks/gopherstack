@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -168,7 +169,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		endpoint = b.defaultEndpoint
 	}
 
-	queueURL := scheme + "://" + endpoint + "/" + account + "/" + input.QueueName
+	queueURL := endpointstrategy.SQSQueueURL(b.endpointStrategy, scheme, endpoint, region, account, input.QueueName)
 
 	tagName := "sqs.queue." + input.QueueName + ".tags"
 

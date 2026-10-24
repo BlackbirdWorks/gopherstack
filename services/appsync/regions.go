@@ -34,10 +34,12 @@ func (h *Handler) EnableRegions() {
 		nb.ddbBackend = home.ddbBackend
 		nb.jwksProvider = home.jwksProvider
 		nb.sigv4Secret = home.sigv4Secret
+		nb.graphqlStrategy = home.graphqlStrategy
 
 		p := NewHandler(nb)
 		p.DefaultRegion = region
 		p.AccountID = h.AccountID
+		p.graphqlStrategy = h.graphqlStrategy
 
 		if ctx := h.workerCtx.Load(); ctx != nil {
 			p.startJanitor(*ctx)
