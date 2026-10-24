@@ -64,3 +64,18 @@ func BenchmarkRWMutex_LockUnlock_Parallel(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkNew_FirstUse mirrors a per-object mutex: a name that other live mutexes already hold, then Lock.
+func BenchmarkNew_FirstUse(b *testing.B) {
+	anchor := lockmetrics.New("bench.warm")
+	defer anchor.Close()
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		m := lockmetrics.New("bench.warm")
+		m.Lock("PutObject")
+		m.Unlock()
+		m.Close()
+	}
+}
