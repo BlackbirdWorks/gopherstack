@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateCustomDetectionRuleAssociation, CreateCustomDetectionRuleOrgConfiguration, DeleteCustomDetectionRuleAssociation, DeleteCustomDetectionRuleOrgConfiguration, GetCustomDetectionRule, GetCustomDetectionRuleAssociation, GetCustomDetectionRuleOrgConfiguration, ListCustomDetectionRuleAssociations, ListCustomDetectionRuleOrgConfigurations, ListCustomDetectionRules, UpdateCustomDetectionRuleAssociation, UpdateCustomDetectionRuleOrgConfiguration.
+- The 12 CustomDetectionRule* operations (listed in sdk_completeness_test.go notImplemented): Get/ListCustomDetectionRule(s) and the Association and OrgConfiguration CRUD all hang off a rule ID, but the SDK has no operation that creates or edits a rule (rules are authored outside the GuardDuty API), so this backend can never hold one and every call would be NotFound or an empty list. Implementing them needs a rule source first.
 
 ### Structural gaps
 

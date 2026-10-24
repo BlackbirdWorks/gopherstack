@@ -7,16 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 116 (115 ok, 1 partial) |
+| PARITY entries audited | 120 (119 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CancelExportJobV2, GetExportJobV2, GetRemediationsV2, ListExportJobsV2, ListExposuresByRemediationV2, ListFreeTrialStatusesV2, StartExportJobV2.
+- GetRemediationsV2 and ListExposuresByRemediationV2 (listed in sdk_completeness_test.go notImplemented): both read exposure findings and their remediation groupings, which Security Hub derives from other AWS services' scans; this backend ingests only ASFF findings and has no exposure or remediation-grouping model, so any answer would be fabricated.
+- ListFreeTrialStatusesV2 (listed in sdk_completeness_test.go notImplemented): free-trial start, expiry and per-feature eligibility are AWS billing state with no source in the SDK or this emulator (the trial length is not in the API model), so a status would be invented.
 - GetFindingStatisticsV2/GetResourcesStatisticsV2.MaxStatisticResults is range-checked (1-400) but not applied as a cap: API_GetFindingStatisticsV2.html says only "the maximum number of results to be returned", not whether it limits groups or values per group.
 - vulnerabilities.is_fix_available matches YES/NO only: neither the SDK nor API_OcsfBooleanFilter/API_CompositeFilter define how the ASFF FixAvailable value PARTIAL maps to an OCSF boolean.
 

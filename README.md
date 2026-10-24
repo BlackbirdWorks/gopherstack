@@ -765,7 +765,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [KMS](services/kms/README.md) | A | 54 | 1 gap; 1 structural gap; 1 deferred |
 | [Macie](services/macie2/README.md) | A | 81 | clean |
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 1 structural gap; 2 deferred |
-| [Security Hub](services/securityhub/README.md) | A | 116 | 3 gaps; 4 structural gaps |
+| [Security Hub](services/securityhub/README.md) | A | 120 | 4 gaps; 4 structural gaps |
 | [Shield](services/shield/README.md) | A | 36 | 1 structural gap; 1 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 2 gaps; 1 structural gap |
 | [WAF](services/waf/README.md) | A | 4 | 3 structural gaps |
@@ -798,7 +798,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 1 gap; 3 structural gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 6 gaps; 2 structural gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 2 gaps; 4 structural gaps |
-| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 1 gap; 1 structural gap; 16 deferred |
+| [CloudWatch](services/cloudwatch/README.md) | A | 55 | 1 structural gap; 16 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 5 gaps; 9 structural gaps |
 | [Config](services/awsconfig/README.md) | A | 102 | 4 gaps; 2 structural gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 5 structural gaps; 2 deferred |
