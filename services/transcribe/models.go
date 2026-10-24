@@ -49,6 +49,7 @@ type LanguageModel struct {
 	CreateTime          time.Time         `json:"createTime"`
 	LastModifiedTime    time.Time         `json:"lastModifiedTime"`
 	InputDataConfig     *InputDataConfig  `json:"inputDataConfig,omitempty"`
+	Encryption          *EncryptionConfig `json:"encryptionConfiguration,omitempty"`
 	Tags                map[string]string `json:"tags,omitempty"`
 	ModelName           string            `json:"modelName"`
 	BaseModelName       string            `json:"baseModelName"`
@@ -217,6 +218,12 @@ type LanguageIDSettings struct {
 type LanguageCodeItem struct {
 	LanguageCode      string  `json:"LanguageCode"`
 	DurationInSeconds float32 `json:"DurationInSeconds"`
+}
+
+// EncryptionConfig is types.EncryptionConfiguration.
+type EncryptionConfig struct {
+	KMSEncryptionContext map[string]string `json:"KMSEncryptionContext,omitempty"`
+	KMSKey               string            `json:"KMSKey"`
 }
 
 // InputDataConfig holds the S3 input configuration for custom language models.
