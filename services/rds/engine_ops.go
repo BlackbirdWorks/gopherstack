@@ -31,7 +31,7 @@ func (b *InMemoryBackend) execUnitOp(lb *liveDB, id string, op unitOp) {
 	rt := b.engine.cfg.Runtime
 
 	if err := b.stopPhase(ctx, rt, id, op); err != nil {
-		b.failUnit(ctx, lb)
+		b.failUnit(ctx, lb, "stop container", err)
 
 		return
 	}
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) execUnitOp(lb *liveDB, id string, op unitOp) {
 	scancel()
 
 	if err != nil {
-		b.failUnit(ctx, lb)
+		b.failUnit(ctx, lb, "start container", err)
 
 		return
 	}

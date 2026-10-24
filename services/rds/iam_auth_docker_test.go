@@ -69,7 +69,7 @@ func TestEngineDockerPostgresIAMAuth(t *testing.T) {
 		got, derr := b.DescribeDBInstances("iamdb")
 		require.NoError(t, derr)
 		inst = got[0]
-		require.NotEqual(t, "failed", inst.DBInstanceStatus)
+		requireNotFailed(t, b, "iamdb", inst.DBInstanceStatus)
 
 		return inst.DBInstanceStatus == "available"
 	}, dockerEngineWait, 500*time.Millisecond)
@@ -157,7 +157,7 @@ func TestEngineDockerMySQLIAMAuth(t *testing.T) {
 				got, derr := b.DescribeDBInstances("myiamdb")
 				require.NoError(t, derr)
 				inst = got[0]
-				require.NotEqual(t, "failed", inst.DBInstanceStatus)
+				requireNotFailed(t, b, "myiamdb", inst.DBInstanceStatus)
 
 				return inst.DBInstanceStatus == "available"
 			}, dockerEngineWait, 500*time.Millisecond)

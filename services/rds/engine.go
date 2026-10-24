@@ -186,6 +186,7 @@ type dbEngine struct {
 	data       map[string]engineData
 	points     map[string][]restorePoint
 	checked    map[string]time.Time
+	failures   map[string]string
 	store      *dumpStore
 	ca         *engineCA
 	tlsCfg     *tls.Config
@@ -584,7 +585,7 @@ func (b *InMemoryBackend) runUnit(lb *liveDB) {
 		})
 	if err != nil {
 		if !errors.Is(err, errUnitDetached) {
-			b.failUnit(ctx, lb)
+			b.failUnit(ctx, lb, "create and start container", err)
 		}
 
 		return
@@ -637,15 +638,15 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	ctx, cancel := context.WithTimeout(ctx, b.engine.cfg.StartTimeout)
 	defer cancel()
 
-	if b.engine.awaitReady(ctx, login) != nil || b.applySeed(ctx, lb) != nil || b.guardReplica(ctx, lb) != nil {
-		b.failUnit(ctx, lb)
+	if stage, err := b.awaitUnit(ctx, lb, login); err != nil {
+		b.failUnit(ctx, lb, stage, err)
 
 		return
 	}
 
 	if lb.kind == enginePostgres && lb.proxy.Load() == nil {
 		if err := b.startProxy(lb); err != nil {
-			b.failUnit(ctx, lb)
+			b.failUnit(ctx, lb, "start proxy", err)
 
 			return
 		}
@@ -653,7 +654,7 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 
 	if lb.kind != enginePostgres && lb.fwd.Load() == nil {
 		if err := b.startForwarder(lb); err != nil {
-			b.failUnit(ctx, lb)
+			b.failUnit(ctx, lb, "start forwarder", err)
 
 			return
 		}
@@ -662,6 +663,22 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	b.markUnitReady(lb)
 	b.startReplicaMonitor(lb)
 	b.recordRestorePoint(lb)
+}
+
+func (b *InMemoryBackend) awaitUnit(ctx context.Context, lb *liveDB, login EngineLogin) (string, error) {
+	if err := b.engine.awaitReady(ctx, login); err != nil {
+		return "await readiness", err
+	}
+
+	if err := b.applySeed(ctx, lb); err != nil {
+		return "apply seed", err
+	}
+
+	if err := b.guardReplica(ctx, lb); err != nil {
+		return "guard replica", err
+	}
+
+	return "", nil
 }
 
 func (e *dbEngine) awaitReady(ctx context.Context, login EngineLogin) error {
@@ -749,7 +766,9 @@ func (b *InMemoryBackend) markUnitReady(lb *liveDB) {
 }
 
 // failUnit marks a still-wanted unit's resources failed and releases its container.
-func (b *InMemoryBackend) failUnit(ctx context.Context, lb *liveDB) {
+func (b *InMemoryBackend) failUnit(ctx context.Context, lb *liveDB, stage string, cause error) {
+	reason := b.failureReason(lb, stage, cause)
+
 	b.mu.Lock("rdsEngineFail")
 
 	if !b.attachedLocked(lb) {
@@ -759,6 +778,12 @@ func (b *InMemoryBackend) failUnit(ctx context.Context, lb *liveDB) {
 	}
 
 	delete(b.engine.units, lb.key)
+
+	if b.engine.failures == nil {
+		b.engine.failures = make(map[string]string)
+	}
+
+	b.engine.failures[normalizeID(lb.resourceID)] = reason
 	b.unitStatusesLocked(lb, func(inst *DBInstance) {
 		inst.DBInstanceStatus = instanceStatusFailed
 		delete(b.instanceReadyAt, inst.DBInstanceIdentifier)
@@ -768,7 +793,8 @@ func (b *InMemoryBackend) failUnit(ctx context.Context, lb *liveDB) {
 	})
 	b.mu.Unlock()
 
-	logger.Load(ctx).WarnContext(ctx, "rds: database engine failed to start", "code", engineStartFailedCode)
+	logger.Load(ctx).WarnContext(ctx, "rds: database engine failed to start",
+		"code", engineStartFailedCode, "resource", lb.resourceID, "reason", reason)
 	b.engine.reap(lb)
 }
 

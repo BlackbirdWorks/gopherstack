@@ -609,6 +609,16 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Running $COUNT packages in chunk $CHUNK of $TOTAL_CHUNKS"
 
+      # services/rds docker tests pull these on demand; a throttled or dropped
+      # pull mid-test surfaces as a failed DB instance (gopherstack-vl8f4).
+      - name: Pre-pull RDS engine images
+        if: contains(steps.pkgs.outputs.pkgs, 'services/rds ') || endsWith(steps.pkgs.outputs.pkgs, 'services/rds')
+        run: |
+          for img in postgres:17 mysql:8.4 mariadb:11.4; do
+            (for i in 1 2 3; do docker pull -q "$img" >/dev/null && exit 0; sleep $((i * 5)); done; echo "pre-pull of $img failed") &
+          done
+          wait
+
       - name: Run Unit Tests (chunk ${{ matrix.chunk }})
         run: |
           go tool gotestsum --format pkgname -- \

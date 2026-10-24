@@ -214,7 +214,14 @@ func (c *Client) pullOnce(ctx context.Context, ref, auth string) error {
 	}
 	defer rc.Close()
 
-	// Drain the response to allow Docker to complete the pull.
+	if w, ok := rc.(interface{ Wait(context.Context) error }); ok {
+		if werr := w.Wait(ctx); werr != nil {
+			return fmt.Errorf("image pull %q: %w", ref, werr)
+		}
+
+		return nil
+	}
+
 	_, _ = io.Copy(io.Discard, rc)
 
 	return nil
