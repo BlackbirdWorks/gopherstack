@@ -290,15 +290,26 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return h.hasAPI(id)
 		}
 
-		return path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/") ||
-			path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/") ||
-			path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/") ||
-			path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/") ||
-			path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/") ||
-			strings.HasPrefix(path, tagsPrefix+"/") ||
-			strings.HasPrefix(path, "/v2proxy/") ||
-			isUserRequestPath(path)
+		return h.isControlPlanePath(path) || h.isCustomDomainHost(c.Request())
 	}
+}
+
+// isControlPlanePath reports whether path is a v2 management or internal data-plane path.
+func (h *Handler) isControlPlanePath(path string) bool {
+	return path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/") ||
+		path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/") ||
+		path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/") ||
+		path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/") ||
+		path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/") ||
+		strings.HasPrefix(path, tagsPrefix+"/") ||
+		strings.HasPrefix(path, "/v2proxy/") ||
+		isUserRequestPath(path)
+}
+
+func (h *Handler) isCustomDomainHost(r *http.Request) bool {
+	owner, _ := h.customDomainOwner(r)
+
+	return owner != nil
 }
 
 // isUserRequestPath reports whether the path follows the data-plane format:
@@ -451,6 +462,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		if id, rest, ok := executeapi.Parse(c.Request()); ok && h.hasAPI(id) {
 			return h.handleExecuteAPIEcho(c, id, rest)
+		}
+
+		if !h.isControlPlanePath(path) {
+			if owner, host := h.customDomainOwner(c.Request()); owner != nil {
+				return h.handleCustomDomain(c, owner, host)
+			}
 		}
 
 		switch {

@@ -389,7 +389,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return strings.Contains(after, ":apigateway:")
 		}
 
-		return false
+		owner, _ := h.customDomainOwner(c.Request())
+
+		return owner != nil
 	}
 }
 
@@ -471,6 +473,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		if id, rest, ok := executeapi.Parse(c.Request()); ok && h.hasRestAPI(id) {
 			return h.handleExecuteAPIEcho(c, id, rest)
+		}
+
+		if !isAPIGWTopLevelRESTPath(c.Request().URL.Path) {
+			if owner, host := h.customDomainOwner(c.Request()); owner != nil {
+				return h.handleCustomDomain(c, owner, host)
+			}
 		}
 
 		// Handle proxy invocations for deployed API stages.

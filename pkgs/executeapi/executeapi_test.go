@@ -58,3 +58,50 @@ func TestParse(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchBasePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		path     string
+		wantKey  string
+		wantRest string
+		keys     []string
+		wantOK   bool
+	}{
+		{"single", "/v1/pets", "v1", "/pets", []string{"v1"}, true},
+		{"exact", "/v1", "v1", "/", []string{"v1"}, true},
+		{"segment boundary", "/v10/pets", "", "", []string{"v1"}, false},
+		{"longest wins", "/a/b/c", "a/b", "/c", []string{"a", "a/b", "(none)"}, true},
+		{"none fallback", "/zzz/x", "(none)", "/zzz/x", []string{"a", "(none)"}, true},
+		{"empty key root", "/x", "", "/x", []string{""}, true},
+		{"specific beats root", "/a/x", "a", "/x", []string{"", "a"}, true},
+		{"no match", "/q", "", "", []string{"a"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			key, rest, ok := executeapi.MatchBasePath(tt.keys, tt.path)
+			assert.Equal(t, tt.wantOK, ok)
+
+			if tt.wantOK {
+				assert.Equal(t, tt.wantKey, key)
+				assert.Equal(t, tt.wantRest, rest)
+			}
+		})
+	}
+}
+
+func TestHostName(t *testing.T) {
+	t.Parallel()
+
+	for host, want := range map[string]string{
+		"Test.Example.com:4566": "test.example.com",
+		"test.example.com":      "test.example.com",
+	} {
+		assert.Equal(t, want, executeapi.HostName(&http.Request{Host: host}))
+	}
+}

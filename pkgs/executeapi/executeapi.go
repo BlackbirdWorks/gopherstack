@@ -43,3 +43,54 @@ func hostAPIID(host string) (string, bool) {
 
 	return id, true
 }
+
+// NoBasePath is the wire value AWS uses for a mapping at the domain root.
+const NoBasePath = "(none)"
+
+// HostName returns the lower-cased request host without its port.
+func HostName(r *http.Request) string {
+	host := r.Host
+	if i := strings.LastIndexByte(host, ':'); i >= 0 && !strings.Contains(host[i:], "]") {
+		host = host[:i]
+	}
+
+	return strings.ToLower(host)
+}
+
+// MatchBasePath picks the longest key that is a whole-segment prefix of path and returns it with
+// the remaining path (always starting with "/"). The empty key and "(none)" match any path as
+// the lowest-precedence fallback.
+func MatchBasePath(keys []string, path string) (string, string, bool) {
+	best, found := "", false
+	rest := path
+
+	for _, key := range keys {
+		norm := strings.Trim(key, "/")
+		if norm == NoBasePath {
+			norm = ""
+		}
+
+		if norm == "" {
+			if !found {
+				best, found, rest = key, true, path
+			}
+
+			continue
+		}
+
+		tail, ok := strings.CutPrefix(path, "/"+norm)
+		if !ok || (tail != "" && tail[0] != '/') {
+			continue
+		}
+
+		if bn := strings.Trim(best, "/"); !found || bn == NoBasePath || len(norm) > len(bn) {
+			best, found, rest = key, true, tail
+		}
+	}
+
+	if rest == "" {
+		rest = "/"
+	}
+
+	return best, rest, found
+}
