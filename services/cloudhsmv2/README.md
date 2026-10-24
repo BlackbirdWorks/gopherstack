@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 18 (18 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -23,8 +23,7 @@
 - CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
 - ModifyCluster: the 7 day HsmTypeRollbackExpiration window is an assumption, the SDK does not state it
 - CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; no IAM is modeled
-- ResourceGroupsTaggingAPI: cluster and backup tags are not exposed through the tagging API
-- CloudFormation: AWS::CloudHSM::Cluster and AWS::CloudHSM::HSM are not provisioned by the CloudFormation emulator
+- CloudFormation: AWS::CloudHSM::HSM properties (ClusterId, AvailabilityZone, IpAddress) and attributes (EniId, EniIp, State, StateMessage) follow the HSM API; CFN resource specification v268 lists no AWS::CloudHSM::HSM, so the shape is unverified. Cluster Fn::GetAtt SubnetMapping is not supported
 
 ### Structural gaps
 

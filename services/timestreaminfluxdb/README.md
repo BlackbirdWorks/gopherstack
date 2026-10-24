@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 24 (24 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -20,7 +20,6 @@
 - DbBackupConfigurations: CUSTOM_SCHEDULE (cron) and CONTINUOUS configurations are stored but never run; HOURLY, DAILY, WEEKLY and MONTHLY run on the backend clock
 - VpcSubnetIds: existence is checked through EC2 when wired, but all subnets belonging to one VPC and the security groups are not verified
 - AccessDeniedException: never raised; no IAM authorization is modeled
-- ResourceGroupsTaggingAPI: Timestream for InfluxDB tags are not exposed through the tagging API
 
 ### Structural gaps
 

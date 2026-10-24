@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 15 (15 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 4 |
+| Known gaps | 3 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,7 +19,6 @@
 - SinkPolicyDenied: a policy that does not allow the caller is reported as InvalidParameterException because OAM models no access-denied exception; the live error code is not verified
 - Quotas: the one sink per account and Region limit and the one link per source account, Region and sink limit follow AWS documentation and are not verified against the live API
 - LabelTemplate: without an Organizations directory $AccountName, $AccountEmail and $AccountEmailNoDomain all resolve to the account ID
-- CloudFormation: AWS::Oam::Sink and AWS::Oam::Link are not provisioned by the CloudFormation emulator
 
 ### Structural gaps
 
