@@ -274,8 +274,14 @@ func TestEngineStartFailure(t *testing.T) {
 		name   string
 		reason string
 	}{
-		{func(f *engineFixture) { f.probeErr = assert.AnError }, "probe never succeeds", "await readiness: engine not reachable"},
-		{func(f *engineFixture) { f.rt.createErr = assert.AnError }, "container create fails", "create and start container: "},
+		{
+			func(f *engineFixture) { f.probeErr = assert.AnError },
+			"probe never succeeds", "await readiness: engine not reachable",
+		},
+		{
+			func(f *engineFixture) { f.rt.createErr = assert.AnError },
+			"container create fails", "create and start container: ",
+		},
 	}
 
 	for _, tt := range tests {

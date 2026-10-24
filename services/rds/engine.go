@@ -186,13 +186,13 @@ type dbEngine struct {
 	data       map[string]engineData
 	points     map[string][]restorePoint
 	checked    map[string]time.Time
+	failures   map[string]string
 	store      *dumpStore
 	ca         *engineCA
 	tlsCfg     *tls.Config
 	cfg        EngineConfig
 	wg         sync.WaitGroup
 	tlsOnce    sync.Once
-	failures   map[string]string
 	execBroken atomic.Bool
 }
 
