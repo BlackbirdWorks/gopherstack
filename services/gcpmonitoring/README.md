@@ -7,15 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 39 (31 ok, 5 partial, 3 gap) |
+| PARITY entries audited | 53 (43 ok, 9 partial, 1 gap) |
 | Feature families | 8 (2 ok, 6 partial) |
-| Known gaps | 10 |
+| Known gaps | 11 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- QueryService (MQL and PromQL), ServiceMonitoringService and SnoozeService return UNIMPLEMENTED.
+- QueryService.QueryTimeSeries (MQL, deprecated by Google) returns UNIMPLEMENTED. The PromQL HTTP API has no rules, alerts, targets, exemplars or buildinfo endpoints, and ignores the timeout parameter.
+- ServiceLevelObjective view=EXPLICIT does not expand a BasicSli into a RequestBasedSli, and SLO attainment is never evaluated (no error-budget burn, no SLO-based alerting).
 - Alert conditions condition_matched_log, condition_monitoring_query_language, condition_prometheus_query_language and condition_sql are stored but never evaluated; ratio conditions (denominator_filter) are rejected; forecast_options, evaluation_missing_data, notification_rate_limit, notification_channel_strategy and auto_close are stored but have no effect.
 - Incidents are not exposed through a Cloud Monitoring API; they are readable only from Go through InMemoryBackend.Incidents.
 - email, sms, slack and pagerduty notification channels are never delivered.
