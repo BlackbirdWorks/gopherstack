@@ -3,9 +3,11 @@ package gcpartifactregistry_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
+	"slices"
 	"testing"
 
 	artifactregistry "cloud.google.com/go/artifactregistry/apiv1"
@@ -107,6 +109,17 @@ func decodeJSON(t *testing.T, body []byte) map[string]any {
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(body, &out))
+
+	return out
+}
+
+func hexOf(b []byte) string { return hex.EncodeToString(b) }
+
+func sortedAsc(s []string) bool { return slices.IsSorted(s) }
+
+func reversed(s []string) []string {
+	out := slices.Clone(s)
+	slices.Reverse(out)
 
 	return out
 }

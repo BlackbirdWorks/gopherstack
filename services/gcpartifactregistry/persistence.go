@@ -26,6 +26,13 @@ type repoSnap struct {
 type backendSnapshot struct {
 	Repositories map[string]repoSnap        `json:"repositories"`
 	Ledger       ociregistry.Ledger         `json:"ledger"`
+	Meta         map[string]*resMeta        `json:"meta,omitempty"`
+	GenericPkgs  map[string]*resMeta        `json:"genericPackages,omitempty"`
+	GenericVers  map[string]*resMeta        `json:"genericVersions,omitempty"`
+	GenericFiles map[string]*genFile        `json:"genericFiles,omitempty"`
+	Rules        map[string]json.RawMessage `json:"rules,omitempty"`
+	Settings     map[string]json.RawMessage `json:"projectSettings,omitempty"`
+	VPCSC        map[string]json.RawMessage `json:"vpcscConfigs,omitempty"`
 	Operations   map[string]json.RawMessage `json:"operations"`
 	Version      int                        `json:"version"`
 }
@@ -43,8 +50,8 @@ func unmarshalPB(raw json.RawMessage, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
-// Snapshot serialises repositories, IAM policies, the image ledger and operations. Image blobs and manifests are
-// not part of it: they live under the data directory when one is configured.
+// Snapshot serialises repositories, IAM policies, the ledger, generic artifacts, rules, settings and
+// operations. Image blobs and manifests are not part of it: they live under the data directory when one is configured.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
@@ -52,6 +59,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version: snapshotVersion, Ledger: b.ledger, Operations: b.ops.Snapshot(),
 		Repositories: make(map[string]repoSnap, len(b.repos)),
+		Meta:         b.meta, GenericPkgs: b.genPkgs, GenericVers: b.genVers, GenericFiles: b.genFiles,
+		Rules: marshalAll(b.rules), Settings: marshalAll(b.settings), VPCSC: marshalAll(b.vpcsc),
 	}
 
 	for name, rec := range b.repos {
@@ -82,6 +91,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			WarnContext(ctx, "gcpartifactregistry: discarding incompatible snapshot version, starting empty",
 				"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 		b.repos, b.ledger = map[string]*repoRec{}, ociregistry.Ledger{}
+		b.resetExtras()
 		b.ops.Reset()
 
 		return nil
@@ -104,8 +114,70 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("gcpartifactregistry: restore operations: %w", err)
 	}
 
+	if err = b.restoreExtras(&snap); err != nil {
+		return err
+	}
+
 	b.repos, b.ledger = repos, snap.Ledger
 	b.release(false)
+
+	return nil
+}
+
+func marshalAll[T proto.Message](in map[string]T) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(in))
+	for k, v := range in {
+		out[k] = marshalPB(v)
+	}
+
+	return out
+}
+
+func unmarshalAll[T proto.Message](in map[string]json.RawMessage, newMsg func() T) (map[string]T, error) {
+	out := make(map[string]T, len(in))
+
+	for k, raw := range in {
+		m := newMsg()
+		if err := unmarshalPB(raw, m); err != nil {
+			return nil, fmt.Errorf("gcpartifactregistry: restore %q: %w", k, err)
+		}
+
+		out[k] = m
+	}
+
+	return out, nil
+}
+
+func orEmpty[V any](m map[string]*V) map[string]*V {
+	if m == nil {
+		return map[string]*V{}
+	}
+
+	return m
+}
+
+func (b *InMemoryBackend) restoreExtras(snap *backendSnapshot) error {
+	rules, err := unmarshalAll(snap.Rules, func() *artifactregistrypb.Rule { return &artifactregistrypb.Rule{} })
+	if err != nil {
+		return err
+	}
+
+	settings, err := unmarshalAll(snap.Settings, func() *artifactregistrypb.ProjectSettings {
+		return &artifactregistrypb.ProjectSettings{}
+	})
+	if err != nil {
+		return err
+	}
+
+	vpcsc, err := unmarshalAll(snap.VPCSC, func() *artifactregistrypb.VPCSCConfig {
+		return &artifactregistrypb.VPCSCConfig{}
+	})
+	if err != nil {
+		return err
+	}
+
+	b.meta, b.genPkgs, b.genVers = orEmpty(snap.Meta), orEmpty(snap.GenericPkgs), orEmpty(snap.GenericVers)
+	b.genFiles, b.rules, b.settings, b.vpcsc = orEmpty(snap.GenericFiles), rules, settings, vpcsc
 
 	return nil
 }

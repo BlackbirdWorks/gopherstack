@@ -107,6 +107,14 @@ func (b *InMemoryBackend) ListPackages(
 		return nil, "", err
 	}
 
+	if generic, gErr := b.isGeneric(ref); gErr != nil {
+		return nil, "", gErr
+	} else if generic {
+		out, next := b.genListPackages(ref, in.GetPageToken(), in.GetPageSize())
+
+		return out, next, nil
+	}
+
 	if err = b.requireDocker(ref); err != nil {
 		return nil, "", err
 	}
@@ -141,6 +149,12 @@ func (b *InMemoryBackend) GetPackage(name string) (*artifactregistrypb.Package, 
 		return nil, err
 	}
 
+	if generic, gErr := b.isGeneric(p.repo); gErr != nil {
+		return nil, gErr
+	} else if generic {
+		return b.genGetPackage(p)
+	}
+
 	s, err := b.snapOfPackage(p)
 	if err != nil {
 		return nil, err
@@ -154,6 +168,12 @@ func (b *InMemoryBackend) DeletePackage(ctx context.Context, name string) (*long
 	p, err := parsePackage(name)
 	if err != nil {
 		return nil, err
+	}
+
+	if generic, gErr := b.isGeneric(p.repo); gErr != nil {
+		return nil, gErr
+	} else if generic {
+		return b.genDeletePackage(p.repo, p)
 	}
 
 	if _, err = b.snapOfPackage(p); err != nil {
@@ -176,6 +196,12 @@ func (b *InMemoryBackend) ListVersions(
 
 	if err = validatePaging(in.GetPageSize(), in.GetPageToken(), in.GetFilter()); err != nil {
 		return nil, "", err
+	}
+
+	if generic, gErr := b.isGeneric(p.repo); gErr != nil {
+		return nil, "", gErr
+	} else if generic {
+		return b.genListVersions(p, in.GetOrderBy(), in.GetPageToken(), in.GetPageSize())
 	}
 
 	s, err := b.snapOfPackage(p)
@@ -206,14 +232,14 @@ func orderDigests(s imageSnap, orderBy string) []string {
 
 	key := func(d string) int64 {
 		m := s.manifests[d]
-		if field == "update_time" || field == "updateTime" {
+		if field == fieldUpdSnake || field == fieldUpdated {
 			return m.Updated.UnixNano()
 		}
 
 		return m.Created.UnixNano()
 	}
 
-	if field == "create_time" || field == "createTime" || field == "update_time" || field == "updateTime" {
+	if field == "create_time" || field == "createTime" || field == fieldUpdSnake || field == fieldUpdated {
 		sort.SliceStable(digests, func(i, j int) bool {
 			if desc {
 				return key(digests[i]) > key(digests[j])
@@ -235,6 +261,12 @@ func (b *InMemoryBackend) GetVersion(
 	l, err := parseLeaf(in.GetName(), "version")
 	if err != nil {
 		return nil, err
+	}
+
+	if generic, gErr := b.isGeneric(l.pkg.repo); gErr != nil {
+		return nil, gErr
+	} else if generic {
+		return b.genGetVersion(l)
 	}
 
 	s, err := b.snapOfPackage(l.pkg)
@@ -269,6 +301,8 @@ func (b *InMemoryBackend) deleteVersion(ctx context.Context, l leafRef, force bo
 	}
 
 	b.RecordManifestDelete(repo, l.leaf)
+	b.dropMeta(l.pkg.full() + "/versions/" + l.leaf)
+	b.dropMeta(l.pkg.repo.fileName(l.leaf))
 
 	return nil
 }
@@ -280,6 +314,12 @@ func (b *InMemoryBackend) DeleteVersion(
 	l, err := parseLeaf(in.GetName(), "version")
 	if err != nil {
 		return nil, err
+	}
+
+	if generic, gErr := b.isGeneric(l.pkg.repo); gErr != nil {
+		return nil, gErr
+	} else if generic {
+		return b.genDeleteVersion(l)
 	}
 
 	if err = b.deleteVersion(ctx, l, in.GetForce()); err != nil {
@@ -311,6 +351,12 @@ func (b *InMemoryBackend) BatchDeleteVersions(
 		}
 
 		leaves = append(leaves, l)
+	}
+
+	if generic, gErr := b.isGeneric(p.repo); gErr != nil {
+		return nil, gErr
+	} else if generic {
+		return b.genBatchDelete(p, leaves, in.GetValidateOnly())
 	}
 
 	s, err := b.snapOfPackage(p)

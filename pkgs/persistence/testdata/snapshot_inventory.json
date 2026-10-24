@@ -15110,11 +15110,28 @@
   },
   "gcpartifactregistry": {
     "fields": [
+      "backendSnapshot.GenericFiles map[string]*genFile `json:\"genericFiles,omitempty\"`",
+      "backendSnapshot.GenericPkgs map[string]*resMeta `json:\"genericPackages,omitempty\"`",
+      "backendSnapshot.GenericVers map[string]*resMeta `json:\"genericVersions,omitempty\"`",
       "backendSnapshot.Ledger ociregistry.Ledger `json:\"ledger\"`",
+      "backendSnapshot.Meta map[string]*resMeta `json:\"meta,omitempty\"`",
       "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
       "backendSnapshot.Repositories map[string]repoSnap `json:\"repositories\"`",
+      "backendSnapshot.Rules map[string]json.RawMessage `json:\"rules,omitempty\"`",
+      "backendSnapshot.Settings map[string]json.RawMessage `json:\"projectSettings,omitempty\"`",
+      "backendSnapshot.VPCSC map[string]json.RawMessage `json:\"vpcscConfigs,omitempty\"`",
+      "genFile.Annotations map[string]string `json:\"annotations,omitempty\"`",
+      "genFile.Created time.Time `json:\"created\"`",
+      "genFile.Data []byte `json:\"data\"`",
+      "genFile.Owner string `json:\"owner\"`",
+      "genFile.Updated time.Time `json:\"updated\"`",
       "repoSnap.IAM json.RawMessage `json:\"iam,omitempty\"`",
-      "repoSnap.Repository json.RawMessage `json:\"repository\"`"
+      "repoSnap.Repository json.RawMessage `json:\"repository\"`",
+      "resMeta.Annotations map[string]string `json:\"annotations,omitempty\"`",
+      "resMeta.Created time.Time `json:\"created\"`",
+      "resMeta.Description string `json:\"description,omitempty\"`",
+      "resMeta.DisplayName string `json:\"displayName,omitempty\"`",
+      "resMeta.Updated time.Time `json:\"updated\"`"
     ],
     "version": 1
   },

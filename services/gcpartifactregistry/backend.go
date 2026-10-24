@@ -34,6 +34,13 @@ type InMemoryBackend struct {
 	ctx      context.Context //nolint:containedctx // lifetime of the lazily built registry
 	mu       *lockmetrics.RWMutex
 	repos    map[string]*repoRec
+	meta     map[string]*resMeta
+	genPkgs  map[string]*resMeta
+	genVers  map[string]*resMeta
+	genFiles map[string]*genFile
+	rules    map[string]*artifactregistrypb.Rule
+	settings map[string]*artifactregistrypb.ProjectSettings
+	vpcsc    map[string]*artifactregistrypb.VPCSCConfig
 	ledger   ociregistry.Ledger
 	ops      *gcplro.Store
 	raw      http.Handler
@@ -45,11 +52,23 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates an empty backend that keeps images in memory.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		now: time.Now, ctx: context.Background(), mu: lockmetrics.New("gcpartifactregistry"),
 		repos: map[string]*repoRec{}, ledger: ociregistry.Ledger{}, ops: gcplro.New("gcpartifactregistry"),
 		host: DefaultRegistryHost,
 	}
+
+	b.resetExtras()
+
+	return b
+}
+
+func (b *InMemoryBackend) resetExtras() {
+	b.meta, b.genPkgs, b.genVers = map[string]*resMeta{}, map[string]*resMeta{}, map[string]*resMeta{}
+	b.genFiles = map[string]*genFile{}
+	b.rules = map[string]*artifactregistrypb.Rule{}
+	b.settings = map[string]*artifactregistrypb.ProjectSettings{}
+	b.vpcsc = map[string]*artifactregistrypb.VPCSCConfig{}
 }
 
 // SetDataDir keeps image blobs and manifests under dir; empty keeps them in memory.
@@ -217,6 +236,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.repos = map[string]*repoRec{}
 	b.ledger = ociregistry.Ledger{}
+	b.resetExtras()
 	b.ops.Reset()
 	b.release(true)
 }

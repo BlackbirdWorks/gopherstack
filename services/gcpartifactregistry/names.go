@@ -19,6 +19,13 @@ const (
 	segChild     = 6
 	segLeaf      = 8
 	escapedSlash = "%2F"
+
+	segProjects   = "projects"
+	segLocations  = "locations"
+	fieldName     = "name"
+	fieldAnnot    = "annotations"
+	fieldUpdated  = "updateTime"
+	fieldUpdSnake = "update_time"
 )
 
 // repoRef is a parsed projects/{p}/locations/{l}/repositories/{r} name.
@@ -39,6 +46,10 @@ func (r repoRef) packageName(image string) string {
 	return r.full() + "/packages/" + escapeImage(image)
 }
 
+func (r repoRef) fileName(id string) string { return r.full() + "/files/" + escapeImage(id) }
+
+func (r repoRef) ruleName(id string) string { return r.full() + "/rules/" + id }
+
 func escapeImage(image string) string {
 	return strings.ReplaceAll(url.PathEscape(image), "/", escapedSlash)
 }
@@ -51,7 +62,7 @@ func unescapeImage(seg string) (string, bool) {
 
 func parseParent(name string) (repoRef, error) {
 	p := strings.Split(name, "/")
-	if len(p) != parentLen || p[0] != "projects" || p[segLocs] != "locations" || p[1] == "" || p[3] == "" {
+	if len(p) != parentLen || p[0] != segProjects || p[segLocs] != segLocations || p[1] == "" || p[3] == "" {
 		return repoRef{}, errInvalid("Invalid resource name %q.", name)
 	}
 
@@ -60,7 +71,7 @@ func parseParent(name string) (repoRef, error) {
 
 func splitName(name string, n int, kind string) ([]string, error) {
 	p := strings.Split(name, "/")
-	if len(p) < n || p[0] != "projects" || p[segLocs] != "locations" || p[segRepos] != "repositories" ||
+	if len(p) < n || p[0] != segProjects || p[segLocs] != segLocations || p[segRepos] != "repositories" ||
 		p[1] == "" || p[3] == "" || p[5] == "" || p[3] == allLocs {
 		return nil, errInvalid("Invalid %s name %q.", kind, name)
 	}
@@ -149,4 +160,33 @@ func validateID(id string) error {
 	}
 
 	return nil
+}
+
+// fileRef is a parsed .../files/{id} name; slashes in the id are escaped.
+type fileRef struct {
+	id   string
+	repo repoRef
+}
+
+func parseFile(name string) (fileRef, error) {
+	p, err := splitName(name, childLen, "file")
+	if err != nil || p[segChild] != "files" {
+		return fileRef{}, errInvalid("Invalid file name %q.", name)
+	}
+
+	id, ok := unescapeImage(strings.Join(p[7:], "/"))
+	if !ok {
+		return fileRef{}, errInvalid("Invalid file name %q.", name)
+	}
+
+	return fileRef{repo: refOf(p), id: id}, nil
+}
+
+func parseRule(name string) (repoRef, string, error) {
+	p, err := splitName(name, childLen, "rule")
+	if err != nil || len(p) != childLen || p[segChild] != "rules" || p[7] == "" {
+		return repoRef{}, "", errInvalid("Invalid rule name %q.", name)
+	}
+
+	return refOf(p), p[7], nil
 }

@@ -157,6 +157,12 @@ func (b *InMemoryBackend) GetRepository(name string) (*artifactregistrypb.Reposi
 
 // decorate adds the computed registry_uri and size_bytes.
 func (b *InMemoryBackend) decorate(ref repoRef, pb *artifactregistrypb.Repository) *artifactregistrypb.Repository {
+	if pb.GetFormat() == artifactregistrypb.Repository_GENERIC {
+		pb.SizeBytes = b.genericRepoSize(ref)
+
+		return pb
+	}
+
 	if pb.GetFormat() != artifactregistrypb.Repository_DOCKER {
 		return pb
 	}
@@ -320,6 +326,7 @@ func (b *InMemoryBackend) DeleteRepository(
 	docker := rec.pb.GetFormat() == artifactregistrypb.Repository_DOCKER
 
 	delete(b.repos, ref.full())
+	b.dropRepoDataLocked(ref)
 	b.mu.Unlock()
 
 	if docker {
