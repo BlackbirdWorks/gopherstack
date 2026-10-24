@@ -47,16 +47,16 @@ func (h *Handler) evaluateMappingTemplate(ctx context.Context, c *echo.Context) 
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	out, evalErr := h.Backend.EvaluateMappingTemplate(input.Template, input.Context)
+	out, logs, evalErr := h.Backend.EvaluateMappingTemplateLogs(input.Template, input.Context)
 	if re, ok := errors.AsType[*resolverError](evalErr); ok {
-		return evalErrorResponse(c, re, nil)
+		return evalErrorResponse(c, re, logs)
 	}
 
 	if evalErr != nil {
 		return h.handleError(ctx, c, "EvaluateMappingTemplate", evalErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out})
+	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, "logs": nonNilLogs(logs)})
 }
 
 // evaluateCode handles POST /v1/dataplane-evaluations/code.

@@ -208,6 +208,7 @@ type StorageBackend interface {
 	PutGraphqlAPIEnvironmentVariables(apiID string, envVars map[string]string) (map[string]string, error)
 	// EvaluateMappingTemplate evaluates a VTL request/response mapping template.
 	EvaluateMappingTemplate(template, context string) (string, error)
+	EvaluateMappingTemplateLogs(template, context string) (string, []string, error)
 	// EvaluateCode evaluates APPSYNC_JS code.
 	EvaluateCode(code, contextJSON, function, runtime string) (string, error)
 	EvaluateCodeLogs(code, contextJSON, function, runtime string) (string, []string, error)

@@ -126,7 +126,7 @@ items_still_open:
   - "GraphqlApi dns and Api dns are unmodeled: the dns key set is unverified."
   - "OpenSearch/Elasticsearch data sources run in-process against services/opensearch domains matched by endpoint host (requests are not SigV4-signed; AMAZON_ELASTICSEARCH resolves against OpenSearch domains only, not services/elasticsearch); EventBridge and RDS (Data API) run in-process; the RDS JS select/insert/update/remove builders are a documented subset (no joins/groupBy/aggregates), MySQL returning is emulated with a follow-up SELECT. 2026-10-20."
   - "$util.transform.toElasticsearchQueryDSL, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent; resolver-cache keys without cachingKeys use arguments+source+identity (AWS key composition unverified). 2026-10-24."
-  - "EvaluateCode/EvaluateMappingTemplate errors carry message only (no codeErrors locations); EvaluateMappingTemplate has no logs. 2026-10-20."
+  - "EvaluateCode errors carry message only (no codeErrors locations). 2026-10-24."
 structural_gaps:
   - "Cognito/OIDC issuers with no local signing key are rejected because external JWKS endpoints are never fetched (no external network)."
 deferred:
@@ -136,6 +136,10 @@ leaks: {status: bugs found, note: "janitor.go's background goroutine already tak
 ---
 
 ## Notes
+
+### 2026-10-24 evaluation logs
+
+`$util.log.info/error` (VTL only; APPSYNC_JS uses `console.log`) feed the `logs` member of EvaluateMappingTemplate, including `{}` placeholder formatting and logs preserved on a `$util.error` result. Test: evaluation_logs_test.go.
 
 ### 2026-10-24 subscription filters and API cache
 

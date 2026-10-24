@@ -46,23 +46,32 @@ func evalContext(contextJSON string) (map[string]any, error) {
 // EvaluateMappingTemplate renders a VTL template against the context JSON.
 // A #return value or $util.error surfaces as in a live resolver.
 func (b *InMemoryBackend) EvaluateMappingTemplate(template, contextJSON string) (string, error) {
+	out, _, err := b.EvaluateMappingTemplateLogs(template, contextJSON)
+
+	return out, err
+}
+
+// EvaluateMappingTemplateLogs is EvaluateMappingTemplate that also returns the
+// $util.log.info/$util.log.error output (AppSync developer guide, "Logging utilities").
+func (b *InMemoryBackend) EvaluateMappingTemplateLogs(template, contextJSON string) (string, []string, error) {
 	ctx, err := evalContext(contextJSON)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	cc := &callCtx{}
+	ue := cc.utilEnv()
 
-	out, err := runVTL(template, ctx, cc.utilEnv())
+	out, err := runVTL(template, ctx, ue)
 	if err != nil {
-		return "", err
+		return "", ue.logs, err
 	}
 
 	if out.Returned {
-		return returnedString(out.Value), nil
+		return returnedString(out.Value), ue.logs, nil
 	}
 
-	return out.Output, nil
+	return out.Output, ue.logs, nil
 }
 
 // EvaluateCode runs an APPSYNC_JS module's request or response handler against
