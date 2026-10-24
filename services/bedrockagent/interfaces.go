@@ -79,6 +79,12 @@ type StorageBackend interface {
 	GetKnowledgeBase(ctx context.Context, kbID string) (*KnowledgeBase, error)
 	UpdateKnowledgeBase(ctx context.Context, kbID string, cfg KnowledgeBaseConfig) (*KnowledgeBase, error)
 	DeleteKnowledgeBase(ctx context.Context, kbID string) error
+	CreateVpcConfiguration(ctx context.Context, kbID string, cfg VpcConfigurationConfig) (*VpcConfiguration, error)
+	GetVpcConfiguration(ctx context.Context, kbID, id string) (*VpcConfiguration, error)
+	ListVpcConfigurations(
+		ctx context.Context, kbID, statusFilter string, maxResults int, nextToken string,
+	) ([]*VpcConfiguration, string, error)
+	DeleteVpcConfiguration(ctx context.Context, kbID, id string) (*VpcConfiguration, error)
 	ListKnowledgeBases(ctx context.Context, maxResults int, nextToken string) ([]*KnowledgeBaseSummary, string, error)
 
 	// Agent–knowledge base association operations.

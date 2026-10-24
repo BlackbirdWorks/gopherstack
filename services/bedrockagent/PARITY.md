@@ -533,6 +533,7 @@ ops:
     sweep) so a deleted KB's policy row cannot survive it."}
 # Families audited as a group (when per-op is impractical):
 families:
+  vpc_configurations: {status: ok, note: "CreateVpcConfiguration/GetVpcConfiguration/ListVpcConfigurations/DeleteVpcConfiguration (vpc_configurations.go), persisted table vpcConfigurations keyed kb/id. Create returns 202 CREATING; Get reports CREATED, or CREATING within the lifecycle delay; Delete returns 202 DELETING and the record then 404s once the delay elapses (immediately at the default delay 0). Validation: port 1-65535, protocol HTTP|HTTPS, resolutionMode PUBLIC|IN_VPC (default IN_VPC), at least one subnet, HTTPS requires tlsServerName (hostname, optional leftmost wildcard, no port), resourceTarget must be a private IPv4 or DNS name (loopback, link-local, wildcard, multicast, IPv6 and public IPs rejected); clientToken replays the existing configuration; knowledge base deletion cascades. UNVERIFIABLE: the VPC and subnet IDs are not checked against the ec2 backend and CREATE_FAILED/DELETE_FAILED are unreachable (no real connectivity probe exists)."}
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to
     InMemoryBackend.Snapshot/Restore, registered via provider.go -> internal/app/cli.go
     setupPersistence; every store.Table is registered in store_setup.go and
@@ -549,7 +550,6 @@ families:
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
 gaps: []
 items_still_open:
-  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateVpcConfiguration, DeleteVpcConfiguration, GetVpcConfiguration, ListVpcConfigurations."
   - "Agent, knowledge base, data source and job ids are `agent-00000001` style; AWS uses 10-character alphanumeric ids. Changing the format breaks many in-repo fixtures."
   - "ValidateFlowDefinition does not emit MismatchedNodeInputType/OutputType, IncompatibleConnectionDataType, MissingNodeInput/Output, UnknownNodeInput/Output, UnsatisfiedConnectionConditions or InvalidLoopBoundary: they need per-node-type input/output schemas and expression typing that the SDK does not specify."
 structural_gaps:

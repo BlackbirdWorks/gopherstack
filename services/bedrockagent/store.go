@@ -72,6 +72,8 @@ type InMemoryBackend struct {
 	dataSourcesByKB                  *store.Index[DataSource]
 	ingestionJobs                    *store.Table[IngestionJob]
 	ingestionJobsByDataSource        *store.Index[IngestionJob]
+	vpcConfigurations                *store.Table[VpcConfiguration]
+	vpcConfigurationsByKB            *store.Index[VpcConfiguration]
 	flows                            *store.Table[Flow]
 	flowsByName                      map[string]string
 	flowVersions                     *store.Table[FlowVersion]
