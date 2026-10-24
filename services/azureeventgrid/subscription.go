@@ -100,13 +100,15 @@ func webhookProps(d Destination) map[string]any {
 
 	delete(props, propEndpointURL)
 
-	if _, ok := props["maxEventsPerBatch"]; !ok {
-		props["maxEventsPerBatch"] = 1
+	if _, ok := props[propMaxEventsPerBatch]; !ok {
+		props[propMaxEventsPerBatch] = defaultMaxEventsBatch
 	}
 
-	if _, ok := props["preferredBatchSizeInKilobytes"]; !ok {
-		props["preferredBatchSizeInKilobytes"] = 64
+	if _, ok := props[propPreferredBatchKB]; !ok {
+		props[propPreferredBatchKB] = defaultBatchKB
 	}
+
+	withholdSecrets(props)
 
 	return props
 }
