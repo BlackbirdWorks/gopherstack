@@ -284,10 +284,10 @@ func sharedCollector() *liveCollector {
 // writeOpMetrics caches one write operation's curried WithLabelValues
 // handles, so repeated Lock/Unlock calls for the same op skip the lookup.
 type writeOpMetrics struct {
-	op     string
 	wait   prometheus.Observer
 	hold   prometheus.Observer
 	active prometheus.Gauge
+	op     string
 }
 
 // RWMutex is a drop-in replacement for [sync.RWMutex] that records Prometheus
@@ -300,10 +300,10 @@ type RWMutex struct {
 	// read by the matching Unlock; safe since the write lock is exclusive.
 	writeMetricsCur atomic.Pointer[writeOpMetrics]
 	coll            *liveCollector
-	name         string
-	closed       atomic.Bool
-	writeStart   atomic.Int64 // unix nanoseconds; 0 when write lock is not held
-	mu           sync.RWMutex
+	name            string
+	closed          atomic.Bool
+	writeStart      atomic.Int64 // unix nanoseconds; 0 when write lock is not held
+	mu              sync.RWMutex
 	// writeWaiters and readWaiters count goroutines currently blocked
 	// waiting to acquire the respective lock. A non-zero count that stays
 	// non-zero indefinitely indicates a deadlock or severe starvation.
