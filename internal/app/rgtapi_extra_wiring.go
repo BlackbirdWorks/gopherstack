@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 
 	ampbackend "github.com/blackbirdworks/gopherstack/services/amp"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -9,6 +10,7 @@ import (
 	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
@@ -39,9 +41,15 @@ func wireResourceGroupsTaggingSweep7(
 	wireTaggingAppIntegrations(bk, byName["AppIntegrations"])
 	wireTaggingCloudHSMV2(bk, byName["CloudHSMV2"])
 	wireTaggingCodeGuruReviewer(bk, byName["CodeGuruReviewer"])
+	wireTaggingConnect(bk, byName["Connect"])
 	wireTaggingRUM(bk, byName["RUM"])
 	wireTaggingTimestreamInfluxDB(bk, byName["TimestreamInfluxDB"])
 }
+
+const (
+	connectInstanceSegments = 2
+	connectUseCaseSegments  = 5
+)
 
 func toTaggedResources[T ~struct {
 	Tags map[string]string
@@ -364,5 +372,46 @@ func wireTaggingTimestreamInfluxDB(bk rgtapibackend.StorageBackend, reg service.
 		func(ctx context.Context, arn string, keys []string) error {
 			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
 		},
+	)
+}
+
+// connectResourceType names a Connect ARN "connect:instance", "connect:phone-number" or, for
+// resources nested under an instance, "connect:instance/<kind>" (nested use cases add "/use-case").
+func connectResourceType(arn string) string {
+	_, resource, ok := strings.Cut(arn, ":connect:")
+	if !ok {
+		return "connect"
+	}
+
+	_, resource, _ = strings.Cut(resource, ":")
+	_, resource, _ = strings.Cut(resource, ":")
+	segs := strings.Split(resource, "/")
+
+	switch {
+	case len(segs) <= connectInstanceSegments:
+		return "connect:" + segs[0]
+	case len(segs) > connectUseCaseSegments && segs[connectUseCaseSegments-1] == "use-case":
+		return "connect:" + segs[0] + "/" + segs[2] + "/use-case"
+	default:
+		return "connect:" + segs[0] + "/" + segs[2]
+	}
+}
+
+func wireTaggingConnect(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*connectbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), connectResourceType)
+		},
+		"connect",
+		func(_ context.Context, arn string, tags map[string]string) error { return b.TagResource(arn, tags) },
+		func(_ context.Context, arn string, keys []string) error { return b.UntagResource(arn, keys) },
 	)
 }
