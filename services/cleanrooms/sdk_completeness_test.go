@@ -14,9 +14,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := cleanrooms.NewInMemoryBackend("000000000000", "us-east-1")
 	h := cleanrooms.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &cleanroomssdk.Client{}, h.GetSupportedOperations(), []string{
-		"GetAnalysisLogExport",
-		"ListAnalysisLogExports",
-		"StartAnalysisLogExport",
-	})
+	sdkcheck.CheckCompleteness(t, &cleanroomssdk.Client{}, h.GetSupportedOperations(), nil)
 }

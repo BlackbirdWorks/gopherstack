@@ -967,3 +967,26 @@ type PopulateIntermediateTableOutput struct {
 	AnalysisType string `json:"analysisType"`
 	VersionID    string `json:"versionId"`
 }
+
+// AnalysisLogExport is one Spark-log export of a protected query. Wire keys
+// match types.AnalysisLogExport (cleanrooms@v1.57.3).
+type AnalysisLogExport struct {
+	ResultConfiguration map[string]any `json:"resultConfiguration"`
+	Error               map[string]any `json:"error,omitempty"`
+	ID                  string         `json:"analysisLogExportId"`
+	AnalysisID          string         `json:"analysisId"`
+	AnalysisType        string         `json:"analysisType"`
+	MembershipID        string         `json:"membershipId"`
+	Status              string         `json:"status"`
+	CreateTime          float64        `json:"createTime"`
+	UpdateTime          float64        `json:"updateTime"`
+}
+
+// AnalysisLogExportSummary mirrors types.AnalysisLogExportSummary.
+type AnalysisLogExportSummary struct {
+	ID           string  `json:"analysisLogExportId"`
+	AnalysisID   string  `json:"analysisId"`
+	AnalysisType string  `json:"analysisType"`
+	Status       string  `json:"status"`
+	CreateTime   float64 `json:"createTime"`
+}

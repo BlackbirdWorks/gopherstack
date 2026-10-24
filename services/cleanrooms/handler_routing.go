@@ -308,6 +308,8 @@ func classifyMembership(method, membershipID, sub string, segs []string) (string
 		return classifyMemProtectedJobs(method, membershipID, segs)
 	case subProtectedQueries:
 		return classifyMemProtectedQueries(method, membershipID, segs)
+	case subAnalysisLogExports:
+		return classifyMemAnalysisLogExports(method, membershipID, segs)
 	}
 
 	return classifyMembershipSingleOp(method, membershipID, sub)
@@ -606,6 +608,19 @@ func classifyMemProtectedQueries(method, membershipID string, segs []string) (st
 	return opUnknown, ""
 }
 
+func classifyMemAnalysisLogExports(method, membershipID string, segs []string) (string, string) {
+	switch {
+	case len(segs) == segsWithSub && method == http.MethodPost:
+		return opStartAnalysisLogExport, membershipID
+	case len(segs) == segsWithSub && method == http.MethodGet:
+		return opListAnalysisLogExports, membershipID
+	case len(segs) == segsWithSubID && method == http.MethodGet:
+		return opGetAnalysisLogExport, membershipID
+	}
+
+	return opUnknown, ""
+}
+
 func classifyTags(method string, segs []string) (string, string) {
 	if len(segs) < segsWithID {
 		return opUnknown, ""
@@ -718,10 +733,19 @@ func injectMembershipParams(segs []string, setStr func(string, string)) {
 			}
 		case subPrivacyBudgetTmpls:
 			setStr("privacyBudgetTemplateIdentifier", segs[3])
-		case subProtectedJobs:
-			setStr("protectedJobIdentifier", segs[3])
-		case subProtectedQueries:
-			setStr("protectedQueryIdentifier", segs[3])
+		case subProtectedJobs, subProtectedQueries, subAnalysisLogExports:
+			injectProtectedComputeParams(segs, setStr)
 		}
+	}
+}
+
+func injectProtectedComputeParams(segs []string, setStr func(string, string)) {
+	switch segs[2] {
+	case subProtectedJobs:
+		setStr("protectedJobIdentifier", segs[3])
+	case subProtectedQueries:
+		setStr("protectedQueryIdentifier", segs[3])
+	case subAnalysisLogExports:
+		setStr("analysisLogExportIdentifier", segs[3])
 	}
 }

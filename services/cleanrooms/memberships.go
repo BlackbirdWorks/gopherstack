@@ -216,6 +216,9 @@ func (b *InMemoryBackend) DeleteMembership(id string) error {
 	if b.membershipHasResources(id) {
 		return ErrConflict
 	}
+	for _, e := range b.analysisLogExportsByMembership.Get(id) {
+		b.analysisLogExports.Delete(membershipKey(id, e.ID))
+	}
 	delete(b.tagsByArn, m.Arn)
 	b.memberships.Delete(id)
 

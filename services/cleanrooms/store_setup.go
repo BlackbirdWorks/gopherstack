@@ -144,6 +144,10 @@ func protectedQueryTableKeyFn(v *ProtectedQuery) string {
 
 func protectedQueryTableIndexKeyFn(v *ProtectedQuery) string { return v.MembershipID }
 
+func analysisLogExportKeyFn(v *AnalysisLogExport) string { return membershipKey(v.MembershipID, v.ID) }
+
+func analysisLogExportIndexKeyFn(v *AnalysisLogExport) string { return v.MembershipID }
+
 func protectedJobTableKeyFn(v *ProtectedJob) string {
 	return membershipKey(v.MembershipID, v.ID)
 }
@@ -231,6 +235,9 @@ func registerMembershipNestedTables(b *InMemoryBackend) {
 
 	b.protectedQueries = store.Register(b.registry, "protectedQueries", store.New(protectedQueryTableKeyFn))
 	b.protectedQueriesByMembership = b.protectedQueries.AddIndex("byMembership", protectedQueryTableIndexKeyFn)
+
+	b.analysisLogExports = store.Register(b.registry, "analysisLogExports", store.New(analysisLogExportKeyFn))
+	b.analysisLogExportsByMembership = b.analysisLogExports.AddIndex("byMembership", analysisLogExportIndexKeyFn)
 
 	b.protectedJobs = store.Register(b.registry, "protectedJobs", store.New(protectedJobTableKeyFn))
 	b.protectedJobsByMembership = b.protectedJobs.AddIndex("byMembership", protectedJobTableIndexKeyFn)
