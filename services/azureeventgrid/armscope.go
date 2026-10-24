@@ -2,7 +2,6 @@ package azureeventgrid
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -121,15 +120,12 @@ func (e ResourceEvent) fields(id string) map[string]any {
 }
 
 // PublishResourceEvent delivers an Azure Resource Manager event to the event
-// subscriptions of its Azure subscription, its resource group when it has one, and
-// every resource scope that is the event's resource or one of its ancestors.
+// subscriptions of its Azure subscription and, when it has one, its resource group.
 func (b *InMemoryBackend) PublishResourceEvent(ev ResourceEvent) {
-	topics := []string{armScopeKey("/subscriptions/" + ev.SubscriptionID)}
+	topics := []string{"/subscriptions/" + ev.SubscriptionID}
 	if ev.ResourceGroup != "" {
-		topics = append(topics, topics[0]+"/resourcegroups/"+strings.ToLower(ev.ResourceGroup))
+		topics = append(topics, topics[0]+"/resourceGroups/"+ev.ResourceGroup)
 	}
-
-	uri := armScopeKey(ev.ResourceURI)
 
 	b.mu.Lock("PublishResourceEvent")
 	defer b.mu.Unlock()
@@ -137,8 +133,9 @@ func (b *InMemoryBackend) PublishResourceEvent(ev ResourceEvent) {
 	now := b.now().UTC()
 	queued := false
 
-	for key, a := range b.armScopes {
-		if !slices.Contains(topics, key) && !resourceScopeCovers(key, uri) {
+	for _, topicID := range topics {
+		a, ok := b.armScopes[armScopeKey(topicID)]
+		if !ok {
 			continue
 		}
 
@@ -162,10 +159,4 @@ func (b *InMemoryBackend) PublishResourceEvent(ev ResourceEvent) {
 		default:
 		}
 	}
-}
-
-// resourceScopeCovers reports whether scope is a resource scope (not a subscription
-// or resource group) equal to uri or an ancestor of it.
-func resourceScopeCovers(scope, uri string) bool {
-	return strings.Contains(scope, "/providers/") && (uri == scope || strings.HasPrefix(uri, scope+"/"))
 }

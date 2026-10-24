@@ -20,14 +20,14 @@
 - Azure Function, Hybrid Connection and Partner destinations are not implemented.
 - Delivery with managed identity and AAD bearer validation are not implemented.
 - Namespace topic subscriptions do not support dead-letter destinations or webhook push delivery.
-- Resource-scope event subscriptions receive only ARM lifecycle events, not service system events.
+- Resource-scope event subscriptions receive no events.
 - Dead-letter blob write failures are dropped.
 - System topics, partner topics and partner configurations are not implemented.
 - Custom input schemas and input schema mappings are not implemented.
 - Azure Function, Hybrid Connection and Partner destinations are not implemented.
 - Managed-identity delivery and AAD bearer validation are not implemented.
 - Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces.
-- Resource-scope event subscriptions (e.g. a storage account) receive ARM lifecycle events for their resource and its children, but not service system events: azureblob, azureservicebus and azurekeyvault expose no publish seam, so Microsoft.Storage.BlobCreated/BlobDeleted and the Service Bus and Key Vault events are never emitted. Only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted.
+- Resource-scope event subscriptions (e.g. a storage account) are stored, listed and patchable but receive no events: Microsoft.Resources events come only from subscription and resource group topics, and the emulated services (azureblob, azureservicebus, azurekeyvault) publish no system events (BlobCreated etc.). Only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted at subscription and resource group scope.
 - Dead-letter blob write failures are not retried.
 - No dashboard page.
 

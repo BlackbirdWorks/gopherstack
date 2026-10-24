@@ -297,83 +297,26 @@ func TestAzureEventGridEventSubscriptionPatchRedirectsDeliverySDK(t *testing.T) 
 	assert.Empty(t, evs, "the replaced destination receives nothing")
 }
 
-func TestAzureEventGridResourceScopeEventsSDK(t *testing.T) {
+func TestAzureEventGridResourceScopeReceivesNoARMEventsSDK(t *testing.T) {
 	t.Parallel()
 
-	acct, acctLonger := egPatchWidgetID+"acct1", egPatchWidgetID+"acct10"
-	child := acct + "/gadgets/g1"
+	acct := egPatchWidgetID + "acct1"
 
-	tests := []struct {
-		act       func(t *testing.T, s *egDomainStack)
-		name      string
-		eventType string
-		subject   string
-	}{
-		{
-			name: "write of the scoped resource", eventType: "Microsoft.Resources.ResourceWriteSuccess", subject: acct,
-			act: func(t *testing.T, s *egDomainStack) {
-				t.Helper()
-				s.mustARM(t, http.MethodPut, acct, map[string]any{"location": "local"})
-			},
-		},
-		{
-			name: "write of a child resource", eventType: "Microsoft.Resources.ResourceWriteSuccess", subject: child,
-			act: func(t *testing.T, s *egDomainStack) {
-				t.Helper()
-				s.mustARM(t, http.MethodPut, acct, map[string]any{"location": "local"})
-				s.mustARM(t, http.MethodPut, child, map[string]any{})
-			},
-		},
-		{
-			name:      "delete of the scoped resource",
-			eventType: "Microsoft.Resources.ResourceDeleteSuccess",
-			subject:   acct,
-			act: func(t *testing.T, s *egDomainStack) {
-				t.Helper()
-				s.mustARM(t, http.MethodPut, acct, map[string]any{"location": "local"})
-				s.mustARM(t, http.MethodDelete, acct, nil)
-			},
-		},
-	}
+	s := newEGDomainStack(t)
+	ctx := t.Context()
+	s.resourceGroup(t, egScopeRG)
+	s.mustARM(t, http.MethodPut, acct, map[string]any{"location": "local"})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	scoped, rgHook := newEGReceiver(t), newEGReceiver(t)
+	s.subscribe(t, acct, "on-acct", scoped.srv.URL)
+	s.subscribe(t, egSubScope+"/resourceGroups/"+egScopeRG, "on-rg", rgHook.srv.URL)
 
-			s := newEGDomainStack(t)
-			ctx := t.Context()
-			s.resourceGroup(t, egScopeRG)
-			s.mustARM(t, http.MethodPut, acctLonger, map[string]any{"location": "local"})
-			s.mustARM(t, http.MethodPut, egPatchWidgetID+"acct2", map[string]any{"location": "local"})
-			s.mustARM(t, http.MethodPut, acct, map[string]any{"location": "local"})
+	s.mustARM(t, http.MethodPut, acct+"/gadgets/g1", map[string]any{})
+	s.mustARM(t, http.MethodDelete, acct, nil)
 
-			scoped, sibling := newEGReceiver(t), newEGReceiver(t)
-			s.subscribe(t, acct, "on-acct", scoped.srv.URL)
-			s.subscribe(t, egPatchWidgetID+"acct2", "on-acct2", sibling.srv.URL)
+	s.await(ctx, t, rgHook, "Microsoft.Resources.ResourceDeleteSuccess", acct)
+	s.backend.RunDue(ctx)
 
-			tt.act(t, s)
-
-			ev := s.await(ctx, t, scoped, tt.eventType, tt.subject)
-			assert.Equal(t, acct, ev["topic"], "the topic of a resource scope subscription is the resource")
-
-			data, _ := ev["data"].(map[string]any)
-			assert.Equal(t, tt.subject, data["resourceUri"])
-			assert.Equal(t, "Succeeded", data["status"])
-
-			s.backend.RunDue(ctx)
-
-			evs, _ := scoped.events(t)
-			for _, e := range evs {
-				assert.NotContains(
-					t,
-					e["subject"],
-					"acct10",
-					"a resource whose name only shares a prefix is not covered",
-				)
-			}
-
-			evs, _ = sibling.events(t)
-			assert.Empty(t, evs, "another resource's scope receives nothing")
-		})
-	}
+	evs, _ := scoped.events(t)
+	assert.Empty(t, evs, "Microsoft.Resources events come only from subscription and resource group topics")
 }
