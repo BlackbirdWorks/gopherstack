@@ -87,10 +87,25 @@ func TestSnoozeCreateErrors(t *testing.T) {
 		{snoozeOf("s", start, end, "", "garbage"), "malformed policy", proj, codes.InvalidArgument},
 		{snoozeOf("s", end, start, "", pol), "end before start", proj, codes.InvalidArgument},
 		{snoozeOf("s", start.Add(-time.Hour), end, "", pol), "start in the past", proj, codes.InvalidArgument},
-		{snoozeOf("s", start, end, `resource.labels.zone = "z"`, pol, pol2), "filter with two policies", proj, codes.InvalidArgument},
-		{snoozeOf("s", start, end, `resource.type = "gce_instance"`, pol), "filter on other field", proj, codes.InvalidArgument},
+		{
+			snoozeOf("s", start, end, `resource.labels.zone = "z"`, pol, pol2),
+			"filter with two policies",
+			proj,
+			codes.InvalidArgument,
+		},
+		{
+			snoozeOf("s", start, end, `resource.type = "gce_instance"`, pol),
+			"filter on other field",
+			proj,
+			codes.InvalidArgument,
+		},
 		{snoozeOf("s", start, end, "", pol), "bad parent", "folders/1", codes.InvalidArgument},
-		{&monitoringpb.Snooze{DisplayName: "s", Criteria: &monitoringpb.Snooze_Criteria{Policies: []string{pol}}}, "no interval", proj, codes.InvalidArgument},
+		{
+			&monitoringpb.Snooze{DisplayName: "s", Criteria: &monitoringpb.Snooze_Criteria{Policies: []string{pol}}},
+			"no interval",
+			proj,
+			codes.InvalidArgument,
+		},
 	}
 
 	for _, tt := range tests {
@@ -143,10 +158,17 @@ func TestSnoozeList(t *testing.T) {
 		want   []string
 	}{
 		{"all", "", []string{"early", "late"}},
-		{"start after", fmt.Sprintf(`interval.start_time > %q`, epoch().Add(day).Format(time.RFC3339)), []string{"late"}},
+		{
+			"start after",
+			fmt.Sprintf(`interval.start_time > %q`, epoch().Add(day).Format(time.RFC3339)),
+			[]string{"late"},
+		},
 		{
 			"end before with offset",
-			fmt.Sprintf(`interval.end_time < %q`, epoch().Add(day).In(time.FixedZone("x", -8*3600)).Format(time.RFC3339)),
+			fmt.Sprintf(
+				`interval.end_time < %q`,
+				epoch().Add(day).In(time.FixedZone("x", -8*3600)).Format(time.RFC3339),
+			),
 			[]string{"early"},
 		},
 		{
@@ -162,7 +184,8 @@ func TestSnoozeList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			it := e.snoozes(t).ListSnoozes(t.Context(), &monitoringpb.ListSnoozesRequest{Parent: proj, Filter: tt.filter})
+			it := e.snoozes(t).
+				ListSnoozes(t.Context(), &monitoringpb.ListSnoozesRequest{Parent: proj, Filter: tt.filter})
 
 			var got []string
 
@@ -201,7 +224,8 @@ func TestSnoozeList(t *testing.T) {
 	t.Run("bad filter", func(t *testing.T) {
 		t.Parallel()
 
-		it := e.snoozes(t).ListSnoozes(t.Context(), &monitoringpb.ListSnoozesRequest{Parent: proj, Filter: `display_name = "x"`})
+		it := e.snoozes(t).
+			ListSnoozes(t.Context(), &monitoringpb.ListSnoozesRequest{Parent: proj, Filter: `display_name = "x"`})
 		_, err := it.Next()
 		assert.Equal(t, codes.InvalidArgument, codeOf(err))
 	})
@@ -362,14 +386,20 @@ func TestSnoozeSuppressesIncidents(t *testing.T) {
 			b := e.handler.Backend
 
 			for m := 1; m <= 2; m++ {
-				e.writeAt(t, epoch().Add(time.Duration(m)*time.Minute), "gold", map[string]float64{"inst-1": 9, "inst-2": 9})
+				e.writeAt(
+					t,
+					epoch().Add(time.Duration(m)*time.Minute),
+					"gold",
+					map[string]float64{"inst-1": 9, "inst-2": 9},
+				)
 			}
 
 			b.Tick(t.Context())
 
-			var opened []string
+			incs := b.Incidents(testProject)
+			opened := make([]string, 0, len(incs))
 
-			for _, inc := range b.Incidents(testProject) {
+			for _, inc := range incs {
 				opened = append(opened, inc.ResourceLabels["instance_id"])
 			}
 

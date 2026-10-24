@@ -44,7 +44,16 @@ ops:
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FAILED_PRECONDITION when subgroups exist unless recursive."}
   ListGroupMembers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Distinct resources of the stored series that match the group filter and the request filter; the interval is ignored."}
   QueryService: {wire: gap, errors: gap, state: gap, persist: n/a, note: "QueryTimeSeries (MQL and PromQL) is UNIMPLEMENTED."}
-  ServiceMonitoringService: {wire: gap, errors: gap, state: gap, persist: n/a, note: "Services and service level objectives are UNIMPLEMENTED."}
+  CreateService: {wire: ok, errors: partial, state: ok, persist: ok, note: "Service id [a-z0-9-]+ up to 63 chars or generated; one identifier (custom, app_engine, cloud_endpoints, cluster_istio, mesh_istio, istio_canonical_service, cloud_run, gke_*) or basic_service is required; ALREADY_EXISTS on a duplicate id. The live-service messages were not available."}
+  GetService: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Full resource name."}
+  ListServices: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Filter on identifier_case, <identifier>.<attribute>, display_name, name and user_labels.*; ordered by name, paged. workspaces/ parents are rejected."}
+  UpdateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "Mask paths display_name, user_labels, telemetry; an empty mask replaces those three. The identifier cannot be changed."}
+  DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "Also removes the service level objectives of the service."}
+  CreateServiceLevelObjective: {wire: ok, errors: partial, state: ok, persist: ok, note: "Parent service must exist. Goal 0 < goal <= 0.9999, rolling period of whole days up to 30 or calendar period DAY, WEEK, FORTNIGHT or MONTH, and an SLI: basic_sli (availability, latency threshold), request_based (exactly two of good/bad/total filters, or distribution_cut with range) or windows_based (window_period an integer fraction of a day, at least 60s, with a filter, performance threshold or metric range criterion). Id matches ^[a-zA-Z0-9-_:.]+$ or is generated; a name matching the parent is honoured."}
+  GetServiceLevelObjective: {wire: partial, errors: ok, state: ok, persist: n/a, note: "The view parameter is ignored: EXPLICIT does not expand a BasicSli into a RequestBasedSli."}
+  ListServiceLevelObjectives: {wire: partial, errors: ok, state: ok, persist: n/a, note: "Filter on display_name, name and user_labels.*; parent services/- lists every service of the project; ordered by name, paged. The view parameter is ignored."}
+  UpdateServiceLevelObjective: {wire: ok, errors: ok, state: ok, persist: ok, note: "Mask paths display_name, goal, service_level_indicator, rolling_period, calendar_period, user_labels; an empty mask replaces them all. The result is revalidated."}
+  DeleteServiceLevelObjective: {wire: ok, errors: ok, state: ok, persist: ok, note: "NOT_FOUND for unknown names."}
   CreateSnooze: {wire: ok, errors: ok, state: ok, persist: ok, note: "Display name, 1-16 existing alert policies of the project, interval with start >= now-15s and end after start. criteria.filter needs exactly one policy and may reference resource.labels.* and metric.labels.*."}
   GetSnooze: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Full resource name."}
   ListSnoozes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Filter on interval.start_time and interval.end_time (RFC 3339 with any offset); ordered by name, paged."}
@@ -59,7 +68,8 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; mutation records report mutated_by gopherstack."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state. RPC failures are logged at debug; gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
-  - "QueryService (MQL and PromQL) and ServiceMonitoringService return UNIMPLEMENTED."
+  - "QueryService (MQL and PromQL) returns UNIMPLEMENTED."
+  - "ServiceLevelObjective view=EXPLICIT does not expand a BasicSli into a RequestBasedSli, and SLO attainment is never evaluated (no error-budget burn, no SLO-based alerting)."
   - "Alert conditions condition_matched_log, condition_monitoring_query_language, condition_prometheus_query_language and condition_sql are stored but never evaluated; ratio conditions (denominator_filter) are rejected; forecast_options, evaluation_missing_data, notification_rate_limit, notification_channel_strategy and auto_close are stored but have no effect."
   - "Incidents are not exposed through a Cloud Monitoring API; they are readable only from Go through InMemoryBackend.Incidents."
   - "email, sms, slack and pagerduty notification channels are never delivered."

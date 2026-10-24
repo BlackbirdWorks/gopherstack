@@ -157,3 +157,78 @@ func (s *snoozeServer) UpdateSnooze(
 ) (*monitoringpb.Snooze, error) {
 	return s.b.UpdateSnooze(in)
 }
+
+type serviceServer struct {
+	monitoringpb.UnimplementedServiceMonitoringServiceServer
+	b *InMemoryBackend
+}
+
+func (s *serviceServer) CreateService(
+	_ context.Context, in *monitoringpb.CreateServiceRequest,
+) (*monitoringpb.Service, error) {
+	return s.b.CreateService(in)
+}
+
+func (s *serviceServer) GetService(
+	_ context.Context, in *monitoringpb.GetServiceRequest,
+) (*monitoringpb.Service, error) {
+	return s.b.GetService(in.GetName())
+}
+
+func (s *serviceServer) ListServices(
+	_ context.Context, in *monitoringpb.ListServicesRequest,
+) (*monitoringpb.ListServicesResponse, error) {
+	ss, next, err := s.b.ListServices(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &monitoringpb.ListServicesResponse{Services: ss, NextPageToken: next}, nil
+}
+
+func (s *serviceServer) UpdateService(
+	_ context.Context, in *monitoringpb.UpdateServiceRequest,
+) (*monitoringpb.Service, error) {
+	return s.b.UpdateService(in)
+}
+
+func (s *serviceServer) DeleteService(
+	_ context.Context, in *monitoringpb.DeleteServiceRequest,
+) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, s.b.DeleteService(in.GetName())
+}
+
+func (s *serviceServer) CreateServiceLevelObjective(
+	_ context.Context, in *monitoringpb.CreateServiceLevelObjectiveRequest,
+) (*monitoringpb.ServiceLevelObjective, error) {
+	return s.b.CreateServiceLevelObjective(in)
+}
+
+func (s *serviceServer) GetServiceLevelObjective(
+	_ context.Context, in *monitoringpb.GetServiceLevelObjectiveRequest,
+) (*monitoringpb.ServiceLevelObjective, error) {
+	return s.b.GetServiceLevelObjective(in.GetName())
+}
+
+func (s *serviceServer) ListServiceLevelObjectives(
+	_ context.Context, in *monitoringpb.ListServiceLevelObjectivesRequest,
+) (*monitoringpb.ListServiceLevelObjectivesResponse, error) {
+	ss, next, err := s.b.ListServiceLevelObjectives(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &monitoringpb.ListServiceLevelObjectivesResponse{ServiceLevelObjectives: ss, NextPageToken: next}, nil
+}
+
+func (s *serviceServer) UpdateServiceLevelObjective(
+	_ context.Context, in *monitoringpb.UpdateServiceLevelObjectiveRequest,
+) (*monitoringpb.ServiceLevelObjective, error) {
+	return s.b.UpdateServiceLevelObjective(in)
+}
+
+func (s *serviceServer) DeleteServiceLevelObjective(
+	_ context.Context, in *monitoringpb.DeleteServiceLevelObjectiveRequest,
+) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, s.b.DeleteServiceLevelObjective(in.GetName())
+}

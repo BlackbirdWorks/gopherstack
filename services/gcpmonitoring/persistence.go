@@ -41,6 +41,8 @@ type backendSnapshot struct {
 	Policies    map[string]json.RawMessage `json:"policies"`
 	Groups      map[string]json.RawMessage `json:"groups"`
 	Snoozes     map[string]json.RawMessage `json:"snoozes,omitempty"`
+	Services    map[string]json.RawMessage `json:"services,omitempty"`
+	SLOs        map[string]json.RawMessage `json:"slos,omitempty"`
 	Channels    map[string]channelSnap     `json:"channels"`
 	Uptime      map[string]uptimeSnap      `json:"uptime"`
 	Series      []seriesSnap               `json:"series"`
@@ -105,6 +107,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Policies:    snapMap(b.policies),
 		Groups:      snapMap(b.groups),
 		Snoozes:     snapMap(b.snoozes),
+		Services:    snapMap(b.services),
+		SLOs:        snapMap(b.slos),
 		Channels:    make(map[string]channelSnap, len(b.channels)),
 		Uptime:      make(map[string]uptimeSnap, len(b.uptime)),
 	}
@@ -185,6 +189,20 @@ func (b *InMemoryBackend) load(snap *backendSnapshot) error {
 	if b.snoozes, err = restoreMap(
 		snap.Snoozes,
 		func() *monitoringpb.Snooze { return &monitoringpb.Snooze{} },
+	); err != nil {
+		return err
+	}
+
+	if b.services, err = restoreMap(
+		snap.Services,
+		func() *monitoringpb.Service { return &monitoringpb.Service{} },
+	); err != nil {
+		return err
+	}
+
+	if b.slos, err = restoreMap(
+		snap.SLOs,
+		func() *monitoringpb.ServiceLevelObjective { return &monitoringpb.ServiceLevelObjective{} },
 	); err != nil {
 		return err
 	}

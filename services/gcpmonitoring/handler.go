@@ -76,6 +76,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteUptimeCheckConfig", "ListUptimeCheckIps",
 		"ListGroups", "GetGroup", "CreateGroup", "UpdateGroup", "DeleteGroup", "ListGroupMembers",
 		"CreateSnooze", "GetSnooze", "ListSnoozes", "UpdateSnooze",
+		"CreateService", "GetService", "ListServices", "UpdateService", "DeleteService",
+		"CreateServiceLevelObjective", "GetServiceLevelObjective", "ListServiceLevelObjectives",
+		"UpdateServiceLevelObjective", "DeleteServiceLevelObjective",
 	}
 }
 
@@ -133,6 +136,7 @@ func registerServers(srv *grpc.Server, b *InMemoryBackend) {
 	monitoringpb.RegisterUptimeCheckServiceServer(srv, &uptimeServer{b: b})
 	monitoringpb.RegisterGroupServiceServer(srv, &groupServer{b: b})
 	monitoringpb.RegisterSnoozeServiceServer(srv, &snoozeServer{b: b})
+	monitoringpb.RegisterServiceMonitoringServiceServer(srv, &serviceServer{b: b})
 }
 
 // StartWorker binds the dedicated listener synchronously so a port conflict is returned to the caller.
