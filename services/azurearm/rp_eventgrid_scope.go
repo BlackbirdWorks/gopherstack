@@ -173,7 +173,8 @@ func (p *EventGridProvider) ListEventSubscriptions(q EventSubscriptionQuery) ([]
 	}
 
 	if q.Top < 1 || q.Top > egMaxListTop {
-		return nil, "", badEventGridRequest(fmt.Errorf("%w: $top must be between 1 and %d", ErrInvalidRequestBody, egMaxListTop))
+		return nil, "", badEventGridRequest(
+			fmt.Errorf("%w: $top must be between 1 and %d", ErrInvalidRequestBody, egMaxListTop))
 	}
 
 	p.mu.RLock("ListEventSubscriptions")

@@ -259,6 +259,8 @@ func TestAzureEventGridARMScopeSubscriptionsSDK(t *testing.T) {
 	}
 }
 
+type globalListOptions = armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionOptions
+
 func names(subs []*armeventgrid.EventSubscription) []string {
 	out := make([]string, 0, len(subs))
 	for _, s := range subs {
@@ -280,7 +282,7 @@ func drain[R any](ctx context.Context, t *testing.T, pg *runtime.Pager[R]) ([]st
 
 		pages++
 
-		subs, ok := reflect.ValueOf(page).FieldByName("Value").Interface().([]*armeventgrid.EventSubscription)
+		subs, ok := reflect.TypeAssert[[]*armeventgrid.EventSubscription](reflect.ValueOf(page).FieldByName("Value"))
 		require.True(t, ok)
 
 		out = append(out, names(subs)...)
@@ -345,7 +347,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 		{
 			name: "global by subscription pages with top",
 			list: func() ([]string, int) {
-				pg := c.NewListGlobalBySubscriptionPager(&armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionOptions{
+				pg := c.NewListGlobalBySubscriptionPager(&globalListOptions{
 					Top: new(int32(2)),
 				})
 
@@ -356,7 +358,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 		{
 			name: "global by subscription filtered by name",
 			list: func() ([]string, int) {
-				pg := c.NewListGlobalBySubscriptionPager(&armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionOptions{
+				pg := c.NewListGlobalBySubscriptionPager(&globalListOptions{
 					Filter: new("contains(name, 'SUB') and name ne 'sub-b' or name eq 'res-a'"),
 				})
 
@@ -367,7 +369,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 		{
 			name: "global by subscription with not",
 			list: func() ([]string, int) {
-				pg := c.NewListGlobalBySubscriptionPager(&armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionOptions{
+				pg := c.NewListGlobalBySubscriptionPager(&globalListOptions{
 					Filter: new("not (contains(name, 'a'))"),
 				})
 
@@ -432,7 +434,8 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 		{
 			name: "regional by resource group for topic type",
 			list: func() ([]string, int) {
-				pg := c.NewListRegionalByResourceGroupForTopicTypePager(egScopeRG, "westus", "Microsoft.EventGrid.Domains", nil)
+				pg := c.NewListRegionalByResourceGroupForTopicTypePager(
+					egScopeRG, "westus", "Microsoft.EventGrid.Domains", nil)
 
 				return drain(ctx, t, pg)
 			},
@@ -480,7 +483,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 	t.Run("invalid parameters are rejected", func(t *testing.T) {
 		t.Parallel()
 
-		for _, o := range []*armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionOptions{
+		for _, o := range []*globalListOptions{
 			{Filter: new("location eq 'westus'")},
 			{Filter: new("contains(name, 'x'")},
 			{Top: new(int32(101))},
