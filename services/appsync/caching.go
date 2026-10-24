@@ -112,6 +112,7 @@ func (b *InMemoryBackend) DeleteAPICache(apiID string) error {
 	}
 
 	b.apiCaches.Delete(apiID)
+	b.flushCacheLocked(apiID)
 
 	return nil
 }
@@ -171,6 +172,8 @@ func (b *InMemoryBackend) FlushAPICache(apiID string) error {
 	if !b.apiCaches.Has(apiID) {
 		return fmt.Errorf("%w: api cache not found for api %s", ErrNotFound, apiID)
 	}
+
+	b.flushCacheLocked(apiID)
 
 	return nil
 }

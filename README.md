@@ -719,7 +719,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 2 structural gaps; 1 deferred |
-| [AppSync](services/appsync/README.md) | A | 74 | 7 gaps; 1 structural gap; 2 deferred |
+| [AppSync](services/appsync/README.md) | A | 74 | 6 gaps; 1 structural gap; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 66 | 2 gaps; 3 structural gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 2 structural gaps |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |

@@ -170,7 +170,7 @@ func bindJSGlobals(sb *jsruntime.Sandbox, ue *utilEnv) {
 		switch rest, isExt := strings.CutPrefix(name, "extensions."); {
 		case isExt:
 			bindUtilFn(sb, ext, rest, name, ue)
-		case name == "qr" || name == "quiet" || name == "toJson" || name == "parseJson":
+		case name == "qr" || name == "quiet" || name == "toJson" || name == "parseJson" || strings.HasPrefix(name, "log."):
 		default:
 			bindUtilFn(sb, util, name, name, ue)
 		}

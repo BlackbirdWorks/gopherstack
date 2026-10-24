@@ -47,16 +47,16 @@ func (h *Handler) evaluateMappingTemplate(ctx context.Context, c *echo.Context) 
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	out, evalErr := h.Backend.EvaluateMappingTemplate(input.Template, input.Context)
+	out, logs, evalErr := h.Backend.EvaluateMappingTemplateLogs(input.Template, input.Context)
 	if re, ok := errors.AsType[*resolverError](evalErr); ok {
-		return evalErrorResponse(c, re, nil)
+		return evalErrorResponse(c, re, logs)
 	}
 
 	if evalErr != nil {
 		return h.handleError(ctx, c, "EvaluateMappingTemplate", evalErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out})
+	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, keyLogs: nonNilLogs(logs)})
 }
 
 // evaluateCode handles POST /v1/dataplane-evaluations/code.
@@ -88,14 +88,14 @@ func (h *Handler) evaluateCode(ctx context.Context, c *echo.Context) error {
 		return h.handleError(ctx, c, "EvaluateCode", evalErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, "logs": nonNilLogs(logs)})
+	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, keyLogs: nonNilLogs(logs)})
 }
 
 // evalErrorResponse reports a template/code error the way the Evaluate APIs do:
 // a 200 with an error member rather than an HTTP failure.
 func evalErrorResponse(c *echo.Context, re *resolverError, logs []string) error {
 	return c.JSON(http.StatusOK, map[string]any{
-		rtMsgError: map[string]any{keyMessage: re.Message}, "logs": nonNilLogs(logs),
+		rtMsgError: map[string]any{keyMessage: re.Message}, keyLogs: nonNilLogs(logs),
 	})
 }
 

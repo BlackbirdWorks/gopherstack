@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 74 (74 ok) |
 | Feature families | 15 (15 ok) |
-| Known gaps | 7 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 2 |
 | Resource leaks | bugs found |
@@ -19,10 +19,9 @@
 - Introspection omits __Type.specifiedByURL and isOneOf, and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01.
 - GetIntrospectionSchema returns an undeclared BadRequestException for an unknown format; no declared exception (GraphQLSchema/Internal/NotFound/Unauthorized) fits. 2026-10-01.
 - GraphqlApi dns and Api dns are unmodeled: the dns key set is unverified.
-- errors[].path is set for root fields only; non-null field null-propagation is not implemented. 2026-10-20.
 - OpenSearch/Elasticsearch data sources run in-process against services/opensearch domains matched by endpoint host (requests are not SigV4-signed; AMAZON_ELASTICSEARCH resolves against OpenSearch domains only, not services/elasticsearch); EventBridge and RDS (Data API) run in-process; the RDS JS select/insert/update/remove builders are a documented subset (no joins/groupBy/aggregates), MySQL returning is emulated with a follow-up SELECT. 2026-10-20.
-- $extensions.* calls are recorded but have no effect (no resolver cache layer, subscription filters are not applied); $util.transform.toElasticsearchQueryDSL, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent. 2026-10-20.
-- EvaluateCode/EvaluateMappingTemplate errors carry message only (no codeErrors locations); EvaluateMappingTemplate has no logs. 2026-10-20.
+- $util.transform.toElasticsearchQueryDSL, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent; resolver-cache keys without cachingKeys use arguments+source+identity (AWS key composition unverified). 2026-10-24.
+- EvaluateCode errors carry message only (no codeErrors locations). 2026-10-24.
 
 ### Structural gaps
 

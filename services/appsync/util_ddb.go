@@ -287,7 +287,7 @@ func (b *exprBuilder) op(field, op string, v any) (string, error) {
 		return fn + "(" + n + ", " + b.value(field, op, v) + ")", nil
 	case "notContains":
 		return "NOT contains(" + n + ", " + b.value(field, op, v) + ")", nil
-	case "between":
+	case opBetween:
 		bounds := listOf(v)
 		if len(bounds) != betweenBounds {
 			return "", fmt.Errorf("%w: between requires two values", ErrValidation)
