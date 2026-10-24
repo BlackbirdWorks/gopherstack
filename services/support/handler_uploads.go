@@ -266,7 +266,9 @@ func (h *Handler) serveDownload(c *echo.Context) error {
 		return writeLinkFailure(c, err)
 	}
 
-	c.Response().Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	c.Response().
+		Header().
+		Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 
 	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }

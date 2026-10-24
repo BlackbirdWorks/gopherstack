@@ -66,7 +66,10 @@ func TestSupportAttachmentLinks_FullRouter(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			comms, err := client.DescribeCommunications(ctx, &supportsdk.DescribeCommunicationsInput{CaseId: created.CaseId})
+			comms, err := client.DescribeCommunications(
+				ctx,
+				&supportsdk.DescribeCommunicationsInput{CaseId: created.CaseId},
+			)
 			require.NoError(t, err)
 			require.Len(t, comms.Communications[0].Attachments, 1)
 

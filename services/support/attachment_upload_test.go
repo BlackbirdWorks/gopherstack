@@ -226,7 +226,10 @@ func TestAttachmentUpload_RoundTrip(t *testing.T) {
 			assert.Equal(t, payload, body)
 			assert.Contains(t, resp.Header.Get("Content-Disposition"), "log.txt")
 
-			desc, err := s.client.DescribeAttachment(ctx, &supportsdk.DescribeAttachmentInput{AttachmentId: att.AttachmentId})
+			desc, err := s.client.DescribeAttachment(
+				ctx,
+				&supportsdk.DescribeAttachmentInput{AttachmentId: att.AttachmentId},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, payload, desc.Attachment.Data)
 
@@ -252,10 +255,10 @@ func TestAttachmentUpload_LinkPagination(t *testing.T) {
 	assert.Equal(t, int32(11), first.NextIndex)
 
 	tests := []struct {
-		name      string
 		rng       *supporttypes.UploadRange
-		wantFirst int32
+		name      string
 		wantCount int
+		wantFirst int32
 		wantNext  int32
 	}{
 		{"default range", nil, 1, 10, 11},
@@ -288,9 +291,9 @@ func TestAttachmentUpload_APIErrors(t *testing.T) {
 	links := startUpload(ctx, t, s, "a.txt", 8)
 
 	tests := []struct {
+		wantErr any
 		call    func() error
 		name    string
-		wantErr any
 	}{
 		{
 			name: "links unknown upload", wantErr: new(*supporttypes.UploadIdNotFound),
@@ -535,9 +538,14 @@ func TestAttachmentUpload_HTTPLinks(t *testing.T) {
 		},
 		{
 			name: "put to download token", wantStatus: http.StatusForbidden,
-			run: func(t *testing.T, s *uploadStack, _, get string) *http.Response {
+			run: func(t *testing.T, _ *uploadStack, _, get string) *http.Response {
 				t.Helper()
-				resp, _ := doRaw(t, http.MethodPut, strings.Replace(get, downloadPathPrefix, uploadPathPrefix, 1), []byte("x"))
+				resp, _ := doRaw(
+					t,
+					http.MethodPut,
+					strings.Replace(get, downloadPathPrefix, uploadPathPrefix, 1),
+					[]byte("x"),
+				)
 
 				return resp
 			},
@@ -588,7 +596,9 @@ func TestAttachmentUpload_HTTPLinks(t *testing.T) {
 			s := newUploadStack(t, 4, 0)
 			ctx := t.Context()
 			links := startUpload(ctx, t, s, "a.txt", 4)
-			s.backend.AddAttachmentInternal(&support.Attachment{AttachmentID: "att-1", FileName: "k.txt", Data: []byte("data")})
+			s.backend.AddAttachmentInternal(
+				&support.Attachment{AttachmentID: "att-1", FileName: "k.txt", Data: []byte("data")},
+			)
 
 			dl, err := s.client.GetAttachmentDownloadLink(ctx, &supportsdk.GetAttachmentDownloadLinkInput{
 				AttachmentId: aws.String("att-1"),

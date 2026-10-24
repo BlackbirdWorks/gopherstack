@@ -402,7 +402,12 @@ func (b *InMemoryBackend) PutUploadPart(token string, data []byte) (string, erro
 	}
 
 	if int64(len(data)) != u.expectedPartSize(l.PartIndex) {
-		return "", fmt.Errorf("%w: part %d must be %d bytes", ErrValidation, l.PartIndex, u.expectedPartSize(l.PartIndex))
+		return "", fmt.Errorf(
+			"%w: part %d must be %d bytes",
+			ErrValidation,
+			l.PartIndex,
+			u.expectedPartSize(l.PartIndex),
+		)
 	}
 
 	etag := partETag(data)
@@ -463,7 +468,8 @@ func (b *InMemoryBackend) resolveUploadsLocked(ids []string) ([]*AttachmentUploa
 
 // consumeUploadsLocked attaches resolved uploads (single use) and returns every ref plus the <=5 MB subset.
 func (b *InMemoryBackend) consumeUploadsLocked(ups []*AttachmentUpload) ([]AttachmentRef, []AttachmentRef) {
-	var all, small []AttachmentRef
+	all := make([]AttachmentRef, 0, len(ups))
+	var small []AttachmentRef
 
 	for _, u := range ups {
 		ref := AttachmentRef{AttachmentID: u.AttachmentID, FileName: u.FileName}
