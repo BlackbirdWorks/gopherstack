@@ -271,6 +271,20 @@ type EventGridTopic struct {
 	InputSchema string
 }
 
+// EventGridDomain is the data plane's view of a domain.
+type EventGridDomain struct {
+	CreatedAt   time.Time
+	InputSchema string
+	AutoCreate  bool
+	AutoDelete  bool
+}
+
+// EventGridDomainTopic is the data plane's view of a domain topic.
+type EventGridDomainTopic struct {
+	CreatedAt time.Time
+	Name      string
+}
+
 // EventGrid is the seam the Microsoft.EventGrid resource provider uses to keep
 // the Event Grid data plane in step with ARM. Subscription and namespace-topic
 // subscription properties cross as ARM property maps, so this package never
@@ -298,6 +312,23 @@ type EventGrid interface {
 	PutPullSubscription(ns, topic, name string, props map[string]any) (map[string]any, error)
 	GetPullSubscription(ns, topic, name string) (map[string]any, bool)
 	DeletePullSubscription(ns, topic, name string) error
+
+	PutDomain(name, resourceID, inputSchema string, autoCreate, autoDelete *bool) (EventGridDomain, error)
+	DomainInfo(name string) (EventGridDomain, bool)
+	DeleteDomain(name string) error
+	DomainKeys(name string) (key1, key2 string, err error)
+	RegenerateDomainKey(name, keyName string) (key1, key2 string, err error)
+	PutDomainTopic(domain, name string) (time.Time, error)
+	DomainTopic(domain, name string) (EventGridDomainTopic, bool)
+	DomainTopics(domain string) ([]EventGridDomainTopic, error)
+	DeleteDomainTopic(domain, name string) error
+
+	// The scoped calls address a custom topic (domain empty), a domain (topic empty) or a domain topic.
+	PutScopedSubscription(ctx context.Context, domain, topic, name string, props map[string]any) (map[string]any, error)
+	GetScopedSubscription(domain, topic, name string) (map[string]any, bool)
+	DeleteScopedSubscription(domain, topic, name string) error
+	ScopedSubscriptionFullURL(domain, topic, name string) (string, error)
+	DeliveryAttributes(domain, topic, name string) ([]map[string]any, error)
 }
 
 type noopEventGrid struct{}
@@ -347,6 +378,49 @@ func (noopEventGrid) GetPullSubscription(string, string, string) (map[string]any
 	return nil, false
 }
 func (noopEventGrid) DeletePullSubscription(string, string, string) error { return nil }
+
+func (noopEventGrid) PutDomain(string, string, string, *bool, *bool) (EventGridDomain, error) {
+	return EventGridDomain{}, ErrEventGridUnavailable
+}
+func (noopEventGrid) DomainInfo(string) (EventGridDomain, bool) { return EventGridDomain{}, false }
+func (noopEventGrid) DeleteDomain(string) error                 { return nil }
+func (noopEventGrid) DomainKeys(string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) RegenerateDomainKey(string, string) (string, string, error) {
+	return "", "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) PutDomainTopic(string, string) (time.Time, error) {
+	return time.Time{}, ErrEventGridUnavailable
+}
+
+func (noopEventGrid) DomainTopic(string, string) (EventGridDomainTopic, bool) {
+	return EventGridDomainTopic{}, false
+}
+
+func (noopEventGrid) DomainTopics(string) ([]EventGridDomainTopic, error) {
+	return nil, ErrEventGridUnavailable
+}
+func (noopEventGrid) DeleteDomainTopic(string, string) error { return nil }
+func (noopEventGrid) PutScopedSubscription(
+	context.Context, string, string, string, map[string]any,
+) (map[string]any, error) {
+	return nil, ErrEventGridUnavailable
+}
+
+func (noopEventGrid) GetScopedSubscription(string, string, string) (map[string]any, bool) {
+	return nil, false
+}
+func (noopEventGrid) DeleteScopedSubscription(string, string, string) error { return nil }
+func (noopEventGrid) ScopedSubscriptionFullURL(string, string, string) (string, error) {
+	return "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) DeliveryAttributes(string, string, string) ([]map[string]any, error) {
+	return nil, ErrEventGridUnavailable
+}
 
 var _ EventGrid = noopEventGrid{}
 

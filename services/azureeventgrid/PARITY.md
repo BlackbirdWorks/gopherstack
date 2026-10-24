@@ -1,6 +1,6 @@
 ---
 service: azureeventgrid
-sdk_module: azure-sdk-for-go/sdk/messaging/eventgrid/azeventgrid@v1.0.0   # go.mod dependency (test-only): drives the custom-topic publish endpoint in sdk_test.go; aznamespaces@v1.0.0 drives namespace topics
+sdk_module: azure-sdk-for-go/sdk/messaging/eventgrid/azeventgrid@v1.0.0   # go.mod dependency (test-only): drives the custom-topic publish endpoint in sdk_test.go; aznamespaces@v1.0.0 drives namespace topics; armeventgrid/v2@v2.3.0 drives domains in internal/app
 last_audit_commit: be2302298
 last_audit_date: 2026-10-21
 overall: B
@@ -15,7 +15,8 @@ ops:
   RenewEventLocks: {wire: ok, errors: ok, state: ok, persist: ok, note: ":renewLock extends the lock by the subscription's receiveLockDurationInSeconds."}
   ValidateSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /validate?id=<code> completes manual webhook validation (the validationUrl handed to a webhook that did not echo the validationCode), moving the subscription from AwaitingManualAction to Succeeded."}
 families:
-  arm_integration: {status: ok, note: "services/azurearm Microsoft.EventGrid: topics (inputSchema, endpoint) with listKeys and regenerateKey, topic-scoped eventSubscriptions (getFullUrl), namespaces with listKeys/regenerateKey, namespaces/topics and namespaces/topics/eventSubscriptions. Topics, keys, subscriptions and queued events live in this service; ARM keeps location, tags and unmodelled properties. Applied, re-planned with no drift and destroyed by test/terraform/azure/eventgrid_test.go."}
+  domains: {status: ok, note: "POST /api/events with a domain key (or the domain's host label): EventGridSchema events need a topic property naming the domain topic, CloudEvents use source. Events fan out to the domain's own subscriptions and to those of the named domain topic; delivered events carry topic = the domain topic's resource ID. Publishing to a domain topic that does not exist still delivers to domain-scope subscriptions. The first subscription of a missing domain topic creates it when autoCreateTopicWithFirstSubscription is true (default); the last subscription's deletion removes it when autoDeleteTopicWithLastSubscription is true (default); a self-managed domain answers 404 until the topic is created."}
+  arm_integration: {status: ok, note: "services/azurearm Microsoft.EventGrid: topics (inputSchema, endpoint) with listKeys and regenerateKey, topic-scoped eventSubscriptions (getFullUrl, getDeliveryAttributes), domains (inputSchema, autoCreateTopicWithFirstSubscription, autoDeleteTopicWithLastSubscription) with listKeys/regenerateKey, domains/topics (list, get, put, delete), domain and domain-topic event subscriptions in both the armeventgrid path form (domains/{d}/[topics/{t}/]eventSubscriptions/{s}) and the generic scope form (.../providers/Microsoft.EventGrid/eventSubscriptions/{s}), namespaces with listKeys/regenerateKey, namespaces/topics and namespaces/topics/eventSubscriptions. Topics, keys, subscriptions and queued events live in this service; ARM keeps location, tags and unmodelled properties. Applied, re-planned with no drift and destroyed by test/terraform/azure/eventgrid_test.go."}
   sdk_compat: {status: ok, note: "azeventgrid v1: PublishEvents, PublishCustomEventEvents, PublishCloudEvents with aeg-sas-key and aeg-sas-token credentials; aznamespaces v1: SendEvent(s), ReceiveEvents, Acknowledge/Release/Reject/RenewEventLocks with the SharedAccessKey credential. The HTTPS listener uses a self-signed or configured certificate."}
   filters: {status: ok, note: "includedEventTypes, subjectBeginsWith/EndsWith (isSubjectCaseSensitive), and all advanced operators: NumberIn/NotIn/LessThan/LessThanOrEquals/GreaterThan/GreaterThanOrEquals/InRange/NotInRange, BoolEquals, StringIn/NotIn/BeginsWith/NotBeginsWith/EndsWith/NotEndsWith/Contains/NotContains, IsNullOrUndefined, IsNotNull; dotted or slashed key paths; enableAdvancedFilteringOnArrays."}
   webhook_delivery: {status: ok, note: "Validation handshake on create or endpoint change: SubscriptionValidationEvent POST (validationResponse echo, else manual validationUrl) and the CloudEvents OPTIONS abuse-protection handshake. Notifications carry aeg-event-type, aeg-subscription-name and aeg-delivery-count; 2xx succeeds, 400 and 413 dead-letter at once, everything else retries. maxEventsPerBatch (1-5000, default 1) and preferredBatchSizeInKilobytes (1-1024, default 64) group due events of one subscription into one JSON array request (CloudEvents: application/cloudevents-batch+json when batching is configured); a failed batch retries as a whole. deliveryAttributeMappings (Static, Dynamic from the first event of the request) become request headers; secret static values are withheld from reads and returned by DeliveryAttributes."}
@@ -23,7 +24,6 @@ families:
   retry_dead_letter: {status: ok, note: "Retries follow Event Grid's schedule (10s, 30s, 1m, 5m, 10m, 30m, 1h, 3h, 6h, 12h repeating) on an injected clock, bounded by retryPolicy maxDeliveryAttempts (1-30) and eventTimeToLiveInMinutes (1-1440). Exhausted events are written to the StorageBlob dead-letter container as topic/subscription/yyyy/MM/dd/HH/id.json with deadLetterReason, deliveryAttempts, lastDeliveryOutcome, publishTime and lastDeliveryAttemptTime."}
   auth: {status: ok, note: "Off by default (any credential is accepted and the topic is picked by host label, key or the single topic). With --azure-eventgrid-validate-sas the aeg-sas-key must equal a topic key and SAS tokens (r, e, s; HMAC-SHA256 over the base64-decoded key) must verify and be unexpired; namespace requests use SharedAccessKey or SAS against the namespace keys."}
 gaps:
-  - "Domains and domain topics are not implemented."
   - "System topics, partner topics and partner namespaces are not implemented."
   - "Custom input schemas and input schema mappings are not implemented."
   - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
@@ -33,7 +33,7 @@ gaps:
   - "Dead-letter blob write failures are dropped."
 deferred: []
 items_still_open:
-  - "Domains and domain topics (Microsoft.EventGrid/domains) are not implemented."
+  - "Listing event subscriptions (at any scope, domains included) is not implemented."
   - "System topics, partner topics and partner configurations are not implemented."
   - "Custom input schemas and input schema mappings are not implemented."
   - "Azure Function, Hybrid Connection and Partner destinations are not implemented."

@@ -29,9 +29,10 @@ type credential struct {
 }
 
 type holder struct {
-	name string
-	key1 string
-	key2 string
+	name   string
+	key1   string
+	key2   string
+	domain bool
 }
 
 func credentialOf(r *http.Request) credential {
@@ -143,8 +144,14 @@ func (h holder) accepts(c credential, now time.Time) bool {
 // by the host label, else the one whose key or token matches, else the only one.
 // With validate on, the credential must match.
 func pick(holders []holder, hostLabel string, c credential, validate bool, now time.Time) (string, error) {
+	h, err := pickHolder(holders, hostLabel, c, validate, now)
+
+	return h.name, err
+}
+
+func pickHolder(holders []holder, hostLabel string, c credential, validate bool, now time.Time) (holder, error) {
 	if len(holders) == 0 {
-		return "", ErrTopicNotFound
+		return holder{}, ErrTopicNotFound
 	}
 
 	sort.Slice(holders, func(i, j int) bool { return holders[i].name < holders[j].name })
@@ -152,27 +159,27 @@ func pick(holders []holder, hostLabel string, c credential, validate bool, now t
 	for _, h := range holders {
 		if hostLabel != "" && strings.EqualFold(h.name, hostLabel) {
 			if validate && !h.accepts(c, now) {
-				return "", ErrUnauthorized
+				return holder{}, ErrUnauthorized
 			}
 
-			return h.name, nil
+			return h, nil
 		}
 	}
 
 	for _, h := range holders {
 		if h.accepts(c, now) {
-			return h.name, nil
+			return h, nil
 		}
 	}
 
 	switch {
 	case validate:
-		return "", ErrUnauthorized
+		return holder{}, ErrUnauthorized
 	case len(holders) == 1:
-		return holders[0].name, nil
+		return holders[0], nil
 	}
 
-	return "", ErrAmbiguousTopic
+	return holder{}, ErrAmbiguousTopic
 }
 
 // ResolveTopic picks the custom topic a publish request is for.
@@ -186,6 +193,31 @@ func (b *InMemoryBackend) ResolveTopic(hostLabel string, r *http.Request, valida
 	}
 
 	return pick(holders, hostLabel, credentialOf(r), validate, b.now())
+}
+
+// Publisher is the custom topic or domain a publish request addresses.
+type Publisher struct {
+	Name   string
+	Domain bool
+}
+
+// ResolvePublisher picks the custom topic or domain a publish request is for.
+func (b *InMemoryBackend) ResolvePublisher(hostLabel string, r *http.Request, validate bool) (Publisher, error) {
+	b.mu.RLock("ResolvePublisher")
+	defer b.mu.RUnlock()
+
+	holders := make([]holder, 0, len(b.topics)+len(b.domains))
+	for _, t := range b.topics {
+		holders = append(holders, holder{name: t.Name, key1: t.Key1, key2: t.Key2})
+	}
+
+	for _, d := range b.domains {
+		holders = append(holders, holder{name: d.Name, key1: d.Key1, key2: d.Key2, domain: true})
+	}
+
+	h, err := pickHolder(holders, hostLabel, credentialOf(r), validate, b.now())
+
+	return Publisher{Name: h.name, Domain: h.domain}, err
 }
 
 // ResolveNamespace picks the namespace that holds topicName for a namespace data-plane request.

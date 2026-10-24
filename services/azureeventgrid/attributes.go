@@ -166,13 +166,13 @@ func withholdSecrets(props map[string]any) {
 	props[propAttrMappings] = out
 }
 
-// DeliveryAttributes returns a topic event subscription's delivery attribute
+// DeliveryAttributes returns an event subscription's delivery attribute
 // mappings with secret values included (getDeliveryAttributes).
-func (b *InMemoryBackend) DeliveryAttributes(topicName, name string) ([]map[string]any, error) {
+func (b *InMemoryBackend) DeliveryAttributes(sc Scope, name string) ([]map[string]any, error) {
 	b.mu.RLock("DeliveryAttributes")
 	defer b.mu.RUnlock()
 
-	_, s, err := b.subLocked(topicName, name)
+	_, s, err := b.subAtLocked(sc, name)
 	if err != nil {
 		return nil, err
 	}

@@ -39,7 +39,7 @@ type outcome struct {
 
 type job struct {
 	ds       []*delivery
-	topic    string
+	scope    Scope
 	sub      string
 	topicRID string
 	spec     Spec
@@ -97,9 +97,9 @@ func (b *InMemoryBackend) collectDue() ([]job, []deadItem) {
 
 	now := b.now().UTC()
 
-	for _, t := range b.topics {
-		for _, s := range t.Subs {
-			base := job{topic: t.Name, sub: s.Name, topicRID: t.ResourceID, spec: s.Spec}
+	b.eachSubsLocked(func(sc Scope, rid string, subs map[string]*subscription) {
+		for _, s := range subs {
+			base := job{scope: sc, sub: s.Name, topicRID: rid, spec: s.Spec}
 			live := s.Pending[:0]
 
 			var ready []*delivery
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) collectDue() ([]job, []deadItem) {
 			s.Pending = live
 			jobs = append(jobs, batches(base, ready)...)
 		}
-	}
+	})
 
 	return jobs, dead
 }
@@ -223,12 +223,12 @@ func (b *InMemoryBackend) settle(j job, res outcome) []deadItem {
 }
 
 func (b *InMemoryBackend) liveSubLocked(j job) *subscription {
-	t, ok := b.topics[j.topic]
-	if !ok {
+	_, s, err := b.subAtLocked(j.scope, j.sub)
+	if err != nil {
 		return nil
 	}
 
-	return t.Subs[j.sub]
+	return s
 }
 
 func (s *subscription) dropDelivery(d *delivery) {
