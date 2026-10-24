@@ -54,7 +54,7 @@ type liveCollector struct {
 	holdSeconds      *prometheus.HistogramVec
 	activeWriters    *prometheus.GaugeVec
 	activeReaders    *prometheus.GaugeVec
-	nameRefs         map[string]int
+	nameRefs         map[string]*nameState
 	// allMutexes follows; sync.Map contains internal pointers so the GC scan
 	// still extends into it, but placing it after the Desc pointers is optimal.
 	allMutexes sync.Map // map[*RWMutex]struct{}
@@ -63,10 +63,29 @@ type liveCollector struct {
 	nameRefsMu sync.Mutex
 }
 
-func (c *liveCollector) acquireName(name string) {
+// nameState is shared by every mutex of one name: it holds the live count and the per-op
+// metric handles, so a new mutex of a known name resolves no labels.
+type nameState struct {
+	// readers caches the curried active-readers gauge; cleared on sweep so later use re-curries.
+	readers  atomic.Pointer[prometheus.Gauge]
+	writeOps sync.Map // op -> *writeOpMetrics
+	readOps  sync.Map // op -> prometheus.Observer
+	refs     int
+}
+
+func (c *liveCollector) acquireName(name string) *nameState {
 	c.nameRefsMu.Lock()
-	c.nameRefs[name]++
-	c.nameRefsMu.Unlock()
+	defer c.nameRefsMu.Unlock()
+
+	st := c.nameRefs[name]
+	if st == nil {
+		st = &nameState{}
+		c.nameRefs[name] = st
+	}
+
+	st.refs++
+
+	return st
 }
 
 // releaseName reports whether name has no live mutexes left.
@@ -74,22 +93,29 @@ func (c *liveCollector) releaseName(name string, first bool) bool {
 	c.nameRefsMu.Lock()
 	defer c.nameRefsMu.Unlock()
 
+	st := c.nameRefs[name]
+	if st == nil {
+		return true
+	}
+
 	if first {
-		if c.nameRefs[name] > 1 {
-			c.nameRefs[name]--
+		if st.refs > 1 {
+			st.refs--
 		} else {
 			delete(c.nameRefs, name)
+
+			return true
 		}
 	}
 
-	return c.nameRefs[name] == 0
+	return st.refs == 0
 }
 
 func newLiveCollector() *liveCollector {
 	buckets := []float64{.000001, .00001, .0001, .001, .01, .1, 1, 10}
 
 	return &liveCollector{
-		nameRefs: make(map[string]int),
+		nameRefs: make(map[string]*nameState),
 		writeHeldDesc: prometheus.NewDesc(
 			"gopherstack_lock_write_held_seconds",
 			"Live duration in seconds that the write lock is currently held (emitted only while held). "+
@@ -179,7 +205,10 @@ func (c *liveCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		if ts := m.writeStart.Load(); ts != 0 {
-			op, _ := m.writeOp.Load().(string)
+			var op string
+			if wm := m.writeMetricsCur.Load(); wm != nil {
+				op = wm.op
+			}
 			key := heldKey{lock: m.name, op: op}
 			if hs := time.Since(time.Unix(0, ts)).Seconds(); hs > held[key] {
 				held[key] = hs
@@ -255,6 +284,7 @@ func sharedCollector() *liveCollector {
 // writeOpMetrics caches one write operation's curried WithLabelValues
 // handles, so repeated Lock/Unlock calls for the same op skip the lookup.
 type writeOpMetrics struct {
+	op     string
 	wait   prometheus.Observer
 	hold   prometheus.Observer
 	active prometheus.Gauge
@@ -265,21 +295,11 @@ type writeOpMetrics struct {
 //
 // The zero value is not usable; always create via New.
 type RWMutex struct {
-	// activeReadersLock caches the curried active-readers gauge; Close clears it so
-	// later use re-curries instead of writing to the deleted series.
-	activeReadersLock atomic.Pointer[prometheus.Gauge]
-	writeOp           atomic.Value // string — current write-lock operation name
+	ns *nameState
 	// writeMetricsCur holds the current write-lock's metrics, set in Lock and
 	// read by the matching Unlock; safe since the write lock is exclusive.
 	writeMetricsCur atomic.Pointer[writeOpMetrics]
-	activeReaders   *prometheus.GaugeVec
-	activeWriters   *prometheus.GaugeVec
-	holdSeconds     *prometheus.HistogramVec
-	waitSeconds     *prometheus.HistogramVec
-	// writeOpCache/readOpCache memoize per-op WithLabelValues results
-	// (map[string]*writeOpMetrics / map[string]prometheus.Observer).
-	writeOpCache sync.Map
-	readOpCache  sync.Map
+	coll            *liveCollector
 	name         string
 	closed       atomic.Bool
 	writeStart   atomic.Int64 // unix nanoseconds; 0 when write lock is not held
@@ -294,19 +314,20 @@ type RWMutex struct {
 // writeMetricsFor returns the cached [writeOpMetrics] for op, creating and
 // caching it on first use.
 func (m *RWMutex) writeMetricsFor(op string) *writeOpMetrics {
-	if v, ok := m.writeOpCache.Load(op); ok {
+	if v, ok := m.ns.writeOps.Load(op); ok {
 		wm, _ := v.(*writeOpMetrics)
 
 		return wm
 	}
 
 	wm := &writeOpMetrics{
-		wait:   m.waitSeconds.WithLabelValues(m.name, op, "write"),
-		hold:   m.holdSeconds.WithLabelValues(m.name, op),
-		active: m.activeWriters.WithLabelValues(m.name, op),
+		op:     op,
+		wait:   m.coll.waitSeconds.WithLabelValues(m.name, op, "write"),
+		hold:   m.coll.holdSeconds.WithLabelValues(m.name, op),
+		active: m.coll.activeWriters.WithLabelValues(m.name, op),
 	}
 
-	actual, _ := m.writeOpCache.LoadOrStore(op, wm)
+	actual, _ := m.ns.writeOps.LoadOrStore(op, wm)
 	wm, _ = actual.(*writeOpMetrics)
 
 	return wm
@@ -315,12 +336,12 @@ func (m *RWMutex) writeMetricsFor(op string) *writeOpMetrics {
 // activeReaderGauge returns the cached active-readers gauge, re-currying it
 // if Close cleared the cache since the last call.
 func (m *RWMutex) activeReaderGauge() prometheus.Gauge {
-	if p := m.activeReadersLock.Load(); p != nil {
+	if p := m.ns.readers.Load(); p != nil {
 		return *p
 	}
 
-	g := m.activeReaders.WithLabelValues(m.name)
-	m.activeReadersLock.Store(&g)
+	g := m.coll.activeReaders.WithLabelValues(m.name)
+	m.ns.readers.Store(&g)
 
 	return g
 }
@@ -328,15 +349,15 @@ func (m *RWMutex) activeReaderGauge() prometheus.Gauge {
 // readWaitFor returns the cached read-wait [prometheus.Observer] for op,
 // creating and caching it on first use.
 func (m *RWMutex) readWaitFor(op string) prometheus.Observer {
-	if v, ok := m.readOpCache.Load(op); ok {
+	if v, ok := m.ns.readOps.Load(op); ok {
 		obs, _ := v.(prometheus.Observer)
 
 		return obs
 	}
 
-	obs := m.waitSeconds.WithLabelValues(m.name, op, "read")
+	obs := m.coll.waitSeconds.WithLabelValues(m.name, op, "read")
 
-	actual, _ := m.readOpCache.LoadOrStore(op, obs)
+	actual, _ := m.ns.readOps.LoadOrStore(op, obs)
 	obs, _ = actual.(prometheus.Observer)
 
 	return obs
@@ -349,21 +370,15 @@ func New(name string) *RWMutex {
 	coll := sharedCollector()
 
 	m := &RWMutex{
-		name:          name,
-		waitSeconds:   coll.waitSeconds,
-		holdSeconds:   coll.holdSeconds,
-		activeWriters: coll.activeWriters,
-		activeReaders: coll.activeReaders,
+		name: name,
+		coll: coll,
 	}
-	m.writeOp.Store("")
-
+	m.ns = coll.acquireName(name)
 	coll.allMutexes.Store(m, struct{}{})
-	coll.acquireName(name)
 
-	// Pre-curry the activeReaders gauge to this lock's name so RLock/RUnlock
-	// avoid a label hash lookup on every call.
-	g := m.activeReaders.WithLabelValues(m.name)
-	m.activeReadersLock.Store(&g)
+	if m.ns.readers.Load() == nil {
+		m.activeReaderGauge()
+	}
 
 	return m
 }
@@ -377,14 +392,11 @@ func (m *RWMutex) Close() {
 	if m == nil {
 		return
 	}
-	coll := sharedCollector()
+	coll := m.coll
 	coll.allMutexes.Delete(m)
 
 	if !coll.releaseName(m.name, m.closed.CompareAndSwap(false, true)) {
-		m.writeOpCache.Clear()
-		m.readOpCache.Clear()
 		m.writeMetricsCur.Store(nil)
-		m.activeReadersLock.Store(nil)
 
 		return
 	}
@@ -392,17 +404,17 @@ func (m *RWMutex) Close() {
 	// Remove all label-value combinations for this lock name from every metric
 	// family. Because "operation" is dynamic we use DeletePartialMatch to sweep
 	// all series whose labelLock label equals m.name in a single call.
-	m.waitSeconds.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
-	m.holdSeconds.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
-	m.activeWriters.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
-	m.activeReaders.DeleteLabelValues(m.name)
+	m.coll.waitSeconds.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
+	m.coll.holdSeconds.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
+	m.coll.activeWriters.DeletePartialMatch(prometheus.Labels{labelLock: m.name})
+	m.coll.activeReaders.DeleteLabelValues(m.name)
 
 	// Drop cached handles: they point at series just deleted above. A stray
 	// call after Close recreates fresh series, matching pre-cache behavior.
-	m.writeOpCache.Clear()
-	m.readOpCache.Clear()
+	m.ns.writeOps.Clear()
+	m.ns.readOps.Clear()
+	m.ns.readers.Store(nil)
 	m.writeMetricsCur.Store(nil)
-	m.activeReadersLock.Store(nil)
 }
 
 // WriteWaiters returns the current number of goroutines blocked waiting for
@@ -431,17 +443,23 @@ func (m *RWMutex) GetLockStatus() (bool, int32, int32) {
 
 // Lock acquires the exclusive write lock. op is the name of the calling
 // operation (e.g. "DeleteBucket") and is recorded in metrics so lock
-// contention can be attributed to specific callers.
+// contention can be attributed to specific callers. An uncontended acquire
+// observes a zero wait rather than timing the attempt.
 func (m *RWMutex) Lock(op string) {
-	start := time.Now()
-	m.writeWaiters.Add(1) // goroutine is now waiting
-	m.mu.Lock()
-	m.writeWaiters.Add(-1) // acquired — no longer waiting
+	var wait float64
+
+	if !m.mu.TryLock() {
+		start := time.Now()
+		m.writeWaiters.Add(1) // goroutine is now waiting
+		m.mu.Lock()
+		m.writeWaiters.Add(-1) // acquired — no longer waiting
+
+		wait = time.Since(start).Seconds()
+	}
 
 	wm := m.writeMetricsFor(op)
-	wm.wait.Observe(time.Since(start).Seconds())
+	wm.wait.Observe(wait)
 	wm.active.Inc()
-	m.writeOp.Store(op)
 	m.writeMetricsCur.Store(wm)
 	m.writeStart.Store(time.Now().UnixNano())
 }
@@ -464,19 +482,24 @@ func (m *RWMutex) Unlock() {
 	wm.hold.Observe(held)
 	wm.active.Dec()
 	m.writeStart.Store(0)
-	m.writeOp.Store("")
 	m.mu.Unlock()
 }
 
 // RLock acquires the shared read lock. op names the calling operation and
 // is recorded in the wait-time histogram.
 func (m *RWMutex) RLock(op string) {
-	start := time.Now()
-	m.readWaiters.Add(1) // goroutine is now waiting
-	m.mu.RLock()
-	m.readWaiters.Add(-1) // acquired — no longer waiting
+	var wait float64
 
-	m.readWaitFor(op).Observe(time.Since(start).Seconds())
+	if !m.mu.TryRLock() {
+		start := time.Now()
+		m.readWaiters.Add(1) // goroutine is now waiting
+		m.mu.RLock()
+		m.readWaiters.Add(-1) // acquired — no longer waiting
+
+		wait = time.Since(start).Seconds()
+	}
+
+	m.readWaitFor(op).Observe(wait)
 	m.activeReaderGauge().Inc()
 }
 

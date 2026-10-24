@@ -246,3 +246,39 @@ func TestErrorMessageDropsRepeatedCode(t *testing.T) {
 	assert.Equal(t, "cell is busy", body["message"])
 	assert.Equal(t, "R", body["reason"])
 }
+
+func TestRouterHandles(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "static", path: "/cells", want: true},
+		{name: "label", path: "/cells/c1", want: true},
+		{name: "escaped slash label", path: "/cells/a%2Fb", want: true},
+		{name: "bad escape label", path: "/cells/%zz", want: false},
+		{name: "literal mismatch", path: "/checks/n/other/i/status", want: false},
+		{name: "wrong depth", path: "/cells/a/b", want: false},
+		{name: "root", path: "/", want: false},
+	}
+
+	r := newRouter()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, r.Handles(tt.path))
+		})
+	}
+}
+
+//nolint:paralleltest // testing.AllocsPerRun panics under t.Parallel
+func TestRouterHandlesNoAlloc(t *testing.T) {
+	r := newRouter()
+
+	allocs := testing.AllocsPerRun(100, func() { _ = r.Handles("/checks/name/resource/id/other") })
+	assert.Zero(t, allocs)
+}
