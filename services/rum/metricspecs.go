@@ -148,3 +148,33 @@ func validTopLevel(path string) bool {
 
 	return slices.Contains(topLevelKeys, first)
 }
+
+const (
+	telemetryErrors      = "errors"
+	telemetryPerformance = "performance"
+	telemetryHTTP        = "http"
+)
+
+// telemetryOfEvent maps an event type to the AppMonitorConfiguration telemetry that gates it
+// (errors: unhandled JS errors, performance: load/render data incl. Core Web Vitals, http: HTTP errors);
+// other event types are not gated.
+var telemetryOfEvent = map[string]string{ //nolint:gochecknoglobals // immutable lookup table
+	evtJSError:    telemetryErrors,
+	evtNavigation: telemetryPerformance,
+	evtResource:   telemetryPerformance,
+	evtCLS:        telemetryPerformance,
+	evtFID:        telemetryPerformance,
+	evtLCP:        telemetryPerformance,
+	evtHTTP:       telemetryHTTP,
+}
+
+// collects reports whether the monitor's Telemetries allow the event type; no Telemetries means no gating.
+func (m *AppMonitor) collects(eventType string) bool {
+	if m.Config == nil || len(m.Config.Telemetries) == 0 {
+		return true
+	}
+
+	t, gated := telemetryOfEvent[eventType]
+
+	return !gated || slices.Contains(m.Config.Telemetries, t)
+}

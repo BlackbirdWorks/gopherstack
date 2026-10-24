@@ -101,13 +101,16 @@ func (b *InMemoryBackend) wireClusterLocked(c *Cluster) wireCluster {
 		out.HsmTypeRollbackExpiration = 0
 	}
 
-	certs := &wireCertificates{ClusterCertificate: c.ClusterCert}
+	certs := wireCertificates{
+		ClusterCertificate: c.ClusterCert, HsmCertificate: c.HsmCert,
+		AwsHardwareCertificate: c.AwsHwCert, ManufacturerHardwareCertificate: c.MfrHwCert,
+	}
 	if !c.Initialized && !now.Before(c.ReadyAt) {
 		certs.ClusterCsr = c.CSR
 	}
 
-	if certs.ClusterCertificate != "" || certs.ClusterCsr != "" {
-		out.Certificates = certs
+	if certs != (wireCertificates{}) {
+		out.Certificates = &certs
 	}
 
 	for _, h := range b.liveHsmsLocked(c.ID, now) {
@@ -248,7 +251,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, in CreateClusterInp
 
 	id := newClusterID()
 
-	csr, err := newClusterCSR(id)
+	csr, hsmKey, err := newClusterCSR(id)
 	if err != nil {
 		return wireCluster{}, fail(ErrInternalFailure, "%v", err)
 	}
@@ -272,7 +275,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, in CreateClusterInp
 	now := b.now()
 	c := &Cluster{
 		ID: id, Account: sc.account, Region: sc.region, HsmType: in.HsmType, Mode: mode, NetworkType: netType,
-		VpcID: vpc, SubnetMapping: mapping, Tags: tags, RetentionDays: days, CSR: csr,
+		VpcID: vpc, SubnetMapping: mapping, Tags: tags, RetentionDays: days, CSR: csr, HsmKey: hsmKey,
 		Created: now, ReadyAt: now.Add(b.dwell()),
 	}
 

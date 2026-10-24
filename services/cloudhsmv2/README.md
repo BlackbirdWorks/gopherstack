@@ -9,15 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 18 (18 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 8 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Certificates: AwsHardwareCertificate, HsmCertificate and ManufacturerHardwareCertificate are not emitted
-- Hsm.EniIpV6: DUALSTACK clusters get an IPv4 ENI only; no IPv6 address is allocated
+- Hsm.EniIpV6: DUALSTACK clusters get an IPv4 ENI only; the EC2 backend assigns IPv6 addresses from a fixed 2001:db8:: prefix, not the subnet IPv6 CIDR, so none is allocated
 - Backups: no daily automatic backups; only the lifecycle points listed in the backups family
 - DescribeBackups Shared: only PutResourcePolicy grants are consulted; RAM resource shares are not
 - CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
@@ -30,7 +29,7 @@
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
 - Cluster.PreCoPassword: the HSM user model (PRECO, CO, CU) does not exist, so no password can be real
-- Certificates hardware chain: there is no physical HSM to carry AWS or manufacturer hardware certificates
+- Certificates hardware chain: the manufacturer, AWS hardware and HSM certificates are emulator-issued (manufacturer root is generated per cluster), not rooted in a real vendor CA
 - Cluster ACTIVE from a customer activation: real clusters become ACTIVE after the CloudHSM CLI activates them on the HSM; the emulator derives ACTIVE from an initialized cluster with an ACTIVE HSM
 
 ## More

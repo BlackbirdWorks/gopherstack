@@ -13,8 +13,11 @@ type wireRetention struct {
 }
 
 type wireCertificates struct {
-	ClusterCertificate string `json:"ClusterCertificate,omitempty"`
-	ClusterCsr         string `json:"ClusterCsr,omitempty"`
+	AwsHardwareCertificate          string `json:"AwsHardwareCertificate,omitempty"`
+	ClusterCertificate              string `json:"ClusterCertificate,omitempty"`
+	ClusterCsr                      string `json:"ClusterCsr,omitempty"`
+	HsmCertificate                  string `json:"HsmCertificate,omitempty"`
+	ManufacturerHardwareCertificate string `json:"ManufacturerHardwareCertificate,omitempty"`
 }
 
 type wireHsm struct {

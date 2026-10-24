@@ -28,7 +28,9 @@ const (
 
 var namePattern = regexp.MustCompile(`^[\.\-_/#A-Za-z0-9]+$`)
 
-func validTelemetry(t string) bool { return t == "errors" || t == "performance" || t == "http" }
+func validTelemetry(t string) bool {
+	return t == telemetryErrors || t == telemetryPerformance || t == telemetryHTTP
+}
 
 func validPlatform(p string) bool {
 	return p == platformWeb || p == platformAndroid || p == platformIOS
