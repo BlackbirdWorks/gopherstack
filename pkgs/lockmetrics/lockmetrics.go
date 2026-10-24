@@ -179,7 +179,10 @@ func (c *liveCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		if ts := m.writeStart.Load(); ts != 0 {
-			op, _ := m.writeOp.Load().(string)
+			var op string
+			if wm := m.writeMetricsCur.Load(); wm != nil {
+				op = wm.op
+			}
 			key := heldKey{lock: m.name, op: op}
 			if hs := time.Since(time.Unix(0, ts)).Seconds(); hs > held[key] {
 				held[key] = hs
@@ -255,6 +258,7 @@ func sharedCollector() *liveCollector {
 // writeOpMetrics caches one write operation's curried WithLabelValues
 // handles, so repeated Lock/Unlock calls for the same op skip the lookup.
 type writeOpMetrics struct {
+	op     string
 	wait   prometheus.Observer
 	hold   prometheus.Observer
 	active prometheus.Gauge
@@ -268,7 +272,6 @@ type RWMutex struct {
 	// activeReadersLock caches the curried active-readers gauge; Close clears it so
 	// later use re-curries instead of writing to the deleted series.
 	activeReadersLock atomic.Pointer[prometheus.Gauge]
-	writeOp           atomic.Value // string — current write-lock operation name
 	// writeMetricsCur holds the current write-lock's metrics, set in Lock and
 	// read by the matching Unlock; safe since the write lock is exclusive.
 	writeMetricsCur atomic.Pointer[writeOpMetrics]
@@ -301,6 +304,7 @@ func (m *RWMutex) writeMetricsFor(op string) *writeOpMetrics {
 	}
 
 	wm := &writeOpMetrics{
+		op:     op,
 		wait:   m.waitSeconds.WithLabelValues(m.name, op, "write"),
 		hold:   m.holdSeconds.WithLabelValues(m.name, op),
 		active: m.activeWriters.WithLabelValues(m.name, op),
@@ -355,8 +359,6 @@ func New(name string) *RWMutex {
 		activeWriters: coll.activeWriters,
 		activeReaders: coll.activeReaders,
 	}
-	m.writeOp.Store("")
-
 	coll.allMutexes.Store(m, struct{}{})
 	coll.acquireName(name)
 
@@ -431,17 +433,23 @@ func (m *RWMutex) GetLockStatus() (bool, int32, int32) {
 
 // Lock acquires the exclusive write lock. op is the name of the calling
 // operation (e.g. "DeleteBucket") and is recorded in metrics so lock
-// contention can be attributed to specific callers.
+// contention can be attributed to specific callers. An uncontended acquire
+// observes a zero wait rather than timing the attempt.
 func (m *RWMutex) Lock(op string) {
-	start := time.Now()
-	m.writeWaiters.Add(1) // goroutine is now waiting
-	m.mu.Lock()
-	m.writeWaiters.Add(-1) // acquired — no longer waiting
+	var wait float64
+
+	if !m.mu.TryLock() {
+		start := time.Now()
+		m.writeWaiters.Add(1) // goroutine is now waiting
+		m.mu.Lock()
+		m.writeWaiters.Add(-1) // acquired — no longer waiting
+
+		wait = time.Since(start).Seconds()
+	}
 
 	wm := m.writeMetricsFor(op)
-	wm.wait.Observe(time.Since(start).Seconds())
+	wm.wait.Observe(wait)
 	wm.active.Inc()
-	m.writeOp.Store(op)
 	m.writeMetricsCur.Store(wm)
 	m.writeStart.Store(time.Now().UnixNano())
 }
@@ -464,19 +472,24 @@ func (m *RWMutex) Unlock() {
 	wm.hold.Observe(held)
 	wm.active.Dec()
 	m.writeStart.Store(0)
-	m.writeOp.Store("")
 	m.mu.Unlock()
 }
 
 // RLock acquires the shared read lock. op names the calling operation and
 // is recorded in the wait-time histogram.
 func (m *RWMutex) RLock(op string) {
-	start := time.Now()
-	m.readWaiters.Add(1) // goroutine is now waiting
-	m.mu.RLock()
-	m.readWaiters.Add(-1) // acquired — no longer waiting
+	var wait float64
 
-	m.readWaitFor(op).Observe(time.Since(start).Seconds())
+	if !m.mu.TryRLock() {
+		start := time.Now()
+		m.readWaiters.Add(1) // goroutine is now waiting
+		m.mu.RLock()
+		m.readWaiters.Add(-1) // acquired — no longer waiting
+
+		wait = time.Since(start).Seconds()
+	}
+
+	m.readWaitFor(op).Observe(wait)
 	m.activeReaderGauge().Inc()
 }
 
