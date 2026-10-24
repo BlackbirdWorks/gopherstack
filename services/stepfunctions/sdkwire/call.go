@@ -185,8 +185,10 @@ func withToken(o *Op, params any) any {
 		return params
 	}
 
-	out := make(map[string]any, len(m)+1)
-	maps.Copy(out, m)
+	out := maps.Clone(m)
+	if out == nil {
+		out = map[string]any{}
+	}
 
 	out[o.Token] = uuid.NewString()
 
