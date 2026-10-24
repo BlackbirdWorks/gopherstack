@@ -69,7 +69,7 @@ items_still_open:
   - "Query: query_exemplars always returns no exemplars (none are ingested); targets and status config, flags, runtimeinfo and tsdb endpoints are not served"
   - "LoggingConfiguration: the CloudWatch Logs log group ARN is checked for shape only, never looked up, and no log is delivered"
   - "Authorization: SigV4 signatures and resource policies are not evaluated on the data plane"
-  - "CreateWorkspace: the 25 workspaces per Region quota and KMS key existence are not enforced"
+  - "CreateWorkspace: KMS key existence is not checked"
 structural_gaps:
   - "No ingestion at scale or durable storage: samples live in process memory (and the persistence snapshot), there is no compaction, replication or long-term object storage."
   - "The default scraper configuration document returned by GetDefaultScraperConfiguration is AWS-authored text; the emulator serves an equivalent Kubernetes service-discovery configuration."
