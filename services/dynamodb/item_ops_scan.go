@@ -640,6 +640,8 @@ func scanPage(
 	scannedCount := int32(0)
 	totalScannedSize := 0
 
+	boundFilter := parsedFilter.Bind(eav, eans)
+
 	for i, item := range candidate {
 		scannedCount++
 
@@ -654,7 +656,7 @@ func scanPage(
 		}
 		totalScannedSize += itemSize
 
-		if parsedFilter.Evaluate(item, eav, eans) {
+		if boundFilter.Evaluate(item) {
 			projectedItem := item
 			if projection != nil {
 				projectedItem = applyIndexProjection(item, *projection, tableKeySchema, indexKeySchema)

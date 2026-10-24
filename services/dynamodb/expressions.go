@@ -281,6 +281,43 @@ func (c *ParsedCondition) Evaluate(
 	return ok && b
 }
 
+// BoundCondition is a ParsedCondition bound to one request's expression attribute maps,
+// resolving each :value placeholder once across many items. Not safe for concurrent use.
+type BoundCondition struct {
+	eval *expr.Evaluator
+	node expr.Node
+}
+
+// Bind fixes attrValues and attrNames for repeated Evaluate calls over many items.
+func (c *ParsedCondition) Bind(attrValues map[string]any, attrNames map[string]string) *BoundCondition {
+	if c == nil || c.node == nil {
+		return &BoundCondition{}
+	}
+
+	eval := &expr.Evaluator{AttrNames: attrNames, AttrValues: attrValues}
+	eval.Memoize()
+
+	return &BoundCondition{eval: eval, node: c.node}
+}
+
+// Evaluate reports whether item satisfies the condition; a zero condition matches everything.
+func (b *BoundCondition) Evaluate(item map[string]any) bool {
+	if b.node == nil {
+		return true
+	}
+
+	b.eval.Item = item
+
+	result, err := b.eval.Evaluate(b.node)
+	if err != nil {
+		return false
+	}
+
+	matched, ok := result.(bool)
+
+	return ok && matched
+}
+
 // validateEAVTypes checks that expression attribute values are structurally valid
 // wire-format attribute values (each must be a single-key type map).
 func validateEAVTypes(eav map[string]any) error {
