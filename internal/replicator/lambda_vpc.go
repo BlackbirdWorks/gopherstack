@@ -5,9 +5,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 )
 
@@ -39,16 +36,9 @@ func (r *run) vpcFor(ctx context.Context, c *lambdatypes.FunctionConfiguration) 
 }
 
 func (r *run) missingNetwork(ctx context.Context, v *lambdatypes.VpcConfigResponse) string {
-	subnets, err := r.dst.ec2.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
-		Filters: []ec2types.Filter{{Name: aws.String("subnet-id"), Values: v.SubnetIds}},
-	})
+	have, err := r.dst.ec2.idsWhere(ctx, "DescribeSubnets", "Subnets", "SubnetId", "subnet-id", v.SubnetIds)
 	if err != nil {
 		return "VPC config skipped: cannot verify target subnets: " + errCode(err)
-	}
-
-	have := make([]string, 0, len(subnets.Subnets))
-	for _, s := range subnets.Subnets {
-		have = append(have, aws.ToString(s.SubnetId))
 	}
 
 	if m := notIn(v.SubnetIds, have); len(m) > 0 {
@@ -59,16 +49,9 @@ func (r *run) missingNetwork(ctx context.Context, v *lambdatypes.VpcConfigRespon
 		return ""
 	}
 
-	sgs, err := r.dst.ec2.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
-		Filters: []ec2types.Filter{{Name: aws.String("group-id"), Values: v.SecurityGroupIds}},
-	})
+	have, err = r.dst.ec2.idsWhere(ctx, "DescribeSecurityGroups", "SecurityGroups", "GroupId", "group-id", v.SecurityGroupIds)
 	if err != nil {
 		return "VPC config skipped: cannot verify target security groups: " + errCode(err)
-	}
-
-	have = have[:0]
-	for _, g := range sgs.SecurityGroups {
-		have = append(have, aws.ToString(g.GroupId))
 	}
 
 	if m := notIn(v.SecurityGroupIds, have); len(m) > 0 {

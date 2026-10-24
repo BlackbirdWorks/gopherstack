@@ -71,6 +71,10 @@ func (s *Service) Call(ctx context.Context, tgt Target, op string, params any) (
 	res := rec.Result()
 	res.Request = req
 
+	if res.StatusCode/100 == 2 && (rec.Body.Len() == 0 || voidOutput(o)) {
+		return map[string]any{}, nil
+	}
+
 	resp := &smithyhttp.Response{Response: res}
 	out := &output{schema: o.Schema.Output}
 
@@ -187,4 +191,9 @@ func withToken(o *Op, params any) any {
 	out[o.Token] = uuid.NewString()
 
 	return out
+}
+
+// voidOutput reports an operation without output members, whose success body the SDK discards.
+func voidOutput(o *Op) bool {
+	return o.Schema.Output == nil || len(o.Schema.Output.Members()) == 0
 }
