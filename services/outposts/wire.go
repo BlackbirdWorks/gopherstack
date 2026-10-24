@@ -651,3 +651,34 @@ type startConnectionRequest struct {
 type tagResourceRequest struct {
 	Tags map[string]string `json:"Tags"`
 }
+
+// vpcInformationWire mirrors types.VpcInformation (outposts schemas.go).
+type vpcInformationWire struct {
+	VpcId         string   `json:"VpcId,omitempty"`         //nolint:revive,staticcheck // SDK name
+	VpcEndpointId string   `json:"VpcEndpointId,omitempty"` //nolint:revive,staticcheck // SDK name
+	SubnetIds     []string `json:"SubnetIds,omitempty"`     //nolint:revive,staticcheck // SDK name
+}
+
+// privateConnectivityConfigWire mirrors types.PrivateConnectivityConfig.
+type privateConnectivityConfigWire struct {
+	RoleArn                   string               `json:"RoleArn,omitempty"`
+	PrivateConnectivityStatus string               `json:"PrivateConnectivityStatus"`
+	VpcInformationList        []vpcInformationWire `json:"VpcInformationList"`
+}
+
+// createPrivateConnectivityConfigRequest mirrors the JSON body of
+// CreatePrivateConnectivityConfigInput (OutpostId is a path label).
+type createPrivateConnectivityConfigRequest struct {
+	VpcInformationList []vpcInformationWire `json:"VpcInformationList"`
+}
+
+// createPrivateConnectivityConfigResponse mirrors CreatePrivateConnectivityConfigOutput.
+type createPrivateConnectivityConfigResponse struct {
+	PrivateConnectivityConfig *privateConnectivityConfigWire `json:"PrivateConnectivityConfig,omitempty"`
+	OutpostID                 string                         `json:"OutpostId,omitempty"`
+}
+
+// getPrivateConnectivityConfigResponse mirrors GetPrivateConnectivityConfigOutput.
+type getPrivateConnectivityConfigResponse struct {
+	PrivateConnectivityConfig *privateConnectivityConfigWire `json:"PrivateConnectivityConfig,omitempty"`
+}

@@ -27,6 +27,7 @@ const (
 	subAnalysisRule       = "analysisRule"
 	subProtectedJobs      = "protectedJobs"
 	subProtectedQueries   = "protectedQueries"
+	subAnalysisLogExports = "analysislogexports"
 	subTags               = "tags"
 	subIntermediateTables = "intermediateTables"
 	subDisallowIT         = "disallowIntermediateTable"
@@ -149,6 +150,9 @@ const (
 	opListPrivacyBudgets                                   = "ListPrivacyBudgets"
 	opListPrivacyBudgetTemplates                           = "ListPrivacyBudgetTemplates"
 	opListProtectedJobs                                    = "ListProtectedJobs"
+	opListAnalysisLogExports                               = "ListAnalysisLogExports"
+	opGetAnalysisLogExport                                 = "GetAnalysisLogExport"
+	opStartAnalysisLogExport                               = "StartAnalysisLogExport"
 	opListProtectedQueries                                 = "ListProtectedQueries"
 	opListSchemas                                          = "ListSchemas"
 	opListTagsForResource                                  = "ListTagsForResource"
@@ -301,6 +305,9 @@ func readWriteOperations() []string {
 		opListPrivacyBudgetTemplates,
 		opListProtectedJobs,
 		opListProtectedQueries,
+		opListAnalysisLogExports,
+		opGetAnalysisLogExport,
+		opStartAnalysisLogExport,
 		opListSchemas,
 		opListTagsForResource,
 		opPopulateIDMappingTable,
@@ -405,6 +412,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		status, code = http.StatusConflict, "ConflictException"
 	case errors.Is(err, ErrValidation):
 		status, code = http.StatusBadRequest, "ValidationException"
+	case errors.Is(err, ErrAccessDenied):
+		status, code = http.StatusForbidden, "AccessDeniedException"
 	default:
 		status, code = http.StatusInternalServerError, "InternalServerException"
 	}
@@ -430,6 +439,7 @@ func (h *Handler) buildOpHandlers(_ *echo.Context) map[string]opHandlerFn {
 	maps.Copy(out, h.buildAnalysisTemplateHandlers())
 	maps.Copy(out, h.buildSchemaHandlers())
 	maps.Copy(out, h.buildProtectedComputeHandlers())
+	maps.Copy(out, h.buildAnalysisLogExportHandlers())
 	maps.Copy(out, h.buildPrivacyBudgetHandlers())
 	maps.Copy(out, h.buildIDMappingTableHandlers())
 	maps.Copy(out, h.buildCAMAAndIDNamespaceHandlers())

@@ -3,6 +3,7 @@ package glue
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -446,4 +447,91 @@ func (b *InMemoryBackend) DeleteIntegrationTableProperties(resourceArn, tableNam
 	b.integrationTableProps.Delete(key)
 
 	return nil
+}
+
+// ListIntegrationTableProperties returns stored table properties matching every
+// filter (values within one filter are ORed), ordered by ResourceArn then TableName.
+func (b *InMemoryBackend) ListIntegrationTableProperties(
+	filters []IntegrationTablePropertiesFilter,
+) ([]*IntegrationTableProperties, error) {
+	for _, f := range filters {
+		if !validIntegrationTableFilterName(f.Name) {
+			return nil, fmt.Errorf("%w: unsupported filter %q", ErrValidation, f.Name)
+		}
+	}
+
+	b.mu.RLock("ListIntegrationTableProperties")
+	defer b.mu.RUnlock()
+
+	var out []*IntegrationTableProperties
+
+	for _, p := range b.integrationTableProps.Snapshot() {
+		if !integrationTableMatches(p, filters) {
+			continue
+		}
+
+		cp := *p
+		cp.SourceTableConfig = maps.Clone(p.SourceTableConfig)
+		cp.TargetTableConfig = maps.Clone(p.TargetTableConfig)
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ResourceArn != out[j].ResourceArn {
+			return out[i].ResourceArn < out[j].ResourceArn
+		}
+
+		return out[i].TableName < out[j].TableName
+	})
+
+	return out, nil
+}
+
+const (
+	filterSourceArn       = "SourceArn"
+	filterTargetArn       = "TargetArn"
+	filterSourceTableName = "SourceTableName"
+	filterTargetTableName = "TargetTableName"
+)
+
+func validIntegrationTableFilterName(name string) bool {
+	switch name {
+	case filterSourceArn, filterTargetArn, filterSourceTableName, filterTargetTableName:
+		return true
+	}
+
+	return false
+}
+
+// isIntegrationTarget reports whether the properties belong to the target side
+// (a database ARN) rather than the source connection.
+func isIntegrationTarget(p *IntegrationTableProperties) bool {
+	return strings.Contains(p.ResourceArn, ":database/")
+}
+
+func integrationTableMatches(p *IntegrationTableProperties, filters []IntegrationTablePropertiesFilter) bool {
+	target := isIntegrationTarget(p)
+	targetName, _ := p.TargetTableConfig["TargetTableName"].(string)
+
+	for _, f := range filters {
+		var ok bool
+
+		switch f.Name {
+		case filterSourceArn:
+			ok = !target && slices.Contains(f.Values, p.ResourceArn)
+		case filterTargetArn:
+			ok = target && slices.Contains(f.Values, p.ResourceArn)
+		case filterSourceTableName:
+			ok = !target && slices.Contains(f.Values, p.TableName)
+		case filterTargetTableName:
+			ok = target && (slices.Contains(f.Values, p.TableName) ||
+				(targetName != "" && slices.Contains(f.Values, targetName)))
+		}
+
+		if !ok {
+			return false
+		}
+	}
+
+	return true
 }

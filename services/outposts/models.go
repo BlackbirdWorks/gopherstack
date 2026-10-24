@@ -298,3 +298,19 @@ type Connection struct {
 	UnderlayIPAddress   string
 	AllowedIps          []string
 }
+
+// VpcInformation mirrors types.VpcInformation.
+type VpcInformation struct {
+	VpcID         string   `json:"vpcId,omitempty"`
+	VpcEndpointID string   `json:"vpcEndpointId,omitempty"`
+	SubnetIDs     []string `json:"subnetIds,omitempty"`
+}
+
+// PrivateConnectivityConfig is one Outpost's private connectivity setup,
+// keyed by OutpostID.
+type PrivateConnectivityConfig struct {
+	OutpostID string           `json:"outpostId"`
+	RoleARN   string           `json:"roleArn"`
+	Status    string           `json:"status"`
+	VPCs      []VpcInformation `json:"vpcs"`
+}

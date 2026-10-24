@@ -131,6 +131,9 @@ func registerAllTables(b *InMemoryBackend) {
 	b.ingestionJobs = store.Register(b.registry, "ingestionJobs", store.New(ingestionJobKeyFn))
 	b.ingestionJobsByDataSource = b.ingestionJobs.AddIndex("byDataSource", ingestionJobByDataSourceKeyFn)
 
+	b.vpcConfigurations = store.Register(b.registry, "vpcConfigurations", store.New(vpcConfigurationKeyFn))
+	b.vpcConfigurationsByKB = b.vpcConfigurations.AddIndex("byKB", vpcConfigurationByKBKeyFn)
+
 	b.flows = store.Register(b.registry, "flows", store.New(flowKeyFn))
 
 	b.flowVersions = store.Register(b.registry, "flowVersions", store.New(flowVersionKeyFn))

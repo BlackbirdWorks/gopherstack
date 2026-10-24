@@ -737,7 +737,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Athena](services/athena/README.md) | A | 26 | 7 gaps; 6 structural gaps; 1 deferred |
-| [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 1 gap; 5 structural gaps |
+| [Clean Rooms](services/cleanrooms/README.md) | A | — | 18 families; 5 structural gaps |
 | [EMR](services/emr/README.md) | A | 65 | 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 structural gap |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 1 structural gap |
@@ -776,7 +776,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 gap; 4 deferred |
-| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 7 gaps; 3 structural gaps |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 71 | 6 gaps; 3 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 1 gap; 5 structural gaps; 1 deferred |
@@ -830,7 +830,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Bedrock](services/bedrock/README.md) | A | 80 | 1 gap; 3 structural gaps |
-| [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 3 gaps; 3 structural gaps; 2 deferred |
+| [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 2 gaps; 3 structural gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 3 gaps; 5 structural gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 1 gap; 1 structural gap; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 1 gap |
@@ -945,7 +945,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 4 gaps; 3 structural gaps |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
 | [Oam](services/oam/README.md) | B | 15 | 4 gaps; 1 structural gap |
-| [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 7 structural gaps |
+| [Outposts](services/outposts/README.md) | A | 45 | 2 gaps; 7 structural gaps |
 | [Pricing](services/pricing/README.md) | B | 5 | 5 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
 | [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 27 | 13 gaps; 1 structural gap |

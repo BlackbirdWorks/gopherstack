@@ -191,6 +191,7 @@ func (b *InMemoryBackend) DeleteOutpost(idOrARN string) error {
 		o.Tags.Close()
 	}
 
+	b.privateConnectivity.Delete(o.ID)
 	b.outposts.Delete(o.ID)
 
 	return nil

@@ -21,6 +21,5 @@ func TestSDKCompleteness(t *testing.T) {
 	sdkcheck.CheckCompleteness(t, &gluesdk.Client{}, h.GetSupportedOperations(), []string{
 		"GetSystemLogsForJobRun",
 		"GetSystemLogsForSession",
-		"ListIntegrationTableProperties",
 	})
 }

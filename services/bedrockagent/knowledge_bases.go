@@ -130,6 +130,11 @@ func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) er
 	delete(b.kbsByName, kb.Name)
 	delete(b.transient, "kb/"+kbID)
 	b.knowledgeBases.Delete(kbID)
+
+	for _, v := range slices.Clone(b.vpcConfigurationsByKB.Get(kbID)) {
+		b.vpcConfigurations.Delete(vpcConfigurationKeyFn(v))
+	}
+
 	delete(b.tags, kb.KnowledgeBaseARN)
 	b.resourcePolicies.Delete(kb.KnowledgeBaseARN)
 

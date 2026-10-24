@@ -1031,6 +1031,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "ListIntegrationTableProperties",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleListIntegrationTableProperties)
+		},
+	},
+	{
 		name: "ListIterableForms",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleListIterableForms)

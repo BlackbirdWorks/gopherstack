@@ -7,16 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 43 (35 ok, 8 partial) |
+| PARITY entries audited | 45 (37 ok, 8 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreatePrivateConnectivityConfig, GetPrivateConnectivityConfig.
 - ListBlockingInstancesForCapacityTask returns empty and WAITING_FOR_EVACUATION never occurs (UNVERIFIABLE): outposts@v1.66.1 does not say whether InstanceTypeCapacity.Count is a delta or a target, or how running instances map to the physical capacity a task needs, so the additive StartCapacityTask model cannot be replaced by a blocking model without inventing semantics.
 - OrderingRequirementType UNSUPPORTED and OUTPOST_STATE_CHANGED_ERROR are not produced (UNVERIFIABLE): the SDK and docs give no trigger condition for either.
 

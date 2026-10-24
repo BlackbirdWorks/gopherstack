@@ -99,3 +99,35 @@ type updateTermsInput struct {
 type updateTermsOutput struct {
 	Terms *termsType `json:"Terms,omitempty"`
 }
+
+type describeTermsByClientInput struct {
+	ClientID   string `json:"ClientId,omitempty"`
+	TermsName  string `json:"TermsName,omitempty"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+}
+
+type adminDeleteSoftwareTokenInput struct {
+	UserPoolID string `json:"UserPoolId,omitempty"`
+	Username   string `json:"Username,omitempty"`
+}
+
+type adminDeleteSoftwareTokenOutput struct{}
+
+// getClientTokenInput mirrors GetClientTokenInput (api_op_GetClientToken.go).
+type getClientTokenInput struct {
+	ClientMetadata map[string]string `json:"ClientMetadata,omitempty"`
+	ClientID       string            `json:"ClientId,omitempty"`
+	Secret         string            `json:"Secret,omitempty"`
+	Scopes         []string          `json:"Scopes,omitempty"`
+}
+
+// clientAuthenticationResultType mirrors types.ClientAuthenticationResultType.
+type clientAuthenticationResultType struct {
+	AccessToken string `json:"AccessToken,omitempty"`
+	TokenType   string `json:"TokenType,omitempty"`
+	ExpiresIn   int32  `json:"ExpiresIn,omitempty"`
+}
+
+type getClientTokenOutput struct {
+	ClientAuthenticationResult *clientAuthenticationResultType `json:"ClientAuthenticationResult,omitempty"`
+}
