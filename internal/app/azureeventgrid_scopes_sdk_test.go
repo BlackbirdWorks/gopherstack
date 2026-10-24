@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -68,7 +69,7 @@ func (s *egDomainStack) subscribe(t *testing.T, scope, name, url string, types .
 
 // await delivers due events until one matching eventType and subject reaches r.
 func (s *egDomainStack) await(
-	t *testing.T, ctx context.Context, r *egReceiver, eventType, subject string,
+	ctx context.Context, t *testing.T, r *egReceiver, eventType, subject string,
 ) map[string]any {
 	t.Helper()
 
@@ -165,7 +166,7 @@ func TestAzureEventGridARMResourceEventsSDK(t *testing.T) {
 
 			tt.act(t, s)
 
-			ev := s.await(t, ctx, subHook, tt.eventType, tt.subject)
+			ev := s.await(ctx, t, subHook, tt.eventType, tt.subject)
 			assert.Equal(t, egSubScope, ev["topic"])
 			assert.Equal(t, "2", ev["dataVersion"])
 			assert.Equal(t, "1", ev["metadataVersion"])
@@ -178,13 +179,14 @@ func TestAzureEventGridARMResourceEventsSDK(t *testing.T) {
 			assert.Equal(t, redisSDKSub, data["subscriptionId"])
 			assert.NotEmpty(t, data["tenantId"])
 			assert.NotEmpty(t, data["correlationId"])
-			assert.Equal(t, tt.operation[:strings.Index(tt.operation, "/")], data["resourceProvider"])
+			provider, _, _ := strings.Cut(tt.operation, "/")
+			assert.Equal(t, provider, data["resourceProvider"])
 			assert.Contains(t, data, "claims")
 			assert.Contains(t, data, "authorization")
 			assert.Contains(t, data, "httpRequest")
 
 			if tt.rgScoped {
-				rgEv := s.await(t, ctx, rgHook, tt.eventType, tt.subject)
+				rgEv := s.await(ctx, t, rgHook, tt.eventType, tt.subject)
 				assert.Equal(t, egSubScope+"/resourceGroups/"+egScopeRG, rgEv["topic"])
 			} else {
 				s.backend.RunDue(ctx)
@@ -267,9 +269,7 @@ func names(subs []*armeventgrid.EventSubscription) []string {
 }
 
 // drain reads every page, returning the subscription names and the page count.
-func drain[R any](
-	t *testing.T, ctx context.Context, pg *runtime.Pager[R], values func(R) []*armeventgrid.EventSubscription,
-) ([]string, int) {
+func drain[R any](ctx context.Context, t *testing.T, pg *runtime.Pager[R]) ([]string, int) {
 	t.Helper()
 
 	out, pages := []string{}, 0
@@ -280,7 +280,10 @@ func drain[R any](
 
 		pages++
 
-		out = append(out, names(values(page))...)
+		subs, ok := reflect.ValueOf(page).FieldByName("Value").Interface().([]*armeventgrid.EventSubscription)
+		require.True(t, ok)
+
+		out = append(out, names(subs)...)
 	}
 
 	return out, pages
@@ -335,9 +338,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListGlobalBySubscriptionPager(nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"other-a", "res-a", "rg-a", "sub-a", "sub-b"}, wantPages: 1,
 		},
@@ -348,9 +349,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 					Top: new(int32(2)),
 				})
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"other-a", "res-a", "rg-a", "sub-a", "sub-b"}, wantPages: 3,
 		},
@@ -361,9 +360,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 					Filter: new("contains(name, 'SUB') and name ne 'sub-b' or name eq 'res-a'"),
 				})
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"res-a", "sub-a"}, wantPages: 1,
 		},
@@ -374,9 +371,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 					Filter: new("not (contains(name, 'a'))"),
 				})
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"sub-b"}, wantPages: 1,
 		},
@@ -385,9 +380,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListGlobalByResourceGroupPager(egScopeRG, nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListGlobalByResourceGroupResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"res-a", "rg-a"}, wantPages: 1,
 		},
@@ -396,9 +389,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListGlobalBySubscriptionForTopicTypePager("Microsoft.Resources.ResourceGroups", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListGlobalBySubscriptionForTopicTypeResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"other-a", "rg-a"}, wantPages: 1,
 		},
@@ -407,9 +398,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListGlobalByResourceGroupForTopicTypePager(egScopeRG, "Microsoft.Foo.Widgets", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListGlobalByResourceGroupForTopicTypeResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"res-a"}, wantPages: 1,
 		},
@@ -418,9 +407,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListRegionalBySubscriptionPager("westus", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListRegionalBySubscriptionResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"topic-a"}, wantPages: 1,
 		},
@@ -429,9 +416,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListRegionalByResourceGroupPager(egScopeRG, "East US", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListRegionalByResourceGroupResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"domain-a", "dtopic-a"}, wantPages: 1,
 		},
@@ -440,9 +425,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListRegionalBySubscriptionForTopicTypePager("eastus", "Microsoft.EventGrid.Domains", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListRegionalBySubscriptionForTopicTypeResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"domain-a", "dtopic-a"}, wantPages: 1,
 		},
@@ -451,9 +434,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListRegionalByResourceGroupForTopicTypePager(egScopeRG, "westus", "Microsoft.EventGrid.Domains", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListRegionalByResourceGroupForTopicTypeResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{}, wantPages: 1,
 		},
@@ -462,9 +443,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListByResourcePager(egScopeRG, "Microsoft.EventGrid", "topics", "t1", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListByResourceResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"topic-a"}, wantPages: 1,
 		},
@@ -473,9 +452,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListByResourcePager(egScopeRG, "Microsoft.Foo", "widgets", "w1", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListByResourceResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"res-a"}, wantPages: 1,
 		},
@@ -484,9 +461,7 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			list: func() ([]string, int) {
 				pg := c.NewListByDomainTopicPager(egScopeRG, "d1", "orders", nil)
 
-				return drain(t, ctx, pg, func(r armeventgrid.EventSubscriptionsClientListByDomainTopicResponse) []*armeventgrid.EventSubscription {
-					return r.Value
-				})
+				return drain(ctx, t, pg)
 			},
 			want: []string{"dtopic-a"}, wantPages: 1,
 		},
@@ -510,8 +485,8 @@ func TestAzureEventGridListEventSubscriptionsSDK(t *testing.T) {
 			{Filter: new("contains(name, 'x'")},
 			{Top: new(int32(101))},
 		} {
-			_, err := c.NewListGlobalBySubscriptionPager(o).NextPage(ctx)
-			require.Error(t, err)
+			_, listErr := c.NewListGlobalBySubscriptionPager(o).NextPage(ctx)
+			require.Error(t, listErr)
 		}
 	})
 }

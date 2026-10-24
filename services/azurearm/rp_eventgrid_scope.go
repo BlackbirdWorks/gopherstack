@@ -3,6 +3,7 @@ package azurearm
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ const (
 	egSubscriptionTypeName = namespaceMicrosoftEventGrid + "/eventSubscriptions"
 	egDefaultListTop       = 20
 	egMaxListTop           = 100
+	subscriptionScopeSegs  = 2
 )
 
 // EventSubscriptionScope identifies the owner of an event subscription that is not
@@ -87,7 +89,9 @@ func (p *EventGridProvider) DeleteScopeSubscription(scope EventSubscriptionScope
 }
 
 // ScopeSubscriptionFullURL returns a WebHook subscription's complete endpoint URL.
-func (p *EventGridProvider) ScopeSubscriptionFullURL(scope EventSubscriptionScope, name string) (map[string]any, error) {
+func (p *EventGridProvider) ScopeSubscriptionFullURL(
+	scope EventSubscriptionScope, name string,
+) (map[string]any, error) {
 	p.mu.RLock("ScopeSubscriptionFullURL")
 	defer p.mu.RUnlock()
 
@@ -104,7 +108,9 @@ func (p *EventGridProvider) ScopeSubscriptionFullURL(scope EventSubscriptionScop
 }
 
 // ScopeDeliveryAttributes returns a subscription's delivery attribute mappings with secret values.
-func (p *EventGridProvider) ScopeDeliveryAttributes(scope EventSubscriptionScope, name string) (map[string]any, error) {
+func (p *EventGridProvider) ScopeDeliveryAttributes(
+	scope EventSubscriptionScope, name string,
+) (map[string]any, error) {
 	p.mu.RLock("ScopeDeliveryAttributes")
 	defer p.mu.RUnlock()
 
@@ -239,12 +245,15 @@ func normalizeLocation(l string) string { return strings.ReplaceAll(strings.ToLo
 func (p *EventGridProvider) ownerOf(rec *storedEG) (egOwner, bool) {
 	rg, sub := rec.resourceGroup, rec.subscriptionID
 	armID := func(types string, names ...string) string {
-		out := "/subscriptions/" + sub + "/resourceGroups/" + rg + "/providers/" + namespaceMicrosoftEventGrid
+		var sb strings.Builder
+
+		sb.WriteString("/subscriptions/" + sub + "/resourceGroups/" + rg + "/providers/" + namespaceMicrosoftEventGrid)
+
 		for i, n := range names {
-			out += "/" + strings.Split(types, "/")[i] + "/" + n
+			sb.WriteString("/" + strings.Split(types, "/")[i] + "/" + n)
 		}
 
-		return out
+		return sb.String()
 	}
 
 	switch rec.kind {
@@ -300,13 +309,13 @@ func scopeTopicType(scopeID string) string {
 	segs := splitARMPath(scopeID)
 
 	switch {
-	case len(segs) <= 2:
+	case len(segs) <= subscriptionScopeSegs:
 		return "Microsoft.Resources.Subscriptions"
 	case len(segs) == rgPathSegs:
 		return "Microsoft.Resources.ResourceGroups"
 	}
 
-	for i := len(segs) - 1; i >= 0; i-- {
+	for i := range slices.Backward(segs) {
 		if strings.EqualFold(segs[i], providersSegment) && i+2 < len(segs) {
 			t := segs[i+2]
 

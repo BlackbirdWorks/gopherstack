@@ -2,6 +2,7 @@ package azureeventgrid_test
 
 import (
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,9 +21,7 @@ func queueProps(queue string, extra map[string]any) map[string]any {
 		"endpointType": "StorageQueue",
 		"properties":   map[string]any{"resourceId": storageID, "queueName": queue},
 	}}
-	for k, v := range extra {
-		props[k] = v
-	}
+	maps.Copy(props, extra)
 
 	return props
 }
@@ -44,10 +43,10 @@ func TestPublishResourceEvent(t *testing.T) {
 	uri := rgScope + "/providers/Microsoft.Storage/storageAccounts/acct"
 
 	tests := []struct {
-		name       string
 		ev         azureeventgrid.ResourceEvent
 		scopes     map[string]map[string]any
 		wantTopics map[string]string
+		name       string
 	}{
 		{
 			name: "subscription and resource group scopes both receive a resource event",

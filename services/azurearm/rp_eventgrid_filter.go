@@ -45,44 +45,19 @@ func lexFilter(src string) ([]filterTok, error) {
 	var toks []filterTok
 
 	for i := 0; i < len(src); {
-		c := src[i]
-
-		switch {
-		case c == ' ' || c == '\t':
+		switch c := src[i]; c {
+		case ' ', '\t':
 			i++
-		case c == '(' || c == ')' || c == ',':
+		case '(', ')', ',':
 			toks = append(toks, filterTok{text: string(c)})
 			i++
-		case c == '\'':
-			var sb strings.Builder
-
-			i++
-
-			for {
-				if i >= len(src) {
-					return nil, fmt.Errorf("%w: unterminated string", errBadNameFilter)
-				}
-
-				if src[i] == '\'' {
-					if i+1 < len(src) && src[i+1] == '\'' {
-						sb.WriteByte('\'')
-
-						i += 2
-
-						continue
-					}
-
-					i++
-
-					break
-				}
-
-				sb.WriteByte(src[i])
-
-				i++
+		case '\'':
+			text, next, ok := lexQuoted(src, i+1)
+			if !ok {
+				return nil, fmt.Errorf("%w: unterminated string", errBadNameFilter)
 			}
 
-			toks = append(toks, filterTok{text: sb.String(), quote: true})
+			toks, i = append(toks, filterTok{text: text, quote: true}), next
 		default:
 			start := i
 			for i < len(src) && !strings.ContainsRune(" \t(),'", rune(src[i])) {
@@ -94,6 +69,28 @@ func lexFilter(src string) ([]filterTok, error) {
 	}
 
 	return toks, nil
+}
+
+// lexQuoted reads a string literal body starting after its opening quote (” is an escaped quote).
+func lexQuoted(src string, i int) (string, int, bool) {
+	var sb strings.Builder
+
+	for i < len(src) {
+		switch {
+		case src[i] == '\'' && i+1 < len(src) && src[i+1] == '\'':
+			sb.WriteByte('\'')
+
+			i += 2
+		case src[i] == '\'':
+			return sb.String(), i + 1, true
+		default:
+			sb.WriteByte(src[i])
+
+			i++
+		}
+	}
+
+	return "", i, false
 }
 
 type filterParser struct {

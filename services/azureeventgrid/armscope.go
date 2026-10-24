@@ -96,10 +96,10 @@ func (e ResourceEvent) fields(id string) map[string]any {
 	}
 
 	return map[string]any{
-		"id":        id,
-		"subject":   e.ResourceURI,
-		"eventType": e.EventType,
-		"eventTime": e.Time.UTC().Format(time.RFC3339Nano),
+		"id":           id,
+		fieldSubject:   e.ResourceURI,
+		fieldEventType: e.EventType,
+		fieldEventTime: e.Time.UTC().Format(time.RFC3339Nano),
 		"data": map[string]any{
 			"authorization": map[string]any{"scope": e.ResourceURI, "action": e.OperationName},
 			"claims":        claims,
@@ -115,7 +115,7 @@ func (e ResourceEvent) fields(id string) map[string]any {
 			"subscriptionId":   e.SubscriptionID,
 			"tenantId":         e.TenantID,
 		},
-		"dataVersion": armEventDataVersion,
+		fieldDataVersion: armEventDataVersion,
 	}
 }
 
