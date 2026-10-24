@@ -7,13 +7,9 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/apigateway"
 	apigwtypes "github.com/aws/aws-sdk-go-v2/service/apigateway/types"
-	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	cognitotypes "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
-	"github.com/aws/aws-sdk-go-v2/service/efs"
 	efstypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
-	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
@@ -35,7 +31,7 @@ const (
 // --- AWS::Cognito::UserPool ---
 
 type ccUserPool struct {
-	client *cognitoidentityprovider.Client
+	client *wireCognito
 	region string
 }
 
@@ -55,7 +51,7 @@ func (h *ccUserPool) Create(ctx context.Context, desired map[string]any) (string
 		name = ccGeneratedName("cc-pool-")
 	}
 
-	in, err := ccDecode[cognitoidentityprovider.CreateUserPoolInput](desired)
+	in, err := ccDecode[wireCognitoCreateUserPoolInput](desired)
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +81,7 @@ func (h *ccUserPool) Create(ctx context.Context, desired map[string]any) (string
 func (h *ccUserPool) Read(ctx context.Context, id string) (map[string]any, error) {
 	out, err := h.client.DescribeUserPool(
 		ctx,
-		&cognitoidentityprovider.DescribeUserPoolInput{UserPoolId: aws.String(id)},
+		&wireCognitoDescribeUserPoolInput{UserPoolId: aws.String(id)},
 	)
 	if err != nil {
 		return nil, ccMapError(err)
@@ -154,7 +150,7 @@ func (h *ccUserPool) Update(ctx context.Context, id string, current, desired map
 		return err
 	}
 
-	in, err := ccDecode[cognitoidentityprovider.UpdateUserPoolInput](desired)
+	in, err := ccDecode[wireCognitoUpdateUserPoolInput](desired)
 	if err != nil {
 		return err
 	}
@@ -181,7 +177,7 @@ func (h *ccUserPool) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err := h.client.DeleteUserPool(ctx, &cognitoidentityprovider.DeleteUserPoolInput{UserPoolId: aws.String(id)})
+	_, err := h.client.DeleteUserPool(ctx, &wireCognitoDeleteUserPoolInput{UserPoolId: aws.String(id)})
 
 	return ccMapError(err)
 }
@@ -189,11 +185,12 @@ func (h *ccUserPool) Delete(ctx context.Context, id string) error {
 func (h *ccUserPool) List(ctx context.Context) ([]string, error) {
 	var ids []string
 
-	p := cognitoidentityprovider.NewListUserPoolsPaginator(h.client, &cognitoidentityprovider.ListUserPoolsInput{
+	in := &wireCognitoListUserPoolsInput{
 		MaxResults: aws.Int32(ccCognitoPageSize),
-	})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
+	}
+
+	for {
+		out, err := h.client.ListUserPools(ctx, in)
 		if err != nil {
 			return nil, ccMapError(err)
 		}
@@ -201,6 +198,12 @@ func (h *ccUserPool) List(ctx context.Context) ([]string, error) {
 		for _, u := range out.UserPools {
 			ids = append(ids, aws.ToString(u.Id))
 		}
+
+		if aws.ToString(out.NextToken) == "" {
+			break
+		}
+
+		in.NextToken = out.NextToken
 	}
 
 	return ids, nil
@@ -209,7 +212,7 @@ func (h *ccUserPool) List(ctx context.Context) ([]string, error) {
 // --- AWS::ApiGateway::RestApi ---
 
 type ccRestAPI struct {
-	client *apigateway.Client
+	client *wireAPIGW
 	region string
 }
 
@@ -258,7 +261,7 @@ func (h *ccRestAPI) Create(ctx context.Context, desired map[string]any) (string,
 		return "", fmt.Errorf("%w: Name is required when Body is not specified", cloudcontrolbackend.ErrValidation)
 	}
 
-	out, err := h.client.CreateRestApi(ctx, &apigateway.CreateRestApiInput{
+	out, err := h.client.CreateRestApi(ctx, &wireAPIGWCreateRestApiInput{
 		Name:             aws.String(spec.Name),
 		Description:      ccOptional(spec.Description),
 		ApiKeySource:     apigwtypes.ApiKeySourceType(spec.APIKeySourceType),
@@ -287,7 +290,7 @@ func (h *ccRestAPI) importBody(ctx context.Context, spec ccRestAPISpec, tags map
 		return "", err
 	}
 
-	out, err := h.client.ImportRestApi(ctx, &apigateway.ImportRestApiInput{Body: []byte(body)})
+	out, err := h.client.ImportRestApi(ctx, &wireAPIGWImportRestApiInput{Body: []byte(body)})
 	if err != nil {
 		return "", ccMapError(err)
 	}
@@ -304,7 +307,7 @@ func (h *ccRestAPI) importBody(ctx context.Context, spec ccRestAPISpec, tags map
 	}
 
 	if len(ops) > 0 {
-		if _, err = h.client.UpdateRestApi(ctx, &apigateway.UpdateRestApiInput{
+		if _, err = h.client.UpdateRestApi(ctx, &wireAPIGWUpdateRestApiInput{
 			RestApiId: aws.String(id), PatchOperations: ops,
 		}); err != nil {
 			return "", ccMapError(err)
@@ -312,7 +315,7 @@ func (h *ccRestAPI) importBody(ctx context.Context, spec ccRestAPISpec, tags map
 	}
 
 	if len(tags) > 0 {
-		if _, err = h.client.TagResource(ctx, &apigateway.TagResourceInput{
+		if _, err = h.client.TagResource(ctx, &wireAPIGWTagResourceInput{
 			ResourceArn: aws.String(h.arn(id)), Tags: tags,
 		}); err != nil {
 			return "", ccMapError(err)
@@ -335,7 +338,7 @@ func ccPatchReplace(path, value string) apigwtypes.PatchOperation {
 }
 
 func (h *ccRestAPI) Read(ctx context.Context, id string) (map[string]any, error) {
-	a, err := h.client.GetRestApi(ctx, &apigateway.GetRestApiInput{RestApiId: aws.String(id)})
+	a, err := h.client.GetRestApi(ctx, &wireAPIGWGetRestApiInput{RestApiId: aws.String(id)})
 	if err != nil {
 		return nil, ccMapError(err)
 	}
@@ -378,7 +381,7 @@ func (h *ccRestAPI) Update(ctx context.Context, id string, current, desired map[
 	}
 
 	if len(ops) > 0 {
-		if _, err = h.client.UpdateRestApi(ctx, &apigateway.UpdateRestApiInput{
+		if _, err = h.client.UpdateRestApi(ctx, &wireAPIGWUpdateRestApiInput{
 			RestApiId: aws.String(id), PatchOperations: ops,
 		}); err != nil {
 			return ccMapError(err)
@@ -387,12 +390,12 @@ func (h *ccRestAPI) Update(ctx context.Context, id string, current, desired map[
 
 	return ccSyncModelTags(current, desired,
 		func(m map[string]string) error {
-			_, e := h.client.TagResource(ctx, &apigateway.TagResourceInput{ResourceArn: aws.String(h.arn(id)), Tags: m})
+			_, e := h.client.TagResource(ctx, &wireAPIGWTagResourceInput{ResourceArn: aws.String(h.arn(id)), Tags: m})
 
 			return e
 		},
 		func(keys []string) error {
-			_, e := h.client.UntagResource(ctx, &apigateway.UntagResourceInput{
+			_, e := h.client.UntagResource(ctx, &wireAPIGWUntagResourceInput{
 				ResourceArn: aws.String(h.arn(id)), TagKeys: keys,
 			})
 
@@ -455,7 +458,7 @@ func (h *ccRestAPI) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err := h.client.DeleteRestApi(ctx, &apigateway.DeleteRestApiInput{RestApiId: aws.String(id)})
+	_, err := h.client.DeleteRestApi(ctx, &wireAPIGWDeleteRestApiInput{RestApiId: aws.String(id)})
 
 	return ccMapError(err)
 }
@@ -463,9 +466,10 @@ func (h *ccRestAPI) Delete(ctx context.Context, id string) error {
 func (h *ccRestAPI) List(ctx context.Context) ([]string, error) {
 	var ids []string
 
-	p := apigateway.NewGetRestApisPaginator(h.client, &apigateway.GetRestApisInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
+	in := &wireAPIGWGetRestApisInput{}
+
+	for {
+		out, err := h.client.GetRestApis(ctx, in)
 		if err != nil {
 			return nil, ccMapError(err)
 		}
@@ -473,6 +477,12 @@ func (h *ccRestAPI) List(ctx context.Context) ([]string, error) {
 		for _, a := range out.Items {
 			ids = append(ids, aws.ToString(a.Id))
 		}
+
+		if aws.ToString(out.Position) == "" {
+			break
+		}
+
+		in.Position = out.Position
 	}
 
 	return ids, nil
@@ -480,7 +490,7 @@ func (h *ccRestAPI) List(ctx context.Context) ([]string, error) {
 
 // --- AWS::EFS::FileSystem ---
 
-type ccFileSystem struct{ client *efs.Client }
+type ccFileSystem struct{ client *wireEFS }
 
 const (
 	ccKeyFSTags      = "FileSystemTags"
@@ -516,7 +526,7 @@ func (h *ccFileSystem) Create(ctx context.Context, desired map[string]any) (stri
 		return "", err
 	}
 
-	in, err := ccDecode[efs.CreateFileSystemInput](desired)
+	in, err := ccDecode[wireEFSCreateFileSystemInput](desired)
 	if err != nil {
 		return "", err
 	}
@@ -560,7 +570,7 @@ func (h *ccFileSystem) applyExtras(ctx context.Context, id string, desired map[s
 			return err
 		}
 
-		if _, err = h.client.PutLifecycleConfiguration(ctx, &efs.PutLifecycleConfigurationInput{
+		if _, err = h.client.PutLifecycleConfiguration(ctx, &wireEFSPutLifecycleConfigurationInput{
 			FileSystemId: aws.String(id), LifecyclePolicies: pol,
 		}); err != nil {
 			return ccMapError(err)
@@ -573,7 +583,7 @@ func (h *ccFileSystem) applyExtras(ctx context.Context, id string, desired map[s
 			return err
 		}
 
-		if _, err = h.client.PutBackupPolicy(ctx, &efs.PutBackupPolicyInput{
+		if _, err = h.client.PutBackupPolicy(ctx, &wireEFSPutBackupPolicyInput{
 			FileSystemId: aws.String(id), BackupPolicy: &bp,
 		}); err != nil {
 			return ccMapError(err)
@@ -588,7 +598,7 @@ func (h *ccFileSystem) applyExtras(ctx context.Context, id string, desired map[s
 
 		bypass, _ := ccBool(desired, ccKeyBypass)
 
-		if _, err = h.client.PutFileSystemPolicy(ctx, &efs.PutFileSystemPolicyInput{
+		if _, err = h.client.PutFileSystemPolicy(ctx, &wireEFSPutFileSystemPolicyInput{
 			FileSystemId: aws.String(id), Policy: aws.String(s), BypassPolicyLockoutSafetyCheck: bypass,
 		}); err != nil {
 			return ccMapError(err)
@@ -612,7 +622,7 @@ func (h *ccFileSystem) applyProtection(ctx context.Context, id string, desired m
 		return nil
 	}
 
-	_, err = h.client.UpdateFileSystemProtection(ctx, &efs.UpdateFileSystemProtectionInput{
+	_, err = h.client.UpdateFileSystemProtection(ctx, &wireEFSUpdateFileSystemProtectionInput{
 		FileSystemId: aws.String(id), ReplicationOverwriteProtection: prot.ReplicationOverwriteProtection,
 	})
 
@@ -620,7 +630,7 @@ func (h *ccFileSystem) applyProtection(ctx context.Context, id string, desired m
 }
 
 func (h *ccFileSystem) Read(ctx context.Context, id string) (map[string]any, error) {
-	out, err := h.client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{FileSystemId: aws.String(id)})
+	out, err := h.client.DescribeFileSystems(ctx, &wireEFSDescribeFileSystemsInput{FileSystemId: aws.String(id)})
 	if err != nil {
 		return nil, ccMapError(err)
 	}
@@ -656,19 +666,19 @@ func (h *ccFileSystem) Read(ctx context.Context, id string) (map[string]any, err
 }
 
 func (h *ccFileSystem) readExtras(ctx context.Context, id string, model map[string]any) {
-	if lc, err := h.client.DescribeLifecycleConfiguration(ctx, &efs.DescribeLifecycleConfigurationInput{
+	if lc, err := h.client.DescribeLifecycleConfiguration(ctx, &wireEFSDescribeLifecycleConfigurationInput{
 		FileSystemId: aws.String(id),
 	}); err == nil && len(lc.LifecyclePolicies) > 0 {
 		model[ccKeyLifecycle] = lc.LifecyclePolicies
 	}
 
-	if bp, err := h.client.DescribeBackupPolicy(ctx, &efs.DescribeBackupPolicyInput{
+	if bp, err := h.client.DescribeBackupPolicy(ctx, &wireEFSDescribeBackupPolicyInput{
 		FileSystemId: aws.String(id),
 	}); err == nil && bp.BackupPolicy != nil {
 		model[ccKeyBackup] = bp.BackupPolicy
 	}
 
-	if fp, err := h.client.DescribeFileSystemPolicy(ctx, &efs.DescribeFileSystemPolicyInput{
+	if fp, err := h.client.DescribeFileSystemPolicy(ctx, &wireEFSDescribeFileSystemPolicyInput{
 		FileSystemId: aws.String(id),
 	}); err == nil && fp.Policy != nil {
 		model[ccKeyFSPolicy] = ccPolicyObject(*fp.Policy, false)
@@ -691,7 +701,7 @@ func (h *ccFileSystem) Update(ctx context.Context, id string, current, desired m
 	}
 
 	if len(ccChanged(current, desired, ccKeyThroughput, ccKeyProvisioned)) > 0 {
-		in := &efs.UpdateFileSystemInput{
+		in := &wireEFSUpdateFileSystemInput{
 			FileSystemId: aws.String(id), ThroughputMode: efstypes.ThroughputMode(ccString(desired, ccKeyThroughput)),
 		}
 		if v, ok := desired[ccKeyProvisioned].(float64); ok {
@@ -726,14 +736,14 @@ func (h *ccFileSystem) Update(ctx context.Context, id string, current, desired m
 	if len(add) > 0 {
 		if _, err = h.client.TagResource(
 			ctx,
-			&efs.TagResourceInput{ResourceId: aws.String(id), Tags: ccEFSTags(add)},
+			&wireEFSTagResourceInput{ResourceId: aws.String(id), Tags: ccEFSTags(add)},
 		); err != nil {
 			return ccMapError(err)
 		}
 	}
 
 	if len(remove) > 0 {
-		_, err = h.client.UntagResource(ctx, &efs.UntagResourceInput{ResourceId: aws.String(id), TagKeys: remove})
+		_, err = h.client.UntagResource(ctx, &wireEFSUntagResourceInput{ResourceId: aws.String(id), TagKeys: remove})
 
 		return ccMapError(err)
 	}
@@ -750,7 +760,7 @@ func (h *ccFileSystem) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err := h.client.DeleteFileSystem(ctx, &efs.DeleteFileSystemInput{FileSystemId: aws.String(id)})
+	_, err := h.client.DeleteFileSystem(ctx, &wireEFSDeleteFileSystemInput{FileSystemId: aws.String(id)})
 
 	return ccMapError(err)
 }
@@ -758,9 +768,10 @@ func (h *ccFileSystem) Delete(ctx context.Context, id string) error {
 func (h *ccFileSystem) List(ctx context.Context) ([]string, error) {
 	var ids []string
 
-	p := efs.NewDescribeFileSystemsPaginator(h.client, &efs.DescribeFileSystemsInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
+	in := &wireEFSDescribeFileSystemsInput{}
+
+	for {
+		out, err := h.client.DescribeFileSystems(ctx, in)
 		if err != nil {
 			return nil, ccMapError(err)
 		}
@@ -768,6 +779,12 @@ func (h *ccFileSystem) List(ctx context.Context) ([]string, error) {
 		for _, f := range out.FileSystems {
 			ids = append(ids, aws.ToString(f.FileSystemId))
 		}
+
+		if aws.ToString(out.NextMarker) == "" {
+			break
+		}
+
+		in.Marker = out.NextMarker
 	}
 
 	return ids, nil
@@ -775,7 +792,7 @@ func (h *ccFileSystem) List(ctx context.Context) ([]string, error) {
 
 // --- AWS::Glue::Database ---
 
-type ccGlueDatabase struct{ client *glue.Client }
+type ccGlueDatabase struct{ client *wireGlue }
 
 const (
 	ccKeyDBInput = "DatabaseInput"
@@ -806,7 +823,7 @@ func (h *ccGlueDatabase) Create(ctx context.Context, desired map[string]any) (st
 
 	in.Name = aws.String(name)
 
-	if _, err = h.client.CreateDatabase(ctx, &glue.CreateDatabaseInput{
+	if _, err = h.client.CreateDatabase(ctx, &wireGlueCreateDatabaseInput{
 		DatabaseInput: &in, CatalogId: aws.String(catalog),
 	}); err != nil {
 		return "", ccMapError(err)
@@ -816,7 +833,7 @@ func (h *ccGlueDatabase) Create(ctx context.Context, desired map[string]any) (st
 }
 
 func (h *ccGlueDatabase) Read(ctx context.Context, id string) (map[string]any, error) {
-	out, err := h.client.GetDatabase(ctx, &glue.GetDatabaseInput{Name: aws.String(id)})
+	out, err := h.client.GetDatabase(ctx, &wireGlueGetDatabaseInput{Name: aws.String(id)})
 	if err != nil {
 		return nil, ccMapError(err)
 	}
@@ -847,7 +864,7 @@ func (h *ccGlueDatabase) Update(ctx context.Context, id string, current, desired
 
 		if _, err = h.client.UpdateDatabase(
 			ctx,
-			&glue.UpdateDatabaseInput{Name: aws.String(id), DatabaseInput: &in},
+			&wireGlueUpdateDatabaseInput{Name: aws.String(id), DatabaseInput: &in},
 		); err != nil {
 			return ccMapError(err)
 		}
@@ -857,7 +874,7 @@ func (h *ccGlueDatabase) Update(ctx context.Context, id string, current, desired
 }
 
 func (h *ccGlueDatabase) Delete(ctx context.Context, id string) error {
-	_, err := h.client.DeleteDatabase(ctx, &glue.DeleteDatabaseInput{Name: aws.String(id)})
+	_, err := h.client.DeleteDatabase(ctx, &wireGlueDeleteDatabaseInput{Name: aws.String(id)})
 
 	return ccMapError(err)
 }
@@ -865,9 +882,10 @@ func (h *ccGlueDatabase) Delete(ctx context.Context, id string) error {
 func (h *ccGlueDatabase) List(ctx context.Context) ([]string, error) {
 	var names []string
 
-	p := glue.NewGetDatabasesPaginator(h.client, &glue.GetDatabasesInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
+	in := &wireGlueGetDatabasesInput{}
+
+	for {
+		out, err := h.client.GetDatabases(ctx, in)
 		if err != nil {
 			return nil, ccMapError(err)
 		}
@@ -875,6 +893,12 @@ func (h *ccGlueDatabase) List(ctx context.Context) ([]string, error) {
 		for _, d := range out.DatabaseList {
 			names = append(names, aws.ToString(d.Name))
 		}
+
+		if aws.ToString(out.NextToken) == "" {
+			break
+		}
+
+		in.NextToken = out.NextToken
 	}
 
 	return names, nil

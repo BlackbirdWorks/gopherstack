@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	cognitotypes "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
@@ -49,8 +48,8 @@ func ccPoolMfaTouched(current, desired map[string]any) bool {
 	return false
 }
 
-func (m ccPoolMfa) input(id string) (*cognitoidentityprovider.SetUserPoolMfaConfigInput, error) {
-	in := &cognitoidentityprovider.SetUserPoolMfaConfigInput{
+func (m ccPoolMfa) input(id string) (*wireCognitoSetUserPoolMfaConfigInput, error) {
+	in := &wireCognitoSetUserPoolMfaConfigInput{
 		UserPoolId: aws.String(id), MfaConfiguration: cognitotypes.UserPoolMfaType(m.MfaConfiguration),
 	}
 
@@ -125,7 +124,7 @@ func (h *ccUserPool) applyMfa(ctx context.Context, id string, desired map[string
 }
 
 func (h *ccUserPool) readMfa(ctx context.Context, id string, model map[string]any) {
-	out, err := h.client.GetUserPoolMfaConfig(ctx, &cognitoidentityprovider.GetUserPoolMfaConfigInput{
+	out, err := h.client.GetUserPoolMfaConfig(ctx, &wireCognitoGetUserPoolMfaConfigInput{
 		UserPoolId: aws.String(id),
 	})
 	if err != nil {

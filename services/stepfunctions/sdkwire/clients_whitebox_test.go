@@ -5,9 +5,11 @@ package sdkwire
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdkacm "github.com/aws/aws-sdk-go-v2/service/acm"
+	sdkamplify "github.com/aws/aws-sdk-go-v2/service/amplify"
 	sdkapigateway "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	sdkapigatewayv2 "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	sdkappconfig "github.com/aws/aws-sdk-go-v2/service/appconfig"
+	sdkappsync "github.com/aws/aws-sdk-go-v2/service/appsync"
 	sdkathena "github.com/aws/aws-sdk-go-v2/service/athena"
 	sdkautoscaling "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	sdkbatch "github.com/aws/aws-sdk-go-v2/service/batch"
@@ -17,6 +19,8 @@ import (
 	sdkcloudwatch "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	sdkcloudwatchlogs "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	sdkcodebuild "github.com/aws/aws-sdk-go-v2/service/codebuild"
+	sdkcodedeploy "github.com/aws/aws-sdk-go-v2/service/codedeploy"
+	sdkcodepipeline "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	sdkcognitoidentityprovider "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	sdkcomprehend "github.com/aws/aws-sdk-go-v2/service/comprehend"
 	sdkdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -32,6 +36,7 @@ import (
 	sdkfirehose "github.com/aws/aws-sdk-go-v2/service/firehose"
 	sdkglue "github.com/aws/aws-sdk-go-v2/service/glue"
 	sdkiam "github.com/aws/aws-sdk-go-v2/service/iam"
+	sdkiot "github.com/aws/aws-sdk-go-v2/service/iot"
 	sdkkafka "github.com/aws/aws-sdk-go-v2/service/kafka"
 	sdkkinesis "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	sdkkms "github.com/aws/aws-sdk-go-v2/service/kms"
@@ -63,9 +68,11 @@ import (
 func sdkClients() map[string]func(aws.Config) any {
 	return map[string]func(aws.Config) any{
 		"acm":                     func(c aws.Config) any { return sdkacm.NewFromConfig(c) },
+		"amplify":                 func(c aws.Config) any { return sdkamplify.NewFromConfig(c) },
 		"apigateway":              func(c aws.Config) any { return sdkapigateway.NewFromConfig(c) },
 		"apigatewayv2":            func(c aws.Config) any { return sdkapigatewayv2.NewFromConfig(c) },
 		"appconfig":               func(c aws.Config) any { return sdkappconfig.NewFromConfig(c) },
+		"appsync":                 func(c aws.Config) any { return sdkappsync.NewFromConfig(c) },
 		"athena":                  func(c aws.Config) any { return sdkathena.NewFromConfig(c) },
 		"autoscaling":             func(c aws.Config) any { return sdkautoscaling.NewFromConfig(c) },
 		"batch":                   func(c aws.Config) any { return sdkbatch.NewFromConfig(c) },
@@ -75,6 +82,8 @@ func sdkClients() map[string]func(aws.Config) any {
 		"cloudwatch":              func(c aws.Config) any { return sdkcloudwatch.NewFromConfig(c) },
 		"cloudwatchlogs":          func(c aws.Config) any { return sdkcloudwatchlogs.NewFromConfig(c) },
 		"codebuild":               func(c aws.Config) any { return sdkcodebuild.NewFromConfig(c) },
+		"codedeploy":              func(c aws.Config) any { return sdkcodedeploy.NewFromConfig(c) },
+		"codepipeline":            func(c aws.Config) any { return sdkcodepipeline.NewFromConfig(c) },
 		"cognitoidentityprovider": func(c aws.Config) any { return sdkcognitoidentityprovider.NewFromConfig(c) },
 		"comprehend":              func(c aws.Config) any { return sdkcomprehend.NewFromConfig(c) },
 		"dynamodb":                func(c aws.Config) any { return sdkdynamodb.NewFromConfig(c) },
@@ -90,6 +99,7 @@ func sdkClients() map[string]func(aws.Config) any {
 		"firehose":                func(c aws.Config) any { return sdkfirehose.NewFromConfig(c) },
 		"glue":                    func(c aws.Config) any { return sdkglue.NewFromConfig(c) },
 		"iam":                     func(c aws.Config) any { return sdkiam.NewFromConfig(c) },
+		"iot":                     func(c aws.Config) any { return sdkiot.NewFromConfig(c) },
 		"kafka":                   func(c aws.Config) any { return sdkkafka.NewFromConfig(c) },
 		"kinesis":                 func(c aws.Config) any { return sdkkinesis.NewFromConfig(c) },
 		"kms":                     func(c aws.Config) any { return sdkkms.NewFromConfig(c) },

@@ -52,12 +52,13 @@ func warnf(format string, args ...any) {
 
 func serviceKeys() []string {
 	return []string{
-		"acm", "apigateway", "apigatewayv2", "appconfig", "athena", "autoscaling", "batch", "bedrock", "bedrockruntime",
-		"cloudformation", "cloudwatch", "cloudwatchlogs", "codebuild", "cognitoidentityprovider", "comprehend",
-		"dynamodb", "ec2", "ecr", "ecs", "efs", "eks", "elasticache", "elasticloadbalancingv2", "emr", "eventbridge",
-		"firehose", "glue", "iam", "kafka", "kinesis", "kms", "lambda", "mq", "opensearch", "organizations", "pipes",
-		"rds", "redshift", "redshiftdata", "rekognition", "route53", "s3", "sagemaker", "scheduler", "secretsmanager",
-		"ses", "sesv2", "sfn", "sns", "sqs", "ssm", "sts", "textract", "transcribe", "translate",
+		"acm", "amplify", "apigateway", "apigatewayv2", "appconfig", "appsync", "athena", "autoscaling", "batch",
+		"bedrock", "bedrockruntime", "cloudformation", "cloudwatch", "cloudwatchlogs", "codebuild", "codedeploy",
+		"codepipeline", "cognitoidentityprovider", "comprehend", "dynamodb", "ec2", "ecr", "ecs", "efs", "eks",
+		"elasticache", "elasticloadbalancingv2", "emr", "eventbridge", "firehose", "glue", "iam", "iot", "kafka",
+		"kinesis", "kms", "lambda", "mq", "opensearch", "organizations", "pipes", "rds", "redshift", "redshiftdata",
+		"rekognition", "route53", "s3", "sagemaker", "scheduler", "secretsmanager", "ses", "sesv2", "sfn", "sns",
+		"sqs", "ssm", "sts", "textract", "transcribe", "translate",
 	}
 }
 

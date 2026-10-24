@@ -5,7 +5,6 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -28,19 +27,6 @@ func newEC2Wire(cfg aws.Config, hc *http.Client) *ec2Wire {
 			Endpoint: ec2Endpoint(cfg), Region: cfg.Region,
 		},
 	}
-}
-
-func ec2Endpoint(cfg aws.Config) string {
-	if cfg.BaseEndpoint != nil && *cfg.BaseEndpoint != "" {
-		return *cfg.BaseEndpoint
-	}
-
-	suffix := "amazonaws.com"
-	if strings.HasPrefix(cfg.Region, "cn-") {
-		suffix = "amazonaws.com.cn"
-	}
-
-	return "https://ec2." + cfg.Region + "." + suffix
 }
 
 // idsWhere returns the key member of each item of listKey in a Describe call filtered by filterName in values.

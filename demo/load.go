@@ -8,23 +8,15 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
-	"github.com/aws/aws-sdk-go-v2/service/amplify"
 	amplifytypes "github.com/aws/aws-sdk-go-v2/service/amplify/types"
-	"github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
-	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codedeploytypes "github.com/aws/aws-sdk-go-v2/service/codedeploy/types"
-	codepipelinesvc "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	codepipelinetypes "github.com/aws/aws-sdk-go-v2/service/codepipeline/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/aws-sdk-go-v2/service/ecr"
-	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
-	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/iot"
 	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -50,6 +42,7 @@ const (
 )
 
 const (
+	keyName                   = "Name"
 	keyVisibilityTimeout      = "VisibilityTimeout"
 	keyMessageRetentionPeriod = "MessageRetentionPeriod"
 	sourceDemo                = "demo"
@@ -70,15 +63,15 @@ type Clients struct {
 	SSM            *ssm.Client
 	KMS            *kms.Client
 	SecretsManager *secretsmanager.Client
-	ECR            *ecr.Client
+	ECR            Caller
 	Lambda         *lambdasdk.Client
-	AppSync        *appsync.Client
-	Amplify        *amplify.Client
-	ECS            *ecs.Client
-	EKS            *ekssdk.Client
-	IoT            *iot.Client
-	CodeDeploy     *codedeploysvc.Client
-	CodePipeline   *codepipelinesvc.Client
+	AppSync        Caller
+	Amplify        Caller
+	ECS            Caller
+	EKS            Caller
+	IoT            Caller
+	CodeDeploy     Caller
+	CodePipeline   Caller
 }
 
 // LoadData loads sample data into all supported services.
@@ -563,7 +556,7 @@ func loadSecretsManager(ctx context.Context, smClient *secretsmanager.Client) {
 	}
 }
 
-func loadECR(ctx context.Context, ecrClient *ecr.Client) {
+func loadECR(ctx context.Context, ecrClient Caller) {
 	repositories := []string{
 		"demo-app/backend",
 		"demo-app/frontend",
@@ -571,9 +564,7 @@ func loadECR(ctx context.Context, ecrClient *ecr.Client) {
 	}
 
 	for _, name := range repositories {
-		_, err := ecrClient.CreateRepository(ctx, &ecr.CreateRepositoryInput{
-			RepositoryName: aws.String(name),
-		})
+		_, err := ecrClient.Call(ctx, "CreateRepository", map[string]any{"RepositoryName": name})
 		if err != nil {
 			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create ECR repository", "name", name, "error", err)
 		} else {
@@ -582,7 +573,7 @@ func loadECR(ctx context.Context, ecrClient *ecr.Client) {
 	}
 }
 
-func loadAppSync(ctx context.Context, appSyncClient *appsync.Client) {
+func loadAppSync(ctx context.Context, appSyncClient Caller) {
 	apis := []struct {
 		name     string
 		authType appsynctypes.AuthenticationType
@@ -592,9 +583,9 @@ func loadAppSync(ctx context.Context, appSyncClient *appsync.Client) {
 	}
 
 	for _, a := range apis {
-		_, err := appSyncClient.CreateGraphqlApi(ctx, &appsync.CreateGraphqlApiInput{
-			Name:               aws.String(a.name),
-			AuthenticationType: a.authType,
+		_, err := appSyncClient.Call(ctx, "CreateGraphqlApi", map[string]any{
+			keyName:              a.name,
+			"AuthenticationType": string(a.authType),
 		})
 		if err != nil {
 			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create AppSync API", "name", a.name, "error", err)
@@ -604,7 +595,7 @@ func loadAppSync(ctx context.Context, appSyncClient *appsync.Client) {
 	}
 }
 
-func loadECS(ctx context.Context, ecsClient *ecs.Client) {
+func loadECS(ctx context.Context, ecsClient Caller) {
 	const demoWebPort = int32(80)
 
 	clusters := []string{
@@ -613,9 +604,7 @@ func loadECS(ctx context.Context, ecsClient *ecs.Client) {
 	}
 
 	for _, name := range clusters {
-		_, err := ecsClient.CreateCluster(ctx, &ecs.CreateClusterInput{
-			ClusterName: aws.String(name),
-		})
+		_, err := ecsClient.Call(ctx, "CreateCluster", map[string]any{"ClusterName": name})
 		if err != nil {
 			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create ECS cluster", "name", name, "error", err)
 		} else {
@@ -623,9 +612,9 @@ func loadECS(ctx context.Context, ecsClient *ecs.Client) {
 		}
 	}
 
-	_, err := ecsClient.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String("demo-web"),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{
+	_, err := ecsClient.Call(ctx, "RegisterTaskDefinition", map[string]any{
+		"Family": "demo-web",
+		"ContainerDefinitions": []ecstypes.ContainerDefinition{
 			{
 				Name:      aws.String("web"),
 				Image:     aws.String("nginx:latest"),
@@ -643,18 +632,18 @@ func loadECS(ctx context.Context, ecsClient *ecs.Client) {
 	}
 }
 
-func loadEKS(ctx context.Context, eksClient *ekssdk.Client) {
+func loadEKS(ctx context.Context, eksClient Caller) {
 	clusters := []string{
 		"demo-cluster",
 		"production-cluster",
 	}
 
 	for _, name := range clusters {
-		_, err := eksClient.CreateCluster(ctx, &ekssdk.CreateClusterInput{
-			Name:    aws.String(name),
-			Version: aws.String("1.32"),
-			RoleArn: aws.String("arn:aws:iam::000000000000:role/eks-demo-role"),
-			ResourcesVpcConfig: &ekstypes.VpcConfigRequest{
+		_, err := eksClient.Call(ctx, "CreateCluster", map[string]any{
+			keyName:   name,
+			"Version": "1.32",
+			"RoleArn": "arn:aws:iam::000000000000:role/eks-demo-role",
+			"ResourcesVpcConfig": ekstypes.VpcConfigRequest{
 				SubnetIds: []string{"subnet-00000000", "subnet-11111111"},
 			},
 		})
@@ -666,13 +655,11 @@ func loadEKS(ctx context.Context, eksClient *ekssdk.Client) {
 	}
 }
 
-func loadIoT(ctx context.Context, iotClient *iot.Client) {
+func loadIoT(ctx context.Context, iotClient Caller) {
 	things := []string{"smart-sensor-1", "smart-sensor-2", "gateway-device-1"}
 
 	for _, thingName := range things {
-		_, err := iotClient.CreateThing(ctx, &iot.CreateThingInput{
-			ThingName: aws.String(thingName),
-		})
+		_, err := iotClient.Call(ctx, "CreateThing", map[string]any{"ThingName": thingName})
 		if err != nil {
 			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create IoT thing", "name", thingName, "error", err)
 		} else {
@@ -680,9 +667,9 @@ func loadIoT(ctx context.Context, iotClient *iot.Client) {
 		}
 	}
 
-	_, err := iotClient.CreateTopicRule(ctx, &iot.CreateTopicRuleInput{
-		RuleName: aws.String("demo_sensor_rule"),
-		TopicRulePayload: &iottypes.TopicRulePayload{
+	_, err := iotClient.Call(ctx, "CreateTopicRule", map[string]any{
+		"RuleName": "demo_sensor_rule",
+		"TopicRulePayload": iottypes.TopicRulePayload{
 			Sql:         aws.String("SELECT temperature FROM 'sensors/+/data'"),
 			Description: aws.String("Demo rule for sensor data"),
 			Actions:     []iottypes.Action{},
@@ -695,7 +682,7 @@ func loadIoT(ctx context.Context, iotClient *iot.Client) {
 	}
 }
 
-func loadAmplify(ctx context.Context, amplifyClient *amplify.Client) {
+func loadAmplify(ctx context.Context, amplifyClient Caller) {
 	apps := []struct {
 		name     string
 		platform amplifytypes.Platform
@@ -705,9 +692,9 @@ func loadAmplify(ctx context.Context, amplifyClient *amplify.Client) {
 	}
 
 	for _, a := range apps {
-		out, err := amplifyClient.CreateApp(ctx, &amplify.CreateAppInput{
-			Name:     aws.String(a.name),
-			Platform: a.platform,
+		out, err := amplifyClient.Call(ctx, "CreateApp", map[string]any{
+			keyName:    a.name,
+			"Platform": string(a.platform),
 		})
 		if err != nil {
 			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create Amplify app", "name", a.name, "error", err)
@@ -717,13 +704,14 @@ func loadAmplify(ctx context.Context, amplifyClient *amplify.Client) {
 
 		pkgslogger.Load(ctx).InfoContext(ctx, "Created Amplify app", "name", a.name)
 
-		if out.App == nil {
+		appID, _ := out["App"].(map[string]any)["AppId"].(string)
+		if appID == "" {
 			continue
 		}
 
-		_, bErr := amplifyClient.CreateBranch(ctx, &amplify.CreateBranchInput{
-			AppId:      out.App.AppId,
-			BranchName: aws.String("main"),
+		_, bErr := amplifyClient.Call(ctx, "CreateBranch", map[string]any{
+			"AppId":      appID,
+			"BranchName": "main",
 		})
 		if bErr != nil {
 			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create Amplify branch", "app", a.name, "error", bErr)
@@ -733,7 +721,7 @@ func loadAmplify(ctx context.Context, amplifyClient *amplify.Client) {
 	}
 }
 
-func loadCodeDeploy(ctx context.Context, client *codedeploysvc.Client) {
+func loadCodeDeploy(ctx context.Context, client Caller) {
 	apps := []struct {
 		name     string
 		platform codedeploytypes.ComputePlatform
@@ -744,9 +732,9 @@ func loadCodeDeploy(ctx context.Context, client *codedeploysvc.Client) {
 	}
 
 	for _, a := range apps {
-		_, err := client.CreateApplication(ctx, &codedeploysvc.CreateApplicationInput{
-			ApplicationName: aws.String(a.name),
-			ComputePlatform: a.platform,
+		_, err := client.Call(ctx, "CreateApplication", map[string]any{
+			"ApplicationName": a.name,
+			"ComputePlatform": string(a.platform),
 		})
 		if err != nil {
 			pkgslogger.Load(ctx).
@@ -759,7 +747,7 @@ func loadCodeDeploy(ctx context.Context, client *codedeploysvc.Client) {
 	}
 }
 
-func loadCodePipeline(ctx context.Context, client *codepipelinesvc.Client) {
+func loadCodePipeline(ctx context.Context, client Caller) {
 	pipelines := []struct {
 		name     string
 		roleARN  string
@@ -770,8 +758,8 @@ func loadCodePipeline(ctx context.Context, client *codepipelinesvc.Client) {
 	}
 
 	for _, p := range pipelines {
-		_, err := client.CreatePipeline(ctx, &codepipelinesvc.CreatePipelineInput{
-			Pipeline: &codepipelinetypes.PipelineDeclaration{
+		_, err := client.Call(ctx, "CreatePipeline", map[string]any{
+			"Pipeline": codepipelinetypes.PipelineDeclaration{
 				Name:    aws.String(p.name),
 				RoleArn: aws.String(p.roleARN),
 				ArtifactStore: &codepipelinetypes.ArtifactStore{
@@ -823,7 +811,7 @@ func loadCodePipeline(ctx context.Context, client *codepipelinesvc.Client) {
 					},
 				},
 			},
-			Tags: []codepipelinetypes.Tag{
+			"Tags": []codepipelinetypes.Tag{
 				{Key: aws.String("Environment"), Value: aws.String(sourceDemo)},
 			},
 		})

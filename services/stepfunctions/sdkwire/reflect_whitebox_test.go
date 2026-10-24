@@ -180,7 +180,7 @@ func toStruct(v reflect.Value) any {
 		}
 
 		if val, ok := toValue(v.Field(i)); ok {
-			out[f.Name] = val
+			out[strings.TrimSuffix(f.Name, "_")] = val
 		}
 	}
 
