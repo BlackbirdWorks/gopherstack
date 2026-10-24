@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -105,13 +104,11 @@ func TestRecordOperation(t *testing.T) {
 	}
 }
 
-var aggregationRun atomic.Int64
-
 func TestRecordOperation_LatencyAggregation(t *testing.T) {
 	t.Parallel()
 
 	// Metrics are process-global; a per-run operation name keeps -count>1 runs isolated.
-	opName := fmt.Sprintf("TestUpdateItem-%d", aggregationRun.Add(1))
+	opName := fmt.Sprintf("TestUpdateItem-%d", time.Now().UnixNano())
 
 	latencies := []float64{0.010, 0.015, 0.020, 0.025, 0.030}
 	for _, latency := range latencies {

@@ -15,12 +15,11 @@ import (
 // assert exactly which of ServiceBusProvider's Put paths call into the data
 // plane (namespace Put must NOT; queue/topic/subscription Put MUST).
 type fakeServiceBusEntities struct {
-	mu            sync.Mutex
 	queues        map[string]bool
 	topics        map[string]bool
 	subscriptions map[string]bool
-
-	calls []string
+	calls         []string
+	mu            sync.Mutex
 }
 
 func newFakeServiceBusEntities() *fakeServiceBusEntities {
@@ -832,13 +831,7 @@ func TestFakeServiceBusEntities_ConcurrentUse(t *testing.T) {
 
 	for range 50 {
 		for _, op := range ops {
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-
-				op()
-			}()
+			wg.Go(op)
 		}
 	}
 
