@@ -56,11 +56,18 @@ func splitPath(p string) []string {
 
 // Match returns the operation and the captured labels for method and the request's escaped path.
 func (r *Router) Match(method, escapedPath string) (string, map[string]string) {
-	segs := splitPath(escapedPath)
+	path := strings.Trim(escapedPath, "/")
+	n := segmentCount(path)
+
+	var segs []string
 
 	for _, rt := range r.routes {
-		if rt.method != method || len(rt.segments) != len(segs) {
+		if rt.method != method || len(rt.segments) != n || !shapeMatches(rt.segments, path) {
 			continue
+		}
+
+		if segs == nil {
+			segs = splitPath(escapedPath)
 		}
 
 		if params, ok := bind(rt.segments, segs); ok {
@@ -73,19 +80,51 @@ func (r *Router) Match(method, escapedPath string) (string, map[string]string) {
 
 // Handles reports whether any route (of any method) has the shape of escapedPath.
 func (r *Router) Handles(escapedPath string) bool {
-	segs := splitPath(escapedPath)
+	path := strings.Trim(escapedPath, "/")
+	n := segmentCount(path)
 
 	for _, rt := range r.routes {
-		if len(rt.segments) != len(segs) {
-			continue
-		}
-
-		if _, ok := bind(rt.segments, segs); ok {
+		if len(rt.segments) == n && shapeMatches(rt.segments, path) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func segmentCount(path string) int {
+	if path == "" {
+		return 0
+	}
+
+	return strings.Count(path, "/") + 1
+}
+
+// shapeMatches reports whether every literal template segment equals the path's and every
+// label segment is valid percent-encoding. It does not allocate for unescaped labels.
+func shapeMatches(tmpl []string, path string) bool {
+	for _, t := range tmpl {
+		seg := path
+		if i := strings.IndexByte(path, '/'); i >= 0 {
+			seg, path = path[:i], path[i+1:]
+		}
+
+		if len(t) > 2 && t[0] == '{' && t[len(t)-1] == '}' {
+			if strings.IndexByte(seg, '%') >= 0 {
+				if _, err := url.PathUnescape(seg); err != nil {
+					return false
+				}
+			}
+
+			continue
+		}
+
+		if t != seg {
+			return false
+		}
+	}
+
+	return true
 }
 
 func bind(tmpl, segs []string) (map[string]string, bool) {
