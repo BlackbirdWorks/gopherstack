@@ -900,7 +900,12 @@ func TestEventGridHandlerSubscriptionPatch(t *testing.T) {
 		body   string
 		status int
 	}{
-		{name: "merges the supplied members", path: egTestSubPath, body: `{"labels":["a"]}`, status: http.StatusCreated},
+		{
+			name:   "merges the supplied members",
+			path:   egTestSubPath,
+			body:   `{"labels":["a"]}`,
+			status: http.StatusCreated,
+		},
 		{name: "unknown subscription", path: egTestBase + "/providers/Microsoft.EventGrid/eventSubscriptions/nope",
 			body: `{"labels":["a"]}`, status: http.StatusNotFound},
 		{name: "unknown topic", path: egTestBase + "x/providers/Microsoft.EventGrid/eventSubscriptions/s1",

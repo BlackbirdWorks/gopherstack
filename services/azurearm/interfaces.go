@@ -330,7 +330,11 @@ type EventGrid interface {
 	ScopedSubscriptionFullURL(domain, topic, name string) (string, error)
 	DeliveryAttributes(domain, topic, name string) ([]map[string]any, error)
 	// PatchScopedSubscription merges an EventSubscriptionUpdateParameters body into an existing subscription.
-	PatchScopedSubscription(ctx context.Context, domain, topic, name string, patch map[string]any) (map[string]any, error)
+	PatchScopedSubscription(
+		ctx context.Context,
+		domain, topic, name string,
+		patch map[string]any,
+	) (map[string]any, error)
 
 	// The resource calls address event subscriptions of an ARM scope: a subscription, resource group or resource.
 	PutResourceSubscription(ctx context.Context, scopeID, name string, props map[string]any) (map[string]any, error)

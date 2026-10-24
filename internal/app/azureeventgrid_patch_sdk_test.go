@@ -38,12 +38,12 @@ func (s *egDomainStack) patchStack(t *testing.T) map[string]string {
 	require.NoError(t, err)
 
 	return map[string]string{
-		"custom topic": rgScope + "/providers/Microsoft.EventGrid/topics/t1",
-		"domain":                rgScope + "/providers/Microsoft.EventGrid/domains/d1",
-		"domain topic":          rgScope + "/providers/Microsoft.EventGrid/domains/d1/topics/orders",
-		"subscription":          egSubScope,
-		"resource group":        rgScope,
-		"resource":              widget,
+		"custom topic":   rgScope + "/providers/Microsoft.EventGrid/topics/t1",
+		"domain":         rgScope + "/providers/Microsoft.EventGrid/domains/d1",
+		"domain topic":   rgScope + "/providers/Microsoft.EventGrid/domains/d1/topics/orders",
+		"subscription":   egSubScope,
+		"resource group": rgScope,
+		"resource":       widget,
 	}
 }
 
@@ -94,7 +94,9 @@ func TestAzureEventGridEventSubscriptionPatchSDK(t *testing.T) {
 			}
 
 			// only labels supplied: everything else is kept
-			got, err := update(armeventgrid.EventSubscriptionUpdateParameters{Labels: pointers([]string{"new1", "new2"})})
+			got, err := update(
+				armeventgrid.EventSubscriptionUpdateParameters{Labels: pointers([]string{"new1", "new2"})},
+			)
 			require.NoError(t, err)
 			require.NotNil(t, got.Properties)
 			assert.Equal(t, scope+"/providers/Microsoft.EventGrid/eventSubscriptions/patched", *got.ID)
@@ -211,7 +213,9 @@ func TestAzureEventGridEventSubscriptionPatchErrorsSDK(t *testing.T) {
 			patch: armeventgrid.EventSubscriptionUpdateParameters{
 				Destination: &armeventgrid.WebHookEventSubscriptionDestination{
 					EndpointType: new(armeventgrid.EndpointTypeWebHook),
-					Properties:   &armeventgrid.WebHookEventSubscriptionDestinationProperties{EndpointURL: new("ftp://x")},
+					Properties: &armeventgrid.WebHookEventSubscriptionDestinationProperties{
+						EndpointURL: new("ftp://x"),
+					},
 				},
 			},
 		},
@@ -219,7 +223,9 @@ func TestAzureEventGridEventSubscriptionPatchErrorsSDK(t *testing.T) {
 			name: "resource identity delivery is not supported", scope: egSubScope,
 			patch: armeventgrid.EventSubscriptionUpdateParameters{
 				DeliveryWithResourceIdentity: &armeventgrid.DeliveryWithResourceIdentity{
-					Identity: &armeventgrid.EventSubscriptionIdentity{Type: new(armeventgrid.EventSubscriptionIdentityTypeSystemAssigned)},
+					Identity: &armeventgrid.EventSubscriptionIdentity{
+						Type: new(armeventgrid.EventSubscriptionIdentityTypeSystemAssigned),
+					},
 				},
 			},
 		},
@@ -318,7 +324,9 @@ func TestAzureEventGridResourceScopeEventsSDK(t *testing.T) {
 			},
 		},
 		{
-			name: "delete of the scoped resource", eventType: "Microsoft.Resources.ResourceDeleteSuccess", subject: acct,
+			name:      "delete of the scoped resource",
+			eventType: "Microsoft.Resources.ResourceDeleteSuccess",
+			subject:   acct,
 			act: func(t *testing.T, s *egDomainStack) {
 				t.Helper()
 				s.mustARM(t, http.MethodPut, acct, map[string]any{"location": "local"})
@@ -355,7 +363,12 @@ func TestAzureEventGridResourceScopeEventsSDK(t *testing.T) {
 
 			evs, _ := scoped.events(t)
 			for _, e := range evs {
-				assert.NotContains(t, e["subject"], "acct10", "a resource whose name only shares a prefix is not covered")
+				assert.NotContains(
+					t,
+					e["subject"],
+					"acct10",
+					"a resource whose name only shares a prefix is not covered",
+				)
 			}
 
 			evs, _ = sibling.events(t)

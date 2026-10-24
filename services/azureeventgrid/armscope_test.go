@@ -96,7 +96,11 @@ func TestPublishResourceEvent(t *testing.T) {
 			name: "a resource scope ignores sibling resources sharing its name prefix",
 			ev:   armEvent(azureeventgrid.EventResourceWriteSuccess, uri+"2", armRG),
 			scopes: map[string]map[string]any{
-				uri: queueProps("res-q", nil), rgScope + "/providers/Microsoft.Storage/storageAccounts/other": queueProps("o-q", nil),
+				uri: queueProps(
+					"res-q",
+					nil,
+				),
+				rgScope + "/providers/Microsoft.Storage/storageAccounts/other": queueProps("o-q", nil),
 			},
 			wantTopics: map[string]string{},
 		},
