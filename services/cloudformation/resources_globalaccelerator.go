@@ -117,7 +117,7 @@ func (rc *ResourceCreator) deleteGlobalAcceleratorThenNetworkManager(
 		return true, err
 	}
 
-	return rc.deleteNetworkManagerThenDirectConnect(ctx, resourceType, physicalID)
+	return rc.deleteMonitoringThenNetworkManager(ctx, resourceType, physicalID)
 }
 
 func (rc *ResourceCreator) createGlobalAcceleratorThenNetworkManager(
@@ -130,7 +130,7 @@ func (rc *ResourceCreator) createGlobalAcceleratorThenNetworkManager(
 		return id, true, err
 	}
 
-	return rc.createNetworkManagerThenDirectConnect(ctx, logicalID, resourceType, props, params, physicalIDs)
+	return rc.createMonitoringThenNetworkManager(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
 func globalAcceleratorRecreation(resourceType, propName string) string {
@@ -141,5 +141,5 @@ func globalAcceleratorRecreation(resourceType, propName string) string {
 		return alwaysIfOneOf(propName, "ListenerArn", "EndpointGroupRegion")
 	}
 
-	return recreateNever
+	return monitoringRecreation(resourceType, propName)
 }

@@ -925,8 +925,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 12 gaps; 2 structural gaps |
 | [Budgets](services/budgets/README.md) | B | 26 | 8 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
-| [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 9 gaps; 3 structural gaps |
-| [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 6 gaps; 2 structural gaps |
+| [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 8 gaps; 3 structural gaps |
+| [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 5 gaps; 2 structural gaps |
 | [Connect](services/connect/README.md) | B | 312 | 21 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 6 gaps |
 | [Directconnect](services/directconnect/README.md) | A | 73 | 2 gaps; 8 structural gaps; 1 deferred |
@@ -944,17 +944,17 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 8 structural gaps; 1 deferred |
 | [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 4 gaps; 3 structural gaps |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
-| [Oam](services/oam/README.md) | B | 15 | 4 gaps; 1 structural gap |
+| [Oam](services/oam/README.md) | B | 15 | 3 gaps; 1 structural gap |
 | [Outposts](services/outposts/README.md) | A | 45 | 2 gaps; 7 structural gaps |
 | [Pricing](services/pricing/README.md) | B | 5 | 5 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
 | [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 27 | 13 gaps; 1 structural gap |
-| [Rum](services/rum/README.md) | B | 20 | 9 gaps; 2 structural gaps |
+| [Rum](services/rum/README.md) | B | 20 | 7 gaps; 2 structural gaps |
 | [S3vectors](services/s3vectors/README.md) | B | 21 | 8 gaps; 1 structural gap |
 | [Servicecatalog](services/servicecatalog/README.md) | B | 90 | 7 gaps; 1 structural gap |
 | [Servicequotas](services/servicequotas/README.md) | B | 26 | 8 gaps; 1 structural gap |
 | [Support](services/support/README.md) | A | 20 | 1 structural gap; 1 deferred |
-| [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 5 gaps; 3 structural gaps |
+| [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 4 gaps; 3 structural gaps |
 | [WorkSpaces](services/workspaces/README.md) | A | 34 | 4 gaps; 2 structural gaps |
 <!-- END GENERATED SERVICES -->
 

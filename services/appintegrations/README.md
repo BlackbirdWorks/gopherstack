@@ -19,7 +19,7 @@
 - DataIntegrationAssociation.LastExecutionStatus: never emitted because no AppFlow execution exists
 - KmsKey: stored as given, not looked up in the KMS emulator
 - CreateDataIntegrationAssociation duplicate: the code for a second association of one DataIntegration is not documented; the emulator uses InvalidRequestException
-- ResourceGroupsTaggingAPI and CloudFormation do not expose or provision AppIntegrations resources
+- CloudFormation does not provision AppIntegrations resources
 
 ### Structural gaps
 

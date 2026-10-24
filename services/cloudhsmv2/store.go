@@ -126,6 +126,10 @@ func backupARN(account, region, id string) string {
 	return arn.Build(arnService, region, account, "backup/"+id)
 }
 
+func clusterARN(account, region, id string) string {
+	return arn.Build(arnService, region, account, "cluster/"+id)
+}
+
 func newClusterID() string { return awsid.NewN("cluster-", idSuffixLen) }
 func newHsmID() string     { return awsid.NewN("hsm-", idSuffixLen) }
 func newBackupID() string  { return awsid.NewN("backup-", idSuffixLen) }

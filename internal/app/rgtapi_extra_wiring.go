@@ -2,16 +2,23 @@ package app
 
 import (
 	"context"
+	"strings"
 
 	ampbackend "github.com/blackbirdworks/gopherstack/services/amp"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	rgtapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
+	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreaminfluxdbbackend "github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -31,7 +38,18 @@ func wireResourceGroupsTaggingSweep7(
 	wireTaggingTextract(bk, byName["Textract"])
 	wireTaggingGlobalAccelerator(bk, byName["GlobalAccelerator"])
 	wireTaggingAMP(bk, byName["AMP"])
+	wireTaggingAppIntegrations(bk, byName["AppIntegrations"])
+	wireTaggingCloudHSMV2(bk, byName["CloudHSMV2"])
+	wireTaggingCodeGuruReviewer(bk, byName["CodeGuruReviewer"])
+	wireTaggingConnect(bk, byName["Connect"])
+	wireTaggingRUM(bk, byName["RUM"])
+	wireTaggingTimestreamInfluxDB(bk, byName["TimestreamInfluxDB"])
 }
+
+const (
+	connectInstanceSegments = 2
+	connectUseCaseSegments  = 5
+)
 
 func toTaggedResources[T ~struct {
 	Tags map[string]string
@@ -233,16 +251,7 @@ func wireTaggingAMP(bk rgtapibackend.StorageBackend, reg service.Registerable) {
 	registerTaggingService(
 		bk,
 		func(ctx context.Context) []rgtapibackend.TaggedResource {
-			entries := b.TaggedResources(ctx)
-			out := make([]rgtapibackend.TaggedResource, 0, len(entries))
-
-			for _, e := range entries {
-				out = append(out, rgtapibackend.TaggedResource{
-					ResourceARN: e.ARN, ResourceType: resourceType(e.ARN), Tags: e.Tags,
-				})
-			}
-
-			return out
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
 		},
 		"aps",
 		func(ctx context.Context, arn string, tags map[string]string) error {
@@ -251,5 +260,158 @@ func wireTaggingAMP(bk rgtapibackend.StorageBackend, reg service.Registerable) {
 		func(ctx context.Context, arn string, keys []string) error {
 			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
 		},
+	)
+}
+
+func wireTaggingAppIntegrations(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*appintegrationsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("app-integrations")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
+		},
+		"app-integrations",
+		func(_ context.Context, arn string, tags map[string]string) error { return b.TagResource(arn, tags) },
+		func(_ context.Context, arn string, keys []string) error { return b.UntagResource(arn, keys) },
+	)
+}
+
+func wireTaggingCloudHSMV2(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*cloudhsmv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("cloudhsm")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
+		},
+		"cloudhsm",
+		func(ctx context.Context, arn string, tags map[string]string) error {
+			return b.TagResourceByARN(inRegion(ctx, originRegion(ctx, arn)), arn, tags)
+		},
+		func(ctx context.Context, arn string, keys []string) error {
+			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
+		},
+	)
+}
+
+func wireTaggingCodeGuruReviewer(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*codegurureviewerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("codeguru-reviewer")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
+		},
+		"codeguru-reviewer",
+		func(_ context.Context, arn string, tags map[string]string) error { return b.TagResource(arn, tags) },
+		func(_ context.Context, arn string, keys []string) error { return b.UntagResource(arn, keys) },
+	)
+}
+
+func wireTaggingRUM(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*rumbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("rum")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
+		},
+		"rum",
+		func(ctx context.Context, arn string, tags map[string]string) error {
+			return b.TagResource(inRegion(ctx, originRegion(ctx, arn)), arn, tags)
+		},
+		func(ctx context.Context, arn string, keys []string) error {
+			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
+		},
+	)
+}
+
+func wireTaggingTimestreamInfluxDB(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*timestreaminfluxdbbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("timestream-influxdb")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
+		},
+		"timestream-influxdb",
+		func(ctx context.Context, arn string, tags map[string]string) error {
+			return b.TagResource(inRegion(ctx, originRegion(ctx, arn)), arn, tags)
+		},
+		func(ctx context.Context, arn string, keys []string) error {
+			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
+		},
+	)
+}
+
+// connectResourceType names a Connect ARN "connect:instance", "connect:phone-number" or, for
+// resources nested under an instance, "connect:instance/<kind>" (nested use cases add "/use-case").
+func connectResourceType(arn string) string {
+	_, resource, ok := strings.Cut(arn, ":connect:")
+	if !ok {
+		return "connect"
+	}
+
+	_, resource, _ = strings.Cut(resource, ":")
+	_, resource, _ = strings.Cut(resource, ":")
+	segs := strings.Split(resource, "/")
+
+	switch {
+	case len(segs) <= connectInstanceSegments:
+		return "connect:" + segs[0]
+	case len(segs) > connectUseCaseSegments && segs[connectUseCaseSegments-1] == "use-case":
+		return "connect:" + segs[0] + "/" + segs[2] + "/use-case"
+	default:
+		return "connect:" + segs[0] + "/" + segs[2]
+	}
+}
+
+func wireTaggingConnect(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*connectbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), connectResourceType)
+		},
+		"connect",
+		func(_ context.Context, arn string, tags map[string]string) error { return b.TagResource(arn, tags) },
+		func(_ context.Context, arn string, keys []string) error { return b.UntagResource(arn, keys) },
 	)
 }

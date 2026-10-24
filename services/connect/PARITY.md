@@ -339,7 +339,7 @@ items_still_open:
   - "Contact.Recordings, QualityMetrics, ChatMetrics, DisconnectDetails and the other contact analytics members are never populated"
   - "ListQueues QueueTypes=AGENT: per-agent queues are not modeled"
   - "CreateInstance quota (2 per Region) is not enforced"
-  - "ResourceGroupsTaggingAPI and CloudFormation do not expose or provision Connect resources"
+  - "CloudFormation does not provision Connect resources"
   - "Lex bot associations are shape-checked only: no Lex service exists in the emulator"
 structural_gaps:
   - "No telephony or media plane: outbound calls are never placed, no audio flows, and contacts only change state through StopContact and UpdateContact because no agent softphone or customer endpoint exists."

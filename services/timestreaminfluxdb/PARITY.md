@@ -43,7 +43,6 @@ items_still_open:
   - DbBackupConfigurations: CUSTOM_SCHEDULE (cron) and CONTINUOUS configurations are stored but never run; HOURLY, DAILY, WEEKLY and MONTHLY run on the backend clock
   - VpcSubnetIds: existence is checked through EC2 when wired, but all subnets belonging to one VPC and the security groups are not verified
   - AccessDeniedException: never raised; no IAM authorization is modeled
-  - ResourceGroupsTaggingAPI: Timestream for InfluxDB tags are not exposed through the tagging API
 structural_gaps:
   - "InfluxDB v3 Core and Enterprise engines and multi-node clusters have no container image the emulator can run; cluster data planes cannot exist."
   - "Cluster members run as independent servers: there is no replication between them, and a cluster backup is taken from the PRIMARY member."

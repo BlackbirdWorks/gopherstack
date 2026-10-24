@@ -226,7 +226,7 @@ func (b *InMemoryBackend) updateExistingResource(
 
 	b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateInProgress, "")
 
-	_, err := b.creator.UpdateInPlace(res.Type, existing.PhysicalID, res.Properties, params, phys)
+	_, err := b.creator.UpdateInPlace(ctx, res.Type, existing.PhysicalID, res.Properties, params, phys)
 	if err != nil {
 		b.addEvent(
 			stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateFailed, err.Error(),

@@ -127,6 +127,15 @@
     "CreatedTime",
     "Id"
   ],
+  "AWS::CloudHSM::Cluster": [
+    "Arn",
+    "BackupPolicy",
+    "ClusterId",
+    "SecurityGroup",
+    "State",
+    "SubnetMapping",
+    "VpcId"
+  ],
   "AWS::CloudTrail::Channel": [
     "ChannelArn"
   ],
@@ -985,6 +994,13 @@
     "State",
     "UpdatedAt"
   ],
+  "AWS::Oam::Link": [
+    "Arn",
+    "Label"
+  ],
+  "AWS::Oam::Sink": [
+    "Arn"
+  ],
   "AWS::OpenSearchService::Domain": [
     "AdvancedSecurityOptions.AnonymousAuthDisableDate",
     "Arn",
@@ -1045,6 +1061,9 @@
     "Endpoint",
     "IsDefault",
     "VpcId"
+  ],
+  "AWS::RUM::AppMonitor": [
+    "Id"
   ],
   "AWS::Redshift::ClusterSubnetGroup": [
     "ClusterSubnetGroupName"

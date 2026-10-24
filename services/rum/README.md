@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 9 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -23,8 +23,6 @@
 - BatchCreateRumMetricDefinitions: the per-item ErrorCode values (ValidationException, ServiceQuotaExceededException) are assumptions, the SDK does not enumerate them
 - GetAppMonitorData: the TimeRange unit is not stated by the SDK; seconds and milliseconds are both accepted
 - AccessDeniedException and ThrottlingException: never raised; no IAM or throttling is modeled
-- ResourceGroupsTaggingAPI: app monitor tags are not exposed through the tagging API
-- CloudFormation: AWS::RUM::AppMonitor is not provisioned by the CloudFormation emulator
 
 ### Structural gaps
 
