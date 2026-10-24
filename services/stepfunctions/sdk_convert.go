@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
 var (
@@ -51,19 +49,11 @@ func assignValue(v reflect.Value, src any) error {
 }
 
 func assignInterface(v reflect.Value, src any) error {
-	switch {
-	case v.Type() == reflect.TypeFor[ddbtypes.AttributeValue]():
-		av, err := decodeAttributeValue(src)
-		if err != nil {
-			return err
-		}
-
-		v.Set(reflect.ValueOf(av))
-	case v.Type() == reflect.TypeFor[io.Reader]():
-		v.Set(reflect.ValueOf(strings.NewReader(streamString(src))))
-	default:
+	if v.Type() != reflect.TypeFor[io.Reader]() {
 		return fmt.Errorf("%w: %s", errSDKUnsupportedField, v.Type())
 	}
+
+	v.Set(reflect.ValueOf(strings.NewReader(streamString(src))))
 
 	return nil
 }
@@ -272,120 +262,6 @@ func scalarNumber(src any) (float64, error) {
 	default:
 		return 0, fmt.Errorf("%w: expected number", errSDKBadValue)
 	}
-}
-
-// decodeAttributeValue builds a DynamoDB AttributeValue from its JSON form,
-// e.g. {"S": "x"} or {"N": "1"}.
-func decodeAttributeValue(src any) (ddbtypes.AttributeValue, error) {
-	m, ok := src.(map[string]any)
-	if !ok || len(m) != 1 {
-		return nil, fmt.Errorf("%w: AttributeValue must hold exactly one type key", errSDKBadValue)
-	}
-
-	for key, val := range m {
-		return attributeMember(key, val)
-	}
-
-	return nil, errSDKBadValue
-}
-
-func attributeMember(key string, val any) (ddbtypes.AttributeValue, error) {
-	switch key {
-	case "S":
-		s, err := scalarString(val)
-
-		return &ddbtypes.AttributeValueMemberS{Value: s}, err
-	case "N":
-		s, err := scalarString(val)
-
-		return &ddbtypes.AttributeValueMemberN{Value: s}, err
-	case "B":
-		s, _ := val.(string)
-		raw, err := base64.StdEncoding.DecodeString(s)
-
-		return &ddbtypes.AttributeValueMemberB{Value: raw}, err
-	case "BOOL":
-		b, _ := val.(bool)
-
-		return &ddbtypes.AttributeValueMemberBOOL{Value: b}, nil
-	case "NULL":
-		return &ddbtypes.AttributeValueMemberNULL{Value: true}, nil
-	case "SS", "NS", "BS", "L", "M":
-		return attributeCollection(key, val)
-	default:
-		return nil, fmt.Errorf("%w: unknown AttributeValue type %q", errSDKBadValue, key)
-	}
-}
-
-func attributeCollection(key string, val any) (ddbtypes.AttributeValue, error) {
-	if key == "M" {
-		return attributeMap(val)
-	}
-
-	items, _ := val.([]any)
-
-	switch key {
-	case "L":
-		list := make([]ddbtypes.AttributeValue, 0, len(items))
-
-		for _, it := range items {
-			av, err := decodeAttributeValue(it)
-			if err != nil {
-				return nil, err
-			}
-
-			list = append(list, av)
-		}
-
-		return &ddbtypes.AttributeValueMemberL{Value: list}, nil
-	case "BS":
-		bs := make([][]byte, 0, len(items))
-
-		for _, it := range items {
-			s, _ := it.(string)
-
-			raw, err := base64.StdEncoding.DecodeString(s)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %w", errSDKBadValue, err)
-			}
-
-			bs = append(bs, raw)
-		}
-
-		return &ddbtypes.AttributeValueMemberBS{Value: bs}, nil
-	}
-
-	strs := make([]string, 0, len(items))
-	for _, it := range items {
-		s, err := scalarString(it)
-		if err != nil {
-			return nil, err
-		}
-
-		strs = append(strs, s)
-	}
-
-	if key == "NS" {
-		return &ddbtypes.AttributeValueMemberNS{Value: strs}, nil
-	}
-
-	return &ddbtypes.AttributeValueMemberSS{Value: strs}, nil
-}
-
-func attributeMap(val any) (ddbtypes.AttributeValue, error) {
-	m, _ := val.(map[string]any)
-	out := make(map[string]ddbtypes.AttributeValue, len(m))
-
-	for k, it := range m {
-		av, err := decodeAttributeValue(it)
-		if err != nil {
-			return nil, err
-		}
-
-		out[k] = av
-	}
-
-	return &ddbtypes.AttributeValueMemberM{Value: out}, nil
 }
 
 // encodeSDKOutput renders an SDK output value as the JSON-shaped value Step

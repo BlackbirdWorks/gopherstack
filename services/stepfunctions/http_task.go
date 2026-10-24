@@ -108,7 +108,7 @@ func runtimeFailure(format string, args ...any) error {
 }
 
 func (a *sdkAdapter) invokeHTTP(ctx context.Context, call asl.SDKCall) (any, error) {
-	if call.Action != "invoke" {
+	if call.Action != actionInvoke {
 		return nil, runtimeFailure("unknown HTTP Task action %q", call.Action)
 	}
 
