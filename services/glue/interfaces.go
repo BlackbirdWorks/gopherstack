@@ -491,6 +491,7 @@ type StorageBackend interface {
 		resourceArn, tableName string,
 		sourceConfig, targetConfig map[string]any,
 	) error
+	ListIntegrationTableProperties(filters []IntegrationTablePropertiesFilter) ([]*IntegrationTableProperties, error)
 	GetIntegrationTableProperties(
 		resourceArn, tableName string,
 	) (*IntegrationTableProperties, error)
