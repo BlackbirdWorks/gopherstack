@@ -192,9 +192,8 @@ func applyResponseOverrideHeaders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := r.URL.Query()
 	for param, header := range responseOverrideParams {
-		if v := q.Get(param); v != "" {
+		if v := httputils.RawQueryGet(r.URL.RawQuery, param); v != "" {
 			w.Header().Set(header, v)
 		}
 	}

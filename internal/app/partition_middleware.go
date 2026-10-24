@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 const (
@@ -48,7 +49,13 @@ func partitionStrictMiddleware() echo.MiddlewareFunc {
 }
 
 func isSigV4Request(r *http.Request) bool {
-	return strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-") || r.URL.Query().Has("X-Amz-Credential")
+	return strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-") ||
+		httputils.RawQueryHas(r.URL.RawQuery, "X-Amz-Credential")
+}
+
+// mayHideARN is false only when no decoded query value can contain "arn:".
+func mayHideARN(rawQuery string) bool {
+	return strings.Contains(rawQuery, "arn:") || strings.ContainsAny(rawQuery, "%+")
 }
 
 func foreignPartitionARN(r *http.Request, region, service string) (string, bool) {
@@ -58,10 +65,12 @@ func foreignPartitionARN(r *http.Request, region, service string) (string, bool)
 		return bad, true
 	}
 
-	for _, vs := range r.URL.Query() {
-		for _, v := range vs {
-			if bad, ok := arn.FindMismatch(v, partition, false); ok {
-				return bad, true
+	if mayHideARN(r.URL.RawQuery) {
+		for _, vs := range r.URL.Query() {
+			for _, v := range vs {
+				if bad, ok := arn.FindMismatch(v, partition, false); ok {
+					return bad, true
+				}
 			}
 		}
 	}

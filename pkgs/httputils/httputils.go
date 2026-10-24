@@ -539,7 +539,7 @@ func ExtractSecurityTokenFromRequest(r *http.Request) string {
 	}
 
 	if r.URL != nil && r.URL.RawQuery != "" {
-		if tok := r.URL.Query().Get("X-Amz-Security-Token"); tok != "" {
+		if tok := RawQueryGet(r.URL.RawQuery, "X-Amz-Security-Token"); tok != "" {
 			return SanitizeHeaderString(tok)
 		}
 	}

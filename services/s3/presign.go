@@ -42,9 +42,7 @@ func isPresignedRequest(r *http.Request) bool {
 		return false
 	}
 
-	q := r.URL.Query()
-
-	return q.Has("X-Amz-Signature") || isSigV2QueryPresign(r)
+	return httputils.RawQueryHas(r.URL.RawQuery, "X-Amz-Signature") || isSigV2QueryPresign(r)
 }
 
 // isSigV2QueryPresign reports whether the request is a legacy SigV2 query-string
@@ -55,9 +53,10 @@ func isSigV2QueryPresign(r *http.Request) bool {
 		return false
 	}
 
-	q := r.URL.Query()
+	rq := r.URL.RawQuery
 
-	return q.Has("AWSAccessKeyId") && q.Has("Signature") && q.Has("Expires")
+	return httputils.RawQueryHas(rq, "AWSAccessKeyId") && httputils.RawQueryHas(rq, "Signature") &&
+		httputils.RawQueryHas(rq, "Expires")
 }
 
 // validatePresignedRequest checks whether a presigned URL request is
