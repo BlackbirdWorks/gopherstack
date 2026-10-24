@@ -105,6 +105,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.282.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.25.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/securityhub v1.84.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ses v1.42.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.79.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.51.3 // indirect
@@ -239,12 +240,12 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa // indirect
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/genproto v0.0.0-20260715232425-e75dac1f907d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260904194346-d0f1323225a4 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260904194346-d0f1323225a4 // indirect
