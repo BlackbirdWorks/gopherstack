@@ -226,7 +226,7 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 
 		if startErr := r.cli.ContainerStart(ctx, containerID, dockertypes.StartOptions{}); startErr != nil {
 			// Clean up the just-created container before rolling back the rest.
-			if rmErr := r.cli.ContainerRemove(ctx, containerID, dockertypes.RemoveOptions{Force: true}); rmErr != nil {
+			if rmErr := r.cli.ContainerRemove(ctx, containerID, dockertypes.RemoveOptions{Force: true, RemoveVolumes: true}); rmErr != nil {
 				log.WarnContext(
 					ctx, "failed to remove container after start failure",
 					"containerID", containerID,
@@ -299,7 +299,7 @@ func (r *realDockerRunner) rollbackContainers(ctx context.Context, containerIDs 
 			)
 		}
 
-		if err := r.cli.ContainerRemove(ctx, id, dockertypes.RemoveOptions{Force: true}); err != nil {
+		if err := r.cli.ContainerRemove(ctx, id, dockertypes.RemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			log.WarnContext(
 				ctx,
 				"failed to remove container during rollback",
@@ -373,7 +373,7 @@ func (r *realDockerRunner) createContainer(
 	r.stashFronts(resp.ID, diverted)
 
 	if attachErr := r.attachContainer(ctx, resp.ID); attachErr != nil {
-		_ = r.cli.ContainerRemove(ctx, resp.ID, dockertypes.RemoveOptions{Force: true})
+		_ = r.cli.ContainerRemove(ctx, resp.ID, dockertypes.RemoveOptions{Force: true, RemoveVolumes: true})
 		r.closeFronts(resp.ID)
 
 		return "", fmt.Errorf("attach container %s to link-local network: %w", resp.ID, attachErr)

@@ -280,7 +280,7 @@ func (m *Manager) ensureRelay(ctx context.Context) error {
 			return m.startRelay(ctx, c.ID)
 		}
 
-		_, _ = m.api.ContainerRemove(ctx, c.ID, mobyclient.ContainerRemoveOptions{Force: true})
+		_, _ = m.api.ContainerRemove(ctx, c.ID, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	}
 
 	return m.createRelay(ctx)
@@ -463,7 +463,7 @@ func (m *Manager) Remove(ctx context.Context) error {
 	}
 
 	for _, c := range res.Items {
-		_, _ = m.api.ContainerRemove(ctx, c.ID, mobyclient.ContainerRemoveOptions{Force: true})
+		_, _ = m.api.ContainerRemove(ctx, c.ID, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	}
 
 	nets, err := m.api.NetworkList(ctx, mobyclient.NetworkListOptions{Filters: m.filter()})

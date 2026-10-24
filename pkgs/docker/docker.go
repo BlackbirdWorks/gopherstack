@@ -281,7 +281,7 @@ func (c *Client) StopAndRemove(ctx context.Context, containerID string) error {
 		return fmt.Errorf("container stop %q: %w", containerID, err)
 	}
 
-	if err := c.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil {
+	if err := c.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 		return fmt.Errorf("container remove %q: %w", containerID, err)
 	}
 

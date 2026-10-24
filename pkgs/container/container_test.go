@@ -35,19 +35,20 @@ var (
 // ---- mock APIClient for testing ----
 
 type mockAPI struct {
-	pullErr     error
-	createErr   error
-	startErr    error
-	stopErr     error
-	removeErr   error
-	listErr     error
-	pingErr     error
-	lastCfg     *dockercontainer.Config
-	lastHost    *dockercontainer.HostConfig
-	images      []image.Summary
-	counter     int
-	closeCalled bool
-	mu          sync.Mutex
+	pullErr       error
+	createErr     error
+	startErr      error
+	stopErr       error
+	removeErr     error
+	listErr       error
+	pingErr       error
+	lastCfg       *dockercontainer.Config
+	lastHost      *dockercontainer.HostConfig
+	images        []image.Summary
+	counter       int
+	closeCalled   bool
+	removeVolumes bool
+	mu            sync.Mutex
 }
 
 func (m *mockAPI) ImagePull(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
@@ -96,7 +97,9 @@ func (m *mockAPI) ContainerStop(_ context.Context, _ string, _ dockercontainer.S
 	return m.stopErr
 }
 
-func (m *mockAPI) ContainerRemove(_ context.Context, _ string, _ dockercontainer.RemoveOptions) error {
+func (m *mockAPI) ContainerRemove(_ context.Context, _ string, opts dockercontainer.RemoveOptions) error {
+	m.removeVolumes = opts.RemoveVolumes
+
 	return m.removeErr
 }
 
@@ -353,7 +356,8 @@ func TestDockerRuntime_StopAndRemove(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rt := newRuntime(&mockAPI{stopErr: tt.stopErr, removeErr: tt.removeErr})
+			api := &mockAPI{stopErr: tt.stopErr, removeErr: tt.removeErr}
+			rt := newRuntime(api)
 			err := rt.StopAndRemove(t.Context(), "ctr-1")
 
 			if tt.wantErr {
@@ -366,6 +370,7 @@ func TestDockerRuntime_StopAndRemove(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			assert.True(t, api.removeVolumes, "removal must pass RemoveVolumes")
 		})
 	}
 }
