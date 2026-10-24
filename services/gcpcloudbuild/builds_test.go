@@ -428,3 +428,90 @@ func TestNoRuntime(t *testing.T) {
 	assert.Equal(t, "engine off for test", got.GetStatusDetail())
 	assert.Equal(t, []string{"QUEUED", "WORKING", "FAILURE"}, e.pub.statuses())
 }
+
+func TestDeadlineBeatsKilledStepExit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		build  func() (*cloudbuildpb.Build, time.Duration)
+		detail string
+	}{
+		{
+			name: "build timeout",
+			build: func() (*cloudbuildpb.Build, time.Duration) {
+				b := buildOf(step("slow"))
+				b.Timeout = timeout(90 * time.Second)
+
+				return b, 90 * time.Second
+			},
+			detail: "did not complete within 1m30s",
+		},
+		{
+			name: "step timeout",
+			build: func() (*cloudbuildpb.Build, time.Duration) {
+				s := step("slow")
+				s.Timeout = timeout(7 * time.Second)
+
+				return buildOf(s), 7 * time.Second
+			},
+			detail: "timed out after 7s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			started := make(chan struct{})
+			e := newEnv(t, map[string]behavior{"slow": blocks(started)})
+			e.rt.exitFirst = true
+
+			b, limit := tt.build()
+			op, err := e.client.CreateBuild(
+				t.Context(),
+				&cloudbuildpb.CreateBuildRequest{Parent: parent, Build: b},
+			)
+			require.NoError(t, err)
+
+			<-started
+			require.True(t, e.timers.fire(limit))
+
+			got, err := op.Wait(t.Context())
+			require.NoError(t, err)
+			e.backend.Wait()
+
+			assert.Equal(t, cloudbuildpb.Build_TIMEOUT, got.GetStatus())
+			assert.Contains(t, got.GetStatusDetail(), tt.detail)
+		})
+	}
+}
+
+func TestCancelBeatsKilledStepExit(t *testing.T) {
+	t.Parallel()
+
+	started := make(chan struct{})
+	e := newEnv(t, map[string]behavior{"slow": blocks(started)})
+	e.rt.exitFirst = true
+
+	op, err := e.client.CreateBuild(
+		t.Context(),
+		&cloudbuildpb.CreateBuildRequest{Parent: parent, Build: buildOf(step("slow"))},
+	)
+	require.NoError(t, err)
+
+	<-started
+
+	meta, err := op.Metadata()
+	require.NoError(t, err)
+
+	_, err = e.client.CancelBuild(
+		t.Context(),
+		&cloudbuildpb.CancelBuildRequest{Name: meta.GetBuild().GetName()},
+	)
+	require.NoError(t, err)
+	e.backend.Wait()
+
+	got := e.get(t, meta.GetBuild().GetName())
+	assert.Equal(t, cloudbuildpb.Build_CANCELLED, got.GetStatus())
+}

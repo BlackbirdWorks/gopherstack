@@ -64,7 +64,8 @@ func (r *runner) runStep(ctx context.Context, i int) stepResult {
 	switch {
 	case timedOut.Load():
 		return r.stepTimeout(i, step)
-	case err != nil:
+	case err != nil, code != 0 && ctx.Err() != nil:
+		// a kill from build timeout or cancel can surface as exit 137; the build outcome wins
 		return r.stepEnded(ctx, i, step, err)
 	}
 

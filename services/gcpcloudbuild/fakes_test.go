@@ -32,6 +32,8 @@ type fakeRuntime struct {
 	specs     []container.Spec
 	mu        sync.Mutex
 	next      int
+	// exitFirst makes WaitExit report the exit code even after its context ended.
+	exitFirst bool
 }
 
 func newFakeRuntime(b map[string]behavior) *fakeRuntime {
@@ -85,6 +87,10 @@ func (f *fakeRuntime) box(id string) *fakeContainer {
 }
 
 func (f *fakeRuntime) WaitExit(ctx context.Context, id string) (int, error) {
+	if f.exitFirst {
+		return <-f.box(id).exit, nil
+	}
+
 	select {
 	case code := <-f.box(id).exit:
 		return code, nil
