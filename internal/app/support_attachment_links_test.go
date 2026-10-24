@@ -83,7 +83,7 @@ func TestSupportAttachmentLinks_FullRouter(t *testing.T) {
 			assert.Equal(t, payload, body)
 
 			code, _ = devDo(t, http.MethodGet, srv.URL+"/_gopherstack/support/attachments/download/bogus", "")
-
+			assert.Equal(t, http.StatusForbidden, code)
 		})
 	}
 }
