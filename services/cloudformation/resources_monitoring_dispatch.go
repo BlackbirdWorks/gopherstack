@@ -17,6 +17,10 @@ func (rc *ResourceCreator) createMonitoringThenNetworkManager(
 		return id, true, err
 	}
 
+	if id, ok, err := rc.createCloudHSMResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
 	return rc.createNetworkManagerThenDirectConnect(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
@@ -32,6 +36,10 @@ func (rc *ResourceCreator) deleteMonitoringThenNetworkManager(
 		return true, err
 	}
 
+	if handled, err := rc.deleteCloudHSMResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
 	return rc.deleteNetworkManagerThenDirectConnect(ctx, resourceType, physicalID)
 }
 
@@ -44,6 +52,10 @@ func monitoringRecreation(resourceType, propName string) string {
 		return alwaysIfOneOf(propName, "Name")
 	case resTypeOAMLink:
 		return alwaysIfOneOf(propName, "SinkIdentifier", "LabelTemplate")
+	case resTypeCloudHSMCluster:
+		return alwaysIfOneOf(propName, "HsmType", "SubnetIds", "Mode", "NetworkType", "SourceBackupIdentifier")
+	case resTypeCloudHSMHsm:
+		return alwaysIfOneOf(propName, "ClusterId", "AvailabilityZone", "IpAddress")
 	default:
 		return recreateNever
 	}

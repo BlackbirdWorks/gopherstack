@@ -733,6 +733,14 @@
   "AWS::CloudFront::ResponseHeadersPolicy": {
     "ResponseHeadersPolicyConfig": "map"
   },
+  "AWS::CloudHSM::Cluster": {
+    "BackupRetentionPolicy": "map",
+    "HsmType": "string",
+    "Mode": "string",
+    "NetworkType": "string",
+    "SubnetIds": "list",
+    "Tags": "list"
+  },
   "AWS::CloudTrail::Channel": {
     "Destinations": "list",
     "Name": "string",

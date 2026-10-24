@@ -127,6 +127,15 @@
     "CreatedTime",
     "Id"
   ],
+  "AWS::CloudHSM::Cluster": [
+    "Arn",
+    "BackupPolicy",
+    "ClusterId",
+    "SecurityGroup",
+    "State",
+    "SubnetMapping",
+    "VpcId"
+  ],
   "AWS::CloudTrail::Channel": [
     "ChannelArn"
   ],

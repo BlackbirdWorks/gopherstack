@@ -25,6 +25,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -180,6 +181,7 @@ type ServiceBackends struct {
 	KafkaConnect      *kafkaconnectbackend.Handler
 	RUM               *rumbackend.Handler
 	OAM               *oambackend.Handler
+	CloudHSMV2        *cloudhsmv2backend.Handler
 	DirectConnect     *directconnectbackend.Handler
 	NetworkManager    *networkmanagerbackend.Handler
 	GlobalAccelerator *globalacceleratorbackend.Handler

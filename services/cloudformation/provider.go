@@ -16,6 +16,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -166,6 +167,7 @@ type BackendsProvider interface {
 	GetKafkaConnectHandler() service.Registerable
 	GetRUMHandler() service.Registerable
 	GetOAMHandler() service.Registerable
+	GetCloudHSMV2Handler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -222,6 +224,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.KafkaConnect, _ = getHandler[*kafkaconnectbackend.Handler](bp.GetKafkaConnectHandler())
 	backends.RUM, _ = getHandler[*rumbackend.Handler](bp.GetRUMHandler())
 	backends.OAM, _ = getHandler[*oambackend.Handler](bp.GetOAMHandler())
+	backends.CloudHSMV2, _ = getHandler[*cloudhsmv2backend.Handler](bp.GetCloudHSMV2Handler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

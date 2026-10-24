@@ -34,6 +34,8 @@ func (rc *ResourceCreator) UpdateInPlace(
 	ctx = rc.withStackRegion(ctx)
 
 	switch resourceType {
+	case resTypeCloudHSMCluster:
+		return true, rc.updateCloudHSMCluster(ctx, physicalID, props, params, physicalIDs)
 	case resTypeOAMSink, resTypeOAMLink:
 		return true, rc.updateOAMResource(ctx, resourceType, physicalID, props, params, physicalIDs)
 	case resTypeRUMAppMonitor:
