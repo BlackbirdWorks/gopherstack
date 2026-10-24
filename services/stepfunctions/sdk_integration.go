@@ -22,6 +22,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
+	"github.com/blackbirdworks/gopherstack/services/stepfunctions/sdkwire"
 )
 
 const (
@@ -173,7 +174,10 @@ func (a *sdkAdapter) credentials(roleArn string) aws.CredentialsProvider {
 	)
 }
 
-func (a *sdkAdapter) client(svc sdkService, name string, call asl.SDKCall) any {
+// sdkInvoker calls one action of a service with Step Functions parameters.
+type sdkInvoker func(ctx context.Context, action string, params any) (any, error)
+
+func (a *sdkAdapter) invoker(svc sdkService, name string, call asl.SDKCall) sdkInvoker {
 	region := call.Region
 	if region == "" {
 		region = a.region
@@ -184,7 +188,64 @@ func (a *sdkAdapter) client(svc sdkService, name string, call asl.SDKCall) any {
 		account = ""
 	}
 
-	key := strings.Join([]string{name, region, account, call.RoleArn}, "|")
+	if ws, ok := sdkwire.Lookup(name); ok {
+		return a.wireInvoker(ws, name, sdkwire.Target{
+			Handler:     a.handler,
+			Credentials: a.cachedCredentials(call.RoleArn),
+			Endpoint:    sdkEndpoint,
+			Region:      region,
+			Account:     account,
+		})
+	}
+
+	client := a.legacyClient(svc, name, region, account, call.RoleArn)
+
+	return func(ctx context.Context, action string, params any) (any, error) {
+		return invokeSDKMethod(ctx, client, name, action, params)
+	}
+}
+
+func (a *sdkAdapter) wireInvoker(ws *sdkwire.Service, name string, tgt sdkwire.Target) sdkInvoker {
+	return func(ctx context.Context, action string, params any) (any, error) {
+		out, err := ws.Call(ctx, tgt, upperFirst(action), prepareParams(name, action, params))
+		if err != nil {
+			return nil, wireError(name, action, err)
+		}
+
+		return shapeWireOutput(name, action, out), nil
+	}
+}
+
+func wireError(svc, action string, err error) error {
+	switch {
+	case errors.Is(err, sdkwire.ErrUnknownOp):
+		return &asl.FailError{
+			ErrCode: errCodeRuntime,
+			Cause:   fmt.Sprintf("unknown AWS SDK action %q for service %q", action, svc),
+		}
+	case errors.Is(err, sdkwire.ErrBadValue), errors.Is(err, sdkwire.ErrEventStream):
+		return &asl.FailError{ErrCode: errCodeRuntime, Cause: err.Error()}
+	default:
+		return err
+	}
+}
+
+func (a *sdkAdapter) cachedCredentials(roleArn string) aws.CredentialsProvider {
+	key := "credentials|" + roleArn
+	if c, ok := a.clients.Get(key); ok {
+		if p, ok := c.(aws.CredentialsProvider); ok {
+			return p
+		}
+	}
+
+	p := a.credentials(roleArn)
+	a.clients.Set(key, p)
+
+	return p
+}
+
+func (a *sdkAdapter) legacyClient(svc sdkService, name, region, account, roleArn string) any {
+	key := strings.Join([]string{name, region, account, roleArn}, "|")
 	if c, ok := a.clients.Get(key); ok {
 		return c
 	}
@@ -195,7 +256,7 @@ func (a *sdkAdapter) client(svc sdkService, name string, call asl.SDKCall) any {
 
 	c := svc.build(aws.Config{
 		Region:       region,
-		Credentials:  a.credentials(call.RoleArn),
+		Credentials:  a.credentials(roleArn),
 		HTTPClient:   &inProcessClient{handler: a.handler, account: account},
 		Retryer:      func() aws.Retryer { return aws.NopRetryer{} },
 		BaseEndpoint: aws.String(sdkEndpoint),
@@ -228,9 +289,9 @@ func (a *sdkAdapter) SFNCallSDK(ctx context.Context, call asl.SDKCall) (any, err
 		prefix = p
 	}
 
-	client := a.client(svc, call.Service, call)
+	invoke := a.invoker(svc, call.Service, call)
 
-	out, err := invokeSDKMethod(ctx, client, call.Service, call.Action, call.Params)
+	out, err := invoke(ctx, call.Action, call.Params)
 	if err != nil {
 		return nil, sdkFailure(prefix, err)
 	}
@@ -247,7 +308,7 @@ func (a *sdkAdapter) SFNCallSDK(ctx context.Context, call asl.SDKCall) (any, err
 	}
 
 	return a.waitSync(ctx, syncRequest{
-		spec: spec, client: client, call: call, started: out, prefix: prefix,
+		spec: spec, invoke: invoke, call: call, started: out, prefix: prefix,
 	})
 }
 
@@ -274,6 +335,28 @@ func invokeSDKMethod(ctx context.Context, client any, svc, action string, params
 	}
 
 	return shapeOutput(svc, action, res[0]), nil
+}
+
+// shapeWireOutput applies the per-action output conventions of shapeOutput to
+// a decoded response.
+func shapeWireOutput(svc, action string, out any) any {
+	m, ok := out.(map[string]any)
+	if !ok {
+		return out
+	}
+
+	switch {
+	case svc == svcBedrockRuntime && action == "invokeModel":
+		return invokeModelOutput(m)
+	case svc == awsServiceLambda && action == "invoke":
+		if enc, _ := m["Payload"].(string); enc != "" {
+			if raw, err := base64.StdEncoding.DecodeString(enc); err == nil {
+				m["Payload"] = string(raw)
+			}
+		}
+	}
+
+	return m
 }
 
 func upperFirst(s string) string {

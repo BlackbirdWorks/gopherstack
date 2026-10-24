@@ -29,7 +29,7 @@ type syncSpec struct {
 }
 
 type syncRequest struct {
-	client  any
+	invoke  sdkInvoker
 	started any
 	prefix  string
 	call    asl.SDKCall
@@ -226,7 +226,7 @@ func (a *sdkAdapter) waitSync(ctx context.Context, req syncRequest) (any, error)
 	defer ticker.Stop()
 
 	for {
-		out, err := invokeSDKMethod(ctx, req.client, req.call.Service, req.spec.pollAction, params)
+		out, err := req.invoke(ctx, req.spec.pollAction, params)
 		if err != nil {
 			if req.spec.goneIsDone && isNotFound(err) {
 				return req.started, nil
