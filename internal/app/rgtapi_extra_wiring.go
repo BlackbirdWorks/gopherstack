@@ -7,6 +7,7 @@ import (
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
@@ -33,6 +34,7 @@ func wireResourceGroupsTaggingSweep7(
 	wireTaggingGlobalAccelerator(bk, byName["GlobalAccelerator"])
 	wireTaggingAMP(bk, byName["AMP"])
 	wireTaggingAppIntegrations(bk, byName["AppIntegrations"])
+	wireTaggingCloudHSMV2(bk, byName["CloudHSMV2"])
 }
 
 func toTaggedResources[T ~struct {
@@ -235,16 +237,7 @@ func wireTaggingAMP(bk rgtapibackend.StorageBackend, reg service.Registerable) {
 	registerTaggingService(
 		bk,
 		func(ctx context.Context) []rgtapibackend.TaggedResource {
-			entries := b.TaggedResources(ctx)
-			out := make([]rgtapibackend.TaggedResource, 0, len(entries))
-
-			for _, e := range entries {
-				out = append(out, rgtapibackend.TaggedResource{
-					ResourceARN: e.ARN, ResourceType: resourceType(e.ARN), Tags: e.Tags,
-				})
-			}
-
-			return out
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
 		},
 		"aps",
 		func(ctx context.Context, arn string, tags map[string]string) error {
@@ -268,19 +261,34 @@ func wireTaggingAppIntegrations(bk rgtapibackend.StorageBackend, reg service.Reg
 	registerTaggingService(
 		bk,
 		func(ctx context.Context) []rgtapibackend.TaggedResource {
-			entries := b.TaggedResources(ctx)
-			out := make([]rgtapibackend.TaggedResource, 0, len(entries))
-
-			for _, e := range entries {
-				out = append(out, rgtapibackend.TaggedResource{
-					ResourceARN: e.ARN, ResourceType: resourceType(e.ARN), Tags: e.Tags,
-				})
-			}
-
-			return out
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
 		},
 		"app-integrations",
 		func(_ context.Context, arn string, tags map[string]string) error { return b.TagResource(arn, tags) },
 		func(_ context.Context, arn string, keys []string) error { return b.UntagResource(arn, keys) },
+	)
+}
+
+func wireTaggingCloudHSMV2(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*cloudhsmv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("cloudhsm")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
+		},
+		"cloudhsm",
+		func(ctx context.Context, arn string, tags map[string]string) error {
+			return b.TagResourceByARN(inRegion(ctx, originRegion(ctx, arn)), arn, tags)
+		},
+		func(ctx context.Context, arn string, keys []string) error {
+			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
+		},
 	)
 }
