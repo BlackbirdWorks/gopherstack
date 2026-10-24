@@ -394,3 +394,29 @@ func TestCall_RequestEnvelope(t *testing.T) {
 		})
 	}
 }
+
+func TestCall_VoidOutputIgnoresBody(t *testing.T) {
+	t.Parallel()
+
+	svc, ok := sdkwire.Lookup("ec2")
+	require.True(t, ok)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty", body: ""},
+		{name: "xml_declaration_only", body: `<?xml version="1.0" encoding="UTF-8"?>`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := svc.Call(context.Background(), testTarget(replying(200, "text/xml", tt.body, nil)),
+				"ModifyVpcAttribute", map[string]any{"VpcId": "vpc-1"})
+			require.NoError(t, err)
+			assert.Empty(t, got)
+		})
+	}
+}

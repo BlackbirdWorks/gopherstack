@@ -872,7 +872,7 @@ func (h *ccParameter) Read(ctx context.Context, id string) (map[string]any, erro
 
 	p := out.Parameter
 	model := map[string]any{
-		ccKeyName: id, "Type": string(p.Type), "Value": aws.ToString(p.Value), "DataType": aws.ToString(p.DataType),
+		ccKeyName: id, "Type": string(p.Type), ccKeyValue: aws.ToString(p.Value), "DataType": aws.ToString(p.DataType),
 	}
 
 	desc, err := h.client.DescribeParameters(ctx, &ssm.DescribeParametersInput{

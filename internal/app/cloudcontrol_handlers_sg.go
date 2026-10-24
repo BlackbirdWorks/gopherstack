@@ -5,10 +5,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -32,38 +28,50 @@ type ccSGRule struct {
 	DestinationPrefixListID    string `json:"DestinationPrefixListId,omitempty"`
 }
 
-func (r ccSGRule) permission() ec2types.IpPermission {
-	p := ec2types.IpPermission{IpProtocol: aws.String(r.IPProtocol), FromPort: r.FromPort, ToPort: r.ToPort}
-	desc := aws.String(r.Description)
+func (r ccSGRule) permission() map[string]any {
+	p := map[string]any{"IpProtocol": r.IPProtocol}
+	if r.FromPort != nil {
+		p["FromPort"] = float64(*r.FromPort)
+	}
 
-	if r.Description == "" {
-		desc = nil
+	if r.ToPort != nil {
+		p["ToPort"] = float64(*r.ToPort)
+	}
+
+	withDesc := func(m map[string]any) map[string]any {
+		ccSetStr(m, "Description", r.Description)
+
+		return m
 	}
 
 	if r.CidrIP != "" {
-		p.IpRanges = []ec2types.IpRange{{CidrIp: aws.String(r.CidrIP), Description: desc}}
+		p["IpRanges"] = []any{withDesc(map[string]any{"CidrIp": r.CidrIP})}
 	}
 
 	if r.CidrIpv6 != "" {
-		p.Ipv6Ranges = []ec2types.Ipv6Range{{CidrIpv6: aws.String(r.CidrIpv6), Description: desc}}
+		p["Ipv6Ranges"] = []any{withDesc(map[string]any{"CidrIpv6": r.CidrIpv6})}
 	}
+
+	var pairs, prefixes []any
 
 	for _, g := range []string{r.SourceSecurityGroupID, r.DestinationSecurityGroupID} {
 		if g != "" {
-			p.UserIdGroupPairs = append(
-				p.UserIdGroupPairs,
-				ec2types.UserIdGroupPair{GroupId: aws.String(g), Description: desc},
-			)
+			pairs = append(pairs, withDesc(map[string]any{ccKeyGroupID: g}))
 		}
 	}
 
 	for _, pl := range []string{r.SourcePrefixListID, r.DestinationPrefixListID} {
 		if pl != "" {
-			p.PrefixListIds = append(
-				p.PrefixListIds,
-				ec2types.PrefixListId{PrefixListId: aws.String(pl), Description: desc},
-			)
+			prefixes = append(prefixes, withDesc(map[string]any{"PrefixListId": pl}))
 		}
+	}
+
+	if pairs != nil {
+		p["UserIdGroupPairs"] = pairs
+	}
+
+	if prefixes != nil {
+		p["PrefixListIds"] = prefixes
 	}
 
 	return p
@@ -78,8 +86,8 @@ func ccSGRules(m map[string]any, key string) ([]ccSGRule, error) {
 	return ccDecode[[]ccSGRule](raw)
 }
 
-func ccSGPermissions(rules []ccSGRule) []ec2types.IpPermission {
-	out := make([]ec2types.IpPermission, 0, len(rules))
+func ccSGPermissions(rules []ccSGRule) []any {
+	out := make([]any, 0, len(rules))
 	for _, r := range rules {
 		out = append(out, r.permission())
 	}
@@ -87,45 +95,60 @@ func ccSGPermissions(rules []ccSGRule) []ec2types.IpPermission {
 	return out
 }
 
-func ccSGModelRules(perms []ec2types.IpPermission, egress bool) []ccSGRule {
+func ccPort(m map[string]any, key string) *int32 {
+	f, ok := m[key].(float64)
+	if !ok {
+		return nil
+	}
+
+	v := int32(f)
+
+	return &v
+}
+
+func ccSGModelRules(perms []map[string]any, egress bool) []ccSGRule {
 	var out []ccSGRule
 
 	for _, p := range perms {
-		base := ccSGRule{FromPort: p.FromPort, ToPort: p.ToPort, IPProtocol: aws.ToString(p.IpProtocol)}
+		base := ccSGRule{
+			FromPort:   ccPort(p, "FromPort"),
+			ToPort:     ccPort(p, "ToPort"),
+			IPProtocol: ccMapStr(p, "IpProtocol"),
+		}
 
-		for _, r := range p.IpRanges {
+		for _, r := range ccMapList(p, "IpRanges") {
 			rule := base
-			rule.CidrIP, rule.Description = aws.ToString(r.CidrIp), aws.ToString(r.Description)
+			rule.CidrIP, rule.Description = ccMapStr(r, "CidrIp"), ccMapStr(r, "Description")
 			out = append(out, rule)
 		}
 
-		for _, r := range p.Ipv6Ranges {
+		for _, r := range ccMapList(p, "Ipv6Ranges") {
 			rule := base
-			rule.CidrIpv6, rule.Description = aws.ToString(r.CidrIpv6), aws.ToString(r.Description)
+			rule.CidrIpv6, rule.Description = ccMapStr(r, "CidrIpv6"), ccMapStr(r, "Description")
 			out = append(out, rule)
 		}
 
-		for _, g := range p.UserIdGroupPairs {
+		for _, g := range ccMapList(p, "UserIdGroupPairs") {
 			rule := base
-			rule.Description = aws.ToString(g.Description)
+			rule.Description = ccMapStr(g, "Description")
 
 			if egress {
-				rule.DestinationSecurityGroupID = aws.ToString(g.GroupId)
+				rule.DestinationSecurityGroupID = ccMapStr(g, ccKeyGroupID)
 			} else {
-				rule.SourceSecurityGroupID = aws.ToString(g.GroupId)
+				rule.SourceSecurityGroupID = ccMapStr(g, ccKeyGroupID)
 			}
 
 			out = append(out, rule)
 		}
 
-		for _, pl := range p.PrefixListIds {
+		for _, pl := range ccMapList(p, "PrefixListIds") {
 			rule := base
-			rule.Description = aws.ToString(pl.Description)
+			rule.Description = ccMapStr(pl, "Description")
 
 			if egress {
-				rule.DestinationPrefixListID = aws.ToString(pl.PrefixListId)
+				rule.DestinationPrefixListID = ccMapStr(pl, "PrefixListId")
 			} else {
-				rule.SourcePrefixListID = aws.ToString(pl.PrefixListId)
+				rule.SourcePrefixListID = ccMapStr(pl, "PrefixListId")
 			}
 
 			out = append(out, rule)
@@ -137,7 +160,7 @@ func ccSGModelRules(perms []ec2types.IpPermission, egress bool) []ccSGRule {
 
 // --- AWS::EC2::SecurityGroup ---
 
-type ccSecurityGroup struct{ client *ec2.Client }
+type ccSecurityGroup struct{ client *ccEC2Client }
 
 func (h *ccSecurityGroup) Create(ctx context.Context, desired map[string]any) (string, error) {
 	desc := ccString(desired, "GroupDescription")
@@ -155,20 +178,19 @@ func (h *ccSecurityGroup) Create(ctx context.Context, desired map[string]any) (s
 		return "", err
 	}
 
-	in := &ec2.CreateSecurityGroupInput{
-		GroupName: aws.String(name), Description: aws.String(desc),
-		TagSpecifications: ccEC2TagSpec(ec2types.ResourceTypeSecurityGroup, tags),
-	}
-	if vpc := ccString(desired, ccKeyVpcID); vpc != "" {
-		in.VpcId = aws.String(vpc)
+	in := map[string]any{ccKeyGroupName: name, "Description": desc}
+	if ts := ccEC2TagSpec("security-group", tags); ts != nil {
+		in["TagSpecifications"] = ts
 	}
 
-	out, err := h.client.CreateSecurityGroup(ctx, in)
+	ccSetStr(in, ccKeyVpcID, ccString(desired, ccKeyVpcID))
+
+	out, err := h.client.call(ctx, "CreateSecurityGroup", in)
 	if err != nil {
 		return "", ccMapError(err)
 	}
 
-	id := aws.ToString(out.GroupId)
+	id := ccMapStr(out, ccKeyGroupID)
 
 	if err = h.applyRules(ctx, id, nil, desired); err != nil {
 		return "", err
@@ -215,68 +237,56 @@ func (h *ccSecurityGroup) syncRules(
 	return h.authorize(ctx, id, ccSGPermissions(want), egress)
 }
 
-func (h *ccSecurityGroup) authorize(ctx context.Context, id string, perms []ec2types.IpPermission, egress bool) error {
-	var err error
-
-	if egress {
-		_, err = h.client.AuthorizeSecurityGroupEgress(ctx, &ec2.AuthorizeSecurityGroupEgressInput{
-			GroupId: aws.String(id), IpPermissions: perms,
-		})
-	} else {
-		_, err = h.client.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
-			GroupId: aws.String(id), IpPermissions: perms,
-		})
-	}
-
-	return ccMapError(err)
+func (h *ccSecurityGroup) authorize(ctx context.Context, id string, perms []any, egress bool) error {
+	return h.permissions(ctx, "Authorize", id, perms, egress)
 }
 
-func (h *ccSecurityGroup) revoke(ctx context.Context, id string, perms []ec2types.IpPermission, egress bool) error {
-	var err error
+func (h *ccSecurityGroup) revoke(ctx context.Context, id string, perms []any, egress bool) error {
+	return h.permissions(ctx, "Revoke", id, perms, egress)
+}
 
+func (h *ccSecurityGroup) permissions(ctx context.Context, verb, id string, perms []any, egress bool) error {
+	op := verb + "SecurityGroupIngress"
 	if egress {
-		_, err = h.client.RevokeSecurityGroupEgress(ctx, &ec2.RevokeSecurityGroupEgressInput{
-			GroupId: aws.String(id), IpPermissions: perms,
-		})
-	} else {
-		_, err = h.client.RevokeSecurityGroupIngress(ctx, &ec2.RevokeSecurityGroupIngressInput{
-			GroupId: aws.String(id), IpPermissions: perms,
-		})
+		op = verb + "SecurityGroupEgress"
 	}
+
+	_, err := h.client.call(ctx, op, map[string]any{ccKeyGroupID: id, "IpPermissions": perms})
 
 	return ccMapError(err)
 }
 
 func (h *ccSecurityGroup) Read(ctx context.Context, id string) (map[string]any, error) {
-	out, err := h.client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{GroupIds: []string{id}})
+	out, err := h.client.call(ctx, "DescribeSecurityGroups", map[string]any{"GroupIds": []any{id}})
 	if err != nil {
 		return nil, ccMapError(err)
 	}
 
-	if len(out.SecurityGroups) == 0 {
+	groups := ccMapList(out, "SecurityGroups")
+	if len(groups) == 0 {
 		return nil, fmt.Errorf("%w: security group %s", cloudcontrolbackend.ErrNotFound, id)
 	}
 
-	g := out.SecurityGroups[0]
+	g := groups[0]
 	model := map[string]any{
-		"Id": id, ccKeyGroupID: id, "GroupName": aws.ToString(g.GroupName),
-		"GroupDescription": aws.ToString(g.Description),
+		"Id": id, ccKeyGroupID: id, "GroupName": ccMapStr(g, "GroupName"),
+		"GroupDescription": ccMapStr(g, "Description"),
 	}
 
-	if g.VpcId != nil {
-		model[ccKeyVpcID] = aws.ToString(g.VpcId)
+	if _, present := g[ccKeyVpcID]; present {
+		model[ccKeyVpcID] = ccMapStr(g, ccKeyVpcID)
 	}
 
-	if rules := ccSGModelRules(g.IpPermissions, false); len(rules) > 0 {
+	if rules := ccSGModelRules(ccMapList(g, "IpPermissions"), false); len(rules) > 0 {
 		model[ccKeyIngress] = rules
 	}
 
-	if rules := ccSGModelRules(g.IpPermissionsEgress, true); len(rules) > 0 {
+	if rules := ccSGModelRules(ccMapList(g, "IpPermissionsEgress"), true); len(rules) > 0 {
 		model[ccKeyEgress] = rules
 	}
 
-	if len(g.Tags) > 0 {
-		model[ccKeyTags] = ccEC2ModelTags(g.Tags)
+	if tags := ccMapList(g, ccKeyTags); len(tags) > 0 {
+		model[ccKeyTags] = ccEC2ModelTags(tags)
 	}
 
 	normalized, _ := normalizeJSON(model).(map[string]any)
@@ -301,24 +311,20 @@ func (h *ccSecurityGroup) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err := h.client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{GroupId: aws.String(id)})
+	_, err := h.client.call(ctx, "DeleteSecurityGroup", map[string]any{ccKeyGroupID: id})
 
 	return ccMapError(err)
 }
 
 func (h *ccSecurityGroup) List(ctx context.Context) ([]string, error) {
+	groups, err := h.client.describe(ctx, "DescribeSecurityGroups", "SecurityGroups", nil)
+	if err != nil {
+		return nil, ccMapError(err)
+	}
+
 	var ids []string
-
-	p := ec2.NewDescribeSecurityGroupsPaginator(h.client, &ec2.DescribeSecurityGroupsInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
-		if err != nil {
-			return nil, ccMapError(err)
-		}
-
-		for _, g := range out.SecurityGroups {
-			ids = append(ids, aws.ToString(g.GroupId))
-		}
+	for _, g := range groups {
+		ids = append(ids, ccMapStr(g, ccKeyGroupID))
 	}
 
 	return ids, nil

@@ -181,7 +181,7 @@ func (r serviceCatalogResources) groupAttribute(groups []*ec2backend.SecurityGro
 		switch attr {
 		case scAttrVPC:
 			return g.VPCID, true
-		case "GroupName":
+		case ccKeyGroupName:
 			return g.Name, true
 		case "GroupId":
 			return g.ID, true
@@ -213,7 +213,7 @@ func (r serviceCatalogResources) imageAttribute(id, attr string) (string, bool) 
 		}
 
 		switch attr {
-		case "Name":
+		case ccKeyName:
 			return i.Name, true
 		case "Architecture":
 			return i.Architecture, true
@@ -293,7 +293,7 @@ func (r serviceCatalogResources) hostedZoneAttribute(id, attr string) (string, b
 		}
 
 		switch attr {
-		case "Name":
+		case ccKeyName:
 			return z.Name, true
 		case "Comment":
 			return z.Comment, true
