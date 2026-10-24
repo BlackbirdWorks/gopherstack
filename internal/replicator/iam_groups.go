@@ -5,7 +5,8 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
 )
 
 func (r *run) copyGroups(ctx context.Context) {

@@ -5,8 +5,9 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
 )
 
 func (r *run) copyInstanceProfiles(ctx context.Context) {
