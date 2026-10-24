@@ -124,9 +124,8 @@ items_still_open:
   - "Introspection omits __Type.specifiedByURL and isOneOf, and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01."
   - "GetIntrospectionSchema returns an undeclared BadRequestException for an unknown format; no declared exception (GraphQLSchema/Internal/NotFound/Unauthorized) fits. 2026-10-01."
   - "GraphqlApi dns and Api dns are unmodeled: the dns key set is unverified."
-  - "errors[].path is set for root fields only; non-null field null-propagation is not implemented. 2026-10-20."
   - "OpenSearch/Elasticsearch data sources run in-process against services/opensearch domains matched by endpoint host (requests are not SigV4-signed; AMAZON_ELASTICSEARCH resolves against OpenSearch domains only, not services/elasticsearch); EventBridge and RDS (Data API) run in-process; the RDS JS select/insert/update/remove builders are a documented subset (no joins/groupBy/aggregates), MySQL returning is emulated with a follow-up SELECT. 2026-10-20."
-  - "$extensions.* calls are recorded but have no effect (no resolver cache layer, subscription filters are not applied); $util.transform.toElasticsearchQueryDSL, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent. 2026-10-20."
+  - "$util.transform.toElasticsearchQueryDSL, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent; resolver-cache keys without cachingKeys use arguments+source+identity (AWS key composition unverified). 2026-10-24."
   - "EvaluateCode/EvaluateMappingTemplate errors carry message only (no codeErrors locations); EvaluateMappingTemplate has no logs. 2026-10-20."
 structural_gaps:
   - "Cognito/OIDC issuers with no local signing key are rejected because external JWKS endpoints are never fetched (no external network)."
@@ -137,6 +136,10 @@ leaks: {status: bugs found, note: "janitor.go's background goroutine already tak
 ---
 
 ## Notes
+
+### 2026-10-24 subscription filters and API cache
+
+`$extensions.setSubscriptionFilter` / `setSubscriptionInvalidationFilter` in the `Subscription.<field>` resolver are evaluated at subscribe time (subscription_filter.go; operators eq/ne/le/lt/ge/gt/contains/notContains/beginsWith/in/notIn/between/containsAny, groups OR-ed, filters AND-ed, dotted nested fields) and applied to every published event; invalid filters reject the start message. `$extensions.invalidateSubscriptions({subscriptionField, payload})` in a mutation completes subscriptions whose invalidation filter matches. API cache (resolver_cache.go): FULL_REQUEST_CACHING/OPERATION_LEVEL_CACHING cache Query root fields for the cache TTL, PER_RESOLVER_CACHING caches resolvers with cachingConfig (ttl, cachingKeys); `$extensions.evictFromApiCache(type, field, keys)` evicts, FlushApiCache/DeleteApiCache clear. The cache is runtime-only and not persisted. Tests: subscription_filter_test.go, resolver_cache_test.go.
 
 ### 2026-10-20 identity and external data sources
 

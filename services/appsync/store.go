@@ -269,7 +269,8 @@ type InMemoryBackend struct {
 	resolvers              *store.Table[Resolver]   // key: apiID#TypeName.FieldName
 	resolversByAPI         *store.Index[Resolver]   // apiID → resolvers
 	rtSubs                 map[string]map[*rtSub]struct{}
-	apiKeys                map[string]map[string]*APIKey // apiID → keyID → key (raw; see store_setup.go)
+	respCache              map[string]map[string]cacheEntry // apiID → cache key → response; runtime only
+	apiKeys                map[string]map[string]*APIKey    // apiID → keyID → key (raw; see store_setup.go)
 	apiCaches              *store.Table[APICache]
 	functions              *store.Table[Function] // key: apiID#functionID
 	functionsByAPI         *store.Index[Function] // apiID → functions
