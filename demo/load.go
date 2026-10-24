@@ -18,7 +18,6 @@ import (
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -31,6 +30,7 @@ import (
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
