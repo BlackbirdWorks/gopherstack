@@ -21,7 +21,7 @@ func (f *rtFixture) setSubscriptionResolver(t *testing.T, response string) {
 	require.NoError(t, err)
 }
 
-func (f *rtFixture) subscribe(t *testing.T, id string) (ack map[string]any, next func() map[string]any) {
+func (f *rtFixture) subscribe(t *testing.T, id string) (map[string]any, func() map[string]any) {
 	t.Helper()
 
 	c := f.dial(t, f.apiKey)
@@ -66,7 +66,12 @@ func TestSubscriptionFilter_AppliedToPublishedEvents(t *testing.T) {
 		{name: "eq", groups: `[` + filterOf("title", "eq", `"buy"`) + `]`, skipped: "sell", want: "buy"},
 		{name: "ne", groups: `[` + filterOf("title", "ne", `"sell"`) + `]`, skipped: "sell", want: "buy"},
 		{name: "contains", groups: `[` + filterOf("title", "contains", `"uy"`) + `]`, skipped: "sell", want: "buy"},
-		{name: "notContains", groups: `[` + filterOf("title", "notContains", `"ell"`) + `]`, skipped: "sell", want: "buy"},
+		{
+			name:    "notContains",
+			groups:  `[` + filterOf("title", "notContains", `"ell"`) + `]`,
+			skipped: "sell",
+			want:    "buy",
+		},
 		{name: "in", groups: `[` + filterOf("title", "in", `["buy","hold"]`) + `]`, skipped: "sell", want: "hold"},
 		{name: "notIn", groups: `[` + filterOf("title", "notIn", `["sell"]`) + `]`, skipped: "sell", want: "buy"},
 		{name: "between", groups: `[` + filterOf("title", "between", `["a","c"]`) + `]`, skipped: "sell", want: "buy"},

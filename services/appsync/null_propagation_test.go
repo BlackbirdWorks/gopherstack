@@ -29,11 +29,11 @@ func TestNullPropagation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantData map[string]any
 		name     string
 		query    string
-		wantData map[string]any
-		wantPath []any
 		wantMsg  string
+		wantPath []any
 	}{
 		{
 			name: "nullable parent absorbs", query: `{ item { id name } }`,

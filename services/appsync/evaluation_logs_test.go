@@ -27,7 +27,12 @@ func TestEvaluateMappingTemplate_Logs(t *testing.T) {
 			template: `$util.log.info("id={} name={}", 7, "bob")$util.log.error("extra {} {}", "x")ok`,
 			wantLogs: []string{"id=7 name=bob", "extra x {}"},
 		},
-		{name: "logs kept on error", template: `$util.log.info("before")$util.error("boom")`, wantLogs: []string{"before"}, wantErr: true},
+		{
+			name:     "logs kept on error",
+			template: `$util.log.info("before")$util.error("boom")`,
+			wantLogs: []string{"before"},
+			wantErr:  true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -41,8 +46,8 @@ func TestEvaluateMappingTemplate_Logs(t *testing.T) {
 
 			var out struct {
 				Error  map[string]any `json:"error"`
-				Logs   []string       `json:"logs"`
 				Result string         `json:"evaluationResult"`
+				Logs   []string       `json:"logs"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 			assert.Equal(t, tt.wantLogs, out.Logs)

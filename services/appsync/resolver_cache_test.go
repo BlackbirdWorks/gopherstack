@@ -112,9 +112,17 @@ func TestResolverCache_FullRequest(t *testing.T) {
 		flushAt   int
 		wantCalls int
 	}{
-		{name: "same request is served from cache", steps: []string{`{ hello(id: "1") }`, `{ hello(id: "1") }`}, wantCalls: 1},
+		{
+			name:      "same request is served from cache",
+			steps:     []string{`{ hello(id: "1") }`, `{ hello(id: "1") }`},
+			wantCalls: 1,
+		},
 		{name: "different arguments miss", steps: []string{`{ hello(id: "1") }`, `{ hello(id: "2") }`}, wantCalls: 2},
-		{name: "every query field is cached", steps: []string{`{ other(id: "1") }`, `{ other(id: "1") }`}, wantCalls: 1},
+		{
+			name:      "every query field is cached",
+			steps:     []string{`{ other(id: "1") }`, `{ other(id: "1") }`},
+			wantCalls: 1,
+		},
 		{
 			name: "flush drops entries", flushAt: 1,
 			steps: []string{`{ hello(id: "1") }`, `{ hello(id: "1") }`}, wantCalls: 2,

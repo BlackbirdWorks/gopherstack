@@ -18,6 +18,8 @@ const (
 	extInvalidateSubscriptions = "invalidateSubscriptions"
 	opContains                 = "contains"
 	opNotContains              = "notContains"
+	opBetween                  = "between"
+	keyLogs                    = "logs"
 )
 
 // ErrInvalidSubscriptionFilter is returned for a malformed enhanced subscription filter.
@@ -102,7 +104,7 @@ func (s subFilterSet) matches(payload any) bool {
 func lookupField(payload any, name string) (any, bool) {
 	cur := payload
 
-	for _, part := range strings.Split(name, ".") {
+	for part := range strings.SplitSeq(name, ".") {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil, false
@@ -131,6 +133,21 @@ func (f subFilter) matches(payload any) bool {
 		return !looseEqual(got, want)
 	case "le", "lt", "ge", "gt":
 		return compareOp(f.Operator, got, want)
+	case opBetween:
+		b := listOf(want)
+
+		return len(b) == betweenBounds && compareOp("ge", got, b[0]) && compareOp("le", got, b[1])
+	}
+
+	return f.matchesCollection(got, want)
+}
+
+func (f subFilter) matchesCollection(got, want any) bool {
+	inWant := func(g any) bool {
+		return slices.ContainsFunc(listOf(want), func(w any) bool { return looseEqual(g, w) })
+	}
+
+	switch f.Operator {
 	case opContains:
 		return containsValue(got, want)
 	case opNotContains:
@@ -141,17 +158,11 @@ func (f subFilter) matches(payload any) bool {
 
 		return gok && wok && strings.HasPrefix(g, w)
 	case "in":
-		return slices.ContainsFunc(listOf(want), func(w any) bool { return looseEqual(got, w) })
+		return inWant(got)
 	case "notIn":
-		return !slices.ContainsFunc(listOf(want), func(w any) bool { return looseEqual(got, w) })
-	case "between":
-		b := listOf(want)
-
-		return len(b) == betweenBounds && compareOp("ge", got, b[0]) && compareOp("le", got, b[1])
+		return !inWant(got)
 	case "containsAny":
-		return slices.ContainsFunc(listOf(got), func(g any) bool {
-			return slices.ContainsFunc(listOf(want), func(w any) bool { return looseEqual(g, w) })
-		})
+		return slices.ContainsFunc(listOf(got), inWant)
 	}
 
 	return false
@@ -219,7 +230,7 @@ func containsValue(got, want any) bool {
 // setSubscriptionInvalidationFilter calls from its response mapping.
 func (b *InMemoryBackend) subscriptionFilters(
 	ctx context.Context, apiID string, field *ast.Field, vars map[string]any, rc requestIdentity,
-) (filter, invalidation subFilterSet, err error) {
+) (subFilterSet, subFilterSet, error) {
 	state := b.execSnapshot(apiID)
 
 	resolver := state.resolvers[resolverKey("Subscription", field.Name)]
@@ -233,11 +244,16 @@ func (b *InMemoryBackend) subscriptionFilters(
 	}
 	cc := env.newCallCtx("Subscription", field, true)
 
-	if _, err = resolveField(
+	if _, err := resolveField(
 		ctx, b, resolver, state.datasources, state.functions, extractArguments(field, vars), nil, cc,
 	); err != nil {
 		return nil, nil, err
 	}
+
+	var (
+		filter, invalidation subFilterSet
+		err                  error
+	)
 
 	for _, rec := range cc.extensionCalls() {
 		args, _ := rec["args"].([]any)

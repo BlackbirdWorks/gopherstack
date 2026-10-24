@@ -13,6 +13,7 @@ const (
 	cachingPerResolver  = "PER_RESOLVER_CACHING"
 	cachingOperation    = "OPERATION_LEVEL_CACHING"
 	maxCacheEntriesPerA = 10000
+	evictPairsArg       = 2
 )
 
 type cacheEntry struct {
@@ -87,7 +88,7 @@ func normalizeCacheKey(k string) string {
 func ctxPath(ctxMap map[string]any, path string) any {
 	var cur any = ctxMap
 
-	for _, part := range strings.Split(path, ".") {
+	for part := range strings.SplitSeq(path, ".") {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil
@@ -218,7 +219,7 @@ func (b *InMemoryBackend) applyCacheEvictions(apiID string, calls []map[string]a
 		args, _ := rec["args"].([]any)
 		typeName, field := vrender(argAt(args, 0)), vrender(argAt(args, 1))
 
-		plain, err := plainJSON(argAt(args, 2))
+		plain, err := plainJSON(argAt(args, evictPairsArg))
 		if err != nil {
 			continue
 		}

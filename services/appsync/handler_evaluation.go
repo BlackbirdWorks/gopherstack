@@ -56,7 +56,7 @@ func (h *Handler) evaluateMappingTemplate(ctx context.Context, c *echo.Context) 
 		return h.handleError(ctx, c, "EvaluateMappingTemplate", evalErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, "logs": nonNilLogs(logs)})
+	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, keyLogs: nonNilLogs(logs)})
 }
 
 // evaluateCode handles POST /v1/dataplane-evaluations/code.
@@ -88,14 +88,14 @@ func (h *Handler) evaluateCode(ctx context.Context, c *echo.Context) error {
 		return h.handleError(ctx, c, "EvaluateCode", evalErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, "logs": nonNilLogs(logs)})
+	return c.JSON(http.StatusOK, map[string]any{"evaluationResult": out, keyLogs: nonNilLogs(logs)})
 }
 
 // evalErrorResponse reports a template/code error the way the Evaluate APIs do:
 // a 200 with an error member rather than an HTTP failure.
 func evalErrorResponse(c *echo.Context, re *resolverError, logs []string) error {
 	return c.JSON(http.StatusOK, map[string]any{
-		rtMsgError: map[string]any{keyMessage: re.Message}, "logs": nonNilLogs(logs),
+		rtMsgError: map[string]any{keyMessage: re.Message}, keyLogs: nonNilLogs(logs),
 	})
 }
 

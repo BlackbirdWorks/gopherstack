@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -28,11 +29,13 @@ func (e *execEnv) project(ctx context.Context, val any, set ast.SelectionSet) (a
 }
 
 func (e *execEnv) shape(ctx context.Context, val any, set ast.SelectionSet, path []any) (any, error) {
-	if len(set) == 0 || val == nil {
+	if len(set) == 0 {
 		return val, nil
 	}
 
 	switch v := val.(type) {
+	case nil:
+		return noValue(), nil
 	case []any:
 		out := make([]any, len(v))
 
@@ -78,7 +81,7 @@ func (e *execEnv) complete(
 			return nil, errNullBubble
 		}
 
-		return nil, nil
+		return noValue(), nil
 	}
 
 	var (
@@ -124,7 +127,7 @@ func nullable(out any, err error, typ *ast.Type) (any, error) {
 	}
 
 	if errors.Is(err, errNullBubble) && !typ.NonNull {
-		return nil, nil
+		return noValue(), nil
 	}
 
 	return nil, err
@@ -148,12 +151,13 @@ func (e *execEnv) recordNull(typ *ast.Type, f *ast.Field, path []any) {
 }
 
 func pathString(path []any) string {
-	s := ""
+	var sb strings.Builder
+
 	for _, p := range path {
-		s += fmt.Sprintf("/%v", p)
+		fmt.Fprintf(&sb, "/%v", p)
 	}
 
-	return s
+	return sb.String()
 }
 
 func (e *execEnv) projectInto(

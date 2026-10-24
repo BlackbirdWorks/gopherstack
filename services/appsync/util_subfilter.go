@@ -7,7 +7,7 @@ import (
 
 func isSubFilterOp(op string) bool {
 	switch op {
-	case "eq", "ne", "le", "lt", "ge", "gt", "contains", "notContains", mBeginsWith, "in", "notIn", "between",
+	case "eq", "ne", "le", "lt", "ge", "gt", "contains", "notContains", mBeginsWith, "in", "notIn", opBetween,
 		"containsAny":
 		return true
 	}
