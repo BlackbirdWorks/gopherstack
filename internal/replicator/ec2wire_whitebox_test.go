@@ -43,10 +43,10 @@ func TestEC2WireIDsWhere(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		want    []string
 		name    string
 		body    string
 		wantErr string
+		want    []string
 		status  int
 	}{
 		{
