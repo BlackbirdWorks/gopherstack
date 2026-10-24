@@ -117,5 +117,4 @@ func TestTokenScopeDoesNotLimitCredentials(t *testing.T) {
 
 	del := c.Do(http.MethodDelete, "/v2/app/manifests/"+img.Digest, nil, nil)
 	assert.Equal(t, http.StatusAccepted, del.Status)
-
 }
