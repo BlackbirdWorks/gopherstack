@@ -30,7 +30,6 @@ items_still_open:
   - "ConnectionArn of Bitbucket/GitHub Enterprise Server associations is stored, not looked up in the CodeConnections/CodeStar Connections emulators"
   - "KMSKeyDetails.KMSKeyId is stored, not looked up in the KMS emulator"
   - "Error codes per operation (NotFoundException for associations, ResourceNotFoundException for reviews, feedback and tags) are an emulator choice; the SDK documents the exception set but not which operation raises which"
-  - "ResourceGroupsTaggingAPI does not expose association tags"
 structural_gaps:
   - "Reviews of Bitbucket, GitHub and GitHub Enterprise Server repositories fail with an explanatory StateReason: there is no emulated source host to clone from."
   - "CodeGuru's ML detectors cannot exist here; findings come from the five documented heuristics only, and MeteredLinesOfCodeCount counts non-blank lines of recognised code files."

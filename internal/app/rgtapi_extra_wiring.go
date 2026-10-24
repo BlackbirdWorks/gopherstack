@@ -8,6 +8,7 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
@@ -35,6 +36,7 @@ func wireResourceGroupsTaggingSweep7(
 	wireTaggingAMP(bk, byName["AMP"])
 	wireTaggingAppIntegrations(bk, byName["AppIntegrations"])
 	wireTaggingCloudHSMV2(bk, byName["CloudHSMV2"])
+	wireTaggingCodeGuruReviewer(bk, byName["CodeGuruReviewer"])
 }
 
 func toTaggedResources[T ~struct {
@@ -290,5 +292,25 @@ func wireTaggingCloudHSMV2(bk rgtapibackend.StorageBackend, reg service.Register
 		func(ctx context.Context, arn string, keys []string) error {
 			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
 		},
+	)
+}
+
+func wireTaggingCodeGuruReviewer(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*codegurureviewerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("codeguru-reviewer")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
+		},
+		"codeguru-reviewer",
+		func(_ context.Context, arn string, tags map[string]string) error { return b.TagResource(arn, tags) },
+		func(_ context.Context, arn string, keys []string) error { return b.UntagResource(arn, keys) },
 	)
 }
