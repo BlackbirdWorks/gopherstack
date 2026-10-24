@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 10 |
+| Known gaps | 9 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,13 +19,12 @@
 - PromQL: holt_winters/double_exponential_smoothing, native-histogram functions (histogram_count, histogram_sum, histogram_fraction), start() and end() in the @ modifier, limitk and limit_ratio, absent_over_time and sort_by_label are not implemented (a parse error is returned)
 - AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); silences, the v1 API and template_files are not served; sigv4 settings are accepted and ignored; the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
 - Scraper: stored with a real ACTIVE lifecycle but nothing scrapes the EKS or VPC source
-- WorkspaceConfiguration: retentionPeriodInDays, outOfOrderTimeWindowInSeconds and limitsPerLabelSet are stored and returned but not enforced on ingest or query
+- WorkspaceConfiguration: outOfOrderTimeWindowInSeconds is stored and returned but not enforced; limitsPerLabelSet does not apply to series written by rule evaluation
 - RemoteWrite: out-of-order samples are always accepted, native histograms and exemplars in the request are ignored, per-workspace ingestion limits and throttling do not exist
 - Query: query_exemplars always returns no exemplars (none are ingested); targets and status config, flags, runtimeinfo and tsdb endpoints are not served
 - LoggingConfiguration: the CloudWatch Logs log group ARN is checked for shape only, never looked up, and no log is delivered
 - Authorization: SigV4 signatures and resource policies are not evaluated on the data plane
-- CreateWorkspace: the 25 workspaces per Region quota and KMS key existence are not enforced
-- ResourceGroupsTaggingAPI: AMP tags are not exposed through the tagging API
+- CreateWorkspace: KMS key existence is not checked
 
 ### Structural gaps
 

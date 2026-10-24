@@ -19,6 +19,10 @@ type IngestResult struct {
 	Samples   int
 	Duplicate int
 	Dropped   int
+	// Expired counts samples older than the workspace retention period.
+	Expired int
+	// LimitExceeded counts series refused by a limitsPerLabelSet entry.
+	LimitExceeded int
 }
 
 func (b *InMemoryBackend) dataWorkspaceLocked(sc scope, id string) error {
@@ -69,31 +73,43 @@ func (b *InMemoryBackend) Ingest(ctx context.Context, wsID string, series []writ
 
 	var res IngestResult
 
+	w, _ := b.workspaces.Get(wsID)
+	cutoff := b.retentionCutoffMs(w)
+
 	for _, ws := range series {
-		key := seriesKey(wsID, promql.Fingerprint(ws.Labels))
-
-		rec, ok := b.series.Get(key)
-		if !ok {
-			rec = &SeriesRecord{Key: key, WorkspaceID: wsID, Labels: ws.Labels}
-			b.series.Put(rec)
-		}
-
-		for _, s := range ws.Samples {
-			if math.IsNaN(s.V) || math.IsInf(s.V, 0) {
-				res.Dropped++
-
-				continue
-			}
-
-			if insertSample(rec, s) {
-				res.Samples++
-			} else {
-				res.Duplicate++
-			}
-		}
+		b.ingestSeriesLocked(w, cutoff, ws, &res)
 	}
 
 	return res, nil
+}
+
+func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writeSeries, res *IngestResult) {
+	key := seriesKey(w.ID, promql.Fingerprint(ws.Labels))
+
+	rec, ok := b.series.Get(key)
+	if !ok {
+		if b.overLabelSetLimit(w, ws.Labels) {
+			res.LimitExceeded++
+
+			return
+		}
+
+		rec = &SeriesRecord{Key: key, WorkspaceID: w.ID, Labels: ws.Labels}
+		b.series.Put(rec)
+	}
+
+	for _, s := range ws.Samples {
+		switch {
+		case math.IsNaN(s.V) || math.IsInf(s.V, 0):
+			res.Dropped++
+		case s.T < cutoff:
+			res.Expired++
+		case insertSample(rec, s):
+			res.Samples++
+		default:
+			res.Duplicate++
+		}
+	}
 }
 
 // insertSample keeps rec.Samples ordered by time; a repeated timestamp is a duplicate.
@@ -127,6 +143,9 @@ type wsStorage struct {
 
 func (s wsStorage) Select(ms []*promql.Matcher, minT, maxT int64) []promql.Series {
 	var out []promql.Series
+
+	w, _ := s.b.workspaces.Get(s.wsID)
+	minT = max(minT, s.b.retentionCutoffMs(w))
 
 	for _, rec := range s.b.seriesByWS.Get(s.wsID) {
 		if !promql.MatchesAll(rec.Labels, ms) {

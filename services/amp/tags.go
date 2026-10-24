@@ -128,3 +128,56 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 
 	return maps.Clone(*t), nil
 }
+
+// TaggedEntry is one taggable resource, for the Resource Groups Tagging API bridge.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources lists the caller's tagged workspaces, rule groups namespaces, scrapers and anomaly detectors.
+func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	sc := b.scopeOf(ctx)
+
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	add := func(arn string, tags map[string]string) {
+		if len(tags) > 0 {
+			out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tags)})
+		}
+	}
+
+	live := map[string]bool{}
+
+	b.workspaces.Range(func(w *Workspace) bool {
+		if sc.owns(w.AccountID, w.Region) && !b.gone(w.Pending) {
+			live[w.ID] = true
+			add(w.ARN, w.Tags)
+		}
+
+		return true
+	})
+
+	for _, n := range b.namespaces.All() {
+		if live[n.WorkspaceID] && !b.gone(n.Doc.Pending) {
+			add(n.ARN, n.Tags)
+		}
+	}
+
+	for _, d := range b.detectors.All() {
+		if live[d.WorkspaceID] && !b.gone(d.Pending) {
+			add(d.ARN, d.Tags)
+		}
+	}
+
+	for _, s := range b.scrapers.All() {
+		if sc.owns(s.AccountID, s.Region) && !b.gone(s.Pending) {
+			add(s.ARN, s.Tags)
+		}
+	}
+
+	return out
+}

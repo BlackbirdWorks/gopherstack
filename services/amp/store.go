@@ -26,6 +26,7 @@ type ClusterResolver interface {
 
 // InMemoryBackend is the AMP state; one coarse lock guards every table.
 type InMemoryBackend struct {
+	lastPrune     time.Time
 	workspaces    *store.Table[Workspace]
 	namespaces    *store.Table[RuleGroupsNamespace]
 	scrapers      *store.Table[Scraper]

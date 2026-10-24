@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	ampbackend "github.com/blackbirdworks/gopherstack/services/amp"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	databrewbackend "github.com/blackbirdworks/gopherstack/services/databrew"
@@ -29,6 +30,7 @@ func wireResourceGroupsTaggingSweep7(
 	wireTaggingKafka(bk, byName["Kafka"])
 	wireTaggingTextract(bk, byName["Textract"])
 	wireTaggingGlobalAccelerator(bk, byName["GlobalAccelerator"])
+	wireTaggingAMP(bk, byName["AMP"])
 }
 
 func toTaggedResources[T ~struct {
@@ -217,4 +219,37 @@ func wireTaggingAPIGatewayV2(bk rgtapibackend.StorageBackend, reg service.Regist
 
 		return true, b.UntagResource(arn, keys)
 	})
+}
+
+func wireTaggingAMP(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*ampbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("aps")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			entries := b.TaggedResources(ctx)
+			out := make([]rgtapibackend.TaggedResource, 0, len(entries))
+
+			for _, e := range entries {
+				out = append(out, rgtapibackend.TaggedResource{
+					ResourceARN: e.ARN, ResourceType: resourceType(e.ARN), Tags: e.Tags,
+				})
+			}
+
+			return out
+		},
+		"aps",
+		func(ctx context.Context, arn string, tags map[string]string) error {
+			return b.TagResource(inRegion(ctx, originRegion(ctx, arn)), arn, tags)
+		},
+		func(ctx context.Context, arn string, keys []string) error {
+			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
+		},
+	)
 }
