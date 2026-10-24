@@ -11,7 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
 )
 
 func (r *run) copyEventSourceMappings(ctx context.Context, name string) {

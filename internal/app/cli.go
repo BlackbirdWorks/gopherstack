@@ -4,6 +4,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/sns"
+	sqssdk "github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
 	"github.com/blackbirdworks/gopherstack/internal/routegates"
 
 	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
@@ -41,7 +42,6 @@ import (
 	ddbstreamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
