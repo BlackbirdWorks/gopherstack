@@ -21,7 +21,7 @@ func (f *rtFixture) setSubscriptionResolver(t *testing.T, response string) {
 	require.NoError(t, err)
 }
 
-func (f *rtFixture) subscribe(t *testing.T, id string) (map[string]any, func() map[string]any) {
+func (f *rtFixture) subscribe(t *testing.T) (map[string]any, func() map[string]any) {
 	t.Helper()
 
 	c := f.dial(t, f.apiKey)
@@ -29,7 +29,7 @@ func (f *rtFixture) subscribe(t *testing.T, id string) (map[string]any, func() m
 	require.NoError(t, c.WriteJSON(map[string]string{"type": "connection_init"}))
 	readMsg(t, c)
 	readMsg(t, c)
-	require.NoError(t, c.WriteJSON(startMsg(t, id, `subscription { onPut { id title } }`, f.apiKey)))
+	require.NoError(t, c.WriteJSON(startMsg(t, "s1", `subscription { onPut { id title } }`, f.apiKey)))
 
 	return readMsg(t, c), func() map[string]any { return readMsg(t, c) }
 }
@@ -93,7 +93,7 @@ func TestSubscriptionFilter_AppliedToPublishedEvents(t *testing.T) {
 			f := newRealtimeFixture(t)
 			f.setSubscriptionResolver(t, filterTmpl(tt.groups))
 
-			ack, next := f.subscribe(t, "s1")
+			ack, next := f.subscribe(t)
 			require.Equal(t, "start_ack", ack["type"], ack)
 
 			f.put(t, "1", tt.skipped)
@@ -128,7 +128,7 @@ func TestSubscriptionFilter_InvalidFilterRejectedAtStart(t *testing.T) {
 			f := newRealtimeFixture(t)
 			f.setSubscriptionResolver(t, tt.tmpl)
 
-			ack, _ := f.subscribe(t, "s1")
+			ack, _ := f.subscribe(t)
 			assert.Equal(t, "error", ack["type"], ack)
 		})
 	}
@@ -159,13 +159,14 @@ func TestSubscriptionInvalidation(t *testing.T) {
 
 			_, err := f.backend.UpdateResolver(f.apiID, "Mutation", &appsync.Resolver{
 				FieldName: "putTodo", DataSourceName: "none",
-				RequestMappingTemplate: `{"version":"2018-05-29","payload":{"id":"$ctx.args.id","title":"$ctx.args.title"}}`,
+				RequestMappingTemplate: `{"version":"2018-05-29",` +
+					`"payload":{"id":"$ctx.args.id","title":"$ctx.args.title"}}`,
 				ResponseMappingTemplate: `$extensions.invalidateSubscriptions({"subscriptionField":"onPut",` +
 					`"payload":{"id":"$ctx.args.id"}})$util.toJson($ctx.result)`,
 			})
 			require.NoError(t, err)
 
-			ack, next := f.subscribe(t, "s1")
+			ack, next := f.subscribe(t)
 			require.Equal(t, "start_ack", ack["type"], ack)
 
 			f.put(t, "1", "buy")
@@ -200,7 +201,7 @@ export function response(ctx) {
 	})
 	require.NoError(t, err)
 
-	ack, next := f.subscribe(t, "s1")
+	ack, next := f.subscribe(t)
 	require.Equal(t, "start_ack", ack["type"], ack)
 
 	f.put(t, "1", "sell")
