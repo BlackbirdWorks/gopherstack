@@ -104,7 +104,7 @@ func ccEC2Filter(name string, values ...string) map[string]any {
 		vs = append(vs, v)
 	}
 
-	return map[string]any{"Name": name, "Values": vs}
+	return map[string]any{ccKeyName: name, "Values": vs}
 }
 
 func ccStrList(values []string) []any {

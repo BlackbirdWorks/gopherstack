@@ -73,7 +73,7 @@ func (t ccTags) toMap() map[string]string {
 func tagsProperty(m map[string]string) []map[string]string {
 	out := make([]map[string]string, 0, len(m))
 	for k, v := range m {
-		out = append(out, map[string]string{"Key": k, "Value": v})
+		out = append(out, map[string]string{ccKeyKey: k, ccKeyValue: v})
 	}
 
 	return out
@@ -419,7 +419,7 @@ func (h *ccQueue) Read(ctx context.Context, id string) (map[string]any, error) {
 }
 
 func (h *ccQueue) Update(ctx context.Context, id string, current, desired map[string]any) error {
-	mutable := slices.AppendSeq([]string{"Tags", "ContentBasedDeduplication"}, maps.Keys(ccQueueIntAttrs))
+	mutable := slices.AppendSeq([]string{ccKeyTags, "ContentBasedDeduplication"}, maps.Keys(ccQueueIntAttrs))
 
 	if err := ccRejectUnsupportedChanges(current, desired, mutable...); err != nil {
 		return err

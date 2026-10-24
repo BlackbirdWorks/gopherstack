@@ -174,7 +174,7 @@ func (h *ccSecurityGroup) Create(ctx context.Context, desired map[string]any) (s
 		return "", err
 	}
 
-	in := map[string]any{"GroupName": name, "Description": desc}
+	in := map[string]any{ccKeyGroupName: name, "Description": desc}
 	if ts := ccEC2TagSpec("security-group", tags); ts != nil {
 		in["TagSpecifications"] = ts
 	}

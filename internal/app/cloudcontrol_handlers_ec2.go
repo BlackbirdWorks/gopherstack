@@ -10,14 +10,17 @@ import (
 )
 
 const (
-	ccKeyTags  = "Tags"
-	ccKeyVpcID = "VpcId"
+	ccKeyTags      = "Tags"
+	ccKeyVpcID     = "VpcId"
+	ccKeyKey       = "Key"
+	ccKeyValue     = "Value"
+	ccKeyGroupName = "GroupName"
 )
 
 func ccEC2Tags(m map[string]string) []any {
 	out := make([]any, 0, len(m))
 	for k, v := range m {
-		out = append(out, map[string]any{"Key": k, "Value": v})
+		out = append(out, map[string]any{ccKeyKey: k, ccKeyValue: v})
 	}
 
 	return out
@@ -28,7 +31,7 @@ func ccEC2TagSpec(rt string, tags map[string]string) []any {
 		return nil
 	}
 
-	return []any{map[string]any{"ResourceType": rt, "Tags": ccEC2Tags(tags)}}
+	return []any{map[string]any{"ResourceType": rt, ccKeyTags: ccEC2Tags(tags)}}
 }
 
 func ccEC2ModelTags(tags []map[string]any) []map[string]string {
@@ -109,7 +112,7 @@ func (h *ccVPC) setDNSAttrs(ctx context.Context, id string, desired map[string]a
 		}
 
 		if _, err := h.client.call(ctx, "ModifyVpcAttribute", map[string]any{
-			"VpcId": id, k: map[string]any{"Value": v},
+			ccKeyVpcID: id, k: map[string]any{ccKeyValue: v},
 		}); err != nil {
 			return ccMapError(err)
 		}
@@ -334,7 +337,7 @@ func (h *ccSubnet) setAttrs(ctx context.Context, id string, desired map[string]a
 		}
 
 		if _, err := h.client.call(ctx, "ModifySubnetAttribute", map[string]any{
-			"SubnetId": id, k: map[string]any{"Value": v},
+			scAttrSubnet: id, k: map[string]any{ccKeyValue: v},
 		}); err != nil {
 			return ccMapError(err)
 		}
