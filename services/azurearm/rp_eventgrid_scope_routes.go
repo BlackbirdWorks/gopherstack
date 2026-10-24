@@ -75,7 +75,8 @@ func isScopeSubscriptionRoute(segs []string, r *http.Request) bool {
 
 	switch sp.action {
 	case "":
-		return r.Method == http.MethodPut || r.Method == http.MethodGet || r.Method == http.MethodDelete
+		return r.Method == http.MethodPut || r.Method == http.MethodGet || r.Method == http.MethodDelete ||
+			r.Method == http.MethodPatch
 	case egActionFullURL, egActionDelivery:
 		return r.Method == http.MethodPost
 	}
@@ -162,6 +163,10 @@ func (h *Handler) handleScopeSubscription(c *echo.Context, segs []string) error 
 	body, err := decodeJSONBody(r)
 	if err != nil {
 		return h.writeAPIError(c, err)
+	}
+
+	if r.Method == http.MethodPatch {
+		return h.writeScopeResult(c, http.StatusCreated)(p.PatchScopeSubscription(r.Context(), scope, sp.name, body))
 	}
 
 	return h.writeScopeResult(c, http.StatusCreated)(p.PutScopeSubscription(r.Context(), scope, sp.name, body))

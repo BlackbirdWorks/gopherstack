@@ -81,6 +81,42 @@ func TestPublishResourceEvent(t *testing.T) {
 			wantTopics: map[string]string{},
 		},
 		{
+			name:       "a resource scope receives events of its own resource",
+			ev:         armEvent(azureeventgrid.EventResourceWriteSuccess, uri, armRG),
+			scopes:     map[string]map[string]any{uri: queueProps("res-q", nil)},
+			wantTopics: map[string]string{"res-q": uri},
+		},
+		{
+			name:       "a resource scope receives events of its child resources",
+			ev:         armEvent(azureeventgrid.EventResourceDeleteSuccess, uri+"/blobServices/default", armRG),
+			scopes:     map[string]map[string]any{uri: queueProps("res-q", nil)},
+			wantTopics: map[string]string{"res-q": uri},
+		},
+		{
+			name: "a resource scope ignores sibling resources sharing its name prefix",
+			ev:   armEvent(azureeventgrid.EventResourceWriteSuccess, uri+"2", armRG),
+			scopes: map[string]map[string]any{
+				uri: queueProps("res-q", nil), rgScope + "/providers/Microsoft.Storage/storageAccounts/other": queueProps("o-q", nil),
+			},
+			wantTopics: map[string]string{},
+		},
+		{
+			name:       "a resource scope ignores the event of its parent",
+			ev:         armEvent(azureeventgrid.EventResourceWriteSuccess, rgScope, ""),
+			scopes:     map[string]map[string]any{uri: queueProps("res-q", nil)},
+			wantTopics: map[string]string{},
+		},
+		{
+			name: "resource scope filters apply",
+			ev:   armEvent(azureeventgrid.EventResourceWriteSuccess, uri, armRG),
+			scopes: map[string]map[string]any{
+				uri: queueProps("res-q", map[string]any{
+					"filter": map[string]any{"includedEventTypes": []string{azureeventgrid.EventResourceDeleteSuccess}},
+				}),
+			},
+			wantTopics: map[string]string{},
+		},
+		{
 			name:       "a scope for another subscription gets nothing",
 			ev:         armEvent(azureeventgrid.EventResourceWriteSuccess, uri, armRG),
 			scopes:     map[string]map[string]any{"/subscriptions/other": queueProps("x-q", nil)},

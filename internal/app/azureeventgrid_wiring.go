@@ -314,6 +314,33 @@ func (a *azureEventGridAdapter) PutScopedSubscription(
 	return out, mapDomainErr(err)
 }
 
+func (a *azureEventGridAdapter) PatchScopedSubscription(
+	ctx context.Context, domain, topic, name string, patch map[string]any,
+) (map[string]any, error) {
+	out, err := a.backend.PatchScopedSubscription(ctx, azureeventgrid.Scope{Domain: domain, Topic: topic}, name, patch)
+
+	return out, mapSubscriptionErr(err)
+}
+
+func (a *azureEventGridAdapter) PatchResourceSubscription(
+	ctx context.Context, scopeID, name string, patch map[string]any,
+) (map[string]any, error) {
+	out, err := a.backend.PatchScopedSubscription(ctx, azureeventgrid.Scope{Resource: scopeID}, name, patch)
+
+	return out, mapSubscriptionErr(err)
+}
+
+func mapSubscriptionErr(err error) error {
+	switch {
+	case errors.Is(err, azureeventgrid.ErrSubscriptionNotFound):
+		return azurearm.ErrEventGridSubscriptionNotFound
+	case errors.Is(err, azureeventgrid.ErrTopicNotFound):
+		return azurearm.ErrEventGridTopicNotFound
+	}
+
+	return mapDomainErr(err)
+}
+
 // mapDomainErr turns a missing domain or domain topic into the ARM provider's not-found errors.
 func mapDomainErr(err error) error {
 	switch {

@@ -238,6 +238,30 @@ func (f *fakeEventGrid) PutScopedSubscription(
 	return out, nil
 }
 
+func (f *fakeEventGrid) PatchScopedSubscription(
+	_ context.Context, domain, topic, name string, patch map[string]any,
+) (map[string]any, error) {
+	store, key := f.scoped, domain+"/"+topic+"/"+name
+	if domain == "" {
+		store, key = f.subs, topic+"/"+name
+	}
+
+	cur, ok := store[key]
+	if !ok {
+		return nil, azurearm.ErrEventGridSubscriptionNotFound
+	}
+
+	maps.Copy(cur, patch)
+
+	return cur, nil
+}
+
+func (f *fakeEventGrid) PatchResourceSubscription(
+	ctx context.Context, scopeID, name string, patch map[string]any,
+) (map[string]any, error) {
+	return f.PatchScopedSubscription(ctx, "res:"+scopeID, "", name, patch)
+}
+
 func (f *fakeEventGrid) GetScopedSubscription(domain, topic, name string) (map[string]any, bool) {
 	s, ok := f.scoped[domain+"/"+topic+"/"+name]
 
@@ -865,4 +889,40 @@ func (f *fakeEventGrid) ResourceSubscriptionFullURL(scopeID, name string) (strin
 
 func (f *fakeEventGrid) ResourceDeliveryAttributes(scopeID, name string) ([]map[string]any, error) {
 	return f.DeliveryAttributes("res:"+scopeID, "", name)
+}
+
+func TestEventGridHandlerSubscriptionPatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		path   string
+		body   string
+		status int
+	}{
+		{name: "merges the supplied members", path: egTestSubPath, body: `{"labels":["a"]}`, status: http.StatusCreated},
+		{name: "unknown subscription", path: egTestBase + "/providers/Microsoft.EventGrid/eventSubscriptions/nope",
+			body: `{"labels":["a"]}`, status: http.StatusNotFound},
+		{name: "unknown topic", path: egTestBase + "x/providers/Microsoft.EventGrid/eventSubscriptions/s1",
+			body: `{}`, status: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newEventGridHandler(t)
+
+			status, out := doRequest(t, h, http.MethodPatch, tt.path+egAPIVersion, []byte(tt.body))
+			require.Equal(t, tt.status, status, "%v", out)
+
+			if tt.status != http.StatusCreated {
+				return
+			}
+
+			props, _ := out["properties"].(map[string]any)
+			assert.Equal(t, []any{"a"}, props["labels"])
+			assert.Equal(t, "Succeeded", props["provisioningState"])
+		})
+	}
 }
