@@ -23,7 +23,8 @@ type gate struct {
 
 // gateSlot is one response owed to the client: a locally built payload, or nil when upstream answers.
 type gateSlot struct {
-	local []byte
+	filter func(resp []byte) ([]byte, bool)
+	local  []byte
 }
 
 func newGate(client, up net.Conn, authz iamAuthorizer, cluster string) *gate {
@@ -78,6 +79,10 @@ func (g *gate) handle(frame []byte) bool {
 
 	r, _ := ruleFor(req)
 	if r.allowed(g.authz, g.cluster) {
+		if md, ok := req.(*kmsg.MetadataRequest); ok && metadataWantsAllTopics(md, version) {
+			return g.forwardSlot(frame, gateSlot{filter: g.metadataFilter(version)})
+		}
+
 		return g.forward(frame, r.silent)
 	}
 
@@ -86,11 +91,17 @@ func (g *gate) handle(frame []byte) bool {
 
 // forward sends frame upstream; silent requests (acks=0 produce) get no response.
 func (g *gate) forward(frame []byte, silent bool) bool {
-	if !silent {
-		g.mu.Lock()
-		g.queue = append(g.queue, gateSlot{})
-		g.mu.Unlock()
+	if silent {
+		return writeFrame(g.up, frame) == nil
 	}
+
+	return g.forwardSlot(frame, gateSlot{})
+}
+
+func (g *gate) forwardSlot(frame []byte, slot gateSlot) bool {
+	g.mu.Lock()
+	g.queue = append(g.queue, slot)
+	g.mu.Unlock()
 
 	return writeFrame(g.up, frame) == nil
 }
@@ -134,7 +145,15 @@ func (g *gate) deliver(frame []byte) bool {
 	}
 
 	if len(g.queue) > 0 {
+		slot := g.queue[0]
 		g.queue = g.queue[1:]
+
+		if slot.filter != nil {
+			var ok bool
+			if frame, ok = slot.filter(frame); !ok {
+				return false
+			}
+		}
 	}
 
 	if writeFrame(g.client, frame) != nil {
@@ -155,4 +174,51 @@ func (g *gate) flushLocalsLocked() bool {
 	}
 
 	return true
+}
+
+// metadataWantsAllTopics reports whether the request lists every topic: null on v1+, empty on v0.
+func metadataWantsAllTopics(r *kmsg.MetadataRequest, version int16) bool {
+	if version == 0 {
+		return len(r.Topics) == 0
+	}
+
+	return r.Topics == nil
+}
+
+// metadataFilter drops topics the principal may not kafka-cluster:DescribeTopic from an all-topics response.
+func (g *gate) metadataFilter(version int16) func([]byte) ([]byte, bool) {
+	return func(frame []byte) ([]byte, bool) {
+		const corrLen = 4
+
+		resp := kmsg.NewPtrMetadataResponse()
+		resp.SetVersion(version)
+
+		if len(frame) <= corrLen {
+			return nil, false
+		}
+
+		off := corrLen
+		if resp.IsFlexible() {
+			var err error
+			if off, err = skipTaggedFields(frame, off); err != nil {
+				return nil, false
+			}
+		}
+
+		if len(frame) < off || resp.ReadFrom(frame[off:]) != nil {
+			return nil, false
+		}
+
+		kept := resp.Topics[:0]
+
+		for _, t := range resp.Topics {
+			if t.Topic != nil && g.authz(iamAuthService+":DescribeTopic", resourceArn(g.cluster, kindTopic, *t.Topic)) {
+				kept = append(kept, t)
+			}
+		}
+
+		resp.Topics = kept
+
+		return resp.AppendTo(append([]byte(nil), frame[:off]...)), true
+	}
 }
