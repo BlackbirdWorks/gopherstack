@@ -190,7 +190,7 @@ func wireCloudControlHandlers(e http.Handler, services []service.Registerable) {
 	bk.RegisterTypeHandler("AWS::Logs::LogGroup", &ccLogGroup{client: cloudwatchlogs.NewFromConfig(cfg)})
 	wireCloudControlMoreHandlers(bk, cfg)
 	if ec2c, err := newCCEC2Client(e, cfg); err == nil {
-		wireCloudControlInfraHandlers(bk, cfg, ec2c)
+		wireCloudControlInfraHandlers(bk, e, cfg, ec2c)
 	}
 	wireCloudControlProvisionedTypes(bk, services)
 }

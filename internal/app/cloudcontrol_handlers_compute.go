@@ -7,9 +7,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
-	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
@@ -58,7 +56,7 @@ func ccCleanModel(model map[string]any) map[string]any {
 
 // --- AWS::ECS::Cluster ---
 
-type ccCluster struct{ client *ecs.Client }
+type ccCluster struct{ client *wireECS }
 
 func ccECSTags(m map[string]string) []ecstypes.Tag {
 	out := make([]ecstypes.Tag, 0, len(m))
@@ -143,7 +141,7 @@ func (h *ccCluster) Create(ctx context.Context, desired map[string]any) (string,
 		return "", err
 	}
 
-	if _, err = h.client.CreateCluster(ctx, &ecs.CreateClusterInput{
+	if _, err = h.client.CreateCluster(ctx, &wireECSCreateClusterInput{
 		ClusterName: aws.String(name), Tags: ccECSTags(tags), Settings: spec.Settings,
 		Configuration: spec.Configuration, CapacityProviders: spec.CapProviders,
 		DefaultCapacityProviderStrategy: spec.Strategy, ServiceConnectDefaults: spec.Connect,
@@ -155,7 +153,7 @@ func (h *ccCluster) Create(ctx context.Context, desired map[string]any) (string,
 }
 
 func (h *ccCluster) Read(ctx context.Context, id string) (map[string]any, error) {
-	out, err := h.client.DescribeClusters(ctx, &ecs.DescribeClustersInput{
+	out, err := h.client.DescribeClusters(ctx, &wireECSDescribeClustersInput{
 		Clusters: []string{id},
 		Include: []ecstypes.ClusterField{
 			ecstypes.ClusterFieldTags, ecstypes.ClusterFieldSettings, ecstypes.ClusterFieldConfigurations,
@@ -217,7 +215,7 @@ func (h *ccCluster) Update(ctx context.Context, id string, current, desired map[
 	}
 
 	if len(ccChanged(current, desired, ccKeySettings, ccKeyClusterCfg, ccKeyConnect)) > 0 {
-		if _, err = h.client.UpdateCluster(ctx, &ecs.UpdateClusterInput{
+		if _, err = h.client.UpdateCluster(ctx, &wireECSUpdateClusterInput{
 			Cluster: aws.String(id), Settings: spec.Settings, Configuration: spec.Configuration,
 			ServiceConnectDefaults: spec.Connect,
 		}); err != nil {
@@ -226,7 +224,7 @@ func (h *ccCluster) Update(ctx context.Context, id string, current, desired map[
 	}
 
 	if len(ccChanged(current, desired, ccKeyCapProv, ccKeyCapStrategy)) > 0 {
-		if _, err = h.client.PutClusterCapacityProviders(ctx, &ecs.PutClusterCapacityProvidersInput{
+		if _, err = h.client.PutClusterCapacityProviders(ctx, &wireECSPutClusterCapacityProvidersInput{
 			Cluster: aws.String(id), CapacityProviders: spec.CapProviders,
 			DefaultCapacityProviderStrategy: spec.Strategy,
 		}); err != nil {
@@ -238,12 +236,14 @@ func (h *ccCluster) Update(ctx context.Context, id string, current, desired map[
 
 	return ccSyncModelTags(current, desired,
 		func(m map[string]string) error {
-			_, e := h.client.TagResource(ctx, &ecs.TagResourceInput{ResourceArn: aws.String(arn), Tags: ccECSTags(m)})
+			_, e := h.client.TagResource(
+				ctx, &wireECSTagResourceInput{ResourceArn: aws.String(arn), Tags: ccECSTags(m)},
+			)
 
 			return e
 		},
 		func(keys []string) error {
-			_, e := h.client.UntagResource(ctx, &ecs.UntagResourceInput{ResourceArn: aws.String(arn), TagKeys: keys})
+			_, e := h.client.UntagResource(ctx, &wireECSUntagResourceInput{ResourceArn: aws.String(arn), TagKeys: keys})
 
 			return e
 		})
@@ -254,7 +254,7 @@ func (h *ccCluster) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err := h.client.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(id)})
+	_, err := h.client.DeleteCluster(ctx, &wireECSDeleteClusterInput{Cluster: aws.String(id)})
 
 	return ccMapError(err)
 }
@@ -262,9 +262,10 @@ func (h *ccCluster) Delete(ctx context.Context, id string) error {
 func (h *ccCluster) List(ctx context.Context) ([]string, error) {
 	var names []string
 
-	p := ecs.NewListClustersPaginator(h.client, &ecs.ListClustersInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
+	in := &wireECSListClustersInput{}
+
+	for {
+		out, err := h.client.ListClusters(ctx, in)
 		if err != nil {
 			return nil, ccMapError(err)
 		}
@@ -272,6 +273,12 @@ func (h *ccCluster) List(ctx context.Context) ([]string, error) {
 		for _, arn := range out.ClusterArns {
 			names = append(names, arn[strings.LastIndex(arn, "/")+1:])
 		}
+
+		if aws.ToString(out.NextToken) == "" {
+			break
+		}
+
+		in.NextToken = out.NextToken
 	}
 
 	return names, nil
@@ -279,7 +286,7 @@ func (h *ccCluster) List(ctx context.Context) ([]string, error) {
 
 // --- AWS::ElasticLoadBalancingV2::TargetGroup ---
 
-type ccTargetGroup struct{ client *elbv2.Client }
+type ccTargetGroup struct{ client *wireELBv2 }
 
 func ccELBTags(m map[string]string) []elbv2types.Tag {
 	out := make([]elbv2types.Tag, 0, len(m))
@@ -325,7 +332,7 @@ func (h *ccTargetGroup) Create(ctx context.Context, desired map[string]any) (str
 		return "", err
 	}
 
-	in := &elbv2.CreateTargetGroupInput{
+	in := &wireELBv2CreateTargetGroupInput{
 		Name: aws.String(name), Tags: ccELBTags(tags), HealthCheckEnabled: hc.HealthCheckEnabled,
 		HealthCheckIntervalSeconds: hc.HealthCheckIntervalSeconds, HealthCheckPath: hc.HealthCheckPath,
 		HealthCheckPort: hc.HealthCheckPort, HealthCheckProtocol: elbv2types.ProtocolEnum(hc.HealthCheckProtocol),
@@ -371,7 +378,7 @@ func (h *ccTargetGroup) applyAttributes(
 		return nil
 	}
 
-	_, err := h.client.ModifyTargetGroupAttributes(ctx, &elbv2.ModifyTargetGroupAttributesInput{
+	_, err := h.client.ModifyTargetGroupAttributes(ctx, &wireELBv2ModifyTargetGroupAttributesInput{
 		TargetGroupArn: aws.String(arn), Attributes: attrs,
 	})
 
@@ -383,7 +390,7 @@ func (h *ccTargetGroup) registerTargets(ctx context.Context, arn string, targets
 		return nil
 	}
 
-	_, err := h.client.RegisterTargets(ctx, &elbv2.RegisterTargetsInput{
+	_, err := h.client.RegisterTargets(ctx, &wireELBv2RegisterTargetsInput{
 		TargetGroupArn: aws.String(arn), Targets: targets,
 	})
 
@@ -441,7 +448,7 @@ func (h *ccTargetGroup) syncTargets(ctx context.Context, arn string, current, de
 		return nil
 	}
 
-	_, err = h.client.DeregisterTargets(ctx, &elbv2.DeregisterTargetsInput{
+	_, err = h.client.DeregisterTargets(ctx, &wireELBv2DeregisterTargetsInput{
 		TargetGroupArn: aws.String(arn), Targets: remove,
 	})
 
@@ -449,7 +456,9 @@ func (h *ccTargetGroup) syncTargets(ctx context.Context, arn string, current, de
 }
 
 func (h *ccTargetGroup) readTargets(ctx context.Context, id string, model map[string]any) {
-	health, err := h.client.DescribeTargetHealth(ctx, &elbv2.DescribeTargetHealthInput{TargetGroupArn: aws.String(id)})
+	health, err := h.client.DescribeTargetHealth(
+		ctx, &wireELBv2DescribeTargetHealthInput{TargetGroupArn: aws.String(id)},
+	)
 	if err == nil {
 		var targets []elbv2types.TargetDescription
 
@@ -467,7 +476,7 @@ func (h *ccTargetGroup) readTargets(ctx context.Context, id string, model map[st
 		}
 	}
 
-	attrs, err := h.client.DescribeTargetGroupAttributes(ctx, &elbv2.DescribeTargetGroupAttributesInput{
+	attrs, err := h.client.DescribeTargetGroupAttributes(ctx, &wireELBv2DescribeTargetGroupAttributesInput{
 		TargetGroupArn: aws.String(id),
 	})
 	if err == nil && len(attrs.Attributes) > 0 {
@@ -476,7 +485,7 @@ func (h *ccTargetGroup) readTargets(ctx context.Context, id string, model map[st
 }
 
 func (h *ccTargetGroup) describe(ctx context.Context, id string) (*elbv2types.TargetGroup, error) {
-	out, err := h.client.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{TargetGroupArns: []string{id}})
+	out, err := h.client.DescribeTargetGroups(ctx, &wireELBv2DescribeTargetGroupsInput{TargetGroupArns: []string{id}})
 	if err != nil {
 		return nil, ccMapError(err)
 	}
@@ -513,7 +522,7 @@ func (h *ccTargetGroup) Read(ctx context.Context, id string) (map[string]any, er
 		model["TargetGroupFullName"] = id[i:]
 	}
 
-	tags, tagErr := h.client.DescribeTags(ctx, &elbv2.DescribeTagsInput{ResourceArns: []string{id}})
+	tags, tagErr := h.client.DescribeTags(ctx, &wireELBv2DescribeTagsInput{ResourceArns: []string{id}})
 	if tagErr == nil && len(tags.TagDescriptions) > 0 && len(tags.TagDescriptions[0].Tags) > 0 {
 		m := make(map[string]string)
 		for _, t := range tags.TagDescriptions[0].Tags {
@@ -553,7 +562,7 @@ func (h *ccTargetGroup) Update(ctx context.Context, id string, current, desired 
 	}
 
 	if len(ccChanged(current, desired, healthKeys...)) > 0 {
-		if _, err = h.client.ModifyTargetGroup(ctx, &elbv2.ModifyTargetGroupInput{
+		if _, err = h.client.ModifyTargetGroup(ctx, &wireELBv2ModifyTargetGroupInput{
 			TargetGroupArn: aws.String(id), HealthCheckEnabled: hc.HealthCheckEnabled,
 			HealthCheckIntervalSeconds: hc.HealthCheckIntervalSeconds, HealthCheckPath: hc.HealthCheckPath,
 			HealthCheckPort:           hc.HealthCheckPort,
@@ -567,12 +576,12 @@ func (h *ccTargetGroup) Update(ctx context.Context, id string, current, desired 
 
 	return ccSyncModelTags(current, desired,
 		func(m map[string]string) error {
-			_, e := h.client.AddTags(ctx, &elbv2.AddTagsInput{ResourceArns: []string{id}, Tags: ccELBTags(m)})
+			_, e := h.client.AddTags(ctx, &wireELBv2AddTagsInput{ResourceArns: []string{id}, Tags: ccELBTags(m)})
 
 			return e
 		},
 		func(keys []string) error {
-			_, e := h.client.RemoveTags(ctx, &elbv2.RemoveTagsInput{ResourceArns: []string{id}, TagKeys: keys})
+			_, e := h.client.RemoveTags(ctx, &wireELBv2RemoveTagsInput{ResourceArns: []string{id}, TagKeys: keys})
 
 			return e
 		})
@@ -583,7 +592,7 @@ func (h *ccTargetGroup) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err := h.client.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: aws.String(id)})
+	_, err := h.client.DeleteTargetGroup(ctx, &wireELBv2DeleteTargetGroupInput{TargetGroupArn: aws.String(id)})
 
 	return ccMapError(err)
 }
@@ -591,9 +600,10 @@ func (h *ccTargetGroup) Delete(ctx context.Context, id string) error {
 func (h *ccTargetGroup) List(ctx context.Context) ([]string, error) {
 	var arns []string
 
-	p := elbv2.NewDescribeTargetGroupsPaginator(h.client, &elbv2.DescribeTargetGroupsInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
+	in := &wireELBv2DescribeTargetGroupsInput{}
+
+	for {
+		out, err := h.client.DescribeTargetGroups(ctx, in)
 		if err != nil {
 			return nil, ccMapError(err)
 		}
@@ -601,6 +611,12 @@ func (h *ccTargetGroup) List(ctx context.Context) ([]string, error) {
 		for _, g := range out.TargetGroups {
 			arns = append(arns, aws.ToString(g.TargetGroupArn))
 		}
+
+		if aws.ToString(out.NextMarker) == "" {
+			break
+		}
+
+		in.Marker = out.NextMarker
 	}
 
 	return arns, nil
