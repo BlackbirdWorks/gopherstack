@@ -354,6 +354,10 @@ func (b *InMemoryBackend) reconcileLocked(
 			continue
 		}
 
+		if b.snoozedLocked(p.GetName(), o, now) {
+			continue
+		}
+
 		inc := b.newIncidentLocked(project, p, v.conds[key], full, o, now)
 		if opens {
 			out = append(out, b.notificationLocked(p, inc, true))
@@ -374,7 +378,11 @@ func (b *InMemoryBackend) reconcileLocked(
 		}
 
 		inc.State, inc.EndedAt = stateClosed, now
-		if closes {
+		snoozed := b.snoozedLocked(p.GetName(), observation{
+			metricLabels: inc.MetricLabels, resourceLabels: inc.ResourceLabels,
+		}, now)
+
+		if closes && !snoozed {
 			out = append(out, b.notificationLocked(p, *inc, false))
 		}
 	}

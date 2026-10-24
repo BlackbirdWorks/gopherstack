@@ -123,3 +123,37 @@ func (s *channelServer) VerifyNotificationChannel(
 ) (*monitoringpb.NotificationChannel, error) {
 	return s.b.VerifyNotificationChannel(in)
 }
+
+type snoozeServer struct {
+	monitoringpb.UnimplementedSnoozeServiceServer
+	b *InMemoryBackend
+}
+
+func (s *snoozeServer) CreateSnooze(
+	_ context.Context, in *monitoringpb.CreateSnoozeRequest,
+) (*monitoringpb.Snooze, error) {
+	return s.b.CreateSnooze(in)
+}
+
+func (s *snoozeServer) GetSnooze(
+	_ context.Context, in *monitoringpb.GetSnoozeRequest,
+) (*monitoringpb.Snooze, error) {
+	return s.b.GetSnooze(in.GetName())
+}
+
+func (s *snoozeServer) ListSnoozes(
+	_ context.Context, in *monitoringpb.ListSnoozesRequest,
+) (*monitoringpb.ListSnoozesResponse, error) {
+	ss, next, err := s.b.ListSnoozes(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &monitoringpb.ListSnoozesResponse{Snoozes: ss, NextPageToken: next}, nil
+}
+
+func (s *snoozeServer) UpdateSnooze(
+	_ context.Context, in *monitoringpb.UpdateSnoozeRequest,
+) (*monitoringpb.Snooze, error) {
+	return s.b.UpdateSnooze(in)
+}
