@@ -165,7 +165,7 @@ func TestPromQLRangeQuery(t *testing.T) {
 	require.Equal(t, "matrix", r.Data.ResultType)
 	require.Len(t, r.Data.Result, 1)
 
-	var got []string
+	got := make([]string, 0, len(r.Data.Result[0].Values))
 	for _, p := range r.Data.Result[0].Values {
 		got = append(got, p[1].(string))
 	}
