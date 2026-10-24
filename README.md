@@ -725,7 +725,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 structural gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 2 gaps; 3 structural gaps; 1 deferred |
-| [SES v2](services/sesv2/README.md) | A | 112 | 3 gaps; 2 structural gaps |
+| [SES v2](services/sesv2/README.md) | A | 116 | 2 gaps; 2 structural gaps |
 | [SNS](services/sns/README.md) | A | 34 | 1 structural gap; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 2 gaps; 1 structural gap |
 | [SWF](services/swf/README.md) | A | 39 | clean |
@@ -929,7 +929,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 6 gaps; 2 structural gaps |
 | [Connect](services/connect/README.md) | B | 249 | 23 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 6 gaps |
-| [Directconnect](services/directconnect/README.md) | A | 64 | 1 gap; 8 structural gaps; 1 deferred |
+| [Directconnect](services/directconnect/README.md) | A | 73 | 2 gaps; 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 3 structural gaps |
 | [Ecrpublic](services/ecrpublic/README.md) | A | 23 | 3 structural gaps |
 | [Globalaccelerator](services/globalaccelerator/README.md) | B | 56 | 4 gaps; 2 structural gaps |

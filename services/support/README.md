@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CompleteAttachmentUpload, DescribeAttachmentUploadStatus, GetAttachmentDownloadLink, GetAttachmentUploadLinks.
+- Attachment upload/download link ops not implemented (listed in sdk_completeness_test.go notImplemented): GetAttachmentUploadLinks, CompleteAttachmentUpload, DescribeAttachmentUploadStatus, GetAttachmentDownloadLink. GetAttachmentUploadLinks returns presigned multipart-upload URLs (UploadUrl.Url, per-part) and GetAttachmentDownloadLink a presigned DownloadUrl; both point into AWS-managed storage. The emulator serves no presigned upload/download endpoint of its own (support only routes X-Amz-Target, and no sibling service hands out presigned URLs this one could reuse), so any URL would be fabricated. Doing it for real needs a self-hosted part-upload/download route plus request-base-URL plumbing; the three status ops depend on those URLs.
 
 ### Structural gaps
 
