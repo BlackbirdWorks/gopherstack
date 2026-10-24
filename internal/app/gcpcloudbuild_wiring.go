@@ -102,9 +102,17 @@ func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 }
 
 // wireGCPCloudBuild connects Cloud Build to Cloud Storage, Pub/Sub, Cloud Logging, Secret Manager and the
-// Artifact Registry emulator.
+// Artifact Registry emulator, and starts pubsub_config triggers from messages published to Pub/Sub.
 func wireGCPCloudBuild(byName map[string]service.Registerable) {
 	if cb, ok := byName["GCPCloudBuild"].(*gcpcloudbuildbackend.Handler); ok {
 		cb.Backend.SetServices(cloudBuildServices(byName))
+
+		if ps, isPS := byName["GCPPubSub"].(*gcppubsubbackend.Handler); isPS {
+			ps.Backend.ObservePublishes(func(topic string, m *pubsubpb.PubsubMessage) {
+				cb.Backend.HandlePubsubMessage(
+					topic, m.GetData(), m.GetAttributes(), m.GetMessageId(), m.GetPublishTime().AsTime(),
+				)
+			})
+		}
 	}
 }

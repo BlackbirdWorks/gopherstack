@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/stretchr/testify/assert"
@@ -142,4 +143,40 @@ func TestReserveFixedServicePorts_GCPCloudBuild(t *testing.T) {
 			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(gcpcloudbuildbackend.DefaultPort))
 		})
 	}
+}
+
+func TestWireGCPCloudBuild_PubsubTrigger(t *testing.T) {
+	t.Parallel()
+
+	cb := gcpcloudbuildbackend.NewHandler(gcpcloudbuildbackend.NewInMemoryBackend())
+	t.Cleanup(cb.Backend.Close)
+
+	ps := gcppubsubbackend.NewHandler(gcppubsubbackend.NewInMemoryBackend())
+	wireGCPCloudBuild(map[string]service.Registerable{"GCPCloudBuild": cb, "GCPPubSub": ps})
+
+	const topic = "projects/p/topics/deploys"
+
+	_, err := ps.Backend.CreateTopic(&pubsubpb.Topic{Name: topic})
+	require.NoError(t, err)
+
+	trigger, err := cb.Backend.CreateBuildTrigger(&cloudbuildpb.CreateBuildTriggerRequest{
+		Parent: "projects/p/locations/global",
+		Trigger: &cloudbuildpb.BuildTrigger{
+			Name:          "on-deploy",
+			PubsubConfig:  &cloudbuildpb.PubsubConfig{Topic: topic},
+			BuildTemplate: &cloudbuildpb.BuildTrigger_Build{Build: &cloudbuildpb.Build{Steps: []*cloudbuildpb.BuildStep{{Name: "img"}}}},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = ps.Backend.Publish(&pubsubpb.PublishRequest{
+		Topic: topic, Messages: []*pubsubpb.PubsubMessage{{Data: []byte("go")}},
+	})
+	require.NoError(t, err)
+	cb.Backend.Wait()
+
+	builds, _, err := cb.Backend.ListBuilds(&cloudbuildpb.ListBuildsRequest{Parent: "projects/p/locations/global"})
+	require.NoError(t, err)
+	require.Len(t, builds, 1)
+	assert.Equal(t, trigger.GetId(), builds[0].GetBuildTriggerId())
 }
