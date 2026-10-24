@@ -47,6 +47,31 @@ func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 	return h.handleProxy(c, apiID, stageName, resourcePath)
 }
 
+// hasAPI reports whether h or a peer region owns the API.
+func (h *Handler) hasAPI(apiID string) bool {
+	_, err := h.invokeOwner(apiID).Backend.GetAPI(apiID)
+
+	return err == nil
+}
+
+// handleExecuteAPIEcho serves {apiId}.execute-api.<host>/[{stage}/]{path} and
+// /_aws/execute-api/{apiId}/[{stage}/]{path}; the stage is optional when it names no stage.
+func (h *Handler) handleExecuteAPIEcho(c *echo.Context, apiID, rest string) error {
+	stageName, resourcePath := routeKeyDefault, rest
+	if resourcePath == "" {
+		resourcePath = "/"
+	}
+
+	first, tail, _ := strings.Cut(strings.TrimPrefix(rest, "/"), "/")
+	if first != "" {
+		if _, err := h.invokeOwner(apiID).Backend.GetStage(apiID, first); err == nil {
+			stageName, resourcePath = first, "/"+tail
+		}
+	}
+
+	return h.handleProxy(c, apiID, stageName, resourcePath)
+}
+
 // handleUserRequestEcho handles data-plane invocations at the standard AWS endpoint format:
 // /restapis/{apiId}/{stageName}/_user_request_/{resourcePath...}.
 func (h *Handler) handleUserRequestEcho(c *echo.Context) error {

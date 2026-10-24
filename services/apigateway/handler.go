@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/executeapi"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -372,6 +373,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
+		if id, _, ok := executeapi.Parse(c.Request()); ok {
+			return h.hasRestAPI(id)
+		}
+
 		// Stage invoke URLs (stageInvokeURL in store.go) land here; unclaimed, they fall
 		// through to S3's catch-all (S3 excludes /api/, /metrics/, /dashboard/, not /proxy/).
 		if strings.HasPrefix(path, "/proxy/") {
@@ -462,6 +467,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
 			return c.JSON(http.StatusOK, h.GetSupportedOperations())
+		}
+
+		if id, rest, ok := executeapi.Parse(c.Request()); ok && h.hasRestAPI(id) {
+			return h.handleExecuteAPIEcho(c, id, rest)
 		}
 
 		// Handle proxy invocations for deployed API stages.
@@ -838,6 +847,30 @@ func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 
 	r := c.Request().Clone(c.Request().Context())
 	r.URL.Path = "/" + stageName + resourcePath
+
+	owner := h.invokeOwner(apiID)
+	owner.handleProxyRequest(apiID, stageName)(c.Response(), owner.invokeRequest(r))
+
+	return nil
+}
+
+// hasRestAPI reports whether h or a peer region owns the REST API.
+func (h *Handler) hasRestAPI(apiID string) bool {
+	_, err := h.invokeOwner(apiID).Backend.GetRestAPI(apiID)
+
+	return err == nil
+}
+
+// handleExecuteAPIEcho serves {apiId}.execute-api.<host>/{stage}/{path} and
+// /_aws/execute-api/{apiId}/{stage}/{path}; rest is "/{stage}/{path}".
+func (h *Handler) handleExecuteAPIEcho(c *echo.Context, apiID, rest string) error {
+	stageName, _, _ := strings.Cut(strings.TrimPrefix(rest, "/"), "/")
+	if stageName == "" {
+		return c.String(http.StatusNotFound, "invalid execute-api path")
+	}
+
+	r := c.Request().Clone(c.Request().Context())
+	r.URL.Path = rest
 
 	owner := h.invokeOwner(apiID)
 	owner.handleProxyRequest(apiID, stageName)(c.Response(), owner.invokeRequest(r))

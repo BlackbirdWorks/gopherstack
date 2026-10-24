@@ -354,7 +354,7 @@ func normalizeRestAPIInput(input CreateRestAPIInput) (CreateRestAPIInput, error)
 	return input, nil
 }
 
-var restAPIIDPattern = regexp.MustCompile(`^[a-z0-9]{10}$`)
+var restAPIIDPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
 
 // newRestAPIID returns the pinned REST API ID when set, else a random one. Callers hold b.mu.
 func (b *InMemoryBackend) newRestAPIID(pinned string) (string, error) {
@@ -362,7 +362,7 @@ func (b *InMemoryBackend) newRestAPIID(pinned string) (string, error) {
 		return randomID(apiIDLength), nil
 	}
 
-	if err := tags.ValidatePinnedID(pinned, restAPIIDPattern, "10 lowercase alphanumeric characters"); err != nil {
+	if err := tags.ValidatePinnedID(pinned, restAPIIDPattern, "1-32 lowercase alphanumeric characters or hyphens"); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInvalidParameter, err)
 	}
 

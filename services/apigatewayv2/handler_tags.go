@@ -79,9 +79,11 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
-	if _, ok := input.Tags[tags.PinnedIDKey]; ok {
-		return writeErr(c, http.StatusBadRequest,
-			fmt.Sprintf("tag %q is only valid on CreateApi", tags.PinnedIDKey))
+	for key := range input.Tags {
+		if tags.IsPinnedIDKey(key) {
+			return writeErr(c, http.StatusBadRequest,
+				fmt.Sprintf("tag %q is only valid on CreateApi", key))
+		}
 	}
 
 	if err := h.Backend.TagResource(resourceARN, input.Tags); err != nil {

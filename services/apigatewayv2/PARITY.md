@@ -311,6 +311,17 @@ AWS/ApiGateway now also emits DataProcessed (bytes) for HTTP APIs, IntegrationEr
 
 UpdatePortal now applies Authorization/EndpointConfiguration/PortalContent (validated like Create); PortalProduct round-trips DisplayOrder (Create has none; Update/Get/Create outputs echo it, List summary omits it); ListProductRestEndpointPages summaries carry operationName. Portal/PortalProduct persistence was already wired (clean tables), now proven by `TestPortalAndPortalProduct_SurviveSnapshotRestore`. Proof: update_portal_config_members_test.go.
 
+## Notes (2026-10-24 LocalStack invoke URLs and custom IDs)
+
+Data plane also answers LocalStack's documented invoke forms (docs.localstack.cloud/aws/services/apigateway; HTTP/WebSocket APIs):
+`{apiId}.execute-api.<host>[:port]/[{stage}/]{path}` and `/_aws/execute-api/{apiId}/[{stage}/]{path}`,
+claimed only when the API id exists (pkgs/executeapi). `_custom_id_` is accepted as an alias of
+`gopherstack:id` on CreateApi; pinned ids may now be 1-32 lowercase alphanumerics or hyphens
+(the LocalStack docs state no format; the previous 10-char rule was gopherstack-only).
+Tests: execute_api_url_test.go, custom_id_test.go. Custom-domain Host routing: bd gopherstack-49qct.40.
+
+The stage segment is optional: a first segment naming no stage routes to `$default`.
+
 ## Notes (2026-09-24 inbound-activity fix)
 
 wsReadLoop never refreshed the connection's LastActiveAt in

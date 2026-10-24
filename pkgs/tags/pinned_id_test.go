@@ -29,6 +29,12 @@ func TestPinnedIDFromMap(t *testing.T) {
 			wantID:   "x",
 			wantRest: map[string]string{"a": "b"},
 		},
+		{
+			name:     "localstack alias",
+			in:       map[string]string{"a": "b", tags.CustomIDKey: "y"},
+			wantID:   "y",
+			wantRest: map[string]string{"a": "b"},
+		},
 		{name: "nil", in: nil, wantRest: nil},
 	}
 
@@ -59,6 +65,10 @@ func TestPinnedIDFromList(t *testing.T) {
 			name: "present", in: []kvTag{{"a", "b"}, {tags.PinnedIDKey, "x"}},
 			wantID: "x", wantRest: []kvTag{{"a", "b"}},
 		},
+		{
+			name: "localstack alias", in: []kvTag{{tags.CustomIDKey, "y"}, {"a", "b"}},
+			wantID: "y", wantRest: []kvTag{{"a", "b"}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -83,9 +93,14 @@ func TestPinnedIDFromTagSpecs(t *testing.T) {
 	vals.Set("TagSpecification.2.Tag.1.Key", tags.PinnedIDKey)
 	vals.Set("TagSpecification.2.Tag.1.Value", "vpc-1")
 
+	vals.Set("TagSpecification.3.ResourceType", "subnet")
+	vals.Set("TagSpecification.3.Tag.1.Key", tags.CustomIDKey)
+	vals.Set("TagSpecification.3.Tag.1.Value", "subnet-1")
+
+	assert.Equal(t, "subnet-1", tags.PinnedIDFromTagSpecs(vals, "subnet"))
 	assert.Equal(t, "vpc-1", tags.PinnedIDFromTagSpecs(vals, "vpc"))
 	assert.Empty(t, tags.PinnedIDFromTagSpecs(vals, "instance"))
-	assert.Empty(t, tags.PinnedIDFromTagSpecs(vals, "subnet"))
+	assert.Empty(t, tags.PinnedIDFromTagSpecs(vals, "volume"))
 }
 
 func TestValidatePinnedID(t *testing.T) {
@@ -97,4 +112,25 @@ func TestValidatePinnedID(t *testing.T) {
 	err := tags.ValidatePinnedID("bad", re, "vpc-<8 hex>")
 	require.ErrorIs(t, err, tags.ErrInvalidPinnedID)
 	assert.Contains(t, err.Error(), "vpc-<8 hex>")
+}
+
+func TestIsPinnedIDKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{tags.PinnedIDKey, true},
+		{tags.CustomIDKey, true},
+		{"Name", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tags.IsPinnedIDKey(tt.key))
+		})
+	}
 }

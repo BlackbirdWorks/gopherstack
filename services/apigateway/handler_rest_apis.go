@@ -43,9 +43,11 @@ func (h *Handler) createRestAPIAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 	if input.Tags != nil {
-		if id, ok := input.Tags.Get(tags.PinnedIDKey); ok {
-			input.PinnedID = id
-			input.Tags.Delete(tags.PinnedIDKey)
+		for _, key := range []string{tags.PinnedIDKey, tags.CustomIDKey} {
+			if id, ok := input.Tags.Get(key); ok {
+				input.PinnedID = id
+				input.Tags.Delete(key)
+			}
 		}
 	}
 
