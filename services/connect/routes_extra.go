@@ -22,6 +22,7 @@ func extraRoutes() []restroute.Route {
 		trafficRoutes(),
 		flowAssociationRoutes(),
 		securityExtraRoutes(),
+		dataTableRoutes(),
 	)
 }
 
@@ -174,6 +175,7 @@ func searchOps() map[string]string {
 		"SearchAgentStatuses":             "/search-agent-statuses",
 		"SearchContactFlowModules":        "/search-contact-flow-modules",
 		"SearchContactFlows":              "/search-contact-flows",
+		"SearchDataTables":                "/search-data-tables",
 		"SearchEvaluationForms":           "/search-evaluation-forms",
 		"SearchHoursOfOperationOverrides": "/search-hours-of-operation-overrides",
 		"SearchHoursOfOperations":         "/search-hours-of-operations",

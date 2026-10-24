@@ -129,6 +129,7 @@ type extras struct {
 	flowAssocs        family[flowAssocRec]
 	entityProfileRecs family[entityProfilesRec]
 	viewSnapshots     family[viewVersionRec]
+	dataTables        family[dataTableRec]
 }
 
 func (b *Backend) registerTables() {

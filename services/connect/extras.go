@@ -18,6 +18,11 @@ func (b *Backend) registerViewTables() {
 		func(v *viewVersionRec) string { return snapshotKey(v.View.ID, v.View.Version) })
 	b.evalForms = newFamily(r, "evaluationForms", "EvaluationForm",
 		func(v *evalFormRec) string { return v.InstanceID }, func(v *evalFormRec) string { return v.ID })
+	b.dataTables = newFamily(r, "dataTables", dtLabelTable,
+		func(v *dataTableRec) string { return v.InstanceID }, func(v *dataTableRec) string { return v.Table.ID })
+	b.dataTables.taggable(
+		func(v *dataTableRec) string { return v.Table.Arn },
+		func(v *dataTableRec) *map[string]string { return &v.Table.Tags })
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",
@@ -90,6 +95,7 @@ func (b *Backend) extraFinders() []func(string) *map[string]string {
 		b.vocabularies.findARN,
 		b.views.findARN,
 		b.evalForms.findARN,
+		b.dataTables.findARN,
 		b.trafficGroups.findARN,
 	}
 }
@@ -108,5 +114,6 @@ func (b *Backend) dropExtras(inst string) {
 	b.entityProfileRecs.dropInstance(inst)
 	b.trafficGroups.dropInstance(inst)
 	b.evalForms.dropInstance(inst)
+	b.dataTables.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
 }
