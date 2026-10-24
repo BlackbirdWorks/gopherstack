@@ -343,6 +343,9 @@ type CLI struct {
 	kafkaconnectHandler           service.Registerable
 	rumHandler                    service.Registerable
 	oamHandler                    service.Registerable
+	appintegrationsHandler        service.Registerable
+	codegurureviewerHandler       service.Registerable
+	connectHandler                service.Registerable
 	cloudhsmv2Handler             service.Registerable
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
@@ -1705,6 +1708,21 @@ func (c *CLI) GetRUMHandler() service.Registerable { return c.rumHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOAMHandler() service.Registerable { return c.oamHandler }
+
+// GetAppIntegrationsHandler returns the AppIntegrations handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAppIntegrationsHandler() service.Registerable { return c.appintegrationsHandler }
+
+// GetCodeGuruReviewerHandler returns the CodeGuru Reviewer handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeGuruReviewerHandler() service.Registerable { return c.codegurureviewerHandler }
+
+// GetConnectHandler returns the Amazon Connect handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetConnectHandler() service.Registerable { return c.connectHandler }
 
 // GetCloudHSMV2Handler returns the CloudHSM v2 handler.
 //
@@ -3309,6 +3327,9 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.kafkaconnectHandler = byName["KafkaConnect"]
 	cli.rumHandler = byName["RUM"]
 	cli.oamHandler = byName["OAM"]
+	cli.appintegrationsHandler = byName["AppIntegrations"]
+	cli.codegurureviewerHandler = byName["CodeGuruReviewer"]
+	cli.connectHandler = byName["Connect"]
 	cli.cloudhsmv2Handler = byName["CloudHSMV2"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
 	cli.kinesisvideoHandler = byName["KinesisVideo"]

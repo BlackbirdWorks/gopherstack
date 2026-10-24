@@ -64,6 +64,10 @@ func getExtraResourceAttribute(resType, physID, attrName, accountID, region stri
 // getMemoryDBGetAttAttribute so getExtraResourceAttribute's tail stays a
 // single plain call (keeping it under the cyclop budget).
 func getManagedTypesOrMemoryDBAttribute(resType, physID, attrName, accountID, region string) (string, bool) {
+	if v, ok := getConnectFamilyAttribute(resType, physID, attrName, accountID, region); ok {
+		return v, true
+	}
+
 	if v, ok := getManagedTypesAttribute(resType, physID, attrName, accountID, region); ok {
 		return v, true
 	}

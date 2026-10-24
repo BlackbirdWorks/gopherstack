@@ -10,6 +10,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
+	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -23,9 +24,11 @@ import (
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
@@ -167,6 +170,9 @@ type BackendsProvider interface {
 	GetKafkaConnectHandler() service.Registerable
 	GetRUMHandler() service.Registerable
 	GetOAMHandler() service.Registerable
+	GetAppIntegrationsHandler() service.Registerable
+	GetCodeGuruReviewerHandler() service.Registerable
+	GetConnectHandler() service.Registerable
 	GetCloudHSMV2Handler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
@@ -224,6 +230,9 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.KafkaConnect, _ = getHandler[*kafkaconnectbackend.Handler](bp.GetKafkaConnectHandler())
 	backends.RUM, _ = getHandler[*rumbackend.Handler](bp.GetRUMHandler())
 	backends.OAM, _ = getHandler[*oambackend.Handler](bp.GetOAMHandler())
+	backends.AppIntegrations, _ = getHandler[*appintegrationsbackend.Handler](bp.GetAppIntegrationsHandler())
+	backends.CodeGuruReviewer, _ = getHandler[*codegurureviewerbackend.Handler](bp.GetCodeGuruReviewerHandler())
+	backends.Connect, _ = getHandler[*connectbackend.Handler](bp.GetConnectHandler())
 	backends.CloudHSMV2, _ = getHandler[*cloudhsmv2backend.Handler](bp.GetCloudHSMV2Handler())
 }
 

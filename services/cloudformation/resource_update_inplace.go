@@ -33,6 +33,10 @@ func (rc *ResourceCreator) UpdateInPlace(
 
 	ctx = rc.withStackRegion(ctx)
 
+	if handled, err := rc.updateConnectFamily(ctx, resourceType, physicalID, props, params, physicalIDs); handled {
+		return true, err
+	}
+
 	switch resourceType {
 	case resTypeCloudHSMCluster:
 		return true, rc.updateCloudHSMCluster(ctx, physicalID, props, params, physicalIDs)

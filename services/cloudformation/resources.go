@@ -19,6 +19,7 @@ import (
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -32,9 +33,11 @@ import (
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -181,6 +184,9 @@ type ServiceBackends struct {
 	KafkaConnect      *kafkaconnectbackend.Handler
 	RUM               *rumbackend.Handler
 	OAM               *oambackend.Handler
+	AppIntegrations   *appintegrationsbackend.Handler
+	CodeGuruReviewer  *codegurureviewerbackend.Handler
+	Connect           *connectbackend.Handler
 	CloudHSMV2        *cloudhsmv2backend.Handler
 	DirectConnect     *directconnectbackend.Handler
 	NetworkManager    *networkmanagerbackend.Handler

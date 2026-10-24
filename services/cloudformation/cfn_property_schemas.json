@@ -343,6 +343,36 @@
     "Name": "string",
     "Tags": "list"
   },
+  "AWS::AppIntegrations::Application": {
+    "ApplicationConfig": "map",
+    "ApplicationSourceConfig": "map",
+    "ApplicationType": "string",
+    "Description": "string",
+    "IframeConfig": "map",
+    "InitializationTimeout": "number",
+    "IsService": "boolean",
+    "Name": "string",
+    "Namespace": "string",
+    "Permissions": "list",
+    "Tags": "list"
+  },
+  "AWS::AppIntegrations::DataIntegration": {
+    "Description": "string",
+    "FileConfiguration": "map",
+    "KmsKey": "string",
+    "Name": "string",
+    "ObjectConfiguration": "any",
+    "ScheduleConfig": "map",
+    "SourceURI": "string",
+    "Tags": "list"
+  },
+  "AWS::AppIntegrations::EventIntegration": {
+    "Description": "string",
+    "EventBridgeBus": "string",
+    "EventFilter": "map",
+    "Name": "string",
+    "Tags": "list"
+  },
   "AWS::AppSync::ApiKey": {
     "ApiId": "string",
     "Description": "string",
@@ -951,6 +981,14 @@
     "TerminationHookEnabled": "boolean",
     "TriggerConfigurations": "list"
   },
+  "AWS::CodeGuruReviewer::RepositoryAssociation": {
+    "BucketName": "string",
+    "ConnectionArn": "string",
+    "Name": "string",
+    "Owner": "string",
+    "Tags": "list",
+    "Type": "string"
+  },
   "AWS::CodePipeline::Pipeline": {
     "ArtifactStore": "map",
     "ArtifactStores": "list",
@@ -1134,6 +1172,277 @@
     "QueryExpression": "string",
     "QueryName": "string",
     "Tags": "list"
+  },
+  "AWS::Connect::AgentStatus": {
+    "Description": "string",
+    "DisplayOrder": "number",
+    "InstanceArn": "string",
+    "Name": "string",
+    "ResetOrderNumber": "boolean",
+    "State": "string",
+    "Tags": "list",
+    "Type": "string"
+  },
+  "AWS::Connect::ApprovedOrigin": {
+    "InstanceId": "string",
+    "Origin": "string"
+  },
+  "AWS::Connect::ContactFlow": {
+    "Content": "string",
+    "Description": "string",
+    "InstanceArn": "string",
+    "Name": "string",
+    "State": "string",
+    "Tags": "list",
+    "Type": "string"
+  },
+  "AWS::Connect::ContactFlowModule": {
+    "Content": "string",
+    "Description": "string",
+    "ExternalInvocationConfiguration": "map",
+    "InstanceArn": "string",
+    "Name": "string",
+    "Settings": "string",
+    "State": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::DataTable": {
+    "Description": "string",
+    "InstanceArn": "string",
+    "Name": "string",
+    "Status": "string",
+    "Tags": "list",
+    "TimeZone": "string",
+    "ValueLockLevel": "string"
+  },
+  "AWS::Connect::DataTableAttribute": {
+    "DataTableArn": "string",
+    "Description": "string",
+    "InstanceArn": "string",
+    "Name": "string",
+    "Primary": "boolean",
+    "Validation": "map",
+    "ValueType": "string"
+  },
+  "AWS::Connect::EmailAddress": {
+    "AliasConfigurations": "list",
+    "Description": "string",
+    "DisplayName": "string",
+    "EmailAddress": "string",
+    "InstanceArn": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::EvaluationForm": {
+    "AIVersion": "string",
+    "AutoEvaluationConfiguration": "map",
+    "Description": "string",
+    "InstanceArn": "string",
+    "Items": "list",
+    "LanguageConfiguration": "map",
+    "ReviewConfiguration": "map",
+    "ScoringStrategy": "map",
+    "Status": "string",
+    "Tags": "list",
+    "TargetConfiguration": "map",
+    "Title": "string"
+  },
+  "AWS::Connect::HoursOfOperation": {
+    "ChildHoursOfOperations": "list",
+    "Config": "list",
+    "Description": "string",
+    "HoursOfOperationOverrides": "list",
+    "InstanceArn": "string",
+    "Name": "string",
+    "ParentHoursOfOperations": "list",
+    "Tags": "list",
+    "TimeZone": "string"
+  },
+  "AWS::Connect::Instance": {
+    "Attributes": "map",
+    "DirectoryId": "string",
+    "IdentityManagementType": "string",
+    "InstanceAlias": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::InstanceStorageConfig": {
+    "InstanceArn": "string",
+    "KinesisFirehoseConfig": "map",
+    "KinesisStreamConfig": "map",
+    "KinesisVideoStreamConfig": "map",
+    "ResourceType": "string",
+    "S3Config": "map",
+    "StorageType": "string"
+  },
+  "AWS::Connect::IntegrationAssociation": {
+    "InstanceId": "string",
+    "IntegrationArn": "string",
+    "IntegrationType": "string",
+    "SourceApplicationName": "string",
+    "SourceApplicationUrl": "string",
+    "SourceType": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::PhoneNumber": {
+    "CountryCode": "string",
+    "Description": "string",
+    "Prefix": "string",
+    "SourcePhoneNumberArn": "string",
+    "Tags": "list",
+    "TargetArn": "string",
+    "Type": "string"
+  },
+  "AWS::Connect::PredefinedAttribute": {
+    "AttributeConfiguration": "map",
+    "InstanceArn": "string",
+    "Name": "string",
+    "Purposes": "list",
+    "Values": "map"
+  },
+  "AWS::Connect::Prompt": {
+    "Description": "string",
+    "InstanceArn": "string",
+    "Name": "string",
+    "S3Uri": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::Queue": {
+    "AdditionalEmailAddresses": "list",
+    "Description": "string",
+    "HoursOfOperationArn": "string",
+    "InstanceArn": "string",
+    "MaxContacts": "number",
+    "Name": "string",
+    "OutboundCallerConfig": "map",
+    "OutboundEmailConfig": "map",
+    "QuickConnectArns": "list",
+    "Status": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::QuickConnect": {
+    "Description": "string",
+    "InstanceArn": "string",
+    "Name": "string",
+    "QuickConnectConfig": "map",
+    "Tags": "list"
+  },
+  "AWS::Connect::RoutingProfile": {
+    "AgentAvailabilityTimer": "string",
+    "DefaultOutboundQueueArn": "string",
+    "Description": "string",
+    "InstanceArn": "string",
+    "ManualAssignmentQueueConfigs": "list",
+    "MediaConcurrencies": "list",
+    "Name": "string",
+    "QueueConfigs": "list",
+    "Tags": "list"
+  },
+  "AWS::Connect::Rule": {
+    "Actions": "map",
+    "Function": "string",
+    "InstanceArn": "string",
+    "Name": "string",
+    "PublishStatus": "string",
+    "Tags": "list",
+    "TriggerEventSource": "map"
+  },
+  "AWS::Connect::SecurityKey": {
+    "InstanceId": "string",
+    "Key": "string"
+  },
+  "AWS::Connect::SecurityProfile": {
+    "AllowedAccessControlHierarchyGroupId": "string",
+    "AllowedAccessControlTags": "list",
+    "AllowedFlowModules": "list",
+    "Applications": "list",
+    "Description": "string",
+    "GranularAccessControlConfiguration": "map",
+    "HierarchyRestrictedResources": "list",
+    "InstanceArn": "string",
+    "Permissions": "list",
+    "SecurityProfileName": "string",
+    "TagRestrictedResources": "list",
+    "Tags": "list"
+  },
+  "AWS::Connect::TaskTemplate": {
+    "ClientToken": "string",
+    "Constraints": "map",
+    "ContactFlowArn": "string",
+    "Defaults": "list",
+    "Description": "string",
+    "Fields": "list",
+    "InstanceArn": "string",
+    "Name": "string",
+    "SelfAssignContactFlowArn": "string",
+    "Status": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::TrafficDistributionGroup": {
+    "Description": "string",
+    "InstanceArn": "string",
+    "Name": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::UseCase": {
+    "InstanceId": "string",
+    "IntegrationAssociationId": "string",
+    "Tags": "list",
+    "UseCaseType": "string"
+  },
+  "AWS::Connect::User": {
+    "AfterContactWorkConfigs": "list",
+    "AutoAcceptConfigs": "list",
+    "DirectoryUserId": "string",
+    "HierarchyGroupArn": "string",
+    "IdentityInfo": "map",
+    "InstanceArn": "string",
+    "Password": "string",
+    "PersistentConnectionConfigs": "list",
+    "PhoneConfig": "map",
+    "PhoneNumberConfigs": "list",
+    "RoutingProfileArn": "string",
+    "SecurityProfileArns": "list",
+    "Tags": "list",
+    "UserProficiencies": "list",
+    "Username": "string",
+    "VoiceEnhancementConfigs": "list"
+  },
+  "AWS::Connect::UserHierarchyGroup": {
+    "InstanceArn": "string",
+    "Name": "string",
+    "ParentGroupArn": "string",
+    "Tags": "list"
+  },
+  "AWS::Connect::View": {
+    "Actions": "list",
+    "Description": "string",
+    "InstanceArn": "string",
+    "Name": "string",
+    "Tags": "list",
+    "Template": "any"
+  },
+  "AWS::Connect::ViewVersion": {
+    "VersionDescription": "string",
+    "ViewArn": "string",
+    "ViewContentSha256": "string"
+  },
+  "AWS::Connect::Vocabulary": {
+    "Content": "string",
+    "InstanceId": "string",
+    "LanguageCode": "string",
+    "Tags": "list",
+    "VocabularyName": "string"
+  },
+  "AWS::Connect::Workspace": {
+    "Associations": "list",
+    "Description": "string",
+    "InstanceArn": "string",
+    "Media": "list",
+    "Name": "string",
+    "Pages": "list",
+    "Tags": "list",
+    "Theme": "map",
+    "Title": "string",
+    "Visibility": "string"
   },
   "AWS::DataSync::Agent": {
     "ActivationKey": "string",

@@ -34,7 +34,7 @@
 - Contact.Recordings, QualityMetrics, ChatMetrics, DisconnectDetails and the other contact analytics members are never populated
 - ListQueues QueueTypes=AGENT: per-agent queues are not modeled
 - CreateInstance quota (2 per Region) is not enforced
-- CloudFormation does not provision Connect resources
+- CloudFormation: AWS::Connect::AWSManagedView, ContactFlowVersion, ContactFlowModuleVersion, ContactFlowModuleAlias, DataLakeAssociation, DataTableRecord, Metric, Notification, TestCase and UserHierarchyStructure are not provisioned; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
 - Lex bot associations are shape-checked only: no Lex service exists in the emulator
 
 ### Structural gaps

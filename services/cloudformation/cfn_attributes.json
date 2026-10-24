@@ -51,6 +51,17 @@
   "AWS::AppConfig::Environment": [
     "EnvironmentId"
   ],
+  "AWS::AppIntegrations::Application": [
+    "ApplicationArn",
+    "Id"
+  ],
+  "AWS::AppIntegrations::DataIntegration": [
+    "DataIntegrationArn",
+    "Id"
+  ],
+  "AWS::AppIntegrations::EventIntegration": [
+    "EventIntegrationArn"
+  ],
   "AWS::AppSync::ChannelNamespace": [
     "ChannelNamespaceArn"
   ],
@@ -176,6 +187,9 @@
   "AWS::CodeBuild::ReportGroup": [
     "Arn"
   ],
+  "AWS::CodeGuruReviewer::RepositoryAssociation": [
+    "AssociationArn"
+  ],
   "AWS::Config::AggregationAuthorization": [
     "AggregationAuthorizationArn"
   ],
@@ -193,6 +207,118 @@
   "AWS::Config::StoredQuery": [
     "QueryArn",
     "QueryId"
+  ],
+  "AWS::Connect::AgentStatus": [
+    "AgentStatusArn",
+    "LastModifiedRegion",
+    "LastModifiedTime"
+  ],
+  "AWS::Connect::ContactFlow": [
+    "ContactFlowArn"
+  ],
+  "AWS::Connect::ContactFlowModule": [
+    "ContactFlowModuleArn",
+    "Status"
+  ],
+  "AWS::Connect::DataTable": [
+    "Arn",
+    "CreatedTime",
+    "LastModifiedRegion",
+    "LastModifiedTime",
+    "LockVersion",
+    "LockVersion.DataTable"
+  ],
+  "AWS::Connect::DataTableAttribute": [
+    "AttributeId",
+    "LastModifiedRegion",
+    "LastModifiedTime",
+    "LockVersion",
+    "LockVersion.Attribute",
+    "LockVersion.DataTable"
+  ],
+  "AWS::Connect::EmailAddress": [
+    "EmailAddressArn"
+  ],
+  "AWS::Connect::EvaluationForm": [
+    "EvaluationFormArn"
+  ],
+  "AWS::Connect::HoursOfOperation": [
+    "HoursOfOperationArn"
+  ],
+  "AWS::Connect::Instance": [
+    "Arn",
+    "CreatedTime",
+    "Id",
+    "InstanceStatus",
+    "ServiceRole"
+  ],
+  "AWS::Connect::InstanceStorageConfig": [
+    "AssociationId"
+  ],
+  "AWS::Connect::IntegrationAssociation": [
+    "IntegrationAssociationId"
+  ],
+  "AWS::Connect::PhoneNumber": [
+    "Address",
+    "PhoneNumberArn"
+  ],
+  "AWS::Connect::PredefinedAttribute": [
+    "LastModifiedRegion",
+    "LastModifiedTime"
+  ],
+  "AWS::Connect::Prompt": [
+    "PromptArn"
+  ],
+  "AWS::Connect::Queue": [
+    "LastModifiedRegion",
+    "LastModifiedTime",
+    "QueueArn",
+    "Type"
+  ],
+  "AWS::Connect::QuickConnect": [
+    "QuickConnectArn",
+    "QuickConnectType"
+  ],
+  "AWS::Connect::RoutingProfile": [
+    "RoutingProfileArn"
+  ],
+  "AWS::Connect::Rule": [
+    "RuleArn"
+  ],
+  "AWS::Connect::SecurityKey": [
+    "AssociationId"
+  ],
+  "AWS::Connect::SecurityProfile": [
+    "LastModifiedRegion",
+    "LastModifiedTime",
+    "SecurityProfileArn"
+  ],
+  "AWS::Connect::TaskTemplate": [
+    "Arn"
+  ],
+  "AWS::Connect::TrafficDistributionGroup": [
+    "IsDefault",
+    "Status",
+    "TrafficDistributionGroupArn"
+  ],
+  "AWS::Connect::User": [
+    "UserArn"
+  ],
+  "AWS::Connect::UserHierarchyGroup": [
+    "UserHierarchyGroupArn"
+  ],
+  "AWS::Connect::View": [
+    "ViewArn",
+    "ViewContentSha256",
+    "ViewId"
+  ],
+  "AWS::Connect::ViewVersion": [
+    "Version",
+    "ViewVersionArn"
+  ],
+  "AWS::Connect::Workspace": [
+    "Arn",
+    "Id"
   ],
   "AWS::DataSync::Agent": [
     "AgentArn",

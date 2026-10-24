@@ -9,6 +9,10 @@ func (rc *ResourceCreator) createMonitoringThenNetworkManager(
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, bool, error) {
+	if id, ok, err := rc.createConnectFamily(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
 	if id, ok, err := rc.createRUMResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
 		return id, true, err
 	}
@@ -28,6 +32,10 @@ func (rc *ResourceCreator) createMonitoringThenNetworkManager(
 func (rc *ResourceCreator) deleteMonitoringThenNetworkManager(
 	ctx context.Context, resourceType, physicalID string,
 ) (bool, error) {
+	if handled, err := rc.deleteConnectFamily(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
 	if handled, err := rc.deleteRUMResource(ctx, resourceType, physicalID); handled {
 		return true, err
 	}
@@ -45,6 +53,10 @@ func (rc *ResourceCreator) deleteMonitoringThenNetworkManager(
 
 // monitoringRecreation lists the replacement-forcing properties of the families above.
 func monitoringRecreation(resourceType, propName string) string {
+	if v := connectFamilyRecreation(resourceType, propName); v != recreateNever {
+		return v
+	}
+
 	switch resourceType {
 	case resTypeRUMAppMonitor:
 		return alwaysIfOneOf(propName, "Name", "Platform")
