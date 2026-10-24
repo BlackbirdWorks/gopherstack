@@ -332,6 +332,7 @@ type CLI struct {
 	SNS                           struct{}            `embed:"" prefix:"sns-"`
 	IAM                           struct{}            `embed:"" prefix:"iam-"`
 	shutdownDeadline              time.Time
+	Endpoints                     endpointstrategy.Config `embed:""`
 	athenaHandler                 service.Registerable
 	kafkaconnectHandler           service.Registerable
 	rumHandler                    service.Registerable
@@ -610,7 +611,6 @@ type CLI struct {
 	GCPKMS                        gcpkmsbackend.Settings            `embed:"" prefix:"gcp-kms-"`
 	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
 	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
-	Endpoints                     endpointstrategy.Config           `embed:""`
 	GCPIAM                        gcpiambackend.Settings            `embed:"" prefix:"gcp-iam-"`
 	GCPBigQuery                   gcpbigquerybackend.Settings       `embed:"" prefix:"gcp-bigquery-"`
 	GCPLogging                    gcploggingbackend.Settings        `embed:"" prefix:"gcp-logging-"`

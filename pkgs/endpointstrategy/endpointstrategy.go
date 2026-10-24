@@ -34,10 +34,10 @@ var ErrInvalidStrategy = errors.New("invalid endpoint strategy")
 
 // Config carries the selected strategies and the gateway host:port.
 type Config struct {
-	SQS        string `name:"sqs-endpoint-strategy"        env:"SQS_ENDPOINT_STRATEGY"        help:"Queue URL format: standard, domain, path, off or dynamic (empty keeps http://host/account/name)."`
-	OpenSearch string `name:"opensearch-endpoint-strategy" env:"OPENSEARCH_ENDPOINT_STRATEGY" help:"OpenSearch domain endpoint format: domain or path (empty keeps the AWS-style es.amazonaws.com host)."`
-	GraphQL    string `name:"graphql-endpoint-strategy"    env:"GRAPHQL_ENDPOINT_STRATEGY"    help:"AppSync GraphQL URL format: legacy, domain or path (empty keeps /v1/apis/ID/graphql)."`
-	ECR        string `name:"ecr-endpoint-strategy"        env:"ECR_ENDPOINT_STRATEGY"        help:"ECR repositoryUri host format: domain or off (empty keeps the AWS-style host)."`
+	SQS        string `name:"sqs-endpoint-strategy"        env:"SQS_ENDPOINT_STRATEGY"        help:"Queue URL format: standard, domain, path, off or dynamic (empty keeps http://host/account/name)."`     //nolint:lll // config struct tags are intentionally verbose
+	OpenSearch string `name:"opensearch-endpoint-strategy" env:"OPENSEARCH_ENDPOINT_STRATEGY" help:"OpenSearch domain endpoint format: domain or path (empty keeps the AWS-style es.amazonaws.com host)."` //nolint:lll // config struct tags are intentionally verbose
+	GraphQL    string `name:"graphql-endpoint-strategy"    env:"GRAPHQL_ENDPOINT_STRATEGY"    help:"AppSync GraphQL URL format: legacy, domain or path (empty keeps /v1/apis/ID/graphql)."`                //nolint:lll // config struct tags are intentionally verbose
+	ECR        string `name:"ecr-endpoint-strategy"        env:"ECR_ENDPOINT_STRATEGY"        help:"ECR repositoryUri host format: domain or off (empty keeps the AWS-style host)."`                       //nolint:lll // config struct tags are intentionally verbose
 	// HostPort is the gateway address (host:port) used when a strategy needs one.
 	HostPort string `                                                                                                                                                                                   kong:"-"`
 }
