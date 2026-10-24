@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/amqp1"
@@ -36,6 +37,7 @@ func wireAzureEventGrid(byName map[string]service.Registerable) {
 
 	if armH, armOk := byName["AzureARM"].(*azurearm.Handler); armOk {
 		armH.Registry.SetEventGrid(&azureEventGridAdapter{backend: egH.Backend})
+		armH.SetResourceObserver(&azureARMEventSource{backend: egH.Backend})
 	}
 
 	t := &azureEventGridTargets{}
@@ -230,4 +232,166 @@ func (a *azureEventGridAdapter) DeletePullSubscription(ns, topic, name string) e
 		azureeventgrid.ErrPullSubNotFound, azureeventgrid.ErrNamespaceTopicNotFound,
 		azureeventgrid.ErrNamespaceNotFound,
 	)
+}
+
+func (a *azureEventGridAdapter) PutDomain(
+	name, resourceID, schema string, autoCreate, autoDelete *bool,
+) (azurearm.EventGridDomain, error) {
+	info, err := a.backend.PutDomain(name, resourceID, schema, autoCreate, autoDelete)
+	if err != nil {
+		return azurearm.EventGridDomain{}, err
+	}
+
+	return domainView(info), nil
+}
+
+func domainView(info azureeventgrid.DomainInfo) azurearm.EventGridDomain {
+	return azurearm.EventGridDomain{
+		CreatedAt:   info.CreatedAt,
+		InputSchema: info.InputSchema,
+		AutoCreate:  info.AutoCreate,
+		AutoDelete:  info.AutoDelete,
+	}
+}
+
+func (a *azureEventGridAdapter) DomainInfo(name string) (azurearm.EventGridDomain, bool) {
+	info, err := a.backend.Domain(name)
+	if err != nil {
+		return azurearm.EventGridDomain{}, false
+	}
+
+	return domainView(info), true
+}
+
+func (a *azureEventGridAdapter) DeleteDomain(name string) error {
+	return ignoreMissing(a.backend.DeleteDomain(name), azureeventgrid.ErrDomainNotFound)
+}
+
+func (a *azureEventGridAdapter) DomainKeys(name string) (string, string, error) {
+	return keyPair(a.backend.DomainKeys(name))
+}
+
+func (a *azureEventGridAdapter) RegenerateDomainKey(name, keyName string) (string, string, error) {
+	return keyPair(a.backend.RegenerateDomainKey(name, keyName))
+}
+
+func (a *azureEventGridAdapter) PutDomainTopic(domain, name string) (time.Time, error) {
+	return a.backend.PutDomainTopic(domain, name)
+}
+
+func (a *azureEventGridAdapter) DomainTopic(domain, name string) (azurearm.EventGridDomainTopic, bool) {
+	t, err := a.backend.DomainTopic(domain, name)
+
+	return azurearm.EventGridDomainTopic{CreatedAt: t.CreatedAt, Name: t.Name}, err == nil
+}
+
+func (a *azureEventGridAdapter) DomainTopics(domain string) ([]azurearm.EventGridDomainTopic, error) {
+	topics, err := a.backend.DomainTopics(domain)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]azurearm.EventGridDomainTopic, 0, len(topics))
+	for _, t := range topics {
+		out = append(out, azurearm.EventGridDomainTopic{CreatedAt: t.CreatedAt, Name: t.Name})
+	}
+
+	return out, nil
+}
+
+func (a *azureEventGridAdapter) DeleteDomainTopic(domain, name string) error {
+	return ignoreMissing(
+		a.backend.DeleteDomainTopic(domain, name),
+		azureeventgrid.ErrDomainTopicNotFound, azureeventgrid.ErrDomainNotFound,
+	)
+}
+
+func (a *azureEventGridAdapter) PutScopedSubscription(
+	ctx context.Context, domain, topic, name string, props map[string]any,
+) (map[string]any, error) {
+	out, err := a.backend.PutScopedSubscription(ctx, azureeventgrid.Scope{Domain: domain, Topic: topic}, name, props)
+
+	return out, mapDomainErr(err)
+}
+
+// mapDomainErr turns a missing domain or domain topic into the ARM provider's not-found errors.
+func mapDomainErr(err error) error {
+	switch {
+	case errors.Is(err, azureeventgrid.ErrDomainTopicNotFound):
+		return azurearm.ErrEventGridDomainTopicNotFound
+	case errors.Is(err, azureeventgrid.ErrDomainNotFound):
+		return azurearm.ErrEventGridDomainNotFound
+	}
+
+	return err
+}
+
+func (a *azureEventGridAdapter) GetScopedSubscription(domain, topic, name string) (map[string]any, bool) {
+	props, err := a.backend.ScopedSubscription(azureeventgrid.Scope{Domain: domain, Topic: topic}, name)
+
+	return props, err == nil
+}
+
+func (a *azureEventGridAdapter) DeleteScopedSubscription(domain, topic, name string) error {
+	return ignoreMissing(
+		a.backend.DeleteScopedSubscription(azureeventgrid.Scope{Domain: domain, Topic: topic}, name),
+		azureeventgrid.ErrSubscriptionNotFound, azureeventgrid.ErrTopicNotFound,
+		azureeventgrid.ErrDomainTopicNotFound, azureeventgrid.ErrDomainNotFound,
+	)
+}
+
+func (a *azureEventGridAdapter) ScopedSubscriptionFullURL(domain, topic, name string) (string, error) {
+	return a.backend.ScopedFullURL(azureeventgrid.Scope{Domain: domain, Topic: topic}, name)
+}
+
+func (a *azureEventGridAdapter) DeliveryAttributes(domain, topic, name string) ([]map[string]any, error) {
+	return a.backend.DeliveryAttributes(azureeventgrid.Scope{Domain: domain, Topic: topic}, name)
+}
+
+func (a *azureEventGridAdapter) PutResourceSubscription(
+	ctx context.Context, scopeID, name string, props map[string]any,
+) (map[string]any, error) {
+	return a.backend.PutScopedSubscription(ctx, azureeventgrid.Scope{Resource: scopeID}, name, props)
+}
+
+func (a *azureEventGridAdapter) GetResourceSubscription(scopeID, name string) (map[string]any, bool) {
+	props, err := a.backend.ScopedSubscription(azureeventgrid.Scope{Resource: scopeID}, name)
+
+	return props, err == nil
+}
+
+func (a *azureEventGridAdapter) DeleteResourceSubscription(scopeID, name string) error {
+	return ignoreMissing(
+		a.backend.DeleteScopedSubscription(azureeventgrid.Scope{Resource: scopeID}, name),
+		azureeventgrid.ErrSubscriptionNotFound,
+	)
+}
+
+func (a *azureEventGridAdapter) ResourceSubscriptionFullURL(scopeID, name string) (string, error) {
+	return a.backend.ScopedFullURL(azureeventgrid.Scope{Resource: scopeID}, name)
+}
+
+func (a *azureEventGridAdapter) ResourceDeliveryAttributes(scopeID, name string) ([]map[string]any, error) {
+	return a.backend.DeliveryAttributes(azureeventgrid.Scope{Resource: scopeID}, name)
+}
+
+// azureARMEventSource turns ARM write, delete and action results into Event Grid resource events.
+type azureARMEventSource struct {
+	backend *azureeventgrid.InMemoryBackend
+}
+
+var eventTypeByChange = map[azurearm.ResourceChangeKind]string{ //nolint:gochecknoglobals // static lookup
+	azurearm.ResourceWritten:   azureeventgrid.EventResourceWriteSuccess,
+	azurearm.ResourceDeleted:   azureeventgrid.EventResourceDeleteSuccess,
+	azurearm.ResourceActionRun: azureeventgrid.EventResourceActionSuccess,
+}
+
+func (s *azureARMEventSource) ResourceChanged(ch azurearm.ResourceChange) {
+	s.backend.PublishResourceEvent(azureeventgrid.ResourceEvent{
+		Time: ch.Time, Claims: ch.Claims, EventType: eventTypeByChange[ch.Kind],
+		SubscriptionID: ch.SubscriptionID, ResourceGroup: ch.ResourceGroup, ResourceURI: ch.ResourceURI,
+		Provider: ch.Provider, OperationName: ch.OperationName, CorrelationID: ch.CorrelationID,
+		TenantID: ch.TenantID, HTTPMethod: ch.HTTPMethod, HTTPURL: ch.HTTPURL,
+		ClientRequestID: ch.ClientRequestID, ClientIP: ch.ClientIP,
+	})
 }

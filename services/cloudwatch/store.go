@@ -97,6 +97,7 @@ type InMemoryBackend struct {
 	alarmMuteRules   *store.Table[AlarmMuteRule]
 	datasets         *store.Table[Dataset]
 	otelEnrichment   *store.Table[OTelEnrichmentState]
+	resourceMetrics  *store.Table[ResourceMetricsConfiguration]
 	metrics          map[string]map[string]*metricRecord
 	dashboards       *store.Table[dashboardRecord]
 	anomalyDetectors *store.Table[AnomalyDetector]

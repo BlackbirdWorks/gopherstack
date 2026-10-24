@@ -59,7 +59,7 @@ func (b *InMemoryBackend) observeMedicalVocabulary(v *MedicalVocabulary) {
 }
 
 func (b *InMemoryBackend) observeLanguageModel(m *LanguageModel) {
-	if m.ModelStatus == modelStatusCompleted && b.settling(m.CreateTime) {
+	if m.ModelStatus == modelStatusCompleted && b.settling(m.LastModifiedTime) {
 		m.ModelStatus = jobStatusInProgress
 	}
 }

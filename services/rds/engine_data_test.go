@@ -39,7 +39,12 @@ func (f *fakeEngineRuntime) Exec(_ context.Context, id string, cmd []string) (co
 	case len(cmd) == 5 && cmd[0] == "sh":
 		f.staged[cmd[3]] += cmd[4]
 	case slices.Contains(cmd, "sh"):
-		raw, err := base64.StdEncoding.DecodeString(f.staged[cmd[slices.Index(cmd, "-c")+2]])
+		staged, isLoad := f.staged[cmd[slices.Index(cmd, "-c")+2]]
+		if !isLoad {
+			break
+		}
+
+		raw, err := base64.StdEncoding.DecodeString(staged)
 		if err != nil {
 			return container.ExecResult{ExitCode: 1}, nil
 		}

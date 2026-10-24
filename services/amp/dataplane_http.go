@@ -251,12 +251,18 @@ func (h *Handler) remoteWrite(c *echo.Context, wsID string) error {
 		return restroute.WriteError(c, http.StatusBadRequest, "ValidationException", err.Error(), nil)
 	}
 
-	if _, ierr := h.Backend.Ingest(c.Request().Context(), wsID, series); ierr != nil {
+	res, ierr := h.Backend.Ingest(c.Request().Context(), wsID, series)
+	if ierr != nil {
 		return h.server.WriteErr(c, ierr)
 	}
 
-	if ierr := h.Backend.IngestMetadata(c.Request().Context(), wsID, decodeWriteMetadata(body)); ierr != nil {
+	if ierr = h.Backend.IngestMetadata(c.Request().Context(), wsID, decodeWriteMetadata(body)); ierr != nil {
 		return h.server.WriteErr(c, ierr)
+	}
+
+	if res.LimitExceeded > 0 {
+		return restroute.WriteError(c, http.StatusBadRequest, "ValidationException",
+			fmt.Sprintf("per-labelset series limit exceeded for %d series", res.LimitExceeded), nil)
 	}
 
 	return c.NoContent(http.StatusOK)

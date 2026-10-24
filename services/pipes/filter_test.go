@@ -90,7 +90,7 @@ func TestFilter_JSONPattern(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			msgs := make([]*pipes.SQSMessage, len(tt.msgBodies))
 			for i, body := range tt.msgBodies {
@@ -286,7 +286,7 @@ func TestFilter_PatternOperators(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, "op-"+tt.name)
+			waitPipeRunning(t, b, "op-"+tt.name)
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: tt.msgBody}},
@@ -368,7 +368,7 @@ func TestFilter_MultipleFilters(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, "mf-"+tt.name)
+			waitPipeRunning(t, b, "mf-"+tt.name)
 
 			msgs := make([]*pipes.SQSMessage, len(tt.msgBodies))
 			for i, body := range tt.msgBodies {
@@ -546,7 +546,7 @@ func TestFilter_NestedPatterns(t *testing.T) {
 			if tt.rawPattern {
 				b.SetFilterPatternForTest("np-"+tt.name, tt.pattern)
 			}
-			pipes.WaitPipeRunning(t, b, "np-"+tt.name)
+			waitPipeRunning(t, b, "np-"+tt.name)
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: tt.msgBody}},
@@ -657,7 +657,7 @@ func TestFilter_ExactMatchTypeSensitivity(t *testing.T) {
 			if tt.rawPattern {
 				b.SetFilterPatternForTest("ts-"+tt.name, tt.pattern)
 			}
-			pipes.WaitPipeRunning(t, b, "ts-"+tt.name)
+			waitPipeRunning(t, b, "ts-"+tt.name)
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: tt.msgBody}},

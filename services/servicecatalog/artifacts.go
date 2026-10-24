@@ -517,7 +517,7 @@ func (b *InMemoryBackend) DescribeProvisioningParameters(
 	if err == nil {
 		summaries = b.constraintSummariesLocked(path.ID, p.ID)
 		usage = b.usageInstructionsLocked(path.ID, p.ID)
-		options = b.tagOptionSummariesLocked(path.ID, p.ID)
+		options = b.tagOptionSummariesLocked(account, path, p.ID)
 	}
 
 	b.mu.RUnlock()
@@ -555,10 +555,16 @@ func (b *InMemoryBackend) usageInstructionsLocked(portfolioID, productID string)
 	return out
 }
 
-func (b *InMemoryBackend) tagOptionSummariesLocked(portfolioID, productID string) []TagOptionSummary {
+func (b *InMemoryBackend) tagOptionSummariesLocked(
+	account string, path *Portfolio, productID string,
+) []TagOptionSummary {
 	vals := map[string][]string{}
 
-	for _, id := range []string{portfolioID, productID} {
+	if !b.sharesTagOptionsLocked(account, path) {
+		return []TagOptionSummary{}
+	}
+
+	for _, id := range []string{path.ID, productID} {
 		for _, to := range b.tagOptionsForLocked(id) {
 			if to.Active != nil && *to.Active && !slices.Contains(vals[to.Key], to.Value) {
 				vals[to.Key] = append(vals[to.Key], to.Value)

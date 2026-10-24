@@ -149,6 +149,7 @@ func baseSupportedOperations() []string {
 		"RevokeToken",
 		"AddCustomAttributes",
 		"AddUserPoolClientSecret",
+		"AdminDeleteSoftwareToken",
 		"AdminDeleteUserAttributes",
 		"AdminDisableProviderForUser",
 		"AdminDisableUser",
@@ -210,8 +211,10 @@ func extendedSupportedOperations() []string {
 		"DescribeRiskConfiguration",
 		"DescribeTerms",
 		"DescribeUserImportJob",
+		"DescribeTermsByClient",
 		"DescribeUserPoolDomain",
 		"ForgetDevice",
+		"GetClientToken",
 		"GetCSVHeader",
 		"GetDevice",
 		"GetIdentityProviderByIdentifier",
@@ -377,6 +380,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	maps.Copy(table, h.securityConfigOpsA())
 	maps.Copy(table, h.tagsOps())
 	maps.Copy(table, h.termsOps())
+	maps.Copy(table, h.clientTokenOps())
 	maps.Copy(table, h.userImportOps())
 	maps.Copy(table, h.userPoolClientsOpsB())
 	maps.Copy(table, h.usersOpsB())

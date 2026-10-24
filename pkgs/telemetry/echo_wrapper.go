@@ -45,16 +45,14 @@ func WrapEchoHandler(
 			c.SetRequest(c.Request().WithContext(reqCtx))
 		}
 
-		log := pkglogger.Load(reqCtx)
-
 		// Extract metrics labels from request
 		operation := observer.ExtractOperation(c)
 		resource := observer.ExtractResource(c)
 
 		// Log request start
-		debugOn := log.Enabled(reqCtx, slog.LevelDebug)
+		debugOn := pkglogger.Enabled(reqCtx, slog.LevelDebug)
 		if debugOn {
-			log.DebugContext(
+			pkglogger.Load(reqCtx).DebugContext(
 				reqCtx,
 				"operation started",
 				"operation", operation,
@@ -93,7 +91,7 @@ func WrapEchoHandler(
 
 		// Log result
 		if err != nil {
-			log.ErrorContext(
+			pkglogger.Load(reqCtx).ErrorContext(
 				reqCtx,
 				"operation failed",
 				"operation", operation,
@@ -106,7 +104,7 @@ func WrapEchoHandler(
 		}
 
 		if ok && echoResp.Status >= 400 {
-			log.WarnContext(
+			pkglogger.Load(reqCtx).WarnContext(
 				reqCtx,
 				"operation completed with error status",
 				"operation", operation,
@@ -115,7 +113,7 @@ func WrapEchoHandler(
 				"duration_seconds", durationSeconds,
 			)
 		} else if debugOn {
-			log.DebugContext(
+			pkglogger.Load(reqCtx).DebugContext(
 				reqCtx,
 				"operation completed",
 				"operation", operation,

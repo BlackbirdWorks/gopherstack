@@ -57,6 +57,8 @@ type InMemoryBackend struct {
 	collaborations                      *store.Table[Collaboration]
 	protectedQueries                    *store.Table[ProtectedQuery]
 	protectedQueriesByMembership        *store.Index[ProtectedQuery]
+	analysisLogExports                  *store.Table[AnalysisLogExport]
+	analysisLogExportsByMembership      *store.Index[AnalysisLogExport]
 	protectedJobs                       *store.Table[ProtectedJob]
 	protectedJobsByMembership           *store.Index[ProtectedJob]
 	intermediateTables                  *store.Table[IntermediateTable]

@@ -745,6 +745,7 @@ var errCodeLookup = []struct {
 	{ErrMalformedInstanceID, "InvalidInstanceID.Malformed"},
 	{ErrMalformedAMIID, "InvalidAMIID.Malformed"},
 	{ErrClientVpnEndpointNotFound, "InvalidClientVpnEndpointId.NotFound"},
+	{ErrClientVpnAuthPolicyNotFound, "InvalidClientVpnEndpointAuthorizationPolicy.NotFound"},
 	{ErrTrafficMirrorFilterNotFound, "InvalidTrafficMirrorFilterId.NotFound"},
 	{ErrTrafficMirrorFilterRuleNotFound, "InvalidTrafficMirrorFilterRuleId.NotFound"},
 	{ErrTrafficMirrorSessionNotFound, "InvalidTrafficMirrorSessionId.NotFound"},

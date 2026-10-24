@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -78,23 +79,23 @@ func (h *S3Handler) routeBucketDelete(
 	bucket string,
 ) {
 	switch {
-	case r.URL.Query().Has("policy"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "policy"):
 		h.deleteBucketPolicy(ctx, w, r, bucket)
-	case r.URL.Query().Has("cors"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "cors"):
 		h.deleteBucketCORS(ctx, w, r, bucket)
-	case r.URL.Query().Has("lifecycle"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "lifecycle"):
 		h.deleteBucketLifecycle(ctx, w, r, bucket)
-	case r.URL.Query().Has("website"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "website"):
 		h.deleteBucketWebsite(ctx, w, r, bucket)
-	case r.URL.Query().Has("encryption"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "encryption"):
 		h.deleteBucketEncryption(ctx, w, r, bucket)
-	case r.URL.Query().Has("publicAccessBlock"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "publicAccessBlock"):
 		h.deletePublicAccessBlock(ctx, w, r, bucket)
-	case r.URL.Query().Has("ownershipControls"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "ownershipControls"):
 		h.deleteBucketOwnershipControls(ctx, w, r, bucket)
-	case r.URL.Query().Has("replication"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "replication"):
 		h.deleteBucketReplication(ctx, w, r, bucket)
-	case r.URL.Query().Has("tagging"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "tagging"):
 		h.deleteBucketTagging(ctx, w, r, bucket)
 	default:
 		h.routeBucketDeleteExtra(ctx, w, r, bucket)
@@ -108,17 +109,17 @@ func (h *S3Handler) routeBucketDeleteExtra(
 	bucket string,
 ) {
 	switch {
-	case r.URL.Query().Has("analytics"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "analytics"):
 		h.deleteBucketAnalyticsConfiguration(ctx, w, r, bucket)
-	case r.URL.Query().Has("intelligent-tiering"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "intelligent-tiering"):
 		h.deleteBucketIntelligentTieringConfiguration(ctx, w, r, bucket)
-	case r.URL.Query().Has("inventory"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "inventory"):
 		h.deleteBucketInventoryConfiguration(ctx, w, r, bucket)
-	case r.URL.Query().Has("metadataConfiguration"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "metadataConfiguration"):
 		h.deleteBucketMetadataConfiguration(ctx, w, r, bucket)
-	case r.URL.Query().Has("metadataTable"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "metadataTable"):
 		h.deleteBucketMetadataTableConfiguration(ctx, w, r, bucket)
-	case r.URL.Query().Has("metrics"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "metrics"):
 		h.deleteBucketMetricsConfiguration(ctx, w, r, bucket)
 	default:
 		h.deleteBucket(ctx, w, r, bucket)
@@ -399,19 +400,19 @@ func (h *S3Handler) routeBucketGetOrList(
 	bucket string,
 ) {
 	switch {
-	case r.URL.Query().Has("acl"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "acl"):
 		h.getBucketACL(ctx, w, r, bucket)
-	case r.URL.Query().Has("versioning"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "versioning"):
 		h.getBucketVersioning(ctx, w, r, bucket)
-	case r.URL.Query().Has("versions"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "versions"):
 		h.listObjectVersions(ctx, w, r, bucket)
-	case r.URL.Query().Has("uploads"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "uploads"):
 		h.listMultipartUploads(ctx, w, r, bucket)
-	case r.URL.Query().Has("location"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "location"):
 		h.getBucketLocation(ctx, w, r, bucket)
-	case r.URL.Query().Has("tagging"):
+	case httputils.RawQueryHas(r.URL.RawQuery, "tagging"):
 		h.getBucketTagging(ctx, w, r, bucket)
-	case r.URL.Query().Get("list-type") == "2":
+	case httputils.RawQueryGet(r.URL.RawQuery, "list-type") == "2":
 		h.listObjectsV2(ctx, w, r, bucket)
 	default:
 		h.listObjects(ctx, w, r, bucket)
@@ -561,7 +562,9 @@ func (h *S3Handler) createBucket(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "CreateBucket")
-	logger.Load(ctx).DebugContext(ctx, "S3 createBucket input", "bucket", bucketName)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 createBucket input", "bucket", bucketName)
+	}
 
 	region, tags, err := parseCreateBucketRequest(ctx, r)
 	if err != nil {
@@ -615,8 +618,10 @@ func (h *S3Handler) createBucket(
 		return
 	}
 
-	logger.Load(ctx).
-		DebugContext(ctx, "S3 createBucket output", "bucket", bucketName)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).
+			DebugContext(ctx, "S3 createBucket output", "bucket", bucketName)
+	}
 
 	// Set Location header from output
 	if output.Location != nil {
@@ -632,7 +637,9 @@ func (h *S3Handler) deleteBucket(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "DeleteBucket")
-	logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket input", "bucket", bucketName)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket input", "bucket", bucketName)
+	}
 
 	_, err := h.Backend.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
@@ -653,7 +660,9 @@ func (h *S3Handler) deleteBucket(
 		return
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

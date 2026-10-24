@@ -59,6 +59,7 @@ var onceSingleSegmentPostOps = sync.OnceValue(func() map[string]string {
 	return map[string]string{
 		"list-export-jobs":                    opListExportJobs,
 		"list-identities":                     opListEmailIdentities,
+		"update-configuration-sets":           opUpdateConfigurationSet,
 		"list-configuration-sets":             opListConfigurationSets,
 		"custom-verification-email-templates": opCreateCustomVerificationEmailTemplate,
 		"dedicated-ip-pools":                  opCreateDedicatedIPPool,
@@ -77,6 +78,8 @@ func parseMiscPathsSpecial(method string, segments []string) (string, string) {
 		return parseContactListSpecialPath(method, segments)
 	case "deliverability-dashboard":
 		return parseDeliverabilityDashboardPath(method, segments)
+	case "identity":
+		return parseIdentityCertificatesPath(method, segments)
 	}
 
 	if method == http.MethodPost && len(segments) == 1 {
@@ -828,6 +831,28 @@ func parseConfigSetAttrPath(method, name, sub string) (string, string) {
 		return opPutConfigurationSetTrackingOptions, name
 	case "vdm-options":
 		return opPutConfigurationSetVdmOptions, name
+	}
+
+	return unknownAction, ""
+}
+
+// parseIdentityCertificatesPath routes the RPC-style S/MIME certificate ops:
+// POST /v2/email/identity/certificates[/delete|/list].
+func parseIdentityCertificatesPath(method string, segments []string) (string, string) {
+	if method != http.MethodPost || segments[1] != "certificates" {
+		return unknownAction, ""
+	}
+
+	switch len(segments) {
+	case pathDepth2:
+		return opAssociateEmailIdentityCertificate, ""
+	case pathDepth3:
+		switch segments[2] {
+		case verbDelete:
+			return opDisassociateEmailIdentityCertificate, ""
+		case verbList:
+			return opListEmailIdentityCertificates, ""
+		}
 	}
 
 	return unknownAction, ""

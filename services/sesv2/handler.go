@@ -61,14 +61,18 @@ const (
 	opListSuppressedDestinations  = "ListSuppressedDestinations"
 
 	// new ops — contact lists / contacts.
-	opGetContactList    = "GetContactList"
-	opDeleteContactList = "DeleteContactList"
-	opUpdateContactList = "UpdateContactList"
-	opListContactLists  = "ListContactLists"
-	opGetContact        = "GetContact"
-	opDeleteContact     = "DeleteContact"
-	opUpdateContact     = "UpdateContact"
-	opListContacts      = "ListContacts"
+	opGetContactList                       = "GetContactList"
+	opDeleteContactList                    = "DeleteContactList"
+	opUpdateContactList                    = "UpdateContactList"
+	opUpdateConfigurationSet               = "UpdateConfigurationSet"
+	opAssociateEmailIdentityCertificate    = "AssociateEmailIdentityCertificate"
+	opDisassociateEmailIdentityCertificate = "DisassociateEmailIdentityCertificate"
+	opListEmailIdentityCertificates        = "ListEmailIdentityCertificates"
+	opListContactLists                     = "ListContactLists"
+	opGetContact                           = "GetContact"
+	opDeleteContact                        = "DeleteContact"
+	opUpdateContact                        = "UpdateContact"
+	opListContacts                         = "ListContacts"
 
 	// new ops — custom verification templates.
 	opGetCustomVerificationEmailTemplate    = "GetCustomVerificationEmailTemplate"
@@ -239,6 +243,7 @@ func (h *Handler) Name() string {
 // from the original single literal.
 func supportedOperationsGroupA() []string {
 	return []string{
+		opAssociateEmailIdentityCertificate,
 		opBatchGetMetricData,
 		opCancelExportJob,
 		opCreateConfigurationSet,
@@ -276,6 +281,7 @@ func supportedOperationsGroupA() []string {
 // supportedOperationsGroupA).
 func supportedOperationsGroupB() []string {
 	return []string{
+		opDisassociateEmailIdentityCertificate,
 		opGetAccount,
 		opGetBlacklistReports,
 		opGetConfigurationSet,
@@ -309,6 +315,7 @@ func supportedOperationsGroupB() []string {
 		opListDeliverabilityTestReports,
 		opListDomainDeliverabilityCampaigns,
 		opListEmailIdentities,
+		opListEmailIdentityCertificates,
 		opListEmailTemplates,
 		opListExportJobs,
 		opListImportJobs,
@@ -364,6 +371,7 @@ func supportedOperationsGroupC() []string {
 // (see supportedOperationsGroupA).
 func supportedOperationsGroupD() []string {
 	return []string{
+		opUpdateConfigurationSet,
 		opUpdateConfigurationSetEventDestination,
 		opUpdateContact,
 		opUpdateContactList,

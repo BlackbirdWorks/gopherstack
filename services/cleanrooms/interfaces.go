@@ -169,6 +169,13 @@ type StorageBackend interface {
 	) ([]*ProtectedQuerySummary, string, error)
 	UpdateProtectedQuery(membershipID, queryID, status string) (*ProtectedQuery, error)
 
+	// AnalysisLogExport operations.
+	StartAnalysisLogExport(
+		membershipID, analysisID, analysisType string, resultConfig map[string]any,
+	) (*AnalysisLogExport, error)
+	GetAnalysisLogExport(membershipID, exportID string) (*AnalysisLogExport, error)
+	ListAnalysisLogExports(membershipID, analysisID, status string) ([]*AnalysisLogExportSummary, error)
+
 	// ProtectedJob operations.
 	StartProtectedJob(
 		membershipID, jobType string,

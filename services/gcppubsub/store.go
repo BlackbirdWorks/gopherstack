@@ -17,14 +17,15 @@ import (
 
 // InMemoryBackend holds all topics, subscriptions, snapshots and schemas under one lock.
 type InMemoryBackend struct {
-	now      func() time.Time
-	mu       *lockmetrics.RWMutex
-	topics   map[string]*topic
-	subs     map[string]*subscription
-	snaps    map[string]*snapshot
-	schemas  map[string]*schemaRec
-	pushWake chan struct{}
-	lastMsg  int64
+	now       func() time.Time
+	mu        *lockmetrics.RWMutex
+	topics    map[string]*topic
+	subs      map[string]*subscription
+	snaps     map[string]*snapshot
+	schemas   map[string]*schemaRec
+	pushWake  chan struct{}
+	observers []PublishObserver
+	lastMsg   int64
 }
 
 // NewInMemoryBackend creates an empty backend.

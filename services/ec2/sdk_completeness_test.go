@@ -20,9 +20,6 @@ func TestSDKCompleteness(t *testing.T) {
 	h := ec2.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &ec2sdk.Client{}, h.GetSupportedOperations(), []string{
 		"CreateCapacityReservationDateChangeQuote",
-		"DeleteClientVpnEndpointAuthorizationPolicy",
 		"DescribeCapacityReservationDateChangeQuotes",
-		"GetClientVpnEndpointAuthorizationPolicy",
-		"ModifyClientVpnEndpointAuthorizationPolicy",
 	})
 }

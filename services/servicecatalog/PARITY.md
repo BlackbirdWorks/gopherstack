@@ -16,7 +16,7 @@ ops:
   CopyProduct: {wire: ok, errors: ok, state: ok, persist: ok, note: "copies a product (or chosen versions into TargetProductId) within the account; CopyTags; status IN_PROGRESS for the lifecycle delay"}
   CreateConstraint: {wire: ok, errors: ok, state: ok, persist: ok, note: "LAUNCH (RoleArn xor LocalRoleName), NOTIFICATION (1-5 SNS ARNs), TEMPLATE (Rules validated: known rule functions, assertions), STACKSET (AccountList, RegionList, AdminRole, ExecutionRole), RESOURCE_UPDATE; one LAUNCH/STACKSET per product and portfolio; other types once"}
   CreatePortfolio: {wire: ok, errors: ok, state: ok, persist: ok, note: "DisplayName 1-100, ProviderName 1-50, 50 tags; IdempotencyToken replays"}
-  CreatePortfolioShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "ACCOUNT shares need AcceptPortfolioShare; ORGANIZATION/OU/ACCOUNT nodes need trusted access, resolve member accounts through Organizations and are accepted implicitly; token only for node shares"}
+  CreatePortfolioShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "SharePrincipals exposes the owner IAM_PATTERN associations to the accepted recipient (ListPrincipalsForPortfolio, launch access) and ShareTagOptions its portfolio and product TagOptions (ListTagOptions, DescribeTagOption, DescribePortfolio, DescribeProvisioningParameters, stack tags), live and toggled by UpdatePortfolioShare; ACCOUNT shares need AcceptPortfolioShare; ORGANIZATION/OU/ACCOUNT nodes need trusted access, resolve member accounts through Organizations and are accepted implicitly; token only for node shares"}
   CreateProduct: {wire: ok, errors: ok, state: ok, persist: ok, note: "CLOUD_FORMATION_TEMPLATE, TERRAFORM_OPEN_SOURCE, TERRAFORM_CLOUD or EXTERNAL; the template behind LoadTemplateFromURL (emulated S3) is fetched and validated unless DisableTemplateValidation; MARKETPLACE products are rejected"}
   CreateProvisionedProductPlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "a CloudFormation change set; a new launch gets a PLAN_IN_PROGRESS placeholder product"}
   CreateProvisioningArtifact: {wire: ok, errors: ok, state: ok, persist: ok, note: "version name is not unique-checked; template validated like CreateProduct"}
@@ -109,12 +109,10 @@ items_still_open:
   - UpdateProvisionedProduct and CreateProvisionedProductPlan on a STACKSET product return OperationNotSupportedException: the CloudFormation emulator's UpdateStackSet and UpdateStackInstances do not re-deploy instance stacks
   - CreateProduct SourceConnection: the CodeStar repository is stored but never synced, so LastSync and SourceRevision stay empty
   - Notify*EngineWorkflowResult: no channel hands the workflow token to an engine; it is wf-<RecordId>
-  - CreatePortfolioShare: SharePrincipals and ShareTagOptions are recorded but recipients get no copy of principals or tag options
   - AcceptPortfolioShare: AWS_SERVICECATALOG shares do not exist, so only IMPORTED and AWS_ORGANIZATIONS are acceptable
   - SearchProducts: a caller with an unresolved identity (no principal) sees every accessible portfolio; a resolved non-root identity needs a principal association
   - CreateProduct MARKETPLACE: rejected with InvalidParametersException
   - TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; the SDK models only ResourceNotFoundException for the operation, so the class is a guess
-  - TEMPLATE rules: Fn::RefAll, Fn::ValueOf and Fn::ValueOfAll resolve AWS::EC2::VPC/Subnet/SecurityGroup/Instance::Id only; other AWS-specific parameter types leave the assertion unevaluated (it passes)
 structural_gaps:
   - "Terraform, EXTERNAL and CodeStar-sourced products have no engine inside the emulator: an engine would have to call Notify*EngineWorkflowResult itself."
 deferred: []
@@ -131,6 +129,12 @@ Emulator choices the SDK does not document:
 - Update semantics follow CloudFormation: a parameter not mentioned reverts to its template default, `UsePreviousValue` keeps the stored value, a parameter with neither fails.
 - A product with several launch paths needs PathId or PathName; an unidentified caller is not restricted by principal associations.
 - Wiring (`internal/app/servicecatalog_wiring.go`, `servicecatalog_stacksets.go`, `servicecatalog_roles.go`): CloudFormation (stacks, StackSets, change sets, template inspection, S3 template fetch), STS (launch role trust under --enforce-iam), EC2 (rule function lookups), Organizations (node resolution and trusted access), SSM (automation) and Budgets (existence check).
+
+## 2026-10-24
+
+- Shared portfolios: recipients see the owner's IAM_PATTERN principals and TagOptions through an accepted share while the share carries SharePrincipals / ShareTagOptions; without the flag an imported portfolio shows neither (DescribePortfolio used to leak the owner's TagOptions).
+- TEMPLATE rules also resolve AWS::EC2::AvailabilityZone::Name, Image::Id, KeyPair::KeyName, SecurityGroup::GroupName, Volume::Id and AWS::Route53::HostedZone::Id through the EC2 and Route 53 backends; Fn::ValueOf attributes are the Describe* member names (e.g. AvailabilityZone, Size, KeyFingerprint, Name).
+- TerminateProvisionedProduct under change stays InvalidParametersException: the SDK and API reference model only ResourceNotFoundException and give no other class.
 
 ## 2026-10-22
 

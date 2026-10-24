@@ -15,12 +15,17 @@ type InMemoryBackend struct {
 	attachments                 *store.Table[Attachment]
 	checkRefreshStatuses        *store.Table[TrustedAdvisorCheckRefreshStatus]
 	checkResults                *store.Table[TrustedAdvisorCheckResult]
+	attachmentUploads           *store.Table[AttachmentUpload]
+	attachmentLinks             *store.Table[AttachmentLink]
+	clock                       func() time.Time
 	communications              map[string][]Communication
 	mu                          *lockmetrics.RWMutex
 	attachmentSetCreationTimes  []time.Time
 	describeAttachmentCallTimes []time.Time
 	nextDisplayID               uint64
 	caseProgressDelay           time.Duration
+	uploadPartSize              int64
+	uploadProcessingDelay       time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -29,6 +34,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		registry:       store.NewRegistry(),
 		communications: make(map[string][]Communication),
 		mu:             lockmetrics.New("support"),
+		clock:          time.Now,
+		uploadPartSize: defaultUploadPartSize,
 	}
 	registerAllTables(b)
 

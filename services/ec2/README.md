@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateCapacityReservationDateChangeQuote, DeleteClientVpnEndpointAuthorizationPolicy, DescribeCapacityReservationDateChangeQuotes, GetClientVpnEndpointAuthorizationPolicy, ModifyClientVpnEndpointAuthorizationPolicy.
+- CreateCapacityReservationDateChangeQuote and DescribeCapacityReservationDateChangeQuotes (listed in sdk_completeness_test.go notImplemented): quotes are only meaningful for future-dated Capacity Reservations (StartDate + CommitmentDuration on CreateCapacityReservation, applied via ModifyCapacityReservation quote id). This backend has no future-dated reservation model -- reservations are active on creation -- so a quote would be fabricated; implementing it needs that model first.
 - RunInstances accepts any syntactically valid InstanceType and any ami-prefixed ImageId: the instance-type catalog is partial and many in-repo callers launch synthetic AMIs, so unknown-but-well-formed values are not rejected.
 - CreateVolume goes straight to available (no creating state).
 - Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only "the tags assigned"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only).

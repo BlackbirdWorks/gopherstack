@@ -38,6 +38,7 @@ var (
 var (
 	ErrManagedPrefixListNotFound         = errors.New("InvalidPrefixListID.NotFound")
 	ErrClientVpnEndpointNotFound         = errors.New("InvalidClientVpnEndpointId.NotFound")
+	ErrClientVpnAuthPolicyNotFound       = errors.New("InvalidClientVpnEndpointAuthorizationPolicy.NotFound")
 	ErrTransitGatewayConnectNotFound     = errors.New("InvalidTransitGatewayAttachmentID.NotFound")
 	ErrTransitGatewayConnectPeerNotFound = errors.New("InvalidTransitGatewayConnectPeerId.NotFound")
 	ErrTGWPrefixListRefNotFound          = errors.New("InvalidTransitGatewayPrefixListReferenceId.NotFound")

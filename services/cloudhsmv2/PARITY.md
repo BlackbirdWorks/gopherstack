@@ -35,8 +35,7 @@ items_still_open:
   - CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
   - ModifyCluster: the 7 day HsmTypeRollbackExpiration window is an assumption, the SDK does not state it
   - CloudHsmAccessDeniedException and CloudHsmServiceException: never raised; no IAM is modeled
-  - ResourceGroupsTaggingAPI: cluster and backup tags are not exposed through the tagging API
-  - CloudFormation: AWS::CloudHSM::Cluster and AWS::CloudHSM::HSM are not provisioned by the CloudFormation emulator
+  - "CloudFormation: AWS::CloudHSM::Cluster is provisioned; HSMs are created through the API only, as in AWS. AWS::CloudHSMV2::Backup has no writable properties in CloudFormation resource specification v268, so it is not provisioned. Cluster Fn::GetAtt SubnetMapping is not supported"
 gaps: []
 structural_gaps:
   - Cluster.PreCoPassword: the HSM user model (PRECO, CO, CU) does not exist, so no password can be real

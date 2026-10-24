@@ -61,6 +61,10 @@ type route struct {
 
 // parseRoute maps a request to an operation using the REST bindings in service/s3files serializers.go.
 func parseRoute(method, escapedPath string) route {
+	if !knownFirstSegment(escapedPath) {
+		return route{op: opUnknown}
+	}
+
 	segs := strings.Split(strings.Trim(escapedPath, "/"), "/")
 	for i, s := range segs {
 		if u, err := url.PathUnescape(s); err == nil {
@@ -91,45 +95,70 @@ func parseRoute(method, escapedPath string) route {
 	return route{op: op, resource: id}
 }
 
-func collectionOp(seg, method string) string {
-	table := map[string]map[string]string{
-		segFileSystems: {http.MethodPut: opCreateFileSystem, http.MethodGet: opListFileSystems},
-		segAccessPts:   {http.MethodPut: opCreateAccessPoint, http.MethodGet: opListAccessPoints},
-		segMountTgts:   {http.MethodPut: opCreateMountTarget, http.MethodGet: opListMountTargets},
+// pick returns the op bound to method, or "" when the method has none.
+func pick(method, get, put, post, del string) string {
+	switch method {
+	case http.MethodGet:
+		return get
+	case http.MethodPut:
+		return put
+	case http.MethodPost:
+		return post
+	case http.MethodDelete:
+		return del
 	}
 
-	return table[seg][method]
+	return ""
+}
+
+func collectionOp(seg, method string) string {
+	switch seg {
+	case segFileSystems:
+		return pick(method, opListFileSystems, opCreateFileSystem, "", "")
+	case segAccessPts:
+		return pick(method, opListAccessPoints, opCreateAccessPoint, "", "")
+	case segMountTgts:
+		return pick(method, opListMountTargets, opCreateMountTarget, "", "")
+	}
+
+	return ""
 }
 
 func itemOp(seg, method string) string {
-	table := map[string]map[string]string{
-		segFileSystems: {http.MethodGet: opGetFileSystem, http.MethodDelete: opDeleteFileSystem},
-		segAccessPts:   {http.MethodGet: opGetAccessPoint, http.MethodDelete: opDeleteAccessPoint},
-		segMountTgts: {
-			http.MethodGet:    opGetMountTarget,
-			http.MethodPut:    opUpdateMountTarget,
-			http.MethodDelete: opDeleteMountTarget,
-		},
-		segResTags: {
-			http.MethodPost: opTagResource, http.MethodGet: opListTagsForResource, http.MethodDelete: opUntagResource,
-		},
+	switch seg {
+	case segFileSystems:
+		return pick(method, opGetFileSystem, "", "", opDeleteFileSystem)
+	case segAccessPts:
+		return pick(method, opGetAccessPoint, "", "", opDeleteAccessPoint)
+	case segMountTgts:
+		return pick(method, opGetMountTarget, opUpdateMountTarget, "", opDeleteMountTarget)
+	case segResTags:
+		return pick(method, opListTagsForResource, "", opTagResource, opUntagResource)
 	}
 
-	return table[seg][method]
+	return ""
 }
 
 func fileSystemSubOp(sub, method string) string {
-	table := map[string]map[string]string{
-		segPolicy: {
-			http.MethodPut: opPutFileSystemPolicy, http.MethodGet: opGetFileSystemPolicy,
-			http.MethodDelete: opDeleteFileSystemPolicy,
-		},
-		segSync: {
-			http.MethodPut: opPutSynchronizationConfiguration, http.MethodGet: opGetSynchronizationConfiguration,
-		},
+	switch sub {
+	case segPolicy:
+		return pick(method, opGetFileSystemPolicy, opPutFileSystemPolicy, "", opDeleteFileSystemPolicy)
+	case segSync:
+		return pick(method, opGetSynchronizationConfiguration, opPutSynchronizationConfiguration, "", "")
 	}
 
-	return table[sub][method]
+	return ""
+}
+
+func knownFirstSegment(escapedPath string) bool {
+	first, _, _ := strings.Cut(strings.TrimPrefix(escapedPath, "/"), "/")
+
+	switch first {
+	case segFileSystems, segAccessPts, segMountTgts, segResTags:
+		return true
+	}
+
+	return strings.IndexByte(first, '%') >= 0
 }
 
 type dispatchFunc func(h *Handler, ctx context.Context, r *http.Request, resource string, body []byte) (int, any, error)

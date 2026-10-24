@@ -114,3 +114,59 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 
 	return maps.Clone(*t), nil
 }
+
+// TaggedEntry is one taggable resource, for the Resource Groups Tagging API bridge.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources lists the caller's tagged DB instances, clusters, parameter groups and backups.
+func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	sc := b.scopeOf(ctx)
+
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	add := func(arn string, tags map[string]string) {
+		if len(tags) > 0 {
+			out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tags)})
+		}
+	}
+
+	b.instances.Range(func(i *DBInstance) bool {
+		if sc.owns(i.AccountID, i.Region) && !b.gone(i.Pending) {
+			add(i.ARN, i.Tags)
+		}
+
+		return true
+	})
+
+	b.clusters.Range(func(c *DBCluster) bool {
+		if sc.owns(c.AccountID, c.Region) && !b.gone(c.Pending) {
+			add(c.ARN, c.Tags)
+		}
+
+		return true
+	})
+
+	b.groups.Range(func(g *DBParameterGroup) bool {
+		if sc.owns(g.AccountID, g.Region) {
+			add(g.ARN, g.Tags)
+		}
+
+		return true
+	})
+
+	b.backups.Range(func(bk *DBBackup) bool {
+		if sc.owns(bk.AccountID, bk.Region) && !b.gone(bk.Pending) {
+			add(bk.ARN, bk.Tags)
+		}
+
+		return true
+	})
+
+	return out
+}

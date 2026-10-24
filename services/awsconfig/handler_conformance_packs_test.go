@@ -238,3 +238,46 @@ func TestAWSConfigHandler_ListConformancePackComplianceScores(t *testing.T) {
 	assert.Equal(t, "pack1", out.ConformancePackComplianceScores[0].ConformancePackName)
 	assert.Equal(t, "INSUFFICIENT_DATA", out.ConformancePackComplianceScores[0].Score)
 }
+
+// DescribeConformancePackStatus declares only InvalidLimit/InvalidNextToken/InvalidParameterValue
+// (configservice@v1.68.4 deserializers.go:3792), so the provider's delete waiter needs an empty list for a gone pack.
+func TestDescribeConformancePackStatus_UnknownName_EmptyList(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		names []string
+		want  []string
+	}{
+		{name: "unknown", names: []string{"gone-pack"}, want: nil},
+		{name: "mixed", names: []string{"live-pack", "gone-pack"}, want: []string{"live-pack"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
+			client := newTestAWSConfigSDKClient(t, h)
+
+			_, err := client.PutConformancePack(t.Context(), &configservicesdk.PutConformancePackInput{
+				ConformancePackName: aws.String("live-pack"),
+				DeliveryS3Bucket:    aws.String("my-delivery-bucket"),
+				TemplateBody:        aws.String("Resources: {}"),
+			})
+			require.NoError(t, err)
+
+			out, err := client.DescribeConformancePackStatus(
+				t.Context(), &configservicesdk.DescribeConformancePackStatusInput{ConformancePackNames: tt.names},
+			)
+			require.NoError(t, err)
+
+			var got []string
+			for _, d := range out.ConformancePackStatusDetails {
+				got = append(got, aws.ToString(d.ConformancePackName))
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

@@ -1584,3 +1584,9 @@ type Classifier struct {
 	JSONClassifier *JSONClassifier `json:"JsonClassifier,omitempty"`
 	CsvClassifier  *CsvClassifier  `json:"CsvClassifier,omitempty"`
 }
+
+// IntegrationTablePropertiesFilter is one ListIntegrationTableProperties filter.
+type IntegrationTablePropertiesFilter struct {
+	Name   string   `json:"Name"`
+	Values []string `json:"Values"`
+}

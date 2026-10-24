@@ -99,6 +99,7 @@ type EngineConfig struct {
 
 type liveDB struct {
 	gone        chan struct{}
+	capture     chan struct{}
 	proxy       atomic.Pointer[pgProxy]
 	fwd         atomic.Pointer[tcpForwarder]
 	net         atomic.Pointer[replNet]
@@ -476,7 +477,8 @@ func (b *InMemoryBackend) launchSeededUnitLocked(
 	}
 
 	lb := &liveDB{
-		gone: make(chan struct{}), key: key, resourceID: resourceID, kind: engineKind(engine),
+		gone: make(chan struct{}), capture: make(chan struct{}, 1), key: key, resourceID: resourceID,
+		kind:    engineKind(engine),
 		version: version, user: user, password: password, dbName: dbName, seed: seed,
 		ctrName: "gopherstack-rds-" + randomPassword(), serverID: randomServerID(),
 	}

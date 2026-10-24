@@ -7,16 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 69 (69 ok) |
+| PARITY entries audited | 70 (70 ok) |
 | Feature families | 34 (10 ok, 24 partial) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 11 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): AttachClusterNodeNetworkInterface.
 - DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion ("1.0") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model.
 
 ### Structural gaps

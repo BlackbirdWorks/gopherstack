@@ -18,11 +18,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := cloudwatch.NewInMemoryBackend()
 	h := cloudwatch.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &cloudwatchsdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateResourceMetricsConfiguration",
-		"DeleteResourceMetricsConfiguration",
-		"GetResourceMetricsConfiguration",
-		"UpdateOTelEnrichment",
-		"UpdateResourceMetricsConfiguration",
-	})
+	sdkcheck.CheckCompleteness(t, &cloudwatchsdk.Client{}, h.GetSupportedOperations(), nil)
 }

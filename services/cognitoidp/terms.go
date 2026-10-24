@@ -189,3 +189,29 @@ func (b *InMemoryBackend) DeleteTerms(userPoolID, termsID string) error {
 
 	return nil
 }
+
+// DescribeTermsByClient returns the terms document named termsName bound to clientID.
+func (b *InMemoryBackend) DescribeTermsByClient(userPoolID, clientID, termsName string) (*Terms, error) {
+	b.mu.RLock("DescribeTermsByClient")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools.Get(userPoolID); !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	client, ok := b.clients.Get(clientID)
+	if !ok || client.UserPoolID != userPoolID {
+		return nil, fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
+	}
+
+	for _, t := range b.termsByPool.Get(userPoolID) {
+		if t.ClientID == clientID && t.TermsName == termsName {
+			cp := *t
+			cp.Links = maps.Clone(t.Links)
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: terms %q not found for client %q", ErrTermsNotFound, termsName, clientID)
+}

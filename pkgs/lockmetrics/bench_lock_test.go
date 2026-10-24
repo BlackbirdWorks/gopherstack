@@ -39,3 +39,43 @@ func BenchmarkNew(b *testing.B) {
 		m.Close()
 	}
 }
+
+// BenchmarkRWMutex_RLockRUnlock_Parallel exercises the shared counters under cross-core contention.
+func BenchmarkRWMutex_RLockRUnlock_Parallel(b *testing.B) {
+	m := lockmetrics.New("bench.rlockpar." + b.Name())
+
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			m.RLock("GetItem")
+			m.RUnlock()
+		}
+	})
+}
+
+func BenchmarkRWMutex_LockUnlock_Parallel(b *testing.B) {
+	m := lockmetrics.New("bench.lockpar." + b.Name())
+
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			m.Lock("PutItem")
+			m.Unlock()
+		}
+	})
+}
+
+// BenchmarkNew_FirstUse mirrors a per-object mutex: a name that other live mutexes already hold, then Lock.
+func BenchmarkNew_FirstUse(b *testing.B) {
+	anchor := lockmetrics.New("bench.warm")
+	defer anchor.Close()
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		m := lockmetrics.New("bench.warm")
+		m.Lock("PutObject")
+		m.Unlock()
+		m.Close()
+	}
+}

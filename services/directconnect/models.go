@@ -160,6 +160,7 @@ type Connection struct {
 	HasLogicalRedundancy string
 	EncryptionMode       string
 	PortEncryptionStatus string
+	BillingMode          string
 	// InterconnectID is the parent Interconnect this connection rides on, set
 	// via AllocateConnectionOnInterconnect or a hosted connection allocated/
 	// associated onto an Interconnect (AllocateHostedConnection/

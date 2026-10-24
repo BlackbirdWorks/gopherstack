@@ -156,7 +156,18 @@ func (b *InMemoryBackend) recordRestorePoint(lb *liveDB) { b.captureRestorePoint
 // keeps its own data across a restart.
 func (b *InMemoryBackend) recordRestorePointForced(lb *liveDB) { b.captureRestorePoint(lb, true) }
 
+// captureRestorePoint is serialized per unit: a caller that dedupes against an in-flight capture must not
+// return before that capture is persisted.
 func (b *InMemoryBackend) captureRestorePoint(lb *liveDB, force bool) {
+	if lb.capture != nil {
+		select {
+		case lb.capture <- struct{}{}:
+			defer func() { <-lb.capture }()
+		case <-lb.gone:
+			return
+		}
+	}
+
 	in, ok := b.restorePointTarget(lb, force)
 	if !ok {
 		return

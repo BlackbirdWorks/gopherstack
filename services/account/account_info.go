@@ -79,6 +79,41 @@ func (b *InMemoryBackend) AcceptPrimaryEmailUpdate(otp, email string) error {
 	return nil
 }
 
+// SendPhoneNumberVerification starts verification of the primary contact's
+// phone number; the OTP is the fixed simOTP.
+func (b *InMemoryBackend) SendPhoneNumberVerification() (PhoneNumberVerificationStatus, error) {
+	b.mu.Lock("SendPhoneNumberVerification")
+	defer b.mu.Unlock()
+
+	if b.contactInfo == nil {
+		return "", errNoContactInfo
+	}
+
+	b.phoneVerifyNumber = b.contactInfo.PhoneNumber
+	b.phoneVerifyOTP = simOTP
+
+	return PhoneNumberVerificationStatusPending, nil
+}
+
+// VerifyPhoneNumber completes a verification started by SendPhoneNumberVerification.
+// The OTP is single-use.
+func (b *InMemoryBackend) VerifyPhoneNumber(otp string) (PhoneNumberVerificationStatus, error) {
+	b.mu.Lock("VerifyPhoneNumber")
+	defer b.mu.Unlock()
+
+	if b.phoneVerifyOTP == "" || b.contactInfo == nil || b.contactInfo.PhoneNumber != b.phoneVerifyNumber {
+		return "", errNoPendingPhoneVerification
+	}
+
+	if otp != b.phoneVerifyOTP {
+		return "", errInvalidOTP
+	}
+
+	b.phoneVerifyOTP = ""
+
+	return PhoneNumberVerificationStatusVerified, nil
+}
+
 // GetPrimaryEmailUpdateStatus returns the status of the most recent primary
 // email update request and when it last changed.
 func (b *InMemoryBackend) GetPrimaryEmailUpdateStatus() (PrimaryEmailUpdateStatus, time.Time, error) {

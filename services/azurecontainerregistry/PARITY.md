@@ -9,8 +9,8 @@ ops:
   GetCatalog: {wire: ok, errors: ok, state: ok, persist: ok, note: "Docker Registry v2 /v2/_catalog (n, last, Link rel=next) served by the embedded distribution library, per registry."}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "/v2/{repo}/tags/list with n and last."}
   GetManifest: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET and HEAD by tag or digest; Docker schema 2, manifest lists and OCI manifests and indexes. A manifest or tag with readEnabled false answers 403 DENIED."}
-  PutManifest: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT by tag or digest. Records created and updated times for the /acr/v1 API. A tag with writeEnabled false answers 403 DENIED."}
-  DeleteManifest: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE by digest (and by tag). deleteEnabled false on the repository, manifest or any tag pointing at it answers 403 DENIED."}
+  PutManifest: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT by tag or digest. Fires the registry webhooks (push, or chart_push for a Helm chart config) with the ACR event payload. Records created and updated times for the /acr/v1 API. A tag with writeEnabled false answers 403 DENIED."}
+  DeleteManifest: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE by digest (and by tag). Fires the delete or chart_delete webhooks. deleteEnabled false on the repository, manifest or any tag pointing at it answers 403 DENIED."}
   StartBlobUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /v2/{repo}/blobs/uploads/; monolithic, chunked (PATCH with Content-Range) and completing PUT ?digest= all verified against the Go client in the conformance tests."}
   UploadBlobChunk: {wire: ok, errors: ok, state: ok, persist: ok, note: "Each request body is capped at 8 GiB (ociregistry.Limit) and streamed to storage; nothing is sized from Content-Length."}
   CompleteBlobUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "Digest mismatch is rejected by the library."}
@@ -30,19 +30,19 @@ ops:
   GetManifestAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "manifest object with quarantineState Passed."}
   UpdateManifestAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH changeable attributes."}
 families:
-  arm_integration: {status: ok, note: "services/azurearm Microsoft.ContainerRegistry (internal/app adapter): registries (PUT, GET, PATCH, DELETE, list by group and subscription; sku Basic, Standard or Premium; adminUserEnabled; loginServer https-less {name}.azurecr.{host}:{port}), listCredentials, regenerateCredential, checkNameAvailability, replications (Premium only) and webhooks (stored, with getCallbackConfig). Credentials and registry existence live in the data plane; deleting a registry in ARM deletes its images."}
+  arm_integration: {status: ok, note: "services/azurearm Microsoft.ContainerRegistry (internal/app adapter): registries (PUT, GET, PATCH, DELETE, list by group and subscription; sku Basic, Standard or Premium; adminUserEnabled; loginServer https-less {name}.azurecr.{host}:{port}), listCredentials, regenerateCredential, checkNameAvailability, replications (Premium only) and webhooks (getCallbackConfig, ping, listEvents; the data plane fires them on manifest push and delete). Credentials and registry existence live in the data plane; deleting a registry in ARM deletes its images."}
   host_routing: {status: ok, note: "The registry is the first label of the Host header (name.azurecr.localhost:10011), else the only registry when exactly one exists; an unknown host with several registries answers 404 NAME_UNKNOWN."}
-  auth: {status: ok, note: "Basic with the admin user (username = registry name, password or password2, constant-time compared, only while adminUserEnabled), Basic with a refresh or access token as the password (username 00000000-0000-0000-0000-000000000000 for az acr login), or Bearer access token. Anything else gets 401 with a Bearer challenge naming the scope."}
+  auth: {status: ok, note: "Basic with the admin user (username = registry name, password or password2, constant-time compared, only while adminUserEnabled), Basic with a refresh or access token as the password (username 00000000-0000-0000-0000-000000000000 for az acr login), or Bearer access token. Access tokens are limited to the scopes they carry (repository:<name>:pull,push,delete or *; registry:catalog:*): a missing scope answers 401 UNAUTHORIZED with a Bearer challenge naming the scope and error="insufficient_scope". Admin and refresh-token credentials are unrestricted. Anything else gets 401 with a Bearer challenge naming the scope."}
   storage: {status: ok, note: "One embedded distribution registry per registry, built on first use. In memory by default; with --persist blobs and manifests live under <data dir>/registries/<name>, while credentials and image metadata are in the snapshot."}
   terraform: {status: ok, note: "azurerm_container_registry (admin_enabled) applies, re-plans empty and destroys; the admin credentials push and pull an image over the registry API (test/terraform/azure/containerregistry_test.go)."}
 gaps: []
 deferred: []
 items_still_open:
-  - "Token scopes are recorded in the access token but not enforced: any valid token can push, pull and delete in its registry."
+  - "Access-token scopes are enforced on /v2 only; the /acr/v1 metadata API accepts any valid token."
   - "The listener is plain HTTP unless --azure-acr-tls-cert/--azure-acr-tls-key are set, so az acr login and docker only trust it as an insecure or localhost registry."
   - "Anonymous pull, repository-scoped tokens, scope maps and tokens, connected registries, cache rules, credential sets, agent pools and tasks are not modelled."
   - "ARM importImage, listUsages, listPrivateLinkResources, private endpoint connections, customer-managed keys, network rules and policies other than their defaults are stored or defaulted but have no effect."
-  - "Webhooks are stored and never fired; ping and listEvents are not implemented."
+  - "Webhooks: no retries, the quarantine action never fires, each webhook keeps its last 100 events, and ARM webhook PATCH is not implemented (PUT replaces)."
   - "Replications are metadata only: there is one copy of the data."
   - "Blobs unreferenced by any manifest are never garbage collected, and registry size is not metered."
   - "Content trust, quarantine and retention policies are not implemented; quarantineState is always Passed and signed is always false."

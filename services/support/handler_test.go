@@ -96,7 +96,7 @@ func TestSupport_HandlerOpsLen(t *testing.T) {
 
 	b := support.NewInMemoryBackend()
 	h := support.NewHandler(b)
-	assert.Equal(t, 16, support.HandlerOpsLen(h))
+	assert.Equal(t, 20, support.HandlerOpsLen(h))
 }
 
 func TestSupport_SDKOpsSorted(t *testing.T) {

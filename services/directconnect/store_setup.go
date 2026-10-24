@@ -41,4 +41,8 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.vifTests = store.Register(b.registry, "vifTests", store.New(vifTestKeyFn))
 	b.vifTestsByVif = b.vifTests.AddIndex("byVif", vifTestVifIndexKeyFn)
+
+	b.resiliencyGroups = store.Register(b.registry, "resiliencyGroups", store.New(resiliencyGroupKeyFn))
+	b.rgAssociations = store.Register(b.registry, "resiliencyGroupAssociations", store.New(rgAssociationKeyFn))
+	b.rgAssociationsByGroup = b.rgAssociations.AddIndex("byGroup", rgAssociationGroupIndexKeyFn)
 }

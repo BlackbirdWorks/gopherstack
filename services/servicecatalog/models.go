@@ -44,14 +44,15 @@ const (
 	constraintStackSet = "STACKSET"
 	constraintResource = "RESOURCE_UPDATE"
 
-	shareAccount   = "ACCOUNT"
-	shareOrg       = "ORGANIZATION"
-	shareOU        = "ORGANIZATIONAL_UNIT"
-	shareMember    = "ORGANIZATION_MEMBER_ACCOUNT"
-	shareImported  = "IMPORTED"
-	shareViaOrgs   = "AWS_ORGANIZATIONS"
-	shareViaSC     = "AWS_SERVICECATALOG"
-	shareCompleted = "COMPLETED"
+	shareAccount        = "ACCOUNT"
+	principalIAMPattern = "IAM_PATTERN"
+	shareOrg            = "ORGANIZATION"
+	shareOU             = "ORGANIZATIONAL_UNIT"
+	shareMember         = "ORGANIZATION_MEMBER_ACCOUNT"
+	shareImported       = "IMPORTED"
+	shareViaOrgs        = "AWS_ORGANIZATIONS"
+	shareViaSC          = "AWS_SERVICECATALOG"
+	shareCompleted      = "COMPLETED"
 )
 
 // Portfolio is a collection of products.

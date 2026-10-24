@@ -44,6 +44,17 @@ func Serve(srv *grpc.Server, l net.Listener) error {
 // ServeWithFallback is Serve with one extra HTTP handler: requests under /v2 (the Docker Registry API) go to
 // fallback instead of the REST transcoder. A nil fallback behaves like Serve.
 func ServeWithFallback(srv *grpc.Server, l net.Listener, fallback http.Handler) error {
+	return ServeWithExtras(srv, l, fallback)
+}
+
+// Extra routes requests whose URL path Match accepts to Handler instead of the REST transcoder.
+type Extra struct {
+	Match   func(path string) bool
+	Handler http.Handler
+}
+
+// ServeWithExtras is ServeWithFallback with additional path-matched HTTP handlers.
+func ServeWithExtras(srv *grpc.Server, l net.Listener, fallback http.Handler, extras ...Extra) error {
 	pipe := bufconn.Listen(pipeBuffer)
 
 	conn, err := grpc.NewClient(
@@ -61,7 +72,7 @@ func ServeWithFallback(srv *grpc.Server, l net.Listener, fallback http.Handler) 
 	go func() { _ = srv.Serve(pipe) }()
 
 	rest := &http.Server{
-		Handler:           withFallback(New(srv, conn).Handler(), fallback),
+		Handler:           withExtras(withFallback(New(srv, conn).Handler(), fallback), extras),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	sp := newSplitter(l, rest)
@@ -84,5 +95,23 @@ func withFallback(rest, fallback http.Handler) http.Handler {
 		}
 
 		rest.ServeHTTP(w, r)
+	})
+}
+
+func withExtras(next http.Handler, extras []Extra) http.Handler {
+	if len(extras) == 0 {
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, e := range extras {
+			if e.Match(r.URL.Path) {
+				e.Handler.ServeHTTP(w, r)
+
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
 	})
 }

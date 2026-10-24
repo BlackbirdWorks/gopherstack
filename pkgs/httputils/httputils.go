@@ -427,7 +427,7 @@ func extractSigV4ScopeFromRequest(r *http.Request) ([expectedSigV4ScopeParts]str
 		}
 	}
 
-	if r.URL != nil && r.URL.RawQuery != "" {
+	if r.URL != nil && mayCarryCredential(r.URL.RawQuery) {
 		if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
 			if scope, valid := parseValidSigV4Scope(cred); valid {
 				return scope, true
@@ -436,6 +436,12 @@ func extractSigV4ScopeFromRequest(r *http.Request) ([expectedSigV4ScopeParts]str
 	}
 
 	return [expectedSigV4ScopeParts]string{}, false
+}
+
+// mayCarryCredential cheaply rejects queries that cannot decode to X-Amz-Credential,
+// sparing the url.Values parse on every non-presigned request.
+func mayCarryCredential(rawQuery string) bool {
+	return strings.Contains(rawQuery, "X-Amz-Credential") || strings.Contains(rawQuery, "%")
 }
 
 // ExtractRegionFromRequest extracts the AWS region from an HTTP request.
@@ -533,7 +539,7 @@ func ExtractSecurityTokenFromRequest(r *http.Request) string {
 	}
 
 	if r.URL != nil && r.URL.RawQuery != "" {
-		if tok := r.URL.Query().Get("X-Amz-Security-Token"); tok != "" {
+		if tok := RawQueryGet(r.URL.RawQuery, "X-Amz-Security-Token"); tok != "" {
 			return SanitizeHeaderString(tok)
 		}
 	}

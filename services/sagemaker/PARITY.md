@@ -263,6 +263,7 @@ ops:
   DescribeJobSchemaVersion: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real function over a static per-instance schema registry (jobConfigSchemaVersionsForCategory); schema document text itself is a generic synthetic placeholder, not AWS's real unpublished schema — see gaps:"}
   ListJobSchemaVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same registry as DescribeJobSchemaVersion"}
   StartClusterHealthCheck: {wire: ok, errors: ok, state: ok, persist: n/a, note: "validates cluster exists (name or ARN) + DeepHealthCheckConfigurations non-empty, returns ClusterArn; does not synthesize per-node health-check pass/fail results (no fabricated telemetry) — consistent with this service's existing ClusterNode model, which has no health-check fields at all"}
+  AttachClusterNodeNetworkInterface: {wire: ok, errors: ok, state: ok, persist: ok, note: "cluster.go: records {NetworkInterfaceId, AttachmentId (eni-attach-*)} on the existing node (ClusterNode.NetworkInterfaces, persisted); ResourceNotFound for unknown cluster/node, ValidationException for a Restricted Instance Group node, ResourceInUse when the ENI is already attached to a node of the cluster. The ENI is not looked up in EC2 and no Describe output surfaces attachments."}
 
 # Families audited as a group (when per-op is impractical):
 families:
@@ -304,7 +305,6 @@ families:
 gaps: []
 
 items_still_open:
-  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): AttachClusterNodeNetworkInterface."
   - "DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model."
 structural_gaps:
   - "Presigned URL expiry (2026-10-07): ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked against the API reference but not enforced; the synthetic AuthorizedUrl is not served by anything that could expire or single-use it."

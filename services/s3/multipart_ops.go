@@ -135,8 +135,8 @@ func (h *S3Handler) uploadPart(
 	r *http.Request,
 	bucketName, key string,
 ) {
-	uploadID := r.URL.Query().Get("uploadId")
-	partNumberStr := r.URL.Query().Get("partNumber")
+	uploadID := httputils.RawQueryGet(r.URL.RawQuery, "uploadId")
+	partNumberStr := httputils.RawQueryGet(r.URL.RawQuery, "partNumber")
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil || partNumber < 1 || partNumber > 10000 {
 		WriteError(ctx, w, r, ErrInvalidArgument)
@@ -280,7 +280,7 @@ func (h *S3Handler) completeMultipartUpload(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, opCompleteMultipartUpload)
-	uploadID := r.URL.Query().Get("uploadId")
+	uploadID := httputils.RawQueryGet(r.URL.RawQuery, "uploadId")
 
 	var partsReq CompleteMultipartUpload
 	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
@@ -385,7 +385,7 @@ func (h *S3Handler) abortMultipartUpload(
 ) {
 	h.setOperation(ctx, "AbortMultipartUpload")
 
-	uploadID := r.URL.Query().Get("uploadId")
+	uploadID := httputils.RawQueryGet(r.URL.RawQuery, "uploadId")
 
 	if _, err := h.Backend.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
 		Bucket:   aws.String(bucketName),

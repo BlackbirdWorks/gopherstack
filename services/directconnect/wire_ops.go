@@ -582,3 +582,91 @@ type updateVifAttributesRequest struct {
 	RateLimit            string `json:"rateLimit,omitempty"`
 	VirtualInterfaceName string `json:"virtualInterfaceName,omitempty"`
 }
+
+type createResiliencyGroupRequest struct {
+	ResiliencyGroupName     string    `json:"resiliencyGroupName"`
+	IntendedResiliencyModel string    `json:"intendedResiliencyModel"`
+	ClientToken             string    `json:"clientToken,omitempty"`
+	Tags                    []tagWire `json:"tags,omitempty"`
+}
+
+type resiliencyGroupIDRequest struct {
+	ResiliencyGroupID string `json:"resiliencyGroupId"`
+}
+
+type updateResiliencyGroupRequest struct {
+	ResiliencyGroupID   string `json:"resiliencyGroupId"`
+	ResiliencyGroupName string `json:"resiliencyGroupName"`
+}
+
+type listResiliencyGroupsRequest struct {
+	MaxResults *int32 `json:"maxResults,omitempty"`
+	NextToken  string `json:"nextToken,omitempty"`
+}
+
+type listResiliencyGroupAssociationsRequest struct {
+	ResiliencyGroupID string `json:"resiliencyGroupId"`
+	MaxResults        *int32 `json:"maxResults,omitempty"`
+	NextToken         string `json:"nextToken,omitempty"`
+}
+
+type resiliencyGroupConnectionsRequest struct {
+	ResiliencyGroupID     string   `json:"resiliencyGroupId"`
+	ConnectionIdentifiers []string `json:"connectionIdentifiers"`
+}
+
+type updateConnectionsBillingModeRequest struct {
+	BillingMode   string   `json:"billingMode"`
+	ConnectionIDs []string `json:"connectionIds"`
+}
+
+// resiliencyGroupWire mirrors types.ResiliencyGroup.
+type resiliencyGroupWire struct {
+	OwnerAccount        string    `json:"ownerAccount,omitempty"`
+	ResiliencyGroupArn  string    `json:"resiliencyGroupArn,omitempty"`
+	ResiliencyGroupID   string    `json:"resiliencyGroupId,omitempty"`
+	ResiliencyGroupName string    `json:"resiliencyGroupName,omitempty"`
+	ResiliencyGroupType string    `json:"resiliencyGroupType,omitempty"`
+	State               string    `json:"state,omitempty"`
+	Tags                []tagWire `json:"tags,omitempty"`
+}
+
+// resiliencyGroupSummaryWire mirrors types.ResiliencyGroupSummary.
+type resiliencyGroupSummaryWire struct {
+	OwnerAccount        string `json:"ownerAccount,omitempty"`
+	ResiliencyGroupArn  string `json:"resiliencyGroupArn,omitempty"`
+	ResiliencyGroupID   string `json:"resiliencyGroupId,omitempty"`
+	ResiliencyGroupName string `json:"resiliencyGroupName,omitempty"`
+	ResiliencyGroupType string `json:"resiliencyGroupType,omitempty"`
+	State               string `json:"state,omitempty"`
+}
+
+// resiliencyGroupAssociationWire mirrors types.ResiliencyGroupAssociation.
+type resiliencyGroupAssociationWire struct {
+	ConnectionArn     string `json:"connectionArn,omitempty"`
+	ResiliencyGroupID string `json:"resiliencyGroupId,omitempty"`
+	State             string `json:"state,omitempty"`
+}
+
+type resiliencyGroupResponse struct {
+	ResiliencyGroup resiliencyGroupWire `json:"resiliencyGroup"`
+}
+
+type resiliencyGroupsListResponse struct {
+	NextToken string                       `json:"nextToken,omitempty"`
+	Items     []resiliencyGroupSummaryWire `json:"items"`
+}
+
+type resiliencyGroupAssociationsResponse struct {
+	ResiliencyGroupAssociations []resiliencyGroupAssociationWire `json:"resiliencyGroupAssociations"`
+}
+
+type resiliencyGroupAssociationsListResponse struct {
+	NextToken string                           `json:"nextToken,omitempty"`
+	Items     []resiliencyGroupAssociationWire `json:"items"`
+}
+
+type updateConnectionsBillingModeResponse struct {
+	BillingMode string           `json:"billingMode"`
+	Connections []connectionWire `json:"connections"`
+}

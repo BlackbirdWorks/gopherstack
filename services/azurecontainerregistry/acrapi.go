@@ -93,7 +93,7 @@ func (h *Handler) serveACR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.authenticate(r, reg) {
+	if _, authed := h.authenticate(r, reg); !authed {
 		scope := rt.scope
 		if scope == "" {
 			scope = "repository:" + rt.repo + ":metadata_read"

@@ -138,7 +138,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutAlarm", "DeleteAlarm", "GetAlarms", "TestAlarm", "CreateContactMethod",
 		"DeleteContactMethod", "GetContactMethods", "SendContactMethodVerification",
 		// X. VPC peering (3)
-		"PeerVpc", "UnpeerVpc", "IsVpcPeered",
+		"PeerVpc", "UnpeerVpc", "IsVpcPeered", "GetProfile",
 		// Y. Tagging (2)
 		"TagResource", "UntagResource",
 		// Z. Operations (3)

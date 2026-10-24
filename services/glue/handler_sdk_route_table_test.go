@@ -247,6 +247,7 @@ func sdkRouteCases() []struct{ op, target string } {
 		{"ListGlossaries", "AWSGlue.ListGlossaries"},
 		{"ListGlossaryTerms", "AWSGlue.ListGlossaryTerms"},
 		{"ListIntegrationResourceProperties", "AWSGlue.ListIntegrationResourceProperties"},
+		{"ListIntegrationTableProperties", "AWSGlue.ListIntegrationTableProperties"},
 		{"ListIterableForms", "AWSGlue.ListIterableForms"},
 		{"ListJobs", "AWSGlue.ListJobs"},
 		{"ListMLTransforms", "AWSGlue.ListMLTransforms"},

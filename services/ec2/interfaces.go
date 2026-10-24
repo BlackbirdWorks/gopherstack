@@ -1651,6 +1651,11 @@ type Backend interface {
 	DescribeClientVpnRoutes(endpointID string) ([]ClientVpnRoute, error)
 	AuthorizeClientVpnIngress(endpointID, cidr, description string) error
 	RevokeClientVpnIngress(endpointID, cidr string) error
+	GetClientVpnEndpointAuthorizationPolicy(endpointID string) (*ClientVpnAuthPolicy, error)
+	ModifyClientVpnEndpointAuthorizationPolicy(
+		endpointID string, description, policyDocument, shadowMode *string,
+	) (created bool, err error)
+	DeleteClientVpnEndpointAuthorizationPolicy(endpointID string) error
 	DescribeClientVpnAuthorizationRules(endpointID string) ([]ClientVpnAuthRule, error)
 	ModifyClientVpnEndpoint(endpointID, description string, dnsServers []string) error
 	ModifyClientVpnEndpointWithOptions(

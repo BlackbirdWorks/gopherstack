@@ -111,6 +111,7 @@ func (b *InMemoryBackend) Tick(ctx context.Context) {
 
 	b.mu.Lock("Tick")
 	b.purgeLocked()
+	b.pruneExpiredLocked(now)
 	batches := b.evaluateRulesLocked(now)
 	ams := b.syncAlertManagersLocked(now)
 	pub := b.publisher

@@ -54,5 +54,8 @@ func registerAllTables(b *InMemoryBackend) {
 	)
 	b.checkResults = store.Register(b.registry, "checkResults", store.New(checkResultKeyFn))
 
+	b.attachmentUploads = store.Register(b.registry, "attachmentUploads", store.New(attachmentUploadKeyFn))
+	b.attachmentLinks = store.Register(b.registry, "attachmentLinks", store.New(attachmentLinkKeyFn))
+
 	b.attachmentSets = store.New(attachmentSetKeyFn)
 }

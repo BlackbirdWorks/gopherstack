@@ -82,6 +82,7 @@ func sdkRouteCases() []struct{ op, target string } {
 		{"EvaluatePullRequestApprovalRules", "CodeCommit_20150413.EvaluatePullRequestApprovalRules"},
 		{"GetApprovalRuleTemplate", "CodeCommit_20150413.GetApprovalRuleTemplate"},
 		{"GetBlob", "CodeCommit_20150413.GetBlob"},
+		{"GetBlobDifferences", "CodeCommit_20150413.GetBlobDifferences"},
 		{"GetBranch", "CodeCommit_20150413.GetBranch"},
 		{"GetComment", "CodeCommit_20150413.GetComment"},
 		{"GetCommentReactions", "CodeCommit_20150413.GetCommentReactions"},

@@ -16,6 +16,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -52,12 +53,14 @@ import (
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
+	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -162,6 +165,9 @@ type BackendsProvider interface {
 	GetKinesisVideoHandler() service.Registerable
 	GetECRPublicHandler() service.Registerable
 	GetKafkaConnectHandler() service.Registerable
+	GetRUMHandler() service.Registerable
+	GetOAMHandler() service.Registerable
+	GetCloudHSMV2Handler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -216,6 +222,9 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.KinesisVideo, _ = getHandler[*kinesisvideobackend.Handler](bp.GetKinesisVideoHandler())
 	backends.ECRPublic, _ = getHandler[*ecrpublicbackend.Handler](bp.GetECRPublicHandler())
 	backends.KafkaConnect, _ = getHandler[*kafkaconnectbackend.Handler](bp.GetKafkaConnectHandler())
+	backends.RUM, _ = getHandler[*rumbackend.Handler](bp.GetRUMHandler())
+	backends.OAM, _ = getHandler[*oambackend.Handler](bp.GetOAMHandler())
+	backends.CloudHSMV2, _ = getHandler[*cloudhsmv2backend.Handler](bp.GetCloudHSMV2Handler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

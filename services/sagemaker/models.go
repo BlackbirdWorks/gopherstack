@@ -391,6 +391,7 @@ func cloneCluster(c *Cluster) *Cluster {
 
 	for k, v := range c.Nodes {
 		nodeCopy := *v
+		nodeCopy.NetworkInterfaces = slices.Clone(v.NetworkInterfaces)
 		cp.Nodes[k] = &nodeCopy
 	}
 
@@ -565,16 +566,23 @@ type ClusterNodeVolume struct {
 	SizeInGB   int32  `json:"SizeInGB,omitempty"`
 }
 
+// ClusterNodeNetworkInterface is an ENI attached by AttachClusterNodeNetworkInterface.
+type ClusterNodeNetworkInterface struct {
+	NetworkInterfaceID string `json:"NetworkInterfaceId"`
+	AttachmentID       string `json:"AttachmentId"`
+}
+
 // ClusterNode represents a node in a SageMaker cluster.
 type ClusterNode struct {
-	CreationTime               time.Time           `json:"CreationTime"`
-	LastSoftwareUpdateTime     time.Time           `json:"LastSoftwareUpdateTime"`
-	CurrentImageReleaseVersion string              `json:"CurrentImageReleaseVersion,omitempty"`
-	NodeID                     string              `json:"NodeId"`
-	InstanceType               string              `json:"InstanceType,omitempty"`
-	NodeStatus                 string              `json:"NodeStatus"`
-	InstanceGroupName          string              `json:"InstanceGroupName,omitempty"`
-	Volumes                    []ClusterNodeVolume `json:"Volumes,omitempty"`
+	CreationTime               time.Time                     `json:"CreationTime"`
+	LastSoftwareUpdateTime     time.Time                     `json:"LastSoftwareUpdateTime"`
+	CurrentImageReleaseVersion string                        `json:"CurrentImageReleaseVersion,omitempty"`
+	NodeID                     string                        `json:"NodeId"`
+	InstanceType               string                        `json:"InstanceType,omitempty"`
+	NodeStatus                 string                        `json:"NodeStatus"`
+	InstanceGroupName          string                        `json:"InstanceGroupName,omitempty"`
+	Volumes                    []ClusterNodeVolume           `json:"Volumes,omitempty"`
+	NetworkInterfaces          []ClusterNodeNetworkInterface `json:"NetworkInterfaces,omitempty"`
 }
 
 // ClusterInstanceGroup represents an instance group specification/details for a

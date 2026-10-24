@@ -206,6 +206,8 @@ const (
 	resourceCatalogItem  = "catalog item"
 	resourceConnection   = "connection"
 	resourceAsset        = "asset"
+
+	resourcePrivateConnectivity = "private connectivity config"
 )
 
 // Path segment literals shared by handler.go's route matcher (goconst: each
@@ -220,4 +222,6 @@ const (
 	segCapacity    = "capacity"
 	segConnections = "connections"
 	segTags        = "tags"
+
+	segPrivateConnectivity = "privateConnectivity"
 )

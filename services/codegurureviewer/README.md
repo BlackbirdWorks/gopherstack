@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -21,7 +21,6 @@
 - ConnectionArn of Bitbucket/GitHub Enterprise Server associations is stored, not looked up in the CodeConnections/CodeStar Connections emulators
 - KMSKeyDetails.KMSKeyId is stored, not looked up in the KMS emulator
 - Error codes per operation (NotFoundException for associations, ResourceNotFoundException for reviews, feedback and tags) are an emulator choice; the SDK documents the exception set but not which operation raises which
-- ResourceGroupsTaggingAPI does not expose association tags
 
 ### Structural gaps
 

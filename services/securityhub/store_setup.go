@@ -65,6 +65,8 @@ func cspmConnectorKeyFn(v *CspmConnector) string { return v.ConnectorId }
 
 func standardsSubscriptionKeyFn(v *StandardsSubscription) string { return v.StandardsSubscriptionArn }
 
+func exportJobV2KeyFn(v *ExportJobV2) string { return v.ExportJobID }
+
 func aggregatorV2KeyFn(v *AggregatorV2) string { return v.AggregatorV2Arn }
 
 func automationRuleV2KeyFn(v *AutomationRuleV2) string { return v.Identifier }
@@ -89,6 +91,7 @@ func controlAssocOverrideKeyFn(v *StandardsControlAssociation) string {
 // a fresh backend (via NewInMemoryBackend) before calling
 // b.registry.RestoreAll.
 func registerAllTables(b *InMemoryBackend) {
+	b.exportJobsV2 = store.Register(b.registry, "exportJobsV2", store.New(exportJobV2KeyFn))
 	b.automationRules = store.Register(b.registry, "automationRules", store.New(automationRuleKeyFn))
 	b.insights = store.Register(b.registry, "insights", store.New(insightKeyFn))
 	b.actionTargets = store.Register(b.registry, "actionTargets", store.New(actionTargetKeyFn))

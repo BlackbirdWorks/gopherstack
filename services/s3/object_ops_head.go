@@ -278,7 +278,7 @@ func buildObjectPartElem(p StoredObjectPart) objectPartElem {
 
 func parseObjectAttributesPagination(r *http.Request) (int32, int32) {
 	maxParts := int32(defaultMaxPartsCount)
-	if mpStr := r.URL.Query().Get("max-parts"); mpStr != "" {
+	if mpStr := httputils.RawQueryGet(r.URL.RawQuery, "max-parts"); mpStr != "" {
 		if mp, err := strconv.ParseInt(mpStr, 10, 32); err == nil && mp > 0 {
 			maxParts = int32(mp) // #nosec G115
 		}
@@ -289,7 +289,7 @@ func parseObjectAttributesPagination(r *http.Request) (int32, int32) {
 	}
 
 	partMarker := int32(0)
-	if pnmStr := r.URL.Query().Get("part-number-marker"); pnmStr != "" {
+	if pnmStr := httputils.RawQueryGet(r.URL.RawQuery, "part-number-marker"); pnmStr != "" {
 		if pnm, err := strconv.ParseInt(pnmStr, 10, 32); err == nil && pnm >= 0 {
 			partMarker = int32(pnm) // #nosec G115
 		}

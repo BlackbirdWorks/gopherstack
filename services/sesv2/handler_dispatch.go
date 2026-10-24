@@ -256,7 +256,27 @@ func (h *Handler) dispatchIdentityAndConfigSetOps(c *echo.Context, op, resource 
 		return r, err
 	}
 
+	if r, err := h.dispatchIdentityCertificateOps(c, op); !errors.Is(err, errOpNotHandled) {
+		return r, err
+	}
+
 	return h.dispatchConfigSetAttrOps(c, op, resource)
+}
+
+// dispatchIdentityCertificateOps handles the S/MIME certificate ops and UpdateConfigurationSet.
+func (h *Handler) dispatchIdentityCertificateOps(c *echo.Context, op string) (any, error) {
+	switch op {
+	case opAssociateEmailIdentityCertificate:
+		return h.handleAssociateEmailIdentityCertificate(c)
+	case opDisassociateEmailIdentityCertificate:
+		return h.handleDisassociateEmailIdentityCertificate(c)
+	case opListEmailIdentityCertificates:
+		return h.handleListEmailIdentityCertificates(c)
+	case opUpdateConfigurationSet:
+		return h.handleUpdateConfigurationSet(c)
+	}
+
+	return nil, errOpNotHandled
 }
 
 // dispatchEmailIdentityOps handles email identity policy and attribute operations.

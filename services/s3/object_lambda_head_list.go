@@ -217,7 +217,7 @@ func (h *S3Handler) handleObjectLambdaHeadObject(
 	key string,
 ) {
 	in := fmt.Sprintf("%s/%s/%s", h.Endpoint, route.bucket, key)
-	if v := r.URL.Query().Get("versionId"); v != "" {
+	if v := httputils.RawQueryGet(r.URL.RawQuery, "versionId"); v != "" {
 		in += "?versionId=" + url.QueryEscape(v)
 	}
 

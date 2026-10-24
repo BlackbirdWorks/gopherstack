@@ -18,6 +18,7 @@ const (
 	namespaceMicrosoftEventGrid = "Microsoft.EventGrid"
 	egTopicsType                = "topics"
 	egNamespacesType            = "namespaces"
+	egDomainsType               = "domains"
 	egSubscriptionsType         = "eventSubscriptions"
 	egDefaultHost               = "localhost"
 	egInputSchemaDefault        = "EventGridSchema"
@@ -46,18 +47,24 @@ const (
 	egKindNamespace
 	egKindNsTopic
 	egKindNsSub
+	egKindDomain
+	egKindDomainTopic
+	egKindDomainSub
+	egKindDomainTopicSub
+	egKindScopeSub
 )
 
 type storedEG struct {
-	tags          map[string]string
-	extra         map[string]any
-	createdAt     time.Time
-	name          string
-	resourceGroup string
-	location      string
-	host          string
-	names         []string
-	kind          egKind
+	tags           map[string]string
+	extra          map[string]any
+	createdAt      time.Time
+	name           string
+	resourceGroup  string
+	subscriptionID string
+	location       string
+	host           string
+	names          []string
+	kind           egKind
 }
 
 // EventGridProvider implements ResourceProvider for Microsoft.EventGrid. ARM keeps
@@ -100,23 +107,44 @@ func (p *EventGridProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: egNamespacesType, APIVersions: v, HasChildren: true},
 		{Type: egNamespacesType + "/topics", APIVersions: v, HasChildren: true},
 		{Type: egNamespacesType + "/topics/eventSubscriptions", APIVersions: v, HasChildren: false},
+		{Type: egDomainsType, APIVersions: v, HasChildren: true},
+		{Type: egDomainsType + "/topics", APIVersions: v, HasChildren: true},
+		{Type: egDomainsType + "/eventSubscriptions", APIVersions: v, HasChildren: false},
+		{Type: egDomainsType + "/topics/eventSubscriptions", APIVersions: v, HasChildren: false},
 	}
 }
 
+//nolint:gochecknoglobals // static lookup, read-only after init
+var egPlainKinds = map[string]egKind{
+	egTopicsType:                           egKindTopic,
+	egNamespacesType:                       egKindNamespace,
+	"namespaces/topics":                    egKindNsTopic,
+	"namespaces/topics/eventsubscriptions": egKindNsSub,
+	egDomainsType:                          egKindDomain,
+	"domains/topics":                       egKindDomainTopic,
+	"domains/eventsubscriptions":           egKindDomainSub,
+	"domains/topics/eventsubscriptions":    egKindDomainTopicSub,
+}
+
 func classifyEventGridPath(id ResourceID) egKind {
-	switch strings.ToLower(strings.Join(id.Types, "/")) {
-	case egTopicsType:
-		return egKindTopic
-	case egTopicSubTypes:
-		if len(id.Names) == 3 && strings.EqualFold(id.Names[1], namespaceMicrosoftEventGrid) {
-			return egKindTopicSub
-		}
-	case egNamespacesType:
-		return egKindNamespace
-	case "namespaces/topics":
-		return egKindNsTopic
-	case "namespaces/topics/eventsubscriptions":
-		return egKindNsSub
+	path := strings.ToLower(strings.Join(id.Types, "/"))
+	if kind, ok := egPlainKinds[path]; ok {
+		return kind
+	}
+
+	// scope form: .../{resource}/providers/Microsoft.EventGrid/eventSubscriptions/{name}
+	n := len(id.Names)
+	if n < 3 || !strings.EqualFold(id.Names[n-2], namespaceMicrosoftEventGrid) {
+		return egKindUnsupported
+	}
+
+	switch {
+	case path == egTopicSubTypes && n == 3:
+		return egKindTopicSub
+	case path == "domains/providers/eventsubscriptions" && n == 3:
+		return egKindDomainSub
+	case path == "domains/topics/providers/eventsubscriptions" && n == 4:
+		return egKindDomainTopicSub
 	}
 
 	return egKindUnsupported
@@ -124,8 +152,11 @@ func classifyEventGridPath(id ResourceID) egKind {
 
 // egNames returns the entity names of id without the "providers" pair of a topic-scoped subscription.
 func egNames(id ResourceID, kind egKind) []string {
-	if kind == egKindTopicSub {
+	switch {
+	case kind == egKindTopicSub, kind == egKindDomainSub && len(id.Names) == 3:
 		return []string{id.Names[0], id.Names[2]}
+	case kind == egKindDomainTopicSub && len(id.Names) == 4:
+		return []string{id.Names[0], id.Names[1], id.Names[3]}
 	}
 
 	return id.Names
@@ -147,6 +178,16 @@ func egTypeName(kind egKind) string {
 		return namespaceMicrosoftEventGrid + "/namespaces/topics"
 	case egKindNsSub:
 		return namespaceMicrosoftEventGrid + "/namespaces/topics/eventSubscriptions"
+	case egKindDomain:
+		return namespaceMicrosoftEventGrid + "/domains"
+	case egKindDomainTopic:
+		return namespaceMicrosoftEventGrid + "/domains/topics"
+	case egKindDomainSub:
+		return namespaceMicrosoftEventGrid + "/domains/eventSubscriptions"
+	case egKindDomainTopicSub:
+		return namespaceMicrosoftEventGrid + "/domains/topics/eventSubscriptions"
+	case egKindScopeSub:
+		return namespaceMicrosoftEventGrid + "/eventSubscriptions"
 	case egKindUnsupported:
 	}
 
@@ -158,9 +199,30 @@ func errUnsupportedEventGridType(id ResourceID) error {
 }
 
 func (p *EventGridProvider) get(id ResourceID, kind egKind) (*storedEG, bool) {
+	if kind == egKindDomainTopic {
+		return p.domainTopicRecord(id)
+	}
+
 	r, ok := p.res[egKey(id.ResourceGroup, kind, egNames(id, kind)...)]
 
 	return r, ok
+}
+
+// domainTopicRecord stands in for a domain topic, which the data plane owns
+// (it can appear and vanish with its first and last subscription).
+func (p *EventGridProvider) domainTopicRecord(id ResourceID) (*storedEG, bool) {
+	if _, ok := p.res[egKey(id.ResourceGroup, egKindDomain, id.Names[0])]; !ok {
+		return nil, false
+	}
+
+	t, ok := p.dataPlane.DomainTopic(id.Names[0], id.LeafName())
+	if !ok {
+		return nil, false
+	}
+
+	return &storedEG{
+		name: t.Name, resourceGroup: id.ResourceGroup, createdAt: t.CreatedAt, names: id.Names, kind: egKindDomainTopic,
+	}, true
 }
 
 func (p *EventGridProvider) requireParents(id ResourceID, kind egKind) error {
@@ -171,7 +233,9 @@ func (p *EventGridProvider) requireParents(id ResourceID, kind egKind) error {
 		return p.requireKind(id, egKindNamespace, ErrEventGridNamespaceNotFound, id.Names[0])
 	case egKindNsSub:
 		return p.requireKind(id, egKindNsTopic, ErrEventGridNamespaceTopicNotFound, id.Names[0], id.Names[1])
-	case egKindTopic, egKindNamespace, egKindUnsupported:
+	case egKindDomainTopic, egKindDomainSub, egKindDomainTopicSub:
+		return p.requireKind(id, egKindDomain, ErrEventGridDomainNotFound, id.Names[0])
+	case egKindTopic, egKindNamespace, egKindDomain, egKindScopeSub, egKindUnsupported:
 	}
 
 	return nil
@@ -201,17 +265,24 @@ func (p *EventGridProvider) Put(ctx context.Context, id ResourceID, body map[str
 
 	rec := p.newRecord(ctx, id, kind, body)
 	if err := p.putDataPlane(ctx, id, kind, body, rec); err != nil {
+		if isEventGridNotFound(err) {
+			return nil, err
+		}
+
 		return nil, badEventGridRequest(err)
 	}
 
-	p.res[egKey(id.ResourceGroup, kind, rec.names...)] = rec
+	if kind != egKindDomainTopic {
+		p.res[egKey(id.ResourceGroup, kind, rec.names...)] = rec
+	}
 
 	return p.bodyOf(id, rec)
 }
 
 func (p *EventGridProvider) newRecord(ctx context.Context, id ResourceID, kind egKind, body map[string]any) *storedEG {
 	rec := &storedEG{
-		name: id.LeafName(), resourceGroup: id.ResourceGroup, location: DefaultLocation, createdAt: time.Now().UTC(),
+		name: id.LeafName(), resourceGroup: id.ResourceGroup, subscriptionID: id.SubscriptionID,
+		location: DefaultLocation, createdAt: time.Now().UTC(),
 		tags: stringTags(body[fieldTags]), extra: egExtra(body, kind), names: egNames(id, kind), kind: kind,
 	}
 
@@ -237,6 +308,11 @@ func egExtra(body map[string]any, kind egKind) map[string]any {
 		return nil
 	case egKindTopic:
 		return ehExtra(body, "endpoint", "inputSchema", "metricResourceId")
+	case egKindDomain:
+		return ehExtra(body, "endpoint", "inputSchema", "metricResourceId",
+			egPropAutoCreate, egPropAutoDelete)
+	case egKindDomainTopic, egKindDomainSub, egKindDomainTopicSub, egKindScopeSub:
+		return nil
 	case egKindNamespace, egKindNsTopic, egKindUnsupported:
 	}
 
@@ -273,7 +349,23 @@ func (p *EventGridProvider) putDataPlane(
 		_, err := p.dataPlane.PutPullSubscription(id.Names[0], id.Names[1], rec.name, props)
 
 		return err
-	case egKindUnsupported:
+	case egKindDomain:
+		schema, _ := props[egPropSchema].(string)
+
+		_, err := p.dataPlane.PutDomain(rec.name, id.ARMID(), schema,
+			optionalBool(props, egPropAutoCreate), optionalBool(props, egPropAutoDelete))
+
+		return err
+	case egKindDomainTopic:
+		_, err := p.dataPlane.PutDomainTopic(id.Names[0], rec.name)
+
+		return err
+	case egKindDomainSub, egKindDomainTopicSub:
+		domain, topic := egScopeOf(rec.names, rec.kind)
+		_, err := p.dataPlane.PutScopedSubscription(ctx, domain, topic, rec.name, props)
+
+		return err
+	case egKindScopeSub, egKindUnsupported:
 	}
 
 	return errUnsupportedEventGridType(id)
@@ -307,6 +399,12 @@ func egNotFound(kind egKind) error {
 		return ErrEventGridNamespaceNotFound
 	case egKindNsTopic:
 		return ErrEventGridNamespaceTopicNotFound
+	case egKindDomain:
+		return ErrEventGridDomainNotFound
+	case egKindDomainTopic:
+		return ErrEventGridDomainTopicNotFound
+	case egKindDomainSub, egKindDomainTopicSub, egKindScopeSub:
+		return ErrEventGridSubscriptionNotFound
 	case egKindUnsupported:
 	}
 
@@ -327,6 +425,10 @@ func (p *EventGridProvider) Delete(_ context.Context, id ResourceID) error {
 }
 
 func (p *EventGridProvider) deleteRecord(rg string, kind egKind, names []string) error {
+	if kind == egKindDomainTopic {
+		return p.deleteDomainTopic(rg, names)
+	}
+
 	key := egKey(rg, kind, names...)
 	if _, ok := p.res[key]; !ok {
 		return egNotFound(kind)
@@ -336,6 +438,16 @@ func (p *EventGridProvider) deleteRecord(rg string, kind egKind, names []string)
 	delete(p.res, key)
 
 	return p.deleteFromDataPlane(kind, names)
+}
+
+func (p *EventGridProvider) deleteDomainTopic(rg string, names []string) error {
+	if _, ok := p.dataPlane.DomainTopic(names[0], names[1]); !ok {
+		return ErrEventGridDomainTopicNotFound
+	}
+
+	p.deleteChildren(rg, egKindDomainTopic, names)
+
+	return p.dataPlane.DeleteDomainTopic(names[0], names[1])
 }
 
 func (p *EventGridProvider) deleteChildren(rg string, kind egKind, names []string) {
@@ -358,7 +470,11 @@ func egChildOf(parent, child egKind) bool {
 		return child == egKindNsTopic || child == egKindNsSub
 	case egKindNsTopic:
 		return child == egKindNsSub
-	case egKindTopicSub, egKindNsSub, egKindUnsupported:
+	case egKindDomain:
+		return child == egKindDomainTopic || child == egKindDomainSub || child == egKindDomainTopicSub
+	case egKindDomainTopic:
+		return child == egKindDomainTopicSub
+	case egKindTopicSub, egKindNsSub, egKindDomainSub, egKindDomainTopicSub, egKindScopeSub, egKindUnsupported:
 	}
 
 	return false
@@ -386,7 +502,15 @@ func (p *EventGridProvider) deleteFromDataPlane(kind egKind, names []string) err
 		return p.dataPlane.DeleteNamespaceTopic(names[0], names[1])
 	case egKindNsSub:
 		return p.dataPlane.DeletePullSubscription(names[0], names[1], names[2])
-	case egKindUnsupported:
+	case egKindDomain:
+		return p.dataPlane.DeleteDomain(names[0])
+	case egKindDomainSub, egKindDomainTopicSub:
+		domain, topic := egScopeOf(names, kind)
+
+		return p.dataPlane.DeleteScopedSubscription(domain, topic, names[len(names)-1])
+	case egKindScopeSub:
+		return p.dataPlane.DeleteResourceSubscription(names[0], names[1])
+	case egKindDomainTopic, egKindUnsupported:
 	}
 
 	return nil
@@ -401,7 +525,7 @@ func (p *EventGridProvider) List(_ context.Context, id ResourceID) ([]map[string
 
 	var out []map[string]any
 
-	if kind == egKindTopic || kind == egKindNamespace {
+	if kind == egKindTopic || kind == egKindNamespace || kind == egKindDomain {
 		out = p.listKind(id, kind)
 	}
 
@@ -444,7 +568,7 @@ func (p *EventGridProvider) DeleteResourcesInGroup(_ context.Context, resourceGr
 	p.mu.Lock("DeleteResourcesInGroup")
 	defer p.mu.Unlock()
 
-	for _, kind := range []egKind{egKindTopic, egKindNamespace} {
+	for _, kind := range []egKind{egKindTopic, egKindNamespace, egKindDomain, egKindScopeSub} {
 		for _, rec := range p.res {
 			if rec.kind == kind && resourceGroupsEqual(rec.resourceGroup, resourceGroup) {
 				_ = p.deleteRecord(rec.resourceGroup, rec.kind, rec.names)
@@ -462,6 +586,8 @@ func eventGridErrorDetails(err error) (errorEntry, bool) {
 		{ErrEventGridSubscriptionNotFound, "The event subscription was not found."},
 		{ErrEventGridNamespaceNotFound, "The Event Grid namespace was not found."},
 		{ErrEventGridNamespaceTopicNotFound, "The Event Grid namespace topic was not found."},
+		{ErrEventGridDomainNotFound, "The Event Grid domain was not found."},
+		{ErrEventGridDomainTopicNotFound, "The Event Grid domain topic was not found."},
 	}
 
 	for _, m := range msgs {
@@ -484,4 +610,35 @@ func (p *EventGridProvider) hostPort(rec *storedEG) string {
 	}
 
 	return net.JoinHostPort(host, strconv.Itoa(p.cfg.Port))
+}
+
+func isEventGridNotFound(err error) bool {
+	_, ok := eventGridErrorDetails(err)
+
+	return ok
+}
+
+// egScopeOf maps a domain-scoped subscription's names to its data-plane (domain, topic) scope.
+func egScopeOf(names []string, kind egKind) (string, string) {
+	switch kind {
+	case egKindDomainSub:
+		return names[0], ""
+	case egKindDomainTopicSub:
+		return names[0], names[1]
+	case egKindTopicSub:
+		return "", names[0]
+	case egKindTopic, egKindNamespace, egKindNsTopic, egKindNsSub, egKindDomain, egKindDomainTopic, egKindScopeSub,
+		egKindUnsupported:
+	}
+
+	return "", ""
+}
+
+func optionalBool(props map[string]any, key string) *bool {
+	v, ok := props[key].(bool)
+	if !ok {
+		return nil
+	}
+
+	return &v
 }

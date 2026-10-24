@@ -99,6 +99,46 @@ type Evaluator struct {
 
 	// Snapshot, when set, is a read-only pre-update item used instead of copying Item.
 	Snapshot map[string]any
+
+	// operands memoises placeholder values after unwrap and numeric parse; see Memoize.
+	operands map[string]operand
+}
+
+// operand is a value placeholder resolved once: the unwrapped value and its numeric parse.
+type operand struct {
+	unwrapped any
+	num       float64
+	isNum     bool
+}
+
+// Memoize makes comparisons resolve each :value placeholder once instead of per Evaluate
+// call. Only valid while AttrValues is unchanged, and not safe for concurrent use.
+func (e *Evaluator) Memoize() {
+	e.operands = map[string]operand{}
+}
+
+// resolveOperand evaluates n and returns its unwrapped value with numeric parse.
+func (e *Evaluator) resolveOperand(n Node) (operand, error) {
+	ph, isPlaceholder := n.(*ValuePlaceholder)
+	if isPlaceholder && e.operands != nil {
+		if op, ok := e.operands[ph.Name]; ok {
+			return op, nil
+		}
+	}
+
+	raw, err := e.Evaluate(n)
+	if err != nil {
+		return operand{}, err
+	}
+
+	op := operand{unwrapped: e.unwrapAttributeValue(raw)}
+	op.num, op.isNum = e.parseUnwrappedNumeric(op.unwrapped)
+
+	if isPlaceholder && e.operands != nil {
+		e.operands[ph.Name] = op
+	}
+
+	return op, nil
 }
 
 func (e *Evaluator) Evaluate(node Node) (any, error) {
@@ -170,16 +210,16 @@ func (e *Evaluator) evaluateNot(n *NotExpr) (bool, error) {
 }
 
 func (e *Evaluator) evaluateComparison(n *ComparisonExpr) (bool, error) {
-	left, err := e.Evaluate(n.Left)
+	left, err := e.resolveOperand(n.Left)
 	if err != nil {
 		return false, err
 	}
-	right, err := e.Evaluate(n.Right)
+	right, err := e.resolveOperand(n.Right)
 	if err != nil {
 		return false, err
 	}
 
-	return e.compareValues(left, n.Operator, right), nil
+	return e.compareResolved(left, n.Operator, right), nil
 }
 
 // evaluateArithmetic evaluates arithmetic operations (+ and -) for UPDATE expressions.
@@ -217,24 +257,20 @@ func (e *Evaluator) evaluateArithmetic(n *ComparisonExpr) (any, error) {
 }
 
 func (e *Evaluator) evaluateBetween(n *BetweenExpr) (bool, error) {
-	val, err := e.Evaluate(n.Value)
+	val, err := e.resolveOperand(n.Value)
 	if err != nil {
 		return false, err
 	}
-	lower, err := e.Evaluate(n.Lower)
+	lower, err := e.resolveOperand(n.Lower)
 	if err != nil {
 		return false, err
 	}
-	upper, err := e.Evaluate(n.Upper)
+	upper, err := e.resolveOperand(n.Upper)
 	if err != nil {
 		return false, err
 	}
 
-	val = e.unwrapAttributeValue(val)
-	num, isNum := e.parseUnwrappedNumeric(val)
-
-	return e.compareUnwrapped(val, num, isNum, TokenGreaterEqual, e.unwrapAttributeValue(lower)) &&
-		e.compareUnwrapped(val, num, isNum, TokenLessEqual, e.unwrapAttributeValue(upper)), nil
+	return e.compareResolved(val, TokenGreaterEqual, lower) && e.compareResolved(val, TokenLessEqual, upper), nil
 }
 
 func (e *Evaluator) evaluateIn(n *InExpr) (bool, error) {
@@ -631,21 +667,24 @@ func (e *Evaluator) toString(v any) string {
 }
 
 func (e *Evaluator) compareValues(lhs any, op TokenType, rhs any) bool {
-	lhs = e.unwrapAttributeValue(lhs)
-	lNum, lIsNum := e.parseUnwrappedNumeric(lhs)
+	l := operand{unwrapped: e.unwrapAttributeValue(lhs)}
+	l.num, l.isNum = e.parseUnwrappedNumeric(l.unwrapped)
 
-	return e.compareUnwrapped(lhs, lNum, lIsNum, op, e.unwrapAttributeValue(rhs))
+	r := operand{unwrapped: e.unwrapAttributeValue(rhs)}
+	r.num, r.isNum = e.parseUnwrappedNumeric(r.unwrapped)
+
+	return e.compareResolved(l, op, r)
 }
 
-// compareUnwrapped compares an already-unwrapped lhs (with its numeric parse) to an unwrapped rhs.
-func (e *Evaluator) compareUnwrapped(lhs any, lNum float64, lIsNum bool, op TokenType, rhs any) bool {
+// compareResolved compares two operands that were already unwrapped and numerically parsed.
+func (e *Evaluator) compareResolved(l operand, op TokenType, r operand) bool {
+	lhs, rhs, lNum, rNum, lIsNum, rIsNum := l.unwrapped, r.unwrapped, l.num, r.num, l.isNum, r.isNum
+
 	if lhs == nil || rhs == nil {
 		return op == TokenEqual && lhs == rhs
 	}
 
 	// DynamoDB cross-type comparisons return false unless they are both numbers.
-	rNum, rIsNum := e.parseUnwrappedNumeric(rhs)
-
 	if lIsNum && rIsNum {
 		return compareNumbers(lNum, rNum, op)
 	}
@@ -671,6 +710,10 @@ func (e *Evaluator) parseUnwrappedNumeric(v any) (float64, bool) {
 			return 0, false
 		}
 
+		if f, ok := parseSmallInt(val); ok {
+			return f, true
+		}
+
 		f, err := strconv.ParseFloat(val, 64)
 
 		return f, err == nil
@@ -679,6 +722,47 @@ func (e *Evaluator) parseUnwrappedNumeric(v any) (float64, bool) {
 	default:
 		return e.parseNumeric(v)
 	}
+}
+
+// maxExactDigits keeps parseSmallInt within float64's exact integer range.
+const (
+	maxExactDigits = 15
+	decimalBase    = 10
+)
+
+// parseSmallInt parses an optionally negative run of at most maxExactDigits digits without ParseFloat.
+func parseSmallInt(s string) (float64, bool) {
+	digits := s
+	neg := false
+
+	if digits != "" && digits[0] == '-' {
+		neg, digits = true, digits[1:]
+	}
+
+	if digits == "" || len(digits) > maxExactDigits {
+		return 0, false
+	}
+
+	var n int64
+
+	for i := range len(digits) {
+		c := digits[i]
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+
+		n = n*decimalBase + int64(c-'0')
+	}
+
+	if neg {
+		if n == 0 {
+			return math.Copysign(0, -1), true
+		}
+
+		n = -n
+	}
+
+	return float64(n), true
 }
 
 // sameType reports whether a and b have the same dynamic type, using a type

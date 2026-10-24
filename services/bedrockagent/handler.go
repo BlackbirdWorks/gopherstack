@@ -209,6 +209,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDisassociateAgentKnowledgeBase, opListAgentKnowledgeBases,
 		opCreateDataSource, opGetDataSource, opUpdateDataSource, opDeleteDataSource, opListDataSources,
 		opStartIngestionJob, opGetIngestionJob, opStopIngestionJob, opListIngestionJobs,
+		opCreateVpcConfiguration, opGetVpcConfiguration, opDeleteVpcConfiguration, opListVpcConfigurations,
 		opCreateFlow, opGetFlow, opUpdateFlow, opDeleteFlow, opListFlows, opPrepareFlow,
 		opValidateFlowDefinition,
 		opCreateFlowVersion, opGetFlowVersion, opDeleteFlowVersion, opListFlowVersions,
@@ -621,6 +622,8 @@ func (h *Handler) dispatchKBID(
 		return h.handleDeleteKB(ctx, c, kbID)
 	case strings.HasPrefix(suffix, "/datasources"):
 		return h.dispatchDataSources(ctx, c, kbID, suffix, method, body)
+	case strings.HasPrefix(suffix, "/"+segVpcConfigurations):
+		return h.dispatchVpcConfigurations(ctx, c, kbID, suffix, method, body)
 	}
 
 	return c.JSON(http.StatusNotFound, errResp("UnknownOperationException", "unknown kb op"))

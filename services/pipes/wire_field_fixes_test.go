@@ -34,7 +34,7 @@ func TestUpdatePipe_KmsKeyIdentifierCanBeCleared(t *testing.T) {
 		KmsKeyIdentifier: aws.String("arn:aws:kms:us-east-1:123456789012:key/custom-key"),
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, backend, "kms-clear-pipe")
+	waitPipeRunning(t, backend, "kms-clear-pipe")
 
 	before, err := client.DescribePipe(ctx, &pipessdk.DescribePipeInput{Name: aws.String("kms-clear-pipe")})
 	require.NoError(t, err)

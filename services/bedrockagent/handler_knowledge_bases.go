@@ -117,6 +117,8 @@ func classifyKBPath(method, path string) string {
 		return opDeleteKnowledgeBase
 	case containsSeg(segs, "datasources"):
 		return classifyDSPath(method, segs)
+	case containsSeg(segs, segVpcConfigurations):
+		return classifyVpcConfigurationPath(method, segs)
 	}
 
 	return opUnknown

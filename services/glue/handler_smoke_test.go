@@ -182,6 +182,7 @@ func TestGlueStubOperations(t *testing.T) {
 		"ListDevEndpoints",
 		"ListEntities",
 		"ListIntegrationResourceProperties",
+		"ListIntegrationTableProperties",
 		"ListJobs",
 		"ListMLTransforms",
 		"ListMaterializedViewRefreshTaskRuns",

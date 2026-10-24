@@ -7,16 +7,12 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 50 (49 ok, 1 partial) |
+| PARITY entries audited | 55 (54 ok, 1 partial) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 16 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateResourceMetricsConfiguration, DeleteResourceMetricsConfiguration, GetResourceMetricsConfiguration, UpdateOTelEnrichment, UpdateResourceMetricsConfiguration.
 
 ### Structural gaps
 

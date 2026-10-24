@@ -194,10 +194,17 @@ func (b *InMemoryBackend) CreateCaseWithOptions(in CreateCaseOptions) (*Case, er
 		return nil, fmt.Errorf("%w: too many open cases", ErrCaseCreationLimitExceeded)
 	}
 
+	uploads, err := b.resolveUploadsLocked(in.UploadIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	attachments, err := b.consumeAttachmentSetLocked(in.AttachmentSetID)
 	if err != nil {
 		return nil, err
 	}
+
+	allRefs, smallRefs := b.consumeUploadsLocked(uploads)
 
 	now := time.Now()
 	b.nextDisplayID++
@@ -223,7 +230,7 @@ func (b *InMemoryBackend) CreateCaseWithOptions(in CreateCaseOptions) (*Case, er
 	}
 	b.cases.Put(cs)
 	b.communications[cs.CaseID] = []Communication{
-		newCommunication(cs.CaseID, in.CommunicationBody, in.CCEmails, attachments, now),
+		newCommunication(cs.CaseID, in.CommunicationBody, in.CCEmails, attachments, allRefs, smallRefs, now),
 	}
 
 	out := *cs

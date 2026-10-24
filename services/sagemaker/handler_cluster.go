@@ -856,7 +856,7 @@ func (h *Handler) handleDetachClusterNodeVolume(ctx context.Context, body []byte
 
 	return json.Marshal(map[string]any{
 		keyClusterArn: dv.ClusterArn,
-		"NodeId":      dv.NodeID,
+		keyNodeID:     dv.NodeID,
 		"VolumeId":    dv.VolumeID,
 		"DeviceName":  dv.DeviceName,
 		keyStatus:     dv.Status,
@@ -872,6 +872,39 @@ type attachClusterNodeVolumeRequest struct {
 	ClusterArn string `json:"ClusterArn"`
 	NodeID     string `json:"NodeId"`
 	VolumeID   string `json:"VolumeId"`
+}
+
+type attachClusterNodeNetworkInterfaceRequest struct {
+	ClusterName        string `json:"ClusterName"`
+	NodeID             string `json:"NodeId"`
+	NetworkInterfaceID string `json:"NetworkInterfaceId"`
+}
+
+func (h *Handler) handleAttachClusterNodeNetworkInterface(ctx context.Context, body []byte) ([]byte, error) {
+	var req attachClusterNodeNetworkInterfaceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	for _, f := range []struct{ name, value string }{
+		{"ClusterName", req.ClusterName}, {keyNodeID, req.NodeID}, {"NetworkInterfaceId", req.NetworkInterfaceID},
+	} {
+		if f.value == "" {
+			return nil, fmt.Errorf("%w: %s is required", errInvalidRequest, f.name)
+		}
+	}
+
+	out, err := h.Backend.AttachClusterNodeNetworkInterface(ctx, req.ClusterName, req.NodeID, req.NetworkInterfaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{
+		keyClusterArn:        out.ClusterArn,
+		keyNodeID:            out.NodeID,
+		"NetworkInterfaceId": out.NetworkInterfaceID,
+		"AttachmentId":       out.AttachmentID,
+	})
 }
 
 func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte) ([]byte, error) {
@@ -904,7 +937,7 @@ func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte
 
 	return json.Marshal(map[string]any{
 		keyClusterArn: av.ClusterArn,
-		"NodeId":      av.NodeID,
+		keyNodeID:     av.NodeID,
 		"VolumeId":    av.VolumeID,
 		"DeviceName":  av.DeviceName,
 		keyStatus:     av.Status,

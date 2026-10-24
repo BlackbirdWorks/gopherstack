@@ -167,7 +167,10 @@ func (b *InMemoryBackend) purgeImages(ctx context.Context, ref repoRef, images [
 			_ = c.DeleteManifest(ctx, repo, d)
 
 			b.RecordManifestDelete(repo, d)
+			b.dropMeta(ref.fileName(d))
 		}
+
+		b.dropMeta(ref.packageName(image))
 	}
 }
 
@@ -197,10 +200,19 @@ func (b *InMemoryBackend) dockerImage(
 
 func (b *InMemoryBackend) pkg(ref repoRef, s imageSnap) *artifactregistrypb.Package {
 	created, updated := s.span()
+	name := ref.packageName(s.image)
+	m := b.metaOf(name)
 
-	return &artifactregistrypb.Package{
-		Name: ref.packageName(s.image), DisplayName: s.image, CreateTime: created, UpdateTime: updated,
+	out := &artifactregistrypb.Package{
+		Name: name, DisplayName: s.image, CreateTime: created, UpdateTime: laterOf(updated, m.Updated),
+		Annotations: m.Annotations,
 	}
+
+	if m.DisplayName != "" {
+		out.DisplayName = m.DisplayName
+	}
+
+	return out
 }
 
 func (b *InMemoryBackend) version(
@@ -209,8 +221,14 @@ func (b *InMemoryBackend) version(
 	m := s.manifests[digest]
 	name := p.full() + "/versions/" + digest
 
+	edits := b.metaOf(name)
+
 	v := &artifactregistrypb.Version{
-		Name: name, CreateTime: timestamppb.New(m.Created), UpdateTime: timestamppb.New(m.Updated),
+		Name:        name,
+		CreateTime:  timestamppb.New(m.Created),
+		UpdateTime:  laterOf(timestamppb.New(m.Updated), edits.Updated),
+		Description: edits.Description,
+		Annotations: edits.Annotations,
 	}
 
 	for _, t := range s.tagsOf(digest) {
@@ -221,7 +239,7 @@ func (b *InMemoryBackend) version(
 		info := b.describe(ctx, p.repo, s.image, digest)
 		v.Metadata, _ = structpb.NewStruct(map[string]any{
 			"imageSizeBytes": strconv.FormatInt(info.size, 10), "mediaType": info.mediaType,
-			"name": dockerImageName(p.repo, s.image, digest),
+			fieldName: dockerImageName(p.repo, s.image, digest),
 		})
 	}
 

@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 19 (19 ok) |
+| PARITY entries audited | 20 (20 ok) |
 | Feature families | 13 (10 ok, 3 partial) |
 | Known gaps | 11 |
 | Deferred items | 0 |
@@ -16,7 +16,7 @@
 ### Known gaps
 
 - connectedRepository and storageSourceManifest builds fail with FETCH_SOURCE_FAILED; repoSource branch_name is a literal ref, not a regex; repository_event_config and git_file_source triggers cannot resolve a repository, and triggers that read cloudbuild.yaml from a repository can be stored but not run.
-- Event triggers (trigger_template, github, pubsub_config, repository_event_config) are stored and never fire; builds start only from CreateBuild, RetryBuild, RunBuildTrigger and ReceiveTriggerWebhook.
+- Event triggers on repository events (trigger_template, github, repository_event_config) are stored and never fire, because the emulator has no repository event source; builds start from CreateBuild, RetryBuild, RunBuildTrigger, ReceiveTriggerWebhook and pubsub_config triggers. pubsub_config.subscription is not populated because no subscription is created, so $(body.subscription) is empty, and webhook and pubsub filters support only ==, !=, &&, ||, !, parentheses and matches/contains/startsWith/endsWith over substitution variables.
 - KMS-encrypted secrets and automap_substitutions are not supported.
 - options.pool, machine_type and disk_size_gb do not change where or how steps run, and queue_ttl never expires a build.
 - results.build_step_images, build_step_outputs, source_provenance file hashes, warnings and the FETCHSOURCE/PUSH timing entries are not populated; only the BUILD timing, step timing and artifact timing are.

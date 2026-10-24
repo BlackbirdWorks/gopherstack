@@ -146,6 +146,13 @@ func (h *Handler) dispatchResourceManagementCBOR(op string, input cbor.Map, c *e
 		return h.cborGetAlarmMuteRule(input, c)
 	case opDeleteAlarmMuteRule:
 		return h.cborDeleteAlarmMuteRule(input, c)
+	default:
+		return h.dispatchDatasetOTelCBOR(op, input, c)
+	}
+}
+
+func (h *Handler) dispatchDatasetOTelCBOR(op string, input cbor.Map, c *echo.Context) error {
+	switch op {
 	case opGetDataset:
 		return h.cborGetDataset(input, c)
 	case opAssociateDatasetKmsKey:
@@ -158,6 +165,16 @@ func (h *Handler) dispatchResourceManagementCBOR(op string, input cbor.Map, c *e
 		return h.cborStartOTelEnrichment(input, c)
 	case opStopOTelEnrichment:
 		return h.cborStopOTelEnrichment(input, c)
+	case opUpdateOTelEnrichment:
+		return h.cborUpdateOTelEnrichment(input, c)
+	case opCreateResourceMetricsConfiguration:
+		return h.cborCreateResourceMetricsConfiguration(input, c)
+	case opGetResourceMetricsConfiguration:
+		return h.cborGetResourceMetricsConfiguration(input, c)
+	case opUpdateResourceMetricsConfiguration:
+		return h.cborUpdateResourceMetricsConfiguration(input, c)
+	case opDeleteResourceMetricsConfiguration:
+		return h.cborDeleteResourceMetricsConfiguration(input, c)
 	default:
 		return h.dispatchAlarmCBOR(op, input, c)
 	}

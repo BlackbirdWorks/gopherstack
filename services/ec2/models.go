@@ -281,6 +281,7 @@ type ClientVpnEndpoint struct {
 	ServerCertificateArn       string                    `json:"serverCertificateArn,omitempty"`
 	TransportProtocol          string                    `json:"transportProtocol,omitempty"`
 	EndpointIPAddressType      string                    `json:"endpointIpAddressType,omitempty"`
+	AuthPolicy                 *ClientVpnAuthPolicy      `json:"authPolicy,omitempty"`
 	TargetNetworks             []*ClientVpnTargetNetwork `json:"targetNetworks,omitempty"`
 	Routes                     []ClientVpnRoute          `json:"routes,omitempty"`
 	AuthRules                  []ClientVpnAuthRule       `json:"authRules,omitempty"`
@@ -290,6 +291,13 @@ type ClientVpnEndpoint struct {
 	VpnPort                    int32                     `json:"vpnPort,omitempty"`
 	SplitTunnel                bool                      `json:"splitTunnel,omitempty"`
 	DisconnectOnSessionTimeout bool                      `json:"disconnectOnSessionTimeout,omitempty"`
+}
+
+// ClientVpnAuthPolicy is the single authorization policy of a Client VPN endpoint.
+type ClientVpnAuthPolicy struct {
+	Description    string `json:"description,omitempty"`
+	PolicyDocument string `json:"policyDocument,omitempty"`
+	ShadowMode     string `json:"shadowMode,omitempty"`
 }
 
 // ClientVpnRoute holds a single route for a Client VPN endpoint.

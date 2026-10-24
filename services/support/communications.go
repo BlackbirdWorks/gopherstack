@@ -75,17 +75,24 @@ func (b *InMemoryBackend) AddCommunicationWithOptions(in AddCommunicationOptions
 	if !ok {
 		return fmt.Errorf("%w: case %s not found", ErrNotFound, in.CaseID)
 	}
+	uploads, err := b.resolveUploadsLocked(in.UploadIDs)
+	if err != nil {
+		return err
+	}
+
 	attachments, err := b.consumeAttachmentSetLocked(in.AttachmentSetID)
 	if err != nil {
 		return err
 	}
+
+	allRefs, smallRefs := b.consumeUploadsLocked(uploads)
 	if cs.Status == caseStatusResolved {
 		cs.Status = "reopened"
 		cs.ResolvedTime = nil
 	}
 	b.communications[in.CaseID] = append(
 		b.communications[in.CaseID],
-		newCommunication(in.CaseID, in.CommunicationBody, in.CCEmails, attachments, time.Now()),
+		newCommunication(in.CaseID, in.CommunicationBody, in.CCEmails, attachments, allRefs, smallRefs, time.Now()),
 	)
 
 	return nil
@@ -139,7 +146,7 @@ func newCommunication(
 	caseID string,
 	body string,
 	ccEmails []string,
-	attachments []AttachmentRef,
+	setAttachments, uploadAttachments, smallUploads []AttachmentRef,
 	now time.Time,
 ) Communication {
 	return Communication{
@@ -148,13 +155,15 @@ func newCommunication(
 		SubmittedBy:   defaultSubmittedBy,
 		TimeCreated:   now,
 		CCEmails:      append([]string(nil), ccEmails...),
-		AttachmentSet: append([]AttachmentRef(nil), attachments...),
+		AttachmentSet: append(append([]AttachmentRef(nil), setAttachments...), smallUploads...),
+		Attachments:   append(append([]AttachmentRef(nil), setAttachments...), uploadAttachments...),
 	}
 }
 
 func cloneCommunication(comm Communication) Communication {
 	comm.CCEmails = append([]string(nil), comm.CCEmails...)
 	comm.AttachmentSet = append([]AttachmentRef(nil), comm.AttachmentSet...)
+	comm.Attachments = append([]AttachmentRef(nil), comm.Attachments...)
 
 	return comm
 }

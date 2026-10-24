@@ -24,6 +24,13 @@ type StorageBackend interface {
 	AddAttachmentsToSet(attachmentSetID string) (string, time.Time, error)
 	AddAttachmentsToSetWithAttachments(attachmentSetID string, attachments []Attachment) (string, time.Time, error)
 	DescribeAttachment(attachmentID string) (*Attachment, error)
+	GetAttachmentUploadLinks(in UploadLinksInput) (*UploadLinksResult, error)
+	CompleteAttachmentUpload(in CompleteUploadInput) (string, error)
+	DescribeAttachmentUploadStatus(uploadID string, dryRun bool) (*UploadStatusResult, error)
+	GetAttachmentDownloadLink(attachmentID string, dryRun bool) (*DownloadLinkResult, error)
+	PrepareUploadPart(token string) (int64, error)
+	PutUploadPart(token string, data []byte) (string, error)
+	OpenDownload(token string) (string, []byte, error)
 	DescribeCreateCaseOptions(issueType, serviceCode, categoryCode, language string) *DescribeCreateCaseOptionsResult
 	DescribeServices(serviceCodeList []string, language string) []Service
 	DescribeSeverityLevels(language string) []SeverityLevel

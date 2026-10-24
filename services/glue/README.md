@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 59 (58 ok, 1 partial) |
-| Feature families | 28 (23 ok, 5 partial) |
+| Feature families | 29 (24 ok, 5 partial) |
 | Known gaps | 3 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 2 |
@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetSystemLogsForJobRun, GetSystemLogsForSession, ListIntegrationTableProperties.
+- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetSystemLogsForJobRun, GetSystemLogsForSession. Both return a SystemLogsUrl into AWS-managed Spark driver/executor system logs; this emulator runs no Spark and keeps no such logs, so any URL would be fabricated (UNVERIFIABLE: no data source exists).
 - Database and table names are stored case-sensitively; real Glue lowercases them (create DB2, get db2). Not changed because cloudformation/athena/lakeformation create catalog objects with caller-cased names through the backend.
 - Request members accepted and ignored with no determinable effect: Tags on CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType/CreateCustomEntityType (the Glue ARN guide lists no ARN for them); UpdateTable VersionId/Force/ViewUpdateAction (UpdateTable API reference names no mismatch behavior); ModifyIntegration.IntegrationName (ARN is name-keyed); Get/ResetJobBookmark.RunId (one bookmark per job; per-run semantics undocumented); GetConnection.ApplyOverrideForComputeEnvironment; GetTable/GetTables/SearchTables IncludeStatusDetails; GetDatabases/SearchTables ResourceShareType (no cross-account shares).
 

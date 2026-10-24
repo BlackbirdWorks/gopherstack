@@ -79,8 +79,8 @@ func TestTranscribe_SupportedOperations_CountAndOrder(t *testing.T) {
 	ops := h.GetSupportedOperations()
 
 	require.NotEmpty(t, ops)
-	assert.Len(t, ops, 43)
-	assert.Equal(t, 43, transcribe.HandlerOpsLen(h))
+	assert.Len(t, ops, 44)
+	assert.Equal(t, 44, transcribe.HandlerOpsLen(h))
 
 	for i := 1; i < len(ops); i++ {
 		assert.LessOrEqual(t, ops[i-1], ops[i],

@@ -157,6 +157,47 @@ func (p *ContainerRegistryProvider) CallbackConfig(_ context.Context, id Resourc
 	return map[string]any{acrPropServiceURI: rec.props[acrPropServiceURI], "customHeaders": headers}, nil
 }
 
+// PingWebhook answers POST .../webhooks/{name}/ping with the id of the ping event it delivers.
+func (p *ContainerRegistryProvider) PingWebhook(_ context.Context, id ResourceID) (map[string]any, error) {
+	p.mu.RLock("PingWebhook")
+	defer p.mu.RUnlock()
+
+	rec, ok := p.child(id, acrKindWebhook)
+	if !ok {
+		return nil, ErrACRWebhookNotFound
+	}
+
+	eventID, err := p.dataPlane.PingWebhook(rec.registry, rec.name)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"id": eventID}, nil
+}
+
+// WebhookEvents answers POST .../webhooks/{name}/listEvents.
+func (p *ContainerRegistryProvider) WebhookEvents(_ context.Context, id ResourceID) (map[string]any, error) {
+	p.mu.RLock("WebhookEvents")
+	defer p.mu.RUnlock()
+
+	rec, ok := p.child(id, acrKindWebhook)
+	if !ok {
+		return nil, ErrACRWebhookNotFound
+	}
+
+	events, err := p.dataPlane.WebhookEvents(rec.registry, rec.name)
+	if err != nil {
+		return nil, err
+	}
+
+	value := make([]any, 0, len(events))
+	for _, e := range events {
+		value = append(value, e)
+	}
+
+	return map[string]any{fieldValue: value}, nil
+}
+
 type acrRecord struct {
 	CreatedAt     time.Time         `json:"createdAt"`
 	Tags          map[string]string `json:"tags,omitempty"`

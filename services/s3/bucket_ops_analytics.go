@@ -19,7 +19,7 @@ func (h *S3Handler) deleteBucketAnalyticsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketAnalyticsConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -40,7 +40,7 @@ func (h *S3Handler) deleteBucketIntelligentTieringConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketIntelligentTieringConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -61,7 +61,7 @@ func (h *S3Handler) deleteBucketInventoryConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketInventoryConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -82,7 +82,7 @@ func (h *S3Handler) deleteBucketMetricsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketMetricsConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -103,7 +103,7 @@ func (h *S3Handler) putBucketAnalyticsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketAnalyticsConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -130,7 +130,7 @@ func (h *S3Handler) getBucketAnalyticsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketAnalyticsConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -170,7 +170,7 @@ func (h *S3Handler) putBucketIntelligentTieringConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketIntelligentTieringConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -197,7 +197,7 @@ func (h *S3Handler) getBucketIntelligentTieringConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketIntelligentTieringConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -237,7 +237,7 @@ func (h *S3Handler) putBucketInventoryConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketInventoryConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -264,7 +264,7 @@ func (h *S3Handler) getBucketInventoryConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketInventoryConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -304,7 +304,7 @@ func (h *S3Handler) putBucketMetricsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketMetricsConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -331,7 +331,7 @@ func (h *S3Handler) getBucketMetricsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketMetricsConfiguration")
-	id := r.URL.Query().Get("id")
+	id := httputils.RawQueryGet(r.URL.RawQuery, "id")
 	if id == "" {
 		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
 
@@ -370,7 +370,7 @@ const configListPageSize = 100
 // writeConfigListXML emits the stored raw config documents as list entries, paging by
 // continuation-token when paginate is set.
 func writeConfigListXML(w http.ResponseWriter, r *http.Request, rootTag string, configs []string, paginate bool) {
-	token := r.URL.Query().Get("continuation-token")
+	token := httputils.RawQueryGet(r.URL.RawQuery, "continuation-token")
 	next := ""
 	if paginate {
 		pg := page.New(configs, token, configListPageSize, configListPageSize)

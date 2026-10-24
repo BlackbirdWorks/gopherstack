@@ -3,15 +3,21 @@ package sagemaker
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 var (
+	// ErrAttachTargetNotFound is the ResourceNotFound wire error of AttachClusterNodeNetworkInterface.
+	ErrAttachTargetNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
+	// ErrNetworkInterfaceInUse is returned when an ENI is already attached to a cluster node.
+	ErrNetworkInterfaceInUse = awserr.New("ResourceInUse", awserr.ErrConflict)
 	// ErrClusterNotFound is returned when a cluster does not exist.
 	ErrClusterNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrClusterAlreadyExists is returned when a cluster with the same name already exists.
@@ -1056,6 +1062,63 @@ func (b *InMemoryBackend) AttachClusterNodeVolume(
 		DeviceName: "/dev/xvdf",
 		Status:     "attached",
 		AttachTime: time.Now(),
+	}, nil
+}
+
+// AttachedNetworkInterface is the result of AttachClusterNodeNetworkInterface.
+type AttachedNetworkInterface struct {
+	ClusterArn         string
+	NodeID             string
+	NetworkInterfaceID string
+	AttachmentID       string
+}
+
+// AttachClusterNodeNetworkInterface attaches an ENI to a cluster node. An ENI
+// can be attached to one node at a time and not to a Restricted Instance Group node.
+func (b *InMemoryBackend) AttachClusterNodeNetworkInterface(
+	ctx context.Context,
+	clusterNameOrArn, nodeID, networkInterfaceID string,
+) (*AttachedNetworkInterface, error) {
+	b.mu.Lock("AttachClusterNodeNetworkInterface")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	c, err := b.resolveClusterLocked(region, clusterNameOrArn)
+	if err != nil {
+		return nil, fmt.Errorf("%w: cluster %q not found", ErrAttachTargetNotFound, clusterNameOrArn)
+	}
+
+	node, ok := c.Nodes[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("%w: node %q not found in cluster %q", ErrAttachTargetNotFound, nodeID, clusterNameOrArn)
+	}
+
+	if slices.ContainsFunc(c.RestrictedInstanceGroups, func(ig ClusterRestrictedInstanceGroup) bool {
+		return ig.InstanceGroupName == node.InstanceGroupName
+	}) {
+		return nil, fmt.Errorf("%w: node %q belongs to a Restricted Instance Group", ErrValidation, nodeID)
+	}
+
+	for _, n := range c.Nodes {
+		for _, ni := range n.NetworkInterfaces {
+			if ni.NetworkInterfaceID == networkInterfaceID {
+				return nil, fmt.Errorf(
+					"%w: network interface %q is already attached to node %q",
+					ErrNetworkInterfaceInUse, networkInterfaceID, n.NodeID,
+				)
+			}
+		}
+	}
+
+	attachmentID := awsid.New("eni-attach-")
+	node.NetworkInterfaces = append(node.NetworkInterfaces, ClusterNodeNetworkInterface{
+		NetworkInterfaceID: networkInterfaceID,
+		AttachmentID:       attachmentID,
+	})
+
+	return &AttachedNetworkInterface{
+		ClusterArn: c.ClusterArn, NodeID: nodeID, NetworkInterfaceID: networkInterfaceID, AttachmentID: attachmentID,
 	}, nil
 }
 

@@ -48,6 +48,34 @@ func (h *Handler) handleCreateLanguageModel(
 	}, nil
 }
 
+// --- UpdateLanguageModel ---
+
+type updateLanguageModelInput struct {
+	EncryptionConfiguration *EncryptionConfig `json:"EncryptionConfiguration"`
+	ModelName               string            `json:"ModelName"`
+	DataAccessRoleArn       string            `json:"DataAccessRoleArn"`
+}
+
+type updateLanguageModelOutput struct {
+	LastModifiedTime *float64 `json:"LastModifiedTime,omitempty"`
+	ModelName        string   `json:"ModelName"`
+	ModelStatus      string   `json:"ModelStatus"`
+}
+
+func (h *Handler) handleUpdateLanguageModel(
+	_ context.Context,
+	in *updateLanguageModelInput,
+) (*updateLanguageModelOutput, error) {
+	m, err := h.Backend.UpdateLanguageModel(in.ModelName, in.DataAccessRoleArn, in.EncryptionConfiguration)
+	if err != nil {
+		return nil, err
+	}
+
+	t := awstime.Epoch(m.LastModifiedTime)
+
+	return &updateLanguageModelOutput{ModelName: m.ModelName, ModelStatus: m.ModelStatus, LastModifiedTime: &t}, nil
+}
+
 // --- DeleteLanguageModel ---
 
 type deleteLanguageModelInput struct {
@@ -72,15 +100,16 @@ type describeLanguageModelInput struct {
 }
 
 type languageModelOutput struct {
-	InputDataConfig     *InputDataConfig `json:"InputDataConfig,omitempty"`
-	CreateTime          *float64         `json:"CreateTime,omitempty"`
-	LastModifiedTime    *float64         `json:"LastModifiedTime,omitempty"`
-	ModelName           string           `json:"ModelName"`
-	BaseModelName       string           `json:"BaseModelName"`
-	LanguageCode        string           `json:"LanguageCode"`
-	ModelStatus         string           `json:"ModelStatus"`
-	FailureReason       string           `json:"FailureReason,omitempty"`
-	UpgradeAvailability bool             `json:"UpgradeAvailability"`
+	InputDataConfig     *InputDataConfig  `json:"InputDataConfig,omitempty"`
+	Encryption          *EncryptionConfig `json:"EncryptionConfiguration,omitempty"`
+	CreateTime          *float64          `json:"CreateTime,omitempty"`
+	LastModifiedTime    *float64          `json:"LastModifiedTime,omitempty"`
+	ModelName           string            `json:"ModelName"`
+	BaseModelName       string            `json:"BaseModelName"`
+	LanguageCode        string            `json:"LanguageCode"`
+	ModelStatus         string            `json:"ModelStatus"`
+	FailureReason       string            `json:"FailureReason,omitempty"`
+	UpgradeAvailability bool              `json:"UpgradeAvailability"`
 }
 
 type describeLanguageModelOutput struct {
@@ -95,6 +124,7 @@ func toLanguageModelOutput(m *LanguageModel) languageModelOutput {
 		ModelStatus:         m.ModelStatus,
 		FailureReason:       m.FailureReason,
 		InputDataConfig:     m.InputDataConfig,
+		Encryption:          m.Encryption,
 		UpgradeAvailability: m.UpgradeAvailability,
 	}
 
