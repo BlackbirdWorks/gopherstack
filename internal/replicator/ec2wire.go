@@ -3,6 +3,7 @@ package replicator
 import (
 	"context"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -43,7 +44,11 @@ func ec2Endpoint(cfg aws.Config) string {
 }
 
 // idsWhere returns the key member of each item of listKey in a Describe call filtered by filterName in values.
-func (w *ec2Wire) idsWhere(ctx context.Context, op, listKey, key, filterName string, values []string) ([]string, error) {
+func (w *ec2Wire) idsWhere(
+	ctx context.Context,
+	op, listKey, key, filterName string,
+	values []string,
+) ([]string, error) {
 	vs := make([]any, 0, len(values))
 	for _, v := range values {
 		vs = append(vs, v)
@@ -76,7 +81,7 @@ func (f httpForwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	out := r.Clone(r.Context())
 	out.RequestURI = ""
 
-	resp, err := f.c.Do(out)
+	resp, err := f.c.Do(out) //nolint:gosec // the request was built by sdkwire for the configured endpoint
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 
@@ -85,9 +90,7 @@ func (f httpForwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	defer resp.Body.Close()
 
-	for k, v := range resp.Header {
-		w.Header()[k] = v
-	}
+	maps.Copy(w.Header(), resp.Header)
 
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)

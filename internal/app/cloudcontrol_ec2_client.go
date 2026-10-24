@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,7 +26,10 @@ func newCCEC2Client(handler http.Handler, cfg aws.Config) (*ccEC2Client, error) 
 	return &ccEC2Client{
 		svc: svc,
 		tgt: sdkwire.Target{
-			Handler: handler, Credentials: cfg.Credentials, Endpoint: aws.ToString(cfg.BaseEndpoint), Region: cfg.Region,
+			Handler:     handler,
+			Credentials: cfg.Credentials,
+			Endpoint:    aws.ToString(cfg.BaseEndpoint),
+			Region:      cfg.Region,
 		},
 	}, nil
 }
@@ -42,12 +46,16 @@ func (c *ccEC2Client) call(ctx context.Context, op string, params map[string]any
 }
 
 // describe pages through a Describe operation and returns the items under listKey.
-func (c *ccEC2Client) describe(ctx context.Context, op, listKey string, params map[string]any) ([]map[string]any, error) {
+func (c *ccEC2Client) describe(
+	ctx context.Context,
+	op, listKey string,
+	params map[string]any,
+) ([]map[string]any, error) {
 	var items []map[string]any
 
-	p := map[string]any{}
-	for k, v := range params {
-		p[k] = v
+	p := maps.Clone(params)
+	if p == nil {
+		p = map[string]any{}
 	}
 
 	for {
@@ -105,15 +113,6 @@ func ccEC2Filter(name string, values ...string) map[string]any {
 	}
 
 	return map[string]any{ccKeyName: name, "Values": vs}
-}
-
-func ccStrList(values []string) []any {
-	out := make([]any, 0, len(values))
-	for _, v := range values {
-		out = append(out, v)
-	}
-
-	return out
 }
 
 func ccSetStr(m map[string]any, key, value string) {

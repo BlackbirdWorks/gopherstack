@@ -43,11 +43,11 @@ func TestEC2WireIDsWhere(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		status  int
-		body    string
 		want    []string
+		name    string
+		body    string
 		wantErr string
+		status  int
 	}{
 		{
 			name: "subnets", status: 200,
@@ -56,7 +56,8 @@ func TestEC2WireIDsWhere(t *testing.T) {
 			want: []string{"subnet-1", "subnet-2"},
 		},
 		{
-			name: "error_code", status: 400,
+			name:    "error_code",
+			status:  400,
 			body:    `<Response><Errors><Error><Code>AuthFailure</Code><Message>no</Message></Error></Errors></Response>`,
 			wantErr: "AuthFailure",
 		},
@@ -67,7 +68,7 @@ func TestEC2WireIDsWhere(t *testing.T) {
 			t.Parallel()
 
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.NoError(t, r.ParseForm())
+				_ = r.ParseForm()
 				assert.Equal(t, "DescribeSubnets", r.Form.Get("Action"))
 				assert.Equal(t, "subnet-id", r.Form.Get("Filter.1.Name"))
 				assert.NotEmpty(t, r.Header.Get("Authorization"))
@@ -82,7 +83,14 @@ func TestEC2WireIDsWhere(t *testing.T) {
 				Credentials: credentials.NewStaticCredentialsProvider("a", "b", ""),
 			}, srv.Client())
 
-			got, err := w.idsWhere(t.Context(), "DescribeSubnets", "Subnets", "SubnetId", "subnet-id", []string{"subnet-1"})
+			got, err := w.idsWhere(
+				t.Context(),
+				"DescribeSubnets",
+				"Subnets",
+				"SubnetId",
+				"subnet-id",
+				[]string{"subnet-1"},
+			)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Equal(t, tt.wantErr, errCode(err))

@@ -110,7 +110,11 @@ func ccSGModelRules(perms []map[string]any, egress bool) []ccSGRule {
 	var out []ccSGRule
 
 	for _, p := range perms {
-		base := ccSGRule{FromPort: ccPort(p, "FromPort"), ToPort: ccPort(p, "ToPort"), IPProtocol: ccMapStr(p, "IpProtocol")}
+		base := ccSGRule{
+			FromPort:   ccPort(p, "FromPort"),
+			ToPort:     ccPort(p, "ToPort"),
+			IPProtocol: ccMapStr(p, "IpProtocol"),
+		}
 
 		for _, r := range ccMapList(p, "IpRanges") {
 			rule := base

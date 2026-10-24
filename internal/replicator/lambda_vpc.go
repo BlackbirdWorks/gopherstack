@@ -49,7 +49,14 @@ func (r *run) missingNetwork(ctx context.Context, v *lambdatypes.VpcConfigRespon
 		return ""
 	}
 
-	have, err = r.dst.ec2.idsWhere(ctx, "DescribeSecurityGroups", "SecurityGroups", "GroupId", "group-id", v.SecurityGroupIds)
+	have, err = r.dst.ec2.idsWhere(
+		ctx,
+		"DescribeSecurityGroups",
+		"SecurityGroups",
+		"GroupId",
+		"group-id",
+		v.SecurityGroupIds,
+	)
 	if err != nil {
 		return "VPC config skipped: cannot verify target security groups: " + errCode(err)
 	}
