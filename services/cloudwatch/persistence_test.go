@@ -201,6 +201,34 @@ func TestInMemoryBackend_SnapshotRestore_CompositeAndHistory(t *testing.T) {
 				assert.Equal(t, "Running", status)
 			},
 		},
+		{
+			name: "otel_filters_and_resource_metrics_round_trip",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.StartOTelEnrichment())
+				_, err := b.UpdateOTelEnrichment(
+					[]cloudwatch.OTelEnrichmentSelector{
+						{Namespace: "AWS/EC2", MetricNames: []string{"CPUUtilization"}},
+					},
+					nil,
+				)
+				require.NoError(t, err)
+				_, err = b.CreateResourceMetricsConfiguration("arn:aws:ec2:us-east-1:000000000000:instance/i-1",
+					[]cloudwatch.ResourceMetricSelection{{IncludeMetrics: []string{"NetworkIn"}}})
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+
+				st := b.OTelEnrichmentDetails()
+				assert.Equal(t, "AWS/EC2", st.IncludeFilters[0].Namespace)
+				assert.False(t, st.CreatedAt.IsZero())
+
+				cfg, err := b.GetResourceMetricsConfiguration("arn:aws:ec2:us-east-1:000000000000:instance/i-1")
+				require.NoError(t, err)
+				assert.Equal(t, []string{"NetworkIn"}, cfg.MetricSelections[0].IncludeMetrics)
+			},
+		},
 	}
 
 	for _, tt := range tests {

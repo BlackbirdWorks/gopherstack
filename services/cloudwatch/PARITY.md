@@ -71,6 +71,11 @@ ops:
   GetOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Status modeled as a real two-state machine (Running/Stopped, types.OTelEnrichmentStatus's only two values), defaulting to Stopped before StartOTelEnrichment is ever called — no enrichment output data (resource ARN/tag labels, PromQL query results) is fabricated anywhere, since gopherstack has no telemetry-enrichment pipeline to actually produce it; this op only tracks whether the account-level setting is on."}
   StartOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Sets status to Running; both Input/Output are empty structs in the real SDK, matched exactly (no fields on the wire either direction)."}
   StopOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (v1.65.0 op). Sets status to Stopped; both Input/Output are empty structs in the real SDK, matched exactly."}
+  UpdateOTelEnrichment: {wire: ok, errors: ok, state: ok, persist: ok, note: "Replaces the Include/Exclude filter pair (an omitted list clears it); ResourceNotFoundException while enrichment is Stopped; max 100 filters combined. Get/StartOTelEnrichment now also return CreatedAt/UpdatedAt/filters (Stop discards them). TestRealClient_UpdateOTelEnrichment"}
+  CreateResourceMetricsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "ConflictException on a duplicate ARN; ResourceArn is syntax-validated only -- the target resource is not checked for existence in its owning service. Served on both rpc-v2-cbor and Query. TestRealClient_ResourceMetricsConfiguration"}
+  GetResourceMetricsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceNotFoundException when absent. Served on both rpc-v2-cbor and Query. TestRealClient_ResourceMetricsConfiguration"}
+  UpdateResourceMetricsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "selections replace (never merge); omitting them clears the filter; CreatedAt preserved. Served on both rpc-v2-cbor and Query. TestRealClient_ResourceMetricsConfiguration"}
+  DeleteResourceMetricsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "ResourceNotFoundException when absent. Served on both rpc-v2-cbor and Query. TestRealClient_ResourceMetricsConfiguration"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "generic ARN-keyed tag store — log alarm ARNs (arn.Build with alarm:<name>, same scheme as metric/composite alarms) work here with no changes needed."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -135,8 +140,7 @@ families:
 gaps:                      # known divergences NOT fixed — link bd issue ids
   # "DescribeAlarms AlarmTypes default-inclusion bug" (bd gopherstack-yvb7) FIXED 2026-07-26 --
   # see the DescribeAlarms ops row above and the Notes writeup below. No longer a gap.
-items_still_open:
-  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateResourceMetricsConfiguration, DeleteResourceMetricsConfiguration, GetResourceMetricsConfiguration, UpdateOTelEnrichment, UpdateResourceMetricsConfiguration."
+items_still_open: []
 structural_gaps:
   - "ListMetrics.IncludeLinkedAccounts/OwningAccount (cross-account observability): there are no monitoring-account sink or source-account links, so no other account's metrics exist to include."
 deferred:                 # consciously not audited this pass (scope) — next pass targets

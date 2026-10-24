@@ -41,6 +41,12 @@ const (
 	opGetOTelEnrichment         = "GetOTelEnrichment"
 	opStartOTelEnrichment       = "StartOTelEnrichment"
 	opStopOTelEnrichment        = "StopOTelEnrichment"
+	opUpdateOTelEnrichment      = "UpdateOTelEnrichment"
+
+	opCreateResourceMetricsConfiguration = "CreateResourceMetricsConfiguration"
+	opGetResourceMetricsConfiguration    = "GetResourceMetricsConfiguration"
+	opUpdateResourceMetricsConfiguration = "UpdateResourceMetricsConfiguration"
+	opDeleteResourceMetricsConfiguration = "DeleteResourceMetricsConfiguration"
 )
 
 const opSetAlarmState = "SetAlarmState"
@@ -327,6 +333,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetOTelEnrichment,
 		opStartOTelEnrichment,
 		opStopOTelEnrichment,
+		opUpdateOTelEnrichment,
+		opCreateResourceMetricsConfiguration,
+		opGetResourceMetricsConfiguration,
+		opUpdateResourceMetricsConfiguration,
+		opDeleteResourceMetricsConfiguration,
 	}
 }
 
@@ -681,6 +692,16 @@ func (h *Handler) dispatchDatasetOTelFormAction(
 		return true, h.handleStartOTelEnrichment(form, c)
 	case opStopOTelEnrichment:
 		return true, h.handleStopOTelEnrichment(form, c)
+	case opUpdateOTelEnrichment:
+		return true, h.handleUpdateOTelEnrichment(form, c)
+	case opCreateResourceMetricsConfiguration:
+		return true, h.handleCreateResourceMetricsConfiguration(form, c)
+	case opGetResourceMetricsConfiguration:
+		return true, h.handleGetResourceMetricsConfiguration(form, c)
+	case opUpdateResourceMetricsConfiguration:
+		return true, h.handleUpdateResourceMetricsConfiguration(form, c)
+	case opDeleteResourceMetricsConfiguration:
+		return true, h.handleDeleteResourceMetricsConfiguration(form, c)
 	}
 
 	return false, nil
