@@ -14,10 +14,10 @@ import (
 // (Go only shares generic bodies across pointer-shaped type arguments, and V
 // is a struct). The typed wrappers guarantee every pointer is a *V.
 type tableCore struct {
+	elem    reflect.Type
 	data    map[string]unsafe.Pointer
 	keyFn   func(unsafe.Pointer) string
 	indexes []*indexCore
-	elem    reflect.Type
 }
 
 // eraseKeyFn reinterprets func(*V) as func(unsafe.Pointer): identical ABI,

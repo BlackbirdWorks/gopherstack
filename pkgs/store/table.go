@@ -140,4 +140,3 @@ func (t *Table[V]) Restore(items []*V) {
 func (t *Table[V]) Reset() {
 	t.reset()
 }
-
