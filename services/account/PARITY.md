@@ -27,6 +27,8 @@ ops:
   GetAlternateContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-confirmed against real deserializers.go"}
   PutAlternateContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-confirmed all 5 required fields (Type/EmailAddress/Name/PhoneNumber/Title) against validators.go"}
   DeleteAlternateContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-confirmed against real deserializers.go"}
+  SendPhoneNumberVerification: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns PENDING and records a single-use OTP (fixed simOTP, like StartPrimaryEmailUpdate) bound to the primary contact's current phone number; ResourceNotFoundException when no contact information is set (phone_verification_test.go)"}
+  VerifyPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok, note: "Otp required; returns VERIFIED and consumes the OTP; ResourceNotFoundException when nothing is pending or PutContactInformation changed the phone number since send; ValidationException on a wrong OTP"}
   ListRegions: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults 1-50 range re-confirmed against the live API reference page (client SDK model has no generated range validator for it, but the docs page explicitly states 'Valid Range: Minimum value of 1. Maximum value of 50.') -- not invented"}
   GetRegionOptStatus: {wire: ok, errors: fixed, state: ok, persist: ok, note: "BUG FIXED: an unrecognized RegionName was misclassified as ResourceNotFoundException/404. Real GetRegionOptStatus's modeled error set (deserializers.go awsRestjson1_deserializeOpErrorGetRegionOptStatus) is only AccessDenied/InternalServer/TooManyRequests/Validation -- NO ResourceNotFoundException. Confirmed against the live API reference page's Errors section too. Now returns ValidationException/400 (errors.go's errRegionNotFound)."}
   EnableRegion: {wire: ok, errors: fixed, state: ok, persist: ok, note: "same bug/fix as GetRegionOptStatus: modeled errors are AccessDenied/Conflict/InternalServer/TooManyRequests/Validation, no ResourceNotFound. 2026-10-07: DISABLED -> ENABLING -> ENABLED after a short delay on a worker.Group timer (TestHandler_EnableDisableRegion); enabling while DISABLING returns ConflictException (types.ConflictException)."}
@@ -42,8 +44,7 @@ ops:
 families:
   routing: {status: ok, note: "full rewrite -- see bugs below"}
 gaps: []
-items_still_open:
-  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): SendPhoneNumberVerification, VerifyPhoneNumber."
+items_still_open: []
 structural_gaps:
   - "AccountId targeting of org member accounts: the optional AccountId/StandardAccountId is accepted but the single-account backend ignores it; member-account state and org management/delegated-admin membership live in services/organizations and need cross-service wiring."
   - "AccessDeniedException/TooManyRequestsException are classified but never raised: no per-request IAM evaluation or throttling exists for this service."

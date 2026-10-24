@@ -41,6 +41,8 @@ func sdkRouteCases() []struct{ op, method, path string } {
 		{"GetGovCloudAccountInformation", "POST", "/getGovCloudAccountInformation"},
 		{"GetPrimaryEmail", "POST", "/getPrimaryEmail"},
 		{"GetPrimaryEmailUpdateStatus", "POST", "/getPrimaryEmailUpdateStatus"},
+		{"SendPhoneNumberVerification", "POST", "/sendPhoneNumberVerification"},
+		{"VerifyPhoneNumber", "POST", "/verifyPhoneNumber"},
 		{"GetRegionOptStatus", "POST", "/getRegionOptStatus"},
 		{"ListRegions", "POST", "/listRegions"},
 		{"PutAccountName", "POST", "/putAccountName"},
