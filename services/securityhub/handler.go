@@ -202,6 +202,12 @@ const (
 	// Tickets V2.
 	opCreateTicketV2 = "CreateTicketV2"
 
+	// Export jobs V2.
+	opStartExportJobV2  = "StartExportJobV2"
+	opGetExportJobV2    = "GetExportJobV2"
+	opListExportJobsV2  = "ListExportJobsV2"
+	opCancelExportJobV2 = "CancelExportJobV2"
+
 	// Findings V2.
 	opGetFindingsV2          = "GetFindingsV2"
 	opBatchUpdateFindingsV2  = "BatchUpdateFindingsV2"
@@ -370,6 +376,11 @@ var supportedOperations = []string{ //nolint:gochecknoglobals // read-only looku
 	opRegisterConnectorV2,
 	// Tickets V2
 	opCreateTicketV2,
+	// Export jobs V2
+	opStartExportJobV2,
+	opGetExportJobV2,
+	opListExportJobsV2,
+	opCancelExportJobV2,
 	// Findings V2
 	opGetFindingsV2,
 	opBatchUpdateFindingsV2,
@@ -425,6 +436,7 @@ var securityHubOnlyPathPrefixes = []string{ //nolint:gochecknoglobals // read-on
 	pathConnectorsV2,
 	pathConnectors,
 	"/ticketsv2",
+	pathExportJobsV2,
 	"/findingsv2",
 	"/findingsTrendsv2",
 	"/resourcesv2",
@@ -591,6 +603,7 @@ func (h *Handler) opHandlerGroups(c *echo.Context, resource string, body map[str
 		h.aggregatorsV2OpHandlers(c, resource, body),
 		h.connectorsV2OpHandlers(c, resource, body),
 		h.connectorsOpHandlers(c, resource, body),
+		h.exportJobsV2OpHandlers(c, resource, body),
 		h.resourcesV2OpHandlers(c, body),
 	}
 }
@@ -692,6 +705,7 @@ var pathClassifiers = []pathClassifier{ //nolint:gochecknoglobals // ordered dis
 	{hasPathPrefix(pathConnectorsV2), classifyConnectorsV2Path},
 	{hasPathPrefix(pathConnectors), classifyConnectorsPath},
 	{hasPathPrefix("/ticketsv2"), classifyTicketsV2Path},
+	{hasPathPrefix(pathExportJobsV2), classifyExportJobsV2Path},
 	{hasPathPrefix("/recommendedPolicyV2"), classifyRecommendedPolicyV2Path},
 	{hasPathPrefix("/tags/"), classifyTagsPath},
 }

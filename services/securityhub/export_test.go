@@ -74,3 +74,14 @@ func ValidFinding(overrides map[string]any) map[string]any {
 
 	return f
 }
+
+// SeedExportJobV2 stores an export job in the given state, bypassing StartExportJobV2.
+func SeedExportJobV2(b *InMemoryBackend, id, status string) {
+	b.mu.Lock("SeedExportJobV2")
+	defer b.mu.Unlock()
+
+	b.exportJobsV2.Put(&ExportJobV2{
+		ExportJobID: id, Status: status, DataType: exportDataTypeFindings,
+		StartedAt: "2026-01-01T00:00:00Z", Format: exportFormatCSV,
+	})
+}

@@ -159,6 +159,12 @@ type StorageBackend interface {
 		maxResults int,
 	) ([]*CspmConnector, string)
 
+	// Export jobs V2
+	StartExportJobV2(in *ExportJobV2Input) (*ExportJobV2, error)
+	GetExportJobV2(id string) (*ExportJobV2, error)
+	ListExportJobsV2(dataType, status, nextToken string, maxResults int) ([]*ExportJobV2, string)
+	CancelExportJobV2(id string) (*ExportJobV2, error)
+
 	// Aggregator V2
 	CreateAggregatorV2(regionLinkingMode string, regions []string) (*AggregatorV2, error)
 	GetAggregatorV2(arn string) (*AggregatorV2, error)

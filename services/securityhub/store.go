@@ -114,6 +114,8 @@ type InMemoryBackend struct {
 	aggregatorsV2           *store.Table[AggregatorV2]
 	automationRulesV2       *store.Table[AutomationRuleV2]
 	cspmConnectors          *store.Table[CspmConnector]
+	exportJobsV2            *store.Table[ExportJobV2]
+	appConfig               any
 	region                  string
 	accountID               string
 	aggregatorV2Seq         int
