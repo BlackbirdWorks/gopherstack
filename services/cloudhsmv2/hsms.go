@@ -75,6 +75,17 @@ func (b *InMemoryBackend) CreateHsm(ctx context.Context, clusterID, zone, ip str
 		return wireHsm{}, fail(ErrInvalidRequest, "cannot create the HSM network interface: %v", err)
 	}
 
+	if c.HsmCert == "" && c.HsmKey != "" {
+		hw, hwErr := issueHardwareCerts(c.ID, c.HsmKey, now)
+		if hwErr != nil {
+			b.network.DeleteENI(sc.region, eniID)
+
+			return wireHsm{}, fail(ErrInternalFailure, "%v", hwErr)
+		}
+
+		c.HsmCert, c.AwsHwCert, c.MfrHwCert = hw.HSM, hw.AWS, hw.Manufacturer
+	}
+
 	h := &Hsm{
 		ID: newHsmID(), ClusterID: clusterID, Account: sc.account, Region: sc.region, Zone: zone, SubnetID: subnetID,
 		EniID: eniID, EniIP: eniIP, HsmType: c.HsmType, Created: now, ReadyAt: now.Add(b.dwell()),

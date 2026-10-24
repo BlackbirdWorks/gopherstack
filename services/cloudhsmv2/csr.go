@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -16,31 +17,134 @@ const (
 	maxCertChars = 5000
 	pemCSR       = "CERTIFICATE REQUEST"
 	pemCert      = "CERTIFICATE"
+	pemKey       = "PRIVATE KEY"
+	serialBits   = 120
+	certYears    = 20
 )
 
-// newClusterCSR returns a PEM CSR for a fresh key; the key is dropped because only the HSM would hold it.
-func newClusterCSR(clusterID string) (string, error) {
+// newClusterCSR returns a PEM CSR signed by a fresh HSM key, plus that key as PKCS#8 PEM.
+func newClusterCSR(clusterID string) (csrPEM, keyPEM string, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return "", fmt.Errorf("cloudhsmv2: generate key: %w", err)
+		return "", "", fmt.Errorf("cloudhsmv2: generate key: %w", err)
 	}
 
 	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
-		Subject: pkix.Name{
-			Country:            []string{"US"},
-			Province:           []string{"CA"},
-			Locality:           []string{"San Jose"},
-			Organization:       []string{"Cavium Inc."},
-			OrganizationalUnit: []string{"N3FIPS"},
-			CommonName:         "HSM:" + clusterID,
-		},
+		Subject:            hsmSubject(clusterID),
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
 	}, key)
 	if err != nil {
-		return "", fmt.Errorf("cloudhsmv2: create csr: %w", err)
+		return "", "", fmt.Errorf("cloudhsmv2: create csr: %w", err)
 	}
 
-	return string(pem.EncodeToMemory(&pem.Block{Type: pemCSR, Bytes: der})), nil
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", "", fmt.Errorf("cloudhsmv2: marshal key: %w", err)
+	}
+
+	return string(pem.EncodeToMemory(&pem.Block{Type: pemCSR, Bytes: der})),
+		string(pem.EncodeToMemory(&pem.Block{Type: pemKey, Bytes: keyDER})), nil
+}
+
+func hsmSubject(clusterID string) pkix.Name {
+	return pkix.Name{
+		Country:            []string{"US"},
+		Province:           []string{"CA"},
+		Locality:           []string{"San Jose"},
+		Organization:       []string{"Cavium Inc."},
+		OrganizationalUnit: []string{"N3FIPS"},
+		CommonName:         "HSM:" + clusterID,
+	}
+}
+
+// hardwareCerts is the PEM chain CloudHSM reports once a cluster has an HSM.
+type hardwareCerts struct{ Manufacturer, AWS, HSM string }
+
+// issueHardwareCerts builds manufacturer (self-signed) -> AWS hardware -> HSM certificates;
+// the HSM certificate certifies the cluster's HSM key.
+func issueHardwareCerts(clusterID, hsmKeyPEM string, now time.Time) (hardwareCerts, error) {
+	blk, _ := pem.Decode([]byte(hsmKeyPEM))
+	if blk == nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: stored HSM key is unreadable")
+	}
+
+	parsed, err := x509.ParsePKCS8PrivateKey(blk.Bytes)
+	if err != nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: parse HSM key: %w", err)
+	}
+
+	hsmKey, ok := parsed.(*ecdsa.PrivateKey)
+	if !ok {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: HSM key is not ECDSA")
+	}
+
+	mfrKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: generate key: %w", err)
+	}
+
+	awsKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: generate key: %w", err)
+	}
+
+	mfrTmpl := certTemplate("Cavium Manufacturer CA", "Cavium Inc.", now, true)
+
+	mfrDER, err := x509.CreateCertificate(rand.Reader, mfrTmpl, mfrTmpl, &mfrKey.PublicKey, mfrKey)
+	if err != nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: create manufacturer certificate: %w", err)
+	}
+
+	mfrCert, err := x509.ParseCertificate(mfrDER)
+	if err != nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: parse manufacturer certificate: %w", err)
+	}
+
+	awsTmpl := certTemplate("AWS CloudHSM Hardware", "Amazon Web Services", now, true)
+
+	awsDER, err := x509.CreateCertificate(rand.Reader, awsTmpl, mfrCert, &awsKey.PublicKey, mfrKey)
+	if err != nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: create AWS hardware certificate: %w", err)
+	}
+
+	awsCert, err := x509.ParseCertificate(awsDER)
+	if err != nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: parse AWS hardware certificate: %w", err)
+	}
+
+	hsmTmpl := certTemplate("HSM:"+clusterID, "Cavium Inc.", now, false)
+	hsmTmpl.Subject = hsmSubject(clusterID)
+
+	hsmDER, err := x509.CreateCertificate(rand.Reader, hsmTmpl, awsCert, &hsmKey.PublicKey, awsKey)
+	if err != nil {
+		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: create HSM certificate: %w", err)
+	}
+
+	enc := func(der []byte) string { return string(pem.EncodeToMemory(&pem.Block{Type: pemCert, Bytes: der})) }
+
+	return hardwareCerts{Manufacturer: enc(mfrDER), AWS: enc(awsDER), HSM: enc(hsmDER)}, nil
+}
+
+func certTemplate(cn, org string, now time.Time, ca bool) *x509.Certificate {
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), serialBits))
+	if err != nil {
+		serial = big.NewInt(now.UnixNano())
+	}
+
+	t := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: cn, Organization: []string{org}},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.AddDate(certYears, 0, 0),
+		BasicConstraintsValid: true,
+		IsCA:                  ca,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+	}
+	if ca {
+		t.KeyUsage |= x509.KeyUsageCertSign
+	}
+
+	return t
 }
 
 func parseCerts(label, data string) ([]*x509.Certificate, error) {

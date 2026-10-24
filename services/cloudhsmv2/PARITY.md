@@ -6,7 +6,7 @@ last_audit_date: 2026-10-18
 overall: B            # all 18 SDK operations are backed by real state and verified through the real SDK client in-package; B until the open items below close.
 ops:
   CopyBackupToRegion: {wire: ok, errors: ok, state: ok, persist: ok, note: "READY backups only, different valid region; the copy gets its own ID in the destination region (CopyTimestamp, SourceBackup/Cluster/Region set); source tags copied unless TagList is given"}
-  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATE_IN_PROGRESS until the lifecycle dwell (500ms) then UNINITIALIZED; subnets validated through EC2 (one per AZ, one VPC), security group created in the VPC; real X.509 CSR (ECDSA P-256) in Certificates.ClusterCsr; SourceBackupId (ID or shared ARN) restores an initialized cluster; mode defaults FIPS (hsm1.medium) / NON_FIPS (hsm2m.medium); quota 4 clusters per region"}
+  CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATE_IN_PROGRESS until the lifecycle dwell (500ms) then UNINITIALIZED; subnets validated through EC2 (one per AZ, one VPC), security group created in the VPC; real X.509 CSR (ECDSA P-256) in Certificates.ClusterCsr; first CreateHsm adds HsmCertificate, AwsHardwareCertificate and ManufacturerHardwareCertificate (chain verifies); SourceBackupId (ID or shared ARN) restores an initialized cluster; mode defaults FIPS (hsm1.medium) / NON_FIPS (hsm2m.medium); quota 4 clusters per region"}
   CreateHsm: {wire: ok, errors: ok, state: ok, persist: ok, note: "one HSM per cluster AZ; ENI (with optional IpAddress) created in the cluster subnet through EC2 and attached to the cluster security group; CREATE_IN_PROGRESS then ACTIVE; at most 28 per cluster"}
   DeleteBackup: {wire: ok, errors: ok, state: ok, persist: ok, note: "READY -> PENDING_DELETION with DeleteTimestamp 7 days out; DELETED and gone afterwards"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "refused (CloudHsmInvalidRequestException) while HSMs exist; DELETE_IN_PROGRESS then gone, releasing the security group"}
@@ -28,8 +28,7 @@ families:
   backups: {status: ok, note: "taken when an initialized cluster gains its first HSM, when it initializes with an HSM, and when its last HSM is deleted; copies and cross-account sharing via resource policy"}
   tags: {status: ok, note: "cluster and backup tags; backups inherit the cluster tags at backup time"}
 items_still_open:
-  - Certificates: AwsHardwareCertificate, HsmCertificate and ManufacturerHardwareCertificate are not emitted
-  - Hsm.EniIpV6: DUALSTACK clusters get an IPv4 ENI only; no IPv6 address is allocated
+  - Hsm.EniIpV6: DUALSTACK clusters get an IPv4 ENI only; the EC2 backend assigns IPv6 addresses from a fixed 2001:db8:: prefix, not the subnet IPv6 CIDR, so none is allocated
   - Backups: no daily automatic backups; only the lifecycle points listed in the backups family
   - DescribeBackups Shared: only PutResourcePolicy grants are consulted; RAM resource shares are not
   - CopyBackupToRegion: same-account copies only; the destination region is a label on the stored backup, not a separate backend
@@ -39,7 +38,7 @@ items_still_open:
 gaps: []
 structural_gaps:
   - Cluster.PreCoPassword: the HSM user model (PRECO, CO, CU) does not exist, so no password can be real
-  - Certificates hardware chain: there is no physical HSM to carry AWS or manufacturer hardware certificates
+  - Certificates hardware chain: the manufacturer, AWS hardware and HSM certificates are emulator-issued (manufacturer root is generated per cluster), not rooted in a real vendor CA
   - Cluster ACTIVE from a customer activation: real clusters become ACTIVE after the CloudHSM CLI activates them on the HSM; the emulator derives ACTIVE from an initialized cluster with an ACTIVE HSM
 deferred: []
 leaks: {status: clean, note: "no goroutines or timers; transitional states are computed from the clock and reaped on the next write"}
@@ -47,5 +46,5 @@ leaks: {status: clean, note: "no goroutines or timers; transitional states are c
 
 ## Notes
 Protocol awsjson1.1, target prefix `BaldrApiService.`, signing name `cloudhsm`; timestamps are epoch-seconds numbers.
-The CSR key is dropped after the CSR is generated (only the HSM would hold it); InitializeCluster compares the signed certificate's public key with the CSR's.
+The CSR key is kept (PKCS#8, persisted) as the HSM key; when the first HSM is created the emulator issues manufacturer (self-signed) -> AWS hardware -> HSM certificates once per cluster, surfaced in Certificates.
 Account and region come from the request; resources are scoped by both, and a backup copy lives in the destination region.
