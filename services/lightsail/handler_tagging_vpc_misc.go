@@ -8,6 +8,7 @@ func (h *Handler) taggingVpcMiscOps() map[string]opFunc {
 		"PeerVpc":                       h.handlePeerVpc,
 		"UnpeerVpc":                     h.handleUnpeerVpc,
 		"IsVpcPeered":                   h.handleIsVpcPeered,
+		"GetProfile":                    h.handleGetProfile,
 		"TagResource":                   h.handleTagResource,
 		"UntagResource":                 h.handleUntagResource,
 		"CreateGUISessionAccessDetails": h.handleCreateGUISessionAccessDetails,

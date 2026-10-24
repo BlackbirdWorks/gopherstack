@@ -167,6 +167,7 @@ func sdkRouteCases() []struct{ op, target string } {
 		{"GetRelationalDatabases", "Lightsail_20161128.GetRelationalDatabases"},
 		{"GetRelationalDatabaseSnapshot", "Lightsail_20161128.GetRelationalDatabaseSnapshot"},
 		{"GetRelationalDatabaseSnapshots", "Lightsail_20161128.GetRelationalDatabaseSnapshots"},
+		{"GetProfile", "Lightsail_20161128.GetProfile"},
 		{"GetSetupHistory", "Lightsail_20161128.GetSetupHistory"},
 		{"GetStaticIp", "Lightsail_20161128.GetStaticIp"},
 		{"GetStaticIps", "Lightsail_20161128.GetStaticIps"},

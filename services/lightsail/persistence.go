@@ -24,6 +24,7 @@ type backendSnapshot struct {
 	Region           string                     `json:"region"`
 	Version          int                        `json:"version"`
 	NextAccessKeySeq int                        `json:"nextAccessKeySeq"`
+	Partner          *PartnerProfile            `json:"partner,omitempty"`
 	VpcPeered        bool                       `json:"vpcPeered"`
 }
 
@@ -46,6 +47,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:           b.region,
 		DefaultKeyPair:   b.defaultKeyPair,
 		VpcPeered:        b.vpcPeered,
+		Partner:          b.partner,
 		NextAccessKeySeq: b.nextAccessKeySeq,
 	}
 
@@ -85,6 +87,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.region = snap.Region
 	b.defaultKeyPair = snap.DefaultKeyPair
 	b.vpcPeered = snap.VpcPeered
+	b.partner = snap.Partner
 	b.nextAccessKeySeq = snap.NextAccessKeySeq
 
 	return nil
