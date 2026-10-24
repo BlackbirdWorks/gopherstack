@@ -43,7 +43,9 @@ ops:
   UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "Replaces the group; cycles are rejected."}
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FAILED_PRECONDITION when subgroups exist unless recursive."}
   ListGroupMembers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Distinct resources of the stored series that match the group filter and the request filter; the interval is ignored."}
-  QueryService: {wire: gap, errors: gap, state: gap, persist: n/a, note: "QueryTimeSeries (MQL and PromQL) is UNIMPLEMENTED."}
+  QueryService: {wire: gap, errors: gap, state: gap, persist: n/a, note: "The gRPC QueryTimeSeries accepts only MQL (deprecated) and returns UNIMPLEMENTED. PromQL is served over the Prometheus HTTP API instead."}
+  PromQLQuery: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET/POST /v1/projects/P/location/global/prometheus/api/v1/query and query_range on the service port, evaluated by the services/amp/promql engine over the stored series, including log-based metrics. Metric DOMAIN/PATH is DOMAIN_WITH_UNDERSCORES:PATH_WITH_UNDERSCORES (compute.googleapis.com/instance/cpu/utilization is compute_googleapis_com:instance_cpu_utilization); prometheus.googleapis.com/NAME/TYPE is NAME. Labels are resource labels, monitored_resource (the resource type) and metric labels. CUMULATIVE and GAUGE points are samples at their end time, DELTA points read as a running total, BOOL is 0/1, STRING series are skipped; distributions expand to NAME_sum, NAME_count and NAME_bucket{le}. Prometheus error envelope: bad_data 400, execution 422, timeout 503."}
+  PromQLMetadata: {wire: ok, errors: ok, state: ok, persist: n/a, note: "series, labels, label/NAME/values (match[], start, end) and metadata (metric, limit; type derived from the metric kind, unit from the series) on the same path. No auth, no rules/alerts/targets endpoints."}
   CreateService: {wire: ok, errors: partial, state: ok, persist: ok, note: "Service id [a-z0-9-]+ up to 63 chars or generated; one identifier (custom, app_engine, cloud_endpoints, cluster_istio, mesh_istio, istio_canonical_service, cloud_run, gke_*) or basic_service is required; ALREADY_EXISTS on a duplicate id. The live-service messages were not available."}
   GetService: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Full resource name."}
   ListServices: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Filter on identifier_case, <identifier>.<attribute>, display_name, name and user_labels.*; ordered by name, paged. workspaces/ parents are rejected."}
@@ -68,7 +70,7 @@ families:
   auth: {status: partial, note: "No request is authenticated or authorised; mutation records report mutated_by gopherstack."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state. RPC failures are logged at debug; gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
-  - "QueryService (MQL and PromQL) returns UNIMPLEMENTED."
+  - "QueryService.QueryTimeSeries (MQL, deprecated by Google) returns UNIMPLEMENTED. The PromQL HTTP API has no rules, alerts, targets, exemplars or buildinfo endpoints, and ignores the timeout parameter."
   - "ServiceLevelObjective view=EXPLICIT does not expand a BasicSli into a RequestBasedSli, and SLO attainment is never evaluated (no error-budget burn, no SLO-based alerting)."
   - "Alert conditions condition_matched_log, condition_monitoring_query_language, condition_prometheus_query_language and condition_sql are stored but never evaluated; ratio conditions (denominator_filter) are rejected; forecast_options, evaluation_missing_data, notification_rate_limit, notification_channel_strategy and auto_close are stored but have no effect."
   - "Incidents are not exposed through a Cloud Monitoring API; they are readable only from Go through InMemoryBackend.Incidents."

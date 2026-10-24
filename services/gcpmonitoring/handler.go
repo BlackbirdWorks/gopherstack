@@ -169,7 +169,9 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	log.InfoContext(workerCtx, "gcpmonitoring: starting dedicated gRPC listener", "port", h.Port)
 
 	h.wg.Go(func() {
-		if serveErr := gcprest.Serve(srv, listener); serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
+		if serveErr := gcprest.ServeWithExtras(srv, listener, nil, gcprest.Extra{
+			Match: IsPrometheusPath, Handler: h.Backend.PrometheusHandler(),
+		}); serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
 			log.ErrorContext(workerCtx, "gcpmonitoring: listener stopped", "error", serveErr)
 		}
 	})
