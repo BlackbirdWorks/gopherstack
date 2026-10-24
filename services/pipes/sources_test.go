@@ -349,7 +349,7 @@ func TestBatchSize_EffectiveFromAllSources(t *testing.T) {
 				SourceParameters: tt.sourceParams,
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			// verify via GetPipe + runner poll
 			sqsReader := &fakeSQSReader{}
@@ -755,7 +755,7 @@ func newStreamSourceHarness(t *testing.T, tc streamSourceCase) *streamSourceHarn
 
 	_, err := backend.CreatePipe(context.Background(), input)
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, backend, input.Name)
+	waitPipeRunning(t, backend, input.Name)
 
 	h := &streamSourceHarness{lambdaInvoker: &mockPipeLambdaInvoker{err: tc.lambdaErr}}
 	h.runner = pipes.NewRunner(backend)

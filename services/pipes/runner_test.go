@@ -94,7 +94,7 @@ func createTestPipe(t *testing.T, backend *pipes.InMemoryBackend, name, source, 
 	require.NoError(t, err)
 
 	if state == "RUNNING" {
-		pipes.WaitPipeRunning(t, backend, name)
+		waitPipeRunning(t, backend, name)
 	}
 }
 
@@ -289,7 +289,7 @@ func TestPipesRunner_FilterCriteria(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, backend, "filter-pipe")
+	waitPipeRunning(t, backend, "filter-pipe")
 
 	sqsReader := &mockSQSReader{
 		messages: []*pipes.SQSMessage{
@@ -337,7 +337,7 @@ func TestPipesRunner_ConfigurableBatchSize(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, backend, "batch-pipe")
+	waitPipeRunning(t, backend, "batch-pipe")
 
 	sqsReader := &mockSQSReader{}
 	runner := pipes.NewRunner(backend)
@@ -459,7 +459,7 @@ func TestPipeSourceFiltering(t *testing.T) {
 				SourceParameters: sourceParams,
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, pipeName)
+			waitPipeRunning(t, b, pipeName)
 
 			pipes.PollAllPipesOnce(context.Background(), r)
 
@@ -519,7 +519,7 @@ func TestPipesRunner_ShardIteratorSweep(t *testing.T) {
 
 		_, err := backend.StopPipe(context.Background(), "sweep-pipe")
 		require.NoError(t, err)
-		pipes.WaitPipeStopped(t, backend, "sweep-pipe")
+		waitPipeStopped(t, backend, "sweep-pipe")
 
 		// Give the background ticker at least one full cycle while the pipe is
 		// stopped, so the sweep observes it outside the running set and prunes
@@ -530,7 +530,7 @@ func TestPipesRunner_ShardIteratorSweep(t *testing.T) {
 
 		_, err = backend.StartPipe(context.Background(), "sweep-pipe")
 		require.NoError(t, err)
-		pipes.WaitPipeRunning(t, backend, "sweep-pipe")
+		waitPipeRunning(t, backend, "sweep-pipe")
 
 		time.Sleep(1100 * time.Millisecond)
 		synctest.Wait()
@@ -556,7 +556,7 @@ func TestPipesRunner_InputTemplate(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, backend, "template-pipe")
+	waitPipeRunning(t, backend, "template-pipe")
 
 	sqsReader := &mockSQSReader{
 		messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "hello"}},

@@ -91,7 +91,7 @@ func b3CreatePipe(t *testing.T, b *pipes.InMemoryBackend, name, target string) {
 		DesiredState: "RUNNING",
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, b, name)
+	waitPipeRunning(t, b, name)
 }
 
 const (
@@ -322,7 +322,7 @@ func b4CreatePipe(t *testing.T, b *pipes.InMemoryBackend, name, target string) {
 		DesiredState: "RUNNING",
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, b, name)
+	waitPipeRunning(t, b, name)
 }
 
 const (
@@ -422,7 +422,7 @@ func TestLambda_InvocationType_Mapping(t *testing.T) {
 				TargetParameters: tp,
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, "it-"+tt.name)
+			waitPipeRunning(t, b, "it-"+tt.name)
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
@@ -535,7 +535,7 @@ func TestTarget_SQS(t *testing.T) {
 				TargetParameters: tt.tp,
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
@@ -603,7 +603,7 @@ func TestTarget_Kinesis(t *testing.T) {
 				TargetParameters: tt.tp,
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
@@ -673,7 +673,7 @@ func TestTarget_EventBridge(t *testing.T) {
 				TargetParameters: tt.tp,
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
@@ -742,7 +742,7 @@ func TestTarget_CloudWatchLogs(t *testing.T) {
 				TargetParameters: tt.tp,
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},
@@ -899,7 +899,7 @@ func TestTarget_Firehose_InputTemplate(t *testing.T) {
 				TargetParameters: tp,
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			sqsReader := &b4MockSQSReader{
 				messages: []*pipes.SQSMessage{

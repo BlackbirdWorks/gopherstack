@@ -120,7 +120,7 @@ func TestRunner_EnrichmentFailure_RoutesToDLQ(t *testing.T) {
 				SourceParameters: dlqKinesisSourceParams(tt.dlqARN),
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name)
+			waitPipeRunning(t, b, tt.name)
 
 			reader := dlqKinesisReaderWithRecord("boom")
 			sender := &dlqMockSQSSender{}
@@ -156,7 +156,7 @@ func TestRunner_EnrichmentFailure_SNSDLQ(t *testing.T) {
 		SourceParameters: dlqKinesisSourceParams(dlqSNSTopicARN),
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, b, "sns-dlq")
+	waitPipeRunning(t, b, "sns-dlq")
 
 	reader := dlqKinesisReaderWithRecord("boom")
 	sns := &dlqMockSNSPublisher{}
@@ -185,7 +185,7 @@ func TestRunner_TargetFailure_RoutesToDLQ(t *testing.T) {
 		SourceParameters: dlqKinesisSourceParams(dlqQueueARN),
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, b, "target-dlq")
+	waitPipeRunning(t, b, "target-dlq")
 
 	reader := dlqKinesisReaderWithRecord("boom")
 	sender := &dlqMockSQSSender{}
