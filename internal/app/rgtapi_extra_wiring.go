@@ -16,6 +16,7 @@ import (
 	rgtapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreaminfluxdbbackend "github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -39,6 +40,7 @@ func wireResourceGroupsTaggingSweep7(
 	wireTaggingCloudHSMV2(bk, byName["CloudHSMV2"])
 	wireTaggingCodeGuruReviewer(bk, byName["CodeGuruReviewer"])
 	wireTaggingRUM(bk, byName["RUM"])
+	wireTaggingTimestreamInfluxDB(bk, byName["TimestreamInfluxDB"])
 }
 
 func toTaggedResources[T ~struct {
@@ -332,6 +334,30 @@ func wireTaggingRUM(bk rgtapibackend.StorageBackend, reg service.Registerable) {
 			return toTaggedResources(b.TaggedResources(ctx), resourceType)
 		},
 		"rum",
+		func(ctx context.Context, arn string, tags map[string]string) error {
+			return b.TagResource(inRegion(ctx, originRegion(ctx, arn)), arn, tags)
+		},
+		func(ctx context.Context, arn string, keys []string) error {
+			return b.UntagResource(inRegion(ctx, originRegion(ctx, arn)), arn, keys)
+		},
+	)
+}
+
+func wireTaggingTimestreamInfluxDB(bk rgtapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*timestreaminfluxdbbackend.Handler)
+	if !ok {
+		return
+	}
+
+	b := h.Backend
+	resourceType := arnResourceType("timestream-influxdb")
+
+	registerTaggingService(
+		bk,
+		func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(b.TaggedResources(ctx), resourceType)
+		},
+		"timestream-influxdb",
 		func(ctx context.Context, arn string, tags map[string]string) error {
 			return b.TagResource(inRegion(ctx, originRegion(ctx, arn)), arn, tags)
 		},
