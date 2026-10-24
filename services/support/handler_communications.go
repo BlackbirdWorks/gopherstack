@@ -10,6 +10,7 @@ type addCommunicationToCaseInput struct {
 	CaseID            string   `json:"caseId"`
 	CommunicationBody string   `json:"communicationBody"`
 	AttachmentSetID   string   `json:"attachmentSetId,omitempty"`
+	UploadIDs         []string `json:"uploadIds,omitempty"`
 	CCEmails          []string `json:"ccEmailAddresses,omitempty"`
 }
 
@@ -23,7 +24,7 @@ func (h *Handler) handleAddCommunicationToCase(
 ) (*addCommunicationToCaseOutput, error) {
 	options := AddCommunicationOptions{
 		CaseID: in.CaseID, CommunicationBody: in.CommunicationBody,
-		AttachmentSetID: in.AttachmentSetID, CCEmails: in.CCEmails,
+		AttachmentSetID: in.AttachmentSetID, CCEmails: in.CCEmails, UploadIDs: in.UploadIDs,
 	}
 	if err := validateCommunication(options); err != nil {
 		return nil, err
@@ -49,6 +50,7 @@ type communicationView struct {
 	SubmittedBy   string          `json:"submittedBy"`
 	TimeCreated   string          `json:"timeCreated"`
 	AttachmentSet []AttachmentRef `json:"attachmentSet,omitempty"`
+	Attachments   []AttachmentRef `json:"attachments,omitempty"`
 }
 
 type recentCaseCommunicationsView struct {
@@ -95,9 +97,15 @@ func (h *Handler) handleDescribeCommunications(
 func communicationViews(comms []Communication) []communicationView {
 	views := make([]communicationView, 0, len(comms))
 	for _, comm := range comms {
+		all := comm.Attachments
+		if all == nil {
+			all = comm.AttachmentSet
+		}
+
 		views = append(views, communicationView{
 			CaseID: comm.CaseID, Body: comm.Body, SubmittedBy: comm.SubmittedBy,
 			TimeCreated: comm.TimeCreated.UTC().Format(time.RFC3339), AttachmentSet: comm.AttachmentSet,
+			Attachments: all,
 		})
 	}
 

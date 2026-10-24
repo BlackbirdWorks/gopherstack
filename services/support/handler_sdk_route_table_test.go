@@ -42,6 +42,10 @@ import (
 func sdkRouteCases() []struct{ op, target string } {
 	return []struct{ op, target string }{
 		{"AddAttachmentsToSet", "AWSSupport_20130415.AddAttachmentsToSet"},
+		{"CompleteAttachmentUpload", "AWSSupport_20130415.CompleteAttachmentUpload"},
+		{"DescribeAttachmentUploadStatus", "AWSSupport_20130415.DescribeAttachmentUploadStatus"},
+		{"GetAttachmentDownloadLink", "AWSSupport_20130415.GetAttachmentDownloadLink"},
+		{"GetAttachmentUploadLinks", "AWSSupport_20130415.GetAttachmentUploadLinks"},
 		{"AddCommunicationToCase", "AWSSupport_20130415.AddCommunicationToCase"},
 		{"CreateCase", "AWSSupport_20130415.CreateCase"},
 		{"DescribeAttachment", "AWSSupport_20130415.DescribeAttachment"},

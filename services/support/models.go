@@ -46,6 +46,7 @@ type Communication struct {
 	CaseID          string          `json:"caseId"`
 	AttachmentSetID string          `json:"attachmentSetId,omitempty"`
 	AttachmentSet   []AttachmentRef `json:"attachmentSet,omitempty"`
+	Attachments     []AttachmentRef `json:"attachments,omitempty"`
 	CCEmails        []string        `json:"ccEmailAddresses,omitempty"`
 }
 
@@ -198,6 +199,7 @@ type CreateCaseOptions struct {
 	Language          string
 	IssueType         string
 	CCEmails          []string
+	UploadIDs         []string
 }
 
 // AddCommunicationOptions contains API-visible communication input data.
@@ -206,6 +208,7 @@ type AddCommunicationOptions struct {
 	CommunicationBody string
 	AttachmentSetID   string
 	CCEmails          []string
+	UploadIDs         []string
 }
 
 // DescribeCasesOptions contains supported case query and pagination filters.

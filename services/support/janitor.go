@@ -24,7 +24,12 @@ func (b *InMemoryBackend) sweepExpiredResources(ctx context.Context) {
 	b.mu.Lock("sweepExpiredResources")
 	defer b.mu.Unlock()
 
-	now := time.Now()
+	now := b.clock()
+
+	if n := b.sweepUploadsLocked(now); n > 0 {
+		telemetry.RecordWorkerItems("support", "AttachmentCleaner", n)
+	}
+
 	expiredSets := make([]string, 0, b.attachmentSets.Len())
 
 	b.attachmentSets.Range(func(set *AttachmentSet) bool {

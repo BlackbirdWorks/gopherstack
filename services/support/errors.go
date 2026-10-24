@@ -7,6 +7,10 @@ var (
 	ErrNotFound = awserr.New("CaseIdNotFound", awserr.ErrNotFound)
 	// ErrAttachmentNotFound is returned when an attachment is not found.
 	ErrAttachmentNotFound = awserr.New("AttachmentIdNotFound", awserr.ErrNotFound)
+	// ErrUploadIDNotFound is returned when a multipart upload is not found.
+	ErrUploadIDNotFound = awserr.New("UploadIdNotFound", awserr.ErrNotFound)
+	// ErrDryRun is returned when a request passes validation with dryRun set.
+	ErrDryRun = awserr.New("DryRunOperationException", awserr.ErrInvalidParameter)
 	// ErrValidation is returned when required input fields are missing or invalid.
 	ErrValidation = awserr.New("ValidationError", awserr.ErrInvalidParameter)
 	// ErrAttachmentSetNotFound indicates an unknown staged attachment set.
