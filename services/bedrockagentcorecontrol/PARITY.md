@@ -194,7 +194,7 @@ families:
 gaps: []
 items_still_open:
   - Gateway MCP endpoint: the gateway URL is generated but nothing serves MCP tool calls on it
-  - Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear omitted description, configuration and credential members (the SDK documents this only for certificateConfigurations and exceptionLevel; the rest follows the PUT-style required-member shape); service-defaulted members (network, protocol, lifecycle, KMS key, platform version) are retained when omitted, which is unverified against the service
+  - Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear on omission only the members the pinned SDK documents as clearing (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); every other optional member (description, environmentVariables, authorizerConfiguration, credentialProviderConfigurations and so on) is retained when omitted, pending verification against the service
   - Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
   - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
   - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
@@ -221,7 +221,7 @@ Routing is gated by the SigV4 signing name `bedrock-agentcore` (or the SDK user 
 `ops.json` is extracted from the pinned module (serializers.go for the HTTP binding and body members, validators.go for required members, deserializers.go for output members and timestamp formats, enums.go for enum sets). Regenerate it when the SDK pin moves.
 
 Update members that the SDK models as `{"optionalValue": x}` wrappers (`UpdatedDescription` and friends) are unwrapped before they are stored, and an empty wrapper clears the member.
-PUT-style updates (UpdateAgentRuntime, UpdateGateway, UpdateGatewayTarget) clear their omitted optional members listed in `putClears` (engine.go).
+UpdateGateway exceptionLevel and UpdateGatewayTarget certificateConfigurations are cleared when omitted (`putClears` in engine.go); other members merge.
 
 Identifier formats: name-based ids are `<name>-<10 hex>`, target, rule and rate-limit ids are 10 uppercase hex characters, registry and record ids are 12 hex characters. Gateway ids are lowercased.
 

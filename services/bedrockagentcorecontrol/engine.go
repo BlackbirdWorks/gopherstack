@@ -769,29 +769,14 @@ var patchWrapped = map[string][]string{ //nolint:gochecknoglobals // immutable l
 
 const keyAuthorizerConfig = "authorizerConfiguration"
 
-// putClears lists the optional members of PUT-style updates that an update omitting them clears.
-// Service-defaulted members (network, protocol, lifecycle, KMS key) are not listed.
+// putClears lists the update members the pinned SDK documents as cleared when omitted
+// (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); all others merge.
 var putClears = map[string][]string{ //nolint:gochecknoglobals // immutable lookup
-	kindRuntime: {
-		keyAuthorizerConfig, "capacityProviderConfiguration", keyDescription, "environmentVariables",
-		"filesystemConfigurations", "metadataConfiguration", "requestHeaderConfiguration",
-	},
-	kindGateway: {
-		"customTransformConfiguration", keyDescription, "exceptionLevel",
-		"interceptorConfigurations", "policyEngineConfiguration", "wafConfiguration",
-	},
-	kindGatewayTarget: {
-		"certificateConfigurations", "credentialProviderConfigurations", keyDescription,
-		"metadataConfiguration", "privateEndpoint",
-	},
+	kindGateway:       {"exceptionLevel"},
+	kindGatewayTarget: {"certificateConfigurations"},
 }
 
 func clearOmitted(kind string, patch map[string]any) {
-	_, hasAuth := patch[keyAuthorizerConfig]
-	if !hasAuth && kind == kindGateway && patch["authorizerType"] != authCustomJWT {
-		patch[keyAuthorizerConfig] = nil
-	}
-
 	for _, key := range putClears[kind] {
 		if _, present := patch[key]; !present {
 			patch[key] = nil

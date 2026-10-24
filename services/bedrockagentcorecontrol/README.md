@@ -17,7 +17,7 @@
 ### Known gaps
 
 - Gateway MCP endpoint: the gateway URL is generated but nothing serves MCP tool calls on it
-- Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear omitted description, configuration and credential members (the SDK documents this only for certificateConfigurations and exceptionLevel; the rest follows the PUT-style required-member shape); service-defaulted members (network, protocol, lifecycle, KMS key, platform version) are retained when omitted, which is unverified against the service
+- Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear on omission only the members the pinned SDK documents as clearing (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); every other optional member (description, environmentVariables, authorizerConfiguration, credentialProviderConfigurations and so on) is retained when omitted, pending verification against the service
 - Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
 - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
 - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
