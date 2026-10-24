@@ -2,7 +2,6 @@ package s3
 
 import (
 	"context"
-	"encoding/xml"
 	"net/http"
 	"strings"
 
@@ -134,8 +133,8 @@ func (h *S3Handler) deleteObjects(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "DeleteObjects")
-	var req DeleteRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	req, err := decodeDeleteRequest(r.Body)
+	if err != nil {
 		WriteError(ctx, w, r, ErrInvalidArgument)
 
 		return
