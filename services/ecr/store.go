@@ -107,7 +107,8 @@ func (b *InMemoryBackend) SetEndpointStrategy(cfg endpointstrategy.Config) {
 
 // registryHostLocked is the host used in repository URIs for region; the caller holds b.mu.
 func (b *InMemoryBackend) registryHostLocked(region string) string {
-	if host := endpointstrategy.ECRRegistryHost(b.endpoints.ECR, b.endpoints.HostPort, b.accountID, region); host != "" {
+	cfg := b.endpoints
+	if host := endpointstrategy.ECRRegistryHost(cfg.ECR, cfg.HostPort, b.accountID, region); host != "" {
 		registryauth.Default().RegisterEmulated(host, dummyUser, dummyPassword)
 
 		return host

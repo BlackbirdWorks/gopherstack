@@ -42,7 +42,8 @@ func TestRegistryRoutesOnStrategyHosts(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.host+"/repo1", repo.RepositoryURI)
 
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+tc.host+"/v2/repo1/manifests/latest", nil)
+			target := "http://" + tc.host + "/v2/repo1/manifests/latest"
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 			rec := httptest.NewRecorder()
 			c := echo.New().NewContext(req, rec)
 

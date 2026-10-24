@@ -124,7 +124,9 @@ func (b *InMemoryBackend) domainEndpointLocked(name, engineVersion string) strin
 		engine = "es"
 	}
 
-	return endpointstrategy.OpenSearchEndpoint(b.endpoints.OpenSearch, b.endpoints.HostPort, engine, b.region, b.accountID, name)
+	cfg := b.endpoints
+
+	return endpointstrategy.OpenSearchEndpoint(cfg.OpenSearch, cfg.HostPort, engine, b.region, b.accountID, name)
 }
 
 // Reset clears all backend state, releasing any resources held.
