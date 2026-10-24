@@ -55,10 +55,8 @@
 package store
 
 import (
-	"cmp"
-	"encoding/json"
-	"fmt"
-	"slices"
+	"reflect"
+	"unsafe"
 )
 
 // Table is a generic keyed collection over map[string]*V. The string key is
@@ -69,10 +67,11 @@ import (
 // Table performs no locking of its own — see the package doc for why. Every
 // method below assumes the caller (typically a service backend) already holds
 // whatever lock protects the surrounding invariant.
+//
+// All behaviour lives in the non-generic tableCore; the methods here are thin
+// typed casts so the binary carries one body per operation, not one per V.
 type Table[V any] struct {
-	data    map[string]*V
-	keyFn   func(*V) string
-	indexes []*Index[V]
+	tableCore
 }
 
 // New creates an empty [Table]. keyFn extracts the primary key from a value;
@@ -81,74 +80,18 @@ type Table[V any] struct {
 // (e.g. a resource name or ARN) and must not change across the value's
 // lifetime — see [Table.AddIndex] for the same rule applied to secondary keys.
 func New[V any](keyFn func(*V) string) *Table[V] {
-	return &Table[V]{
-		data:  make(map[string]*V),
-		keyFn: keyFn,
-	}
+	return &Table[V]{tableCore{
+		data:  make(map[string]unsafe.Pointer),
+		keyFn: eraseKeyFn(keyFn),
+		elem:  reflect.TypeFor[V](),
+	}}
 }
 
 // Get returns the value stored under id and whether it was found.
 func (t *Table[V]) Get(id string) (*V, bool) {
-	v, ok := t.data[id]
+	p, ok := t.get(id)
 
-	return v, ok
-}
-
-// Has reports whether id is present in the table.
-func (t *Table[V]) Has(id string) bool {
-	_, ok := t.data[id]
-
-	return ok
-}
-
-// Len returns the number of entries in the table.
-func (t *Table[V]) Len() int {
-	return len(t.data)
-}
-
-// Put inserts or replaces the value under the key derived from v via the
-// table's keyFn. A nil v is a documented no-op (nil-safe): there is no
-// well-formed key to derive from a nil value, so Put silently ignores it
-// rather than panicking inside a caller-supplied keyFn.
-//
-// If an entry already exists at that key, it is first removed from every
-// registered [Index] so the index reflects only the new value; the new value
-// is then added to each index under its (possibly different) index key.
-func (t *Table[V]) Put(v *V) {
-	if v == nil {
-		return
-	}
-
-	id := t.keyFn(v)
-
-	if old, exists := t.data[id]; exists {
-		for _, idx := range t.indexes {
-			idx.remove(old)
-		}
-	}
-
-	t.data[id] = v
-
-	for _, idx := range t.indexes {
-		idx.add(v)
-	}
-}
-
-// Delete removes the entry stored under id, reporting whether it existed.
-// Any registered [Index] is kept consistent by removing the deleted value.
-func (t *Table[V]) Delete(id string) bool {
-	old, exists := t.data[id]
-	if !exists {
-		return false
-	}
-
-	delete(t.data, id)
-
-	for _, idx := range t.indexes {
-		idx.remove(old)
-	}
-
-	return true
+	return (*V)(p), ok
 }
 
 // All returns every value in the table. Iteration order is UNSPECIFIED (Go
@@ -156,23 +99,40 @@ func (t *Table[V]) Delete(id string) bool {
 // sort the result themselves (e.g. by name/ARN, matching how the real AWS API
 // they are emulating orders its own responses).
 func (t *Table[V]) All() []*V {
-	out := make([]*V, 0, len(t.data))
-	for _, v := range t.data {
-		out = append(out, v)
-	}
-
-	return out
+	return typedSlice[V](t.all())
 }
 
 // Range calls f for each value in the table in unspecified order, stopping
 // early if f returns false. Unlike [Table.All] it performs no allocation,
 // making it the preferred form for a read-only scan over a large table.
 func (t *Table[V]) Range(f func(*V) bool) {
-	for _, v := range t.data {
-		if !f(v) {
-			return
-		}
-	}
+	t.rangeAll(eraseVisitor(f))
+}
+
+// Put inserts or replaces the value under the key derived from v via the
+// table's keyFn. A nil v is a documented no-op.
+//
+// If an entry already exists at that key, it is first removed from every
+// registered [Index] so the index reflects only the new value; the new value
+// is then added to each index under its (possibly different) index key.
+func (t *Table[V]) Put(v *V) {
+	t.put(unsafe.Pointer(v))
+}
+
+// Snapshot returns every value in the table ordered by key, ascending. The
+// fixed order (rather than [Table.All]'s unspecified map order) is what makes
+// [Table.Restore] round-trips and JSON-marshaled snapshots byte-for-byte
+// deterministic across runs.
+func (t *Table[V]) Snapshot() []*V {
+	return typedSlice[V](t.snapshot())
+}
+
+// Restore replaces the table's contents with items, rebuilding the primary
+// map and every registered [Index] from scratch via keyFn. It is the inverse
+// of [Table.Snapshot]. A nil or empty items leaves the table empty, matching
+// [Table.Reset].
+func (t *Table[V]) Restore(items []*V) {
+	t.restore(untypedSlice(items))
 }
 
 // Reset removes every entry from the table and clears every registered
@@ -181,98 +141,3 @@ func (t *Table[V]) Reset() {
 	t.reset()
 }
 
-// Snapshot returns every value in the table ordered by key, ascending. The
-// fixed order (rather than [Table.All]'s unspecified map order) is what makes
-// [Table.Restore] round-trips and JSON-marshaled snapshots byte-for-byte
-// deterministic across runs, which keeps snapshot-based tests and diffs stable.
-func (t *Table[V]) Snapshot() []*V {
-	if len(t.data) == 0 {
-		return nil
-	}
-
-	out := make([]*V, 0, len(t.data))
-	for _, v := range t.data {
-		out = append(out, v)
-	}
-
-	slices.SortFunc(out, func(a, b *V) int {
-		return cmp.Compare(t.keyFn(a), t.keyFn(b))
-	})
-
-	return out
-}
-
-// Restore replaces the table's contents with items, rebuilding the primary
-// map and every registered [Index] from scratch via keyFn. It is the inverse
-// of [Table.Snapshot]. A nil or empty items leaves the table empty, matching
-// [Table.Reset].
-func (t *Table[V]) Restore(items []*V) {
-	t.reset()
-
-	for _, v := range items {
-		t.insertFresh(v)
-	}
-}
-
-// reset clears the primary map and every index without reallocating them,
-// so existing capacity is reused by subsequent inserts.
-func (t *Table[V]) reset() {
-	clear(t.data)
-
-	for _, idx := range t.indexes {
-		idx.clear()
-	}
-}
-
-// insertFresh adds v to the table and every index without checking for (or
-// evicting) an existing entry at the same key. It is only safe to call when
-// the table is known to be empty at that key, e.g. immediately after reset,
-// which is why [Table.Restore] uses it instead of [Table.Put].
-func (t *Table[V]) insertFresh(v *V) {
-	if v == nil {
-		return
-	}
-
-	id := t.keyFn(v)
-	t.data[id] = v
-
-	for _, idx := range t.indexes {
-		idx.add(v)
-	}
-}
-
-// tableSnapshotter is the type-erased contract a [Table][V] satisfies so that
-// a [Registry] can hold tables of heterogeneous value types in one collection.
-// It is unexported and implemented only by [Table]; callers never name it —
-// [Register] accepts a fully-typed *Table[V] and the compiler checks the
-// erasure at the call site, so no interface{}/any ever appears in user code.
-type tableSnapshotter interface {
-	reset()
-	snapshotJSON() (json.RawMessage, error)
-	restoreJSON(data json.RawMessage) error
-}
-
-// snapshotJSON marshals [Table.Snapshot]'s deterministic, key-sorted output to
-// JSON. It implements tableSnapshotter for [Registry.SnapshotAll].
-func (t *Table[V]) snapshotJSON() (json.RawMessage, error) {
-	data, err := json.Marshal(t.Snapshot())
-	if err != nil {
-		return nil, fmt.Errorf("store: marshal table snapshot: %w", err)
-	}
-
-	return data, nil
-}
-
-// restoreJSON unmarshals data produced by snapshotJSON and loads it via
-// [Table.Restore]. It implements tableSnapshotter for [Registry.RestoreAll].
-func (t *Table[V]) restoreJSON(data json.RawMessage) error {
-	var items []*V
-
-	if err := json.Unmarshal(data, &items); err != nil {
-		return fmt.Errorf("store: unmarshal table snapshot: %w", err)
-	}
-
-	t.Restore(items)
-
-	return nil
-}
