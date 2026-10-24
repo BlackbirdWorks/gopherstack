@@ -307,7 +307,7 @@ func (b *InMemoryBackend) execPause(lb *liveDB, t *pauseTracker, containerID, cl
 	scancel()
 
 	if err != nil {
-		b.failUnit(ctx, lb)
+		b.failUnit(ctx, lb, "pause stop container", err)
 	}
 
 	b.mu.Lock("autoPauseStopped")
@@ -429,7 +429,7 @@ func (b *InMemoryBackend) resumeSteps(ctx context.Context, lb *liveDB, t *pauseT
 	cancel()
 
 	if err != nil {
-		b.failUnit(ctx, lb)
+		b.failUnit(ctx, lb, "resume start container", err)
 
 		return false
 	}
@@ -441,8 +441,8 @@ func (b *InMemoryBackend) resumeSteps(ctx context.Context, lb *liveDB, t *pauseT
 	rctx, rcancel := context.WithTimeout(ctx, b.engine.cfg.StartTimeout)
 	defer rcancel()
 
-	if b.engine.awaitReady(rctx, login) != nil {
-		b.failUnit(ctx, lb)
+	if err = b.engine.awaitReady(rctx, login); err != nil {
+		b.failUnit(ctx, lb, "resume readiness", err)
 
 		return false
 	}

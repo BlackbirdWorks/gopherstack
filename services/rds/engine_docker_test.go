@@ -224,7 +224,7 @@ func TestEngineDockerRealDatabases(t *testing.T) {
 				got, derr := b.DescribeDBInstances("it1")
 				require.NoError(t, derr)
 				inst = got[0]
-				require.NotEqual(t, "failed", inst.DBInstanceStatus)
+				requireNotFailed(t, b, "it1", inst.DBInstanceStatus)
 
 				return inst.DBInstanceStatus == "available"
 			}, dockerEngineWait, 500*time.Millisecond)
@@ -274,4 +274,12 @@ func dbCtx(t *testing.T) context.Context {
 	t.Cleanup(cancel)
 
 	return ctx
+}
+
+func requireNotFailed(t *testing.T, b *rds.InMemoryBackend, id, status string) {
+	t.Helper()
+
+	if status == "failed" {
+		t.Fatalf("%s reached status failed: %s", id, b.EngineFailure(id))
+	}
 }

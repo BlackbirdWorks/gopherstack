@@ -139,7 +139,7 @@ func TestEngineDockerClusterEndpointListener(t *testing.T) {
 	require.Eventually(t, func() bool {
 		got, derr := b.DescribeDBClusters("c1")
 		require.NoError(t, derr)
-		require.NotEqual(t, "failed", got[0].Status)
+		requireNotFailed(t, b, "c1", got[0].Status)
 
 		return got[0].Status == "available"
 	}, dockerEngineWait, 500*time.Millisecond)

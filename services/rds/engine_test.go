@@ -270,11 +270,12 @@ func TestEngineStartFailure(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup func(f *engineFixture)
-		name  string
+		setup  func(f *engineFixture)
+		name   string
+		reason string
 	}{
-		{func(f *engineFixture) { f.probeErr = assert.AnError }, "probe never succeeds"},
-		{func(f *engineFixture) { f.rt.createErr = assert.AnError }, "container create fails"},
+		{func(f *engineFixture) { f.probeErr = assert.AnError }, "probe never succeeds", "await readiness: engine not reachable"},
+		{func(f *engineFixture) { f.rt.createErr = assert.AnError }, "container create fails", "create and start container: "},
 	}
 
 	for _, tt := range tests {
@@ -286,6 +287,7 @@ func TestEngineStartFailure(t *testing.T) {
 			f.createInstance(t, "db1", "mysql", "", "pw")
 
 			f.waitInstance(t, "db1", "failed")
+			assert.Contains(t, f.b.EngineFailure("db1"), tt.reason)
 			require.Eventually(t, func() bool { return f.rt.containers() == 0 }, engineWait, 5*time.Millisecond)
 		})
 	}

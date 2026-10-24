@@ -245,9 +245,45 @@ func (r *DockerRuntime) pullOnce(ctx context.Context, ref, auth string) error {
 	}
 	defer rc.Close()
 
+	if w, ok := rc.(interface{ Wait(context.Context) error }); ok {
+		if werr := w.Wait(ctx); werr != nil {
+			return fmt.Errorf("image pull %q: %w", ref, werr)
+		}
+
+		return nil
+	}
+
 	_, _ = io.Copy(io.Discard, rc)
 
 	return nil
+}
+
+const (
+	pullAttempts     = 3
+	pullRetryBackoff = 3 * time.Second
+)
+
+// pullWithRetry retries a failed pull: registries throttle and drop streams on busy CI hosts.
+func (r *DockerRuntime) pullWithRetry(ctx context.Context, imageRef string) error {
+	var err error
+
+	for attempt := range pullAttempts {
+		if err = r.PullImage(ctx, imageRef); err == nil {
+			return nil
+		}
+
+		if attempt == pullAttempts-1 {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(pullRetryBackoff * time.Duration(attempt+1)):
+		}
+	}
+
+	return err
 }
 
 // HasImage reports whether the given image reference is already present locally.
@@ -307,7 +343,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	// LocalStack) pull the runtime/base image on demand; without this a clean
 	// host fails container creation with "No such image".
 	if has, herr := r.HasImage(ctx, spec.Image); herr == nil && !has {
-		if perr := r.PullImage(ctx, spec.Image); perr != nil {
+		if perr := r.pullWithRetry(ctx, spec.Image); perr != nil {
 			return "", fmt.Errorf("ensure image %q: %w", spec.Image, perr)
 		}
 	}
