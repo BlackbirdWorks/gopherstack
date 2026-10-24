@@ -93,8 +93,8 @@ func (b *InMemoryBackend) validationURL(code string) string {
 
 func validationEvent(topicRID, code, validationURL string) ([]byte, error) {
 	return json.Marshal([]map[string]any{{
-		"id": uuid.NewString(), "topic": topicRID, "subject": "", "eventType": validationEventType,
-		"eventTime": time.Now().UTC().Format(time.RFC3339Nano), "metadataVersion": "1", "dataVersion": "2",
+		"id": uuid.NewString(), "topic": topicRID, fieldSubject: "", fieldEventType: validationEventType,
+		fieldEventTime: time.Now().UTC().Format(time.RFC3339Nano), "metadataVersion": "1", fieldDataVersion: "2",
 		"data": map[string]any{"validationCode": code, "validationUrl": validationURL},
 	}})
 }

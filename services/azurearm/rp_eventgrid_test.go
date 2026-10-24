@@ -844,3 +844,25 @@ func TestEventGridHandlerListDomainTopics(t *testing.T) {
 	require.Equal(t, http.StatusOK, st)
 	assert.Len(t, out["value"], 1)
 }
+
+func (f *fakeEventGrid) PutResourceSubscription(
+	ctx context.Context, scopeID, name string, props map[string]any,
+) (map[string]any, error) {
+	return f.PutScopedSubscription(ctx, "res:"+scopeID, "", name, props)
+}
+
+func (f *fakeEventGrid) GetResourceSubscription(scopeID, name string) (map[string]any, bool) {
+	return f.GetScopedSubscription("res:"+scopeID, "", name)
+}
+
+func (f *fakeEventGrid) DeleteResourceSubscription(scopeID, name string) error {
+	return f.DeleteScopedSubscription("res:"+scopeID, "", name)
+}
+
+func (f *fakeEventGrid) ResourceSubscriptionFullURL(scopeID, name string) (string, error) {
+	return f.ScopedSubscriptionFullURL("res:"+scopeID, "", name)
+}
+
+func (f *fakeEventGrid) ResourceDeliveryAttributes(scopeID, name string) ([]map[string]any, error) {
+	return f.DeliveryAttributes("res:"+scopeID, "", name)
+}

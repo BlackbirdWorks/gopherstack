@@ -329,6 +329,13 @@ type EventGrid interface {
 	DeleteScopedSubscription(domain, topic, name string) error
 	ScopedSubscriptionFullURL(domain, topic, name string) (string, error)
 	DeliveryAttributes(domain, topic, name string) ([]map[string]any, error)
+
+	// The resource calls address event subscriptions of an ARM scope: a subscription, resource group or resource.
+	PutResourceSubscription(ctx context.Context, scopeID, name string, props map[string]any) (map[string]any, error)
+	GetResourceSubscription(scopeID, name string) (map[string]any, bool)
+	DeleteResourceSubscription(scopeID, name string) error
+	ResourceSubscriptionFullURL(scopeID, name string) (string, error)
+	ResourceDeliveryAttributes(scopeID, name string) ([]map[string]any, error)
 }
 
 type noopEventGrid struct{}
@@ -419,6 +426,22 @@ func (noopEventGrid) ScopedSubscriptionFullURL(string, string, string) (string, 
 }
 
 func (noopEventGrid) DeliveryAttributes(string, string, string) ([]map[string]any, error) {
+	return nil, ErrEventGridUnavailable
+}
+
+func (noopEventGrid) PutResourceSubscription(context.Context, string, string, map[string]any) (map[string]any, error) {
+	return nil, ErrEventGridUnavailable
+}
+
+func (noopEventGrid) GetResourceSubscription(string, string) (map[string]any, bool) {
+	return nil, false
+}
+func (noopEventGrid) DeleteResourceSubscription(string, string) error { return nil }
+func (noopEventGrid) ResourceSubscriptionFullURL(string, string) (string, error) {
+	return "", ErrEventGridUnavailable
+}
+
+func (noopEventGrid) ResourceDeliveryAttributes(string, string) ([]map[string]any, error) {
 	return nil, ErrEventGridUnavailable
 }
 

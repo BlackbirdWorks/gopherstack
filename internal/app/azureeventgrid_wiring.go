@@ -37,6 +37,7 @@ func wireAzureEventGrid(byName map[string]service.Registerable) {
 
 	if armH, armOk := byName["AzureARM"].(*azurearm.Handler); armOk {
 		armH.Registry.SetEventGrid(&azureEventGridAdapter{backend: egH.Backend})
+		armH.SetResourceObserver(&azureARMEventSource{backend: egH.Backend})
 	}
 
 	t := &azureEventGridTargets{}
@@ -345,4 +346,52 @@ func (a *azureEventGridAdapter) ScopedSubscriptionFullURL(domain, topic, name st
 
 func (a *azureEventGridAdapter) DeliveryAttributes(domain, topic, name string) ([]map[string]any, error) {
 	return a.backend.DeliveryAttributes(azureeventgrid.Scope{Domain: domain, Topic: topic}, name)
+}
+
+func (a *azureEventGridAdapter) PutResourceSubscription(
+	ctx context.Context, scopeID, name string, props map[string]any,
+) (map[string]any, error) {
+	return a.backend.PutScopedSubscription(ctx, azureeventgrid.Scope{Resource: scopeID}, name, props)
+}
+
+func (a *azureEventGridAdapter) GetResourceSubscription(scopeID, name string) (map[string]any, bool) {
+	props, err := a.backend.ScopedSubscription(azureeventgrid.Scope{Resource: scopeID}, name)
+
+	return props, err == nil
+}
+
+func (a *azureEventGridAdapter) DeleteResourceSubscription(scopeID, name string) error {
+	return ignoreMissing(
+		a.backend.DeleteScopedSubscription(azureeventgrid.Scope{Resource: scopeID}, name),
+		azureeventgrid.ErrSubscriptionNotFound,
+	)
+}
+
+func (a *azureEventGridAdapter) ResourceSubscriptionFullURL(scopeID, name string) (string, error) {
+	return a.backend.ScopedFullURL(azureeventgrid.Scope{Resource: scopeID}, name)
+}
+
+func (a *azureEventGridAdapter) ResourceDeliveryAttributes(scopeID, name string) ([]map[string]any, error) {
+	return a.backend.DeliveryAttributes(azureeventgrid.Scope{Resource: scopeID}, name)
+}
+
+// azureARMEventSource turns ARM write, delete and action results into Event Grid resource events.
+type azureARMEventSource struct {
+	backend *azureeventgrid.InMemoryBackend
+}
+
+var eventTypeByChange = map[azurearm.ResourceChangeKind]string{ //nolint:gochecknoglobals // static lookup
+	azurearm.ResourceWritten:   azureeventgrid.EventResourceWriteSuccess,
+	azurearm.ResourceDeleted:   azureeventgrid.EventResourceDeleteSuccess,
+	azurearm.ResourceActionRun: azureeventgrid.EventResourceActionSuccess,
+}
+
+func (s *azureARMEventSource) ResourceChanged(ch azurearm.ResourceChange) {
+	s.backend.PublishResourceEvent(azureeventgrid.ResourceEvent{
+		Time: ch.Time, Claims: ch.Claims, EventType: eventTypeByChange[ch.Kind],
+		SubscriptionID: ch.SubscriptionID, ResourceGroup: ch.ResourceGroup, ResourceURI: ch.ResourceURI,
+		Provider: ch.Provider, OperationName: ch.OperationName, CorrelationID: ch.CorrelationID,
+		TenantID: ch.TenantID, HTTPMethod: ch.HTTPMethod, HTTPURL: ch.HTTPURL,
+		ClientRequestID: ch.ClientRequestID, ClientIP: ch.ClientIP,
+	})
 }

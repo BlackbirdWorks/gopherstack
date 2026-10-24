@@ -1,13 +1,21 @@
 package azureeventgrid
 
+import "strings"
+
 // Scope addresses the owner of event subscriptions: a custom topic (Topic only),
-// a domain (Domain only) or a domain topic (both).
+// a domain (Domain only), a domain topic (both) or an Azure Resource Manager
+// scope such as a subscription, resource group or resource (Resource only).
 type Scope struct {
-	Domain string
-	Topic  string
+	Domain   string
+	Topic    string
+	Resource string
 }
 
 func (s Scope) leaf() string {
+	if s.Resource != "" {
+		return s.Resource[strings.LastIndex(s.Resource, "/")+1:]
+	}
+
 	if s.Topic != "" {
 		return s.Topic
 	}
@@ -24,6 +32,19 @@ type scopeInfo struct {
 // scopeLocked resolves the subscription owner. With forPut a missing domain
 // topic resolves (with no subscriptions) when its domain auto-creates topics.
 func (b *InMemoryBackend) scopeLocked(sc Scope, forPut bool) (scopeInfo, error) {
+	if sc.Resource != "" {
+		a, ok := b.armScopes[armScopeKey(sc.Resource)]
+		if !ok {
+			if forPut {
+				return scopeInfo{schema: SchemaEventGrid, rid: sc.Resource}, nil
+			}
+
+			return scopeInfo{}, ErrSubscriptionNotFound
+		}
+
+		return scopeInfo{subs: a.Subs, schema: SchemaEventGrid, rid: a.ID}, nil
+	}
+
 	if sc.Domain == "" {
 		t, err := b.topicLocked(sc.Topic)
 		if err != nil {
@@ -68,5 +89,9 @@ func (b *InMemoryBackend) eachSubsLocked(fn func(sc Scope, rid string, subs map[
 		for _, t := range d.Topics {
 			fn(Scope{Domain: d.Name, Topic: t.Name}, d.topicRID(t.Name), t.Subs)
 		}
+	}
+
+	for _, a := range b.armScopes {
+		fn(Scope{Resource: a.ID}, a.ID, a.Subs)
 	}
 }

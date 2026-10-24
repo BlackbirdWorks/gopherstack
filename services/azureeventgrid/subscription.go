@@ -162,6 +162,8 @@ func (b *InMemoryBackend) storeSubscription(
 		return nil, err
 	}
 
+	b.ensureARMScopeLocked(sc)
+
 	info, err := b.scopeLocked(sc, false)
 	if err != nil {
 		return nil, err
@@ -268,6 +270,7 @@ func (b *InMemoryBackend) DeleteScopedSubscription(sc Scope, name string) error 
 
 	delete(info.subs, name)
 	b.autoDeleteDomainTopicLocked(sc)
+	b.dropEmptyARMScopeLocked(sc)
 
 	return nil
 }

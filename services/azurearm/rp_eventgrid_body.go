@@ -36,6 +36,8 @@ func (p *EventGridProvider) bodyOf(id ResourceID, rec *storedEG) (map[string]any
 		return egEnvelope(id, rec, map[string]any{fieldProvisioningState: provisioningStateSucceeded}), nil
 	case egKindDomainSub, egKindDomainTopicSub:
 		return p.scopedSubscriptionBody(id, rec)
+	case egKindScopeSub:
+		return p.scopeSubBody(rec)
 	case egKindUnsupported:
 	}
 
@@ -298,15 +300,16 @@ func (p *EventGridProvider) ListDomainTopics(_ context.Context, id ResourceID) (
 }
 
 type eventGridRecord struct {
-	CreatedAt     time.Time         `json:"createdAt"`
-	Tags          map[string]string `json:"tags,omitempty"`
-	Extra         map[string]any    `json:"extra,omitempty"`
-	Name          string            `json:"name"`
-	ResourceGroup string            `json:"resourceGroup"`
-	Location      string            `json:"location"`
-	Host          string            `json:"host,omitempty"`
-	Names         []string          `json:"names"`
-	Kind          int               `json:"kind"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	Extra          map[string]any    `json:"extra,omitempty"`
+	Name           string            `json:"name"`
+	ResourceGroup  string            `json:"resourceGroup"`
+	SubscriptionID string            `json:"subscriptionId,omitempty"`
+	Location       string            `json:"location"`
+	Host           string            `json:"host,omitempty"`
+	Names          []string          `json:"names"`
+	Kind           int               `json:"kind"`
 }
 
 // eventGridSnapshot is the Microsoft.EventGrid provider's persisted ARM-side state.
@@ -323,7 +326,7 @@ func (p *EventGridProvider) snapshot() *eventGridSnapshot {
 	for k, r := range p.res {
 		snap.Resources[k] = eventGridRecord{
 			CreatedAt: r.createdAt, Tags: r.tags, Extra: r.extra, Name: r.name, ResourceGroup: r.resourceGroup,
-			Location: r.location, Host: r.host, Names: r.names, Kind: int(r.kind),
+			Location: r.location, Host: r.host, Names: r.names, Kind: int(r.kind), SubscriptionID: r.subscriptionID,
 		}
 	}
 
@@ -344,7 +347,7 @@ func (p *EventGridProvider) restore(snap *eventGridSnapshot) {
 	for k, r := range snap.Resources {
 		p.res[k] = &storedEG{
 			createdAt: r.CreatedAt, tags: r.Tags, extra: r.Extra, name: r.Name, resourceGroup: r.ResourceGroup,
-			location: r.Location, host: r.Host, names: r.Names, kind: egKind(r.Kind),
+			location: r.Location, host: r.Host, names: r.Names, kind: egKind(r.Kind), subscriptionID: r.SubscriptionID,
 		}
 	}
 }

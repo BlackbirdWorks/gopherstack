@@ -19,6 +19,7 @@ type InMemoryBackend struct {
 	topics         map[string]*topic
 	namespaces     map[string]*namespace
 	domains        map[string]*domain
+	armScopes      map[string]*armScope
 	targets        Targets
 	httpc          *http.Client
 	now            func() time.Time
@@ -34,6 +35,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		topics:     map[string]*topic{},
 		namespaces: map[string]*namespace{},
 		domains:    map[string]*domain{},
+		armScopes:  map[string]*armScope{},
 		targets:    noTargets{},
 		httpc:      newWebhookClient(webhookTimeout),
 		now:        time.Now,
@@ -66,6 +68,7 @@ func (b *InMemoryBackend) Reset() {
 	b.topics = map[string]*topic{}
 	b.namespaces = map[string]*namespace{}
 	b.domains = map[string]*domain{}
+	b.armScopes = map[string]*armScope{}
 }
 
 func validName(n string) bool {

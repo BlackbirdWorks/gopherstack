@@ -71,7 +71,7 @@ func parseEvent(raw json.RawMessage, schema string) (Event, error) {
 		return Event{}, invalidEvent("the event is not a JSON object")
 	}
 
-	required := []string{"id", "subject", "eventType", "eventTime", "dataVersion"}
+	required := []string{"id", fieldSubject, fieldEventType, fieldEventTime, fieldDataVersion}
 
 	if schema == SchemaCloudEvent {
 		required = []string{"specversion", "id", "source", attrType}

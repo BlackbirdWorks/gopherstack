@@ -56,6 +56,7 @@ type Handler struct {
 	Issuer   *aadauth.Issuer
 	srvMu    *lockmetrics.RWMutex
 	srv      *http.Server
+	observer ResourceObserver
 	Settings Settings
 	Port     int
 }
@@ -217,7 +218,10 @@ func (h *Handler) dispatch(c *echo.Context, segs []string) error {
 		}
 	}
 
-	return h.dispatchARMResource(c, segs)
+	err := h.dispatchARMResource(c, segs)
+	h.notifyResourceChange(c, segs)
+
+	return err
 }
 
 // bearerTokenError enforces Settings.ValidateTokens
@@ -427,6 +431,10 @@ var armResourceRoutes = []armRoute{
 // dispatchARMResource routes every /subscriptions/... and /tenants shape via
 // armResourceRoutes.
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
+	if handled, err := matchRoutes(eventGridScopeRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(keyVaultRoutes, h, c, segs); handled {
 		return err
 	}
