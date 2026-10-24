@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: macie2
-sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
+sdk_module: aws-sdk-go-v2/service/macie2@v1.59.3
 last_audit_commit: 22b4f068c                    # HEAD after the 2026-09-20 apigatewayv2-apprunner-and-macie terraform coverage
 last_audit_date: 2026-10-10
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: organizations
-sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
+sdk_module: aws-sdk-go-v2/service/organizations@v1.61.2
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal handshakes evicted after 30d; prior: 5c20d9fd7
 last_audit_date: 2026-10-12
 # 2026-10-10 realism pass (AWS CLI/SDK probes): error bodies had empty messages -> real wording + Reason on

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codestarconnections
-sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.38.4   # unchanged this pass; still the go.mod pin
+sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.44.4   # unchanged this pass; still the go.mod pin
 last_audit_commit: e0dfee4c0                       # HEAD at the start of this pass (gopherstack-42j/5k45); this pass's changes are uncommitted working-tree changes on top
 last_audit_date: 2026-10-10
 # 2026-08-19 re-audit (gopherstack-6flj wrapper-key/nested-shape sweep): all 27 ops

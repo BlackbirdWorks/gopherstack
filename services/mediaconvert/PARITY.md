@@ -1,6 +1,6 @@
 ---
 service: mediaconvert
-sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.97.1
+sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.106.3
 last_audit_commit: 2dfc55a39
 last_audit_date: 2026-10-07  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit, all
                               # 5 findings (ListJobs/ListJobTemplates/ListPresets/ListQueues/

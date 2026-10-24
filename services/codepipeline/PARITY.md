@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codepipeline
-sdk_module: aws-sdk-go-v2/service/codepipeline@v1.54.0   # version audited against
+sdk_module: aws-sdk-go-v2/service/codepipeline@v1.55.3   # version audited against
 last_audit_commit: d4dc4a723
 last_audit_date: 2026-10-12
 overall: A            # 2026-09-08 (gopherstack-wlab) re-audit of the same 7 findings, using

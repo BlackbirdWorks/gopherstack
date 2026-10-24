@@ -1,6 +1,6 @@
 ---
 service: dsql
-sdk_module: aws-sdk-go-v2/service/dsql@v1.22.1
+sdk_module: aws-sdk-go-v2/service/dsql@v1.22.3
 last_audit_commit: 5bb0d02ee
 last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_DSQL_ClusterLifecycle + TestIntegration_DSQL_MultiRegionPeering (test/integration/dsql_test.go) + every buildable gap closed; remaining divergences are structural_gaps.

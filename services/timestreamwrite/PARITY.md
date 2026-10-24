@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: timestreamwrite
-sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.38.4
+sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.43.3
 last_audit_commit: e13b41148  # 2026-09-24 terraform-coverage sweep; prior: d522d763f
 last_audit_date: 2026-10-07
 overall: A            # 2026-09-24: fixed a real bug the 2026-08-29 "verified inert" DescribeEndpoints

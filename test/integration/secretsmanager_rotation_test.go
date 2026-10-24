@@ -170,7 +170,7 @@ func main() {
 // rotationHandlerDockerfile is the multi-stage Dockerfile for the rotation Lambda image.
 //
 //nolint:gochecknoglobals // compile-time constant used only in buildRotationLambdaImage
-var rotationHandlerDockerfile = `FROM golang:1.24-alpine AS builder
+var rotationHandlerDockerfile = `FROM golang:1.27-alpine AS builder
 WORKDIR /app
 COPY handler.go .
 RUN go mod init rotationhandler && go build -o handler .

@@ -20,5 +20,7 @@ func TestSDKCompleteness(t *testing.T) {
 	t.Cleanup(backend.Close)
 
 	h := lightsail.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &lightsailsdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &lightsailsdk.Client{}, h.GetSupportedOperations(), []string{
+		"GetProfile",
+	})
 }

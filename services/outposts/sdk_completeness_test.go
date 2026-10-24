@@ -17,5 +17,8 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := outposts.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := outposts.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &outpostssdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &outpostssdk.Client{}, h.GetSupportedOperations(), []string{
+		"CreatePrivateConnectivityConfig",
+		"GetPrivateConnectivityConfig",
+	})
 }

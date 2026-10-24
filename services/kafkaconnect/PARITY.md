@@ -1,6 +1,6 @@
 ---
 service: kafkaconnect
-sdk_module: aws-sdk-go-v2/service/kafkaconnect@v1.39.1
+sdk_module: aws-sdk-go-v2/service/kafkaconnect@v1.39.3
 last_audit_commit: 5bb0d02ee
 last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_KafkaConnect_ConnectorLifecycle (test/integration/kafkaconnect_test.go) + every buildable gap closed; remaining divergences are structural_gaps.

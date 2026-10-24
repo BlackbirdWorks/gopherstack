@@ -1,6 +1,6 @@
 ---
 service: amplify
-sdk_module: aws-sdk-go-v2/service/amplify@v1.47.0
+sdk_module: aws-sdk-go-v2/service/amplify@v1.48.3
 last_audit_commit: a83673c4a  # 2026-09-19 required-output-members reverification; prior: d522d763f
 last_audit_date: 2026-10-07  # prior: 2026-09-18
 overall: A            # 2026-08-29 write-only-state sweep: App.ComputeRoleArn/JobConfig,

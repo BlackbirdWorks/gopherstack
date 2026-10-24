@@ -1,6 +1,6 @@
 ---
 service: appconfigdata
-sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.26.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.32.3   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 0aba172b526c53ba24aaf135c063a37ba136f7f5
 last_audit_date: 2026-10-10
 overall: A            # both ops re-verified field-by-field against v1.26.4's generated

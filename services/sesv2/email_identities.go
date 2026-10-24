@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -144,6 +145,16 @@ func (b *InMemoryBackend) ListEmailIdentities(
 	nextToken string,
 	pageSize int,
 ) page.Page[*EmailIdentity] {
+	return b.ListEmailIdentitiesFiltered(nextToken, pageSize, nil)
+}
+
+// ListEmailIdentitiesFiltered is ListEmailIdentities narrowed by the SES v2
+// IDENTITY_NAME_CONTAINS, IDENTITY_TYPE and VERIFICATION_STATUS filters.
+func (b *InMemoryBackend) ListEmailIdentitiesFiltered(
+	nextToken string,
+	pageSize int,
+	filter map[string]string,
+) page.Page[*EmailIdentity] {
 	var out []*EmailIdentity
 
 	func() {
@@ -154,7 +165,9 @@ func (b *InMemoryBackend) ListEmailIdentities(
 		out = make([]*EmailIdentity, 0, len(snap))
 
 		for _, ei := range snap {
-			out = append(out, ei.Clone())
+			if identityMatchesFilter(ei, filter) {
+				out = append(out, ei.Clone())
+			}
 		}
 	}()
 
@@ -364,4 +377,25 @@ func (b *InMemoryBackend) PutEmailIdentityMailFromAttributes(
 	}
 
 	return nil
+}
+
+func identityMatchesFilter(ei *EmailIdentity, filter map[string]string) bool {
+	for k, v := range filter {
+		switch k {
+		case "IDENTITY_NAME_CONTAINS":
+			if !strings.Contains(strs.Fold(ei.Identity), strs.Fold(v)) {
+				return false
+			}
+		case "IDENTITY_TYPE":
+			if !strs.Equal(ei.IdentityType, v) {
+				return false
+			}
+		case "VERIFICATION_STATUS":
+			if !strs.Equal(ei.VerificationStatus, v) {
+				return false
+			}
+		}
+	}
+
+	return true
 }

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: directoryservice
-sdk_module: aws-sdk-go-v2/service/directoryservice@v1.41.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/directoryservice@v1.47.3   # version audited against
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 44bff591b
 last_audit_date: 2026-10-10
 overall: A            # 2026-08-29 (cursor-population sweep): every List/Describe op declaring a real

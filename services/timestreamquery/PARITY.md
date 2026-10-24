@@ -1,6 +1,6 @@
 ---
 service: timestreamquery
-sdk_module: aws-sdk-go-v2/service/timestreamquery@v1.39.4
+sdk_module: aws-sdk-go-v2/service/timestreamquery@v1.44.3
 last_audit_commit: a98a164d                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 25)
 last_audit_date: 2026-10-07
 overall: A            # this pass (gopherstack-r80d batch 25): DescribeScheduledQuery's

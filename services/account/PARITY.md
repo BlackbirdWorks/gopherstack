@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: account
-sdk_module: aws-sdk-go-v2/service/account@v1.35.4   # (now a real go.mod/go.sum
+sdk_module: aws-sdk-go-v2/service/account@v1.42.2   # (now a real go.mod/go.sum
   # dependency, added this pass via `go get` -- prior passes only fetched it
   # read-only into GOMODCACHE. Also added services/account/sdk_completeness_test.go,
   # which was entirely missing before this pass -- this service had zero
@@ -42,7 +42,8 @@ ops:
 families:
   routing: {status: ok, note: "full rewrite -- see bugs below"}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): SendPhoneNumberVerification, VerifyPhoneNumber."
 structural_gaps:
   - "AccountId targeting of org member accounts: the optional AccountId/StandardAccountId is accepted but the single-account backend ignores it; member-account state and org management/delegated-admin membership live in services/organizations and need cross-service wiring."
   - "AccessDeniedException/TooManyRequestsException are classified but never raised: no per-request IAM evaluation or throttling exists for this service."

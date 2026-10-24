@@ -1,6 +1,6 @@
 ---
 service: kms
-sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
+sdk_module: aws-sdk-go-v2/service/kms@v1.61.3
 last_audit_commit: d1ed0e39b  # 2026-09-23 (gopherstack-6u8p4): AWS-managed key lazy provisioning
 last_audit_date: 2026-10-11
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously

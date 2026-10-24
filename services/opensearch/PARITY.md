@@ -1,6 +1,6 @@
 ---
 service: opensearch
-sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
+sdk_module: aws-sdk-go-v2/service/opensearch@v1.85.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
 last_audit_commit: 0c1472972  # terraform-coverage pass: VPC-domain Endpoints[] wire fix, SAML Idp nesting fix; prior: 0fea9ecf1
 last_audit_date: 2026-10-12  # prior: 2026-09-19, gopherstack-dv4s: over-wide-response List census.

@@ -1,6 +1,6 @@
 ---
 service: memorydb
-sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
+sdk_module: aws-sdk-go-v2/service/memorydb@v1.42.3
 last_audit_commit: b4c2391e7
 last_audit_date: 2026-10-12
 overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape sweep of all 18 L+D+G ops

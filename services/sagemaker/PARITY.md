@@ -1,5 +1,5 @@
 service: sagemaker
-sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
+sdk_module: aws-sdk-go-v2/service/sagemaker@v1.282.2   # version audited against (parity-5)
 last_audit_commit: 356d8cfa9  # HEAD when this manifest was written
 last_audit_date: 2026-10-10
                        # 2026-09-20 (sagemaker-resources terraform coverage): CreateProject never
@@ -304,6 +304,7 @@ families:
 gaps: []
 
 items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): AttachClusterNodeNetworkInterface."
   - "DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model."
 structural_gaps:
   - "Presigned URL expiry (2026-10-07): ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked against the API reference but not enforced; the synthetic AuthorizedUrl is not served by anything that could expire or single-use it."

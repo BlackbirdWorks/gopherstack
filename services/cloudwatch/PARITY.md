@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
-sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.71.0
+sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.73.2
 last_audit_commit: 88924fa3b  # 2026-09-24 perf sweep: storeDatum in-place cap eviction
 last_audit_date: 2026-10-07
 overall: A            # 2026-08-07 pass (bd gopherstack-lrmf): metric streams now actually deliver
@@ -135,7 +135,8 @@ families:
 gaps:                      # known divergences NOT fixed — link bd issue ids
   # "DescribeAlarms AlarmTypes default-inclusion bug" (bd gopherstack-yvb7) FIXED 2026-07-26 --
   # see the DescribeAlarms ops row above and the Notes writeup below. No longer a gap.
-items_still_open: []
+items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateResourceMetricsConfiguration, DeleteResourceMetricsConfiguration, GetResourceMetricsConfiguration, UpdateOTelEnrichment, UpdateResourceMetricsConfiguration."
 structural_gaps:
   - "ListMetrics.IncludeLinkedAccounts/OwningAccount (cross-account observability): there are no monitoring-account sink or source-account links, so no other account's metrics exist to include."
 deferred:                 # consciously not audited this pass (scope) — next pass targets

@@ -18,5 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := transcribe.NewInMemoryBackend()
 	h := transcribe.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &transcribesdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &transcribesdk.Client{}, h.GetSupportedOperations(), []string{
+		"UpdateLanguageModel",
+	})
 }

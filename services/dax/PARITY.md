@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dax
-sdk_module: aws-sdk-go-v2/service/dax@v1.32.4   # awsjson1.1 protocol, target prefix AmazonDAXV3.
+sdk_module: aws-sdk-go-v2/service/dax@v1.38.6   # awsjson1.1 protocol, target prefix AmazonDAXV3.
 last_audit_commit: 0b11fe635  # 2026-09-19 goroutine-launch fix (gopherstack-1x2u0 Part 2 follow-up); prior: d522d763f
 last_audit_date: 2026-10-10  # prior: 2026-09-19
 overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints

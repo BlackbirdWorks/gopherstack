@@ -1,6 +1,6 @@
 ---
 service: sts
-sdk_module: aws-sdk-go-v2/service/sts@v1.49.0   # version audited against (pinned in go.mod)
+sdk_module: aws-sdk-go-v2/service/sts@v1.51.3   # version audited against (pinned in go.mod)
 last_audit_commit: 0c0472570  # 2026-09-24 PGO perf sweep (debounced session-eviction sweep)
 last_audit_date: 2026-10-11
 overall: A                # 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings

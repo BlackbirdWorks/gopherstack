@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // ArchivingOptions captures the archiving configuration of a configuration set.
@@ -159,6 +160,16 @@ func (b *InMemoryBackend) ListConfigurationSets(
 	nextToken string,
 	pageSize int,
 ) page.Page[*ConfigurationSet] {
+	return b.ListConfigurationSetsFiltered(nextToken, pageSize, nil)
+}
+
+// ListConfigurationSetsFiltered is ListConfigurationSets narrowed by the
+// CONFIGURATION_SET_NAME_CONTAINS filter.
+func (b *InMemoryBackend) ListConfigurationSetsFiltered(
+	nextToken string,
+	pageSize int,
+	filter map[string]string,
+) page.Page[*ConfigurationSet] {
 	b.mu.RLock("ListConfigurationSets")
 	defer b.mu.RUnlock()
 
@@ -166,6 +177,11 @@ func (b *InMemoryBackend) ListConfigurationSets(
 	out := make([]*ConfigurationSet, 0, len(snap))
 
 	for _, cs := range snap {
+		sub, ok := filter["CONFIGURATION_SET_NAME_CONTAINS"]
+		if ok && !strings.Contains(strs.Fold(cs.Name), strs.Fold(sub)) {
+			continue
+		}
+
 		out = append(out, cs.Clone())
 	}
 

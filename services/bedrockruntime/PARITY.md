@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockruntime
-sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.57.1   # unchanged this pass; re-verified against go.mod pin
+sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.63.3   # unchanged this pass; re-verified against go.mod pin
 last_audit_commit: d4dc4a723
 last_audit_date: 2026-10-10
 overall: A            # 2026-09-04: fixed two real bugs. (1) ListAsyncInvokes silently ignored

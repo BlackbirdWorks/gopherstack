@@ -18,6 +18,7 @@ func TestRoutingTargetOwnership(t *testing.T) {
 	reg, _ := routingFixture(t)
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates())
 
 	const (

@@ -43,6 +43,7 @@ func TestMoreTraversals(t *testing.T) {
 		{"has_t_label", `g.V().has(T.label, 'software').id()`, []string{"lop"}},
 		{"has_id_pred", `g.V().hasId(within('marko','lop')).id()`, []string{"marko", "lop"}},
 		{"iterate", `g.V().iterate()`, []string{}},
+		{"discard", `g.V().discard()`, []string{}},
 		{"has_next", `g.V().hasNext()`, []string{"true"}},
 		{"next_n", `g.V().id().next(2)`, []string{"marko", "vadas"}},
 		{"to_set", `g.V().out().id().toSet()`, []string{"vadas", "josh", "lop"}},

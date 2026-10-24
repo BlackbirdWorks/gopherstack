@@ -89,6 +89,7 @@ func newMultiAccountStackWith(t *testing.T, enforce bool) *multiAccountStack {
 	e.Use(
 		service.NewServiceRouter(registry).
 			WithTargetGates(routegates.TargetGates()).
+			WithCBORGates(routegates.CBORGates()).
 			WithPathGates(routegates.PathGates()).
 			RouteHandler(),
 	)

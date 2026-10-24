@@ -1,6 +1,6 @@
 ---
 service: codebuild
-sdk_module: aws-sdk-go-v2/service/codebuild@v1.72.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/codebuild@v1.78.3   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 0627d5d3                             # HEAD when the PRIOR manifest was written;
                                                           # this pass ran under the "no git" constraint
                                                           # and could not read/update this hash

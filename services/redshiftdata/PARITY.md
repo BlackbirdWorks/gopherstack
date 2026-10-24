@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshiftdata
-sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.49.2   # version audited against
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: c9523cebb                              # HEAD when this audit began (working tree, uncommitted)
 last_audit_date: 2026-10-10  # prior: 2026-09-18
 overall: A            # genuine wire-shape/field gaps found and fixed this pass

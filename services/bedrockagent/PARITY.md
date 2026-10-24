@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockagent
-sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.68.2   # version audited against
 last_audit_commit: e33627d17
 last_audit_date: 2026-10-07
 overall: A            # RESTORED B->A (parity-5, 2026-07-31, follow-up pass): the routing
@@ -549,6 +549,7 @@ families:
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
 gaps: []
 items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateVpcConfiguration, DeleteVpcConfiguration, GetVpcConfiguration, ListVpcConfigurations."
   - "Agent, knowledge base, data source and job ids are `agent-00000001` style; AWS uses 10-character alphanumeric ids. Changing the format breaks many in-repo fixtures."
   - "ValidateFlowDefinition does not emit MismatchedNodeInputType/OutputType, IncompatibleConnectionDataType, MissingNodeInput/Output, UnknownNodeInput/Output, UnsatisfiedConnectionConditions or InvalidLoopBoundary: they need per-node-type input/output schemas and expression typing that the SDK does not specify."
 structural_gaps:

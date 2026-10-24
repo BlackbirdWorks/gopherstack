@@ -63,6 +63,7 @@ func newRegionServer(t *testing.T) string {
 	e.Pre(awsMetaMiddleware(regionA, "000000000000"))
 	router := service.NewServiceRouter(registry).
 		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates())
 	e.Use(router.RouteHandler())
 

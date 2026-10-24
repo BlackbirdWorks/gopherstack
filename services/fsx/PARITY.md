@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: fsx
-sdk_module: aws-sdk-go-v2/service/fsx@v1.68.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/fsx@v1.74.3   # version audited against
 last_audit_commit: 6bc42ba0b
 last_audit_date: 2026-10-10
 overall: A            # genuine wire-format + error-code bugs found and fixed

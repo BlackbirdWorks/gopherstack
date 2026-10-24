@@ -21,6 +21,7 @@ type StorageBackend interface {
 	) (*EmailIdentity, error)
 	GetEmailIdentity(identity string) (*EmailIdentity, error)
 	ListEmailIdentities(nextToken string, pageSize int) page.Page[*EmailIdentity]
+	ListEmailIdentitiesFiltered(nextToken string, pageSize int, filter map[string]string) page.Page[*EmailIdentity]
 	DeleteEmailIdentity(identity string) error
 
 	// Email identity policy ops
@@ -40,6 +41,7 @@ type StorageBackend interface {
 	CreateConfigurationSet(name string, tags map[string]string) (*ConfigurationSet, error)
 	GetConfigurationSet(name string) (*ConfigurationSet, error)
 	ListConfigurationSets(nextToken string, pageSize int) page.Page[*ConfigurationSet]
+	ListConfigurationSetsFiltered(nextToken string, pageSize int, filter map[string]string) page.Page[*ConfigurationSet]
 	DeleteConfigurationSet(name string) error
 
 	// Configuration set attribute ops

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rdsdata
-sdk_module: aws-sdk-go-v2/service/rdsdata@v1.35.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/rdsdata@v1.40.3   # version audited against
 last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
 last_audit_date: 2026-10-11
 overall: A            # every op/family field-diffed against the real SDK source this pass

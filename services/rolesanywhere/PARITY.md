@@ -1,6 +1,6 @@
 ---
 service: rolesanywhere
-sdk_module: aws-sdk-go-v2/service/rolesanywhere@v1.26.3
+sdk_module: aws-sdk-go-v2/service/rolesanywhere@v1.31.3
 last_audit_commit: e75a8cecd
 last_audit_date: 2026-10-07
 overall: A            # wrapper-key/nested-shape sweep this pass: zero bugs found, clean

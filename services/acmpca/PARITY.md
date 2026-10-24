@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: acmpca
-sdk_module: aws-sdk-go-v2/service/acmpca@v1.50.0   # version audited against
+sdk_module: aws-sdk-go-v2/service/acmpca@v1.56.3   # version audited against
 last_audit_commit: 2332c3128  # 2026-09-24 DELETED CA unbounded-growth fix; prior: 3cec3729
 last_audit_date: 2026-10-10
 overall: A            # gopherstack-cq4o: ASN.1-heavy ApiPassthrough residuals implemented for real (see Notes)

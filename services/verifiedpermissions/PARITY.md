@@ -1,5 +1,5 @@
 service: verifiedpermissions
-sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.36.4
+sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.41.3
 last_audit_commit: 24813b443 # re-verified this pass; original required-output-member sweep landed at f474dc461
 last_audit_date: 2026-10-10
 overall: A            # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):

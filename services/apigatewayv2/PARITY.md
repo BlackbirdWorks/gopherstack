@@ -1,6 +1,6 @@
 ---
 service: apigatewayv2
-sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
+sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.46.0
 last_audit_commit: 22b4f068c
 last_audit_date: 2026-10-11
 overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2

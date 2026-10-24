@@ -21,7 +21,15 @@ func TestSDKCompleteness(t *testing.T) {
 	// Operations not yet implemented — organization/member management,
 	// finding aggregators, configuration policies, V2 endpoints,
 	// invitation management, and advanced hub management.
-	notImplemented := []string{}
+	notImplemented := []string{
+		"CancelExportJobV2",
+		"GetExportJobV2",
+		"GetRemediationsV2",
+		"ListExportJobsV2",
+		"ListExposuresByRemediationV2",
+		"ListFreeTrialStatusesV2",
+		"StartExportJobV2",
+	}
 
 	sdkcheck.CheckCompleteness(t, &securityhubsdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }
