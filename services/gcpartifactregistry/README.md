@@ -7,16 +7,18 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 23 (23 ok) |
-| Feature families | 4 (4 ok) |
-| Known gaps | 10 |
+| PARITY entries audited | 40 (40 ok) |
+| Feature families | 5 (5 ok) |
+| Known gaps | 12 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
 ### Known gaps
 
-- Maven, npm, Python, apt, yum, KFP, Go and generic repositories can be created but hold no artifacts: their artifact, file, rule and attachment RPCs are not implemented and return UNIMPLEMENTED.
-- ListFiles, GetFile, DeleteFile, UpdateFile, UpdatePackage, UpdateVersion, rules, attachments, ExportArtifact, project settings and VPC-SC configuration are not implemented (UNIMPLEMENTED).
+- Maven, npm, Python, apt, yum, KFP and Go repositories can be created but hold no artifacts: their artifact RPCs and uploads are not implemented and return UNIMPLEMENTED.
+- Attachments, ExportArtifact, ImportAptArtifacts, ImportYumArtifacts and the resumable generic upload (uploadType=resumable) are not implemented.
+- Rule conditions (CEL) are stored but never evaluated, so a rule with a condition never takes effect; download rules are enforced on Docker manifest and blob reads and on file downloads only.
+- Project settings and the VPC-SC policy are stored; nothing consults them.
 - Remote and virtual repositories are stored but never proxy or merge anything; cleanup policies are stored and never run.
 - A repository id is unique per project across locations, and image data is not separated by location.
 - Operations are recorded already finished; there is no pending state, and CancelOperation changes nothing.

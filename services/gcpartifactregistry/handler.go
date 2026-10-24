@@ -58,8 +58,12 @@ func (h *Handler) Name() string { return "GCPArtifactRegistry" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateRepository", "GetRepository", "ListRepositories", "UpdateRepository", "DeleteRepository",
-		"ListPackages", "GetPackage", "DeletePackage",
-		"ListVersions", "GetVersion", "DeleteVersion", "BatchDeleteVersions",
+		"ListPackages", "GetPackage", "UpdatePackage", "DeletePackage",
+		"ListVersions", "GetVersion", "UpdateVersion", "DeleteVersion", "BatchDeleteVersions",
+		"ListFiles", "GetFile", "UpdateFile", "DeleteFile",
+		"CreateRule", "GetRule", "ListRules", "UpdateRule", "DeleteRule",
+		"GetProjectSettings", "UpdateProjectSettings", "GetVPCSCConfig", "UpdateVPCSCConfig",
+		"UploadGenericArtifact", "DownloadFile",
 		"ListTags", "GetTag", "CreateTag", "UpdateTag", "DeleteTag",
 		"ListDockerImages", "GetDockerImage",
 		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions",
@@ -143,7 +147,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	docker := h.Backend.DockerHandler()
 
 	h.wg.Go(func() {
-		serveErr := gcprest.ServeWithFallback(srv, listener, docker)
+		serveErr := gcprest.ServeWithExtras(srv, listener, docker, h.Backend.FileExtras())
 		if serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
 			log.ErrorContext(workerCtx, "gcpartifactregistry: listener stopped", "error", serveErr)
 		}

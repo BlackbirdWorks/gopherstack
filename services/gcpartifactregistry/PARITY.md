@@ -27,8 +27,26 @@ ops:
   GetIamPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "Repository policies are stored; there is no enforcement."}
   SetIamPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "A stale etag is FAILED_PRECONDITION."}
   TestIamPermissions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Reports every requested permission as granted because IAM is not enforced."}
+  UpdatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask display_name or annotations (an empty mask copies the set ones); anything else is INVALID_ARGUMENT. Edits on a DOCKER package are dropped with the package; generic packages keep them in their own record."}
+  UpdateVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask description or annotations; update_time moves forward."}
+  ListFiles: {wire: ok, errors: ok, state: ok, persist: n/a, note: "A DOCKER repository's files are its manifests and the config and layer blobs they reference, named files/{sha256:digest}, size_bytes, a SHA256 hash and owner = the version of the first manifest that holds the blob. A GENERIC repository's files are the uploads. filter: name, owner and annotations.<key>[:value] (backtick-quoted keys, * wildcards) joined by AND; order_by name, create_time or update_time with desc; paged through pkgs/page."}
+  GetFile: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  UpdateFile: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask annotations only."}
+  DeleteFile: {wire: ok, errors: ok, state: ok, persist: ok, note: "GENERIC repositories only, as the API documents; DOCKER answers FAILED_PRECONDITION. The version and package stay when their last file goes."}
+  CreateRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "rule_id is required; action and operation must be set. A repository holds one rule for itself (empty package_id) and one per package, a second is ALREADY_EXISTS."}
+  GetRule: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  ListRules: {wire: ok, errors: ok, state: ok, persist: n/a, note: ""}
+  UpdateRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask over action, operation, condition and package_id."}
+  DeleteRule: {wire: ok, errors: ok, state: ok, persist: ok, note: ""}
+  GetProjectSettings: {wire: ok, errors: ok, state: ok, persist: ok, note: "A project that never changed them reads REDIRECTION_FROM_GCR_IO_DISABLED."}
+  UpdateProjectSettings: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask legacy_redirection_state or pull_percent (0-100)."}
+  GetVPCSCConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "Per project and location; reads ALLOW until changed."}
+  UpdateVPCSCConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask vpcsc_policy, ALLOW or DENY; stored only, nothing consults it."}
+  UploadGenericArtifact: {wire: ok, errors: ok, state: ok, persist: ok, note: "REST only (POST /upload/v1/{parent}/genericArtifacts:create, uploadType=multipart), as in the discovery document; the operation is already done and its response is the GenericArtifact. Creates the package, the version and the file {package_id}:{version_id}:{filename}; a repeated file is ALREADY_EXISTS. Content is kept in memory and in the snapshot, at most 128 MiB per file."}
+  DownloadFile: {wire: ok, errors: ok, state: ok, persist: n/a, note: "REST only (GET /v1/{name}:download?alt=media) for generic files and DOCKER manifests and blobs; without alt=media the response is {}. A DENY download rule answers PERMISSION_DENIED."}
   GetOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "google.longrunning.Operations via pkgs/gcplro, also on the REST path projects/*/locations/*/operations/*."}
 families:
+  generic_data_plane: {status: ok, note: "GENERIC repositories store uploaded files with their package and version; ListFiles, GetFile, UpdateFile, DeleteFile, the package and version RPCs and the media download work on them (generic_test.go, through the Go client library and google.golang.org/api/artifactregistry/v1)."}
   docker_data_plane: {status: ok, note: "The Docker Registry v2 API is served on the same port as gRPC and REST (pkgs/gcprest.ServeWithFallback sends /v2 to it). Images live at /v2/{project}/{repository}/{image}/...; the repository must exist, be DOCKER format and, when the Host is {location}-docker.pkg.dev, be in that location, else 404 NAME_UNKNOWN. Auth: a request needs an Authorization header; any Basic credential (oauth2accesstoken:<token>, _json_key) or Bearer token is accepted, and an unauthenticated one is challenged to /v2/token. /v2/{project}/{repository}/_catalog lists the repository's images. Immutable tags answer 409 TAG_INVALID when a tag is pushed again."}
   storage: {status: ok, note: "One embedded distribution registry for the service, repositories named project/repository/image. In memory by default; with --persist blobs and manifests live under <data dir>/registries/images and the repository and image metadata is in the snapshot."}
   routing_isolation: {status: ok, note: "Own gRPC server with the REST transcoder and Docker handler bound in StartWorker to --gcp-artifacts-port (default 8134, fails fast if taken); never registered on the shared AWS router."}
@@ -36,8 +54,10 @@ families:
 gaps: []
 deferred: []
 items_still_open:
-  - "Maven, npm, Python, apt, yum, KFP, Go and generic repositories can be created but hold no artifacts: their artifact, file, rule and attachment RPCs are not implemented and return UNIMPLEMENTED."
-  - "ListFiles, GetFile, DeleteFile, UpdateFile, UpdatePackage, UpdateVersion, rules, attachments, ExportArtifact, project settings and VPC-SC configuration are not implemented (UNIMPLEMENTED)."
+  - "Maven, npm, Python, apt, yum, KFP and Go repositories can be created but hold no artifacts: their artifact RPCs and uploads are not implemented and return UNIMPLEMENTED."
+  - "Attachments, ExportArtifact, ImportAptArtifacts, ImportYumArtifacts and the resumable generic upload (uploadType=resumable) are not implemented."
+  - "Rule conditions (CEL) are stored but never evaluated, so a rule with a condition never takes effect; download rules are enforced on Docker manifest and blob reads and on file downloads only."
+  - "Project settings and the VPC-SC policy are stored; nothing consults them."
   - "Remote and virtual repositories are stored but never proxy or merge anything; cleanup policies are stored and never run."
   - "A repository id is unique per project across locations, and image data is not separated by location."
   - "Operations are recorded already finished; there is no pending state, and CancelOperation changes nothing."
