@@ -76,6 +76,7 @@ type Server struct {
 
 	udpServer *dns.Server
 	tcpServer *dns.Server
+	runs      []*serveRun
 
 	mu     *lockmetrics.RWMutex
 	stopCh chan struct{}
@@ -217,14 +218,21 @@ func (s *Server) Start(ctx context.Context) error {
 		NotifyStartedFunc: func() { close(tcpReady) },
 	}
 
-	go serveOrSend(s.udpServer, udpErrCh)
-	go serveOrSend(s.tcpServer, tcpErrCh)
+	udpRun := &serveRun{srv: s.udpServer, ready: udpReady, done: make(chan struct{})}
+	tcpRun := &serveRun{srv: s.tcpServer, ready: tcpReady, done: make(chan struct{})}
+	s.runs = []*serveRun{udpRun, tcpRun}
 
-	if err := waitForReady(ctx, udpReady, udpErrCh, tcpErrCh); err != nil {
-		return err
+	go udpRun.serve(udpErrCh)
+	go tcpRun.serve(tcpErrCh)
+
+	err := waitForReady(ctx, udpReady, udpErrCh, tcpErrCh)
+	if err == nil {
+		err = waitForReady(ctx, tcpReady, udpErrCh, tcpErrCh)
 	}
 
-	if err := waitForReady(ctx, tcpReady, udpErrCh, tcpErrCh); err != nil {
+	if err != nil {
+		_ = s.Stop()
+
 		return err
 	}
 
@@ -245,13 +253,44 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-// serveOrSend starts a DNS server and sends any unexpected error to errCh.
-func serveOrSend(srv *dns.Server, errCh chan<- error) {
-	if err := srv.ListenAndServe(); err != nil {
+// serveRun tracks one serve goroutine so Stop can wait for it to exit.
+type serveRun struct {
+	srv   *dns.Server
+	ready chan struct{}
+	done  chan struct{}
+}
+
+// serve runs the server and sends any unexpected error to errCh.
+func (r *serveRun) serve(errCh chan<- error) {
+	defer close(r.done)
+
+	if err := r.srv.ListenAndServe(); err != nil {
 		if !errors.Is(err, net.ErrClosed) && !isServerClosed(err) {
 			errCh <- err
 		}
 	}
+}
+
+// stop shuts the server down and waits for its serve goroutine to return.
+// Shutdown before the listener is up would fail and leave the goroutine
+// running, so wait until it is either ready or already finished.
+func (r *serveRun) stop() error {
+	select {
+	case <-r.ready:
+	case <-r.done:
+	}
+
+	var err error
+
+	select {
+	case <-r.done:
+	default:
+		err = r.srv.Shutdown()
+	}
+
+	<-r.done
+
+	return err
 }
 
 // waitForReady blocks until the readyCh is closed, an error arrives, or ctx is cancelled.
@@ -268,23 +307,20 @@ func waitForReady(ctx context.Context, readyCh <-chan struct{}, udpErrCh, tcpErr
 	}
 }
 
-// Stop shuts down both the UDP and TCP servers.
+// Stop shuts down both the UDP and TCP servers and waits for their serve
+// goroutines to exit. It is safe to call more than once, and after a failed Start.
 func (s *Server) Stop() error {
-	var udpErr, tcpErr error
+	var errs []error
 
 	s.stopOnce.Do(func() {
 		close(s.stopCh)
 
-		if s.udpServer != nil {
-			udpErr = s.udpServer.Shutdown()
-		}
-
-		if s.tcpServer != nil {
-			tcpErr = s.tcpServer.Shutdown()
+		for _, r := range s.runs {
+			errs = append(errs, r.stop())
 		}
 	})
 
-	return errors.Join(udpErr, tcpErr)
+	return errors.Join(errs...)
 }
 
 // handleQuery is the DNS handler that answers A/CNAME/AAAA queries for registered names.
