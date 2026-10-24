@@ -51,9 +51,10 @@ type hierarchyStructureRec struct {
 }
 
 type queueRec struct {
-	InstanceID    string   `json:"instanceId"`
-	Queue         Queue    `json:"queue"`
-	QuickConnects []string `json:"quickConnects,omitempty"`
+	InstanceID     string   `json:"instanceId"`
+	Queue          Queue    `json:"queue"`
+	QuickConnects  []string `json:"quickConnects,omitempty"`
+	EmailAddresses []string `json:"emailAddresses,omitempty"`
 }
 
 type hoursRec struct {
@@ -129,6 +130,9 @@ type extras struct {
 	flowAssocs        family[flowAssocRec]
 	entityProfileRecs family[entityProfilesRec]
 	viewSnapshots     family[viewVersionRec]
+	dataTables        family[dataTableRec]
+	emails            family[emailAddressRec]
+	workspaces        family[workspaceRec]
 }
 
 func (b *Backend) registerTables() {
