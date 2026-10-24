@@ -856,7 +856,7 @@ func (h *Handler) handleDetachClusterNodeVolume(ctx context.Context, body []byte
 
 	return json.Marshal(map[string]any{
 		keyClusterArn: dv.ClusterArn,
-		"NodeId":      dv.NodeID,
+		keyNodeID:     dv.NodeID,
 		"VolumeId":    dv.VolumeID,
 		"DeviceName":  dv.DeviceName,
 		keyStatus:     dv.Status,
@@ -887,7 +887,7 @@ func (h *Handler) handleAttachClusterNodeNetworkInterface(ctx context.Context, b
 	}
 
 	for _, f := range []struct{ name, value string }{
-		{"ClusterName", req.ClusterName}, {"NodeId", req.NodeID}, {"NetworkInterfaceId", req.NetworkInterfaceID},
+		{"ClusterName", req.ClusterName}, {keyNodeID, req.NodeID}, {"NetworkInterfaceId", req.NetworkInterfaceID},
 	} {
 		if f.value == "" {
 			return nil, fmt.Errorf("%w: %s is required", errInvalidRequest, f.name)
@@ -901,7 +901,7 @@ func (h *Handler) handleAttachClusterNodeNetworkInterface(ctx context.Context, b
 
 	return json.Marshal(map[string]string{
 		keyClusterArn:        out.ClusterArn,
-		"NodeId":             out.NodeID,
+		keyNodeID:            out.NodeID,
 		"NetworkInterfaceId": out.NetworkInterfaceID,
 		"AttachmentId":       out.AttachmentID,
 	})
@@ -937,7 +937,7 @@ func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte
 
 	return json.Marshal(map[string]any{
 		keyClusterArn: av.ClusterArn,
-		"NodeId":      av.NodeID,
+		keyNodeID:     av.NodeID,
 		"VolumeId":    av.VolumeID,
 		"DeviceName":  av.DeviceName,
 		keyStatus:     av.Status,

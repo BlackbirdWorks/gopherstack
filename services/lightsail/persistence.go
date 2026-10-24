@@ -20,11 +20,11 @@ const lightsailSnapshotVersion = 1
 type backendSnapshot struct {
 	Tables           map[string]json.RawMessage `json:"tables"`
 	DefaultKeyPair   *KeyPair                   `json:"defaultKeyPair,omitempty"`
+	Partner          *PartnerProfile            `json:"partner,omitempty"`
 	AccountID        string                     `json:"accountId"`
 	Region           string                     `json:"region"`
 	Version          int                        `json:"version"`
 	NextAccessKeySeq int                        `json:"nextAccessKeySeq"`
-	Partner          *PartnerProfile            `json:"partner,omitempty"`
 	VpcPeered        bool                       `json:"vpcPeered"`
 }
 

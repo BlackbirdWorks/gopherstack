@@ -40,8 +40,8 @@ type CloudFormationBackend interface {
 // .claude/memories/pkgs-catalog.md's locking rule.
 type InMemoryBackend struct {
 	cfnBackend               CloudFormationBackend
-	certificates             *store.Table[Certificate]
-	instances                *store.Table[Instance]
+	alarms                   *store.Table[Alarm]
+	distributionCacheResets  map[string]time.Time
 	staticIPs                *store.Table[StaticIP]
 	keyPairs                 *store.Table[KeyPair]
 	instanceSnapshots        *store.Table[InstanceSnapshot]
@@ -49,7 +49,7 @@ type InMemoryBackend struct {
 	exportSnapshotRecords    *store.Table[ExportSnapshotRecord]
 	cfnStackRecords          *store.Table[CloudFormationStackRecord]
 	loadBalancers            *store.Table[LoadBalancer]
-	lbTLSCertificates        *store.Table[LoadBalancerTLSCertificate]
+	diskSnapshots            *store.Table[DiskSnapshot]
 	databases                *store.Table[RelationalDatabase]
 	dbSnapshots              *store.Table[RelationalDatabaseSnapshot]
 	containerServices        *store.Table[ContainerService]
@@ -57,10 +57,10 @@ type InMemoryBackend struct {
 	distributions            *store.Table[Distribution]
 	domains                  *store.Table[Domain]
 	registry                 *store.Registry
-	alarms                   *store.Table[Alarm]
+	certificates             *store.Table[Certificate]
+	instances                *store.Table[Instance]
 	disks                    *store.Table[Disk]
-	distributionCacheResets  map[string]time.Time
-	diskSnapshots            *store.Table[DiskSnapshot]
+	lbTLSCertificates        *store.Table[LoadBalancerTLSCertificate]
 	operations               *store.Table[Operation]
 	opsByResource            *store.Index[Operation]
 	setupHistory             *store.Table[SetupHistoryEntry]
@@ -70,13 +70,13 @@ type InMemoryBackend struct {
 	mu                       *lockmetrics.RWMutex
 	work                     *worker.Group
 	contactMethods           *store.Table[ContactMethod]
-	defaultKeyPairPublicKey  string
+	partner                  *PartnerProfile
 	defaultKeyPairPrivateKey string
 	accountID                string
 	region                   string
+	defaultKeyPairPublicKey  string
 	delayNanos               atomic.Int64
 	nextAccessKeySeq         int
-	partner                  *PartnerProfile
 	vpcPeered                bool
 }
 

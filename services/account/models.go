@@ -50,8 +50,6 @@ const (
 	StateClosed            State = "CLOSED"
 )
 
-// PrimaryEmailUpdateStatus represents the status of the most recent primary
-// email update request, as reported by GetPrimaryEmailUpdateStatus.
 // PhoneNumberVerificationStatus is types.PhoneNumberVerificationStatus.
 type PhoneNumberVerificationStatus string
 
@@ -61,6 +59,8 @@ const (
 	PhoneNumberVerificationStatusVerified PhoneNumberVerificationStatus = "VERIFIED"
 )
 
+// PrimaryEmailUpdateStatus represents the status of the most recent primary
+// email update request, as reported by GetPrimaryEmailUpdateStatus.
 type PrimaryEmailUpdateStatus string
 
 const (

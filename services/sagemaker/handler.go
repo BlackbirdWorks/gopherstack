@@ -27,6 +27,7 @@ const (
 	errValidationException = "ValidationException"
 	keyMessageField        = "message"
 	keyClusterArn          = "ClusterArn"
+	keyNodeID              = "NodeId"
 )
 
 const (
