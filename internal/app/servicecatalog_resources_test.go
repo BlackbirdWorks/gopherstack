@@ -37,7 +37,8 @@ func TestServiceCatalogRulesResolveAWSSpecificParameterTypes(t *testing.T) {
 			assert: `{"Fn::Contains":[{"Fn::RefAll":"AWS::EC2::KeyPair::KeyName"},{"Ref":"P"}]}`,
 		},
 		{
-			name: "availability_zone", paramType: "AWS::EC2::AvailabilityZone::Name", good: "us-east-1b", bad: "mars-1a",
+			name: "availability_zone", paramType: "AWS::EC2::AvailabilityZone::Name",
+			good: "us-east-1b", bad: "mars-1a",
 			assert: `{"Fn::Contains":[{"Fn::RefAll":"AWS::EC2::AvailabilityZone::Name"},{"Ref":"P"}]}`,
 		},
 		{
@@ -45,7 +46,8 @@ func TestServiceCatalogRulesResolveAWSSpecificParameterTypes(t *testing.T) {
 			assert: `{"Fn::Contains":[{"Fn::RefAll":"AWS::EC2::Image::Id"},{"Ref":"P"}]}`,
 		},
 		{
-			name: "security_group_name", paramType: "AWS::EC2::SecurityGroup::GroupName", good: "sc-group", bad: "no-group",
+			name: "security_group_name", paramType: "AWS::EC2::SecurityGroup::GroupName",
+			good: "sc-group", bad: "no-group",
 			assert: `{"Fn::Contains":[{"Fn::RefAll":"AWS::EC2::SecurityGroup::GroupName"},{"Ref":"P"}]}`,
 		},
 		{
@@ -95,8 +97,13 @@ func TestServiceCatalogRulesResolveAWSSpecificParameterTypes(t *testing.T) {
 			require.NoError(t, err)
 
 			ids := map[string]string{
-				"@volume": aws.ToString(vol.VolumeId), "@volume2": aws.ToString(vol2.VolumeId),
-				"@zone": strings.TrimPrefix(aws.ToString(zone.HostedZone.Id), "/hostedzone/"), "@zone2": strings.TrimPrefix(aws.ToString(zone2.HostedZone.Id), "/hostedzone/"),
+				"@volume":  aws.ToString(vol.VolumeId),
+				"@volume2": aws.ToString(vol2.VolumeId),
+				"@zone": strings.TrimPrefix(
+					aws.ToString(zone.HostedZone.Id),
+					"/hostedzone/",
+				),
+				"@zone2": strings.TrimPrefix(aws.ToString(zone2.HostedZone.Id), "/hostedzone/"),
 			}
 			resolve := func(v string) string {
 				if id, ok := ids[v]; ok {

@@ -11,8 +11,8 @@ import (
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
-	servicecatalogbackend "github.com/blackbirdworks/gopherstack/services/servicecatalog"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
+	servicecatalogbackend "github.com/blackbirdworks/gopherstack/services/servicecatalog"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 )
 

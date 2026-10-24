@@ -15,6 +15,7 @@ const (
 	scAttrVPC    = "VpcId"
 	scAttrSubnet = "SubnetId"
 	scAttrAZ     = "AvailabilityZone"
+	scAttrState  = "State"
 
 	scTypeVPC       = "AWS::EC2::VPC::Id"
 	scTypeSubnet    = "AWS::EC2::Subnet::Id"
@@ -38,57 +39,49 @@ type serviceCatalogResources struct {
 }
 
 func (r serviceCatalogResources) ResourceIDs(ctx context.Context, paramType string) ([]string, bool) {
-	var ids []string
-
 	switch paramType {
-	case scTypeVPC:
-		for _, v := range r.ec2.DescribeVpcs(nil) {
-			ids = append(ids, v.ID)
-		}
-	case scTypeSubnet:
-		for _, s := range r.ec2.DescribeSubnets(nil) {
-			ids = append(ids, s.ID)
-		}
-	case scTypeGroupID:
-		for _, g := range r.ec2.DescribeSecurityGroups(nil) {
-			ids = append(ids, g.ID)
-		}
-	case scTypeGroupName:
-		for _, g := range r.ec2.DescribeSecurityGroups(nil) {
-			ids = append(ids, g.Name)
-		}
-	case scTypeInstance:
-		for _, i := range r.ec2.DescribeInstances(nil, "") {
-			ids = append(ids, i.ID)
-		}
-	case scTypeImage:
-		for _, i := range r.ec2.DescribeImages() {
-			ids = append(ids, i.ImageID)
-		}
-	case scTypeKeyPair:
-		for _, k := range r.ec2.DescribeKeyPairs(nil) {
-			ids = append(ids, k.Name)
-		}
-	case scTypeVolume:
-		for _, v := range r.ec2.DescribeVolumes(nil) {
-			ids = append(ids, v.ID)
-		}
 	case scTypeAZ:
-		ids = r.ec2.DescribeAvailabilityZones(awsmeta.Region(ctx))
+		return r.ec2.DescribeAvailabilityZones(awsmeta.Region(ctx)), true
 	case scTypeZone:
 		zones, ok := r.hostedZones()
-		if !ok {
-			return nil, false
-		}
 
-		for _, z := range zones {
-			ids = append(ids, z.ID)
-		}
-	default:
-		return nil, false
+		return mapIDs(zones, func(z route53backend.HostedZone) string { return z.ID }), ok
+	case scTypeVPC, scTypeSubnet, scTypeGroupID, scTypeGroupName, scTypeInstance, scTypeImage, scTypeKeyPair,
+		scTypeVolume:
+		return r.ec2IDs(paramType), true
 	}
 
-	return ids, true
+	return nil, false
+}
+
+func mapIDs[T any](in []T, id func(T) string) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		out = append(out, id(v))
+	}
+
+	return out
+}
+
+func (r serviceCatalogResources) ec2IDs(paramType string) []string {
+	switch paramType {
+	case scTypeVPC:
+		return mapIDs(r.ec2.DescribeVpcs(nil), func(v *ec2backend.VPC) string { return v.ID })
+	case scTypeSubnet:
+		return mapIDs(r.ec2.DescribeSubnets(nil), func(s *ec2backend.Subnet) string { return s.ID })
+	case scTypeGroupID:
+		return mapIDs(r.ec2.DescribeSecurityGroups(nil), func(g *ec2backend.SecurityGroup) string { return g.ID })
+	case scTypeGroupName:
+		return mapIDs(r.ec2.DescribeSecurityGroups(nil), func(g *ec2backend.SecurityGroup) string { return g.Name })
+	case scTypeInstance:
+		return mapIDs(r.ec2.DescribeInstances(nil, ""), func(i *ec2backend.Instance) string { return i.ID })
+	case scTypeImage:
+		return mapIDs(r.ec2.DescribeImages(), func(i ec2backend.AMIStub) string { return i.ImageID })
+	case scTypeKeyPair:
+		return mapIDs(r.ec2.DescribeKeyPairs(nil), func(k *ec2backend.KeyPair) string { return k.Name })
+	}
+
+	return mapIDs(r.ec2.DescribeVolumes(nil), func(v *ec2backend.Volume) string { return v.ID })
 }
 
 func (r serviceCatalogResources) hostedZones() ([]route53backend.HostedZone, bool) {
@@ -226,7 +219,7 @@ func (r serviceCatalogResources) imageAttribute(id, attr string) (string, bool) 
 			return i.Architecture, true
 		case "OwnerId":
 			return i.OwnerID, true
-		case "State":
+		case scAttrState:
 			return i.State, true
 		case "VirtualizationType":
 			return i.VirtualizationType, true
@@ -260,7 +253,7 @@ func (r serviceCatalogResources) volumeAttribute(id, attr string) (string, bool)
 			return strconv.Itoa(v.Size), true
 		case "VolumeType":
 			return v.VolumeType, true
-		case "State":
+		case scAttrState:
 			return v.State, true
 		case "Encrypted":
 			return strconv.FormatBool(v.Encrypted), true
@@ -281,7 +274,7 @@ func (r serviceCatalogResources) zoneNameAttribute(ctx context.Context, name, at
 		return name, true
 	case "RegionName":
 		return region, true
-	case "State":
+	case scAttrState:
 		return "available", true
 	}
 

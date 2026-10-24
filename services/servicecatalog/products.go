@@ -607,7 +607,7 @@ func (b *InMemoryBackend) userCanLaunchLocked(ctx context.Context, portfolioID, 
 }
 
 func principalMatches(pr *Principal, caller string) bool {
-	if pr.PrincipalType != "IAM_PATTERN" {
+	if pr.PrincipalType != principalIAMPattern {
 		return pr.PrincipalARN == caller
 	}
 

@@ -744,7 +744,8 @@ func (b *InMemoryBackend) principalsForAccountLocked(p *Portfolio, account strin
 	var out []*Principal
 
 	for _, pr := range b.principalsOfPortfolioLocked(p.ID) {
-		if pr.AccountID == account || (viaShare && pr.AccountID == p.AccountID && pr.PrincipalType == "IAM_PATTERN") {
+		if pr.AccountID == account ||
+			(viaShare && pr.AccountID == p.AccountID && pr.PrincipalType == principalIAMPattern) {
 			out = append(out, pr)
 		}
 	}
@@ -761,9 +762,11 @@ func (b *InMemoryBackend) sharedTagOptionsLocked(account, region string) map[str
 			continue
 		}
 
-		ids := []string{p.ID}
+		assocs := b.associationsOfPortfolioLocked(p.ID)
+		ids := make([]string, 0, len(assocs)+1)
+		ids = append(ids, p.ID)
 
-		for _, a := range b.associationsOfPortfolioLocked(p.ID) {
+		for _, a := range assocs {
 			ids = append(ids, a.ProductID)
 		}
 

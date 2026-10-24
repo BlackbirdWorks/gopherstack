@@ -372,7 +372,7 @@ type AssociatePrincipalWithPortfolioInput struct {
 func (b *InMemoryBackend) AssociatePrincipalWithPortfolio(
 	ctx context.Context, in *AssociatePrincipalWithPortfolioInput,
 ) (*EmptyOutput, error) {
-	if in.PrincipalType != "IAM" && in.PrincipalType != "IAM_PATTERN" {
+	if in.PrincipalType != "IAM" && in.PrincipalType != principalIAMPattern {
 		return nil, invalid("PrincipalType must be IAM or IAM_PATTERN")
 	}
 

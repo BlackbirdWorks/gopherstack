@@ -555,7 +555,9 @@ func (b *InMemoryBackend) usageInstructionsLocked(portfolioID, productID string)
 	return out
 }
 
-func (b *InMemoryBackend) tagOptionSummariesLocked(account string, path *Portfolio, productID string) []TagOptionSummary {
+func (b *InMemoryBackend) tagOptionSummariesLocked(
+	account string, path *Portfolio, productID string,
+) []TagOptionSummary {
 	vals := map[string][]string{}
 
 	if !b.sharesTagOptionsLocked(account, path) {

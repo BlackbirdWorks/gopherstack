@@ -26,11 +26,11 @@ func recipientCtx(t *testing.T) context.Context {
 }
 
 type recipientView struct {
+	ownerOfTO   string
 	principals  int
 	tagOptions  int
 	portfolioTO int
 	searchHits  int
-	ownerOfTO   string
 }
 
 func viewOf(
