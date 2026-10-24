@@ -221,6 +221,8 @@ ops:
   ListCatalogItems: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET /catalog/items; ItemClass/EC2Family/SupportedStorage filters over the same static seed"}
   ListOrderableInstanceTypes: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET /instanceTypes; static 5-entry seed (seed_data.go), also backs GetOutpostInstanceTypes'/GetOutpostSupportedInstanceTypes' VCPU lookups"}
   GetConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /connections/{ConnectionId}; synthetic (non-cryptographic) key/tunnel-address placeholders -- see gaps"}
+  CreatePrivateConnectivityConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /outposts/{OutpostId}/privateConnectivity (private_connectivity.go); NotFound unknown outpost, Conflict if already configured, Validation on empty list or >1 subnet per VPC; RoleArn is the Outposts service-linked role ARN; cascaded by DeleteOutpost"}
+  GetPrivateConnectivityConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outposts/{OutpostId}/privateConnectivity; NotFound for unknown outpost or no config"}
   StartConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /connections; validates AssetId exists"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /tags/{ResourceArn}; resolves to Outpost or Site by ARN resource-segment marker"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /tags/{ResourceArn}"}
@@ -231,7 +233,6 @@ families:
   route-matcher: {status: ok, note: "handler.go's routeRequest uses a map-of-topLevelRouteFunc keyed by first path segment (kept cyclomatic complexity low without a nolint) rather than one large switch; RouteMatcher prefixes on all 12 top-level path segments; MatchPriority = PriorityPathVersioned"}
 gaps: []
 items_still_open:
-  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreatePrivateConnectivityConfig, GetPrivateConnectivityConfig."
   - "ListBlockingInstancesForCapacityTask returns empty and WAITING_FOR_EVACUATION never occurs (UNVERIFIABLE): outposts@v1.66.1 does not say whether InstanceTypeCapacity.Count is a delta or a target, or how running instances map to the physical capacity a task needs, so the additive StartCapacityTask model cannot be replaced by a blocking model without inventing semantics."
   - "OrderingRequirementType UNSUPPORTED and OUTPOST_STATE_CHANGED_ERROR are not produced (UNVERIFIABLE): the SDK and docs give no trigger condition for either."
 structural_gaps:

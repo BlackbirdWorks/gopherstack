@@ -26,6 +26,8 @@ func assetOutpostIndexKeyFn(v *Asset) string { return v.OutpostID }
 
 func connectionKeyFn(v *Connection) string { return v.ID }
 
+func privateConnectivityKeyFn(v *PrivateConnectivityConfig) string { return v.OutpostID }
+
 func runningInstanceKeyFn(v *runningInstance) string { return v.InstanceID }
 
 func runningInstanceOutpostIndexKeyFn(v *runningInstance) string { return v.OutpostID }
@@ -51,6 +53,9 @@ func registerAllTables(b *InMemoryBackend) {
 	b.assetsByOutpost = b.assets.AddIndex("byOutpost", assetOutpostIndexKeyFn)
 
 	b.connections = store.Register(b.registry, "connections", store.New(connectionKeyFn))
+
+	b.privateConnectivity = store.Register(
+		b.registry, "privateConnectivity", store.New(privateConnectivityKeyFn))
 
 	b.runningInstances = store.Register(b.registry, "runningInstances", store.New(runningInstanceKeyFn))
 	b.runningInstancesByOutpost = b.runningInstances.AddIndex("byOutpost", runningInstanceOutpostIndexKeyFn)
