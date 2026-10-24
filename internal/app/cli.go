@@ -32,19 +32,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
-	appsyncsdksvc "github.com/aws/aws-sdk-go-v2/service/appsync"
-	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
-	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	awsddbstreams "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	ddbstreamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
-	"github.com/aws/aws-sdk-go-v2/service/ecr"
-	"github.com/aws/aws-sdk-go-v2/service/ecs"
-	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
-	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -511,14 +503,7 @@ type CLI struct {
 	accessanalyzerHandler         service.Registerable
 	fsxHandler                    service.Registerable
 	iamClient                     *iam.Client
-	ecsClient                     *ecs.Client
-	amplifyClient                 *amplifysdk.Client
-	codePipelineSDKClient         *codepipelinesdk.Client
-	codeDeployClient              *codedeploysdk.Client
-	iotClient                     *iotsdk.Client
-	eksClient                     *ekssdk.Client
-	appSyncSdkClient              *appsyncsdksvc.Client
-	ecrClient                     *ecr.Client
+	demoCallers                   map[string]demo.Caller
 	secretsManagerClient          *secretsmanager.Client
 	sqsClient                     *sqssdk.Client
 	stsClient                     *stssdk.Client
@@ -2558,7 +2543,7 @@ func run(ctx context.Context, cli CLI) error {
 		return err
 	}
 
-	initializeClients(&cli, awsCfgVal)
+	initializeClients(&cli, awsCfgVal, inMemMux)
 
 	janitorCtx, janitorCancel := context.WithCancel(ctx)
 	defer janitorCancel() // also passed to shutdownBackends so janitors stop before backends are torn down
@@ -3056,7 +3041,7 @@ func registerWebsiteRoutes(e *echo.Echo, services []service.Registerable) {
 }
 
 // initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
-func initializeClients(cli *CLI, awsCfg aws.Config) {
+func initializeClients(cli *CLI, awsCfg aws.Config, handler http.Handler) {
 	cli.ddbClient = dynamodb.NewFromConfig(
 		awsCfg,
 		func(o *dynamodb.Options) {
@@ -3112,59 +3097,7 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
-	cli.ecrClient = ecr.NewFromConfig(
-		awsCfg,
-		func(o *ecr.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.appSyncSdkClient = appsyncsdksvc.NewFromConfig(
-		awsCfg,
-		func(o *appsyncsdksvc.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.amplifyClient = amplifysdk.NewFromConfig(
-		awsCfg,
-		func(o *amplifysdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.ecsClient = ecs.NewFromConfig(
-		awsCfg,
-		func(o *ecs.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.eksClient = ekssdk.NewFromConfig(
-		awsCfg,
-		func(o *ekssdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	initializeIoTAndCodeClients(cli, awsCfg)
-}
-
-// initializeIoTAndCodeClients configures IoT, CodeDeploy and CodePipeline SDK clients.
-func initializeIoTAndCodeClients(cli *CLI, awsCfg aws.Config) {
-	cli.iotClient = iotsdk.NewFromConfig(
-		awsCfg,
-		func(o *iotsdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.codeDeployClient = codedeploysdk.NewFromConfig(
-		awsCfg,
-		func(o *codedeploysdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.codePipelineSDKClient = codepipelinesdk.NewFromConfig(
-		awsCfg,
-		func(o *codepipelinesdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
+	cli.demoCallers = newDemoCallers(handler, awsCfg)
 }
 
 // serviceByName builds a lookup map from service Name() to the service instance.
@@ -14422,14 +14355,14 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		SSM:            cli.ssmClient,
 		KMS:            cli.kmsClient,
 		SecretsManager: cli.secretsManagerClient,
-		ECR:            cli.ecrClient,
-		AppSync:        cli.appSyncSdkClient,
-		Amplify:        cli.amplifyClient,
-		ECS:            cli.ecsClient,
-		EKS:            cli.eksClient,
-		IoT:            cli.iotClient,
-		CodeDeploy:     cli.codeDeployClient,
-		CodePipeline:   cli.codePipelineSDKClient,
+		ECR:            cli.demoCallers["ecr"],
+		AppSync:        cli.demoCallers["appsync"],
+		Amplify:        cli.demoCallers["amplify"],
+		ECS:            cli.demoCallers["ecs"],
+		EKS:            cli.demoCallers["eks"],
+		IoT:            cli.demoCallers["iot"],
+		CodeDeploy:     cli.demoCallers["codedeploy"],
+		CodePipeline:   cli.demoCallers["codepipeline"],
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)
