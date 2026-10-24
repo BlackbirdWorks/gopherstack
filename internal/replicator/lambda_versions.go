@@ -9,8 +9,9 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/lambda"
 )
 
 const latestVersion = "$LATEST"

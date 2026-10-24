@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/awswire"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/lambda"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
 )
 
@@ -297,4 +299,36 @@ func TestUnknownServiceAndMissingEndpointFail(t *testing.T) {
 
 	_, err = awswire.New("route53", aws.Config{Region: "us-east-1"}, nil).Call(t.Context(), "X", nil)
 	require.Error(t, err)
+}
+
+func TestLambdaInvokeBridgesPayloadAndHeaders(t *testing.T) {
+	t.Parallel()
+
+	var path, invType string
+
+	var got []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, invType = r.URL.Path, r.Header.Get("X-Amz-Invocation-Type")
+		got, _ = io.ReadAll(r.Body)
+		w.Header().Set("X-Amz-Function-Error", "Unhandled")
+		w.Header().Set("X-Amz-Executed-Version", "$LATEST")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"errorMessage":"boom"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, err := lambda.NewFromConfig(testConfig(srv.URL)).Invoke(t.Context(), &lambda.InvokeInput{
+		FunctionName:   aws.String("fn"),
+		InvocationType: lambdatypes.InvocationTypeRequestResponse,
+		Payload:        []byte(`{"a":1}`),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "/2015-03-31/functions/fn/invocations", path)
+	assert.Equal(t, "RequestResponse", invType)
+	assert.JSONEq(t, `{"a":1}`, string(got))
+	assert.Equal(t, int32(200), out.StatusCode)
+	assert.Equal(t, "Unhandled", aws.ToString(out.FunctionError))
+	assert.JSONEq(t, `{"errorMessage":"boom"}`, string(out.Payload))
 }
