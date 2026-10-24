@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 9 (8 ok, 1 partial) |
-| Feature families | 8 (8 ok) |
+| Feature families | 9 (9 ok) |
 | Known gaps | 16 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -20,15 +20,15 @@
 - Azure Function, Hybrid Connection and Partner destinations are not implemented.
 - Delivery with managed identity and AAD bearer validation are not implemented.
 - Namespace topic subscriptions do not support dead-letter destinations or webhook push delivery.
-- Event subscriptions scoped to a resource group, subscription or other resource types are not implemented; only custom topics are scopes.
+- Resource-scope event subscriptions receive no events; event subscription PATCH is not implemented.
 - Dead-letter blob write failures are dropped.
-- Listing event subscriptions (at any scope, domains included) is not implemented.
 - System topics, partner topics and partner configurations are not implemented.
 - Custom input schemas and input schema mappings are not implemented.
 - Azure Function, Hybrid Connection and Partner destinations are not implemented.
 - Managed-identity delivery and AAD bearer validation are not implemented.
 - Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces.
-- Event subscriptions at resource group, subscription or non-topic resource scope are not implemented.
+- Resource-scope event subscriptions (e.g. a storage account) are stored and listed but receive no events; ARM lifecycle events at subscription and resource group scope are the only system event source, and only the Succeeded outcomes (write, delete, action) are emitted.
+- Event subscription update (PATCH) is not implemented.
 - Dead-letter blob write failures are not retried.
 - No dashboard page.
 

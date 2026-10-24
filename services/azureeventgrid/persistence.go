@@ -17,6 +17,7 @@ type backendSnapshot struct {
 	Topics     map[string]*topic     `json:"topics"`
 	Namespaces map[string]*namespace `json:"namespaces"`
 	Domains    map[string]*domain    `json:"domains,omitempty"`
+	ARMScopes  map[string]*armScope  `json:"armScopes,omitempty"`
 	Version    int                   `json:"version"`
 }
 
@@ -27,6 +28,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	return persistence.MarshalSnapshot(ctx, "azureeventgrid", backendSnapshot{
 		Version: snapshotVersion, Topics: b.topics, Namespaces: b.namespaces, Domains: b.domains,
+		ARMScopes: b.armScopes,
 	})
 }
 
@@ -46,6 +48,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.topics, b.namespaces, b.domains = map[string]*topic{}, map[string]*namespace{}, map[string]*domain{}
+		b.armScopes = map[string]*armScope{}
 
 		return nil
 	}
@@ -55,6 +58,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.topics, b.namespaces, b.domains = snap.Topics, snap.Namespaces, snap.Domains
+	b.armScopes = snap.ARMScopes
 
 	return nil
 }
@@ -85,6 +89,10 @@ func normalize(snap *backendSnapshot) error {
 	}
 
 	if err := normalizeDomains(snap); err != nil {
+		return err
+	}
+
+	if err := normalizeARMScopes(snap); err != nil {
 		return err
 	}
 

@@ -22,6 +22,7 @@ families:
   webhook_delivery: {status: ok, note: "Validation handshake on create or endpoint change: SubscriptionValidationEvent POST (validationResponse echo, else manual validationUrl) and the CloudEvents OPTIONS abuse-protection handshake. Notifications carry aeg-event-type, aeg-subscription-name and aeg-delivery-count; 2xx succeeds, 400 and 413 dead-letter at once, everything else retries. maxEventsPerBatch (1-5000, default 1) and preferredBatchSizeInKilobytes (1-1024, default 64) group due events of one subscription into one JSON array request (CloudEvents: application/cloudevents-batch+json when batching is configured); a failed batch retries as a whole. deliveryAttributeMappings (Static, Dynamic from the first event of the request) become request headers; secret static values are withheld from reads and returned by DeliveryAttributes."}
   sink_delivery: {status: ok, note: "ServiceBusQueue, ServiceBusTopic, EventHub and StorageQueue destinations deliver into the emulator's own azureservicebus, azureeventhubs and azurequeue backends through adapters in internal/app. Service Bus and queue messages carry the event object, Event Hubs the event in a JSON array."}
   retry_dead_letter: {status: ok, note: "Retries follow Event Grid's schedule (10s, 30s, 1m, 5m, 10m, 30m, 1h, 3h, 6h, 12h repeating) on an injected clock, bounded by retryPolicy maxDeliveryAttempts (1-30) and eventTimeToLiveInMinutes (1-1440). Exhausted events are written to the StorageBlob dead-letter container as topic/subscription/yyyy/MM/dd/HH/id.json with deadLetterReason, deliveryAttempts, lastDeliveryOutcome, publishTime and lastDeliveryAttemptTime."}
+  arm_scopes: {status: ok, note: "Subscription, resource group and non-Event-Grid resource scope event subscriptions (PUT, GET, DELETE, getFullUrl, getDeliveryAttributes; the scope must exist). A successful ARM PUT, DELETE or POST action in services/azurearm (event subscriptions excluded, so a subscription never sees its own creation) is reported through azurearm.ResourceObserver and delivered as Microsoft.Resources.ResourceWriteSuccess, ResourceDeleteSuccess or ResourceActionSuccess (dataVersion 2) with subject = resource ID and data authorization, claims, correlationId, httpRequest, resourceProvider, resourceUri, operationName, status, subscriptionId, tenantId, to subscriptions on /subscriptions/{id} (topic = that ID) and on the resource's resource group (topic = the group ID); a resource group's own write/delete is subscription level. All armeventgrid list operations (global and regional, by subscription or resource group, ForTopicType, ByResource, ByDomainTopic) with $filter on name (contains, eq, ne, not, and, or) and $top (1-100, default 20) paging via nextLink. Global lists hold subscription, resource group and other resource scopes; regional lists hold custom topic and domain subscriptions matched on the topic's location. Delivery schema is EventGridSchema."}
   auth: {status: ok, note: "Off by default (any credential is accepted and the topic is picked by host label, key or the single topic). With --azure-eventgrid-validate-sas the aeg-sas-key must equal a topic key and SAS tokens (r, e, s; HMAC-SHA256 over the base64-decoded key) must verify and be unexpired; namespace requests use SharedAccessKey or SAS against the namespace keys."}
 gaps:
   - "System topics, partner topics and partner namespaces are not implemented."
@@ -29,17 +30,17 @@ gaps:
   - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
   - "Delivery with managed identity and AAD bearer validation are not implemented."
   - "Namespace topic subscriptions do not support dead-letter destinations or webhook push delivery."
-  - "Event subscriptions scoped to a resource group, subscription or other resource types are not implemented; only custom topics are scopes."
+  - "Resource-scope event subscriptions receive no events; event subscription PATCH is not implemented."
   - "Dead-letter blob write failures are dropped."
 deferred: []
 items_still_open:
-  - "Listing event subscriptions (at any scope, domains included) is not implemented."
   - "System topics, partner topics and partner configurations are not implemented."
   - "Custom input schemas and input schema mappings are not implemented."
   - "Azure Function, Hybrid Connection and Partner destinations are not implemented."
   - "Managed-identity delivery and AAD bearer validation are not implemented."
   - "Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces."
-  - "Event subscriptions at resource group, subscription or non-topic resource scope are not implemented."
+  - "Resource-scope event subscriptions (e.g. a storage account) are stored and listed but receive no events; ARM lifecycle events at subscription and resource group scope are the only system event source, and only the Succeeded outcomes (write, delete, action) are emitted."
+  - "Event subscription update (PATCH) is not implemented."
   - "Dead-letter blob write failures are not retried."
   - "No dashboard page."
 leaks: {status: clean, note: "Shutdown cancels the delivery worker and waits for it, then closes the HTTPS server; the outbound HTTP client owns its transport (pkgs/httpclient)."}

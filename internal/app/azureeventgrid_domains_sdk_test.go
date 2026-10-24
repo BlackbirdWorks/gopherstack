@@ -82,6 +82,7 @@ type egDomainStack struct {
 	factory *armeventgrid.ClientFactory
 	backend *azureeventgrid.InMemoryBackend
 	client  *http.Client
+	armSrv  *httptest.Server
 	dataURL string
 }
 
@@ -96,6 +97,7 @@ func newEGDomainStack(t *testing.T) *egDomainStack {
 
 	backend := azureeventgrid.NewInMemoryBackend()
 	armH.Registry.SetEventGrid(&azureEventGridAdapter{backend: backend})
+	armH.SetResourceObserver(&azureARMEventSource{backend: backend})
 
 	e := echo.New()
 	e.Any("/*", armH.Handler())
@@ -123,7 +125,7 @@ func newEGDomainStack(t *testing.T) *egDomainStack {
 	f, err := armeventgrid.NewClientFactory(redisSDKSub, redisSDKCredential{}, opts)
 	require.NoError(t, err)
 
-	return &egDomainStack{factory: f, backend: backend, dataURL: dataSrv.URL, client: dataSrv.Client()}
+	return &egDomainStack{factory: f, backend: backend, dataURL: dataSrv.URL, client: dataSrv.Client(), armSrv: armSrv}
 }
 
 func (s *egDomainStack) publisher(t *testing.T, key string) *azeventgrid.Client {
