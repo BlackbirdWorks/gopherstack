@@ -13,6 +13,10 @@ func (rc *ResourceCreator) createMonitoringThenNetworkManager(
 		return id, true, err
 	}
 
+	if id, ok, err := rc.createOAMResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
 	return rc.createNetworkManagerThenDirectConnect(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
@@ -24,6 +28,10 @@ func (rc *ResourceCreator) deleteMonitoringThenNetworkManager(
 		return true, err
 	}
 
+	if handled, err := rc.deleteOAMResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
 	return rc.deleteNetworkManagerThenDirectConnect(ctx, resourceType, physicalID)
 }
 
@@ -32,6 +40,10 @@ func monitoringRecreation(resourceType, propName string) string {
 	switch resourceType {
 	case resTypeRUMAppMonitor:
 		return alwaysIfOneOf(propName, "Name", "Platform")
+	case resTypeOAMSink:
+		return alwaysIfOneOf(propName, "Name")
+	case resTypeOAMLink:
+		return alwaysIfOneOf(propName, "SinkIdentifier", "LabelTemplate")
 	default:
 		return recreateNever
 	}

@@ -348,6 +348,8 @@
   "AWS::NetworkManager::TransitGatewayRegistration",
   "AWS::NetworkManager::TransitGatewayRouteTableAttachment",
   "AWS::NetworkManager::VpcAttachment",
+  "AWS::Oam::Link",
+  "AWS::Oam::Sink",
   "AWS::OpenSearch::Domain",
   "AWS::OpenSearchService::Domain",
   "AWS::Pipes::Pipe",

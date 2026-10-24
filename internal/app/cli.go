@@ -342,6 +342,7 @@ type CLI struct {
 	athenaHandler                 service.Registerable
 	kafkaconnectHandler           service.Registerable
 	rumHandler                    service.Registerable
+	oamHandler                    service.Registerable
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
 	grafanaHandler                service.Registerable
@@ -1698,6 +1699,11 @@ func (c *CLI) GetKafkaConnectHandler() service.Registerable { return c.kafkaconn
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRUMHandler() service.Registerable { return c.rumHandler }
+
+// GetOAMHandler returns the CloudWatch Observability Access Manager handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOAMHandler() service.Registerable { return c.oamHandler }
 
 // GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
 //
@@ -3296,6 +3302,7 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.kafkaHandler = byName["Kafka"]
 	cli.kafkaconnectHandler = byName["KafkaConnect"]
 	cli.rumHandler = byName["RUM"]
+	cli.oamHandler = byName["OAM"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
 	cli.kinesisvideoHandler = byName["KinesisVideo"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]

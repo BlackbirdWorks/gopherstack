@@ -985,6 +985,13 @@
     "State",
     "UpdatedAt"
   ],
+  "AWS::Oam::Link": [
+    "Arn",
+    "Label"
+  ],
+  "AWS::Oam::Sink": [
+    "Arn"
+  ],
   "AWS::OpenSearchService::Domain": [
     "AdvancedSecurityOptions.AnonymousAuthDisableDate",
     "Arn",

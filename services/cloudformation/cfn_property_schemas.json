@@ -3436,6 +3436,18 @@
     "Tags": "list",
     "VpcArn": "string"
   },
+  "AWS::Oam::Link": {
+    "LabelTemplate": "string",
+    "LinkConfiguration": "map",
+    "ResourceTypes": "list",
+    "SinkIdentifier": "string",
+    "Tags": "map"
+  },
+  "AWS::Oam::Sink": {
+    "Name": "string",
+    "Policy": "any",
+    "Tags": "map"
+  },
   "AWS::OpenSearchService::Domain": {
     "AIMLOptions": "map",
     "AccessPolicies": "any",

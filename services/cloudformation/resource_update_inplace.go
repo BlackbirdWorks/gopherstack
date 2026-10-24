@@ -34,6 +34,8 @@ func (rc *ResourceCreator) UpdateInPlace(
 	ctx = rc.withStackRegion(ctx)
 
 	switch resourceType {
+	case resTypeOAMSink, resTypeOAMLink:
+		return true, rc.updateOAMResource(ctx, resourceType, physicalID, props, params, physicalIDs)
 	case resTypeRUMAppMonitor:
 		return true, rc.updateRUMAppMonitor(ctx, physicalID, props, params, physicalIDs)
 	case resTypeLambdaFunction:

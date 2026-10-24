@@ -53,6 +53,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -178,6 +179,7 @@ type ServiceBackends struct {
 	ECRPublic         *ecrpublicbackend.Handler
 	KafkaConnect      *kafkaconnectbackend.Handler
 	RUM               *rumbackend.Handler
+	OAM               *oambackend.Handler
 	DirectConnect     *directconnectbackend.Handler
 	NetworkManager    *networkmanagerbackend.Handler
 	GlobalAccelerator *globalacceleratorbackend.Handler

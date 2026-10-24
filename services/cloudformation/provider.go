@@ -52,6 +52,7 @@ import (
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
+	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -164,6 +165,7 @@ type BackendsProvider interface {
 	GetECRPublicHandler() service.Registerable
 	GetKafkaConnectHandler() service.Registerable
 	GetRUMHandler() service.Registerable
+	GetOAMHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -219,6 +221,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.ECRPublic, _ = getHandler[*ecrpublicbackend.Handler](bp.GetECRPublicHandler())
 	backends.KafkaConnect, _ = getHandler[*kafkaconnectbackend.Handler](bp.GetKafkaConnectHandler())
 	backends.RUM, _ = getHandler[*rumbackend.Handler](bp.GetRUMHandler())
+	backends.OAM, _ = getHandler[*oambackend.Handler](bp.GetOAMHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.
