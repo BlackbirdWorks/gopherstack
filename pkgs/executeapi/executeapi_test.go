@@ -21,9 +21,23 @@ func TestParse(t *testing.T) {
 		wantRest string
 		wantOK   bool
 	}{
-		{"localstack host", "abc123.execute-api.localhost.localstack.cloud:4566", "/dev/pets", "abc123", "/dev/pets", true},
+		{
+			"localstack host",
+			"abc123.execute-api.localhost.localstack.cloud:4566",
+			"/dev/pets",
+			"abc123",
+			"/dev/pets",
+			true,
+		},
 		{"aws host", "abc123.execute-api.us-east-1.amazonaws.com", "/dev", "abc123", "/dev", true},
-		{"internal path", "localhost:4566", "/_aws/execute-api/abc123/dev/pets/1", "abc123", "/dev/pets/1", true},
+		{
+			"internal path",
+			"localhost:4566",
+			"/_aws/execute-api/abc123/dev/pets/1",
+			"abc123",
+			"/dev/pets/1",
+			true,
+		},
 		{"internal path no tail", "localhost:4566", "/_aws/execute-api/abc123", "abc123", "/", true},
 		{"internal path empty id", "localhost:4566", "/_aws/execute-api/", "", "", false},
 		{"plain host", "localhost:4566", "/restapis", "", "", false},

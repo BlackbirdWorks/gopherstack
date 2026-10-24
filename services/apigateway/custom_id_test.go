@@ -17,10 +17,29 @@ func TestCreateRestAPICustomIDTag(t *testing.T) {
 		wantID     string
 		wantStatus int
 	}{
-		{name: "localstack tag", body: `{"name":"a","tags":{"_custom_id_":"myapi","env":"dev"}}`, wantID: "myapi", wantStatus: http.StatusCreated},
-		{name: "native tag", body: `{"name":"a","tags":{"gopherstack:id":"native1"}}`, wantID: "native1", wantStatus: http.StatusCreated},
-		{name: "hyphen id", body: `{"name":"a","tags":{"_custom_id_":"my-api-1"}}`, wantID: "my-api-1", wantStatus: http.StatusCreated},
-		{name: "uppercase rejected", body: `{"name":"a","tags":{"_custom_id_":"UPPER"}}`, wantStatus: http.StatusBadRequest},
+		{
+			name:       "localstack tag",
+			body:       `{"name":"a","tags":{"_custom_id_":"myapi","env":"dev"}}`,
+			wantID:     "myapi",
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "native tag",
+			body:       `{"name":"a","tags":{"gopherstack:id":"native1"}}`,
+			wantID:     "native1",
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "hyphen id",
+			body:       `{"name":"a","tags":{"_custom_id_":"my-api-1"}}`,
+			wantID:     "my-api-1",
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "uppercase rejected",
+			body:       `{"name":"a","tags":{"_custom_id_":"UPPER"}}`,
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -30,8 +49,8 @@ func TestCreateRestAPICustomIDTag(t *testing.T) {
 			srv := newProxyRoutingServer(t)
 
 			var out struct {
-				ID   string            `json:"id"`
 				Tags map[string]string `json:"tags"`
+				ID   string            `json:"id"`
 			}
 
 			status := jsonAction(t, srv.Client(), srv.URL, "CreateRestApi", tt.body, &out)

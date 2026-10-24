@@ -23,12 +23,44 @@ func TestExecuteAPIInvokeURLs(t *testing.T) {
 		wantStatus int
 		notS3      bool
 	}{
-		{name: "host_style", host: apiID + ".execute-api.localhost.localstack.cloud:4566", path: "/prod", wantStatus: http.StatusOK, notS3: true},
-		{name: "host_style_aws_domain", host: apiID + ".execute-api.us-east-1.amazonaws.com", path: "/prod/", wantStatus: http.StatusOK, notS3: true},
-		{name: "internal_path", path: "/_aws/execute-api/" + apiID + "/prod", wantStatus: http.StatusOK, notS3: true},
-		{name: "internal_path_trailing", path: "/_aws/execute-api/" + apiID + "/prod/", wantStatus: http.StatusOK, notS3: true},
-		{name: "unknown_stage", path: "/_aws/execute-api/" + apiID + "/nope", wantStatus: http.StatusForbidden, notS3: true},
-		{name: "unknown_api_host", host: "zzzzzzzz.execute-api.localhost.localstack.cloud", path: "/prod", wantStatus: http.StatusNotFound},
+		{
+			name:       "host_style",
+			host:       apiID + ".execute-api.localhost.localstack.cloud:4566",
+			path:       "/prod",
+			wantStatus: http.StatusOK,
+			notS3:      true,
+		},
+		{
+			name:       "host_style_aws_domain",
+			host:       apiID + ".execute-api.us-east-1.amazonaws.com",
+			path:       "/prod/",
+			wantStatus: http.StatusOK,
+			notS3:      true,
+		},
+		{
+			name:       "internal_path",
+			path:       "/_aws/execute-api/" + apiID + "/prod",
+			wantStatus: http.StatusOK,
+			notS3:      true,
+		},
+		{
+			name:       "internal_path_trailing",
+			path:       "/_aws/execute-api/" + apiID + "/prod/",
+			wantStatus: http.StatusOK,
+			notS3:      true,
+		},
+		{
+			name:       "unknown_stage",
+			path:       "/_aws/execute-api/" + apiID + "/nope",
+			wantStatus: http.StatusForbidden,
+			notS3:      true,
+		},
+		{
+			name:       "unknown_api_host",
+			host:       "zzzzzzzz.execute-api.localhost.localstack.cloud",
+			path:       "/prod",
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {

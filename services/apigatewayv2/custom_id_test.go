@@ -20,9 +20,23 @@ func TestCreateAPICustomIDTag(t *testing.T) {
 		wantID     string
 		wantStatus int
 	}{
-		{name: "localstack tag", tags: map[string]string{"_custom_id_": "myapi", "env": "dev"}, wantID: "myapi", wantStatus: http.StatusCreated},
-		{name: "native tag", tags: map[string]string{"gopherstack:id": "native1"}, wantID: "native1", wantStatus: http.StatusCreated},
-		{name: "invalid", tags: map[string]string{"_custom_id_": "bad id!"}, wantStatus: http.StatusBadRequest},
+		{
+			name:       "localstack tag",
+			tags:       map[string]string{"_custom_id_": "myapi", "env": "dev"},
+			wantID:     "myapi",
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "native tag",
+			tags:       map[string]string{"gopherstack:id": "native1"},
+			wantID:     "native1",
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "invalid",
+			tags:       map[string]string{"_custom_id_": "bad id!"},
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {

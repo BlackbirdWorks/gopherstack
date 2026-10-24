@@ -44,15 +44,36 @@ func TestExecuteAPIInvokeURLs(t *testing.T) {
 		name       string
 		host       string
 		path       string
-		wantStatus int
 		wantBody   string
+		wantStatus int
 	}{
 		{name: "host_default_stage", host: host, path: "/hello", wantStatus: http.StatusOK, wantBody: "ok"},
 		{name: "host_named_stage", host: host, path: "/dev/hello", wantStatus: http.StatusOK, wantBody: "ok"},
-		{name: "internal_default_stage", path: "/_aws/execute-api/" + apiID + "/hello", wantStatus: http.StatusOK, wantBody: "ok"},
-		{name: "internal_explicit_default", path: "/_aws/execute-api/" + apiID + "/$default/hello", wantStatus: http.StatusOK, wantBody: "ok"},
-		{name: "internal_named_stage", path: "/_aws/execute-api/" + apiID + "/dev/hello", wantStatus: http.StatusOK, wantBody: "ok"},
-		{name: "unknown_api", host: "zzzzzzzz.execute-api.localhost.localstack.cloud", path: "/hello", wantStatus: http.StatusNotFound, wantBody: "NoSuchBucket"},
+		{
+			name:       "internal_default_stage",
+			path:       "/_aws/execute-api/" + apiID + "/hello",
+			wantStatus: http.StatusOK,
+			wantBody:   "ok",
+		},
+		{
+			name:       "internal_explicit_default",
+			path:       "/_aws/execute-api/" + apiID + "/$default/hello",
+			wantStatus: http.StatusOK,
+			wantBody:   "ok",
+		},
+		{
+			name:       "internal_named_stage",
+			path:       "/_aws/execute-api/" + apiID + "/dev/hello",
+			wantStatus: http.StatusOK,
+			wantBody:   "ok",
+		},
+		{
+			name:       "unknown_api",
+			host:       "zzzzzzzz.execute-api.localhost.localstack.cloud",
+			path:       "/hello",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
+		},
 	}
 
 	for _, tt := range tests {

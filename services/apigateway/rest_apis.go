@@ -362,7 +362,11 @@ func (b *InMemoryBackend) newRestAPIID(pinned string) (string, error) {
 		return randomID(apiIDLength), nil
 	}
 
-	if err := tags.ValidatePinnedID(pinned, restAPIIDPattern, "1-32 lowercase alphanumeric characters or hyphens"); err != nil {
+	if err := tags.ValidatePinnedID(
+		pinned,
+		restAPIIDPattern,
+		"1-32 lowercase alphanumeric characters or hyphens",
+	); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInvalidParameter, err)
 	}
 
