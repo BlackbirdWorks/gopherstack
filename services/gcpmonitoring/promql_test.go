@@ -44,6 +44,8 @@ func (e *env) promGet(t *testing.T, path string, params url.Values) (int, []byte
 	host := strings.Replace(e.handler.Addr(), "[::]", "127.0.0.1", 1)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+host+path+"?"+params.Encode(), nil)
 	require.NoError(t, err)
+	// no keep-alive: an idle pooled connection outlives the test and trips goleak
+	req.Close = true
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
