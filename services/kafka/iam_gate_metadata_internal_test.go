@@ -40,7 +40,12 @@ func (h *gateHarness) metadataUpstream(version int16, names ...string) {
 	go func() {
 		for {
 			frame, err := readFrame(h.upstream)
-			if err != nil || writeFrame(h.upstream, metadataUpstreamResponse(version, corrOf(frame[4:]), names...)) != nil {
+			if err != nil {
+				return
+			}
+
+			resp := metadataUpstreamResponse(version, corrOf(frame[4:]), names...)
+			if writeFrame(h.upstream, resp) != nil {
 				return
 			}
 		}
