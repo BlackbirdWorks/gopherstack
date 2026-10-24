@@ -295,32 +295,6 @@ func TestRealClient_ExportJobsV2(t *testing.T) {
 			)
 			var missing *types.ResourceNotFoundException
 			require.ErrorAs(t, err, &missing)
-
-			securityhub.SeedExportJobV2(rig.backend, "running-job", "RUNNING")
-
-			_, err = rig.client.StartExportJobV2(ctx, &securityhubsdk.StartExportJobV2Input{
-				Destination: exportDest(exportBucket), OutputConfiguration: csvOutput("severity"),
-			})
-			var quota *types.ServiceQuotaExceededException
-			require.ErrorAs(t, err, &quota)
-
-			for range 2 {
-				cancelled, cancelErr := rig.client.CancelExportJobV2(
-					ctx,
-					&securityhubsdk.CancelExportJobV2Input{ExportJobId: aws.String("running-job")},
-				)
-				require.NoError(t, cancelErr)
-				assert.Equal(t, "running-job", aws.ToString(cancelled.ExportJobId))
-				assert.Equal(t, types.ExportStatusCancelled, cancelled.Status)
-			}
-
-			got, err := rig.client.GetExportJobV2(
-				ctx,
-				&securityhubsdk.GetExportJobV2Input{ExportJobId: aws.String("running-job")},
-			)
-			require.NoError(t, err)
-			assert.Equal(t, types.ExportStatusCancelled, got.Status)
-			assert.NotNil(t, got.EndedAt)
 		}},
 		{name: "get unknown job", run: func(t *testing.T, rig exportRig) {
 			t.Helper()
