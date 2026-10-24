@@ -92,6 +92,15 @@ func TargetGates() map[string][]string {
 	}
 }
 
+// CBORGates maps services whose SDK now speaks Smithy rpcv2Cbor to their Smithy service
+// shape name; /service/<name>/operation/<Op> passes the service's target gate.
+func CBORGates() map[string]string {
+	return map[string]string{
+		"CodeConnections": "CodeConnections_20231201",
+		"Translate":       "AWSShineFrontendService_20170701",
+	}
+}
+
 //go:embed path_gates.txt
 var pathGatesData string
 

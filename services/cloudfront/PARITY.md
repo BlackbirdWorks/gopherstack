@@ -1,6 +1,6 @@
 ---
 service: cloudfront
-sdk_module: aws-sdk-go-v2/service/cloudfront@v1.67.4
+sdk_module: aws-sdk-go-v2/service/cloudfront@v1.74.2
 sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) now live in services/cloudfrontkeyvaluestore (gopherstack-4ara, 2026-08-13) -- see that service's own PARITY.md
 last_audit_commit: 70d96e12d  # 2026-09-19 cloudfront-and-route53/15 terraform sweep (gopherstack-101r)
 last_audit_date: 2026-10-07

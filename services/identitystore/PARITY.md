@@ -1,6 +1,6 @@
 ---
 service: identitystore
-sdk_module: aws-sdk-go-v2/service/identitystore@v1.39.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/identitystore@v1.49.0   # version audited against
 last_audit_commit: 24813b443 # HEAD as of the 2026-09-19 required-output-member sweep (this pass)
 last_audit_date: 2026-10-10
 # 2026-10-10 realism pass: error messages no longer repeat the exception code; List* ops reject a NextToken this

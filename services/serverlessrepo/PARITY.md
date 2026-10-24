@@ -1,6 +1,6 @@
 ---
 service: serverlessrepo
-sdk_module: aws-sdk-go-v2/service/serverlessapplicationrepository@v1.33.4
+sdk_module: aws-sdk-go-v2/service/serverlessapplicationrepository@v1.39.3
 last_audit_commit: af89d3e6f
 last_audit_date: 2026-10-10
 overall: A            # zero known gaps; every op field-diffed against real serializers/deserializers/model this pass

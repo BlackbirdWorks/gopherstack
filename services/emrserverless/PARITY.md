@@ -1,6 +1,6 @@
 ---
 service: emrserverless
-sdk_module: aws-sdk-go-v2/service/emrserverless@v1.44.4
+sdk_module: aws-sdk-go-v2/service/emrserverless@v1.50.0
 last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass); prior: a2084957b  # 2026-09-18 (gopherstack-xhu2t): reqfielddiff tier-1 pass; prior value cfa41e2b0 was gopherstack-420's state-machine/precondition sweep commit
 last_audit_date: 2026-10-10  # prior: 2026-09-18 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListApplications/ListJobRunAttempts/ListJobRuns/ListSessions member-by-member against emrserverless@v1.44.4
 overall: A

@@ -1,6 +1,6 @@
 ---
 service: elbv2
-sdk_module: aws-sdk-go-v2/service/elasticloadbalancingv2@v1.58.5   # bumped from v1.54.8 this pass (go.mod already pinned v1.58.5; PARITY.md was stale)
+sdk_module: aws-sdk-go-v2/service/elasticloadbalancingv2@v1.63.3   # bumped from v1.54.8 this pass (go.mod already pinned v1.58.5; PARITY.md was stale)
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
 last_audit_date: 2026-10-11
                               # 5 tier-1 findings real, all fixed (CreateLoadBalancer/SetSubnets

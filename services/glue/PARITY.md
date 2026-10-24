@@ -1,6 +1,6 @@
 ---
 service: glue
-sdk_module: aws-sdk-go-v2/service/glue@v1.157.0
+sdk_module: aws-sdk-go-v2/service/glue@v1.169.0
 last_audit_commit: 2bc650bf9
 last_audit_date: 2026-10-09
 # 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
@@ -175,6 +175,7 @@ gaps: []
   # notes above for each. Kept here (marked FIXED) rather than deleted so the
   # bd issue IDs remain traceable; close the corresponding bd issues separately.
 items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetSystemLogsForJobRun, GetSystemLogsForSession, ListIntegrationTableProperties."
   - "Database and table names are stored case-sensitively; real Glue lowercases them (create DB2, get db2). Not changed because cloudformation/athena/lakeformation create catalog objects with caller-cased names through the backend."
   - "Request members accepted and ignored with no determinable effect: Tags on CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType/CreateCustomEntityType (the Glue ARN guide lists no ARN for them); UpdateTable VersionId/Force/ViewUpdateAction (UpdateTable API reference names no mismatch behavior); ModifyIntegration.IntegrationName (ARN is name-keyed); Get/ResetJobBookmark.RunId (one bookmark per job; per-run semantics undocumented); GetConnection.ApplyOverrideForComputeEnvironment; GetTable/GetTables/SearchTables IncludeStatusDetails; GetDatabases/SearchTables ResourceShareType (no cross-account shares)."
 structural_gaps:

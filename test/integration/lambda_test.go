@@ -94,7 +94,7 @@ func main() {
 // Go toolchain, then produces a minimal Alpine-based image with only the compiled binary.
 //
 //nolint:gochecknoglobals // compile-time constant used only in buildEchoLambdaImage
-var echoHandlerDockerfile = `FROM golang:1.24-alpine AS builder
+var echoHandlerDockerfile = `FROM golang:1.27-alpine AS builder
 WORKDIR /app
 COPY handler.go .
 RUN go mod init echohandler && go build -o handler .

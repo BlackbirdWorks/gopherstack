@@ -85,7 +85,7 @@ func Test_SDKRoundTrip_UpdateRestoreTesting_UpdateTime(t *testing.T) {
 			RestoreTestingPlanName:      aws.String("rtp-sel-update-time"),
 			RestoreTestingSelectionName: aws.String("sel1"),
 			RestoreTestingSelection: &types.RestoreTestingSelectionForUpdate{
-				ValidationWindowHours: 12,
+				ValidationWindowHours: aws.Int32(12),
 			},
 		})
 		require.NoError(t, err)
@@ -136,7 +136,7 @@ func Test_SDKRoundTrip_RestoreTestingSelection_IamRoleArn(t *testing.T) {
 		RestoreTestingPlanName:      aws.String("rtp-iamrolearn"),
 		RestoreTestingSelectionName: aws.String("sel1"),
 		RestoreTestingSelection: &types.RestoreTestingSelectionForUpdate{
-			ValidationWindowHours: 24,
+			ValidationWindowHours: aws.Int32(24),
 		},
 	})
 	require.NoError(t, err)

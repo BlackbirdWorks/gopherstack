@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: mediastoredata
-sdk_module: aws-sdk-go-v2/service/mediastoredata@v1.32.4   # version audited against; unchanged from prior pass, confirmed still the go.mod pin
+sdk_module: aws-sdk-go-v2/service/mediastoredata@v1.38.3   # version audited against; unchanged from prior pass, confirmed still the go.mod pin
 last_audit_commit: bce8159207
 last_audit_date: 2026-10-07
 overall: A            # this pass (gopherstack-5ce): PutObject accepted a body of ANY size -- PutObjectInput's doc comment (api_op_PutObject.go:13-14) states "Object sizes are limited to 25 MB for standard upload availability and 10 MB for streaming upload availability," and gopherstack enforced no such limit anywhere in the package. Fixed via a new ErrObjectTooLarge sentinel (errors.go, ValidationException wire type, same convention as ErrInvalidPath/ErrInvalidStorageClass/ErrInvalidUploadAvailability) and a size check in PutObject keyed on the (already-defaulted) uploadAvailability value. Covered by TestInMemoryBackend_PutObject_SizeLimit and TestMediaStoreData_ObjectSizeLimit. All other surface re-checked against the pinned v1.32.4 SDK this pass (field-level doc comments on all 5 *Input structs, types/errors.go's 4-exception list, types/enums.go) with no other discrepancies found -- see ops/families below.

@@ -5,7 +5,7 @@
 # SDK module cache, this repo's existing services, or the real Terraform AWS provider source, cited
 # per-claim), not because the service is still unbuilt.
 service: directconnect
-sdk_module: aws-sdk-go-v2/service/directconnect@v1.44.1   # bumped since original audit (v1.43.3);
+sdk_module: aws-sdk-go-v2/service/directconnect@v1.55.0   # bumped since original audit (v1.43.3);
 # 2026-08-05: added ListVirtualInterfaceRoutes -- see its `ops:` entry and the matching gaps entry.
 # resolved via `go get .../directconnect@latest`
 # in a throwaway scratch module (`go mod init probe && go get`), run in this session's scratchpad,
@@ -165,7 +165,8 @@ ops:
 # individually above; every op in this service is a fixed POST / with no path-parameter routing,
 # so there is no natural "route family" grouping the way REST-JSON services have.
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): AssociateConnectionsToResiliencyGroup, CreateResiliencyGroup, DeleteResiliencyGroup, DisassociateConnectionsFromResiliencyGroup, GetResiliencyGroup, ListResiliencyGroupAssociations, ListResiliencyGroups, UpdateConnectionsBillingMode, UpdateResiliencyGroup."
 structural_gaps:
   - "Interconnect/hosted-connection/reseller (partner) flow (CreateInterconnect, AllocateConnectionOnInterconnect, AllocateHostedConnection, ConfirmConnection, DescribeConnectionsOnInterconnect, DescribeHostedConnections): real Direct Connect Partners own physical cross-connect infrastructure at colocation facilities. There is no physical link for an emulator to have or lack -- 'is this physically cross-connected' cannot be made real by any amount of implementation effort. Full state bookkeeping (Interconnect/Connection creation, ordering->confirm->available transitions, parent/child relationships) IS implemented and IS the honest ceiling."
   - "LOA-CFA (Letter of Authorization - Connecting Facility Assignment) content (DescribeLoa/DescribeConnectionLoa/DescribeInterconnectLoa): a real LOA-CFA is an authentic AWS-issued document authorizing physical cross-connect work at a named colocation facility. No implementation can produce a genuine one without real physical infrastructure and a real issuing authority. loa.go's placeholderLoaContent (a minimal, well-formed PDF labeled 'PLACEHOLDER - NOT A REAL AUTHORIZATION') is the honest ceiling, never a fabricated real-looking document."

@@ -45,7 +45,7 @@
 # analysis engine exists to produce it) -- moved into structural_gaps: per services/_PARITY_TEMPLATE.md
 # with individual justification, not used as a blanket escape hatch.
 service: mgn
-sdk_module: aws-sdk-go-v2/service/mgn@v1.48.4   # gopherstack-u8my: go.mod had already moved to
+sdk_module: aws-sdk-go-v2/service/mgn@v1.56.3   # gopherstack-u8my: go.mod had already moved to
 # v1.48.4; the "unchanged since 2026-08-01" note was stale. Diffed v1.48.3 vs v1.48.4:
 # types/{types,enums,errors}.go, serializers.go, deserializers.go, validators.go byte-identical --
 # only client middleware plumbing differs, so no wire-shape claim in this file was affected.

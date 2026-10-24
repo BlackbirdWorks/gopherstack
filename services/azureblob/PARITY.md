@@ -1,6 +1,6 @@
 ---
 service: azureblob
-sdk_module: azure-sdk-for-go/sdk/storage/azblob@v1.8.0
+sdk_module: azure-sdk-for-go/sdk/storage/azblob@v1.8.2
 last_audit_commit: f1427114b
 last_audit_date: 2026-09-03
 overall: C

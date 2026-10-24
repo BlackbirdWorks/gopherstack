@@ -214,6 +214,7 @@ func TestRoutingSigningScopeDispatch(t *testing.T) {
 
 			router := service.NewServiceRouter(reg).
 				WithTargetGates(routegates.TargetGates()).
+				WithCBORGates(routegates.CBORGates()).
 				WithPathGates(routegates.PathGates())
 
 			var (
@@ -261,6 +262,7 @@ func TestRoutingSigningScopeUnimplementedNotBatch(t *testing.T) {
 	reg, _ := routingFixture(t)
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates())
 
 	tests := []struct {

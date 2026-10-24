@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: lakeformation
-sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
+sdk_module: aws-sdk-go-v2/service/lakeformation@v1.55.3
 last_audit_commit: 0c1472972  # 2026-09-24 lakeformation-appsync-neptune-and-athena terraform coverage; prior: 49cff86c4
 last_audit_date: 2026-10-10
 overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs

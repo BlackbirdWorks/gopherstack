@@ -1,7 +1,7 @@
 ---
 items_still_open: []
 service: mediapackage
-sdk_module: aws-sdk-go-v2/service/mediapackage@v1.42.4
+sdk_module: aws-sdk-go-v2/service/mediapackage@v1.48.3
 last_audit_commit: ed6ef1a53
 last_audit_date: 2026-10-11
 overall: A            # 2026-08-29: independent re-sweep, deliberately NOT using this campaign's

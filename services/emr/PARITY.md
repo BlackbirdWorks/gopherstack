@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: emr
-sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
+sdk_module: aws-sdk-go-v2/service/emr@v1.70.3   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
 last_audit_commit: 0c1472972  # terraform-coverage pass: InstanceTypeConfigs modeled (closes gopherstack-dqd8 item below); prior: d522d763f
 last_audit_date: 2026-10-10  # prior: 2026-09-19
 overall: A                # 2026-09-04 (gopherstack-s1m six-bug-pattern sweep): checked all nine named delete/

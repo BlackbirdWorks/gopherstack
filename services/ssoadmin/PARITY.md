@@ -1,6 +1,6 @@
 ---
 service: ssoadmin
-sdk_module: aws-sdk-go-v2/service/ssoadmin@v1.43.1
+sdk_module: aws-sdk-go-v2/service/ssoadmin@v1.49.3
 last_audit_commit: c02948310
 last_audit_date: 2026-10-10
 # 2026-10-10 realism pass: instance/permission-set ARNs now match the SDK patterns (ssoins-<16>, ps-<16>);

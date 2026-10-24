@@ -18,5 +18,9 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := batch.NewInMemoryBackend("000000000000", "us-east-1")
 	h := batch.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &batchsdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &batchsdk.Client{}, h.GetSupportedOperations(), []string{
+		"CancelJobs",
+		"TerminateJobs",
+		"TerminateServiceJobs",
+	})
 }

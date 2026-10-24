@@ -96,7 +96,7 @@
 # "Implementation summary (this pass, 2026-08-06)" below for what was built and why the remaining
 # 3 ops are structural, not scoped-down.
 service: networkmanager
-sdk_module: aws-sdk-go-v2/service/networkmanager@v1.44.4   # go.mod's pinned version as of this pass
+sdk_module: aws-sdk-go-v2/service/networkmanager@v1.50.3   # go.mod's pinned version as of this pass
 # (the 2026-08-01 pre-implementation audit resolved v1.44.3 against @latest in a throwaway scratch
 # module; go.mod has since moved to v1.44.4, re-confirmed this pass by direct grep).
 last_audit_commit: b36537ddc

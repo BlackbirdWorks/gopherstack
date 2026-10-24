@@ -12631,6 +12631,7 @@ func setupRegistry(
 
 	router := service.NewServiceRouter(registry).
 		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates()).
 		WithInterceptor(interceptor)
 	e.Use(router.RouteHandler())

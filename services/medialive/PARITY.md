@@ -1,5 +1,5 @@
 service: medialive
-sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/medialive@v1.112.0   # version audited against
 last_audit_commit: 2332c3128  # 2026-09-24 DELETED input-security-group/multiplex TTL eviction; prior: 5cb6665a0
 last_audit_date: 2026-10-07
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17

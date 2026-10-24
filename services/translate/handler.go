@@ -79,12 +79,17 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 // RouteMatcher matches Translate X-Amz-Target headers.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), translateTargetPrefix)
+		return cborBridge.Matches(c.Request()) ||
+			strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), translateTargetPrefix)
 	}
 }
 
 // ExtractOperation returns the operation name from the request target.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if cborBridge.Matches(c.Request()) {
+		return cborBridge.Operation(c.Request())
+	}
+
 	target := c.Request().Header.Get("X-Amz-Target")
 	if !strings.HasPrefix(target, translateTargetPrefix) {
 		return unknownOperation
@@ -126,12 +131,12 @@ func (h *Handler) GetSupportedOperations() []string {
 
 // homeHandler serves requests for the home region.
 func (h *Handler) homeHandler() echo.HandlerFunc {
-	return func(c *echo.Context) error {
+	return cborBridge.Wrap(func(c *echo.Context) error {
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()), h.Name(), translateContentType,
 			h.GetSupportedOperations(), h.dispatch, h.handleError,
 		)
-	}
+	})
 }
 
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {

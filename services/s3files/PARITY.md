@@ -1,6 +1,6 @@
 ---
 service: s3files
-sdk_module: aws-sdk-go-v2/service/s3files@v1.8.1
+sdk_module: aws-sdk-go-v2/service/s3files@v1.8.3
 last_audit_commit: d52fe4ac6
 last_audit_date: 2026-10-18
 overall: B            # all 21 SDK operations are real and driven through the SDK client behind the production router; B until the open items close.

@@ -15,5 +15,10 @@ func TestSDKCompleteness(t *testing.T) {
 	b := bedrockagent.NewTestBackend("us-east-1", "123456789012")
 	h := bedrockagent.NewTestHandler(b)
 
-	sdkcheck.CheckCompleteness(t, &bedrockagentsdk.Client{}, h.GetSupportedOperations(), []string{})
+	sdkcheck.CheckCompleteness(t, &bedrockagentsdk.Client{}, h.GetSupportedOperations(), []string{
+		"CreateVpcConfiguration",
+		"DeleteVpcConfiguration",
+		"GetVpcConfiguration",
+		"ListVpcConfigurations",
+	})
 }

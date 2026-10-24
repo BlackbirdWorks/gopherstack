@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: forecast
-sdk_module: aws-sdk-go-v2/service/forecast@v1.44.4
+sdk_module: aws-sdk-go-v2/service/forecast@v1.50.3
 last_audit_commit: 15d6ce54c
 last_audit_date: 2026-10-07
 overall: A            # 2026-09-06: gopherstack-jrhh (LimitExceededException never returned) --

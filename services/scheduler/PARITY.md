@@ -1,6 +1,6 @@
 ---
 service: scheduler
-sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/scheduler@v1.25.3   # version audited against
 last_audit_commit: 615cda74e                           # HEAD when this audit pass started
 last_audit_date: 2026-10-10
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)

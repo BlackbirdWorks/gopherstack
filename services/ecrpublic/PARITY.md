@@ -1,6 +1,6 @@
 ---
 service: ecrpublic
-sdk_module: aws-sdk-go-v2/service/ecrpublic@v1.47.1
+sdk_module: aws-sdk-go-v2/service/ecrpublic@v1.47.3
 last_audit_commit: 5bb0d02ee
 last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_ECRPublic_RepositoryImageLifecycle (test/integration/ecrpublic_test.go) + every buildable gap closed; remaining divergences are structural_gaps.

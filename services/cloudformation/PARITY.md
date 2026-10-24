@@ -1,6 +1,6 @@
 ---
 service: cloudformation
-sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
+sdk_module: aws-sdk-go-v2/service/cloudformation@v1.82.0
 last_audit_commit: 54869319e  # 2026-09-25 24 new resource types added: EC2
                                # PlacementGroup/VPNGateway/VPNConnection/
                                # PrefixList/NetworkInterfacePermission/

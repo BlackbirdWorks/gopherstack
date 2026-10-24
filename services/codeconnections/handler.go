@@ -144,7 +144,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // RouteMatcher returns a function that matches AWS CodeConnections JSON 1.0 requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(targetHeader(c), ccTargetPrefix)
+		return cborBridge.Matches(c.Request()) || strings.HasPrefix(targetHeader(c), ccTargetPrefix)
 	}
 }
 
@@ -153,6 +153,10 @@ func (h *Handler) MatchPriority() int { return codeconnectionsMatchPriority }
 
 // ExtractOperation extracts the CodeConnections operation name from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if cborBridge.Matches(c.Request()) {
+		return cborBridge.Operation(c.Request())
+	}
+
 	return strings.TrimPrefix(targetHeader(c), ccTargetPrefix)
 }
 
@@ -196,7 +200,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 // Handler returns the Echo handler function for CodeConnections requests.
 func (h *Handler) Handler() echo.HandlerFunc {
-	return func(c *echo.Context) error {
+	return cborBridge.Wrap(func(c *echo.Context) error {
 		// Resolve the per-request region (from SigV4 / X-Amz-Region) and attach
 		// it to the context so backend operations are region-scoped.
 		region := httputils.ExtractRegionFromRequest(c.Request(), h.Backend.Region())
@@ -210,7 +214,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			},
 			h.handleEchoError,
 		)
-	}
+	})
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codedeploy
-sdk_module: aws-sdk-go-v2/service/codedeploy@v1.43.0   # version audited against; corrected from stale v1.37.0 pin
+sdk_module: aws-sdk-go-v2/service/codedeploy@v1.45.3   # version audited against; corrected from stale v1.37.0 pin
 last_audit_commit: b1905140e                             # gopherstack-xhu2t reqfielddiff tier-1 sweep
 last_audit_date: 2026-10-10
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op

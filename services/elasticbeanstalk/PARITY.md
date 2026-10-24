@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticbeanstalk
-sdk_module: aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/elasticbeanstalk@v1.43.3   # version audited against
 last_audit_commit: 16aa469b2                      # HEAD at close of the 2026-09-18 ledger burn-down pass
 last_audit_date: 2026-10-10
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op

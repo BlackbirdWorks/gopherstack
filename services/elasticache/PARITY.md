@@ -1,6 +1,6 @@
 ---
 service: elasticache
-sdk_module: aws-sdk-go-v2/service/elasticache@v1.56.4
+sdk_module: aws-sdk-go-v2/service/elasticache@v1.63.2
 last_audit_commit: 221e362fa                    # gopherstack-8haq fix commit
 last_audit_date: 2026-10-12  # 2026-10-07: replication groups own member clusters, node groups, endpoints and roles; Memcached node scaling; global datastore members
 overall: A            # 2026-09-08 (gopherstack-8haq, P1): xmlError/xmlResp return nil after a

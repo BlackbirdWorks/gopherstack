@@ -1,6 +1,6 @@
 ---
 service: resourcegroups
-sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
+sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.42.3
 last_audit_commit: e13b41148   # 2026-09-24 terraform-coverage sweep; prior: 4ad783e5c
 last_audit_date: 2026-10-10   # prior: 2026-09-20
 overall: A            # 2026-09-24 (codeartifact-timestream-and-messaging terraform coverage): a real client

@@ -14,7 +14,7 @@ service: dms
 # (ls api_op_*.go in the module cache), all 119 of which this service
 # implements (handler.go's op-name const block; confirmed by direct count
 # 2026-08-20). Do not repeat cmd/opcensus's mistake when re-auditing.
-sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.66.4
+sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.75.0
 last_audit_commit: 0c1472972  # terraform-coverage pass: S3Settings modeled, Certificate tagging added; prior: f16ac0367fc476ca2ffd1643ed5ef900b9ff0480
 last_audit_date: 2026-10-10  # prior: 2026-09-23
 overall: A            # 2026-08-29 (gopherstack-21my, parameter-honoring sweep): audited a coherent slice

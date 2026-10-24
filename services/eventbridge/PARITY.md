@@ -1,6 +1,6 @@
 ---
 service: eventbridge
-sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
+sdk_module: aws-sdk-go-v2/service/eventbridge@v1.55.2
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
 last_audit_commit: f78c3b7c7  # 2026-09-24 leak sweep: terminal replays evicted after 1h; prior: 6020fa871
 last_audit_date: 2026-10-11

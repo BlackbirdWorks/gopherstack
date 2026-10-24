@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: guardduty
-sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
+sdk_module: aws-sdk-go-v2/service/guardduty@v1.99.0
 last_audit_commit: 22b4f068c  # 2026-09-20 RouteMatcher collision fix; prior: b7c35baea (guardduty-and-securityhub)
 last_audit_date: 2026-10-07
 overall: A            # 2026-09-08 (gopherstack-uu0n): DeleteMembers/DisassociateMembers/
@@ -263,7 +263,8 @@ families:
   malware_protection_plan_actions: {status: ok, note: "FIXED this pass (was deferred): Actions.tagging.status is now validated against the real MalwareProtectionPlanTaggingActionStatus enum on both Create and Update; ProtectedResource.s3Bucket.bucketName is now required on Create (matching CreateProtectedResource being a required input member and S3Bucket being \"the only supported protected resource\"), and correctly NOT required on Update (UpdateProtectedResource's S3Bucket has no bucketName member at all -- ObjectPrefixes only). See malware_protection_plan_schema.go"}
   investigations: {status: partial, note: "NEW family (this pass, GuardDuty Extended Threat Detection): CreateInvestigation/GetInvestigation/ListInvestigations are all real -- detector-scoped state, real detector+AI_ANALYST validation, cascade-deleted with their detector (DeleteDetectorCleansUpSubResources), Snapshot/Restore round-trips (detectorDTO[Investigation], the same pattern as filters/ipSets/publishingDestinations). status: partial (not ok) because this backend has NO threat-analysis engine: every investigation is permanently RUNNING and cloud/confidence/endTime/error/metadata/risk/riskLevel/summary/title never populate -- not a wire bug, an honest structural limitation (see the sibling wafv2 service's same treatment of honestly-empty analytics). See TestWireShape_Investigation_NoFabricatedAnalysis, which asserts none of these are ever present on the wire."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreateCustomDetectionRuleAssociation, CreateCustomDetectionRuleOrgConfiguration, DeleteCustomDetectionRuleAssociation, DeleteCustomDetectionRuleOrgConfiguration, GetCustomDetectionRule, GetCustomDetectionRuleAssociation, GetCustomDetectionRuleOrgConfiguration, ListCustomDetectionRuleAssociations, ListCustomDetectionRuleOrgConfigurations, ListCustomDetectionRules, UpdateCustomDetectionRuleAssociation, UpdateCustomDetectionRuleOrgConfiguration."
 structural_gaps:
   - "GetMalwareScan scanResultDetails/scannedResources[] stay absent: they are outputs of a real malware scanner over files/volumes, which an emulator cannot run."
   - "ListCoverage FilterCriteria/SortCriteria and coverage resources: coverage rows are real EKS/ECS/EC2 runtime agents deployed in customer infrastructure; none exist to filter (always {}/[])."

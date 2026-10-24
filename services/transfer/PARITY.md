@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transfer
-sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
+sdk_module: aws-sdk-go-v2/service/transfer@v1.85.2   # version audited against (go.mod)
 last_audit_commit: 1940758f8
 last_audit_date: 2026-10-12                          # requiredoutputfields census: all 69 required output
                                                        # members across 51 ops checked, all always populated

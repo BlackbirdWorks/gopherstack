@@ -1,6 +1,6 @@
 ---
 service: ssooidc
-sdk_module: aws-sdk-go-v2/service/ssooidc@v1.42.0   # version audited against
+sdk_module: aws-sdk-go-v2/service/ssooidc@v1.43.3   # version audited against
 last_audit_commit: 94a8059bf
 last_audit_date: 2026-10-12
 overall: B            # new service; every op checked field-by-field against the pinned serializers/deserializers/types

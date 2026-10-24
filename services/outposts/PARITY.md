@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: outposts
-sdk_module: aws-sdk-go-v2/service/outposts@v1.66.1   # go.mod's actual pin at this audit (unchanged)
+sdk_module: aws-sdk-go-v2/service/outposts@v1.74.3   # go.mod's actual pin at this audit (unchanged)
 last_audit_commit: 4049cb9ee # HEAD immediately before this 2026-09-06 pass's own fix commit
 last_audit_date: 2026-10-10
 # 2026-09-06 pass: two filed issues (gopherstack-vsmv, gopherstack-glw7), one real fix, one
@@ -231,6 +231,7 @@ families:
   route-matcher: {status: ok, note: "handler.go's routeRequest uses a map-of-topLevelRouteFunc keyed by first path segment (kept cyclomatic complexity low without a nolint) rather than one large switch; RouteMatcher prefixes on all 12 top-level path segments; MatchPriority = PriorityPathVersioned"}
 gaps: []
 items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CreatePrivateConnectivityConfig, GetPrivateConnectivityConfig."
   - "ListBlockingInstancesForCapacityTask returns empty and WAITING_FOR_EVACUATION never occurs (UNVERIFIABLE): outposts@v1.66.1 does not say whether InstanceTypeCapacity.Count is a delta or a target, or how running instances map to the physical capacity a task needs, so the additive StartCapacityTask model cannot be replaced by a blocking model without inventing semantics."
   - "OrderingRequirementType UNSUPPORTED and OUTPOST_STATE_CHANGED_ERROR are not produced (UNVERIFIABLE): the SDK and docs give no trigger condition for either."
 structural_gaps:

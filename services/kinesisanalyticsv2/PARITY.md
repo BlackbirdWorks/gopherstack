@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: kinesisanalyticsv2
-sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4
+sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.47.3
 last_audit_commit: 47436caf9
 last_audit_date: 2026-10-10
 overall: A            # one real non-total-sort bug found and fixed this pass

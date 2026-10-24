@@ -19,11 +19,12 @@ const (
 // first matching service. Implements centralized routing logic that replaces
 // scattered pre-middleware and manual routing checks.
 type Router struct {
+	idx         routeIndex
+	intercept   Interceptor
 	services    []*Entry
 	targetGates [][]string
 	pathGates   [][]string
-	intercept   Interceptor
-	idx         routeIndex
+	cborGates   []string
 }
 
 // Interceptor sees every request after the built-in lookup (entry is nil when no service
@@ -45,8 +46,9 @@ func NewServiceRouter(registry *Registry) *Router {
 		services:    services,
 		targetGates: make([][]string, len(services)),
 		pathGates:   make([][]string, len(services)),
+		cborGates:   make([]string, len(services)),
 	}
-	r.idx = buildRouteIndex(r.targetGates, r.pathGates)
+	r.idx = buildRouteIndex(r.targetGates, r.pathGates, r.cborGates)
 
 	return r
 }
@@ -59,7 +61,19 @@ func (r *Router) WithTargetGates(gates map[string][]string) *Router {
 		r.targetGates[i] = validGate(gates[entry.Registerable.Name()], minTargetGateLen)
 	}
 
-	r.idx = buildRouteIndex(r.targetGates, r.pathGates)
+	r.idx = buildRouteIndex(r.targetGates, r.pathGates, r.cborGates)
+
+	return r
+}
+
+// WithCBORGates names, by service, the Smithy service shape whose rpcv2Cbor calls
+// (/service/<name>/operation/<Op>) also pass that service's target gate. Call before serving.
+func (r *Router) WithCBORGates(names map[string]string) *Router {
+	for i, entry := range r.services {
+		r.cborGates[i] = names[entry.Registerable.Name()]
+	}
+
+	r.idx = buildRouteIndex(r.targetGates, r.pathGates, r.cborGates)
 
 	return r
 }
@@ -71,7 +85,7 @@ func (r *Router) WithPathGates(gates map[string][]string) *Router {
 		r.pathGates[i] = validGate(gates[entry.Registerable.Name()], minPathGateLen)
 	}
 
-	r.idx = buildRouteIndex(r.targetGates, r.pathGates)
+	r.idx = buildRouteIndex(r.targetGates, r.pathGates, r.cborGates)
 
 	return r
 }
@@ -123,6 +137,11 @@ func (r *Router) Lookup(c *echo.Context) *Entry {
 		targetBucket = r.idx.byTarget[target[0]]
 	}
 
+	cborName := rpcv2CBORServiceName(path)
+	if cb := r.idx.byCBOR[cborName]; cborName != "" && len(cb) > 0 {
+		targetBucket = mergeAscending(targetBucket, cb)
+	}
+
 	var ia, ip, it int
 
 	for {
@@ -131,7 +150,8 @@ func (r *Router) Lookup(c *echo.Context) *Entry {
 			return nil
 		}
 
-		if g := r.targetGates[i]; g != nil && !hasAnyPrefix(target, g) {
+		if g := r.targetGates[i]; g != nil && !hasAnyPrefix(target, g) &&
+			(cborName == "" || r.cborGates[i] != cborName) {
 			continue
 		}
 

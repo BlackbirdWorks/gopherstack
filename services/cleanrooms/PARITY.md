@@ -1,6 +1,6 @@
 ---
 service: cleanrooms
-sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.49.4   # bumped from v1.48.0 this pass (go.mod already pinned v1.49.4; PARITY.md was stale)
+sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.57.3   # bumped from v1.48.0 this pass (go.mod already pinned v1.49.4; PARITY.md was stale)
 last_audit_commit: 841743e85
 last_audit_date: 2026-10-07
 overall: A            # systemic invented-field cleanup + several real state-machine/wire-shape bugs fixed (prior pass); IntermediateTable family implemented for real at the same quality bar (2026-07-25 pass)
@@ -127,7 +127,8 @@ families:
   Tags: {status: ok, note: "CRUD + ARN validation (fixed prior pass) re-verified; no change this pass"}
   RouteMatcher/classifyPath: {status: ok, note: "no change this pass; prior pass's GetCollaborationAnalysisTemplate routing fix re-verified via handler_route_matcher_test.go. 2026-08-13 (gopherstack-jqh2 pass 2): re-extracted all 100 ops' real method+path from cleanrooms@v1.49.4 serializers.go independently and confirmed handler_route_matcher_test.go's TestRouteMatcher_MethodSensitivity already covers every op exactly once with the correct method/path (including the two ARN-embeds-slashes special cases, GetCollaborationAnalysisTemplate and the /tags/{arn} family) -- this IS the SDK-route-fidelity table this audit's method calls for; no duplicate added, per the sesv2 precedent."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetAnalysisLogExport, ListAnalysisLogExports, StartAnalysisLogExport."
 structural_gaps:
   - "Privacy budgets: no query-time consumption (remainingCount always equals maxCount) and no ACCESS_BUDGET type; needs a real differential-privacy query engine, so ProtectedQuery/Job differentialPrivacy is also unmodeled."
   - "AnalysisTemplate sourceMetadata and validations are server-derived from artifacts/ML analysis that nothing here computes."

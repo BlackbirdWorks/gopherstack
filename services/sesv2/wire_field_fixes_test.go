@@ -95,3 +95,40 @@ func TestListEmailIdentities_VerificationStatus(t *testing.T) {
 	require.Len(t, out.EmailIdentities, 1)
 	require.Equal(t, sesv2types.VerificationStatusSuccess, out.EmailIdentities[0].VerificationStatus)
 }
+
+func TestList_FiltersAndPagesViaPostBody(t *testing.T) {
+	t.Parallel()
+
+	h := sesv2.NewHandler(sesv2.NewInMemoryBackend())
+	client := newRoundTripClient(t, h)
+	ctx := t.Context()
+
+	for _, id := range []string{"a@example.com", "b@example.com", "other.org"} {
+		_, err := client.CreateEmailIdentity(ctx, &sesv2sdk.CreateEmailIdentityInput{EmailIdentity: aws.String(id)})
+		require.NoError(t, err)
+	}
+
+	for _, name := range []string{"alpha", "beta"} {
+		_, err := client.CreateConfigurationSet(ctx, &sesv2sdk.CreateConfigurationSetInput{
+			ConfigurationSetName: aws.String(name),
+		})
+		require.NoError(t, err)
+	}
+
+	ids, err := client.ListEmailIdentities(ctx, &sesv2sdk.ListEmailIdentitiesInput{
+		Filter: map[string]string{"IDENTITY_NAME_CONTAINS": "example"},
+	})
+	require.NoError(t, err)
+	require.Len(t, ids.EmailIdentities, 2)
+
+	paged, err := client.ListEmailIdentities(ctx, &sesv2sdk.ListEmailIdentitiesInput{PageSize: aws.Int32(1)})
+	require.NoError(t, err)
+	require.Len(t, paged.EmailIdentities, 1)
+	require.NotNil(t, paged.NextToken)
+
+	sets, err := client.ListConfigurationSets(ctx, &sesv2sdk.ListConfigurationSetsInput{
+		Filter: map[string]string{"CONFIGURATION_SET_NAME_CONTAINS": "bet"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"beta"}, sets.ConfigurationSets)
+}

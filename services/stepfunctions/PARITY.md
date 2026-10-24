@@ -1,6 +1,6 @@
 ---
 service: stepfunctions
-sdk_module: aws-sdk-go-v2/service/sfn@v1.49.0
+sdk_module: aws-sdk-go-v2/service/sfn@v1.51.3
 last_audit_commit: 88924fa3b  # 2026-09-24 perf sweep: ListExecutions/ListExecutionsByMapRun sort-pointers-then-copy-page; prior: 4a7682d1e
 last_audit_date: 2026-10-09
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This

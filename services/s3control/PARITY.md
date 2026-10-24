@@ -1,5 +1,5 @@
 service: s3control
-sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
+sdk_module: aws-sdk-go-v2/service/s3control@v1.79.3
 last_audit_commit: 2bc650bf9
 last_audit_date: 2026-10-10
                        # 2026-08-30: pagination-tie re-audit. Re-verified the 2026-08-28/29

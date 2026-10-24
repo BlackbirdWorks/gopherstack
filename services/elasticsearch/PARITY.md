@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticsearch
-sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
+sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.51.3
 last_audit_commit: 366fb4907                    # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (reserved-instance pagination)
 last_audit_date: 2026-10-10
 overall: A            # gopherstack-6flj pass (2026-08-15): the outbound cross-cluster-search-connection

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: s3tables
-sdk_module: aws-sdk-go-v2/service/s3tables@v1.18.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/s3tables@v1.23.3   # version audited against
 last_audit_commit: 6c5c49416
 last_audit_date: 2026-10-10
 overall: A            # 2026-09-04 FIXED: two missing-precondition bugs (see Notes). DeleteTable silently

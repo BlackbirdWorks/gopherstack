@@ -1,6 +1,6 @@
 ---
 service: resourcegroupstaggingapi
-sdk_module: aws-sdk-go-v2/service/resourcegroupstaggingapi@v1.35.4
+sdk_module: aws-sdk-go-v2/service/resourcegroupstaggingapi@v1.41.3
 last_audit_commit: 6d3b2159e
 last_audit_date: 2026-10-10
 overall: A            # 2026-08-07 (gopherstack-3xfq): ListRequiredTags now derives real

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ses
-sdk_module: aws-sdk-go-v2/service/ses@v1.37.4   # version audited against (query-XML, 2010-12-01); verified == go.mod this pass
+sdk_module: aws-sdk-go-v2/service/ses@v1.42.3   # version audited against (query-XML, 2010-12-01); verified == go.mod this pass
 last_audit_commit: bfdb308be                      # HEAD at audit time (2026-09-19, terraform-coverage
                        # sweep iot-and-ses: VerifyDomainDkim DkimEnabled default fix); prior b1905140e
 last_audit_date: 2026-10-12

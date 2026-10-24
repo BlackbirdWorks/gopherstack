@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ram
-sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
+sdk_module: aws-sdk-go-v2/service/ram@v1.45.3   # version audited against
 last_audit_commit: f78c3b7c7  # 2026-09-24 terminal invitation unbounded-growth fix; prior: 2332c3128
 last_audit_date: 2026-10-10
 # 2026-10-10 realism pass: allowExternalPrincipals now defaults true when omitted (SDK doc); resourceOwner,

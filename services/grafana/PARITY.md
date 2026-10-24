@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: grafana
-sdk_module: aws-sdk-go-v2/service/grafana@v1.38.4
+sdk_module: aws-sdk-go-v2/service/grafana@v1.44.3
 last_audit_commit: 5c20d9fd7   # 2026-09-24 elasticsearch-grafana-and-ram pass; prior: 44bff591b
 last_audit_date: 2026-10-10  # prior: 2026-09-19
 # Grade A: this pass added the integration suite that is the only accepted parity proof

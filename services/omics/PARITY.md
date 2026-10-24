@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: omics
-sdk_module: aws-sdk-go-v2/service/omics@v1.49.5
+sdk_module: aws-sdk-go-v2/service/omics@v1.55.3
 last_audit_commit: 3fd671fd6
 last_audit_date: 2026-10-10
 overall: A            # 2026-08-07 (gopherstack-hnhk): RunBatch's real body shape is now modeled.

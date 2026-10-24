@@ -1,6 +1,6 @@
 ---
 service: cloudfrontkeyvaluestore
-sdk_module: aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4
+sdk_module: aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.20.3
 last_audit_commit: de1f49c7c
 last_audit_date: 2026-10-10
 overall: A            # A: SDK-driven test/integration suite TestIntegration_CloudFrontKeyValueStore_KeyLifecycle

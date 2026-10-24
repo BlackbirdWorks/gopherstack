@@ -16,7 +16,7 @@
 # zeroguard report no findings for this service. `go build`, `go vet`, `go test -race -count=1`,
 # and `golangci-lint run`, all scoped to ./services/personalize/..., pass clean.
 service: personalize
-sdk_module: aws-sdk-go-v2/service/personalize@v1.50.4  # go.mod pins v1.50.4; prior audit passes cited v1.47.11 in this file -- this pass verified every field/citation below against the actually-pinned v1.50.4 module in the Go module cache
+sdk_module: aws-sdk-go-v2/service/personalize@v1.56.3  # go.mod pins v1.50.4; prior audit passes cited v1.47.11 in this file -- this pass verified every field/citation below against the actually-pinned v1.50.4 module in the Go module cache
 sibling_sdk_modules: [aws-sdk-go-v2/service/personalizeruntime@v1.36.4]  # GetRecommendations/GetPersonalizedRanking/GetActionRecommendations; see the Runtime family below
 last_audit_commit: a8b26ceaa
 last_audit_date: 2026-10-10
