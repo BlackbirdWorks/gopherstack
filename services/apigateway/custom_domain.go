@@ -33,6 +33,21 @@ func (h *Handler) customDomainOwner(r *http.Request) (*Handler, string) {
 	return nil, ""
 }
 
+// serveCustomDomain serves the request when its Host is a stored custom domain and the path is
+// not a control-plane path.
+func (h *Handler) serveCustomDomain(c *echo.Context) (bool, error) {
+	if isAPIGWTopLevelRESTPath(c.Request().URL.Path) {
+		return false, nil
+	}
+
+	owner, host := h.customDomainOwner(c.Request())
+	if owner == nil {
+		return false, nil
+	}
+
+	return true, h.handleCustomDomain(c, owner, host)
+}
+
 // handleCustomDomain routes a request addressed to a custom domain through its base path
 // mappings. A path no mapping covers is answered 403 Forbidden, as API Gateway does.
 func (h *Handler) handleCustomDomain(c *echo.Context, owner *Handler, host string) error {
@@ -81,7 +96,7 @@ func (h *Handler) handleCustomDomain(c *echo.Context, owner *Handler, host strin
 
 func writeForbidden(c *echo.Context) error {
 	c.Response().Header().Set(headerContentType, "application/json")
-	c.Response().Header().Set("x-amzn-ErrorType", "ForbiddenException")
+	c.Response().Header().Set("X-Amzn-Errortype", "ForbiddenException")
 
 	return c.String(http.StatusForbidden, forbiddenBody)
 }

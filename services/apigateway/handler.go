@@ -475,10 +475,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleExecuteAPIEcho(c, id, rest)
 		}
 
-		if !isAPIGWTopLevelRESTPath(c.Request().URL.Path) {
-			if owner, host := h.customDomainOwner(c.Request()); owner != nil {
-				return h.handleCustomDomain(c, owner, host)
-			}
+		if handled, err := h.serveCustomDomain(c); handled {
+			return err
 		}
 
 		// Handle proxy invocations for deployed API stages.

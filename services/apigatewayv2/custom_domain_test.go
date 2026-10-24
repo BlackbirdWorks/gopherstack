@@ -42,8 +42,10 @@ func TestCustomDomainRouting(t *testing.T) {
 		},
 	})
 
-	apiA := buildHTTPAPIWithLambda(t, h, "GET /hello", "arn:aws:lambda:us-east-1:123456789012:function:fn-a/invocations")
-	apiB := buildHTTPAPIWithLambda(t, h, "GET /hello", "arn:aws:lambda:us-east-1:123456789012:function:fn-b/invocations")
+	const lambdaPrefix = "arn:aws:lambda:us-east-1:123456789012:function:"
+
+	apiA := buildHTTPAPIWithLambda(t, h, "GET /hello", lambdaPrefix+"fn-a/invocations")
+	apiB := buildHTTPAPIWithLambda(t, h, "GET /hello", lambdaPrefix+"fn-b/invocations")
 
 	for _, id := range []string{apiA, apiB} {
 		ensureDefaultStage(t, h, id)
