@@ -671,6 +671,10 @@ func (e *Evaluator) parseUnwrappedNumeric(v any) (float64, bool) {
 			return 0, false
 		}
 
+		if f, ok := parseSmallInt(val); ok {
+			return f, true
+		}
+
 		f, err := strconv.ParseFloat(val, 64)
 
 		return f, err == nil
@@ -679,6 +683,47 @@ func (e *Evaluator) parseUnwrappedNumeric(v any) (float64, bool) {
 	default:
 		return e.parseNumeric(v)
 	}
+}
+
+// maxExactDigits keeps parseSmallInt within float64's exact integer range.
+const (
+	maxExactDigits = 15
+	decimalBase    = 10
+)
+
+// parseSmallInt parses an optionally negative run of at most maxExactDigits digits without ParseFloat.
+func parseSmallInt(s string) (float64, bool) {
+	digits := s
+	neg := false
+
+	if digits != "" && digits[0] == '-' {
+		neg, digits = true, digits[1:]
+	}
+
+	if digits == "" || len(digits) > maxExactDigits {
+		return 0, false
+	}
+
+	var n int64
+
+	for i := range len(digits) {
+		c := digits[i]
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+
+		n = n*decimalBase + int64(c-'0')
+	}
+
+	if neg {
+		if n == 0 {
+			return math.Copysign(0, -1), true
+		}
+
+		n = -n
+	}
+
+	return float64(n), true
 }
 
 // sameType reports whether a and b have the same dynamic type, using a type

@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"hash"
 	"io"
 	"maps"
@@ -690,7 +689,9 @@ func (b *InMemoryBackend) objectTagCount(bucket, key, versionID string) *int32 {
 	b.mu.RLock("objectTagCount")
 	defer b.mu.RUnlock()
 
-	n := len(b.tags[fmt.Sprintf("%s/%s/%s", bucket, key, versionID)])
+	var buf [128]byte
+
+	n := len(b.tags[string(appendTagKey(buf[:0], bucket, key, versionID))])
 	if n == 0 {
 		return nil
 	}
@@ -1332,8 +1333,21 @@ func (b *InMemoryBackend) evictStaleNullTags(bucketName, key, newVersionID strin
 	if hasTags {
 		b.mu.Lock("PutObject.evictTags")
 		if b.tags != nil {
-			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
+			delete(b.tags, tagMapKey(bucketName, key, NullVersion))
 		}
 		b.mu.Unlock()
 	}
+}
+
+func appendTagKey(dst []byte, bucket, key, versionID string) []byte {
+	dst = append(dst, bucket...)
+	dst = append(dst, '/')
+	dst = append(dst, key...)
+	dst = append(dst, '/')
+
+	return append(dst, versionID...)
+}
+
+func tagMapKey(bucket, key, versionID string) string {
+	return bucket + "/" + key + "/" + versionID
 }
