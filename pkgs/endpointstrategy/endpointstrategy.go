@@ -10,25 +10,36 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
 // LocalDomain is the public DNS zone that resolves every subdomain to loopback.
 const LocalDomain = "localhost.localstack.cloud"
 
-const defaultRegion = "us-east-1"
+const (
+	defaultRegion = "us-east-1"
+	stratDomain   = "domain"
+	stratPath     = "path"
+	stratOff      = "off"
+	stratStandard = "standard"
+	stratLegacy   = "legacy"
+	engineOS      = "opensearch"
+	engineES      = "es"
+	osPathParts   = 4
+)
 
 // ErrInvalidStrategy is returned for an unknown or unsupported strategy value.
 var ErrInvalidStrategy = errors.New("invalid endpoint strategy")
 
 // Config carries the selected strategies and the gateway host:port.
 type Config struct {
-	SQS        string
-	OpenSearch string
-	GraphQL    string
-	ECR        string
+	SQS        string `name:"sqs-endpoint-strategy"        env:"SQS_ENDPOINT_STRATEGY"        help:"Queue URL format: standard, domain, path, off or dynamic (empty keeps http://host/account/name)."`
+	OpenSearch string `name:"opensearch-endpoint-strategy" env:"OPENSEARCH_ENDPOINT_STRATEGY" help:"OpenSearch domain endpoint format: domain or path (empty keeps the AWS-style es.amazonaws.com host)."`
+	GraphQL    string `name:"graphql-endpoint-strategy"    env:"GRAPHQL_ENDPOINT_STRATEGY"    help:"AppSync GraphQL URL format: legacy, domain or path (empty keeps /v1/apis/ID/graphql)."`
+	ECR        string `name:"ecr-endpoint-strategy"        env:"ECR_ENDPOINT_STRATEGY"        help:"ECR repositoryUri host format: domain or off (empty keeps the AWS-style host)."`
 	// HostPort is the gateway address (host:port) used when a strategy needs one.
-	HostPort string
+	HostPort string `                                                                                                                                                                                   kong:"-"`
 }
 
 // Provider is implemented by the app config to expose Config to services.
@@ -51,10 +62,8 @@ func parse(kind, v string, allowed ...string) (string, error) {
 		return "", nil
 	}
 
-	for _, a := range allowed {
-		if v == a {
-			return v, nil
-		}
+	if slices.Contains(allowed, v) {
+		return v, nil
 	}
 
 	return "", fmt.Errorf("%w: %s=%q (allowed: %s)", ErrInvalidStrategy, kind, v, strings.Join(allowed, ", "))
@@ -74,10 +83,10 @@ func (c Config) Validate() error {
 		kind, v string
 		allowed []string
 	}{
-		{"SQS_ENDPOINT_STRATEGY", c.SQS, []string{"standard", "domain", "path", "off", "dynamic"}},
-		{"OPENSEARCH_ENDPOINT_STRATEGY", c.OpenSearch, []string{"domain", "path"}},
-		{"GRAPHQL_ENDPOINT_STRATEGY", c.GraphQL, []string{"legacy", "domain", "path"}},
-		{"ECR_ENDPOINT_STRATEGY", c.ECR, []string{"domain", "off"}},
+		{"SQS_ENDPOINT_STRATEGY", c.SQS, []string{stratStandard, "domain", "path", "off", "dynamic"}},
+		{"OPENSEARCH_ENDPOINT_STRATEGY", c.OpenSearch, []string{stratDomain, stratPath}},
+		{"GRAPHQL_ENDPOINT_STRATEGY", c.GraphQL, []string{stratLegacy, stratDomain, stratPath}},
+		{"ECR_ENDPOINT_STRATEGY", c.ECR, []string{stratDomain, stratOff}},
 	}
 
 	for _, ck := range checks {
@@ -123,16 +132,16 @@ func SQSQueueURL(strategy, scheme, requestHost, region, account, name string) st
 	port := portSuffix(requestHost)
 
 	switch strategy {
-	case "standard":
+	case stratStandard:
 		return scheme + "://sqs." + region + "." + LocalDomain + port + tail
-	case "domain":
+	case stratDomain:
 		prefix := region + ".queue."
 		if region == defaultRegion {
 			prefix = "queue."
 		}
 
 		return scheme + "://" + prefix + LocalDomain + port + tail
-	case "path":
+	case stratPath:
 		return scheme + "://" + requestHost + "/queue/" + region + tail
 	default:
 		return scheme + "://" + requestHost + tail
@@ -189,9 +198,9 @@ func IsSQSQueuePath(path string) bool {
 // An empty strategy keeps the AWS-style search-<name>-<account>.<region>.es.amazonaws.com host.
 func OpenSearchEndpoint(strategy, hostPort, engine, region, account, name string) string {
 	switch normalize(strategy) {
-	case "domain":
+	case stratDomain:
 		return name + "." + region + "." + engine + "." + LocalDomain + portSuffix(hostPort)
-	case "path":
+	case stratPath:
 		return hostPort + "/" + engine + "/" + region + "/" + name
 	default:
 		return fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", name, account, region)
@@ -224,10 +233,10 @@ func ParseOpenSearchRequest(host, path string) (OpenSearchRequest, bool) {
 		}
 	}
 
-	segs := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 4) //nolint:mnd // engine/region/domain/rest
+	segs := strings.SplitN(strings.TrimPrefix(path, "/"), "/", osPathParts)
 	if len(segs) >= 3 && isEngine(segs[0]) && segs[1] != "" && segs[2] != "" && isRegionLike(segs[1]) {
 		out := OpenSearchRequest{Region: segs[1], Domain: segs[2]}
-		if len(segs) == 4 {
+		if len(segs) == osPathParts {
 			out.Rest = "/" + segs[3]
 		}
 
@@ -237,7 +246,7 @@ func ParseOpenSearchRequest(host, path string) (OpenSearchRequest, bool) {
 	return OpenSearchRequest{}, false
 }
 
-func isEngine(s string) bool { return s == "opensearch" || s == "es" }
+func isEngine(s string) bool { return s == engineOS || s == engineES }
 
 var regionLike = regexp.MustCompile(`^[a-z]{2,}(-[a-z]+)+-\d+$`)
 
@@ -252,11 +261,11 @@ func GraphQLURI(strategy, base, apiID string) string {
 	}
 
 	switch normalize(strategy) {
-	case "legacy":
+	case stratLegacy:
 		return u.Scheme + "://" + u.Host + "/graphql/" + apiID
-	case "path":
+	case stratPath:
 		return u.Scheme + "://" + u.Host + "/appsync-api/" + apiID + "/graphql"
-	case "domain":
+	case stratDomain:
 		return u.Scheme + "://" + apiID + ".appsync-api." + LocalDomain + portSuffix(u.Host) + "/graphql"
 	default:
 		return base + "/v1/apis/" + apiID + "/graphql"
@@ -265,14 +274,15 @@ func GraphQLURI(strategy, base, apiID string) string {
 
 // ParseGraphQLRequest returns the API id and the sub-path below the graphql endpoint for a
 // strategy-addressed request, or ok=false.
-func ParseGraphQLRequest(host, path string) (apiID, rest string, ok bool) {
+func ParseGraphQLRequest(host, path string) (string, string, bool) {
 	h := strings.ToLower(hostOnly(host))
 
-	if prefix, found := strings.CutSuffix(h, ".appsync-api."+LocalDomain); found && prefix != "" && !strings.Contains(prefix, ".") {
+	prefix, isDomain := strings.CutSuffix(h, ".appsync-api."+LocalDomain)
+	if isDomain && prefix != "" && !strings.Contains(prefix, ".") {
 		return prefix, strings.TrimPrefix(path, "/graphql"), true
 	}
 
-	if r, found := strings.CutPrefix(path, "/graphql/"); found && r != "" {
+	if r, ok := strings.CutPrefix(path, "/graphql/"); ok && r != "" {
 		id, tail, _ := strings.Cut(r, "/")
 		if tail != "" {
 			tail = "/" + tail
@@ -281,7 +291,7 @@ func ParseGraphQLRequest(host, path string) (apiID, rest string, ok bool) {
 		return id, tail, true
 	}
 
-	if r, found := strings.CutPrefix(path, "/appsync-api/"); found {
+	if r, ok := strings.CutPrefix(path, "/appsync-api/"); ok {
 		id, tail, _ := strings.Cut(r, "/")
 		if id != "" {
 			return id, strings.TrimPrefix(tail, "graphql"), true
@@ -294,9 +304,9 @@ func ParseGraphQLRequest(host, path string) (apiID, rest string, ok bool) {
 // ECRRegistryHost formats the host part of a repository URI. An empty strategy returns "".
 func ECRRegistryHost(strategy, hostPort, account, region string) string {
 	switch normalize(strategy) {
-	case "domain":
+	case stratDomain:
 		return account + ".dkr.ecr." + region + "." + LocalDomain + portSuffix(hostPort)
-	case "off":
+	case stratOff:
 		return LocalDomain + portSuffix(hostPort)
 	default:
 		return ""

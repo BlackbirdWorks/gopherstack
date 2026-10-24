@@ -16,9 +16,21 @@ func TestSQSQueueURL(t *testing.T) {
 	}{
 		{"default", "", "localhost:4566", "us-east-1", "http://localhost:4566/1/q"},
 		{"off", "off", "localhost:4566", "eu-west-1", "http://localhost:4566/1/q"},
-		{"standard", "standard", "localhost:4566", "eu-west-1", "http://sqs.eu-west-1.localhost.localstack.cloud:4566/1/q"},
-		{"domain", "domain", "localhost:4566", "eu-west-1", "http://eu-west-1.queue.localhost.localstack.cloud:4566/1/q"},
-		{"domain default region", "domain", "localhost:4566", "us-east-1", "http://queue.localhost.localstack.cloud:4566/1/q"},
+		{
+			"standard", "standard", "localhost:4566", "eu-west-1",
+			"http://sqs.eu-west-1.localhost.localstack.cloud:4566/1/q",
+		},
+		{
+			"domain",
+			"domain",
+			"localhost:4566",
+			"eu-west-1",
+			"http://eu-west-1.queue.localhost.localstack.cloud:4566/1/q",
+		},
+		{
+			"domain default region", "domain", "localhost:4566", "us-east-1",
+			"http://queue.localhost.localstack.cloud:4566/1/q",
+		},
 		{"path", "path", "localhost:4566", "eu-west-1", "http://localhost:4566/queue/eu-west-1/1/q"},
 		{
 			"dynamic standard host", "dynamic", "sqs.eu-west-1.localhost.localstack.cloud:4566", "eu-west-1",
@@ -72,7 +84,15 @@ func TestOpenSearchEndpointAndParse(t *testing.T) {
 			"domain", "domain", "d1.eu-west-1.opensearch.localhost.localstack.cloud:4566",
 			"d1.eu-west-1.opensearch.localhost.localstack.cloud:4566", "/idx/_search", "/idx/_search", true,
 		},
-		{"path", "path", "localhost:4566/es/eu-west-1/d1", "localhost:4566", "/es/eu-west-1/d1/idx/_search", "/idx/_search", true},
+		{
+			"path",
+			"path",
+			"localhost:4566/es/eu-west-1/d1",
+			"localhost:4566",
+			"/es/eu-west-1/d1/idx/_search",
+			"/idx/_search",
+			true,
+		},
 	}
 
 	for _, tc := range tests {

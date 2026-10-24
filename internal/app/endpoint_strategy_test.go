@@ -113,7 +113,10 @@ func TestSQSEndpointStrategyThroughRouter(t *testing.T) {
 		{"default", "", "us-east-1", "http://localhost:4566/000000000000/q1"},
 		{"off", "off", "us-east-1", "http://localhost:4566/000000000000/q1"},
 		{"standard", "standard", "us-east-1", "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/q1"},
-		{"standard region", "standard", "eu-west-1", "http://sqs.eu-west-1.localhost.localstack.cloud:4566/000000000000/q1"},
+		{
+			"standard region", "standard", "eu-west-1",
+			"http://sqs.eu-west-1.localhost.localstack.cloud:4566/000000000000/q1",
+		},
 		{"domain", "domain", "eu-west-1", "http://eu-west-1.queue.localhost.localstack.cloud:4566/000000000000/q1"},
 		{"domain us-east-1", "domain", "us-east-1", "http://queue.localhost.localstack.cloud:4566/000000000000/q1"},
 		{"path", "path", "eu-west-1", "http://localhost:4566/queue/eu-west-1/000000000000/q1"},
@@ -183,8 +186,18 @@ func TestOpenSearchEndpointStrategyThroughRouter(t *testing.T) {
 		wantPath string
 	}{
 		{"default", "", "us-east-1", "OpenSearch_2.11", "search-dom1-000000000000.us-east-1.es.amazonaws.com", ""},
-		{"domain", "domain", "eu-west-1", "OpenSearch_2.11", "dom1.eu-west-1.opensearch.localhost.localstack.cloud:4566", ""},
-		{"domain elasticsearch", "domain", "us-east-1", "Elasticsearch_7.10", "dom1.us-east-1.es.localhost.localstack.cloud:4566", ""},
+		{
+			"domain",
+			"domain",
+			"eu-west-1",
+			"OpenSearch_2.11",
+			"dom1.eu-west-1.opensearch.localhost.localstack.cloud:4566",
+			"",
+		},
+		{
+			"domain elasticsearch", "domain", "us-east-1", "Elasticsearch_7.10",
+			"dom1.us-east-1.es.localhost.localstack.cloud:4566", "",
+		},
 		{"path", "path", "eu-west-1", "OpenSearch_2.11", "localhost:4566", "/opensearch/eu-west-1/dom1"},
 		{"path elasticsearch", "path", "us-east-1", "Elasticsearch_7.10", "localhost:4566", "/es/us-east-1/dom1"},
 	}
@@ -206,7 +219,10 @@ func TestOpenSearchEndpointStrategyThroughRouter(t *testing.T) {
 			wantEndpoint := tc.wantHost + tc.wantPath
 			assert.Equal(t, wantEndpoint, aws.ToString(out.DomainStatus.Endpoint))
 
-			desc, err := client.DescribeDomain(t.Context(), &sdkopensearch.DescribeDomainInput{DomainName: aws.String("dom1")})
+			desc, err := client.DescribeDomain(
+				t.Context(),
+				&sdkopensearch.DescribeDomainInput{DomainName: aws.String("dom1")},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, wantEndpoint, aws.ToString(desc.DomainStatus.Endpoint))
 
@@ -223,7 +239,15 @@ func TestOpenSearchEndpointStrategyThroughRouter(t *testing.T) {
 			code, body = rawStrategyRequest(t, e, http.MethodPost, base+"/index/idx1", "application/json", "", `{}`)
 			require.Equal(t, http.StatusOK, code, body)
 
-			code, body = rawStrategyRequest(t, e, http.MethodPost, base+"/idx1/_doc", "application/json", "", `{"colour":"teal"}`)
+			code, body = rawStrategyRequest(
+				t,
+				e,
+				http.MethodPost,
+				base+"/idx1/_doc",
+				"application/json",
+				"",
+				`{"colour":"teal"}`,
+			)
 			require.Equal(t, http.StatusOK, code, body)
 
 			code, body = rawStrategyRequest(t, e, http.MethodPost, base+"/idx1/_search", "application/json", "",
@@ -237,9 +261,12 @@ func TestOpenSearchEndpointStrategyThroughRouter(t *testing.T) {
 func TestOpenSearchPortStrategyRejected(t *testing.T) {
 	t.Parallel()
 
-	assert.Error(t, endpointstrategy.Config{OpenSearch: "port"}.Validate())
-	assert.Error(t, endpointstrategy.Config{SQS: "bogus"}.Validate())
-	assert.NoError(t, endpointstrategy.Config{SQS: "standard", OpenSearch: "path", GraphQL: "legacy", ECR: "off"}.Validate())
+	require.Error(t, endpointstrategy.Config{OpenSearch: "port"}.Validate())
+	require.Error(t, endpointstrategy.Config{SQS: "bogus"}.Validate())
+	assert.NoError(
+		t,
+		endpointstrategy.Config{SQS: "standard", OpenSearch: "path", GraphQL: "legacy", ECR: "off"}.Validate(),
+	)
 }
 
 func TestGraphQLEndpointStrategyThroughRouter(t *testing.T) {
@@ -284,7 +311,12 @@ func TestGraphQLEndpointStrategyThroughRouter(t *testing.T) {
 			require.NoError(t, err)
 
 			// the advertised URI must reach the same handler as the native path
-			nativeCode, nativeBody := apiKeyPost(t, e, "http://localhost:4566/v1/apis/"+id+"/graphql", aws.ToString(key.ApiKey.Id))
+			nativeCode, nativeBody := apiKeyPost(
+				t,
+				e,
+				"http://localhost:4566/v1/apis/"+id+"/graphql",
+				aws.ToString(key.ApiKey.Id),
+			)
 			uriCode, uriBody := apiKeyPost(t, e, wantURI, aws.ToString(key.ApiKey.Id))
 			assert.Equal(t, nativeCode, uriCode)
 			assert.Equal(t, nativeBody, uriBody)
@@ -296,9 +328,14 @@ func TestGraphQLEndpointStrategyThroughRouter(t *testing.T) {
 func apiKeyPost(t *testing.T, e *echo.Echo, rawURL, apiKey string) (int, string) {
 	t.Helper()
 
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, rawURL, strings.NewReader(`{"query":"{ __typename }"}`))
+	req := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		rawURL,
+		strings.NewReader(`{"query":"{ __typename }"}`),
+	)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("X-Api-Key", apiKey)
 
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -332,7 +369,10 @@ func TestECREndpointStrategyThroughRouter(t *testing.T) {
 				o.BaseEndpoint = aws.String("http://" + strategyGateway)
 			})
 
-			created, err := client.CreateRepository(t.Context(), &sdkecr.CreateRepositoryInput{RepositoryName: aws.String("repo1")})
+			created, err := client.CreateRepository(
+				t.Context(),
+				&sdkecr.CreateRepositoryInput{RepositoryName: aws.String("repo1")},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantURI, aws.ToString(created.Repository.RepositoryUri))
 
