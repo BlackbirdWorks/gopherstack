@@ -89,8 +89,28 @@ func TestLogCaptureOutput(t *testing.T) {
 		}, "projects/test-project/logs/run.googleapis.com%2Fstdout"},
 	}
 
-	for _, tt := range tests {
+	// The request entry and the container output come from separate streams, so
+	// it may arrive anywhere; output lines keep their own order.
+	var req *loggingpb.LogEntry
+
+	output := make([]*loggingpb.LogEntry, 0, len(tests))
+
+	for range len(tests) + 1 {
 		got := nextEntry(t, ch)
+		if got.GetLogName() == "projects/test-project/logs/run.googleapis.com%2Frequests" {
+			req = got
+
+			continue
+		}
+
+		output = append(output, got)
+	}
+
+	require.NotNil(t, req, "request log entry")
+	require.Len(t, output, len(tests))
+
+	for i, tt := range tests {
+		got := output[i]
 
 		assert.Equal(t, tt.logName, got.GetLogName(), tt.name)
 		assert.Equal(t, "cloud_run_revision", got.GetResource().GetType(), tt.name)
@@ -101,8 +121,6 @@ func TestLogCaptureOutput(t *testing.T) {
 		tt.check(t, got)
 	}
 
-	req := nextEntry(t, ch)
-	assert.Equal(t, "projects/test-project/logs/run.googleapis.com%2Frequests", req.GetLogName())
 	assert.Equal(t, int32(http.StatusOK), req.GetHttpRequest().GetStatus())
 }
 
