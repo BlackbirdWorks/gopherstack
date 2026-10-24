@@ -1,9 +1,8 @@
 package integration_test
 
 import (
-	"io/fs"
+	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -34,6 +33,7 @@ func startPersistenceContainer(t *testing.T, dataDir string) (testcontainers.Con
 	req := testcontainers.ContainerRequest{
 		Context:    "../../",
 		Dockerfile: dockerfile,
+		User:       fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
 		Env: map[string]string{
 			"PERSIST":              "true",
 			"GOPHERSTACK_DATA_DIR": "/data",
@@ -103,22 +103,8 @@ func makeSSMClient(t *testing.T, ep string) *ssmsdk.Client {
 //
 //nolint:paralleltest // intentionally sequential — manages its own container lifecycle
 func TestPersistence_E2E_ContainerRestart(t *testing.T) {
-	// The container runs as root and writes snapshot files into the data directory.
-	// t.TempDir() registers cleanup via os.RemoveAll which fails on root-owned files,
-	// so we manage the directory manually with a recursive chmod before removal.
-	dataDir, err := os.MkdirTemp("", "gopherstack-e2e-*") //nolint:usetesting // root container ownership
-	require.NoError(t, err, "failed to create temp data dir")
-	t.Cleanup(func() {
-		// chmod all files/dirs to 0o777 before removal so root-created files can be deleted.
-		_ = filepath.WalkDir(dataDir, func(path string, _ fs.DirEntry, walkErr error) error {
-			if walkErr == nil {
-				_ = os.Chmod(path, 0o777)
-			}
-
-			return nil
-		})
-		_ = os.RemoveAll(dataDir)
-	})
+	// The container runs as the host user (see startPersistenceContainer), so plain t.TempDir cleanup works.
+	dataDir := t.TempDir()
 
 	ctx := t.Context()
 

@@ -230,7 +230,7 @@ func (r *dockerContainerRunner) removeContainer(id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 	defer cancel()
 
-	_ = r.cli.ContainerRemove(ctx, id, dockertypes.RemoveOptions{Force: true})
+	_ = r.cli.ContainerRemove(ctx, id, dockertypes.RemoveOptions{Force: true, RemoveVolumes: true})
 }
 
 var errContainerWait = errors.New("container wait failed")

@@ -318,7 +318,11 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	}
 
 	if startErr := r.docker.ContainerStart(ctx, resp.ID, dockercontainer.StartOptions{}); startErr != nil {
-		_ = r.docker.ContainerRemove(context.WithoutCancel(ctx), resp.ID, dockercontainer.RemoveOptions{Force: true})
+		_ = r.docker.ContainerRemove(
+			context.WithoutCancel(ctx),
+			resp.ID,
+			dockercontainer.RemoveOptions{Force: true, RemoveVolumes: true},
+		)
 
 		return "", fmt.Errorf("container start %q: %w", resp.ID, startErr)
 	}
@@ -361,7 +365,11 @@ func (r *DockerRuntime) StopAndRemove(ctx context.Context, containerID string) e
 		return fmt.Errorf("container stop %q: %w", containerID, err)
 	}
 
-	if err := r.docker.ContainerRemove(ctx, containerID, dockercontainer.RemoveOptions{Force: true}); err != nil {
+	if err := r.docker.ContainerRemove(
+		ctx,
+		containerID,
+		dockercontainer.RemoveOptions{Force: true, RemoveVolumes: true},
+	); err != nil {
 		return fmt.Errorf("container remove %q: %w", containerID, err)
 	}
 

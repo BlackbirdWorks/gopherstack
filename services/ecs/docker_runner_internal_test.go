@@ -39,6 +39,7 @@ type fakeDockerClient struct {
 	stopErrOnID            string
 	logsRequestedOn        []string
 	removed                []string
+	keptVolumes            []string
 	stopped                []string
 	waitRequestedOn        []string
 	started                []string
@@ -102,9 +103,17 @@ func (f *fakeDockerClient) ContainerStop(_ context.Context, containerID string, 
 	return nil
 }
 
-func (f *fakeDockerClient) ContainerRemove(_ context.Context, containerID string, _ dockertypes.RemoveOptions) error {
+func (f *fakeDockerClient) ContainerRemove(
+	_ context.Context,
+	containerID string,
+	opts dockertypes.RemoveOptions,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if !opts.RemoveVolumes {
+		f.keptVolumes = append(f.keptVolumes, containerID)
+	}
 
 	f.removed = append(f.removed, containerID)
 
@@ -463,6 +472,10 @@ func TestDockerRunner_ContainerLeakOnStartFailure(t *testing.T) {
 	fake.mu.Unlock()
 
 	assert.Contains(t, removed, fake.startErrOnID, "failed container must be removed to prevent a leak")
+
+	fake.mu.Lock()
+	assert.Empty(t, fake.keptVolumes, "removal must pass RemoveVolumes")
+	fake.mu.Unlock()
 
 	runner.mu.Lock()
 	_, tracked := runner.containers[task.TaskArn]

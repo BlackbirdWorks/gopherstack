@@ -32,13 +32,13 @@ func (c containerCompute) Launch(ctx context.Context, req ec2backend.LaunchReque
 	}
 
 	id := strings.TrimSpace(string(out))
-	c.t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", id).Run() })
+	c.t.Cleanup(func() { _ = exec.Command("docker", "rm", "-fv", id).Run() })
 
 	return ec2backend.LaunchResult{ProviderID: id}, nil
 }
 
 func (containerCompute) Terminate(ctx context.Context, _, id string) error {
-	return exec.CommandContext(ctx, "docker", "rm", "-f", id).Run()
+	return exec.CommandContext(ctx, "docker", "rm", "-fv", id).Run()
 }
 func (containerCompute) Start(context.Context, string, string) error { return nil }
 func (containerCompute) Stop(context.Context, string, string) error  { return nil }

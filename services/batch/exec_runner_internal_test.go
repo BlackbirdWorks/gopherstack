@@ -25,16 +25,17 @@ var (
 )
 
 type fakeDocker struct {
-	pullErr   error
-	createErr error
-	logs      []byte
-	cfg       *dockertypes.Config
-	host      *dockertypes.HostConfig
-	removed   []string
-	stopped   []string
-	exit      int64
-	mu        sync.Mutex
-	blockWait bool
+	pullErr     error
+	createErr   error
+	logs        []byte
+	cfg         *dockertypes.Config
+	host        *dockertypes.HostConfig
+	removed     []string
+	keptVolumes []string
+	stopped     []string
+	exit        int64
+	mu          sync.Mutex
+	blockWait   bool
 }
 
 func (f *fakeDocker) ImagePull(context.Context, string, dockerimage.PullOptions) (io.ReadCloser, error) {
@@ -66,8 +67,11 @@ func (f *fakeDocker) ContainerStop(_ context.Context, id string, _ dockertypes.S
 	return nil
 }
 
-func (f *fakeDocker) ContainerRemove(_ context.Context, id string, _ dockertypes.RemoveOptions) error {
+func (f *fakeDocker) ContainerRemove(_ context.Context, id string, opts dockertypes.RemoveOptions) error {
 	f.mu.Lock()
+	if !opts.RemoveVolumes {
+		f.keptVolumes = append(f.keptVolumes, id)
+	}
 	f.removed = append(f.removed, id)
 	f.mu.Unlock()
 
@@ -177,6 +181,7 @@ func TestDockerContainerRunnerRunContainer(t *testing.T) {
 			assert.Equal(t, int64(dockerMinMemoryMiB*bytesPerMiB), tt.docker.host.Memory)
 			assert.Equal(t, int64(2*cpuSharesPerVCPU), tt.docker.host.CPUShares)
 			assert.Equal(t, []string{"cid"}, tt.docker.removed)
+			assert.Empty(t, tt.docker.keptVolumes, "removal must pass RemoveVolumes")
 		})
 	}
 }
