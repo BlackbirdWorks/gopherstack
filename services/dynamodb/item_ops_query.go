@@ -700,6 +700,8 @@ func (db *InMemoryDB) collectQueryPage(
 	totalScannedSize := 0
 	scannedCount := 0
 
+	boundFilter := parsedFilter.Bind(eav, input.ExpressionAttributeNames)
+
 	for i := startIndex; i < len(candidates); i++ {
 		scannedCount++
 		item := candidates[i]
@@ -713,7 +715,7 @@ func (db *InMemoryDB) collectQueryPage(
 		totalScannedSize += itemSize
 
 		if !isItemExpired(item, ttlAttr) &&
-			parsedFilter.Evaluate(item, eav, input.ExpressionAttributeNames) {
+			boundFilter.Evaluate(item) {
 			items = append(items, projector.Project(item))
 		}
 
