@@ -20,7 +20,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -41,7 +40,9 @@ var errMissingShape = errors.New("operation shape not found")
 type spec struct {
 	module, file, alias, prefix string
 	ops                         []string
-	// unions names interface (union) types whose members are dropped from requests and responses.
+	// uc is set while rendering a spec with unions.
+	uc *unionCtx
+	// unions names interface (union) types the generated structs hold as JSON-shaped maps.
 	unions []string
 	// pages lists the operations that get a paginator (pkg mode only).
 	pages []string
@@ -168,6 +169,25 @@ func (s spec) baseImports() map[string]string {
 }
 
 func (s spec) writeBody(body *bytes.Buffer, dir string, imports map[string]string) error {
+	if s.pkg {
+		decls, err := loadTypeDecls(dir)
+		if err != nil {
+			return err
+		}
+
+		if len(s.unions) > 0 {
+			s.uc = newUnionCtx(decls, s.unions)
+		}
+
+		defer func() { s.uc = nil }()
+
+		return s.writeOps(body, dir, imports, decls)
+	}
+
+	return s.writeOps(body, dir, imports, nil)
+}
+
+func (s spec) writeOps(body *bytes.Buffer, dir string, imports map[string]string, decls map[string]typeDecl) error {
 	for _, op := range s.ops {
 		if err := writeOp(body, dir, s, op, imports); err != nil {
 			return err
@@ -178,8 +198,14 @@ func (s spec) writeBody(body *bytes.Buffer, dir string, imports map[string]strin
 		return nil
 	}
 
-	if err := checkNoUnions(dir, s, body.String()); err != nil {
+	if err := checkNoUnions(decls, s, body.String()); err != nil {
 		return err
+	}
+
+	if s.uc != nil {
+		if err := s.uc.emit(body, imports); err != nil {
+			return err
+		}
 	}
 
 	for _, op := range s.pages {
@@ -215,14 +241,7 @@ func (s spec) header(imports map[string]string) []byte {
 		return hdr.Bytes()
 	}
 
-	quoted := make([]string, 0, len(s.unions))
-	for _, u := range s.unions {
-		quoted = append(quoted, ", "+strconv.Quote(u))
-	}
-
-	strip := strings.Join(quoted, "")
-
-	fmt.Fprintf(&hdr, clientTemplate, s.module, strip)
+	fmt.Fprintf(&hdr, clientTemplate, s.module)
 
 	return hdr.Bytes()
 }
@@ -237,7 +256,7 @@ type Client struct{ core *awswire.Core }
 
 // NewFromConfig returns a Client for cfg.
 func NewFromConfig(cfg aws.Config, optFns ...func(*Options)) *Client {
-	return &Client{core: awswire.New(%[1]q, cfg, optFns%[2]s)}
+	return &Client{core: awswire.New(%[1]q, cfg, optFns)}
 }
 
 `
@@ -299,13 +318,16 @@ func structDecl(f *ast.File, s spec, op, suffix string, fileImports, imports map
 	var fields []*ast.Field
 
 	for _, fld := range st.Fields.List {
-		if len(fld.Names) == 0 || !fld.Names[0].IsExported() || fld.Names[0].Name == "ResultMetadata" ||
-			isUnionField(fld.Type, s.unions) {
+		if len(fld.Names) == 0 || !fld.Names[0].IsExported() || fld.Names[0].Name == "ResultMetadata" {
 			continue
 		}
 
 		fld.Doc, fld.Comment = nil, nil
 		rewriteSelectors(fld.Type, s.alias, fileImports, imports)
+
+		if s.uc != nil {
+			fld.Type = s.uc.mapType(fld.Type, false)
+		}
 
 		if suffix == "Input" && (omitEmpty(fld.Type) || s.pkg && omitZeroScalar(fld.Type)) {
 			fld.Tag = &ast.BasicLit{Kind: token.STRING, Value: "`json:\",omitempty\"`"}
@@ -393,18 +415,4 @@ func rewriteSelectors(e ast.Expr, alias string, fileImports, imports map[string]
 
 		return true
 	})
-}
-
-func isUnionField(e ast.Expr, unions []string) bool {
-	if st, ok := e.(*ast.StarExpr); ok {
-		e = st.X
-	}
-
-	if at, ok := e.(*ast.ArrayType); ok {
-		e = at.Elt
-	}
-
-	se, ok := e.(*ast.SelectorExpr)
-
-	return ok && slices.Contains(unions, se.Sel.Name)
 }

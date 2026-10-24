@@ -15,7 +15,6 @@ import (
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 	kintypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 
@@ -25,6 +24,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/lambda"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sfn"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/sns"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"

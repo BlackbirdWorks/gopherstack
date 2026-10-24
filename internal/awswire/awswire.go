@@ -38,13 +38,12 @@ type Options struct {
 type Core struct {
 	retryer func() aws.Retryer
 	err     error
-	strip   map[string]bool
 	svc     *sdkwire.Service
 	tgt     sdkwire.Target
 }
 
 // New builds the Core for sdkwire service key from cfg; a bad key surfaces as the error of every call.
-func New(key string, cfg aws.Config, optFns []func(*Options), strip ...string) *Core {
+func New(key string, cfg aws.Config, optFns []func(*Options)) *Core {
 	o := Options{Credentials: cfg.Credentials, HTTPClient: cfg.HTTPClient, Retryer: cfg.Retryer, Region: cfg.Region}
 
 	for _, fn := range optFns {
@@ -74,7 +73,7 @@ func New(key string, cfg aws.Config, optFns []func(*Options), strip ...string) *
 	}
 
 	return &Core{
-		svc: svc, retryer: retryer, strip: stripSet(strip),
+		svc: svc, retryer: retryer,
 		tgt: sdkwire.Target{
 			Handler: forwarder{c: hc}, Credentials: o.Credentials, Endpoint: ep.url, Region: ep.signingRegion,
 		},
@@ -160,7 +159,7 @@ func Do[O any](ctx context.Context, c *Core, op string, in any) (*O, error) {
 
 	var out O
 
-	b, err := json.Marshal(dropMembers(raw, c.strip))
+	b, err := json.Marshal(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -192,47 +191,4 @@ func (f forwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
-}
-
-func stripSet(names []string) map[string]bool {
-	if len(names) == 0 {
-		return nil
-	}
-
-	out := make(map[string]bool, len(names))
-	for _, n := range names {
-		out[n] = true
-	}
-
-	return out
-}
-
-// dropMembers removes the named members at any depth; they are union members the typed structs cannot hold.
-func dropMembers(v any, names map[string]bool) any {
-	if len(names) == 0 {
-		return v
-	}
-
-	switch t := v.(type) {
-	case map[string]any:
-		for k, val := range t {
-			if names[k] {
-				delete(t, k)
-
-				continue
-			}
-
-			t[k] = dropMembers(val, names)
-		}
-
-		return t
-	case []any:
-		for i, val := range t {
-			t[i] = dropMembers(val, names)
-		}
-
-		return t
-	default:
-		return v
-	}
 }

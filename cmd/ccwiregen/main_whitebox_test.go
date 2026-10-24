@@ -6,7 +6,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -79,11 +78,7 @@ func TestWireStructsMatchSchemaMembers(t *testing.T) {
 						}
 					}
 
-					want := slices.DeleteFunc(members, func(m string) bool {
-						return slices.ContainsFunc(s.unions, func(u string) bool { return strings.EqualFold(u, m) })
-					})
-
-					assert.ElementsMatch(t, want, fields[op+suffix], "%s%s", op, suffix)
+					assert.ElementsMatch(t, members, fields[op+suffix], "%s%s", op, suffix)
 				}
 			}
 		})

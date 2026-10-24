@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	types "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/blackbirdworks/gopherstack/internal/awswire"
+	"time"
 )
 
 // Options configures a Client.
@@ -17,7 +18,7 @@ type Client struct{ core *awswire.Core }
 
 // NewFromConfig returns a Client for cfg.
 func NewFromConfig(cfg aws.Config, optFns ...func(*Options)) *Client {
-	return &Client{core: awswire.New("cloudwatch", cfg, optFns, "EvaluationCriteria", "EvaluationWindow")}
+	return &Client{core: awswire.New("cloudwatch", cfg, optFns)}
 }
 
 type DeleteAlarmsInput struct {
@@ -47,7 +48,7 @@ type DescribeAlarmsInput struct {
 type DescribeAlarmsOutput struct {
 	CompositeAlarms []types.CompositeAlarm
 	LogAlarms       []types.LogAlarm
-	MetricAlarms    []types.MetricAlarm
+	MetricAlarms    []MetricAlarm
 	NextToken       *string
 }
 
@@ -99,8 +100,10 @@ type PutMetricAlarmInput struct {
 	DatapointsToAlarm                *int32
 	Dimensions                       []types.Dimension
 	EvaluateLowSampleCountPercentile *string
+	EvaluationCriteria               map[string]any
 	EvaluationInterval               *int32
 	EvaluationPeriods                *int32
+	EvaluationWindow                 map[string]any
 	ExtendedStatistic                *string
 	InsufficientDataActions          []string
 	MetricName                       *string
@@ -179,6 +182,42 @@ type UntagResourceOutput struct {
 // UntagResource calls the UntagResource operation.
 func (c *Client) UntagResource(ctx context.Context, in *UntagResourceInput) (*UntagResourceOutput, error) {
 	return awswire.Do[UntagResourceOutput](ctx, c.core, "UntagResource", in)
+}
+
+type MetricAlarm struct {
+	ActionsEnabled                     *bool
+	AlarmActions                       []string
+	AlarmArn                           *string
+	AlarmConfigurationUpdatedTimestamp *time.Time
+	AlarmDescription                   *string
+	AlarmName                          *string
+	ComparisonOperator                 types.ComparisonOperator
+	DatapointsToAlarm                  *int32
+	Dimensions                         []types.Dimension
+	EvaluateLowSampleCountPercentile   *string
+	EvaluationCriteria                 map[string]any
+	EvaluationInterval                 *int32
+	EvaluationPeriods                  *int32
+	EvaluationState                    types.EvaluationState
+	EvaluationWindow                   map[string]any
+	ExtendedStatistic                  *string
+	InsufficientDataActions            []string
+	MetricName                         *string
+	Metrics                            []types.MetricDataQuery
+	Namespace                          *string
+	OKActions                          []string
+	Period                             *int32
+	StateReason                        *string
+	StateReasonData                    *string
+	StateTransitionedTimestamp         *time.Time
+	StateUpdatedTimestamp              *time.Time
+	StateValue                         types.StateValue
+	Statistic                          types.Statistic
+	Threshold                          *float64
+	ThresholdMetricId                  *string
+	TreatMissingData                   *string
+	Unit                               types.StandardUnit
+	WarmUpConfiguration                *types.WarmUpConfiguration
 }
 
 // DescribeAlarmsPaginator pages through DescribeAlarms.
