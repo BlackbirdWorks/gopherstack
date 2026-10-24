@@ -30,8 +30,9 @@ type createConfigurationSetInput struct {
 		DashboardOptions map[string]any `json:"DashboardOptions"`
 		GuardianOptions  map[string]any `json:"GuardianOptions"`
 	} `json:"VdmOptions"`
-	ConfigurationSetName string     `json:"ConfigurationSetName"`
-	Tags                 []tagEntry `json:"Tags"`
+	MessageSecurityOptions *messageSecurityOptions `json:"MessageSecurityOptions"`
+	ConfigurationSetName   string                  `json:"ConfigurationSetName"`
+	Tags                   []tagEntry              `json:"Tags"`
 }
 
 // applyCreateOptions persists the optional blocks CreateConfigurationSet accepts.
@@ -179,15 +180,16 @@ type vdmOptionsOutput struct {
 type createConfigurationSetOutput struct{}
 
 type getConfigurationSetOutput struct {
-	TrackingOptions      *trackingOptionsOutput    `json:"TrackingOptions,omitempty"`
-	DeliveryOptions      *deliveryOptionsOutput    `json:"DeliveryOptions,omitempty"`
-	ReputationOptions    *reputationOptionsOutput  `json:"ReputationOptions,omitempty"`
-	SendingOptions       *sendingOptionsOutput     `json:"SendingOptions,omitempty"`
-	SuppressionOptions   *suppressionOptionsOutput `json:"SuppressionOptions,omitempty"`
-	ArchivingOptions     *archivingOptionsOutput   `json:"ArchivingOptions,omitempty"`
-	VdmOptions           *vdmOptionsOutput         `json:"VdmOptions,omitempty"`
-	ConfigurationSetName string                    `json:"ConfigurationSetName"`
-	Tags                 []tagEntry                `json:"Tags,omitempty"`
+	TrackingOptions        *trackingOptionsOutput    `json:"TrackingOptions,omitempty"`
+	DeliveryOptions        *deliveryOptionsOutput    `json:"DeliveryOptions,omitempty"`
+	ReputationOptions      *reputationOptionsOutput  `json:"ReputationOptions,omitempty"`
+	SendingOptions         *sendingOptionsOutput     `json:"SendingOptions,omitempty"`
+	SuppressionOptions     *suppressionOptionsOutput `json:"SuppressionOptions,omitempty"`
+	ArchivingOptions       *archivingOptionsOutput   `json:"ArchivingOptions,omitempty"`
+	VdmOptions             *vdmOptionsOutput         `json:"VdmOptions,omitempty"`
+	MessageSecurityOptions *messageSecurityOptions   `json:"MessageSecurityOptions,omitempty"`
+	ConfigurationSetName   string                    `json:"ConfigurationSetName"`
+	Tags                   []tagEntry                `json:"Tags,omitempty"`
 }
 
 // listConfigurationSetsOutput.ConfigurationSets is a plain array of names --
@@ -211,6 +213,12 @@ func (h *Handler) handleCreateConfigurationSet(c *echo.Context) (any, error) {
 
 	if err := h.applyCreateOptions(in.ConfigurationSetName, &in); err != nil {
 		return nil, err
+	}
+
+	if o := in.MessageSecurityOptions; o != nil {
+		if err := h.Backend.UpdateConfigurationSet(in.ConfigurationSetName, o.toBackend()); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createConfigurationSetOutput{}, nil
@@ -255,6 +263,10 @@ func (h *Handler) handleGetConfigurationSet(name string) (any, error) {
 		out.ArchivingOptions = &archivingOptionsOutput{
 			ArchiveARN: cs.ArchivingOptions.ArchiveARN,
 		}
+	}
+
+	if cs.MessageSecurity != nil {
+		out.MessageSecurityOptions = messageSecurityFromBackend(cs.MessageSecurity)
 	}
 
 	if cs.VdmOptions != nil {

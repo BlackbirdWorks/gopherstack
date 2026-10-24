@@ -30,6 +30,10 @@ type StorageBackend interface {
 	DeleteEmailIdentityPolicy(identity, policyName string) error
 	UpdateEmailIdentityPolicy(identity, policyName, policy string) error
 
+	AssociateEmailIdentityCertificate(identity, fromAddress, certARN string) error
+	DisassociateEmailIdentityCertificate(identity, fromAddress string) error
+	ListEmailIdentityCertificates(identity, nextToken string, pageSize int) (page.Page[IdentityCertificate], error)
+
 	// Email identity attribute ops
 	PutEmailIdentityConfigurationSetAttributes(identity, configSetName string) error
 	PutEmailIdentityDkimAttributes(identity string, signingEnabled bool) error
@@ -43,6 +47,7 @@ type StorageBackend interface {
 	ListConfigurationSets(nextToken string, pageSize int) page.Page[*ConfigurationSet]
 	ListConfigurationSetsFiltered(nextToken string, pageSize int, filter map[string]string) page.Page[*ConfigurationSet]
 	DeleteConfigurationSet(name string) error
+	UpdateConfigurationSet(name string, sec *MessageSecurity) error
 
 	// Configuration set attribute ops
 	PutConfigurationSetArchivingOptions(name, archiveARN string) error
