@@ -13,7 +13,8 @@ import (
 const egPatchWidgetID = "/subscriptions/" + redisSDKSub + "/resourceGroups/" + egScopeRG +
 	"/providers/Microsoft.Foo/widgets/"
 
-const egDeadLetterAccount = egSubScope + "/resourceGroups/" + egScopeRG + "/providers/Microsoft.Storage/storageAccounts/dl"
+const egDeadLetterAccount = egSubScope + "/resourceGroups/" + egScopeRG +
+	"/providers/Microsoft.Storage/storageAccounts/dl"
 
 func (s *egDomainStack) patchStack(t *testing.T) map[string]string {
 	t.Helper()
