@@ -325,12 +325,16 @@ func TestE2E_S3_DeleteBucket(t *testing.T) {
 	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
-	// Verify bucket disappears
-	require.Eventually(t, func() bool {
-		visible, _ := page.Locator("text=trash-bucket").First().IsVisible()
+	// Not text=trash-bucket: the success toast and dialog also contain the name.
+	err = bucketCard.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateDetached,
+		Timeout: aws.Float64(10000),
+	})
+	require.NoError(t, err)
 
-		return !visible
-	}, 5*time.Second, 200*time.Millisecond)
+	output, err := stack.S3Backend.ListBuckets(t.Context(), &s3.ListBucketsInput{})
+	require.NoError(t, err)
+	assert.Empty(t, output.Buckets)
 }
 
 func TestE2E_S3_UploadFile(t *testing.T) {
@@ -948,11 +952,11 @@ func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for tables to disappear
-	require.Eventually(t, func() bool {
-		visible, _ := page.Locator("text=purge-one").First().IsVisible()
-
-		return !visible
-	}, 5*time.Second, 200*time.Millisecond)
+	err = page.Locator("#table-purge-one").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateDetached,
+		Timeout: aws.Float64(10000),
+	})
+	require.NoError(t, err)
 
 	// Verify backend is empty
 	tables, err := stack.DDBHandler.Backend.ListTables(t.Context(), &dynamodb.ListTablesInput{})
@@ -1005,11 +1009,11 @@ func TestE2E_S3_PurgeAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for buckets to be removed
-	require.Eventually(t, func() bool {
-		visible, _ := page.Locator("text=purge-one").First().IsVisible()
-
-		return !visible
-	}, 5*time.Second, 200*time.Millisecond)
+	err = page.Locator("#bucket-purge-one").First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateDetached,
+		Timeout: aws.Float64(10000),
+	})
+	require.NoError(t, err)
 
 	// Verify backend is empty
 	output, err := stack.S3Backend.ListBuckets(t.Context(), &s3.ListBucketsInput{})
