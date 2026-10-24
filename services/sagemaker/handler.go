@@ -101,6 +101,7 @@ func coreCreateOpsSupported() []string {
 		"AddAssociation",
 		"AddTags",
 		"AssociateTrialComponent",
+		"AttachClusterNodeNetworkInterface",
 		"AttachClusterNodeVolume",
 		"BatchAddClusterNodes",
 		"BatchDeleteClusterNodes",
@@ -608,6 +609,10 @@ func (h *Handler) dispatchLineageAndBatchOps(
 		return r, true, err
 	case "AssociateTrialComponent":
 		r, err := h.handleAssociateTrialComponent(ctx, body)
+
+		return r, true, err
+	case "AttachClusterNodeNetworkInterface":
+		r, err := h.handleAttachClusterNodeNetworkInterface(ctx, body)
 
 		return r, true, err
 	case "AttachClusterNodeVolume":

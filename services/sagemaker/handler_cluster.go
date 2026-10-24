@@ -874,6 +874,39 @@ type attachClusterNodeVolumeRequest struct {
 	VolumeID   string `json:"VolumeId"`
 }
 
+type attachClusterNodeNetworkInterfaceRequest struct {
+	ClusterName        string `json:"ClusterName"`
+	NodeID             string `json:"NodeId"`
+	NetworkInterfaceID string `json:"NetworkInterfaceId"`
+}
+
+func (h *Handler) handleAttachClusterNodeNetworkInterface(ctx context.Context, body []byte) ([]byte, error) {
+	var req attachClusterNodeNetworkInterfaceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	for _, f := range []struct{ name, value string }{
+		{"ClusterName", req.ClusterName}, {"NodeId", req.NodeID}, {"NetworkInterfaceId", req.NetworkInterfaceID},
+	} {
+		if f.value == "" {
+			return nil, fmt.Errorf("%w: %s is required", errInvalidRequest, f.name)
+		}
+	}
+
+	out, err := h.Backend.AttachClusterNodeNetworkInterface(ctx, req.ClusterName, req.NodeID, req.NetworkInterfaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{
+		keyClusterArn:        out.ClusterArn,
+		"NodeId":             out.NodeID,
+		"NetworkInterfaceId": out.NetworkInterfaceID,
+		"AttachmentId":       out.AttachmentID,
+	})
+}
+
 func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte) ([]byte, error) {
 	var req attachClusterNodeVolumeRequest
 	if err := json.Unmarshal(body, &req); err != nil {

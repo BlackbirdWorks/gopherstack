@@ -28,6 +28,8 @@ type StorageBackend interface {
 	GetPrimaryEmailUpdateStatus() (PrimaryEmailUpdateStatus, time.Time, error)
 	PutAccountName(name string) error
 	GetGovCloudAccountInformation() (string, State, error)
+	SendPhoneNumberVerification() (PhoneNumberVerificationStatus, error)
+	VerifyPhoneNumber(otp string) (PhoneNumberVerificationStatus, error)
 
 	// Snapshot and Restore implement persistence.Persistable. Handler
 	// delegates to them (see persistence.go) so a persistence manager that
@@ -49,6 +51,8 @@ type InMemoryBackend struct {
 	primaryEmail             string
 	pendingEmail             string
 	pendingOTP               string
+	phoneVerifyNumber        string
+	phoneVerifyOTP           string
 	primaryEmailUpdateStatus PrimaryEmailUpdateStatus
 	region                   string
 	accountID                string
@@ -147,6 +151,8 @@ func (b *InMemoryBackend) Reset() {
 	b.primaryEmail = defaultPrimaryEmail
 	b.pendingEmail = ""
 	b.pendingOTP = ""
+	b.phoneVerifyNumber = ""
+	b.phoneVerifyOTP = ""
 	b.primaryEmailUpdateStatus = ""
 	b.primaryEmailUpdateAt = time.Time{}
 	b.initDefaultRegions()

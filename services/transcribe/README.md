@@ -7,16 +7,12 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 43 (43 ok) |
+| PARITY entries audited | 44 (44 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 1 |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): UpdateLanguageModel.
 
 ### Structural gaps
 

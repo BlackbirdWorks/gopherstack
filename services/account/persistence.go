@@ -67,6 +67,8 @@ type backendSnapshot struct {
 	PrimaryEmail             string                     `json:"primaryEmail"`
 	PendingEmail             string                     `json:"pendingEmail"`
 	PendingOTP               string                     `json:"pendingOTP"`
+	PhoneVerifyNumber        string                     `json:"phoneVerifyNumber,omitempty"`
+	PhoneVerifyOTP           string                     `json:"phoneVerifyOTP,omitempty"`
 	PrimaryEmailUpdateStatus PrimaryEmailUpdateStatus   `json:"primaryEmailUpdateStatus,omitempty"`
 	PrimaryEmailUpdateAt     time.Time                  `json:"primaryEmailUpdateAt"`
 	Regions                  []*Region                  `json:"regions"`
@@ -97,6 +99,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PrimaryEmail:             b.primaryEmail,
 		PendingEmail:             b.pendingEmail,
 		PendingOTP:               b.pendingOTP,
+		PhoneVerifyNumber:        b.phoneVerifyNumber,
+		PhoneVerifyOTP:           b.phoneVerifyOTP,
 		PrimaryEmailUpdateStatus: b.primaryEmailUpdateStatus,
 		PrimaryEmailUpdateAt:     b.primaryEmailUpdateAt,
 		AccountCreatedDate:       b.accountCreatedDate,
@@ -141,6 +145,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.primaryEmail = defaultPrimaryEmail
 		b.pendingEmail = ""
 		b.pendingOTP = ""
+		b.phoneVerifyNumber = ""
+		b.phoneVerifyOTP = ""
 		b.primaryEmailUpdateStatus = ""
 		b.primaryEmailUpdateAt = time.Time{}
 		b.accountCreatedDate = time.Now().UTC()
@@ -164,6 +170,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.primaryEmail = snap.PrimaryEmail
 	b.pendingEmail = snap.PendingEmail
 	b.pendingOTP = snap.PendingOTP
+	b.phoneVerifyNumber = snap.PhoneVerifyNumber
+	b.phoneVerifyOTP = snap.PhoneVerifyOTP
 	b.primaryEmailUpdateStatus = snap.PrimaryEmailUpdateStatus
 	b.primaryEmailUpdateAt = snap.PrimaryEmailUpdateAt
 	b.accountCreatedDate = snap.AccountCreatedDate

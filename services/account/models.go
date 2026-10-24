@@ -52,6 +52,15 @@ const (
 
 // PrimaryEmailUpdateStatus represents the status of the most recent primary
 // email update request, as reported by GetPrimaryEmailUpdateStatus.
+// PhoneNumberVerificationStatus is types.PhoneNumberVerificationStatus.
+type PhoneNumberVerificationStatus string
+
+// Phone number verification statuses returned by SendPhoneNumberVerification and VerifyPhoneNumber.
+const (
+	PhoneNumberVerificationStatusPending  PhoneNumberVerificationStatus = "PENDING"
+	PhoneNumberVerificationStatusVerified PhoneNumberVerificationStatus = "VERIFIED"
+)
+
 type PrimaryEmailUpdateStatus string
 
 const (

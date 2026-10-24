@@ -362,8 +362,8 @@ func TestHandlerOpsLen(t *testing.T) {
 		wantLen int
 	}{
 		{
-			name:    "returns 403 operations",
-			wantLen: 403,
+			name:    "returns 404 operations",
+			wantLen: 404,
 		},
 	}
 

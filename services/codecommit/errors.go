@@ -82,6 +82,12 @@ var (
 	ErrFileNotFound = awserr.New("FileDoesNotExistException", awserr.ErrNotFound)
 	// ErrBlobNotFound is returned when a blob ID does not exist in the repository.
 	ErrBlobNotFound = awserr.New("BlobIdDoesNotExistException", awserr.ErrNotFound)
+	// ErrInvalidBlobID is returned when a blob ID is not a 40-character hex object id.
+	ErrInvalidBlobID = awserr.New("InvalidBlobIdException", awserr.ErrInvalidParameter)
+	// ErrBlobIDRequired is returned when a required blob ID is missing.
+	ErrBlobIDRequired = awserr.New("BlobIdRequiredException", awserr.ErrInvalidParameter)
+	// ErrInvalidMaxResults is returned when MaxResults is out of range.
+	ErrInvalidMaxResults = awserr.New("InvalidMaxResultsException", awserr.ErrInvalidParameter)
 	// ErrCommentNotFound is returned when a comment ID does not exist.
 	ErrCommentNotFound = awserr.New("CommentDoesNotExistException", awserr.ErrNotFound)
 	// ErrInvalidRuleContentSha256 is returned when existingRuleContentSha256 does not match the current content.

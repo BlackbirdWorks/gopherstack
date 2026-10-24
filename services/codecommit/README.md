@@ -7,16 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 79 (78 ok, 1 partial) |
+| PARITY entries audited | 80 (79 ok, 1 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetBlobDifferences.
 - Merge limits TipsDivergenceExceeded, MaximumItemsToCompareExceeded, MaximumFileContentToLoadExceeded and MaximumConflictResolutionEntriesExceeded are never raised: the pinned SDK documents no numeric limit to enforce. Unverifiable.
 
 ### Structural gaps

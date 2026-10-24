@@ -76,6 +76,7 @@ type InMemoryBackend struct {
 	region                   string
 	delayNanos               atomic.Int64
 	nextAccessKeySeq         int
+	partner                  *PartnerProfile
 	vpcPeered                bool
 }
 
@@ -145,6 +146,7 @@ func (b *InMemoryBackend) Reset() {
 	b.distributionCacheResets = make(map[string]time.Time)
 	b.defaultKeyPair = nil
 	b.vpcPeered = false
+	b.partner = nil
 	b.nextAccessKeySeq = 0
 }
 

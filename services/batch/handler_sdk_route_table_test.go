@@ -35,6 +35,9 @@ import (
 func sdkRouteCases() []struct{ op, method, path string } {
 	return []struct{ op, method, path string }{
 		{"CancelJob", "POST", "/v1/canceljob"},
+		{"CancelJobs", "POST", "/v1/canceljobs"},
+		{"TerminateJobs", "POST", "/v1/terminatejobs"},
+		{"TerminateServiceJobs", "POST", "/v1/terminateservicejobs"},
 		{"CreateComputeEnvironment", "POST", "/v1/createcomputeenvironment"},
 		{"CreateConsumableResource", "POST", "/v1/createconsumableresource"},
 		{"CreateJobQueue", "POST", "/v1/createjobqueue"},

@@ -18,6 +18,7 @@ type StorageBackend interface {
 	// Language models
 	CreateLanguageModel(model *LanguageModel) (*LanguageModel, error)
 	DeleteLanguageModel(modelName string) error
+	UpdateLanguageModel(modelName, dataAccessRoleArn string, enc *EncryptionConfig) (*LanguageModel, error)
 
 	// Vocabularies
 	CreateMedicalVocabulary(
