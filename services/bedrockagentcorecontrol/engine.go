@@ -378,6 +378,8 @@ func (b *InMemoryBackend) update(sc scope, k *kindSpec, op string, in args) (*re
 		return nil, err
 	}
 
+	clearOmitted(k.Name, patch)
+
 	overrides := b.applyUpdate(k, r, patch)
 
 	if !k.Terminal {
@@ -760,9 +762,41 @@ var patchWrapped = map[string][]string{ //nolint:gochecknoglobals // immutable l
 	kindCapacityProvider: {keyDescription},
 	kindPolicyEngine:     {keyDescription},
 	kindPolicy:           {keyDescription},
-	kindRegistry:         {keyDescription, "approvalConfiguration", "authorizerConfiguration"},
+	kindRegistry:         {keyDescription, "approvalConfiguration", keyAuthorizerConfig},
 	kindRegistryRecord:   {keyDescription, "descriptors", "synchronizationConfiguration", "synchronizationType"},
-	kindHarness:          {"authorizerConfiguration", "environmentArtifact", keyMemory},
+	kindHarness:          {keyAuthorizerConfig, "environmentArtifact", keyMemory},
+}
+
+const keyAuthorizerConfig = "authorizerConfiguration"
+
+// putClears lists the optional members of PUT-style updates that an update omitting them clears.
+// Service-defaulted members (network, protocol, lifecycle, KMS key) are not listed.
+var putClears = map[string][]string{ //nolint:gochecknoglobals // immutable lookup
+	kindRuntime: {
+		keyAuthorizerConfig, "capacityProviderConfiguration", keyDescription, "environmentVariables",
+		"filesystemConfigurations", "metadataConfiguration", "requestHeaderConfiguration",
+	},
+	kindGateway: {
+		"customTransformConfiguration", keyDescription, "exceptionLevel",
+		"interceptorConfigurations", "policyEngineConfiguration", "wafConfiguration",
+	},
+	kindGatewayTarget: {
+		"certificateConfigurations", "credentialProviderConfigurations", keyDescription,
+		"metadataConfiguration", "privateEndpoint",
+	},
+}
+
+func clearOmitted(kind string, patch map[string]any) {
+	_, hasAuth := patch[keyAuthorizerConfig]
+	if !hasAuth && kind == kindGateway && patch["authorizerType"] != authCustomJWT {
+		patch[keyAuthorizerConfig] = nil
+	}
+
+	for _, key := range putClears[kind] {
+		if _, present := patch[key]; !present {
+			patch[key] = nil
+		}
+	}
 }
 
 func unwrapUpdated(kind string, patch map[string]any) {
