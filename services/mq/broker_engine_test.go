@@ -434,7 +434,9 @@ func TestDockerBrokerRetriesPortBindRace(t *testing.T) {
 			}, 10*time.Second, 10*time.Millisecond)
 
 			if tt.wantState == mq.BrokerStateCreationFailed {
-				assert.Contains(t, mq.BrokerStartFailure(b, br.BrokerID), "port is already allocated")
+				require.Eventually(t, func() bool {
+					return strings.Contains(mq.BrokerStartFailure(b, br.BrokerID), "port is already allocated")
+				}, 10*time.Second, 10*time.Millisecond)
 			}
 		})
 	}
