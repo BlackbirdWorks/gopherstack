@@ -880,7 +880,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 13 gaps |
 | [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 10 gaps |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | B | 32 | 10 gaps |
-| [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 19 gaps |
+| [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 16 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 9 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |

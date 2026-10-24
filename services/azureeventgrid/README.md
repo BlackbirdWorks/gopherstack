@@ -8,27 +8,24 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 9 (8 ok, 1 partial) |
-| Feature families | 7 (7 ok) |
-| Known gaps | 19 |
+| Feature families | 8 (8 ok) |
+| Known gaps | 16 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Domains and domain topics are not implemented.
 - System topics, partner topics and partner namespaces are not implemented.
 - Custom input schemas and input schema mappings are not implemented.
 - Azure Function, Hybrid Connection and Partner destinations are not implemented.
-- Batched webhook delivery (maxEventsPerBatch) and delivery attributes are not implemented; each event is one request.
 - Delivery with managed identity and AAD bearer validation are not implemented.
 - Namespace topic subscriptions do not support dead-letter destinations or webhook push delivery.
 - Event subscriptions scoped to a resource group, subscription or other resource types are not implemented; only custom topics are scopes.
 - Dead-letter blob write failures are dropped.
-- Domains and domain topics (Microsoft.EventGrid/domains) are not implemented.
+- Listing event subscriptions (at any scope, domains included) is not implemented.
 - System topics, partner topics and partner configurations are not implemented.
 - Custom input schemas and input schema mappings are not implemented.
 - Azure Function, Hybrid Connection and Partner destinations are not implemented.
-- Batched webhook delivery (maxEventsPerBatch, preferredBatchSizeInKilobytes) and delivery attribute mappings are not implemented.
 - Managed-identity delivery and AAD bearer validation are not implemented.
 - Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces.
 - Event subscriptions at resource group, subscription or non-topic resource scope are not implemented.

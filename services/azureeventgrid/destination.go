@@ -61,7 +61,11 @@ func validateWebhook(d Destination) error {
 		return invalidSpec("WebHook destination needs an http(s) endpointUrl")
 	}
 
-	return nil
+	if err := validateBatching(d); err != nil {
+		return err
+	}
+
+	return validateMappings(d)
 }
 
 func requireSegment(d Destination, key, msg string) error {

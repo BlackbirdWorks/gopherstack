@@ -33,6 +33,8 @@ var (
 	ErrEventGridSubscriptionNotFound   = errors.New("azurearm: event subscription not found")
 	ErrEventGridNamespaceNotFound      = errors.New("azurearm: event grid namespace not found")
 	ErrEventGridNamespaceTopicNotFound = errors.New("azurearm: event grid namespace topic not found")
+	ErrEventGridDomainNotFound         = errors.New("azurearm: event grid domain not found")
+	ErrEventGridDomainTopicNotFound    = errors.New("azurearm: event grid domain topic not found")
 	ErrEventGridUnavailable            = errors.New("azurearm: event grid data plane is not available")
 
 	ErrAppConfigStoreNotFound    = errors.New("azurearm: app configuration store not found")

@@ -23,14 +23,14 @@ const (
 // validateEndpoint runs the WebHook subscription validation handshake when the
 // endpoint is new or changed, and returns the resulting state and manual code.
 func (b *InMemoryBackend) validateEndpoint(
-	ctx context.Context, topicName, topicRID, name string, spec Spec,
+	ctx context.Context, sc Scope, topicRID, name string, spec Spec,
 ) (string, string, error) {
 	if spec.Destination.EndpointType != EndpointWebHook {
 		return StateSucceeded, "", nil
 	}
 
-	if b.unchangedEndpoint(topicName, name, spec) {
-		return b.currentState(topicName, name)
+	if b.unchangedEndpoint(sc, name, spec) {
+		return b.currentState(sc, name)
 	}
 
 	code := uuid.NewString()
@@ -57,21 +57,21 @@ func (b *InMemoryBackend) validateEndpoint(
 	return StateAwaitingManual, code, nil
 }
 
-func (b *InMemoryBackend) unchangedEndpoint(topicName, name string, spec Spec) bool {
+func (b *InMemoryBackend) unchangedEndpoint(sc Scope, name string, spec Spec) bool {
 	b.mu.RLock("unchangedEndpoint")
 	defer b.mu.RUnlock()
 
-	_, s, err := b.subLocked(topicName, name)
+	_, s, err := b.subAtLocked(sc, name)
 
 	return err == nil && s.Spec.Destination.EndpointType == EndpointWebHook &&
 		reflect.DeepEqual(s.Spec.Destination.Properties[propEndpointURL], spec.Destination.Properties[propEndpointURL])
 }
 
-func (b *InMemoryBackend) currentState(topicName, name string) (string, string, error) {
+func (b *InMemoryBackend) currentState(sc Scope, name string) (string, string, error) {
 	b.mu.RLock("currentState")
 	defer b.mu.RUnlock()
 
-	_, s, err := b.subLocked(topicName, name)
+	_, s, err := b.subAtLocked(sc, name)
 	if err != nil {
 		return "", "", err
 	}

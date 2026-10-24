@@ -131,7 +131,7 @@ func errorStatus(err error) (int, string) {
 	switch {
 	case errors.Is(err, ErrUnauthorized):
 		return http.StatusUnauthorized, "Unauthorized"
-	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrNamespaceTopicNotFound),
+	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrNamespaceTopicNotFound), errors.Is(err, ErrDomainNotFound),
 		errors.Is(err, ErrPullSubNotFound), errors.Is(err, ErrNamespaceNotFound):
 		return http.StatusNotFound, outcomeNotFound
 	case errors.Is(err, ErrTooManyEvents):
@@ -192,12 +192,12 @@ func (h *Handler) handleValidate(c *echo.Context) error {
 func (h *Handler) handlePublish(c *echo.Context) error {
 	r := c.Request()
 
-	name, err := h.Backend.ResolveTopic(hostLabel(r), r, h.Settings.ValidateSAS)
+	pub, err := h.Backend.ResolvePublisher(hostLabel(r), r, h.Settings.ValidateSAS)
 	if err != nil {
 		return writeErr(c, err)
 	}
 
-	info, err := h.Backend.Topic(name)
+	schema, err := h.Backend.publisherSchema(pub)
 	if err != nil {
 		return writeErr(c, err)
 	}
@@ -207,12 +207,18 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		return writeErr(c, err)
 	}
 
-	events, err := ParseEvents(body, info.InputSchema)
+	events, err := ParseEvents(body, schema)
 	if err != nil {
 		return writeErr(c, err)
 	}
 
-	if err = h.Backend.Publish(name, events); err != nil {
+	if pub.Domain {
+		err = h.Backend.PublishDomain(pub.Name, events)
+	} else {
+		err = h.Backend.Publish(pub.Name, events)
+	}
+
+	if err != nil {
 		return writeErr(c, err)
 	}
 

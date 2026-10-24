@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/amqp1"
@@ -230,4 +231,118 @@ func (a *azureEventGridAdapter) DeletePullSubscription(ns, topic, name string) e
 		azureeventgrid.ErrPullSubNotFound, azureeventgrid.ErrNamespaceTopicNotFound,
 		azureeventgrid.ErrNamespaceNotFound,
 	)
+}
+
+func (a *azureEventGridAdapter) PutDomain(
+	name, resourceID, schema string, autoCreate, autoDelete *bool,
+) (azurearm.EventGridDomain, error) {
+	info, err := a.backend.PutDomain(name, resourceID, schema, autoCreate, autoDelete)
+	if err != nil {
+		return azurearm.EventGridDomain{}, err
+	}
+
+	return domainView(info), nil
+}
+
+func domainView(info azureeventgrid.DomainInfo) azurearm.EventGridDomain {
+	return azurearm.EventGridDomain{
+		CreatedAt:   info.CreatedAt,
+		InputSchema: info.InputSchema,
+		AutoCreate:  info.AutoCreate,
+		AutoDelete:  info.AutoDelete,
+	}
+}
+
+func (a *azureEventGridAdapter) DomainInfo(name string) (azurearm.EventGridDomain, bool) {
+	info, err := a.backend.Domain(name)
+	if err != nil {
+		return azurearm.EventGridDomain{}, false
+	}
+
+	return domainView(info), true
+}
+
+func (a *azureEventGridAdapter) DeleteDomain(name string) error {
+	return ignoreMissing(a.backend.DeleteDomain(name), azureeventgrid.ErrDomainNotFound)
+}
+
+func (a *azureEventGridAdapter) DomainKeys(name string) (string, string, error) {
+	return keyPair(a.backend.DomainKeys(name))
+}
+
+func (a *azureEventGridAdapter) RegenerateDomainKey(name, keyName string) (string, string, error) {
+	return keyPair(a.backend.RegenerateDomainKey(name, keyName))
+}
+
+func (a *azureEventGridAdapter) PutDomainTopic(domain, name string) (time.Time, error) {
+	return a.backend.PutDomainTopic(domain, name)
+}
+
+func (a *azureEventGridAdapter) DomainTopic(domain, name string) (azurearm.EventGridDomainTopic, bool) {
+	t, err := a.backend.DomainTopic(domain, name)
+
+	return azurearm.EventGridDomainTopic{CreatedAt: t.CreatedAt, Name: t.Name}, err == nil
+}
+
+func (a *azureEventGridAdapter) DomainTopics(domain string) ([]azurearm.EventGridDomainTopic, error) {
+	topics, err := a.backend.DomainTopics(domain)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]azurearm.EventGridDomainTopic, 0, len(topics))
+	for _, t := range topics {
+		out = append(out, azurearm.EventGridDomainTopic{CreatedAt: t.CreatedAt, Name: t.Name})
+	}
+
+	return out, nil
+}
+
+func (a *azureEventGridAdapter) DeleteDomainTopic(domain, name string) error {
+	return ignoreMissing(
+		a.backend.DeleteDomainTopic(domain, name),
+		azureeventgrid.ErrDomainTopicNotFound, azureeventgrid.ErrDomainNotFound,
+	)
+}
+
+func (a *azureEventGridAdapter) PutScopedSubscription(
+	ctx context.Context, domain, topic, name string, props map[string]any,
+) (map[string]any, error) {
+	out, err := a.backend.PutScopedSubscription(ctx, azureeventgrid.Scope{Domain: domain, Topic: topic}, name, props)
+
+	return out, mapDomainErr(err)
+}
+
+// mapDomainErr turns a missing domain or domain topic into the ARM provider's not-found errors.
+func mapDomainErr(err error) error {
+	switch {
+	case errors.Is(err, azureeventgrid.ErrDomainTopicNotFound):
+		return azurearm.ErrEventGridDomainTopicNotFound
+	case errors.Is(err, azureeventgrid.ErrDomainNotFound):
+		return azurearm.ErrEventGridDomainNotFound
+	}
+
+	return err
+}
+
+func (a *azureEventGridAdapter) GetScopedSubscription(domain, topic, name string) (map[string]any, bool) {
+	props, err := a.backend.ScopedSubscription(azureeventgrid.Scope{Domain: domain, Topic: topic}, name)
+
+	return props, err == nil
+}
+
+func (a *azureEventGridAdapter) DeleteScopedSubscription(domain, topic, name string) error {
+	return ignoreMissing(
+		a.backend.DeleteScopedSubscription(azureeventgrid.Scope{Domain: domain, Topic: topic}, name),
+		azureeventgrid.ErrSubscriptionNotFound, azureeventgrid.ErrTopicNotFound,
+		azureeventgrid.ErrDomainTopicNotFound, azureeventgrid.ErrDomainNotFound,
+	)
+}
+
+func (a *azureEventGridAdapter) ScopedSubscriptionFullURL(domain, topic, name string) (string, error) {
+	return a.backend.ScopedFullURL(azureeventgrid.Scope{Domain: domain, Topic: topic}, name)
+}
+
+func (a *azureEventGridAdapter) DeliveryAttributes(domain, topic, name string) ([]map[string]any, error) {
+	return a.backend.DeliveryAttributes(azureeventgrid.Scope{Domain: domain, Topic: topic}, name)
 }

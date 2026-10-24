@@ -13,6 +13,9 @@ const (
 	egKey2          = "key2"
 	egPropLocalAuth = "disableLocalAuth"
 	egPropCapacity  = "capacity"
+
+	egPropAutoCreate = "autoCreateTopicWithFirstSubscription"
+	egPropAutoDelete = "autoDeleteTopicWithLastSubscription"
 )
 
 func (p *EventGridProvider) bodyOf(id ResourceID, rec *storedEG) (map[string]any, error) {
@@ -27,6 +30,12 @@ func (p *EventGridProvider) bodyOf(id ResourceID, rec *storedEG) (map[string]any
 		return p.nsTopicBody(id, rec)
 	case egKindNsSub:
 		return p.nsSubBody(id, rec)
+	case egKindDomain:
+		return p.domainBody(id, rec)
+	case egKindDomainTopic:
+		return egEnvelope(id, rec, map[string]any{fieldProvisioningState: provisioningStateSucceeded}), nil
+	case egKindDomainSub, egKindDomainTopicSub:
+		return p.scopedSubscriptionBody(id, rec)
 	case egKindUnsupported:
 	}
 
@@ -38,7 +47,7 @@ func egEnvelope(id ResourceID, rec *storedEG, props map[string]any) map[string]a
 		"id": id.ARMID(), fieldName: rec.name, fieldType: egTypeName(rec.kind), fieldProperties: props,
 	}
 
-	if rec.kind == egKindTopic || rec.kind == egKindNamespace {
+	if rec.kind == egKindTopic || rec.kind == egKindNamespace || rec.kind == egKindDomain {
 		out[fieldLocation], out[fieldTags] = rec.location, tagsOrEmpty(rec.tags)
 	}
 
@@ -60,6 +69,38 @@ func (p *EventGridProvider) topicBody(id ResourceID, rec *storedEG) (map[string]
 		egPropSchema:           info.InputSchema,
 		"metricResourceId":     id.SubscriptionID + ":" + strings.ToLower(rec.name),
 	})
+
+	return egEnvelope(id, rec, props), nil
+}
+
+func (p *EventGridProvider) domainBody(id ResourceID, rec *storedEG) (map[string]any, error) {
+	info, ok := p.dataPlane.DomainInfo(rec.name)
+	if !ok {
+		return nil, ErrEventGridDomainNotFound
+	}
+
+	props := ehMerge(map[string]any{
+		cosmosFieldPublicNetwork: kvPublicNetworkEnabled, egPropLocalAuth: false,
+		"dataResidencyBoundary": "WithinGeopair",
+	}, rec.extra, map[string]any{
+		fieldProvisioningState: provisioningStateSucceeded,
+		egPropEndpoint:         "https://" + p.hostPort(rec) + "/api/events",
+		egPropSchema:           info.InputSchema,
+		"metricResourceId":     id.SubscriptionID + ":" + strings.ToLower(rec.name),
+		egPropAutoCreate:       info.AutoCreate,
+		egPropAutoDelete:       info.AutoDelete,
+	})
+
+	return egEnvelope(id, rec, props), nil
+}
+
+func (p *EventGridProvider) scopedSubscriptionBody(id ResourceID, rec *storedEG) (map[string]any, error) {
+	domain, topic := egScopeOf(rec.names, rec.kind)
+
+	props, ok := p.dataPlane.GetScopedSubscription(domain, topic, rec.name)
+	if !ok {
+		return nil, ErrEventGridSubscriptionNotFound
+	}
 
 	return egEnvelope(id, rec, props), nil
 }
@@ -113,13 +154,17 @@ func (p *EventGridProvider) nsSubBody(id ResourceID, rec *storedEG) (map[string]
 
 func (p *EventGridProvider) keysFor(id ResourceID, regenerate string) (string, string, error) {
 	kind := classifyEventGridPath(id)
-	if _, ok := p.get(id, kind); !ok || (kind != egKindTopic && kind != egKindNamespace) {
+	if _, ok := p.get(id, kind); !ok || (kind != egKindTopic && kind != egKindNamespace && kind != egKindDomain) {
 		return "", "", egKeyNotFound(kind, id)
 	}
 
 	name := id.LeafName()
 
 	switch {
+	case kind == egKindDomain && regenerate != "":
+		return p.dataPlane.RegenerateDomainKey(name, regenerate)
+	case kind == egKindDomain:
+		return p.dataPlane.DomainKeys(name)
 	case kind == egKindTopic && regenerate != "":
 		return p.dataPlane.RegenerateTopicKey(name, regenerate)
 	case kind == egKindTopic:
@@ -132,7 +177,7 @@ func (p *EventGridProvider) keysFor(id ResourceID, regenerate string) (string, s
 }
 
 func egKeyNotFound(kind egKind, id ResourceID) error {
-	if kind == egKindTopic || kind == egKindNamespace {
+	if kind == egKindTopic || kind == egKindNamespace || kind == egKindDomain {
 		return egNotFound(kind)
 	}
 
@@ -171,24 +216,85 @@ func (p *EventGridProvider) RegenerateKey(_ context.Context, id ResourceID, keyN
 
 // FullURL returns a WebHook subscription's complete endpoint URL (POST .../getFullUrl).
 func (p *EventGridProvider) FullURL(_ context.Context, id ResourceID) (map[string]any, error) {
-	if classifyEventGridPath(id) != egKindTopicSub {
+	kind := classifyEventGridPath(id)
+	if !isEventSubscriptionKind(kind) {
 		return nil, errUnsupportedEventGridType(id)
 	}
 
 	p.mu.RLock("FullURL")
 	defer p.mu.RUnlock()
 
-	rec, ok := p.get(id, egKindTopicSub)
+	rec, ok := p.get(id, kind)
 	if !ok {
 		return nil, ErrEventGridSubscriptionNotFound
 	}
 
-	url, err := p.dataPlane.SubscriptionFullURL(rec.names[0], rec.name)
+	domain, topic := egScopeOf(rec.names, kind)
+
+	url, err := p.dataPlane.ScopedSubscriptionFullURL(domain, topic, rec.name)
 	if err != nil {
 		return nil, badEventGridRequest(err)
 	}
 
 	return map[string]any{"endpointUrl": url}, nil
+}
+
+func isEventSubscriptionKind(kind egKind) bool {
+	return kind == egKindTopicSub || kind == egKindDomainSub || kind == egKindDomainTopicSub
+}
+
+// DeliveryAttributes returns a subscription's delivery attribute mappings with
+// secret values (POST .../getDeliveryAttributes).
+func (p *EventGridProvider) DeliveryAttributes(_ context.Context, id ResourceID) (map[string]any, error) {
+	kind := classifyEventGridPath(id)
+	if !isEventSubscriptionKind(kind) {
+		return nil, errUnsupportedEventGridType(id)
+	}
+
+	p.mu.RLock("DeliveryAttributes")
+	defer p.mu.RUnlock()
+
+	rec, ok := p.get(id, kind)
+	if !ok {
+		return nil, ErrEventGridSubscriptionNotFound
+	}
+
+	domain, topic := egScopeOf(rec.names, kind)
+
+	list, err := p.dataPlane.DeliveryAttributes(domain, topic, rec.name)
+	if err != nil {
+		return nil, badEventGridRequest(err)
+	}
+
+	return map[string]any{fieldValue: list}, nil
+}
+
+// ListDomainTopics lists the topics of the domain identified by id.
+func (p *EventGridProvider) ListDomainTopics(_ context.Context, id ResourceID) ([]map[string]any, error) {
+	p.mu.RLock("ListDomainTopics")
+	defer p.mu.RUnlock()
+
+	if _, ok := p.res[egKey(id.ResourceGroup, egKindDomain, id.Names[0])]; !ok {
+		return nil, ErrEventGridDomainNotFound
+	}
+
+	topics, err := p.dataPlane.DomainTopics(id.Names[0])
+	if err != nil {
+		return nil, ErrEventGridDomainNotFound
+	}
+
+	out := make([]map[string]any, 0, len(topics))
+
+	for _, t := range topics {
+		tid := ResourceID{
+			SubscriptionID: id.SubscriptionID, ResourceGroup: id.ResourceGroup, Namespace: namespaceMicrosoftEventGrid,
+			Types: []string{egDomainsType, "topics"}, Names: []string{id.Names[0], t.Name},
+		}
+		rec := &storedEG{name: t.Name, resourceGroup: id.ResourceGroup, kind: egKindDomainTopic, names: tid.Names}
+		out = append(out, egEnvelope(tid, rec, map[string]any{fieldProvisioningState: provisioningStateSucceeded}))
+	}
+
+	return out, nil
 }
 
 type eventGridRecord struct {

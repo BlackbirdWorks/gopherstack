@@ -32,7 +32,7 @@ func blobName(item deadItem, at time.Time) string {
 	at = at.UTC()
 
 	return fmt.Sprintf("%s/%s/%04d/%02d/%02d/%02d/%s.json",
-		item.job.topic, item.job.sub, at.Year(), int(at.Month()), at.Day(), at.Hour(), item.d.ID)
+		item.job.scope.leaf(), item.job.sub, at.Year(), int(at.Month()), at.Day(), at.Hour(), item.d.ID)
 }
 
 // deadLetter writes the event to the subscription's dead-letter blob container,

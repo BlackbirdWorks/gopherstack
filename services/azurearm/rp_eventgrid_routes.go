@@ -10,6 +10,8 @@ import (
 const (
 	egActionRegenerate = "regenerateKey"
 	egActionFullURL    = "getFullUrl"
+	egActionDelivery   = "getDeliveryAttributes"
+	egDomainTopicsSegs = 9
 	egProviderSegIdx   = 5
 	egMinActionSegs    = 8
 	egOperationSegs    = 8
@@ -59,6 +61,57 @@ var eventGridRoutes = []armRoute{
 		match:  func(segs []string, r *http.Request) bool { return isEventGridAction(segs, egActionFullURL, r) },
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleEventGridFullURL(c, segs) },
 	},
+	{
+		match: func(segs []string, r *http.Request) bool { return isEventGridAction(segs, egActionDelivery, r) },
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleEventGridDeliveryAttributes(c, segs)
+		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodGet && len(segs) == egDomainTopicsSegs && isEventGridScope(segs) &&
+				strings.EqualFold(segs[6], egDomainsType) && strings.EqualFold(segs[8], "topics")
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleListDomainTopics(c, segs) },
+	},
+}
+
+func (h *Handler) handleListDomainTopics(c *echo.Context, segs []string) error {
+	p, ok := h.eventGridProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	values, err := p.ListDomainTopics(c.Request().Context(), id)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: values})
+}
+
+func (h *Handler) handleEventGridDeliveryAttributes(c *echo.Context, segs []string) error {
+	p, ok := h.eventGridProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := p.DeliveryAttributes(c.Request().Context(), id)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
 }
 
 func (h *Handler) handleEventGridRegenerate(c *echo.Context, segs []string) error {

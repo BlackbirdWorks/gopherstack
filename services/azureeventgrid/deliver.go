@@ -38,8 +38,8 @@ type outcome struct {
 }
 
 type job struct {
-	d        *delivery
-	topic    string
+	ds       []*delivery
+	scope    Scope
 	sub      string
 	topicRID string
 	spec     Spec
@@ -76,9 +76,7 @@ func (b *InMemoryBackend) RunDue(ctx context.Context) int {
 	wg.Wait()
 
 	for i, j := range jobs {
-		if item, isDead := b.settle(j, results[i]); isDead {
-			dead = append(dead, item)
-		}
+		dead = append(dead, b.settle(j, results[i])...)
 	}
 
 	for _, item := range dead {
@@ -99,30 +97,73 @@ func (b *InMemoryBackend) collectDue() ([]job, []deadItem) {
 
 	now := b.now().UTC()
 
-	for _, t := range b.topics {
-		for _, s := range t.Subs {
+	b.eachSubsLocked(func(sc Scope, rid string, subs map[string]*subscription) {
+		for _, s := range subs {
+			base := job{scope: sc, sub: s.Name, topicRID: rid, spec: s.Spec}
 			live := s.Pending[:0]
 
-			for _, d := range s.Pending {
-				j := job{d: d, topic: t.Name, sub: s.Name, topicRID: t.ResourceID, spec: s.Spec}
+			var ready []*delivery
 
+			for _, d := range s.Pending {
 				switch {
 				case d.InFlight || d.Due.After(now):
 					live = append(live, d)
 				case expiredEvent(d, s.Spec, now):
+					j := base
+					j.ds = []*delivery{d}
 					dead = append(dead, deadItem{d: d, reason: reasonTTLExpired, job: j})
 				default:
 					d.InFlight = true
 					live = append(live, d)
-					jobs = append(jobs, j)
+					ready = append(ready, d)
 				}
 			}
 
 			s.Pending = live
+			jobs = append(jobs, batches(base, ready)...)
+		}
+	})
+
+	return jobs, dead
+}
+
+// batches groups ready deliveries into jobs: a WebHook subscription sends up to
+// maxEventsPerBatch events (and about preferredBatchSizeInKilobytes) per request,
+// every other destination one event per delivery.
+func batches(base job, ready []*delivery) []job {
+	maxEvents, maxBytes := 1, 0
+	if base.spec.Destination.EndpointType == EndpointWebHook {
+		maxEvents, maxBytes = base.spec.Destination.batchLimits()
+	}
+
+	var (
+		out  []job
+		size int
+	)
+
+	cur := make([]*delivery, 0, len(ready))
+
+	flush := func() {
+		if len(cur) > 0 {
+			j := base
+			j.ds = cur
+			out = append(out, j)
+			cur, size = make([]*delivery, 0, len(ready)), 0
 		}
 	}
 
-	return jobs, dead
+	for _, d := range ready {
+		if len(cur) >= maxEvents || (len(cur) > 0 && size+len(d.Event) > maxBytes) {
+			flush()
+		}
+
+		cur = append(cur, d)
+		size += len(d.Event)
+	}
+
+	flush()
+
+	return out
 }
 
 func expiredEvent(d *delivery, spec Spec, now time.Time) bool {
@@ -131,55 +172,63 @@ func expiredEvent(d *delivery, spec Spec, now time.Time) bool {
 	return now.Sub(d.Published) >= ttl
 }
 
-// settle records the result of an attempt: success drops the event, failure
-// schedules a retry, or reports it for dead-lettering.
-func (b *InMemoryBackend) settle(j job, res outcome) (deadItem, bool) {
+// settle records the result of an attempt for every delivery of the job: success
+// drops the events, failure schedules a retry, or reports them for dead-lettering.
+func (b *InMemoryBackend) settle(j job, res outcome) []deadItem {
 	b.mu.Lock("settle")
 	defer b.mu.Unlock()
 
 	now := b.now().UTC()
-	d := j.d
-	d.InFlight, d.LastAttempt, d.LastOutcome = false, now, res.label
-	d.Attempts++
-
 	s := b.liveSubLocked(j)
-	if s == nil {
-		return deadItem{}, false
-	}
 
-	if res.ok {
+	var dead []deadItem
+
+	for _, d := range j.ds {
+		d.InFlight, d.LastAttempt, d.LastOutcome = false, now, res.label
+		d.Attempts++
+
+		if s == nil {
+			continue
+		}
+
+		if res.ok {
+			s.dropDelivery(d)
+
+			continue
+		}
+
+		reason := ""
+
+		switch {
+		case res.permanent || d.Attempts >= j.spec.RetryPolicy.MaxDeliveryAttempts:
+			reason = reasonMaxAttempts
+		case expiredEvent(d, j.spec, now.Add(backoff(d.Attempts))):
+			reason = reasonTTLExpired
+		}
+
+		if reason == "" {
+			d.Due = now.Add(backoff(d.Attempts))
+
+			continue
+		}
+
 		s.dropDelivery(d)
 
-		return deadItem{}, false
+		item := j
+		item.ds = []*delivery{d}
+		dead = append(dead, deadItem{d: d, reason: reason, job: item})
 	}
 
-	reason := ""
-
-	switch {
-	case res.permanent || d.Attempts >= j.spec.RetryPolicy.MaxDeliveryAttempts:
-		reason = reasonMaxAttempts
-	case expiredEvent(d, j.spec, now.Add(backoff(d.Attempts))):
-		reason = reasonTTLExpired
-	}
-
-	if reason == "" {
-		d.Due = now.Add(backoff(d.Attempts))
-
-		return deadItem{}, false
-	}
-
-	s.dropDelivery(d)
-
-	return deadItem{d: d, reason: reason, job: j}, true
+	return dead
 }
 
 func (b *InMemoryBackend) liveSubLocked(j job) *subscription {
-	t, ok := b.topics[j.topic]
-	if !ok {
+	_, s, err := b.subAtLocked(j.scope, j.sub)
+	if err != nil {
 		return nil
 	}
 
-	return t.Subs[j.sub]
+	return s
 }
 
 func (s *subscription) dropDelivery(d *delivery) {
