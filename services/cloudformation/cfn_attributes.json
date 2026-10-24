@@ -1046,6 +1046,9 @@
     "IsDefault",
     "VpcId"
   ],
+  "AWS::RUM::AppMonitor": [
+    "Id"
+  ],
   "AWS::Redshift::ClusterSubnetGroup": [
     "ClusterSubnetGroupName"
   ],

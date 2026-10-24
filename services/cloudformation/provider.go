@@ -58,6 +58,7 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -162,6 +163,7 @@ type BackendsProvider interface {
 	GetKinesisVideoHandler() service.Registerable
 	GetECRPublicHandler() service.Registerable
 	GetKafkaConnectHandler() service.Registerable
+	GetRUMHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -216,6 +218,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.KinesisVideo, _ = getHandler[*kinesisvideobackend.Handler](bp.GetKinesisVideoHandler())
 	backends.ECRPublic, _ = getHandler[*ecrpublicbackend.Handler](bp.GetECRPublicHandler())
 	backends.KafkaConnect, _ = getHandler[*kafkaconnectbackend.Handler](bp.GetKafkaConnectHandler())
+	backends.RUM, _ = getHandler[*rumbackend.Handler](bp.GetRUMHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

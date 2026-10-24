@@ -1549,7 +1549,7 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeSageMakerWorkteam, resTypeSageMakerImage, resTypeSageMakerImageVersion,
 			resTypeAthenaNamedQuery, resTypeAthenaCapacityReservation,
 			resTypeMemoryDBCluster,
-			resTypeLambdaCodeSigningConfig, resTypeEventsEndpoint, resTypeSchedulerScheduleGroup,
+			resTypeLambdaCodeSigningConfig, resTypeEventsEndpoint, resTypeSchedulerScheduleGroup, resTypeRUMAppMonitor,
 			resTypeAppSyncDomainName,
 			resTypeR53RResolverRuleAssoc, resTypeR53RFirewallDomainList, resTypeR53RFirewallRuleGroup,
 			resTypeR53RFirewallRGAssoc, resTypeR53RQueryLogConfig, resTypeR53RQueryLogConfigAssc,

@@ -2386,6 +2386,40 @@
     "Tags": "list",
     "Targets": "list"
   },
+  "AWS::GlobalAccelerator::Accelerator": {
+    "Enabled": "boolean",
+    "FlowLogsEnabled": "boolean",
+    "FlowLogsS3Bucket": "string",
+    "FlowLogsS3Prefix": "string",
+    "IpAddressType": "string",
+    "IpAddresses": "list",
+    "Name": "string",
+    "Tags": "list"
+  },
+  "AWS::GlobalAccelerator::CrossAccountAttachment": {
+    "Name": "string",
+    "Principals": "list",
+    "Resources": "list",
+    "Tags": "list"
+  },
+  "AWS::GlobalAccelerator::EndpointGroup": {
+    "EndpointConfigurations": "list",
+    "EndpointGroupRegion": "string",
+    "HealthCheckIntervalSeconds": "number",
+    "HealthCheckPath": "string",
+    "HealthCheckPort": "number",
+    "HealthCheckProtocol": "string",
+    "ListenerArn": "string",
+    "PortOverrides": "list",
+    "ThresholdCount": "number",
+    "TrafficDialPercentage": "number"
+  },
+  "AWS::GlobalAccelerator::Listener": {
+    "AcceleratorArn": "string",
+    "ClientAffinity": "string",
+    "PortRanges": "list",
+    "Protocol": "string"
+  },
   "AWS::Glue::Blueprint": {
     "BlueprintLocation": "string",
     "Description": "string",
@@ -3659,6 +3693,18 @@
     "OptionConfigurations": "list",
     "OptionGroupDescription": "string",
     "OptionGroupName": "string",
+    "Tags": "list"
+  },
+  "AWS::RUM::AppMonitor": {
+    "AppMonitorConfiguration": "map",
+    "CustomEvents": "map",
+    "CwLogEnabled": "boolean",
+    "DeobfuscationConfiguration": "map",
+    "Domain": "string",
+    "DomainList": "list",
+    "Name": "string",
+    "Platform": "string",
+    "ResourcePolicy": "map",
     "Tags": "list"
   },
   "AWS::Redshift::Cluster": {

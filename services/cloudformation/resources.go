@@ -59,6 +59,7 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -176,6 +177,7 @@ type ServiceBackends struct {
 	KinesisVideo      *kinesisvideobackend.Handler
 	ECRPublic         *ecrpublicbackend.Handler
 	KafkaConnect      *kafkaconnectbackend.Handler
+	RUM               *rumbackend.Handler
 	DirectConnect     *directconnectbackend.Handler
 	NetworkManager    *networkmanagerbackend.Handler
 	GlobalAccelerator *globalacceleratorbackend.Handler

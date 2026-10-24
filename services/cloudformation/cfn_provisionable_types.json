@@ -361,6 +361,7 @@
   "AWS::RDS::EventSubscription",
   "AWS::RDS::GlobalCluster",
   "AWS::RDS::OptionGroup",
+  "AWS::RUM::AppMonitor",
   "AWS::Redshift::Cluster",
   "AWS::Redshift::ClusterParameterGroup",
   "AWS::Redshift::ClusterSubnetGroup",

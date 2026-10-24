@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -21,6 +22,7 @@ const (
 // does not need replacement. It reports false for resource types that have no
 // in-place updater, leaving the resource as deployed.
 func (rc *ResourceCreator) UpdateInPlace(
+	ctx context.Context,
 	resourceType, physicalID string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
@@ -29,7 +31,11 @@ func (rc *ResourceCreator) UpdateInPlace(
 		return false, nil
 	}
 
+	ctx = rc.withStackRegion(ctx)
+
 	switch resourceType {
+	case resTypeRUMAppMonitor:
+		return true, rc.updateRUMAppMonitor(ctx, physicalID, props, params, physicalIDs)
 	case resTypeLambdaFunction:
 		return true, rc.updateLambdaFunction(physicalID, props, params, physicalIDs)
 	case resTypeSQSQueue:
