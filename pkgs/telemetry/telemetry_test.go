@@ -3,9 +3,11 @@ package telemetry_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,12 +105,17 @@ func TestRecordOperation(t *testing.T) {
 	}
 }
 
+var aggregationRun atomic.Int64
+
 func TestRecordOperation_LatencyAggregation(t *testing.T) {
 	t.Parallel()
 
+	// Metrics are process-global; a per-run operation name keeps -count>1 runs isolated.
+	opName := fmt.Sprintf("TestUpdateItem-%d", aggregationRun.Add(1))
+
 	latencies := []float64{0.010, 0.015, 0.020, 0.025, 0.030}
 	for _, latency := range latencies {
-		telemetry.RecordOperation("TestUpdateItem", "TestTable2", latency, "success")
+		telemetry.RecordOperation(opName, "TestTable2", latency, "success")
 	}
 
 	result := telemetry.CollectMetrics()
@@ -116,23 +123,23 @@ func TestRecordOperation_LatencyAggregation(t *testing.T) {
 
 	var updateMetric *telemetry.Summary
 	for i := range result.Operations {
-		if result.Operations[i].Operation == "TestUpdateItem" {
+		if result.Operations[i].Operation == opName {
 			updateMetric = &result.Operations[i]
 
 			break
 		}
 	}
 
-	if updateMetric != nil {
-		assert.Equal(t, int64(5), updateMetric.Count, "expected 5 operations")
+	require.NotNil(t, updateMetric)
 
-		assert.Greater(t, updateMetric.AvgMs, 0.0)
-		assert.Greater(t, updateMetric.MaxMs, 0.0)
-		assert.Greater(t, updateMetric.P99Ms, 0.0)
-		assert.Greater(t, updateMetric.P95Ms, 0.0)
-		assert.Greater(t, updateMetric.P50Ms, 0.0)
-		assert.LessOrEqual(t, updateMetric.P50Ms, updateMetric.MaxMs)
-	}
+	assert.Equal(t, int64(5), updateMetric.Count, "expected 5 operations")
+
+	assert.Greater(t, updateMetric.AvgMs, 0.0)
+	assert.Greater(t, updateMetric.MaxMs, 0.0)
+	assert.Greater(t, updateMetric.P99Ms, 0.0)
+	assert.Greater(t, updateMetric.P95Ms, 0.0)
+	assert.Greater(t, updateMetric.P50Ms, 0.0)
+	assert.LessOrEqual(t, updateMetric.P50Ms, updateMetric.MaxMs)
 }
 
 func TestCollectMetrics_ValidStructure(t *testing.T) {

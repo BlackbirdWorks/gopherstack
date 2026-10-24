@@ -1,6 +1,7 @@
 package azurearm_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 // assert exactly which of ServiceBusProvider's Put paths call into the data
 // plane (namespace Put must NOT; queue/topic/subscription Put MUST).
 type fakeServiceBusEntities struct {
+	mu            sync.Mutex
 	queues        map[string]bool
 	topics        map[string]bool
 	subscriptions map[string]bool
@@ -30,6 +32,9 @@ func newFakeServiceBusEntities() *fakeServiceBusEntities {
 }
 
 func (f *fakeServiceBusEntities) CreateQueue(name string, _, _ time.Duration, _ int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.calls = append(f.calls, "CreateQueue:"+name)
 	f.queues[name] = true
 
@@ -37,15 +42,26 @@ func (f *fakeServiceBusEntities) CreateQueue(name string, _, _ time.Duration, _ 
 }
 
 func (f *fakeServiceBusEntities) DeleteQueue(name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.calls = append(f.calls, "DeleteQueue:"+name)
 	delete(f.queues, name)
 
 	return nil
 }
 
-func (f *fakeServiceBusEntities) QueueExists(name string) bool { return f.queues[name] }
+func (f *fakeServiceBusEntities) QueueExists(name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.queues[name]
+}
 
 func (f *fakeServiceBusEntities) CreateTopic(name string, _ time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.calls = append(f.calls, "CreateTopic:"+name)
 	f.topics[name] = true
 
@@ -53,15 +69,26 @@ func (f *fakeServiceBusEntities) CreateTopic(name string, _ time.Duration) error
 }
 
 func (f *fakeServiceBusEntities) DeleteTopic(name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.calls = append(f.calls, "DeleteTopic:"+name)
 	delete(f.topics, name)
 
 	return nil
 }
 
-func (f *fakeServiceBusEntities) TopicExists(name string) bool { return f.topics[name] }
+func (f *fakeServiceBusEntities) TopicExists(name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.topics[name]
+}
 
 func (f *fakeServiceBusEntities) CreateSubscription(topic, name string, _ time.Duration, _ int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.calls = append(f.calls, "CreateSubscription:"+topic+"/"+name)
 	f.subscriptions[topic+"/"+name] = true
 
@@ -69,6 +96,9 @@ func (f *fakeServiceBusEntities) CreateSubscription(topic, name string, _ time.D
 }
 
 func (f *fakeServiceBusEntities) DeleteSubscription(topic, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.calls = append(f.calls, "DeleteSubscription:"+topic+"/"+name)
 	delete(f.subscriptions, topic+"/"+name)
 
@@ -76,6 +106,9 @@ func (f *fakeServiceBusEntities) DeleteSubscription(topic, name string) error {
 }
 
 func (f *fakeServiceBusEntities) SubscriptionExists(topic, name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	return f.subscriptions[topic+"/"+name]
 }
 
@@ -781,4 +814,33 @@ func TestServiceBusProvider_EntityPropertyDefaultsAndRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFakeServiceBusEntities_ConcurrentUse(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeServiceBusEntities()
+	ops := []func(){
+		func() { _ = fake.CreateQueue("q", 0, 0, 0) },
+		func() { _ = fake.CreateTopic("t", 0) },
+		func() { _ = fake.CreateSubscription("t", "s", 0, 0) },
+		func() { _ = fake.DeleteQueue("q") },
+		func() { _ = fake.QueueExists("q") },
+	}
+
+	var wg sync.WaitGroup
+
+	for range 50 {
+		for _, op := range ops {
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+
+				op()
+			}()
+		}
+	}
+
+	wg.Wait()
 }
