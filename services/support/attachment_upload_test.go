@@ -261,10 +261,10 @@ func TestAttachmentUpload_LinkPagination(t *testing.T) {
 		wantFirst int32
 		wantNext  int32
 	}{
-		{"default range", nil, 1, 10, 11},
-		{"second page", &supporttypes.UploadRange{StartIndex: aws.Int32(11), EndIndex: aws.Int32(21)}, 11, 10, 21},
-		{"last page", &supporttypes.UploadRange{StartIndex: aws.Int32(21)}, 21, 5, 0},
-		{"small range", &supporttypes.UploadRange{StartIndex: aws.Int32(3), EndIndex: aws.Int32(5)}, 3, 2, 5},
+		{nil, "default range", 10, 1, 11},
+		{&supporttypes.UploadRange{StartIndex: aws.Int32(11), EndIndex: aws.Int32(21)}, "second page", 10, 11, 21},
+		{&supporttypes.UploadRange{StartIndex: aws.Int32(21)}, "last page", 5, 21, 0},
+		{&supporttypes.UploadRange{StartIndex: aws.Int32(3), EndIndex: aws.Int32(5)}, "small range", 2, 3, 5},
 	}
 
 	for _, tt := range tests {
