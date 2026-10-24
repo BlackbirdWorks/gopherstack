@@ -915,7 +915,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Amp](services/amp/README.md) | B | 44 | 10 gaps; 2 structural gaps |
+| [Amp](services/amp/README.md) | B | 44 | 9 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Appintegrations](services/appintegrations/README.md) | B | 23 | 4 gaps; 1 structural gap |
 | [Azurearm](services/azurearm/README.md) | B | 20 | 8 gaps; 3 deferred |
