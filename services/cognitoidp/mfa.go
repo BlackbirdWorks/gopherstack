@@ -541,3 +541,33 @@ func (b *InMemoryBackend) SetUserSettings(accessToken string, mfaOptions []MFAOp
 
 	return nil
 }
+
+// AdminDeleteSoftwareToken removes a user's TOTP secret and drops SOFTWARE_TOKEN_MFA
+// from their MFA settings.
+func (b *InMemoryBackend) AdminDeleteSoftwareToken(userPoolID, username string) error {
+	b.mu.Lock("AdminDeleteSoftwareToken")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools.Get(userPoolID); !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	user, ok := b.users.Get(userKey(userPoolID, username))
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	user.TOTPSecret = ""
+	user.TOTPVerified = false
+	user.UserMFASettingList = slices.DeleteFunc(slices.Clone(user.UserMFASettingList), func(s string) bool {
+		return s == challengeSoftwareTokenMFA
+	})
+
+	if user.PreferredMfaSetting == challengeSoftwareTokenMFA {
+		user.PreferredMfaSetting = ""
+	}
+
+	user.UpdatedAt = time.Now()
+
+	return nil
+}
