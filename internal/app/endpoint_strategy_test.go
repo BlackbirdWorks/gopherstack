@@ -127,7 +127,7 @@ func TestSQSEndpointStrategyThroughRouter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := strategyServer(t, func(c *CLI) { c.SQSEndpointStrategy = tc.strategy })
+			e := strategyServer(t, func(c *CLI) { c.Endpoints.SQS = tc.strategy })
 			client := sdksqs.NewFromConfig(strategyAWSConfig(t, e, tc.region), func(o *sdksqs.Options) {
 				o.BaseEndpoint = aws.String("http://" + strategyGateway)
 			})
@@ -206,7 +206,7 @@ func TestOpenSearchEndpointStrategyThroughRouter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := strategyServer(t, func(c *CLI) { c.OpenSearchEndpointStrategy = tc.strategy })
+			e := strategyServer(t, func(c *CLI) { c.Endpoints.OpenSearch = tc.strategy })
 			client := sdkopensearch.NewFromConfig(strategyAWSConfig(t, e, tc.region), func(o *sdkopensearch.Options) {
 				o.BaseEndpoint = aws.String("http://" + strategyGateway)
 			})
@@ -289,7 +289,7 @@ func TestGraphQLEndpointStrategyThroughRouter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := strategyServer(t, func(c *CLI) { c.GraphQLEndpointStrategy = tc.strategy })
+			e := strategyServer(t, func(c *CLI) { c.Endpoints.GraphQL = tc.strategy })
 			client := sdkappsync.NewFromConfig(strategyAWSConfig(t, e, "us-east-1"), func(o *sdkappsync.Options) {
 				o.BaseEndpoint = aws.String("http://" + strategyGateway)
 			})
@@ -364,7 +364,7 @@ func TestECREndpointStrategyThroughRouter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := strategyServer(t, func(c *CLI) { c.ECREndpointStrategy = tc.strategy })
+			e := strategyServer(t, func(c *CLI) { c.Endpoints.ECR = tc.strategy })
 			client := sdkecr.NewFromConfig(strategyAWSConfig(t, e, tc.region), func(o *sdkecr.Options) {
 				o.BaseEndpoint = aws.String("http://" + strategyGateway)
 			})
