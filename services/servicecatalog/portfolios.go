@@ -180,9 +180,14 @@ func (b *InMemoryBackend) DescribePortfolio(
 		return nil, err
 	}
 
+	var options []TagOptionDetail
+	if b.sharesTagOptionsLocked(b.callerAccount(ctx), p) {
+		options = b.tagOptionsForLocked(p.ID)
+	}
+
 	return &DescribePortfolioOutput{
 		PortfolioDetail: b.portfolioDetail(p), Tags: orEmpty(mapToTags(p.Tags)),
-		TagOptions: orEmpty(b.tagOptionsForLocked(p.ID)), Budgets: orEmpty(b.budgetsForLocked(p.ID)),
+		TagOptions: orEmpty(options), Budgets: orEmpty(b.budgetsForLocked(p.ID)),
 	}, nil
 }
 
@@ -367,7 +372,7 @@ type AssociatePrincipalWithPortfolioInput struct {
 func (b *InMemoryBackend) AssociatePrincipalWithPortfolio(
 	ctx context.Context, in *AssociatePrincipalWithPortfolioInput,
 ) (*EmptyOutput, error) {
-	if in.PrincipalType != "IAM" && in.PrincipalType != "IAM_PATTERN" {
+	if in.PrincipalType != "IAM" && in.PrincipalType != principalIAMPattern {
 		return nil, invalid("PrincipalType must be IAM or IAM_PATTERN")
 	}
 
@@ -459,10 +464,8 @@ func (b *InMemoryBackend) ListPrincipalsForPortfolio(
 
 	var mine []PrincipalWire
 
-	for _, pr := range b.principalsOfPortfolioLocked(p.ID) {
-		if pr.AccountID == account {
-			mine = append(mine, PrincipalWire{PrincipalARN: pr.PrincipalARN, PrincipalType: pr.PrincipalType})
-		}
+	for _, pr := range b.principalsForAccountLocked(p, account) {
+		mine = append(mine, PrincipalWire{PrincipalARN: pr.PrincipalARN, PrincipalType: pr.PrincipalType})
 	}
 
 	pg, err := pageOf(mine, in.Paging)

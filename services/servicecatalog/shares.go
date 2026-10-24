@@ -714,3 +714,70 @@ func (b *InMemoryBackend) GetAWSOrganizationsAccessStatus(
 
 	return &OrgAccessStatus{AccessStatus: "DISABLED"}, nil
 }
+
+func (b *InMemoryBackend) acceptedSharesLocked(portfolioID, account string) []*Share {
+	var out []*Share
+
+	for _, s := range b.sharesOfPortfolioLocked(portfolioID) {
+		if s.Accepted && s.Recipient == account && (s.Type == shareAccount || s.Type == shareMember) {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) sharesFlagLocked(p *Portfolio, account string, flag func(*Share) bool) bool {
+	return p.AccountID != account && slices.ContainsFunc(b.acceptedSharesLocked(p.ID, account), flag)
+}
+
+// sharesTagOptionsLocked reports whether the portfolio's TagOptions are visible to account.
+func (b *InMemoryBackend) sharesTagOptionsLocked(account string, p *Portfolio) bool {
+	return p.AccountID == account || b.sharesFlagLocked(p, account, func(s *Share) bool { return s.ShareTagOptions })
+}
+
+// principalsForAccountLocked are the principal associations account sees on p: its own, plus the owner's
+// IAM_PATTERN associations when an accepted share carries SharePrincipals.
+func (b *InMemoryBackend) principalsForAccountLocked(p *Portfolio, account string) []*Principal {
+	viaShare := b.sharesFlagLocked(p, account, func(s *Share) bool { return s.SharePrincipals })
+
+	var out []*Principal
+
+	for _, pr := range b.principalsOfPortfolioLocked(p.ID) {
+		if pr.AccountID == account ||
+			(viaShare && pr.AccountID == p.AccountID && pr.PrincipalType == principalIAMPattern) {
+			out = append(out, pr)
+		}
+	}
+
+	return out
+}
+
+// sharedTagOptionsLocked maps the owner TagOptions an account receives through accepted ShareTagOptions shares.
+func (b *InMemoryBackend) sharedTagOptionsLocked(account, region string) map[string]*TagOption {
+	out := map[string]*TagOption{}
+
+	for _, p := range b.portfolios.All() {
+		if p.Region != region || !b.sharesFlagLocked(p, account, func(s *Share) bool { return s.ShareTagOptions }) {
+			continue
+		}
+
+		assocs := b.associationsOfPortfolioLocked(p.ID)
+		ids := make([]string, 0, len(assocs)+1)
+		ids = append(ids, p.ID)
+
+		for _, a := range assocs {
+			ids = append(ids, a.ProductID)
+		}
+
+		for _, id := range ids {
+			for _, d := range b.tagOptionsForLocked(id) {
+				if t, ok := b.tagOptions.Get(d.ID); ok {
+					out[t.ID] = t
+				}
+			}
+		}
+	}
+
+	return out
+}

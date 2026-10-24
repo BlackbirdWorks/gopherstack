@@ -347,10 +347,10 @@ func (b *InMemoryBackend) checkRules(
 }
 
 // tagOptionTags are the tags of the active single-valued TagOptions of a launch path.
-func (b *InMemoryBackend) tagOptionTags(lp *launchPlan) map[string]string {
+func (b *InMemoryBackend) tagOptionTags(account string, lp *launchPlan) map[string]string {
 	out := map[string]string{}
 
-	for _, s := range b.tagOptionSummariesLocked(lp.path.ID, lp.prod.ID) {
+	for _, s := range b.tagOptionSummariesLocked(account, lp.path, lp.prod.ID) {
 		if len(s.Values) == 1 {
 			out[s.Key] = s.Values[0]
 		}

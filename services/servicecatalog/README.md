@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 90 (90 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 9 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,12 +19,10 @@
 - UpdateProvisionedProduct and CreateProvisionedProductPlan on a STACKSET product return OperationNotSupportedException: the CloudFormation emulator's UpdateStackSet and UpdateStackInstances do not re-deploy instance stacks
 - CreateProduct SourceConnection: the CodeStar repository is stored but never synced, so LastSync and SourceRevision stay empty
 - Notify*EngineWorkflowResult: no channel hands the workflow token to an engine; it is wf-<RecordId>
-- CreatePortfolioShare: SharePrincipals and ShareTagOptions are recorded but recipients get no copy of principals or tag options
 - AcceptPortfolioShare: AWS_SERVICECATALOG shares do not exist, so only IMPORTED and AWS_ORGANIZATIONS are acceptable
 - SearchProducts: a caller with an unresolved identity (no principal) sees every accessible portfolio; a resolved non-root identity needs a principal association
 - CreateProduct MARKETPLACE: rejected with InvalidParametersException
 - TerminateProvisionedProduct on a product that is under change returns InvalidParametersException; the SDK models only ResourceNotFoundException for the operation, so the class is a guess
-- TEMPLATE rules: Fn::RefAll, Fn::ValueOf and Fn::ValueOfAll resolve AWS::EC2::VPC/Subnet/SecurityGroup/Instance::Id only; other AWS-specific parameter types leave the assertion unevaluated (it passes)
 
 ### Structural gaps
 
