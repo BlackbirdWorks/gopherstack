@@ -4,8 +4,9 @@
 //
 // Clients whose pinned version ships a schemas package use it directly; the
 // rest use models extracted from their generated clients (legacy/). After an
-// SDK bump run `go run ./cmd/sfnschemagen` from the repo root; parity tests in
-// this package check every operation against the real clients.
+// SDK bump run `go run ./cmd/sfnschemagen` and then `go run ./cmd/ccwiregen`
+// (the Cloud Control wire structs in internal/app) from the repo root; parity
+// tests in this package check every operation against the real clients.
 package sdkwire
 
 import (
