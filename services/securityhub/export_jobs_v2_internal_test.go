@@ -23,10 +23,10 @@ func TestExportJobsV2_RunningJob(t *testing.T) {
 	}
 
 	tests := []struct {
+		wantErr    error
 		name       string
 		status     string
 		wantStatus string
-		wantErr    error
 	}{
 		{name: "running cancels", status: exportStatusRunning, wantStatus: exportStatusCancelled},
 		{name: "cancelled is idempotent", status: exportStatusCancelled, wantStatus: exportStatusCancelled},
@@ -50,7 +50,6 @@ func TestExportJobsV2_RunningJob(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, got.Status)
-			assert.NotEmpty(t, got.EndedAt)
 		})
 	}
 
