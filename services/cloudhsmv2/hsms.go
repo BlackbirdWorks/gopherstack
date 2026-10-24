@@ -75,15 +75,10 @@ func (b *InMemoryBackend) CreateHsm(ctx context.Context, clusterID, zone, ip str
 		return wireHsm{}, fail(ErrInvalidRequest, "cannot create the HSM network interface: %v", err)
 	}
 
-	if c.HsmCert == "" && c.HsmKey != "" {
-		hw, hwErr := issueHardwareCerts(c.ID, c.HsmKey, now)
-		if hwErr != nil {
-			b.network.DeleteENI(sc.region, eniID)
+	if err = ensureHardwareCerts(c, now); err != nil {
+		b.network.DeleteENI(sc.region, eniID)
 
-			return wireHsm{}, fail(ErrInternalFailure, "%v", hwErr)
-		}
-
-		c.HsmCert, c.AwsHwCert, c.MfrHwCert = hw.HSM, hw.AWS, hw.Manufacturer
+		return wireHsm{}, err
 	}
 
 	h := &Hsm{
@@ -163,4 +158,19 @@ func (b *InMemoryBackend) activeOrPendingLocked(live []*Hsm) []*Hsm {
 	}
 
 	return out
+}
+
+func ensureHardwareCerts(c *Cluster, now time.Time) error {
+	if c.HsmCert != "" || c.HsmKey == "" {
+		return nil
+	}
+
+	hw, err := issueHardwareCerts(c.ID, c.HsmKey, now)
+	if err != nil {
+		return fail(ErrInternalFailure, "%v", err)
+	}
+
+	c.HsmCert, c.AwsHwCert, c.MfrHwCert = hw.HSM, hw.AWS, hw.Manufacturer
+
+	return nil
 }

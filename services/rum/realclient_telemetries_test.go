@@ -23,8 +23,14 @@ func TestRealClient_TelemetriesGateEvents(t *testing.T) {
 	}{
 		{
 			name: "unset_collects_all", telemetries: nil,
-			wantTypes:   []string{evtJSError, evtNav, evtLCP, evtHTTP, evtSession},
-			wantMetrics: []string{"JsErrorCount", "PerformanceNavigationDuration", "WebVitalsLargestContentfulPaint", "HttpErrorCount", "SessionCount"},
+			wantTypes: []string{evtJSError, evtNav, evtLCP, evtHTTP, evtSession},
+			wantMetrics: []string{
+				"JsErrorCount",
+				"PerformanceNavigationDuration",
+				"WebVitalsLargestContentfulPaint",
+				"HttpErrorCount",
+				"SessionCount",
+			},
 		},
 		{
 			name: "errors_only", telemetries: []types.Telemetry{types.TelemetryErrors},
@@ -44,7 +50,8 @@ func TestRealClient_TelemetriesGateEvents(t *testing.T) {
 	}
 
 	allMetrics := []string{
-		"JsErrorCount", "PerformanceNavigationDuration", "WebVitalsLargestContentfulPaint", "HttpErrorCount", "SessionCount",
+		"JsErrorCount", "PerformanceNavigationDuration", "WebVitalsLargestContentfulPaint",
+		"HttpErrorCount", "SessionCount",
 	}
 
 	for _, tc := range cases {
@@ -70,7 +77,7 @@ func TestRealClient_TelemetriesGateEvents(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			var gotTypes []string
+			gotTypes := make([]string, 0, len(out.Events))
 			for _, e := range out.Events {
 				gotTypes = append(gotTypes, mustJSON(t, e)["event_type"].(string))
 			}

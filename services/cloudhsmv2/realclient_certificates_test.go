@@ -117,7 +117,11 @@ func testHardwareCertsPersist(t *testing.T, f *fixture) {
 	require.NotNil(t, got)
 	assert.Equal(t, aws.ToString(want.HsmCertificate), aws.ToString(got.HsmCertificate))
 	assert.Equal(t, aws.ToString(want.AwsHardwareCertificate), aws.ToString(got.AwsHardwareCertificate))
-	assert.Equal(t, aws.ToString(want.ManufacturerHardwareCertificate), aws.ToString(got.ManufacturerHardwareCertificate))
+	assert.Equal(
+		t,
+		aws.ToString(want.ManufacturerHardwareCertificate),
+		aws.ToString(got.ManufacturerHardwareCertificate),
+	)
 
 	_, err = r.client.CreateHsm(t.Context(), &sdk.CreateHsmInput{
 		ClusterId: c.ClusterId, AvailabilityZone: aws.String("us-east-1b"),

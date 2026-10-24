@@ -7,10 +7,16 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 	"time"
+)
+
+var (
+	errHsmKeyUnreadable = errors.New("cloudhsmv2: stored HSM key is unreadable")
+	errHsmKeyNotECDSA   = errors.New("cloudhsmv2: HSM key is not ECDSA")
 )
 
 const (
@@ -23,7 +29,7 @@ const (
 )
 
 // newClusterCSR returns a PEM CSR signed by a fresh HSM key, plus that key as PKCS#8 PEM.
-func newClusterCSR(clusterID string) (csrPEM, keyPEM string, err error) {
+func newClusterCSR(clusterID string) (string, string, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return "", "", fmt.Errorf("cloudhsmv2: generate key: %w", err)
@@ -65,7 +71,7 @@ type hardwareCerts struct{ Manufacturer, AWS, HSM string }
 func issueHardwareCerts(clusterID, hsmKeyPEM string, now time.Time) (hardwareCerts, error) {
 	blk, _ := pem.Decode([]byte(hsmKeyPEM))
 	if blk == nil {
-		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: stored HSM key is unreadable")
+		return hardwareCerts{}, errHsmKeyUnreadable
 	}
 
 	parsed, err := x509.ParsePKCS8PrivateKey(blk.Bytes)
@@ -75,7 +81,7 @@ func issueHardwareCerts(clusterID, hsmKeyPEM string, now time.Time) (hardwareCer
 
 	hsmKey, ok := parsed.(*ecdsa.PrivateKey)
 	if !ok {
-		return hardwareCerts{}, fmt.Errorf("cloudhsmv2: HSM key is not ECDSA")
+		return hardwareCerts{}, errHsmKeyNotECDSA
 	}
 
 	mfrKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
