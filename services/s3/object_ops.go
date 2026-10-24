@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 type objectCommonDetails struct {
@@ -64,24 +66,24 @@ func (h *S3Handler) routeObjectPut(
 	r *http.Request,
 	bucket, key string,
 ) {
-	q := r.URL.Query()
+	rq := r.URL.RawQuery
 
 	switch {
-	case q.Has("tagging"):
+	case httputils.RawQueryHas(rq, "tagging"):
 		h.putObjectTagging(ctx, w, r, bucket, key)
-	case q.Has("annotation"):
+	case httputils.RawQueryHas(rq, "annotation"):
 		h.putObjectAnnotation(ctx, w, r, bucket, key)
-	case q.Has("acl"):
+	case httputils.RawQueryHas(rq, "acl"):
 		h.putObjectACL(ctx, w, r, bucket, key)
-	case q.Has("partNumber") && q.Has("uploadId"):
+	case httputils.RawQueryHas(rq, "partNumber") && httputils.RawQueryHas(rq, "uploadId"):
 		h.uploadPart(ctx, w, r, bucket, key)
-	case q.Has("retention"):
+	case httputils.RawQueryHas(rq, "retention"):
 		h.putObjectRetention(ctx, w, r, bucket, key)
-	case q.Has("legal-hold"):
+	case httputils.RawQueryHas(rq, "legal-hold"):
 		h.putObjectLegalHold(ctx, w, r, bucket, key)
-	case q.Has("renameObject"):
+	case httputils.RawQueryHas(rq, "renameObject"):
 		h.handleRenameObject(ctx, w, r)
-	case q.Has("encryption") && key != "":
+	case httputils.RawQueryHas(rq, "encryption") && key != "":
 		h.handleUpdateObjectEncryption(ctx, w, r)
 	case r.Header.Get("X-Amz-Copy-Source") != "":
 		h.copyObject(ctx, w, r, bucket, key)
@@ -96,10 +98,10 @@ func (h *S3Handler) routeObjectGet(
 	r *http.Request,
 	bucket, key string,
 ) {
-	q := r.URL.Query()
+	rq := r.URL.RawQuery
 
 	switch {
-	case q.Has("tagging"):
+	case httputils.RawQueryHas(rq, "tagging"):
 		h.getObjectTagging(ctx, w, r, bucket, key)
 	// GetObjectAnnotation and ListObjectAnnotations share the identical
 	// GET /{Key+}?annotation route (both s3@v1.106.5 serializers.go:
@@ -109,21 +111,21 @@ func (h *S3Handler) routeObjectGet(
 	// whether "annotationName" -- a query param GetObjectAnnotation's own
 	// HttpBindings function binds and ListObjectAnnotations' does not -- is
 	// present.
-	case q.Has("annotation") && q.Has("annotationName"):
+	case httputils.RawQueryHas(rq, "annotation") && httputils.RawQueryHas(rq, "annotationName"):
 		h.getObjectAnnotation(ctx, w, r, bucket, key)
-	case q.Has("annotation"):
+	case httputils.RawQueryHas(rq, "annotation"):
 		h.listObjectAnnotations(ctx, w, r, bucket, key)
-	case q.Has("acl"):
+	case httputils.RawQueryHas(rq, "acl"):
 		h.getObjectACL(ctx, w, r, bucket, key)
-	case q.Has("uploadId"):
+	case httputils.RawQueryHas(rq, "uploadId"):
 		h.listParts(ctx, w, r, bucket, key)
-	case q.Has("retention"):
+	case httputils.RawQueryHas(rq, "retention"):
 		h.getObjectRetention(ctx, w, r, bucket, key)
-	case q.Has("legal-hold"):
+	case httputils.RawQueryHas(rq, "legal-hold"):
 		h.getObjectLegalHold(ctx, w, r, bucket, key)
-	case q.Has("attributes"):
+	case httputils.RawQueryHas(rq, "attributes"):
 		h.handleGetObjectAttributes(ctx, w, r)
-	case q.Has("torrent"):
+	case httputils.RawQueryHas(rq, "torrent"):
 		h.handleGetObjectTorrent(ctx, w, r)
 	default:
 		h.getObject(ctx, w, r, bucket, key)
@@ -136,14 +138,14 @@ func (h *S3Handler) routeObjectDelete(
 	r *http.Request,
 	bucket, key string,
 ) {
-	q := r.URL.Query()
+	rq := r.URL.RawQuery
 
 	switch {
-	case q.Has("tagging"):
+	case httputils.RawQueryHas(rq, "tagging"):
 		h.deleteObjectTagging(ctx, w, r, bucket, key)
-	case q.Has("annotation"):
+	case httputils.RawQueryHas(rq, "annotation"):
 		h.deleteObjectAnnotation(ctx, w, r, bucket, key)
-	case q.Has("uploadId"):
+	case httputils.RawQueryHas(rq, "uploadId"):
 		h.abortMultipartUpload(ctx, w, r, bucket, key)
 	default:
 		h.deleteObject(ctx, w, r, bucket, key)
@@ -156,16 +158,16 @@ func (h *S3Handler) routeObjectPost(
 	r *http.Request,
 	bucket, key string,
 ) {
-	q := r.URL.Query()
+	rq := r.URL.RawQuery
 
 	switch {
-	case q.Has("uploads"):
+	case httputils.RawQueryHas(rq, "uploads"):
 		h.createMultipartUpload(ctx, w, r, bucket, key)
-	case q.Has("uploadId"):
+	case httputils.RawQueryHas(rq, "uploadId"):
 		h.completeMultipartUpload(ctx, w, r, bucket, key)
-	case q.Has("restore"):
+	case httputils.RawQueryHas(rq, "restore"):
 		h.handleRestoreObject(ctx, w, r)
-	case q.Has("select"):
+	case httputils.RawQueryHas(rq, "select"):
 		h.selectObjectContent(ctx, w, r, bucket, key)
 	default:
 		WriteError(ctx, w, r, ErrMethodNotAllowed)

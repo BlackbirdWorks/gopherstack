@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -39,7 +40,6 @@ func regionFromRequest(r *http.Request, defaultRegion string) string {
 }
 
 const (
-	pathSplitParts   = 2
 	tagKeyValueParts = 2
 	defaultMaxKeys   = 1000
 
@@ -275,10 +275,9 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 		sw.Header().Set("X-Amz-Request-Id", uuid.NewString())
 		sw.Header().Set("X-Amz-Id-2", uuid.NewString()) // Mock ID-2
 
-		log := logger.Load(ctx)
-
 		// Validate presigned URL expiry before processing.
-		if isPresignedRequest(requestWithCtx) &&
+		presigned := isPresignedRequest(requestWithCtx)
+		if presigned &&
 			!h.validatePresignedRequest(ctx, sw, requestWithCtx) {
 			return nil
 		}
@@ -286,7 +285,7 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 		// Validate the Authorization header (SigV4/SigV2) for non-presigned
 		// requests. Structure/expiry are always checked; the cryptographic
 		// signature is only recomputed when a PresignSecret is configured.
-		if !isPresignedRequest(requestWithCtx) &&
+		if !presigned &&
 			!h.verifyHeaderAuth(ctx, sw, requestWithCtx) {
 			return nil
 		}
@@ -314,16 +313,18 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 
 		metrics.bucket = bucketName
 
-		log.DebugContext(
-			ctx,
-			"S3 request",
-			"method",
-			requestWithCtx.Method,
-			"bucket",
-			bucketName,
-			"key",
-			key,
-		)
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			logger.Load(ctx).DebugContext(
+				ctx,
+				"S3 request",
+				"method",
+				requestWithCtx.Method,
+				"bucket",
+				bucketName,
+				"key",
+				key,
+			)
+		}
 
 		if bucketName == "" {
 			h.handleRootRequest(ctx, sw, requestWithCtx)
@@ -528,7 +529,7 @@ func (h *S3Handler) resolveBucketAndKey(
 // parseBucketAndKey is the side-effect-free half of resolveBucketAndKey.
 func (h *S3Handler) parseBucketAndKey(r *http.Request) (string, string, error) {
 	path := strings.TrimPrefix(r.URL.Path, "/")
-	parts := strings.SplitN(path, "/", pathSplitParts)
+	firstSeg, rest, hasRest := strings.Cut(path, "/")
 
 	// Try virtual-hosted-style first: bucket name as subdomain in Host header.
 	if vhBucket := h.extractVirtualHostedBucketName(r); vhBucket != "" {
@@ -542,13 +543,13 @@ func (h *S3Handler) parseBucketAndKey(r *http.Request) (string, string, error) {
 	// Fall back to path-style (/bucket/key).
 	bucket, key := "", ""
 	if path != "" && path != "/" {
-		bucket = parts[0]
+		bucket = firstSeg
 		if !IsValidBucketName(bucket) && !isObjectLambdaAliasRead(r, bucket) {
 			return "", "", ErrInvalidBucketName
 		}
 
-		if len(parts) > 1 {
-			key = parts[1]
+		if hasRest {
+			key = rest
 			if key != "" && !IsValidObjectKey(key) {
 				return "", "", ErrInvalidArgument
 			}

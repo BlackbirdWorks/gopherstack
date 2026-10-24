@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // encodeListKey URL-encodes v when the request asked for encoding-type=url, which
@@ -133,7 +135,7 @@ func queryParam(r *http.Request, name string) string {
 		return ""
 	}
 
-	return r.URL.Query().Get(name)
+	return httputils.RawQueryGet(r.URL.RawQuery, name)
 }
 
 // decodeContentMD5 returns ErrInvalidDigest unless header is base64 of a 16-byte MD5.

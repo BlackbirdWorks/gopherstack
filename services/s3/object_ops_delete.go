@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -69,16 +70,18 @@ func (h *S3Handler) deleteObject(
 		return
 	}
 
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 deleteObject input",
-		"bucket",
-		bucketName,
-		"key",
-		key,
-		"versionId",
-		versionID,
-	)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(
+			ctx,
+			"S3 deleteObject input",
+			"bucket",
+			bucketName,
+			"key",
+			key,
+			"versionId",
+			versionID,
+		)
+	}
 
 	var vid *string
 	if versionID != "" {
@@ -99,11 +102,13 @@ func (h *S3Handler) deleteObject(
 
 	setDeleteObjectResponseHeaders(w, out)
 
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 deleteObject output",
-		"bucket", bucketName, "key", key, "deleteMarker", aws.ToBool(out.DeleteMarker),
-	)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(
+			ctx,
+			"S3 deleteObject output",
+			"bucket", bucketName, "key", key, "deleteMarker", aws.ToBool(out.DeleteMarker),
+		)
+	}
 
 	// Dispatch S3 notification if configured.
 	if h.notifier != nil {

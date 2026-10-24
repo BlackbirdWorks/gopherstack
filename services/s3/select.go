@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"strings"
@@ -124,7 +125,9 @@ func (h *S3Handler) selectObjectContent(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "SelectObjectContent")
-	logger.Load(ctx).DebugContext(ctx, "S3 selectObjectContent", "bucket", bucketName, "key", key)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 selectObjectContent", "bucket", bucketName, "key", key)
+	}
 
 	req, objectData, bytesScanned, ok := h.readSelectRequest(ctx, w, r, bucketName, key)
 	if !ok {
