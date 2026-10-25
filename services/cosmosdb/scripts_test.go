@@ -2,9 +2,12 @@ package cosmosdb_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/url"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -642,5 +645,70 @@ func TestPersistence_ScriptsAndChangeFeedSurviveRestore(t *testing.T) {
 		assert.Equal(t, http.StatusOK, restored.do(http.MethodGet, "/dbs/d/colls/c/"+kind+"/"+map[string]string{
 			"sprocs": "s", "udfs": "u", "triggers": "t",
 		}[kind], nil, "").status, kind)
+	}
+}
+
+func TestSproc_DoesNotBlockOtherContainers(t *testing.T) {
+	t.Parallel()
+
+	s := newLiveServer(t)
+	cosmosdb.SetScriptTimeout(s.backend, 1500*time.Millisecond)
+
+	require.Equal(t, http.StatusCreated, s.do(http.MethodPost, "/dbs/d/colls", nil,
+		`{"id":"other","partitionKey":{"paths":["/pk"],"kind":"Hash"}}`).status)
+	require.Equal(t, http.StatusCreated, s.putScript("sprocs", "spin", `function spin(){ while (true) {} }`, nil).status)
+
+	var done atomic.Bool
+
+	go func() {
+		defer done.Store(true)
+
+		s.runSproc("spin", "[]", nil)
+	}()
+
+	var maxGap time.Duration
+
+	last := time.Now()
+
+	for i := 0; !done.Load(); i++ {
+		resp := s.do(http.MethodPost, "/dbs/d/colls/other/docs", map[string]string{
+			"X-Ms-Documentdb-Partitionkey": pkA,
+		}, fmt.Sprintf(`{"id":"w%d","pk":"a"}`, i))
+		require.Equal(t, http.StatusCreated, resp.status, string(resp.body))
+
+		now := time.Now()
+		maxGap = max(maxGap, now.Sub(last))
+		last = now
+	}
+
+	assert.Less(t, maxGap, 500*time.Millisecond, "a running stored procedure must not stall writes to other containers")
+}
+
+func TestSproc_ConcurrentWriteSameContainerIsSerialized(t *testing.T) {
+	t.Parallel()
+
+	s := newLiveServer(t)
+	require.Equal(t, http.StatusCreated, s.putScript("sprocs", "inc", `function inc(){
+		var coll = getContext().getCollection();
+		coll.queryDocuments(coll.getSelfLink(), "SELECT * FROM c", function (err, docs) {
+			if (err) throw err;
+			coll.createDocument(coll.getSelfLink(), {id: "n" + docs.length, pk: "a"}, function (e) { if (e) throw e; });
+		});
+	}`, nil).status)
+
+	const runs = 8
+
+	var wg sync.WaitGroup
+
+	for range runs {
+		wg.Go(func() {
+			assert.Equal(t, http.StatusOK, s.runSproc("inc", "[]", nil).status)
+		})
+	}
+
+	wg.Wait()
+
+	for i := range runs {
+		assert.Equal(t, http.StatusOK, s.get(fmt.Sprintf("n%d", i)).status, "each run saw the previous run's write")
 	}
 }

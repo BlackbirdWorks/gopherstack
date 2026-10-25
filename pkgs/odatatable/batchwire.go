@@ -45,6 +45,7 @@ var (
 // WireBatchOp is one parsed operation of a $batch changeset.
 type WireBatchOp struct {
 	Headers http.Header
+	Query   url.Values
 	Table   string
 	Op      BatchOp
 }
@@ -84,8 +85,9 @@ func ReadBatch(r *http.Request, resourceOf func(path string) string) ([]WireBatc
 	return readBatch(r, resourceOf, false)
 }
 
-// ReadBatchOrRetrieve is ReadBatch for services that also answer a batch holding one bare point retrieve
-// (GET <table>(PartitionKey='..',RowKey='..') outside a changeset), returned as a single BatchRetrieve op.
+// ReadBatchOrRetrieve is ReadBatch for services that also answer a batch holding one bare read outside a changeset:
+// a point retrieve (GET <table>(PartitionKey='..',RowKey='..')) or an entity-collection query (GET <table>() with
+// optional $filter, $top and $select), returned as a single BatchRetrieve or BatchQuery op.
 func ReadBatchOrRetrieve(r *http.Request, resourceOf func(path string) string) ([]WireBatchOp, error) {
 	return readBatch(r, resourceOf, true)
 }
@@ -154,7 +156,7 @@ func readRetrieve(
 		return nil, err
 	}
 
-	if op.Op.Kind != BatchRetrieve {
+	if op.Op.Kind != BatchRetrieve && op.Op.Kind != BatchQuery {
 		return nil, ErrBatchOpMalform
 	}
 
@@ -190,7 +192,7 @@ func readChangeset(raw []byte, boundary string, resourceOf func(string) string) 
 			return nil, parseErr
 		}
 
-		if op.Op.Kind == BatchRetrieve {
+		if op.Op.Kind == BatchRetrieve || op.Op.Kind == BatchQuery {
 			return nil, ErrBatchRetrieve
 		}
 
@@ -264,7 +266,7 @@ func parseWireBatchOp(msg []byte, resourceOf func(string) string) (WireBatchOp, 
 		return WireBatchOp{}, err
 	}
 
-	return WireBatchOp{Table: table, Op: op, Headers: headers}, nil
+	return WireBatchOp{Table: table, Op: op, Headers: headers, Query: u.Query()}, nil
 }
 
 // classifyBatchResource splits a resource segment into table name, key predicate, and whether it addresses a single
@@ -305,6 +307,10 @@ func buildBatchOperation(
 		}
 
 		return BatchOp{Kind: BatchInsert, PartitionKey: pk, RowKey: rk, Props: props}, nil
+	}
+
+	if method == http.MethodGet && isCollection {
+		return BatchOp{Kind: BatchQuery}, nil
 	}
 
 	pk, rk, ok := ParseEntityKeyPredicate(inner)
