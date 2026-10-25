@@ -28,7 +28,7 @@ const (
 var errLakeNoS3 = errors.New("S3 is not available to crawl lake-format tables")
 
 func (r *crawlRun) lakeContext() (context.Context, context.CancelFunc, error) {
-	if r.b.crawlerS3 == nil {
+	if r.s3 == nil {
 		return nil, nil, errLakeNoS3
 	}
 
@@ -37,7 +37,7 @@ func (r *crawlRun) lakeContext() (context.Context, context.CancelFunc, error) {
 	return ctx, cancel, nil
 }
 
-func (b *InMemoryBackend) listKeys(ctx context.Context, bucket, prefix string) ([]string, error) {
+func (r *crawlRun) listKeys(ctx context.Context, bucket, prefix string) ([]string, error) {
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
@@ -47,7 +47,7 @@ func (b *InMemoryBackend) listKeys(ctx context.Context, bucket, prefix string) (
 	var token *string
 
 	for {
-		out, err := b.crawlerS3.ListObjectsV2(ctx, &sdk_s3.ListObjectsV2Input{
+		out, err := r.s3.ListObjectsV2(ctx, &sdk_s3.ListObjectsV2Input{
 			Bucket: aws.String(bucket), Prefix: aws.String(prefix), ContinuationToken: token,
 		})
 		if err != nil {
@@ -66,8 +66,8 @@ func (b *InMemoryBackend) listKeys(ctx context.Context, bucket, prefix string) (
 	}
 }
 
-func (b *InMemoryBackend) readObject(ctx context.Context, bucket, key string) ([]byte, error) {
-	out, err := b.crawlerS3.GetObject(ctx, &sdk_s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+func (r *crawlRun) readObject(ctx context.Context, bucket, key string) ([]byte, error) {
+	out, err := r.s3.GetObject(ctx, &sdk_s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
 	if err != nil {
 		return nil, fmt.Errorf("read s3://%s/%s: %w", bucket, key, err)
 	}
@@ -76,8 +76,8 @@ func (b *InMemoryBackend) readObject(ctx context.Context, bucket, key string) ([
 	return io.ReadAll(io.LimitReader(out.Body, lakeMetaLimit))
 }
 
-func (b *InMemoryBackend) putObject(ctx context.Context, bucket, key string, body []byte) error {
-	_, err := b.crawlerS3.PutObject(ctx, &sdk_s3.PutObjectInput{
+func (r *crawlRun) putObject(ctx context.Context, bucket, key string, body []byte) error {
+	_, err := r.s3.PutObject(ctx, &sdk_s3.PutObjectInput{
 		Bucket: aws.String(bucket), Key: aws.String(key), Body: bytes.NewReader(body),
 	})
 	if err != nil {

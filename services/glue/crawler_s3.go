@@ -106,7 +106,7 @@ func crawlTableName(prefix, segment string) string {
 	return strings.ToLower(prefix) + name
 }
 
-func (b *InMemoryBackend) listCrawlFiles(
+func (r *crawlRun) listCrawlFiles(
 	ctx context.Context,
 	bucket, prefix string,
 	excl []string,
@@ -121,7 +121,7 @@ func (b *InMemoryBackend) listCrawlFiles(
 	var token *string
 
 	for {
-		out, err := b.crawlerS3.ListObjectsV2(ctx, &sdk_s3.ListObjectsV2Input{
+		out, err := r.s3.ListObjectsV2(ctx, &sdk_s3.ListObjectsV2Input{
 			Bucket: aws.String(bucket), Prefix: aws.String(listPrefix), ContinuationToken: token,
 		})
 		if err != nil {
@@ -290,8 +290,8 @@ func partitionValue(seg string) string {
 	return seg
 }
 
-func (b *InMemoryBackend) readSample(ctx context.Context, bucket, key string) ([]byte, error) {
-	out, err := b.crawlerS3.GetObject(ctx, &sdk_s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+func (r *crawlRun) readSample(ctx context.Context, bucket, key string) ([]byte, error) {
+	out, err := r.s3.GetObject(ctx, &sdk_s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
 	if err != nil {
 		return nil, err
 	}
@@ -606,9 +606,7 @@ func jsonValueType(v any) string {
 }
 
 func (r *crawlRun) crawlS3(t S3Target) error {
-	b := r.b
-
-	if b.crawlerS3 == nil {
+	if r.s3 == nil {
 		r.legacyS3(t)
 
 		return nil
@@ -622,7 +620,7 @@ func (r *crawlRun) crawlS3(t S3Target) error {
 	ctx, cancel := context.WithTimeout(context.Background(), crawlerS3Timeout)
 	defer cancel()
 
-	files, err := b.listCrawlFiles(ctx, bucket, prefix, t.Exclusions)
+	files, err := r.listCrawlFiles(ctx, bucket, prefix, t.Exclusions)
 	if err != nil {
 		return fmt.Errorf("list s3://%s/%s: %w", bucket, prefix, err)
 	}
@@ -652,30 +650,32 @@ func (r *crawlRun) legacyS3(t S3Target) {
 	}
 
 	name := strings.NewReplacer("/", "_", "-", "_", ".", "_").Replace(prefix)
-	if !r.b.tables.Has(tableKey(r.c.DatabaseName, name)) {
-		r.b.tables.Put(&Table{
-			Name: name, DatabaseName: r.c.DatabaseName, CreateTime: float64(time.Now().Unix()),
-		})
-		r.stats.added++
-	}
+	tbl := &Table{Name: name, DatabaseName: r.c.DatabaseName, CreateTime: float64(time.Now().Unix())}
+
+	r.ops = append(r.ops, func(a *crawlRun) {
+		if !a.b.tables.Has(tableKey(tbl.DatabaseName, tbl.Name)) {
+			a.b.tables.Put(tbl)
+			a.stats.added++
+		}
+	})
 }
 
 func (r *crawlRun) crawlGroup(ctx context.Context, bucket string, g crawlGroup) error {
-	c, b := r.c, r.b
+	c := r.c
 	files := mostCommonDepth(g.files)
 	sort.Slice(files, func(i, j int) bool { return files[i].key < files[j].key })
 
 	name := crawlTableName(c.TablePrefix, g.name)
 	key := tableKey(c.DatabaseName, name)
 
-	if cur, exists := b.tables.Get(key); exists && r.newFoldersOnly && cur.Parameters[crawlerManagedParam] == c.Name {
-		r.seen[key] = true
+	if cur, exists := r.tables.Get(key); exists && r.newFoldersOnly && cur.Parameters[crawlerManagedParam] == c.Name {
+		r.markSeen(key)
 		r.crawlPartitions(cur, bucket, g.root, files)
 
 		return nil
 	}
 
-	sample, err := b.readSample(ctx, bucket, files[0].key)
+	sample, err := r.readSample(ctx, bucket, files[0].key)
 	if err != nil {
 		return fmt.Errorf("read s3://%s/%s: %w", bucket, files[0].key, err)
 	}
@@ -708,7 +708,6 @@ func (r *crawlRun) crawlPartitions(tbl *Table, bucket, root string, files []craw
 		return
 	}
 
-	b := r.b
 	seen := map[string]bool{}
 	now := float64(time.Now().Unix())
 
@@ -719,7 +718,7 @@ func (r *crawlRun) crawlPartitions(tbl *Table, bucket, root string, files []craw
 		}
 
 		pk := partitionKey(tbl.DatabaseName, tbl.Name, vals)
-		if seen[pk] || b.partitions.Has(pk) {
+		if seen[pk] {
 			continue
 		}
 
@@ -729,10 +728,9 @@ func (r *crawlRun) crawlPartitions(tbl *Table, bucket, root string, files []craw
 		psd.Location = loc
 		psd.Parameters = maps.Clone(tbl.StorageDescriptor.Parameters)
 
-		b.partitions.Put(&Partition{
-			DatabaseName: tbl.DatabaseName, TableName: tbl.Name, CatalogID: b.accountID,
+		r.addPartition(&Partition{
+			DatabaseName: tbl.DatabaseName, TableName: tbl.Name, CatalogID: r.accountID,
 			Values: vals, StorageDescriptor: psd, CreationTime: now,
 		})
-		r.stats.partitions++
 	}
 }

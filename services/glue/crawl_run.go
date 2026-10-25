@@ -39,21 +39,44 @@ type crawlStats struct {
 	added, updated, deleted, partitions int
 }
 
-// crawlRun is one execution of a crawler over all of its targets. Every
-// table write goes through upsert so SchemaChangePolicy and the Configuration
-// AddOrUpdateBehavior apply uniformly to every target kind.
+// crawlRun is one execution of a crawler over all of its targets. Target I/O
+// runs unlocked against a snapshot; catalog writes are recorded as ops and
+// replayed under the backend lock by commit. Every table write goes through
+// upsertCore so SchemaChangePolicy and AddOrUpdateBehavior apply uniformly.
 type crawlRun struct {
 	b              *InMemoryBackend
 	c              *Crawler
+	s3             CrawlerS3
+	ddb            CrawlerDynamoDB
+	conns          map[string]*Connection
+	tables         tableOverlay
 	seen           map[string]bool
+	ops            []func(*crawlRun)
+	accountID      string
+	region         string
 	stats          crawlStats
 	logOnlyUpdates bool
 	mergeColumns   bool
 	newFoldersOnly bool
 }
 
-func newCrawlRun(b *InMemoryBackend, c *Crawler) *crawlRun {
-	r := &crawlRun{b: b, c: c, seen: map[string]bool{}}
+type tableStore interface {
+	Get(key string) (*Table, bool)
+	Put(t *Table)
+}
+
+type tableOverlay map[string]*Table
+
+func (o tableOverlay) Get(key string) (*Table, bool) {
+	t, ok := o[key]
+
+	return t, ok
+}
+
+func (o tableOverlay) Put(t *Table) { o[tableKey(t.DatabaseName, t.Name)] = t }
+
+func newCrawlRun(c *Crawler) *crawlRun {
+	r := &crawlRun{c: c, seen: map[string]bool{}}
 
 	if c.SchemaChangePolicy != nil {
 		r.logOnlyUpdates = c.SchemaChangePolicy.UpdateBehavior == updateBehaviorLog
@@ -66,6 +89,63 @@ func newCrawlRun(b *InMemoryBackend, c *Crawler) *crawlRun {
 	r.mergeColumns = configuredMergeNewColumns(c.Configuration)
 
 	return r
+}
+
+// snapshotCrawlLocked captures everything a crawl reads from the backend so
+// its I/O can run unlocked. b.mu must be held.
+func (b *InMemoryBackend) snapshotCrawlLocked(c *Crawler) *crawlRun {
+	r := newCrawlRun(cloneCrawler(c))
+	r.s3, r.ddb = b.crawlerS3, b.crawlerDDB
+	r.accountID, r.region = b.accountID, b.region
+	r.conns = map[string]*Connection{}
+	r.tables = tableOverlay{}
+
+	for _, jt := range c.Targets.JdbcTargets {
+		if conn, ok := b.connections.Get(jt.ConnectionName); ok {
+			r.conns[jt.ConnectionName] = cloneConnection(conn)
+		}
+	}
+
+	for _, t := range b.tables.All() {
+		if t.DatabaseName == c.DatabaseName {
+			r.tables.Put(cloneTable(t))
+		}
+	}
+
+	return r
+}
+
+func (r *crawlRun) markSeen(key string) {
+	r.seen[key] = true
+	r.ops = append(r.ops, func(a *crawlRun) { a.seen[key] = true })
+}
+
+func (r *crawlRun) addPartition(p *Partition) {
+	r.ops = append(r.ops, func(a *crawlRun) {
+		if a.b.partitions.Has(partitionKey(p.DatabaseName, p.TableName, p.Values)) {
+			return
+		}
+
+		a.b.partitions.Put(p)
+		a.stats.partitions++
+	})
+}
+
+// commit replays the recorded catalog writes against the live backend and, when
+// the crawl succeeded, sweeps tables its targets no longer produce. b.mu must be held.
+func (r *crawlRun) commit(b *InMemoryBackend, sweep bool) crawlStats {
+	a := newCrawlRun(r.c)
+	a.b, a.accountID = b, b.accountID
+
+	for _, op := range r.ops {
+		op(a)
+	}
+
+	if sweep {
+		a.sweepGoneTables()
+	}
+
+	return a.stats
 }
 
 func configuredMergeNewColumns(cfg string) bool {
@@ -86,19 +166,6 @@ func configuredMergeNewColumns(cfg string) bool {
 	}
 
 	return doc.CrawlerOutput.Tables.AddOrUpdateBehavior == mergeNewColumns
-}
-
-// runCrawlLocked crawls every target of c. b.mu must be held.
-func (b *InMemoryBackend) runCrawlLocked(c *Crawler) (crawlStats, error) {
-	r := newCrawlRun(b, c)
-
-	if err := r.crawlAllTargets(); err != nil {
-		return r.stats, err
-	}
-
-	r.sweepGoneTables()
-
-	return r.stats, nil
 }
 
 func (r *crawlRun) crawlAllTargets() error {
@@ -146,23 +213,31 @@ func (r *crawlRun) crawlAllTargets() error {
 // upsert writes desired into the catalog and returns the stored table, or nil
 // when a table of that name belongs to someone other than this crawler.
 func (r *crawlRun) upsert(desired *Table) *Table {
-	b := r.b
+	rec := cloneTable(desired)
+	r.ops = append(r.ops, func(a *crawlRun) {
+		a.upsertCore(a.b.tables, a.b.addTableVersionLocked, rec)
+	})
+
+	return r.upsertCore(r.tables, func(*Table) {}, desired)
+}
+
+func (r *crawlRun) upsertCore(st tableStore, version func(*Table), desired *Table) *Table {
 	key := tableKey(desired.DatabaseName, desired.Name)
 	now := float64(time.Now().Unix())
 
-	cur, exists := b.tables.Get(key)
+	cur, exists := st.Get(key)
 
 	switch {
 	case !exists:
-		desired.CatalogID = b.accountID
+		desired.CatalogID = r.accountID
 		desired.CreateTime, desired.UpdateTime = now, now
 
 		if desired.TableType == "" {
 			desired.TableType = tableTypeExternal
 		}
 
-		b.tables.Put(desired)
-		b.addTableVersionLocked(desired)
+		st.Put(desired)
+		version(desired)
 		r.seen[key] = true
 		r.stats.added++
 
@@ -193,8 +268,8 @@ func (r *crawlRun) upsert(desired *Table) *Table {
 	cur.PartitionKeys = desired.PartitionKeys
 	cur.TableType = desired.TableType
 	cur.UpdateTime = now
-	b.tables.Put(cur)
-	b.addTableVersionLocked(cur)
+	st.Put(cur)
+	version(cur)
 	r.stats.updated++
 
 	return cur

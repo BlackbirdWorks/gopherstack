@@ -33,7 +33,7 @@ func (r *crawlRun) crawlIceberg(t IcebergTarget) error {
 			return fmt.Errorf("%w %q", errInvalidCrawlPath, p)
 		}
 
-		keys, lerr := r.b.listKeys(ctx, bucket, prefix)
+		keys, lerr := r.listKeys(ctx, bucket, prefix)
 		if lerr != nil {
 			return lerr
 		}
@@ -69,7 +69,7 @@ func latestIcebergMetadata(ctx context.Context, r *crawlRun, bucket, root string
 		}
 	}
 
-	if hint, err := r.b.readObject(ctx, bucket, metaDir+"/version-hint.text"); err == nil {
+	if hint, err := r.readObject(ctx, bucket, metaDir+"/version-hint.text"); err == nil {
 		want := strings.TrimSpace(string(hint))
 		for _, k := range keys {
 			dir, file := splitKey(k)
@@ -92,7 +92,7 @@ func (r *crawlRun) crawlIcebergTable(ctx context.Context, bucket, root string, k
 		return err
 	}
 
-	body, err := r.b.readObject(ctx, bucket, metaKey)
+	body, err := r.readObject(ctx, bucket, metaKey)
 	if err != nil {
 		return err
 	}

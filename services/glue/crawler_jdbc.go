@@ -115,7 +115,7 @@ func jdbcPattern(parts []string, i int) string {
 }
 
 func (r *crawlRun) crawlJDBC(t JDBCTarget) error {
-	conn, ok := r.b.connections.Get(t.ConnectionName)
+	conn, ok := r.conns[t.ConnectionName]
 	if !ok {
 		return fmt.Errorf("%w: %q", errJDBCNoConnection, t.ConnectionName)
 	}

@@ -221,7 +221,7 @@ func (r *crawlRun) crawlDelta(t DeltaTarget) error {
 }
 
 func (r *crawlRun) loadDeltaLog(ctx context.Context, bucket, prefix string) (*deltaState, error) {
-	keys, err := r.b.listKeys(ctx, bucket, joinKey(prefix, deltaLogDir))
+	keys, err := r.listKeys(ctx, bucket, joinKey(prefix, deltaLogDir))
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (r *crawlRun) loadDeltaLog(ctx context.Context, bucket, prefix string) (*de
 
 		ver, _ := strconv.ParseInt(m[1], 10, 64)
 
-		body, rerr := r.b.readObject(ctx, bucket, k)
+		body, rerr := r.readObject(ctx, bucket, k)
 		if rerr != nil {
 			return nil, rerr
 		}
@@ -342,7 +342,7 @@ func (r *crawlRun) writeDeltaManifests(
 			key = joinKey(key, pp)
 		}
 
-		if err := r.b.putObject(ctx, bucket, key+"/manifest", []byte(strings.Join(locs, "\n")+"\n")); err != nil {
+		if err := r.putObject(ctx, bucket, key+"/manifest", []byte(strings.Join(locs, "\n")+"\n")); err != nil {
 			return err
 		}
 	}
@@ -365,7 +365,7 @@ func (r *crawlRun) addDeltaPartitions(tbl *Table, manifestRoot string, st *delta
 		}
 
 		pk := partitionKey(tbl.DatabaseName, tbl.Name, vals)
-		if seen[pk] || r.b.partitions.Has(pk) {
+		if seen[pk] {
 			continue
 		}
 
@@ -374,10 +374,9 @@ func (r *crawlRun) addDeltaPartitions(tbl *Table, manifestRoot string, st *delta
 		psd.Location = manifestRoot + deltaPartitionPath(f, pkeys) + "/"
 		psd.Parameters = maps.Clone(tbl.StorageDescriptor.Parameters)
 
-		r.b.partitions.Put(&Partition{
-			DatabaseName: tbl.DatabaseName, TableName: tbl.Name, CatalogID: r.b.accountID,
+		r.addPartition(&Partition{
+			DatabaseName: tbl.DatabaseName, TableName: tbl.Name, CatalogID: r.accountID,
 			Values: vals, StorageDescriptor: psd, CreationTime: now,
 		})
-		r.stats.partitions++
 	}
 }
