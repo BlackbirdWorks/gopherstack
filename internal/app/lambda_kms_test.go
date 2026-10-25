@@ -60,27 +60,23 @@ func TestLambdaKMSEnvironmentEncryption(t *testing.T) {
 	assert.NotContains(t, snap, "hunter2-plaintext", "snapshot must hold ciphertext only")
 	assert.Contains(t, snap, "envCiphertext")
 
-	t.Run("restore_keeps_plaintext_readable", func(t *testing.T) {
-		require.NoError(t, bk.Restore(t.Context(), []byte(snap)))
+	require.NoError(t, bk.Restore(t.Context(), []byte(snap)))
 
-		got, gerr := lc.GetFunctionConfiguration(t.Context(), &lambda.GetFunctionConfigurationInput{
-			FunctionName: aws.String("kms-fn"),
-		})
-		require.NoError(t, gerr)
-		assert.Equal(t, vars, got.Environment.Variables)
+	restored, err := lc.GetFunctionConfiguration(t.Context(), &lambda.GetFunctionConfigurationInput{
+		FunctionName: aws.String("kms-fn"),
 	})
+	require.NoError(t, err)
+	assert.Equal(t, vars, restored.Environment.Variables)
 
-	t.Run("published_version_keeps_ciphertext", func(t *testing.T) {
-		ver, verr := lc.PublishVersion(t.Context(), &lambda.PublishVersionInput{FunctionName: aws.String("kms-fn")})
-		require.NoError(t, verr)
+	ver, err := lc.PublishVersion(t.Context(), &lambda.PublishVersionInput{FunctionName: aws.String("kms-fn")})
+	require.NoError(t, err)
 
-		got, gerr := lc.GetFunctionConfiguration(t.Context(), &lambda.GetFunctionConfigurationInput{
-			FunctionName: aws.String("kms-fn"), Qualifier: ver.Version,
-		})
-		require.NoError(t, gerr)
-		assert.Equal(t, vars, got.Environment.Variables)
-		assert.NotContains(t, string(bk.Snapshot(t.Context())), "hunter2-plaintext")
+	published, err := lc.GetFunctionConfiguration(t.Context(), &lambda.GetFunctionConfigurationInput{
+		FunctionName: aws.String("kms-fn"), Qualifier: ver.Version,
 	})
+	require.NoError(t, err)
+	assert.Equal(t, vars, published.Environment.Variables)
+	assert.NotContains(t, string(bk.Snapshot(t.Context())), "hunter2-plaintext")
 }
 
 func TestLambdaKMSKeyValidation(t *testing.T) {
@@ -133,7 +129,8 @@ func TestLambdaKMSKeyValidation(t *testing.T) {
 
 		good, gerr := kc.CreateKey(t.Context(), &kms.CreateKeyInput{})
 		require.NoError(t, gerr)
-		_, gerr = lambdaKMSCreate(t, lc, "upd-fn", aws.ToString(good.KeyMetadata.Arn), map[string]string{"VAR_ONE": "b"})
+		goodARN := aws.ToString(good.KeyMetadata.Arn)
+		_, gerr = lambdaKMSCreate(t, lc, "upd-fn", goodARN, map[string]string{"VAR_ONE": "b"})
 		require.NoError(t, gerr)
 
 		_, gerr = lc.UpdateFunctionConfiguration(t.Context(), &lambda.UpdateFunctionConfigurationInput{
@@ -185,7 +182,8 @@ func TestLambdaKMSInvokeKeyState(t *testing.T) {
 			key, err := kc.CreateKey(t.Context(), &kms.CreateKeyInput{})
 			require.NoError(t, err)
 
-			_, err = lambdaKMSCreate(t, lc, "inv-fn", aws.ToString(key.KeyMetadata.Arn), map[string]string{"VAR_ONE": "b"})
+			keyARN := aws.ToString(key.KeyMetadata.Arn)
+			_, err = lambdaKMSCreate(t, lc, "inv-fn", keyARN, map[string]string{"VAR_ONE": "b"})
 			require.NoError(t, err)
 
 			tt.mutate(t, kc, key.KeyMetadata.KeyId)

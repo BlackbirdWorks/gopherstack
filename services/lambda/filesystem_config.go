@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -167,6 +168,19 @@ func (b *InMemoryBackend) efsMounts(fn *FunctionConfiguration) (efsPlan, error) 
 	return plan, nil
 }
 
+const (
+	worldRead os.FileMode = 0o044
+	worldExec os.FileMode = 0o011
+	ownerExec os.FileMode = 0o100
+)
+
+// layerHostDir returns the host side of a "host:container[:ro]" bind string.
+func layerHostDir(bind string) string {
+	host, _, _ := strings.Cut(bind, ":")
+
+	return host
+}
+
 // makeTreeWorldReadable lets a non-root PosixUser read the extracted code directory.
 func makeTreeWorldReadable(root string) {
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -179,12 +193,12 @@ func makeTreeWorldReadable(root string) {
 			return nil //nolint:nilerr // best effort
 		}
 
-		extra := os.FileMode(0o044)
-		if d.IsDir() || info.Mode()&0o100 != 0 {
-			extra |= 0o011
+		extra := worldRead
+		if d.IsDir() || info.Mode()&ownerExec != 0 {
+			extra |= worldExec
 		}
 
-		_ = os.Chmod(p, info.Mode().Perm()|extra)
+		_ = os.Chmod(p, info.Mode().Perm()|extra) // #nosec G122 -- emulator-owned temp tree
 
 		return nil
 	})

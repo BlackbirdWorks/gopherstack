@@ -668,6 +668,12 @@ func (b *InMemoryBackend) startContainer(
 		return "", layerDirs, "", efsErr
 	}
 
+	if efs.user != "" {
+		for _, d := range layerDirs {
+			makeTreeWorldReadable(d)
+		}
+	}
+
 	spec := container.Spec{
 		Image: fn.ImageURI,
 		Name:  fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
@@ -790,7 +796,7 @@ func (b *InMemoryBackend) createZipContainer(
 		makeTreeWorldReadable(codeDir)
 
 		if layerMount != "" {
-			makeTreeWorldReadable(strings.SplitN(layerMount, ":", 2)[0])
+			makeTreeWorldReadable(layerHostDir(layerMount))
 		}
 	}
 

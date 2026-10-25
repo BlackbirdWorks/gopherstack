@@ -3722,7 +3722,6 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		wireLambdaRuntimeEnv(cli, byName)
 		wireLambdaEFS(cli, byName)
-		wireLambdaKMS(byName)
 		wireECSRuntime(cli, byName)
 		wireFlinkRoleCredentials(byName)
 		wireBatchExec(cli, byName)

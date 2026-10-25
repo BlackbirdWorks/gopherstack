@@ -324,10 +324,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.eventInvokeConfigs = snap.EventInvokeConfigs
 	b.versions = snap.Versions
-	b.envCiphertext = snap.EnvCiphertext
-	if b.envCiphertext == nil {
-		b.envCiphertext = make(map[string]map[string]string)
-	}
 	b.versionCounters = snap.VersionCounters
 	b.layers = snap.Layers
 	b.layerVersionCounters = snap.LayerVersionCounters
@@ -365,7 +361,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		}
 	}
 
-	b.restoreEnvironmentsLocked(snap.Versions)
+	b.restoreEnvironmentsLocked(snap.EnvCiphertext, snap.Versions)
 
 	// esmByFunctionARN is likewise a derived reverse index over
 	// eventSourceMappings; rebuild it so ListEventSourceMappings filtered by
@@ -545,4 +541,12 @@ func (b *InMemoryBackend) versionsWithoutPlaintextEnv() map[string][]*FunctionVe
 	}
 
 	return out
+}
+
+func nonNilCiphertext(m map[string]map[string]string) map[string]map[string]string {
+	if m == nil {
+		return make(map[string]map[string]string)
+	}
+
+	return m
 }

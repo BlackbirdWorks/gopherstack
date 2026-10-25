@@ -254,7 +254,11 @@ func envChanged(old, next *FunctionConfiguration) bool {
 }
 
 // restoreEnvironmentsLocked hydrates plaintext after a restore; failures are left to lazy hydration.
-func (b *InMemoryBackend) restoreEnvironmentsLocked(snapVersions map[string][]*FunctionVersion) {
+func (b *InMemoryBackend) restoreEnvironmentsLocked(
+	ct map[string]map[string]string, snapVersions map[string][]*FunctionVersion,
+) {
+	b.envCiphertext = nonNilCiphertext(ct)
+
 	if b.kmsResolver == nil {
 		return
 	}

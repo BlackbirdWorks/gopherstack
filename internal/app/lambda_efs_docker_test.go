@@ -37,7 +37,11 @@ def reader(event, context):
         return {"value": f.read()}
 `
 
-func efsDockerZip(t *testing.T) []byte { return zipOf(t, "index.py", efsDockerHandler) }
+func efsDockerZip(t *testing.T) []byte {
+	t.Helper()
+
+	return zipOf(t, "index.py", efsDockerHandler)
+}
 
 func zipOf(t *testing.T, name, src string) []byte {
 	t.Helper()
@@ -185,7 +189,6 @@ func TestLambdaKMSEnvAndEFSPosixUserDocker(t *testing.T) {
 
 	byName["Lambda"] = lambdabackend.NewHandler(bk)
 	wireLambdaEFS(cli, byName)
-	wireLambdaKMS(byName)
 
 	require.NoError(t, bk.CreateFunction(&lambdabackend.FunctionConfiguration{
 		FunctionName: "posix-fn",
