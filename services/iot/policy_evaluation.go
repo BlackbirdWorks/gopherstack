@@ -1,8 +1,6 @@
 package iot
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -325,80 +323,4 @@ func iamGlobMatch(pattern, value string) bool {
 	}
 
 	return re.MatchString(value)
-}
-
-// TestInvokeAuthorizerInput is the input for TestInvokeAuthorizer.
-type TestInvokeAuthorizerInput struct {
-	Token          string
-	TokenSignature string
-	MQTTClientID   string
-}
-
-// TestInvokeAuthorizerOutput is the output for TestInvokeAuthorizer.
-type TestInvokeAuthorizerOutput struct {
-	PrincipalID              string
-	PolicyDocuments          []string
-	IsAuthenticated          bool
-	DisconnectAfterInSeconds int32
-	RefreshAfterInSeconds    int32
-}
-
-const (
-	authorizerDisconnectAfterSeconds = 3600
-	authorizerRefreshAfterSeconds    = 300
-)
-
-// TestInvokeAuthorizer evaluates a stored custom authorizer's configuration
-// (status, signing requirement) against the supplied token/signature and
-// returns a deterministic authentication result derived from that stored
-// state.
-func (b *InMemoryBackend) TestInvokeAuthorizer(
-	authorizerName string,
-	input *TestInvokeAuthorizerInput,
-) (*TestInvokeAuthorizerOutput, error) {
-	b.mu.RLock("TestInvokeAuthorizer")
-	a, ok := b.authorizers.Get(authorizerName)
-	b.mu.RUnlock()
-
-	if !ok {
-		return nil, fmt.Errorf("authorizer %q not found: %w", authorizerName, ErrResourceNotFound)
-	}
-
-	out := &TestInvokeAuthorizerOutput{}
-
-	switch {
-	case a.Status != "" && a.Status != statusActive:
-		out.IsAuthenticated = false
-	case !a.SigningDisabled && input.TokenSignature == "":
-		out.IsAuthenticated = false
-	default:
-		out.IsAuthenticated = true
-
-		principal := input.Token
-		if principal == "" {
-			principal = input.MQTTClientID
-		}
-
-		out.PrincipalID = authorizerPrincipalID(authorizerName, principal)
-		out.PolicyDocuments = []string{defaultAuthorizerPolicyDocument()}
-		out.DisconnectAfterInSeconds = authorizerDisconnectAfterSeconds
-		out.RefreshAfterInSeconds = authorizerRefreshAfterSeconds
-	}
-
-	return out, nil
-}
-
-// authorizerPrincipalID deterministically derives a principal ID from the
-// authorizer name and the caller-supplied token/clientId.
-func authorizerPrincipalID(authorizerName, seed string) string {
-	sum := sha256.Sum256([]byte(authorizerName + "/" + seed))
-
-	return "authz-" + hex.EncodeToString(sum[:8])
-}
-
-// defaultAuthorizerPolicyDocument returns the (deterministic) IAM-style
-// policy document a passing custom-authorizer invocation grants, absent a
-// real Lambda to invoke.
-func defaultAuthorizerPolicyDocument() string {
-	return `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"iot:*","Resource":"*"}]}`
 }

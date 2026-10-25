@@ -382,6 +382,8 @@ github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0 h1:QHeG0bWIqSZ/Utkd7Bo
 github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0/go.mod h1:uqgp8z4czp3R86cSNls22vvFFjCkfHT2eR6EOZ+QgVU=
 github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.40.3 h1:gCKNvwsT9DM1oYtPdfwLXNwUXkxIvnBRr/jz4l0RWEc=
 github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.40.3/go.mod h1:QXr2/mbsQ0Ugu29pG5wwxVji91MPnutz8dZlgsiMIxM=
+github.com/aws/aws-sdk-go-v2/service/iotjobsdataplane v1.38.4 h1:M8jO8ov0Bc3XartN571Qzj9NxlWui7PiR/trTQERsXg=
+github.com/aws/aws-sdk-go-v2/service/iotjobsdataplane v1.38.4/go.mod h1:UpU3FMGabHjWDM/yKob9M7L3J2IZB462YuE46E4452w=
 github.com/aws/aws-sdk-go-v2/service/iotwireless v1.65.3 h1:XdKifeW/EquaK86g0E+Il5odldC/JJJe/igoP1R02JA=
 github.com/aws/aws-sdk-go-v2/service/iotwireless v1.65.3/go.mod h1:CCV5EUDs5dzwR2CJJ+GUlM9+uyOPhQZNSB8XeLKWoIc=
 github.com/aws/aws-sdk-go-v2/service/kafka v1.65.3 h1:YoLdhIO5HS+HhtF82hZFGDaDJ8iJLqnOkswG0vxbSbk=

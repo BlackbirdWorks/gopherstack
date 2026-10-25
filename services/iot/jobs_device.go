@@ -9,26 +9,28 @@ import (
 
 // DeviceJobExecution is a job execution as the device-side Jobs data plane reports it.
 type DeviceJobExecution struct {
-	StatusDetails   map[string]string
-	JobID           string
-	ThingName       string
-	Status          JobExecutionStatus
-	JobDocument     string
-	QueuedAt        int64
-	StartedAt       int64
-	LastUpdatedAt   int64
-	VersionNumber   int64
-	ExecutionNumber int64
+	StatusDetails                    map[string]string
+	JobID                            string
+	ThingName                        string
+	Status                           JobExecutionStatus
+	JobDocument                      string
+	QueuedAt                         int64
+	StartedAt                        int64
+	LastUpdatedAt                    int64
+	VersionNumber                    int64
+	ExecutionNumber                  int64
+	ApproximateSecondsBeforeTimedOut int64
 }
 
 // UpdateDeviceJobExecutionInput is a device UpdateJobExecution request.
 type UpdateDeviceJobExecutionInput struct {
-	StatusDetails   map[string]string
-	JobID           string
-	ThingName       string
-	Status          string
-	ExpectedVersion int64
-	ExecutionNumber int64
+	StatusDetails      map[string]string
+	StepTimeoutMinutes *int64
+	JobID              string
+	ThingName          string
+	Status             string
+	ExpectedVersion    int64
+	ExecutionNumber    int64
 }
 
 func deviceExecution(job *Job, e *JobExecution, withDocument bool) *DeviceJobExecution {
@@ -41,6 +43,8 @@ func deviceExecution(job *Job, e *JobExecution, withDocument bool) *DeviceJobExe
 		LastUpdatedAt:   int64(e.LastUpdatedAt),
 		VersionNumber:   e.VersionNumber,
 		ExecutionNumber: e.ExecutionNumber,
+
+		ApproximateSecondsBeforeTimedOut: approxSecondsBeforeTimedOut(e, float64(time.Now().Unix())),
 	}
 
 	if e.StatusDetails != nil {
@@ -108,6 +112,8 @@ func compareStrings(a, b string) int {
 func (b *InMemoryBackend) GetPendingJobExecutions(
 	thingName string,
 ) ([]*DeviceJobExecution, []*DeviceJobExecution, error) {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("GetPendingJobExecutions")
 	defer b.mu.RUnlock()
 
@@ -133,10 +139,16 @@ func (b *InMemoryBackend) GetPendingJobExecutions(
 // StartNextPendingJobExecution starts the thing's oldest QUEUED execution; an already IN_PROGRESS one is
 // returned as is. found is false when nothing is pending.
 func (b *InMemoryBackend) StartNextPendingJobExecution(
-	thingName string, statusDetails map[string]string,
+	thingName string, statusDetails map[string]string, stepTimeoutMinutes *int64,
 ) (*DeviceJobExecution, bool, error) {
+	if err := validateStepTimeout(stepTimeoutMinutes, false); err != nil {
+		return nil, false, err
+	}
+
 	b.mu.Lock("StartNextPendingJobExecution")
 	defer b.mu.Unlock()
+
+	b.sweepJobTimeoutsLocked(float64(time.Now().Unix()))
 
 	if err := b.requireThingLocked(thingName); err != nil {
 		return nil, false, err
@@ -157,7 +169,9 @@ func (b *InMemoryBackend) StartNextPendingJobExecution(
 
 	now := float64(time.Now().Unix())
 
-	if exec.Status == JobExecQueued {
+	started := exec.Status == JobExecQueued
+
+	if started {
 		exec.Status = JobExecInProgress
 		exec.StartedAt = now
 		exec.LastUpdatedAt = now
@@ -167,6 +181,13 @@ func (b *InMemoryBackend) StartNextPendingJobExecution(
 	}
 
 	job, _ := b.jobs.Get(exec.JobID)
+	if started {
+		b.armJobTimersLocked(exec, job, nil, now)
+	}
+
+	if stepTimeoutMinutes != nil {
+		b.setStepTimerLocked(exec, *stepTimeoutMinutes, now)
+	}
 
 	return deviceExecution(job, exec, true), true, nil
 }
@@ -189,6 +210,8 @@ func mergeStatusDetails(cur *JobExecutionStatusDetails, in map[string]string) *J
 func (b *InMemoryBackend) DescribeDeviceJobExecution(
 	thingName, jobID string, executionNumber int64, includeDocument bool,
 ) (*DeviceJobExecution, error) {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("DescribeDeviceJobExecution")
 	defer b.mu.RUnlock()
 
@@ -217,8 +240,14 @@ func (b *InMemoryBackend) UpdateDeviceJobExecution(in *UpdateDeviceJobExecutionI
 		return nil, fmt.Errorf("%w: status %q cannot be reported by a device", ErrValidation, in.Status)
 	}
 
+	if err := validateStepTimeout(in.StepTimeoutMinutes, true); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateDeviceJobExecution")
 	defer b.mu.Unlock()
+
+	b.sweepJobTimeoutsLocked(float64(time.Now().Unix()))
 
 	if err := b.requireThingLocked(in.ThingName); err != nil {
 		return nil, err
@@ -242,8 +271,15 @@ func (b *InMemoryBackend) UpdateDeviceJobExecution(in *UpdateDeviceJobExecutionI
 
 	now := float64(time.Now().Unix())
 
+	job, _ := b.jobs.Get(in.JobID)
+
 	if exec.Status == JobExecQueued && status == JobExecInProgress {
 		exec.StartedAt = now
+		b.armJobTimersLocked(exec, job, nil, now)
+	}
+
+	if status == JobExecInProgress && in.StepTimeoutMinutes != nil {
+		b.setStepTimerLocked(exec, *in.StepTimeoutMinutes, now)
 	}
 
 	exec.Status = status
@@ -252,7 +288,6 @@ func (b *InMemoryBackend) UpdateDeviceJobExecution(in *UpdateDeviceJobExecutionI
 	exec.StatusDetails = mergeStatusDetails(exec.StatusDetails, in.StatusDetails)
 	b.notifyJob(in.ThingName)
 
-	job, _ := b.jobs.Get(in.JobID)
 	b.completeJobIfDoneLocked(job, now)
 
 	return deviceExecution(job, exec, true), nil
@@ -300,4 +335,101 @@ func (b *InMemoryBackend) hasThing(thingName string) bool {
 	defer b.mu.RUnlock()
 
 	return b.requireThingLocked(thingName) == nil
+}
+
+const (
+	stepTimeoutMin    = 1
+	stepTimeoutMax    = 10080
+	stepTimeoutCancel = -1
+	secondsPerMinute  = 60
+)
+
+func validateStepTimeout(v *int64, allowCancel bool) error {
+	if v == nil || (allowCancel && *v == stepTimeoutCancel) || (*v >= stepTimeoutMin && *v <= stepTimeoutMax) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: stepTimeoutInMinutes must be between %d and %d",
+		ErrValidation,
+		stepTimeoutMin,
+		stepTimeoutMax,
+	)
+}
+
+// armJobTimersLocked starts the job's in-progress timer and an optional step timer for an execution that just began.
+func (b *InMemoryBackend) armJobTimersLocked(e *JobExecution, job *Job, step *int64, now float64) {
+	e.InProgressDeadline = 0
+
+	if job != nil && job.TimeoutConfig != nil && job.TimeoutConfig.InProgressTimeoutInMinutes > 0 {
+		e.InProgressDeadline = now + float64(job.TimeoutConfig.InProgressTimeoutInMinutes*secondsPerMinute)
+	}
+
+	if step != nil {
+		b.setStepTimerLocked(e, *step, now)
+	}
+}
+
+func (b *InMemoryBackend) setStepTimerLocked(e *JobExecution, minutes int64, now float64) {
+	if minutes == stepTimeoutCancel {
+		e.StepDeadline = 0
+
+		return
+	}
+
+	e.StepDeadline = now + float64(minutes*secondsPerMinute)
+}
+
+// jobTimeoutDeadline is the earlier of the in-progress and step deadlines (0 when neither is set).
+func jobTimeoutDeadline(e *JobExecution) float64 {
+	switch {
+	case e.InProgressDeadline == 0:
+		return e.StepDeadline
+	case e.StepDeadline == 0:
+		return e.InProgressDeadline
+	}
+
+	return min(e.InProgressDeadline, e.StepDeadline)
+}
+
+func approxSecondsBeforeTimedOut(e *JobExecution, now float64) int64 {
+	if e.Status != JobExecInProgress {
+		return 0
+	}
+
+	d := jobTimeoutDeadline(e)
+	if d == 0 {
+		return 0
+	}
+
+	return max(int64(d-now), 0)
+}
+
+// sweepJobTimeoutsLocked moves IN_PROGRESS executions past their deadline to TIMED_OUT.
+func (b *InMemoryBackend) sweepJobTimeoutsLocked(now float64) {
+	for _, e := range b.jobExecutions.All() {
+		if e.Status != JobExecInProgress {
+			continue
+		}
+
+		d := jobTimeoutDeadline(e)
+		if d == 0 || now < d {
+			continue
+		}
+
+		e.Status = JobExecTimedOut
+		e.LastUpdatedAt = d
+		e.VersionNumber++
+		b.notifyJob(e.ThingName)
+
+		job, _ := b.jobs.Get(e.JobID)
+		b.completeJobIfDoneLocked(job, d)
+	}
+}
+
+func (b *InMemoryBackend) sweepJobTimeouts() {
+	b.mu.Lock("sweepJobTimeouts")
+	defer b.mu.Unlock()
+
+	b.sweepJobTimeoutsLocked(float64(time.Now().Unix()))
 }

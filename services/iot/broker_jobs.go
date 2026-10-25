@@ -81,16 +81,17 @@ type jobsSummaryWire struct {
 }
 
 type jobsExecutionWire struct {
-	StatusDetails   map[string]string  `json:"statusDetails,omitempty"`
-	JobID           string             `json:"jobId"`
-	ThingName       string             `json:"thingName,omitempty"`
-	Status          JobExecutionStatus `json:"status,omitempty"`
-	JobDocument     json.RawMessage    `json:"jobDocument,omitempty"`
-	QueuedAt        int64              `json:"queuedAt"`
-	StartedAt       int64              `json:"startedAt,omitempty"`
-	LastUpdatedAt   int64              `json:"lastUpdatedAt"`
-	VersionNumber   int64              `json:"versionNumber"`
-	ExecutionNumber int64              `json:"executionNumber"`
+	StatusDetails               map[string]string  `json:"statusDetails,omitempty"`
+	JobID                       string             `json:"jobId"`
+	ThingName                   string             `json:"thingName,omitempty"`
+	Status                      JobExecutionStatus `json:"status,omitempty"`
+	JobDocument                 json.RawMessage    `json:"jobDocument,omitempty"`
+	ApproxSecondsBeforeTimedOut int64              `json:"approximateSecondsBeforeTimedOut,omitempty"`
+	QueuedAt                    int64              `json:"queuedAt"`
+	StartedAt                   int64              `json:"startedAt,omitempty"`
+	LastUpdatedAt               int64              `json:"lastUpdatedAt"`
+	VersionNumber               int64              `json:"versionNumber"`
+	ExecutionNumber             int64              `json:"executionNumber"`
 }
 
 func summaryWire(e *DeviceJobExecution) jobsSummaryWire {
@@ -102,7 +103,8 @@ func summaryWire(e *DeviceJobExecution) jobsSummaryWire {
 
 func executionWire(e *DeviceJobExecution) *jobsExecutionWire {
 	return &jobsExecutionWire{
-		JobID: e.JobID, ThingName: e.ThingName, Status: e.Status, StatusDetails: e.StatusDetails,
+		ApproxSecondsBeforeTimedOut: e.ApproximateSecondsBeforeTimedOut,
+		JobID:                       e.JobID, ThingName: e.ThingName, Status: e.Status, StatusDetails: e.StatusDetails,
 		JobDocument: documentRaw(e.JobDocument), QueuedAt: e.QueuedAt, StartedAt: e.StartedAt,
 		LastUpdatedAt: e.LastUpdatedAt, VersionNumber: e.VersionNumber, ExecutionNumber: e.ExecutionNumber,
 	}
@@ -125,6 +127,7 @@ func documentRaw(doc string) json.RawMessage {
 
 type jobsRequestBody struct {
 	StatusDetails            map[string]string `json:"statusDetails"`
+	StepTimeoutInMinutes     *int64            `json:"stepTimeoutInMinutes"`
 	IncludeJobDocument       *bool             `json:"includeJobDocument"`
 	ClientToken              string            `json:"clientToken"`
 	Status                   string            `json:"status"`
@@ -215,7 +218,7 @@ func jobsGet(backend *InMemoryBackend, req jobsRequest, body *jobsRequestBody) (
 }
 
 func jobsStartNext(backend *InMemoryBackend, req jobsRequest, body *jobsRequestBody) (map[string]any, error) {
-	exec, found, err := backend.StartNextPendingJobExecution(req.thing, body.StatusDetails)
+	exec, found, err := backend.StartNextPendingJobExecution(req.thing, body.StatusDetails, body.StepTimeoutInMinutes)
 	if err != nil {
 		return nil, err
 	}
@@ -236,6 +239,7 @@ func jobsUpdate(backend *InMemoryBackend, req jobsRequest, body *jobsRequestBody
 	exec, err := backend.UpdateDeviceJobExecution(&UpdateDeviceJobExecutionInput{
 		JobID: jobID, ThingName: req.thing, Status: body.Status, ExpectedVersion: body.ExpectedVersion,
 		ExecutionNumber: body.ExecutionNumber, StatusDetails: body.StatusDetails,
+		StepTimeoutMinutes: body.StepTimeoutInMinutes,
 	})
 	if err != nil {
 		return nil, err

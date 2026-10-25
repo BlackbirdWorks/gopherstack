@@ -47,6 +47,8 @@ func (b *InMemoryBackend) AssociateTargetsWithJob(
 
 // ListJobExecutionsForJob returns summaries of all executions for a job.
 func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("ListJobExecutionsForJob")
 	defer b.mu.RUnlock()
 
@@ -64,6 +66,8 @@ func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution 
 
 // ListJobExecutionsForThing returns summaries of all executions for a thing.
 func (b *InMemoryBackend) ListJobExecutionsForThing(thingName string) []*JobExecution {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("ListJobExecutionsForThing")
 	defer b.mu.RUnlock()
 
@@ -290,6 +294,8 @@ type JobExecution struct {
 	LastUpdatedAt                    float64                    `json:"lastUpdatedAt,omitempty"`
 	ApproximateSecondsBeforeTimedOut int64                      `json:"approximateSecondsBeforeTimedOut,omitempty"`
 	VersionNumber                    int64                      `json:"versionNumber,omitempty"`
+	InProgressDeadline               float64                    `json:"inProgressDeadline,omitempty"`
+	StepDeadline                     float64                    `json:"stepDeadline,omitempty"`
 	ForceCanceled                    bool                       `json:"forceCanceled,omitempty"`
 }
 
@@ -528,6 +534,8 @@ func (b *InMemoryBackend) jobProcessDetailsLocked(jobID string) *JobProcessDetai
 }
 
 func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("DescribeJob")
 	defer b.mu.RUnlock()
 
@@ -767,6 +775,8 @@ func (b *InMemoryBackend) AddJobExecutionInternal(e *JobExecution) {
 }
 
 func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExecution, error) {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("DescribeJobExecution")
 	defer b.mu.RUnlock()
 
@@ -781,6 +791,7 @@ func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExe
 		)
 	}
 	cp := *exec
+	cp.ApproximateSecondsBeforeTimedOut = approxSecondsBeforeTimedOut(exec, float64(time.Now().Unix()))
 
 	return &cp, nil
 }
@@ -811,6 +822,8 @@ type CancelJobExecutionOptions struct {
 func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error {
 	b.mu.Lock("CancelJobExecution")
 	defer b.mu.Unlock()
+
+	b.sweepJobTimeoutsLocked(float64(time.Now().Unix()))
 
 	now := float64(time.Now().Unix())
 	key := jobExecKey(jobID, thingName)

@@ -382,7 +382,8 @@ type StorageBackend interface {
 	GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error)
 	GetCommandExecutionByID(executionID, targetARN string) (*IoTCommandExecution, error)
 	ListCommandExecutions(commandID string) []*IoTCommandExecution
-	ListCommandExecutionsByFilter(commandARN, targetARN, status string) []*IoTCommandExecution
+	ListCommandExecutionsByFilter(f ListCommandExecutionsFilter) []*IoTCommandExecution
+	StartCommandExecution(in *StartCommandExecutionInput) (*StartedCommandExecution, error)
 
 	// Fleet indexing: configuration.
 	GetIndexingConfiguration() *GetIndexingConfigurationOutput
@@ -459,7 +460,11 @@ type StorageBackend interface {
 
 	// Final stub batch: authorization testing.
 	TestAuthorization(input *TestAuthorizationInput) ([]*AuthResult, error)
-	TestInvokeAuthorizer(authorizerName string, input *TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error)
+	TestInvokeAuthorizer(
+		ctx context.Context,
+		authorizerName string,
+		input *TestInvokeAuthorizerInput,
+	) (*TestInvokeAuthorizerOutput, error)
 
 	// Final stub batch: principal-policy detachment.
 	DetachPrincipalPolicy(policyName, principal string) error
