@@ -31,8 +31,10 @@ type InMemoryBackend struct {
 	mu      *lockmetrics.RWMutex
 	buckets map[string]*Bucket
 	uploads map[string]*uploadSession
-	lastGen int64
-	iamSeq  uint64
+	observers []ObjectObserver
+	pending   []ObjectEvent
+	lastGen   int64
+	iamSeq    uint64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -404,6 +406,8 @@ func (bk *Bucket) store(o *Object) {
 
 // PutObject creates or overwrites an object.
 func (b *InMemoryBackend) PutObject(bucket, name string, data []byte, p Patch, pre Preconds) (*Object, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("PutObject")
 	defer b.mu.Unlock()
 
@@ -425,7 +429,9 @@ func (b *InMemoryBackend) putLocked(bucket, name string, data []byte, p Patch, p
 		return nil, apiErr
 	}
 
+	b.replacedLocked(bk, bk.live(name))
 	bk.store(o)
+	b.queueLocked(ObjectFinalized, o)
 
 	return o.clone(), nil
 }
@@ -460,6 +466,8 @@ func (b *InMemoryBackend) GetObject(bucket, name string, gen int64, pre Preconds
 func (b *InMemoryBackend) UpdateObject(
 	bucket, name string, gen int64, p Patch, replace bool, pre Preconds,
 ) (*Object, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateObject")
 	defer b.mu.Unlock()
 
@@ -493,6 +501,7 @@ func (b *InMemoryBackend) UpdateObject(
 	next.Metageneration++
 	next.Updated = time.Now().UTC()
 	*cur = *next
+	b.queueLocked(ObjectMetadataUpdated, cur)
 
 	return next.clone(), nil
 }
@@ -500,6 +509,8 @@ func (b *InMemoryBackend) UpdateObject(
 // DeleteObject deletes the live version (archiving it in a versioned bucket)
 // or, with gen set, permanently removes that generation.
 func (b *InMemoryBackend) DeleteObject(bucket, name string, gen int64, pre Preconds) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteObject")
 	defer b.mu.Unlock()
 
@@ -519,10 +530,12 @@ func (b *InMemoryBackend) DeleteObject(bucket, name string, gen int64, pre Preco
 
 	if gen == 0 && bk.Versioning {
 		cur.Deleted = time.Now().UTC()
+		b.queueLocked(ObjectArchived, cur)
 
 		return nil
 	}
 
+	b.queueLocked(ObjectDeleted, cur)
 	bk.Objects[name] = slices.DeleteFunc(bk.Objects[name], func(o *Object) bool { return o == cur })
 	if len(bk.Objects[name]) == 0 {
 		delete(bk.Objects, name)

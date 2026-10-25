@@ -37,6 +37,7 @@ families:
   lifecycle: {status: partial, note: "Lifecycle rules, retention, CORS and the other passthrough configs are stored and returned but never enforced: nothing expires, transitions or blocks deletes."}
   auth: {status: partial, note: "No request is authenticated or authorised. Signed URLs are not verified, IAM policies and ACLs are stored but not evaluated, so every object is effectively public."}
   routing_isolation: {status: ok, note: "Own http.Server bound in StartWorker to --gcp-storage-port / GCP_STORAGE_PORT (default 4443, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool. Point the Go client at it with STORAGE_EMULATOR_HOST=localhost:4443."}
+  object_events: {status: ok, note: "InMemoryBackend.ObserveObjects calls observers after the lock is released with finalized (create, overwrite, copy, compose, resumable commit), deleted (permanent removal, or an overwritten object in an unversioned bucket), archived (live version made noncurrent by an overwrite or delete in a versioned bucket) and metadataUpdated; ObjectEvent.Data is the object resource. Consumed by Eventarc. Not wired to bucket notification configs, which stay unsupported."}
   observability: {status: ok, note: "telemetry.WrapEchoHandler feeds ExtractOperation/ExtractResource; one lockmetrics.RWMutex guards buckets and sessions."}
 items_still_open:
   - "No bucket or object ACL endpoints (/b/{b}/acl, /b/{b}/defaultObjectAcl, /b/{b}/o/{o}/acl); acl fields on bucket bodies are stored but predefinedAcl is ignored."
