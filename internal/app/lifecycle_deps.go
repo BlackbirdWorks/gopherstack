@@ -83,7 +83,7 @@ func spawnHostProcess(spec hostSpawn) (int, error) {
 	}
 	defer logf.Close()
 
-	cmd := exec.Command(self, "serve")
+	cmd := exec.CommandContext(context.Background(), self, "serve")
 	cmd.Env = append(os.Environ(), spec.Env...)
 	cmd.Dir = spec.Dir
 	cmd.Stdout = logf

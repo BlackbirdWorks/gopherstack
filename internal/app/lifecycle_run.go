@@ -99,7 +99,12 @@ func (d *lifecycleDeps) health(ctx context.Context, endpoint string) (healthResp
 	return h, nil
 }
 
-func (d *lifecycleDeps) waitReady(ctx context.Context, endpoint string, timeout time.Duration, alive func() bool) error {
+func (d *lifecycleDeps) waitReady(
+	ctx context.Context,
+	endpoint string,
+	timeout time.Duration,
+	alive func() bool,
+) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

@@ -13,6 +13,8 @@ const (
 	lifecycleContainerPort  = "8000"
 	lifecycleContainerData  = "/data"
 	lifecycleLoopback       = "127.0.0.1"
+	lifecycleCmdLogs        = "logs"
+	lifecycleCmdStatus      = "status"
 	lifecycleReadyTimeout   = 90 * time.Second
 	lifecycleReadyPoll      = 500 * time.Millisecond
 	lifecycleStopTimeout    = 15 * time.Second
@@ -36,23 +38,23 @@ var (
 
 // LifecycleTarget identifies the managed instance on disk.
 type LifecycleTarget struct {
-	Name     string `name:"name"      env:"GOPHERSTACK_NAME"      default:"gopherstack" help:"Name of the managed instance (container name / state file)."` //nolint:lll // config struct tags are intentionally verbose
+	Name     string `name:"name"      env:"GOPHERSTACK_NAME"      default:"gopherstack" help:"Name of the managed instance (container name / state file)."`                   //nolint:lll // config struct tags are intentionally verbose
 	StateDir string `name:"state-dir" env:"GOPHERSTACK_STATE_DIR" default:""            help:"Directory for pidfile, logs and state (default: $XDG_STATE_HOME/gopherstack)."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // StartCmd is `gopherstack start`.
 type StartCmd struct {
-	LifecycleTarget `                embed:""`
-	Image           string          `                help:"Container image repository."                                                  name:"image"   default:"ghcr.io/blackbirdworks/gopherstack" env:"GOPHERSTACK_IMAGE"` //nolint:lll // config struct tags are intentionally verbose
-	Tag             string          `                help:"Image tag."                                                                  name:"tag"     default:"latest" env:"GOPHERSTACK_TAG"`                                  //nolint:lll // config struct tags are intentionally verbose
-	Host            bool            `                help:"Run as a background host process instead of a container."                   name:"host"`                                                                             //nolint:lll // config struct tags are intentionally verbose
-	Bind            string          `                help:"Host address to bind published ports to (default loopback)."                 name:"bind"    default:"127.0.0.1"`                                                     //nolint:lll // config struct tags are intentionally verbose
-	Port            string          `                help:"Host port for the main HTTP endpoint."                                       name:"port"    default:"8000" env:"PORT"`                                               //nolint:lll // config struct tags are intentionally verbose
-	Publish         []string        `                help:"Extra container ports to publish, [HOSTPORT:]CONTAINERPORT (repeatable)."   name:"publish" short:"p"`                                                              //nolint:lll // config struct tags are intentionally verbose
-	DataDir         string          `                help:"Host directory mounted as the data dir (default with --persist: state dir)." name:"data-dir"`                                                          //nolint:lll // config struct tags are intentionally verbose
-	Persist         bool            `                help:"Enable snapshot-based persistence across restarts."                          name:"persist"`                                                                         //nolint:lll // config struct tags are intentionally verbose
-	Env             []string        `                help:"Environment for the server, KEY=VALUE or KEY (copied from this shell)."     name:"env"     short:"e"`                                                              //nolint:lll // config struct tags are intentionally verbose
-	Timeout         time.Duration   `                help:"How long to wait for the server to become healthy."                          name:"timeout" default:"90s"`                                                          //nolint:lll // config struct tags are intentionally verbose
+	LifecycleTarget `embed:""`
+	Image           string        `         name:"image"    env:"GOPHERSTACK_IMAGE" default:"ghcr.io/blackbirdworks/gopherstack" help:"Container image repository."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	Tag             string        `         name:"tag"      env:"GOPHERSTACK_TAG"   default:"latest"                             help:"Image tag."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	Bind            string        `         name:"bind"                             default:"127.0.0.1"                          help:"Host address to bind published ports to (default loopback)."`                           //nolint:lll // config struct tags are intentionally verbose
+	Port            string        `         name:"port"     env:"PORT"              default:"8000"                               help:"Host port for the main HTTP endpoint."`                                                 //nolint:lll // config struct tags are intentionally verbose
+	DataDir         string        `         name:"data-dir"                                                                      help:"Host directory mounted as the data dir (default with --persist: state dir)."`           //nolint:lll // config struct tags are intentionally verbose
+	Publish         []string      `         name:"publish"                                                                       help:"Extra container ports to publish, [HOSTPORT:]CONTAINERPORT (repeatable)."    short:"p"` //nolint:lll // config struct tags are intentionally verbose
+	Env             []string      `         name:"env"                                                                           help:"Environment for the server, KEY=VALUE or KEY (copied from this shell)."      short:"e"` //nolint:lll // config struct tags are intentionally verbose
+	Timeout         time.Duration `         name:"timeout"                          default:"90s"                                help:"How long to wait for the server to become healthy."`                                    //nolint:lll // config struct tags are intentionally verbose
+	Host            bool          `         name:"host"                                                                          help:"Run as a background host process instead of a container."`                              //nolint:lll // config struct tags are intentionally verbose
+	Persist         bool          `         name:"persist"                                                                       help:"Enable snapshot-based persistence across restarts."`                                    //nolint:lll // config struct tags are intentionally verbose
 }
 
 // StopCmd is `gopherstack stop`.
@@ -62,16 +64,16 @@ type StopCmd struct {
 
 // StatusCmd is `gopherstack status`.
 type StatusCmd struct {
-	LifecycleTarget `embed:""`
-	PodTarget       `embed:""`
-	JSON            bool `help:"Print machine-readable JSON." name:"json"`
+	LifecycleTarget `     embed:""`
+	PodTarget       `     embed:""`
+	JSON            bool `         help:"Print machine-readable JSON." name:"json"`
 }
 
 // LogsCmd is `gopherstack logs`.
 type LogsCmd struct {
-	LifecycleTarget `embed:""`
-	Follow          bool `help:"Stream new log output."         name:"follow" short:"f"`
-	Tail            int  `help:"Number of lines from the end." name:"tail"   short:"n" default:"100"`
+	LifecycleTarget `     embed:""`
+	Follow          bool `         help:"Stream new log output."        name:"follow" short:"f"`
+	Tail            int  `         help:"Number of lines from the end." name:"tail"   short:"n" default:"100"`
 }
 
 // ResetCmd is `gopherstack reset`.
@@ -82,9 +84,9 @@ type ResetCmd struct {
 
 // SnapshotCmd groups `snapshot save|load|list`, which reuse the pod machinery.
 type SnapshotCmd struct {
+	List PodListCmd `cmd:"" help:"List snapshots."`
 	Save PodSaveCmd `cmd:"" help:"Save current state as a new snapshot version."`
 	Load PodLoadCmd `cmd:"" help:"Load a snapshot version into the running instance."`
-	List PodListCmd `cmd:"" help:"List snapshots."`
 }
 
 func (t LifecycleTarget) name() string {

@@ -25,14 +25,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
-var errLifecycleFake = errors.New("boom")
+var (
+	errLifecycleFake = errors.New("boom")
+	errLifecycleGone = errors.New("no such container: x")
+)
 
 type fakeLifecycleRuntime struct {
 	stopErr  error
+	logText  string
 	specs    []container.Spec
 	stopped  []string
 	logsArgs []string
-	logText  string
 	mu       sync.Mutex
 }
 
@@ -140,7 +143,9 @@ func TestLifecycleParse(t *testing.T) {
 		},
 		{
 			name: "start flags", cmd: "start",
-			args: []string{"start", "--host", "--persist", "-e", "A=b", "-e", "C", "-p", "9000", "--tag", "v1", "--port", "9001"},
+			args: []string{
+				"start", "--host", "--persist", "-e", "A=b", "-e", "C", "-p", "9000", "--tag", "v1", "--port", "9001",
+			},
 			check: func(t *testing.T, r *rootCLI) {
 				t.Helper()
 				assert.True(t, r.Start.Host)
@@ -174,7 +179,12 @@ func TestLifecycleParse(t *testing.T) {
 				assert.Equal(t, "latest", r.Snapshot.Load.Version)
 			},
 		},
-		{name: "snapshot list", cmd: "snapshot list", args: []string{"snapshot", "list"}, check: func(*testing.T, *rootCLI) {}},
+		{
+			name:  "snapshot list",
+			cmd:   "snapshot list",
+			args:  []string{"snapshot", "list"},
+			check: func(*testing.T, *rootCLI) {},
+		},
 		{
 			name: "logs", cmd: "logs", args: []string{"logs", "-f", "-n", "5"},
 			check: func(t *testing.T, r *rootCLI) {
@@ -220,7 +230,7 @@ func TestLifecycleStartAlreadyRunning(t *testing.T) {
 	rt := &fakeLifecycleRuntime{}
 	d, out, dir := testLifecycleDeps(t, rt)
 	_, port := healthServer(t, http.StatusOK, healthResponse{Status: "ok"})
-	cmd := StartCmd{Bind: "127.0.0.1", Port: port, Timeout: time.Second, LifecycleTarget: LifecycleTarget{StateDir: dir}}
+	cmd := StartCmd{Bind: "127.0.0.1", Port: port, Timeout: time.Second, StateDir: dir}
 
 	require.NoError(t, cmd.run(t.Context(), d))
 	assert.Contains(t, out.String(), "already running")
@@ -232,9 +242,9 @@ func TestLifecycleStartCreatesContainer(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		cmd       StartCmd
 		wantEnv   []string
 		wantPorts []string
+		cmd       StartCmd
 		mount     bool
 	}{
 		{
@@ -244,8 +254,11 @@ func TestLifecycleStartCreatesContainer(t *testing.T) {
 			wantPorts: []string{"127.0.0.1:%s:8000"},
 		},
 		{
-			name:      "persist env publish",
-			cmd:       StartCmd{Tag: "v2", Persist: true, Env: []string{"A=b", "FROM_SHELL", "MISSING"}, Publish: []string{"9100", "9200:9300"}},
+			name: "persist env publish",
+			cmd: StartCmd{
+				Tag: "v2", Persist: true, Env: []string{"A=b", "FROM_SHELL", "MISSING"},
+				Publish: []string{"9100", "9200:9300"},
+			},
 			wantEnv:   []string{"PORT=8000", "A=b", "FROM_SHELL=yes", "PERSIST=true", "GOPHERSTACK_DATA_DIR=/data"},
 			wantPorts: []string{"127.0.0.1:%s:8000", "127.0.0.1:9100:9100", "127.0.0.1:9200:9300"},
 			mount:     true,
@@ -331,7 +344,7 @@ func TestLifecycleStartFailureTailsLogsAndCleansUp(t *testing.T) {
 
 	cmd := StartCmd{
 		Image: "img", Tag: "t", Bind: "127.0.0.1", Port: port, Timeout: 50 * time.Millisecond,
-		LifecycleTarget: LifecycleTarget{Name: "x", StateDir: dir},
+		Name: "x", StateDir: dir,
 	}
 
 	err := cmd.run(t.Context(), d)
@@ -352,7 +365,7 @@ func TestLifecycleStartBadEnv(t *testing.T) {
 
 			rt := &fakeLifecycleRuntime{}
 			d, _, dir := testLifecycleDeps(t, rt)
-			cmd := StartCmd{Env: []string{bad}, Bind: "127.0.0.1", Port: "1", Timeout: time.Second, LifecycleTarget: LifecycleTarget{StateDir: dir}}
+			cmd := StartCmd{Env: []string{bad}, Bind: "127.0.0.1", Port: "1", Timeout: time.Second, StateDir: dir}
 
 			require.ErrorIs(t, cmd.run(t.Context(), d), errLifecycleBadEnv)
 			assert.Empty(t, rt.specs)
@@ -371,12 +384,16 @@ func TestLifecycleStartHostProcessExits(t *testing.T) {
 		return 4242, os.WriteFile(s.LogFile, []byte("line1\nfatal: nope\n"), 0o600)
 	}
 	d.Alive = func(int) bool { return false }
-	d.Terminate = func(int, bool) error { killed = true; return nil }
+	d.Terminate = func(int, bool) error {
+		killed = true
+
+		return nil
+	}
 
 	_, port := healthServer(t, http.StatusServiceUnavailable, healthResponse{})
 	cmd := StartCmd{
 		Host: true, Bind: "127.0.0.1", Port: port, Timeout: 5 * time.Second,
-		LifecycleTarget: LifecycleTarget{Name: "h", StateDir: dir},
+		Name: "h", StateDir: dir,
 	}
 
 	err := cmd.run(t.Context(), d)
@@ -416,12 +433,16 @@ func TestLifecycleStartHostSpawnsProcess(t *testing.T) {
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
-	d.Spawn = func(s hostSpawn) (int, error) { spawned = s; return 4242, nil }
+	d.Spawn = func(s hostSpawn) (int, error) {
+		spawned = s
+
+		return 4242, nil
+	}
 	d.Alive = func(int) bool { return true }
 
 	cmd := StartCmd{
 		Host: true, Persist: true, Env: []string{"A=b"}, Bind: "127.0.0.1", Port: u.Port(), Timeout: 10 * time.Second,
-		LifecycleTarget: LifecycleTarget{Name: "h", StateDir: dir},
+		Name: "h", StateDir: dir,
 	}
 
 	require.NoError(t, cmd.run(t.Context(), d))
@@ -443,15 +464,21 @@ func TestLifecycleStop(t *testing.T) {
 		stopErr    error
 		name       string
 		wantOut    string
+		wantTarget string
 		wantStops  int
 		noRuntime  bool
 		wantErr    bool
 		withState  bool
-		wantTarget string
 	}{
 		{name: "stops container by name", wantStops: 1, wantOut: "stopped", wantTarget: "gopherstack"},
-		{name: "stops by recorded id", withState: true, wantStops: 1, wantOut: "stopped", wantTarget: "abcdef0123456789"},
-		{name: "already gone is idempotent", stopErr: errors.New("No such container: gopherstack"), wantStops: 1, wantOut: "not running"},
+		{
+			name:       "stops by recorded id",
+			withState:  true,
+			wantStops:  1,
+			wantOut:    "stopped",
+			wantTarget: "abcdef0123456789",
+		},
+		{name: "already gone is idempotent", stopErr: errLifecycleGone, wantStops: 1, wantOut: "not running"},
 		{name: "no runtime and no state", noRuntime: true, wantOut: "not running"},
 		{name: "other error", stopErr: errLifecycleFake, wantStops: 1, wantErr: true},
 	}
@@ -471,7 +498,10 @@ func TestLifecycleStop(t *testing.T) {
 			target := LifecycleTarget{Name: "gopherstack", StateDir: dir}
 
 			if tt.withState {
-				require.NoError(t, d.saveState(target, lifecycleState{Mode: lifecycleModeContainer, ContainerID: "abcdef0123456789"}))
+				require.NoError(
+					t,
+					d.saveState(target, lifecycleState{Mode: lifecycleModeContainer, ContainerID: "abcdef0123456789"}),
+				)
 			}
 
 			err := (&StopCmd{LifecycleTarget: target}).run(t.Context(), d)
@@ -499,8 +529,8 @@ func TestLifecycleStopHost(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		aliveSeq   []bool
 		wantOut    string
+		aliveSeq   []bool
 		wantForce  bool
 		wantSignal bool
 	}{
@@ -526,7 +556,12 @@ func TestLifecycleStopHost(t *testing.T) {
 
 				return v
 			}
-			d.Terminate = func(_ int, force bool) error { signalled = true; forced = force; return nil }
+			d.Terminate = func(_ int, force bool) error {
+				signalled = true
+				forced = force
+
+				return nil
+			}
 
 			require.NoError(t, (&StopCmd{LifecycleTarget: target}).run(t.Context(), d))
 			assert.Contains(t, out.String(), tt.wantOut)
@@ -549,7 +584,7 @@ func TestLifecycleStatus(t *testing.T) {
 
 		srv, _ := healthServer(t, http.StatusOK, h)
 		d, out, dir := testLifecycleDeps(t, nil)
-		cmd := StatusCmd{LifecycleTarget: LifecycleTarget{StateDir: dir}, PodTarget: PodTarget{Endpoint: srv.URL}}
+		cmd := StatusCmd{StateDir: dir, Endpoint: srv.URL}
 
 		require.NoError(t, cmd.run(t.Context(), d))
 
@@ -567,7 +602,7 @@ func TestLifecycleStatus(t *testing.T) {
 
 		srv, _ := healthServer(t, http.StatusOK, h)
 		d, out, dir := testLifecycleDeps(t, nil)
-		cmd := StatusCmd{LifecycleTarget: LifecycleTarget{StateDir: dir}, PodTarget: PodTarget{Endpoint: srv.URL}, JSON: true}
+		cmd := StatusCmd{StateDir: dir, Endpoint: srv.URL, JSON: true}
 
 		require.NoError(t, cmd.run(t.Context(), d))
 
@@ -587,9 +622,12 @@ func TestLifecycleStatus(t *testing.T) {
 		srv, _ := healthServer(t, http.StatusOK, h)
 		d, out, dir := testLifecycleDeps(t, nil)
 		target := LifecycleTarget{StateDir: dir}
-		require.NoError(t, d.saveState(target, lifecycleState{Mode: lifecycleModeContainer, Name: "gopherstack", Endpoint: srv.URL}))
+		require.NoError(
+			t,
+			d.saveState(target, lifecycleState{Mode: lifecycleModeContainer, Name: "gopherstack", Endpoint: srv.URL}),
+		)
 
-		cmd := StatusCmd{LifecycleTarget: target, PodTarget: PodTarget{Endpoint: podDefaultEndpoint}}
+		cmd := StatusCmd{LifecycleTarget: target, Endpoint: podDefaultEndpoint}
 		require.NoError(t, cmd.run(t.Context(), d))
 		assert.Contains(t, out.String(), "Managed:  container gopherstack")
 	})
@@ -603,7 +641,7 @@ func TestLifecycleStatus(t *testing.T) {
 			srv.Close()
 
 			d, out, dir := testLifecycleDeps(t, nil)
-			cmd := StatusCmd{LifecycleTarget: LifecycleTarget{StateDir: dir}, PodTarget: PodTarget{Endpoint: endpoint}, JSON: asJSON}
+			cmd := StatusCmd{StateDir: dir, Endpoint: endpoint, JSON: asJSON}
 
 			require.ErrorIs(t, cmd.run(t.Context(), d), errLifecycleNotRunning)
 			assert.NotEmpty(t, out.String())
@@ -642,7 +680,7 @@ func TestLifecycleReset(t *testing.T) {
 			defer srv.Close()
 
 			d, out, _ := testLifecycleDeps(t, nil)
-			cmd := ResetCmd{PodTarget: PodTarget{Endpoint: srv.URL}, Services: tt.services}
+			cmd := ResetCmd{Endpoint: srv.URL, Services: tt.services}
 
 			require.NoError(t, cmd.run(t.Context(), d))
 			assert.Len(t, queries, tt.wantHits)
@@ -663,7 +701,7 @@ func TestLifecycleReset(t *testing.T) {
 		defer srv.Close()
 
 		d, _, _ := testLifecycleDeps(t, nil)
-		err := (&ResetCmd{PodTarget: PodTarget{Endpoint: srv.URL}}).run(t.Context(), d)
+		err := (&ResetCmd{Endpoint: srv.URL}).run(t.Context(), d)
 		require.ErrorIs(t, err, errLifecycleRequest)
 	})
 }
@@ -676,7 +714,7 @@ func TestLifecycleLogs(t *testing.T) {
 
 		rt := &fakeLifecycleRuntime{logText: "hello\n"}
 		d, out, dir := testLifecycleDeps(t, rt)
-		cmd := LogsCmd{LifecycleTarget: LifecycleTarget{Name: "c", StateDir: dir}, Tail: 7, Follow: true}
+		cmd := LogsCmd{Name: "c", StateDir: dir, Tail: 7, Follow: true}
 
 		require.NoError(t, cmd.run(t.Context(), d))
 		assert.Equal(t, []string{"c", "7", "true"}, rt.logsArgs)
@@ -687,7 +725,7 @@ func TestLifecycleLogs(t *testing.T) {
 		t.Parallel()
 
 		d, _, dir := testLifecycleDeps(t, &errLogsRuntime{})
-		cmd := LogsCmd{LifecycleTarget: LifecycleTarget{StateDir: dir}, Tail: 7}
+		cmd := LogsCmd{StateDir: dir, Tail: 7}
 		require.ErrorIs(t, cmd.run(t.Context(), d), errLifecycleNotRunning)
 	})
 
@@ -709,5 +747,5 @@ func TestLifecycleLogs(t *testing.T) {
 type errLogsRuntime struct{ fakeLifecycleRuntime }
 
 func (*errLogsRuntime) ReadLogs(context.Context, string, string, bool, io.Writer, io.Writer) error {
-	return errors.New("No such container: x")
+	return errLifecycleGone
 }

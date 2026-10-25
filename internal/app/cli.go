@@ -2258,10 +2258,10 @@ func (c *CLI) GetPortAllocator() *portalloc.Allocator { return c.portAlloc }
 // Docker healthcheck from scratch containers.
 type rootCLI struct {
 	Health    HealthCmd    `cmd:"" help:"Check server health (for Docker healthcheck)."`
-	Start     StartCmd     `cmd:"" help:"Start a local Gopherstack (Docker container by default, --host for a background process)."`
+	Start     StartCmd     `cmd:"" help:"Start a local Gopherstack (container or --host)."`
 	Stop      StopCmd      `cmd:"" help:"Stop the Gopherstack started by 'start'."`
-	Status    StatusCmd    `cmd:"" help:"Show whether Gopherstack is running, its version, uptime and services."`
-	Logs      LogsCmd      `cmd:"" help:"Show or follow the logs of the Gopherstack started by 'start'."`
+	Status    StatusCmd    `cmd:"" help:"Show running state, version, uptime and services."`
+	Logs      LogsCmd      `cmd:"" help:"Show or follow the managed instance logs."`
 	Reset     ResetCmd     `cmd:"" help:"Reset in-memory state on the running server."`
 	Snapshot  SnapshotCmd  `cmd:"" help:"Save, load and list state snapshots (alias of pod)."`
 	Pod       PodCmd       `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
@@ -2332,7 +2332,7 @@ func Run() {
 	switch kctx.Command() {
 	case "health":
 		err = root.Health.Run()
-	case "start", "stop", "status", "logs", "reset",
+	case "start", "stop", lifecycleCmdStatus, lifecycleCmdLogs, "reset",
 		"snapshot save <name>",
 		"snapshot load <name>",
 		"snapshot list",
