@@ -74,7 +74,7 @@ func errGCPUnsupported() error {
 
 // parseGCPRESTPath splits an escaped path below the proxy prefix into segments
 // (after "v1"), peeling a trailing ":verb" off the last one.
-func parseGCPRESTPath(escaped string) ([]string, string, bool) {
+func parseGCPRESTPath(escaped, version string) ([]string, string, bool) {
 	if !strings.HasPrefix(escaped, "/") {
 		return nil, "", false
 	}
@@ -91,7 +91,7 @@ func parseGCPRESTPath(escaped string) ([]string, string, bool) {
 		segs = append(segs, s)
 	}
 
-	if segs[0] != gcpRESTVersion {
+	if segs[0] != version {
 		return nil, "", false
 	}
 
@@ -116,6 +116,11 @@ type gcpRESTRoute func(ctx context.Context, call gcpRESTCall) (proto.Message, er
 
 // registerGCPRESTProxy mounts an in-process JSON proxy; route is nil when the service is not served.
 func (h *DashboardHandler) registerGCPRESTProxy(prefix string, route gcpRESTRoute) {
+	h.registerGCPRESTProxyVersion(prefix, gcpRESTVersion, route)
+}
+
+// registerGCPRESTProxyVersion is registerGCPRESTProxy for APIs whose path starts with a version other than v1.
+func (h *DashboardHandler) registerGCPRESTProxyVersion(prefix, version string, route gcpRESTRoute) {
 	serve := func(c *echo.Context) error {
 		if route == nil {
 			return c.JSON(http.StatusServiceUnavailable, map[string]string{keyError: errServiceUnavailable})
@@ -123,7 +128,7 @@ func (h *DashboardHandler) registerGCPRESTProxy(prefix string, route gcpRESTRout
 
 		r := c.Request()
 
-		segs, verb, ok := parseGCPRESTPath(strings.TrimPrefix(r.URL.EscapedPath(), prefix))
+		segs, verb, ok := parseGCPRESTPath(strings.TrimPrefix(r.URL.EscapedPath(), prefix), version)
 		if !ok {
 			return c.String(http.StatusBadRequest, "unsupported GCP proxy request")
 		}

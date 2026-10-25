@@ -104,6 +104,14 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "cosmosdb",
     defaultPort: 8081,
   },
+  {
+    id: "functions",
+    label: "Functions",
+    description: "Azure Functions",
+    healthName: "AzureFunctions",
+    portLabel: "azurefunctions",
+    defaultPort: 10012,
+  },
 ];
 
 export type GcpService = {
@@ -253,6 +261,30 @@ export const GCP_SERVICES: readonly GcpService[] = [
     healthName: "GCPArtifactRegistry",
     portLabel: "gcpartifactregistry",
     defaultPort: 8134,
+  },
+  {
+    id: "cloudbuild",
+    label: "Cloud Build",
+    description: "Google Cloud Build",
+    healthName: "GCPCloudBuild",
+    portLabel: "gcpcloudbuild",
+    defaultPort: 8136,
+  },
+  {
+    id: "redis",
+    label: "Memorystore Redis",
+    description: "Google Memorystore for Redis",
+    healthName: "GCPRedis",
+    portLabel: "gcpredis",
+    defaultPort: 8133,
+  },
+  {
+    id: "monitoring",
+    label: "Cloud Monitoring",
+    description: "Google Cloud Monitoring",
+    healthName: "GCPMonitoring",
+    portLabel: "gcpmonitoring",
+    defaultPort: 8132,
   },
 ];
 

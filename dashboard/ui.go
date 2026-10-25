@@ -49,6 +49,7 @@ import (
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -96,6 +97,7 @@ import (
 	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
+	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -103,7 +105,9 @@ import (
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
+	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpredisbackend "github.com/blackbirdworks/gopherstack/services/gcpredis"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -547,6 +551,12 @@ type Config struct {
 	GCPEventarcOps         *gcpeventarcbackend.Handler
 	GCPSpannerOps          *gcpspannerbackend.Handler
 	GCPArtifactRegistryOps *gcpartifactregistrybackend.Handler
+	// GCPCloudBuildOps, GCPRedisOps and GCPMonitoringOps are called in-process by their proxies.
+	GCPCloudBuildOps *gcpcloudbuildbackend.Handler
+	GCPRedisOps      *gcpredisbackend.Handler
+	GCPMonitoringOps *gcpmonitoringbackend.Handler
+	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.
+	AzureFunctionsOps *azurefunctionsbackend.Handler
 	// AzureBlobOps is dispatched in-process by the /dashboard/api/v1/azure/blob proxy.
 	AzureBlobOps *azureblobbackend.Handler
 	// AzureQueueOps is dispatched in-process by the /dashboard/api/v1/azure/queue proxy.
@@ -820,6 +830,10 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerGCPEventarcRoutes()
 	h.registerGCPSpannerRoutes()
 	h.registerGCPArtifactRegistryRoutes()
+	h.registerGCPCloudBuildRoutes()
+	h.registerGCPRedisRoutes()
+	h.registerGCPMonitoringRoutes()
+	h.registerAzureFunctionsRoutes()
 	h.registerAzureQueueRoutes()
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()
