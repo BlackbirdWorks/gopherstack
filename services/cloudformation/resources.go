@@ -3520,6 +3520,16 @@ func int64Val(v any) int64 {
 	return 0
 }
 
+// int32Val reads an integer property and reports false when it does not fit in 32 bits.
+func int32Val(v any) (int, bool) {
+	n := int64Val(v)
+	if n < math.MinInt32 || n > math.MaxInt32 {
+		return 0, false
+	}
+
+	return int(n), true
+}
+
 // strSliceProp resolves a property that is expected to be a list of strings (or refs).
 func strSliceProp(v any, params, physicalIDs map[string]string) []string {
 	list, ok := v.([]any)
