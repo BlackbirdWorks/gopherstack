@@ -1,0 +1,5 @@
+comment = 'AWS S3 extension for importing data from S3'
+default_version = '1.2'
+relocatable = false
+schema = aws_s3
+requires = 'aws_commons'

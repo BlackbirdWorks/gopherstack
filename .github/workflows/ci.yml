@@ -614,7 +614,7 @@ jobs:
       - name: Pre-pull RDS engine images
         if: contains(steps.pkgs.outputs.pkgs, 'services/rds ') || endsWith(steps.pkgs.outputs.pkgs, 'services/rds')
         run: |
-          for img in postgres:17 mysql:8.4 mariadb:11.4; do
+          for img in postgres:17 postgis/postgis:17-3.5 pgvector/pgvector:0.8.6-pg17-bookworm mysql:8.4 mariadb:11.4; do
             (for i in 1 2 3; do docker pull -q "$img" >/dev/null && exit 0; sleep $((i * 5)); done; echo "pre-pull of $img failed") &
           done
           wait
