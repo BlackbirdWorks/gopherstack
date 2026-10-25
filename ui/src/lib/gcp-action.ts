@@ -1,5 +1,6 @@
 import { toast } from "svelte-sonner";
 
+import { confirmDestructive, type ConfirmDestructiveOptions } from "./confirm-dialog.ts";
 import { describeGcpError } from "./gcprest.ts";
 
 export const GCP_INPUT =
@@ -25,6 +26,17 @@ export async function attempt(
     toast.error(`${failure}: ${describeGcpError(e)}`);
     return false;
   }
+}
+
+/** Asks for confirmation, then runs the action like `attempt`; false when declined or failed. */
+export async function confirmedAttempt(
+  confirm: ConfirmDestructiveOptions,
+  action: () => Promise<unknown>,
+  success: string,
+  failure: string,
+): Promise<boolean> {
+  if (!(await confirmDestructive(confirm))) return false;
+  return attempt(action, success, failure);
 }
 
 export async function copyText(text: string): Promise<void> {

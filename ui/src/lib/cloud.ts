@@ -222,6 +222,38 @@ export const GCP_SERVICES: readonly GcpService[] = [
     portLabel: "gcpfirestore",
     defaultPort: 8080,
   },
+  {
+    id: "bigtable",
+    label: "Bigtable",
+    description: "Google Cloud Bigtable",
+    healthName: "GCPBigtable",
+    portLabel: "gcpbigtable",
+    defaultPort: 8137,
+  },
+  {
+    id: "eventarc",
+    label: "Eventarc",
+    description: "Google Cloud Eventarc",
+    healthName: "GCPEventarc",
+    portLabel: "gcpeventarc",
+    defaultPort: 8138,
+  },
+  {
+    id: "spanner",
+    label: "Cloud Spanner",
+    description: "Google Cloud Spanner",
+    healthName: "GCPSpanner",
+    portLabel: "gcpspanner",
+    defaultPort: 8135,
+  },
+  {
+    id: "artifactregistry",
+    label: "Artifact Registry",
+    description: "Google Artifact Registry",
+    healthName: "GCPArtifactRegistry",
+    portLabel: "gcpartifactregistry",
+    defaultPort: 8134,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {
