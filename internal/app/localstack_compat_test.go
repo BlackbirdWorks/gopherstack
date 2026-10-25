@@ -112,8 +112,24 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			},
 		},
 		{
-			name: "s3_validate_signatures", environ: []string{"S3_VALIDATE_SIGNATURES=1"},
-			want: map[string]string{"VALIDATE_SIGV4": "true"},
+			name: "s3_validate_signatures_unsupported", environ: []string{"S3_VALIDATE_SIGNATURES=1"},
+			want: map[string]string{}, wantIgnored: []string{"S3_VALIDATE_SIGNATURES"},
+		},
+		{
+			name: "sqs_toggles_off",
+			environ: []string{
+				"SQS_DELAY_PURGE_RETRY=0", "SQS_DELAY_RECENTLY_DELETED=false", "SQS_ENABLE_MESSAGE_RETENTION_PERIOD=0",
+			},
+			want: map[string]string{
+				"GOPHERSTACK_SQS_DISABLE_PURGE_COOLDOWN":            "true",
+				"GOPHERSTACK_SQS_DISABLE_RECENTLY_DELETED_COOLDOWN": "true",
+				"GOPHERSTACK_SQS_DISABLE_MESSAGE_RETENTION":         "true",
+			},
+		},
+		{
+			name:    "sqs_toggles_on_noop",
+			environ: []string{"SQS_DELAY_PURGE_RETRY=1", "SQS_ENABLE_MESSAGE_RETENTION_PERIOD=1"},
+			want:    map[string]string{},
 		},
 		{
 			name: "docker_flags_family_benign", environ: []string{"LAMBDA_DOCKER_FLAGS=-x", "PROVIDER_OVERRIDE_S3=v2"},

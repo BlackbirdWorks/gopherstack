@@ -89,13 +89,12 @@ func (b *InMemoryBackend) SetEndpointStrategy(strategy string) {
 	b.endpointStrategy = strategy
 }
 
-// ApplySettings applies the LocalStack-compatible behaviour toggles; the zero Settings
-// disables all of them, so callers start from DefaultSettings.
+// ApplySettings applies the behaviour toggles; the zero Settings keeps AWS behaviour.
 func (b *InMemoryBackend) ApplySettings(s Settings) {
-	b.noPurgeCooldown.Store(!s.DelayPurgeRetry)
-	b.noDeletedWait.Store(!s.DelayRecentlyDeleted)
-	b.noRetention.Store(!s.EnableRetentionPeriod)
-	b.noMetrics.Store(s.DisableCloudWatchMetric)
+	b.noPurgeCooldown.Store(s.DisablePurgeCooldown)
+	b.noDeletedWait.Store(s.DisableRecentlyDeletedWait)
+	b.noRetention.Store(s.DisableMessageRetention)
+	b.noMetrics.Store(s.DisableCloudWatchMetrics)
 }
 
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.

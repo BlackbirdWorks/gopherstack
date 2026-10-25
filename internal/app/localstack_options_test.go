@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
 func TestLocalstackAliasesParseIntoNativeConfig(t *testing.T) {
@@ -52,26 +53,25 @@ func TestLocalstackAliasesParseIntoNativeConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "sqs_toggles", env: map[string]string{
-				"SQS_DELAY_PURGE_RETRY": "0", "SQS_DELAY_RECENTLY_DELETED": "false",
-				"SQS_ENABLE_MESSAGE_RETENTION_PERIOD": "false", "SQS_DISABLE_CLOUDWATCH_METRICS": "1",
+			name: "sqs_native_switches", env: map[string]string{
+				"GOPHERSTACK_SQS_DISABLE_PURGE_COOLDOWN":            "1",
+				"GOPHERSTACK_SQS_DISABLE_RECENTLY_DELETED_COOLDOWN": "true",
+				"GOPHERSTACK_SQS_DISABLE_MESSAGE_RETENTION":         "true",
+				"SQS_DISABLE_CLOUDWATCH_METRICS":                    "1",
 			},
 			check: func(t *testing.T, c CLI) {
 				t.Helper()
-				assert.False(t, c.SQS.DelayPurgeRetry)
-				assert.False(t, c.SQS.DelayRecentlyDeleted)
-				assert.False(t, c.SQS.EnableRetentionPeriod)
-				assert.True(t, c.SQS.DisableCloudWatchMetric)
+				assert.True(t, c.SQS.DisablePurgeCooldown)
+				assert.True(t, c.SQS.DisableRecentlyDeletedWait)
+				assert.True(t, c.SQS.DisableMessageRetention)
+				assert.True(t, c.SQS.DisableCloudWatchMetrics)
 			},
 		},
 		{
-			name: "sqs_defaults",
+			name: "sqs_defaults_aws_accurate",
 			check: func(t *testing.T, c CLI) {
 				t.Helper()
-				assert.True(t, c.SQS.DelayPurgeRetry)
-				assert.True(t, c.SQS.DelayRecentlyDeleted)
-				assert.True(t, c.SQS.EnableRetentionPeriod)
-				assert.False(t, c.SQS.DisableCloudWatchMetric)
+				assert.Equal(t, sqsbackend.Settings{}, c.SQS)
 			},
 		},
 	}

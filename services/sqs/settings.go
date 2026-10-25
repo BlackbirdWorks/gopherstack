@@ -1,17 +1,12 @@
 package sqs
 
-// Settings holds service-level configuration for the SQS backend. The env names
-// match LocalStack's; each default keeps AWS-accurate behaviour.
+// Settings holds service-level configuration for the SQS backend. The zero value
+// keeps AWS-accurate behaviour; every field switches one behaviour off.
 type Settings struct {
-	DelayPurgeRetry         bool `name:"delay-purge-retry"          env:"SQS_DELAY_PURGE_RETRY"               default:"true"  help:"Return PurgeQueueInProgress for a second PurgeQueue within 60 seconds."`               //nolint:lll // config struct tags are intentionally verbose
-	DelayRecentlyDeleted    bool `name:"delay-recently-deleted"     env:"SQS_DELAY_RECENTLY_DELETED"          default:"true"  help:"Return QueueDeletedRecently when a queue is recreated within 60 seconds of deletion."` //nolint:lll // config struct tags are intentionally verbose
-	EnableRetentionPeriod   bool `name:"enable-retention-period"    env:"SQS_ENABLE_MESSAGE_RETENTION_PERIOD" default:"true"  help:"Expire messages once they exceed the queue MessageRetentionPeriod."`                   //nolint:lll // config struct tags are intentionally verbose
-	DisableCloudWatchMetric bool `name:"disable-cloudwatch-metrics" env:"SQS_DISABLE_CLOUDWATCH_METRICS"      default:"false" help:"Do not publish AWS/SQS metrics to CloudWatch."`                                        //nolint:lll // config struct tags are intentionally verbose
-}
-
-// DefaultSettings returns the AWS-accurate defaults for use without Kong.
-func DefaultSettings() Settings {
-	return Settings{DelayPurgeRetry: true, DelayRecentlyDeleted: true, EnableRetentionPeriod: true}
+	DisablePurgeCooldown       bool `name:"disable-purge-cooldown"        env:"GOPHERSTACK_SQS_DISABLE_PURGE_COOLDOWN"                                    default:"false" help:"Allow PurgeQueue within 60 seconds of the previous purge (LocalStack SQS_DELAY_PURGE_RETRY=0)."`       //nolint:lll // config struct tags are intentionally verbose
+	DisableRecentlyDeletedWait bool `name:"disable-recently-deleted-wait" env:"GOPHERSTACK_SQS_DISABLE_RECENTLY_DELETED_COOLDOWN"                         default:"false" help:"Allow recreating a queue within 60 seconds of deleting it (LocalStack SQS_DELAY_RECENTLY_DELETED=0)."` //nolint:lll // config struct tags are intentionally verbose
+	DisableMessageRetention    bool `name:"disable-message-retention"     env:"GOPHERSTACK_SQS_DISABLE_MESSAGE_RETENTION"                                 default:"false" help:"Never expire messages by MessageRetentionPeriod (LocalStack SQS_ENABLE_MESSAGE_RETENTION_PERIOD=0)."`  //nolint:lll // config struct tags are intentionally verbose
+	DisableCloudWatchMetrics   bool `name:"disable-cloudwatch-metrics"    env:"SQS_DISABLE_CLOUDWATCH_METRICS,GOPHERSTACK_SQS_DISABLE_CLOUDWATCH_METRICS" default:"false" help:"Do not publish AWS/SQS metrics to CloudWatch."`                                                        //nolint:lll // config struct tags are intentionally verbose
 }
 
 // SettingsProvider is implemented by config objects that supply SQS settings.

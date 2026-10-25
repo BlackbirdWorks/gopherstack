@@ -20,8 +20,8 @@ func TestSettings_PurgeCooldown(t *testing.T) {
 		mutate  func(*sqs.Settings)
 		name    string
 	}{
-		{name: "default_enforced", mutate: func(*sqs.Settings) {}, wantErr: sqs.ErrPurgeQueueInProgress},
-		{name: "disabled", mutate: func(s *sqs.Settings) { s.DelayPurgeRetry = false }},
+		{name: "zero_value_enforced", mutate: func(*sqs.Settings) {}, wantErr: sqs.ErrPurgeQueueInProgress},
+		{name: "disabled", mutate: func(s *sqs.Settings) { s.DisablePurgeCooldown = true }},
 	}
 
 	for _, tt := range tests {
@@ -30,7 +30,7 @@ func TestSettings_PurgeCooldown(t *testing.T) {
 
 			b := sqs.NewInMemoryBackend()
 			t.Cleanup(b.Close)
-			s := sqs.DefaultSettings()
+			var s sqs.Settings
 			tt.mutate(&s)
 			b.ApplySettings(s)
 
@@ -51,8 +51,8 @@ func TestSettings_RecentlyDeleted(t *testing.T) {
 		mutate  func(*sqs.Settings)
 		name    string
 	}{
-		{name: "default_enforced", mutate: func(*sqs.Settings) {}, wantErr: sqs.ErrQueueDeletedRecently},
-		{name: "disabled", mutate: func(s *sqs.Settings) { s.DelayRecentlyDeleted = false }},
+		{name: "zero_value_enforced", mutate: func(*sqs.Settings) {}, wantErr: sqs.ErrQueueDeletedRecently},
+		{name: "disabled", mutate: func(s *sqs.Settings) { s.DisableRecentlyDeletedWait = true }},
 	}
 
 	for _, tt := range tests {
@@ -61,7 +61,7 @@ func TestSettings_RecentlyDeleted(t *testing.T) {
 
 			b := sqs.NewInMemoryBackend()
 			t.Cleanup(b.Close)
-			s := sqs.DefaultSettings()
+			var s sqs.Settings
 			tt.mutate(&s)
 			b.ApplySettings(s)
 
@@ -87,7 +87,7 @@ func TestSettings_MessageRetention(t *testing.T) {
 		retention    bool
 		wantMessages int
 	}{
-		{name: "enforced", retention: true, wantMessages: 0},
+		{name: "zero_value_enforced", retention: true, wantMessages: 0},
 		{name: "disabled", retention: false, wantMessages: 1},
 	}
 
@@ -100,8 +100,8 @@ func TestSettings_MessageRetention(t *testing.T) {
 			t.Cleanup(b.Close)
 			sqs.SetNowFunc(b, func() time.Time { return now })
 
-			s := sqs.DefaultSettings()
-			s.EnableRetentionPeriod = tt.retention
+			var s sqs.Settings
+			s.DisableMessageRetention = !tt.retention
 			b.ApplySettings(s)
 
 			out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "q"})
@@ -129,7 +129,7 @@ func TestSettings_CloudWatchMetrics(t *testing.T) {
 		disable bool
 		want    bool
 	}{
-		{name: "emitted", disable: false, want: true},
+		{name: "zero_value_emitted", disable: false, want: true},
 		{name: "disabled", disable: true, want: false},
 	}
 
@@ -147,8 +147,8 @@ func TestSettings_CloudWatchMetrics(t *testing.T) {
 				return nil
 			}))
 
-			s := sqs.DefaultSettings()
-			s.DisableCloudWatchMetric = tt.disable
+			var s sqs.Settings
+			s.DisableCloudWatchMetrics = tt.disable
 			b.ApplySettings(s)
 
 			out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "q"})

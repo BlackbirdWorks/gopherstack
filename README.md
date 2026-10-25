@@ -247,10 +247,10 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--tls-cert` | `TLS_CERT` | *(empty)* | Path to a TLS certificate (PEM). Requires `--tls-key`. |
 | `--tls-key` | `TLS_KEY` | *(empty)* | Path to a TLS private key (PEM). |
 | `--compression` | `COMPRESSION` | `on` | Runtime response compression (`on`/`off`). See [Response compression](#response-compression). |
-| `--validate-sigv4` | `VALIDATE_SIGV4` (`S3_VALIDATE_SIGNATURES=1` is translated) | `false` | Cryptographically validate AWS SigV4 request signatures (opt-in). |
-| `--sqs-delay-purge-retry` | `SQS_DELAY_PURGE_RETRY` | `true` | Return `PurgeQueueInProgress` for a second `PurgeQueue` within 60 seconds. |
-| `--sqs-delay-recently-deleted` | `SQS_DELAY_RECENTLY_DELETED` | `true` | Return `QueueDeletedRecently` when a queue is recreated within 60 seconds of deletion. |
-| `--sqs-enable-retention-period` | `SQS_ENABLE_MESSAGE_RETENTION_PERIOD` | `true` | Expire messages past the queue `MessageRetentionPeriod`. |
+| `--validate-sigv4` | `VALIDATE_SIGV4` | `false` | Cryptographically validate AWS SigV4 request signatures (opt-in). |
+| `--sqs-disable-purge-cooldown` | `GOPHERSTACK_SQS_DISABLE_PURGE_COOLDOWN` (LocalStack `SQS_DELAY_PURGE_RETRY=0`) | `false` | Allow `PurgeQueue` within 60 seconds of the previous purge. |
+| `--sqs-disable-recently-deleted-wait` | `GOPHERSTACK_SQS_DISABLE_RECENTLY_DELETED_COOLDOWN` (LocalStack `SQS_DELAY_RECENTLY_DELETED=0`) | `false` | Allow recreating a queue within 60 seconds of deleting it. |
+| `--sqs-disable-message-retention` | `GOPHERSTACK_SQS_DISABLE_MESSAGE_RETENTION` (LocalStack `SQS_ENABLE_MESSAGE_RETENTION_PERIOD=0`) | `false` | Never expire messages by `MessageRetentionPeriod`. |
 | `--sqs-disable-cloudwatch-metrics` | `SQS_DISABLE_CLOUDWATCH_METRICS` | `false` | Do not publish `AWS/SQS` metrics to CloudWatch. |
 | `--pod-autoload` | `GOPHERSTACK_POD_AUTOLOAD` (alias `AUTO_LOAD_POD`) | *(empty)* | Comma-separated `NAME[:VERSION]` pods loaded in order at startup. |
 | `--pod-merge-strategy` | `GOPHERSTACK_POD_MERGE_STRATEGY` (alias `MERGE_STRATEGY`) | `overwrite` | How autoloaded pods combine with current state: `overwrite`, `service-merge` or `account-region-merge`. |
