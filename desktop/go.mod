@@ -12,6 +12,7 @@ require (
 	cloud.google.com/go/bigtable v1.58.0 // indirect
 	cloud.google.com/go/cloudbuild v1.34.0 // indirect
 	cloud.google.com/go/cloudtasks v1.20.0 // indirect
+	cloud.google.com/go/eventarc v1.26.0 // indirect
 	cloud.google.com/go/firestore v1.26.0 // indirect
 	cloud.google.com/go/functions v1.26.0 // indirect
 	cloud.google.com/go/iam v1.12.0 // indirect

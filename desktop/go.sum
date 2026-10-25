@@ -19,6 +19,8 @@ cloud.google.com/go/cloudtasks v1.20.0/go.mod h1:qhHo3AHGV3EDX8OpVR+dEI8tRt/tnWS
 cloud.google.com/go/compute v1.62.0 h1:tJ7lKJ8YEVa6vZX03Jc8o1YePbjKDOQhDw1BscMZ1bs=
 cloud.google.com/go/compute/metadata v0.9.0 h1:pDUj4QMoPejqq20dK0Pg2N4yG9zIkYGdBtwLoEkH9Zs=
 cloud.google.com/go/compute/metadata v0.9.0/go.mod h1:E0bWwX5wTnLPedCKqk3pJmVgCBSM6qQI1yTBdEb3C10=
+cloud.google.com/go/eventarc v1.26.0 h1:qrJ8Hx96KLDqU9yQdmAly6Cq1w0d5t/SOOpDWRFrfNQ=
+cloud.google.com/go/eventarc v1.26.0/go.mod h1:vjPsVSad+d/UNOd4k/3/E9CX/5p8k0ChjxoBU7H6I2I=
 cloud.google.com/go/firestore v1.26.0 h1:7Y6wn4aj5JXl2DAsKSTpLzYKPrfrIbhgQnHDjNOJ3sQ=
 cloud.google.com/go/firestore v1.26.0/go.mod h1:X7hAjktdf9wIYJEHJ/dRFpYJmpcZanf1WnWxBAq8vJE=
 cloud.google.com/go/functions v1.26.0 h1:I1698A08LwvH3ppcIs+F/1pypQ6nzFo2OigLb0hglZ4=
