@@ -32,6 +32,7 @@ const (
 	slugAzureRedis      = "azureredis"
 	slugAzureSQL        = "azuresql"
 	slugGCPStorage      = "gcpstorage"
+	slugOCIObjectStore  = "ociobjectstorage"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
 	slugGCPKMS          = "gcpkms"
@@ -152,6 +153,7 @@ func categoryGroups() []categoryGroup {
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
 			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc,
 		}},
+		{"OCI", []string{slugOCIObjectStore}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
 		}},
@@ -260,6 +262,7 @@ func displayNamesB() map[string]string {
 		"comprehend":       "Comprehend",
 		slugCosmosDB:       "Azure Cosmos DB",
 		slugGCPStorage:     "Google Cloud Storage",
+		slugOCIObjectStore: "OCI Object Storage",
 		slugGCPPubSub:      "Google Cloud Pub/Sub",
 		slugGCPSecretMgr:   "Google Secret Manager",
 		slugGCPKMS:         "Google Cloud KMS",

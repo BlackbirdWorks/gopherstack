@@ -31,6 +31,10 @@ func allowedWeakHashFiles() map[string]string {
 		// GCS objects carry an md5Hash field and X-Goog-Hash md5= value defined as the
 		// base64 MD5 of the content; integrity checksum, never a credential.
 		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
+		// OCI Object Storage md5/opc-multipart-md5 headers are base64 MD5 of the content, and API key
+		// fingerprints are the MD5 of the DER public key; integrity/identifier values, never credentials.
+		"services/ociobjectstorage/store.go": "OCI object md5 and multipart md5 parity",
+		"pkgs/ociauth/ociauth.go":            "OCI API key fingerprint is MD5 of the DER public key",
 
 		// GoogleSQL defines MD5() and SHA1() as those digests of the argument; a content hash, never a credential.
 		"services/gcpbigquery/bqsql/udf_str.go": "GoogleSQL MD5()/SHA1() function parity, verified",

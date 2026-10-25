@@ -33,6 +33,8 @@ AZURE_PORTS = {
     "cosmosdb": 8081,
 }
 
+OCI_PORTS = {"objectstorage": 8150}
+
 GCP_PORTS = {
     "storage": 4443,
     "firestore": 8080,
@@ -67,7 +69,7 @@ class GopherstackContainer(DockerContainer):
         super().__init__(image, **kwargs)
         self._startup_timeout = startup_timeout
         self._services: list[str] = []
-        for port in [API_PORT, *AZURE_PORTS.values(), *GCP_PORTS.values()]:
+        for port in [API_PORT, *AZURE_PORTS.values(), *GCP_PORTS.values(), *OCI_PORTS.values()]:
             self.with_exposed_ports(port)
 
     def with_services(self, *names: str) -> GopherstackContainer:
@@ -146,6 +148,14 @@ class GopherstackContainer(DockerContainer):
             f"AccountKey={AZURE_ACCOUNT_KEY};BlobEndpoint={eps['blob']}{acct};"
             f"QueueEndpoint={eps['queue']}{acct};TableEndpoint={eps['table']}{acct};"
         )
+
+    def get_oci_endpoint(self, service: str) -> str:
+        """http URL of an OCI service (objectstorage), usable as the OCI SDK client host."""
+        try:
+            port = OCI_PORTS[service.lower()]
+        except KeyError:
+            raise ValueError(f"unknown oci service {service!r}") from None
+        return "http://" + self._host_port(port)
 
     def get_gcp_endpoint(self, service: str) -> str:
         """host:port of a GCP service (storage is the STORAGE_EMULATOR_HOST value)."""

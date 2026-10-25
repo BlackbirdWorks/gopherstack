@@ -13,6 +13,8 @@ export const AZURE_PORTS = {
   eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
 };
 
+export const OCI_PORTS = { objectstorage: 8150 };
+
 export const GCP_PORTS = {
   storage: 4443, firestore: 8080, pubsub: 8085, secretmanager: 8086, kms: 8087,
   cloudtasks: 8123, scheduler: 8124, iam: 8125, run: 8126, functions: 8128,
@@ -59,7 +61,7 @@ export class GopherstackContainer {
   async start() {
     const env = { ...this.#env };
     if (this.#services.length > 0) env.GOPHERSTACK_SERVICES = this.#services.join(",");
-    const ports = [API_PORT, ...Object.values(AZURE_PORTS), ...Object.values(GCP_PORTS)];
+    const ports = [API_PORT, ...Object.values(AZURE_PORTS), ...Object.values(GCP_PORTS), ...Object.values(OCI_PORTS)];
     const started = await new GenericContainer(this.#image)
       .withExposedPorts(...ports)
       .withEnvironment(env)
@@ -108,6 +110,13 @@ export class StartedGopherstackContainer {
       `DefaultEndpointsProtocol=http;AccountName=${AZURE_ACCOUNT_NAME};AccountKey=${AZURE_ACCOUNT_KEY};` +
       `BlobEndpoint=${eps.blob}${acct};QueueEndpoint=${eps.queue}${acct};TableEndpoint=${eps.table}${acct};`
     );
+  }
+
+  /** http URL of an OCI service (objectstorage), usable as the OCI SDK client host. */
+  getOciEndpoint(service) {
+    const port = OCI_PORTS[String(service).toLowerCase()];
+    if (port === undefined) throw new Error(`unknown oci service "${service}"`);
+    return `http://${this.#hostPort(port)}`;
   }
 
   /** host:port of a GCP service; storage is the STORAGE_EMULATOR_HOST value. */

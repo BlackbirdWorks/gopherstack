@@ -274,6 +274,7 @@ require (
 	github.com/mochi-mqtt/server/v2 v2.7.9
 	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/opencontainers/image-spec v1.1.1
+	github.com/oracle/oci-go-sdk/v65 v65.126.2
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/pkg/sftp v1.13.11
 	github.com/prometheus/client_golang v1.25.0
@@ -366,6 +367,7 @@ require (
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
+	github.com/gofrs/flock v0.10.0 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
@@ -416,6 +418,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.8 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
+	github.com/sony/gobreaker/v2 v2.4.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
@@ -423,6 +426,7 @@ require (
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
