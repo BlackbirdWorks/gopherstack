@@ -1,0 +1,348 @@
+package azurefunctions
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
+)
+
+const (
+	hostPort        = "80"
+	siteRoot        = "/home/site/wwwroot"
+	secretsMount    = "/azure-functions-host/Secrets"
+	teardownTimeout = 15 * time.Second
+)
+
+// box is the container and scratch directories serving one app revision.
+type box struct {
+	id         string
+	dir        string
+	secretsDir string
+	port       int
+}
+
+func (b *InMemoryBackend) takeBoxLocked(a *app) box {
+	x := box{id: a.containerID, dir: a.dir, secretsDir: a.secretsDir, port: a.hostPort}
+	a.containerID, a.dir, a.secretsDir, a.hostPort = "", "", "", 0
+	a.epoch++
+
+	return x
+}
+
+func (b *InMemoryBackend) takeAllLocked() []box {
+	out := make([]box, 0, len(b.apps))
+	for _, a := range b.apps {
+		out = append(out, b.takeBoxLocked(a))
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) baseCtx() context.Context {
+	b.mu.RLock("baseCtx")
+	defer b.mu.RUnlock()
+
+	return b.runCtx
+}
+
+func (b *InMemoryBackend) runner() (Runner, error) {
+	b.mu.RLock("runner")
+	fn := b.runtime
+	b.mu.RUnlock()
+
+	if fn == nil {
+		return nil, errNoRuntime
+	}
+
+	r, err := fn()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errNoRuntime, err)
+	}
+
+	return r, nil
+}
+
+func (b *InMemoryBackend) portPool() PortPool {
+	b.mu.RLock("portPool")
+	defer b.mu.RUnlock()
+
+	return b.ports
+}
+
+func removeDir(dir string) {
+	if dir != "" {
+		_ = os.RemoveAll(dir)
+	}
+}
+
+// teardown stops x's container, frees its port and removes its scratch directories.
+func (b *InMemoryBackend) teardown(x box) {
+	removeDir(x.dir)
+	removeDir(x.secretsDir)
+
+	if x.id != "" {
+		if r, err := b.runner(); err == nil {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(b.baseCtx()), teardownTimeout)
+
+			if stopErr := r.StopAndRemove(ctx, x.id); stopErr != nil {
+				logger.Load(ctx).WarnContext(ctx, "azurefunctions: container removal failed", "container", x.id, "error", stopErr)
+			}
+
+			cancel()
+		}
+	}
+
+	gcpserve.ReleasePort(b.portPool(), x.port)
+}
+
+func containerEnv(a *appState, rc runtimeChoice, host string) []string {
+	env := map[string]string{
+		"AzureWebJobsScriptRoot": siteRoot,
+		"WEBSITE_SITE_NAME":      a.Name,
+		"WEBSITE_HOSTNAME":       host,
+	}
+
+	if rc.worker != "" {
+		env[settingWorker] = rc.worker
+	}
+
+	for k, v := range a.Settings {
+		env[k] = v
+	}
+
+	env["AzureWebJobsSecretStorageType"] = "files"
+
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, k+"="+env[k])
+	}
+
+	return out
+}
+
+func hostSpec(a *appState, rc runtimeChoice, host, dir, secretsDir string, port int) container.Spec {
+	mounts := []string{secretsDir + ":" + secretsMount}
+	if dir != "" {
+		mounts = append(mounts, dir+":"+siteRoot+":ro")
+	}
+
+	return container.Spec{
+		Image:  rc.image,
+		Name:   "gopherstack-azfn-" + strs.Fold(a.Name) + "-" + strconv.Itoa(port),
+		Env:    containerEnv(a, rc, host),
+		Mounts: mounts,
+		Ports:  []string{container.PortSpec(container.LoopbackHost, strconv.Itoa(port), hostPort)},
+	}
+}
+
+func mkScratch(pattern string) (string, error) {
+	dir, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		return "", fmt.Errorf("create scratch dir: %w", err)
+	}
+
+	if err = os.Chmod(dir, 0o777); err != nil { //nolint:gosec // bind-mounted for the container's root user
+		removeDir(dir)
+
+		return "", fmt.Errorf("chmod scratch dir: %w", err)
+	}
+
+	return dir, nil
+}
+
+// launch starts a host container for a snapshot of the app and waits until it accepts connections.
+func (b *InMemoryBackend) launch(st *appState, host string) (box, error) {
+	rc, err := chooseRuntime(st.Settings, st.LinuxFx)
+	if err != nil {
+		return box{}, err
+	}
+
+	runner, err := b.runner()
+	if err != nil {
+		return box{}, err
+	}
+
+	x := box{}
+
+	if x.secretsDir, err = mkScratch("gopherstack-azfn-secrets-"); err != nil {
+		return box{}, err
+	}
+
+	if err = writeSecrets(x.secretsDir, st); err != nil {
+		b.teardown(x)
+
+		return box{}, err
+	}
+
+	if !rc.custom {
+		if x.dir, err = b.materialize(st.Zip); err != nil {
+			b.teardown(x)
+
+			return box{}, err
+		}
+	}
+
+	x.port, err = gcpserve.AcquirePort(b.baseCtx(), b.portPool(), "azurefunctions")
+	if err != nil {
+		b.teardown(x)
+
+		return box{}, fmt.Errorf("allocate host port: %w", err)
+	}
+
+	b.mu.RLock("launch")
+	timeout := b.startupTimeout
+	b.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(b.baseCtx(), timeout)
+	defer cancel()
+
+	x.id, err = runner.CreateAndStart(ctx, hostSpec(st, rc, host, x.dir, x.secretsDir, x.port))
+	if err == nil {
+		if err = gcpserve.WaitReady(ctx, x.port); err != nil {
+			stopCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), teardownTimeout)
+			_ = runner.StopAndRemove(stopCtx, x.id)
+
+			stop()
+
+			x.id = ""
+		}
+	}
+
+	if err != nil {
+		x.id = ""
+		b.teardown(x)
+
+		return box{}, fmt.Errorf("start container: %w", err)
+	}
+
+	return x, nil
+}
+
+func (b *InMemoryBackend) materialize(zipData []byte) (string, error) {
+	dir, err := mkScratch("gopherstack-azfn-site-")
+	if err != nil {
+		return "", err
+	}
+
+	if err = extractArchive(zipData, dir); err != nil {
+		removeDir(dir)
+
+		return "", err
+	}
+
+	return dir, nil
+}
+
+// servable reports whether the app has something a host can run.
+func (a *app) servable() bool {
+	return len(a.Zip) > 0 || len(a.LinuxFx) > len(dockerPrefix) && a.LinuxFx[:len(dockerPrefix)] == dockerPrefix
+}
+
+// ensureStarted starts name's host once; concurrent callers wait for the same start. It returns the host port.
+func (b *InMemoryBackend) ensureStarted(ctx context.Context, name string) (int, error) {
+	for {
+		b.mu.Lock("ensureStarted")
+
+		a, err := b.appLocked(name)
+		if err != nil {
+			b.mu.Unlock()
+
+			return 0, err
+		}
+
+		switch {
+		case a.Stopped:
+			b.mu.Unlock()
+
+			return 0, errNoHost
+		case a.containerID != "":
+			port := a.hostPort
+			b.mu.Unlock()
+
+			return port, nil
+		case a.starting != nil:
+			ch := a.starting
+			b.mu.Unlock()
+
+			select {
+			case <-ch:
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
+
+			if port, done, startErr := b.startResult(name); done {
+				return port, startErr
+			}
+
+			continue
+		}
+
+		a.starting = make(chan struct{})
+		ch, st, epoch, host := a.starting, a.appState, a.epoch, b.hostNameLocked(a.Name)
+		b.mu.Unlock()
+
+		x, launchErr := b.launch(&st, host)
+
+		b.mu.Lock("ensureStarted.done")
+
+		cur, still := b.apps[strs.Fold(name)]
+		if still && cur.epoch != epoch && launchErr == nil {
+			launchErr = errStale
+		}
+
+		if still {
+			cur.starting, cur.startErr = nil, ""
+
+			if launchErr != nil {
+				cur.startErr = launchErr.Error()
+			} else {
+				cur.containerID, cur.dir, cur.secretsDir, cur.hostPort = x.id, x.dir, x.secretsDir, x.port
+			}
+		}
+		b.mu.Unlock()
+		close(ch)
+
+		if (!still || launchErr != nil) && x.id != "" {
+			b.teardown(x)
+		}
+
+		if !still {
+			return 0, ErrAppNotFound
+		}
+
+		return x.port, launchErr
+	}
+}
+
+func (b *InMemoryBackend) startResult(name string) (int, bool, error) {
+	b.mu.RLock("startResult")
+	defer b.mu.RUnlock()
+
+	a, ok := b.apps[strs.Fold(name)]
+
+	switch {
+	case !ok:
+		return 0, true, ErrAppNotFound
+	case a.startErr != "":
+		return 0, true, fmt.Errorf("%w: %s", errStartFailed, a.startErr)
+	case a.containerID != "":
+		return a.hostPort, true, nil
+	}
+
+	return 0, false, nil
+}
