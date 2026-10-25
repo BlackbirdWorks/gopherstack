@@ -175,7 +175,7 @@ func TestIngestGzipAndErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newEnv(t, azuremonitor.DefaultSettings())
+			e := newEnv(t, azuremonitor.Settings{StrictIngest: true})
 			s := e.seed(t, "source | extend TimeGenerated = Time")
 
 			rule, stream := tt.rule, tt.stream
@@ -207,17 +207,42 @@ func TestIngestGzipAndErrors(t *testing.T) {
 	}
 }
 
-func TestLenientIngestDropsBadRecords(t *testing.T) {
+func TestIngestBadRecords(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, azuremonitor.Settings{LenientIngest: true})
-	s := e.seed(t, "source | extend TimeGenerated = Time")
-
 	body := `[{"Time":"2024-03-01T10:00:00Z","Computer":"ok","Count":1},{"Time":"2024-03-01T10:00:00Z","Count":"bad"}]`
-	require.NoError(t, e.upload(t, s, body))
 
-	res := e.run(t, s, "AppEvents_CL | count")
-	assert.InDelta(t, 1, res.Tables[0].Rows[0][0], 0)
+	tests := []struct {
+		name     string
+		strict   bool
+		wantRows float64
+		wantCode string
+	}{
+		{name: "default drops bad records", wantRows: 1},
+		{name: "strict rejects the upload", strict: true, wantCode: "InvalidPayload"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, azuremonitor.Settings{StrictIngest: tt.strict})
+			s := e.seed(t, "source | extend TimeGenerated = Time")
+
+			err := e.upload(t, s, body)
+			if tt.wantCode != "" {
+				_, code := statusOf(err)
+				assert.Equal(t, tt.wantCode, code)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			res := e.run(t, s, "AppEvents_CL | count")
+			assert.InDelta(t, tt.wantRows, res.Tables[0].Rows[0][0], 0)
+		})
+	}
 }
 
 func TestQueryErrors(t *testing.T) {

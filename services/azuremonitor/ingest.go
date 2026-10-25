@@ -189,7 +189,9 @@ func (b *Backend) streamRel(cols []Column, records []map[string]any) (*kql.Rel, 
 		for j, c := range cols {
 			v, err := convertValue(kql.Type(c.Type), rec[c.Name])
 			if err != nil {
-				if b.settings.LenientIngest {
+				// Azure drops rows that fail processing and reports them only in DCRLogErrors:
+				// https://learn.microsoft.com/en-us/azure/azure-monitor/data-collection/data-collection-monitor
+				if !b.settings.StrictIngest {
 					row = nil
 
 					break
@@ -265,7 +267,7 @@ func (b *Backend) insert(t *Table, out *kql.Rel) *apiError {
 	for r, orow := range out.Rows {
 		row, err := tableRow(t, idx, orow, now)
 		if err != nil {
-			if b.settings.LenientIngest {
+			if !b.settings.StrictIngest {
 				continue
 			}
 
