@@ -19,6 +19,11 @@ import (
 // credential. See gopherstack-ziv9.
 func allowedWeakHashFiles() map[string]string {
 	return map[string]string{
+		// npm dist.shasum is the SHA-1 of the tarball; content checksum, never a credential.
+		"services/gcpartifactregistry/npm.go": "npm dist.shasum SHA-1 parity",
+		// Maven .sha1/.md5 checksum files and twine md5_digest are defined over those digests; never credentials.
+		"services/gcpartifactregistry/maven.go":  "Maven repository SHA-1/MD5 checksum parity",
+		"services/gcpartifactregistry/python.go": "twine md5_digest upload field verification",
 		// Verified this session: DocumentDescription declares a deprecated Sha1
 		// member beside Hash/HashType (ssm@v1.73.4 types/enums.go:708-724), so an
 		// emulator cannot populate it without computing SHA1. Content-integrity
