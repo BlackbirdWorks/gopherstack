@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,23 +44,11 @@ func localstackTriggerKeys() []string {
 	return []string{"GATEWAY_LISTEN", "LS_LOG", "HOSTNAME_EXTERNAL", "PERSISTENCE"}
 }
 
-// localstackIgnoredKeys have no Gopherstack equivalent and are logged once at debug.
-func localstackIgnoredKeys() []string {
-	return []string{
-		"EAGER_SERVICE_LOADING", "HOSTNAME_EXTERNAL", "DISABLE_EVENTS",
-		"SKIP_SSL_CERT_DOWNLOAD", "ALLOW_NONSTANDARD_REGIONS", "DNS_ADDRESS", "DOCKER_FLAGS",
-	}
-}
-
 // localstackEnvPlan translates LocalStack environment variables into Gopherstack ones.
 // It never overrides a variable the user already set. enable reports whether compat
 // mode should turn on; ignored lists LocalStack variables with no equivalent.
 func localstackEnvPlan(environ []string) (map[string]string, []string, bool) {
-	p := &envPlan{env: make(map[string]string, len(environ)), set: map[string]string{}}
-	for _, kv := range environ {
-		k, v, _ := strings.Cut(kv, "=")
-		p.env[k] = v
-	}
+	p := newEnvPlan(environ)
 
 	p.planLogging()
 	p.planStorage()
@@ -71,23 +60,75 @@ func localstackEnvPlan(environ []string) (map[string]string, []string, bool) {
 		}
 	}
 
-	ignored := presentKeys(p.env, localstackIgnoredKeys())
+	p.planOptions()
 
-	for k := range p.env {
-		if strings.HasPrefix(k, "LOCALSTACK_") && k != "LOCALSTACK_PERSISTENCE" {
-			ignored = append(ignored, k)
-		}
-	}
-
-	sort.Strings(ignored)
+	ignored := p.unsupportedKeys()
 	enable := len(presentKeys(p.env, localstackTriggerKeys())) > 0 || hasPrefixKey(p.env, "LOCALSTACK_")
 
 	return p.set, ignored, enable
 }
 
+func newEnvPlan(environ []string) *envPlan {
+	p := &envPlan{env: make(map[string]string, len(environ)), set: map[string]string{}}
+	for _, kv := range environ {
+		k, v, _ := strings.Cut(kv, "=")
+		p.env[k] = v
+	}
+
+	return p
+}
+
 type envPlan struct {
-	env map[string]string
-	set map[string]string
+	env         map[string]string
+	set         map[string]string
+	unsupported []string
+}
+
+// unsupportedKeys lists present options Gopherstack cannot honour (warned about
+// once at startup), sorted and deduplicated. Benign infrastructure options are
+// excluded; see benignKeys.
+func (p *envPlan) unsupportedKeys() []string {
+	out := append([]string(nil), p.unsupported...)
+	out = append(out, presentKeys(p.env, localstackUnsupportedKeys())...)
+
+	for k := range p.env {
+		if strings.HasPrefix(k, "LOCALSTACK_") && !isHandledLocalstackKey(k) &&
+			!slices.Contains(localstackBenignKeys(), k) {
+			out = append(out, k)
+		}
+	}
+
+	sort.Strings(out)
+
+	return slices.Compact(out)
+}
+
+// benignKeys lists present options that only describe LocalStack's own infrastructure.
+func (p *envPlan) benignKeys() []string {
+	out := presentKeys(p.env, localstackBenignKeys())
+	prefixes, suffixes := localstackBenignAffixes()
+
+	for k := range p.env {
+		if hasAnyPrefix(k, prefixes) || hasAnySuffix(k, suffixes) {
+			out = append(out, k)
+		}
+	}
+
+	sort.Strings(out)
+
+	return slices.Compact(out)
+}
+
+func isHandledLocalstackKey(k string) bool {
+	return k == "LOCALSTACK_PERSISTENCE" || k == "LOCALSTACK_RESPONSE_HEADER_ENABLED"
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(s, p) })
+}
+
+func hasAnySuffix(s string, suffixes []string) bool {
+	return slices.ContainsFunc(suffixes, func(p string) bool { return strings.HasSuffix(s, p) })
 }
 
 // put records k=v unless the user set k or an earlier rule already did.
@@ -208,7 +249,8 @@ func hasPrefixKey(env map[string]string, prefix string) bool {
 
 // applyLocalstackEnv exports the translated variables so kong picks them up.
 func applyLocalstackEnv() {
-	set, ignored, enable := localstackEnvPlan(os.Environ())
+	environ := os.Environ()
+	set, ignored, enable := localstackEnvPlan(environ)
 
 	if enable {
 		if _, ok := os.LookupEnv(localstackCompatEnv); !ok {
@@ -220,9 +262,15 @@ func applyLocalstackEnv() {
 		_ = os.Setenv(k, v)
 	}
 
-	if len(ignored) > 0 {
-		logger.Load(context.Background()).Debug(
-			"LocalStack variables without a Gopherstack equivalent were ignored", "vars", ignored)
+	ctx := context.Background()
+	log := logger.Load(ctx)
+
+	for _, k := range ignored {
+		log.WarnContext(ctx, "LocalStack option "+k+" is not supported")
+	}
+
+	if benign := newEnvPlan(environ).benignKeys(); len(benign) > 0 {
+		log.DebugContext(ctx, "LocalStack infrastructure options have no Gopherstack equivalent", "vars", benign)
 	}
 }
 
@@ -515,4 +563,20 @@ func serveAll(ctx context.Context, cli *CLI, h *echo.Echo, log *slog.Logger) err
 	shutdownStage()
 
 	return err
+}
+
+// LocalstackSettings holds opt-in LocalStack behaviours.
+type LocalstackSettings struct {
+	ResponseHeader bool `name:"response-header" env:"GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER,LOCALSTACK_RESPONSE_HEADER_ENABLED" default:"false" help:"Add the X-Localstack: true response header."` //nolint:lll // config struct tags are intentionally verbose
+}
+
+const localstackResponseHeader = "X-Localstack"
+
+// localstackResponseHeaderMiddleware stamps every response like LocalStack does.
+func localstackResponseHeaderMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		c.Response().Header().Set(localstackResponseHeader, "true")
+
+		return next(c)
+	}
 }

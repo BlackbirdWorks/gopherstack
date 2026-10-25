@@ -203,8 +203,9 @@ func pickVisibleMessages(
 
 // receiveCtx carries per-receive backend state into the queue-locked pick path.
 type receiveCtx struct {
-	codec     *receiptHandleCodec
-	accountID string
+	codec       *receiptHandleCodec
+	accountID   string
+	noRetention bool
 }
 
 // enqueueReceivedMessage stamps msg with a receipt handle, increments counters, registers it
@@ -303,6 +304,9 @@ func prepareAndPickMessages(
 	}
 
 	cutoff := now.Add(-time.Duration(retentionSecs) * time.Second)
+	if rc.noRetention {
+		cutoff = time.Time{}
+	}
 
 	// Pass 1: sweep inFlightMessages — discard retention-expired, re-queue visibility-expired.
 	sweepInFlight(q, cutoff, now)

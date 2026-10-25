@@ -19,6 +19,8 @@ import (
 	strfold "github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
+var errUnknownMergeStrategy = errors.New("unknown pod merge strategy")
+
 const (
 	podStrategyOverwrite    = "overwrite"
 	podStrategyServiceMerge = "service-merge"
@@ -33,15 +35,16 @@ const (
 
 // PodsConfig configures named, versioned state snapshots (pods).
 type PodsConfig struct {
-	Dir         string `name:"dir"           env:"GOPHERSTACK_POD_DIR"           help:"Local pod directory (default: <data-dir>/pods)."`                                           //nolint:lll // config struct tags are intentionally verbose
-	S3Bucket    string `name:"s3-bucket"     env:"GOPHERSTACK_POD_S3_BUCKET"     help:"Store pods in this S3 bucket instead of the local directory."`                              //nolint:lll // config struct tags are intentionally verbose
-	S3Prefix    string `name:"s3-prefix"     env:"GOPHERSTACK_POD_S3_PREFIX"     help:"Key prefix for pods in the S3 bucket."`                                                     //nolint:lll // config struct tags are intentionally verbose
-	S3Endpoint  string `name:"s3-endpoint"   env:"GOPHERSTACK_POD_S3_ENDPOINT"   help:"S3-compatible endpoint URL (empty means real AWS S3)."`                                     //nolint:lll // config struct tags are intentionally verbose
-	S3Region    string `name:"s3-region"     env:"GOPHERSTACK_POD_S3_REGION"     help:"Region of the pod S3 bucket."                                          default:"us-east-1"` //nolint:lll // config struct tags are intentionally verbose
-	S3AccessKey string `name:"s3-access-key" env:"GOPHERSTACK_POD_S3_ACCESS_KEY" help:"Access key for the pod S3 bucket (default credential chain if empty)."`                     //nolint:lll // config struct tags are intentionally verbose
-	S3SecretKey string `name:"s3-secret-key" env:"GOPHERSTACK_POD_S3_SECRET_KEY" help:"Secret key for the pod S3 bucket."`                                                         //nolint:lll // config struct tags are intentionally verbose
-	Autoload    string `name:"autoload"      env:"GOPHERSTACK_POD_AUTOLOAD"      help:"Load pod NAME[:VERSION] (overwrite) at startup."`                                           //nolint:lll // config struct tags are intentionally verbose
-	S3PathStyle bool   `name:"s3-path-style" env:"GOPHERSTACK_POD_S3_PATH_STYLE" help:"Use path-style S3 addressing."`                                                             //nolint:lll // config struct tags are intentionally verbose
+	Dir           string `name:"dir"            env:"GOPHERSTACK_POD_DIR"                           help:"Local pod directory (default: <data-dir>/pods)."`                                                                       //nolint:lll // config struct tags are intentionally verbose
+	S3Bucket      string `name:"s3-bucket"      env:"GOPHERSTACK_POD_S3_BUCKET"                     help:"Store pods in this S3 bucket instead of the local directory."`                                                          //nolint:lll // config struct tags are intentionally verbose
+	S3Prefix      string `name:"s3-prefix"      env:"GOPHERSTACK_POD_S3_PREFIX"                     help:"Key prefix for pods in the S3 bucket."`                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	S3Endpoint    string `name:"s3-endpoint"    env:"GOPHERSTACK_POD_S3_ENDPOINT"                   help:"S3-compatible endpoint URL (empty means real AWS S3)."`                                                                 //nolint:lll // config struct tags are intentionally verbose
+	S3Region      string `name:"s3-region"      env:"GOPHERSTACK_POD_S3_REGION"                     help:"Region of the pod S3 bucket."                                                                      default:"us-east-1"` //nolint:lll // config struct tags are intentionally verbose
+	S3AccessKey   string `name:"s3-access-key"  env:"GOPHERSTACK_POD_S3_ACCESS_KEY"                 help:"Access key for the pod S3 bucket (default credential chain if empty)."`                                                 //nolint:lll // config struct tags are intentionally verbose
+	S3SecretKey   string `name:"s3-secret-key"  env:"GOPHERSTACK_POD_S3_SECRET_KEY"                 help:"Secret key for the pod S3 bucket."`                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	Autoload      string `name:"autoload"       env:"GOPHERSTACK_POD_AUTOLOAD,AUTO_LOAD_POD"        help:"Load pods NAME[:VERSION] (comma-separated, in order) at startup."`                                                      //nolint:lll // config struct tags are intentionally verbose
+	MergeStrategy string `name:"merge-strategy" env:"GOPHERSTACK_POD_MERGE_STRATEGY,MERGE_STRATEGY" help:"How autoloaded pods combine with current state: overwrite, service-merge or account-region-merge."`                     //nolint:lll // config struct tags are intentionally verbose
+	S3PathStyle   bool   `name:"s3-path-style"  env:"GOPHERSTACK_POD_S3_PATH_STYLE"                 help:"Use path-style S3 addressing."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
 }
 
 // newPodService builds the pod service from cfg; dataDir is the default local root.
@@ -291,7 +294,7 @@ func registerPodEndpoints(
 	a.registerLocalstackAliases(e)
 
 	if cfg.Autoload != "" {
-		if err = a.autoload(ctx, cfg.Autoload); err != nil {
+		if err = a.autoload(ctx, cfg.Autoload, cfg.MergeStrategy); err != nil {
 			logger.Load(ctx).ErrorContext(ctx, "pod autoload failed", "pod", cfg.Autoload, "error", err)
 		} else {
 			log.InfoContext(ctx, "pod autoloaded", "pod", cfg.Autoload)
@@ -299,18 +302,42 @@ func registerPodEndpoints(
 	}
 }
 
-func (a *podAPI) autoload(ctx context.Context, spec string) error {
-	name, ver, _ := strings.Cut(spec, ":")
+// podStrategyAccountRegionMerge is LocalStack's MERGE_STRATEGY name for a scoped merge.
+const podStrategyAccountRegionMerge = "account-region-merge"
 
-	version, err := podVersionParam(ver)
-	if err != nil {
-		return err
+// autoload loads each comma-separated NAME[:VERSION] in order; strategy is
+// overwrite (default), service-merge or account-region-merge.
+func (a *podAPI) autoload(ctx context.Context, spec, strategy string) error {
+	strategy = strings.ToLower(strings.TrimSpace(strategy))
+	merge := strategy == podStrategyAccountRegionMerge
+
+	switch strategy {
+	case "", podStrategyOverwrite:
+		strategy = podStrategyOverwrite
+	case podStrategyServiceMerge:
+	case podStrategyAccountRegionMerge:
+		strategy = podStrategyServiceMerge
+	default:
+		return fmt.Errorf("%w: %q", errUnknownMergeStrategy, strategy)
 	}
 
-	_, snaps, err := a.svc.Load(ctx, name, version, nil)
-	if err != nil {
-		return fmt.Errorf("load pod: %w", err)
+	for _, one := range splitCSV(spec) {
+		name, ver, _ := strings.Cut(one, ":")
+
+		version, err := podVersionParam(ver)
+		if err != nil {
+			return err
+		}
+
+		_, snaps, err := a.svc.Load(ctx, name, version, nil)
+		if err != nil {
+			return fmt.Errorf("load pod %s: %w", name, err)
+		}
+
+		if err = a.apply(ctx, strategy, merge, snaps); err != nil {
+			return err
+		}
 	}
 
-	return a.apply(ctx, podStrategyOverwrite, false, snaps)
+	return nil
 }

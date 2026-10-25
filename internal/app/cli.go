@@ -328,10 +328,9 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SecretsManager                struct{}            `embed:"" prefix:"secretsmanager-"`
-	SQS                           sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	SNS                           struct{}            `embed:"" prefix:"sns-"`
-	IAM                           struct{}            `embed:"" prefix:"iam-"`
+	SecretsManager                struct{} `embed:"" prefix:"secretsmanager-"`
+	SNS                           struct{} `embed:"" prefix:"sns-"`
+	IAM                           struct{} `embed:"" prefix:"iam-"`
 	shutdownDeadline              time.Time
 	Endpoints                     endpointstrategy.Flags `embed:""`
 	athenaHandler                 service.Registerable
@@ -626,7 +625,7 @@ type CLI struct {
 	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                     default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
 	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"                          default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
 	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                              help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM"             default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM,ENFORCE_IAM" default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	EnforceSecurityGroups         bool                              `                                       name:"enforce-security-groups" env:"GOPHERSTACK_ENFORCE_SECURITY_GROUPS" default:"false"         help:"Enforce EC2 security-group ingress on container-backed endpoints (RDS, EC2, DocDB, MSK, caches, MQ, Neptune, ECS); ingress only. Default off."`                                                //nolint:lll // config struct tags are intentionally verbose
 	EnforceServiceQuotas          bool                              `                                       name:"enforce-service-quotas"  env:"GOPHERSTACK_ENFORCE_SERVICE_QUOTAS"  default:"false"         help:"Make S3, EC2, IAM and DynamoDB reject creates beyond the Service Quotas applied limit. Default off."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	IAMAudit                      bool                              `                                       name:"iam-audit"               env:"GOPHERSTACK_IAM_AUDIT,IAM_SOFT_MODE" default:"false"         help:"IAM audit (soft) mode: evaluate and record every request in the IAM Policy Stream but never deny."`                                                                                            //nolint:lll // config struct tags are intentionally verbose
@@ -636,6 +635,8 @@ type CLI struct {
 	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                                 default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
 	TransferSFTP                  bool                              `                                       name:"transfer-sftp"           env:"TRANSFER_SFTP"                       default:"false"         help:"Serve a real SFTP listener per Transfer Family server."`                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
+	SQS                           sqsbackend.Settings               `embed:"" prefix:"sqs-"`
+	Localstack                    LocalstackSettings                `embed:"" prefix:"localstack-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -868,6 +869,11 @@ func (c *CLI) GetEndpoint() string {
 // EndpointStrategies returns the *_ENDPOINT_STRATEGY selections (endpointstrategy.Provider).
 func (c *CLI) EndpointStrategies() endpointstrategy.Config {
 	return c.Endpoints.Config(c.GetS3Endpoint())
+}
+
+// GetSQSSettings returns SQS settings (sqs.SettingsProvider).
+func (c *CLI) GetSQSSettings() sqsbackend.Settings {
+	return c.SQS
 }
 
 // GetLambdaSettings returns Lambda settings (lambda.SettingsProvider).
@@ -2478,6 +2484,10 @@ func setupPortAllocatorWithReservations(ctx context.Context, log *slog.Logger, c
 // initRuntimeStores creates the stores services read from the CLI during Init.
 func initRuntimeStores(cli *CLI) {
 	cli.faultStore, cli.localstackInit = chaos.NewFaultStore(), newLocalstackInitState()
+	if rules := localstackFaultRules(os.Getenv); len(rules) > 0 {
+		cli.faultStore.SetRules(rules)
+	}
+
 	cli.iamStream = iampolicystream.New(iampolicystream.DefaultCapacity)
 }
 
@@ -2499,6 +2509,10 @@ func wireEchoServer(
 
 	if mw := corsMiddleware(cli.CORS); mw != nil {
 		e.Pre(mw)
+	}
+
+	if cli.Localstack.ResponseHeader {
+		e.Pre(localstackResponseHeaderMiddleware)
 	}
 
 	if err := setupChaosAndRegistry(e, log, cli, services); err != nil {

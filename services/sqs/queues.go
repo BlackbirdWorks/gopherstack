@@ -203,6 +203,10 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 // A stale (expired) entry is pruned inline so the map does not require the
 // caller to have run the janitor recently. Caller must hold b.mu (write).
 func (b *InMemoryBackend) checkQueueDeletedRecently(region, name string, now time.Time) error {
+	if b.noDeletedWait.Load() {
+		return nil
+	}
+
 	key := queueKey(region, name)
 
 	deletedAt, ok := b.recentlyDeleted[key]
@@ -311,7 +315,8 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 	now := b.now()
 
 	// AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
-	if !q.lastPurgedAt.IsZero() && now.Sub(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
+	if !b.noPurgeCooldown.Load() && !q.lastPurgedAt.IsZero() &&
+		now.Sub(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
 		return ErrPurgeQueueInProgress
 	}
 
