@@ -218,7 +218,9 @@ func TestPagination_QueryContinuationIsStateless(t *testing.T) {
 			[]byte(`{"query":"SELECT VALUE c.id FROM c ORDER BY c.id"}`))
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-		var body struct{ Documents []string }
+		var body struct {
+			Documents []string `json:"Documents"`
+		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 
 		return append(body.Documents, "next="+rec.Header().Get("X-Ms-Continuation"))

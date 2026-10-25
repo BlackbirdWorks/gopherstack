@@ -11,6 +11,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
 )
 
+const (
+	headerContentType    = "Content-Type"
+	errorPartContentType = "application/json;odata=minimalmetadata;streaming=true;charset=utf-8"
+)
+
 // handleTableBatch implements POST /$batch: one multipart/mixed changeset of insert, update, merge, delete and
 // upsert operations on a single partition, applied atomically.
 func (h *Handler) handleTableBatch(c *echo.Context) error {
@@ -64,7 +69,7 @@ func (h *Handler) writeBatchRetrieve(c *echo.Context, o odatatable.WireBatchOp) 
 
 		return h.writeRetrievePart(c, odatatable.BatchResponsePart{
 			Status:  f.Status,
-			Headers: [][2]string{{"Content-Type", "application/json;odata=minimalmetadata;streaming=true;charset=utf-8"}},
+			Headers: [][2]string{{headerContentType, errorPartContentType}},
 			Body:    body,
 		})
 	}
@@ -80,7 +85,7 @@ func (h *Handler) writeBatchRetrieve(c *echo.Context, o odatatable.WireBatchOp) 
 		Status: http.StatusOK,
 		Headers: [][2]string{
 			{"ETag", info.ETag},
-			{"Content-Type", "application/json;odata=" + level + ";streaming=true;charset=utf-8"},
+			{headerContentType, "application/json;odata=" + level + ";streaming=true;charset=utf-8"},
 		},
 		Body: payload,
 	})
@@ -101,7 +106,7 @@ func (h *Handler) writeBatchFailure(c *echo.Context, index int, f odatatable.Bat
 
 	part := odatatable.BatchResponsePart{
 		Status:  f.Status,
-		Headers: [][2]string{{"Content-Type", "application/json;odata=minimalmetadata;streaming=true;charset=utf-8"}},
+		Headers: [][2]string{{headerContentType, errorPartContentType}},
 		Body:    body,
 	}
 

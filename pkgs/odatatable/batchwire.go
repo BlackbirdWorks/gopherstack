@@ -91,21 +91,10 @@ func ReadBatchOrRetrieve(r *http.Request, resourceOf func(path string) string) (
 }
 
 func readBatch(r *http.Request, resourceOf func(path string) string, allowRetrieve bool) ([]WireBatchOp, error) {
-	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || mediaType != mimeMultipartMix || params["boundary"] == "" {
-		return nil, ErrBatchOpMalform
+	outer, err := openBatch(r)
+	if err != nil {
+		return nil, err
 	}
-
-	body, readErr := io.ReadAll(io.LimitReader(r.Body, maxBatchBodyBytes+1))
-	if readErr != nil {
-		return nil, ErrBatchOpMalform
-	}
-
-	if len(body) > maxBatchBodyBytes {
-		return nil, ErrBatchTooLarge
-	}
-
-	outer := multipart.NewReader(bytes.NewReader(body), params["boundary"])
 
 	part, err := outer.NextPart()
 	if err != nil {
@@ -133,7 +122,28 @@ func readBatch(r *http.Request, resourceOf func(path string) string, allowRetrie
 	return readChangeset(raw, innerParams["boundary"], resourceOf)
 }
 
-func readRetrieve(outer *multipart.Reader, part *multipart.Part, resourceOf func(string) string) ([]WireBatchOp, error) {
+// openBatch checks the batch Content-Type and 4 MiB payload limit and returns the outer multipart reader.
+func openBatch(r *http.Request) (*multipart.Reader, error) {
+	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != mimeMultipartMix || params["boundary"] == "" {
+		return nil, ErrBatchOpMalform
+	}
+
+	body, readErr := io.ReadAll(io.LimitReader(r.Body, maxBatchBodyBytes+1))
+	if readErr != nil {
+		return nil, ErrBatchOpMalform
+	}
+
+	if len(body) > maxBatchBodyBytes {
+		return nil, ErrBatchTooLarge
+	}
+
+	return multipart.NewReader(bytes.NewReader(body), params["boundary"]), nil
+}
+
+func readRetrieve(
+	outer *multipart.Reader, part *multipart.Part, resourceOf func(string) string,
+) ([]WireBatchOp, error) {
 	raw, err := io.ReadAll(part)
 	if err != nil {
 		return nil, ErrBatchOpMalform

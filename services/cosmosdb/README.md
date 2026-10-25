@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 32 (32 ok) |
 | Feature families | 23 (19 ok, 4 partial) |
-| Known gaps | 10 |
+| Known gaps | 9 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,12 +19,11 @@
 - IndexingPolicy: multi-key ORDER BY composite-index, excluded-path/scan and vector/full-text index enforcement exist (families.indexing, families.search); still open are ORDER BY on an excluded path, composite-index rules for filter plus ORDER BY, spatial index validation, lazy mode, vector paths being required in excludedPaths, and enforcement inside stored-procedure queries
 - MultiRegion: regions, failoverPriority, multi-write and manual failover (ARM failoverPriorityChange) are modelled as account metadata over ONE physical store, so there is no replication lag, no regional endpoint, no automatic failover, no preferred-region routing and no write conflicts or conflicts feed; the data plane is one account, so the last ARM account written decides the topology; consistency levels other than a static session token are not modeled
 - RequestCharge: an approximation of documented costs, not a metering of index and storage work
-- Continuation: a query is re-executed for every page, so results can shift if the container changes between pages
-- SQL: ORDER BY combined with GROUP BY is accepted although the real service may reject it (error text unverified, so behaviour left permissive); spatial functions are planar/haversine approximations with no Multi* geometry operations and no Geometry-mode (planar metre) semantics; ST_ISVALIDDETAILED reasons beyond the unclosed-ring text are paraphrased; VectorDistance is exact (no approximate index, no quantization error, dataType only validated) and FullTextScore tokenization has no stemming (families.search); unsupported functions are a 400 parse error
+- SQL: ORDER BY combined with GROUP BY is accepted although the real service may reject it (the ORDER BY and GROUP BY reference pages, checked 2026-10-24, state neither a restriction nor an error text, so behaviour stays permissive); spatial functions are planar/haversine approximations with no Multi* geometry operations and no Geometry-mode (planar metre) semantics; ST_ISVALIDDETAILED reasons beyond the unclosed-ring text are paraphrased; VectorDistance is exact (no approximate index, no quantization error, dataType only validated) and FullTextScore tokenization has no stemming (families.search); unsupported functions are a 400 parse error
 - ItemOperations: the all-versions-and-deletes feed keeps only the newest 10000 versions per container and ignores the continuous-backup retention window; pre/post triggers do not fire for PATCH or batch operations; stored procedure callbacks run synchronously and hold the backend write lock; there is no server-side bulk operation (the SDKs implement bulk client-side over batches and point operations)
 - Containers: geospatialConfig is stored and echoed only (no planar Geometry behaviour); vectorEmbeddingPolicy and fullTextPolicy are validated and enforced (families.search); computed properties are not used for index selection; the replace-time error text for a changed unique key policy is unverified
-- TableAPI: $batch handles a single changeset of writes only (a batch holding a query/retrieve, several changesets or a 4MB+ payload is 400), and Table API responses carry no per-operation request charge or continuation beyond what pkgs/odatatable provides
-- ResourceTokens: a document permission matches by document id across all partition keys (ids repeat across keys); permissions on stored procedures, triggers, UDFs and attachments are rejected rather than modelled; a permission left pointing at a deleted container simply grants nothing; the minimum x-ms-documentdb-expiry-seconds is unverified
+- TableAPI: a $batch holding a query for an entity collection (only a single point retrieve is answered), or several changesets (the service processes the first and rejects the rest with 400; here the whole request is 400 because the rejection response shape is undocumented), is 400; the 4 MiB payload limit is enforced as 400 InvalidInput with no documented service error code; Table API responses carry no per-operation request charge or continuation beyond what pkgs/odatatable provides
+- ResourceTokens: a document permission matches by document id across all partition keys (ids repeat across keys; the permission docs define no partition scoping for a document resource, while container permissions with resourcePartitionKey are already restricted to that key); permissions on stored procedures, triggers, UDFs and attachments are rejected rather than modelled; a permission left pointing at a deleted container simply grants nothing; the minimum x-ms-documentdb-expiry-seconds is unverified (docs give only the 3600 default and the 18000 maximum)
 
 ## More
 

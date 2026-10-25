@@ -337,14 +337,18 @@ func TestTableBatch_AztablesSubmitTransaction(t *testing.T) {
 	require.Error(t, err)
 }
 
+const httpPartHead = "\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n"
+
 func buildRetrieveBatch(path string, extra bool) string {
 	var sb strings.Builder
 
-	sb.WriteString("--" + batchBoundary + "\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n")
-	sb.WriteString("GET http://localhost/" + path + " HTTP/1.1\r\nAccept: application/json;odata=minimalmetadata\r\n\r\n")
+	sb.WriteString("--" + batchBoundary + httpPartHead)
+	sb.WriteString(
+		"GET http://localhost/" + path + " HTTP/1.1\r\nAccept: application/json;odata=minimalmetadata\r\n\r\n",
+	)
 
 	if extra {
-		sb.WriteString("--" + batchBoundary + "\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n")
+		sb.WriteString("--" + batchBoundary + httpPartHead)
 		sb.WriteString("GET http://localhost/" + path + " HTTP/1.1\r\n\r\n")
 	}
 
@@ -357,11 +361,11 @@ func TestTableBatch_SingleRetrieve(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       func() string
-		wantStatus int
-		wantParts  []string
+		name       string
 		wantBody   string
+		wantParts  []string
+		wantStatus int
 	}{
 		{
 			name:       "hit",
