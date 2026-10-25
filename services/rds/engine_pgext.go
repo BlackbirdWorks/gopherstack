@@ -34,9 +34,9 @@ const (
 	pgVectorImage  = "pgvector/pgvector"
 	pgVectorTag    = "0.8.6"
 
-	envCalloutAddr  = "GS_CALLOUT_ADDR"
-	envCalloutToken = "GS_CALLOUT_TOKEN"
-	envAWSHelper    = "GS_AWS_HELPER"
+	envCalloutAddr = "GS_CALLOUT_ADDR"
+	envCalloutKey  = "GS_CALLOUT_TOKEN"
+	envAWSHelper   = "GS_AWS_HELPER"
 
 	pgExtPrelude = `set -e
 rm -f /docker-entrypoint-initdb.d/10_postgis.sh
@@ -257,7 +257,7 @@ func (e *dbEngine) applyPgExt(s *container.Spec, lb *liveDB) {
 		s.Env = append(s.Env,
 			envAWSHelper+"="+string(helper),
 			envCalloutAddr+"="+e.calloutAddr(),
-			envCalloutToken+"="+tok)
+			envCalloutKey+"="+tok)
 	}
 
 	if len(s.Entrypoint) == 0 {

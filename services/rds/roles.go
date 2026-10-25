@@ -137,7 +137,8 @@ func (b *InMemoryBackend) unitHasRole(key, feature string) bool {
 	}
 
 	for _, inst := range b.instances.All() {
-		if idEqual(inst.DBClusterIdentifier, id) && b.instanceHasRoleLocked(normalizeID(inst.DBInstanceIdentifier), feature) {
+		member := normalizeID(inst.DBInstanceIdentifier)
+		if idEqual(inst.DBClusterIdentifier, id) && b.instanceHasRoleLocked(member, feature) {
 			return true
 		}
 	}

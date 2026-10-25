@@ -45,9 +45,9 @@ func TestApplyPgExtSpec(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		enabled    bool
-		entrypoint []string
 		wantImage  string
+		entrypoint []string
+		enabled    bool
 		wantExt    bool
 	}{
 		{name: "stock untouched", enabled: false, wantImage: "postgres:16"},
@@ -94,12 +94,9 @@ func TestApplyPgExtSpec(t *testing.T) {
 func TestCalloutServer(t *testing.T) {
 	t.Parallel()
 
-	var gotPath, gotMethod, gotInvType string
-
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath, gotMethod, gotInvType = r.URL.RequestURI(), r.Method, r.Header.Get("X-Amz-Invocation-Type")
 		w.Header().Set("X-Amz-Executed-Version", "7")
-		_, _ = io.WriteString(w, `{"ok":true}`)
+		_, _ = io.WriteString(w, r.Method+" "+r.URL.RequestURI()+" "+r.Header.Get("X-Amz-Invocation-Type"))
 	}))
 	t.Cleanup(api.Close)
 
@@ -119,27 +116,38 @@ func TestCalloutServer(t *testing.T) {
 		method     string
 		path       string
 		token      string
+		wantBody   string
 		wantStatus int
-		wantPath   string
 	}{
 		{name: "bad token", method: "GET", path: "/s3/b/k", token: "nope", wantStatus: http.StatusUnauthorized},
-		{name: "import allowed", method: "GET", path: "/s3/b/dir/k.csv", token: tok, wantStatus: 200, wantPath: "/b/dir/k.csv"},
+		{
+			name: "import allowed", method: "GET", path: "/s3/b/dir/k.csv", token: tok,
+			wantStatus: http.StatusOK, wantBody: "GET /b/dir/k.csv ",
+		},
 		{name: "export denied", method: "PUT", path: "/s3/b/k", token: tok, wantStatus: http.StatusForbidden},
-		{name: "export with credentials", method: "PUT", path: "/s3/b/k?cred=1", token: tok, wantStatus: 200},
-		{name: "lambda allowed", method: "POST", path: "/lambda/fn?Qualifier=v1", token: tok, wantStatus: 200,
-			wantPath: "/2015-03-31/functions/fn/invocations?Qualifier=v1"},
-		{name: "auth lambda", method: "POST", path: "/auth/Lambda", token: tok, wantStatus: 200},
-		{name: "auth export denied", method: "POST", path: "/auth/s3Export", token: tok, wantStatus: http.StatusForbidden},
+		{
+			name: "export with credentials", method: "PUT", path: "/s3/b/k?cred=1", token: tok,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "lambda allowed", method: "POST", path: "/lambda/fn?Qualifier=v1", token: tok,
+			wantStatus: http.StatusOK, wantBody: "POST /2015-03-31/functions/fn/invocations?Qualifier=v1 Event",
+		},
+		{name: "auth lambda", method: "POST", path: "/auth/Lambda", token: tok, wantStatus: http.StatusOK},
+		{
+			name: "auth export denied", method: "POST", path: "/auth/s3Export", token: tok,
+			wantStatus: http.StatusForbidden,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotPath, gotMethod = "", ""
+			t.Parallel()
 
 			req, err := http.NewRequestWithContext(t.Context(), tt.method, base+tt.path, strings.NewReader("x"))
 			require.NoError(t, err)
 
-			req.Header.Set(calloutTokenHeader, tt.token)
+			req.Header.Set(calloutAuthHeader, tt.token)
 			req.Header.Set("X-Amz-Invocation-Type", "Event")
 
 			resp, err := http.DefaultClient.Do(req)
@@ -149,17 +157,13 @@ func TestCalloutServer(t *testing.T) {
 			require.NoError(t, resp.Body.Close())
 			assert.Equal(t, tt.wantStatus, resp.StatusCode)
 
-			if tt.wantPath != "" {
-				assert.Equal(t, tt.wantPath, gotPath)
-				assert.NotEmpty(t, gotMethod)
+			if tt.wantBody != "" {
+				assert.Equal(t, tt.wantBody, string(body))
 			}
 
 			if tt.wantStatus == http.StatusForbidden {
 				assert.Contains(t, string(body), "AddRoleToDBInstance")
-				assert.Empty(t, gotPath)
 			}
 		})
 	}
-
-	assert.Equal(t, "Event", gotInvType)
 }

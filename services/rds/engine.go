@@ -83,24 +83,24 @@ type EngineLogin struct {
 
 // EngineConfig configures docker-backed RDS databases.
 type EngineConfig struct {
-	Runtime              EngineRuntime
-	Ports                *portalloc.Allocator
-	Probe                func(ctx context.Context, l EngineLogin) error
-	SetPassword          func(ctx context.Context, l EngineLogin, newPassword string) error
-	Now                  func() time.Time
-	ReplicaStatus        func(ctx context.Context, l EngineLogin) (ReplicaStatus, error)
-	Host                 string
-	CADir                string
-	DumpDir              string
+	Runtime       EngineRuntime
+	Ports         *portalloc.Allocator
+	Probe         func(ctx context.Context, l EngineLogin) error
+	SetPassword   func(ctx context.Context, l EngineLogin, newPassword string) error
+	Now           func() time.Time
+	ReplicaStatus func(ctx context.Context, l EngineLogin) (ReplicaStatus, error)
+	// RoleLookup reports whether the unit key has an IAM role associated for a feature.
+	RoleLookup func(key, feature string) bool
+	Host       string
+	CADir      string
+	DumpDir    string
+	// APIEndpoint is the emulator's own base URL, used by the aws_s3/aws_lambda callouts.
+	APIEndpoint          string
 	ReplicaPollInterval  time.Duration
 	StartTimeout         time.Duration
 	RestorePointInterval time.Duration
 	// PostgresExtensions runs postgres units on an image with postgis and pgvector plus the aws_s3/aws_lambda extensions.
 	PostgresExtensions bool
-	// APIEndpoint is the emulator's own base URL, used by the aws_s3/aws_lambda callouts.
-	APIEndpoint string
-	// RoleLookup reports whether the unit key has an IAM role associated for a feature.
-	RoleLookup func(key, feature string) bool
 }
 
 type liveDB struct {
@@ -109,6 +109,7 @@ type liveDB struct {
 	proxy       atomic.Pointer[pgProxy]
 	fwd         atomic.Pointer[tcpForwarder]
 	net         atomic.Pointer[replNet]
+	extDir      atomic.Pointer[string]
 	repl        *replicaState
 	eps         sync.Map
 	kind        string
@@ -122,7 +123,6 @@ type liveDB struct {
 	dbName      string
 	password    string
 	seed        engineSeed
-	extDir      atomic.Pointer[string]
 	port        int
 	once        sync.Once
 	serverID    uint32
@@ -197,11 +197,11 @@ type dbEngine struct {
 	store      *dumpStore
 	ca         *engineCA
 	tlsCfg     *tls.Config
+	ext        *pgExt
+	callout    *calloutServer
 	cfg        EngineConfig
 	wg         sync.WaitGroup
 	tlsOnce    sync.Once
-	ext        *pgExt
-	callout    *calloutServer
 	calloutMu  sync.Mutex
 	execBroken atomic.Bool
 }

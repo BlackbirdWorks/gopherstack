@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,10 +15,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
 const (
-	calloutTokenHeader   = "X-Gs-Token"
+	calloutAuthHeader    = "X-Gs-Token"
 	calloutCredsParam    = "cred"
 	calloutReadTimeout   = 30 * time.Second
 	calloutUpstreamLimit = 5 * time.Minute
@@ -73,7 +76,7 @@ func (e *dbEngine) startCallout() error {
 
 	port := ln.Addr().(*net.TCPAddr).Port //nolint:errcheck,forcetypeassert // tcp listener
 	cs := &calloutServer{
-		client:   &http.Client{Timeout: calloutUpstreamLimit, Transport: http.DefaultTransport.(*http.Transport).Clone()}, //nolint:errcheck,forcetypeassert // stdlib default
+		client:   httpclient.New(calloutUpstreamLimit),
 		roles:    e.cfg.RoleLookup,
 		tokens:   make(map[string]string),
 		api:      strings.TrimRight(e.cfg.APIEndpoint, "/"),
@@ -142,7 +145,7 @@ func (cs *calloutServer) register(lb *liveDB) string {
 }
 
 func (cs *calloutServer) unitKey(r *http.Request) (string, bool) {
-	got := r.Header.Get(calloutTokenHeader)
+	got := r.Header.Get(calloutAuthHeader)
 
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
@@ -254,6 +257,7 @@ func (cs *calloutServer) forward(w http.ResponseWriter, r *http.Request, target 
 		method = http.MethodPost
 	}
 
+	//nolint:gosec // target derives from the configured emulator endpoint
 	req, err := http.NewRequestWithContext(r.Context(), method, target, r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -262,10 +266,9 @@ func (cs *calloutServer) forward(w http.ResponseWriter, r *http.Request, target 
 	}
 
 	req.ContentLength = r.ContentLength
-	for k, v := range hdr {
-		req.Header[k] = v
-	}
+	maps.Copy(req.Header, hdr)
 
+	//nolint:gosec // target derives from the configured emulator endpoint
 	resp, err := cs.client.Do(req)
 	if err != nil {
 		http.Error(w, "emulator unreachable: "+err.Error(), http.StatusBadGateway)

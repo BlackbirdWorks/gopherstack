@@ -155,10 +155,12 @@ func TestPostgresExtensionsDocker(t *testing.T) {
 	env.role(t, "s3Import", true)
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
-		{"postgis", func(t *testing.T) {
+		{name: "postgis", run: func(t *testing.T) {
+			t.Helper()
+
 			_, qerr := env.db.ExecContext(ctx, `CREATE EXTENSION postgis;
 CREATE TABLE places (name text, geom geometry(Point, 4326));
 INSERT INTO places VALUES ('a', ST_SetSRID(ST_MakePoint(0, 0), 4326)), ('b', ST_SetSRID(ST_MakePoint(1, 1), 4326)),
@@ -166,7 +168,8 @@ INSERT INTO places VALUES ('a', ST_SetSRID(ST_MakePoint(0, 0), 4326)), ('b', ST_
 			require.NoError(t, qerr)
 
 			rows, qerr := env.db.QueryContext(ctx, `SELECT name FROM places
-WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(0, 0), 4326), 2) ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(0, 0), 4326))`)
+WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(0, 0), 4326), 2)
+ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(0, 0), 4326))`)
 			require.NoError(t, qerr)
 
 			defer rows.Close()
@@ -180,9 +183,12 @@ WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(0, 0), 4326), 2) ORDER BY ST_Dist
 				got = append(got, n)
 			}
 
+			require.NoError(t, rows.Err())
 			assert.Equal(t, []string{"a", "b"}, got)
 		}},
-		{"pgvector", func(t *testing.T) {
+		{name: "pgvector", run: func(t *testing.T) {
+			t.Helper()
+
 			_, qerr := env.db.ExecContext(ctx, `CREATE EXTENSION vector;
 CREATE TABLE vecs (id int, embedding vector(3));
 INSERT INTO vecs VALUES (1, '[1,1,1]'), (2, '[9,9,9]'), (3, '[1,2,1]')`)
@@ -194,7 +200,9 @@ INSERT INTO vecs VALUES (1, '[1,1,1]'), (2, '[9,9,9]'), (3, '[1,2,1]')`)
 				"SELECT id FROM vecs ORDER BY embedding <-> '[8,8,8]' LIMIT 1").Scan(&id))
 			assert.Equal(t, 2, id)
 		}},
-		{"s3_import", func(t *testing.T) {
+		{name: "s3_import", run: func(t *testing.T) {
+			t.Helper()
+
 			_, qerr := env.db.ExecContext(ctx, "CREATE TABLE imp (id int, name text)")
 			require.NoError(t, qerr)
 
@@ -214,8 +222,11 @@ INSERT INTO vecs VALUES (1, '[1,1,1]'), (2, '[9,9,9]'), (3, '[1,2,1]')`)
 				pgExtBucket+`', 'in/missing.csv', 'us-east-1')`)
 			require.ErrorContains(t, qerr, "does not exist")
 		}},
-		{"s3_export_role_lifecycle", func(t *testing.T) {
-			_, qerr := env.db.ExecContext(ctx, "CREATE TABLE exp AS SELECT g AS id, 'row' || g AS name FROM generate_series(1, 4) g")
+		{name: "s3_export_role_lifecycle", run: func(t *testing.T) {
+			t.Helper()
+
+			_, qerr := env.db.ExecContext(ctx,
+				"CREATE TABLE exp AS SELECT g AS id, 'row' || g AS name FROM generate_series(1, 4) g")
 			require.NoError(t, qerr)
 
 			const q = `SELECT * FROM aws_s3.query_export_to_s3('SELECT * FROM exp ORDER BY id', '` +
@@ -232,12 +243,14 @@ INSERT INTO vecs VALUES (1, '[1,1,1]'), (2, '[9,9,9]'), (3, '[1,2,1]')`)
 			assert.EqualValues(t, 4, rows)
 			assert.EqualValues(t, 1, files)
 
-			status, body := env.s3Do(t, http.MethodGet, "/"+pgExtBucket+"/out/exp.csv", "")
-			require.Equal(t, http.StatusOK, status)
+			code, body := env.s3Do(t, http.MethodGet, "/"+pgExtBucket+"/out/exp.csv", "")
+			require.Equal(t, http.StatusOK, code)
 			assert.Equal(t, "1,row1\n2,row2\n3,row3\n4,row4\n", body)
 			assert.EqualValues(t, len(body), bytes)
 		}},
-		{"lambda_role_lifecycle", func(t *testing.T) {
+		{name: "lambda_role_lifecycle", run: func(t *testing.T) {
+			t.Helper()
+
 			const q = `SELECT status_code, payload::text, executed_version FROM aws_lambda.invoke(
   aws_commons.create_lambda_function_arn('my-fn', 'us-east-1'), '{"k": 1}'::json)`
 
