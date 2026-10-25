@@ -72,8 +72,13 @@ func applySecurityConfig(d *Domain, input UpdateDomainConfigInput) {
 		d.DomainEndpointOptions = input.DomainEndpointOptions
 	}
 
-	if input.AdvancedSecurityOptions != nil {
-		d.AdvancedSecurityOptions = input.AdvancedSecurityOptions
+	if next := input.AdvancedSecurityOptions; next != nil {
+		if prev := d.AdvancedSecurityOptions; prev != nil && next.MasterUserName == "" && next.MasterUserARN == "" {
+			next.MasterUserName, next.MasterUserARN = prev.MasterUserName, prev.MasterUserARN
+			next.MasterUserPasswordHash = prev.MasterUserPasswordHash
+		}
+
+		d.AdvancedSecurityOptions = next
 	}
 }
 

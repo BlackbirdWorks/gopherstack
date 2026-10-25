@@ -51,7 +51,7 @@ func (b *InMemoryBackend) findIndexLocked(domainName, indexName, action string) 
 		)
 	}
 
-	idx, ok := b.domainIndexes.Get(domainIndexKey(domainName, indexName))
+	idx, ok := b.domainIndexes.Get(domainIndexKey(b.indexScope(domainName), indexName))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: index %s not found on domain %s",
@@ -304,7 +304,7 @@ func (b *InMemoryBackend) DomainDocumentCount(domainName string) int {
 	defer b.mu.RUnlock()
 
 	total := 0
-	for _, idx := range b.domainIndexesByDomain.Get(domainName) {
+	for _, idx := range b.domainIndexesByDomain.Get(b.indexScope(domainName)) {
 		total += idx.DocumentCount
 	}
 

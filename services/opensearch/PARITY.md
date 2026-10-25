@@ -477,7 +477,8 @@ families:
       was needed) but never updated this earlier note. No open gap remains here; see that sweep's
       dated section below for the fix detail.
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Fine-grained access control models only the master user: the _plugins/_security internal-user, role and role-mapping APIs, SigV4 identity-to-role mapping and index-level permissions are not implemented (gopherstack-49qct.59)."
 structural_gaps:
   - "MigrationSummary.Error is never emitted: migrations always settle SUCCEEDED because the emulator has no saved-object store to migrate, so there is no real failure source."
 deferred: []
@@ -1677,3 +1678,10 @@ ClusterConfig is now read and written as ColdStorageOptions{Enabled}; the flat C
 ## Notes (2026-10-10 realism pass)
 
 CreateDomain and UpdateDomainConfig validate InstanceType, DedicatedMasterType and WarmType shape, InstanceCount (0-80) and EBS VolumeSize (10-16384). CLI ListTags/AddTags/RemoveTags (botocore sends a trailing slash on `/2021-01-01/tags/`) were unrouted and fell through to S3; the trailing slash is now canonicalised. ListTags on an unknown ARN returns ResourceNotFoundException instead of an empty list. UpgradeDomain now checks the target against the documented upgrade paths, changes the domain's EngineVersion, and PerformCheckOnly validates without recording history or changing state. Messages drop the repeated code and use "Domain not found: <name>". Tests: domain_realism_test.go. Processing delay stays opt-in via SetProcessingDelay (no flag is wired, so domains are Active immediately).
+
+## 2026-10-25 data-plane auth and LocalStack routing options (gopherstack-49qct.59)
+
+- Fine-grained access control: `MasterUserOptions` (name, ARN, password) on CreateDomain/UpdateDomainConfig is now stored (password only as a salted PBKDF2 hash, never echoed). On a domain with `AdvancedSecurityOptions.Enabled` and `InternalUserDatabaseEnabled`, data-plane requests (strategy endpoints, `{domain}/index/{index}/_doc|_search|_count`, `_bulk`) need HTTP basic auth for the master user; missing or wrong credentials get 401 with `WWW-Authenticate: Basic realm="OpenSearch Security"`. Control-plane SDK calls are never gated. UpdateDomainConfig without MasterUserOptions keeps the stored credentials. Only the master user exists: the `_plugins/_security` internal-user/role APIs are not modelled, and SigV4-signed data-plane requests are not mapped to roles.
+- `OPENSEARCH_MULTI_CLUSTER=false` (opt-in; default and `true` keep one isolated index store per domain, as on AWS) makes every domain in a region share one index store.
+- `OPENSEARCH_CUSTOM_BACKEND=<http(s) URL>` (opt-in) proxies data-plane requests for existing domains to that URL only (scheme/host come from the setting, path cleaned and joined under the URL's path, client Authorization passed through; local basic-auth is skipped). Unknown domains are not proxied.
+- There is no real OpenSearch container (`opensearch-engine=docker` is reserved), so these are verified in-process: `data_plane_test.go`.

@@ -61,6 +61,7 @@ func (h *Handler) EnableRegions() {
 		p.AccountID = h.AccountID
 		p.Region = region
 		p.endpointStrategy = h.endpointStrategy
+		p.customBackend, p.proxyTransport = h.customBackend, h.proxyTransport
 
 		return p
 	})

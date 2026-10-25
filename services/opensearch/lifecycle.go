@@ -108,8 +108,10 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 	delete(b.upgradeHistory, upgradeHistoryKey(name))
 	b.dryRuns.Delete(name)
 
-	for _, idx := range slices.Clone(b.domainIndexesByDomain.Get(name)) {
-		b.domainIndexes.Delete(domainIndexKey(idx.DomainName, idx.IndexName))
+	if !b.endpoints.SharedOpenSearchCluster() {
+		for _, idx := range slices.Clone(b.domainIndexesByDomain.Get(name)) {
+			b.domainIndexes.Delete(domainIndexKey(idx.DomainName, idx.IndexName))
+		}
 	}
 
 	if b.dnsRegistrar != nil {

@@ -552,6 +552,10 @@ type AdvancedSecurityOptions struct {
 	AnonymousAuthEnabled        bool              `json:"anonymousAuthEnabled,omitempty"`
 	Enabled                     bool              `json:"enabled"`
 	InternalUserDatabaseEnabled bool              `json:"internalUserDatabaseEnabled,omitempty"`
+	// MasterUserName and MasterUserPasswordHash (salted PBKDF2, never the password) are the internal-database master user.
+	MasterUserName         string `json:"masterUserName,omitempty"`
+	MasterUserPasswordHash string `json:"masterUserPasswordHash,omitempty"`
+	MasterUserARN          string `json:"masterUserArn,omitempty"`
 }
 
 // VPCOptions holds VPC configuration for an OpenSearch domain.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -120,6 +121,8 @@ const (
 // Handler is the HTTP handler for OpenSearch operations.
 type Handler struct {
 	endpointStrategy string
+	customBackend    *url.URL
+	proxyTransport   http.RoundTripper
 	Backend          StorageBackend
 	peers            *regionpeers.Set[Handler]
 	AccountID        string
@@ -243,7 +246,7 @@ func rewriteStrategyRequest(r *http.Request, osr endpointstrategy.OpenSearchRequ
 	r2.URL.Path = openSearchPathPrefix + "/" + osr.Domain + indexRest(osr.Rest)
 	r2.URL.RawPath = ""
 
-	return r2
+	return withDataPlaneTarget(r2, dataPlaneTarget{domain: osr.Domain, path: osr.Rest})
 }
 
 // Reset clears the handler's backend state.
@@ -258,6 +261,10 @@ func (h *Handler) Reset() {
 // ServeHTTP implements [http.Handler] for the OpenSearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = canonicalTagsPath(r.URL.Path)
+
+	if h.serveDataPlane(w, r) {
+		return
+	}
 
 	if h.handleTagRoutes(w, r) {
 		return

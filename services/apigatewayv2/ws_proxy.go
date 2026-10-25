@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -475,7 +476,7 @@ func (h *Handler) enforceWSRequestAuthorizer(c *echo.Context, s *wsSession, auth
 }
 
 func buildWSRouteArn(region, apiID, stage string) string {
-	return "arn:aws:execute-api:" + region + ":" + config.DefaultAccountID + ":" + apiID + "/" + stage + "/" + routeKeyConnect
+	return arn.Build("execute-api", region, config.DefaultAccountID, apiID+"/"+stage+"/"+routeKeyConnect)
 }
 
 // evalRouteSelection evaluates a WebSocket route selection expression against
