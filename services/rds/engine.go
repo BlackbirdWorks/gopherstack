@@ -95,6 +95,12 @@ type EngineConfig struct {
 	ReplicaPollInterval  time.Duration
 	StartTimeout         time.Duration
 	RestorePointInterval time.Duration
+	// PostgresExtensions runs postgres units on an image with postgis and pgvector plus the aws_s3/aws_lambda extensions.
+	PostgresExtensions bool
+	// APIEndpoint is the emulator's own base URL, used by the aws_s3/aws_lambda callouts.
+	APIEndpoint string
+	// RoleLookup reports whether the unit key has an IAM role associated for a feature.
+	RoleLookup func(key, feature string) bool
 }
 
 type liveDB struct {
@@ -116,6 +122,7 @@ type liveDB struct {
 	dbName      string
 	password    string
 	seed        engineSeed
+	extDir      atomic.Pointer[string]
 	port        int
 	once        sync.Once
 	serverID    uint32
@@ -193,6 +200,9 @@ type dbEngine struct {
 	cfg        EngineConfig
 	wg         sync.WaitGroup
 	tlsOnce    sync.Once
+	ext        *pgExt
+	callout    *calloutServer
+	calloutMu  sync.Mutex
 	execBroken atomic.Bool
 }
 
@@ -228,6 +238,10 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 	b.engine = &dbEngine{
 		cfg: cfg, units: make(map[string]*liveDB), data: make(map[string]engineData),
 		points: make(map[string][]restorePoint), checked: make(map[string]time.Time),
+		ext: newPgExt(),
+	}
+	if cfg.PostgresExtensions && cfg.RoleLookup == nil {
+		b.engine.cfg.RoleLookup = b.unitHasRole
 	}
 
 	if cfg.DumpDir != "" {
@@ -320,6 +334,7 @@ func (e *dbEngine) spec(lb *liveDB, plan replPlan) container.Spec {
 		Network: plan.network,
 	}
 	applyReplicationFlags(&s, lb, plan)
+	e.applyPgExt(&s, lb)
 
 	return s
 }
@@ -568,6 +583,12 @@ func (b *InMemoryBackend) runUnit(lb *liveDB) {
 				e.releasePort(p)
 
 				return container.Spec{}, errUnitDetached
+			}
+
+			if perr := e.preparePgExt(ctx, lb); perr != nil {
+				e.releasePort(p)
+
+				return container.Spec{}, perr
 			}
 
 			plan, err := b.replicaPlan(ctx, lb)
@@ -822,6 +843,7 @@ func (b *InMemoryBackend) Close() {
 	}
 
 	e.wg.Wait()
+	e.stopCallout()
 
 	if c, ok := e.cfg.Runtime.(io.Closer); ok {
 		_ = c.Close()

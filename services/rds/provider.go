@@ -80,7 +80,13 @@ func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
 	}
 
 	backend.SetAutoPause(AutoPauseConfigFromEnv())
+	var apiEndpoint string
+	if ep, hasEP := ctx.Config.(interface{ GetEndpoint() string }); hasEP {
+		apiEndpoint = ep.GetEndpoint()
+	}
+
 	backend.EnableEngine(EngineConfig{
 		Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("RDS_DB_HOST"), CADir: caDir, DumpDir: dumpDir,
+		PostgresExtensions: os.Getenv("RDS_POSTGRES_EXTENSIONS") != "false", APIEndpoint: apiEndpoint,
 	})
 }

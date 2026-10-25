@@ -3,6 +3,9 @@ package rds
 import (
 	"fmt"
 	"slices"
+	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // AddRoleToDBInstance associates an IAM role with the given DB instance for the given feature
@@ -109,4 +112,54 @@ func (b *InMemoryBackend) InstanceAssociatedRoles(instanceID string) []DBInstanc
 	})
 
 	return result
+}
+
+// unitHasRole reports whether the unit behind key has an IAM role associated for feature.
+func (b *InMemoryBackend) unitHasRole(key, feature string) bool {
+	b.mu.RLock("unitHasRole")
+	defer b.mu.RUnlock()
+
+	if id, ok := strings.CutPrefix(key, unitInstancePrefix); ok {
+		return b.instanceHasRoleLocked(id, feature)
+	}
+
+	id, ok := strings.CutPrefix(key, unitClusterPrefix)
+	if !ok {
+		return false
+	}
+
+	if c, found := b.clusters.Get(id); found {
+		for _, r := range b.clusterRoles[c.DBClusterIdentifier] {
+			if roleFeatureMatches(r.FeatureName, feature) {
+				return true
+			}
+		}
+	}
+
+	for _, inst := range b.instances.All() {
+		if idEqual(inst.DBClusterIdentifier, id) && b.instanceHasRoleLocked(normalizeID(inst.DBInstanceIdentifier), feature) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) instanceHasRoleLocked(id, feature string) bool {
+	inst, ok := b.instances.Get(id)
+	if !ok {
+		return false
+	}
+
+	for name := range b.instanceRoles[inst.DBInstanceIdentifier] {
+		if roleFeatureMatches(name, feature) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func roleFeatureMatches(have, want string) bool {
+	return strs.Equal(have, want) || (strs.Equal(have, "S3_INTEGRATION") && strings.HasPrefix(want, "s3"))
 }
