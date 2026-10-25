@@ -32,6 +32,10 @@ func allowedWeakHashFiles() map[string]string {
 		// base64 MD5 of the content; integrity checksum, never a credential.
 		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
 
+		// Workflows hash.compute_checksum and hash.compute_hmac document MD5 and SHA1 among their algorithms;
+		// a content hash chosen by the workflow author, never a credential.
+		"pkgs/wfinterp/stdlib_text.go": "Workflows hash.compute_checksum MD5/SHA1 parity, verified",
+
 		// GoogleSQL defines MD5() and SHA1() as those digests of the argument; a content hash, never a credential.
 		"services/gcpbigquery/bqsql/udf_str.go": "GoogleSQL MD5()/SHA1() function parity, verified",
 

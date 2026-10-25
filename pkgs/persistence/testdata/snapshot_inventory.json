@@ -15705,6 +15705,15 @@
     ],
     "version": 1
   },
+  "gcpworkflows": {
+    "fields": [
+      "backendSnapshot.Executions map[string]json.RawMessage `json:\"executions\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "backendSnapshot.Workflows map[string]workflowSnap `json:\"workflows\"`",
+      "workflowSnap.Revisions []json.RawMessage `json:\"revisions\"`"
+    ],
+    "version": 1
+  },
   "glacier": {
     "fields": [
       "Archive.ArchiveID string `json:\"archiveID\"`",

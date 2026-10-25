@@ -40,6 +40,7 @@ const (
 var (
 	serviceIDRe = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
 	accountRe   = regexp.MustCompile(`^[^@\s]+@[^@\s]+$`)
+	workflowRe  = regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/workflows/[^/]+$`)
 )
 
 func shortID() string { return strings.ReplaceAll(uuid.NewString(), "-", "")[:suffixLen] }
@@ -57,12 +58,23 @@ func validateDestination(d *eventarcpb.Destination) error {
 	case *eventarcpb.Destination_CloudFunction:
 		return errInvalid("destination.cloud_function is read-only; create function triggers with Cloud Functions.")
 	case *eventarcpb.Destination_Workflow:
-		return errPrecondition("Workflows destinations are not available: no Workflows service is emulated.")
+		return validateWorkflowName(dest.Workflow)
 	case *eventarcpb.Destination_Gke:
 		return errPrecondition("GKE destinations are not available: no GKE service is emulated.")
 	default:
 		return errInvalid("destination must set one of cloud_run or http_endpoint.")
 	}
+}
+
+func validateWorkflowName(name string) error {
+	if !workflowRe.MatchString(name) {
+		return errInvalid(
+			"destination.workflow %q must be projects/{project}/locations/{location}/workflows/{workflow}.",
+			name,
+		)
+	}
+
+	return nil
 }
 
 func validateCloudRun(r *eventarcpb.CloudRun) error {
@@ -248,6 +260,16 @@ func (b *InMemoryBackend) buildTrigger(
 	return t, plan, nil
 }
 
+// checkWorkflowLocked requires a workflow destination to exist when a Workflows emulator is connected.
+func (b *InMemoryBackend) checkWorkflowLocked(t *eventarcpb.Trigger) error {
+	wf := t.GetDestination().GetWorkflow()
+	if wf == "" || b.svc.Workflows == nil || b.svc.Workflows.WorkflowExists(wf) {
+		return nil
+	}
+
+	return errPrecondition("Workflow %q does not exist.", wf)
+}
+
 func (b *InMemoryBackend) checkChannelLocked(t *eventarcpb.Trigger) error {
 	if t.GetChannel() == "" {
 		return nil
@@ -299,6 +321,10 @@ func (b *InMemoryBackend) CreateTrigger(in *eventarcpb.CreateTriggerRequest) (*l
 	}
 
 	if err = b.checkChannelLocked(t); err != nil {
+		return nil, err
+	}
+
+	if err = b.checkWorkflowLocked(t); err != nil {
 		return nil, err
 	}
 
@@ -494,6 +520,10 @@ func (b *InMemoryBackend) UpdateTrigger(in *eventarcpb.UpdateTriggerRequest) (*l
 		return nil, errInvalid("The type event filter cannot be changed.")
 	}
 
+	if err = b.checkWorkflowLocked(next); err != nil {
+		return nil, err
+	}
+
 	next.UpdateTime = b.ts()
 	next.Etag = etagOf(next)
 
@@ -519,6 +549,10 @@ func (b *InMemoryBackend) upsertMissingLocked(
 	}
 
 	if err = b.checkChannelLocked(t); err != nil {
+		return nil, err
+	}
+
+	if err = b.checkWorkflowLocked(t); err != nil {
 		return nil, err
 	}
 

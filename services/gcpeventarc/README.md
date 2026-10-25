@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 24 (17 ok, 7 partial) |
-| Feature families | 7 (4 ok, 3 partial) |
+| Feature families | 8 (5 ok, 3 partial) |
 | Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,7 +17,7 @@
 
 - Cloud Audit Logs events (google.cloud.audit.log.v1.written) are not delivered: the Logging emulator keeps no audit log entries to match. Triggers for them are rejected.
 - Only Pub/Sub and Cloud Storage events exist; every other Google source (Firebase, Cloud Build, Firestore, Artifact Registry, direct events of other services) and third-party providers are absent from ListProviders, and triggers on a channel are stored but receive no events.
-- Triggers cannot target Workflows or GKE (not emulated); Cloud Functions are reached through the Cloud Run destination, a trigger cannot set cloud_function (the API forbids it).
+- Triggers cannot target GKE (not emulated); Cloud Functions are reached through the Cloud Run destination, a trigger cannot set cloud_function (the API forbids it).
 - MessageBus, Enrollment, Pipeline, GoogleApiSource, LoggingConfig and Eventarc Advanced are UNIMPLEMENTED.
 - retry_policy.max_attempts is stored but not enforced, and there is no dead-letter handling; delivery retries until the subscription's 24 hour retention expires.
 - network_config, event_data_content_type application/protobuf, CMEK (crypto_key_name) and satisfies_pzs are not honoured; trigger conditions are always empty.

@@ -13,6 +13,7 @@ import (
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
+	gcpworkflowsbackend "github.com/blackbirdworks/gopherstack/services/gcpworkflows"
 )
 
 var errNoEventarcTarget = errors.New("no Cloud Run service or function")
@@ -53,7 +54,7 @@ func (t eventarcTargets) ServiceURL(project, region, service string) (string, er
 }
 
 // wireGCPEventarc connects Eventarc to Pub/Sub (event transport), Cloud Run and Cloud Functions
-// (destinations) and Cloud Storage (object events).
+// and Workflows (destinations) and Cloud Storage (object events).
 func wireGCPEventarc(byName map[string]service.Registerable) {
 	ea, ok := byName["GCPEventarc"].(*gcpeventarcbackend.Handler)
 	if !ok {
@@ -64,6 +65,10 @@ func wireGCPEventarc(byName map[string]service.Registerable) {
 
 	if ps, isPS := byName["GCPPubSub"].(*gcppubsubbackend.Handler); isPS {
 		svc.PubSub = ps.Backend
+	}
+
+	if wf, isWF := byName["GCPWorkflows"].(*gcpworkflowsbackend.Handler); isWF {
+		svc.Workflows = wf.Backend
 	}
 
 	var targets eventarcTargets

@@ -26,6 +26,7 @@ require (
 	cloud.google.com/go/scheduler v1.17.0 // indirect
 	cloud.google.com/go/secretmanager v1.22.0 // indirect
 	cloud.google.com/go/spanner v1.96.1 // indirect
+	cloud.google.com/go/workflows v1.20.0 // indirect
 	connectrpc.com/connect v1.21.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect

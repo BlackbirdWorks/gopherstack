@@ -943,6 +943,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Google Cloud Storage](services/gcpstorage/README.md) | B | 23 | 8 gaps |
 | [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 15 | 4 gaps |
 | [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 7 gaps |
+| [Workflows](services/gcpworkflows/README.md) | B | 13 | 8 gaps |
 
 ### Other
 
