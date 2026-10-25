@@ -336,3 +336,83 @@ func TestTableBatch_AztablesSubmitTransaction(t *testing.T) {
 	_, err = client.GetEntity(t.Context(), "p", "a", nil)
 	require.Error(t, err)
 }
+
+func buildRetrieveBatch(path string, extra bool) string {
+	var sb strings.Builder
+
+	sb.WriteString("--" + batchBoundary + "\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n")
+	sb.WriteString("GET http://localhost/" + path + " HTTP/1.1\r\nAccept: application/json;odata=minimalmetadata\r\n\r\n")
+
+	if extra {
+		sb.WriteString("--" + batchBoundary + "\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n")
+		sb.WriteString("GET http://localhost/" + path + " HTTP/1.1\r\n\r\n")
+	}
+
+	sb.WriteString("--" + batchBoundary + "--\r\n")
+
+	return sb.String()
+}
+
+func TestTableBatch_SingleRetrieve(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       func() string
+		wantStatus int
+		wantParts  []string
+		wantBody   string
+	}{
+		{
+			name:       "hit",
+			body:       func() string { return buildRetrieveBatch(entityKey("a"), false) },
+			wantStatus: http.StatusAccepted, wantParts: []string{"200"}, wantBody: `"V":"x"`,
+		},
+		{
+			name:       "miss",
+			body:       func() string { return buildRetrieveBatch(entityKey("zz"), false) },
+			wantStatus: http.StatusAccepted, wantParts: []string{"404"}, wantBody: `"code":"ResourceNotFound"`,
+		},
+		{
+			name:       "second operation outside a changeset",
+			body:       func() string { return buildRetrieveBatch(entityKey("a"), true) },
+			wantStatus: http.StatusBadRequest, wantBody: "only operation",
+		},
+		{
+			name: "inside a changeset",
+			body: func() string {
+				return buildBatch(batchOp{method: "GET", path: entityKey("a")})
+			},
+			wantStatus: http.StatusBadRequest, wantBody: "only operation",
+		},
+		{
+			name: "payload over 4 MiB",
+			body: func() string {
+				return buildBatch(batchOp{
+					method: "POST", path: "t",
+					body: `{"PartitionKey":"p","RowKey":"big","V":"` + strings.Repeat("a", 4<<20) + `"}`,
+				})
+			},
+			wantStatus: http.StatusBadRequest, wantBody: "4 MiB",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newBatchTable(t)
+			require.Equal(t, http.StatusCreated,
+				doRequest(t, h, http.MethodPost, "/t", nil, []byte(`{"PartitionKey":"p","RowKey":"a","V":"x"}`)).Code)
+
+			rec := postBatch(t, h, tt.body())
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+
+			if tt.wantParts != nil {
+				assert.Equal(t, tt.wantParts, partStatuses(rec.Body.String()))
+				assert.NotContains(t, rec.Body.String(), "changesetresponse_")
+			}
+		})
+	}
+}

@@ -20,9 +20,13 @@ func (h *Handler) handleTableBatch(c *echo.Context) error {
 			"The resource doesn't support the specified HTTP verb.")
 	}
 
-	ops, parseErr := odatatable.ReadBatch(r, func(p string) string { return strings.Trim(p, "/") })
+	ops, parseErr := odatatable.ReadBatchOrRetrieve(r, func(p string) string { return strings.Trim(p, "/") })
 	if parseErr != nil {
 		return h.writeTableError(c, http.StatusBadRequest, "InvalidInput", "99:"+parseErr.Error())
+	}
+
+	if ops[0].Op.Kind == odatatable.BatchRetrieve {
+		return h.writeBatchRetrieve(c, ops[0])
 	}
 
 	if idx, failure := odatatable.ValidateBatch(ops); failure != nil {
@@ -45,6 +49,47 @@ func (h *Handler) handleTableBatch(c *echo.Context) error {
 	}
 
 	return h.writeBatchSuccess(c, ops, infos)
+}
+
+// writeBatchRetrieve answers 202 with the single retrieve's own response (200 and the entity, or its error).
+func (h *Handler) writeBatchRetrieve(c *echo.Context, o odatatable.WireBatchOp) error {
+	info, err := h.TableBackend.GetEntity(o.Table, o.Op.PartitionKey, o.Op.RowKey)
+	if err != nil {
+		f := odatatable.BatchFailureFor(err)
+
+		body, bodyErr := odatatable.FailureBody(0, f, newDocumentID(), time.Now().UTC().Format(time.RFC3339Nano))
+		if bodyErr != nil {
+			return h.writeTableError(c, http.StatusInternalServerError, "InternalError", bodyErr.Error())
+		}
+
+		return h.writeRetrievePart(c, odatatable.BatchResponsePart{
+			Status:  f.Status,
+			Headers: [][2]string{{"Content-Type", "application/json;odata=minimalmetadata;streaming=true;charset=utf-8"}},
+			Body:    body,
+		})
+	}
+
+	level := tableODataLevelFromAccept(o.Headers.Get("Accept"))
+
+	payload, err := jsonMarshal(h.encodeTableEntity(info, o.Table, level, "", c.Request().Host))
+	if err != nil {
+		return h.writeTableError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	}
+
+	return h.writeRetrievePart(c, odatatable.BatchResponsePart{
+		Status: http.StatusOK,
+		Headers: [][2]string{
+			{"ETag", info.ETag},
+			{"Content-Type", "application/json;odata=" + level + ";streaming=true;charset=utf-8"},
+		},
+		Body: payload,
+	})
+}
+
+func (h *Handler) writeRetrievePart(c *echo.Context, part odatatable.BatchResponsePart) error {
+	contentType, body := odatatable.RenderRetrieveResponse(part, newDocumentID)
+
+	return c.Blob(http.StatusAccepted, contentType, body)
 }
 
 // writeBatchFailure answers 202 with a changeset holding only the failing operation's response.
