@@ -231,6 +231,7 @@ import (
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
 	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -658,6 +659,7 @@ type CLI struct {
 	SQS                           sqsbackend.Settings               `embed:"" prefix:"sqs-"`
 	Localstack                    LocalstackSettings                `embed:"" prefix:"localstack-"`
 	OCIVault                      ocivaultbackend.Settings          `embed:"" prefix:"oci-vault-"`
+	OCIStreaming                  ocistreamingbackend.Settings      `embed:"" prefix:"oci-streaming-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -814,6 +816,11 @@ func (c *CLI) GetOCIObjectStorageSettings() ociobjectstoragebackend.Settings {
 // GetOCIVaultSettings returns OCI Vault settings (ocivault.ConfigProvider).
 func (c *CLI) GetOCIVaultSettings() ocivaultbackend.Settings {
 	return c.OCIVault
+}
+
+// GetOCIStreamingSettings returns OCI Streaming settings (ocistreaming.ConfigProvider).
+func (c *CLI) GetOCIStreamingSettings() ocistreamingbackend.Settings {
+	return c.OCIStreaming
 }
 
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
@@ -2549,6 +2556,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 		{"OCIObjectStorage", "ociobjectstorage", cli.OCIObjectStorage.Port},
 		{"OCIVault", "ocivault", cli.OCIVault.Port},
+		{"OCIStreaming", "ocistreaming", cli.OCIStreaming.Port},
 	}
 }
 
@@ -3522,6 +3530,17 @@ func wireCrossServiceDependencies(
 	wireAppSyncAndStreamsIntegrations(byName, sigV4SecretOf(appCtx))
 	wireSchedulerAndPipesIntegrations(byName)
 	wireGovernanceIntegrations(byName, services)
+	wireOCIStreamingVault(byName)
+}
+
+// wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
+func wireOCIStreamingVault(byName map[string]service.Registerable) {
+	streamingH, sok := byName["OCIStreaming"].(*ocistreamingbackend.Handler)
+	vaultH, vok := byName["OCIVault"].(*ocivaultbackend.Handler)
+
+	if sok && vok {
+		streamingH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+	}
 }
 
 // wireMessagingAndEventingIntegrations wires SNS, SQS, EventBridge, and S3
@@ -4924,6 +4943,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpstoragebackend.Provider{},
 		&ociobjectstoragebackend.Provider{},
 		&ocivaultbackend.Provider{},
+		&ocistreamingbackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
