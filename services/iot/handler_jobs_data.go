@@ -58,7 +58,9 @@ func isJobsDataRequest(r *http.Request) bool {
 // jobsDataBackend is the device-side Jobs data plane surface of the backend.
 type jobsDataBackend interface {
 	GetPendingJobExecutions(thingName string) ([]*DeviceJobExecution, []*DeviceJobExecution, error)
-	StartNextPendingJobExecution(thingName string, statusDetails map[string]string) (*DeviceJobExecution, bool, error)
+	StartNextPendingJobExecution(
+		thingName string, statusDetails map[string]string, stepTimeoutMinutes *int64,
+	) (*DeviceJobExecution, bool, error)
 	DescribeDeviceJobExecution(
 		thingName, jobID string,
 		executionNumber int64,
@@ -75,6 +77,7 @@ func (h *Handler) jobsData() (jobsDataBackend, bool) {
 
 type deviceExecutionJSON struct {
 	StatusDetails   map[string]string  `json:"statusDetails,omitempty"`
+	ApproxSecs      int64              `json:"approximateSecondsBeforeTimedOut,omitempty"`
 	JobID           string             `json:"jobId"`
 	ThingName       string             `json:"thingName,omitempty"`
 	Status          JobExecutionStatus `json:"status,omitempty"`
@@ -97,6 +100,7 @@ func toDeviceExecutionJSON(e *DeviceJobExecution, summary bool) deviceExecutionJ
 	}
 
 	if !summary {
+		out.ApproxSecs = e.ApproximateSecondsBeforeTimedOut
 		out.ThingName = e.ThingName
 		out.Status = e.Status
 		out.StatusDetails = e.StatusDetails
@@ -161,13 +165,14 @@ func (h *Handler) handleGetPendingJobExecutions(c *echo.Context, thing string) e
 
 func (h *Handler) handleStartNextPendingJobExecution(c *echo.Context, thing string) error {
 	var body struct {
-		StatusDetails map[string]string `json:"statusDetails"`
+		StatusDetails        map[string]string `json:"statusDetails"`
+		StepTimeoutInMinutes *int64            `json:"stepTimeoutInMinutes"`
 	}
 	if err := decodeJSONBody(c, &body); err != nil {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
-	exec, found, err := h.mustJobsData().StartNextPendingJobExecution(thing, body.StatusDetails)
+	exec, found, err := h.mustJobsData().StartNextPendingJobExecution(thing, body.StatusDetails, body.StepTimeoutInMinutes)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -194,6 +199,7 @@ func (h *Handler) handleDescribeDeviceJobExecution(c *echo.Context, thing, jobID
 func (h *Handler) handleUpdateDeviceJobExecution(c *echo.Context, thing, jobID string) error {
 	var body struct {
 		StatusDetails            map[string]string `json:"statusDetails"`
+		StepTimeoutInMinutes     *int64            `json:"stepTimeoutInMinutes"`
 		Status                   string            `json:"status"`
 		ExpectedVersion          int64             `json:"expectedVersion"`
 		ExecutionNumber          int64             `json:"executionNumber"`
@@ -211,6 +217,8 @@ func (h *Handler) handleUpdateDeviceJobExecution(c *echo.Context, thing, jobID s
 		ExpectedVersion: body.ExpectedVersion,
 		ExecutionNumber: body.ExecutionNumber,
 		StatusDetails:   body.StatusDetails,
+
+		StepTimeoutMinutes: body.StepTimeoutInMinutes,
 	})
 	if err != nil {
 		return h.handleError(c, err)
