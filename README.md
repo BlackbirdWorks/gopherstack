@@ -889,7 +889,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 1 gap; 1 structural gap |
-| [IoT Core](services/iot/README.md) | A | 88 | 10 gaps; 4 structural gaps |
+| [IoT Core](services/iot/README.md) | A | 88 | 11 gaps; 4 structural gaps |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 1 structural gap; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 structural gaps |
 
