@@ -3311,10 +3311,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.azureEventHubsHandler = byName["AzureEventHubs"]
 	cli.azureEventGridHandler = byName["AzureEventGrid"]
 	cli.azureAppConfigHandler = byName["AzureAppConfig"]
-	cli.azureFunctionsHandler = byName["AzureFunctions"]
-	cli.gcpCloudBuildHandler = byName["GCPCloudBuild"]
-	cli.gcpRedisHandler = byName["GCPRedis"]
-	cli.gcpMonitoringHandler = byName["GCPMonitoring"]
+	storeConsoleHandlers(cli, byName)
 	cli.gcpSQLHandler = byName["GCPSQL"]
 	cli.gcpLoggingHandler = byName["GCPLogging"]
 	cli.cosmosDBHandler = byName["CosmosDB"]

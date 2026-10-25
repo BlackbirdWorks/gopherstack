@@ -24,7 +24,9 @@ func functionAppZip(t *testing.T) []byte {
 	zw := zip.NewWriter(&buf)
 	w, err := zw.Create("hello/function.json")
 	require.NoError(t, err)
-	_, err = w.Write([]byte(`{"bindings":[{"type":"httpTrigger","authLevel":"anonymous","direction":"in","name":"req"}]}`))
+	_, err = w.Write([]byte(
+		`{"bindings":[{"type":"httpTrigger","authLevel":"anonymous","direction":"in","name":"req"}]}`,
+	))
 	require.NoError(t, err)
 	w, err = zw.Create("tick/function.json")
 	require.NoError(t, err)

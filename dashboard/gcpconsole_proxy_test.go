@@ -62,10 +62,10 @@ func TestGCPCloudBuildProxy(t *testing.T) {
 	}
 
 	tests := []struct {
-		name  string
 		steps func(build, trig string) []gcpStep
+		name  string
 	}{
-		{"browse", func(build, trig string) []gcpStep {
+		{name: "browse", steps: func(build, trig string) []gcpStep {
 			b := loc + "/builds/" + build
 
 			return []gcpStep{
@@ -78,7 +78,7 @@ func TestGCPCloudBuildProxy(t *testing.T) {
 				{http.MethodGet, loc + "/builds/nope", "", "NOT_FOUND", http.StatusNotFound},
 			}
 		}},
-		{"actions", func(build, trig string) []gcpStep {
+		{name: "actions", steps: func(build, trig string) []gcpStep {
 			return []gcpStep{
 				{http.MethodPost, trigger + trig + ":run", `{}`, `"name"`, 200},
 				{http.MethodPost, loc + "/builds/" + build + ":retry", `{}`, `"name"`, 200},
@@ -86,7 +86,7 @@ func TestGCPCloudBuildProxy(t *testing.T) {
 				{http.MethodGet, trigger + trig, "", "NOT_FOUND", http.StatusNotFound},
 			}
 		}},
-		{"rejects", func(build, trig string) []gcpStep {
+		{name: "rejects", steps: func(build, trig string) []gcpStep {
 			return []gcpStep{
 				{http.MethodGet, loc + "/other", "", "unsupported", http.StatusNotFound},
 				{http.MethodPost, loc + "/builds", "{}", "unsupported", http.StatusNotFound},
@@ -173,7 +173,16 @@ func TestGCPRedisProxy(t *testing.T) {
 func TestGCPMonitoringProxy(t *testing.T) {
 	t.Parallel()
 
-	const root = "/dashboard/api/v1/gcp/monitoring/v3/projects/p"
+	const (
+		root         = "/dashboard/api/v1/gcp/monitoring/v3/projects/p"
+		queueFilter  = `metric.type="custom.googleapis.com/queue_depth"`
+		descQueue    = root + "/metricDescriptors/custom.googleapis.com/queue_depth"
+		descNope     = root + "/metricDescriptors/custom.googleapis.com/nope"
+		wrongVersion = "/dashboard/api/v1/gcp/monitoring/v1/projects/p/alertPolicies"
+		badEnd       = root + "/timeSeries?interval.endTime=bad"
+		aligned      = "&aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MAX"
+		badAlign     = "&aggregation.alignmentPeriod=bad"
+	)
 
 	end := time.Now().UTC().Truncate(time.Second)
 	start := end.Add(-time.Hour)
@@ -213,7 +222,7 @@ func TestGCPMonitoringProxy(t *testing.T) {
 					DisplayName: "gt3",
 					Condition: &monitoringpb.AlertPolicy_Condition_ConditionThreshold{
 						ConditionThreshold: &monitoringpb.AlertPolicy_Condition_MetricThreshold{
-							Filter:         `metric.type="custom.googleapis.com/queue_depth" AND resource.type="global"`,
+							Filter:         queueFilter + ` AND resource.type="global"`,
 							Comparison:     monitoringpb.ComparisonType_COMPARISON_GT,
 							ThresholdValue: 3,
 							Duration:       durationpb.New(time.Minute),
@@ -227,10 +236,15 @@ func TestGCPMonitoringProxy(t *testing.T) {
 		check, err := b.CreateUptimeCheckConfig(&monitoringpb.CreateUptimeCheckConfigRequest{
 			Parent: "projects/p",
 			UptimeCheckConfig: &monitoringpb.UptimeCheckConfig{
-				DisplayName: "home", Period: durationpb.New(time.Minute), Timeout: durationpb.New(10 * time.Second),
-				Resource: &monitoringpb.UptimeCheckConfig_MonitoredResource{MonitoredResource: &monitoredres.MonitoredResource{
-					Type: "uptime_url", Labels: map[string]string{"host": "example.com", "project_id": "p"},
-				}},
+				DisplayName: "home",
+				Period:      durationpb.New(time.Minute),
+				Timeout:     durationpb.New(10 * time.Second),
+				Resource: &monitoringpb.UptimeCheckConfig_MonitoredResource{
+					MonitoredResource: &monitoredres.MonitoredResource{
+						Type:   "uptime_url",
+						Labels: map[string]string{"host": "example.com", "project_id": "p"},
+					},
+				},
 				CheckRequestType: &monitoringpb.UptimeCheckConfig_HttpCheck_{
 					HttpCheck: &monitoringpb.UptimeCheckConfig_HttpCheck{Path: "/", Port: 80},
 				},
@@ -251,12 +265,14 @@ func TestGCPMonitoringProxy(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		return dashboard.NewHandler(dashboard.Config{GCPMonitoringOps: m}), policy.GetName(), check.GetName(), snooze.GetName()
+		h := dashboard.NewHandler(dashboard.Config{GCPMonitoringOps: m})
+
+		return h, policy.GetName(), check.GetName(), snooze.GetName()
 	}
 
 	series := func(extra string) string {
 		q := url.Values{}
-		q.Set("filter", `metric.type="custom.googleapis.com/queue_depth"`)
+		q.Set("filter", queueFilter)
 		q.Set("interval.startTime", start.Format(time.RFC3339))
 		q.Set("interval.endTime", end.Format(time.RFC3339))
 
@@ -264,18 +280,18 @@ func TestGCPMonitoringProxy(t *testing.T) {
 	}
 
 	tests := []struct {
-		name  string
 		steps func(policy, check, snooze string) []gcpStep
+		name  string
 	}{
-		{"browse", func(policy, check, snooze string) []gcpStep {
+		{name: "browse", steps: func(policy, check, snooze string) []gcpStep {
 			const prefix = "/dashboard/api/v1/gcp/monitoring/v3/"
 
 			return []gcpStep{
 				{http.MethodGet, root + "/metricDescriptors", "", "custom.googleapis.com/queue_depth", 200},
-				{http.MethodGet, root + "/metricDescriptors/custom.googleapis.com/queue_depth", "", `"description":"depth"`, 200},
-				{http.MethodGet, root + "/metricDescriptors/custom.googleapis.com/nope", "", "NOT_FOUND", http.StatusNotFound},
+				{http.MethodGet, descQueue, "", `"description":"depth"`, 200},
+				{http.MethodGet, descNope, "", "NOT_FOUND", http.StatusNotFound},
 				{http.MethodGet, series(""), "", `"int64Value":"7"`, 200},
-				{http.MethodGet, series("&aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MAX"), "", `"points"`, 200},
+				{http.MethodGet, series(aligned), "", `"points"`, 200},
 				{http.MethodGet, root + "/alertPolicies", "", "deep queue", 200},
 				{http.MethodGet, prefix + policy, "", "deep queue", 200},
 				{http.MethodGet, root + "/uptimeCheckConfigs", "", `"home"`, 200},
@@ -285,7 +301,7 @@ func TestGCPMonitoringProxy(t *testing.T) {
 				{http.MethodGet, root + "/notificationChannels", "", "{", 200},
 			}
 		}},
-		{"actions", func(policy, check, _ string) []gcpStep {
+		{name: "actions", steps: func(policy, check, _ string) []gcpStep {
 			const prefix = "/dashboard/api/v1/gcp/monitoring/v3/"
 
 			return []gcpStep{
@@ -295,19 +311,19 @@ func TestGCPMonitoringProxy(t *testing.T) {
 				{http.MethodGet, prefix + check, "", "NOT_FOUND", http.StatusNotFound},
 			}
 		}},
-		{"rejects", func(policy, _, _ string) []gcpStep {
+		{name: "rejects", steps: func(policy, _, _ string) []gcpStep {
 			const prefix = "/dashboard/api/v1/gcp/monitoring/v3/"
 
 			return []gcpStep{
 				{http.MethodGet, root + "/other", "", "unsupported", http.StatusNotFound},
-				{http.MethodGet, "/dashboard/api/v1/gcp/monitoring/v1/projects/p/alertPolicies", "", "unsupported", http.StatusBadRequest},
+				{http.MethodGet, wrongVersion, "", "unsupported", http.StatusBadRequest},
 				{http.MethodPost, root + "/timeSeries", "{}", "unsupported", http.StatusNotFound},
 				{http.MethodPost, root + "/alertPolicies", "{}", "unsupported", http.StatusNotFound},
 				{http.MethodPut, prefix + policy, "{}", "unsupported", http.StatusNotFound},
 				{http.MethodPost, prefix + policy + ":bogus", "", "unsupported", http.StatusNotFound},
-				{http.MethodDelete, root + "/metricDescriptors/custom.googleapis.com/queue_depth", "", "unsupported", http.StatusNotFound},
-				{http.MethodGet, root + "/timeSeries?interval.endTime=bad", "", "invalid timestamp", http.StatusBadRequest},
-				{http.MethodGet, series("&aggregation.alignmentPeriod=bad"), "", "alignmentPeriod", http.StatusBadRequest},
+				{http.MethodDelete, descQueue, "", "unsupported", http.StatusNotFound},
+				{http.MethodGet, badEnd, "", "invalid timestamp", http.StatusBadRequest},
+				{http.MethodGet, series(badAlign), "", "alignmentPeriod", http.StatusBadRequest},
 			}
 		}},
 	}

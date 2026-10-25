@@ -46,3 +46,10 @@ func (c *CLI) GetGCPRedisHandler() service.Registerable { return c.gcpRedisHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPMonitoringHandler() service.Registerable { return c.gcpMonitoringHandler }
+
+func storeConsoleHandlers(cli *CLI, byName map[string]service.Registerable) {
+	cli.azureFunctionsHandler = byName["AzureFunctions"]
+	cli.gcpCloudBuildHandler = byName["GCPCloudBuild"]
+	cli.gcpRedisHandler = byName["GCPRedis"]
+	cli.gcpMonitoringHandler = byName["GCPMonitoring"]
+}

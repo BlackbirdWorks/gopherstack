@@ -206,3 +206,15 @@ type gcpRESTErrorBody struct {
 type gcpRESTErrorEnvelope struct {
 	Error gcpRESTErrorBody `json:"error"`
 }
+
+// registerConsolePageRoutes mounts the in-process proxies behind the Azure Functions and newer GCP console pages.
+func (h *DashboardHandler) registerConsolePageRoutes() {
+	h.registerGCPBigtableRoutes()
+	h.registerGCPEventarcRoutes()
+	h.registerGCPSpannerRoutes()
+	h.registerGCPArtifactRegistryRoutes()
+	h.registerGCPCloudBuildRoutes()
+	h.registerGCPRedisRoutes()
+	h.registerGCPMonitoringRoutes()
+	h.registerAzureFunctionsRoutes()
+}
