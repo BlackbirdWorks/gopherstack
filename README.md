@@ -62,6 +62,22 @@ aws dynamodb list-tables --endpoint-url http://localhost:8000
 aws s3 mb s3://my-bucket --endpoint-url http://localhost:8000
 ```
 
+## Managing a local instance
+
+The `gopherstack` binary can run and manage a local instance itself. It binds to loopback only unless you pass `--bind`.
+
+```bash
+gopherstack start                      # Docker container from ghcr.io/blackbirdworks/gopherstack:latest
+gopherstack start --host --persist     # background host process, state kept under the state dir
+gopherstack status [--json]            # version, uptime, per-cloud services and their state
+gopherstack logs -f -n 200             # tail / follow the container or host-process log
+gopherstack reset [--service S3]       # clear in-memory state on the running server
+gopherstack snapshot save|load|list    # named state snapshots (same machinery as `gopherstack pod`)
+gopherstack stop                       # stop and remove it (safe to repeat)
+```
+
+`start` flags: `--image`, `--tag`, `--host`, `--bind` (default `127.0.0.1`), `--port` (default `8000`), `-p/--publish` for extra ports, `--data-dir` (mounted at `/data` in the container), `--persist`, `-e/--env KEY=VALUE` (or `KEY` to copy from your shell), `--timeout`, `--name`, `--state-dir`. It waits for `/_gopherstack/health` and, on failure, prints the tail of the container or process log. The pidfile, state and host log live in `$XDG_STATE_HOME/gopherstack` (`~/.local/state/gopherstack`). Commands that talk to a running server use `--endpoint` / `GOPHERSTACK_ENDPOINT` (default `http://localhost:8000`).
+
 ## Installation
 
 ### Docker

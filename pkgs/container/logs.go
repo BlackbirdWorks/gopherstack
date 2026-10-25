@@ -34,8 +34,24 @@ func (r *realDockerClient) ContainerLogs(
 	return r.c.ContainerLogs(ctx, containerID, options)
 }
 
+// LogReader is implemented by runtimes that can read a container's recent logs, optionally following them.
+type LogReader interface {
+	// ReadLogs writes the last tail lines (all when tail is empty) to the writers; follow keeps streaming.
+	ReadLogs(ctx context.Context, containerID, tail string, follow bool, stdout, stderr io.Writer) error
+}
+
 // StreamLogs follows the container's logs, demultiplexing stdout and stderr into the writers.
 func (r *DockerRuntime) StreamLogs(ctx context.Context, containerID string, stdout, stderr io.Writer) error {
+	return r.ReadLogs(ctx, containerID, "", true, stdout, stderr)
+}
+
+// ReadLogs reads the container's logs, demultiplexing stdout and stderr into the writers.
+func (r *DockerRuntime) ReadLogs(
+	ctx context.Context,
+	containerID, tail string,
+	follow bool,
+	stdout, stderr io.Writer,
+) error {
 	api, ok := r.docker.(LogsAPIClient)
 	if !ok {
 		return ErrLogsUnsupported
@@ -44,7 +60,8 @@ func (r *DockerRuntime) StreamLogs(ctx context.Context, containerID string, stdo
 	rc, err := api.ContainerLogs(ctx, containerID, dockercontainer.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Follow:     true,
+		Follow:     follow,
+		Tail:       tail,
 	})
 	if err != nil {
 		return fmt.Errorf("container logs %q: %w", containerID, err)

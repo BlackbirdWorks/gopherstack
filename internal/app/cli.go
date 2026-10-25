@@ -2258,6 +2258,12 @@ func (c *CLI) GetPortAllocator() *portalloc.Allocator { return c.portAlloc }
 // Docker healthcheck from scratch containers.
 type rootCLI struct {
 	Health    HealthCmd    `cmd:"" help:"Check server health (for Docker healthcheck)."`
+	Start     StartCmd     `cmd:"" help:"Start a local Gopherstack (Docker container by default, --host for a background process)."`
+	Stop      StopCmd      `cmd:"" help:"Stop the Gopherstack started by 'start'."`
+	Status    StatusCmd    `cmd:"" help:"Show whether Gopherstack is running, its version, uptime and services."`
+	Logs      LogsCmd      `cmd:"" help:"Show or follow the logs of the Gopherstack started by 'start'."`
+	Reset     ResetCmd     `cmd:"" help:"Reset in-memory state on the running server."`
+	Snapshot  SnapshotCmd  `cmd:"" help:"Save, load and list state snapshots (alias of pod)."`
 	Pod       PodCmd       `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
 	Replicate ReplicateCmd `cmd:"" help:"Copy resources from real AWS into a running server."`
 	Serve     CLI          `cmd:"" help:"Start the Gopherstack server."                            default:"withargs"`
@@ -2312,6 +2318,7 @@ func Run() {
 
 	kctx := kong.Parse(
 		&root,
+		kong.Bind(newLifecycleDeps()),
 		kong.Name("gopherstack"),
 		kong.Description("In-memory AWS DynamoDB + S3 compatible server."),
 	)
@@ -2325,7 +2332,11 @@ func Run() {
 	switch kctx.Command() {
 	case "health":
 		err = root.Health.Run()
-	case "pod save <name>",
+	case "start", "stop", "status", "logs", "reset",
+		"snapshot save <name>",
+		"snapshot load <name>",
+		"snapshot list",
+		"pod save <name>",
 		"pod load <name>",
 		"pod list",
 		"pod versions <name>",
@@ -2910,6 +2921,8 @@ func buildHTTPErrorHandler() func(*echo.Context, error) {
 // buildHealthHandler returns the /_gopherstack/health handler. It reports service
 // names and runtime memory/goroutine stats.
 func buildHealthHandler(services []service.Registerable, disabled []string) echo.HandlerFunc {
+	started := time.Now()
+
 	return func(c *echo.Context) error {
 		names := make([]string, 0, len(services))
 		for _, svc := range services {
@@ -2926,6 +2939,7 @@ func buildHealthHandler(services []service.Registerable, disabled []string) echo
 			Version:    version.Get(),
 			Services:   names,
 			Disabled:   disabled,
+			UptimeSecs: int64(time.Since(started).Seconds()),
 			Goroutines: runtime.NumGoroutine(),
 			HeapAllocB: ms.HeapAlloc,
 			HeapInuseB: ms.HeapInuse,
@@ -12418,6 +12432,8 @@ type healthResponse struct {
 	Services []string `json:"services"`
 	// Disabled lists services turned off via --services / --disable-services.
 	Disabled []string `json:"disabled,omitempty"`
+	// UptimeSecs is the seconds since the health handler was built (server start).
+	UptimeSecs int64 `json:"uptime_seconds"`
 	// Goroutines is the current number of live goroutines (runtime.NumGoroutine).
 	// A sustained upward trend indicates a goroutine leak.
 	Goroutines int `json:"goroutines"`
