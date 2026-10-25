@@ -27,7 +27,7 @@ type storedPolicy struct {
 	PolicyID         string               `json:"policyId"`
 	State            string               `json:"state"`
 	// StatusMessage stays empty: this state machine never produces ERROR.
-	StatusMessage    string               `json:"statusMessage,omitempty"`
+	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
 // managedResource is a snapshot or AMI a policy created and is responsible for expiring.

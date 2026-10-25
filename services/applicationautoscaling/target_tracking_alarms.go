@@ -15,6 +15,10 @@ const (
 	alarmHighKind             = "AlarmHigh"
 	alarmLowKind              = "AlarmLow"
 
+	statAverage          = "Average"
+	metricCPU            = "CPUUtilization"
+	nsEC2Spot            = "AWS/EC2Spot"
+	albLabelSlashes      = 5
 	alarmPeriodSeconds   = 60
 	scaleOutDatapoints   = 3
 	scaleInDatapoints    = 15
@@ -107,7 +111,7 @@ func customMetric(c map[string]any) metricShape {
 
 	stat := asString(c["Statistic"])
 	if stat == "" {
-		stat = "Average"
+		stat = statAverage
 	}
 
 	return metricShape{
@@ -189,26 +193,26 @@ func appStreamDims(id, _ string) []cwbackend.Dimension {
 
 func predefinedTable() map[string]predefinedSpec {
 	return map[string]predefinedSpec{
-		"ECSServiceAverageCPUUtilization":          {ecsDims, "AWS/ECS", "CPUUtilization", "Average"},
-		"ECSServiceAverageMemoryUtilization":       {ecsDims, "AWS/ECS", "MemoryUtilization", "Average"},
+		"ECSServiceAverageCPUUtilization":          {ecsDims, "AWS/ECS", metricCPU, statAverage},
+		"ECSServiceAverageMemoryUtilization":       {ecsDims, "AWS/ECS", "MemoryUtilization", statAverage},
 		"ALBRequestCountPerTarget":                 {albDims, "AWS/ApplicationELB", "RequestCountPerTarget", "Sum"},
-		"RDSReaderAverageCPUUtilization":           {readerDims, "AWS/RDS", "CPUUtilization", "Average"},
-		"RDSReaderAverageDatabaseConnections":      {readerDims, "AWS/RDS", "DatabaseConnections", "Average"},
-		"NeptuneReaderAverageCPUUtilization":       {readerDims, "AWS/Neptune", "CPUUtilization", "Average"},
+		"RDSReaderAverageCPUUtilization":           {readerDims, "AWS/RDS", metricCPU, statAverage},
+		"RDSReaderAverageDatabaseConnections":      {readerDims, "AWS/RDS", "DatabaseConnections", statAverage},
+		"NeptuneReaderAverageCPUUtilization":       {readerDims, "AWS/Neptune", metricCPU, statAverage},
 		"SageMakerVariantInvocationsPerInstance":   {sageMakerDims, "AWS/SageMaker", "InvocationsPerInstance", "Sum"},
-		"EC2SpotFleetRequestAverageCPUUtilization": {spotFleetDims, "AWS/EC2Spot", "CPUUtilization", "Average"},
-		"EC2SpotFleetRequestAverageNetworkIn":      {spotFleetDims, "AWS/EC2Spot", "NetworkIn", "Average"},
-		"EC2SpotFleetRequestAverageNetworkOut":     {spotFleetDims, "AWS/EC2Spot", "NetworkOut", "Average"},
+		"EC2SpotFleetRequestAverageCPUUtilization": {spotFleetDims, nsEC2Spot, metricCPU, statAverage},
+		"EC2SpotFleetRequestAverageNetworkIn":      {spotFleetDims, nsEC2Spot, "NetworkIn", statAverage},
+		"EC2SpotFleetRequestAverageNetworkOut":     {spotFleetDims, nsEC2Spot, "NetworkOut", statAverage},
 		"LambdaProvisionedConcurrencyUtilization": {
-			lambdaDims, "AWS/Lambda", "ProvisionedConcurrencyUtilization", "Average",
+			lambdaDims, "AWS/Lambda", "ProvisionedConcurrencyUtilization", statAverage,
 		},
 		"ElastiCachePrimaryEngineCPUUtilization": {
-			roleDims("Primary"), "AWS/ElastiCache", "EngineCPUUtilization", "Average",
+			roleDims("Primary"), "AWS/ElastiCache", "EngineCPUUtilization", statAverage,
 		},
 		"ElastiCacheReplicaEngineCPUUtilization": {
-			roleDims("Replica"), "AWS/ElastiCache", "EngineCPUUtilization", "Average",
+			roleDims("Replica"), "AWS/ElastiCache", "EngineCPUUtilization", statAverage,
 		},
-		"AppStreamAverageCapacityUtilization": {appStreamDims, "AWS/AppStream", "CapacityUtilization", "Average"},
+		"AppStreamAverageCapacityUtilization": {appStreamDims, "AWS/AppStream", "CapacityUtilization", statAverage},
 	}
 }
 
@@ -226,7 +230,7 @@ func predefinedMetric(metricType, resourceID, label string) (metricShape, bool) 
 	}
 
 	if metricType == "ALBRequestCountPerTarget" &&
-		strings.Count(label, "/") < 5 { //nolint:mnd // app/<lb>/<id>/targetgroup/<tg>/<id>
+		strings.Count(label, "/") < albLabelSlashes {
 		return metricShape{}, false
 	}
 
@@ -255,7 +259,7 @@ func dynamoDBUtilization(resourceID, consumed, provisioned string) (metricShape,
 
 	return metricShape{queries: []cwbackend.MetricDataQuery{
 		stat("m1", consumed, "Sum"),
-		stat("m2", provisioned, "Average"),
+		stat("m2", provisioned, statAverage),
 		{ID: "e1", Expression: "(m1/(m2*60))*100", Label: "Utilization", ReturnData: true, Period: alarmPeriodSeconds},
 	}}, true
 }
