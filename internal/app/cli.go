@@ -172,6 +172,7 @@ import (
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
@@ -618,6 +619,7 @@ type CLI struct {
 	GCPMonitoring                 gcpmonitoringbackend.Settings     `embed:"" prefix:"gcp-monitoring-"`
 	GCPRedis                      gcpredisbackend.Settings          `embed:"" prefix:"gcp-redis-"`
 	GCPBigtable                   gcpbigtablebackend.Settings       `embed:"" prefix:"gcp-bigtable-"`
+	GCPEventarc                   gcpeventarcbackend.Settings       `embed:"" prefix:"gcp-eventarc-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -750,6 +752,9 @@ func (c *CLI) GetGCPSpannerSettings() gcpspannerbackend.Settings { return c.GCPS
 
 // GetGCPBigtableSettings returns Google Cloud Bigtable settings (gcpbigtable.ConfigProvider).
 func (c *CLI) GetGCPBigtableSettings() gcpbigtablebackend.Settings { return c.GCPBigtable }
+
+// GetGCPEventarcSettings returns Google Cloud Eventarc settings (gcpeventarc.ConfigProvider).
+func (c *CLI) GetGCPEventarcSettings() gcpeventarcbackend.Settings { return c.GCPEventarc }
 
 // GetGCPCloudBuildSettings returns Google Cloud Build settings (gcpcloudbuild.ConfigProvider).
 func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return c.GCPCloudBuild }
@@ -2452,6 +2457,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPCloudBuild", "gcpcloudbuild", cli.GCPCloudBuild.Port},
 		{"GCPSpanner", "gcpspanner", cli.GCPSpanner.Port},
 		{"GCPBigtable", "gcpbigtable", cli.GCPBigtable.Port},
+		{"GCPEventarc", "gcpeventarc", cli.GCPEventarc.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -3595,6 +3601,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireGCPLogging(byName)
 	wireGCPMonitoring(byName)
 	wireGCPStorageConsumers(byName)
+	wireGCPEventarc(byName)
 	wireAzureData(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
@@ -4846,6 +4853,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpsqlbackend.Provider{},
 		&gcpspannerbackend.Provider{},
 		&gcpbigtablebackend.Provider{},
+		&gcpeventarcbackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
