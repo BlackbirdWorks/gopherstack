@@ -67,7 +67,14 @@ func sortedKeys(m map[string]string) []secretKey {
 	return out
 }
 
-func writeAtomic(path string, data []byte) error {
+func writeAtomic(dir, name string, data []byte) error {
+	root := filepath.Clean(dir)
+	path := filepath.Join(root, name)
+
+	if !strings.HasPrefix(path, root+string(os.PathSeparator)) {
+		return fmt.Errorf("%w: %s", errUnsafePath, name)
+	}
+
 	tmp := path + ".tmp"
 	if err := os.WriteFile(
 		tmp,
@@ -103,7 +110,7 @@ func writeSecrets(dir string, st *appState) error {
 		return fmt.Errorf("encode host secrets: %w", err)
 	}
 
-	if err = writeAtomic(filepath.Join(dir, "host.json"), raw); err != nil {
+	if err = writeAtomic(dir, "host.json", raw); err != nil {
 		return err
 	}
 
@@ -118,7 +125,7 @@ func writeSecrets(dir string, st *appState) error {
 		file := strings.ToLower(fn) + ".json"
 		want[file] = true
 
-		if err = writeAtomic(filepath.Join(dir, file), raw); err != nil {
+		if err = writeAtomic(dir, file, raw); err != nil {
 			return err
 		}
 	}

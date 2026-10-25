@@ -94,3 +94,34 @@ func TestFunctions_StoppedAppFallsBackToPackage(t *testing.T) {
 	assert.Len(t, fns, 2)
 	assert.Zero(t, e.rt.running())
 }
+
+func TestFunctions_UnsafeNamesSkipped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		entry string
+	}{
+		{name: "backslash traversal", entry: `a\..\evil/function.json`},
+		{name: "space", entry: "bad name/function.json"},
+		{name: "dot dot", entry: "../function.json"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, false)
+			e.backend.PutApp("app", azurefunctions.AppConfig{LinuxFx: "NODE|20"})
+
+			pkg := zipOf(t, map[string]string{tt.entry: `{"bindings":[]}`, "ok/function.json": `{"bindings":[]}`})
+			_, err := e.backend.Deploy("app", pkg, "t", "m")
+			require.NoError(t, err)
+
+			fns, err := e.backend.Functions(t.Context(), "app")
+			require.NoError(t, err)
+			require.Len(t, fns, 1)
+			assert.Equal(t, "ok", fns[0].Name)
+		})
+	}
+}
