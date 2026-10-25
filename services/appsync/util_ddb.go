@@ -131,6 +131,8 @@ func utilTransform() map[string]utilFn {
 	return map[string]utilFn{
 		"transform.toDynamoDBFilterExpression":    exprFn,
 		"transform.toDynamoDBConditionExpression": exprFn,
+		"transform.toElasticsearchQueryDSL":       toQueryDSL,
+		"transform.toOpenSearchQueryDSL":          toQueryDSL,
 	}
 }
 
@@ -208,7 +210,7 @@ func (b *exprBuilder) filter(f map[string]any) (string, error) {
 		)
 
 		switch k {
-		case "and", "or":
+		case filterAnd, "or":
 			p, err = b.group(k, listOf(f[k]))
 		case "not":
 			sub, _ := f[k].(map[string]any)

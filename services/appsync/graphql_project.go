@@ -37,6 +37,8 @@ func (e *execEnv) shape(ctx context.Context, val any, set ast.SelectionSet, path
 	case nil:
 		return noValue(), nil
 	case []any:
+		e.prebatch(ctx, v, set, path)
+
 		out := make([]any, len(v))
 
 		for i, it := range v {
@@ -102,6 +104,8 @@ func (e *execEnv) completeList(
 	ctx context.Context, items []any, typ *ast.Type, f *ast.Field, path []any,
 ) (any, error) {
 	out := make([]any, len(items))
+
+	e.prebatch(ctx, items, f.SelectionSet, path)
 
 	for i, it := range items {
 		v, err := e.complete(ctx, it, typ.Elem, f, appendPath(path, i))

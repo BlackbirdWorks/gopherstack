@@ -75,7 +75,7 @@ func newGraphQLError(err error) graphqlError {
 	}
 
 	if de, ok := errors.AsType[*DynamoDBError](err); ok {
-		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code}
+		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code, Data: de.Result}
 	}
 
 	return graphqlError{Message: err.Error()}
@@ -186,14 +186,15 @@ func findOperation(doc *ast.QueryDocument, operationName string) *ast.OperationD
 
 // execEnv carries the per-request state shared by root and nested resolvers.
 type execEnv struct {
-	backend     *InMemoryBackend
+	headers     map[string]any
 	cache       *APICache
 	resolvers   map[string]*Resolver
 	datasources map[string]*DataSource
 	functions   map[string]*Function
 	variables   map[string]any
-	headers     map[string]any
+	backend     *InMemoryBackend
 	addHeader   func(name, value string)
+	batched     map[string]batchOutcome
 	rc          requestIdentity
 	apiID       string
 	errs        []graphqlError
@@ -253,6 +254,10 @@ func (e *execEnv) resolveFieldValue(
 	args := extractArguments(field, e.variables)
 
 	val, err := e.cachedResolve(parentTypeName, field, resolver, cc, args, source, func() (any, error) {
+		if out, ok := e.batched[pathString(path)]; ok {
+			return out.val, out.err
+		}
+
 		return resolveField(ctx, e.backend, resolver, e.datasources, e.functions, args, source, cc)
 	})
 	e.ext = append(e.ext, cc.extensionCalls()...)
@@ -658,6 +663,10 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 		return json.Marshal(value)
 	}
 
+	return json.Marshal(defaultLambdaEvent(mu, args))
+}
+
+func defaultLambdaEvent(mu mappingUnit, args map[string]any) map[string]any {
 	event := map[string]any{jsCtxKeyArguments: args}
 	if mu.Source != nil {
 		event[jsCtxKeySource] = mu.Source
@@ -668,7 +677,7 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 		event["typeName"] = mu.TypeName
 	}
 
-	return json.Marshal(event)
+	return event
 }
 
 // invokeDynamoDBDataSource executes mu's mapped request against DynamoDB.
@@ -705,7 +714,7 @@ func invokeDynamoDBDataSource(
 
 	ctx = withRegion(ctx, firstNonEmpty(ds.DynamoDBConfig.AWSRegion, backend.region))
 
-	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig.TableName, request)
+	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig, request)
 	if err != nil {
 		return nil, err
 	}

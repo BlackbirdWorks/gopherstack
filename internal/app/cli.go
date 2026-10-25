@@ -8656,6 +8656,186 @@ func (a *dynamoDBAdapter) BatchWriteItemRaw(
 	return nil
 }
 
+func (a *dynamoDBAdapter) TransactGetItemsRaw(
+	ctx context.Context,
+	gets []appsyncbackend.DDBTransactGet,
+) ([]map[string]any, error) {
+	items := make([]ddbsdktypes.TransactGetItem, len(gets))
+
+	for i, g := range gets {
+		key, err := ddbmodels.ToSDKItem(g.Key)
+		if err != nil {
+			return nil, fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+		}
+
+		items[i] = ddbsdktypes.TransactGetItem{Get: &ddbsdktypes.Get{TableName: aws.String(g.Table), Key: key}}
+	}
+
+	out, err := a.db.TransactGetItems(ctx, &dynamodb.TransactGetItemsInput{TransactItems: items})
+	if err != nil {
+		return nil, appsyncTransactError(err)
+	}
+
+	res := make([]map[string]any, len(out.Responses))
+	for i, r := range out.Responses {
+		res[i] = ddbmodels.FromSDKItem(r.Item)
+	}
+
+	return res, nil
+}
+
+func (a *dynamoDBAdapter) TransactWriteItemsRaw(
+	ctx context.Context,
+	writes []appsyncbackend.DDBTransactWrite,
+) error {
+	items := make([]ddbsdktypes.TransactWriteItem, len(writes))
+
+	for i := range writes {
+		item, err := appsyncTransactWriteItem(&writes[i])
+		if err != nil {
+			return err
+		}
+
+		items[i] = item
+	}
+
+	_, err := a.db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
+
+	return appsyncTransactError(err)
+}
+
+func appsyncTransactWriteItem(w *appsyncbackend.DDBTransactWrite) (ddbsdktypes.TransactWriteItem, error) {
+	var out ddbsdktypes.TransactWriteItem
+
+	key, err := ddbmodels.ToSDKItem(w.Key)
+	if err != nil {
+		return out, fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+	}
+
+	var (
+		cond   *string
+		names  map[string]string
+		values map[string]ddbsdktypes.AttributeValue
+	)
+
+	if w.Condition != nil {
+		if cond, names, values, err = appsyncExpr(w.Condition); err != nil {
+			return out, err
+		}
+	}
+
+	onFail := ddbsdktypes.ReturnValuesOnConditionCheckFailureNone
+	if w.ReturnOnFailure {
+		onFail = ddbsdktypes.ReturnValuesOnConditionCheckFailureAllOld
+	}
+
+	table := aws.String(w.Table)
+
+	switch w.Operation {
+	case "PutItem":
+		item, iErr := ddbmodels.ToSDKItem(w.Item)
+		if iErr != nil {
+			return out, fmt.Errorf("appsync ddb adapter: marshal item: %w", iErr)
+		}
+
+		out.Put = &ddbsdktypes.Put{
+			TableName: table, Item: item, ConditionExpression: cond, ExpressionAttributeNames: names,
+			ExpressionAttributeValues: values, ReturnValuesOnConditionCheckFailure: onFail,
+		}
+	case "DeleteItem":
+		out.Delete = &ddbsdktypes.Delete{
+			TableName: table, Key: key, ConditionExpression: cond, ExpressionAttributeNames: names,
+			ExpressionAttributeValues: values, ReturnValuesOnConditionCheckFailure: onFail,
+		}
+	case "ConditionCheck":
+		out.ConditionCheck = &ddbsdktypes.ConditionCheck{
+			TableName: table, Key: key, ConditionExpression: cond, ExpressionAttributeNames: names,
+			ExpressionAttributeValues: values, ReturnValuesOnConditionCheckFailure: onFail,
+		}
+	default:
+		upd, uErr := appsyncTransactUpdate(w, key, cond, names, values, onFail)
+		if uErr != nil {
+			return out, uErr
+		}
+
+		out.Update = upd
+	}
+
+	return out, nil
+}
+
+func appsyncTransactUpdate(
+	w *appsyncbackend.DDBTransactWrite,
+	key map[string]ddbsdktypes.AttributeValue,
+	cond *string,
+	names map[string]string,
+	values map[string]ddbsdktypes.AttributeValue,
+	onFail ddbsdktypes.ReturnValuesOnConditionCheckFailure,
+) (*ddbsdktypes.Update, error) {
+	allNames, allValues := maps.Clone(names), maps.Clone(values)
+	if allNames == nil {
+		allNames = map[string]string{}
+	}
+
+	if allValues == nil {
+		allValues = map[string]ddbsdktypes.AttributeValue{}
+	}
+
+	maps.Copy(allNames, w.Update.Names)
+
+	if len(w.Update.Values) > 0 {
+		uv, err := ddbmodels.ToSDKItem(w.Update.Values)
+		if err != nil {
+			return nil, fmt.Errorf("appsync ddb adapter: marshal values: %w", err)
+		}
+
+		maps.Copy(allValues, uv)
+	}
+
+	upd := &ddbsdktypes.Update{
+		TableName: aws.String(w.Table), Key: key, UpdateExpression: &w.Update.Expression,
+		ConditionExpression: cond, ReturnValuesOnConditionCheckFailure: onFail,
+	}
+
+	if len(allNames) > 0 {
+		upd.ExpressionAttributeNames = allNames
+	}
+
+	if len(allValues) > 0 {
+		upd.ExpressionAttributeValues = allValues
+	}
+
+	return upd, nil
+}
+
+// appsyncTransactError maps a cancelled transaction to a DynamoDBError that
+// carries its per-item cancellation reasons.
+func appsyncTransactError(err error) error {
+	var wireErr *ddbbackend.Error
+	if !errors.As(err, &wireErr) || len(wireErr.CancellationReasons) == 0 {
+		return appsyncDDBError(err)
+	}
+
+	mapped := appsyncDDBError(err)
+
+	de, ok := mapped.(*appsyncbackend.DynamoDBError) //nolint:errorlint // appsyncDDBError returns the concrete type
+	if !ok {
+		return mapped
+	}
+
+	for _, r := range wireErr.CancellationReasons {
+		c := appsyncbackend.DDBCancellation{Type: r.Code, Message: r.Message}
+
+		if item, isMap := r.Item.(map[string]any); isMap {
+			c.Item = item
+		}
+
+		de.Cancellations = append(de.Cancellations, c)
+	}
+
+	return de
+}
+
 func appsyncExpr(
 	c *appsyncbackend.DDBExpression,
 ) (*string, map[string]string, map[string]ddbsdktypes.AttributeValue, error) {

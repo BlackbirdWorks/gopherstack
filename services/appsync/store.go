@@ -63,8 +63,36 @@ type DDBWrite struct {
 // DynamoDBError is a DynamoDB service error surfaced to the resolver; Code is
 // the bare error code (e.g. "ConditionalCheckFailedException").
 type DynamoDBError struct {
-	Code    string
+	Result        any
+	Code          string
+	Message       string
+	Cancellations []DDBCancellation
+}
+
+// DDBCancellation is one TransactionCanceledException cancellation reason.
+type DDBCancellation struct {
+	Item    map[string]any
+	Type    string
 	Message string
+}
+
+// DDBTransactGet is one TransactGetItems request item.
+type DDBTransactGet struct {
+	Key   map[string]any
+	Table string
+}
+
+// DDBTransactWrite is one TransactWriteItems request item; Operation is
+// PutItem, UpdateItem, DeleteItem or ConditionCheck.
+type DDBTransactWrite struct {
+	Key       map[string]any
+	Item      map[string]any
+	Update    *DDBExpression
+	Condition *DDBExpression
+	Table     string
+	Operation string
+	// ReturnOnFailure asks for the existing item in the cancellation reason.
+	ReturnOnFailure bool
 }
 
 func (e *DynamoDBError) Error() string {
@@ -89,6 +117,11 @@ type DynamoDBBackend interface {
 	// BatchGetItemRaw returns the items found per table, in no particular order.
 	BatchGetItemRaw(ctx context.Context, keys map[string][]map[string]any) (map[string][]map[string]any, error)
 	BatchWriteItemRaw(ctx context.Context, writes map[string][]DDBWrite) error
+	// TransactGetItemsRaw returns one item (nil when absent) per request, in order.
+	TransactGetItemsRaw(ctx context.Context, items []DDBTransactGet) ([]map[string]any, error)
+	// TransactWriteItemsRaw applies all items atomically. A cancelled
+	// transaction returns a *DynamoDBError whose Cancellations are set.
+	TransactWriteItemsRaw(ctx context.Context, items []DDBTransactWrite) error
 }
 
 // StorageBackend defines the interface for AppSync storage operations.

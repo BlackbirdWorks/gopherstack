@@ -46,13 +46,16 @@ func RewriteModule(code string, modules map[string]string) (string, error) {
 			impErr = err
 		}
 
-		return stmt
+		return stmt + strings.Repeat("\n", strings.Count(m, "\n"))
 	})
 	if impErr != nil {
 		return "", impErr
 	}
 
-	out = reExportList.ReplaceAllString(out, "")
+	out = reExportList.ReplaceAllStringFunc(
+		out,
+		func(m string) string { return strings.Repeat("\n", strings.Count(m, "\n")) },
+	)
 
 	return reExportDecl.ReplaceAllString(out, "$1"), nil
 }
