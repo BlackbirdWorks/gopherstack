@@ -27,8 +27,10 @@ import (
 )
 
 type lambdaBindDockerAPI struct {
-	binds map[string][]string
-	mu    sync.Mutex
+	binds  map[string][]string
+	users  map[string]string
+	groups map[string][]string
+	mu     sync.Mutex
 }
 
 func (m *lambdaBindDockerAPI) ImagePull(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
@@ -48,6 +50,8 @@ func (m *lambdaBindDockerAPI) ContainerCreate(
 	for _, e := range cfg.Env {
 		if fnName, ok := strings.CutPrefix(e, "AWS_LAMBDA_FUNCTION_NAME="); ok {
 			m.binds[fnName] = append([]string(nil), host.Binds...)
+			m.users[fnName] = cfg.User
+			m.groups[fnName] = append([]string(nil), host.GroupAdd...)
 		}
 	}
 
@@ -126,7 +130,7 @@ func TestLambdaEFSAccessPointMount(t *testing.T) {
 
 	ap, err := efsBk.CreateAccessPoint(ctx, efsbackend.CreateAccessPointRequest{
 		FileSystemID: fs.FileSystemID,
-		PosixUser:    &efsbackend.PosixUser{UID: 1000, GID: 1000},
+		PosixUser:    &efsbackend.PosixUser{UID: 1000, GID: 1001, SecondaryGids: []int64{2000, 3000}},
 		RootDirectory: &efsbackend.RootDirectory{
 			Path:         "/lambda",
 			CreationInfo: &efsbackend.CreationInfo{OwnerUID: 1000, OwnerGID: 1000, Permissions: "755"},
@@ -134,7 +138,9 @@ func TestLambdaEFSAccessPointMount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	api := &lambdaBindDockerAPI{binds: map[string][]string{}}
+	api := &lambdaBindDockerAPI{
+		binds: map[string][]string{}, users: map[string]string{}, groups: map[string][]string{},
+	}
 	rt := container.NewDockerRuntimeWithAPI(api, container.Config{PoolSize: 2, IdleTimeout: time.Minute})
 	pa := portalloctest.New(t, 10)
 
@@ -180,6 +186,9 @@ func TestLambdaEFSAccessPointMount(t *testing.T) {
 
 	api.mu.Lock()
 	defer api.mu.Unlock()
+
+	assert.Equal(t, "1000:1001", api.users["efs-writer"])
+	assert.Equal(t, []string{"2000", "3000"}, api.groups["efs-writer"])
 
 	writerBinds, readerBinds := api.binds["efs-writer"], api.binds["efs-reader"]
 	require.Len(t, writerBinds, 1)

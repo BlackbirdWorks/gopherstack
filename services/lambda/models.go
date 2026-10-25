@@ -195,6 +195,13 @@ func toWireFunctionConfigurations(fns []*FunctionConfiguration) []*wireFunctionC
 // EnvironmentConfig holds Lambda function environment variables.
 type EnvironmentConfig struct {
 	Variables map[string]string `json:"Variables"`
+	Error     *EnvironmentError `json:"Error,omitempty"`
+}
+
+// EnvironmentError reports why a function's environment variables could not be applied.
+type EnvironmentError struct {
+	ErrorCode string `json:"ErrorCode,omitempty"`
+	Message   string `json:"Message,omitempty"`
 }
 
 // DurableConfig holds a function's durable-execution settings: the maximum

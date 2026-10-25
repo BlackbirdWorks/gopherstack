@@ -107,6 +107,7 @@ func (b *InMemoryBackend) publishVersion(
 		b.versionIndex[name] = make(map[string]*FunctionVersion)
 	}
 	b.versionIndex[name][versionNum] = ver
+	b.copyCiphertextToVersionLocked(name, versionNum)
 
 	return ver, nil
 }

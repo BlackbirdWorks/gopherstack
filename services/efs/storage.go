@@ -26,8 +26,11 @@ var ErrNoMountTarget = errors.New("no mount target in the function's VPC")
 type AccessPointMount struct {
 	HostDir      string
 	FileSystemID string
-	UID          int64
-	GID          int64
+	// SecondaryGIDs and HasPosixUser describe the access point's PosixUser; UID/GID are zero without one.
+	SecondaryGIDs []int64
+	UID           int64
+	GID           int64
+	HasPosixUser  bool
 }
 
 // SetStorageRoot sets the host directory that backs every file system's data.
@@ -128,6 +131,8 @@ func (b *InMemoryBackend) ResolveAccessPointMount(accessPointARN string) (Access
 	m := AccessPointMount{HostDir: hostDir, FileSystemID: ap.FileSystemID}
 	if ap.PosixUser != nil {
 		m.UID, m.GID = ap.PosixUser.UID, ap.PosixUser.GID
+		m.SecondaryGIDs = append([]int64(nil), ap.PosixUser.SecondaryGids...)
+		m.HasPosixUser = true
 	}
 
 	return m, nil

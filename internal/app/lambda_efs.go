@@ -46,11 +46,13 @@ func (a *lambdaEFSResolver) ResolveMount(accessPointARN string) (lambdabackend.E
 		return lambdabackend.EFSMount{}, err
 	}
 
-	return lambdabackend.EFSMount{HostDir: m.HostDir, UID: m.UID, GID: m.GID}, nil
+	return lambdabackend.EFSMount{
+		HostDir: m.HostDir, UID: m.UID, GID: m.GID, SecondaryGIDs: m.SecondaryGIDs, HasPosixUser: m.HasPosixUser,
+	}, nil
 }
 
 // wireLambdaEFS backs EFS file systems with host directories and lets Lambda
-// bind-mount access points into function containers.
+// bind-mount access points into function containers. It also wires Lambda to KMS.
 func wireLambdaEFS(cli *CLI, byName map[string]service.Registerable) {
 	lambdaH, ok := byName["Lambda"].(*lambdabackend.Handler)
 	if !ok {
@@ -63,6 +65,7 @@ func wireLambdaEFS(cli *CLI, byName map[string]service.Registerable) {
 	}
 
 	lambdaBk.SetEFSResolver(&lambdaEFSResolver{byName: byName})
+	wireLambdaKMS(byName)
 
 	if cli == nil || !cli.Persist {
 		return

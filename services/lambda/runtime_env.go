@@ -127,11 +127,18 @@ func (b *InMemoryBackend) buildContainerEnv(
 
 	expires := b.injectCredentials(ctx, fn, issuer, vars)
 
+	userVars := map[string]string(nil)
 	if fn.Environment != nil {
-		for k, v := range fn.Environment.Variables {
-			if !isReservedEnvKey(k) {
-				vars[k] = v
-			}
+		userVars = fn.Environment.Variables
+	}
+
+	if plain, err := b.decryptInvokeEnv(fn); err == nil && plain != nil {
+		userVars = plain
+	}
+
+	for k, v := range userVars {
+		if !isReservedEnvKey(k) {
+			vars[k] = v
 		}
 	}
 

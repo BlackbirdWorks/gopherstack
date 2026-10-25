@@ -622,7 +622,7 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 	fn.LastUpdateStatus = LastUpdateStatusSuccessful
 
 	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+		return h.writeUpdateFunctionError(c, updateErr)
 	}
 
 	// Return a response copy with the numbered version when Publish=true;
@@ -814,7 +814,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	fn.LastUpdateStatus = LastUpdateStatusSuccessful
 
 	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
-		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+		return h.writeUpdateFunctionError(c, updateErr)
 	}
 
 	return c.JSON(http.StatusOK, toWireFunctionConfiguration(fn))
@@ -1245,4 +1245,13 @@ func (h *Handler) validateCreateRequestSize(c *echo.Context, bodyLen int) bool {
 		fmt.Sprintf("Request must be smaller than %d bytes for the CreateFunction operation", maxReq))
 
 	return false
+}
+
+// writeUpdateFunctionError maps a backend UpdateFunction failure to its HTTP error.
+func (h *Handler) writeUpdateFunctionError(c *echo.Context, err error) error {
+	if errors.Is(err, ErrInvalidParameterValue) {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	}
+
+	return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 }

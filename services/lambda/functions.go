@@ -50,6 +50,11 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 			ErrInvalidParameterValue, maxFunctionNameLength)
 	}
 
+	ct, sealErr := b.sealEnvironment(b.kmsResolverSnapshot(), fn)
+	if sealErr != nil {
+		return sealErr
+	}
+
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
@@ -86,6 +91,7 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 	}
 
 	b.functions.Put(fn)
+	b.storeCiphertextLocked(fn.FunctionName, ct)
 
 	return nil
 }
@@ -159,7 +165,10 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 		return nil, ErrFunctionNotFound
 	}
 
-	return cloneFunctionConfig(fn), nil
+	cp := cloneFunctionConfig(fn)
+	b.hydrateEnvironment(cp, "")
+
+	return cp, nil
 }
 
 // cloneFunctionConfig stops a caller from racing scheduleFunctionActive,
@@ -228,6 +237,7 @@ func (b *InMemoryBackend) GetFunctionByQualifier(
 	}
 
 	cfg := versionToConfig(v)
+	b.hydrateEnvironment(cfg, resolved)
 
 	// For an alias qualifier, AWS returns the ARN with the alias suffix while
 	// the Version field reports the resolved numeric version.
@@ -404,6 +414,7 @@ func (b *InMemoryBackend) DeleteFunctionVersion(name, qualifier string) error {
 	}
 
 	delete(vMap, qualifier)
+	delete(b.envCiphertext, envCiphertextKey(name, qualifier))
 
 	kept := b.versions[name][:0]
 	for _, v := range b.versions[name] {
@@ -420,19 +431,31 @@ func (b *InMemoryBackend) DeleteFunctionVersion(name, qualifier string) error {
 // Any running container is evicted so the next invocation picks up the new code/config.
 func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 	var (
-		found bool
-		rt    *functionRuntime
+		found   bool
+		rt      *functionRuntime
+		sealErr error
 	)
 
 	func() {
 		b.mu.Lock("UpdateFunction")
 		defer b.mu.Unlock()
 
-		if _, ok := b.functions.Get(fn.FunctionName); !ok {
+		old, ok := b.functions.Get(fn.FunctionName)
+		if !ok {
 			return
 		}
 
 		found = true
+
+		if envChanged(old, fn) {
+			var ct map[string]string
+
+			if ct, sealErr = b.sealEnvironment(b.kmsResolver, fn); sealErr != nil {
+				return
+			}
+
+			b.storeCiphertextLocked(fn.FunctionName, ct)
+		}
 
 		b.functions.Put(fn)
 
@@ -446,6 +469,10 @@ func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 
 	if !found {
 		return ErrFunctionNotFound
+	}
+
+	if sealErr != nil {
+		return sealErr
 	}
 
 	// Clean up the old container asynchronously — we must not hold b.mu while stopping.

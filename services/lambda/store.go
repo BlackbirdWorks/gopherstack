@@ -99,6 +99,8 @@ type InMemoryBackend struct {
 	s3Fetcher          S3CodeFetcher
 	ecrResolver        ECRResolver
 	efsResolver        EFSResolver
+	kmsResolver        KMSResolver
+	envCiphertext      map[string]map[string]string
 	credIssuer         RoleCredentialIssuer
 	endpointURL        string
 	metrics            cwmetric.Sink
@@ -250,6 +252,7 @@ func NewInMemoryBackendWithContext(
 		functionURLServers:       make(map[string]*functionURLServer),
 		versions:                 make(map[string][]*FunctionVersion),
 		versionCounters:          make(map[string]int),
+		envCiphertext:            make(map[string]map[string]string),
 		layers:                   make(map[string][]*LayerVersion),
 		layerVersionCounters:     make(map[string]int64),
 		layerPolicies:            make(map[string]map[int64]map[string]*LayerVersionStatement),
