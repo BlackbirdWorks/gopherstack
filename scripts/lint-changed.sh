@@ -165,10 +165,12 @@ detect_tags() {
   if [[ -n "$(go list -e -f '{{.GoFiles}}{{.TestGoFiles}}{{.XTestGoFiles}}' "$d" 2>/dev/null | tr -d '[] ')" ]]; then
     return 0
   fi
-  cat "$d"/*.go 2>/dev/null | grep -h '^//go:build' | sed -E 's/![A-Za-z0-9_.]+//g' |
+  # || true: no build tags (e.g. a nested module the root `go list` can't see)
+  # makes grep exit 1, which would abort the whole script under set -e/pipefail.
+  { cat "$d"/*.go 2>/dev/null | grep -h '^//go:build' | sed -E 's/![A-Za-z0-9_.]+//g' |
     tr -c 'A-Za-z0-9_\n' ' ' | tr ' ' '\n' |
     grep -Ev '^(go|build|ignore|cgo|linux|darwin|windows|freebsd|amd64|arm64|386|arm|unix|)$' |
-    sort -u | paste -sd, -
+    sort -u | paste -sd, -; } || true
 }
 
 declare -A group_pats
