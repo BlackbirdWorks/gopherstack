@@ -347,8 +347,9 @@ func applyZipDigest(fn *FunctionConfiguration) {
 }
 
 // validateCreateFunction runs the generic input checks, then the hot-reload code-path check.
-func (h *Handler) validateCreateFunction(c *echo.Context, input *CreateFunctionInput) bool {
-	if !h.validateCreateFunctionInput(c, input) {
+func (h *Handler) validateCreateFunction(c *echo.Context, input *CreateFunctionInput, bodyLen int) bool {
+	if !h.validateCreateRequestSize(c, bodyLen) || !h.validateCreateFunctionInput(c, input) ||
+		!h.validateCodePackage(c, input.Code.ZipFile, "") {
 		return false
 	}
 
@@ -369,16 +370,12 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
 
-	if !h.validateCreateRequestSize(c, body) {
-		return nil
-	}
-
 	var input CreateFunctionInput
 	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
-	if !h.validateCreateFunction(c, &input) || !h.validateCodePackage(c, input.Code.ZipFile, "") {
+	if !h.validateCreateFunction(c, &input, len(body)) {
 		return nil
 	}
 
@@ -1238,9 +1235,9 @@ func (h *Handler) validateCodePackage(c *echo.Context, zipData []byte, replacing
 	return true
 }
 
-func (h *Handler) validateCreateRequestSize(c *echo.Context, body []byte) bool {
+func (h *Handler) validateCreateRequestSize(c *echo.Context, bodyLen int) bool {
 	maxReq := h.limits().createFunctionRequestSize
-	if int64(len(body)) <= maxReq {
+	if int64(bodyLen) <= maxReq {
 		return true
 	}
 

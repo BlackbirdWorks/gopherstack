@@ -184,9 +184,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	srv, srvErr := b.getOrCreateRuntime(ctx, fn)
 	if srvErr != nil {
 		// Sync invocations release via the deferred call above.
-		if trackConcurrency && invocationType == InvocationTypeEvent {
-			b.releaseConcurrencySlot(fn.FunctionName)
-		}
+		b.releaseAsyncSlot(fn.FunctionName, trackConcurrency, invocationType)
 
 		b.emitInvocationMetrics(fn.FunctionName, qualifier, fn.Version, 0, true)
 
@@ -826,4 +824,12 @@ func (b *InMemoryBackend) acquireInvokeSlot(name, version string, invocationType
 	}
 
 	return b.acquireAccountSlot(name)
+}
+
+// releaseAsyncSlot frees the slot of an Event invocation that failed to start; synchronous
+// invocations release through the deferred call in InvokeFunctionWithQualifier.
+func (b *InMemoryBackend) releaseAsyncSlot(name string, tracked bool, invocationType InvocationType) {
+	if tracked && invocationType == InvocationTypeEvent {
+		b.releaseConcurrencySlot(name)
+	}
 }
