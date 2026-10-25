@@ -37,6 +37,12 @@ var __mod_ddb = (function (util) {
       nextToken: o.nextToken, totalSegments: o.totalSegments, segment: o.segment, select: o.select,
       filter: o.filter ? expr(o.filter) : undefined });
   }
+  function sync(o) {
+    o = o || {};
+    return clean({ operation: 'Sync', basePartitionKey: o.basePartitionKey, deltaIndexName: o.deltaIndexName,
+      limit: o.limit, nextToken: o.nextToken, lastSync: o.lastSync,
+      filter: o.filter ? expr(o.filter) : undefined });
+  }
   function query(o) {
     return clean({ operation: 'Query', query: expr(o.query), index: o.index, nextToken: o.nextToken, limit: o.limit,
       scanIndexForward: o.scanIndexForward, consistentRead: o.consistentRead, select: o.select,
@@ -67,6 +73,6 @@ var __mod_ddb = (function (util) {
     if (o.condition) { r.condition = expr(o.condition); }
     return clean(r);
   }
-  return { get: get, put: put, remove: remove, scan: scan, query: query, update: update, operations: operations };
+  return { get: get, put: put, remove: remove, scan: scan, sync: sync, query: query, update: update, operations: operations };
 })(__util);
 `

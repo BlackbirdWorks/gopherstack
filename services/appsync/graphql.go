@@ -75,7 +75,7 @@ func newGraphQLError(err error) graphqlError {
 	}
 
 	if de, ok := errors.AsType[*DynamoDBError](err); ok {
-		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code}
+		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code, Data: de.Result}
 	}
 
 	return graphqlError{Message: err.Error()}
@@ -714,7 +714,7 @@ func invokeDynamoDBDataSource(
 
 	ctx = withRegion(ctx, firstNonEmpty(ds.DynamoDBConfig.AWSRegion, backend.region))
 
-	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig.TableName, request)
+	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig, request)
 	if err != nil {
 		return nil, err
 	}
