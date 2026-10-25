@@ -152,7 +152,7 @@ func validateRetainRule(rr map[string]any) error {
 
 func validRetentionUnit(unit string) bool {
 	switch strings.ToUpper(unit) {
-	case "DAYS", "WEEKS", "MONTHS", "YEARS":
+	case unitDays, "WEEKS", "MONTHS", "YEARS":
 		return true
 	}
 

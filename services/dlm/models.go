@@ -16,20 +16,28 @@ const (
 // storedPolicy holds a lifecycle policy with all persisted fields.
 // time.Time fields are first so their non-pointer prefix reduces GC pointer bytes.
 type storedPolicy struct {
-	DateCreated      time.Time         `json:"dateCreated"`
-	DateModified     time.Time         `json:"dateModified"`
-	Tags             map[string]string `json:"tags"`
-	PolicyDetails    map[string]any    `json:"policyDetails,omitempty"`
-	Description      string            `json:"description"`
-	ExecutionRoleARN string            `json:"executionRoleArn"`
-	PolicyArn        string            `json:"policyArn"`
-	PolicyID         string            `json:"policyId"`
-	State            string            `json:"state"`
-	// StatusMessage is real AWS's description of why a policy is in ERROR
-	// state. This backend's state machine never produces ERROR (only
-	// ENABLED/DISABLED, see stateEnabled/stateDisabled), so this always
-	// stays empty -- present for wire completeness (gopherstack-x009).
+	DateCreated      time.Time            `json:"dateCreated"`
+	DateModified     time.Time            `json:"dateModified"`
+	Tags             map[string]string    `json:"tags"`
+	PolicyDetails    map[string]any       `json:"policyDetails,omitempty"`
+	LastEvaluated    map[string]time.Time `json:"lastEvaluated,omitempty"`
+	Description      string               `json:"description"`
+	ExecutionRoleARN string               `json:"executionRoleArn"`
+	PolicyArn        string               `json:"policyArn"`
+	PolicyID         string               `json:"policyId"`
+	State            string               `json:"state"`
+	// StatusMessage stays empty: this state machine never produces ERROR.
 	StatusMessage string `json:"statusMessage,omitempty"`
+}
+
+// managedResource is a snapshot or AMI a policy created and is responsible for expiring.
+type managedResource struct {
+	CreatedAt time.Time `json:"createdAt"`
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	PolicyID  string    `json:"policyId"`
+	Schedule  string    `json:"schedule"`
+	TargetID  string    `json:"targetId"`
 }
 
 func (p *storedPolicy) toPolicy() *Policy {

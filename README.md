@@ -677,7 +677,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Backup](services/backup/README.md) | A | 66 | 2 gaps; 3 structural gaps |
-| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
+| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | 2 gaps |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
 | [S3](services/s3/README.md) | A | 26 | 4 gaps; 4 structural gaps |

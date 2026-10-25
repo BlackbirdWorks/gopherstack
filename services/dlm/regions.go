@@ -10,7 +10,15 @@ func (h *Handler) EnableRegions() {
 	}
 
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
-		return NewHandler(NewInMemoryBackend(home.accountID, region))
+		nb := NewInMemoryBackend(home.accountID, region)
+		nb.SetCompute(home.computeService())
+
+		p := NewHandler(nb)
+		if ctx := h.janitorContext(); ctx != nil {
+			_ = p.StartWorker(ctx)
+		}
+
+		return p
 	})
 }
 
