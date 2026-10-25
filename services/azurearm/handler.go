@@ -455,6 +455,10 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(monitorRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(redisRoutes, h, c, segs); handled {
 		return err
 	}

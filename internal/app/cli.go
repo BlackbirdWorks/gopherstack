@@ -99,6 +99,7 @@ import (
 	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
 	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -596,6 +597,7 @@ type CLI struct {
 	GCPFunctions                  gcpfunctionsbackend.Settings      `embed:"" prefix:"gcp-functions-"`
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	AzureEventGrid                azureeventgridbackend.Settings    `embed:"" prefix:"azure-eventgrid-"`
+	AzureMonitor                  azuremonitorbackend.Settings      `embed:"" prefix:"azure-monitor-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
@@ -742,6 +744,11 @@ func (c *CLI) GetAzureKeyVaultSettings() azurekeyvaultbackend.Settings {
 // (azurearm.KeyVaultPortProvider) so ARM's advertised vaultUri cannot diverge.
 func (c *CLI) GetAzureKeyVaultPort() int {
 	return c.AzureKeyVault.Port
+}
+
+// GetAzureMonitorSettings returns Azure Monitor Logs settings (azuremonitor.ConfigProvider).
+func (c *CLI) GetAzureMonitorSettings() azuremonitorbackend.Settings {
+	return c.AzureMonitor
 }
 
 // GetAzureFileSettings returns Azure Files settings (azurefile.ConfigProvider).
@@ -2575,6 +2582,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
 		{"AzureFile", "azurefile", cli.AzureFile.Port},
+		{"AzureMonitor", "azuremonitor", cli.AzureMonitor.Port},
 		{"AzureTable", "azuretable", cli.AzureTable.Port},
 		{"AzureStorageVHost", "azurestoragevhost", cli.AzureStorageVHost.Port},
 		{"CosmosDB", "cosmosdb", cli.CosmosDB.Port},
@@ -4999,6 +5007,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&azureblobbackend.Provider{},
 		&azurequeuebackend.Provider{},
 		&azurefilebackend.Provider{},
+		&azuremonitorbackend.Provider{},
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
 		&azureeventhubsbackend.Provider{},

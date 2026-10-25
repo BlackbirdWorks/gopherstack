@@ -343,6 +343,7 @@ func errorProbeUnreachable() map[string]string {
 		"AzureFunctions":          "non-AWS",
 		"AzureARM":                "non-AWS",
 		"AzureKeyVault":           "non-AWS",
+		"AzureMonitor":            "non-AWS",
 		"AzureEventGrid":          "non-AWS",
 		"AzureStorageVHost":       "non-AWS",
 		"AzureTable":              "non-AWS",

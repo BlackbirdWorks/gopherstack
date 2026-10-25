@@ -915,6 +915,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Files](services/azurefile/README.md) | B | 38 | 11 gaps |
 | [Azure Functions](services/azurefunctions/README.md) | B | 6 | 8 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
+| [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
 | [Azure SQL Database](services/azuresql/README.md) | B | 14 | 11 gaps |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
