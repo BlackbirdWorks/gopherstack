@@ -21,6 +21,7 @@ const (
 	slugAzureBlob       = "azureblob"
 	slugAzureKeyVault   = "azurekeyvault"
 	slugAzureQueue      = "azurequeue"
+	slugAzureFile       = "azurefile"
 	slugAzureTable      = "azuretable"
 	slugAzureServiceBus = "azureservicebus"
 	slugAzureEventHubs  = "azureeventhubs"
@@ -137,6 +138,7 @@ func categoryGroups() []categoryGroup {
 				slugAzureBlob,
 				slugAzureKeyVault,
 				slugAzureQueue,
+				slugAzureFile,
 				slugAzureTable,
 				slugAzureServiceBus,
 				slugAzureEventHubs,
@@ -225,6 +227,7 @@ func displayNamesA() map[string]string {
 		slugAzureBlob:             "Azure Blob Storage",
 		slugAzureKeyVault:         "Azure Key Vault",
 		slugAzureQueue:            "Azure Queue Storage",
+		slugAzureFile:             "Azure Files",
 		slugAzureTable:            "Azure Table Storage",
 		slugAzureServiceBus:       "Azure Service Bus",
 		slugAzureEventHubs:        "Azure Event Hubs",

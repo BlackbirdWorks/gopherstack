@@ -20,6 +20,7 @@ func TestDisplayName_Azure(t *testing.T) {
 	}{
 		{slugAzureBlob, "Azure Blob Storage"},
 		{slugAzureQueue, "Azure Queue Storage"},
+		{slugAzureFile, "Azure Files"},
 		{slugAzureTable, "Azure Table Storage"},
 		{slugCosmosDB, "Azure Cosmos DB"},
 	}
@@ -44,6 +45,7 @@ func TestCategoryFor_Azure(t *testing.T) {
 	}{
 		{slugAzureBlob},
 		{slugAzureQueue},
+		{slugAzureFile},
 		{slugAzureTable},
 		{slugCosmosDB},
 	}

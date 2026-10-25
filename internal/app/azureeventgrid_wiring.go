@@ -26,6 +26,7 @@ func wireAzureARMAndEventGrid(byName map[string]service.Registerable) {
 	wireAzureAppConfig(byName)
 	wireAzureContainerRegistry(byName)
 	wireAzureFunctions(byName)
+	wireAzureFile(byName)
 }
 
 // wireAzureEventGrid connects Event Grid to ARM's Microsoft.EventGrid provider and to

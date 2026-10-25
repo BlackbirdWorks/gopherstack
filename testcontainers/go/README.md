@@ -12,7 +12,7 @@ cfg, _ := gs.AWSConfig(ctx)               // static creds + BaseEndpoint
 s3c := s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true })
 
 endpoint, _ := gs.Endpoint(ctx)            // http://host:mappedPort
-cs, _ := gs.AzureConnectionString(ctx)     // devstoreaccount1 blob/queue/table
+cs, _ := gs.AzureConnectionString(ctx)     // devstoreaccount1 blob/queue/table/file
 hp, _ := gs.GCPEndpoint(ctx, "storage")    // host:port
 ```
 

@@ -51,6 +51,7 @@ const (
 	blobServiceLabel  = "blob"
 	queueServiceLabel = "queue"
 	tableServiceLabel = "table"
+	fileServiceLabel  = "file"
 )
 
 const (
@@ -82,6 +83,9 @@ type Handler struct {
 	Blob  StorageHandler
 	Queue StorageHandler
 	Table StorageHandler
+	// File is the Azure Files handler; it resolves the account from the
+	// Host header itself, so requests reach it without a path rewrite.
+	File StorageHandler
 
 	srvMu *lockmetrics.RWMutex
 	srv   *http.Server
@@ -164,12 +168,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		account, svc, ok := accountAndServiceFromHost(r.Host)
 		if !ok {
 			return c.String(http.StatusBadRequest,
-				"azurestoragevhost: Host header must be \"<account>.{blob,queue,table}.<host:port>\"")
+				"azurestoragevhost: Host header must be \"<account>.{blob,queue,table,file}.<host:port>\"")
 		}
 
 		target, err := h.handlerFor(svc)
 		if err != nil {
 			return c.String(http.StatusBadRequest, "azurestoragevhost: "+err.Error())
+		}
+
+		if svc == fileServiceLabel {
+			return target.Handler()(c)
 		}
 
 		originalPath := r.URL.Path
@@ -197,6 +205,8 @@ func (h *Handler) handlerFor(svc string) (StorageHandler, error) {
 		target = h.Queue
 	case tableServiceLabel:
 		target = h.Table
+	case fileServiceLabel:
+		target = h.File
 	}
 
 	if target == nil {
@@ -224,7 +234,7 @@ func accountAndServiceFromHost(host string) (string, string, bool) {
 		return "", "", false
 	}
 
-	for _, svc := range [...]string{blobServiceLabel, queueServiceLabel, tableServiceLabel} {
+	for _, svc := range [...]string{blobServiceLabel, queueServiceLabel, tableServiceLabel, fileServiceLabel} {
 		if strings.EqualFold(label, svc) {
 			return account, svc, true
 		}

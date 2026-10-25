@@ -73,10 +73,11 @@ type storedStorageAccount struct {
 // StorageAccounts interface) is called best-effort for forward-compat with
 // M10's per-account namespacing.
 type StorageProvider struct {
-	dataPlane StorageAccounts
-	mu        *lockmetrics.RWMutex
-	accounts  map[string]*storedStorageAccount
-	cfg       StorageEndpointConfig
+	dataPlane    StorageAccounts
+	fileServices FileServices
+	mu           *lockmetrics.RWMutex
+	accounts     map[string]*storedStorageAccount
+	cfg          StorageEndpointConfig
 }
 
 // NewStorageProvider creates a StorageProvider. dataPlane may be nil, in
@@ -91,10 +92,11 @@ func NewStorageProvider(cfg StorageEndpointConfig, dataPlane StorageAccounts) *S
 	}
 
 	return &StorageProvider{
-		mu:        lockmetrics.New("azurearm.storageprovider"),
-		accounts:  make(map[string]*storedStorageAccount),
-		cfg:       cfg,
-		dataPlane: dataPlane,
+		mu:           lockmetrics.New("azurearm.storageprovider"),
+		accounts:     make(map[string]*storedStorageAccount),
+		cfg:          cfg,
+		dataPlane:    dataPlane,
+		fileServices: newMemFileServices(),
 	}
 }
 
@@ -394,6 +396,7 @@ func (p *StorageProvider) buildBody(id ResourceID, acct *storedStorageAccount) m
 			"blob":  advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "blob", acct.name),
 			"queue": advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "queue", acct.name),
 			"table": advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "table", acct.name),
+			"file":  advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "file", acct.name),
 		},
 	}
 

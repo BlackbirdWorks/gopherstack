@@ -62,6 +62,10 @@ func allowedWeakHashFiles() map[string]string {
 		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
 		"services/azurekeyvault/certpolicy.go": "certificate x5t SHA-1 thumbprint, verified",
 
+		// Azure Files Content-MD5 / x-ms-content-md5 headers are defined as the base64 MD5 of the
+		// payload; integrity checksum, never a credential.
+		"services/azurefile/ops_file.go": "Azure Files Content-MD5 header parity, verified",
+
 		// XML-Enc rsa-oaep-mgf1p defaults to SHA-1 (W3C xmlenc-core1 5.4.2); the digest is OAEP
 		// padding for an IdP-encrypted SAML assertion, never a credential hash.
 		"services/cognitoidp/saml_decrypt.go": "XML-Enc rsa-oaep-mgf1p default SHA-1 digest, verified",
