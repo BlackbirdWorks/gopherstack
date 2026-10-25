@@ -29,8 +29,13 @@ func (rc *ResourceCreator) createOpenSearchDomain(
 	if cc, ok := props["ClusterConfig"].(map[string]any); ok {
 		clusterConfig.InstanceType = resolve(cc["InstanceType"], params, physicalIDs)
 
-		if n, ok2 := cc["InstanceCount"].(float64); ok2 {
-			clusterConfig.InstanceCount = int(n)
+		if cc["InstanceCount"] != nil {
+			n, ok2 := int32Val(cc["InstanceCount"])
+			if !ok2 {
+				return "", fmt.Errorf("%w: ClusterConfig.InstanceCount out of range", ErrPropertyValidation)
+			}
+
+			clusterConfig.InstanceCount = n
 		}
 	}
 

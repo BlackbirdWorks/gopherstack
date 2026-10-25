@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -112,6 +113,11 @@ type FunctionDef struct {
 	Name   string
 }
 
+var functionNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+// validFunctionName matches Azure's function name rule; the name later becomes a secrets file name.
+func validFunctionName(n string) bool { return functionNameRE.MatchString(n) }
+
 // scanFunctions lists the functions a classic (function.json) package declares, in name order. Packages that
 // use a code-first model declare their functions only to the running host.
 func scanFunctions(data []byte) []FunctionDef {
@@ -124,7 +130,7 @@ func scanFunctions(data []byte) []FunctionDef {
 
 	for _, f := range zr.File {
 		dir, base := path.Split(f.Name)
-		if base != "function.json" || strings.Count(dir, "/") != 1 || strings.HasPrefix(dir, ".") {
+		if base != "function.json" || strings.Count(dir, "/") != 1 || !validFunctionName(strings.TrimSuffix(dir, "/")) {
 			continue
 		}
 

@@ -271,8 +271,8 @@ func sdHealthCheckConfigProp(
 		ResourcePath: strProp(m, "ResourcePath", params, physicalIDs),
 	}
 
-	if v, vOK := m["FailureThreshold"].(float64); vOK {
-		cfg.FailureThreshold = int(v)
+	if v, vOK := int32Val(m["FailureThreshold"]); vOK {
+		cfg.FailureThreshold = v
 	}
 
 	return cfg
@@ -285,8 +285,8 @@ func sdHealthCheckCustomConfigProp(props map[string]any) *sdbackend.HealthCheckC
 	}
 
 	cfg := &sdbackend.HealthCheckCustomConfig{}
-	if v, vOK := m["FailureThreshold"].(float64); vOK {
-		cfg.FailureThreshold = int(v)
+	if v, vOK := int32Val(m["FailureThreshold"]); vOK {
+		cfg.FailureThreshold = v
 	}
 
 	return cfg

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -221,9 +222,48 @@ func (h *Handler) authorize(ctx context.Context, c *echo.Context) error {
 		vals.Set("state", state)
 	}
 
-	loc.RawQuery = vals.Encode()
+	target, ok := loopbackTarget(loc, vals.Encode())
+	if !ok {
+		return writeError(c, validation("redirect_uri must be an http loopback URL"))
+	}
 
-	return c.Redirect(http.StatusFound, loc.String())
+	return c.Redirect(http.StatusFound, target)
+}
+
+// loopbackTarget rebuilds the callback URL from a literal loopback host, never a caller-supplied one.
+func loopbackTarget(loc *url.URL, query string) (string, bool) {
+	var host string
+
+	switch loc.Hostname() {
+	case hostLoopback4:
+		host = hostLoopback4
+	case hostLocalhost:
+		host = hostLocalhost
+	case "::1":
+		host = "[::1]"
+	default:
+		return "", false
+	}
+
+	if port := loc.Port(); port != "" {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return "", false
+		}
+
+		host += ":" + strconv.FormatUint(n, 10)
+	}
+
+	p := loc.EscapedPath()
+	if p == "" {
+		p = "/"
+	}
+
+	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") {
+		return "", false
+	}
+
+	return "http://" + host + p + "?" + query, true
 }
 
 func writeError(c *echo.Context, err error) error {
