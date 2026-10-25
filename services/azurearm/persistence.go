@@ -34,6 +34,7 @@ type armSnapshot struct {
 	ContainerRegistry   *containerRegistrySnapshot `json:"containerRegistry,omitempty"`
 	Redis               *redisSnapshot             `json:"redis,omitempty"`
 	SQL                 *sqlSnapshot               `json:"sql,omitempty"`
+	Web                 *webSnapshot               `json:"web,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -196,6 +197,10 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.SQL = p.snapshot()
 	}
 
+	if p, ok := h.webProvider(); ok {
+		st.Web = p.snapshot()
+	}
+
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
 
@@ -236,6 +241,10 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.sqlProvider(); ok {
 		p.restore(snap.SQL)
+	}
+
+	if p, ok := h.webProvider(); ok {
+		p.restore(snap.Web)
 	}
 
 	return nil

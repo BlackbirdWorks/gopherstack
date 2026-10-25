@@ -27,6 +27,7 @@ const (
 	slugAzureEventGrid  = "azureeventgrid"
 	slugAzureAppConfig  = "azureappconfig"
 	slugAzureACR        = "azurecontainerregistry"
+	slugAzureFunctions  = "azurefunctions"
 	slugCosmosDB        = "cosmosdb"
 	slugAzureRedis      = "azureredis"
 	slugAzureSQL        = "azuresql"
@@ -139,6 +140,7 @@ func categoryGroups() []categoryGroup {
 				slugAzureEventGrid,
 				slugAzureAppConfig,
 				slugAzureACR,
+				slugAzureFunctions,
 				slugCosmosDB,
 				slugAzureRedis,
 				slugAzureSQL,
@@ -225,6 +227,7 @@ func displayNamesA() map[string]string {
 		slugAzureEventGrid:        "Azure Event Grid",
 		slugAzureAppConfig:        "Azure App Configuration",
 		slugAzureACR:              "Azure Container Registry",
+		slugAzureFunctions:        "Azure Functions",
 		slugAzureRedis:            "Azure Cache for Redis",
 		slugAzureSQL:              "Azure SQL Database",
 		"backup":                  "Backup",

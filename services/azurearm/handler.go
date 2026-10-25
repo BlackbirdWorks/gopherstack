@@ -463,6 +463,10 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(webRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(armResourceRoutes, h, c, segs); handled {
 		return err
 	}

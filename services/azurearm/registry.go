@@ -176,6 +176,19 @@ func (r *Registry) SetContainerRegistries(c ContainerRegistries) {
 	}
 }
 
+// SetFunctionApps gives the registered Microsoft.Web provider (if any) a real Azure Functions data-plane adapter,
+// replacing its no-op default.
+func (r *Registry) SetFunctionApps(f FunctionApps) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftWeb)
+	if !ok {
+		return
+	}
+
+	if wp, wpOk := p.(*WebProvider); wpOk {
+		wp.dataPlane = f
+	}
+}
+
 // SetKeyVaults gives the registered Microsoft.KeyVault provider (if any) a
 // real KeyVaults adapter, replacing its no-op default.
 func (r *Registry) SetKeyVaults(k KeyVaults) {
