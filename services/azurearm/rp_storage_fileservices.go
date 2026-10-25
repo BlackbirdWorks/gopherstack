@@ -82,16 +82,16 @@ func (p *StorageProvider) ownsAccount(id ResourceID) bool {
 }
 
 func fileServiceBody(id ResourceID, enabled bool, days int32) map[string]any {
-	policy := map[string]any{"enabled": enabled}
+	policy := map[string]any{acrWebhookEnabled: enabled}
 	if enabled {
 		policy["days"] = days
 	}
 
 	return map[string]any{
-		"id":   id.ARMID() + "/" + fileServicesType + "/" + fileServicesDefault,
-		"name": fileServicesDefault,
-		"type": namespaceMicrosoftStorage + "/" + storageAccountsType + "/" + fileServicesType,
-		"sku":  map[string]any{"name": "Standard_LRS", "tier": skuTierStandard},
+		"id":        id.ARMID() + "/" + fileServicesType + "/" + fileServicesDefault,
+		fieldName:   fileServicesDefault,
+		"type":      namespaceMicrosoftStorage + "/" + storageAccountsType + "/" + fileServicesType,
+		acrFieldSKU: map[string]any{fieldName: "Standard_LRS", cosmosFieldTier: skuTierStandard},
 		"properties": map[string]any{
 			"cors":                       map[string]any{"corsRules": []any{}},
 			"shareDeleteRetentionPolicy": policy,
@@ -99,28 +99,34 @@ func fileServiceBody(id ResourceID, enabled bool, days int32) map[string]any {
 	}
 }
 
-// parseRetentionPolicy reads properties.shareDeleteRetentionPolicy; ok is
-// false when the body does not carry it.
-func parseRetentionPolicy(body map[string]any) (enabled bool, days int32, ok bool, err error) {
+type retentionUpdate struct {
+	days    int32
+	enabled bool
+	present bool
+}
+
+// parseRetentionPolicy reads properties.shareDeleteRetentionPolicy.
+func parseRetentionPolicy(body map[string]any) (retentionUpdate, error) {
 	props, _ := body[fieldProperties].(map[string]any)
 
 	policy, present := props["shareDeleteRetentionPolicy"].(map[string]any)
 	if !present {
-		return false, 0, false, nil
+		return retentionUpdate{}, nil
 	}
 
-	enabled, _ = policy["enabled"].(bool)
+	u := retentionUpdate{present: true}
+	u.enabled, _ = policy[acrWebhookEnabled].(bool)
 
 	if raw, has := policy["days"].(float64); has {
-		days = int32(raw)
+		u.days = int32(raw)
 	}
 
-	if enabled && (days < 1 || days > maxShareRetentionDay) {
-		return false, 0, true, fmt.Errorf(
+	if u.enabled && (u.days < 1 || u.days > maxShareRetentionDay) {
+		return u, fmt.Errorf(
 			"%w: shareDeleteRetentionPolicy.days must be between 1 and %d", ErrInvalidRequestBody, maxShareRetentionDay)
 	}
 
-	return enabled, days, true, nil
+	return u, nil
 }
 
 func isStorageFileServiceScope(segs []string, n int) bool {
@@ -180,13 +186,13 @@ func (h *Handler) handleFileServices(c *echo.Context, segs []string) error {
 			return h.writeAPIError(c, bodyErr)
 		}
 
-		enabled, days, present, polErr := parseRetentionPolicy(body)
+		update, polErr := parseRetentionPolicy(body)
 		if polErr != nil {
 			return h.writeAPIError(c, polErr)
 		}
 
-		if present {
-			sp.fileServices.SetShareRetention(account, enabled, days)
+		if update.present {
+			sp.fileServices.SetShareRetention(account, update.enabled, update.days)
 		}
 	}
 
