@@ -29,8 +29,11 @@ func TestDocumentedTypesCatalog(t *testing.T) {
 	}{
 		{name: "cites_docs", check: func(t *testing.T) {
 			t.Helper()
-			assert.Equal(t,
-				"https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html", c.Source)
+			assert.Equal(
+				t,
+				"https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html",
+				c.Source,
+			)
 		}},
 		{name: "sorted_unique", check: func(t *testing.T) {
 			t.Helper()

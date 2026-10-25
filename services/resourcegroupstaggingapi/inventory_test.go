@@ -40,8 +40,10 @@ func TestInventoryProviders(t *testing.T) {
 		{
 			name: "all_resources_include_untagged",
 			list: func() []string {
-				var arns []string
-				for _, r := range b.AllResources(t.Context()) {
+				all := b.AllResources(t.Context())
+				arns := make([]string, 0, len(all))
+
+				for _, r := range all {
 					arns = append(arns, r.ResourceARN)
 				}
 
@@ -55,7 +57,8 @@ func TestInventoryProviders(t *testing.T) {
 				out, err := b.GetResources(t.Context(), &resourcegroupstaggingapi.GetResourcesInput{})
 				require.NoError(t, err)
 
-				var arns []string
+				arns := make([]string, 0, len(out.ResourceTagMappingList))
+
 				for _, m := range out.ResourceTagMappingList {
 					arns = append(arns, m.ResourceARN)
 				}

@@ -62,9 +62,27 @@ func TestDocsCatalog_ViaSDK(t *testing.T) {
 		wantName string
 		want     float64
 	}{
-		{name: "lambda_concurrency", service: "lambda", quota: "L-B99A9384", wantName: "Concurrent executions", want: 1000},
-		{name: "kafka_kraft_brokers", service: "kafka", quota: "L-03FD6822", wantName: "Number of brokers per KRaft cluster", want: 60},
-		{name: "dynamodb_control_plane", service: "dynamodb", quota: "L-1BB77E89", wantName: "Concurrent control plane operations", want: 500},
+		{
+			name:     "lambda_concurrency",
+			service:  "lambda",
+			quota:    "L-B99A9384",
+			wantName: "Concurrent executions",
+			want:     1000,
+		},
+		{
+			name:     "kafka_kraft_brokers",
+			service:  "kafka",
+			quota:    "L-03FD6822",
+			wantName: "Number of brokers per KRaft cluster",
+			want:     60,
+		},
+		{
+			name:     "dynamodb_control_plane",
+			service:  "dynamodb",
+			quota:    "L-1BB77E89",
+			wantName: "Concurrent control plane operations",
+			want:     500,
+		},
 	}
 
 	for _, tt := range tests {

@@ -31,7 +31,9 @@ var (
 	tagRe   = regexp.MustCompile(`(?s)<[^>]+>`)
 	linkRe  = regexp.MustCompile(`servicequotas/home/services/([^/"]+)/quotas/(L-[0-9A-F]{8})`)
 	titleRe = regexp.MustCompile(`(?s)<h1[^>]*>(.*?)</h1>`)
-	defRe   = regexp.MustCompile(`^(?:(Each supported Region|Each Account|us-east-1|Each of the other supported Regions): )?([0-9][0-9,.]*)\s*(.*)$`)
+	defRe   = regexp.MustCompile(
+		`^(?:(Each supported Region|Each Account|us-east-1|Each of the other supported Regions): )?([0-9][0-9,.]*)\s*(.*)$`,
+	)
 )
 
 func text(s string) string {
@@ -47,20 +49,31 @@ func pageTitle(page string) string {
 	return strings.TrimSuffix(text(m[1]), " endpoints and quotas")
 }
 
+var scopeRank = map[string]int{ //nolint:gochecknoglobals // immutable lookup table
+	"": rankAll, "Each supported Region": rankAll, "Each Account": rankAll, "us-east-1": rankUSEast1,
+	"Each of the other supported Regions": rankOther,
+}
+
+const (
+	rowCells    = 4
+	rankAll     = 3
+	rankUSEast1 = 2
+	rankOther   = 1
+)
+
 // parseDefault picks the Region-independent default, else the us-east-1 one, else the "other Regions" one.
 func parseDefault(s string) (float64, string, bool) {
 	var best, bestUnit string
 
 	rank := 0
 
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		m := defRe.FindStringSubmatch(strings.TrimSpace(line))
 		if m == nil {
 			continue
 		}
 
-		r := map[string]int{"": 3, "Each supported Region": 3, "Each Account": 3, "us-east-1": 2, "Each of the other supported Regions": 1}[m[1]]
-		if r > rank {
+		if r := scopeRank[m[1]]; r > rank {
 			rank, best, bestUnit = r, m[2], m[3]
 		}
 	}
@@ -87,7 +100,7 @@ func parseQuotas(page string) map[string][]quota {
 
 	for _, row := range rowRe.FindAllStringSubmatch(page, -1) {
 		cells := cellRe.FindAllStringSubmatch(row[1], -1)
-		if len(cells) != 4 {
+		if len(cells) != rowCells {
 			continue
 		}
 

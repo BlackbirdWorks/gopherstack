@@ -148,7 +148,11 @@ func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []Tagged
 	var out []TaggedEntry
 
 	b.clusters.Range(func(c *Cluster) bool {
-		if state, _ := b.clusterStateLocked(c, now); c.ownedBy(sc) && state != stateDeleted && (!taggedOnly || len(c.Tags) > 0) {
+		if state, _ := b.clusterStateLocked(
+			c,
+			now,
+		); c.ownedBy(sc) && state != stateDeleted &&
+			(!taggedOnly || len(c.Tags) > 0) {
 			out = append(out, TaggedEntry{ARN: clusterARN(c.Account, c.Region, c.ID), Tags: maps.Clone(c.Tags)})
 		}
 

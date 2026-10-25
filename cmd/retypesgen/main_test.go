@@ -16,8 +16,10 @@ func TestParse(t *testing.T) {
 	}{
 		{
 			name: "sections",
-			page: `<h3 id="services-a">A</h3><ul><li><code class="code">amplify:apps</code></li><li><code class="code">amplify:apps/branches</code></li></ul>` +
-				`<h3 id="services-b">B</h3><code class="code">sqs:queue</code><h2 id="x">end</h2><code class="code">ec2:ignored</code>`,
+			page: `<h3 id="services-a">A</h3><li><code class="code">amplify:apps</code></li>` +
+				`<li><code class="code">amplify:apps/branches</code></li>` +
+				`<h3 id="services-b">B</h3><code class="code">sqs:queue</code>` +
+				`<h2 id="x">end</h2><code class="code">ec2:ignored</code>`,
 			want: []string{"amplify:apps", "amplify:apps/branches", "sqs:queue"},
 		},
 		{name: "empty", page: "<p>none</p>", want: []string{}},

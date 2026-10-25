@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,12 +14,18 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
+
+const fetchTimeout = time.Minute
+
+var errFetch = errors.New("fetch failed")
 
 const source = "https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html"
 
 var (
-	typeRe    = regexp.MustCompile(`<code class="code">([a-z0-9-]+:[A-Za-z0-9_./-]+)</code>`)
+	typeRe = regexp.MustCompile(`<code class="code">([a-z0-9-]+:[A-Za-z0-9_./-]+)</code>`)
 )
 
 type catalog struct {
@@ -51,26 +58,40 @@ func main() {
 	out := flag.String("out", "services/resourceexplorer2/supported_types.json", "output file")
 	flag.Parse()
 
-	c := &http.Client{Timeout: 60 * time.Second, Transport: http.DefaultTransport.(*http.Transport).Clone()}
-
-	resp, err := c.Get(source) //nolint:noctx // one-shot generator
+	n, err := run(*out)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
+
+	fmt.Fprintf(os.Stdout, "%d types\n", n)
+}
+
+func run(out string) (int, error) {
+	c := httpclient.New(fetchTimeout)
+
+	resp, err := c.Get(source) //nolint:noctx // one-shot generator
+	if err != nil {
+		return 0, err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("%w: %s", errFetch, resp.Status)
+	}
 
 	b, err := io.ReadAll(resp.Body)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		fmt.Fprintln(os.Stderr, "fetch failed", resp.Status, err)
-		os.Exit(1)
+	if err != nil {
+		return 0, err
 	}
 
-	data, err := json.MarshalIndent(catalog{Source: source, Types: parse(string(b))}, "", " ")
-	if err != nil || os.WriteFile(*out, append(data, '\n'), 0o644) != nil {
-		fmt.Fprintln(os.Stderr, "write failed", err)
-		os.Exit(1)
+	types := parse(string(b))
+
+	data, err := json.MarshalIndent(catalog{Source: source, Types: types}, "", " ")
+	if err != nil {
+		return 0, err
 	}
 
-	fmt.Println(len(parse(string(b))), "types", strings.Count(string(data), "\n"))
+	return len(types), os.WriteFile(out, append(data, '\n'), 0o600)
 }
