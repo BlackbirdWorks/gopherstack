@@ -31,7 +31,8 @@ func TestRegistryRoutesOnStrategyHosts(t *testing.T) {
 			t.Parallel()
 
 			backend := ecr.NewInMemoryBackend("000000000000", tc.region, "")
-			cfg := endpointstrategy.Config{Flags: {ECR: tc.strategy}, HostPort: "localhost:4566"}
+			cfg := endpointstrategy.Config{HostPort: "localhost:4566"}
+			cfg.ECR = tc.strategy
 			backend.SetEndpointStrategy(cfg)
 
 			registry := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

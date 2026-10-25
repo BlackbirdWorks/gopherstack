@@ -258,17 +258,40 @@ func TestOpenSearchEndpointStrategyThroughRouter(t *testing.T) {
 	}
 }
 
-func TestOpenSearchPortStrategyRejected(t *testing.T) {
+func TestEndpointStrategyValidation(t *testing.T) {
 	t.Parallel()
 
-	require.Error(t, endpointstrategy.Config{Flags: {OpenSearch: "port"}}.Validate())
-	require.Error(t, endpointstrategy.Config{Flags: {SQS: "bogus"}}.Validate())
-	assert.NoError(
-		t,
-		endpointstrategy.Config{Flags: {
-			SQS: "standard", OpenSearch: "path", GraphQL: "legacy", ECR: "off",
-		}}.Validate(),
-	)
+	tests := []struct {
+		name    string
+		set     func(*endpointstrategy.Config)
+		wantErr bool
+	}{
+		{"opensearch port", func(c *endpointstrategy.Config) { c.OpenSearch = "port" }, true},
+		{"sqs bogus", func(c *endpointstrategy.Config) { c.SQS = "bogus" }, true},
+		{"graphql standard", func(c *endpointstrategy.Config) { c.GraphQL = "standard" }, true},
+		{"ecr path", func(c *endpointstrategy.Config) { c.ECR = "path" }, true},
+		{"valid", func(c *endpointstrategy.Config) {
+			c.SQS, c.OpenSearch, c.GraphQL, c.ECR = "standard", "path", "legacy", "off"
+		}, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var cfg endpointstrategy.Config
+			tc.set(&cfg)
+
+			err := cfg.Validate()
+			if tc.wantErr {
+				require.ErrorIs(t, err, endpointstrategy.ErrInvalidStrategy)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestGraphQLEndpointStrategyThroughRouter(t *testing.T) {
