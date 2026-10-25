@@ -97,7 +97,7 @@ func categoryGroups() []categoryGroup {
 		}},
 		{"Identity & Access", []string{
 			"accessanalyzer", "cognitoidentity", "cognitoidp", "directoryservice",
-			"iam", "identitystore", "rolesanywhere", "sso", "ssoadmin", "ssooidc", "sts",
+			"iam", "identitystore", "rolesanywhere", "signin", "sso", "ssoadmin", "ssooidc", "sts",
 		}},
 		{"Management & Governance", []string{
 			"account", "appconfig", "appconfigdata", "applicationautoscaling",
@@ -369,6 +369,7 @@ func displayNamesD() map[string]string {
 		"s3control":           "S3 Control",
 		"s3files":             "S3 Files",
 		"s3tables":            "S3 Tables",
+		"signin":              "Sign-In",
 		"sagemaker":           "SageMaker",
 		"sagemakerruntime":    "SageMaker Runtime",
 		"scheduler":           "EventBridge Scheduler",

@@ -256,6 +256,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	s3filesbackend "github.com/blackbirdworks/gopherstack/services/s3files"
+	signinbackend "github.com/blackbirdworks/gopherstack/services/signin"
 	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	s3vectorsbackend "github.com/blackbirdworks/gopherstack/services/s3vectors"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
@@ -4682,6 +4683,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&awsconfigbackend.Provider{},
 		&s3controlbackend.Provider{},
 		&s3filesbackend.Provider{},
+		&signinbackend.Provider{},
 		&resourcegroupsbackend.Provider{},
 		&resourcegroupstaggingapibackend.Provider{},
 		&swfbackend.Provider{},
@@ -12752,6 +12754,8 @@ func buildPrincipalResolvers(services []service.Registerable) awsmeta.PrincipalR
 			if r, ok := h.Backend.(awsmeta.PrincipalResolver); ok {
 				chain = append(chain, r)
 			}
+		case *signinbackend.Handler:
+			chain = append(chain, h.Backend)
 		}
 	}
 
