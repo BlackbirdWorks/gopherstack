@@ -254,7 +254,11 @@ func loopbackTarget(loc *url.URL, query string) (string, bool) {
 		host += ":" + strconv.FormatUint(n, 10)
 	}
 
-	p := loc.EscapedPath()
+	p, ok := rebuild(loc.EscapedPath(), pathAlphabet)
+	if !ok {
+		return "", false
+	}
+
 	if p == "" {
 		p = "/"
 	}
@@ -263,7 +267,35 @@ func loopbackTarget(loc *url.URL, query string) (string, bool) {
 		return "", false
 	}
 
-	return "http://" + host + p + "?" + query, true
+	q, ok := rebuild(query, queryAlphabet)
+	if !ok {
+		return "", false
+	}
+
+	return "http://" + host + p + "?" + q, true
+}
+
+const (
+	pathAlphabet  = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~%/!$&'()*+,;=:@"
+	queryAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~%+=&*"
+)
+
+// rebuild copies s one byte at a time out of the constant alphabet, so the result never aliases caller input.
+func rebuild(s, alphabet string) (string, bool) {
+	var sb strings.Builder
+
+	sb.Grow(len(s))
+
+	for i := range len(s) {
+		idx := strings.IndexByte(alphabet, s[i])
+		if idx < 0 {
+			return "", false
+		}
+
+		sb.WriteByte(alphabet[idx])
+	}
+
+	return sb.String(), true
 }
 
 func writeError(c *echo.Context, err error) error {

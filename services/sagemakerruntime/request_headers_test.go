@@ -52,6 +52,14 @@ func TestHandler_RequestHeaderValidation(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
+			name: "timeout overflowing int32", path: "/endpoints/e/async-invocations",
+			headers: map[string]string{
+				"X-Amzn-Sagemaker-Inputlocation":            "s3://b/k",
+				"X-Amzn-Sagemaker-Invocationtimeoutseconds": "4294967297",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
 			name: "bad session id", path: "/endpoints/e/invocations",
 			headers:  map[string]string{"X-Amzn-Sagemaker-Session-Id": "bad id!"},
 			wantCode: http.StatusBadRequest,
