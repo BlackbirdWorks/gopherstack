@@ -87,7 +87,10 @@ func (a *ociIdentityAPI) compartments(c *echo.Context) error {
 
 func (a *ociIdentityAPI) users(c *echo.Context) error {
 	items, err := ociCollect(func(token string) (page.Page[any], error) {
-		pg, perr := a.b.ListUsers(idbackend.NameFilter{CompartmentID: idbackend.TenancyID}, idbackend.ListOpts{Page: token, Limit: ociListLimit})
+		pg, perr := a.b.ListUsers(
+			idbackend.NameFilter{CompartmentID: idbackend.TenancyID},
+			idbackend.ListOpts{Page: token, Limit: ociListLimit},
+		)
 
 		return anyPage(pg.Data, pg.Next), perr
 	})
@@ -111,12 +114,15 @@ func (a *ociIdentityAPI) apiKeys(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"keys": items})
+	return c.JSON(http.StatusOK, map[string]any{iamKeysKind: items})
 }
 
 func (a *ociIdentityAPI) groups(c *echo.Context) error {
 	items, err := ociCollect(func(token string) (page.Page[any], error) {
-		pg, perr := a.b.ListGroups(idbackend.NameFilter{CompartmentID: idbackend.TenancyID}, idbackend.ListOpts{Page: token, Limit: ociListLimit})
+		pg, perr := a.b.ListGroups(
+			idbackend.NameFilter{CompartmentID: idbackend.TenancyID},
+			idbackend.ListOpts{Page: token, Limit: ociListLimit},
+		)
 
 		return anyPage(pg.Data, pg.Next), perr
 	})
@@ -124,12 +130,17 @@ func (a *ociIdentityAPI) groups(c *echo.Context) error {
 		return ociFail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"groups": items})
+	return c.JSON(http.StatusOK, map[string]any{ociKeyGroups: items})
 }
 
 func (a *ociIdentityAPI) memberships(c *echo.Context) error {
 	items, err := ociCollect(func(token string) (page.Page[any], error) {
-		pg, perr := a.b.ListMemberships(idbackend.TenancyID, "", "", idbackend.ListOpts{Page: token, Limit: ociListLimit})
+		pg, perr := a.b.ListMemberships(
+			idbackend.TenancyID,
+			"",
+			"",
+			idbackend.ListOpts{Page: token, Limit: ociListLimit},
+		)
 
 		return anyPage(pg.Data, pg.Next), perr
 	})
@@ -157,7 +168,10 @@ func (a *ociIdentityAPI) policies(c *echo.Context) error {
 
 	items, err := ociAcross(ids, func(id string) ([]any, error) {
 		return ociCollect(func(token string) (page.Page[any], error) {
-			pg, perr := a.b.ListPolicies(idbackend.PolicyFilter{CompartmentID: id}, idbackend.ListOpts{Page: token, Limit: ociListLimit})
+			pg, perr := a.b.ListPolicies(
+				idbackend.PolicyFilter{CompartmentID: id},
+				idbackend.ListOpts{Page: token, Limit: ociListLimit},
+			)
 
 			return anyPage(pg.Data, pg.Next), perr
 		})

@@ -37,7 +37,11 @@ func TestOCIObjectStorageProxy(t *testing.T) {
 
 		oc := ociobjectstorage.NewHandler(ociobjectstorage.NewInMemoryBackend())
 		ns := oc.Backend.Namespace()
-		_, err := oc.Backend.CreateBucket(ns, ociobjectstorage.CreateBucketInput{Name: "bk", CompartmentID: ociComp}, "u")
+		_, err := oc.Backend.CreateBucket(
+			ns,
+			ociobjectstorage.CreateBucketInput{Name: "bk", CompartmentID: ociComp},
+			"u",
+		)
 		require.NoError(t, err)
 
 		for name, body := range map[string]string{"docs/a.txt": "hello", "docs/b.txt": "world", "top.txt": "top"} {
@@ -46,7 +50,11 @@ func TestOCIObjectStorageProxy(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		_, err = oc.Backend.CreateBucket(ns, ociobjectstorage.CreateBucketInput{Name: "empty", CompartmentID: ociComp}, "u")
+		_, err = oc.Backend.CreateBucket(
+			ns,
+			ociobjectstorage.CreateBucketInput{Name: "empty", CompartmentID: ociComp},
+			"u",
+		)
 		require.NoError(t, err)
 
 		return dashboard.NewHandler(dashboard.Config{OCIObjectStorageOps: oc})
@@ -145,7 +153,9 @@ func TestOCIVaultProxy(t *testing.T) {
 		require.NoError(t, err)
 
 		return seeded{
-			h: dashboard.NewHandler(dashboard.Config{OCIVaultOps: v}), vaultID: vault.ID, keyID: key.ID, secretID: secret.ID,
+			h: dashboard.NewHandler(
+				dashboard.Config{OCIVaultOps: v},
+			), vaultID: vault.ID, keyID: key.ID, secretID: secret.ID,
 		}
 	}
 
@@ -195,10 +205,34 @@ func TestOCIVaultProxy(t *testing.T) {
 
 		s := seed(t)
 		runGCPSteps(t, s.h, []gcpStep{
-			{http.MethodPost, root + "/secrets/" + s.secretID + "/versions/0/reveal", "", "invalid version number", 400},
-			{http.MethodPost, root + "/secrets/" + s.secretID + "/versions/abc/reveal", "", "invalid version number", 400},
-			{http.MethodPost, root + "/secrets/" + s.secretID + "/versions/9/reveal", "", "NotAuthorizedOrNotFound", 404},
-			{http.MethodPost, root + "/secrets/ocid1.vaultsecret.oc1..nope/versions/1/reveal", "", "NotAuthorizedOrNotFound", 404},
+			{
+				http.MethodPost,
+				root + "/secrets/" + s.secretID + "/versions/0/reveal",
+				"",
+				"invalid version number",
+				400,
+			},
+			{
+				http.MethodPost,
+				root + "/secrets/" + s.secretID + "/versions/abc/reveal",
+				"",
+				"invalid version number",
+				400,
+			},
+			{
+				http.MethodPost,
+				root + "/secrets/" + s.secretID + "/versions/9/reveal",
+				"",
+				"NotAuthorizedOrNotFound",
+				404,
+			},
+			{
+				http.MethodPost,
+				root + "/secrets/ocid1.vaultsecret.oc1..nope/versions/1/reveal",
+				"",
+				"NotAuthorizedOrNotFound",
+				404,
+			},
 			{http.MethodGet, root + "/vaults/nope/keys/nope/versions", "", "NotAuthorizedOrNotFound", 404},
 		})
 	})
@@ -239,7 +273,11 @@ func TestOCIStreamingProxy(t *testing.T) {
 			body := `{"messages":[{"key":"` + base64.StdEncoding.EncodeToString([]byte("k"+string(rune('0'+i)))) +
 				`","value":"` + base64.StdEncoding.EncodeToString([]byte("event-"+string(rune('0'+i)))) + `"}]}`
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/20180418/streams/"+stream.ID+"/messages", strings.NewReader(body))
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/20180418/streams/"+stream.ID+"/messages",
+				strings.NewReader(body),
+			)
 			req.Header.Set("Content-Type", "application/json")
 			require.NoError(t, st.Handler()(echo.NewContext(req, rec)))
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -326,7 +364,9 @@ func TestOCIIdentityProxy(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		group, _, err := b.CreateGroup(ociidentity.CreateGroupIn{CompartmentID: ociidentity.TenancyID, Name: "admins", Description: "Admins"})
+		group, _, err := b.CreateGroup(
+			ociidentity.CreateGroupIn{CompartmentID: ociidentity.TenancyID, Name: "admins", Description: "Admins"},
+		)
 		require.NoError(t, err)
 
 		_, _, err = b.AddUserToGroup(user.ID, group.ID)

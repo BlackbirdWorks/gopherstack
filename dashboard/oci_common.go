@@ -15,6 +15,11 @@ import (
 )
 
 const (
+	ociKeyGroups  = "groups"
+	ociKeyObjects = "objects"
+	ociKeyRules   = "rules"
+	ociMimeOctet  = "application/octet-stream"
+
 	ociProxyPrefix  = "/dashboard/api/v1/oci"
 	ociListLimit    = 1000
 	ociMaxListPages = 100

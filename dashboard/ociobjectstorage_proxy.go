@@ -22,6 +22,7 @@ const (
 type ociObjectJSON struct {
 	TimeCreated  time.Time         `json:"timeCreated"`
 	TimeModified time.Time         `json:"timeModified"`
+	Metadata     map[string]string `json:"metadata"`
 	Name         string            `json:"name"`
 	Etag         string            `json:"etag"`
 	MD5          string            `json:"md5"`
@@ -29,7 +30,6 @@ type ociObjectJSON struct {
 	ContentType  string            `json:"contentType"`
 	StorageTier  string            `json:"storageTier"`
 	Archival     string            `json:"archivalState"`
-	Metadata     map[string]string `json:"metadata"`
 	Size         int               `json:"size"`
 }
 
@@ -74,7 +74,12 @@ func (a *ociObjectStorageAPI) buckets(c *echo.Context) error {
 }
 
 func (a *ociObjectStorageAPI) bucket(c *echo.Context) error {
-	bk, err := a.b.GetBucket(a.ns(), c.Param("bucket"), []string{"approximateCount", "approximateSize"}, osbackend.Preconds{})
+	bk, err := a.b.GetBucket(
+		a.ns(),
+		c.Param("bucket"),
+		[]string{"approximateCount", "approximateSize"},
+		osbackend.Preconds{},
+	)
 	if err != nil {
 		return ociFail(c, err)
 	}
@@ -105,7 +110,9 @@ func (a *ociObjectStorageAPI) objects(c *echo.Context) error {
 	}
 
 	objs, prefixes, next, err := a.b.ListObjects(a.ns(), c.Param("bucket"), osbackend.ListOptions{
-		Prefix: c.QueryParam("prefix"), Delimiter: c.QueryParam("delimiter"), Start: c.QueryParam("start"), Limit: limit,
+		Prefix: c.QueryParam(
+			"prefix",
+		), Delimiter: c.QueryParam("delimiter"), Start: c.QueryParam("start"), Limit: limit,
 	})
 	if err != nil {
 		return ociFail(c, err)
@@ -120,7 +127,7 @@ func (a *ociObjectStorageAPI) objects(c *echo.Context) error {
 		prefixes = []string{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"objects": items, "prefixes": prefixes, "nextStartWith": next})
+	return c.JSON(http.StatusOK, map[string]any{ociKeyObjects: items, "prefixes": prefixes, "nextStartWith": next})
 }
 
 func (a *ociObjectStorageAPI) lookup(c *echo.Context, body bool) (osbackend.ObjectInfo, bool) {
@@ -158,7 +165,7 @@ func (a *ociObjectStorageAPI) content(c *echo.Context) error {
 
 	ctype := o.Meta.ContentType
 	if ctype == "" {
-		ctype = "application/octet-stream"
+		ctype = ociMimeOctet
 	}
 
 	h := c.Response().Header()
@@ -196,13 +203,16 @@ func (a *ociObjectStorageAPI) lifecycle(c *echo.Context) error {
 	lc, _, err := a.b.GetLifecycle(a.ns(), c.Param("bucket"))
 	if err != nil {
 		if _, code, _, ok := ociAPIError(err); ok && code == "LifecyclePolicyNotFound" {
-			return c.JSON(http.StatusOK, map[string]any{"configured": false, "rules": []any{}})
+			return c.JSON(http.StatusOK, map[string]any{"configured": false, ociKeyRules: []any{}})
 		}
 
 		return ociFail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"configured": true, "timeCreated": lc.TimeCreated, "rules": lc.Items})
+	return c.JSON(
+		http.StatusOK,
+		map[string]any{"configured": true, "timeCreated": lc.TimeCreated, ociKeyRules: lc.Items},
+	)
 }
 
 func (a *ociObjectStorageAPI) retention(c *echo.Context) error {
@@ -213,5 +223,5 @@ func (a *ociObjectStorageAPI) retention(c *echo.Context) error {
 		return ociFail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"rules": items})
+	return c.JSON(http.StatusOK, map[string]any{ociKeyRules: items})
 }

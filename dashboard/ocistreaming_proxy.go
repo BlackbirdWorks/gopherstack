@@ -28,9 +28,9 @@ type ociStreamBytes struct {
 
 type ociStreamMessage struct {
 	Timestamp time.Time      `json:"timestamp"`
+	Partition string         `json:"partition"`
 	Key       ociStreamBytes `json:"key"`
 	Value     ociStreamBytes `json:"value"`
-	Partition string         `json:"partition"`
 	Offset    int64          `json:"offset"`
 }
 
@@ -78,7 +78,15 @@ func (a *ociStreamingAPI) streams(c *echo.Context) error {
 
 	items, err := ociAcross(a.b.Compartments(), func(comp string) ([]any, error) {
 		return ociCollect(func(token string) (page.Page[any], error) {
-			pg, perr := a.b.ListStreams(comp, pool, "", "", "", "", streambackend.ListOpts{Page: token, Limit: ociListLimit})
+			pg, perr := a.b.ListStreams(
+				comp,
+				pool,
+				"",
+				"",
+				"",
+				"",
+				streambackend.ListOpts{Page: token, Limit: ociListLimit},
+			)
 
 			return anyPage(pg.Data, pg.Next), perr
 		})
@@ -156,7 +164,10 @@ func (a *ociStreamingAPI) messages(c *echo.Context) error {
 		start = max(off, window.Base)
 	}
 
-	cur, err := a.b.CreateCursor(stream, streambackend.CreateCursorIn{Type: cursorAtOffset, Partition: partition, Offset: &start})
+	cur, err := a.b.CreateCursor(
+		stream,
+		streambackend.CreateCursorIn{Type: cursorAtOffset, Partition: partition, Offset: &start},
+	)
 	if err != nil {
 		return ociFail(c, err)
 	}

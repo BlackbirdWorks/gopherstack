@@ -114,7 +114,10 @@ func (a *gcpWorkflowsAPI) execution(ctx context.Context, r gcpRESTCall) (proto.M
 
 	switch {
 	case r.method == http.MethodGet && r.verb == "":
-		return a.ex.GetExecution(ctx, &executionspb.GetExecutionRequest{Name: name, View: executionspb.ExecutionView_FULL})
+		return a.ex.GetExecution(
+			ctx,
+			&executionspb.GetExecutionRequest{Name: name, View: executionspb.ExecutionView_FULL},
+		)
 	case r.method == http.MethodPost && r.verb == wfVerbCancel:
 		return a.ex.CancelExecution(ctx, &executionspb.CancelExecutionRequest{Name: name})
 	}

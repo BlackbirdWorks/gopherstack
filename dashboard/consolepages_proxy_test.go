@@ -131,7 +131,10 @@ func TestGCPDNSProxy(t *testing.T) {
 		t.Helper()
 
 		d := gcpdns.NewHandler(gcpdns.NewInMemoryBackend())
-		_, err := d.Backend.CreateZone("p", &dnsapi.ManagedZone{Name: "example", DnsName: "example.com.", Description: "demo"})
+		_, err := d.Backend.CreateZone(
+			"p",
+			&dnsapi.ManagedZone{Name: "example", DnsName: "example.com.", Description: "demo"},
+		)
 		require.NoError(t, err)
 
 		_, err = d.Backend.CreateRRSet("p", "example", &dnsapi.ResourceRecordSet{
@@ -215,7 +218,11 @@ func TestAzureFileProxy(t *testing.T) {
 		put("share1?restype=share", "", nil)
 		put("share1/docs?restype=directory", "", nil)
 		put("share1/docs/a.txt", "", map[string]string{"x-ms-type": "file", "x-ms-content-length": "5"})
-		put("share1/docs/a.txt?comp=range", "hello", map[string]string{"x-ms-write": "update", "x-ms-range": "bytes=0-4"})
+		put(
+			"share1/docs/a.txt?comp=range",
+			"hello",
+			map[string]string{"x-ms-write": "update", "x-ms-range": "bytes=0-4"},
+		)
 		put("share1?restype=share&comp=snapshot", "", nil)
 
 		return dashboard.NewHandler(dashboard.Config{AzureFileOps: f})

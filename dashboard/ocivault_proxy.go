@@ -69,7 +69,12 @@ func (a *ociVaultAPI) keys(c *echo.Context) error {
 
 	items, err := ociAcross(a.b.Compartments(), func(comp string) ([]any, error) {
 		return ociCollect(func(token string) (page.Page[any], error) {
-			pg, perr := a.b.ListKeys(vault, comp, vaultbackend.KeyFilter{}, vaultbackend.ListOpts{Page: token, Limit: ociListLimit})
+			pg, perr := a.b.ListKeys(
+				vault,
+				comp,
+				vaultbackend.KeyFilter{},
+				vaultbackend.ListOpts{Page: token, Limit: ociListLimit},
+			)
 
 			return anyPage(pg.Data, pg.Next), perr
 		})
@@ -78,12 +83,16 @@ func (a *ociVaultAPI) keys(c *echo.Context) error {
 		return ociFail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"keys": items})
+	return c.JSON(http.StatusOK, map[string]any{iamKeysKind: items})
 }
 
 func (a *ociVaultAPI) keyVersions(c *echo.Context) error {
 	items, err := ociCollect(func(token string) (page.Page[any], error) {
-		pg, perr := a.b.ListKeyVersions(c.Param("vault"), c.Param("key"), vaultbackend.ListOpts{Page: token, Limit: ociListLimit})
+		pg, perr := a.b.ListKeyVersions(
+			c.Param("vault"),
+			c.Param("key"),
+			vaultbackend.ListOpts{Page: token, Limit: ociListLimit},
+		)
 
 		return anyPage(pg.Data, pg.Next), perr
 	})

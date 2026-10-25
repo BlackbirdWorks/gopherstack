@@ -336,7 +336,8 @@ func wireGCPExplorerOps(ctx *service.AppContext, conf *Config) {
 	}
 }
 
-// linkConsoleExtras resolves the Workflows, Cloud DNS, Azure Files and Oracle Cloud handlers the dashboard proxies call in-process.
+// linkConsoleExtras resolves the Workflows, Cloud DNS, Azure Files and Oracle Cloud
+// handlers the dashboard proxies call in-process.
 func linkConsoleExtras(conf *Config, cfg any) {
 	if p, ok := cfg.(interface{ GetGCPWorkflowsHandler() service.Registerable }); ok {
 		conf.GCPWorkflowsOps, _ = getHandler[*gcpworkflows.Handler](p.GetGCPWorkflowsHandler())
