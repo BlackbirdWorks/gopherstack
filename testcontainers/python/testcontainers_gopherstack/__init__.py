@@ -29,6 +29,7 @@ AZURE_PORTS = {
     "eventgrid": 10007,
     "appconfig": 10008,
     "file": 10009,
+    "monitor": 10013,
     "acr": 10011,
     "storagevhost": 10010,
     "cosmosdb": 8081,

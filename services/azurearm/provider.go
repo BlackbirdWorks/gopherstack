@@ -191,6 +191,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		Port:     settings.ACRPort,
 	}, nil))
 
+	registry.Register(NewMonitorProvider(namespaceMicrosoftOperationalInsights, backend, nil))
+	registry.Register(NewMonitorProvider(namespaceMicrosoftInsights, backend, nil))
+
 	registry.Register(NewRedisProvider(nil))
 
 	registry.Register(NewSQLProvider(nil))
