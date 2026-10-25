@@ -72,8 +72,11 @@ func (f *pitrFixture) createSource(t *testing.T, engine string, retention int) {
 	require.NoError(t, err)
 	f.waitInstance(t, "src", "available")
 
+	// Wait for the first point to be stored, not just for its dump to start: a tick that advances the clock
+	// mid-dump stamps that point late and drops t0 from the window.
 	if retention > 0 {
-		require.Eventually(t, func() bool { return len(f.rt.allExecs()) > 0 }, engineWait, 5*time.Millisecond)
+		require.Eventually(t, func() bool { return !f.instance(t, "src").LatestRestorableTime.IsZero() },
+			engineWait, 5*time.Millisecond)
 	}
 }
 
