@@ -10,7 +10,7 @@ export const AZURE_ACCOUNT_KEY =
 
 export const AZURE_PORTS = {
   blob: 10000, queue: 10001, table: 10002, servicebus: 10003, keyvault: 10004,
-  eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
+  eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, file: 10009, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
 };
 
 export const GCP_PORTS = {
@@ -106,7 +106,7 @@ export class StartedGopherstackContainer {
     const acct = `/${AZURE_ACCOUNT_NAME}`;
     return (
       `DefaultEndpointsProtocol=http;AccountName=${AZURE_ACCOUNT_NAME};AccountKey=${AZURE_ACCOUNT_KEY};` +
-      `BlobEndpoint=${eps.blob}${acct};QueueEndpoint=${eps.queue}${acct};TableEndpoint=${eps.table}${acct};`
+      `BlobEndpoint=${eps.blob}${acct};QueueEndpoint=${eps.queue}${acct};TableEndpoint=${eps.table}${acct};FileEndpoint=${eps.file}${acct};`
     );
   }
 

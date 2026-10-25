@@ -51,6 +51,7 @@ const (
 	AzureARM          = "10006"
 	AzureEventGrid    = "10007"
 	AzureAppConfig    = "10008"
+	AzureFile         = "10009"
 	AzureACR          = "10011"
 	AzureStorageVHost = "10010"
 	AzureCosmosDB     = "8081"
@@ -85,7 +86,8 @@ func gcpPorts() map[string]string {
 func azurePorts() []string {
 	return []string{
 		AzureBlobPort, AzureQueuePort, AzureTablePort, AzureServiceBus, AzureKeyVault,
-		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureACR, AzureStorageVHost, AzureCosmosDB,
+		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureFile, AzureACR, AzureStorageVHost,
+		AzureCosmosDB,
 	}
 }
 
@@ -257,12 +259,12 @@ func (c *Container) AWSConfig(ctx context.Context) (aws.Config, error) {
 
 // AzureEndpoints returns the base URL (http://host:port, no account path) of
 // every Azure listener, keyed by "blob", "queue", "table", "servicebus",
-// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "acr", "storagevhost", "cosmosdb".
+// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "file", "acr", "storagevhost", "cosmosdb".
 func (c *Container) AzureEndpoints(ctx context.Context) (map[string]string, error) {
 	named := map[string]string{
 		"blob": AzureBlobPort, "queue": AzureQueuePort, "table": AzureTablePort,
 		"servicebus": AzureServiceBus, "keyvault": AzureKeyVault, "eventhubs": AzureEventHubs,
-		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "acr": AzureACR,
+		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "file": AzureFile, "acr": AzureACR,
 		"storagevhost": AzureStorageVHost, "cosmosdb": AzureCosmosDB,
 	}
 	out := make(map[string]string, len(named))
@@ -291,9 +293,9 @@ func (c *Container) AzureConnectionString(ctx context.Context) (string, error) {
 
 	return fmt.Sprintf(
 		"DefaultEndpointsProtocol=http;AccountName=%s;AccountKey=%s;"+
-			"BlobEndpoint=%s%s;QueueEndpoint=%s%s;TableEndpoint=%s%s;",
+			"BlobEndpoint=%s%s;QueueEndpoint=%s%s;TableEndpoint=%s%s;FileEndpoint=%s%s;",
 		AzureAccountName, AzureAccountKey,
-		eps["blob"], acct, eps["queue"], acct, eps["table"], acct,
+		eps["blob"], acct, eps["queue"], acct, eps["table"], acct, eps["file"], acct,
 	), nil
 }
 

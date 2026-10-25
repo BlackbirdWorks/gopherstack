@@ -28,6 +28,7 @@ AZURE_PORTS = {
     "arm": 10006,
     "eventgrid": 10007,
     "appconfig": 10008,
+    "file": 10009,
     "acr": 10011,
     "storagevhost": 10010,
     "cosmosdb": 8081,
@@ -146,6 +147,7 @@ class GopherstackContainer(DockerContainer):
             f"DefaultEndpointsProtocol=http;AccountName={AZURE_ACCOUNT_NAME};"
             f"AccountKey={AZURE_ACCOUNT_KEY};BlobEndpoint={eps['blob']}{acct};"
             f"QueueEndpoint={eps['queue']}{acct};TableEndpoint={eps['table']}{acct};"
+            f"FileEndpoint={eps['file']}{acct};"
         )
 
     def get_gcp_endpoint(self, service: str) -> str:

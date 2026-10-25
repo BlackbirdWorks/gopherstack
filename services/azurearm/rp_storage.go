@@ -394,6 +394,7 @@ func (p *StorageProvider) buildBody(id ResourceID, acct *storedStorageAccount) m
 			"blob":  advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "blob", acct.name),
 			"queue": advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "queue", acct.name),
 			"table": advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "table", acct.name),
+			"file":  advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "file", acct.name),
 		},
 	}
 
