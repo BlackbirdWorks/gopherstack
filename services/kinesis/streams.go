@@ -98,6 +98,12 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		}
 	}
 
+	if streamMode == streamModeProvisioned {
+		if limErr := b.checkShardLimitLocked(region, nil, shardCount); limErr != nil {
+			return limErr
+		}
+	}
+
 	maxRecordSizeBytes, err := resolveCreateStreamMaxRecordSize(input.MaxRecordSizeInKiB)
 	if err != nil {
 		return err

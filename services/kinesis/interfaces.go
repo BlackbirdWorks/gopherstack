@@ -78,6 +78,7 @@ type StorageBackend interface {
 	CountOpenShards(ctx context.Context) int
 	CountOnDemandStreams(ctx context.Context) int
 	OnDemandStreamCountLimit(ctx context.Context) int
+	ShardLimit(ctx context.Context) int
 	ListAll(ctx context.Context) []StreamInfo
 }
 

@@ -170,7 +170,7 @@ func checkOnDemandLimit(streams []*Stream, limit int) error {
 			onDemandCount++
 		}
 	}
-	if onDemandCount >= limit {
+	if limit >= 0 && onDemandCount >= limit {
 		return ErrLimitExceeded
 	}
 

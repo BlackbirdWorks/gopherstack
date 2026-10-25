@@ -165,6 +165,8 @@ type InMemoryBackend struct {
 	accountID                string
 	region                   string
 	onDemandStreamCountLimit int
+	shardLimit               int
+	onDemandPinned           bool
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -182,6 +184,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		region:                   region,
 		mu:                       lockmetrics.New("kinesis"),
 		onDemandStreamCountLimit: defaultOnDemandStreamCountLimit,
+		shardLimit:               kinesisDefaultShardLimit,
 		minimumThroughputBillingCommitment: MinimumThroughputBillingCommitmentOutput{
 			Status: minimumThroughputBillingCommitmentDisabled,
 		},
