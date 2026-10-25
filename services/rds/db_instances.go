@@ -99,6 +99,10 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		engine, instanceClass, allocatedStorage, masterUser, b.region, b.engine == nil, &opts,
 	)
 
+	if err = b.validateSQLServerCreate(engine, dbName, opts.MasterUserPassword, masterUser); err != nil {
+		return nil, err
+	}
+
 	secret, err := b.validateCreateLogin(engine, masterUser, opts)
 	if err != nil {
 		return nil, err

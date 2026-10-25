@@ -112,6 +112,10 @@ func (e *dbEngine) dumpUnitFor(ctx context.Context, in unitInfo, forReplica bool
 	}
 
 	l := in.login
+	if l.Kind == engineSQLServer {
+		return e.dumpSQLServer(ctx, x, in)
+	}
+
 	if l.Kind == enginePostgres {
 		db, err := pgDatabase(l)
 		if err != nil {
@@ -231,6 +235,10 @@ func (e *dbEngine) loadDump(ctx context.Context, in unitInfo, dump string) error
 	}
 
 	l := in.login
+	if l.Kind == engineSQLServer {
+		return e.loadSQLServerDump(ctx, x, in, dump)
+	}
+
 	if l.Kind == enginePostgres {
 		if _, err := pgDatabase(l); err != nil {
 			return err

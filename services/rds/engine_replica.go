@@ -97,7 +97,7 @@ func (b *InMemoryBackend) seedReplicaLocked(inst *DBInstance, src *liveDB) {
 	}
 
 	seed := liveSeedLocked(src)
-	if b.engine.canStream() {
+	if b.engine.canStream() && src.kind != engineSQLServer {
 		seed.replicate, seed.net = true, src.acquireNet()
 	}
 

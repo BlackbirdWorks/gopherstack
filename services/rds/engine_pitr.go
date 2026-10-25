@@ -217,7 +217,7 @@ func (b *InMemoryBackend) appendRestorePoint(lb *liveDB, d engineData) (*restore
 	e.checked[lb.key] = now
 
 	pts := e.points[lb.key]
-	if n := len(pts); n > 0 && pts[n-1].data.dump == d.dump && pts[n-1].data.password == d.password {
+	if n := len(pts); n > 0 && sameDump(pts[n-1].data.dump, d.dump) && pts[n-1].data.password == d.password {
 		return nil, nil
 	}
 
@@ -233,6 +233,18 @@ func (b *InMemoryBackend) appendRestorePoint(lb *liveDB, d engineData) (*restore
 	}
 
 	return &p, keys
+}
+
+// sameDump compares two dumps; SQL Server backups embed timestamps, so they compare by their fingerprint line.
+func sameDump(a, b string) bool {
+	if strings.HasPrefix(a, sqlServerFingerprint) && strings.HasPrefix(b, sqlServerFingerprint) {
+		fa, _, _ := strings.Cut(a, "\n")
+		fb, _, _ := strings.Cut(b, "\n")
+
+		return fa == fb
+	}
+
+	return a == b
 }
 
 // prunePoints drops points older than the retention window (keeping the one that still covers its start) and
