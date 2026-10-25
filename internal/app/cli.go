@@ -231,6 +231,7 @@ import (
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
+	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
 	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
@@ -662,6 +663,7 @@ type CLI struct {
 	Localstack                    LocalstackSettings                `embed:"" prefix:"localstack-"`
 	OCIVault                      ocivaultbackend.Settings          `embed:"" prefix:"oci-vault-"`
 	OCIStreaming                  ocistreamingbackend.Settings      `embed:"" prefix:"oci-streaming-"`
+	OCIIdentity                   ociidentitybackend.Settings       `embed:"" prefix:"oci-identity-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -823,6 +825,11 @@ func (c *CLI) GetOCIObjectStorageSettings() ociobjectstoragebackend.Settings {
 // GetOCIVaultSettings returns OCI Vault settings (ocivault.ConfigProvider).
 func (c *CLI) GetOCIVaultSettings() ocivaultbackend.Settings {
 	return c.OCIVault
+}
+
+// GetOCIIdentitySettings returns OCI Identity settings (ociidentity.ConfigProvider).
+func (c *CLI) GetOCIIdentitySettings() ociidentitybackend.Settings {
+	return c.OCIIdentity
 }
 
 // GetOCIStreamingSettings returns OCI Streaming settings (ocistreaming.ConfigProvider).
@@ -2565,6 +2572,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIObjectStorage", "ociobjectstorage", cli.OCIObjectStorage.Port},
 		{"OCIVault", "ocivault", cli.OCIVault.Port},
 		{"OCIStreaming", "ocistreaming", cli.OCIStreaming.Port},
+		{"OCIIdentity", "ociidentity", cli.OCIIdentity.Port},
 	}
 }
 
@@ -3539,6 +3547,7 @@ func wireCrossServiceDependencies(
 	wireSchedulerAndPipesIntegrations(byName)
 	wireGovernanceIntegrations(byName, services)
 	wireOCIStreamingVault(byName)
+	wireOCIIdentityKeys(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -3548,6 +3557,26 @@ func wireOCIStreamingVault(byName map[string]service.Registerable) {
 
 	if sok && vok {
 		streamingH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+	}
+}
+
+// wireOCIIdentityKeys lets API keys uploaded through OCI Identity authenticate requests to every OCI service.
+func wireOCIIdentityKeys(byName map[string]service.Registerable) {
+	identityH, ok := byName["OCIIdentity"].(*ociidentitybackend.Handler)
+	if !ok {
+		return
+	}
+
+	if h, found := byName["OCIObjectStorage"].(*ociobjectstoragebackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIStreaming"].(*ocistreamingbackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
 	}
 }
 
@@ -4953,6 +4982,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ociobjectstoragebackend.Provider{},
 		&ocivaultbackend.Provider{},
 		&ocistreamingbackend.Provider{},
+		&ociidentitybackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
