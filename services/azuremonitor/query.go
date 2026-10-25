@@ -108,11 +108,11 @@ func parseTimespanParam(s string, now time.Time) (time.Time, time.Time, bool) {
 }
 
 type queryResolver struct {
-	b    *Backend
-	home *Workspace
-	// resource, when set, evaluates in a resource context: tables exist but hold no rows for it.
+	from     time.Time
+	to       time.Time
+	b        *Backend
+	home     *Workspace
 	resource string
-	from, to time.Time
 }
 
 func (r queryResolver) Table(ws, name string) (*kql.Rel, bool) {
@@ -207,7 +207,12 @@ func (b *Backend) run(res queryResolver, req QueryRequest, withStats bool) (*Que
 
 	from, to, ok := parseTimespanParam(req.Timespan, now)
 	if !ok {
-		return nil, newErr(http.StatusBadRequest, "BadArgumentError", "The 'timespan' value '%s' is not valid.", req.Timespan)
+		return nil, newErr(
+			http.StatusBadRequest,
+			"BadArgumentError",
+			"The 'timespan' value '%s' is not valid.",
+			req.Timespan,
+		)
 	}
 
 	res.from, res.to = from, to

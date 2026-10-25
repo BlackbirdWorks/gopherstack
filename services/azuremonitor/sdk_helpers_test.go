@@ -45,24 +45,34 @@ func newEnv(t *testing.T, settings azuremonitor.Settings) *env {
 	srv := httptest.NewTLSServer(e)
 	t.Cleanup(srv.Close)
 
-	ing, err := azlogs.NewClient(srv.URL, fakeCredential{}, &azlogs.ClientOptions{ClientOptions: azcore.ClientOptions{
+	ing, err := azlogs.NewClient(srv.URL, fakeCredential{}, &azlogs.ClientOptions{
 		Transport: srv.Client(), Retry: policy.RetryOptions{MaxRetries: -1},
-	}})
+	})
 	require.NoError(t, err)
 
-	qc, err := queryazlogs.NewClient(fakeCredential{}, &queryazlogs.ClientOptions{ClientOptions: azcore.ClientOptions{
-		Transport: srv.Client(), Retry: policy.RetryOptions{MaxRetries: -1},
-		Cloud: cloud.Configuration{Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
-			queryazlogs.ServiceName: {Endpoint: srv.URL, Audience: "https://api.loganalytics.io"},
-		}},
-	}})
+	qc, err := queryazlogs.NewClient(fakeCredential{}, &queryazlogs.ClientOptions{
+		Transport: srv.Client(),
+		Retry:     policy.RetryOptions{MaxRetries: -1},
+		Cloud: cloud.Configuration{
+			Services: map[cloud.ServiceName]cloud.ServiceConfiguration{ //nolint:exhaustive // only the query service is needed
+				queryazlogs.ServiceName: {Endpoint: srv.URL, Audience: "https://api.loganalytics.io"},
+			},
+		},
+	})
 	require.NoError(t, err)
 
 	return &env{handler: h, srv: srv, ingest: ing, query: qc}
 }
 
 func ref(namespace string, types []string, names ...string) azuremonitor.Ref {
-	return azuremonitor.Ref{Sub: testSub, RG: testRG, Namespace: namespace, Types: types, Names: names, Host: "localhost"}
+	return azuremonitor.Ref{
+		Sub:       testSub,
+		RG:        testRG,
+		Namespace: namespace,
+		Types:     types,
+		Names:     names,
+		Host:      "localhost",
+	}
 }
 
 func wsRef(name string) azuremonitor.Ref {
@@ -75,10 +85,6 @@ func tableRef(ws, table string) azuremonitor.Ref {
 
 func dcrRef(name string) azuremonitor.Ref {
 	return ref("Microsoft.Insights", []string{"dataCollectionRules"}, name)
-}
-
-func dceRef(name string) azuremonitor.Ref {
-	return ref("Microsoft.Insights", []string{"dataCollectionEndpoints"}, name)
 }
 
 func wsID(name string) string {
@@ -100,18 +106,21 @@ func (e *env) seed(t *testing.T, transform string) seeded {
 	ws, err := b.Put(wsRef("testws"), map[string]any{"location": "westus"})
 	require.NoError(t, err)
 
-	_, err = b.Put(tableRef("testws", "AppEvents_CL"), map[string]any{"properties": map[string]any{"schema": map[string]any{
-		"name": "AppEvents_CL",
-		"columns": []any{
-			map[string]any{"name": "TimeGenerated", "type": "dateTime"},
-			map[string]any{"name": "Computer", "type": "string"},
-			map[string]any{"name": "Level", "type": "string"},
-			map[string]any{"name": "Count", "type": "long"},
-			map[string]any{"name": "Value", "type": "real"},
-			map[string]any{"name": "Ok", "type": "boolean"},
-			map[string]any{"name": "Extra", "type": "dynamic"},
-		},
-	}}})
+	_, err = b.Put(
+		tableRef("testws", "AppEvents_CL"),
+		map[string]any{"properties": map[string]any{"schema": map[string]any{
+			"name": "AppEvents_CL",
+			"columns": []any{
+				map[string]any{"name": "TimeGenerated", "type": "dateTime"},
+				map[string]any{"name": "Computer", "type": "string"},
+				map[string]any{"name": "Level", "type": "string"},
+				map[string]any{"name": "Count", "type": "long"},
+				map[string]any{"name": "Value", "type": "real"},
+				map[string]any{"name": "Ok", "type": "boolean"},
+				map[string]any{"name": "Extra", "type": "dynamic"},
+			},
+		}}},
+	)
 	require.NoError(t, err)
 
 	dcr, err := b.Put(dcrRef("dcr"), map[string]any{
@@ -138,7 +147,7 @@ func (e *env) seed(t *testing.T, transform string) seeded {
 	require.NoError(t, err)
 
 	return seeded{
-		customerID: ws["properties"].(map[string]any)["customerId"].(string), //nolint:forcetypeassert // test fixture
+		customerID: ws["properties"].(map[string]any)["customerId"].(string),   //nolint:forcetypeassert // test fixture
 		ruleID:     dcr["properties"].(map[string]any)["immutableId"].(string), //nolint:forcetypeassert // test fixture
 	}
 }

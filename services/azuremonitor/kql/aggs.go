@@ -20,15 +20,29 @@ type aggSpec struct {
 
 type aggCollector struct {
 	in    *scope
+	byIdx map[string]bool
 	specs []*aggSpec
 	width int
-	byIdx map[string]bool
 }
 
+const (
+	minSample = 2
+
+	aggSum      = "sum"
+	aggVariance = "variance"
+
+	aggPercentile = "percentile"
+	aggAvg        = "avg"
+	aggMin        = "min"
+	aggMakeSet    = "make_set"
+	aggArgMax     = "arg_max"
+	aggArgMin     = "arg_min"
+)
+
 var aggNames = map[string]bool{ //nolint:gochecknoglobals // static lookup
-	"count": true, "countif": true, "sum": true, "sumif": true, "avg": true, "avgif": true, "min": true,
-	"max": true, "dcount": true, "make_list": true, "make_set": true, "any": true, "take_any": true,
-	"arg_max": true, "arg_min": true, "percentile": true, "stdev": true, "variance": true,
+	kwCount: true, "countif": true, aggSum: true, "sumif": true, aggAvg: true, "avgif": true, aggMin: true,
+	"max": true, "dcount": true, "make_list": true, aggMakeSet: true, "any": true, "take_any": true,
+	aggArgMax: true, aggArgMin: true, aggPercentile: true, "stdev": true, aggVariance: true,
 }
 
 func isAggregate(name string) bool { return aggNames[name] }
@@ -42,7 +56,7 @@ func (ac *aggCollector) add(spec *aggSpec) int {
 }
 
 func (ac *aggCollector) register(name string, x *callNode, _ *scope) (scalar, error) {
-	if name == "arg_max" || name == "arg_min" {
+	if name == aggArgMax || name == aggArgMin {
 		return scalar{}, unsupported(name + "() inside an expression; use it as a top-level aggregate")
 	}
 
@@ -60,9 +74,9 @@ func (ac *aggCollector) compileArgs(x *callNode) ([]scalar, error) {
 	return ac.in.compileArgs(x.args)
 }
 
-func needArgs(x *callNode, min, max int) error {
-	if len(x.args) < min || (max >= 0 && len(x.args) > max) {
-		return errArgs(x.name, min, len(x.args))
+func needArgs(x *callNode, lo, hi int) error {
+	if len(x.args) < lo || (hi >= 0 && len(x.args) > hi) {
+		return errArgs(x.name, lo, len(x.args))
 	}
 
 	return nil
@@ -70,77 +84,102 @@ func needArgs(x *callNode, min, max int) error {
 
 func (ac *aggCollector) build(name string, x *callNode) (*aggSpec, error) {
 	switch name {
-	case "count":
-		if len(x.args) > 1 || len(x.args) == 1 && !isStar(x.args[0]) {
-			return nil, errArgs(x.name, 0, len(x.args))
-		}
-
-		return &aggSpec{cols: []Col{{Type: TLong}}, newState: func() aggState { return &countAgg{} }}, nil
-	case "countif":
-		args, err := ac.args(x, 1, 1)
-		if err != nil {
-			return nil, err
-		}
-
-		return &aggSpec{cols: []Col{{Type: TLong}}, newState: func() aggState {
-			return &countAgg{pred: args[0].fn}
-		}}, nil
-	case "sum", "avg", "stdev", "variance":
-		return ac.numericAgg(name, x, nil)
-	case "sumif", "avgif":
-		args, err := ac.args(x, 2, 2)
-		if err != nil {
-			return nil, err
-		}
-
-		return ac.numericAggArgs(strings.TrimSuffix(name, "if"), args[:1], args[1].fn)
-	case "min", "max":
+	case kwCount, "countif":
+		return ac.buildCount(name, x)
+	case aggSum, aggAvg, "stdev", aggVariance, "sumif", "avgif":
+		return ac.buildNumeric(name, x)
+	case aggMin, "max":
 		return ac.extremeAgg(name, x)
 	case "dcount":
-		args, err := ac.args(x, 1, 2)
-		if err != nil {
-			return nil, err
-		}
-
-		return &aggSpec{cols: []Col{{Type: TLong}}, newState: func() aggState {
-			return &dcountAgg{arg: args[0].fn, seen: map[string]bool{}}
-		}}, nil
-	case "make_list", "make_set":
-		args, err := ac.args(x, 1, 2)
-		if err != nil {
-			return nil, err
-		}
-
-		limit := -1
-		if len(args) > 1 {
-			if v, ok := constOf(args[1]); ok {
-				limit = int(intArg(v))
-			}
-		}
-
-		set := name == "make_set"
-
-		return &aggSpec{cols: []Col{{Type: TDynamic}}, newState: func() aggState {
-			return &listAgg{arg: args[0].fn, set: set, limit: limit, seen: map[string]bool{}}
-		}}, nil
+		return ac.buildDcount(x)
+	case "make_list", aggMakeSet:
+		return ac.buildList(name, x)
 	case "any", "take_any":
-		args, err := ac.args(x, 1, -1)
-		if err != nil {
-			return nil, err
-		}
-
-		return &aggSpec{cols: []Col{{Type: args[0].typ}}, newState: func() aggState {
-			return &anyAgg{arg: args[0].fn}
-		}}, nil
-	case "percentile":
+		return ac.buildAny(x)
+	case aggPercentile:
 		return ac.percentileAgg(x)
 	}
 
 	return nil, unsupported("aggregate " + name + "()")
 }
 
-func (ac *aggCollector) args(x *callNode, min, max int) ([]scalar, error) {
-	if err := needArgs(x, min, max); err != nil {
+func (ac *aggCollector) buildCount(name string, x *callNode) (*aggSpec, error) {
+	if name == kwCount {
+		if len(x.args) > 1 || len(x.args) == 1 && !isStar(x.args[0]) {
+			return nil, errArgs(x.name, 0, len(x.args))
+		}
+
+		return &aggSpec{cols: []Col{{Type: TLong}}, newState: func() aggState { return &countAgg{} }}, nil
+	}
+
+	args, err := ac.args(x, 1, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	return &aggSpec{cols: []Col{{Type: TLong}}, newState: func() aggState {
+		return &countAgg{pred: args[0].fn}
+	}}, nil
+}
+
+func (ac *aggCollector) buildNumeric(name string, x *callNode) (*aggSpec, error) {
+	if strings.HasSuffix(name, "if") {
+		args, err := ac.args(x, argsTwo, argsTwo)
+		if err != nil {
+			return nil, err
+		}
+
+		return ac.numericAggArgs(strings.TrimSuffix(name, "if"), args[:1], args[1].fn)
+	}
+
+	return ac.numericAgg(name, x, nil)
+}
+
+func (ac *aggCollector) buildDcount(x *callNode) (*aggSpec, error) {
+	args, err := ac.args(x, 1, argsTwo)
+	if err != nil {
+		return nil, err
+	}
+
+	return &aggSpec{cols: []Col{{Type: TLong}}, newState: func() aggState {
+		return &dcountAgg{arg: args[0].fn, seen: map[string]bool{}}
+	}}, nil
+}
+
+func (ac *aggCollector) buildList(name string, x *callNode) (*aggSpec, error) {
+	args, err := ac.args(x, 1, argsTwo)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := -1
+
+	if len(args) > 1 {
+		if v, ok := constOf(args[1]); ok {
+			limit = int(intArg(v))
+		}
+	}
+
+	set := name == aggMakeSet
+
+	return &aggSpec{cols: []Col{{Type: TDynamic}}, newState: func() aggState {
+		return &listAgg{arg: args[0].fn, set: set, limit: limit, seen: map[string]bool{}}
+	}}, nil
+}
+
+func (ac *aggCollector) buildAny(x *callNode) (*aggSpec, error) {
+	args, err := ac.args(x, 1, -1)
+	if err != nil {
+		return nil, err
+	}
+
+	return &aggSpec{cols: []Col{{Type: args[0].typ}}, newState: func() aggState {
+		return &anyAgg{arg: args[0].fn}
+	}}, nil
+}
+
+func (ac *aggCollector) args(x *callNode, lo, hi int) ([]scalar, error) {
+	if err := needArgs(x, lo, hi); err != nil {
 		return nil, err
 	}
 
@@ -158,12 +197,12 @@ func (ac *aggCollector) numericAgg(name string, x *callNode, pred func([]any) (a
 
 func (ac *aggCollector) numericAggArgs(name string, args []scalar, pred func([]any) (any, error)) (*aggSpec, error) {
 	t := args[0].typ
-	if t != TDynamic && t != "" && !isNumType(t) && !(t == TBool && false) {
+	if t != TDynamic && t != "" && !isNumType(t) {
 		return nil, semErr("%s() requires a numeric argument but found %s", name, t)
 	}
 
 	rt := TReal
-	if name == "sum" && (t == TInt || t == TLong) {
+	if name == aggSum && (t == TInt || t == TLong) {
 		rt = TLong
 	}
 
@@ -179,7 +218,7 @@ func (ac *aggCollector) extremeAgg(name string, x *callNode) (*aggSpec, error) {
 	}
 
 	sign := 1
-	if name == "min" {
+	if name == aggMin {
 		sign = -1
 	}
 
@@ -189,7 +228,7 @@ func (ac *aggCollector) extremeAgg(name string, x *callNode) (*aggSpec, error) {
 }
 
 func (ac *aggCollector) percentileAgg(x *callNode) (*aggSpec, error) {
-	args, err := ac.args(x, 2, 2)
+	args, err := ac.args(x, argsTwo, argsTwo)
 	if err != nil {
 		return nil, err
 	}
@@ -212,8 +251,8 @@ func (ac *aggCollector) percentileAgg(x *callNode) (*aggSpec, error) {
 // registerArg builds arg_max/arg_min, which yield several columns.
 func (ac *aggCollector) registerArg(x *callNode) ([]Col, error) {
 	name := strings.ToLower(x.name)
-	if len(x.args) < 2 {
-		return nil, errArgs(x.name, 2, len(x.args))
+	if len(x.args) < argsTwo {
+		return nil, errArgs(x.name, argsTwo, len(x.args))
 	}
 
 	by, err := ac.in.compile(x.args[0])
@@ -259,7 +298,7 @@ func (ac *aggCollector) registerArg(x *callNode) ([]Col, error) {
 	}
 
 	sign := 1
-	if name == "arg_min" {
+	if name == aggArgMin {
 		sign = -1
 	}
 
@@ -299,14 +338,14 @@ func (a *countAgg) add(row []any) error {
 func (a *countAgg) result() []any { return []any{a.n} }
 
 type numAgg struct {
-	arg      func([]any) (any, error)
-	pred     func([]any) (any, error)
-	kind     string
-	vals     []float64
-	isum     int64
-	fsum     float64
-	n        int64
-	sawFloat bool
+	arg       func([]any) (any, error)
+	pred      func([]any) (any, error)
+	kind      string
+	vals      []float64
+	isum      int64
+	fsum      float64
+	n         int64
+	sawFloat  bool
 	realTyped bool
 }
 
@@ -347,7 +386,7 @@ func (a *numAgg) add(row []any) error {
 
 func (a *numAgg) result() []any {
 	switch a.kind {
-	case "sum":
+	case aggSum:
 		if a.sawFloat || a.realTyped {
 			return []any{a.fsum}
 		}
@@ -361,7 +400,7 @@ func (a *numAgg) result() []any {
 		return []any{a.fsum / float64(a.n)}
 	}
 
-	if a.n < 2 {
+	if a.n < minSample {
 		return []any{nil}
 	}
 
@@ -373,7 +412,7 @@ func (a *numAgg) result() []any {
 	}
 
 	variance := ss / float64(a.n-1)
-	if a.kind == "variance" {
+	if a.kind == aggVariance {
 		return []any{variance}
 	}
 
@@ -509,7 +548,11 @@ func (a *percentileAgg) result() []any {
 		return []any{nil}
 	}
 
-	slices.SortFunc(a.vals, func(x, y any) int { c, _ := compareValues(x, y); return c })
+	slices.SortFunc(a.vals, func(x, y any) int {
+		c, _ := compareValues(x, y)
+
+		return c
+	})
 
 	rank := int(math.Ceil(a.p / 100 * float64(len(a.vals))))
 	rank = max(rank, 1)
@@ -590,7 +633,7 @@ func defaultAggName(x *callNode) string {
 	}
 
 	arg := defaultExprName(x.args[0], "")
-	if name == "percentile" && len(x.args) > 1 {
+	if name == aggPercentile && len(x.args) > 1 {
 		if l, ok := x.args[1].(*litNode); ok {
 			return name + "_" + arg + "_" + strings.TrimSuffix(strconv.FormatFloat(floatArg(l.v), 'f', -1, 64), ".0")
 		}

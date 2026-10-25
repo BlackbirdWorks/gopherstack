@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -17,7 +18,11 @@ import (
 
 const monitorBase = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg1/providers/"
 
-var errMonitorBoom = &azurearm.MonitorError{Code: "InvalidParameter", Message: "bad column", Status: http.StatusBadRequest}
+var errMonitorBoom = &azurearm.MonitorError{
+	Code:    "InvalidParameter",
+	Message: "bad column",
+	Status:  http.StatusBadRequest,
+}
 
 type fakeMonitor struct {
 	err   error
@@ -35,15 +40,17 @@ func (f *fakeMonitor) record(op string, r azurearm.MonitorRequest) error {
 }
 
 func joinPath(r azurearm.MonitorRequest) string {
-	out := ""
+	var sb strings.Builder
+
 	for i, t := range r.Types {
-		out += "/" + t
+		sb.WriteString("/" + t)
+
 		if i < len(r.Names) {
-			out += "/" + r.Names[i]
+			sb.WriteString("/" + r.Names[i])
 		}
 	}
 
-	return out
+	return sb.String()
 }
 
 func (f *fakeMonitor) Put(r azurearm.MonitorRequest, _ map[string]any) (map[string]any, error) {
@@ -122,10 +129,20 @@ func TestMonitorRoutesReachDataPlane(t *testing.T) {
 		{"workspace delete", http.MethodDelete, ws, "delete Microsoft.OperationalInsights /workspaces/ws1"},
 		{"workspace list", http.MethodGet, monitorBase + "Microsoft.OperationalInsights/workspaces",
 			"list Microsoft.OperationalInsights /workspaces"},
-		{"shared keys", http.MethodPost, ws + "/sharedKeys", "action:sharedKeys Microsoft.OperationalInsights /workspaces/ws1"},
+		{
+			"shared keys",
+			http.MethodPost,
+			ws + "/sharedKeys",
+			"action:sharedKeys Microsoft.OperationalInsights /workspaces/ws1",
+		},
 		{"regenerate", http.MethodPost, ws + "/regenerateSharedKey",
 			"action:regenerateSharedKey Microsoft.OperationalInsights /workspaces/ws1"},
-		{"list keys", http.MethodPost, ws + "/listKeys", "action:listKeys Microsoft.OperationalInsights /workspaces/ws1"},
+		{
+			"list keys",
+			http.MethodPost,
+			ws + "/listKeys",
+			"action:listKeys Microsoft.OperationalInsights /workspaces/ws1",
+		},
 		{"table put", http.MethodPut, ws + "/tables/T_CL",
 			"put Microsoft.OperationalInsights /workspaces/ws1/tables/T_CL"},
 		{"table patch", http.MethodPatch, ws + "/tables/T_CL",

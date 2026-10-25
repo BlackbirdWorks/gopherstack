@@ -97,9 +97,9 @@ import (
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
-	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -590,6 +590,7 @@ type CLI struct {
 	GCPFunctions                  gcpfunctionsbackend.Settings      `embed:"" prefix:"gcp-functions-"`
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	AzureEventGrid                azureeventgridbackend.Settings    `embed:"" prefix:"azure-eventgrid-"`
+	AzureMonitor                  azuremonitorbackend.Settings      `embed:"" prefix:"azure-monitor-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
@@ -628,7 +629,6 @@ type CLI struct {
 	STS                           stsbackend.Settings               `embed:"" prefix:"sts-"`
 	AzureQueue                    azurequeuebackend.Settings        `embed:"" prefix:"azure-queue-"`
 	AzureFile                     azurefilebackend.Settings         `embed:"" prefix:"azure-file-"`
-	AzureMonitor                  azuremonitorbackend.Settings      `embed:"" prefix:"azure-monitor-"`
 	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
 	GCPStorage                    gcpstoragebackend.Settings        `embed:"" prefix:"gcp-storage-"`
 	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`

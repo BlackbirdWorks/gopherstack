@@ -22,42 +22,49 @@ func parseQuery(src string) (*query, error) {
 	p := &parser{toks: toks}
 	q := &query{}
 
-	for {
-		switch {
-		case p.isKw("let"):
-			st, perr := p.parseLet()
-			if perr != nil {
-				return nil, perr
-			}
-
-			q.lets = append(q.lets, st)
-		case p.isKw("set"):
-			for !p.isOp(";") && p.cur().kind != tkEOF {
-				p.i++
-			}
-		default:
-			body, perr := p.parseTabular()
-			if perr != nil {
-				return nil, perr
-			}
-
-			q.body = body
-
-			if p.isOp(";") {
-				p.i++
-			}
-
-			if p.cur().kind != tkEOF {
-				return nil, p.unexpected()
-			}
-
-			return q, nil
+	for p.isKw("let") || p.isKw("set") {
+		if err = p.parseStatement(q); err != nil {
+			return nil, err
 		}
 
 		if err = p.expectOp(";"); err != nil {
 			return nil, err
 		}
 	}
+
+	if q.body, err = p.parseTabular(); err != nil {
+		return nil, err
+	}
+
+	if p.isOp(";") {
+		p.i++
+	}
+
+	if p.cur().kind != tkEOF {
+		return nil, p.unexpected()
+	}
+
+	return q, nil
+}
+
+// parseStatement parses one let or set statement (without its trailing semicolon).
+func (p *parser) parseStatement(q *query) error {
+	if p.isKw("set") {
+		for !p.isOp(";") && p.cur().kind != tkEOF {
+			p.i++
+		}
+
+		return nil
+	}
+
+	st, err := p.parseLet()
+	if err != nil {
+		return err
+	}
+
+	q.lets = append(q.lets, st)
+
+	return nil
 }
 
 func (p *parser) cur() token { return p.toks[p.i] }
@@ -70,7 +77,17 @@ func (p *parser) peek(n int) token {
 	return p.toks[len(p.toks)-1]
 }
 
-func (p *parser) isOp(s string) bool { t := p.cur(); return t.kind == tkOp && t.text == s }
+func (p *parser) opAt(n int, s string) bool {
+	t := p.peek(n)
+
+	return t.kind == tkOp && t.text == s
+}
+
+func (p *parser) isOp(s string) bool {
+	t := p.cur()
+
+	return t.kind == tkOp && t.text == s
+}
 
 func (p *parser) isKw(s string) bool {
 	t := p.cur()
@@ -252,7 +269,7 @@ func (p *parser) parseWorkspaceRef() (node, error) {
 }
 
 func (p *parser) parseUnion() (node, error) {
-	for p.cur().kind == tkIdent && p.peek(1).kind == tkOp && p.peek(1).text == "=" {
+	for p.cur().kind == tkIdent && p.opAt(1, "=") {
 		p.i += 3
 	}
 
@@ -323,12 +340,12 @@ func (p *parser) parseName() (string, error) {
 }
 
 var typeNames = map[string]Type{ //nolint:gochecknoglobals // static lookup
-	"string": TString, "long": TLong, "int": TInt, "real": TReal, "double": TReal, "bool": TBool,
-	"boolean": TBool, "datetime": TDatetime, "date": TDatetime, "timespan": TTimespan, "time": TTimespan,
-	"dynamic": TDynamic, "guid": TGUID, "decimal": TReal,
+	"string": TString, string(TLong): TLong, string(TInt): TInt, string(TReal): TReal, kwDouble: TReal, kwBool: TBool,
+	kwBoolean: TBool, kwDatetime: TDatetime, "date": TDatetime, string(TTimespan): TTimespan, kwTime: TTimespan,
+	kwDynamic: TDynamic, "guid": TGUID, kwDecimal: TReal,
 }
 
-func (p *parser) parseDatatable() (node, error) {
+func (p *parser) parseDatatableCols() ([]Col, error) {
 	if err := p.expectOp("("); err != nil {
 		return nil, err
 	}
@@ -366,16 +383,25 @@ func (p *parser) parseDatatable() (node, error) {
 
 	p.i++
 
-	if err := p.expectOp("["); err != nil {
+	return cols, nil
+}
+
+func (p *parser) parseDatatable() (node, error) {
+	cols, err := p.parseDatatableCols()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = p.expectOp("["); err != nil {
 		return nil, err
 	}
 
 	var vals []node
 
 	for !p.isOp("]") {
-		e, err := p.parseExpr()
-		if err != nil {
-			return nil, err
+		e, perr := p.parseExpr()
+		if perr != nil {
+			return nil, perr
 		}
 
 		vals = append(vals, e)
@@ -451,11 +477,10 @@ func (p *parser) parseNamedList() ([]namedExpr, error) {
 func (p *parser) parseNamed() (namedExpr, error) {
 	name := ""
 
-	if p.cur().kind == tkIdent && p.peek(1).kind == tkOp && p.peek(1).text == "=" {
+	if p.cur().kind == tkIdent && p.opAt(1, "=") {
 		name = p.cur().text
 		p.i += 2
-	} else if p.isOp("[") && p.peek(1).kind == tkString && p.peek(2).kind == tkOp && p.peek(2).text == "]" &&
-		p.peek(3).kind == tkOp && p.peek(3).text == "=" {
+	} else if p.isOp("[") && p.peek(1).kind == tkString && p.opAt(peekThird, "]") && p.opAt(peekFourth, "=") {
 		name = p.peek(1).text
 		p.i += 4
 	}
@@ -489,6 +514,13 @@ func (p *parser) parseNameList() ([]string, error) {
 	}
 }
 
+//nolint:gochecknoglobals // static lookup
+var opAliases = map[string]string{
+	"filter": "where",
+	"order":  "sort",
+	"limit":  "take",
+}
+
 func (p *parser) parseOp() (node, error) {
 	t := p.cur()
 	if t.kind != tkIdent {
@@ -497,79 +529,126 @@ func (p *parser) parseOp() (node, error) {
 
 	p.i++
 
-	switch strings.ToLower(t.text) {
-	case "where", "filter":
-		e, err := p.parseExpr()
+	kw := strings.ToLower(t.text)
+	if canon, ok := opAliases[kw]; ok {
+		kw = canon
+	}
 
-		return &whereOp{e: e}, err
-	case "project":
-		items, err := p.parseNamedList()
+	if op, handled, err := p.parseRowOp(kw); handled {
+		return op, err
+	}
 
-		return &projectOp{items: items}, err
-	case "project-away":
-		n, err := p.parseNameList()
-
-		return &projectAwayOp{names: n}, err
-	case "project-keep":
-		n, err := p.parseNameList()
-
-		return &projectKeepOp{names: n}, err
-	case "project-reorder":
-		n, err := p.parseNameList()
-
-		return &projectOrderOp{names: n}, err
-	case "project-rename":
-		items, err := p.parseNamedList()
-
-		return &projectRenOp{pairs: items}, err
-	case "extend":
-		items, err := p.parseNamedList()
-
-		return &extendOp{items: items}, err
-	case "summarize":
-		return p.parseSummarize()
-	case "sort", "order":
-		return p.parseSort()
-	case "top":
-		return p.parseTop()
-	case "take", "limit":
-		e, err := p.parseAdd()
-
-		return &takeOp{n: e}, err
-	case "distinct":
-		return p.parseDistinct()
-	case "count":
-		op := &countOp{name: "Count"}
-
-		if p.isKw("as") {
-			p.i++
-
-			n, err := p.parseName()
-			if err != nil {
-				return nil, err
-			}
-
-			op.name = n
-		}
-
-		return op, nil
-	case "union":
-		u, err := p.parseUnion()
-		if err != nil {
-			return nil, err
-		}
-
-		return &unionOp{tables: u.(*unionNode).tables}, nil //nolint:forcetypeassert // parseUnion returns *unionNode
-	case "render":
-		return p.parseRender()
-	case "getschema":
-		return &getschemaOp{}, nil
+	if op, handled, err := p.parseShapeOp(kw); handled {
+		return op, err
 	}
 
 	return nil, unsupported("the '" + t.text + "' operator")
 }
 
-func (p *parser) parseRender() (node, error) {
+// parseRowOp handles where, project* and extend.
+func (p *parser) parseRowOp(kw string) (node, bool, error) {
+	switch kw {
+	case "where":
+		e, err := p.parseExpr()
+
+		return &whereOp{e: e}, true, err
+	case "project":
+		items, err := p.parseNamedList()
+
+		return &projectOp{items: items}, true, err
+	case "project-away":
+		n, err := p.parseNameList()
+
+		return &projectAwayOp{names: n}, true, err
+	case "project-keep":
+		n, err := p.parseNameList()
+
+		return &projectKeepOp{names: n}, true, err
+	case "project-reorder":
+		n, err := p.parseNameList()
+
+		return &projectOrderOp{names: n}, true, err
+	case "project-rename":
+		items, err := p.parseNamedList()
+
+		return &projectRenOp{pairs: items}, true, err
+	case "extend":
+		items, err := p.parseNamedList()
+
+		return &extendOp{items: items}, true, err
+	}
+
+	return nil, false, nil
+}
+
+// parseShapeOp handles the operators that reshape or reorder the whole table.
+func (p *parser) parseShapeOp(kw string) (node, bool, error) {
+	var (
+		op  node
+		err error
+	)
+
+	switch kw {
+	case "summarize":
+		op, err = p.parseSummarize()
+	case "sort":
+		op, err = p.parseSort()
+	case "top":
+		op, err = p.parseTop()
+	case "take":
+		var e node
+		if e, err = p.parseAdd(); err == nil {
+			op = &takeOp{n: e}
+		}
+	case "distinct":
+		op, err = p.parseDistinct()
+	case kwCount:
+		op, err = p.parseCountOp()
+	case "union":
+		op, err = p.parseUnionOp()
+	case "render":
+		op = p.parseRender()
+	case "getschema":
+		op = &getschemaOp{}
+	default:
+		return nil, false, nil
+	}
+
+	return op, true, err
+}
+
+func (p *parser) parseCountOp() (node, error) {
+	op := &countOp{name: "Count"}
+
+	if p.isKw("as") {
+		p.i++
+
+		n, err := p.parseName()
+		if err != nil {
+			return nil, err
+		}
+
+		op.name = n
+	}
+
+	return op, nil
+}
+
+func (p *parser) parseUnionOp() (node, error) {
+	u, err := p.parseUnion()
+	if err != nil {
+		return nil, err
+	}
+
+	un, ok := u.(*unionNode)
+	if !ok {
+		return nil, p.unexpected()
+	}
+
+	return &unionOp{tables: un.tables}, nil
+}
+
+func (p *parser) parseRender() node {
 	p.i++
 
 	if p.isKw("with") {
@@ -593,7 +672,7 @@ func (p *parser) parseRender() (node, error) {
 		}
 	}
 
-	return &renderOp{}, nil
+	return &renderOp{}
 }
 
 func (p *parser) parseSummarize() (node, error) {
@@ -712,7 +791,7 @@ func (p *parser) parseOr() (node, error) {
 		return nil, err
 	}
 
-	for p.isKw("or") {
+	for p.isKw(opOr) {
 		p.i++
 
 		r, rerr := p.parseAnd()
@@ -720,7 +799,7 @@ func (p *parser) parseOr() (node, error) {
 			return nil, rerr
 		}
 
-		l = &binNode{op: "or", l: l, r: r}
+		l = &binNode{op: opOr, l: l, r: r}
 	}
 
 	return l, nil
@@ -732,7 +811,7 @@ func (p *parser) parseAnd() (node, error) {
 		return nil, err
 	}
 
-	for p.isKw("and") {
+	for p.isKw(opAnd) {
 		p.i++
 
 		r, rerr := p.parseRel()
@@ -740,7 +819,7 @@ func (p *parser) parseAnd() (node, error) {
 			return nil, rerr
 		}
 
-		l = &binNode{op: "and", l: l, r: r}
+		l = &binNode{op: opAnd, l: l, r: r}
 	}
 
 	return l, nil
@@ -759,94 +838,104 @@ func (p *parser) parseRel() (node, error) {
 	}
 
 	for {
-		t := p.cur()
-		neg := false
-		off := 0
-
-		if t.kind == tkOp && t.text == "!" && p.peek(1).kind == tkIdent {
-			neg = true
-			off = 1
-			t = p.peek(1)
+		next, matched, stepErr := p.parseRelStep(l)
+		if stepErr != nil {
+			return nil, stepErr
 		}
 
-		switch {
-		case t.kind == tkOp && !neg && isCmpOp(t.text):
-			p.i++
-
-			r, rerr := p.parseAdd()
-			if rerr != nil {
-				return nil, rerr
-			}
-
-			op := t.text
-			if op == "<>" {
-				op = "!="
-			}
-
-			l = &binNode{op: op, l: l, r: r}
-		case t.kind == tkIdent && stringOps[strings.ToLower(t.text)]:
-			p.i += 1 + off
-
-			r, rerr := p.parseAdd()
-			if rerr != nil {
-				return nil, rerr
-			}
-
-			op := strings.ToLower(t.text)
-			if neg {
-				op = "!" + op
-			}
-
-			l = &binNode{op: op, l: l, r: r}
-		case t.kind == tkIdent && strings.EqualFold(t.text, "matches"):
-			p.i += 1 + off
-
-			if err = p.expectKw("regex"); err != nil {
-				return nil, err
-			}
-
-			r, rerr := p.parseAdd()
-			if rerr != nil {
-				return nil, rerr
-			}
-
-			op := "matches regex"
-			if neg {
-				op = "!" + op
-			}
-
-			l = &binNode{op: op, l: l, r: r}
-		case t.kind == tkIdent && (strings.EqualFold(t.text, "in") || strings.EqualFold(t.text, "in~")):
-			p.i += 1 + off
-
-			list, lerr := p.parseInList()
-			if lerr != nil {
-				return nil, lerr
-			}
-
-			l = &inNode{x: l, list: list, neg: neg, ci: strings.EqualFold(t.text, "in~")}
-		case t.kind == tkIdent && (strings.EqualFold(t.text, "has_any") || strings.EqualFold(t.text, "has_all")):
-			p.i += 1 + off
-
-			list, lerr := p.parseInList()
-			if lerr != nil {
-				return nil, lerr
-			}
-
-			l = &callNode{name: "__" + strings.ToLower(t.text), args: append([]node{l}, list...)}
-		case t.kind == tkIdent && strings.EqualFold(t.text, "between"):
-			p.i += 1 + off
-
-			b, berr := p.parseBetween(l, neg)
-			if berr != nil {
-				return nil, berr
-			}
-
-			l = b
-		default:
+		if !matched {
 			return l, nil
 		}
+
+		l = next
 	}
+}
+
+func (p *parser) parseRelStep(l node) (node, bool, error) {
+	t := p.cur()
+	neg := false
+	off := 0
+
+	if t.kind == tkOp && t.text == "!" && p.peek(1).kind == tkIdent {
+		neg, off, t = true, 1, p.peek(1)
+	}
+
+	switch {
+	case t.kind == tkOp && !neg && isCmpOp(t.text):
+		p.i++
+
+		r, err := p.parseAdd()
+		if err != nil {
+			return nil, false, err
+		}
+
+		op := t.text
+		if op == "<>" {
+			op = "!="
+		}
+
+		return &binNode{op: op, l: l, r: r}, true, nil
+	case t.kind == tkIdent:
+		p.i += 1 + off
+
+		return p.parseWordRel(l, strings.ToLower(t.text), neg)
+	}
+
+	return nil, false, nil
+}
+
+// parseWordRel parses the keyword relations (contains, has, in, between, ...); the keyword is already consumed.
+func (p *parser) parseWordRel(l node, word string, neg bool) (node, bool, error) {
+	unmatched := func() (node, bool, error) {
+		p.i--
+		if neg {
+			p.i--
+		}
+
+		return nil, false, nil
+	}
+
+	switch {
+	case stringOps[word]:
+		return p.finishBinary(l, negate(word, neg))
+	case word == "matches":
+		if err := p.expectKw("regex"); err != nil {
+			return nil, false, err
+		}
+
+		return p.finishBinary(l, negate(opMatchesRegex, neg))
+	case word == "in" || word == kwInTilde:
+		list, err := p.parseInList()
+
+		return &inNode{x: l, list: list, neg: neg, ci: word == kwInTilde}, err == nil, err
+	case word == "has_any" || word == "has_all":
+		list, err := p.parseInList()
+
+		return &callNode{name: "__" + word, args: append([]node{l}, list...)}, err == nil, err
+	case word == "between":
+		b, err := p.parseBetween(l, neg)
+
+		return b, err == nil, err
+	}
+
+	return unmatched()
+}
+
+func negate(op string, neg bool) string {
+	if neg {
+		return "!" + op
+	}
+
+	return op
+}
+
+func (p *parser) finishBinary(l node, op string) (node, bool, error) {
+	r, err := p.parseAdd()
+	if err != nil {
+		return nil, false, err
+	}
+
+	return &binNode{op: op, l: l, r: r}, true, nil
 }
 
 func isCmpOp(s string) bool {
@@ -1000,14 +1089,13 @@ func (p *parser) parsePrimary() (node, error) {
 	case tkInt:
 		p.i++
 
-		n, err := strconv.ParseInt(t.text, 10, 64)
-		if err != nil {
-			f, _ := strconv.ParseFloat(t.text, 64)
-
-			return &litNode{v: f, t: TReal}, nil
+		if n, err := strconv.ParseInt(t.text, 10, 64); err == nil {
+			return &litNode{v: n, t: TLong}, nil
 		}
 
-		return &litNode{v: n, t: TLong}, nil
+		f, _ := strconv.ParseFloat(t.text, 64)
+
+		return &litNode{v: f, t: TReal}, nil
 	case tkReal:
 		p.i++
 		f, _ := strconv.ParseFloat(t.text, 64)
@@ -1048,7 +1136,7 @@ func (p *parser) parsePrimaryOp(t token) (node, error) {
 
 		return inner, p.expectOp(")")
 	case "[":
-		if p.peek(1).kind == tkString && p.peek(2).kind == tkOp && p.peek(2).text == "]" {
+		if p.peek(1).kind == tkString && p.peek(peekThird).kind == tkOp && p.peek(peekThird).text == "]" {
 			name := p.peek(1).text
 			p.i += 3
 
@@ -1138,16 +1226,8 @@ func ParseTimespan(s string) (time.Duration, bool) {
 		return 0, false
 	}
 
-	for i := range len(s) {
-		if c := s[i]; (c < '0' || c > '9') && c != '.' && c != '-' {
-			if u, ok := timeUnits[strings.ToLower(s[i:])]; ok && i > 0 {
-				f, err := strconv.ParseFloat(s[:i], 64)
-
-				return time.Duration(f * float64(u)), err == nil
-			}
-
-			break
-		}
+	if d, ok, matched := parseUnitTimespan(s); matched {
+		return d, ok
 	}
 
 	neg := strings.HasPrefix(s, "-")
@@ -1164,32 +1244,12 @@ func ParseTimespan(s string) (time.Duration, bool) {
 		days, s = d, after
 	}
 
-	parts := strings.Split(s, ":")
-	if len(parts) < 2 || len(parts) > 3 {
+	d, ok := parseClock(s)
+	if !ok {
 		return 0, false
 	}
 
-	var d time.Duration
-
-	d += time.Duration(days) * 24 * time.Hour
-
-	h, err1 := strconv.ParseInt(parts[0], 10, 64)
-	m, err2 := strconv.ParseInt(parts[1], 10, 64)
-
-	if err1 != nil || err2 != nil {
-		return 0, false
-	}
-
-	d += time.Duration(h)*time.Hour + time.Duration(m)*time.Minute
-
-	if len(parts) == 3 {
-		sec, err := strconv.ParseFloat(parts[2], 64)
-		if err != nil {
-			return 0, false
-		}
-
-		d += time.Duration(sec * float64(time.Second))
-	}
+	d += time.Duration(days) * dayDuration
 
 	if neg {
 		d = -d
@@ -1198,58 +1258,124 @@ func ParseTimespan(s string) (time.Duration, bool) {
 	return d, true
 }
 
+// parseUnitTimespan parses "<number><unit>" forms such as 1d or 1.5h; matched is false for other shapes.
+func parseUnitTimespan(s string) (time.Duration, bool, bool) {
+	i := strings.IndexFunc(s, func(r rune) bool { return (r < '0' || r > '9') && r != '.' && r != '-' })
+	if i <= 0 {
+		return 0, false, false
+	}
+
+	u, ok := timeUnits[strings.ToLower(s[i:])]
+	if !ok {
+		return 0, false, false
+	}
+
+	f, err := strconv.ParseFloat(s[:i], 64)
+
+	return time.Duration(f * float64(u)), err == nil, true
+}
+
+const (
+	clockMinParts = 2
+	clockMaxParts = 3
+)
+
+// parseClock parses hh:mm[:ss[.fffffff]].
+func parseClock(s string) (time.Duration, bool) {
+	parts := strings.Split(s, ":")
+	if len(parts) < clockMinParts || len(parts) > clockMaxParts {
+		return 0, false
+	}
+
+	h, err1 := strconv.ParseInt(parts[0], 10, 64)
+	m, err2 := strconv.ParseInt(parts[1], 10, 64)
+
+	if err1 != nil || err2 != nil {
+		return 0, false
+	}
+
+	d := time.Duration(h)*time.Hour + time.Duration(m)*time.Minute
+
+	if len(parts) == clockMaxParts {
+		sec, err := strconv.ParseFloat(parts[2], 64)
+		if err != nil {
+			return 0, false
+		}
+
+		d += time.Duration(sec * float64(time.Second))
+	}
+
+	return d, true
+}
+
+func isNullBody(raw string) bool { return strings.EqualFold(raw, "null") || raw == "" }
+
 func typedLiteral(t token) (node, error) {
 	raw := strings.TrimSpace(t.raw)
-	isNull := strings.EqualFold(raw, "null") || raw == ""
+
+	var (
+		v    any
+		typ  Type
+		ok   bool
+		null = isNullBody(raw)
+	)
 
 	switch t.text {
-	case "datetime":
-		if isNull {
-			return &litNode{t: TDatetime}, nil
-		}
-
-		if v, ok := ParseDatetime(raw); ok {
-			return &litNode{v: v, t: TDatetime}, nil
-		}
-	case "timespan", "time":
-		if isNull {
-			return &litNode{t: TTimespan}, nil
-		}
-
-		if v, ok := ParseTimespan(raw); ok {
-			return &litNode{v: v, t: TTimespan}, nil
-		}
-	case "guid":
+	case kwDatetime:
+		typ = TDatetime
+		v, ok = parseTyped(null, raw, ParseDatetime)
+	case string(TTimespan), kwTime:
+		typ = TTimespan
+		v, ok = parseTyped(null, raw, ParseTimespan)
+	case kwGUID:
 		return &litNode{v: strings.Trim(raw, `"'`), t: TGUID}, nil
-	case "bool", "boolean":
-		if isNull {
-			return &litNode{t: TBool}, nil
-		}
-
-		if b, err := strconv.ParseBool(raw); err == nil {
-			return &litNode{v: b, t: TBool}, nil
-		}
-	case "long", "int":
-		if isNull {
-			return &litNode{t: TLong}, nil
-		}
-
-		if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
-			return &litNode{v: n, t: Type(t.text)}, nil
-		}
-	case "real", "double", "decimal":
-		if isNull {
-			return &litNode{t: TReal}, nil
-		}
-
-		if f, err := strconv.ParseFloat(raw, 64); err == nil && !math.IsNaN(f) {
-			return &litNode{v: f, t: TReal}, nil
-		}
-	case "dynamic":
+	case kwBool, kwBoolean:
+		typ = TBool
+		v, ok = parseTyped(null, raw, parseBoolLit)
+	case string(TLong), string(TInt):
+		typ = Type(t.text)
+		v, ok = parseTyped(null, raw, parseIntLit)
+	case string(TReal), kwDouble, kwDecimal:
+		typ = TReal
+		v, ok = parseTyped(null, raw, parseRealLit)
+	case kwDynamic:
 		return dynamicLiteral(raw)
 	}
 
-	return nil, syntaxErr("invalid %s literal %q", t.text, raw)
+	if !ok {
+		return nil, syntaxErr("invalid %s literal %q", t.text, raw)
+	}
+
+	return &litNode{v: v, t: typ}, nil
+}
+
+// parseTyped parses a typed literal body; a null body yields a typed null.
+func parseTyped[T any](null bool, raw string, parse func(string) (T, bool)) (any, bool) {
+	if null {
+		return nil, true
+	}
+
+	v, ok := parse(raw)
+
+	return v, ok
+}
+
+func parseBoolLit(s string) (bool, bool) {
+	b, err := strconv.ParseBool(s)
+
+	return b, err == nil
+}
+
+func parseIntLit(s string) (int64, bool) {
+	n, err := strconv.ParseInt(s, 10, 64)
+
+	return n, err == nil
+}
+
+func parseRealLit(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(s, 64)
+
+	return f, err == nil && !math.IsNaN(f)
 }
 
 func dynamicLiteral(raw string) (node, error) {

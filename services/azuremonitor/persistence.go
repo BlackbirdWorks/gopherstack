@@ -15,8 +15,8 @@ import (
 const snapshotVersion = 1
 
 type tableSnap struct {
-	Table
 	Cells [][]any `json:"rows"`
+	Table
 }
 
 type workspaceSnap struct {

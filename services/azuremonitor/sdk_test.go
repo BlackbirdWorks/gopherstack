@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/monitor/ingestion/azlogs"
 	queryazlogs "github.com/Azure/azure-sdk-for-go/sdk/monitor/query/azlogs"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 )
 
+//nolint:gochecknoglobals // shared fixed clock
 var testNow = time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)
 
 const sampleRecords = `[
@@ -47,7 +47,7 @@ func (e *env) upload(t *testing.T, s seeded, body string) error {
 func (e *env) run(t *testing.T, s seeded, q string) queryazlogs.QueryWorkspaceResponse {
 	t.Helper()
 
-	res, err := e.query.QueryWorkspace(t.Context(), s.customerID, queryazlogs.QueryBody{Query: to.Ptr(q)}, nil)
+	res, err := e.query.QueryWorkspace(t.Context(), s.customerID, queryazlogs.QueryBody{Query: new(q)}, nil)
 	require.NoError(t, err)
 	require.Len(t, res.Tables, 1)
 
@@ -61,8 +61,8 @@ func TestIngestThenQuery(t *testing.T) {
 		name      string
 		transform string
 		query     string
-		wantCols  []string
 		wantRows  string
+		wantCols  []string
 	}{
 		{
 			name: "passthrough with time mapping", transform: "source | extend TimeGenerated = Time",
@@ -75,9 +75,11 @@ func TestIngestThenQuery(t *testing.T) {
 			wantCols: []string{"Computer", "Level"}, wantRows: `[["web1","Error"]]`,
 		},
 		{
-			name: "transform projects and renames", transform: "source | extend TimeGenerated = Time, Level = toupper(Level)",
-			query:    "AppEvents_CL | summarize n = count() by Level | order by Level asc",
-			wantCols: []string{"Level", "n"}, wantRows: `[["ERROR",1],["INFO",2]]`,
+			name:      "transform projects and renames",
+			transform: "source | extend TimeGenerated = Time, Level = toupper(Level)",
+			query:     "AppEvents_CL | summarize n = count() by Level | order by Level asc",
+			wantCols:  []string{"Level", "n"},
+			wantRows:  `[["ERROR",1],["INFO",2]]`,
 		},
 		{
 			name: "typed columns", transform: "source | extend TimeGenerated = Time",
@@ -143,15 +145,15 @@ func TestIngestGzipAndErrors(t *testing.T) {
 	}
 
 	tests := []struct {
+		encoding   *string
 		name       string
 		rule       string
 		stream     string
-		body       []byte
-		encoding   *string
 		wantCode   string
+		body       []byte
 		wantStatus int
 	}{
-		{name: "gzip accepted", body: gz(sampleRecords), encoding: to.Ptr("gzip"), wantStatus: 0},
+		{name: "gzip accepted", body: gz(sampleRecords), encoding: new("gzip"), wantStatus: 0},
 		{name: "unknown rule", rule: "dcr-00000000000000000000000000000000", body: []byte(sampleRecords),
 			wantStatus: http.StatusNotFound, wantCode: "NotFound"},
 		{name: "unknown stream", stream: "Custom-Nope", body: []byte(sampleRecords),
@@ -161,9 +163,9 @@ func TestIngestGzipAndErrors(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidPayload"},
 		{name: "bad datetime", body: []byte(`[{"Time":"yesterday"}]`),
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidPayload"},
-		{name: "bad gzip", body: []byte("plain"), encoding: to.Ptr("gzip"),
+		{name: "bad gzip", body: []byte("plain"), encoding: new("gzip"),
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidPayload"},
-		{name: "unsupported encoding", body: []byte(sampleRecords), encoding: to.Ptr("br"),
+		{name: "unsupported encoding", body: []byte(sampleRecords), encoding: new("br"),
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidContentEncoding"},
 		{name: "too large", body: bytes.Repeat([]byte(" "), 1<<20+1),
 			wantStatus: http.StatusRequestEntityTooLarge, wantCode: "ContentLengthLimitExceeded"},
@@ -185,7 +187,13 @@ func TestIngestGzipAndErrors(t *testing.T) {
 				stream = "Custom-AppEvents"
 			}
 
-			_, err := e.ingest.Upload(t.Context(), rule, stream, tt.body, &azlogs.UploadOptions{ContentEncoding: tt.encoding})
+			_, err := e.ingest.Upload(
+				t.Context(),
+				rule,
+				stream,
+				tt.body,
+				&azlogs.UploadOptions{ContentEncoding: tt.encoding},
+			)
 			if tt.wantStatus == 0 {
 				require.NoError(t, err)
 
@@ -247,7 +255,7 @@ func TestQueryErrors(t *testing.T) {
 				ws = tt.workspace
 			}
 
-			_, err := e.query.QueryWorkspace(t.Context(), ws, queryazlogs.QueryBody{Query: to.Ptr(tt.query)}, nil)
+			_, err := e.query.QueryWorkspace(t.Context(), ws, queryazlogs.QueryBody{Query: new(tt.query)}, nil)
 			require.Error(t, err)
 
 			status, code := statusOf(err)
@@ -286,7 +294,7 @@ func TestQueryTimespanFilter(t *testing.T) {
 
 			iv := azlogs2Interval(tt.interval)
 			res, err := e.query.QueryWorkspace(t.Context(), s.customerID,
-				queryazlogs.QueryBody{Query: to.Ptr("AppEvents_CL | count"), Timespan: &iv}, nil)
+				queryazlogs.QueryBody{Query: new("AppEvents_CL | count"), Timespan: &iv}, nil)
 			require.NoError(t, err)
 			assert.InDelta(t, tt.want, res.Tables[0].Rows[0][0], 0)
 		})
@@ -304,12 +312,12 @@ func TestQueryBatchAndResource(t *testing.T) {
 	require.NoError(t, e.upload(t, s, sampleRecords))
 
 	batch, err := e.query.QueryBatch(t.Context(), queryazlogs.BatchRequest{Requests: []queryazlogs.BatchQueryRequest{
-		{ID: to.Ptr("1"), Method: to.Ptr("POST"), Path: to.Ptr("/query"), WorkspaceID: to.Ptr(s.customerID),
-			Body: &queryazlogs.QueryBody{Query: to.Ptr("AppEvents_CL | count")}},
-		{ID: to.Ptr("2"), Method: to.Ptr("POST"), Path: to.Ptr("/query"), WorkspaceID: to.Ptr(s.customerID),
-			Body: &queryazlogs.QueryBody{Query: to.Ptr("AppEvents_CL | where")}},
-		{ID: to.Ptr("3"), Method: to.Ptr("POST"), Path: to.Ptr("/query"), WorkspaceID: to.Ptr("missing"),
-			Body: &queryazlogs.QueryBody{Query: to.Ptr("Heartbeat")}},
+		{ID: new("1"), Method: new("POST"), Path: new("/query"), WorkspaceID: new(s.customerID),
+			Body: &queryazlogs.QueryBody{Query: new("AppEvents_CL | count")}},
+		{ID: new("2"), Method: new("POST"), Path: new("/query"), WorkspaceID: new(s.customerID),
+			Body: &queryazlogs.QueryBody{Query: new("AppEvents_CL | where")}},
+		{ID: new("3"), Method: new("POST"), Path: new("/query"), WorkspaceID: new("missing"),
+			Body: &queryazlogs.QueryBody{Query: new("Heartbeat")}},
 	}}, nil)
 	require.NoError(t, err)
 	require.Len(t, batch.Responses, 3)
@@ -321,7 +329,7 @@ func TestQueryBatchAndResource(t *testing.T) {
 	assert.EqualValues(t, http.StatusNotFound, *batch.Responses[2].Status)
 
 	res, err := e.query.QueryResource(t.Context(), strings.TrimPrefix(wsID("testws"), "/"),
-		queryazlogs.QueryBody{Query: to.Ptr("AppEvents_CL | count")}, nil)
+		queryazlogs.QueryBody{Query: new("AppEvents_CL | count")}, nil)
 	require.NoError(t, err)
 	assert.InDelta(t, 3, res.Tables[0].Rows[0][0], 0)
 }
@@ -334,8 +342,12 @@ func TestQueryWorkspaceByNameAndStatistics(t *testing.T) {
 	s := e.seed(t, "source | extend TimeGenerated = Time")
 	require.NoError(t, e.upload(t, s, sampleRecords))
 
-	res, err := e.query.QueryWorkspace(t.Context(), "testws", queryazlogs.QueryBody{Query: to.Ptr("AppEvents_CL | count")},
-		&queryazlogs.QueryWorkspaceOptions{Options: &queryazlogs.QueryOptions{Statistics: to.Ptr(true)}})
+	res, err := e.query.QueryWorkspace(
+		t.Context(),
+		"testws",
+		queryazlogs.QueryBody{Query: new("AppEvents_CL | count")},
+		&queryazlogs.QueryWorkspaceOptions{Options: &queryazlogs.QueryOptions{Statistics: new(true)}},
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.Statistics)
 }

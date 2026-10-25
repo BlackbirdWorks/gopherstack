@@ -36,19 +36,19 @@ var hyphenated = map[string]bool{ //nolint:gochecknoglobals // static lookup
 }
 
 var typedPrefixes = map[string]bool{ //nolint:gochecknoglobals // static lookup
-	"datetime": true, "timespan": true, "time": true, "guid": true, "dynamic": true, "bool": true,
-	"boolean": true, "long": true, "int": true, "real": true, "double": true, "decimal": true,
+	kwDatetime: true, string(TTimespan): true, kwTime: true, kwGUID: true, kwDynamic: true, kwBool: true,
+	kwBoolean: true, string(TLong): true, string(TInt): true, string(TReal): true, kwDouble: true, kwDecimal: true,
 }
 
 var timeUnits = map[string]time.Duration{ //nolint:gochecknoglobals // static lookup
-	"d": 24 * time.Hour, "day": 24 * time.Hour, "days": 24 * time.Hour,
+	"d": dayDuration, "day": dayDuration, "days": dayDuration,
 	"h": time.Hour, "hr": time.Hour, "hrs": time.Hour, "hour": time.Hour, "hours": time.Hour,
 	"m": time.Minute, "min": time.Minute, "minute": time.Minute, "minutes": time.Minute,
 	"s": time.Second, "sec": time.Second, "second": time.Second, "seconds": time.Second,
 	"ms": time.Millisecond, "milli": time.Millisecond, "millis": time.Millisecond,
 	"millisecond": time.Millisecond, "milliseconds": time.Millisecond,
 	"microsecond": time.Microsecond, "microseconds": time.Microsecond,
-	"tick": 100 * time.Nanosecond, "ticks": 100 * time.Nanosecond,
+	"tick": nanosPerTick * time.Nanosecond, "ticks": nanosPerTick * time.Nanosecond,
 }
 
 func isIdentStart(r rune) bool { return r == '_' || unicode.IsLetter(r) }
@@ -153,32 +153,41 @@ func (l *lexer) next() error {
 	return syntaxErr("unexpected character %q at offset %d", r, start)
 }
 
-func (l *lexer) lexIdent() error {
-	start := l.pos
-
+func (l *lexer) scanWord() {
 	for l.pos < len(l.src) {
 		r, w := utf8.DecodeRuneInString(l.src[l.pos:])
 		if !isIdentPart(r) {
-			break
+			return
 		}
 
 		l.pos += w
 	}
+}
 
-	word := l.src[start:l.pos]
-
-	if l.peekByte(0) == '-' {
-		j := l.pos + 1
-		for j < len(l.src) && (isIdentPart(rune(l.src[j]))) {
-			j++
-		}
-
-		if hyphenated[strings.ToLower(l.src[start:j])] {
-			word = l.src[start:j]
-			l.pos = j
-		}
+// scanHyphenated extends a word such as "project" with "-away" when the combination is a known operator.
+func (l *lexer) scanHyphenated(start int) string {
+	if l.peekByte(0) != '-' {
+		return l.src[start:l.pos]
 	}
 
+	j := l.pos + 1
+	for j < len(l.src) && isIdentPart(rune(l.src[j])) {
+		j++
+	}
+
+	if hyphenated[strings.ToLower(l.src[start:j])] {
+		l.pos = j
+	}
+
+	return l.src[start:l.pos]
+}
+
+func (l *lexer) lexIdent() error {
+	start := l.pos
+
+	l.scanWord()
+
+	word := l.scanHyphenated(start)
 	lower := strings.ToLower(word)
 
 	if lower == "h" && (l.peekByte(0) == '"' || l.peekByte(0) == '\'') {
@@ -194,7 +203,7 @@ func (l *lexer) lexIdent() error {
 
 	if lower == "in" && l.peekByte(0) == '~' {
 		l.pos++
-		word = "in~"
+		word = kwInTilde
 	}
 
 	if typedPrefixes[lower] && l.peekByte(0) == '(' {
@@ -247,34 +256,51 @@ func (l *lexer) captureParens() (string, error) {
 	return "", syntaxErr("unbalanced parenthesis in literal")
 }
 
-func (l *lexer) lexNumber() error {
-	start := l.pos
+func (l *lexer) isDigitAt(off int) bool {
+	c := l.peekByte(off)
+
+	return c >= '0' && c <= '9'
+}
+
+func (l *lexer) scanDigits() {
+	for l.isDigitAt(0) {
+		l.pos++
+	}
+}
+
+// scanReal consumes an optional fraction and exponent and reports whether either was present.
+const expPrefixLen = 2
+
+func (l *lexer) scanReal() bool {
 	isReal := false
 
-	for l.pos < len(l.src) && l.src[l.pos] >= '0' && l.src[l.pos] <= '9' {
-		l.pos++
-	}
-
-	if l.peekByte(0) == '.' && l.peekByte(1) != '.' && l.peekByte(1) >= '0' && l.peekByte(1) <= '9' {
+	if l.peekByte(0) == '.' && l.isDigitAt(1) {
 		isReal = true
 		l.pos++
-
-		for l.pos < len(l.src) && l.src[l.pos] >= '0' && l.src[l.pos] <= '9' {
-			l.pos++
-		}
+		l.scanDigits()
 	}
 
-	if c := l.peekByte(0); (c == 'e' || c == 'E') &&
-		(l.peekByte(1) >= '0' && l.peekByte(1) <= '9' ||
-			(l.peekByte(1) == '-' || l.peekByte(1) == '+') && l.peekByte(2) >= '0' && l.peekByte(2) <= '9') {
+	c := l.peekByte(0)
+	if c != 'e' && c != 'E' {
+		return isReal
+	}
+
+	signed := (l.peekByte(1) == '-' || l.peekByte(1) == '+') && l.isDigitAt(expPrefixLen)
+	if l.isDigitAt(1) || signed {
 		isReal = true
-		l.pos += 2
-
-		for l.pos < len(l.src) && l.src[l.pos] >= '0' && l.src[l.pos] <= '9' {
-			l.pos++
-		}
+		l.pos += expPrefixLen
+		l.scanDigits()
 	}
 
+	return isReal
+}
+
+func (l *lexer) lexNumber() error {
+	start := l.pos
+
+	l.scanDigits()
+
+	isReal := l.scanReal()
 	num := l.src[start:l.pos]
 
 	ustart := l.pos
@@ -282,10 +308,10 @@ func (l *lexer) lexNumber() error {
 		l.pos++
 	}
 
-	if unit := strings.ToLower(l.src[ustart:l.pos]); unit != "" {
-		d, ok := timeUnits[unit]
+	if suffix := l.src[ustart:l.pos]; suffix != "" {
+		d, ok := timeUnits[strings.ToLower(suffix)]
 		if !ok {
-			return syntaxErr("unknown numeric suffix %q", l.src[ustart:l.pos])
+			return syntaxErr("unknown numeric suffix %q", suffix)
 		}
 
 		f, _ := strconv.ParseFloat(num, 64)
@@ -304,6 +330,34 @@ func (l *lexer) lexNumber() error {
 	return nil
 }
 
+var simpleEscapes = map[byte]byte{'n': '\n', 't': '\t', 'r': '\r'} //nolint:gochecknoglobals // static lookup
+
+const unicodeEscapeLen = 4
+
+// readEscape consumes the escape sequence after a backslash (l.pos is on the escape character).
+func (l *lexer) readEscape(sb *strings.Builder) {
+	e := l.src[l.pos]
+
+	if r, ok := simpleEscapes[e]; ok {
+		sb.WriteByte(r)
+
+		return
+	}
+
+	if e == 'u' && l.pos+unicodeEscapeLen < len(l.src) {
+		seq := l.src[l.pos-1 : l.pos+1+unicodeEscapeLen]
+		if r, _, _, err := strconv.UnquoteChar(seq, '"'); err == nil {
+			sb.WriteRune(r)
+
+			l.pos += unicodeEscapeLen
+
+			return
+		}
+	}
+
+	sb.WriteByte(e)
+}
+
 func (l *lexer) lexQuoted(verbatim bool) (string, error) {
 	quote := l.src[l.pos]
 	l.pos++
@@ -314,15 +368,11 @@ func (l *lexer) lexQuoted(verbatim bool) (string, error) {
 		c := l.src[l.pos]
 
 		switch {
+		case c == quote && verbatim && l.peekByte(1) == quote:
+			sb.WriteByte(quote)
+
+			l.pos += 2
 		case c == quote:
-			if verbatim && l.peekByte(1) == quote {
-				sb.WriteByte(quote)
-
-				l.pos += 2
-
-				continue
-			}
-
 			l.pos++
 
 			return sb.String(), nil
@@ -332,26 +382,7 @@ func (l *lexer) lexQuoted(verbatim bool) (string, error) {
 			}
 
 			l.pos++
-
-			switch e := l.src[l.pos]; e {
-			case 'n':
-				sb.WriteByte('\n')
-			case 't':
-				sb.WriteByte('\t')
-			case 'r':
-				sb.WriteByte('\r')
-			case 'u':
-				if l.pos+4 < len(l.src) {
-					if n, err := strconv.ParseUint(l.src[l.pos+1:l.pos+5], 16, 32); err == nil {
-						sb.WriteRune(rune(n))
-
-						l.pos += 4
-					}
-				}
-			default:
-				sb.WriteByte(e)
-			}
-
+			l.readEscape(&sb)
 			l.pos++
 		default:
 			sb.WriteByte(c)

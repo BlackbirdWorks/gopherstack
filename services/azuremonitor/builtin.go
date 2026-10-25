@@ -2,9 +2,11 @@ package azuremonitor
 
 import "github.com/blackbirdworks/gopherstack/services/azuremonitor/kql"
 
+const pairWidth = 2
+
 func cols(pairs ...string) []Column {
-	out := make([]Column, 0, len(pairs)/2)
-	for i := 0; i+1 < len(pairs); i += 2 {
+	out := make([]Column, 0, len(pairs)/pairWidth)
+	for i := 0; i+1 < len(pairs); i += pairWidth {
 		out = append(out, Column{Name: pairs[i], Type: pairs[i+1]})
 	}
 

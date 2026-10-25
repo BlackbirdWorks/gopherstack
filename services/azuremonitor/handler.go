@@ -44,6 +44,8 @@ const (
 	segStreams        = "streams"
 	segDCR            = "dataCollectionRules"
 	pathIngestLen     = 4
+	minQuerySegs      = 2
+	pathQuerySegs     = 3
 	statusOK          = http.StatusOK
 )
 
@@ -125,7 +127,7 @@ func splitPath(path string) []string {
 	return segs
 }
 
-func classify(r *http.Request) (string, route) {
+func unescapedSegments(r *http.Request) []string {
 	segs := splitPath(r.URL.EscapedPath())
 
 	for i := range segs {
@@ -134,20 +136,48 @@ func classify(r *http.Request) (string, route) {
 		}
 	}
 
+	return segs
+}
+
+func classify(r *http.Request) (string, route) {
+	segs := unescapedSegments(r)
+
+	rt := route{op: unknownOperation}
+
 	switch {
-	case r.Method == http.MethodPost && len(segs) == pathIngestLen && segs[0] == segDCR && segs[2] == segStreams:
-		return opIngest, route{op: opIngest, target: segs[1], stream: segs[3]}
-	case len(segs) == 4 && segs[0] == segV1 && segs[1] == segWorkspaces && segs[3] == segQuery &&
-		(r.Method == http.MethodPost || r.Method == http.MethodGet):
-		return opQuery, route{op: opQuery, target: segs[2]}
-	case r.Method == http.MethodPost && len(segs) == 2 && segs[0] == segV1 && segs[1] == segBatch:
-		return opBatch, route{op: opBatch}
-	case len(segs) >= 3 && segs[0] == segV1 && segs[len(segs)-1] == segQuery && segs[1] != segWorkspaces &&
-		(r.Method == http.MethodPost || r.Method == http.MethodGet):
-		return opQueryResource, route{op: opQueryResource, target: "/" + strings.Join(segs[1:len(segs)-1], "/")}
+	case len(segs) == pathIngestLen && segs[0] == segDCR:
+		rt = classifyIngest(r, segs)
+	case len(segs) >= minQuerySegs && segs[0] == segV1:
+		rt = classifyV1(r, segs)
 	}
 
-	return unknownOperation, route{op: unknownOperation}
+	return rt.op, rt
+}
+
+func classifyIngest(r *http.Request, segs []string) route {
+	if r.Method == http.MethodPost && segs[2] == segStreams {
+		return route{op: opIngest, target: segs[1], stream: segs[3]}
+	}
+
+	return route{op: unknownOperation}
+}
+
+func classifyV1(r *http.Request, segs []string) route {
+	readOnly := r.Method == http.MethodPost || r.Method == http.MethodGet
+	last := segs[len(segs)-1]
+
+	switch {
+	case r.Method == http.MethodPost && len(segs) == minQuerySegs && segs[1] == segBatch:
+		return route{op: opBatch}
+	case !readOnly || last != segQuery:
+		return route{op: unknownOperation}
+	case len(segs) == pathIngestLen && segs[1] == segWorkspaces:
+		return route{op: opQuery, target: segs[2]}
+	case len(segs) >= pathQuerySegs && segs[1] != segWorkspaces:
+		return route{op: opQueryResource, target: "/" + strings.Join(segs[1:len(segs)-1], "/")}
+	}
+
+	return route{op: unknownOperation}
 }
 
 func (h *Handler) authError(r *http.Request) string {
@@ -185,7 +215,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		op, rt := classify(r)
 		if op == unknownOperation {
-			return writeAPIError(c, newErr(http.StatusNotFound, "PathNotFoundError", "The requested path does not exist"))
+			return writeAPIError(
+				c,
+				newErr(http.StatusNotFound, "PathNotFoundError", "The requested path does not exist"),
+			)
 		}
 
 		if msg := h.authError(r); msg != "" {
@@ -218,7 +251,10 @@ func (h *Handler) handleIngest(c *echo.Context, rt route) error {
 	r := c.Request()
 
 	if r.URL.Query().Get("api-version") == "" {
-		return writeAPIError(c, newErr(http.StatusBadRequest, "InvalidRequest", "The api-version query parameter is required."))
+		return writeAPIError(
+			c,
+			newErr(http.StatusBadRequest, "InvalidRequest", "The api-version query parameter is required."),
+		)
 	}
 
 	data, tooBig, err := readBody(r, maxIngestBytes)
@@ -347,24 +383,27 @@ type batchRequest struct {
 }
 
 type batchItem struct {
-	Body      QueryRequest `json:"body"`
 	ID        string       `json:"id"`
 	Method    string       `json:"method"`
 	Path      string       `json:"path"`
 	Workspace string       `json:"workspace"`
+	Body      QueryRequest `json:"body"`
 }
 
 type batchResponse struct {
 	Body    any    `json:"body"`
+	Headers any    `json:"headers,omitempty"`
 	ID      string `json:"id"`
 	Status  int    `json:"status"`
-	Headers any    `json:"headers,omitempty"`
 }
 
 func (h *Handler) handleBatch(c *echo.Context) error {
 	data, tooBig, err := readBody(c.Request(), maxQueryBody)
 	if err != nil || tooBig {
-		return writeAPIError(c, newErr(http.StatusBadRequest, "BadArgumentError", "The request body could not be read."))
+		return writeAPIError(
+			c,
+			newErr(http.StatusBadRequest, "BadArgumentError", "The request body could not be read."),
+		)
 	}
 
 	var req batchRequest

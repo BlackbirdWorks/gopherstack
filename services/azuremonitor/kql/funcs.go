@@ -3,6 +3,7 @@ package kql
 import (
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"math"
 	"net/url"
 	"regexp"
@@ -10,6 +11,18 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+)
+
+const (
+	argsTwo          = 2
+	argsThree        = 3
+	argsFour         = 4
+	argsSeven        = 7
+	daysPerWeek      = 7
+	monthsPerYear    = 12
+	monthsPerQuarter = 3
+	decimalBase      = 10
+	nanosPerSecond   = 1e9
 )
 
 type callCtx struct {
@@ -65,7 +78,7 @@ func mathFn(f func(float64) float64) fnDef {
 
 		r := f(x)
 		if math.IsNaN(r) {
-			return nil, nil //nolint:nilnil // domain errors yield null
+			return nullValue()
 		}
 
 		return r, nil
@@ -85,8 +98,8 @@ func keepNumeric(f func(float64) float64) fnDef {
 	}}
 }
 
-func datePart(f func(time.Time) int64, t Type) fnDef {
-	return fnDef{min: 1, max: 1, ret: fixed(t), call: func(_ *callCtx, a []any) (any, error) {
+func datePart(f func(time.Time) int64) fnDef {
+	return fnDef{min: 1, max: 1, ret: fixed(TInt), call: func(_ *callCtx, a []any) (any, error) {
 		d, ok := a[0].(time.Time)
 		if !ok {
 			return nil, semErr("a datetime argument was expected")
@@ -97,7 +110,7 @@ func datePart(f func(time.Time) int64, t Type) fnDef {
 }
 
 func startOf(f func(time.Time) time.Time) fnDef {
-	return fnDef{min: 1, max: 2, ret: fixed(TDatetime), call: func(_ *callCtx, a []any) (any, error) {
+	return fnDef{min: 1, max: argsTwo, ret: fixed(TDatetime), call: func(_ *callCtx, a []any) (any, error) {
 		d, ok := a[0].(time.Time)
 		if !ok {
 			return nil, semErr("a datetime argument was expected")
@@ -145,10 +158,24 @@ func endOf(f func(time.Time) time.Time, add func(time.Time) time.Time) fnDef {
 }
 
 //nolint:gochecknoglobals // static function table
-var scalarFuncs map[string]fnDef
+var scalarFuncs = buildScalarFuncs()
 
-func init() { //nolint:gochecknoinits // table references itself via helpers
-	scalarFuncs = map[string]fnDef{
+func buildScalarFuncs() map[string]fnDef {
+	all := map[string]fnDef{}
+
+	parts := []map[string]fnDef{
+		convFuncs(), stringFuncs(), predicateFuncs(), mathFuncs(), timeFuncs(), dynamicFuncs(),
+	}
+
+	for _, part := range parts {
+		maps.Copy(all, part)
+	}
+
+	return all
+}
+
+func convFuncs() map[string]fnDef {
+	return map[string]fnDef{
 		"tostring": {min: 1, max: 1, nullable: true, ret: fixed(TString), call: func(_ *callCtx, a []any) (any, error) {
 			return str(a[0]), nil
 		}},
@@ -163,6 +190,11 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 		"totimespan": convFn(TTimespan, toTimespanValue),
 		"todynamic":  convFn(TDynamic, toDynamicValue),
 		"parse_json": convFn(TDynamic, toDynamicValue),
+	}
+}
+
+func stringFuncs() map[string]fnDef {
+	return map[string]fnDef{
 		"tolower": {min: 1, max: 1, ret: fixed(TString), call: func(_ *callCtx, a []any) (any, error) {
 			return strings.ToLower(str(a[0])), nil
 		}},
@@ -172,25 +204,36 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 		"strlen": {min: 1, max: 1, ret: fixed(TLong), call: func(_ *callCtx, a []any) (any, error) {
 			return int64(utf8.RuneCountInString(str(a[0]))), nil
 		}},
-		"substring": {min: 2, max: 3, ret: fixed(TString), call: fnSubstring},
+		"substring": {min: argsTwo, max: argsThree, ret: fixed(TString), call: fnSubstring},
 		"strcat":    {min: 1, max: -1, nullable: true, ret: fixed(TString), call: fnStrcat},
-		"strcat_delim": {min: 3, max: -1, nullable: true, ret: fixed(TString), call: func(_ *callCtx, a []any) (any, error) {
-			parts := make([]string, 0, len(a)-1)
-			for _, v := range a[1:] {
-				parts = append(parts, str(v))
-			}
+		"strcat_delim": {
+			min:      argsThree,
+			max:      -1,
+			nullable: true,
+			ret:      fixed(TString),
+			call: func(_ *callCtx, a []any) (any, error) {
+				parts := make([]string, 0, len(a)-1)
+				for _, v := range a[1:] {
+					parts = append(parts, str(v))
+				}
 
-			return strings.Join(parts, str(a[0])), nil
-		}},
-		"replace_string": {min: 3, max: 3, ret: fixed(TString), call: func(_ *callCtx, a []any) (any, error) {
-			return strings.ReplaceAll(str(a[0]), str(a[1]), str(a[2])), nil
-		}},
-		"replace_regex": {min: 3, max: 3, ret: fixed(TString), call: fnReplaceRegex},
-		"split":         {min: 2, max: 2, ret: fixed(TDynamic), call: fnSplit},
-		"indexof":       {min: 2, max: 4, ret: fixed(TLong), call: fnIndexOf},
-		"trim":          {min: 2, max: 2, ret: fixed(TString), call: trimFn(true, true)},
-		"trim_start":    {min: 2, max: 2, ret: fixed(TString), call: trimFn(true, false)},
-		"trim_end":      {min: 2, max: 2, ret: fixed(TString), call: trimFn(false, true)},
+				return strings.Join(parts, str(a[0])), nil
+			},
+		},
+		"replace_string": {
+			min: argsThree,
+			max: argsThree,
+			ret: fixed(TString),
+			call: func(_ *callCtx, a []any) (any, error) {
+				return strings.ReplaceAll(str(a[0]), str(a[1]), str(a[2])), nil
+			},
+		},
+		"replace_regex": {min: argsThree, max: argsThree, ret: fixed(TString), call: fnReplaceRegex},
+		"split":         {min: argsTwo, max: argsTwo, ret: fixed(TDynamic), call: fnSplit},
+		"indexof":       {min: argsTwo, max: argsFour, ret: fixed(TLong), call: fnIndexOf},
+		"trim":          {min: argsTwo, max: argsTwo, ret: fixed(TString), call: trimFn(true, true)},
+		"trim_start":    {min: argsTwo, max: argsTwo, ret: fixed(TString), call: trimFn(true, false)},
+		"trim_end":      {min: argsTwo, max: argsTwo, ret: fixed(TString), call: trimFn(false, true)},
 		"reverse": {min: 1, max: 1, ret: fixed(TString), call: func(_ *callCtx, a []any) (any, error) {
 			rs := []rune(str(a[0]))
 			for i, j := 0, len(rs)-1; i < j; i, j = i+1, j-1 {
@@ -199,20 +242,25 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 
 			return string(rs), nil
 		}},
-		"strrep":  {min: 2, max: 3, ret: fixed(TString), call: fnStrrep},
-		"extract": {min: 3, max: 3, ret: fixed(TString), call: fnExtract},
-		"countof": {min: 2, max: 3, ret: fixed(TLong), call: func(_ *callCtx, a []any) (any, error) {
+		"strrep":  {min: argsTwo, max: argsThree, ret: fixed(TString), call: fnStrrep},
+		"extract": {min: argsThree, max: argsThree, ret: fixed(TString), call: fnExtract},
+		"countof": {min: argsTwo, max: argsThree, ret: fixed(TLong), call: func(_ *callCtx, a []any) (any, error) {
 			if str(a[1]) == "" {
 				return int64(0), nil
 			}
 
 			return int64(strings.Count(str(a[0]), str(a[1]))), nil
 		}},
+	}
+}
+
+func predicateFuncs() map[string]fnDef {
+	return map[string]fnDef{
 		"isempty": {min: 1, max: 1, nullable: true, ret: fixed(TBool), call: func(_ *callCtx, a []any) (any, error) {
 			return a[0] == nil || a[0] == "", nil
 		}},
 		"isnotempty": {min: 1, max: 1, nullable: true, ret: fixed(TBool), call: func(_ *callCtx, a []any) (any, error) {
-			return !(a[0] == nil || a[0] == ""), nil
+			return a[0] != nil && a[0] != "", nil
 		}},
 		"isnull": {min: 1, max: 1, nullable: true, ret: fixed(TBool), call: func(_ *callCtx, a []any) (any, error) {
 			return a[0] == nil, nil
@@ -231,21 +279,27 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 		"isinf": {min: 1, max: 1, ret: fixed(TBool), call: func(_ *callCtx, a []any) (any, error) {
 			return math.IsInf(floatArg(a[0]), 0), nil
 		}},
-		"coalesce": {min: 1, max: -1, nullable: true, ret: firstNonDynamic, call: func(_ *callCtx, a []any) (any, error) {
-			for _, v := range a {
-				if v != nil && v != "" {
-					return v, nil
+		"coalesce": {
+			min:      1,
+			max:      -1,
+			nullable: true,
+			ret:      firstNonDynamic,
+			call: func(_ *callCtx, a []any) (any, error) {
+				for _, v := range a {
+					if v != nil && v != "" {
+						return v, nil
+					}
 				}
-			}
 
-			return nil, nil //nolint:nilnil // all null
-		}},
-		"iff":  {min: 3, max: 3, nullable: true, ret: branchType(1, 2), call: fnIff},
-		"iif":  {min: 3, max: 3, nullable: true, ret: branchType(1, 2), call: fnIff},
-		"case": {min: 3, max: -1, nullable: true, ret: caseType, call: fnCase},
+				return nil, nil
+			},
+		},
+		"iff":  {min: argsThree, max: argsThree, nullable: true, ret: branchType(1, argsTwo), call: fnIff},
+		"iif":  {min: argsThree, max: argsThree, nullable: true, ret: branchType(1, argsTwo), call: fnIff},
+		"case": {min: argsThree, max: -1, nullable: true, ret: caseType, call: fnCase},
 		"not": {min: 1, max: 1, nullable: true, ret: fixed(TBool), call: func(_ *callCtx, a []any) (any, error) {
 			if a[0] == nil {
-				return nil, nil //nolint:nilnil // not(null) is null
+				return nil, nil
 			}
 
 			b, ok := a[0].(bool)
@@ -272,8 +326,13 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 
 			return c.now, nil
 		}},
-		"bin":   {min: 2, max: 2, ret: sameAsFirst, call: fnBin},
-		"floor": {min: 2, max: 2, ret: sameAsFirst, call: fnBin},
+	}
+}
+
+func mathFuncs() map[string]fnDef {
+	return map[string]fnDef{
+		"bin":   {min: argsTwo, max: argsTwo, ret: sameAsFirst, call: fnBin},
+		"floor": {min: argsTwo, max: argsTwo, ret: sameAsFirst, call: fnBin},
 		"abs": {min: 1, max: 1, ret: sameAsFirst, call: func(_ *callCtx, a []any) (any, error) {
 			switch x := a[0].(type) {
 			case int64:
@@ -285,15 +344,15 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 			return nil, semErr("abs() expects a number")
 		}},
 		"ceiling": keepNumeric(math.Ceil),
-		"round":   {min: 1, max: 2, ret: sameAsFirst, call: fnRound},
+		"round":   {min: 1, max: argsTwo, ret: sameAsFirst, call: fnRound},
 		"sqrt":    mathFn(math.Sqrt),
 		"exp":     mathFn(math.Exp),
 		"exp2":    mathFn(math.Exp2),
-		"exp10":   mathFn(func(x float64) float64 { return math.Pow(10, x) }),
+		"exp10":   mathFn(func(x float64) float64 { return math.Pow(decimalBase, x) }),
 		"log":     mathFn(math.Log),
 		"log2":    mathFn(math.Log2),
 		"log10":   mathFn(math.Log10),
-		"pow": {min: 2, max: 2, ret: fixed(TReal), call: func(_ *callCtx, a []any) (any, error) {
+		"pow": {min: argsTwo, max: argsTwo, ret: fixed(TReal), call: func(_ *callCtx, a []any) (any, error) {
 			return math.Pow(floatArg(a[0]), floatArg(a[1])), nil
 		}},
 		"sign": {min: 1, max: 1, ret: fixed(TLong), call: func(_ *callCtx, a []any) (any, error) {
@@ -308,55 +367,75 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 
 			return int64(0), nil
 		}},
-		"min_of": {min: 1, max: -1, ret: sameAsFirst, call: extremum(-1)},
-		"max_of": {min: 1, max: -1, ret: sameAsFirst, call: extremum(1)},
-		"datetime_add": {min: 3, max: 3, ret: fixed(TDatetime), call: fnDatetimeAdd},
-		"datetime_diff": {min: 3, max: 3, ret: fixed(TLong), call: fnDatetimeDiff},
+		"min_of":        {min: 1, max: -1, ret: sameAsFirst, call: extremum(-1)},
+		"max_of":        {min: 1, max: -1, ret: sameAsFirst, call: extremum(1)},
+		"datetime_add":  {min: argsThree, max: argsThree, ret: fixed(TDatetime), call: fnDatetimeAdd},
+		"datetime_diff": {min: argsThree, max: argsThree, ret: fixed(TLong), call: fnDatetimeDiff},
+	}
+}
+
+func timeFuncs() map[string]fnDef {
+	return map[string]fnDef{
 		"startofday":   startOf(dayStart),
 		"startofweek":  startOf(weekStart),
 		"startofmonth": startOf(monthStart),
 		"startofyear":  startOf(yearStart),
-		"endofday": endOf(dayStart, func(t time.Time) time.Time { return t.AddDate(0, 0, 1) }),
-		"endofweek": endOf(weekStart, func(t time.Time) time.Time { return t.AddDate(0, 0, 7) }),
-		"endofmonth": endOf(monthStart, func(t time.Time) time.Time { return t.AddDate(0, 1, 0) }),
-		"endofyear": endOf(yearStart, func(t time.Time) time.Time { return t.AddDate(1, 0, 0) }),
+		"endofday":     endOf(dayStart, func(t time.Time) time.Time { return t.AddDate(0, 0, 1) }),
+		"endofweek":    endOf(weekStart, func(t time.Time) time.Time { return t.AddDate(0, 0, daysPerWeek) }),
+		"endofmonth":   endOf(monthStart, func(t time.Time) time.Time { return t.AddDate(0, 1, 0) }),
+		"endofyear":    endOf(yearStart, func(t time.Time) time.Time { return t.AddDate(1, 0, 0) }),
 		"dayofweek": {min: 1, max: 1, ret: fixed(TTimespan), call: func(_ *callCtx, a []any) (any, error) {
 			d, ok := a[0].(time.Time)
 			if !ok {
 				return nil, semErr("a datetime argument was expected")
 			}
 
-			return time.Duration(d.UTC().Weekday()) * 24 * time.Hour, nil
+			return time.Duration(d.UTC().Weekday()) * dayDuration, nil
 		}},
-		"dayofmonth":  datePart(func(t time.Time) int64 { return int64(t.UTC().Day()) }, TInt),
-		"dayofyear":   datePart(func(t time.Time) int64 { return int64(t.UTC().YearDay()) }, TInt),
-		"hourofday":   datePart(func(t time.Time) int64 { return int64(t.UTC().Hour()) }, TInt),
-		"getyear":     datePart(func(t time.Time) int64 { return int64(t.UTC().Year()) }, TInt),
-		"getmonth":    datePart(func(t time.Time) int64 { return int64(t.UTC().Month()) }, TInt),
-		"monthofyear": datePart(func(t time.Time) int64 { return int64(t.UTC().Month()) }, TInt),
+		"dayofmonth":  datePart(func(t time.Time) int64 { return int64(t.UTC().Day()) }),
+		"dayofyear":   datePart(func(t time.Time) int64 { return int64(t.UTC().YearDay()) }),
+		"hourofday":   datePart(func(t time.Time) int64 { return int64(t.UTC().Hour()) }),
+		"getyear":     datePart(func(t time.Time) int64 { return int64(t.UTC().Year()) }),
+		"getmonth":    datePart(func(t time.Time) int64 { return int64(t.UTC().Month()) }),
+		"monthofyear": datePart(func(t time.Time) int64 { return int64(t.UTC().Month()) }),
 		"week_of_year": datePart(func(t time.Time) int64 {
 			_, w := t.UTC().ISOWeek()
 
 			return int64(w)
-		}, TInt),
-		"format_datetime": {min: 2, max: 2, ret: fixed(TString), call: fnFormatDatetime},
-		"make_datetime":   {min: 3, max: 7, ret: fixed(TDatetime), call: fnMakeDatetime},
-		"unixtime_seconds_todatetime": {min: 1, max: 1, ret: fixed(TDatetime), call: func(_ *callCtx, a []any) (any, error) {
-			return time.Unix(0, int64(floatArg(a[0])*1e9)).UTC(), nil
-		}},
+		}),
+		"format_datetime": {min: argsTwo, max: argsTwo, ret: fixed(TString), call: fnFormatDatetime},
+		"make_datetime":   {min: argsThree, max: argsSeven, ret: fixed(TDatetime), call: fnMakeDatetime},
+		"unixtime_seconds_todatetime": {
+			min: 1,
+			max: 1,
+			ret: fixed(TDatetime),
+			call: func(_ *callCtx, a []any) (any, error) {
+				return time.Unix(0, int64(floatArg(a[0])*nanosPerSecond)).UTC(), nil
+			},
+		},
+	}
+}
+
+func dynamicFuncs() map[string]fnDef {
+	return map[string]fnDef{
 		"array_length": {min: 1, max: 1, ret: fixed(TLong), call: func(_ *callCtx, a []any) (any, error) {
 			if arr, ok := asArray(a[0]); ok {
 				return int64(len(arr)), nil
 			}
 
-			return nil, nil //nolint:nilnil // non-arrays yield null
+			return nil, nil
 		}},
-		"set_has_element": {min: 2, max: 2, ret: fixed(TBool), call: func(_ *callCtx, a []any) (any, error) {
-			arr, _ := asArray(a[0])
+		"set_has_element": {
+			min: argsTwo,
+			max: argsTwo,
+			ret: fixed(TBool),
+			call: func(_ *callCtx, a []any) (any, error) {
+				arr, _ := asArray(a[0])
 
-			return indexIn(arr, a[1]) >= 0, nil
-		}},
-		"array_index_of": {min: 2, max: 2, ret: fixed(TLong), call: func(_ *callCtx, a []any) (any, error) {
+				return indexIn(arr, a[1]) >= 0, nil
+			},
+		},
+		"array_index_of": {min: argsTwo, max: argsTwo, ret: fixed(TLong), call: func(_ *callCtx, a []any) (any, error) {
 			arr, _ := asArray(a[0])
 
 			return int64(indexIn(arr, a[1])), nil
@@ -370,7 +449,7 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 		"url_decode": {min: 1, max: 1, ret: fixed(TString), call: func(_ *callCtx, a []any) (any, error) {
 			s, err := url.QueryUnescape(str(a[0]))
 			if err != nil {
-				return nil, nil //nolint:nilnil // invalid escape yields null
+				return nullValue()
 			}
 
 			return s, nil
@@ -381,13 +460,13 @@ func init() { //nolint:gochecknoinits // table references itself via helpers
 		"base64_decode_tostring": {min: 1, max: 1, ret: fixed(TString), call: func(_ *callCtx, a []any) (any, error) {
 			b, err := base64.StdEncoding.DecodeString(str(a[0]))
 			if err != nil {
-				return nil, nil //nolint:nilnil // invalid base64 yields null
+				return nullValue()
 			}
 
 			return string(b), nil
 		}},
-		"__has_any": {min: 2, max: -1, ret: fixed(TBool), call: hasAnyAll(false)},
-		"__has_all": {min: 2, max: -1, ret: fixed(TBool), call: hasAnyAll(true)},
+		"__has_any": {min: argsTwo, max: -1, ret: fixed(TBool), call: hasAnyAll(false)},
+		"__has_all": {min: argsTwo, max: -1, ret: fixed(TBool), call: hasAnyAll(true)},
 	}
 }
 
@@ -623,11 +702,7 @@ func toDynamicValue(v any) any {
 
 func fnSubstring(_ *callCtx, a []any) (any, error) {
 	rs := []rune(str(a[0]))
-	start := int(intArg(a[1]))
-
-	if start < 0 {
-		start = 0
-	}
+	start := max(int(intArg(a[1])), 0)
 
 	if start >= len(rs) {
 		return "", nil
@@ -635,7 +710,7 @@ func fnSubstring(_ *callCtx, a []any) (any, error) {
 
 	end := len(rs)
 
-	if len(a) > 2 {
+	if len(a) > argsTwo {
 		n := int(intArg(a[2]))
 		if n < 0 {
 			return "", nil
@@ -686,13 +761,13 @@ func fnIndexOf(_ *callCtx, a []any) (any, error) {
 	needle := []rune(str(a[1]))
 	start := 0
 
-	if len(a) > 2 {
+	if len(a) > argsTwo {
 		start = int(intArg(a[2]))
 	}
 
 	end := len(rs)
 
-	if len(a) > 3 {
+	if len(a) > argsThree {
 		if l := int(intArg(a[3])); l >= 0 {
 			end = min(end, start+l)
 		}
@@ -744,7 +819,7 @@ func fnStrrep(_ *callCtx, a []any) (any, error) {
 	}
 
 	delim := ""
-	if len(a) > 2 {
+	if len(a) > argsTwo {
 		delim = str(a[2])
 	}
 
@@ -775,22 +850,7 @@ func fnExtract(_ *callCtx, a []any) (any, error) {
 func fnBin(_ *callCtx, a []any) (any, error) {
 	switch x := a[0].(type) {
 	case int64:
-		if r, ok := a[1].(int64); ok {
-			if r == 0 {
-				return nil, nil //nolint:nilnil // zero bin size
-			}
-
-			q := x / r
-			if x%r != 0 && (x < 0) != (r < 0) {
-				q--
-			}
-
-			return q * r, nil
-		}
-
-		if r, ok := a[1].(float64); ok && r != 0 {
-			return math.Floor(float64(x)/r) * r, nil
-		}
+		return binInt(x, a[1])
 	case float64:
 		if r, ok := toFloat(a[1]); ok && r != 0 {
 			return math.Floor(x/r) * r, nil
@@ -800,17 +860,41 @@ func fnBin(_ *callCtx, a []any) (any, error) {
 			return time.Duration(floorDiv(int64(x), int64(r))) * r, nil
 		}
 	case time.Time:
-		if r, ok := a[1].(time.Duration); ok && r >= 100*time.Nanosecond {
-			ticks := x.UnixNano()/nanosPerTick + ticksAtUnixEpoch
-			rt := int64(r) / nanosPerTick
-			b := floorDiv(ticks, rt) * rt
-
-			return time.Unix(0, (b-ticksAtUnixEpoch)*nanosPerTick).UTC(), nil
+		if r, ok := a[1].(time.Duration); ok && r >= nanosPerTick*time.Nanosecond {
+			return binTime(x, r), nil
 		}
 	}
 
 	return nil, semErr("bin() arguments are not valid")
 }
+
+func binInt(x int64, size any) (any, error) {
+	switch r := size.(type) {
+	case int64:
+		if r == 0 {
+			return nullValue()
+		}
+
+		return floorDiv(x, r) * r, nil
+	case float64:
+		if r != 0 {
+			return math.Floor(float64(x)/r) * r, nil
+		}
+	}
+
+	return nil, semErr("bin() arguments are not valid")
+}
+
+func binTime(x time.Time, r time.Duration) time.Time {
+	ticks := x.UnixNano()/nanosPerTick + ticksAtUnixEpoch
+	rt := int64(r) / nanosPerTick
+	b := floorDiv(ticks, rt) * rt
+
+	return time.Unix(0, (b-ticksAtUnixEpoch)*nanosPerTick).UTC()
+}
+
+// nullValue is the KQL null result.
+func nullValue() (any, error) { return nil, nil } //nolint:nilnil // null is a valid KQL value
 
 func floorDiv(a, b int64) int64 {
 	q := a / b
@@ -831,7 +915,7 @@ func fnRound(_ *callCtx, a []any) (any, error) {
 	case int64:
 		return x, nil
 	case float64:
-		p := math.Pow(10, float64(digits))
+		p := math.Pow(decimalBase, float64(digits))
 
 		return math.Round(x*p) / p, nil
 	}
@@ -853,38 +937,63 @@ func extremum(sign int) func(*callCtx, []any) (any, error) {
 	}
 }
 
+type calendarPart struct {
+	add  func(t time.Time, n int) time.Time
+	diff func(a, b time.Time) int64
+}
+
+func fixedPart(unit time.Duration) calendarPart {
+	return calendarPart{
+		add: func(t time.Time, n int) time.Time { return t.Add(time.Duration(n) * unit) },
+		diff: func(a, b time.Time) int64 {
+			return int64(a.Truncate(unit).Sub(b.Truncate(unit)) / unit)
+		},
+	}
+}
+
+func monthsOf(t time.Time) int64 { return int64(t.Year())*monthsPerYear + int64(t.Month()) - 1 }
+
+//nolint:gochecknoglobals // static lookup
+var calendarParts = map[string]calendarPart{
+	"year": {
+		add:  func(t time.Time, n int) time.Time { return t.AddDate(n, 0, 0) },
+		diff: func(a, b time.Time) int64 { return int64(a.Year() - b.Year()) },
+	},
+	"quarter": {
+		add:  func(t time.Time, n int) time.Time { return t.AddDate(0, monthsPerQuarter*n, 0) },
+		diff: func(a, b time.Time) int64 { return monthsOf(a)/monthsPerQuarter - monthsOf(b)/monthsPerQuarter },
+	},
+	"month": {
+		add:  func(t time.Time, n int) time.Time { return t.AddDate(0, n, 0) },
+		diff: func(a, b time.Time) int64 { return monthsOf(a) - monthsOf(b) },
+	},
+	"week": {
+		add:  func(t time.Time, n int) time.Time { return t.AddDate(0, 0, daysPerWeek*n) },
+		diff: func(a, b time.Time) int64 { return int64(weekStart(a).Sub(weekStart(b)) / (daysPerWeek * dayDuration)) },
+	},
+	"day": {
+		add:  func(t time.Time, n int) time.Time { return t.AddDate(0, 0, n) },
+		diff: func(a, b time.Time) int64 { return int64(dayStart(a).Sub(dayStart(b)) / dayDuration) },
+	},
+	"hour":        fixedPart(time.Hour),
+	"minute":      fixedPart(time.Minute),
+	"second":      fixedPart(time.Second),
+	"millisecond": fixedPart(time.Millisecond),
+	"microsecond": fixedPart(time.Microsecond),
+}
+
 func fnDatetimeAdd(_ *callCtx, a []any) (any, error) {
 	t, ok := a[2].(time.Time)
 	if !ok {
 		return nil, semErr("datetime_add() expects a datetime")
 	}
 
-	n := int(intArg(a[1]))
-
-	switch strings.ToLower(str(a[0])) {
-	case "year":
-		return t.AddDate(n, 0, 0), nil
-	case "quarter":
-		return t.AddDate(0, 3*n, 0), nil
-	case "month":
-		return t.AddDate(0, n, 0), nil
-	case "week":
-		return t.AddDate(0, 0, 7*n), nil
-	case "day":
-		return t.AddDate(0, 0, n), nil
-	case "hour":
-		return t.Add(time.Duration(n) * time.Hour), nil
-	case "minute":
-		return t.Add(time.Duration(n) * time.Minute), nil
-	case "second":
-		return t.Add(time.Duration(n) * time.Second), nil
-	case "millisecond":
-		return t.Add(time.Duration(n) * time.Millisecond), nil
-	case "microsecond":
-		return t.Add(time.Duration(n) * time.Microsecond), nil
+	part, ok := calendarParts[strings.ToLower(str(a[0]))]
+	if !ok {
+		return nil, semErr("datetime_add(): unknown part %q", str(a[0]))
 	}
 
-	return nil, semErr("datetime_add(): unknown part %q", str(a[0]))
+	return part.add(t, int(intArg(a[1]))), nil
 }
 
 func fnDatetimeDiff(_ *callCtx, a []any) (any, error) {
@@ -895,32 +1004,12 @@ func fnDatetimeDiff(_ *callCtx, a []any) (any, error) {
 		return nil, semErr("datetime_diff() expects datetimes")
 	}
 
-	t1, t2 = t1.UTC(), t2.UTC()
-
-	switch strings.ToLower(str(a[0])) {
-	case "year":
-		return int64(t1.Year() - t2.Year()), nil
-	case "quarter":
-		return (int64(t1.Year())*12 + int64(t1.Month()) - 1) / 3 - (int64(t2.Year())*12+int64(t2.Month())-1)/3, nil
-	case "month":
-		return int64(t1.Year()*12+int(t1.Month())) - int64(t2.Year()*12+int(t2.Month())), nil
-	case "week":
-		return int64(weekStart(t1).Sub(weekStart(t2)) / (7 * 24 * time.Hour)), nil
-	case "day":
-		return int64(dayStart(t1).Sub(dayStart(t2)) / (24 * time.Hour)), nil
-	case "hour":
-		return int64(t1.Truncate(time.Hour).Sub(t2.Truncate(time.Hour)) / time.Hour), nil
-	case "minute":
-		return int64(t1.Truncate(time.Minute).Sub(t2.Truncate(time.Minute)) / time.Minute), nil
-	case "second":
-		return int64(t1.Truncate(time.Second).Sub(t2.Truncate(time.Second)) / time.Second), nil
-	case "millisecond":
-		return t1.Sub(t2).Milliseconds(), nil
-	case "microsecond":
-		return t1.Sub(t2).Microseconds(), nil
+	part, ok := calendarParts[strings.ToLower(str(a[0]))]
+	if !ok {
+		return nil, semErr("datetime_diff(): unknown part %q", str(a[0]))
 	}
 
-	return nil, semErr("datetime_diff(): unknown part %q", str(a[0]))
+	return part.diff(t1.UTC(), t2.UTC()), nil
 }
 
 var fmtTokens = []struct{ tok, layout string }{ //nolint:gochecknoglobals // static lookup

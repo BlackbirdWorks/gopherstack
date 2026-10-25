@@ -48,7 +48,11 @@ func monitorErr(err error) error {
 	case errors.Is(err, azuremonitor.ErrUnsupported):
 		return fmt.Errorf("%w: %s", azurearm.ErrResourceNotFound, msg(azuremonitor.ErrUnsupported))
 	case errors.Is(err, azuremonitor.ErrConflict):
-		return &azurearm.MonitorError{Code: "Conflict", Message: msg(azuremonitor.ErrConflict), Status: http.StatusConflict}
+		return &azurearm.MonitorError{
+			Code:    "Conflict",
+			Message: msg(azuremonitor.ErrConflict),
+			Status:  http.StatusConflict,
+		}
 	case errors.Is(err, azuremonitor.ErrInvalid):
 		m := msg(azuremonitor.ErrInvalid)
 		if rest, found := strings.CutPrefix(m, "InvalidOutputTable: "); found {

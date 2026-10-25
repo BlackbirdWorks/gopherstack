@@ -19,10 +19,6 @@ func invalid(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalid, fmt.Sprintf(format, a...))
 }
 
-func conflict(format string, a ...any) error {
-	return fmt.Errorf("%w: %s", ErrConflict, fmt.Sprintf(format, a...))
-}
-
 func notFound(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrNotFound, fmt.Sprintf(format, a...))
 }

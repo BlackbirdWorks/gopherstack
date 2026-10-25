@@ -1,14 +1,13 @@
 package azuremonitor
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -53,13 +52,13 @@ func (b *Backend) Reset() {
 }
 
 func newKey() string {
-	buf := make([]byte, 64)
-	copy(buf, []byte(uuid.NewString()+uuid.NewString()))
+	buf := make([]byte, keyBytes)
+	_, _ = rand.Read(buf)
 
 	return base64.StdEncoding.EncodeToString(buf)
 }
 
-func newImmutableID(prefix string) string { return awsid.NewN(prefix, 32) }
+func newImmutableID(prefix string) string { return awsid.NewN(prefix, immutableIDLen) }
 
 var (
 	workspaceNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{2,61}[A-Za-z0-9]$`)

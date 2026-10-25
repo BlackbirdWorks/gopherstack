@@ -48,8 +48,10 @@ type (
 		vals []node
 	}
 	rangeNode struct {
-		name           string
-		from, to, step node
+		from node
+		to   node
+		step node
+		name string
 	}
 	printNode struct{ items []namedExpr }
 	pipeNode  struct {
@@ -65,8 +67,8 @@ type namedExpr struct {
 
 type sortKey struct {
 	e         node
-	desc      bool
 	nullsLast *bool
+	desc      bool
 }
 
 type (
@@ -103,3 +105,29 @@ type query struct {
 	body node
 	lets []letStmt
 }
+
+const (
+	opAnd          = "and"
+	opOr           = "or"
+	opMatchesRegex = "matches regex"
+)
+
+const (
+	kwBool    = "bool"
+	kwBoolean = "boolean"
+	kwDecimal = "decimal"
+	kwGUID    = "guid"
+	kwCount   = "count"
+	kwInTilde = "in~"
+)
+
+const (
+	kwDouble   = "double"
+	kwDatetime = "datetime"
+	kwDynamic  = "dynamic"
+
+	peekThird  = 2
+	peekFourth = 3
+)
+
+const kwTime = "time"

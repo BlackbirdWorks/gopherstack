@@ -3,6 +3,7 @@ package kql
 import (
 	"math"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -123,9 +124,9 @@ func (sc *scope) compileUnary(x *unNode) (scalar, error) {
 	}
 
 	return scalar{typ: in.typ, fn: func(r []any) (any, error) {
-		v, err := in.fn(r)
-		if err != nil || v == nil {
-			return nil, err
+		v, evalErr := in.fn(r)
+		if evalErr != nil || v == nil {
+			return nil, evalErr
 		}
 
 		switch n := v.(type) {
@@ -178,7 +179,7 @@ func (sc *scope) compileBinary(x *binNode) (scalar, error) {
 	}
 
 	switch x.op {
-	case "and", "or":
+	case opAnd, opOr:
 		return logicOp(x.op, a, b)
 	case "+", "-", "*", "/", "%":
 		return arithOp(x.op, a, b)
@@ -204,7 +205,7 @@ func boolOperand(v any) (bool, bool, error) {
 }
 
 func logicOp(op string, a, b scalar) (scalar, error) {
-	isAnd := op == "and"
+	isAnd := op == opAnd
 
 	return scalar{typ: TBool, fn: func(r []any) (any, error) {
 		av, err := a.fn(r)
@@ -242,36 +243,70 @@ func logicOp(op string, a, b scalar) (scalar, error) {
 	}}, nil
 }
 
+type arithRule struct {
+	ops      string
+	l, r, to Type
+}
+
+var arithRules = []arithRule{ //nolint:gochecknoglobals // static lookup
+	{ops: "-", l: TDatetime, r: TDatetime, to: TTimespan},
+	{ops: "+-", l: TDatetime, r: TTimespan, to: TDatetime},
+	{ops: "+", l: TTimespan, r: TDatetime, to: TDatetime},
+	{ops: "+-", l: TTimespan, r: TTimespan, to: TTimespan},
+	{ops: "/", l: TTimespan, r: TTimespan, to: TReal},
+}
+
+func numericResult(a, b Type) Type {
+	switch {
+	case a == TReal || b == TReal:
+		return TReal
+	case a == TInt && b == TInt:
+		return TInt
+	}
+
+	return TLong
+}
+
+func timespanScaling(op string, a, b Type) bool {
+	if a == TTimespan && isNumType(b) {
+		return op == "*" || op == "/"
+	}
+
+	return isNumType(a) && b == TTimespan && op == "*"
+}
+
 func arithType(op string, a, b Type) (Type, error) {
 	switch {
 	case a == TDynamic || b == TDynamic || a == "" || b == "":
 		return TDynamic, nil
 	case isNumType(a) && isNumType(b):
-		if a == TReal || b == TReal {
-			return TReal, nil
-		}
-
-		if a == TInt && b == TInt {
-			return TInt, nil
-		}
-
-		return TLong, nil
-	case a == TDatetime && b == TDatetime && op == "-":
-		return TTimespan, nil
-	case a == TDatetime && b == TTimespan && (op == "+" || op == "-"):
-		return TDatetime, nil
-	case a == TTimespan && b == TDatetime && op == "+":
-		return TDatetime, nil
-	case a == TTimespan && b == TTimespan && (op == "+" || op == "-"):
-		return TTimespan, nil
-	case a == TTimespan && b == TTimespan && op == "/":
-		return TReal, nil
-	case (a == TTimespan && isNumType(b) && (op == "*" || op == "/")) ||
-		(isNumType(a) && b == TTimespan && op == "*"):
+		return numericResult(a, b), nil
+	case timespanScaling(op, a, b):
 		return TTimespan, nil
 	}
 
+	for _, r := range arithRules {
+		if r.l == a && r.r == b && strings.Contains(r.ops, op) {
+			return r.to, nil
+		}
+	}
+
 	return "", semErr("operator '%s' cannot be applied to %s and %s", op, a, b)
+}
+
+// evalPair evaluates two operands against a row.
+func evalPair(a, b scalar, r []any) (any, any, error) {
+	av, err := a.fn(r)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	bv, err := b.fn(r)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return av, bv, nil
 }
 
 func arithOp(op string, a, b scalar) (scalar, error) {
@@ -281,18 +316,13 @@ func arithOp(op string, a, b scalar) (scalar, error) {
 	}
 
 	return scalar{typ: t, fn: func(r []any) (any, error) {
-		av, err := a.fn(r)
-		if err != nil {
-			return nil, err
-		}
-
-		bv, err := b.fn(r)
-		if err != nil {
-			return nil, err
+		av, bv, evalErr := evalPair(a, b, r)
+		if evalErr != nil {
+			return nil, evalErr
 		}
 
 		if av == nil || bv == nil {
-			return nil, nil //nolint:nilnil // null propagates
+			return nullValue()
 		}
 
 		return arith(op, av, bv)
@@ -300,46 +330,72 @@ func arithOp(op string, a, b scalar) (scalar, error) {
 }
 
 func arith(op string, a, b any) (any, error) {
+	var (
+		out any
+		ok  bool
+	)
+
 	switch x := a.(type) {
 	case int64:
-		switch y := b.(type) {
-		case int64:
-			return intArith(op, x, y), nil
-		case float64:
-			return floatArith(op, float64(x), y), nil
-		case time.Duration:
-			if op == "*" {
-				return time.Duration(x) * y, nil
-			}
-		}
+		out, ok = arithInt(op, x, b)
 	case float64:
-		if y, ok := toFloat(b); ok && isNumeric(b) {
-			return floatArith(op, x, y), nil
-		}
-
-		if y, ok := b.(time.Duration); ok && op == "*" {
-			return time.Duration(x * float64(y)), nil
-		}
+		out, ok = arithFloat(op, x, b)
 	case time.Time:
-		switch y := b.(type) {
-		case time.Time:
-			if op == "-" {
-				return x.Sub(y), nil
-			}
-		case time.Duration:
-			if op == "+" {
-				return x.Add(y), nil
-			}
-
-			if op == "-" {
-				return x.Add(-y), nil
-			}
-		}
+		out, ok = arithTime(op, x, b)
 	case time.Duration:
 		return durArith(op, x, b)
 	}
 
-	return nil, semErr("operator '%s' cannot be applied to %s and %s", op, typeOfValue(a), typeOfValue(b))
+	if !ok {
+		return nil, semErr("operator '%s' cannot be applied to %s and %s", op, typeOfValue(a), typeOfValue(b))
+	}
+
+	return out, nil
+}
+
+func arithInt(op string, x int64, b any) (any, bool) {
+	switch y := b.(type) {
+	case int64:
+		return intArith(op, x, y), true
+	case float64:
+		return floatArith(op, float64(x), y), true
+	case time.Duration:
+		if op == "*" {
+			return time.Duration(x) * y, true
+		}
+	}
+
+	return nil, false
+}
+
+func arithFloat(op string, x float64, b any) (any, bool) {
+	if y, ok := toFloat(b); ok && isNumeric(b) {
+		return floatArith(op, x, y), true
+	}
+
+	if y, ok := b.(time.Duration); ok && op == "*" {
+		return time.Duration(x * float64(y)), true
+	}
+
+	return nil, false
+}
+
+func arithTime(op string, x time.Time, b any) (any, bool) {
+	switch y := b.(type) {
+	case time.Time:
+		if op == "-" {
+			return x.Sub(y), true
+		}
+	case time.Duration:
+		switch op {
+		case "+":
+			return x.Add(y), true
+		case "-":
+			return x.Add(-y), true
+		}
+	}
+
+	return nil, false
 }
 
 func durArith(op string, x time.Duration, b any) (any, error) {
@@ -417,7 +473,7 @@ func floatArith(op string, x, y float64) any {
 	return math.Mod(x, y)
 }
 
-func comparable(a, b Type) bool {
+func typesComparable(a, b Type) bool {
 	switch {
 	case a == TDynamic || b == TDynamic || a == "" || b == "" || a == b:
 		return true
@@ -431,24 +487,19 @@ func comparable(a, b Type) bool {
 }
 
 func cmpOp(op string, a, b scalar) (scalar, error) {
-	if !comparable(a.typ, b.typ) {
+	if !typesComparable(a.typ, b.typ) {
 		return scalar{}, semErr(
 			"cannot compare values of types %s and %s; try adding explicit casts", a.typ, b.typ)
 	}
 
 	return scalar{typ: TBool, fn: func(r []any) (any, error) {
-		av, err := a.fn(r)
-		if err != nil {
-			return nil, err
-		}
-
-		bv, err := b.fn(r)
-		if err != nil {
-			return nil, err
+		av, bv, evalErr := evalPair(a, b, r)
+		if evalErr != nil {
+			return nil, evalErr
 		}
 
 		if av == nil || bv == nil {
-			return nil, nil //nolint:nilnil // comparison with null is null
+			return nullValue()
 		}
 
 		c, ok := compareValues(av, bv)
@@ -460,93 +511,82 @@ func cmpOp(op string, a, b scalar) (scalar, error) {
 				return true, nil
 			}
 
-			return nil, nil //nolint:nilnil // incomparable dynamic values
+			return nullValue()
 		}
 
-		switch op {
-		case "==":
-			return c == 0, nil
-		case "!=":
-			return c != 0, nil
-		case "<":
-			return c < 0, nil
-		case "<=":
-			return c <= 0, nil
-		case ">":
-			return c > 0, nil
-		}
-
-		return c >= 0, nil
+		return cmpResult(op, c), nil
 	}}, nil
 }
 
-func ciEqOp(neg bool, a, b scalar) scalar {
-	return scalar{typ: TBool, fn: func(r []any) (any, error) {
-		av, err := a.fn(r)
-		if err != nil {
-			return nil, err
-		}
+func cmpResult(op string, c int) bool {
+	switch op {
+	case "==":
+		return c == 0
+	case "!=":
+		return c != 0
+	case "<":
+		return c < 0
+	case "<=":
+		return c <= 0
+	case ">":
+		return c > 0
+	}
 
-		bv, err := b.fn(r)
-		if err != nil {
-			return nil, err
+	return c >= 0
+}
+
+// binaryScalar builds a scalar that evaluates two operands and yields null when either is null.
+func binaryScalar(a, b scalar, typ Type, f func(av, bv any) (any, error)) scalar {
+	return scalar{typ: typ, fn: func(r []any) (any, error) {
+		av, bv, evalErr := evalPair(a, b, r)
+		if evalErr != nil {
+			return nil, evalErr
 		}
 
 		if av == nil || bv == nil {
-			return nil, nil //nolint:nilnil // null propagates
+			return nullValue()
 		}
 
-		eq := strings.EqualFold(ToString(av), ToString(bv))
-
-		return eq != neg, nil
+		return f(av, bv)
 	}}
+}
+
+func ciEqOp(neg bool, a, b scalar) scalar {
+	return binaryScalar(a, b, TBool, func(av, bv any) (any, error) {
+		return strings.EqualFold(ToString(av), ToString(bv)) != neg, nil
+	})
 }
 
 func stringOp(op string, a, b scalar) (scalar, error) {
 	base := strings.TrimPrefix(op, "!")
 	neg := strings.HasPrefix(op, "!")
 
+	if base != opMatchesRegex {
+		return binaryScalar(a, b, TBool, func(av, bv any) (any, error) {
+			return applyStringOp(base, ToString(av), ToString(bv)) != neg, nil
+		}), nil
+	}
+
 	var re *regexp.Regexp
 
-	if base == "matches regex" {
-		if lit, ok := constOf(b); ok {
-			var err error
-			if re, err = compileRegex(ToString(lit)); err != nil {
-				return scalar{}, err
-			}
+	if lit, ok := constOf(b); ok {
+		var err error
+		if re, err = compileRegex(ToString(lit)); err != nil {
+			return scalar{}, err
 		}
 	}
 
-	return scalar{typ: TBool, fn: func(r []any) (any, error) {
-		av, err := a.fn(r)
-		if err != nil {
-			return nil, err
-		}
-
-		bv, err := b.fn(r)
-		if err != nil {
-			return nil, err
-		}
-
-		if av == nil || bv == nil {
-			return nil, nil //nolint:nilnil // null propagates
-		}
-
-		hay, needle := ToString(av), ToString(bv)
-
-		if base == "matches regex" {
-			rx := re
-			if rx == nil {
-				if rx, err = compileRegex(needle); err != nil {
-					return nil, err
-				}
+	return binaryScalar(a, b, TBool, func(av, bv any) (any, error) {
+		rx := re
+		if rx == nil {
+			var err error
+			if rx, err = compileRegex(ToString(bv)); err != nil {
+				return nil, err
 			}
-
-			return rx.MatchString(hay) != neg, nil
 		}
 
-		return applyStringOp(base, hay, needle) != neg, nil
-	}}, nil
+		return rx.MatchString(ToString(av)) != neg, nil
+	}), nil
 }
 
 func constOf(s scalar) (any, bool) {
@@ -638,37 +678,44 @@ func (sc *scope) compileIn(x *inNode) (scalar, error) {
 			return scalar{}, err
 		}
 
-		if !comparable(val.typ, items[i].typ) && items[i].typ != TDynamic {
+		if !typesComparable(val.typ, items[i].typ) && items[i].typ != TDynamic {
 			return scalar{}, semErr("cannot compare values of types %s and %s", val.typ, items[i].typ)
 		}
 	}
 
 	return scalar{typ: TBool, fn: func(r []any) (any, error) {
-		v, err := val.fn(r)
-		if err != nil || v == nil {
-			return nil, err
+		v, evalErr := val.fn(r)
+		if evalErr != nil || v == nil {
+			return nil, evalErr
 		}
 
-		for _, it := range items {
-			iv, err := it.fn(r)
-			if err != nil {
-				return nil, err
-			}
-
-			cands := []any{iv}
-			if arr, ok := iv.([]any); ok {
-				cands = arr
-			}
-
-			for _, c := range cands {
-				if inEqual(v, c, x.ci) {
-					return !x.neg, nil
-				}
-			}
+		found, evalErr := anyItemEquals(items, v, x.ci, r)
+		if evalErr != nil {
+			return nil, evalErr
 		}
 
-		return x.neg, nil
+		return found != x.neg, nil
 	}}, nil
+}
+
+func anyItemEquals(items []scalar, v any, ci bool, r []any) (bool, error) {
+	for _, it := range items {
+		iv, err := it.fn(r)
+		if err != nil {
+			return false, err
+		}
+
+		cands := []any{iv}
+		if arr, ok := iv.([]any); ok {
+			cands = arr
+		}
+
+		if slices.ContainsFunc(cands, func(c any) bool { return inEqual(v, c, ci) }) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func inEqual(a, b any, ci bool) bool {
@@ -697,31 +744,26 @@ func (sc *scope) compileBetween(x *betweenNode) (scalar, error) {
 		return scalar{}, err
 	}
 
-	if !comparable(v.typ, lo.typ) || !comparable(v.typ, hi.typ) {
+	if !typesComparable(v.typ, lo.typ) || !typesComparable(v.typ, hi.typ) {
 		return scalar{}, semErr("between bounds must have the same type as the value")
 	}
 
 	return scalar{typ: TBool, fn: func(r []any) (any, error) {
-		a, err := v.fn(r)
-		if err != nil || a == nil {
-			return nil, err
+		a, l, evalErr := evalPair(v, lo, r)
+		if evalErr != nil || a == nil || l == nil {
+			return nil, evalErr
 		}
 
-		l, err := lo.fn(r)
-		if err != nil || l == nil {
-			return nil, err
-		}
-
-		h, err := hi.fn(r)
-		if err != nil || h == nil {
-			return nil, err
+		h, evalErr := hi.fn(r)
+		if evalErr != nil || h == nil {
+			return nil, evalErr
 		}
 
 		c1, ok1 := compareValues(a, l)
 		c2, ok2 := compareValues(a, h)
 
 		if !ok1 || !ok2 {
-			return nil, nil //nolint:nilnil // incomparable
+			return nullValue()
 		}
 
 		return (c1 >= 0 && c2 <= 0) != x.neg, nil
@@ -735,9 +777,9 @@ func (sc *scope) compileMember(x *memberNode) (scalar, error) {
 	}
 
 	return scalar{typ: TDynamic, fn: func(r []any) (any, error) {
-		v, err := base.fn(r)
-		if err != nil {
-			return nil, err
+		v, evalErr := base.fn(r)
+		if evalErr != nil {
+			return nil, evalErr
 		}
 
 		return dynamicIndex(v, x.name), nil
@@ -751,14 +793,9 @@ func (sc *scope) compileIndex(x *indexNode) (scalar, error) {
 	}
 
 	return scalar{typ: TDynamic, fn: func(r []any) (any, error) {
-		v, err := base.fn(r)
-		if err != nil {
-			return nil, err
-		}
-
-		i, err := idx.fn(r)
-		if err != nil {
-			return nil, err
+		v, i, evalErr := evalPair(base, idx, r)
+		if evalErr != nil {
+			return nil, evalErr
 		}
 
 		return dynamicIndex(v, i), nil
@@ -852,23 +889,31 @@ func (sc *scope) compileCall(x *callNode) (scalar, error) {
 	now := sc.env.now
 
 	return scalar{typ: ret, fn: func(r []any) (any, error) {
-		vs := make([]any, len(args))
-
-		for i, a := range args {
-			v, err := a.fn(r)
-			if err != nil {
-				return nil, err
-			}
-
-			if v == nil && !def.nullable {
-				return nil, nil //nolint:nilnil // null in, null out
-			}
-
-			vs[i] = v
+		vs, evalErr := evalArgs(args, def.nullable, r)
+		if evalErr != nil || vs == nil {
+			return nil, evalErr
 		}
 
 		return def.call(&callCtx{now: now}, vs)
 	}}, nil
 }
 
-func fnError(name, msg string) error { return semErr("%s: %s", name, msg) }
+// evalArgs evaluates call arguments; it returns nil values (no error) when a non-nullable argument is null.
+func evalArgs(args []scalar, nullable bool, r []any) ([]any, error) {
+	vs := make([]any, len(args))
+
+	for i, a := range args {
+		v, err := a.fn(r)
+		if err != nil {
+			return nil, err
+		}
+
+		if v == nil && !nullable {
+			return nil, nil
+		}
+
+		vs[i] = v
+	}
+
+	return vs, nil
+}

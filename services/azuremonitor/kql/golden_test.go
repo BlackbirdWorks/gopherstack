@@ -2,6 +2,7 @@ package kql_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor/kql"
 )
 
+//nolint:gochecknoglobals // shared fixed clock
 var fixedNow = time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)
 
 type fixture map[string]*kql.Rel
@@ -61,14 +63,12 @@ func newFixture() fixture {
 }
 
 func render(rel *kql.Rel) (string, string) {
-	cols := ""
+	names := make([]string, len(rel.Cols))
 	for i, c := range rel.Cols {
-		if i > 0 {
-			cols += ","
-		}
-
-		cols += c.Name + ":" + string(c.Type)
+		names[i] = c.Name + ":" + string(c.Type)
 	}
+
+	cols := strings.Join(names, ",")
 
 	rows := make([][]any, len(rel.Rows))
 	for i, r := range rel.Rows {

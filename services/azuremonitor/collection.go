@@ -62,9 +62,9 @@ func (d *DCE) body(endpoint string) map[string]any {
 	}
 
 	props["immutableId"] = d.ImmutableID
-	props["configurationAccess"] = map[string]any{"endpoint": endpoint}
-	props["logsIngestion"] = map[string]any{"endpoint": endpoint}
-	props["metricsIngestion"] = map[string]any{"endpoint": endpoint}
+	props["configurationAccess"] = map[string]any{fieldEndpoint: endpoint}
+	props["logsIngestion"] = map[string]any{fieldEndpoint: endpoint}
+	props["metricsIngestion"] = map[string]any{fieldEndpoint: endpoint}
 	props[fieldProvisioning] = provisioningSucceeded
 	out[fieldProperties] = props
 	out["systemData"] = map[string]any{"createdAt": isoTime(d.Created), "lastModifiedAt": isoTime(d.Created)}
@@ -265,7 +265,10 @@ func (b *Backend) validateFlow(spec *dcrSpec, f flow) error {
 
 		if f.transform != "" && f.transform != sourceStream {
 			src := &kql.Rel{Cols: columnsToKQL(cols)}
-			if _, err := kql.Execute(f.transform, kql.Options{Now: b.now(), Resolver: sourceResolver{src}}); err != nil {
+			if _, err := kql.Execute(
+				f.transform,
+				kql.Options{Now: b.now(), Resolver: sourceResolver{src}},
+			); err != nil {
 				return invalid("transformKql of stream %q is not valid: %v", s, err)
 			}
 		}
@@ -391,4 +394,3 @@ func (b *Backend) dcrByImmutableID(id string) (*DCR, bool) {
 
 	return nil, false
 }
-

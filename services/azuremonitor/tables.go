@@ -9,7 +9,7 @@ import (
 )
 
 var reservedColumns = []string{ //nolint:gochecknoglobals // static lookup
-	"_ResourceId", "id", "_SubscriptionId", "TenantId", "Type", "UniqueId", "Title",
+	colResourceID, "id", "_SubscriptionId", "TenantId", colType, "UniqueId", "Title",
 }
 
 func parseColumns(raw any, requireTimeGenerated bool) ([]Column, error) {
@@ -25,9 +25,9 @@ func parseColumns(raw any, requireTimeGenerated bool) ([]Column, error) {
 		m := mapOf(item)
 		name := strOf(m["name"])
 
-		t, ok := kqlTypeOf(strOf(m["type"]))
+		t, ok := kqlTypeOf(strOf(m[fieldType]))
 		if !ok {
-			return nil, invalid("column %q has unsupported type %q", name, strOf(m["type"]))
+			return nil, invalid("column %q has unsupported type %q", name, strOf(m[fieldType]))
 		}
 
 		if !columnNameRe.MatchString(name) {
@@ -84,7 +84,7 @@ func (b *Backend) putTable(ref Ref, body map[string]any) (map[string]any, error)
 			"underscores (at most 45 characters before the suffix)", name)
 	}
 
-	t := &Table{Name: name, Custom: true, Plan: "Analytics", Created: b.now()}
+	t := &Table{Name: name, Custom: true, Plan: planAnalytics, Created: b.now()}
 	if err := t.applyProperties(w, props, true); err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (b *Backend) putTable(ref Ref, body map[string]any) (map[string]any, error)
 	return t.body(w), nil
 }
 
-func retentionOf(v any, min, max int) (int, bool, error) {
+func retentionOf(v any, lo, hi int) (int, bool, error) {
 	if v == nil {
 		return 0, false, nil
 	}
@@ -109,8 +109,8 @@ func retentionOf(v any, min, max int) (int, bool, error) {
 		return 0, true, nil
 	}
 
-	if n < min || n > max {
-		return 0, false, invalid("retention must be between %d and %d days", min, max)
+	if n < lo || n > hi {
+		return 0, false, invalid("retention must be between %d and %d days", lo, hi)
 	}
 
 	return n, true, nil
@@ -120,7 +120,7 @@ func retentionOf(v any, min, max int) (int, bool, error) {
 func (t *Table) applyProperties(w *Workspace, props map[string]any, full bool) error {
 	if v, ok := props["plan"]; ok {
 		plan := strOf(v)
-		if !strings.EqualFold(plan, "Analytics") && !strings.EqualFold(plan, "Basic") &&
+		if !strings.EqualFold(plan, planAnalytics) && !strings.EqualFold(plan, "Basic") &&
 			!strings.EqualFold(plan, "Auxiliary") {
 			return invalid("plan %q is not supported", plan)
 		}
@@ -166,7 +166,7 @@ func canonicalPlan(p string) string {
 		return "Auxiliary"
 	}
 
-	return "Analytics"
+	return planAnalytics
 }
 
 func (t *Table) applyRetention(props map[string]any) error {
@@ -236,7 +236,7 @@ func (t *Table) body(w *Workspace) map[string]any {
 
 	columns := make([]any, len(t.Columns))
 	for i, c := range t.Columns {
-		col := map[string]any{"name": c.Name, "type": armTypeOf(kql.Type(c.Type))}
+		col := map[string]any{fieldName: c.Name, fieldType: armTypeOf(kql.Type(c.Type))}
 		if c.Description != "" {
 			col["description"] = c.Description
 		}
@@ -249,11 +249,11 @@ func (t *Table) body(w *Workspace) map[string]any {
 	}
 
 	schema := map[string]any{
-		"name": t.Name, "columns": columns, "solutions": []any{"LogManagement"},
+		fieldName: t.Name, "columns": columns, "solutions": []any{"LogManagement"},
 		"standardColumns": []any{
-			map[string]any{"name": "TenantId", "type": "guid"},
-			map[string]any{"name": "Type", "type": "string"},
-			map[string]any{"name": "_ResourceId", "type": "string"},
+			map[string]any{fieldName: colTenantID, fieldType: string(kql.TGUID)},
+			map[string]any{fieldName: colType, fieldType: string(kql.TString)},
+			map[string]any{fieldName: colResourceID, fieldType: string(kql.TString)},
 		},
 	}
 
@@ -281,9 +281,11 @@ func (t *Table) body(w *Workspace) map[string]any {
 }
 
 // relOf builds the query-engine view of a table. Callers hold the read lock.
+const relExtraCols = 3
+
 func (t *Table) relOf(tenant string, from, to time.Time) *kql.Rel {
-	cols := make([]kql.Col, 0, len(t.Columns)+3)
-	cols = append(cols, kql.Col{Name: "TenantId", Type: kql.TString})
+	cols := make([]kql.Col, 0, len(t.Columns)+relExtraCols)
+	cols = append(cols, kql.Col{Name: colTenantID, Type: kql.TString})
 
 	tg := -1
 
@@ -295,7 +297,7 @@ func (t *Table) relOf(tenant string, from, to time.Time) *kql.Rel {
 		}
 	}
 
-	cols = append(cols, kql.Col{Name: "Type", Type: kql.TString}, kql.Col{Name: "_ResourceId", Type: kql.TString})
+	cols = append(cols, kql.Col{Name: colType, Type: kql.TString}, kql.Col{Name: colResourceID, Type: kql.TString})
 	rel := &kql.Rel{Cols: cols, Rows: make([][]any, 0, len(t.Rows))}
 
 	for _, row := range t.Rows {

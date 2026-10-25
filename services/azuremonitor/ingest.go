@@ -2,13 +2,17 @@ package azuremonitor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor/kql"
 )
+
+var errValueType = errors.New("value does not match the column type")
 
 // convertValue converts a decoded JSON value to the engine representation of typ.
 func convertValue(typ kql.Type, v any) (any, error) {
@@ -20,37 +24,47 @@ func convertValue(typ kql.Type, v any) (any, error) {
 		return nil, nil //nolint:nilnil // missing value is null
 	}
 
-	switch typ { //nolint:exhaustive // timespan is not a stream type
-	case kql.TString, kql.TGUID:
-		if s, ok := v.(string); ok {
-			return s, nil
-		}
-	case kql.TInt, kql.TLong:
-		if n, ok := numberToInt(v); ok {
-			return n, nil
-		}
-	case kql.TReal:
-		if f, ok := numberToFloat(v); ok {
-			return f, nil
-		}
-	case kql.TBool:
-		if b, ok := v.(bool); ok {
-			return b, nil
-		}
-	case kql.TDatetime:
-		switch x := v.(type) {
-		case time.Time:
-			return x, nil
-		case string:
-			if t, ok := kql.ParseDatetime(x); ok {
-				return t, nil
-			}
-		}
-	case kql.TDynamic:
-		return normalizeDynamic(v), nil
+	if out, ok := convertTyped(typ, v); ok {
+		return out, nil
 	}
 
-	return nil, fmt.Errorf("value %v does not match type %s", v, typ)
+	return nil, fmt.Errorf("%w: %v is not a %s", errValueType, v, typ)
+}
+
+func convertTyped(typ kql.Type, v any) (any, bool) {
+	switch typ { //nolint:exhaustive // timespan is not a stream type
+	case kql.TString, kql.TGUID:
+		s, ok := v.(string)
+
+		return s, ok
+	case kql.TInt, kql.TLong:
+		return numberToInt(v)
+	case kql.TReal:
+		return numberToFloat(v)
+	case kql.TBool:
+		b, ok := v.(bool)
+
+		return b, ok
+	case kql.TDatetime:
+		return convertDatetime(v)
+	case kql.TDynamic:
+		return normalizeDynamic(v), true
+	}
+
+	return nil, false
+}
+
+func convertDatetime(v any) (any, bool) {
+	switch x := v.(type) {
+	case time.Time:
+		return x, true
+	case string:
+		t, ok := kql.ParseDatetime(x)
+
+		return t, ok
+	}
+
+	return nil, false
 }
 
 func numberToInt(v any) (int64, bool) {
@@ -242,54 +256,53 @@ func (b *Backend) insert(t *Table, out *kql.Rel) *apiError {
 	idx := make([]int, len(t.Columns))
 
 	for i, c := range t.Columns {
-		idx[i] = -1
-
-		for j, oc := range out.Cols {
-			if oc.Name == c.Name {
-				idx[i] = j
-			}
-		}
+		idx[i] = slices.IndexFunc(out.Cols, func(oc kql.Col) bool { return oc.Name == c.Name })
 	}
 
 	now := b.now()
 	rows := make([][]any, 0, len(out.Rows))
 
 	for r, orow := range out.Rows {
-		row := make([]any, len(t.Columns))
-
-		for i, c := range t.Columns {
-			var v any
-			if idx[i] >= 0 {
-				v = orow[idx[i]]
+		row, err := tableRow(t, idx, orow, now)
+		if err != nil {
+			if b.settings.LenientIngest {
+				continue
 			}
 
-			cv, err := coerceCell(kql.Type(c.Type), v)
-			if err != nil {
-				if b.settings.LenientIngest {
-					row = nil
-
-					break
-				}
-
-				return newErr(http.StatusBadRequest, "InvalidPayload",
-					"Row %d: column '%s' of table '%s': %v", r, c.Name, t.Name, err)
-			}
-
-			if c.Name == timeGenerated && cv == nil {
-				cv = now
-			}
-
-			row[i] = cv
+			return newErr(http.StatusBadRequest, "InvalidPayload", "Row %d of table '%s': %v", r, t.Name, err)
 		}
 
-		if row != nil {
-			rows = append(rows, row)
-		}
+		rows = append(rows, row)
 	}
 
 	t.Rows = append(t.Rows, rows...)
 
 	return nil
+}
+
+// tableRow maps one transform output row onto the table schema; idx maps table columns to output columns.
+func tableRow(t *Table, idx []int, orow []any, now time.Time) ([]any, error) {
+	row := make([]any, len(t.Columns))
+
+	for i, c := range t.Columns {
+		var v any
+		if idx[i] >= 0 {
+			v = orow[idx[i]]
+		}
+
+		cv, err := coerceCell(kql.Type(c.Type), v)
+		if err != nil {
+			return nil, fmt.Errorf("column '%s': %w", c.Name, err)
+		}
+
+		if c.Name == timeGenerated && cv == nil {
+			cv = now
+		}
+
+		row[i] = cv
+	}
+
+	return row, nil
 }
 
 // coerceCell converts an engine value to a table column's type (strings parse into datetimes etc.).

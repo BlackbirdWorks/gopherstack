@@ -41,13 +41,12 @@ func (e *MonitorError) Error() string { return e.Code + ": " + e.Message }
 
 // ErrMonitorUnavailable is returned when no Azure Monitor Logs data plane is wired.
 var ErrMonitorUnavailable = &MonitorError{
-	Code: "ServiceUnavailable", Message: "The Azure Monitor Logs data plane is not available.",
+	Code: redisCodeUnavailable, Message: "The Azure Monitor Logs data plane is not available.",
 	Status: http.StatusServiceUnavailable,
 }
 
 func monitorErrorDetails(err error) (errorEntry, bool) {
-	var me *MonitorError
-	if errors.As(err, &me) {
+	if me, ok := errors.AsType[*MonitorError](err); ok {
 		return errorEntry{me.Code, me.Message, me.Status}, true
 	}
 

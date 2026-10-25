@@ -1,8 +1,9 @@
 package azuremonitor
 
 import (
-	"fmt"
-	"slices"
+	"maps"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -169,54 +170,51 @@ func (b *Backend) Delete(ref Ref) error {
 	return nil
 }
 
+// listScoped renders the in-scope members of m in key order.
+func listScoped[T any](m map[string]T, inScope func(T) bool, render func(T) map[string]any) []map[string]any {
+	out := []map[string]any{}
+
+	for _, k := range sortedKeys(m) {
+		if v := m[k]; inScope(v) {
+			out = append(out, render(v))
+		}
+	}
+
+	return out
+}
+
 // List returns every resource of the ref's type under the subscription, resource group or parent.
 func (b *Backend) List(ref Ref) ([]map[string]any, error) {
 	b.mu.RLock("List")
 	defer b.mu.RUnlock()
 
-	inScope := func(sub, rg string) bool {
+	scoped := func(sub, rg string) bool {
 		return strings.EqualFold(sub, ref.Sub) && (ref.RG == "" || strings.EqualFold(rg, ref.RG))
 	}
-
-	out := []map[string]any{}
+	ep := b.endpoint(ref.Host)
 
 	switch ref.kind() {
 	case kindWorkspace:
-		for _, k := range sortedKeys(b.workspaces) {
-			if w := b.workspaces[k]; inScope(w.Sub, w.RG) {
-				out = append(out, w.body())
-			}
-		}
+		return listScoped(b.workspaces, func(w *Workspace) bool { return scoped(w.Sub, w.RG) },
+			(*Workspace).body), nil
 	case kindTable:
 		w, ok := b.workspaceByRef(ref.Sub, ref.RG, ref.Names[0])
 		if !ok {
 			return nil, notFound("workspace %q", ref.Names[0])
 		}
 
-		for _, n := range sortedKeys(w.Tables) {
-			out = append(out, w.Tables[n].body(w))
-		}
+		return listScoped(w.Tables, func(*Table) bool { return true },
+			func(t *Table) map[string]any { return t.body(w) }), nil
 	case kindDCE:
-		ep := b.endpoint(ref.Host)
-
-		for _, k := range sortedKeys(b.dces) {
-			if d := b.dces[k]; inScope(d.Sub, d.RG) {
-				out = append(out, d.body(ep))
-			}
-		}
+		return listScoped(b.dces, func(d *DCE) bool { return scoped(d.Sub, d.RG) },
+			func(d *DCE) map[string]any { return d.body(ep) }), nil
 	case kindDCR:
-		ep := b.endpoint(ref.Host)
-
-		for _, k := range sortedKeys(b.dcrs) {
-			if d := b.dcrs[k]; inScope(d.Sub, d.RG) {
-				out = append(out, b.dcrBody(d, ep))
-			}
-		}
+		return listScoped(b.dcrs, func(d *DCR) bool { return scoped(d.Sub, d.RG) },
+			func(d *DCR) map[string]any { return b.dcrBody(d, ep) }), nil
 	case kindUnknown:
-		return nil, ErrUnsupported
 	}
 
-	return out, nil
+	return nil, ErrUnsupported
 }
 
 // Patch updates tags (and, for workspaces and tables, selected properties).
@@ -340,11 +338,11 @@ func (b *Backend) endpoint(host string) string {
 		port = DefaultPort
 	}
 
-	return fmt.Sprintf("https://%s:%d", host, port)
+	return "https://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 func envelope(id, name, typ string) map[string]any {
-	return map[string]any{"id": id, "name": name, "type": typ}
+	return map[string]any{"id": id, fieldName: name, fieldType: typ}
 }
 
 func isoTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
@@ -362,7 +360,7 @@ func (w *Workspace) body() map[string]any {
 	setDefault(props, "features", map[string]any{"enableLogAccessUsingOnlyResourcePermissions": true})
 	setDefault(props, "workspaceCapping", map[string]any{
 		"dailyQuotaGb": float64(-1), "dataIngestionStatus": "RespectQuota",
-		"quotaNextResetTime": isoTime(w.Modified.Truncate(24 * time.Hour).Add(24 * time.Hour)),
+		"quotaNextResetTime": isoTime(w.Modified.Truncate(hoursPerDay * time.Hour).Add(hoursPerDay * time.Hour)),
 	})
 	setDefault(props, "publicNetworkAccessForIngestion", "Enabled")
 	setDefault(props, "publicNetworkAccessForQuery", "Enabled")
@@ -376,7 +374,7 @@ func (w *Workspace) body() map[string]any {
 	props["modifiedDate"] = isoTime(w.Modified)
 	props["privateLinkScopedResources"] = []any{}
 	out[fieldProperties] = props
-	out["etag"] = `"` + w.CustomerID[:8] + `-` + fmt.Sprint(w.Modified.UnixNano()) + `"`
+	out["etag"] = `"` + w.CustomerID[:8] + `-` + strconv.FormatInt(w.Modified.UnixNano(), 10) + `"`
 
 	return out
 }
@@ -484,9 +482,7 @@ func (w *Workspace) patch(body map[string]any, now time.Time) error {
 		w.Props = map[string]any{}
 	}
 
-	for k, v := range omit(props, computedWorkspaceProps...) {
-		w.Props[k] = v
-	}
+	maps.Copy(w.Props, omit(props, computedWorkspaceProps...))
 
 	w.Modified = now
 
@@ -499,19 +495,8 @@ func builtinTables(now time.Time) map[string]*Table {
 	out := map[string]*Table{}
 
 	for name, columns := range builtinSchemas() {
-		out[name] = &Table{Name: name, Columns: columns, Plan: "Analytics", Created: now}
+		out[name] = &Table{Name: name, Columns: columns, Plan: planAnalytics, Created: now}
 	}
 
 	return out
-}
-
-// sortedColumns returns column names in declared order (helper for tests and rendering).
-func columnNames(cols []Column) []string {
-	return slices.Collect(func(yield func(string) bool) {
-		for _, c := range cols {
-			if !yield(c.Name) {
-				return
-			}
-		}
-	})
 }

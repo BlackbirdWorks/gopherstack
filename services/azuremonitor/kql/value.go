@@ -40,6 +40,7 @@ type Rel struct {
 }
 
 const (
+	tickDigits        = 7
 	ticksPerSecond    = 10_000_000
 	nanosPerTick      = 100
 	ticksAtUnixEpoch  = 621355968000000000
@@ -47,6 +48,7 @@ const (
 	secondsPerMinute  = 60
 	minutesPerHour    = 60
 	hoursPerDay       = 24
+	dayDuration       = hoursPerDay * time.Hour
 	asciiPrintableMin = 0x20
 )
 
@@ -101,11 +103,11 @@ func toInt(v any) (int64, bool) {
 
 // compareValues orders two values of comparable kinds.
 func compareValues(a, b any) (int, bool) {
+	if isNumeric(a) && isNumeric(b) {
+		return compareNumbers(a, b), true
+	}
+
 	switch x := a.(type) {
-	case int64:
-		if y, ok := b.(int64); ok {
-			return cmpOrdered(x, y), true
-		}
 	case string:
 		if y, ok := b.(string); ok {
 			return strings.Compare(x, y), true
@@ -124,17 +126,20 @@ func compareValues(a, b any) (int, bool) {
 		}
 	}
 
-	if fa, ok := a.(float64); ok || isNumeric(a) {
-		if !ok {
-			fa, _ = toFloat(a)
-		}
+	return 0, false
+}
 
-		if fb, okb := toFloat(b); okb && isNumeric(b) {
-			return cmpOrdered(fa, fb), true
+func compareNumbers(a, b any) int {
+	if x, ok := a.(int64); ok {
+		if y, isInt := b.(int64); isInt {
+			return cmpOrdered(x, y)
 		}
 	}
 
-	return 0, false
+	fa, _ := toFloat(a)
+	fb, _ := toFloat(b)
+
+	return cmpOrdered(fa, fb)
 }
 
 func cmpOrdered[T int | int64 | float64 | time.Duration](a, b T) int {
@@ -154,11 +159,6 @@ func boolInt(b bool) int {
 	}
 
 	return 0
-}
-
-// valuesEqual is deep equality used by distinct, dcount and group keys.
-func valuesEqual(a, b any) bool {
-	return groupKey(a) == groupKey(b)
 }
 
 func groupKey(v any) string {
@@ -223,14 +223,14 @@ func FormatTimespan(d time.Duration) string {
 
 	if frac > 0 {
 		f := strconv.FormatInt(frac, 10)
-		sb.WriteString("." + strings.Repeat("0", 7-len(f)) + f)
+		sb.WriteString("." + strings.Repeat("0", tickDigits-len(f)) + f)
 	}
 
 	return sb.String()
 }
 
 func pad2(n int64) string {
-	if n < 10 {
+	if n < decimalBase {
 		return "0" + strconv.FormatInt(n, 10)
 	}
 

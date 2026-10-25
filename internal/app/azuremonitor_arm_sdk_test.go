@@ -4,11 +4,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/monitor/ingestion/azlogs"
 	queryazlogs "github.com/Azure/azure-sdk-for-go/sdk/monitor/query/azlogs"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
@@ -28,10 +26,10 @@ const (
 )
 
 type monitorSDKStack struct {
+	cred    redisSDKCredential
 	monitor *httptest.Server
 	handler *azuremonitor.Handler
 	opts    *arm.ClientOptions
-	cred    redisSDKCredential
 }
 
 func newMonitorSDKStack(t *testing.T) *monitorSDKStack {
@@ -43,7 +41,10 @@ func newMonitorSDKStack(t *testing.T) *monitorSDKStack {
 	armH, ok := armSvc.(*azurearm.Handler)
 	require.True(t, ok)
 
-	monH := azuremonitor.NewHandler(azuremonitor.NewBackend(azuremonitor.DefaultSettings()), azuremonitor.DefaultSettings())
+	monH := azuremonitor.NewHandler(
+		azuremonitor.NewBackend(azuremonitor.DefaultSettings()),
+		azuremonitor.DefaultSettings(),
+	)
 	me := echo.New()
 	me.Any("/*", monH.Handler())
 
@@ -63,9 +64,11 @@ func newMonitorSDKStack(t *testing.T) *monitorSDKStack {
 	return &monitorSDKStack{
 		monitor: monSrv, handler: monH,
 		opts: &arm.ClientOptions{
-			Cloud: cloud.Configuration{Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
-				cloud.ResourceManager: {Endpoint: armSrv.URL, Audience: "https://management.core.windows.net/"},
-			}},
+			Cloud: cloud.Configuration{
+				Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
+					cloud.ResourceManager: {Endpoint: armSrv.URL, Audience: "https://management.core.windows.net/"},
+				},
+			},
 			Transport: armSrv.Client(),
 			Retry:     policy.RetryOptions{MaxRetries: -1},
 		},
@@ -81,13 +84,16 @@ func TestAzureMonitorARMAndDataPlaneSDK(t *testing.T) {
 	oi, err := armoperationalinsights.NewClientFactory(monSub, s.cred, s.opts)
 	require.NoError(t, err)
 
-	wsPoller, err := oi.NewWorkspacesClient().BeginCreateOrUpdate(ctx, monRG, "sdk-workspace", armoperationalinsights.Workspace{
-		Location: to.Ptr("westus"), Tags: map[string]*string{"env": to.Ptr("test")},
-		Properties: &armoperationalinsights.WorkspaceProperties{
-			RetentionInDays: to.Ptr(int32(60)),
-			SKU:             &armoperationalinsights.WorkspaceSKU{Name: to.Ptr(armoperationalinsights.WorkspaceSKUNameEnumPerGB2018)},
-		},
-	}, nil)
+	wsPoller, err := oi.NewWorkspacesClient().
+		BeginCreateOrUpdate(ctx, monRG, "sdk-workspace", armoperationalinsights.Workspace{
+			Location: new("westus"), Tags: map[string]*string{"env": new("test")},
+			Properties: &armoperationalinsights.WorkspaceProperties{
+				RetentionInDays: new(int32(60)),
+				SKU: &armoperationalinsights.WorkspaceSKU{
+					Name: new(armoperationalinsights.WorkspaceSKUNameEnumPerGB2018),
+				},
+			},
+		}, nil)
 	require.NoError(t, err)
 
 	ws, err := wsPoller.PollUntilDone(ctx, pollOpts())
@@ -110,22 +116,26 @@ func TestAzureMonitorARMAndDataPlaneSDK(t *testing.T) {
 	assert.NotEqual(t, *keys.PrimarySharedKey, *regen.PrimarySharedKey)
 
 	updated, err := oi.NewWorkspacesClient().Update(ctx, monRG, "sdk-workspace", armoperationalinsights.WorkspacePatch{
-		Tags: map[string]*string{"env": to.Ptr("prod")},
+		Tags: map[string]*string{"env": new("prod")},
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "prod", *updated.Tags["env"])
 
-	tblPoller, err := oi.NewTablesClient().BeginCreateOrUpdate(ctx, monRG, "sdk-workspace", "Orders_CL", armoperationalinsights.Table{
-		Properties: &armoperationalinsights.TableProperties{
-			RetentionInDays: to.Ptr(int32(30)),
-			Schema: &armoperationalinsights.Schema{Name: to.Ptr("Orders_CL"), Columns: []*armoperationalinsights.Column{
-				{Name: to.Ptr("TimeGenerated"), Type: to.Ptr(armoperationalinsights.ColumnTypeEnumDateTime)},
-				{Name: to.Ptr("OrderId"), Type: to.Ptr(armoperationalinsights.ColumnTypeEnumString)},
-				{Name: to.Ptr("Amount"), Type: to.Ptr(armoperationalinsights.ColumnTypeEnumReal)},
-				{Name: to.Ptr("Lines"), Type: to.Ptr(armoperationalinsights.ColumnTypeEnumInt)},
-			}},
-		},
-	}, nil)
+	tblPoller, err := oi.NewTablesClient().
+		BeginCreateOrUpdate(ctx, monRG, "sdk-workspace", "Orders_CL", armoperationalinsights.Table{
+			Properties: &armoperationalinsights.TableProperties{
+				RetentionInDays: new(int32(30)),
+				Schema: &armoperationalinsights.Schema{
+					Name: new("Orders_CL"),
+					Columns: []*armoperationalinsights.Column{
+						{Name: new("TimeGenerated"), Type: new(armoperationalinsights.ColumnTypeEnumDateTime)},
+						{Name: new("OrderId"), Type: new(armoperationalinsights.ColumnTypeEnumString)},
+						{Name: new("Amount"), Type: new(armoperationalinsights.ColumnTypeEnumReal)},
+						{Name: new("Lines"), Type: new(armoperationalinsights.ColumnTypeEnumInt)},
+					},
+				},
+			},
+		}, nil)
 	require.NoError(t, err)
 
 	tbl, err := tblPoller.PollUntilDone(ctx, pollOpts())
@@ -152,7 +162,7 @@ func TestAzureMonitorARMAndDataPlaneSDK(t *testing.T) {
 	require.NoError(t, err)
 
 	dce, err := mon.NewDataCollectionEndpointsClient().Create(ctx, monRG, "sdk-dce",
-		armmonitor.DataCollectionEndpointResource{Location: to.Ptr("westus")}, nil)
+		armmonitor.DataCollectionEndpointResource{Location: new("westus")}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, dce.Properties.LogsIngestion)
 	endpoint := *dce.Properties.LogsIngestion.Endpoint
@@ -161,26 +171,32 @@ func TestAzureMonitorARMAndDataPlaneSDK(t *testing.T) {
 
 	dcr, err := mon.NewDataCollectionRulesClient().Create(ctx, monRG, "sdk-dcr",
 		armmonitor.DataCollectionRuleResource{
-			Location: to.Ptr("westus"), Kind: to.Ptr(armmonitor.KnownDataCollectionRuleResourceKind("Direct")),
+			Location: new("westus"), Kind: new(armmonitor.KnownDataCollectionRuleResourceKind("Direct")),
 			Properties: &armmonitor.DataCollectionRuleResourceProperties{
 				DataCollectionEndpointID: dce.ID,
 				StreamDeclarations: map[string]*armmonitor.StreamDeclaration{"Custom-Orders": {
 					Columns: []*armmonitor.ColumnDefinition{
-						{Name: to.Ptr("Time"), Type: to.Ptr(armmonitor.KnownColumnDefinitionTypeDatetime)},
-						{Name: to.Ptr("OrderId"), Type: to.Ptr(armmonitor.KnownColumnDefinitionTypeString)},
-						{Name: to.Ptr("Amount"), Type: to.Ptr(armmonitor.KnownColumnDefinitionTypeReal)},
-						{Name: to.Ptr("Lines"), Type: to.Ptr(armmonitor.KnownColumnDefinitionTypeInt)},
+						{Name: new("Time"), Type: new(armmonitor.KnownColumnDefinitionTypeDatetime)},
+						{Name: new("OrderId"), Type: new(armmonitor.KnownColumnDefinitionTypeString)},
+						{Name: new("Amount"), Type: new(armmonitor.KnownColumnDefinitionTypeReal)},
+						{Name: new("Lines"), Type: new(armmonitor.KnownColumnDefinitionTypeInt)},
 					},
 				}},
-				Destinations: &armmonitor.DataCollectionRuleDestinations{LogAnalytics: []*armmonitor.LogAnalyticsDestination{
-					{Name: to.Ptr("la"), WorkspaceResourceID: ws.ID},
-				}},
-				DataFlows: []*armmonitor.DataFlow{{
-					Streams:      []*armmonitor.KnownDataFlowStreams{to.Ptr(armmonitor.KnownDataFlowStreams("Custom-Orders"))},
-					Destinations: []*string{to.Ptr("la")},
-					TransformKql: to.Ptr("source | extend TimeGenerated = Time | project-away Time"),
-					OutputStream: to.Ptr("Custom-Orders_CL"),
-				}},
+				Destinations: &armmonitor.DataCollectionRuleDestinations{
+					LogAnalytics: []*armmonitor.LogAnalyticsDestination{
+						{Name: new("la"), WorkspaceResourceID: ws.ID},
+					},
+				},
+				DataFlows: []*armmonitor.DataFlow{
+					{
+						Streams: []*armmonitor.KnownDataFlowStreams{
+							new(armmonitor.KnownDataFlowStreams("Custom-Orders")),
+						},
+						Destinations: []*string{new("la")},
+						TransformKql: new("source | extend TimeGenerated = Time | project-away Time"),
+						OutputStream: new("Custom-Orders_CL"),
+					},
+				},
 			},
 		}, nil)
 	require.NoError(t, err)
@@ -188,9 +204,9 @@ func TestAzureMonitorARMAndDataPlaneSDK(t *testing.T) {
 	assert.Equal(t, *ws.Properties.CustomerID, *dcr.Properties.Destinations.LogAnalytics[0].WorkspaceID)
 	assert.Equal(t, endpoint, *dcr.Properties.Endpoints.LogsIngestion)
 
-	ing, err := azlogs.NewClient(endpoint, s.cred, &azlogs.ClientOptions{ClientOptions: azcore.ClientOptions{
+	ing, err := azlogs.NewClient(endpoint, s.cred, &azlogs.ClientOptions{
 		Transport: s.monitor.Client(), Retry: policy.RetryOptions{MaxRetries: -1},
-	}})
+	})
 	require.NoError(t, err)
 
 	_, err = ing.Upload(ctx, *dcr.Properties.ImmutableID, "Custom-Orders", []byte(
@@ -198,16 +214,19 @@ func TestAzureMonitorARMAndDataPlaneSDK(t *testing.T) {
 			`{"Time":"2024-05-01T11:00:00Z","OrderId":"o-2","Amount":7.5,"Lines":1}]`), nil)
 	require.NoError(t, err)
 
-	qc, err := queryazlogs.NewClient(s.cred, &queryazlogs.ClientOptions{ClientOptions: azcore.ClientOptions{
-		Transport: s.monitor.Client(), Retry: policy.RetryOptions{MaxRetries: -1},
-		Cloud: cloud.Configuration{Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
-			queryazlogs.ServiceName: {Endpoint: s.monitor.URL, Audience: "https://api.loganalytics.io"},
-		}},
-	}})
+	qc, err := queryazlogs.NewClient(s.cred, &queryazlogs.ClientOptions{
+		Transport: s.monitor.Client(),
+		Retry:     policy.RetryOptions{MaxRetries: -1},
+		Cloud: cloud.Configuration{
+			Services: map[cloud.ServiceName]cloud.ServiceConfiguration{ //nolint:exhaustive // only the query service is needed
+				queryazlogs.ServiceName: {Endpoint: s.monitor.URL, Audience: "https://api.loganalytics.io"},
+			},
+		},
+	})
 	require.NoError(t, err)
 
 	res, err := qc.QueryWorkspace(ctx, *ws.Properties.CustomerID, queryazlogs.QueryBody{
-		Query: to.Ptr("Orders_CL | summarize total = sum(Amount), lines = sum(Lines), n = count()"),
+		Query: new("Orders_CL | summarize total = sum(Amount), lines = sum(Lines), n = count()"),
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, queryazlogs.Row{20.0, 3.0, 2.0}, res.Tables[0].Rows[0])
@@ -225,7 +244,7 @@ func TestAzureMonitorARMAndDataPlaneSDK(t *testing.T) {
 	assert.Equal(t, 1, count)
 
 	patched, err := mon.NewDataCollectionRulesClient().Update(ctx, monRG, "sdk-dcr",
-		armmonitor.ResourceForUpdate{Tags: map[string]*string{"k": to.Ptr("v")}}, nil)
+		armmonitor.ResourceForUpdate{Tags: map[string]*string{"k": new("v")}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "v", *patched.Tags["k"])
 

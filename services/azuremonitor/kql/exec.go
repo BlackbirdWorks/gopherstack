@@ -126,43 +126,61 @@ func (e *env) union(base *Rel, tables []node) (*Rel, error) {
 		parts = append(parts, r)
 	}
 
+	return unionRels(parts)
+}
+
+func unionRels(parts []*Rel) (*Rel, error) {
 	out := &Rel{}
 	index := map[string]int{}
 
 	for _, p := range parts {
-		for _, c := range p.Cols {
-			if i, ok := index[c.Name]; ok {
-				if out.Cols[i].Type != c.Type {
-					return nil, unsupported("union of columns with conflicting types ('" + c.Name + "')")
-				}
-
-				continue
-			}
-
-			index[c.Name] = len(out.Cols)
-			out.Cols = append(out.Cols, c)
+		if err := mergeSchema(out, index, p.Cols); err != nil {
+			return nil, err
 		}
 	}
 
 	for _, p := range parts {
 		for _, row := range p.Rows {
-			nr := make([]any, len(out.Cols))
-
-			for j, c := range out.Cols {
-				if c.Type == TString {
-					nr[j] = ""
-				}
-			}
-
-			for j, c := range p.Cols {
-				nr[index[c.Name]] = row[j]
-			}
-
-			out.Rows = append(out.Rows, nr)
+			out.Rows = append(out.Rows, widenRow(out.Cols, index, p.Cols, row))
 		}
 	}
 
 	return out, nil
+}
+
+func mergeSchema(out *Rel, index map[string]int, cols []Col) error {
+	for _, c := range cols {
+		i, seen := index[c.Name]
+		if !seen {
+			index[c.Name] = len(out.Cols)
+			out.Cols = append(out.Cols, c)
+
+			continue
+		}
+
+		if out.Cols[i].Type != c.Type {
+			return unsupported("union of columns with conflicting types ('" + c.Name + "')")
+		}
+	}
+
+	return nil
+}
+
+// widenRow places a row of one union input into the merged schema (missing strings are empty).
+func widenRow(merged []Col, index map[string]int, cols []Col, row []any) []any {
+	nr := make([]any, len(merged))
+
+	for j, c := range merged {
+		if c.Type == TString {
+			nr[j] = ""
+		}
+	}
+
+	for j, c := range cols {
+		nr[index[c.Name]] = row[j]
+	}
+
+	return nr
 }
 
 func (e *env) constScope() *scope { return &scope{env: e} }
@@ -209,28 +227,36 @@ func coerceTo(t Type, v any) any {
 			return n
 		}
 	case TDatetime:
-		if s, ok := v.(string); ok {
-			if d, ok := ParseDatetime(s); ok {
-				return d
-			}
+		if d, ok := parseIfString(v, ParseDatetime); ok {
+			return d
 		}
 	case TTimespan:
-		if s, ok := v.(string); ok {
-			if d, ok := ParseTimespan(s); ok {
-				return d
-			}
+		if d, ok := parseIfString(v, ParseTimespan); ok {
+			return d
 		}
 	}
 
 	return v
 }
 
+func parseIfString[T any](v any, parse func(string) (T, bool)) (T, bool) {
+	s, ok := v.(string)
+	if !ok {
+		var zero T
+
+		return zero, false
+	}
+
+	return parse(s)
+}
+
 const maxRangeRows = 1_000_000
+
+const rangeArgs = 3
 
 func (e *env) rangeTable(x *rangeNode) (*Rel, error) {
 	sc := e.constScope()
-
-	vals := make([]any, 3)
+	vals := make([]any, rangeArgs)
 
 	for i, n := range []node{x.from, x.to, x.step} {
 		s, err := sc.compile(n)
@@ -243,24 +269,9 @@ func (e *env) rangeTable(x *rangeNode) (*Rel, error) {
 		}
 	}
 
-	out := &Rel{}
-
 	switch from := vals[0].(type) {
 	case int64:
-		to, step := intArg(vals[1]), intArg(vals[2])
-		if step == 0 {
-			return nil, semErr("range step must not be zero")
-		}
-
-		out.Cols = []Col{{Name: x.name, Type: TLong}}
-
-		for v := from; (step > 0 && v <= to) || (step < 0 && v >= to); v += step {
-			if len(out.Rows) >= maxRangeRows {
-				return nil, semErr("range produces too many rows")
-			}
-
-			out.Rows = append(out.Rows, []any{v})
-		}
+		return rangeLong(x.name, from, intArg(vals[1]), intArg(vals[2]))
 	case time.Time:
 		to, ok1 := vals[1].(time.Time)
 		step, ok2 := vals[2].(time.Duration)
@@ -269,17 +280,39 @@ func (e *env) rangeTable(x *rangeNode) (*Rel, error) {
 			return nil, semErr("range over datetime needs a datetime end and a positive timespan step")
 		}
 
-		out.Cols = []Col{{Name: x.name, Type: TDatetime}}
+		return rangeTime(x.name, from, to, step)
+	}
 
-		for v := from; !v.After(to); v = v.Add(step) {
-			if len(out.Rows) >= maxRangeRows {
-				return nil, semErr("range produces too many rows")
-			}
+	return nil, semErr("range supports long and datetime values")
+}
 
-			out.Rows = append(out.Rows, []any{v})
+func rangeLong(name string, from, to, step int64) (*Rel, error) {
+	if step == 0 {
+		return nil, semErr("range step must not be zero")
+	}
+
+	out := &Rel{Cols: []Col{{Name: name, Type: TLong}}}
+
+	for v := from; (step > 0 && v <= to) || (step < 0 && v >= to); v += step {
+		if len(out.Rows) >= maxRangeRows {
+			return nil, semErr("range produces too many rows")
 		}
-	default:
-		return nil, semErr("range supports long and datetime values")
+
+		out.Rows = append(out.Rows, []any{v})
+	}
+
+	return out, nil
+}
+
+func rangeTime(name string, from, to time.Time, step time.Duration) (*Rel, error) {
+	out := &Rel{Cols: []Col{{Name: name, Type: TDatetime}}}
+
+	for v := from; !v.After(to); v = v.Add(step) {
+		if len(out.Rows) >= maxRangeRows {
+			return nil, semErr("range produces too many rows")
+		}
+
+		out.Rows = append(out.Rows, []any{v})
 	}
 
 	return out, nil
@@ -318,21 +351,11 @@ func (e *env) printTable(x *printNode) (*Rel, error) {
 func (e *env) apply(op node, in *Rel) (*Rel, error) {
 	sc := &scope{env: e, cols: in.Cols}
 
+	if rel, handled, err := applyColumnOp(sc, in, op); handled {
+		return rel, err
+	}
+
 	switch x := op.(type) {
-	case *whereOp:
-		return applyWhere(sc, in, x)
-	case *projectOp:
-		return applyProject(sc, in, x.items, false)
-	case *extendOp:
-		return applyProject(sc, in, x.items, true)
-	case *projectAwayOp:
-		return selectCols(in, x.names, false), nil
-	case *projectKeepOp:
-		return selectCols(in, x.names, true), nil
-	case *projectOrderOp:
-		return reorderCols(in, x.names), nil
-	case *projectRenOp:
-		return renameCols(in, x.pairs)
 	case *summarizeOp:
 		return applySummarize(sc, in, x)
 	case *sortOp:
@@ -354,6 +377,35 @@ func (e *env) apply(op node, in *Rel) (*Rel, error) {
 	}
 
 	return nil, unsupported("this operator")
+}
+
+// applyColumnOp runs the operators that filter rows or reshape columns.
+func applyColumnOp(sc *scope, in *Rel, op node) (*Rel, bool, error) {
+	var (
+		rel *Rel
+		err error
+	)
+
+	switch x := op.(type) {
+	case *whereOp:
+		rel, err = applyWhere(sc, in, x)
+	case *projectOp:
+		rel, err = applyProject(sc, in, x.items, false)
+	case *extendOp:
+		rel, err = applyProject(sc, in, x.items, true)
+	case *projectAwayOp:
+		rel = selectCols(in, x.names, false)
+	case *projectKeepOp:
+		rel = selectCols(in, x.names, true)
+	case *projectOrderOp:
+		rel = reorderCols(in, x.names)
+	case *projectRenOp:
+		rel, err = renameCols(in, x.pairs)
+	default:
+		return nil, false, nil
+	}
+
+	return rel, true, err
 }
 
 func getSchema(in *Rel) *Rel {
@@ -405,9 +457,9 @@ func applyWhere(sc *scope, in *Rel, x *whereOp) (*Rel, error) {
 	out := &Rel{Cols: in.Cols}
 
 	for _, row := range in.Rows {
-		v, err := pred.fn(row)
-		if err != nil {
-			return nil, err
+		v, evalErr := pred.fn(row)
+		if evalErr != nil {
+			return nil, evalErr
 		}
 
 		if b, _ := v.(bool); b {
@@ -432,7 +484,9 @@ func uniqueName(name string, used map[string]bool) string {
 }
 
 func applyProject(sc *scope, in *Rel, items []namedExpr, extend bool) (*Rel, error) {
-	rows := in.Rows
+	if extend {
+		return applyExtend(sc, in, items)
+	}
 
 	type outCol struct {
 		s    scalar
@@ -441,53 +495,25 @@ func applyProject(sc *scope, in *Rel, items []namedExpr, extend bool) (*Rel, err
 
 	used := map[string]bool{}
 	counter := 0
-
-	var computed []outCol
-
-	cur := &Rel{Cols: in.Cols, Rows: in.Rows}
+	computed := make([]outCol, 0, len(items))
 
 	for _, it := range items {
-		s, err := (&scope{env: sc.env, cols: cur.Cols}).compile(it.e)
+		s, err := sc.compile(it.e)
 		if err != nil {
 			return nil, err
 		}
 
-		name := it.name
-		if name == "" {
-			name = defaultExprName(it.e, "")
-		}
-
-		if name == "" {
-			counter++
-			name = "Column" + strconv.Itoa(counter)
-		}
-
-		if extend {
-			next, err := extendOne(cur, name, s)
-			if err != nil {
-				return nil, err
-			}
-
-			cur = next
-
-			continue
-		}
-
-		name = uniqueName(name, used)
+		name := uniqueName(outputName(it, &counter), used)
 		used[name] = true
 		computed = append(computed, outCol{name: name, s: s})
 	}
 
-	if extend {
-		return cur, nil
-	}
-
-	out := &Rel{Cols: make([]Col, len(computed)), Rows: make([][]any, 0, len(rows))}
+	out := &Rel{Cols: make([]Col, len(computed)), Rows: make([][]any, 0, len(in.Rows))}
 	for i, c := range computed {
 		out.Cols[i] = Col{Name: c.name, Type: c.s.typ}
 	}
 
-	for _, row := range rows {
+	for _, row := range in.Rows {
 		nr := make([]any, len(computed))
 
 		for i, c := range computed {
@@ -503,6 +529,39 @@ func applyProject(sc *scope, in *Rel, items []namedExpr, extend bool) (*Rel, err
 	}
 
 	return out, nil
+}
+
+// outputName is the explicit, derived or generated (ColumnN) name of a projected expression.
+func outputName(it namedExpr, counter *int) string {
+	if it.name != "" {
+		return it.name
+	}
+
+	if name := defaultExprName(it.e, ""); name != "" {
+		return name
+	}
+
+	*counter++
+
+	return "Column" + strconv.Itoa(*counter)
+}
+
+func applyExtend(sc *scope, in *Rel, items []namedExpr) (*Rel, error) {
+	counter := 0
+	cur := &Rel{Cols: in.Cols, Rows: in.Rows}
+
+	for _, it := range items {
+		s, err := (&scope{env: sc.env, cols: cur.Cols}).compile(it.e)
+		if err != nil {
+			return nil, err
+		}
+
+		if cur, err = extendOne(cur, outputName(it, &counter), s); err != nil {
+			return nil, err
+		}
+	}
+
+	return cur, nil
 }
 
 func extendOne(in *Rel, name string, s scalar) (*Rel, error) {
@@ -672,13 +731,44 @@ func compileSortKeys(sc *scope, keys []sortKey) ([]sortCol, error) {
 	return out, nil
 }
 
-func sortRows(in *Rel, cols []sortCol) ([][]any, error) {
-	type keyed struct {
-		row  []any
-		keys []any
+type keyedRow struct {
+	row  []any
+	keys []any
+}
+
+// compareSortKey orders two key values: nulls first or last, then by value (descending negates).
+func compareSortKey(c sortCol, x, y any) int {
+	switch {
+	case x == nil && y == nil:
+		return 0
+	case x == nil:
+		return nullOrder(c.nullsLast)
+	case y == nil:
+		return -nullOrder(c.nullsLast)
 	}
 
-	items := make([]keyed, len(in.Rows))
+	cmp, ok := compareValues(x, y)
+	if !ok {
+		return 0
+	}
+
+	if c.desc {
+		return -cmp
+	}
+
+	return cmp
+}
+
+func nullOrder(nullsLast bool) int {
+	if nullsLast {
+		return 1
+	}
+
+	return -1
+}
+
+func sortRows(in *Rel, cols []sortCol) ([][]any, error) {
+	items := make([]keyedRow, len(in.Rows))
 
 	for i, row := range in.Rows {
 		ks := make([]any, len(cols))
@@ -692,40 +782,14 @@ func sortRows(in *Rel, cols []sortCol) ([][]any, error) {
 			ks[j] = v
 		}
 
-		items[i] = keyed{row: row, keys: ks}
+		items[i] = keyedRow{row: row, keys: ks}
 	}
 
-	slices.SortStableFunc(items, func(a, b keyed) int {
+	slices.SortStableFunc(items, func(a, b keyedRow) int {
 		for j, c := range cols {
-			x, y := a.keys[j], b.keys[j]
-
-			switch {
-			case x == nil && y == nil:
-				continue
-			case x == nil:
-				if c.nullsLast {
-					return 1
-				}
-
-				return -1
-			case y == nil:
-				if c.nullsLast {
-					return -1
-				}
-
-				return 1
+			if r := compareSortKey(c, a.keys[j], b.keys[j]); r != 0 {
+				return r
 			}
-
-			cmp, ok := compareValues(x, y)
-			if !ok || cmp == 0 {
-				continue
-			}
-
-			if c.desc {
-				return -cmp
-			}
-
-			return cmp
 		}
 
 		return 0
@@ -807,18 +871,40 @@ type group struct {
 	states []aggState
 }
 
-func applySummarize(sc *scope, in *Rel, x *summarizeOp) (*Rel, error) {
-	by := make([]scalar, len(x.by))
-	byCols := make([]Col, len(x.by))
-	used := map[string]bool{}
-	counter := 0
+type summaryItem struct {
+	s     scalar
+	cols  []Col
+	slot  int
+	multi bool
+}
 
-	ac := &aggCollector{in: &scope{env: sc.env, cols: in.Cols}, byIdx: map[string]bool{}}
+type summarizePlan struct {
+	ac     *aggCollector
+	used   map[string]bool
+	by     []scalar
+	byCols []Col
+	items  []summaryItem
+	count  int
+}
 
-	for i, b := range x.by {
+func (p *summarizePlan) unnamed() string {
+	p.count++
+
+	return "Column" + strconv.Itoa(p.count)
+}
+
+func (p *summarizePlan) claim(name string) string {
+	name = uniqueName(name, p.used)
+	p.used[name] = true
+
+	return name
+}
+
+func (p *summarizePlan) planBy(sc *scope, x *summarizeOp) error {
+	for _, b := range x.by {
 		s, err := sc.compile(b.e)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		name := b.name
@@ -827,99 +913,130 @@ func applySummarize(sc *scope, in *Rel, x *summarizeOp) (*Rel, error) {
 		}
 
 		if name == "" {
-			counter++
-			name = "Column" + strconv.Itoa(counter)
+			name = p.unnamed()
 		}
 
-		name = uniqueName(name, used)
-		used[name] = true
-		ac.byIdx[name] = true
-		by[i], byCols[i] = s, Col{Name: name, Type: s.typ}
+		name = p.claim(name)
+		p.ac.byIdx[name] = true
+		p.by = append(p.by, s)
+		p.byCols = append(p.byCols, Col{Name: name, Type: s.typ})
 	}
 
-	type outItem struct {
-		s     scalar
-		cols  []Col
-		slot  int
-		multi bool
+	return nil
+}
+
+func isArgAggregate(n node) (*callNode, bool) {
+	call, ok := n.(*callNode)
+	if !ok {
+		return nil, false
 	}
 
-	items := make([]outItem, 0, len(x.aggs))
-	outerScope := &scope{env: sc.env, agg: ac}
+	return call, strings.EqualFold(call.name, aggArgMax) || strings.EqualFold(call.name, aggArgMin)
+}
+
+func (p *summarizePlan) planAggs(sc *scope, x *summarizeOp) error {
+	outer := &scope{env: sc.env, agg: p.ac}
 
 	for _, a := range x.aggs {
-		if call, ok := a.e.(*callNode); ok && (strings.EqualFold(call.name, "arg_max") || strings.EqualFold(call.name, "arg_min")) {
-			cols, err := ac.registerArg(call)
+		if call, ok := isArgAggregate(a.e); ok {
+			cols, err := p.ac.registerArg(call)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
-			items = append(items, outItem{cols: cols, multi: true, slot: ac.specs[len(ac.specs)-1].slot})
+			p.items = append(p.items, summaryItem{cols: cols, multi: true, slot: p.ac.specs[len(p.ac.specs)-1].slot})
 
 			continue
 		}
 
-		s, err := outerScope.compile(a.e)
+		s, err := outer.compile(a.e)
+		if err != nil {
+			return err
+		}
+
+		name := a.name
+		if call, isCall := a.e.(*callNode); name == "" && isCall {
+			name = defaultAggName(call)
+		}
+
+		if name == "" {
+			name = p.unnamed()
+		}
+
+		p.items = append(p.items, summaryItem{s: s, cols: []Col{{Name: p.claim(name), Type: s.typ}}})
+	}
+
+	return nil
+}
+
+func (p *summarizePlan) outputCols() []Col {
+	out := slices.Clone(p.byCols)
+
+	for _, it := range p.items {
+		for _, c := range it.cols {
+			if it.multi {
+				c.Name = p.claim(c.Name)
+			}
+
+			out = append(out, c)
+		}
+	}
+
+	return out
+}
+
+func (p *summarizePlan) row(g *group) ([]any, error) {
+	aggRow := make([]any, 0, p.ac.width)
+
+	for _, st := range g.states {
+		aggRow = append(aggRow, st.result()...)
+	}
+
+	row := slices.Clone(g.keys)
+
+	for _, it := range p.items {
+		if it.multi {
+			row = append(row, aggRow[it.slot:it.slot+len(it.cols)]...)
+
+			continue
+		}
+
+		v, err := it.s.fn(aggRow)
 		if err != nil {
 			return nil, err
 		}
 
-		name := a.name
-		if name == "" {
-			if call, ok := a.e.(*callNode); ok {
-				name = defaultAggName(call)
-			} else {
-				counter++
-				name = "Column" + strconv.Itoa(counter)
-			}
-		}
-
-		name = uniqueName(name, used)
-		used[name] = true
-		items = append(items, outItem{s: s, cols: []Col{{Name: name, Type: s.typ}}})
+		row = append(row, v)
 	}
 
-	groups, order, err := runGroups(in, by, ac)
+	return row, nil
+}
+
+func applySummarize(sc *scope, in *Rel, x *summarizeOp) (*Rel, error) {
+	p := &summarizePlan{
+		ac:   &aggCollector{in: &scope{env: sc.env, cols: in.Cols}, byIdx: map[string]bool{}},
+		used: map[string]bool{},
+	}
+
+	if err := p.planBy(sc, x); err != nil {
+		return nil, err
+	}
+
+	if err := p.planAggs(sc, x); err != nil {
+		return nil, err
+	}
+
+	groups, order, err := runGroups(in, p.by, p.ac)
 	if err != nil {
 		return nil, err
 	}
 
-	out := &Rel{Cols: slices.Clone(byCols)}
-
-	for _, it := range items {
-		for _, c := range it.cols {
-			if it.multi {
-				c.Name = uniqueName(c.Name, used)
-				used[c.Name] = true
-			}
-
-			out.Cols = append(out.Cols, c)
-		}
-	}
+	out := &Rel{Cols: p.outputCols()}
 
 	for _, k := range order {
-		g := groups[k]
-		aggRow := make([]any, 0, ac.width)
-
-		for _, st := range g.states {
-			aggRow = append(aggRow, st.result()...)
-		}
-
-		row := slices.Clone(g.keys)
-
-		for _, it := range items {
-			if it.multi {
-				row = append(row, aggRow[it.slot:it.slot+len(it.cols)]...)
-
-				continue
-			}
-
-			v, err := it.s.fn(aggRow)
-			if err != nil {
-				return nil, err
-			}
-
-			row = append(row, v)
+		row, rowErr := p.row(groups[k])
+		if rowErr != nil {
+			return nil, rowErr
 		}
 
 		out.Rows = append(out.Rows, row)

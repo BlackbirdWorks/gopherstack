@@ -1,5 +1,6 @@
 package kql_test
 
+//nolint:gochecknoglobals // golden table
 var goldenCases = []goldenCase{
 	{name: "q01", query: `Logs | count`,
 		cols: `Count:long`,
@@ -13,7 +14,8 @@ var goldenCases = []goldenCase{
 	{name: "q04", query: `Logs | where Level != "Info" and Value > 3 | project N`,
 		cols: `N:long`,
 		rows: `[[2],[5]]`},
-	{name: "q05", query: `Logs | where Computer in ("web1", "db1") and N between (2 .. 6) | project N | sort by N asc`,
+	{name: "q05", query: `Logs | where Computer in ("web1", "db1") and N between (2 .. 6)` +
+		` | project N | sort by N asc`,
 		cols: `N:long`,
 		rows: `[[2],[5],[6]]`},
 	{name: "q06", query: `Logs | where Message contains "service" | project N | sort by N asc`,
@@ -40,24 +42,42 @@ var goldenCases = []goldenCase{
 	{name: "q13", query: `Logs | where TimeGenerated > ago(90m) | project N | sort by N asc`,
 		cols: `N:long`,
 		rows: `[[3],[4],[5]]`},
-	{name: "q14", query: `Logs | where TimeGenerated between (datetime(2024-03-01 10:00:00) .. datetime(2024-03-01 11:00:00)) | project N | sort by N asc`,
+	{
+		name: "q14",
+		query: `Logs` +
+			` | where TimeGenerated between (datetime(2024-03-01 10:00:00) .. datetime(2024-03-01 11:00:00))` +
+			` | project N | sort by N asc`,
 		cols: `N:long`,
-		rows: `[[1],[2],[3]]`},
+		rows: `[[1],[2],[3]]`,
+	},
 	{name: "q15", query: `Logs | summarize count() by Level | order by Level asc`,
 		cols: `Level:string,count_:long`,
 		rows: `[["Error",2],["Info",4],["Warning",1]]`},
-	{name: "q16", query: `Logs | summarize c=count(), s=sum(Value), a=avg(Value), mn=min(Value), mx=max(Value) by Computer | order by Computer asc`,
+	{
+		name: "q16",
+		query: `Logs` +
+			` | summarize c=count(), s=sum(Value), a=avg(Value), mn=min(Value), mx=max(Value) by Computer` +
+			` | order by Computer asc`,
 		cols: `Computer:string,c:long,s:real,a:real,mn:real,mx:real`,
-		rows: `[["db1",2,10.5,5.25,0.5,10],["web1",3,12.5,4.166666666666667,1.5,7],["web2",2,5.5,2.75,2.5,3]]`},
+		rows: `[["db1",2,10.5,5.25,0.5,10],["web1",3,12.5,4.166666666666667,1.5,7],["web2",2,5.5,2.75,2.5,3]]`,
+	},
 	{name: "q17", query: `Logs | summarize dcount(Computer), make_set(Level)`,
 		cols: `dcount_Computer:long,make_set_Level:dynamic`,
 		rows: `[[3,"[\"Info\",\"Error\",\"Warning\"]"]]`},
-	{name: "q18", query: `Logs | summarize count() by bin(TimeGenerated, 1h) | order by TimeGenerated asc`,
-		cols: `TimeGenerated:datetime,count_:long`,
-		rows: `[["2024-02-29T23:00:00Z",1],["2024-03-01T09:00:00Z",1],["2024-03-01T10:00:00Z",2],["2024-03-01T11:00:00Z",3]]`},
-	{name: "q19", query: `Logs | summarize sum(N) by Computer, Level | order by Computer asc, Level asc`,
-		cols: `Computer:string,Level:string,sum_N:long`,
-		rows: `[["db1","Error",5],["db1","Info",6],["web1","Error",2],["web1","Info",8],["web2","Info",3],["web2","Warning",4]]`},
+	{
+		name:  "q18",
+		query: `Logs | summarize count() by bin(TimeGenerated, 1h) | order by TimeGenerated asc`,
+		cols:  `TimeGenerated:datetime,count_:long`,
+		rows: `[["2024-02-29T23:00:00Z",1],["2024-03-01T09:00:00Z",1` +
+			`],["2024-03-01T10:00:00Z",2],["2024-03-01T11:00:00Z",3]]`,
+	},
+	{
+		name:  "q19",
+		query: `Logs | summarize sum(N) by Computer, Level | order by Computer asc, Level asc`,
+		cols:  `Computer:string,Level:string,sum_N:long`,
+		rows: `[["db1","Error",5],["db1","Info",6],["web1","Error",2` +
+			`],["web1","Info",8],["web2","Info",3],["web2","Warning",4]]`,
+	},
 	{name: "q20", query: `Logs | where N <= 3 | summarize make_list(Computer)`,
 		cols: `make_list_Computer:dynamic`,
 		rows: `[["[\"web1\",\"web1\",\"web2\"]"]]`},
@@ -109,7 +129,8 @@ var goldenCases = []goldenCase{
 	{name: "q36", query: `Logs | where Value > 100 | summarize count(), sum(Value), avg(Value)`,
 		cols: `count_:long,sum_Value:real,avg_Value:real`,
 		rows: `[[0,0,null]]`},
-	{name: "q37", query: `Logs | extend Hour = hourofday(TimeGenerated) | where Hour == 10 | project N | sort by N asc`,
+	{name: "q37", query: `Logs | extend Hour = hourofday(TimeGenerated) | where Hour == 10` +
+		` | project N | sort by N asc`,
 		cols: `N:long`,
 		rows: `[[1],[2]]`},
 	{name: "q38", query: `Logs | where Message matches regex "^D" | project N`,
@@ -139,9 +160,14 @@ var goldenCases = []goldenCase{
 	{name: "q46", query: `Logs | sort by Computer asc, N desc | project Computer, N | take 3`,
 		cols: `Computer:string,N:long`,
 		rows: `[["db1",6],["db1",5],["web1",7]]`},
-	{name: "q47", query: `Logs | extend d = datetime_diff("hour", datetime(2024-03-01 12:00:00), TimeGenerated) | project N, d | take 3`,
+	{
+		name: "q47",
+		query: `Logs` +
+			` | extend d = datetime_diff("hour", datetime(2024-03-01 12:00:00), TimeGenerated)` +
+			` | project N, d | take 3`,
 		cols: `N:long,d:long`,
-		rows: `[[1,2],[2,2],[3,1]]`},
+		rows: `[[1,2],[2,2],[3,1]]`,
+	},
 	{name: "q48", query: `Logs | project N, f = format_datetime(TimeGenerated, "yyyy-MM-dd HH:mm") | take 1`,
 		cols: `N:long,f:string`,
 		rows: `[[1,"2024-03-01 10:00"]]`},
@@ -169,9 +195,12 @@ var goldenCases = []goldenCase{
 	{name: "q56", query: `Logs | project x = split("a,b,c", ",") | take 1`,
 		cols: `x:dynamic`,
 		rows: `[["[\"a\",\"b\",\"c\"]"]]`},
-	{name: "q57", query: `Logs | where N > 2 | summarize Total = sum(N) by Computer | where Total > 5 | order by Computer asc`,
-		cols: `Computer:string,Total:long`,
-		rows: `[["db1",11],["web1",7],["web2",7]]`},
+	{
+		name:  "q57",
+		query: `Logs | where N > 2 | summarize Total = sum(N) by Computer | where Total > 5 | order by Computer asc`,
+		cols:  `Computer:string,Total:long`,
+		rows:  `[["db1",11],["web1",7],["web2",7]]`,
+	},
 	{name: "q58", query: `Logs | getschema | project ColumnName, ColumnType | take 2`,
 		cols: `ColumnName:string,ColumnType:string`,
 		rows: `[["TimeGenerated","datetime"],["Computer","string"]]`},
