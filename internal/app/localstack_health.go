@@ -129,7 +129,8 @@ func localstackOpenAPISpec() map[string]any {
 
 const swaggerPage = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Gopherstack internal API</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@` + swaggerUIVersion + `/swagger-ui.css"></head>
+<link rel="stylesheet"
+ href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@` + swaggerUIVersion + `/swagger-ui.css"></head>
 <body><div id="ui"></div>
 <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@` + swaggerUIVersion + `/swagger-ui-bundle.js"></script>
 <script>SwaggerUIBundle({url: "/_localstack/swagger/openapi", dom_id: "#ui"});</script>
