@@ -15,9 +15,11 @@ type ECRResolver interface {
 
 // EFSMount is the host directory backing an EFS access point, plus its POSIX identity.
 type EFSMount struct {
-	HostDir string
-	UID     int64
-	GID     int64
+	HostDir       string
+	SecondaryGIDs []int64
+	UID           int64
+	GID           int64
+	HasPosixUser  bool
 }
 
 // EFSResolver lets this backend validate FileSystemConfigs against services/efs

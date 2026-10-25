@@ -147,6 +147,10 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 		return nil, "", "", http.StatusNoContent, nil
 	}
 
+	if kmsErr := b.invokeEnvError(fn); kmsErr != nil {
+		return nil, "", "", invokeStatusForKMS, kmsErr
+	}
+
 	// Enforce RecursiveLoop: stop a function invoked as part of a deep loop.
 	if loopErr := b.checkRecursiveLoop(ctx, fn.FunctionName); loopErr != nil {
 		return nil, "", "", http.StatusBadRequest, loopErr

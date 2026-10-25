@@ -167,6 +167,7 @@ type backendSnapshot struct {
 	EventInvokeConfigs    map[string]*FunctionEventInvokeConfig                  `json:"eventInvokeConfigs"`
 	Versions              map[string][]*FunctionVersion                          `json:"versions"`
 	VersionCounters       map[string]int                                         `json:"versionCounters"`
+	EnvCiphertext         map[string]map[string]string                           `json:"envCiphertext,omitempty"`
 	Layers                map[string][]*LayerVersion                             `json:"layers"`
 	LayerVersionCounters  map[string]int64                                       `json:"layerVersionCounters"`
 	LayerPolicies         map[string]map[int64]map[string]*LayerVersionStatement `json:"layerPolicies"`
@@ -224,7 +225,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	funcDTOs := store.Register(funcDTOReg, "functions", store.New(functionConfigurationSnapshotKey))
 
 	for _, fn := range b.functions.Snapshot() {
-		funcDTOs.Put(toFunctionConfigurationSnapshot(fn))
+		dto := toFunctionConfigurationSnapshot(fn)
+		if len(b.envCiphertext[fn.FunctionName]) > 0 {
+			dto.Environment = &EnvironmentConfig{}
+		}
+
+		funcDTOs.Put(dto)
 	}
 
 	funcTables, err := funcDTOReg.SnapshotAll()
@@ -240,7 +246,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version:                 lambdaSnapshotVersion,
 		Tables:                  tables,
 		EventInvokeConfigs:      b.eventInvokeConfigs,
-		Versions:                b.versions,
+		Versions:                b.versionsWithoutPlaintextEnv(),
+		EnvCiphertext:           b.envCiphertext,
 		VersionCounters:         b.versionCounters,
 		Layers:                  b.layers,
 		LayerVersionCounters:    b.layerVersionCounters,
@@ -317,6 +324,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.eventInvokeConfigs = snap.EventInvokeConfigs
 	b.versions = snap.Versions
+	b.envCiphertext = snap.EnvCiphertext
+	if b.envCiphertext == nil {
+		b.envCiphertext = make(map[string]map[string]string)
+	}
 	b.versionCounters = snap.VersionCounters
 	b.layers = snap.Layers
 	b.layerVersionCounters = snap.LayerVersionCounters
@@ -353,6 +364,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			b.versionIndex[name][v.Version] = v
 		}
 	}
+
+	b.restoreEnvironmentsLocked(snap.Versions)
 
 	// esmByFunctionARN is likewise a derived reverse index over
 	// eventSourceMappings; rebuild it so ListEventSourceMappings filtered by
@@ -502,4 +515,34 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
+}
+
+// versionsWithoutPlaintextEnv copies b.versions with CMK-encrypted environments blanked: only
+// ciphertext is persisted for those.
+func (b *InMemoryBackend) versionsWithoutPlaintextEnv() map[string][]*FunctionVersion {
+	if len(b.envCiphertext) == 0 {
+		return b.versions
+	}
+
+	out := make(map[string][]*FunctionVersion, len(b.versions))
+
+	for name, vs := range b.versions {
+		cp := make([]*FunctionVersion, len(vs))
+
+		for i, v := range vs {
+			if len(b.envCiphertext[envCiphertextKey(name, v.Version)]) == 0 {
+				cp[i] = v
+
+				continue
+			}
+
+			c := *v
+			c.Environment = &EnvironmentConfig{}
+			cp[i] = &c
+		}
+
+		out[name] = cp
+	}
+
+	return out
 }

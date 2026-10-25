@@ -61,6 +61,8 @@ type Spec struct {
 	WorkingDir string
 	// User runs the container process as uid[:gid]; empty keeps the image's user.
 	User string
+	// GroupAdd lists supplementary group IDs for the container process.
+	GroupAdd []string
 	// OCIRuntime selects the daemon-registered OCI runtime (e.g. runsc); empty uses the daemon default.
 	OCIRuntime string
 	Env        []string

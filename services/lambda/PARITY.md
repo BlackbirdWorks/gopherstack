@@ -29,12 +29,27 @@ structural_gaps:
   - "MQ ESM: Amazon MQ sources are polled only when services/mq runs a real broker (--mq-engine=docker); metadata-only brokers stay unpolled with a warning. ActiveMQ is consumed over STOMP (AWS uses OpenWire/JMS), so brokerInTime is the message timestamp and messageType is inferred from STOMP content-length; one queue per mapping (Queues[0]); no TLS; the BASIC_AUTH secret must be JSON with username/password keys (the Lambda guide does not show its layout) and is read from services/secretsmanager in the secret ARN's region."
   - "Kafka ESM (self-managed): SourceAccessConfigurations (SASL/SCRAM, mTLS, TLS root CA, VPC) are ignored -- only plaintext brokers are reachable -- and per-partition concurrency is not modeled (gopherstack-ce985)."
   - "ESM ScalingConfig.MaximumConcurrency and ProvisionedPollerConfig are validated and stored but cannot bind: the poller is a single serial loop per mapping, so there is no fleet to cap or size."
-  - "Function-level KMSKeyArn and UpdateFunctionCode SourceKMSKeyArn are stored and echoed only: no environment-variable or package encryption exists to apply the key to."
-  - "FileSystemConfigs: EFS access points are bind-mounted at LocalMountPath from a host directory (data dir with --persist, else a temp dir); the PosixUser uid:gid is not applied to the function process (runtime images run as root; no NFS-level identity enforcement), and mount-target subnet/AZ and security-group NFS reachability are checked only as VPC membership. EFSIO/EFSMount* exceptions are never raised. Deleting an access point a function references is allowed, as no EFS error documents otherwise."
+  - "UpdateFunctionCode SourceKMSKeyArn is stored and echoed only: no deployment-package encryption exists to apply the key to. Function KMSKeyArn encryption of environment variables is real (see the 2026-10-25 note); KMS Decrypt grants/key policies are not consulted (the emulated KMS has no principal for Lambda), so KMSAccessDeniedException arises only for a non-encrypt/decrypt key or a ciphertext/encryption-context mismatch."
+  - "FileSystemConfigs: mount-target subnet/AZ and security-group NFS reachability are checked only as VPC membership. EFSIO/EFSMount* exceptions are never raised. Deleting an access point a function references is allowed, as no EFS error documents otherwise. The access point PosixUser is applied by running the whole function process as that uid:gid (+ supplementary gids), not per-file NFS identity squashing, and RootDirectory CreationInfo ownership is chowned only when the emulator itself runs privileged (permissions are always applied)."
   - "CapacityProviderConfig is validated against provider existence and stored (including on published versions) but invocations are not routed to a capacity provider: Lambda-managed instances compute does not exist here."
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
+
+## Notes (2026-10-25 — KMSKeyArn env encryption, EFS PosixUser)
+
+Function `KMSKeyArn` now encrypts environment variables through the in-process KMS (`kms_env.go`, wired by
+`internal/app/lambda_kms.go`; no resolver wired = previous store-only behaviour). Create/UpdateFunctionConfiguration
+validate the key (exists, Enabled, ENCRYPT_DECRYPT) and encrypt each value with encryption context
+`aws:lambda:FunctionArn`; failures are InvalidParameterValueException (the SDK models no KMS* error on those ops).
+Ciphertext is kept per `$LATEST`/published version; `Snapshot` persists ciphertext only (`envCiphertext`, plaintext
+blanked) and `Restore`/`GetFunction` re-hydrate lazily, reporting `Environment.Error` when decryption fails. Every
+Invoke decrypts under the live key (also for warm containers) and fails with 502 KMSDisabledException,
+KMSInvalidStateException (pending deletion), KMSNotFoundException or KMSAccessDeniedException.
+FileSystemConfigs with an access point PosixUser run the function container as `uid:gid` with `GroupAdd` for
+SecondaryGids; for zip functions the extracted code/layer dirs are made world-readable so the non-root user can load
+them. Proof: `internal/app/lambda_kms_test.go`, `lambda_efs_test.go`, docker-gated `lambda_efs_docker_test.go`.
+
 
 ## Notes (2026-10-18 — Lambda debug mode, gopherstack-49qct.10)
 

@@ -320,6 +320,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		Binds:      spec.Mounts,
 		Privileged: spec.Privileged,
 		Runtime:    spec.OCIRuntime,
+		GroupAdd:   spec.GroupAdd,
 	}
 
 	if spec.Network != "" {

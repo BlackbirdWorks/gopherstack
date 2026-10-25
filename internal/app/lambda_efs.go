@@ -46,7 +46,9 @@ func (a *lambdaEFSResolver) ResolveMount(accessPointARN string) (lambdabackend.E
 		return lambdabackend.EFSMount{}, err
 	}
 
-	return lambdabackend.EFSMount{HostDir: m.HostDir, UID: m.UID, GID: m.GID}, nil
+	return lambdabackend.EFSMount{
+		HostDir: m.HostDir, UID: m.UID, GID: m.GID, SecondaryGIDs: m.SecondaryGIDs, HasPosixUser: m.HasPosixUser,
+	}, nil
 }
 
 // wireLambdaEFS backs EFS file systems with host directories and lets Lambda
