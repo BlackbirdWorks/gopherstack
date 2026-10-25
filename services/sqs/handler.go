@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -201,7 +202,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if strings.HasPrefix(r.Header.Get("X-Amz-Target"), "AmazonSQS.") {
 			path := r.URL.Path
 
-			return path == "/" || strings.HasPrefix(path, "/000000000000/")
+			return endpointstrategy.IsSQSQueuePath(path)
 		}
 
 		// Query protocol: form-encoded POST with a known Action
@@ -762,6 +763,12 @@ func (h *Handler) Reset() {
 
 func (h *Handler) requestScope(r *http.Request) string {
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
+	if r.Header.Get("Authorization") == "" {
+		if urlRegion := endpointstrategy.SQSRegion(r.Host, r.URL.Path); urlRegion != "" {
+			region = urlRegion
+		}
+	}
+
 	if m, ok := awsmeta.Key.Get(r.Context()); ok && m != nil {
 		return scopeOf(m.Account, region)
 	}

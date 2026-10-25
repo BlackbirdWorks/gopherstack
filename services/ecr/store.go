@@ -2,9 +2,11 @@ package ecr
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -53,6 +55,7 @@ type InMemoryBackend struct {
 	accountID              string
 	region                 string
 	endpoint               string
+	endpoints              endpointstrategy.Config
 	layerUploadQueue       []layerUploadQueueEntry
 	layerUploadSeq         uint64
 	replicationSettleDelay time.Duration
@@ -92,6 +95,30 @@ func (b *InMemoryBackend) SetEndpoint(endpoint string) {
 	b.endpoint = endpoint
 
 	registryauth.Default().RegisterEmulated(endpoint, dummyUser, dummyPassword)
+}
+
+// SetEndpointStrategy selects the repositoryUri host format (see pkgs/endpointstrategy).
+func (b *InMemoryBackend) SetEndpointStrategy(cfg endpointstrategy.Config) {
+	b.mu.Lock("SetEndpointStrategy")
+	defer b.mu.Unlock()
+
+	b.endpoints = cfg
+}
+
+// registryHostLocked is the host used in repository URIs for region; the caller holds b.mu.
+func (b *InMemoryBackend) registryHostLocked(region string) string {
+	cfg := b.endpoints
+	if host := endpointstrategy.ECRRegistryHost(cfg.ECR, cfg.HostPort, b.accountID, region); host != "" {
+		registryauth.Default().RegisterEmulated(host, dummyUser, dummyPassword)
+
+		return host
+	}
+
+	if b.endpoint != "" {
+		return b.endpoint
+	}
+
+	return fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com", b.accountID, region)
 }
 
 // ProxyEndpoint returns the registry endpoint used in repository URIs and

@@ -55,6 +55,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -331,6 +332,7 @@ type CLI struct {
 	SNS                           struct{}            `embed:"" prefix:"sns-"`
 	IAM                           struct{}            `embed:"" prefix:"iam-"`
 	shutdownDeadline              time.Time
+	Endpoints                     endpointstrategy.Flags `embed:""`
 	athenaHandler                 service.Registerable
 	kafkaconnectHandler           service.Registerable
 	rumHandler                    service.Registerable
@@ -860,6 +862,11 @@ func (c *CLI) GetEndpoint() string {
 	port := strings.TrimPrefix(c.Port, ":")
 
 	return "http://localhost:" + port
+}
+
+// EndpointStrategies returns the *_ENDPOINT_STRATEGY selections (endpointstrategy.Provider).
+func (c *CLI) EndpointStrategies() endpointstrategy.Config {
+	return c.Endpoints.Config(c.GetS3Endpoint())
 }
 
 // GetLambdaSettings returns Lambda settings (lambda.SettingsProvider).

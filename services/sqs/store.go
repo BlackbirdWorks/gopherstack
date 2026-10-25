@@ -55,10 +55,11 @@ type InMemoryBackend struct {
 	// queueDeletedRecentlyWindowSecs are pruned lazily by CreateQueue's own
 	// check and swept periodically by pruneState so the map cannot grow
 	// unboundedly across a long-lived backend that deletes many queues.
-	recentlyDeleted map[string]time.Time
-	accountID       string
-	region          string
-	defaultEndpoint string
+	recentlyDeleted  map[string]time.Time
+	accountID        string
+	region           string
+	defaultEndpoint  string
+	endpointStrategy string
 }
 
 // queueTableKey is the [store.Table] key function for b.queues, deriving the
@@ -73,6 +74,14 @@ func (b *InMemoryBackend) SetDefaultEndpoint(endpoint string) {
 	defer b.mu.Unlock()
 
 	b.defaultEndpoint = endpoint
+}
+
+// SetEndpointStrategy selects the queue URL format (see pkgs/endpointstrategy); empty keeps http://host/account/name.
+func (b *InMemoryBackend) SetEndpointStrategy(strategy string) {
+	b.mu.Lock("SetEndpointStrategy")
+	defer b.mu.Unlock()
+
+	b.endpointStrategy = strategy
 }
 
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.

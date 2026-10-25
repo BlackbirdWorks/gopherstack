@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -118,10 +119,11 @@ const (
 
 // Handler is the HTTP handler for OpenSearch operations.
 type Handler struct {
-	Backend   StorageBackend
-	peers     *regionpeers.Set[Handler]
-	AccountID string
-	Region    string
+	endpointStrategy string
+	Backend          StorageBackend
+	peers            *regionpeers.Set[Handler]
+	AccountID        string
+	Region           string
 }
 
 // NewHandler creates a new OpenSearch Handler.
@@ -206,8 +208,42 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
+		if _, ok := h.strategyRequest(c.Request()); ok {
+			return true
+		}
+
 		return isOpenSearchPath(c.Request().URL.Path)
 	}
+}
+
+// strategyRequest recognises a data-plane request addressed to a strategy-formatted endpoint.
+func (h *Handler) strategyRequest(r *http.Request) (endpointstrategy.OpenSearchRequest, bool) {
+	if h.endpointStrategy == "" || isOpenSearchPath(r.URL.Path) {
+		return endpointstrategy.OpenSearchRequest{}, false
+	}
+
+	return endpointstrategy.ParseOpenSearchRequest(r.Host, r.URL.Path)
+}
+
+// indexRest maps OpenSearch's /<index>/_doc|_search|_count form onto the backend's /index/<index>/... routes.
+func indexRest(rest string) string {
+	segs := strings.Split(strings.TrimPrefix(rest, "/"), "/")
+	if len(segs) >= 2 && segs[0] != "" && segs[0] != "index" && !strings.HasPrefix(segs[0], "_") {
+		switch segs[1] {
+		case indexOpDoc, indexOpSearch, indexOpCount:
+			return "/index" + rest
+		}
+	}
+
+	return rest
+}
+
+func rewriteStrategyRequest(r *http.Request, osr endpointstrategy.OpenSearchRequest) *http.Request {
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = openSearchPathPrefix + "/" + osr.Domain + indexRest(osr.Rest)
+	r2.URL.RawPath = ""
+
+	return r2
 }
 
 // Reset clears the handler's backend state.
@@ -519,6 +555,11 @@ func domainNameFromRest(rest string) string {
 // Handle satisfies the Echo handler interface.
 func (h *Handler) Handle(c *echo.Context) error {
 	region := requestRegion(c.Request().Host, awsmeta.Region(c.Request().Context()))
+	if osr, ok := h.strategyRequest(c.Request()); ok {
+		region = osr.Region
+		c.SetRequest(rewriteStrategyRequest(c.Request(), osr))
+	}
+
 	if p := h.peers.Get(region); p != nil {
 		return p.Handle(c)
 	}

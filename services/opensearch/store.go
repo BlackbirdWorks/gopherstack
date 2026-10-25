@@ -1,8 +1,10 @@
 package opensearch
 
 import (
+	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -15,6 +17,7 @@ import (
 // see store_setup.go's registerAllTables doc for the full clean/dirty split
 // and the reasoning behind the handful of fields left as plain maps.
 type InMemoryBackend struct {
+	endpoints                  endpointstrategy.Config
 	dnsRegistrar               DNSRegistrar
 	collIdem                   *idempotency.Memo
 	accountCapacityLimits      ServerlessCapacityLimits
@@ -105,6 +108,25 @@ func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.mu.Lock("SetDNSRegistrar")
 	defer b.mu.Unlock()
 	b.dnsRegistrar = dns
+}
+
+// SetEndpointStrategy selects the domain endpoint format (see pkgs/endpointstrategy).
+func (b *InMemoryBackend) SetEndpointStrategy(cfg endpointstrategy.Config) {
+	b.mu.Lock("SetEndpointStrategy")
+	defer b.mu.Unlock()
+	b.endpoints = cfg
+}
+
+// domainEndpointLocked formats the endpoint of a domain; the caller holds b.mu.
+func (b *InMemoryBackend) domainEndpointLocked(name, engineVersion string) string {
+	engine := "opensearch"
+	if strings.HasPrefix(engineVersion, "Elasticsearch_") {
+		engine = "es"
+	}
+
+	cfg := b.endpoints
+
+	return endpointstrategy.OpenSearchEndpoint(cfg.OpenSearch, cfg.HostPort, engine, b.region, b.accountID, name)
 }
 
 // Reset clears all backend state, releasing any resources held.

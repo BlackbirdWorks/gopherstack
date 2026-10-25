@@ -258,10 +258,7 @@ func (b *InMemoryBackend) GetDownloadURLForLayer(
 
 	b.recordLayerPullLocked(repositoryName, layerDigest)
 
-	endpoint := b.endpoint
-	if endpoint == "" {
-		endpoint = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com", b.accountID, b.regionFor(ctx))
-	}
+	endpoint := b.registryHostLocked(b.regionFor(ctx))
 
 	return fmt.Sprintf("http://%s/v2/%s/blobs/%s", endpoint, repositoryName, layerDigest), nil
 }
