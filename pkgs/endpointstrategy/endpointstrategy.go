@@ -42,9 +42,17 @@ type Flags struct {
 
 // Config carries the selected strategies and the gateway host:port.
 type Config struct {
-	Flags
+	SQS        string
+	OpenSearch string
+	GraphQL    string
+	ECR        string
 	// HostPort is the gateway address (host:port) used when a strategy needs one.
 	HostPort string
+}
+
+// Config combines the flags with the gateway address.
+func (f Flags) Config(hostPort string) Config {
+	return Config{SQS: f.SQS, OpenSearch: f.OpenSearch, GraphQL: f.GraphQL, ECR: f.ECR, HostPort: hostPort}
 }
 
 // Provider is implemented by the app config to expose Config to services.

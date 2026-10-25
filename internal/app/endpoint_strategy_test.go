@@ -262,17 +262,17 @@ func TestEndpointStrategyValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		set     func(*endpointstrategy.Config)
+		name    string
 		wantErr bool
 	}{
-		{"opensearch port", func(c *endpointstrategy.Config) { c.OpenSearch = "port" }, true},
-		{"sqs bogus", func(c *endpointstrategy.Config) { c.SQS = "bogus" }, true},
-		{"graphql standard", func(c *endpointstrategy.Config) { c.GraphQL = "standard" }, true},
-		{"ecr path", func(c *endpointstrategy.Config) { c.ECR = "path" }, true},
-		{"valid", func(c *endpointstrategy.Config) {
+		{func(c *endpointstrategy.Config) { c.OpenSearch = "port" }, "opensearch port", true},
+		{func(c *endpointstrategy.Config) { c.SQS = "bogus" }, "sqs bogus", true},
+		{func(c *endpointstrategy.Config) { c.GraphQL = "standard" }, "graphql standard", true},
+		{func(c *endpointstrategy.Config) { c.ECR = "path" }, "ecr path", true},
+		{func(c *endpointstrategy.Config) {
 			c.SQS, c.OpenSearch, c.GraphQL, c.ECR = "standard", "path", "legacy", "off"
-		}, false},
+		}, "valid", false},
 	}
 
 	for _, tc := range tests {
