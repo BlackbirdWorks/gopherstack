@@ -16,6 +16,9 @@ const (
 	healthActionRestart = "restart"
 	healthActionKill    = "kill"
 	swaggerUIVersion    = "5.17.14"
+	healthKeyAction     = "action"
+	specGet             = "get"
+	specPost            = "post"
 )
 
 type localstackHealthAction struct {
@@ -43,7 +46,7 @@ func buildLocalstackHealthPost(
 				}
 			}
 
-			return c.JSON(http.StatusOK, map[string]string{"status": "restarted"})
+			return c.JSON(http.StatusOK, map[string]string{podKeyStatus: "restarted"})
 		case healthActionKill:
 			if !allowKill {
 				return c.JSON(http.StatusForbidden, map[string]string{
@@ -57,7 +60,7 @@ func buildLocalstackHealthPost(
 				})
 			}
 
-			err := c.JSON(http.StatusOK, map[string]string{"status": "killing"})
+			err := c.JSON(http.StatusOK, map[string]string{podKeyStatus: "killing"})
 			go terminate()
 
 			return err
@@ -87,14 +90,6 @@ func terminateSelf() {
 	}
 }
 
-func (cli *CLI) healthTerminate() func() {
-	if cli.Localstack.terminate != nil {
-		return cli.Localstack.terminate
-	}
-
-	return terminateSelf
-}
-
 func localstackOpenAPISpec() map[string]any {
 	op := func(summary string) map[string]any {
 		return map[string]any{
@@ -106,10 +101,12 @@ func localstackOpenAPISpec() map[string]any {
 	post := op("Run a health action")
 	post["requestBody"] = map[string]any{
 		"required": true,
-		"content": map[string]any{"application/json": map[string]any{"schema": map[string]any{
-			"type":       "object",
-			"required":   []string{"action"},
-			"properties": map[string]any{"action": map[string]any{"type": "string", "enum": []string{"restart", "kill"}}},
+		"content": map[string]any{contentTypeJSON: map[string]any{"schema": map[string]any{
+			"type":     "object",
+			"required": []string{healthKeyAction},
+			"properties": map[string]any{
+				healthKeyAction: map[string]any{"type": "string", "enum": []string{"restart", "kill"}},
+			},
 		}}},
 	}
 
@@ -117,15 +114,15 @@ func localstackOpenAPISpec() map[string]any {
 		"openapi": "3.0.3",
 		"info":    map[string]any{"title": "Gopherstack LocalStack-compatible internal API", "version": "1.0.0"},
 		"paths": map[string]any{
-			"/_localstack/health":          map[string]any{"get": op("Service health"), "post": post},
-			"/_localstack/info":            map[string]any{"get": op("Version and edition")},
-			"/_localstack/config":          map[string]any{"get": op("Read config"), "post": op("Update config")},
-			"/_localstack/diagnose":        map[string]any{"get": op("Diagnostics")},
-			"/_localstack/plugins":         map[string]any{"get": op("Loaded providers")},
-			"/_localstack/init":            map[string]any{"get": op("Init script status, all stages")},
-			"/_localstack/init/{stage}":    map[string]any{"get": op("Init script status for one stage")},
-			"/_localstack/state/reset":     map[string]any{"post": op("Reset in-memory state")},
-			"/_localstack/swagger/openapi": map[string]any{"get": op("This document")},
+			"/_localstack/health":          map[string]any{specGet: op("Service health"), specPost: post},
+			"/_localstack/info":            map[string]any{specGet: op("Version and edition")},
+			"/_localstack/config":          map[string]any{specGet: op("Read config"), specPost: op("Update config")},
+			"/_localstack/diagnose":        map[string]any{specGet: op("Diagnostics")},
+			"/_localstack/plugins":         map[string]any{specGet: op("Loaded providers")},
+			"/_localstack/init":            map[string]any{specGet: op("Init script status, all stages")},
+			"/_localstack/init/{stage}":    map[string]any{specGet: op("Init script status for one stage")},
+			"/_localstack/state/reset":     map[string]any{specPost: op("Reset in-memory state")},
+			"/_localstack/swagger/openapi": map[string]any{specGet: op("This document")},
 		},
 	}
 }

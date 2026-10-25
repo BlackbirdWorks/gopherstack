@@ -14,7 +14,8 @@ func TestTransparentSkipPatterns(t *testing.T) {
 	t.Parallel()
 
 	upstream, upAddr := startWithConfig(t, gopherDNS.Config{ResolveIP: "127.0.0.1"})
-	for _, n := range []string{"ecr.us-east-1.amazonaws.com", "lambda.eu-west-1.amazonaws.com", "sqs.us-east-1.amazonaws.com"} {
+	names := []string{"ecr.us-east-1.amazonaws.com", "lambda.eu-west-1.amazonaws.com", "sqs.us-east-1.amazonaws.com"}
+	for _, n := range names {
 		upstream.RegisterRecord(n, "A", []string{"9.9.9.9"})
 	}
 

@@ -37,8 +37,14 @@ func TestLocalstackHealthPost(t *testing.T) {
 		{name: "restart_case", body: `{"action":"RESTART"}`, remote: "127.0.0.1:1", wantStatus: 200, wantResets: 1},
 		{name: "kill_disabled", body: `{"action":"kill"}`, remote: "127.0.0.1:1", wantStatus: 403},
 		{name: "kill_remote", body: `{"action":"kill"}`, remote: "10.0.0.5:1", allowKill: true, wantStatus: 403},
-		{name: "kill_loopback", body: `{"action":"kill"}`, remote: "127.0.0.1:1", allowKill: true, wantStatus: 200, wantKills: 1},
-		{name: "kill_loopback_v6", body: `{"action":"kill"}`, remote: "[::1]:1", allowKill: true, wantStatus: 200, wantKills: 1},
+		{
+			name: "kill_loopback", body: `{"action":"kill"}`, remote: "127.0.0.1:1",
+			allowKill: true, wantStatus: 200, wantKills: 1,
+		},
+		{
+			name: "kill_loopback_v6", body: `{"action":"kill"}`, remote: "[::1]:1",
+			allowKill: true, wantStatus: 200, wantKills: 1,
+		},
 		{name: "unknown", body: `{"action":"nope"}`, remote: "127.0.0.1:1", allowKill: true, wantStatus: 400},
 		{name: "bad_json", body: `{`, remote: "127.0.0.1:1", wantStatus: 400},
 	}
