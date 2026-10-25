@@ -121,7 +121,7 @@ func (b *InMemoryBackend) UpdatePackage(
 }
 
 func (b *InMemoryBackend) editPackage(p pkgRef, edit func(*resMeta)) error {
-	generic, err := b.isGeneric(p.repo)
+	generic, err := b.storesFiles(p.repo)
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func (b *InMemoryBackend) UpdateVersion(
 		}
 	}
 
-	generic, err := b.isGeneric(l.pkg.repo)
+	generic, err := b.storesFiles(l.pkg.repo)
 	if err != nil {
 		return nil, err
 	}

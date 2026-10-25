@@ -190,7 +190,7 @@ func (b *InMemoryBackend) fileContent(ctx context.Context, name string) ([]byte,
 		return nil, status.Error(codes.PermissionDenied, "A download rule denies access to this package.")
 	}
 
-	generic, err := b.isGeneric(fr.repo)
+	generic, err := b.storesFiles(fr.repo)
 	if err != nil {
 		return nil, err
 	}

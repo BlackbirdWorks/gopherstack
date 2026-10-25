@@ -105,7 +105,7 @@ func (b *InMemoryBackend) filesOf(ctx context.Context, ref repoRef) ([]*artifact
 		return nil, errNotFound("Repository %q not found.", ref.full())
 	case format == artifactregistrypb.Repository_DOCKER:
 		return b.dockerFiles(ctx, ref), nil
-	case format == artifactregistrypb.Repository_GENERIC:
+	case storesFormat(format):
 		return b.genericFiles(ref), nil
 	}
 
@@ -352,7 +352,7 @@ func (b *InMemoryBackend) UpdateFile(
 }
 
 func (b *InMemoryBackend) setFileAnnotations(ref repoRef, name string, ann map[string]string) error {
-	generic, err := b.isGeneric(ref)
+	generic, err := b.storesFiles(ref)
 	if err != nil {
 		return err
 	}

@@ -147,7 +147,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	docker := h.Backend.DockerHandler()
 
 	h.wg.Go(func() {
-		serveErr := gcprest.ServeWithExtras(srv, listener, docker, h.Backend.FileExtras())
+		serveErr := gcprest.ServeWithExtras(srv, listener, docker, h.Backend.FileExtras(), h.Backend.PackageExtras())
 		if serveErr != nil && !errors.Is(serveErr, grpc.ErrServerStopped) {
 			log.ErrorContext(workerCtx, "gcpartifactregistry: listener stopped", "error", serveErr)
 		}

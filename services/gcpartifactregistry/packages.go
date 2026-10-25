@@ -107,7 +107,7 @@ func (b *InMemoryBackend) ListPackages(
 		return nil, "", err
 	}
 
-	if generic, gErr := b.isGeneric(ref); gErr != nil {
+	if generic, gErr := b.storesFiles(ref); gErr != nil {
 		return nil, "", gErr
 	} else if generic {
 		out, next := b.genListPackages(ref, in.GetPageToken(), in.GetPageSize())
@@ -149,7 +149,7 @@ func (b *InMemoryBackend) GetPackage(name string) (*artifactregistrypb.Package, 
 		return nil, err
 	}
 
-	if generic, gErr := b.isGeneric(p.repo); gErr != nil {
+	if generic, gErr := b.storesFiles(p.repo); gErr != nil {
 		return nil, gErr
 	} else if generic {
 		return b.genGetPackage(p)
@@ -170,7 +170,7 @@ func (b *InMemoryBackend) DeletePackage(ctx context.Context, name string) (*long
 		return nil, err
 	}
 
-	if generic, gErr := b.isGeneric(p.repo); gErr != nil {
+	if generic, gErr := b.storesFiles(p.repo); gErr != nil {
 		return nil, gErr
 	} else if generic {
 		return b.genDeletePackage(p.repo, p)
@@ -198,7 +198,7 @@ func (b *InMemoryBackend) ListVersions(
 		return nil, "", err
 	}
 
-	if generic, gErr := b.isGeneric(p.repo); gErr != nil {
+	if generic, gErr := b.storesFiles(p.repo); gErr != nil {
 		return nil, "", gErr
 	} else if generic {
 		return b.genListVersions(p, in.GetOrderBy(), in.GetPageToken(), in.GetPageSize())
@@ -263,7 +263,7 @@ func (b *InMemoryBackend) GetVersion(
 		return nil, err
 	}
 
-	if generic, gErr := b.isGeneric(l.pkg.repo); gErr != nil {
+	if generic, gErr := b.storesFiles(l.pkg.repo); gErr != nil {
 		return nil, gErr
 	} else if generic {
 		return b.genGetVersion(l)
@@ -316,7 +316,7 @@ func (b *InMemoryBackend) DeleteVersion(
 		return nil, err
 	}
 
-	if generic, gErr := b.isGeneric(l.pkg.repo); gErr != nil {
+	if generic, gErr := b.storesFiles(l.pkg.repo); gErr != nil {
 		return nil, gErr
 	} else if generic {
 		return b.genDeleteVersion(l)
@@ -353,7 +353,7 @@ func (b *InMemoryBackend) BatchDeleteVersions(
 		leaves = append(leaves, l)
 	}
 
-	if generic, gErr := b.isGeneric(p.repo); gErr != nil {
+	if generic, gErr := b.storesFiles(p.repo); gErr != nil {
 		return nil, gErr
 	} else if generic {
 		return b.genBatchDelete(p, leaves, in.GetValidateOnly())

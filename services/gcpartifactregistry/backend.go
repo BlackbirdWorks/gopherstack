@@ -38,6 +38,7 @@ type InMemoryBackend struct {
 	genPkgs  map[string]*resMeta
 	genVers  map[string]*resMeta
 	genFiles map[string]*genFile
+	pkgTags  map[string]map[string]string
 	rules    map[string]*artifactregistrypb.Rule
 	settings map[string]*artifactregistrypb.ProjectSettings
 	vpcsc    map[string]*artifactregistrypb.VPCSCConfig
@@ -66,6 +67,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetExtras() {
 	b.meta, b.genPkgs, b.genVers = map[string]*resMeta{}, map[string]*resMeta{}, map[string]*resMeta{}
 	b.genFiles = map[string]*genFile{}
+	b.pkgTags = map[string]map[string]string{}
 	b.rules = map[string]*artifactregistrypb.Rule{}
 	b.settings = map[string]*artifactregistrypb.ProjectSettings{}
 	b.vpcsc = map[string]*artifactregistrypb.VPCSCConfig{}

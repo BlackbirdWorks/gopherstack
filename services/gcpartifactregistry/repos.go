@@ -157,7 +157,7 @@ func (b *InMemoryBackend) GetRepository(name string) (*artifactregistrypb.Reposi
 
 // decorate adds the computed registry_uri and size_bytes.
 func (b *InMemoryBackend) decorate(ref repoRef, pb *artifactregistrypb.Repository) *artifactregistrypb.Repository {
-	if pb.GetFormat() == artifactregistrypb.Repository_GENERIC {
+	if storesFormat(pb.GetFormat()) {
 		pb.SizeBytes = b.genericRepoSize(ref)
 
 		return pb

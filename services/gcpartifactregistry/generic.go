@@ -30,6 +30,32 @@ type genFile struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 	Owner       string            `json:"owner"`
 	Data        []byte            `json:"data"`
+	Doc         []byte            `json:"doc,omitempty"`
+}
+
+// storesFormat reports whether repositories of the format keep their packages, versions and files in the
+// generic stores.
+func storesFormat(f artifactregistrypb.Repository_Format) bool {
+	switch f {
+	case artifactregistrypb.Repository_GENERIC, artifactregistrypb.Repository_NPM,
+		artifactregistrypb.Repository_PYTHON, artifactregistrypb.Repository_MAVEN:
+		return true
+	default:
+		return false
+	}
+}
+
+// storesFiles reports whether the repository exists and keeps its artifacts in the generic stores.
+func (b *InMemoryBackend) storesFiles(ref repoRef) (bool, error) {
+	b.mu.RLock("storesFiles")
+	defer b.mu.RUnlock()
+
+	rec, ok := b.repos[ref.full()]
+	if !ok {
+		return false, errNotFound("Repository %q not found.", ref.full())
+	}
+
+	return storesFormat(rec.pb.GetFormat()), nil
 }
 
 // isGeneric reports whether the repository exists and holds generic artifacts.
@@ -155,6 +181,7 @@ func (b *InMemoryBackend) genGetVersion(l leafRef) (*artifactregistrypb.Version,
 // dropGenericVersionLocked removes a version with its files. Must hold b.mu for writing.
 func (b *InMemoryBackend) dropGenericVersionLocked(name string) {
 	delete(b.genVers, name)
+	b.untagLocked(name)
 
 	for fn, f := range b.genFiles {
 		if f.Owner == name {
@@ -178,6 +205,7 @@ func (b *InMemoryBackend) genDeletePackage(parent repoRef, p pkgRef) (*longrunni
 	}
 
 	delete(b.genPkgs, p.full())
+	delete(b.pkgTags, p.full())
 	b.mu.Unlock()
 
 	return b.done(parent.parent(), &emptypb.Empty{})
@@ -355,6 +383,12 @@ func (b *InMemoryBackend) dropRepoDataLocked(ref repoRef) {
 	for k := range b.rules {
 		if strings.HasPrefix(k, prefix) {
 			delete(b.rules, k)
+		}
+	}
+
+	for k := range b.pkgTags {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.pkgTags, k)
 		}
 	}
 }

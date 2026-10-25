@@ -30,6 +30,7 @@ type backendSnapshot struct {
 	GenericPkgs  map[string]*resMeta        `json:"genericPackages,omitempty"`
 	GenericVers  map[string]*resMeta        `json:"genericVersions,omitempty"`
 	GenericFiles map[string]*genFile        `json:"genericFiles,omitempty"`
+	PackageTags  map[string]map[string]string `json:"packageTags,omitempty"`
 	Rules        map[string]json.RawMessage `json:"rules,omitempty"`
 	Settings     map[string]json.RawMessage `json:"projectSettings,omitempty"`
 	VPCSC        map[string]json.RawMessage `json:"vpcscConfigs,omitempty"`
@@ -59,7 +60,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version: snapshotVersion, Ledger: b.ledger, Operations: b.ops.Snapshot(),
 		Repositories: make(map[string]repoSnap, len(b.repos)),
-		Meta:         b.meta, GenericPkgs: b.genPkgs, GenericVers: b.genVers, GenericFiles: b.genFiles,
+		Meta:         b.meta, GenericPkgs: b.genPkgs, GenericVers: b.genVers, GenericFiles: b.genFiles, PackageTags: b.pkgTags,
 		Rules: marshalAll(b.rules), Settings: marshalAll(b.settings), VPCSC: marshalAll(b.vpcsc),
 	}
 
@@ -178,6 +179,10 @@ func (b *InMemoryBackend) restoreExtras(snap *backendSnapshot) error {
 
 	b.meta, b.genPkgs, b.genVers = orEmpty(snap.Meta), orEmpty(snap.GenericPkgs), orEmpty(snap.GenericVers)
 	b.genFiles, b.rules, b.settings, b.vpcsc = orEmpty(snap.GenericFiles), rules, settings, vpcsc
+	b.pkgTags = snap.PackageTags
+	if b.pkgTags == nil {
+		b.pkgTags = map[string]map[string]string{}
+	}
 
 	return nil
 }
