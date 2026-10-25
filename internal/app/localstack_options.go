@@ -124,9 +124,7 @@ func localstackUnsupportedRuntime() []string {
 		"EXTENSION_AUTO_INSTALL",
 		"CUSTOM_SSL_CERT_PATH",
 		"SSL_NO_VERIFY",
-		"DNS_NAME_PATTERNS_TO_RESOLVE_UPSTREAM",
 		"DNS_LOCAL_NAME_PATTERNS",
-		"DISABLE_TRANSPARENT_ENDPOINT_INJECTION",
 		"LOG_LICENSE_ISSUES",
 		"ECR_ENDPOINT_STRATEGY",
 	}
@@ -208,6 +206,14 @@ func (p *envPlan) planDNS() {
 		// LocalStack uses 0 to disable the DNS server; 0.0.0.0 is its port-53 default.
 	default:
 		p.put(envDNSAddr, withDefaultPort(a, defaultDNSPort))
+	}
+
+	if v := p.val("DNS_NAME_PATTERNS_TO_RESOLVE_UPSTREAM"); v != "" {
+		p.put("TRANSPARENT_DNS_SKIP_PATTERNS", v)
+	}
+
+	if b, err := strconv.ParseBool(p.val("DISABLE_TRANSPARENT_ENDPOINT_INJECTION")); err == nil && b {
+		p.put("TRANSPARENT_DISABLE_ENDPOINT_INJECTION", "true")
 	}
 
 	if s := p.val("DNS_SERVER"); s != "" {

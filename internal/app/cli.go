@@ -13143,7 +13143,7 @@ func launchPurgeWorker(
 
 // startDNSAndTransparent starts the embedded DNS server, in transparent mode when enabled.
 func startDNSAndTransparent(ctx context.Context, cli *CLI) (*transparentRuntime, *gopherDNS.Server, error) {
-	if cli.Transparent.Enabled {
+	if cli.Transparent.Enabled && !cli.Transparent.DisableInjection {
 		return setupTransparent(ctx, cli.Transparent, cli.DNSListenAddr, cli.DNSResolveIP)
 	}
 

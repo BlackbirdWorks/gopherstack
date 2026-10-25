@@ -99,6 +99,24 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			name: "dns_address", environ: []string{"DNS_ADDRESS=127.0.0.1", "DNS_SERVER=9.9.9.9"},
 			want: map[string]string{"DNS_ADDR": "127.0.0.1:53", "TRANSPARENT_DNS_UPSTREAM": "9.9.9.9:53"},
 		},
+		{
+			name:    "dns_patterns_and_injection",
+			environ: []string{"DNS_NAME_PATTERNS_TO_RESOLVE_UPSTREAM=.*ecr.*", "DISABLE_TRANSPARENT_ENDPOINT_INJECTION=1"},
+			want: map[string]string{
+				"TRANSPARENT_DNS_SKIP_PATTERNS":          ".*ecr.*",
+				"TRANSPARENT_DISABLE_ENDPOINT_INJECTION": "true",
+			},
+		},
+		{
+			name:    "dns_patterns_native_wins",
+			environ: []string{"DNS_NAME_PATTERNS_TO_RESOLVE_UPSTREAM=a", "TRANSPARENT_DNS_SKIP_PATTERNS=b"},
+			want:    map[string]string{},
+		},
+		{
+			name:    "injection_not_disabled",
+			environ: []string{"DISABLE_TRANSPARENT_ENDPOINT_INJECTION=0"},
+			want:    map[string]string{},
+		},
 		{name: "dns_address_disabled", environ: []string{"DNS_ADDRESS=0"}, want: map[string]string{}},
 		{
 			name:    "snapshot_scheduled",

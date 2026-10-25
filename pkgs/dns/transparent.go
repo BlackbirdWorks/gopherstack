@@ -1,7 +1,9 @@
 package dns
 
 import (
+	"fmt"
 	"net"
+	"regexp"
 	"strings"
 	"time"
 
@@ -25,6 +27,9 @@ type TransparentConfig struct {
 	Suffixes []string
 	// Skip lists names (or zones) that always resolve upstream, e.g. "sts.amazonaws.com".
 	Skip []string
+	// SkipPatterns are regexes (RE2, matched against the whole lowercase name without the
+	// trailing dot) whose matches resolve upstream like Skip entries.
+	SkipPatterns []string
 	// Upstreams are host:port resolvers; empty means /etc/resolv.conf.
 	Upstreams []string
 }
@@ -32,14 +37,12 @@ type TransparentConfig struct {
 type transparent struct {
 	suffixes  []string
 	skip      []string
+	patterns  []*regexp.Regexp
 	upstreams []string
 }
 
-func newTransparent(cfg TransparentConfig, self string) *transparent {
-	if len(cfg.Suffixes) == 0 {
-		return nil
-	}
-
+// newTransparent requires cfg.Suffixes to be non-empty.
+func newTransparent(cfg TransparentConfig, self string) (*transparent, error) {
 	ups := cfg.Upstreams
 	if len(ups) == 0 {
 		ups = ResolvConfUpstreams(resolvConfPath)
@@ -47,13 +50,40 @@ func newTransparent(cfg TransparentConfig, self string) *transparent {
 
 	t := &transparent{suffixes: normZones(cfg.Suffixes), skip: normZones(cfg.Skip)}
 
+	for _, pat := range cfg.SkipPatterns {
+		if pat = strings.TrimSpace(pat); pat == "" {
+			continue
+		}
+
+		re, err := regexp.Compile("^(?:" + strings.ToLower(pat) + ")$")
+		if err != nil {
+			return nil, fmt.Errorf("transparent skip pattern %q: %w", pat, err)
+		}
+
+		t.patterns = append(t.patterns, re)
+	}
+
 	for _, u := range ups {
 		if !isSelfAddr(u, self) {
 			t.upstreams = append(t.upstreams, u)
 		}
 	}
 
-	return t
+	return t, nil
+}
+
+func (t *transparent) skipped(name string) bool {
+	if inZone(name, t.skip) {
+		return true
+	}
+
+	for _, re := range t.patterns {
+		if re.MatchString(name) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // isSelfAddr reports whether upstream would loop back to the server listening on self.
@@ -123,7 +153,7 @@ func ResolvConfUpstreams(path string) []string {
 func (t *transparent) answer(s *Server, r *dns.Msg, q dns.Question) *dns.Msg {
 	name := strings.Trim(strings.ToLower(q.Name), ".")
 
-	if inZone(name, t.suffixes) && !inZone(name, t.skip) {
+	if inZone(name, t.suffixes) && !t.skipped(name) {
 		msg := new(dns.Msg)
 		msg.SetReply(r)
 		msg.Authoritative = true
