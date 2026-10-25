@@ -261,6 +261,10 @@ func parseWireBatchOp(msg []byte, resourceOf func(string) string) (WireBatchOp, 
 
 	table, inner, isItem, isCollection := classifyBatchResource(resourceOf(u.Path))
 
+	if method == http.MethodGet && isCollection {
+		return WireBatchOp{Table: table, Op: BatchOp{Kind: BatchQuery}, Headers: headers, Query: u.Query()}, nil
+	}
+
 	op, err := buildBatchOperation(method, isItem, isCollection, inner, headers, body)
 	if err != nil {
 		return WireBatchOp{}, err
@@ -307,10 +311,6 @@ func buildBatchOperation(
 		}
 
 		return BatchOp{Kind: BatchInsert, PartitionKey: pk, RowKey: rk, Props: props}, nil
-	}
-
-	if method == http.MethodGet && isCollection {
-		return BatchOp{Kind: BatchQuery}, nil
 	}
 
 	pk, rk, ok := ParseEntityKeyPredicate(inner)

@@ -438,7 +438,13 @@ func TestTableBatch_SingleQuery(t *testing.T) {
 			name: "filter", path: "t()?$filter=RowKey%20eq%20'b'",
 			wantParts: []string{"200"}, wantBody: `"RowKey":"b"`, notBody: `"RowKey":"a"`,
 		},
-		{name: "top", path: "t()?$top=1", wantParts: []string{"200"}, wantBody: `"RowKey":"a"`, notBody: `"RowKey":"b"`},
+		{
+			name:      "top",
+			path:      "t()?$top=1",
+			wantParts: []string{"200"},
+			wantBody:  `"RowKey":"a"`,
+			notBody:   `"RowKey":"b"`,
+		},
 		{
 			name: "select", path: "t()?$select=RowKey",
 			wantParts: []string{"200"}, wantBody: `"RowKey":"a"`, notBody: `"V"`,

@@ -656,7 +656,11 @@ func TestSproc_DoesNotBlockOtherContainers(t *testing.T) {
 
 	require.Equal(t, http.StatusCreated, s.do(http.MethodPost, "/dbs/d/colls", nil,
 		`{"id":"other","partitionKey":{"paths":["/pk"],"kind":"Hash"}}`).status)
-	require.Equal(t, http.StatusCreated, s.putScript("sprocs", "spin", `function spin(){ while (true) {} }`, nil).status)
+	require.Equal(
+		t,
+		http.StatusCreated,
+		s.putScript("sprocs", "spin", `function spin(){ while (true) {} }`, nil).status,
+	)
 
 	var done atomic.Bool
 

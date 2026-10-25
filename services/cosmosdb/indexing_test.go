@@ -175,7 +175,12 @@ func TestIndexingPolicy_LazyModeRejected(t *testing.T) {
 			policy := `{"indexingMode":"` + tt.mode + `","automatic":true,"includedPaths":[{"path":"/*"}]}`
 
 			s := newLiveServer(t)
-			create := s.do(http.MethodPost, "/dbs/d/colls", nil, strings.Replace(policyContainer(policy), `"id":"c"`, `"id":"fresh"`, 1))
+			create := s.do(
+				http.MethodPost,
+				"/dbs/d/colls",
+				nil,
+				strings.Replace(policyContainer(policy), `"id":"c"`, `"id":"fresh"`, 1),
+			)
 			assert.Equal(t, tt.want, create.status, string(create.body))
 
 			replace := s.do(http.MethodPut, "/dbs/d/colls/c", nil, policyContainer(policy))

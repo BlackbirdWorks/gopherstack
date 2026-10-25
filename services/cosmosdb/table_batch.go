@@ -121,7 +121,10 @@ func (h *Handler) writeBatchQuery(c *echo.Context, o odatatable.WireBatchOp) err
 	return h.writeRetrievePart(c, odatatable.BatchResponsePart{
 		Status: http.StatusOK,
 		Headers: [][2]string{
-			{headerContentType, "application/json;odata=" + tableODataLevelFromAccept(accept) + ";streaming=true;charset=utf-8"},
+			{
+				headerContentType,
+				"application/json;odata=" + tableODataLevelFromAccept(accept) + ";streaming=true;charset=utf-8",
+			},
 		},
 		Body: payload,
 	})
