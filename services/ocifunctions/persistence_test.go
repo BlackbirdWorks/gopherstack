@@ -50,15 +50,30 @@ func TestRestoreRejects(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		mutate  func(map[string]any)
+		name    string
 		wantErr bool
 		wantApp bool
 	}{
-		{"null application", func(m map[string]any) { m["applications"] = map[string]any{"x": nil} }, true, false},
-		{"null function", func(m map[string]any) { m["functions"] = map[string]any{"x": nil} }, true, false},
-		{"old version starts empty", func(m map[string]any) { m["version"] = 0 }, false, false},
-		{"unchanged keeps state", func(map[string]any) {}, false, true},
+		{
+			name:    "null application",
+			mutate:  func(m map[string]any) { m["applications"] = map[string]any{"x": nil} },
+			wantErr: true,
+			wantApp: false,
+		},
+		{
+			name:    "null function",
+			mutate:  func(m map[string]any) { m["functions"] = map[string]any{"x": nil} },
+			wantErr: true,
+			wantApp: false,
+		},
+		{
+			name:    "old version starts empty",
+			mutate:  func(m map[string]any) { m["version"] = 0 },
+			wantErr: false,
+			wantApp: false,
+		},
+		{name: "unchanged keeps state", mutate: func(map[string]any) {}, wantErr: false, wantApp: true},
 	}
 
 	for _, tt := range tests {
@@ -111,10 +126,10 @@ func TestProvider(t *testing.T) {
 		wantPort int
 		wantErr  bool
 	}{
-		{nil, "nil context", 0, true},
-		{&service.AppContext{}, "defaults", oci.DefaultPort, false},
-		{&service.AppContext{Config: cfgProvider{oci.Settings{Port: 9999, Engine: oci.EngineNone}}}, "from config",
-			9999, false},
+		{ctx: nil, name: "nil context", wantPort: 0, wantErr: true},
+		{ctx: &service.AppContext{}, name: "defaults", wantPort: oci.DefaultPort},
+		{ctx: &service.AppContext{Config: cfgProvider{oci.Settings{Port: 9999, DisableEngine: true}}},
+			name: "from config", wantPort: 9999},
 	}
 
 	for _, tt := range tests {

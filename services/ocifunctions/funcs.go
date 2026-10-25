@@ -37,40 +37,40 @@ type fnIn struct {
 	Provisioned *Concurrency      `json:"provisionedConcurrencyConfig"`
 	Trace       *TraceConfig      `json:"traceConfig"`
 	Source      *sourceIn         `json:"sourceDetails"`
-	Failure     json.RawMessage   `json:"failureDestination"`
-	Success     json.RawMessage   `json:"successDestination"`
 	Name        string            `json:"displayName"`
 	AppID       string            `json:"applicationId"`
+	Failure     json.RawMessage   `json:"failureDestination"`
+	Success     json.RawMessage   `json:"successDestination"`
 }
 
 type fnWire struct {
-	TimeCreated        time.Time                 `json:"timeCreated"`
-	TimeUpdated        time.Time                 `json:"timeUpdated"`
-	TraceConfig        *TraceConfig              `json:"traceConfig,omitempty"`
-	Detached           *int                      `json:"detachedModeTimeoutInSeconds,omitempty"`
-	Config             map[string]string         `json:"config,omitempty"`
-	FreeformTags       map[string]string         `json:"freeformTags,omitempty"`
-	DefinedTags        map[string]map[string]any `json:"definedTags,omitempty"`
-	Failure            json.RawMessage           `json:"failureDestination,omitempty"`
-	Success            json.RawMessage           `json:"successDestination,omitempty"`
-	Source             sourceIn                  `json:"sourceDetails"`
-	Provisioned        Concurrency               `json:"provisionedConcurrencyConfig"`
-	ID                 string                    `json:"id"`
-	AppID              string                    `json:"applicationId"`
-	CompartmentID      string                    `json:"compartmentId"`
-	Name               string                    `json:"displayName"`
-	LifecycleState     string                    `json:"lifecycleState"`
-	Shape              string                    `json:"shape,omitempty"`
-	InvokeEndpoint     string                    `json:"invokeEndpoint"`
-	Memory             int64                     `json:"memoryInMBs"`
-	Timeout            int                       `json:"timeoutInSeconds"`
+	TimeUpdated    time.Time                 `json:"timeUpdated"`
+	TimeCreated    time.Time                 `json:"timeCreated"`
+	TraceConfig    *TraceConfig              `json:"traceConfig,omitempty"`
+	Detached       *int                      `json:"detachedModeTimeoutInSeconds,omitempty"`
+	Config         map[string]string         `json:"config,omitempty"`
+	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
+	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
+	Source         sourceIn                  `json:"sourceDetails"`
+	Provisioned    Concurrency               `json:"provisionedConcurrencyConfig"`
+	ID             string                    `json:"id"`
+	AppID          string                    `json:"applicationId"`
+	CompartmentID  string                    `json:"compartmentId"`
+	Name           string                    `json:"displayName"`
+	LifecycleState string                    `json:"lifecycleState"`
+	Shape          string                    `json:"shape,omitempty"`
+	InvokeEndpoint string                    `json:"invokeEndpoint"`
+	Success        json.RawMessage           `json:"successDestination,omitempty"`
+	Failure        json.RawMessage           `json:"failureDestination,omitempty"`
+	Memory         int64                     `json:"memoryInMBs"`
+	Timeout        int                       `json:"timeoutInSeconds"`
 }
 
 func (b *InMemoryBackend) fnView(f *Function, endpoint string, summary bool) fnWire {
 	w := fnWire{
 		ID: f.ID, AppID: f.AppID, CompartmentID: f.CompartmentID, Name: f.Name, LifecycleState: f.State,
-		Source:      sourceIn{SourceType: sourceImage, Image: f.Image, ImageDigest: f.ImageDigest},
-		Memory:      f.Memory, Timeout: f.Timeout, Detached: f.Detached, Provisioned: f.Provisioned,
+		Source: sourceIn{SourceType: sourceImage, Image: f.Image, ImageDigest: f.ImageDigest},
+		Memory: f.Memory, Timeout: f.Timeout, Detached: f.Detached, Provisioned: f.Provisioned,
 		Failure: f.Failure, Success: f.Success, TraceConfig: f.TraceConfig, InvokeEndpoint: endpoint,
 		TimeCreated: f.TimeCreated, TimeUpdated: f.TimeUpdated,
 		FreeformTags: f.Tags.FreeformTags, DefinedTags: f.Tags.DefinedTags,
@@ -114,16 +114,24 @@ func validateLimits(in *fnIn) *APIError {
 		return errParam("detachedModeTimeoutInSeconds must be between 5 and 3600")
 	}
 
-	if p := in.Provisioned; p != nil {
-		switch {
-		case p.Strategy != concNone && p.Strategy != concConstant:
-			return errParam("provisionedConcurrencyConfig.strategy must be NONE or CONSTANT")
-		case p.Strategy == concConstant && (p.Count == nil || *p.Count < 0):
-			return errParam("provisionedConcurrencyConfig.count is required for CONSTANT and must not be negative")
-		}
+	if aerr := validateConcurrency(in.Provisioned); aerr != nil {
+		return aerr
 	}
 
 	return validateConfig(in.Config)
+}
+
+func validateConcurrency(p *Concurrency) *APIError {
+	switch {
+	case p == nil:
+		return nil
+	case p.Strategy != concNone && p.Strategy != concConstant:
+		return errParam("provisionedConcurrencyConfig.strategy must be NONE or CONSTANT")
+	case p.Strategy == concConstant && (p.Count == nil || *p.Count < 0):
+		return errParam("provisionedConcurrencyConfig.count is required for CONSTANT and must not be negative")
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) fnNameTaken(appID, name, except string) bool {

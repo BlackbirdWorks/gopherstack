@@ -88,15 +88,13 @@ type Application struct {
 
 // Function is a container-image function of an application.
 type Function struct {
-	TimeCreated   time.Time         `json:"timeCreated"`
+	Tags          Tags              `json:"tags"`
 	TimeUpdated   time.Time         `json:"timeUpdated"`
+	TimeCreated   time.Time         `json:"timeCreated"`
 	TransitionAt  *time.Time        `json:"transitionAt,omitempty"`
 	TraceConfig   *TraceConfig      `json:"traceConfig,omitempty"`
 	Detached      *int              `json:"detachedModeTimeoutInSeconds,omitempty"`
 	Config        map[string]string `json:"config,omitempty"`
-	Failure       json.RawMessage   `json:"failureDestination,omitempty"`
-	Success       json.RawMessage   `json:"successDestination,omitempty"`
-	Tags          Tags              `json:"tags"`
 	Provisioned   Concurrency       `json:"provisionedConcurrencyConfig"`
 	ID            string            `json:"id"`
 	AppID         string            `json:"applicationId"`
@@ -106,6 +104,8 @@ type Function struct {
 	Image         string            `json:"image"`
 	ImageDigest   string            `json:"imageDigest,omitempty"`
 	Etag          string            `json:"etag"`
+	Success       json.RawMessage   `json:"successDestination,omitempty"`
+	Failure       json.RawMessage   `json:"failureDestination,omitempty"`
 	Memory        int64             `json:"memoryInMBs"`
 	Seq           int64             `json:"seq"`
 	Timeout       int               `json:"timeoutInSeconds"`

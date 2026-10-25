@@ -38,7 +38,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	backend.Configure(settings)
 
-	if settings.Engine != EngineNone {
+	if !settings.DisableEngine {
 		lr := gcpserve.NewLazyRuntime(ctx.Logger, "ocifunctions.runtime")
 		backend.SetRuntime(func() (Runner, error) { return lr.Get() })
 		backend.SetOnClose(func() { _ = lr.Close() })

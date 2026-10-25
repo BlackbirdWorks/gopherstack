@@ -143,15 +143,6 @@ func newEnv(t *testing.T, opts envOpts) *env {
 	return e
 }
 
-func (e *env) invoker(t *testing.T) functions.FunctionsInvokeClient {
-	t.Helper()
-
-	c, err := functions.NewFunctionsInvokeClientWithConfigurationProvider(e.prov, e.base)
-	require.NoError(t, err)
-
-	return c
-}
-
 func (e *env) settle() { e.clock.Advance(5 * time.Second) }
 
 func (e *env) mkApp(t *testing.T, name string, mod func(*functions.CreateApplicationDetails)) functions.Application {

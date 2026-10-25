@@ -17,7 +17,12 @@ import (
 	oci "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 )
 
-const unitMs = 10 * time.Millisecond
+var (
+	errNoSuchImage = errors.New("no such image")
+	errDaemonDown  = errors.New("docker daemon not running")
+)
+
+const testUnit = 10 * time.Millisecond
 
 type invokeEnv struct {
 	*env
@@ -26,12 +31,16 @@ type invokeEnv struct {
 	fn  functions.Function
 }
 
-func newInvokeEnv(t *testing.T, modApp func(*functions.CreateApplicationDetails), modFn func(*functions.CreateFunctionDetails)) *invokeEnv {
+func newInvokeEnv(
+	t *testing.T,
+	modApp func(*functions.CreateApplicationDetails),
+	modFn func(*functions.CreateFunctionDetails),
+) *invokeEnv {
 	t.Helper()
 
 	rt := newFakeRuntime()
 	e := newEnv(t, envOpts{rt: rt})
-	e.backend.SetTimeoutUnit(unitMs)
+	e.backend.SetTimeoutUnit(testUnit)
 
 	app := e.mkApp(t, "app", modApp)
 
@@ -146,17 +155,17 @@ func TestInvoke_FDKContract(t *testing.T) {
 }
 
 func (ie *invokeEnv) timeout() time.Duration {
-	return time.Duration(*ie.fn.TimeoutInSeconds) * unitMs
+	return time.Duration(*ie.fn.TimeoutInSeconds) * testUnit
 }
 
 func TestInvoke_Pool(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(*testing.T, *invokeEnv)
+		name string
 	}{
-		{"container reused across invokes", func(t *testing.T, ie *invokeEnv) {
+		{name: "container reused across invokes", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			for range 3 {
@@ -168,15 +177,15 @@ func TestInvoke_Pool(t *testing.T) {
 			assert.Equal(t, 1, ie.backend.LiveContainers())
 			assert.Len(t, ie.rt.recorded(), 3)
 		}},
-		{"update replaces the warm container", func(t *testing.T, ie *invokeEnv) {
+		{name: "update replaces the warm container", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			_, _, err := ie.invoke(t, "x", nil)
 			require.NoError(t, err)
 
 			_, err = ie.mgmt.UpdateFunction(t.Context(), functions.UpdateFunctionRequest{
-				FunctionId:            ie.fn.Id,
-				UpdateFunctionDetails: functions.UpdateFunctionDetails{Config: map[string]string{"V": "2"}},
+				FunctionId: ie.fn.Id,
+				Config:     map[string]string{"V": "2"},
 			})
 			require.NoError(t, err)
 			assert.Len(t, ie.rt.removedIDs(), 1)
@@ -186,15 +195,15 @@ func TestInvoke_Pool(t *testing.T) {
 			assert.Contains(t, out, `"V":"2"`)
 			assert.Len(t, ie.rt.startedSpecs(), 2)
 		}},
-		{"application config change starts a fresh container", func(t *testing.T, ie *invokeEnv) {
+		{name: "application config change starts a fresh container", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			_, _, err := ie.invoke(t, "x", nil)
 			require.NoError(t, err)
 
 			_, err = ie.mgmt.UpdateApplication(t.Context(), functions.UpdateApplicationRequest{
-				ApplicationId:            ie.app.Id,
-				UpdateApplicationDetails: functions.UpdateApplicationDetails{Config: map[string]string{"NEW": "1"}},
+				ApplicationId: ie.app.Id,
+				Config:        map[string]string{"NEW": "1"},
 			})
 			require.NoError(t, err)
 
@@ -205,7 +214,7 @@ func TestInvoke_Pool(t *testing.T) {
 			assert.Len(t, ie.rt.removedIDs(), 1)
 			assert.Equal(t, 1, ie.backend.LiveContainers())
 		}},
-		{"delete removes the container", func(t *testing.T, ie *invokeEnv) {
+		{name: "delete removes the container", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			_, _, err := ie.invoke(t, "x", nil)
@@ -216,7 +225,7 @@ func TestInvoke_Pool(t *testing.T) {
 			assert.Equal(t, 0, ie.rt.running())
 			assert.Equal(t, 0, ie.backend.LiveContainers())
 		}},
-		{"idle containers are reaped", func(t *testing.T, ie *invokeEnv) {
+		{name: "idle containers are reaped", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			_, _, err := ie.invoke(t, "x", nil)
@@ -231,7 +240,7 @@ func TestInvoke_Pool(t *testing.T) {
 			assert.Equal(t, 0, ie.rt.running())
 			assert.Equal(t, 0, ie.backend.LiveContainers())
 		}},
-		{"shutdown removes containers", func(t *testing.T, ie *invokeEnv) {
+		{name: "shutdown removes containers", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			_, _, err := ie.invoke(t, "x", nil)
@@ -240,7 +249,7 @@ func TestInvoke_Pool(t *testing.T) {
 			ie.handler.Shutdown(t.Context())
 			assert.Equal(t, 0, ie.rt.running())
 		}},
-		{"reset removes containers", func(t *testing.T, ie *invokeEnv) {
+		{name: "reset removes containers", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			_, _, err := ie.invoke(t, "x", nil)
@@ -249,9 +258,9 @@ func TestInvoke_Pool(t *testing.T) {
 			ie.handler.Reset()
 			assert.Equal(t, 0, ie.rt.running())
 		}},
-		{"cap evicts the least recently used idle container", func(t *testing.T, ie *invokeEnv) {
+		{name: "cap evicts the least recently used idle container", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
-			ie.backend.Configure(oci.Settings{Engine: oci.EngineAuto, MaxContainers: 1})
+			ie.backend.Configure(oci.Settings{MaxContainers: 1})
 
 			second := ie.mkFn(t, ie.app, "second", nil)
 
@@ -264,16 +273,29 @@ func TestInvoke_Pool(t *testing.T) {
 			assert.Len(t, ie.rt.removedIDs(), 1)
 			assert.Equal(t, 1, ie.backend.LiveContainers())
 		}},
-		{"cap throttles when every container is busy", func(t *testing.T, ie *invokeEnv) {
+		{name: "cap throttles when every container is busy", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
-			ie.backend.Configure(oci.Settings{Engine: oci.EngineAuto, MaxContainers: 1})
+			ie.backend.Configure(oci.Settings{MaxContainers: 1})
 
 			second := ie.mkFn(t, ie.app, "second", nil)
 			done := make(chan error, 1)
 
 			go func() {
-				_, _, err := ie.invoke(t, "block", nil)
-				done <- err
+				c, cerr := functions.NewFunctionsInvokeClientWithConfigurationProvider(ie.prov, *ie.fn.InvokeEndpoint)
+				if cerr != nil {
+					done <- cerr
+
+					return
+				}
+
+				resp, ierr := c.InvokeFunction(t.Context(), functions.InvokeFunctionRequest{
+					FunctionId: ie.fn.Id, InvokeFunctionBody: io.NopCloser(strings.NewReader("block")),
+				})
+				if ierr == nil {
+					_ = resp.Content.Close()
+				}
+
+				done <- ierr
 			}()
 
 			require.Eventually(t, func() bool { return len(ie.rt.recorded()) == 1 }, 5*time.Second, 5*time.Millisecond)
@@ -285,7 +307,7 @@ func TestInvoke_Pool(t *testing.T) {
 			close(ie.rt.release)
 			require.NoError(t, <-done)
 		}},
-		{"missing image is pulled by digest reference", func(t *testing.T, ie *invokeEnv) {
+		{name: "missing image is pulled by digest reference", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 			ie.rt.hasImage = false
 
@@ -307,10 +329,10 @@ func TestInvoke_Outcomes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(*testing.T, *invokeEnv)
+		name string
 	}{
-		{"function failure is 502 and the container stays warm", func(t *testing.T, ie *invokeEnv) {
+		{name: "function failure is 502 and the container stays warm", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			_, _, err := ie.invoke(t, "fail", nil)
@@ -322,7 +344,7 @@ func TestInvoke_Outcomes(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, ie.rt.startedSpecs(), 1)
 		}},
-		{"timeout is 504 and the container is removed", func(t *testing.T, ie *invokeEnv) {
+		{name: "timeout is 504 and the container is removed", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			_, _, err := ie.invoke(t, "hang", nil)
@@ -332,7 +354,7 @@ func TestInvoke_Outcomes(t *testing.T) {
 			assert.Equal(t, 0, ie.rt.running())
 			assert.Equal(t, 0, ie.backend.LiveContainers())
 		}},
-		{"detached returns 202 and still runs the function", func(t *testing.T, ie *invokeEnv) {
+		{name: "detached returns 202 and still runs the function", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			resp, out, err := ie.invoke(t, "later", func(r *functions.InvokeFunctionRequest) {
@@ -345,7 +367,7 @@ func TestInvoke_Outcomes(t *testing.T) {
 			require.Eventually(t, func() bool { return len(ie.rt.recorded()) == 1 }, 5*time.Second, 5*time.Millisecond)
 			assert.Equal(t, "later", ie.rt.recorded()[0].Body)
 		}},
-		{"dry run does not execute", func(t *testing.T, ie *invokeEnv) {
+		{name: "dry run does not execute", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			resp, _, err := ie.invoke(t, "x", func(r *functions.InvokeFunctionRequest) { r.IsDryRun = new(true) })
@@ -353,9 +375,9 @@ func TestInvoke_Outcomes(t *testing.T) {
 			assert.Equal(t, http.StatusOK, resp.RawResponse.StatusCode)
 			assert.Empty(t, ie.rt.startedSpecs())
 		}},
-		{"container start failure is 502", func(t *testing.T, ie *invokeEnv) {
+		{name: "container start failure is 502", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
-			ie.rt.createErr = errors.New("no such image")
+			ie.rt.createErr = errNoSuchImage
 
 			_, _, err := ie.invoke(t, "x", nil)
 			se := svcErr(t, err)
@@ -363,9 +385,9 @@ func TestInvoke_Outcomes(t *testing.T) {
 			assert.Contains(t, se.GetMessage(), "no such image")
 			assert.Equal(t, 0, ie.backend.LiveContainers())
 		}},
-		{"engine none is 503", func(t *testing.T, ie *invokeEnv) {
+		{name: "engine none is 503", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
-			ie.backend.Configure(oci.Settings{Engine: oci.EngineNone})
+			ie.backend.Configure(oci.Settings{DisableEngine: true})
 
 			_, _, err := ie.invoke(t, "x", nil)
 			se := svcErr(t, err)
@@ -373,25 +395,25 @@ func TestInvoke_Outcomes(t *testing.T) {
 			assert.Contains(t, se.GetMessage(), "disabled")
 			assert.Empty(t, ie.rt.startedSpecs())
 		}},
-		{"engine none rejects detached too", func(t *testing.T, ie *invokeEnv) {
+		{name: "engine none rejects detached too", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
-			ie.backend.Configure(oci.Settings{Engine: oci.EngineNone})
+			ie.backend.Configure(oci.Settings{DisableEngine: true})
 
 			_, _, err := ie.invoke(t, "x", func(r *functions.InvokeFunctionRequest) {
 				r.FnInvokeType = functions.InvokeFunctionFnInvokeTypeDetached
 			})
 			assert.Equal(t, http.StatusServiceUnavailable, svcErr(t, err).GetHTTPStatusCode())
 		}},
-		{"unreachable runtime is 503", func(t *testing.T, ie *invokeEnv) {
+		{name: "unreachable runtime is 503", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
-			ie.backend.SetRuntime(func() (oci.Runner, error) { return nil, errors.New("docker daemon not running") })
+			ie.backend.SetRuntime(func() (oci.Runner, error) { return nil, errDaemonDown })
 
 			_, _, err := ie.invoke(t, "x", nil)
 			se := svcErr(t, err)
 			assert.Equal(t, http.StatusServiceUnavailable, se.GetHTTPStatusCode())
 			assert.Contains(t, se.GetMessage(), "docker daemon not running")
 		}},
-		{"unknown function is 404", func(t *testing.T, ie *invokeEnv) {
+		{name: "unknown function is 404", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			ghost := ie.fn
@@ -400,14 +422,12 @@ func TestInvoke_Outcomes(t *testing.T) {
 			_, _, err := ie.invokeFn(t, ghost, "x", nil)
 			assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 		}},
-		{"function still creating is 409", func(t *testing.T, ie *invokeEnv) {
+		{name: "function still creating is 409", run: func(t *testing.T, ie *invokeEnv) {
 			t.Helper()
 
 			created, err := ie.mgmt.CreateFunction(t.Context(), functions.CreateFunctionRequest{
-				CreateFunctionDetails: functions.CreateFunctionDetails{
-					DisplayName: new("fresh"), ApplicationId: ie.app.Id, MemoryInMBs: new(int64(128)),
-					SourceDetails: functions.CreateContainerImageFunctionSourceDetails{Image: new("i")},
-				},
+				DisplayName: new("fresh"), ApplicationId: ie.app.Id, MemoryInMBs: new(int64(128)),
+				SourceDetails: functions.CreateContainerImageFunctionSourceDetails{Image: new("i")},
 			})
 			require.NoError(t, err)
 

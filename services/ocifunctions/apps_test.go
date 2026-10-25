@@ -121,28 +121,24 @@ func TestApplication_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(*testing.T, *env, functions.Application)
+		name string
 	}{
-		{"duplicate name", func(t *testing.T, e *env, _ functions.Application) {
+		{name: "duplicate name", run: func(t *testing.T, e *env, _ functions.Application) {
 			t.Helper()
 
 			_, err := e.mgmt.CreateApplication(t.Context(), functions.CreateApplicationRequest{
-				CreateApplicationDetails: functions.CreateApplicationDetails{
-					CompartmentId: new(testCompartment), DisplayName: new("app"), SubnetIds: []string{testSubnet},
-				},
+				CompartmentId: new(testCompartment), DisplayName: new("app"), SubnetIds: []string{testSubnet},
 			})
 			assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 		}},
-		{"update replaces config and tags", func(t *testing.T, e *env, a functions.Application) {
+		{name: "update replaces config and tags", run: func(t *testing.T, e *env, a functions.Application) {
 			t.Helper()
 
 			resp, err := e.mgmt.UpdateApplication(t.Context(), functions.UpdateApplicationRequest{
 				ApplicationId: a.Id,
-				UpdateApplicationDetails: functions.UpdateApplicationDetails{
-					Config: map[string]string{"N": "2"}, SyslogUrl: new("udp://h:1"),
-					FreeformTags: map[string]string{"t": "1"},
-				},
+				Config:        map[string]string{"N": "2"}, SyslogUrl: new("udp://h:1"),
+				FreeformTags: map[string]string{"t": "1"},
 			})
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusAccepted, resp.RawResponse.StatusCode)
@@ -154,7 +150,7 @@ func TestApplication_Lifecycle(t *testing.T) {
 			assert.Equal(t, "udp://h:1", *got.SyslogUrl)
 			assert.Equal(t, map[string]string{"t": "1"}, got.FreeformTags)
 		}},
-		{"update with stale etag", func(t *testing.T, e *env, a functions.Application) {
+		{name: "update with stale etag", run: func(t *testing.T, e *env, a functions.Application) {
 			t.Helper()
 
 			_, err := e.mgmt.UpdateApplication(t.Context(), functions.UpdateApplicationRequest{
@@ -163,7 +159,7 @@ func TestApplication_Lifecycle(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 		}},
-		{"delete then gone", func(t *testing.T, e *env, a functions.Application) {
+		{name: "delete then gone", run: func(t *testing.T, e *env, a functions.Application) {
 			t.Helper()
 
 			del, err := e.mgmt.DeleteApplication(t.Context(), functions.DeleteApplicationRequest{ApplicationId: a.Id})
@@ -184,7 +180,7 @@ func TestApplication_Lifecycle(t *testing.T) {
 			_, err = e.mgmt.GetApplication(t.Context(), functions.GetApplicationRequest{ApplicationId: a.Id})
 			assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 		}},
-		{"delete refused with functions", func(t *testing.T, e *env, a functions.Application) {
+		{name: "delete refused with functions", run: func(t *testing.T, e *env, a functions.Application) {
 			t.Helper()
 			e.mkFn(t, a, "fn", nil)
 
@@ -193,16 +189,17 @@ func TestApplication_Lifecycle(t *testing.T) {
 			assert.Equal(t, http.StatusConflict, se.GetHTTPStatusCode())
 			assert.Equal(t, "IncorrectState", se.GetCode())
 		}},
-		{"change compartment moves functions", func(t *testing.T, e *env, a functions.Application) {
+		{name: "change compartment moves functions", run: func(t *testing.T, e *env, a functions.Application) {
 			t.Helper()
 
 			fn := e.mkFn(t, a, "fn", nil)
-			moved, err := e.mgmt.ChangeApplicationCompartment(t.Context(), functions.ChangeApplicationCompartmentRequest{
-				ApplicationId: a.Id,
-				ChangeApplicationCompartmentDetails: functions.ChangeApplicationCompartmentDetails{
+			moved, err := e.mgmt.ChangeApplicationCompartment(
+				t.Context(),
+				functions.ChangeApplicationCompartmentRequest{
+					ApplicationId: a.Id,
 					CompartmentId: new("ocid1.compartment.oc1..other"),
 				},
-			})
+			)
 			require.NoError(t, err)
 			assert.NotNil(t, moved.OpcWorkRequestId)
 
@@ -210,10 +207,13 @@ func TestApplication_Lifecycle(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "ocid1.compartment.oc1..other", *got.CompartmentId)
 		}},
-		{"get unknown", func(t *testing.T, e *env, _ functions.Application) {
+		{name: "get unknown", run: func(t *testing.T, e *env, _ functions.Application) {
 			t.Helper()
 
-			_, err := e.mgmt.GetApplication(t.Context(), functions.GetApplicationRequest{ApplicationId: new("ocid1.fnapp.x")})
+			_, err := e.mgmt.GetApplication(
+				t.Context(),
+				functions.GetApplicationRequest{ApplicationId: new("ocid1.fnapp.x")},
+			)
 			se := svcErr(t, err)
 			assert.Equal(t, http.StatusNotFound, se.GetHTTPStatusCode())
 			assert.Equal(t, "NotAuthorizedOrNotFound", se.GetCode())
@@ -239,8 +239,12 @@ func TestApplication_List(t *testing.T) {
 		wantNames []string
 		wantNext  bool
 	}{
-		{"all newest first", func(*env) functions.ListApplicationsRequest { return functions.ListApplicationsRequest{} },
-			[]string{"c", "b", "a"}, false},
+		{
+			"all newest first",
+			func(*env) functions.ListApplicationsRequest { return functions.ListApplicationsRequest{} },
+			[]string{"c", "b", "a"},
+			false,
+		},
 		{"by name asc", func(*env) functions.ListApplicationsRequest {
 			return functions.ListApplicationsRequest{
 				SortBy: functions.ListApplicationsSortByDisplayname, SortOrder: functions.ListApplicationsSortOrderAsc,

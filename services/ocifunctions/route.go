@@ -34,6 +34,8 @@ const (
 	changeCompartmentSfx = "/actions/changeCompartment"
 )
 
+const routesPerBase = 16
+
 // apiBases are the version path prefixes served: 20181201 is the documented API version, 20260325 is
 // the one the pinned SDK sends.
 //
@@ -63,7 +65,7 @@ func routesFor(base string) []restroute.Route {
 
 //nolint:gochecknoglobals // immutable route table
 var router = restroute.New(func() []restroute.Route {
-	var all []restroute.Route
+	all := make([]restroute.Route, 0, len(apiBases)*routesPerBase)
 	for _, b := range apiBases {
 		all = append(all, routesFor(b)...)
 	}

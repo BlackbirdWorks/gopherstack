@@ -44,10 +44,6 @@ func errEtag() *APIError {
 
 func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "NotAuthenticated", msg) }
 
-func errTooLarge(msg string) *APIError {
-	return newErr(http.StatusRequestEntityTooLarge, "RequestEntityTooLarge", msg)
-}
-
 func errThrottled(msg string) *APIError {
 	return newErr(http.StatusTooManyRequests, "TooManyRequests", msg)
 }

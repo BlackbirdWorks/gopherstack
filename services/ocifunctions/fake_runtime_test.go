@@ -16,6 +16,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
 
+var errNoSocketDir = errors.New("no socket directory mounted at /tmp/iofs")
+
 type fnCall struct {
 	Header http.Header
 	Body   string
@@ -97,7 +99,8 @@ func (f *fakeRuntime) handler(id string, spec container.Spec) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Fn-Http-Status", "200")
 			w.Header().Set("Fn-Http-H-X-Echo", "1")
-			_ = json.NewEncoder(w).Encode(map[string]any{"body": string(body), "env": specEnv(spec), "path": r.URL.Path})
+			_ = json.NewEncoder(w).
+				Encode(map[string]any{"body": string(body), "env": specEnv(spec), "path": r.URL.Path})
 		}
 	})
 }
@@ -116,7 +119,7 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 	}
 
 	if dir == "" {
-		return "", errors.New("no socket directory mounted at /tmp/iofs")
+		return "", errNoSocketDir
 	}
 
 	l, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", filepath.Join(dir, "lsnr.sock"))

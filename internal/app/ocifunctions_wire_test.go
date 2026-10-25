@@ -92,7 +92,9 @@ func TestWireOCIIdentityKeys_Functions(t *testing.T) {
 
 			c.Host = fmt.Sprintf("http://localhost:%d", tcp.Port)
 
-			_, err = c.ListApplications(t.Context(), functions.ListApplicationsRequest{CompartmentId: new("ocid1.compartment.oc1..c")})
+			_, err = c.ListApplications(t.Context(), functions.ListApplicationsRequest{
+				CompartmentId: new("ocid1.compartment.oc1..c"),
+			})
 			if tt.wantErr {
 				require.Error(t, err)
 

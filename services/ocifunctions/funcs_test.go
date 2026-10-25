@@ -63,11 +63,36 @@ func TestFunction_Create(t *testing.T) {
 				assert.True(t, ok)
 			},
 		},
-		{name: "memory too low", mod: func(d *functions.CreateFunctionDetails) { d.MemoryInMBs = new(int64(64)) }, wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter"},
-		{name: "memory too high", mod: func(d *functions.CreateFunctionDetails) { d.MemoryInMBs = new(int64(4096)) }, wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter"},
-		{name: "timeout too high", mod: func(d *functions.CreateFunctionDetails) { d.TimeoutInSeconds = new(301) }, wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter"},
-		{name: "timeout too low", mod: func(d *functions.CreateFunctionDetails) { d.TimeoutInSeconds = new(1) }, wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter"},
-		{name: "detached too high", mod: func(d *functions.CreateFunctionDetails) { d.DetachedModeTimeoutInSeconds = new(3601) }, wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter"},
+		{
+			name:       "memory too low",
+			mod:        func(d *functions.CreateFunctionDetails) { d.MemoryInMBs = new(int64(64)) },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+		},
+		{
+			name:       "memory too high",
+			mod:        func(d *functions.CreateFunctionDetails) { d.MemoryInMBs = new(int64(4096)) },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+		},
+		{
+			name:       "timeout too high",
+			mod:        func(d *functions.CreateFunctionDetails) { d.TimeoutInSeconds = new(301) },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+		},
+		{
+			name:       "timeout too low",
+			mod:        func(d *functions.CreateFunctionDetails) { d.TimeoutInSeconds = new(1) },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+		},
+		{
+			name:       "detached too high",
+			mod:        func(d *functions.CreateFunctionDetails) { d.DetachedModeTimeoutInSeconds = new(3601) },
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+		},
 		{name: "negative concurrency", mod: func(d *functions.CreateFunctionDetails) {
 			d.ProvisionedConcurrencyConfig = functions.ConstantProvisionedConcurrencyConfig{Count: new(-1)}
 		}, wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter"},
@@ -82,7 +107,12 @@ func TestFunction_Create(t *testing.T) {
 		{name: "pre-built unsupported", mod: func(d *functions.CreateFunctionDetails) {
 			d.SourceDetails = functions.CreatePreBuiltFunctionSourceDetails{PbfListingId: new("ocid1.pbf.oc1..x")}
 		}, wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter"},
-		{name: "unknown application", mod: func(d *functions.CreateFunctionDetails) { d.ApplicationId = new("ocid1.fnapp.nope") }, wantStatus: http.StatusNotFound, wantCode: "NotAuthorizedOrNotFound"},
+		{
+			name:       "unknown application",
+			mod:        func(d *functions.CreateFunctionDetails) { d.ApplicationId = new("ocid1.fnapp.nope") },
+			wantStatus: http.StatusNotFound,
+			wantCode:   "NotAuthorizedOrNotFound",
+		},
 	}
 
 	for _, tt := range tests {
@@ -124,30 +154,30 @@ func TestFunction_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(*testing.T, *env, functions.Application, functions.Function)
+		name string
 	}{
-		{"duplicate name", func(t *testing.T, e *env, a functions.Application, _ functions.Function) {
+		{name: "duplicate name", run: func(t *testing.T, e *env, a functions.Application, _ functions.Function) {
 			t.Helper()
 
 			_, err := e.mgmt.CreateFunction(t.Context(), functions.CreateFunctionRequest{
-				CreateFunctionDetails: functions.CreateFunctionDetails{
-					DisplayName: new("fn"), ApplicationId: a.Id, MemoryInMBs: new(int64(128)),
-					SourceDetails: functions.CreateContainerImageFunctionSourceDetails{Image: new("i")},
-				},
+				DisplayName: new("fn"), ApplicationId: a.Id, MemoryInMBs: new(int64(128)),
+				SourceDetails: functions.CreateContainerImageFunctionSourceDetails{Image: new("i")},
 			})
 			assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 		}},
-		{"update changes fields", func(t *testing.T, e *env, _ functions.Application, f functions.Function) {
+		{name: "update changes fields", run: func(t *testing.T, e *env, _ functions.Application, f functions.Function) {
 			t.Helper()
 
 			resp, err := e.mgmt.UpdateFunction(t.Context(), functions.UpdateFunctionRequest{
-				FunctionId: f.Id,
-				UpdateFunctionDetails: functions.UpdateFunctionDetails{
-					MemoryInMBs: new(int64(512)), TimeoutInSeconds: new(60), Config: map[string]string{"Z": "9"},
-					SourceDetails: functions.UpdateContainerImageFunctionSourceDetails{Image: new("example/fn:2")},
-					ProvisionedConcurrencyConfig: functions.NoneProvisionedConcurrencyConfig{},
+				FunctionId:       f.Id,
+				MemoryInMBs:      new(int64(512)),
+				TimeoutInSeconds: new(60),
+				Config:           map[string]string{"Z": "9"},
+				SourceDetails: functions.UpdateContainerImageFunctionSourceDetails{
+					Image: new("example/fn:2"),
 				},
+				ProvisionedConcurrencyConfig: functions.NoneProvisionedConcurrencyConfig{},
 			})
 			require.NoError(t, err)
 			assert.NotNil(t, resp.OpcWorkRequestId)
@@ -162,16 +192,16 @@ func TestFunction_Lifecycle(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, "example/fn:2", *src.Image)
 		}},
-		{"update validates", func(t *testing.T, e *env, _ functions.Application, f functions.Function) {
+		{name: "update validates", run: func(t *testing.T, e *env, _ functions.Application, f functions.Function) {
 			t.Helper()
 
 			_, err := e.mgmt.UpdateFunction(t.Context(), functions.UpdateFunctionRequest{
-				FunctionId:            f.Id,
-				UpdateFunctionDetails: functions.UpdateFunctionDetails{MemoryInMBs: new(int64(9999))},
+				FunctionId:  f.Id,
+				MemoryInMBs: new(int64(9999)),
 			})
 			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 		}},
-		{"delete", func(t *testing.T, e *env, _ functions.Application, f functions.Function) {
+		{name: "delete", run: func(t *testing.T, e *env, _ functions.Application, f functions.Function) {
 			t.Helper()
 
 			del, err := e.mgmt.DeleteFunction(t.Context(), functions.DeleteFunctionRequest{FunctionId: f.Id})
@@ -189,15 +219,24 @@ func TestFunction_Lifecycle(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 			e.mgmt.Host = e.base
-			_, err = e.mgmt.DeleteApplication(t.Context(), functions.DeleteApplicationRequest{ApplicationId: f.ApplicationId})
+			_, err = e.mgmt.DeleteApplication(
+				t.Context(),
+				functions.DeleteApplicationRequest{ApplicationId: f.ApplicationId},
+			)
 			require.NoError(t, err)
 		}},
-		{"delete with stale etag", func(t *testing.T, e *env, _ functions.Application, f functions.Function) {
-			t.Helper()
+		{
+			name: "delete with stale etag",
+			run: func(t *testing.T, e *env, _ functions.Application, f functions.Function) {
+				t.Helper()
 
-			_, err := e.mgmt.DeleteFunction(t.Context(), functions.DeleteFunctionRequest{FunctionId: f.Id, IfMatch: new("x")})
-			assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
-		}},
+				_, err := e.mgmt.DeleteFunction(
+					t.Context(),
+					functions.DeleteFunctionRequest{FunctionId: f.Id, IfMatch: new("x")},
+				)
+				assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -225,7 +264,12 @@ func TestFunction_List(t *testing.T) {
 			SortBy: functions.ListFunctionsSortByDisplayname, SortOrder: functions.ListFunctionsSortOrderDesc,
 		}, []string{"c", "b", "a"}, false},
 		{"name filter", functions.ListFunctionsRequest{DisplayName: new("a")}, []string{"a"}, false},
-		{"state filter", functions.ListFunctionsRequest{LifecycleState: functions.FunctionLifecycleStateDeleting}, nil, false},
+		{
+			"state filter",
+			functions.ListFunctionsRequest{LifecycleState: functions.FunctionLifecycleStateDeleting},
+			nil,
+			false,
+		},
 		{"paged", functions.ListFunctionsRequest{Limit: new(1)}, []string{"c"}, true},
 	}
 
@@ -273,9 +317,7 @@ func TestWorkRequests(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	app, err := e.mgmt.CreateApplication(t.Context(), functions.CreateApplicationRequest{
-		CreateApplicationDetails: functions.CreateApplicationDetails{
-			CompartmentId: new(testCompartment), DisplayName: new("app"), SubnetIds: []string{testSubnet},
-		},
+		CompartmentId: new(testCompartment), DisplayName: new("app"), SubnetIds: []string{testSubnet},
 	})
 	require.NoError(t, err)
 
@@ -325,7 +367,14 @@ func TestRoutingAndAuth(t *testing.T) {
 		register   bool
 		wantStatus int
 	}{
-		{"documented version path", http.MethodGet, "/20181201/applications?compartmentId=c", false, false, http.StatusOK},
+		{
+			"documented version path",
+			http.MethodGet,
+			"/20181201/applications?compartmentId=c",
+			false,
+			false,
+			http.StatusOK,
+		},
 		{"sdk version path", http.MethodGet, "/20260325/applications?compartmentId=c", false, false, http.StatusOK},
 		{"unknown path", http.MethodGet, "/20181201/nothing", false, false, http.StatusNotFound},
 		{"wrong method", http.MethodPatch, "/20181201/applications", false, false, http.StatusNotFound},
@@ -340,7 +389,7 @@ func TestRoutingAndAuth(t *testing.T) {
 			e := newEnv(t, envOpts{enforce: tt.enforce, register: tt.register})
 			status, _, hdr := rawDo(t, tt.method, e.base+tt.path, "", nil)
 			assert.Equal(t, tt.wantStatus, status)
-			assert.NotEmpty(t, hdr.Get("opc-request-id"))
+			assert.NotEmpty(t, hdr.Get("Opc-Request-Id"))
 		})
 	}
 }

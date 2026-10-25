@@ -100,7 +100,8 @@ func buildFDKImage(t *testing.T) string {
 
 	tag := "gopherstack-ocifn-it:" + awsid.NewN("", 8)
 
-	if out, err = exec.CommandContext(t.Context(), "docker", "build", "-q", "-t", tag, ctxDir).CombinedOutput(); err != nil {
+	if out, err = exec.CommandContext(t.Context(), "docker", "build", "-q", "-t", tag, ctxDir).
+		CombinedOutput(); err != nil {
 		t.Skipf("docker build failed: %v: %s", err, out)
 	}
 
@@ -129,7 +130,7 @@ func TestDocker_FDKImage(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	e.backend.SetRuntime(func() (oci.Runner, error) { return lr.Get() })
-	e.backend.Configure(oci.Settings{Engine: oci.EngineAuto, StartupTimeout: time.Minute})
+	e.backend.Configure(oci.Settings{StartupTimeout: time.Minute})
 	e.backend.SetTimeoutUnit(200 * time.Millisecond)
 
 	app := e.mkApp(t, "it-app", func(d *functions.CreateApplicationDetails) {

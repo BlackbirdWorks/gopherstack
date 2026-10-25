@@ -43,6 +43,7 @@ const (
 	hdrHTTPURL    = "Fn-Http-Request-Url"
 	hdrHTTPPrefix = "Fn-Http-H-"
 	callIDLen     = 26
+	nameSuffixLen = 8
 )
 
 // Runner is the slice of the container runtime that function execution needs.
@@ -53,7 +54,10 @@ type imageStore interface {
 	HasImage(ctx context.Context, imageRef string) (bool, error)
 }
 
-var errEngineOff = errors.New("function engine is disabled")
+var (
+	errEngineOff = errors.New("function engine is disabled")
+	errNoRuntime = errors.New("no container runtime is configured")
+)
 
 // dropForward lists request headers that are never forwarded to the function as Fn-Http-H-*.
 //
@@ -97,20 +101,20 @@ type warm struct {
 }
 
 type executor struct {
-	mu      *lockmetrics.RWMutex
-	now     func() time.Time
-	runtime func() (Runner, error)
-	onClose func()
-	runCtx  context.Context //nolint:containedctx // lifetime of detached invocations
-	cancel  context.CancelFunc
-	idle    map[string][]*warm
-	wg      sync.WaitGroup
-	engine  string
-	startup time.Duration
-	idleTTL time.Duration
-	maxLive int
-	busy    int
-	unit    time.Duration
+	runCtx   context.Context
+	idle     map[string][]*warm
+	runtime  func() (Runner, error)
+	onClose  func()
+	now      func() time.Time
+	cancel   context.CancelFunc
+	mu       *lockmetrics.RWMutex
+	noEngine bool
+	wg       sync.WaitGroup
+	startup  time.Duration
+	idleTTL  time.Duration
+	maxLive  int
+	busy     int
+	unit     time.Duration
 }
 
 func newExecutor(now func() time.Time) *executor {
@@ -119,7 +123,7 @@ func newExecutor(now func() time.Time) *executor {
 
 	return &executor{
 		mu: lockmetrics.New("ocifunctions.exec"), now: now, runCtx: ctx, cancel: cancel, idle: map[string][]*warm{},
-		engine: d.Engine, startup: d.StartupTimeout, idleTTL: d.IdleTimeout, maxLive: d.MaxContainers,
+		startup: d.StartupTimeout, idleTTL: d.IdleTimeout, maxLive: d.MaxContainers,
 		unit: time.Second,
 	}
 }
@@ -130,7 +134,7 @@ func (b *InMemoryBackend) Configure(s Settings) {
 	e.mu.Lock("Configure")
 	defer e.mu.Unlock()
 
-	e.engine = s.Engine
+	e.noEngine = s.DisableEngine
 	if s.StartupTimeout > 0 {
 		e.startup = s.StartupTimeout
 	}
@@ -200,15 +204,15 @@ func (b *InMemoryBackend) LiveContainers() int {
 
 func (e *executor) runner() (Runner, error) {
 	e.mu.RLock("runner")
-	engine, fn := e.engine, e.runtime
+	noEngine, fn := e.noEngine, e.runtime
 	e.mu.RUnlock()
 
-	if engine == EngineNone {
+	if noEngine {
 		return nil, errEngineOff
 	}
 
 	if fn == nil {
-		return nil, errors.New("no container runtime is configured")
+		return nil, errNoRuntime
 	}
 
 	r, err := fn()
@@ -232,7 +236,8 @@ func (e *executor) teardown(w *warm) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(e.runCtx), teardownLimit)
 
 		if stopErr := r.StopAndRemove(ctx, w.id); stopErr != nil {
-			logger.Load(ctx).WarnContext(ctx, "ocifunctions: container removal failed", "container", w.id, "error", stopErr)
+			logger.Load(ctx).
+				WarnContext(ctx, "ocifunctions: container removal failed", "container", w.id, "error", stopErr)
 		}
 
 		cancel()
@@ -301,8 +306,10 @@ func (e *executor) reap() {
 
 // acquire hands out a warm container whose configuration matches the plan, or reserves capacity for a new one.
 // ok is false when the container cap is reached and nothing idle can be evicted.
-func (e *executor) acquire(p execPlan) (w *warm, ok bool) {
+func (e *executor) acquire(p execPlan) (*warm, bool) {
 	e.mu.Lock("acquire")
+
+	var w *warm
 
 	var evict []*warm
 
@@ -322,7 +329,7 @@ func (e *executor) acquire(p execPlan) (w *warm, ok bool) {
 
 	e.idle[p.fnID] = ws
 
-	ok = true
+	ok := true
 
 	if w == nil {
 		evict = append(evict, e.makeRoomLocked()...)
@@ -428,7 +435,7 @@ func unixClient(sock string) *http.Client {
 	}}
 }
 
-func waitSocket(ctx context.Context, c *http.Client, sock string) error {
+func waitSocket(ctx context.Context, sock string) error {
 	t := time.NewTimer(0)
 	defer t.Stop()
 
@@ -487,7 +494,7 @@ func (e *executor) start(ctx context.Context, rt Runner, p execPlan) (*warm, err
 
 	w.id, err = rt.CreateAndStart(ctx, container.Spec{
 		Image:  p.image,
-		Name:   "gopherstack-ocifn-" + awsid.NewN("", 8),
+		Name:   "gopherstack-ocifn-" + awsid.NewN("", nameSuffixLen),
 		Env:    p.env,
 		Mounts: []string{dir + ":" + fdkSocketDir},
 	})
@@ -500,7 +507,7 @@ func (e *executor) start(ctx context.Context, rt Runner, p execPlan) (*warm, err
 	sock := filepath.Join(dir, fdkSocketName)
 	w.client = unixClient(sock)
 
-	if err = waitSocket(ctx, w.client, sock); err != nil {
+	if err = waitSocket(ctx, sock); err != nil {
 		e.teardown(w)
 
 		return nil, err
@@ -537,7 +544,12 @@ func callHeaders(in InvokeIn, callID string, deadline time.Time) http.Header {
 }
 
 // call performs one FDK call and classifies the outcome; keep reports whether the container is reusable.
-func (e *executor) call(ctx context.Context, w *warm, p execPlan, in InvokeIn) (out InvokeOut, keep bool, aerr *APIError) {
+func (e *executor) call(
+	ctx context.Context,
+	w *warm,
+	p execPlan,
+	in InvokeIn,
+) (InvokeOut, bool, *APIError) {
 	callCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 

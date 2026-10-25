@@ -1,6 +1,7 @@
 package ocifunctions
 
 import (
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -64,26 +65,27 @@ const (
 )
 
 func (h *Handler) invokeFunction(q *req) error {
-	if intent := q.r.Header.Get("fn-intent"); intent != "" && !slices.Contains([]string{"httprequest", "cloudevent"}, intent) {
+	if intent := q.r.Header.Get(
+		"Fn-Intent",
+	); intent != "" &&
+		!slices.Contains([]string{"httprequest", "cloudevent"}, intent) {
 		return errParam("fn-intent must be httprequest or cloudevent")
 	}
 
-	kind := strings.ToLower(q.r.Header.Get("fn-invoke-type"))
+	kind := strings.ToLower(q.r.Header.Get("Fn-Invoke-Type"))
 	if kind != "" && kind != invokeSync && kind != invokeDetached {
 		return errParam("fn-invoke-type must be sync or detached")
 	}
 
 	out, err := h.Backend.Invoke(q.r.Context(), q.param("functionId"), InvokeIn{
 		Header: q.r.Header, URL: q.r.URL.RequestURI(), Body: q.body,
-		Detached: kind == invokeDetached, DryRun: strings.EqualFold(q.r.Header.Get("is-dry-run"), "true"),
+		Detached: kind == invokeDetached, DryRun: strings.EqualFold(q.r.Header.Get("Is-Dry-Run"), "true"),
 	})
 	if err != nil {
 		return err
 	}
 
-	for k, vs := range out.Header {
-		q.w.Header()[k] = vs
-	}
+	maps.Copy(q.w.Header(), out.Header)
 
 	q.w.WriteHeader(out.Status)
 	_, _ = q.w.Write(out.Body)

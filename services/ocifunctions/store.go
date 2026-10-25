@@ -3,8 +3,8 @@ package ocifunctions
 import (
 	"cmp"
 	"slices"
-	"sync/atomic"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
