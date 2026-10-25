@@ -61,7 +61,10 @@ func TestSQLServerEngineSpec(t *testing.T) {
 	}{
 		{"express 2019", "sqlserver-ex", "15.00.4345.5.v1", "mcr.microsoft.com/mssql/server:2019-latest", "Express"},
 		{"standard 2022", "sqlserver-se", "16.00.4115.5.v1", "mcr.microsoft.com/mssql/server:2022-latest", "Developer"},
-		{"enterprise 2017", "sqlserver-ee", "14.00.3465.1.v1", "mcr.microsoft.com/mssql/server:2017-latest", "Developer"},
+		{
+			"enterprise 2017", "sqlserver-ee", "14.00.3465.1.v1",
+			"mcr.microsoft.com/mssql/server:2017-latest", "Developer",
+		},
 		{"web default", "sqlserver-web", "", "mcr.microsoft.com/mssql/server:2022-latest", "Developer"},
 	}
 

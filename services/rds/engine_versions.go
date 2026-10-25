@@ -409,9 +409,9 @@ var validDBInstanceEngines = map[string]bool{
 	"oracle-se2-cdb":        true,
 	enginePostgres:          true,
 	"sqlserver-dev-ee":      true,
-	engineSQLServerEE:      true,
+	engineSQLServerEE:       true,
 	"sqlserver-se":          true,
-	engineSQLServerEX:      true,
+	engineSQLServerEX:       true,
 	"sqlserver-web":         true,
 }
 
