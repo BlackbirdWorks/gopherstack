@@ -416,7 +416,7 @@ tasks:
       - go run ./cmd/paritylint
 
   servicequotas-docs-gen:
-    desc: Regenerate services/servicequotas/docs_quotas.json from the AWS General Reference quota pages (network)
+    desc: Regenerate services/servicequotas/docs_quotas.json.gz from the AWS General Reference quota pages (network)
     cmds:
       - go run ./cmd/sqdocsgen
 

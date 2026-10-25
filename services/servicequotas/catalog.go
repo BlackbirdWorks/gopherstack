@@ -1,8 +1,11 @@
 package servicequotas
 
 import (
+	"bytes"
+	"compress/gzip"
 	_ "embed" // quota catalog
 	"encoding/json"
+	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -11,8 +14,17 @@ import (
 //go:embed catalog.json
 var catalogJSON []byte
 
-//go:embed docs_quotas.json
-var docsQuotasJSON []byte
+//go:embed docs_quotas.json.gz
+var docsQuotasGZ []byte
+
+func docsQuotasJSON() ([]byte, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(docsQuotasGZ))
+	if err != nil {
+		return nil, err
+	}
+
+	return io.ReadAll(zr)
+}
 
 // UsageMetric describes the CloudWatch metric that tracks usage of a quota.
 type UsageMetric struct {
@@ -54,8 +66,13 @@ var defaultCatalog = sync.OnceValue(func() *Catalog { //nolint:gochecknoglobals 
 		panic("servicequotas: embedded catalog is invalid: " + err.Error())
 	}
 
+	raw, err := docsQuotasJSON()
+	if err != nil {
+		panic("servicequotas: embedded docs catalog is invalid: " + err.Error())
+	}
+
 	var docs []ServiceDef
-	if err := json.Unmarshal(docsQuotasJSON, &docs); err != nil {
+	if err = json.Unmarshal(raw, &docs); err != nil {
 		panic("servicequotas: embedded docs catalog is invalid: " + err.Error())
 	}
 

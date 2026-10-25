@@ -1,9 +1,11 @@
-// Command sqdocsgen regenerates services/servicequotas/docs_quotas.json from the AWS General Reference
+// Command sqdocsgen regenerates services/servicequotas/docs_quotas.json.gz from the AWS General Reference
 // "endpoints and quotas" pages. Only adjustable quotas are emitted: the docs show a quota code solely
 // through the Service Quotas console link on adjustable rows.
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -165,7 +167,7 @@ func fetch(url string) (string, error) {
 }
 
 func main() {
-	out := flag.String("out", "services/servicequotas/docs_quotas.json", "output file")
+	out := flag.String("out", "services/servicequotas/docs_quotas.json.gz", "output file")
 	flag.Parse()
 
 	var svcs []service
@@ -212,7 +214,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = os.WriteFile(*out, append(b, '\n'), 0o600); err != nil {
+	var buf bytes.Buffer
+
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	_, _ = zw.Write(append(b, '\n'))
+	_ = zw.Close()
+
+	if err = os.WriteFile(*out, buf.Bytes(), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

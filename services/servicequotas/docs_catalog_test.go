@@ -2,8 +2,10 @@ package servicequotas_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	_ "embed"
 	"encoding/json"
+	"io"
 	"regexp"
 	"testing"
 
@@ -15,11 +17,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/servicequotas"
 )
 
-//go:embed docs_quotas.json
-var docsQuotas []byte
+//go:embed docs_quotas.json.gz
+var docsQuotasGZ []byte
 
 func TestDocsCatalog_Provenance(t *testing.T) {
 	t.Parallel()
+
+	zr, err := gzip.NewReader(bytes.NewReader(docsQuotasGZ))
+	require.NoError(t, err)
+
+	docsQuotas, err := io.ReadAll(zr)
+	require.NoError(t, err)
 
 	var svcs []servicequotas.ServiceDef
 	require.NoError(t, json.Unmarshal(docsQuotas, &svcs))
@@ -49,7 +57,7 @@ func TestDocsCatalog_Provenance(t *testing.T) {
 
 	canon, err := json.MarshalIndent(svcs, "", " ")
 	require.NoError(t, err)
-	assert.True(t, bytes.Equal(append(canon, '\n'), docsQuotas), "docs_quotas.json is not in generator output form")
+	assert.True(t, bytes.Equal(append(canon, '\n'), docsQuotas), "docs_quotas.json.gz is not in generator output form")
 }
 
 func TestDocsCatalog_ViaSDK(t *testing.T) {
