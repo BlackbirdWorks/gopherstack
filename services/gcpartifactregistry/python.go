@@ -134,9 +134,13 @@ func pyContent(r *http.Request) ([]byte, string, int, string) {
 
 	defer func() { _ = f.Close() }()
 
-	buf := make([]byte, fh.Size)
-	if _, err = io.ReadFull(f, buf); err != nil {
+	buf, err := io.ReadAll(io.LimitReader(f, maxGenericBytes+1))
+	if err != nil {
 		return nil, "", http.StatusBadRequest, "Reading the upload failed."
+	}
+
+	if len(buf) > maxGenericBytes {
+		return nil, "", http.StatusRequestEntityTooLarge, "The upload is too large."
 	}
 
 	return buf, fh.Filename, 0, ""

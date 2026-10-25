@@ -174,8 +174,8 @@ func (b *InMemoryBackend) IssueAuthorizationCode(
 		return "", validation("code_challenge_method must be S256")
 	}
 
-	if u, err := url.Parse(redirectURI); err != nil || u.Scheme == "" || u.Host == "" {
-		return "", validation("redirect_uri must be an absolute URL")
+	if u, err := url.Parse(redirectURI); err != nil || !isLoopbackRedirect(u) {
+		return "", validation("redirect_uri must be an http loopback URL")
 	}
 
 	c := b.callerOf(ctx)
@@ -460,4 +460,19 @@ func (b *InMemoryBackend) RevokeOAuth2Token(ctx context.Context, token string) e
 	}
 
 	return nil
+}
+
+// isLoopbackRedirect accepts only http callbacks on the local machine, the
+// shape the AWS CLI login flow uses; anything else would be an open redirect.
+func isLoopbackRedirect(u *url.URL) bool {
+	if u.Scheme != "http" {
+		return false
+	}
+
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	default:
+		return false
+	}
 }

@@ -209,7 +209,11 @@ func (h *Handler) authorize(ctx context.Context, c *echo.Context) error {
 		return writeError(c, err)
 	}
 
-	loc, _ := url.Parse(q.Get("redirect_uri"))
+	loc, err := url.Parse(q.Get("redirect_uri"))
+	if err != nil || !isLoopbackRedirect(loc) {
+		return writeError(c, validation("redirect_uri must be an http loopback URL"))
+	}
+
 	vals := loc.Query()
 	vals.Set("code", code)
 
