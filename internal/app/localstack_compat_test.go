@@ -59,9 +59,40 @@ func TestLocalstackEnvPlan(t *testing.T) {
 		},
 		{
 			name:    "unsupported_warned",
-			environ: []string{"KINESIS_LATENCY=5", "LAMBDA_LIMITS_CODE_SIZE_ZIPPED=1", "LOCALSTACK_FOO=1"},
+			environ: []string{"LAMBDA_TRUNCATE_STDOUT=1", "LOCALSTACK_FOO=1"},
 			want:    map[string]string{}, wantEnable: true,
-			wantIgnored: []string{"KINESIS_LATENCY", "LAMBDA_LIMITS_CODE_SIZE_ZIPPED", "LOCALSTACK_FOO"},
+			wantIgnored: []string{"LAMBDA_TRUNCATE_STDOUT", "LOCALSTACK_FOO"},
+		},
+		{
+			name: "lambda_limits", environ: []string{
+				"LAMBDA_LIMITS_CONCURRENT_EXECUTIONS=50", "LAMBDA_LIMITS_CODE_SIZE_ZIPPED=1024",
+				"LAMBDA_LIMITS_MAX_FUNCTION_ENVVAR_SIZE_BYTES=8192", "LAMBDA_RUNTIME_VALIDATION=1",
+				"LAMBDA_LIMITS_TOTAL_CODE_SIZE=99", "LAMBDA_LIMITS_CODE_SIZE_UNZIPPED=77",
+				"LAMBDA_LIMITS_CREATE_FUNCTION_REQUEST_SIZE=5", "LAMBDA_LIMITS_MINIMUM_UNRESERVED_CONCURRENCY=7",
+			},
+			want: map[string]string{
+				"LAMBDA_ACCOUNT_CONCURRENT_EXECUTIONS": "50", "LAMBDA_CODE_SIZE_ZIPPED": "1024",
+				"LAMBDA_MAX_ENVIRONMENT_BYTES": "8192", "LAMBDA_STRICT_RUNTIME_VALIDATION": "true",
+				"LAMBDA_ACCOUNT_TOTAL_CODE_SIZE": "99", "LAMBDA_CODE_SIZE_UNZIPPED": "77",
+				"LAMBDA_CREATE_FUNCTION_REQUEST_SIZE": "5", "LAMBDA_ACCOUNT_MIN_UNRESERVED_CONCURRENCY": "7",
+			},
+		},
+		{
+			name: "lambda_runtime_validation_off", environ: []string{"LAMBDA_RUNTIME_VALIDATION=0"},
+			want: map[string]string{},
+		},
+		{
+			name: "kinesis_limits", environ: []string{
+				"KINESIS_LATENCY=250", "KINESIS_SHARD_LIMIT=Infinity", "KINESIS_ON_DEMAND_STREAM_COUNT_LIMIT=3",
+			},
+			want: map[string]string{
+				"KINESIS_RESPONSE_LATENCY": "250ms", "KINESIS_ACCOUNT_SHARD_LIMIT": "-1",
+				"KINESIS_ACCOUNT_ON_DEMAND_STREAM_LIMIT": "3",
+			},
+		},
+		{
+			name: "native_env_wins_over_alias", environ: []string{"KINESIS_SHARD_LIMIT=9", "KINESIS_ACCOUNT_SHARD_LIMIT=4"},
+			want: map[string]string{},
 		},
 		{
 			name: "dns_address", environ: []string{"DNS_ADDRESS=127.0.0.1", "DNS_SERVER=9.9.9.9"},
