@@ -88,6 +88,15 @@ type TaggedEntry struct {
 
 // TaggedResources lists the caller's tagged repository associations.
 func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every repository association of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
 	account, region := b.scope(ctx)
 	owner := ":" + region + ":" + account + ":"
 
@@ -97,7 +106,7 @@ func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
 	var out []TaggedEntry
 
 	for _, a := range b.associations.All() {
-		if len(a.Tags) > 0 && strings.Contains(a.ARN, owner) {
+		if (!taggedOnly || len(a.Tags) > 0) && strings.Contains(a.ARN, owner) {
 			out = append(out, TaggedEntry{ARN: a.ARN, Tags: maps.Clone(a.Tags)})
 		}
 	}

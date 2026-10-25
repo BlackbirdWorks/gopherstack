@@ -184,3 +184,34 @@ func deduplicateResources(all []TaggedResource) []TaggedResource {
 
 	return result
 }
+
+// RegisterInventoryProvider adds a provider of every resource a service owns, tagged or not. GetResources
+// never sees these (untagged resources are not tagged resources); AllResources does.
+func (b *InMemoryBackend) RegisterInventoryProvider(p ResourceProvider) {
+	b.mu.Lock("RegisterInventoryProvider")
+	defer b.mu.Unlock()
+
+	b.inventory = append(b.inventory, p)
+}
+
+// AllResources enumerates every resource the providers carry plus the inventory providers' untagged ones,
+// bypassing the resource cache. A tagged entry wins over its inventory twin.
+func (b *InMemoryBackend) AllResources(ctx context.Context) []TaggedResource {
+	b.mu.Lock("AllResources")
+	defer b.mu.Unlock()
+
+	perProvider := make([][]TaggedResource, 0, len(b.inventory)+len(b.providers)+len(b.filteredProviders))
+	for _, p := range b.inventory {
+		perProvider = append(perProvider, p(ctx))
+	}
+
+	for _, p := range b.providers {
+		perProvider = append(perProvider, p(ctx))
+	}
+
+	for _, p := range b.filteredProviders {
+		perProvider = append(perProvider, p(ctx, nil, nil))
+	}
+
+	return deduplicateResources(slices.Concat(perProvider...))
+}

@@ -137,6 +137,15 @@ type TaggedEntry struct {
 
 // TaggedResources lists the caller's tagged workspaces, rule groups namespaces, scrapers and anomaly detectors.
 func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every workspace, rule groups namespace, scraper and anomaly detector of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
 	sc := b.scopeOf(ctx)
 
 	b.mu.RLock("TaggedResources")
@@ -145,7 +154,7 @@ func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
 	var out []TaggedEntry
 
 	add := func(arn string, tags map[string]string) {
-		if len(tags) > 0 {
+		if !taggedOnly || len(tags) > 0 {
 			out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tags)})
 		}
 	}

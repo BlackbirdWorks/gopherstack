@@ -105,6 +105,15 @@ type TaggedEntry struct {
 
 // TaggedResources lists the caller's tagged event integrations, data integrations and applications.
 func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every event integration, data integration and application of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
 	account, region := b.scope(ctx)
 	suffix := ":" + region + ":" + account + ":"
 
@@ -114,7 +123,7 @@ func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
 	var out []TaggedEntry
 
 	add := func(arn string, tags map[string]string) {
-		if len(tags) > 0 && strings.Contains(arn, suffix) {
+		if (!taggedOnly || len(tags) > 0) && strings.Contains(arn, suffix) {
 			out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tags)})
 		}
 	}

@@ -415,6 +415,16 @@ tasks:
     cmds:
       - go run ./cmd/paritylint
 
+  servicequotas-docs-gen:
+    desc: Regenerate services/servicequotas/docs_quotas.json from the AWS General Reference quota pages (network)
+    cmds:
+      - go run ./cmd/sqdocsgen
+
+  resourceexplorer-types-gen:
+    desc: Regenerate services/resourceexplorer2/supported_types.json from the AWS docs (network)
+    cmds:
+      - go run ./cmd/retypesgen
+
   cfn-attrs-gen:
     desc: Regenerate services/cloudformation/cfn_attributes.json
     cmds:
