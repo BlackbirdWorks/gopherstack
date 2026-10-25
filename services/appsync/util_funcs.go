@@ -20,10 +20,20 @@ import (
 // ($util.error, util.error, unauthorized, validation); it surfaces in the
 // GraphQL errors[] array.
 type resolverError struct {
-	Data    any
-	Info    any
-	Message string
-	Type    string
+	Data       any
+	CodeErrors []codeError
+	Info       any
+	Message    string
+	Type       string
+}
+
+// codeError is one EvaluateCode CodeError (types.CodeError / CodeErrorLocation).
+type codeError struct {
+	ErrorType string
+	Value     string
+	Line      int
+	Column    int
+	Span      int
 }
 
 func (e *resolverError) Error() string { return e.Message }

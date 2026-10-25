@@ -81,7 +81,7 @@ func (h *Handler) evaluateCode(ctx context.Context, c *echo.Context) error {
 
 	out, logs, evalErr := h.Backend.EvaluateCodeLogs(input.Code, input.Context, input.Function, input.Runtime.Name)
 	if re, ok := errors.AsType[*resolverError](evalErr); ok {
-		return evalErrorResponse(c, re, logs)
+		return evalCodeErrorResponse(c, re, logs)
 	}
 
 	if evalErr != nil {
@@ -105,4 +105,29 @@ func nonNilLogs(logs []string) []string {
 	}
 
 	return logs
+}
+
+// evalCodeErrorResponse is evalErrorResponse plus the codeErrors locations.
+func evalCodeErrorResponse(c *echo.Context, re *resolverError, logs []string) error {
+	detail := map[string]any{keyMessage: re.Message}
+
+	if len(re.CodeErrors) > 0 {
+		list := make([]map[string]any, len(re.CodeErrors))
+
+		for i, ce := range re.CodeErrors {
+			item := map[string]any{
+				"value":    ce.Value,
+				"location": map[string]any{"line": ce.Line, "column": ce.Column, "span": ce.Span},
+			}
+			if ce.ErrorType != "" {
+				item["errorType"] = ce.ErrorType
+			}
+
+			list[i] = item
+		}
+
+		detail["codeErrors"] = list
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{rtMsgError: detail, keyLogs: nonNilLogs(logs)})
 }
