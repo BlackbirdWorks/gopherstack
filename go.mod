@@ -5,6 +5,7 @@ go 1.27.3
 require (
 	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/bigquery v1.85.0
+	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.34.0
 	cloud.google.com/go/cloudtasks v1.20.0
 	cloud.google.com/go/firestore v1.26.0

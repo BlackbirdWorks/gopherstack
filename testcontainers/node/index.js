@@ -16,7 +16,7 @@ export const AZURE_PORTS = {
 export const GCP_PORTS = {
   storage: 4443, firestore: 8080, pubsub: 8085, secretmanager: 8086, kms: 8087,
   cloudtasks: 8123, scheduler: 8124, iam: 8125, run: 8126, functions: 8128,
-  sql: 8130, logging: 8131, monitoring: 8132, redis: 8133, artifactregistry: 8134, spanner: 8135, cloudbuild: 8136, bigquery: 9050,
+  sql: 8130, logging: 8131, monitoring: 8132, redis: 8133, artifactregistry: 8134, spanner: 8135, cloudbuild: 8136, bigtable: 8137, bigquery: 9050,
 };
 
 const DATA_DIR = "/data";

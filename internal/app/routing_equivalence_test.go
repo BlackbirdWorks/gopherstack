@@ -247,7 +247,7 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 		"GCPStorage", "GCPPubSub", "GCPSecretManager", "GCPKMS", "GCPCloudTasks", "GCPScheduler",
 		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL", "GCPLogging",
 		"GCPMonitoring",
-		"GCPRedis", "AzureRedis", "AzureSQL", "GCPSpanner", "GCPCloudBuild",
+		"GCPRedis", "AzureRedis", "AzureSQL", "GCPSpanner", "GCPBigtable", "GCPCloudBuild",
 		"AzureContainerRegistry", "GCPArtifactRegistry",
 	}
 

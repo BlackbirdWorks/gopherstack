@@ -15198,6 +15198,34 @@
     ],
     "version": 1
   },
+  "gcpbigtable": {
+    "fields": [
+      "backendSnapshot.Instances map[string]instSnap `json:\"instances\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "backendSnapshot.Seq uint64 `json:\"seq\"`",
+      "backupSnap.Backup json.RawMessage `json:\"backup\"`",
+      "backupSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
+      "backupSnap.Table tableSnap `json:\"table\"`",
+      "cellSnap.Ts int64 `json:\"ts\"`",
+      "cellSnap.Val []byte `json:\"val,omitempty\"`",
+      "columnSnap.Cells []cellSnap `json:\"cells\"`",
+      "columnSnap.Family string `json:\"family\"`",
+      "columnSnap.Qualifier []byte `json:\"qualifier,omitempty\"`",
+      "instSnap.Backups map[string]backupSnap `json:\"backups,omitempty\"`",
+      "instSnap.Clusters map[string]json.RawMessage `json:\"clusters,omitempty\"`",
+      "instSnap.Instance json.RawMessage `json:\"instance\"`",
+      "instSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
+      "instSnap.Profiles map[string]json.RawMessage `json:\"profiles,omitempty\"`",
+      "instSnap.Tables map[string]tableSnap `json:\"tables,omitempty\"`",
+      "rowSnap.Columns []columnSnap `json:\"columns\"`",
+      "rowSnap.Key []byte `json:\"key\"`",
+      "tableSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
+      "tableSnap.Rows []rowSnap `json:\"rows,omitempty\"`",
+      "tableSnap.Splits [][]byte `json:\"splits,omitempty\"`",
+      "tableSnap.Table json.RawMessage `json:\"table\"`"
+    ],
+    "version": 1
+  },
   "gcpcloudbuild": {
     "fields": [
       "backendSnapshot.Builds map[string]buildSnap `json:\"builds\"`",

@@ -169,6 +169,7 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
+	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -581,6 +582,7 @@ type CLI struct {
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
+	GCPBigtable                   gcpbigtablebackend.Settings       `embed:"" prefix:"gcp-bigtable-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
@@ -745,6 +747,9 @@ func (c *CLI) GetGCPRedisSettings() gcpredisbackend.Settings { return c.GCPRedis
 
 // GetGCPSpannerSettings returns Google Cloud Spanner settings (gcpspanner.ConfigProvider).
 func (c *CLI) GetGCPSpannerSettings() gcpspannerbackend.Settings { return c.GCPSpanner }
+
+// GetGCPBigtableSettings returns Google Cloud Bigtable settings (gcpbigtable.ConfigProvider).
+func (c *CLI) GetGCPBigtableSettings() gcpbigtablebackend.Settings { return c.GCPBigtable }
 
 // GetGCPCloudBuildSettings returns Google Cloud Build settings (gcpcloudbuild.ConfigProvider).
 func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return c.GCPCloudBuild }
@@ -2446,6 +2451,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPSQL", "gcpsql", cli.GCPSQL.Port},
 		{"GCPCloudBuild", "gcpcloudbuild", cli.GCPCloudBuild.Port},
 		{"GCPSpanner", "gcpspanner", cli.GCPSpanner.Port},
+		{"GCPBigtable", "gcpbigtable", cli.GCPBigtable.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -4839,6 +4845,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpbigquerybackend.Provider{},
 		&gcpsqlbackend.Provider{},
 		&gcpspannerbackend.Provider{},
+		&gcpbigtablebackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
