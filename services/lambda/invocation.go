@@ -164,7 +164,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Enforce reserved concurrency limits for all invocation types.
 	// Reserved concurrency of 0 blocks all invocations; non-zero limits are enforced
 	// for both synchronous (RequestResponse) and asynchronous (Event) invocations.
-	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName, fn.Version)
+	trackConcurrency, concErr := b.acquireInvokeSlot(fn.FunctionName, fn.Version, invocationType)
 	if concErr != nil {
 		b.emitThrottleMetric(fn.FunctionName, qualifier, fn.Version)
 
@@ -183,10 +183,8 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 
 	srv, srvErr := b.getOrCreateRuntime(ctx, fn)
 	if srvErr != nil {
-		// Release the slot on error regardless of invocation type.
-		if trackConcurrency {
-			b.releaseConcurrencySlot(fn.FunctionName)
-		}
+		// Sync invocations release via the deferred call above.
+		b.releaseAsyncSlot(fn.FunctionName, trackConcurrency, invocationType)
 
 		b.emitInvocationMetrics(fn.FunctionName, qualifier, fn.Version, 0, true)
 
@@ -781,3 +779,57 @@ func (b *InMemoryBackend) pushInvocationLog(
 
 // defaultFunctionTimeout is used when the function has no timeout configured.
 const defaultFunctionTimeout = 3 * time.Second
+
+// acquireAccountSlot enforces the account concurrency pool left after reservations for a
+// synchronous invocation of an unreserved function. The caller must release the slot.
+func (b *InMemoryBackend) acquireAccountSlot(functionName string) (bool, error) {
+	b.mu.Lock("acquireAccountSlot")
+	defer b.mu.Unlock()
+
+	if _, reserved := b.functionConcurrencies[functionName]; reserved {
+		return false, nil
+	}
+
+	totalReserved := 0
+	for _, r := range b.functionConcurrencies {
+		totalReserved += r
+	}
+
+	unreservedActive := 0
+
+	for name, n := range b.activeConcurrencies {
+		if _, reserved := b.functionConcurrencies[name]; !reserved {
+			unreservedActive += n
+		}
+	}
+
+	if unreservedActive >= max(0, b.limits().concurrentExecutions-totalReserved) {
+		return false, fmt.Errorf(
+			"%w: account concurrent execution limit reached for function %s",
+			ErrTooManyRequests,
+			functionName,
+		)
+	}
+
+	b.activeConcurrencies[functionName]++
+
+	return true, nil
+}
+
+// acquireInvokeSlot applies per-function limits, then the account pool for synchronous calls.
+func (b *InMemoryBackend) acquireInvokeSlot(name, version string, invocationType InvocationType) (bool, error) {
+	tracked, err := b.acquireConcurrencySlot(name, version)
+	if err != nil || tracked || invocationType == InvocationTypeEvent {
+		return tracked, err
+	}
+
+	return b.acquireAccountSlot(name)
+}
+
+// releaseAsyncSlot frees the slot of an Event invocation that failed to start; synchronous
+// invocations release through the deferred call in InvokeFunctionWithQualifier.
+func (b *InMemoryBackend) releaseAsyncSlot(name string, tracked bool, invocationType InvocationType) {
+	if tracked && invocationType == InvocationTypeEvent {
+		b.releaseConcurrencySlot(name)
+	}
+}

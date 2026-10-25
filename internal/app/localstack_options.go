@@ -67,9 +67,6 @@ func localstackUnsupportedCore() []string {
 		"REDIS_CONTAINER_MODE",
 		"GLUE_JOB_EXECUTOR",
 		"DOCKER_GLOBAL_IMAGE_PREFIX",
-		"KINESIS_SHARD_LIMIT",
-		"KINESIS_ON_DEMAND_STREAM_COUNT_LIMIT",
-		"KINESIS_LATENCY",
 	}
 }
 
@@ -83,15 +80,10 @@ func localstackUnsupportedRuntime() []string {
 		"LAMBDA_DOWNLOAD_AWS_LAYERS",
 		"LAMBDA_EVENT_SOURCE_MAPPING_SQS_POLLER_COUNT",
 		"LAMBDA_IGNORE_ARCHITECTURE",
-		"LAMBDA_LIMITS_CONCURRENT_EXECUTIONS",
-		"LAMBDA_LIMITS_CODE_SIZE_ZIPPED",
-		"LAMBDA_LIMITS_CREATE_FUNCTION_REQUEST_SIZE",
-		"LAMBDA_LIMITS_MAX_FUNCTION_ENVVAR_SIZE_BYTES",
 		"LAMBDA_PREBUILD_IMAGES",
 		"LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT",
 		"LAMBDA_RUNTIME_EXECUTOR",
 		"LAMBDA_RUNTIME_IMAGE_MAPPING",
-		"LAMBDA_RUNTIME_VALIDATION",
 		"LAMBDA_SYNCHRONOUS_CREATE",
 		"LAMBDA_TRUNCATE_STDOUT",
 		"LAMBDA_WEB_DISABLE_AWS_ENDPOINT_URL",
@@ -174,6 +166,7 @@ func (p *envPlan) planOptions() {
 	p.planPortRange()
 
 	p.planSQS()
+	p.planLimits()
 
 	if ms, err := strconv.Atoi(p.val("LAMBDA_KEEPALIVE_MS")); err == nil && ms >= 0 {
 		p.put("LAMBDA_IDLE_TIMEOUT", (time.Duration(ms) * time.Millisecond).String())
@@ -283,4 +276,41 @@ func localstackFaultRules(getenv func(string) string) []chaos.FaultRule {
 	}
 
 	return rules
+}
+
+// planLimits maps LocalStack's Lambda and Kinesis quota options onto the native settings.
+func (p *envPlan) planLimits() {
+	for ls, native := range map[string]string{
+		"LAMBDA_LIMITS_CONCURRENT_EXECUTIONS":          "LAMBDA_ACCOUNT_CONCURRENT_EXECUTIONS",
+		"LAMBDA_LIMITS_MINIMUM_UNRESERVED_CONCURRENCY": "LAMBDA_ACCOUNT_MIN_UNRESERVED_CONCURRENCY",
+		"LAMBDA_LIMITS_TOTAL_CODE_SIZE":                "LAMBDA_ACCOUNT_TOTAL_CODE_SIZE",
+		"LAMBDA_LIMITS_CODE_SIZE_ZIPPED":               "LAMBDA_CODE_SIZE_ZIPPED",
+		"LAMBDA_LIMITS_CODE_SIZE_UNZIPPED":             "LAMBDA_CODE_SIZE_UNZIPPED",
+		"LAMBDA_LIMITS_CREATE_FUNCTION_REQUEST_SIZE":   "LAMBDA_CREATE_FUNCTION_REQUEST_SIZE",
+		"LAMBDA_LIMITS_MAX_FUNCTION_ENVVAR_SIZE_BYTES": "LAMBDA_MAX_ENVIRONMENT_BYTES",
+	} {
+		if n, err := strconv.ParseInt(p.val(ls), 10, 64); err == nil && n > 0 {
+			p.put(native, strconv.FormatInt(n, 10))
+		}
+	}
+
+	if p.truthy("LAMBDA_RUNTIME_VALIDATION") {
+		p.put("LAMBDA_STRICT_RUNTIME_VALIDATION", "true")
+	}
+
+	for ls, native := range map[string]string{
+		"KINESIS_SHARD_LIMIT":                  "KINESIS_ACCOUNT_SHARD_LIMIT",
+		"KINESIS_ON_DEMAND_STREAM_COUNT_LIMIT": "KINESIS_ACCOUNT_ON_DEMAND_STREAM_LIMIT",
+	} {
+		v := p.val(ls)
+		if strings.EqualFold(v, "infinity") || strings.EqualFold(v, "unlimited") {
+			p.put(native, "-1")
+		} else if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			p.put(native, strconv.Itoa(n))
+		}
+	}
+
+	if ms, err := strconv.Atoi(p.val("KINESIS_LATENCY")); err == nil && ms >= 0 {
+		p.put("KINESIS_RESPONSE_LATENCY", (time.Duration(ms) * time.Millisecond).String())
+	}
 }

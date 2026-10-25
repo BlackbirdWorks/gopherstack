@@ -77,7 +77,7 @@ func (h *Handler) handleDescribeLimits(
 ) (any, error) {
 	return &describeLimitsOutput{
 		OpenShardCount:           h.Backend.CountOpenShards(ctx),
-		ShardLimit:               kinesisDefaultShardLimit,
+		ShardLimit:               h.Backend.ShardLimit(ctx),
 		OnDemandStreamCount:      h.Backend.CountOnDemandStreams(ctx),
 		OnDemandStreamCountLimit: h.Backend.OnDemandStreamCountLimit(ctx),
 	}, nil

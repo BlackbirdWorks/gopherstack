@@ -30,6 +30,7 @@ func (b *InMemoryBackend) PutFunctionConcurrency(
 		)
 	}
 
+	lim := b.limits()
 	otherReserved := 0
 
 	for fnName, r := range b.functionConcurrencies {
@@ -38,11 +39,11 @@ func (b *InMemoryBackend) PutFunctionConcurrency(
 		}
 	}
 
-	if otherReserved+reserved > accountDefaultConcurrentExecutions-minUnreservedConcurrency {
+	if otherReserved+reserved > lim.concurrentExecutions-lim.minUnreservedConcurrency {
 		return nil, fmt.Errorf(
 			"%w: Specified ReservedConcurrentExecutions for function decreases account's "+
 				"UnreservedConcurrentExecution below its minimum value of [%d]",
-			ErrInvalidParameterValue, minUnreservedConcurrency,
+			ErrInvalidParameterValue, lim.minUnreservedConcurrency,
 		)
 	}
 

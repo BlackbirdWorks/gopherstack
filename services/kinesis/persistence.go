@@ -206,10 +206,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.resourcePolicies = snap.ResourcePolicies
 	b.restoreChannelBuffers(snap.ChannelBuffers)
 
-	if snap.OnDemandStreamCountLimit > 0 {
-		b.onDemandStreamCountLimit = snap.OnDemandStreamCountLimit
-	} else {
+	if !b.onDemandPinned {
 		b.onDemandStreamCountLimit = defaultOnDemandStreamCountLimit
+		if snap.OnDemandStreamCountLimit > 0 {
+			b.onDemandStreamCountLimit = snap.OnDemandStreamCountLimit
+		}
 	}
 
 	if snap.MinimumThroughputBillingCommitment.Status == "" {

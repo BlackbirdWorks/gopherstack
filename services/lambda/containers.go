@@ -526,6 +526,17 @@ func isValidRuntime(runtime string) bool {
 	return ok
 }
 
+// isDeprecatedRuntime reports whether runtime is past deprecation and not runnable here.
+func isDeprecatedRuntime(runtime string) bool {
+	if _, runnable := runtimeBaseImages[runtime]; runnable {
+		return false
+	}
+
+	_, ok := deprecatedRuntimes[runtime]
+
+	return ok
+}
+
 // durableSupportedRuntimes lists managed runtimes allowed for a Zip durable function.
 // docs.aws.amazon.com/lambda/latest/dg/durable-supported-runtimes.html
 //

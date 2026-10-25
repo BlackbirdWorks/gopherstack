@@ -2,6 +2,7 @@ package kinesis
 
 import (
 	"context"
+	"math"
 	"time"
 )
 
@@ -91,7 +92,7 @@ func (b *InMemoryBackend) OnDemandStreamCountLimit(_ context.Context) int {
 	b.mu.RLock("OnDemandStreamCountLimit")
 	defer b.mu.RUnlock()
 
-	return b.onDemandStreamCountLimit
+	return reportedLimit(b.onDemandStreamCountLimit)
 }
 
 // SetOnDemandStreamCountLimit configures the account-level cap CreateStream
@@ -138,6 +139,70 @@ func (b *InMemoryBackend) UpdateMaxRecordSize(ctx context.Context, input *Update
 	}
 
 	stream.MaxRecordSizeBytes = sizeBytes
+
+	return nil
+}
+
+// ConfigureLimits applies operator-configured account quotas. Zero keeps the AWS
+// default; a negative value disables the limit. Configured limits survive Restore.
+func (b *InMemoryBackend) ConfigureLimits(shardLimit, onDemandStreamLimit int) {
+	b.mu.Lock("ConfigureLimits")
+	defer b.mu.Unlock()
+
+	if shardLimit != 0 {
+		b.shardLimit = shardLimit
+	}
+
+	if onDemandStreamLimit != 0 {
+		b.onDemandStreamCountLimit = onDemandStreamLimit
+	}
+
+	b.onDemandPinned = onDemandStreamLimit != 0
+}
+
+// ShardLimit returns the account's open-shard quota for DescribeLimits.
+func (b *InMemoryBackend) ShardLimit(_ context.Context) int {
+	b.mu.RLock("ShardLimit")
+	defer b.mu.RUnlock()
+
+	return reportedLimit(b.shardLimit)
+}
+
+// reportedLimit maps the internal "unlimited" (negative) onto the largest wire int32.
+func reportedLimit(limit int) int {
+	if limit < 0 {
+		return math.MaxInt32
+	}
+
+	return limit
+}
+
+// checkShardLimitLocked rejects adding extra open shards beyond the account quota.
+// except is a stream whose lock the caller already holds (excluded from the count).
+func (b *InMemoryBackend) checkShardLimitLocked(region string, except *Stream, extra int) error {
+	if b.shardLimit < 0 || extra <= 0 {
+		return nil
+	}
+
+	open := 0
+
+	for _, s := range b.streamsByRegion.Get(region) {
+		if s == except {
+			continue
+		}
+
+		s.mu.RLock("checkShardLimit.stream")
+		open += countOpenShards(s.Shards)
+		s.mu.RUnlock()
+	}
+
+	if except != nil {
+		open += countOpenShards(except.Shards)
+	}
+
+	if open+extra > b.shardLimit {
+		return ErrLimitExceeded
+	}
 
 	return nil
 }
