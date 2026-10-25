@@ -231,6 +231,7 @@ import (
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
@@ -656,6 +657,7 @@ type CLI struct {
 	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
 	SQS                           sqsbackend.Settings               `embed:"" prefix:"sqs-"`
 	Localstack                    LocalstackSettings                `embed:"" prefix:"localstack-"`
+	OCIVault                      ocivaultbackend.Settings          `embed:"" prefix:"oci-vault-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -807,6 +809,11 @@ func (c *CLI) GetGCPStorageSettings() gcpstoragebackend.Settings {
 // GetOCIObjectStorageSettings returns OCI Object Storage settings (ociobjectstorage.ConfigProvider).
 func (c *CLI) GetOCIObjectStorageSettings() ociobjectstoragebackend.Settings {
 	return c.OCIObjectStorage
+}
+
+// GetOCIVaultSettings returns OCI Vault settings (ocivault.ConfigProvider).
+func (c *CLI) GetOCIVaultSettings() ocivaultbackend.Settings {
+	return c.OCIVault
 }
 
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
@@ -2541,6 +2548,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 		{"OCIObjectStorage", "ociobjectstorage", cli.OCIObjectStorage.Port},
+		{"OCIVault", "ocivault", cli.OCIVault.Port},
 	}
 }
 
@@ -4915,6 +4923,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&cosmosdbbackend.Provider{},
 		&gcpstoragebackend.Provider{},
 		&ociobjectstoragebackend.Provider{},
+		&ocivaultbackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},

@@ -35,6 +35,8 @@ func allowedWeakHashFiles() map[string]string {
 		// fingerprints are the MD5 of the DER public key; integrity/identifier values, never credentials.
 		"services/ociobjectstorage/store.go": "OCI object md5 and multipart md5 parity",
 		"pkgs/ociauth/ociauth.go":            "OCI API key fingerprint is MD5 of the DER public key",
+		// OCI Vault Encrypt/Decrypt expose RSA_OAEP_SHA_1 as a caller-selectable encryption algorithm.
+		"services/ocivault/seal.go": "OCI Vault RSA_OAEP_SHA_1 encryption algorithm parity",
 
 		// Workflows hash.compute_checksum and hash.compute_hmac document MD5 and SHA1 among their algorithms;
 		// a content hash chosen by the workflow author, never a credential.
