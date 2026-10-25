@@ -3,6 +3,7 @@ package gcpartifactregistry_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -87,8 +88,12 @@ func TestPackageHostRouting(t *testing.T) {
 				t.Helper()
 				assert.Contains(t, r.body, "http://"+npmHost+npmRoot+"left-pad/-/left-pad-1.0.0.tgz")
 			}},
-		{name: "npm tarball", host: npmHost, method: http.MethodGet, path: npmRoot + "left-pad/-/left-pad-1.0.0.tgz",
-			code: http.StatusOK, check: func(t *testing.T, r httpResult) { t.Helper(); assert.Equal(t, "tgz", r.body) }},
+		{name: "npm tarball", host: npmHost, method: http.MethodGet,
+			path: npmRoot + "left-pad/-/left-pad-1.0.0.tgz",
+			code: http.StatusOK, check: func(t *testing.T, r httpResult) {
+				t.Helper()
+				assert.Equal(t, "tgz", r.body)
+			}},
 		{name: "npm wrong location", host: "europe-west1-npm.pkg.dev", method: http.MethodGet,
 			path: npmRoot + "left-pad", code: http.StatusNotFound},
 		{name: "npm host on python repo", host: npmHost, method: http.MethodGet, path: pyRoot + "simple/",
@@ -115,7 +120,8 @@ func TestPackageHostRouting(t *testing.T) {
 			check: func(t *testing.T, r httpResult) { t.Helper(); assert.Equal(t, string(pom), r.body) }},
 		{name: "unknown repo", host: mavenHost, method: http.MethodGet, path: "/" + project + "/ghost/x",
 			code: http.StatusNotFound},
-		{name: "path form still works", host: "127.0.0.1", method: http.MethodGet, path: "/maven/" + project + "/jars/" + jar[1:],
+		{name: "path form still works", host: "127.0.0.1", method: http.MethodGet,
+			path: "/maven/" + project + "/jars/" + jar[1:],
 			code: http.StatusOK},
 	}
 
@@ -172,7 +178,7 @@ func TestNPMTagResources(t *testing.T) {
 
 		for {
 			tag, err := it.Next()
-			if err == iterator.Done {
+			if errors.Is(err, iterator.Done) {
 				return out
 			}
 

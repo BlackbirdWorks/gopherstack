@@ -266,7 +266,7 @@ func baseURL(r *http.Request, route string, rc repoCtx) string {
 		scheme = "https"
 	}
 
-	return scheme + "://" + r.Host + repoPrefix(r, route, rc)
+	return scheme + "://" + r.Host + repoPrefix(isPkgHost(r), route, rc)
 }
 
 func (b *InMemoryBackend) serveNPMPackument(w http.ResponseWriter, r *http.Request, rc repoCtx, pkg string) {

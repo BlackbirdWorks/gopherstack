@@ -78,7 +78,7 @@ func (b *InMemoryBackend) servePackageRoute(w http.ResponseWriter, r *http.Reque
 	segs := routeSegs - 1
 
 	if !hosted {
-		route = "/" + strings.SplitN(esc, "/", 2)[0] + "/"
+		route = "/" + strings.SplitN(esc, "/", routeSegs-1)[0] + "/"
 		format = routeFormats[route]
 		esc = strings.TrimPrefix(esc, route[1:])
 	}
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) servePackageRoute(w http.ResponseWriter, r *http.Reque
 
 	path = strings.Trim(path, "/")
 
-	switch format { //nolint:exhaustive // only the three package-manager formats are routed here
+	switch format {
 	case artifactregistrypb.Repository_NPM:
 		b.serveNPM(w, r, rc, path)
 	case artifactregistrypb.Repository_PYTHON:
@@ -124,8 +124,10 @@ func (b *InMemoryBackend) servePackageRoute(w http.ResponseWriter, r *http.Reque
 
 // repoPrefix is the path prefix of a repository's package-manager endpoint: /<project>/<repository> on a
 // pkg.dev host, /<format>/<project>/<repository> otherwise.
-func repoPrefix(r *http.Request, route string, rc repoCtx) string {
-	if _, _, ok := pkgHost(r.Host); ok {
+func isPkgHost(r *http.Request) bool { return pkgHostRe.MatchString(r.Host) }
+
+func repoPrefix(hosted bool, route string, rc repoCtx) string {
+	if hosted {
 		return "/" + rc.ref.project + "/" + rc.ref.id
 	}
 
