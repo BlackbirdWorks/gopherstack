@@ -2,7 +2,6 @@ package sdkwire
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"reflect"
 	"testing"
@@ -31,8 +30,7 @@ func TestRoute53IDSanitizeParity(t *testing.T) {
 	for _, op := range sdkOps(client) {
 		in := fill(op.in, 0, map[reflect.Type]int{})
 
-		for i := range in.Elem().NumField() {
-			f := in.Elem().Field(i)
+		for _, f := range in.Elem().Fields() {
 			if f.Kind() == reflect.Pointer && f.Type().Elem().Kind() == reflect.String {
 				f.Set(reflect.ValueOf(new(idWithPrefix)))
 			}
@@ -49,7 +47,9 @@ func TestRoute53IDSanitizeParity(t *testing.T) {
 			Endpoint:    testEndpoint, Region: "us-east-1",
 		}
 
-		req, err := svc.buildRequest(context.Background(), tgt, op.name, svc.Ops[op.name], sanitize(svc.Ops[op.name], params))
+		o := svc.Ops[op.name]
+
+		req, err := svc.buildRequest(context.Background(), tgt, op.name, o, sanitize(o, params))
 		require.NoError(t, err, op.name)
 
 		if len(svc.Ops[op.name].Sanitize) > 0 {
@@ -117,15 +117,15 @@ func TestRoute53ErrorParity(t *testing.T) {
 			}
 			client := newSDKClient(sdkClients()["route53"], cc)
 
-			var sdkOp sdkOp
+			var getZone sdkOp
 
 			for _, op := range sdkOps(client) {
 				if op.name == "GetHostedZone" {
-					sdkOp = op
+					getZone = op
 				}
 			}
 
-			sdkErr := callSDK(sdkOp, fill(sdkOp.in, 0, map[reflect.Type]int{}))
+			sdkErr := callSDK(getZone, fill(getZone.in, 0, map[reflect.Type]int{}))
 			require.Error(t, sdkErr)
 
 			var want smithy.APIError
@@ -147,7 +147,7 @@ func TestRoute53ErrorParity(t *testing.T) {
 
 			var got smithy.APIError
 
-			require.True(t, errors.As(err, &got), "%v", err)
+			require.ErrorAs(t, err, &got)
 			assert.Equal(t, want.ErrorCode(), got.ErrorCode())
 			assert.Equal(t, want.ErrorMessage(), got.ErrorMessage())
 		})
