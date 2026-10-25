@@ -225,6 +225,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.79.0
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.51.3
 	github.com/aws/aws-sdk-go-v2/service/shield v1.43.3
+	github.com/aws/aws-sdk-go-v2/service/signin v1.10.3
 	github.com/aws/aws-sdk-go-v2/service/sns v1.47.4
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.3
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.79.2
@@ -327,7 +328,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.10.3
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect

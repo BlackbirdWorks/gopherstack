@@ -107,3 +107,6 @@ checkpoint.md
 .ua/intermediate/*
 !.ua/intermediate/scan-result.json
 .ua/diff-overlay.json
+
+# go build output of the desktop module
+/desktop/desktop
