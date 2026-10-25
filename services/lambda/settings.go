@@ -32,6 +32,16 @@ type Settings struct {
 	KeepContainers bool `json:"keep_containers"   name:"keep-containers"   env:"LAMBDA_KEEP_CONTAINERS" default:"false"      help:"If true, keep Lambda containers alive for debugging."` //nolint:lll,golines // config struct tags are intentionally verbose
 	// HotReloadIntervalMS bounds how often the hot-reload directory is re-scanned (int32 keeps Settings compact).
 	HotReloadIntervalMS int32 `json:"hot_reload_interval_ms" name:"hot-reload-interval-ms" env:"LAMBDA_HOT_RELOAD_INTERVAL_MS" default:"250" help:"Minimum milliseconds between hot-reload change scans."` //nolint:lll // config struct tags are intentionally verbose
+	// StrictRuntimeValidation rejects deprecated runtimes on CreateFunction/UpdateFunctionConfiguration.
+	StrictRuntimeValidation bool `json:"strict_runtime_validation" name:"strict-runtime-validation" env:"LAMBDA_STRICT_RUNTIME_VALIDATION" default:"false" help:"Reject deprecated Lambda runtimes (LocalStack LAMBDA_RUNTIME_VALIDATION=1)."` //nolint:lll // config struct tags are intentionally verbose
+	// Account quotas; zero keeps the AWS default.
+	ConcurrentExecutions         int   `json:"concurrent_executions" name:"account-concurrent-executions" env:"LAMBDA_ACCOUNT_CONCURRENT_EXECUTIONS" default:"0" help:"Account concurrent execution limit (0 = AWS default 1000)."`                                  //nolint:lll // config struct tags are intentionally verbose
+	MinimumUnreservedConcurrency int   `json:"minimum_unreserved_concurrency" name:"account-min-unreserved-concurrency" env:"LAMBDA_ACCOUNT_MIN_UNRESERVED_CONCURRENCY" default:"0" help:"Minimum unreserved concurrency (0 = AWS default 100)."`                   //nolint:lll // config struct tags are intentionally verbose
+	MaxEnvironmentBytes          int   `json:"max_environment_bytes" name:"max-environment-bytes" env:"LAMBDA_MAX_ENVIRONMENT_BYTES" default:"0" help:"Maximum environment variable size in bytes (0 = AWS default 4096)."`                                   //nolint:lll // config struct tags are intentionally verbose
+	TotalCodeSize                int64 `json:"total_code_size" name:"account-total-code-size" env:"LAMBDA_ACCOUNT_TOTAL_CODE_SIZE" default:"0" help:"Account code storage limit in bytes (0 = AWS default 75 GB)."`                                               //nolint:lll // config struct tags are intentionally verbose
+	CodeSizeZipped               int64 `json:"code_size_zipped" name:"code-size-zipped" env:"LAMBDA_CODE_SIZE_ZIPPED" default:"0" help:"Maximum zipped package size in bytes (0 = AWS default 50 MB)."`                                                         //nolint:lll // config struct tags are intentionally verbose
+	CodeSizeUnzipped             int64 `json:"code_size_unzipped" name:"code-size-unzipped" env:"LAMBDA_CODE_SIZE_UNZIPPED" default:"0" help:"Maximum unzipped package size in bytes (0 = AWS default 250 MB)."`                                                //nolint:lll // config struct tags are intentionally verbose
+	CreateFunctionRequestSize    int64 `json:"create_function_request_size" name:"create-function-request-size" env:"LAMBDA_CREATE_FUNCTION_REQUEST_SIZE" default:"0" help:"Maximum CreateFunction request size in bytes (0 = AWS default 70167211)."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 const (
@@ -97,7 +107,7 @@ func DefaultSettings() Settings {
 		Isolation:        isolationFromEnv(),
 	}
 
-	return st.withHotReloadEnv()
+	return st.withHotReloadEnv().withLimitEnv()
 }
 
 func (s Settings) withHotReloadEnv() Settings {

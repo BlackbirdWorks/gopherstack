@@ -307,13 +307,7 @@ func (h *Handler) validateCreateFunctionCode(c *echo.Context, input *CreateFunct
 			return false
 		}
 
-		if !isValidRuntime(input.Runtime) {
-			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-				fmt.Sprintf(
-					"Value %q at 'runtime' failed to satisfy constraint: "+
-						"Member must satisfy enum value set", input.Runtime,
-				))
-
+		if !h.validateRuntime(c, input.Runtime) {
 			return false
 		}
 
@@ -375,12 +369,17 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
 
+	if maxReq := h.limits().createFunctionRequestSize; int64(len(body)) > maxReq {
+		return h.writeError(c, http.StatusRequestEntityTooLarge, "RequestEntityTooLargeException",
+			fmt.Sprintf("Request must be smaller than %d bytes for the CreateFunction operation", maxReq))
+	}
+
 	var input CreateFunctionInput
 	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
-	if !h.validateCreateFunction(c, &input) {
+	if !h.validateCreateFunction(c, &input) || !h.validateCodePackage(c, input.Code.ZipFile, "") {
 		return nil
 	}
 
@@ -736,6 +735,10 @@ func (h *Handler) applyZipCodeUpdate(c *echo.Context, fn *FunctionConfiguration,
 		return false
 	}
 
+	if !h.validateCodePackage(c, input.ZipFile, fn.FunctionName) {
+		return false
+	}
+
 	fn.ZipData = input.ZipFile
 	fn.S3BucketCode = input.S3Bucket
 	fn.S3KeyCode = input.S3Key
@@ -774,12 +777,8 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 		return nil
 	}
 
-	if input.Runtime != "" && !isValidRuntime(input.Runtime) {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-			fmt.Sprintf(
-				"Value %q at 'runtime' failed to satisfy constraint: "+
-					"Member must satisfy enum value set", input.Runtime,
-			))
+	if input.Runtime != "" && !h.validateRuntime(c, input.Runtime) {
+		return nil
 	}
 
 	if !h.validateUpdateConfigExtras(c, &input) {
@@ -1175,4 +1174,66 @@ func (h *Handler) validateUpdateConfigExtras(c *echo.Context, input *UpdateFunct
 
 	return h.validateDurableConfigInput(c, input.DurableConfig) &&
 		h.validateCapacityProviderConfig(c, input.CapacityProviderConfig)
+}
+
+// validateRuntime rejects unknown runtimes and, in strict mode, deprecated ones.
+func (h *Handler) validateRuntime(c *echo.Context, runtime string) bool {
+	if !isValidRuntime(runtime) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("Value %q at 'runtime' failed to satisfy constraint: "+
+				"Member must satisfy enum value set", runtime))
+
+		return false
+	}
+
+	if bk, ok := h.Backend.(*InMemoryBackend); ok && bk.settings.StrictRuntimeValidation && isDeprecatedRuntime(runtime) {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("The runtime parameter of %s is no longer supported for creating or updating "+
+				"AWS Lambda functions. We recommend you use a supported runtime while creating or "+
+				"updating functions.", runtime))
+
+		return false
+	}
+
+	return true
+}
+
+// validateCodePackage enforces zipped, unzipped and account code-storage quotas for an uploaded
+// zip; replacing names the function whose existing code is being replaced.
+func (h *Handler) validateCodePackage(c *echo.Context, zipData []byte, replacing string) bool {
+	if len(zipData) == 0 {
+		return true
+	}
+
+	lim := h.limits()
+
+	if int64(len(zipData)) > lim.codeSizeZipped {
+		_ = h.writeError(c, http.StatusRequestEntityTooLarge, "RequestEntityTooLargeException",
+			fmt.Sprintf("Zipped size must be smaller than %d bytes", lim.codeSizeZipped))
+
+		return false
+	}
+
+	if n, ok := unzippedSize(zipData); ok && n > lim.codeSizeUnzipped {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			fmt.Sprintf("Unzipped size must be smaller than %d bytes", lim.codeSizeUnzipped))
+
+		return false
+	}
+
+	if bk, ok := h.Backend.(*InMemoryBackend); ok {
+		used := bk.GetAccountSettings().AccountUsage.TotalCodeSize
+		if fn, err := bk.GetFunction(replacing); replacing != "" && err == nil {
+			used -= fn.CodeSize
+		}
+
+		if used+int64(len(zipData)) > lim.totalCodeSize {
+			_ = h.writeError(c, http.StatusBadRequest, "CodeStorageExceededException",
+				"Code storage limit exceeded.")
+
+			return false
+		}
+	}
+
+	return true
 }

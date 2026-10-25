@@ -26,7 +26,6 @@ var (
 
 const (
 	maxFunctionNameInputLength = 140
-	maxEnvironmentBytes        = 4096
 	maxStatementIDLength       = 100
 	maxAliasNameLength         = 128
 )
@@ -91,10 +90,10 @@ func (h *Handler) validateEnvironmentInput(c *echo.Context, env *EnvironmentConf
 			"for modification. Reserved keys used in this request: "+strings.Join(reserved, ", "))
 	}
 
-	if size > maxEnvironmentBytes {
+	if maxBytes := h.limits().maxEnvironmentBytes; size > maxBytes {
 		return h.invalidParam(c, fmt.Sprintf(
 			"Lambda was unable to configure your environment variables because the environment variables "+
-				"you have provided exceeded the 4KB limit. String measured: %d bytes", size))
+				"you have provided exceeded the %dKB limit. String measured: %d bytes", maxBytes/1024, size))
 	}
 
 	return true
