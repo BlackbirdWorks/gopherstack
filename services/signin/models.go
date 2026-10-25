@@ -66,7 +66,7 @@ type PermissionStatement struct {
 	ExcludedPrincipal string                         `json:"excludedPrincipal,omitempty"`
 	RequestedRegion   string                         `json:"requestedRegion,omitempty"`
 	SigninSourceVpce  string                         `json:"signinSourceVpce,omitempty"`
-	SourceIP          string                         `json:"sourceIP,omitempty"`
+	SourceIP          string                         `json:"sourceIp,omitempty"`
 	SourceVpc         string                         `json:"sourceVpc,omitempty"`
-	VpcSourceIP       string                         `json:"vpcSourceIP,omitempty"`
+	VpcSourceIP       string                         `json:"vpcSourceIp,omitempty"`
 }
