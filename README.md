@@ -951,6 +951,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [OCI Object Storage](services/ociobjectstorage/README.md) | B | 45 | 11 gaps |
+| [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 9 gaps |
 | [OCI Vault](services/ocivault/README.md) | B | 45 | 11 gaps |
 
 ### Other
