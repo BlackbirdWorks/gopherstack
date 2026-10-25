@@ -29,7 +29,7 @@ func (b *InMemoryBackend) CreateIndex(
 		Aliases:       aliases,
 		IndexSchema:   indexSchema,
 		Documents:     make(map[string]map[string]any),
-		DomainName:    domainName,
+		DomainName:    b.indexScope(domainName),
 		DocumentCount: 0,
 	}
 	b.domainIndexes.Put(idx)
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) DeleteIndex(domainName, indexName string) (*DomainInde
 	b.mu.Lock("DeleteIndex")
 	defer b.mu.Unlock()
 
-	idx, exists := b.domainIndexes.Get(domainIndexKey(domainName, indexName))
+	idx, exists := b.domainIndexes.Get(domainIndexKey(b.indexScope(domainName), indexName))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: index %s not found on domain %s",
@@ -55,7 +55,7 @@ func (b *InMemoryBackend) DeleteIndex(domainName, indexName string) (*DomainInde
 	}
 
 	cp := *idx
-	b.domainIndexes.Delete(domainIndexKey(domainName, indexName))
+	b.domainIndexes.Delete(domainIndexKey(b.indexScope(domainName), indexName))
 
 	return &cp, nil
 }
@@ -65,7 +65,7 @@ func (b *InMemoryBackend) GetIndex(domainName, indexName string) (*DomainIndex, 
 	b.mu.RLock("GetIndex")
 	defer b.mu.RUnlock()
 
-	idx, exists := b.domainIndexes.Get(domainIndexKey(domainName, indexName))
+	idx, exists := b.domainIndexes.Get(domainIndexKey(b.indexScope(domainName), indexName))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: index %s not found on domain %s",
@@ -92,7 +92,7 @@ func (b *InMemoryBackend) UpdateIndex(
 	b.mu.Lock("UpdateIndex")
 	defer b.mu.Unlock()
 
-	idx, exists := b.domainIndexes.Get(domainIndexKey(domainName, indexName))
+	idx, exists := b.domainIndexes.Get(domainIndexKey(b.indexScope(domainName), indexName))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: index %s not found on domain %s",

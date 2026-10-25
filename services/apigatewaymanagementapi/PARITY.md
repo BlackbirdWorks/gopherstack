@@ -233,3 +233,7 @@ Inapplicable (value semantics). PostToConnection/GetConnection/DeleteConnection 
 
 - GoneException/LimitExceededException/PayloadTooLargeException bodies use the real wording from the SDK type docs and no longer carry a non-modeled `connectionId` member.
 - Checked and unchanged: PostToConnection 128KB limit, GoneException after DeleteConnection/janitor prune, GetConnection identity/connectedAt/lastActiveAt shape.
+
+## 2026-10-25 stage-prefixed endpoint (gopherstack-49qct.58)
+
+The Management API now matches `/{stage}/@connections/{connectionId}` as well as `/@connections/{connectionId}`: an SDK client configured with `https://{domainName}/{stage}` (the form API Gateway documents) sends the stage in the path. Proof: apigatewayv2 `TestWebSocket_ManagementConnections` drives PostToConnection, GetConnection, DeleteConnection (and GoneException afterwards) against a live WebSocket client.

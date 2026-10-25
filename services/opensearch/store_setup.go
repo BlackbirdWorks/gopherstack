@@ -57,6 +57,18 @@ func reservedInstanceKeyFn(v *ReservedInstance) string { return v.ReservedInstan
 // domainIndexKey builds the composite "<domainName>#<indexName>" key shared
 // by every index nested under a domain.
 func domainIndexKey(domainName, indexName string) string { return domainName + "#" + indexName }
+
+// sharedClusterScope is the index scope every domain uses under OPENSEARCH_MULTI_CLUSTER=false.
+const sharedClusterScope = "_shared_cluster"
+
+// indexScope names the cluster whose index store backs domainName.
+func (b *InMemoryBackend) indexScope(domainName string) string {
+	if b.endpoints.SharedOpenSearchCluster() {
+		return sharedClusterScope
+	}
+
+	return domainName
+}
 func domainIndexKeyFn(v *DomainIndex) string {
 	return domainIndexKey(v.DomainName, v.IndexName)
 }

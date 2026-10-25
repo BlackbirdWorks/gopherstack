@@ -2,11 +2,8 @@ package apigatewayv2
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,12 +53,11 @@ func TestInvokeWSRoute_MockIntegrationIsLoopback(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rr)
+	route, dep, err := h.wsRoute(api.APIID, "$default", "$connect")
+	require.NoError(t, err)
 
-	err = h.invokeWSRoute(c, api.APIID, "$default", "$connect", "conn-1", []byte{})
+	s := &wsSession{h: h, apiID: api.APIID}
+	_, err = s.invoke(context.Background(), dep, route, s.connectEvent())
 
 	require.NoError(t, err)
 	assert.False(t, lambda.called, "MOCK integration must not invoke a backend")

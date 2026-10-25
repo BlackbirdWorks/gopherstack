@@ -111,7 +111,7 @@ func writeJSONMessage(c *echo.Context, status int, body string) error {
 
 // httpAPIMessage renders the `{"message":"..."}` body execute-api returns for gateway errors.
 func httpAPIMessage(msg string) string {
-	b, _ := json.Marshal(map[string]string{"message": msg})
+	b, _ := json.Marshal(map[string]string{jsonKeyMessage: msg})
 
 	return strings.TrimSpace(string(b))
 }

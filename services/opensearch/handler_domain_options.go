@@ -106,10 +106,17 @@ type samlOptionsJSON struct {
 
 // advancedSecurityOptionsJSON is the JSON representation of advanced security options.
 type advancedSecurityOptionsJSON struct {
-	SAMLOptions                 *samlOptionsJSON `json:"SAMLOptions,omitempty"`
-	AnonymousAuthEnabled        bool             `json:"AnonymousAuthEnabled"`
-	Enabled                     bool             `json:"Enabled"`
-	InternalUserDatabaseEnabled bool             `json:"InternalUserDatabaseEnabled"`
+	SAMLOptions                 *samlOptionsJSON       `json:"SAMLOptions,omitempty"`
+	MasterUserOptions           *masterUserOptionsJSON `json:"MasterUserOptions,omitempty"`
+	AnonymousAuthEnabled        bool                   `json:"AnonymousAuthEnabled"`
+	Enabled                     bool                   `json:"Enabled"`
+	InternalUserDatabaseEnabled bool                   `json:"InternalUserDatabaseEnabled"`
+}
+
+type masterUserOptionsJSON struct {
+	MasterUserARN      string `json:"MasterUserARN,omitempty"`
+	MasterUserName     string `json:"MasterUserName,omitempty"`
+	MasterUserPassword string `json:"MasterUserPassword,omitempty"`
 }
 
 // vpcOptionsJSON is the JSON representation of VPC options.
@@ -344,6 +351,14 @@ func parseAdvancedSecurityOptsFromReq(aso *advancedSecurityOptionsJSON) *Advance
 		Enabled:                     aso.Enabled,
 		InternalUserDatabaseEnabled: aso.InternalUserDatabaseEnabled,
 		AnonymousAuthEnabled:        aso.AnonymousAuthEnabled,
+	}
+	if mu := aso.MasterUserOptions; mu != nil {
+		out.MasterUserName = mu.MasterUserName
+		out.MasterUserARN = mu.MasterUserARN
+
+		if mu.MasterUserPassword != "" {
+			out.MasterUserPasswordHash = hashMasterPassword(mu.MasterUserPassword)
+		}
 	}
 	if aso.SAMLOptions != nil {
 		out.SAMLOptions = &SAMLOptionsInput{

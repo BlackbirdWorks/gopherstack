@@ -37,7 +37,10 @@ type Flags struct {
 	SQS        string `name:"sqs-endpoint-strategy"        env:"SQS_ENDPOINT_STRATEGY"        help:"Queue URL format: standard, domain, path, off or dynamic (empty keeps http://host/account/name)."`     //nolint:lll // config struct tags are intentionally verbose
 	OpenSearch string `name:"opensearch-endpoint-strategy" env:"OPENSEARCH_ENDPOINT_STRATEGY" help:"OpenSearch domain endpoint format: domain or path (empty keeps the AWS-style es.amazonaws.com host)."` //nolint:lll // config struct tags are intentionally verbose
 	GraphQL    string `name:"graphql-endpoint-strategy"    env:"GRAPHQL_ENDPOINT_STRATEGY"    help:"AppSync GraphQL URL format: legacy, domain or path (empty keeps /v1/apis/ID/graphql)."`                //nolint:lll // config struct tags are intentionally verbose
-	ECR        string `name:"ecr-endpoint-strategy"        env:"ECR_ENDPOINT_STRATEGY"        help:"ECR repositoryUri host format: domain or off (empty keeps the AWS-style host)."`                       //nolint:lll // config struct tags are intentionally verbose
+	// OpenSearchMultiCluster and OpenSearchCustomBackend are opt-in LocalStack-compatible options.
+	OpenSearchMultiCluster  string `name:"opensearch-multi-cluster"  env:"OPENSEARCH_MULTI_CLUSTER"  help:"false makes every OpenSearch domain share one index store (default: one isolated store per domain, as on AWS)."`          //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchCustomBackend string `name:"opensearch-custom-backend" env:"OPENSEARCH_CUSTOM_BACKEND" help:"URL of an existing OpenSearch cluster that serves every domain's data-plane requests (empty keeps the built-in engine)."` //nolint:lll // config struct tags are intentionally verbose
+	ECR                     string `name:"ecr-endpoint-strategy"     env:"ECR_ENDPOINT_STRATEGY"     help:"ECR repositoryUri host format: domain or off (empty keeps the AWS-style host)."`                                          //nolint:lll // config struct tags are intentionally verbose
 }
 
 // Config carries the selected strategies and the gateway host:port.
@@ -46,13 +49,21 @@ type Config struct {
 	OpenSearch string
 	GraphQL    string
 	ECR        string
+	// OpenSearchMultiCluster is "false" to share one index store across domains; anything else isolates per domain.
+	OpenSearchMultiCluster string
+	// OpenSearchCustomBackend is the base URL data-plane requests are proxied to; empty uses the built-in engine.
+	OpenSearchCustomBackend string
 	// HostPort is the gateway address (host:port) used when a strategy needs one.
 	HostPort string
 }
 
 // Config combines the flags with the gateway address.
 func (f Flags) Config(hostPort string) Config {
-	return Config{SQS: f.SQS, OpenSearch: f.OpenSearch, GraphQL: f.GraphQL, ECR: f.ECR, HostPort: hostPort}
+	return Config{
+		SQS: f.SQS, OpenSearch: f.OpenSearch, GraphQL: f.GraphQL, ECR: f.ECR,
+		OpenSearchMultiCluster: f.OpenSearchMultiCluster, OpenSearchCustomBackend: f.OpenSearchCustomBackend,
+		HostPort: hostPort,
+	}
 }
 
 // Provider is implemented by the app config to expose Config to services.
@@ -69,17 +80,13 @@ func From(cfg any) Config {
 	return Config{}
 }
 
-func parse(kind, v string, allowed ...string) (string, error) {
+func parse(kind, v string, allowed ...string) error {
 	v = strings.ToLower(strings.TrimSpace(v))
-	if v == "" {
-		return "", nil
+	if v == "" || slices.Contains(allowed, v) {
+		return nil
 	}
 
-	if slices.Contains(allowed, v) {
-		return v, nil
-	}
-
-	return "", fmt.Errorf("%w: %s=%q (allowed: %s)", ErrInvalidStrategy, kind, v, strings.Join(allowed, ", "))
+	return fmt.Errorf("%w: %s=%q (allowed: %s)", ErrInvalidStrategy, kind, v, strings.Join(allowed, ", "))
 }
 
 // Validate checks every strategy value; "port" for OpenSearch is rejected because
@@ -102,8 +109,16 @@ func (c Config) Validate() error {
 		{"ECR_ENDPOINT_STRATEGY", c.ECR, []string{stratDomain, stratOff}},
 	}
 
+	if err := parse("OPENSEARCH_MULTI_CLUSTER", c.OpenSearchMultiCluster, "true", "false"); err != nil {
+		return err
+	}
+
+	if _, err := c.CustomBackendURL(); err != nil {
+		return err
+	}
+
 	for _, ck := range checks {
-		if _, err := parse(ck.kind, ck.v, ck.allowed...); err != nil {
+		if err := parse(ck.kind, ck.v, ck.allowed...); err != nil {
 			return err
 		}
 	}
@@ -324,4 +339,24 @@ func ECRRegistryHost(strategy, hostPort, account, region string) string {
 	default:
 		return ""
 	}
+}
+
+// SharedOpenSearchCluster reports whether OPENSEARCH_MULTI_CLUSTER=false asks for one shared index store.
+func (c Config) SharedOpenSearchCluster() bool {
+	return normalize(c.OpenSearchMultiCluster) == "false"
+}
+
+// CustomBackendURL parses OPENSEARCH_CUSTOM_BACKEND; a nil URL means unset.
+func (c Config) CustomBackendURL() (*url.URL, error) {
+	raw := strings.TrimSpace(c.OpenSearchCustomBackend)
+	if raw == "" {
+		return nil, nil //nolint:nilnil // nil URL is the "unset" value
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("%w: OPENSEARCH_CUSTOM_BACKEND=%q must be an http(s) URL", ErrInvalidStrategy, raw)
+	}
+
+	return u, nil
 }

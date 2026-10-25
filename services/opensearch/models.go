@@ -549,6 +549,9 @@ type SAMLOptionsInput struct {
 // AdvancedSecurityOptions holds fine-grained access control settings.
 type AdvancedSecurityOptions struct {
 	SAMLOptions                 *SAMLOptionsInput `json:"samlOptions,omitempty"`
+	MasterUserName              string            `json:"masterUserName,omitempty"`
+	MasterUserPasswordHash      string            `json:"masterUserPasswordHash,omitempty"`
+	MasterUserARN               string            `json:"masterUserArn,omitempty"`
 	AnonymousAuthEnabled        bool              `json:"anonymousAuthEnabled,omitempty"`
 	Enabled                     bool              `json:"enabled"`
 	InternalUserDatabaseEnabled bool              `json:"internalUserDatabaseEnabled,omitempty"`

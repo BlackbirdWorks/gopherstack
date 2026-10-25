@@ -57,6 +57,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.endpointStrategy = strategies.OpenSearch
+
+	custom, _ := strategies.CustomBackendURL()
+	handler.setCustomBackend(custom)
 	handler.Region = region
 	handler.EnableRegions()
 
