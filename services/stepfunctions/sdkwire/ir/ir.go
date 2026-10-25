@@ -34,6 +34,8 @@ type Model struct {
 	Version  string            `json:"version"`
 	// Target is the service name the protocol puts on the wire, when it does.
 	Target string `json:"target,omitempty"`
+	// Namespace is the xmlns the service puts on request roots (restXml).
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // Shape is a struct, union, list or map.
@@ -71,4 +73,9 @@ type Op struct {
 	URI    string `json:"uri,omitempty"`
 	// Token is the idempotency-token member the SDK fills when absent.
 	Token string `json:"token,omitempty"`
+	// Root is the request body's root element (restXml).
+	Root string `json:"root,omitempty"`
+	// Sanitize names the input members the SDK cuts down to their last
+	// path segment before sending.
+	Sanitize []string `json:"sanitize,omitempty"`
 }

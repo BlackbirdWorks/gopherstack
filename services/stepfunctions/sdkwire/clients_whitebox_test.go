@@ -49,6 +49,7 @@ import (
 	sdkredshift "github.com/aws/aws-sdk-go-v2/service/redshift"
 	sdkredshiftdata "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	sdkrekognition "github.com/aws/aws-sdk-go-v2/service/rekognition"
+	sdkroute53 "github.com/aws/aws-sdk-go-v2/service/route53"
 	sdksagemaker "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	sdkscheduler "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	sdksecretsmanager "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -112,6 +113,7 @@ func sdkClients() map[string]func(aws.Config) any {
 		"redshift":                func(c aws.Config) any { return sdkredshift.NewFromConfig(c) },
 		"redshiftdata":            func(c aws.Config) any { return sdkredshiftdata.NewFromConfig(c) },
 		"rekognition":             func(c aws.Config) any { return sdkrekognition.NewFromConfig(c) },
+		"route53":                 func(c aws.Config) any { return sdkroute53.NewFromConfig(c) },
 		"sagemaker":               func(c aws.Config) any { return sdksagemaker.NewFromConfig(c) },
 		"scheduler":               func(c aws.Config) any { return sdkscheduler.NewFromConfig(c) },
 		"secretsmanager":          func(c aws.Config) any { return sdksecretsmanager.NewFromConfig(c) },

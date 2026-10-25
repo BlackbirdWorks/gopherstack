@@ -35,6 +35,7 @@ var (
 	reUnionMember = regexp.MustCompile(`Member(\w+)$`)
 	reDeUnion     = regexp.MustCompile(`Member(\w+)\{`)
 	reGoField     = regexp.MustCompile(`\bv\.([A-Z]\w*)`)
+	reLocal       = regexp.MustCompile(`Local: "([^"]+)"`)
 	reSVField     = regexp.MustCompile(`&?\bsv\.([A-Z]\w*)`)
 )
 
@@ -139,6 +140,8 @@ type modelBuilder struct {
 	json bool
 	// wireNames names members by their wire key (awsJson), otherwise by the Go field.
 	wireNames bool
+	// xmlLocal selects the restXml serializer syntax (StartElement names).
+	xmlLocal bool
 }
 
 func newModelBuilder(protocol, version string) *modelBuilder {
@@ -146,6 +149,7 @@ func newModelBuilder(protocol, version string) *modelBuilder {
 		protocol:  protocol,
 		json:      strings.HasPrefix(protocol, "awsjson") || protocol == protoRestJSON,
 		wireNames: strings.HasPrefix(protocol, "awsjson"),
+		xmlLocal:  protocol == protoRestXML,
 		model: &ir.Model{
 			Protocol: protocol, Version: version,
 			Shapes: map[string]*ir.Shape{}, Ops: map[string]*ir.Op{},
@@ -262,7 +266,7 @@ func (b *modelBuilder) addSerStruct(src *srcFile, name string, fd *ast.FuncDecl)
 		}
 
 		field := reGoField.FindStringSubmatch(cond)
-		key := reKey.FindStringSubmatch(body)
+		key := b.serKey(body)
 
 		if field == nil || key == nil {
 			fatalf("%s: unrecognised member block:\n%s", name, src.text(ifs))
@@ -279,6 +283,20 @@ func (b *modelBuilder) addSerStruct(src *srcFile, name string, fd *ast.FuncDecl)
 			m.Flat = true
 		}
 	}
+}
+
+// serKey finds the wire name a serializer block writes its member under, in
+// the shape of a reKey match.
+func (b *modelBuilder) serKey(body string) []string {
+	if !b.xmlLocal {
+		return reKey.FindStringSubmatch(body)
+	}
+
+	if m := reLocal.FindStringSubmatch(body); m != nil {
+		return []string{m[0], "Key", m[1]}
+	}
+
+	return nil
 }
 
 func (b *modelBuilder) addSerUnion(src *srcFile, name string, fd *ast.FuncDecl) {
@@ -326,14 +344,26 @@ func (b *modelBuilder) addSerList(src *srcFile, name string, fd *ast.FuncDecl) {
 	sh := b.shape(name, ir.List)
 	text := src.text(fd.Body)
 
-	arr := reArray.FindStringSubmatch(text)
-	if arr == nil {
-		fatalf("%s: list without Array()", name)
-	}
-
 	item := &ir.Member{Target: serTarget(text)}
-	if !b.json {
-		item.Ser = strings.Trim(arr[2], `"`)
+
+	switch {
+	case b.xmlLocal:
+		if strings.Contains(text, "ArrayWithCustomName(") {
+			if m := reLocal.FindStringSubmatch(text); m != nil {
+				item.Ser = m[1]
+			}
+		} else if !strings.Contains(text, "value.Array()") {
+			fatalf("%s: list without Array()", name)
+		}
+	default:
+		arr := reArray.FindStringSubmatch(text)
+		if arr == nil {
+			fatalf("%s: list without Array()", name)
+		}
+
+		if !b.json {
+			item.Ser = strings.Trim(arr[2], `"`)
+		}
 	}
 
 	if sh.Item != nil {
@@ -660,6 +690,11 @@ func extract(dir, protocol, prefix, version string) *ir.Model {
 		b.addRestBindings(src)
 		b.addOps(dir, "", "")
 		b.addRestOps(dir)
+
+		if b.xmlLocal {
+			b.addRestOutBindings(src)
+			b.addXMLRoots(dir)
+		}
 	} else {
 		b.addOps(dir, "POST", "/")
 	}
@@ -759,5 +794,84 @@ func (b *modelBuilder) addRestOps(dir string) {
 		if op.URI == "" {
 			fatalf("%s: operation without a URI", name)
 		}
+	}
+}
+
+var (
+	reXMLRoot   = regexp.MustCompile(`root := smithyxml\.StartElement\{\s*Name: smithyxml\.Name\{\s*Local: "([^"]+)"`)
+	reXMLNS     = regexp.MustCompile(`NewNamespaceAttribute\("", "([^"]+)"\)`)
+	reOutBind   = regexp.MustCompile(`^deserializeOpHttpBindings(\w+)Output$`)
+	reHeaderGet = regexp.MustCompile(`response\.Header\.Values\("([^"]+)"\)`)
+	reSanitize  = regexp.MustCompile(`case \*(\w+)Input:\s+if i\.(\w+) != nil \{\s+idx := strings\.LastIndex`)
+)
+
+// addRestOutBindings records the response headers a restXml operation reads
+// into output members.
+func (b *modelBuilder) addRestOutBindings(src *srcFile) {
+	for _, name := range sortedKeys(src.funcs) {
+		m := reOutBind.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+
+		sh := b.shape(m[1]+"Output", ir.Struct)
+
+		for _, stmt := range src.funcs[name].Body.List {
+			ifs, ok := stmt.(*ast.IfStmt)
+			if !ok {
+				continue
+			}
+
+			if ifs.Init == nil {
+				continue
+			}
+
+			header := reHeaderGet.FindStringSubmatch(src.text(ifs.Init))
+			field := reGoField.FindStringSubmatch(src.text(ifs.Body))
+
+			if header == nil || field == nil {
+				fatalf("%s: unrecognised header binding:\n%s", name, src.text(ifs))
+			}
+
+			mem := structMember(sh, field[1])
+			mem.Loc, mem.LocName = "header", header[1]
+
+			setTarget(mem, scalarOf(src.text(ifs.Body)), name)
+		}
+	}
+}
+
+// addXMLRoots reads each operation's request root element, the service xmlns
+// and the input members the SDK's URL sanitizer trims.
+func (b *modelBuilder) addXMLRoots(dir string) {
+	src := mustRead(filepath.Join(dir, "serializers.go"))
+
+	for _, m := range reOpHandler.FindAllStringSubmatch(src, -1) {
+		op := b.model.Ops[m[1]]
+		if op == nil {
+			continue
+		}
+
+		if root := reXMLRoot.FindStringSubmatch(m[0]); root != nil {
+			op.Root = root[1]
+		}
+	}
+
+	for _, ns := range reXMLNS.FindAllStringSubmatch(src, -1) {
+		if b.model.Namespace != "" && b.model.Namespace != ns[1] {
+			fatalf("conflicting xml namespaces %q and %q", b.model.Namespace, ns[1])
+		}
+
+		b.model.Namespace = ns[1]
+	}
+
+	client := mustRead(filepath.Join(dir, "api_client.go"))
+	for _, m := range reSanitize.FindAllStringSubmatch(client, -1) {
+		op := b.model.Ops[m[1]]
+		if op == nil {
+			fatalf("sanitizer for unknown operation %s", m[1])
+		}
+
+		op.Sanitize = append(op.Sanitize, m[2])
 	}
 }

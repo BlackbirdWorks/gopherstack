@@ -2,7 +2,6 @@ package stepfunctions
 
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
-	xroute53 "github.com/aws/aws-sdk-go-v2/service/route53"
 	xs3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -11,30 +10,28 @@ import (
 // without a build func are served by sdkwire from their Smithy schemas.
 func sdkServiceTable() map[string]sdkService {
 	return map[string]sdkService{
-		"dynamodb":       {prefix: "DynamoDb"},
-		"sqs":            {prefix: "Sqs"},
-		"sns":            {prefix: "Sns"},
-		awsServiceLambda: {prefix: "Lambda"},
-		"secretsmanager": {prefix: "SecretsManager"},
-		"ssm":            {prefix: "Ssm"},
-		"kms":            {prefix: "Kms"},
-		"eventbridge":    {prefix: "EventBridge"},
-		"sfn":            {prefix: "Sfn"},
-		"ecs":            {prefix: "Ecs"},
-		"glue":           {prefix: "Glue"},
-		"athena":         {prefix: "Athena"},
-		"batch":          {prefix: "Batch"},
-		"sts":            {prefix: "Sts"},
-		"iam":            {prefix: "Iam"},
-		"kinesis":        {prefix: "Kinesis"},
-		"firehose":       {prefix: "Firehose"},
-		"cloudwatch":     {prefix: "CloudWatch"},
-		"cloudwatchlogs": {prefix: "CloudWatchLogs"},
-		"ec2":            {prefix: "Ec2"},
-		"ecr":            {prefix: "Ecr"},
-		"route53": {prefix: "Route53", build: func(c aws.Config) any {
-			return xroute53.NewFromConfig(c)
-		}},
+		"dynamodb":                {prefix: "DynamoDb"},
+		"sqs":                     {prefix: "Sqs"},
+		"sns":                     {prefix: "Sns"},
+		awsServiceLambda:          {prefix: "Lambda"},
+		"secretsmanager":          {prefix: "SecretsManager"},
+		"ssm":                     {prefix: "Ssm"},
+		"kms":                     {prefix: "Kms"},
+		"eventbridge":             {prefix: "EventBridge"},
+		"sfn":                     {prefix: "Sfn"},
+		"ecs":                     {prefix: "Ecs"},
+		"glue":                    {prefix: "Glue"},
+		"athena":                  {prefix: "Athena"},
+		"batch":                   {prefix: "Batch"},
+		"sts":                     {prefix: "Sts"},
+		"iam":                     {prefix: "Iam"},
+		"kinesis":                 {prefix: "Kinesis"},
+		"firehose":                {prefix: "Firehose"},
+		"cloudwatch":              {prefix: "CloudWatch"},
+		"cloudwatchlogs":          {prefix: "CloudWatchLogs"},
+		"ec2":                     {prefix: "Ec2"},
+		"ecr":                     {prefix: "Ecr"},
+		"route53":                 {prefix: "Route53"},
 		"cognitoidentityprovider": {prefix: "CognitoIdentityProvider"},
 		"apigateway":              {prefix: "ApiGateway"},
 		"apigatewayv2":            {prefix: "ApiGatewayV2"},

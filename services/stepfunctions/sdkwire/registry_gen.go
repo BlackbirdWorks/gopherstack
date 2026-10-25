@@ -3782,6 +3782,9 @@ func init() {
 	register("rekognition", func() *Service {
 		return legacyService("rekognition", "rekognition", "api/rekognition#1.60.2", awsjson11Protocol)
 	})
+	register("route53", func() *Service {
+		return legacyService("route53", "route53", "api/route53#1.70.3", restxmlProtocol)
+	})
 	register("scheduler", func() *Service {
 		return legacyService("scheduler", "scheduler", "api/scheduler#1.25.3", restjson1Protocol)
 	})

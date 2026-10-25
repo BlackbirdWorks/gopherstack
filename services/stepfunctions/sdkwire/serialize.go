@@ -53,7 +53,13 @@ func (in *input) writeStruct(s smithy.ShapeSerializer, schema *smithy.Schema, v 
 		names = append(names, name)
 	}
 
-	sort.Strings(names)
+	sort.Slice(names, func(i, j int) bool {
+		if a, b := strings.ToLower(names[i]), strings.ToLower(names[j]); a != b {
+			return a < b
+		}
+
+		return names[i] < names[j]
+	})
 
 	for _, name := range names {
 		if val, found := lookupKey(m, name); found && val != nil {

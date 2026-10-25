@@ -33,11 +33,13 @@ const (
 	protoEC2      = "ec2query"
 	protoJSON11   = "awsjson11"
 	protoRestJSON = "restjson1"
+	protoRestXML  = "restxml"
 
 	prefixQuery    = "awsAwsquery_"
 	prefixEC2      = "awsEc2query_"
 	prefixJSON11   = "awsAwsjson11_"
 	prefixRestJSON = "awsRestjson1_"
+	prefixRestXML  = "awsRestxml_"
 
 	fileMode = 0o600
 )
@@ -124,6 +126,7 @@ func legacyServices() map[string]legacyProtocol {
 		"ssm": json11, "redshiftdata": json11, "rekognition": json11,
 		"ec2":       {protoEC2, prefixEC2, "ec2queryProtocol"},
 		"scheduler": restJSON, "efs": restJSON,
+		"route53": {protoRestXML, prefixRestXML, "restxmlProtocol"},
 	}
 }
 
@@ -374,7 +377,7 @@ func write(svcs []svc, protoImports map[string]string, legacy []legacySvc) {
 // dispatchServices keep their generated SDK client; the Step Functions
 // integration reaches their operations through a static method table.
 func dispatchServices() []string {
-	return []string{"route53", "s3"}
+	return []string{"s3"}
 }
 
 func writeDispatch() {

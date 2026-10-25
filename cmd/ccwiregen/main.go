@@ -93,6 +93,14 @@ func specs() []spec {
 				"ModifyTargetGroupAttributes", "ModifyTargetGroup", "RegisterTargets", "RemoveTags",
 			}},
 		{
+			module: "route53", file: "route53", alias: "r53types", prefix: "wireR53",
+			ops: []string{
+				"AssociateVPCWithHostedZone", "ChangeTagsForResource", "CreateHostedZone", "CreateQueryLoggingConfig",
+				"DeleteHostedZone", "DeleteQueryLoggingConfig", "DisassociateVPCFromHostedZone", "GetHostedZone",
+				"ListHostedZones", "ListQueryLoggingConfigs", opListTags, "UpdateHostedZoneComment",
+				"UpdateHostedZoneFeatures",
+			}},
+		{
 			module: "glue", file: "glue", alias: "gluetypes", prefix: "wireGlue",
 			ops: []string{
 				"CreateDatabase", "DeleteDatabase", "GetDatabase", "GetDatabases", "UpdateDatabase",
