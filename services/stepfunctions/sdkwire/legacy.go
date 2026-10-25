@@ -77,8 +77,22 @@ func buildSchemas(ns string, m *ir.Model) (*smithy.ServiceSchema, map[string]*Op
 
 	sort.Strings(names)
 
+	roots := map[string]string{}
+
+	for _, op := range m.Ops {
+		if op.Root != "" && op.In != "" {
+			roots[op.In] = op.Root
+		}
+	}
+
 	for _, name := range names {
-		b.shapes[name] = smithy.NewSchema(smithy.ShapeID{Namespace: ns, Name: name}, shapeType(m.Shapes[name].Type), 0)
+		var ts []smithy.Trait
+		if root, ok := roots[name]; ok {
+			ts = append(ts, &traits.XMLName{Name: root})
+		}
+
+		b.shapes[name] = smithy.NewSchema(
+			smithy.ShapeID{Namespace: ns, Name: name}, shapeType(m.Shapes[name].Type), 0, ts...)
 	}
 
 	for _, name := range names {
@@ -90,7 +104,10 @@ func buildSchemas(ns string, m *ir.Model) (*smithy.ServiceSchema, map[string]*Op
 	for name, op := range m.Ops {
 		opSchema := smithy.NewSchema(smithy.ShapeID{Namespace: ns, Name: name}, smithy.ShapeTypeOperation, 0,
 			&traits.HTTP{Method: op.Method, URI: op.URI})
-		ops[name] = &Op{Schema: smithy.NewOperationSchema(opSchema, b.shapes[op.In], b.shapes[op.Out]), Token: op.Token}
+		ops[name] = &Op{
+			Schema: smithy.NewOperationSchema(opSchema, b.shapes[op.In], b.shapes[op.Out]),
+			Token:  op.Token, Sanitize: op.Sanitize,
+		}
 	}
 
 	target := m.Target
@@ -98,7 +115,12 @@ func buildSchemas(ns string, m *ir.Model) (*smithy.ServiceSchema, map[string]*Op
 		target = ns
 	}
 
-	svc := smithy.NewSchema(smithy.ShapeID{Namespace: ns, Name: target}, smithy.ShapeTypeService, 0)
+	var svcTraits []smithy.Trait
+	if m.Namespace != "" {
+		svcTraits = append(svcTraits, &traits.XMLNamespace{URI: m.Namespace})
+	}
+
+	svc := smithy.NewSchema(smithy.ShapeID{Namespace: ns, Name: target}, smithy.ShapeTypeService, 0, svcTraits...)
 
 	return smithy.NewServiceSchema(svc, m.Version), ops
 }
@@ -155,6 +177,8 @@ func (b *schemaBuilder) wireTraits(m *ir.Member, fallback string) []smithy.Trait
 		return nil
 	case "restjson1":
 		return restJSONTraits(m)
+	case "restxml":
+		return append(xmlNameTraits(m, fallback), locTraits(m)...)
 	case "ec2query":
 		if m.Ser != "" {
 			ts = append(ts, &traits.EC2QueryName{Name: m.Ser})
@@ -164,21 +188,27 @@ func (b *schemaBuilder) wireTraits(m *ir.Member, fallback string) []smithy.Trait
 			ts = append(ts, &traits.XMLName{Name: m.De})
 		}
 	default:
-		name := m.De
-		if name == "" {
-			name = m.Ser
-		}
-
-		if name == "" && fallback != m.Name {
-			name = fallback
-		}
-
-		if name != "" {
-			ts = append(ts, &traits.XMLName{Name: name})
-		}
+		return xmlNameTraits(m, fallback)
 	}
 
 	return ts
+}
+
+func xmlNameTraits(m *ir.Member, fallback string) []smithy.Trait {
+	name := m.De
+	if name == "" {
+		name = m.Ser
+	}
+
+	if name == "" && fallback != m.Name {
+		name = fallback
+	}
+
+	if name == "" {
+		return nil
+	}
+
+	return []smithy.Trait{&traits.XMLName{Name: name}}
 }
 
 // restJSONTraits binds a member to its JSON key or HTTP location.
@@ -188,6 +218,13 @@ func restJSONTraits(m *ir.Member) []smithy.Trait {
 	if name := cmpOr(m.De, m.Ser); name != "" && name != m.Name {
 		ts = append(ts, &traits.JSONName{Name: name})
 	}
+
+	return append(ts, locTraits(m)...)
+}
+
+// locTraits binds a member to its HTTP location.
+func locTraits(m *ir.Member) []smithy.Trait {
+	var ts []smithy.Trait
 
 	switch m.Loc {
 	case "label":

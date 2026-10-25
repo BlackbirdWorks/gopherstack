@@ -60,7 +60,7 @@ func (s *Service) Call(ctx context.Context, tgt Target, op string, params any) (
 		return nil, fmt.Errorf("%w: %s", ErrEventStream, op)
 	}
 
-	req, err := s.buildRequest(ctx, tgt, op, o, withToken(o, params))
+	req, err := s.buildRequest(ctx, tgt, op, o, sanitize(o, withToken(o, params)))
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +79,8 @@ func (s *Service) Call(ctx context.Context, tgt Target, op string, params any) (
 	out := &output{schema: o.Schema.Output}
 
 	if derr := s.Protocol.DeserializeResponse(ctx, o.Schema, &smithy.TypeRegistry{}, resp, out); derr != nil {
+		derr = unknownRestXMLError(s, res, derr)
+
 		return nil, &awshttp.ResponseError{
 			ResponseError: &smithyhttp.ResponseError{Response: resp, Err: derr},
 			RequestID:     requestID(res.Header),
@@ -198,4 +200,35 @@ func withToken(o *Op, params any) any {
 // voidOutput reports an operation without output members, whose success body the SDK discards.
 func voidOutput(o *Op) bool {
 	return o.Schema.Output == nil || len(o.Schema.Output.Members()) == 0
+}
+
+// sanitize cuts the operation's ID members to their last "/" segment, as the
+// Route53 client does so one call's output (/hostedzone/Z1) can feed the next.
+func sanitize(o *Op, params any) any {
+	m, ok := params.(map[string]any)
+	if !ok || len(o.Sanitize) == 0 {
+		return params
+	}
+
+	out := maps.Clone(m)
+
+	for _, name := range o.Sanitize {
+		for k, v := range out {
+			if str, isStr := v.(string); isStr && strings.EqualFold(k, name) {
+				out[k] = str[strings.LastIndex(str, "/")+1:]
+			}
+		}
+	}
+
+	return out
+}
+
+// unknownRestXMLError maps a restXml error body without an <Error> element to
+// the UnknownError the SDK reports for it.
+func unknownRestXMLError(s *Service, res *http.Response, err error) error {
+	if res.StatusCode/100 == 2 || !errors.Is(err, io.EOF) || s.Protocol.ID().Name != "restXml" {
+		return err
+	}
+
+	return &smithy.GenericAPIError{Code: "UnknownError", Message: "UnknownError"}
 }

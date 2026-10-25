@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/route53"
 
 	"github.com/blackbirdworks/gopherstack/internal/awswire/cloudwatch"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
@@ -19,7 +18,6 @@ func wireCloudControlInfraHandlers(
 	bk.RegisterTypeHandler("AWS::EC2::VPC", &ccVPC{client: ec2c})
 	bk.RegisterTypeHandler("AWS::EC2::Subnet", &ccSubnet{client: ec2c})
 	bk.RegisterTypeHandler("AWS::EC2::SecurityGroup", &ccSecurityGroup{client: ec2c})
-	bk.RegisterTypeHandler("AWS::Route53::HostedZone", &ccHostedZone{client: route53.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::CloudWatch::Alarm", &ccAlarm{client: cloudwatch.NewFromConfig(cfg)})
 
 	wc := func(key string) *ccWireClient {
@@ -29,6 +27,10 @@ func wireCloudControlInfraHandlers(
 		}
 
 		return c
+	}
+
+	if c := wc("route53"); c != nil {
+		bk.RegisterTypeHandler("AWS::Route53::HostedZone", &ccHostedZone{client: &wireR53{c}})
 	}
 
 	if c := wc("ecs"); c != nil {

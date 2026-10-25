@@ -22,6 +22,8 @@ type Op struct {
 	Schema *smithy.OperationSchema
 	// Token names the idempotency-token member the SDK fills when absent.
 	Token string
+	// Sanitize names input members the SDK cuts to their last "/" segment.
+	Sanitize []string
 }
 
 // Service describes one AWS service's wire protocol and operations.

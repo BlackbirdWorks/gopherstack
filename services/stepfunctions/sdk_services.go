@@ -2,7 +2,6 @@ package stepfunctions
 
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
-	xroute53 "github.com/aws/aws-sdk-go-v2/service/route53"
 	xs3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -32,9 +31,7 @@ func sdkServiceTable() map[string]sdkService {
 		"cloudwatchlogs": {prefix: "CloudWatchLogs"},
 		"ec2":            {prefix: "Ec2"},
 		"ecr":            {prefix: "Ecr"},
-		"route53": {prefix: "Route53", build: func(c aws.Config) any {
-			return xroute53.NewFromConfig(c)
-		}},
+		"route53":                 {prefix: "Route53"},
 		"cognitoidentityprovider": {prefix: "CognitoIdentityProvider"},
 		"apigateway":              {prefix: "ApiGateway"},
 		"apigatewayv2":            {prefix: "ApiGatewayV2"},
