@@ -15206,7 +15206,7 @@
       "backupSnap.Backup json.RawMessage `json:\"backup\"`",
       "backupSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
       "backupSnap.Table tableSnap `json:\"table\"`",
-      "cellSnap.Ts int64 `json:\"ts\"`",
+      "cellSnap.TS int64 `json:\"ts\"`",
       "cellSnap.Val []byte `json:\"val,omitempty\"`",
       "columnSnap.Cells []cellSnap `json:\"cells\"`",
       "columnSnap.Family string `json:\"family\"`",
