@@ -16,6 +16,8 @@ const (
 		"Consider adding allow scan header in the request."
 )
 
+const msgOrderExcluded = "The index path corresponding to the specified order-by item is excluded."
+
 func policyContainer(policy string) string {
 	return `{"id":"c","partitionKey":{"paths":["/pk"],"kind":"Hash"},"indexingPolicy":` + policy + `}`
 }
@@ -86,6 +88,28 @@ func TestIndexingPolicy_QueryEnforcement(t *testing.T) {
 		},
 		{name: "included path only", policy: partial, query: `SELECT * FROM c WHERE c.name = 'x'`},
 		{name: "everything else excluded", policy: partial, query: `SELECT * FROM c WHERE c.age = 3`, wantMsg: msgScan},
+		{
+			name: "order by excluded path", policy: excluded, query: `SELECT * FROM c ORDER BY c.secret.token`,
+			wantMsg: msgOrderExcluded,
+		},
+		{
+			name: "order by excluded path ignores scan header", policy: excluded,
+			query: `SELECT * FROM c ORDER BY c.secret.token`, wantMsg: msgOrderExcluded,
+			headers: map[string]string{"X-Ms-Documentdb-Query-Enable-Scan": "true"},
+		},
+		{name: "order by indexed path", policy: excluded, query: `SELECT * FROM c ORDER BY c.name`},
+		{name: "order by included path only", policy: partial, query: `SELECT * FROM c ORDER BY c.name`},
+		{
+			name: "order by unlisted path", policy: partial, query: `SELECT * FROM c ORDER BY c.age DESC`,
+			wantMsg: msgOrderExcluded,
+		},
+		{name: "order by id always indexed", policy: partial, query: `SELECT * FROM c ORDER BY c.id`},
+		{name: "order by _ts always indexed", policy: partial, query: `SELECT * FROM c ORDER BY c._ts`},
+		{name: "none mode order by", policy: none, query: `SELECT * FROM c ORDER BY c.name`, wantMsg: msgOrderExcluded},
+		{
+			name: "filter plus order by needs no composite", policy: composite,
+			query: `SELECT * FROM c WHERE c.name = 'x' ORDER BY c.age`,
+		},
 		{name: "no filter never needs scan", policy: none, query: `SELECT * FROM c`},
 		{
 			name:    "none mode filter needs scan",
@@ -126,6 +150,46 @@ func TestIndexingPolicy_QueryEnforcement(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 			assert.Equal(t, "BadRequest", decodeBody(t, rec)["code"])
 			assert.Equal(t, tt.wantMsg, decodeBody(t, rec)["message"])
+		})
+	}
+}
+
+func TestIndexingPolicy_LazyModeRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		mode string
+		want int
+	}{
+		{name: "lazy", mode: "lazy", want: http.StatusBadRequest},
+		{name: "lazy mixed case", mode: "Lazy", want: http.StatusBadRequest},
+		{name: "consistent", mode: "consistent", want: http.StatusCreated},
+		{name: "none", mode: "none", want: http.StatusCreated},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			policy := `{"indexingMode":"` + tt.mode + `","automatic":true,"includedPaths":[{"path":"/*"}]}`
+
+			s := newLiveServer(t)
+			create := s.do(
+				http.MethodPost,
+				"/dbs/d/colls",
+				nil,
+				strings.Replace(policyContainer(policy), `"id":"c"`, `"id":"fresh"`, 1),
+			)
+			assert.Equal(t, tt.want, create.status, string(create.body))
+
+			replace := s.do(http.MethodPut, "/dbs/d/colls/c", nil, policyContainer(policy))
+			wantReplace := http.StatusOK
+			if tt.want == http.StatusBadRequest {
+				wantReplace = tt.want
+			}
+
+			assert.Equal(t, wantReplace, replace.status, string(replace.body))
 		})
 	}
 }

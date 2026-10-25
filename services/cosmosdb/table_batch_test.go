@@ -420,3 +420,82 @@ func TestTableBatch_SingleRetrieve(t *testing.T) {
 		})
 	}
 }
+
+func TestTableBatch_SingleQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantBody   string
+		notBody    string
+		wantParts  []string
+		wantStatus int
+	}{
+		{name: "all", path: "t()", wantParts: []string{"200"}, wantBody: `"RowKey":"a"`},
+		{name: "no parens", path: "t", wantParts: []string{"200"}, wantBody: `"RowKey":"b"`},
+		{
+			name: "filter", path: "t()?$filter=RowKey%20eq%20'b'",
+			wantParts: []string{"200"}, wantBody: `"RowKey":"b"`, notBody: `"RowKey":"a"`,
+		},
+		{
+			name:      "top",
+			path:      "t()?$top=1",
+			wantParts: []string{"200"},
+			wantBody:  `"RowKey":"a"`,
+			notBody:   `"RowKey":"b"`,
+		},
+		{
+			name: "select", path: "t()?$select=RowKey",
+			wantParts: []string{"200"}, wantBody: `"RowKey":"a"`, notBody: `"V"`,
+		},
+		{name: "bad filter", path: "t()?$filter=((", wantParts: []string{"400"}, wantBody: `"code":"InvalidInput"`},
+		{name: "missing table", path: "nope()", wantParts: []string{"404"}, wantBody: `"code":"TableNotFound"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newBatchTable(t)
+
+			for _, e := range []string{
+				`{"PartitionKey":"p","RowKey":"a","V":"x"}`, `{"PartitionKey":"p","RowKey":"b","V":"y"}`,
+			} {
+				require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, "/t", nil, []byte(e)).Code)
+			}
+
+			rec := postBatch(t, h, buildRetrieveBatch(tt.path, false))
+			require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+			assert.Equal(t, tt.wantParts, partStatuses(rec.Body.String()))
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+
+			if tt.notBody != "" {
+				assert.NotContains(t, rec.Body.String(), tt.notBody)
+			}
+
+			assert.NotContains(t, rec.Body.String(), "changesetresponse_")
+		})
+	}
+}
+
+func TestTableBatch_QueryNotCombinable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "second operation outside a changeset", body: buildRetrieveBatch("t()", true)},
+		{name: "inside a changeset", body: buildBatch(batchOp{method: "GET", path: "t()"})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postBatch(t, newBatchTable(t), tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
+}

@@ -91,6 +91,10 @@ func validateSearchIndexes(indexing json.RawMessage, p ContainerPolicies) error 
 		return fmt.Errorf("%w: indexingPolicy is malformed", ErrInvalidContainerPolicy)
 	}
 
+	if strings.EqualFold(pol.IndexingMode, indexModeLazy) {
+		return fmt.Errorf("%w: %s", ErrInvalidContainerPolicy, msgLazyIndexing)
+	}
+
 	vp, err := parseVectorPolicy(p.VectorEmbeddingPolicy)
 	if err != nil {
 		return err

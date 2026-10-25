@@ -30,8 +30,12 @@ func (h *Handler) handleTableBatch(c *echo.Context) error {
 		return h.writeTableError(c, http.StatusBadRequest, "InvalidInput", "99:"+parseErr.Error())
 	}
 
-	if ops[0].Op.Kind == odatatable.BatchRetrieve {
+	switch ops[0].Op.Kind {
+	case odatatable.BatchRetrieve:
 		return h.writeBatchRetrieve(c, ops[0])
+	case odatatable.BatchQuery:
+		return h.writeBatchQuery(c, ops[0])
+	case odatatable.BatchInsert, odatatable.BatchReplace, odatatable.BatchMerge, odatatable.BatchDelete:
 	}
 
 	if idx, failure := odatatable.ValidateBatch(ops); failure != nil {
@@ -86,6 +90,41 @@ func (h *Handler) writeBatchRetrieve(c *echo.Context, o odatatable.WireBatchOp) 
 		Headers: [][2]string{
 			{"ETag", info.ETag},
 			{headerContentType, "application/json;odata=" + level + ";streaming=true;charset=utf-8"},
+		},
+		Body: payload,
+	})
+}
+
+// writeBatchQuery answers 202 with the single entity-collection query's own response (200 and the feed, or its error).
+func (h *Handler) writeBatchQuery(c *echo.Context, o odatatable.WireBatchOp) error {
+	accept := o.Headers.Get("Accept")
+
+	feed, failure := h.entityFeed(o.Table, o.Query, accept, c.Request().Host)
+	if failure != nil {
+		body, bodyErr := odatatable.FailureBody(0, *failure, newDocumentID(), time.Now().UTC().Format(time.RFC3339Nano))
+		if bodyErr != nil {
+			return h.writeTableError(c, http.StatusInternalServerError, "InternalError", bodyErr.Error())
+		}
+
+		return h.writeRetrievePart(c, odatatable.BatchResponsePart{
+			Status:  failure.Status,
+			Headers: [][2]string{{headerContentType, errorPartContentType}},
+			Body:    body,
+		})
+	}
+
+	payload, err := jsonMarshal(feed)
+	if err != nil {
+		return h.writeTableError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	}
+
+	return h.writeRetrievePart(c, odatatable.BatchResponsePart{
+		Status: http.StatusOK,
+		Headers: [][2]string{
+			{
+				headerContentType,
+				"application/json;odata=" + tableODataLevelFromAccept(accept) + ";streaming=true;charset=utf-8",
+			},
 		},
 		Body: payload,
 	})

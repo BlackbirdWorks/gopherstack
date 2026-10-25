@@ -1,6 +1,9 @@
 package cosmosdb
 
 import (
+	"maps"
+	"slices"
+
 	"github.com/dop251/goja"
 )
 
@@ -12,9 +15,89 @@ type ScriptOutput struct {
 	HasBody bool
 }
 
+// sprocOptimisticTries bounds the lock-free attempts before a stored procedure runs under the write lock.
+const sprocOptimisticTries = 4
+
 // ExecuteSproc runs a stored procedure against one partition. Everything it writes commits together or, on any
-// failure, not at all.
+// failure, not at all. The script runs on a private copy of the container without holding the backend lock and is
+// committed only if the container was not written meanwhile; after repeated conflicts it runs under the lock.
 func (b *InMemoryBackend) ExecuteSproc(dbID, collID, id, partitionKey string, args []any) (ScriptOutput, error) {
+	for range sprocOptimisticTries {
+		out, done, err := b.trySprocOptimistic(dbID, collID, id, partitionKey, args)
+		if done {
+			return out, err
+		}
+	}
+
+	return b.executeSprocLocked(dbID, collID, id, partitionKey, args)
+}
+
+func (b *InMemoryBackend) trySprocOptimistic(
+	dbID, collID, id, partitionKey string, args []any,
+) (ScriptOutput, bool, error) {
+	b.mu.RLock("ExecuteSproc")
+
+	tx, err := b.beginTx(dbID, collID)
+	if err != nil {
+		b.mu.RUnlock()
+
+		return ScriptOutput{}, true, err
+	}
+
+	if pkErr := tx.c.checkPartitionKey(partitionKey); pkErr != nil {
+		b.mu.RUnlock()
+
+		return ScriptOutput{}, true, pkErr
+	}
+
+	s, ok := tx.c.scriptMap(kindSproc, false)[id]
+	if !ok {
+		b.mu.RUnlock()
+
+		return ScriptOutput{}, true, ErrScriptNotFound
+	}
+
+	script := *s
+	live := tx.c
+	shadow := tx.c.shadowCopy()
+	b.mu.RUnlock()
+
+	stx := &containerTx{b: b, c: shadow, dbID: dbID, collID: collID, now: tx.now, seq0: tx.seq0}
+	out, runErr := stx.runSproc(&script, partitionKey, args)
+
+	b.mu.Lock("ExecuteSproc")
+	defer b.mu.Unlock()
+
+	if cur, findErr := b.findContainer(dbID, collID); findErr != nil || cur != live || live.ChangeSeq != tx.seq0 {
+		return ScriptOutput{}, false, nil
+	}
+
+	if runErr != nil {
+		return ScriptOutput{}, true, runErr
+	}
+
+	live.Documents, live.ChangeLog, live.ChangeSeq = shadow.Documents, shadow.ChangeLog, shadow.ChangeSeq
+	live.sorted.Store(nil)
+
+	return out, true, nil
+}
+
+// shadowCopy is a private copy of the document state a script may change; configuration is shared read-only.
+func (c *storedContainer) shadowCopy() *storedContainer {
+	return &storedContainer{
+		Modified: c.Modified, Offer: c.Offer, Triggers: c.Triggers, Sprocs: c.Sprocs, UDFs: c.UDFs,
+		Documents: maps.Clone(c.Documents), DefaultTTL: c.DefaultTTL, ID: c.ID,
+		PartitionKeyPath: c.PartitionKeyPath, ConflictResolutionPolicy: c.ConflictResolutionPolicy,
+		IndexingPolicy: c.IndexingPolicy, PartitionKeyPaths: c.PartitionKeyPaths,
+		UniqueKeyPolicy: c.UniqueKeyPolicy, GeospatialConfig: c.GeospatialConfig,
+		VectorEmbeddingPolicy: c.VectorEmbeddingPolicy, FullTextPolicy: c.FullTextPolicy,
+		ComputedProperties: c.ComputedProperties, ChangeLog: slices.Clip(c.ChangeLog), ChangeSeq: c.ChangeSeq,
+	}
+}
+
+func (b *InMemoryBackend) executeSprocLocked(
+	dbID, collID, id, partitionKey string, args []any,
+) (ScriptOutput, error) {
 	b.mu.Lock("ExecuteSproc")
 	defer b.mu.Unlock()
 
