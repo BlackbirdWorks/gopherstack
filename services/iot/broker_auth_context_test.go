@@ -1,6 +1,7 @@
 package iot_test
 
 import (
+	"encoding/asn1"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -24,7 +25,12 @@ const defaultCN = "device-7"
 type certSpec struct {
 	notBefore time.Time
 	notAfter  time.Time
+	subject   *pkix.Name
+	issuer    *pkix.Name
+	serial    *big.Int
 	cn        string
+	dns       []string
+	issuerAlt string
 }
 
 func validSpec(cn string) certSpec {
@@ -46,9 +52,40 @@ func (e *authEnv) customDevice(t *testing.T, spec certSpec, thing, policyName, p
 		NotAfter:     spec.notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		DNSNames:     spec.dns,
 	}
 
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
+	if spec.subject != nil {
+		tmpl.Subject = *spec.subject
+	}
+
+	if spec.issuerAlt != "" {
+		name, mErr := asn1.Marshal(asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 2, Bytes: []byte(spec.issuerAlt)})
+		require.NoError(t, mErr)
+
+		seq, mErr := asn1.Marshal(asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagSequence, IsCompound: true, Bytes: name})
+		require.NoError(t, mErr)
+
+		tmpl.ExtraExtensions = append(tmpl.ExtraExtensions, pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 18}, Value: seq})
+	}
+
+	if spec.serial != nil {
+		tmpl.SerialNumber = spec.serial
+	}
+
+	parent, signer := tmpl, key
+
+	if spec.issuer != nil {
+		issuerKey, ikErr := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, ikErr)
+
+		parent = &x509.Certificate{
+			SerialNumber: big.NewInt(1), Subject: *spec.issuer, NotBefore: spec.notBefore, NotAfter: spec.notAfter,
+		}
+		signer = issuerKey
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, key.Public(), signer)
 	require.NoError(t, err)
 
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
