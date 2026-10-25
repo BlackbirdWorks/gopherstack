@@ -21,7 +21,9 @@ func newSQLServerFixture(t *testing.T, enabled bool, arch string) *sqlServerFixt
 	t.Helper()
 
 	f := &sqlServerFixture{
-		engineFixture: &engineFixture{rt: newFakeEngineRuntime(), b: rds.NewInMemoryBackend("123456789012", "us-east-1")},
+		engineFixture: &engineFixture{
+			rt: newFakeEngineRuntime(), b: rds.NewInMemoryBackend("123456789012", "us-east-1"),
+		},
 	}
 	t.Cleanup(f.b.Close)
 	f.b.EnableEngine(rds.EngineConfig{
@@ -38,10 +40,10 @@ func newSQLServerFixture(t *testing.T, enabled bool, arch string) *sqlServerFixt
 	return f
 }
 
-func (f *sqlServerFixture) create(t *testing.T, id, engine, version, dbName, password string) error {
+func (f *sqlServerFixture) create(t *testing.T, engine, version, dbName, password string) error {
 	t.Helper()
 
-	_, err := f.b.CreateDBInstance(id, engine, "db.m5.large", dbName, "master", "", 20,
+	_, err := f.b.CreateDBInstance("db1", engine, "db.m5.large", dbName, "master", "", 20,
 		rds.DBInstanceOptions{EngineVersion: version, MasterUserPassword: password})
 
 	return err
@@ -68,7 +70,7 @@ func TestSQLServerEngineSpec(t *testing.T) {
 			t.Parallel()
 
 			f := newSQLServerFixture(t, true, "amd64")
-			require.NoError(t, f.create(t, "db1", tt.engine, tt.version, "", "Passw0rd-long"))
+			require.NoError(t, f.create(t, tt.engine, tt.version, "", "Passw0rd-long"))
 			inst := f.waitInstance(t, "db1", "available")
 
 			spec := f.rt.firstSpec()
@@ -95,7 +97,7 @@ func TestSQLServerEngineOptIn(t *testing.T) {
 	t.Parallel()
 
 	f := newSQLServerFixture(t, false, "")
-	require.NoError(t, f.create(t, "db1", "sqlserver-ex", "", "anydb", "short"))
+	require.NoError(t, f.create(t, "sqlserver-ex", "", "anydb", "short"))
 	assert.Equal(t, 0, f.rt.containers())
 	assert.Empty(t, f.logins)
 }
@@ -120,7 +122,7 @@ func TestSQLServerCreateValidation(t *testing.T) {
 			t.Parallel()
 
 			f := newSQLServerFixture(t, true, "amd64")
-			err := f.create(t, "db1", "sqlserver-ex", "", tt.dbName, tt.password)
+			err := f.create(t, "sqlserver-ex", "", tt.dbName, tt.password)
 
 			if tt.wantErr == "" {
 				require.NoError(t, err)
@@ -137,7 +139,7 @@ func TestSQLServerRefusedOffAmd64(t *testing.T) {
 	t.Parallel()
 
 	f := newSQLServerFixture(t, true, "arm64")
-	require.NoError(t, f.create(t, "db1", "sqlserver-ex", "", "", "Passw0rd-long"))
+	require.NoError(t, f.create(t, "sqlserver-ex", "", "", "Passw0rd-long"))
 	f.waitInstance(t, "db1", "failed")
 	assert.Contains(t, f.b.EngineFailure("db1"), "amd64-only")
 	assert.Equal(t, 0, f.rt.containers())

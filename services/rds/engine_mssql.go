@@ -17,6 +17,12 @@ import (
 const (
 	engineSQLServer = "sqlserver"
 
+	engineSQLServerEE  = "sqlserver-ee"
+	engineSQLServerSE  = "sqlserver-se"
+	engineSQLServerEX  = "sqlserver-ex"
+	engineSQLServerWeb = "sqlserver-web"
+	engineSQLServerDev = "sqlserver-dev-ee"
+
 	sqlServerContainerPort = 1433
 	sqlServerSAUser        = "sa"
 	sqlServerMinPassword   = 8
@@ -37,7 +43,7 @@ var (
 // sqlServerEngine reports whether an RDS engine name is one of the SQL Server editions this engine can run.
 func sqlServerEngine(engine string) bool {
 	switch engine {
-	case "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "sqlserver-dev-ee":
+	case engineSQLServerEE, engineSQLServerSE, engineSQLServerEX, engineSQLServerWeb, engineSQLServerDev:
 		return true
 	default:
 		return false
@@ -47,7 +53,7 @@ func sqlServerEngine(engine string) bool {
 // sqlServerEdition maps an RDS edition to MSSQL_PID: Express for ex, Developer (full feature set, non-production
 // licence) for everything else.
 func sqlServerEdition(engine string) string {
-	if engine == "sqlserver-ex" {
+	if engine == engineSQLServerEX {
 		return "Express"
 	}
 

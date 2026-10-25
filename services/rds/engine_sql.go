@@ -109,10 +109,10 @@ func setEnginePassword(ctx context.Context, l EngineLogin, newPassword string) e
 
 	defer func() { _ = db.Close() }()
 
-	switch {
-	case l.Kind == engineSQLServer:
+	switch l.Kind {
+	case engineSQLServer:
 		err = setSQLServerPassword(ctx, db, newPassword)
-	case l.Kind == enginePostgres:
+	case enginePostgres:
 		var stmt string
 		err = db.QueryRowContext(ctx,
 			"SELECT format('ALTER ROLE CURRENT_USER PASSWORD %L', $1::text)", newPassword).Scan(&stmt)

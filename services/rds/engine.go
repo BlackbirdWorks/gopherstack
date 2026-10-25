@@ -102,12 +102,12 @@ type EngineConfig struct {
 	ReplicaPollInterval  time.Duration
 	StartTimeout         time.Duration
 	RestorePointInterval time.Duration
-	// SQLServer runs sqlserver-* instances on a real SQL Server container (amd64 only, opt-in).
-	SQLServer bool
 	// HostArch overrides the CPU architecture checked before launching SQL Server; empty means runtime.GOARCH.
 	HostArch string
 	// PostgresExtensions runs postgres units on an image with postgis and pgvector plus the aws_s3/aws_lambda extensions.
 	PostgresExtensions bool
+	// SQLServer runs sqlserver-* instances on a real SQL Server container (amd64 only, opt-in).
+	SQLServer bool
 }
 
 type liveDB struct {

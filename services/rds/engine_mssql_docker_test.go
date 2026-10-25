@@ -40,6 +40,8 @@ func openSQLServerDB(t *testing.T, inst rds.DBInstance, password string) *sql.DB
 }
 
 func TestEngineDockerSQLServerSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv(sqlServerDockerEnv) == "" {
 		t.Skipf("set %s=1 to run (pulls the ~1.5GB amd64-only SQL Server image)", sqlServerDockerEnv)
 	}
