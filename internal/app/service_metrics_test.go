@@ -656,7 +656,7 @@ func TestServiceMetrics_APIGatewayV2(t *testing.T) {
 }
 
 // websocketMetricsAPI creates a WebSocket API with a mock $default route, drives one connection that
-// sends a routable and an unroutable message, and returns the API id.
+// sends a routable message and one whose integration fails, and returns the API id.
 func websocketMetricsAPI(t *testing.T, fx *sfnFixture, ag *apigatewayv2.Client) string {
 	t.Helper()
 
@@ -677,6 +677,18 @@ func websocketMetricsAPI(t *testing.T, fx *sfnFixture, ag *apigatewayv2.Client) 
 	})
 	require.NoError(t, err)
 
+	broken, err := ag.CreateIntegration(t.Context(), &apigatewayv2.CreateIntegrationInput{
+		ApiId: api.ApiId, IntegrationType: apigwv2types.IntegrationTypeAwsProxy,
+		IntegrationMethod: aws.String("POST"), IntegrationUri: aws.String("not-a-lambda-arn"),
+	})
+	require.NoError(t, err)
+
+	_, err = ag.CreateRoute(t.Context(), &apigatewayv2.CreateRouteInput{
+		ApiId: api.ApiId, RouteKey: aws.String("broken"),
+		Target: aws.String("integrations/" + aws.ToString(broken.IntegrationId)),
+	})
+	require.NoError(t, err)
+
 	_, err = ag.CreateStage(t.Context(), &apigatewayv2.CreateStageInput{
 		ApiId: api.ApiId, StageName: aws.String("prod"),
 	})
@@ -690,7 +702,7 @@ func websocketMetricsAPI(t *testing.T, fx *sfnFixture, ag *apigatewayv2.Client) 
 	require.NoError(t, resp.Body.Close())
 
 	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"hello":"world"}`)))
-	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"action":"nope"}`)))
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"action":"broken"}`)))
 	require.NoError(t, conn.Close())
 
 	return aws.ToString(api.ApiId)
