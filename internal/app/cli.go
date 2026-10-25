@@ -450,6 +450,13 @@ type CLI struct {
 	azureEventGridHandler         service.Registerable
 	azureAppConfigHandler         service.Registerable
 	azureFunctionsHandler         service.Registerable
+	azureFileHandler              service.Registerable
+	gcpWorkflowsHandler           service.Registerable
+	gcpDNSHandler                 service.Registerable
+	ociObjectStorageHandler       service.Registerable
+	ociVaultHandler               service.Registerable
+	ociStreamingHandler           service.Registerable
+	ociIdentityHandler            service.Registerable
 	gcpCloudBuildHandler          service.Registerable
 	gcpRedisHandler               service.Registerable
 	gcpMonitoringHandler          service.Registerable

@@ -53,3 +53,38 @@ func storeConsoleHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpRedisHandler = byName["GCPRedis"]
 	cli.gcpMonitoringHandler = byName["GCPMonitoring"]
 }
+
+// GetGCPWorkflowsHandler returns the GCPWorkflows handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPWorkflowsHandler() service.Registerable { return c.gcpWorkflowsHandler }
+
+// GetGCPDNSHandler returns the GCPDNS handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPDNSHandler() service.Registerable { return c.gcpDNSHandler }
+
+// GetAzureFileHandler returns the AzureFile handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureFileHandler() service.Registerable { return c.azureFileHandler }
+
+// GetOCIObjectStorageHandler returns the OCIObjectStorage handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIObjectStorageHandler() service.Registerable { return c.ociObjectStorageHandler }
+
+// GetOCIVaultHandler returns the OCIVault handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIVaultHandler() service.Registerable { return c.ociVaultHandler }
+
+// GetOCIStreamingHandler returns the OCIStreaming handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIStreamingHandler() service.Registerable { return c.ociStreamingHandler }
+
+// GetOCIIdentityHandler returns the OCIIdentity handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIIdentityHandler() service.Registerable { return c.ociIdentityHandler }
