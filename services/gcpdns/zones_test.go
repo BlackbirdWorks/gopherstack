@@ -1,6 +1,7 @@
 package gcpdns_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -35,7 +36,11 @@ func TestCreateZoneDefaults(t *testing.T) {
 	assert.Equal(t, z.NameServers, rrs.Rrsets[0].Rrdatas)
 	assert.Equal(t, int64(21600), rrs.Rrsets[0].Ttl)
 	assert.Equal(t, "SOA", rrs.Rrsets[1].Type)
-	assert.Equal(t, z.NameServers[0]+" cloud-dns-hostmaster.google.com. 1 21600 3600 259200 300", rrs.Rrsets[1].Rrdatas[0])
+	assert.Equal(
+		t,
+		z.NameServers[0]+" cloud-dns-hostmaster.google.com. 1 21600 3600 259200 300",
+		rrs.Rrsets[1].Rrdatas[0],
+	)
 
 	ch, err := e.svc.Changes.Get(project, "pub", "0").Context(t.Context()).Do()
 	require.NoError(t, err)
@@ -57,7 +62,12 @@ func TestCreateZoneErrors(t *testing.T) {
 		{&dnsapi.ManagedZone{Name: "z", DnsName: "a.com", Description: "d"}, "no trailing dot", "invalid", 400},
 		{&dnsapi.ManagedZone{Name: "z", Description: "d"}, "no dns name", "required", 400},
 		{&dnsapi.ManagedZone{Name: "z", DnsName: "a.com."}, "no description", "required", 400},
-		{&dnsapi.ManagedZone{Name: "z", DnsName: "a.com.", Description: "d", Visibility: "x"}, "bad visibility", "invalid", 400},
+		{
+			&dnsapi.ManagedZone{Name: "z", DnsName: "a.com.", Description: "d", Visibility: "x"},
+			"bad visibility",
+			"invalid",
+			400,
+		},
 		{&dnsapi.ManagedZone{
 			Name: "z", DnsName: "a.com.", Description: "d",
 			PrivateVisibilityConfig: &dnsapi.ManagedZonePrivateVisibilityConfig{},
@@ -138,15 +148,17 @@ func TestListZones(t *testing.T) {
 
 	var names []string
 
-	err := e.svc.ManagedZones.List(project).MaxResults(2).Pages(t.Context(), func(r *dnsapi.ManagedZonesListResponse) error {
-		assert.LessOrEqual(t, len(r.ManagedZones), 2)
+	err := e.svc.ManagedZones.List(project).
+		MaxResults(2).
+		Pages(t.Context(), func(r *dnsapi.ManagedZonesListResponse) error {
+			assert.LessOrEqual(t, len(r.ManagedZones), 2)
 
-		for _, z := range r.ManagedZones {
-			names = append(names, z.Name)
-		}
+			for _, z := range r.ManagedZones {
+				names = append(names, z.Name)
+			}
 
-		return nil
-	})
+			return nil
+		})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"z0", "z1", "z2", "z3", "z4"}, names)
 
@@ -199,9 +211,11 @@ func TestForwardingAndPeering(t *testing.T) {
 
 	fz, err := e.svc.ManagedZones.Create(project, &dnsapi.ManagedZone{
 		Name: "fwd", DnsName: "fwd.com.", Description: "d", Visibility: "private",
-		ForwardingConfig: &dnsapi.ManagedZoneForwardingConfig{TargetNameServers: []*dnsapi.ManagedZoneForwardingConfigNameServerTarget{
-			{Ipv4Address: "10.0.0.1", ForwardingPath: "private"},
-		}},
+		ForwardingConfig: &dnsapi.ManagedZoneForwardingConfig{
+			TargetNameServers: []*dnsapi.ManagedZoneForwardingConfigNameServerTarget{
+				{Ipv4Address: "10.0.0.1", ForwardingPath: "private"},
+			},
+		},
 	}).Context(t.Context()).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.0.1", fz.ForwardingConfig.TargetNameServers[0].Ipv4Address)
@@ -209,21 +223,29 @@ func TestForwardingAndPeering(t *testing.T) {
 
 	pz, err := e.svc.ManagedZones.Create(project, &dnsapi.ManagedZone{
 		Name: "peer", DnsName: "peer.com.", Description: "d", Visibility: "private",
-		PeeringConfig: &dnsapi.ManagedZonePeeringConfig{TargetNetwork: &dnsapi.ManagedZonePeeringConfigTargetNetwork{NetworkUrl: "n"}},
+		PeeringConfig: &dnsapi.ManagedZonePeeringConfig{
+			TargetNetwork: &dnsapi.ManagedZonePeeringConfigTargetNetwork{NetworkUrl: "n"},
+		},
 	}).Context(t.Context()).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "n", pz.PeeringConfig.TargetNetwork.NetworkUrl)
 
 	_, err = e.svc.ManagedZones.Create(project, &dnsapi.ManagedZone{
 		Name: "both", DnsName: "both.com.", Description: "d", Visibility: "private",
-		PeeringConfig:    &dnsapi.ManagedZonePeeringConfig{TargetNetwork: &dnsapi.ManagedZonePeeringConfigTargetNetwork{NetworkUrl: "n"}},
-		ForwardingConfig: &dnsapi.ManagedZoneForwardingConfig{TargetNameServers: []*dnsapi.ManagedZoneForwardingConfigNameServerTarget{{Ipv4Address: "1.1.1.1"}}},
+		PeeringConfig: &dnsapi.ManagedZonePeeringConfig{
+			TargetNetwork: &dnsapi.ManagedZonePeeringConfigTargetNetwork{NetworkUrl: "n"},
+		},
+		ForwardingConfig: &dnsapi.ManagedZoneForwardingConfig{
+			TargetNameServers: []*dnsapi.ManagedZoneForwardingConfigNameServerTarget{{Ipv4Address: "1.1.1.1"}},
+		},
 	}).Context(t.Context()).Do()
 	assertAPIError(t, err, 400, "invalid")
 
 	_, err = e.svc.ManagedZones.Create(project, &dnsapi.ManagedZone{
 		Name: "pubfwd", DnsName: "pubfwd.com.", Description: "d",
-		ForwardingConfig: &dnsapi.ManagedZoneForwardingConfig{TargetNameServers: []*dnsapi.ManagedZoneForwardingConfigNameServerTarget{{Ipv4Address: "1.1.1.1"}}},
+		ForwardingConfig: &dnsapi.ManagedZoneForwardingConfig{
+			TargetNameServers: []*dnsapi.ManagedZoneForwardingConfigNameServerTarget{{Ipv4Address: "1.1.1.1"}},
+		},
 	}).Context(t.Context()).Do()
 	assertAPIError(t, err, 400, "invalid")
 }
@@ -232,17 +254,18 @@ func TestPatchAndUpdateZone(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		call func(e *env, t *testing.T) (*dnsapi.Operation, error)
+		call func(ctx context.Context, e *env) (*dnsapi.Operation, error)
 		name string
 		desc string
 	}{
-		{func(e *env, t *testing.T) (*dnsapi.Operation, error) {
-			return e.svc.ManagedZones.Patch(project, "z", &dnsapi.ManagedZone{Description: "patched"}).Context(t.Context()).Do()
+		{func(ctx context.Context, e *env) (*dnsapi.Operation, error) {
+			return e.svc.ManagedZones.Patch(project, "z", &dnsapi.ManagedZone{Description: "patched"}).
+				Context(ctx).Do()
 		}, "patch", "patched"},
-		{func(e *env, t *testing.T) (*dnsapi.Operation, error) {
+		{func(ctx context.Context, e *env) (*dnsapi.Operation, error) {
 			return e.svc.ManagedZones.Update(project, "z", &dnsapi.ManagedZone{
 				Description: "updated", Labels: map[string]string{"a": "b"},
-			}).Context(t.Context()).Do()
+			}).Context(ctx).Do()
 		}, "update", "updated"},
 	}
 
@@ -253,7 +276,7 @@ func TestPatchAndUpdateZone(t *testing.T) {
 			e := newEnv(t)
 			created := e.zone(t, "z", "z.com.")
 
-			op, err := tt.call(e, t)
+			op, err := tt.call(t.Context(), e)
 			require.NoError(t, err)
 			assert.Equal(t, "dns#operation", op.Kind)
 			assert.Equal(t, "done", op.Status)

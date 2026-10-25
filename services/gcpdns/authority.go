@@ -273,16 +273,27 @@ func (z *zoneAnswer) answer(q dns.Question) {
 	z.glue(z.resp.Answer)
 }
 
+func (z *zoneAnswer) chase(q dns.Question, owner string, cn *dnsapi.ResourceRecordSet, depth int) {
+	rrs := toRRs(owner, cn)
+	z.resp.Answer = append(z.resp.Answer, rrs...)
+
+	if len(rrs) != 1 || depth >= maxCNAMEChain {
+		return
+	}
+
+	rec, isCNAME := rrs[0].(*dns.CNAME)
+	if !isCNAME {
+		return
+	}
+
+	if target := canon(rec.Target); dns.IsSubDomain(z.apex(), target) {
+		z.fill(q, target, z.nodeTypes(target), depth+1)
+	}
+}
+
 func (z *zoneAnswer) fill(q dns.Question, owner string, node map[string]*dnsapi.ResourceRecordSet, depth int) {
 	if cn := node[typeCNAME]; cn != nil && q.Qtype != dns.TypeCNAME && q.Qtype != dns.TypeANY {
-		rrs := toRRs(owner, cn)
-		z.resp.Answer = append(z.resp.Answer, rrs...)
-
-		if len(rrs) == 1 && depth < maxCNAMEChain {
-			if target := canon(rrs[0].(*dns.CNAME).Target); dns.IsSubDomain(z.apex(), target) {
-				z.fill(q, target, z.nodeTypes(target), depth+1)
-			}
-		}
+		z.chase(q, owner, cn, depth)
 
 		return
 	}

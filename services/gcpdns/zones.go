@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -41,10 +42,10 @@ func zoneState(z *dnsapi.ManagedZone) string {
 }
 
 func nameServersFor(id uint64) []string {
-	letter := string(rune('a' + id%5))
-	out := make([]string, 0, 4)
+	letter := string(rune('a' + id%nsSets))
+	out := make([]string, 0, nsPerSet)
 
-	for i := 1; i <= 4; i++ {
+	for i := 1; i <= nsPerSet; i++ {
 		out = append(out, fmt.Sprintf("ns-cloud-%s%d.googledomains.com.", letter, i))
 	}
 
@@ -79,7 +80,7 @@ func validateForwarding(z *dnsapi.ManagedZone) error {
 		return errRequired(zonePath + ".forwardingConfig.targetNameServers")
 	}
 
-	if len(fc.TargetNameServers) > 50 {
+	if len(fc.TargetNameServers) > maxTargets {
 		return errQuota("Quota 'TARGET_NAME_SERVERS_PER_MANAGED_ZONE' exceeded.")
 	}
 
@@ -151,8 +152,8 @@ func validateVisibilityConfigs(z *dnsapi.ManagedZone) error {
 
 func defaultKeySpecs() []*dnsapi.DnsKeySpec {
 	return []*dnsapi.DnsKeySpec{
-		{Algorithm: "rsasha256", KeyLength: 2048, KeyType: keySigning, Kind: "dns#dnsKeySpec"},
-		{Algorithm: "rsasha256", KeyLength: 1024, KeyType: zoneSigning, Kind: "dns#dnsKeySpec"},
+		{Algorithm: algRSA256, KeyLength: kskBits, KeyType: keySigning, Kind: kindKeySpec},
+		{Algorithm: algRSA256, KeyLength: zskBits, KeyType: zoneSigning, Kind: kindKeySpec},
 	}
 }
 
@@ -176,18 +177,8 @@ func validateDNSSEC(z *dnsapi.ManagedZone) error {
 
 	cfg.Kind = "dns#managedZoneDnsSecConfig"
 
-	switch cfg.State {
-	case "":
-		cfg.State = stateOff
-	case stateOff, stateOn, stateXfer:
-	default:
-		return errInvalidValue(zonePath+".dnssecConfig.state", cfg.State)
-	}
-
-	switch cfg.NonExistence {
-	case "", "nsec", "nsec3":
-	default:
-		return errInvalidValue(zonePath+".dnssecConfig.nonExistence", cfg.NonExistence)
+	if err := checkDNSSECEnums(cfg); err != nil {
+		return err
 	}
 
 	if cfg.State == stateOff && len(cfg.DefaultKeySpecs) == 0 && cfg.NonExistence == "" {
@@ -205,7 +196,25 @@ func validateDNSSEC(z *dnsapi.ManagedZone) error {
 	return normalizeKeySpecs(cfg.DefaultKeySpecs)
 }
 
-func validateZone(z *dnsapi.ManagedZone) error {
+func checkDNSSECEnums(cfg *dnsapi.ManagedZoneDnsSecConfig) error {
+	switch cfg.State {
+	case "":
+		cfg.State = stateOff
+	case stateOff, stateOn, stateXfer:
+	default:
+		return errInvalidValue(zonePath+".dnssecConfig.state", cfg.State)
+	}
+
+	switch cfg.NonExistence {
+	case "", "nsec", "nsec3":
+	default:
+		return errInvalidValue(zonePath+".dnssecConfig.nonExistence", cfg.NonExistence)
+	}
+
+	return nil
+}
+
+func validateZoneIdentity(z *dnsapi.ManagedZone) error {
 	if z.Name == "" {
 		return errRequired(zonePath + ".name")
 	}
@@ -226,8 +235,36 @@ func validateZone(z *dnsapi.ManagedZone) error {
 		return errRequired(zonePath + ".description")
 	}
 
-	if len(z.Description) > 1024 {
+	if len(z.Description) > maxDescLen {
 		return errInvalidValue(zonePath+".description", z.Description[:32])
+	}
+
+	return nil
+}
+
+func normalizeZoneConfigs(z *dnsapi.ManagedZone) error {
+	if z.CloudLoggingConfig != nil {
+		z.CloudLoggingConfig.Kind = "dns#managedZoneCloudLoggingConfig"
+	}
+
+	if z.ServiceDirectoryConfig != nil {
+		z.ServiceDirectoryConfig.Kind = "dns#managedZoneServiceDirectoryConfig"
+
+		if z.Visibility != visPrivate {
+			return errInvalid("Invalid value for '%s.serviceDirectoryConfig': requires a private zone", zonePath)
+		}
+	}
+
+	if z.ReverseLookupConfig != nil {
+		z.ReverseLookupConfig.Kind = "dns#managedZoneReverseLookupConfig"
+	}
+
+	return nil
+}
+
+func validateZone(z *dnsapi.ManagedZone) error {
+	if err := validateZoneIdentity(z); err != nil {
+		return err
 	}
 
 	z.DnsName = strings.ToLower(z.DnsName)
@@ -244,20 +281,8 @@ func validateZone(z *dnsapi.ManagedZone) error {
 		return err
 	}
 
-	if z.CloudLoggingConfig != nil {
-		z.CloudLoggingConfig.Kind = "dns#managedZoneCloudLoggingConfig"
-	}
-
-	if z.ServiceDirectoryConfig != nil {
-		z.ServiceDirectoryConfig.Kind = "dns#managedZoneServiceDirectoryConfig"
-
-		if z.Visibility != visPrivate {
-			return errInvalid("Invalid value for '%s.serviceDirectoryConfig': requires a private zone", zonePath)
-		}
-	}
-
-	if z.ReverseLookupConfig != nil {
-		z.ReverseLookupConfig.Kind = "dns#managedZoneReverseLookupConfig"
+	if err := normalizeZoneConfigs(z); err != nil {
+		return err
 	}
 
 	z.Kind = "dns#managedZone"
@@ -393,7 +418,7 @@ func (b *InMemoryBackend) ListZones(project, dnsName, token string, limit int) (
 
 	slices.SortFunc(all, func(a, c *dnsapi.ManagedZone) int { return strings.Compare(a.Name, c.Name) })
 
-	return page.New(all, token, limit, 100), nil
+	return page.New(all, token, limit, pageSize), nil
 }
 
 // DeleteZone removes a zone that holds only its default SOA and NS records.
@@ -456,7 +481,8 @@ func (b *InMemoryBackend) UpdateZone(
 
 	rec.Zone = nz
 	op := &dnsapi.Operation{
-		Kind: "dns#operation", Id: fmt.Sprint(newID()), StartTime: b.stamp(), Status: "done", Type: "update",
+		Kind: "dns#operation", Id: strconv.FormatUint(newID(), 10), StartTime: b.stamp(), Status: "done",
+		Type:        "update",
 		ZoneContext: &dnsapi.OperationManagedZoneContext{OldValue: old, NewValue: clone(nz)},
 	}
 	rec.Ops = append(rec.Ops, op)

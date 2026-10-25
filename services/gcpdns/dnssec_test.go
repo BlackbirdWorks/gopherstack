@@ -15,17 +15,19 @@ func TestDNSSECKeys(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		specs   []*dnsapi.DnsKeySpec
 		wantAlg string
+		specs   []*dnsapi.DnsKeySpec
 		wantLen int64
 	}{
-		{"defaults", nil, "rsasha256", 2048},
-		{"ecdsa p256", []*dnsapi.DnsKeySpec{
-			{Algorithm: "ecdsap256sha256", KeyType: "keySigning"}, {Algorithm: "ecdsap256sha256", KeyType: "zoneSigning"},
-		}, "ecdsap256sha256", 256},
-		{"ecdsa p384", []*dnsapi.DnsKeySpec{
-			{Algorithm: "ecdsap384sha384", KeyType: "keySigning"}, {Algorithm: "ecdsap384sha384", KeyType: "zoneSigning"},
-		}, "ecdsap384sha384", 384},
+		{"defaults", "rsasha256", nil, 2048},
+		{"ecdsa p256", "ecdsap256sha256", []*dnsapi.DnsKeySpec{
+			{Algorithm: "ecdsap256sha256", KeyType: "keySigning"},
+			{Algorithm: "ecdsap256sha256", KeyType: "zoneSigning"},
+		}, 256},
+		{"ecdsa p384", "ecdsap384sha384", []*dnsapi.DnsKeySpec{
+			{Algorithm: "ecdsap384sha384", KeyType: "keySigning"},
+			{Algorithm: "ecdsap384sha384", KeyType: "zoneSigning"},
+		}, 384},
 	}
 
 	for _, tt := range tests {

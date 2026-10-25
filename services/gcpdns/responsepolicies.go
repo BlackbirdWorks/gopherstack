@@ -47,7 +47,7 @@ func validateResponsePolicy(p *dnsapi.ResponsePolicy) error {
 	return nil
 }
 
-func validateRule(r *dnsapi.ResponsePolicyRule) error {
+func validateRuleNames(r *dnsapi.ResponsePolicyRule) error {
 	if r.RuleName == "" {
 		return errRequired(rulePath + ".ruleName")
 	}
@@ -62,6 +62,14 @@ func validateRule(r *dnsapi.ResponsePolicyRule) error {
 
 	if !strings.HasSuffix(r.DnsName, ".") {
 		return errInvalidValue(rulePath+".dnsName", r.DnsName)
+	}
+
+	return nil
+}
+
+func validateRule(r *dnsapi.ResponsePolicyRule) error {
+	if err := validateRuleNames(r); err != nil {
+		return err
 	}
 
 	r.DnsName = strings.ToLower(r.DnsName)
@@ -80,7 +88,11 @@ func validateRule(r *dnsapi.ResponsePolicyRule) error {
 		return nil
 	}
 
-	for i, rr := range r.LocalData.LocalDatas {
+	return validateLocalData(r.LocalData.LocalDatas)
+}
+
+func validateLocalData(sets []*dnsapi.ResourceRecordSet) error {
+	for i, rr := range sets {
 		path := fmt.Sprintf("%s.localData.localDatas[%d]", rulePath, i)
 		rr.Kind, rr.Name, rr.Type = rrsetKind, canon(rr.Name), strings.ToUpper(rr.Type)
 
@@ -110,7 +122,10 @@ func (b *InMemoryBackend) respLocked(project, name string) (*responseRec, error)
 }
 
 // CreateResponsePolicy stores a response policy.
-func (b *InMemoryBackend) CreateResponsePolicy(project string, in *dnsapi.ResponsePolicy) (*dnsapi.ResponsePolicy, error) {
+func (b *InMemoryBackend) CreateResponsePolicy(
+	project string,
+	in *dnsapi.ResponsePolicy,
+) (*dnsapi.ResponsePolicy, error) {
 	p := clone(in)
 	if err := validateResponsePolicy(p); err != nil {
 		return nil, err
@@ -123,7 +138,7 @@ func (b *InMemoryBackend) CreateResponsePolicy(project string, in *dnsapi.Respon
 		return nil, errExists(respPath, p.ResponsePolicyName)
 	}
 
-	p.Id = int64(newID())
+	p.Id = int64(newID()) //nolint:gosec // newID is bounded below MaxInt64
 	b.respPols[key(project, p.ResponsePolicyName)] = &responseRec{
 		Policy: p, Rules: map[string]*dnsapi.ResponsePolicyRule{},
 	}
@@ -167,7 +182,7 @@ func (b *InMemoryBackend) ListResponsePolicies(
 		return strings.Compare(a.ResponsePolicyName, c.ResponsePolicyName)
 	})
 
-	return page.New(all, token, limit, 100), nil
+	return page.New(all, token, limit, pageSize), nil
 }
 
 // DeleteResponsePolicy removes a response policy with no rules and no networks.
@@ -181,7 +196,10 @@ func (b *InMemoryBackend) DeleteResponsePolicy(project, name string) error {
 	}
 
 	if len(rec.Rules) > 0 || len(rec.Policy.Networks) > 0 || len(rec.Policy.GkeClusters) > 0 {
-		return errNotEmpty("The response policy '%s' cannot be deleted while it has rules or is attached to networks.", name)
+		return errNotEmpty(
+			"The response policy '%s' cannot be deleted while it has rules or is attached to networks.",
+			name,
+		)
 	}
 
 	delete(b.respPols, key(project, name))
@@ -225,7 +243,10 @@ func (b *InMemoryBackend) UpdateResponsePolicy(
 }
 
 // CreateRule stores a response policy rule.
-func (b *InMemoryBackend) CreateRule(project, policy string, in *dnsapi.ResponsePolicyRule) (*dnsapi.ResponsePolicyRule, error) {
+func (b *InMemoryBackend) CreateRule(
+	project, policy string,
+	in *dnsapi.ResponsePolicyRule,
+) (*dnsapi.ResponsePolicyRule, error) {
 	r := clone(in)
 	if err := validateRule(r); err != nil {
 		return nil, err
@@ -295,7 +316,7 @@ func (b *InMemoryBackend) ListRules(
 
 	slices.SortFunc(all, func(a, c *dnsapi.ResponsePolicyRule) int { return strings.Compare(a.RuleName, c.RuleName) })
 
-	return page.New(all, token, limit, 100), nil
+	return page.New(all, token, limit, pageSize), nil
 }
 
 // DeleteRule removes a rule.

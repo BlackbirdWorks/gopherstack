@@ -81,7 +81,7 @@ func TestWireShapes(t *testing.T) {
 	e.zone(t, "z", "z.com.")
 
 	get := func(path string) map[string]any {
-		resp, err := http.Get(e.url + path) //nolint:noctx // test helper
+		resp, err := http.Get(e.url + path)
 		require.NoError(t, err)
 
 		defer resp.Body.Close()

@@ -38,7 +38,10 @@ func (h *Handler) registerPolicyOps() {
 			return err
 		}
 
-		return respond(c, &dnsapi.PoliciesListResponse{Kind: "dns#policiesListResponse", Policies: pg.Data, NextPageToken: pg.Next})
+		return respond(
+			c,
+			&dnsapi.PoliciesListResponse{Kind: "dns#policiesListResponse", Policies: pg.Data, NextPageToken: pg.Next},
+		)
 	}
 	h.ops["Policies.Delete"] = func(c *echo.Context, rt route) error {
 		if err := h.Backend.DeletePolicy(rt.project, rt.id); err != nil {

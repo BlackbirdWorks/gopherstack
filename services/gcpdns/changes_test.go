@@ -131,7 +131,12 @@ func TestChangeValidation(t *testing.T) {
 	}{
 		{&dnsapi.Change{}, "empty", "invalid", 400},
 		{
-			&dnsapi.Change{Additions: []*dnsapi.ResourceRecordSet{rrset("x.c.com.", "A", 60, "1.2.3.4"), rrset("y.c.com.", "A", 60, "nope")}},
+			&dnsapi.Change{
+				Additions: []*dnsapi.ResourceRecordSet{
+					rrset("x.c.com.", "A", 60, "1.2.3.4"),
+					rrset("y.c.com.", "A", 60, "nope"),
+				},
+			},
 			"bad ipv4 aborts the whole change", "invalid", 400,
 		},
 		{
@@ -159,11 +164,18 @@ func TestChangeValidation(t *testing.T) {
 			"cname beside other data", "invalid", 400,
 		},
 		{
-			&dnsapi.Change{Additions: []*dnsapi.ResourceRecordSet{rrset("cn.c.com.", "CNAME", 60, "t.c.com."), rrset("cn.c.com.", "TXT", 60, `"x"`)}},
+			&dnsapi.Change{
+				Additions: []*dnsapi.ResourceRecordSet{
+					rrset("cn.c.com.", "CNAME", 60, "t.c.com."),
+					rrset("cn.c.com.", "TXT", 60, `"x"`),
+				},
+			},
 			"cname and txt in one change", "invalid", 400,
 		},
 		{
-			&dnsapi.Change{Additions: []*dnsapi.ResourceRecordSet{rrset("cn.c.com.", "CNAME", 60, "a.c.com.", "b.c.com.")}},
+			&dnsapi.Change{
+				Additions: []*dnsapi.ResourceRecordSet{rrset("cn.c.com.", "CNAME", 60, "a.c.com.", "b.c.com.")},
+			},
 			"two cname targets", "invalid", 400,
 		},
 		{
@@ -171,7 +183,11 @@ func TestChangeValidation(t *testing.T) {
 			"apex cname", "invalid", 400,
 		},
 		{
-			&dnsapi.Change{Deletions: []*dnsapi.ResourceRecordSet{{Name: "c.com.", Type: "NS", Ttl: 21600, Rrdatas: []string{"x."}}}},
+			&dnsapi.Change{
+				Deletions: []*dnsapi.ResourceRecordSet{
+					{Name: "c.com.", Type: "NS", Ttl: 21600, Rrdatas: []string{"x."}},
+				},
+			},
 			"apex ns deletion mismatch", "conditionNotMet", 412,
 		},
 		{

@@ -31,14 +31,14 @@ func validatePolicy(p *dnsapi.Policy) error {
 		}
 	}
 
-	if len(p.Networks) > 100 {
+	if len(p.Networks) > maxNetworks {
 		return errQuota("Quota 'NETWORKS_PER_POLICY' exceeded.")
 	}
 
 	if cfg := p.AlternativeNameServerConfig; cfg != nil {
 		cfg.Kind = "dns#policyAlternativeNameServerConfig"
 
-		if len(cfg.TargetNameServers) > 50 {
+		if len(cfg.TargetNameServers) > maxTargets {
 			return errQuota("Quota 'TARGET_NAME_SERVERS_PER_POLICY' exceeded.")
 		}
 
@@ -46,8 +46,11 @@ func validatePolicy(p *dnsapi.Policy) error {
 			t.Kind = "dns#policyAlternativeNameServerConfigTargetNameServer"
 
 			if t.Ipv4Address == "" && t.Ipv6Address == "" {
-				return errInvalid("Invalid value for '%s.alternativeNameServerConfig.targetNameServers[%d]': address required",
-					policyPath, i)
+				return errInvalid(
+					"Invalid value for '%s.alternativeNameServerConfig.targetNameServers[%d]': address required",
+					policyPath,
+					i,
+				)
 			}
 		}
 	}
@@ -72,8 +75,12 @@ func (b *InMemoryBackend) networkTaken(project, except string, nets []*dnsapi.Po
 
 			for _, on := range other.Networks {
 				if on.NetworkUrl == n.NetworkUrl {
-					return errInvalid("Invalid value for '%s.networks': network '%s' is already attached to policy '%s'",
-						policyPath, n.NetworkUrl, other.Name)
+					return errInvalid(
+						"Invalid value for '%s.networks': network '%s' is already attached to policy '%s'",
+						policyPath,
+						n.NetworkUrl,
+						other.Name,
+					)
 				}
 			}
 		}
@@ -138,7 +145,7 @@ func (b *InMemoryBackend) ListPolicies(project, token string, limit int) (page.P
 
 	slices.SortFunc(all, func(a, c *dnsapi.Policy) int { return strings.Compare(a.Name, c.Name) })
 
-	return page.New(all, token, limit, 100), nil
+	return page.New(all, token, limit, pageSize), nil
 }
 
 // DeletePolicy removes a policy that is not attached to any network.

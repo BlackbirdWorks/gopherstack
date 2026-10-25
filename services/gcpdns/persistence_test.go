@@ -21,11 +21,17 @@ func TestSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	src.addRRSet(t, "sec", rrset("www.sec.com.", "A", 60, "1.2.3.4"))
 
-	_, err = src.svc.ManagedZones.Patch(project, "sec", &dnsapi.ManagedZone{Description: "patched"}).Context(t.Context()).Do()
+	_, err = src.svc.ManagedZones.Patch(project, "sec", &dnsapi.ManagedZone{Description: "patched"}).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
-	_, err = src.svc.Policies.Create(project, &dnsapi.Policy{Name: "pol", EnableLogging: true}).Context(t.Context()).Do()
+	_, err = src.svc.Policies.Create(project, &dnsapi.Policy{Name: "pol", EnableLogging: true}).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
-	_, err = src.svc.ResponsePolicies.Create(project, &dnsapi.ResponsePolicy{ResponsePolicyName: "rp"}).Context(t.Context()).Do()
+	_, err = src.svc.ResponsePolicies.Create(project, &dnsapi.ResponsePolicy{ResponsePolicyName: "rp"}).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
 	_, err = src.svc.ResponsePolicyRules.Create(project, "rp", &dnsapi.ResponsePolicyRule{
 		RuleName: "r", DnsName: "x.com.", Behavior: "bypassResponsePolicy",

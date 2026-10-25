@@ -25,15 +25,33 @@ const (
 	maxRouting   = 100
 	maxLabels    = 64
 	maxLabelLen  = 128
+	pageSize     = 100
+	maxTargets   = 50
+	maxNetworks  = 100
+	maxPolicies  = 100
+	maxDescLen   = 1024
+	nsPerSet     = 4
+	nsSets       = 5
+	zskBits      = 1024
+	kskBits      = 2048
+	dnskeyTTL    = 3600
+	dnskeyProto  = 3
+	peeringZones = 1000
+	keysPerZone  = 6
+	healthChecks = 10
+	delegations  = 8
+
+	kindKeySpec = "dns#dnsKeySpec"
+	algRSA256   = "rsasha256"
 )
 
 type zoneRec struct {
 	Zone    *dnsapi.ManagedZone                  `json:"zone"`
 	RRSets  map[string]*dnsapi.ResourceRecordSet `json:"rrsets"`
+	Project string                               `json:"project"`
 	Changes []*dnsapi.Change                     `json:"changes"`
 	Ops     []*dnsapi.Operation                  `json:"ops"`
 	Keys    []*dnsapi.DnsKey                     `json:"keys"`
-	Project string                               `json:"project"`
 }
 
 type responseRec struct {

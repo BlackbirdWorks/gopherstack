@@ -2,6 +2,7 @@ package gcpdns
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -77,7 +78,7 @@ func cnameConflict(work map[string]*dnsapi.ResourceRecordSet, names map[string]b
 }
 
 func (b *InMemoryBackend) stageDeletions(
-	rec *zoneRec, in *dnsapi.Change, work map[string]*dnsapi.ResourceRecordSet, path string,
+	in *dnsapi.Change, work map[string]*dnsapi.ResourceRecordSet, path string,
 ) ([]*dnsapi.ResourceRecordSet, error) {
 	out := make([]*dnsapi.ResourceRecordSet, 0, len(in.Deletions))
 
@@ -148,11 +149,9 @@ func (b *InMemoryBackend) applyChange(rec *zoneRec, in *dnsapi.Change, path stri
 	}
 
 	work := make(map[string]*dnsapi.ResourceRecordSet, len(rec.RRSets))
-	for k, v := range rec.RRSets {
-		work[k] = v
-	}
+	maps.Copy(work, rec.RRSets)
 
-	dels, err := b.stageDeletions(rec, in, work, path)
+	dels, err := b.stageDeletions(in, work, path)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +198,10 @@ func (b *InMemoryBackend) finishSOA(
 	soaKey, nsKey := rrKey(apex, typeSOA), rrKey(apex, typeNS)
 
 	if work[soaKey] == nil || work[nsKey] == nil {
-		return nil, nil, errInvalid("Invalid value for '%s': the SOA and NS records at the zone apex cannot be deleted", path)
+		return nil, nil, errInvalid(
+			"Invalid value for '%s': the SOA and NS records at the zone apex cannot be deleted",
+			path,
+		)
 	}
 
 	oldSOA := rec.RRSets[soaKey]
@@ -300,7 +302,7 @@ func (b *InMemoryBackend) ListChanges(
 		slices.Reverse(all)
 	}
 
-	return page.New(all, token, limit, 100), nil
+	return page.New(all, token, limit, pageSize), nil
 }
 
 // GetOperation returns one zone operation.
@@ -349,5 +351,5 @@ func (b *InMemoryBackend) ListOperations(
 		slices.SortStableFunc(all, func(a, c *dnsapi.Operation) int { return strings.Compare(a.Id, c.Id) })
 	}
 
-	return page.New(all, token, limit, 100), nil
+	return page.New(all, token, limit, pageSize), nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -85,60 +86,88 @@ func validateRData(name, typ string, ttl int64, data []string, path string) erro
 	return nil
 }
 
+func routingKinds(rp *dnsapi.RRSetRoutingPolicy) int {
+	n := 0
+
+	for _, set := range []bool{rp.Wrr != nil, rp.Geo != nil, rp.PrimaryBackup != nil} {
+		if set {
+			n++
+		}
+	}
+
+	return n
+}
+
+func wrrData(w *dnsapi.RRSetRoutingPolicyWrrPolicy, path string) ([][]string, error) {
+	w.Kind = "dns#rRSetRoutingPolicyWrrPolicy"
+
+	if len(w.Items) > maxRouting {
+		return nil, errQuota("Quota 'ITEMS_PER_ROUTING_POLICY' exceeded.")
+	}
+
+	sets := make([][]string, 0, len(w.Items))
+
+	for _, it := range w.Items {
+		it.Kind = "dns#rRSetRoutingPolicyWrrPolicyWrrPolicyItem"
+		if it.Weight < 0 {
+			return nil, errInvalidValue(
+				path+".routingPolicy.wrr.items.weight",
+				strconv.FormatFloat(it.Weight, 'f', -1, 64),
+			)
+		}
+
+		sets = append(sets, it.Rrdatas)
+	}
+
+	return sets, nil
+}
+
+func geoData(g *dnsapi.RRSetRoutingPolicyGeoPolicy, path string) ([][]string, error) {
+	g.Kind = "dns#rRSetRoutingPolicyGeoPolicy"
+
+	if len(g.Items) > maxRouting {
+		return nil, errQuota("Quota 'ITEMS_PER_ROUTING_POLICY' exceeded.")
+	}
+
+	sets := make([][]string, 0, len(g.Items))
+
+	for _, it := range g.Items {
+		it.Kind = "dns#rRSetRoutingPolicyGeoPolicyGeoPolicyItem"
+		if it.Location == "" {
+			return nil, errRequired(path + ".routingPolicy.geo.items.location")
+		}
+
+		sets = append(sets, it.Rrdatas)
+	}
+
+	return sets, nil
+}
+
 func validateRouting(rp *dnsapi.RRSetRoutingPolicy, name, typ string, ttl int64, path string) error {
 	rp.Kind = "dns#rRSetRoutingPolicy"
 
-	kinds := 0
-	if rp.Wrr != nil {
-		kinds++
-	}
-
-	if rp.Geo != nil {
-		kinds++
-	}
-
-	if rp.PrimaryBackup != nil {
-		kinds++
-	}
-
-	if kinds != 1 {
+	if routingKinds(rp) != 1 {
 		return errInvalid("Invalid value for '%s.routingPolicy': exactly one of wrr, geo or primaryBackup", path)
 	}
 
 	var sets [][]string
 
 	if rp.Wrr != nil {
-		rp.Wrr.Kind = "dns#rRSetRoutingPolicyWrrPolicy"
-
-		if len(rp.Wrr.Items) > maxRouting {
-			return errQuota("Quota 'ITEMS_PER_ROUTING_POLICY' exceeded.")
+		w, err := wrrData(rp.Wrr, path)
+		if err != nil {
+			return err
 		}
 
-		for _, it := range rp.Wrr.Items {
-			it.Kind = "dns#rRSetRoutingPolicyWrrPolicyWrrPolicyItem"
-			if it.Weight < 0 {
-				return errInvalidValue(path+".routingPolicy.wrr.items.weight", fmt.Sprint(it.Weight))
-			}
-
-			sets = append(sets, it.Rrdatas)
-		}
+		sets = append(sets, w...)
 	}
 
 	if rp.Geo != nil {
-		rp.Geo.Kind = "dns#rRSetRoutingPolicyGeoPolicy"
-
-		if len(rp.Geo.Items) > maxRouting {
-			return errQuota("Quota 'ITEMS_PER_ROUTING_POLICY' exceeded.")
+		g, err := geoData(rp.Geo, path)
+		if err != nil {
+			return err
 		}
 
-		for _, it := range rp.Geo.Items {
-			it.Kind = "dns#rRSetRoutingPolicyGeoPolicyGeoPolicyItem"
-			if it.Location == "" {
-				return errRequired(path + ".routingPolicy.geo.items.location")
-			}
-
-			sets = append(sets, it.Rrdatas)
-		}
+		sets = append(sets, g...)
 	}
 
 	for _, s := range sets {
@@ -150,8 +179,7 @@ func validateRouting(rp *dnsapi.RRSetRoutingPolicy, name, typ string, ttl int64,
 	return nil
 }
 
-// validateRRSet checks rr (already normalised) against zone and fills defaults.
-func validateRRSet(zone *dnsapi.ManagedZone, rr *dnsapi.ResourceRecordSet, path string) error {
+func validateRRSetHeader(zone *dnsapi.ManagedZone, rr *dnsapi.ResourceRecordSet, path string) error {
 	if rr.Name == "" || rr.Name == "." {
 		return errRequired(path + ".name")
 	}
@@ -169,7 +197,16 @@ func validateRRSet(zone *dnsapi.ManagedZone, rr *dnsapi.ResourceRecordSet, path 
 	}
 
 	if rr.Ttl < 0 || rr.Ttl > maxTTL {
-		return errInvalidValue(path+".ttl", fmt.Sprint(rr.Ttl))
+		return errInvalidValue(path+".ttl", strconv.FormatInt(rr.Ttl, 10))
+	}
+
+	return nil
+}
+
+// validateRRSet checks rr (already normalised) against zone and fills defaults.
+func validateRRSet(zone *dnsapi.ManagedZone, rr *dnsapi.ResourceRecordSet, path string) error {
+	if err := validateRRSetHeader(zone, rr, path); err != nil {
+		return err
 	}
 
 	if rr.Ttl == 0 {
@@ -272,7 +309,7 @@ func (b *InMemoryBackend) ListRRSets(
 
 	slices.SortFunc(all, rrOrder)
 
-	return page.New(all, token, limit, 100), nil
+	return page.New(all, token, limit, pageSize), nil
 }
 
 // CreateRRSet adds a record set as a one-addition change.

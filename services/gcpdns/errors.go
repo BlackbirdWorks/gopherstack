@@ -50,8 +50,8 @@ func errNotEmpty(format string, args ...any) *APIError {
 	return newErr(http.StatusBadRequest, "containerNotEmpty", format, args...)
 }
 
-func errQuota(format string, args ...any) *APIError {
-	return newErr(http.StatusForbidden, "quotaExceeded", format, args...)
+func errQuota(msg string) *APIError {
+	return newErr(http.StatusForbidden, "quotaExceeded", "%s", msg)
 }
 
 // ErrSnapshotNull is returned when a snapshot holds a null record.

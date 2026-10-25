@@ -8,6 +8,12 @@ import (
 
 const apiPrefix = "/dns/v1/"
 
+const (
+	ruleCollectionLen = 2
+	ruleItemLen       = 3
+	rrsetItemLen      = 2
+)
+
 type route struct {
 	op      string
 	project string
@@ -74,9 +80,9 @@ func responseRoute(method string, rt route, rest []string) route {
 	rt.zone = rest[0]
 
 	switch len(rest) {
-	case 2:
+	case ruleCollectionLen:
 		rt.op = collectionOp(method, "ResponsePolicyRules")
-	case 3:
+	case ruleItemLen:
 		rt.id = rest[2]
 		rt.op = itemOp(method, "ResponsePolicyRules")
 	}
@@ -130,7 +136,7 @@ func rrsetRoute(method string, rt route, rest []string) route {
 	switch len(rest) {
 	case 0:
 		rt.op = collectionOp(method, "ResourceRecordSets")
-	case 2:
+	case rrsetItemLen:
 		rt.rrName, rt.rrType = rest[0], rest[1]
 		rt.op = itemOp(method, "ResourceRecordSets")
 	}

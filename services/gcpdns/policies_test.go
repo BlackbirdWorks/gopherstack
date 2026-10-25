@@ -42,7 +42,9 @@ func TestPolicyLifecycle(t *testing.T) {
 	assert.True(t, patched.Policy.EnableLogging, "patch keeps untouched fields")
 	assert.Len(t, patched.Policy.Networks, 1)
 
-	updated, err := e.svc.Policies.Update(project, "pol", &dnsapi.Policy{Description: "replaced"}).Context(t.Context()).Do()
+	updated, err := e.svc.Policies.Update(project, "pol", &dnsapi.Policy{Description: "replaced"}).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
 	assert.False(t, updated.Policy.EnableLogging, "update replaces the policy")
 	assert.Empty(t, updated.Policy.Networks)
@@ -111,7 +113,9 @@ func TestResponsePolicyAndRules(t *testing.T) {
 	assert.Equal(t, "dns#responsePolicy", rp.Kind)
 	assert.NotZero(t, rp.Id)
 
-	_, err = e.svc.ResponsePolicies.Create(project, &dnsapi.ResponsePolicy{ResponsePolicyName: "rp"}).Context(t.Context()).Do()
+	_, err = e.svc.ResponsePolicies.Create(project, &dnsapi.ResponsePolicy{ResponsePolicyName: "rp"}).
+		Context(t.Context()).
+		Do()
 	assertAPIError(t, err, 409, "alreadyExists")
 
 	patched, err := e.svc.ResponsePolicies.Patch(project, "rp", &dnsapi.ResponsePolicy{Description: "new"}).
@@ -143,10 +147,12 @@ func TestResponsePolicyAndRules(t *testing.T) {
 	assert.Equal(t, "bypassResponsePolicy", bypass.Behavior)
 
 	for name, rule := range map[string]*dnsapi.ResponsePolicyRule{
-		"neither":  {RuleName: "r3", DnsName: "x.com."},
-		"both":     {RuleName: "r3", DnsName: "x.com.", Behavior: "bypassResponsePolicy", LocalData: local.LocalData},
-		"no dot":   {RuleName: "r3", DnsName: "x.com", Behavior: "bypassResponsePolicy"},
-		"bad data": {RuleName: "r3", DnsName: "x.com.", LocalData: &dnsapi.ResponsePolicyRuleLocalData{LocalDatas: []*dnsapi.ResourceRecordSet{{Name: "x.com.", Type: "A", Rrdatas: []string{"bad"}}}}},
+		"neither": {RuleName: "r3", DnsName: "x.com."},
+		"both":    {RuleName: "r3", DnsName: "x.com.", Behavior: "bypassResponsePolicy", LocalData: local.LocalData},
+		"no dot":  {RuleName: "r3", DnsName: "x.com", Behavior: "bypassResponsePolicy"},
+		"bad data": {RuleName: "r3", DnsName: "x.com.", LocalData: &dnsapi.ResponsePolicyRuleLocalData{
+			LocalDatas: []*dnsapi.ResourceRecordSet{{Name: "x.com.", Type: "A", Rrdatas: []string{"bad"}}},
+		}},
 	} {
 		_, err = e.svc.ResponsePolicyRules.Create(project, "rp", rule).Context(t.Context()).Do()
 		assert.Equal(t, 400, apiErr(t, err).Code, name)
@@ -158,8 +164,9 @@ func TestResponsePolicyAndRules(t *testing.T) {
 	_, err = e.svc.ResponsePolicyRules.Create(project, "missing", local).Context(t.Context()).Do()
 	assertAPIError(t, err, 404, "notFound")
 
-	pr, err := e.svc.ResponsePolicyRules.Patch(project, "rp", "r2", &dnsapi.ResponsePolicyRule{DnsName: "other.example.com."}).
-		Context(t.Context()).Do()
+	pr, err := e.svc.ResponsePolicyRules.Patch(project, "rp", "r2", &dnsapi.ResponsePolicyRule{
+		DnsName: "other.example.com.",
+	}).Context(t.Context()).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "other.example.com.", pr.ResponsePolicyRule.DnsName)
 	assert.Equal(t, "bypassResponsePolicy", pr.ResponsePolicyRule.Behavior)
@@ -181,7 +188,9 @@ func TestResponsePolicyAndRules(t *testing.T) {
 	require.NoError(t, e.svc.ResponsePolicyRules.Delete(project, "rp", "r2").Context(t.Context()).Do())
 	assertAPIError(t, e.svc.ResponsePolicyRules.Delete(project, "rp", "r2").Context(t.Context()).Do(), 404, "notFound")
 
-	_, err = e.svc.ResponsePolicies.Patch(project, "rp", &dnsapi.ResponsePolicy{Networks: nil}).Context(t.Context()).Do()
+	_, err = e.svc.ResponsePolicies.Patch(project, "rp", &dnsapi.ResponsePolicy{Networks: nil}).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
 
 	require.NoError(t, e.svc.ResponsePolicies.Delete(project, "rp").Context(t.Context()).Do())

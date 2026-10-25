@@ -314,7 +314,10 @@ func (h *Handler) registerZoneChildOps() {
 			return err
 		}
 
-		return respond(c, &dnsapi.DnsKeysListResponse{Kind: "dns#dnsKeysListResponse", DnsKeys: pg.Data, NextPageToken: pg.Next})
+		return respond(
+			c,
+			&dnsapi.DnsKeysListResponse{Kind: "dns#dnsKeysListResponse", DnsKeys: pg.Data, NextPageToken: pg.Next},
+		)
 	}
 	h.ops["ManagedZoneOperations.Get"] = func(c *echo.Context, rt route) error {
 		op, err := h.Backend.GetOperation(rt.project, rt.zone, rt.id)
@@ -330,7 +333,13 @@ func (h *Handler) registerZoneChildOps() {
 			return err
 		}
 
-		pg, err := h.Backend.ListOperations(rt.project, rt.zone, c.QueryParam("sortBy"), c.QueryParam("pageToken"), limit)
+		pg, err := h.Backend.ListOperations(
+			rt.project,
+			rt.zone,
+			c.QueryParam("sortBy"),
+			c.QueryParam("pageToken"),
+			limit,
+		)
 		if err != nil {
 			return err
 		}
@@ -375,7 +384,10 @@ func (h *Handler) registerRecordOps() {
 			return err
 		}
 
-		return respond(c, &dnsapi.ChangesListResponse{Kind: "dns#changesListResponse", Changes: pg.Data, NextPageToken: pg.Next})
+		return respond(
+			c,
+			&dnsapi.ChangesListResponse{Kind: "dns#changesListResponse", Changes: pg.Data, NextPageToken: pg.Next},
+		)
 	}
 	h.registerRRSetOps()
 }

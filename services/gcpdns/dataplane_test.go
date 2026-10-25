@@ -1,7 +1,6 @@
 package gcpdns_test
 
 import (
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -108,8 +107,6 @@ func seedDataPlane(t *testing.T, l *liveEnv) {
 	require.NoError(t, err)
 }
 
-var soaAuth = []string{"SOA"}
-
 func TestDataPlaneAnswers(t *testing.T) {
 	t.Parallel()
 
@@ -122,11 +119,27 @@ func TestDataPlaneAnswers(t *testing.T) {
 		answer    []string
 		authority []string
 		qtype     uint16
-		rcode     int
+		rcode     uint16
 		aa        bool
 	}{
-		{"a", "www.example.com.", []string{"www.example.com. 300 IN A 1.2.3.4"}, nil, dns.TypeA, dns.RcodeSuccess, true},
-		{"case insensitive", "WWW.Example.COM.", []string{"www.example.com. 300 IN A 1.2.3.4"}, nil, dns.TypeA, 0, true},
+		{
+			"a",
+			"www.example.com.",
+			[]string{"www.example.com. 300 IN A 1.2.3.4"},
+			nil,
+			dns.TypeA,
+			dns.RcodeSuccess,
+			true,
+		},
+		{
+			"case insensitive",
+			"WWW.Example.COM.",
+			[]string{"www.example.com. 300 IN A 1.2.3.4"},
+			nil,
+			dns.TypeA,
+			0,
+			true,
+		},
 		{"aaaa", "www.example.com.", []string{"www.example.com. 300 IN AAAA 2001:db8::1"}, nil, dns.TypeAAAA, 0, true},
 		{"cname chased", "alias.example.com.", []string{
 			"alias.example.com. 300 IN CNAME www.example.com.", "www.example.com. 300 IN A 1.2.3.4",
@@ -135,23 +148,95 @@ func TestDataPlaneAnswers(t *testing.T) {
 			"c1.example.com. 300 IN CNAME c2.example.com.", "c2.example.com. 300 IN CNAME www.example.com.",
 			"www.example.com. 300 IN A 1.2.3.4",
 		}, nil, dns.TypeA, 0, true},
-		{"cname out of zone", "ext.example.com.", []string{"ext.example.com. 300 IN CNAME other.org."}, nil, dns.TypeA, 0, true},
-		{"cname query", "alias.example.com.", []string{"alias.example.com. 300 IN CNAME www.example.com."}, nil, dns.TypeCNAME, 0, true},
+		{
+			"cname out of zone",
+			"ext.example.com.",
+			[]string{"ext.example.com. 300 IN CNAME other.org."},
+			nil,
+			dns.TypeA,
+			0,
+			true,
+		},
+		{
+			"cname query",
+			"alias.example.com.",
+			[]string{"alias.example.com. 300 IN CNAME www.example.com."},
+			nil,
+			dns.TypeCNAME,
+			0,
+			true,
+		},
 		{"mx", "example.com.", []string{"example.com. 300 IN MX 10 mail.example.com."}, nil, dns.TypeMX, 0, true},
 		{"txt", "example.com.", []string{`example.com. 300 IN TXT "v=spf1 -all"`}, nil, dns.TypeTXT, 0, true},
-		{"srv", "_sip._tcp.example.com.", []string{"_sip._tcp.example.com. 300 IN SRV 1 2 5060 www.example.com."}, nil, dns.TypeSRV, 0, true},
-		{"caa", "example.com.", []string{`example.com. 300 IN CAA 0 issue "letsencrypt.org"`}, nil, dns.TypeCAA, 0, true},
-		{"ptr", "4.3.2.1.in-addr.arpa.example.com.", []string{"4.3.2.1.in-addr.arpa.example.com. 300 IN PTR www.example.com."}, nil, dns.TypePTR, 0, true},
-		{"wildcard", "anything.wild.example.com.", []string{"anything.wild.example.com. 300 IN A 9.9.9.9"}, nil, dns.TypeA, 0, true},
-		{"wildcard deep", "a.b.c.wild.example.com.", []string{"a.b.c.wild.example.com. 300 IN A 9.9.9.9"}, nil, dns.TypeA, 0, true},
-		{"explicit beats wildcard", "sub.wild.example.com.", []string{"sub.wild.example.com. 300 IN A 8.8.8.8"}, nil, dns.TypeA, 0, true},
-		{"wildcard nodata", "x.wild.example.com.", nil, soaAuth, dns.TypeTXT, 0, true},
-		{"nodata", "www.example.com.", nil, soaAuth, dns.TypeTXT, 0, true},
-		{"empty non terminal", "b.example.com.", nil, soaAuth, dns.TypeA, 0, true},
-		{"nxdomain", "nothing.example.com.", nil, soaAuth, dns.TypeA, dns.RcodeNameError, true},
-		{"nxdomain below leaf", "x.www.example.com.", nil, soaAuth, dns.TypeA, dns.RcodeNameError, true},
+		{
+			"srv",
+			"_sip._tcp.example.com.",
+			[]string{"_sip._tcp.example.com. 300 IN SRV 1 2 5060 www.example.com."},
+			nil,
+			dns.TypeSRV,
+			0,
+			true,
+		},
+		{
+			"caa",
+			"example.com.",
+			[]string{`example.com. 300 IN CAA 0 issue "letsencrypt.org"`},
+			nil,
+			dns.TypeCAA,
+			0,
+			true,
+		},
+		{
+			"ptr",
+			"4.3.2.1.in-addr.arpa.example.com.",
+			[]string{"4.3.2.1.in-addr.arpa.example.com. 300 IN PTR www.example.com."},
+			nil,
+			dns.TypePTR,
+			0,
+			true,
+		},
+		{
+			"wildcard",
+			"anything.wild.example.com.",
+			[]string{"anything.wild.example.com. 300 IN A 9.9.9.9"},
+			nil,
+			dns.TypeA,
+			0,
+			true,
+		},
+		{
+			"wildcard deep",
+			"a.b.c.wild.example.com.",
+			[]string{"a.b.c.wild.example.com. 300 IN A 9.9.9.9"},
+			nil,
+			dns.TypeA,
+			0,
+			true,
+		},
+		{
+			"explicit beats wildcard",
+			"sub.wild.example.com.",
+			[]string{"sub.wild.example.com. 300 IN A 8.8.8.8"},
+			nil,
+			dns.TypeA,
+			0,
+			true,
+		},
+		{"wildcard nodata", "x.wild.example.com.", nil, []string{"SOA"}, dns.TypeTXT, 0, true},
+		{"nodata", "www.example.com.", nil, []string{"SOA"}, dns.TypeTXT, 0, true},
+		{"empty non terminal", "b.example.com.", nil, []string{"SOA"}, dns.TypeA, 0, true},
+		{"nxdomain", "nothing.example.com.", nil, []string{"SOA"}, dns.TypeA, dns.RcodeNameError, true},
+		{"nxdomain below leaf", "x.www.example.com.", nil, []string{"SOA"}, dns.TypeA, dns.RcodeNameError, true},
 		{"refused outside zones", "other.org.", nil, nil, dns.TypeA, dns.RcodeRefused, false},
-		{"delegation", "host.deleg.example.com.", nil, []string{"deleg.example.com. 300 IN NS ns.deleg.example.com."}, dns.TypeA, 0, false},
+		{
+			"delegation",
+			"host.deleg.example.com.",
+			nil,
+			[]string{"deleg.example.com. 300 IN NS ns.deleg.example.com."},
+			dns.TypeA,
+			0,
+			false,
+		},
 	}
 
 	for _, network := range []string{"udp", "tcp"} {
@@ -160,12 +245,12 @@ func TestDataPlaneAnswers(t *testing.T) {
 				t.Parallel()
 
 				r := l.query(t, network, tt.qname, tt.qtype, 0)
-				assert.Equal(t, tt.rcode, r.Rcode)
+				assert.Equal(t, int(tt.rcode), r.Rcode)
 				assert.Equal(t, tt.aa, r.Authoritative)
 				assert.False(t, r.RecursionAvailable)
 				assert.Equal(t, tt.answer, rrStrings(r.Answer))
 
-				if len(tt.authority) == 1 && tt.authority[0] == soaAuth[0] {
+				if len(tt.authority) == 1 && tt.authority[0] == "SOA" {
 					require.Len(t, r.Ns, 1)
 					assert.Equal(t, dns.TypeSOA, r.Ns[0].Header().Rrtype)
 					assert.Equal(t, "example.com.", r.Ns[0].Header().Name)
@@ -200,7 +285,7 @@ func TestDataPlaneApexAndGlue(t *testing.T) {
 
 			ns := l.query(t, network, "example.com.", dns.TypeNS, 0)
 			assert.ElementsMatch(t, z.NameServers, func() []string {
-				var out []string
+				out := make([]string, 0, len(ns.Answer))
 				for _, rr := range ns.Answer {
 					out = append(out, rr.(*dns.NS).Ns)
 				}
@@ -349,6 +434,6 @@ func TestDataPlaneDNSKEY(t *testing.T) {
 	}
 
 	for _, k := range keys.DnsKeys {
-		assert.True(t, tags[k.KeyTag], fmt.Sprintf("key tag %d served", k.KeyTag))
+		assert.True(t, tags[k.KeyTag], "key tag %d served", k.KeyTag)
 	}
 }

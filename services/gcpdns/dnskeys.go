@@ -2,6 +2,7 @@ package gcpdns
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,16 +20,16 @@ const (
 )
 
 type algorithm struct {
-	num     uint8
 	lengths []int64
+	num     uint8
 }
 
 var algorithms = map[string]algorithm{ //nolint:gochecknoglobals // immutable catalog
-	"rsasha1":         {dns.RSASHA1, []int64{1024, 2048, 4096}},
-	"rsasha256":       {dns.RSASHA256, []int64{1024, 2048, 4096}},
-	"rsasha512":       {dns.RSASHA512, []int64{1024, 2048, 4096}},
-	"ecdsap256sha256": {dns.ECDSAP256SHA256, []int64{256}},
-	"ecdsap384sha384": {dns.ECDSAP384SHA384, []int64{384}},
+	"rsasha1":         {num: dns.RSASHA1, lengths: []int64{1024, 2048, 4096}},
+	algRSA256:         {num: dns.RSASHA256, lengths: []int64{1024, 2048, 4096}},
+	"rsasha512":       {num: dns.RSASHA512, lengths: []int64{1024, 2048, 4096}},
+	"ecdsap256sha256": {num: dns.ECDSAP256SHA256, lengths: []int64{256}},
+	"ecdsap384sha384": {num: dns.ECDSAP384SHA384, lengths: []int64{384}},
 }
 
 var digestTypes = map[string]uint8{ //nolint:gochecknoglobals // immutable catalog
@@ -38,7 +39,7 @@ var digestTypes = map[string]uint8{ //nolint:gochecknoglobals // immutable catal
 func normalizeKeySpecs(specs []*dnsapi.DnsKeySpec) error {
 	for i, s := range specs {
 		path := fmt.Sprintf("%s.dnssecConfig.defaultKeySpecs[%d]", zonePath, i)
-		s.Kind = "dns#dnsKeySpec"
+		s.Kind = kindKeySpec
 
 		alg, ok := algorithms[s.Algorithm]
 		if !ok {
@@ -53,7 +54,7 @@ func normalizeKeySpecs(specs []*dnsapi.DnsKeySpec) error {
 			s.KeyLength = alg.lengths[0]
 
 			if s.KeyType == keySigning && len(alg.lengths) > 1 {
-				s.KeyLength = 2048
+				s.KeyLength = kskBits
 			}
 		}
 
@@ -66,13 +67,7 @@ func normalizeKeySpecs(specs []*dnsapi.DnsKeySpec) error {
 }
 
 func containsInt(list []int64, v int64) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(list, v)
 }
 
 func keyRR(zone string, k *dnsapi.DnsKey) *dns.DNSKEY {
@@ -82,8 +77,8 @@ func keyRR(zone string, k *dnsapi.DnsKey) *dns.DNSKEY {
 	}
 
 	return &dns.DNSKEY{
-		Hdr:   dns.RR_Header{Name: zone, Rrtype: dns.TypeDNSKEY, Class: dns.ClassINET, Ttl: 3600},
-		Flags: flags, Protocol: 3, Algorithm: algorithms[k.Algorithm].num, PublicKey: k.PublicKey,
+		Hdr:   dns.RR_Header{Name: zone, Rrtype: dns.TypeDNSKEY, Class: dns.ClassINET, Ttl: dnskeyTTL},
+		Flags: flags, Protocol: dnskeyProto, Algorithm: algorithms[k.Algorithm].num, PublicKey: k.PublicKey,
 	}
 }
 
@@ -137,7 +132,10 @@ func withDigests(zone string, k *dnsapi.DnsKey, types []string) (*dnsapi.DnsKey,
 			return nil, errInvalidValue("digestType", t)
 		}
 
-		out.Digests = append(out.Digests, &dnsapi.DnsKeyDigest{Digest: strings.ToLower(ds.Digest), Type: strings.ToLower(t)})
+		out.Digests = append(
+			out.Digests,
+			&dnsapi.DnsKeyDigest{Digest: strings.ToLower(ds.Digest), Type: strings.ToLower(t)},
+		)
 	}
 
 	return out, nil
@@ -189,5 +187,5 @@ func (b *InMemoryBackend) ListKeys(
 		all = append(all, dk)
 	}
 
-	return page.New(all, token, limit, 100), nil
+	return page.New(all, token, limit, pageSize), nil
 }
