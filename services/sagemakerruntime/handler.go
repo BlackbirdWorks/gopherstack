@@ -242,7 +242,7 @@ func (h *Handler) handleInvokeEndpointAsync(
 		return writeInvokeError(c, err)
 	}
 
-	timeout, _ := strconv.Atoi(hdr.Get(headerInvocationTimeout))
+	timeout, _ := strconv.ParseInt(hdr.Get(headerInvocationTimeout), 10, 32)
 
 	acc, err := inv.SubmitAsyncInference(c.Request().Context(), sagemaker.AsyncRequest{
 		EndpointName:  endpointName,
@@ -252,7 +252,7 @@ func (h *Handler) handleInvokeEndpointAsync(
 			"Content-Type",
 		), Accept: hdr.Get("Accept"), CustomAttributes: hdr.Get(headerCustomAttributes),
 		Filename: hdr.Get(headerFilename), OutputPathExtension: hdr.Get(headerS3OutputPathExtension),
-		Body: body, TimeoutSeconds: int32(timeout), //nolint:gosec // validated to 1..3600 by validateRequestHeaders
+		Body: body, TimeoutSeconds: int32(timeout),
 	})
 	if err != nil {
 		return writeInvokeError(c, err)

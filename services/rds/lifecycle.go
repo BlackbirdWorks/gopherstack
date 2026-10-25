@@ -133,9 +133,11 @@ func (b *InMemoryBackend) reconcileInstancesLocked() {
 	for id, readyAt := range b.instanceReadyAt {
 		if !readyAt.IsZero() && now.After(readyAt) {
 			if inst, ok := b.instances.Get(normalizeID(id)); ok {
-				applyPendingModifications(inst)
+				if inst.DBInstanceStatus == instanceStatusRebooting {
+					applyPendingModifications(inst)
+					b.clearDBUpgradeActionLocked(id)
+				}
 				inst.DBInstanceStatus = instanceStatusAvailable
-				b.clearDBUpgradeActionLocked(id)
 				b.publishInstanceEventLocked(id, "DB instance is now available")
 			}
 			delete(b.instanceReadyAt, id)

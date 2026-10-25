@@ -198,6 +198,14 @@ func TestAuthorizeRedirectTargets(t *testing.T) {
 			wantCode: http.StatusFound,
 		},
 		{name: "external host", redirect: "http://evil.example.com/cb", wantCode: http.StatusBadRequest},
+		{name: "double slash path", redirect: "http://127.0.0.1//evil.example.com/cb", wantCode: http.StatusBadRequest},
+		{
+			name:     "escaped path",
+			redirect: "http://127.0.0.1:1/a%20b/c",
+			wantHost: "127.0.0.1:1",
+			wantPath: "/a b/c",
+			wantCode: http.StatusFound,
+		},
 		{name: "https loopback", redirect: "https://127.0.0.1/cb", wantCode: http.StatusBadRequest},
 		{name: "userinfo trick", redirect: "http://127.0.0.1@evil.example.com/cb", wantCode: http.StatusBadRequest},
 	}

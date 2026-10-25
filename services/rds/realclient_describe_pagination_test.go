@@ -451,11 +451,7 @@ func testPendingMaintenanceActionsPaginationRealClient(t *testing.T) {
 	backend, client := newRealClientBackendAndClient(t)
 	ctx := t.Context()
 
-	// Create and wait for both instances first, then run both deferred
-	// ModifyDBInstance calls back-to-back with no waiting in between: each
-	// registered pending action is auto-cleared by the reconciler after
-	// instanceTransitionDelay (250ms, lifecycle.go), so any wait between the
-	// first Modify and the Describe call below risks a flaky clear.
+	// Deferred modifications stay pending until reboot or an explicit apply.
 	ids := seededNames("pg-pma")
 	for _, id := range ids {
 		_, err := backend.CreateDBInstance(id, "mysql", "db.t3.micro", "mydb", "admin", "", 20, rds.DBInstanceOptions{

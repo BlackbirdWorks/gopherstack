@@ -120,8 +120,10 @@ func stageProcessing(
 			return nil, nil, fmt.Errorf("input %s: %w", in.InputName, errProcessingInput)
 		}
 
-		dir := filepath.Join(root, "in", sanitizeName(in.InputName))
-		if err := stageS3(ctx, store, in.S3Input.S3Uri, in.S3Input.S3DataType, dir); err != nil {
+		dir, err := stageS3(
+			ctx, store, in.S3Input.S3Uri, in.S3Input.S3DataType, filepath.Join(root, "in"), sanitizeName(in.InputName),
+		)
+		if err != nil {
 			return nil, nil, fmt.Errorf("input %s: %w", in.InputName, err)
 		}
 

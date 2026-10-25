@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -105,9 +104,9 @@ func (b *InMemoryBackend) runTransform(
 	defer os.RemoveAll(root)
 
 	src := tj.TransformInput.DataSource.S3DataSource
-	inDir := filepath.Join(root, "in")
 
-	if err = stageS3(ctx, eng.svc().Store, src.S3Uri, src.S3DataType, inDir); err != nil {
+	inDir, err := stageS3(ctx, eng.svc().Store, src.S3Uri, src.S3DataType, root, "in")
+	if err != nil {
 		return fmt.Errorf("ClientError: %w", err)
 	}
 

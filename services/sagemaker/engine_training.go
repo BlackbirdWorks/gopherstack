@@ -205,8 +205,9 @@ func stageTraining(ctx context.Context, eng *engineState, root string, tj *Train
 			return fmt.Errorf("channel %s: %w", ch.ChannelName, errChannelSource)
 		}
 
-		dir := filepath.Join(root, "input", "data", ch.ChannelName)
-		if err := stageS3(ctx, store, src.S3Uri, src.S3DataType, dir); err != nil {
+		if _, err := stageS3(
+			ctx, store, src.S3Uri, src.S3DataType, filepath.Join(root, "input", "data"), ch.ChannelName,
+		); err != nil {
 			return fmt.Errorf("channel %s: %w", ch.ChannelName, err)
 		}
 

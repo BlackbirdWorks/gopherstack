@@ -61,7 +61,9 @@ func TestRDSBackend_InstanceModifyTransitionAndDeletePublishesEvents(t *testing.
 				require.NoError(t, err)
 				assert.Equal(t, "creating", created.DBInstanceStatus)
 
-				modified, err := b.ModifyDBInstance(instanceID, "db.r5.large", 100, rds.DBInstanceOptions{})
+				modified, err := b.ModifyDBInstance(
+					instanceID, "db.r5.large", 100, rds.DBInstanceOptions{ApplyImmediately: true},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, "modifying", modified.DBInstanceStatus)
 
@@ -842,4 +844,54 @@ func TestPreferredWindowsPersisted(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "mon:03:00-mon:04:00", resp.Result.DBInstance.PreferredMaintenanceWindow)
 	assert.Equal(t, "02:00-03:00", resp.Result.DBInstance.PreferredBackupWindow)
+}
+
+func TestRDSBackend_DeferredModifyStaysPendingUntilReboot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "pending until reboot"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+				defer b.Close()
+				const instanceID = "deferred-db"
+
+				_, err := b.CreateDBInstance(instanceID, "mysql", "db.t3.micro", "", "", "", 20, rds.DBInstanceOptions{
+					EngineVersion: "8.0.30",
+				})
+				require.NoError(t, err)
+				time.Sleep(2 * transitionDelay)
+
+				_, err = b.ModifyDBInstance(instanceID, "", 0, rds.DBInstanceOptions{EngineVersion: "8.0.35"})
+				require.NoError(t, err)
+				time.Sleep(4 * transitionDelay)
+
+				got, err := b.DescribeDBInstances(instanceID)
+				require.NoError(t, err)
+				require.Len(t, got, 1)
+				assert.Equal(t, "available", got[0].DBInstanceStatus)
+				assert.Equal(t, "8.0.30", got[0].EngineVersion)
+				require.NotNil(t, got[0].PendingModifiedValues)
+				assert.Len(t, b.DescribePendingMaintenanceActions(""), 1)
+
+				_, err = b.RebootDBInstance(instanceID)
+				require.NoError(t, err)
+				time.Sleep(4 * transitionDelay)
+
+				got, err = b.DescribeDBInstances(instanceID)
+				require.NoError(t, err)
+				assert.Equal(t, "8.0.35", got[0].EngineVersion)
+				assert.Nil(t, got[0].PendingModifiedValues)
+				assert.Empty(t, b.DescribePendingMaintenanceActions(""))
+			})
+		})
+	}
 }

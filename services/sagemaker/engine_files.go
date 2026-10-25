@@ -90,6 +90,10 @@ func extractTarGz(data []byte, dest string) error {
 }
 
 func extractEntry(tr *tar.Reader, hdr *tar.Header, dest string) error {
+	if strings.Contains(hdr.Name, "..") {
+		return fmt.Errorf("%w: %s", errUnsafeArchive, hdr.Name)
+	}
+
 	target := filepath.Join(dest, filepath.FromSlash(hdr.Name))
 	if target != filepath.Clean(dest) && !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) {
 		return fmt.Errorf("%w: %s", errUnsafeArchive, hdr.Name)
@@ -180,30 +184,38 @@ func tarGzDir(dir string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// stageS3 downloads the objects an S3 URI addresses into dir. dataType is S3Prefix (default),
-// ManifestFile or AugmentedManifestFile. Objects keep their path relative to the prefix.
-func stageS3(ctx context.Context, store ObjectStore, uri, dataType, dir string) error {
+// stageS3 downloads the objects an S3 URI addresses into root/sub and returns that directory.
+// dataType is S3Prefix (default), ManifestFile or AugmentedManifestFile. Objects keep their
+// path relative to the prefix. sub must not escape root.
+func stageS3(ctx context.Context, store ObjectStore, uri, dataType, root, sub string) (string, error) {
 	if store == nil {
-		return errNoStore
+		return "", errNoStore
 	}
 
 	bucket, key, err := parseS3URI(uri)
 	if err != nil {
-		return err
+		return "", err
+	}
+
+	dir := filepath.Join(root, filepath.FromSlash(sub))
+	if !strings.HasPrefix(dir, filepath.Clean(root)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%w: %s", errUnsafeArchive, sub)
 	}
 
 	if err = os.MkdirAll(dir, dirMode); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
+		return "", fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
 	switch dataType {
 	case "ManifestFile":
-		return stageManifest(ctx, store, bucket, key, dir)
+		err = stageManifest(ctx, store, bucket, key, dir)
 	case "AugmentedManifestFile":
-		return stageObject(ctx, store, bucket, key, dir, path.Base(key))
+		err = stageObject(ctx, store, bucket, key, dir, path.Base(key))
 	default:
-		return stagePrefix(ctx, store, bucket, key, dir)
+		err = stagePrefix(ctx, store, bucket, key, dir)
 	}
+
+	return dir, err
 }
 
 func stagePrefix(ctx context.Context, store ObjectStore, bucket, prefix, dir string) error {
