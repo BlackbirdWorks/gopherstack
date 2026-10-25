@@ -48,6 +48,7 @@ const (
 	slugGCPSpanner      = "gcpspanner"
 	slugGCPBigtable     = "gcpbigtable"
 	slugGCPEventarc     = "gcpeventarc"
+	slugGCPWorkflows    = "gcpworkflows"
 	slugGCPCloudBuild   = "gcpcloudbuild"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
@@ -150,7 +151,7 @@ func categoryGroups() []categoryGroup {
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
 			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery, slugGCPSQL,
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
-			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc,
+			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows,
 		}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
@@ -276,6 +277,7 @@ func displayNamesB() map[string]string {
 		slugGCPSpanner:     "Cloud Spanner",
 		slugGCPBigtable:    "Cloud Bigtable",
 		slugGCPEventarc:    "Eventarc",
+		slugGCPWorkflows:   "Workflows",
 		slugGCPCloudBuild:  "Cloud Build",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",

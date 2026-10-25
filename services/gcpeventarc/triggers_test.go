@@ -130,7 +130,10 @@ func TestCreateTriggerErrors(t *testing.T) {
 			tr.Destination = &eventarcpb.Destination{Descriptor_: &eventarcpb.Destination_Workflow{
 				Workflow: "projects/p/locations/l/workflows/w",
 			}}
-		}, name: "workflow destination unavailable", parent: parent, id: "good-trigger", want: codes.FailedPrecondition},
+		}, name: "workflow destination must exist", parent: parent, id: "good-trigger", want: codes.FailedPrecondition},
+		{mutate: func(tr *eventarcpb.Trigger) {
+			tr.Destination = &eventarcpb.Destination{Descriptor_: &eventarcpb.Destination_Workflow{Workflow: "w"}}
+		}, name: "malformed workflow name", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
 		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Destination = &eventarcpb.Destination{Descriptor_: &eventarcpb.Destination_CloudRun{
 				CloudRun: &eventarcpb.CloudRun{Service: "svc"},

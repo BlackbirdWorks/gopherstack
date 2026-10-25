@@ -53,6 +53,7 @@ GCP_PORTS = {
     "cloudbuild": 8136,
     "bigtable": 8137,
     "eventarc": 8138,
+    "workflows": 8139,
     "bigquery": 9050,
 }
 

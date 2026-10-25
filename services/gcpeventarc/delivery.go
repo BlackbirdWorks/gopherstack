@@ -85,7 +85,7 @@ func (b *InMemoryBackend) servePush(w http.ResponseWriter, r *http.Request) {
 		trigger = clone(rec.pb)
 	}
 
-	targets := b.svc.Targets
+	targets, workflows := b.svc.Targets, b.svc.Workflows
 	b.mu.RUnlock()
 
 	if !ok {
@@ -110,6 +110,12 @@ func (b *InMemoryBackend) servePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if wf := trigger.GetDestination().GetWorkflow(); wf != "" {
+		b.deliverToWorkflow(w, r, workflows, wf, name, ev)
+
+		return
+	}
+
 	target, err := destinationURL(trigger, targets)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -126,6 +132,60 @@ func (b *InMemoryBackend) servePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deliverToWorkflow starts an execution whose argument is the CloudEvent in structured JSON form, as Eventarc does.
+func (b *InMemoryBackend) deliverToWorkflow(
+	w http.ResponseWriter, r *http.Request, workflows Workflows, workflow, trigger string, ev cloudEvent,
+) {
+	if workflows == nil {
+		http.Error(w, "no Workflows emulator is connected", http.StatusBadGateway)
+
+		return
+	}
+
+	arg, err := workflowArgument(ev)
+	if err == nil {
+		err = workflows.StartExecution(r.Context(), workflow, arg)
+	}
+
+	if err != nil {
+		logger.Load(r.Context()).DebugContext(r.Context(), "gcpeventarc: workflow delivery failed; Pub/Sub will retry",
+			"trigger", trigger, "workflow", workflow, "error", err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type structuredEvent struct {
+	SpecVersion     string          `json:"specversion"`
+	ID              string          `json:"id"`
+	Source          string          `json:"source"`
+	Type            string          `json:"type"`
+	DataContentType string          `json:"datacontenttype"`
+	Subject         string          `json:"subject,omitempty"`
+	Time            string          `json:"time,omitempty"`
+	Data            json.RawMessage `json:"data"`
+}
+
+func workflowArgument(ev cloudEvent) ([]byte, error) {
+	data := json.RawMessage(ev.body)
+	if !json.Valid(data) {
+		quoted, err := json.Marshal(string(ev.body))
+		if err != nil {
+			return nil, err
+		}
+
+		data = quoted
+	}
+
+	return json.Marshal(structuredEvent{
+		SpecVersion: "1.0", ID: ev.id, Source: ev.source, Type: ev.typ, Subject: ev.subject, Time: ev.time,
+		DataContentType: contentTypeJSON, Data: data,
+	})
 }
 
 func buildEvent(t *eventarcpb.Trigger, env pushedEnvelope) (cloudEvent, bool) {

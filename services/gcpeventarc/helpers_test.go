@@ -26,6 +26,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
+	"github.com/blackbirdworks/gopherstack/services/gcpworkflows"
 )
 
 const (
@@ -45,6 +46,7 @@ type env struct {
 	gcs      *storage.Client
 	gcsBack  *gcpstorage.InMemoryBackend
 	dest     *destination
+	wf       *gcpworkflows.InMemoryBackend
 }
 
 // request is one delivery received by a destination.
@@ -169,9 +171,12 @@ func newEnv(t *testing.T) *env {
 	h.Port = 0
 	h.Backend.SetRetryBackoff(time.Second, time.Second)
 	dest := newDestination(t)
+	wf := gcpworkflows.NewInMemoryBackend()
+	t.Cleanup(wf.Close)
 	h.Backend.SetServices(gcpeventarc.Services{
-		PubSub:  ps.Backend,
-		Targets: fakeTargets{project + "/" + location + "/receiver": dest.srv.URL},
+		PubSub:    ps.Backend,
+		Targets:   fakeTargets{project + "/" + location + "/receiver": dest.srv.URL},
+		Workflows: wf,
 	})
 	gcsBack.ObserveObjects(func(ev gcpstorage.ObjectEvent) {
 		h.Backend.HandleStorageEvent(gcpeventarc.StorageEvent{
@@ -192,7 +197,7 @@ func newEnv(t *testing.T) *env {
 
 	return &env{
 		handler: h, conn: conn, client: client, pubsub: ps, psClient: psClient,
-		gcs: gcs, gcsBack: gcsBack, dest: dest,
+		gcs: gcs, gcsBack: gcsBack, dest: dest, wf: wf,
 	}
 }
 

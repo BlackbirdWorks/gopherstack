@@ -1,6 +1,8 @@
 package gcpeventarc
 
 import (
+	"context"
+
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 )
 
@@ -20,10 +22,17 @@ type Targets interface {
 	ServiceURL(project, region, service string) (string, error)
 }
 
+// Workflows starts workflow executions for workflow destinations.
+type Workflows interface {
+	WorkflowExists(name string) bool
+	StartExecution(ctx context.Context, workflow string, argument []byte) error
+}
+
 // Services are the emulators Eventarc reads from and delivers to; absent ones stay nil.
 type Services struct {
-	PubSub  PubSub
-	Targets Targets
+	PubSub    PubSub
+	Targets   Targets
+	Workflows Workflows
 }
 
 // SetServices connects Eventarc to the other emulators.

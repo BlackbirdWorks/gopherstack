@@ -23,6 +23,7 @@ require (
 	cloud.google.com/go/secretmanager v1.22.0
 	cloud.google.com/go/spanner v1.96.1
 	cloud.google.com/go/storage v1.69.0
+	cloud.google.com/go/workflows v1.20.0
 	connectrpc.com/connect v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
 	github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2 v2.2.0
