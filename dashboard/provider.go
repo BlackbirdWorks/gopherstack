@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -41,6 +42,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigtable"
+	"github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -48,7 +50,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcplogging"
+	"github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	"github.com/blackbirdworks/gopherstack/services/gcpredis"
 	"github.com/blackbirdworks/gopherstack/services/gcprun"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -252,6 +256,18 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 
 	wireGCPExplorerOps(ctx, conf)
 
+	if gp, ok := ctx.Config.(interface{ GetGCPCloudBuildHandler() service.Registerable }); ok {
+		conf.GCPCloudBuildOps, _ = getHandler[*gcpcloudbuild.Handler](gp.GetGCPCloudBuildHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPRedisHandler() service.Registerable }); ok {
+		conf.GCPRedisOps, _ = getHandler[*gcpredis.Handler](gp.GetGCPRedisHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPMonitoringHandler() service.Registerable }); ok {
+		conf.GCPMonitoringOps, _ = getHandler[*gcpmonitoring.Handler](gp.GetGCPMonitoringHandler())
+	}
+
 	if gp, hasRun := ctx.Config.(interface{ GetGCPRunHandler() service.Registerable }); hasRun {
 		conf.GCPRunOps, _ = getHandler[*gcprun.Handler](gp.GetGCPRunHandler())
 	}
@@ -274,6 +290,10 @@ func linkCloudExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetAzureEventGridHandler() service.Registerable }); ok {
 		conf.AzureEventGridOps, _ = getHandler[*azureeventgrid.Handler](p.GetAzureEventGridHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureFunctionsHandler() service.Registerable }); ok {
+		conf.AzureFunctionsOps, _ = getHandler[*azurefunctions.Handler](p.GetAzureFunctionsHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetAzureAppConfigHandler() service.Registerable }); ok {

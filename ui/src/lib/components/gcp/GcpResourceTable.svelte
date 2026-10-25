@@ -19,8 +19,9 @@
 		onSelect?: (row: ResourceRow) => void;
 		onDelete?: (row: ResourceRow) => void;
 		detail?: Snippet<[ResourceRow]>;
+		actions?: Snippet<[ResourceRow]>;
 	};
-	let { testId, noun, columns, rows, loading, error, selected = '', onRetry, onSelect, onDelete, detail }: Props = $props();
+	let { testId, noun, columns, rows, loading, error, selected = '', onRetry, onSelect, onDelete, detail, actions }: Props = $props();
 
 	let expanded = $state<string | null>(null);
 	const cell = 'px-4 py-3';
@@ -56,6 +57,7 @@
 							</td>
 						{/each}
 						<td class="{cell} text-right whitespace-nowrap space-x-1">
+							{#if actions}{@render actions(row)}{/if}
 							<button class={GCP_MINI} onclick={() => (expanded = expanded === row.id ? null : row.id)} aria-expanded={expanded === row.id} data-testid="{testId}-details">Details</button>
 							{#if onDelete}
 								<button class="{GCP_MINI} text-red-600" onclick={() => onDelete(row)} aria-label="Delete {row.cells[0]}" data-testid="{testId}-delete"><Trash2 class="inline h-3.5 w-3.5" /></button>

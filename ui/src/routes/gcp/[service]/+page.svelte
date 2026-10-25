@@ -18,6 +18,9 @@
 	import EventarcDashboard from '#lib/components/gcp/EventarcDashboard.svelte';
 	import SpannerDashboard from '#lib/components/gcp/SpannerDashboard.svelte';
 	import ArtifactRegistryDashboard from '#lib/components/gcp/ArtifactRegistryDashboard.svelte';
+	import CloudBuildDashboard from '#lib/components/gcp/CloudBuildDashboard.svelte';
+	import RedisDashboard from '#lib/components/gcp/RedisDashboard.svelte';
+	import MonitoringDashboard from '#lib/components/gcp/MonitoringDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -65,6 +68,12 @@
 	<SpannerDashboard />
 {:else if service?.id === 'artifactregistry'}
 	<ArtifactRegistryDashboard />
+{:else if service?.id === 'cloudbuild'}
+	<CloudBuildDashboard />
+{:else if service?.id === 'redis'}
+	<RedisDashboard />
+{:else if service?.id === 'monitoring'}
+	<MonitoringDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

@@ -26,3 +26,30 @@ func (c *CLI) GetGCPSQLHandler() service.Registerable { return c.gcpSQLHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPLoggingHandler() service.Registerable { return c.gcpLoggingHandler }
+
+// GetAzureFunctionsHandler returns the Azure Functions handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureFunctionsHandler() service.Registerable { return c.azureFunctionsHandler }
+
+// GetGCPCloudBuildHandler returns the Cloud Build handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPCloudBuildHandler() service.Registerable { return c.gcpCloudBuildHandler }
+
+// GetGCPRedisHandler returns the Memorystore for Redis handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPRedisHandler() service.Registerable { return c.gcpRedisHandler }
+
+// GetGCPMonitoringHandler returns the Cloud Monitoring handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPMonitoringHandler() service.Registerable { return c.gcpMonitoringHandler }
+
+func storeConsoleHandlers(cli *CLI, byName map[string]service.Registerable) {
+	cli.azureFunctionsHandler = byName["AzureFunctions"]
+	cli.gcpCloudBuildHandler = byName["GCPCloudBuild"]
+	cli.gcpRedisHandler = byName["GCPRedis"]
+	cli.gcpMonitoringHandler = byName["GCPMonitoring"]
+}

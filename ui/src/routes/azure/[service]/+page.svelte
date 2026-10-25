@@ -8,6 +8,7 @@
 	import AppConfigDashboard from '#lib/components/azure/AppConfigDashboard.svelte';
 	import CosmosHub from '#lib/components/azure/CosmosHub.svelte';
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
+	import FunctionsDashboard from '#lib/components/azure/FunctionsDashboard.svelte';
 	import KeyVaultDashboard from '#lib/components/azure/KeyVaultDashboard.svelte';
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
 	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
@@ -44,6 +45,8 @@
 	<EventGridDashboard />
 {:else if service?.id === 'appconfig'}
 	<AppConfigDashboard />
+{:else if service?.id === 'functions'}
+	<FunctionsDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}
