@@ -460,7 +460,7 @@ type StorageBackend interface {
 
 	// Final stub batch: authorization testing.
 	TestAuthorization(input *TestAuthorizationInput) ([]*AuthResult, error)
-	TestInvokeAuthorizer(authorizerName string, input *TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error)
+	TestInvokeAuthorizer(ctx context.Context, authorizerName string, input *TestInvokeAuthorizerInput) (*TestInvokeAuthorizerOutput, error)
 
 	// Final stub batch: principal-policy detachment.
 	DetachPrincipalPolicy(policyName, principal string) error

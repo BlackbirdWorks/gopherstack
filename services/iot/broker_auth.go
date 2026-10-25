@@ -29,7 +29,6 @@ import (
 const brokerServerCertValidity = 24 * time.Hour
 
 var (
-	errNoPeerCertificate          = errors.New("iot broker: client presented no certificate")
 	errCertificateOutsideValidity = errors.New("iot broker: client certificate is outside its validity period")
 )
 
@@ -63,10 +62,10 @@ func (b *Broker) brokerTLSConfig() (*tls.Config, error) {
 	return &tls.Config{
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
-		ClientAuth:   tls.RequireAnyClientCert,
+		ClientAuth:   tls.RequestClientCert,
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) == 0 {
-				return errNoPeerCertificate
+				return nil
 			}
 
 			now := time.Now()
@@ -154,8 +153,9 @@ func (b *Broker) principalOf(cl *mqtt.Client) (string, *x509.Certificate, *InMem
 type authHook struct {
 	mqtt.HookBase
 
-	broker  *Broker
-	pending sync.Map
+	broker   *Broker
+	pending  sync.Map
+	sessions sync.Map
 }
 
 func (h *authHook) ID() string { return "iot-auth-hook" }
@@ -189,6 +189,8 @@ func (h *authHook) OnSubscribed(cl *mqtt.Client, pk packets.Packet, _ []byte) {
 }
 
 func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
+	h.dropSession(cl)
+
 	h.pending.Range(func(k, _ any) bool {
 		if key, ok := k.(string); ok && strings.HasPrefix(key, cl.ID+"\x00") {
 			h.pending.Delete(k)
@@ -198,7 +200,11 @@ func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
 	})
 }
 
-func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, _ packets.Packet) bool {
+func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) bool {
+	if principal, _, _ := h.broker.principalOf(cl); principal == "" {
+		return h.connectCustom(cl, pk)
+	}
+
 	return h.allowed(cl, "iot:Connect", "client/"+cl.ID)
 }
 
@@ -222,7 +228,7 @@ func (h *authHook) isPendingFilter(clientID, topic string) bool {
 func (h *authHook) allowed(cl *mqtt.Client, action, resource string) bool {
 	principal, cert, be := h.broker.principalOf(cl)
 	if principal == "" {
-		return false
+		return h.customAllowed(cl, action, resource)
 	}
 
 	return be.authorizeMQTT(principal, cl.ID, cert, action, resource)

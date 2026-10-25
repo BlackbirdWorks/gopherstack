@@ -45,6 +45,8 @@ type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
 	server       atomic.Pointer[mqtt.Server]
 	observer     atomic.Pointer[iotdataplane.ConnectionObserver]
+	clock        atomic.Pointer[BrokerClock]
+	runCtx       atomic.Pointer[context.Context]
 	ready        chan struct{}
 	backend      *InMemoryBackend
 	others       func() []*InMemoryBackend
@@ -74,6 +76,8 @@ func (b *Broker) Ready() <-chan struct{} { return b.ready }
 // It blocks until ctx is cancelled.
 func (b *Broker) Start(ctx context.Context) error {
 	log := logger.Load(ctx)
+
+	b.runCtx.Store(&ctx)
 
 	s := mqtt.New(&mqtt.Options{
 		Logger:       log,

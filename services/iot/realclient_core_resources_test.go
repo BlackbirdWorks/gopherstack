@@ -1326,7 +1326,12 @@ func testRoleAliasesRealClient(t *testing.T) {
 func testAuthorizersRealClient(t *testing.T) {
 	t.Helper()
 
-	client := newIoTTestClient(t)
+	backend := iot.NewInMemoryBackend()
+	backend.SetActionTargets(&iot.ActionTargets{Lambda: &fakeAuthLambda{
+		respond: func(map[string]any) any { return authzResponse("p1", 0, 0, allowAll) },
+	}})
+
+	client := newTestIoTClient(t, iot.NewHandler(backend, nil))
 
 	_, err := client.CreateAuthorizer(t.Context(), &iotsdk.CreateAuthorizerInput{
 		AuthorizerName:        aws.String("slice4-authz"),
