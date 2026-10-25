@@ -11,6 +11,10 @@ import (
 )
 
 func openLogin(l EngineLogin) (*sql.DB, error) {
+	if l.Kind == engineSQLServer {
+		return openSQLServer(l.Addr, l.User, l.Password)
+	}
+
 	if l.Kind == enginePostgres {
 		u := url.URL{
 			Scheme:   postgresScheme,
@@ -45,6 +49,10 @@ func (l EngineLogin) dbOrDefault() string {
 
 // probeEngine proves the engine is up and the master login works with a real SELECT 1.
 func probeEngine(ctx context.Context, l EngineLogin) error {
+	if l.Kind == engineSQLServer {
+		return probeSQLServer(ctx, l)
+	}
+
 	if l.Kind != enginePostgres {
 		if err := grantMasterPrivileges(ctx, l); err != nil {
 			return err
@@ -101,7 +109,10 @@ func setEnginePassword(ctx context.Context, l EngineLogin, newPassword string) e
 
 	defer func() { _ = db.Close() }()
 
-	if l.Kind == enginePostgres {
+	switch l.Kind {
+	case engineSQLServer:
+		err = setSQLServerPassword(ctx, db, newPassword)
+	case enginePostgres:
 		var stmt string
 		err = db.QueryRowContext(ctx,
 			"SELECT format('ALTER ROLE CURRENT_USER PASSWORD %L', $1::text)", newPassword).Scan(&stmt)
@@ -110,7 +121,7 @@ func setEnginePassword(ctx context.Context, l EngineLogin, newPassword string) e
 		}
 
 		_, err = db.ExecContext(ctx, stmt)
-	} else {
+	default:
 		_, err = db.ExecContext(ctx, "ALTER USER CURRENT_USER() IDENTIFIED BY ?", newPassword)
 	}
 

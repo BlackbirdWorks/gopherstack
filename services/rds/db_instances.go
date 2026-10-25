@@ -99,7 +99,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 		engine, instanceClass, allocatedStorage, masterUser, b.region, b.engine == nil, &opts,
 	)
 
-	secret, err := b.validateCreateLogin(engine, masterUser, opts)
+	secret, err := b.validateCreateLogin(engine, masterUser, dbName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -181,8 +181,14 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 }
 
 // validateCreateLogin checks the engine login and provisions the managed master secret, if requested.
-func (b *InMemoryBackend) validateCreateLogin(engine, masterUser string, opts DBInstanceOptions) (MasterSecret, error) {
+func (b *InMemoryBackend) validateCreateLogin(
+	engine, masterUser, dbName string, opts DBInstanceOptions,
+) (MasterSecret, error) {
 	if err := b.validateEngineLogin(engine, masterUser); err != nil {
+		return MasterSecret{}, err
+	}
+
+	if err := b.validateSQLServerCreate(engine, dbName, opts.MasterUserPassword, masterUser); err != nil {
 		return MasterSecret{}, err
 	}
 
