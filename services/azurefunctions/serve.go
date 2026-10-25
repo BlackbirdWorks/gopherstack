@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	notFoundPage  = "Error 404 - Web app not found."
 	invokeTimeout = 230 * time.Second
 	welcomePage   = "<!DOCTYPE html><html><head><title>Your Azure Function App is up and running</title></head>" +
 		"<body><h1>Your Azure Function App is up and running.</h1>" +
@@ -34,57 +35,22 @@ type target struct {
 	scm  bool
 }
 
-// resolve maps the request Host to an app: <app>.<domain> or <app>.scm.<domain>, else a first-label match, else
-// the only app.
+// resolve maps the request Host to an app: <app>.<domain> or <app>.scm.<domain>. Any other host is unknown.
 func (b *InMemoryBackend) resolve(host string) (target, bool) {
 	b.mu.RLock("resolve")
 	defer b.mu.RUnlock()
 
-	host = hostOnly(host)
-
-	if net.ParseIP(host) == nil {
-		if t, ok, decided := b.resolveNamed(host); decided {
-			return t, ok
-		}
+	rest, ok := strings.CutSuffix(hostOnly(host), "."+strings.ToLower(b.domain))
+	if !ok {
+		return target{}, false
 	}
 
-	if len(b.apps) == 1 {
-		for _, a := range b.apps {
-			return target{name: a.Name}, true
-		}
+	name, scm := strings.CutSuffix(rest, "."+scmLabel)
+	if a, found := b.apps[strs.Fold(name)]; found {
+		return target{name: a.Name, scm: scm}, true
 	}
 
 	return target{}, false
-}
-
-// resolveNamed matches host against the domain suffix, then its first label; decided is false when neither applies.
-func (b *InMemoryBackend) resolveNamed(host string) (target, bool, bool) {
-	if rest, ok := strings.CutSuffix(host, "."+strings.ToLower(b.domain)); ok {
-		name, scm := strings.CutSuffix(rest, "."+scmLabel)
-		if a, found := b.apps[strs.Fold(name)]; found {
-			return target{name: a.Name, scm: scm}, true, true
-		}
-
-		return target{}, false, true
-	}
-
-	if label, _, ok := strings.Cut(host, "."); ok {
-		if a, found := b.apps[strs.Fold(label)]; found {
-			return target{name: a.Name}, true, true
-		}
-	}
-
-	return target{}, false, false
-}
-
-// explicitAppHost reports whether host names an app's main (non-scm) site by its own label.
-func (b *InMemoryBackend) explicitAppHost(host string) bool {
-	b.mu.RLock("explicitAppHost")
-	defer b.mu.RUnlock()
-
-	rest, ok := strings.CutSuffix(hostOnly(host), "."+strings.ToLower(b.domain))
-
-	return ok && !strings.HasSuffix(rest, "."+scmLabel)
 }
 
 // ServeHTTP routes a request to an app's function host or its Kudu API.
@@ -93,12 +59,13 @@ func (b *InMemoryBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	t, ok := b.resolve(r.Host)
 	if !ok {
-		http.Error(w, "no function app is served on this host", http.StatusNotFound)
+		w.Header().Set("Content-Type", "text/html")
+		http.Error(w, notFoundPage, http.StatusNotFound)
 
 		return
 	}
 
-	if t.scm || (isKuduPath(r.URL.Path) && !b.explicitAppHost(r.Host)) {
+	if t.scm {
 		b.serveKudu(w, r, t.name)
 
 		return

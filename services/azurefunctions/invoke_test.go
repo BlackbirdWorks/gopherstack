@@ -24,9 +24,9 @@ func TestInvoke_HostRouting(t *testing.T) {
 	}{
 		{"app label", "alpha." + testDomain + ":10012", "/api/hello", "echo /api/hello", http.StatusOK},
 		{"other app", "beta." + testDomain, "/api/x", "echo /api/x", http.StatusOK},
-		{"unknown app on domain", "gamma." + testDomain, "/api/x", "no function app", http.StatusNotFound},
-		{"first label match", "alpha.example.test", "/api/y", "echo /api/y", http.StatusOK},
-		{"ip host with two apps", "127.0.0.1", "/api/x", "no function app", http.StatusNotFound},
+		{"unknown app on domain", "gamma." + testDomain, "/api/x", "Web app not found", http.StatusNotFound},
+		{"foreign domain with app label", "alpha.example.test", "/api/y", "Web app not found", http.StatusNotFound},
+		{"ip host", "127.0.0.1", "/api/x", "Web app not found", http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
@@ -48,7 +48,7 @@ func TestInvoke_HostRouting(t *testing.T) {
 	}
 }
 
-func TestInvoke_SingleAppFallback(t *testing.T) {
+func TestInvoke_SingleAppDoesNotCatchUnknownHosts(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, true)
@@ -56,9 +56,13 @@ func TestInvoke_SingleAppFallback(t *testing.T) {
 	_, err := e.backend.Deploy("solo", helloZip(t), "test", "m")
 	require.NoError(t, err)
 
-	resp, body := e.do(t, http.MethodGet, "127.0.0.1:10012", "/api/greet", nil, nil)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "echo /api/greet", body)
+	for _, host := range []string{"127.0.0.1:10012", "localhost", "other." + testDomain} {
+		resp, body := e.do(t, http.MethodGet, host, "/api/greet", nil, nil)
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode, host)
+		assert.Contains(t, body, "Web app not found", host)
+	}
+
+	assert.Zero(t, e.rt.running())
 }
 
 func TestInvoke_ContainerSpec(t *testing.T) {

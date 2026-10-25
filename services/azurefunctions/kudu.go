@@ -20,16 +20,6 @@ const (
 	statusSuccess   = 4
 )
 
-func isKuduPath(p string) bool {
-	for _, prefix := range []string{kuduZipDeploy, kuduPublish, kuduDeployments, kuduZip} {
-		if p == prefix || strings.HasPrefix(p, prefix+"/") {
-			return true
-		}
-	}
-
-	return false
-}
-
 type deploymentJSON struct {
 	ID             string `json:"id"`
 	StatusText     string `json:"status_text"`

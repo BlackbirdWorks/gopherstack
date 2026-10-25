@@ -161,20 +161,16 @@ func TestKudu_DeploymentsAndDownload(t *testing.T) {
 	assert.Equal(t, string(pkg), body)
 }
 
-func TestKudu_ReservedPathsOnPlainHost(t *testing.T) {
+func TestKudu_PathsOnlyOnScmHost(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, true)
 	e.backend.PutApp("app", azurefunctions.AppConfig{LinuxFx: "NODE|20"})
 
-	// A bare host is not the app's own site, so Kudu paths reach Kudu (and need credentials).
-	resp, _ := e.do(t, http.MethodPost, "127.0.0.1", "/api/zipdeploy", helloZip(t), nil)
-	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	resp, _ := e.do(t, http.MethodPost, "127.0.0.1", "/api/zipdeploy", helloZip(t), e.kuduAuth(t, "app"))
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "unknown host")
 
-	resp, _ = e.do(t, http.MethodPost, "127.0.0.1", "/api/zipdeploy", helloZip(t), e.kuduAuth(t, "app"))
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	// On the app's own hostname the same path is just a function route.
+	// On the app's own hostname the path is just a function route.
 	_, _ = e.backend.Deploy("app", helloZip(t), "t", "m")
 	resp, body := e.do(t, http.MethodGet, "app."+testDomain, "/api/zipdeploy", nil, nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
