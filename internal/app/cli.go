@@ -2841,6 +2841,11 @@ func buildEchoServer(
 	registerPricingEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
+	if cli.Persist {
+		e.POST("/_gopherstack/persist/save", buildPersistSaveHandler(persistManager))
+		e.POST("/_gopherstack/persist/load", buildPersistLoadHandler(persistManager))
+	}
+
 	registerPodEndpoints(ctx, log, e, cli.Pods, cli.resolvedDataDir(), persistManager, services)
 	registerReplicateEndpoints(ctx, e)
 
@@ -3417,6 +3422,7 @@ func wireCrossServiceDependencies(
 	wireStepFunctionsIntegrations(byName)
 	wireParameterAndKeyIntegrations(byName)
 	wireAPIGatewayIntegrations(byName)
+	wireS3Options(appCtx, byName)
 	wireEventSourcePollers(byName)
 	wireComputeAndObservabilityIntegrations(appCtx, byName)
 	wireCWLogsMetricEmitters(byName)

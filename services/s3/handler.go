@@ -76,8 +76,13 @@ type S3Handler struct {
 	// verification of presigned-URL signatures (SigV4 query-auth). It is empty
 	// by default so presigned URLs are accepted on structure/expiry alone,
 	// preserving backwards-compatible behaviour.
-	PresignSecret  string
-	notificationMu sync.RWMutex
+	PresignSecret string
+	// SkipKMSKeyValidation accepts SSE-KMS key ids KMS does not know.
+	SkipKMSKeyValidation bool
+	// DisableBucketCORS ignores per-bucket CORS configuration.
+	DisableBucketCORS bool
+	kmsKeys           KMSKeyChecker
+	notificationMu    sync.RWMutex
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -101,6 +106,14 @@ func (h *S3Handler) WithPresignValidation(secret string) *S3Handler {
 
 	return h
 }
+
+// KMSKeyChecker reports whether an SSE-KMS key id (id, ARN or alias) exists.
+type KMSKeyChecker interface {
+	KMSKeyExists(ctx context.Context, keyID string) bool
+}
+
+// SetKMSKeyChecker enables SSE-KMS key existence validation against KMS.
+func (h *S3Handler) SetKMSKeyChecker(k KMSKeyChecker) { h.kmsKeys = k }
 
 // WithJanitor attaches a background janitor to the handler.
 func (h *S3Handler) WithJanitor(settings Settings, taskTimeout ...time.Duration) *S3Handler {
@@ -335,7 +348,9 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 		// Set CORS headers on the actual response before any handler writes
 		// a status: preflight (OPTIONS) is handled separately below, this
 		// covers the GET/PUT/etc. a browser sends after a passing preflight.
-		h.applyCORSActualResponseHeaders(ctx, sw, requestWithCtx, bucketName)
+		if !h.DisableBucketCORS {
+			h.applyCORSActualResponseHeaders(ctx, sw, requestWithCtx, bucketName)
+		}
 
 		// Enforce SigV4 region scoping: if the bucket exists in a region other
 		// than the one the request signed for, return 301 PermanentRedirect with

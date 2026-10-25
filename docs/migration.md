@@ -225,7 +225,11 @@ LocalStack variables are translated at startup; a variable already set under its
 | `ENFORCE_IAM`, `IAM_SOFT_MODE` | `GOPHERSTACK_ENFORCE_IAM`, `GOPHERSTACK_IAM_AUDIT` |
 | `DNS_ADDRESS`, `DNS_SERVER` | `DNS_ADDR` (`0` / `0.0.0.0` leave DNS off), `TRANSPARENT_DNS_UPSTREAM`; port 53 when omitted |
 | `EXTERNAL_SERVICE_PORTS_START` / `_END` | `PORT_RANGE_START` / `PORT_RANGE_END` (the end is inclusive in LocalStack, exclusive here, so +1) |
-| `SNAPSHOT_SAVE_STRATEGY=ON_REQUEST` / `SCHEDULED`, `SNAPSHOT_FLUSH_INTERVAL` | `GOPHERSTACK_PERSIST_MODE=snapshot` / `hybrid`, `GOPHERSTACK_PERSIST_FLUSH_INTERVAL`. `ON_SHUTDOWN`, `MANUAL` and non-`ON_STARTUP` `SNAPSHOT_LOAD_STRATEGY` are unsupported |
+| `SNAPSHOT_SAVE_STRATEGY` (`ON_REQUEST`, `SCHEDULED`, `ON_SHUTDOWN`, `MANUAL`), `SNAPSHOT_FLUSH_INTERVAL` | `GOPHERSTACK_PERSIST_MODE` = `snapshot` / `hybrid` / `shutdown` / `manual`, `GOPHERSTACK_PERSIST_FLUSH_INTERVAL`. `MANUAL` saves only through `POST /_gopherstack/persist/save` |
+| `SNAPSHOT_LOAD_STRATEGY` (`ON_STARTUP`, `ON_REQUEST`, `MANUAL`) | `GOPHERSTACK_PERSIST_LOAD` = `startup` / `request` (each service loads on its first request through the HTTP gateway) / `manual` (only through `POST /_gopherstack/persist/load`) |
+| `S3_SKIP_KMS_KEY_VALIDATION` | `GOPHERSTACK_S3_SKIP_KMS_KEY_VALIDATION`. Gopherstack validates SSE-KMS key ids against its KMS by default (`KMS.NotFoundException`); set it to accept unknown keys |
+| `S3_VALIDATE_SIGNATURES`, `S3_SKIP_SIGNATURE_VALIDATION=0` | `GOPHERSTACK_S3_VALIDATE_SIGNATURES`: verify S3 header and presigned-URL signatures against `--sigv4-secret`, for S3 only. Off by default, like LocalStack's `S3_SKIP_SIGNATURE_VALIDATION=1` |
+| `DISABLE_CUSTOM_CORS_S3`, `DISABLE_CUSTOM_CORS_APIGATEWAY` | `GOPHERSTACK_S3_DISABLE_CUSTOM_CORS`, `GOPHERSTACK_CORS_DISABLE_CUSTOM_APIGATEWAY`: ignore per-bucket S3 CORS / API Gateway resource CORS so only the global CORS settings apply |
 | `AUTO_LOAD_POD`, `MERGE_STRATEGY` (`overwrite`, `service-merge`, `account-region-merge`) | `GOPHERSTACK_POD_AUTOLOAD`, `GOPHERSTACK_POD_MERGE_STRATEGY` |
 | `SQS_DELAY_PURGE_RETRY`, `SQS_DELAY_RECENTLY_DELETED`, `SQS_ENABLE_MESSAGE_RETENTION_PERIOD`, `SQS_DISABLE_CLOUDWATCH_METRICS` | `SQS_DISABLE_CLOUDWATCH_METRICS` is read as is. The other three are inverted onto `GOPHERSTACK_SQS_DISABLE_*` when set to a false value; Gopherstack defaults to the AWS behaviour (cooldowns and retention on) |
 | `KINESIS_ERROR_PROBABILITY`, `DYNAMODB_ERROR_PROBABILITY` (0 to 1) | Seed a probabilistic `ProvisionedThroughputExceededException` fault rule (HTTP 400) in the chaos fault store at startup; replaceable via `/_localstack/chaos/faults` |
@@ -233,7 +237,7 @@ LocalStack variables are translated at startup; a variable already set under its
 | `OUTBOUND_HTTP_PROXY`, `OUTBOUND_HTTPS_PROXY`, `REQUESTS_CA_BUNDLE` | `HTTP_PROXY`, `HTTPS_PROXY`, `SSL_CERT_FILE` |
 | `LOCALSTACK_RESPONSE_HEADER_ENABLED` | `GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER` (opt-in `X-Localstack: true`) |
 | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `SFN_MOCK_CONFIG`, `*_ENDPOINT_STRATEGY` | Read under the same names |
-| `LAMBDA_LIMITS_*`, `KINESIS_LATENCY`, `KINESIS_SHARD_LIMIT`, `S3_SKIP_*`, `S3_VALIDATE_SIGNATURES`, `DISABLE_CUSTOM_CORS_*`, `LAMBDA_RUNTIME_*`, `USE_SSL`, and other documented options with a behaviour Gopherstack lacks | Unsupported; each one that is set logs `LocalStack option X is not supported` once at warn |
+| `LAMBDA_LIMITS_*`, `KINESIS_LATENCY`, `KINESIS_SHARD_LIMIT`, `LAMBDA_RUNTIME_*`, `USE_SSL`, and other documented options with a behaviour Gopherstack lacks | Unsupported; each one that is set logs `LocalStack option X is not supported` once at warn |
 | `EAGER_SERVICE_LOADING`, `LOCALSTACK_AUTH_TOKEN`, `*_DOCKER_FLAGS`, `PROVIDER_OVERRIDE_*`, JVM, Docker and Kubernetes plumbing options | No equivalent needed; logged once at debug |
 
 ## Terraform / OpenTofu provider

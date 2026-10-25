@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -49,6 +52,7 @@ type entry struct {
 	name        string
 	generation  uint64 // incremented on each Notify; callback checks it hasn't changed
 	flushed     uint64 // generation last written by FlushDirty
+	loaded      bool   // state restored from the store (or replaced by an import)
 	mu          sync.Mutex
 }
 
@@ -59,6 +63,7 @@ type Manager struct {
 	baseCtx context.Context
 	entries map[string]*entry
 	policy  Policy
+	load    LoadStrategy
 	mu      sync.RWMutex
 }
 
@@ -94,37 +99,127 @@ func (m *Manager) Register(name string, p Persistable) {
 	m.entries[name] = &entry{name: name, persistable: p}
 }
 
-// RestoreAll loads and restores snapshots for all registered Persistable backends.
-// Errors for individual services are logged but do not abort restoration of others.
+// SetLoadStrategy selects when RestoreAll and EnsureLoaded restore state. Call before RestoreAll.
+func (m *Manager) SetLoadStrategy(l LoadStrategy) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.load = l
+}
+
+// LoadStrategy reports the configured load strategy (LoadStartup when unset).
+func (m *Manager) LoadStrategy() LoadStrategy {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.load == "" {
+		return LoadStartup
+	}
+
+	return m.load
+}
+
+func (m *Manager) lazy() bool { return m.load == LoadRequest || m.load == LoadManual }
+
+// RestoreAll loads and restores snapshots at startup. Under LoadRequest and
+// LoadManual only internal "system-*" entries are restored here; services wait
+// for EnsureLoaded or LoadNow. Errors for individual services are logged but
+// do not abort restoration of others.
 func (m *Manager) RestoreAll(ctx context.Context) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	forEachEntry(m.entries, func(name string, e *entry) {
-		if _, on := m.policy.ModeFor(name); !on {
+		if m.lazy() && !strings.HasPrefix(strs.Fold(name), systemPrefix) {
 			return
 		}
 
-		ectx := entryCtx(ctx, name)
-		log := logger.Load(ectx)
+		m.restoreEntry(ctx, e)
+	})
+}
 
-		data, err := m.store.Load(name, snapshotKey)
-		if err != nil {
-			if errors.Is(err, ErrKeyNotFound) {
-				log.DebugContext(ectx, "persistence: no snapshot found", "service", name)
-			} else {
-				log.WarnContext(ectx, "persistence: load failed", "service", name, "error", err)
-			}
+// restoreEntry restores one entry from the store when its policy allows it.
+func (m *Manager) restoreEntry(ctx context.Context, e *entry) bool {
+	name := e.name
+	if _, on := m.policy.ModeFor(name); !on {
+		return false
+	}
 
-			return
-		}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
-		if restoreErr := e.persistable.Restore(ectx, data); restoreErr != nil {
-			log.WarnContext(ectx, "persistence: restore failed", "service", name, "error", restoreErr)
+	e.loaded = true
+
+	ectx := entryCtx(ctx, name)
+	log := logger.Load(ectx)
+
+	data, err := m.store.Load(name, snapshotKey)
+	if err != nil {
+		if errors.Is(err, ErrKeyNotFound) {
+			log.DebugContext(ectx, "persistence: no snapshot found", "service", name)
 		} else {
-			log.InfoContext(ectx, "persistence: restored", "service", name)
+			log.WarnContext(ectx, "persistence: load failed", "service", name, "error", err)
+		}
+
+		return false
+	}
+
+	if restoreErr := e.persistable.Restore(ectx, data); restoreErr != nil {
+		log.WarnContext(ectx, "persistence: restore failed", "service", name, "error", restoreErr)
+
+		return false
+	}
+
+	log.InfoContext(ectx, "persistence: restored", "service", name)
+
+	return true
+}
+
+// EnsureLoaded restores the named service on first use under LoadRequest.
+// It is a no-op under any other strategy, for unknown services and once loaded.
+func (m *Manager) EnsureLoaded(ctx context.Context, name string) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.load != LoadRequest {
+		return
+	}
+
+	e, ok := m.entries[name]
+	if !ok {
+		return
+	}
+
+	e.mu.Lock()
+	done := e.loaded
+	e.mu.Unlock()
+
+	if !done {
+		m.restoreEntry(ctx, e)
+	}
+}
+
+// LoadNow restores every enabled service from the store regardless of the load
+// strategy and returns how many snapshots were applied.
+func (m *Manager) LoadNow(ctx context.Context) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var n atomic.Int64
+
+	forEachEntry(m.entries, func(_ string, e *entry) {
+		if m.restoreEntry(ctx, e) {
+			n.Add(1)
 		}
 	})
+
+	return int(n.Load())
+}
+
+// SaveNow persists every enabled service immediately, whatever its mode, and
+// returns how many snapshots were written.
+func (m *Manager) SaveNow(ctx context.Context) int {
+	return m.saveAll(ctx, func(Mode) bool { return true })
 }
 
 // Notify schedules a debounced save for the named service.
@@ -178,15 +273,22 @@ func (m *Manager) Notify(name string) {
 	})
 }
 
-// SaveAll immediately persists all enabled backends.
-// Pending debounce timers are stopped to prevent concurrent writes on shutdown.
-// It is intended for graceful shutdown.
+// SaveAll persists all enabled backends except ModeManual ones; unloaded
+// services under a lazy load strategy are skipped so they keep their stored
+// state. Pending debounce timers are stopped. Intended for graceful shutdown.
 func (m *Manager) SaveAll(ctx context.Context) {
+	m.saveAll(ctx, func(mode Mode) bool { return mode != ModeManual })
+}
+
+func (m *Manager) saveAll(ctx context.Context, want func(Mode) bool) int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	var saved atomic.Int64
+
 	forEachEntry(m.entries, func(_ string, e *entry) {
-		if _, on := m.policy.ModeFor(e.name); !on {
+		mode, on := m.policy.ModeFor(e.name)
+		if !on || !want(mode) {
 			return
 		}
 
@@ -195,14 +297,26 @@ func (m *Manager) SaveAll(ctx context.Context) {
 			e.timer.Stop()
 			e.timer = nil
 		}
+
+		untouched := m.lazy() && !e.loaded && e.generation == 0
 		e.mu.Unlock()
+
+		if untouched {
+			return
+		}
 
 		ectx := entryCtx(ctx, e.name)
 		if saveErr := m.save(ectx, e); saveErr != nil {
 			logger.Load(ectx).
-				WarnContext(ectx, "persistence: save failed on shutdown", "service", e.name, "error", saveErr)
+				WarnContext(ectx, "persistence: save failed", "service", e.name, "error", saveErr)
+
+			return
 		}
+
+		saved.Add(1)
 	})
+
+	return int(saved.Load())
 }
 
 // saveIfCurrent fires a save only if the generation still matches the one
@@ -281,6 +395,10 @@ func (m *Manager) ImportAll(ctx context.Context, snapshots map[string][]byte) er
 
 			continue
 		}
+
+		e.mu.Lock()
+		e.loaded = true
+		e.mu.Unlock()
 
 		if err := e.persistable.Restore(ectx, data); err != nil {
 			log.WarnContext(ectx, "persistence: import restore failed", "service", name, "error", err)

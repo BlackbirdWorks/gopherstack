@@ -236,7 +236,8 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--data-dir` | `GOPHERSTACK_DATA_DIR` | *(empty)* | Directory for persistence data files. Empty resolves to `~/.gopherstack/data`, or `/data` inside a container. |
 | `--account-id` | `ACCOUNT_ID` | `000000000000` | Mock AWS account ID used in ARNs. |
 | `--persist` | `PERSIST` | `false` | Enable snapshot-based persistence across restarts. |
-| `--persist-mode` | `GOPHERSTACK_PERSIST_MODE` | `snapshot` | `snapshot` or `hybrid` (see [docs/persistence.md](docs/persistence.md)). |
+| `--persist-mode` | `GOPHERSTACK_PERSIST_MODE` | `snapshot` | `snapshot`, `hybrid`, `shutdown` or `manual` (see [docs/persistence.md](docs/persistence.md)). |
+| `--persist-load` | `GOPHERSTACK_PERSIST_LOAD` | `startup` | `startup`, `request` (lazy per service) or `manual` (see [docs/persistence.md](docs/persistence.md)). |
 | `--persist-services` / `--persist-exclude` | `GOPHERSTACK_PERSIST_SERVICES` / `GOPHERSTACK_PERSIST_EXCLUDE` | *(all)* | Allow/deny lists of services to persist (case-insensitive). |
 | `--persist-service-mode` | `GOPHERSTACK_PERSIST_SERVICE_MODE` | *(none)* | Per-service mode override, e.g. `s3=hybrid,sqs=snapshot`. |
 | `--persist-flush-interval` | `GOPHERSTACK_PERSIST_FLUSH_INTERVAL` | `5s` | Hybrid flush interval (worst-case loss on a crash). |

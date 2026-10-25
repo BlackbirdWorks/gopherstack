@@ -133,6 +133,12 @@ func (h *S3Handler) handleCORSPreflight(
 	bucket string,
 ) {
 	h.setOperation(ctx, "CORSPreflight")
+	if h.DisableBucketCORS {
+		w.WriteHeader(http.StatusForbidden)
+
+		return
+	}
+
 	corsXML, err := h.Backend.GetBucketCORS(ctx, bucket)
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)

@@ -51,16 +51,18 @@ type JWKSProvider interface {
 
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
-	Backend      StorageBackend
-	jwksProvider JWKSProvider
-	lambda       LambdaInvoker
-	sqsSender    SQSSender
-	snsPublisher SNSPublisher
-	awsInvoker   AWSServiceInvoker
-	httpClient   *http.Client
-	authCache    *authorizerCache
-	respCache    *responseCache
-	peers        *regionpeers.Set[Handler]
+	Backend StorageBackend
+	// DisableCustomCORS ignores per-resource CORS configuration on executed APIs.
+	DisableCustomCORS bool
+	jwksProvider      JWKSProvider
+	lambda            LambdaInvoker
+	sqsSender         SQSSender
+	snsPublisher      SNSPublisher
+	awsInvoker        AWSServiceInvoker
+	httpClient        *http.Client
+	authCache         *authorizerCache
+	respCache         *responseCache
+	peers             *regionpeers.Set[Handler]
 	// selRegexpCache is a bounded LRU of compiled selection-pattern regexps. It is
 	// keyed by user-supplied patterns, so it must be size-capped to prevent unbounded
 	// growth.
