@@ -131,6 +131,8 @@ func utilTransform() map[string]utilFn {
 	return map[string]utilFn{
 		"transform.toDynamoDBFilterExpression":    exprFn,
 		"transform.toDynamoDBConditionExpression": exprFn,
+		"transform.toElasticsearchQueryDSL":       toQueryDSL,
+		"transform.toOpenSearchQueryDSL":          toQueryDSL,
 	}
 }
 
