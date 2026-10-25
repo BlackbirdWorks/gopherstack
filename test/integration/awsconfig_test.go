@@ -94,7 +94,7 @@ func TestIntegration_AWSConfig_DescribeDeliveryChannels(t *testing.T) {
 
 	awsconfigPost(t, "PutDeliveryChannel", map[string]any{
 		"DeliveryChannel": map[string]any{
-			"name":         "dc-list-test",
+			"name":         "default",
 			"s3BucketName": "test-bucket",
 		},
 	})
