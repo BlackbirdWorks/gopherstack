@@ -282,7 +282,8 @@ resource "aws_eip" "aswm" {
 }
 
 resource "aws_shield_subscription" "aswm" {
-  auto_renew = "ENABLED"
+  auto_renew   = "ENABLED"
+  skip_destroy = true
 }
 
 resource "aws_shield_protection" "aswm" {
