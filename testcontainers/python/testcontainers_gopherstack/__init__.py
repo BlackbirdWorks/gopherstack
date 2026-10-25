@@ -52,6 +52,7 @@ GCP_PORTS = {
     "spanner": 8135,
     "cloudbuild": 8136,
     "bigtable": 8137,
+    "eventarc": 8138,
     "bigquery": 9050,
 }
 

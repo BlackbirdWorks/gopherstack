@@ -29,6 +29,8 @@ type CopyRequest struct {
 // CopyObject copies an object. A nil Meta inherits the source metadata;
 // otherwise Meta supplies the destination metadata.
 func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("CopyObject")
 	defer b.mu.Unlock()
 
@@ -72,7 +74,9 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 		o.ComponentCount, o.MD5 = src.ComponentCount, ""
 	}
 
+	b.replacedLocked(dstBk, dstBk.live(req.DstName))
 	dstBk.store(o)
+	b.queueLocked(ObjectFinalized, o)
 
 	return o.clone(), nil
 }
@@ -118,6 +122,8 @@ func (b *InMemoryBackend) ComposeObject(
 			") exceeds the maximum (32)")
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("ComposeObject")
 	defer b.mu.Unlock()
 
@@ -155,7 +161,9 @@ func (b *InMemoryBackend) ComposeObject(
 	}
 
 	o.ComponentCount, o.MD5 = count, ""
+	b.replacedLocked(bk, bk.live(dst))
 	bk.store(o)
+	b.queueLocked(ObjectFinalized, o)
 
 	return o.clone(), nil
 }
@@ -204,6 +212,8 @@ type UploadProgress struct {
 // AppendUpload appends chunk at offset. total is the declared object size or
 // -1 when unknown; once the received bytes reach it the object is committed.
 func (b *InMemoryBackend) AppendUpload(id string, offset int64, chunk []byte, total int64) (UploadProgress, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("AppendUpload")
 	defer b.mu.Unlock()
 

@@ -99,6 +99,7 @@ func cloudBuildServices(byName map[string]service.Registerable) gcpcloudbuildbac
 func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPRedis(byName)
 	wireGCPCloudBuild(byName)
+	wireGCPEventarc(byName)
 }
 
 // wireGCPCloudBuild connects Cloud Build to Cloud Storage, Pub/Sub, Cloud Logging, Secret Manager and the

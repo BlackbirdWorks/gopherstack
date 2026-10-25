@@ -15252,6 +15252,22 @@
     ],
     "version": 1
   },
+  "gcpeventarc": {
+    "fields": [
+      "backendSnapshot.Channels map[string]channelSnap `json:\"channels\"`",
+      "backendSnapshot.Configs map[string]json.RawMessage `json:\"configs\"`",
+      "backendSnapshot.Connections map[string]json.RawMessage `json:\"connections\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "backendSnapshot.Seq uint64 `json:\"seq\"`",
+      "backendSnapshot.Triggers map[string]triggerSnap `json:\"triggers\"`",
+      "channelSnap.Channel json.RawMessage `json:\"channel\"`",
+      "channelSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
+      "triggerSnap.OwnedTopic bool `json:\"ownedTopic,omitempty\"`",
+      "triggerSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
+      "triggerSnap.Trigger json.RawMessage `json:\"trigger\"`"
+    ],
+    "version": 1
+  },
   "gcpfirestore": {
     "fields": [
       "backendSnapshot.Docs map[string]json.RawMessage `json:\"docs\"`",
