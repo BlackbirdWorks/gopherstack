@@ -4542,6 +4542,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// all (gopherstack-cb9l).
 	wireCodePipelineBackends(byName)
 	wireGlueS3(byName["Glue"], byName["S3"])
+	wireGlueDynamoDB(byName["Glue"], byName["DynamoDB"])
 }
 
 func wireCodePipelineBackends(byName map[string]service.Registerable) {
@@ -7616,6 +7617,28 @@ func wireCodePipelineS3(codepipelineReg, s3Reg service.Registerable) {
 	}
 
 	cpH.Backend.SetArtifactS3(s3Bk)
+}
+
+// wireGlueDynamoDB lets Glue crawlers infer table schemas from DynamoDB tables.
+func wireGlueDynamoDB(glueReg, ddbReg service.Registerable) {
+	glueH, ok := glueReg.(*gluebackend.Handler)
+	if !ok {
+		return
+	}
+
+	glueBk, bkOk := glueH.Backend.(*gluebackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ddbOk {
+		return
+	}
+
+	if ddbBk, ok2 := ddbH.Backend.(*ddbbackend.InMemoryDB); ok2 {
+		glueBk.SetDynamoDBBackend(ddbBk)
+	}
 }
 
 // wireGlueS3 lets Glue crawlers infer table schemas and partitions from S3 objects.

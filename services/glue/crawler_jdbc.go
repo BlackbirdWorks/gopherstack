@@ -1,0 +1,324 @@
+package glue
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
+)
+
+const (
+	jdbcTimeout = 10 * time.Second
+	engPostgres = "postgresql"
+	engMySQL    = "mysql"
+	engRedshift = "redshift"
+)
+
+var (
+	errJDBCSecret = errors.New("connection authenticates through SECRET_ID, which the crawler cannot resolve")
+	errJDBCEngine = errors.New("unsupported JDBC engine")
+)
+
+type jdbcEndpoint struct {
+	engine, host, port, database, user, password string
+}
+
+func parseJDBCURL(conn *Connection) (jdbcEndpoint, error) {
+	raw := conn.ConnectionProperties["JDBC_CONNECTION_URL"]
+	if raw == "" {
+		return jdbcEndpoint{}, errors.New("connection has no JDBC_CONNECTION_URL")
+	}
+
+	rest, ok := strings.CutPrefix(raw, "jdbc:")
+	if !ok {
+		return jdbcEndpoint{}, fmt.Errorf("%w: %q", errJDBCEngine, raw)
+	}
+
+	u, err := url.Parse(rest)
+	if err != nil {
+		return jdbcEndpoint{}, fmt.Errorf("parse JDBC URL: %w", err)
+	}
+
+	ep := jdbcEndpoint{
+		host: u.Hostname(), port: u.Port(), database: strings.TrimPrefix(u.Path, "/"),
+		user: conn.ConnectionProperties["USERNAME"], password: conn.ConnectionProperties["PASSWORD"],
+	}
+
+	switch u.Scheme {
+	case engPostgres, "postgres":
+		ep.engine = engPostgres
+	case engMySQL:
+		ep.engine = engMySQL
+	case engRedshift:
+		ep.engine = engRedshift
+	default:
+		return jdbcEndpoint{}, fmt.Errorf("%w: %q", errJDBCEngine, u.Scheme)
+	}
+
+	if ep.port == "" {
+		ep.port = map[string]string{engPostgres: "5432", engMySQL: "3306", engRedshift: "5439"}[ep.engine]
+	}
+
+	if ep.password == "" && conn.ConnectionProperties["SECRET_ID"] != "" {
+		return jdbcEndpoint{}, errJDBCSecret
+	}
+
+	return ep, nil
+}
+
+func (ep jdbcEndpoint) open(database string) (*sql.DB, error) {
+	addr := net.JoinHostPort(ep.host, ep.port)
+
+	if ep.engine == engMySQL {
+		cfg := mysql.NewConfig()
+		cfg.User, cfg.Passwd, cfg.Net, cfg.Addr, cfg.DBName = ep.user, ep.password, "tcp", addr, database
+		cfg.Timeout = jdbcTimeout
+
+		connector, err := mysql.NewConnector(cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		return sql.OpenDB(connector), nil
+	}
+
+	dsn := (&url.URL{
+		Scheme: "postgres", User: url.UserPassword(ep.user, ep.password), Host: addr, Path: "/" + database,
+		RawQuery: "sslmode=prefer&connect_timeout=10",
+	}).String()
+
+	return sql.Open("pgx", dsn)
+}
+
+type jdbcColumn struct {
+	schema, table, name, dataType, udt string
+	precision, scale                   sql.NullInt64
+}
+
+func jdbcPattern(parts []string, i int) string {
+	if i < len(parts) && parts[i] != "" {
+		return parts[i]
+	}
+
+	return "%"
+}
+
+func (r *crawlRun) crawlJDBC(t JDBCTarget) error {
+	conn, ok := r.b.connections.Get(t.ConnectionName)
+	if !ok {
+		return fmt.Errorf("connection %q not found", t.ConnectionName)
+	}
+
+	ep, err := parseJDBCURL(conn)
+	if err != nil {
+		return err
+	}
+
+	parts := strings.Split(strings.Trim(t.Path, "/"), "/")
+	dbName := ep.database
+
+	if p := jdbcPattern(parts, 0); !strings.Contains(p, "%") {
+		dbName = p
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), jdbcTimeout)
+	defer cancel()
+
+	db, err := ep.open(dbName)
+	if err != nil {
+		return fmt.Errorf("connect to JDBC data store: %w", err)
+	}
+	defer db.Close()
+
+	if err = db.PingContext(ctx); err != nil {
+		return fmt.Errorf("connect to JDBC data store %s:%s: %w", ep.host, ep.port, err)
+	}
+
+	cols, err := ep.introspect(ctx, db, dbName, parts)
+	if err != nil {
+		return fmt.Errorf("introspect JDBC data store: %w", err)
+	}
+
+	return r.writeJDBCTables(t, ep, dbName, cols)
+}
+
+func (ep jdbcEndpoint) introspect(ctx context.Context, db *sql.DB, dbName string, parts []string) ([]jdbcColumn, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	if ep.engine == engMySQL {
+		rows, err = db.QueryContext(ctx, `SELECT table_schema, table_name, column_name, data_type, column_type,
+			numeric_precision, numeric_scale FROM information_schema.columns
+			WHERE table_schema LIKE ? AND table_name LIKE ?
+			AND table_schema NOT IN ('mysql','sys','performance_schema','information_schema')
+			ORDER BY table_schema, table_name, ordinal_position`, dbName, jdbcPattern(parts, 1))
+	} else {
+		rows, err = db.QueryContext(ctx, `SELECT table_schema, table_name, column_name, data_type, udt_name,
+			numeric_precision, numeric_scale FROM information_schema.columns
+			WHERE table_catalog = $1 AND table_schema LIKE $2 AND table_name LIKE $3
+			AND table_schema NOT IN ('pg_catalog','information_schema')
+			ORDER BY table_schema, table_name, ordinal_position`, dbName, jdbcPattern(parts, 1), jdbcPattern(parts, 2))
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []jdbcColumn
+
+	for rows.Next() {
+		var c jdbcColumn
+		if err = rows.Scan(&c.schema, &c.table, &c.name, &c.dataType, &c.udt, &c.precision, &c.scale); err != nil {
+			return nil, err
+		}
+
+		out = append(out, c)
+	}
+
+	return out, rows.Err()
+}
+
+func jdbcExcluded(c jdbcColumn, engine string, excl []string) bool {
+	cands := []string{c.table, c.schema + "." + c.table, c.schema + "/" + c.table}
+	if engine == engMySQL {
+		cands = []string{c.table}
+	}
+
+	for _, p := range excl {
+		p = strings.ReplaceAll(p, "%", "*")
+
+		for _, cand := range cands {
+			if ok, _ := path.Match(p, cand); ok {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (r *crawlRun) writeJDBCTables(t JDBCTarget, ep jdbcEndpoint, dbName string, cols []jdbcColumn) error {
+	type tableCols struct {
+		name, location string
+		cols           []Column
+	}
+
+	var order []string
+
+	tables := map[string]*tableCols{}
+
+	for _, c := range cols {
+		if jdbcExcluded(c, ep.engine, t.Exclusions) {
+			continue
+		}
+
+		key, location, name := c.schema+"."+c.table, dbName+"."+c.schema+"."+c.table, dbName+"_"+c.schema+"_"+c.table
+		if ep.engine == engMySQL {
+			key, location, name = c.table, dbName+"."+c.table, dbName+"_"+c.table
+		}
+
+		tc := tables[key]
+		if tc == nil {
+			tc = &tableCols{name: name, location: location}
+			tables[key] = tc
+			order = append(order, key)
+		}
+
+		tc.cols = append(tc.cols, Column{Name: c.name, Type: jdbcHiveType(ep.engine, c)})
+	}
+
+	for _, key := range order {
+		tc := tables[key]
+		params := map[string]string{
+			"classification": ep.engine, "connectionName": t.ConnectionName,
+			"typeOfData": "table", crawlerManagedParam: r.c.Name,
+		}
+
+		r.upsert(&Table{
+			Name: crawlTableName(r.c.TablePrefix, tc.name), DatabaseName: r.c.DatabaseName, Parameters: params,
+			StorageDescriptor: StorageDescriptor{
+				Columns: tc.cols, Location: tc.location,
+				Parameters: map[string]string{"connectionName": t.ConnectionName, crawlerManagedParam: r.c.Name},
+			},
+		})
+	}
+
+	return nil
+}
+
+func jdbcHiveType(engine string, c jdbcColumn) string {
+	if engine == engMySQL {
+		return mysqlHiveType(c)
+	}
+
+	return pgHiveType(c)
+}
+
+func pgHiveType(c jdbcColumn) string {
+	if c.dataType == "ARRAY" {
+		return "array<" + pgScalarType(strings.TrimPrefix(c.udt, "_"), c) + ">"
+	}
+
+	return pgScalarType(c.udt, c)
+}
+
+func pgScalarType(udt string, c jdbcColumn) string {
+	switch udt {
+	case "int2":
+		return "smallint"
+	case "int4":
+		return "int"
+	case "int8":
+		return typeBigint
+	case "float4":
+		return "float"
+	case "float8":
+		return avroDouble
+	case "bool":
+		return avroBoolean
+	case "date":
+		return "date"
+	case "timestamp", "timestamptz":
+		return "timestamp"
+	case "bytea":
+		return typeBinary
+	case "numeric":
+		if c.precision.Valid {
+			return fmt.Sprintf("decimal(%d,%d)", c.precision.Int64, c.scale.Int64)
+		}
+
+		return avroDouble
+	default:
+		return avroString
+	}
+}
+
+func mysqlHiveType(c jdbcColumn) string {
+	switch c.dataType {
+	case "tinyint", "smallint", "int", "float", "double", "date":
+		return c.dataType
+	case "mediumint":
+		return "int"
+	case "bigint":
+		return typeBigint
+	case "decimal":
+		return fmt.Sprintf("decimal(%d,%d)", c.precision.Int64, c.scale.Int64)
+	case "datetime", "timestamp":
+		return "timestamp"
+	case "blob", "tinyblob", "mediumblob", "longblob", "binary", "varbinary":
+		return typeBinary
+	default:
+		return avroString
+	}
+}

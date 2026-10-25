@@ -121,14 +121,20 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 			if ok && c.State == stateRunning {
 				c.State = stateReady
 				c.LastUpdated = float64(now.Unix())
-				created := b.createCrawlerTablesLocked(c)
-				b.finishCrawlHistoryLocked(name, "COMPLETED", created, now)
-				b.setLastCrawlLocked(c, "SUCCEEDED")
-				b.recordCrawlCompletionLocked(name, "SUCCEEDED")
+				stats, err := b.runCrawlLocked(c)
+				if err != nil {
+					b.failCrawlHistoryLocked(name, err.Error(), stats, now)
+					b.setLastCrawlLocked(c, "FAILED")
+					b.recordCrawlCompletionLocked(name, "FAILED")
+				} else {
+					b.finishCrawlHistoryLocked(name, crawlerStateCompleted, stats, now)
+					b.setLastCrawlLocked(c, "SUCCEEDED")
+					b.recordCrawlCompletionLocked(name, "SUCCEEDED")
+				}
 			} else if ok && c.State == stateStopping {
 				c.State = stateReady
 				c.LastUpdated = float64(now.Unix())
-				b.finishCrawlHistoryLocked(name, "STOPPED", 0, now)
+				b.finishCrawlHistoryLocked(name, crawlerStateStoppedCrawl, crawlStats{}, now)
 				b.setLastCrawlLocked(c, "CANCELLED")
 				b.recordCrawlCompletionLocked(name, "CANCELLED")
 			}
