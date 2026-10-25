@@ -30,6 +30,18 @@ type storedPolicy struct {
 	// ENABLED/DISABLED, see stateEnabled/stateDisabled), so this always
 	// stays empty -- present for wire completeness (gopherstack-x009).
 	StatusMessage string `json:"statusMessage,omitempty"`
+	// LastEvaluated is when the scheduler last evaluated each schedule, keyed by schedule name.
+	LastEvaluated map[string]time.Time `json:"lastEvaluated,omitempty"`
+}
+
+// managedResource is a snapshot or AMI a policy created and is responsible for expiring.
+type managedResource struct {
+	CreatedAt time.Time `json:"createdAt"`
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	PolicyID  string    `json:"policyId"`
+	Schedule  string    `json:"schedule"`
+	TargetID  string    `json:"targetId"`
 }
 
 func (p *storedPolicy) toPolicy() *Policy {

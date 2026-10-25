@@ -29,4 +29,5 @@ func storedPolicyKeyFn(v *storedPolicy) string { return v.PolicyID }
 // through b.registry.ResetAll() instead (see InMemoryBackend.Reset in backend.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.policies = store.Register(b.registry, "policies", store.New(storedPolicyKeyFn))
+	b.managed = store.Register(b.registry, "managed", store.New(func(v *managedResource) string { return v.ID }))
 }

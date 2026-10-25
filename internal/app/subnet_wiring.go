@@ -124,6 +124,7 @@ func (a ec2SubnetAdapter) SubnetCIDR(region, id string) (string, bool) {
 func wireSubnetLookups(byName map[string]service.Registerable) {
 	wireAMPScraperSources(byName)
 	wireCloudHSMNetwork(byName)
+	wireDLMCompute(byName)
 	wireRUMCloudWatch(byName)
 	wireConnectIntegrations(byName)
 	wireGlobalAcceleratorIntegrations(byName)

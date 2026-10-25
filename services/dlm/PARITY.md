@@ -16,9 +16,11 @@ ops:
 families:
   routing: {status: ok, note: "FIXED this sweep: RouteMatcher's /tags/{arn} branch hardcoded an \"arn:aws:dlm:\" prefix check, but pkgs/arn.Build (used by this same backend's CreateLifecyclePolicy to mint PolicyArn) derives the ARN partition from the region (aws-us-gov, aws-cn, aws-iso, aws-iso-b via arn.PartitionForRegion) -- a backend constructed with a GovCloud/China/ISO region produced PolicyArn values the router would then refuse to accept on TagResource/UntagResource/ListTagsForResource, a self-inconsistency within the service (Create/Get worked, Tag* silently 404/unrouted). Replaced with isDLMResourceARN, a partition-agnostic arn:<partition>:dlm:... check. classifyPath/RouteMatcher otherwise correctly disambiguate GET /policies (list) vs GET /policies/{id} (get), and PATCH for UpdateLifecyclePolicy, per generated serializers.go opPath templates."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Policy execution covers CreateRule (Interval, Times, CronExpression) and RetainRule (Count, Interval) for EBS snapshot, AMI and default policies; FastRestoreRule, CrossRegionCopyRules, ShareRules, ArchiveRule, DeprecateRule, event-based policies, pre/post scripts (Parameters), and default-policy Exclusions.ExcludeBootVolumes/ExtendDeletion are accepted and stored but not executed"
+  - "Snapshots are created as completed instantly and AMIs are created without backing snapshots because the EC2 backend models them that way; the creation window AWS spreads over an hour after the scheduled time is not modeled"
 deferred: []
-leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.RWMutex only; TagResource/UntagResource/ListTagsForResource operate on the policy's own Tags map (no secondary tag-store row to leak on delete) -- DeleteLifecyclePolicy removes the whole storedPolicy row, tags included"}
+leaks: {status: clean, note: "one scheduler ticker goroutine per region handler (scheduler.go) started via worker.SingleRun in StartWorker and stopped in Shutdown; store.Table + lockmetrics.RWMutex only; TagResource/UntagResource/ListTagsForResource operate on the policy's own Tags map (no secondary tag-store row to leak on delete) -- DeleteLifecyclePolicy removes the whole storedPolicy row, tags included"}
 ---
 
 ## Notes
@@ -214,3 +216,11 @@ dlm is region-isolated: lifecycle policies live per region. The tagging bridge f
 ## 2026-10-05 (gopherstack-uox6 pass 11, value semantics)
 
 CreateLifecyclePolicy with DefaultPolicy now stores the documented defaults CopyTags false, CreateInterval 1, ExtendDeletion false and RetainInterval 7 (api_op_CreateLifecyclePolicy.go:65-137); partial updates keep the rest. Proof: `TestDefaultPolicy_DocumentedDefaultsAndPartialUpdate`. Recorded, unchanged: custom (non-default) policy PolicyDetails stays an opaque document; the SDK states no defaults for it.
+
+### 2026-10-25 policy execution (gopherstack-cefu7.100)
+
+- An ENABLED policy now creates snapshots (VOLUME targets, or every attached volume of INSTANCE targets) or AMIs (IMAGE_MANAGEMENT and INSTANCE default policies) through the EC2 backend of its own region, on its CreateRule schedule. DISABLED policies do nothing, including no expiry.
+- Targets are resources carrying any TargetTags pair; default policies target every volume/instance minus Exclusions.ExcludeTags/ExcludeVolumeTypes.
+- Created resources carry TagsToAdd, VariableTags (`$(instance-id)`, `$(timestamp)`), CopyTags tags, `aws:dlm:lifecycle-policy-id`, `aws:dlm:lifecycle-schedule-name`, `aws:dlm:timestamp` and `dlm:managed=true`.
+- RetainRule deletes the oldest DLM-created sets beyond Count, or older than Interval, per target. Resources deleted elsewhere are dropped from the managed table. Deleting a policy forgets its managed resources without deleting them, as AWS does.
+- Persistence: additive `managed` table and per-schedule `lastEvaluated` on the policy; no version bump. Tests: policy_execution_test.go.

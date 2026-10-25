@@ -1,10 +1,12 @@
 package dlm
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -36,13 +39,60 @@ const (
 
 // Handler handles DLM HTTP requests.
 type Handler struct {
-	Backend StorageBackend
-	peers   *regionpeers.Set[Handler]
+	Backend      StorageBackend
+	peers        *regionpeers.Set[Handler]
+	scheduler    *Scheduler
+	workerCtx    context.Context //nolint:containedctx // janitor lifetime for lazily built regional siblings
+	schedulerRun worker.SingleRun
+	workerMu     sync.Mutex
 }
 
 // NewHandler constructs a new Handler.
 func NewHandler(b StorageBackend) *Handler {
-	return &Handler{Backend: b}
+	h := &Handler{Backend: b}
+	if mem, ok := b.(*InMemoryBackend); ok {
+		h.scheduler = NewScheduler(mem, 0)
+	}
+
+	return h
+}
+
+// StartWorker starts the policy scheduler. Implements service.BackgroundWorker.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	h.workerMu.Lock()
+	h.workerCtx = ctx
+	h.workerMu.Unlock()
+
+	if h.scheduler != nil {
+		h.schedulerRun.Start(ctx, h.scheduler)
+	}
+
+	return nil
+}
+
+// Shutdown stops the scheduler of this handler and its regional siblings. Implements service.Shutdowner.
+func (h *Handler) Shutdown(ctx context.Context) {
+	for _, p := range h.peers.Drain() {
+		p.schedulerRun.Stop(ctx)
+	}
+
+	h.schedulerRun.Stop(ctx)
+}
+
+func (h *Handler) janitorContext() context.Context {
+	h.workerMu.Lock()
+	defer h.workerMu.Unlock()
+
+	return h.workerCtx
+}
+
+// SetCompute wires the EC2 seam into this region and every sibling built now or later.
+func (h *Handler) SetCompute(c ComputeService) {
+	for _, b := range h.RegionBackends() {
+		if mem, ok := b.(*InMemoryBackend); ok {
+			mem.SetCompute(c)
+		}
+	}
 }
 
 // Name returns the service name.
