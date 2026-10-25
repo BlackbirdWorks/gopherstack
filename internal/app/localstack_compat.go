@@ -532,6 +532,8 @@ func registerLocalstackInternalEndpoints(e *echo.Echo, cli *CLI, services []serv
 	e.POST("/_localstack/config", buildLocalstackConfigPost())
 	e.GET("/_localstack/diagnose", buildLocalstackDiagnoseHandler(cli, services))
 	e.GET("/_localstack/plugins", buildLocalstackPluginsHandler(services))
+	e.POST("/_localstack/health", buildLocalstackHealthPost(services, cli.Localstack.HealthKill, terminateSelf))
+	registerLocalstackSwagger(e)
 	chaos.RegisterLocalStackRoutes(e, cli.faultStore)
 }
 
@@ -567,7 +569,8 @@ func serveAll(ctx context.Context, cli *CLI, h *echo.Echo, log *slog.Logger) err
 
 // LocalstackSettings holds opt-in LocalStack behaviours.
 type LocalstackSettings struct {
-	ResponseHeader bool `name:"response-header" env:"GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER,LOCALSTACK_RESPONSE_HEADER_ENABLED" default:"false" help:"Add the X-Localstack: true response header."` //nolint:lll // config struct tags are intentionally verbose
+	ResponseHeader bool `name:"response-header" env:"GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER,LOCALSTACK_RESPONSE_HEADER_ENABLED" default:"false" help:"Add the X-Localstack: true response header."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	HealthKill     bool `name:"health-kill"     env:"GOPHERSTACK_LOCALSTACK_HEALTH_KILL"                                        default:"false" help:"Allow POST /_localstack/health with action=kill (loopback peers only) to gracefully stop the process."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 const localstackResponseHeader = "X-Localstack"

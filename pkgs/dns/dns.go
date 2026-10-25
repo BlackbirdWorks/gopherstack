@@ -109,8 +109,18 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("%w: got %q", ErrIPv4Required, cfg.ResolveIP)
 	}
 
+	var tr *transparent
+
+	if len(cfg.Transparent.Suffixes) > 0 {
+		var err error
+
+		if tr, err = newTransparent(cfg.Transparent, cfg.ListenAddr); err != nil {
+			return nil, err
+		}
+	}
+
 	return &Server{
-		transparent: newTransparent(cfg.Transparent, cfg.ListenAddr),
+		transparent: tr,
 		names:       make(map[string]struct{}),
 		records:     make(map[string][]*dnsEntry),
 		cfg:         cfg,
