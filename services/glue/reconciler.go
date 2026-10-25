@@ -273,6 +273,8 @@ func (b *InMemoryBackend) advanceStates(now time.Time) {
 		return
 	}
 
+	var jobs []*crawlJob
+
 	events := func() []runCompletion {
 		b.mu.Lock("advanceStates.apply")
 		defer b.mu.Unlock()
@@ -283,11 +285,13 @@ func (b *InMemoryBackend) advanceStates(now time.Time) {
 
 		ev := b.triggerEvents
 		b.triggerEvents = nil
+		jobs, b.pendingCrawls = b.pendingCrawls, nil
 
 		return ev
 	}()
 
 	b.dispatchTriggerEvents(events)
+	b.runCrawlJobs(jobs, now)
 }
 
 // StartReconciler starts the managed background reconciler that advances Glue job-run
@@ -370,7 +374,8 @@ func (b *InMemoryBackend) StopReconciler() {
 // an idempotent alias for StopReconciler.
 func (b *InMemoryBackend) Close() { b.StopReconciler() }
 
-// completeCrawlLocked finishes a crawler's RUNNING or STOPPING state. b.mu must be held.
+// completeCrawlLocked starts the crawl of a RUNNING crawler (finished later by
+// runCrawlJobs, unlocked) or finishes a STOPPING one. b.mu must be held.
 func (b *InMemoryBackend) completeCrawlLocked(name string, now time.Time) {
 	c, ok := b.crawlers.Get(name)
 	if !ok {
@@ -379,22 +384,10 @@ func (b *InMemoryBackend) completeCrawlLocked(name string, now time.Time) {
 
 	switch c.State {
 	case stateRunning:
-		c.State = stateReady
-		c.LastUpdated = float64(now.Unix())
-
-		stats, err := b.runCrawlLocked(c)
-		if err != nil {
-			b.failCrawlHistoryLocked(name, err.Error(), stats, now)
-			b.setLastCrawlLocked(c, "FAILED")
-			b.recordCrawlCompletionLocked(name, "FAILED")
-
-			return
-		}
-
-		b.finishCrawlHistoryLocked(name, crawlerStateCompleted, stats, now)
-		b.setLastCrawlLocked(c, "SUCCEEDED")
-		b.recordCrawlCompletionLocked(name, "SUCCEEDED")
+		b.startCrawlLocked(c)
 	case stateStopping:
+		delete(b.crawlInFlight, name)
+
 		c.State = stateReady
 		c.LastUpdated = float64(now.Unix())
 		b.finishCrawlHistoryLocked(name, crawlerStateStoppedCrawl, crawlStats{}, now)

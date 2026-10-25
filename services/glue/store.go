@@ -248,6 +248,9 @@ type InMemoryBackend struct {
 
 	triggerEvents []runCompletion
 
+	crawlInFlight map[string]*crawlJob
+	pendingCrawls []*crawlJob
+
 	// limits holds the resource-cardinality caps enforced with
 	// ResourceNumberLimitExceededException (see limits.go); configuredLimits
 	// preserves a WithResourceLimits override across Reset(), matching
@@ -295,6 +298,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		jobRunTimeoutAt:           make(map[string]map[string]time.Time),
 		jobRunStopAt:              make(map[string]map[string]time.Time),
 		crawlerReadyAt:            make(map[string]time.Time),
+		crawlInFlight:             make(map[string]*crawlJob),
 		integrationReadyAt:        make(map[string]time.Time),
 		sessionReadyAt:            make(map[string]time.Time),
 		sessionStopAt:             make(map[string]time.Time),
@@ -360,6 +364,8 @@ func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.jobRunTimeoutAt = make(map[string]map[string]time.Time)
 	b.jobRunStopAt = make(map[string]map[string]time.Time)
 	b.crawlerReadyAt = make(map[string]time.Time)
+	b.crawlInFlight = make(map[string]*crawlJob)
+	b.pendingCrawls = nil
 	b.integrationReadyAt = make(map[string]time.Time)
 	b.sessionReadyAt = make(map[string]time.Time)
 	b.sessionStopAt = make(map[string]time.Time)

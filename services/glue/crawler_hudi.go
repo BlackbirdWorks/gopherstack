@@ -72,7 +72,7 @@ func (r *crawlRun) crawlHudi(t HudiTarget) error {
 			return fmt.Errorf("%w %q", errInvalidCrawlPath, p)
 		}
 
-		keys, lerr := r.b.listKeys(ctx, bucket, prefix)
+		keys, lerr := r.listKeys(ctx, bucket, prefix)
 		if lerr != nil {
 			return lerr
 		}
@@ -111,7 +111,7 @@ func (r *crawlRun) hudiSchema(
 	sort.Strings(commits)
 
 	for _, commit := range slices.Backward(commits) {
-		body, err := r.b.readObject(ctx, bucket, commit)
+		body, err := r.readObject(ctx, bucket, commit)
 		if err != nil {
 			return nil, err
 		}
@@ -241,7 +241,7 @@ func hudiPartitionFields(props map[string]string) []string {
 }
 
 func (r *crawlRun) crawlHudiTable(ctx context.Context, bucket, root string, keys []string) error {
-	body, err := r.b.readObject(ctx, bucket, joinKey(joinKey(root, hudiDir), hudiProps))
+	body, err := r.readObject(ctx, bucket, joinKey(joinKey(root, hudiDir), hudiProps))
 	if err != nil {
 		return err
 	}

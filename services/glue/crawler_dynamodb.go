@@ -196,7 +196,7 @@ func (r *crawlRun) scanDDBTypes(
 			in.Limit = aws.Int32(ddbSampleItems)
 		}
 
-		out, err := r.b.crawlerDDB.Scan(ctx, in)
+		out, err := r.ddb.Scan(ctx, in)
 		if err != nil {
 			return fmt.Errorf("scan dynamodb table %s: %w", table, err)
 		}
@@ -220,15 +220,14 @@ func (r *crawlRun) scanDDBTypes(
 }
 
 func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
-	b := r.b
-	if b.crawlerDDB == nil {
+	if r.ddb == nil {
 		return fmt.Errorf("%w: %q", errDDBUnavailable, t.Path)
 	}
 
-	ctx, cancel := context.WithTimeout(awsmeta.WithRegion(context.Background(), b.region), crawlerS3Timeout)
+	ctx, cancel := context.WithTimeout(awsmeta.WithRegion(context.Background(), r.region), crawlerS3Timeout)
 	defer cancel()
 
-	desc, err := b.crawlerDDB.DescribeTable(ctx, &sdk_ddb.DescribeTableInput{TableName: aws.String(t.Path)})
+	desc, err := r.ddb.DescribeTable(ctx, &sdk_ddb.DescribeTableInput{TableName: aws.String(t.Path)})
 	if err != nil {
 		return fmt.Errorf("describe dynamodb table %s: %w", t.Path, err)
 	}
