@@ -91,8 +91,9 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			},
 		},
 		{
-			name: "native_env_wins_over_alias", environ: []string{"KINESIS_SHARD_LIMIT=9", "KINESIS_ACCOUNT_SHARD_LIMIT=4"},
-			want: map[string]string{},
+			name:    "native_env_wins_over_alias",
+			environ: []string{"KINESIS_SHARD_LIMIT=9", "KINESIS_ACCOUNT_SHARD_LIMIT=4"},
+			want:    map[string]string{},
 		},
 		{
 			name: "dns_address", environ: []string{"DNS_ADDRESS=127.0.0.1", "DNS_SERVER=9.9.9.9"},

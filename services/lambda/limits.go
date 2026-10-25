@@ -71,12 +71,12 @@ func unzippedSize(data []byte) (int64, bool) {
 
 func (s Settings) withLimitEnv() Settings {
 	for _, e := range []struct {
-		env string
 		dst *int
+		env string
 	}{
-		{"LAMBDA_ACCOUNT_CONCURRENT_EXECUTIONS", &s.ConcurrentExecutions},
-		{"LAMBDA_ACCOUNT_MIN_UNRESERVED_CONCURRENCY", &s.MinimumUnreservedConcurrency},
-		{"LAMBDA_MAX_ENVIRONMENT_BYTES", &s.MaxEnvironmentBytes},
+		{&s.ConcurrentExecutions, "LAMBDA_ACCOUNT_CONCURRENT_EXECUTIONS"},
+		{&s.MinimumUnreservedConcurrency, "LAMBDA_ACCOUNT_MIN_UNRESERVED_CONCURRENCY"},
+		{&s.MaxEnvironmentBytes, "LAMBDA_MAX_ENVIRONMENT_BYTES"},
 	} {
 		if v, err := strconv.Atoi(os.Getenv(e.env)); err == nil && v > 0 {
 			*e.dst = v
@@ -84,13 +84,13 @@ func (s Settings) withLimitEnv() Settings {
 	}
 
 	for _, e := range []struct {
-		env string
 		dst *int64
+		env string
 	}{
-		{"LAMBDA_ACCOUNT_TOTAL_CODE_SIZE", &s.TotalCodeSize},
-		{"LAMBDA_CODE_SIZE_ZIPPED", &s.CodeSizeZipped},
-		{"LAMBDA_CODE_SIZE_UNZIPPED", &s.CodeSizeUnzipped},
-		{"LAMBDA_CREATE_FUNCTION_REQUEST_SIZE", &s.CreateFunctionRequestSize},
+		{&s.TotalCodeSize, "LAMBDA_ACCOUNT_TOTAL_CODE_SIZE"},
+		{&s.CodeSizeZipped, "LAMBDA_CODE_SIZE_ZIPPED"},
+		{&s.CodeSizeUnzipped, "LAMBDA_CODE_SIZE_UNZIPPED"},
+		{&s.CreateFunctionRequestSize, "LAMBDA_CREATE_FUNCTION_REQUEST_SIZE"},
 	} {
 		if v, err := strconv.ParseInt(os.Getenv(e.env), 10, 64); err == nil && v > 0 {
 			*e.dst = v

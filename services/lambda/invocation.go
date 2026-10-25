@@ -164,11 +164,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Enforce reserved concurrency limits for all invocation types.
 	// Reserved concurrency of 0 blocks all invocations; non-zero limits are enforced
 	// for both synchronous (RequestResponse) and asynchronous (Event) invocations.
-	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName, fn.Version)
-	if concErr == nil && !trackConcurrency && invocationType != InvocationTypeEvent {
-		trackConcurrency, concErr = b.acquireAccountSlot(fn.FunctionName)
-	}
-
+	trackConcurrency, concErr := b.acquireInvokeSlot(fn.FunctionName, fn.Version, invocationType)
 	if concErr != nil {
 		b.emitThrottleMetric(fn.FunctionName, qualifier, fn.Version)
 
@@ -820,4 +816,14 @@ func (b *InMemoryBackend) acquireAccountSlot(functionName string) (bool, error) 
 	b.activeConcurrencies[functionName]++
 
 	return true, nil
+}
+
+// acquireInvokeSlot applies per-function limits, then the account pool for synchronous calls.
+func (b *InMemoryBackend) acquireInvokeSlot(name, version string, invocationType InvocationType) (bool, error) {
+	tracked, err := b.acquireConcurrencySlot(name, version)
+	if err != nil || tracked || invocationType == InvocationTypeEvent {
+		return tracked, err
+	}
+
+	return b.acquireAccountSlot(name)
 }

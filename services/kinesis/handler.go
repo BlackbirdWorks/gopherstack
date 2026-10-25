@@ -17,18 +17,17 @@ import (
 
 // Handler is the Echo HTTP handler for Kinesis operations.
 type Handler struct {
-	Backend       StorageBackend
-	janitor       *Janitor
-	ops           map[string]kinesisDispatchFn
-	DefaultRegion string
-	AccountID     string
-	subscriptions subscriptionTracker
-	// subscribeToShard* set the SubscribeToShard stream cadence; tests shorten them via WithSubscribeToShardTiming.
+	Backend                           StorageBackend
+	janitor                           *Janitor
+	ops                               map[string]kinesisDispatchFn
+	sleep                             func(ctx context.Context, d time.Duration) error
+	DefaultRegion                     string
+	AccountID                         string
+	subscriptions                     subscriptionTracker
 	subscribeToShardStreamDuration    time.Duration
 	subscribeToShardPollInterval      time.Duration
 	subscribeToShardHeartbeatInterval time.Duration
 	latency                           time.Duration
-	sleep                             func(ctx context.Context, d time.Duration) error
 }
 
 // NewHandler creates a new Kinesis Handler.

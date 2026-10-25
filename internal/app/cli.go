@@ -581,10 +581,10 @@ type CLI struct {
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
-	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
+	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
 	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
 	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
 	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`

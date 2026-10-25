@@ -369,9 +369,8 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
 
-	if maxReq := h.limits().createFunctionRequestSize; int64(len(body)) > maxReq {
-		return h.writeError(c, http.StatusRequestEntityTooLarge, "RequestEntityTooLargeException",
-			fmt.Sprintf("Request must be smaller than %d bytes for the CreateFunction operation", maxReq))
+	if !h.validateCreateRequestSize(c, body) {
+		return nil
 	}
 
 	var input CreateFunctionInput
@@ -1186,7 +1185,8 @@ func (h *Handler) validateRuntime(c *echo.Context, runtime string) bool {
 		return false
 	}
 
-	if bk, ok := h.Backend.(*InMemoryBackend); ok && bk.settings.StrictRuntimeValidation && isDeprecatedRuntime(runtime) {
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if ok && bk.settings.StrictRuntimeValidation && isDeprecatedRuntime(runtime) {
 		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
 			fmt.Sprintf("The runtime parameter of %s is no longer supported for creating or updating "+
 				"AWS Lambda functions. We recommend you use a supported runtime while creating or "+
@@ -1236,4 +1236,16 @@ func (h *Handler) validateCodePackage(c *echo.Context, zipData []byte, replacing
 	}
 
 	return true
+}
+
+func (h *Handler) validateCreateRequestSize(c *echo.Context, body []byte) bool {
+	maxReq := h.limits().createFunctionRequestSize
+	if int64(len(body)) <= maxReq {
+		return true
+	}
+
+	_ = h.writeError(c, http.StatusRequestEntityTooLarge, "RequestEntityTooLargeException",
+		fmt.Sprintf("Request must be smaller than %d bytes for the CreateFunction operation", maxReq))
+
+	return false
 }

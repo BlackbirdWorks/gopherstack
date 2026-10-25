@@ -44,8 +44,8 @@ func TestShardLimit_CreateStream(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		limit     int
 		creates   []int32
+		limit     int
 		wantLimit bool
 	}{
 		{name: "within limit", limit: 4, creates: []int32{2, 2}},
@@ -104,7 +104,8 @@ func waitActive(t *testing.T, c *kinesissdk.Client, name string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		out, err := c.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{StreamName: aws.String(name)})
+		out, err := c.DescribeStreamSummary(t.Context(),
+			&kinesissdk.DescribeStreamSummaryInput{StreamName: aws.String(name)})
 
 		return err == nil && out.StreamDescriptionSummary.StreamStatus == types.StreamStatusActive
 	}, 5*time.Second, 10*time.Millisecond)

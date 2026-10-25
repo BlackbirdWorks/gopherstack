@@ -9,39 +9,23 @@ import (
 
 // Settings holds configurable settings for the Lambda service.
 type Settings struct {
-	// DockerHost is the host/IP that Lambda containers use to reach the runtime API.
-	// Defaults to "172.17.0.1" (Docker bridge gateway on Linux).
-	// For Podman rootless on Linux, use the host's routable IP or "host.containers.internal".
-	DockerHost string `json:"docker_host"       name:"docker-host"       env:"LAMBDA_DOCKER_HOST"     default:"172.17.0.1" help:"Host that Lambda containers use to reach the Runtime API."` //nolint:lll,golines // config struct tags are intentionally verbose
-	// ContainerRuntime selects the container runtime: docker, podman, or auto.
-	// Defaults to "docker". Can be overridden via CONTAINER_RUNTIME env var.
-	ContainerRuntime string `json:"container_runtime" name:"container-runtime" env:"CONTAINER_RUNTIME"      default:"docker"     help:"Container runtime to use: docker, podman, or auto."` //nolint:lll,golines // config struct tags are intentionally verbose
-	// Isolation selects the function sandbox: container (default), gvisor (runsc), kata, or firecracker (unsupported).
-	Isolation string `json:"isolation" name:"isolation" env:"LAMBDA_ISOLATION" default:"container" help:"Lambda isolation: container, gvisor, kata (firecracker is not yet supported)."` //nolint:lll // config struct tags are intentionally verbose
-	// PoolSize is the max number of warm containers per function.
-	PoolSize int `json:"pool_size"         name:"pool-size"         env:"LAMBDA_POOL_SIZE"       default:"3"          help:"Max warm containers per Lambda function."` //nolint:lll,golines // config struct tags are intentionally verbose
-	// IdleTimeout is how long an idle container is kept before reaping.
-	IdleTimeout time.Duration `json:"idle_timeout"      name:"idle-timeout"      env:"LAMBDA_IDLE_TIMEOUT"    default:"10m"        help:"Idle container timeout."` //nolint:lll,golines // config struct tags are intentionally verbose
-	// MaxRuntimes is the maximum number of per-function runtimes kept alive simultaneously.
-	// When the limit is exceeded, the least-recently-used runtime is stopped and evicted.
-	// Defaults to defaultMaxRuntimes. Set to 0 to use the default.
-	MaxRuntimes int `json:"max_runtimes"      name:"max-runtimes"      env:"LAMBDA_MAX_RUNTIMES"    default:"50"         help:"Maximum number of simultaneous per-function Lambda runtimes."` //nolint:lll,golines // config struct tags are intentionally verbose
-	// DisableHotReload turns the hot-reload magic bucket off (LocalStack enables it by default).
-	DisableHotReload bool `json:"disable_hot_reload" name:"disable-hot-reload" env:"LAMBDA_DISABLE_HOT_RELOAD" default:"false" help:"Disable Lambda hot reloading from local directories."` //nolint:lll // config struct tags are intentionally verbose
-	// KeepContainers keeps Lambda containers alive after execution (debugging).
-	KeepContainers bool `json:"keep_containers"   name:"keep-containers"   env:"LAMBDA_KEEP_CONTAINERS" default:"false"      help:"If true, keep Lambda containers alive for debugging."` //nolint:lll,golines // config struct tags are intentionally verbose
-	// HotReloadIntervalMS bounds how often the hot-reload directory is re-scanned (int32 keeps Settings compact).
-	HotReloadIntervalMS int32 `json:"hot_reload_interval_ms" name:"hot-reload-interval-ms" env:"LAMBDA_HOT_RELOAD_INTERVAL_MS" default:"250" help:"Minimum milliseconds between hot-reload change scans."` //nolint:lll // config struct tags are intentionally verbose
-	// StrictRuntimeValidation rejects deprecated runtimes on CreateFunction/UpdateFunctionConfiguration.
-	StrictRuntimeValidation bool `json:"strict_runtime_validation" name:"strict-runtime-validation" env:"LAMBDA_STRICT_RUNTIME_VALIDATION" default:"false" help:"Reject deprecated Lambda runtimes (LocalStack LAMBDA_RUNTIME_VALIDATION=1)."` //nolint:lll // config struct tags are intentionally verbose
-	// Account quotas; zero keeps the AWS default.
-	ConcurrentExecutions         int   `json:"concurrent_executions" name:"account-concurrent-executions" env:"LAMBDA_ACCOUNT_CONCURRENT_EXECUTIONS" default:"0" help:"Account concurrent execution limit (0 = AWS default 1000)."`                                  //nolint:lll // config struct tags are intentionally verbose
-	MinimumUnreservedConcurrency int   `json:"minimum_unreserved_concurrency" name:"account-min-unreserved-concurrency" env:"LAMBDA_ACCOUNT_MIN_UNRESERVED_CONCURRENCY" default:"0" help:"Minimum unreserved concurrency (0 = AWS default 100)."`                   //nolint:lll // config struct tags are intentionally verbose
-	MaxEnvironmentBytes          int   `json:"max_environment_bytes" name:"max-environment-bytes" env:"LAMBDA_MAX_ENVIRONMENT_BYTES" default:"0" help:"Maximum environment variable size in bytes (0 = AWS default 4096)."`                                   //nolint:lll // config struct tags are intentionally verbose
-	TotalCodeSize                int64 `json:"total_code_size" name:"account-total-code-size" env:"LAMBDA_ACCOUNT_TOTAL_CODE_SIZE" default:"0" help:"Account code storage limit in bytes (0 = AWS default 75 GB)."`                                               //nolint:lll // config struct tags are intentionally verbose
-	CodeSizeZipped               int64 `json:"code_size_zipped" name:"code-size-zipped" env:"LAMBDA_CODE_SIZE_ZIPPED" default:"0" help:"Maximum zipped package size in bytes (0 = AWS default 50 MB)."`                                                         //nolint:lll // config struct tags are intentionally verbose
-	CodeSizeUnzipped             int64 `json:"code_size_unzipped" name:"code-size-unzipped" env:"LAMBDA_CODE_SIZE_UNZIPPED" default:"0" help:"Maximum unzipped package size in bytes (0 = AWS default 250 MB)."`                                                //nolint:lll // config struct tags are intentionally verbose
-	CreateFunctionRequestSize    int64 `json:"create_function_request_size" name:"create-function-request-size" env:"LAMBDA_CREATE_FUNCTION_REQUEST_SIZE" default:"0" help:"Maximum CreateFunction request size in bytes (0 = AWS default 70167211)."` //nolint:lll // config struct tags are intentionally verbose
+	DockerHost                   string        `json:"docker_host"                    name:"docker-host"                        env:"LAMBDA_DOCKER_HOST"                        default:"172.17.0.1" help:"Host that Lambda containers use to reach the Runtime API."`
+	ContainerRuntime             string        `json:"container_runtime"              name:"container-runtime"                  env:"CONTAINER_RUNTIME"                         default:"docker"     help:"Container runtime to use: docker, podman, or auto."`
+	Isolation                    string        `json:"isolation"                      name:"isolation"                          env:"LAMBDA_ISOLATION"                          default:"container"  help:"Lambda isolation: container, gvisor, kata (firecracker is not yet supported)."`
+	MaxEnvironmentBytes          int           `json:"max_environment_bytes"          name:"max-environment-bytes"              env:"LAMBDA_MAX_ENVIRONMENT_BYTES"              default:"0"          help:"Maximum environment variable size in bytes (0 = AWS default 4096)."`
+	TotalCodeSize                int64         `json:"total_code_size"                name:"account-total-code-size"            env:"LAMBDA_ACCOUNT_TOTAL_CODE_SIZE"            default:"0"          help:"Account code storage limit in bytes (0 = AWS default 75 GB)."`
+	MaxRuntimes                  int           `json:"max_runtimes"                   name:"max-runtimes"                       env:"LAMBDA_MAX_RUNTIMES"                       default:"50"         help:"Maximum number of simultaneous per-function Lambda runtimes."`
+	CreateFunctionRequestSize    int64         `json:"create_function_request_size"   name:"create-function-request-size"       env:"LAMBDA_CREATE_FUNCTION_REQUEST_SIZE"       default:"0"          help:"Maximum CreateFunction request size in bytes (0 = AWS default 70167211)."`
+	CodeSizeUnzipped             int64         `json:"code_size_unzipped"             name:"code-size-unzipped"                 env:"LAMBDA_CODE_SIZE_UNZIPPED"                 default:"0"          help:"Maximum unzipped package size in bytes (0 = AWS default 250 MB)."`
+	CodeSizeZipped               int64         `json:"code_size_zipped"               name:"code-size-zipped"                   env:"LAMBDA_CODE_SIZE_ZIPPED"                   default:"0"          help:"Maximum zipped package size in bytes (0 = AWS default 50 MB)."`
+	IdleTimeout                  time.Duration `json:"idle_timeout"                   name:"idle-timeout"                       env:"LAMBDA_IDLE_TIMEOUT"                       default:"10m"        help:"Idle container timeout."`
+	ConcurrentExecutions         int           `json:"concurrent_executions"          name:"account-concurrent-executions"      env:"LAMBDA_ACCOUNT_CONCURRENT_EXECUTIONS"      default:"0"          help:"Account concurrent execution limit (0 = AWS default 1000)."`
+	MinimumUnreservedConcurrency int           `json:"minimum_unreserved_concurrency" name:"account-min-unreserved-concurrency" env:"LAMBDA_ACCOUNT_MIN_UNRESERVED_CONCURRENCY" default:"0"          help:"Minimum unreserved concurrency (0 = AWS default 100)."`
+	PoolSize                     int           `json:"pool_size"                      name:"pool-size"                          env:"LAMBDA_POOL_SIZE"                          default:"3"          help:"Max warm containers per Lambda function."`
+	HotReloadIntervalMS          int32         `json:"hot_reload_interval_ms"         name:"hot-reload-interval-ms"             env:"LAMBDA_HOT_RELOAD_INTERVAL_MS"             default:"250"        help:"Minimum milliseconds between hot-reload change scans."`
+	StrictRuntimeValidation      bool          `json:"strict_runtime_validation"      name:"strict-runtime-validation"          env:"LAMBDA_STRICT_RUNTIME_VALIDATION"          default:"false"      help:"Reject deprecated Lambda runtimes (LocalStack LAMBDA_RUNTIME_VALIDATION=1)."`
+	KeepContainers               bool          `json:"keep_containers"                name:"keep-containers"                    env:"LAMBDA_KEEP_CONTAINERS"                    default:"false"      help:"If true, keep Lambda containers alive for debugging."`
+	DisableHotReload             bool          `json:"disable_hot_reload"             name:"disable-hot-reload"                 env:"LAMBDA_DISABLE_HOT_RELOAD"                 default:"false"      help:"Disable Lambda hot reloading from local directories."`
 }
 
 const (

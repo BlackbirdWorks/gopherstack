@@ -1,9 +1,9 @@
 package lambda_test
 
 import (
-	"errors"
 	"archive/zip"
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -47,13 +47,13 @@ func newLimitsClient(t *testing.T, st lambda.Settings) *lambdasdk.Client {
 	})
 }
 
-func zipWith(t *testing.T, name string, size int) []byte {
+func zipWith(t *testing.T, size int) []byte {
 	t.Helper()
 
 	var buf bytes.Buffer
 
 	w := zip.NewWriter(&buf)
-	f, err := w.Create(name)
+	f, err := w.Create("a.py")
 	require.NoError(t, err)
 	_, err = f.Write(bytes.Repeat([]byte("a"), size))
 	require.NoError(t, err)
@@ -63,8 +63,7 @@ func zipWith(t *testing.T, name string, size int) []byte {
 }
 
 func errCode(err error) string {
-	var ae smithy.APIError
-	if errors.As(err, &ae) {
+	if ae, ok := errors.AsType[smithy.APIError](err); ok {
 		return ae.ErrorCode()
 	}
 
@@ -94,42 +93,42 @@ func TestLimits_CreateFunction(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		settings lambda.Settings
-		runtime  string
-		code     []byte
 		env      map[string]string
+		name     string
+		runtime  string
 		wantCode string
+		code     []byte
+		settings lambda.Settings
 	}{
-		{name: "defaults accept", runtime: "python3.12", code: zipWith(t, "a.py", 10)},
+		{name: "defaults accept", runtime: "python3.12", code: zipWith(t, 10)},
 		{
-			name: "zipped too large", runtime: "python3.12", code: zipWith(t, "a.py", 10),
+			name: "zipped too large", runtime: "python3.12", code: zipWith(t, 10),
 			settings: lambda.Settings{CodeSizeZipped: 5}, wantCode: "RequestEntityTooLargeException",
 		},
 		{
-			name: "unzipped too large", runtime: "python3.12", code: zipWith(t, "a.py", 5000),
+			name: "unzipped too large", runtime: "python3.12", code: zipWith(t, 5000),
 			settings: lambda.Settings{CodeSizeUnzipped: 1000}, wantCode: "InvalidParameterValueException",
 		},
 		{
-			name: "total code storage", runtime: "python3.12", code: zipWith(t, "a.py", 10),
+			name: "total code storage", runtime: "python3.12", code: zipWith(t, 10),
 			settings: lambda.Settings{TotalCodeSize: 10}, wantCode: "CodeStorageExceededException",
 		},
 		{
-			name: "env too large", runtime: "python3.12", code: zipWith(t, "a.py", 10),
+			name: "env too large", runtime: "python3.12", code: zipWith(t, 10),
 			env:      map[string]string{"KEY_ONE": "0123456789"},
 			settings: lambda.Settings{MaxEnvironmentBytes: 8}, wantCode: "InvalidParameterValueException",
 		},
 		{
-			name: "request too large", runtime: "python3.12", code: zipWith(t, "a.py", 10),
+			name: "request too large", runtime: "python3.12", code: zipWith(t, 10),
 			settings: lambda.Settings{CreateFunctionRequestSize: 100}, wantCode: "RequestEntityTooLargeException",
 		},
-		{name: "deprecated accepted by default", runtime: "python3.7", code: zipWith(t, "a.py", 10)},
+		{name: "deprecated accepted by default", runtime: "python3.7", code: zipWith(t, 10)},
 		{
-			name: "deprecated rejected strict", runtime: "python3.7", code: zipWith(t, "a.py", 10),
+			name: "deprecated rejected strict", runtime: "python3.7", code: zipWith(t, 10),
 			settings: lambda.Settings{StrictRuntimeValidation: true}, wantCode: "InvalidParameterValueException",
 		},
 		{
-			name: "supported accepted strict", runtime: "python3.12", code: zipWith(t, "a.py", 10),
+			name: "supported accepted strict", runtime: "python3.12", code: zipWith(t, 10),
 			settings: lambda.Settings{StrictRuntimeValidation: true},
 		},
 	}
@@ -169,7 +168,7 @@ func TestLimits_AccountSettingsAndReservedConcurrency(t *testing.T) {
 	assert.EqualValues(t, 2048, out.AccountLimit.CodeSizeZipped)
 	assert.EqualValues(t, 4096, out.AccountLimit.CodeSizeUnzipped)
 
-	require.NoError(t, createZip(t, c, "fn", "python3.12", zipWith(t, "a.py", 10), nil))
+	require.NoError(t, createZip(t, c, "fn", "python3.12", zipWith(t, 10), nil))
 
 	_, err = c.PutFunctionConcurrency(t.Context(), &lambdasdk.PutFunctionConcurrencyInput{
 		FunctionName: aws.String("fn"), ReservedConcurrentExecutions: aws.Int32(251),
