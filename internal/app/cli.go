@@ -232,6 +232,7 @@ import (
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
+	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
@@ -666,6 +667,7 @@ type CLI struct {
 	OCIVault                      ocivaultbackend.Settings          `embed:"" prefix:"oci-vault-"`
 	OCIStreaming                  ocistreamingbackend.Settings      `embed:"" prefix:"oci-streaming-"`
 	OCIIdentity                   ociidentitybackend.Settings       `embed:"" prefix:"oci-identity-"`
+	OCIFunctions                  ocifunctionsbackend.Settings      `embed:"" prefix:"oci-functions-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -835,6 +837,11 @@ func (c *CLI) GetOCIVaultSettings() ocivaultbackend.Settings {
 // GetOCIIdentitySettings returns OCI Identity settings (ociidentity.ConfigProvider).
 func (c *CLI) GetOCIIdentitySettings() ociidentitybackend.Settings {
 	return c.OCIIdentity
+}
+
+// GetOCIFunctionsSettings returns OCI Functions settings (ocifunctions.ConfigProvider).
+func (c *CLI) GetOCIFunctionsSettings() ocifunctionsbackend.Settings {
+	return c.OCIFunctions
 }
 
 // GetOCIStreamingSettings returns OCI Streaming settings (ocistreaming.ConfigProvider).
@@ -2580,6 +2587,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIVault", "ocivault", cli.OCIVault.Port},
 		{"OCIStreaming", "ocistreaming", cli.OCIStreaming.Port},
 		{"OCIIdentity", "ociidentity", cli.OCIIdentity.Port},
+		{"OCIFunctions", "ocifunctions", cli.OCIFunctions.Port},
 	}
 }
 
@@ -3583,6 +3591,10 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 	}
 
 	if h, found := byName["OCIStreaming"].(*ocistreamingbackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 	}
 }
@@ -4990,6 +5002,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocivaultbackend.Provider{},
 		&ocistreamingbackend.Provider{},
 		&ociidentitybackend.Provider{},
+		&ocifunctionsbackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
