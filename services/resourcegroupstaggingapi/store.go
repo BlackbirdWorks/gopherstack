@@ -63,6 +63,7 @@ type InMemoryBackend struct {
 	defaultRegion     string
 	providers         []ResourceProvider
 	filteredProviders []FilteredResourceProvider
+	inventory         []ResourceProvider
 	taggers           []ARNTagger
 	untaggers         []ARNUntagger
 }

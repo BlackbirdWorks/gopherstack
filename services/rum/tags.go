@@ -103,6 +103,15 @@ type TaggedEntry struct {
 
 // TaggedResources lists the caller's tagged app monitors.
 func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every app monitor of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
 	sc := b.scopeOf(ctx)
 
 	b.mu.RLock("TaggedResources")
@@ -111,7 +120,7 @@ func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
 	var out []TaggedEntry
 
 	b.monitors.Range(func(m *AppMonitor) bool {
-		if m.Account == sc.account && m.Region == sc.region && len(m.Tags) > 0 {
+		if m.Account == sc.account && m.Region == sc.region && (!taggedOnly || len(m.Tags) > 0) {
 			out = append(out, TaggedEntry{
 				ARN:  arn.Build(serviceName, m.Region, m.Account, monitorResourcePrefix+m.Name),
 				Tags: maps.Clone(m.Tags),

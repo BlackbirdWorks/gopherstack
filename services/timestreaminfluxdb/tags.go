@@ -123,6 +123,15 @@ type TaggedEntry struct {
 
 // TaggedResources lists the caller's tagged DB instances, clusters, parameter groups and backups.
 func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every DB instance, cluster, parameter group and backup of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
 	sc := b.scopeOf(ctx)
 
 	b.mu.RLock("TaggedResources")
@@ -131,7 +140,7 @@ func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
 	var out []TaggedEntry
 
 	add := func(arn string, tags map[string]string) {
-		if len(tags) > 0 {
+		if !taggedOnly || len(tags) > 0 {
 			out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tags)})
 		}
 	}

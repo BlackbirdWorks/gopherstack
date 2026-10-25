@@ -13,42 +13,24 @@ import (
 	rgtapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
 
-const resourceExplorerPageSize = 100
-
-// taggingResourceSource feeds Resource Explorer from the Resource Groups Tagging API aggregation.
-// The service filters keep GetResources off its 30s unfiltered cache so new resources are searchable at once.
-type taggingResourceSource struct {
-	tagging rgtapibackend.StorageBackend
-	filters []string
+// allResourceLister is the uncached enumeration of every tagging provider.
+type allResourceLister interface {
+	AllResources(ctx context.Context) []rgtapibackend.TaggedResource
 }
 
+// taggingResourceSource feeds Resource Explorer from every resource provider of the tagging aggregation,
+// tagged or not, so any service wired there is searchable and new resources appear at once.
+type taggingResourceSource struct{ tagging allResourceLister }
+
 func (s *taggingResourceSource) Resources(ctx context.Context) []resourceexplorer2backend.SourceResource {
-	pageSize := int32(resourceExplorerPageSize)
-	in := &rgtapibackend.GetResourcesInput{ResourceTypeFilters: s.filters, ResourcesPerPage: &pageSize}
+	all := s.tagging.AllResources(ctx)
+	out := make([]resourceexplorer2backend.SourceResource, 0, len(all))
 
-	var out []resourceexplorer2backend.SourceResource
-
-	for {
-		pg, err := s.tagging.GetResources(ctx, in)
-		if err != nil || pg == nil {
-			return out
-		}
-
-		for _, m := range pg.ResourceTagMappingList {
-			tags := make(map[string]string, len(m.Tags))
-			for _, t := range m.Tags {
-				tags[t.Key] = t.Value
-			}
-
-			out = append(out, resourceexplorer2backend.SourceResource{ARN: m.ResourceARN, Tags: tags})
-		}
-
-		if pg.PaginationToken == nil || *pg.PaginationToken == "" {
-			return out
-		}
-
-		in.PaginationToken = *pg.PaginationToken
+	for _, r := range all {
+		out = append(out, resourceexplorer2backend.SourceResource{ARN: r.ResourceARN, Tags: r.Tags})
 	}
+
+	return out
 }
 
 // ec2ResourceSource enumerates the EC2 resources the tagging aggregation does not carry.
@@ -139,9 +121,9 @@ func wireResourceExplorer(byName map[string]service.Registerable) {
 	var sources multiResourceSource
 
 	if rgtH, isRGT := byName["ResourceGroupsTaggingAPI"].(*rgtapibackend.Handler); isRGT {
-		sources = append(sources, &taggingResourceSource{
-			tagging: rgtH.Backend, filters: resourceexplorer2backend.SupportedServices(),
-		})
+		if lister, canList := rgtH.Backend.(allResourceLister); canList {
+			sources = append(sources, &taggingResourceSource{tagging: lister})
+		}
 	}
 
 	if ec2H, isEC2 := byName["EC2"].(*ec2backend.Handler); isEC2 {

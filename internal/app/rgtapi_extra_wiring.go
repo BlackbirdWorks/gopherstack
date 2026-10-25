@@ -247,6 +247,7 @@ func wireTaggingAMP(bk rgtapibackend.StorageBackend, reg service.Registerable) {
 
 	b := h.Backend
 	resourceType := arnResourceType("aps")
+	registerInventory(bk, b.InventoryResources, resourceType)
 
 	registerTaggingService(
 		bk,
@@ -271,6 +272,7 @@ func wireTaggingAppIntegrations(bk rgtapibackend.StorageBackend, reg service.Reg
 
 	b := h.Backend
 	resourceType := arnResourceType("app-integrations")
+	registerInventory(bk, b.InventoryResources, resourceType)
 
 	registerTaggingService(
 		bk,
@@ -291,6 +293,7 @@ func wireTaggingCloudHSMV2(bk rgtapibackend.StorageBackend, reg service.Register
 
 	b := h.Backend
 	resourceType := arnResourceType("cloudhsm")
+	registerInventory(bk, b.InventoryResources, resourceType)
 
 	registerTaggingService(
 		bk,
@@ -315,6 +318,7 @@ func wireTaggingCodeGuruReviewer(bk rgtapibackend.StorageBackend, reg service.Re
 
 	b := h.Backend
 	resourceType := arnResourceType("codeguru-reviewer")
+	registerInventory(bk, b.InventoryResources, resourceType)
 
 	registerTaggingService(
 		bk,
@@ -335,6 +339,7 @@ func wireTaggingRUM(bk rgtapibackend.StorageBackend, reg service.Registerable) {
 
 	b := h.Backend
 	resourceType := arnResourceType("rum")
+	registerInventory(bk, b.InventoryResources, resourceType)
 
 	registerTaggingService(
 		bk,
@@ -359,6 +364,7 @@ func wireTaggingTimestreamInfluxDB(bk rgtapibackend.StorageBackend, reg service.
 
 	b := h.Backend
 	resourceType := arnResourceType("timestream-influxdb")
+	registerInventory(bk, b.InventoryResources, resourceType)
 
 	registerTaggingService(
 		bk,
@@ -414,4 +420,20 @@ func wireTaggingConnect(bk rgtapibackend.StorageBackend, reg service.Registerabl
 		func(_ context.Context, arn string, tags map[string]string) error { return b.TagResource(arn, tags) },
 		func(_ context.Context, arn string, keys []string) error { return b.UntagResource(arn, keys) },
 	)
+}
+
+type inventoryRegistrar interface {
+	RegisterInventoryProvider(p rgtapibackend.ResourceProvider)
+}
+
+// registerInventory exposes a service's untagged resources to Resource Explorer through the tagging backend.
+func registerInventory[T ~struct {
+	Tags map[string]string
+	ARN  string
+}](bk rgtapibackend.StorageBackend, list func(context.Context) []T, resourceTypeOf func(string) string) {
+	if r, ok := bk.(inventoryRegistrar); ok {
+		r.RegisterInventoryProvider(func(ctx context.Context) []rgtapibackend.TaggedResource {
+			return toTaggedResources(list(ctx), resourceTypeOf)
+		})
+	}
 }

@@ -129,6 +129,15 @@ type TaggedEntry struct {
 
 // TaggedResources lists the caller's tagged clusters and backups.
 func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every cluster and backup of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
 	sc := b.scopeOf(ctx)
 
 	b.mu.RLock("TaggedResources")
@@ -139,7 +148,7 @@ func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
 	var out []TaggedEntry
 
 	b.clusters.Range(func(c *Cluster) bool {
-		if state, _ := b.clusterStateLocked(c, now); c.ownedBy(sc) && state != stateDeleted && len(c.Tags) > 0 {
+		if state, _ := b.clusterStateLocked(c, now); c.ownedBy(sc) && state != stateDeleted && (!taggedOnly || len(c.Tags) > 0) {
 			out = append(out, TaggedEntry{ARN: clusterARN(c.Account, c.Region, c.ID), Tags: maps.Clone(c.Tags)})
 		}
 
@@ -148,7 +157,7 @@ func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
 
 	b.backups.Range(func(bk *Backup) bool {
 		owned := bk.Account == sc.account && bk.Region == sc.region
-		if owned && backupState(bk, now) != stateDeleted && len(bk.Tags) > 0 {
+		if owned && backupState(bk, now) != stateDeleted && (!taggedOnly || len(bk.Tags) > 0) {
 			out = append(out, TaggedEntry{ARN: backupARN(bk.Account, bk.Region, bk.ID), Tags: maps.Clone(bk.Tags)})
 		}
 
