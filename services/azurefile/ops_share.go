@@ -1,6 +1,7 @@
 package azurefile
 
 import (
+	"math"
 	"encoding/json"
 	"encoding/xml"
 	"net/http"
@@ -88,11 +89,12 @@ func parseShareOptions(h http.Header) (shareOptions, *apiError) {
 	}
 
 	if q != nil {
-		if *q < 1 || *q > maxQuotaGiB {
+		n := *q
+		if n < 1 || n > maxQuotaGiB || n > math.MaxInt32 {
 			return o, errInvalidHeader("x-ms-share-quota")
 		}
 
-		v := int32(*q)
+		v := int32(n)
 		o.Quota = &v
 	}
 
