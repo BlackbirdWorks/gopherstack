@@ -1,7 +1,7 @@
 ---
 service: gcpeventarc
 sdk_module: cloud.google.com/go/eventarc@v1.26.0
-last_audit_commit: b6ec134e2
+last_audit_commit: 5964f2cd3
 last_audit_date: 2026-10-25
 overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
