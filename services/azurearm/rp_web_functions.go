@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"maps"
 	"strings"
 )
 
@@ -79,9 +80,7 @@ func (p *WebProvider) Patch(ctx context.Context, id ResourceID, body map[string]
 
 	if props, found := body[fieldProperties].(map[string]any); found {
 		mp := mapOf(merged[fieldProperties])
-		for k, v := range props {
-			mp[k] = v
-		}
+		maps.Copy(mp, props)
 	}
 
 	return p.Put(ctx, id, merged)
@@ -92,11 +91,18 @@ func (p *WebProvider) functionEnvelope(id ResourceID, host string, f FunctionApp
 	fid := id.ARMID() + "/functions/" + f.Name
 
 	props := map[string]any{
-		fieldName: f.Name, "function_app_id": id.ARMID(), "script_root_path_href": base + "/admin/vfs/home/site/wwwroot/" + f.Name + "/",
-		"config_href":       base + "/admin/vfs/home/site/wwwroot/" + f.Name + "/function.json",
-		"test_data_href":    base + "/admin/vfs/data/Functions/sampledata/" + f.Name + ".dat",
-		"secrets_file_href": nil, "href": base + "/admin/functions/" + f.Name, "config": f.Config, "files": nil,
-		"test_data": "", "language": f.Language, "isDisabled": f.IsDisabled,
+		fieldName:               f.Name,
+		"function_app_id":       id.ARMID(),
+		"script_root_path_href": base + "/admin/vfs/home/site/wwwroot/" + f.Name + "/",
+		"config_href":           base + "/admin/vfs/home/site/wwwroot/" + f.Name + "/function.json",
+		"test_data_href":        base + "/admin/vfs/data/Functions/sampledata/" + f.Name + ".dat",
+		"secrets_file_href":     nil,
+		"href":                  base + "/admin/functions/" + f.Name,
+		"config":                f.Config,
+		"files":                 nil,
+		"test_data":             "",
+		"language":              f.Language,
+		"isDisabled":            f.IsDisabled,
 	}
 
 	if f.InvokeURL != "" {
@@ -135,7 +141,11 @@ func (p *WebProvider) lockedApp(id ResourceID) (*storedWebSite, FunctionAppInfo,
 	return p.appOrError(id)
 }
 
-func (p *WebProvider) function(ctx context.Context, id ResourceID, fn string) (*storedWebSite, FunctionAppInfo, FunctionAppFunction, error) {
+func (p *WebProvider) function(
+	ctx context.Context,
+	id ResourceID,
+	fn string,
+) (*storedWebSite, FunctionAppInfo, FunctionAppFunction, error) {
 	s, info, err := p.lockedApp(id)
 	if err != nil {
 		return nil, info, FunctionAppFunction{}, err
@@ -313,7 +323,7 @@ func canonicalKeyType(t string) string {
 func (p *WebProvider) CheckName(name string) map[string]any {
 	if !validWebName(name) {
 		return map[string]any{
-			"nameAvailable": false, "reason": "Invalid",
+			acFieldAvailable: false, acFieldReason: webReasonInvalid,
 			"message": "'" + name + "' is not a valid name; use 2-60 letters, digits or hyphens.",
 		}
 	}
@@ -323,12 +333,12 @@ func (p *WebProvider) CheckName(name string) map[string]any {
 
 	if _, taken := p.sites[webSiteKey(name)]; taken {
 		return map[string]any{
-			"nameAvailable": false, "reason": "AlreadyExists",
+			acFieldAvailable: false, acFieldReason: kvReasonAlreadyExists,
 			"message": "The name '" + name + "' is already in use.",
 		}
 	}
 
-	return map[string]any{"nameAvailable": true}
+	return map[string]any{acFieldAvailable: true}
 }
 
 func tagsAsAny(tags map[string]string) map[string]any {

@@ -44,23 +44,45 @@ func webConfigDefaults(s *storedWebSite) map[string]any {
 	linux := strings.Contains(strings.ToLower(s.Kind), "linux")
 
 	out := map[string]any{
-		"numberOfWorkers": 1, "defaultDocuments": []any{"Default.htm", "Default.html", "index.html", "index.htm"},
-		"netFrameworkVersion": "v4.0", webFieldLinuxFx: "", "requestTracingEnabled": false, "remoteDebuggingEnabled": false,
-		"httpLoggingEnabled": false, "logsDirectorySizeLimit": 35, "detailedErrorLoggingEnabled": false,
-		"publishingUsername": "$" + s.Name, "scmType": "None", "use32BitWorkerProcess": false, "webSocketsEnabled": false,
-		"alwaysOn": false, "appCommandLine": "", "managedPipelineMode": "Integrated", "loadBalancing": "LeastRequests",
-		"autoHealEnabled": false, "localMySqlEnabled": false, "http20Enabled": linux,
-		"minTlsVersion": "1.2", "scmMinTlsVersion": "1.2", "ftpsState": "FtpsOnly", "preWarmedInstanceCount": 0,
-		"functionAppScaleLimit": 0, "functionsRuntimeScaleMonitoringEnabled": false, "minimumElasticInstanceCount": 0,
-		"azureStorageAccounts": map[string]any{}, "scmIpSecurityRestrictionsUseMain": false,
-		"virtualApplications": []any{map[string]any{"virtualPath": "/", "physicalPath": `site\wwwroot`, "preloadEnabled": false}},
+		webFieldWorkers:                          1,
+		"defaultDocuments":                       []any{"Default.htm", "Default.html", "index.html", "index.htm"},
+		"netFrameworkVersion":                    "v4.0",
+		webFieldLinuxFx:                          "",
+		"requestTracingEnabled":                  false,
+		"remoteDebuggingEnabled":                 false,
+		"httpLoggingEnabled":                     false,
+		"logsDirectorySizeLimit":                 webLogsLimitMB,
+		"detailedErrorLoggingEnabled":            false,
+		"publishingUsername":                     "$" + s.Name,
+		"scmType":                                webNone,
+		"use32BitWorkerProcess":                  false,
+		"webSocketsEnabled":                      false,
+		"alwaysOn":                               false,
+		"appCommandLine":                         "",
+		"managedPipelineMode":                    "Integrated",
+		"loadBalancing":                          "LeastRequests",
+		"autoHealEnabled":                        false,
+		"localMySqlEnabled":                      false,
+		"http20Enabled":                          linux,
+		"minTlsVersion":                          redisDefaultTLS,
+		"scmMinTlsVersion":                       redisDefaultTLS,
+		"ftpsState":                              "FtpsOnly",
+		"preWarmedInstanceCount":                 0,
+		"functionAppScaleLimit":                  0,
+		"functionsRuntimeScaleMonitoringEnabled": false,
+		"minimumElasticInstanceCount":            0,
+		"azureStorageAccounts":                   map[string]any{},
+		"scmIpSecurityRestrictionsUseMain":       false,
+		"virtualApplications": []any{
+			map[string]any{"virtualPath": "/", "physicalPath": `site\wwwroot`, "preloadEnabled": false},
+		},
 		"ipSecurityRestrictions": []any{map[string]any{
-			"ipAddress": "Any", "action": "Allow", "priority": 2147483647, fieldName: "Allow all",
-			"description": "Allow all access",
+			"ipAddress": "Any", "action": webAllow, "priority": webMaxPriority, fieldName: webAllow + " all",
+			webDescription: webAllow + " all access",
 		}},
 		"scmIpSecurityRestrictions": []any{map[string]any{
-			"ipAddress": "Any", "action": "Allow", "priority": 2147483647, fieldName: "Allow all",
-			"description": "Allow all access",
+			"ipAddress": "Any", "action": webAllow, "priority": webMaxPriority, fieldName: webAllow + " all",
+			webDescription: webAllow + " all access",
 		}},
 	}
 
@@ -74,10 +96,14 @@ func configDefaultProps(name string, s *storedWebSite) map[string]any {
 	case webConfigWeb:
 		return webConfigDefaults(s)
 	case "authsettings":
-		return map[string]any{"enabled": false, "runtimeVersion": "~1", "unauthenticatedClientAction": "RedirectToLoginPage"}
+		return map[string]any{
+			acrWebhookEnabled:             false,
+			"runtimeVersion":              "~1",
+			"unauthenticatedClientAction": "RedirectToLoginPage",
+		}
 	case "authsettingsV2":
 		return map[string]any{
-			"platform":         map[string]any{"enabled": false, "runtimeVersion": "~1"},
+			"platform":         map[string]any{acrWebhookEnabled: false, "runtimeVersion": "~1"},
 			"globalValidation": map[string]any{"unauthenticatedClientAction": "RedirectToLoginPage"},
 		}
 	case "logs":
@@ -85,12 +111,22 @@ func configDefaultProps(name string, s *storedWebSite) map[string]any {
 			"applicationLogs": map[string]any{
 				"fileSystem": map[string]any{"level": "Off"}, "azureBlobStorage": map[string]any{"level": "Off"},
 			},
-			"httpLogs":              map[string]any{"fileSystem": map[string]any{"enabled": false, "retentionInMb": 35, "retentionInDays": 0}},
-			"failedRequestsTracing": map[string]any{"enabled": false},
-			"detailedErrorMessages": map[string]any{"enabled": false},
+			"httpLogs": map[string]any{
+				"fileSystem": map[string]any{
+					acrWebhookEnabled: false,
+					"retentionInMb":   webLogsLimitMB,
+					"retentionInDays": 0,
+				},
+			},
+			"failedRequestsTracing": map[string]any{acrWebhookEnabled: false},
+			"detailedErrorMessages": map[string]any{acrWebhookEnabled: false},
 		}
 	case "slotConfigNames":
-		return map[string]any{"appSettingNames": []any{}, "connectionStringNames": []any{}, "azureStorageConfigNames": []any{}}
+		return map[string]any{
+			"appSettingNames":         []any{},
+			"connectionStringNames":   []any{},
+			"azureStorageConfigNames": []any{},
+		}
 	case "pushsettings":
 		return map[string]any{"isPushEnabled": false}
 	}
@@ -222,7 +258,7 @@ func (p *WebProvider) putAppSettings(s *storedWebSite, props map[string]any, mer
 	for k, v := range props {
 		str, isStr := v.(string)
 		if !isStr {
-			return badWebRequest(fmt.Errorf("app setting %q must be a string", k))
+			return badWebRequest(fmt.Errorf("%w: %q", errWebAppSetting, k))
 		}
 
 		next[k] = str
@@ -236,16 +272,7 @@ func (p *WebProvider) putAppSettings(s *storedWebSite, props map[string]any, mer
 }
 
 func (p *WebProvider) putWebConfig(s *storedWebSite, props map[string]any) error {
-	cur := maps.Clone(s.Configs[webConfigWeb])
-	if cur == nil {
-		cur = map[string]any{}
-	}
-
-	for k, v := range props {
-		if k != webFieldAppSettings {
-			cur[k] = v
-		}
-	}
+	cur := mergeWebConfig(s.Configs[webConfigWeb], props)
 
 	oldFx, _ := s.Configs[webConfigWeb][webFieldLinuxFx].(string)
 	newFx, _ := cur[webFieldLinuxFx].(string)
@@ -326,10 +353,17 @@ func (p *WebProvider) PublishXML(_ context.Context, id ResourceID) ([]byte, erro
 
 	info, _ := p.dataPlane.AppInfo(s.Name)
 
-	return xml.Marshal(publishData{Profiles: []publishProfile{{
-		ProfileName: s.Name + " - Zip Deploy", PublishMethod: "ZipDeploy", PublishURL: strings.TrimPrefix(scm, "http://"),
-		UserName: user, UserPWD: pass, DestAppURL: "http://" + info.HostName, WebSystem: "WebSites",
-	}}})
+	return xml.Marshal(publishData{Profiles: []publishProfile{
+		{
+			ProfileName:   s.Name + " - Zip Deploy",
+			PublishMethod: "ZipDeploy",
+			PublishURL:    strings.TrimPrefix(scm, "http://"),
+			UserName:      user,
+			UserPWD:       pass,
+			DestAppURL:    "http://" + info.HostName,
+			WebSystem:     "WebSites",
+		},
+	}})
 }
 
 // Policy serves GET and PUT .../basicPublishingCredentialsPolicies/{ftp|scm}.
@@ -355,7 +389,7 @@ func (p *WebProvider) Policy(
 
 		allow, ok := props["allow"].(bool)
 		if !ok {
-			return nil, badWebRequest(fmt.Errorf("properties.allow is required"))
+			return nil, badWebRequest(errWebAllowRequired)
 		}
 
 		s.Configs[key] = map[string]any{"allow": allow}

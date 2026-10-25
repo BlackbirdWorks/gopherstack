@@ -22,10 +22,6 @@ const (
 	webListSeg        = "list"
 	webListKeysSeg    = "listkeys"
 	webPoliciesSeg    = "basicpublishingcredentialspolicies"
-	webMinConfigPath  = 2
-	webHostPathLen    = 3
-	webFnKeyPathLen   = 4
-	webFnActionLen    = 3
 )
 
 func isWebSiteScope(segs []string) bool {
@@ -96,6 +92,61 @@ func (h *Handler) handleWebCheckName(c *echo.Context) error {
 	return h.writeJSON(c, http.StatusOK, p.CheckName(name))
 }
 
+// webSubRoute is one route below a site: pattern segments are matched case-insensitively, "*" matches any.
+type webSubRoute struct {
+	handle  func(h *Handler, c *echo.Context, p *WebProvider, id ResourceID, rest []string) error
+	method  string
+	pattern []string
+}
+
+func (r webSubRoute) matches(method string, rest []string) bool {
+	if r.method != method || len(r.pattern) != len(rest) {
+		return false
+	}
+
+	for i, want := range r.pattern {
+		if want != "*" && !strings.EqualFold(want, rest[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func newWebSubRoute(
+	method string, pattern []string,
+	fn func(*Handler, *echo.Context, *WebProvider, ResourceID, []string) error,
+) webSubRoute {
+	return webSubRoute{handle: fn, method: method, pattern: pattern}
+}
+
+func webSubRoutes() []webSubRoute {
+	post, get, put, del, patch := http.MethodPost, http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch
+
+	return []webSubRoute{
+		newWebSubRoute(post, []string{"start"}, webStateAction("start")),
+		newWebSubRoute(post, []string{"stop"}, webStateAction("stop")),
+		newWebSubRoute(post, []string{webRestartAction}, webStateAction(webRestartAction)),
+		newWebSubRoute(post, []string{webPublishXML}, (*Handler).webPublishXML),
+		newWebSubRoute(get, []string{webFunctionsSeg}, (*Handler).webListFunctions),
+		newWebSubRoute(get, []string{webFunctionsSeg, "*"}, (*Handler).webGetFunction),
+		newWebSubRoute(post, []string{webFunctionsSeg, "*", webListKeysSeg}, (*Handler).webFunctionKeys),
+		newWebSubRoute(post, []string{webFunctionsSeg, "*", "listsecrets"}, (*Handler).webFunctionSecrets),
+		newWebSubRoute(put, []string{webFunctionsSeg, "*", webSubKeysSeg, "*"}, (*Handler).webSetFunctionKey),
+		newWebSubRoute(del, []string{webFunctionsSeg, "*", webSubKeysSeg, "*"}, (*Handler).webDeleteFunctionKey),
+		newWebSubRoute(post, []string{webHostSeg, webKeyDefault, webListKeysSeg}, (*Handler).webHostKeys),
+		newWebSubRoute(put, []string{webHostSeg, webKeyDefault, "*", "*"}, (*Handler).webSetHostKey),
+		newWebSubRoute(del, []string{webHostSeg, webKeyDefault, "*", "*"}, (*Handler).webDeleteHostKey),
+		newWebSubRoute(post, []string{webConfigSeg, webConfigPubCr, webListSeg}, (*Handler).webPublishingCredentials),
+		newWebSubRoute(post, []string{webConfigSeg, "*", webListSeg}, (*Handler).webGetConfig),
+		newWebSubRoute(get, []string{webConfigSeg, "*"}, (*Handler).webGetConfig),
+		newWebSubRoute(put, []string{webConfigSeg, "*"}, webPutConfig(false)),
+		newWebSubRoute(patch, []string{webConfigSeg, "*"}, webPutConfig(true)),
+		newWebSubRoute(get, []string{webPoliciesSeg, "*"}, webPolicy(false)),
+		newWebSubRoute(put, []string{webPoliciesSeg, "*"}, webPolicy(true)),
+	}
+}
+
 // handleWebSite serves everything below (and PATCH on) a site; segs[:8] identify the site.
 func (h *Handler) handleWebSite(c *echo.Context, segs []string) error {
 	p, err := h.webProviderOrNotFound(c)
@@ -115,11 +166,9 @@ func (h *Handler) handleWebSite(c *echo.Context, segs []string) error {
 		return h.webPatch(c, p, id)
 	}
 
-	for _, route := range []func(*Handler, *echo.Context, *WebProvider, ResourceID, []string, string) (bool, error){
-		(*Handler).webSiteActions, (*Handler).webFunctions, (*Handler).webHost, (*Handler).webConfig,
-	} {
-		if handled, routeErr := route(h, c, p, id, rest, method); handled {
-			return routeErr
+	for _, route := range webSubRoutes() {
+		if route.matches(method, rest) {
+			return route.handle(h, c, p, id, rest)
 		}
 	}
 
@@ -127,145 +176,114 @@ func (h *Handler) handleWebSite(c *echo.Context, segs []string) error {
 }
 
 func (h *Handler) webPatch(c *echo.Context, p *WebProvider, id ResourceID) error {
-	body, err := decodeJSONBody(c.Request())
-	if err != nil {
-		return h.writeAPIError(c, err)
-	}
-
-	out, err := p.Patch(c.Request().Context(), id, body)
-	if err != nil {
-		return h.writeAPIError(c, err)
-	}
-
-	return h.writeJSON(c, http.StatusOK, out)
+	return h.writeBodyResult(c, func(body map[string]any) (map[string]any, error) {
+		return p.Patch(c.Request().Context(), id, body)
+	})
 }
 
-func (h *Handler) webSiteActions(
-	c *echo.Context, p *WebProvider, id ResourceID, rest []string, method string,
-) (bool, error) {
-	if len(rest) != 1 {
-		return false, nil
-	}
-
-	action := strings.ToLower(rest[0])
-
-	switch {
-	case method == http.MethodPost && (action == "start" || action == "stop" || action == webRestartAction):
+func webStateAction(action string) func(*Handler, *echo.Context, *WebProvider, ResourceID, []string) error {
+	return func(h *Handler, c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
 		if err := p.SetState(c.Request().Context(), id, action); err != nil {
-			return true, h.writeAPIError(c, err)
+			return h.writeAPIError(c, err)
 		}
 
-		return true, c.NoContent(http.StatusOK)
-	case method == http.MethodPost && action == webPublishXML:
-		raw, err := p.PublishXML(c.Request().Context(), id)
-		if err != nil {
-			return true, h.writeAPIError(c, err)
-		}
-
-		return true, c.Blob(http.StatusOK, "application/xml", raw)
+		return c.NoContent(http.StatusOK)
 	}
-
-	return false, nil
 }
 
-func (h *Handler) webFunctions(
-	c *echo.Context, p *WebProvider, id ResourceID, rest []string, method string,
-) (bool, error) {
-	if !strings.EqualFold(rest[0], webFunctionsSeg) {
-		return false, nil
+func (h *Handler) webPublishXML(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	raw, err := p.PublishXML(c.Request().Context(), id)
+	if err != nil {
+		return h.writeAPIError(c, err)
 	}
 
-	ctx := c.Request().Context()
-
-	switch {
-	case len(rest) == 1 && method == http.MethodGet:
-		fns, err := p.ListFunctions(ctx, id)
-		if err != nil {
-			return true, h.writeAPIError(c, err)
-		}
-
-		return true, h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: fns})
-	case len(rest) == 2 && method == http.MethodGet:
-		return true, h.writeResult(c, func() (map[string]any, error) { return p.GetFunction(ctx, id, rest[1]) })
-	case len(rest) == webFnActionLen && method == http.MethodPost && strings.EqualFold(rest[2], webListKeysSeg):
-		return true, h.writeResult(c, func() (map[string]any, error) { return p.FunctionKeys(ctx, id, rest[1]) })
-	case len(rest) == webFnActionLen && method == http.MethodPost && strings.EqualFold(rest[2], "listsecrets"):
-		return true, h.writeResult(c, func() (map[string]any, error) { return p.FunctionSecrets(ctx, id, rest[1]) })
-	case len(rest) == webFnKeyPathLen && strings.EqualFold(rest[2], webSubKeysSeg) && method == http.MethodPut:
-		return true, h.writeBodyResult(c, func(body map[string]any) (map[string]any, error) {
-			return p.SetFunctionKey(ctx, id, rest[1], rest[3], body)
-		})
-	case len(rest) == webFnKeyPathLen && strings.EqualFold(rest[2], webSubKeysSeg) && method == http.MethodDelete:
-		if err := p.DeleteFunctionKey(ctx, id, rest[1], rest[3]); err != nil {
-			return true, h.writeAPIError(c, err)
-		}
-
-		return true, c.NoContent(http.StatusNoContent)
-	}
-
-	return false, nil
+	return c.Blob(http.StatusOK, "application/xml", raw)
 }
 
-func (h *Handler) webHost(
-	c *echo.Context, p *WebProvider, id ResourceID, rest []string, method string,
-) (bool, error) {
-	if !strings.EqualFold(rest[0], webHostSeg) || len(rest) < webHostPathLen || !strings.EqualFold(rest[1], "default") {
-		return false, nil
+func (h *Handler) webListFunctions(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	fns, err := p.ListFunctions(c.Request().Context(), id)
+	if err != nil {
+		return h.writeAPIError(c, err)
 	}
 
-	ctx := c.Request().Context()
-
-	switch {
-	case len(rest) == webHostPathLen && method == http.MethodPost && strings.EqualFold(rest[2], webListKeysSeg):
-		return true, h.writeResult(c, func() (map[string]any, error) { return p.HostKeys(ctx, id) })
-	case len(rest) == webFnKeyPathLen && method == http.MethodPut:
-		return true, h.writeBodyResult(c, func(body map[string]any) (map[string]any, error) {
-			return p.SetHostKey(ctx, id, rest[2], rest[3], body)
-		})
-	case len(rest) == webFnKeyPathLen && method == http.MethodDelete:
-		if err := p.DeleteHostKey(ctx, id, rest[2], rest[3]); err != nil {
-			return true, h.writeAPIError(c, err)
-		}
-
-		return true, c.NoContent(http.StatusNoContent)
-	}
-
-	return false, nil
+	return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: fns})
 }
 
-func (h *Handler) webConfig(
-	c *echo.Context, p *WebProvider, id ResourceID, rest []string, method string,
-) (bool, error) {
-	ctx := c.Request().Context()
+func (h *Handler) webGetFunction(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	return h.writeResult(c, func() (map[string]any, error) { return p.GetFunction(c.Request().Context(), id, rest[1]) })
+}
 
-	switch {
-	case strings.EqualFold(rest[0], webPoliciesSeg) && len(rest) == webMinConfigPath:
-		put := method == http.MethodPut
-		if !put && method != http.MethodGet {
-			return false, nil
-		}
+func (h *Handler) webFunctionKeys(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	return h.writeResult(
+		c,
+		func() (map[string]any, error) { return p.FunctionKeys(c.Request().Context(), id, rest[1]) },
+	)
+}
 
-		return true, h.writeBodyOptional(c, put, func(body map[string]any) (map[string]any, error) {
-			return p.Policy(ctx, id, rest[1], body, put)
-		})
-	case !strings.EqualFold(rest[0], webConfigSeg) || len(rest) < webMinConfigPath:
-		return false, nil
-	case len(rest) == webHostPathLen && strings.EqualFold(rest[1], webConfigPubCr) &&
-		strings.EqualFold(rest[2], webListSeg) && method == http.MethodPost:
-		return true, h.writeResult(c, func() (map[string]any, error) { return p.PublishingCredentials(ctx, id) })
-	case len(rest) == webHostPathLen && strings.EqualFold(rest[2], webListSeg) && method == http.MethodPost:
-		return true, h.writeResult(c, func() (map[string]any, error) { return p.GetConfig(ctx, id, rest[1]) })
-	case len(rest) == webMinConfigPath && method == http.MethodGet:
-		return true, h.writeResult(c, func() (map[string]any, error) { return p.GetConfig(ctx, id, rest[1]) })
-	case len(rest) == webMinConfigPath && (method == http.MethodPut || method == http.MethodPatch):
-		merge := method == http.MethodPatch
+func (h *Handler) webFunctionSecrets(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	return h.writeResult(
+		c,
+		func() (map[string]any, error) { return p.FunctionSecrets(c.Request().Context(), id, rest[1]) },
+	)
+}
 
-		return true, h.writeBodyResult(c, func(body map[string]any) (map[string]any, error) {
-			return p.PutConfig(ctx, id, rest[1], body, merge)
+func (h *Handler) webSetFunctionKey(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	return h.writeBodyResult(c, func(body map[string]any) (map[string]any, error) {
+		return p.SetFunctionKey(c.Request().Context(), id, rest[1], rest[3], body)
+	})
+}
+
+func (h *Handler) webDeleteFunctionKey(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	return h.writeNoContent(c, p.DeleteFunctionKey(c.Request().Context(), id, rest[1], rest[3]))
+}
+
+func (h *Handler) webHostKeys(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	return h.writeResult(c, func() (map[string]any, error) { return p.HostKeys(c.Request().Context(), id) })
+}
+
+func (h *Handler) webSetHostKey(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	return h.writeBodyResult(c, func(body map[string]any) (map[string]any, error) {
+		return p.SetHostKey(c.Request().Context(), id, rest[2], rest[3], body)
+	})
+}
+
+func (h *Handler) webDeleteHostKey(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	return h.writeNoContent(c, p.DeleteHostKey(c.Request().Context(), id, rest[2], rest[3]))
+}
+
+func (h *Handler) webPublishingCredentials(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	return h.writeResult(
+		c,
+		func() (map[string]any, error) { return p.PublishingCredentials(c.Request().Context(), id) },
+	)
+}
+
+func (h *Handler) webGetConfig(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	return h.writeResult(c, func() (map[string]any, error) { return p.GetConfig(c.Request().Context(), id, rest[1]) })
+}
+
+func webPutConfig(merge bool) func(*Handler, *echo.Context, *WebProvider, ResourceID, []string) error {
+	return func(h *Handler, c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+		return h.writeBodyResult(c, func(body map[string]any) (map[string]any, error) {
+			return p.PutConfig(c.Request().Context(), id, rest[1], body, merge)
 		})
 	}
+}
 
-	return false, nil
+func webPolicy(put bool) func(*Handler, *echo.Context, *WebProvider, ResourceID, []string) error {
+	return func(h *Handler, c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+		return h.writeBodyOptional(c, put, func(body map[string]any) (map[string]any, error) {
+			return p.Policy(c.Request().Context(), id, rest[1], body, put)
+		})
+	}
+}
+
+func (h *Handler) writeNoContent(c *echo.Context, err error) error {
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) writeResult(c *echo.Context, fn func() (map[string]any, error)) error {

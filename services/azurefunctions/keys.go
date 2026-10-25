@@ -38,11 +38,11 @@ type secretKey struct {
 }
 
 type hostSecretsFile struct {
+	Source          string      `json:"source"`
+	DecryptionKeyID string      `json:"decryptionKeyId"`
 	MasterKey       secretKey   `json:"masterKey"`
 	FunctionKeys    []secretKey `json:"functionKeys"`
 	SystemKeys      []secretKey `json:"systemKeys"`
-	Source          string      `json:"source"`
-	DecryptionKeyID string      `json:"decryptionKeyId"`
 }
 
 type functionSecretsFile struct {
@@ -69,11 +69,15 @@ func sortedKeys(m map[string]string) []secretKey {
 
 func writeAtomic(path string, data []byte) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, secretsFileMod); err != nil { //nolint:gosec // bind-mounted for the container's root user
+	if err := os.WriteFile(
+		tmp,
+		data,
+		secretsFileMod,
+	); err != nil {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 
-	if err := os.Chmod(tmp, secretsFileMod); err != nil { //nolint:gosec // see above
+	if err := os.Chmod(tmp, secretsFileMod); err != nil {
 		return fmt.Errorf("chmod %s: %w", filepath.Base(path), err)
 	}
 

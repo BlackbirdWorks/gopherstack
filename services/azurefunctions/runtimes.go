@@ -28,8 +28,8 @@ const (
 type runtimeFamily struct {
 	tagFmt   string
 	repo     string
-	versions []string
 	def      string
+	versions []string
 }
 
 func runtimeFamilies() map[string]runtimeFamily {
@@ -42,7 +42,10 @@ func runtimeFamilies() map[string]runtimeFamily {
 			versions: []string{"3.9", "3.10", "3.11", "3.12", "3.13"},
 		},
 		workerDotnetIs: {
-			repo: "dotnet-isolated", tagFmt: "4-dotnet-isolated%s", def: "8.0", versions: []string{"8.0", "9.0", "10.0"},
+			repo:     "dotnet-isolated",
+			tagFmt:   "4-dotnet-isolated%s",
+			def:      "8.0",
+			versions: []string{"8.0", "9.0", "10.0"},
 		},
 		workerDotnet: {repo: "dotnet", tagFmt: "%s", def: "4", versions: []string{"4"}},
 		workerJava: {
@@ -89,7 +92,12 @@ func chooseRuntime(settings map[string]string, linuxFx string) (runtimeChoice, e
 	}
 
 	if ext := settings[settingExtVersion]; ext != "" && ext != "~4" && ext != "4" {
-		return runtimeChoice{}, fmt.Errorf("%w: %s=%q (only Functions v4 is supported)", errUnsupportedRT, settingExtVersion, ext)
+		return runtimeChoice{}, fmt.Errorf(
+			"%w: %s=%q (only Functions v4 is supported)",
+			errUnsupportedRT,
+			settingExtVersion,
+			ext,
+		)
 	}
 
 	worker := strings.ToLower(settings[settingWorker])
@@ -99,8 +107,11 @@ func chooseRuntime(settings map[string]string, linuxFx string) (runtimeChoice, e
 
 	fam, ok := runtimeFamilies()[worker]
 	if !ok {
-		return runtimeChoice{}, fmt.Errorf("%w: set %s to one of node, python, dotnet-isolated, dotnet, java, powershell, custom",
-			errUnsupportedRT, settingWorker)
+		return runtimeChoice{}, fmt.Errorf(
+			"%w: set %s to one of node, python, dotnet-isolated, dotnet, java, powershell, custom",
+			errUnsupportedRT,
+			settingWorker,
+		)
 	}
 
 	version := fam.def

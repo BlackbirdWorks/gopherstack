@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -56,9 +57,23 @@ func toDeploymentJSON(r *http.Request, name string, d Deployment, active bool) d
 	base := "http://" + r.Host + kuduDeployments + "/" + d.ID
 
 	out := deploymentJSON{
-		ID: d.ID, Status: statusSuccess, AuthorEmail: "N/A", Author: "N/A", Deployer: d.Deployer, Message: d.Message,
-		ReceivedTime: ts(d.Received), StartTime: ts(d.Received), EndTime: ts(d.Finished), Complete: true, Active: active,
-		URL: base, LogURL: base + "/log", SiteName: name, IsReadonly: true,
+		ID:          d.ID,
+		Status:      statusSuccess,
+		AuthorEmail: "N/A",
+		Author:      "N/A",
+		Deployer:    d.Deployer,
+		Message:     d.Message,
+		ReceivedTime: ts(
+			d.Received,
+		),
+		StartTime:  ts(d.Received),
+		EndTime:    ts(d.Finished),
+		Complete:   true,
+		Active:     active,
+		URL:        base,
+		LogURL:     base + "/log",
+		SiteName:   name,
+		IsReadonly: true,
 	}
 
 	if d.Succeeded {
@@ -191,8 +206,8 @@ func (b *InMemoryBackend) kuduList(w http.ResponseWriter, r *http.Request, name 
 	}
 
 	out := make([]deploymentJSON, 0, len(ds))
-	for i := len(ds) - 1; i >= 0; i-- {
-		out = append(out, toDeploymentJSON(r, name, ds[i], i == len(ds)-1))
+	for i, d := range slices.Backward(ds) {
+		out = append(out, toDeploymentJSON(r, name, d, i == len(ds)-1))
 	}
 
 	writeJSON(w, http.StatusOK, out)
@@ -206,9 +221,9 @@ func (b *InMemoryBackend) kuduGet(w http.ResponseWriter, r *http.Request, name, 
 		return
 	}
 
-	for i := len(ds) - 1; i >= 0; i-- {
-		if id == kuduLatest && i == len(ds)-1 || ds[i].ID == id {
-			writeJSON(w, http.StatusOK, toDeploymentJSON(r, name, ds[i], i == len(ds)-1))
+	for i, d := range slices.Backward(ds) {
+		if id == kuduLatest && i == len(ds)-1 || d.ID == id {
+			writeJSON(w, http.StatusOK, toDeploymentJSON(r, name, d, i == len(ds)-1))
 
 			return
 		}

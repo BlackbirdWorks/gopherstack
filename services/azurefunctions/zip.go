@@ -19,6 +19,7 @@ const (
 	dirMode         = 0o755
 	exeBits         = 0o111
 	readBits        = 0o444
+	ownerWrite      = 0o200
 )
 
 func validatePackage(data []byte) error {
@@ -82,9 +83,13 @@ func extractEntry(f *zip.File, dir string) error {
 	}
 	defer rc.Close()
 
-	mode := os.FileMode(readBits) | f.Mode().Perm()&exeBits | 0o200
+	mode := os.FileMode(readBits) | f.Mode().Perm()&exeBits | ownerWrite
 
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode) //nolint:gosec // target is confined to dir above
+	out, err := os.OpenFile(
+		target,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		mode,
+	)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", f.Name, err)
 	}
@@ -95,7 +100,7 @@ func extractEntry(f *zip.File, dir string) error {
 	}
 
 	if err == nil {
-		err = os.Chmod(target, mode) //nolint:gosec // see above
+		err = os.Chmod(target, mode)
 	}
 
 	return err

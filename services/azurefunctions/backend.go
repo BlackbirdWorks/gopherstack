@@ -24,9 +24,11 @@ type Runner = gcpserve.Runner
 type PortPool = gcpserve.PortPool
 
 const (
-	maxDeployments  = 50
-	publishPassLen  = 32
-	defaultKindName = "functionapp,linux"
+	maxDeployments   = 50
+	publishPassLen   = 32
+	deployIDExtra    = 4
+	publishPassBytes = publishPassLen / 2
+	defaultKindName  = "functionapp,linux"
 )
 
 // Deployment is one Kudu deployment record.
@@ -239,11 +241,17 @@ func (b *InMemoryBackend) PutApp(name string, cfg AppConfig) AppInfo {
 
 	a, ok := b.apps[strs.Fold(name)]
 	if !ok {
-		a = &app{appState: appState{
-			Name: name, Created: b.now().UTC(), Settings: map[string]string{},
-			HostKeys: map[string]string{defaultKeyName: newKey()}, SystemKeys: map[string]string{},
-			FunctionKeys: map[string]map[string]string{}, MasterKey: newKey(), PublishPassword: randomHex(publishPassLen / 2),
-		}}
+		a = &app{}
+		a.appState = appState{
+			Name:            name,
+			Created:         b.now().UTC(),
+			Settings:        map[string]string{},
+			HostKeys:        map[string]string{defaultKeyName: newKey()},
+			SystemKeys:      map[string]string{},
+			FunctionKeys:    map[string]map[string]string{},
+			MasterKey:       newKey(),
+			PublishPassword: randomHex(publishPassBytes),
+		}
 		b.apps[strs.Fold(name)] = a
 	}
 
@@ -387,7 +395,7 @@ func (b *InMemoryBackend) Restart(name string) error {
 }
 
 // PublishingCredentials returns the Kudu user name, password and base URL.
-func (b *InMemoryBackend) PublishingCredentials(name string) (user, password, scmURI string, err error) {
+func (b *InMemoryBackend) PublishingCredentials(name string) (string, string, string, error) {
 	b.mu.RLock("PublishingCredentials")
 	defer b.mu.RUnlock()
 
@@ -415,7 +423,14 @@ func (b *InMemoryBackend) Deploy(name string, zipData []byte, deployer, message 
 	}
 
 	now := b.now().UTC()
-	d := Deployment{ID: randomHex(publishPassLen/2 + 4), Received: now, Finished: now, Deployer: deployer, Message: message, Succeeded: true}
+	d := Deployment{
+		ID:        randomHex(publishPassBytes + deployIDExtra),
+		Received:  now,
+		Finished:  now,
+		Deployer:  deployer,
+		Message:   message,
+		Succeeded: true,
+	}
 
 	a.Zip = zipData
 	a.Deployments = append(a.Deployments, d)

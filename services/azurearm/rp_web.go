@@ -27,9 +27,21 @@ const (
 	webKindFunctionApp    = "functionapp"
 	webConfigWeb          = "web"
 	webConfigAppSettings  = "appsettings"
+	webCodeBadRequest     = "BadRequest"
+	webReasonInvalid      = "Invalid"
+	webNone               = "None"
+	webAllow              = "Allow"
+	webDescription        = "description"
+	webPlanFamily         = "family"
+	webFieldRG            = "resourceGroup"
+	webFieldWorkers       = "numberOfWorkers"
+	webContainerSize      = 1536
+	webLogsLimitMB        = 35
+	webMaxPriority        = 2147483647
 	webStateRunning       = "Running"
 	webStateStopped       = "Stopped"
 	webPlanSKUDefault     = "Y1"
+	webMaxWorkers         = 200
 	webNameMin            = 2
 	webNameMax            = 60
 )
@@ -196,7 +208,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	if !validWebName(name) {
-		return nil, badWebRequest(fmt.Errorf("site name %q must be %d-%d letters, digits or hyphens", name, webNameMin, webNameMax))
+		return nil, badWebRequest(errWebSiteName)
 	}
 
 	if other, taken := p.sites[webSiteKey(name)]; taken && !resourceGroupsEqual(other.ResourceGroup, id.ResourceGroup) {
@@ -225,18 +237,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	siteCfg := mapOf(props[webFieldSiteConfig])
-	cfgWeb := maps.Clone(rec.Configs[webConfigWeb])
-
-	if cfgWeb == nil {
-		cfgWeb = map[string]any{}
-	}
-
-	for k, v := range siteCfg {
-		if k != webFieldAppSettings {
-			cfgWeb[k] = v
-		}
-	}
-
+	cfgWeb := mergeWebConfig(rec.Configs[webConfigWeb], siteCfg)
 	rec.Configs[webConfigWeb] = cfgWeb
 
 	linuxFx, _ := cfgWeb[webFieldLinuxFx].(string)
@@ -257,6 +258,22 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	return p.siteBody(ctx, id, rec, info), nil
 }
 
+// mergeWebConfig overlays the request's siteConfig (minus appSettings, which the data plane owns) on cur.
+func mergeWebConfig(cur, siteCfg map[string]any) map[string]any {
+	out := maps.Clone(cur)
+	if out == nil {
+		out = map[string]any{}
+	}
+
+	for k, v := range siteCfg {
+		if k != webFieldAppSettings {
+			out[k] = v
+		}
+	}
+
+	return out
+}
+
 // webSiteExtra keeps the site properties the emulator does not model, so they round-trip.
 func webSiteExtra(props map[string]any) map[string]any {
 	out := maps.Clone(props)
@@ -265,9 +282,9 @@ func webSiteExtra(props map[string]any) map[string]any {
 	}
 
 	for _, k := range []string{
-		webFieldSiteConfig, fieldProvisioningState, "state", "hostNames", "defaultHostName", "enabledHostNames",
-		"hostNameSslStates", "repositorySiteName", "usageState", "availabilityState", "name", "lastModifiedTimeUtc",
-		"outboundIpAddresses", "possibleOutboundIpAddresses", "resourceGroup",
+		webFieldSiteConfig, fieldProvisioningState, sqlPropState, "hostNames", "defaultHostName", "enabledHostNames",
+		"hostNameSslStates", "repositorySiteName", "usageState", "availabilityState", fieldName, "lastModifiedTimeUtc",
+		"outboundIpAddresses", "possibleOutboundIpAddresses", webFieldRG,
 	} {
 		delete(out, k)
 	}
@@ -293,7 +310,12 @@ func nameValueSettings(raw []any) map[string]string {
 	return out
 }
 
-func (p *WebProvider) siteBody(_ context.Context, id ResourceID, s *storedWebSite, info FunctionAppInfo) map[string]any {
+func (p *WebProvider) siteBody(
+	_ context.Context,
+	id ResourceID,
+	s *storedWebSite,
+	info FunctionAppInfo,
+) map[string]any {
 	state := webStateRunning
 	if info.Stopped {
 		state = webStateStopped
@@ -301,29 +323,51 @@ func (p *WebProvider) siteBody(_ context.Context, id ResourceID, s *storedWebSit
 
 	cfg := webConfigDefaults(s)
 	siteCfg := map[string]any{
-		"numberOfWorkers": cfg["numberOfWorkers"], webFieldLinuxFx: cfg[webFieldLinuxFx], "alwaysOn": cfg["alwaysOn"],
+		webFieldWorkers: cfg[webFieldWorkers], webFieldLinuxFx: cfg[webFieldLinuxFx], "alwaysOn": cfg["alwaysOn"],
 		"acrUseManagedIdentityCreds": false, "http20Enabled": cfg["http20Enabled"], "functionAppScaleLimit": 0,
 		"minimumElasticInstanceCount": 0,
 	}
 
 	props := map[string]any{
-		"name": s.Name, "state": state, "hostNames": []string{info.HostName}, "defaultHostName": info.HostName,
-		"enabledHostNames": []string{info.HostName, info.SCMHost}, "repositorySiteName": s.Name,
-		"usageState": "Normal", "enabled": true, "availabilityState": "Normal",
+		fieldName:            s.Name,
+		sqlPropState:         state,
+		"hostNames":          []string{info.HostName},
+		"defaultHostName":    info.HostName,
+		"enabledHostNames":   []string{info.HostName, info.SCMHost},
+		"repositorySiteName": s.Name,
+		"usageState":         "Normal",
+		acrWebhookEnabled:    true,
+		"availabilityState":  "Normal",
 		"hostNameSslStates": []any{
-			map[string]any{fieldName: info.HostName, "sslState": "Disabled", "hostType": "Standard"},
-			map[string]any{fieldName: info.SCMHost, "sslState": "Disabled", "hostType": "Repository"},
+			map[string]any{fieldName: info.HostName, "sslState": redisPublicDisabled, "hostType": skuTierStandard},
+			map[string]any{fieldName: info.SCMHost, "sslState": redisPublicDisabled, "hostType": "Repository"},
 		},
-		webFieldReserved: strings.Contains(strings.ToLower(s.Kind), "linux"), "isXenon": false, "hyperV": false,
-		"clientAffinityEnabled": false, "clientCertEnabled": false, "httpsOnly": false, "scmSiteAlsoStopped": false,
-		"containerSize": 1536, "dailyMemoryTimeQuota": 0, "outboundIpAddresses": "127.0.0.1",
-		"possibleOutboundIpAddresses": "127.0.0.1", "resourceGroup": s.ResourceGroup, webFieldSiteConfig: siteCfg,
-		"lastModifiedTimeUtc": info.Created.UTC().Format(time.RFC3339), fieldProvisioningState: provisioningStateSucceeded,
+		webFieldReserved:              strings.Contains(strings.ToLower(s.Kind), "linux"),
+		"isXenon":                     false,
+		"hyperV":                      false,
+		"clientAffinityEnabled":       false,
+		"clientCertEnabled":           false,
+		"httpsOnly":                   false,
+		"scmSiteAlsoStopped":          false,
+		"containerSize":               webContainerSize,
+		"dailyMemoryTimeQuota":        0,
+		"outboundIpAddresses":         "127.0.0.1",
+		"possibleOutboundIpAddresses": "127.0.0.1",
+		webFieldRG:                    s.ResourceGroup,
+		webFieldSiteConfig:            siteCfg,
+		"lastModifiedTimeUtc": info.Created.UTC().
+			Format(time.RFC3339),
+		fieldProvisioningState: provisioningStateSucceeded,
 	}
 
 	out := map[string]any{
-		"id": id.ARMID(), fieldName: s.Name, fieldType: namespaceMicrosoftWeb + "/" + webSitesType, webFieldKind: s.Kind,
-		fieldLocation: s.Location, fieldTags: tagsOrEmpty(s.Tags), fieldProperties: ehMerge(props, s.Extra, nil),
+		"id":            id.ARMID(),
+		fieldName:       s.Name,
+		fieldType:       namespaceMicrosoftWeb + "/" + webSitesType,
+		webFieldKind:    s.Kind,
+		fieldLocation:   s.Location,
+		fieldTags:       tagsOrEmpty(s.Tags),
+		fieldProperties: ehMerge(props, s.Extra, nil),
 	}
 
 	if s.Identity != nil {
@@ -489,20 +533,28 @@ func webErrorDetails(err error) (errorEntry, bool) {
 		{ErrWebKeyNotFound, notFoundEntry("The key was not found.")},
 		{ErrWebConfigNotFound, notFoundEntry("The site configuration was not found.")},
 		{ErrWebPlanNotFound, errorEntry{
-			"BadRequest", "The server farm referenced by the site does not exist.", http.StatusBadRequest,
+			webCodeBadRequest, "The server farm referenced by the site does not exist.", http.StatusBadRequest,
 		}},
-		{ErrWebNameTaken, errorEntry{"Conflict", "A site with the given name already exists.", http.StatusConflict}},
+		{
+			ErrWebNameTaken,
+			errorEntry{redisCodeConflict, "A site with the given name already exists.", http.StatusConflict},
+		},
 		{ErrWebPlanInUse, errorEntry{
-			"Conflict", "Cannot delete the server farm because it still has sites.", http.StatusConflict,
+			redisCodeConflict, "Cannot delete the server farm because it still has sites.", http.StatusConflict,
 		}},
-		{ErrWebUnsupportedKind, errorEntry{
-			"BadRequest", "Only function apps (kind containing 'functionapp') are supported.", http.StatusBadRequest,
-		}},
+		{
+			ErrWebUnsupportedKind,
+			errorEntry{
+				webCodeBadRequest,
+				"Only function apps (kind containing 'functionapp') are supported.",
+				http.StatusBadRequest,
+			},
+		},
 		{ErrWebInvalidKeyType, errorEntry{
-			"BadRequest", "The key type must be functionKeys or systemKeys.", http.StatusBadRequest,
+			webCodeBadRequest, "The key type must be functionKeys or systemKeys.", http.StatusBadRequest,
 		}},
 		{ErrWebFunctionsUnavailable, errorEntry{
-			"ServiceUnavailable", "The Azure Functions data plane is not available.", http.StatusServiceUnavailable,
+			redisCodeUnavailable, "The Azure Functions data plane is not available.", http.StatusServiceUnavailable,
 		}},
 	}
 

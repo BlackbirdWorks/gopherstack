@@ -78,7 +78,11 @@ func (b *InMemoryBackend) adminFunctions(ctx context.Context, name string) ([]ad
 	}
 	b.mu.RUnlock()
 
-	u := url.URL{Scheme: "http", Host: net.JoinHostPort(container.LoopbackHost, strconv.Itoa(port)), Path: adminFunctionsPath}
+	u := url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(container.LoopbackHost, strconv.Itoa(port)),
+		Path:   adminFunctionsPath,
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {

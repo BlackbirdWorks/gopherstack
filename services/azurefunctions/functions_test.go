@@ -13,25 +13,25 @@ func TestFunctions_List(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		runtime     bool
-		wantNames   []string
 		wantURL     map[string]string
 		wantDisable map[string]bool
+		name        string
+		wantNames   []string
+		runtime     bool
 	}{
 		{
-			name:        "from the running host",
-			runtime:     true,
-			wantNames:   []string{"hello", "tick"},
 			wantURL:     map[string]string{"hello": "http://app." + testDomain + ":10012/api/hello", "tick": ""},
 			wantDisable: map[string]bool{"hello": false, "tick": true},
+			name:        "from the running host",
+			wantNames:   []string{"hello", "tick"},
+			runtime:     true,
 		},
 		{
-			name:        "from function.json without a runtime",
-			runtime:     false,
-			wantNames:   []string{"hello", "tick"},
 			wantURL:     map[string]string{"hello": "http://app." + testDomain + ":10012/api/greet", "tick": ""},
 			wantDisable: map[string]bool{"hello": false, "tick": true},
+			name:        "from function.json without a runtime",
+			wantNames:   []string{"hello", "tick"},
+			runtime:     false,
 		},
 	}
 

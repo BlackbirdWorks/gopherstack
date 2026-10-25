@@ -30,7 +30,9 @@ func newEnv(t *testing.T, withRuntime bool) *env {
 	t.Helper()
 
 	b := azurefunctions.NewInMemoryBackend()
-	b.Configure(azurefunctions.Settings{Domain: testDomain, Port: azurefunctions.DefaultPort, StartupTimeout: 20 * time.Second})
+	b.Configure(
+		azurefunctions.Settings{Domain: testDomain, Port: azurefunctions.DefaultPort, StartupTimeout: 20 * time.Second},
+	)
 
 	e := &env{backend: b, client: &http.Client{Timeout: 30 * time.Second}}
 
@@ -79,7 +81,8 @@ func helloZip(t *testing.T) []byte {
 		"hello/function.json": `{"bindings":[{"authLevel":"anonymous","type":"httpTrigger","direction":"in","name":"req",` +
 			`"methods":["get","post"],"route":"greet"}]}`,
 		"hello/index.js": "module.exports = async (ctx) => { ctx.res = { body: 'hi' } }",
-		"tick/function.json": `{"bindings":[{"type":"timerTrigger","direction":"in","name":"t","schedule":"0 */5 * * * *"}],` +
+		"tick/function.json": `{"bindings":[{"type":"timerTrigger","direction":"in","name":"t",` +
+			`"schedule":"0 */5 * * * *"}],` +
 			`"disabled":true}`,
 	})
 }

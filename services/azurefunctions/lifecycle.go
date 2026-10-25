@@ -3,6 +3,7 @@ package azurefunctions
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 	"strconv"
@@ -93,7 +94,8 @@ func (b *InMemoryBackend) teardown(x box) {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(b.baseCtx()), teardownTimeout)
 
 			if stopErr := r.StopAndRemove(ctx, x.id); stopErr != nil {
-				logger.Load(ctx).WarnContext(ctx, "azurefunctions: container removal failed", "container", x.id, "error", stopErr)
+				logger.Load(ctx).
+					WarnContext(ctx, "azurefunctions: container removal failed", "container", x.id, "error", stopErr)
 			}
 
 			cancel()
@@ -114,9 +116,7 @@ func containerEnv(a *appState, rc runtimeChoice, host string) []string {
 		env[settingWorker] = rc.worker
 	}
 
-	for k, v := range a.Settings {
-		env[k] = v
-	}
+	maps.Copy(env, a.Settings)
 
 	env["AzureWebJobsSecretStorageType"] = "files"
 
@@ -253,80 +253,100 @@ func (a *app) servable() bool {
 	return len(a.Zip) > 0 || len(a.LinuxFx) > len(dockerPrefix) && a.LinuxFx[:len(dockerPrefix)] == dockerPrefix
 }
 
+// startClaim is the outcome of looking for work to do when a request needs the app's host.
+type startClaim struct {
+	wait  chan struct{}
+	host  string
+	st    appState
+	port  int
+	epoch int
+	own   bool
+}
+
+// claimStart reports the running port, a start to wait for, or hands the caller the right to start the host.
+func (b *InMemoryBackend) claimStart(name string) (startClaim, error) {
+	b.mu.Lock("claimStart")
+	defer b.mu.Unlock()
+
+	a, err := b.appLocked(name)
+	if err != nil {
+		return startClaim{}, err
+	}
+
+	switch {
+	case a.Stopped:
+		return startClaim{}, errNoHost
+	case a.containerID != "":
+		return startClaim{port: a.hostPort}, nil
+	case a.starting != nil:
+		return startClaim{wait: a.starting}, nil
+	}
+
+	a.starting = make(chan struct{})
+
+	return startClaim{
+		own: true, wait: a.starting, st: a.appState, epoch: a.epoch, host: b.hostNameLocked(a.Name),
+	}, nil
+}
+
 // ensureStarted starts name's host once; concurrent callers wait for the same start. It returns the host port.
 func (b *InMemoryBackend) ensureStarted(ctx context.Context, name string) (int, error) {
 	for {
-		b.mu.Lock("ensureStarted")
-
-		a, err := b.appLocked(name)
+		claim, err := b.claimStart(name)
 		if err != nil {
-			b.mu.Unlock()
-
 			return 0, err
 		}
 
 		switch {
-		case a.Stopped:
-			b.mu.Unlock()
-
-			return 0, errNoHost
-		case a.containerID != "":
-			port := a.hostPort
-			b.mu.Unlock()
-
-			return port, nil
-		case a.starting != nil:
-			ch := a.starting
-			b.mu.Unlock()
-
-			select {
-			case <-ch:
-			case <-ctx.Done():
-				return 0, ctx.Err()
-			}
-
-			if port, done, startErr := b.startResult(name); done {
-				return port, startErr
-			}
-
-			continue
+		case claim.own:
+			return b.runStart(name, claim)
+		case claim.wait == nil:
+			return claim.port, nil
 		}
 
-		a.starting = make(chan struct{})
-		ch, st, epoch, host := a.starting, a.appState, a.epoch, b.hostNameLocked(a.Name)
-		b.mu.Unlock()
-
-		x, launchErr := b.launch(&st, host)
-
-		b.mu.Lock("ensureStarted.done")
-
-		cur, still := b.apps[strs.Fold(name)]
-		if still && cur.epoch != epoch && launchErr == nil {
-			launchErr = errStale
+		select {
+		case <-claim.wait:
+		case <-ctx.Done():
+			return 0, ctx.Err()
 		}
 
-		if still {
-			cur.starting, cur.startErr = nil, ""
-
-			if launchErr != nil {
-				cur.startErr = launchErr.Error()
-			} else {
-				cur.containerID, cur.dir, cur.secretsDir, cur.hostPort = x.id, x.dir, x.secretsDir, x.port
-			}
+		if port, done, startErr := b.startResult(name); done {
+			return port, startErr
 		}
-		b.mu.Unlock()
-		close(ch)
-
-		if (!still || launchErr != nil) && x.id != "" {
-			b.teardown(x)
-		}
-
-		if !still {
-			return 0, ErrAppNotFound
-		}
-
-		return x.port, launchErr
 	}
+}
+
+func (b *InMemoryBackend) runStart(name string, claim startClaim) (int, error) {
+	x, launchErr := b.launch(&claim.st, claim.host)
+
+	b.mu.Lock("runStart")
+
+	cur, still := b.apps[strs.Fold(name)]
+	if still && cur.epoch != claim.epoch && launchErr == nil {
+		launchErr = errStale
+	}
+
+	if still {
+		cur.starting, cur.startErr = nil, ""
+
+		if launchErr != nil {
+			cur.startErr = launchErr.Error()
+		} else {
+			cur.containerID, cur.dir, cur.secretsDir, cur.hostPort = x.id, x.dir, x.secretsDir, x.port
+		}
+	}
+	b.mu.Unlock()
+	close(claim.wait)
+
+	if (!still || launchErr != nil) && x.id != "" {
+		b.teardown(x)
+	}
+
+	if !still {
+		return 0, ErrAppNotFound
+	}
+
+	return x.port, launchErr
 }
 
 func (b *InMemoryBackend) startResult(name string) (int, bool, error) {

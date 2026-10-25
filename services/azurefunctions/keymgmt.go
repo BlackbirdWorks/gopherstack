@@ -41,7 +41,11 @@ func (b *InMemoryBackend) HostKeys(name string) (HostKeys, error) {
 		return HostKeys{}, err
 	}
 
-	return HostKeys{MasterKey: a.MasterKey, FunctionKeys: maps.Clone(a.HostKeys), SystemKeys: maps.Clone(a.SystemKeys)}, nil
+	return HostKeys{
+		MasterKey:    a.MasterKey,
+		FunctionKeys: maps.Clone(a.HostKeys),
+		SystemKeys:   maps.Clone(a.SystemKeys),
+	}, nil
 }
 
 func (a *app) hostKeySet(keyType string) (map[string]string, error) {

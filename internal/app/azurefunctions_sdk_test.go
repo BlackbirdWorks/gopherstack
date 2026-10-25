@@ -103,19 +103,23 @@ func (f *fnFakeRuntime) StopAndRemove(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fnFakeRuntime) lastEnv() map[string]string {
+func (f *fnFakeRuntime) lastEnv(site string) map[string]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	out := map[string]string{}
 
-	if len(f.specs) == 0 {
-		return out
-	}
+	for _, spec := range f.specs {
+		env := map[string]string{}
 
-	for _, e := range f.specs[len(f.specs)-1].Env {
-		k, v, _ := strings.Cut(e, "=")
-		out[k] = v
+		for _, e := range spec.Env {
+			k, v, _ := strings.Cut(e, "=")
+			env[k] = v
+		}
+
+		if env["WEBSITE_SITE_NAME"] == site {
+			out = env
+		}
 	}
 
 	return out
@@ -231,15 +235,15 @@ func (s *fnSDKStack) createPlan(t *testing.T, name string) *armappservice.Plan {
 	return &res.Plan
 }
 
-func (s *fnSDKStack) createSite(t *testing.T, rg, name, planID string, settings map[string]string) *armappservice.Site {
+func (s *fnSDKStack) createSite(t *testing.T, name, planID string, settings map[string]string) *armappservice.Site {
 	t.Helper()
 
-	var appSettings []*armappservice.NameValuePair
+	appSettings := make([]*armappservice.NameValuePair, 0, len(settings))
 	for k, v := range settings {
 		appSettings = append(appSettings, &armappservice.NameValuePair{Name: new(k), Value: new(v)})
 	}
 
-	poller, err := s.factory.NewWebAppsClient().BeginCreateOrUpdate(t.Context(), rg, name, armappservice.Site{
+	poller, err := s.factory.NewWebAppsClient().BeginCreateOrUpdate(t.Context(), fnSDKRG, name, armappservice.Site{
 		Location: new("local"), Kind: new("functionapp,linux"), Tags: map[string]*string{"env": new("test")},
 		Properties: &armappservice.SiteProperties{
 			ServerFarmID: new(planID),
@@ -256,6 +260,15 @@ func (s *fnSDKStack) createSite(t *testing.T, rg, name, planID string, settings 
 	return &res.Site
 }
 
+// freshApp creates an independent linux node function app so subtests can run in parallel.
+func (s *fnSDKStack) freshApp(t *testing.T, name, planID string) string {
+	t.Helper()
+
+	s.createSite(t, name, planID, map[string]string{"FUNCTIONS_WORKER_RUNTIME": "node", "MY": "v1"})
+
+	return name
+}
+
 func TestAzureFunctionsARMSDK_Lifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -268,7 +281,12 @@ func TestAzureFunctionsARMSDK_Lifecycle(t *testing.T) {
 	assert.Equal(t, "Ready", string(*plan.Properties.Status))
 	assert.Equal(t, int32(0), *plan.Properties.NumberOfSites)
 
-	site := s.createSite(t, fnSDKRG, "lifecycleapp", *plan.ID, map[string]string{"FUNCTIONS_WORKER_RUNTIME": "node", "MY": "v1"})
+	site := s.createSite(
+		t,
+		"lifecycleapp",
+		*plan.ID,
+		map[string]string{"FUNCTIONS_WORKER_RUNTIME": "node", "MY": "v1"},
+	)
 	assert.Equal(t, "functionapp,linux", *site.Kind)
 	assert.Equal(t, "lifecycleapp."+fnSDKDomain+":10012", *site.Properties.DefaultHostName)
 	assert.Equal(t, "Running", *site.Properties.State)
@@ -284,62 +302,82 @@ func TestAzureFunctionsARMSDK_Lifecycle(t *testing.T) {
 	assert.Equal(t, int32(1), *gotPlan.Properties.NumberOfSites)
 
 	t.Run("app settings", func(t *testing.T) {
-		list, listErr := apps.ListApplicationSettings(ctx, fnSDKRG, "lifecycleapp", nil)
+		t.Parallel()
+
+		app := s.freshApp(t, "lc-settings", *plan.ID)
+
+		list, listErr := apps.ListApplicationSettings(ctx, fnSDKRG, app, nil)
 		require.NoError(t, listErr)
 		assert.Equal(t, "v1", *list.Properties["MY"])
 
-		_, updErr := apps.UpdateApplicationSettings(ctx, fnSDKRG, "lifecycleapp", armappservice.StringDictionary{
+		_, updErr := apps.UpdateApplicationSettings(ctx, fnSDKRG, app, armappservice.StringDictionary{
 			Properties: map[string]*string{"FUNCTIONS_WORKER_RUNTIME": new("node"), "MY": new("v2")},
 		}, nil)
 		require.NoError(t, updErr)
 
-		list, listErr = apps.ListApplicationSettings(ctx, fnSDKRG, "lifecycleapp", nil)
+		list, listErr = apps.ListApplicationSettings(ctx, fnSDKRG, app, nil)
 		require.NoError(t, listErr)
 		assert.Equal(t, "v2", *list.Properties["MY"])
 	})
 
 	t.Run("site configuration", func(t *testing.T) {
-		cfg, cfgErr := apps.GetConfiguration(ctx, fnSDKRG, "lifecycleapp", nil)
+		t.Parallel()
+
+		app := s.freshApp(t, "lc-config", *plan.ID)
+
+		cfg, cfgErr := apps.GetConfiguration(ctx, fnSDKRG, app, nil)
 		require.NoError(t, cfgErr)
 		assert.Equal(t, "NODE|20", *cfg.Properties.LinuxFxVersion)
-		assert.Equal(t, "$lifecycleapp", *cfg.Properties.PublishingUsername)
+		assert.Equal(t, "$"+app, *cfg.Properties.PublishingUsername)
 
-		_, putErr := apps.CreateOrUpdateConfiguration(ctx, fnSDKRG, "lifecycleapp", armappservice.SiteConfigResource{
+		_, putErr := apps.CreateOrUpdateConfiguration(ctx, fnSDKRG, app, armappservice.SiteConfigResource{
 			Properties: &armappservice.SiteConfig{LinuxFxVersion: new("NODE|22"), Http20Enabled: new(false)},
 		}, nil)
 		require.NoError(t, putErr)
 
-		cfg, cfgErr = apps.GetConfiguration(ctx, fnSDKRG, "lifecycleapp", nil)
+		cfg, cfgErr = apps.GetConfiguration(ctx, fnSDKRG, app, nil)
 		require.NoError(t, cfgErr)
 		assert.Equal(t, "NODE|22", *cfg.Properties.LinuxFxVersion)
 		assert.False(t, *cfg.Properties.Http20Enabled)
 	})
 
 	t.Run("deploy invoke and keys", func(t *testing.T) {
-		poller, credErr := apps.BeginListPublishingCredentials(ctx, fnSDKRG, "lifecycleapp", nil)
+		t.Parallel()
+
+		app := s.freshApp(t, "lc-deploy", *plan.ID)
+
+		poller, credErr := apps.BeginListPublishingCredentials(ctx, fnSDKRG, app, nil)
 		require.NoError(t, credErr)
 
 		cred, credErr := poller.PollUntilDone(ctx, pollOpts())
 		require.NoError(t, credErr)
 		user, pass := *cred.Properties.PublishingUserName, *cred.Properties.PublishingPassword
-		assert.Equal(t, "$lifecycleapp", user)
-		assert.Contains(t, *cred.Properties.ScmURI, "lifecycleapp.scm."+fnSDKDomain)
+		assert.Equal(t, "$"+app, user)
+		assert.Contains(t, *cred.Properties.ScmURI, app+".scm."+fnSDKDomain)
 
-		code, _ := s.call(t, http.MethodPost, "lifecycleapp.scm."+fnSDKDomain, "/api/zipdeploy", fnZip(t), user, "wrong")
+		code, _ := s.call(
+			t,
+			http.MethodPost,
+			app+".scm."+fnSDKDomain,
+			"/api/zipdeploy",
+			fnZip(t),
+			user,
+			"wrong",
+		)
 		assert.Equal(t, http.StatusUnauthorized, code)
 
-		code, _ = s.call(t, http.MethodPost, "lifecycleapp.scm."+fnSDKDomain, "/api/zipdeploy", fnZip(t), user, pass)
+		code, _ = s.call(t, http.MethodPost, app+".scm."+fnSDKDomain, "/api/zipdeploy", fnZip(t), user, pass)
 		require.Equal(t, http.StatusOK, code)
 
-		code, body := s.call(t, http.MethodGet, "lifecycleapp."+fnSDKDomain, "/api/greet", nil, "", "")
+		code, body := s.call(t, http.MethodGet, app+"."+fnSDKDomain, "/api/greet", nil, "", "")
 		require.Equal(t, http.StatusOK, code)
 		assert.Equal(t, "host saw /api/greet", body)
-		assert.Equal(t, "v2", s.rt.lastEnv()["MY"], "settings reach the host environment")
-		assert.Equal(t, "lifecycleapp", s.rt.lastEnv()["WEBSITE_SITE_NAME"])
+		assert.Equal(t, "v1", s.rt.lastEnv(app)["MY"], "settings reach the host environment")
+		assert.Equal(t, app, s.rt.lastEnv(app)["WEBSITE_SITE_NAME"])
 
 		var names []string
 
-		pager := apps.NewListFunctionsPager(fnSDKRG, "lifecycleapp", nil)
+		pager := apps.NewListFunctionsPager(fnSDKRG, app, nil)
 		for pager.More() {
 			page, pageErr := pager.NextPage(ctx)
 			require.NoError(t, pageErr)
@@ -349,127 +387,155 @@ func TestAzureFunctionsARMSDK_Lifecycle(t *testing.T) {
 			}
 		}
 
-		assert.Equal(t, []string{"lifecycleapp/hello", "lifecycleapp/tick"}, names)
+		assert.Equal(t, []string{app + "/hello", app + "/tick"}, names)
 
-		fn, fnErr := apps.GetFunction(ctx, fnSDKRG, "lifecycleapp", "hello", nil)
+		fn, fnErr := apps.GetFunction(ctx, fnSDKRG, app, "hello", nil)
 		require.NoError(t, fnErr)
 		assert.Equal(t, "node", *fn.Properties.Language)
-		assert.Equal(t, "http://lifecycleapp."+fnSDKDomain+":10012/api/greet", *fn.Properties.InvokeURLTemplate)
+		assert.Equal(t, "http://"+app+"."+fnSDKDomain+":10012/api/greet", *fn.Properties.InvokeURLTemplate)
 
-		_, missErr := apps.GetFunction(ctx, fnSDKRG, "lifecycleapp", "nope", nil)
+		_, missErr := apps.GetFunction(ctx, fnSDKRG, app, "nope", nil)
 		require.Error(t, missErr)
 
-		keys, keysErr := apps.ListFunctionKeys(ctx, fnSDKRG, "lifecycleapp", "hello", nil)
+		keys, keysErr := apps.ListFunctionKeys(ctx, fnSDKRG, app, "hello", nil)
 		require.NoError(t, keysErr)
 		require.Contains(t, keys.Properties, "default")
 
-		secrets, secErr := apps.ListFunctionSecrets(ctx, fnSDKRG, "lifecycleapp", "hello", nil)
+		secrets, secErr := apps.ListFunctionSecrets(ctx, fnSDKRG, app, "hello", nil)
 		require.NoError(t, secErr)
 		assert.Equal(t, *keys.Properties["default"], *secrets.Key)
-		assert.Equal(t, "http://lifecycleapp."+fnSDKDomain+":10012/api/greet?code="+*secrets.Key, *secrets.TriggerURL)
+		assert.Equal(t, "http://"+app+"."+fnSDKDomain+":10012/api/greet?code="+*secrets.Key, *secrets.TriggerURL)
 
-		made, mkErr := apps.CreateOrUpdateFunctionSecret(ctx, fnSDKRG, "lifecycleapp", "hello", "extra",
+		made, mkErr := apps.CreateOrUpdateFunctionSecret(ctx, fnSDKRG, app, "hello", "extra",
 			armappservice.KeyInfo{Name: new("extra"), Value: new("extra-key-value==")}, nil)
 		require.NoError(t, mkErr)
 		assert.Equal(t, "extra-key-value==", *made.Value)
 
-		keys, keysErr = apps.ListFunctionKeys(ctx, fnSDKRG, "lifecycleapp", "hello", nil)
+		keys, keysErr = apps.ListFunctionKeys(ctx, fnSDKRG, app, "hello", nil)
 		require.NoError(t, keysErr)
 		assert.Equal(t, "extra-key-value==", *keys.Properties["extra"])
 
-		_, delErr := apps.DeleteFunctionSecret(ctx, fnSDKRG, "lifecycleapp", "hello", "extra", nil)
+		_, delErr := apps.DeleteFunctionSecret(ctx, fnSDKRG, app, "hello", "extra", nil)
 		require.NoError(t, delErr)
 
-		_, delErr = apps.DeleteFunctionSecret(ctx, fnSDKRG, "lifecycleapp", "hello", "extra", nil)
+		_, delErr = apps.DeleteFunctionSecret(ctx, fnSDKRG, app, "hello", "extra", nil)
 		require.Error(t, delErr)
 	})
 
 	t.Run("host keys", func(t *testing.T) {
-		hk, hkErr := apps.ListHostKeys(ctx, fnSDKRG, "lifecycleapp", nil)
+		t.Parallel()
+
+		app := s.freshApp(t, "lc-hostkeys", *plan.ID)
+
+		hk, hkErr := apps.ListHostKeys(ctx, fnSDKRG, app, nil)
 		require.NoError(t, hkErr)
 		assert.NotEmpty(t, *hk.MasterKey)
 		assert.Contains(t, hk.FunctionKeys, "default")
 
-		made, mkErr := apps.CreateOrUpdateHostSecret(ctx, fnSDKRG, "lifecycleapp", "functionKeys", "ci",
+		made, mkErr := apps.CreateOrUpdateHostSecret(ctx, fnSDKRG, app, "functionKeys", "ci",
 			armappservice.KeyInfo{Name: new("ci"), Value: new("ci-host-key==")}, nil)
 		require.NoError(t, mkErr)
 		assert.Equal(t, "ci-host-key==", *made.Value)
 
-		hk, hkErr = apps.ListHostKeys(ctx, fnSDKRG, "lifecycleapp", nil)
+		hk, hkErr = apps.ListHostKeys(ctx, fnSDKRG, app, nil)
 		require.NoError(t, hkErr)
 		assert.Equal(t, "ci-host-key==", *hk.FunctionKeys["ci"])
 
-		_, badErr := apps.CreateOrUpdateHostSecret(ctx, fnSDKRG, "lifecycleapp", "masterKey", "x",
+		_, badErr := apps.CreateOrUpdateHostSecret(ctx, fnSDKRG, app, "masterKey", "x",
 			armappservice.KeyInfo{Name: new("x")}, nil)
 		require.Error(t, badErr)
 
-		_, delErr := apps.DeleteHostSecret(ctx, fnSDKRG, "lifecycleapp", "functionKeys", "ci", nil)
+		_, delErr := apps.DeleteHostSecret(ctx, fnSDKRG, app, "functionKeys", "ci", nil)
 		require.NoError(t, delErr)
 
-		hk, hkErr = apps.ListHostKeys(ctx, fnSDKRG, "lifecycleapp", nil)
+		hk, hkErr = apps.ListHostKeys(ctx, fnSDKRG, app, nil)
 		require.NoError(t, hkErr)
 		assert.NotContains(t, hk.FunctionKeys, "ci")
 	})
 
 	t.Run("stop start restart", func(t *testing.T) {
-		_, stopErr := apps.Stop(ctx, fnSDKRG, "lifecycleapp", nil)
+		t.Parallel()
+
+		app := s.freshApp(t, "lc-state", *plan.ID)
+
+		_, stopErr := apps.Stop(ctx, fnSDKRG, app, nil)
 		require.NoError(t, stopErr)
 
-		got, getErr := apps.Get(ctx, fnSDKRG, "lifecycleapp", nil)
-		require.NoError(t, getErr)
-		assert.Equal(t, "Stopped", *got.Properties.State)
+		_, deployErr := s.backend.Deploy(app, fnZip(t), "test", "m")
+		require.NoError(t, deployErr)
 
-		code, _ := s.call(t, http.MethodGet, "lifecycleapp."+fnSDKDomain, "/api/greet", nil, "", "")
+		stopped, getErr := apps.Get(ctx, fnSDKRG, app, nil)
+		require.NoError(t, getErr)
+		assert.Equal(t, "Stopped", *stopped.Properties.State)
+
+		code, _ := s.call(t, http.MethodGet, app+"."+fnSDKDomain, "/api/greet", nil, "", "")
 		assert.Equal(t, http.StatusForbidden, code)
 
-		_, startErr := apps.Start(ctx, fnSDKRG, "lifecycleapp", nil)
+		_, startErr := apps.Start(ctx, fnSDKRG, app, nil)
 		require.NoError(t, startErr)
 
-		_, restartErr := apps.Restart(ctx, fnSDKRG, "lifecycleapp", nil)
+		_, restartErr := apps.Restart(ctx, fnSDKRG, app, nil)
 		require.NoError(t, restartErr)
 
-		code, _ = s.call(t, http.MethodGet, "lifecycleapp."+fnSDKDomain, "/api/greet", nil, "", "")
+		code, _ = s.call(t, http.MethodGet, app+"."+fnSDKDomain, "/api/greet", nil, "", "")
 		assert.Equal(t, http.StatusOK, code)
 	})
 
 	t.Run("update tags", func(t *testing.T) {
-		upd, updErr := apps.Update(ctx, fnSDKRG, "lifecycleapp", armappservice.SitePatchResource{
+		t.Parallel()
+
+		app := s.freshApp(t, "lc-update", *plan.ID)
+
+		upd, updErr := apps.Update(ctx, fnSDKRG, app, armappservice.SitePatchResource{
 			Properties: &armappservice.SitePatchResourceProperties{HTTPSOnly: new(true)},
 		}, nil)
 		require.NoError(t, updErr)
 		assert.True(t, *upd.Properties.HTTPSOnly)
 		assert.Equal(t, "test", *upd.Tags["env"], "patch keeps what it does not set")
-		assert.Equal(t, "NODE|22", *upd.Properties.SiteConfig.LinuxFxVersion)
+		assert.Equal(t, "NODE|20", *upd.Properties.SiteConfig.LinuxFxVersion)
 	})
 
 	t.Run("list", func(t *testing.T) {
+		t.Parallel()
+
+		app := s.freshApp(t, "lc-list", *plan.ID)
+
 		pager := apps.NewListByResourceGroupPager(fnSDKRG, nil)
-		n := 0
+
+		var names []string
 
 		for pager.More() {
 			page, pageErr := pager.NextPage(ctx)
 			require.NoError(t, pageErr)
 
-			n += len(page.Value)
+			for _, st := range page.Value {
+				names = append(names, *st.Name)
+			}
 		}
 
-		assert.Equal(t, 1, n)
+		assert.Contains(t, names, app)
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		_, planErr := s.factory.NewPlansClient().Delete(ctx, fnSDKRG, "plan1", nil)
+		t.Parallel()
+
+		delPlan := s.createPlan(t, "lc-delplan")
+		app := "lc-delete"
+		s.createSite(t, app, *delPlan.ID, nil)
+
+		_, planErr := s.factory.NewPlansClient().Delete(ctx, fnSDKRG, "lc-delplan", nil)
 		require.Error(t, planErr, "a plan with sites cannot be deleted")
 
-		_, delErr := apps.Delete(ctx, fnSDKRG, "lifecycleapp", nil)
+		_, delErr := apps.Delete(ctx, fnSDKRG, app, nil)
 		require.NoError(t, delErr)
 
-		_, getErr := apps.Get(ctx, fnSDKRG, "lifecycleapp", nil)
+		_, getErr := apps.Get(ctx, fnSDKRG, app, nil)
 		require.Error(t, getErr)
 
-		code, _ := s.call(t, http.MethodGet, "lifecycleapp."+fnSDKDomain, "/api/greet", nil, "", "")
+		code, _ := s.call(t, http.MethodGet, app+"."+fnSDKDomain, "/api/greet", nil, "", "")
 		assert.Equal(t, http.StatusNotFound, code)
 
-		_, planErr = s.factory.NewPlansClient().Delete(ctx, fnSDKRG, "plan1", nil)
+		_, planErr = s.factory.NewPlansClient().Delete(ctx, fnSDKRG, "lc-delplan", nil)
 		require.NoError(t, planErr)
 	})
 }
@@ -479,7 +545,7 @@ func TestAzureFunctionsARMSDK_Validation(t *testing.T) {
 
 	s := newFnSDKStack(t)
 	plan := s.createPlan(t, "valplan")
-	s.createSite(t, fnSDKRG, "taken-name", *plan.ID, nil)
+	s.createSite(t, "taken-name", *plan.ID, nil)
 
 	tests := []struct {
 		name string
@@ -498,10 +564,11 @@ func TestAzureFunctionsARMSDK_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			poller, err := s.factory.NewWebAppsClient().BeginCreateOrUpdate(t.Context(), tt.rg, tt.site, armappservice.Site{
-				Location: new("local"), Kind: new(tt.kind),
-				Properties: &armappservice.SiteProperties{ServerFarmID: new(tt.farm)},
-			}, nil)
+			poller, err := s.factory.NewWebAppsClient().
+				BeginCreateOrUpdate(t.Context(), tt.rg, tt.site, armappservice.Site{
+					Location: new("local"), Kind: new(tt.kind),
+					Properties: &armappservice.SiteProperties{ServerFarmID: new(tt.farm)},
+				}, nil)
 			if err == nil {
 				_, err = poller.PollUntilDone(t.Context(), pollOpts())
 			}
@@ -520,19 +587,19 @@ func TestAzureFunctionsARMSDK_CheckNameAndMissing(t *testing.T) {
 	s := newFnSDKStack(t)
 	ctx := t.Context()
 	plan := s.createPlan(t, "cnplan")
-	s.createSite(t, fnSDKRG, "usedname", *plan.ID, nil)
+	s.createSite(t, "usedname", *plan.ID, nil)
 
 	mgmt := s.factory.NewWebSiteManagementClient()
 
 	tests := []struct {
 		name      string
+		reason    armappservice.InAvailabilityReasonType
 		check     string
 		available bool
-		reason    armappservice.InAvailabilityReasonType
 	}{
-		{"free", "freshname", true, ""},
-		{"taken", "usedname", false, armappservice.InAvailabilityReasonTypeAlreadyExists},
-		{"invalid", "-bad-", false, armappservice.InAvailabilityReasonTypeInvalid},
+		{"free", "", "freshname", true},
+		{"taken", armappservice.InAvailabilityReasonTypeAlreadyExists, "usedname", false},
+		{"invalid", armappservice.InAvailabilityReasonTypeInvalid, "-bad-", false},
 	}
 
 	for _, tt := range tests {

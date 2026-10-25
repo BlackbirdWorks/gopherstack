@@ -43,19 +43,8 @@ func (b *InMemoryBackend) resolve(host string) (target, bool) {
 	host = hostOnly(host)
 
 	if net.ParseIP(host) == nil {
-		if rest, ok := strings.CutSuffix(host, "."+strings.ToLower(b.domain)); ok {
-			name, scm := strings.CutSuffix(rest, "."+scmLabel)
-			if _, found := b.apps[strs.Fold(name)]; found {
-				return target{name: b.apps[strs.Fold(name)].Name, scm: scm}, true
-			}
-
-			return target{}, false
-		}
-
-		if label, _, ok := strings.Cut(host, "."); ok {
-			if a, found := b.apps[strs.Fold(label)]; found {
-				return target{name: a.Name}, true
-			}
+		if t, ok, decided := b.resolveNamed(host); decided {
+			return t, ok
 		}
 	}
 
@@ -66,6 +55,26 @@ func (b *InMemoryBackend) resolve(host string) (target, bool) {
 	}
 
 	return target{}, false
+}
+
+// resolveNamed matches host against the domain suffix, then its first label; decided is false when neither applies.
+func (b *InMemoryBackend) resolveNamed(host string) (target, bool, bool) {
+	if rest, ok := strings.CutSuffix(host, "."+strings.ToLower(b.domain)); ok {
+		name, scm := strings.CutSuffix(rest, "."+scmLabel)
+		if a, found := b.apps[strs.Fold(name)]; found {
+			return target{name: a.Name, scm: scm}, true, true
+		}
+
+		return target{}, false, true
+	}
+
+	if label, _, ok := strings.Cut(host, "."); ok {
+		if a, found := b.apps[strs.Fold(label)]; found {
+			return target{name: a.Name}, true, true
+		}
+	}
+
+	return target{}, false, false
 }
 
 // explicitAppHost reports whether host names an app's main (non-scm) site by its own label.

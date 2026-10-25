@@ -16,9 +16,14 @@ type secretsFile struct {
 	MasterKey struct {
 		Value string `json:"value"`
 	} `json:"masterKey"`
-	FunctionKeys []struct{ Name, Value string } `json:"functionKeys"`
-	SystemKeys   []struct{ Name, Value string } `json:"systemKeys"`
-	Keys         []struct{ Name, Value string } `json:"keys"`
+	FunctionKeys []secretEntry `json:"functionKeys"`
+	SystemKeys   []secretEntry `json:"systemKeys"`
+	Keys         []secretEntry `json:"keys"`
+}
+
+type secretEntry struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 func loadSecrets(t *testing.T, dir, file string) secretsFile {

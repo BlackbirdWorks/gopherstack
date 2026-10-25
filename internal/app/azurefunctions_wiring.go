@@ -113,7 +113,11 @@ func (a *azureFunctionAppsAdapter) HostKeys(name string) (azurearm.FunctionHostK
 		return azurearm.FunctionHostKeys{}, mapFunctionsError(err)
 	}
 
-	return azurearm.FunctionHostKeys{MasterKey: k.MasterKey, FunctionKeys: k.FunctionKeys, SystemKeys: k.SystemKeys}, nil
+	return azurearm.FunctionHostKeys{
+		MasterKey:    k.MasterKey,
+		FunctionKeys: k.FunctionKeys,
+		SystemKeys:   k.SystemKeys,
+	}, nil
 }
 
 func (a *azureFunctionAppsAdapter) SetHostKey(name, keyType, keyName, value string) (string, error) {
@@ -142,8 +146,8 @@ func (a *azureFunctionAppsAdapter) DeleteFunctionKey(name, fn, keyName string) e
 	return mapFunctionsError(a.backend.DeleteFunctionKey(name, fn, keyName))
 }
 
-func (a *azureFunctionAppsAdapter) PublishingCredentials(name string) (user, password, scmURI string, err error) {
-	user, password, scmURI, err = a.backend.PublishingCredentials(name)
+func (a *azureFunctionAppsAdapter) PublishingCredentials(name string) (string, string, string, error) {
+	user, password, scmURI, err := a.backend.PublishingCredentials(name)
 
 	return user, password, scmURI, mapFunctionsError(err)
 }

@@ -15,15 +15,27 @@ func TestKudu_Auth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		hdr      func(valid map[string]string) map[string]string
+		name     string
 		wantCode int
 	}{
-		{"no credentials", func(map[string]string) map[string]string { return nil }, http.StatusUnauthorized},
-		{"wrong password", func(map[string]string) map[string]string { return map[string]string{"basic": "$app:nope"} }, http.StatusUnauthorized},
-		{"wrong user", func(map[string]string) map[string]string { return map[string]string{"basic": "$other:x"} }, http.StatusUnauthorized},
-		{"publishing credentials", func(v map[string]string) map[string]string { return v }, http.StatusOK},
-		{"bearer token", func(map[string]string) map[string]string { return map[string]string{"Authorization": "Bearer abc"} }, http.StatusOK},
+		{func(map[string]string) map[string]string { return nil }, "no credentials", http.StatusUnauthorized},
+		{
+			func(map[string]string) map[string]string { return map[string]string{"basic": "$app:nope"} },
+			"wrong password",
+			http.StatusUnauthorized,
+		},
+		{
+			func(map[string]string) map[string]string { return map[string]string{"basic": "$other:x"} },
+			"wrong user",
+			http.StatusUnauthorized,
+		},
+		{func(v map[string]string) map[string]string { return v }, "publishing credentials", http.StatusOK},
+		{
+			func(map[string]string) map[string]string { return map[string]string{"Authorization": "Bearer abc"} },
+			"bearer token",
+			http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -33,7 +45,14 @@ func TestKudu_Auth(t *testing.T) {
 			e := newEnv(t, false)
 			e.backend.PutApp("app", azurefunctions.AppConfig{})
 
-			resp, _ := e.do(t, http.MethodGet, "app.scm."+testDomain, "/api/deployments", nil, tt.hdr(e.kuduAuth(t, "app")))
+			resp, _ := e.do(
+				t,
+				http.MethodGet,
+				"app.scm."+testDomain,
+				"/api/deployments",
+				nil,
+				tt.hdr(e.kuduAuth(t, "app")),
+			)
 			assert.Equal(t, tt.wantCode, resp.StatusCode)
 
 			if tt.wantCode == http.StatusUnauthorized {
@@ -47,20 +66,32 @@ func TestKudu_ZipDeploy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body     func(t *testing.T) []byte
 		name     string
 		method   string
 		path     string
-		body     func(t *testing.T) []byte
 		wantCode int
 	}{
-		{"zipdeploy", http.MethodPost, "/api/zipdeploy", helloZip, http.StatusOK},
-		{"zipdeploy put", http.MethodPut, "/api/zipdeploy", helloZip, http.StatusOK},
-		{"zipdeploy async", http.MethodPost, "/api/zipdeploy?isAsync=true", helloZip, http.StatusAccepted},
-		{"onedeploy zip", http.MethodPost, "/api/publish?type=zip", helloZip, http.StatusOK},
-		{"onedeploy other type", http.MethodPost, "/api/publish?type=static", helloZip, http.StatusBadRequest},
-		{"onedeploy no type", http.MethodPost, "/api/publish", helloZip, http.StatusBadRequest},
-		{"not a zip", http.MethodPost, "/api/zipdeploy", func(*testing.T) []byte { return []byte("plain text") }, http.StatusBadRequest},
-		{"get is rejected", http.MethodGet, "/api/zipdeploy", func(*testing.T) []byte { return nil }, http.StatusMethodNotAllowed},
+		{helloZip, "zipdeploy", http.MethodPost, "/api/zipdeploy", http.StatusOK},
+		{helloZip, "zipdeploy put", http.MethodPut, "/api/zipdeploy", http.StatusOK},
+		{helloZip, "zipdeploy async", http.MethodPost, "/api/zipdeploy?isAsync=true", http.StatusAccepted},
+		{helloZip, "onedeploy zip", http.MethodPost, "/api/publish?type=zip", http.StatusOK},
+		{helloZip, "onedeploy other type", http.MethodPost, "/api/publish?type=static", http.StatusBadRequest},
+		{helloZip, "onedeploy no type", http.MethodPost, "/api/publish", http.StatusBadRequest},
+		{
+			func(*testing.T) []byte { return []byte("plain text") },
+			"not a zip",
+			http.MethodPost,
+			"/api/zipdeploy",
+			http.StatusBadRequest,
+		},
+		{
+			func(*testing.T) []byte { return nil },
+			"get is rejected",
+			http.MethodGet,
+			"/api/zipdeploy",
+			http.StatusMethodNotAllowed,
+		},
 	}
 
 	for _, tt := range tests {

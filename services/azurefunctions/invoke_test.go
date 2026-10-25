@@ -1,6 +1,7 @@
 package azurefunctions_test
 
 import (
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -18,14 +19,14 @@ func TestInvoke_HostRouting(t *testing.T) {
 		name     string
 		host     string
 		path     string
-		wantCode int
 		wantBody string
+		wantCode int
 	}{
-		{"app label", "alpha." + testDomain + ":10012", "/api/hello", http.StatusOK, "echo /api/hello"},
-		{"other app", "beta." + testDomain, "/api/x", http.StatusOK, "echo /api/x"},
-		{"unknown app on domain", "gamma." + testDomain, "/api/x", http.StatusNotFound, "no function app"},
-		{"first label match", "alpha.example.test", "/api/y", http.StatusOK, "echo /api/y"},
-		{"ip host with two apps", "127.0.0.1", "/api/x", http.StatusNotFound, "no function app"},
+		{"app label", "alpha." + testDomain + ":10012", "/api/hello", "echo /api/hello", http.StatusOK},
+		{"other app", "beta." + testDomain, "/api/x", "echo /api/x", http.StatusOK},
+		{"unknown app on domain", "gamma." + testDomain, "/api/x", "no function app", http.StatusNotFound},
+		{"first label match", "alpha.example.test", "/api/y", "echo /api/y", http.StatusOK},
+		{"ip host with two apps", "127.0.0.1", "/api/x", "no function app", http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
@@ -73,11 +74,35 @@ func TestInvoke_ContainerSpec(t *testing.T) {
 		{"node default", "NODE|20", nil, "mcr.microsoft.com/azure-functions/node:4-node20", "node"},
 		{"node 22", "Node|22", nil, "mcr.microsoft.com/azure-functions/node:4-node22", "node"},
 		{"python", "PYTHON|3.12", nil, "mcr.microsoft.com/azure-functions/python:4-python3.12", "python"},
-		{"dotnet isolated", "DOTNET-ISOLATED|8.0", nil, "mcr.microsoft.com/azure-functions/dotnet-isolated:4-dotnet-isolated8.0", "dotnet-isolated"},
+		{
+			"dotnet isolated",
+			"DOTNET-ISOLATED|8.0",
+			nil,
+			"mcr.microsoft.com/azure-functions/dotnet-isolated:4-dotnet-isolated8.0",
+			"dotnet-isolated",
+		},
 		{"java", "JAVA|21", nil, "mcr.microsoft.com/azure-functions/java:4-java21", "java"},
-		{"powershell", "POWERSHELL|7.4", nil, "mcr.microsoft.com/azure-functions/powershell:4-powershell7.4", "powershell"},
-		{"custom handler", "", map[string]string{"FUNCTIONS_WORKER_RUNTIME": "custom"}, "mcr.microsoft.com/azure-functions/base:4", "custom"},
-		{"worker from setting", "", map[string]string{"FUNCTIONS_WORKER_RUNTIME": "node", "WEBSITE_NODE_DEFAULT_VERSION": "~18"}, "mcr.microsoft.com/azure-functions/node:4-node18", "node"},
+		{
+			"powershell",
+			"POWERSHELL|7.4",
+			nil,
+			"mcr.microsoft.com/azure-functions/powershell:4-powershell7.4",
+			"powershell",
+		},
+		{
+			"custom handler",
+			"",
+			map[string]string{"FUNCTIONS_WORKER_RUNTIME": "custom"},
+			"mcr.microsoft.com/azure-functions/base:4",
+			"custom",
+		},
+		{
+			"worker from setting",
+			"",
+			map[string]string{"FUNCTIONS_WORKER_RUNTIME": "node", "WEBSITE_NODE_DEFAULT_VERSION": "~18"},
+			"mcr.microsoft.com/azure-functions/node:4-node18",
+			"node",
+		},
 	}
 
 	for _, tt := range tests {
@@ -90,9 +115,7 @@ func TestInvoke_ContainerSpec(t *testing.T) {
 
 			if tt.settings != nil {
 				s := map[string]string{"MY_SETTING": "v1"}
-				for k, v := range tt.settings {
-					s[k] = v
-				}
+				maps.Copy(s, tt.settings)
 
 				require.NoError(t, e.backend.SetSettings("spec", s))
 			}
@@ -124,11 +147,11 @@ func TestInvoke_Unservable(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(t *testing.T, e *env)
+		name     string
 		path     string
-		wantCode int
 		wantBody string
+		wantCode int
 	}{
 		{
 			name:     "undeployed root shows welcome page",

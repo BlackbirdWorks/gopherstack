@@ -7,7 +7,7 @@ import (
 )
 
 func webPlanSKU(body map[string]any, fallback map[string]any) map[string]any {
-	if sku, ok := body["sku"].(map[string]any); ok && len(sku) > 0 {
+	if sku, ok := body[acrFieldSKU].(map[string]any); ok && len(sku) > 0 {
 		return sku
 	}
 
@@ -16,7 +16,11 @@ func webPlanSKU(body map[string]any, fallback map[string]any) map[string]any {
 	}
 
 	return map[string]any{
-		fieldName: webPlanSKUDefault, "tier": "Dynamic", "size": webPlanSKUDefault, "family": "Y", "capacity": 0,
+		fieldName:       webPlanSKUDefault,
+		cosmosFieldTier: "Dynamic",
+		"size":          webPlanSKUDefault,
+		webPlanFamily:   "Y",
+		egPropCapacity:  0,
 	}
 }
 
@@ -35,7 +39,9 @@ func (p *WebProvider) putPlan(id ResourceID, body map[string]any) (map[string]an
 		extra = map[string]any{}
 	}
 
-	for _, k := range []string{fieldProvisioningState, "status", "numberOfSites", "name", "resourceGroup", "subscription"} {
+	for _, k := range []string{
+		fieldProvisioningState, acrPropStatus, "numberOfSites", fieldName, webFieldRG, "subscription",
+	} {
 		delete(extra, k)
 	}
 
@@ -83,18 +89,32 @@ func (p *WebProvider) planBody(id ResourceID, pl *storedWebPlan) map[string]any 
 	reserved, _ := pl.Extra[webFieldReserved].(bool)
 
 	props := map[string]any{
-		fieldName: pl.Name, "status": "Ready", "subscription": id.SubscriptionID, "geoRegion": pl.Location,
-		"numberOfSites": p.planSiteCount(id), "maximumNumberOfWorkers": 200, "numberOfWorkers": 1, "isSpot": false,
-		webFieldReserved: reserved || strings.Contains(strings.ToLower(pl.Kind), "linux"), "isXenon": false, "hyperV": false,
-		"resourceGroup": pl.ResourceGroup, "perSiteScaling": false, "elasticScaleEnabled": strings.EqualFold(tier, "ElasticPremium"),
-		"zoneRedundant": false, "targetWorkerCount": 0, "targetWorkerSizeId": 0,
-		"workerTierName": nil, fieldProvisioningState: provisioningStateSucceeded,
-		"webSpace": pl.ResourceGroup + "-" + pl.Location,
+		fieldName:                pl.Name,
+		acrPropStatus:            sqlValReady,
+		"subscription":           id.SubscriptionID,
+		"geoRegion":              pl.Location,
+		"numberOfSites":          p.planSiteCount(id),
+		"maximumNumberOfWorkers": webMaxWorkers,
+		webFieldWorkers:          1,
+		"isSpot":                 false,
+		webFieldReserved: reserved ||
+			strings.Contains(strings.ToLower(pl.Kind), "linux"),
+		"isXenon":              false,
+		"hyperV":               false,
+		webFieldRG:             pl.ResourceGroup,
+		"perSiteScaling":       false,
+		"elasticScaleEnabled":  strings.EqualFold(tier, "ElasticPremium"),
+		"zoneRedundant":        false,
+		"targetWorkerCount":    0,
+		"targetWorkerSizeId":   0,
+		"workerTierName":       nil,
+		fieldProvisioningState: provisioningStateSucceeded,
+		"webSpace":             pl.ResourceGroup + "-" + pl.Location,
 	}
 
 	out := map[string]any{
 		"id": id.ARMID(), fieldName: pl.Name, fieldType: namespaceMicrosoftWeb + "/" + webPlansType,
-		fieldLocation: pl.Location, fieldTags: tagsOrEmpty(pl.Tags), "sku": pl.SKU,
+		fieldLocation: pl.Location, fieldTags: tagsOrEmpty(pl.Tags), acrFieldSKU: pl.SKU,
 		fieldProperties: ehMerge(props, pl.Extra, nil),
 	}
 

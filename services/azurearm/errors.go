@@ -47,6 +47,9 @@ var (
 	ErrAppConfigPurgeProtected   = errors.New("azurearm: app configuration store has purge protection enabled")
 	ErrAppConfigUnavailable      = errors.New("azurearm: app configuration data plane is not available")
 
+	errWebSiteName             = errors.New("site name must be 2-60 letters, digits or hyphens")
+	errWebAppSetting           = errors.New("app setting values must be strings")
+	errWebAllowRequired        = errors.New("properties.allow is required")
 	errWebPlanName             = errors.New("app service plan name must be 2-60 letters, digits or hyphens")
 	ErrWebSiteNotFound         = errors.New("azurearm: web site not found")
 	ErrWebPlanNotFound         = errors.New("azurearm: app service plan not found")
