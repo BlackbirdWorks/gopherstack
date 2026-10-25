@@ -100,7 +100,7 @@ func (h *S3Handler) applyCORSActualResponseHeaders(
 	ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string,
 ) {
 	origin := r.Header.Get("Origin")
-	if origin == "" || r.Method == http.MethodOptions {
+	if h.DisableBucketCORS || origin == "" || r.Method == http.MethodOptions {
 		return
 	}
 

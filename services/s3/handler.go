@@ -59,30 +59,26 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	notifier        NotificationDispatcher
+	kmsKeys         KMSKeyChecker
 	notifyAuth      roleauth.Authorizer
 	notificationCtx context.Context
 	Backend         StorageBackend
 	metrics         cwmetric.Sink
+	notifier        NotificationDispatcher
 	janitor         *Janitor
-	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse
-	// tokens: request-scoped bookkeeping, not backend resource state, so it
-	// stays request-local rather than moving into the backend with the rest
-	// of Object Lambda's config (see object_lambda.go).
+	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse tokens
+	// (request-scoped bookkeeping, not backend state; see object_lambda.go).
 	pendingObjectLambdaRequests sync.Map
-	DefaultRegion               string
 	Endpoint                    string
-	// PresignSecret, when non-empty, opts the handler into cryptographic
-	// verification of presigned-URL signatures (SigV4 query-auth). It is empty
-	// by default so presigned URLs are accepted on structure/expiry alone,
-	// preserving backwards-compatible behaviour.
-	PresignSecret string
+	// PresignSecret, when non-empty, enables cryptographic SigV4 verification
+	// of header and presigned-URL signatures; empty checks structure/expiry only.
+	PresignSecret  string
+	DefaultRegion  string
+	notificationMu sync.RWMutex
 	// SkipKMSKeyValidation accepts SSE-KMS key ids KMS does not know.
 	SkipKMSKeyValidation bool
 	// DisableBucketCORS ignores per-bucket CORS configuration.
 	DisableBucketCORS bool
-	kmsKeys           KMSKeyChecker
-	notificationMu    sync.RWMutex
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -348,9 +344,7 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 		// Set CORS headers on the actual response before any handler writes
 		// a status: preflight (OPTIONS) is handled separately below, this
 		// covers the GET/PUT/etc. a browser sends after a passing preflight.
-		if !h.DisableBucketCORS {
-			h.applyCORSActualResponseHeaders(ctx, sw, requestWithCtx, bucketName)
-		}
+		h.applyCORSActualResponseHeaders(ctx, sw, requestWithCtx, bucketName)
 
 		// Enforce SigV4 region scoping: if the bucket exists in a region other
 		// than the one the request signed for, return 301 PermanentRedirect with

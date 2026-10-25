@@ -51,34 +51,27 @@ type JWKSProvider interface {
 
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
-	Backend StorageBackend
+	Backend      StorageBackend
+	metrics      cwmetric.Sink
+	jwksProvider JWKSProvider
+	lambda       LambdaInvoker
+	sqsSender    SQSSender
+	snsPublisher SNSPublisher
+	awsInvoker   AWSServiceInvoker
+	authCache    *authorizerCache
+	httpClient   *http.Client
+	respCache    *responseCache
+	peers        *regionpeers.Set[Handler]
+	// selRegexpCache is a size-capped LRU: keyed by user-supplied patterns.
+	selRegexpCache *regexpCache
+	// dispatchCache is the op->handler table, built once (see dispatchOnce).
+	dispatchCache map[string]actionFn
+	// trieCache holds the immutable per-deployment routing trie, evicted on deployment delete.
+	trieCache    sync.Map
+	region       string
+	dispatchOnce sync.Once
 	// DisableCustomCORS ignores per-resource CORS configuration on executed APIs.
 	DisableCustomCORS bool
-	jwksProvider      JWKSProvider
-	lambda            LambdaInvoker
-	sqsSender         SQSSender
-	snsPublisher      SNSPublisher
-	awsInvoker        AWSServiceInvoker
-	httpClient        *http.Client
-	authCache         *authorizerCache
-	respCache         *responseCache
-	peers             *regionpeers.Set[Handler]
-	// selRegexpCache is a bounded LRU of compiled selection-pattern regexps. It is
-	// keyed by user-supplied patterns, so it must be size-capped to prevent unbounded
-	// growth.
-	selRegexpCache *regexpCache
-	// dispatchCache is the op→handler table, built exactly once (see dispatchOnce)
-	// instead of per request.
-	dispatchCache map[string]actionFn
-	// trieCache holds the per-deployment routing trie (map[deploymentID]*resourcePathTrie).
-	// A deployment's snapshot is immutable once created, so entries are built once and
-	// evicted only when their deployment is deleted (see deleteDeploymentAction /
-	// deleteRestAPIAction).
-	trieCache sync.Map
-	metrics   cwmetric.Sink
-	region    string
-	// dispatchOnce guards the one-time build of dispatchCache.
-	dispatchOnce sync.Once
 }
 
 // EnableRegions makes h serve every other region through lazily built per-region

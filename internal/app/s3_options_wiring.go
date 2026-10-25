@@ -33,6 +33,6 @@ func wireS3Options(appCtx *service.AppContext, byName map[string]service.Registe
 	}
 
 	if apigw, ok := byName["APIGateway"].(*apigwbackend.Handler); ok && cli != nil {
-		apigw.DisableCustomCORS = cli.CORS.DisableCustomAPIGateway
+		apigw.DisableCustomCORS = cli.CORS.DisableAPIGWCORS
 	}
 }

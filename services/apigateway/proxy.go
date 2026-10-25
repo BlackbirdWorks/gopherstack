@@ -232,18 +232,8 @@ func (h *Handler) proxyHandler(apiID, stageName string) http.HandlerFunc {
 			return
 		}
 
-		// Handle CORS preflight OPTIONS request.
-		if r.Method == http.MethodOptions {
-			if resource.CorsConfiguration != nil && !h.DisableCustomCORS {
-				h.writeCORSPreflight(w, r, resource.CorsConfiguration)
-
-				return
-			}
-		}
-
-		// Attach CORS headers to the response when configured.
-		if resource.CorsConfiguration != nil && !h.DisableCustomCORS {
-			h.addCORSHeaders(w, r, resource.CorsConfiguration)
+		if h.applyResourceCORS(w, r, resource) {
+			return
 		}
 
 		method := deployedResourceMethod(resource, r.Method)

@@ -141,13 +141,19 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			want: map[string]string{},
 		},
 		{
-			name: "s3_native_validate_wins", environ: []string{"S3_SKIP_SIGNATURE_VALIDATION=0", "GOPHERSTACK_S3_VALIDATE_SIGNATURES=false"},
+			name: "s3_native_validate_wins",
+			environ: []string{
+				"S3_SKIP_SIGNATURE_VALIDATION=0", "GOPHERSTACK_S3_VALIDATE_SIGNATURES=false",
+			},
 			want: map[string]string{},
 		},
 		{
-			name:    "s3_and_cors_toggles_handled",
-			environ: []string{"S3_VALIDATE_SIGNATURES=1", "S3_SKIP_KMS_KEY_VALIDATION=1", "DISABLE_CUSTOM_CORS_S3=1", "DISABLE_CUSTOM_CORS_APIGATEWAY=1"},
-			want:    map[string]string{},
+			name: "s3_and_cors_toggles_handled",
+			environ: []string{
+				"S3_VALIDATE_SIGNATURES=1", "S3_SKIP_KMS_KEY_VALIDATION=1",
+				"DISABLE_CUSTOM_CORS_S3=1", "DISABLE_CUSTOM_CORS_APIGATEWAY=1",
+			},
+			want: map[string]string{},
 		},
 		{
 			name: "sqs_toggles_off",

@@ -18,8 +18,8 @@ func TestProxyCustomCORSToggle(t *testing.T) {
 	tests := []struct {
 		name       string
 		method     string
-		disable    bool
 		wantOrigin string
+		disable    bool
 	}{
 		{name: "preflight enabled", method: http.MethodOptions, wantOrigin: "https://example.com"},
 		{name: "preflight disabled", method: http.MethodOptions, disable: true},
@@ -52,7 +52,13 @@ func TestProxyCustomCORSToggle(t *testing.T) {
 				RestAPIID: api.ID, ResourceID: rootID, HTTPMethod: "GET", AuthorizationType: "NONE",
 			})
 			_, _ = backend.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
-			_, _ = backend.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{})
+			_, _ = backend.PutIntegrationResponse(
+				api.ID,
+				rootID,
+				"GET",
+				"200",
+				apigateway.PutIntegrationResponseInput{},
+			)
 			depl, _ := backend.CreateDeployment(api.ID, "prod", "v1")
 			_, _ = backend.CreateStage(apigateway.CreateStageInput{
 				RestAPIID: api.ID, StageName: "prod", DeploymentID: depl.ID,

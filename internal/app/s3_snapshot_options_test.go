@@ -38,7 +38,7 @@ func TestS3SnapshotOptionEnv(t *testing.T) {
 				assert.False(t, c.S3.SkipKMSKeyValidation)
 				assert.False(t, c.S3.ValidateSignatures)
 				assert.False(t, c.S3.DisableCustomCORS)
-				assert.False(t, c.CORS.DisableCustomAPIGateway)
+				assert.False(t, c.CORS.DisableAPIGWCORS)
 				assert.Equal(t, "startup", c.PersistModes.PersistLoad)
 			},
 		},
@@ -55,7 +55,7 @@ func TestS3SnapshotOptionEnv(t *testing.T) {
 				assert.True(t, c.S3.SkipKMSKeyValidation)
 				assert.True(t, c.S3.ValidateSignatures)
 				assert.True(t, c.S3.DisableCustomCORS)
-				assert.True(t, c.CORS.DisableCustomAPIGateway)
+				assert.True(t, c.CORS.DisableAPIGWCORS)
 			},
 		},
 		{
@@ -223,9 +223,9 @@ func TestS3SSEKMSKeyValidationEndToEnd(t *testing.T) {
 
 	tests := []struct {
 		name    string
+		wantErr string
 		skip    bool
 		useReal bool
-		wantErr string
 	}{
 		{name: "real key accepted", useReal: true},
 		{name: "unknown key rejected", wantErr: "KMS.NotFoundException"},

@@ -21,11 +21,16 @@ func TestBucketCORSDisableToggle(t *testing.T) {
 	tests := []struct {
 		name          string
 		method        string
-		disable       bool
-		wantPreflight int
 		wantOrigin    string
+		wantPreflight int
+		disable       bool
 	}{
-		{name: "preflight on", method: http.MethodOptions, wantPreflight: http.StatusOK, wantOrigin: "https://example.com"},
+		{
+			name:          "preflight on",
+			method:        http.MethodOptions,
+			wantPreflight: http.StatusOK,
+			wantOrigin:    "https://example.com",
+		},
 		{name: "preflight off", method: http.MethodOptions, disable: true, wantPreflight: http.StatusForbidden},
 		{name: "actual on", method: http.MethodGet, wantPreflight: http.StatusOK, wantOrigin: "https://example.com"},
 		{name: "actual off", method: http.MethodGet, disable: true, wantPreflight: http.StatusOK},
@@ -42,7 +47,11 @@ func TestBucketCORSDisableToggle(t *testing.T) {
 			corsXML := `<CORSConfiguration><CORSRule><AllowedMethod>GET</AllowedMethod>` +
 				`<AllowedOrigin>https://example.com</AllowedOrigin></CORSRule></CORSConfiguration>`
 			rec := httptest.NewRecorder()
-			serveS3Handler(handler, rec, httptest.NewRequest(http.MethodPut, "/cors-toggle?cors", strings.NewReader(corsXML)))
+			serveS3Handler(
+				handler,
+				rec,
+				httptest.NewRequest(http.MethodPut, "/cors-toggle?cors", strings.NewReader(corsXML)),
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			path := "/cors-toggle"
@@ -71,14 +80,26 @@ func TestSSEKMSKeyValidation(t *testing.T) {
 		name     string
 		keyID    string
 		algo     string
+		wantErr  string
+		wantCode int
 		skip     bool
 		noKMS    bool
-		wantCode int
-		wantErr  string
 	}{
 		{name: "known key", keyID: known, algo: "aws:kms", wantCode: http.StatusOK},
-		{name: "unknown key", keyID: "missing", algo: "aws:kms", wantCode: http.StatusBadRequest, wantErr: "KMS.NotFoundException"},
-		{name: "unknown dsse key", keyID: "missing", algo: "aws:kms:dsse", wantCode: http.StatusBadRequest, wantErr: "KMS.NotFoundException"},
+		{
+			name:     "unknown key",
+			keyID:    "missing",
+			algo:     "aws:kms",
+			wantCode: http.StatusBadRequest,
+			wantErr:  "KMS.NotFoundException",
+		},
+		{
+			name:     "unknown dsse key",
+			keyID:    "missing",
+			algo:     "aws:kms:dsse",
+			wantCode: http.StatusBadRequest,
+			wantErr:  "KMS.NotFoundException",
+		},
 		{name: "unknown key skipped", keyID: "missing", algo: "aws:kms", skip: true, wantCode: http.StatusOK},
 		{name: "no kms wired", keyID: "missing", algo: "aws:kms", noKMS: true, wantCode: http.StatusOK},
 		{name: "aes256 ignores key id", keyID: "missing", algo: "AES256", wantCode: http.StatusOK},

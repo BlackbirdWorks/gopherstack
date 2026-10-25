@@ -17,11 +17,11 @@ const defaultFlushInterval = 5 * time.Second
 // PersistModeSettings selects persistence modes (effective only with --persist).
 type PersistModeSettings struct {
 	PersistMode          string        `name:"persist-mode"           env:"GOPHERSTACK_PERSIST_MODE"           help:"Persistence mode: snapshot (debounced per-request), hybrid (periodic flush of changed services), shutdown (save only at graceful shutdown) or manual (save only via POST /_gopherstack/persist/save)." default:"snapshot" enum:"snapshot,hybrid,shutdown,manual"` //nolint:lll // config struct tags are intentionally verbose
-	PersistLoad          string        `name:"persist-load"           env:"GOPHERSTACK_PERSIST_LOAD"           help:"When persisted state loads: startup (default), request (lazily per service on its first request) or manual (only via POST /_gopherstack/persist/load)." default:"startup" enum:"startup,request,manual"`                                                          //nolint:lll // config struct tags are intentionally verbose
+	PersistLoad          string        `name:"persist-load"           env:"GOPHERSTACK_PERSIST_LOAD"           help:"When persisted state loads: startup (default), request (lazily per service on its first request) or manual (only via POST /_gopherstack/persist/load)."                                                default:"startup"  enum:"startup,request,manual"`          //nolint:lll // config struct tags are intentionally verbose
 	PersistServices      []string      `name:"persist-services"       env:"GOPHERSTACK_PERSIST_SERVICES"       help:"Only persist these services (comma-separated, case-insensitive). Empty = all."`                                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
 	PersistExclude       []string      `name:"persist-exclude"        env:"GOPHERSTACK_PERSIST_EXCLUDE"        help:"Do not persist these services (comma-separated, case-insensitive). Applied after --persist-services."`                                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
 	PersistServiceMode   []string      `name:"persist-service-mode"   env:"GOPHERSTACK_PERSIST_SERVICE_MODE"   help:"Per-service mode override as service=mode (comma-separated), e.g. s3=hybrid,sqs=snapshot."`                                                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	PersistFlushInterval time.Duration `name:"persist-flush-interval" env:"GOPHERSTACK_PERSIST_FLUSH_INTERVAL" help:"Hybrid mode flush interval; worst-case data loss on a crash."                                         default:"5s"`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	PersistFlushInterval time.Duration `name:"persist-flush-interval" env:"GOPHERSTACK_PERSIST_FLUSH_INTERVAL" help:"Hybrid mode flush interval; worst-case data loss on a crash."                                                                                                                                          default:"5s"`                                              //nolint:lll // config struct tags are intentionally verbose
 }
 
 // persistRuntime owns the background hybrid flusher.
@@ -165,13 +165,13 @@ func isReadOp(r *http.Request) bool {
 // buildPersistSaveHandler returns POST /_gopherstack/persist/save: write every service to the store now.
 func buildPersistSaveHandler(m *persistence.Manager) echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]any{"status": "ok", "saved": m.SaveNow(c.Request().Context())})
+		return c.JSON(http.StatusOK, map[string]any{podKeyStatus: "ok", "saved": m.SaveNow(c.Request().Context())})
 	}
 }
 
 // buildPersistLoadHandler returns POST /_gopherstack/persist/load: restore every service from the store now.
 func buildPersistLoadHandler(m *persistence.Manager) echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]any{"status": "ok", "loaded": m.LoadNow(c.Request().Context())})
+		return c.JSON(http.StatusOK, map[string]any{podKeyStatus: "ok", "loaded": m.LoadNow(c.Request().Context())})
 	}
 }
