@@ -18,6 +18,8 @@ const (
 	BatchMerge
 	// BatchDelete deletes an existing entity.
 	BatchDelete
+	// BatchRetrieve reads one entity; it is only valid as the sole operation of a batch, outside any changeset.
+	BatchRetrieve
 )
 
 // BatchOp is one operation of an atomic batch against a single table.
