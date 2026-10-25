@@ -30,9 +30,7 @@ func errAborted(format string, a ...any) error {
 	return status.Error(codes.Aborted, fmt.Sprintf(format, a...))
 }
 
-func errUnimplemented(format string, a ...any) error {
-	return status.Error(codes.Unimplemented, fmt.Sprintf(format, a...))
-}
+func errUnimplemented(msg string) error { return status.Error(codes.Unimplemented, msg) }
 
 func errInstanceNotFound(name string) error { return errNotFound("Instance %q not found.", name) }
 

@@ -86,41 +86,54 @@ func (t *tableRec) validateMutations(muts []*btpb.Mutation) error {
 func (t *tableRec) validateMutation(m *btpb.Mutation) error {
 	switch mt := m.GetMutation().(type) {
 	case *btpb.Mutation_SetCell_:
-		sc := mt.SetCell
-		if err := t.checkFamily(sc.GetFamilyName()); err != nil {
-			return err
-		}
-
-		if len(sc.GetColumnQualifier()) > maxQualLen {
-			return errInvalid("Column qualifier is too long (maximum %d bytes).", maxQualLen)
-		}
-
-		if len(sc.GetValue()) > maxCellBytes {
-			return errInvalid("Cell value is too large (maximum %d bytes).", maxCellBytes)
-		}
-
-		ts := sc.GetTimestampMicros()
-		if ts < serverTime || (ts != serverTime && ts%t.gran() != 0) {
-			return errInvalid("Timestamp granularity mismatch. Expected a multiple of %d microseconds, got %d.", t.gran(), ts)
-		}
+		return t.validateSetCell(mt.SetCell)
 	case *btpb.Mutation_DeleteFromColumn_:
-		dc := mt.DeleteFromColumn
-		if err := t.checkFamily(dc.GetFamilyName()); err != nil {
-			return err
-		}
-
-		tr := dc.GetTimeRange()
-		if tr.GetStartTimestampMicros() < 0 || tr.GetEndTimestampMicros() < 0 ||
-			(tr.GetEndTimestampMicros() != 0 && tr.GetStartTimestampMicros() >= tr.GetEndTimestampMicros()) {
-			return errInvalid("Invalid time range in DeleteFromColumn.")
-		}
+		return t.validateDeleteFromColumn(mt.DeleteFromColumn)
 	case *btpb.Mutation_DeleteFromFamily_:
 		return t.checkFamily(mt.DeleteFromFamily.GetFamilyName())
 	case *btpb.Mutation_DeleteFromRow_:
+		return nil
 	case *btpb.Mutation_AddToCell_, *btpb.Mutation_MergeToCell_:
 		return errUnimplemented("Aggregate mutations are not supported by this emulator.")
 	default:
 		return errInvalid("Mutation has no operation set.")
+	}
+}
+
+func (t *tableRec) validateSetCell(sc *btpb.Mutation_SetCell) error {
+	if err := t.checkFamily(sc.GetFamilyName()); err != nil {
+		return err
+	}
+
+	if len(sc.GetColumnQualifier()) > maxQualLen {
+		return errInvalid("Column qualifier is too long (maximum %d bytes).", maxQualLen)
+	}
+
+	if len(sc.GetValue()) > maxCellBytes {
+		return errInvalid("Cell value is too large (maximum %d bytes).", maxCellBytes)
+	}
+
+	ts := sc.GetTimestampMicros()
+	if ts < serverTime || (ts != serverTime && ts%t.gran() != 0) {
+		return errInvalid(
+			"Timestamp granularity mismatch. Expected a multiple of %d microseconds, got %d.",
+			t.gran(),
+			ts,
+		)
+	}
+
+	return nil
+}
+
+func (t *tableRec) validateDeleteFromColumn(dc *btpb.Mutation_DeleteFromColumn) error {
+	if err := t.checkFamily(dc.GetFamilyName()); err != nil {
+		return err
+	}
+
+	tr := dc.GetTimeRange()
+	if tr.GetStartTimestampMicros() < 0 || tr.GetEndTimestampMicros() < 0 ||
+		(tr.GetEndTimestampMicros() != 0 && tr.GetStartTimestampMicros() >= tr.GetEndTimestampMicros()) {
+		return errInvalid("Invalid time range in DeleteFromColumn.")
 	}
 
 	return nil
@@ -141,7 +154,8 @@ func (b *InMemoryBackend) applyMutations(t *tableRec, key string, muts []*btpb.M
 				ts = serverTS
 			}
 
-			t.row(key).set(sc.GetFamilyName(), string(sc.GetColumnQualifier()), ts, append([]byte(nil), sc.GetValue()...))
+			t.row(key).
+				set(sc.GetFamilyName(), string(sc.GetColumnQualifier()), ts, append([]byte(nil), sc.GetValue()...))
 		case *btpb.Mutation_DeleteFromColumn_:
 			dc := mt.DeleteFromColumn
 			if r, ok := t.rows[key]; ok {

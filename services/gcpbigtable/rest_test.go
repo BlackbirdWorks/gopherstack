@@ -37,8 +37,12 @@ func TestRESTFlow(t *testing.T) {
 			Status: 200,
 		},
 		{
-			Name: "read rows streams an array", Method: http.MethodPost, Path: inst + "/tables/t:readRows",
-			Body: `{}`, Status: 200, Contains: []string{`"rowKey":"cm93MQ=="`, `"value":"dmFs"`, `"commitRow":true`, `[`},
+			Name:     "read rows streams an array",
+			Method:   http.MethodPost,
+			Path:     inst + "/tables/t:readRows",
+			Body:     `{}`,
+			Status:   200,
+			Contains: []string{`"rowKey":"cm93MQ=="`, `"value":"dmFs"`, `"commitRow":true`, `[`},
 		},
 		{
 			Name: "check and mutate", Method: http.MethodPost, Path: inst + "/tables/t:checkAndMutateRow",

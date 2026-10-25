@@ -10,8 +10,6 @@ var (
 	clusterIDRe  = regexp.MustCompile(`^[a-z][-a-z0-9]*$`)
 	profileIDRe  = regexp.MustCompile(`^[a-zA-Z0-9_.~-]+$`)
 	tableIDRe    = regexp.MustCompile(`^[_a-zA-Z0-9][-_.a-zA-Z0-9]*$`)
-	familyIDRe   = tableIDRe
-	backupIDRe   = tableIDRe
 	labelRe      = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 	locationRe   = regexp.MustCompile(`^projects/([^/]+)/locations/([^/]+)$`)
 )
@@ -67,7 +65,10 @@ func parseInstance(name string) (string, string, error) {
 func parseCluster(name string) (string, error) {
 	ids, ok := parseRes(name, "projects", "instances", "clusters")
 	if !ok {
-		return "", errInvalid("Invalid cluster name %q: want projects/{project}/instances/{instance}/clusters/{cluster}.", name)
+		return "", errInvalid(
+			"Invalid cluster name %q: want projects/{project}/instances/{instance}/clusters/{cluster}.",
+			name,
+		)
 	}
 
 	return "projects/" + ids[0] + "/instances/" + ids[1], nil
@@ -76,7 +77,10 @@ func parseCluster(name string) (string, error) {
 func parseTable(name string) (string, string, error) {
 	ids, ok := parseRes(name, "projects", "instances", "tables")
 	if !ok {
-		return "", "", errInvalid("Invalid table name %q: want projects/{project}/instances/{instance}/tables/{table}.", name)
+		return "", "", errInvalid(
+			"Invalid table name %q: want projects/{project}/instances/{instance}/tables/{table}.",
+			name,
+		)
 	}
 
 	return instanceName(ids[0], ids[1]), ids[2], nil
@@ -91,13 +95,13 @@ func parseProfile(name string) (string, string, error) {
 	return instanceName(ids[0], ids[1]), ids[2], nil
 }
 
-func parseBackup(name string) (string, string, string, error) {
+func parseBackup(name string) (string, error) {
 	ids, ok := parseRes(name, "projects", "instances", "clusters", "backups")
 	if !ok {
-		return "", "", "", errInvalid("Invalid backup name %q.", name)
+		return "", errInvalid("Invalid backup name %q.", name)
 	}
 
-	return instanceName(ids[0], ids[1]), ids[2], ids[3], nil
+	return instanceName(ids[0], ids[1]), nil
 }
 
 func instanceName(project, id string) string { return "projects/" + project + "/instances/" + id }

@@ -10,8 +10,8 @@ import (
 
 // ReadResult is the outcome of one ReadRows call.
 type ReadResult struct {
-	Rows  []*ResultRow
 	Stats *btpb.ReadIterationStats
+	Rows  []*ResultRow
 }
 
 // ResultRow is one scanned row; a row the filter emptied has no cells.
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) ReadRows(req *btpb.ReadRowsRequest) (*ReadResult, erro
 	res := &ReadResult{Stats: &btpb.ReadIterationStats{}}
 
 	for _, k := range keys {
-		if limit := int64(req.GetRowsLimit()); limit > 0 && res.Stats.RowsReturnedCount >= limit {
+		if limit := req.GetRowsLimit(); limit > 0 && res.Stats.GetRowsReturnedCount() >= limit {
 			break
 		}
 

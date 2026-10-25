@@ -20,7 +20,7 @@ const (
 )
 
 func (b *InMemoryBackend) backupLocked(name string) (*instRec, *backupRec, error) {
-	inst, _, _, err := parseBackup(name)
+	inst, err := parseBackup(name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -53,7 +53,7 @@ func (b *InMemoryBackend) validateExpiry(ts *timestamppb.Timestamp) error {
 
 // CreateBackup snapshots a table into a backup stored in a cluster.
 func (b *InMemoryBackend) CreateBackup(in *adminpb.CreateBackupRequest) (*longrunningpb.Operation, error) {
-	if !backupIDRe.MatchString(in.GetBackupId()) || len(in.GetBackupId()) > maxTableIDLen {
+	if !tableIDRe.MatchString(in.GetBackupId()) || len(in.GetBackupId()) > maxTableIDLen {
 		return nil, errInvalid("Invalid backup id %q.", in.GetBackupId())
 	}
 

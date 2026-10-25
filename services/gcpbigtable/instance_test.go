@@ -85,7 +85,11 @@ func TestCreateInstanceErrors(t *testing.T) {
 		{func(c *bigtable.InstanceConf) { c.DisplayName = "" }, "missing display name", codes.InvalidArgument},
 		{func(c *bigtable.InstanceConf) { c.ClusterId = "Bad_Cluster" }, "bad cluster id", codes.InvalidArgument},
 		{func(c *bigtable.InstanceConf) { c.NumNodes = 0 }, "production needs nodes", codes.InvalidArgument},
-		{func(c *bigtable.InstanceConf) { c.Labels = map[string]string{"UPPER": "x"} }, "bad label key", codes.InvalidArgument},
+		{
+			func(c *bigtable.InstanceConf) { c.Labels = map[string]string{"UPPER": "x"} },
+			"bad label key",
+			codes.InvalidArgument,
+		},
 		{func(c *bigtable.InstanceConf) {
 			c.AutoscalingConfig = &bigtable.AutoscalingConfig{MinNodes: 3, MaxNodes: 1, CPUTargetPercent: 50}
 		}, "autoscaling min above max", codes.InvalidArgument},
@@ -172,19 +176,17 @@ func TestClusters(t *testing.T) {
 	assert.Nil(t, got.AutoscalingConfig, "a manual size removes autoscaling")
 	assert.Equal(t, 3, got.ServeNodes)
 
-	t.Run("errors", func(t *testing.T) {
-		assert.Equal(t, codes.AlreadyExists, code(e.iac.CreateCluster(ctx, &bigtable.ClusterConfig{
-			InstanceID: instance, ClusterID: "second", Zone: "europe-west1-b", NumNodes: 1, StorageType: bigtable.SSD,
-		})))
-		assert.Equal(t, codes.InvalidArgument, code(e.iac.CreateCluster(ctx, &bigtable.ClusterConfig{
-			InstanceID: instance, ClusterID: "third", Zone: zone, NumNodes: 1, StorageType: bigtable.SSD,
-		})), "one cluster per location")
-		assert.Equal(t, codes.NotFound, code(e.iac.CreateCluster(ctx, &bigtable.ClusterConfig{
-			InstanceID: "nope-inst", ClusterID: "third", Zone: zone, NumNodes: 1, StorageType: bigtable.SSD,
-		})))
-		assert.Equal(t, codes.NotFound, code(e.iac.UpdateCluster(ctx, instance, "ghost", 1)))
-		assert.Equal(t, codes.InvalidArgument, code(e.iac.UpdateCluster(ctx, instance, "second", 0)))
-	})
+	assert.Equal(t, codes.AlreadyExists, code(e.iac.CreateCluster(ctx, &bigtable.ClusterConfig{
+		InstanceID: instance, ClusterID: "second", Zone: "europe-west1-b", NumNodes: 1, StorageType: bigtable.SSD,
+	})))
+	assert.Equal(t, codes.InvalidArgument, code(e.iac.CreateCluster(ctx, &bigtable.ClusterConfig{
+		InstanceID: instance, ClusterID: "third", Zone: zone, NumNodes: 1, StorageType: bigtable.SSD,
+	})), "one cluster per location")
+	assert.Equal(t, codes.NotFound, code(e.iac.CreateCluster(ctx, &bigtable.ClusterConfig{
+		InstanceID: "nope-inst", ClusterID: "third", Zone: zone, NumNodes: 1, StorageType: bigtable.SSD,
+	})))
+	assert.Equal(t, codes.NotFound, code(e.iac.UpdateCluster(ctx, instance, "ghost", 1)))
+	assert.Equal(t, codes.InvalidArgument, code(e.iac.UpdateCluster(ctx, instance, "second", 0)))
 
 	require.NoError(t, e.iac.DeleteCluster(ctx, instance, "second"))
 	assert.Equal(t, codes.FailedPrecondition, code(e.iac.DeleteCluster(ctx, instance, cluster)), "last cluster stays")
@@ -247,20 +249,18 @@ func TestAppProfiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, got.GetMultiClusterRoutingUseAny())
 
-	t.Run("errors", func(t *testing.T) {
-		_, cerr := e.iac.CreateAppProfile(ctx, bigtable.ProfileConf{
-			ProfileID: "p1", InstanceID: instance, RoutingConfig: &bigtable.MultiClusterRoutingUseAnyConfig{},
-		})
-		assert.Equal(t, codes.AlreadyExists, code(cerr))
-
-		_, cerr = e.iac.CreateAppProfile(ctx, bigtable.ProfileConf{
-			ProfileID: "p3", InstanceID: instance, RoutingConfig: &bigtable.SingleClusterRoutingConfig{ClusterID: "ghost"},
-		})
-		assert.Equal(t, codes.InvalidArgument, code(cerr))
-
-		_, cerr = e.iac.GetAppProfile(ctx, instance, "ghost")
-		assert.Equal(t, codes.NotFound, code(cerr))
+	_, cerr := e.iac.CreateAppProfile(ctx, bigtable.ProfileConf{
+		ProfileID: "p1", InstanceID: instance, RoutingConfig: &bigtable.MultiClusterRoutingUseAnyConfig{},
 	})
+	assert.Equal(t, codes.AlreadyExists, code(cerr))
+
+	_, cerr = e.iac.CreateAppProfile(ctx, bigtable.ProfileConf{
+		ProfileID: "p3", InstanceID: instance, RoutingConfig: &bigtable.SingleClusterRoutingConfig{ClusterID: "ghost"},
+	})
+	assert.Equal(t, codes.InvalidArgument, code(cerr))
+
+	_, cerr = e.iac.GetAppProfile(ctx, instance, "ghost")
+	assert.Equal(t, codes.NotFound, code(cerr))
 
 	require.NoError(t, e.iac.DeleteAppProfile(ctx, instance, "p2"))
 	assert.Equal(t, codes.NotFound, code(e.iac.DeleteAppProfile(ctx, instance, "p2")))
@@ -278,7 +278,10 @@ func TestAppProfileRouting(t *testing.T) {
 		"single-notx":   &bigtable.SingleClusterRoutingConfig{ClusterID: cluster},
 		"multi-cluster": &bigtable.MultiClusterRoutingUseAnyConfig{},
 	} {
-		_, err := e.iac.CreateAppProfile(ctx, bigtable.ProfileConf{ProfileID: id, InstanceID: instance, RoutingConfig: rc})
+		_, err := e.iac.CreateAppProfile(
+			ctx,
+			bigtable.ProfileConf{ProfileID: id, InstanceID: instance, RoutingConfig: rc},
+		)
 		require.NoError(t, err)
 	}
 

@@ -72,10 +72,22 @@ func seedFilterTable(t *testing.T) *bigtable.Table {
 	t.Helper()
 
 	tbl := newEnv(t).seeded(t, "t", "cf1", "cf2")
-	put(t, tbl,
-		seedCell{"r1", "cf1", "a", "a1", 1000}, seedCell{"r1", "cf1", "a", "a2", 2000}, seedCell{"r1", "cf1", "a", "a3", 3000},
-		seedCell{"r1", "cf1", "b", "b1", 1000}, seedCell{"r1", "cf2", "c", "c1", 1000},
-		seedCell{"r2", "cf1", "a", "x1", 1000}, seedCell{"r2", "cf2", "c", "c2", 2000},
+	put(
+		t,
+		tbl,
+		seedCell{
+			"r1",
+			"cf1",
+			"a",
+			"a1",
+			1000,
+		},
+		seedCell{"r1", "cf1", "a", "a2", 2000},
+		seedCell{"r1", "cf1", "a", "a3", 3000},
+		seedCell{"r1", "cf1", "b", "b1", 1000},
+		seedCell{"r1", "cf2", "c", "c1", 1000},
+		seedCell{"r2", "cf1", "a", "x1", 1000},
+		seedCell{"r2", "cf2", "c", "c2", 2000},
 		seedCell{"r3", "cf1", "b", "b3", 1000},
 	)
 
@@ -106,10 +118,23 @@ func TestReadRowsFilters(t *testing.T) {
 		{bigtable.ColumnFilter("a"), "column", []string{
 			"r1|cf1:a|3000|a3", "r1|cf1:a|2000|a2", "r1|cf1:a|1000|a1", "r2|cf1:a|1000|x1",
 		}},
-		{bigtable.ValueFilter("a."), "value regex", []string{"r1|cf1:a|3000|a3", "r1|cf1:a|2000|a2", "r1|cf1:a|1000|a1"}},
-		{bigtable.LatestNFilter(1), "latest one", []string{
-			"r1|cf1:a|3000|a3", "r1|cf1:b|1000|b1", "r1|cf2:c|1000|c1", "r2|cf1:a|1000|x1", "r2|cf2:c|2000|c2", "r3|cf1:b|1000|b3",
-		}},
+		{
+			bigtable.ValueFilter("a."),
+			"value regex",
+			[]string{"r1|cf1:a|3000|a3", "r1|cf1:a|2000|a2", "r1|cf1:a|1000|a1"},
+		},
+		{
+			bigtable.LatestNFilter(1),
+			"latest one",
+			[]string{
+				"r1|cf1:a|3000|a3",
+				"r1|cf1:b|1000|b1",
+				"r1|cf2:c|1000|c1",
+				"r2|cf1:a|1000|x1",
+				"r2|cf2:c|2000|c2",
+				"r3|cf1:b|1000|b3",
+			},
+		},
 		{bigtable.LatestNFilter(2), "latest two", []string{
 			"r1|cf1:a|3000|a3", "r1|cf1:a|2000|a2", "r1|cf1:b|1000|b1", "r1|cf2:c|1000|c1",
 			"r2|cf1:a|1000|x1", "r2|cf2:c|2000|c2", "r3|cf1:b|1000|b3",
@@ -127,39 +152,82 @@ func TestReadRowsFilters(t *testing.T) {
 		{bigtable.ChainFilters(bigtable.FamilyFilter("cf2"), bigtable.StripValueFilter()), "strip value", []string{
 			"r1|cf2:c|1000|", "r2|cf2:c|2000|",
 		}},
-		{bigtable.ChainFilters(bigtable.FamilyFilter("cf1"), bigtable.LatestNFilter(1)), "chain family then latest", []string{
-			"r1|cf1:a|3000|a3", "r1|cf1:b|1000|b1", "r2|cf1:a|1000|x1", "r3|cf1:b|1000|b3",
-		}},
-		{bigtable.InterleaveFilters(bigtable.ColumnFilter("a"), bigtable.ColumnFilter("b")), "interleave columns", []string{
-			"r1|cf1:a|3000|a3", "r1|cf1:a|2000|a2", "r1|cf1:a|1000|a1", "r1|cf1:b|1000|b1", "r2|cf1:a|1000|x1", "r3|cf1:b|1000|b3",
-		}},
 		{
-			bigtable.ChainFilters(bigtable.RowKeyFilter("r3"), bigtable.InterleaveFilters(bigtable.PassAllFilter(), bigtable.PassAllFilter())),
+			bigtable.ChainFilters(bigtable.FamilyFilter("cf1"), bigtable.LatestNFilter(1)),
+			"chain family then latest",
+			[]string{
+				"r1|cf1:a|3000|a3", "r1|cf1:b|1000|b1", "r2|cf1:a|1000|x1", "r3|cf1:b|1000|b3",
+			},
+		},
+		{
+			bigtable.InterleaveFilters(bigtable.ColumnFilter("a"), bigtable.ColumnFilter("b")),
+			"interleave columns",
+			[]string{
+				"r1|cf1:a|3000|a3",
+				"r1|cf1:a|2000|a2",
+				"r1|cf1:a|1000|a1",
+				"r1|cf1:b|1000|b1",
+				"r2|cf1:a|1000|x1",
+				"r3|cf1:b|1000|b3",
+			},
+		},
+		{
+			bigtable.ChainFilters(
+				bigtable.RowKeyFilter("r3"),
+				bigtable.InterleaveFilters(bigtable.PassAllFilter(), bigtable.PassAllFilter()),
+			),
 			"interleave keeps duplicates",
 			[]string{"r3|cf1:b|1000|b3", "r3|cf1:b|1000|b3"},
 		},
 		{
-			bigtable.ConditionFilter(bigtable.ValueFilter("c2"), bigtable.LabelFilter("hit"), bigtable.LabelFilter("miss")),
+			bigtable.ConditionFilter(
+				bigtable.ValueFilter("c2"),
+				bigtable.LabelFilter("hit"),
+				bigtable.LabelFilter("miss"),
+			),
 			"condition labels",
 			[]string{
-				"r1|cf1:a|3000|a3|miss", "r1|cf1:a|2000|a2|miss", "r1|cf1:a|1000|a1|miss", "r1|cf1:b|1000|b1|miss", "r1|cf2:c|1000|c1|miss",
-				"r2|cf1:a|1000|x1|hit", "r2|cf2:c|2000|c2|hit", "r3|cf1:b|1000|b3|miss",
+				"r1|cf1:a|3000|a3|miss",
+				"r1|cf1:a|2000|a2|miss",
+				"r1|cf1:a|1000|a1|miss",
+				"r1|cf1:b|1000|b1|miss",
+				"r1|cf2:c|1000|c1|miss",
+				"r2|cf1:a|1000|x1|hit",
+				"r2|cf2:c|2000|c2|hit",
+				"r3|cf1:b|1000|b3|miss",
 			},
 		},
-		{bigtable.ConditionFilter(bigtable.ValueFilter("c2"), bigtable.PassAllFilter(), nil), "condition without false branch", []string{
-			"r2|cf1:a|1000|x1", "r2|cf2:c|2000|c2",
-		}},
+		{
+			bigtable.ConditionFilter(bigtable.ValueFilter("c2"), bigtable.PassAllFilter(), nil),
+			"condition without false branch",
+			[]string{
+				"r2|cf1:a|1000|x1", "r2|cf2:c|2000|c2",
+			},
+		},
 		{bigtable.RowKeyFilter("r[12]"), "row key regex", []string{
 			"r1|cf1:a|3000|a3", "r1|cf1:a|2000|a2", "r1|cf1:a|1000|a1", "r1|cf1:b|1000|b1", "r1|cf2:c|1000|c1",
 			"r2|cf1:a|1000|x1", "r2|cf2:c|2000|c2",
 		}},
-		{bigtable.ValueRangeFilter([]byte("b"), []byte("c")), "value range", []string{"r1|cf1:b|1000|b1", "r3|cf1:b|1000|b3"}},
+		{
+			bigtable.ValueRangeFilter([]byte("b"), []byte("c")),
+			"value range",
+			[]string{"r1|cf1:b|1000|b1", "r3|cf1:b|1000|b3"},
+		},
 		{bigtable.ColumnRangeFilter("cf1", "a", "b"), "column range end exclusive", []string{
 			"r1|cf1:a|3000|a3", "r1|cf1:a|2000|a2", "r1|cf1:a|1000|a1", "r2|cf1:a|1000|x1",
 		}},
-		{bigtable.ColumnRangeFilter("cf1", "b", ""), "column range open end", []string{"r1|cf1:b|1000|b1", "r3|cf1:b|1000|b3"}},
 		{
-			bigtable.ChainFilters(bigtable.FamilyFilter("cf1"), bigtable.ColumnFilter("b"), bigtable.LabelFilter("lbl")), "label",
+			bigtable.ColumnRangeFilter("cf1", "b", ""),
+			"column range open end",
+			[]string{"r1|cf1:b|1000|b1", "r3|cf1:b|1000|b3"},
+		},
+		{
+			bigtable.ChainFilters(
+				bigtable.FamilyFilter("cf1"),
+				bigtable.ColumnFilter("b"),
+				bigtable.LabelFilter("lbl"),
+			),
+			"label",
 			[]string{"r1|cf1:b|1000|b1|lbl", "r3|cf1:b|1000|b3|lbl"},
 		},
 	}
@@ -185,7 +253,7 @@ func TestReadRowsSelection(t *testing.T) {
 	keys := func(rows []string) []string {
 		out := make([]string, len(rows))
 		for i, r := range rows {
-			out[i] = strings.SplitN(r, "|", 2)[0] //nolint:mnd // key|rest
+			out[i] = strings.SplitN(r, "|", 2)[0]
 		}
 
 		return out
@@ -207,12 +275,22 @@ func TestReadRowsSelection(t *testing.T) {
 		{bigtable.InfiniteRange("c"), "infinite", nil, []string{"c", "d"}},
 		{bigtable.SingleRow("b1"), "single row", nil, []string{"b1"}},
 		{
-			bigtable.RowRangeList{bigtable.NewRange("a", "b"), bigtable.NewRange("c", "d"), bigtable.NewRange("a", "c")},
-			"overlapping ranges", nil,
+			bigtable.RowRangeList{
+				bigtable.NewRange("a", "b"),
+				bigtable.NewRange("c", "d"),
+				bigtable.NewRange("a", "c"),
+			},
+			"overlapping ranges",
+			nil,
 			[]string{"a", "b", "b1", "c"},
 		},
 		{bigtable.RowRange{}, "limit", []bigtable.ReadOption{bigtable.LimitRows(2)}, []string{"a", "b"}},
-		{bigtable.RowRange{}, "reverse", []bigtable.ReadOption{bigtable.ReverseScan()}, []string{"d", "c", "b1", "b", "a"}},
+		{
+			bigtable.RowRange{},
+			"reverse",
+			[]bigtable.ReadOption{bigtable.ReverseScan()},
+			[]string{"d", "c", "b1", "b", "a"},
+		},
 		{
 			bigtable.PrefixRange("b"), "reverse limited prefix",
 			[]bigtable.ReadOption{bigtable.ReverseScan(), bigtable.LimitRows(1)},
@@ -239,9 +317,21 @@ func TestMutations(t *testing.T) {
 		t.Helper()
 
 		tbl := newEnv(t).seeded(t, "t", "cf", "other")
-		put(t, tbl,
-			seedCell{"r", "cf", "a", "a1", 1000}, seedCell{"r", "cf", "a", "a2", 2000}, seedCell{"r", "cf", "a", "a3", 3000},
-			seedCell{"r", "cf", "b", "b1", 1000}, seedCell{"r", "other", "o", "o1", 1000})
+		put(
+			t,
+			tbl,
+			seedCell{
+				"r",
+				"cf",
+				"a",
+				"a1",
+				1000,
+			},
+			seedCell{"r", "cf", "a", "a2", 2000},
+			seedCell{"r", "cf", "a", "a3", 3000},
+			seedCell{"r", "cf", "b", "b1", 1000},
+			seedCell{"r", "other", "o", "o1", 1000},
+		)
 
 		return tbl
 	}
@@ -257,14 +347,22 @@ func TestMutations(t *testing.T) {
 		{func(m *bigtable.Mutation) { m.DeleteCellsInColumn("cf", "a") }, "delete column", []string{
 			"r|cf:b|1000|b1", "r|other:o|1000|o1",
 		}},
-		{func(m *bigtable.Mutation) { m.DeleteTimestampRange("cf", "a", 1000, 3000) }, "delete timestamp range", []string{
-			"r|cf:a|3000|a3", "r|cf:b|1000|b1", "r|other:o|1000|o1",
-		}},
+		{
+			func(m *bigtable.Mutation) { m.DeleteTimestampRange("cf", "a", 1000, 3000) },
+			"delete timestamp range",
+			[]string{
+				"r|cf:a|3000|a3", "r|cf:b|1000|b1", "r|other:o|1000|o1",
+			},
+		},
 		{func(m *bigtable.Mutation) { m.DeleteCellsInFamily("cf") }, "delete family", []string{"r|other:o|1000|o1"}},
 		{func(m *bigtable.Mutation) { m.DeleteRow() }, "delete row", nil},
-		{func(m *bigtable.Mutation) { m.DeleteRow(); m.Set("cf", "z", 5000, []byte("z")) }, "delete row then set", []string{
-			"r|cf:z|5000|z",
-		}},
+		{
+			func(m *bigtable.Mutation) { m.DeleteRow(); m.Set("cf", "z", 5000, []byte("z")) },
+			"delete row then set",
+			[]string{
+				"r|cf:z|5000|z",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -294,8 +392,18 @@ func TestMutationErrors(t *testing.T) {
 	}{
 		{func(m *bigtable.Mutation) { m.Set("nofam", "a", 1000, []byte("v")) }, "unknown family", "r", codes.NotFound},
 		{func(m *bigtable.Mutation) { m.DeleteCellsInFamily("nofam") }, "delete unknown family", "r", codes.NotFound},
-		{func(m *bigtable.Mutation) { m.Set("cf", "a", 1000, []byte("v")) }, "empty row key", "", codes.InvalidArgument},
-		{func(m *bigtable.Mutation) { m.AddIntToCell("cf", "a", 1000, 1) }, "aggregate mutation", "r", codes.Unimplemented},
+		{
+			func(m *bigtable.Mutation) { m.Set("cf", "a", 1000, []byte("v")) },
+			"empty row key",
+			"",
+			codes.InvalidArgument,
+		},
+		{
+			func(m *bigtable.Mutation) { m.AddIntToCell("cf", "a", 1000, 1) },
+			"aggregate mutation",
+			"r",
+			codes.Unimplemented,
+		},
 	}
 
 	for _, tt := range tests {
@@ -406,7 +514,15 @@ func TestCheckAndMutate(t *testing.T) {
 
 		var matched bool
 
-		require.NoError(t, tbl.Apply(t.Context(), "absent", bigtable.NewCondMutation(nil, yes, no), bigtable.GetCondMutationResult(&matched)))
+		require.NoError(
+			t,
+			tbl.Apply(
+				t.Context(),
+				"absent",
+				bigtable.NewCondMutation(nil, yes, no),
+				bigtable.GetCondMutationResult(&matched),
+			),
+		)
 		assert.False(t, matched)
 		assert.Equal(t, []string{"absent|cf:f|1000|no"}, readAll(t, tbl, bigtable.RowRange{}))
 	})
@@ -466,7 +582,13 @@ func TestSampleRowKeys(t *testing.T) {
 	require.NoError(t, e.ac.CreateColumnFamily(t.Context(), "t", "cf"))
 
 	tbl := e.client(t).Open("t")
-	put(t, tbl, seedCell{"a", "cf", "q", "12345", 1000}, seedCell{"h", "cf", "q", "12", 1000}, seedCell{"z", "cf", "q", "1", 1000})
+	put(
+		t,
+		tbl,
+		seedCell{"a", "cf", "q", "12345", 1000},
+		seedCell{"h", "cf", "q", "12", 1000},
+		seedCell{"z", "cf", "q", "1", 1000},
+	)
 
 	keys, err := tbl.SampleRowKeys(t.Context())
 	require.NoError(t, err)

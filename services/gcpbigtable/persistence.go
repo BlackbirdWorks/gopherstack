@@ -19,7 +19,7 @@ const snapshotVersion = 1
 
 type cellSnap struct {
 	Val []byte `json:"val,omitempty"`
-	Ts  int64  `json:"ts"`
+	TS  int64  `json:"ts"`
 }
 
 type columnSnap struct {
@@ -47,12 +47,12 @@ type backupSnap struct {
 }
 
 type instSnap struct {
-	Instance json.RawMessage            `json:"instance"`
-	Policy   json.RawMessage            `json:"policy,omitempty"`
 	Clusters map[string]json.RawMessage `json:"clusters,omitempty"`
 	Profiles map[string]json.RawMessage `json:"profiles,omitempty"`
 	Tables   map[string]tableSnap       `json:"tables,omitempty"`
 	Backups  map[string]backupSnap      `json:"backups,omitempty"`
+	Instance json.RawMessage            `json:"instance"`
+	Policy   json.RawMessage            `json:"policy,omitempty"`
 }
 
 type backendSnapshot struct {
@@ -62,17 +62,12 @@ type backendSnapshot struct {
 	Seq        uint64                     `json:"seq"`
 }
 
-var (
-	marshalOpts   = protojson.MarshalOptions{}
-	unmarshalOpts = protojson.UnmarshalOptions{DiscardUnknown: true}
-)
-
 func marshalPB(m proto.Message) json.RawMessage {
 	if m == nil || !m.ProtoReflect().IsValid() {
 		return nil
 	}
 
-	raw, err := marshalOpts.Marshal(m)
+	raw, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
 	}
@@ -97,7 +92,7 @@ func snapTable(t *tableRec, nowMicros int64) tableSnap {
 			for _, q := range sortedKeys(r.fams[fam]) {
 				cs := columnSnap{Family: fam, Qualifier: []byte(q)}
 				for _, c := range live(rule, r.fams[fam][q], nowMicros) {
-					cs.Cells = append(cs.Cells, cellSnap{Ts: c.ts, Val: c.val})
+					cs.Cells = append(cs.Cells, cellSnap{TS: c.ts, Val: c.val})
 				}
 
 				if len(cs.Cells) > 0 {
@@ -146,7 +141,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		}
 
 		for n, bk := range r.backups {
-			s.Backups[n] = backupSnap{Backup: marshalPB(bk.pb), Policy: marshalPB(bk.policy), Table: snapTable(bk.table, now)}
+			s.Backups[n] = backupSnap{
+				Backup: marshalPB(bk.pb),
+				Policy: marshalPB(bk.policy),
+				Table:  snapTable(bk.table, now),
+			}
 		}
 
 		snap.Instances[name] = s
@@ -157,7 +156,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 func restoreTable(s tableSnap) (*tableRec, error) {
 	pb := &adminpb.Table{}
-	if err := unmarshalOpts.Unmarshal(s.Table, pb); err != nil {
+	if err := unmarshalPB(s.Table, pb); err != nil {
 		return nil, fmt.Errorf("table: %w", err)
 	}
 
@@ -165,7 +164,7 @@ func restoreTable(s tableSnap) (*tableRec, error) {
 
 	if len(s.Policy) > 0 {
 		t.policy = &iampb.Policy{}
-		if err := unmarshalOpts.Unmarshal(s.Policy, t.policy); err != nil {
+		if err := unmarshalPB(s.Policy, t.policy); err != nil {
 			return nil, fmt.Errorf("table policy: %w", err)
 		}
 	}
@@ -178,7 +177,7 @@ func restoreTable(s tableSnap) (*tableRec, error) {
 		row := t.row(string(rs.Key))
 		for _, c := range rs.Columns {
 			for _, cl := range c.Cells {
-				row.set(c.Family, string(c.Qualifier), cl.Ts, cl.Val)
+				row.set(c.Family, string(c.Qualifier), cl.TS, cl.Val)
 			}
 		}
 	}
@@ -188,7 +187,7 @@ func restoreTable(s tableSnap) (*tableRec, error) {
 
 func restoreInstance(s instSnap) (*instRec, error) {
 	pb := &adminpb.Instance{}
-	if err := unmarshalOpts.Unmarshal(s.Instance, pb); err != nil {
+	if err := unmarshalPB(s.Instance, pb); err != nil {
 		return nil, fmt.Errorf("instance: %w", err)
 	}
 
@@ -196,14 +195,14 @@ func restoreInstance(s instSnap) (*instRec, error) {
 
 	if len(s.Policy) > 0 {
 		rec.policy = &iampb.Policy{}
-		if err := unmarshalOpts.Unmarshal(s.Policy, rec.policy); err != nil {
+		if err := unmarshalPB(s.Policy, rec.policy); err != nil {
 			return nil, fmt.Errorf("instance policy: %w", err)
 		}
 	}
 
 	for id, raw := range s.Clusters {
 		c := &adminpb.Cluster{}
-		if err := unmarshalOpts.Unmarshal(raw, c); err != nil {
+		if err := unmarshalPB(raw, c); err != nil {
 			return nil, fmt.Errorf("cluster %q: %w", id, err)
 		}
 
@@ -212,7 +211,7 @@ func restoreInstance(s instSnap) (*instRec, error) {
 
 	for id, raw := range s.Profiles {
 		p := &adminpb.AppProfile{}
-		if err := unmarshalOpts.Unmarshal(raw, p); err != nil {
+		if err := unmarshalPB(raw, p); err != nil {
 			return nil, fmt.Errorf("app profile %q: %w", id, err)
 		}
 
@@ -234,7 +233,7 @@ func restoreTablesAndBackups(rec *instRec, s instSnap) error {
 
 	for n, bs := range s.Backups {
 		pb := &adminpb.Backup{}
-		if err := unmarshalOpts.Unmarshal(bs.Backup, pb); err != nil {
+		if err := unmarshalPB(bs.Backup, pb); err != nil {
 			return fmt.Errorf("backup %q: %w", n, err)
 		}
 
@@ -247,7 +246,7 @@ func restoreTablesAndBackups(rec *instRec, s instSnap) error {
 
 		if len(bs.Policy) > 0 {
 			bk.policy = &iampb.Policy{}
-			if err = unmarshalOpts.Unmarshal(bs.Policy, bk.policy); err != nil {
+			if err = unmarshalPB(bs.Policy, bk.policy); err != nil {
 				return fmt.Errorf("backup %q policy: %w", n, err)
 			}
 		}
@@ -306,4 +305,8 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
+}
+
+func unmarshalPB(raw []byte, m proto.Message) error {
+	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }

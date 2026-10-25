@@ -129,8 +129,10 @@ func applyRule(rule *btpb.ReadModifyWriteRule, prev cell, has bool, ts int64) (c
 
 		if has {
 			if len(prev.val) != int64Len {
-				return cell{}, errPrecondition("Increment requires an existing 64-bit big-endian value, found %d bytes.",
-					len(prev.val))
+				return cell{}, errPrecondition(
+					"Increment requires an existing 64-bit big-endian value, found %d bytes.",
+					len(prev.val),
+				)
 			}
 
 			cur = int64(binary.BigEndian.Uint64(prev.val)) //nolint:gosec // two's complement reinterpretation

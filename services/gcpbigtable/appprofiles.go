@@ -102,7 +102,9 @@ func (b *InMemoryBackend) GetAppProfile(name string) (*adminpb.AppProfile, error
 }
 
 // ListAppProfiles lists the app profiles of an instance.
-func (b *InMemoryBackend) ListAppProfiles(in *adminpb.ListAppProfilesRequest) (*adminpb.ListAppProfilesResponse, error) {
+func (b *InMemoryBackend) ListAppProfiles(
+	in *adminpb.ListAppProfilesRequest,
+) (*adminpb.ListAppProfilesResponse, error) {
 	if in.GetPageSize() < 0 {
 		return nil, errInvalid("page_size must not be negative.")
 	}
@@ -145,8 +147,8 @@ func (b *InMemoryBackend) UpdateAppProfile(in *adminpb.UpdateAppProfileRequest) 
 	paths := in.GetUpdateMask().GetPaths()
 	if len(paths) == 0 {
 		paths = []string{"description", "single_cluster_routing", "standard_isolation"}
-		next.Isolation = clone(src).Isolation
-		next.RoutingPolicy = clone(src).RoutingPolicy
+		next.Isolation = clone(src).GetIsolation()
+		next.RoutingPolicy = clone(src).GetRoutingPolicy()
 		next.Description = src.GetDescription()
 	}
 
@@ -156,9 +158,9 @@ func (b *InMemoryBackend) UpdateAppProfile(in *adminpb.UpdateAppProfileRequest) 
 			next.Description = src.GetDescription()
 		case p == "multi_cluster_routing_use_any" || strings.HasPrefix(p, "multi_cluster_routing_use_any."),
 			p == "single_cluster_routing" || strings.HasPrefix(p, "single_cluster_routing."):
-			next.RoutingPolicy = clone(src).RoutingPolicy
+			next.RoutingPolicy = clone(src).GetRoutingPolicy()
 		case p == "standard_isolation" || p == "data_boost_isolation_read_only" || p == "priority":
-			next.Isolation = clone(src).Isolation
+			next.Isolation = clone(src).GetIsolation()
 		default:
 			return nil, errInvalid("Unsupported update_mask path %q for AppProfile.", p)
 		}

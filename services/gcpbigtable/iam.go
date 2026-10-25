@@ -33,7 +33,7 @@ func validatePolicy(p *iampb.Policy) error {
 func (b *InMemoryBackend) policySlot(resource string) (**iampb.Policy, error) {
 	switch {
 	case strings.Contains(resource, "/backups/"):
-		inst, _, _, err := parseBackup(resource)
+		inst, err := parseBackup(resource)
 		if err != nil {
 			return nil, err
 		}

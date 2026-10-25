@@ -30,9 +30,21 @@ func TestGarbageCollectionPolicies(t *testing.T) {
 		{bigtable.MaxVersionsPolicy(1), "single version", []int{0}},
 		{bigtable.MaxAgePolicy(time.Hour), "max age", []int{0, 1}},
 		{bigtable.MaxAgePolicy(time.Minute), "short max age", []int{0}},
-		{bigtable.UnionPolicy(bigtable.MaxVersionsPolicy(1), bigtable.MaxAgePolicy(time.Hour)), "union deletes on either", []int{0}},
-		{bigtable.IntersectionPolicy(bigtable.MaxVersionsPolicy(1), bigtable.MaxAgePolicy(time.Hour)), "intersection needs both", []int{0, 1}},
-		{bigtable.IntersectionPolicy(bigtable.MaxVersionsPolicy(3), bigtable.MaxAgePolicy(time.Hour)), "intersection with loose versions", []int{0, 1, 2}},
+		{
+			bigtable.UnionPolicy(bigtable.MaxVersionsPolicy(1), bigtable.MaxAgePolicy(time.Hour)),
+			"union deletes on either",
+			[]int{0},
+		},
+		{
+			bigtable.IntersectionPolicy(bigtable.MaxVersionsPolicy(1), bigtable.MaxAgePolicy(time.Hour)),
+			"intersection needs both",
+			[]int{0, 1},
+		},
+		{
+			bigtable.IntersectionPolicy(bigtable.MaxVersionsPolicy(3), bigtable.MaxAgePolicy(time.Hour)),
+			"intersection with loose versions",
+			[]int{0, 1, 2},
+		},
 		{bigtable.UnionPolicy(
 			bigtable.IntersectionPolicy(bigtable.MaxVersionsPolicy(1), bigtable.MaxAgePolicy(5*time.Minute)),
 			bigtable.MaxAgePolicy(90*time.Minute),
@@ -54,7 +66,7 @@ func TestGarbageCollectionPolicies(t *testing.T) {
 			row, err := tbl.ReadRow(t.Context(), "r")
 			require.NoError(t, err)
 
-			var got []string
+			got := make([]string, 0, len(row["cf"]))
 			for _, it := range row["cf"] {
 				got = append(got, string(it.Value))
 			}
@@ -74,7 +86,13 @@ func TestGarbageCollectionAppliesToExistingData(t *testing.T) {
 
 	e := newEnv(t)
 	tbl := e.seeded(t, "t", "cf")
-	put(t, tbl, seedCell{"r", "cf", "q", "v1", 1000}, seedCell{"r", "cf", "q", "v2", 2000}, seedCell{"r", "cf", "q", "v3", 3000})
+	put(
+		t,
+		tbl,
+		seedCell{"r", "cf", "q", "v1", 1000},
+		seedCell{"r", "cf", "q", "v2", 2000},
+		seedCell{"r", "cf", "q", "v3", 3000},
+	)
 	assert.Len(t, readAll(t, tbl, bigtable.RowRange{}), 3)
 
 	require.NoError(t, e.ac.SetGCPolicy(t.Context(), "t", "cf", bigtable.MaxVersionsPolicy(1)))
@@ -95,7 +113,12 @@ func TestGarbageCollectionOnWrite(t *testing.T) {
 	assert.Equal(t, []string{"r|cf:q|5000|5", "r|cf:q|4000|4"}, readAll(t, tbl, bigtable.RowRange{}))
 
 	put(t, tbl, seedCell{"r", "cf", "q", "old", 1000})
-	assert.Equal(t, []string{"r|cf:q|5000|5", "r|cf:q|4000|4"}, readAll(t, tbl, bigtable.RowRange{}), "a write below the retained versions is collected")
+	assert.Equal(
+		t,
+		[]string{"r|cf:q|5000|5", "r|cf:q|4000|4"},
+		readAll(t, tbl, bigtable.RowRange{}),
+		"a write below the retained versions is collected",
+	)
 }
 
 func TestGarbageCollectionPerFamily(t *testing.T) {
@@ -109,7 +132,11 @@ func TestGarbageCollectionPerFamily(t *testing.T) {
 		seedCell{"r", "one", "q", "a", 1000}, seedCell{"r", "one", "q", "b", 2000},
 		seedCell{"r", "all", "q", "a", 1000}, seedCell{"r", "all", "q", "b", 2000})
 
-	assert.Equal(t, []string{"r|all:q|2000|b", "r|all:q|1000|a", "r|one:q|2000|b"}, readAll(t, tbl, bigtable.RowRange{}))
+	assert.Equal(
+		t,
+		[]string{"r|all:q|2000|b", "r|all:q|1000|a", "r|one:q|2000|b"},
+		readAll(t, tbl, bigtable.RowRange{}),
+	)
 }
 
 func TestFullyCollectedRowsDisappear(t *testing.T) {

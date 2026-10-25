@@ -18,9 +18,20 @@ func TestSnapshotRestore(t *testing.T) {
 	tbl := src.seeded(t, "t", "cf", "cf2")
 
 	require.NoError(t, src.ac.SetGCPolicy(ctx, "t", "cf", bigtable.MaxVersionsPolicy(2)))
-	put(t, tbl,
-		seedCell{"r1", "cf", "q", "v1", 1000}, seedCell{"r1", "cf", "q", "v2", 2000}, seedCell{"r1", "cf", "q", "v3", 3000},
-		seedCell{"r\xff\x00bin", "cf2", "q\x01", "\x00\x01\x02", 4000})
+	put(
+		t,
+		tbl,
+		seedCell{
+			"r1",
+			"cf",
+			"q",
+			"v1",
+			1000,
+		},
+		seedCell{"r1", "cf", "q", "v2", 2000},
+		seedCell{"r1", "cf", "q", "v3", 3000},
+		seedCell{"r\xff\x00bin", "cf2", "q\x01", "\x00\x01\x02", 4000},
+	)
 
 	_, err := src.iac.CreateAppProfile(ctx, bigtable.ProfileConf{
 		ProfileID: "p", InstanceID: instance, Description: "kept",

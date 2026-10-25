@@ -77,13 +77,24 @@ func TestColumnFamilies(t *testing.T) {
 
 	require.NoError(t, e.ac.CreateTable(ctx, "t"))
 	require.NoError(t, e.ac.CreateColumnFamily(ctx, "t", "cf"))
-	require.NoError(t, e.ac.CreateColumnFamilyWithConfig(ctx, "t", "cf2", bigtable.Family{GCPolicy: bigtable.MaxVersionsPolicy(1)}))
+	require.NoError(
+		t,
+		e.ac.CreateColumnFamilyWithConfig(ctx, "t", "cf2", bigtable.Family{GCPolicy: bigtable.MaxVersionsPolicy(1)}),
+	)
 
 	assert.Equal(t, codes.AlreadyExists, code(e.ac.CreateColumnFamily(ctx, "t", "cf")))
 	assert.Equal(t, codes.InvalidArgument, code(e.ac.CreateColumnFamily(ctx, "t", "bad family!")))
 	assert.Equal(t, codes.NotFound, code(e.ac.CreateColumnFamily(ctx, "ghost", "cf")))
 
-	require.NoError(t, e.ac.SetGCPolicy(ctx, "t", "cf", bigtable.UnionPolicy(bigtable.MaxVersionsPolicy(2), bigtable.MaxAgePolicy(time.Hour))))
+	require.NoError(
+		t,
+		e.ac.SetGCPolicy(
+			ctx,
+			"t",
+			"cf",
+			bigtable.UnionPolicy(bigtable.MaxVersionsPolicy(2), bigtable.MaxAgePolicy(time.Hour)),
+		),
+	)
 	assert.Equal(t, "(versions() > 2 || age() > 1h)", familyPolicies(t, e, "t")["cf"])
 
 	require.NoError(t, e.ac.SetGCPolicy(ctx, "t", "cf", bigtable.NoGcPolicy()))
@@ -102,13 +113,24 @@ func TestDropFamilyRemovesData(t *testing.T) {
 
 	e := newEnv(t)
 	tbl := e.seeded(t, "t", "cf", "keep")
-	put(t, tbl, seedCell{"r1", "cf", "q", "v", 1000}, seedCell{"r1", "keep", "q", "k", 1000}, seedCell{"r2", "cf", "q", "v", 1000})
+	put(
+		t,
+		tbl,
+		seedCell{"r1", "cf", "q", "v", 1000},
+		seedCell{"r1", "keep", "q", "k", 1000},
+		seedCell{"r2", "cf", "q", "v", 1000},
+	)
 
 	require.NoError(t, e.ac.DeleteColumnFamily(t.Context(), "t", "cf"))
 	assert.Equal(t, []string{"r1|keep:q|1000|k"}, readAll(t, tbl, bigtable.RowRange{}))
 
 	require.NoError(t, e.ac.CreateColumnFamily(t.Context(), "t", "cf"))
-	assert.Equal(t, []string{"r1|keep:q|1000|k"}, readAll(t, tbl, bigtable.RowRange{}), "a recreated family starts empty")
+	assert.Equal(
+		t,
+		[]string{"r1|keep:q|1000|k"},
+		readAll(t, tbl, bigtable.RowRange{}),
+		"a recreated family starts empty",
+	)
 }
 
 func TestDropRowRange(t *testing.T) {
@@ -120,8 +142,12 @@ func TestDropRowRange(t *testing.T) {
 		want []string
 	}{
 		{func(e *env) error { return e.ac.DropRowRange(t.Context(), "t", "user#") }, "prefix", []string{"other"}},
-		{func(e *env) error { return e.ac.DropAllRows(t.Context(), "t") }, "all", nil},
-		{func(e *env) error { return e.ac.DropRowRange(t.Context(), "t", "") }, "empty prefix", []string{"other", "user#1", "user#2"}},
+		{func(e *env) error { return e.ac.DropAllRows(t.Context(), "t") }, "all", []string{}},
+		{
+			func(e *env) error { return e.ac.DropRowRange(t.Context(), "t", "") },
+			"empty prefix",
+			[]string{"other", "user#1", "user#2"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -130,7 +156,13 @@ func TestDropRowRange(t *testing.T) {
 
 			e := newEnv(t)
 			tbl := e.seeded(t, "t", "cf")
-			put(t, tbl, seedCell{"user#1", "cf", "q", "v", 1000}, seedCell{"user#2", "cf", "q", "v", 1000}, seedCell{"other", "cf", "q", "v", 1000})
+			put(
+				t,
+				tbl,
+				seedCell{"user#1", "cf", "q", "v", 1000},
+				seedCell{"user#2", "cf", "q", "v", 1000},
+				seedCell{"other", "cf", "q", "v", 1000},
+			)
 
 			err := tt.drop(e)
 			if tt.name == "empty prefix" {
@@ -139,8 +171,10 @@ func TestDropRowRange(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			var keys []string
-			for _, r := range readAll(t, tbl, bigtable.RowRange{}) {
+			rows := readAll(t, tbl, bigtable.RowRange{})
+			keys := make([]string, 0, len(rows))
+
+			for _, r := range rows {
 				keys = append(keys, r[:len(r)-len("|cf:q|1000|v")])
 			}
 
@@ -174,7 +208,7 @@ func TestTableUpdates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 48*time.Hour, info.ChangeStreamRetention)
 
-	assert.Error(t, e.ac.UpdateTableWithChangeStream(ctx, "t", 30*24*time.Hour), "retention above 7 days")
+	require.Error(t, e.ac.UpdateTableWithChangeStream(ctx, "t", 30*24*time.Hour), "retention above 7 days")
 	require.NoError(t, e.ac.UpdateTableDisableChangeStream(ctx, "t"))
 
 	info, err = e.ac.TableInfo(ctx, "t")
@@ -245,24 +279,31 @@ func TestBackups(t *testing.T) {
 	assert.Equal(t, "bk", first.Name)
 
 	require.NoError(t, e.ac.UpdateBackup(ctx, cluster, "bk", time.Now().Add(72*time.Hour)))
-	assert.Error(t, e.ac.UpdateBackup(ctx, cluster, "bk", time.Now().Add(time.Hour)), "expiry under 6 hours")
+	require.Error(t, e.ac.UpdateBackup(ctx, cluster, "bk", time.Now().Add(time.Hour)), "expiry under 6 hours")
 
 	require.NoError(t, e.ac.RestoreTable(ctx, "restored", cluster, "bk"))
 
 	restored := e.client(t).Open("restored")
-	assert.Equal(t, []string{"r1|cf:q|1000|v1", "r2|cf:q|2000|v2"}, readAll(t, restored, bigtable.RowRange{}), "backup holds the data at backup time")
+	assert.Equal(
+		t,
+		[]string{"r1|cf:q|1000|v1", "r2|cf:q|2000|v2"},
+		readAll(t, restored, bigtable.RowRange{}),
+		"backup holds the data at backup time",
+	)
 
 	tables, err := e.ac.Tables(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"restored", "src"}, tables)
 
-	t.Run("errors", func(t *testing.T) {
-		assert.Equal(t, codes.AlreadyExists, code(e.ac.CreateBackup(ctx, "src", cluster, "bk", expire)))
-		assert.Equal(t, codes.AlreadyExists, code(e.ac.RestoreTable(ctx, "restored", cluster, "bk")))
-		assert.Equal(t, codes.NotFound, code(e.ac.CreateBackup(ctx, "ghost", cluster, "b2", expire)))
-		assert.Equal(t, codes.NotFound, code(e.ac.RestoreTable(ctx, "x", cluster, "ghost")))
-		assert.Equal(t, codes.InvalidArgument, code(e.ac.CreateBackup(ctx, "src", cluster, "b3", time.Now().Add(time.Hour))))
-	})
+	assert.Equal(t, codes.AlreadyExists, code(e.ac.CreateBackup(ctx, "src", cluster, "bk", expire)))
+	assert.Equal(t, codes.AlreadyExists, code(e.ac.RestoreTable(ctx, "restored", cluster, "bk")))
+	assert.Equal(t, codes.NotFound, code(e.ac.CreateBackup(ctx, "ghost", cluster, "b2", expire)))
+	assert.Equal(t, codes.NotFound, code(e.ac.RestoreTable(ctx, "x", cluster, "ghost")))
+	assert.Equal(
+		t,
+		codes.InvalidArgument,
+		code(e.ac.CreateBackup(ctx, "src", cluster, "b3", time.Now().Add(time.Hour))),
+	)
 
 	require.NoError(t, e.ac.DeleteBackup(ctx, cluster, "bk"))
 	assert.Equal(t, codes.NotFound, code(e.ac.DeleteBackup(ctx, cluster, "bk")))

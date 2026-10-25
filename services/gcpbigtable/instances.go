@@ -362,7 +362,7 @@ func (b *InMemoryBackend) PartialUpdateInstance(
 
 				next.Labels[key] = v
 			} else {
-				delete(next.Labels, key)
+				delete(next.GetLabels(), key)
 			}
 		default:
 			return nil, errInvalid("Unsupported update_mask path %q for Instance.", p)
@@ -579,7 +579,7 @@ func applyClusterMask(dst, src *adminpb.Cluster, paths []string) error {
 			dst.Config = nil
 
 			if cfg := src.GetClusterConfig().GetClusterAutoscalingConfig(); cfg != nil {
-				dst.Config = clone(src).Config
+				dst.Config = clone(src).GetConfig()
 			}
 		case strings.HasPrefix(p, autoscaling+"."):
 			if err := applyAutoscalingSubpath(dst, src, strings.TrimPrefix(p, autoscaling+".")); err != nil {
@@ -613,7 +613,8 @@ func applyAutoscalingSubpath(dst, src *adminpb.Cluster, sub string) error {
 	case "autoscaling_targets.cpu_utilization_percent":
 		cfg.GetAutoscalingTargets().CpuUtilizationPercent = in.GetAutoscalingTargets().GetCpuUtilizationPercent()
 	case "autoscaling_targets.storage_utilization_gib_per_node":
-		cfg.GetAutoscalingTargets().StorageUtilizationGibPerNode = in.GetAutoscalingTargets().GetStorageUtilizationGibPerNode()
+		cfg.GetAutoscalingTargets().StorageUtilizationGibPerNode = in.GetAutoscalingTargets().
+			GetStorageUtilizationGibPerNode()
 	default:
 		return errInvalid("Unsupported update_mask path %q.", sub)
 	}

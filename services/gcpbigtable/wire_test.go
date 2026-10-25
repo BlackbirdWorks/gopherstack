@@ -2,6 +2,7 @@ package gcpbigtable_test
 
 import (
 	"encoding/base64"
+	"errors"
 	"io"
 	"strconv"
 	"testing"
@@ -18,7 +19,12 @@ import (
 
 const tablePath = "projects/" + project + "/instances/" + instance + "/tables/t"
 
-func readRaw(t *testing.T, e *env, ctx func() (metadata.MD, bool), req *btpb.ReadRowsRequest) ([]*btpb.ReadRowsResponse, error) {
+func readRaw(
+	t *testing.T,
+	e *env,
+	ctx func() (metadata.MD, bool),
+	req *btpb.ReadRowsRequest,
+) ([]*btpb.ReadRowsResponse, error) {
 	t.Helper()
 
 	c := t.Context()
@@ -33,7 +39,7 @@ func readRaw(t *testing.T, e *env, ctx func() (metadata.MD, bool), req *btpb.Rea
 
 	for {
 		resp, rerr := stream.Recv()
-		if rerr == io.EOF {
+		if errors.Is(rerr, io.EOF) {
 			return out, nil
 		}
 
@@ -52,9 +58,21 @@ func TestReadRowsChunkEncoding(t *testing.T) {
 
 	e := newEnv(t)
 	tbl := e.seeded(t, "t", "a", "b")
-	put(t, tbl,
-		seedCell{"r1", "a", "q1", "v1", 2000}, seedCell{"r1", "a", "q1", "v0", 1000}, seedCell{"r1", "a", "q2", "w", 1000},
-		seedCell{"r1", "b", "q1", "x", 1000}, seedCell{"r2", "a", "q1", "y", 1000})
+	put(
+		t,
+		tbl,
+		seedCell{
+			"r1",
+			"a",
+			"q1",
+			"v1",
+			2000,
+		},
+		seedCell{"r1", "a", "q1", "v0", 1000},
+		seedCell{"r1", "a", "q2", "w", 1000},
+		seedCell{"r1", "b", "q1", "x", 1000},
+		seedCell{"r2", "a", "q1", "y", 1000},
+	)
 
 	resps, err := readRaw(t, e, noMD, &btpb.ReadRowsRequest{TableName: tablePath})
 	require.NoError(t, err)
@@ -92,7 +110,13 @@ func TestLastScannedRowKey(t *testing.T) {
 
 	e := newEnv(t)
 	tbl := e.seeded(t, "t", "a")
-	put(t, tbl, seedCell{"r1", "a", "q", "keep", 1000}, seedCell{"r2", "a", "q", "drop", 1000}, seedCell{"r3", "a", "q", "keep", 1000})
+	put(
+		t,
+		tbl,
+		seedCell{"r1", "a", "q", "keep", 1000},
+		seedCell{"r2", "a", "q", "drop", 1000},
+		seedCell{"r3", "a", "q", "keep", 1000},
+	)
 
 	req := &btpb.ReadRowsRequest{
 		TableName: tablePath,
@@ -142,12 +166,20 @@ func TestReadRowsRequestStats(t *testing.T) {
 
 	e := newEnv(t)
 	tbl := e.seeded(t, "t", "a")
-	put(t, tbl, seedCell{"r1", "a", "q", "v", 1000}, seedCell{"r1", "a", "q", "w", 2000}, seedCell{"r2", "a", "q", "v", 1000})
+	put(
+		t,
+		tbl,
+		seedCell{"r1", "a", "q", "v", 1000},
+		seedCell{"r1", "a", "q", "w", 2000},
+		seedCell{"r2", "a", "q", "v", 1000},
+	)
 
 	resps, err := readRaw(t, e, noMD, &btpb.ReadRowsRequest{
 		TableName:        tablePath,
 		RequestStatsView: btpb.ReadRowsRequest_REQUEST_STATS_FULL,
-		Filter:           &btpb.RowFilter{Filter: &btpb.RowFilter_CellsPerColumnLimitFilter{CellsPerColumnLimitFilter: 1}},
+		Filter: &btpb.RowFilter{
+			Filter: &btpb.RowFilter_CellsPerColumnLimitFilter{CellsPerColumnLimitFilter: 1},
+		},
 	})
 	require.NoError(t, err)
 
@@ -188,7 +220,11 @@ func TestReadRowsValidation(t *testing.T) {
 			}},
 		}}, "sink inside condition", codes.InvalidArgument},
 		{&btpb.ReadRowsRequest{TableName: "bogus"}, "bad table name", codes.InvalidArgument},
-		{&btpb.ReadRowsRequest{AuthorizedViewName: tablePath + "/authorizedViews/v"}, "authorized view", codes.Unimplemented},
+		{
+			&btpb.ReadRowsRequest{AuthorizedViewName: tablePath + "/authorizedViews/v"},
+			"authorized view",
+			codes.Unimplemented,
+		},
 	}
 
 	for _, tt := range tests {
@@ -206,7 +242,13 @@ func TestSinkFilter(t *testing.T) {
 
 	e := newEnv(t)
 	tbl := e.seeded(t, "t", "A", "B")
-	put(t, tbl, seedCell{"r", "A", "x", "1", 1000}, seedCell{"r", "A", "y", "2", 2000}, seedCell{"r", "B", "y", "4", 4000})
+	put(
+		t,
+		tbl,
+		seedCell{"r", "A", "x", "1", 1000},
+		seedCell{"r", "A", "y", "2", 2000},
+		seedCell{"r", "B", "y", "4", 4000},
+	)
 
 	label := func(l string) *btpb.RowFilter {
 		return &btpb.RowFilter{Filter: &btpb.RowFilter_ApplyLabelTransformer{ApplyLabelTransformer: l}}
@@ -229,7 +271,7 @@ func TestSinkFilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resps, 1)
 
-	var got []string
+	got := make([]string, 0, len(resps[0].GetChunks()))
 
 	for _, c := range resps[0].GetChunks() {
 		got = append(got, string(c.GetValue())+":"+strconv.Itoa(len(c.GetLabels())))
@@ -246,13 +288,21 @@ func TestPingAndWarm(t *testing.T) {
 	e.createInstance(t, instance)
 
 	tests := []struct {
-		name string
 		req  *btpb.PingAndWarmRequest
+		name string
 		want codes.Code
 	}{
-		{"existing instance", &btpb.PingAndWarmRequest{Name: "projects/" + project + "/instances/" + instance}, codes.OK},
-		{"missing instance", &btpb.PingAndWarmRequest{Name: "projects/" + project + "/instances/ghost-inst"}, codes.NotFound},
-		{"malformed name", &btpb.PingAndWarmRequest{Name: "nonsense"}, codes.InvalidArgument},
+		{
+			name: "existing instance",
+			req:  &btpb.PingAndWarmRequest{Name: "projects/" + project + "/instances/" + instance},
+			want: codes.OK,
+		},
+		{
+			name: "missing instance",
+			req:  &btpb.PingAndWarmRequest{Name: "projects/" + project + "/instances/ghost-inst"},
+			want: codes.NotFound,
+		},
+		{name: "malformed name", req: &btpb.PingAndWarmRequest{Name: "nonsense"}, want: codes.InvalidArgument},
 	}
 
 	for _, tt := range tests {
@@ -276,14 +326,15 @@ func TestSampleRowKeysOffsets(t *testing.T) {
 	tbl := e.client(t).Open("t")
 	put(t, tbl, seedCell{"a", "cf", "q", "12345", 1000}, seedCell{"z", "cf", "q", "123", 1000})
 
-	stream, err := btpb.NewBigtableClient(e.conn).SampleRowKeys(t.Context(), &btpb.SampleRowKeysRequest{TableName: tablePath})
+	stream, err := btpb.NewBigtableClient(e.conn).
+		SampleRowKeys(t.Context(), &btpb.SampleRowKeysRequest{TableName: tablePath})
 	require.NoError(t, err)
 
 	var got []*btpb.SampleRowKeysResponse
 
 	for {
 		r, rerr := stream.Recv()
-		if rerr == io.EOF {
+		if errors.Is(rerr, io.EOF) {
 			break
 		}
 
@@ -363,7 +414,10 @@ func TestListTablesPaging(t *testing.T) {
 	require.Len(t, p1.GetTables(), 2)
 	require.NotEmpty(t, p1.GetNextPageToken())
 
-	p2, err := tc.ListTables(t.Context(), &adminpb.ListTablesRequest{Parent: parent, PageSize: 2, PageToken: p1.GetNextPageToken()})
+	p2, err := tc.ListTables(
+		t.Context(),
+		&adminpb.ListTablesRequest{Parent: parent, PageSize: 2, PageToken: p1.GetNextPageToken()},
+	)
 	require.NoError(t, err)
 	require.Len(t, p2.GetTables(), 1)
 	assert.Empty(t, p2.GetNextPageToken())
@@ -402,7 +456,10 @@ func TestUnsupportedSurface(t *testing.T) {
 	_, err = ic.CreateLogicalView(t.Context(), &adminpb.CreateLogicalViewRequest{Parent: parent})
 	assert.Equal(t, codes.Unimplemented, code(err))
 
-	_, err = tc.ListBackups(t.Context(), &adminpb.ListBackupsRequest{Parent: parent + "/clusters/" + cluster, Filter: "x"})
+	_, err = tc.ListBackups(
+		t.Context(),
+		&adminpb.ListBackupsRequest{Parent: parent + "/clusters/" + cluster, Filter: "x"},
+	)
 	assert.Equal(t, codes.Unimplemented, code(err))
 }
 

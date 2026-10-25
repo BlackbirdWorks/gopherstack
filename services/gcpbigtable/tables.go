@@ -26,7 +26,7 @@ const (
 )
 
 func validateFamily(id string, cf *adminpb.ColumnFamily) error {
-	if !familyIDRe.MatchString(id) || len(id) > maxFamilyIDLen {
+	if !tableIDRe.MatchString(id) || len(id) > maxFamilyIDLen {
 		return errInvalid("Invalid column family id %q: must match [_a-zA-Z0-9][-_.a-zA-Z0-9]*.", id)
 	}
 
@@ -106,8 +106,11 @@ func tableView(rec *instRec, t *tableRec, view adminpb.Table_View, def adminpb.T
 func (b *InMemoryBackend) CreateTable(in *adminpb.CreateTableRequest) (*adminpb.Table, error) {
 	id := in.GetTableId()
 	if !tableIDRe.MatchString(id) || len(id) > maxTableIDLen {
-		return nil, errInvalid("Invalid table id %q: must match [_a-zA-Z0-9][-_.a-zA-Z0-9]* and be at most %d characters.",
-			id, maxTableIDLen)
+		return nil, errInvalid(
+			"Invalid table id %q: must match [_a-zA-Z0-9][-_.a-zA-Z0-9]* and be at most %d characters.",
+			id,
+			maxTableIDLen,
+		)
 	}
 
 	pb := clone(in.GetTable())
@@ -403,7 +406,7 @@ func applyModification(
 			return false, errPrecondition("Table has deletion protection enabled; column families cannot be dropped.")
 		}
 
-		delete(tbl.ColumnFamilies, id)
+		delete(tbl.GetColumnFamilies(), id)
 
 		return true, nil
 	default:
@@ -501,7 +504,9 @@ func (b *InMemoryBackend) GenerateConsistencyToken(
 }
 
 // CheckConsistency reports whether all writes before the token reached every cluster; replication is synchronous here.
-func (b *InMemoryBackend) CheckConsistency(in *adminpb.CheckConsistencyRequest) (*adminpb.CheckConsistencyResponse, error) {
+func (b *InMemoryBackend) CheckConsistency(
+	in *adminpb.CheckConsistencyRequest,
+) (*adminpb.CheckConsistencyResponse, error) {
 	b.mu.RLock("CheckConsistency")
 	defer b.mu.RUnlock()
 

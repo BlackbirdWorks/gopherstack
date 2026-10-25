@@ -26,7 +26,10 @@ func (s *instanceAdminServer) CreateInstance(
 	return s.b.CreateInstance(in)
 }
 
-func (s *instanceAdminServer) GetInstance(_ context.Context, in *adminpb.GetInstanceRequest) (*adminpb.Instance, error) {
+func (s *instanceAdminServer) GetInstance(
+	_ context.Context,
+	in *adminpb.GetInstanceRequest,
+) (*adminpb.Instance, error) {
 	return s.b.GetInstance(in.GetName())
 }
 

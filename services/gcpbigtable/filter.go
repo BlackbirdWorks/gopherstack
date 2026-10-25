@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math/rand/v2"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -87,17 +88,9 @@ func hasLabel(f *btpb.RowFilter) bool {
 	case *btpb.RowFilter_ApplyLabelTransformer:
 		return true
 	case *btpb.RowFilter_Chain_:
-		for _, s := range ft.Chain.GetFilters() {
-			if hasLabel(s) {
-				return true
-			}
-		}
+		return slices.ContainsFunc(ft.Chain.GetFilters(), hasLabel)
 	case *btpb.RowFilter_Interleave_:
-		for _, s := range ft.Interleave.GetFilters() {
-			if hasLabel(s) {
-				return true
-			}
-		}
+		return slices.ContainsFunc(ft.Interleave.GetFilters(), hasLabel)
 	case *btpb.RowFilter_Condition_:
 		return hasLabel(ft.Condition.GetTrueFilter()) || hasLabel(ft.Condition.GetFalseFilter())
 	}
@@ -159,7 +152,7 @@ func compileInterleave(subs []*btpb.RowFilter, depth int, inCond bool) (filterFn
 	}
 
 	return func(e *evalCtx, in []fcell) []fcell {
-		var out []fcell
+		out := make([]fcell, 0, len(in)*len(fns))
 		for _, fn := range fns {
 			out = append(out, fn(e, append([]fcell(nil), in...))...)
 		}
@@ -313,66 +306,89 @@ func compileRangeOrLimit(f *btpb.RowFilter) (filterFn, error) {
 	case *btpb.RowFilter_ColumnRangeFilter:
 		return compileColumnRange(ft.ColumnRangeFilter)
 	case *btpb.RowFilter_TimestampRangeFilter:
-		start, end := ft.TimestampRangeFilter.GetStartTimestampMicros(), ft.TimestampRangeFilter.GetEndTimestampMicros()
-		if start < 0 || end < 0 || (end != 0 && start > end) {
-			return nil, filterErr("invalid timestamp_range_filter")
-		}
-
-		return keep(func(c fcell) bool { return c.ts >= start && (end == 0 || c.ts < end) }), nil
+		return compileTimestampRange(ft.TimestampRangeFilter)
 	case *btpb.RowFilter_ValueRangeFilter:
 		return compileValueRange(ft.ValueRangeFilter)
+	case *btpb.RowFilter_ValueBitmaskFilter:
+		return compileBitmask(ft.ValueBitmaskFilter.GetMask()), nil
+	}
+
+	return compileLimitOrTransform(f)
+}
+
+func compileLimitOrTransform(f *btpb.RowFilter) (filterFn, error) {
+	switch ft := f.GetFilter().(type) {
 	case *btpb.RowFilter_CellsPerRowOffsetFilter:
-		n := int(ft.CellsPerRowOffsetFilter)
-		if n < 0 {
-			return nil, filterErr("cells_per_row_offset_filter must not be negative")
+		n, err := nonNegative("cells_per_row_offset_filter", ft.CellsPerRowOffsetFilter)
+		if err != nil {
+			return nil, err
 		}
 
 		return func(_ *evalCtx, in []fcell) []fcell { return in[min(n, len(in)):] }, nil
 	case *btpb.RowFilter_CellsPerRowLimitFilter:
-		n := int(ft.CellsPerRowLimitFilter)
-		if n < 0 {
-			return nil, filterErr("cells_per_row_limit_filter must not be negative")
+		n, err := nonNegative("cells_per_row_limit_filter", ft.CellsPerRowLimitFilter)
+		if err != nil {
+			return nil, err
 		}
 
 		return func(_ *evalCtx, in []fcell) []fcell { return in[:min(n, len(in))] }, nil
 	case *btpb.RowFilter_CellsPerColumnLimitFilter:
-		n := int(ft.CellsPerColumnLimitFilter)
-		if n < 0 {
-			return nil, filterErr("cells_per_column_limit_filter must not be negative")
+		n, err := nonNegative("cells_per_column_limit_filter", ft.CellsPerColumnLimitFilter)
+		if err != nil {
+			return nil, err
 		}
 
 		return perColumnLimit(n), nil
 	case *btpb.RowFilter_StripValueTransformer:
-		return func(_ *evalCtx, in []fcell) []fcell {
-			out := make([]fcell, len(in))
-			for i, c := range in {
-				c.val = nil
-				out[i] = c
-			}
-
-			return out
-		}, nil
+		return stripValues, nil
 	case *btpb.RowFilter_ApplyLabelTransformer:
 		return compileLabel(ft.ApplyLabelTransformer)
-	case *btpb.RowFilter_ValueBitmaskFilter:
-		mask := ft.ValueBitmaskFilter.GetMask()
-
-		return keep(func(c fcell) bool {
-			if len(c.val) != len(mask) {
-				return false
-			}
-
-			for i := range mask {
-				if c.val[i]&mask[i] != mask[i] {
-					return false
-				}
-			}
-
-			return true
-		}), nil
 	}
 
 	return nil, filterErr("RowFilter must have exactly one of its fields set")
+}
+
+func nonNegative(field string, n int32) (int, error) {
+	if n < 0 {
+		return 0, filterErr(field + " must not be negative")
+	}
+
+	return int(n), nil
+}
+
+func stripValues(_ *evalCtx, in []fcell) []fcell {
+	out := make([]fcell, len(in))
+	for i, c := range in {
+		c.val = nil
+		out[i] = c
+	}
+
+	return out
+}
+
+func compileTimestampRange(r *btpb.TimestampRange) (filterFn, error) {
+	start, end := r.GetStartTimestampMicros(), r.GetEndTimestampMicros()
+	if start < 0 || end < 0 || (end != 0 && start > end) {
+		return nil, filterErr("invalid timestamp_range_filter")
+	}
+
+	return keep(func(c fcell) bool { return c.ts >= start && (end == 0 || c.ts < end) }), nil
+}
+
+func compileBitmask(mask []byte) filterFn {
+	return keep(func(c fcell) bool {
+		if len(c.val) != len(mask) {
+			return false
+		}
+
+		for i := range mask {
+			if c.val[i]&mask[i] != mask[i] {
+				return false
+			}
+		}
+
+		return true
+	})
 }
 
 func perColumnLimit(n int) filterFn {
@@ -418,24 +434,24 @@ type bound struct {
 	closed bool
 }
 
-func (lo bound) below(v []byte) bool {
-	if !lo.set {
+func (bd bound) below(v []byte) bool {
+	if !bd.set {
 		return true
 	}
 
-	c := bytes.Compare(v, lo.val)
+	c := bytes.Compare(v, bd.val)
 
-	return c > 0 || (c == 0 && lo.closed)
+	return c > 0 || (c == 0 && bd.closed)
 }
 
-func (hi bound) above(v []byte) bool {
-	if !hi.set {
+func (bd bound) above(v []byte) bool {
+	if !bd.set {
 		return true
 	}
 
-	c := bytes.Compare(v, hi.val)
+	c := bytes.Compare(v, bd.val)
 
-	return c < 0 || (c == 0 && hi.closed)
+	return c < 0 || (c == 0 && bd.closed)
 }
 
 func compileColumnRange(r *btpb.ColumnRange) (filterFn, error) {
