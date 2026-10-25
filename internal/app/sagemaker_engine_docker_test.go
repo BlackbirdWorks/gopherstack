@@ -395,7 +395,9 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 				}},
 				OutputDataConfig: &smtypes.OutputDataConfig{S3OutputPath: aws.String("s3://" + smBucket + "/models")},
 				ResourceConfig: &smtypes.ResourceConfig{
-					InstanceType: smtypes.TrainingInstanceTypeMlM5Large, InstanceCount: aws.Int32(1), VolumeSizeInGB: aws.Int32(1),
+					InstanceType:   smtypes.TrainingInstanceTypeMlM5Large,
+					InstanceCount:  aws.Int32(1),
+					VolumeSizeInGB: aws.Int32(1),
 				},
 				StoppingCondition: &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(120)},
 			})
