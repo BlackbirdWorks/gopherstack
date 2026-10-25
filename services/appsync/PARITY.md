@@ -121,12 +121,12 @@ families:
   ExecuteGraphQL_auth: {status: fixed, note: "gopherstack-idv8 (2026-09-06): ExecuteGraphQL performed zero authentication -- fetched the GraphqlApi record then discarded it (_ = api), and handleGraphQL never read x-api-key/Authorization at all. Fixed for real for all five auth types (API_KEY, AWS_LAMBDA, AWS_IAM, AMAZON_COGNITO_USER_POOLS, OPENID_CONNECT), plus AdditionalAuthenticationProviders (any configured provider, primary or additional, may authorize the request). Cognito/OIDC verify RSA signature, issuer, expiry, and audience/client-id via a JWKSProvider hook wired to services/cognitoidp in internal/app/cli.go (wireAppSyncCognito) -- see gaps for the narrow unwired-provider and external-issuer carve-outs, and for the still-open SigV4-secret gap. A rejected request returns HTTP 401 {\"message\":\"Unauthorized\"}, matching real AppSync's transport-level auth-failure shape."}
 gaps: []
 items_still_open:
-  - "Introspection omits __Type.specifiedByURL and isOneOf, and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01."
+  - "Introspection omits __Type.specifiedByURL and isOneOf (the AppSync guide does not document @specifiedBy/@oneOf support, so they stay unmodeled), and ListTypes/GetType/ListTypesByAssociation ignore the SDL/JSON format parameter; the real per-type JSON shape is unverified. 2026-10-01."
   - "GetIntrospectionSchema returns an undeclared BadRequestException for an unknown format; no declared exception (GraphQLSchema/Internal/NotFound/Unauthorized) fits. 2026-10-01."
   - "GraphqlApi dns and Api dns are unmodeled: the dns key set is unverified."
   - "OpenSearch/Elasticsearch data sources run in-process against services/opensearch domains matched by endpoint host (requests are not SigV4-signed; AMAZON_ELASTICSEARCH resolves against OpenSearch domains only, not services/elasticsearch); EventBridge and RDS (Data API) run in-process; the RDS JS select/insert/update/remove builders are a documented subset (no joins/groupBy/aggregates), MySQL returning is emulated with a follow-up SELECT. 2026-10-20."
-  - "$util.transform.toElasticsearchQueryDSL, DynamoDB sync/batch JS helpers and Lambda BatchInvoke are absent; resolver-cache keys without cachingKeys use arguments+source+identity (AWS key composition unverified). 2026-10-24."
-  - "EvaluateCode errors carry message only (no codeErrors locations). 2026-10-24."
+  - "Not implemented (docs do not define them or need delta-sync state): util.transform.toElasticsearchQueryDSL has no APPSYNC_JS equivalent in the developer guide; DynamoDB Sync with lastSync (delta table) needs conflict-detection/delta-sync writes that PutItem/UpdateItem/DeleteItem do not maintain (base-table Sync works); the @aws-appsync/utils/dynamodb batch/transact JS helpers are not in the documented module (write the request object by hand). Resolver-cache keys without cachingKeys use arguments+source+identity (AWS key composition unverified). 2026-10-25."
+  - "EvaluateCode codeErrors: syntax errors return PARSER_ERROR with line/column (span -1); runtime exceptions return line/column of the innermost frame without an errorType (AWS names unverified); LINT_ERROR is never produced. toElasticsearchQueryDSL emits fields in sorted order (VTL maps are unordered) and the single-operator wrapping is unverified. 2026-10-25."
 structural_gaps:
   - "Cognito/OIDC issuers with no local signing key are rejected because external JWKS endpoints are never fetched (no external network)."
 deferred:
@@ -136,6 +136,10 @@ leaks: {status: bugs found, note: "janitor.go's background goroutine already tak
 ---
 
 ## Notes
+
+### 2026-10-25 resolver leftovers (gopherstack-49qct.13)
+
+Lambda `BatchInvoke` (lambda_batch.go): list-item resolvers with `maxBatchSize` (direct, `{data,errorMessage,errorType}` elements) or an explicit `operation: BatchInvoke` request are batched per list, one Lambda call per `maxBatchSize` items receiving the payload list, results mapped back by position; a wrong-length response fails the chunk. DynamoDB `Sync` (versioned data source, base table only), `TransactGetItems` and `TransactWriteItems` (including `ConditionCheck`, cancellation reasons surfaced as `errors[].data`, `errorType` `DynamoDB:TransactionCanceledException`) via `internal/app/cli.go`'s dynamoDBAdapter; `sync` added to `@aws-appsync/utils/dynamodb`. `$util.transform.toElasticsearchQueryDSL`/`toOpenSearchQueryDSL` per the transformation-helpers reference (documented example plus eq/ne/gt/gte/lt/lte/range/wildcard/regexp/match/matchPhrase/matchPhrasePrefix/exists and and/or/not). EvaluateCode `error.codeErrors` with location. Tests: lambda_batch_test.go, evaluate_code_errors_test.go, util_esdsl_test.go, ddb_js_sync_test.go, internal/app/appsync_dynamodb_resolvers_test.go.
 
 ### 2026-10-24 evaluation logs
 
