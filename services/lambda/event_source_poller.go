@@ -118,6 +118,7 @@ type EventSourcePoller struct {
 	// sqsBatchBuffers holds partial SQS batches per mapping UUID while the
 	// MaximumBatchingWindow has not yet elapsed. Keyed by ESM UUID.
 	sqsBatchBuffers map[string]*sqsBatchBuffer
+	sqsFleets       map[string]*sqsFleet
 	mu              *lockmetrics.RWMutex
 	// notifyC allows callers to trigger an immediate poll without waiting for the next tick.
 	notifyC chan struct{}
@@ -160,6 +161,7 @@ func NewEventSourcePoller(
 		shardIterators:   make(map[string]string),
 		streamPending:    make(map[string][]*streamBatch),
 		sqsBatchBuffers:  make(map[string]*sqsBatchBuffer),
+		sqsFleets:        make(map[string]*sqsFleet),
 		kafkaWorkers:     make(map[string]*kafkaWorker),
 		mqWorkers:        make(map[string]*mqWorker),
 		kafkaUnsupported: make(map[string]struct{}),
@@ -431,29 +433,12 @@ func (p *EventSourcePoller) sweepStaleIterators(activeUUIDs map[string]struct{})
 			delete(p.sqsBatchBuffers, uuid)
 		}
 	}
-}
 
-// invokeESMFunctionEvent delivers an ESM batch to fnName as an async (Event)
-// invocation, honoring an optional qualifier (version/alias) so that mappings
-// created against a qualified function ARN (arn:...:function:my-func:PROD)
-// invoke that specific version/alias rather than $LATEST — matching real
-// Lambda ESM behaviour. Bug fix (parity-sweep-3): previously every ESM
-// delivery path called InvokeFunction unconditionally, silently ignoring any
-// qualifier and always invoking $LATEST.
-func (p *EventSourcePoller) invokeESMFunctionEvent(
-	ctx context.Context, fnName, qualifier string, payload []byte,
-) ([]byte, error) {
-	if qualifier == "" {
-		result, _, err := p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
-
-		return result, err
+	for uuid := range p.sqsFleets {
+		if _, active := activeUUIDs[uuid]; !active {
+			delete(p.sqsFleets, uuid)
+		}
 	}
-
-	result, _, _, _, err := p.lambdaBackend.InvokeFunctionWithQualifier(
-		ctx, fnName, qualifier, "", "", InvocationTypeEvent, payload,
-	)
-
-	return result, err
 }
 
 // RemoveMapping removes any per-mapping poller state for the given ESM UUID.
@@ -477,6 +462,7 @@ func (p *EventSourcePoller) RemoveMapping(uuid string) {
 	}
 
 	delete(p.sqsBatchBuffers, uuid)
+	delete(p.sqsFleets, uuid)
 	p.stopKafkaWorker(uuid)
 	p.stopMQWorker(uuid)
 }
@@ -880,13 +866,13 @@ func (p *EventSourcePoller) resumePendingStream(ctx context.Context, m *EventSou
 // is in the ESM's FunctionResponseTypes and the invocation response contains a
 // batchItemFailures list, only messages NOT in that list are deleted; the failed
 // ones remain in the queue and become visible again after their visibility timeout.
-func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourceMapping, reader SQSReader) {
+func (p *EventSourcePoller) processSQSBatch(ctx context.Context, m *EventSourceMapping, reader SQSReader) int {
 	msgs, err := receiveSQSMessages(reader, m.EventSourceARN, m.BatchSize)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "esm sqs: failed to receive messages",
 			"queue", m.EventSourceARN, "error", err)
 
-		return
+		return 0
 	}
 
 	log := logger.Load(ctx)
@@ -915,12 +901,12 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 	// fills or the window elapses before invoking.
 	batch, flush := p.accumulateSQSBatch(m, matched)
 	if !flush || len(batch) == 0 {
-		return
+		return len(msgs)
 	}
 
 	toDelete := p.deliverSQSBatch(ctx, m, batch)
 	if len(toDelete) == 0 {
-		return
+		return len(msgs)
 	}
 
 	deleted := len(toDelete)
@@ -933,6 +919,8 @@ func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourc
 	}
 
 	p.esmCount(m, esmMetricDeleted, deleted)
+
+	return len(msgs)
 }
 
 // sqsReceiveLimit is SQS's per-call MaxNumberOfMessages ceiling.
@@ -1097,7 +1085,7 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 	if p.sqsInvoker != nil {
 		respBody, invokeErr = p.sqsInvoker(sctx, fnName)
 	} else {
-		respBody, invokeErr = p.invokeESMFunctionEvent(sctx, fnName, qualifier, payload)
+		respBody, invokeErr = p.invokeESMFunctionSync(sctx, fnName, qualifier, payload)
 	}
 
 	span.FinishErr(invokeErr)

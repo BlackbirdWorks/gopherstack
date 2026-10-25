@@ -11,6 +11,9 @@ var ErrFunctionAlreadyExists = errors.New("ResourceConflictException")
 // ErrCapacityProviderInUse is returned when deleting a capacity provider that functions still reference.
 var ErrCapacityProviderInUse = errors.New("ResourceConflictException")
 
+// ErrResourceNotReady is returned when invoking a function whose capacity provider is not Active.
+var ErrResourceNotReady = errors.New("ResourceNotReadyException")
+
 // ErrLambdaUnavailable is returned when Lambda cannot invoke (no Docker or no port range).
 var ErrLambdaUnavailable = errors.New("ServiceException")
 

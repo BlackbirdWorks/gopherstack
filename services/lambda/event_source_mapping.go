@@ -789,10 +789,12 @@ func (b *InMemoryBackend) setESMLastProcessingResult(id, result string) {
 }
 
 const (
-	sqsMaxPollersMin   = 2
-	sqsMaxPollersMax   = 10000
-	kafkaMaxPollersMin = 1
-	kafkaMaxPollersMax = 2000
+	sqsMaxPollersMin     = 2
+	sqsMaxConcurrencyMin = 2
+	sqsMaxConcurrencyMax = 1000
+	sqsMaxPollersMax     = 10000
+	kafkaMaxPollersMin   = 1
+	kafkaMaxPollersMax   = 2000
 )
 
 // validateESMTuning enforces the source-type and range rules documented on
@@ -809,6 +811,12 @@ func validateESMTuning(
 
 	if scaling != nil && scaling.MaximumConcurrency != nil && !sqs {
 		return fmt.Errorf("%w: ScalingConfig applies to Amazon SQS event sources only", ErrInvalidParameterValue)
+	}
+
+	if scaling != nil && scaling.MaximumConcurrency != nil &&
+		(*scaling.MaximumConcurrency < sqsMaxConcurrencyMin || *scaling.MaximumConcurrency > sqsMaxConcurrencyMax) {
+		return fmt.Errorf("%w: MaximumConcurrency must be between %d and %d",
+			ErrInvalidParameterValue, sqsMaxConcurrencyMin, sqsMaxConcurrencyMax)
 	}
 
 	if metrics != nil {
