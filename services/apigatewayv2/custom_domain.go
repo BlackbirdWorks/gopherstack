@@ -61,5 +61,5 @@ func (h *Handler) handleCustomDomain(c *echo.Context, owner *Handler, host strin
 func writeForbidden(c *echo.Context) error {
 	c.Response().Header().Set("X-Amzn-Errortype", "ForbiddenException")
 
-	return c.JSON(http.StatusForbidden, map[string]string{"message": "Forbidden"})
+	return c.JSON(http.StatusForbidden, map[string]string{jsonKeyMessage: "Forbidden"})
 }

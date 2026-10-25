@@ -108,11 +108,7 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 	delete(b.upgradeHistory, upgradeHistoryKey(name))
 	b.dryRuns.Delete(name)
 
-	if !b.endpoints.SharedOpenSearchCluster() {
-		for _, idx := range slices.Clone(b.domainIndexesByDomain.Get(name)) {
-			b.domainIndexes.Delete(domainIndexKey(idx.DomainName, idx.IndexName))
-		}
-	}
+	b.removeDomainIndexesLocked(name)
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(d.Endpoint)
@@ -155,5 +151,16 @@ func (b *InMemoryBackend) purgeExpiredDomainsLocked() {
 		if deleteWindowElapsed(d, now) {
 			b.removeDomainLocked(d.Name)
 		}
+	}
+}
+
+// removeDomainIndexesLocked drops the domain's own indexes; a shared cluster's indexes outlive any one domain.
+func (b *InMemoryBackend) removeDomainIndexesLocked(name string) {
+	if b.endpoints.SharedOpenSearchCluster() {
+		return
+	}
+
+	for _, idx := range slices.Clone(b.domainIndexesByDomain.Get(name)) {
+		b.domainIndexes.Delete(domainIndexKey(idx.DomainName, idx.IndexName))
 	}
 }

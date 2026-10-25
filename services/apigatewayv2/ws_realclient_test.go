@@ -28,8 +28,8 @@ import (
 )
 
 type wsLambdaCall struct {
-	fn    string
 	event map[string]any
+	fn    string
 }
 
 // wsLambda is a function-name keyed fake Lambda that records every invocation.
@@ -116,7 +116,7 @@ func newWSEnv(t *testing.T, lambda *wsLambda) *wsEnv {
 	}
 }
 
-func (e *wsEnv) route(t *testing.T, key, fn string, mod func(*apigatewayv2sdk.CreateRouteInput)) string {
+func (e *wsEnv) route(t *testing.T, key, fn string, mod func(*apigatewayv2sdk.CreateRouteInput)) {
 	t.Helper()
 
 	integ, err := e.api.CreateIntegration(t.Context(), &apigatewayv2sdk.CreateIntegrationInput{
@@ -136,10 +136,8 @@ func (e *wsEnv) route(t *testing.T, key, fn string, mod func(*apigatewayv2sdk.Cr
 		mod(in)
 	}
 
-	out, err := e.api.CreateRoute(t.Context(), in)
+	_, err = e.api.CreateRoute(t.Context(), in)
 	require.NoError(t, err)
-
-	return aws.ToString(out.RouteId)
 }
 
 // dial connects to the API through its execute-api host name.
@@ -301,7 +299,8 @@ func TestWebSocket_ConnectAuthorizer(t *testing.T) {
 				assert.Equal(t, tc.wantStatus, resp.StatusCode)
 
 				for len(lambda.calls) > 0 {
-					assert.NotEqual(t, "connect-fn", (<-lambda.calls).fn, "denied connect must not reach the integration")
+					call := <-lambda.calls
+					assert.NotEqual(t, "connect-fn", call.fn, "denied connect must not reach the integration")
 				}
 
 				return
@@ -354,7 +353,12 @@ func TestWebSocket_RoutingAndResponses(t *testing.T) {
 	}{
 		{name: "custom route", send: `{"action":"echo","d":1}`, wantFn: "echo-fn", wantRoute: "echo",
 			wantReply: `"echo:{"action":"echo","d":1}"`},
-		{name: "unknown action falls to default", send: `{"action":"nope"}`, wantFn: "default-fn", wantRoute: "$default"},
+		{
+			name:      "unknown action falls to default",
+			send:      `{"action":"nope"}`,
+			wantFn:    "default-fn",
+			wantRoute: "$default",
+		},
 		{name: "no action falls to default", send: `{"x":1}`, wantFn: "default-fn", wantRoute: "$default"},
 		{name: "non json falls to default", send: `hello`, wantFn: "default-fn", wantRoute: "$default"},
 	}

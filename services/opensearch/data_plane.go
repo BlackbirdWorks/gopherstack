@@ -83,16 +83,20 @@ func dataPlaneTargetOf(r *http.Request) (dataPlaneTarget, bool) {
 	}
 
 	domain, sub, _ := strings.Cut(rest, "/")
-	segs := strings.Split(sub, "/")
-
-	switch {
-	case sub == "_bulk":
+	if sub == "_bulk" {
 		return dataPlaneTarget{domain: domain, path: "/_bulk"}, true
-	case len(segs) >= 3 && segs[0] == "index" && isDocumentOp(segs[2]):
-		return dataPlaneTarget{domain: domain, path: "/" + strings.Join(segs[1:], "/")}, true
-	default:
+	}
+
+	indexed, ok := strings.CutPrefix(sub, "index/")
+	if !ok {
 		return dataPlaneTarget{}, false
 	}
+
+	if segs := strings.Split(indexed, "/"); len(segs) >= 2 && isDocumentOp(segs[1]) {
+		return dataPlaneTarget{domain: domain, path: "/" + indexed}, true
+	}
+
+	return dataPlaneTarget{}, false
 }
 
 func isDocumentOp(seg string) bool {
@@ -155,7 +159,8 @@ func (h *Handler) proxyToCustomBackend(w http.ResponseWriter, r *http.Request, e
 		},
 		Transport: h.proxyTransport,
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-			h.writeError(req, w, http.StatusBadGateway, "BadGateway", "custom OpenSearch backend unreachable: "+err.Error())
+			msg := "custom OpenSearch backend unreachable: " + err.Error()
+			h.writeError(req, w, http.StatusBadGateway, "BadGateway", msg)
 		},
 	}
 

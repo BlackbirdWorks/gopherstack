@@ -185,9 +185,15 @@ func TestDataPlane_SharedCluster(t *testing.T) {
 
 			env := newDataPlaneEnv(t, endpointstrategy.Config{OpenSearchMultiCluster: tc.multiCluster})
 
-			_, err := env.client.CreateDomain(t.Context(), &opensearchsdk.CreateDomainInput{DomainName: aws.String("dom-a")})
+			_, err := env.client.CreateDomain(
+				t.Context(),
+				&opensearchsdk.CreateDomainInput{DomainName: aws.String("dom-a")},
+			)
 			require.NoError(t, err)
-			_, err = env.client.CreateDomain(t.Context(), &opensearchsdk.CreateDomainInput{DomainName: aws.String("dom-b")})
+			_, err = env.client.CreateDomain(
+				t.Context(),
+				&opensearchsdk.CreateDomainInput{DomainName: aws.String("dom-b")},
+			)
 			require.NoError(t, err)
 
 			code, _ := env.do(t, http.MethodPost, "/2021-01-01/opensearch/domain/dom-a/index/shared", "{}", "", "")
@@ -221,15 +227,27 @@ func TestDataPlane_CustomBackend(t *testing.T) {
 	env := newDataPlaneEnv(t, endpointstrategy.Config{OpenSearchCustomBackend: upstream.URL + "/base"})
 	env.createDomain(t, "proxied", fgac())
 
+	const base = "/opensearch/us-east-1/proxied"
+
 	tests := []struct {
 		name     string
 		method   string
 		path     string
 		wantPath string
 	}{
-		{name: "search", method: http.MethodPost, path: "/opensearch/us-east-1/proxied/idx/_search?q=1", wantPath: "/base/idx/_search"},
-		{name: "cluster health", method: http.MethodGet, path: "/opensearch/us-east-1/proxied/_cluster/health", wantPath: "/base/_cluster/health"},
-		{name: "traversal stays under base", method: http.MethodGet, path: "/opensearch/us-east-1/proxied/idx/../../x", wantPath: "/base/x"},
+		{
+			name:     "search",
+			method:   http.MethodPost,
+			path:     "/opensearch/us-east-1/proxied/idx/_search?q=1",
+			wantPath: "/base/idx/_search",
+		},
+		{
+			name:     "cluster health",
+			method:   http.MethodGet,
+			path:     base + "/_cluster/health",
+			wantPath: "/base/_cluster/health",
+		},
+		{name: "traversal stays under base", method: http.MethodGet, path: base + "/idx/../../x", wantPath: "/base/x"},
 	}
 
 	for _, tc := range tests {

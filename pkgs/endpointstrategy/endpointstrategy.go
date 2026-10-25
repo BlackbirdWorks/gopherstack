@@ -40,7 +40,7 @@ type Flags struct {
 	// OpenSearchMultiCluster and OpenSearchCustomBackend are opt-in LocalStack-compatible options.
 	OpenSearchMultiCluster  string `name:"opensearch-multi-cluster"  env:"OPENSEARCH_MULTI_CLUSTER"  help:"false makes every OpenSearch domain share one index store (default: one isolated store per domain, as on AWS)."`          //nolint:lll // config struct tags are intentionally verbose
 	OpenSearchCustomBackend string `name:"opensearch-custom-backend" env:"OPENSEARCH_CUSTOM_BACKEND" help:"URL of an existing OpenSearch cluster that serves every domain's data-plane requests (empty keeps the built-in engine)."` //nolint:lll // config struct tags are intentionally verbose
-	ECR                     string `name:"ecr-endpoint-strategy"        env:"ECR_ENDPOINT_STRATEGY"        help:"ECR repositoryUri host format: domain or off (empty keeps the AWS-style host)."`                                    //nolint:lll // config struct tags are intentionally verbose
+	ECR                     string `name:"ecr-endpoint-strategy"     env:"ECR_ENDPOINT_STRATEGY"     help:"ECR repositoryUri host format: domain or off (empty keeps the AWS-style host)."`                                          //nolint:lll // config struct tags are intentionally verbose
 }
 
 // Config carries the selected strategies and the gateway host:port.
@@ -80,17 +80,13 @@ func From(cfg any) Config {
 	return Config{}
 }
 
-func parse(kind, v string, allowed ...string) (string, error) {
+func parse(kind, v string, allowed ...string) error {
 	v = strings.ToLower(strings.TrimSpace(v))
-	if v == "" {
-		return "", nil
+	if v == "" || slices.Contains(allowed, v) {
+		return nil
 	}
 
-	if slices.Contains(allowed, v) {
-		return v, nil
-	}
-
-	return "", fmt.Errorf("%w: %s=%q (allowed: %s)", ErrInvalidStrategy, kind, v, strings.Join(allowed, ", "))
+	return fmt.Errorf("%w: %s=%q (allowed: %s)", ErrInvalidStrategy, kind, v, strings.Join(allowed, ", "))
 }
 
 // Validate checks every strategy value; "port" for OpenSearch is rejected because
@@ -113,7 +109,7 @@ func (c Config) Validate() error {
 		{"ECR_ENDPOINT_STRATEGY", c.ECR, []string{stratDomain, stratOff}},
 	}
 
-	if _, err := parse("OPENSEARCH_MULTI_CLUSTER", c.OpenSearchMultiCluster, "true", "false"); err != nil {
+	if err := parse("OPENSEARCH_MULTI_CLUSTER", c.OpenSearchMultiCluster, "true", "false"); err != nil {
 		return err
 	}
 
@@ -122,7 +118,7 @@ func (c Config) Validate() error {
 	}
 
 	for _, ck := range checks {
-		if _, err := parse(ck.kind, ck.v, ck.allowed...); err != nil {
+		if err := parse(ck.kind, ck.v, ck.allowed...); err != nil {
 			return err
 		}
 	}

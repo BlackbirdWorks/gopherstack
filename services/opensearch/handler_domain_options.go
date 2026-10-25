@@ -106,12 +106,11 @@ type samlOptionsJSON struct {
 
 // advancedSecurityOptionsJSON is the JSON representation of advanced security options.
 type advancedSecurityOptionsJSON struct {
-	SAMLOptions                 *samlOptionsJSON `json:"SAMLOptions,omitempty"`
-	AnonymousAuthEnabled        bool             `json:"AnonymousAuthEnabled"`
-	Enabled                     bool             `json:"Enabled"`
-	InternalUserDatabaseEnabled bool             `json:"InternalUserDatabaseEnabled"`
-	// MasterUserOptions is request-only: it is never echoed in responses.
-	MasterUserOptions *masterUserOptionsJSON `json:"MasterUserOptions,omitempty"`
+	SAMLOptions                 *samlOptionsJSON       `json:"SAMLOptions,omitempty"`
+	MasterUserOptions           *masterUserOptionsJSON `json:"MasterUserOptions,omitempty"`
+	AnonymousAuthEnabled        bool                   `json:"AnonymousAuthEnabled"`
+	Enabled                     bool                   `json:"Enabled"`
+	InternalUserDatabaseEnabled bool                   `json:"InternalUserDatabaseEnabled"`
 }
 
 type masterUserOptionsJSON struct {

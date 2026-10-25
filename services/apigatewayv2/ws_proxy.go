@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -34,6 +35,12 @@ const (
 	wsNoStatusReceived   = "Client-side close frame status not set"
 	wsGoingAway          = "Server closed the connection"
 	wsForbiddenMessage   = "Forbidden"
+
+	evKeyHeaders           = "headers"
+	evKeyMultiValueHeaders = "multiValueHeaders"
+	evKeyRequestContext    = "requestContext"
+	evKeyIsBase64          = "isBase64Encoded"
+	jsonKeyMessage         = "message"
 )
 
 // wsBodyVarRE matches $request.body.<path> and ${request.body.<path>} in a
@@ -45,14 +52,14 @@ type wsSession struct {
 	h           *Handler
 	authorizer  map[string]any
 	downstream  chan []byte
+	header      http.Header
+	query       map[string][]string
 	apiID       string
 	stage       string
 	connID      string
 	domain      string
 	sourceIP    string
 	userAgent   string
-	header      http.Header
-	query       map[string][]string
 }
 
 func (s *wsSession) requestContext(routeKey, eventType string) map[string]any {
@@ -96,10 +103,10 @@ func singleValues(m map[string][]string) map[string]string {
 
 func (s *wsSession) connectEvent() map[string]any {
 	ev := map[string]any{
-		"headers":           singleValues(s.header),
-		"multiValueHeaders": s.header,
-		"requestContext":    s.requestContext(routeKeyConnect, wsEventConnect),
-		"isBase64Encoded":   false,
+		evKeyHeaders:           singleValues(s.header),
+		evKeyMultiValueHeaders: s.header,
+		evKeyRequestContext:    s.requestContext(routeKeyConnect, wsEventConnect),
+		evKeyIsBase64:          false,
 	}
 
 	if len(s.query) > 0 {
@@ -114,7 +121,7 @@ func (s *wsSession) messageEvent(routeKey string, body []byte, binary bool) map[
 	rc := s.requestContext(routeKey, wsEventMessage)
 	rc["messageId"] = uuid.NewString()
 
-	ev := map[string]any{"requestContext": rc, "isBase64Encoded": binary}
+	ev := map[string]any{evKeyRequestContext: rc, evKeyIsBase64: binary}
 	if binary {
 		ev["body"] = base64.StdEncoding.EncodeToString(body)
 	} else {
@@ -130,10 +137,10 @@ func (s *wsSession) disconnectEvent(code int, reason string) map[string]any {
 	rc["disconnectReason"] = reason
 
 	return map[string]any{
-		"headers":           map[string]string{"Host": s.domain},
-		"multiValueHeaders": map[string][]string{"Host": {s.domain}},
-		"requestContext":    rc,
-		"isBase64Encoded":   false,
+		evKeyHeaders:           map[string]string{"Host": s.domain},
+		evKeyMultiValueHeaders: map[string][]string{"Host": {s.domain}},
+		evKeyRequestContext:    rc,
+		evKeyIsBase64:          false,
 	}
 }
 
@@ -154,7 +161,7 @@ func (s *wsSession) send(data []byte) {
 
 func (s *wsSession) sendForbidden() {
 	b, _ := json.Marshal(map[string]string{
-		"message":      wsForbiddenMessage,
+		jsonKeyMessage: wsForbiddenMessage,
 		"connectionId": s.connID,
 		"requestId":    uuid.NewString(),
 	})
@@ -423,12 +430,12 @@ func (h *Handler) enforceWSRequestAuthorizer(c *echo.Context, s *wsSession, auth
 	payload, err := json.Marshal(map[string]any{
 		"type":                            authorizerTypeRequest,
 		"methodArn":                       methodArn,
-		"headers":                         singleValues(s.header),
-		"multiValueHeaders":               s.header,
+		evKeyHeaders:                      singleValues(s.header),
+		evKeyMultiValueHeaders:            s.header,
 		"queryStringParameters":           singleValues(s.query),
 		"multiValueQueryStringParameters": s.query,
 		"stageVariables":                  map[string]string{},
-		"requestContext":                  s.requestContext(routeKeyConnect, wsEventConnect),
+		evKeyRequestContext:               s.requestContext(routeKeyConnect, wsEventConnect),
 	})
 	if err != nil {
 		return errRouteAuthConfigInvalid
@@ -453,9 +460,7 @@ func (h *Handler) enforceWSRequestAuthorizer(c *echo.Context, s *wsSession, auth
 	var authzCtx map[string]any
 	if allow {
 		authzCtx = map[string]any{"principalId": policy.PrincipalID}
-		for k, v := range policy.Context {
-			authzCtx[k] = v
-		}
+		maps.Copy(authzCtx, policy.Context)
 	}
 
 	if cacheable {
@@ -515,7 +520,7 @@ func evalRouteSelection(expr string, body []byte) string {
 func jsonPathString(doc any, path string) (string, bool) {
 	cur := doc
 
-	for _, key := range strings.Split(path, ".") {
+	for key := range strings.SplitSeq(path, ".") {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return "", false

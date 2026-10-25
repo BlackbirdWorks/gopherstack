@@ -298,34 +298,32 @@ type UpdateStageInput struct {
 
 // CreateRouteInput is the input for CreateRoute.
 type CreateRouteInput struct {
-	RequestModels            map[string]string                 `json:"requestModels,omitempty"`
-	RequestParameters        map[string]RouteRequiredParameter `json:"requestParameters,omitempty"`
-	RouteKey                 string                            `json:"routeKey"`
-	Target                   string                            `json:"target,omitempty"`
-	AuthorizationType        string                            `json:"authorizationType,omitempty"`
-	AuthorizerID             string                            `json:"authorizerId,omitempty"`
-	OperationName            string                            `json:"operationName,omitempty"`
-	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
-	AuthorizationScopes      []string                          `json:"authorizationScopes,omitempty"`
-	APIKeyRequired           bool                              `json:"apiKeyRequired,omitempty"`
-
-	RouteResponseSelectionExpression string `json:"routeResponseSelectionExpression,omitempty"`
+	RequestModels                    map[string]string                 `json:"requestModels,omitempty"`
+	RequestParameters                map[string]RouteRequiredParameter `json:"requestParameters,omitempty"`
+	RouteKey                         string                            `json:"routeKey"`
+	Target                           string                            `json:"target,omitempty"`
+	AuthorizationType                string                            `json:"authorizationType,omitempty"`
+	AuthorizerID                     string                            `json:"authorizerId,omitempty"`
+	OperationName                    string                            `json:"operationName,omitempty"`
+	ModelSelectionExpression         string                            `json:"modelSelectionExpression,omitempty"`
+	RouteResponseSelectionExpression string                            `json:"routeResponseSelectionExpression,omitempty"`
+	AuthorizationScopes              []string                          `json:"authorizationScopes,omitempty"`
+	APIKeyRequired                   bool                              `json:"apiKeyRequired,omitempty"`
 }
 
 // UpdateRouteInput is the input for UpdateRoute (PATCH).
 type UpdateRouteInput struct {
-	RequestModels            map[string]string                 `json:"requestModels,omitempty"`
-	RequestParameters        map[string]RouteRequiredParameter `json:"requestParameters,omitempty"`
-	RouteKey                 *string                           `json:"routeKey,omitempty"`
-	Target                   *string                           `json:"target,omitempty"`
-	AuthorizationType        string                            `json:"authorizationType,omitempty"`
-	AuthorizerID             *string                           `json:"authorizerId,omitempty"`
-	OperationName            *string                           `json:"operationName,omitempty"`
-	ModelSelectionExpression *string                           `json:"modelSelectionExpression,omitempty"`
-	APIKeyRequired           *bool                             `json:"apiKeyRequired,omitempty"`
-	AuthorizationScopes      []string                          `json:"authorizationScopes,omitempty"`
-
-	RouteResponseSelectionExpression *string `json:"routeResponseSelectionExpression,omitempty"`
+	RequestModels                    map[string]string                 `json:"requestModels,omitempty"`
+	RequestParameters                map[string]RouteRequiredParameter `json:"requestParameters,omitempty"`
+	RouteKey                         *string                           `json:"routeKey,omitempty"`
+	Target                           *string                           `json:"target,omitempty"`
+	AuthorizerID                     *string                           `json:"authorizerId,omitempty"`
+	OperationName                    *string                           `json:"operationName,omitempty"`
+	ModelSelectionExpression         *string                           `json:"modelSelectionExpression,omitempty"`
+	APIKeyRequired                   *bool                             `json:"apiKeyRequired,omitempty"`
+	RouteResponseSelectionExpression *string                           `json:"routeResponseSelectionExpression,omitempty"`
+	AuthorizationType                string                            `json:"authorizationType,omitempty"`
+	AuthorizationScopes              []string                          `json:"authorizationScopes,omitempty"`
 }
 
 // CreateIntegrationInput is the input for CreateIntegration.
