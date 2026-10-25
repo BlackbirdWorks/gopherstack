@@ -201,11 +201,19 @@ func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
 }
 
 func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) bool {
+	ok := false
+
 	if principal, _, _ := h.broker.principalOf(cl); principal == "" {
-		return h.connectCustom(cl, pk)
+		ok = h.connectCustom(cl, pk)
+	} else {
+		ok = h.allowed(cl, "iot:Connect", "client/"+cl.ID)
 	}
 
-	return h.allowed(cl, "iot:Connect", "client/"+cl.ID)
+	if !ok {
+		h.broker.publishConnectFailed(cl)
+	}
+
+	return ok
 }
 
 func (h *authHook) OnACLCheck(cl *mqtt.Client, topic string, write bool) bool {

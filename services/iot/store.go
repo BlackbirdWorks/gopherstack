@@ -105,6 +105,8 @@ type InMemoryBackend struct {
 	behaviorTrainingSummaries  map[string][]*BehaviorModelTrainingSummary
 	mu                         *lockmetrics.RWMutex
 	jobNotifier                atomic.Pointer[func(string)]
+	eventSink                  atomic.Pointer[func(string, []byte)]
+	pendingEvents              []registryEvent
 	registrationCode           string
 	endpointBase               string
 	defaultAuthorizer          string
@@ -351,6 +353,8 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		return nil, err
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("CreateThing")
 	defer b.mu.Unlock()
 
@@ -385,6 +389,10 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 	if input.BillingGroupName != "" {
 		b.thingBillingGroups[input.ThingName] = input.BillingGroupName
 	}
+
+	created, _ := b.things.Get(input.ThingName)
+	b.queueThingEventLocked(opCreated, created)
+	b.queueTypeAssociationEventLocked(opAdded, created, created.ThingTypeName)
 
 	return &CreateThingOutput{
 		ThingName: input.ThingName,
@@ -430,6 +438,8 @@ func (b *InMemoryBackend) ListThings() []*Thing {
 // leaves a ghost JobExecution behind for DescribeJobExecution/
 // ListJobExecutionsForThing to keep returning.
 func (b *InMemoryBackend) DeleteThing(thingName string, expectedVersion int64) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteThing")
 	defer b.mu.Unlock()
 
@@ -449,6 +459,7 @@ func (b *InMemoryBackend) DeleteThing(thingName string, expectedVersion int64) e
 
 	thingARN := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", thingName))
 
+	b.queueThingEventLocked(opDeleted, t)
 	b.things.Delete(thingName)
 	delete(b.resourceTags, thingARN)
 	delete(b.thingBillingGroups, thingName)
@@ -588,6 +599,8 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 		return fmt.Errorf("%w: ThingName is required", ErrValidation)
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateThing")
 	defer b.mu.Unlock()
 
@@ -600,6 +613,8 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 		return fmt.Errorf("%w: expected version %d but current is %d",
 			ErrVersionConflict, *input.ExpectedVersion, t.Version)
 	}
+
+	oldType := t.ThingTypeName
 
 	if input.RemoveThingType {
 		t.ThingTypeName = ""
@@ -618,6 +633,13 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 	t.Attributes = applyAttributePayload(t.Attributes, input.AttributePayload)
 
 	t.Version++
+
+	b.queueThingEventLocked(opUpdated, t)
+
+	if oldType != t.ThingTypeName {
+		b.queueTypeAssociationEventLocked(opRemoved, t, oldType)
+		b.queueTypeAssociationEventLocked(opAdded, t, t.ThingTypeName)
+	}
 
 	return nil
 }

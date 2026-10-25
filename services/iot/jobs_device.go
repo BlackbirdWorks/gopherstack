@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -145,6 +146,8 @@ func (b *InMemoryBackend) StartNextPendingJobExecution(
 		return nil, false, err
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("StartNextPendingJobExecution")
 	defer b.mu.Unlock()
 
@@ -244,6 +247,8 @@ func (b *InMemoryBackend) UpdateDeviceJobExecution(in *UpdateDeviceJobExecutionI
 		return nil, err
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateDeviceJobExecution")
 	defer b.mu.Unlock()
 
@@ -288,6 +293,10 @@ func (b *InMemoryBackend) UpdateDeviceJobExecution(in *UpdateDeviceJobExecutionI
 	exec.StatusDetails = mergeStatusDetails(exec.StatusDetails, in.StatusDetails)
 	b.notifyJob(in.ThingName)
 
+	if isTerminalJobExecutionStatus(status) {
+		b.queueJobExecutionEventLocked(strings.ToLower(string(status)), exec)
+	}
+
 	b.completeJobIfDoneLocked(job, now)
 
 	return deviceExecution(job, exec, true), nil
@@ -313,6 +322,7 @@ func (b *InMemoryBackend) completeJobIfDoneLocked(job *Job, now float64) {
 	job.Status = JobStatusCompleted
 	job.CompletedAt = now
 	job.LastUpdatedAt = now
+	b.queueJobEventLocked("completed", job)
 }
 
 // setJobNotifier registers the callback that reports a thing whose job executions changed.
@@ -421,6 +431,7 @@ func (b *InMemoryBackend) sweepJobTimeoutsLocked(now float64) {
 		e.LastUpdatedAt = d
 		e.VersionNumber++
 		b.notifyJob(e.ThingName)
+		b.queueJobExecutionEventLocked("timed_out", e)
 
 		job, _ := b.jobs.Get(e.JobID)
 		b.completeJobIfDoneLocked(job, d)
@@ -428,6 +439,8 @@ func (b *InMemoryBackend) sweepJobTimeoutsLocked(now float64) {
 }
 
 func (b *InMemoryBackend) sweepJobTimeouts() {
+	defer b.flushEvents()
+
 	b.mu.Lock("sweepJobTimeouts")
 	defer b.mu.Unlock()
 

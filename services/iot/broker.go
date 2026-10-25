@@ -51,6 +51,8 @@ type Broker struct {
 	backend      *InMemoryBackend
 	others       func() []*InMemoryBackend
 	acks         sync.Map
+	sessions     sync.Map
+	versions     sync.Map
 	boundPort    atomic.Int64
 	authRequired atomic.Bool
 	readyOnce    sync.Once
@@ -441,6 +443,8 @@ func (b *Broker) SendToClientAwaitAck(
 }
 
 func (b *Broker) notifyConnected(cl *mqtt.Client) {
+	b.publishConnected(cl)
+
 	if o := b.observer.Load(); o != nil {
 		(*o).ClientConnected(cl.ID, cl.Net.Remote)
 	}
@@ -448,8 +452,12 @@ func (b *Broker) notifyConnected(cl *mqtt.Client) {
 
 func (b *Broker) notifyDisconnected(cl *mqtt.Client, err error) {
 	if cl.IsTakenOver() {
+		b.publishDisconnected(cl, reasonDuplicateClientID)
+
 		return
 	}
+
+	b.publishDisconnected(cl, disconnectReason(cl.StopCause(), err))
 
 	if o := b.observer.Load(); o != nil {
 		(*o).ClientDisconnected(cl.ID, disconnectReason(cl.StopCause(), err))
@@ -525,7 +533,8 @@ func (h *ruleHook) ID() string { return "iot-rule-hook" }
 // Provides reports which hook events this hook handles.
 func (h *ruleHook) Provides(b byte) bool {
 	switch b {
-	case mqtt.OnPublish, mqtt.OnPacketRead, mqtt.OnSessionEstablished, mqtt.OnDisconnect:
+	case mqtt.OnPublish, mqtt.OnPacketRead, mqtt.OnSessionEstablished, mqtt.OnDisconnect,
+		mqtt.OnSubscribed, mqtt.OnUnsubscribed:
 		return true
 	default:
 		return false

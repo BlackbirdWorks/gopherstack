@@ -83,6 +83,7 @@ func (h *Handler) BackendFor(region string) StorageBackend {
 func NewHandler(backend StorageBackend, broker *Broker) *Handler {
 	if bk, ok := backend.(*InMemoryBackend); ok && broker != nil {
 		bk.setJobNotifier(func(thing string) { broker.publishJobNotifications(bk, thing) })
+		bk.setEventSink(broker.publishEvent)
 	}
 
 	return &Handler{Backend: backend, broker: broker}

@@ -136,6 +136,8 @@ func (b *InMemoryBackend) DeleteOTAUpdate(id string) error {
 // DeleteOTAUpdateWithOptions deletes an OTA update and its job; a non-terminal job needs forceDeleteJob
 // (api_op_DeleteOTAUpdate.go ForceDeleteAWSJob), else ErrInvalidStateTransition and nothing is deleted.
 func (b *InMemoryBackend) DeleteOTAUpdateWithOptions(id string, forceDeleteJob bool) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteOTAUpdate")
 	defer b.mu.Unlock()
 

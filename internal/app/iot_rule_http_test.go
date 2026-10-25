@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -323,6 +324,8 @@ type iotHTTPCase struct {
 	payload    string
 	sql        string
 	wantReason string
+	urlPath    string
+	wantPath   string
 	headers    []iottypes.HttpActionHeader
 	wantBodies []string
 	wantHits   int
@@ -337,6 +340,10 @@ func TestIoTRuleHTTPAction(t *testing.T) {
 			name: "projected_payload_and_templated_header", sql: "SELECT temp AS t, topic() AS tp FROM 'http/in'",
 			payload: `{"temp":5,"id":"d9"}`, wantHits: 1, wantBodies: []string{`{"t":5,"tp":"http/in"}`},
 			headers: []iottypes.HttpActionHeader{{Key: aws.String("X-Device"), Value: aws.String("${id}")}},
+		},
+		{
+			name: "templated_url_path", sql: "SELECT * FROM 'http/in'", payload: `{"id":"d9"}`,
+			wantHits: 1, wantBodies: []string{`{"id":"d9"}`}, urlPath: "/dev/${id}", wantPath: "/dev/d9",
 		},
 		{
 			name: "binary_payload_content_type", sql: "SELECT * FROM 'http/in'", payload: "plain-bytes",
@@ -409,8 +416,10 @@ func runIoTHTTPCase(t *testing.T, tt iotHTTPCase) {
 		tt.prepare(t, f, ep, arn)
 	}
 
+	urlPath, wantPath := cmp.Or(tt.urlPath, "/data"), cmp.Or(tt.wantPath, "/data")
+
 	f.createRule(t, "httprule", tt.sql, errAct, iottypes.Action{Http: &iottypes.HttpAction{
-		Url: aws.String(ep.srv.URL + "/data"), ConfirmationUrl: aws.String(ep.srv.URL), Headers: tt.headers,
+		Url: aws.String(ep.srv.URL + urlPath), ConfirmationUrl: aws.String(ep.srv.URL), Headers: tt.headers,
 	}})
 	f.publish(t, "http/in", tt.payload)
 
@@ -431,7 +440,7 @@ func runIoTHTTPCase(t *testing.T, tt iotHTTPCase) {
 	last := hits[len(hits)-1]
 
 	assert.Len(t, hits, tt.wantHits)
-	assert.Equal(t, "/data", last.path)
+	assert.Equal(t, wantPath, last.path)
 
 	for i, want := range tt.wantBodies {
 		assert.Equal(t, want, string(hits[i].body))
