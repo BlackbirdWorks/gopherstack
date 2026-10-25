@@ -113,9 +113,21 @@ func TestCrawl_APICallsNotBlockedByTargetIO(t *testing.T) {
 		call func(b *glue.InMemoryBackend) error
 		name string
 	}{
-		{name: "get_database", call: func(b *glue.InMemoryBackend) error { _, err := b.GetDatabase("db"); return err }},
-		{name: "get_crawler", call: func(b *glue.InMemoryBackend) error { _, err := b.GetCrawler("cr"); return err }},
-		{name: "get_tables", call: func(b *glue.InMemoryBackend) error { _, err := b.GetTables("db"); return err }},
+		{name: "get_database", call: func(b *glue.InMemoryBackend) error {
+			_, err := b.GetDatabase("db")
+
+			return err
+		}},
+		{name: "get_crawler", call: func(b *glue.InMemoryBackend) error {
+			_, err := b.GetCrawler("cr")
+
+			return err
+		}},
+		{name: "get_tables", call: func(b *glue.InMemoryBackend) error {
+			_, err := b.GetTables("db")
+
+			return err
+		}},
 		{name: "create_database", call: func(b *glue.InMemoryBackend) error {
 			_, err := b.CreateDatabase(glue.DatabaseInput{Name: "other"}, nil)
 
