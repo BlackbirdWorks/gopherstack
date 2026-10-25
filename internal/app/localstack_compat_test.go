@@ -137,6 +137,10 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			want: map[string]string{"GOPHERSTACK_S3_VALIDATE_SIGNATURES": "true"},
 		},
 		{
+			name: "s3_skip_kms_key_validation_handled_natively", environ: []string{"S3_SKIP_KMS_KEY_VALIDATION=0"},
+			want: map[string]string{},
+		},
+		{
 			name: "s3_skip_signature_validation_default", environ: []string{"S3_SKIP_SIGNATURE_VALIDATION=1"},
 			want: map[string]string{},
 		},

@@ -238,6 +238,7 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--persist` | `PERSIST` | `false` | Enable snapshot-based persistence across restarts. |
 | `--persist-mode` | `GOPHERSTACK_PERSIST_MODE` | `snapshot` | `snapshot`, `hybrid`, `shutdown` or `manual` (see [docs/persistence.md](docs/persistence.md)). |
 | `--persist-load` | `GOPHERSTACK_PERSIST_LOAD` | `startup` | `startup`, `request` (lazy per service) or `manual` (see [docs/persistence.md](docs/persistence.md)). |
+| `--s3-skip-kms-key-validation` | `GOPHERSTACK_S3_SKIP_KMS_KEY_VALIDATION` | `false` | SSE-KMS key ids unknown to KMS are rejected with `KMS.NotFoundException`, as on AWS (LocalStack skips by default); set to accept them. |
 | `--persist-services` / `--persist-exclude` | `GOPHERSTACK_PERSIST_SERVICES` / `GOPHERSTACK_PERSIST_EXCLUDE` | *(all)* | Allow/deny lists of services to persist (case-insensitive). |
 | `--persist-service-mode` | `GOPHERSTACK_PERSIST_SERVICE_MODE` | *(none)* | Per-service mode override, e.g. `s3=hybrid,sqs=snapshot`. |
 | `--persist-flush-interval` | `GOPHERSTACK_PERSIST_FLUSH_INTERVAL` | `5s` | Hybrid flush interval (worst-case loss on a crash). |
