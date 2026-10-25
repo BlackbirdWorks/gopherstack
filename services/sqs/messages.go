@@ -520,7 +520,7 @@ func (b *InMemoryBackend) receiveOnce(
 	}
 
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
-	msgs := prepareAndPickMessages(q, receiveCtx{codec: b.handles, accountID: b.accountID}, maxMessages, vt, now)
+	msgs := prepareAndPickMessages(q, receiveCtx{codec: b.handles, accountID: b.accountID, noRetention: b.noRetention.Load()}, maxMessages, vt, now)
 
 	// Cache the result for FIFO ReceiveRequestAttemptID deduplication.
 	if q.IsFIFO && input.ReceiveRequestAttemptID != "" && len(msgs) > 0 {

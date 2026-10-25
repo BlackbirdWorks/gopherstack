@@ -47,6 +47,13 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	backend.SetEndpointStrategy(strategies.SQS)
 
+	settings := DefaultSettings()
+	if sp, ok := ctx.Config.(SettingsProvider); ok {
+		settings = sp.GetSQSSettings()
+	}
+
+	backend.ApplySettings(settings)
+
 	handler := NewHandler(backend).WithJanitor()
 	handler.DefaultRegion = defaultRegion
 

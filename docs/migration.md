@@ -222,7 +222,20 @@ LocalStack variables are translated at startup; a variable already set under its
 | `LOCALSTACK_HOST`, `HOSTNAME_EXTERNAL` | Not needed: SQS queue URLs and similar follow the request `Host` header |
 | `SERVICES` | Supported: `--services` / `GOPHERSTACK_SERVICES` (`SERVICES` is read directly; names are case-insensitive, LocalStack aliases like `logs`, `events`, `es`, `sfn` accepted; unknown names in `SERVICES` are skipped with a warning, unlike `--services`, where they fail startup) |
 | `EXTRA_CORS_ALLOWED_ORIGINS`, `EXTRA_CORS_ALLOWED_HEADERS`, `EXTRA_CORS_EXPOSE_HEADERS`, `DISABLE_CORS_CHECKS` | Supported as aliases of `--cors-allow-origins`, `--cors-allow-headers`, `--cors-expose-headers`, `--cors-disable-checks` |
-| `EAGER_SERVICE_LOADING`, `LOCALSTACK_AUTH_TOKEN`, other `LOCALSTACK_*` | Ignored; logged once at debug |
+| `ENFORCE_IAM`, `IAM_SOFT_MODE` | `GOPHERSTACK_ENFORCE_IAM`, `GOPHERSTACK_IAM_AUDIT` |
+| `S3_VALIDATE_SIGNATURES` | `VALIDATE_SIGV4` (validates every service, not only S3) |
+| `DNS_ADDRESS`, `DNS_SERVER` | `DNS_ADDR` (`0` / `0.0.0.0` leave DNS off), `TRANSPARENT_DNS_UPSTREAM`; port 53 when omitted |
+| `EXTERNAL_SERVICE_PORTS_START` / `_END` | `PORT_RANGE_START` / `PORT_RANGE_END` (the end is inclusive in LocalStack, exclusive here, so +1) |
+| `SNAPSHOT_SAVE_STRATEGY=ON_REQUEST` / `SCHEDULED`, `SNAPSHOT_FLUSH_INTERVAL` | `GOPHERSTACK_PERSIST_MODE=snapshot` / `hybrid`, `GOPHERSTACK_PERSIST_FLUSH_INTERVAL`. `ON_SHUTDOWN`, `MANUAL` and non-`ON_STARTUP` `SNAPSHOT_LOAD_STRATEGY` are unsupported |
+| `AUTO_LOAD_POD`, `MERGE_STRATEGY` (`overwrite`, `service-merge`, `account-region-merge`) | `GOPHERSTACK_POD_AUTOLOAD`, `GOPHERSTACK_POD_MERGE_STRATEGY` |
+| `SQS_DELAY_PURGE_RETRY`, `SQS_DELAY_RECENTLY_DELETED`, `SQS_ENABLE_MESSAGE_RETENTION_PERIOD`, `SQS_DISABLE_CLOUDWATCH_METRICS` | Same names. Gopherstack defaults to the AWS behaviour (cooldowns and retention on), so set `=0` to switch one off |
+| `KINESIS_ERROR_PROBABILITY`, `DYNAMODB_ERROR_PROBABILITY` (0 to 1) | Seed a probabilistic `ProvisionedThroughputExceededException` fault rule (HTTP 400) in the chaos fault store at startup; replaceable via `/_localstack/chaos/faults` |
+| `LAMBDA_KEEPALIVE_MS`, `HOSTNAME_FROM_LAMBDA` | `LAMBDA_IDLE_TIMEOUT`, `LAMBDA_DOCKER_HOST` |
+| `OUTBOUND_HTTP_PROXY`, `OUTBOUND_HTTPS_PROXY`, `REQUESTS_CA_BUNDLE` | `HTTP_PROXY`, `HTTPS_PROXY`, `SSL_CERT_FILE` |
+| `LOCALSTACK_RESPONSE_HEADER_ENABLED` | `GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER` (opt-in `x-localstack: true`) |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `SFN_MOCK_CONFIG`, `*_ENDPOINT_STRATEGY` | Read under the same names |
+| `LAMBDA_LIMITS_*`, `KINESIS_LATENCY`, `KINESIS_SHARD_LIMIT`, `S3_SKIP_*`, `DISABLE_CUSTOM_CORS_*`, `LAMBDA_RUNTIME_*`, `USE_SSL`, and other documented options with a behaviour Gopherstack lacks | Unsupported; each one that is set logs `LocalStack option X is not supported` once at warn |
+| `EAGER_SERVICE_LOADING`, `LOCALSTACK_AUTH_TOKEN`, `*_DOCKER_FLAGS`, `PROVIDER_OVERRIDE_*`, JVM, Docker and Kubernetes plumbing options | No equivalent needed; logged once at debug |
 
 ## Terraform / OpenTofu provider
 

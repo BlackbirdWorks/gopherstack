@@ -241,13 +241,20 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--persist-service-mode` | `GOPHERSTACK_PERSIST_SERVICE_MODE` | *(none)* | Per-service mode override, e.g. `s3=hybrid,sqs=snapshot`. |
 | `--persist-flush-interval` | `GOPHERSTACK_PERSIST_FLUSH_INTERVAL` | `5s` | Hybrid flush interval (worst-case loss on a crash). |
 | `--demo` | `DEMO` | `false` | Load demo data on startup. |
-| `--enforce-iam` | `GOPHERSTACK_ENFORCE_IAM` | `false` | Evaluate every request against attached IAM policies. |
+| `--enforce-iam` | `GOPHERSTACK_ENFORCE_IAM` (alias `ENFORCE_IAM`) | `false` | Evaluate every request against attached IAM policies. |
 | `--enforce-security-groups` | `GOPHERSTACK_ENFORCE_SECURITY_GROUPS` | `false` | Admit clients to container-backed endpoints only when a security-group ingress rule allows them (RDS, EC2 docker instances, DocumentDB, MSK, ElastiCache, MemoryDB, Amazon MQ, Neptune, ECS awsvpc tasks). Egress is not enforced. See [docs/security-groups.md](docs/security-groups.md). |
 | `--tls` | `TLS` | `false` | Serve over HTTPS (self-signed certificate unless `--tls-cert`/`--tls-key` are set). |
 | `--tls-cert` | `TLS_CERT` | *(empty)* | Path to a TLS certificate (PEM). Requires `--tls-key`. |
 | `--tls-key` | `TLS_KEY` | *(empty)* | Path to a TLS private key (PEM). |
 | `--compression` | `COMPRESSION` | `on` | Runtime response compression (`on`/`off`). See [Response compression](#response-compression). |
-| `--validate-sigv4` | `VALIDATE_SIGV4` | `false` | Cryptographically validate AWS SigV4 request signatures (opt-in). |
+| `--validate-sigv4` | `VALIDATE_SIGV4` (alias `S3_VALIDATE_SIGNATURES`) | `false` | Cryptographically validate AWS SigV4 request signatures (opt-in). |
+| `--sqs-delay-purge-retry` | `SQS_DELAY_PURGE_RETRY` | `true` | Return `PurgeQueueInProgress` for a second `PurgeQueue` within 60 seconds. |
+| `--sqs-delay-recently-deleted` | `SQS_DELAY_RECENTLY_DELETED` | `true` | Return `QueueDeletedRecently` when a queue is recreated within 60 seconds of deletion. |
+| `--sqs-enable-retention-period` | `SQS_ENABLE_MESSAGE_RETENTION_PERIOD` | `true` | Expire messages past the queue `MessageRetentionPeriod`. |
+| `--sqs-disable-cloudwatch-metrics` | `SQS_DISABLE_CLOUDWATCH_METRICS` | `false` | Do not publish `AWS/SQS` metrics to CloudWatch. |
+| `--pod-autoload` | `GOPHERSTACK_POD_AUTOLOAD` (alias `AUTO_LOAD_POD`) | *(empty)* | Comma-separated `NAME[:VERSION]` pods loaded in order at startup. |
+| `--pod-merge-strategy` | `GOPHERSTACK_POD_MERGE_STRATEGY` (alias `MERGE_STRATEGY`) | `overwrite` | How autoloaded pods combine with current state: `overwrite`, `service-merge` or `account-region-merge`. |
+| `--localstack-response-header` | `GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER` (alias `LOCALSTACK_RESPONSE_HEADER_ENABLED`) | `false` | Add `x-localstack: true` to every response. |
 | (env only) | `GOPHERSTACK_PARTITION_STRICT` | `true` | Reject signed requests that reference an ARN from another partition than the signing region (e.g. `arn:aws-cn:` from `us-east-1`). In `cn-*`/`us-gov-*` regions `arn:aws:` ARNs are tolerated while IAM/S3 still emit them. Set `false` to disable. |
 | `--sigv4-secret` | `SIGV4_SECRET` | `test` | Secret access key SigV4 validation signs against (only used with `--validate-sigv4`). |
 | `--dns-addr` | `DNS_ADDR` | *(empty)* | Address for the embedded DNS server (e.g. `:10053`). Empty disables it. |

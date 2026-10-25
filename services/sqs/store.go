@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -56,6 +57,10 @@ type InMemoryBackend struct {
 	// check and swept periodically by pruneState so the map cannot grow
 	// unboundedly across a long-lived backend that deletes many queues.
 	recentlyDeleted  map[string]time.Time
+	noPurgeCooldown  atomic.Bool
+	noDeletedWait    atomic.Bool
+	noRetention      atomic.Bool
+	noMetrics        atomic.Bool
 	accountID        string
 	region           string
 	defaultEndpoint  string
@@ -84,6 +89,15 @@ func (b *InMemoryBackend) SetEndpointStrategy(strategy string) {
 	b.endpointStrategy = strategy
 }
 
+// ApplySettings applies the LocalStack-compatible behaviour toggles; the zero Settings
+// disables all of them, so callers start from DefaultSettings.
+func (b *InMemoryBackend) ApplySettings(s Settings) {
+	b.noPurgeCooldown.Store(!s.DelayPurgeRetry)
+	b.noDeletedWait.Store(!s.DelayRecentlyDeleted)
+	b.noRetention.Store(!s.EnableRetentionPeriod)
+	b.noMetrics.Store(s.DisableCloudWatchMetric)
+}
+
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.
 func (b *InMemoryBackend) SetMetricEmitter(e cwmetric.Emitter) {
 	b.mu.Lock("SetMetricEmitter")
@@ -94,6 +108,10 @@ func (b *InMemoryBackend) SetMetricEmitter(e cwmetric.Emitter) {
 
 // emitMetric publishes an AWS/SQS metric with the QueueName dimension asynchronously.
 func (b *InMemoryBackend) emitMetric(region, queueName, name, unit string, value float64) {
+	if b.noMetrics.Load() {
+		return
+	}
+
 	var e cwmetric.Emitter
 	func() {
 		b.mu.RLock("emitMetric")
