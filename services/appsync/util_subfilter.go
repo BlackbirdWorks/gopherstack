@@ -69,7 +69,7 @@ func filterGroups(in map[string]any, ignored map[string]bool) ([][]subFilter, er
 			continue
 		case k == "or":
 			next, err = orGroups(in[k], ignored)
-		case k == "and":
+		case k == filterAnd:
 			next, err = andGroups(in[k], ignored)
 		default:
 			next, err = fieldGroups(k, in[k])

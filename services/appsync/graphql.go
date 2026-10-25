@@ -186,19 +186,19 @@ func findOperation(doc *ast.QueryDocument, operationName string) *ast.OperationD
 
 // execEnv carries the per-request state shared by root and nested resolvers.
 type execEnv struct {
-	backend     *InMemoryBackend
+	headers     map[string]any
 	cache       *APICache
 	resolvers   map[string]*Resolver
 	datasources map[string]*DataSource
 	functions   map[string]*Function
 	variables   map[string]any
-	headers     map[string]any
+	backend     *InMemoryBackend
 	addHeader   func(name, value string)
+	batched     map[string]batchOutcome
 	rc          requestIdentity
 	apiID       string
 	errs        []graphqlError
 	ext         []map[string]any
-	batched     map[string]batchOutcome
 }
 
 // executeSelectionSet resolves all root fields in a selection set.

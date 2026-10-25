@@ -21,7 +21,9 @@ type batchInvoker struct {
 
 func (b *batchInvoker) InvokeFunction(_ context.Context, name, _ string, payload []byte) ([]byte, int, error) {
 	if name == "arn:aws:lambda:us-east-1:000000000000:function:posts" {
-		return []byte(`[{"id":"p1","n":1},{"id":"p2","n":2},{"id":"p3","n":3},{"id":"p4","n":4},{"id":"p5","n":5}]`), 200, nil
+		return []byte(
+			`[{"id":"p1","n":1},{"id":"p2","n":2},{"id":"p3","n":3},{"id":"p4","n":4},{"id":"p5","n":5}]`,
+		), 200, nil
 	}
 
 	var items []any

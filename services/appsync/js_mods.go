@@ -73,6 +73,7 @@ var __mod_ddb = (function (util) {
     if (o.condition) { r.condition = expr(o.condition); }
     return clean(r);
   }
-  return { get: get, put: put, remove: remove, scan: scan, sync: sync, query: query, update: update, operations: operations };
+  return { get: get, put: put, remove: remove, scan: scan, sync: sync, query: query, update: update,
+    operations: operations };
 })(__util);
 `

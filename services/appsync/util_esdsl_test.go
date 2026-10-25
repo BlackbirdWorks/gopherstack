@@ -35,8 +35,9 @@ func TestEvaluateMappingTemplate_QueryDSL(t *testing.T) {
 				`{"match_phrase":{"a":"x y"}}]}}]}}`,
 		},
 		{
-			name:     "or and not groups",
-			template: `$util.transform.toOpenSearchQueryDSL($util.parseJson('{"or":[{"a":{"eq":1}},{"b":{"exists":false}}],"not":{"c":{"eq":2}}}'))`,
+			name: "or and not groups",
+			template: `$util.transform.toOpenSearchQueryDSL($util.parseJson(` +
+				`'{"or":[{"a":{"eq":1}},{"b":{"exists":false}}],"not":{"c":{"eq":2}}}'))`,
 			want: `{"bool":{"must":[` +
 				`{"bool":{"must_not":{"bool":{"must":[{"bool":{"must":[{"term":{"c":2}}]}}]}}}},` +
 				`{"bool":{"should":[{"bool":{"must":[{"bool":{"must":[{"term":{"a":1}}]}}]}},` +

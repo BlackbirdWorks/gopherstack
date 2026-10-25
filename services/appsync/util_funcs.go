@@ -21,10 +21,10 @@ import (
 // GraphQL errors[] array.
 type resolverError struct {
 	Data       any
-	CodeErrors []codeError
 	Info       any
 	Message    string
 	Type       string
+	CodeErrors []codeError
 }
 
 // codeError is one EvaluateCode CodeError (types.CodeError / CodeErrorLocation).

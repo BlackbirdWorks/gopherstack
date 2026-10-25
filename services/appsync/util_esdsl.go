@@ -5,6 +5,11 @@ import (
 	"fmt"
 )
 
+const (
+	dslRange  = "range"
+	filterAnd = "and"
+)
+
 // toQueryDSL implements $util.transform.toElasticsearchQueryDSL /
 // toOpenSearchQueryDSL: a filter input object becomes a bool query string,
 // fields and operators ANDed (AppSync "transformation helpers" reference).
@@ -38,7 +43,7 @@ func filterDSL(in map[string]any) (map[string]any, error) {
 		)
 
 		switch field {
-		case "and", "or":
+		case filterAnd, "or":
 			c, err = groupDSL(field, in[field])
 		case "not":
 			c, err = notDSL(in[field])
@@ -73,7 +78,7 @@ func groupDSL(kind string, v any) (map[string]any, error) {
 		subs = append(subs, q)
 	}
 
-	if kind == "and" {
+	if kind == filterAnd {
 		return boolOf("must", subs), nil
 	}
 
@@ -123,14 +128,14 @@ func operatorDSL(field, op string, v any) (map[string]any, error) {
 	case "ne":
 		return boolOf("must_not", leaf("term")), nil
 	case "gt", "gte", "lt", "lte":
-		return map[string]any{"range": map[string]any{field: map[string]any{op: v}}}, nil
-	case "range":
+		return map[string]any{dslRange: map[string]any{field: map[string]any{op: v}}}, nil
+	case dslRange:
 		bounds := listOf(v)
 		if len(bounds) != 2 { //nolint:mnd // range is [lower, upper]
 			return nil, fmt.Errorf("%w: range on %q expects [lower, upper]", ErrValidation, field)
 		}
 
-		return map[string]any{"range": map[string]any{field: map[string]any{"gte": bounds[0], "lte": bounds[1]}}}, nil
+		return map[string]any{dslRange: map[string]any{field: map[string]any{"gte": bounds[0], "lte": bounds[1]}}}, nil
 	case "wildcard", "regexp", "match":
 		return leaf(op), nil
 	case "matchPhrase":

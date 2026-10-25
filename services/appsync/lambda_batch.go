@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
@@ -21,11 +22,11 @@ type batchOutcome struct {
 }
 
 type batchEntry struct {
+	payload any
 	cc      *callCtx
 	args    map[string]any
-	mu      mappingUnit
 	key     string
-	payload any
+	mu      mappingUnit
 }
 
 // batchFields lists the fields of set, descending into fragments.
@@ -141,9 +142,7 @@ func (e *execEnv) runBatch(ctx context.Context, f *ast.Field, r *Resolver, items
 		e.ext = append(e.ext, ent.cc.extensionCalls()...)
 	}
 
-	for k, v := range out {
-		e.batched[k] = v
-	}
+	maps.Copy(e.batched, out)
 }
 
 const (

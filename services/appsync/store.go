@@ -64,9 +64,9 @@ type DDBWrite struct {
 // the bare error code (e.g. "ConditionalCheckFailedException").
 type DynamoDBError struct {
 	Result        any
-	Cancellations []DDBCancellation
 	Code          string
 	Message       string
+	Cancellations []DDBCancellation
 }
 
 // DDBCancellation is one TransactionCanceledException cancellation reason.

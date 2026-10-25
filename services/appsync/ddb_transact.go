@@ -10,16 +10,22 @@ import (
 )
 
 const (
-	ddbTransactMaxItems = 100
-	ddbSyncDefaultLimit = 100
-	ddbSyncMaxLimit     = 1000
-	ddbCancelNone       = "None"
+	ddbTransactMaxItems    = 100
+	ddbSyncDefaultLimit    = 100
+	ddbSyncMaxLimit        = 1000
+	ddbCancelNone          = "None"
+	ddbResultCancelReasons = "cancellationReasons"
 )
 
 func transactList(req map[string]any) ([]map[string]any, error) {
 	raw, _ := req["transactItems"].([]any)
 	if len(raw) == 0 || len(raw) > ddbTransactMaxItems {
-		return nil, fmt.Errorf("%w: %s requires 1 to %d transactItems", ErrValidation, req["operation"], ddbTransactMaxItems)
+		return nil, fmt.Errorf(
+			"%w: %s requires 1 to %d transactItems",
+			ErrValidation,
+			req["operation"],
+			ddbTransactMaxItems,
+		)
 	}
 
 	out := make([]map[string]any, len(raw))
@@ -65,7 +71,7 @@ func ddbTransactGet(ctx context.Context, ddb DynamoDBBackend, req map[string]any
 		}
 	}
 
-	return map[string]any{ddbResultItems: out, "cancellationReasons": nil}, nil
+	return map[string]any{ddbResultItems: out, ddbResultCancelReasons: nil}, nil
 }
 
 func ddbTransactWrite(ctx context.Context, ddb DynamoDBBackend, req map[string]any) (any, error) {
@@ -112,7 +118,7 @@ func ddbTransactWrite(ctx context.Context, ddb DynamoDBBackend, req map[string]a
 		return nil, transactFailure(err, "keys")
 	}
 
-	return map[string]any{"keys": keys, "cancellationReasons": nil}, nil
+	return map[string]any{"keys": keys, ddbResultCancelReasons: nil}, nil
 }
 
 // transactFailure attaches the documented {<field>: null, cancellationReasons}
@@ -138,7 +144,7 @@ func transactFailure(err error, field string) error {
 		reasons[i] = r
 	}
 
-	de.Result = map[string]any{field: nil, "cancellationReasons": reasons}
+	de.Result = map[string]any{field: nil, ddbResultCancelReasons: reasons}
 
 	return de
 }
@@ -168,7 +174,12 @@ func ddbSync(ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceCo
 		return nil, fmt.Errorf("%w: Sync limit is at most %d", ErrValidation, ddbSyncMaxLimit)
 	}
 
-	q := &DDBQuery{Table: cfg.TableName, Limit: int32(limit), Names: map[string]string{}, Values: map[string]any{}} //nolint:gosec // bounded above
+	q := &DDBQuery{
+		Table:  cfg.TableName,
+		Limit:  int32(limit),
+		Names:  map[string]string{},
+		Values: map[string]any{},
+	}
 	f := exprOf(req["filter"])
 	q.Filter = f.Expression
 	q.Names, q.Values = f.Names, f.Values

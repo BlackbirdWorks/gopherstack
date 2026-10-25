@@ -85,7 +85,8 @@ func asDDBResolvers() []asResolverSpec {
 			`"nextToken":$util.toJson($ctx.args.nextToken),"lastSync":$util.toJson($ctx.args.lastSync)}`},
 		{"Query", "plainSyncPosts", "posts", asPre + `"operation":"Sync"}`},
 		{"Mutation", "transactWritePosts", "posts", asPre + `"operation":"TransactWriteItems","transactItems":[` +
-			`{"table":"posts","operation":"PutItem",` + asKeyJSON2("a") + `,"attributeValues":{"title":{"S":"tx"},"n":{"N":"9"}}},` +
+			`{"table":"posts","operation":"PutItem",` + asKeyJSON2("a") +
+			`,"attributeValues":{"title":{"S":"tx"},"n":{"N":"9"}}},` +
 			`{"table":"posts","operation":"ConditionCheck",` + asKeyJSON2("\"p1\"") + `,"condition":{"expression":"n = :e",` +
 			`"expressionValues":{":e":$util.dynamodb.toDynamoDBJson($ctx.args.expected)}}}]}`},
 		{"Query", "getPost", "posts", asPre + `"operation":"GetItem",` + asKeyJSON + `}`},

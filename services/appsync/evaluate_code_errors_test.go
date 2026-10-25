@@ -51,7 +51,10 @@ func TestEvaluateCode_CodeErrors(t *testing.T) {
 
 			out, err := client.EvaluateCode(t.Context(), &appsyncsdk.EvaluateCodeInput{
 				Code: aws.String(tt.code), Context: aws.String(`{}`), Function: aws.String("request"),
-				Runtime: &appsynctypes.AppSyncRuntime{Name: appsynctypes.RuntimeNameAppsyncJs, RuntimeVersion: aws.String("1.0.0")},
+				Runtime: &appsynctypes.AppSyncRuntime{
+					Name:           appsynctypes.RuntimeNameAppsyncJs,
+					RuntimeVersion: aws.String("1.0.0"),
+				},
 			})
 			require.NoError(t, err)
 			require.NotNil(t, out.Error)
