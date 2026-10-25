@@ -60,6 +60,10 @@ func (b *InMemoryBackend) CreateTag(
 		return nil, errInvalid("tag_id is required.")
 	}
 
+	if b.isNPMRepo(p.repo) {
+		return b.npmSetTag(p, in.GetTagId(), in.GetTag().GetVersion(), true)
+	}
+
 	digest, err := versionDigest(p, in.GetTag().GetVersion())
 	if err != nil {
 		return nil, err
@@ -96,6 +100,10 @@ func (b *InMemoryBackend) UpdateTag(
 		}
 	}
 
+	if b.isNPMRepo(l.pkg.repo) {
+		return b.npmSetTag(l.pkg, l.leaf, in.GetTag().GetVersion(), false)
+	}
+
 	digest, err := versionDigest(l.pkg, in.GetTag().GetVersion())
 	if err != nil {
 		return nil, err
@@ -126,6 +134,10 @@ func (b *InMemoryBackend) DeleteTag(ctx context.Context, name string) error {
 	l, err := parseLeaf(name, "tag")
 	if err != nil {
 		return err
+	}
+
+	if b.isNPMRepo(l.pkg.repo) {
+		return b.npmDeleteTag(l)
 	}
 
 	s, err := b.snapOfPackage(l.pkg)

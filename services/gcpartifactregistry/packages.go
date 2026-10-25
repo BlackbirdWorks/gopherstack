@@ -392,6 +392,10 @@ func (b *InMemoryBackend) ListTags(in *artifactregistrypb.ListTagsRequest) ([]*a
 		return nil, "", err
 	}
 
+	if b.isNPMRepo(p.repo) {
+		return b.npmListTags(in, p)
+	}
+
 	if err = validatePaging(in.GetPageSize(), in.GetPageToken(), ""); err != nil {
 		return nil, "", err
 	}
@@ -445,6 +449,10 @@ func (b *InMemoryBackend) GetTag(name string) (*artifactregistrypb.Tag, error) {
 	l, err := parseLeaf(name, "tag")
 	if err != nil {
 		return nil, err
+	}
+
+	if b.isNPMRepo(l.pkg.repo) {
+		return b.npmGetTag(l)
 	}
 
 	s, err := b.snapOfPackage(l.pkg)

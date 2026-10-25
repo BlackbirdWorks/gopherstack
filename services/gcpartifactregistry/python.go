@@ -166,8 +166,9 @@ func writeHTML(w http.ResponseWriter, body string) {
 func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc repoCtx, name string) {
 	norm := pyNormalize(name)
 	if norm != name {
-		http.Redirect(w, r, "/python/"+rc.ref.project+"/"+rc.ref.id+"/simple/"+url.PathEscape(norm)+"/",
-			http.StatusMovedPermanently)
+		prefix := repoPrefix(isPkgHost(r), pythonRoute, rc)
+		//nolint:gosec // same-origin path: repository prefix plus an escaped normalised name
+		http.Redirect(w, r, prefix+"/simple/"+url.PathEscape(norm)+"/", http.StatusMovedPermanently)
 
 		return
 	}

@@ -16,7 +16,7 @@
 ### Known gaps
 
 - apt, yum, KFP and Go repositories can be created but hold no artifacts: their artifact RPCs and uploads are not implemented and return FAILED_PRECONDITION.
-- npm, Python and Maven protocols are served at /npm|/python|/maven/<project>/<repository>/ on the service port, not on <location>-<format>.pkg.dev hosts; npm dist-tags and Maven/Python tags are not exposed as Artifact Registry Tags; Maven artifact-level maven-metadata.xml is generated, so a PUT of it is accepted and ignored; Maven DELETE, Python yank/JSON simple API and npm search/audit/login endpoints are not implemented; file and package names for these formats are the emulator's choice.
+- Maven and Python repositories expose no Tag resources (only npm dist-tags are mapped); Maven artifact-level maven-metadata.xml is generated, so a PUT of it is accepted and ignored; Maven HTTP DELETE, the Python JSON simple API (PEP 691) and yank, and npm search/audit/login endpoints are not implemented because Google's documentation does not describe them (deletion is through the API, console and gcloud); file and package names for these formats are the emulator's choice.
 - Attachments, ExportArtifact, ImportAptArtifacts, ImportYumArtifacts and the resumable generic upload (uploadType=resumable) are not implemented.
 - Rule conditions (CEL) are stored but never evaluated, so a rule with a condition never takes effect; download rules are enforced on Docker manifest and blob reads and on file downloads only.
 - Project settings and the VPC-SC policy are stored; nothing consults them.
