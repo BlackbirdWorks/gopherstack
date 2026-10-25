@@ -217,4 +217,11 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerGCPRedisRoutes()
 	h.registerGCPMonitoringRoutes()
 	h.registerAzureFunctionsRoutes()
+	h.registerGCPWorkflowsRoutes()
+	h.registerGCPDNSRoutes()
+	h.registerAzureFileRoutes()
+	h.registerOCIObjectStorageRoutes()
+	h.registerOCIVaultRoutes()
+	h.registerOCIStreamingRoutes()
+	h.registerOCIIdentityRoutes()
 }

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { CLOUDS, type Cloud } from '#lib/cloud.ts';
-	import { backendInfo, loadBackendInfo, servedAzureServices, servedGcpServices } from '#lib/cloud.svelte.ts';
+	import { backendInfo, loadBackendInfo, servedAzureServices, servedGcpServices, servedOciServices } from '#lib/cloud.svelte.ts';
 
 	let { cloud }: { cloud: Exclude<Cloud, 'aws'> } = $props();
 
 	const label = $derived(CLOUDS.find((c) => c.id === cloud)?.label ?? cloud);
-	const services = $derived(cloud === 'gcp' ? servedGcpServices() : servedAzureServices());
-	const base = $derived(cloud === 'gcp' ? 'gcp' : 'azure');
+	const services = $derived(cloud === 'gcp' ? servedGcpServices() : cloud === 'oci' ? servedOciServices() : servedAzureServices());
+	const base = $derived(cloud);
 	const info = $derived(backendInfo());
 
 	onMount(() => {

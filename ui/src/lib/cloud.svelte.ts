@@ -2,8 +2,10 @@ import {
   type AzureService,
   type Cloud,
   type GcpService,
+  type OciService,
   availableAzureServices,
   availableGcpServices,
+  availableOciServices,
   parseCloud,
   readStoredCloud,
   resolveCloud,
@@ -52,6 +54,11 @@ export function servedAzureServices(): AzureService[] {
 /** Served GCP services; empty until the backend answers. */
 export function servedGcpServices(): GcpService[] {
   return availableGcpServices(backend.services ?? []);
+}
+
+/** Served OCI services; empty until the backend answers. */
+export function servedOciServices(): OciService[] {
+  return availableOciServices(backend.services ?? []);
 }
 
 export async function loadBackendInfo(fetchFn: typeof fetch = fetch): Promise<void> {
