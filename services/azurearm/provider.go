@@ -195,6 +195,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	registry.Register(NewSQLProvider(nil))
 
+	registry.Register(NewWebProvider(nil))
+
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
 	issuer, err := aadauth.NewIssuer()

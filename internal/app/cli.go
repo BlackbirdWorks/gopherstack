@@ -96,6 +96,7 @@ import (
 	azureacrbackend "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
@@ -573,6 +574,7 @@ type CLI struct {
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	AzureAppConfig                azureappconfigbackend.Settings    `embed:"" prefix:"azure-appconfig-"`
 	AzureACR                      azureacrbackend.Settings          `embed:"" prefix:"azure-acr-"`
+	AzureFunctions                azurefunctionsbackend.Settings    `embed:"" prefix:"azure-functions-"`
 	AzureRedis                    azureredisbackend.Settings        `embed:"" prefix:"azure-redis-"`
 	AzureSQL                      azuresqlbackend.Settings          `embed:"" prefix:"azure-sql-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
@@ -2465,6 +2467,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
 		{"AzureAppConfig", "azureappconfig", cli.AzureAppConfig.Port},
 		{"AzureContainerRegistry", "azurecontainerregistry", cli.AzureACR.Port},
+		{"AzureFunctions", "azurefunctions", cli.AzureFunctions.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 	}
@@ -4823,6 +4826,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&azureeventgridbackend.Provider{},
 		&azureappconfigbackend.Provider{},
 		&azureacrbackend.Provider{},
+		&azurefunctionsbackend.Provider{},
 		&azureredisbackend.Provider{},
 		&azuresqlbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},

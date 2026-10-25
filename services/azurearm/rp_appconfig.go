@@ -472,7 +472,7 @@ func (p *AppConfigProvider) DeleteResourcesInGroup(_ context.Context, resourceGr
 func providerErrorDetails(err error) (errorEntry, bool) {
 	for _, lookup := range []func(error) (errorEntry, bool){
 		cosmosErrorDetails, eventHubErrorDetails, eventGridErrorDetails,
-		appConfigErrorDetails, acrErrorDetails, redisErrorDetails, sqlErrorDetails,
+		appConfigErrorDetails, acrErrorDetails, redisErrorDetails, sqlErrorDetails, webErrorDetails,
 	} {
 		if e, ok := lookup(err); ok {
 			return e, true

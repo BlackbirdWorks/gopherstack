@@ -248,7 +248,7 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL", "GCPLogging",
 		"GCPMonitoring",
 		"GCPRedis", "AzureRedis", "AzureSQL", "GCPSpanner", "GCPCloudBuild",
-		"AzureContainerRegistry", "GCPArtifactRegistry",
+		"AzureContainerRegistry", "AzureFunctions", "GCPArtifactRegistry",
 	}
 
 	for _, e := range entries {
