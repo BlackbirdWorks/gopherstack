@@ -230,15 +230,15 @@ func (h *Handler) authorize(ctx context.Context, c *echo.Context) error {
 	return c.Redirect(http.StatusFound, target)
 }
 
-// loopbackTarget rebuilds the callback URL from a literal loopback host so no caller-supplied host reaches the redirect.
+// loopbackTarget rebuilds the callback URL from a literal loopback host, never a caller-supplied one.
 func loopbackTarget(loc *url.URL, query string) (string, bool) {
 	var host string
 
 	switch loc.Hostname() {
-	case "127.0.0.1":
-		host = "127.0.0.1"
-	case "localhost":
-		host = "localhost"
+	case hostLoopback4:
+		host = hostLoopback4
+	case hostLocalhost:
+		host = hostLocalhost
 	case "::1":
 		host = "[::1]"
 	default:

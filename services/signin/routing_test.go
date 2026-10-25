@@ -2,8 +2,8 @@ package signin_test
 
 import (
 	"net/http"
-	"net/url"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -176,9 +176,27 @@ func TestAuthorizeRedirectTargets(t *testing.T) {
 		wantPath string
 		wantCode int
 	}{
-		{name: "ipv4", redirect: "http://127.0.0.1:8080/callback", wantHost: "127.0.0.1:8080", wantPath: "/callback", wantCode: http.StatusFound},
-		{name: "localhost no port", redirect: "http://localhost/cb", wantHost: "localhost", wantPath: "/cb", wantCode: http.StatusFound},
-		{name: "ipv6", redirect: "http://[::1]:9/x", wantHost: "[::1]:9", wantPath: "/x", wantCode: http.StatusFound},
+		{
+			name:     "ipv4",
+			redirect: "http://127.0.0.1:8080/callback",
+			wantHost: "127.0.0.1:8080",
+			wantPath: "/callback",
+			wantCode: http.StatusFound,
+		},
+		{
+			name:     "localhost no port",
+			redirect: "http://localhost/cb",
+			wantHost: "localhost",
+			wantPath: "/cb",
+			wantCode: http.StatusFound,
+		},
+		{
+			name:     "ipv6",
+			redirect: "http://[::1]:9/x",
+			wantHost: "[::1]:9",
+			wantPath: "/x",
+			wantCode: http.StatusFound,
+		},
 		{name: "external host", redirect: "http://evil.example.com/cb", wantCode: http.StatusBadRequest},
 		{name: "https loopback", redirect: "https://127.0.0.1/cb", wantCode: http.StatusBadRequest},
 		{name: "userinfo trick", redirect: "http://127.0.0.1@evil.example.com/cb", wantCode: http.StatusBadRequest},
@@ -189,11 +207,15 @@ func TestAuthorizeRedirectTargets(t *testing.T) {
 			t.Parallel()
 
 			f := newFixture(t)
-			hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			hc := &http.Client{
+				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			}
 			q := "?client_id=" + testClient + "&redirect_uri=" + url.QueryEscape(tt.redirect) +
 				"&state=s&code_challenge_method=S256&code_challenge=" + challenge()
 
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, f.url+"/_gopherstack/signin/authorize"+q, nil)
+			target := f.url + "/_gopherstack/signin/authorize" + q
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 			require.NoError(t, err)
 
 			resp, err := hc.Do(req)

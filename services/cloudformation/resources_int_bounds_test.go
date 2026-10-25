@@ -12,8 +12,8 @@ func TestResourceCreator_OpenSearchInstanceCountBounds(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		count   any
+		name    string
 		wantErr bool
 	}{
 		{name: "in range", count: float64(3)},

@@ -462,6 +462,11 @@ func (b *InMemoryBackend) RevokeOAuth2Token(ctx context.Context, token string) e
 	return nil
 }
 
+const (
+	hostLoopback4 = "127.0.0.1"
+	hostLocalhost = "localhost"
+)
+
 // isLoopbackRedirect accepts only http callbacks on the local machine, the
 // shape the AWS CLI login flow uses; anything else would be an open redirect.
 func isLoopbackRedirect(u *url.URL) bool {
@@ -470,7 +475,7 @@ func isLoopbackRedirect(u *url.URL) bool {
 	}
 
 	switch u.Hostname() {
-	case "127.0.0.1", "localhost", "::1":
+	case hostLoopback4, hostLocalhost, "::1":
 		return true
 	default:
 		return false
