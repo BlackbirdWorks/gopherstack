@@ -10,6 +10,7 @@ import (
 	"maps"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,10 @@ import (
 )
 
 const (
+	deltaInteger       = "integer"
+	deltaShort         = "short"
+	deltaByte          = "byte"
+	deltaTimestampNTZ  = "timestamp_ntz"
 	deltaLogDir        = "_delta_log"
 	symlinkDir         = "_symlink_format_manifest"
 	symlinkInputFormat = "org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat"
@@ -28,8 +33,8 @@ const (
 
 var (
 	errDeltaNoLog      = errors.New("no Delta commits found")
-	errDeltaNoMetadata = errors.New("Delta log carries no metaData action in its JSON commits")
-	errDeltaCheckpoint = errors.New("Delta log starts at a checkpoint; manifest generation needs commit 0")
+	errDeltaNoMetadata = errors.New("delta log carries no metaData action in its JSON commits")
+	errDeltaCheckpoint = errors.New("delta log starts at a checkpoint; manifest generation needs commit 0")
 
 	deltaCommitRe = regexp.MustCompile(`^(\d{20})\.json$`)
 )
@@ -61,13 +66,13 @@ func replayDeltaLog(commits map[int64][]byte) (*deltaState, error) {
 		vers = append(vers, v)
 	}
 
-	sort.Slice(vers, func(i, j int) bool { return vers[i] < vers[j] })
+	slices.Sort(vers)
 
 	st := &deltaState{files: map[string]deltaFile{}, firstVer: vers[0]}
 
 	for _, v := range vers {
 		sc := bufio.NewScanner(bytes.NewReader(commits[v]))
-		sc.Buffer(make([]byte, 0, 1<<20), lakeMetaLimit)
+		sc.Buffer(make([]byte, 0, lakeScanBuf), lakeMetaLimit)
 
 		for sc.Scan() {
 			if err := st.apply(sc.Bytes()); err != nil {
@@ -168,7 +173,7 @@ func deltaType(t any) string {
 			return "struct<" + strings.Join(parts, ",") + ">"
 		case "array":
 			return "array<" + deltaType(v["elementType"]) + ">"
-		case "map":
+		case avroMap:
 			return "map<" + deltaType(v["keyType"]) + "," + deltaType(v["valueType"]) + ">"
 		}
 	}
@@ -178,17 +183,17 @@ func deltaType(t any) string {
 
 func deltaPrimitive(t string) string {
 	switch t {
-	case "long":
+	case avroLong:
 		return typeBigint
-	case "integer":
-		return "int"
-	case "short":
-		return "smallint"
-	case "byte":
-		return "tinyint"
-	case "timestamp_ntz":
-		return "timestamp"
-	case "string", "float", "double", "boolean", "binary", "date", "timestamp":
+	case deltaInteger:
+		return avroInt
+	case deltaShort:
+		return typeSmallint
+	case deltaByte:
+		return typeTinyint
+	case deltaTimestampNTZ:
+		return typeTimestamp
+	case avroString, avroFloat, avroDouble, avroBoolean, typeBinary, typeDate, typeTimestamp:
 		return t
 	default:
 		if strings.HasPrefix(t, "decimal") {
@@ -247,7 +252,7 @@ func (r *crawlRun) loadDeltaLog(ctx context.Context, bucket, prefix string) (*de
 func (r *crawlRun) crawlDeltaTable(ctx context.Context, t DeltaTarget, p string) error {
 	bucket, prefix, ok := splitCrawlS3URI(p)
 	if !ok {
-		return fmt.Errorf("invalid S3 path %q", p)
+		return fmt.Errorf("%w %q", errInvalidCrawlPath, p)
 	}
 
 	st, err := r.loadDeltaLog(ctx, bucket, prefix)
@@ -263,7 +268,7 @@ func (r *crawlRun) crawlDeltaTable(ctx context.Context, t DeltaTarget, p string)
 	cols, pkeys := moveToPartitionKeys(cols, st.meta.partitions)
 	root := "s3://" + bucket + "/" + prefix + "/"
 	name := crawlTableName(r.c.TablePrefix, lastPathSegment(prefix))
-	params := map[string]string{"classification": classificationParq, crawlerManagedParam: r.c.Name}
+	params := map[string]string{paramClassification: classificationParq, crawlerManagedParam: r.c.Name}
 
 	desired := &Table{Name: name, DatabaseName: r.c.DatabaseName, PartitionKeys: pkeys, Parameters: params}
 
@@ -279,7 +284,7 @@ func (r *crawlRun) crawlDeltaTable(ctx context.Context, t DeltaTarget, p string)
 		return nil
 	}
 
-	params["typeOfData"] = "file"
+	params[paramTypeOfData] = "file"
 	manifestRoot := root + symlinkDir + "/"
 	desired.StorageDescriptor = StorageDescriptor{
 		Columns: cols, Location: manifestRoot, InputFormat: symlinkInputFormat, OutputFormat: textOutputFormat,

@@ -21,6 +21,8 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
+const crawlerName = "cr"
+
 const crawlRole = "arn:aws:iam::000000000000:role/glue"
 
 type crawlEnv struct {
@@ -63,11 +65,11 @@ func (e *crawlEnv) put(objs map[string]string) {
 	}
 }
 
-func (e *crawlEnv) create(name string, targets *gluetypes.CrawlerTargets, mut func(*gluesdk.CreateCrawlerInput)) {
+func (e *crawlEnv) create(targets *gluetypes.CrawlerTargets, mut func(*gluesdk.CreateCrawlerInput)) {
 	e.t.Helper()
 
 	in := &gluesdk.CreateCrawlerInput{
-		Name: aws.String(name), Role: aws.String(crawlRole), DatabaseName: aws.String("db"), Targets: targets,
+		Name: aws.String(crawlerName), Role: aws.String(crawlRole), DatabaseName: aws.String("db"), Targets: targets,
 	}
 	if mut != nil {
 		mut(in)
@@ -78,16 +80,16 @@ func (e *crawlEnv) create(name string, targets *gluetypes.CrawlerTargets, mut fu
 }
 
 // crawl starts the crawler and returns once it is READY again.
-func (e *crawlEnv) crawl(name string) *gluetypes.Crawler {
+func (e *crawlEnv) crawl() *gluetypes.Crawler {
 	e.t.Helper()
 
-	_, err := e.client.StartCrawler(e.t.Context(), &gluesdk.StartCrawlerInput{Name: aws.String(name)})
+	_, err := e.client.StartCrawler(e.t.Context(), &gluesdk.StartCrawlerInput{Name: aws.String(crawlerName)})
 	require.NoError(e.t, err)
 
 	var c *gluetypes.Crawler
 
 	require.Eventually(e.t, func() bool {
-		out, gerr := e.client.GetCrawler(e.t.Context(), &gluesdk.GetCrawlerInput{Name: aws.String(name)})
+		out, gerr := e.client.GetCrawler(e.t.Context(), &gluesdk.GetCrawlerInput{Name: aws.String(crawlerName)})
 		require.NoError(e.t, gerr)
 		c = out.Crawler
 
@@ -143,21 +145,21 @@ func (e *crawlEnv) partitionValues(table string) [][]string {
 	return vals
 }
 
-func (e *crawlEnv) lastCrawl(name string) gluetypes.CrawlerHistory {
+func (e *crawlEnv) lastCrawl() gluetypes.CrawlerHistory {
 	e.t.Helper()
 
-	out, err := e.client.ListCrawls(e.t.Context(), &gluesdk.ListCrawlsInput{CrawlerName: aws.String(name)})
+	out, err := e.client.ListCrawls(e.t.Context(), &gluesdk.ListCrawlsInput{CrawlerName: aws.String(crawlerName)})
 	require.NoError(e.t, err)
 	require.NotEmpty(e.t, out.Crawls)
 
 	return out.Crawls[0]
 }
 
-func (e *crawlEnv) metrics(name string) gluetypes.CrawlerMetrics {
+func (e *crawlEnv) metrics() gluetypes.CrawlerMetrics {
 	e.t.Helper()
 
 	out, err := e.client.GetCrawlerMetrics(e.t.Context(), &gluesdk.GetCrawlerMetricsInput{
-		CrawlerNameList: []string{name},
+		CrawlerNameList: []string{crawlerName},
 	})
 	require.NoError(e.t, err)
 	require.Len(e.t, out.CrawlerMetricsList, 1)
@@ -172,10 +174,14 @@ func (e *crawlEnv) seedDynamoDB(ctx context.Context) {
 	e.t.Helper()
 
 	_, err := e.ddb.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName:            aws.String("orders"),
-		BillingMode:          ddbtypes.BillingModePayPerRequest,
-		AttributeDefinitions: []ddbtypes.AttributeDefinition{{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeN}},
-		KeySchema:            []ddbtypes.KeySchemaElement{{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash}},
+		TableName:   aws.String("orders"),
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeN},
+		},
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
+		},
 	})
 	require.NoError(e.t, err)
 
@@ -213,15 +219,15 @@ func TestCrawler_DynamoDBTarget(t *testing.T) {
 
 			env := newCrawlEnv(t)
 			env.seedDynamoDB(t.Context())
-			env.create("cr", &gluetypes.CrawlerTargets{
+			env.create(&gluetypes.CrawlerTargets{
 				DynamoDBTargets: []gluetypes.DynamoDBTarget{{Path: aws.String(tt.path), ScanAll: aws.Bool(true)}},
 			}, func(in *gluesdk.CreateCrawlerInput) { in.TablePrefix = aws.String(tt.prefix) })
 
-			c := env.crawl("cr")
+			c := env.crawl()
 
 			if tt.wantErr {
 				assert.Equal(t, gluetypes.LastCrawlStatusFailed, c.LastCrawl.Status)
-				last := env.lastCrawl("cr")
+				last := env.lastCrawl()
 				assert.Equal(t, gluetypes.CrawlerHistoryStateFailed, last.State)
 				assert.Contains(t, aws.ToString(last.ErrorMessage), "nope")
 
@@ -237,14 +243,18 @@ func TestCrawler_DynamoDBTarget(t *testing.T) {
 			assert.Equal(t, "orders", aws.ToString(tbl.StorageDescriptor.Location))
 			assert.Equal(t, "cr", tbl.Parameters["UPDATED_BY_CRAWLER"])
 
-			m := env.metrics("cr")
+			m := env.metrics()
 			assert.Equal(t, int32(1), m.TablesCreated)
 
-			last := env.lastCrawl("cr")
+			last := env.lastCrawl()
 			assert.Equal(t, gluetypes.CrawlerHistoryStateCompleted, last.State)
 			require.NotNil(t, last.StartTime, "ListCrawls carries StartTime/EndTime on the wire")
 			require.NotNil(t, last.EndTime)
-			assert.JSONEq(t, `{"TABLES_ADDED":1,"TABLES_UPDATED":0,"TABLES_DELETED":0,"PARTITIONS_ADDED":0}`, aws.ToString(last.Summary))
+			assert.JSONEq(
+				t,
+				`{"TABLES_ADDED":1,"TABLES_UPDATED":0,"TABLES_DELETED":0,"PARTITIONS_ADDED":0}`,
+				aws.ToString(last.Summary),
+			)
 		})
 	}
 }
@@ -306,9 +316,17 @@ func TestCrawler_DeltaTarget(t *testing.T) {
 				t.Helper()
 
 				tbl := env.table("events")
-				assert.Equal(t, []string{"id:bigint", "name:string", "tags:array<string>"}, colSpec(tbl.StorageDescriptor.Columns))
+				assert.Equal(
+					t,
+					[]string{"id:bigint", "name:string", "tags:array<string>"},
+					colSpec(tbl.StorageDescriptor.Columns),
+				)
 				assert.Equal(t, []string{"year:int"}, colSpec(tbl.PartitionKeys))
-				assert.Equal(t, "s3://lake/events/_symlink_format_manifest/", aws.ToString(tbl.StorageDescriptor.Location))
+				assert.Equal(
+					t,
+					"s3://lake/events/_symlink_format_manifest/",
+					aws.ToString(tbl.StorageDescriptor.Location),
+				)
 				assert.Contains(t, aws.ToString(tbl.StorageDescriptor.InputFormat), "SymlinkTextInputFormat")
 				assert.Equal(t, [][]string{{"2024"}, {"2025"}}, env.partitionValues("events"))
 
@@ -336,7 +354,11 @@ func TestCrawler_DeltaTarget(t *testing.T) {
 				t.Helper()
 
 				tbl := env.table("events")
-				assert.Equal(t, "s3://lake/events/_symlink_format_manifest/", aws.ToString(tbl.StorageDescriptor.Location))
+				assert.Equal(
+					t,
+					"s3://lake/events/_symlink_format_manifest/",
+					aws.ToString(tbl.StorageDescriptor.Location),
+				)
 
 				_, err := env.s3.HeadObject(t.Context(), &awss3.HeadObjectInput{
 					Bucket: aws.String("lake"), Key: aws.String("events/_symlink_format_manifest/year=2025/manifest"),
@@ -371,8 +393,8 @@ func TestCrawler_DeltaTarget(t *testing.T) {
 				"events/_delta_log/00000000000000000001.json": deltaCommit1(),
 				"events/year=2024/b.parquet":                  "x",
 			})
-			env.create("cr", &gluetypes.CrawlerTargets{DeltaTargets: []gluetypes.DeltaTarget{tt.target}}, nil)
-			env.crawl("cr")
+			env.create(&gluetypes.CrawlerTargets{DeltaTargets: []gluetypes.DeltaTarget{tt.target}}, nil)
+			env.crawl()
 			tt.check(t, env)
 		})
 	}
@@ -382,19 +404,20 @@ const icebergMeta = `{"format-version":2,"location":"s3://lake/wh/sales","curren
 	`"schemas":[{"schema-id":0,"fields":[{"id":1,"name":"old","required":true,"type":"int"}]},` +
 	`{"schema-id":1,"fields":[{"id":1,"name":"id","required":true,"type":"long"},` +
 	`{"id":2,"name":"ts","required":false,"type":"timestamptz"},` +
-	`{"id":3,"name":"attrs","required":false,"type":{"type":"map","key-id":4,"key":"string","value-id":5,"value":"double"}},` +
+	`{"id":3,"name":"attrs","required":false,` +
+	`"type":{"type":"map","key-id":4,"key":"string","value-id":5,"value":"double"}},` +
 	`{"id":6,"name":"price","required":false,"type":"decimal(10, 2)"}]}]}`
 
 func TestCrawler_IcebergTarget(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		objs      map[string]string
+		name      string
 		path      string
-		maxDepth  int32
 		wantTable string
 		wantMeta  string
+		maxDepth  int32
 		wantNone  bool
 	}{
 		{
@@ -427,10 +450,10 @@ func TestCrawler_IcebergTarget(t *testing.T) {
 
 			env := newCrawlEnv(t)
 			env.put(tt.objs)
-			env.create("cr", &gluetypes.CrawlerTargets{IcebergTargets: []gluetypes.IcebergTarget{{
+			env.create(&gluetypes.CrawlerTargets{IcebergTargets: []gluetypes.IcebergTarget{{
 				Paths: []string{tt.path}, MaximumTraversalDepth: aws.Int32(tt.maxDepth),
 			}}}, nil)
-			env.crawl("cr")
+			env.crawl()
 
 			if tt.wantNone {
 				assert.False(t, env.hasTable(tt.wantTable))
@@ -504,10 +527,10 @@ func TestCrawler_HudiTarget(t *testing.T) {
 
 			objs["hudi/trips/.hoodie/hoodie.properties"] = props
 			env.put(objs)
-			env.create("cr", &gluetypes.CrawlerTargets{HudiTargets: []gluetypes.HudiTarget{{
+			env.create(&gluetypes.CrawlerTargets{HudiTargets: []gluetypes.HudiTarget{{
 				Paths: []string{"s3://lake/hudi/"},
 			}}}, nil)
-			env.crawl("cr")
+			env.crawl()
 
 			for i, name := range tt.wantTables {
 				tbl := env.table(name)
@@ -542,7 +565,7 @@ func TestCrawler_SchemaChangeAndRecrawlPolicies(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, []string{"id:bigint", "name:string", "extra:string"},
 					colSpec(env.table("d").StorageDescriptor.Columns))
-				assert.Equal(t, int32(1), env.metrics("cr").TablesUpdated)
+				assert.Equal(t, int32(1), env.metrics().TablesUpdated)
 			},
 		},
 		{
@@ -552,7 +575,7 @@ func TestCrawler_SchemaChangeAndRecrawlPolicies(t *testing.T) {
 			check: func(t *testing.T, env *crawlEnv) {
 				t.Helper()
 				assert.Equal(t, []string{"id:bigint", "name:string"}, colSpec(env.table("d").StorageDescriptor.Columns))
-				assert.Equal(t, int32(0), env.metrics("cr").TablesUpdated)
+				assert.Equal(t, int32(0), env.metrics().TablesUpdated)
 			},
 		},
 		{
@@ -570,7 +593,7 @@ func TestCrawler_SchemaChangeAndRecrawlPolicies(t *testing.T) {
 			check: func(t *testing.T, env *crawlEnv) {
 				t.Helper()
 				assert.False(t, env.hasTable("d"))
-				assert.Equal(t, int32(1), env.metrics("cr").TablesDeleted)
+				assert.Equal(t, int32(1), env.metrics().TablesDeleted)
 			},
 		},
 		{
@@ -588,11 +611,16 @@ func TestCrawler_SchemaChangeAndRecrawlPolicies(t *testing.T) {
 			},
 		},
 		{
-			name:   "new folders only keeps schema but adds partitions",
-			policy: &gluetypes.SchemaChangePolicy{UpdateBehavior: gluetypes.UpdateBehaviorLog, DeleteBehavior: gluetypes.DeleteBehaviorLog},
-			recr:   gluetypes.RecrawlBehaviorCrawlNewFoldersOnly,
+			name: "new folders only keeps schema but adds partitions",
+			policy: &gluetypes.SchemaChangePolicy{
+				UpdateBehavior: gluetypes.UpdateBehaviorLog,
+				DeleteBehavior: gluetypes.DeleteBehaviorLog,
+			},
+			recr: gluetypes.RecrawlBehaviorCrawlNewFoldersOnly,
 			mutate: func(env *crawlEnv) {
-				env.put(map[string]string{"p/y=2/a.csv": "id,name,extra\n1,a,z\n", "p/y=1/a.csv": "id,name,extra\n1,a,z\n"})
+				env.put(
+					map[string]string{"p/y=2/a.csv": "id,name,extra\n1,a,z\n", "p/y=1/a.csv": "id,name,extra\n1,a,z\n"},
+				)
 			},
 			check: func(t *testing.T, env *crawlEnv) {
 				t.Helper()
@@ -614,17 +642,17 @@ func TestCrawler_SchemaChangeAndRecrawlPolicies(t *testing.T) {
 				path = "s3://lake/p/"
 			}
 
-			env.create("cr", &gluetypes.CrawlerTargets{S3Targets: []gluetypes.S3Target{{Path: aws.String(path)}}},
+			env.create(&gluetypes.CrawlerTargets{S3Targets: []gluetypes.S3Target{{Path: aws.String(path)}}},
 				func(in *gluesdk.CreateCrawlerInput) {
 					in.SchemaChangePolicy = tt.policy
 					if tt.recr != "" {
 						in.RecrawlPolicy = &gluetypes.RecrawlPolicy{RecrawlBehavior: tt.recr}
 					}
 				})
-			env.crawl("cr")
+			env.crawl()
 
 			tt.mutate(env)
-			env.crawl("cr")
+			env.crawl()
 			tt.check(t, env)
 		})
 	}
@@ -657,7 +685,7 @@ func TestCrawler_FailedCrawlReportsError(t *testing.T) {
 			targets: &gluetypes.CrawlerTargets{
 				JdbcTargets: []gluetypes.JdbcTarget{{ConnectionName: aws.String("c"), Path: aws.String("db/%")}},
 			},
-			want: `connection "c" not found`,
+			want: `connection not found: "c"`,
 		},
 	}
 
@@ -666,13 +694,13 @@ func TestCrawler_FailedCrawlReportsError(t *testing.T) {
 			t.Parallel()
 
 			env := newCrawlEnv(t)
-			env.create("cr", tt.targets, nil)
+			env.create(tt.targets, nil)
 
-			c := env.crawl("cr")
+			c := env.crawl()
 			assert.Equal(t, gluetypes.LastCrawlStatusFailed, c.LastCrawl.Status)
 			assert.Contains(t, aws.ToString(c.LastCrawl.ErrorMessage), tt.want)
 
-			last := env.lastCrawl("cr")
+			last := env.lastCrawl()
 			assert.Equal(t, gluetypes.CrawlerHistoryStateFailed, last.State)
 			assert.Contains(t, aws.ToString(last.ErrorMessage), tt.want)
 		})

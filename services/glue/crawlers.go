@@ -522,7 +522,7 @@ func (b *InMemoryBackend) openCrawlEntryLocked(name string) *CrawlHistoryEntry {
 	return hist[len(hist)-1]
 }
 
-func epochSeconds(t time.Time) float64 { return float64(t.UnixMilli()) / 1000 }
+func epochSeconds(t time.Time) float64 { return float64(t.UnixMilli()) / millisPerSecond }
 
 // pruneOldCrawlHistoryLocked evicts finished crawl-history entries older than
 // runHistoryRetention from b.crawlHistory[name], preventing unbounded growth

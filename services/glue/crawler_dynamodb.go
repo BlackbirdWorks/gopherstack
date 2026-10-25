@@ -2,7 +2,9 @@ package glue
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -25,6 +27,8 @@ const (
 	kindStruct        = "struct"
 	typeBinary        = "binary"
 )
+
+var errDDBUnavailable = errors.New("DynamoDB is not available to crawl")
 
 // CrawlerDynamoDB is the DynamoDB side a crawler needs to infer table schemas.
 type CrawlerDynamoDB interface {
@@ -90,25 +94,23 @@ func mergeDDBType(a, b *ddbType) *ddbType {
 		return b
 	case b == nil:
 		return a
-	case a.kind == b.kind && a.kind == kindArray:
-		return &ddbType{kind: kindArray, elem: mergeDDBType(a.elem, b.elem)}
-	case a.kind == b.kind && a.kind == kindStruct:
-		out := &ddbType{kind: kindStruct, fields: map[string]*ddbType{}}
-		for n, t := range a.fields {
-			out.fields[n] = t
+	case a.kind != b.kind:
+		if isNumericKind(a.kind) && isNumericKind(b.kind) {
+			return scalarKind(avroDouble)
 		}
 
+		return scalarKind(avroString)
+	case a.kind == kindArray:
+		return &ddbType{kind: kindArray, elem: mergeDDBType(a.elem, b.elem)}
+	case a.kind == kindStruct:
+		out := &ddbType{kind: kindStruct, fields: maps.Clone(a.fields)}
 		for n, t := range b.fields {
 			out.fields[n] = mergeDDBType(out.fields[n], t)
 		}
 
 		return out
-	case a.kind == b.kind:
-		return a
-	case isNumericKind(a.kind) && isNumericKind(b.kind):
-		return scalarKind(avroDouble)
 	default:
-		return scalarKind(avroString)
+		return a
 	}
 }
 
@@ -220,7 +222,7 @@ func (r *crawlRun) scanDDBTypes(
 func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
 	b := r.b
 	if b.crawlerDDB == nil {
-		return fmt.Errorf("DynamoDB is not available to crawl %q", t.Path)
+		return fmt.Errorf("%w: %q", errDDBUnavailable, t.Path)
 	}
 
 	ctx, cancel := context.WithTimeout(awsmeta.WithRegion(context.Background(), b.region), crawlerS3Timeout)
@@ -260,7 +262,7 @@ func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
 	}
 
 	params := map[string]string{
-		"classification": ddbClassification, "typeOfData": "table", crawlerManagedParam: r.c.Name,
+		paramClassification: ddbClassification, paramTypeOfData: "table", crawlerManagedParam: r.c.Name,
 		"recordCount": strconv.FormatInt(aws.ToInt64(tbl.ItemCount), 10),
 		"sizeKey":     strconv.FormatInt(aws.ToInt64(tbl.TableSizeBytes), 10),
 	}
@@ -271,7 +273,7 @@ func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
 		StorageDescriptor: StorageDescriptor{
 			Columns: cols, Location: t.Path, InputFormat: ddbInputFormat, OutputFormat: ddbOutputFormat,
 			SerdeInfo:  &SerDeInfo{SerializationLibrary: ddbSerde},
-			Parameters: map[string]string{"classification": ddbClassification, crawlerManagedParam: r.c.Name},
+			Parameters: map[string]string{paramClassification: ddbClassification, crawlerManagedParam: r.c.Name},
 		},
 	})
 

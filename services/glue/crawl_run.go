@@ -2,9 +2,12 @@ package glue
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,7 +24,16 @@ const (
 	crawlerStateCompleted    = "COMPLETED"
 	crawlerStateFailed       = "FAILED"
 	crawlerStateStoppedCrawl = "STOPPED"
+
+	paramClassification = "classification"
+	paramTypeOfData     = "typeOfData"
+	typeSmallint        = "smallint"
+	typeTinyint         = "tinyint"
+	typeTimestamp       = "timestamp"
+	typeDate            = "date"
 )
+
+var errInvalidCrawlPath = errors.New("invalid S3 path")
 
 type crawlStats struct {
 	added, updated, deleted, partitions int
@@ -166,7 +178,10 @@ func (r *crawlRun) upsert(desired *Table) *Table {
 	}
 
 	if r.mergeColumns {
-		desired.StorageDescriptor.Columns = mergeColumns(cur.StorageDescriptor.Columns, desired.StorageDescriptor.Columns)
+		desired.StorageDescriptor.Columns = mergeColumns(
+			cur.StorageDescriptor.Columns,
+			desired.StorageDescriptor.Columns,
+		)
 	}
 
 	if tableUnchanged(cur, desired) {
@@ -216,7 +231,7 @@ func (r *crawlRun) sweepGoneTables() {
 		return
 	}
 
-	now := fmt.Sprintf("%d", time.Now().Unix())
+	now := strconv.FormatInt(time.Now().Unix(), 10)
 
 	for _, tbl := range r.b.tables.All() {
 		key := tableKey(tbl.DatabaseName, tbl.Name)
@@ -246,9 +261,9 @@ func (r *crawlRun) sweepGoneTables() {
 }
 
 func mapsWith(m map[string]string, k, v string) map[string]string {
-	out := make(map[string]string, len(m)+1)
-	for mk, mv := range m {
-		out[mk] = mv
+	out := maps.Clone(m)
+	if out == nil {
+		out = map[string]string{}
 	}
 
 	out[k] = v

@@ -48,14 +48,14 @@ func TestCrawler_JDBCConnectionFailures(t *testing.T) {
 
 			env := newCrawlEnv(t)
 			env.jdbcConnection("conn", tt.url, "u", "p")
-			env.create("cr", &gluetypes.CrawlerTargets{JdbcTargets: []gluetypes.JdbcTarget{{
+			env.create(&gluetypes.CrawlerTargets{JdbcTargets: []gluetypes.JdbcTarget{{
 				ConnectionName: aws.String("conn"), Path: aws.String("appdb/%"),
 			}}}, nil)
 
-			c := env.crawl("cr")
+			c := env.crawl()
 			assert.Equal(t, gluetypes.LastCrawlStatusFailed, c.LastCrawl.Status)
 			assert.Contains(t, aws.ToString(c.LastCrawl.ErrorMessage), tt.want)
-			assert.Equal(t, gluetypes.CrawlerHistoryStateFailed, env.lastCrawl("cr").State)
+			assert.Equal(t, gluetypes.CrawlerHistoryStateFailed, env.lastCrawl().State)
 		})
 	}
 }
@@ -81,7 +81,9 @@ func startContainer(t *testing.T, eng jdbcEngine) string {
 		t.Skip("docker CLI not available")
 	}
 
-	args := []string{"run", "-d", "--rm", "-p", "127.0.0.1::" + eng.port, "--label", "gopherstack-glue-crawler-test=1"}
+	args := make([]string, 0, 7+2*len(eng.env))
+	args = append(args, "run", "-d", "--rm", "-p", "127.0.0.1::"+eng.port, "--label", "gopherstack-glue-crawler-test=1")
+
 	for _, e := range eng.env {
 		args = append(args, "-e", e)
 	}
@@ -137,18 +139,30 @@ func TestCrawler_JDBCTarget_Docker(t *testing.T) {
 
 	engines := []jdbcEngine{
 		{
-			name: "postgres", image: "postgres:16", port: "5432", user: "postgres",
+			name:    "postgres",
+			image:   "postgres:16",
+			port:    "5432",
+			user:    "postgres",
 			env:     []string{"POSTGRES_PASSWORD=pw", "POSTGRES_DB=appdb"},
-			jdbcFmt: "jdbc:postgresql://%s/appdb", path: "appdb/public/%",
+			jdbcFmt: "jdbc:postgresql://%s/appdb",
+			path:    "appdb/public/%",
 			ddl: []string{
 				"CREATE TABLE public.orders (id int PRIMARY KEY, total numeric(10,2), note text, created timestamp, tags text[])",
 				"CREATE TABLE public.tmp_scratch (id int)",
 				"CREATE SCHEMA audit",
 				"CREATE TABLE audit.log (id bigint)",
 			},
-			wantTable: "appdb_public_orders", wantLoc: "appdb.public.orders",
-			wantCols:   []string{"id:int", "total:decimal(10,2)", "note:string", "created:timestamp", "tags:array<string>"},
-			exclusions: []string{"tmp_%"}, excluded: "appdb_public_tmp_scratch",
+			wantTable: "appdb_public_orders",
+			wantLoc:   "appdb.public.orders",
+			wantCols: []string{
+				"id:int",
+				"total:decimal(10,2)",
+				"note:string",
+				"created:timestamp",
+				"tags:array<string>",
+			},
+			exclusions: []string{"tmp_%"},
+			excluded:   "appdb_public_tmp_scratch",
 		},
 		{
 			name: "mysql", image: "mysql:8.4", port: "3306", user: "root",
@@ -178,12 +192,17 @@ func TestCrawler_JDBCTarget_Docker(t *testing.T) {
 
 			env := newCrawlEnv(t)
 			env.jdbcConnection("conn", strings.Replace(eng.jdbcFmt, "%s", addr, 1), eng.user, "pw")
-			env.create("cr", &gluetypes.CrawlerTargets{JdbcTargets: []gluetypes.JdbcTarget{{
+			env.create(&gluetypes.CrawlerTargets{JdbcTargets: []gluetypes.JdbcTarget{{
 				ConnectionName: aws.String("conn"), Path: aws.String(eng.path), Exclusions: eng.exclusions,
 			}}}, nil)
 
-			c := env.crawl("cr")
-			require.Equal(t, gluetypes.LastCrawlStatusSucceeded, c.LastCrawl.Status, aws.ToString(c.LastCrawl.ErrorMessage))
+			c := env.crawl()
+			require.Equal(
+				t,
+				gluetypes.LastCrawlStatusSucceeded,
+				c.LastCrawl.Status,
+				aws.ToString(c.LastCrawl.ErrorMessage),
+			)
 
 			tbl := env.table(eng.wantTable)
 			assert.Equal(t, eng.wantCols, colSpec(tbl.StorageDescriptor.Columns))
@@ -192,7 +211,7 @@ func TestCrawler_JDBCTarget_Docker(t *testing.T) {
 			assert.Equal(t, "table", tbl.Parameters["typeOfData"])
 			assert.False(t, env.hasTable(eng.excluded), "excluded table must not be catalogued")
 			assert.False(t, env.hasTable("appdb_audit_log"), "other schema outside the include path")
-			assert.Equal(t, int32(1), env.metrics("cr").TablesCreated)
+			assert.Equal(t, int32(1), env.metrics().TablesCreated)
 		})
 	}
 }

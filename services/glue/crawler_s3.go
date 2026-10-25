@@ -370,7 +370,7 @@ func delimitedFormat(sample []byte, delim rune, classification string) crawlForm
 	if header {
 		data = rows[1:]
 		f.params["skip.header.line.count"] = "1"
-		f.params["hasHeader"] = "true"
+		f.params["hasHeader"] = paramTrue
 	}
 
 	f.columns = make([]Column, width)
@@ -465,7 +465,7 @@ func scalarType(vals []string) string {
 func jsonFormat(sample []byte) crawlFormat {
 	f := crawlFormat{
 		serde: serdeJSON, input: fmtTextInput, output: fmtTextOutput, classification: "json",
-		params: map[string]string{"compressionType": "none", "typeOfData": "file"},
+		params: map[string]string{"compressionType": "none", paramTypeOfData: "file"},
 	}
 
 	types := map[string]string{}
@@ -616,7 +616,7 @@ func (r *crawlRun) crawlS3(t S3Target) error {
 
 	bucket, prefix, ok := splitCrawlS3URI(t.Path)
 	if !ok {
-		return fmt.Errorf("invalid S3 path %q", t.Path)
+		return fmt.Errorf("%w %q", errInvalidCrawlPath, t.Path)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), crawlerS3Timeout)
@@ -683,7 +683,7 @@ func (r *crawlRun) crawlGroup(ctx context.Context, bucket string, g crawlGroup) 
 	f := inferFormat(files[0].key, sample)
 	location := strings.TrimSuffix("s3://"+bucket+"/"+g.root, "/") + "/"
 
-	params := map[string]string{"classification": f.classification, crawlerManagedParam: c.Name}
+	params := map[string]string{paramClassification: f.classification, crawlerManagedParam: c.Name}
 	maps.Copy(params, f.params)
 
 	tbl := r.upsert(&Table{

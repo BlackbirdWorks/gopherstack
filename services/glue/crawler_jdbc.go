@@ -20,11 +20,14 @@ const (
 	engPostgres = "postgresql"
 	engMySQL    = "mysql"
 	engRedshift = "redshift"
+	pgTablePart = 2
 )
 
 var (
-	errJDBCSecret = errors.New("connection authenticates through SECRET_ID, which the crawler cannot resolve")
-	errJDBCEngine = errors.New("unsupported JDBC engine")
+	errJDBCSecret       = errors.New("connection authenticates through SECRET_ID, which the crawler cannot resolve")
+	errJDBCNoConnection = errors.New("connection not found")
+	errJDBCNoURL        = errors.New("connection has no JDBC_CONNECTION_URL")
+	errJDBCEngine       = errors.New("unsupported JDBC engine")
 )
 
 type jdbcEndpoint struct {
@@ -34,7 +37,7 @@ type jdbcEndpoint struct {
 func parseJDBCURL(conn *Connection) (jdbcEndpoint, error) {
 	raw := conn.ConnectionProperties["JDBC_CONNECTION_URL"]
 	if raw == "" {
-		return jdbcEndpoint{}, errors.New("connection has no JDBC_CONNECTION_URL")
+		return jdbcEndpoint{}, errJDBCNoURL
 	}
 
 	rest, ok := strings.CutPrefix(raw, "jdbc:")
@@ -114,7 +117,7 @@ func jdbcPattern(parts []string, i int) string {
 func (r *crawlRun) crawlJDBC(t JDBCTarget) error {
 	conn, ok := r.b.connections.Get(t.ConnectionName)
 	if !ok {
-		return fmt.Errorf("connection %q not found", t.ConnectionName)
+		return fmt.Errorf("%w: %q", errJDBCNoConnection, t.ConnectionName)
 	}
 
 	ep, err := parseJDBCURL(conn)
@@ -150,7 +153,12 @@ func (r *crawlRun) crawlJDBC(t JDBCTarget) error {
 	return r.writeJDBCTables(t, ep, dbName, cols)
 }
 
-func (ep jdbcEndpoint) introspect(ctx context.Context, db *sql.DB, dbName string, parts []string) ([]jdbcColumn, error) {
+func (ep jdbcEndpoint) introspect(
+	ctx context.Context,
+	db *sql.DB,
+	dbName string,
+	parts []string,
+) ([]jdbcColumn, error) {
 	var (
 		rows *sql.Rows
 		err  error
@@ -167,7 +175,7 @@ func (ep jdbcEndpoint) introspect(ctx context.Context, db *sql.DB, dbName string
 			numeric_precision, numeric_scale FROM information_schema.columns
 			WHERE table_catalog = $1 AND table_schema LIKE $2 AND table_name LIKE $3
 			AND table_schema NOT IN ('pg_catalog','information_schema')
-			ORDER BY table_schema, table_name, ordinal_position`, dbName, jdbcPattern(parts, 1), jdbcPattern(parts, 2))
+			ORDER BY table_schema, table_name, ordinal_position`, dbName, jdbcPattern(parts, 1), jdbcPattern(parts, pgTablePart))
 	}
 
 	if err != nil {
@@ -241,8 +249,8 @@ func (r *crawlRun) writeJDBCTables(t JDBCTarget, ep jdbcEndpoint, dbName string,
 	for _, key := range order {
 		tc := tables[key]
 		params := map[string]string{
-			"classification": ep.engine, "connectionName": t.ConnectionName,
-			"typeOfData": "table", crawlerManagedParam: r.c.Name,
+			paramClassification: ep.engine, "connectionName": t.ConnectionName,
+			paramTypeOfData: "table", crawlerManagedParam: r.c.Name,
 		}
 
 		r.upsert(&Table{
@@ -276,21 +284,21 @@ func pgHiveType(c jdbcColumn) string {
 func pgScalarType(udt string, c jdbcColumn) string {
 	switch udt {
 	case "int2":
-		return "smallint"
+		return typeSmallint
 	case "int4":
-		return "int"
+		return avroInt
 	case "int8":
 		return typeBigint
 	case "float4":
-		return "float"
+		return avroFloat
 	case "float8":
 		return avroDouble
 	case "bool":
 		return avroBoolean
-	case "date":
-		return "date"
-	case "timestamp", "timestamptz":
-		return "timestamp"
+	case typeDate:
+		return typeDate
+	case typeTimestamp, "timestamptz":
+		return typeTimestamp
 	case "bytea":
 		return typeBinary
 	case "numeric":
@@ -306,16 +314,16 @@ func pgScalarType(udt string, c jdbcColumn) string {
 
 func mysqlHiveType(c jdbcColumn) string {
 	switch c.dataType {
-	case "tinyint", "smallint", "int", "float", "double", "date":
+	case typeTinyint, typeSmallint, avroInt, avroFloat, avroDouble, typeDate:
 		return c.dataType
 	case "mediumint":
-		return "int"
+		return avroInt
 	case "bigint":
 		return typeBigint
 	case "decimal":
 		return fmt.Sprintf("decimal(%d,%d)", c.precision.Int64, c.scale.Int64)
-	case "datetime", "timestamp":
-		return "timestamp"
+	case "datetime", typeTimestamp:
+		return typeTimestamp
 	case "blob", "tinyblob", "mediumblob", "longblob", "binary", "varbinary":
 		return typeBinary
 	default:

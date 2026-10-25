@@ -12,7 +12,8 @@ import (
 const icebergMetadataDir = "metadata"
 
 var (
-	errIcebergNoSchema = errors.New("Iceberg metadata carries no current schema")
+	errIcebergNoMetadata = errors.New("no metadata.json file")
+	errIcebergNoSchema   = errors.New("iceberg metadata carries no current schema")
 
 	icebergVersionRe = regexp.MustCompile(`^(?:v)?(\d+)(?:-[0-9a-fA-F-]+)?\.metadata\.json$`)
 )
@@ -29,7 +30,7 @@ func (r *crawlRun) crawlIceberg(t IcebergTarget) error {
 	for _, p := range t.Paths {
 		bucket, prefix, ok := splitCrawlS3URI(p)
 		if !ok {
-			return fmt.Errorf("invalid S3 path %q", p)
+			return fmt.Errorf("%w %q", errInvalidCrawlPath, p)
 		}
 
 		keys, lerr := r.b.listKeys(ctx, bucket, prefix)
@@ -79,7 +80,7 @@ func latestIcebergMetadata(ctx context.Context, r *crawlRun, bucket, root string
 	}
 
 	if best == "" {
-		return "", errors.New("no metadata.json file")
+		return "", errIcebergNoMetadata
 	}
 
 	return best, nil
@@ -128,7 +129,7 @@ func (r *crawlRun) crawlIcebergTable(ctx context.Context, bucket, root string, k
 	for i, f := range schema.Fields {
 		cols[i] = Column{Name: f.Name, Type: icebergType(f.Type), Parameters: map[string]string{
 			"iceberg.field.id": strconv.Itoa(f.ID), "iceberg.field.optional": strconv.FormatBool(!f.Required),
-			"iceberg.field.current": "true",
+			"iceberg.field.current": paramTrue,
 		}}
 	}
 
@@ -138,9 +139,14 @@ func (r *crawlRun) crawlIcebergTable(ctx context.Context, bucket, root string, k
 	}
 
 	r.upsert(&Table{
-		Name: crawlTableName(r.c.TablePrefix, lastPathSegment(root)), DatabaseName: r.c.DatabaseName,
-		Parameters:        params,
-		StorageDescriptor: StorageDescriptor{Columns: cols, Location: location, Parameters: map[string]string{crawlerManagedParam: r.c.Name}},
+		Name:         crawlTableName(r.c.TablePrefix, lastPathSegment(root)),
+		DatabaseName: r.c.DatabaseName,
+		Parameters:   params,
+		StorageDescriptor: StorageDescriptor{
+			Columns:    cols,
+			Location:   location,
+			Parameters: map[string]string{crawlerManagedParam: r.c.Name},
+		},
 	})
 
 	return nil
@@ -175,7 +181,7 @@ func icebergType(t any) string {
 			return "struct<" + strings.Join(parts, ",") + ">"
 		case "list":
 			return "array<" + icebergType(v["element"]) + ">"
-		case "map":
+		case avroMap:
 			return "map<" + icebergType(v["key"]) + "," + icebergType(v["value"]) + ">"
 		}
 	}
@@ -185,15 +191,15 @@ func icebergType(t any) string {
 
 func icebergPrimitive(t string) string {
 	switch {
-	case t == "long":
+	case t == avroLong:
 		return typeBigint
-	case t == "timestamptz", t == "timestamp", t == "timestamp_ns", t == "timestamptz_ns":
-		return "timestamp"
-	case t == "binary", strings.HasPrefix(t, "fixed"):
+	case t == typeTimestamp, t == "timestamptz", t == "timestamp_ns", t == "timestamptz_ns":
+		return typeTimestamp
+	case t == typeBinary, strings.HasPrefix(t, "fixed"):
 		return typeBinary
 	case strings.HasPrefix(t, "decimal"):
 		return t
-	case t == "boolean", t == "int", t == "float", t == "double", t == "date":
+	case t == avroBoolean, t == avroInt, t == avroFloat, t == avroDouble, t == typeDate:
 		return t
 	default:
 		return avroString

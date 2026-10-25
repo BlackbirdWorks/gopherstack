@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -27,17 +28,19 @@ const (
 
 var (
 	errHudiNoSchema = errors.New("no Hudi schema in hoodie.properties or a completed commit")
+)
 
-	hudiMetaColumns = []string{
+func hudiMetaColumns() []string {
+	return []string{
 		"_hoodie_commit_time", "_hoodie_commit_seqno", "_hoodie_record_key",
 		"_hoodie_partition_path", "_hoodie_file_name",
 	}
-)
+}
 
 func parseProperties(data []byte) map[string]string {
 	out := map[string]string{}
 	sc := bufio.NewScanner(bytes.NewReader(data))
-	sc.Buffer(make([]byte, 0, 1<<20), lakeMetaLimit)
+	sc.Buffer(make([]byte, 0, lakeScanBuf), lakeMetaLimit)
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -66,7 +69,7 @@ func (r *crawlRun) crawlHudi(t HudiTarget) error {
 	for _, p := range t.Paths {
 		bucket, prefix, ok := splitCrawlS3URI(p)
 		if !ok {
-			return fmt.Errorf("invalid S3 path %q", p)
+			return fmt.Errorf("%w %q", errInvalidCrawlPath, p)
 		}
 
 		keys, lerr := r.b.listKeys(ctx, bucket, prefix)
@@ -107,8 +110,8 @@ func (r *crawlRun) hudiSchema(
 
 	sort.Strings(commits)
 
-	for i := len(commits) - 1; i >= 0; i-- {
-		body, err := r.b.readObject(ctx, bucket, commits[i])
+	for _, commit := range slices.Backward(commits) {
+		body, err := r.b.readObject(ctx, bucket, commit)
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +126,7 @@ func (r *crawlRun) hudiSchema(
 
 		var schema any
 		if err = decodeJSON([]byte(commit.ExtraMetadata["schema"]), &schema); err != nil {
-			return nil, fmt.Errorf("parse schema of %s: %w", commits[i], err)
+			return nil, fmt.Errorf("parse schema of %s: %w", commit, err)
 		}
 
 		return schema, nil
@@ -164,10 +167,10 @@ func avroPrimitiveHive(t string) string {
 
 func avroComplexHive(v map[string]any) string {
 	switch v["logicalType"] {
-	case "date":
-		return "date"
+	case typeDate:
+		return typeDate
 	case "timestamp-millis", "timestamp-micros":
-		return "timestamp"
+		return typeTimestamp
 	case "decimal":
 		p, _ := v["precision"].(float64)
 		s, _ := v["scale"].(float64)
@@ -189,32 +192,36 @@ func avroComplexHive(v map[string]any) string {
 		return "struct<" + strings.Join(parts, ",") + ">"
 	case "array":
 		return "array<" + avroHiveType(v["items"]) + ">"
-	case "map":
+	case avroMap:
 		return "map<string," + avroHiveType(v["values"]) + ">"
 	default:
 		return avroHiveType(v["type"])
 	}
 }
 
+func hasMetaPrefix(field any) bool {
+	fm, _ := field.(map[string]any)
+	name, _ := fm["name"].(string)
+
+	return strings.HasPrefix(name, hudiMetaPrefix)
+}
+
 func hudiColumns(schema any) []Column {
 	rec, _ := schema.(map[string]any)
 	fields, _ := rec["fields"].([]any)
 
-	cols := make([]Column, 0, len(fields)+len(hudiMetaColumns))
+	var cols []Column
+
+	if len(fields) == 0 || !hasMetaPrefix(fields[0]) {
+		for _, n := range hudiMetaColumns() {
+			cols = append(cols, Column{Name: n, Type: avroString})
+		}
+	}
 
 	for _, f := range fields {
 		fm, _ := f.(map[string]any)
 		name, _ := fm["name"].(string)
 		cols = append(cols, Column{Name: name, Type: avroHiveType(fm["type"])})
-	}
-
-	if len(cols) == 0 || !strings.HasPrefix(cols[0].Name, hudiMetaPrefix) {
-		meta := make([]Column, len(hudiMetaColumns))
-		for i, n := range hudiMetaColumns {
-			meta[i] = Column{Name: n, Type: avroString}
-		}
-
-		cols = append(meta, cols...)
 	}
 
 	return cols
@@ -223,7 +230,7 @@ func hudiColumns(schema any) []Column {
 func hudiPartitionFields(props map[string]string) []string {
 	var out []string
 
-	for _, f := range strings.Split(props[hudiPartProp], ",") {
+	for f := range strings.SplitSeq(props[hudiPartProp], ",") {
 		f, _, _ = strings.Cut(strings.TrimSpace(f), ":")
 		if f != "" {
 			out = append(out, f)
@@ -262,7 +269,7 @@ func (r *crawlRun) crawlHudiTable(ctx context.Context, bucket, root string, keys
 	}
 
 	for _, v := range variants {
-		params := map[string]string{"classification": classificationParq, crawlerManagedParam: r.c.Name}
+		params := map[string]string{paramClassification: classificationParq, crawlerManagedParam: r.c.Name}
 
 		tbl := r.upsert(&Table{
 			Name: crawlTableName(r.c.TablePrefix, baseName+v.suffix), DatabaseName: r.c.DatabaseName,

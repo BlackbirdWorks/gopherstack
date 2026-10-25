@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -16,6 +17,7 @@ import (
 
 const (
 	lakeMetaLimit      = 32 << 20
+	lakeScanBuf        = 1 << 20
 	defaultLakeDepth   = 10
 	classificationParq = "parquet"
 	serdeParquetHive   = serdeParquet
@@ -23,9 +25,11 @@ const (
 	parquetOutput      = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
 )
 
+var errLakeNoS3 = errors.New("S3 is not available to crawl lake-format tables")
+
 func (r *crawlRun) lakeContext() (context.Context, context.CancelFunc, error) {
 	if r.b.crawlerS3 == nil {
-		return nil, nil, fmt.Errorf("S3 is not available to crawl lake-format tables")
+		return nil, nil, errLakeNoS3
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), crawlerS3Timeout)
@@ -124,12 +128,12 @@ func lakeRoots(keys []string, base, marker string, match func(file string) bool,
 }
 
 func splitKey(k string) (string, string) {
-	i := strings.LastIndex(k, "/")
-	if i < 0 {
+	dir, file, found := strings.CutLast(k, "/")
+	if !found {
 		return "", k
 	}
 
-	return k[:i], k[i+1:]
+	return dir, file
 }
 
 func joinKey(prefix, rest string) string {
