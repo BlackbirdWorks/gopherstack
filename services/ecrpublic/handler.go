@@ -165,6 +165,8 @@ const errTypeRepositoryNotFound = "RepositoryNotFoundException"
 func (h *Handler) errorMessage(err error, errType string) string {
 	detail := strings.TrimPrefix(err.Error(), errType)
 	detail = strings.TrimPrefix(detail, ": ")
+	// Escaped so a name can never close the quotes in the message (repository names never contain them).
+	detail = strings.ReplaceAll(detail, "'", `\'`)
 	registry := h.Backend.AccountID()
 
 	switch errType {
