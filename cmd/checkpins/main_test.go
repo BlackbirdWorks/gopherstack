@@ -18,6 +18,7 @@ func TestEvaluatePin(t *testing.T) {
 		"storage/azblob":                   "v1.8.0",
 		"cloud.google.com/go/pubsub/v2":    "v2.7.0",
 		"github.com/oracle/oci-go-sdk/v65": "v65.126.2",
+		"google.golang.org/api":            "v0.288.0",
 	}
 
 	tests := []struct {
@@ -78,6 +79,19 @@ func TestEvaluatePin(t *testing.T) {
 			content:  "service: ociobjectstorage\nsdk_module: github.com/oracle/oci-go-sdk/v65@v65.100.0\n",
 			wantKind: resultMismatch,
 			wantMsg:  "ociobjectstorage: recorded v65.100.0, go.mod v65.126.2",
+		},
+		{
+			name:     "matching google api pin",
+			slug:     "gcpdns",
+			content:  "service: gcpdns\nsdk_module: google.golang.org/api@v0.288.0\n",
+			wantKind: resultOK,
+		},
+		{
+			name:     "mismatched google api pin",
+			slug:     "gcpdns",
+			content:  "service: gcpdns\nsdk_module: google.golang.org/api@v0.200.0\n",
+			wantKind: resultMismatch,
+			wantMsg:  "gcpdns: recorded v0.200.0, go.mod v0.288.0",
 		},
 		{
 			name: "module cache only documented",

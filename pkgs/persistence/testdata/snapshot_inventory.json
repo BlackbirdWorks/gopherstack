@@ -15398,6 +15398,22 @@
     ],
     "version": 1
   },
+  "gcpdns": {
+    "fields": [
+      "backendSnapshot.Policies map[string]*dnsapi.Policy `json:\"policies\"`",
+      "backendSnapshot.ResponsePolicies map[string]*responseRec `json:\"responsePolicies\"`",
+      "backendSnapshot.Zones map[string]*zoneRec `json:\"zones\"`",
+      "responseRec.Policy *dnsapi.ResponsePolicy `json:\"policy\"`",
+      "responseRec.Rules map[string]*dnsapi.ResponsePolicyRule `json:\"rules\"`",
+      "zoneRec.Changes []*dnsapi.Change `json:\"changes\"`",
+      "zoneRec.Keys []*dnsapi.DnsKey `json:\"keys\"`",
+      "zoneRec.Ops []*dnsapi.Operation `json:\"ops\"`",
+      "zoneRec.Project string `json:\"project\"`",
+      "zoneRec.RRSets map[string]*dnsapi.ResourceRecordSet `json:\"rrsets\"`",
+      "zoneRec.Zone *dnsapi.ManagedZone `json:\"zone\"`"
+    ],
+    "version": 1
+  },
   "gcpeventarc": {
     "fields": [
       "backendSnapshot.Channels map[string]channelSnap `json:\"channels\"`",

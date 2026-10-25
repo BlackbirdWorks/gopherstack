@@ -39,6 +39,7 @@ const (
 	sdkAzureModulePrefix   = "github.com/Azure/azure-sdk-for-go/sdk/"
 	sdkGCPModulePrefix     = "cloud.google.com/go/"
 	sdkOCIModulePrefix     = "github.com/oracle/oci-go-sdk/"
+	sdkGoogleAPIModule     = "google.golang.org/api"
 	sdkModuleFieldPrefix   = "sdk_module:"
 )
 
@@ -62,6 +63,9 @@ var gcpPinRe = regexp.MustCompile(`^cloud\.google\.com/go/([A-Za-z0-9_/-]+)@(v[0
 
 // ociPinRe matches "github.com/oracle/oci-go-sdk/v65@v65.126.2"; the module is the whole path.
 var ociPinRe = regexp.MustCompile(`^(github\.com/oracle/oci-go-sdk/v[0-9]+)@(v[0-9][0-9A-Za-z.\-+]*)$`)
+
+// googleAPIPinRe matches "google.golang.org/api@v0.288.0", the discovery-based Google API clients.
+var googleAPIPinRe = regexp.MustCompile(`^(google\.golang\.org/api)@(v[0-9][0-9A-Za-z.\-+]*)$`)
 
 // hashicorpPinRe matches an sdk_module value shaped like
 // "hashicorp/terraform-provider-azurerm@v4.15.0" -- for services (starting
@@ -173,6 +177,12 @@ func loadGoModVersions(path string) (map[string]string, error) {
 		}
 
 		if _, ok := strings.CutPrefix(req.Mod.Path, sdkOCIModulePrefix); ok {
+			versions[req.Mod.Path] = req.Mod.Version
+
+			continue
+		}
+
+		if req.Mod.Path == sdkGoogleAPIModule {
 			versions[req.Mod.Path] = req.Mod.Version
 		}
 	}
@@ -319,6 +329,10 @@ func parsePinValue(value string) (string, string, bool) {
 	}
 
 	if m := ociPinRe.FindStringSubmatch(v); m != nil {
+		return m[1], m[2], true
+	}
+
+	if m := googleAPIPinRe.FindStringSubmatch(v); m != nil {
 		return m[1], m[2], true
 	}
 
