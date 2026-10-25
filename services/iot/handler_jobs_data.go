@@ -46,6 +46,10 @@ func isJobsDataRequest(r *http.Request) bool {
 		return false
 	}
 
+	if r.URL.Path == pathCommandExecutions && r.Method == http.MethodPost {
+		return true
+	}
+
 	_, _, ok := jobsDataPath(r.URL.Path)
 
 	return ok
@@ -103,6 +107,10 @@ func toDeviceExecutionJSON(e *DeviceJobExecution, summary bool) deviceExecutionJ
 }
 
 func (h *Handler) handleJobsData(c *echo.Context) error {
+	if c.Request().URL.Path == pathCommandExecutions {
+		return h.handleStartCommandExecution(c)
+	}
+
 	if _, ok := h.jobsData(); !ok {
 		return c.JSON(
 			http.StatusBadRequest,

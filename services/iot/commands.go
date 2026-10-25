@@ -3,7 +3,6 @@ package iot
 import (
 	"fmt"
 	"maps"
-	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -173,136 +172,28 @@ func (b *InMemoryBackend) ListCommands() []*IoTCommand {
 	return out
 }
 
+// CommandStatusReason is a command execution's statusReason.
+type CommandStatusReason struct {
+	ReasonCode        string `json:"reasonCode"`
+	ReasonDescription string `json:"reasonDescription,omitempty"`
+}
+
 // IoTCommandExecution represents an execution of an IoT command.
 //
 //nolint:revive // IoTCommandExecution is intentional to maintain AWS API naming clarity
 type IoTCommandExecution struct {
-	CommandARN   string  `json:"commandArn"`
-	ExecutionID  string  `json:"executionId"`
-	ThingARN     string  `json:"thingArn"`
-	Status       string  `json:"status"`
-	CreationDate float64 `json:"createdAt,omitempty"`
-}
-
-func (b *InMemoryBackend) commandExecutionKey(commandID, executionID string) string {
-	return commandID + "/" + executionID
-}
-
-func (b *InMemoryBackend) GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error) {
-	b.mu.RLock("GetCommandExecution")
-	defer b.mu.RUnlock()
-
-	key := b.commandExecutionKey(commandID, executionID)
-	ex, ok := b.commandExecutions[key]
-	if !ok {
-		return nil, fmt.Errorf("command execution %q/%q not found: %w", commandID, executionID, ErrResourceNotFound)
-	}
-	cp := *ex
-
-	return &cp, nil
-}
-
-func (b *InMemoryBackend) ListCommandExecutions(commandID string) []*IoTCommandExecution {
-	b.mu.RLock("ListCommandExecutions")
-	defer b.mu.RUnlock()
-
-	prefix := commandID + "/"
-	var out []*IoTCommandExecution
-	for k, ex := range b.commandExecutions {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			cp := *ex
-			out = append(out, &cp)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ExecutionID < out[j].ExecutionID })
-
-	return out
-}
-
-// GetCommandExecutionByID looks up a command execution by executionId alone
-// (optionally scoped by targetARN), matching the real GetCommandExecution
-// request shape where executions are addressed by executionId+targetArn,
-// not commandId+executionId (mirrors DeleteCommandExecution below).
-func (b *InMemoryBackend) GetCommandExecutionByID(executionID, targetARN string) (*IoTCommandExecution, error) {
-	b.mu.RLock("GetCommandExecutionByID")
-	defer b.mu.RUnlock()
-
-	for _, ex := range b.commandExecutions {
-		if ex.ExecutionID != executionID {
-			continue
-		}
-		if targetARN != "" && ex.ThingARN != targetARN {
-			continue
-		}
-		cp := *ex
-
-		return &cp, nil
-	}
-
-	return nil, fmt.Errorf("command execution %q not found: %w", executionID, ErrResourceNotFound)
-}
-
-// ListCommandExecutionsByFilter returns command executions matching the
-// real ListCommandExecutions filters (commandARN and/or targetARN and/or
-// status; each optional, empty means unfiltered). Backs the real
-// POST /command-executions route. ListCommandExecutions above backs the
-// separate legacy path-scoped route instead.
-func (b *InMemoryBackend) ListCommandExecutionsByFilter(commandARN, targetARN, status string) []*IoTCommandExecution {
-	b.mu.RLock("ListCommandExecutionsByFilter")
-	defer b.mu.RUnlock()
-
-	var out []*IoTCommandExecution
-	for _, ex := range b.commandExecutions {
-		if commandARN != "" && ex.CommandARN != commandARN {
-			continue
-		}
-		if targetARN != "" && ex.ThingARN != targetARN {
-			continue
-		}
-		if status != "" && ex.Status != status {
-			continue
-		}
-		cp := *ex
-		out = append(out, &cp)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ExecutionID < out[j].ExecutionID })
-
-	return out
-}
-
-// DeleteCommandExecution removes a stored command execution identified by
-// its executionId and (optionally) the ARN of its target device, matching
-// AWS's real request shape where executions are addressed by
-// executionId+targetArn rather than commandId.
-func (b *InMemoryBackend) DeleteCommandExecution(executionID, targetARN string) error {
-	b.mu.Lock("DeleteCommandExecution")
-	defer b.mu.Unlock()
-
-	for key, ex := range b.commandExecutions {
-		if ex.ExecutionID != executionID {
-			continue
-		}
-
-		if targetARN != "" && ex.ThingARN != targetARN {
-			continue
-		}
-
-		delete(b.commandExecutions, key)
-
-		return nil
-	}
-
-	return fmt.Errorf("command execution %q not found: %w", executionID, ErrResourceNotFound)
-}
-
-// AddCommandExecutionInternal seeds a command execution directly into the
-// backend for testing (there is no public CreateCommandExecution control-
-// plane operation; executions are normally created by device SDKs).
-func (b *InMemoryBackend) AddCommandExecutionInternal(commandID, executionID string, ex IoTCommandExecution) {
-	b.mu.Lock("AddCommandExecutionInternal")
-	defer b.mu.Unlock()
-
-	cp := ex
-	cp.ExecutionID = executionID
-	b.commandExecutions[b.commandExecutionKey(commandID, executionID)] = &cp
+	Parameters       map[string]map[string]any `json:"parameters,omitempty"`
+	Result           map[string]map[string]any `json:"result,omitempty"`
+	StatusReason     *CommandStatusReason      `json:"statusReason,omitempty"`
+	CommandARN       string                    `json:"commandArn"`
+	ExecutionID      string                    `json:"executionId"`
+	ThingARN         string                    `json:"thingArn"`
+	Status           string                    `json:"status"`
+	ClientToken      string                    `json:"clientToken,omitempty"`
+	CreationDate     float64                   `json:"createdAt,omitempty"`
+	StartedAt        float64                   `json:"startedAt,omitempty"`
+	CompletedAt      float64                   `json:"completedAt,omitempty"`
+	LastUpdatedAt    float64                   `json:"lastUpdatedAt,omitempty"`
+	TimeoutSeconds   int64                     `json:"executionTimeoutSeconds,omitempty"`
+	TimedOutByDevice bool                      `json:"timedOutByDevice,omitempty"`
 }

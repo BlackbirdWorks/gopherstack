@@ -88,6 +88,9 @@ func writeIoTError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrCertificateValidation):
 
 		return c.JSON(http.StatusBadRequest, awsErrBody{"CertificateValidationException", publicMessage(err)})
+	case errors.Is(err, ErrCommandExecutionConflict):
+
+		return c.JSON(http.StatusConflict, awsErrBody{"ConflictException", publicMessage(err)})
 	case errors.Is(err, ErrAlreadyExists):
 
 		return respondConflict(c, publicMessage(err))

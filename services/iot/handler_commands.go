@@ -215,7 +215,7 @@ func (h *Handler) handleGetCommandExecution(c *echo.Context) error {
 			return respondErr(c, err)
 		}
 
-		return c.JSON(http.StatusOK, commandExecutionSummaryFields(ex))
+		return c.JSON(http.StatusOK, commandExecutionDetailFields(ex, c.QueryParam("includeResult") == "true"))
 	}
 
 	// Legacy nested route: /commands/{commandId}/executions/{executionId}.
@@ -229,7 +229,34 @@ func (h *Handler) handleGetCommandExecution(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, commandExecutionSummaryFields(ex))
+	return c.JSON(http.StatusOK, commandExecutionDetailFields(ex, c.QueryParam("includeResult") == "true"))
+}
+
+// commandExecutionDetailFields renders GetCommandExecutionOutput; Result only when includeResult is set.
+func commandExecutionDetailFields(ex *IoTCommandExecution, includeResult bool) map[string]any {
+	out := commandExecutionSummaryFields(ex)
+
+	if ex.TimeoutSeconds > 0 {
+		out["executionTimeoutSeconds"] = ex.TimeoutSeconds
+	}
+
+	if ex.LastUpdatedAt > 0 {
+		out["lastUpdatedAt"] = ex.LastUpdatedAt
+	}
+
+	if len(ex.Parameters) > 0 {
+		out["parameters"] = ex.Parameters
+	}
+
+	if ex.StatusReason != nil {
+		out["statusReason"] = ex.StatusReason
+	}
+
+	if includeResult && len(ex.Result) > 0 {
+		out["result"] = ex.Result
+	}
+
+	return out
 }
 
 // commandExecutionSummaryFields renders the fields ex shares with both
@@ -237,21 +264,24 @@ func (h *Handler) handleGetCommandExecution(c *echo.Context) error {
 // ListCommandExecutions) and GetCommandExecutionOutput (api_op_
 // GetCommandExecution.go, used by GetCommandExecution): CommandArn,
 // CompletedAt, CreatedAt, ExecutionId, StartedAt, Status, TargetArn.
-// CompletedAt and StartedAt are deliberately left absent, as are the
-// GetCommandExecutionOutput-only members ExecutionTimeoutSeconds,
-// LastUpdatedAt, Parameters, Result and StatusReason: this backend has no
-// StartCommandExecution/UpdateCommandExecution control-plane op (executions
-// only arrive via AddCommandExecutionInternal test seeding, or
-// DeleteCommandExecution/GetCommandExecution reads), so there is no honest
-// source for any of them.
 func commandExecutionSummaryFields(ex *IoTCommandExecution) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		keyCommandArn: ex.CommandARN,
 		"executionId": ex.ExecutionID,
 		"targetArn":   ex.ThingARN,
 		keyStatus:     ex.Status,
 		"createdAt":   ex.CreationDate,
 	}
+
+	if ex.StartedAt > 0 {
+		out["startedAt"] = ex.StartedAt
+	}
+
+	if ex.CompletedAt > 0 {
+		out["completedAt"] = ex.CompletedAt
+	}
+
+	return out
 }
 
 func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
@@ -261,21 +291,32 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 		// Real route: POST /command-executions, filters in the JSON body
 		// (iot@v1.77.4 serializers.go:13840, awsRestjson1_serializeOpDocumentListCommandExecutionsInput).
 		var body struct {
-			StartedTimeFilter *struct {
-				After  string `json:"after"`
-				Before string `json:"before"`
-			} `json:"startedTimeFilter"`
-			CommandArn string `json:"commandArn"`
-			TargetArn  string `json:"targetArn"`
-			Status     string `json:"status"`
-			SortOrder  string `json:"sortOrder"`
+			StartedTimeFilter   *commandTimeFilter `json:"startedTimeFilter"`
+			CompletedTimeFilter *commandTimeFilter `json:"completedTimeFilter"`
+			CommandArn          string             `json:"commandArn"`
+			TargetArn           string             `json:"targetArn"`
+			Status              string             `json:"status"`
+			SortOrder           string             `json:"sortOrder"`
+			Namespace           string             `json:"namespace"`
 		}
 		if err := readBody(c, &body); err != nil {
 			return err
 		}
-		items = h.Backend.ListCommandExecutionsByFilter(body.CommandArn, body.TargetArn, body.Status)
+		items = h.Backend.ListCommandExecutionsByFilter(ListCommandExecutionsFilter{
+			CommandARN: body.CommandArn, TargetARN: body.TargetArn, Status: body.Status, Namespace: body.Namespace,
+		})
 		if f := body.StartedTimeFilter; f != nil {
-			items = filterCommandExecutionsStartedBetween(items, f.After, f.Before)
+			items = filterCommandExecutionsBetween(items, f, func(ex *IoTCommandExecution) float64 {
+				if ex.StartedAt > 0 {
+					return ex.StartedAt
+				}
+
+				return ex.CreationDate
+			})
+		}
+
+		if f := body.CompletedTimeFilter; f != nil {
+			items = filterCommandExecutionsBetween(items, f, func(ex *IoTCommandExecution) float64 { return ex.CompletedAt })
 		}
 
 		// Default order is descending by creation time (ListCommandExecutionsInput's
@@ -314,14 +355,25 @@ func parseCommandTime(s string) (float64, bool) {
 	return 0, false
 }
 
-func filterCommandExecutionsStartedBetween(items []*IoTCommandExecution, after, before string) []*IoTCommandExecution {
-	lo, hasLo := parseCommandTime(after)
-	hi, hasHi := parseCommandTime(before)
+type commandTimeFilter struct {
+	After  string `json:"after"`
+	Before string `json:"before"`
+}
+
+// filterCommandExecutionsBetween keeps executions whose timestamp (0 means never happened) lies in the filter.
+func filterCommandExecutionsBetween(
+	items []*IoTCommandExecution, f *commandTimeFilter, at func(*IoTCommandExecution) float64,
+) []*IoTCommandExecution {
+	lo, hasLo := parseCommandTime(f.After)
+	hi, hasHi := parseCommandTime(f.Before)
 	out := make([]*IoTCommandExecution, 0, len(items))
+
 	for _, ex := range items {
-		if (hasLo && ex.CreationDate < lo) || (hasHi && ex.CreationDate > hi) {
+		t := at(ex)
+		if t == 0 || (hasLo && t < lo) || (hasHi && t > hi) {
 			continue
 		}
+
 		out = append(out, ex)
 	}
 
