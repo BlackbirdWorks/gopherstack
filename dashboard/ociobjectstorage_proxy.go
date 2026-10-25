@@ -3,6 +3,7 @@ package dashboard
 import (
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"time"
 
@@ -161,7 +162,7 @@ func (a *ociObjectStorageAPI) content(c *echo.Context) error {
 	}
 
 	h := c.Response().Header()
-	h.Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(o.Name))
+	h.Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(path.Base(o.Name)))
 	h.Set("X-Content-Type-Options", "nosniff")
 
 	return c.Blob(http.StatusOK, ctype, o.Data)

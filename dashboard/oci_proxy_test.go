@@ -91,6 +91,16 @@ func TestOCIObjectStorageProxy(t *testing.T) {
 		})
 	}
 
+	t.Run("download uses the base name", func(t *testing.T) {
+		t.Parallel()
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, root+"/buckets/bk/object/content?name=docs%2Fa.txt", nil)
+		require.NoError(t, seed(t).Handler()(echo.NewContext(req, rec)))
+		assert.Equal(t, "attachment; filename*=UTF-8''a.txt", rec.Header().Get("Content-Disposition"))
+		assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+	})
+
 	t.Run("unavailable", func(t *testing.T) {
 		t.Parallel()
 

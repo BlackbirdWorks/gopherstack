@@ -21,6 +21,8 @@
 	import CloudBuildDashboard from '#lib/components/gcp/CloudBuildDashboard.svelte';
 	import RedisDashboard from '#lib/components/gcp/RedisDashboard.svelte';
 	import MonitoringDashboard from '#lib/components/gcp/MonitoringDashboard.svelte';
+	import WorkflowsDashboard from '#lib/components/gcp/WorkflowsDashboard.svelte';
+	import DnsDashboard from '#lib/components/gcp/DnsDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -74,6 +76,10 @@
 	<RedisDashboard />
 {:else if service?.id === 'monitoring'}
 	<MonitoringDashboard />
+{:else if service?.id === 'workflows'}
+	<WorkflowsDashboard />
+{:else if service?.id === 'dns'}
+	<DnsDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

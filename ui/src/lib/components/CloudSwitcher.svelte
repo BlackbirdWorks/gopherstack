@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import { CLOUDS, withCloud, type Cloud } from '#lib/cloud.ts';
+	import ServiceIcon from '#lib/components/ServiceIcon.svelte';
 	import { currentCloud, setCloud } from '#lib/cloud.svelte.ts';
 
 	let open = $state(false);
@@ -85,12 +86,16 @@
 		onkeydown={onTriggerKeydown}
 		class="inline-flex items-center gap-1.5 h-9 px-3 text-sm font-semibold text-slate-700 rounded-lg border border-slate-200 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:text-slate-200 dark:border-white/10 dark:hover:bg-slate-700 transition-colors"
 	>
-		<svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>
+		{#if selected.icon}
+			<ServiceIcon icon={selected.icon} label={selected.label} class="w-4 h-4" />
+		{:else}
+			<svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>
+		{/if}
 		<span>{selected.label}</span>
 		<svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
 	</button>
 	{#if open}
-		<ul bind:this={list} role="listbox" aria-label="Cloud" onkeydown={onListKeydown} class="absolute left-0 mt-1 w-36 py-1 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50">
+		<ul bind:this={list} role="listbox" aria-label="Cloud" onkeydown={onListKeydown} class="absolute left-0 mt-1 w-44 py-1 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50">
 			{#each CLOUDS as c (c.id)}
 				<li role="presentation">
 					<button
@@ -99,8 +104,8 @@
 						aria-selected={c.id === selected.id}
 						data-cloud={c.id}
 						onclick={() => choose(c.id)}
-						class="w-full text-left px-4 py-2 hover:bg-slate-100 focus:bg-slate-100 focus:outline-none dark:hover:bg-slate-700 dark:focus:bg-slate-700 text-slate-700 dark:text-slate-200 {c.id === selected.id ? 'bg-slate-50 dark:bg-slate-700 font-semibold text-indigo-600 dark:text-indigo-400' : ''}"
-					>{c.label}</button>
+						class="w-full flex items-center gap-2 text-left px-4 py-2 hover:bg-slate-100 focus:bg-slate-100 focus:outline-none dark:hover:bg-slate-700 dark:focus:bg-slate-700 text-slate-700 dark:text-slate-200 {c.id === selected.id ? 'bg-slate-50 dark:bg-slate-700 font-semibold text-indigo-600 dark:text-indigo-400' : ''}"
+					>{#if c.icon}<ServiceIcon icon={c.icon} label="" class="w-4 h-4" />{/if}{c.label}</button>
 				</li>
 			{/each}
 		</ul>

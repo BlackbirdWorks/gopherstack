@@ -3346,6 +3346,13 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpBigQueryHandler = byName["GCPBigQuery"]
 	cli.gcpIAMHandler = byName["GCPIAM"]
 	cli.gcpKMSHandler = byName["GCPKMS"]
+	cli.gcpWorkflowsHandler = byName["GCPWorkflows"]
+	cli.gcpDNSHandler = byName["GCPDNS"]
+	cli.azureFileHandler = byName["AzureFile"]
+	cli.ociObjectStorageHandler = byName["OCIObjectStorage"]
+	cli.ociVaultHandler = byName["OCIVault"]
+	cli.ociStreamingHandler = byName["OCIStreaming"]
+	cli.ociIdentityHandler = byName["OCIIdentity"]
 }
 
 func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {
