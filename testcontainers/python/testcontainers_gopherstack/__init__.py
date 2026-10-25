@@ -57,6 +57,8 @@ GCP_PORTS = {
     "bigtable": 8137,
     "eventarc": 8138,
     "workflows": 8139,
+    "dns": 8140,
+    "dnsserver": 8141,
     "bigquery": 9050,
 }
 
