@@ -40,7 +40,13 @@ func TestInMemoryBackend_BoundedGrowth(t *testing.T) {
 			insert: func(b *sagemakerruntime.InMemoryBackend, i int) int {
 				// Empty requestedID forces a fresh generated inference ID each call,
 				// guaranteeing a distinct map key per insert.
-				b.RecordAsyncInvocation(fmt.Sprintf("endpoint-%d", i), fmt.Sprintf("inference-%d", i), "payload", "", "")
+				b.RecordAsyncInvocation(
+					fmt.Sprintf("endpoint-%d", i),
+					fmt.Sprintf("inference-%d", i),
+					"payload",
+					"",
+					"",
+				)
 
 				return len(b.ListAsyncInvocations())
 			},
@@ -51,7 +57,7 @@ func TestInMemoryBackend_BoundedGrowth(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newEchoBackend("000000000000", "us-east-1")
+			b := newEchoBackend("us-east-1")
 
 			var count int
 			for i := range tc.inserts {
@@ -71,7 +77,7 @@ func TestInMemoryBackend_BoundedGrowth(t *testing.T) {
 func TestInMemoryBackend_AsyncInvocationEvictsOldest(t *testing.T) {
 	t.Parallel()
 
-	b := newEchoBackend("000000000000", "us-east-1")
+	b := newEchoBackend("us-east-1")
 
 	// The first inserted inference ID is the oldest; it must be evicted first.
 	const oldestID = "inference-oldest"

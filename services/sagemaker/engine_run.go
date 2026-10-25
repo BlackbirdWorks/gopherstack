@@ -16,11 +16,13 @@ var errNoExitWaiter = errors.New("the container runtime cannot report container 
 
 // logTarget streams container output into one CloudWatch Logs stream.
 type logTarget struct {
-	sink                  LogSink
-	mu                    *lockmetrics.RWMutex
-	region, group, stream string
-	partial               []byte
-	ctx                   context.Context //nolint:containedctx // writer outlives any single call
+	sink    LogSink
+	ctx     context.Context
+	mu      *lockmetrics.RWMutex
+	region  string
+	group   string
+	stream  string
+	partial []byte
 }
 
 // openLog creates the log group and stream; it returns nil when no sink is wired.

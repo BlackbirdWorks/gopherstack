@@ -19,7 +19,14 @@ func asyncRig(t *testing.T, nc *sagemaker.AsyncNotificationConfig) (*engineRig, 
 	rig.rt.serve = srv.handler
 	ctx := t.Context()
 
-	_, err := rig.b.CreateModel(ctx, "m1", "arn:aws:iam::000000000000:role/r", &sagemaker.ContainerDefinition{Image: "img-a"}, nil, nil)
+	_, err := rig.b.CreateModel(
+		ctx,
+		"m1",
+		"arn:aws:iam::000000000000:role/r",
+		&sagemaker.ContainerDefinition{Image: "img-a"},
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	_, err = rig.b.CreateEndpointConfig(ctx, "cfg", singleVariant("m1"), nil)
 	require.NoError(t, err)
@@ -41,16 +48,16 @@ func TestEngineAsync_ResultsAndNotifications(t *testing.T) {
 	nc := &sagemaker.AsyncNotificationConfig{SuccessTopic: "arn:sns:ok", ErrorTopic: "arn:sns:err"}
 
 	tests := []struct {
+		wantBucketK  [2]string
 		name         string
-		req          sagemaker.AsyncRequest
 		inputObject  string
 		wantOutput   string
 		wantFailure  string
-		wantBucketK  [2]string
 		wantTopic    string
 		wantStatus   string
 		wantFailLoc  string
 		wantOutValue string
+		req          sagemaker.AsyncRequest
 	}{
 		{
 			name:         "body_success",
@@ -63,8 +70,13 @@ func TestEngineAsync_ResultsAndNotifications(t *testing.T) {
 			wantOutValue: "img-a|payload|",
 		},
 		{
-			name:         "filename_and_extension",
-			req:          sagemaker.AsyncRequest{InferenceID: "id-2", Body: []byte("p"), Filename: "r.json", OutputPathExtension: "/team/a/"},
+			name: "filename_and_extension",
+			req: sagemaker.AsyncRequest{
+				InferenceID:         "id-2",
+				Body:                []byte("p"),
+				Filename:            "r.json",
+				OutputPathExtension: "/team/a/",
+			},
 			wantOutput:   "s3://async/out/team/a/r.json",
 			wantFailLoc:  "s3://async/fail/team/a/id-2-error.out",
 			wantBucketK:  [2]string{"async", "out/team/a/r.json"},
@@ -113,7 +125,12 @@ func TestEngineAsync_ResultsAndNotifications(t *testing.T) {
 			assert.Equal(t, tt.wantOutput, acc.OutputLocation)
 			assert.Equal(t, tt.wantFailLoc, acc.FailureLocation)
 
-			require.Eventually(t, func() bool { return len(rig.sns.messages(tt.wantTopic)) == 1 }, 5*time.Second, 5*time.Millisecond)
+			require.Eventually(
+				t,
+				func() bool { return len(rig.sns.messages(tt.wantTopic)) == 1 },
+				5*time.Second,
+				5*time.Millisecond,
+			)
 
 			data, ok := rig.s3.get(tt.wantBucketK[0], tt.wantBucketK[1])
 			require.True(t, ok)
@@ -137,7 +154,7 @@ func TestEngineAsync_NotAsyncEndpoint(t *testing.T) {
 	endpointFixture{
 		variants: singleVariant("m1"),
 		models:   map[string]sagemaker.ContainerDefinition{"m1": {Image: "img-a"}},
-	}.create(t, rig, "ep")
+	}.create(t, rig)
 	require.Equal(t, "InService", waitEndpoint(t, rig.b, "ep").EndpointStatus)
 
 	_, err := rig.b.SubmitAsyncInference(t.Context(), sagemaker.AsyncRequest{EndpointName: "ep", Body: []byte("x")})

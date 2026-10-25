@@ -61,7 +61,7 @@ func (m *mockSAGEMAKERRUNTIMEIAMBackend) GetGroupPoliciesForUser(_ string) ([]st
 func setupSAGEMAKERRUNTIMEEnforcementServer(t *testing.T, iamBackend *mockSAGEMAKERRUNTIMEIAMBackend) *httptest.Server {
 	t.Helper()
 
-	backend := newEchoBackend("000000000000", "us-east-1")
+	backend := newEchoBackend("us-east-1")
 	handler := sagemakerruntime.NewHandler(backend)
 
 	e := echo.New()

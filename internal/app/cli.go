@@ -3715,11 +3715,9 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// delivery requires S3 integration.
 	wireLambdaS3(byName["Lambda"], byName["S3"])
 
-	// Wire S3/CloudWatch Logs/CodeCommit/SSM/Secrets Manager → CodeBuild docker engine.
-	wireCodeBuildEngine(byName)
-
-	// Wire S3/CloudWatch Logs/SNS → SageMaker container engine.
-	wireSageMakerEngine(byName)
+	// Wire S3/CloudWatch Logs/CodeCommit/SSM/Secrets Manager → CodeBuild docker engine,
+	// and S3/CloudWatch Logs/SNS → SageMaker container engine.
+	wireContainerEngines(byName)
 
 	// Wire ECR → Lambda so Code.ImageUri on an Image package-type
 	// CreateFunction/UpdateFunctionCode is validated against real ECR state

@@ -2,7 +2,6 @@ package sagemakerruntime_test
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"testing"
 
@@ -52,13 +51,31 @@ func TestInvoke_ErrorMapping(t *testing.T) {
 		name     string
 		endpoint string
 		suffix   string
-		wantCode int
 		wantType string
+		wantCode int
 	}{
 		{name: "model_error", endpoint: "model-error", suffix: "/invocations", wantCode: 424, wantType: "ModelError"},
-		{name: "model_error_stream", endpoint: "model-error", suffix: "/invocations-response-stream", wantCode: 424, wantType: "ModelError"},
-		{name: "engine_off", endpoint: "engine-off", suffix: "/invocations", wantCode: 503, wantType: "ServiceUnavailable"},
-		{name: "not_async", endpoint: "not-async", suffix: "/async-invocations", wantCode: 400, wantType: "ValidationError"},
+		{
+			name:     "model_error_stream",
+			endpoint: "model-error",
+			suffix:   "/invocations-response-stream",
+			wantCode: 424,
+			wantType: "ModelError",
+		},
+		{
+			name:     "engine_off",
+			endpoint: "engine-off",
+			suffix:   "/invocations",
+			wantCode: 503,
+			wantType: "ServiceUnavailable",
+		},
+		{
+			name:     "not_async",
+			endpoint: "not-async",
+			suffix:   "/async-invocations",
+			wantCode: 400,
+			wantType: "ValidationError",
+		},
 	}
 
 	for _, tt := range tests {
@@ -66,7 +83,14 @@ func TestInvoke_ErrorMapping(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequestWithHeaders(t, h, http.MethodPost, "/endpoints/"+tt.endpoint+tt.suffix, map[string]any{"a": 1}, nil)
+			rec := doRequestWithHeaders(
+				t,
+				h,
+				http.MethodPost,
+				"/endpoints/"+tt.endpoint+tt.suffix,
+				map[string]any{"a": 1},
+				nil,
+			)
 
 			require.Equal(t, tt.wantCode, rec.Code)
 
@@ -87,7 +111,8 @@ func TestSDKInvokeEndpoint_ModelErrorShape(t *testing.T) {
 	})
 
 	var me *types.ModelError
-	require.True(t, errors.As(err, &me), "want ModelError, got %v", err)
+
+	require.ErrorAs(t, err, &me)
 	assert.Equal(t, int32(500), aws.ToInt32(me.OriginalStatusCode))
 	assert.Equal(t, "boom", aws.ToString(me.OriginalMessage))
 	assert.NotEmpty(t, aws.ToString(me.LogStreamArn))

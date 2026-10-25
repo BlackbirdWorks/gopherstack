@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	xmaps "maps"
 	"net/http"
 	"os"
 	"path"
@@ -22,15 +23,17 @@ import (
 )
 
 const (
-	headerCustomAttributes = "X-Amzn-SageMaker-Custom-Attributes"
-	headerInferenceID      = "X-Amzn-SageMaker-Inference-Id"
-	headerTargetModel      = "X-Amzn-SageMaker-Target-Model"
+	headerCustomAttributes = "X-Amzn-Sagemaker-Custom-Attributes"
+	headerInferenceID      = "X-Amzn-Sagemaker-Inference-Id"
+	headerTargetModel      = "X-Amzn-Sagemaker-Target-Model"
 	defaultContentType     = "application/octet-stream"
 	modelDirInContainer    = "/opt/ml/model"
 	modeSerial             = "Serial"
 	modeDirect             = "Direct"
 	errBodySnippet         = 1024
 	pingTimeout            = 2 * time.Second
+	containerNameSuffix    = 8
+	shortIDLen             = 12
 )
 
 var (
@@ -41,16 +44,15 @@ var (
 
 // startError carries the FailureReason an endpoint or job reports.
 type startError struct {
-	reason string
 	cause  error
+	reason string
 }
 
 func (e *startError) Error() string { return e.reason }
 func (e *startError) Unwrap() error { return e.cause }
 
 func failReason(err error) string {
-	var se *startError
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*startError](err); ok {
 		return se.reason
 	}
 
@@ -58,13 +60,13 @@ func failReason(err error) string {
 }
 
 type runningContainer struct {
+	exited   chan int
+	stopLogs context.CancelFunc
+	stopWait context.CancelFunc
 	hostname string
 	baseURL  string
 	id       string
 	port     int
-	exited   chan int
-	stopLogs context.CancelFunc
-	stopWait context.CancelFunc
 }
 
 // modelDeployment is the running container set of one model (one production variant).
@@ -100,12 +102,12 @@ func (d *modelDeployment) stop() {
 
 type modelStart struct {
 	env            map[string]string
-	model          Model
 	region         string
 	label          string
 	variant        string
 	logGroup       string
 	logStreamBase  string
+	model          Model
 	startupTimeout time.Duration
 }
 
@@ -179,7 +181,7 @@ func (e *engineState) startContainer(
 	}
 
 	env := envList(def.Environment, in.env)
-	name := fmt.Sprintf("gopherstack-sagemaker-%s-%s", sanitizeName(in.label), awsid.NewN("", 8))
+	name := fmt.Sprintf("gopherstack-sagemaker-%s-%s", sanitizeName(in.label), awsid.NewN("", containerNameSuffix))
 
 	var port int
 
@@ -210,7 +212,7 @@ func (e *engineState) startContainer(
 	}
 
 	bg := context.WithoutCancel(ctx)
-	lt := e.openLog(bg, in.region, in.logGroup, fmt.Sprintf("%s/%s", in.logStreamBase, id[:min(len(id), 12)]))
+	lt := e.openLog(bg, in.region, in.logGroup, fmt.Sprintf("%s/%s", in.logStreamBase, id[:min(len(id), shortIDLen)]))
 	_, rc.stopLogs = followLogs(bg, e.cfg.Runtime, id, lt)
 	rc.stopWait = e.watchExit(bg, rc)
 
@@ -258,8 +260,11 @@ func (e *engineState) waitHealthy(ctx context.Context, rc *runningContainer, in 
 				return ctx.Err()
 			}
 
-			reason := fmt.Sprintf("The primary container for production variant %s did not pass the ping health check. "+
-				"Please check CloudWatch logs for this endpoint.", in.variant)
+			reason := fmt.Sprintf(
+				"The primary container for production variant %s did not pass the ping health check. "+
+					"Please check CloudWatch logs for this endpoint.",
+				in.variant,
+			)
 
 			return &startError{reason: reason, cause: hctx.Err()}
 		case code := <-rc.exited:
@@ -310,13 +315,11 @@ func (e *engineState) stageModelData(ctx context.Context, uri, dir string) error
 	return os.WriteFile(filepath.Join(dir, path.Base(key)), data, fileMode)
 }
 
-func envList(maps ...map[string]string) []string {
+func envList(layers ...map[string]string) []string {
 	merged := make(map[string]string)
 
-	for _, m := range maps {
-		for k, v := range m {
-			merged[k] = v
-		}
+	for _, m := range layers {
+		xmaps.Copy(merged, m)
 	}
 
 	out := make([]string, 0, len(merged))

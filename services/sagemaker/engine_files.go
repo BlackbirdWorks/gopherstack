@@ -31,7 +31,7 @@ var (
 	errUnsafeArchive = errors.New("archive entry escapes the target directory")
 	errNoStore       = errors.New("S3 is not available to the container engine")
 	errNoObjects     = errors.New("no objects found")
-	errArchiveTooBig = errors.New("archive exceeds the staging size limit")
+	errManifestEntry = errors.New("manifest entry is not an object key")
 )
 
 // parseS3URI splits s3://bucket/key into bucket and key.
@@ -45,16 +45,17 @@ func parseS3URI(raw string) (string, string, error) {
 }
 
 func joinS3(base string, parts ...string) string {
-	out := strings.TrimSuffix(base, "/")
+	var sb strings.Builder
+
+	sb.WriteString(strings.TrimSuffix(base, "/"))
 
 	for _, p := range parts {
-		p = strings.Trim(p, "/")
-		if p != "" {
-			out += "/" + p
+		if p = strings.Trim(p, "/"); p != "" {
+			sb.WriteString("/" + p)
 		}
 	}
 
-	return out
+	return sb.String()
 }
 
 func isGzip(data []byte) bool {
@@ -120,19 +121,22 @@ func extractEntry(tr *tar.Reader, hdr *tar.Header, dest string) error {
 
 // tarGzDir packs every regular file under dir into a gzip-compressed tar archive.
 func tarGzDir(dir string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", dir, err)
+	}
+
+	defer root.Close()
+
 	var buf bytes.Buffer
 
 	zw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(zw)
+	fsys := root.FS()
 
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, werr error) error {
-		if werr != nil {
+	err = fs.WalkDir(fsys, ".", func(rel string, d fs.DirEntry, werr error) error {
+		if werr != nil || !d.Type().IsRegular() {
 			return werr
-		}
-
-		rel, rerr := filepath.Rel(dir, p)
-		if rerr != nil || rel == "." || !d.Type().IsRegular() {
-			return rerr
 		}
 
 		info, ierr := d.Info()
@@ -145,12 +149,12 @@ func tarGzDir(dir string) ([]byte, error) {
 			return herr
 		}
 
-		hdr.Name = filepath.ToSlash(rel)
+		hdr.Name = rel
 		if werr = tw.WriteHeader(hdr); werr != nil {
 			return werr
 		}
 
-		f, oerr := os.Open(p)
+		f, oerr := fsys.Open(rel)
 		if oerr != nil {
 			return oerr
 		}
@@ -255,7 +259,7 @@ func stageManifest(ctx context.Context, store ObjectStore, bucket, key, dir stri
 
 		var name string
 		if err = json.Unmarshal(ent, &name); err != nil || prefix == "" {
-			return fmt.Errorf("manifest s3://%s/%s: entry %d is not an object key", bucket, key, i)
+			return fmt.Errorf("manifest s3://%s/%s: entry %d: %w", bucket, key, i, errManifestEntry)
 		}
 
 		b, k, perr := parseS3URI(joinS3(prefix, name))
@@ -300,25 +304,57 @@ func uploadDir(ctx context.Context, store ObjectStore, dir, uri string) error {
 		return err
 	}
 
-	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, werr error) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dir, err)
+	}
+
+	defer root.Close()
+
+	fsys := root.FS()
+
+	return fs.WalkDir(fsys, ".", func(rel string, d fs.DirEntry, werr error) error {
 		if werr != nil || !d.Type().IsRegular() {
 			return werr
 		}
 
-		rel, rerr := filepath.Rel(dir, p)
+		data, rerr := fs.ReadFile(fsys, rel)
 		if rerr != nil {
 			return rerr
 		}
 
-		data, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return rerr
-		}
-
-		key := path.Join(prefix, filepath.ToSlash(rel))
-
-		return store.PutObjectBytes(ctx, bucket, key, data)
+		return store.PutObjectBytes(ctx, bucket, path.Join(prefix, rel), data)
 	})
+}
+
+// readTree returns every regular file under dir keyed by its slash-separated relative path.
+func readTree(dir string) (map[string][]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", dir, err)
+	}
+
+	defer root.Close()
+
+	fsys := root.FS()
+	files := make(map[string][]byte)
+
+	err = fs.WalkDir(fsys, ".", func(rel string, d fs.DirEntry, werr error) error {
+		if werr != nil || !d.Type().IsRegular() {
+			return werr
+		}
+
+		data, rerr := fs.ReadFile(fsys, rel)
+		if rerr != nil {
+			return rerr
+		}
+
+		files[rel] = data
+
+		return nil
+	})
+
+	return files, err
 }
 
 func putS3URI(ctx context.Context, store ObjectStore, uri string, data []byte) error {

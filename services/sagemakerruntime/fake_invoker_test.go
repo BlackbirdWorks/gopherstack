@@ -28,7 +28,10 @@ func (echoInvoker) InvokeEndpoint(_ context.Context, req sagemaker.InvokeRequest
 	}, nil
 }
 
-func (echoInvoker) InvokeEndpointStream(_ context.Context, req sagemaker.InvokeRequest) (*sagemaker.InvokeStream, error) {
+func (echoInvoker) InvokeEndpointStream(
+	_ context.Context,
+	req sagemaker.InvokeRequest,
+) (*sagemaker.InvokeStream, error) {
 	if err := scripted(req.EndpointName); err != nil {
 		return nil, err
 	}
@@ -39,7 +42,10 @@ func (echoInvoker) InvokeEndpointStream(_ context.Context, req sagemaker.InvokeR
 	}, nil
 }
 
-func (echoInvoker) SubmitAsyncInference(_ context.Context, req sagemaker.AsyncRequest) (*sagemaker.AsyncAccepted, error) {
+func (echoInvoker) SubmitAsyncInference(
+	_ context.Context,
+	req sagemaker.AsyncRequest,
+) (*sagemaker.AsyncAccepted, error) {
 	if err := scripted(req.EndpointName); err != nil {
 		return nil, err
 	}
@@ -87,8 +93,8 @@ func variantOf(v string) string {
 }
 
 // newEchoBackend returns a backend whose invocations are answered by echoInvoker.
-func newEchoBackend(account, region string) *sagemakerruntime.InMemoryBackend {
-	b := sagemakerruntime.NewInMemoryBackend(account, region)
+func newEchoBackend(region string) *sagemakerruntime.InMemoryBackend {
+	b := sagemakerruntime.NewInMemoryBackend("000000000000", region)
 	b.SetInvoker(echoInvoker{})
 
 	return b

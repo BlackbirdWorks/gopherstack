@@ -106,7 +106,12 @@ func (b *InMemoryBackend) invokeRaw(ctx context.Context, req InvokeRequest) (*ht
 
 		return nil, variant, &ModelError{
 			OriginalStatusCode: resp.StatusCode, OriginalMessage: readSnippet(resp.Body),
-			LogStreamArn: arn.Build("logs", region, b.accountID, "log-group:/aws/sagemaker/Endpoints/"+req.EndpointName),
+			LogStreamArn: arn.Build(
+				"logs",
+				region,
+				b.accountID,
+				"log-group:/aws/sagemaker/Endpoints/"+req.EndpointName,
+			),
 		}
 	}
 
@@ -135,7 +140,7 @@ func (b *InMemoryBackend) InvokeEndpoint(ctx context.Context, req InvokeRequest)
 
 // InvokeEndpointStream forwards the request and hands back the still-open response body.
 func (b *InMemoryBackend) InvokeEndpointStream(ctx context.Context, req InvokeRequest) (*InvokeStream, error) {
-	resp, variant, err := b.invokeRaw(ctx, req)
+	resp, variant, err := b.invokeRaw(ctx, req) //nolint:bodyclose // the caller owns and closes the stream
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +277,7 @@ func (b *InMemoryBackend) runAsync(
 	}
 
 	b.notifyAsync(ctx, eng, region, nc, true, map[string]any{
-		"invocationStatus": "Completed", "inferenceId": req.InferenceID, "requestParameters": params,
+		"invocationStatus": algorithmStatusCompleted, "inferenceId": req.InferenceID, "requestParameters": params,
 		"responseParameters": map[string]any{"contentType": result.ContentType, "outputLocation": acc.OutputLocation},
 	}, received)
 }

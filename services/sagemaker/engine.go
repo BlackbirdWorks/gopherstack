@@ -88,12 +88,12 @@ type EngineConfig struct {
 }
 
 type engineState struct {
-	mu          *lockmetrics.RWMutex
-	cfg         EngineConfig
 	services    EngineServices
+	mu          *lockmetrics.RWMutex
 	http        *http.Client
 	deployments map[string]*endpointDeployment
 	cancels     map[string]context.CancelFunc
+	cfg         EngineConfig
 }
 
 func newEngineState(cfg EngineConfig) *engineState {

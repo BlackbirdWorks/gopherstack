@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -31,6 +31,7 @@ var (
 		"DataProcessing InputFilter, OutputFilter and JoinSource are not supported by the container engine",
 	)
 	errTransformSplit = errors.New("SplitType RecordIO and TFRecord are not supported by the container engine")
+	errModelReturned  = errors.New("model returned")
 )
 
 // startTransformRun launches the container-backed run of a transform job. The caller holds b.mu.
@@ -58,28 +59,47 @@ func (b *InMemoryBackend) startTransformRun(eng *engineState, region string, tj 
 func (b *InMemoryBackend) executeTransform(
 	ctx context.Context, eng *engineState, region string, tj *TransformJob, model *Model, lt *logTarget,
 ) jobOutcome {
-	fail := func(reason string) jobOutcome {
-		lt.logf("%s", reason)
+	err := b.runTransform(ctx, eng, region, tj, model, lt)
 
-		return jobOutcome{status: statusFailed, failureReason: reason}
+	switch {
+	case ctx.Err() != nil:
+		return jobOutcome{status: pipelineStatusStopped}
+	case err != nil:
+		lt.logf("%s", err.Error())
+
+		return jobOutcome{status: statusFailed, failureReason: err.Error()}
+	default:
+		return jobOutcome{status: algorithmStatusCompleted}
 	}
+}
 
-	if err := eng.unavailable(); err != nil {
-		return fail(err.Error())
-	}
-
+func validateTransform(tj *TransformJob) error {
 	if dp := tj.DataProcessing; dp != nil && (dp.InputFilter != "" || dp.OutputFilter != "" ||
 		(dp.JoinSource != "" && dp.JoinSource != splitNone)) {
-		return fail("ClientError: " + errTransformFilters.Error())
+		return fmt.Errorf("ClientError: %w", errTransformFilters)
 	}
 
 	if st := tj.TransformInput.SplitType; st != "" && st != splitNone && st != splitLine {
-		return fail("ClientError: " + errTransformSplit.Error())
+		return fmt.Errorf("ClientError: %w", errTransformSplit)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) runTransform(
+	ctx context.Context, eng *engineState, region string, tj *TransformJob, model *Model, lt *logTarget,
+) error {
+	if err := eng.unavailable(); err != nil {
+		return err
+	}
+
+	if err := validateTransform(tj); err != nil {
+		return err
 	}
 
 	root, err := eng.newStageDir("transform-" + sanitizeName(tj.TransformJobName))
 	if err != nil {
-		return fail(err.Error())
+		return err
 	}
 
 	defer os.RemoveAll(root)
@@ -88,11 +108,7 @@ func (b *InMemoryBackend) executeTransform(
 	inDir := filepath.Join(root, "in")
 
 	if err = stageS3(ctx, eng.svc().Store, src.S3Uri, src.S3DataType, inDir); err != nil {
-		if ctx.Err() != nil {
-			return jobOutcome{status: pipelineStatusStopped}
-		}
-
-		return fail("ClientError: " + err.Error())
+		return fmt.Errorf("ClientError: %w", err)
 	}
 
 	md, err := eng.startModel(ctx, modelStart{
@@ -100,66 +116,64 @@ func (b *InMemoryBackend) executeTransform(
 		logGroup: transformLogGroup, logStreamBase: tj.TransformJobName + "/model",
 	})
 	if err != nil {
-		if ctx.Err() != nil {
-			return jobOutcome{status: pipelineStatusStopped}
-		}
-
-		return fail("ClientError: " + failReason(err))
+		return fmt.Errorf("ClientError: %w", err)
 	}
 
 	defer md.stop()
 
-	results, ferr := transformFiles(ctx, md, inDir, tj, lt)
-	if ctx.Err() != nil {
-		return jobOutcome{status: pipelineStatusStopped}
-	}
-
-	if ferr != nil {
-		return fail(ferr.Error())
+	results, err := transformFiles(ctx, md, inDir, tj, lt)
+	if err != nil {
+		return err
 	}
 
 	store := eng.svc().Store
 
 	for rel, data := range results {
 		if err = putS3URI(ctx, store, joinS3(tj.TransformOutput.S3OutputPath, rel+".out"), data); err != nil {
-			return fail("ClientError: " + err.Error())
+			return fmt.Errorf("ClientError: %w", err)
 		}
 	}
 
-	return jobOutcome{status: algorithmStatusCompleted}
+	return nil
 }
 
 // transformFiles sends every staged input file through the model and returns the assembled output per file.
 func transformFiles(
 	ctx context.Context, md *modelDeployment, inDir string, tj *TransformJob, lt *logTarget,
 ) (map[string][]byte, error) {
-	results := make(map[string][]byte)
+	inputs, err := readTree(inDir)
+	if err != nil {
+		return nil, err
+	}
 
-	err := filepath.WalkDir(inDir, func(p string, d fs.DirEntry, werr error) error {
-		if werr != nil || !d.Type().IsRegular() {
-			return werr
-		}
+	names := make([]string, 0, len(inputs))
+	for name := range inputs {
+		names = append(names, name)
+	}
 
-		rel, _ := filepath.Rel(inDir, p)
+	slices.Sort(names)
 
-		data, rerr := os.ReadFile(p)
-		if rerr != nil {
-			return rerr
-		}
+	results := make(map[string][]byte, len(inputs))
 
-		out, terr := transformFile(ctx, md, data, tj, lt)
+	for _, name := range names {
+		out, terr := transformFile(ctx, md, inputs[name], tj, lt)
 		if terr != nil {
-			return terr
+			return nil, terr
 		}
 
-		results[filepath.ToSlash(rel)] = out
+		results[name] = out
+	}
 
-		return nil
-	})
-	return results, err
+	return results, nil
 }
 
-func transformFile(ctx context.Context, md *modelDeployment, data []byte, tj *TransformJob, lt *logTarget) ([]byte, error) {
+func transformFile(
+	ctx context.Context,
+	md *modelDeployment,
+	data []byte,
+	tj *TransformJob,
+	lt *logTarget,
+) ([]byte, error) {
 	if tj.TransformInput.CompressionType == "Gzip" || isGzip(data) && tj.TransformInput.CompressionType == "" {
 		zr, err := gzip.NewReader(bytes.NewReader(data))
 		if err != nil {
@@ -264,9 +278,9 @@ func transformInvoke(
 		case resp.StatusCode/100 == 2: //nolint:mnd // HTTP status class
 			return body, nil
 		case resp.StatusCode/100 == 4: //nolint:mnd // HTTP status class
-			return nil, fmt.Errorf("ClientError: model returned %d: %s", resp.StatusCode, snippet(body))
+			return nil, fmt.Errorf("ClientError: %w %d: %s", errModelReturned, resp.StatusCode, snippet(body))
 		default:
-			last = fmt.Errorf("AlgorithmError: model returned %d: %s", resp.StatusCode, snippet(body))
+			last = fmt.Errorf("AlgorithmError: %w %d: %s", errModelReturned, resp.StatusCode, snippet(body))
 		}
 
 		lt.logf("%v", last)
@@ -292,7 +306,8 @@ func (b *InMemoryBackend) finishTransform(region, name string, out jobOutcome) {
 	defer b.mu.Unlock()
 
 	tj, ok := b.transformJobsStore(region).Get(name)
-	if !ok || (tj.TransformJobStatus != trainingJobStatusInProgress && tj.TransformJobStatus != pipelineStatusStopping) {
+	if !ok ||
+		(tj.TransformJobStatus != trainingJobStatusInProgress && tj.TransformJobStatus != pipelineStatusStopping) {
 		return
 	}
 

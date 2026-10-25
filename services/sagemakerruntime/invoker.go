@@ -48,7 +48,7 @@ func writeInvokeError(c *echo.Context, err error) error {
 	switch {
 	case errors.As(err, &modelErr):
 		return c.JSON(http.StatusFailedDependency, map[string]any{
-			"__type": "ModelError", "Message": modelErr.Error(),
+			errTypeKey: "ModelError", "Message": modelErr.Error(),
 			"OriginalStatusCode": modelErr.OriginalStatusCode, "OriginalMessage": modelErr.OriginalMessage,
 			"LogStreamArn": modelErr.LogStreamArn,
 		})
@@ -69,7 +69,12 @@ func writeInvokeError(c *echo.Context, err error) error {
 	}
 }
 
-func invokeRequest(c *echo.Context, endpointName string, body []byte, accept, contentType string) sagemaker.InvokeRequest {
+func invokeRequest(
+	c *echo.Context,
+	endpointName string,
+	body []byte,
+	accept, contentType string,
+) sagemaker.InvokeRequest {
 	h := c.Request().Header
 
 	return sagemaker.InvokeRequest{

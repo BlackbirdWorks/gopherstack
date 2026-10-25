@@ -14,6 +14,12 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 )
 
+// wireContainerEngines connects the container-backed engines to the emulator services they use.
+func wireContainerEngines(byName map[string]service.Registerable) {
+	wireCodeBuildEngine(byName)
+	wireSageMakerEngine(byName)
+}
+
 // wireSageMakerEngine gives the container engine access to S3, CloudWatch Logs and SNS.
 func wireSageMakerEngine(byName map[string]service.Registerable) {
 	smH, ok := byName["SageMaker"].(*sagemakerbackend.Handler)
@@ -24,7 +30,7 @@ func wireSageMakerEngine(byName map[string]service.Registerable) {
 	var svc sagemakerbackend.EngineServices
 
 	if s3H, s3Ok := byName["S3"].(*s3backend.S3Handler); s3Ok {
-		svc.Store = sagemakerS3{codebuildS3: codebuildS3{backend: s3H.Backend}}
+		svc.Store = sagemakerS3{codebuildS3{backend: s3H.Backend}}
 	}
 
 	if h, hOk := byName["CloudWatchLogs"].(*cwlogsbackend.Handler); hOk {

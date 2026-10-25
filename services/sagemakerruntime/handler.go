@@ -19,7 +19,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
-const streamChunkBytes = 32 * 1024
+const (
+	streamChunkBytes = 32 * 1024
+	errTypeKey       = "__type"
+)
 
 const (
 	opInvokeEndpoint                   = "InvokeEndpoint"
@@ -243,7 +246,9 @@ func (h *Handler) handleInvokeEndpointAsync(
 
 	acc, err := inv.SubmitAsyncInference(c.Request().Context(), sagemaker.AsyncRequest{
 		EndpointName: endpointName, InferenceID: hdr.Get(headerInferenceID), InputLocation: hdr.Get(headerInputLocation),
-		ContentType: hdr.Get("Content-Type"), Accept: hdr.Get("Accept"), CustomAttributes: hdr.Get(headerCustomAttributes),
+		ContentType: hdr.Get(
+			"Content-Type",
+		), Accept: hdr.Get("Accept"), CustomAttributes: hdr.Get(headerCustomAttributes),
 		Filename: hdr.Get(headerFilename), OutputPathExtension: hdr.Get(headerS3OutputPathExtension),
 		Body: body, TimeoutSeconds: int32(timeout), //nolint:gosec // validated to 1..3600 by validateRequestHeaders
 	})
@@ -251,7 +256,13 @@ func (h *Handler) handleInvokeEndpointAsync(
 		return writeInvokeError(c, err)
 	}
 
-	h.Backend.RecordAsyncInvocation(endpointName, acc.InferenceID, string(body), acc.OutputLocation, acc.FailureLocation)
+	h.Backend.RecordAsyncInvocation(
+		endpointName,
+		acc.InferenceID,
+		string(body),
+		acc.OutputLocation,
+		acc.FailureLocation,
+	)
 
 	out, err := json.Marshal(map[string]string{"InferenceId": acc.InferenceID})
 	if err != nil {
@@ -282,7 +293,8 @@ func (h *Handler) handleInvokeEndpointWithResponseStream(
 	req := c.Request()
 
 	stream, err := inv.InvokeEndpointStream(
-		req.Context(), invokeRequest(c, endpointName, body, req.Header.Get(headerAsyncAccept), req.Header.Get("Content-Type")),
+		req.Context(),
+		invokeRequest(c, endpointName, body, req.Header.Get(headerAsyncAccept), req.Header.Get("Content-Type")),
 	)
 	if err != nil {
 		return writeInvokeError(c, err)
@@ -338,12 +350,6 @@ func setOptionalHeader(c *echo.Context, name, value string) {
 	}
 }
 
-func setCommonResponseHeaders(c *echo.Context, accept string) {
-	c.Response().Header().Set("Content-Type", responseContentType(accept))
-	setForwardedHeader(c, headerCustomAttributes)
-	setVariantResponseHeader(c)
-}
-
 func setSessionResponseHeader(c *echo.Context, backend *InMemoryBackend, endpointName string) {
 	sessionID := c.Request().Header.Get(headerSessionID)
 
@@ -365,21 +371,6 @@ func setSessionResponseHeader(c *echo.Context, backend *InMemoryBackend, endpoin
 			c.Response().Header().Set(headerClosedSessionID, outcome.ClosedSessionID)
 		}
 	}
-}
-
-func setForwardedHeader(c *echo.Context, header string) {
-	if value := c.Request().Header.Get(header); value != "" {
-		c.Response().Header().Set(header, value)
-	}
-}
-
-func setVariantResponseHeader(c *echo.Context) {
-	variant := c.Request().Header.Get(headerTargetVariant)
-	if variant == "" {
-		variant = defaultVariant
-	}
-
-	c.Response().Header().Set(headerInvokedVariant, variant)
 }
 
 func responseContentType(accept string) string {
@@ -418,7 +409,7 @@ func pathToOperation(path string) string {
 }
 
 func errorResponse(code, msg string) map[string]string {
-	return map[string]string{"__type": code, "message": msg}
+	return map[string]string{errTypeKey: code, "message": msg}
 }
 
 // encodeEventStreamMsg encodes a single AWS event stream binary message.

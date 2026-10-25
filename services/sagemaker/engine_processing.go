@@ -152,24 +152,36 @@ func stageProcessing(
 	return append(mounts, cfgDir+":/opt/ml/config"), outputs, nil
 }
 
+// processingJobConfig is /opt/ml/config/processingjobconfig.json.
+type processingJobConfig struct {
+	StoppingCondition      *ProcessingStoppingCondition `json:"StoppingCondition"`
+	Environment            map[string]string            `json:"Environment"`
+	AppSpecification       ProcessingAppSpec            `json:"AppSpecification"`
+	ProcessingOutputConfig ProcessingOutputConfig       `json:"ProcessingOutputConfig"`
+	ProcessingResources    ProcessingResources          `json:"ProcessingResources"`
+	ProcessingJobArn       string                       `json:"ProcessingJobArn"`
+	ProcessingJobName      string                       `json:"ProcessingJobName"`
+	RoleArn                string                       `json:"RoleArn"`
+	ProcessingInputs       []ProcessingInput            `json:"ProcessingInputs"`
+}
+
 func writeProcessingConfig(dir string, pj *ProcessingJob) error {
-	job := map[string]any{
-		"ProcessingJobArn": pj.ProcessingJobArn, "ProcessingJobName": pj.ProcessingJobName,
-		"AppSpecification": pj.AppSpecification, "Environment": pj.Environment,
-		"ProcessingInputs": pj.ProcessingInputs, "ProcessingOutputConfig": pj.ProcessingOutputConfig,
-		"ProcessingResources": pj.ProcessingResources, "RoleArn": pj.RoleArn,
-		"StoppingCondition": pj.StoppingCondition,
-	}
-	res := map[string]any{
-		"current_host": trainingHost, "hosts": []string{trainingHost}, "network_interface_name": "eth0",
-		"current_instance_type": pj.ProcessingResources.ClusterConfig.InstanceType,
+	job := processingJobConfig{
+		ProcessingJobArn: pj.ProcessingJobArn, ProcessingJobName: pj.ProcessingJobName,
+		AppSpecification: pj.AppSpecification, Environment: pj.Environment, ProcessingInputs: pj.ProcessingInputs,
+		ProcessingOutputConfig: pj.ProcessingOutputConfig, ProcessingResources: pj.ProcessingResources,
+		RoleArn: pj.RoleArn, StoppingCondition: pj.StoppingCondition,
 	}
 
 	if err := writeJSONFile(dir, "processingjobconfig.json", job); err != nil {
 		return err
 	}
 
-	return writeJSONFile(dir, "resourceconfig.json", res)
+	return writeJSONFile(
+		dir,
+		"resourceconfig.json",
+		newResourceConfig(pj.ProcessingResources.ClusterConfig.InstanceType),
+	)
 }
 
 func processingSpec(pj *ProcessingJob, mounts []string) container.Spec {
@@ -188,7 +200,8 @@ func (b *InMemoryBackend) finishProcessing(region, name string, out jobOutcome) 
 	defer b.mu.Unlock()
 
 	pj, ok := b.processingJobsStore(region).Get(name)
-	if !ok || (pj.ProcessingJobStatus != trainingJobStatusInProgress && pj.ProcessingJobStatus != pipelineStatusStopping) {
+	if !ok ||
+		(pj.ProcessingJobStatus != trainingJobStatusInProgress && pj.ProcessingJobStatus != pipelineStatusStopping) {
 		return
 	}
 

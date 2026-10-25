@@ -79,9 +79,9 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 func TestSessionLifecycle(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name         string
+	tests := []struct {
 		headers      map[string]string
+		name         string
 		wantSessions int
 		wantNewSessH bool
 	}{

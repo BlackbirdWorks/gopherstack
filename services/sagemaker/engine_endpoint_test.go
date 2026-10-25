@@ -31,7 +31,10 @@ func tarGz(t *testing.T, files map[string]string) []byte {
 	tw := tar.NewWriter(zw)
 
 	for name, body := range files {
-		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}))
+		require.NoError(
+			t,
+			tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}),
+		)
 		_, err := tw.Write([]byte(body))
 		require.NoError(t, err)
 	}
@@ -51,8 +54,8 @@ type seenRequest struct {
 // modelServer answers /ping and /invocations like a SageMaker inference container: the reply is
 // "<image>|<request body>|<contents of /opt/ml/model/weights.txt>".
 type modelServer struct {
-	seen   []seenRequest
 	status func(image string) int
+	seen   []seenRequest
 	mu     sync.Mutex
 }
 
@@ -84,7 +87,7 @@ func (m *modelServer) handler(spec container.Spec) http.Handler {
 
 		weights := readFileOrEmpty(filepath.Join(modelDir, "weights.txt"))
 		w.Header().Set("Content-Type", r.Header.Get("Accept"))
-		w.Header().Set("X-Amzn-SageMaker-Custom-Attributes", "from-container")
+		w.Header().Set("X-Amzn-Sagemaker-Custom-Attributes", "from-container")
 		_, _ = w.Write([]byte(spec.Image + "|" + string(body) + "|" + weights))
 	})
 
@@ -103,11 +106,11 @@ func (m *modelServer) last(t *testing.T) seenRequest {
 }
 
 type endpointFixture struct {
-	variants []sagemaker.ProductionVariant
 	models   map[string]sagemaker.ContainerDefinition
+	variants []sagemaker.ProductionVariant
 }
 
-func (f endpointFixture) create(t *testing.T, rig *engineRig, name string) {
+func (f endpointFixture) create(t *testing.T, rig *engineRig) {
 	t.Helper()
 
 	ctx := t.Context()
@@ -118,10 +121,10 @@ func (f endpointFixture) create(t *testing.T, rig *engineRig, name string) {
 		require.NoError(t, err)
 	}
 
-	_, err := rig.b.CreateEndpointConfig(ctx, name+"-cfg", f.variants, nil)
+	_, err := rig.b.CreateEndpointConfig(ctx, "ep-cfg", f.variants, nil)
 	require.NoError(t, err)
 
-	_, err = rig.b.CreateEndpointFSM(ctx, sagemaker.CreateEndpointOptions{Name: name, EndpointConfigName: name + "-cfg"})
+	_, err = rig.b.CreateEndpointFSM(ctx, sagemaker.CreateEndpointOptions{Name: "ep", EndpointConfigName: "ep-cfg"})
 	require.NoError(t, err)
 }
 
@@ -153,14 +156,19 @@ func TestEngineEndpoint_InvokeProxiesToContainer(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		req        sagemaker.InvokeRequest
 		wantBody   string
 		wantCustom string
 		wantCT     string
+		req        sagemaker.InvokeRequest
 	}{
 		{
-			name:       "csv_with_attributes",
-			req:        sagemaker.InvokeRequest{Body: []byte("1,2,3"), ContentType: "text/csv", Accept: "application/json", CustomAttributes: "trace=1"},
+			name: "csv_with_attributes",
+			req: sagemaker.InvokeRequest{
+				Body:             []byte("1,2,3"),
+				ContentType:      "text/csv",
+				Accept:           "application/json",
+				CustomAttributes: "trace=1",
+			},
 			wantBody:   "img-a|1,2,3|w1",
 			wantCustom: "from-container",
 			wantCT:     "application/json",
@@ -181,14 +189,22 @@ func TestEngineEndpoint_InvokeProxiesToContainer(t *testing.T) {
 			srv := &modelServer{}
 			rig.rt.serve = srv.handler
 
-			requireNoErr(t, rig.s3.PutObjectBytes(t.Context(), "models", "m/model.tar.gz", tarGz(t, map[string]string{"weights.txt": "w1"})))
+			requireNoErr(
+				t,
+				rig.s3.PutObjectBytes(
+					t.Context(),
+					"models",
+					"m/model.tar.gz",
+					tarGz(t, map[string]string{"weights.txt": "w1"}),
+				),
+			)
 
 			endpointFixture{
 				variants: singleVariant("m1"),
 				models: map[string]sagemaker.ContainerDefinition{"m1": {
 					Image: "img-a", ModelDataURL: "s3://models/m/model.tar.gz", Environment: map[string]string{"K": "V"},
 				}},
-			}.create(t, rig, "ep")
+			}.create(t, rig)
 
 			ep := waitEndpoint(t, rig.b, "ep")
 			require.Equal(t, "InService", ep.EndpointStatus, ep.FailureReason)
@@ -214,7 +230,7 @@ func TestEngineEndpoint_InvokeProxiesToContainer(t *testing.T) {
 
 			assert.Equal(t, wantCT, seen.header.Get("Content-Type"))
 			assert.Equal(t, tt.req.Accept, seen.header.Get("Accept"))
-			assert.Equal(t, tt.req.CustomAttributes, seen.header.Get("X-Amzn-SageMaker-Custom-Attributes"))
+			assert.Equal(t, tt.req.CustomAttributes, seen.header.Get("X-Amzn-Sagemaker-Custom-Attributes"))
 		})
 	}
 }
@@ -228,7 +244,7 @@ func TestEngineEndpoint_ModelErrorSurfaces(t *testing.T) {
 	endpointFixture{
 		variants: singleVariant("m1"),
 		models:   map[string]sagemaker.ContainerDefinition{"m1": {Image: "img-a"}},
-	}.create(t, rig, "ep")
+	}.create(t, rig)
 	require.Equal(t, "InService", waitEndpoint(t, rig.b, "ep").EndpointStatus)
 
 	_, err := rig.b.InvokeEndpoint(t.Context(), sagemaker.InvokeRequest{EndpointName: "ep", Body: []byte("explode")})
@@ -244,14 +260,17 @@ func TestEngineEndpoint_FailureReasons(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		cfg        sagemaker.EngineConfig
 		status     func(string) int
+		name       string
 		wantReason string
+		cfg        sagemaker.EngineConfig
 	}{
 		{
-			name:       "ping_never_healthy",
-			cfg:        sagemaker.EngineConfig{StartupTimeout: 150 * time.Millisecond, PingInterval: 10 * time.Millisecond},
+			name: "ping_never_healthy",
+			cfg: sagemaker.EngineConfig{
+				StartupTimeout: 150 * time.Millisecond,
+				PingInterval:   10 * time.Millisecond,
+			},
 			status:     func(string) int { return http.StatusServiceUnavailable },
 			wantReason: "did not pass the ping health check",
 		},
@@ -272,7 +291,7 @@ func TestEngineEndpoint_FailureReasons(t *testing.T) {
 			endpointFixture{
 				variants: singleVariant("m1"),
 				models:   map[string]sagemaker.ContainerDefinition{"m1": {Image: "img-a"}},
-			}.create(t, rig, "ep")
+			}.create(t, rig)
 
 			ep := waitEndpoint(t, rig.b, "ep")
 			assert.Equal(t, "Failed", ep.EndpointStatus)
@@ -311,8 +330,11 @@ func TestEngineEndpoint_VariantsAndPipelines(t *testing.T) {
 				{VariantName: "blue", ModelName: "m-blue", InitialInstanceCount: 1, InitialVariantWeight: 1},
 				{VariantName: "green", ModelName: "m-green", InitialInstanceCount: 1, InitialVariantWeight: 0},
 			},
-			models: map[string]sagemaker.ContainerDefinition{"m-blue": {Image: "img-blue"}, "m-green": {Image: "img-green"}},
-		}.create(t, rig, "ep")
+			models: map[string]sagemaker.ContainerDefinition{
+				"m-blue":  {Image: "img-blue"},
+				"m-green": {Image: "img-green"},
+			},
+		}.create(t, rig)
 		require.Equal(t, "InService", waitEndpoint(t, rig.b, "ep").EndpointStatus)
 
 		for variant, wantImage := range map[string]string{"": "img-blue", "green": "img-green", "blue": "img-blue"} {
@@ -334,9 +356,16 @@ func TestEngineEndpoint_VariantsAndPipelines(t *testing.T) {
 		rig.rt.serve = (&modelServer{}).handler
 
 		ctx := t.Context()
-		_, err := rig.b.CreateModel(ctx, "pipe", "arn:aws:iam::000000000000:role/r", nil, []sagemaker.ContainerDefinition{
-			{Image: "stage-1", ContainerHostname: "first"}, {Image: "stage-2", ContainerHostname: "second"},
-		}, nil)
+		_, err := rig.b.CreateModel(
+			ctx,
+			"pipe",
+			"arn:aws:iam::000000000000:role/r",
+			nil,
+			[]sagemaker.ContainerDefinition{
+				{Image: "stage-1", ContainerHostname: "first"}, {Image: "stage-2", ContainerHostname: "second"},
+			},
+			nil,
+		)
 		require.NoError(t, err)
 
 		_, err = rig.b.CreateEndpointConfig(ctx, "cfg", singleVariant("pipe"), nil)
@@ -360,11 +389,18 @@ func TestEngineEndpoint_UpdateSwapsAndDeleteStops(t *testing.T) {
 	endpointFixture{
 		variants: singleVariant("m1"),
 		models:   map[string]sagemaker.ContainerDefinition{"m1": {Image: "img-v1"}},
-	}.create(t, rig, "ep")
+	}.create(t, rig)
 	require.Equal(t, "InService", waitEndpoint(t, rig.b, "ep").EndpointStatus)
 
 	ctx := t.Context()
-	_, err := rig.b.CreateModel(ctx, "m2", "arn:aws:iam::000000000000:role/r", &sagemaker.ContainerDefinition{Image: "img-v2"}, nil, nil)
+	_, err := rig.b.CreateModel(
+		ctx,
+		"m2",
+		"arn:aws:iam::000000000000:role/r",
+		&sagemaker.ContainerDefinition{Image: "img-v2"},
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	_, err = rig.b.CreateEndpointConfig(ctx, "cfg2", singleVariant("m2"), nil)
 	require.NoError(t, err)
@@ -395,7 +431,10 @@ func TestEngineEndpoint_UpdateSwapsAndDeleteStops(t *testing.T) {
 func TestEngineEndpoint_FailedUpdateKeepsServing(t *testing.T) {
 	t.Parallel()
 
-	rig := newEngineRig(t, sagemaker.EngineConfig{StartupTimeout: 150 * time.Millisecond, PingInterval: 10 * time.Millisecond})
+	rig := newEngineRig(
+		t,
+		sagemaker.EngineConfig{StartupTimeout: 150 * time.Millisecond, PingInterval: 10 * time.Millisecond},
+	)
 	rig.rt.serve = (&modelServer{status: func(image string) int {
 		if image == "img-bad" {
 			return http.StatusInternalServerError
@@ -407,11 +446,18 @@ func TestEngineEndpoint_FailedUpdateKeepsServing(t *testing.T) {
 	endpointFixture{
 		variants: singleVariant("m1"),
 		models:   map[string]sagemaker.ContainerDefinition{"m1": {Image: "img-good"}},
-	}.create(t, rig, "ep")
+	}.create(t, rig)
 	require.Equal(t, "InService", waitEndpoint(t, rig.b, "ep").EndpointStatus)
 
 	ctx := t.Context()
-	_, err := rig.b.CreateModel(ctx, "m2", "arn:aws:iam::000000000000:role/r", &sagemaker.ContainerDefinition{Image: "img-bad"}, nil, nil)
+	_, err := rig.b.CreateModel(
+		ctx,
+		"m2",
+		"arn:aws:iam::000000000000:role/r",
+		&sagemaker.ContainerDefinition{Image: "img-bad"},
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	_, err = rig.b.CreateEndpointConfig(ctx, "cfg2", singleVariant("m2"), nil)
 	require.NoError(t, err)
@@ -435,14 +481,22 @@ func TestEngineEndpoint_ModelDataAndLogs(t *testing.T) {
 	rig.rt.serve = (&modelServer{}).handler
 	rig.rt.logs["img-a"] = "listening on 8080\nready\n"
 
-	requireNoErr(t, rig.s3.PutObjectBytes(t.Context(), "models", "m/model.tar.gz", tarGz(t, map[string]string{"nested/dir/f.txt": "x"})))
+	requireNoErr(
+		t,
+		rig.s3.PutObjectBytes(
+			t.Context(),
+			"models",
+			"m/model.tar.gz",
+			tarGz(t, map[string]string{"nested/dir/f.txt": "x"}),
+		),
+	)
 
 	endpointFixture{
 		variants: singleVariant("m1"),
 		models: map[string]sagemaker.ContainerDefinition{"m1": {
 			Image: "img-a", ModelDataURL: "s3://models/m/model.tar.gz",
 		}},
-	}.create(t, rig, "ep")
+	}.create(t, rig)
 	require.Equal(t, "InService", waitEndpoint(t, rig.b, "ep").EndpointStatus)
 
 	spec, ok := rig.rt.lastSpec("img-a")
@@ -456,7 +510,10 @@ func TestEngineEndpoint_ModelDataAndLogs(t *testing.T) {
 		return strings.Join(rig.logs.groupLines("/aws/sagemaker/Endpoints/ep"), "\n") == "listening on 8080\nready"
 	}, 5*time.Second, 5*time.Millisecond)
 
-	_, err = rig.b.CreateEndpointFSM(t.Context(), sagemaker.CreateEndpointOptions{Name: "ep2", EndpointConfigName: "ep-cfg"})
+	_, err = rig.b.CreateEndpointFSM(
+		t.Context(),
+		sagemaker.CreateEndpointOptions{Name: "ep2", EndpointConfigName: "ep-cfg"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "InService", waitEndpoint(t, rig.b, "ep2").EndpointStatus)
 }
@@ -470,7 +527,7 @@ func TestEngineEndpoint_InvokeUnavailableAfterDelete(t *testing.T) {
 	endpointFixture{
 		variants: singleVariant("m1"),
 		models:   map[string]sagemaker.ContainerDefinition{"m1": {Image: "img-a"}},
-	}.create(t, rig, "ep")
+	}.create(t, rig)
 	require.Equal(t, "InService", waitEndpoint(t, rig.b, "ep").EndpointStatus)
 
 	require.NoError(t, rig.b.DeleteEndpoint(t.Context(), "ep"))
@@ -481,7 +538,12 @@ func TestEngineEndpoint_InvokeUnavailableAfterDelete(t *testing.T) {
 	}, 5*time.Second, 5*time.Millisecond)
 
 	_, err := rig.b.InvokeEndpoint(t.Context(), sagemaker.InvokeRequest{EndpointName: "ep", Body: []byte("x")})
-	assert.True(t, errors.Is(err, sagemaker.ErrEndpointNotFound) || errors.Is(err, sagemaker.ErrEndpointNotRunning), "%v", err)
+	assert.True(
+		t,
+		errors.Is(err, sagemaker.ErrEndpointNotFound) || errors.Is(err, sagemaker.ErrEndpointNotRunning),
+		"%v",
+		err,
+	)
 }
 
 func TestEngineEndpoint_RejectsUnsafeModelArchive(t *testing.T) {
@@ -489,12 +551,22 @@ func TestEngineEndpoint_RejectsUnsafeModelArchive(t *testing.T) {
 
 	rig := newEngineRig(t, sagemaker.EngineConfig{})
 	rig.rt.serve = (&modelServer{}).handler
-	requireNoErr(t, rig.s3.PutObjectBytes(t.Context(), "models", "m/model.tar.gz", tarGz(t, map[string]string{"../escape.txt": "x"})))
+	requireNoErr(
+		t,
+		rig.s3.PutObjectBytes(
+			t.Context(),
+			"models",
+			"m/model.tar.gz",
+			tarGz(t, map[string]string{"../escape.txt": "x"}),
+		),
+	)
 
 	endpointFixture{
 		variants: singleVariant("m1"),
-		models:   map[string]sagemaker.ContainerDefinition{"m1": {Image: "img-a", ModelDataURL: "s3://models/m/model.tar.gz"}},
-	}.create(t, rig, "ep")
+		models: map[string]sagemaker.ContainerDefinition{
+			"m1": {Image: "img-a", ModelDataURL: "s3://models/m/model.tar.gz"},
+		},
+	}.create(t, rig)
 
 	ep := waitEndpoint(t, rig.b, "ep")
 	assert.Equal(t, "Failed", ep.EndpointStatus)
@@ -509,8 +581,10 @@ func TestEngineEndpoint_MissingModelDataFails(t *testing.T) {
 
 	endpointFixture{
 		variants: singleVariant("m1"),
-		models:   map[string]sagemaker.ContainerDefinition{"m1": {Image: "img-a", ModelDataURL: "s3://models/none/model.tar.gz"}},
-	}.create(t, rig, "ep")
+		models: map[string]sagemaker.ContainerDefinition{
+			"m1": {Image: "img-a", ModelDataURL: "s3://models/none/model.tar.gz"},
+		},
+	}.create(t, rig)
 
 	ep := waitEndpoint(t, rig.b, "ep")
 	assert.Equal(t, "Failed", ep.EndpointStatus)

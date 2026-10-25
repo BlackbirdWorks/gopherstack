@@ -26,7 +26,7 @@ import (
 const mrHome = "us-east-1"
 
 func newMRHandler() *sagemakerruntime.Handler {
-	h := sagemakerruntime.NewHandler(newEchoBackend("000000000000", mrHome))
+	h := sagemakerruntime.NewHandler(newEchoBackend(mrHome))
 	h.EnableRegions()
 
 	return h
@@ -169,7 +169,7 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 				assert.Empty(t, mrIDs(dst, "eu-west-1"))
 			}
 
-			legacy := sagemakerruntime.NewHandler(newEchoBackend("000000000000", mrHome))
+			legacy := sagemakerruntime.NewHandler(newEchoBackend(mrHome))
 			require.NoError(t, legacy.Restore(context.Background(), snap))
 			assert.Equal(t, []string{"home"}, mrIDs(legacy, mrHome))
 		})
@@ -203,7 +203,7 @@ func TestHandler_EndpointLookupFollowsRequestRegion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := sagemakerruntime.NewHandler(newEchoBackend("000000000000", mrHome))
+			h := sagemakerruntime.NewHandler(newEchoBackend(mrHome))
 			h.Backend.SetEndpointLookup(regionEndpointLookup{region: "eu-west-1"})
 			h.EnableRegions()
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -25,12 +26,12 @@ var errFakeNoObject = errors.New("no such object")
 
 // fakeContainer is one started container: either an HTTP server (model) or a one-shot job.
 type fakeContainer struct {
-	spec     container.Spec
 	srv      *http.Server
 	stop     chan struct{}
 	done     chan struct{}
-	stopOnce sync.Once
+	spec     container.Spec
 	exit     int
+	stopOnce sync.Once
 }
 
 func (c *fakeContainer) halt() {
@@ -50,9 +51,9 @@ type fakeRuntime struct {
 	job     func(spec container.Spec, stop <-chan struct{}) int
 	logs    map[string]string
 	started map[string]*fakeContainer
-	mu      sync.Mutex
-	seq     atomic.Int64
 	removed []string
+	seq     atomic.Int64
+	mu      sync.Mutex
 }
 
 func newFakeRuntime() *fakeRuntime {
@@ -153,8 +154,8 @@ func (r *fakeRuntime) lastSpec(image string) (container.Spec, bool) {
 
 	sort.Strings(ids)
 
-	for i := len(ids) - 1; i >= 0; i-- {
-		if c := r.started[ids[i]]; c.spec.Image == image {
+	for _, id := range slices.Backward(ids) {
+		if c := r.started[id]; c.spec.Image == image {
 			return c.spec, true
 		}
 	}

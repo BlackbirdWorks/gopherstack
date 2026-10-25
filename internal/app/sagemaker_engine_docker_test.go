@@ -191,7 +191,10 @@ func smTarGz(t *testing.T, files map[string]string) []byte {
 	tw := tar.NewWriter(zw)
 
 	for name, body := range files {
-		require.NoError(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}))
+		require.NoError(
+			t,
+			tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}),
+		)
 		_, err := tw.Write([]byte(body))
 		require.NoError(t, err)
 	}
@@ -235,7 +238,8 @@ func (c smClients) endpointStatus(t *testing.T, name string) *sagemaker.Describe
 
 		out, err = c.sm.DescribeEndpoint(t.Context(), &sagemaker.DescribeEndpointInput{EndpointName: aws.String(name)})
 
-		return err == nil && out.EndpointStatus != smtypes.EndpointStatusCreating && out.EndpointStatus != smtypes.EndpointStatusUpdating
+		return err == nil && out.EndpointStatus != smtypes.EndpointStatusCreating &&
+			out.EndpointStatus != smtypes.EndpointStatusUpdating
 	}, 3*time.Minute, 250*time.Millisecond)
 
 	return out
@@ -261,27 +265,31 @@ func (c smClients) createEndpoint(t *testing.T, name, model string, async *smtyp
 }
 
 func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
+	t.Parallel()
+
 	image := smBuildImage(t)
 	c := smStack(t)
 	ctx := t.Context()
 
-	_, err := c.s3.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(smBucket)})
-	require.NoError(t, err)
+	_, bucketErr := c.s3.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(smBucket)})
+	require.NoError(t, bucketErr)
 
 	c.put(t, "model/model.tar.gz", smTarGz(t, map[string]string{"factor.txt": "7"}))
 	c.put(t, "train/data.txt", []byte("1 2 3\n4 5"))
 	c.put(t, "raw/a.txt", []byte("hello processing"))
 	c.put(t, "batch/in/a.csv", []byte("r1\nr2\n"))
 
-	_, err = c.sm.CreateModel(ctx, &sagemaker.CreateModelInput{
+	_, modelErr := c.sm.CreateModel(ctx, &sagemaker.CreateModelInput{
 		ModelName: aws.String("m1"), ExecutionRoleArn: aws.String(smRole),
 		PrimaryContainer: &smtypes.ContainerDefinition{
 			Image: aws.String(image), ModelDataUrl: aws.String("s3://" + smBucket + "/model/model.tar.gz"),
 		},
 	})
-	require.NoError(t, err)
+	require.NoError(t, modelErr)
 
 	t.Run("endpoint", func(t *testing.T) {
+		t.Parallel()
+
 		c.createEndpoint(t, "ep1", "m1", nil)
 		assert.Equal(t, smtypes.EndpointStatusInService, c.endpointStatus(t, "ep1").EndpointStatus)
 
@@ -301,9 +309,12 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ModelError")
 
-		stream, err := c.rt.InvokeEndpointWithResponseStream(ctx, &sagemakerruntime.InvokeEndpointWithResponseStreamInput{
-			EndpointName: aws.String("ep1"), Body: []byte("xyz"),
-		})
+		stream, err := c.rt.InvokeEndpointWithResponseStream(
+			ctx,
+			&sagemakerruntime.InvokeEndpointWithResponseStreamInput{
+				EndpointName: aws.String("ep1"), Body: []byte("xyz"),
+			},
+		)
 		require.NoError(t, err)
 
 		var got strings.Builder
@@ -335,8 +346,12 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 	})
 
 	t.Run("async_endpoint", func(t *testing.T) {
+		t.Parallel()
+
 		c.createEndpoint(t, "ep2", "m1", &smtypes.AsyncInferenceConfig{
-			OutputConfig: &smtypes.AsyncInferenceOutputConfig{S3OutputPath: aws.String("s3://" + smBucket + "/async-out")},
+			OutputConfig: &smtypes.AsyncInferenceOutputConfig{
+				S3OutputPath: aws.String("s3://" + smBucket + "/async-out"),
+			},
 		})
 		require.Equal(t, smtypes.EndpointStatusInService, c.endpointStatus(t, "ep2").EndpointStatus)
 
@@ -348,7 +363,10 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 		assert.Equal(t, "s3://"+smBucket+"/async-out/inf-1.out", aws.ToString(out.OutputLocation))
 
 		require.Eventually(t, func() bool {
-			_, gerr := c.s3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(smBucket), Key: aws.String("async-out/inf-1.out")})
+			_, gerr := c.s3.GetObject(
+				ctx,
+				&s3.GetObjectInput{Bucket: aws.String(smBucket), Key: aws.String("async-out/inf-1.out")},
+			)
 
 			return gerr == nil
 		}, 30*time.Second, 250*time.Millisecond)
@@ -356,6 +374,8 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 	})
 
 	t.Run("training", func(t *testing.T) {
+		t.Parallel()
+
 		create := func(name, fail string) {
 			_, cerr := c.sm.CreateTrainingJob(ctx, &sagemaker.CreateTrainingJobInput{
 				TrainingJobName: aws.String(name), RoleArn: aws.String(smRole),
@@ -383,7 +403,10 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 			require.Eventually(t, func() bool {
 				var derr error
 
-				out, derr = c.sm.DescribeTrainingJob(ctx, &sagemaker.DescribeTrainingJobInput{TrainingJobName: aws.String(name)})
+				out, derr = c.sm.DescribeTrainingJob(
+					ctx,
+					&sagemaker.DescribeTrainingJobInput{TrainingJobName: aws.String(name)},
+				)
 
 				return derr == nil && out.TrainingJobStatus != smtypes.TrainingJobStatusInProgress
 			}, 3*time.Minute, 250*time.Millisecond)
@@ -394,7 +417,11 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 		create("tj-ok", "false")
 		ok := wait("tj-ok")
 		require.Equal(t, smtypes.TrainingJobStatusCompleted, ok.TrainingJobStatus, aws.ToString(ok.FailureReason))
-		assert.Equal(t, "s3://"+smBucket+"/models/tj-ok/output/model.tar.gz", aws.ToString(ok.ModelArtifacts.S3ModelArtifacts))
+		assert.Equal(
+			t,
+			"s3://"+smBucket+"/models/tj-ok/output/model.tar.gz",
+			aws.ToString(ok.ModelArtifacts.S3ModelArtifacts),
+		)
 
 		zr, err := gzip.NewReader(bytes.NewReader(c.get(t, "models/tj-ok/output/model.tar.gz")))
 		require.NoError(t, err)
@@ -423,10 +450,15 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 	})
 
 	t.Run("processing", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := c.sm.CreateProcessingJob(ctx, &sagemaker.CreateProcessingJobInput{
 			ProcessingJobName: aws.String("pj1"), RoleArn: aws.String(smRole),
-			AppSpecification: &smtypes.AppSpecification{ImageUri: aws.String(image), ContainerArguments: []string{"process"}},
-			Environment:      map[string]string{"GREETING": "hi"},
+			AppSpecification: &smtypes.AppSpecification{
+				ImageUri:           aws.String(image),
+				ContainerArguments: []string{"process"},
+			},
+			Environment: map[string]string{"GREETING": "hi"},
 			ProcessingInputs: []smtypes.ProcessingInput{{
 				InputName: aws.String("raw"),
 				S3Input: &smtypes.ProcessingS3Input{
@@ -437,12 +469,16 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 			ProcessingOutputConfig: &smtypes.ProcessingOutputConfig{Outputs: []smtypes.ProcessingOutput{{
 				OutputName: aws.String("clean"),
 				S3Output: &smtypes.ProcessingS3Output{
-					S3Uri: aws.String("s3://" + smBucket + "/clean"), LocalPath: aws.String("/opt/ml/processing/output"),
+					S3Uri: aws.String(
+						"s3://" + smBucket + "/clean",
+					), LocalPath: aws.String("/opt/ml/processing/output"),
 					S3UploadMode: smtypes.ProcessingS3UploadModeEndOfJob,
 				},
 			}}},
 			ProcessingResources: &smtypes.ProcessingResources{ClusterConfig: &smtypes.ProcessingClusterConfig{
-				InstanceCount: aws.Int32(1), InstanceType: smtypes.ProcessingInstanceTypeMlM5Large, VolumeSizeInGB: aws.Int32(1),
+				InstanceCount: aws.Int32(
+					1,
+				), InstanceType: smtypes.ProcessingInstanceTypeMlM5Large, VolumeSizeInGB: aws.Int32(1),
 			}},
 		})
 		require.NoError(t, err)
@@ -452,7 +488,10 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 		require.Eventually(t, func() bool {
 			var derr error
 
-			out, derr = c.sm.DescribeProcessingJob(ctx, &sagemaker.DescribeProcessingJobInput{ProcessingJobName: aws.String("pj1")})
+			out, derr = c.sm.DescribeProcessingJob(
+				ctx,
+				&sagemaker.DescribeProcessingJobInput{ProcessingJobName: aws.String("pj1")},
+			)
 
 			return derr == nil && out.ProcessingJobStatus != smtypes.ProcessingJobStatusInProgress
 		}, 3*time.Minute, 250*time.Millisecond)
@@ -461,16 +500,26 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 	})
 
 	t.Run("transform", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := c.sm.CreateTransformJob(ctx, &sagemaker.CreateTransformJobInput{
-			TransformJobName: aws.String("xf1"), ModelName: aws.String("m1"), BatchStrategy: smtypes.BatchStrategySingleRecord,
+			TransformJobName: aws.String(
+				"xf1",
+			), ModelName: aws.String("m1"), BatchStrategy: smtypes.BatchStrategySingleRecord,
 			TransformInput: &smtypes.TransformInput{
 				ContentType: aws.String("text/csv"), SplitType: smtypes.SplitTypeLine,
 				DataSource: &smtypes.TransformDataSource{S3DataSource: &smtypes.TransformS3DataSource{
 					S3Uri: aws.String("s3://" + smBucket + "/batch/in/"), S3DataType: smtypes.S3DataTypeS3Prefix,
 				}},
 			},
-			TransformOutput:    &smtypes.TransformOutput{S3OutputPath: aws.String("s3://" + smBucket + "/batch/out"), AssembleWith: smtypes.AssemblyTypeLine},
-			TransformResources: &smtypes.TransformResources{InstanceType: smtypes.TransformInstanceTypeMlM5Large, InstanceCount: aws.Int32(1)},
+			TransformOutput: &smtypes.TransformOutput{
+				S3OutputPath: aws.String("s3://" + smBucket + "/batch/out"),
+				AssembleWith: smtypes.AssemblyTypeLine,
+			},
+			TransformResources: &smtypes.TransformResources{
+				InstanceType:  smtypes.TransformInstanceTypeMlM5Large,
+				InstanceCount: aws.Int32(1),
+			},
 		})
 		require.NoError(t, err)
 
@@ -479,7 +528,10 @@ func TestSageMakerEngine_Docker_EndToEnd(t *testing.T) {
 		require.Eventually(t, func() bool {
 			var derr error
 
-			out, derr = c.sm.DescribeTransformJob(ctx, &sagemaker.DescribeTransformJobInput{TransformJobName: aws.String("xf1")})
+			out, derr = c.sm.DescribeTransformJob(
+				ctx,
+				&sagemaker.DescribeTransformJobInput{TransformJobName: aws.String("xf1")},
+			)
 
 			return derr == nil && out.TransformJobStatus != smtypes.TransformJobStatusInProgress
 		}, 3*time.Minute, 250*time.Millisecond)

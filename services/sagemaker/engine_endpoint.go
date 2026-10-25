@@ -70,8 +70,8 @@ func (b *InMemoryBackend) provisionEndpoint(eng *engineState, region, name strin
 }
 
 type variantPlan struct {
-	model   Model
 	name    string
+	model   Model
 	timeout time.Duration
 }
 

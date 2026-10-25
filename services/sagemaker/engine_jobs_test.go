@@ -71,7 +71,9 @@ func trainingOptions(name string) sagemaker.TrainingJobOptions {
 		Environment:            map[string]string{"MODE": "test"},
 		InputDataConfig: []sagemaker.Channel{{
 			ChannelName: "train", ContentType: "text/csv",
-			DataSource: sagemaker.ChannelDataSource{S3DataSource: &sagemaker.S3DataSource{S3Uri: "s3://data/train/", S3DataType: "S3Prefix"}},
+			DataSource: sagemaker.ChannelDataSource{
+				S3DataSource: &sagemaker.S3DataSource{S3Uri: "s3://data/train/", S3DataType: "S3Prefix"},
+			},
 		}},
 		OutputDataConfig: sagemaker.OutputDataConfig{S3OutputPath: "s3://out/models"},
 		ResourceConfig:   sagemaker.ResourceConfig{InstanceType: "ml.m5.large", InstanceCount: 1, VolumeSizeInGB: 1},
@@ -82,12 +84,12 @@ func TestEngineTraining_Outcomes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		job        func(spec container.Spec, stop <-chan struct{}) int
-		maxRuntime int32
+		name       string
 		wantStatus string
 		wantSecond string
 		wantReason string
+		maxRuntime int32
 		wantModel  bool
 	}{
 		{
@@ -96,8 +98,16 @@ func TestEngineTraining_Outcomes(t *testing.T) {
 				in := mountSource(spec, "/opt/ml/input")
 				data := readFileOrEmpty(filepath.Join(in, "data", "train", "a.csv"))
 				hp := readFileOrEmpty(filepath.Join(in, "config", "hyperparameters.json"))
-				_ = os.WriteFile(filepath.Join(mountSource(spec, "/opt/ml/model"), "model.txt"), []byte("trained:"+data+hp), 0o644)
-				_ = os.WriteFile(filepath.Join(mountSource(spec, "/opt/ml/output"), "data", "metrics.txt"), []byte("ok"), 0o644)
+				_ = os.WriteFile(
+					filepath.Join(mountSource(spec, "/opt/ml/model"), "model.txt"),
+					[]byte("trained:"+data+hp),
+					0o644,
+				)
+				_ = os.WriteFile(
+					filepath.Join(mountSource(spec, "/opt/ml/output"), "data", "metrics.txt"),
+					[]byte("ok"),
+					0o644,
+				)
 
 				return 0
 			},
@@ -106,7 +116,11 @@ func TestEngineTraining_Outcomes(t *testing.T) {
 		{
 			name: "failure_file_becomes_failure_reason",
 			job: func(spec container.Spec, _ <-chan struct{}) int {
-				_ = os.WriteFile(filepath.Join(mountSource(spec, "/opt/ml/output"), "failure"), []byte("bad hyperparameter"), 0o644)
+				_ = os.WriteFile(
+					filepath.Join(mountSource(spec, "/opt/ml/output"), "failure"),
+					[]byte("bad hyperparameter"),
+					0o644,
+				)
 
 				return 2
 			},
@@ -143,7 +157,7 @@ func TestEngineTraining_Outcomes(t *testing.T) {
 			assert.Equal(t, tt.wantSecond, tj.SecondaryStatus)
 			assert.Equal(t, tt.wantReason, tj.FailureReason)
 
-			var seen []string
+			seen := make([]string, 0, len(tj.SecondaryStatusTransitions))
 			for _, tr := range tj.SecondaryStatusTransitions {
 				seen = append(seen, tr.Status)
 			}
@@ -171,7 +185,10 @@ func TestEngineTraining_Outcomes(t *testing.T) {
 			}
 
 			require.Eventually(t, func() bool {
-				return strings.Contains(strings.Join(rig.logs.groupLines("/aws/sagemaker/TrainingJobs"), "\n"), "epoch 2")
+				return strings.Contains(
+					strings.Join(rig.logs.groupLines("/aws/sagemaker/TrainingJobs"), "\n"),
+					"epoch 2",
+				)
 			}, 5*time.Second, 5*time.Millisecond)
 		})
 	}
@@ -217,10 +234,10 @@ func TestEngineTraining_InputErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		mutate     func(*sagemaker.TrainingJobOptions)
-		cfg        sagemaker.EngineConfig
+		name       string
 		wantReason string
+		cfg        sagemaker.EngineConfig
 	}{
 		{
 			name: "missing_input_object",
@@ -315,7 +332,11 @@ func TestEngineProcessing_Outcomes(t *testing.T) {
 			name: "inputs_in_outputs_out",
 			job: func(spec container.Spec, _ <-chan struct{}) int {
 				in := readFileOrEmpty(filepath.Join(mountSource(spec, "/opt/ml/processing/input"), "in.txt"))
-				_ = os.WriteFile(filepath.Join(mountSource(spec, "/opt/ml/processing/output"), "out.txt"), []byte(strings.ToUpper(in)), 0o644)
+				_ = os.WriteFile(
+					filepath.Join(mountSource(spec, "/opt/ml/processing/output"), "out.txt"),
+					[]byte(strings.ToUpper(in)),
+					0o644,
+				)
 
 				return 0
 			},
@@ -445,12 +466,12 @@ func TestEngineTransform_Outcomes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		input      map[string]string
 		mutate     func(*sagemaker.TransformJobOptions)
+		wantOut    map[string]string
+		name       string
 		wantStatus string
 		wantReason string
-		wantOut    map[string]string
 		wantReqs   int
 	}{
 		{
@@ -521,14 +542,23 @@ func TestEngineTransform_Outcomes(t *testing.T) {
 				requireNoErr(t, rig.s3.PutObjectBytes(t.Context(), "data", k, []byte(v)))
 			}
 
-			_, err := rig.b.CreateModel(t.Context(), "m1", "arn:aws:iam::000000000000:role/r", &sagemaker.ContainerDefinition{Image: "tx-img"}, nil, nil)
+			_, err := rig.b.CreateModel(
+				t.Context(),
+				"m1",
+				"arn:aws:iam::000000000000:role/r",
+				&sagemaker.ContainerDefinition{Image: "tx-img"},
+				nil,
+				nil,
+			)
 			require.NoError(t, err)
 
 			opts := sagemaker.TransformJobOptions{
 				TransformJobName: "tj1", ModelName: "m1",
 				TransformInput: sagemaker.TransformInput{
 					ContentType: "text/csv",
-					DataSource:  sagemaker.TransformDataSource{S3DataSource: sagemaker.TransformS3DataSource{S3Uri: "s3://data/in/", S3DataType: "S3Prefix"}},
+					DataSource: sagemaker.TransformDataSource{
+						S3DataSource: sagemaker.TransformS3DataSource{S3Uri: "s3://data/in/", S3DataType: "S3Prefix"},
+					},
 				},
 				TransformOutput:    sagemaker.TransformOutput{S3OutputPath: "s3://data/out", Accept: "text/csv"},
 				TransformResources: sagemaker.TransformResources{InstanceType: "ml.m5.large", InstanceCount: 1},
@@ -556,7 +586,10 @@ func TestEngineTransform_Outcomes(t *testing.T) {
 
 			if tt.wantStatus == "Completed" {
 				require.Eventually(t, func() bool {
-					return strings.Contains(strings.Join(rig.logs.groupLines("/aws/sagemaker/TransformJobs"), "\n"), "model up")
+					return strings.Contains(
+						strings.Join(rig.logs.groupLines("/aws/sagemaker/TransformJobs"), "\n"),
+						"model up",
+					)
 				}, 5*time.Second, 5*time.Millisecond)
 			}
 		})
@@ -587,13 +620,22 @@ func TestEngineTransform_StopInterruptsJob(t *testing.T) {
 
 	requireNoErr(t, rig.s3.PutObjectBytes(t.Context(), "data", "in/a.csv", []byte("r1\n")))
 
-	_, err := rig.b.CreateModel(context.Background(), "m1", "arn:aws:iam::000000000000:role/r", &sagemaker.ContainerDefinition{Image: "tx-img"}, nil, nil)
+	_, err := rig.b.CreateModel(
+		context.Background(),
+		"m1",
+		"arn:aws:iam::000000000000:role/r",
+		&sagemaker.ContainerDefinition{Image: "tx-img"},
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	_, err = rig.b.CreateTransformJob(t.Context(), sagemaker.TransformJobOptions{
 		TransformJobName: "tj1", ModelName: "m1",
 		TransformInput: sagemaker.TransformInput{
-			DataSource: sagemaker.TransformDataSource{S3DataSource: sagemaker.TransformS3DataSource{S3Uri: "s3://data/in/"}},
+			DataSource: sagemaker.TransformDataSource{
+				S3DataSource: sagemaker.TransformS3DataSource{S3Uri: "s3://data/in/"},
+			},
 		},
 		TransformOutput: sagemaker.TransformOutput{S3OutputPath: "s3://data/out"},
 	})

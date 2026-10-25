@@ -24,18 +24,20 @@ const (
 )
 
 var (
-	errChannelSource    = errors.New("only S3 data sources are supported")
-	errNoTrainingImage  = errors.New("no training image: set AlgorithmSpecification.TrainingImage or a known AlgorithmName")
+	errChannelSource   = errors.New("only S3 data sources are supported")
+	errNoTrainingImage = errors.New(
+		"no training image: set AlgorithmSpecification.TrainingImage or a known AlgorithmName",
+	)
 	errBadOutputPath    = errors.New("OutputDataConfig.S3OutputPath is not a valid S3 URI")
 	errAlgorithmNoImage = errors.New("algorithm has no TrainingSpecification.TrainingImage")
 )
 
 type jobOutcome struct {
+	artifacts     *ModelArtifacts
 	status        string
 	secondary     string
 	message       string
 	failureReason string
-	artifacts     *ModelArtifacts
 }
 
 // startTrainingRun launches the container-backed run of a freshly created training job. The caller holds b.mu.
@@ -134,7 +136,12 @@ func (b *InMemoryBackend) executeTraining(
 		return fail("ClientError: " + err.Error())
 	}
 
-	b.setTrainingStage(region, tj.TrainingJobName, "Training", "Training image download completed. Training in progress.")
+	b.setTrainingStage(
+		region,
+		tj.TrainingJobName,
+		"Training",
+		"Training image download completed. Training in progress.",
+	)
 
 	runCtx, cancel := withMaxRuntime(ctx, tj.StoppingCondition.MaxRuntimeInSeconds)
 	defer cancel()
@@ -213,14 +220,7 @@ func stageTraining(ctx context.Context, eng *engineState, root string, tj *Train
 		hyper = map[string]string{}
 	}
 
-	res := map[string]any{
-		"current_host": trainingHost, "hosts": []string{trainingHost}, "network_interface_name": "eth0",
-		"current_instance_type": tj.ResourceConfig.InstanceType, "current_group_name": "homogeneousCluster",
-		"instance_groups": []map[string]any{{
-			"instance_group_name": "homogeneousCluster", "instance_type": tj.ResourceConfig.InstanceType,
-			"hosts": []string{trainingHost},
-		}},
-	}
+	res := newResourceConfig(tj.ResourceConfig.InstanceType)
 
 	for name, v := range map[string]any{
 		"hyperparameters.json": hyper, "resourceconfig.json": res, "inputdataconfig.json": inputCfg,
@@ -296,7 +296,12 @@ func algorithmFailure(root string, code int) string {
 	return fmt.Sprintf("AlgorithmError: %s, exit code: %d", msg, code)
 }
 
-func uploadTrainingOutput(ctx context.Context, eng *engineState, root string, tj *TrainingJob) (*ModelArtifacts, error) {
+func uploadTrainingOutput(
+	ctx context.Context,
+	eng *engineState,
+	root string,
+	tj *TrainingJob,
+) (*ModelArtifacts, error) {
 	base := strings.TrimSuffix(tj.OutputDataConfig.S3OutputPath, "/")
 	if _, _, err := parseS3URI(base); err != nil {
 		return nil, fmt.Errorf("%w: %w", errBadOutputPath, err)
@@ -348,5 +353,31 @@ func (b *InMemoryBackend) finishTraining(region, name string, out jobOutcome) {
 
 	if out.artifacts != nil {
 		tj.ModelArtifacts = out.artifacts
+	}
+}
+
+// resourceConfig is /opt/ml/input/config/resourceconfig.json for a single-instance job.
+type resourceConfig struct {
+	CurrentHost         string          `json:"current_host"`
+	NetworkInterface    string          `json:"network_interface_name"`
+	CurrentInstanceType string          `json:"current_instance_type"`
+	CurrentGroupName    string          `json:"current_group_name,omitempty"`
+	Hosts               []string        `json:"hosts"`
+	InstanceGroups      []instanceGroup `json:"instance_groups,omitempty"`
+}
+
+type instanceGroup struct {
+	Name         string   `json:"instance_group_name"`
+	InstanceType string   `json:"instance_type"`
+	Hosts        []string `json:"hosts"`
+}
+
+func newResourceConfig(instanceType string) resourceConfig {
+	hosts := []string{trainingHost}
+
+	return resourceConfig{
+		CurrentHost: trainingHost, Hosts: hosts, NetworkInterface: "eth0", CurrentInstanceType: instanceType,
+		CurrentGroupName: "homogeneousCluster",
+		InstanceGroups:   []instanceGroup{{Name: "homogeneousCluster", InstanceType: instanceType, Hosts: hosts}},
 	}
 }

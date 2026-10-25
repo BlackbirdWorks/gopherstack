@@ -281,7 +281,7 @@ func TestBackendRecordAsyncStoresLocations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newEchoBackend("000000000000", "us-east-1")
+			b := newEchoBackend("us-east-1")
 			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.output, tt.failure)
 
 			assert.Equal(t, tt.output, inv.OutputLocation)
