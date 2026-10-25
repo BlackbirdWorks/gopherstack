@@ -69,20 +69,20 @@ type introspectInputWire struct {
 }
 
 type introspectOutputWire struct {
-	Active    bool   `json:"active"`
-	AccountID string `json:"account_id,omitempty"`
-	Aud       string `json:"aud,omitempty"`
-	ClientID  string `json:"client_id,omitempty"`
 	Exp       *int64 `json:"exp,omitempty"`
+	Nbf       *int64 `json:"nbf,omitempty"`
 	Iat       *int64 `json:"iat,omitempty"`
 	Iss       string `json:"iss,omitempty"`
+	ClientID  string `json:"client_id,omitempty"`
+	Aud       string `json:"aud,omitempty"`
 	Jti       string `json:"jti,omitempty"`
-	Nbf       *int64 `json:"nbf,omitempty"`
+	AccountID string `json:"account_id,omitempty"`
 	Resource  string `json:"resource,omitempty"`
 	Session   string `json:"signin_session,omitempty"`
 	Sub       string `json:"sub,omitempty"`
 	TokenType string `json:"token_type,omitempty"`
 	UserID    string `json:"user_id,omitempty"`
+	Active    bool   `json:"active"`
 }
 
 type revokeInputWire struct {
@@ -125,8 +125,8 @@ type listStatementsInputWire struct {
 }
 
 type statementSummaryWire struct {
-	SID       string                         `json:"sid"`
 	Condition map[string]map[string][]string `json:"condition,omitempty"`
+	SID       string                         `json:"sid"`
 }
 
 type listStatementsOutputWire struct {
@@ -135,11 +135,11 @@ type listStatementsOutputWire struct {
 }
 
 type policyStatementWire struct {
-	Action    []string                       `json:"Action"`
 	Condition map[string]map[string][]string `json:"Condition,omitempty"`
-	Effect    string                         `json:"Effect"`
 	Principal map[string]string              `json:"Principal"`
+	Effect    string                         `json:"Effect"`
 	Resource  string                         `json:"Resource"`
+	Action    []string                       `json:"Action"`
 }
 
 type policyWire struct {

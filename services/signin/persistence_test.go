@@ -23,15 +23,27 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	human, err := c.CreateOAuth2Token(t.Context(), tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
-		b.Code, b.RedirectUri, b.CodeVerifier = aws.String(src.authCode(t)), aws.String(testRedir), aws.String(verifier)
-	}))
+	human, err := c.CreateOAuth2Token(
+		t.Context(),
+		tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
+			b.Code, b.RedirectUri, b.CodeVerifier = aws.String(
+				src.authCode(t),
+			), aws.String(
+				testRedir,
+			), aws.String(
+				verifier,
+			)
+		}),
+	)
 	require.NoError(t, err)
 
 	_, err = c.PutConsoleAuthorizationConfiguration(t.Context(), &signinsdk.PutConsoleAuthorizationConfigurationInput{})
 	require.NoError(t, err)
 
-	st, err := c.PutResourcePermissionStatement(t.Context(), &signinsdk.PutResourcePermissionStatementInput{SourceIp: aws.String("10.0.0.1")})
+	st, err := c.PutResourcePermissionStatement(
+		t.Context(),
+		&signinsdk.PutResourcePermissionStatementInput{SourceIp: aws.String("10.0.0.1")},
+	)
 	require.NoError(t, err)
 
 	snap := src.backend.Snapshot(t.Context())
@@ -42,7 +54,10 @@ func TestSnapshotRoundTrip(t *testing.T) {
 
 	d := dst.self(t)
 
-	got, err := d.IntrospectOAuth2TokenWithIAM(t.Context(), &signinsdk.IntrospectOAuth2TokenWithIAMInput{Token: iam.AccessToken})
+	got, err := d.IntrospectOAuth2TokenWithIAM(
+		t.Context(),
+		&signinsdk.IntrospectOAuth2TokenWithIAMInput{Token: iam.AccessToken},
+	)
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(got.Active))
 
@@ -51,7 +66,10 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}))
 	require.NoError(t, err)
 
-	cfg, err := d.GetConsoleAuthorizationConfiguration(t.Context(), &signinsdk.GetConsoleAuthorizationConfigurationInput{})
+	cfg, err := d.GetConsoleAuthorizationConfiguration(
+		t.Context(),
+		&signinsdk.GetConsoleAuthorizationConfigurationInput{},
+	)
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(cfg.ConsoleAuthorizationEnabled))
 
@@ -67,7 +85,10 @@ func TestResetClearsState(t *testing.T) {
 	f := newFixture(t)
 	c := f.self(t)
 
-	_, err := c.PutConsoleAuthorizationConfiguration(t.Context(), &signinsdk.PutConsoleAuthorizationConfigurationInput{})
+	_, err := c.PutConsoleAuthorizationConfiguration(
+		t.Context(),
+		&signinsdk.PutConsoleAuthorizationConfigurationInput{},
+	)
 	require.NoError(t, err)
 
 	f.backend.Reset()

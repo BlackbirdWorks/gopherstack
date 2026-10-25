@@ -40,7 +40,10 @@ func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
 // BaseEndpoint for control-plane and OAuth operations.
 type fixedEndpoint struct{ url string }
 
-func (e fixedEndpoint) ResolveEndpoint(_ context.Context, _ signinsdk.EndpointParameters) (smithyendpoints.Endpoint, error) {
+func (e fixedEndpoint) ResolveEndpoint(
+	_ context.Context,
+	_ signinsdk.EndpointParameters,
+) (smithyendpoints.Endpoint, error) {
 	u, err := url.Parse(e.url)
 	if err != nil {
 		return smithyendpoints.Endpoint{}, err
@@ -98,7 +101,11 @@ func (f *fixture) client(t *testing.T, account string) *signinsdk.Client {
 	})
 }
 
-func (f *fixture) self(t *testing.T) *signinsdk.Client { return f.client(t, testAccount) }
+func (f *fixture) self(t *testing.T) *signinsdk.Client {
+	t.Helper()
+
+	return f.client(t, testAccount)
+}
 
 func (f *fixture) ctxFor(account string) context.Context {
 	return awsmeta.Set(context.Background(), &awsmeta.Metadata{

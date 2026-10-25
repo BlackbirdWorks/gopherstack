@@ -30,6 +30,7 @@ const (
 	formContent   = "application/x-www-form-urlencoded"
 )
 
+//nolint:gosec // G101: operation names, not credentials
 const (
 	opCreateOAuth2Token                       = "CreateOAuth2Token"
 	opCreateOAuth2TokenWithIAM                = "CreateOAuth2TokenWithIAM"
@@ -165,7 +166,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if op == opAuthorize {
-			return h.authorize(c, ctx)
+			return h.authorize(ctx, c)
 		}
 
 		fn, ok := h.ops[op]
@@ -193,7 +194,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) authorize(c *echo.Context, ctx context.Context) error {
+func (h *Handler) authorize(ctx context.Context, c *echo.Context) error {
 	r := c.Request()
 	if err := r.ParseForm(); err != nil {
 		return writeError(c, validation("malformed request"))

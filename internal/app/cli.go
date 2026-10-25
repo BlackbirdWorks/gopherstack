@@ -256,7 +256,6 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	s3filesbackend "github.com/blackbirdworks/gopherstack/services/s3files"
-	signinbackend "github.com/blackbirdworks/gopherstack/services/signin"
 	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	s3vectorsbackend "github.com/blackbirdworks/gopherstack/services/s3vectors"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
@@ -271,6 +270,7 @@ import (
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
+	signinbackend "github.com/blackbirdworks/gopherstack/services/signin"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -4683,7 +4683,6 @@ func getRemainingServiceProviders() []service.Provider {
 		&awsconfigbackend.Provider{},
 		&s3controlbackend.Provider{},
 		&s3filesbackend.Provider{},
-		&signinbackend.Provider{},
 		&resourcegroupsbackend.Provider{},
 		&resourcegroupstaggingapibackend.Provider{},
 		&swfbackend.Provider{},
@@ -4782,6 +4781,7 @@ func getNewestServiceProviders() []service.Provider {
 	return append([]service.Provider{
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
+		&signinbackend.Provider{},
 	}, getMostRecentServiceProviders()...)
 }
 

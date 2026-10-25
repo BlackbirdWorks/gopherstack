@@ -25,7 +25,11 @@ type ConsoleAuthorization struct {
 func (b *InMemoryBackend) resolveTarget(ctx context.Context, targetID string) (string, string, error) {
 	c := b.callerOf(ctx)
 	if c.anon {
-		return "", "", accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot manage console authorization")
+		return "", "", accessDenied(
+			oauthInsufficientPerms,
+			statusForbidden,
+			"anonymous callers cannot manage console authorization",
+		)
 	}
 
 	if targetID == "" {
@@ -42,14 +46,21 @@ func (b *InMemoryBackend) resolveTarget(ctx context.Context, targetID string) (s
 	case strings.HasPrefix(targetID, "r-"):
 		return targetID, scopeRoot, nil
 	case targetID != c.account:
-		return "", "", accessDenied(oauthInsufficientPerms, 403, "not authorized to configure account "+targetID)
+		return "", "", accessDenied(
+			oauthInsufficientPerms,
+			statusForbidden,
+			"not authorized to configure account "+targetID,
+		)
 	}
 
 	return targetID, scopeAccount, nil
 }
 
 // PutConsoleAuthorizationConfiguration enables console authorization for the target.
-func (b *InMemoryBackend) PutConsoleAuthorizationConfiguration(ctx context.Context, targetID string) (*ConsoleAuthorization, error) {
+func (b *InMemoryBackend) PutConsoleAuthorizationConfiguration(
+	ctx context.Context,
+	targetID string,
+) (*ConsoleAuthorization, error) {
 	target, scope, err := b.resolveTarget(ctx, targetID)
 	if err != nil {
 		return nil, err
@@ -64,7 +75,10 @@ func (b *InMemoryBackend) PutConsoleAuthorizationConfiguration(ctx context.Conte
 }
 
 // GetConsoleAuthorizationConfiguration returns the target's configuration.
-func (b *InMemoryBackend) GetConsoleAuthorizationConfiguration(ctx context.Context, targetID string) (*ConsoleAuthorization, error) {
+func (b *InMemoryBackend) GetConsoleAuthorizationConfiguration(
+	ctx context.Context,
+	targetID string,
+) (*ConsoleAuthorization, error) {
 	target, _, err := b.resolveTarget(ctx, targetID)
 	if err != nil {
 		return nil, err
@@ -82,7 +96,10 @@ func (b *InMemoryBackend) GetConsoleAuthorizationConfiguration(ctx context.Conte
 }
 
 // DeleteConsoleAuthorizationConfiguration removes the target's configuration.
-func (b *InMemoryBackend) DeleteConsoleAuthorizationConfiguration(ctx context.Context, targetID string) (*ConsoleAuthorization, error) {
+func (b *InMemoryBackend) DeleteConsoleAuthorizationConfiguration(
+	ctx context.Context,
+	targetID string,
+) (*ConsoleAuthorization, error) {
 	target, _, err := b.resolveTarget(ctx, targetID)
 	if err != nil {
 		return nil, err

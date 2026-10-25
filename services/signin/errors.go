@@ -18,6 +18,11 @@ var (
 	ErrAccessDenied = errors.New("AccessDeniedException")
 )
 
+const (
+	statusForbidden    = http.StatusForbidden
+	statusUnauthorized = http.StatusUnauthorized
+)
+
 // OAuth2ErrorCode values carried in the "error" member (types.OAuth2ErrorCode).
 const (
 	oauthTokenExpired       = "TOKEN_EXPIRED"

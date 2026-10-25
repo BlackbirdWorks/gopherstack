@@ -149,9 +149,7 @@ func (h *Handler) getResourcePolicy(ctx context.Context, _ []byte, _ *http.Reque
 
 	out := make([]policyStatementWire, len(sts))
 	for i, s := range sts {
-		out[i] = policyStatementWire{
-			Action: s.Action, Condition: s.Condition, Effect: s.Effect, Principal: s.Principal, Resource: s.Resource,
-		}
+		out[i] = policyStatementWire(s)
 	}
 
 	return http.StatusOK, getPolicyOutputWire{Policy: policyWire{Version: version, Statement: out}}, nil
@@ -203,7 +201,10 @@ func (h *Handler) listStatements(ctx context.Context, body []byte, _ *http.Reque
 		return 0, nil, err
 	}
 
-	out := listStatementsOutputWire{NextToken: pg.Next, PermissionStatements: make([]statementSummaryWire, len(pg.Data))}
+	out := listStatementsOutputWire{
+		NextToken:            pg.Next,
+		PermissionStatements: make([]statementSummaryWire, len(pg.Data)),
+	}
 	for i, s := range pg.Data {
 		out.PermissionStatements[i] = statementSummaryWire{SID: s.SID, Condition: s.Condition}
 	}

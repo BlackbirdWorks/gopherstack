@@ -33,11 +33,17 @@ func TestConsoleAuthorizationConfiguration(t *testing.T) {
 
 			c := newFixture(t).self(t)
 
-			_, err := c.GetConsoleAuthorizationConfiguration(t.Context(), &signinsdk.GetConsoleAuthorizationConfigurationInput{TargetId: tt.target})
+			_, err := c.GetConsoleAuthorizationConfiguration(
+				t.Context(),
+				&signinsdk.GetConsoleAuthorizationConfigurationInput{TargetId: tt.target},
+			)
 			if tt.wantCode != "" {
 				assert.Equal(t, tt.wantCode, apiCode(err))
 
-				_, err = c.PutConsoleAuthorizationConfiguration(t.Context(), &signinsdk.PutConsoleAuthorizationConfigurationInput{TargetId: tt.target})
+				_, err = c.PutConsoleAuthorizationConfiguration(
+					t.Context(),
+					&signinsdk.PutConsoleAuthorizationConfigurationInput{TargetId: tt.target},
+				)
 				assert.Equal(t, tt.wantCode, apiCode(err))
 
 				return
@@ -45,25 +51,40 @@ func TestConsoleAuthorizationConfiguration(t *testing.T) {
 
 			assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
-			_, err = c.DeleteConsoleAuthorizationConfiguration(t.Context(), &signinsdk.DeleteConsoleAuthorizationConfigurationInput{TargetId: tt.target})
+			_, err = c.DeleteConsoleAuthorizationConfiguration(
+				t.Context(),
+				&signinsdk.DeleteConsoleAuthorizationConfigurationInput{TargetId: tt.target},
+			)
 			assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
-			put, err := c.PutConsoleAuthorizationConfiguration(t.Context(), &signinsdk.PutConsoleAuthorizationConfigurationInput{TargetId: tt.target})
+			put, err := c.PutConsoleAuthorizationConfiguration(
+				t.Context(),
+				&signinsdk.PutConsoleAuthorizationConfigurationInput{TargetId: tt.target},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantID, aws.ToString(put.TargetId))
 			assert.Equal(t, tt.wantScope, aws.ToString(put.Scope))
 			assert.True(t, aws.ToBool(put.ConsoleAuthorizationEnabled))
 
-			get, err := c.GetConsoleAuthorizationConfiguration(t.Context(), &signinsdk.GetConsoleAuthorizationConfigurationInput{TargetId: tt.target})
+			get, err := c.GetConsoleAuthorizationConfiguration(
+				t.Context(),
+				&signinsdk.GetConsoleAuthorizationConfigurationInput{TargetId: tt.target},
+			)
 			require.NoError(t, err)
 			assert.True(t, aws.ToBool(get.ConsoleAuthorizationEnabled))
 
-			del, err := c.DeleteConsoleAuthorizationConfiguration(t.Context(), &signinsdk.DeleteConsoleAuthorizationConfigurationInput{TargetId: tt.target})
+			del, err := c.DeleteConsoleAuthorizationConfiguration(
+				t.Context(),
+				&signinsdk.DeleteConsoleAuthorizationConfigurationInput{TargetId: tt.target},
+			)
 			require.NoError(t, err)
 			assert.False(t, aws.ToBool(del.ConsoleAuthorizationEnabled))
 			assert.Equal(t, tt.wantScope, aws.ToString(del.Scope))
 
-			_, err = c.GetConsoleAuthorizationConfiguration(t.Context(), &signinsdk.GetConsoleAuthorizationConfigurationInput{TargetId: tt.target})
+			_, err = c.GetConsoleAuthorizationConfiguration(
+				t.Context(),
+				&signinsdk.GetConsoleAuthorizationConfigurationInput{TargetId: tt.target},
+			)
 			assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 		})
 	}

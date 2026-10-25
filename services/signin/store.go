@@ -117,7 +117,10 @@ func (b *InMemoryBackend) callerOf(ctx context.Context) caller {
 }
 
 // ResolvePrincipal resolves credentials issued by CreateOAuth2Token to the principal that signed in.
-func (b *InMemoryBackend) ResolvePrincipal(_ context.Context, accessKeyID, sessionToken string) (*awsmeta.Principal, bool) {
+func (b *InMemoryBackend) ResolvePrincipal(
+	_ context.Context,
+	accessKeyID, sessionToken string,
+) (*awsmeta.Principal, bool) {
 	if accessKeyID == "" {
 		return nil, false
 	}

@@ -182,7 +182,11 @@ func (b *InMemoryBackend) accountStatementsLocked(account string) []*PermissionS
 func (b *InMemoryBackend) PutResourcePermissionStatement(ctx context.Context, in StatementInput) (string, error) {
 	c := b.callerOf(ctx)
 	if c.anon {
-		return "", accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot manage permission statements")
+		return "", accessDenied(
+			oauthInsufficientPerms,
+			statusForbidden,
+			"anonymous callers cannot manage permission statements",
+		)
 	}
 
 	if err := in.validate(); err != nil {
@@ -227,7 +231,11 @@ func (b *InMemoryBackend) PutResourcePermissionStatement(ctx context.Context, in
 func (b *InMemoryBackend) DeleteResourcePermissionStatement(ctx context.Context, sid string) error {
 	c := b.callerOf(ctx)
 	if c.anon {
-		return accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot manage permission statements")
+		return accessDenied(
+			oauthInsufficientPerms,
+			statusForbidden,
+			"anonymous callers cannot manage permission statements",
+		)
 	}
 
 	if !statementPattern.MatchString(sid) {
@@ -251,7 +259,7 @@ func (b *InMemoryBackend) ListResourcePermissionStatements(
 	c := b.callerOf(ctx)
 	if c.anon {
 		return page.Page[PermissionStatement]{},
-			accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot list permission statements")
+			accessDenied(oauthInsufficientPerms, statusForbidden, "anonymous callers cannot list permission statements")
 	}
 
 	if maxResults < 0 {
@@ -275,7 +283,11 @@ func (b *InMemoryBackend) ListResourcePermissionStatements(
 func (b *InMemoryBackend) GetResourcePolicy(ctx context.Context) ([]PolicyStatement, string, error) {
 	c := b.callerOf(ctx)
 	if c.anon {
-		return nil, "", accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot read the policy")
+		return nil, "", accessDenied(
+			oauthInsufficientPerms,
+			statusForbidden,
+			"anonymous callers cannot read the policy",
+		)
 	}
 
 	b.mu.RLock("GetResourcePolicy")

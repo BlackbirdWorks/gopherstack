@@ -34,11 +34,13 @@ const (
 	refreshTTL     = 12 * time.Hour
 	iamTokenTTL    = time.Hour
 
-	minVerifierLen = 43
-	maxVerifierLen = 128
-	keyIDLen       = 16
-	secretKeyLen   = 40
-	textLen        = 26
+	minVerifierLen  = 43
+	maxVerifierLen  = 128
+	keyIDLen        = 16
+	secretKeyLen    = 40
+	textLen         = 26
+	codeLen         = 52
+	refreshTokenLen = 78
 )
 
 // TokenRequest is the CreateOAuth2Token body.
@@ -69,20 +71,20 @@ type IAMTokenResult struct {
 
 // Introspection is the RFC 7662 result; only Active is set for an inactive token.
 type Introspection struct {
-	Active    bool
-	Account   string
+	Iss       string
+	Session   string
 	Aud       string
 	ClientID  string
-	Exp       int64
-	Iat       int64
-	Iss       string
+	UserID    string
 	Jti       string
-	Nbf       int64
-	Resource  string
-	Session   string
 	Sub       string
 	TokenType string
-	UserID    string
+	Account   string
+	Resource  string
+	Nbf       int64
+	Iat       int64
+	Exp       int64
+	Active    bool
 }
 
 func randText(n int) string {
@@ -178,7 +180,7 @@ func (b *InMemoryBackend) IssueAuthorizationCode(
 
 	c := b.callerOf(ctx)
 	if c.anon {
-		return "", accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot authorize")
+		return "", accessDenied(oauthInsufficientPerms, statusForbidden, "anonymous callers cannot authorize")
 	}
 
 	b.mu.Lock("IssueAuthorizationCode")
@@ -186,7 +188,7 @@ func (b *InMemoryBackend) IssueAuthorizationCode(
 
 	b.sweepLocked()
 
-	code := randText(textLen * 2)
+	code := randText(codeLen)
 	b.authCodes.Put(&AuthCode{
 		Code: code, ClientID: clientID, RedirectURI: redirectURI, Challenge: challenge,
 		Account: c.account, PrincipalArn: c.arn, UserID: c.userID, ExpiresAt: b.now().Add(authCodeTTL),
@@ -240,7 +242,7 @@ func (b *InMemoryBackend) redeemCodeLocked(req TokenRequest) (*TokenResult, erro
 
 	now := b.now()
 	if !now.Before(ac.ExpiresAt) {
-		return nil, accessDenied(oauthAuthcodeExpired, 401, "authorization code expired")
+		return nil, accessDenied(oauthAuthcodeExpired, statusUnauthorized, "authorization code expired")
 	}
 
 	sum := sha256.Sum256([]byte(req.CodeVerifier))
@@ -252,7 +254,7 @@ func (b *InMemoryBackend) redeemCodeLocked(req TokenRequest) (*TokenResult, erro
 	}
 
 	s := &Session{
-		RefreshToken: refreshTokenPrefix + randText(textLen*3), SessionID: uuid.NewString(), Account: ac.Account,
+		RefreshToken: refreshTokenPrefix + randText(refreshTokenLen), SessionID: uuid.NewString(), Account: ac.Account,
 		Region: b.region, PrincipalArn: ac.PrincipalArn, UserID: ac.UserID, ClientID: req.ClientID,
 		CreatedAt: now.UTC(), RefreshExpiresAt: now.Add(refreshTTL).UTC(),
 	}
@@ -263,8 +265,13 @@ func (b *InMemoryBackend) redeemCodeLocked(req TokenRequest) (*TokenResult, erro
 
 	res := b.resultOf(s)
 	res.IDToken = b.makeJWT(map[string]any{
-		"iss": issuer, "sub": s.PrincipalArn, "aud": s.ClientID, "iat": now.Unix(), "exp": now.Add(credentialsTTL).Unix(),
-		"account_id": s.Account, "jti": uuid.NewString(),
+		"iss":        issuer,
+		"sub":        s.PrincipalArn,
+		"aud":        s.ClientID,
+		"iat":        now.Unix(),
+		"exp":        now.Add(credentialsTTL).Unix(),
+		"account_id": s.Account,
+		"jti":        uuid.NewString(),
 	})
 
 	return res, nil
@@ -284,9 +291,9 @@ func (b *InMemoryBackend) refreshLocked(req TokenRequest) (*TokenResult, error) 
 
 	switch {
 	case s.Revoked:
-		return nil, accessDenied(oauthCredentialsChanged, 403, "refresh token has been revoked")
+		return nil, accessDenied(oauthCredentialsChanged, statusForbidden, "refresh token has been revoked")
 	case !now.Before(s.RefreshExpiresAt):
-		return nil, accessDenied(oauthTokenExpired, 401, "refresh token expired")
+		return nil, accessDenied(oauthTokenExpired, statusUnauthorized, "refresh token expired")
 	}
 
 	if !now.Before(s.CredsExpireAt) {
@@ -305,13 +312,19 @@ func (b *InMemoryBackend) mintCredsLocked(s *Session) {
 
 func (b *InMemoryBackend) resultOf(s *Session) *TokenResult {
 	return &TokenResult{
-		AccessKeyID: s.AccessKeyID, SecretKey: s.SecretKey, SessionToken: s.SessionToken,
-		RefreshToken: s.RefreshToken, ExpiresIn: int32(s.CredsExpireAt.Sub(b.now()) / time.Second),
+		AccessKeyID:  s.AccessKeyID,
+		SecretKey:    s.SecretKey,
+		SessionToken: s.SessionToken,
+		RefreshToken: s.RefreshToken,
+		ExpiresIn:    int32(s.CredsExpireAt.Sub(b.now()) / time.Second), //nolint:gosec // bounded by credentialsTTL
 	}
 }
 
 // CreateOAuth2TokenWithIAM exchanges the caller's identity for a resource-scoped JWT access token.
-func (b *InMemoryBackend) CreateOAuth2TokenWithIAM(ctx context.Context, grantType, resource string) (*IAMTokenResult, error) {
+func (b *InMemoryBackend) CreateOAuth2TokenWithIAM(
+	ctx context.Context,
+	grantType, resource string,
+) (*IAMTokenResult, error) {
 	if grantType != grantClientCredentials {
 		return nil, validation("grant_type must be client_credentials")
 	}
@@ -322,7 +335,7 @@ func (b *InMemoryBackend) CreateOAuth2TokenWithIAM(ctx context.Context, grantTyp
 
 	c := b.callerOf(ctx)
 	if c.anon {
-		return nil, accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot request tokens")
+		return nil, accessDenied(oauthInsufficientPerms, statusForbidden, "anonymous callers cannot request tokens")
 	}
 
 	b.mu.Lock("CreateOAuth2TokenWithIAM")
@@ -359,7 +372,7 @@ func (b *InMemoryBackend) IntrospectOAuth2Token(ctx context.Context, token, hint
 
 	c := b.callerOf(ctx)
 	if c.anon {
-		return nil, accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot introspect tokens")
+		return nil, accessDenied(oauthInsufficientPerms, statusForbidden, "anonymous callers cannot introspect tokens")
 	}
 
 	b.mu.RLock("IntrospectOAuth2Token")
@@ -436,7 +449,7 @@ func (b *InMemoryBackend) RevokeOAuth2Token(ctx context.Context, token string) e
 
 	c := b.callerOf(ctx)
 	if c.anon {
-		return accessDenied(oauthInsufficientPerms, 403, "anonymous callers cannot revoke tokens")
+		return accessDenied(oauthInsufficientPerms, statusForbidden, "anonymous callers cannot revoke tokens")
 	}
 
 	b.mu.Lock("RevokeOAuth2Token")

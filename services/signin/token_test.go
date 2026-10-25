@@ -32,22 +32,49 @@ func TestAuthorizationCodeFlow(t *testing.T) {
 		{name: "redeem", mut: func(b *types.CreateOAuth2TokenRequestBody, c string) {
 			b.Code, b.RedirectUri, b.CodeVerifier = aws.String(c), aws.String(testRedir), aws.String(verifier)
 		}},
-		{name: "bad verifier", wantCode: "ValidationException", mut: func(b *types.CreateOAuth2TokenRequestBody, c string) {
-			b.Code, b.RedirectUri = aws.String(c), aws.String(testRedir)
-			b.CodeVerifier = aws.String("wrong-verifier-wrong-verifier-wrong-verifier-123")
-		}},
-		{name: "bad redirect", wantCode: "ValidationException", mut: func(b *types.CreateOAuth2TokenRequestBody, c string) {
-			b.Code, b.RedirectUri, b.CodeVerifier = aws.String(c), aws.String("http://evil.example/cb"), aws.String(verifier)
-		}},
-		{name: "unknown code", wantCode: "ValidationException", mut: func(b *types.CreateOAuth2TokenRequestBody, _ string) {
-			b.Code, b.RedirectUri, b.CodeVerifier = aws.String("nope"), aws.String(testRedir), aws.String(verifier)
-		}},
-		{name: "expired", wantCode: "AccessDeniedException", wait: 11 * time.Minute, mut: func(b *types.CreateOAuth2TokenRequestBody, c string) {
-			b.Code, b.RedirectUri, b.CodeVerifier = aws.String(c), aws.String(testRedir), aws.String(verifier)
-		}},
-		{name: "missing code", wantCode: "ValidationException", mut: func(b *types.CreateOAuth2TokenRequestBody, _ string) {
-			b.RedirectUri, b.CodeVerifier = aws.String(testRedir), aws.String(verifier)
-		}},
+		{
+			name:     "bad verifier",
+			wantCode: "ValidationException",
+			mut: func(b *types.CreateOAuth2TokenRequestBody, c string) {
+				b.Code, b.RedirectUri = aws.String(c), aws.String(testRedir)
+				b.CodeVerifier = aws.String("wrong-verifier-wrong-verifier-wrong-verifier-123")
+			},
+		},
+		{
+			name:     "bad redirect",
+			wantCode: "ValidationException",
+			mut: func(b *types.CreateOAuth2TokenRequestBody, c string) {
+				b.Code, b.RedirectUri, b.CodeVerifier = aws.String(
+					c,
+				), aws.String(
+					"http://evil.example/cb",
+				), aws.String(
+					verifier,
+				)
+			},
+		},
+		{
+			name:     "unknown code",
+			wantCode: "ValidationException",
+			mut: func(b *types.CreateOAuth2TokenRequestBody, _ string) {
+				b.Code, b.RedirectUri, b.CodeVerifier = aws.String("nope"), aws.String(testRedir), aws.String(verifier)
+			},
+		},
+		{
+			name:     "expired",
+			wantCode: "AccessDeniedException",
+			wait:     11 * time.Minute,
+			mut: func(b *types.CreateOAuth2TokenRequestBody, c string) {
+				b.Code, b.RedirectUri, b.CodeVerifier = aws.String(c), aws.String(testRedir), aws.String(verifier)
+			},
+		},
+		{
+			name:     "missing code",
+			wantCode: "ValidationException",
+			mut: func(b *types.CreateOAuth2TokenRequestBody, _ string) {
+				b.RedirectUri, b.CodeVerifier = aws.String(testRedir), aws.String(verifier)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -58,9 +85,10 @@ func TestAuthorizationCodeFlow(t *testing.T) {
 			code := f.authCode(t)
 			f.clock.advance(tt.wait)
 
-			out, err := f.self(t).CreateOAuth2Token(t.Context(), tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
-				tt.mut(b, code)
-			}))
+			out, err := f.self(t).
+				CreateOAuth2Token(t.Context(), tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
+					tt.mut(b, code)
+				}))
 
 			if tt.wantCode != "" {
 				require.Error(t, err)
@@ -109,22 +137,38 @@ func TestRefreshFlow(t *testing.T) {
 
 	f := newFixture(t)
 	c := f.self(t)
-	first, err := c.CreateOAuth2Token(t.Context(), tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
-		b.Code, b.RedirectUri, b.CodeVerifier = aws.String(f.authCode(t)), aws.String(testRedir), aws.String(verifier)
-	}))
+	first, err := c.CreateOAuth2Token(
+		t.Context(),
+		tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
+			b.Code, b.RedirectUri, b.CodeVerifier = aws.String(
+				f.authCode(t),
+			), aws.String(
+				testRedir,
+			), aws.String(
+				verifier,
+			)
+		}),
+	)
 	require.NoError(t, err)
 
 	refresh := func() (*signinsdk.CreateOAuth2TokenOutput, error) {
-		return c.CreateOAuth2Token(t.Context(), tokenInput("refresh_token", func(b *types.CreateOAuth2TokenRequestBody) {
-			b.RefreshToken = first.TokenOutput.RefreshToken
-		}))
+		return c.CreateOAuth2Token(
+			t.Context(),
+			tokenInput("refresh_token", func(b *types.CreateOAuth2TokenRequestBody) {
+				b.RefreshToken = first.TokenOutput.RefreshToken
+			}),
+		)
 	}
 
 	f.clock.advance(5 * time.Minute)
 
 	same, err := refresh()
 	require.NoError(t, err)
-	assert.Equal(t, aws.ToString(first.TokenOutput.AccessToken.AccessKeyId), aws.ToString(same.TokenOutput.AccessToken.AccessKeyId))
+	assert.Equal(
+		t,
+		aws.ToString(first.TokenOutput.AccessToken.AccessKeyId),
+		aws.ToString(same.TokenOutput.AccessToken.AccessKeyId),
+	)
 	assert.EqualValues(t, 600, aws.ToInt32(same.TokenOutput.ExpiresIn))
 	assert.Nil(t, same.TokenOutput.IdToken)
 
@@ -132,7 +176,11 @@ func TestRefreshFlow(t *testing.T) {
 
 	fresh, err := refresh()
 	require.NoError(t, err)
-	assert.NotEqual(t, aws.ToString(first.TokenOutput.AccessToken.AccessKeyId), aws.ToString(fresh.TokenOutput.AccessToken.AccessKeyId))
+	assert.NotEqual(
+		t,
+		aws.ToString(first.TokenOutput.AccessToken.AccessKeyId),
+		aws.ToString(fresh.TokenOutput.AccessToken.AccessKeyId),
+	)
 	assert.EqualValues(t, 900, aws.ToInt32(fresh.TokenOutput.ExpiresIn))
 
 	f.clock.advance(13 * time.Hour)
@@ -149,12 +197,23 @@ func TestIssuedCredentialsResolve(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t)
-	out, err := f.self(t).CreateOAuth2Token(t.Context(), tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
-		b.Code, b.RedirectUri, b.CodeVerifier = aws.String(f.authCode(t)), aws.String(testRedir), aws.String(verifier)
-	}))
+	out, err := f.self(t).
+		CreateOAuth2Token(t.Context(), tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
+			b.Code, b.RedirectUri, b.CodeVerifier = aws.String(
+				f.authCode(t),
+			), aws.String(
+				testRedir,
+			), aws.String(
+				verifier,
+			)
+		}))
 	require.NoError(t, err)
 
-	key, tok := aws.ToString(out.TokenOutput.AccessToken.AccessKeyId), aws.ToString(out.TokenOutput.AccessToken.SessionToken)
+	key, tok := aws.ToString(
+		out.TokenOutput.AccessToken.AccessKeyId,
+	), aws.ToString(
+		out.TokenOutput.AccessToken.SessionToken,
+	)
 
 	p, ok := f.backend.ResolvePrincipal(t.Context(), key, tok)
 	require.True(t, ok)
@@ -217,14 +276,26 @@ func TestRefreshTokenIntrospectAndRevoke(t *testing.T) {
 
 	f := newFixture(t)
 	c := f.self(t)
-	out, err := c.CreateOAuth2Token(t.Context(), tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
-		b.Code, b.RedirectUri, b.CodeVerifier = aws.String(f.authCode(t)), aws.String(testRedir), aws.String(verifier)
-	}))
+	out, err := c.CreateOAuth2Token(
+		t.Context(),
+		tokenInput("authorization_code", func(b *types.CreateOAuth2TokenRequestBody) {
+			b.Code, b.RedirectUri, b.CodeVerifier = aws.String(
+				f.authCode(t),
+			), aws.String(
+				testRedir,
+			), aws.String(
+				verifier,
+			)
+		}),
+	)
 	require.NoError(t, err)
 
 	refresh := aws.ToString(out.TokenOutput.RefreshToken)
 	check := func() *signinsdk.IntrospectOAuth2TokenWithIAMOutput {
-		got, ierr := c.IntrospectOAuth2TokenWithIAM(t.Context(), &signinsdk.IntrospectOAuth2TokenWithIAMInput{Token: aws.String(refresh)})
+		got, ierr := c.IntrospectOAuth2TokenWithIAM(
+			t.Context(),
+			&signinsdk.IntrospectOAuth2TokenWithIAMInput{Token: aws.String(refresh)},
+		)
 		require.NoError(t, ierr)
 
 		return got
@@ -236,15 +307,22 @@ func TestRefreshTokenIntrospectAndRevoke(t *testing.T) {
 	assert.Equal(t, testClient, aws.ToString(got.ClientId))
 	assert.Nil(t, got.Aud)
 
-	_, err = c.RevokeOAuth2TokenWithIAM(t.Context(), &signinsdk.RevokeOAuth2TokenWithIAMInput{Token: aws.String("not-a-refresh-token")})
+	_, err = c.RevokeOAuth2TokenWithIAM(
+		t.Context(),
+		&signinsdk.RevokeOAuth2TokenWithIAMInput{Token: aws.String("not-a-refresh-token")},
+	)
 	assert.Equal(t, "ValidationException", apiCode(err))
 
-	_, err = f.client(t, "999999999999").RevokeOAuth2TokenWithIAM(t.Context(), &signinsdk.RevokeOAuth2TokenWithIAMInput{Token: aws.String(refresh)})
+	_, err = f.client(t, "999999999999").
+		RevokeOAuth2TokenWithIAM(t.Context(), &signinsdk.RevokeOAuth2TokenWithIAMInput{Token: aws.String(refresh)})
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(check().Active))
 
 	for range 2 {
-		_, err = c.RevokeOAuth2TokenWithIAM(t.Context(), &signinsdk.RevokeOAuth2TokenWithIAMInput{Token: aws.String(refresh)})
+		_, err = c.RevokeOAuth2TokenWithIAM(
+			t.Context(),
+			&signinsdk.RevokeOAuth2TokenWithIAMInput{Token: aws.String(refresh)},
+		)
 		require.NoError(t, err)
 	}
 
