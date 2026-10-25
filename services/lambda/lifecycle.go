@@ -53,6 +53,7 @@ func (b *InMemoryBackend) Reset() {
 		b.eventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
 		b.functionConcurrencies = make(map[string]int)
 		b.activeConcurrencies = make(map[string]int)
+		b.capacityPools = make(map[string]*capacityPool)
 		b.fisFaults = make(map[string]*FISInvocationFault)
 		b.runtimes = make(map[string]*functionRuntime)
 		b.functionURLServers = make(map[string]*functionURLServer)
@@ -148,6 +149,7 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) []*functionURLSe
 	})
 	delete(b.functionConcurrencies, name)
 	delete(b.activeConcurrencies, name)
+	delete(b.capacityPools, name)
 	b.deleteProvisionedConcurrenciesForFunctionLocked(name)
 	delete(b.fisFaults, name)
 	// Removes both the unqualified resource-policy and any qualifier-scoped

@@ -178,6 +178,7 @@ type InMemoryBackend struct {
 	portAlloc                *portalloc.Allocator
 	runtimes                 map[string]*functionRuntime
 	activeConcurrencies      map[string]int
+	capacityPools            map[string]*capacityPool
 	asyncDelivery            AsyncDestinationDelivery
 	esmS3                    ESMS3Destination
 	accountID                string
@@ -259,6 +260,7 @@ func NewInMemoryBackendWithContext(
 		eventInvokeConfigs:       make(map[string]*FunctionEventInvokeConfig),
 		functionConcurrencies:    make(map[string]int),
 		activeConcurrencies:      make(map[string]int),
+		capacityPools:            make(map[string]*capacityPool),
 		fisFaults:                make(map[string]*FISInvocationFault),
 		fnCodeSigningConfigs:     make(map[string]string),
 		runtimeManagementConfigs: make(map[string]*RuntimeManagementConfig),

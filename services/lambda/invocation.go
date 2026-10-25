@@ -624,38 +624,24 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName, scalingQualifier 
 	b.mu.Lock("acquireConcurrencySlot")
 	defer b.mu.Unlock()
 
+	capFn, _ := b.functions.Get(functionName)
+	isCap := capFn != nil && capFn.CapacityProviderConfig != nil
+
+	var maxEnvs *int32
+
+	if sc, ok := b.functionScalingConfigs[permissionMapKey(functionName, scalingQualifier)]; ok && !isCap {
+		maxEnvs = sc.MaxExecutionEnvironments
+	}
+
 	reserved, hasLimit := b.functionConcurrencies[functionName]
-	if !hasLimit {
-		if sc, ok := b.functionScalingConfigs[permissionMapKey(functionName, scalingQualifier)]; ok &&
-			sc.MaxExecutionEnvironments != nil {
-			active := b.activeConcurrencies[functionName]
-			if active >= int(*sc.MaxExecutionEnvironments) {
-				return false, fmt.Errorf(
-					"%w: scaling concurrency limit reached for function %s",
-					ErrTooManyRequests,
-					functionName,
-				)
-			}
-
-			b.activeConcurrencies[functionName]++
-
-			return true, nil
-		}
-
+	if !hasLimit && maxEnvs == nil && !isCap {
 		return false, nil
 	}
 
-	// Reserved concurrency of 0 disables all invocations regardless of type.
-	if reserved == 0 {
-		return false, fmt.Errorf(
-			"%w: reserved concurrency is 0 for function %s",
-			ErrTooManyRequests,
-			functionName,
-		)
-	}
-
 	active := b.activeConcurrencies[functionName]
-	if active >= reserved {
+
+	// Reserved concurrency of 0 disables all invocations regardless of type.
+	if hasLimit && (reserved == 0 || active >= reserved) {
 		return false, fmt.Errorf(
 			"%w: concurrent execution limit reached for function %s",
 			ErrTooManyRequests,
@@ -663,15 +649,17 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName, scalingQualifier 
 		)
 	}
 
-	// Also enforce MaxExecutionEnvironments from scaling config when set.
-	if sc, ok := b.functionScalingConfigs[permissionMapKey(functionName, scalingQualifier)]; ok &&
-		sc.MaxExecutionEnvironments != nil {
-		if active >= int(*sc.MaxExecutionEnvironments) {
-			return false, fmt.Errorf(
-				"%w: scaling concurrency limit reached for function %s",
-				ErrTooManyRequests,
-				functionName,
-			)
+	if maxEnvs != nil && active >= int(*maxEnvs) {
+		return false, fmt.Errorf(
+			"%w: scaling concurrency limit reached for function %s",
+			ErrTooManyRequests,
+			functionName,
+		)
+	}
+
+	if isCap {
+		if err := b.acquireCapacityEnvLocked(capFn, scalingQualifier); err != nil {
+			return false, err
 		}
 	}
 
@@ -686,6 +674,8 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName, scalingQualifier 
 func (b *InMemoryBackend) releaseConcurrencySlot(functionName string) {
 	b.mu.Lock("releaseConcurrencySlot")
 	defer b.mu.Unlock()
+
+	b.releaseCapacityEnvLocked(functionName)
 
 	if b.activeConcurrencies[functionName] > 0 {
 		b.activeConcurrencies[functionName]--
