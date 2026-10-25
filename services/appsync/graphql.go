@@ -198,6 +198,7 @@ type execEnv struct {
 	apiID       string
 	errs        []graphqlError
 	ext         []map[string]any
+	batched     map[string]batchOutcome
 }
 
 // executeSelectionSet resolves all root fields in a selection set.
@@ -253,6 +254,10 @@ func (e *execEnv) resolveFieldValue(
 	args := extractArguments(field, e.variables)
 
 	val, err := e.cachedResolve(parentTypeName, field, resolver, cc, args, source, func() (any, error) {
+		if out, ok := e.batched[pathString(path)]; ok {
+			return out.val, out.err
+		}
+
 		return resolveField(ctx, e.backend, resolver, e.datasources, e.functions, args, source, cc)
 	})
 	e.ext = append(e.ext, cc.extensionCalls()...)
@@ -658,6 +663,10 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 		return json.Marshal(value)
 	}
 
+	return json.Marshal(defaultLambdaEvent(mu, args))
+}
+
+func defaultLambdaEvent(mu mappingUnit, args map[string]any) map[string]any {
 	event := map[string]any{jsCtxKeyArguments: args}
 	if mu.Source != nil {
 		event[jsCtxKeySource] = mu.Source
@@ -668,7 +677,7 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 		event["typeName"] = mu.TypeName
 	}
 
-	return json.Marshal(event)
+	return event
 }
 
 // invokeDynamoDBDataSource executes mu's mapped request against DynamoDB.
