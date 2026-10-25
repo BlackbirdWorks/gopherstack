@@ -3601,7 +3601,6 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireGCPLogging(byName)
 	wireGCPMonitoring(byName)
 	wireGCPStorageConsumers(byName)
-	wireGCPEventarc(byName)
 	wireAzureData(byName)
 
 	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances

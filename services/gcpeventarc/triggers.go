@@ -123,7 +123,9 @@ type transportPlan struct {
 
 func planTransport(project, location, id, uid string, t *eventarcpb.Trigger) (transportPlan, error) {
 	suffix := strings.ReplaceAll(uid, "-", "")[:suffixLen]
-	plan := transportPlan{sub: "projects/" + project + "/subscriptions/eventarc-" + location + "-" + id + "-sub-" + suffix}
+	plan := transportPlan{
+		sub: "projects/" + project + "/subscriptions/eventarc-" + location + "-" + id + "-sub-" + suffix,
+	}
 
 	supplied := t.GetTransport().GetPubsub().GetTopic()
 
@@ -172,7 +174,10 @@ func (b *InMemoryBackend) provision(plan transportPlan, trigger string) error {
 		},
 		AckDeadlineSeconds:       subscriptionAck,
 		MessageRetentionDuration: &durationpb.Duration{Seconds: subscriptionKeep},
-		RetryPolicy:              &pubsubpb.RetryPolicy{MinimumBackoff: durationpb.New(b.retryMin), MaximumBackoff: durationpb.New(b.retryMax)},
+		RetryPolicy: &pubsubpb.RetryPolicy{
+			MinimumBackoff: durationpb.New(b.retryMin),
+			MaximumBackoff: durationpb.New(b.retryMax),
+		},
 	})
 	if err != nil {
 		if plan.ownedTopic {
@@ -232,7 +237,9 @@ func (b *InMemoryBackend) buildTrigger(
 		t.Transport = nil
 	} else {
 		t.Transport = &eventarcpb.Transport{
-			Intermediary: &eventarcpb.Transport_Pubsub{Pubsub: &eventarcpb.Pubsub{Topic: plan.topic, Subscription: plan.sub}},
+			Intermediary: &eventarcpb.Transport_Pubsub{
+				Pubsub: &eventarcpb.Pubsub{Topic: plan.topic, Subscription: plan.sub},
+			},
 		}
 	}
 
@@ -269,8 +276,10 @@ func (b *InMemoryBackend) CreateTrigger(in *eventarcpb.CreateTriggerRequest) (*l
 	}
 
 	if !triggerIDRe.MatchString(in.GetTriggerId()) {
-		return nil, errInvalid("Invalid trigger id %q: use 3-63 lowercase letters, digits and hyphens, starting with a letter.",
-			in.GetTriggerId())
+		return nil, errInvalid(
+			"Invalid trigger id %q: use 3-63 lowercase letters, digits and hyphens, starting with a letter.",
+			in.GetTriggerId(),
+		)
 	}
 
 	if in.GetTrigger() == nil {

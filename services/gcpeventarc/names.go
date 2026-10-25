@@ -18,6 +18,7 @@ const (
 	wildcardLocation = "-"
 	maxLabels        = 64
 	googleChannelCfg = "googleChannelConfig"
+	fieldName        = "name"
 )
 
 // parseRes splits a resource name into the ids that follow the given collection kinds.
@@ -54,7 +55,11 @@ func parseParent(name string) (string, string, error) {
 func parseChild(name, kind string) (string, string, string, error) {
 	ids, ok := parseRes(name, "projects", "locations", kind)
 	if !ok {
-		return "", "", "", errInvalid("Invalid name %q: want projects/{project}/locations/{location}/%s/{id}.", name, kind)
+		return "", "", "", errInvalid(
+			"Invalid name %q: want projects/{project}/locations/{location}/%s/{id}.",
+			name,
+			kind,
+		)
 	}
 
 	return ids[0], ids[1], ids[2], nil

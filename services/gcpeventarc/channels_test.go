@@ -1,6 +1,7 @@
 package gcpeventarc_test
 
 import (
+	"errors"
 	"testing"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
@@ -92,8 +93,8 @@ func TestChannelConnectionActivation(t *testing.T) {
 	connID := "partner-link"
 
 	tests := []struct {
-		name  string
 		conn  *eventarcpb.ChannelConnection
+		name  string
 		want  codes.Code
 		state eventarcpb.Channel_State
 	}{
@@ -147,11 +148,15 @@ func TestChannelConnectionActivation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ch.GetName(), read.GetChannel())
 
-	list, err := e.client.ListChannelConnections(t.Context(), &eventarcpb.ListChannelConnectionsRequest{Parent: parent}).Next()
+	list, err := e.client.ListChannelConnections(t.Context(), &eventarcpb.ListChannelConnectionsRequest{Parent: parent}).
+		Next()
 	require.NoError(t, err)
 	assert.Equal(t, read.GetName(), list.GetName())
 
-	delOp, err := e.client.DeleteChannelConnection(t.Context(), &eventarcpb.DeleteChannelConnectionRequest{Name: read.GetName()})
+	delOp, err := e.client.DeleteChannelConnection(
+		t.Context(),
+		&eventarcpb.DeleteChannelConnectionRequest{Name: read.GetName()},
+	)
 	require.NoError(t, err)
 	_, err = delOp.Wait(t.Context())
 	require.NoError(t, err)
@@ -181,7 +186,10 @@ func TestProviders(t *testing.T) {
 
 	e := newEnv(t)
 
-	p, err := e.client.GetProvider(t.Context(), &eventarcpb.GetProviderRequest{Name: parent + "/providers/storage.googleapis.com"})
+	p, err := e.client.GetProvider(
+		t.Context(),
+		&eventarcpb.GetProviderRequest{Name: parent + "/providers/storage.googleapis.com"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "Cloud Storage", p.GetDisplayName())
 
@@ -201,7 +209,10 @@ func TestProviders(t *testing.T) {
 	assert.True(t, attrs[0].GetRequired())
 	assert.True(t, attrs[1].GetPathPatternSupported())
 
-	_, err = e.client.GetProvider(t.Context(), &eventarcpb.GetProviderRequest{Name: parent + "/providers/nope.googleapis.com"})
+	_, err = e.client.GetProvider(
+		t.Context(),
+		&eventarcpb.GetProviderRequest{Name: parent + "/providers/nope.googleapis.com"},
+	)
 	assert.Equal(t, codes.NotFound, code(err))
 
 	var names []string
@@ -209,7 +220,7 @@ func TestProviders(t *testing.T) {
 	it := e.client.ListProviders(t.Context(), &eventarcpb.ListProvidersRequest{Parent: parent, OrderBy: "name desc"})
 	for {
 		got, nerr := it.Next()
-		if nerr == iterator.Done {
+		if errors.Is(nerr, iterator.Done) {
 			break
 		}
 
@@ -226,7 +237,8 @@ func TestProviders(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, providerName, filtered.GetName())
 
-	_, err = e.client.ListProviders(t.Context(), &eventarcpb.ListProvidersRequest{Parent: parent, Filter: "bogus"}).Next()
+	_, err = e.client.ListProviders(t.Context(), &eventarcpb.ListProvidersRequest{Parent: parent, Filter: "bogus"}).
+		Next()
 	assert.Equal(t, codes.InvalidArgument, code(err))
 }
 
@@ -259,7 +271,10 @@ func TestGoogleChannelConfig(t *testing.T) {
 	})
 	assert.Equal(t, codes.InvalidArgument, code(err))
 
-	_, err = e.client.GetGoogleChannelConfig(t.Context(), &eventarcpb.GetGoogleChannelConfigRequest{Name: parent + "/googleChannelConfigs"})
+	_, err = e.client.GetGoogleChannelConfig(
+		t.Context(),
+		&eventarcpb.GetGoogleChannelConfigRequest{Name: parent + "/googleChannelConfigs"},
+	)
 	assert.Equal(t, codes.InvalidArgument, code(err))
 }
 
@@ -281,7 +296,7 @@ func TestLocations(t *testing.T) {
 
 	for {
 		l, nerr := it.Next()
-		if nerr == iterator.Done {
+		if errors.Is(nerr, iterator.Done) {
 			break
 		}
 
@@ -331,7 +346,10 @@ func TestTriggerIAMPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"eventarc.triggers.get"}, perms.GetPermissions())
 
-	_, err = e.client.GetIamPolicy(t.Context(), &iampb.GetIamPolicyRequest{Resource: parent + "/triggers/ghost-trigger"})
+	_, err = e.client.GetIamPolicy(
+		t.Context(),
+		&iampb.GetIamPolicyRequest{Resource: parent + "/triggers/ghost-trigger"},
+	)
 	assert.Equal(t, codes.NotFound, code(err))
 
 	_, err = e.client.GetIamPolicy(t.Context(), &iampb.GetIamPolicyRequest{Resource: parent})

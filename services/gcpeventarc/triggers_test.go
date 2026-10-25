@@ -1,6 +1,7 @@
 package gcpeventarc_test
 
 import (
+	"errors"
 	"testing"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
@@ -26,7 +27,11 @@ func TestCreateTriggerShape(t *testing.T) {
 
 	ps := got.GetTransport().GetPubsub()
 	assert.Contains(t, ps.GetTopic(), "projects/"+project+"/topics/eventarc-"+location+"-shape-trigger-")
-	assert.Contains(t, ps.GetSubscription(), "projects/"+project+"/subscriptions/eventarc-"+location+"-shape-trigger-sub-")
+	assert.Contains(
+		t,
+		ps.GetSubscription(),
+		"projects/"+project+"/subscriptions/eventarc-"+location+"-shape-trigger-sub-",
+	)
 
 	read, err := e.client.GetTrigger(t.Context(), &eventarcpb.GetTriggerRequest{Name: got.GetName()})
 	require.NoError(t, err)
@@ -63,84 +68,102 @@ func TestCreateTriggerErrors(t *testing.T) {
 	topic := "projects/" + project + "/topics/missing"
 
 	tests := []struct {
+		mutate func(*eventarcpb.Trigger)
 		name   string
 		parent string
 		id     string
-		mutate func(*eventarcpb.Trigger)
 		want   codes.Code
 	}{
-		{"bad parent", "projects/p", "good-trigger", nil, codes.InvalidArgument},
-		{"unknown location", "projects/p/locations/mars-1", "good-trigger", nil, codes.InvalidArgument},
-		{"bad id", parent, "A", nil, codes.InvalidArgument},
-		{"no filters", parent, "good-trigger", func(tr *eventarcpb.Trigger) { tr.EventFilters = nil }, codes.InvalidArgument},
-		{"no type filter", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		{mutate: nil, name: "bad parent", parent: "projects/p", id: "good-trigger", want: codes.InvalidArgument},
+		{
+			mutate: nil,
+			name:   "unknown location",
+			parent: "projects/p/locations/mars-1",
+			id:     "good-trigger",
+			want:   codes.InvalidArgument,
+		},
+		{mutate: nil, name: "bad id", parent: parent, id: "A", want: codes.InvalidArgument},
+		{
+			mutate: func(tr *eventarcpb.Trigger) { tr.EventFilters = nil },
+			name:   "no filters",
+			parent: parent,
+			id:     "good-trigger",
+			want:   codes.InvalidArgument,
+		},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventFilters = []*eventarcpb.EventFilter{{Attribute: "bucket", Value: "b"}}
-		}, codes.InvalidArgument},
-		{"unknown type", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "no type filter", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventFilters = []*eventarcpb.EventFilter{typeFilter("google.cloud.audit.log.v1.written")}
-		}, codes.InvalidArgument},
-		{"duplicate attribute", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "unknown type", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventFilters = append(tr.EventFilters, typeFilter("google.cloud.pubsub.topic.v1.messagePublished"))
-		}, codes.InvalidArgument},
-		{"storage needs bucket", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "duplicate attribute", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventFilters = []*eventarcpb.EventFilter{typeFilter("google.cloud.storage.object.v1.finalized")}
-		}, codes.InvalidArgument},
-		{"unknown attribute", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "storage needs bucket", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventFilters = append(tr.EventFilters, &eventarcpb.EventFilter{Attribute: "colour", Value: "red"})
-		}, codes.InvalidArgument},
-		{"path pattern unsupported on bucket", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "unknown attribute", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventFilters = []*eventarcpb.EventFilter{
 				typeFilter("google.cloud.storage.object.v1.finalized"),
 				{Attribute: "bucket", Value: "b*", Operator: "match-path-pattern"},
 			}
-		}, codes.InvalidArgument},
-		{"bad operator", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "path pattern unsupported on bucket", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventFilters[0].Operator = "path_pattern"
-		}, codes.InvalidArgument},
-		{"no destination", parent, "good-trigger", func(tr *eventarcpb.Trigger) { tr.Destination = nil }, codes.InvalidArgument},
-		{"cloud function destination is read-only", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "bad operator", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{
+			mutate: func(tr *eventarcpb.Trigger) { tr.Destination = nil },
+			name:   "no destination",
+			parent: parent,
+			id:     "good-trigger",
+			want:   codes.InvalidArgument,
+		},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Destination = &eventarcpb.Destination{Descriptor_: &eventarcpb.Destination_CloudFunction{
 				CloudFunction: "projects/p/locations/l/functions/f",
 			}}
-		}, codes.InvalidArgument},
-		{"workflow destination unavailable", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "cloud function destination is read-only", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Destination = &eventarcpb.Destination{Descriptor_: &eventarcpb.Destination_Workflow{
 				Workflow: "projects/p/locations/l/workflows/w",
 			}}
-		}, codes.FailedPrecondition},
-		{"run region required", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "workflow destination unavailable", parent: parent, id: "good-trigger", want: codes.FailedPrecondition},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Destination = &eventarcpb.Destination{Descriptor_: &eventarcpb.Destination_CloudRun{
 				CloudRun: &eventarcpb.CloudRun{Service: "svc"},
 			}}
-		}, codes.InvalidArgument},
-		{"run path needs a slash", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "run region required", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Destination = runDestination("svc", "events")
-		}, codes.InvalidArgument},
-		{"http endpoint scheme", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "run path needs a slash", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Destination = httpDestination("ftp://host/x")
-		}, codes.InvalidArgument},
-		{"service account is an email", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "http endpoint scheme", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.ServiceAccount = "not-an-email"
-		}, codes.InvalidArgument},
-		{"protobuf content type", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "service account is an email", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventDataContentType = "application/protobuf"
-		}, codes.InvalidArgument},
-		{"negative retry", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "protobuf content type", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.RetryPolicy = &eventarcpb.Trigger_RetryPolicy{MaxAttempts: -1}
-		}, codes.InvalidArgument},
-		{"bad label", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "negative retry", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Labels = map[string]string{"Bad Key": "v"}
-		}, codes.InvalidArgument},
-		{"missing user topic", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "bad label", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Transport = pubsubTrigger(topic, run).GetTransport()
-		}, codes.FailedPrecondition},
-		{"user topic only for pubsub events", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "missing user topic", parent: parent, id: "good-trigger", want: codes.FailedPrecondition},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.EventFilters = storageTrigger("finalized", "b", run).GetEventFilters()
 			tr.Transport = pubsubTrigger(topic, run).GetTransport()
-		}, codes.InvalidArgument},
-		{"unknown channel", parent, "good-trigger", func(tr *eventarcpb.Trigger) {
+		}, name: "user topic only for pubsub events", parent: parent, id: "good-trigger", want: codes.InvalidArgument},
+		{mutate: func(tr *eventarcpb.Trigger) {
 			tr.Channel = parent + "/channels/ghost"
-		}, codes.NotFound},
+		}, name: "unknown channel", parent: parent, id: "good-trigger", want: codes.NotFound},
 	}
 
 	for _, tt := range tests {
@@ -190,10 +213,10 @@ func TestUpdateTrigger(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		mutate func(tr *eventarcpb.Trigger)
-		paths  []string
 		check  func(t *testing.T, got *eventarcpb.Trigger)
+		name   string
+		paths  []string
 		want   codes.Code
 	}{
 		{
@@ -239,7 +262,7 @@ func TestUpdateTrigger(t *testing.T) {
 		},
 		{
 			name:   "unsupported path",
-			mutate: func(tr *eventarcpb.Trigger) {},
+			mutate: func(*eventarcpb.Trigger) {},
 			paths:  []string{"transport"},
 			want:   codes.InvalidArgument,
 		},
@@ -347,12 +370,12 @@ func TestListTriggers(t *testing.T) {
 
 		it := e.client.ListTriggers(t.Context(), req)
 		for {
-			tr, err := it.Next()
-			if err == iterator.Done {
+			tr, nerr := it.Next()
+			if errors.Is(nerr, iterator.Done) {
 				return out
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, nerr)
 
 			out = append(out, tr.GetName())
 		}
@@ -365,7 +388,8 @@ func TestListTriggers(t *testing.T) {
 	assert.Len(t, names(&eventarcpb.ListTriggersRequest{Parent: "projects/" + project + "/locations/-"}), 4,
 		"the - location spans every region")
 
-	_, err = e.client.ListTriggers(t.Context(), &eventarcpb.ListTriggersRequest{Parent: parent, OrderBy: "colour"}).Next()
+	_, err = e.client.ListTriggers(t.Context(), &eventarcpb.ListTriggersRequest{Parent: parent, OrderBy: "colour"}).
+		Next()
 	assert.Equal(t, codes.InvalidArgument, code(err))
 
 	_, err = e.client.ListTriggers(t.Context(), &eventarcpb.ListTriggersRequest{Parent: parent, Filter: "x=y"}).Next()

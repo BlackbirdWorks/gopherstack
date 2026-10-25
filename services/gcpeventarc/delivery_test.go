@@ -185,7 +185,8 @@ func TestStorageDelivery(t *testing.T) {
 				_, err := w.Write([]byte("x"))
 				require.NoError(t, err)
 				require.NoError(t, w.Close())
-				_, err = b.Object("m.txt").Update(t.Context(), storage.ObjectAttrsToUpdate{Metadata: map[string]string{"a": "b"}})
+				_, err = b.Object("m.txt").
+					Update(t.Context(), storage.ObjectAttrsToUpdate{Metadata: map[string]string{"a": "b"}})
 				require.NoError(t, err)
 			},
 			want: "google.cloud.storage.object.v1.metadataUpdated", subject: "objects/m.txt",

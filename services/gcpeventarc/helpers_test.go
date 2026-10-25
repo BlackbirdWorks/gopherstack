@@ -226,11 +226,16 @@ func pubsubTrigger(topic string, dest *eventarcpb.Destination) *eventarcpb.Trigg
 	return t
 }
 
-func storageTrigger(typ, bucket string, dest *eventarcpb.Destination, extra ...*eventarcpb.EventFilter) *eventarcpb.Trigger {
-	filters := []*eventarcpb.EventFilter{
-		typeFilter("google.cloud.storage.object.v1." + typ),
-		{Attribute: "bucket", Value: bucket},
-	}
+func storageTrigger(
+	typ, bucket string,
+	dest *eventarcpb.Destination,
+	extra ...*eventarcpb.EventFilter,
+) *eventarcpb.Trigger {
+	filters := make([]*eventarcpb.EventFilter, 0, 2+len(extra))
+	filters = append(filters,
+		typeFilter("google.cloud.storage.object.v1."+typ),
+		&eventarcpb.EventFilter{Attribute: "bucket", Value: bucket},
+	)
 
 	return &eventarcpb.Trigger{EventFilters: append(filters, extra...), Destination: dest}
 }

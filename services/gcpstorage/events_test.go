@@ -13,8 +13,8 @@ import (
 )
 
 type recorder struct {
-	mu  sync.Mutex
 	got []gcpstorage.ObjectEvent
+	mu  sync.Mutex
 }
 
 func (r *recorder) observe(ev gcpstorage.ObjectEvent) {
@@ -40,10 +40,10 @@ func TestObjectEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		versioned bool
 		act       func(t *testing.T, e *sdkEnv, b *storage.BucketHandle)
+		name      string
 		want      []string
+		versioned bool
 	}{
 		{
 			name: "upload finalizes",

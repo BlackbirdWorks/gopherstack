@@ -27,9 +27,11 @@ func TestRESTFlow(t *testing.T) {
 			Status: 200, Contains: []string{`"service":"receiver"`, `"path":"/rest"`, `"subscription"`},
 		},
 		{
-			Name: "list providers", Method: http.MethodGet,
-			Path:   "/v1/projects/test-project/locations/us-central1/providers",
-			Status: 200, Contains: []string{`pubsub.googleapis.com`, `storage.googleapis.com`, `"pathPatternSupported":true`},
+			Name:     "list providers",
+			Method:   http.MethodGet,
+			Path:     "/v1/projects/test-project/locations/us-central1/providers",
+			Status:   200,
+			Contains: []string{`pubsub.googleapis.com`, `storage.googleapis.com`, `"pathPatternSupported":true`},
 		},
 		{
 			Name: "patch trigger", Method: http.MethodPatch, Path: trig + "?updateMask=labels",

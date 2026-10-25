@@ -28,9 +28,9 @@ const (
 // InMemoryBackend holds all buckets, objects and resumable upload sessions
 // under one lock.
 type InMemoryBackend struct {
-	mu      *lockmetrics.RWMutex
-	buckets map[string]*Bucket
-	uploads map[string]*uploadSession
+	mu        *lockmetrics.RWMutex
+	buckets   map[string]*Bucket
+	uploads   map[string]*uploadSession
 	observers []ObjectObserver
 	pending   []ObjectEvent
 	lastGen   int64

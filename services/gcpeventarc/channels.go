@@ -25,7 +25,7 @@ func newToken() string { return strings.ReplaceAll(uuid.NewString(), "-", "") }
 func orderTriggers(all []*eventarcpb.Trigger, orderBy string) error {
 	cmpFn, err := orderFunc(orderBy, func(t *eventarcpb.Trigger, field string) (string, bool) {
 		switch field {
-		case "name":
+		case fieldName:
 			return t.GetName(), true
 		case "create_time":
 			return timeKey(t.GetCreateTime()), true
@@ -49,7 +49,7 @@ func timeKey(t *timestamppb.Timestamp) string {
 }
 
 func orderFunc[T any](orderBy string, key func(T, string) (string, bool)) (func(a, b T) int, error) {
-	field, desc := "name", false
+	field, desc := fieldName, false
 
 	if orderBy != "" {
 		f, dir, _ := strings.Cut(strings.TrimSpace(orderBy), " ")
@@ -108,8 +108,10 @@ func (b *InMemoryBackend) CreateChannel(in *eventarcpb.CreateChannelRequest) (*l
 	}
 
 	if !channelIDRe.MatchString(in.GetChannelId()) {
-		return nil, errInvalid("Invalid channel id %q: use 3-63 lowercase letters, digits and hyphens, starting with a letter.",
-			in.GetChannelId())
+		return nil, errInvalid(
+			"Invalid channel id %q: use 3-63 lowercase letters, digits and hyphens, starting with a letter.",
+			in.GetChannelId(),
+		)
 	}
 
 	if in.GetChannel() == nil {
@@ -181,7 +183,7 @@ func (b *InMemoryBackend) ListChannels(in *eventarcpb.ListChannelsRequest) (*eve
 
 	cmpFn, err := orderFunc(in.GetOrderBy(), func(c *eventarcpb.Channel, field string) (string, bool) {
 		switch field {
-		case "name":
+		case fieldName:
 			return c.GetName(), true
 		case "create_time":
 			return timeKey(c.GetCreateTime()), true
@@ -466,7 +468,11 @@ func (b *InMemoryBackend) GetGoogleChannelConfig(name string) (*eventarcpb.Googl
 func parseConfigName(name string) (string, string, error) {
 	ids, ok := parseRes(strings.TrimSuffix(name, "/"+googleChannelCfg), "projects", "locations")
 	if !ok || !strings.HasSuffix(name, "/"+googleChannelCfg) {
-		return "", "", errInvalid("Invalid name %q: want projects/{project}/locations/{location}/%s.", name, googleChannelCfg)
+		return "", "", errInvalid(
+			"Invalid name %q: want projects/{project}/locations/{location}/%s.",
+			name,
+			googleChannelCfg,
+		)
 	}
 
 	if !knownLocation(ids[1]) {

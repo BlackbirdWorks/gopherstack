@@ -34,16 +34,16 @@ type channelRec struct {
 
 // InMemoryBackend holds all Eventarc state under one lock.
 type InMemoryBackend struct {
-	now      func() time.Time
-	mu       *lockmetrics.RWMutex
-	ops      *gcplro.Store
+	svc      Services
 	client   *http.Client
+	ops      *gcplro.Store
+	now      func() time.Time
 	triggers map[string]*triggerRec
 	channels map[string]*channelRec
 	conns    map[string]*eventarcpb.ChannelConnection
 	configs  map[string]*eventarcpb.GoogleChannelConfig
+	mu       *lockmetrics.RWMutex
 	pushBase string
-	svc      Services
 	retryMin time.Duration
 	retryMax time.Duration
 	seq      uint64

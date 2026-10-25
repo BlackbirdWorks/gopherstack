@@ -45,7 +45,9 @@ func (b *InMemoryBackend) GetProvider(name string) (*eventarcpb.Provider, error)
 }
 
 // ListProviders lists the event providers; filter matches a substring of name or display_name.
-func (b *InMemoryBackend) ListProviders(in *eventarcpb.ListProvidersRequest) (*eventarcpb.ListProvidersResponse, error) {
+func (b *InMemoryBackend) ListProviders(
+	in *eventarcpb.ListProvidersRequest,
+) (*eventarcpb.ListProvidersResponse, error) {
 	project, loc, err := checkProviderLocation(in.GetParent())
 	if err != nil {
 		return nil, err
@@ -74,7 +76,7 @@ func (b *InMemoryBackend) ListProviders(in *eventarcpb.ListProvidersRequest) (*e
 
 	cmpFn, err := orderFunc(in.GetOrderBy(), func(p *eventarcpb.Provider, field string) (string, bool) {
 		switch field {
-		case "name":
+		case fieldName:
 			return p.GetName(), true
 		case "display_name", "displayName":
 			return p.GetDisplayName(), true
@@ -108,7 +110,7 @@ func providerFilter(f string) (func(*eventarcpb.Provider) bool, error) {
 	val = strings.ToLower(strings.Trim(strings.TrimSpace(val), `"`))
 
 	switch strings.TrimSpace(field) {
-	case "name":
+	case fieldName:
 		return func(p *eventarcpb.Provider) bool { return strings.Contains(strings.ToLower(p.GetName()), val) }, nil
 	case "displayName", "display_name":
 		return func(p *eventarcpb.Provider) bool { return strings.Contains(strings.ToLower(p.GetDisplayName()), val) }, nil
@@ -146,9 +148,9 @@ func (b *InMemoryBackend) ListLocations(in *location.ListLocationsRequest) (*loc
 		return nil, errInvalid("page_size must not be negative.")
 	}
 
-	all := make([]*location.Location, 0, len(locations))
+	all := make([]*location.Location, 0, len(locations()))
 
-	for _, l := range locations {
+	for _, l := range locations() {
 		all = append(all, buildLocation(ids[0], l))
 	}
 

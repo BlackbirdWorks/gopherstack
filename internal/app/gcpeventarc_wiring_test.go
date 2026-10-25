@@ -61,9 +61,13 @@ func TestEventarcTargets(t *testing.T) {
 			service: "fn", want: "http://fn.localhost:2",
 		},
 		{
-			name:    "run wins over a function of the same id",
-			targets: eventarcTargets{run: fakeRun{base + "/services/x": "http://run"}, fns: fakeFns{base + "/functions/x": "http://fn"}},
-			service: "x", want: "http://run",
+			name: "run wins over a function of the same id",
+			targets: eventarcTargets{
+				run: fakeRun{base + "/services/x": "http://run"},
+				fns: fakeFns{base + "/functions/x": "http://fn"},
+			},
+			service: "x",
+			want:    "http://run",
 		},
 		{name: "unknown", targets: eventarcTargets{run: fakeRun{}, fns: fakeFns{}}, service: "ghost", wantErr: true},
 		{name: "nothing wired", service: "ghost", wantErr: true},
@@ -136,7 +140,13 @@ func TestWireGCPEventarcStorageToHTTPEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, op.GetDone())
 
-	_, err = gcs.Backend.PutObject("wired", "f.txt", []byte("data"), gcpstoragebackend.Patch{}, gcpstoragebackend.Preconds{})
+	_, err = gcs.Backend.PutObject(
+		"wired",
+		"f.txt",
+		[]byte("data"),
+		gcpstoragebackend.Patch{},
+		gcpstoragebackend.Preconds{},
+	)
 	require.NoError(t, err)
 
 	r := <-got

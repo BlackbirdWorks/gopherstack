@@ -37,8 +37,12 @@ func TestSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	connOp, err := src.client.CreateChannelConnection(ctx, &eventarcpb.CreateChannelConnectionRequest{
-		Parent: parent, ChannelConnectionId: "kept-link",
-		ChannelConnection: &eventarcpb.ChannelConnection{Channel: ch.GetName(), ActivationToken: ch.GetActivationToken()},
+		Parent:              parent,
+		ChannelConnectionId: "kept-link",
+		ChannelConnection: &eventarcpb.ChannelConnection{
+			Channel:         ch.GetName(),
+			ActivationToken: ch.GetActivationToken(),
+		},
 	})
 	require.NoError(t, err)
 	_, err = connOp.Wait(ctx)
@@ -71,7 +75,10 @@ func TestSnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cfg, err := dst.client.GetGoogleChannelConfig(ctx, &eventarcpb.GetGoogleChannelConfigRequest{Name: parent + "/googleChannelConfig"})
+	cfg, err := dst.client.GetGoogleChannelConfig(
+		ctx,
+		&eventarcpb.GetGoogleChannelConfigRequest{Name: parent + "/googleChannelConfig"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, key, cfg.GetCryptoKeyName())
 
