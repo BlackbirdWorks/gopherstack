@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 )
 
 // newSessionHeaderPattern mirrors the real AWS SDK model's
@@ -57,7 +55,7 @@ func TestNewSessionHeaderFormat_MatchesSDKPattern(t *testing.T) {
 func TestBackend_TouchSession_UnknownSessionIsNoop(t *testing.T) {
 	t.Parallel()
 
-	b := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
+	b := newEchoBackend("000000000000", "us-east-1")
 	outcome := b.TouchSession("never-created")
 	assert.Empty(t, outcome.ClosedSessionID)
 	assert.Empty(t, b.ListSessions())

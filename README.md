@@ -867,8 +867,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Personalize](services/personalize/README.md) | A | 74 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 3 structural gaps; 3 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 70 | 1 gap; 11 structural gaps |
-| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 structural gap |
+| [SageMaker](services/sagemaker/README.md) | A | 70 | 1 gap; 19 structural gaps |
+| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap; 1 structural gap |
 | [Textract](services/textract/README.md) | A | 25 | 2 structural gaps; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 44 | 2 structural gaps |
 | [Translate](services/translate/README.md) | A | 19 | 1 gap; 2 structural gaps |

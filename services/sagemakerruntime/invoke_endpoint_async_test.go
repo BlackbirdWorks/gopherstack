@@ -10,8 +10,6 @@ import (
 	sagemakerruntimesdk "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 )
 
 // --- InvokeEndpointAsync tests ---
@@ -81,21 +79,6 @@ func TestAsyncInvocationOutputLocation(t *testing.T) {
 			headers:         nil,
 			containsInferID: true,
 		},
-		{
-			name: "caller_supplied_location_used_verbatim",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Outputlocation": "s3://my-bucket/results/",
-			},
-			wantOutputLocation: "s3://my-bucket/results/",
-		},
-		{
-			name: "caller_supplied_location_with_explicit_inference_id",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Outputlocation": "s3://my-bucket/out/",
-				"X-Amzn-Sagemaker-Inference-Id":   "my-infer-42",
-			},
-			wantOutputLocation: "s3://my-bucket/out/",
-		},
 	}
 
 	for _, tt := range tests {
@@ -153,7 +136,7 @@ func TestSDKInvokeEndpointAsync_FilenameShapesOutputLocation(t *testing.T) {
 	}{
 		{
 			name:        "default_filename_when_not_supplied",
-			wantSegment: "/output",
+			wantSegment: ".out",
 		},
 		{
 			name:        "caller_supplied_filename_used",
@@ -198,18 +181,6 @@ func TestAsyncInvocationFailureLocation(t *testing.T) {
 		name    string
 	}{
 		{name: "generated_location_when_not_supplied", headers: nil},
-		{
-			name: "caller_supplied_output_location",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Outputlocation": "s3://my-bucket/results/",
-			},
-		},
-		{
-			name: "caller_supplied_output_location_no_trailing_slash",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Outputlocation": "s3://my-bucket/results/out.json",
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -292,88 +263,29 @@ func TestAsyncInvocationInferenceIDPreserved(t *testing.T) {
 	}
 }
 
-// TestBackendRecordAsyncWithSuppliedLocation verifies that an explicit
-// outputLocation is stored instead of the generated fake S3 path.
-func TestBackendRecordAsyncWithSuppliedLocation(t *testing.T) {
+// TestBackendRecordAsyncStoresLocations verifies RecordAsyncInvocation keeps exactly the
+// locations the container engine reported, never inventing its own.
+func TestBackendRecordAsyncStoresLocations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		outputLocation     string
-		wantContainsS3Mock bool
+		name    string
+		output  string
+		failure string
 	}{
-		{
-			name:               "no_location_generates_fake",
-			outputLocation:     "",
-			wantContainsS3Mock: true,
-		},
-		{
-			name:           "supplied_location_stored_verbatim",
-			outputLocation: "s3://real-bucket/path/output/",
-		},
+		{name: "verbatim", output: "s3://b/out/infer-1.out", failure: "s3://b/out/infer-1-error.out"},
+		{name: "empty_stays_empty"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
-			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.outputLocation, "")
+			b := newEchoBackend("000000000000", "us-east-1")
+			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.output, tt.failure)
 
-			if tt.wantContainsS3Mock {
-				assert.Contains(t, inv.OutputLocation, "sagemaker-runtime-mock")
-			} else {
-				assert.Equal(t, tt.outputLocation, inv.OutputLocation)
-			}
-		})
-	}
-}
-
-// TestBackendRecordAsyncFailureLocationDerivation verifies that
-// RecordAsyncInvocation derives a distinct FailureLocation for every shape of
-// OutputLocation (generated, caller-supplied with/without a trailing slash,
-// caller-supplied ending in "/output"), matching the real AWS convention of
-// InvokeEndpointAsync always returning both an OutputLocation and a
-// FailureLocation.
-func TestBackendRecordAsyncFailureLocationDerivation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		outputLocation string
-		wantFailureLoc string
-	}{
-		{
-			name:           "generated_output_location_ends_in_output",
-			outputLocation: "",
-			wantFailureLoc: "s3://sagemaker-runtime-mock/ep/infer-1/failure",
-		},
-		{
-			name:           "supplied_location_ending_in_output",
-			outputLocation: "s3://real-bucket/path/output",
-			wantFailureLoc: "s3://real-bucket/path/failure",
-		},
-		{
-			name:           "supplied_location_with_trailing_slash",
-			outputLocation: "s3://my-bucket/results/",
-			wantFailureLoc: "s3://my-bucket/results/failure",
-		},
-		{
-			name:           "supplied_location_opaque_key",
-			outputLocation: "s3://my-bucket/results/out.json",
-			wantFailureLoc: "s3://my-bucket/results/out.json-failure",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
-			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.outputLocation, "")
-
-			assert.Equal(t, tt.wantFailureLoc, inv.FailureLocation)
-			assert.NotEqual(t, inv.OutputLocation, inv.FailureLocation)
+			assert.Equal(t, tt.output, inv.OutputLocation)
+			assert.Equal(t, tt.failure, inv.FailureLocation)
 		})
 	}
 }
@@ -456,8 +368,8 @@ func TestSDKInvokeEndpointAsync_PathExtensionShapesLocations(t *testing.T) {
 		wantContains  string
 		wantNotInPath string
 	}{
-		{name: "extension_appended", extension: "team-a/run-1", wantContains: "/ep/team-a/run-1/"},
-		{name: "slashes_trimmed", extension: "/team-b/", wantContains: "/ep/team-b/"},
+		{name: "extension_appended", extension: "team-a/run-1", wantContains: "/team-a/run-1/"},
+		{name: "slashes_trimmed", extension: "/team-b/", wantContains: "/team-b/"},
 		{name: "omitted", wantNotInPath: "team"},
 	}
 

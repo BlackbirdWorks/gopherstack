@@ -183,13 +183,28 @@ type CaptureOption struct {
 
 // AsyncInferenceConfig configures asynchronous inference for an endpoint.
 type AsyncInferenceConfig struct {
-	OutputConfig AsyncOutputConfig `json:"OutputConfig"`
+	ClientConfig *AsyncClientConfig `json:"ClientConfig,omitempty"`
+	OutputConfig AsyncOutputConfig  `json:"OutputConfig"`
+}
+
+// AsyncClientConfig mirrors types.AsyncInferenceClientConfig.
+type AsyncClientConfig struct {
+	MaxConcurrentInvocationsPerInstance *int32 `json:"MaxConcurrentInvocationsPerInstance,omitempty"`
 }
 
 // AsyncOutputConfig specifies the async inference output location.
 type AsyncOutputConfig struct {
-	S3OutputPath string `json:"S3OutputPath"`
-	KmsKeyID     string `json:"KmsKeyId,omitempty"`
+	NotificationConfig *AsyncNotificationConfig `json:"NotificationConfig,omitempty"`
+	S3OutputPath       string                   `json:"S3OutputPath"`
+	KmsKeyID           string                   `json:"KmsKeyId,omitempty"`
+	S3FailurePath      string                   `json:"S3FailurePath,omitempty"`
+}
+
+// AsyncNotificationConfig mirrors types.AsyncInferenceNotificationConfig.
+type AsyncNotificationConfig struct {
+	SuccessTopic               string   `json:"SuccessTopic,omitempty"`
+	ErrorTopic                 string   `json:"ErrorTopic,omitempty"`
+	IncludeInferenceResponseIn []string `json:"IncludeInferenceResponseIn,omitempty"`
 }
 
 // EndpointConfig represents a SageMaker endpoint configuration.

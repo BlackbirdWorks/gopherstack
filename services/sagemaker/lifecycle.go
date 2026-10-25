@@ -196,6 +196,10 @@ func (b *InMemoryBackend) Shutdown(ctx context.Context) {
 		}
 	}()
 
+	if eng := b.engineOrNil(); eng != nil {
+		eng.stopAll()
+	}
+
 	done := make(chan struct{})
 
 	go func() {

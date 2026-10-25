@@ -1,6 +1,7 @@
 package sagemakerruntime
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,7 +10,16 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
+
+// okInvoker answers every invocation with an empty 200, so session handling can be tested alone.
+type okInvoker struct{ ContainerInvoker }
+
+func (okInvoker) InvokeEndpoint(context.Context, sagemaker.InvokeRequest) (*sagemaker.InvokeResult, error) {
+	return &sagemaker.InvokeResult{InvokedVariant: "AllTraffic"}, nil
+}
 
 func doWhiteboxRequest(
 	t *testing.T, h *Handler, method, path string, headers map[string]string,
@@ -99,6 +109,7 @@ func TestHandler_ClosedSessionIdHeader(t *testing.T) {
 		t.Parallel()
 
 		b := NewInMemoryBackend("000000000000", "us-east-1")
+		b.SetInvoker(okInvoker{})
 		h := NewHandler(b)
 
 		session := b.StartSession("ep")
@@ -119,6 +130,7 @@ func TestHandler_ClosedSessionIdHeader(t *testing.T) {
 		t.Parallel()
 
 		b := NewInMemoryBackend("000000000000", "us-east-1")
+		b.SetInvoker(okInvoker{})
 		h := NewHandler(b)
 
 		session := b.StartSession("ep")

@@ -1,62 +1,20 @@
 package sagemakerruntime
 
-import (
-	"fmt"
-	"strings"
-	"time"
-)
+import "time"
 
-// RecordAsyncInvocation stores accepted asynchronous inference work.
-// If outputLocation is empty a fake S3 location is synthesised, using
-// filename as its final path segment when the caller supplied one --
-// matching InvokeEndpointAsyncInput.Filename's documented behaviour
-// ("If not specified, Amazon SageMaker AI generates a filename based on
-// the inference ID").
+// RecordAsyncInvocation stores an accepted asynchronous inference request.
 func (b *InMemoryBackend) RecordAsyncInvocation(
-	endpointName, requestedID, input, outputLocation, filename string,
-) *AsyncInvocation {
-	return b.RecordAsyncInvocationWithExtension(endpointName, requestedID, input, outputLocation, filename, "")
-}
-
-// RecordAsyncInvocationWithExtension is RecordAsyncInvocation plus the
-// S3OutputPathExtension, appended to the synthesised output path.
-func (b *InMemoryBackend) RecordAsyncInvocationWithExtension(
-	endpointName, requestedID, input, outputLocation, filename, pathExtension string,
+	endpointName, inferenceID, input, outputLocation, failureLocation string,
 ) *AsyncInvocation {
 	b.mu.Lock("RecordAsyncInvocation")
 	defer b.mu.Unlock()
-
-	inferenceID := requestedID
-	if inferenceID == "" {
-		b.nextID++
-		inferenceID = fmt.Sprintf("gopherstack-inference-%d", b.nextID)
-	}
-
-	loc := outputLocation
-
-	var failureLoc string
-	if loc == "" {
-		if filename == "" {
-			filename = "output"
-		}
-
-		base := "s3://sagemaker-runtime-mock/" + endpointName
-		if ext := strings.Trim(pathExtension, "/"); ext != "" {
-			base += "/" + ext
-		}
-
-		loc = fmt.Sprintf("%s/%s/%s", base, inferenceID, filename)
-		failureLoc = fmt.Sprintf("%s/%s/failure", base, inferenceID)
-	} else {
-		failureLoc = deriveFailureLocation(loc)
-	}
 
 	invocation := &AsyncInvocation{
 		InferenceID:     inferenceID,
 		EndpointName:    endpointName,
 		Input:           input,
-		OutputLocation:  loc,
-		FailureLocation: failureLoc,
+		OutputLocation:  outputLocation,
+		FailureLocation: failureLocation,
 		CreatedAt:       time.Now().UTC(),
 	}
 	b.asyncInvocations.Put(invocation)
@@ -81,23 +39,6 @@ func (b *InMemoryBackend) ListAsyncInvocations() []*AsyncInvocation {
 	}
 
 	return out
-}
-
-// deriveFailureLocation synthesises the S3 URI where a failed async
-// invocation's error payload would be written, following the AWS
-// InvokeEndpointAsync convention of mirroring OutputLocation with a
-// distinct suffix (real AWS derives both from the endpoint's
-// AsyncInferenceConfig; without that cross-service config gopherstack
-// mirrors OutputLocation deterministically instead).
-func deriveFailureLocation(outputLocation string) string {
-	switch {
-	case strings.HasSuffix(outputLocation, "/output"):
-		return strings.TrimSuffix(outputLocation, "output") + "failure"
-	case strings.HasSuffix(outputLocation, "/"):
-		return outputLocation + "failure"
-	default:
-		return outputLocation + "-failure"
-	}
 }
 
 func cloneAsyncInvocation(invocation *AsyncInvocation) *AsyncInvocation {

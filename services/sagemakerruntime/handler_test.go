@@ -22,7 +22,7 @@ import (
 func newTestHandler(t *testing.T) *sagemakerruntime.Handler {
 	t.Helper()
 
-	return sagemakerruntime.NewHandler(sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1"))
+	return sagemakerruntime.NewHandler(newEchoBackend("000000000000", "us-east-1"))
 }
 
 // doRequest issues a request with no body. Every call site in this package
@@ -154,7 +154,7 @@ func TestHandler_ChaosRegions(t *testing.T) {
 func TestHandler_Shutdown(t *testing.T) {
 	t.Parallel()
 
-	h := sagemakerruntime.NewHandler(sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1"))
+	h := sagemakerruntime.NewHandler(newEchoBackend("000000000000", "us-east-1"))
 	assert.NotPanics(t, func() { h.Shutdown(t.Context()) })
 }
 
@@ -213,7 +213,7 @@ func TestSDKResponseBindings(t *testing.T) {
 		TargetVariant:    aws.String("blue"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []byte("mock response from Gopherstack"), syncOut.Body)
+	assert.Equal(t, []byte("echo:input"), syncOut.Body)
 	assert.Equal(t, "text/plain", aws.ToString(syncOut.ContentType))
 	assert.Equal(t, "trace=sdk", aws.ToString(syncOut.CustomAttributes))
 	assert.Equal(t, "blue", aws.ToString(syncOut.InvokedProductionVariant))

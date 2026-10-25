@@ -545,6 +545,7 @@ type CLI struct {
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	SageMakerEngine               string                            `                                       name:"sagemaker-engine"        env:"SAGEMAKER_ENGINE"                    default:"stub"          help:"SageMaker engine mode: stub (control plane only; InvokeEndpoint is unavailable) or docker (endpoints and jobs run model, training, processing and transform containers)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	RedshiftEngine                string                            `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                     default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	NeptuneEngine                 string                            `                                       name:"neptune-engine"          env:"NEPTUNE_ENGINE"                      default:"stub"          help:"Neptune engine mode: stub (metadata only), embedded (in-process Gremlin, openCypher and Bolt on one graph) or docker (NEPTUNE_GREMLIN=container: a Gremlin Server container per cluster)."`                  //nolint:lll // config struct tags are intentionally verbose
@@ -1454,6 +1455,9 @@ func (c *CLI) GetMQEngine() string { return c.engineMode("mq-engine", c.MQEngine
 
 // GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
 func (c *CLI) GetRDSEngine() string { return c.engineMode("rds-engine", c.RDSEngine) }
+
+// GetSageMakerEngine returns the SageMaker engine mode (sagemaker.EngineModeConfig).
+func (c *CLI) GetSageMakerEngine() string { return c.engineMode("sagemaker-engine", c.SageMakerEngine) }
 
 // GetRedshiftEngine returns the Redshift engine mode (redshift.EngineModeConfig).
 func (c *CLI) GetRedshiftEngine() string { return c.engineMode("redshift-engine", c.RedshiftEngine) }
@@ -3713,6 +3717,9 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 
 	// Wire S3/CloudWatch Logs/CodeCommit/SSM/Secrets Manager → CodeBuild docker engine.
 	wireCodeBuildEngine(byName)
+
+	// Wire S3/CloudWatch Logs/SNS → SageMaker container engine.
+	wireSageMakerEngine(byName)
 
 	// Wire ECR → Lambda so Code.ImageUri on an Image package-type
 	// CreateFunction/UpdateFunctionCode is validated against real ECR state

@@ -307,6 +307,7 @@ gaps: []
 items_still_open:
   - "DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion (\"1.0\") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model."
 structural_gaps:
+  - "Container-backed workloads need a reachable container runtime (SAGEMAKER_ENGINE=docker, or --engines=docker/auto): with the default stub engine endpoints and jobs stay control-plane objects and InvokeEndpoint returns ServiceUnavailable. Files created by containers running as root in new sub-directories of the staging area may not be removable by the emulator user."
   - "Presigned URL expiry (2026-10-07): ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked against the API reference but not enforced; the synthetic AuthorizedUrl is not served by anything that could expire or single-use it."
   - "List summaries (AutoMLJobSummary.FailureReason/PartialFailureReasons, ClusterSummary.TrainingPlanArns/ImageVersionStatus, ClusterNodeSummary.ImageVersionStatus/NodeLogicalId/PrivateDnsHostname/UltraServerInfo, DeviceSummary.AgentVersion/LatestHeartbeat/Models, FlowDefinitionSummary.FailureReason, LineageGroupSummary.DisplayName, HyperParameterTrainingJobSummary final-metric/objective-status, TrainingJobSummary.WarmPoolStatus, ProcessingJobSummary.ExitMessage): no failure FSM, warm pool, device heartbeat, EC2 networking or training process exists to source them."
   - "DescribeApp/DescribeDomain server-derived fields (App EffectiveTrustedIdentityPropagationStatus/FailureReason/LastHealthCheckTimestamp/LastUserActivityTimestamp, Domain FailureReason/HomeEfsFileSystemId/SingleSignOn*): no app runtime, EFS or IAM Identity Center to derive them."
@@ -318,11 +319,27 @@ structural_gaps:
   - "Workteam ProductListingIds: Marketplace vendor listings are not settable via Create/UpdateWorkteam and no Marketplace subsystem exists."
   - "AIRecommendationJob.Recommendations is always empty: no benchmark/recommendation compute, and fabricating metrics is forbidden."
   - "ProductionVariantSummary DeployedImages (resolved ECR digests) and InstancePools/CapacityReservationConfig need real deployment infrastructure."
+  - "Container engine (SAGEMAKER_ENGINE=docker) runs ONE container set per production variant: InitialInstanceCount > 1 and multi-instance training/processing/transform run a single algo-1; ShadowProductionVariants are not deployed and no traffic is mirrored."
+  - "Container engine does not run endpoints that serve InferenceComponents (no endpoint-level ModelName), containers defined by ModelPackageName, or MME models: TargetModel is forwarded as a header but the /models load API is not driven."
+  - "TrainingJob engine: Pipe/FastFile input modes behave as File; CheckpointConfig, managed spot, distributed training, profiler/debugger rules and MetricDefinitions regex scraping are not run; non-S3 (EFS/FSx) channels and AlgorithmName without TrainingSpecification.TrainingImage fail the job."
+  - "ProcessingJob engine: Athena/Redshift DatasetDefinition inputs and FeatureStoreOutput fail the job; S3UploadMode Continuous uploads at job end; ProcessingJob ExitMessage is not populated."
+  - "TransformJob engine: DataProcessing InputFilter/OutputFilter/JoinSource and RecordIO/TFRecord SplitType fail the job (no JSONPath/RecordIO engine); BatchDataCapture is not written; MaxConcurrentTransforms is not honoured (requests run sequentially)."
+  - "Async inference engine: NotificationConfig.IncludeInferenceResponseIn is not embedded in SNS messages; RequestTTLSeconds is not enforced; ClientConfig.MaxConcurrentInvocationsPerInstance is not applied."
+  - "After a snapshot Restore, restored endpoints keep their persisted status but no container is started for them until the endpoint is updated or recreated (invoke returns ServiceUnavailable); running training/processing/transform jobs are not resumed."
 deferred: []
 
 leaks: {status: clean, note: "Re-verified this pass: grepped every 'go func()'/runDelayed call site service-wide (8 files). Only one raw 'go func()' exists (lifecycle.go Shutdown, which waits on b.wg and is itself bounded by ctx.Done()); every timer-based state transition goes through runDelayed(b.lifecycleCtx, ...), which Shutdown cancels and drains via b.wg. No goroutine leaks found."}
 
 ---
+
+## 2026-10-25 container engine (gopherstack-49qct.55)
+
+`SAGEMAKER_ENGINE=docker` (`--sagemaker-engine`, also enabled by `--engines=docker|auto`) turns endpoints and jobs into real containers via `pkgs/container`; images are used as given (ECR repository URIs resolve through the emulator's DNS/registry, public images are pulled). Default `stub` keeps the control plane only.
+
+- Endpoints: CreateEndpoint starts one container per model container with `serve`, port 8080 published on a free loopback port, `ModelDataUrl` extracted from emulated S3 to `/opt/ml/model`, `GET /ping` 200 gates InService; a failed health check or start gives `Failed` with the AWS wording (`did not pass the ping health check`). No runtime gives `Failed` with the reason. UpdateEndpoint brings up the new containers first and swaps; a failed update returns the endpoint to InService on the old config with FailureReason. DeleteEndpoint removes the containers. Logs go to `/aws/sagemaker/Endpoints/<name>`.
+- Invocations: InvokeEndpoint / InvokeEndpointWithResponseStream proxy to `POST /invocations` (ContentType, Accept, CustomAttributes, TargetVariant weighting, TargetContainerHostname, serial inference pipelines); non-2xx replies are `ModelError` (424). InvokeEndpointAsync reads the body or InputLocation, writes `<S3OutputPath>/<InferenceId>.out` (Filename and S3OutputPathExtension honoured) or `<S3FailurePath>/<InferenceId>-error.out`, and publishes to the configured SNS topics. The runtime no longer returns made-up bodies or `sagemaker-runtime-mock` S3 locations; without a container engine it returns `ServiceUnavailable`.
+- TrainingJob: `train` with `/opt/ml/input/data/<channel>`, `config/{hyperparameters,resourceconfig,inputdataconfig}.json`, `/opt/ml/model` packed to `model.tar.gz` and `/opt/ml/output/data` to `output.tar.gz` under OutputDataConfig; `/opt/ml/output/failure` becomes `AlgorithmError: ..., exit code: N`; MaxRuntimeInSeconds gives Stopped/MaxRuntimeExceeded; StopTrainingJob stops the container. ProcessingJob maps S3 inputs/outputs to the declared LocalPaths. TransformJob starts the model, sends records per SplitType/BatchStrategy/MaxPayloadInMB with ModelClientConfig retries, and writes `<key>.out` per input object. Logs go to `/aws/sagemaker/{TrainingJobs,ProcessingJobs,TransformJobs}`.
+- Tests: fake-runtime unit tests (`engine_*_test.go`); docker end-to-end SDK test `internal/app/sagemaker_engine_docker_test.go` (opt in with `GOPHERSTACK_TEST_DOCKER=1`).
 
 ## 2026-10-10 realism pass
 

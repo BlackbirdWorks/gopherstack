@@ -20,6 +20,7 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 		endpointName    string
 		wantContentType string
 		wantVariant     string
+		wantBody        string
 		wantSession     bool
 	}{
 		{
@@ -28,6 +29,7 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 			body:            map[string]any{"data": "test input"},
 			wantContentType: "application/octet-stream",
 			wantVariant:     "AllTraffic",
+			wantBody:        `echo:{"data":"test input"}`,
 		},
 		{
 			name:         "bound_headers_and_new_session",
@@ -41,6 +43,7 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 			},
 			wantContentType: "application/json",
 			wantVariant:     "blue",
+			wantBody:        "echo:",
 			wantSession:     true,
 		},
 	}
@@ -57,7 +60,7 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, tt.wantContentType, rec.Header().Get("Content-Type"))
 			assert.Equal(t, tt.wantVariant, rec.Header().Get("X-Amzn-Invoked-Production-Variant"))
-			assert.Equal(t, "mock response from Gopherstack", rec.Body.String())
+			assert.Equal(t, tt.wantBody, rec.Body.String())
 			assert.Equal(t, tt.headers["X-Amzn-Sagemaker-Custom-Attributes"],
 				rec.Header().Get("X-Amzn-Sagemaker-Custom-Attributes"))
 			assert.Equal(t, tt.wantSession, rec.Header().Get("X-Amzn-Sagemaker-New-Session-Id") != "")

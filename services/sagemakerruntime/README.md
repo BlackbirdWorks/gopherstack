@@ -9,16 +9,20 @@
 | --- | --- |
 | PARITY entries audited | 3 (3 ok) |
 | Feature families | 3 (3 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- InferenceComponentName invocations, multi-model TargetModel loading and ModelPackage-defined containers are not served by the container engine (see services/sagemaker PARITY.md)
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- InvokeEndpointAsync.InvocationTimeoutSeconds/RequestTTLSeconds: request-only headers with no output member, and no async queue or processing-duration engine to expire a request against.
+- InvokeEndpointAsync.RequestTTLSeconds: request-only header with no output member and no async queue to expire a request in (InvocationTimeoutSeconds is applied to the container call).
 
 ## More
 

@@ -50,7 +50,9 @@ func wireEndpointLookup(ctx *service.AppContext, backend *InMemoryBackend) {
 		return
 	}
 
-	backend.SetEndpointLookup(lazyEndpointLookup{provider: hp})
+	lazy := lazyEndpointLookup{provider: hp}
+	backend.SetEndpointLookup(lazy)
+	backend.SetInvoker(lazy)
 }
 
 // lazyEndpointLookup resolves the SageMaker backend at call time.
@@ -106,4 +108,40 @@ func (l lazyEndpointLookup) DescribeModel(ctx context.Context, name string) (*sa
 	}
 
 	return b.DescribeModel(ctx, name)
+}
+
+// InvokeEndpoint implements ContainerInvoker against the wired SageMaker backend.
+func (l lazyEndpointLookup) InvokeEndpoint(
+	ctx context.Context, req sagemaker.InvokeRequest,
+) (*sagemaker.InvokeResult, error) {
+	b, err := l.backend()
+	if err != nil {
+		return nil, err
+	}
+
+	return b.InvokeEndpoint(ctx, req)
+}
+
+// InvokeEndpointStream implements ContainerInvoker against the wired SageMaker backend.
+func (l lazyEndpointLookup) InvokeEndpointStream(
+	ctx context.Context, req sagemaker.InvokeRequest,
+) (*sagemaker.InvokeStream, error) {
+	b, err := l.backend()
+	if err != nil {
+		return nil, err
+	}
+
+	return b.InvokeEndpointStream(ctx, req)
+}
+
+// SubmitAsyncInference implements ContainerInvoker against the wired SageMaker backend.
+func (l lazyEndpointLookup) SubmitAsyncInference(
+	ctx context.Context, req sagemaker.AsyncRequest,
+) (*sagemaker.AsyncAccepted, error) {
+	b, err := l.backend()
+	if err != nil {
+		return nil, err
+	}
+
+	return b.SubmitAsyncInference(ctx, req)
 }
