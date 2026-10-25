@@ -25,29 +25,76 @@ func TestJobExecutionTimeouts(t *testing.T) {
 	mins := func(m int) time.Duration { return time.Duration(m) * time.Minute }
 
 	tests := []struct {
-		name         string
-		inProgress   int64
 		start        *int64
-		steps        []step
-		finalAdvance time.Duration
+		name         string
 		wantStatus   iot.JobExecutionStatus
+		steps        []step
+		inProgress   int64
+		finalAdvance time.Duration
 		viaStartNext bool
 	}{
 		{name: "in_progress_timer_expires", inProgress: 10, finalAdvance: mins(10), wantStatus: iot.JobExecTimedOut},
-		{name: "in_progress_timer_not_yet", inProgress: 10, finalAdvance: mins(10) - time.Second, wantStatus: iot.JobExecInProgress},
+		{
+			name:         "in_progress_timer_not_yet",
+			inProgress:   10,
+			finalAdvance: mins(10) - time.Second,
+			wantStatus:   iot.JobExecInProgress,
+		},
 		{name: "no_timers_never_expire", finalAdvance: 24 * 7 * time.Hour, wantStatus: iot.JobExecInProgress},
-		{name: "step_timer_from_start_next", start: aws.Int64(5), finalAdvance: mins(5), wantStatus: iot.JobExecTimedOut},
-		{name: "step_timer_reset_extends", start: aws.Int64(5),
-			steps: []step{{stepTimeout: aws.Int64(5), advance: mins(4)}}, finalAdvance: mins(4), wantStatus: iot.JobExecInProgress},
-		{name: "step_timer_reset_then_expires", start: aws.Int64(5),
-			steps: []step{{stepTimeout: aws.Int64(5), advance: mins(4)}}, finalAdvance: mins(5), wantStatus: iot.JobExecTimedOut},
-		{name: "step_timer_capped_by_in_progress", inProgress: 10, start: aws.Int64(5),
-			steps: []step{{stepTimeout: aws.Int64(9), advance: mins(4)}, {stepTimeout: aws.Int64(9), advance: mins(4)}},
-			finalAdvance: mins(2), wantStatus: iot.JobExecTimedOut},
-		{name: "step_timer_cancelled", start: aws.Int64(5),
-			steps: []step{{stepTimeout: aws.Int64(-1), advance: mins(1)}}, finalAdvance: mins(60), wantStatus: iot.JobExecInProgress},
-		{name: "cancelled_step_keeps_in_progress_timer", inProgress: 10, start: aws.Int64(5),
-			steps: []step{{stepTimeout: aws.Int64(-1), advance: mins(1)}}, finalAdvance: mins(9), wantStatus: iot.JobExecTimedOut},
+		{
+			name:         "step_timer_from_start_next",
+			start:        aws.Int64(5),
+			finalAdvance: mins(5),
+			wantStatus:   iot.JobExecTimedOut,
+		},
+		{
+			name:  "step_timer_reset_extends",
+			start: aws.Int64(5),
+			steps: []step{
+				{stepTimeout: aws.Int64(5), advance: mins(4)},
+			},
+			finalAdvance: mins(4),
+			wantStatus:   iot.JobExecInProgress,
+		},
+		{
+			name:  "step_timer_reset_then_expires",
+			start: aws.Int64(5),
+			steps: []step{
+				{stepTimeout: aws.Int64(5), advance: mins(4)},
+			},
+			finalAdvance: mins(5),
+			wantStatus:   iot.JobExecTimedOut,
+		},
+		{
+			name:       "step_timer_capped_by_in_progress",
+			inProgress: 10,
+			start:      aws.Int64(5),
+			steps: []step{
+				{stepTimeout: aws.Int64(9), advance: mins(4)},
+				{stepTimeout: aws.Int64(9), advance: mins(4)},
+			},
+			finalAdvance: mins(2),
+			wantStatus:   iot.JobExecTimedOut,
+		},
+		{
+			name:  "step_timer_cancelled",
+			start: aws.Int64(5),
+			steps: []step{
+				{stepTimeout: aws.Int64(-1), advance: mins(1)},
+			},
+			finalAdvance: mins(60),
+			wantStatus:   iot.JobExecInProgress,
+		},
+		{
+			name:       "cancelled_step_keeps_in_progress_timer",
+			inProgress: 10,
+			start:      aws.Int64(5),
+			steps: []step{
+				{stepTimeout: aws.Int64(-1), advance: mins(1)},
+			},
+			finalAdvance: mins(9),
+			wantStatus:   iot.JobExecTimedOut,
+		},
 	}
 
 	for _, tt := range tests {
@@ -139,9 +186,12 @@ func TestStepTimeoutWire(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = e.data.StartNextPendingJobExecution(t.Context(), &iotjobsdataplane.StartNextPendingJobExecutionInput{
-				ThingName: aws.String("dev"),
-			})
+			_, err = e.data.StartNextPendingJobExecution(
+				t.Context(),
+				&iotjobsdataplane.StartNextPendingJobExecutionInput{
+					ThingName: aws.String("dev"),
+				},
+			)
 			require.NoError(t, err)
 
 			_, err = e.data.UpdateJobExecution(t.Context(), &iotjobsdataplane.UpdateJobExecutionInput{

@@ -243,7 +243,7 @@ func (b *InMemoryBackend) authorizeMQTT(
 	defer b.mu.RUnlock()
 
 	ctx := iam.ConditionContext{Extra: map[string]string{
-		"iot:clientid":                    clientID,
+		ctxKeyClientID:                    clientID,
 		"iot:connection.thing.isattached": "false",
 	}}
 

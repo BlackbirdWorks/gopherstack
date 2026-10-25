@@ -215,7 +215,7 @@ func (h *Handler) handleGetCommandExecution(c *echo.Context) error {
 			return respondErr(c, err)
 		}
 
-		return c.JSON(http.StatusOK, commandExecutionDetailFields(ex, c.QueryParam("includeResult") == "true"))
+		return c.JSON(http.StatusOK, commandExecutionDetailFields(ex, c.QueryParam("includeResult") == keyBoolTrue))
 	}
 
 	// Legacy nested route: /commands/{commandId}/executions/{executionId}.
@@ -229,7 +229,7 @@ func (h *Handler) handleGetCommandExecution(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, commandExecutionDetailFields(ex, c.QueryParam("includeResult") == "true"))
+	return c.JSON(http.StatusOK, commandExecutionDetailFields(ex, c.QueryParam("includeResult") == keyBoolTrue))
 }
 
 // commandExecutionDetailFields renders GetCommandExecutionOutput; Result only when includeResult is set.
@@ -266,11 +266,11 @@ func commandExecutionDetailFields(ex *IoTCommandExecution, includeResult bool) m
 // CompletedAt, CreatedAt, ExecutionId, StartedAt, Status, TargetArn.
 func commandExecutionSummaryFields(ex *IoTCommandExecution) map[string]any {
 	out := map[string]any{
-		keyCommandArn: ex.CommandARN,
-		"executionId": ex.ExecutionID,
-		"targetArn":   ex.ThingARN,
-		keyStatus:     ex.Status,
-		"createdAt":   ex.CreationDate,
+		keyCommandArn:  ex.CommandARN,
+		keyExecutionID: ex.ExecutionID,
+		"targetArn":    ex.ThingARN,
+		keyStatus:      ex.Status,
+		"createdAt":    ex.CreationDate,
 	}
 
 	if ex.StartedAt > 0 {
@@ -288,47 +288,11 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 	var items []*IoTCommandExecution
 
 	if c.Request().URL.Path == pathCommandExecutions {
-		// Real route: POST /command-executions, filters in the JSON body
-		// (iot@v1.77.4 serializers.go:13840, awsRestjson1_serializeOpDocumentListCommandExecutionsInput).
-		var body struct {
-			StartedTimeFilter   *commandTimeFilter `json:"startedTimeFilter"`
-			CompletedTimeFilter *commandTimeFilter `json:"completedTimeFilter"`
-			CommandArn          string             `json:"commandArn"`
-			TargetArn           string             `json:"targetArn"`
-			Status              string             `json:"status"`
-			SortOrder           string             `json:"sortOrder"`
-			Namespace           string             `json:"namespace"`
-		}
-		if err := readBody(c, &body); err != nil {
+		var err error
+
+		if items, err = h.listCommandExecutionsFiltered(c); err != nil {
 			return err
 		}
-		items = h.Backend.ListCommandExecutionsByFilter(ListCommandExecutionsFilter{
-			CommandARN: body.CommandArn, TargetARN: body.TargetArn, Status: body.Status, Namespace: body.Namespace,
-		})
-		if f := body.StartedTimeFilter; f != nil {
-			items = filterCommandExecutionsBetween(items, f, func(ex *IoTCommandExecution) float64 {
-				if ex.StartedAt > 0 {
-					return ex.StartedAt
-				}
-
-				return ex.CreationDate
-			})
-		}
-
-		if f := body.CompletedTimeFilter; f != nil {
-			items = filterCommandExecutionsBetween(items, f, func(ex *IoTCommandExecution) float64 { return ex.CompletedAt })
-		}
-
-		// Default order is descending by creation time (ListCommandExecutionsInput's
-		// sortOrder doc comment); "ASCENDING" is the only other real enum value.
-		descending := body.SortOrder != "ASCENDING"
-		sort.SliceStable(items, func(i, j int) bool {
-			if descending {
-				return items[i].CreationDate > items[j].CreationDate
-			}
-
-			return items[i].CreationDate < items[j].CreationDate
-		})
 	} else {
 		// Legacy nested route: /commands/{commandId}/executions.
 		trimmed := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
@@ -342,6 +306,56 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 	}
 
 	return respondListPage(c, "commandExecutions", out)
+}
+
+// listCommandExecutionsFiltered serves the real POST /command-executions route, filters in the JSON body.
+func (h *Handler) listCommandExecutionsFiltered(c *echo.Context) ([]*IoTCommandExecution, error) {
+	var body struct {
+		StartedTimeFilter   *commandTimeFilter `json:"startedTimeFilter"`
+		CompletedTimeFilter *commandTimeFilter `json:"completedTimeFilter"`
+		CommandArn          string             `json:"commandArn"`
+		TargetArn           string             `json:"targetArn"`
+		Status              string             `json:"status"`
+		SortOrder           string             `json:"sortOrder"`
+		Namespace           string             `json:"namespace"`
+	}
+	if err := readBody(c, &body); err != nil {
+		return nil, err
+	}
+
+	items := h.Backend.ListCommandExecutionsByFilter(ListCommandExecutionsFilter{
+		CommandARN: body.CommandArn, TargetARN: body.TargetArn, Status: body.Status, Namespace: body.Namespace,
+	})
+
+	if f := body.StartedTimeFilter; f != nil {
+		items = filterCommandExecutionsBetween(items, f, func(ex *IoTCommandExecution) float64 {
+			if ex.StartedAt > 0 {
+				return ex.StartedAt
+			}
+
+			return ex.CreationDate
+		})
+	}
+
+	if f := body.CompletedTimeFilter; f != nil {
+		items = filterCommandExecutionsBetween(
+			items,
+			f,
+			func(ex *IoTCommandExecution) float64 { return ex.CompletedAt },
+		)
+	}
+
+	// Default order is descending by creation time; "ASCENDING" is the only other enum value.
+	descending := body.SortOrder != "ASCENDING"
+	sort.SliceStable(items, func(i, j int) bool {
+		if descending {
+			return items[i].CreationDate > items[j].CreationDate
+		}
+
+		return items[i].CreationDate < items[j].CreationDate
+	})
+
+	return items, nil
 }
 
 // parseCommandTime reads a TimeFilter value ("yyyy-MM-dd'T'HH:mm" per the SDK doc, or RFC3339).

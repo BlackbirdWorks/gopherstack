@@ -37,6 +37,8 @@ const (
 	cmdArnParts              = 6
 )
 
+var errCommandCondition = errors.New("unsupported value condition")
+
 var cmdReasonCodeRE = regexp.MustCompile(`^[A-Z0-9_-]+$`)
 
 // ErrCommandExecutionConflict is a ConflictException on a command execution.
@@ -108,7 +110,7 @@ func (b *InMemoryBackend) sweepCommandExecutionsLocked() {
 // parseCommandTargetARN splits arn:...:thing/NAME or client/NAME into kind (things|clients) and id.
 func parseCommandTargetARN(targetARN string) (string, string, bool) {
 	parts := strings.SplitN(targetARN, ":", cmdArnParts)
-	if len(parts) != cmdArnParts || parts[0] != "arn" || parts[2] != "iot" {
+	if len(parts) != cmdArnParts || parts[0] != keyArn || parts[2] != "iot" {
 		return "", "", false
 	}
 
@@ -118,8 +120,8 @@ func parseCommandTargetARN(targetARN string) (string, string, bool) {
 	}
 
 	switch kind {
-	case "thing":
-		return "things", id, true
+	case keyThing:
+		return keyThings, id, true
 	case "client":
 		return "clients", id, true
 	}
@@ -129,7 +131,7 @@ func parseCommandTargetARN(targetARN string) (string, string, bool) {
 
 func commandIDFromARN(commandARN string) (string, bool) {
 	parts := strings.SplitN(commandARN, ":", cmdArnParts)
-	if len(parts) != cmdArnParts || parts[0] != "arn" || parts[2] != "iot" {
+	if len(parts) != cmdArnParts || parts[0] != keyArn || parts[2] != "iot" {
 		return "", false
 	}
 
@@ -155,7 +157,11 @@ func (b *InMemoryBackend) StartCommandExecution(in *StartCommandExecutionInput) 
 	if in.TimeoutSeconds != nil {
 		timeout = *in.TimeoutSeconds
 		if timeout < 1 || timeout > cmdMaxTimeoutSeconds {
-			return nil, fmt.Errorf("%w: executionTimeoutSeconds must be between 1 and %d", ErrValidation, cmdMaxTimeoutSeconds)
+			return nil, fmt.Errorf(
+				"%w: executionTimeoutSeconds must be between 1 and %d",
+				ErrValidation,
+				cmdMaxTimeoutSeconds,
+			)
 		}
 	}
 
@@ -184,7 +190,10 @@ func (b *InMemoryBackend) StartCommandExecution(in *StartCommandExecutionInput) 
 	if replay := b.findCommandExecutionByTokenLocked(in); replay != nil {
 		if replay.CommandARN != in.CommandARN || replay.ThingARN != in.TargetARN ||
 			replay.TimeoutSeconds != timeout || !paramsEqual(replay.Parameters, params) {
-			return nil, fmt.Errorf("%w: client token already used with different parameters", ErrCommandExecutionConflict)
+			return nil, fmt.Errorf(
+				"%w: client token already used with different parameters",
+				ErrCommandExecutionConflict,
+			)
 		}
 
 		return &StartedCommandExecution{ExecutionID: replay.ExecutionID}, nil
@@ -251,8 +260,25 @@ func commandParamValue(v map[string]any) (string, any, bool) {
 	return "", nil, false
 }
 
-var commandParamTypeKey = map[string]string{
-	"STRING": "S", "INTEGER": "I", "LONG": "L", "DOUBLE": "D", "UNSIGNEDLONG": "UL", "BOOLEAN": "B", "BINARY": "BIN",
+func commandParamTypeKey(typ string) string {
+	switch typ {
+	case "STRING":
+		return "S"
+	case "INTEGER":
+		return "I"
+	case "LONG":
+		return "L"
+	case "DOUBLE":
+		return "D"
+	case "UNSIGNEDLONG":
+		return "UL"
+	case "BOOLEAN":
+		return "B"
+	case "BINARY":
+		return keyBIN
+	}
+
+	return ""
 }
 
 // resolveCommandParameters applies request > command value > command default, then checks types and conditions.
@@ -294,10 +320,6 @@ func resolveCommandParameters(cmd *IoTCommand, req map[string]map[string]any) (m
 		out[name] = val
 	}
 
-	if len(out) == 0 {
-		return nil, nil
-	}
-
 	return out, nil
 }
 
@@ -313,7 +335,7 @@ func checkCommandParameter(name string, decl, val map[string]any) error {
 		return fmt.Errorf("%w: parameter %q must set exactly one value member", ErrValidation, name)
 	}
 
-	if typ, _ := decl["type"].(string); typ != "" && commandParamTypeKey[typ] != key {
+	if typ, _ := decl["type"].(string); typ != "" && commandParamTypeKey(typ) != key {
 		return fmt.Errorf("%w: parameter %q must be of type %s", ErrValidation, name, typ)
 	}
 
@@ -360,8 +382,8 @@ func evalCommandCondition(key string, raw any, cond map[string]any) (bool, error
 	}
 
 	n, isNum := toFloat(raw)
-	if !isNum || key == "B" || key == "BIN" {
-		return false, fmt.Errorf("value conditions are not supported for this type")
+	if !isNum || key == "B" || key == keyBIN {
+		return false, fmt.Errorf("%w: not supported for this type", errCommandCondition)
 	}
 
 	return evalNumberCondition(op, n, operand)
@@ -383,7 +405,7 @@ func evalStringCondition(op string, raw any, operand map[string]any) (bool, erro
 		return !slices.Contains(set, s), nil
 	}
 
-	return false, fmt.Errorf("operator %s is not supported for strings", op)
+	return false, fmt.Errorf("%w: operator %s on strings", errCommandCondition, op)
 }
 
 func stringList(v any) []string {
@@ -401,16 +423,6 @@ func stringList(v any) []string {
 
 func evalNumberCondition(op string, n float64, operand map[string]any) (bool, error) {
 	one, _ := toFloat(operand["number"])
-	rng, _ := operand["numberRange"].(map[string]any)
-	lo, _ := toFloat(rng["min"])
-	hi, _ := toFloat(rng["max"])
-	inSet := false
-
-	for _, s := range stringList(operand["numbers"]) {
-		if f, err := strconv.ParseFloat(s, 64); err == nil && f == n {
-			inSet = true
-		}
-	}
 
 	switch op {
 	case "EQUALS":
@@ -425,6 +437,24 @@ func evalNumberCondition(op string, n float64, operand map[string]any) (bool, er
 		return n < one, nil
 	case "LESS_THAN_EQUALS":
 		return n <= one, nil
+	}
+
+	return evalNumberSetCondition(op, n, operand)
+}
+
+func evalNumberSetCondition(op string, n float64, operand map[string]any) (bool, error) {
+	rng, _ := operand["numberRange"].(map[string]any)
+	lo, _ := toFloat(rng["min"])
+	hi, _ := toFloat(rng["max"])
+	inSet := false
+
+	for _, s := range stringList(operand["numbers"]) {
+		if f, err := strconv.ParseFloat(s, 64); err == nil && f == n {
+			inSet = true
+		}
+	}
+
+	switch op {
 	case "IN_RANGE":
 		return n >= lo && n <= hi, nil
 	case "NOT_IN_RANGE":
@@ -435,7 +465,7 @@ func evalNumberCondition(op string, n float64, operand map[string]any) (bool, er
 		return !inSet, nil
 	}
 
-	return false, fmt.Errorf("operator %s is not supported for numbers", op)
+	return false, fmt.Errorf("%w: operator %s on numbers", errCommandCondition, op)
 }
 
 func renderParamValue(v map[string]any) string {
@@ -470,7 +500,7 @@ func renderCommandPayload(cmd *IoTCommand, params map[string]map[string]any) ([]
 			tpl = strings.ReplaceAll(tpl, cmdTemplatePrefix+name+"}", renderParamValue(v))
 		}
 
-		return []byte(tpl), "json", nil
+		return []byte(tpl), keyJSON, nil
 	}
 
 	content, _ := cmd.Payload["content"].(string)
@@ -483,9 +513,9 @@ func renderCommandPayload(cmd *IoTCommand, params map[string]map[string]any) ([]
 
 	switch contentType {
 	case contentTypeJSON:
-		return raw, "json", nil
+		return raw, keyJSON, nil
 	case contentTypeCBOR:
-		return raw, "cbor", nil
+		return raw, keyCBOR, nil
 	}
 
 	return raw, "", nil

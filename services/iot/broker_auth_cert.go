@@ -16,21 +16,38 @@ const (
 	certVarWildcards = "*$+?#"
 )
 
-// X.509 attribute OIDs the certificate policy variables expose.
-var certAttrOIDs = map[string]string{
-	"2.5.4.46": "DistinguishedNameQualifier",
-	"2.5.4.6":  "Country",
-	"2.5.4.10": "Organization",
-	"2.5.4.11": "OrganizationalUnit",
-	"2.5.4.8":  "State",
-	"2.5.4.3":  "CommonName",
-	"2.5.4.5":  "SerialNumber",
-	"2.5.4.12": "Title",
-	"2.5.4.4":  "Surname",
-	"2.5.4.42": "GivenName",
-	"2.5.4.43": "Initials",
-	"2.5.4.65": "Pseudonym",
-	"2.5.4.44": "GenerationQualifier",
+// certAttrName maps an X.509 attribute OID to the name its policy variables use.
+func certAttrName(oid string) string {
+	switch oid {
+	case "2.5.4.46":
+		return "DistinguishedNameQualifier"
+	case "2.5.4.6":
+		return "Country"
+	case "2.5.4.10":
+		return "Organization"
+	case "2.5.4.11":
+		return "OrganizationalUnit"
+	case "2.5.4.8":
+		return "State"
+	case "2.5.4.3":
+		return "CommonName"
+	case "2.5.4.5":
+		return "SerialNumber"
+	case "2.5.4.12":
+		return "Title"
+	case "2.5.4.4":
+		return "Surname"
+	case "2.5.4.42":
+		return "GivenName"
+	case "2.5.4.43":
+		return "Initials"
+	case "2.5.4.65":
+		return "Pseudonym"
+	case "2.5.4.44":
+		return "GenerationQualifier"
+	}
+
+	return ""
 }
 
 // Issuer alternative name GeneralName tags (RFC 5280 4.2.1.6) the variables expose.
@@ -81,8 +98,8 @@ func pkixAttrValues(n pkix.Name) map[string][]string {
 	out := map[string][]string{}
 
 	for _, atv := range n.Names {
-		name, ok := certAttrOIDs[atv.Type.String()]
-		if !ok {
+		name := certAttrName(atv.Type.String())
+		if name == "" {
 			continue
 		}
 
@@ -103,30 +120,14 @@ func addCertValues(vars map[string]string, base string, attrs map[string][]strin
 			name += "." + strings.ToLower(attr)
 		}
 
-		kept := make([]string, 0, len(values))
-
-		for i, v := range values {
-			if i >= certVarMaxItems {
-				break
-			}
-
-			if len(v) > certVarMaxLength || strings.ContainsAny(v, certVarWildcards) {
-				kept = append(kept, "")
-
-				continue
-			}
-
-			kept = append(kept, v)
-		}
+		kept := usableCertValues(values)
 
 		for i, v := range kept {
-			if v == "" {
-				continue
-			}
-
-			if i == 0 {
+			switch {
+			case v == "":
+			case i == 0:
 				vars[name] = v
-			} else {
+			default:
 				vars[name+"."+strconv.Itoa(i)] = v
 			}
 		}
@@ -135,6 +136,21 @@ func addCertValues(vars map[string]string, base string, attrs map[string][]strin
 			vars[name+".list"] = joined
 		}
 	}
+}
+
+// usableCertValues keeps at most five values, blanking those that must stay unsubstituted.
+func usableCertValues(values []string) []string {
+	kept := make([]string, 0, min(len(values), certVarMaxItems))
+
+	for _, v := range values[:min(len(values), certVarMaxItems)] {
+		if len(v) > certVarMaxLength || strings.ContainsAny(v, certVarWildcards) {
+			v = ""
+		}
+
+		kept = append(kept, v)
+	}
+
+	return kept
 }
 
 func nonEmpty(in []string) []string {

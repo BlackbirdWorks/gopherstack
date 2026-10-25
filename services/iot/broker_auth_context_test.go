@@ -1,12 +1,12 @@
 package iot_test
 
 import (
-	"encoding/asn1"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -29,14 +29,14 @@ type certSpec struct {
 	issuer    *pkix.Name
 	serial    *big.Int
 	cn        string
-	dns       []string
 	issuerAlt string
+	dns       []string
 }
 
-func validSpec(cn string) certSpec {
+func validSpec() certSpec {
 	now := time.Now()
 
-	return certSpec{cn: cn, notBefore: now.Add(-time.Hour), notAfter: now.Add(time.Hour)}
+	return certSpec{cn: defaultCN, notBefore: now.Add(-time.Hour), notAfter: now.Add(time.Hour)}
 }
 
 func (e *authEnv) customDevice(t *testing.T, spec certSpec, thing, policyName, policyDoc string) authDevice {
@@ -60,13 +60,20 @@ func (e *authEnv) customDevice(t *testing.T, spec certSpec, thing, policyName, p
 	}
 
 	if spec.issuerAlt != "" {
-		name, mErr := asn1.Marshal(asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 2, Bytes: []byte(spec.issuerAlt)})
+		name, mErr := asn1.Marshal(
+			asn1.RawValue{Class: asn1.ClassContextSpecific, Tag: 2, Bytes: []byte(spec.issuerAlt)},
+		)
 		require.NoError(t, mErr)
 
-		seq, mErr := asn1.Marshal(asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagSequence, IsCompound: true, Bytes: name})
+		seq, mErr := asn1.Marshal(
+			asn1.RawValue{Class: asn1.ClassUniversal, Tag: asn1.TagSequence, IsCompound: true, Bytes: name},
+		)
 		require.NoError(t, mErr)
 
-		tmpl.ExtraExtensions = append(tmpl.ExtraExtensions, pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 18}, Value: seq})
+		tmpl.ExtraExtensions = append(
+			tmpl.ExtraExtensions,
+			pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 18}, Value: seq},
+		)
 	}
 
 	if spec.serial != nil {
@@ -211,7 +218,7 @@ func TestMQTTAuthThingGroupPolicy(t *testing.T) {
 
 			env.createThing(t, "dev1", "", nil)
 
-			dev := env.customDevice(t, validSpec(defaultCN), thing, "cert-policy",
+			dev := env.customDevice(t, validSpec(), thing, "cert-policy",
 				authPolicy(allowConnect, allowMarkerPub, certStmt))
 
 			groups := map[string]*iot.ThingGroup{}
@@ -254,7 +261,7 @@ func TestMQTTAuthCertificateValidity(t *testing.T) {
 		spec certSpec
 		ok   bool
 	}{
-		{name: "valid", spec: validSpec(defaultCN), ok: true},
+		{name: "valid", spec: validSpec(), ok: true},
 		{
 			name: "expired",
 			spec: certSpec{cn: defaultCN, notBefore: now.Add(-2 * time.Hour), notAfter: now.Add(-time.Hour)},
@@ -370,7 +377,7 @@ func TestMQTTAuthPolicyContext(t *testing.T) {
 
 			dev := env.customDevice(
 				t,
-				validSpec(defaultCN),
+				validSpec(),
 				thing,
 				"p",
 				authPolicy(allowConnect, allowMarkerPub, tt.stmt),

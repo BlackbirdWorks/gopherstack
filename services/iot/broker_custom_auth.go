@@ -178,8 +178,8 @@ func (h *authHook) dropSession(cl *mqtt.Client) {
 
 // authorizeDocs evaluates authorizer-returned policy documents; ${iot:ClientId} is substituted.
 func (b *InMemoryBackend) authorizeDocs(docs []string, clientID, action, resource string) bool {
-	ctx := iam.ConditionContext{Extra: map[string]string{"iot:clientid": clientID}}
-	escaped := iam.ConditionContext{Extra: map[string]string{"iot:clientid": jsonEscape(clientID)}}
+	ctx := iam.ConditionContext{Extra: map[string]string{ctxKeyClientID: clientID}}
+	escaped := iam.ConditionContext{Extra: map[string]string{ctxKeyClientID: jsonEscape(clientID)}}
 
 	substituted := make([]string, 0, len(docs))
 	for _, d := range docs {

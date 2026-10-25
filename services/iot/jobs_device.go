@@ -349,7 +349,12 @@ func validateStepTimeout(v *int64, allowCancel bool) error {
 		return nil
 	}
 
-	return fmt.Errorf("%w: stepTimeoutInMinutes must be between %d and %d", ErrValidation, stepTimeoutMin, stepTimeoutMax)
+	return fmt.Errorf(
+		"%w: stepTimeoutInMinutes must be between %d and %d",
+		ErrValidation,
+		stepTimeoutMin,
+		stepTimeoutMax,
+	)
 }
 
 // armJobTimersLocked starts the job's in-progress timer and an optional step timer for an execution that just began.

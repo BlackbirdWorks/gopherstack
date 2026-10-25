@@ -99,10 +99,10 @@ type authorizerMQTTData struct {
 }
 
 type authorizerResponse struct {
-	PolicyDocuments          []json.RawMessage `json:"policyDocuments"`
-	PrincipalID              string            `json:"principalId"`
 	DisconnectAfterInSeconds *int64            `json:"disconnectAfterInSeconds"`
 	RefreshAfterInSeconds    *int64            `json:"refreshAfterInSeconds"`
+	PrincipalID              string            `json:"principalId"`
+	PolicyDocuments          []json.RawMessage `json:"policyDocuments"`
 	IsAuthenticated          bool              `json:"isAuthenticated"`
 }
 
@@ -310,5 +310,5 @@ func authorizerSeconds(name string, v int64) (int32, error) {
 			ErrInvalidAuthorizerResponse, name, authorizerMinSeconds, authorizerMaxSeconds)
 	}
 
-	return int32(v), nil //nolint:gosec // bounded to 86400 above
+	return int32(v), nil
 }

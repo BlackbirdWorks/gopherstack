@@ -77,11 +77,11 @@ func (h *Handler) jobsData() (jobsDataBackend, bool) {
 
 type deviceExecutionJSON struct {
 	StatusDetails   map[string]string  `json:"statusDetails,omitempty"`
-	ApproxSecs      int64              `json:"approximateSecondsBeforeTimedOut,omitempty"`
 	JobID           string             `json:"jobId"`
 	ThingName       string             `json:"thingName,omitempty"`
 	Status          JobExecutionStatus `json:"status,omitempty"`
 	JobDocument     string             `json:"jobDocument,omitempty"`
+	ApproxSecs      int64              `json:"approximateSecondsBeforeTimedOut,omitempty"`
 	QueuedAt        int64              `json:"queuedAt"`
 	StartedAt       int64              `json:"startedAt,omitempty"`
 	LastUpdatedAt   int64              `json:"lastUpdatedAt"`
@@ -172,7 +172,8 @@ func (h *Handler) handleStartNextPendingJobExecution(c *echo.Context, thing stri
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
-	exec, found, err := h.mustJobsData().StartNextPendingJobExecution(thing, body.StatusDetails, body.StepTimeoutInMinutes)
+	exec, found, err := h.mustJobsData().
+		StartNextPendingJobExecution(thing, body.StatusDetails, body.StepTimeoutInMinutes)
 	if err != nil {
 		return h.handleError(c, err)
 	}

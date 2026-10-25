@@ -75,6 +75,12 @@ const (
 	pathV2LoggingLevel    = "/v2LoggingLevel"
 	keyCertificatePem     = "certificatePem"
 	keyBoolTrue           = "true"
+	keyThing              = "thing"
+	keyExecutionID        = "executionId"
+	keyBIN                = "BIN"
+	keyCBOR               = "cbor"
+	keyJSON               = "json"
+	ctxKeyClientID        = "iot:clientid"
 	keyName               = "name"
 	keyThingGroupID       = "thingGroupId"
 	pathSplitTwo          = 2

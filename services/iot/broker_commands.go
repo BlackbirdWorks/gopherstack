@@ -9,6 +9,9 @@ import (
 const (
 	commandsTopicPrefix = "$aws/commands/"
 	commandsQoS         = 1
+
+	commandsTopicMinParts = 5
+	commandsTopicMaxParts = 6
 )
 
 // commandResponse is a parsed $aws/commands/{things|clients}/<id>/executions/<exec>/response[/<format>] topic.
@@ -23,18 +26,19 @@ func parseCommandResponseTopic(topic string) (commandResponse, bool) {
 	}
 
 	parts := strings.Split(rest, "/")
-	if len(parts) < 5 || len(parts) > 6 || parts[2] != "executions" || parts[4] != "response" {
+	if len(parts) < commandsTopicMinParts || len(parts) > commandsTopicMaxParts || parts[2] != "executions" ||
+		parts[4] != "response" {
 		return commandResponse{}, false
 	}
 
-	if parts[0] != "things" && parts[0] != "clients" {
+	if parts[0] != keyThings && parts[0] != "clients" {
 		return commandResponse{}, false
 	}
 
 	r := commandResponse{kind: parts[0], id: parts[1], executionID: parts[3]}
 
-	if len(parts) == 6 {
-		if parts[5] != "json" && parts[5] != "cbor" {
+	if len(parts) == commandsTopicMaxParts {
+		if parts[5] != keyJSON && parts[5] != keyCBOR {
 			return commandResponse{}, false
 		}
 
@@ -82,7 +86,7 @@ func (b *Broker) handleCommandResponse(r commandResponse, payload []byte) {
 	}
 
 	reject := func(code, msg, token string) {
-		body := map[string]any{"executionId": r.executionID, "error": code, "errorMessage": msg}
+		body := map[string]any{keyExecutionID: r.executionID, "error": code, "errorMessage": msg}
 		if token != "" {
 			body["clientToken"] = token
 		}
@@ -90,7 +94,7 @@ func (b *Broker) handleCommandResponse(r commandResponse, payload []byte) {
 		reply("rejected", body)
 	}
 
-	if r.format == "cbor" {
+	if r.format == keyCBOR {
 		reject(jobsCodeInvalidRequest, "CBOR payloads are not supported", "")
 
 		return
@@ -120,7 +124,7 @@ func (b *Broker) handleCommandResponse(r commandResponse, payload []byte) {
 		return
 	}
 
-	accepted := map[string]any{"executionId": r.executionID}
+	accepted := map[string]any{keyExecutionID: r.executionID}
 	if body.ClientToken != "" {
 		accepted["clientToken"] = body.ClientToken
 	}
@@ -149,7 +153,7 @@ func normalizeCommandResult(in map[string]map[string]any) map[string]map[string]
 		return nil
 	}
 
-	keys := map[string]string{"s": "S", "b": "B", "bin": "BIN"}
+	keys := map[string]string{"s": "S", "b": "B", "bin": keyBIN}
 	out := make(map[string]map[string]any, len(in))
 
 	for name, v := range in {

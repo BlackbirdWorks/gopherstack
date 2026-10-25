@@ -81,17 +81,17 @@ type jobsSummaryWire struct {
 }
 
 type jobsExecutionWire struct {
-	ApproxSecondsBeforeTimedOut int64 `json:"approximateSecondsBeforeTimedOut,omitempty"`
-	StatusDetails   map[string]string  `json:"statusDetails,omitempty"`
-	JobID           string             `json:"jobId"`
-	ThingName       string             `json:"thingName,omitempty"`
-	Status          JobExecutionStatus `json:"status,omitempty"`
-	JobDocument     json.RawMessage    `json:"jobDocument,omitempty"`
-	QueuedAt        int64              `json:"queuedAt"`
-	StartedAt       int64              `json:"startedAt,omitempty"`
-	LastUpdatedAt   int64              `json:"lastUpdatedAt"`
-	VersionNumber   int64              `json:"versionNumber"`
-	ExecutionNumber int64              `json:"executionNumber"`
+	StatusDetails               map[string]string  `json:"statusDetails,omitempty"`
+	JobID                       string             `json:"jobId"`
+	ThingName                   string             `json:"thingName,omitempty"`
+	Status                      JobExecutionStatus `json:"status,omitempty"`
+	JobDocument                 json.RawMessage    `json:"jobDocument,omitempty"`
+	ApproxSecondsBeforeTimedOut int64              `json:"approximateSecondsBeforeTimedOut,omitempty"`
+	QueuedAt                    int64              `json:"queuedAt"`
+	StartedAt                   int64              `json:"startedAt,omitempty"`
+	LastUpdatedAt               int64              `json:"lastUpdatedAt"`
+	VersionNumber               int64              `json:"versionNumber"`
+	ExecutionNumber             int64              `json:"executionNumber"`
 }
 
 func summaryWire(e *DeviceJobExecution) jobsSummaryWire {
@@ -104,7 +104,7 @@ func summaryWire(e *DeviceJobExecution) jobsSummaryWire {
 func executionWire(e *DeviceJobExecution) *jobsExecutionWire {
 	return &jobsExecutionWire{
 		ApproxSecondsBeforeTimedOut: e.ApproximateSecondsBeforeTimedOut,
-		JobID: e.JobID, ThingName: e.ThingName, Status: e.Status, StatusDetails: e.StatusDetails,
+		JobID:                       e.JobID, ThingName: e.ThingName, Status: e.Status, StatusDetails: e.StatusDetails,
 		JobDocument: documentRaw(e.JobDocument), QueuedAt: e.QueuedAt, StartedAt: e.StartedAt,
 		LastUpdatedAt: e.LastUpdatedAt, VersionNumber: e.VersionNumber, ExecutionNumber: e.ExecutionNumber,
 	}

@@ -2,8 +2,8 @@ package iot_test
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -84,7 +84,10 @@ func newCmdEnv(t *testing.T) *cmdEnv {
 		backend: backend,
 		msgs:    make(chan pahomqtt.Message, 64),
 		control: iotsdk.NewFromConfig(cfg, func(o *iotsdk.Options) { o.BaseEndpoint = aws.String(srv.URL) }),
-		data:    iotjobsdataplane.NewFromConfig(cfg, func(o *iotjobsdataplane.Options) { o.BaseEndpoint = aws.String(srv.URL) }),
+		data: iotjobsdataplane.NewFromConfig(
+			cfg,
+			func(o *iotjobsdataplane.Options) { o.BaseEndpoint = aws.String(srv.URL) },
+		),
 	}
 
 	opts := pahomqtt.NewClientOptions().
@@ -125,13 +128,10 @@ func (e *cmdEnv) expect(t *testing.T, topic string) []byte {
 	}
 }
 
-func (e *cmdEnv) respond(t *testing.T, execID, format, payload string) {
+func (e *cmdEnv) respond(t *testing.T, execID, payload string) {
 	t.Helper()
 
-	topic := "$aws/commands/things/" + cmdThing + "/executions/" + execID + "/response"
-	if format != "" {
-		topic += "/" + format
-	}
+	topic := "$aws/commands/things/" + cmdThing + "/executions/" + execID + "/response/json"
 
 	tok := e.mqtt.Publish(topic, 1, false, payload)
 	require.True(t, tok.WaitTimeout(cmdDeadline))
@@ -151,7 +151,12 @@ func (e *cmdEnv) createStatic(t *testing.T, id, contentType, content string) str
 }
 
 func targetARN(commandARN string) string {
-	return strings.Replace(commandARN, ":command/"+commandARN[strings.LastIndex(commandARN, "/")+1:], ":thing/"+cmdThing, 1)
+	return strings.Replace(
+		commandARN,
+		":command/"+commandARN[strings.LastIndex(commandARN, "/")+1:],
+		":thing/"+cmdThing,
+		1,
+	)
 }
 
 func apiCode(err error) string {
@@ -171,6 +176,8 @@ func TestStartCommandExecution(t *testing.T) {
 		name string
 	}{
 		{name: "static_json_delivered_and_created", run: func(t *testing.T, e *cmdEnv) {
+			t.Helper()
+
 			cmd := e.createStatic(t, "lock", "application/json", `{"lock":true}`)
 
 			out, err := e.data.StartCommandExecution(t.Context(), &iotjobsdataplane.StartCommandExecutionInput{
@@ -179,7 +186,11 @@ func TestStartCommandExecution(t *testing.T) {
 			require.NoError(t, err)
 
 			id := aws.ToString(out.ExecutionId)
-			assert.Equal(t, `{"lock":true}`, string(e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/"+id+"/request/json")))
+			assert.Equal(
+				t,
+				`{"lock":true}`,
+				string(e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/"+id+"/request/json")),
+			)
 
 			got, err := e.control.GetCommandExecution(t.Context(), &iotsdk.GetCommandExecutionInput{
 				ExecutionId: aws.String(id), TargetArn: aws.String(targetARN(cmd)),
@@ -191,15 +202,28 @@ func TestStartCommandExecution(t *testing.T) {
 			assert.Nil(t, got.CompletedAt)
 		}},
 		{name: "opaque_payload_uses_bare_request_topic", run: func(t *testing.T, e *cmdEnv) {
+			t.Helper()
+
 			cmd := e.createStatic(t, "raw", "application/octet-stream", "xyz")
 
 			out, err := e.data.StartCommandExecution(t.Context(), &iotjobsdataplane.StartCommandExecutionInput{
 				CommandArn: aws.String(cmd), TargetArn: aws.String(targetARN(cmd)),
 			})
 			require.NoError(t, err)
-			assert.Equal(t, "xyz", string(e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/"+aws.ToString(out.ExecutionId)+"/request")))
+			assert.Equal(
+				t,
+				"xyz",
+				string(
+					e.expect(
+						t,
+						"$aws/commands/things/"+cmdThing+"/executions/"+aws.ToString(out.ExecutionId)+"/request",
+					),
+				),
+			)
 		}},
 		{name: "unknown_command", run: func(t *testing.T, e *cmdEnv) {
+			t.Helper()
+
 			_, err := e.data.StartCommandExecution(t.Context(), &iotjobsdataplane.StartCommandExecutionInput{
 				CommandArn: aws.String("arn:aws:iot:us-east-1:000000000000:command/ghost"),
 				TargetArn:  aws.String("arn:aws:iot:us-east-1:000000000000:thing/" + cmdThing),
@@ -207,6 +231,8 @@ func TestStartCommandExecution(t *testing.T) {
 			assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 		}},
 		{name: "deprecated_command", run: func(t *testing.T, e *cmdEnv) {
+			t.Helper()
+
 			cmd := e.createStatic(t, "old", "application/json", `{}`)
 			_, err := e.control.UpdateCommand(t.Context(), &iotsdk.UpdateCommandInput{
 				CommandId: aws.String("old"), Deprecated: aws.Bool(true),
@@ -219,10 +245,16 @@ func TestStartCommandExecution(t *testing.T) {
 			assert.Equal(t, "ValidationException", apiCode(err))
 		}},
 		{name: "bad_timeout_and_target", run: func(t *testing.T, e *cmdEnv) {
+			t.Helper()
+
 			cmd := e.createStatic(t, "c", "application/json", `{}`)
 
 			_, err := e.data.StartCommandExecution(t.Context(), &iotjobsdataplane.StartCommandExecutionInput{
-				CommandArn: aws.String(cmd), TargetArn: aws.String(targetARN(cmd)), ExecutionTimeoutSeconds: aws.Int64(43201),
+				CommandArn: aws.String(
+					cmd,
+				),
+				TargetArn:               aws.String(targetARN(cmd)),
+				ExecutionTimeoutSeconds: aws.Int64(43201),
 			})
 			assert.Equal(t, "ValidationException", apiCode(err))
 
@@ -232,6 +264,8 @@ func TestStartCommandExecution(t *testing.T) {
 			assert.Equal(t, "ValidationException", apiCode(err))
 		}},
 		{name: "client_token_replay_and_conflict", run: func(t *testing.T, e *cmdEnv) {
+			t.Helper()
+
 			cmd := e.createStatic(t, "c", "application/json", `{}`)
 			in := &iotjobsdataplane.StartCommandExecutionInput{
 				CommandArn: aws.String(cmd), TargetArn: aws.String(targetARN(cmd)), ClientToken: aws.String("tok"),
@@ -249,9 +283,13 @@ func TestStartCommandExecution(t *testing.T) {
 			assert.Equal(t, "ConflictException", apiCode(err))
 		}},
 		{name: "dynamic_parameters", run: func(t *testing.T, e *cmdEnv) {
+			t.Helper()
+
 			_, err := e.control.CreateCommand(t.Context(), &iotsdk.CreateCommandInput{
-				CommandId:       aws.String("temp"),
-				PayloadTemplate: aws.String(`{"t":"${aws:iot:commandexecution::parameter:temperature}","m":"${aws:iot:commandexecution::parameter:mode}"}`),
+				CommandId: aws.String("temp"),
+				PayloadTemplate: aws.String(
+					`{"t":"${aws:iot:commandexecution::parameter:temperature}","m":"${aws:iot:commandexecution::parameter:mode}"}`,
+				),
 				MandatoryParameters: []types.CommandParameter{
 					{
 						Name: aws.String("temperature"), Type: types.CommandParameterTypeInteger,
@@ -259,7 +297,10 @@ func TestStartCommandExecution(t *testing.T) {
 						ValueConditions: []types.CommandParameterValueCondition{{
 							ComparisonOperator: types.CommandParameterValueComparisonOperatorInRange,
 							Operand: &types.CommandParameterValueComparisonOperand{
-								NumberRange: &types.CommandParameterValueNumberRange{Min: aws.String("60"), Max: aws.String("80")},
+								NumberRange: &types.CommandParameterValueNumberRange{
+									Min: aws.String("60"),
+									Max: aws.String("80"),
+								},
 							},
 						}},
 					},
@@ -269,7 +310,9 @@ func TestStartCommandExecution(t *testing.T) {
 			require.NoError(t, err)
 
 			cmd := "arn:aws:iot:us-east-1:000000000000:command/temp"
-			start := func(params map[string]jdtypes.CommandParameterValue) (*iotjobsdataplane.StartCommandExecutionOutput, error) {
+			type startOut = iotjobsdataplane.StartCommandExecutionOutput
+
+			start := func(params map[string]jdtypes.CommandParameterValue) (*startOut, error) {
 				return e.data.StartCommandExecution(t.Context(), &iotjobsdataplane.StartCommandExecutionInput{
 					CommandArn: aws.String(cmd), TargetArn: aws.String(targetARN(cmd)), Parameters: params,
 				})
@@ -285,7 +328,16 @@ func TestStartCommandExecution(t *testing.T) {
 
 			out, err := start(map[string]jdtypes.CommandParameterValue{"mode": {S: aws.String("eco")}})
 			require.NoError(t, err)
-			assert.JSONEq(t, `{"t":"72","m":"eco"}`, string(e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/"+aws.ToString(out.ExecutionId)+"/request/json")))
+			assert.JSONEq(
+				t,
+				`{"t":"72","m":"eco"}`,
+				string(
+					e.expect(
+						t,
+						"$aws/commands/things/"+cmdThing+"/executions/"+aws.ToString(out.ExecutionId)+"/request/json",
+					),
+				),
+			)
 		}},
 	}
 
@@ -322,12 +374,17 @@ func TestCommandExecutionDeviceLifecycle(t *testing.T) {
 		return got
 	}
 
-	e.respond(t, id, "json", `{"status":"IN_PROGRESS","clientToken":"a"}`)
+	e.respond(t, id, `{"status":"IN_PROGRESS","clientToken":"a"}`)
 	assert.JSONEq(t, fmt.Sprintf(`{"executionId":%q,"clientToken":"a"}`, id), string(e.expect(t, base+"accepted/json")))
 	assert.Equal(t, types.CommandExecutionStatusInProgress, get(false).Status)
 	assert.Nil(t, get(false).CompletedAt)
 
-	e.respond(t, id, "json", `{"status":"SUCCEEDED","statusReason":{"reasonCode":"DONE","reasonDescription":"ok"},"result":{"sn":{"s":"ABC"},"d":{"b":true}}}`)
+	e.respond(
+		t,
+		id,
+		`{"status":"SUCCEEDED","statusReason":{"reasonCode":"DONE","reasonDescription":"ok"},`+
+			`"result":{"sn":{"s":"ABC"},"d":{"b":true}}}`,
+	)
 	e.expect(t, base+"accepted/json")
 
 	without := get(false)
@@ -341,7 +398,7 @@ func TestCommandExecutionDeviceLifecycle(t *testing.T) {
 	assert.Equal(t, "ABC", aws.ToString(with.Result["sn"].S))
 	assert.True(t, aws.ToBool(with.Result["d"].B))
 
-	e.respond(t, id, "json", `{"status":"IN_PROGRESS","clientToken":"b"}`)
+	e.respond(t, id, `{"status":"IN_PROGRESS","clientToken":"b"}`)
 
 	var rejected map[string]string
 	require.NoError(t, json.Unmarshal(e.expect(t, base+"rejected/json"), &rejected))
@@ -373,7 +430,11 @@ func TestCommandExecutionDeviceRejections(t *testing.T) {
 	}{
 		{name: "invalid_json", payload: `nope`, wantErr: "InvalidJson"},
 		{name: "created_not_reportable", payload: `{"status":"CREATED"}`, wantErr: "InvalidStateTransition"},
-		{name: "bad_reason_code", payload: `{"status":"FAILED","statusReason":{"reasonCode":"lower"}}`, wantErr: "InvalidRequest"},
+		{
+			name:    "bad_reason_code",
+			payload: `{"status":"FAILED","statusReason":{"reasonCode":"lower"}}`,
+			wantErr: "InvalidRequest",
+		},
 		{name: "empty_result", payload: `{"status":"FAILED","result":{}}`, wantErr: "InvalidRequest"},
 	}
 
@@ -389,10 +450,16 @@ func TestCommandExecutionDeviceRejections(t *testing.T) {
 			require.NoError(t, err)
 
 			id := aws.ToString(out.ExecutionId)
-			e.respond(t, id, "json", tt.payload)
+			e.respond(t, id, tt.payload)
 
 			var got map[string]string
-			require.NoError(t, json.Unmarshal(e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/"+id+"/response/rejected/json"), &got))
+			require.NoError(
+				t,
+				json.Unmarshal(
+					e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/"+id+"/response/rejected/json"),
+					&got,
+				),
+			)
 			assert.Equal(t, tt.wantErr, got["error"])
 		})
 	}
@@ -401,10 +468,16 @@ func TestCommandExecutionDeviceRejections(t *testing.T) {
 		t.Parallel()
 
 		e := newCmdEnv(t)
-		e.respond(t, "ghost", "json", `{"status":"SUCCEEDED"}`)
+		e.respond(t, "ghost", `{"status":"SUCCEEDED"}`)
 
 		var got map[string]string
-		require.NoError(t, json.Unmarshal(e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/ghost/response/rejected/json"), &got))
+		require.NoError(
+			t,
+			json.Unmarshal(
+				e.expect(t, "$aws/commands/things/"+cmdThing+"/executions/ghost/response/rejected/json"),
+				&got,
+			),
+		)
 		assert.Equal(t, "ResourceNotFound", got["error"])
 	})
 }
@@ -414,15 +487,32 @@ func TestCommandExecutionTimeout(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		deviceTime bool
 		wantStatus string
 		wantFinal  string
 		reportAs   string
+		deviceTime bool
 		wantErr    bool
 	}{
-		{name: "cloud_timeout_then_device_succeeds", reportAs: "SUCCEEDED", wantStatus: "TIMED_OUT", wantFinal: "SUCCEEDED"},
-		{name: "cloud_timeout_blocks_in_progress", reportAs: "IN_PROGRESS", wantStatus: "TIMED_OUT", wantFinal: "TIMED_OUT", wantErr: true},
-		{name: "device_timeout_is_terminal", deviceTime: true, reportAs: "TIMED_OUT", wantStatus: "TIMED_OUT", wantFinal: "TIMED_OUT"},
+		{
+			name:       "cloud_timeout_then_device_succeeds",
+			reportAs:   "SUCCEEDED",
+			wantStatus: "TIMED_OUT",
+			wantFinal:  "SUCCEEDED",
+		},
+		{
+			name:       "cloud_timeout_blocks_in_progress",
+			reportAs:   "IN_PROGRESS",
+			wantStatus: "TIMED_OUT",
+			wantFinal:  "TIMED_OUT",
+			wantErr:    true,
+		},
+		{
+			name:       "device_timeout_is_terminal",
+			deviceTime: true,
+			reportAs:   "TIMED_OUT",
+			wantStatus: "TIMED_OUT",
+			wantFinal:  "TIMED_OUT",
+		},
 	}
 
 	for _, tt := range tests {
@@ -432,11 +522,22 @@ func TestCommandExecutionTimeout(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				b := iot.NewInMemoryBackend()
 				cmdARN := "arn:aws:iot:us-east-1:000000000000:command/c"
-				_, err := b.CreateCommand("c", "", "", "", map[string]any{"contentType": "application/json", "content": "e30="}, nil, nil, iot.CommandExtras{})
+				_, err := b.CreateCommand(
+					"c",
+					"",
+					"",
+					"",
+					map[string]any{"contentType": "application/json", "content": "e30="},
+					nil,
+					nil,
+					iot.CommandExtras{},
+				)
 				require.NoError(t, err)
 
 				started, err := b.StartCommandExecution(&iot.StartCommandExecutionInput{
-					CommandARN: cmdARN, TargetARN: "arn:aws:iot:us-east-1:000000000000:thing/d", TimeoutSeconds: aws.Int64(30),
+					CommandARN:     cmdARN,
+					TargetARN:      "arn:aws:iot:us-east-1:000000000000:thing/d",
+					TimeoutSeconds: aws.Int64(30),
 				})
 				require.NoError(t, err)
 

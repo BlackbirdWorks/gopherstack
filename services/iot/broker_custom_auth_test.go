@@ -238,7 +238,15 @@ func TestCustomAuthorizerMQTT(t *testing.T) {
 
 		pd, _ := ev["protocolData"].(map[string]any)
 		assert.Equal(t, map[string]any{"serverName": authzSNI}, pd["tls"])
-		assert.Equal(t, map[string]any{"username": "user", "password": base64.StdEncoding.EncodeToString([]byte("dev")), "clientId": "car1"}, pd["mqtt"])
+		assert.Equal(
+			t,
+			map[string]any{
+				"username": "user",
+				"password": base64.StdEncoding.EncodeToString([]byte("dev")),
+				"clientId": "car1",
+			},
+			pd["mqtt"],
+		)
 		assert.NotEmpty(t, ev["connectionMetadata"].(map[string]any)["id"])
 		assert.Equal(t, false, ev["signatureVerified"])
 
@@ -284,7 +292,9 @@ func TestCustomAuthorizerMQTT(t *testing.T) {
 		_, err = e.connect(t, "c4", "u?x-amz-customauthorizer-name=a", "dev", nil, nil)
 		require.Error(t, err, "policy does not allow iot:Connect")
 
-		e.lambda.setRespond(func(map[string]any) any { return map[string]any{"isAuthenticated": true, "principalId": "bad id!"} })
+		e.lambda.setRespond(
+			func(map[string]any) any { return map[string]any{"isAuthenticated": true, "principalId": "bad id!"} },
+		)
 		_, err = e.connect(t, "c5", "u?x-amz-customauthorizer-name=a", "dev", nil, nil)
 		require.Error(t, err, "invalid principalId")
 	})
@@ -300,8 +310,10 @@ func TestCustomAuthorizerMQTT(t *testing.T) {
 
 		e := newCustomAuthEnv(t)
 		e.createAuthorizer(t, "signed", &iot.CreateAuthorizerInput{
-			TokenKeyName:           "tk",
-			TokenSigningPublicKeys: map[string]string{"k1": string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))},
+			TokenKeyName: "tk",
+			TokenSigningPublicKeys: map[string]string{
+				"k1": string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})),
+			},
 		})
 		e.lambda.setRespond(func(map[string]any) any { return authzResponse("dev1", 0, 0, allowAll) })
 
@@ -310,10 +322,19 @@ func TestCustomAuthorizerMQTT(t *testing.T) {
 		require.NoError(t, err)
 
 		userFor := func(token, sig string) string {
-			return "u?x-amz-customauthorizer-name=signed&x-amz-customauthorizer-signature=" + url.QueryEscape(sig) + "&tk=" + token
+			return "u?x-amz-customauthorizer-name=signed&x-amz-customauthorizer-signature=" + url.QueryEscape(
+				sig,
+			) + "&tk=" + token
 		}
 
-		_, err = e.connect(t, "bad", userFor("tokenvalue", base64.StdEncoding.EncodeToString([]byte("nope"))), "", nil, nil)
+		_, err = e.connect(
+			t,
+			"bad",
+			userFor("tokenvalue", base64.StdEncoding.EncodeToString([]byte("nope"))),
+			"",
+			nil,
+			nil,
+		)
 		require.Error(t, err)
 		assert.Empty(t, e.lambda.calls(), "lambda must not run for an unverified signature")
 
@@ -338,7 +359,12 @@ func TestCustomAuthorizerMQTT(t *testing.T) {
 		now := time.Now()
 		var cmu sync.Mutex
 		e.broker.SetClock(iot.BrokerClock{
-			Now: func() time.Time { cmu.Lock(); defer cmu.Unlock(); return now },
+			Now: func() time.Time {
+				cmu.Lock()
+				defer cmu.Unlock()
+
+				return now
+			},
 			AfterFunc: func(time.Duration, func()) func() bool { return func() bool { return true } },
 		})
 
@@ -347,7 +373,14 @@ func TestCustomAuthorizerMQTT(t *testing.T) {
 				return observerAllow()
 			}
 
-			return authzResponse("dev1", 300, 0, allowConnect, allowMarkerPub, allowStmt("iot:Publish", "arn:aws:iot:*:*:topic/a"))
+			return authzResponse(
+				"dev1",
+				300,
+				0,
+				allowConnect,
+				allowMarkerPub,
+				allowStmt("iot:Publish", "arn:aws:iot:*:*:topic/a"),
+			)
 		})
 
 		c, err := e.connect(t, "car1", "u", "dev", nil, nil)
@@ -362,7 +395,14 @@ func TestCustomAuthorizerMQTT(t *testing.T) {
 				return observerAllow()
 			}
 
-			return authzResponse("dev1", 300, 0, allowConnect, allowMarkerPub, allowStmt("iot:Publish", "arn:aws:iot:*:*:topic/b"))
+			return authzResponse(
+				"dev1",
+				300,
+				0,
+				allowConnect,
+				allowMarkerPub,
+				allowStmt("iot:Publish", "arn:aws:iot:*:*:topic/b"),
+			)
 		})
 
 		cmu.Lock()
@@ -436,10 +476,16 @@ func TestTestInvokeAuthorizerSDK(t *testing.T) {
 				Token:       aws.String("tok"),
 				HttpContext: &types.HttpContext{Headers: map[string]string{"h": "v"}, QueryString: aws.String("?a=b")},
 				TlsContext:  &types.TlsContext{ServerName: aws.String("sni.example.com")},
-				MqttContext: &types.MqttContext{ClientId: aws.String("c1"), Username: aws.String("u"), Password: []byte("pw")},
+				MqttContext: &types.MqttContext{
+					ClientId: aws.String("c1"),
+					Username: aws.String("u"),
+					Password: []byte("pw"),
+				},
 			},
 			respond: func(map[string]any) any { return authzResponse("p1", 600, 3600, allowConnect) },
 			check: func(t *testing.T, out *iotsdk.TestInvokeAuthorizerOutput, ev map[string]any) {
+				t.Helper()
+
 				assert.True(t, aws.ToBool(out.IsAuthenticated))
 				assert.Equal(t, "p1", aws.ToString(out.PrincipalId))
 				assert.EqualValues(t, 600, aws.ToInt32(out.RefreshAfterInSeconds))
@@ -453,32 +499,48 @@ func TestTestInvokeAuthorizerSDK(t *testing.T) {
 				pd, _ := ev["protocolData"].(map[string]any)
 				assert.Equal(t, map[string]any{"headers": map[string]any{"h": "v"}, "queryString": "?a=b"}, pd["http"])
 				assert.Equal(t, map[string]any{"serverName": "sni.example.com"}, pd["tls"])
-				assert.Equal(t, map[string]any{"username": "u", "password": base64.StdEncoding.EncodeToString([]byte("pw")), "clientId": "c1"}, pd["mqtt"])
+				assert.Equal(
+					t,
+					map[string]any{
+						"username": "u",
+						"password": base64.StdEncoding.EncodeToString([]byte("pw")),
+						"clientId": "c1",
+					},
+					pd["mqtt"],
+				)
 			},
 		},
 		{
-			name: "not_authenticated",
-			in:   &iotsdk.TestInvokeAuthorizerInput{Token: aws.String("tok")},
+			name:    "not_authenticated",
+			in:      &iotsdk.TestInvokeAuthorizerInput{Token: aws.String("tok")},
 			respond: func(map[string]any) any { return map[string]any{"isAuthenticated": false} },
 			check: func(t *testing.T, out *iotsdk.TestInvokeAuthorizerOutput, _ map[string]any) {
+				t.Helper()
+
 				assert.False(t, aws.ToBool(out.IsAuthenticated))
 				assert.Empty(t, out.PolicyDocuments)
 			},
 		},
 		{
-			name: "defaults_disconnect_to_one_day",
-			in:   &iotsdk.TestInvokeAuthorizerInput{Token: aws.String("tok")},
+			name:    "defaults_disconnect_to_one_day",
+			in:      &iotsdk.TestInvokeAuthorizerInput{Token: aws.String("tok")},
 			respond: func(map[string]any) any { return authzResponse("p1", 0, 0, allowAll) },
 			check: func(t *testing.T, out *iotsdk.TestInvokeAuthorizerOutput, _ map[string]any) {
+				t.Helper()
+
 				assert.EqualValues(t, 86400, aws.ToInt32(out.DisconnectAfterInSeconds))
 			},
 		},
 		{
-			name: "invalid_principal", in: &iotsdk.TestInvokeAuthorizerInput{Token: aws.String("tok")}, wantErr: "InvalidResponseException",
+			name:    "invalid_principal",
+			in:      &iotsdk.TestInvokeAuthorizerInput{Token: aws.String("tok")},
+			wantErr: "InvalidResponseException",
 			respond: func(map[string]any) any { return map[string]any{"isAuthenticated": true, "principalId": "no spaces"} },
 		},
 		{
-			name: "refresh_out_of_range", in: &iotsdk.TestInvokeAuthorizerInput{Token: aws.String("tok")}, wantErr: "InvalidResponseException",
+			name:    "refresh_out_of_range",
+			in:      &iotsdk.TestInvokeAuthorizerInput{Token: aws.String("tok")},
+			wantErr: "InvalidResponseException",
 			respond: func(map[string]any) any { return authzResponse("p1", 10, 0, allowAll) },
 		},
 	}

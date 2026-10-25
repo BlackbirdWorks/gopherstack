@@ -32,7 +32,7 @@ func (h *Handler) handleStartCommandExecution(c *echo.Context) error {
 		h.broker.publishCommandRequest(started)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{"executionId": started.ExecutionID})
+	return c.JSON(http.StatusOK, map[string]string{keyExecutionID: started.ExecutionID})
 }
 
 func writeCommandStartError(c *echo.Context, err error) error {
