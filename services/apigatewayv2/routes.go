@@ -105,18 +105,19 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 
 	id := randomID()
 	route := &Route{
-		RouteID:                  id,
-		APIID:                    apiID,
-		RouteKey:                 input.RouteKey,
-		Target:                   input.Target,
-		AuthorizationType:        authType,
-		AuthorizerID:             input.AuthorizerID,
-		OperationName:            input.OperationName,
-		ModelSelectionExpression: input.ModelSelectionExpression,
-		RequestModels:            input.RequestModels,
-		RequestParameters:        input.RequestParameters,
-		AuthorizationScopes:      authScopes,
-		APIKeyRequired:           input.APIKeyRequired,
+		RouteID:                          id,
+		APIID:                            apiID,
+		RouteKey:                         input.RouteKey,
+		Target:                           input.Target,
+		AuthorizationType:                authType,
+		AuthorizerID:                     input.AuthorizerID,
+		OperationName:                    input.OperationName,
+		ModelSelectionExpression:         input.ModelSelectionExpression,
+		RouteResponseSelectionExpression: input.RouteResponseSelectionExpression,
+		RequestModels:                    input.RequestModels,
+		RequestParameters:                input.RequestParameters,
+		AuthorizationScopes:              authScopes,
+		APIKeyRequired:                   input.APIKeyRequired,
 	}
 
 	b.routes.Put(route)
@@ -288,6 +289,10 @@ func applyRouteUpdate(r *Route, input UpdateRouteInput) {
 
 	if input.ModelSelectionExpression != nil {
 		r.ModelSelectionExpression = *input.ModelSelectionExpression
+	}
+
+	if input.RouteResponseSelectionExpression != nil {
+		r.RouteResponseSelectionExpression = *input.RouteResponseSelectionExpression
 	}
 
 	if input.RequestModels != nil {

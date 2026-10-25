@@ -145,8 +145,10 @@ type Route struct {
 	AuthorizerID             string                            `json:"authorizerId,omitempty"`
 	OperationName            string                            `json:"operationName,omitempty"`
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
-	AuthorizationScopes      []string                          `json:"authorizationScopes"`
-	APIKeyRequired           bool                              `json:"apiKeyRequired"`
+	// RouteResponseSelectionExpression enables two-way communication on a WebSocket route ($default only).
+	RouteResponseSelectionExpression string   `json:"routeResponseSelectionExpression,omitempty"`
+	AuthorizationScopes              []string `json:"authorizationScopes"`
+	APIKeyRequired                   bool     `json:"apiKeyRequired"`
 	// APIGatewayManaged is true for the $default route auto-provisioned by
 	// CreateApi's quick-create shortcut (routeKey+target); its route key
 	// cannot be modified. False for routes a caller created directly.
@@ -306,6 +308,8 @@ type CreateRouteInput struct {
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
 	AuthorizationScopes      []string                          `json:"authorizationScopes,omitempty"`
 	APIKeyRequired           bool                              `json:"apiKeyRequired,omitempty"`
+
+	RouteResponseSelectionExpression string `json:"routeResponseSelectionExpression,omitempty"`
 }
 
 // UpdateRouteInput is the input for UpdateRoute (PATCH).
@@ -320,6 +324,8 @@ type UpdateRouteInput struct {
 	ModelSelectionExpression *string                           `json:"modelSelectionExpression,omitempty"`
 	APIKeyRequired           *bool                             `json:"apiKeyRequired,omitempty"`
 	AuthorizationScopes      []string                          `json:"authorizationScopes,omitempty"`
+
+	RouteResponseSelectionExpression *string `json:"routeResponseSelectionExpression,omitempty"`
 }
 
 // CreateIntegrationInput is the input for CreateIntegration.
