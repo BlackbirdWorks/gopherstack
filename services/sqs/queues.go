@@ -315,7 +315,8 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 	now := b.now()
 
 	// AWS enforces a 60-second cooldown between PurgeQueue calls on the same queue.
-	if !b.noPurgeCooldown.Load() && !q.lastPurgedAt.IsZero() && now.Sub(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
+	if !b.noPurgeCooldown.Load() && !q.lastPurgedAt.IsZero() &&
+		now.Sub(q.lastPurgedAt) < purgeCooldownSecs*time.Second {
 		return ErrPurgeQueueInProgress
 	}
 

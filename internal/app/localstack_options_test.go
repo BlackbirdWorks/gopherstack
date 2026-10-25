@@ -23,24 +23,30 @@ func TestLocalstackAliasesParseIntoNativeConfig(t *testing.T) {
 	}{
 		{
 			name: "enforce_iam", env: map[string]string{"ENFORCE_IAM": "true"},
-			check: func(t *testing.T, c CLI) { assert.True(t, c.EnforceIAM) },
+			check: func(t *testing.T, c CLI) {
+				t.Helper()
+				assert.True(t, c.EnforceIAM)
+			},
 		},
 		{
-			name:  "native_env_beats_alias",
-			env:   map[string]string{"ENFORCE_IAM": "true", "GOPHERSTACK_ENFORCE_IAM": "false"},
-			check: func(t *testing.T, c CLI) { assert.False(t, c.EnforceIAM) },
-		},
-		{
-			name: "s3_validate_signatures", env: map[string]string{"S3_VALIDATE_SIGNATURES": "1"},
-			check: func(t *testing.T, c CLI) { assert.True(t, c.ValidateSigV4) },
+			name: "native_env_beats_alias",
+			env:  map[string]string{"ENFORCE_IAM": "true", "GOPHERSTACK_ENFORCE_IAM": "false"},
+			check: func(t *testing.T, c CLI) {
+				t.Helper()
+				assert.False(t, c.EnforceIAM)
+			},
 		},
 		{
 			name: "response_header", env: map[string]string{"LOCALSTACK_RESPONSE_HEADER_ENABLED": "1"},
-			check: func(t *testing.T, c CLI) { assert.True(t, c.LocalstackResponseHeader) },
+			check: func(t *testing.T, c CLI) {
+				t.Helper()
+				assert.True(t, c.Localstack.ResponseHeader)
+			},
 		},
 		{
 			name: "pods", env: map[string]string{"AUTO_LOAD_POD": "a,b", "MERGE_STRATEGY": "account-region-merge"},
 			check: func(t *testing.T, c CLI) {
+				t.Helper()
 				assert.Equal(t, "a,b", c.Pods.Autoload)
 				assert.Equal(t, "account-region-merge", c.Pods.MergeStrategy)
 			},
@@ -51,6 +57,7 @@ func TestLocalstackAliasesParseIntoNativeConfig(t *testing.T) {
 				"SQS_ENABLE_MESSAGE_RETENTION_PERIOD": "false", "SQS_DISABLE_CLOUDWATCH_METRICS": "1",
 			},
 			check: func(t *testing.T, c CLI) {
+				t.Helper()
 				assert.False(t, c.SQS.DelayPurgeRetry)
 				assert.False(t, c.SQS.DelayRecentlyDeleted)
 				assert.False(t, c.SQS.EnableRetentionPeriod)
@@ -60,6 +67,7 @@ func TestLocalstackAliasesParseIntoNativeConfig(t *testing.T) {
 		{
 			name: "sqs_defaults",
 			check: func(t *testing.T, c CLI) {
+				t.Helper()
 				assert.True(t, c.SQS.DelayPurgeRetry)
 				assert.True(t, c.SQS.DelayRecentlyDeleted)
 				assert.True(t, c.SQS.EnableRetentionPeriod)
@@ -96,7 +104,7 @@ func TestLocalstackResponseHeaderMiddleware(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
 
-	assert.Equal(t, "true", rec.Header().Get("x-localstack"))
+	assert.Equal(t, "true", rec.Header().Get("X-Localstack"))
 }
 
 func TestPodAutoloadStrategiesAndOrder(t *testing.T) {

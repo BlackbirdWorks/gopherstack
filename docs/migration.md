@@ -232,7 +232,7 @@ LocalStack variables are translated at startup; a variable already set under its
 | `KINESIS_ERROR_PROBABILITY`, `DYNAMODB_ERROR_PROBABILITY` (0 to 1) | Seed a probabilistic `ProvisionedThroughputExceededException` fault rule (HTTP 400) in the chaos fault store at startup; replaceable via `/_localstack/chaos/faults` |
 | `LAMBDA_KEEPALIVE_MS`, `HOSTNAME_FROM_LAMBDA` | `LAMBDA_IDLE_TIMEOUT`, `LAMBDA_DOCKER_HOST` |
 | `OUTBOUND_HTTP_PROXY`, `OUTBOUND_HTTPS_PROXY`, `REQUESTS_CA_BUNDLE` | `HTTP_PROXY`, `HTTPS_PROXY`, `SSL_CERT_FILE` |
-| `LOCALSTACK_RESPONSE_HEADER_ENABLED` | `GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER` (opt-in `x-localstack: true`) |
+| `LOCALSTACK_RESPONSE_HEADER_ENABLED` | `GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER` (opt-in `X-Localstack: true`) |
 | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `SFN_MOCK_CONFIG`, `*_ENDPOINT_STRATEGY` | Read under the same names |
 | `LAMBDA_LIMITS_*`, `KINESIS_LATENCY`, `KINESIS_SHARD_LIMIT`, `S3_SKIP_*`, `DISABLE_CUSTOM_CORS_*`, `LAMBDA_RUNTIME_*`, `USE_SSL`, and other documented options with a behaviour Gopherstack lacks | Unsupported; each one that is set logs `LocalStack option X is not supported` once at warn |
 | `EAGER_SERVICE_LOADING`, `LOCALSTACK_AUTH_TOKEN`, `*_DOCKER_FLAGS`, `PROVIDER_OVERRIDE_*`, JVM, Docker and Kubernetes plumbing options | No equivalent needed; logged once at debug |

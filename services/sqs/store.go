@@ -57,14 +57,14 @@ type InMemoryBackend struct {
 	// check and swept periodically by pruneState so the map cannot grow
 	// unboundedly across a long-lived backend that deletes many queues.
 	recentlyDeleted  map[string]time.Time
-	noPurgeCooldown  atomic.Bool
-	noDeletedWait    atomic.Bool
-	noRetention      atomic.Bool
-	noMetrics        atomic.Bool
 	accountID        string
 	region           string
 	defaultEndpoint  string
 	endpointStrategy string
+	noPurgeCooldown  atomic.Bool
+	noDeletedWait    atomic.Bool
+	noRetention      atomic.Bool
+	noMetrics        atomic.Bool
 }
 
 // queueTableKey is the [store.Table] key function for b.queues, deriving the

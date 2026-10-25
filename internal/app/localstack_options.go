@@ -83,7 +83,7 @@ func localstackBenignKeys() []string {
 }
 
 // localstackUnsupportedPrefixes/Suffixes cover families of container-flag options.
-func localstackBenignAffixes() (prefixes, suffixes []string) {
+func localstackBenignAffixes() ([]string, []string) {
 	return []string{"PROVIDER_OVERRIDE_", "LOCALSTACK_K8S_", "LAMBDA_K8S_", "EKS_K3"},
 		[]string{"_DOCKER_FLAGS"}
 }
@@ -93,6 +93,10 @@ func (p *envPlan) planOptions() {
 	p.planDNS()
 	p.planPersistence()
 	p.planPortRange()
+
+	if p.truthy("S3_VALIDATE_SIGNATURES") {
+		p.put("VALIDATE_SIGV4", "true")
+	}
 
 	if ms, err := strconv.Atoi(p.val("LAMBDA_KEEPALIVE_MS")); err == nil && ms >= 0 {
 		p.put("LAMBDA_IDLE_TIMEOUT", (time.Duration(ms) * time.Millisecond).String())

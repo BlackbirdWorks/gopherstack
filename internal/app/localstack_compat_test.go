@@ -58,8 +58,9 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			want: map[string]string{}, wantEnable: true,
 		},
 		{
-			name: "unsupported_warned", environ: []string{"KINESIS_LATENCY=5", "LAMBDA_LIMITS_CODE_SIZE_ZIPPED=1", "LOCALSTACK_FOO=1"},
-			want: map[string]string{}, wantEnable: true,
+			name:    "unsupported_warned",
+			environ: []string{"KINESIS_LATENCY=5", "LAMBDA_LIMITS_CODE_SIZE_ZIPPED=1", "LOCALSTACK_FOO=1"},
+			want:    map[string]string{}, wantEnable: true,
 			wantIgnored: []string{"KINESIS_LATENCY", "LAMBDA_LIMITS_CODE_SIZE_ZIPPED", "LOCALSTACK_FOO"},
 		},
 		{
@@ -68,32 +69,51 @@ func TestLocalstackEnvPlan(t *testing.T) {
 		},
 		{name: "dns_address_disabled", environ: []string{"DNS_ADDRESS=0"}, want: map[string]string{}},
 		{
-			name: "snapshot_scheduled", environ: []string{"SNAPSHOT_SAVE_STRATEGY=scheduled", "SNAPSHOT_FLUSH_INTERVAL=30"},
-			want: map[string]string{"GOPHERSTACK_PERSIST_MODE": "hybrid", "GOPHERSTACK_PERSIST_FLUSH_INTERVAL": "30s"},
+			name:    "snapshot_scheduled",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=scheduled", "SNAPSHOT_FLUSH_INTERVAL=30"},
+			want: map[string]string{
+				"GOPHERSTACK_PERSIST_MODE":           "hybrid",
+				"GOPHERSTACK_PERSIST_FLUSH_INTERVAL": "30s",
+			},
 		},
 		{
-			name: "snapshot_on_request_startup", environ: []string{"SNAPSHOT_SAVE_STRATEGY=ON_REQUEST", "SNAPSHOT_LOAD_STRATEGY=ON_STARTUP"},
-			want: map[string]string{"GOPHERSTACK_PERSIST_MODE": "snapshot"},
+			name:    "snapshot_on_request_startup",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=ON_REQUEST", "SNAPSHOT_LOAD_STRATEGY=ON_STARTUP"},
+			want:    map[string]string{"GOPHERSTACK_PERSIST_MODE": "snapshot"},
 		},
 		{
-			name: "snapshot_manual_unsupported", environ: []string{"SNAPSHOT_SAVE_STRATEGY=MANUAL", "SNAPSHOT_LOAD_STRATEGY=MANUAL"},
-			want: map[string]string{}, wantIgnored: []string{"SNAPSHOT_LOAD_STRATEGY", "SNAPSHOT_SAVE_STRATEGY"},
+			name:    "snapshot_manual_unsupported",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=MANUAL", "SNAPSHOT_LOAD_STRATEGY=MANUAL"},
+			want:    map[string]string{}, wantIgnored: []string{"SNAPSHOT_LOAD_STRATEGY", "SNAPSHOT_SAVE_STRATEGY"},
 		},
 		{
 			name: "lambda_knobs", environ: []string{"LAMBDA_KEEPALIVE_MS=5000", "HOSTNAME_FROM_LAMBDA=host.x"},
 			want: map[string]string{"LAMBDA_IDLE_TIMEOUT": "5s", "LAMBDA_DOCKER_HOST": "host.x"},
 		},
 		{
-			name: "lambda_keepalive_native_wins", environ: []string{"LAMBDA_KEEPALIVE_MS=5000", "LAMBDA_IDLE_TIMEOUT=1m"},
-			want: map[string]string{},
+			name:    "lambda_keepalive_native_wins",
+			environ: []string{"LAMBDA_KEEPALIVE_MS=5000", "LAMBDA_IDLE_TIMEOUT=1m"},
+			want:    map[string]string{},
 		},
 		{
-			name: "port_range", environ: []string{"EXTERNAL_SERVICE_PORTS_START=4510", "EXTERNAL_SERVICE_PORTS_END=4559"},
-			want: map[string]string{"PORT_RANGE_START": "4510", "PORT_RANGE_END": "4560"},
+			name:    "port_range",
+			environ: []string{"EXTERNAL_SERVICE_PORTS_START=4510", "EXTERNAL_SERVICE_PORTS_END=4559"},
+			want:    map[string]string{"PORT_RANGE_START": "4510", "PORT_RANGE_END": "4560"},
 		},
 		{
-			name: "proxy_and_ca", environ: []string{"OUTBOUND_HTTP_PROXY=http://p:1", "OUTBOUND_HTTPS_PROXY=http://p:2", "REQUESTS_CA_BUNDLE=/ca.pem"},
-			want: map[string]string{"HTTP_PROXY": "http://p:1", "HTTPS_PROXY": "http://p:2", "SSL_CERT_FILE": "/ca.pem"},
+			name: "proxy_and_ca",
+			environ: []string{
+				"OUTBOUND_HTTP_PROXY=http://p:1", "OUTBOUND_HTTPS_PROXY=http://p:2", "REQUESTS_CA_BUNDLE=/ca.pem",
+			},
+			want: map[string]string{
+				"HTTP_PROXY":    "http://p:1",
+				"HTTPS_PROXY":   "http://p:2",
+				"SSL_CERT_FILE": "/ca.pem",
+			},
+		},
+		{
+			name: "s3_validate_signatures", environ: []string{"S3_VALIDATE_SIGNATURES=1"},
+			want: map[string]string{"VALIDATE_SIGV4": "true"},
 		},
 		{
 			name: "docker_flags_family_benign", environ: []string{"LAMBDA_DOCKER_FLAGS=-x", "PROVIDER_OVERRIDE_S3=v2"},

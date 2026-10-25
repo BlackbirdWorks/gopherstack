@@ -16,9 +16,9 @@ func TestSettings_PurgeCooldown(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		mutate  func(*sqs.Settings)
 		wantErr error
+		mutate  func(*sqs.Settings)
+		name    string
 	}{
 		{name: "default_enforced", mutate: func(*sqs.Settings) {}, wantErr: sqs.ErrPurgeQueueInProgress},
 		{name: "disabled", mutate: func(s *sqs.Settings) { s.DelayPurgeRetry = false }},
@@ -47,9 +47,9 @@ func TestSettings_RecentlyDeleted(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		mutate  func(*sqs.Settings)
 		wantErr error
+		mutate  func(*sqs.Settings)
+		name    string
 	}{
 		{name: "default_enforced", mutate: func(*sqs.Settings) {}, wantErr: sqs.ErrQueueDeletedRecently},
 		{name: "disabled", mutate: func(s *sqs.Settings) { s.DelayRecentlyDeleted = false }},

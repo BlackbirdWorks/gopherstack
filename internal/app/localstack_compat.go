@@ -92,7 +92,8 @@ func (p *envPlan) unsupportedKeys() []string {
 	out = append(out, presentKeys(p.env, localstackUnsupportedKeys())...)
 
 	for k := range p.env {
-		if strings.HasPrefix(k, "LOCALSTACK_") && !isHandledLocalstackKey(k) && !slices.Contains(localstackBenignKeys(), k) {
+		if strings.HasPrefix(k, "LOCALSTACK_") && !isHandledLocalstackKey(k) &&
+			!slices.Contains(localstackBenignKeys(), k) {
 			out = append(out, k)
 		}
 	}
@@ -564,7 +565,12 @@ func serveAll(ctx context.Context, cli *CLI, h *echo.Echo, log *slog.Logger) err
 	return err
 }
 
-const localstackResponseHeader = "x-localstack"
+// LocalstackSettings holds opt-in LocalStack behaviours.
+type LocalstackSettings struct {
+	ResponseHeader bool `name:"response-header" env:"GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER,LOCALSTACK_RESPONSE_HEADER_ENABLED" default:"false" help:"Add the X-Localstack: true response header."` //nolint:lll // config struct tags are intentionally verbose
+}
+
+const localstackResponseHeader = "X-Localstack"
 
 // localstackResponseHeaderMiddleware stamps every response like LocalStack does.
 func localstackResponseHeaderMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
