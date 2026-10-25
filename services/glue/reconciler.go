@@ -117,22 +117,7 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 	//                    without creating tables (the crawl was interrupted).
 	for name, readyAt := range b.crawlerReadyAt {
 		if now.After(readyAt) {
-			c, ok := b.crawlers.Get(name)
-			if ok && c.State == stateRunning {
-				c.State = stateReady
-				c.LastUpdated = float64(now.Unix())
-				created := b.createCrawlerTablesLocked(c)
-				b.finishCrawlHistoryLocked(name, "COMPLETED", created, now)
-				b.setLastCrawlLocked(c, "SUCCEEDED")
-				b.recordCrawlCompletionLocked(name, "SUCCEEDED")
-			} else if ok && c.State == stateStopping {
-				c.State = stateReady
-				c.LastUpdated = float64(now.Unix())
-				b.finishCrawlHistoryLocked(name, "STOPPED", 0, now)
-				b.setLastCrawlLocked(c, "CANCELLED")
-				b.recordCrawlCompletionLocked(name, "CANCELLED")
-			}
-
+			b.completeCrawlLocked(name, now)
 			delete(b.crawlerReadyAt, name)
 		}
 	}
@@ -384,3 +369,36 @@ func (b *InMemoryBackend) StopReconciler() {
 // retained for callers (and tests) that manage a backend's lifecycle directly; it is
 // an idempotent alias for StopReconciler.
 func (b *InMemoryBackend) Close() { b.StopReconciler() }
+
+// completeCrawlLocked finishes a crawler's RUNNING or STOPPING state. b.mu must be held.
+func (b *InMemoryBackend) completeCrawlLocked(name string, now time.Time) {
+	c, ok := b.crawlers.Get(name)
+	if !ok {
+		return
+	}
+
+	switch c.State {
+	case stateRunning:
+		c.State = stateReady
+		c.LastUpdated = float64(now.Unix())
+
+		stats, err := b.runCrawlLocked(c)
+		if err != nil {
+			b.failCrawlHistoryLocked(name, err.Error(), stats, now)
+			b.setLastCrawlLocked(c, "FAILED")
+			b.recordCrawlCompletionLocked(name, "FAILED")
+
+			return
+		}
+
+		b.finishCrawlHistoryLocked(name, crawlerStateCompleted, stats, now)
+		b.setLastCrawlLocked(c, "SUCCEEDED")
+		b.recordCrawlCompletionLocked(name, "SUCCEEDED")
+	case stateStopping:
+		c.State = stateReady
+		c.LastUpdated = float64(now.Unix())
+		b.finishCrawlHistoryLocked(name, crawlerStateStoppedCrawl, crawlStats{}, now)
+		b.setLastCrawlLocked(c, "CANCELLED")
+		b.recordCrawlCompletionLocked(name, "CANCELLED")
+	}
+}

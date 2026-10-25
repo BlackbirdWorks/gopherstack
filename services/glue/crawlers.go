@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,51 +19,6 @@ var ErrCrawlerRunning = awserr.New("CrawlerRunningException", awserr.ErrInvalidP
 var ErrCrawlerNotRunning = awserr.New("CrawlerNotRunningException", awserr.ErrInvalidParameter)
 
 const crawlerTransitionDelay = 200 * time.Millisecond // RUNNING→READY
-
-// createCrawlerTablesLocked creates a Glue table per S3 prefix in the crawler's
-// targets and returns how many tables were newly created (as opposed to already
-// existing from a prior crawl), for the crawl-history summary. Must be called
-// with b.mu held.
-func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) int {
-	created := 0
-
-	for _, s3t := range c.Targets.S3Targets {
-		if b.crawlerS3 != nil {
-			created += b.crawlS3TargetLocked(c, s3t)
-
-			continue
-		}
-
-		path := strings.TrimPrefix(s3t.Path, "s3://")
-		// Extract prefix after bucket name.
-		var prefix string
-		if _, after, ok := strings.Cut(path, "/"); ok {
-			prefix = strings.Trim(after, "/")
-		}
-
-		if prefix == "" {
-			prefix = "default"
-		}
-
-		// Sanitize prefix for use as table name.
-		tableName := strings.NewReplacer("/", "_", "-", "_", ".", "_").Replace(prefix)
-		if tableName == "" {
-			tableName = "default"
-		}
-
-		key := c.DatabaseName + "|" + tableName
-		if !b.tables.Has(key) {
-			b.tables.Put(&Table{
-				Name:         tableName,
-				DatabaseName: c.DatabaseName,
-				CreateTime:   float64(time.Now().Unix()),
-			})
-			created++
-		}
-	}
-
-	return created
-}
 
 // cloneCrawler returns a deep copy of a Crawler.
 func cloneCrawler(c *Crawler) *Crawler {
@@ -450,7 +404,7 @@ func (b *InMemoryBackend) StartCrawler(name string) error {
 	b.crawlHistory[name] = append(b.crawlHistory[name], &CrawlHistoryEntry{
 		CrawlID:   "cr-" + uuid.NewString()[:8],
 		State:     "RUNNING",
-		StartTime: float64(now.Unix()),
+		StartTime: epochSeconds(now),
 	})
 
 	return nil
@@ -530,31 +484,45 @@ func (b *InMemoryBackend) StopCrawlerSchedule(name string) error {
 	return nil
 }
 
-// finishCrawlHistoryLocked marks the most recent in-flight crawl-history entry
-// for name as finished with the given terminal state. A no-op if there is no
-// open entry (e.g. crawl history predates this feature). Must be called with
-// b.mu held.
-func (b *InMemoryBackend) finishCrawlHistoryLocked(name, state string, tablesCreated int, at time.Time) {
-	hist := b.crawlHistory[name]
-	if len(hist) == 0 {
-		return
-	}
-
-	last := hist[len(hist)-1]
-	if last.EndTime != 0 {
+// finishCrawlHistoryLocked closes the in-flight crawl-history entry for name
+// with a terminal state and the run's table/partition counts. b.mu must be held.
+func (b *InMemoryBackend) finishCrawlHistoryLocked(name, state string, stats crawlStats, at time.Time) {
+	last := b.openCrawlEntryLocked(name)
+	if last == nil {
 		return
 	}
 
 	last.State = state
-	last.EndTime = float64(at.Unix())
+	last.EndTime = epochSeconds(at)
+	last.TablesAdded, last.TablesUpdated, last.TablesDeleted = stats.added, stats.updated, stats.deleted
 
-	if state == "COMPLETED" {
-		last.Summary = fmt.Sprintf(
-			`{"TABLES_ADDED":%d,"TABLES_UPDATED":0,"TABLES_DELETED":0,"PARTITIONS_ADDED":0}`,
-			tablesCreated,
-		)
+	if state == crawlerStateCompleted {
+		last.Summary = crawlSummary(stats)
 	}
 }
+
+func (b *InMemoryBackend) failCrawlHistoryLocked(name, msg string, stats crawlStats, at time.Time) {
+	last := b.openCrawlEntryLocked(name)
+	if last == nil {
+		return
+	}
+
+	last.State = crawlerStateFailed
+	last.ErrorMessage = msg
+	last.EndTime = epochSeconds(at)
+	last.TablesAdded, last.TablesUpdated, last.TablesDeleted = stats.added, stats.updated, stats.deleted
+}
+
+func (b *InMemoryBackend) openCrawlEntryLocked(name string) *CrawlHistoryEntry {
+	hist := b.crawlHistory[name]
+	if len(hist) == 0 || hist[len(hist)-1].EndTime != 0 {
+		return nil
+	}
+
+	return hist[len(hist)-1]
+}
+
+func epochSeconds(t time.Time) float64 { return float64(t.UnixMilli()) / millisPerSecond }
 
 // pruneOldCrawlHistoryLocked evicts finished crawl-history entries older than
 // runHistoryRetention from b.crawlHistory[name], preventing unbounded growth
@@ -599,9 +567,6 @@ func (b *InMemoryBackend) ListCrawls(crawlerName string) ([]*CrawlHistoryEntry, 
 	return out, nil
 }
 
-// crawlerDefaultRuntimeSeconds is the simulated last/median runtime returned for a crawler.
-const crawlerDefaultRuntimeSeconds = 45.0
-
 // GetCrawlerMetrics returns metrics for one or all crawlers.
 // If crawlerNames is empty, metrics for all crawlers are returned.
 func (b *InMemoryBackend) GetCrawlerMetrics(crawlerNames []string) []*CrawlerMetrics {
@@ -626,12 +591,25 @@ func (b *InMemoryBackend) GetCrawlerMetrics(crawlerNames []string) []*CrawlerMet
 			continue
 		}
 
-		metrics := &CrawlerMetrics{
-			CrawlerName:          name,
-			TimeLeftSeconds:      0,
-			StillEstimating:      c.State == stateRunning,
-			LastRuntimeSeconds:   crawlerDefaultRuntimeSeconds,
-			MedianRuntimeSeconds: crawlerDefaultRuntimeSeconds,
+		metrics := &CrawlerMetrics{CrawlerName: name, StillEstimating: c.State == stateRunning}
+
+		var runtimes []float64
+
+		for _, e := range b.crawlHistory[name] {
+			if e.EndTime == 0 {
+				continue
+			}
+
+			runtimes = append(runtimes, e.EndTime-e.StartTime)
+			metrics.TablesCreated += e.TablesAdded
+			metrics.TablesUpdated += e.TablesUpdated
+			metrics.TablesDeleted += e.TablesDeleted
+		}
+
+		if n := len(runtimes); n > 0 {
+			metrics.LastRuntimeSeconds = runtimes[n-1]
+			sort.Float64s(runtimes)
+			metrics.MedianRuntimeSeconds = runtimes[n/2]
 		}
 
 		out = append(out, metrics)
@@ -651,6 +629,7 @@ func (b *InMemoryBackend) setLastCrawlLocked(c *Crawler, status string) {
 	last := hist[len(hist)-1]
 	c.LastCrawl = &LastCrawlInfo{
 		Status:        status,
+		ErrorMessage:  last.ErrorMessage,
 		StartTime:     last.StartTime,
 		LogGroup:      "/aws-glue/crawlers",
 		LogStream:     c.Name,

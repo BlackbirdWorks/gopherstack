@@ -4593,6 +4593,7 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, s
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
+	wireGlueDynamoDB(byName["Glue"], byName["DynamoDB"])
 
 	// Wire CloudFront KeyValueStore → CloudFront backend so the data-plane ops
 	// (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) act on
@@ -7616,6 +7617,28 @@ func wireCodePipelineS3(codepipelineReg, s3Reg service.Registerable) {
 	}
 
 	cpH.Backend.SetArtifactS3(s3Bk)
+}
+
+// wireGlueDynamoDB lets Glue crawlers infer table schemas from DynamoDB tables.
+func wireGlueDynamoDB(glueReg, ddbReg service.Registerable) {
+	glueH, ok := glueReg.(*gluebackend.Handler)
+	if !ok {
+		return
+	}
+
+	glueBk, bkOk := glueH.Backend.(*gluebackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ddbOk {
+		return
+	}
+
+	if ddbBk, ok2 := ddbH.Backend.(*ddbbackend.InMemoryDB); ok2 {
+		glueBk.SetDynamoDBBackend(ddbBk)
+	}
 }
 
 // wireGlueS3 lets Glue crawlers infer table schemas and partitions from S3 objects.

@@ -41,6 +41,7 @@ const (
 type CrawlerS3 interface {
 	ListObjectsV2(ctx context.Context, input *sdk_s3.ListObjectsV2Input) (*sdk_s3.ListObjectsV2Output, error)
 	GetObject(ctx context.Context, input *sdk_s3.GetObjectInput) (*sdk_s3.GetObjectOutput, error)
+	PutObject(ctx context.Context, input *sdk_s3.PutObjectInput) (*sdk_s3.PutObjectOutput, error)
 }
 
 // SetS3Backend wires S3 so crawlers infer table schemas and partitions from
@@ -369,7 +370,7 @@ func delimitedFormat(sample []byte, delim rune, classification string) crawlForm
 	if header {
 		data = rows[1:]
 		f.params["skip.header.line.count"] = "1"
-		f.params["hasHeader"] = "true"
+		f.params["hasHeader"] = paramTrue
 	}
 
 	f.columns = make([]Column, width)
@@ -464,7 +465,7 @@ func scalarType(vals []string) string {
 func jsonFormat(sample []byte) crawlFormat {
 	f := crawlFormat{
 		serde: serdeJSON, input: fmtTextInput, output: fmtTextOutput, classification: "json",
-		params: map[string]string{"compressionType": "none", "typeOfData": "file"},
+		params: map[string]string{"compressionType": "none", paramTypeOfData: "file"},
 	}
 
 	types := map[string]string{}
@@ -604,10 +605,18 @@ func jsonValueType(v any) string {
 	}
 }
 
-func (b *InMemoryBackend) crawlS3TargetLocked(c *Crawler, t S3Target) int {
+func (r *crawlRun) crawlS3(t S3Target) error {
+	b := r.b
+
+	if b.crawlerS3 == nil {
+		r.legacyS3(t)
+
+		return nil
+	}
+
 	bucket, prefix, ok := splitCrawlS3URI(t.Path)
 	if !ok {
-		return 0
+		return fmt.Errorf("%w %q", errInvalidCrawlPath, t.Path)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), crawlerS3Timeout)
@@ -615,7 +624,7 @@ func (b *InMemoryBackend) crawlS3TargetLocked(c *Crawler, t S3Target) int {
 
 	files, err := b.listCrawlFiles(ctx, bucket, prefix, t.Exclusions)
 	if err != nil {
-		return 0
+		return fmt.Errorf("list s3://%s/%s: %w", bucket, prefix, err)
 	}
 
 	rootName := bucket
@@ -623,73 +632,83 @@ func (b *InMemoryBackend) crawlS3TargetLocked(c *Crawler, t S3Target) int {
 		rootName = path.Base(prefix)
 	}
 
-	created := 0
-
 	for _, g := range groupCrawlFiles(rootName, prefix, files) {
-		if b.crawlGroupLocked(ctx, c, bucket, g) {
-			created++
+		if err = r.crawlGroup(ctx, bucket, g); err != nil {
+			return err
 		}
 	}
 
-	return created
+	return nil
 }
 
-func (b *InMemoryBackend) crawlGroupLocked(ctx context.Context, c *Crawler, bucket string, g crawlGroup) bool {
+func (r *crawlRun) legacyS3(t S3Target) {
+	prefix := ""
+	if _, after, ok := strings.Cut(strings.TrimPrefix(t.Path, "s3://"), "/"); ok {
+		prefix = strings.Trim(after, "/")
+	}
+
+	if prefix == "" {
+		prefix = "default"
+	}
+
+	name := strings.NewReplacer("/", "_", "-", "_", ".", "_").Replace(prefix)
+	if !r.b.tables.Has(tableKey(r.c.DatabaseName, name)) {
+		r.b.tables.Put(&Table{
+			Name: name, DatabaseName: r.c.DatabaseName, CreateTime: float64(time.Now().Unix()),
+		})
+		r.stats.added++
+	}
+}
+
+func (r *crawlRun) crawlGroup(ctx context.Context, bucket string, g crawlGroup) error {
+	c, b := r.c, r.b
 	files := mostCommonDepth(g.files)
 	sort.Slice(files, func(i, j int) bool { return files[i].key < files[j].key })
 
+	name := crawlTableName(c.TablePrefix, g.name)
+	key := tableKey(c.DatabaseName, name)
+
+	if cur, exists := b.tables.Get(key); exists && r.newFoldersOnly && cur.Parameters[crawlerManagedParam] == c.Name {
+		r.seen[key] = true
+		r.crawlPartitions(cur, bucket, g.root, files)
+
+		return nil
+	}
+
 	sample, err := b.readSample(ctx, bucket, files[0].key)
 	if err != nil {
-		return false
+		return fmt.Errorf("read s3://%s/%s: %w", bucket, files[0].key, err)
 	}
 
 	f := inferFormat(files[0].key, sample)
-	pkeys := partitionKeysFor(files)
-	location := "s3://" + bucket + "/" + g.root
-	location = strings.TrimSuffix(location, "/") + "/"
+	location := strings.TrimSuffix("s3://"+bucket+"/"+g.root, "/") + "/"
 
-	params := map[string]string{"classification": f.classification, crawlerManagedParam: c.Name}
+	params := map[string]string{paramClassification: f.classification, crawlerManagedParam: c.Name}
 	maps.Copy(params, f.params)
 
-	sd := StorageDescriptor{
-		Columns: f.columns, Location: location, InputFormat: f.input, OutputFormat: f.output,
-		SerdeInfo:  &SerDeInfo{SerializationLibrary: f.serde, Parameters: maps.Clone(f.serdeParams)},
-		Parameters: maps.Clone(params),
+	tbl := r.upsert(&Table{
+		Name: name, DatabaseName: c.DatabaseName, TableType: tableTypeExternal,
+		Parameters:    params,
+		PartitionKeys: partitionKeysFor(files),
+		StorageDescriptor: StorageDescriptor{
+			Columns: f.columns, Location: location, InputFormat: f.input, OutputFormat: f.output,
+			SerdeInfo:  &SerDeInfo{SerializationLibrary: f.serde, Parameters: maps.Clone(f.serdeParams)},
+			Parameters: maps.Clone(params),
+		},
+	})
+	if tbl != nil {
+		r.crawlPartitions(tbl, bucket, g.root, files)
 	}
 
-	name := crawlTableName(c.TablePrefix, g.name)
-	key := tableKey(c.DatabaseName, name)
-	now := float64(time.Now().Unix())
-
-	tbl, exists := b.tables.Get(key)
-
-	switch {
-	case !exists:
-		tbl = &Table{
-			Name: name, DatabaseName: c.DatabaseName, CatalogID: b.accountID, TableType: "EXTERNAL_TABLE",
-			CreateTime: now, UpdateTime: now,
-		}
-	case tbl.Parameters[crawlerManagedParam] != c.Name:
-		return false
-	default:
-		tbl.UpdateTime = now
-	}
-
-	tbl.Parameters = params
-	tbl.StorageDescriptor = sd
-	tbl.PartitionKeys = pkeys
-	b.tables.Put(tbl)
-	b.addTableVersionLocked(tbl)
-	b.crawlPartitionsLocked(tbl, bucket, g.root, files)
-
-	return !exists
+	return nil
 }
 
-func (b *InMemoryBackend) crawlPartitionsLocked(tbl *Table, bucket, root string, files []crawlFile) {
+func (r *crawlRun) crawlPartitions(tbl *Table, bucket, root string, files []crawlFile) {
 	if len(tbl.PartitionKeys) == 0 {
 		return
 	}
 
+	b := r.b
 	seen := map[string]bool{}
 	now := float64(time.Now().Unix())
 
@@ -714,5 +733,6 @@ func (b *InMemoryBackend) crawlPartitionsLocked(tbl *Table, bucket, root string,
 			DatabaseName: tbl.DatabaseName, TableName: tbl.Name, CatalogID: b.accountID,
 			Values: vals, StorageDescriptor: psd, CreationTime: now,
 		})
+		r.stats.partitions++
 	}
 }

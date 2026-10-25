@@ -52,6 +52,7 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 		nb.limits, nb.configuredLimits = home.configuredLimits, home.configuredLimits
 		nb.ramShareCreator = home.currentResourceShareCreator()
 		nb.crawlerS3 = home.currentCrawlerS3()
+		nb.crawlerDDB = home.currentCrawlerDDB()
 		nb.StartReconciler(ctx)
 
 		return NewHandler(nb)
