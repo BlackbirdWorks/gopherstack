@@ -23,10 +23,12 @@ type InMemoryBackend struct {
 	// EndpointName against services/sagemaker's real endpoint registry. See
 	// endpoint_lookup.go.
 	endpointLookup EndpointLookup
-	accountID      string
-	region         string
-	invocations    []*Invocation
-	nextID         uint64
+	// containerInvoker forwards invocations to model containers; nil means none is wired.
+	containerInvoker ContainerInvoker
+	accountID        string
+	region           string
+	invocations      []*Invocation
+	nextID           uint64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

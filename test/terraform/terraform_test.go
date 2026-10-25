@@ -146,6 +146,7 @@ import (
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	vpclatticesvc "github.com/aws/aws-sdk-go-v2/service/vpclattice"
 	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
+	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -6525,7 +6526,7 @@ func TestTerraform_ServiceDiscovery(t *testing.T) {
 }
 
 // TestTerraform_SageMakerRuntime verifies that the SageMaker Runtime service is reachable
-// and invoking a Terraform-created InService endpoint succeeds.
+// and a Terraform-created InService endpoint reports ServiceUnavailable when invoked without a container engine.
 func TestTerraform_SageMakerRuntime(t *testing.T) {
 	t.Parallel()
 
@@ -6547,8 +6548,15 @@ func TestTerraform_SageMakerRuntime(t *testing.T) {
 					Body:         []byte(`{"data": "test input"}`),
 					ContentType:  aws.String("application/json"),
 				})
-				require.NoError(t, err, "InvokeEndpoint should succeed")
-				assert.NotEmpty(t, out.Body, "InvokeEndpoint response body should not be empty")
+				// The server runs with the SageMaker container engine off, so the InService endpoint
+				// has no model container: ServiceUnavailable, never a made-up body.
+				require.Error(t, err, "InvokeEndpoint needs a model container")
+				assert.Nil(t, out)
+
+				var apiErr smithy.APIError
+
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, "ServiceUnavailable", apiErr.ErrorCode())
 			},
 		},
 	}

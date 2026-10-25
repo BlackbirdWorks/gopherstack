@@ -10,7 +10,9 @@ import (
 	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	sagemakertypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
+	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,9 +73,17 @@ func TestIntegration_SageMakerRuntime_InvokeEndpoint(t *testing.T) {
 		return descErr == nil && out.EndpointStatus == sagemakertypes.EndpointStatusInService
 	}, 30*time.Second, 200*time.Millisecond, "endpoint should reach InService")
 
-	_, err = client.InvokeEndpoint(ctx, &sagemakerruntime.InvokeEndpointInput{
+	// The integration server runs the SageMaker engine in stub mode: the endpoint is InService
+	// but has no model container, so invoking it is ServiceUnavailable, never a made-up body.
+	out, err := client.InvokeEndpoint(ctx, &sagemakerruntime.InvokeEndpointInput{
 		EndpointName: aws.String(endpointName),
 		Body:         []byte("{}"),
 	})
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Nil(t, out)
+
+	var apiErr smithy.APIError
+
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "ServiceUnavailable", apiErr.ErrorCode())
 }

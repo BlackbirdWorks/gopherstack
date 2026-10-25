@@ -140,7 +140,9 @@ type InMemoryBackend struct {
 	// PipelineDefinitionS3Location's object from (see SetS3Backend). Not part
 	// of persisted state -- it's a cross-service dependency wired at startup,
 	// not resource data.
-	s3             S3Accessor
+	s3 S3Accessor
+	// engine is the container engine, nil when endpoints and jobs are control-plane only.
+	engine         *engineState
 	accountID      string
 	region         string
 	wg             sync.WaitGroup

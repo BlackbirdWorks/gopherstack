@@ -7,6 +7,7 @@ import (
 	"hash/crc32"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -15,6 +16,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/sagemaker"
+)
+
+const (
+	streamChunkBytes = 32 * 1024
+	errTypeKey       = "__type"
 )
 
 const (
@@ -38,8 +45,7 @@ const (
 	// HTTP-date -- confirmed against botocore's sagemaker-runtime
 	// service-2.json.
 	newSessionExpiresLayout     = "2006-01-02T15:04:05Z"
-	syncResponseBody            = "mock response from Gopherstack"
-	streamResponseBody          = "mock streaming response from Gopherstack"
+	headerTargetModel           = "X-Amzn-Sagemaker-Target-Model"
 	headerCustomAttributes      = "X-Amzn-Sagemaker-Custom-Attributes"
 	headerNewSessionID          = "X-Amzn-Sagemaker-New-Session-Id"
 	headerClosedSessionID       = "X-Amzn-Sagemaker-Closed-Session-Id"
@@ -186,14 +192,31 @@ func (h *Handler) handleInvokeEndpoint(
 	endpointName string,
 	body []byte,
 ) error {
-	out := []byte(syncResponseBody)
+	inv, err := h.Backend.invoker()
+	if err != nil {
+		return writeInvokeError(c, err)
+	}
 
-	h.Backend.RecordInvocation(opInvokeEndpoint, endpointName, string(body), string(out))
+	req := c.Request()
+	res, err := inv.InvokeEndpoint(
+		req.Context(), invokeRequest(c, endpointName, body, req.Header.Get("Accept"), req.Header.Get("Content-Type")),
+	)
+	if err != nil {
+		return writeInvokeError(c, err)
+	}
 
-	setCommonResponseHeaders(c, c.Request().Header.Get("Accept"))
+	h.Backend.RecordInvocation(opInvokeEndpoint, endpointName, string(body), string(res.Body))
+
+	c.Response().Header().Set(headerInvokedVariant, res.InvokedVariant)
+	setOptionalHeader(c, headerCustomAttributes, res.CustomAttributes)
 	setSessionResponseHeader(c, h.Backend, endpointName)
 
-	return c.Blob(http.StatusOK, responseContentType(c.Request().Header.Get("Accept")), out)
+	ct := res.ContentType
+	if ct == "" {
+		ct = responseContentType(req.Header.Get("Accept"))
+	}
+
+	return c.Blob(http.StatusOK, ct, res.Body)
 }
 
 // handleInvokeEndpointAsync handles POST /endpoints/{EndpointName}/async-invocations.
@@ -202,12 +225,11 @@ func (h *Handler) handleInvokeEndpointAsync(
 	endpointName string,
 	body []byte,
 ) error {
-	// SDK doc (InvokeEndpointAsyncInput.Body): "Body and InputLocation are
-	// mutually exclusive. Provide exactly one of them." Not enforced by the
-	// client-side validator (only EndpointName is), so real AWS must reject
-	// this at the server -- gopherstack previously accepted both and neither
-	// silently.
-	hasInputLocation := c.Request().Header.Get(headerInputLocation) != ""
+	// Body and InputLocation are mutually exclusive; the SDK's client-side validator
+	// only checks EndpointName, so the server must reject both or neither.
+	hdr := c.Request().Header
+
+	hasInputLocation := hdr.Get(headerInputLocation) != ""
 	if (len(body) > 0) == hasInputLocation {
 		return c.JSON(http.StatusBadRequest, errorResponse(
 			"ValidationError",
@@ -215,15 +237,36 @@ func (h *Handler) handleInvokeEndpointAsync(
 		))
 	}
 
-	async := h.Backend.RecordAsyncInvocationWithExtension(
+	inv, err := h.Backend.invoker()
+	if err != nil {
+		return writeInvokeError(c, err)
+	}
+
+	timeout, _ := strconv.Atoi(hdr.Get(headerInvocationTimeout))
+
+	acc, err := inv.SubmitAsyncInference(c.Request().Context(), sagemaker.AsyncRequest{
+		EndpointName:  endpointName,
+		InferenceID:   hdr.Get(headerInferenceID),
+		InputLocation: hdr.Get(headerInputLocation),
+		ContentType: hdr.Get(
+			"Content-Type",
+		), Accept: hdr.Get("Accept"), CustomAttributes: hdr.Get(headerCustomAttributes),
+		Filename: hdr.Get(headerFilename), OutputPathExtension: hdr.Get(headerS3OutputPathExtension),
+		Body: body, TimeoutSeconds: int32(timeout), //nolint:gosec // validated to 1..3600 by validateRequestHeaders
+	})
+	if err != nil {
+		return writeInvokeError(c, err)
+	}
+
+	h.Backend.RecordAsyncInvocation(
 		endpointName,
-		c.Request().Header.Get(headerInferenceID),
+		acc.InferenceID,
 		string(body),
-		c.Request().Header.Get(headerOutputLocation),
-		c.Request().Header.Get(headerFilename),
-		c.Request().Header.Get(headerS3OutputPathExtension),
+		acc.OutputLocation,
+		acc.FailureLocation,
 	)
-	out, err := json.Marshal(map[string]string{"InferenceId": async.InferenceID})
+
+	out, err := json.Marshal(map[string]string{"InferenceId": acc.InferenceID})
 	if err != nil {
 		return err
 	}
@@ -231,47 +274,82 @@ func (h *Handler) handleInvokeEndpointAsync(
 	h.Backend.RecordInvocation(opInvokeEndpointAsync, endpointName, string(body), string(out))
 
 	c.Response().Header().Set("Content-Type", "application/json")
-	c.Response().Header().Set(headerOutputLocation, async.OutputLocation)
-	c.Response().Header().Set(headerFailureLocation, async.FailureLocation)
+	c.Response().Header().Set(headerOutputLocation, acc.OutputLocation)
+	c.Response().Header().Set(headerFailureLocation, acc.FailureLocation)
 
 	return c.JSONBlob(http.StatusAccepted, out)
 }
 
 // handleInvokeEndpointWithResponseStream handles POST /endpoints/{EndpointName}/invocations-response-stream.
-// It returns a well-formed AWS event stream frame containing a single payload event.
+// Each chunk the model container produces becomes one PayloadPart event.
 func (h *Handler) handleInvokeEndpointWithResponseStream(
 	c *echo.Context,
 	endpointName string,
 	body []byte,
 ) error {
-	out := []byte(streamResponseBody)
+	inv, err := h.Backend.invoker()
+	if err != nil {
+		return writeInvokeError(c, err)
+	}
 
-	h.Backend.RecordInvocation(opInvokeEndpointWithResponseStream, endpointName, string(body), string(out))
+	req := c.Request()
 
-	frame := encodeEventStreamMsg([][2]string{
-		{":message-type", "event"},
-		{":event-type", "PayloadPart"},
-		{":content-type", "application/octet-stream"},
-	}, out)
+	stream, err := inv.InvokeEndpointStream(
+		req.Context(),
+		invokeRequest(c, endpointName, body, req.Header.Get(headerAsyncAccept), req.Header.Get("Content-Type")),
+	)
+	if err != nil {
+		return writeInvokeError(c, err)
+	}
 
-	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
-	c.Response().Header().Set(headerStreamContentType, responseContentType(c.Request().Header.Get(headerAsyncAccept)))
-	setForwardedHeader(c, headerCustomAttributes)
-	setVariantResponseHeader(c)
-	// InvokeEndpointWithResponseStreamOutput has no ClosedSessionId member
-	// (only InvokeEndpointOutput does -- see the SDK model), so any expiry
-	// eviction here is a side effect only, never surfaced on this response.
-	_ = h.Backend.TouchSession(c.Request().Header.Get(headerSessionID))
-	c.Response().WriteHeader(http.StatusOK)
-	_, _ = c.Response().Write(frame)
+	defer stream.Body.Close()
+
+	resp := c.Response()
+	resp.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+	ct := stream.ContentType
+	if ct == "" {
+		ct = responseContentType(req.Header.Get(headerAsyncAccept))
+	}
+
+	resp.Header().Set(headerStreamContentType, ct)
+	setOptionalHeader(c, headerCustomAttributes, stream.CustomAttributes)
+	resp.Header().Set(headerInvokedVariant, stream.InvokedVariant)
+	// InvokeEndpointWithResponseStreamOutput has no ClosedSessionId member, so any
+	// expiry eviction here is a side effect only.
+	_ = h.Backend.TouchSession(req.Header.Get(headerSessionID))
+	resp.WriteHeader(http.StatusOK)
+
+	rc := http.NewResponseController(resp)
+	buf := make([]byte, streamChunkBytes)
+
+	var full []byte
+
+	for {
+		n, rerr := stream.Body.Read(buf)
+		if n > 0 {
+			full = append(full, buf[:n]...)
+			_, _ = resp.Write(encodeEventStreamMsg([][2]string{
+				{":message-type", "event"},
+				{":event-type", "PayloadPart"},
+				{":content-type", "application/octet-stream"},
+			}, buf[:n]))
+			_ = rc.Flush()
+		}
+
+		if rerr != nil {
+			break
+		}
+	}
+
+	h.Backend.RecordInvocation(opInvokeEndpointWithResponseStream, endpointName, string(body), string(full))
 
 	return nil
 }
 
-func setCommonResponseHeaders(c *echo.Context, accept string) {
-	c.Response().Header().Set("Content-Type", responseContentType(accept))
-	setForwardedHeader(c, headerCustomAttributes)
-	setVariantResponseHeader(c)
+func setOptionalHeader(c *echo.Context, name, value string) {
+	if value != "" {
+		c.Response().Header().Set(name, value)
+	}
 }
 
 func setSessionResponseHeader(c *echo.Context, backend *InMemoryBackend, endpointName string) {
@@ -295,21 +373,6 @@ func setSessionResponseHeader(c *echo.Context, backend *InMemoryBackend, endpoin
 			c.Response().Header().Set(headerClosedSessionID, outcome.ClosedSessionID)
 		}
 	}
-}
-
-func setForwardedHeader(c *echo.Context, header string) {
-	if value := c.Request().Header.Get(header); value != "" {
-		c.Response().Header().Set(header, value)
-	}
-}
-
-func setVariantResponseHeader(c *echo.Context) {
-	variant := c.Request().Header.Get(headerTargetVariant)
-	if variant == "" {
-		variant = defaultVariant
-	}
-
-	c.Response().Header().Set(headerInvokedVariant, variant)
 }
 
 func responseContentType(accept string) string {
@@ -348,7 +411,7 @@ func pathToOperation(path string) string {
 }
 
 func errorResponse(code, msg string) map[string]string {
-	return map[string]string{"__type": code, "message": msg}
+	return map[string]string{errTypeKey: code, "message": msg}
 }
 
 // encodeEventStreamMsg encodes a single AWS event stream binary message.

@@ -258,7 +258,11 @@ func (b *InMemoryBackend) CreateProcessingJob(ctx context.Context, opts Processi
 	b.processingJobsStore(region).Put(pj)
 	b.processingJobARNIndexStore(region)[pjARN] = opts.ProcessingJobName
 
-	b.scheduleProcessingCompletion(b.lifecycleCtx, region, opts.ProcessingJobName)
+	if b.engine != nil {
+		b.startProcessingRun(b.engine, region, pj)
+	} else {
+		b.scheduleProcessingCompletion(b.lifecycleCtx, region, opts.ProcessingJobName)
+	}
 
 	return cloneProcessingJob(pj), nil
 }
@@ -315,6 +319,10 @@ func (b *InMemoryBackend) StopProcessingJob(ctx context.Context, name string) er
 
 	pj.ProcessingJobStatus = "Stopping"
 	pj.LastModifiedTime = time.Now()
+
+	if eng := b.engine; eng != nil && eng.interrupt(engineKey("processing", region, name)) {
+		return nil
+	}
 
 	b.runDelayed(b.lifecycleCtx, processingJobStopDelay, func() {
 		b.mu.Lock("StopProcessingJob.goroutine")
