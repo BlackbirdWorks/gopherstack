@@ -66,7 +66,8 @@ if mode == "serve":
             out = (body.upper() + "*" + factor).encode()
             self.send_response(200)
             self.send_header("Content-Type", self.headers.get("Accept") or "text/plain")
-            self.send_header("X-Amzn-SageMaker-Custom-Attributes", self.headers.get("X-Amzn-SageMaker-Custom-Attributes", ""))
+            attrs = self.headers.get("X-Amzn-SageMaker-Custom-Attributes", "")
+            self.send_header("X-Amzn-SageMaker-Custom-Attributes", attrs)
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()
             self.wfile.write(out)
@@ -104,9 +105,11 @@ func smBuildImage(t *testing.T) string {
 		t.Skip("docker CLI not available")
 	}
 
-	if out, err := exec.CommandContext(t.Context(), "docker", "image", "inspect", smBaseImage).CombinedOutput(); err != nil {
-		if pull, perr := exec.CommandContext(t.Context(), "docker", "pull", "-q", smBaseImage).CombinedOutput(); perr != nil {
-			t.Skipf("cannot get %s: %v %s %s", smBaseImage, perr, out, pull)
+	inspect := exec.CommandContext(t.Context(), "docker", "image", "inspect", smBaseImage)
+	if out, err := inspect.CombinedOutput(); err != nil {
+		pull := exec.CommandContext(t.Context(), "docker", "pull", "-q", smBaseImage)
+		if pullOut, perr := pull.CombinedOutput(); perr != nil {
+			t.Skipf("cannot get %s: %v %s %s", smBaseImage, perr, out, pullOut)
 		}
 	}
 
