@@ -728,7 +728,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [API Gateway](services/apigateway/README.md) | A | 123 | 2 gaps; 1 structural gap; 2 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 2 deferred |
-| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 5 gaps; 1 structural gap |
+| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 6 gaps; 1 structural gap |
 | [ARC Zonal Shift](services/arczonalshift/README.md) | A | 15 | 1 structural gap |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 1 structural gap |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 structural gaps; 1 deferred |
@@ -779,7 +779,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 1 gap; 2 structural gaps |
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps; 1 structural gap |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 4 gaps; 1 structural gap; 1 deferred |
-| [OpenSearch](services/opensearch/README.md) | A | 19 | 1 structural gap |
+| [OpenSearch](services/opensearch/README.md) | A | 19 | 1 gap; 1 structural gap |
 | [QuickSight](services/quicksight/README.md) | A | 81 | 3 gaps; 7 structural gaps |
 
 ### Security

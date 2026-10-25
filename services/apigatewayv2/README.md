@@ -8,13 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 77 (77 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- WebSocket data plane serves AWS_PROXY (Lambda) and MOCK integrations only: AWS/HTTP/HTTP_PROXY WebSocket integrations, request/response templates, route-response/integration-response selection beyond $default, and a non-JSON $disconnect-time context are not implemented (gopherstack-49qct.58).
 - Not-found wording for Stage/Deployment/Authorizer/Model/Route follows the "Invalid <X> identifier specified" convention but is not pinned by the SDK; only the API form is certain.
 - DeleteRoute/DeleteStage on a quick-create (apiGatewayManaged) resource are not rejected (gopherstack-2tx): the SDK says only that the $default route key and $default stage can't be modified (both enforced); unlike integrations ('you can't delete it', enforced), it is silent on deleting them.
 - ImportApi/ReimportApi failOnWarnings escalates only unsupported integration types (docs: HTTP APIs support only Lambda proxy and HTTP proxy); other warning classes and ImportInfo texts are not enumerated in the docs, so none are produced (gopherstack-jni0).

@@ -9,10 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 19 (18 ok, 1 partial) |
 | Feature families | 13 (13 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Fine-grained access control models only the master user: the _plugins/_security internal-user, role and role-mapping APIs, SigV4 identity-to-role mapping and index-level permissions are not implemented (gopherstack-49qct.59).
 
 ### Structural gaps
 
