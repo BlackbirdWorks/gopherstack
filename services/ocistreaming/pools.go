@@ -101,7 +101,11 @@ func hostOf(endpoint string) string {
 }
 
 func defaultKafka(in *KafkaSettings) (KafkaSettings, *APIError) {
-	k := KafkaSettings{AutoCreateTopicsEnable: new(false), LogRetentionHours: new(minKafkaRetention), NumPartitions: new(1)}
+	k := KafkaSettings{
+		AutoCreateTopicsEnable: new(false),
+		LogRetentionHours:      new(minKafkaRetention),
+		NumPartitions:          new(1),
+	}
 	if in == nil {
 		return k, nil
 	}
@@ -216,7 +220,10 @@ func (b *InMemoryBackend) GetPool(id, host string) (poolWire, string, error) {
 }
 
 // ListPools lists the pools of a compartment.
-func (b *InMemoryBackend) ListPools(compartment, id, name, state string, o ListOpts) (page.Page[poolSummaryWire], error) {
+func (b *InMemoryBackend) ListPools(
+	compartment, id, name, state string,
+	o ListOpts,
+) (page.Page[poolSummaryWire], error) {
 	if compartment == "" {
 		return page.Page[poolSummaryWire]{}, errMissing("compartmentId is required")
 	}

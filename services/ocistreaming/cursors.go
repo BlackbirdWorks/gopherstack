@@ -3,6 +3,7 @@ package ocistreaming
 import (
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -82,8 +83,8 @@ type cursorWire struct {
 type reservationWire struct {
 	TimeReservedUntil *time.Time `json:"timeReservedUntil,omitempty"`
 	CommittedOffset   *int64     `json:"committedOffset,omitempty"`
-	Partition         string     `json:"partition"`
 	ReservedInstance  *string    `json:"reservedInstance,omitempty"`
+	Partition         string     `json:"partition"`
 }
 
 type groupWire struct {
@@ -247,8 +248,8 @@ func validGroupType(kind string) bool {
 	return false
 }
 
-// claim registers the instance and rebalances reservations to its fair share.
-func (g *Group) claim(s *Stream, inst string, timeout time.Duration, now time.Time) {
+// expire forgets timed-out instances and frees the reservations they held.
+func (g *Group) expire(except string, now time.Time) {
 	for name, exp := range g.Instances {
 		if !exp.After(now) {
 			delete(g.Instances, name)
@@ -257,37 +258,39 @@ func (g *Group) claim(s *Stream, inst string, timeout time.Duration, now time.Ti
 	}
 
 	for i, r := range g.Reserved {
-		if _, live := g.Instances[r.Instance]; r.Instance != "" && (!live || !r.Until.After(now)) && r.Instance != inst {
+		if r.Instance == "" || r.Instance == except {
+			continue
+		}
+
+		if _, live := g.Instances[r.Instance]; !live || !r.Until.After(now) {
 			g.Reserved[i] = Reservation{}
 		}
 	}
+}
+
+// claim registers the instance and rebalances reservations to its fair share.
+func (g *Group) claim(s *Stream, inst string, timeout time.Duration, now time.Time) {
+	g.expire(inst, now)
 
 	g.Instances[inst] = now.Add(timeout)
 	fair := (len(s.Parts) + len(g.Instances) - 1) / len(g.Instances)
 	owned := 0
 
-	for i, r := range g.Reserved {
-		if r.Instance != inst {
-			continue
-		}
-
-		if owned >= fair {
-			g.Reserved[i] = Reservation{}
-
-			continue
-		}
-
-		owned++
-	}
-
 	for i := range g.Reserved {
-		if owned < fair && g.Reserved[i].Instance == "" {
-			g.Reserved[i] = Reservation{Instance: inst}
+		switch {
+		case g.Reserved[i].Instance == inst && owned >= fair:
+			g.Reserved[i] = Reservation{}
+		case g.Reserved[i].Instance == inst:
 			owned++
 		}
 	}
 
 	for i := range g.Reserved {
+		if owned < fair && g.Reserved[i].Instance == "" {
+			g.Reserved[i].Instance = inst
+			owned++
+		}
+
 		if g.Reserved[i].Instance == inst {
 			g.Reserved[i].Until = now.Add(timeout)
 		}
@@ -395,9 +398,7 @@ func (b *InMemoryBackend) readGroup(s *Stream, cur cursorTok, limit int) ([]mess
 			g.Next[part] = max(g.Next[part], end)
 		} else {
 			pend := map[int]int64{}
-			for k, v := range cur.Pending {
-				pend[k] = v
-			}
+			maps.Copy(pend, cur.Pending)
 
 			pend[part], cur.Pending = end, pend
 		}

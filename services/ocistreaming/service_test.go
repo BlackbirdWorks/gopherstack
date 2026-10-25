@@ -26,10 +26,25 @@ func TestSignatureEnforcement(t *testing.T) {
 		other    bool
 		wantCode int
 	}{
-		{"permissive accepts anything", envOpts{}, false, http.StatusOK},
-		{"registered key accepted", envOpts{enforce: true, register: true}, false, http.StatusOK},
-		{"unregistered key rejected", envOpts{enforce: true}, false, http.StatusUnauthorized},
-		{"wrong signing key rejected", envOpts{enforce: true, register: true}, true, http.StatusUnauthorized},
+		{name: "permissive accepts anything", opts: envOpts{}, other: false, wantCode: http.StatusOK},
+		{
+			name:     "registered key accepted",
+			opts:     envOpts{enforce: true, register: true},
+			other:    false,
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "unregistered key rejected",
+			opts:     envOpts{enforce: true},
+			other:    false,
+			wantCode: http.StatusUnauthorized,
+		},
+		{
+			name:     "wrong signing key rejected",
+			opts:     envOpts{enforce: true, register: true},
+			other:    true,
+			wantCode: http.StatusUnauthorized,
+		},
 	}
 
 	for _, tt := range tests {
@@ -39,7 +54,14 @@ func TestSignatureEnforcement(t *testing.T) {
 			e := newEnv(t, tt.opts)
 			if tt.other {
 				kp := newKeyPair(t)
-				prov := common.NewRawConfigurationProvider(testTenancy, testUser, oci.Region, e.kp.fprint, kp.privPEM, nil)
+				prov := common.NewRawConfigurationProvider(
+					testTenancy,
+					testUser,
+					oci.Region,
+					e.kp.fprint,
+					kp.privPEM,
+					nil,
+				)
 				c, err := streaming.NewStreamAdminClientWithConfigurationProvider(prov)
 				require.NoError(t, err)
 
@@ -47,7 +69,10 @@ func TestSignatureEnforcement(t *testing.T) {
 				e.admin = c
 			}
 
-			_, err := e.admin.ListStreamPools(t.Context(), streaming.ListStreamPoolsRequest{CompartmentId: new(testCompartment)})
+			_, err := e.admin.ListStreamPools(
+				t.Context(),
+				streaming.ListStreamPoolsRequest{CompartmentId: new(testCompartment)},
+			)
 			if tt.wantCode == http.StatusOK {
 				require.NoError(t, err)
 
@@ -111,15 +136,19 @@ func TestRestoreRejections(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		snap    map[string]any
+		name    string
 		wantErr bool
 	}{
-		{"future version starts empty", map[string]any{"version": 99, "streams": map[string]any{"x": map[string]any{}}}, false},
-		{"null stream", map[string]any{"version": 1, "streams": map[string]any{"x": nil}}, true},
-		{"null pool", map[string]any{"version": 1, "pools": map[string]any{"x": nil}}, true},
-		{"null group", map[string]any{"version": 1, "groups": map[string]any{"x": nil}}, true},
-		{"empty maps tolerated", map[string]any{"version": 1}, false},
+		{
+			snap:    map[string]any{"version": 99, "streams": map[string]any{"x": map[string]any{}}},
+			name:    "future version starts empty",
+			wantErr: false,
+		},
+		{snap: map[string]any{"version": 1, "streams": map[string]any{"x": nil}}, name: "null stream", wantErr: true},
+		{snap: map[string]any{"version": 1, "pools": map[string]any{"x": nil}}, name: "null pool", wantErr: true},
+		{snap: map[string]any{"version": 1, "groups": map[string]any{"x": nil}}, name: "null group", wantErr: true},
+		{snap: map[string]any{"version": 1}, name: "empty maps tolerated", wantErr: false},
 	}
 
 	for _, tt := range tests {
@@ -138,7 +167,10 @@ func TestRestoreRejections(t *testing.T) {
 
 			require.NoError(t, err)
 
-			list, lerr := e.admin.ListStreams(t.Context(), streaming.ListStreamsRequest{CompartmentId: new(testCompartment)})
+			list, lerr := e.admin.ListStreams(
+				t.Context(),
+				streaming.ListStreamsRequest{CompartmentId: new(testCompartment)},
+			)
 			require.NoError(t, lerr)
 			assert.Empty(t, list.Items)
 		})

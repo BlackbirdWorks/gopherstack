@@ -12,7 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func getMsgs(t *testing.T, c streaming.StreamClient, s streaming.Stream, cursor string, limit int) streaming.GetMessagesResponse {
+func getMsgs(
+	t *testing.T,
+	c streaming.StreamClient,
+	s streaming.Stream,
+	cursor string,
+	limit int,
+) streaming.GetMessagesResponse {
 	t.Helper()
 
 	r := streaming.GetMessagesRequest{StreamId: s.Id, Cursor: &cursor}
@@ -108,7 +114,7 @@ func TestCursorTypes(t *testing.T) {
 	s := e.mkStream(t, "cursors", 1)
 	c := e.msgs(t, s)
 
-	var stamps []time.Time
+	stamps := make([]time.Time, 0, 4)
 
 	for _, v := range []string{"m0", "m1", "m2", "m3"} {
 		r := putOne(t, c, s, "", v)
@@ -122,11 +128,31 @@ func TestCursorTypes(t *testing.T) {
 		typ  streaming.CreateCursorDetailsTypeEnum
 		want []string
 	}{
-		{nil, "trim horizon", streaming.CreateCursorDetailsTypeTrimHorizon, []string{"m0", "m1", "m2", "m3"}},
-		{nil, "latest", streaming.CreateCursorDetailsTypeLatest, []string{}},
-		{func(d *streaming.CreateCursorDetails) { d.Offset = new(int64(2)) }, "at offset", streaming.CreateCursorDetailsTypeAtOffset, []string{"m2", "m3"}},
-		{func(d *streaming.CreateCursorDetails) { d.Offset = new(int64(2)) }, "after offset", streaming.CreateCursorDetailsTypeAfterOffset, []string{"m3"}},
-		{func(d *streaming.CreateCursorDetails) { d.Time = &common.SDKTime{Time: stamps[1].Add(time.Second)} }, "at time", streaming.CreateCursorDetailsTypeAtTime, []string{"m2", "m3"}},
+		{
+			mod:  nil,
+			name: "trim horizon",
+			typ:  streaming.CreateCursorDetailsTypeTrimHorizon,
+			want: []string{"m0", "m1", "m2", "m3"},
+		},
+		{mod: nil, name: "latest", typ: streaming.CreateCursorDetailsTypeLatest, want: []string{}},
+		{
+			mod:  func(d *streaming.CreateCursorDetails) { d.Offset = new(int64(2)) },
+			name: "at offset",
+			typ:  streaming.CreateCursorDetailsTypeAtOffset,
+			want: []string{"m2", "m3"},
+		},
+		{
+			mod:  func(d *streaming.CreateCursorDetails) { d.Offset = new(int64(2)) },
+			name: "after offset",
+			typ:  streaming.CreateCursorDetailsTypeAfterOffset,
+			want: []string{"m3"},
+		},
+		{
+			mod:  func(d *streaming.CreateCursorDetails) { d.Time = &common.SDKTime{Time: stamps[1].Add(time.Second)} },
+			name: "at time",
+			typ:  streaming.CreateCursorDetailsTypeAtTime,
+			want: []string{"m2", "m3"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -160,38 +186,81 @@ func TestCursorAndGetErrors(t *testing.T) {
 		wantCode string
 		wantHTTP int
 	}{
-		{func() error {
-			_, err := c.CreateCursor(t.Context(), streaming.CreateCursorRequest{StreamId: s.Id, CreateCursorDetails: streaming.CreateCursorDetails{Partition: new("9"), Type: streaming.CreateCursorDetailsTypeLatest}})
+		{call: func() error {
+			_, err := c.CreateCursor(
+				t.Context(),
+				streaming.CreateCursorRequest{
+					StreamId:  s.Id,
+					Partition: new("9"),
+					Type:      streaming.CreateCursorDetailsTypeLatest,
+				},
+			)
+
 			return err
-		}, "bad partition", "InvalidParameter", 400},
-		{func() error {
-			_, err := c.CreateCursor(t.Context(), streaming.CreateCursorRequest{StreamId: s.Id, CreateCursorDetails: streaming.CreateCursorDetails{Partition: new("0"), Type: streaming.CreateCursorDetailsTypeAtOffset}})
+		}, name: "bad partition", wantCode: "InvalidParameter", wantHTTP: 400},
+		{call: func() error {
+			_, err := c.CreateCursor(
+				t.Context(),
+				streaming.CreateCursorRequest{
+					StreamId:  s.Id,
+					Partition: new("0"),
+					Type:      streaming.CreateCursorDetailsTypeAtOffset,
+				},
+			)
+
 			return err
-		}, "missing offset", "MissingParameter", 400},
-		{func() error {
-			_, err := c.CreateCursor(t.Context(), streaming.CreateCursorRequest{StreamId: s.Id, CreateCursorDetails: streaming.CreateCursorDetails{Partition: new("0"), Type: streaming.CreateCursorDetailsTypeAtOffset, Offset: new(int64(99))}})
+		}, name: "missing offset", wantCode: "MissingParameter", wantHTTP: 400},
+		{call: func() error {
+			_, err := c.CreateCursor(
+				t.Context(),
+				streaming.CreateCursorRequest{
+					StreamId:  s.Id,
+					Partition: new("0"),
+					Type:      streaming.CreateCursorDetailsTypeAtOffset,
+					Offset:    new(int64(99)),
+				},
+			)
+
 			return err
-		}, "offset out of range", "InvalidParameter", 400},
-		{func() error {
-			_, err := c.CreateCursor(t.Context(), streaming.CreateCursorRequest{StreamId: s.Id, CreateCursorDetails: streaming.CreateCursorDetails{Partition: new("0"), Type: streaming.CreateCursorDetailsTypeAtTime}})
+		}, name: "offset out of range", wantCode: "InvalidParameter", wantHTTP: 400},
+		{call: func() error {
+			_, err := c.CreateCursor(
+				t.Context(),
+				streaming.CreateCursorRequest{
+					StreamId:  s.Id,
+					Partition: new("0"),
+					Type:      streaming.CreateCursorDetailsTypeAtTime,
+				},
+			)
+
 			return err
-		}, "missing time", "MissingParameter", 400},
-		{func() error {
+		}, name: "missing time", wantCode: "MissingParameter", wantHTTP: 400},
+		{call: func() error {
 			_, err := c.GetMessages(t.Context(), streaming.GetMessagesRequest{StreamId: s.Id, Cursor: new("garbage")})
+
 			return err
-		}, "garbage cursor", "InvalidParameter", 400},
-		{func() error {
+		}, name: "garbage cursor", wantCode: "InvalidParameter", wantHTTP: 400},
+		{call: func() error {
 			_, err := c.GetMessages(t.Context(), streaming.GetMessagesRequest{StreamId: s.Id, Cursor: &foreign})
+
 			return err
-		}, "foreign cursor", "InvalidParameter", 400},
-		{func() error {
-			_, err := c.GetMessages(t.Context(), streaming.GetMessagesRequest{StreamId: s.Id, Cursor: &foreign, Limit: new(10001)})
+		}, name: "foreign cursor", wantCode: "InvalidParameter", wantHTTP: 400},
+		{call: func() error {
+			_, err := c.GetMessages(
+				t.Context(),
+				streaming.GetMessagesRequest{StreamId: s.Id, Cursor: &foreign, Limit: new(10001)},
+			)
+
 			return err
-		}, "limit too high", "InvalidParameter", 400},
-		{func() error {
-			_, err := c.GetMessages(t.Context(), streaming.GetMessagesRequest{StreamId: new("ocid1.stream.oc1..none"), Cursor: &foreign})
+		}, name: "limit too high", wantCode: "InvalidParameter", wantHTTP: 400},
+		{call: func() error {
+			_, err := c.GetMessages(
+				t.Context(),
+				streaming.GetMessagesRequest{StreamId: new("ocid1.stream.oc1..none"), Cursor: &foreign},
+			)
+
 			return err
-		}, "unknown stream", "NotAuthorizedOrNotFound", 404},
+		}, name: "unknown stream", wantCode: "NotAuthorizedOrNotFound", wantHTTP: 404},
 	}
 
 	for _, tt := range tests {
@@ -209,16 +278,46 @@ func TestPutMessagesLimits(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		entries    []streaming.PutMessagesDetailsEntry
 		name       string
 		wantCode   string
+		entries    []streaming.PutMessagesDetailsEntry
 		wantHTTP   int
 		wantFailed int
 	}{
-		{[]streaming.PutMessagesDetailsEntry{{Value: make([]byte, 1<<20+1)}}, "request over 1 MiB", "RequestEntityTooLarge", 413, 0},
-		{[]streaming.PutMessagesDetailsEntry{{Value: []byte("ok")}, {Key: make([]byte, 257), Value: []byte("x")}}, "key over 256 bytes fails one entry", "", 200, 1},
-		{[]streaming.PutMessagesDetailsEntry{{Value: make([]byte, 600<<10)}, {Value: make([]byte, 400<<10)}}, "within request limit", "", 200, 0},
-		{[]streaming.PutMessagesDetailsEntry{}, "no messages", "MissingParameter", 400, 0},
+		{
+			name:       "request over 1 MiB",
+			wantCode:   "RequestEntityTooLarge",
+			entries:    []streaming.PutMessagesDetailsEntry{{Value: make([]byte, 1<<20+1)}},
+			wantHTTP:   413,
+			wantFailed: 0,
+		},
+		{
+			name:     "key over 256 bytes fails one entry",
+			wantCode: "",
+			entries: []streaming.PutMessagesDetailsEntry{
+				{Value: []byte("ok")},
+				{Key: make([]byte, 257), Value: []byte("x")},
+			},
+			wantHTTP:   200,
+			wantFailed: 1,
+		},
+		{
+			name:     "within request limit",
+			wantCode: "",
+			entries: []streaming.PutMessagesDetailsEntry{
+				{Value: make([]byte, 600<<10)},
+				{Value: make([]byte, 400<<10)},
+			},
+			wantHTTP:   200,
+			wantFailed: 0,
+		},
+		{
+			name:       "no messages",
+			wantCode:   "MissingParameter",
+			entries:    []streaming.PutMessagesDetailsEntry{},
+			wantHTTP:   400,
+			wantFailed: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -230,7 +329,7 @@ func TestPutMessagesLimits(t *testing.T) {
 			c := e.msgs(t, s)
 
 			resp, err := c.PutMessages(t.Context(), streaming.PutMessagesRequest{
-				StreamId: s.Id, PutMessagesDetails: streaming.PutMessagesDetails{Messages: tt.entries},
+				StreamId: s.Id, Messages: tt.entries,
 			})
 			if tt.wantHTTP != http.StatusOK {
 				se := svcErr(t, err)
@@ -263,7 +362,8 @@ func TestPartitionIngestThrottle(t *testing.T) {
 	big := streaming.PutMessagesDetailsEntry{Value: make([]byte, 700<<10)}
 	put := func() error {
 		_, err := c.PutMessages(t.Context(), streaming.PutMessagesRequest{
-			StreamId: s.Id, PutMessagesDetails: streaming.PutMessagesDetails{Messages: []streaming.PutMessagesDetailsEntry{big}},
+			StreamId: s.Id,
+			Messages: []streaming.PutMessagesDetailsEntry{big},
 		})
 
 		return err
@@ -299,13 +399,19 @@ func TestRetentionDropsOldMessages(t *testing.T) {
 	assert.Equal(t, []string{"mid", "new"}, values(getMsgs(t, c, s, cur, 0).Items))
 
 	_, err := c.CreateCursor(t.Context(), streaming.CreateCursorRequest{
-		StreamId: s.Id, CreateCursorDetails: streaming.CreateCursorDetails{
-			Partition: new("0"), Type: streaming.CreateCursorDetailsTypeAtOffset, Offset: new(int64(0)),
-		},
+		StreamId:  s.Id,
+		Partition: new("0"), Type: streaming.CreateCursorDetailsTypeAtOffset, Offset: new(int64(0)),
 	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
-	pre := plainCursor(t, c, s, "0", streaming.CreateCursorDetailsTypeAtOffset, func(d *streaming.CreateCursorDetails) { d.Offset = new(int64(2)) })
+	pre := plainCursor(
+		t,
+		c,
+		s,
+		"0",
+		streaming.CreateCursorDetailsTypeAtOffset,
+		func(d *streaming.CreateCursorDetails) { d.Offset = new(int64(2)) },
+	)
 	e.clock.Advance(20 * time.Hour)
 	assert.Equal(t, []string{"new"}, values(getMsgs(t, c, s, pre, 0).Items), "an existing cursor skips expired offsets")
 
@@ -318,16 +424,17 @@ func TestPutToInactiveStream(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{})
-	created, err := e.admin.CreateStream(t.Context(), streaming.CreateStreamRequest{CreateStreamDetails: streaming.CreateStreamDetails{
-		Name: new("early"), Partitions: new(1), CompartmentId: new(testCompartment),
-	}})
+	created, err := e.admin.CreateStream(
+		t.Context(),
+		streaming.CreateStreamRequest{
+			Name: new("early"), Partitions: new(1), CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 
 	c := e.msgs(t, created.Stream)
 	_, err = c.PutMessages(t.Context(), streaming.PutMessagesRequest{
-		StreamId: created.Id, PutMessagesDetails: streaming.PutMessagesDetails{
-			Messages: []streaming.PutMessagesDetailsEntry{{Value: []byte("x")}},
-		},
+		StreamId: created.Id,
+		Messages: []streaming.PutMessagesDetailsEntry{{Value: []byte("x")}},
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
@@ -337,9 +444,8 @@ func TestPutToInactiveStream(t *testing.T) {
 	e.settle()
 
 	_, err = c.PutMessages(t.Context(), streaming.PutMessagesRequest{
-		StreamId: created.Id, PutMessagesDetails: streaming.PutMessagesDetails{
-			Messages: []streaming.PutMessagesDetailsEntry{{Value: []byte("x")}},
-		},
+		StreamId: created.Id,
+		Messages: []streaming.PutMessagesDetailsEntry{{Value: []byte("x")}},
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }

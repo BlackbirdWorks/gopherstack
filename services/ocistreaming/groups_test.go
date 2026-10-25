@@ -23,7 +23,10 @@ func groupCursor(
 		mod(&d)
 	}
 
-	resp, err := c.CreateGroupCursor(t.Context(), streaming.CreateGroupCursorRequest{StreamId: s.Id, CreateGroupCursorDetails: d})
+	resp, err := c.CreateGroupCursor(
+		t.Context(),
+		streaming.CreateGroupCursorRequest{StreamId: s.Id, CreateGroupCursorDetails: d},
+	)
 	require.NoError(t, err)
 
 	return *resp.Value
@@ -50,7 +53,11 @@ func TestGroupCommitOnGet(t *testing.T) {
 	restarted := groupCursor(t, c, s, "workers", "i1", func(d *streaming.CreateGroupCursorDetails) {
 		d.Type = streaming.CreateGroupCursorDetailsTypeLatest
 	})
-	assert.Empty(t, getMsgs(t, c, s, restarted, 0).Items, "committed offsets survive; type only applies at group creation")
+	assert.Empty(
+		t,
+		getMsgs(t, c, s, restarted, 0).Items,
+		"committed offsets survive; type only applies at group creation",
+	)
 
 	grp, err := c.GetGroup(t.Context(), streaming.GetGroupRequest{StreamId: s.Id, GroupName: new("workers")})
 	require.NoError(t, err)
@@ -81,7 +88,10 @@ func TestGroupManualCommit(t *testing.T) {
 	fresh := groupCursor(t, c, s, "g", "i1", manual)
 	assert.Equal(t, []string{"a", "b"}, values(getMsgs(t, c, s, fresh, 0).Items), "uncommitted reads are redelivered")
 
-	committed, err := c.ConsumerCommit(t.Context(), streaming.ConsumerCommitRequest{StreamId: s.Id, Cursor: got.OpcNextCursor})
+	committed, err := c.ConsumerCommit(
+		t.Context(),
+		streaming.ConsumerCommitRequest{StreamId: s.Id, Cursor: got.OpcNextCursor},
+	)
 	require.NoError(t, err)
 
 	after := getMsgs(t, c, s, *committed.Value, 0)
@@ -132,7 +142,7 @@ func TestGroupPartitionAssignment(t *testing.T) {
 
 	assert.Equal(t, map[string]int{"one": 2, "two": 2}, owners)
 
-	var got []string
+	got := make([]string, 0, 4)
 
 	for _, cur := range []string{c1, c2} {
 		for range 2 {
@@ -186,14 +196,14 @@ func TestUpdateGroupResetsOffsets(t *testing.T) {
 
 	_, err := c.UpdateGroup(t.Context(), streaming.UpdateGroupRequest{
 		StreamId: s.Id, GroupName: new("g"),
-		UpdateGroupDetails: streaming.UpdateGroupDetails{Type: streaming.UpdateGroupDetailsTypeTrimHorizon},
+		Type: streaming.UpdateGroupDetailsTypeTrimHorizon,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a", "b"}, values(getMsgs(t, c, s, cur, 0).Items))
 
 	_, err = c.UpdateGroup(t.Context(), streaming.UpdateGroupRequest{
 		StreamId: s.Id, GroupName: new("g"),
-		UpdateGroupDetails: streaming.UpdateGroupDetails{Type: streaming.UpdateGroupDetailsTypeLatest},
+		Type: streaming.UpdateGroupDetailsTypeLatest,
 	})
 	require.NoError(t, err)
 	assert.Empty(t, getMsgs(t, c, s, cur, 0).Items)
@@ -213,30 +223,59 @@ func TestGroupErrors(t *testing.T) {
 		wantCode string
 		wantHTTP int
 	}{
-		{func() error {
+		{call: func() error {
 			_, err := c.GetGroup(t.Context(), streaming.GetGroupRequest{StreamId: s.Id, GroupName: new("nope")})
+
 			return err
-		}, "unknown group", "NotAuthorizedOrNotFound", http.StatusNotFound},
-		{func() error {
-			_, err := c.CreateGroupCursor(t.Context(), streaming.CreateGroupCursorRequest{StreamId: s.Id, CreateGroupCursorDetails: streaming.CreateGroupCursorDetails{Type: streaming.CreateGroupCursorDetailsTypeLatest}})
+		}, name: "unknown group", wantCode: "NotAuthorizedOrNotFound", wantHTTP: http.StatusNotFound},
+		{call: func() error {
+			_, err := c.CreateGroupCursor(
+				t.Context(),
+				streaming.CreateGroupCursorRequest{
+					StreamId: s.Id,
+					Type:     streaming.CreateGroupCursorDetailsTypeLatest,
+				},
+			)
+
 			return err
-		}, "missing group name", "MissingParameter", http.StatusBadRequest},
-		{func() error {
-			_, err := c.CreateGroupCursor(t.Context(), streaming.CreateGroupCursorRequest{StreamId: s.Id, CreateGroupCursorDetails: streaming.CreateGroupCursorDetails{GroupName: new("g"), Type: streaming.CreateGroupCursorDetailsTypeAtTime}})
+		}, name: "missing group name", wantCode: "MissingParameter", wantHTTP: http.StatusBadRequest},
+		{call: func() error {
+			_, err := c.CreateGroupCursor(
+				t.Context(),
+				streaming.CreateGroupCursorRequest{
+					StreamId:  s.Id,
+					GroupName: new("g"),
+					Type:      streaming.CreateGroupCursorDetailsTypeAtTime,
+				},
+			)
+
 			return err
-		}, "at time without time", "MissingParameter", http.StatusBadRequest},
-		{func() error {
+		}, name: "at time without time", wantCode: "MissingParameter", wantHTTP: http.StatusBadRequest},
+		{call: func() error {
 			_, err := c.ConsumerCommit(t.Context(), streaming.ConsumerCommitRequest{StreamId: s.Id, Cursor: &plain})
+
 			return err
-		}, "commit plain cursor", "InvalidParameter", http.StatusBadRequest},
-		{func() error {
-			_, err := c.ConsumerHeartbeat(t.Context(), streaming.ConsumerHeartbeatRequest{StreamId: s.Id, Cursor: &plain})
+		}, name: "commit plain cursor", wantCode: "InvalidParameter", wantHTTP: http.StatusBadRequest},
+		{call: func() error {
+			_, err := c.ConsumerHeartbeat(
+				t.Context(),
+				streaming.ConsumerHeartbeatRequest{StreamId: s.Id, Cursor: &plain},
+			)
+
 			return err
-		}, "heartbeat plain cursor", "InvalidParameter", http.StatusBadRequest},
-		{func() error {
-			_, err := c.UpdateGroup(t.Context(), streaming.UpdateGroupRequest{StreamId: s.Id, GroupName: new("nope"), UpdateGroupDetails: streaming.UpdateGroupDetails{Type: streaming.UpdateGroupDetailsTypeLatest}})
+		}, name: "heartbeat plain cursor", wantCode: "InvalidParameter", wantHTTP: http.StatusBadRequest},
+		{call: func() error {
+			_, err := c.UpdateGroup(
+				t.Context(),
+				streaming.UpdateGroupRequest{
+					StreamId:  s.Id,
+					GroupName: new("nope"),
+					Type:      streaming.UpdateGroupDetailsTypeLatest,
+				},
+			)
+
 			return err
-		}, "update unknown group", "NotAuthorizedOrNotFound", http.StatusNotFound},
+		}, name: "update unknown group", wantCode: "NotAuthorizedOrNotFound", wantHTTP: http.StatusNotFound},
 	}
 
 	for _, tt := range tests {

@@ -6,11 +6,14 @@ import (
 )
 
 const (
-	maxMessageBytes   = 1 << 20
 	maxRequestBytes   = 1 << 20
 	maxKeyBytes       = 256
 	maxPartitionBytes = 1 << 20
 	maxGetLimit       = 10000
+	tailOne           = 1
+	tailTwo           = 2
+	tailThree         = 3
+	hashMask          = 0x7fffffff
 )
 
 type putEntryIn struct {
@@ -47,16 +50,21 @@ type messageWire struct {
 // murmur2 is the Kafka default partitioner hash.
 func murmur2(data []byte) uint32 {
 	const (
-		m    = 0x5bd1e995
-		r    = 24
-		seed = 0x9747b28c
+		m       = 0x5bd1e995
+		r       = 24
+		seed    = 0x9747b28c
+		shr1    = 13
+		shr2    = 15
+		shift   = 8
+		shift16 = 16
+		shift24 = 24
 	)
 
 	n := len(data)
 	h := uint32(seed) ^ uint32(n) //nolint:gosec // length bounded by the 256 byte key limit
 
 	for i := 0; i+4 <= n; i += 4 {
-		k := uint32(data[i]) | uint32(data[i+1])<<8 | uint32(data[i+2])<<16 | uint32(data[i+3])<<24
+		k := uint32(data[i]) | uint32(data[i+1])<<shift | uint32(data[i+2])<<shift16 | uint32(data[i+3])<<shift24
 		k *= m
 		k ^= k >> r
 		k *= m
@@ -66,22 +74,22 @@ func murmur2(data []byte) uint32 {
 
 	tail := data[n&^3:]
 	switch len(tail) {
-	case 3:
-		h ^= uint32(tail[2]) << 16
+	case tailThree:
+		h ^= uint32(tail[2]) << shift16
 
 		fallthrough
-	case 2:
-		h ^= uint32(tail[1]) << 8
+	case tailTwo:
+		h ^= uint32(tail[1]) << shift
 
 		fallthrough
-	case 1:
+	case tailOne:
 		h ^= uint32(tail[0])
 		h *= m
 	}
 
-	h ^= h >> 13
+	h ^= h >> shr1
 	h *= m
-	h ^= h >> 15
+	h ^= h >> shr2
 
 	return h
 }
@@ -93,7 +101,7 @@ func (s *Stream) partitionFor(key []byte) int {
 		return (s.RoundRobin - 1) % len(s.Parts)
 	}
 
-	return int((murmur2(key) & 0x7fffffff) % uint32(len(s.Parts))) //nolint:gosec // bounded partition count
+	return int((murmur2(key) & hashMask) % uint32(len(s.Parts))) //nolint:gosec // bounded partition count
 }
 
 func (p *Partition) end() int64 { return p.Base + int64(len(p.Messages)) }

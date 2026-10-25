@@ -7,6 +7,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+const halfComplete = 50
+
 type wrResourceWire struct {
 	EntityType string `json:"entityType"`
 	ActionType string `json:"actionType"`
@@ -46,7 +48,7 @@ func (b *InMemoryBackend) wrView(wr *WorkRequest) workRequestWire {
 	now := b.nowUTC()
 	out := workRequestWire{
 		OperationType: wr.Operation, ID: wr.ID, CompartmentID: wr.CompartmentID, TimeAccepted: wr.Accepted,
-		Status: "IN_PROGRESS", PercentComplete: 50, TimeStarted: &wr.Accepted,
+		Status: "IN_PROGRESS", PercentComplete: halfComplete, TimeStarted: &wr.Accepted,
 		Resources: []wrResourceWire{{
 			EntityType: wr.EntityType, ActionType: "IN_PROGRESS", Identifier: wr.EntityID, EntityURI: wr.EntityURI,
 		}},

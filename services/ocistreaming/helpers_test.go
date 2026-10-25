@@ -148,9 +148,7 @@ func (e *env) mkStream(t *testing.T, name string, partitions int) streaming.Stre
 	t.Helper()
 
 	resp, err := e.admin.CreateStream(t.Context(), streaming.CreateStreamRequest{
-		CreateStreamDetails: streaming.CreateStreamDetails{
-			Name: new(name), Partitions: new(partitions), CompartmentId: new(testCompartment),
-		},
+		Name: new(name), Partitions: new(partitions), CompartmentId: new(testCompartment),
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -205,7 +203,12 @@ func rawDo(t *testing.T, method, url, body string) (int, string) {
 	return resp.StatusCode, string(out)
 }
 
-func putOne(t *testing.T, c streaming.StreamClient, s streaming.Stream, key, value string) streaming.PutMessagesResultEntry {
+func putOne(
+	t *testing.T,
+	c streaming.StreamClient,
+	s streaming.Stream,
+	key, value string,
+) streaming.PutMessagesResultEntry {
 	t.Helper()
 
 	var k []byte
@@ -215,9 +218,7 @@ func putOne(t *testing.T, c streaming.StreamClient, s streaming.Stream, key, val
 
 	resp, err := c.PutMessages(t.Context(), streaming.PutMessagesRequest{
 		StreamId: s.Id,
-		PutMessagesDetails: streaming.PutMessagesDetails{
-			Messages: []streaming.PutMessagesDetailsEntry{{Key: k, Value: []byte(value)}},
-		},
+		Messages: []streaming.PutMessagesDetailsEntry{{Key: k, Value: []byte(value)}},
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Entries, 1)

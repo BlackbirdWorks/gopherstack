@@ -16,12 +16,12 @@ const (
 
 // CreateStreamIn is the CreateStream request body.
 type CreateStreamIn struct {
+	Tags
 	Partitions       *int   `json:"partitions"`
 	RetentionInHours *int   `json:"retentionInHours"`
 	Name             string `json:"name"`
 	Compartment      string `json:"compartmentId"`
 	PoolID           string `json:"streamPoolId"`
-	Tags
 }
 
 // UpdateStreamIn is the UpdateStream request body.
@@ -204,10 +204,10 @@ func (b *InMemoryBackend) ListStreams(
 
 	var all []*Stream
 
+	f := streamFilter{compartment: compartment, poolID: poolID, id: id, name: name, state: state}
+
 	for _, s := range b.streams {
-		if (compartment == "" || s.CompartmentID == compartment) && (poolID == "" || s.PoolID == poolID) &&
-			(id == "" || s.ID == id) && (name == "" || s.Name == name) &&
-			(state == "" || strings.EqualFold(s.State, state)) {
+		if f.matches(s) {
 			all = append(all, s)
 		}
 	}
@@ -355,4 +355,12 @@ func (h *Handler) changeStreamCompartment(q *req) error {
 	wr, err := h.Backend.ChangeStreamCompartment(q.param("streamId"), q.ifMatch(), in.CompartmentID)
 
 	return acceptedWR(q, wr, err)
+}
+
+type streamFilter struct{ compartment, poolID, id, name, state string }
+
+func (f streamFilter) matches(s *Stream) bool {
+	return (f.compartment == "" || s.CompartmentID == f.compartment) && (f.poolID == "" || s.PoolID == f.poolID) &&
+		(f.id == "" || s.ID == f.id) && (f.name == "" || s.Name == f.name) &&
+		(f.state == "" || strings.EqualFold(s.State, f.state))
 }

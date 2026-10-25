@@ -15,10 +15,12 @@ func TestStreamLifecycle(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	ctx := t.Context()
 
-	created, err := e.admin.CreateStream(ctx, streaming.CreateStreamRequest{CreateStreamDetails: streaming.CreateStreamDetails{
-		Name: new("events"), Partitions: new(3), CompartmentId: new(testCompartment),
-		FreeformTags: map[string]string{"a": "b"},
-	}})
+	created, err := e.admin.CreateStream(
+		ctx,
+		streaming.CreateStreamRequest{
+			Name: new("events"), Partitions: new(3), CompartmentId: new(testCompartment),
+			FreeformTags: map[string]string{"a": "b"}},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, streaming.StreamLifecycleStateCreating, created.LifecycleState)
 	assert.Equal(t, 24, *created.RetentionInHours)
@@ -74,13 +76,48 @@ func TestCreateStreamValidation(t *testing.T) {
 		wantCode string
 		wantHTTP int
 	}{
-		{func(d *streaming.CreateStreamDetails) { d.Partitions = new(0) }, "zero partitions", "InvalidParameter", 400},
-		{func(d *streaming.CreateStreamDetails) { d.Partitions = new(1001) }, "too many partitions", "InvalidParameter", 400},
-		{func(d *streaming.CreateStreamDetails) { d.RetentionInHours = new(23) }, "retention low", "InvalidParameter", 400},
-		{func(d *streaming.CreateStreamDetails) { d.RetentionInHours = new(169) }, "retention high", "InvalidParameter", 400},
-		{func(d *streaming.CreateStreamDetails) { d.CompartmentId = nil }, "no compartment", "MissingParameter", 400},
-		{func(d *streaming.CreateStreamDetails) { d.StreamPoolId = new("ocid1.streampool.oc1..nope") }, "unknown pool", "NotAuthorizedOrNotFound", 404},
-		{func(d *streaming.CreateStreamDetails) { d.Name = new(" ") }, "blank name", "MissingParameter", 400},
+		{
+			mod:      func(d *streaming.CreateStreamDetails) { d.Partitions = new(0) },
+			name:     "zero partitions",
+			wantCode: "InvalidParameter",
+			wantHTTP: 400,
+		},
+		{
+			mod:      func(d *streaming.CreateStreamDetails) { d.Partitions = new(1001) },
+			name:     "too many partitions",
+			wantCode: "InvalidParameter",
+			wantHTTP: 400,
+		},
+		{
+			mod:      func(d *streaming.CreateStreamDetails) { d.RetentionInHours = new(23) },
+			name:     "retention low",
+			wantCode: "InvalidParameter",
+			wantHTTP: 400,
+		},
+		{
+			mod:      func(d *streaming.CreateStreamDetails) { d.RetentionInHours = new(169) },
+			name:     "retention high",
+			wantCode: "InvalidParameter",
+			wantHTTP: 400,
+		},
+		{
+			mod:      func(d *streaming.CreateStreamDetails) { d.CompartmentId = nil },
+			name:     "no compartment",
+			wantCode: "MissingParameter",
+			wantHTTP: 400,
+		},
+		{
+			mod:      func(d *streaming.CreateStreamDetails) { d.StreamPoolId = new("ocid1.streampool.oc1..nope") },
+			name:     "unknown pool",
+			wantCode: "NotAuthorizedOrNotFound",
+			wantHTTP: 404,
+		},
+		{
+			mod:      func(d *streaming.CreateStreamDetails) { d.Name = new(" ") },
+			name:     "blank name",
+			wantCode: "MissingParameter",
+			wantHTTP: 400,
+		},
 	}
 
 	for _, tt := range tests {
@@ -111,15 +148,16 @@ func TestStreamDefaultPoolAndNames(t *testing.T) {
 	assert.Equal(t, "DefaultPool", *pool.Name)
 	assert.Equal(t, streaming.StreamPoolLifecycleStateActive, pool.LifecycleState)
 
-	_, err = e.admin.CreateStream(ctx, streaming.CreateStreamRequest{CreateStreamDetails: streaming.CreateStreamDetails{
-		Name: new("dup"), Partitions: new(1), CompartmentId: new(testCompartment),
-	}})
+	_, err = e.admin.CreateStream(ctx, streaming.CreateStreamRequest{
+		Name: new("dup"), Partitions: new(1), CompartmentId: new(testCompartment)})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
 	other := e.mkPool(t, "other", nil)
-	b, err := e.admin.CreateStream(ctx, streaming.CreateStreamRequest{CreateStreamDetails: streaming.CreateStreamDetails{
-		Name: new("dup"), Partitions: new(2), StreamPoolId: other.Id,
-	}})
+	b, err := e.admin.CreateStream(
+		ctx,
+		streaming.CreateStreamRequest{
+			Name: new("dup"), Partitions: new(2), StreamPoolId: other.Id},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, testCompartment, *b.CompartmentId)
 
@@ -142,12 +180,16 @@ func TestListStreams(t *testing.T) {
 		name string
 		want []string
 	}{
-		{func(r *streaming.ListStreamsRequest) {
+		{mod: func(r *streaming.ListStreamsRequest) {
 			r.SortBy = streaming.ListStreamsSortByName
 			r.SortOrder = streaming.ListStreamsSortOrderAsc
-		}, "by name", []string{"a", "b", "c"}},
-		{func(r *streaming.ListStreamsRequest) { r.Name = new("b") }, "name filter", []string{"b"}},
-		{func(r *streaming.ListStreamsRequest) { r.LifecycleState = streaming.StreamLifecycleStateDeleted }, "state filter", nil},
+		}, name: "by name", want: []string{"a", "b", "c"}},
+		{mod: func(r *streaming.ListStreamsRequest) { r.Name = new("b") }, name: "name filter", want: []string{"b"}},
+		{
+			mod:  func(r *streaming.ListStreamsRequest) { r.LifecycleState = streaming.StreamLifecycleStateDeleted },
+			name: "state filter",
+			want: []string{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -160,7 +202,7 @@ func TestListStreams(t *testing.T) {
 			resp, err := e.admin.ListStreams(ctx, r)
 			require.NoError(t, err)
 
-			var got []string
+			got := make([]string, 0, len(resp.Items))
 			for _, s := range resp.Items {
 				got = append(got, *s.Name)
 			}
@@ -198,22 +240,23 @@ func TestUpdateAndChangeCompartmentStream(t *testing.T) {
 	pool := e.mkPool(t, "target", nil)
 
 	_, err := e.admin.UpdateStream(ctx, streaming.UpdateStreamRequest{
-		StreamId: s.Id, IfMatch: new("stale"), UpdateStreamDetails: streaming.UpdateStreamDetails{StreamPoolId: pool.Id},
+		StreamId:     s.Id,
+		IfMatch:      new("stale"),
+		StreamPoolId: pool.Id,
 	})
 	assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 
 	up, err := e.admin.UpdateStream(ctx, streaming.UpdateStreamRequest{
-		StreamId: s.Id, UpdateStreamDetails: streaming.UpdateStreamDetails{
-			StreamPoolId: pool.Id, FreeformTags: map[string]string{"k": "v"},
-		},
+		StreamId:     s.Id,
+		StreamPoolId: pool.Id, FreeformTags: map[string]string{"k": "v"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, *pool.Id, *up.StreamPoolId)
 	assert.Equal(t, "v", up.FreeformTags["k"])
 
 	_, err = e.admin.ChangeStreamCompartment(ctx, streaming.ChangeStreamCompartmentRequest{
-		StreamId:                       s.Id,
-		ChangeStreamCompartmentDetails: streaming.ChangeStreamCompartmentDetails{CompartmentId: new("ocid1.compartment.oc1..two")},
+		StreamId:      s.Id,
+		CompartmentId: new("ocid1.compartment.oc1..two"),
 	})
 	require.NoError(t, err)
 
@@ -231,7 +274,10 @@ func TestUpdateAndChangeCompartmentStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, logs.Items)
 
-	errs, err := e.admin.ListWorkRequestErrors(ctx, streaming.ListWorkRequestErrorsRequest{WorkRequestId: wrs.Items[0].Id})
+	errs, err := e.admin.ListWorkRequestErrors(
+		ctx,
+		streaming.ListWorkRequestErrorsRequest{WorkRequestId: wrs.Items[0].Id},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, errs.Items)
 }
@@ -262,9 +308,8 @@ func TestStreamPoolCRUD(t *testing.T) {
 	assert.Equal(t, 4, *got.KafkaSettings.NumPartitions)
 
 	up, err := e.admin.UpdateStreamPool(ctx, streaming.UpdateStreamPoolRequest{
-		StreamPoolId: pool.Id, UpdateStreamPoolDetails: streaming.UpdateStreamPoolDetails{
-			Name: new("renamed"), KafkaSettings: &streaming.KafkaSettings{NumPartitions: new(8)},
-		},
+		StreamPoolId: pool.Id,
+		Name:         new("renamed"), KafkaSettings: &streaming.KafkaSettings{NumPartitions: new(8)},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "renamed", *up.Name)
@@ -272,9 +317,8 @@ func TestStreamPoolCRUD(t *testing.T) {
 	assert.Equal(t, 48, *up.KafkaSettings.LogRetentionHours)
 
 	_, err = e.admin.UpdateStreamPool(ctx, streaming.UpdateStreamPoolRequest{
-		StreamPoolId: pool.Id, UpdateStreamPoolDetails: streaming.UpdateStreamPoolDetails{
-			KafkaSettings: &streaming.KafkaSettings{LogRetentionHours: new(500)},
-		},
+		StreamPoolId:  pool.Id,
+		KafkaSettings: &streaming.KafkaSettings{LogRetentionHours: new(500)},
 	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
@@ -283,10 +327,8 @@ func TestStreamPoolCRUD(t *testing.T) {
 	require.Len(t, list.Items, 1)
 
 	_, err = e.admin.ChangeStreamPoolCompartment(ctx, streaming.ChangeStreamPoolCompartmentRequest{
-		StreamPoolId: pool.Id,
-		ChangeStreamPoolCompartmentDetails: streaming.ChangeStreamPoolCompartmentDetails{
-			CompartmentId: new("ocid1.compartment.oc1..two"),
-		},
+		StreamPoolId:  pool.Id,
+		CompartmentId: new("ocid1.compartment.oc1..two"),
 	})
 	require.NoError(t, err)
 
@@ -310,10 +352,10 @@ func TestPoolCustomEncryptionKey(t *testing.T) {
 		known     bool
 		wantError bool
 	}{
-		{"enabled key", "ocid1.key.oc1..good", "ENABLED", true, false},
-		{"unknown key", "ocid1.key.oc1..ghost", "", false, true},
-		{"disabled key", "ocid1.key.oc1..off", "DISABLED", true, true},
-		{"not a key ocid", "ocid1.vault.oc1..v", "", false, true},
+		{name: "enabled key", key: "ocid1.key.oc1..good", state: "ENABLED", known: true, wantError: false},
+		{name: "unknown key", key: "ocid1.key.oc1..ghost", state: "", known: false, wantError: true},
+		{name: "disabled key", key: "ocid1.key.oc1..off", state: "DISABLED", known: true, wantError: true},
+		{name: "not a key ocid", key: "ocid1.vault.oc1..v", state: "", known: false, wantError: true},
 	}
 
 	for _, tt := range tests {
@@ -330,10 +372,8 @@ func TestPoolCustomEncryptionKey(t *testing.T) {
 			})
 
 			resp, err := e.admin.CreateStreamPool(t.Context(), streaming.CreateStreamPoolRequest{
-				CreateStreamPoolDetails: streaming.CreateStreamPoolDetails{
-					CompartmentId: new(testCompartment), Name: new("enc"),
-					CustomEncryptionKeyDetails: &streaming.CustomEncryptionKeyDetails{KmsKeyId: new(tt.key)},
-				},
+				CompartmentId: new(testCompartment), Name: new("enc"),
+				CustomEncryptionKeyDetails: &streaming.CustomEncryptionKeyDetails{KmsKeyId: new(tt.key)},
 			})
 			if tt.wantError {
 				assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
@@ -355,30 +395,29 @@ func TestConnectHarness(t *testing.T) {
 	ctx := t.Context()
 
 	created, err := e.admin.CreateConnectHarness(ctx, streaming.CreateConnectHarnessRequest{
-		CreateConnectHarnessDetails: streaming.CreateConnectHarnessDetails{
-			Name: new("h"), CompartmentId: new(testCompartment),
-		},
+		Name: new("h"), CompartmentId: new(testCompartment),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, streaming.ConnectHarnessLifecycleStateCreating, created.LifecycleState)
 	e.settle()
 
 	up, err := e.admin.UpdateConnectHarness(ctx, streaming.UpdateConnectHarnessRequest{
-		ConnectHarnessId:            created.Id,
-		UpdateConnectHarnessDetails: streaming.UpdateConnectHarnessDetails{FreeformTags: map[string]string{"x": "y"}},
+		ConnectHarnessId: created.Id,
+		FreeformTags:     map[string]string{"x": "y"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "y", up.FreeformTags["x"])
 
-	list, err := e.admin.ListConnectHarnesses(ctx, streaming.ListConnectHarnessesRequest{CompartmentId: new(testCompartment)})
+	list, err := e.admin.ListConnectHarnesses(
+		ctx,
+		streaming.ListConnectHarnessesRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 
 	_, err = e.admin.ChangeConnectHarnessCompartment(ctx, streaming.ChangeConnectHarnessCompartmentRequest{
 		ConnectHarnessId: created.Id,
-		ChangeConnectHarnessCompartmentDetails: streaming.ChangeConnectHarnessCompartmentDetails{
-			CompartmentId: new("ocid1.compartment.oc1..two"),
-		},
+		CompartmentId:    new("ocid1.compartment.oc1..two"),
 	})
 	require.NoError(t, err)
 

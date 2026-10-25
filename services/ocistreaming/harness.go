@@ -8,9 +8,9 @@ import (
 )
 
 type harnessIn struct {
+	Tags
 	Name        string `json:"name"`
 	Compartment string `json:"compartmentId"`
-	Tags
 }
 
 type harnessWire struct {
@@ -81,7 +81,10 @@ func (b *InMemoryBackend) GetHarness(id string) (harnessWire, string, error) {
 }
 
 // ListHarnesses lists the connect harnesses of a compartment.
-func (b *InMemoryBackend) ListHarnesses(compartment, id, name, state string, o ListOpts) (page.Page[harnessWire], error) {
+func (b *InMemoryBackend) ListHarnesses(
+	compartment, id, name, state string,
+	o ListOpts,
+) (page.Page[harnessWire], error) {
 	if compartment == "" {
 		return page.Page[harnessWire]{}, errMissing("compartmentId is required")
 	}

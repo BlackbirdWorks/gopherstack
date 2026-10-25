@@ -131,16 +131,6 @@ func (q *req) json(status int, v any, etag string) error {
 	return nil
 }
 
-func (q *req) noContent(etag string) error {
-	if etag != "" {
-		q.header("etag", etag)
-	}
-
-	q.w.WriteHeader(http.StatusNoContent)
-
-	return nil
-}
-
 func (q *req) query(k string) string { return q.r.URL.Query().Get(k) }
 
 func (q *req) param(k string) string { return q.rt.params[k] }
