@@ -191,10 +191,18 @@ func TestSMTPRelayBulkTemplated(t *testing.T) {
 	rec := postForm(t, h, form.Encode())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	for _, want := range []struct{ rcpt, subject string }{{"a@example.com", "Hi A"}, {"b@example.com", "Hi X"}} {
+	// Destinations are relayed concurrently, so match sessions by recipient rather than arrival order.
+	want := map[string]string{"a@example.com": "Hi A", "b@example.com": "Hi X"}
+	got := map[string]string{}
+
+	for range want {
 		sess := nextSession(t, srv)
-		assert.Equal(t, []string{want.rcpt}, sess.Rcpts)
-		assert.Contains(t, sess.Data, "Subject: "+want.subject)
+		require.Len(t, sess.Rcpts, 1)
+		got[sess.Rcpts[0]] = sess.Data
+	}
+
+	for rcpt, subject := range want {
+		assert.Contains(t, got[rcpt], "Subject: "+subject, rcpt)
 	}
 }
 
