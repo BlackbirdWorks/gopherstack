@@ -31,7 +31,6 @@ func TestScalingPolicy_AlarmsFromCloudWatch(t *testing.T) {
 			name: "step_scaling_references", policyType: aastypes.PolicyTypeStepScaling,
 			wired: true, wantAlarms: []string{"alarm-a"},
 		},
-		{name: "target_tracking_untouched", policyType: aastypes.PolicyTypeTargetTrackingScaling, wired: true},
 		{name: "cloudwatch_not_wired", policyType: aastypes.PolicyTypeStepScaling},
 	}
 

@@ -53,10 +53,10 @@ func (b *InMemoryBackend) cloudWatchBackend() (cwbackend.StorageBackend, bool) {
 	return h.BackendFor(b.region), true
 }
 
-// attachAlarms fills p.Alarms for step-scaling policies with the CloudWatch
+// attachAlarms fills p.Alarms for step-scaling and target-tracking policies with the CloudWatch
 // alarms whose AlarmActions name the policy ARN. Must not hold b.mu.
 func (b *InMemoryBackend) attachAlarms(p *ScalingPolicy) {
-	if p.PolicyType != policyTypeStepScaling {
+	if p.PolicyType != policyTypeStepScaling && p.PolicyType != policyTypeTargetTrackingScaling {
 		return
 	}
 
