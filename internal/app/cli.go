@@ -4542,7 +4542,6 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// all (gopherstack-cb9l).
 	wireCodePipelineBackends(byName)
 	wireGlueS3(byName["Glue"], byName["S3"])
-	wireGlueDynamoDB(byName["Glue"], byName["DynamoDB"])
 }
 
 func wireCodePipelineBackends(byName map[string]service.Registerable) {
@@ -4594,6 +4593,7 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, s
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
+	wireGlueDynamoDB(byName["Glue"], byName["DynamoDB"])
 
 	// Wire CloudFront KeyValueStore → CloudFront backend so the data-plane ops
 	// (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) act on
