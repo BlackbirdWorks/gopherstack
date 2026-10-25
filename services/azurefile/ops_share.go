@@ -1,9 +1,9 @@
 package azurefile
 
 import (
-	"math"
 	"encoding/json"
 	"encoding/xml"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
