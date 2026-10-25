@@ -214,9 +214,9 @@ func TestIngestBadRecords(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		strict   bool
-		wantRows float64
 		wantCode string
+		wantRows float64
+		strict   bool
 	}{
 		{name: "default drops bad records", wantRows: 1},
 		{name: "strict rejects the upload", strict: true, wantCode: "InvalidPayload"},
