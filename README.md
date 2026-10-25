@@ -790,6 +790,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 1 gap; 2 structural gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
 | [STS](services/sts/README.md) | A | 11 | 1 structural gap; 1 deferred |
+| [Sign-In](services/signin/README.md) | B | 11 | 7 gaps; 1 structural gap |
 
 ### Management & Governance
 

@@ -271,6 +271,7 @@ import (
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
+	signinbackend "github.com/blackbirdworks/gopherstack/services/signin"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -4787,6 +4788,7 @@ func getNewestServiceProviders() []service.Provider {
 	return append([]service.Provider{
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
+		&signinbackend.Provider{},
 	}, getMostRecentServiceProviders()...)
 }
 
@@ -12759,6 +12761,8 @@ func buildPrincipalResolvers(services []service.Registerable) awsmeta.PrincipalR
 			if r, ok := h.Backend.(awsmeta.PrincipalResolver); ok {
 				chain = append(chain, r)
 			}
+		case *signinbackend.Handler:
+			chain = append(chain, h.Backend)
 		}
 	}
 
