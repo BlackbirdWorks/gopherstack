@@ -93,8 +93,11 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
+	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
@@ -104,6 +107,7 @@ import (
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	gcpspannerbackend "github.com/blackbirdworks/gopherstack/services/gcpspanner"
 	gcpsqlbackend "github.com/blackbirdworks/gopherstack/services/gcpsql"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
@@ -538,6 +542,11 @@ type Config struct {
 	GCPIAMOps *gcpiambackend.Handler
 	// GCPFirestoreOps is called in-process by the /dashboard/api/v1/gcp/firestore proxy.
 	GCPFirestoreOps *gcpfirestorebackend.Handler
+	// GCPBigtableOps, GCPEventarcOps, GCPSpannerOps and GCPArtifactRegistryOps are called in-process by their proxies.
+	GCPBigtableOps         *gcpbigtablebackend.Handler
+	GCPEventarcOps         *gcpeventarcbackend.Handler
+	GCPSpannerOps          *gcpspannerbackend.Handler
+	GCPArtifactRegistryOps *gcpartifactregistrybackend.Handler
 	// AzureBlobOps is dispatched in-process by the /dashboard/api/v1/azure/blob proxy.
 	AzureBlobOps *azureblobbackend.Handler
 	// AzureQueueOps is dispatched in-process by the /dashboard/api/v1/azure/queue proxy.
@@ -807,6 +816,10 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerGCPFunctionsRoutes()
 	h.registerGCPIAMRoutes()
 	h.registerGCPFirestoreRoutes()
+	h.registerGCPBigtableRoutes()
+	h.registerGCPEventarcRoutes()
+	h.registerGCPSpannerRoutes()
+	h.registerGCPArtifactRegistryRoutes()
 	h.registerAzureQueueRoutes()
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()

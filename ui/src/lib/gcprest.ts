@@ -110,3 +110,25 @@ export function secondsToDuration(input: string): string | null {
 export function durationToSeconds(d: string): string {
   return d.endsWith("s") ? d.slice(0, -1) : d;
 }
+
+/** Follows nextPageToken through a list endpoint and concatenates the `key` arrays. */
+export async function listAll(
+  base: string,
+  path: string,
+  key: string,
+  fetchFn: FetchFn = fetch,
+  query = "",
+): Promise<Json[]> {
+  const out: Json[] = [];
+  let token = "";
+  do {
+    const qs = [query, token ? `pageToken=${encodeURIComponent(token)}` : ""]
+      .filter(Boolean)
+      .join("&");
+    const body = await restCall<Json>(base, "GET", qs ? `${path}?${qs}` : path, undefined, fetchFn);
+    const items = body[key];
+    if (Array.isArray(items)) out.push(...(items as Json[]));
+    token = str(body.nextPageToken);
+  } while (token);
+  return out;
+}

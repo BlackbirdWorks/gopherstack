@@ -14,6 +14,10 @@
 	import BigQueryDashboard from '#lib/components/gcp/BigQueryDashboard.svelte';
 	import SqlDashboard from '#lib/components/gcp/SqlDashboard.svelte';
 	import LoggingDashboard from '#lib/components/gcp/LoggingDashboard.svelte';
+	import BigtableDashboard from '#lib/components/gcp/BigtableDashboard.svelte';
+	import EventarcDashboard from '#lib/components/gcp/EventarcDashboard.svelte';
+	import SpannerDashboard from '#lib/components/gcp/SpannerDashboard.svelte';
+	import ArtifactRegistryDashboard from '#lib/components/gcp/ArtifactRegistryDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -53,6 +57,14 @@
 	<SqlDashboard />
 {:else if service?.id === 'logging'}
 	<LoggingDashboard />
+{:else if service?.id === 'bigtable'}
+	<BigtableDashboard />
+{:else if service?.id === 'eventarc'}
+	<EventarcDashboard />
+{:else if service?.id === 'spanner'}
+	<SpannerDashboard />
+{:else if service?.id === 'artifactregistry'}
+	<ArtifactRegistryDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

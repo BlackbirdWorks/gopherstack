@@ -425,6 +425,10 @@ type CLI struct {
 	gcpSecretManagerHandler       service.Registerable
 	gcpCloudTasksHandler          service.Registerable
 	gcpSchedulerHandler           service.Registerable
+	gcpBigtableHandler            service.Registerable
+	gcpEventarcHandler            service.Registerable
+	gcpSpannerHandler             service.Registerable
+	gcpArtifactRegistryHandler    service.Registerable
 	gcpRunHandler                 service.Registerable
 	gcpFunctionsHandler           service.Registerable
 	gcpBigQueryHandler            service.Registerable
@@ -2056,6 +2060,26 @@ func (c *CLI) GetGCPCloudTasksHandler() service.Registerable { return c.gcpCloud
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPSchedulerHandler() service.Registerable { return c.gcpSchedulerHandler }
 
+// GetGCPBigtableHandler returns the Bigtable handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPBigtableHandler() service.Registerable { return c.gcpBigtableHandler }
+
+// GetGCPEventarcHandler returns the Eventarc handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPEventarcHandler() service.Registerable { return c.gcpEventarcHandler }
+
+// GetGCPSpannerHandler returns the Spanner handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPSpannerHandler() service.Registerable { return c.gcpSpannerHandler }
+
+// GetGCPArtifactRegistryHandler returns the Artifact Registry handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPArtifactRegistryHandler() service.Registerable { return c.gcpArtifactRegistryHandler }
+
 // GetGCPRunHandler returns the Cloud Run handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -3240,6 +3264,10 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
 	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
 	cli.gcpSchedulerHandler = byName["GCPScheduler"]
+	cli.gcpBigtableHandler = byName["GCPBigtable"]
+	cli.gcpEventarcHandler = byName["GCPEventarc"]
+	cli.gcpSpannerHandler = byName["GCPSpanner"]
+	cli.gcpArtifactRegistryHandler = byName["GCPArtifactRegistry"]
 	cli.gcpRunHandler = byName["GCPRun"]
 	cli.gcpFunctionsHandler = byName["GCPFunctions"]
 	cli.gcpBigQueryHandler = byName["GCPBigQuery"]

@@ -38,8 +38,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery"
+	"github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
@@ -49,6 +52,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcprun"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	"github.com/blackbirdworks/gopherstack/services/gcpspanner"
 	"github.com/blackbirdworks/gopherstack/services/gcpsql"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 	"github.com/blackbirdworks/gopherstack/services/iam"
@@ -244,6 +248,22 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 
 	if gp, hasCS := ctx.Config.(interface{ GetGCPSchedulerHandler() service.Registerable }); hasCS {
 		conf.GCPSchedulerOps, _ = getHandler[*gcpscheduler.Handler](gp.GetGCPSchedulerHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPBigtableHandler() service.Registerable }); ok {
+		conf.GCPBigtableOps, _ = getHandler[*gcpbigtable.Handler](gp.GetGCPBigtableHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPEventarcHandler() service.Registerable }); ok {
+		conf.GCPEventarcOps, _ = getHandler[*gcpeventarc.Handler](gp.GetGCPEventarcHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPSpannerHandler() service.Registerable }); ok {
+		conf.GCPSpannerOps, _ = getHandler[*gcpspanner.Handler](gp.GetGCPSpannerHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPArtifactRegistryHandler() service.Registerable }); ok {
+		conf.GCPArtifactRegistryOps, _ = getHandler[*gcpartifactregistry.Handler](gp.GetGCPArtifactRegistryHandler())
 	}
 
 	if gp, hasRun := ctx.Config.(interface{ GetGCPRunHandler() service.Registerable }); hasRun {
