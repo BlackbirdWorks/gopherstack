@@ -2,7 +2,6 @@ package azurefile_test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -87,25 +86,9 @@ func rawDo(t *testing.T, method, url, host string, hdr map[string]string) *http.
 	return resp
 }
 
-// setShareRetention enables share soft delete through the wire (the
-// ShareDeleteRetentionPolicy element of Set File Service Properties).
-func (e *env) setShareRetention(t *testing.T, days int) {
-	t.Helper()
-
-	body := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?><StorageServiceProperties>`+
-		`<ShareDeleteRetentionPolicy><Enabled>true</Enabled><Days>%d</Days></ShareDeleteRetentionPolicy>`+
-		`</StorageServiceProperties>`, days)
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut,
-		e.url+"/"+azureauth.DefaultAccountName+"?restype=service&comp=properties", strings.NewReader(body))
-	require.NoError(t, err)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+// setShareRetention enables share soft delete for the development account.
+func (e *env) setShareRetention(_ *testing.T, days int) {
+	e.h.Backend.SetShareRetention(azureauth.DefaultAccountName, true, int32(days))
 }
 
 type azurefileHandler = azurefile.Handler

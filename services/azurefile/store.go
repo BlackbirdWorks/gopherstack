@@ -456,3 +456,25 @@ func validateMetadata(md map[string]string) *apiError {
 
 	return nil
 }
+
+// SetShareRetention sets the account's share soft-delete policy (the
+// management-plane shareDeleteRetentionPolicy).
+func (b *InMemoryBackend) SetShareRetention(account string, enabled bool, days int32) {
+	b.mu.Lock("SetShareRetention")
+	defer b.mu.Unlock()
+
+	b.acct(account).Retention = shareRetention{Enabled: enabled, Days: days}
+}
+
+// ShareRetention returns the account's share soft-delete policy.
+func (b *InMemoryBackend) ShareRetention(account string) (bool, int32) {
+	b.mu.RLock("ShareRetention")
+	defer b.mu.RUnlock()
+
+	a := b.peek(account)
+	if a == nil {
+		return false, 0
+	}
+
+	return a.Retention.Enabled, a.Retention.Days
+}

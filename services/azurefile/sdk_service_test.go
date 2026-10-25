@@ -2,6 +2,8 @@ package azurefile_test
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azfile/fileerror"
@@ -260,4 +262,31 @@ func withShares(names ...string) func(*testing.T, *env) {
 		t.Helper()
 		createShares(t, e, names...)
 	}
+}
+
+func TestSDK_DataPlaneIgnoresRetentionElement(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	body := `<StorageServiceProperties><ShareDeleteRetentionPolicy><Enabled>true</Enabled><Days>5</Days>` +
+		`</ShareDeleteRetentionPolicy></StorageServiceProperties>`
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut,
+		e.url+"/devstoreaccount1?restype=service&comp=properties", strings.NewReader(body))
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	enabled, _ := e.h.Backend.ShareRetention("devstoreaccount1")
+	assert.False(t, enabled, "soft delete is configured through ARM only")
+
+	sc := e.svc.NewShareClient("stillhard")
+	_, err = sc.Create(ctx(t), nil)
+	require.NoError(t, err)
+	_, err = sc.Delete(ctx(t), nil)
+	require.NoError(t, err)
+	assert.Empty(t, listNames(t, e, &service.ListSharesOptions{Include: service.ListSharesInclude{Deleted: true}}))
 }

@@ -123,6 +123,13 @@ type account struct {
 	Shares  map[string]*share `json:"shares"`
 	Props   *serviceProps     `json:"props,omitempty"`
 	Deleted []*share          `json:"deleted,omitempty"`
+	// Retention is the share soft-delete policy, set through the management plane.
+	Retention shareRetention `json:"retention"`
+}
+
+type shareRetention struct {
+	Days    int32 `json:"days"`
+	Enabled bool  `json:"enabled"`
 }
 
 // --- service properties (XML wire shape; also the persisted form) ---
@@ -176,12 +183,11 @@ type protocolSettings struct {
 // serviceProps is the StorageServiceProperties document. Pointer fields
 // distinguish "absent" (leave unchanged) from "present and empty".
 type serviceProps struct {
-	HourMetrics    *metrics          `json:"hour,omitempty"           xml:"HourMetrics,omitempty"`
-	MinuteMetrics  *metrics          `json:"minute,omitempty"         xml:"MinuteMetrics,omitempty"`
-	CORS           *corsWrap         `json:"cors,omitempty"           xml:"Cors,omitempty"`
-	Protocol       *protocolSettings `json:"protocol,omitempty"       xml:"ProtocolSettings,omitempty"`
-	ShareRetention *retentionPolicy  `json:"shareRetention,omitempty" xml:"ShareDeleteRetentionPolicy,omitempty"`
-	XMLName        xml.Name          `json:"-"                        xml:"StorageServiceProperties"`
+	HourMetrics   *metrics          `json:"hour,omitempty"     xml:"HourMetrics,omitempty"`
+	MinuteMetrics *metrics          `json:"minute,omitempty"   xml:"MinuteMetrics,omitempty"`
+	CORS          *corsWrap         `json:"cors,omitempty"     xml:"Cors,omitempty"`
+	Protocol      *protocolSettings `json:"protocol,omitempty" xml:"ProtocolSettings,omitempty"`
+	XMLName       xml.Name          `json:"-"                  xml:"StorageServiceProperties"`
 }
 
 func defaultServiceProps() *serviceProps {

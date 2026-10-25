@@ -236,9 +236,8 @@ func (h *Handler) listShares(rc *reqCtx) (*resp, *apiError) {
 }
 
 func retentionDays(a *account) int32 {
-	if a.Props != nil && a.Props.ShareRetention != nil && a.Props.ShareRetention.Enabled &&
-		a.Props.ShareRetention.Days != nil {
-		return *a.Props.ShareRetention.Days
+	if a.Retention.Enabled {
+		return a.Retention.Days
 	}
 
 	return 0
@@ -287,10 +286,6 @@ func (h *Handler) setServiceProps(rc *reqCtx) (*resp, *apiError) {
 		cur.Protocol = in.Protocol
 	}
 
-	if in.ShareRetention != nil {
-		cur.ShareRetention = in.ShareRetention
-	}
-
 	return newResp(http.StatusAccepted), nil
 }
 
@@ -309,10 +304,6 @@ func validateServiceProps(p *serviceProps) *apiError {
 		if err := validateRetention(m.Retention); err != nil {
 			return err
 		}
-	}
-
-	if err := validateRetention(p.ShareRetention); err != nil {
-		return err
 	}
 
 	return validateCORS(p.CORS)

@@ -4,13 +4,14 @@ import (
 	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azurefile"
 	"github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
 )
 
-// wireAzureFile gives Azure Files its Blob copy-source reader and routes the
-// virtual-hosted ".file." Host label on the shared storage listener to it.
+// wireAzureFile gives Azure Files its Blob copy-source reader, routes the
+// ".file." vhost label to it and lets ARM drive its share soft-delete policy.
 func wireAzureFile(byName map[string]service.Registerable) {
 	fileH, ok := byName["AzureFile"].(*azurefile.Handler)
 	if !ok {
@@ -20,6 +21,10 @@ func wireAzureFile(byName map[string]service.Registerable) {
 	if blobH, blobOk := byName["AzureBlob"].(*azureblob.Handler); blobOk {
 		fileH.Blobs = azureBlobReader{backend: blobH.Backend}
 		fileH.BlobPort = blobH.Port
+	}
+
+	if armH, armOk := byName["AzureARM"].(*azurearm.Handler); armOk {
+		armH.Registry.SetFileServices(fileH.Backend)
 	}
 
 	if vhostH, vhostOk := byName["AzureStorageVHost"].(*azurestoragevhost.Handler); vhostOk {

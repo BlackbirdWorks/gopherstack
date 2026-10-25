@@ -7,12 +7,12 @@ overall: B
 ops:
   ListShares: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>?comp=list with prefix, marker, maxresults and include=metadata,snapshots,deleted. Deleted shares carry Deleted/Version/DeletedTime/RemainingRetentionDays. Markers are opaque index tokens (pkgs/page)."}
   GetFileServiceProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "Defaults match a fresh account (hour metrics on, minute off, empty CORS, SMB multichannel off); CORS, metrics and SMB/NFS protocol settings are stored."}
-  SetFileServiceProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "202. Only the sections present in the body replace stored ones. Validates CORS (max 5 rules, methods), metrics version/retention and the ShareDeleteRetentionPolicy element (non-standard here: it is the switch for share soft delete, which real Azure configures through ARM); 400 InvalidXmlDocument otherwise."}
+  SetFileServiceProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "202. Only the sections present in the body replace stored ones. Validates CORS (max 5 rules, methods) and metrics version/retention; 400 InvalidXmlDocument otherwise. Unknown elements are ignored; share soft delete is not a data-plane setting."}
   CreateShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "201. Quota (1-102400), access tier, enabled protocols (SMB/NFS), root squash (NFS only), metadata and the provisioning/bursting headers are validated and stored; 409 ShareAlreadyExists, 400 InvalidResourceName."}
   GetShareProperties: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET/HEAD ?restype=share, with sharesnapshot support, x-ms-meta-*, lease headers and an optional x-ms-lease-id check."}
   SetShareProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "Quota, tier (updates AccessTierChangeTime), root squash and provisioning options; absent options are left unchanged."}
   SetShareMetadata: {wire: ok, errors: ok, state: ok, persist: ok, note: "Replaces all metadata; 400 InvalidMetadata for non-identifier names."}
-  DeleteShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "202. 409 ShareHasSnapshots unless x-ms-delete-snapshots is include/include-leased; sharesnapshot deletes one snapshot; soft-deleted (restorable) when the service's ShareDeleteRetentionPolicy is enabled; lease enforced."}
+  DeleteShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "202. 409 ShareHasSnapshots unless x-ms-delete-snapshots is include/include-leased; sharesnapshot deletes one snapshot; soft-deleted (restorable) when the account's ARM shareDeleteRetentionPolicy is enabled; lease enforced."}
   RestoreShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT ?comp=undelete with x-ms-deleted-share-name/-version; 409 ShareAlreadyExists when a live share holds the name; expired retention behaves as not found."}
   SnapshotShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "201 with x-ms-snapshot (100ns timestamp id); deep, read-only copy of the tree; metadata from headers or the share; 200 snapshot cap."}
   GetShareACL: {wire: ok, errors: ok, state: ok, persist: n/a, note: "SignedIdentifiers body with Start/Expiry/Permission."}
@@ -61,7 +61,7 @@ items_still_open:
   - "Metadata keys sent as headers come back in Go's canonical case (Foo) rather than the exact case sent; list XML returns them as stored."
   - "Copy File is synchronous and only reads emulator file and blob URLs; x-ms-copy-source-authorization and CRC64 source checks are ignored, so Abort Copy never finds a pending copy."
   - "LastAccessTime is reported as LastWriteTime and ChangeTime is only set explicitly or on mutation; trailing-dot handling (x-ms-allow-trailing-dot) and structured-body/CRC64 transactional validation are ignored."
-  - "Share soft delete is switched on through a ShareDeleteRetentionPolicy element in Set File Service Properties; the ARM Microsoft.Storage fileServices/shares resources and the dashboard UI do not exist yet."
+  - "Share soft delete follows ARM PUT/PATCH/GET storageAccounts/{a}/fileServices/default (shareDeleteRetentionPolicy only; cors and protocolSettings sent through ARM are accepted but not applied, and the default is disabled rather than 7 days). ARM fileServices/shares resources and the dashboard UI do not exist yet."
   - "Share snapshots are full in-memory deep copies (metadata and tree), so large trees cost memory per snapshot."
 leaks: {status: clean, note: "StartWorker's http.Server is stopped by Shutdown (graceful, then Close); TestMain runs testleak.VerifyTestMain over the SDK-driven suite."}
 ---

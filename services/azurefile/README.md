@@ -24,7 +24,7 @@
 - Metadata keys sent as headers come back in Go's canonical case (Foo) rather than the exact case sent; list XML returns them as stored.
 - Copy File is synchronous and only reads emulator file and blob URLs; x-ms-copy-source-authorization and CRC64 source checks are ignored, so Abort Copy never finds a pending copy.
 - LastAccessTime is reported as LastWriteTime and ChangeTime is only set explicitly or on mutation; trailing-dot handling (x-ms-allow-trailing-dot) and structured-body/CRC64 transactional validation are ignored.
-- Share soft delete is switched on through a ShareDeleteRetentionPolicy element in Set File Service Properties; the ARM Microsoft.Storage fileServices/shares resources and the dashboard UI do not exist yet.
+- Share soft delete follows ARM PUT/PATCH/GET storageAccounts/{a}/fileServices/default (shareDeleteRetentionPolicy only; cors and protocolSettings sent through ARM are accepted but not applied, and the default is disabled rather than 7 days). ARM fileServices/shares resources and the dashboard UI do not exist yet.
 - Share snapshots are full in-memory deep copies (metadata and tree), so large trees cost memory per snapshot.
 
 ## More
