@@ -44,16 +44,16 @@ type crawlStats struct {
 // replayed under the backend lock by commit. Every table write goes through
 // upsertCore so SchemaChangePolicy and AddOrUpdateBehavior apply uniformly.
 type crawlRun struct {
-	b              *InMemoryBackend
-	c              *Crawler
 	s3             CrawlerS3
 	ddb            CrawlerDynamoDB
+	b              *InMemoryBackend
+	c              *Crawler
 	conns          map[string]*Connection
 	tables         tableOverlay
 	seen           map[string]bool
-	ops            []func(*crawlRun)
 	accountID      string
 	region         string
+	ops            []func(*crawlRun)
 	stats          crawlStats
 	logOnlyUpdates bool
 	mergeColumns   bool
