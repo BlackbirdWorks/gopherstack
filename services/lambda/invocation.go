@@ -641,7 +641,15 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName, scalingQualifier 
 	active := b.activeConcurrencies[functionName]
 
 	// Reserved concurrency of 0 disables all invocations regardless of type.
-	if hasLimit && (reserved == 0 || active >= reserved) {
+	if hasLimit && reserved == 0 {
+		return false, fmt.Errorf(
+			"%w: reserved concurrency is 0 for function %s",
+			ErrTooManyRequests,
+			functionName,
+		)
+	}
+
+	if hasLimit && active >= reserved {
 		return false, fmt.Errorf(
 			"%w: concurrent execution limit reached for function %s",
 			ErrTooManyRequests,

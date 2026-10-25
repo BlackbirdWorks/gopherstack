@@ -2,6 +2,7 @@ package lambda
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,4 +180,31 @@ func TestCapacityRouting_InvokeSurfacesProviderErrors(t *testing.T) {
 			assert.ErrorIs(t, err, tt.wantErr)
 		})
 	}
+}
+
+func TestCapacityDefaultConcurrencyPerRuntime(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		runtime string
+		want    int
+	}{
+		{"nodejs22.x", 128},
+		{"java21", 64},
+		{"dotnet8", 64},
+		{"python3.13", 32},
+		{"provided.al2023", math.MaxInt32},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.runtime, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, capacityPerEnvConcurrency(&ManagedInstancesConfig{}, tt.runtime, 2))
+		})
+	}
+
+	explicit := int32(5)
+	assert.Equal(t, 5, capacityPerEnvConcurrency(
+		&ManagedInstancesConfig{PerExecutionEnvironmentMaxConcurrency: &explicit}, "nodejs22.x", 2))
 }

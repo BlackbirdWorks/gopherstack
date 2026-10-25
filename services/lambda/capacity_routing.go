@@ -3,15 +3,36 @@ package lambda
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
+// Defaults per docs.aws.amazon.com/lambda/latest/dg/lambda-managed-instances-{scaling,capacity-providers}.html:
+// 3 minimum execution environments, MaxVCpuCount 400, 2 GiB per vCPU (smallest size 2 GB / 1 vCPU).
 const (
 	capacityDefaultMemoryGiBPerVCPU = 2.0
 	capacityDefaultMinEnvironments  = 3
 	capacityDefaultMaxVCpuCount     = 400
-	capacityDefaultConcurrencyPerCP = 16
 	capacityMiBPerGiB               = 1024
+	capacityNodeJSPerVCpu           = 64
+	capacityJVMDotnetPerVCpu        = 32
+	capacityPythonPerVCpu           = 16
 )
+
+// capacityConcurrencyPerVCpu is the documented default PerExecutionEnvironmentMaxConcurrency per vCPU,
+// from the per-runtime Lambda Managed Instances guides (nodejs 64, java 32, dotnet 32, python 16).
+// Other runtimes document no default, so they are uncapped per environment.
+func capacityConcurrencyPerVCpu(runtime string) int {
+	switch {
+	case strings.HasPrefix(runtime, "nodejs"):
+		return capacityNodeJSPerVCpu
+	case strings.HasPrefix(runtime, "java"), strings.HasPrefix(runtime, "dotnet"):
+		return capacityJVMDotnetPerVCpu
+	case strings.HasPrefix(runtime, "python"):
+		return capacityPythonPerVCpu
+	default:
+		return math.MaxInt32
+	}
+}
 
 // capacityPool is the set of execution environments serving one function on its
 // capacity provider; envs[i] is the in-flight invocation count of environment i.
@@ -41,12 +62,12 @@ func capacityEnvVCpu(fn *FunctionConfiguration, cfg *ManagedInstancesConfig) int
 	return max(v, 1)
 }
 
-func capacityPerEnvConcurrency(cfg *ManagedInstancesConfig, vcpu int) int {
+func capacityPerEnvConcurrency(cfg *ManagedInstancesConfig, runtime string, vcpu int) int {
 	if cfg.PerExecutionEnvironmentMaxConcurrency != nil && *cfg.PerExecutionEnvironmentMaxConcurrency > 0 {
 		return int(*cfg.PerExecutionEnvironmentMaxConcurrency)
 	}
 
-	return vcpu * capacityDefaultConcurrencyPerCP
+	return min(vcpu*capacityConcurrencyPerVCpu(runtime), math.MaxInt32)
 }
 
 // providerVCpuUsedLocked sums the vCPUs of every environment on the provider.
@@ -79,7 +100,7 @@ func (b *InMemoryBackend) acquireCapacityEnvLocked(fn *FunctionConfiguration, qu
 	name, _ := capacityProviderNameFromARN(cfg.CapacityProviderArn)
 
 	vcpu := capacityEnvVCpu(fn, cfg)
-	perEnv := capacityPerEnvConcurrency(cfg, vcpu)
+	perEnv := capacityPerEnvConcurrency(cfg, fn.Runtime, vcpu)
 
 	pool := b.capacityPools[fn.FunctionName]
 	if pool == nil || pool.provider != name {
