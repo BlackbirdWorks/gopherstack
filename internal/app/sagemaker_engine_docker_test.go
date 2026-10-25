@@ -119,7 +119,8 @@ func smBuildImage(t *testing.T) string {
 		[]byte("FROM "+smBaseImage+"\nCOPY app.py /app.py\nENTRYPOINT [\"python3\", \"/app.py\"]\n"), 0o644))
 
 	tag := fmt.Sprintf("gopherstack-sm-e2e:%d", os.Getpid())
-	if out, err := exec.CommandContext(t.Context(), "docker", "build", "-q", "-t", tag, dir).CombinedOutput(); err != nil {
+	build := exec.CommandContext(t.Context(), "docker", "build", "-q", "-t", tag, dir)
+	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("docker build: %v\n%s", err, out)
 	}
 

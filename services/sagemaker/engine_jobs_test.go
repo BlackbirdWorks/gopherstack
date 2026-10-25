@@ -302,14 +302,18 @@ func processingJob(name string) sagemaker.ProcessingJob {
 		ProcessingJobName: name,
 		RoleArn:           "arn:aws:iam::000000000000:role/r",
 		AppSpecification: sagemaker.ProcessingAppSpec{
-			ImageURI: "proc-img", ContainerEntrypoint: []string{"python3", "/code/run.py"}, ContainerArguments: []string{"--mode", "x"},
+			ImageURI:            "proc-img",
+			ContainerEntrypoint: []string{"python3", "/code/run.py"},
+			ContainerArguments:  []string{"--mode", "x"},
 		},
 		Environment: map[string]string{"A": "b"},
 		ProcessingInputs: []sagemaker.ProcessingInput{{
-			InputName: "raw", S3Input: &sagemaker.ProcessingS3Input{S3Uri: "s3://data/raw/", LocalPath: "/opt/ml/processing/input"},
+			InputName: "raw",
+			S3Input:   &sagemaker.ProcessingS3Input{S3Uri: "s3://data/raw/", LocalPath: "/opt/ml/processing/input"},
 		}},
 		ProcessingOutputConfig: sagemaker.ProcessingOutputConfig{Outputs: []sagemaker.ProcessingOutput{{
-			OutputName: "clean", S3Output: &sagemaker.ProcessingS3Output{S3Uri: "s3://data/clean", LocalPath: "/opt/ml/processing/output"},
+			OutputName: "clean",
+			S3Output:   &sagemaker.ProcessingS3Output{S3Uri: "s3://data/clean", LocalPath: "/opt/ml/processing/output"},
 		}}},
 		ProcessingResources: sagemaker.ProcessingResources{ClusterConfig: sagemaker.ProcessingClusterConfig{
 			InstanceType: "ml.m5.large", InstanceCount: 1, VolumeSizeInGB: 1,

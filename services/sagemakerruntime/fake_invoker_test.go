@@ -93,8 +93,8 @@ func variantOf(v string) string {
 }
 
 // newEchoBackend returns a backend whose invocations are answered by echoInvoker.
-func newEchoBackend(region string) *sagemakerruntime.InMemoryBackend {
-	b := sagemakerruntime.NewInMemoryBackend("000000000000", region)
+func newEchoBackend() *sagemakerruntime.InMemoryBackend {
+	b := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
 	b.SetInvoker(echoInvoker{})
 
 	return b

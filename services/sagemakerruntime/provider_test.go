@@ -18,7 +18,7 @@ func TestProvider_Init(t *testing.T) {
 	p := &sagemakerruntime.Provider{}
 	assert.Equal(t, "SageMakerRuntime", p.Name())
 
-	backend := newEchoBackend("us-east-1")
+	backend := newEchoBackend()
 	h := sagemakerruntime.NewHandler(backend)
 
 	assert.NotNil(t, h)

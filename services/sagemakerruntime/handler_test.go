@@ -22,7 +22,7 @@ import (
 func newTestHandler(t *testing.T) *sagemakerruntime.Handler {
 	t.Helper()
 
-	return sagemakerruntime.NewHandler(newEchoBackend("us-east-1"))
+	return sagemakerruntime.NewHandler(newEchoBackend())
 }
 
 // doRequest issues a request with no body. Every call site in this package
@@ -154,7 +154,7 @@ func TestHandler_ChaosRegions(t *testing.T) {
 func TestHandler_Shutdown(t *testing.T) {
 	t.Parallel()
 
-	h := sagemakerruntime.NewHandler(newEchoBackend("us-east-1"))
+	h := sagemakerruntime.NewHandler(newEchoBackend())
 	assert.NotPanics(t, func() { h.Shutdown(t.Context()) })
 }
 

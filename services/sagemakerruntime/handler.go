@@ -245,7 +245,9 @@ func (h *Handler) handleInvokeEndpointAsync(
 	timeout, _ := strconv.Atoi(hdr.Get(headerInvocationTimeout))
 
 	acc, err := inv.SubmitAsyncInference(c.Request().Context(), sagemaker.AsyncRequest{
-		EndpointName: endpointName, InferenceID: hdr.Get(headerInferenceID), InputLocation: hdr.Get(headerInputLocation),
+		EndpointName:  endpointName,
+		InferenceID:   hdr.Get(headerInferenceID),
+		InputLocation: hdr.Get(headerInputLocation),
 		ContentType: hdr.Get(
 			"Content-Type",
 		), Accept: hdr.Get("Accept"), CustomAttributes: hdr.Get(headerCustomAttributes),

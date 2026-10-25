@@ -202,7 +202,9 @@ func TestEngineEndpoint_InvokeProxiesToContainer(t *testing.T) {
 			endpointFixture{
 				variants: singleVariant("m1"),
 				models: map[string]sagemaker.ContainerDefinition{"m1": {
-					Image: "img-a", ModelDataURL: "s3://models/m/model.tar.gz", Environment: map[string]string{"K": "V"},
+					Image:        "img-a",
+					ModelDataURL: "s3://models/m/model.tar.gz",
+					Environment:  map[string]string{"K": "V"},
 				}},
 			}.create(t, rig)
 

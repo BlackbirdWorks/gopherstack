@@ -55,7 +55,7 @@ func TestNewSessionHeaderFormat_MatchesSDKPattern(t *testing.T) {
 func TestBackend_TouchSession_UnknownSessionIsNoop(t *testing.T) {
 	t.Parallel()
 
-	b := newEchoBackend("us-east-1")
+	b := newEchoBackend()
 	outcome := b.TouchSession("never-created")
 	assert.Empty(t, outcome.ClosedSessionID)
 	assert.Empty(t, b.ListSessions())

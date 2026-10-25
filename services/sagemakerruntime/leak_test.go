@@ -57,7 +57,7 @@ func TestInMemoryBackend_BoundedGrowth(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newEchoBackend("us-east-1")
+			b := newEchoBackend()
 
 			var count int
 			for i := range tc.inserts {
@@ -77,7 +77,7 @@ func TestInMemoryBackend_BoundedGrowth(t *testing.T) {
 func TestInMemoryBackend_AsyncInvocationEvictsOldest(t *testing.T) {
 	t.Parallel()
 
-	b := newEchoBackend("us-east-1")
+	b := newEchoBackend()
 
 	// The first inserted inference ID is the oldest; it must be evicted first.
 	const oldestID = "inference-oldest"

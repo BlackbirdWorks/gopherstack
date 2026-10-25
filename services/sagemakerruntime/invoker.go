@@ -62,7 +62,8 @@ func writeInvokeError(c *echo.Context, err error) error {
 	case errors.Is(err, sagemaker.ErrEndpointNotFound), errors.Is(err, sagemaker.ErrNotAsyncEndpoint):
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", err.Error()))
 	case errors.Is(err, sagemaker.ErrEngineDisabled), errors.Is(err, sagemaker.ErrEngineUnavailable),
-		errors.Is(err, sagemaker.ErrEndpointNotRunning), errors.Is(err, errNoInvoker), errors.Is(err, errEndpointLookupUnavailable):
+		errors.Is(err, sagemaker.ErrEndpointNotRunning), errors.Is(err, errNoInvoker),
+		errors.Is(err, errEndpointLookupUnavailable):
 		return c.JSON(http.StatusServiceUnavailable, errorResponse("ServiceUnavailable", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
