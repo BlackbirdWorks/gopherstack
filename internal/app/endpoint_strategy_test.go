@@ -261,11 +261,13 @@ func TestOpenSearchEndpointStrategyThroughRouter(t *testing.T) {
 func TestOpenSearchPortStrategyRejected(t *testing.T) {
 	t.Parallel()
 
-	require.Error(t, endpointstrategy.Config{OpenSearch: "port"}.Validate())
-	require.Error(t, endpointstrategy.Config{SQS: "bogus"}.Validate())
+	require.Error(t, endpointstrategy.Config{Flags: endpointstrategy.Flags{OpenSearch: "port"}}.Validate())
+	require.Error(t, endpointstrategy.Config{Flags: endpointstrategy.Flags{SQS: "bogus"}}.Validate())
 	assert.NoError(
 		t,
-		endpointstrategy.Config{SQS: "standard", OpenSearch: "path", GraphQL: "legacy", ECR: "off"}.Validate(),
+		endpointstrategy.Config{Flags: endpointstrategy.Flags{
+			SQS: "standard", OpenSearch: "path", GraphQL: "legacy", ECR: "off",
+		}}.Validate(),
 	)
 }
 

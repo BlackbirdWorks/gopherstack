@@ -332,7 +332,7 @@ type CLI struct {
 	SNS                           struct{}            `embed:"" prefix:"sns-"`
 	IAM                           struct{}            `embed:"" prefix:"iam-"`
 	shutdownDeadline              time.Time
-	Endpoints                     endpointstrategy.Config `embed:""`
+	Endpoints                     endpointstrategy.Flags `embed:""`
 	athenaHandler                 service.Registerable
 	kafkaconnectHandler           service.Registerable
 	rumHandler                    service.Registerable
@@ -866,10 +866,7 @@ func (c *CLI) GetEndpoint() string {
 
 // EndpointStrategies returns the *_ENDPOINT_STRATEGY selections (endpointstrategy.Provider).
 func (c *CLI) EndpointStrategies() endpointstrategy.Config {
-	cfg := c.Endpoints
-	cfg.HostPort = c.GetS3Endpoint()
-
-	return cfg
+	return endpointstrategy.Config{Flags: c.Endpoints, HostPort: c.GetS3Endpoint()}
 }
 
 // GetLambdaSettings returns Lambda settings (lambda.SettingsProvider).
