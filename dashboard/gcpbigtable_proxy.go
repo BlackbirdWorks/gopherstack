@@ -19,6 +19,7 @@ import (
 const (
 	gcpBigtableProxyPrefix = "/dashboard/api/v1/gcp/bigtable"
 
+	btProjectSegs     = 2
 	btInstanceSegs    = 4
 	btInstanceSub     = 5
 	btTableSegs       = 6
@@ -74,7 +75,7 @@ func (a *gcpBigtableAPI) listInstances(ctx context.Context, r gcpRESTCall) (prot
 	}
 
 	return a.api.Instances.ListInstances(ctx, &adminpb.ListInstancesRequest{
-		Parent: r.name(btInstanceSegs - 2), PageToken: r.query.Get("pageToken"),
+		Parent: r.name(btProjectSegs), PageToken: r.query.Get("pageToken"),
 	})
 }
 

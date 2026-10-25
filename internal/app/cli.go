@@ -2078,7 +2078,9 @@ func (c *CLI) GetGCPSpannerHandler() service.Registerable { return c.gcpSpannerH
 // GetGCPArtifactRegistryHandler returns the Artifact Registry handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
-func (c *CLI) GetGCPArtifactRegistryHandler() service.Registerable { return c.gcpArtifactRegistryHandler }
+func (c *CLI) GetGCPArtifactRegistryHandler() service.Registerable {
+	return c.gcpArtifactRegistryHandler
+}
 
 // GetGCPRunHandler returns the Cloud Run handler for the dashboard proxy.
 //

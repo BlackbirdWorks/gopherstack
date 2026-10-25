@@ -250,21 +250,7 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 		conf.GCPSchedulerOps, _ = getHandler[*gcpscheduler.Handler](gp.GetGCPSchedulerHandler())
 	}
 
-	if gp, ok := ctx.Config.(interface{ GetGCPBigtableHandler() service.Registerable }); ok {
-		conf.GCPBigtableOps, _ = getHandler[*gcpbigtable.Handler](gp.GetGCPBigtableHandler())
-	}
-
-	if gp, ok := ctx.Config.(interface{ GetGCPEventarcHandler() service.Registerable }); ok {
-		conf.GCPEventarcOps, _ = getHandler[*gcpeventarc.Handler](gp.GetGCPEventarcHandler())
-	}
-
-	if gp, ok := ctx.Config.(interface{ GetGCPSpannerHandler() service.Registerable }); ok {
-		conf.GCPSpannerOps, _ = getHandler[*gcpspanner.Handler](gp.GetGCPSpannerHandler())
-	}
-
-	if gp, ok := ctx.Config.(interface{ GetGCPArtifactRegistryHandler() service.Registerable }); ok {
-		conf.GCPArtifactRegistryOps, _ = getHandler[*gcpartifactregistry.Handler](gp.GetGCPArtifactRegistryHandler())
-	}
+	wireGCPExplorerOps(ctx, conf)
 
 	if gp, hasRun := ctx.Config.(interface{ GetGCPRunHandler() service.Registerable }); hasRun {
 		conf.GCPRunOps, _ = getHandler[*gcprun.Handler](gp.GetGCPRunHandler())
@@ -300,5 +286,23 @@ func linkCloudExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetGCPLoggingHandler() service.Registerable }); ok {
 		conf.GCPLoggingOps, _ = getHandler[*gcplogging.Handler](p.GetGCPLoggingHandler())
+	}
+}
+
+func wireGCPExplorerOps(ctx *service.AppContext, conf *Config) {
+	if gp, ok := ctx.Config.(interface{ GetGCPBigtableHandler() service.Registerable }); ok {
+		conf.GCPBigtableOps, _ = getHandler[*gcpbigtable.Handler](gp.GetGCPBigtableHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPEventarcHandler() service.Registerable }); ok {
+		conf.GCPEventarcOps, _ = getHandler[*gcpeventarc.Handler](gp.GetGCPEventarcHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPSpannerHandler() service.Registerable }); ok {
+		conf.GCPSpannerOps, _ = getHandler[*gcpspanner.Handler](gp.GetGCPSpannerHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPArtifactRegistryHandler() service.Registerable }); ok {
+		conf.GCPArtifactRegistryOps, _ = getHandler[*gcpartifactregistry.Handler](gp.GetGCPArtifactRegistryHandler())
 	}
 }

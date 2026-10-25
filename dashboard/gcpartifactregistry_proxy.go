@@ -119,7 +119,9 @@ func (a *gcpArtifactRegistryAPI) repoChildren(ctx context.Context, r gcpRESTCall
 
 	switch r.segs[arSubIdx] {
 	case arPackagesKind:
-		return a.ar.ListPackages(ctx, &artifactregistrypb.ListPackagesRequest{Parent: parent, PageSize: size, PageToken: token})
+		return a.ar.ListPackages(ctx, &artifactregistrypb.ListPackagesRequest{
+			Parent: parent, PageSize: size, PageToken: token,
+		})
 	case arFilesKind:
 		return a.ar.ListFiles(ctx, &artifactregistrypb.ListFilesRequest{
 			Parent: parent, PageSize: size, PageToken: token, Filter: r.query.Get("filter"),

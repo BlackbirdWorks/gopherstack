@@ -61,11 +61,17 @@ func (a *gcpEventarcAPI) list(ctx context.Context, r gcpRESTCall) (proto.Message
 
 	switch r.segs[earcKindIdx] {
 	case earcTriggersKind:
-		return a.ea.ListTriggers(ctx, &eventarcpb.ListTriggersRequest{Parent: parent, PageSize: page, PageToken: token})
+		return a.ea.ListTriggers(ctx, &eventarcpb.ListTriggersRequest{
+			Parent: parent, PageSize: page, PageToken: token,
+		})
 	case earcChannelsKind:
-		return a.ea.ListChannels(ctx, &eventarcpb.ListChannelsRequest{Parent: parent, PageSize: page, PageToken: token})
+		return a.ea.ListChannels(ctx, &eventarcpb.ListChannelsRequest{
+			Parent: parent, PageSize: page, PageToken: token,
+		})
 	case earcProvidersKind:
-		return a.ea.ListProviders(ctx, &eventarcpb.ListProvidersRequest{Parent: parent, PageSize: page, PageToken: token})
+		return a.ea.ListProviders(ctx, &eventarcpb.ListProvidersRequest{
+			Parent: parent, PageSize: page, PageToken: token,
+		})
 	}
 
 	return nil, errGCPUnsupported()

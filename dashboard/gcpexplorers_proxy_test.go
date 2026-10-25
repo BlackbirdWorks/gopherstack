@@ -31,8 +31,12 @@ func TestGCPBigtableProxy(t *testing.T) {
 
 		bt := gcpbigtable.NewHandler(gcpbigtable.NewInMemoryBackend())
 		_, err := bt.Backend.CreateInstance(&adminpb.CreateInstanceRequest{
-			Parent: "projects/p", InstanceId: "inst1", Instance: &adminpb.Instance{DisplayName: "Inst1"},
-			Clusters: map[string]*adminpb.Cluster{"c1": {Location: "projects/p/locations/us-central1-b", ServeNodes: 1}},
+			Parent:     "projects/p",
+			InstanceId: "inst1",
+			Instance:   &adminpb.Instance{DisplayName: "Inst1"},
+			Clusters: map[string]*adminpb.Cluster{
+				"c1": {Location: "projects/p/locations/us-central1-b", ServeNodes: 1},
+			},
 		})
 		require.NoError(t, err)
 
@@ -249,8 +253,7 @@ func TestGCPExplorerProxiesUnavailable(t *testing.T) {
 	h := dashboard.NewHandler(dashboard.Config{})
 
 	for _, svc := range []string{"bigtable", "eventarc", "spanner", "artifactregistry"} {
-		runGCPSteps(t, h, []gcpStep{
-			{http.MethodGet, "/dashboard/api/v1/gcp/" + svc + "/v1/projects/p/instances", "", "", http.StatusServiceUnavailable},
-		})
+		path := "/dashboard/api/v1/gcp/" + svc + "/v1/projects/p/instances"
+		runGCPSteps(t, h, []gcpStep{{http.MethodGet, path, "", "", http.StatusServiceUnavailable}})
 	}
 }
