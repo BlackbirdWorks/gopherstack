@@ -50,6 +50,10 @@ func (h *S3Handler) createMultipartUpload(
 
 		return
 	}
+	if !h.checkSSEKMSKey(ctx, w, r, sse) {
+		return
+	}
+
 	ctx = context.WithValue(ctx, sseKey, sse)
 
 	// x-amz-grant-* headers (s3@v1.111.0 serializers.go:1037-1053:

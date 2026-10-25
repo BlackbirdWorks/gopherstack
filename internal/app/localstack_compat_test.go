@@ -114,9 +114,30 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			want:    map[string]string{"GOPHERSTACK_PERSIST_MODE": "snapshot"},
 		},
 		{
-			name:    "snapshot_manual_unsupported",
+			name:    "snapshot_manual",
 			environ: []string{"SNAPSHOT_SAVE_STRATEGY=MANUAL", "SNAPSHOT_LOAD_STRATEGY=MANUAL"},
+			want: map[string]string{
+				"GOPHERSTACK_PERSIST_MODE": "manual",
+				"GOPHERSTACK_PERSIST_LOAD": "manual",
+			},
+		},
+		{
+			name:    "snapshot_on_shutdown_load_on_request",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=on_shutdown", "SNAPSHOT_LOAD_STRATEGY=ON_REQUEST"},
+			want: map[string]string{
+				"GOPHERSTACK_PERSIST_MODE": "shutdown",
+				"GOPHERSTACK_PERSIST_LOAD": "request",
+			},
+		},
+		{
+			name:    "snapshot_unknown_strategies_unsupported",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=BOGUS", "SNAPSHOT_LOAD_STRATEGY=BOGUS"},
 			want:    map[string]string{}, wantIgnored: []string{"SNAPSHOT_LOAD_STRATEGY", "SNAPSHOT_SAVE_STRATEGY"},
+		},
+		{
+			name:    "snapshot_native_mode_wins",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=MANUAL", "GOPHERSTACK_PERSIST_MODE=hybrid"},
+			want:    map[string]string{},
 		},
 		{
 			name: "lambda_knobs", environ: []string{"LAMBDA_KEEPALIVE_MS=5000", "HOSTNAME_FROM_LAMBDA=host.x"},
@@ -144,8 +165,31 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			},
 		},
 		{
-			name: "s3_validate_signatures_unsupported", environ: []string{"S3_VALIDATE_SIGNATURES=1"},
-			want: map[string]string{}, wantIgnored: []string{"S3_VALIDATE_SIGNATURES"},
+			name: "s3_skip_signature_validation_off", environ: []string{"S3_SKIP_SIGNATURE_VALIDATION=0"},
+			want: map[string]string{"GOPHERSTACK_S3_VALIDATE_SIGNATURES": "true"},
+		},
+		{
+			name: "s3_skip_kms_key_validation_handled_natively", environ: []string{"S3_SKIP_KMS_KEY_VALIDATION=0"},
+			want: map[string]string{},
+		},
+		{
+			name: "s3_skip_signature_validation_default", environ: []string{"S3_SKIP_SIGNATURE_VALIDATION=1"},
+			want: map[string]string{},
+		},
+		{
+			name: "s3_native_validate_wins",
+			environ: []string{
+				"S3_SKIP_SIGNATURE_VALIDATION=0", "GOPHERSTACK_S3_VALIDATE_SIGNATURES=false",
+			},
+			want: map[string]string{},
+		},
+		{
+			name: "s3_and_cors_toggles_handled",
+			environ: []string{
+				"S3_VALIDATE_SIGNATURES=1", "S3_SKIP_KMS_KEY_VALIDATION=1",
+				"DISABLE_CUSTOM_CORS_S3=1", "DISABLE_CUSTOM_CORS_APIGATEWAY=1",
+			},
+			want: map[string]string{},
 		},
 		{
 			name: "sqs_toggles_off",

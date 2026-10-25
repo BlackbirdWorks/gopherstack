@@ -93,6 +93,10 @@ func (h *S3Handler) putObject(
 		return
 	}
 
+	if !h.checkSSEKMSKey(ctx, w, r, sse) {
+		return
+	}
+
 	ctx = context.WithValue(ctx, sseKey, sse)
 
 	logPutObjectInput(ctx, bucketName, key, r.Header.Get("Content-Type"))

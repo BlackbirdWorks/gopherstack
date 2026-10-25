@@ -122,6 +122,10 @@ func (h *S3Handler) copyObject(
 
 		return
 	}
+	if !h.checkSSEKMSKey(ctx, w, r, destSSE) {
+		return
+	}
+
 	ctx = context.WithValue(ctx, sseKey, destSSE)
 
 	// AWS rejects copying an object onto itself unless some attribute changes.

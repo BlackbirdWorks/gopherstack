@@ -18,6 +18,9 @@ const (
 	lsStrategyRequest  = "ON_REQUEST"
 	lsStrategySched    = "SCHEDULED"
 	lsStrategyStartup  = "ON_STARTUP"
+	lsStrategyShutdown = "ON_SHUTDOWN"
+	lsStrategyManual   = "MANUAL"
+	envPersistLoad     = "GOPHERSTACK_PERSIST_LOAD"
 	faultStatusBadReq  = 400
 	faultCodeThrottled = "ProvisionedThroughputExceededException"
 )
@@ -105,16 +108,11 @@ func localstackUnsupportedRuntime() []string {
 		"MSSQL_IMAGE",
 		"MSSQL_ACCEPT_EULA",
 		"RDS_PG_MAX_CONNECTIONS",
-		"S3_SKIP_SIGNATURE_VALIDATION",
-		"S3_VALIDATE_SIGNATURES",
-		"S3_SKIP_KMS_KEY_VALIDATION",
 		"S3FILES_EXPORT_DELAY_SECONDS",
 		"SNS_SES_SENDER_ADDRESS",
 		"SQS_CLOUDWATCH_METRICS_REPORT_INTERVAL",
 		"VERIFIEDPERMISSIONS_DISABLE_JWT_VERIFICATION",
 		"DISABLE_CORS_HEADERS",
-		"DISABLE_CUSTOM_CORS_S3",
-		"DISABLE_CUSTOM_CORS_APIGATEWAY",
 		"ENABLE_CONFIG_UPDATES",
 		"SMTP_EMAIL",
 		"DISABLE_COMPATIBILITY_RULES",
@@ -167,6 +165,7 @@ func (p *envPlan) planOptions() {
 
 	p.planSQS()
 	p.planLimits()
+	p.planS3Signatures()
 
 	if ms, err := strconv.Atoi(p.val("LAMBDA_KEEPALIVE_MS")); err == nil && ms >= 0 {
 		p.put("LAMBDA_IDLE_TIMEOUT", (time.Duration(ms) * time.Millisecond).String())
@@ -202,6 +201,13 @@ func (p *envPlan) planSQS() {
 	}
 }
 
+// planS3Signatures inverts LocalStack's skip toggle (default skip) onto the native opt-in.
+func (p *envPlan) planS3Signatures() {
+	if b, err := strconv.ParseBool(p.val("S3_SKIP_SIGNATURE_VALIDATION")); err == nil && !b {
+		p.put("GOPHERSTACK_S3_VALIDATE_SIGNATURES", "true")
+	}
+}
+
 func (p *envPlan) planDNS() {
 	switch a := p.val("DNS_ADDRESS"); a {
 	case "", "0", "0.0.0.0":
@@ -230,11 +236,21 @@ func (p *envPlan) planPersistence() {
 		p.put(envPersistMode, "snapshot")
 	case lsStrategySched:
 		p.put(envPersistMode, "hybrid")
+	case lsStrategyShutdown:
+		p.put(envPersistMode, "shutdown")
+	case lsStrategyManual:
+		p.put(envPersistMode, "manual")
 	default:
 		p.unsupported = append(p.unsupported, "SNAPSHOT_SAVE_STRATEGY")
 	}
 
-	if s := strings.ToUpper(p.val("SNAPSHOT_LOAD_STRATEGY")); s != "" && s != lsStrategyStartup {
+	switch strings.ToUpper(p.val("SNAPSHOT_LOAD_STRATEGY")) {
+	case "", lsStrategyStartup:
+	case lsStrategyRequest:
+		p.put(envPersistLoad, "request")
+	case lsStrategyManual:
+		p.put(envPersistLoad, "manual")
+	default:
 		p.unsupported = append(p.unsupported, "SNAPSHOT_LOAD_STRATEGY")
 	}
 

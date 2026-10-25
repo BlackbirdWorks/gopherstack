@@ -59,25 +59,26 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	notifier        NotificationDispatcher
+	kmsKeys         KMSKeyChecker
 	notifyAuth      roleauth.Authorizer
 	notificationCtx context.Context
 	Backend         StorageBackend
 	metrics         cwmetric.Sink
+	notifier        NotificationDispatcher
 	janitor         *Janitor
-	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse
-	// tokens: request-scoped bookkeeping, not backend resource state, so it
-	// stays request-local rather than moving into the backend with the rest
-	// of Object Lambda's config (see object_lambda.go).
+	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse tokens
+	// (request-scoped bookkeeping, not backend state; see object_lambda.go).
 	pendingObjectLambdaRequests sync.Map
-	DefaultRegion               string
 	Endpoint                    string
-	// PresignSecret, when non-empty, opts the handler into cryptographic
-	// verification of presigned-URL signatures (SigV4 query-auth). It is empty
-	// by default so presigned URLs are accepted on structure/expiry alone,
-	// preserving backwards-compatible behaviour.
+	// PresignSecret, when non-empty, enables cryptographic SigV4 verification
+	// of header and presigned-URL signatures; empty checks structure/expiry only.
 	PresignSecret  string
+	DefaultRegion  string
 	notificationMu sync.RWMutex
+	// SkipKMSKeyValidation accepts SSE-KMS key ids KMS does not know.
+	SkipKMSKeyValidation bool
+	// DisableBucketCORS ignores per-bucket CORS configuration.
+	DisableBucketCORS bool
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -101,6 +102,14 @@ func (h *S3Handler) WithPresignValidation(secret string) *S3Handler {
 
 	return h
 }
+
+// KMSKeyChecker reports whether an SSE-KMS key id (id, ARN or alias) exists.
+type KMSKeyChecker interface {
+	KMSKeyExists(ctx context.Context, keyID string) bool
+}
+
+// SetKMSKeyChecker enables SSE-KMS key existence validation against KMS.
+func (h *S3Handler) SetKMSKeyChecker(k KMSKeyChecker) { h.kmsKeys = k }
 
 // WithJanitor attaches a background janitor to the handler.
 func (h *S3Handler) WithJanitor(settings Settings, taskTimeout ...time.Duration) *S3Handler {
