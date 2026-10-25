@@ -406,11 +406,11 @@ func TestReplayPolicyRejectedForIneligibleProtocolOrTopic(t *testing.T) {
 		{name: "sms_on_fifo_topic", protocol: "sms", endpoint: "+15005550006", fifo: true},
 		{
 			name: "http_on_fifo_topic", protocol: "http",
-			endpoint: "http://example.com/replay", fifo: true,
+			endpoint: "http://example.invalid/replay", fifo: true,
 		},
 		{
 			name: "https_on_fifo_topic", protocol: "https",
-			endpoint: "https://example.com/replay", fifo: true,
+			endpoint: "https://example.invalid/replay", fifo: true,
 		},
 		{
 			name: "sqs_on_standard_topic", protocol: "sqs",

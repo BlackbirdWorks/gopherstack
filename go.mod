@@ -147,6 +147,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iot v1.84.3
 	github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0
 	github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.40.3
+	github.com/aws/aws-sdk-go-v2/service/iotjobsdataplane v1.38.4
 	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.65.3
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.65.3
 	github.com/aws/aws-sdk-go-v2/service/kafkaconnect v1.39.3
@@ -330,7 +331,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/iotjobsdataplane v1.38.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect

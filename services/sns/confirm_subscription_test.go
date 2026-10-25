@@ -63,7 +63,7 @@ func TestConfirmSubscription(t *testing.T) {
 
 			var sub *sns.Subscription
 			if tt.subscribe {
-				sub, err = b.Subscribe(topic.TopicArn, "https", "https://example.com/notify", "")
+				sub, err = b.Subscribe(topic.TopicArn, "https", "https://example.invalid/notify", "")
 				require.NoError(t, err)
 				assert.NotEmpty(t, sub.SubscriptionArn)
 			}
