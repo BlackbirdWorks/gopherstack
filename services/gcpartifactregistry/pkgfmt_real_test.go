@@ -34,7 +34,10 @@ func TestNPMClientPublishAndInstall(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(pub, "index.js"), []byte("module.exports = 42\n"), 0o600))
 
 	run := func(dir string, args ...string) string {
-		cmd := exec.CommandContext(t.Context(), npm, append(args, "--registry", registry, auth, "--no-audit", "--no-fund")...)
+		cmd := exec.CommandContext(
+			t.Context(),
+			npm,
+			append(args, "--registry", registry, auth, "--no-audit", "--no-fund")...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), "HOME="+t.TempDir(), "npm_config_update_notifier=false")
 		out, runErr := cmd.CombinedOutput()
@@ -49,7 +52,10 @@ func TestNPMClientPublishAndInstall(t *testing.T) {
 	assert.Contains(t, run(pub, "view", "@acme/real", "dist-tags"), "latest: '1.2.3'")
 
 	use := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(use, "package.json"), []byte(`{"name":"use","version":"1.0.0"}`), 0o600))
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(use, "package.json"), []byte(`{"name":"use","version":"1.0.0"}`), 0o600),
+	)
 	run(use, "install", "@acme/real")
 
 	got, err := os.ReadFile(filepath.Join(use, "node_modules", "@acme", "real", "index.js"))
@@ -68,10 +74,10 @@ func demoWheel(t *testing.T) []byte {
 
 	zw := zip.NewWriter(&buf)
 	files := map[string]string{
-		"demo_pkg/__init__.py":                  "VALUE = 7\n",
-		"demo_pkg-1.0.0.dist-info/METADATA":     "Metadata-Version: 2.1\nName: demo-pkg\nVersion: 1.0.0\n",
-		"demo_pkg-1.0.0.dist-info/WHEEL":        "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
-		"demo_pkg-1.0.0.dist-info/RECORD":       "",
+		"demo_pkg/__init__.py":              "VALUE = 7\n",
+		"demo_pkg-1.0.0.dist-info/METADATA": "Metadata-Version: 2.1\nName: demo-pkg\nVersion: 1.0.0\n",
+		"demo_pkg-1.0.0.dist-info/WHEEL":    "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+		"demo_pkg-1.0.0.dist-info/RECORD":   "",
 	}
 
 	for name, body := range files {

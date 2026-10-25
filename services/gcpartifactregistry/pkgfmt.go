@@ -106,7 +106,7 @@ func (b *InMemoryBackend) repoOfFormat(
 func writePlain(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(code)
-	_, _ = w.Write([]byte(msg + "\n"))
+	_, _ = w.Write([]byte(msg + "\n")) //nolint:gosec // text/plain, never rendered
 }
 
 func writeJSONBody(w http.ResponseWriter, code int, v any) {
@@ -165,20 +165,16 @@ func (b *InMemoryBackend) packageFile(ref repoRef, fileID string) (*genFile, boo
 	return f, ok
 }
 
-// removePackageVersion deletes a version with its files, reporting whether it existed.
-func (b *InMemoryBackend) removePackageVersion(ref repoRef, pkgID, version string) bool {
+// removePackageVersion deletes a version with its files; an absent version is ignored.
+func (b *InMemoryBackend) removePackageVersion(ref repoRef, pkgID, version string) {
 	name := ref.packageName(pkgID) + "/versions/" + version
 
 	b.mu.Lock("removePackageVersion")
 	defer b.mu.Unlock()
 
-	if _, ok := b.genVers[name]; !ok {
-		return false
+	if _, ok := b.genVers[name]; ok {
+		b.dropGenericVersionLocked(name)
 	}
-
-	b.dropGenericVersionLocked(name)
-
-	return true
 }
 
 // removePackage deletes a package with every version, reporting whether it existed.

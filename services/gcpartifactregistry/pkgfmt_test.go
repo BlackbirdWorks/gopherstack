@@ -3,7 +3,7 @@ package gcpartifactregistry_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha1" //nolint:gosec // npm shasum
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -140,7 +140,7 @@ func npmPublishBody(t *testing.T, name, version, tag string, tarball []byte) []b
 	base := name[strings.LastIndex(name, "/")+1:]
 	file := base + "-" + version + ".tgz"
 	attachment := name + "-" + version + ".tgz"
-	sum := sha1.Sum(tarball) //nolint:gosec // npm shasum
+	sum := sha1.Sum(tarball)
 
 	doc := map[string]any{
 		"_id": name, "name": name, "description": "d",
@@ -175,76 +175,195 @@ func TestNPMProtocol(t *testing.T) {
 	tar1, tar2, tar3 := []byte("tarball-one"), []byte("tarball-two"), []byte("tarball-scoped")
 
 	tests := []struct {
+		check  func(*testing.T, httpResult)
 		name   string
 		method string
 		path   string
 		body   []byte
 		code   int
-		check  func(*testing.T, httpResult)
 	}{
-		{"publish scoped", http.MethodPut, root + "@acme%2Flib", npmPublishBody(t, "@acme/lib", "1.0.0", "latest", tar3),
-			http.StatusOK, nil},
-		{"publish plain", http.MethodPut, root + "left-pad", npmPublishBody(t, "left-pad", "1.0.0", "latest", tar1),
-			http.StatusOK, nil},
-		{"publish next version", http.MethodPut, root + "left-pad",
-			npmPublishBody(t, "left-pad", "1.1.0-beta.1", "next", tar2), http.StatusOK, nil},
-		{"republish conflicts", http.MethodPut, root + "left-pad",
-			npmPublishBody(t, "left-pad", "1.0.0", "latest", tar1), http.StatusConflict, nil},
-		{"name mismatch", http.MethodPut, root + "left-pad", npmPublishBody(t, "other", "1.0.0", "latest", tar1),
-			http.StatusBadRequest, nil},
-		{"bad version", http.MethodPut, root + "bad", npmPublishBody(t, "bad", "one", "latest", tar1),
-			http.StatusBadRequest, nil},
-		{"wrong repo format", http.MethodPut, "/npm/" + project + "/images/left-pad",
-			npmPublishBody(t, "left-pad", "1.0.0", "latest", tar1), http.StatusNotFound, nil},
-		{"packument", http.MethodGet, root + "left-pad", nil, http.StatusOK, func(t *testing.T, r httpResult) {
-			t.Helper()
+		{
+			name:   "publish scoped",
+			method: http.MethodPut,
+			path:   root + "@acme%2Flib",
+			body:   npmPublishBody(t, "@acme/lib", "1.0.0", "latest", tar3),
+			code:   http.StatusOK,
+			check:  nil,
+		},
+		{
+			name:   "publish plain",
+			method: http.MethodPut,
+			path:   root + "left-pad",
+			body:   npmPublishBody(t, "left-pad", "1.0.0", "latest", tar1),
+			code:   http.StatusOK,
+			check:  nil,
+		},
+		{
+			name:   "publish next version",
+			method: http.MethodPut,
+			path:   root + "left-pad",
+			body:   npmPublishBody(t, "left-pad", "1.1.0-beta.1", "next", tar2),
+			code:   http.StatusOK,
+			check:  nil,
+		},
+		{
+			name:   "republish conflicts",
+			method: http.MethodPut,
+			path:   root + "left-pad",
+			body:   npmPublishBody(t, "left-pad", "1.0.0", "latest", tar1),
+			code:   http.StatusConflict,
+			check:  nil,
+		},
+		{
+			name:   "name mismatch",
+			method: http.MethodPut,
+			path:   root + "left-pad",
+			body:   npmPublishBody(t, "other", "1.0.0", "latest", tar1),
+			code:   http.StatusBadRequest,
+			check:  nil,
+		},
+		{
+			name:   "bad version",
+			method: http.MethodPut,
+			path:   root + "bad",
+			body:   npmPublishBody(t, "bad", "one", "latest", tar1),
+			code:   http.StatusBadRequest,
+			check:  nil,
+		},
+		{
+			name:   "wrong repo format",
+			method: http.MethodPut,
+			path:   "/npm/" + project + "/images/left-pad",
+			body:   npmPublishBody(t, "left-pad", "1.0.0", "latest", tar1),
+			code:   http.StatusNotFound,
+			check:  nil,
+		},
+		{
+			name:   "packument",
+			method: http.MethodGet,
+			path:   root + "left-pad",
+			body:   nil,
+			code:   http.StatusOK,
+			check: func(t *testing.T, r httpResult) {
+				t.Helper()
 
-			doc := decodeJSON(t, []byte(r.body))
-			assert.Equal(t, "left-pad", doc["name"])
-			assert.Equal(t, map[string]any{"latest": "1.0.0", "next": "1.1.0-beta.1"}, doc["dist-tags"])
+				doc := decodeJSON(t, []byte(r.body))
+				assert.Equal(t, "left-pad", doc["name"])
+				assert.Equal(t, map[string]any{"latest": "1.0.0", "next": "1.1.0-beta.1"}, doc["dist-tags"])
 
-			v1 := doc["versions"].(map[string]any)["1.0.0"].(map[string]any)
-			dist := v1["dist"].(map[string]any)
-			sum := sha1.Sum(tar1) //nolint:gosec // npm shasum
-			assert.Equal(t, hex.EncodeToString(sum[:]), dist["shasum"])
-			assert.Contains(t, dist["integrity"], "sha512-")
-			assert.Contains(t, dist["tarball"], "/npm/"+project+"/web/left-pad/-/left-pad-1.0.0.tgz")
-			assert.Len(t, doc["time"], 4)
-		}},
-		{"scoped packument", http.MethodGet, root + "@acme/lib", nil, http.StatusOK, func(t *testing.T, r httpResult) {
-			t.Helper()
-			assert.Contains(t, r.body, "/npm/"+project+"/web/@acme/lib/-/lib-1.0.0.tgz")
-		}},
-		{"tarball", http.MethodGet, root + "left-pad/-/left-pad-1.0.0.tgz", nil, http.StatusOK,
-			func(t *testing.T, r httpResult) {
+				v1 := doc["versions"].(map[string]any)["1.0.0"].(map[string]any)
+				dist := v1["dist"].(map[string]any)
+				sum := sha1.Sum(tar1)
+				assert.Equal(t, hex.EncodeToString(sum[:]), dist["shasum"])
+				assert.Contains(t, dist["integrity"], "sha512-")
+				assert.Contains(t, dist["tarball"], "/npm/"+project+"/web/left-pad/-/left-pad-1.0.0.tgz")
+				assert.Len(t, doc["time"], 4)
+			},
+		},
+		{
+			name:   "scoped packument",
+			method: http.MethodGet,
+			path:   root + "@acme/lib",
+			body:   nil,
+			code:   http.StatusOK,
+			check: func(t *testing.T, r httpResult) {
+				t.Helper()
+				assert.Contains(t, r.body, "/npm/"+project+"/web/@acme/lib/-/lib-1.0.0.tgz")
+			},
+		},
+		{
+			name:   "tarball",
+			method: http.MethodGet,
+			path:   root + "left-pad/-/left-pad-1.0.0.tgz",
+			body:   nil,
+			code:   http.StatusOK,
+			check: func(t *testing.T, r httpResult) {
 				t.Helper()
 				assert.Equal(t, string(tar1), r.body)
-			}},
-		{"scoped tarball", http.MethodGet, root + "@acme/lib/-/lib-1.0.0.tgz", nil, http.StatusOK,
-			func(t *testing.T, r httpResult) {
+			},
+		},
+		{
+			name:   "scoped tarball",
+			method: http.MethodGet,
+			path:   root + "@acme/lib/-/lib-1.0.0.tgz",
+			body:   nil,
+			code:   http.StatusOK,
+			check: func(t *testing.T, r httpResult) {
 				t.Helper()
 				assert.Equal(t, string(tar3), r.body)
-			}},
-		{"missing package", http.MethodGet, root + "ghost", nil, http.StatusNotFound, nil},
-		{"missing tarball", http.MethodGet, root + "left-pad/-/left-pad-9.9.9.tgz", nil, http.StatusNotFound, nil},
-		{"ping", http.MethodGet, root + "-/ping", nil, http.StatusOK, nil},
-		{"tag list", http.MethodGet, root + "-/package/left-pad/dist-tags", nil, http.StatusOK,
-			func(t *testing.T, r httpResult) {
+			},
+		},
+		{
+			name:   "missing package",
+			method: http.MethodGet,
+			path:   root + "ghost",
+			body:   nil,
+			code:   http.StatusNotFound,
+			check:  nil,
+		},
+		{
+			name:   "missing tarball",
+			method: http.MethodGet,
+			path:   root + "left-pad/-/left-pad-9.9.9.tgz",
+			body:   nil,
+			code:   http.StatusNotFound,
+			check:  nil,
+		},
+		{name: "ping", method: http.MethodGet, path: root + "-/ping", body: nil, code: http.StatusOK, check: nil},
+		{
+			name:   "tag list",
+			method: http.MethodGet,
+			path:   root + "-/package/left-pad/dist-tags",
+			body:   nil,
+			code:   http.StatusOK,
+			check: func(t *testing.T, r httpResult) {
 				t.Helper()
 				assert.JSONEq(t, `{"latest":"1.0.0","next":"1.1.0-beta.1"}`, r.body)
-			}},
-		{"tag add", http.MethodPut, root + "-/package/left-pad/dist-tags/stable", []byte(`"1.0.0"`),
-			http.StatusOK, nil},
-		{"tag add unknown version", http.MethodPut, root + "-/package/left-pad/dist-tags/x", []byte(`"7.0.0"`),
-			http.StatusNotFound, nil},
-		{"tag delete", http.MethodDelete, root + "-/package/left-pad/dist-tags/next", nil, http.StatusOK, nil},
-		{"tag delete missing", http.MethodDelete, root + "-/package/left-pad/dist-tags/next", nil,
-			http.StatusNotFound, nil},
-		{"tags after", http.MethodGet, root + "-/package/left-pad/dist-tags", nil, http.StatusOK,
-			func(t *testing.T, r httpResult) {
+			},
+		},
+		{
+			name:   "tag add",
+			method: http.MethodPut,
+			path:   root + "-/package/left-pad/dist-tags/stable",
+			body:   []byte(`"1.0.0"`),
+			code:   http.StatusOK,
+			check:  nil,
+		},
+		{
+			name:   "tag add unknown version",
+			method: http.MethodPut,
+			path:   root + "-/package/left-pad/dist-tags/x",
+			body:   []byte(`"7.0.0"`),
+			code:   http.StatusNotFound,
+			check:  nil,
+		},
+		{
+			name:   "tag delete",
+			method: http.MethodDelete,
+			path:   root + "-/package/left-pad/dist-tags/next",
+			body:   nil,
+			code:   http.StatusOK,
+			check:  nil,
+		},
+		{
+			name:   "tag delete missing",
+			method: http.MethodDelete,
+			path:   root + "-/package/left-pad/dist-tags/next",
+			body:   nil,
+			code:   http.StatusNotFound,
+			check:  nil,
+		},
+		{
+			name:   "tags after",
+			method: http.MethodGet,
+			path:   root + "-/package/left-pad/dist-tags",
+			body:   nil,
+			code:   http.StatusOK,
+			check: func(t *testing.T, r httpResult) {
 				t.Helper()
 				assert.JSONEq(t, `{"latest":"1.0.0","stable":"1.0.0"}`, r.body)
-			}},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -259,17 +378,25 @@ func TestNPMProtocol(t *testing.T) {
 	assert.Equal(t, []string{"@acme%2Flib", "left-pad"}, e.packageIDs(t, "web"))
 	assert.ElementsMatch(t, []string{"1.0.0", "1.1.0-beta.1"}, e.versionIDs(t, "web", "left-pad"))
 	assert.ElementsMatch(t, []string{
-		"@acme%2Flib%2F-%2Flib-1.0.0.tgz", "left-pad%2F-%2Fleft-pad-1.0.0.tgz", "left-pad%2F-%2Fleft-pad-1.1.0-beta.1.tgz",
+		"@acme%2Flib%2F-%2Flib-1.0.0.tgz",
+		"left-pad%2F-%2Fleft-pad-1.0.0.tgz",
+		"left-pad%2F-%2Fleft-pad-1.1.0-beta.1.tgz",
 	}, e.fileIDs(t, "web"))
 
 	t.Run("unpublish", func(t *testing.T) {
+		t.Parallel()
+
 		unpub := map[string]any{
 			"name": "left-pad", "dist-tags": map[string]string{"latest": "1.0.0"},
 			"versions": map[string]any{"1.0.0": map[string]any{}},
 		}
 		raw, _ := json.Marshal(unpub)
 
-		require.Equal(t, http.StatusOK, e.call(t, http.MethodPut, root+"left-pad/-rev/1-x", "application/json", raw).code)
+		require.Equal(
+			t,
+			http.StatusOK,
+			e.call(t, http.MethodPut, root+"left-pad/-rev/1-x", "application/json", raw).code,
+		)
 		require.Equal(t, http.StatusOK,
 			e.call(t, http.MethodDelete, root+"left-pad/-/left-pad-1.1.0-beta.1.tgz/-rev/2-x", "", nil).code)
 		assert.Equal(t, []string{"1.0.0"}, e.versionIDs(t, "web", "left-pad"))
@@ -288,8 +415,17 @@ func TestNPMDownloadRuleAndLatestRepoint(t *testing.T) {
 
 	root := "/npm/" + project + "/web/"
 	for _, v := range []string{"1.0.0", "1.1.0"} {
-		require.Equal(t, http.StatusOK,
-			e.call(t, http.MethodPut, root+"pkg", "application/json", npmPublishBody(t, "pkg", v, "latest", []byte(v))).code)
+		require.Equal(
+			t,
+			http.StatusOK,
+			e.call(
+				t,
+				http.MethodPut,
+				root+"pkg",
+				"application/json",
+				npmPublishBody(t, "pkg", v, "latest", []byte(v)),
+			).code,
+		)
 	}
 
 	// An API delete of the latest version repoints latest at the remaining one.
@@ -411,57 +547,174 @@ func TestMavenProtocol(t *testing.T) {
 	e := newEnv(t, "")
 	e.createRepo(t, "jars", &artifactregistrypb.Repository{
 		Format: artifactregistrypb.Repository_MAVEN,
-		FormatConfig: &artifactregistrypb.Repository_MavenConfig{MavenConfig: &artifactregistrypb.Repository_MavenRepositoryConfig{
-			VersionPolicy: artifactregistrypb.Repository_MavenRepositoryConfig_RELEASE,
-		}},
+		FormatConfig: &artifactregistrypb.Repository_MavenConfig{
+			MavenConfig: &artifactregistrypb.Repository_MavenRepositoryConfig{
+				VersionPolicy: artifactregistrypb.Repository_MavenRepositoryConfig_RELEASE,
+			},
+		},
 	})
 	e.createRepo(t, "snaps", &artifactregistrypb.Repository{
 		Format: artifactregistrypb.Repository_MAVEN,
-		FormatConfig: &artifactregistrypb.Repository_MavenConfig{MavenConfig: &artifactregistrypb.Repository_MavenRepositoryConfig{
-			VersionPolicy: artifactregistrypb.Repository_MavenRepositoryConfig_SNAPSHOT, AllowSnapshotOverwrites: true,
-		}},
+		FormatConfig: &artifactregistrypb.Repository_MavenConfig{
+			MavenConfig: &artifactregistrypb.Repository_MavenRepositoryConfig{
+				VersionPolicy:           artifactregistrypb.Repository_MavenRepositoryConfig_SNAPSHOT,
+				AllowSnapshotOverwrites: true,
+			},
+		},
 	})
 
 	root := "/maven/" + project + "/jars/"
 	jar := []byte("jar-bytes")
-	jarSum := sha1.Sum(jar) //nolint:gosec // maven checksum
+	jarSum := sha1.Sum(jar)
 	base := root + "com/acme/tools/lib/1.0/lib-1.0"
 
 	tests := []struct {
 		name   string
 		method string
 		path   string
+		want   string
 		body   []byte
 		code   int
-		want   string
 	}{
-		{"metadata before", http.MethodGet, root + "com/acme/tools/lib/maven-metadata.xml", nil, http.StatusNotFound, ""},
-		{"put jar", http.MethodPut, base + ".jar", jar, http.StatusCreated, ""},
-		{"put jar sha1", http.MethodPut, base + ".jar.sha1", []byte(hex.EncodeToString(jarSum[:])), http.StatusCreated, ""},
-		{"checksum without file", http.MethodPut, base + ".war.sha1", []byte("x"), http.StatusNotFound, ""},
-		{"put pom", http.MethodPut, base + ".pom", []byte("<project/>"), http.StatusCreated, ""},
-		{"put metadata", http.MethodPut, root + "com/acme/tools/lib/maven-metadata.xml", []byte("<metadata/>"),
-			http.StatusCreated, ""},
-		{"release overwrite", http.MethodPut, base + ".jar", []byte("other"), http.StatusConflict, ""},
-		{"snapshot in release repo", http.MethodPut, root + "com/acme/tools/lib/2.0-SNAPSHOT/lib-2.0-SNAPSHOT.jar", jar,
-			http.StatusBadRequest, ""},
-		{"bad layout", http.MethodPut, root + "lib.jar", jar, http.StatusBadRequest, ""},
-		{"name mismatch", http.MethodPut, root + "com/acme/tools/lib/1.0/other-1.0.jar", jar, http.StatusBadRequest, ""},
-		{"get jar", http.MethodGet, base + ".jar", nil, http.StatusOK, string(jar)},
-		{"get pom", http.MethodGet, base + ".pom", nil, http.StatusOK, "<project/>"},
-		{"get sha1", http.MethodGet, base + ".jar.sha1", nil, http.StatusOK, hex.EncodeToString(jarSum[:])},
-		{"head jar", http.MethodHead, base + ".jar", nil, http.StatusOK, ""},
-		{"missing", http.MethodGet, base + ".zip", nil, http.StatusNotFound, ""},
-		{"second release", http.MethodPut, root + "com/acme/tools/lib/1.1/lib-1.1.jar", []byte("j2"), http.StatusCreated, ""},
-		{"snapshot repo rejects release", http.MethodPut, "/maven/" + project + "/snaps/g/a/1.0/a-1.0.jar", jar,
-			http.StatusBadRequest, ""},
-		{"snapshot put", http.MethodPut, "/maven/" + project + "/snaps/g/a/1.0-SNAPSHOT/a-1.0-20240101.120000-1.jar", jar,
-			http.StatusCreated, ""},
-		{"snapshot overwrite allowed", http.MethodPut,
-			"/maven/" + project + "/snaps/g/a/1.0-SNAPSHOT/a-1.0-20240101.120000-1.jar", []byte("v2"),
-			http.StatusCreated, ""},
-		{"snapshot overwritten", http.MethodGet,
-			"/maven/" + project + "/snaps/g/a/1.0-SNAPSHOT/a-1.0-20240101.120000-1.jar", nil, http.StatusOK, "v2"},
+		{
+			name:   "metadata before",
+			method: http.MethodGet,
+			path:   root + "com/acme/tools/lib/maven-metadata.xml",
+			body:   nil,
+			code:   http.StatusNotFound,
+			want:   "",
+		},
+		{name: "put jar", method: http.MethodPut, path: base + ".jar", body: jar, code: http.StatusCreated, want: ""},
+		{
+			name:   "put jar sha1",
+			method: http.MethodPut,
+			path:   base + ".jar.sha1",
+			body:   []byte(hex.EncodeToString(jarSum[:])),
+			code:   http.StatusCreated,
+			want:   "",
+		},
+		{
+			name:   "checksum without file",
+			method: http.MethodPut,
+			path:   base + ".war.sha1",
+			body:   []byte("x"),
+			code:   http.StatusNotFound,
+			want:   "",
+		},
+		{
+			name:   "put pom",
+			method: http.MethodPut,
+			path:   base + ".pom",
+			body:   []byte("<project/>"),
+			code:   http.StatusCreated,
+			want:   "",
+		},
+		{
+			name:   "put metadata",
+			method: http.MethodPut,
+			path:   root + "com/acme/tools/lib/maven-metadata.xml",
+			body:   []byte("<metadata/>"),
+			code:   http.StatusCreated,
+			want:   "",
+		},
+		{
+			name:   "release overwrite",
+			method: http.MethodPut,
+			path:   base + ".jar",
+			body:   []byte("other"),
+			code:   http.StatusConflict,
+			want:   "",
+		},
+		{
+			name:   "snapshot in release repo",
+			method: http.MethodPut,
+			path:   root + "com/acme/tools/lib/2.0-SNAPSHOT/lib-2.0-SNAPSHOT.jar",
+			body:   jar,
+			code:   http.StatusBadRequest,
+			want:   "",
+		},
+		{
+			name:   "bad layout",
+			method: http.MethodPut,
+			path:   root + "lib.jar",
+			body:   jar,
+			code:   http.StatusBadRequest,
+			want:   "",
+		},
+		{
+			name:   "name mismatch",
+			method: http.MethodPut,
+			path:   root + "com/acme/tools/lib/1.0/other-1.0.jar",
+			body:   jar,
+			code:   http.StatusBadRequest,
+			want:   "",
+		},
+		{
+			name:   "get jar",
+			method: http.MethodGet,
+			path:   base + ".jar",
+			body:   nil,
+			code:   http.StatusOK,
+			want:   string(jar),
+		},
+		{
+			name:   "get pom",
+			method: http.MethodGet,
+			path:   base + ".pom",
+			body:   nil,
+			code:   http.StatusOK,
+			want:   "<project/>",
+		},
+		{
+			name:   "get sha1",
+			method: http.MethodGet,
+			path:   base + ".jar.sha1",
+			body:   nil,
+			code:   http.StatusOK,
+			want:   hex.EncodeToString(jarSum[:]),
+		},
+		{name: "head jar", method: http.MethodHead, path: base + ".jar", body: nil, code: http.StatusOK, want: ""},
+		{name: "missing", method: http.MethodGet, path: base + ".zip", body: nil, code: http.StatusNotFound, want: ""},
+		{
+			name:   "second release",
+			method: http.MethodPut,
+			path:   root + "com/acme/tools/lib/1.1/lib-1.1.jar",
+			body:   []byte("j2"),
+			code:   http.StatusCreated,
+			want:   "",
+		},
+		{
+			name:   "snapshot repo rejects release",
+			method: http.MethodPut,
+			path:   "/maven/" + project + "/snaps/g/a/1.0/a-1.0.jar",
+			body:   jar,
+			code:   http.StatusBadRequest,
+			want:   "",
+		},
+		{
+			name:   "snapshot put",
+			method: http.MethodPut,
+			path:   "/maven/" + project + "/snaps/g/a/1.0-SNAPSHOT/a-1.0-20240101.120000-1.jar",
+			body:   jar,
+			code:   http.StatusCreated,
+			want:   "",
+		},
+		{
+			name:   "snapshot overwrite allowed",
+			method: http.MethodPut,
+			path:   "/maven/" + project + "/snaps/g/a/1.0-SNAPSHOT/a-1.0-20240101.120000-1.jar",
+			body:   []byte("v2"),
+			code:   http.StatusCreated,
+			want:   "",
+		},
+		{
+			name:   "snapshot overwritten",
+			method: http.MethodGet,
+			path:   "/maven/" + project + "/snaps/g/a/1.0-SNAPSHOT/a-1.0-20240101.120000-1.jar",
+			body:   nil,
+			code:   http.StatusOK,
+			want:   "v2",
+		},
 	}
 
 	for _, tt := range tests {
@@ -480,7 +733,7 @@ func TestMavenProtocol(t *testing.T) {
 	assert.Contains(t, meta.body, "<release>1.1</release>")
 	assert.Contains(t, meta.body, "<version>1.0</version>")
 
-	msum := sha1.Sum([]byte(meta.body)) //nolint:gosec // maven checksum
+	msum := sha1.Sum([]byte(meta.body))
 	msha := e.call(t, http.MethodGet, root+"com/acme/tools/lib/maven-metadata.xml.sha1", "", nil)
 	assert.Equal(t, hex.EncodeToString(msum[:]), msha.body)
 
@@ -506,7 +759,12 @@ func TestPackageFormatsPersist(t *testing.T) {
 	require.Equal(t, http.StatusOK, e.call(t, http.MethodPut, "/npm/"+project+"/web/pkg", "application/json",
 		npmPublishBody(t, "pkg", "1.0.0", "latest", []byte("tgz"))).code)
 
-	ctype, body := twineBody(t, map[string]string{":action": "file_upload", "name": "p", "version": "1"}, "p-1.tar.gz", []byte("sd"))
+	ctype, body := twineBody(
+		t,
+		map[string]string{":action": "file_upload", "name": "p", "version": "1"},
+		"p-1.tar.gz",
+		[]byte("sd"),
+	)
 	require.Equal(t, http.StatusOK, e.call(t, http.MethodPost, "/python/"+project+"/py/", ctype, body).code)
 	require.Equal(t, http.StatusCreated,
 		e.call(t, http.MethodPut, "/maven/"+project+"/jars/g/a/1/a-1.jar", "", []byte("jar")).code)
@@ -525,7 +783,10 @@ func TestPackageFormatsPersist(t *testing.T) {
 	assert.Equal(t, "jar", restored.call(t, http.MethodGet, "/maven/"+project+"/jars/g/a/1/a-1.jar", "", nil).body)
 	assert.Equal(t, []string{"pkg"}, restored.packageIDs(t, "web"))
 
-	repo, err := restored.client.GetRepository(t.Context(), &artifactregistrypb.GetRepositoryRequest{Name: repoName("jars")})
+	repo, err := restored.client.GetRepository(
+		t.Context(),
+		&artifactregistrypb.GetRepositoryRequest{Name: repoName("jars")},
+	)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, repo.GetSizeBytes())
 

@@ -23,8 +23,17 @@ const (
 	minMavenSegs  = 4
 )
 
-var checksumAlgos = map[string]func() hash.Hash{
-	".sha1": sha1.New, ".md5": md5.New, ".sha256": sha256.New, ".sha512": sha512.New, //nolint:gosec // see above
+func checksumHash(ext string) hash.Hash {
+	switch ext {
+	case ".sha1":
+		return sha1.New() //nolint:gosec // Maven .sha1 checksum files
+	case ".md5":
+		return md5.New() //nolint:gosec // Maven .md5 checksum files
+	case ".sha256":
+		return sha256.New()
+	default:
+		return sha512.New()
+	}
 }
 
 // mavenTarget is a parsed repository path.
@@ -45,23 +54,35 @@ const (
 	mavenVersionMeta
 )
 
-func parseMavenPath(p string) (mavenTarget, bool) {
-	t := mavenTarget{}
+func splitChecksum(p string) (string, string) {
+	switch ext := path.Ext(p); ext {
+	case ".sha1", ".md5", ".sha256", ".sha512":
+		return strings.TrimSuffix(p, ext), ext
+	default:
+		return p, ""
+	}
+}
 
-	for ext := range checksumAlgos {
-		if strings.HasSuffix(p, ext) {
-			t.checksum, p = ext, strings.TrimSuffix(p, ext)
-
-			break
+func validSegments(segs []string) bool {
+	for _, s := range segs {
+		if s == "" || s == "." || s == ".." {
+			return false
 		}
 	}
 
+	return true
+}
+
+func parseMavenPath(p string) (mavenTarget, bool) {
+	p, sum := splitChecksum(p)
 	segs := strings.Split(p, "/")
 	n := len(segs)
-	t.filename = segs[n-1]
+	t := mavenTarget{checksum: sum, filename: segs[n-1], fileID: p}
 
 	switch {
-	case t.filename == mavenMetadata && n >= 3 && strings.HasSuffix(segs[n-2], snapshotSfx) && n >= minMavenSegs:
+	case !validSegments(segs):
+		return t, false
+	case t.filename == mavenMetadata && n >= minMavenSegs && strings.HasSuffix(segs[n-2], snapshotSfx):
 		t.kind, t.version = mavenVersionMeta, segs[n-2]
 		t.pkgID = strings.Join(segs[:n-3], ".") + ":" + segs[n-3]
 	case t.filename == mavenMetadata && n >= minMavenSegs-1:
@@ -71,19 +92,9 @@ func parseMavenPath(p string) (mavenTarget, bool) {
 		t.version = segs[n-2]
 		t.pkgID = strings.Join(segs[:n-3], ".") + ":" + segs[n-3]
 
-		if !strings.HasPrefix(t.filename, segs[n-3]+"-"+strings.TrimSuffix(t.version, snapshotSfx)) {
-			return t, false
-		}
+		return t, strings.HasPrefix(t.filename, segs[n-3]+"-"+strings.TrimSuffix(t.version, snapshotSfx))
 	default:
 		return t, false
-	}
-
-	t.fileID = p
-
-	for _, s := range segs {
-		if s == "" || s == "." || s == ".." {
-			return t, false
-		}
 	}
 
 	return t, true
@@ -258,10 +269,10 @@ func (b *InMemoryBackend) getMaven(w http.ResponseWriter, r *http.Request, rc re
 	}
 
 	if t.checksum != "" {
-		h := checksumAlgos[t.checksum]()
+		h := checksumHash(t.checksum)
 		_, _ = h.Write(data)
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte(hex.EncodeToString(h.Sum(nil)))) //nolint:gosec // hex digest
+		_, _ = w.Write([]byte(hex.EncodeToString(h.Sum(nil))))
 
 		return
 	}

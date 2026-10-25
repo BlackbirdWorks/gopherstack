@@ -13,7 +13,10 @@ import (
 	"strings"
 )
 
-const pyUploadMemory = 32 << 20
+const (
+	pyUploadMemory = 32 << 20
+	pyPathSegs     = 3
+)
 
 var (
 	pyNormalizeRe = regexp.MustCompile(`[-_.]+`)
@@ -27,7 +30,9 @@ type pyDoc struct {
 }
 
 // pyNormalize is the PEP 503 project name normalisation.
-func pyNormalize(name string) string { return strings.ToLower(pyNormalizeRe.ReplaceAllString(name, "-")) }
+func pyNormalize(name string) string {
+	return strings.ToLower(pyNormalizeRe.ReplaceAllString(name, "-"))
+}
 
 func pyFileID(norm, version, filename string) string { return genFileID(norm, version, filename) }
 
@@ -51,7 +56,8 @@ func isRead(r *http.Request) bool { return r.Method == http.MethodGet || r.Metho
 func (b *InMemoryBackend) uploadPython(w http.ResponseWriter, r *http.Request, rc repoCtx) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxGenericBytes+1<<20)
 
-	if err := r.ParseMultipartForm(pyUploadMemory); err != nil {
+	err := r.ParseMultipartForm(pyUploadMemory) //nolint:gosec // r.Body is wrapped in MaxBytesReader above
+	if err != nil {
 		writePlain(w, http.StatusBadRequest, "The upload must be a multipart form: "+err.Error())
 
 		return
@@ -93,9 +99,11 @@ func (b *InMemoryBackend) uploadPython(w http.ResponseWriter, r *http.Request, r
 	}
 
 	norm := pyNormalize(name)
-	doc, _ := json.Marshal(pyDoc{Name: name, RequiresPython: r.FormValue("requires_python"), SHA256: hex.EncodeToString(sum[:])})
+	doc, _ := json.Marshal(
+		pyDoc{Name: name, RequiresPython: r.FormValue("requires_python"), SHA256: hex.EncodeToString(sum[:])},
+	)
 
-	err := b.putPackageFile(rc.ref, pkgFile{
+	err = b.putPackageFile(rc.ref, pkgFile{
 		pkgID: norm, display: name, version: version, fileID: pyFileID(norm, version, filename), data: data, doc: doc,
 	}, false)
 	if err != nil {
@@ -141,7 +149,9 @@ func (b *InMemoryBackend) pyIndex(w http.ResponseWriter, rc repoCtx) {
 		"<title>Simple index</title></head><body>\n")
 
 	for _, id := range b.packageIDs(rc.ref) {
-		sb.WriteString("<a href=\"" + html.EscapeString(url.PathEscape(id)) + "/\">" + html.EscapeString(id) + "</a><br>\n")
+		sb.WriteString(
+			"<a href=\"" + html.EscapeString(url.PathEscape(id)) + "/\">" + html.EscapeString(id) + "</a><br>\n",
+		)
 	}
 
 	sb.WriteString("</body></html>\n")
@@ -150,7 +160,7 @@ func (b *InMemoryBackend) pyIndex(w http.ResponseWriter, rc repoCtx) {
 
 func writeHTML(w http.ResponseWriter, body string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(body)) //nolint:gosec // generated index, every value escaped
+	_, _ = w.Write([]byte(body))
 }
 
 func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc repoCtx, name string) {
@@ -171,8 +181,10 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 
 	var sb strings.Builder
 
-	sb.WriteString("<!DOCTYPE html>\n<html><head><meta name=\"pypi:repository-version\" content=\"1.0\"><title>Links for " +
-		html.EscapeString(norm) + "</title></head><body>\n<h1>Links for " + html.EscapeString(norm) + "</h1>\n")
+	sb.WriteString(
+		"<!DOCTYPE html>\n<html><head><meta name=\"pypi:repository-version\" content=\"1.0\"><title>Links for " +
+			html.EscapeString(norm) + "</title></head><body>\n<h1>Links for " + html.EscapeString(norm) + "</h1>\n",
+	)
 
 	for _, v := range versions {
 		for _, nf := range v.files {
@@ -188,7 +200,9 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 				attr = " data-requires-python=\"" + html.EscapeString(d.RequiresPython) + "\""
 			}
 
-			sb.WriteString("<a href=\"" + html.EscapeString(href) + "\"" + attr + ">" + html.EscapeString(filename) + "</a><br>\n")
+			sb.WriteString(
+				"<a href=\"" + html.EscapeString(href) + "\"" + attr + ">" + html.EscapeString(filename) + "</a><br>\n",
+			)
 		}
 	}
 
@@ -198,7 +212,7 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 
 func (b *InMemoryBackend) pyDownload(w http.ResponseWriter, r *http.Request, rc repoCtx, path string) {
 	segs := strings.Split(path, "/")
-	if len(segs) != 3 {
+	if len(segs) != pyPathSegs {
 		writePlain(w, http.StatusNotFound, "Not found")
 
 		return
@@ -218,5 +232,5 @@ func (b *InMemoryBackend) pyDownload(w http.ResponseWriter, r *http.Request, rc 
 	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")
-	_, _ = w.Write(f.Data) //nolint:gosec // octet-stream download, never rendered
+	_, _ = w.Write(f.Data)
 }

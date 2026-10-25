@@ -24,18 +24,18 @@ type repoSnap struct {
 }
 
 type backendSnapshot struct {
-	Repositories map[string]repoSnap        `json:"repositories"`
-	Ledger       ociregistry.Ledger         `json:"ledger"`
-	Meta         map[string]*resMeta        `json:"meta,omitempty"`
-	GenericPkgs  map[string]*resMeta        `json:"genericPackages,omitempty"`
-	GenericVers  map[string]*resMeta        `json:"genericVersions,omitempty"`
-	GenericFiles map[string]*genFile        `json:"genericFiles,omitempty"`
+	Repositories map[string]repoSnap          `json:"repositories"`
+	Ledger       ociregistry.Ledger           `json:"ledger"`
+	Meta         map[string]*resMeta          `json:"meta,omitempty"`
+	GenericPkgs  map[string]*resMeta          `json:"genericPackages,omitempty"`
+	GenericVers  map[string]*resMeta          `json:"genericVersions,omitempty"`
+	GenericFiles map[string]*genFile          `json:"genericFiles,omitempty"`
 	PackageTags  map[string]map[string]string `json:"packageTags,omitempty"`
-	Rules        map[string]json.RawMessage `json:"rules,omitempty"`
-	Settings     map[string]json.RawMessage `json:"projectSettings,omitempty"`
-	VPCSC        map[string]json.RawMessage `json:"vpcscConfigs,omitempty"`
-	Operations   map[string]json.RawMessage `json:"operations"`
-	Version      int                        `json:"version"`
+	Rules        map[string]json.RawMessage   `json:"rules,omitempty"`
+	Settings     map[string]json.RawMessage   `json:"projectSettings,omitempty"`
+	VPCSC        map[string]json.RawMessage   `json:"vpcscConfigs,omitempty"`
+	Operations   map[string]json.RawMessage   `json:"operations"`
+	Version      int                          `json:"version"`
 }
 
 func marshalPB(m proto.Message) json.RawMessage {
@@ -58,10 +58,18 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Version: snapshotVersion, Ledger: b.ledger, Operations: b.ops.Snapshot(),
+		Version:      snapshotVersion,
+		Ledger:       b.ledger,
+		Operations:   b.ops.Snapshot(),
 		Repositories: make(map[string]repoSnap, len(b.repos)),
-		Meta:         b.meta, GenericPkgs: b.genPkgs, GenericVers: b.genVers, GenericFiles: b.genFiles, PackageTags: b.pkgTags,
-		Rules: marshalAll(b.rules), Settings: marshalAll(b.settings), VPCSC: marshalAll(b.vpcsc),
+		Meta:         b.meta,
+		GenericPkgs:  b.genPkgs,
+		GenericVers:  b.genVers,
+		GenericFiles: b.genFiles,
+		PackageTags:  b.pkgTags,
+		Rules:        marshalAll(b.rules),
+		Settings:     marshalAll(b.settings),
+		VPCSC:        marshalAll(b.vpcsc),
 	}
 
 	for name, rec := range b.repos {

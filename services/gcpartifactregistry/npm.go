@@ -8,12 +8,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"regexp"
 	"strings"
 )
 
-const maxNPMDocBytes = 2 * maxGenericBytes
+const (
+	maxNPMDocBytes = 2 * maxGenericBytes
+	maxTagBody     = 1 << 16
+)
 
 var npmVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
 
@@ -80,20 +84,35 @@ func (b *InMemoryBackend) serveNPM(w http.ResponseWriter, r *http.Request, rc re
 	}
 
 	pkg, tail := splitNPMPath(path)
+	b.serveNPMPackage(w, r, rc, pkg, tail)
+}
+
+func (b *InMemoryBackend) serveNPMPackage(w http.ResponseWriter, r *http.Request, rc repoCtx, pkg, tail string) {
+	read := r.Method == http.MethodGet || r.Method == http.MethodHead
 
 	switch {
-	case tail == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+	case tail == "" && read:
 		b.serveNPMPackument(w, r, rc, pkg)
 	case tail == "" && r.Method == http.MethodPut:
 		b.publishNPM(w, r, rc, pkg)
-	case strings.HasPrefix(tail, "-/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+	case strings.HasPrefix(tail, "-/") && read:
 		b.serveNPMTarball(w, r, rc, pkg, strings.TrimPrefix(tail, "-/"))
 	case strings.HasPrefix(tail, "-rev/") && r.Method == http.MethodPut:
 		b.updateNPM(w, r, rc, pkg)
-	case strings.HasPrefix(tail, "-rev/") && r.Method == http.MethodDelete:
+	case r.Method == http.MethodDelete:
+		b.serveNPMDelete(w, rc, pkg, tail)
+	default:
+		writeNPMError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+func (b *InMemoryBackend) serveNPMDelete(w http.ResponseWriter, rc repoCtx, pkg, tail string) {
+	file, _, rev := strings.Cut(strings.TrimPrefix(tail, "-/"), "/-rev/")
+
+	switch {
+	case strings.HasPrefix(tail, "-rev/"):
 		b.unpublishNPMPackage(w, rc, pkg)
-	case strings.HasPrefix(tail, "-/") && strings.Contains(tail, "/-rev/") && r.Method == http.MethodDelete:
-		file, _, _ := strings.Cut(strings.TrimPrefix(tail, "-/"), "/-rev/")
+	case strings.HasPrefix(tail, "-/") && rev:
 		b.unpublishNPMTarball(w, rc, pkg, file)
 	default:
 		writeNPMError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -224,9 +243,7 @@ func (b *InMemoryBackend) setNPMTags(rc repoCtx, pkg string, tags map[string]str
 		b.pkgTags[name] = map[string]string{}
 	}
 
-	for k, v := range tags {
-		b.pkgTags[name][k] = v
-	}
+	maps.Copy(b.pkgTags[name], tags)
 }
 
 func (b *InMemoryBackend) npmTags(rc repoCtx, pkg string) map[string]string {
@@ -234,14 +251,14 @@ func (b *InMemoryBackend) npmTags(rc repoCtx, pkg string) map[string]string {
 	defer b.mu.RUnlock()
 
 	out := map[string]string{}
-	for k, v := range b.pkgTags[rc.ref.packageName(pkg)] {
-		out[k] = v
-	}
+	maps.Copy(out, b.pkgTags[rc.ref.packageName(pkg)])
 
 	return out
 }
 
-func npmTime(t interface{ Format(string) string }) string { return t.Format("2006-01-02T15:04:05.000Z") }
+func npmTime(t interface{ Format(string) string }) string {
+	return t.Format("2006-01-02T15:04:05.000Z")
+}
 
 func baseURL(r *http.Request, route string, rc repoCtx) string {
 	scheme := "http"
@@ -322,7 +339,7 @@ func (b *InMemoryBackend) serveNPMTarball(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")
-	_, _ = w.Write(f.Data) //nolint:gosec // octet-stream download, never rendered
+	_, _ = w.Write(f.Data)
 }
 
 // updateNPM handles the PUT npm unpublish sends: the package document without the removed versions.
@@ -397,7 +414,7 @@ func (b *InMemoryBackend) putNPMTag(
 	w http.ResponseWriter, r *http.Request, rc repoCtx, pkg, tag string, existing map[string]bool,
 ) {
 	var version string
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&version); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxTagBody)).Decode(&version); err != nil {
 		writeNPMError(w, http.StatusBadRequest, "The body must be a JSON string holding a version.")
 
 		return
