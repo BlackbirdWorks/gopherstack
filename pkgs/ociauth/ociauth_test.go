@@ -279,3 +279,49 @@ func TestRegistry(t *testing.T) {
 	assert.True(t, other.Remove("t/u/"+fp))
 	assert.False(t, other.Remove("t/u/"+fp))
 }
+
+func TestRegistryLink(t *testing.T) {
+	t.Parallel()
+
+	s := newSigner(t)
+	shared := ociauth.NewRegistry()
+	_, err := shared.Register("t", "u", s.pem)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		link     bool
+		wantVer  bool
+		wantFail bool
+	}{
+		{name: "linked key verifies", link: true, wantVer: true},
+		{name: "unlinked key enforced fails", wantFail: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			local := ociauth.NewRegistry()
+			if tt.link {
+				local.Link(shared)
+				local.Link(shared)
+				local.Link(local)
+			}
+
+			r, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://h/x", nil)
+			r.Header.Set("Date", time.Now().UTC().Format(http.TimeFormat))
+			s.sign(t, r, []string{"(request-target)", "host", "date"})
+
+			p, verr := ociauth.Verify(r, nil, ociauth.Options{Registry: local, Enforce: true})
+			if tt.wantFail {
+				require.ErrorIs(t, verr, ociauth.ErrNotAuthenticated)
+
+				return
+			}
+
+			require.NoError(t, verr)
+			assert.Equal(t, tt.wantVer, p.Verified)
+		})
+	}
+}

@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -167,8 +168,9 @@ type regKey struct {
 
 // Registry holds the API keys the emulator verifies signatures against.
 type Registry struct {
-	mu   *lockmetrics.RWMutex
-	keys map[string]regKey
+	mu    *lockmetrics.RWMutex
+	keys  map[string]regKey
+	links []*Registry
 }
 
 // NewRegistry creates an empty registry.
@@ -267,8 +269,41 @@ func (r *Registry) Load(recs []KeyRecord) {
 	}
 }
 
+// Link makes keys registered in other verifiable through r as well, so a
+// registry owned by OCI Identity can serve every OCI service. Links must not form a cycle.
+func (r *Registry) Link(other *Registry) {
+	if other == nil || other == r {
+		return
+	}
+
+	r.mu.Lock("Link")
+	defer r.mu.Unlock()
+
+	if !slices.Contains(r.links, other) {
+		r.links = append(r.links, other)
+	}
+}
+
 func (r *Registry) lookup(keyID string) (*rsa.PublicKey, bool) {
+	if pub, ok := r.lookupLocal(keyID); ok {
+		return pub, true
+	}
+
 	r.mu.RLock("lookup")
+	links := slices.Clone(r.links)
+	r.mu.RUnlock()
+
+	for _, l := range links {
+		if pub, ok := l.lookup(keyID); ok {
+			return pub, true
+		}
+	}
+
+	return nil, false
+}
+
+func (r *Registry) lookupLocal(keyID string) (*rsa.PublicKey, bool) {
+	r.mu.RLock("lookupLocal")
 	defer r.mu.RUnlock()
 
 	k, ok := r.keys[keyID]
