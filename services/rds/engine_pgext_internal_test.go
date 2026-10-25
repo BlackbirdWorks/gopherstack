@@ -2,8 +2,10 @@ package rds
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -109,7 +111,13 @@ func TestCalloutServer(t *testing.T) {
 	t.Cleanup(e.stopCallout)
 
 	tok := e.calloutToken(&liveDB{key: "i:a"})
-	base := "http://" + strings.Replace(e.calloutAddr(), calloutHost(), "127.0.0.1", 1)
+	e.calloutMu.Lock()
+	listenIP, port := e.callout.listenIP, e.callout.port
+	e.calloutMu.Unlock()
+
+	assert.False(t, net.ParseIP(listenIP).IsUnspecified(), "callout must not bind a wildcard address: %s", listenIP)
+
+	base := "http://" + net.JoinHostPort(listenIP, strconv.Itoa(port))
 
 	tests := []struct {
 		name       string

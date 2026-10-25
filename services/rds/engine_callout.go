@@ -26,6 +26,7 @@ const (
 	calloutUpstreamLimit = 5 * time.Minute
 	calloutDefaultHost   = "172.17.0.1"
 	calloutHostEnv       = "RDS_CALLOUT_HOST"
+	calloutBindEnv       = "RDS_CALLOUT_BIND"
 
 	featureS3Import = "s3Import"
 	featureS3Export = "s3Export"
@@ -42,16 +43,63 @@ type calloutServer struct {
 	tokens   map[string]string
 	api      string
 	hostPort string
+	listenIP string
+	port     int
 	mu       sync.RWMutex
 }
 
+// bridgeGatewayIP is the host-side address of the container bridge, where containers reach the host.
+func bridgeGatewayIP() string {
+	for _, name := range []string{"docker0", "podman0", "cni-podman0"} {
+		ifc, err := net.InterfaceByName(name)
+		if err != nil {
+			continue
+		}
+
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, a := range addrs {
+			if ipn, ok := a.(*net.IPNet); ok && ipn.IP.To4() != nil {
+				return ipn.IP.String()
+			}
+		}
+	}
+
+	return ""
+}
+
+func isDesktopOS() bool { return runtime.GOOS == "darwin" || runtime.GOOS == "windows" }
+
+// calloutBind is the address the listener binds: never a wildcard.
+func calloutBind() string {
+	if h := os.Getenv(calloutBindEnv); h != "" {
+		return h
+	}
+
+	if !isDesktopOS() {
+		if ip := bridgeGatewayIP(); ip != "" {
+			return ip
+		}
+	}
+
+	return "127.0.0.1"
+}
+
+// calloutHost is the address containers dial to reach the listener.
 func calloutHost() string {
 	if h := os.Getenv(calloutHostEnv); h != "" {
 		return h
 	}
 
-	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+	if isDesktopOS() {
 		return "host.docker.internal"
+	}
+
+	if ip := bridgeGatewayIP(); ip != "" {
+		return ip
 	}
 
 	return calloutDefaultHost
@@ -69,7 +117,7 @@ func (e *dbEngine) startCallout() error {
 		return nil
 	}
 
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", ":0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", net.JoinHostPort(calloutBind(), "0"))
 	if err != nil {
 		return fmt.Errorf("listen for aws_s3/aws_lambda callouts: %w", err)
 	}
@@ -81,6 +129,8 @@ func (e *dbEngine) startCallout() error {
 		tokens:   make(map[string]string),
 		api:      strings.TrimRight(e.cfg.APIEndpoint, "/"),
 		hostPort: net.JoinHostPort(calloutHost(), strconv.Itoa(port)),
+		listenIP: ln.Addr().(*net.TCPAddr).IP.String(), //nolint:errcheck,forcetypeassert // tcp listener
+		port:     port,
 	}
 	cs.srv = &http.Server{Handler: cs, ReadHeaderTimeout: calloutReadTimeout}
 
