@@ -201,7 +201,7 @@ func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
 }
 
 func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) bool {
-	ok := false
+	var ok bool
 
 	if principal, _, _ := h.broker.principalOf(cl); principal == "" {
 		ok = h.connectCustom(cl, pk)

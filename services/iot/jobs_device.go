@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -293,9 +292,7 @@ func (b *InMemoryBackend) UpdateDeviceJobExecution(in *UpdateDeviceJobExecutionI
 	exec.StatusDetails = mergeStatusDetails(exec.StatusDetails, in.StatusDetails)
 	b.notifyJob(in.ThingName)
 
-	if isTerminalJobExecutionStatus(status) {
-		b.queueJobExecutionEventLocked(strings.ToLower(string(status)), exec)
-	}
+	b.queueTerminalJobExecutionEventLocked(exec)
 
 	b.completeJobIfDoneLocked(job, now)
 

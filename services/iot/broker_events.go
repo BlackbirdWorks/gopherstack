@@ -74,13 +74,13 @@ func (b *Broker) publishConnected(cl *mqtt.Client) {
 	b.sessions.Store(cl, sess)
 
 	b.publishLifecycle(presenceTopicPrefix+"connected/"+cl.ID, map[string]any{
-		"clientId":            cl.ID,
-		"timestamp":           eventTimestamp(),
-		"eventType":           "connected",
-		"sessionIdentifier":   sess.id,
-		"principalIdentifier": sess.principal,
-		"ipAddress":           sourceIPOf(cl),
-		"versionNumber":       sess.version,
+		keyClientID:               cl.ID,
+		keyTimestamp:              eventTimestamp(),
+		keyEventType:              "connected",
+		keySessionID:              sess.id,
+		keyPrincipalID:            sess.principal,
+		"ipAddress":               sourceIPOf(cl),
+		jobsExecutionStateVersion: sess.version,
 	})
 }
 
@@ -106,14 +106,14 @@ func (b *Broker) publishDisconnected(cl *mqtt.Client, reason string) {
 	}
 
 	b.publishLifecycle(presenceTopicPrefix+"disconnected/"+cl.ID, map[string]any{
-		"clientId":                  cl.ID,
-		"timestamp":                 eventTimestamp(),
-		"eventType":                 "disconnected",
-		"sessionIdentifier":         sess.id,
-		"principalIdentifier":       sess.principal,
+		keyClientID:                 cl.ID,
+		keyTimestamp:                eventTimestamp(),
+		keyEventType:                "disconnected",
+		keySessionID:                sess.id,
+		keyPrincipalID:              sess.principal,
 		"clientInitiatedDisconnect": reason == "CLIENT_INITIATED_DISCONNECT",
 		"disconnectReason":          reason,
-		"versionNumber":             sess.version,
+		jobsExecutionStateVersion:   sess.version,
 	})
 }
 
@@ -123,12 +123,12 @@ func (b *Broker) publishConnectFailed(cl *mqtt.Client) {
 	}
 
 	b.publishLifecycle(presenceTopicPrefix+"connect_failed/"+cl.ID, map[string]any{
-		"clientId":             cl.ID,
-		"timestamp":            eventTimestamp(),
-		"eventType":            "connect_failed",
+		keyClientID:            cl.ID,
+		keyTimestamp:           eventTimestamp(),
+		keyEventType:           "connect_failed",
 		"connectFailureReason": "AUTHORIZATION_FAILED",
-		"principalIdentifier":  b.principalIdentifier(cl),
-		"sessionIdentifier":    uuid.NewString(),
+		keyPrincipalID:         b.principalIdentifier(cl),
+		keySessionID:           uuid.NewString(),
 		"ipAddress":            sourceIPOf(cl),
 	})
 }
@@ -154,12 +154,12 @@ func (b *Broker) publishSubscription(cl *mqtt.Client, kind string, filters []pac
 	}
 
 	b.publishLifecycle(subscriptionsTopicPrefix+kind+"/"+cl.ID, map[string]any{
-		"clientId":            cl.ID,
-		"timestamp":           eventTimestamp(),
-		"eventType":           kind,
-		"sessionIdentifier":   sess.id,
-		"principalIdentifier": sess.principal,
-		"topics":              topics,
+		keyClientID:    cl.ID,
+		keyTimestamp:   eventTimestamp(),
+		keyEventType:   kind,
+		keySessionID:   sess.id,
+		keyPrincipalID: sess.principal,
+		"topics":       topics,
 	})
 }
 

@@ -150,7 +150,7 @@ func commandSummaryFields(cmd *IoTCommand) map[string]any {
 	return map[string]any{
 		keyCommandArn:     cmd.CommandARN,
 		"commandId":       cmd.CommandID,
-		"createdAt":       cmd.CreationDate,
+		keyCreatedAt:      cmd.CreationDate,
 		"deprecated":      cmd.Deprecated,
 		"displayName":     cmd.DisplayName,
 		"lastUpdatedAt":   cmd.LastUpdated,

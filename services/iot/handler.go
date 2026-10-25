@@ -340,7 +340,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		keyThingName: out.ThingName,
 		keyThingArn:  out.ThingARN,
-		"thingId":    out.ThingID,
+		keyThingID:   out.ThingID,
 	})
 }
 
@@ -644,7 +644,7 @@ func (h *Handler) handleGetThingConnectivityData(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		keyThingName:       thingName,
 		"connected":        data.Connected,
-		"timestamp":        data.Timestamp,
+		keyTimestamp:       data.Timestamp,
 		"disconnectReason": data.DisconnectReason,
 	})
 }

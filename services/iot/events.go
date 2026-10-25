@@ -14,6 +14,16 @@ import (
 const millisPerSecond = 1000
 
 const (
+	keyClientID    = "clientId"
+	keyEventType   = "eventType"
+	keyEventID     = "eventId"
+	keyOperation   = "operation"
+	keyThingID     = "thingId"
+	keySessionID   = "sessionIdentifier"
+	keyPrincipalID = "principalIdentifier"
+)
+
+const (
 	eventCatThing            = "THING"
 	eventCatThingGroup       = "THING_GROUP"
 	eventCatThingType        = "THING_TYPE"
@@ -95,11 +105,11 @@ func eventTimestamp() int64 { return time.Now().UnixMilli() }
 
 func eventBase(eventType, operation, accountID string) map[string]any {
 	return map[string]any{
-		"eventType": eventType,
-		"eventId":   uuid.NewString(),
-		"timestamp": eventTimestamp(),
-		"operation": operation,
-		"accountId": accountID,
+		keyEventType: eventType,
+		keyEventID:   uuid.NewString(),
+		keyTimestamp: eventTimestamp(),
+		keyOperation: operation,
+		"accountId":  accountID,
 	}
 }
 
@@ -125,9 +135,9 @@ func (b *InMemoryBackend) queueThingEventLocked(op string, t *Thing) {
 	}
 
 	p := eventBase(registryEventTypeThing, op, b.accountID)
-	p["thingId"] = t.ThingID
+	p[keyThingID] = t.ThingID
 	p["thingName"] = t.ThingName
-	p["versionNumber"] = t.Version
+	p[jobsExecutionStateVersion] = t.Version
 	p["thingTypeName"] = nilIfEmpty(t.ThingTypeName)
 	p["attributes"] = t.Attributes
 
@@ -140,13 +150,13 @@ func (b *InMemoryBackend) queueTypeAssociationEventLocked(op string, t *Thing, t
 	}
 
 	p := map[string]any{
-		"eventId":       uuid.NewString(),
-		"eventType":     registryEventTypeAssoc,
-		"operation":     op,
-		"thingId":       t.ThingID,
+		keyEventID:      uuid.NewString(),
+		keyEventType:    registryEventTypeAssoc,
+		keyOperation:    op,
+		keyThingID:      t.ThingID,
 		"thingName":     t.ThingName,
 		"thingTypeName": typeName,
-		"timestamp":     eventTimestamp(),
+		keyTimestamp:    eventTimestamp(),
 	}
 
 	b.queueEventLocked(eventCatTypeAssociation,
@@ -182,7 +192,7 @@ func (b *InMemoryBackend) queueThingGroupEventLocked(op string, tg *ThingGroup) 
 	p := eventBase(registryEventTypeGroup, op, b.accountID)
 	p["thingGroupId"] = tg.ThingGroupID
 	p["thingGroupName"] = tg.ThingGroupName
-	p["versionNumber"] = tg.Version
+	p[jobsExecutionStateVersion] = tg.Version
 	p["parentGroupName"] = nilIfEmpty(tg.ParentGroupName)
 	p["parentGroupId"] = nil
 	p["description"] = tg.Description
@@ -201,7 +211,9 @@ func (b *InMemoryBackend) queueThingGroupEventLocked(op string, tg *ThingGroup) 
 			p["parentGroupId"] = parent.ThingGroupID
 		}
 
-		ancestors = append(ancestors, map[string]string{"groupArn": parent.ThingGroupARN, "groupId": parent.ThingGroupID})
+		ancestors = append(ancestors, map[string]string{
+			"groupArn": parent.ThingGroupARN, "groupId": parent.ThingGroupID,
+		})
 		name = parent.ParentGroupName
 	}
 
@@ -247,7 +259,7 @@ func (b *InMemoryBackend) queueMembershipEventLocked(op, groupName, thingName st
 	p["groupArn"] = tg.ThingGroupARN
 	p["groupId"] = tg.ThingGroupID
 	p["thingArn"] = t.ARN
-	p["thingId"] = t.ThingID
+	p[keyThingID] = t.ThingID
 	p["membershipId"] = uuid.NewSHA1(uuid.NameSpaceOID, []byte(tg.ThingGroupID+"/"+t.ThingID)).String()
 
 	b.queueEventLocked(eventCatMembership, eventsTopicPrefix+"thingGroupMembership/thingGroup/"+tg.ThingGroupName+
@@ -267,16 +279,16 @@ func (b *InMemoryBackend) queueJobEventLocked(operation string, j *Job) {
 	status := strings.ToUpper(operation)
 
 	p := map[string]any{
-		"eventType":       registryEventTypeJob,
-		"eventId":         uuid.NewString(),
-		"timestamp":       time.Now().Unix(),
-		"operation":       operation,
-		"jobId":           j.JobID,
-		"status":          status,
+		keyEventType:      registryEventTypeJob,
+		keyEventID:        uuid.NewString(),
+		keyTimestamp:      time.Now().Unix(),
+		keyOperation:      operation,
+		keyJobID:          j.JobID,
+		keyStatus:         status,
 		"targetSelection": j.TargetSelection,
 		"targets":         b.jobEventTargets(j),
 		"description":     j.Description,
-		"createdAt":       int64(j.CreatedAt) * millisPerSecond,
+		keyCreatedAt:      int64(j.CreatedAt) * millisPerSecond,
 		"lastUpdatedAt":   int64(j.LastUpdatedAt) * millisPerSecond,
 	}
 
@@ -311,15 +323,22 @@ func (b *InMemoryBackend) queueJobExecutionEventLocked(operation string, e *JobE
 	}
 
 	p := map[string]any{
-		"eventType":     registryEventTypeJobExec,
-		"eventId":       uuid.NewString(),
-		"timestamp":     time.Now().Unix(),
-		"operation":     operation,
-		"jobId":         e.JobID,
+		keyEventType:    registryEventTypeJobExec,
+		keyEventID:      uuid.NewString(),
+		keyTimestamp:    time.Now().Unix(),
+		keyOperation:    operation,
+		keyJobID:        e.JobID,
 		"thingArn":      b.ThingARN(e.ThingName),
-		"status":        strings.ToUpper(operation),
+		keyStatus:       strings.ToUpper(operation),
 		"statusDetails": details,
 	}
 
 	b.queueEventLocked(eventCatJobExecution, eventsTopicPrefix+"jobExecution/"+e.JobID+"/"+operation, p)
+}
+
+// queueTerminalJobExecutionEventLocked stages the event for an execution a device just finished.
+func (b *InMemoryBackend) queueTerminalJobExecutionEventLocked(e *JobExecution) {
+	if isTerminalJobExecutionStatus(e.Status) {
+		b.queueJobExecutionEventLocked(strings.ToLower(string(e.Status)), e)
+	}
 }

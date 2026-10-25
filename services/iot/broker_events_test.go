@@ -129,7 +129,8 @@ func TestBrokerLifecycleEvents(t *testing.T) {
 				assert.Equal(t, "127.0.0.1", conn["ipAddress"])
 				assert.NotEmpty(t, conn["sessionIdentifier"])
 				assert.Contains(t, conn, "principalIdentifier")
-				assert.InDelta(t, float64(time.Now().UnixMilli()), conn["timestamp"], float64(time.Minute.Milliseconds()))
+				assert.InDelta(t, float64(time.Now().UnixMilli()), conn["timestamp"],
+					float64(time.Minute.Milliseconds()))
 
 				disc := w.next(t, "$aws/events/presence/disconnected/dev-1")
 				assert.Equal(t, "disconnected", disc["eventType"])
@@ -341,7 +342,9 @@ func TestRegistryEvents(t *testing.T) {
 					ThingTypeName: aws.String("tt1"),
 				})
 				require.NoError(t, err)
-				_, err = e.client.DeleteThingType(t.Context(), &iotsdk.DeleteThingTypeInput{ThingTypeName: aws.String("tt1")})
+				_, err = e.client.DeleteThingType(t.Context(), &iotsdk.DeleteThingTypeInput{
+					ThingTypeName: aws.String("tt1"),
+				})
 				require.NoError(t, err)
 			},
 			check: func(t *testing.T, p map[string]any) {
@@ -359,7 +362,10 @@ func TestRegistryEvents(t *testing.T) {
 			topic: "$aws/events/thingTypeAssociation/thing/tat/thingType/tt2/added",
 			act: func(t *testing.T, e *eventEnv) {
 				t.Helper()
-				_, err := e.client.CreateThingType(t.Context(), &iotsdk.CreateThingTypeInput{ThingTypeName: aws.String("tt2")})
+				_, err := e.client.CreateThingType(
+					t.Context(),
+					&iotsdk.CreateThingTypeInput{ThingTypeName: aws.String("tt2")},
+				)
 				require.NoError(t, err)
 				_, err = e.client.CreateThing(t.Context(), &iotsdk.CreateThingInput{
 					ThingName: aws.String("tat"), ThingTypeName: aws.String("tt2"),
@@ -379,7 +385,10 @@ func TestRegistryEvents(t *testing.T) {
 			topic: "$aws/events/thingTypeAssociation/thing/tar/thingType/tt3/removed",
 			act: func(t *testing.T, e *eventEnv) {
 				t.Helper()
-				_, err := e.client.CreateThingType(t.Context(), &iotsdk.CreateThingTypeInput{ThingTypeName: aws.String("tt3")})
+				_, err := e.client.CreateThingType(
+					t.Context(),
+					&iotsdk.CreateThingTypeInput{ThingTypeName: aws.String("tt3")},
+				)
 				require.NoError(t, err)
 				_, err = e.client.CreateThing(t.Context(), &iotsdk.CreateThingInput{
 					ThingName: aws.String("tar"), ThingTypeName: aws.String("tt3"),
@@ -400,7 +409,10 @@ func TestRegistryEvents(t *testing.T) {
 			topic: "$aws/events/thingGroup/child/created",
 			act: func(t *testing.T, e *eventEnv) {
 				t.Helper()
-				_, err := e.client.CreateThingGroup(t.Context(), &iotsdk.CreateThingGroupInput{ThingGroupName: aws.String("root")})
+				_, err := e.client.CreateThingGroup(
+					t.Context(),
+					&iotsdk.CreateThingGroupInput{ThingGroupName: aws.String("root")},
+				)
 				require.NoError(t, err)
 				_, err = e.client.CreateThingGroup(t.Context(), &iotsdk.CreateThingGroupInput{
 					ThingGroupName: aws.String("child"), ParentGroupName: aws.String("root"),
@@ -421,7 +433,10 @@ func TestRegistryEvents(t *testing.T) {
 			topic: "$aws/events/thingGroupHierarchy/thingGroup/root2/childThingGroup/child2/added",
 			act: func(t *testing.T, e *eventEnv) {
 				t.Helper()
-				_, err := e.client.CreateThingGroup(t.Context(), &iotsdk.CreateThingGroupInput{ThingGroupName: aws.String("root2")})
+				_, err := e.client.CreateThingGroup(
+					t.Context(),
+					&iotsdk.CreateThingGroupInput{ThingGroupName: aws.String("root2")},
+				)
 				require.NoError(t, err)
 				_, err = e.client.CreateThingGroup(t.Context(), &iotsdk.CreateThingGroupInput{
 					ThingGroupName: aws.String("child2"), ParentGroupName: aws.String("root2"),
@@ -443,7 +458,10 @@ func TestRegistryEvents(t *testing.T) {
 				t.Helper()
 				_, err := e.client.CreateThing(t.Context(), &iotsdk.CreateThingInput{ThingName: aws.String("m1")})
 				require.NoError(t, err)
-				_, err = e.client.CreateThingGroup(t.Context(), &iotsdk.CreateThingGroupInput{ThingGroupName: aws.String("g1")})
+				_, err = e.client.CreateThingGroup(
+					t.Context(),
+					&iotsdk.CreateThingGroupInput{ThingGroupName: aws.String("g1")},
+				)
 				require.NoError(t, err)
 				_, err = e.client.AddThingToThingGroup(t.Context(), &iotsdk.AddThingToThingGroupInput{
 					ThingName: aws.String("m1"), ThingGroupName: aws.String("g1"),
