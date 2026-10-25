@@ -95,7 +95,7 @@ func cloudBuildServices(byName map[string]service.Registerable) gcpcloudbuildbac
 	return svc
 }
 
-// wireGCPStorageConsumers wires the GCP emulators that exchange objects with the GCS emulator (including Eventarc object events).
+// wireGCPStorageConsumers wires the GCP emulators that exchange objects with the GCS emulator.
 func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPRedis(byName)
 	wireGCPCloudBuild(byName)
