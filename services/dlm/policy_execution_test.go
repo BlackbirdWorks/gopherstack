@@ -127,9 +127,9 @@ func TestPolicyExecution_CreatesTaggedSnapshots(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		volTags    map[string]string
 		name       string
 		state      dlmtypes.SettablePolicyStateValues
-		volTags    map[string]string
 		wantSnaps  int
 		wantTagged bool
 	}{
@@ -328,7 +328,9 @@ func TestPolicyExecution_InstanceTargets(t *testing.T) {
 			assert.Len(t, env.managedSnapshots(t, policyID), tt.wantSnaps)
 
 			imgs, err := env.ec2Client.DescribeImages(t.Context(), &ec2sdk.DescribeImagesInput{
-				Filters: []ec2types.Filter{{Name: aws.String("tag:aws:dlm:lifecycle-policy-id"), Values: []string{policyID}}},
+				Filters: []ec2types.Filter{
+					{Name: aws.String("tag:aws:dlm:lifecycle-policy-id"), Values: []string{policyID}},
+				},
 			})
 			require.NoError(t, err)
 			assert.Len(t, imgs.Images, tt.wantImages)
@@ -336,7 +338,9 @@ func TestPolicyExecution_InstanceTargets(t *testing.T) {
 			env.dlmBk.RunSchedules(t.Context(), created.Add(13*time.Hour))
 
 			imgs, err = env.ec2Client.DescribeImages(t.Context(), &ec2sdk.DescribeImagesInput{
-				Filters: []ec2types.Filter{{Name: aws.String("tag:aws:dlm:lifecycle-policy-id"), Values: []string{policyID}}},
+				Filters: []ec2types.Filter{
+					{Name: aws.String("tag:aws:dlm:lifecycle-policy-id"), Values: []string{policyID}},
+				},
 			})
 			require.NoError(t, err)
 			assert.Len(t, imgs.Images, tt.wantImages, "count retention keeps one set")

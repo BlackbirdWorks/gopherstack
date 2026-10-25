@@ -12,6 +12,7 @@ const (
 	cronFieldCount = 6
 	maxCronScan    = 7 * 24 * 60
 	hoursPerDay    = 24
+	unitDays       = "DAYS"
 	daysPerWeek    = 7
 )
 
@@ -44,7 +45,7 @@ func createRuleDue(rule map[string]any, created, baseline, now time.Time) (time.
 	unit, _ := rule["IntervalUnit"].(string)
 	step := time.Duration(n) * time.Hour
 
-	if strings.EqualFold(unit, "DAYS") {
+	if strings.EqualFold(unit, unitDays) {
 		step *= hoursPerDay
 	}
 

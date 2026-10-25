@@ -22,12 +22,12 @@ const (
 )
 
 type metricShape struct {
-	queries    []cwbackend.MetricDataQuery
-	dims       []cwbackend.Dimension
 	namespace  string
 	metricName string
 	statistic  string
 	unit       string
+	queries    []cwbackend.MetricDataQuery
+	dims       []cwbackend.Dimension
 }
 
 func asMap(v any) map[string]any {
@@ -89,8 +89,13 @@ func customMetric(c map[string]any) metricShape {
 			if ms := asMap(m["MetricStat"]); ms != nil {
 				metric := asMap(ms["Metric"])
 				dq.MetricStat = cwbackend.MetricStat{
-					Namespace: asString(metric["Namespace"]), MetricName: asString(metric["MetricName"]),
-					Dimensions: dimensionsOf(metric["Dimensions"]), Stat: asString(ms["Stat"]), Period: alarmPeriodSeconds,
+					Namespace:  asString(metric["Namespace"]),
+					MetricName: asString(metric["MetricName"]),
+					Dimensions: dimensionsOf(
+						metric["Dimensions"],
+					),
+					Stat:   asString(ms["Stat"]),
+					Period: alarmPeriodSeconds,
 				}
 			}
 
@@ -111,16 +116,17 @@ func customMetric(c map[string]any) metricShape {
 	}
 }
 
-func dim(name, value string) cwbackend.Dimension { return cwbackend.Dimension{Name: name, Value: value} }
+func dim(name, value string) cwbackend.Dimension {
+	return cwbackend.Dimension{Name: name, Value: value}
+}
 
-// segment returns the idx-th "/"-separated part of s, or "".
-func segment(s string, idx int) string {
-	parts := strings.Split(s, "/")
-	if idx < len(parts) {
-		return parts[idx]
-	}
+// slashParts splits s on "/" into a fixed array so callers can index segments without bounds checks.
+func slashParts(s string) [6]string {
+	var out [6]string
 
-	return ""
+	copy(out[:], strings.Split(s, "/"))
+
+	return out
 }
 
 func afterColon(s string) string {
@@ -129,72 +135,113 @@ func afterColon(s string) string {
 	return rest
 }
 
-func simple(ns, name, stat string, dims ...cwbackend.Dimension) (metricShape, bool) {
-	return metricShape{namespace: ns, metricName: name, statistic: stat, dims: dims}, true
+type predefinedSpec struct {
+	dims      func(resourceID, label string) []cwbackend.Dimension
+	namespace string
+	metric    string
+	stat      string
 }
 
-//nolint:cyclop,gocyclo // flat lookup of predefined metric types
+func ecsDims(id, _ string) []cwbackend.Dimension {
+	p := slashParts(id)
+
+	return []cwbackend.Dimension{dim("ClusterName", p[1]), dim("ServiceName", p[2])}
+}
+
+func readerDims(id, _ string) []cwbackend.Dimension {
+	return []cwbackend.Dimension{dim("DBClusterIdentifier", afterColon(id)), dim("Role", "READER")}
+}
+
+func roleDims(role string) func(string, string) []cwbackend.Dimension {
+	return func(id, _ string) []cwbackend.Dimension {
+		return []cwbackend.Dimension{dim("ReplicationGroupId", slashParts(id)[1]), dim("Role", role)}
+	}
+}
+
+func spotFleetDims(id, _ string) []cwbackend.Dimension {
+	return []cwbackend.Dimension{dim("FleetRequestId", slashParts(id)[1])}
+}
+
+func albDims(_, label string) []cwbackend.Dimension {
+	p := slashParts(label)
+
+	return []cwbackend.Dimension{
+		dim("LoadBalancer", p[0]+"/"+p[1]+"/"+p[2]),
+		dim("TargetGroup", p[3]+"/"+p[4]+"/"+p[5]),
+	}
+}
+
+func sageMakerDims(id, _ string) []cwbackend.Dimension {
+	p := slashParts(id)
+
+	return []cwbackend.Dimension{dim("EndpointName", p[1]), dim("VariantName", p[3])}
+}
+
+func lambdaDims(id, _ string) []cwbackend.Dimension {
+	name, _, _ := strings.Cut(afterColon(id), ":")
+
+	return []cwbackend.Dimension{dim("FunctionName", name), dim("Resource", afterColon(id))}
+}
+
+func appStreamDims(id, _ string) []cwbackend.Dimension {
+	return []cwbackend.Dimension{dim("Fleet", slashParts(id)[1])}
+}
+
+func predefinedTable() map[string]predefinedSpec {
+	return map[string]predefinedSpec{
+		"ECSServiceAverageCPUUtilization":          {ecsDims, "AWS/ECS", "CPUUtilization", "Average"},
+		"ECSServiceAverageMemoryUtilization":       {ecsDims, "AWS/ECS", "MemoryUtilization", "Average"},
+		"ALBRequestCountPerTarget":                 {albDims, "AWS/ApplicationELB", "RequestCountPerTarget", "Sum"},
+		"RDSReaderAverageCPUUtilization":           {readerDims, "AWS/RDS", "CPUUtilization", "Average"},
+		"RDSReaderAverageDatabaseConnections":      {readerDims, "AWS/RDS", "DatabaseConnections", "Average"},
+		"NeptuneReaderAverageCPUUtilization":       {readerDims, "AWS/Neptune", "CPUUtilization", "Average"},
+		"SageMakerVariantInvocationsPerInstance":   {sageMakerDims, "AWS/SageMaker", "InvocationsPerInstance", "Sum"},
+		"EC2SpotFleetRequestAverageCPUUtilization": {spotFleetDims, "AWS/EC2Spot", "CPUUtilization", "Average"},
+		"EC2SpotFleetRequestAverageNetworkIn":      {spotFleetDims, "AWS/EC2Spot", "NetworkIn", "Average"},
+		"EC2SpotFleetRequestAverageNetworkOut":     {spotFleetDims, "AWS/EC2Spot", "NetworkOut", "Average"},
+		"LambdaProvisionedConcurrencyUtilization": {
+			lambdaDims, "AWS/Lambda", "ProvisionedConcurrencyUtilization", "Average",
+		},
+		"ElastiCachePrimaryEngineCPUUtilization": {
+			roleDims("Primary"), "AWS/ElastiCache", "EngineCPUUtilization", "Average",
+		},
+		"ElastiCacheReplicaEngineCPUUtilization": {
+			roleDims("Replica"), "AWS/ElastiCache", "EngineCPUUtilization", "Average",
+		},
+		"AppStreamAverageCapacityUtilization": {appStreamDims, "AWS/AppStream", "CapacityUtilization", "Average"},
+	}
+}
+
 func predefinedMetric(metricType, resourceID, label string) (metricShape, bool) {
 	switch metricType {
-	case "ECSServiceAverageCPUUtilization":
-		return simple("AWS/ECS", "CPUUtilization", "Average",
-			dim("ClusterName", segment(resourceID, 1)), dim("ServiceName", segment(resourceID, 2)))
-	case "ECSServiceAverageMemoryUtilization":
-		return simple("AWS/ECS", "MemoryUtilization", "Average",
-			dim("ClusterName", segment(resourceID, 1)), dim("ServiceName", segment(resourceID, 2)))
-	case "ALBRequestCountPerTarget":
-		parts := strings.Split(label, "/")
-		if len(parts) < 6 { //nolint:mnd // app/<lb>/<id>/targetgroup/<tg>/<id>
-			return metricShape{}, false
-		}
-
-		return simple("AWS/ApplicationELB", "RequestCountPerTarget", "Sum",
-			dim("LoadBalancer", strings.Join(parts[:3], "/")), dim("TargetGroup", strings.Join(parts[3:6], "/")))
-	case "RDSReaderAverageCPUUtilization":
-		return simple("AWS/RDS", "CPUUtilization", "Average",
-			dim("DBClusterIdentifier", afterColon(resourceID)), dim("Role", "READER"))
-	case "RDSReaderAverageDatabaseConnections":
-		return simple("AWS/RDS", "DatabaseConnections", "Average",
-			dim("DBClusterIdentifier", afterColon(resourceID)), dim("Role", "READER"))
-	case "NeptuneReaderAverageCPUUtilization":
-		return simple("AWS/Neptune", "CPUUtilization", "Average",
-			dim("DBClusterIdentifier", afterColon(resourceID)), dim("Role", "READER"))
-	case "SageMakerVariantInvocationsPerInstance":
-		return simple("AWS/SageMaker", "InvocationsPerInstance", "Sum",
-			dim("EndpointName", segment(resourceID, 1)), dim("VariantName", segment(resourceID, 3))) //nolint:mnd // endpoint/<e>/variant/<v>
-	case "EC2SpotFleetRequestAverageCPUUtilization":
-		return simple("AWS/EC2Spot", "CPUUtilization", "Average", dim("FleetRequestId", segment(resourceID, 1)))
-	case "EC2SpotFleetRequestAverageNetworkIn":
-		return simple("AWS/EC2Spot", "NetworkIn", "Average", dim("FleetRequestId", segment(resourceID, 1)))
-	case "EC2SpotFleetRequestAverageNetworkOut":
-		return simple("AWS/EC2Spot", "NetworkOut", "Average", dim("FleetRequestId", segment(resourceID, 1)))
-	case "LambdaProvisionedConcurrencyUtilization":
-		fn := strings.SplitN(afterColon(resourceID), ":", 2) //nolint:mnd // function:<name>:<alias>
-
-		return simple("AWS/Lambda", "ProvisionedConcurrencyUtilization", "Average",
-			dim("FunctionName", fn[0]), dim("Resource", afterColon(resourceID)))
-	case "ElastiCachePrimaryEngineCPUUtilization":
-		return simple("AWS/ElastiCache", "EngineCPUUtilization", "Average",
-			dim("ReplicationGroupId", segment(resourceID, 1)), dim("Role", "Primary"))
-	case "ElastiCacheReplicaEngineCPUUtilization":
-		return simple("AWS/ElastiCache", "EngineCPUUtilization", "Average",
-			dim("ReplicationGroupId", segment(resourceID, 1)), dim("Role", "Replica"))
-	case "AppStreamAverageCapacityUtilization":
-		return simple("AWS/AppStream", "CapacityUtilization", "Average", dim("Fleet", segment(resourceID, 1)))
 	case "DynamoDBReadCapacityUtilization":
 		return dynamoDBUtilization(resourceID, "ConsumedReadCapacityUnits", "ProvisionedReadCapacityUnits")
 	case "DynamoDBWriteCapacityUtilization":
 		return dynamoDBUtilization(resourceID, "ConsumedWriteCapacityUnits", "ProvisionedWriteCapacityUnits")
 	}
 
-	return metricShape{}, false
+	spec, ok := predefinedTable()[metricType]
+	if !ok {
+		return metricShape{}, false
+	}
+
+	if metricType == "ALBRequestCountPerTarget" &&
+		strings.Count(label, "/") < 5 { //nolint:mnd // app/<lb>/<id>/targetgroup/<tg>/<id>
+		return metricShape{}, false
+	}
+
+	return metricShape{
+		namespace: spec.namespace, metricName: spec.metric, statistic: spec.stat, dims: spec.dims(resourceID, label),
+	}, true
 }
 
 // dynamoDBUtilization is consumed capacity as a percentage of provisioned capacity.
 func dynamoDBUtilization(resourceID, consumed, provisioned string) (metricShape, bool) {
-	dims := []cwbackend.Dimension{dim("TableName", segment(resourceID, 1))}
-	if segment(resourceID, 2) == "index" { //nolint:mnd // table/<t>/index/<i>
-		dims = append(dims, dim("GlobalSecondaryIndexName", segment(resourceID, 3))) //nolint:mnd // index name
+	p := slashParts(resourceID)
+
+	dims := []cwbackend.Dimension{dim("TableName", p[1])}
+	if p[2] == "index" {
+		dims = append(dims, dim("GlobalSecondaryIndexName", p[3]))
 	}
 
 	stat := func(id, name, s string) cwbackend.MetricDataQuery {
@@ -213,7 +260,12 @@ func dynamoDBUtilization(resourceID, consumed, provisioned string) (metricShape,
 	}}, true
 }
 
-func (b *InMemoryBackend) alarmSpec(p *ScalingPolicy, kind, name string, shape metricShape, threshold float64) *cwbackend.MetricAlarm {
+func (b *InMemoryBackend) alarmSpec(
+	p *ScalingPolicy,
+	kind, name string,
+	shape metricShape,
+	threshold float64,
+) *cwbackend.MetricAlarm {
 	op, evals := "GreaterThanThreshold", int32(scaleOutDatapoints)
 	if kind == alarmLowKind {
 		op, evals = "LessThanThreshold", scaleInDatapoints

@@ -65,7 +65,7 @@ func newTTEnv(t *testing.T) *ttEnv {
 }
 
 func (e *ttEnv) put(
-	t *testing.T, name string, cfg *aastypes.TargetTrackingScalingPolicyConfiguration,
+	t *testing.T, cfg *aastypes.TargetTrackingScalingPolicyConfiguration,
 ) *aassdk.PutScalingPolicyOutput {
 	t.Helper()
 
@@ -73,7 +73,7 @@ func (e *ttEnv) put(
 		ServiceNamespace:                         aastypes.ServiceNamespaceEcs,
 		ResourceId:                               aws.String("service/c/s"),
 		ScalableDimension:                        aastypes.ScalableDimensionECSServiceDesiredCount,
-		PolicyName:                               aws.String(name),
+		PolicyName:                               aws.String("tt"),
 		PolicyType:                               aastypes.PolicyTypeTargetTrackingScaling,
 		TargetTrackingScalingPolicyConfiguration: cfg,
 	})
@@ -142,7 +142,11 @@ func TestTargetTracking_ManagedAlarms(t *testing.T) {
 			cfg: &aastypes.TargetTrackingScalingPolicyConfiguration{
 				TargetValue: aws.Float64(10),
 				CustomizedMetricSpecification: &aastypes.CustomizedMetricSpecification{
-					MetricName: aws.String("QueueDepth"), Namespace: aws.String("App"), Statistic: aastypes.MetricStatisticSum,
+					MetricName: aws.String(
+						"QueueDepth",
+					),
+					Namespace:  aws.String("App"),
+					Statistic:  aastypes.MetricStatisticSum,
 					Dimensions: []aastypes.MetricDimension{{Name: aws.String("Q"), Value: aws.String("jobs")}},
 				},
 			},
@@ -169,7 +173,7 @@ func TestTargetTracking_ManagedAlarms(t *testing.T) {
 			t.Parallel()
 
 			env := newTTEnv(t)
-			put := env.put(t, "tt", tt.cfg)
+			put := env.put(t, tt.cfg)
 			require.Len(t, put.Alarms, tt.wantAlarms)
 
 			got := env.alarms(t)
@@ -213,8 +217,8 @@ func TestTargetTracking_ReplaceAndDelete(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		finish func(t *testing.T, env *ttEnv)
+		name   string
 		want   int
 	}{
 		{
@@ -223,7 +227,7 @@ func TestTargetTracking_ReplaceAndDelete(t *testing.T) {
 				t.Helper()
 
 				before := env.alarms(t)
-				env.put(t, "tt", ecsCPUConfig(80))
+				env.put(t, ecsCPUConfig(80))
 				after := env.alarms(t)
 
 				require.Len(t, after, 2)
@@ -245,7 +249,7 @@ func TestTargetTracking_ReplaceAndDelete(t *testing.T) {
 
 				c := ecsCPUConfig(60)
 				c.DisableScaleIn = aws.Bool(true)
-				env.put(t, "tt", c)
+				env.put(t, c)
 				assert.Len(t, env.alarms(t), 1)
 			},
 		},
@@ -283,7 +287,7 @@ func TestTargetTracking_ReplaceAndDelete(t *testing.T) {
 			t.Parallel()
 
 			env := newTTEnv(t)
-			env.put(t, "tt", ecsCPUConfig(60))
+			env.put(t, ecsCPUConfig(60))
 			require.Len(t, env.alarms(t), 2)
 
 			tt.finish(t, env)

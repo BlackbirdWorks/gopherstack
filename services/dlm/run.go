@@ -89,8 +89,8 @@ func policySchedules(details map[string]any) []map[string]any {
 		return []map[string]any{{
 			"Name":       defaultScheduleName,
 			"CopyTags":   copyTags,
-			"CreateRule": map[string]any{"Interval": create, "IntervalUnit": "DAYS"},
-			"RetainRule": map[string]any{"Interval": retain, "IntervalUnit": "DAYS"},
+			"CreateRule": map[string]any{"Interval": create, "IntervalUnit": unitDays},
+			"RetainRule": map[string]any{"Interval": retain, "IntervalUnit": unitDays},
 		}}
 	}
 
