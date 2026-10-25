@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -27,11 +28,39 @@ type repoCtx struct {
 	ref repoRef
 }
 
-// PackageExtras routes the npm, Python and Maven protocols at /<format>/<project>/<repository>/..., the
-// path equivalent of <location>-<format>.pkg.dev/<project>/<repository>/.
+var pkgHostRe = regexp.MustCompile(`^([a-z0-9-]+)-(npm|python|maven)\.pkg\.dev(:\d+)?$`)
+
+var hostFormats = map[string]artifactregistrypb.Repository_Format{ //nolint:gochecknoglobals // immutable catalog
+	"npm": artifactregistrypb.Repository_NPM, "python": artifactregistrypb.Repository_PYTHON,
+	"maven": artifactregistrypb.Repository_MAVEN,
+}
+
+var routeFormats = map[string]artifactregistrypb.Repository_Format{ //nolint:gochecknoglobals // immutable catalog
+	npmRoute: artifactregistrypb.Repository_NPM, pythonRoute: artifactregistrypb.Repository_PYTHON,
+	mavenRoute: artifactregistrypb.Repository_MAVEN,
+}
+
+// pkgHost parses <location>-<npm|python|maven>.pkg.dev[:port] into its location and format.
+func pkgHost(host string) (string, artifactregistrypb.Repository_Format, bool) {
+	m := pkgHostRe.FindStringSubmatch(host)
+	if m == nil {
+		return "", 0, false
+	}
+
+	return m[1], hostFormats[m[2]], true
+}
+
+// PackageExtras routes the npm, Python and Maven protocols on <location>-<format>.pkg.dev hosts, where the
+// path is /<project>/<repository>/..., and at /<format>/<project>/<repository>/... on any other host.
 func (b *InMemoryBackend) PackageExtras() gcprest.Extra {
 	return gcprest.Extra{
-		Match: func(path string) bool {
+		MatchRequest: func(r *http.Request) bool {
+			if _, _, ok := pkgHost(r.Host); ok {
+				return true
+			}
+
+			path := r.URL.Path
+
 			return strings.HasPrefix(path, npmRoute) || strings.HasPrefix(path, pythonRoute) ||
 				strings.HasPrefix(path, mavenRoute)
 		},
@@ -41,28 +70,35 @@ func (b *InMemoryBackend) PackageExtras() gcprest.Extra {
 
 func (b *InMemoryBackend) servePackageRoute(w http.ResponseWriter, r *http.Request) {
 	esc := strings.TrimPrefix(r.URL.EscapedPath(), "/")
-	parts := strings.SplitN(esc, "/", routeSegs+1)
+	location, hostFormat, hosted := pkgHost(r.Host)
 
-	var rest string
-	if len(parts) > routeSegs {
-		rest = parts[routeSegs]
+	var route string
+
+	format := hostFormat
+	segs := routeSegs - 1
+
+	if !hosted {
+		route = "/" + strings.SplitN(esc, "/", 2)[0] + "/"
+		format = routeFormats[route]
+		esc = strings.TrimPrefix(esc, route[1:])
 	}
 
-	route := "/" + parts[0] + "/"
-	format := map[string]artifactregistrypb.Repository_Format{
-		npmRoute: artifactregistrypb.Repository_NPM, pythonRoute: artifactregistrypb.Repository_PYTHON,
-		mavenRoute: artifactregistrypb.Repository_MAVEN,
-	}[route]
+	parts := strings.SplitN(esc, "/", segs+1)
 
-	if len(parts) < routeSegs {
+	var rest string
+	if len(parts) > segs {
+		rest = parts[segs]
+	}
+
+	if len(parts) < segs {
 		writePlain(w, http.StatusNotFound, "Repository path must be <project>/<repository>.")
 
 		return
 	}
 
-	rc, ok := b.repoOfFormat(parts[1], parts[2], format)
-	if !ok {
-		writePlain(w, http.StatusNotFound, "No "+strings.ToLower(format.String())+" repository "+parts[2]+".")
+	rc, ok := b.repoOfFormat(parts[0], parts[1], format)
+	if !ok || hosted && rc.ref.location != location {
+		writePlain(w, http.StatusNotFound, "No "+strings.ToLower(format.String())+" repository "+parts[1]+".")
 
 		return
 	}
@@ -74,14 +110,26 @@ func (b *InMemoryBackend) servePackageRoute(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	switch route {
-	case npmRoute:
-		b.serveNPM(w, r, rc, strings.Trim(path, "/"))
-	case pythonRoute:
-		b.servePython(w, r, rc, strings.Trim(path, "/"))
+	path = strings.Trim(path, "/")
+
+	switch format { //nolint:exhaustive // only the three package-manager formats are routed here
+	case artifactregistrypb.Repository_NPM:
+		b.serveNPM(w, r, rc, path)
+	case artifactregistrypb.Repository_PYTHON:
+		b.servePython(w, r, rc, path)
 	default:
-		b.serveMaven(w, r, rc, strings.Trim(path, "/"))
+		b.serveMaven(w, r, rc, path)
 	}
+}
+
+// repoPrefix is the path prefix of a repository's package-manager endpoint: /<project>/<repository> on a
+// pkg.dev host, /<format>/<project>/<repository> otherwise.
+func repoPrefix(r *http.Request, route string, rc repoCtx) string {
+	if _, _, ok := pkgHost(r.Host); ok {
+		return "/" + rc.ref.project + "/" + rc.ref.id
+	}
+
+	return route + rc.ref.project + "/" + rc.ref.id
 }
 
 func (b *InMemoryBackend) repoOfFormat(

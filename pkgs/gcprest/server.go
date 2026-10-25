@@ -47,10 +47,20 @@ func ServeWithFallback(srv *grpc.Server, l net.Listener, fallback http.Handler) 
 	return ServeWithExtras(srv, l, fallback)
 }
 
-// Extra routes requests whose URL path Match accepts to Handler instead of the REST transcoder.
+// Extra routes requests to Handler instead of the REST transcoder. MatchRequest, when set, sees the whole
+// request (Host included) and takes precedence; otherwise Match decides on the URL path alone.
 type Extra struct {
-	Match   func(path string) bool
-	Handler http.Handler
+	Match        func(path string) bool
+	MatchRequest func(r *http.Request) bool
+	Handler      http.Handler
+}
+
+func (e Extra) matches(r *http.Request) bool {
+	if e.MatchRequest != nil {
+		return e.MatchRequest(r)
+	}
+
+	return e.Match != nil && e.Match(r.URL.Path)
 }
 
 // ServeWithExtras is ServeWithFallback with additional path-matched HTTP handlers.
@@ -105,7 +115,7 @@ func withExtras(next http.Handler, extras []Extra) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, e := range extras {
-			if e.Match(r.URL.Path) {
+			if e.matches(r) {
 				e.Handler.ServeHTTP(w, r)
 
 				return
