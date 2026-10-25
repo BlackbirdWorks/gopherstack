@@ -83,6 +83,7 @@ func (h *Handler) BackendFor(region string) StorageBackend {
 func NewHandler(backend StorageBackend, broker *Broker) *Handler {
 	if bk, ok := backend.(*InMemoryBackend); ok && broker != nil {
 		bk.setJobNotifier(func(thing string) { broker.publishJobNotifications(bk, thing) })
+		bk.setEventSink(broker.publishEvent)
 	}
 
 	return &Handler{Backend: backend, broker: broker}
@@ -339,7 +340,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		keyThingName: out.ThingName,
 		keyThingArn:  out.ThingARN,
-		"thingId":    out.ThingID,
+		keyThingID:   out.ThingID,
 	})
 }
 
@@ -643,7 +644,7 @@ func (h *Handler) handleGetThingConnectivityData(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		keyThingName:       thingName,
 		"connected":        data.Connected,
-		"timestamp":        data.Timestamp,
+		keyTimestamp:       data.Timestamp,
 		"disconnectReason": data.DisconnectReason,
 	})
 }

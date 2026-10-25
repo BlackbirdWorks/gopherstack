@@ -14,6 +14,8 @@ import (
 
 // AddThingToThingGroup adds a thing to a thing group.
 func (b *InMemoryBackend) AddThingToThingGroup(input *AddThingToThingGroupInput) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("AddThingToThingGroup")
 	defer b.mu.Unlock()
 
@@ -41,6 +43,8 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 	if err := validateEntityName("ThingGroupName", input.ThingGroupName); err != nil {
 		return nil, err
 	}
+
+	defer b.flushEvents()
 
 	b.mu.Lock("CreateThingGroup")
 	defer b.mu.Unlock()
@@ -72,6 +76,8 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 	b.thingGroups.Put(tg)
 	b.thingGroupMembers[input.ThingGroupName] = []string{}
 	b.putResourceTagsLocked(tg.ThingGroupARN, input.Tags)
+	b.queueThingGroupEventLocked(opCreated, tg)
+	b.queueHierarchyEventLocked(opAdded, tg)
 
 	return tg, nil
 }
@@ -122,6 +128,8 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 		return 0, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("UpdateThingGroup")
 	defer b.mu.Unlock()
 
@@ -147,12 +155,15 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 	}
 
 	tg.Version++
+	b.queueThingGroupEventLocked(opUpdated, tg)
 
 	return tg.Version, nil
 }
 
 // DeleteThingGroup deletes a thing group by name.
 func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string, expectedVersion int64) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteThingGroup")
 	defer b.mu.Unlock()
 
@@ -170,6 +181,8 @@ func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string, expectedVersio
 		b.removeThingFromGroupIndexes(member, thingGroupName)
 	}
 
+	b.queueThingGroupEventLocked(opDeleted, tg)
+	b.queueHierarchyEventLocked(opRemoved, tg)
 	b.thingGroups.Delete(thingGroupName)
 	delete(b.thingGroupMembers, thingGroupName)
 	delete(b.resourceTags, tg.ThingGroupARN)
@@ -179,6 +192,8 @@ func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string, expectedVersio
 
 // RemoveThingFromThingGroup removes a thing from a thing group.
 func (b *InMemoryBackend) RemoveThingFromThingGroup(input *RemoveThingFromThingGroupInput) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("RemoveThingFromThingGroup")
 	defer b.mu.Unlock()
 
@@ -254,6 +269,7 @@ func (b *InMemoryBackend) addThingToGroupByName(thingName, groupName string) {
 	}
 
 	b.thingGroupMembers[groupName] = append(members, thingName)
+	b.queueMembershipEventLocked(opAdded, groupName, thingName)
 }
 
 func (b *InMemoryBackend) ListThingGroupsForThing(thingName string) []string {
@@ -276,6 +292,8 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 	if input.ThingGroupName == "" {
 		return nil, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
+
+	defer b.flushEvents()
 
 	b.mu.Lock("CreateDynamicThingGroup")
 	defer b.mu.Unlock()
@@ -307,12 +325,16 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 	b.thingGroups.Put(tg)
 	b.thingGroupMembers[input.ThingGroupName] = []string{}
 	b.putResourceTagsLocked(tg.ThingGroupARN, input.Tags)
+	b.queueThingGroupEventLocked(opCreated, tg)
+	b.queueHierarchyEventLocked(opAdded, tg)
 
 	return tg, nil
 }
 
 // DeleteDynamicThingGroup deletes a dynamic thing group.
 func (b *InMemoryBackend) DeleteDynamicThingGroup(name string, expectedVersion int64) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteDynamicThingGroup")
 	defer b.mu.Unlock()
 
@@ -330,6 +352,8 @@ func (b *InMemoryBackend) DeleteDynamicThingGroup(name string, expectedVersion i
 		b.removeThingFromGroupIndexes(member, name)
 	}
 
+	b.queueThingGroupEventLocked(opDeleted, tg)
+	b.queueHierarchyEventLocked(opRemoved, tg)
 	b.thingGroups.Delete(name)
 	delete(b.thingGroupMembers, name)
 	delete(b.resourceTags, tg.ThingGroupARN)
@@ -342,6 +366,8 @@ func (b *InMemoryBackend) UpdateDynamicThingGroup(input *UpdateThingGroupInput) 
 	if input.ThingGroupName == "" {
 		return 0, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
+
+	defer b.flushEvents()
 
 	b.mu.Lock("UpdateDynamicThingGroup")
 	defer b.mu.Unlock()
@@ -369,6 +395,7 @@ func (b *InMemoryBackend) UpdateDynamicThingGroup(input *UpdateThingGroupInput) 
 		tg.QueryVersion = *input.QueryVersion
 	}
 	tg.Version++
+	b.queueThingGroupEventLocked(opUpdated, tg)
 
 	return tg.Version, nil
 }
@@ -379,6 +406,8 @@ func (b *InMemoryBackend) UpdateThingGroupsForThing(input *UpdateThingGroupsForT
 	if input.ThingName == "" {
 		return fmt.Errorf("%w: ThingName is required", ErrValidation)
 	}
+
+	defer b.flushEvents()
 
 	b.mu.Lock("UpdateThingGroupsForThing")
 	defer b.mu.Unlock()
@@ -419,6 +448,10 @@ func (b *InMemoryBackend) UpdateThingGroupsForThing(input *UpdateThingGroupsForT
 // b.mu held.
 func (b *InMemoryBackend) removeThingFromGroupIndexes(thingName, groupName string) {
 	members := b.thingGroupMembers[groupName]
+
+	if slices.Contains(members, thingName) {
+		b.queueMembershipEventLocked(opRemoved, groupName, thingName)
+	}
 	filteredMembers := make([]string, 0, len(members))
 
 	for _, m := range members {

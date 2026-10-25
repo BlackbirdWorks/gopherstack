@@ -16,6 +16,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
 const (
@@ -232,17 +234,18 @@ func doOnce(client *http.Client, req *http.Request) (bool, error) {
 	return retry, fmt.Errorf("%w: %d", errHTTPStatus, resp.StatusCode)
 }
 
-// newEgressClient never follows redirects or proxies and keeps no idle connections.
+// newEgressClient never follows redirects or proxies and keeps no idle connections. The target URL is
+// the rule owner's own configuration, gated by a confirmed destination, as in AWS: it is not an open proxy.
 func newEgressClient() *http.Client {
-	return &http.Client{
-		Timeout: httpActionTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		Transport: &http.Transport{
-			DisableKeepAlives:     true,
-			TLSHandshakeTimeout:   httpClientIdle,
-			ResponseHeaderTimeout: httpActionTimeout,
-		},
-	}
+	tr := httpclient.NewTransport()
+	tr.Proxy = nil
+	tr.DisableKeepAlives = true
+	tr.TLSHandshakeTimeout = httpClientIdle
+	tr.ResponseHeaderTimeout = httpActionTimeout
+
+	c := httpclient.New(httpActionTimeout)
+	c.Transport = tr
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+	return c
 }
