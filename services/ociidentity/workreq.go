@@ -51,7 +51,10 @@ func (b *InMemoryBackend) GetWorkRequest(id string) (workRequestWire, error) {
 }
 
 // ListWorkRequests lists the work requests of a compartment, optionally for one resource.
-func (b *InMemoryBackend) ListWorkRequests(compartment, resourceID string, o ListOpts) (page.Page[workRequestWire], error) {
+func (b *InMemoryBackend) ListWorkRequests(
+	compartment, resourceID string,
+	o ListOpts,
+) (page.Page[workRequestWire], error) {
 	if compartment == "" {
 		return page.Page[workRequestWire]{}, errMissing("compartmentId is required")
 	}
@@ -62,7 +65,8 @@ func (b *InMemoryBackend) ListWorkRequests(compartment, resourceID string, o Lis
 	var all []*WorkRequest
 
 	for _, wr := range b.workReqs {
-		if (wr.CompartmentID == compartment || compartment == TenancyID) && (resourceID == "" || wr.EntityID == resourceID) {
+		if (wr.CompartmentID == compartment || compartment == TenancyID) &&
+			(resourceID == "" || wr.EntityID == resourceID) {
 			all = append(all, wr)
 		}
 	}

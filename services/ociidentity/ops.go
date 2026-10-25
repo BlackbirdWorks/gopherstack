@@ -63,9 +63,9 @@ func policyOps() map[string]opFunc {
 func credentialOps() map[string]opFunc {
 	return map[string]opFunc{
 		opUploadAPIKey: (*Handler).uploadAPIKey, opListAPIKeys: (*Handler).listAPIKeys,
-		opDeleteAPIKey:    (*Handler).deleteAPIKey,
-		opCreateAuthToken: (*Handler).createAuthToken, opListAuthTokens: (*Handler).listAuthTokens,
-		opUpdateAuthToken: (*Handler).updateAuthToken, opDeleteAuthToken: (*Handler).deleteAuthToken,
+		opDeleteAPIKey:  (*Handler).deleteAPIKey,
+		opCreateAuthTok: (*Handler).createAuthToken, opListAuthToks: (*Handler).listAuthTokens,
+		opUpdateAuthTok: (*Handler).updateAuthToken, opDeleteAuthTok: (*Handler).deleteAuthToken,
 		opCreateSecretKey: (*Handler).createSecretKey, opListSecretKeys: (*Handler).listSecretKeys,
 		opUpdateSecretKey: (*Handler).updateSecretKey, opDeleteSecretKey: (*Handler).deleteSecretKey,
 		opCreateSMTP: (*Handler).createSMTP, opListSMTP: (*Handler).listSMTP,

@@ -1,7 +1,6 @@
 package ociidentity
 
 import (
-	"net/http"
 	"strings"
 	"time"
 
@@ -28,10 +27,10 @@ type CreatePolicyIn struct {
 
 // UpdatePolicyIn is the UpdatePolicy request body.
 type UpdatePolicyIn struct {
+	Tags
 	Description *string  `json:"description"`
 	VersionDate *string  `json:"versionDate"`
 	Statements  []string `json:"statements"`
-	Tags
 }
 
 // PolicyFilter holds the ListPolicies query.
@@ -128,7 +127,9 @@ func (b *InMemoryBackend) CreatePolicy(in CreatePolicyIn) (policyWire, string, e
 
 	for _, p := range b.policies {
 		if strs.Equal(p.Name, in.Name) {
-			return policyWire{}, "", errCode(http.StatusConflict, "Conflict", "Policy "+in.Name+" already exists in the tenancy")
+			return policyWire{}, "", errConflict("Conflict",
+				"Policy "+in.Name+" already exists in the tenancy",
+			)
 		}
 	}
 
@@ -182,7 +183,8 @@ func (b *InMemoryBackend) ListPolicies(f PolicyFilter, o ListOpts) (page.Page[po
 	var all []*Policy
 
 	for _, p := range b.policies {
-		if p.CompartmentID == f.CompartmentID && (f.Name == "" || p.Name == f.Name) && matchState(p.LifecycleState, f.State) {
+		if p.CompartmentID == f.CompartmentID && (f.Name == "" || p.Name == f.Name) &&
+			matchState(p.LifecycleState, f.State) {
 			all = append(all, p)
 		}
 	}

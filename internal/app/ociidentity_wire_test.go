@@ -66,15 +66,27 @@ func TestWireOCIIdentityKeys(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			key, _, err := idH.Backend.UploadAPIKey(user.ID, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})))
+			key, _, err := idH.Backend.UploadAPIKey(
+				user.ID,
+				string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
+			)
 			require.NoError(t, err)
 
 			fp, err := ociauth.Fingerprint(&priv.PublicKey)
 			require.NoError(t, err)
 			require.Equal(t, fp, key.Fingerprint)
 
-			privPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}))
-			prov := common.NewRawConfigurationProvider(ociidentitybackend.TenancyID, user.ID, "us-ashburn-1", fp, privPEM, nil)
+			privPEM := string(
+				pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}),
+			)
+			prov := common.NewRawConfigurationProvider(
+				ociidentitybackend.TenancyID,
+				user.ID,
+				"us-ashburn-1",
+				fp,
+				privPEM,
+				nil,
+			)
 			c, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(prov)
 			require.NoError(t, err)
 

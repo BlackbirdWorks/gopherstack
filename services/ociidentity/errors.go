@@ -36,8 +36,6 @@ func errMissing(msg string) *APIError { return newErr(http.StatusBadRequest, "Mi
 
 func errState(msg string) *APIError { return newErr(http.StatusConflict, "IncorrectState", msg) }
 
-func errExists(msg string) *APIError { return newErr(http.StatusConflict, "Conflict", msg) }
-
 func errEtag() *APIError {
 	return newErr(http.StatusPreconditionFailed, "NoEtagMatch", "The If-Match header does not match the current ETag")
 }
@@ -46,4 +44,4 @@ func errAuth(msg string) *APIError { return newErr(http.StatusUnauthorized, "Not
 
 func errLimit(msg string) *APIError { return newErr(http.StatusBadRequest, "LimitExceeded", msg) }
 
-func errCode(status int, code, msg string) *APIError { return newErr(status, code, msg) }
+func errConflict(code, msg string) *APIError { return newErr(http.StatusConflict, code, msg) }

@@ -17,35 +17,29 @@ func TestTagNamespacesAndTags(t *testing.T) {
 	ctx := t.Context()
 
 	ns, err := e.client.CreateTagNamespace(ctx, identity.CreateTagNamespaceRequest{
-		CreateTagNamespaceDetails: identity.CreateTagNamespaceDetails{
-			CompartmentId: new(testTenancy), Name: new("Ops"), Description: new("ops tags"),
-		},
+		CompartmentId: new(testTenancy), Name: new("Ops"), Description: new("ops tags"),
 	})
 	require.NoError(t, err)
 	assert.False(t, *ns.IsRetired)
 	assert.Equal(t, identity.TagNamespaceLifecycleStateActive, ns.LifecycleState)
 
 	_, err = e.client.CreateTagNamespace(ctx, identity.CreateTagNamespaceRequest{
-		CreateTagNamespaceDetails: identity.CreateTagNamespaceDetails{
-			CompartmentId: new(testTenancy), Name: new("ops"), Description: new("dup"),
-		},
+		CompartmentId: new(testTenancy), Name: new("ops"), Description: new("dup"),
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
 	tag, err := e.client.CreateTag(ctx, identity.CreateTagRequest{
 		TagNamespaceId: ns.Id,
-		CreateTagDetails: identity.CreateTagDetails{
-			Name: new("Env"), Description: new("environment"), IsCostTracking: new(true),
-			Validator: identity.EnumTagDefinitionValidator{Values: []string{"prod", "dev"}},
-		},
+		Name:           new("Env"), Description: new("environment"), IsCostTracking: new(true),
+		Validator: identity.EnumTagDefinitionValidator{Values: []string{"prod", "dev"}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Ops", *tag.TagNamespaceName)
 	assert.True(t, *tag.IsCostTracking)
 
 	_, err = e.client.CreateTag(ctx, identity.CreateTagRequest{
-		TagNamespaceId:   ns.Id,
-		CreateTagDetails: identity.CreateTagDetails{Name: new("env"), Description: new("dup")},
+		TagNamespaceId: ns.Id,
+		Name:           new("env"), Description: new("dup"),
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
@@ -58,32 +52,26 @@ func TestTagNamespacesAndTags(t *testing.T) {
 	require.Len(t, tl.Items, 1)
 
 	d, err := e.client.CreateTagDefault(ctx, identity.CreateTagDefaultRequest{
-		CreateTagDefaultDetails: identity.CreateTagDefaultDetails{
-			CompartmentId: new(testTenancy), TagDefinitionId: tag.Id, Value: new("prod"), IsRequired: new(true),
-		},
+		CompartmentId: new(testTenancy), TagDefinitionId: tag.Id, Value: new("prod"), IsRequired: new(true),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Env", *d.TagDefinitionName)
 	assert.True(t, *d.IsRequired)
 
 	_, err = e.client.CreateTagDefault(ctx, identity.CreateTagDefaultRequest{
-		CreateTagDefaultDetails: identity.CreateTagDefaultDetails{
-			CompartmentId: new(testTenancy), TagDefinitionId: tag.Id, Value: new("dev"),
-		},
+		CompartmentId: new(testTenancy), TagDefinitionId: tag.Id, Value: new("dev"),
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
 	c := e.mkCompartment(t, testTenancy, "tagged")
 
 	_, err = e.client.CreateTagDefault(ctx, identity.CreateTagDefaultRequest{
-		CreateTagDefaultDetails: identity.CreateTagDefaultDetails{
-			CompartmentId: c.Id, TagDefinitionId: tag.Id, Value: new("staging"),
-		},
+		CompartmentId: c.Id, TagDefinitionId: tag.Id, Value: new("staging"),
 	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 
 	up, err := e.client.UpdateTagDefault(ctx, identity.UpdateTagDefaultRequest{
-		TagDefaultId: d.Id, UpdateTagDefaultDetails: identity.UpdateTagDefaultDetails{Value: new("dev")},
+		TagDefaultId: d.Id, Value: new("dev"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "dev", *up.Value)
@@ -96,7 +84,7 @@ func TestTagNamespacesAndTags(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
 	ret, err := e.client.UpdateTag(ctx, identity.UpdateTagRequest{
-		TagNamespaceId: ns.Id, TagName: new("Env"), UpdateTagDetails: identity.UpdateTagDetails{IsRetired: new(true)},
+		TagNamespaceId: ns.Id, TagName: new("Env"), IsRetired: new(true),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, identity.TagLifecycleStateInactive, ret.LifecycleState)
@@ -120,7 +108,7 @@ func TestTagNamespacesAndTags(t *testing.T) {
 	assert.Empty(t, dl.Items)
 
 	_, err = e.client.UpdateTagNamespace(ctx, identity.UpdateTagNamespaceRequest{
-		TagNamespaceId: ns.Id, UpdateTagNamespaceDetails: identity.UpdateTagNamespaceDetails{IsRetired: new(true)},
+		TagNamespaceId: ns.Id, IsRetired: new(true),
 	})
 	require.NoError(t, err)
 

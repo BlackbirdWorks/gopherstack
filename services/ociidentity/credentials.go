@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"math/big"
-	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -15,11 +14,15 @@ import (
 )
 
 const (
+	kindSecretKey     = "customer secret key"
+	kindSMTP          = "SMTP credential"
+	kindAuthToken     = "auth token"
+	nameKeyDisplay    = "displayName"
 	maxAPIKeys        = 3
 	maxSecretsPerUser = 2
 	minRSABits        = 2048
 	authTokenLen      = 20
-	uiPasswordLen     = 16
+	uiPasswordClass   = 4
 	secretKeyBytes    = 32
 	accessKeyBytes    = 20
 	smtpPasswordLen   = 44
@@ -67,21 +70,21 @@ type credKind struct {
 
 func authTokenKind() credKind {
 	return credKind{
-		name: "auth token", nameKey: "description", slot: func(u *User) *[]Credential { return &u.AuthTokens },
+		name: kindAuthToken, nameKey: "description", slot: func(u *User) *[]Credential { return &u.AuthTokens },
 		secret: func() string { return randString(alnum+symbols, authTokenLen) },
 	}
 }
 
 func secretKeyKind() credKind {
 	return credKind{
-		name: "customer secret key", nameKey: "displayName", slot: func(u *User) *[]Credential { return &u.SecretKeys },
+		name: kindSecretKey, nameKey: nameKeyDisplay, slot: func(u *User) *[]Credential { return &u.SecretKeys },
 		secret: func() string { return base64.StdEncoding.EncodeToString(randBytes(secretKeyBytes)) },
 	}
 }
 
 func smtpKind() credKind {
 	return credKind{
-		name: "SMTP credential", nameKey: "description", slot: func(u *User) *[]Credential { return &u.SMTP },
+		name: kindSMTP, nameKey: "description", slot: func(u *User) *[]Credential { return &u.SMTP },
 		secret: func() string { return randString(alnum, smtpPasswordLen) },
 	}
 }
@@ -153,7 +156,9 @@ func (b *InMemoryBackend) UploadAPIKey(userID, pemKey string) (apiKeyWire, strin
 	}
 
 	if slices.ContainsFunc(u.APIKeys, func(k APIKey) bool { return k.Fingerprint == fp }) {
-		return apiKeyWire{}, "", errCode(http.StatusConflict, "Conflict", "An API key with fingerprint "+fp+" already exists for the user")
+		return apiKeyWire{}, "", errConflict("Conflict",
+			"An API key with fingerprint "+fp+" already exists for the user",
+		)
 	}
 
 	if len(u.APIKeys) >= maxAPIKeys {
@@ -214,16 +219,16 @@ func (c Credential) view(userID string, kind credKind, secret string) credWire {
 		TimeCreated: c.TimeCreated, ID: c.ID, UserID: userID, LifecycleState: stateActive, Username: c.Username,
 	}
 
-	if kind.nameKey == "displayName" {
+	if kind.nameKey == nameKeyDisplay {
 		w.DisplayName, w.Key = c.Text, secret
 	} else {
 		w.Description = c.Text
 	}
 
 	switch kind.name {
-	case "auth token":
+	case kindAuthToken:
 		w.Token = secret
-	case "SMTP credential":
+	case kindSMTP:
 		w.Password = secret
 	}
 
@@ -264,9 +269,9 @@ func (b *InMemoryBackend) CreateCredential(userID string, kind credKind, text st
 	c := Credential{ID: newOCID("credential"), Text: text, TimeCreated: b.nowUTC()}
 
 	switch kind.name {
-	case "customer secret key":
+	case kindSecretKey:
 		c.ID = hex.EncodeToString(randBytes(accessKeyBytes))
-	case "SMTP credential":
+	case kindSMTP:
 		c.Username = userID + "@" + TenancyID + "." + smtpDomainTag + ".com"
 	}
 
@@ -341,6 +346,23 @@ func (b *InMemoryBackend) DeleteCredential(userID, id string, kind credKind) err
 	return nil
 }
 
+func newUIPassword() string {
+	return randString(
+		"abcdefghijklmnopqrstuvwxyz",
+		uiPasswordClass,
+	) + randString(
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+		uiPasswordClass,
+	) +
+		randString(
+			"0123456789",
+			uiPasswordClass,
+		) + randString(
+		symbols,
+		uiPasswordClass,
+	)
+}
+
 // ResetUIPassword generates a console password; it is returned only here.
 func (b *InMemoryBackend) ResetUIPassword(userID string) (uiPasswordWire, string, error) {
 	b.mu.Lock("ResetUIPassword")
@@ -358,8 +380,7 @@ func (b *InMemoryBackend) ResetUIPassword(userID string) (uiPasswordWire, string
 	now := b.nowUTC()
 	u.UIPasswordCreated = &now
 
-	pw := randString("abcdefghijklmnopqrstuvwxyz", uiPasswordLen/4) + randString("ABCDEFGHIJKLMNOPQRSTUVWXYZ", uiPasswordLen/4) +
-		randString("0123456789", uiPasswordLen/4) + randString(symbols, uiPasswordLen/4)
+	pw := newUIPassword()
 
 	return uiPasswordWire{TimeCreated: now, UserID: userID, LifecycleState: stateActive, Password: pw}, newEtag(), nil
 }
@@ -417,7 +438,7 @@ type credBody struct {
 
 func (c credBody) text(kind credKind) string {
 	p := c.Description
-	if kind.nameKey == "displayName" {
+	if kind.nameKey == nameKeyDisplay {
 		p = c.DisplayName
 	}
 

@@ -41,7 +41,7 @@ type req struct {
 
 type opFunc func(h *Handler, q *req) error
 
-// Handler serves OCI Identity: IAM (API 20160918): tenancy, compartments, users, groups, policies, credentials and tags.
+// Handler serves OCI Identity (IAM API 20160918): tenancy, compartments, principals, policies, credentials, tags.
 type Handler struct {
 	Backend     *InMemoryBackend
 	srvMu       *lockmetrics.RWMutex

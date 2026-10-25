@@ -24,15 +24,32 @@ func TestValidateStatement(t *testing.T) {
 		{"manage compartment", "Allow group A-Admins to manage all-resources in compartment Project-A", false},
 		{"group list", "Allow group A-Admins, B-Admins to manage all-resources in compartment Projects-A-and-B", false},
 		{"any-group tenancy", "Allow any-group to inspect users in tenancy", false},
-		{"nested path", "Allow group InstanceAdmins to manage instance-family in compartment Project-A:Project-A2", false},
-		{"where pattern", "Allow group GroupAdmins to manage groups in tenancy where target.group.name = /A-Users-*/", false},
 		{
-			"where not equal",
-			"Allow group NetworkAdmins to manage virtual-network-family in tenancy\n  where target.compartment.id != 'ocid1.compartment.oc1..aaaa'",
+			"nested path",
+			"Allow group InstanceAdmins to manage instance-family in compartment Project-A:Project-A2",
 			false,
 		},
-		{"where all", "Allow group G to manage groups in tenancy where all {target.group.name=/A-*/,target.group.name!='A-Admins'}", false},
-		{"group id", "Allow group id ocid1.group.oc1..aaaa to read buckets in compartment id ocid1.compartment.oc1..bbbb", false},
+		{
+			"where pattern",
+			"Allow group GroupAdmins to manage groups in tenancy where target.group.name = /A-Users-*/",
+			false,
+		},
+		{
+			"where not equal",
+			"Allow group NetworkAdmins to manage virtual-network-family in tenancy\n" +
+				"  where target.compartment.id != 'ocid1.compartment.oc1..aaaa'",
+			false,
+		},
+		{
+			"where all",
+			"Allow group G to manage groups in tenancy where all {target.group.name=/A-*/,target.group.name!='A-Admins'}",
+			false,
+		},
+		{
+			"group id",
+			"Allow group id ocid1.group.oc1..aaaa to read buckets in compartment id ocid1.compartment.oc1..bbbb",
+			false,
+		},
 		{"dynamic group", "Allow dynamic-group fn-dg to use keys in tenancy", false},
 		{"service", "Allow service objectstorage-us-ashburn-1 to manage object-family in tenancy", false},
 		{"lowercase", "allow group a to read buckets in tenancy", false},
@@ -73,7 +90,7 @@ func TestValidateStatement(t *testing.T) {
 	}
 }
 
-func TestPolicies(t *testing.T) {
+func TestPolicyErrors(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, false)
@@ -81,19 +98,16 @@ func TestPolicies(t *testing.T) {
 	comp := e.mkCompartment(t, testTenancy, "proj")
 	good := []string{"Allow group admins to manage all-resources in compartment proj"}
 
-	create := func(name string, stmts []string, ver *common.SDKDate) (identity.CreatePolicyResponse, error) {
-		return e.client.CreatePolicy(ctx, identity.CreatePolicyRequest{CreatePolicyDetails: identity.CreatePolicyDetails{
-			CompartmentId: comp.Id, Name: new(name), Description: new("d"), Statements: stmts, VersionDate: ver,
-		}})
+	create := func(name string, stmts []string) (identity.CreatePolicyResponse, error) {
+		return e.client.CreatePolicy(
+			ctx,
+			identity.CreatePolicyRequest{
+				CompartmentId: comp.Id, Name: new(name), Description: new("d"), Statements: stmts},
+		)
 	}
 
-	date := &common.SDKDate{Date: mustDate(t, "2024-01-31")}
-
-	p, err := create("pol", good, date)
+	p, err := create("pol", good)
 	require.NoError(t, err)
-	assert.Equal(t, good, p.Statements)
-	require.NotNil(t, p.VersionDate)
-	assert.Equal(t, "2024-01-31", p.VersionDate.Date.Format("2006-01-02"))
 
 	tooMany := make([]string, 51)
 	for i := range tooMany {
@@ -107,48 +121,106 @@ func TestPolicies(t *testing.T) {
 		status   int
 	}{
 		{"malformed statement", func() error {
-			_, err := create("bad", []string{"Allow group admins manage all-resources in tenancy"}, nil)
+			_, cerr := create("bad", []string{"Allow group admins manage all-resources in tenancy"})
 
-			return err
+			return cerr
 		}, "InvalidParameter", http.StatusBadRequest},
-		{"no statements", func() error { _, err := create("none", []string{}, nil); return err }, "MissingParameter", http.StatusBadRequest},
-		{"too many statements", func() error { _, err := create("many", tooMany, nil); return err }, "LimitExceeded", http.StatusBadRequest},
-		{"duplicate name", func() error { _, err := create("POL", good, nil); return err }, "Conflict", http.StatusConflict},
-		{"unknown compartment", func() error {
-			_, err := e.client.CreatePolicy(ctx, identity.CreatePolicyRequest{CreatePolicyDetails: identity.CreatePolicyDetails{
-				CompartmentId: new("ocid1.compartment.oc1..zz"), Name: new("x"), Description: new("d"), Statements: good,
-			}})
+		{
+			"no statements",
+			func() error {
+				_, cerr := create("none", []string{})
 
-			return err
+				return cerr
+			},
+			"MissingParameter",
+			http.StatusBadRequest,
+		},
+		{
+			"too many statements",
+			func() error {
+				_, cerr := create("many", tooMany)
+
+				return cerr
+			},
+			"LimitExceeded",
+			http.StatusBadRequest,
+		},
+		{
+			"duplicate name",
+			func() error {
+				_, cerr := create("POL", good)
+
+				return cerr
+			},
+			"Conflict",
+			http.StatusConflict,
+		},
+		{"unknown compartment", func() error {
+			_, cerr := e.client.CreatePolicy(
+				ctx,
+				identity.CreatePolicyRequest{
+					CompartmentId: new(
+						"ocid1.compartment.oc1..zz",
+					),
+					Name:        new("x"),
+					Description: new("d"),
+					Statements:  good},
+			)
+
+			return cerr
 		}, "NotAuthorizedOrNotFound", http.StatusNotFound},
 		{"update bad statement", func() error {
-			_, err := e.client.UpdatePolicy(ctx, identity.UpdatePolicyRequest{PolicyId: p.Id,
-				UpdatePolicyDetails: identity.UpdatePolicyDetails{Statements: []string{"nonsense"}}})
+			_, cerr := e.client.UpdatePolicy(ctx, identity.UpdatePolicyRequest{PolicyId: p.Id,
+				Statements: []string{"nonsense"}})
 
-			return err
+			return cerr
 		}, "InvalidParameter", http.StatusBadRequest},
 		{"delete compartment with policy", func() error {
-			_, err := e.client.DeleteCompartment(ctx, identity.DeleteCompartmentRequest{CompartmentId: comp.Id})
+			_, cerr := e.client.DeleteCompartment(ctx, identity.DeleteCompartmentRequest{CompartmentId: comp.Id})
 
-			return err
+			return cerr
 		}, "Conflict", http.StatusConflict},
 	}
 
-	t.Run("errors", func(t *testing.T) {
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-				se := svcErr(t, tt.call())
-				assert.Equal(t, tt.status, se.GetHTTPStatusCode())
-				assert.Equal(t, tt.wantCode, se.GetCode())
-			})
-		}
-	})
+			se := svcErr(t, tt.call())
+			assert.Equal(t, tt.status, se.GetHTTPStatusCode())
+			assert.Equal(t, tt.wantCode, se.GetCode())
+		})
+	}
+}
+
+func TestPolicies(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	ctx := t.Context()
+	comp := e.mkCompartment(t, testTenancy, "proj")
+	good := []string{"Allow group admins to manage all-resources in compartment proj"}
+
+	create := func(name string, stmts []string, ver *common.SDKDate) (identity.CreatePolicyResponse, error) {
+		return e.client.CreatePolicy(
+			ctx,
+			identity.CreatePolicyRequest{
+				CompartmentId: comp.Id, Name: new(name), Description: new("d"), Statements: stmts, VersionDate: ver},
+		)
+	}
+
+	date := &common.SDKDate{Date: mustDate(t, "2024-01-31")}
+
+	p, err := create("pol", good, date)
+	require.NoError(t, err)
+	assert.Equal(t, good, p.Statements)
+	require.NotNil(t, p.VersionDate)
+	assert.Equal(t, "2024-01-31", p.VersionDate.Date.Format("2006-01-02"))
 
 	up, err := e.client.UpdatePolicy(ctx, identity.UpdatePolicyRequest{PolicyId: p.Id, IfMatch: p.Etag,
-		UpdatePolicyDetails: identity.UpdatePolicyDetails{
-			Statements: []string{"Allow group a to read buckets in tenancy", "Allow group b to read buckets in tenancy"},
+		Statements: []string{
+			"Allow group a to read buckets in tenancy",
+			"Allow group b to read buckets in tenancy",
 		}})
 	require.NoError(t, err)
 	assert.Len(t, up.Statements, 2)

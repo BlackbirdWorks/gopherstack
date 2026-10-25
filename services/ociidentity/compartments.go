@@ -1,7 +1,6 @@
 package ociidentity
 
 import (
-	"net/http"
 	"strings"
 	"time"
 
@@ -56,10 +55,9 @@ func validateDescription(desc string) *APIError {
 }
 
 func (b *InMemoryBackend) rootView() compartmentWire {
-	return compartmentWire{IsAccessible: true, Meta: Meta{
+	return compartmentWire{IsAccessible: true,
 		ID: TenancyID, CompartmentID: TenancyID, Name: tenancyName, Description: "Root compartment of the tenancy",
-		TimeCreated: b.created, LifecycleState: stateActive, Tags: nonNilTags(Tags{}),
-	}}
+		TimeCreated: b.created, LifecycleState: stateActive, Tags: nonNilTags(Tags{})}
 }
 
 func (c *Compartment) view() compartmentWire {
@@ -160,7 +158,9 @@ func (b *InMemoryBackend) nameTaken(parent, name, except string) bool {
 }
 
 func errCompartmentExists(name string) *APIError {
-	return errCode(http.StatusConflict, "CompartmentAlreadyExists", "Compartment "+name+" already exists in this parent")
+	return errConflict("CompartmentAlreadyExists",
+		"Compartment "+name+" already exists in this parent",
+	)
 }
 
 // CreateCompartment creates a compartment under the tenancy or another compartment.
@@ -231,26 +231,42 @@ type CompartmentFilter struct {
 	Subtree       bool
 }
 
-// ListCompartments lists the children (or the whole subtree) of a compartment.
-func (b *InMemoryBackend) ListCompartments(f CompartmentFilter, o ListOpts) (page.Page[compartmentWire], error) {
+func validateCompartmentList(f CompartmentFilter, o ListOpts) *APIError {
 	if f.CompartmentID == "" {
-		return page.Page[compartmentWire]{}, errMissing("compartmentId is required")
+		return errMissing("compartmentId is required")
 	}
 
 	if aerr := validListOpts(o, "TIMECREATED", "NAME"); aerr != nil {
-		return page.Page[compartmentWire]{}, aerr
+		return aerr
 	}
 
-	if f.AccessLevel != "" && !strings.EqualFold(f.AccessLevel, "ANY") && !strings.EqualFold(f.AccessLevel, "ACCESSIBLE") {
-		return page.Page[compartmentWire]{}, errParam("accessLevel must be ANY or ACCESSIBLE")
+	if f.AccessLevel != "" && !strings.EqualFold(f.AccessLevel, "ANY") &&
+		!strings.EqualFold(f.AccessLevel, "ACCESSIBLE") {
+		return errParam("accessLevel must be ANY or ACCESSIBLE")
 	}
 
-	if aerr := validState(f.State, stateCreating, stateActive, "INACTIVE", stateDeleting, stateDeleted); aerr != nil {
-		return page.Page[compartmentWire]{}, aerr
+	if aerr := validState(
+		f.State,
+		stateCreating,
+		stateActive,
+		stateInactive,
+		stateDeleting,
+		stateDeleted,
+	); aerr != nil {
+		return aerr
 	}
 
 	if f.Subtree && f.CompartmentID != TenancyID {
-		return page.Page[compartmentWire]{}, errParam("compartmentIdInSubtree can only be set when listing the tenancy")
+		return errParam("compartmentIdInSubtree can only be set when listing the tenancy")
+	}
+
+	return nil
+}
+
+// ListCompartments lists the children (or the whole subtree) of a compartment.
+func (b *InMemoryBackend) ListCompartments(f CompartmentFilter, o ListOpts) (page.Page[compartmentWire], error) {
+	if aerr := validateCompartmentList(f, o); aerr != nil {
+		return page.Page[compartmentWire]{}, aerr
 	}
 
 	b.mu.RLock("ListCompartments")
@@ -284,7 +300,10 @@ func (b *InMemoryBackend) ListCompartments(f CompartmentFilter, o ListOpts) (pag
 }
 
 // UpdateCompartment changes name, description and tags.
-func (b *InMemoryBackend) UpdateCompartment(id, ifMatch string, in UpdateCompartmentIn) (compartmentWire, string, error) {
+func (b *InMemoryBackend) UpdateCompartment(
+	id, ifMatch string,
+	in UpdateCompartmentIn,
+) (compartmentWire, string, error) {
 	b.mu.Lock("UpdateCompartment")
 	defer b.mu.Unlock()
 
@@ -388,11 +407,13 @@ func (b *InMemoryBackend) DeleteCompartment(id, ifMatch string) (string, error) 
 	}
 
 	if c.LifecycleState != stateActive {
-		return "", errState("Compartment " + id + " is in state " + c.LifecycleState + "; the operation requires ACTIVE")
+		return "", errState(
+			"Compartment " + id + " is in state " + c.LifecycleState + "; the operation requires ACTIVE",
+		)
 	}
 
 	if what := b.compartmentContents(id); what != "" {
-		return "", errCode(http.StatusConflict, "Conflict", "Compartment "+id+" is not empty: it still contains "+what)
+		return "", errConflict("Conflict", "Compartment "+id+" is not empty: it still contains "+what)
 	}
 
 	finish := b.nowUTC().Add(transitionWindow)
@@ -424,7 +445,9 @@ func (b *InMemoryBackend) MoveCompartment(id, target, ifMatch string) (string, e
 	}
 
 	if c.LifecycleState != stateActive {
-		return "", errState("Compartment " + id + " is in state " + c.LifecycleState + "; the operation requires ACTIVE")
+		return "", errState(
+			"Compartment " + id + " is in state " + c.LifecycleState + "; the operation requires ACTIVE",
+		)
 	}
 
 	if aerr = b.activeParent(target); aerr != nil {
@@ -459,11 +482,15 @@ func (b *InMemoryBackend) RecoverCompartment(id string) (compartmentWire, string
 	}
 
 	if c.LifecycleState != stateDeleted {
-		return compartmentWire{}, "", errState("Compartment " + id + " is in state " + c.LifecycleState + "; the operation requires DELETED")
+		return compartmentWire{}, "", errState(
+			"Compartment " + id + " is in state " + c.LifecycleState + "; the operation requires DELETED",
+		)
 	}
 
 	if c.Internal.TimeDeleted != nil && b.nowUTC().Sub(*c.Internal.TimeDeleted) > recoverWindow {
-		return compartmentWire{}, "", errState("Compartment " + id + " was deleted more than 90 days ago and cannot be recovered")
+		return compartmentWire{}, "", errState(
+			"Compartment " + id + " was deleted more than 90 days ago and cannot be recovered",
+		)
 	}
 
 	if aerr = b.activeParent(c.CompartmentID); aerr != nil {

@@ -204,3 +204,41 @@ func validState(state string, allowed ...string) *APIError {
 }
 
 func matchState(have, want string) bool { return want == "" || strings.EqualFold(have, want) }
+
+type listAccess[T any] struct {
+	fields func(*T) (name, state string, created time.Time, seq int64)
+}
+
+// listNamed filters a name-keyed resource map by name and state, sorts and pages it.
+func listNamed[T, W any](m map[string]*T, f NameFilter, o ListOpts, acc listAccess[T], view func(*T) W) page.Page[W] {
+	var all []*T
+
+	for _, v := range m {
+		name, state, _, _ := acc.fields(v)
+		if (f.Name == "" || name == f.Name) && matchState(state, f.State) {
+			all = append(all, v)
+		}
+	}
+
+	pg := paginate(all, o, func(v *T) string { return nameOf(acc, v) },
+		func(v *T) (time.Time, int64) { return stampOf(acc, v) })
+
+	out := make([]W, 0, len(pg.Data))
+	for _, v := range pg.Data {
+		out = append(out, view(v))
+	}
+
+	return page.Page[W]{Data: out, Next: pg.Next}
+}
+
+func nameOf[T any](acc listAccess[T], v *T) string {
+	name, _, _, _ := acc.fields(v)
+
+	return name
+}
+
+func stampOf[T any](acc listAccess[T], v *T) (time.Time, int64) {
+	_, _, created, seq := acc.fields(v)
+
+	return created, seq
+}

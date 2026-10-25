@@ -34,14 +34,14 @@ func TestCompartmentLifecycle(t *testing.T) {
 
 	u, err := e.client.UpdateCompartment(ctx, identity.UpdateCompartmentRequest{
 		CompartmentId: c.Id, IfMatch: g.Etag,
-		UpdateCompartmentDetails: identity.UpdateCompartmentDetails{Description: new("new"), Name: new("prod2")},
+		Description: new("new"), Name: new("prod2"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "prod2", *u.Name)
 
 	_, err = e.client.UpdateCompartment(ctx, identity.UpdateCompartmentRequest{
 		CompartmentId: c.Id, IfMatch: g.Etag,
-		UpdateCompartmentDetails: identity.UpdateCompartmentDetails{Description: new("stale")},
+		Description: new("stale"),
 	})
 	assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 
@@ -110,38 +110,38 @@ func TestCompartmentErrors(t *testing.T) {
 	}{
 		{"duplicate name", func() error {
 			_, err := e.client.CreateCompartment(t.Context(), identity.CreateCompartmentRequest{
-				CreateCompartmentDetails: identity.CreateCompartmentDetails{
-					CompartmentId: parent.Id, Name: new("CHILD"), Description: new("d"),
-				},
+				CompartmentId: parent.Id, Name: new("CHILD"), Description: new("d"),
 			})
 
 			return err
 		}, "CompartmentAlreadyExists", http.StatusConflict},
 		{"missing parent", func() error {
 			_, err := e.client.CreateCompartment(t.Context(), identity.CreateCompartmentRequest{
-				CreateCompartmentDetails: identity.CreateCompartmentDetails{
-					CompartmentId: new("ocid1.compartment.oc1..nope"), Name: new("x"), Description: new("d"),
-				},
+				CompartmentId: new("ocid1.compartment.oc1..nope"), Name: new("x"), Description: new("d"),
 			})
 
 			return err
 		}, "NotAuthorizedOrNotFound", http.StatusNotFound},
 		{"empty description", func() error {
 			_, err := e.client.CreateCompartment(t.Context(), identity.CreateCompartmentRequest{
-				CreateCompartmentDetails: identity.CreateCompartmentDetails{
-					CompartmentId: parent.Id, Name: new("x"), Description: new(" "),
-				},
+				CompartmentId: parent.Id, Name: new("x"), Description: new(" "),
 			})
 
 			return err
 		}, "MissingParameter", http.StatusBadRequest},
 		{"delete non-empty", func() error {
-			_, err := e.client.DeleteCompartment(t.Context(), identity.DeleteCompartmentRequest{CompartmentId: parent.Id})
+			_, err := e.client.DeleteCompartment(
+				t.Context(),
+				identity.DeleteCompartmentRequest{CompartmentId: parent.Id},
+			)
 
 			return err
 		}, "Conflict", http.StatusConflict},
 		{"delete root", func() error {
-			_, err := e.client.DeleteCompartment(t.Context(), identity.DeleteCompartmentRequest{CompartmentId: new(testTenancy)})
+			_, err := e.client.DeleteCompartment(
+				t.Context(),
+				identity.DeleteCompartmentRequest{CompartmentId: new(testTenancy)},
+			)
 
 			return err
 		}, "InvalidParameter", http.StatusBadRequest},
@@ -154,14 +154,17 @@ func TestCompartmentErrors(t *testing.T) {
 		}, "InvalidParameter", http.StatusBadRequest},
 		{"move into descendant", func() error {
 			_, err := e.client.MoveCompartment(t.Context(), identity.MoveCompartmentRequest{
-				CompartmentId:          parent.Id,
-				MoveCompartmentDetails: identity.MoveCompartmentDetails{TargetCompartmentId: child.Id},
+				CompartmentId:       parent.Id,
+				TargetCompartmentId: child.Id,
 			})
 
 			return err
 		}, "InvalidParameter", http.StatusBadRequest},
 		{"recover active", func() error {
-			_, err := e.client.RecoverCompartment(t.Context(), identity.RecoverCompartmentRequest{CompartmentId: parent.Id})
+			_, err := e.client.RecoverCompartment(
+				t.Context(),
+				identity.RecoverCompartmentRequest{CompartmentId: parent.Id},
+			)
 
 			return err
 		}, "IncorrectState", http.StatusConflict},
@@ -193,34 +196,38 @@ func TestCompartmentDepthAndListing(t *testing.T) {
 	}
 
 	_, err := e.client.CreateCompartment(ctx, identity.CreateCompartmentRequest{
-		CreateCompartmentDetails: identity.CreateCompartmentDetails{
-			CompartmentId: new(parent), Name: new("level7"), Description: new("too deep"),
-		},
+		CompartmentId: new(parent), Name: new("level7"), Description: new("too deep"),
 	})
 	se := svcErr(t, err)
 	assert.Equal(t, "LimitExceeded", se.GetCode())
 
+	root, sub := new(testTenancy), new(true)
 	tests := []struct {
-		name    string
 		req     identity.ListCompartmentsRequest
+		name    string
 		wantLen int
 	}{
-		{"direct children", identity.ListCompartmentsRequest{CompartmentId: new(testTenancy)}, 1},
-		{"whole subtree", identity.ListCompartmentsRequest{CompartmentId: new(testTenancy), CompartmentIdInSubtree: new(true)}, 6},
-		{"by name", identity.ListCompartmentsRequest{
-			CompartmentId: new(testTenancy), CompartmentIdInSubtree: new(true), Name: new("level3"),
-		}, 1},
-		{"active only", identity.ListCompartmentsRequest{
-			CompartmentId: new(testTenancy), CompartmentIdInSubtree: new(true),
-			LifecycleState: identity.CompartmentLifecycleStateActive, AccessLevel: identity.ListCompartmentsAccessLevelAny,
-		}, 6},
-		{"deleted only", identity.ListCompartmentsRequest{
-			CompartmentId: new(testTenancy), CompartmentIdInSubtree: new(true),
-			LifecycleState: identity.CompartmentLifecycleStateDeleted,
-		}, 0},
-		{"paged", identity.ListCompartmentsRequest{
-			CompartmentId: new(testTenancy), CompartmentIdInSubtree: new(true), Limit: new(2),
-		}, 2},
+		{name: "direct children", wantLen: 1, req: identity.ListCompartmentsRequest{CompartmentId: root}},
+		{
+			name:    "whole subtree",
+			wantLen: 6,
+			req:     identity.ListCompartmentsRequest{CompartmentId: root, CompartmentIdInSubtree: sub},
+		},
+		{name: "by name", wantLen: 1, req: identity.ListCompartmentsRequest{
+			CompartmentId: root, CompartmentIdInSubtree: sub, Name: new("level3"),
+		}},
+		{name: "active only", wantLen: 6, req: identity.ListCompartmentsRequest{
+			CompartmentId:          root,
+			CompartmentIdInSubtree: sub,
+			LifecycleState:         identity.CompartmentLifecycleStateActive,
+			AccessLevel:            identity.ListCompartmentsAccessLevelAny,
+		}},
+		{name: "deleted only", wantLen: 0, req: identity.ListCompartmentsRequest{
+			CompartmentId: root, CompartmentIdInSubtree: sub, LifecycleState: identity.CompartmentLifecycleStateDeleted,
+		}},
+		{name: "paged", wantLen: 2, req: identity.ListCompartmentsRequest{
+			CompartmentId: root, CompartmentIdInSubtree: sub, Limit: new(2),
+		}},
 	}
 
 	for _, tt := range tests {
@@ -234,7 +241,12 @@ func TestCompartmentDepthAndListing(t *testing.T) {
 	}
 
 	page1, err := e.client.ListCompartments(ctx, identity.ListCompartmentsRequest{
-		CompartmentId: new(testTenancy), CompartmentIdInSubtree: new(true), Limit: new(4), SortBy: identity.ListCompartmentsSortByName,
+		CompartmentId: new(
+			testTenancy,
+		),
+		CompartmentIdInSubtree: new(true),
+		Limit:                  new(4),
+		SortBy:                 identity.ListCompartmentsSortByName,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, page1.OpcNextPage)
@@ -261,17 +273,17 @@ func TestCompartmentMove(t *testing.T) {
 	e.mkCompartment(t, *b.Id, "leaf")
 
 	_, err := e.client.MoveCompartment(ctx, identity.MoveCompartmentRequest{
-		CompartmentId: leaf.Id, MoveCompartmentDetails: identity.MoveCompartmentDetails{TargetCompartmentId: b.Id},
+		CompartmentId: leaf.Id, TargetCompartmentId: b.Id,
 	})
 	assert.Equal(t, "CompartmentAlreadyExists", svcErr(t, err).GetCode())
 
 	_, err = e.client.UpdateCompartment(ctx, identity.UpdateCompartmentRequest{
-		CompartmentId: leaf.Id, UpdateCompartmentDetails: identity.UpdateCompartmentDetails{Name: new("moved")},
+		CompartmentId: leaf.Id, Name: new("moved"),
 	})
 	require.NoError(t, err)
 
 	mv, err := e.client.MoveCompartment(ctx, identity.MoveCompartmentRequest{
-		CompartmentId: leaf.Id, MoveCompartmentDetails: identity.MoveCompartmentDetails{TargetCompartmentId: b.Id},
+		CompartmentId: leaf.Id, TargetCompartmentId: b.Id,
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, mv.OpcWorkRequestId)
@@ -281,7 +293,8 @@ func TestCompartmentMove(t *testing.T) {
 	assert.Equal(t, *b.Id, *got.CompartmentId)
 
 	_, err = e.client.MoveCompartment(ctx, identity.MoveCompartmentRequest{
-		CompartmentId: leaf.Id, MoveCompartmentDetails: identity.MoveCompartmentDetails{TargetCompartmentId: new(oci.TenancyID)},
+		CompartmentId:       leaf.Id,
+		TargetCompartmentId: new(oci.TenancyID),
 	})
 	require.NoError(t, err)
 }

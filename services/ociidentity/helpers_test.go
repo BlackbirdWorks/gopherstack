@@ -132,9 +132,8 @@ func svcErr(t *testing.T, err error) common.ServiceError {
 func (e *env) mkUser(t *testing.T, name string) identity.User {
 	t.Helper()
 
-	r, err := e.client.CreateUser(t.Context(), identity.CreateUserRequest{CreateUserDetails: identity.CreateUserDetails{
-		CompartmentId: new(testTenancy), Name: new(name), Description: new("test user " + name),
-	}})
+	r, err := e.client.CreateUser(t.Context(), identity.CreateUserRequest{
+		CompartmentId: new(testTenancy), Name: new(name), Description: new("test user " + name)})
 	require.NoError(t, err)
 
 	return r.User
@@ -143,9 +142,11 @@ func (e *env) mkUser(t *testing.T, name string) identity.User {
 func (e *env) mkGroup(t *testing.T, name string) identity.Group {
 	t.Helper()
 
-	r, err := e.client.CreateGroup(t.Context(), identity.CreateGroupRequest{CreateGroupDetails: identity.CreateGroupDetails{
-		CompartmentId: new(testTenancy), Name: new(name), Description: new("test group " + name),
-	}})
+	r, err := e.client.CreateGroup(
+		t.Context(),
+		identity.CreateGroupRequest{
+			CompartmentId: new(testTenancy), Name: new(name), Description: new("test group " + name)},
+	)
 	require.NoError(t, err)
 
 	return r.Group
@@ -155,9 +156,7 @@ func (e *env) mkCompartment(t *testing.T, parent, name string) identity.Compartm
 	t.Helper()
 
 	r, err := e.client.CreateCompartment(t.Context(), identity.CreateCompartmentRequest{
-		CreateCompartmentDetails: identity.CreateCompartmentDetails{
-			CompartmentId: new(parent), Name: new(name), Description: new("compartment " + name),
-		},
+		CompartmentId: new(parent), Name: new(name), Description: new("compartment " + name),
 	})
 	require.NoError(t, err)
 

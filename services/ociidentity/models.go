@@ -74,16 +74,16 @@ type Credential struct {
 
 // User is a stored IAM user with its credentials.
 type User struct {
+	UIPasswordCreated *time.Time `json:"uiPasswordCreated,omitempty"`
 	Meta
-	UIPasswordCreated *time.Time   `json:"uiPasswordCreated,omitempty"`
-	Email             string       `json:"email,omitempty"`
-	DBUserName        string       `json:"dbUserName,omitempty"`
-	Capabilities      Capabilities `json:"capabilities"`
-	APIKeys           []APIKey     `json:"apiKeys"`
-	AuthTokens        []Credential `json:"authTokens"`
-	SecretKeys        []Credential `json:"secretKeys"`
-	SMTP              []Credential `json:"smtp"`
-	Internal          Internal     `json:"internal"`
+	Email        string       `json:"email,omitempty"`
+	DBUserName   string       `json:"dbUserName,omitempty"`
+	Internal     Internal     `json:"internal"`
+	APIKeys      []APIKey     `json:"apiKeys"`
+	AuthTokens   []Credential `json:"authTokens"`
+	SecretKeys   []Credential `json:"secretKeys"`
+	SMTP         []Credential `json:"smtp"`
+	Capabilities Capabilities `json:"capabilities"`
 }
 
 type userWire struct {

@@ -67,8 +67,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.compartment, b.users, b.groups, b.members, b.dynGroups = snap.Compart, snap.Users, snap.Groups, snap.Members, snap.DynGroups
-	b.policies, b.tagNS, b.tagDefs, b.tagDefaults, b.workReqs = snap.Policies, snap.TagNS, snap.TagDefs, snap.TagDefaults, snap.WorkReqs
+	b.compartment, b.users, b.groups = snap.Compart, snap.Users, snap.Groups
+	b.members, b.dynGroups, b.policies = snap.Members, snap.DynGroups, snap.Policies
+	b.tagNS, b.tagDefs, b.tagDefaults, b.workReqs = snap.TagNS, snap.TagDefs, snap.TagDefaults, snap.WorkReqs
 	b.seq = snap.Seq
 
 	if !snap.Created.IsZero() {

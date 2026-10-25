@@ -25,18 +25,22 @@ func TestUsersAndGroups(t *testing.T) {
 	assert.True(t, *u.Capabilities.CanUseApiKeys)
 
 	upd, err := e.client.UpdateUser(ctx, identity.UpdateUserRequest{
-		UserId: u.Id, UpdateUserDetails: identity.UpdateUserDetails{Email: new("a@example.com"), Description: new("changed")},
+		UserId: u.Id,
+		Email:  new("a@example.com"), Description: new("changed"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "a@example.com", *upd.Email)
 
 	m, err := e.client.AddUserToGroup(ctx, identity.AddUserToGroupRequest{
-		AddUserToGroupDetails: identity.AddUserToGroupDetails{UserId: u.Id, GroupId: g.Id},
+		UserId: u.Id, GroupId: g.Id,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, *u.Id, *m.UserId)
 
-	got, err := e.client.GetUserGroupMembership(ctx, identity.GetUserGroupMembershipRequest{UserGroupMembershipId: m.Id})
+	got, err := e.client.GetUserGroupMembership(
+		ctx,
+		identity.GetUserGroupMembershipRequest{UserGroupMembershipId: m.Id},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, *g.Id, *got.GroupId)
 
@@ -52,76 +56,6 @@ func TestUsersAndGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, byGroup.Items)
 
-	tests := []struct {
-		name     string
-		call     func() error
-		wantCode string
-		status   int
-	}{
-		{"duplicate membership", func() error {
-			_, err := e.client.AddUserToGroup(ctx, identity.AddUserToGroupRequest{
-				AddUserToGroupDetails: identity.AddUserToGroupDetails{UserId: u.Id, GroupId: g.Id},
-			})
-
-			return err
-		}, "Conflict", http.StatusConflict},
-		{"delete user in group", func() error {
-			_, err := e.client.DeleteUser(ctx, identity.DeleteUserRequest{UserId: u.Id})
-
-			return err
-		}, "Conflict", http.StatusConflict},
-		{"delete non-empty group", func() error {
-			_, err := e.client.DeleteGroup(ctx, identity.DeleteGroupRequest{GroupId: g.Id})
-
-			return err
-		}, "Conflict", http.StatusConflict},
-		{"duplicate user name", func() error {
-			_, err := e.client.CreateUser(ctx, identity.CreateUserRequest{CreateUserDetails: identity.CreateUserDetails{
-				CompartmentId: new(testTenancy), Name: new("ALICE"), Description: new("d"),
-			}})
-
-			return err
-		}, "Conflict", http.StatusConflict},
-		{"user outside tenancy", func() error {
-			_, err := e.client.CreateUser(ctx, identity.CreateUserRequest{CreateUserDetails: identity.CreateUserDetails{
-				CompartmentId: new("ocid1.compartment.oc1..x"), Name: new("bob"), Description: new("d"),
-			}})
-
-			return err
-		}, "InvalidParameter", http.StatusBadRequest},
-		{"bad email", func() error {
-			_, err := e.client.CreateUser(ctx, identity.CreateUserRequest{CreateUserDetails: identity.CreateUserDetails{
-				CompartmentId: new(testTenancy), Name: new("bob"), Description: new("d"), Email: new("nope"),
-			}})
-
-			return err
-		}, "InvalidParameter", http.StatusBadRequest},
-		{"unknown user in membership", func() error {
-			_, err := e.client.AddUserToGroup(ctx, identity.AddUserToGroupRequest{
-				AddUserToGroupDetails: identity.AddUserToGroupDetails{UserId: new("ocid1.user.oc1..x"), GroupId: g.Id},
-			})
-
-			return err
-		}, "NotAuthorizedOrNotFound", http.StatusNotFound},
-		{"get unknown group", func() error {
-			_, err := e.client.GetGroup(ctx, identity.GetGroupRequest{GroupId: new("ocid1.group.oc1..x")})
-
-			return err
-		}, "NotAuthorizedOrNotFound", http.StatusNotFound},
-	}
-
-	t.Run("errors", func(t *testing.T) {
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
-
-				se := svcErr(t, tt.call())
-				assert.Equal(t, tt.status, se.GetHTTPStatusCode())
-				assert.Equal(t, tt.wantCode, se.GetCode())
-			})
-		}
-	})
-
 	_, err = e.client.RemoveUserFromGroup(ctx, identity.RemoveUserFromGroupRequest{UserGroupMembershipId: m.Id})
 	require.NoError(t, err)
 
@@ -133,6 +67,83 @@ func TestUsersAndGroups(t *testing.T) {
 
 	_, err = e.client.GetUser(ctx, identity.GetUserRequest{UserId: u.Id})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
+}
+
+func TestUserGroupErrors(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	ctx := t.Context()
+	u := e.mkUser(t, "alice")
+	g := e.mkGroup(t, "admins")
+
+	_, err := e.client.AddUserToGroup(ctx, identity.AddUserToGroupRequest{UserId: u.Id, GroupId: g.Id})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		call     func() error
+		wantCode string
+		status   int
+	}{
+		{"duplicate membership", func() error {
+			_, cerr := e.client.AddUserToGroup(ctx, identity.AddUserToGroupRequest{
+				UserId: u.Id, GroupId: g.Id,
+			})
+
+			return cerr
+		}, "Conflict", http.StatusConflict},
+		{"delete user in group", func() error {
+			_, cerr := e.client.DeleteUser(ctx, identity.DeleteUserRequest{UserId: u.Id})
+
+			return cerr
+		}, "Conflict", http.StatusConflict},
+		{"delete non-empty group", func() error {
+			_, cerr := e.client.DeleteGroup(ctx, identity.DeleteGroupRequest{GroupId: g.Id})
+
+			return cerr
+		}, "Conflict", http.StatusConflict},
+		{"duplicate user name", func() error {
+			_, cerr := e.client.CreateUser(ctx, identity.CreateUserRequest{
+				CompartmentId: new(testTenancy), Name: new("ALICE"), Description: new("d")})
+
+			return cerr
+		}, "Conflict", http.StatusConflict},
+		{"user outside tenancy", func() error {
+			_, cerr := e.client.CreateUser(ctx, identity.CreateUserRequest{
+				CompartmentId: new("ocid1.compartment.oc1..x"), Name: new("bob"), Description: new("d")})
+
+			return cerr
+		}, "InvalidParameter", http.StatusBadRequest},
+		{"bad email", func() error {
+			_, cerr := e.client.CreateUser(ctx, identity.CreateUserRequest{
+				CompartmentId: new(testTenancy), Name: new("bob"), Description: new("d"), Email: new("nope")})
+
+			return cerr
+		}, "InvalidParameter", http.StatusBadRequest},
+		{"unknown user in membership", func() error {
+			_, cerr := e.client.AddUserToGroup(ctx, identity.AddUserToGroupRequest{
+				UserId: new("ocid1.user.oc1..x"), GroupId: g.Id,
+			})
+
+			return cerr
+		}, "NotAuthorizedOrNotFound", http.StatusNotFound},
+		{"get unknown group", func() error {
+			_, cerr := e.client.GetGroup(ctx, identity.GetGroupRequest{GroupId: new("ocid1.group.oc1..x")})
+
+			return cerr
+		}, "NotAuthorizedOrNotFound", http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			se := svcErr(t, tt.call())
+			assert.Equal(t, tt.status, se.GetHTTPStatusCode())
+			assert.Equal(t, tt.wantCode, se.GetCode())
+		})
+	}
 }
 
 func TestListUsersPaging(t *testing.T) {
@@ -197,10 +208,8 @@ func TestDynamicGroups(t *testing.T) {
 			t.Parallel()
 
 			r, err := e.client.CreateDynamicGroup(ctx, identity.CreateDynamicGroupRequest{
-				CreateDynamicGroupDetails: identity.CreateDynamicGroupDetails{
-					CompartmentId: new(testTenancy), Name: new("dg" + strconv.Itoa(i)), Description: new("d"),
-					MatchingRule: new(tt.rule),
-				},
+				CompartmentId: new(testTenancy), Name: new("dg" + strconv.Itoa(i)), Description: new("d"),
+				MatchingRule: new(tt.rule),
 			})
 			if tt.wantErr {
 				se := svcErr(t, err)
@@ -215,7 +224,12 @@ func TestDynamicGroups(t *testing.T) {
 	}
 
 	dg := identity.CreateDynamicGroupDetails{
-		CompartmentId: new(testTenancy), Name: new("main"), Description: new("d"), MatchingRule: new("ANY {instance.id = 'x'}"),
+		CompartmentId: new(
+			testTenancy,
+		),
+		Name:         new("main"),
+		Description:  new("d"),
+		MatchingRule: new("ANY {instance.id = 'x'}"),
 	}
 	created, err := e.client.CreateDynamicGroup(ctx, identity.CreateDynamicGroupRequest{CreateDynamicGroupDetails: dg})
 	require.NoError(t, err)
@@ -224,14 +238,14 @@ func TestDynamicGroups(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.client.UpdateDynamicGroup(ctx, identity.UpdateDynamicGroupRequest{
-		DynamicGroupId:            created.Id,
-		UpdateDynamicGroupDetails: identity.UpdateDynamicGroupDetails{MatchingRule: new("bogus")},
+		DynamicGroupId: created.Id,
+		MatchingRule:   new("bogus"),
 	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 
 	up, err := e.client.UpdateDynamicGroup(ctx, identity.UpdateDynamicGroupRequest{
-		DynamicGroupId:            created.Id,
-		UpdateDynamicGroupDetails: identity.UpdateDynamicGroupDetails{MatchingRule: new("ALL {instance.id = 'y'}")},
+		DynamicGroupId: created.Id,
+		MatchingRule:   new("ALL {instance.id = 'y'}"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "ALL {instance.id = 'y'}", *up.MatchingRule)
@@ -253,19 +267,15 @@ func TestDynamicGroupLimit(t *testing.T) {
 
 	for i := range 50 {
 		_, err := e.client.CreateDynamicGroup(t.Context(), identity.CreateDynamicGroupRequest{
-			CreateDynamicGroupDetails: identity.CreateDynamicGroupDetails{
-				CompartmentId: new(oci.TenancyID), Name: new("g" + strconv.Itoa(i)), Description: new("d"),
-				MatchingRule: new("ANY {instance.id = 'x'}"),
-			},
+			CompartmentId: new(oci.TenancyID), Name: new("g" + strconv.Itoa(i)), Description: new("d"),
+			MatchingRule: new("ANY {instance.id = 'x'}"),
 		})
 		require.NoError(t, err)
 	}
 
 	_, err := e.client.CreateDynamicGroup(t.Context(), identity.CreateDynamicGroupRequest{
-		CreateDynamicGroupDetails: identity.CreateDynamicGroupDetails{
-			CompartmentId: new(oci.TenancyID), Name: new("one-more"), Description: new("d"),
-			MatchingRule: new("ANY {instance.id = 'x'}"),
-		},
+		CompartmentId: new(oci.TenancyID), Name: new("one-more"), Description: new("d"),
+		MatchingRule: new("ANY {instance.id = 'x'}"),
 	})
 	assert.Equal(t, "LimitExceeded", svcErr(t, err).GetCode())
 }

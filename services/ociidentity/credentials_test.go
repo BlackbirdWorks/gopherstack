@@ -23,7 +23,7 @@ func TestAPIKeys(t *testing.T) {
 
 	upload := func(pem string) (identity.UploadApiKeyResponse, error) {
 		return e.client.UploadApiKey(ctx, identity.UploadApiKeyRequest{
-			UserId: u.Id, CreateApiKeyDetails: identity.CreateApiKeyDetails{Key: new(pem)},
+			UserId: u.Id, Key: new(pem),
 		})
 	}
 
@@ -63,7 +63,7 @@ func TestAPIKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = e.client.UploadApiKey(ctx, identity.UploadApiKeyRequest{
-		UserId: new("ocid1.user.oc1..none"), CreateApiKeyDetails: identity.CreateApiKeyDetails{Key: new(kps[0].pubPEM)},
+		UserId: new("ocid1.user.oc1..none"), Key: new(kps[0].pubPEM),
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
@@ -79,19 +79,19 @@ func TestSecretCredentials(t *testing.T) {
 		t.Parallel()
 
 		c1, err := e.client.CreateAuthToken(ctx, identity.CreateAuthTokenRequest{
-			UserId: u.Id, CreateAuthTokenDetails: identity.CreateAuthTokenDetails{Description: new("ci")},
+			UserId: u.Id, Description: new("ci"),
 		})
 		require.NoError(t, err)
 		require.NotNil(t, c1.Token)
 		assert.Len(t, *c1.Token, 20)
 
 		_, err = e.client.CreateAuthToken(ctx, identity.CreateAuthTokenRequest{
-			UserId: u.Id, CreateAuthTokenDetails: identity.CreateAuthTokenDetails{Description: new("two")},
+			UserId: u.Id, Description: new("two"),
 		})
 		require.NoError(t, err)
 
 		_, err = e.client.CreateAuthToken(ctx, identity.CreateAuthTokenRequest{
-			UserId: u.Id, CreateAuthTokenDetails: identity.CreateAuthTokenDetails{Description: new("three")},
+			UserId: u.Id, Description: new("three"),
 		})
 		assert.Equal(t, "LimitExceeded", svcErr(t, err).GetCode())
 
@@ -104,7 +104,9 @@ func TestSecretCredentials(t *testing.T) {
 		}
 
 		up, err := e.client.UpdateAuthToken(ctx, identity.UpdateAuthTokenRequest{
-			UserId: u.Id, AuthTokenId: c1.Id, UpdateAuthTokenDetails: identity.UpdateAuthTokenDetails{Description: new("renamed")},
+			UserId:      u.Id,
+			AuthTokenId: c1.Id,
+			Description: new("renamed"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "renamed", *up.Description)
@@ -117,7 +119,7 @@ func TestSecretCredentials(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 		_, err = e.client.CreateAuthToken(ctx, identity.CreateAuthTokenRequest{
-			UserId: u.Id, CreateAuthTokenDetails: identity.CreateAuthTokenDetails{Description: new(" ")},
+			UserId: u.Id, Description: new(" "),
 		})
 		assert.Equal(t, "MissingParameter", svcErr(t, err).GetCode())
 	})
@@ -126,7 +128,8 @@ func TestSecretCredentials(t *testing.T) {
 		t.Parallel()
 
 		c1, err := e.client.CreateCustomerSecretKey(ctx, identity.CreateCustomerSecretKeyRequest{
-			UserId: u.Id, CreateCustomerSecretKeyDetails: identity.CreateCustomerSecretKeyDetails{DisplayName: new("s3")},
+			UserId:      u.Id,
+			DisplayName: new("s3"),
 		})
 		require.NoError(t, err)
 		require.NotNil(t, c1.Key)
@@ -140,18 +143,20 @@ func TestSecretCredentials(t *testing.T) {
 
 		up, err := e.client.UpdateCustomerSecretKey(ctx, identity.UpdateCustomerSecretKeyRequest{
 			UserId: u.Id, CustomerSecretKeyId: c1.Id,
-			UpdateCustomerSecretKeyDetails: identity.UpdateCustomerSecretKeyDetails{DisplayName: new("s3b")},
+			DisplayName: new("s3b"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "s3b", *up.DisplayName)
 
 		_, err = e.client.CreateCustomerSecretKey(ctx, identity.CreateCustomerSecretKeyRequest{
-			UserId: u.Id, CreateCustomerSecretKeyDetails: identity.CreateCustomerSecretKeyDetails{DisplayName: new("two")},
+			UserId:      u.Id,
+			DisplayName: new("two"),
 		})
 		require.NoError(t, err)
 
 		_, err = e.client.CreateCustomerSecretKey(ctx, identity.CreateCustomerSecretKeyRequest{
-			UserId: u.Id, CreateCustomerSecretKeyDetails: identity.CreateCustomerSecretKeyDetails{DisplayName: new("three")},
+			UserId:      u.Id,
+			DisplayName: new("three"),
 		})
 		assert.Equal(t, "LimitExceeded", svcErr(t, err).GetCode())
 
@@ -165,7 +170,7 @@ func TestSecretCredentials(t *testing.T) {
 		t.Parallel()
 
 		c1, err := e.client.CreateSmtpCredential(ctx, identity.CreateSmtpCredentialRequest{
-			UserId: u.Id, CreateSmtpCredentialDetails: identity.CreateSmtpCredentialDetails{Description: new("mail")},
+			UserId: u.Id, Description: new("mail"),
 		})
 		require.NoError(t, err)
 		require.NotNil(t, c1.Password)
@@ -178,16 +183,19 @@ func TestSecretCredentials(t *testing.T) {
 
 		_, err = e.client.UpdateSmtpCredential(ctx, identity.UpdateSmtpCredentialRequest{
 			UserId: u.Id, SmtpCredentialId: c1.Id,
-			UpdateSmtpCredentialDetails: identity.UpdateSmtpCredentialDetails{Description: new("mail2")},
+			Description: new("mail2"),
 		})
 		require.NoError(t, err)
 
-		_, err = e.client.DeleteSmtpCredential(ctx, identity.DeleteSmtpCredentialRequest{UserId: u.Id, SmtpCredentialId: c1.Id})
+		_, err = e.client.DeleteSmtpCredential(
+			ctx,
+			identity.DeleteSmtpCredentialRequest{UserId: u.Id, SmtpCredentialId: c1.Id},
+		)
 		require.NoError(t, err)
 
 		_, err = e.client.CreateSmtpCredential(ctx, identity.CreateSmtpCredentialRequest{
-			UserId:                      new("ocid1.user.oc1..none"),
-			CreateSmtpCredentialDetails: identity.CreateSmtpCredentialDetails{Description: new("x")},
+			UserId:      new("ocid1.user.oc1..none"),
+			Description: new("x"),
 		})
 		assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 	})
@@ -197,7 +205,10 @@ func TestSecretCredentials(t *testing.T) {
 
 		other := e.mkUser(t, "console")
 
-		_, err := e.client.GetUserUIPasswordInformation(ctx, identity.GetUserUIPasswordInformationRequest{UserId: other.Id})
+		_, err := e.client.GetUserUIPasswordInformation(
+			ctx,
+			identity.GetUserUIPasswordInformationRequest{UserId: other.Id},
+		)
 		assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 		r1, err := e.client.CreateOrResetUIPassword(ctx, identity.CreateOrResetUIPasswordRequest{UserId: other.Id})
@@ -209,7 +220,10 @@ func TestSecretCredentials(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEqual(t, *r1.Password, *r2.Password)
 
-		info, err := e.client.GetUserUIPasswordInformation(ctx, identity.GetUserUIPasswordInformationRequest{UserId: other.Id})
+		info, err := e.client.GetUserUIPasswordInformation(
+			ctx,
+			identity.GetUserUIPasswordInformationRequest{UserId: other.Id},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, *other.Id, *info.UserId)
 		assert.Equal(t, identity.UiPasswordInformationLifecycleStateActive, info.LifecycleState)

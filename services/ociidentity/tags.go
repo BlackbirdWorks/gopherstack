@@ -1,7 +1,6 @@
 package ociidentity
 
 import (
-	"net/http"
 	"slices"
 	"time"
 
@@ -120,11 +119,16 @@ func (b *InMemoryBackend) CreateTagNamespace(in CreateTagNamespaceIn) (tagNamesp
 
 	for _, n := range b.tagNS {
 		if n.LifecycleState != stateDeleted && strs.Equal(n.Name, in.Name) {
-			return tagNamespaceWire{}, "", errCode(http.StatusConflict, "TagNamespaceAlreadyExists", "Tag namespace "+in.Name+" already exists in the tenancy")
+			return tagNamespaceWire{}, "", errConflict("TagNamespaceAlreadyExists",
+				"Tag namespace "+in.Name+" already exists in the tenancy",
+			)
 		}
 	}
 
-	n := &TagNamespace{Meta: b.newMeta("tagnamespace", in.CompartmentID, in.Name, in.Description, in.Tags), Internal: b.newInternal()}
+	n := &TagNamespace{
+		Meta:     b.newMeta("tagnamespace", in.CompartmentID, in.Name, in.Description, in.Tags),
+		Internal: b.newInternal(),
+	}
 	b.tagNS[n.ID] = n
 
 	return n.view(), n.Internal.Etag, nil
@@ -144,7 +148,11 @@ func (b *InMemoryBackend) GetTagNamespace(id string) (tagNamespaceWire, string, 
 }
 
 // ListTagNamespaces lists the namespaces of a compartment.
-func (b *InMemoryBackend) ListTagNamespaces(compartment, state string, subtree bool, o ListOpts) (page.Page[tagNamespaceWire], error) {
+func (b *InMemoryBackend) ListTagNamespaces(
+	compartment, state string,
+	subtree bool,
+	o ListOpts,
+) (page.Page[tagNamespaceWire], error) {
 	if compartment == "" {
 		return page.Page[tagNamespaceWire]{}, errMissing("compartmentId is required")
 	}
@@ -167,7 +175,8 @@ func (b *InMemoryBackend) ListTagNamespaces(compartment, state string, subtree b
 	var all []*TagNamespace
 
 	for _, n := range b.tagNS {
-		inScope := n.CompartmentID == compartment || (subtree && (compartment == TenancyID || b.isDescendant(n.CompartmentID, compartment)))
+		inScope := n.CompartmentID == compartment ||
+			(subtree && (compartment == TenancyID || b.isDescendant(n.CompartmentID, compartment)))
 		if inScope && matchState(n.view().LifecycleState, state) {
 			all = append(all, n)
 		}
@@ -185,7 +194,10 @@ func (b *InMemoryBackend) ListTagNamespaces(compartment, state string, subtree b
 }
 
 // UpdateTagNamespace changes description, retirement and tags.
-func (b *InMemoryBackend) UpdateTagNamespace(id, ifMatch string, in UpdateTagNamespaceIn) (tagNamespaceWire, string, error) {
+func (b *InMemoryBackend) UpdateTagNamespace(
+	id, ifMatch string,
+	in UpdateTagNamespaceIn,
+) (tagNamespaceWire, string, error) {
 	b.mu.Lock("UpdateTagNamespace")
 	defer b.mu.Unlock()
 
@@ -232,7 +244,7 @@ func (b *InMemoryBackend) DeleteTagNamespace(id, ifMatch string) error {
 
 	for _, d := range b.tagDefs {
 		if d.NamespaceID == id && d.LifecycleState != stateDeleted {
-			return errCode(http.StatusConflict, "Conflict", "Tag namespace "+id+" still contains tag definitions")
+			return errConflict("Conflict", "Tag namespace "+id+" still contains tag definitions")
 		}
 	}
 
@@ -286,7 +298,9 @@ func (b *InMemoryBackend) CreateTag(nsID string, in CreateTagIn) (tagWire, strin
 	}
 
 	if _, found := b.tagByName(nsID, in.Name); found == nil {
-		return tagWire{}, "", errCode(http.StatusConflict, "TagDefinitionAlreadyExists", "Tag "+in.Name+" already exists in the namespace")
+		return tagWire{}, "", errConflict("TagDefinitionAlreadyExists",
+			"Tag "+in.Name+" already exists in the namespace",
+		)
 	}
 
 	cost := in.IsCostTracking != nil && *in.IsCostTracking
@@ -492,13 +506,22 @@ func (b *InMemoryBackend) CreateTagDefault(in CreateTagDefaultIn) (tagDefaultWir
 
 	for _, t := range b.tagDefaults {
 		if t.CompartmentID == in.CompartmentID && t.TagID == d.ID {
-			return tagDefaultWire{}, "", errCode(http.StatusConflict, "Conflict", "A default for this tag already exists in the compartment")
+			return tagDefaultWire{}, "", errConflict("Conflict",
+				"A default for this tag already exists in the compartment",
+			)
 		}
 	}
 
 	t := &TagDefault{
-		TimeCreated: b.nowUTC(), ID: newOCID("tagdefault"), CompartmentID: in.CompartmentID, NamespaceID: d.NamespaceID,
-		TagID: d.ID, TagName: d.Name, Value: in.Value, IsRequired: in.IsRequired != nil && *in.IsRequired, Seq: b.nextSeq(),
+		TimeCreated:   b.nowUTC(),
+		ID:            newOCID("tagdefault"),
+		CompartmentID: in.CompartmentID,
+		NamespaceID:   d.NamespaceID,
+		TagID:         d.ID,
+		TagName:       d.Name,
+		Value:         in.Value,
+		IsRequired:    in.IsRequired != nil && *in.IsRequired,
+		Seq:           b.nextSeq(),
 	}
 	b.tagDefaults[t.ID] = t
 

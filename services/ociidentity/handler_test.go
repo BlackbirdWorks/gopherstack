@@ -41,17 +41,21 @@ func TestRawErrorEnvelopes(t *testing.T) {
 		method   string
 		path     string
 		body     string
-		status   int
 		wantCode string
+		status   int
 	}{
-		{"unknown path", http.MethodGet, "/20160918/nothing", "", http.StatusNotFound, "NotFound"},
-		{"bad json", http.MethodPost, "/20160918/groups", "{", http.StatusBadRequest, "CannotParseRequest"},
-		{"no body", http.MethodPost, "/20160918/groups", "", http.StatusBadRequest, "MissingParameter"},
-		{"bad access level", http.MethodGet, "/20160918/compartments?compartmentId=" + testTenancy + "&accessLevel=SOME", "",
-			http.StatusBadRequest, "InvalidParameter"},
+		{"unknown path", http.MethodGet, "/20160918/nothing", "", "NotFound", http.StatusNotFound},
+		{"bad json", http.MethodPost, "/20160918/groups", "{", "CannotParseRequest", http.StatusBadRequest},
+		{"no body", http.MethodPost, "/20160918/groups", "", "MissingParameter", http.StatusBadRequest},
+		{
+			"bad access level",
+			http.MethodGet,
+			"/20160918/compartments?compartmentId=" + testTenancy + "&accessLevel=SOME",
+			"",
+			"InvalidParameter", http.StatusBadRequest},
 		{"bad sort order", http.MethodGet, "/20160918/users?compartmentId=" + testTenancy + "&sortOrder=UP", "",
-			http.StatusBadRequest, "InvalidParameter"},
-		{"missing compartment id", http.MethodGet, "/20160918/policies", "", http.StatusBadRequest, "MissingParameter"},
+			"InvalidParameter", http.StatusBadRequest},
+		{"missing compartment id", http.MethodGet, "/20160918/policies", "", "MissingParameter", http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -60,9 +64,12 @@ func TestRawErrorEnvelopes(t *testing.T) {
 
 			resp, body := rawDo(t, tt.method, e.base+tt.path, []byte(tt.body))
 			assert.Equal(t, tt.status, resp.StatusCode)
-			assert.NotEmpty(t, resp.Header.Get("opc-request-id"))
+			assert.NotEmpty(t, resp.Header.Get("Opc-Request-Id"))
 
-			var eb struct{ Code, Message string }
+			var eb struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
 			require.NoError(t, json.Unmarshal(body, &eb))
 			assert.Equal(t, tt.wantCode, eb.Code)
 			assert.NotEmpty(t, eb.Message)
@@ -78,7 +85,9 @@ func TestEnforcedAuthAndAdminEndpoint(t *testing.T) {
 	_, err := e.client.GetTenancy(t.Context(), identity.GetTenancyRequest{TenancyId: new(testTenancy)})
 	assert.Equal(t, http.StatusUnauthorized, svcErr(t, err).GetHTTPStatusCode())
 
-	body, err := json.Marshal(map[string]string{"tenancy": testTenancy, "user": "ocid1.user.oc1..bootstrap", "publicKey": e.kp.pubPEM})
+	body, err := json.Marshal(
+		map[string]string{"tenancy": testTenancy, "user": "ocid1.user.oc1..bootstrap", "publicKey": e.kp.pubPEM},
+	)
 	require.NoError(t, err)
 
 	resp, _ := rawDo(t, http.MethodPost, e.base+"/_gopherstack/oci/keys", body)
@@ -92,7 +101,12 @@ func TestEnforcedAuthAndAdminEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Contains(t, string(lst), "ocid1.user.oc1..bootstrap")
 
-	resp, _ = rawDo(t, http.MethodDelete, e.base+"/_gopherstack/oci/keys?keyId="+testTenancy+"/ocid1.user.oc1..bootstrap/"+e.kp.fprint, nil)
+	resp, _ = rawDo(
+		t,
+		http.MethodDelete,
+		e.base+"/_gopherstack/oci/keys?keyId="+testTenancy+"/ocid1.user.oc1..bootstrap/"+e.kp.fprint,
+		nil,
+	)
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
 	_, err = e.client.GetTenancy(t.Context(), identity.GetTenancyRequest{TenancyId: new(testTenancy)})
@@ -110,12 +124,12 @@ func TestSnapshotRoundTrip(t *testing.T) {
 
 	kp := newKeyPair(t)
 	_, err := e.client.UploadApiKey(ctx, identity.UploadApiKeyRequest{
-		UserId: u.Id, CreateApiKeyDetails: identity.CreateApiKeyDetails{Key: new(kp.pubPEM)},
+		UserId: u.Id, Key: new(kp.pubPEM),
 	})
 	require.NoError(t, err)
 
 	_, err = e.client.AddUserToGroup(ctx, identity.AddUserToGroupRequest{
-		AddUserToGroupDetails: identity.AddUserToGroupDetails{UserId: u.Id, GroupId: g.Id},
+		UserId: u.Id, GroupId: g.Id,
 	})
 	require.NoError(t, err)
 

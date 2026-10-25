@@ -28,7 +28,10 @@ func TestTenancy(t *testing.T) {
 	t.Run("get unknown", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := e.client.GetTenancy(t.Context(), identity.GetTenancyRequest{TenancyId: new("ocid1.tenancy.oc1..other")})
+		_, err := e.client.GetTenancy(
+			t.Context(),
+			identity.GetTenancyRequest{TenancyId: new("ocid1.tenancy.oc1..other")},
+		)
 		se := svcErr(t, err)
 		assert.Equal(t, http.StatusNotFound, se.GetHTTPStatusCode())
 		assert.Equal(t, "NotAuthorizedOrNotFound", se.GetCode())

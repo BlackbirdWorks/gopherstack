@@ -1,7 +1,6 @@
 package ociidentity
 
 import (
-	"net/http"
 	"strings"
 	"time"
 
@@ -145,7 +144,9 @@ func (b *InMemoryBackend) CreateUser(in CreateUserIn) (userWire, string, error) 
 
 	for _, u := range b.users {
 		if strs.Equal(u.Name, in.Name) {
-			return userWire{}, "", errCode(http.StatusConflict, "Conflict", "User "+in.Name+" already exists in the tenancy")
+			return userWire{}, "", errConflict("Conflict",
+				"User "+in.Name+" already exists in the tenancy",
+			)
 		}
 	}
 
@@ -180,23 +181,11 @@ func (b *InMemoryBackend) ListUsers(f NameFilter, o ListOpts) (page.Page[userWir
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
-	var all []*User
+	acc := listAccess[User]{fields: func(v *User) (string, string, time.Time, int64) {
+		return v.Name, v.LifecycleState, v.TimeCreated, v.Internal.Seq
+	}}
 
-	for _, u := range b.users {
-		if (f.Name == "" || u.Name == f.Name) && matchState(u.LifecycleState, f.State) {
-			all = append(all, u)
-		}
-	}
-
-	pg := paginate(all, o, func(u *User) string { return u.Name },
-		func(u *User) (time.Time, int64) { return u.TimeCreated, u.Internal.Seq })
-
-	out := make([]userWire, 0, len(pg.Data))
-	for _, u := range pg.Data {
-		out = append(out, u.view())
-	}
-
-	return page.Page[userWire]{Data: out, Next: pg.Next}, nil
+	return listNamed(b.users, f, o, acc, (*User).view), nil
 }
 
 func (b *InMemoryBackend) checkListArgs(f NameFilter, o ListOpts) *APIError {
@@ -267,7 +256,9 @@ func (b *InMemoryBackend) DeleteUser(id, ifMatch string) error {
 
 	for _, m := range b.members {
 		if m.UserID == id {
-			return errCode(http.StatusConflict, "Conflict", "User "+id+" is still a member of a group; remove it from all groups first")
+			return errConflict("Conflict",
+				"User "+id+" is still a member of a group; remove it from all groups first",
+			)
 		}
 	}
 
@@ -279,8 +270,6 @@ func (b *InMemoryBackend) DeleteUser(id, ifMatch string) error {
 
 	return nil
 }
-
-func (g *Group) view() Meta { return g.Meta }
 
 func (b *InMemoryBackend) groupByID(id string) (*Group, *APIError) {
 	g, ok := b.groups[id]
@@ -314,7 +303,9 @@ func (b *InMemoryBackend) CreateGroup(in CreateGroupIn) (Meta, string, error) {
 
 	for _, g := range b.groups {
 		if strs.Equal(g.Name, in.Name) {
-			return Meta{}, "", errCode(http.StatusConflict, "Conflict", "Group "+in.Name+" already exists in the tenancy")
+			return Meta{}, "", errConflict("Conflict",
+				"Group "+in.Name+" already exists in the tenancy",
+			)
 		}
 	}
 
@@ -346,23 +337,11 @@ func (b *InMemoryBackend) ListGroups(f NameFilter, o ListOpts) (page.Page[Meta],
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
-	var all []*Group
+	acc := listAccess[Group]{fields: func(v *Group) (string, string, time.Time, int64) {
+		return v.Name, v.LifecycleState, v.TimeCreated, v.Internal.Seq
+	}}
 
-	for _, g := range b.groups {
-		if (f.Name == "" || g.Name == f.Name) && matchState(g.LifecycleState, f.State) {
-			all = append(all, g)
-		}
-	}
-
-	pg := paginate(all, o, func(g *Group) string { return g.Name },
-		func(g *Group) (time.Time, int64) { return g.TimeCreated, g.Internal.Seq })
-
-	out := make([]Meta, 0, len(pg.Data))
-	for _, g := range pg.Data {
-		out = append(out, g.Meta)
-	}
-
-	return page.Page[Meta]{Data: out, Next: pg.Next}, nil
+	return listNamed(b.groups, f, o, acc, func(g *Group) Meta { return g.Meta }), nil
 }
 
 // UpdateGroup changes description and tags.
@@ -409,7 +388,7 @@ func (b *InMemoryBackend) DeleteGroup(id, ifMatch string) error {
 
 	for _, m := range b.members {
 		if m.GroupID == id {
-			return errCode(http.StatusConflict, "Conflict", "Group "+id+" is not empty; remove its members first")
+			return errConflict("Conflict", "Group "+id+" is not empty; remove its members first")
 		}
 	}
 
@@ -449,7 +428,9 @@ func (b *InMemoryBackend) AddUserToGroup(userID, groupID string) (membershipWire
 			count++
 
 			if m.GroupID == groupID {
-				return membershipWire{}, "", errCode(http.StatusConflict, "Conflict", "The user is already a member of the group")
+				return membershipWire{}, "", errConflict("Conflict",
+					"The user is already a member of the group",
+				)
 			}
 		}
 	}
@@ -481,7 +462,10 @@ func (b *InMemoryBackend) GetMembership(id string) (membershipWire, error) {
 }
 
 // ListMemberships lists memberships filtered by user and/or group.
-func (b *InMemoryBackend) ListMemberships(compartment, userID, groupID string, o ListOpts) (page.Page[membershipWire], error) {
+func (b *InMemoryBackend) ListMemberships(
+	compartment, userID, groupID string,
+	o ListOpts,
+) (page.Page[membershipWire], error) {
 	if aerr := requireTenancy(compartment); aerr != nil {
 		return page.Page[membershipWire]{}, aerr
 	}
@@ -562,7 +546,9 @@ func (b *InMemoryBackend) CreateDynamicGroup(in CreateDynamicGroupIn) (dynamicGr
 
 	for _, d := range b.dynGroups {
 		if strs.Equal(d.Name, in.Name) {
-			return dynamicGroupWire{}, "", errCode(http.StatusConflict, "Conflict", "Dynamic group "+in.Name+" already exists")
+			return dynamicGroupWire{}, "", errConflict("Conflict",
+				"Dynamic group "+in.Name+" already exists",
+			)
 		}
 	}
 
@@ -597,27 +583,18 @@ func (b *InMemoryBackend) ListDynamicGroups(f NameFilter, o ListOpts) (page.Page
 	b.mu.RLock("ListDynamicGroups")
 	defer b.mu.RUnlock()
 
-	var all []*DynamicGroup
+	acc := listAccess[DynamicGroup]{fields: func(v *DynamicGroup) (string, string, time.Time, int64) {
+		return v.Name, v.LifecycleState, v.TimeCreated, v.Internal.Seq
+	}}
 
-	for _, d := range b.dynGroups {
-		if (f.Name == "" || d.Name == f.Name) && matchState(d.LifecycleState, f.State) {
-			all = append(all, d)
-		}
-	}
-
-	pg := paginate(all, o, func(d *DynamicGroup) string { return d.Name },
-		func(d *DynamicGroup) (time.Time, int64) { return d.TimeCreated, d.Internal.Seq })
-
-	out := make([]dynamicGroupWire, 0, len(pg.Data))
-	for _, d := range pg.Data {
-		out = append(out, d.view())
-	}
-
-	return page.Page[dynamicGroupWire]{Data: out, Next: pg.Next}, nil
+	return listNamed(b.dynGroups, f, o, acc, (*DynamicGroup).view), nil
 }
 
 // UpdateDynamicGroup changes description, matching rule and tags.
-func (b *InMemoryBackend) UpdateDynamicGroup(id, ifMatch string, in UpdateDynamicGroupIn) (dynamicGroupWire, string, error) {
+func (b *InMemoryBackend) UpdateDynamicGroup(
+	id, ifMatch string,
+	in UpdateDynamicGroupIn,
+) (dynamicGroupWire, string, error) {
 	b.mu.Lock("UpdateDynamicGroup")
 	defer b.mu.Unlock()
 

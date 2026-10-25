@@ -52,11 +52,11 @@ func TestUploadedKeyAuthenticatesOtherServices(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		link       bool
 		prepare    func(t *testing.T, e *env, user identity.User, kp keyPair)
 		signWith   func(good, other keyPair) keyPair
+		name       string
 		wantStatus int
+		link       bool
 	}{
 		{
 			name: "uploaded key verifies", link: true, wantStatus: http.StatusOK,
@@ -64,7 +64,11 @@ func TestUploadedKeyAuthenticatesOtherServices(t *testing.T) {
 		},
 		{
 			name: "wrong private key rejected", link: true, wantStatus: http.StatusUnauthorized,
-			signWith: func(good, other keyPair) keyPair { good.privPEM = other.privPEM; return good },
+			signWith: func(good, other keyPair) keyPair {
+				good.privPEM = other.privPEM
+
+				return good
+			},
 		},
 		{
 			name: "deleted key rejected", link: true, wantStatus: http.StatusUnauthorized,
@@ -104,7 +108,7 @@ func TestUploadedKeyAuthenticatesOtherServices(t *testing.T) {
 			user := e.mkUser(t, "signer")
 
 			_, err := e.client.UploadApiKey(t.Context(), identity.UploadApiKeyRequest{
-				UserId: user.Id, CreateApiKeyDetails: identity.CreateApiKeyDetails{Key: new(good.pubPEM)},
+				UserId: user.Id, Key: new(good.pubPEM),
 			})
 			require.NoError(t, err)
 

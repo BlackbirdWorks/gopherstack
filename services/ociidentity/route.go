@@ -48,10 +48,10 @@ const (
 	opUploadAPIKey       = "UploadApiKey"
 	opListAPIKeys        = "ListApiKeys"
 	opDeleteAPIKey       = "DeleteApiKey"
-	opCreateAuthToken    = "CreateAuthToken"
-	opListAuthTokens     = "ListAuthTokens"
-	opUpdateAuthToken    = "UpdateAuthToken"
-	opDeleteAuthToken    = "DeleteAuthToken"
+	opCreateAuthTok      = "CreateAuthToken"
+	opListAuthToks       = "ListAuthTokens"
+	opUpdateAuthTok      = "UpdateAuthToken"
+	opDeleteAuthTok      = "DeleteAuthToken"
 	opCreateSecretKey    = "CreateCustomerSecretKey"
 	opListSecretKeys     = "ListCustomerSecretKeys"
 	opUpdateSecretKey    = "UpdateCustomerSecretKey"
@@ -109,8 +109,10 @@ func crud(base, idParam, create, get, list, update, del string) []restroute.Rout
 	return routes
 }
 
+const routeCap = 96
+
 func routeTable() []restroute.Route {
-	var routes []restroute.Route
+	routes := make([]restroute.Route, 0, routeCap)
 
 	routes = append(routes,
 		rt(http.MethodGet, "/tenancies/{tenancyId}", opGetTenancy),
@@ -152,8 +154,8 @@ func routeTable() []restroute.Route {
 		opUpdateTagNS, opDeleteTagNS)...)
 	routes = append(routes, crud("/tagDefaults", "tagDefaultId", opCreateTagDefault, opGetTagDefault,
 		opListTagDefaults, opUpdateTagDefault, opDeleteTagDefault)...)
-	routes = append(routes, crud("/users/{userId}/authTokens", "authTokenId", opCreateAuthToken, "", opListAuthTokens,
-		opUpdateAuthToken, opDeleteAuthToken)...)
+	routes = append(routes, crud("/users/{userId}/authTokens", "authTokenId", opCreateAuthTok, "", opListAuthToks,
+		opUpdateAuthTok, opDeleteAuthTok)...)
 	routes = append(routes, crud("/users/{userId}/customerSecretKeys", "customerSecretKeyId", opCreateSecretKey, "",
 		opListSecretKeys, opUpdateSecretKey, opDeleteSecretKey)...)
 	routes = append(routes, crud("/users/{userId}/smtpCredentials", "smtpCredentialId", opCreateSMTP, "",

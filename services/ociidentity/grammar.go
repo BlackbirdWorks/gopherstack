@@ -37,45 +37,65 @@ func lex(s string) ([]token, error) {
 	rs := []rune(s)
 
 	for i := 0; i < len(rs); {
-		r := rs[i]
-
-		switch {
-		case unicode.IsSpace(r):
-			i++
-		case r == '\'':
-			j := i + 1
-			for j < len(rs) && rs[j] != '\'' {
-				j++
-			}
-
-			if j >= len(rs) {
-				return nil, fmt.Errorf("%w: unterminated quoted string", ErrGrammar)
-			}
-
-			toks = append(toks, token{text: string(rs[i+1 : j]), kind: tokQuoted})
-			i = j + 1
-		case r == '!' && i+1 < len(rs) && rs[i+1] == '=':
-			toks = append(toks, token{text: "!=", kind: tokSym})
-			i += 2
-		case isSymRune(r):
-			toks = append(toks, token{text: string(r), kind: tokSym})
-			i++
-		default:
-			j := i
-			for j < len(rs) && !unicode.IsSpace(rs[j]) && !isSymRune(rs[j]) && rs[j] != '\'' && rs[j] != '!' {
-				j++
-			}
-
-			if j == i {
-				return nil, fmt.Errorf("%w: unexpected character %q", ErrGrammar, string(r))
-			}
-
-			toks = append(toks, token{text: string(rs[i:j]), kind: tokWord})
-			i = j
+		tok, next, err := lexOne(rs, i)
+		if err != nil {
+			return nil, err
 		}
+
+		if tok != nil {
+			toks = append(toks, *tok)
+		}
+
+		i = next
 	}
 
 	return toks, nil
+}
+
+// lexOne scans the token starting at rs[i]; a nil token means whitespace was skipped.
+func lexOne(rs []rune, i int) (*token, int, error) {
+	r := rs[i]
+
+	switch {
+	case unicode.IsSpace(r):
+		return nil, i + 1, nil
+	case r == '\'':
+		return lexQuoted(rs, i)
+	case r == '!' && i+1 < len(rs) && rs[i+1] == '=':
+		return &token{text: "!=", kind: tokSym}, i + notEqualLen, nil
+	case isSymRune(r):
+		return &token{text: string(r), kind: tokSym}, i + 1, nil
+	}
+
+	return lexWord(rs, i)
+}
+
+const notEqualLen = 2
+
+func lexQuoted(rs []rune, i int) (*token, int, error) {
+	j := i + 1
+	for j < len(rs) && rs[j] != '\'' {
+		j++
+	}
+
+	if j >= len(rs) {
+		return nil, 0, fmt.Errorf("%w: unterminated quoted string", ErrGrammar)
+	}
+
+	return &token{text: string(rs[i+1 : j]), kind: tokQuoted}, j + 1, nil
+}
+
+func lexWord(rs []rune, i int) (*token, int, error) {
+	j := i
+	for j < len(rs) && !unicode.IsSpace(rs[j]) && !isSymRune(rs[j]) && rs[j] != '\'' && rs[j] != '!' {
+		j++
+	}
+
+	if j == i {
+		return nil, 0, fmt.Errorf("%w: unexpected character %q", ErrGrammar, string(rs[i]))
+	}
+
+	return &token{text: string(rs[i:j]), kind: tokWord}, j, nil
 }
 
 type parser struct {
@@ -317,23 +337,8 @@ func (p *parser) verbAndResource() error {
 		return err
 	}
 
-	if p.acceptSym("{") {
-		if err := p.commaList("a permission"); err != nil {
-			return err
-		}
-
-		if err := p.expectSym("}"); err != nil {
-			return err
-		}
-	} else {
-		v, err := p.word("a verb")
-		if err != nil {
-			return err
-		}
-
-		if !containsFold(policyVerbs, v.text) {
-			return fmt.Errorf("%w: %q is not a verb (inspect, read, use or manage)", ErrGrammar, v.text)
-		}
+	if err := p.verbOrPermissions(); err != nil {
+		return err
 	}
 
 	if _, err := p.word("a resource-type"); err != nil {
@@ -341,6 +346,27 @@ func (p *parser) verbAndResource() error {
 	}
 
 	return p.expect("in")
+}
+
+func (p *parser) verbOrPermissions() error {
+	if p.acceptSym("{") {
+		if err := p.commaList("a permission"); err != nil {
+			return err
+		}
+
+		return p.expectSym("}")
+	}
+
+	v, err := p.word("a verb")
+	if err != nil {
+		return err
+	}
+
+	if !containsFold(policyVerbs, v.text) {
+		return fmt.Errorf("%w: %q is not a verb (inspect, read, use or manage)", ErrGrammar, v.text)
+	}
+
+	return nil
 }
 
 func containsFold(list []string, s string) bool {
