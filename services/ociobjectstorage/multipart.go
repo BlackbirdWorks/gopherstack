@@ -68,7 +68,11 @@ func (b *InMemoryBackend) CreateUpload(ns, bucket string, in CreateUploadInput, 
 func (b *InMemoryBackend) upload(bk *Bucket, object, id string) (*Upload, error) {
 	u, ok := bk.Uploads[id]
 	if !ok || u.Object != object {
-		return nil, newErr(http.StatusNotFound, "NoSuchUpload", "The upload '"+id+"' does not exist for object '"+object+"'")
+		return nil, newErr(
+			http.StatusNotFound,
+			"NoSuchUpload",
+			"The upload '"+id+"' does not exist for object '"+object+"'",
+		)
 	}
 
 	return u, nil
@@ -77,12 +81,12 @@ func (b *InMemoryBackend) upload(bk *Bucket, object, id string) (*Upload, error)
 // UploadPart stores one part and returns its etag and md5.
 func (b *InMemoryBackend) UploadPart(
 	ns, bucket, object, id string, num int, data []byte, contentMD5 string,
-) (etag, sum string, err error) {
+) (string, string, error) {
 	if num < 1 || num > maxPartNumber {
 		return "", "", errParam("uploadPartNum must be between 1 and 10000")
 	}
 
-	sum = md5b64(data)
+	sum := md5b64(data)
 	if contentMD5 != "" && contentMD5 != sum {
 		return "", "", errParam("The Content-MD5 you specified did not match what we received")
 	}
@@ -100,7 +104,7 @@ func (b *InMemoryBackend) UploadPart(
 		return "", "", err
 	}
 
-	etag = newEtag()
+	etag := newEtag()
 	u.Parts[num] = Part{Etag: etag, MD5: sum, Data: data}
 
 	return etag, sum, nil
@@ -150,11 +154,19 @@ func (b *InMemoryBackend) CommitUpload(
 	for i, p := range parts {
 		stored, ok := u.Parts[p.PartNum]
 		if !ok || (i > 0 && parts[i-1].PartNum == p.PartNum) {
-			return ObjectInfo{}, newErr(http.StatusBadRequest, "InvalidUploadPart", "Part "+strconv.Itoa(p.PartNum)+" is missing or listed twice")
+			return ObjectInfo{}, newErr(
+				http.StatusBadRequest,
+				"InvalidUploadPart",
+				"Part "+strconv.Itoa(p.PartNum)+" is missing or listed twice",
+			)
 		}
 
 		if !etagMatches(p.Etag, stored.Etag) {
-			return ObjectInfo{}, newErr(http.StatusBadRequest, "InvalidUploadPart", "ETag for part "+strconv.Itoa(p.PartNum)+" does not match")
+			return ObjectInfo{}, newErr(
+				http.StatusBadRequest,
+				"InvalidUploadPart",
+				"ETag for part "+strconv.Itoa(p.PartNum)+" does not match",
+			)
 		}
 
 		raw, _ := base64.StdEncoding.DecodeString(stored.MD5)

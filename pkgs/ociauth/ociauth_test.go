@@ -27,7 +27,11 @@ func TestParseKeyID(t *testing.T) {
 		want ociauth.KeyID
 		ok   bool
 	}{
-		{in: "ocid1.tenancy.oc1..t/ocid1.user.oc1..u/aa:bb", want: ociauth.KeyID{Tenancy: "ocid1.tenancy.oc1..t", User: "ocid1.user.oc1..u", Fingerprint: "aa:bb"}, ok: true},
+		{
+			in:   "ocid1.tenancy.oc1..t/ocid1.user.oc1..u/aa:bb",
+			want: ociauth.KeyID{Tenancy: "ocid1.tenancy.oc1..t", User: "ocid1.user.oc1..u", Fingerprint: "aa:bb"},
+			ok:   true,
+		},
 		{in: "ST$token"},
 		{in: "a/b"},
 		{in: "a//c"},
@@ -49,7 +53,9 @@ func TestParseAuthorization(t *testing.T) {
 	t.Parallel()
 
 	good := `Signature version="1",headers="(request-target) date host",keyId="t/u/f",algorithm="rsa-sha256",signature="` +
-		base64.StdEncoding.EncodeToString([]byte("sig")) + `"`
+		base64.StdEncoding.EncodeToString(
+			[]byte("sig"),
+		) + `"`
 
 	sig, err := ociauth.ParseAuthorization(good)
 	require.NoError(t, err)
@@ -57,7 +63,9 @@ func TestParseAuthorization(t *testing.T) {
 	assert.Equal(t, []string{"(request-target)", "date", "host"}, sig.Headers)
 	assert.Equal(t, []byte("sig"), sig.Signature)
 
-	for _, bad := range []string{"", "Bearer abc", `Signature keyId="k"`, `Signature keyId="k",signature="!!"`, `Signature junk`} {
+	bads := []string{"", "Bearer abc", `Signature keyId="k"`, `Signature keyId="k",signature="!!"`, `Signature junk`}
+
+	for _, bad := range bads {
 		_, err = ociauth.ParseAuthorization(bad)
 		require.ErrorIs(t, err, ociauth.ErrNotAuthenticated, bad)
 	}
@@ -81,7 +89,11 @@ func newSigner(t *testing.T) signer {
 	fp, err := ociauth.Fingerprint(&k.PublicKey)
 	require.NoError(t, err)
 
-	return signer{key: k, pem: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), keyID: "t/u/" + fp}
+	return signer{
+		key:   k,
+		pem:   string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})),
+		keyID: "t/u/" + fp,
+	}
 }
 
 func (s signer) sign(t *testing.T, r *http.Request, headers []string) {
@@ -119,7 +131,12 @@ func TestVerify(t *testing.T) {
 	require.NoError(t, err)
 
 	mk := func(date time.Time, body string) *http.Request {
-		r, _ := http.NewRequestWithContext(t.Context(), http.MethodPut, "http://h.example/n/ns/b/bk/o/x", strings.NewReader(body))
+		r, _ := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodPut,
+			"http://h.example/n/ns/b/bk/o/x",
+			strings.NewReader(body),
+		)
 		r.Header.Set("Date", date.UTC().Format(http.TimeFormat))
 
 		return r
@@ -135,33 +152,87 @@ func TestVerify(t *testing.T) {
 		wantVer bool
 		wantAnn bool
 	}{
-		{name: "valid", wantVer: true, opts: ociauth.Options{Registry: reg, Now: func() time.Time { return now }}, build: func() *http.Request {
-			r := mk(now, ""); s.sign(t, r, std); return r
-		}},
+		{
+			name:    "valid",
+			wantVer: true,
+			opts:    ociauth.Options{Registry: reg, Now: func() time.Time { return now }},
+			build: func() *http.Request {
+				r := mk(now, "")
+				s.sign(t, r, std)
+
+				return r
+			},
+		},
 		{name: "tampered target", wantErr: true, opts: ociauth.Options{Registry: reg}, build: func() *http.Request {
-			r := mk(now, ""); s.sign(t, r, std); r.URL.Path = "/n/ns/b/bk/o/y"; return r
+			r := mk(now, "")
+			s.sign(t, r, std)
+			r.URL.Path = "/n/ns/b/bk/o/y"
+
+			return r
 		}},
 		{name: "wrong key same id", wantErr: true, opts: ociauth.Options{Registry: reg}, build: func() *http.Request {
-			o := other; o.keyID = s.keyID; r := mk(now, ""); o.sign(t, r, std); return r
+			o := other
+			o.keyID = s.keyID
+			r := mk(now, "")
+			o.sign(t, r, std)
+
+			return r
 		}},
-		{name: "skew", wantErr: true, opts: ociauth.Options{Registry: reg, Now: func() time.Time { return now.Add(time.Hour) }}, build: func() *http.Request {
-			r := mk(now, ""); s.sign(t, r, std); return r
-		}},
+		{
+			name:    "skew",
+			wantErr: true,
+			opts:    ociauth.Options{Registry: reg, Now: func() time.Time { return now.Add(time.Hour) }},
+			build: func() *http.Request {
+				r := mk(now, "")
+				s.sign(t, r, std)
+
+				return r
+			},
+		},
 		{name: "host not signed", wantErr: true, opts: ociauth.Options{Registry: reg}, build: func() *http.Request {
-			r := mk(now, ""); s.sign(t, r, []string{"(request-target)", "date"}); return r
+			r := mk(now, "")
+			s.sign(t, r, []string{"(request-target)", "date"})
+
+			return r
 		}},
 		{name: "body hash mismatch", wantErr: true, opts: ociauth.Options{Registry: reg}, build: func() *http.Request {
-			r := mk(now, "body"); r.Header.Set("x-content-sha256", "bogus")
-			s.sign(t, r, append([]string{"x-content-sha256"}, std...)); return r
+			r := mk(now, "body")
+			r.Header.Set("X-Content-Sha256", "bogus")
+			s.sign(t, r, append([]string{"x-content-sha256"}, std...))
+
+			return r
 		}},
 		{name: "unknown key permissive", opts: ociauth.Options{Registry: reg}, build: func() *http.Request {
-			o := other; r := mk(now, ""); o.sign(t, r, std); return r
+			o := other
+			r := mk(now, "")
+			o.sign(t, r, std)
+
+			return r
 		}},
-		{name: "unknown key enforced", wantErr: true, opts: ociauth.Options{Registry: reg, Enforce: true}, build: func() *http.Request {
-			o := other; r := mk(now, ""); o.sign(t, r, std); return r
-		}},
-		{name: "anonymous permissive", wantAnn: true, opts: ociauth.Options{Registry: reg}, build: func() *http.Request { return mk(now, "") }},
-		{name: "anonymous enforced", wantErr: true, opts: ociauth.Options{Registry: reg, Enforce: true}, build: func() *http.Request { return mk(now, "") }},
+		{
+			name:    "unknown key enforced",
+			wantErr: true,
+			opts:    ociauth.Options{Registry: reg, Enforce: true},
+			build: func() *http.Request {
+				o := other
+				r := mk(now, "")
+				o.sign(t, r, std)
+
+				return r
+			},
+		},
+		{
+			name:    "anonymous permissive",
+			wantAnn: true,
+			opts:    ociauth.Options{Registry: reg},
+			build:   func() *http.Request { return mk(now, "") },
+		},
+		{
+			name:    "anonymous enforced",
+			wantErr: true,
+			opts:    ociauth.Options{Registry: reg, Enforce: true},
+			build:   func() *http.Request { return mk(now, "") },
+		},
 	}
 
 	for _, tt := range tests {
@@ -171,7 +242,7 @@ func TestVerify(t *testing.T) {
 			r := tt.build()
 
 			var body []byte
-			if r.Header.Get("x-content-sha256") != "" {
+			if r.Header.Get("X-Content-Sha256") != "" {
 				body = []byte("body")
 			}
 

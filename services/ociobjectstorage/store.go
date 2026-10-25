@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ const (
 	defaultListLimit = 1000
 	maxBucketName    = 256
 	anonymousUser    = "ocid1.user.oc1..anonymous"
+	ocidHexLen       = 40
 )
 
 var bucketNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -115,7 +117,7 @@ func (b *InMemoryBackend) bucket(ns, name string) (*Bucket, error) {
 }
 
 func etagMatches(header, etag string) bool {
-	for _, c := range strings.Split(header, ",") {
+	for c := range strings.SplitSeq(header, ",") {
 		c = strings.TrimPrefix(strings.TrimSpace(c), "W/")
 		c = strings.Trim(c, `"`)
 
@@ -170,42 +172,45 @@ type CreateBucketInput struct {
 
 func validAccess(s string) bool { return s == accessNone || s == accessRead || s == accessReadNoLs }
 
-// CreateBucket creates a bucket.
-func (b *InMemoryBackend) CreateBucket(ns string, in CreateBucketInput, user string) (*BucketWire, error) {
+func (in *CreateBucketInput) normalize() error {
 	if in.Name == "" {
-		return nil, errMissing("name is required")
+		return errMissing("name is required")
 	}
 
 	if in.CompartmentID == "" {
-		return nil, errMissing("compartmentId is required")
+		return errMissing("compartmentId is required")
 	}
 
 	if len(in.Name) > maxBucketName || !bucketNameRe.MatchString(in.Name) {
-		return nil, errParam("Bucket name must be 1-256 characters of letters, digits, '-', '_' and '.'")
+		return errParam("Bucket name must be 1-256 characters of letters, digits, '-', '_' and '.'")
 	}
 
-	if in.PublicAccessType == "" {
-		in.PublicAccessType = accessNone
+	defaultTo(&in.PublicAccessType, accessNone)
+	defaultTo(&in.StorageTier, tierStandard)
+	defaultTo(&in.Versioning, versioningDisabled)
+
+	switch {
+	case !validAccess(in.PublicAccessType):
+		return errParam("Invalid publicAccessType")
+	case in.StorageTier != tierStandard && in.StorageTier != tierArchive:
+		return errParam("storageTier must be Standard or Archive")
+	case in.Versioning != versioningDisabled && in.Versioning != versioningEnabled:
+		return errParam("versioning must be Enabled or Disabled on create")
 	}
 
-	if !validAccess(in.PublicAccessType) {
-		return nil, errParam("Invalid publicAccessType")
-	}
+	return nil
+}
 
-	if in.StorageTier == "" {
-		in.StorageTier = tierStandard
+func defaultTo(dst *string, v string) {
+	if *dst == "" {
+		*dst = v
 	}
+}
 
-	if in.StorageTier != tierStandard && in.StorageTier != tierArchive {
-		return nil, errParam("storageTier must be Standard or Archive")
-	}
-
-	if in.Versioning == "" {
-		in.Versioning = versioningDisabled
-	}
-
-	if in.Versioning != versioningDisabled && in.Versioning != versioningEnabled {
-		return nil, errParam("versioning must be Enabled or Disabled on create")
+// CreateBucket creates a bucket.
+func (b *InMemoryBackend) CreateBucket(ns string, in CreateBucketInput, user string) (*BucketWire, error) {
+	if err := in.normalize(); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateBucket")
@@ -231,7 +236,7 @@ func (b *InMemoryBackend) CreateBucket(ns string, in CreateBucketInput, user str
 		FreeformTags: in.FreeformTags, DefinedTags: in.DefinedTags, KmsKeyID: in.KmsKeyID,
 		ObjectEventsEnabled: in.ObjectEventsEnabled != nil && *in.ObjectEventsEnabled,
 		IsBucketKeyEnabled:  in.IsBucketKeyEnabled != nil && *in.IsBucketKeyEnabled,
-		ID:                  "ocid1.bucket.oc1." + Region + "." + awsid.NewN("", 40),
+		ID:                  "ocid1.bucket.oc1." + Region + "." + awsid.NewN("", ocidHexLen),
 		Objects:             map[string][]*Object{}, Uploads: map[string]*Upload{},
 		PARs: map[string]*PAR{}, Retention: map[string]*Retention{},
 	}
@@ -278,7 +283,7 @@ func (b *InMemoryBackend) UpdateBucket(ns, name string, in UpdateBucketInput, pr
 	return b.bucketWire(ns, bk, nil), nil
 }
 
-func (b *InMemoryBackend) applyBucketUpdate(bk *Bucket, in UpdateBucketInput) error {
+func (in UpdateBucketInput) validate(bk *Bucket) error {
 	if in.PublicAccessType != "" && !validAccess(in.PublicAccessType) {
 		return errParam("Invalid publicAccessType")
 	}
@@ -293,18 +298,18 @@ func (b *InMemoryBackend) applyBucketUpdate(bk *Bucket, in UpdateBucketInput) er
 		return errParam("versioning may only be changed to Enabled or Suspended")
 	}
 
+	return nil
+}
+
+func (b *InMemoryBackend) applyBucketUpdate(bk *Bucket, in UpdateBucketInput) error {
+	if err := in.validate(bk); err != nil {
+		return err
+	}
+
 	if in.Name != "" && in.Name != bk.Name {
-		if !bucketNameRe.MatchString(in.Name) || len(in.Name) > maxBucketName {
-			return errParam("Invalid bucket name")
+		if err := b.renameBucket(bk, in.Name); err != nil {
+			return err
 		}
-
-		if _, dup := b.buckets[in.Name]; dup {
-			return errConflict("BucketAlreadyExists", "The bucket '"+in.Name+"' already exists")
-		}
-
-		delete(b.buckets, bk.Name)
-		bk.Name = in.Name
-		b.buckets[bk.Name] = bk
 	}
 
 	setIf(&bk.PublicAccessType, in.PublicAccessType)
@@ -332,6 +337,22 @@ func (b *InMemoryBackend) applyBucketUpdate(bk *Bucket, in UpdateBucketInput) er
 	if in.IsBucketKeyEnabled != nil {
 		bk.IsBucketKeyEnabled = *in.IsBucketKeyEnabled
 	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) renameBucket(bk *Bucket, name string) error {
+	if !bucketNameRe.MatchString(name) || len(name) > maxBucketName {
+		return errParam("Invalid bucket name")
+	}
+
+	if _, dup := b.buckets[name]; dup {
+		return errConflict("BucketAlreadyExists", "The bucket '"+name+"' already exists")
+	}
+
+	delete(b.buckets, bk.Name)
+	bk.Name = name
+	b.buckets[name] = bk
 
 	return nil
 }
@@ -374,7 +395,10 @@ func (b *InMemoryBackend) DeleteBucket(ns, name string, pre Preconds) error {
 	}
 
 	if len(bk.Objects) > 0 || len(bk.Uploads) > 0 {
-		return errConflict("BucketNotEmpty", "Bucket named '"+name+"' is not empty. Delete all objects, versions and uploads first")
+		return errConflict(
+			"BucketNotEmpty",
+			"Bucket named '"+name+"' is not empty. Delete all objects, versions and uploads first",
+		)
 	}
 
 	delete(b.buckets, name)
@@ -464,26 +488,15 @@ func (b *InMemoryBackend) bucketWire(ns string, bk *Bucket, fields []string) *Bu
 		w.ObjectLifecyclePolicyEtag = &bk.LifecycleEtag
 	}
 
-	for _, f := range fields {
-		switch f {
-		case "approximateCount", "approximateSize":
-			var count, size int64
+	if slices.Contains(fields, "approximateCount") || slices.Contains(fields, "approximateSize") {
+		count, size := bucketTotals(bk)
 
-			for _, vs := range bk.Objects {
-				for _, o := range vs {
-					if !o.IsDeleteMarker {
-						count++
-						size += int64(len(o.Data))
-					}
-				}
-			}
+		if slices.Contains(fields, "approximateCount") {
+			w.ApproximateCount = &count
+		}
 
-			if f == "approximateCount" {
-				w.ApproximateCount = &count
-			} else {
-				w.ApproximateSize = &size
-			}
-		default:
+		if slices.Contains(fields, "approximateSize") {
+			w.ApproximateSize = &size
 		}
 	}
 
@@ -521,4 +534,19 @@ func (b *InMemoryBackend) UpdateNamespaceMetadata(ns string, in nsMetaWire) (nsM
 	m.Namespace = ns
 
 	return m, nil
+}
+
+func bucketTotals(bk *Bucket) (int64, int64) {
+	var count, size int64
+
+	for _, vs := range bk.Objects {
+		for _, o := range vs {
+			if !o.IsDeleteMarker {
+				count++
+				size += int64(len(o.Data))
+			}
+		}
+	}
+
+	return count, size
 }

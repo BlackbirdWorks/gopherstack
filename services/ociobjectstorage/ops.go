@@ -8,31 +8,33 @@ import (
 	"time"
 )
 
-var opTable = map[string]opFunc{
-	opGetNamespace: (*Handler).getNamespace, opGetNamespaceMetadata: (*Handler).getNamespaceMeta,
-	opUpdateNamespaceMeta: (*Handler).updateNamespaceMeta,
-	opListBuckets:         (*Handler).listBuckets, opCreateBucket: (*Handler).createBucket,
-	opGetBucket: (*Handler).getBucket, opHeadBucket: (*Handler).getBucket,
-	opUpdateBucket: (*Handler).updateBucket, opDeleteBucket: (*Handler).deleteBucket,
-	opMakeBucketWritable: (*Handler).makeBucketWritable,
-	opListObjects:        (*Handler).listObjects, opListObjectVersions: (*Handler).listObjectVersions,
-	opPutObject: (*Handler).putObject, opGetObject: (*Handler).getObject, opHeadObject: (*Handler).getObject,
-	opDeleteObject: (*Handler).deleteObject, opCopyObject: (*Handler).copyObject,
-	opRenameObject: (*Handler).renameObject, opRestoreObjects: (*Handler).restoreObjects,
-	opUpdateStorageTier: (*Handler).updateStorageTier, opBatchDeleteObjects: (*Handler).batchDelete,
-	opCreateMultipart: (*Handler).createUpload, opUploadPart: (*Handler).uploadPart,
-	opCommitMultipart: (*Handler).commitUpload, opAbortMultipart: (*Handler).abortUpload,
-	opListMultipartUploads: (*Handler).listUploads, opListMultipartParts: (*Handler).listParts,
-	opCreatePAR: (*Handler).createPAR, opListPARs: (*Handler).listPARs,
-	opGetPAR: (*Handler).getPAR, opDeletePAR: (*Handler).deletePAR,
-	opPutLifecycle: (*Handler).putLifecycle, opGetLifecycle: (*Handler).getLifecycle,
-	opDeleteLifecycle: (*Handler).deleteLifecycle,
-	opCreateRetention: (*Handler).createRetention, opGetRetention: (*Handler).getRetention,
-	opListRetention: (*Handler).listRetention, opUpdateRetention: (*Handler).updateRetention,
-	opDeleteRetention: (*Handler).deleteRetention,
-	opGetWorkRequest: (*Handler).getWorkRequest, opListWorkRequests: (*Handler).listWorkRequests,
-	opDeleteWorkRequest: (*Handler).cancelWorkRequest,
-	opListWRErrors:      (*Handler).listWRErrors, opListWRLogs: (*Handler).listWRLogs,
+func buildOps() map[string]opFunc {
+	return map[string]opFunc{
+		opGetNamespace: (*Handler).getNamespace, opGetNamespaceMetadata: (*Handler).getNamespaceMeta,
+		opUpdateNamespaceMeta: (*Handler).updateNamespaceMeta,
+		opListBuckets:         (*Handler).listBuckets, opCreateBucket: (*Handler).createBucket,
+		opGetBucket: (*Handler).getBucket, opHeadBucket: (*Handler).getBucket,
+		opUpdateBucket: (*Handler).updateBucket, opDeleteBucket: (*Handler).deleteBucket,
+		opMakeBucketWritable: (*Handler).makeBucketWritable,
+		opListObjects:        (*Handler).listObjects, opListObjectVersions: (*Handler).listObjectVersions,
+		opPutObject: (*Handler).putObject, opGetObject: (*Handler).getObject, opHeadObject: (*Handler).getObject,
+		opDeleteObject: (*Handler).deleteObject, opCopyObject: (*Handler).copyObject,
+		opRenameObject: (*Handler).renameObject, opRestoreObjects: (*Handler).restoreObjects,
+		opUpdateStorageTier: (*Handler).updateStorageTier, opBatchDeleteObjects: (*Handler).batchDelete,
+		opCreateMultipart: (*Handler).createUpload, opUploadPart: (*Handler).uploadPart,
+		opCommitMultipart: (*Handler).commitUpload, opAbortMultipart: (*Handler).abortUpload,
+		opListMultipartUploads: (*Handler).listUploads, opListMultipartParts: (*Handler).listParts,
+		opCreatePAR: (*Handler).createPAR, opListPARs: (*Handler).listPARs,
+		opGetPAR: (*Handler).getPAR, opDeletePAR: (*Handler).deletePAR,
+		opPutLifecycle: (*Handler).putLifecycle, opGetLifecycle: (*Handler).getLifecycle,
+		opDeleteLifecycle: (*Handler).deleteLifecycle,
+		opCreateRetention: (*Handler).createRetention, opGetRetention: (*Handler).getRetention,
+		opListRetention: (*Handler).listRetention, opUpdateRetention: (*Handler).updateRetention,
+		opDeleteRetention: (*Handler).deleteRetention,
+		opGetWorkRequest:  (*Handler).getWorkRequest, opListWorkRequests: (*Handler).listWorkRequests,
+		opDeleteWorkRequest: (*Handler).cancelWorkRequest,
+		opListWRErrors:      (*Handler).listWRErrors, opListWRLogs: (*Handler).listWRLogs,
+	}
 }
 
 func (q *req) query(k string) string { return q.r.URL.Query().Get(k) }
@@ -53,7 +55,11 @@ func (q *req) decode(v any) error {
 	}
 
 	if err := json.Unmarshal(q.body, v); err != nil {
-		return newErr(http.StatusBadRequest, "CannotParseRequest", "The request body is not valid JSON for this operation")
+		return newErr(
+			http.StatusBadRequest,
+			"CannotParseRequest",
+			"The request body is not valid JSON for this operation",
+		)
 	}
 
 	return nil
@@ -192,7 +198,7 @@ func (h *Handler) listObjects(q *req) error {
 		return err
 	}
 
-	fields := map[string]bool{"name": true}
+	fields := map[string]bool{fieldName: true}
 	for _, f := range fieldList(q.query("fields")) {
 		fields[strings.TrimSpace(f)] = true
 	}
@@ -216,7 +222,7 @@ func (h *Handler) listObjects(q *req) error {
 }
 
 func summary(o *ObjectInfo, fields map[string]bool) map[string]any {
-	m := map[string]any{"name": o.Name}
+	m := map[string]any{fieldName: o.Name}
 
 	if fields["size"] {
 		m["size"] = len(o.Data)
@@ -260,7 +266,7 @@ func (h *Handler) listObjectVersions(q *req) error {
 		return err
 	}
 
-	fields := map[string]bool{"name": true}
+	fields := map[string]bool{fieldName: true}
 	for _, f := range fieldList(q.query("fields")) {
 		fields[strings.TrimSpace(f)] = true
 	}
@@ -286,14 +292,17 @@ func (h *Handler) listObjectVersions(q *req) error {
 	return q.json(http.StatusOK, resp)
 }
 
-const metaPrefix = "opc-meta-"
+const (
+	metaPrefix = "opc-meta-"
+	fieldName  = "name"
+)
 
 func (q *req) objectMeta() ObjectMeta {
 	h := q.r.Header
 	m := ObjectMeta{
 		ContentType: h.Get("Content-Type"), ContentLanguage: h.Get("Content-Language"),
 		ContentEncoding: h.Get("Content-Encoding"), ContentDisposition: h.Get("Content-Disposition"),
-		CacheControl: h.Get("Cache-Control"), StorageTier: h.Get("storage-tier"),
+		CacheControl: h.Get("Cache-Control"), StorageTier: h.Get("Storage-Tier"),
 	}
 
 	for k, v := range h {
@@ -378,11 +387,18 @@ func (h *Handler) getObject(q *req) error {
 	if rng := q.r.Header.Get("Range"); rng != "" {
 		start, end, ok := parseRange(rng, int64(len(o.Data)))
 		if !ok {
-			return newErr(http.StatusRequestedRangeNotSatisfiable, "InvalidRange", "The requested range is not satisfiable")
+			return newErr(
+				http.StatusRequestedRangeNotSatisfiable,
+				"InvalidRange",
+				"The requested range is not satisfiable",
+			)
 		}
 
 		data, status = o.Data[start:end+1], http.StatusPartialContent
-		q.header("Content-Range", "bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10)+"/"+strconv.Itoa(len(o.Data)))
+		q.header(
+			"Content-Range",
+			"bytes "+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10)+"/"+strconv.Itoa(len(o.Data)),
+		)
 	}
 
 	q.header("Content-Length", strconv.Itoa(len(data)))
@@ -396,7 +412,7 @@ func (h *Handler) getObject(q *req) error {
 }
 
 // parseRange handles bytes=a-b, bytes=a- and bytes=-n; end is inclusive.
-func parseRange(h string, size int64) (start, end int64, ok bool) {
+func parseRange(h string, size int64) (int64, int64, bool) {
 	spec, found := strings.CutPrefix(h, "bytes=")
 	if !found || strings.Contains(spec, ",") {
 		return 0, 0, false
@@ -407,37 +423,42 @@ func parseRange(h string, size int64) (start, end int64, ok bool) {
 		return 0, 0, false
 	}
 
-	switch {
-	case a == "":
+	if a == "" {
 		n, err := strconv.ParseInt(b, 10, 64)
 		if err != nil || n <= 0 || size == 0 {
 			return 0, 0, false
 		}
 
 		return max(size-n, 0), size - 1, true
-	default:
-		s, err := strconv.ParseInt(a, 10, 64)
-		if err != nil || s < 0 || s >= size {
+	}
+
+	s, err := strconv.ParseInt(a, 10, 64)
+	if err != nil || s < 0 || s >= size {
+		return 0, 0, false
+	}
+
+	e := size - 1
+
+	if b != "" {
+		v, perr := strconv.ParseInt(b, 10, 64)
+		if perr != nil || v < s {
 			return 0, 0, false
 		}
 
-		e := size - 1
-
-		if b != "" {
-			v, perr := strconv.ParseInt(b, 10, 64)
-			if perr != nil || v < s {
-				return 0, 0, false
-			}
-
-			e = min(v, size-1)
-		}
-
-		return s, e, true
+		e = min(v, size-1)
 	}
+
+	return s, e, true
 }
 
 func (h *Handler) deleteObject(q *req) error {
-	res, err := h.Backend.DeleteObject(q.rt.ns, q.rt.bucket, q.rt.object, q.query("versionId"), q.r.Header.Get("If-Match"))
+	res, err := h.Backend.DeleteObject(
+		q.rt.ns,
+		q.rt.bucket,
+		q.rt.object,
+		q.query("versionId"),
+		q.r.Header.Get("If-Match"),
+	)
 	if err != nil {
 		return err
 	}
@@ -514,7 +535,13 @@ func (h *Handler) updateStorageTier(q *req) error {
 		return errMissing("objectName is required")
 	}
 
-	if err := h.Backend.UpdateStorageTier(q.rt.ns, q.rt.bucket, in.ObjectName, in.VersionID, in.StorageTier); err != nil {
+	if err := h.Backend.UpdateStorageTier(
+		q.rt.ns,
+		q.rt.bucket,
+		in.ObjectName,
+		in.VersionID,
+		in.StorageTier,
+	); err != nil {
 		return err
 	}
 

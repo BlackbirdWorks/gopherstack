@@ -15,6 +15,7 @@ import (
 
 const (
 	parTokenBytes = 48
+	idHexLen      = 32
 	maxPARName    = 255
 
 	parObjectRead         = "ObjectRead"
@@ -77,24 +78,23 @@ func parAllowsWrite(t string) bool {
 	return t == parObjectWrite || t == parObjectReadWrite || t == parAnyObjectWrite || t == parAnyObjectReadWrite
 }
 
-// CreatePAR creates a pre-authenticated request; the returned wire includes the accessUri.
-func (b *InMemoryBackend) CreatePAR(ns, bucket string, in CreatePARInput) (PARWire, error) {
+func (in CreatePARInput) validate() (string, error) {
 	if in.Name == "" || len(in.Name) > maxPARName {
-		return PARWire{}, errParam("name is required and must be at most 255 characters")
+		return "", errParam("name is required and must be at most 255 characters")
 	}
 
 	switch in.AccessType {
 	case parObjectRead, parObjectWrite, parObjectReadWrite, parAnyObjectRead, parAnyObjectWrite, parAnyObjectReadWrite:
 	default:
-		return PARWire{}, errParam("Invalid accessType")
+		return "", errParam("Invalid accessType")
 	}
 
 	if in.TimeExpires.IsZero() {
-		return PARWire{}, errMissing("timeExpires is required")
+		return "", errMissing("timeExpires is required")
 	}
 
 	if !isAnyObject(in.AccessType) && in.ObjectName == "" {
-		return PARWire{}, errMissing("objectName is required for object-level access types")
+		return "", errMissing("objectName is required for object-level access types")
 	}
 
 	action := in.BucketListingAction
@@ -103,11 +103,21 @@ func (b *InMemoryBackend) CreatePAR(ns, bucket string, in CreatePARInput) (PARWi
 	}
 
 	if action != parDeny && action != parListObjects {
-		return PARWire{}, errParam("Invalid bucketListingAction")
+		return "", errParam("Invalid bucketListingAction")
 	}
 
 	if action == parListObjects && in.AccessType != parAnyObjectRead && in.AccessType != parAnyObjectReadWrite {
-		return PARWire{}, errParam("bucketListingAction ListObjects requires AnyObjectRead or AnyObjectReadWrite")
+		return "", errParam("bucketListingAction ListObjects requires AnyObjectRead or AnyObjectReadWrite")
+	}
+
+	return action, nil
+}
+
+// CreatePAR creates a pre-authenticated request; the returned wire includes the accessUri.
+func (b *InMemoryBackend) CreatePAR(ns, bucket string, in CreatePARInput) (PARWire, error) {
+	action, err := in.validate()
+	if err != nil {
+		return PARWire{}, err
 	}
 
 	b.mu.Lock("CreatePAR")
@@ -127,7 +137,7 @@ func (b *InMemoryBackend) CreatePAR(ns, bucket string, in CreatePARInput) (PARWi
 	_, _ = rand.Read(raw)
 
 	p := &PAR{
-		ID: awsid.NewN("", 32), Name: in.Name, Token: base64.RawURLEncoding.EncodeToString(raw),
+		ID: awsid.NewN("", idHexLen), Name: in.Name, Token: base64.RawURLEncoding.EncodeToString(raw),
 		AccessType: in.AccessType, ObjectName: in.ObjectName, BucketListingAction: action,
 		TimeCreated: now, TimeExpires: in.TimeExpires.UTC(),
 	}
@@ -151,7 +161,11 @@ func (b *InMemoryBackend) GetPAR(ns, bucket, id string) (PARWire, error) {
 
 	p, ok := bk.PARs[id]
 	if !ok {
-		return PARWire{}, newErr(http.StatusNotFound, "PreauthenticatedRequestNotFound", "The pre-authenticated request '"+id+"' was not found")
+		return PARWire{}, newErr(
+			http.StatusNotFound,
+			"PreauthenticatedRequestNotFound",
+			"The pre-authenticated request '"+id+"' was not found",
+		)
 	}
 
 	return parWire(p), nil
@@ -168,7 +182,11 @@ func (b *InMemoryBackend) DeletePAR(ns, bucket, id string) error {
 	}
 
 	if _, ok := bk.PARs[id]; !ok {
-		return newErr(http.StatusNotFound, "PreauthenticatedRequestNotFound", "The pre-authenticated request '"+id+"' was not found")
+		return newErr(
+			http.StatusNotFound,
+			"PreauthenticatedRequestNotFound",
+			"The pre-authenticated request '"+id+"' was not found",
+		)
 	}
 
 	delete(bk.PARs, id)
@@ -220,9 +238,30 @@ const (
 	PARList
 )
 
+func (p *PAR) permits(object string, use PARAccess) bool {
+	if use == PARList {
+		return parAllowsRead(p.AccessType) && p.BucketListingAction == parListObjects
+	}
+
+	allowed := parAllowsRead(p.AccessType)
+	if use == PARWrite {
+		allowed = parAllowsWrite(p.AccessType)
+	}
+
+	if isAnyObject(p.AccessType) {
+		return allowed && strings.HasPrefix(object, p.ObjectName)
+	}
+
+	return allowed && object == p.ObjectName
+}
+
 // AuthorizePAR checks token against the bucket/object/use; every failure is the same opaque 404.
 func (b *InMemoryBackend) AuthorizePAR(token, ns, bucket, object string, use PARAccess) error {
-	deny := newErr(http.StatusNotFound, "NotAuthorizedOrNotFound", "Authorization failed or requested resource not found")
+	deny := newErr(
+		http.StatusNotFound,
+		"NotAuthorizedOrNotFound",
+		"Authorization failed or requested resource not found",
+	)
 
 	b.mu.RLock("AuthorizePAR")
 	defer b.mu.RUnlock()
@@ -239,25 +278,8 @@ func (b *InMemoryBackend) AuthorizePAR(token, ns, bucket, object string, use PAR
 			continue
 		}
 
-		switch use {
-		case PARList:
-			if parAllowsRead(p.AccessType) && p.BucketListingAction == parListObjects {
-				return nil
-			}
-		default:
-			allowed := parAllowsRead(p.AccessType)
-			if use == PARWrite {
-				allowed = parAllowsWrite(p.AccessType)
-			}
-
-			nameOK := object == p.ObjectName
-			if isAnyObject(p.AccessType) {
-				nameOK = strings.HasPrefix(object, p.ObjectName)
-			}
-
-			if allowed && nameOK {
-				return nil
-			}
+		if p.permits(object, use) {
+			return nil
 		}
 	}
 

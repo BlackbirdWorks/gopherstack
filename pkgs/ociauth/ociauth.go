@@ -32,6 +32,8 @@ const MaxClockSkew = 5 * time.Minute
 const (
 	headerRequestTarget = "(request-target)"
 	headerContentSHA256 = "x-content-sha256"
+	canonContentSHA256  = "X-Content-Sha256"
+	canonXDate          = "X-Date"
 	keyIDParts          = 3
 )
 
@@ -357,7 +359,7 @@ func verifyKnown(r *http.Request, body []byte, sig Signature, pub *rsa.PublicKey
 		sum := sha256.Sum256(body)
 		want := base64.StdEncoding.EncodeToString(sum[:])
 
-		if subtle.ConstantTimeCompare([]byte(want), []byte(r.Header.Get(headerContentSHA256))) != 1 {
+		if subtle.ConstantTimeCompare([]byte(want), []byte(r.Header.Get(canonContentSHA256))) != 1 {
 			return fmt.Errorf("%w: x-content-sha256 does not match body", ErrNotAuthenticated)
 		}
 	}
@@ -376,7 +378,7 @@ func verifyKnown(r *http.Request, body []byte, sig Signature, pub *rsa.PublicKey
 }
 
 func checkSkew(r *http.Request, now time.Time) error {
-	raw := r.Header.Get("x-date")
+	raw := r.Header.Get(canonXDate)
 	if raw == "" {
 		raw = r.Header.Get("Date")
 	}

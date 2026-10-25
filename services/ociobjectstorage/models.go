@@ -40,13 +40,13 @@ type Object struct {
 	TimeModified   time.Time  `json:"timeModified"`
 	RestoreReadyAt time.Time  `json:"restoreReadyAt"`
 	RestoreExpiry  time.Time  `json:"restoreExpiry"`
+	Meta           ObjectMeta `json:"meta"`
 	Name           string     `json:"name"`
 	VersionID      string     `json:"versionId"`
 	Etag           string     `json:"etag"`
 	MD5            string     `json:"md5"`
 	MultipartMD5   string     `json:"multipartMd5,omitempty"`
 	Data           []byte     `json:"data"`
-	Meta           ObjectMeta `json:"meta"`
 	IsDeleteMarker bool       `json:"isDeleteMarker"`
 }
 
@@ -117,28 +117,28 @@ type Retention struct {
 
 // Bucket is a bucket with all its contents.
 type Bucket struct {
-	TimeCreated         time.Time                    `json:"timeCreated"`
-	DefinedTags         map[string]map[string]any    `json:"definedTags,omitempty"`
-	FreeformTags        map[string]string            `json:"freeformTags,omitempty"`
-	Metadata            map[string]string            `json:"metadata,omitempty"`
-	Objects             map[string][]*Object         `json:"objects"`
-	Uploads             map[string]*Upload           `json:"uploads"`
-	PARs                map[string]*PAR              `json:"pars"`
-	Retention           map[string]*Retention        `json:"retention"`
-	Lifecycle           *Lifecycle                   `json:"lifecycle,omitempty"`
-	Name                string                       `json:"name"`
-	CompartmentID       string                       `json:"compartmentId"`
-	CreatedBy           string                       `json:"createdBy"`
-	Etag                string                       `json:"etag"`
-	PublicAccessType    string                       `json:"publicAccessType"`
-	StorageTier         string                       `json:"storageTier"`
-	Versioning          string                       `json:"versioning"`
-	AutoTiering         string                       `json:"autoTiering,omitempty"`
-	KmsKeyID            string                       `json:"kmsKeyId,omitempty"`
-	ID                  string                       `json:"id"`
-	LifecycleEtag       string                       `json:"lifecycleEtag,omitempty"`
-	ObjectEventsEnabled bool                         `json:"objectEventsEnabled"`
-	IsBucketKeyEnabled  bool                         `json:"isBucketKeyEnabled"`
+	TimeCreated         time.Time                 `json:"timeCreated"`
+	DefinedTags         map[string]map[string]any `json:"definedTags,omitempty"`
+	FreeformTags        map[string]string         `json:"freeformTags,omitempty"`
+	Metadata            map[string]string         `json:"metadata,omitempty"`
+	Objects             map[string][]*Object      `json:"objects"`
+	Uploads             map[string]*Upload        `json:"uploads"`
+	PARs                map[string]*PAR           `json:"pars"`
+	Retention           map[string]*Retention     `json:"retention"`
+	Lifecycle           *Lifecycle                `json:"lifecycle,omitempty"`
+	Name                string                    `json:"name"`
+	CompartmentID       string                    `json:"compartmentId"`
+	CreatedBy           string                    `json:"createdBy"`
+	Etag                string                    `json:"etag"`
+	PublicAccessType    string                    `json:"publicAccessType"`
+	StorageTier         string                    `json:"storageTier"`
+	Versioning          string                    `json:"versioning"`
+	AutoTiering         string                    `json:"autoTiering,omitempty"`
+	KmsKeyID            string                    `json:"kmsKeyId,omitempty"`
+	ID                  string                    `json:"id"`
+	LifecycleEtag       string                    `json:"lifecycleEtag,omitempty"`
+	ObjectEventsEnabled bool                      `json:"objectEventsEnabled"`
+	IsBucketKeyEnabled  bool                      `json:"isBucketKeyEnabled"`
 }
 
 // WorkRequest records an asynchronous operation (copy); the emulator completes it synchronously.

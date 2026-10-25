@@ -30,11 +30,10 @@ const (
 )
 
 type keyPair struct {
-	priv      *rsa.PrivateKey
-	privPEM   string
-	pubPEM    string
-	fprint    string
-	tenancyID string
+	priv    *rsa.PrivateKey
+	privPEM string
+	pubPEM  string
+	fprint  string
 }
 
 func newKeyPair(t *testing.T) keyPair {
@@ -118,7 +117,14 @@ func newEnv(t *testing.T, opts envOpts) *env {
 		require.NoError(t, err)
 	}
 
-	e := &env{backend: be, handler: h, clock: clock, keys: kp, ns: be.Namespace(), baseURL: fmt.Sprintf("http://127.0.0.1:%d", h.Port)}
+	e := &env{
+		backend: be,
+		handler: h,
+		clock:   clock,
+		keys:    kp,
+		ns:      be.Namespace(),
+		baseURL: fmt.Sprintf("http://127.0.0.1:%d", h.Port),
+	}
 	e.client = e.clientFor(t, kp)
 
 	return e
@@ -139,13 +145,13 @@ func (e *env) clientFor(t *testing.T, kp keyPair) objectstorage.ObjectStorageCli
 func (e *env) mkBucket(t *testing.T, name string, mut func(*objectstorage.CreateBucketDetails)) {
 	t.Helper()
 
-	d := objectstorage.CreateBucketDetails{Name: common.String(name), CompartmentId: common.String(testCompartment)}
+	d := objectstorage.CreateBucketDetails{Name: new(name), CompartmentId: new(testCompartment)}
 	if mut != nil {
 		mut(&d)
 	}
 
 	_, err := e.client.CreateBucket(t.Context(), objectstorage.CreateBucketRequest{
-		NamespaceName: common.String(e.ns), CreateBucketDetails: d,
+		NamespaceName: new(e.ns), CreateBucketDetails: d,
 	})
 	require.NoError(t, err)
 }
@@ -154,8 +160,8 @@ func (e *env) put(t *testing.T, bucket, name, body string) objectstorage.PutObje
 	t.Helper()
 
 	resp, err := e.client.PutObject(t.Context(), objectstorage.PutObjectRequest{
-		NamespaceName: common.String(e.ns), BucketName: common.String(bucket), ObjectName: common.String(name),
-		ContentLength: common.Int64(int64(len(body))), PutObjectBody: io.NopCloser(strings.NewReader(body)),
+		NamespaceName: new(e.ns), BucketName: new(bucket), ObjectName: new(name),
+		ContentLength: new(int64(len(body))), PutObjectBody: io.NopCloser(strings.NewReader(body)),
 	})
 	require.NoError(t, err)
 
@@ -166,7 +172,7 @@ func (e *env) get(t *testing.T, bucket, name string) string {
 	t.Helper()
 
 	resp, err := e.client.GetObject(t.Context(), objectstorage.GetObjectRequest{
-		NamespaceName: common.String(e.ns), BucketName: common.String(bucket), ObjectName: common.String(name),
+		NamespaceName: new(e.ns), BucketName: new(bucket), ObjectName: new(name),
 	})
 	require.NoError(t, err)
 

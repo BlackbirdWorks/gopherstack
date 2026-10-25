@@ -27,6 +27,7 @@ const (
 	readTimeout       = 5 * time.Minute
 	idleTimeout       = 120 * time.Second
 	lifecycleInterval = time.Minute
+	adminBodyLimit    = 1 << 20
 )
 
 // req is the per-request state handed to every operation.
@@ -46,6 +47,7 @@ type Handler struct {
 	srvMu       *lockmetrics.RWMutex
 	srv         *http.Server
 	stop        chan struct{}
+	ops         map[string]opFunc
 	wg          sync.WaitGroup
 	Port        int
 	EnforceAuth bool
@@ -59,7 +61,10 @@ var (
 
 // NewHandler creates a Handler; callers override Port and EnforceAuth from Settings.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend, Port: DefaultPort, srvMu: lockmetrics.New("ociobjectstorage.server")}
+	return &Handler{
+		Backend: backend, Port: DefaultPort, ops: buildOps(),
+		srvMu: lockmetrics.New("ociobjectstorage.server"),
+	}
 }
 
 // Name returns the service name.
@@ -67,8 +72,8 @@ func (h *Handler) Name() string { return "OCIObjectStorage" }
 
 // GetSupportedOperations lists the supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	ops := make([]string, 0, len(opTable))
-	for k := range opTable {
+	ops := make([]string, 0, len(h.ops))
+	for k := range h.ops {
 		ops = append(ops, k)
 	}
 
@@ -163,29 +168,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
-		fn, ok := opTable[q.rt.op]
-		if !ok {
-			h.fail(q, errNotFound())
-
-			return nil
-		}
-
-		body, err := io.ReadAll(http.MaxBytesReader(q.w, q.r.Body, maxBodyBytes))
-		if err != nil {
-			h.fail(q, newErr(http.StatusRequestEntityTooLarge, "PayloadTooLarge", "Request body is too large or unreadable"))
-
-			return nil
-		}
-
-		q.body = body
-
-		if err = h.authenticate(q); err != nil {
-			h.fail(q, err)
-
-			return nil
-		}
-
-		if err = fn(h, q); err != nil {
+		if err := h.serve(q); err != nil {
 			h.fail(q, err)
 		}
 
@@ -193,14 +176,34 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+func (h *Handler) serve(q *req) error {
+	fn, ok := h.ops[q.rt.op]
+	if !ok {
+		return errNotFound()
+	}
+
+	body, err := io.ReadAll(http.MaxBytesReader(q.w, q.r.Body, maxBodyBytes))
+	if err != nil {
+		return newErr(http.StatusRequestEntityTooLarge, "PayloadTooLarge", "Request body is too large or unreadable")
+	}
+
+	q.body = body
+
+	if err = h.authenticate(q); err != nil {
+		return err
+	}
+
+	return fn(h, q)
+}
+
 func (h *Handler) authenticate(q *req) error {
 	if q.rt.parToken != "" {
 		use := PARRead
 
-		switch {
-		case q.rt.op == opPutObject:
+		switch q.rt.op {
+		case opPutObject:
 			use = PARWrite
-		case q.rt.op == opListObjects:
+		case opListObjects:
 			use = PARList
 		}
 
@@ -264,7 +267,7 @@ func (h *Handler) adminKeys(q *req) {
 	case http.MethodPost:
 		var in adminKeyReq
 
-		body, _ := io.ReadAll(io.LimitReader(q.r.Body, 1<<20))
+		body, _ := io.ReadAll(io.LimitReader(q.r.Body, adminBodyLimit))
 		if err := json.Unmarshal(body, &in); err != nil || in.Tenancy == "" || in.User == "" {
 			h.fail(q, errParam("tenancy, user and publicKey are required"))
 
@@ -324,21 +327,13 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	log.InfoContext(workerCtx, "ociobjectstorage: starting dedicated listener", "port", h.Port)
 
-	h.wg.Add(1)
-
-	go func() {
-		defer h.wg.Done()
-
+	h.wg.Go(func() {
 		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.ErrorContext(workerCtx, "ociobjectstorage: listener stopped", "error", serveErr)
 		}
-	}()
+	})
 
-	h.wg.Add(1)
-
-	go func() {
-		defer h.wg.Done()
-
+	h.wg.Go(func() {
 		t := time.NewTicker(lifecycleInterval)
 		defer t.Stop()
 
@@ -352,7 +347,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 				return
 			}
 		}
-	}()
+	})
 
 	return nil
 }

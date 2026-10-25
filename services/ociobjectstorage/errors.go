@@ -27,8 +27,11 @@ func errNamespace(ns string) *APIError {
 }
 
 func errBucket(ns, name string) *APIError {
-	return newErr(http.StatusNotFound, "BucketNotFound",
-		"Either the bucket named '"+name+"' does not exist in the namespace '"+ns+"' or you are not authorized to access it")
+	return newErr(
+		http.StatusNotFound,
+		"BucketNotFound",
+		"Either the bucket named '"+name+"' does not exist in the namespace '"+ns+"' or you are not authorized to access it",
+	)
 }
 
 func errObject(name string) *APIError {

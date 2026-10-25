@@ -17,15 +17,16 @@ const (
 	targetPrevious  = "previous-object-versions"
 	targetMultipart = "multipart-uploads"
 
-	actionDelete = "DELETE"
+	actionDelete  = "DELETE"
 	actionArchive = "ARCHIVE"
-	actionIA     = "INFREQUENT_ACCESS"
-	actionAbort  = "ABORT"
+	actionIA      = "INFREQUENT_ACCESS"
+	actionAbort   = "ABORT"
 
 	unitDays  = "DAYS"
 	unitYears = "YEARS"
 
 	minLockLead = 14 * 24 * time.Hour
+	percentDone = 100
 )
 
 func unitDuration(amount int64, unit string) time.Duration {
@@ -44,7 +45,11 @@ type LifecycleWire struct {
 }
 
 // PutLifecycle replaces the bucket's lifecycle policy and returns it with the policy etag.
-func (b *InMemoryBackend) PutLifecycle(ns, bucket string, items []LifecycleRule, pre Preconds) (LifecycleWire, string, error) {
+func (b *InMemoryBackend) PutLifecycle(
+	ns, bucket string,
+	items []LifecycleRule,
+	pre Preconds,
+) (LifecycleWire, string, error) {
 	seen := map[string]bool{}
 
 	for i := range items {
@@ -56,7 +61,9 @@ func (b *InMemoryBackend) PutLifecycle(ns, bucket string, items []LifecycleRule,
 		seen[r.Name] = true
 
 		if r.TimeAmount < 1 || (r.TimeUnit != unitDays && r.TimeUnit != unitYears) {
-			return LifecycleWire{}, "", errParam("Rule '" + r.Name + "' needs timeAmount >= 1 and timeUnit DAYS or YEARS")
+			return LifecycleWire{}, "", errParam(
+				"Rule '" + r.Name + "' needs timeAmount >= 1 and timeUnit DAYS or YEARS",
+			)
 		}
 
 		if r.Target == nil {
@@ -119,7 +126,11 @@ func (b *InMemoryBackend) GetLifecycle(ns, bucket string) (LifecycleWire, string
 	}
 
 	if bk.Lifecycle == nil {
-		return LifecycleWire{}, "", newErr(http.StatusNotFound, "LifecyclePolicyNotFound", "The bucket '"+bucket+"' has no lifecycle policy")
+		return LifecycleWire{}, "", newErr(
+			http.StatusNotFound,
+			"LifecyclePolicyNotFound",
+			"The bucket '"+bucket+"' has no lifecycle policy",
+		)
 	}
 
 	return LifecycleWire{TimeCreated: bk.Lifecycle.TimeCreated, Items: bk.Lifecycle.Items}, bk.LifecycleEtag, nil
@@ -192,23 +203,29 @@ func (b *InMemoryBackend) SweepLifecycle() int {
 			}
 
 			age := unitDuration(r.TimeAmount, r.TimeUnit)
-
-			switch *r.Target {
-			case targetMultipart:
-				for id, u := range bk.Uploads {
-					if nameMatches(r.ObjectNameFilter, u.Object) && !now.Before(u.TimeCreated.Add(age)) {
-						delete(bk.Uploads, id)
-
-						acted++
-					}
-				}
-			default:
+			if *r.Target == targetMultipart {
+				acted += abortStaleUploads(bk, r, age, now)
+			} else {
 				acted += b.sweepObjects(bk, r, age, now)
 			}
 		}
 	}
 
 	return acted
+}
+
+func abortStaleUploads(bk *Bucket, r *LifecycleRule, age time.Duration, now time.Time) int {
+	n := 0
+
+	for id, u := range bk.Uploads {
+		if nameMatches(r.ObjectNameFilter, u.Object) && !now.Before(u.TimeCreated.Add(age)) {
+			delete(bk.Uploads, id)
+
+			n++
+		}
+	}
+
+	return n
 }
 
 func (b *InMemoryBackend) sweepObjects(bk *Bucket, r *LifecycleRule, age time.Duration, now time.Time) int {
@@ -368,7 +385,7 @@ func (b *InMemoryBackend) CreateRetention(ns, bucket string, in RetentionInput) 
 
 	now := b.nowUTC()
 	r := &Retention{
-		ID: awsid.NewN("", 32), Etag: newEtag(), TimeCreated: now, TimeModified: now,
+		ID: awsid.NewN("", idHexLen), Etag: newEtag(), TimeCreated: now, TimeModified: now,
 		DisplayName: "retention-rule-" + now.Format("20060102150405"),
 	}
 
@@ -429,7 +446,11 @@ func (b *InMemoryBackend) ListRetention(ns, bucket, token string) (page.Page[Ret
 }
 
 // UpdateRetention modifies a rule; a locked rule can only be lengthened.
-func (b *InMemoryBackend) UpdateRetention(ns, bucket, id string, in RetentionInput, pre Preconds) (RetentionWire, error) {
+func (b *InMemoryBackend) UpdateRetention(
+	ns, bucket, id string,
+	in RetentionInput,
+	pre Preconds,
+) (RetentionWire, error) {
 	b.mu.Lock("UpdateRetention")
 	defer b.mu.Unlock()
 
@@ -496,15 +517,15 @@ func (b *InMemoryBackend) DeleteRetention(ns, bucket, id string, pre Preconds) e
 
 // WorkRequestWire is the WorkRequest / WorkRequestSummary body.
 type WorkRequestWire struct {
-	TimeAccepted    time.Time              `json:"timeAccepted"`
-	TimeStarted     time.Time              `json:"timeStarted"`
-	TimeFinished    time.Time              `json:"timeFinished"`
-	OperationType   string                 `json:"operationType"`
-	Status          string                 `json:"status"`
-	ID              string                 `json:"id"`
-	CompartmentID   string                 `json:"compartmentId"`
-	Resources       []WorkRequestResource  `json:"resources"`
-	PercentComplete float32                `json:"percentComplete"`
+	TimeAccepted    time.Time             `json:"timeAccepted"`
+	TimeStarted     time.Time             `json:"timeStarted"`
+	TimeFinished    time.Time             `json:"timeFinished"`
+	OperationType   string                `json:"operationType"`
+	Status          string                `json:"status"`
+	ID              string                `json:"id"`
+	CompartmentID   string                `json:"compartmentId"`
+	Resources       []WorkRequestResource `json:"resources"`
+	PercentComplete float32               `json:"percentComplete"`
 }
 
 // WorkRequestResource is an entity touched by a work request.
@@ -516,9 +537,15 @@ type WorkRequestResource struct {
 
 func wrWire(w *WorkRequest) WorkRequestWire {
 	return WorkRequestWire{
-		ID: w.ID, OperationType: w.OperationType, Status: w.Status, CompartmentID: w.CompartmentID,
-		TimeAccepted: w.TimeAccepted, TimeStarted: w.TimeAccepted, TimeFinished: w.TimeFinished,
-		PercentComplete: 100, Resources: []WorkRequestResource{{EntityType: "object", ActionType: "WRITTEN", EntityURI: w.EntityURI}},
+		ID:              w.ID,
+		OperationType:   w.OperationType,
+		Status:          w.Status,
+		CompartmentID:   w.CompartmentID,
+		TimeAccepted:    w.TimeAccepted,
+		TimeStarted:     w.TimeAccepted,
+		TimeFinished:    w.TimeFinished,
+		PercentComplete: percentDone,
+		Resources:       []WorkRequestResource{{EntityType: "object", ActionType: "WRITTEN", EntityURI: w.EntityURI}},
 	}
 }
 
@@ -529,7 +556,11 @@ func (b *InMemoryBackend) GetWorkRequest(id string) (WorkRequestWire, error) {
 
 	w, ok := b.workRequests[id]
 	if !ok {
-		return WorkRequestWire{}, newErr(http.StatusNotFound, "NotAuthorizedOrNotFound", "Work request '"+id+"' was not found")
+		return WorkRequestWire{}, newErr(
+			http.StatusNotFound,
+			"NotAuthorizedOrNotFound",
+			"Work request '"+id+"' was not found",
+		)
 	}
 
 	return wrWire(w), nil

@@ -247,8 +247,21 @@ func parseBucketSub(rt route, m string, sub []string) route {
 
 		rt.id = unesc(rest[0])
 		rt.op = map[string]string{http.MethodGet: opGetPAR, http.MethodDelete: opDeletePAR}[m]
+	default:
+		return parseBucketConfig(rt, m, sub)
+	}
+
+	return orUnknown(rt)
+}
+
+func parseBucketConfig(rt route, m string, sub []string) route {
+	rest := sub[1:]
+
+	switch sub[0] {
 	case "l":
-		rt.op = map[string]string{http.MethodPut: opPutLifecycle, http.MethodGet: opGetLifecycle, http.MethodDelete: opDeleteLifecycle}[m]
+		rt.op = map[string]string{
+			http.MethodPut: opPutLifecycle, http.MethodGet: opGetLifecycle, http.MethodDelete: opDeleteLifecycle,
+		}[m]
 	case "retentionRules":
 		if len(rest) == 0 {
 			rt.op = map[string]string{http.MethodPost: opCreateRetention, http.MethodGet: opListRetention}[m]

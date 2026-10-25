@@ -1,7 +1,9 @@
 package ociobjectstorage
 
 import (
+	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -266,65 +268,71 @@ func (b *InMemoryBackend) deleteLocked(bk *Bucket, name, versionID, ifMatch stri
 		return DeleteResult{}, errNoEtag()
 	}
 
-	now := b.nowUTC()
+	switch {
+	case versionID != "":
+		return b.deleteVersionLocked(bk, name, versionID)
+	case bk.Versioning == versioningDisabled:
+		return b.deleteAllLocked(bk, name)
+	default:
+		return b.addMarkerLocked(bk, name), nil
+	}
+}
 
-	if versionID != "" {
-		for i, v := range vs {
-			if v.VersionID != versionID {
-				continue
-			}
+func (b *InMemoryBackend) deleteVersionLocked(bk *Bucket, name, versionID string) (DeleteResult, error) {
+	vs := bk.Objects[name]
 
-			if b.underRetention(bk, v) {
-				return DeleteResult{}, errRetention(name)
-			}
-
-			rest := append(append([]*Object{}, vs[:i]...), vs[i+1:]...)
-			if len(rest) == 0 {
-				delete(bk.Objects, name)
-			} else {
-				bk.Objects[name] = rest
-			}
-
-			return DeleteResult{VersionID: versionID, IsDeleteMarker: v.IsDeleteMarker, LastModified: now}, nil
-		}
-
+	i := slices.IndexFunc(vs, func(v *Object) bool { return v.VersionID == versionID })
+	if i < 0 {
 		return DeleteResult{}, errObject(name)
 	}
 
-	if bk.Versioning == versioningDisabled {
-		if cur.IsDeleteMarker {
-			return DeleteResult{}, errObject(name)
-		}
-
-		for _, v := range vs {
-			if b.underRetention(bk, v) {
-				return DeleteResult{}, errRetention(name)
-			}
-		}
-
-		delete(bk.Objects, name)
-
-		return DeleteResult{VersionID: cur.VersionID, LastModified: now}, nil
+	v := vs[i]
+	if b.underRetention(bk, v) {
+		return DeleteResult{}, errRetention(name)
 	}
 
-	m := &Object{Name: name, IsDeleteMarker: true, TimeCreated: now, TimeModified: now, Etag: newEtag(), VersionID: newVersionID()}
+	if rest := slices.Delete(slices.Clone(vs), i, i+1); len(rest) > 0 {
+		bk.Objects[name] = rest
+	} else {
+		delete(bk.Objects, name)
+	}
+
+	return DeleteResult{VersionID: versionID, IsDeleteMarker: v.IsDeleteMarker, LastModified: b.nowUTC()}, nil
+}
+
+func (b *InMemoryBackend) deleteAllLocked(bk *Bucket, name string) (DeleteResult, error) {
+	vs := bk.Objects[name]
+	cur := vs[len(vs)-1]
+
+	if cur.IsDeleteMarker {
+		return DeleteResult{}, errObject(name)
+	}
+
+	if slices.ContainsFunc(vs, func(v *Object) bool { return b.underRetention(bk, v) }) {
+		return DeleteResult{}, errRetention(name)
+	}
+
+	delete(bk.Objects, name)
+
+	return DeleteResult{VersionID: cur.VersionID, LastModified: b.nowUTC()}, nil
+}
+
+func (b *InMemoryBackend) addMarkerLocked(bk *Bucket, name string) DeleteResult {
+	now := b.nowUTC()
+	m := &Object{
+		Name: name, IsDeleteMarker: true, TimeCreated: now, TimeModified: now,
+		Etag: newEtag(), VersionID: newVersionID(),
+	}
+	vs := bk.Objects[name]
+
 	if bk.Versioning == versioningSuspended {
 		m.VersionID = nullVersion
-
-		kept := make([]*Object, 0, len(vs))
-
-		for _, v := range vs {
-			if v.VersionID != nullVersion {
-				kept = append(kept, v)
-			}
-		}
-
-		vs = kept
+		vs = slices.DeleteFunc(slices.Clone(vs), func(v *Object) bool { return v.VersionID == nullVersion })
 	}
 
 	bk.Objects[name] = append(vs, m)
 
-	return DeleteResult{VersionID: m.VersionID, IsDeleteMarker: true, LastModified: now}, nil
+	return DeleteResult{VersionID: m.VersionID, IsDeleteMarker: true, LastModified: now}
 }
 
 // ListOptions are the ListObjects / ListObjectVersions query parameters.
@@ -454,8 +462,8 @@ func (b *InMemoryBackend) ListObjectVersions(
 		}
 
 		vs := bk.Objects[n]
-		for i := len(vs) - 1; i >= 0; i-- {
-			items = append(items, b.info(vs[i]))
+		for _, v := range slices.Backward(vs) {
+			items = append(items, b.info(v))
 		}
 	}
 
@@ -550,15 +558,42 @@ type CopyInput struct {
 	DestinationTier     string            `json:"destinationObjectStorageTier"`
 }
 
-// CopyObject copies an object and returns a (completed) work request id.
-func (b *InMemoryBackend) CopyObject(ns, bucket string, in CopyInput) (string, error) {
+func (in CopyInput) validate() error {
 	if in.SourceObjectName == "" || in.DestinationObject == "" || in.DestinationBucket == "" ||
 		in.DestinationNS == "" || in.DestinationRegion == "" {
-		return "", errMissing("sourceObjectName, destinationRegion, destinationNamespace, destinationBucket and destinationObjectName are required")
+		return errMissing("sourceObjectName, destinationRegion, destinationNamespace, " +
+			"destinationBucket and destinationObjectName are required")
 	}
 
 	if in.DestinationRegion != Region {
-		return "", errParam("Cross-region copy is not supported by this emulator; use region " + Region)
+		return errParam("Cross-region copy is not supported by this emulator; use region " + Region)
+	}
+
+	return nil
+}
+
+// copyMeta derives the destination metadata of a copy.
+func copyMeta(o *Object, dst *Bucket, in CopyInput) ObjectMeta {
+	meta := o.Meta
+	meta.Metadata = copyMap(o.Meta.Metadata)
+
+	if in.DestinationMetadata != nil {
+		meta.Metadata = in.DestinationMetadata
+	}
+
+	if in.DestinationTier != "" {
+		meta.StorageTier = in.DestinationTier
+	} else if meta.StorageTier == tierArchive {
+		meta.StorageTier = dst.StorageTier
+	}
+
+	return meta
+}
+
+// CopyObject copies an object and returns a (completed) work request id.
+func (b *InMemoryBackend) CopyObject(ns, bucket string, in CopyInput) (string, error) {
+	if err := in.validate(); err != nil {
+		return "", err
 	}
 
 	b.mu.Lock("CopyObject")
@@ -584,7 +619,10 @@ func (b *InMemoryBackend) CopyObject(ns, bucket string, in CopyInput) (string, e
 	}
 
 	if st := archivalAt(o, b.nowUTC()); st == archivalArchived || st == archivalRestoring {
-		return "", errConflict("NotRestored", "The source object is archived and must be restored before it can be copied")
+		return "", errConflict(
+			"NotRestored",
+			"The source object is archived and must be restored before it can be copied",
+		)
 	}
 
 	cur := live(dst, in.DestinationObject)
@@ -594,24 +632,22 @@ func (b *InMemoryBackend) CopyObject(ns, bucket string, in CopyInput) (string, e
 		etag = cur.Etag
 	}
 
-	if err = (Preconds{IfMatch: in.DestIfMatch, IfNoneMatch: in.DestIfNoneMatch}).check(etag, cur != nil, false); err != nil {
+	if err = (Preconds{IfMatch: in.DestIfMatch, IfNoneMatch: in.DestIfNoneMatch}).check(
+		etag,
+		cur != nil,
+		false,
+	); err != nil {
 		return "", err
 	}
 
-	meta := o.Meta
-	meta.Metadata = copyMap(o.Meta.Metadata)
-
-	if in.DestinationMetadata != nil {
-		meta.Metadata = in.DestinationMetadata
-	}
-
-	if in.DestinationTier != "" {
-		meta.StorageTier = in.DestinationTier
-	} else if meta.StorageTier == tierArchive {
-		meta.StorageTier = dst.StorageTier
-	}
-
-	if _, err = b.storeLocked(dst, in.DestinationObject, append([]byte(nil), o.Data...), meta, o.MD5, o.MultipartMD5); err != nil {
+	if _, err = b.storeLocked(
+		dst,
+		in.DestinationObject,
+		append([]byte(nil), o.Data...),
+		copyMeta(o, dst, in),
+		o.MD5,
+		o.MultipartMD5,
+	); err != nil {
 		return "", err
 	}
 
@@ -632,9 +668,7 @@ func copyMap(m map[string]string) map[string]string {
 	}
 
 	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 
 	return out
 }
@@ -682,7 +716,11 @@ func (b *InMemoryBackend) RenameObject(ns, bucket string, in RenameInput) (Objec
 		etag = cur.Etag
 	}
 
-	if err = (Preconds{IfMatch: in.NewIfMatch, IfNoneMatch: in.NewIfNoMatch}).check(etag, cur != nil, false); err != nil {
+	if err = (Preconds{IfMatch: in.NewIfMatch, IfNoneMatch: in.NewIfNoMatch}).check(
+		etag,
+		cur != nil,
+		false,
+	); err != nil {
 		return ObjectInfo{}, err
 	}
 
