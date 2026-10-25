@@ -945,6 +945,12 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 7 gaps |
 | [Workflows](services/gcpworkflows/README.md) | B | 13 | 8 gaps |
 
+### OCI
+
+| Service | Parity | PARITY Entries | Notes |
+|---|---|---|---|
+| [OCI Object Storage](services/ociobjectstorage/README.md) | B | 45 | 11 gaps |
+
 ### Other
 
 | Service | Parity | PARITY Entries | Notes |

@@ -25,5 +25,6 @@ export declare class StartedGopherstackContainer {
   getAzureEndpoints(): Record<string, string>;
   getAzureConnectionString(): string;
   getGcpEndpoint(service: string): string;
+  getOciEndpoint(service: string): string;
   stop(): Promise<unknown>;
 }

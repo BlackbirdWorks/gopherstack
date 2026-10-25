@@ -56,6 +56,10 @@ const (
 	AzureCosmosDB     = "8081"
 )
 
+func ociPorts() map[string]string {
+	return map[string]string{"objectstorage": "8150"}
+}
+
 func gcpPorts() map[string]string {
 	return map[string]string{
 		"storage":          "4443",
@@ -91,6 +95,9 @@ func azurePorts() []string {
 
 // ErrUnknownGCPService is returned by GCPEndpoint for an unsupported service name.
 var ErrUnknownGCPService = errors.New("unknown gcp service")
+
+// ErrUnknownOCIService is returned by OCIEndpoint for an unknown service name.
+var ErrUnknownOCIService = errors.New("unknown oci service")
 
 // Container is a running Gopherstack container.
 type Container struct {
@@ -136,8 +143,8 @@ func WithCustomizer(c ...testcontainers.ContainerCustomizer) Option {
 }
 
 func exposed() []string {
-	azure, gcp := azurePorts(), gcpPorts()
-	ports := make([]string, 0, 1+len(azure)+len(gcp))
+	azure, gcp, oci := azurePorts(), gcpPorts(), ociPorts()
+	ports := make([]string, 0, 1+len(azure)+len(gcp)+len(oci))
 	ports = append(ports, APIPort+"/tcp")
 
 	for _, p := range azure {
@@ -145,6 +152,10 @@ func exposed() []string {
 	}
 
 	for _, p := range gcp {
+		ports = append(ports, p+"/tcp")
+	}
+
+	for _, p := range oci {
 		ports = append(ports, p+"/tcp")
 	}
 
@@ -307,4 +318,19 @@ func (c *Container) GCPEndpoint(ctx context.Context, service string) (string, er
 	}
 
 	return c.hostPort(ctx, port)
+}
+
+// OCIEndpoint returns the http URL of an OCI service (objectstorage), usable as the OCI SDK client Host.
+func (c *Container) OCIEndpoint(ctx context.Context, service string) (string, error) {
+	port, ok := ociPorts()[strings.ToLower(service)]
+	if !ok {
+		return "", fmt.Errorf("%w: %q", ErrUnknownOCIService, service)
+	}
+
+	hp, err := c.hostPort(ctx, port)
+	if err != nil {
+		return "", err
+	}
+
+	return "http://" + hp, nil
 }

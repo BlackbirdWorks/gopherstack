@@ -230,6 +230,7 @@ import (
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
+	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
@@ -571,6 +572,7 @@ type CLI struct {
 	Pods                          PodsConfig                        `embed:"" prefix:"pod-"`
 	Extensions                    extensions.Settings               `embed:""`
 	DockerRegistry                registryauth.Settings             `embed:""`
+	OCIObjectStorage              ociobjectstoragebackend.Settings  `embed:"" prefix:"oci-objectstorage-"`
 	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                                help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                              //nolint:lll // config struct tags are intentionally verbose
 	InitDirs                      []string                          `                                       name:"init-dir"                env:"INIT_DIR"                                                    help:"Extra init-hook root holding boot.d/start.d/ready.d/shutdown.d (repeatable; /etc/localstack/init and /etc/gopherstack/init are always checked)."` //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                                  help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                            //nolint:lll // config struct tags are intentionally verbose
@@ -800,6 +802,11 @@ func (c *CLI) GetGCPFirestoreSettings() gcpfirestorebackend.Settings {
 // GetGCPStorageSettings returns Google Cloud Storage settings (gcpstorage.ConfigProvider).
 func (c *CLI) GetGCPStorageSettings() gcpstoragebackend.Settings {
 	return c.GCPStorage
+}
+
+// GetOCIObjectStorageSettings returns OCI Object Storage settings (ociobjectstorage.ConfigProvider).
+func (c *CLI) GetOCIObjectStorageSettings() ociobjectstoragebackend.Settings {
+	return c.OCIObjectStorage
 }
 
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
@@ -2533,6 +2540,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureFunctions", "azurefunctions", cli.AzureFunctions.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
+		{"OCIObjectStorage", "ociobjectstorage", cli.OCIObjectStorage.Port},
 	}
 }
 
@@ -4906,6 +4914,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},
 		&gcpstoragebackend.Provider{},
+		&ociobjectstoragebackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},

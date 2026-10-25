@@ -17,7 +17,7 @@ Java and .NET modules are not provided yet. Use the generic container with
 
 - Default image `ghcr.io/blackbirdworks/gopherstack:latest` (override per call).
 - Readiness: `GET /_gopherstack/health` on port 8000.
-- Exposed: 8000 (AWS), Azure 10000-10008, 10010, 10011, 8081, GCP 4443, 8080, 8085-8087, 8123-8126, 8128, 8130-8139, 9050.
+- Exposed: 8000 (AWS), Azure 10000-10008, 10010, 10011, 8081, GCP 4443, 8080, 8085-8087, 8123-8126, 8128, 8130-8139, 9050, OCI 8150.
 - Options: services filter (`GOPHERSTACK_SERVICES`), persistence (bind mount at `/data` with `PERSIST=true`), Docker socket, extra env.
 - Azure: well-known `devstoreaccount1` identity; connection string covers blob, queue and table.
 - GCP: `storage` endpoint is the value for `STORAGE_EMULATOR_HOST`.
