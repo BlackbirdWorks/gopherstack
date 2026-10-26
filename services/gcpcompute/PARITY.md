@@ -1,7 +1,7 @@
 ---
 service: gcpcompute
 sdk_module: cloud.google.com/go/compute@v1.72.0
-last_audit_commit: 6e873d8a8
+last_audit_commit: cf047c847
 last_audit_date: 2026-10-26
 overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
