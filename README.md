@@ -906,7 +906,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 13 gaps |
-| [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
+| [Azure Blob Storage](services/azureblob/README.md) | C | 26 | 5 gaps; 3 deferred |
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 13 gaps |
 | [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 10 gaps |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | B | 32 | 9 gaps |

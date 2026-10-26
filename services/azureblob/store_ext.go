@@ -2,7 +2,9 @@ package azureblob
 
 import (
 	"encoding/base64"
+	"errors"
 	"maps"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -61,12 +63,13 @@ func (b *InMemoryBackend) containerLocked(name string) (*storedContainer, error)
 
 func (b *InMemoryBackend) touchContainerLocked(c *storedContainer) {
 	b.etagSeq++
-	c.LastModified = time.Now().UTC()
+	c.LastModified = b.now()
 	c.ETag = computeBlobETag([]byte(c.Name), b.etagSeq)
 }
 
-// GetContainer returns a container's properties, metadata and ACL.
-func (b *InMemoryBackend) GetContainer(name string) (ContainerInfo, error) {
+// GetContainer returns a container's properties, metadata and ACL. A lease
+// id, when given, must match an active lease.
+func (b *InMemoryBackend) GetContainer(name string, pre ...Precond) (ContainerInfo, error) {
 	b.mu.RLock("GetContainer")
 	defer b.mu.RUnlock()
 
@@ -75,15 +78,42 @@ func (b *InMemoryBackend) GetContainer(name string) (ContainerInfo, error) {
 		return ContainerInfo{}, err
 	}
 
-	return c.info(), nil
+	now := b.now()
+	if err = c.Lease.gate(now, firstPre(pre).LeaseID, false, "Container"); err != nil {
+		return ContainerInfo{}, err
+	}
+
+	return c.info(now), nil
+}
+
+// writableContainerLocked resolves a container for a write guarded by an
+// optional lease id and the time conditions.
+func (b *InMemoryBackend) writableContainerLocked(name string, p Precond) (*storedContainer, error) {
+	c, err := b.containerLocked(name)
+	if err != nil {
+		return nil, err
+	}
+
+	now := b.now()
+	if err = c.Lease.gate(now, p.LeaseID, false, "Container"); err != nil {
+		return nil, err
+	}
+
+	if err = p.checkContainer(c.info(now).LastModified); err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 // SetContainerMetadata replaces a container's metadata.
-func (b *InMemoryBackend) SetContainerMetadata(name string, md map[string]string) (ContainerInfo, error) {
+func (b *InMemoryBackend) SetContainerMetadata(
+	name string, md map[string]string, pre ...Precond,
+) (ContainerInfo, error) {
 	b.mu.Lock("SetContainerMetadata")
 	defer b.mu.Unlock()
 
-	c, err := b.containerLocked(name)
+	c, err := b.writableContainerLocked(name, firstPre(pre))
 	if err != nil {
 		return ContainerInfo{}, err
 	}
@@ -91,16 +121,18 @@ func (b *InMemoryBackend) SetContainerMetadata(name string, md map[string]string
 	c.Metadata = maps.Clone(md)
 	b.touchContainerLocked(c)
 
-	return c.info(), nil
+	return c.info(b.now()), nil
 }
 
 // SetContainerACL replaces a container's public-access level and stored
 // access policies.
-func (b *InMemoryBackend) SetContainerACL(name, publicAccess string, ids []SignedIdentifier) (ContainerInfo, error) {
+func (b *InMemoryBackend) SetContainerACL(
+	name, publicAccess string, ids []SignedIdentifier, pre ...Precond,
+) (ContainerInfo, error) {
 	b.mu.Lock("SetContainerACL")
 	defer b.mu.Unlock()
 
-	c, err := b.containerLocked(name)
+	c, err := b.writableContainerLocked(name, firstPre(pre))
 	if err != nil {
 		return ContainerInfo{}, err
 	}
@@ -109,22 +141,43 @@ func (b *InMemoryBackend) SetContainerACL(name, publicAccess string, ids []Signe
 	c.ACL = slices.Clone(ids)
 	b.touchContainerLocked(c)
 
-	return c.info(), nil
+	return c.info(b.now()), nil
 }
 
 func (b *InMemoryBackend) touchBlobLocked(s *storedBlob) {
 	b.etagSeq++
-	s.LastModified = time.Now().UTC()
+	s.LastModified = b.now()
 	s.ETag = computeBlobETag(s.Data, b.etagSeq)
+}
+
+// writableBlobLocked resolves a base blob for a write: the lease gate
+// (require: an active lease demands its id) and conditional headers apply.
+func (b *InMemoryBackend) writableBlobLocked(container, blob string, p Precond, require bool) (*storedBlob, error) {
+	s, err := b.lookupBlobLocked(container, blob, "")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.Lease.gate(b.now(), p.LeaseID, require, "Blob"); err != nil {
+		return nil, err
+	}
+
+	if err = p.check(condWrite, true, s.ETag, s.LastModified); err != nil {
+		return nil, err
+	}
+
+	return s, nil
 }
 
 // SetBlobProperties replaces the content properties of a blob. Properties
 // absent from attrs are cleared, as in Set Blob Properties.
-func (b *InMemoryBackend) SetBlobProperties(container, blob string, attrs BlobAttrs) (BlobInfo, error) {
+func (b *InMemoryBackend) SetBlobProperties(
+	container, blob string, attrs BlobAttrs, pre ...Precond,
+) (BlobInfo, error) {
 	b.mu.Lock("SetBlobProperties")
 	defer b.mu.Unlock()
 
-	s, err := b.lookupBlobLocked(container, blob, "")
+	s, err := b.writableBlobLocked(container, blob, firstPre(pre), true)
 	if err != nil {
 		return BlobInfo{}, err
 	}
@@ -132,15 +185,17 @@ func (b *InMemoryBackend) SetBlobProperties(container, blob string, attrs BlobAt
 	s.applyAttrs(attrs)
 	b.touchBlobLocked(s)
 
-	return s.info(), nil
+	return s.info(b.now()), nil
 }
 
 // SetBlobMetadata replaces a blob's metadata.
-func (b *InMemoryBackend) SetBlobMetadata(container, blob string, md map[string]string) (BlobInfo, error) {
+func (b *InMemoryBackend) SetBlobMetadata(
+	container, blob string, md map[string]string, pre ...Precond,
+) (BlobInfo, error) {
 	b.mu.Lock("SetBlobMetadata")
 	defer b.mu.Unlock()
 
-	s, err := b.lookupBlobLocked(container, blob, "")
+	s, err := b.writableBlobLocked(container, blob, firstPre(pre), true)
 	if err != nil {
 		return BlobInfo{}, err
 	}
@@ -148,15 +203,15 @@ func (b *InMemoryBackend) SetBlobMetadata(container, blob string, md map[string]
 	s.Metadata = maps.Clone(md)
 	b.touchBlobLocked(s)
 
-	return s.info(), nil
+	return s.info(b.now()), nil
 }
 
 // SetBlobTier sets the access tier and returns the tier it replaced.
-func (b *InMemoryBackend) SetBlobTier(container, blob, tier string) (string, BlobInfo, error) {
+func (b *InMemoryBackend) SetBlobTier(container, blob, tier string, pre ...Precond) (string, BlobInfo, error) {
 	b.mu.Lock("SetBlobTier")
 	defer b.mu.Unlock()
 
-	s, err := b.lookupBlobLocked(container, blob, "")
+	s, err := b.writableBlobLocked(container, blob, firstPre(pre), false)
 	if err != nil {
 		return "", BlobInfo{}, err
 	}
@@ -167,15 +222,13 @@ func (b *InMemoryBackend) SetBlobTier(container, blob, tier string) (string, Blo
 	}
 
 	s.AccessTier = tier
-	s.AccessTierChanged = time.Now().UTC()
+	s.AccessTierChanged = b.now()
 
-	return prev, s.info(), nil
+	return prev, s.info(b.now()), nil
 }
 
 // uniqueSnapshotID returns a snapshot timestamp not already used by s.
-func uniqueSnapshotID(s *storedBlob) string {
-	t := time.Now().UTC()
-
+func uniqueSnapshotID(s *storedBlob, t time.Time) string {
 	for {
 		id := t.Format(snapshotTimeFormat)
 		if _, taken := s.Snapshots[id]; !taken {
@@ -188,19 +241,21 @@ func uniqueSnapshotID(s *storedBlob) string {
 
 // SnapshotBlob freezes a copy of the blob. A nil md inherits the blob's
 // metadata; a non-nil md (even empty) replaces it.
-func (b *InMemoryBackend) SnapshotBlob(container, blob string, md map[string]string) (BlobInfo, error) {
+func (b *InMemoryBackend) SnapshotBlob(container, blob string, md map[string]string, pre ...Precond) (BlobInfo, error) {
 	b.mu.Lock("SnapshotBlob")
 	defer b.mu.Unlock()
 
-	s, err := b.lookupBlobLocked(container, blob, "")
+	s, err := b.writableBlobLocked(container, blob, firstPre(pre), false)
 	if err != nil {
 		return BlobInfo{}, err
 	}
 
 	snap := *s
 	snap.Snapshots = nil
+	snap.Lease = nil
 	snap.Data = slices.Clone(s.Data)
-	snap.Snapshot = uniqueSnapshotID(s)
+	snap.Blocks = slices.Clone(s.Blocks)
+	snap.Snapshot = uniqueSnapshotID(s, b.now())
 
 	if md != nil {
 		snap.Metadata = maps.Clone(md)
@@ -214,13 +269,13 @@ func (b *InMemoryBackend) SnapshotBlob(container, blob string, md map[string]str
 
 	s.Snapshots[snap.Snapshot] = &snap
 
-	return snap.info(), nil
+	return snap.info(b.now()), nil
 }
 
 // CopyBlob copies a blob (or snapshot) within the account. A nil md inherits
 // the source metadata.
 func (b *InMemoryBackend) CopyBlob(
-	srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, md map[string]string,
+	srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, md map[string]string, pre ...Precond,
 ) (BlobInfo, error) {
 	b.mu.Lock("CopyBlob")
 	defer b.mu.Unlock()
@@ -235,12 +290,24 @@ func (b *InMemoryBackend) CopyBlob(
 		return BlobInfo{}, err
 	}
 
+	p := firstPre(pre)
+	if p.Source != nil {
+		if err = p.Source.check(condWrite, true, src.ETag, src.LastModified); err != nil {
+			return BlobInfo{}, asSourceCondition(err)
+		}
+	}
+
+	if err = b.guardWriteLocked(dstC, dstBlob, p); err != nil {
+		return BlobInfo{}, err
+	}
+
 	b.etagSeq++
 
 	dst := &storedBlob{
 		Name:         dstBlob,
+		Blocks:       slices.Clone(src.Blocks),
 		Data:         slices.Clone(src.Data),
-		LastModified: time.Now().UTC(),
+		LastModified: b.now(),
 		ETag:         computeBlobETag(src.Data, b.etagSeq),
 	}
 	dst.applyAttrs(BlobAttrs{
@@ -260,21 +327,22 @@ func (b *InMemoryBackend) CopyBlob(
 
 	if old, exists := dstC.Blobs[dstBlob]; exists {
 		dst.Snapshots = old.Snapshots
+		dst.Lease = old.Lease
 	}
 
 	dstC.Blobs[dstBlob] = dst
 
-	return dst.info(), nil
+	return dst.info(b.now()), nil
 }
 
 // DeleteBlobAt deletes a snapshot (snapshot != ""), or the base blob subject
 // to the x-ms-delete-snapshots mode: with snapshots present, "" fails with
 // ErrSnapshotsPresent, "include" removes all, "only" removes just snapshots.
-func (b *InMemoryBackend) DeleteBlobAt(container, blob, snapshot, mode string) error {
+func (b *InMemoryBackend) DeleteBlobAt(container, blob, snapshot, mode string, pre ...Precond) error {
 	b.mu.Lock("DeleteBlob")
 	defer b.mu.Unlock()
 
-	s, err := b.lookupBlobLocked(container, blob, "")
+	s, err := b.writableBlobLocked(container, blob, firstPre(pre), snapshot == "")
 	if err != nil {
 		return err
 	}
@@ -318,7 +386,7 @@ func listKey(name, snapshot string) string {
 	return name + "\x00" + snapshot
 }
 
-func (c *storedContainer) listItems(opts ListBlobsOptions) []listItem {
+func (c *storedContainer) listItems(opts ListBlobsOptions, now time.Time) []listItem {
 	items := make([]listItem, 0, len(c.Blobs))
 	seen := make(map[string]struct{})
 
@@ -346,11 +414,11 @@ func (c *storedContainer) listItems(opts ListBlobsOptions) []listItem {
 
 		if opts.IncludeSnapshots {
 			for id, snap := range s.Snapshots {
-				add(snap.info(), listKey(name, id))
+				add(snap.info(now), listKey(name, id))
 			}
 		}
 
-		add(s.info(), listKey(name, ""))
+		add(s.info(now), listKey(name, ""))
 	}
 
 	sort.Slice(items, func(i, j int) bool { return items[i].key < items[j].key })
@@ -369,7 +437,7 @@ func (b *InMemoryBackend) ListBlobsPage(container string, opts ListBlobsOptions)
 		return BlobPage{}, err
 	}
 
-	items := c.listItems(opts)
+	items := c.listItems(opts, b.now())
 
 	if opts.Marker != "" {
 		raw, decErr := base64.RawURLEncoding.DecodeString(opts.Marker)
@@ -394,4 +462,28 @@ func (b *InMemoryBackend) ListBlobsPage(container string, opts ListBlobsOptions)
 	}
 
 	return page, nil
+}
+
+// asSourceCondition relabels a failed copy-source condition.
+func asSourceCondition(err error) error {
+	var se *StorageError
+	if errors.As(err, &se) && se.Code == "ConditionNotMet" {
+		return storageErr(http.StatusPreconditionFailed, "SourceConditionNotMet",
+			"The source condition specified using HTTP conditional header(s) is not met.")
+	}
+
+	return err
+}
+
+// ListContainersOptions are the List Containers query parameters.
+type ListContainersOptions struct {
+	Prefix     string
+	Marker     string
+	MaxResults int
+}
+
+// ContainerPage is one page of a List Containers response.
+type ContainerPage struct {
+	NextMarker string
+	Containers []ContainerInfo
 }

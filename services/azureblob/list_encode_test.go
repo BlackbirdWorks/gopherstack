@@ -51,6 +51,10 @@ func TestEncodeBlobList_MatchesXMLMarshal(t *testing.T) {
 					Metadata: map[string]string{"b": "2&", "a": "1"},
 				}),
 				blob(BlobInfo{Name: "d/g", LastModified: ts, AccessTier: TierHot, AccessTierInferred: true}),
+				blob(BlobInfo{
+					Name: "d/h", LastModified: ts,
+					Lease: LeaseProps{State: LeaseStateLeased, Status: LeaseStatusLocked, Duration: LeaseDurationFixed},
+				}),
 			}},
 		},
 	}
@@ -93,6 +97,9 @@ func TestEncodeBlobList_MatchesXMLMarshal(t *testing.T) {
 					ContentDisposition: bi.ContentDisposition,
 					BlobType:           blockBlobType,
 					AccessTier:         bi.AccessTier,
+					LeaseStatus:        bi.Lease.Status,
+					LeaseState:         bi.Lease.State,
+					LeaseDur:           bi.Lease.Duration,
 				}
 
 				if bi.AccessTierInferred {
