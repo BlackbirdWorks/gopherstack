@@ -2,6 +2,7 @@ package gcpcompute
 
 import (
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,12 +17,9 @@ const (
 )
 
 func classicTCPPort(p int64) bool {
-	switch p {
-	case 25, 43, 110, 143, 195, 443, 465, 587, 700, 993, 995, 1883, 5222:
-		return true
-	}
-
-	return false
+	return slices.Contains(
+		strings.Fields("25 43 110 143 195 443 465 587 700 993 995 1883 5222"), strconv.FormatInt(p, 10),
+	)
 }
 
 func validRuleProtocol(p string) bool {
