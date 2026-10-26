@@ -1,6 +1,9 @@
 package cloudformation
 
 import (
+	"os"
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
@@ -316,6 +319,9 @@ func getHandler[T any](h service.Registerable) (T, bool) {
 	return v, ok
 }
 
+// provisioningDelayEnv opts into async stack provisioning (e.g. "2s").
+const provisioningDelayEnv = "GOPHERSTACK_CFN_PROVISIONING_DELAY"
+
 // Init initializes the CloudFormation service backend and handler.
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
@@ -342,6 +348,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	creator := NewResourceCreator(backends)
 	backend := NewInMemoryBackendWithConfig(accountID, region, creator)
+	if d, err := time.ParseDuration(os.Getenv(provisioningDelayEnv)); err == nil {
+		backend.SetProvisioningDelay(d)
+	}
+
 	handler := NewHandler(backend)
 	handler.EnableRegions()
 

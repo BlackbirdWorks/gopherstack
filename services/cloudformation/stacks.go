@@ -265,21 +265,52 @@ func (b *InMemoryBackend) addEvent(
 	}
 }
 
-// CreateStack creates a new stack from a template.
+// CreateStack creates a new stack from a template. With async provisioning
+// enabled (SetProvisioningDelay) it returns while the stack is still
+// CREATE_IN_PROGRESS.
 func (b *InMemoryBackend) CreateStack(
 	ctx context.Context,
 	name, templateBody string,
 	params []Parameter,
 	opts StackOptions,
 ) (*Stack, error) {
+	return b.createStack(ctx, name, templateBody, params, opts, true)
+}
+
+func (b *InMemoryBackend) createStack(
+	ctx context.Context,
+	name, templateBody string,
+	params []Parameter,
+	opts StackOptions,
+	async bool,
+) (*Stack, error) {
 	b.mu.Lock("CreateStack")
 	defer b.mu.Unlock()
 
-	if err := preflightTemplateErr(templateBody, params, b.typeCheckLocked(opts.DisableValidation)); err != nil {
+	if err := preflightTemplateErr(
+		templateBody, params, b.typeCheckLocked(opts.DisableValidation), b.ruleSource(),
+	); err != nil {
 		return nil, err
 	}
 
-	return b.createStackLocked(ctx, name, templateBody, params, opts, "")
+	stack, err := b.beginCreateLocked(name, templateBody, params, opts, "")
+	if err != nil {
+		return nil, err
+	}
+
+	if async && templateBody != "" && b.scheduleLocked(ctx, stack.StackID, &pendingStackOp{
+		Kind:                 pendingCreate,
+		DisableValidation:    opts.DisableValidation,
+		ResourceTypes:        opts.ResourceTypes,
+		RetainExceptOnCreate: opts.RetainExceptOnCreate,
+		OnFailure:            opts.OnFailure,
+	}) {
+		return stack, nil
+	}
+
+	b.finishCreateLocked(ctx, stack, params, createFinishOpts(opts))
+
+	return stack, nil
 }
 
 // validateCreateStackPreflight runs CreateStack's synchronous, pre-mutation
@@ -309,6 +340,24 @@ func validateCreateStackPreflight(templateBody string, opts StackOptions, parent
 // parentID is set when provisioning a nested stack.
 func (b *InMemoryBackend) createStackLocked(
 	ctx context.Context,
+	name, templateBody string,
+	params []Parameter,
+	opts StackOptions,
+	parentID string,
+) (*Stack, error) {
+	stack, err := b.beginCreateLocked(name, templateBody, params, opts, parentID)
+	if err != nil {
+		return nil, err
+	}
+
+	b.finishCreateLocked(ctx, stack, params, createFinishOpts(opts))
+
+	return stack, nil
+}
+
+// beginCreateLocked registers the stack as CREATE_IN_PROGRESS without
+// provisioning any resource.
+func (b *InMemoryBackend) beginCreateLocked(
 	name, templateBody string,
 	params []Parameter,
 	opts StackOptions,
@@ -367,10 +416,37 @@ func (b *InMemoryBackend) createStackLocked(
 
 	b.addEvent(arn, name, name, arn, cfnStackType, statusCreateInProgress, reasonUserInitiated)
 
-	// Parse and provision resources.
-	if templateBody != "" {
+	return stack, nil
+}
+
+type createFinish struct {
+	onFailure            string
+	resourceTypes        []string
+	disableValidation    bool
+	retainExceptOnCreate bool
+}
+
+func createFinishOpts(opts StackOptions) createFinish {
+	return createFinish{
+		onFailure:            opts.OnFailure,
+		resourceTypes:        opts.ResourceTypes,
+		disableValidation:    opts.DisableValidation,
+		retainExceptOnCreate: opts.RetainExceptOnCreate,
+	}
+}
+
+// finishCreateLocked provisions the stack's resources and settles its status.
+func (b *InMemoryBackend) finishCreateLocked(
+	ctx context.Context,
+	stack *Stack,
+	params []Parameter,
+	opts createFinish,
+) {
+	arn, name := stack.StackID, stack.StackName
+
+	if stack.TemplateBody != "" {
 		b.createStackFromTemplate(
-			ctx, stack, params, opts.DisableValidation, opts.ResourceTypes, opts.RetainExceptOnCreate,
+			ctx, stack, params, opts.disableValidation, opts.resourceTypes, opts.retainExceptOnCreate,
 		)
 	}
 
@@ -384,7 +460,7 @@ func (b *InMemoryBackend) createStackLocked(
 	// failed to delete a resource, so this unconditional-success path can't
 	// honestly report DELETE_COMPLETE either -- leave the stack as
 	// ROLLBACK_FAILED for the caller to inspect and retry.
-	if opts.OnFailure == "DELETE" &&
+	if opts.onFailure == "DELETE" &&
 		(stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete) {
 		stack.StackStatus = statusDeleteInProgress
 		b.addEvent(arn, name, name, arn, cfnStackType, statusDeleteInProgress, "")
@@ -398,8 +474,6 @@ func (b *InMemoryBackend) createStackLocked(
 		delete(b.changeSets, name)
 		b.pruneDriftDetections(arn)
 	}
-
-	return stack, nil
 }
 
 // createStackFromTemplate parses and applies a template during CreateStack.
@@ -722,6 +796,16 @@ func (b *InMemoryBackend) UpdateStack(
 	params []Parameter,
 	opts StackOptions,
 ) (*Stack, error) {
+	return b.updateStack(ctx, nameOrID, templateBody, params, opts, true)
+}
+
+func (b *InMemoryBackend) updateStack(
+	ctx context.Context,
+	nameOrID, templateBody string,
+	params []Parameter,
+	opts StackOptions,
+	async bool,
+) (*Stack, error) {
 	b.mu.Lock("UpdateStack")
 	defer b.mu.Unlock()
 
@@ -776,17 +860,31 @@ func (b *InMemoryBackend) UpdateStack(
 		cfnStackType, statusUpdateInProgress, reasonUserInitiated,
 	)
 
-	if !b.applyTemplateToStack(ctx, stack, opts.DisableValidation, opts.ResourceTypes, oldTemplateBody, oldParams) {
+	op := &pendingStackOp{
+		Kind:              pendingUpdate,
+		DisableValidation: opts.DisableValidation,
+		ResourceTypes:     opts.ResourceTypes,
+		OldTemplateBody:   oldTemplateBody,
+		OldParams:         oldParams,
+	}
+
+	if async && b.scheduleLocked(ctx, stack.StackID, op) {
 		return stack, nil
 	}
 
+	if b.applyTemplateToStack(ctx, stack, op.DisableValidation, op.ResourceTypes, oldTemplateBody, oldParams) {
+		b.completeUpdateLocked(stack)
+	}
+
+	return stack, nil
+}
+
+func (b *InMemoryBackend) completeUpdateLocked(stack *Stack) {
 	stack.StackStatus = statusUpdateComplete
 	b.addEvent(
 		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
 		cfnStackType, statusUpdateComplete, "",
 	)
-
-	return stack, nil
 }
 
 // applyTemplateToStack parses the stack's template and creates or updates
@@ -1238,7 +1336,7 @@ func (b *InMemoryBackend) prepareUpdateLocked(
 		return nil, nil, err
 	}
 
-	if err = preflightTemplateErr(templateBody, merged, b.typeCheckLocked(opts.DisableValidation)); err != nil {
+	if err = preflightTemplateErr(templateBody, merged, b.typeCheckLocked(opts.DisableValidation), b.ruleSource()); err != nil {
 		return nil, nil, err
 	}
 

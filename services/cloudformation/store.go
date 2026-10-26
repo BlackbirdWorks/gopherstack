@@ -215,6 +215,8 @@ type InMemoryBackend struct {
 	resourceDriftStatus map[string]map[string]string
 	resourceDriftDetail map[string]map[string]StackResourceDrift
 	driftByStackID      map[string][]string
+	pendingOps          map[string]*pendingStackOp
+	provisionSchedule   func(run func())
 	creator             *ResourceCreator
 	exports             *store.Table[Export]
 	stacks              *store.Table[Stack]
@@ -224,6 +226,7 @@ type InMemoryBackend struct {
 	region              string
 	accountID           string
 	opWG                sync.WaitGroup
+	provisionWG         sync.WaitGroup
 	stackSetBatchDelay  time.Duration
 	orgAccessEnabled    bool
 }
@@ -289,6 +292,7 @@ func NewInMemoryBackendWithConfig(
 		resourceDriftStatus: make(map[string]map[string]string),
 		resourceDriftDetail: make(map[string]map[string]StackResourceDrift),
 		driftByStackID:      make(map[string][]string),
+		pendingOps:          make(map[string]*pendingStackOp),
 		creator:             creator,
 		resolver:            resolver,
 		accountID:           accountID,
