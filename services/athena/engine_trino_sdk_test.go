@@ -499,7 +499,9 @@ func projectedDef(params map[string]string, keys ...athena.Column) *athena.GlueT
 func TestSDK_PartitionProjection(t *testing.T) {
 	t.Parallel()
 
-	today := time.Now().UTC()
+	// 23:30 in UTC-5 is already the next UTC day; NOW must follow UTC.
+	clock := time.Date(2026, 10, 25, 23, 30, 0, 0, time.FixedZone("CDT", -5*60*60))
+	today := clock.UTC()
 	day := func(back int) string { return today.AddDate(0, 0, -back).Format("2006-01-02") }
 
 	cases := []struct {
@@ -638,6 +640,7 @@ func TestSDK_PartitionProjection(t *testing.T) {
 
 			b, store := newEngineBackend(t, objects,
 				map[string]*athena.GlueTableDef{"shop/logs": projectedDef(tc.params, tc.keys...)})
+			b.SetClock(func() time.Time { return clock })
 			client := newTestAthenaClient(t, athena.NewHandler(b))
 
 			if tc.failure != "" {

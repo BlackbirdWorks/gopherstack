@@ -455,6 +455,8 @@ func unitDuration(unit string, n int, t time.Time) time.Time {
 }
 
 func parseProjDate(s, layout string, now time.Time) (time.Time, error) {
+	now = now.UTC()
+
 	if m := nowExpr.FindStringSubmatch(s); m != nil {
 		if m[1] == "" {
 			return now, nil

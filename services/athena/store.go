@@ -83,12 +83,18 @@ type InMemoryBackend struct {
 	region                        string
 	accountID                     string
 	limits                        EngineLimits
+	now                           func() time.Time
 }
 
 // SetGlueMetadataSource wires a GLUE-type DataCatalog's database/table reads
 // to real Glue state instead of Athena's internal simulation.
 func (b *InMemoryBackend) SetGlueMetadataSource(src GlueMetadataSource) {
 	b.glueSource = src
+}
+
+// SetClock overrides the clock used for NOW in partition projection.
+func (b *InMemoryBackend) SetClock(now func() time.Time) {
+	b.now = now
 }
 
 // SetS3Backend wires S3 so a succeeded query execution's result actually
@@ -113,6 +119,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		queryResults: make(map[string]*sqlResult),
 		cancels:      make(map[string]context.CancelFunc),
 		limits:       defaultEngineLimits(),
+		now:          time.Now,
 		tableData:    make(map[string][]map[string]any),
 		resourceTags: make(map[string]map[string]string),
 		region:       region,
