@@ -94,7 +94,7 @@ func validateSchedule(sched map[string]any) error {
 	}
 
 	if rr, ok := sched["RetainRule"].(map[string]any); ok {
-		return validateRetainRule(rr)
+		return validateRetainRule(rr, sched["ArchiveRule"] != nil)
 	}
 
 	return nil
@@ -128,7 +128,8 @@ func validateCreateRule(cr map[string]any) error {
 	return nil
 }
 
-func validateRetainRule(rr map[string]any) error {
+// validateRetainRule allows a zero count/interval only on archive-enabled schedules, which archive immediately.
+func validateRetainRule(rr map[string]any, archive bool) error {
 	count, hasCount := rr["Count"].(float64)
 	interval, hasInterval := rr["Interval"].(float64)
 
@@ -136,13 +137,18 @@ func validateRetainRule(rr map[string]any) error {
 		return invalidRequest("RetainRule must specify exactly one of Count or Interval")
 	}
 
-	if hasCount && (count < 1 || count > maxRetainCount) {
-		return invalidRequest("RetainRule.Count must be between 1 and %d", maxRetainCount)
+	minCount := 1.0
+	if archive {
+		minCount = 0
+	}
+
+	if hasCount && (count < minCount || count > maxRetainCount) {
+		return invalidRequest("RetainRule.Count must be between %d and %d", int(minCount), maxRetainCount)
 	}
 
 	if hasInterval {
 		unit, _ := rr["IntervalUnit"].(string)
-		if interval < 1 || !validRetentionUnit(unit) {
+		if interval < minCount || !validRetentionUnit(unit) {
 			return invalidRequest("RetainRule.Interval must be positive with a DAYS, WEEKS, MONTHS or YEARS unit")
 		}
 	}

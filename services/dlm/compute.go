@@ -1,6 +1,9 @@
 package dlm
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	kindSnapshot = "snapshot"
@@ -26,6 +29,18 @@ type ComputeService interface {
 	CreateImage(region, instanceID, name, description string, tags map[string]string) (string, error)
 	Exists(region, kind, id string) bool
 	Delete(region, kind, id string) error
+	// CopySnapshot copies a snapshot of srcRegion into dstRegion and tags the copy.
+	CopySnapshot(
+		srcRegion, dstRegion, snapshotID, description string, encrypted bool, kmsKey string, tags map[string]string,
+	) (string, error)
+	// CopyImage copies an AMI of srcRegion into dstRegion and tags the copy.
+	CopyImage(
+		srcRegion, dstRegion, imageID, name, description string, encrypted bool, kmsKey string, tags map[string]string,
+	) (string, error)
+	SetFastRestore(region, snapshotID string, zones []string, enable bool) error
+	SetSnapshotSharing(region, snapshotID string, accounts []string, share bool) error
+	ArchiveSnapshot(region, snapshotID string) error
+	DeprecateImage(region, imageID string, at time.Time) error
 }
 
 // SetCompute wires the EC2 seam; without it schedules are evaluated but nothing is created.

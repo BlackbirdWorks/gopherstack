@@ -75,8 +75,10 @@ func (b *InMemoryBackend) runPolicy(ctx context.Context, p *storedPolicy, now ti
 		}
 
 		if rr, ok := sched["RetainRule"].(map[string]any); ok {
-			b.expire(ctx, p.PolicyID, name, rr, now)
+			b.expire(ctx, p.PolicyID, name, rr, sched["ArchiveRule"] != nil, now)
 		}
+
+		b.maintain(ctx, p.PolicyID, name, sched, now)
 	}
 }
 
@@ -107,7 +109,7 @@ func policySchedules(details map[string]any) []map[string]any {
 
 func (b *InMemoryBackend) pruneMissing(policyID, schedule string) {
 	for _, m := range b.managed.All() {
-		if m.PolicyID == policyID && m.Schedule == schedule && !b.compute.Exists(b.region, m.Kind, m.ID) {
+		if m.PolicyID == policyID && m.Schedule == schedule && !b.compute.Exists(m.regionOr(b.region), m.Kind, m.ID) {
 			b.managed.Delete(m.ID)
 		}
 	}
@@ -122,19 +124,20 @@ func (b *InMemoryBackend) createForSchedule(
 		for _, t := range b.matchingTargets(p.PolicyDetails, rt) {
 			tags := scheduleTags(p.PolicyID, name, sched, t, now)
 			desc := fmt.Sprintf("Created for policy: %s schedule: %s", p.PolicyID, name)
+			cc := createCtx{sched: sched, tags: tags, desc: desc}
 
 			switch {
 			case images && rt == resourceTypeInstance:
 				imgName := fmt.Sprintf("%s-%s", p.PolicyID, now.Format("20060102T150405Z"))
-				b.record(ctx, p.PolicyID, name, kindImage, t.ID, now,
+				b.record(ctx, p.PolicyID, name, kindImage, t.ID, now, cc,
 					func() (string, error) { return b.compute.CreateImage(b.region, t.ID, imgName, desc, tags) })
 			case rt == resourceTypeInstance:
 				for _, vid := range t.VolumeIDs {
-					b.record(ctx, p.PolicyID, name, kindSnapshot, t.ID, now,
+					b.record(ctx, p.PolicyID, name, kindSnapshot, t.ID, now, cc,
 						func() (string, error) { return b.compute.CreateSnapshot(b.region, vid, desc, tags) })
 				}
 			default:
-				b.record(ctx, p.PolicyID, name, kindSnapshot, t.ID, now,
+				b.record(ctx, p.PolicyID, name, kindSnapshot, t.ID, now, cc,
 					func() (string, error) { return b.compute.CreateSnapshot(b.region, t.ID, desc, tags) })
 			}
 		}
@@ -142,13 +145,16 @@ func (b *InMemoryBackend) createForSchedule(
 }
 
 func (b *InMemoryBackend) record(
-	ctx context.Context, policyID, schedule, kind, targetID string, now time.Time, create func() (string, error),
+	ctx context.Context, policyID, schedule, kind, targetID string, now time.Time, cc createCtx,
+	create func() (string, error),
 ) {
 	id, err := create()
 	if id != "" {
-		b.managed.Put(&managedResource{
+		m := &managedResource{
 			ID: id, Kind: kind, PolicyID: policyID, Schedule: schedule, TargetID: targetID, CreatedAt: now,
-		})
+		}
+		b.managed.Put(m)
+		b.applyCreateRules(ctx, cc, m)
 	}
 
 	if err != nil {
@@ -266,12 +272,12 @@ type resourceSet struct {
 }
 
 func (b *InMemoryBackend) expire(
-	ctx context.Context, policyID, schedule string, rule map[string]any, now time.Time,
+	ctx context.Context, policyID, schedule string, rule map[string]any, archive bool, now time.Time,
 ) {
 	byTarget := map[string]map[time.Time]*resourceSet{}
 
 	for _, m := range b.managed.All() {
-		if m.PolicyID != policyID || m.Schedule != schedule {
+		if m.PolicyID != policyID || m.Schedule != schedule || m.CopyOf != "" || !m.ArchivedAt.IsZero() {
 			continue
 		}
 
@@ -303,7 +309,11 @@ func (b *InMemoryBackend) expire(
 
 		for i, s := range ordered {
 			if (byCount && i >= int(count)) || (byAge && !byCount && !s.createdAt.After(cutoff)) {
-				b.deleteSet(ctx, s)
+				if archive {
+					b.archiveSet(ctx, s, now)
+				} else {
+					b.deleteSet(ctx, s)
+				}
 			}
 		}
 	}
@@ -311,7 +321,9 @@ func (b *InMemoryBackend) expire(
 
 func (b *InMemoryBackend) deleteSet(ctx context.Context, s *resourceSet) {
 	for _, m := range s.members {
-		err := b.compute.Delete(b.region, m.Kind, m.ID)
+		b.dropFastRestore(ctx, m)
+
+		err := b.compute.Delete(m.regionOr(b.region), m.Kind, m.ID)
 		if err != nil && !errors.Is(err, ErrResourceNotFound) {
 			logger.Load(ctx).WarnContext(ctx, "dlm: expire failed", "policy", m.PolicyID, "id", m.ID, "error", err)
 
