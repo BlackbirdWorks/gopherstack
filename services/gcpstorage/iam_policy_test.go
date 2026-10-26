@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	condIAMPath = "/storage/v1/b/cond-bkt/iam"
-	condBinding = `{"role":"roles/storage.objectViewer","members":["allUsers"],` +
+	versionQuery = "?optionsRequestedPolicyVersion=3"
+	condIAMPath  = "/storage/v1/b/cond-bkt/iam"
+	condBinding  = `{"role":"roles/storage.objectViewer","members":["allUsers"],` +
 		`"condition":{"expression":"request.time < timestamp('2099-01-01T00:00:00Z')","title":"expires"}}`
 )
 
@@ -41,7 +42,7 @@ func TestBucketIAMConditions(t *testing.T) {
 			seed: `{"version":3,"bindings":[` + condBinding + `]}`,
 		},
 		{
-			name: "get v3 of conditional", method: http.MethodGet, path: condIAMPath + "?optionsRequestedPolicyVersion=3",
+			name: "get v3 of conditional", method: http.MethodGet, path: condIAMPath + versionQuery,
 			want: http.StatusOK, seed: `{"version":3,"bindings":[` + condBinding + `]}`, wantPolVer: 3,
 		},
 		{
@@ -99,7 +100,16 @@ func TestBucketIAMTestPermissionsFilters(t *testing.T) {
 	r := newRaw(t)
 	r.do(t, http.MethodPost, "/storage/v1/b?project=p", `{"name":"cond-bkt"}`, nil)
 
-	_, body := r.do(t, http.MethodGet,
-		condIAMPath+"/testPermissions?permissions=storage.objects.get&permissions=pubsub.topics.get", "", nil)
-	assert.JSONEq(t, `{"kind":"storage#testIamPermissionsResponse","permissions":["storage.objects.get"]}`, body)
+	_, body := r.do(
+		t,
+		http.MethodGet,
+		condIAMPath+"/testPermissions?permissions=storage.objects.get&permissions=pubsub.topics.get",
+		"",
+		nil,
+	)
+	assert.JSONEq(
+		t,
+		`{"kind":"storage#testIamPermissionsResponse","permissions":["storage.objects.get"]}`,
+		body,
+	)
 }
