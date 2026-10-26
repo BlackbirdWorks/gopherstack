@@ -736,7 +736,7 @@ func TestTerraformDrift_RDS(t *testing.T) {
 	tests := []driftTestCase{
 		{
 			name:       "allocated_storage",
-			fixture:    "rds/success",
+			fixture:    "rds/drift",
 			providerFn: rdsProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()

@@ -525,9 +525,7 @@ func (b *InMemoryBackend) applyDBInstanceModifications(
 	if applyImmediately {
 		applyDeferrableFields(inst, instanceClass, allocatedStorage, opts)
 	} else {
-		if pv := buildPendingModifiedValues(inst, instanceClass, allocatedStorage, opts); pv != nil {
-			inst.PendingModifiedValues = pv
-		}
+		inst.PendingModifiedValues = mergePendingModifiedValues(inst, instanceClass, allocatedStorage, opts)
 	}
 
 	return b.applyImmediateFields(inst, opts)
@@ -605,48 +603,65 @@ func (b *InMemoryBackend) applyImmediateFields(inst *DBInstance, opts DBInstance
 	return nil
 }
 
-// buildPendingModifiedValues returns a PendingModifiedValues if any deferrable field
-// differs from the instance's current value, or nil if nothing would change.
-func buildPendingModifiedValues(
+// mergePendingModifiedValues folds a deferred modification into the instance's
+// existing pending values: a value differing from the current one is queued, a
+// value equal to the current one cancels that pending field. Returns nil when
+// nothing remains pending.
+func mergePendingModifiedValues(
 	inst *DBInstance,
 	instanceClass string,
 	allocatedStorage int,
 	opts DBInstanceOptions,
 ) *PendingModifiedValues {
 	pv := &PendingModifiedValues{}
-	changed := false
-
-	if instanceClass != "" && instanceClass != inst.DBInstanceClass {
-		pv.DBInstanceClass = instanceClass
-		changed = true
-	}
-	if allocatedStorage > 0 && allocatedStorage != inst.AllocatedStorage {
-		pv.AllocatedStorage = allocatedStorage
-		changed = true
-	}
-	if opts.StorageType != "" && opts.StorageType != inst.StorageType {
-		pv.StorageType = opts.StorageType
-		changed = true
-	}
-	if opts.Iops > 0 && opts.Iops != inst.Iops {
-		pv.Iops = opts.Iops
-		changed = true
-	}
-	if opts.EngineVersion != "" && opts.EngineVersion != inst.EngineVersion {
-		pv.EngineVersion = opts.EngineVersion
-		changed = true
-	}
-	if (opts.MultiAZSet || opts.MultiAZ) && opts.MultiAZ != inst.MultiAZ {
-		b := opts.MultiAZ
-		pv.MultiAZChange = &b
-		changed = true
+	if inst.PendingModifiedValues != nil {
+		*pv = *inst.PendingModifiedValues
 	}
 
-	if !changed {
+	if instanceClass != "" {
+		pv.DBInstanceClass = pendingString(instanceClass, inst.DBInstanceClass)
+	}
+	if allocatedStorage > 0 {
+		pv.AllocatedStorage = pendingInt(allocatedStorage, inst.AllocatedStorage)
+	}
+	if opts.StorageType != "" {
+		pv.StorageType = pendingString(opts.StorageType, inst.StorageType)
+	}
+	if opts.Iops > 0 {
+		pv.Iops = pendingInt(opts.Iops, inst.Iops)
+	}
+	if opts.EngineVersion != "" {
+		pv.EngineVersion = pendingString(opts.EngineVersion, inst.EngineVersion)
+	}
+	if opts.MultiAZSet || opts.MultiAZ {
+		pv.MultiAZChange = nil
+		if opts.MultiAZ != inst.MultiAZ {
+			m := opts.MultiAZ
+			pv.MultiAZChange = &m
+		}
+	}
+
+	if *pv == (PendingModifiedValues{}) {
 		return nil
 	}
 
 	return pv
+}
+
+func pendingString(want, current string) string {
+	if want == current {
+		return ""
+	}
+
+	return want
+}
+
+func pendingInt(want, current int) int {
+	if want == current {
+		return 0
+	}
+
+	return want
 }
 
 // applyDBInstanceFlagsImmediate applies boolean flags that always take effect immediately.
