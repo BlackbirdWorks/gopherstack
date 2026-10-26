@@ -804,6 +804,7 @@ var errCodeLookup = []struct {
 	{ErrSecondaryNetworkHasSubnets, "DependencyViolation"},
 	{ErrInstanceEventWindowNotFound, "InvalidInstanceEventWindowId.NotFound"},
 	{ErrCapacityReservationFull, "CapacityReservationFull"},
+	{ErrCapacityReservationIncorrectState, errCodeIncorrectState},
 	{ErrFlowLogNotFound, "InvalidFlowLogId.NotFound"},
 	{ErrTGWPropagationNotFound, "InvalidTransitGatewayRouteTablePropagation.NotFound"},
 	{ErrInterruptibleAllocationNotFound, "InvalidCapacityReservationId.NotFound"},

@@ -260,13 +260,13 @@ func (b *InMemoryBackend) CreateCapacityReservationCancellationQuote(
 		return nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, capacityReservationID)
 	}
 
-	now := time.Now().UTC()
+	now := b.now().UTC()
 	quote := &CapacityReservationCancellationQuote{
 		CapacityReservationCancellationQuoteID: awsid.New("crcq-"),
 		CapacityReservationID:                  capacityReservationID,
 		QuoteState:                             capacityReservationCancellationQuoteStateActive,
 		CurrentInstanceCount:                   toInt32Clamped(cr.TotalInstanceCount),
-		CurrentReservationState:                cr.State,
+		CurrentReservationState:                effectiveCapacityReservationState(cr, now),
 		CreateTime:                             now,
 		ExpirationTime:                         now.Add(capacityReservationCancellationQuoteTTL),
 	}

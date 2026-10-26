@@ -52,35 +52,19 @@ type CapacityReservationTopologyEntry struct {
 	State                 string
 }
 
-// CreateCapacityReservation creates a new capacity reservation.
+// CreateCapacityReservation creates an immediately-active capacity reservation.
 func (b *InMemoryBackend) CreateCapacityReservation(
 	instanceType, availabilityZone, instanceMatchCriteria, tenancy string,
 	instanceCount int,
 	tags map[string]string,
 ) (*CapacityReservation, error) {
-	if instanceType == "" {
-		return nil, fmt.Errorf("%w: InstanceType is required", ErrInvalidParameter)
-	}
-
-	b.mu.Lock("CreateCapacityReservation")
-	defer b.mu.Unlock()
-
-	cr := &CapacityReservation{
-		CapacityReservationID:  awsid.New("cr-"),
-		InstanceType:           instanceType,
-		AvailabilityZone:       availabilityZone,
-		InstanceMatchCriteria:  instanceMatchCriteria,
-		Tenancy:                tenancy,
-		TotalInstanceCount:     instanceCount,
-		AvailableInstanceCount: instanceCount,
-		State:                  stateActive,
-		CreateTime:             time.Now().UTC(),
-		OwnedBy:                b.AccountID,
-	}
-	b.capacityReservations.Put(cr)
-	b.setTagsLocked(cr.CapacityReservationID, tags)
-
-	return cr, nil
+	return b.CreateFutureDatedCapacityReservation(&FutureDatedCapacityReservationSpec{
+		InstanceType:     instanceType,
+		AvailabilityZone: availabilityZone,
+		InstanceMatch:    instanceMatchCriteria,
+		Tenancy:          tenancy,
+		InstanceCount:    instanceCount,
+	}, tags)
 }
 
 // SetCapacityReservationInstancePlatform applies CreateCapacityReservation's
@@ -100,27 +84,9 @@ func (b *InMemoryBackend) SetCapacityReservationInstancePlatform(reservationID, 
 	}
 }
 
-// CancelCapacityReservation cancels an active capacity reservation.
+// CancelCapacityReservation cancels a capacity reservation that needs no cancellation quote.
 func (b *InMemoryBackend) CancelCapacityReservation(reservationID string) error {
-	if reservationID == "" {
-		return fmt.Errorf("%w: CapacityReservationId is required", ErrInvalidParameter)
-	}
-
-	b.mu.Lock("CancelCapacityReservation")
-	defer b.mu.Unlock()
-
-	cr, ok := b.capacityReservations.Get(reservationID)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, reservationID)
-	}
-
-	if cr.Interruptible && cr.State != declarativePoliciesReportStateCancelled {
-		b.releaseInterruptibleToSourceLocked(cr)
-	}
-
-	cr.State = declarativePoliciesReportStateCancelled
-
-	return nil
+	return b.CancelCapacityReservationWithQuote(reservationID, "", "")
 }
 
 // releaseInterruptibleToSourceLocked returns a cancelled interruptible reservation's
@@ -140,23 +106,13 @@ func (b *InMemoryBackend) releaseInterruptibleToSourceLocked(icr *CapacityReserv
 	icr.AvailableInstanceCount = 0
 }
 
-// ModifyCapacityReservation updates instance count for a capacity reservation.
+// ModifyCapacityReservation updates the instance count for a capacity reservation.
 func (b *InMemoryBackend) ModifyCapacityReservation(reservationID string, instanceCount int) error {
-	if reservationID == "" {
-		return fmt.Errorf("%w: CapacityReservationId is required", ErrInvalidParameter)
-	}
+	_, err := b.ApplyCapacityReservationModification(reservationID, &ModifyCapacityReservationParams{
+		InstanceCount: &instanceCount,
+	})
 
-	b.mu.Lock("ModifyCapacityReservation")
-	defer b.mu.Unlock()
-
-	cr, ok := b.capacityReservations.Get(reservationID)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, reservationID)
-	}
-	cr.TotalInstanceCount = instanceCount
-	cr.AvailableInstanceCount = instanceCount
-
-	return nil
+	return err
 }
 
 // GetGroupsForCapacityReservation returns placement groups associated with a reservation.
@@ -340,7 +296,7 @@ func (b *InMemoryBackend) GetCapacityReservationUsage(id string) (*CapacityReser
 	usage := &CapacityReservationUsage{
 		CapacityReservationID:  cr.CapacityReservationID,
 		InstanceType:           cr.InstanceType,
-		State:                  cr.State,
+		State:                  effectiveCapacityReservationState(cr, b.now()),
 		AvailableInstanceCount: cr.AvailableInstanceCount,
 		TotalInstanceCount:     cr.TotalInstanceCount,
 		InstanceUsages:         usages,
@@ -377,7 +333,7 @@ func (b *InMemoryBackend) DescribeCapacityReservationTopology(ids []string) []*C
 			CapacityReservationID: cr.CapacityReservationID,
 			InstanceType:          cr.InstanceType,
 			AvailabilityZone:      cr.AvailabilityZone,
-			State:                 cr.State,
+			State:                 effectiveCapacityReservationState(cr, b.now()),
 		})
 	}
 

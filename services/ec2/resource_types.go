@@ -103,6 +103,7 @@ var resourceTypePrefixes = []resourceTypePrefix{
 	// ---- capacity reservations / hosts ----
 	{"crf-", "capacity-reservation-fleet"},
 	{"crcq-", "capacity-reservation-cancellation-quote"},
+	{"crmq-", "capacity-reservation-modification-quote"},
 	{"cr-", "capacity-reservation"},
 	{"cb-", "capacity-block"},
 	{"cmde-", "capacity-manager-data-export"},
@@ -271,8 +272,6 @@ func (b *InMemoryBackend) subnetCidrReservationExistsLocked(id string) bool {
 
 // resourceExistsGatewayLocked checks VPN/customer gateways, capacity
 // reservations/hosts, fleets, and reserved instances.
-//
-//nolint:dupl // structurally similar table-has checks for different resource families
 func (b *InMemoryBackend) resourceExistsGatewayLocked(id string) bool {
 	ok := b.vpnGateways.Has(id)
 	ok = ok || b.customerGateways.Has(id)
@@ -281,6 +280,7 @@ func (b *InMemoryBackend) resourceExistsGatewayLocked(id string) bool {
 	ok = ok || b.capacityReservations.Has(id)
 	ok = ok || b.capacityReservationFleets.Has(id)
 	ok = ok || b.capacityReservationCancellationQuotes.Has(id)
+	ok = ok || b.capacityReservationModificationQuotes.Has(id)
 	ok = ok || b.capacityBlocks.Has(id)
 	ok = ok || b.capacityManagerDataExports.Has(id)
 	ok = ok || b.hostReservations.Has(id)
@@ -320,8 +320,6 @@ func (b *InMemoryBackend) resourceExistsLGWLocked(id string) bool {
 }
 
 // resourceExistsIpamLocked checks the IPAM resource family.
-//
-//nolint:dupl // structurally similar table-has checks for different resource families
 func (b *InMemoryBackend) resourceExistsIpamLocked(id string) bool {
 	ok := b.ipams.Has(id)
 	ok = ok || b.ipamPools.Has(id)

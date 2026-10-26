@@ -18,39 +18,55 @@ func addressesKeyFn(v *Address) string                  { return v.AllocationID 
 func applicationStatusChecksKeyFn(v *ApplicationStatusCheck) string {
 	return v.ApplicationStatusCheckID
 }
+
 func applicationStatusCheckAssociationsKeyFn(v *ApplicationStatusCheckAssociation) string {
 	return appStatusCheckAssociationKeyFn(v)
 }
+
 func applicationStatusSuppressionsKeyFn(v *ApplicationStatusSuppression) string { return v.InstanceID }
-func bundleTasksKeyFn(v *BundleTask) string                                     { return v.BundleID }
-func byoipCidrsKeyFn(v *ByoipCidr) string                                       { return v.Cidr }
+
+func bundleTasksKeyFn(v *BundleTask) string { return v.BundleID }
+func byoipCidrsKeyFn(v *ByoipCidr) string   { return v.Cidr }
 func capacityBlockExtensionOfferingsKeyFn(v *CapacityBlockExtensionOffering) string {
 	return v.CapacityBlockExtensionOfferingID
 }
+
 func capacityBlockExtensionsKeyFn(v *CapacityBlockExtension) string {
 	return v.CapacityBlockExtensionOfferingID
 }
+
 func capacityBlockOfferingsKeyFn(v *CapacityBlockOffering) string { return v.CapacityBlockOfferingID }
 func capacityBlocksKeyFn(v *CapacityBlock) string                 { return v.CapacityBlockID }
 func capacityManagerDataExportsKeyFn(v *CapacityManagerDataExport) string {
 	return v.CapacityManagerDataExportID
 }
+
 func capacityReservationBillingRequestsKeyFn(v *CapacityReservationBillingRequest) string {
 	return v.CapacityReservationID
 }
+
 func capacityReservationFleetsKeyFn(v *CapacityReservationFleet) string {
 	return v.CapacityReservationFleetID
 }
+
 func capacityReservationCancellationQuotesKeyFn(v *CapacityReservationCancellationQuote) string {
 	return v.CapacityReservationCancellationQuoteID
 }
-func capacityReservationsKeyFn(v *CapacityReservation) string             { return v.CapacityReservationID }
-func carrierGatewaysKeyFn(v *CarrierGateway) string                       { return v.CarrierGatewayID }
-func classicLinkInstancesKeyFn(v *ClassicLinkInstance) string             { return v.InstanceID }
-func clientVpnEndpointsKeyFn(v *ClientVpnEndpoint) string                 { return v.ClientVpnEndpointID }
-func coipCidrsKeyFn(v *CoipCidr) string                                   { return coipCidrKey(v.CoipPoolID, v.Cidr) }
-func coipPoolsKeyFn(v *CoipPool) string                                   { return v.PoolID }
-func conversionTasksKeyFn(v *ConversionTask) string                       { return v.ConversionTaskID }
+
+func capacityReservationModificationQuotesKeyFn(v *CapacityReservationModificationQuote) string {
+	return v.QuoteID
+}
+
+func capacityReservationsKeyFn(v *CapacityReservation) string { return v.CapacityReservationID }
+
+func carrierGatewaysKeyFn(v *CarrierGateway) string           { return v.CarrierGatewayID }
+func classicLinkInstancesKeyFn(v *ClassicLinkInstance) string { return v.InstanceID }
+func clientVpnEndpointsKeyFn(v *ClientVpnEndpoint) string     { return v.ClientVpnEndpointID }
+
+func coipCidrsKeyFn(v *CoipCidr) string             { return coipCidrKey(v.CoipPoolID, v.Cidr) }
+func coipPoolsKeyFn(v *CoipPool) string             { return v.PoolID }
+func conversionTasksKeyFn(v *ConversionTask) string { return v.ConversionTaskID }
+
 func customerGatewaysKeyFn(v *CustomerGateway) string                     { return v.CustomerGatewayID }
 func declarativePoliciesReportsKeyFn(v *DeclarativePoliciesReport) string { return v.ReportID }
 func dedicatedHostsKeyFn(v *Host) string                                  { return v.HostID }
@@ -82,9 +98,11 @@ func ipamByoasnsKeyFn(v *IpamByoasn) string                 { return v.Asn }
 func ipamInternetRegistryAssociationsKeyFn(v *IpamInternetRegistryAssociation) string {
 	return v.IpamInternetRegistryAssociationID
 }
+
 func ipamRoutingPolicyRegistrationsKeyFn(v *IpamRoutingPolicyRegistration) string {
 	return v.IpamInternetRegistryAssociationID + "|" + v.Cidr
 }
+
 func ipamRoutingPolicyRegistrationDeltasKeyFn(v *IpamRoutingPolicyRegistrationDelta) string {
 	return v.DeltaID
 }
@@ -94,13 +112,17 @@ func ipamPoolsKeyFn(v *IpamPool) string                     { return v.IpamPoolI
 func ipamPrefixListResolverTargetsKeyFn(v *IpamPrefixListResolverTarget) string {
 	return v.IpamPrefixListResolverTargetID
 }
+
 func ipamPrefixListResolversKeyFn(v *IpamPrefixListResolver) string {
 	return v.IpamPrefixListResolverID
 }
+
 func ipamResourceCidrsKeyFn(v *IpamResourceCidr) string {
 	return ipamResourceCidrKey(v.ResourceID, v.ResourceCidr)
 }
+
 func ipamResourceDiscoveriesKeyFn(v *IpamResourceDiscovery) string { return v.IpamResourceDiscoveryID }
+
 func ipamResourceDiscoveryAssocsKeyFn(v *IpamResourceDiscoveryAssociation) string {
 	return v.IpamResourceDiscoveryAssociationID
 }
@@ -116,18 +138,23 @@ func launchTemplatesKeyFn(v *LaunchTemplate) string { return v.ID }
 func localGatewayRouteTableVifGroupAssociationsKeyFn(v *LocalGatewayRouteTableVirtualInterfaceGroupAssociation) string {
 	return v.LocalGatewayRouteTableVirtualInterfaceGroupAssociationID
 }
+
 func localGatewayRouteTableVpcAssociationsKeyFn(v *LocalGatewayRouteTableVpcAssociation) string {
 	return v.LocalGatewayRouteTableVpcAssociationID
 }
+
 func localGatewayRouteTablesKeyFn(v *LocalGatewayRouteTable) string {
 	return v.LocalGatewayRouteTableID
 }
+
 func localGatewayRoutesKeyFn(v *LocalGatewayRoute) string {
 	return localGatewayRouteKey(v.LocalGatewayRouteTableID, v.DestinationCidrBlock, v.DestinationPrefixListID)
 }
+
 func localGatewayVirtualInterfaceGroupsKeyFn(v *LocalGatewayVirtualInterfaceGroup) string {
 	return v.LocalGatewayVirtualInterfaceGroupID
 }
+
 func localGatewayVirtualInterfacesKeyFn(v *LocalGatewayVirtualInterface) string {
 	return v.LocalGatewayVirtualInterfaceID
 }
@@ -140,9 +167,11 @@ func networkACLsKeyFn(v *StoredNetworkACL) string             { return v.ID }
 func networkInsightsAccessScopeAnalysesKeyFn(v *NetworkInsightsAccessScopeAnalysis) string {
 	return v.NetworkInsightsAccessScopeAnalysisID
 }
+
 func networkInsightsAccessScopesKeyFn(v *NetworkInsightsAccessScope) string {
 	return v.NetworkInsightsAccessScopeID
 }
+
 func networkInsightsAnalysesKeyFn(v *NetworkInsightsAnalysis) string {
 	return v.NetworkInsightsAnalysisID
 }
@@ -151,24 +180,28 @@ func networkInterfacesKeyFn(v *NetworkInterface) string       { return v.ID }
 func networkPerformanceSubscriptionsKeyFn(v *NetworkPerformanceSubscription) string {
 	return networkPerformanceSubscriptionKey(v.Source, v.Destination, v.Metric, v.Statistic)
 }
-func niPermissionsKeyFn(v *NetworkInterfacePermission) string             { return v.PermissionID }
-func outpostLagsKeyFn(v *OutpostLag) string                               { return v.OutpostLagID }
-func placementGroupsKeyFn(v *PlacementGroup) string                       { return v.Name }
-func recycleBinImagesKeyFn(v *RecycleBinImage) string                     { return v.ImageID }
-func recycleBinSnapshotsKeyFn(v *Snapshot) string                         { return v.SnapshotID }
-func recycleBinVolumesKeyFn(v *RecycleBinVolume) string                   { return v.VolumeID }
-func replaceRootVolumeTasksKeyFn(v *ReplaceRootVolumeTask) string         { return v.ReplaceRootVolumeTaskID }
+func niPermissionsKeyFn(v *NetworkInterfacePermission) string     { return v.PermissionID }
+func outpostLagsKeyFn(v *OutpostLag) string                       { return v.OutpostLagID }
+func placementGroupsKeyFn(v *PlacementGroup) string               { return v.Name }
+func recycleBinImagesKeyFn(v *RecycleBinImage) string             { return v.ImageID }
+func recycleBinSnapshotsKeyFn(v *Snapshot) string                 { return v.SnapshotID }
+func recycleBinVolumesKeyFn(v *RecycleBinVolume) string           { return v.VolumeID }
+func replaceRootVolumeTasksKeyFn(v *ReplaceRootVolumeTask) string { return v.ReplaceRootVolumeTaskID }
+
 func reservedInstancesKeyFn(v *ReservedInstance) string                   { return v.ReservedInstancesID }
 func reservedInstancesExchangesKeyFn(v *ReservedInstancesExchange) string { return v.ExchangeID }
 func reservedInstancesListingsKeyFn(v *ReservedInstancesListing) string {
 	return v.ReservedInstancesListingID
 }
+
 func reservedInstancesModificationsKeyFn(v *ReservedInstancesModification) string {
 	return v.ReservedInstancesModificationID
 }
+
 func reservedInstancesOfferingsKeyFn(v *ReservedInstancesOffering) string {
 	return v.ReservedInstancesOfferingID
 }
+
 func routeServerAssociationsKeyFn(v *RouteServerAssociation) string {
 	return v.RouteServerID + "/" + v.VpcID
 }
@@ -198,12 +231,15 @@ func subnetsKeyFn(v *Subnet) string                             { return v.ID }
 func tgwClientVpnAttachmentsKeyFn(v *TransitGatewayClientVpnAttachment) string {
 	return v.TransitGatewayAttachmentID
 }
-func tgwConnectPeersKeyFn(v *TransitGatewayConnectPeer) string        { return v.TransitGatewayConnectPeerID }
+
+func tgwConnectPeersKeyFn(v *TransitGatewayConnectPeer) string { return v.TransitGatewayConnectPeerID }
+
 func tgwConnectsKeyFn(v *TransitGatewayConnect) string                { return v.TransitGatewayAttachmentID }
 func tgwMeteringPoliciesKeyFn(v *TransitGatewayMeteringPolicy) string { return v.ID }
 func tgwMeteringPolicyEntriesKeyFn(v *TransitGatewayMeteringPolicyEntry) string {
 	return v.TransitGatewayMeteringPolicyID + ":" + strconv.Itoa(v.PolicyRuleNumber)
 }
+
 func tgwMulticastDomainAssociationsKeyFn(v *TransitGatewayMulticastDomainAssociation) string {
 	return v.TransitGatewayMulticastDomainID + ":" + v.SubnetID
 }
@@ -211,22 +247,29 @@ func tgwMulticastDomainsKeyFn(v *TransitGatewayMulticastDomain) string { return 
 func tgwMulticastGroupEntriesKeyFn(v *TransitGatewayMulticastGroupEntry) string {
 	return v.TransitGatewayMulticastDomainID + ":" + v.GroupIPAddress + ":" + v.NetworkInterfaceID
 }
+
 func tgwPeeringAttachmentsKeyFn(v *TransitGatewayPeeringAttachment) string {
 	return v.TransitGatewayAttachmentID
 }
+
 func tgwPolicyTableAssociationsKeyFn(v *TransitGatewayPolicyTableAssociation) string {
 	return v.TransitGatewayPolicyTableID + ":" + v.TransitGatewayAttachmentID
 }
+
 func tgwPolicyTablesKeyFn(v *TransitGatewayPolicyTable) string { return v.TransitGatewayPolicyTableID }
+
 func tgwPolicyTableEntriesKeyFn(v *TransitGatewayPolicyTableEntry) string {
 	return v.TransitGatewayPolicyTableID + ":" + strconv.Itoa(v.PolicyRuleNumber)
 }
+
 func tgwPrefixListRefsKeyFn(v *TransitGatewayPrefixListReference) string {
 	return v.TransitGatewayRouteTableID + "/" + v.PrefixListID
 }
+
 func tgwRTAssociationsKeyFn(v *TransitGatewayRouteTableAssociation) string {
 	return v.TransitGatewayRouteTableID + ":" + v.TransitGatewayAttachmentID
 }
+
 func tgwRouteTableAnnouncementsKeyFn(v *TransitGatewayRouteTableAnnouncement) string {
 	return v.TransitGatewayRouteTableAnnouncementID
 }
@@ -234,14 +277,19 @@ func tgwRouteTablesKeyFn(v *TransitGatewayRouteTable) string { return v.RouteTab
 func tgwRoutesKeyFn(v *TransitGatewayRoute) string {
 	return v.TransitGatewayRouteTableID + ":" + v.DestinationCidrBlock
 }
+
 func tgwVpcAttachmentsKeyFn(v *TransitGatewayVpcAttachment) string {
 	return v.TransitGatewayAttachmentID
 }
+
 func trafficMirrorFilterRulesKeyFn(v *TrafficMirrorFilterRule) string {
 	return v.TrafficMirrorFilterRuleID
 }
-func trafficMirrorFiltersKeyFn(v *TrafficMirrorFilter) string             { return v.TrafficMirrorFilterID }
-func trafficMirrorSessionsKeyFn(v *TrafficMirrorSession) string           { return v.TrafficMirrorSessionID }
+
+func trafficMirrorFiltersKeyFn(v *TrafficMirrorFilter) string { return v.TrafficMirrorFilterID }
+
+func trafficMirrorSessionsKeyFn(v *TrafficMirrorSession) string { return v.TrafficMirrorSessionID }
+
 func trafficMirrorTargetsKeyFn(v *TrafficMirrorTarget) string             { return v.TrafficMirrorTargetID }
 func transitGatewaysKeyFn(v *TransitGateway) string                       { return v.ID }
 func trunkInterfaceAssociationsKeyFn(v *TrunkInterfaceAssociation) string { return v.AssociationID }
@@ -253,9 +301,11 @@ func verifiedAccessGroupsKeyFn(v *VerifiedAccessGroup) string { return v.Verifie
 func verifiedAccessInstanceLoggingConfigsKeyFn(v *VerifiedAccessInstanceLoggingConfig) string {
 	return v.VerifiedAccessInstanceID
 }
+
 func verifiedAccessInstancesKeyFn(v *VerifiedAccessInstance) string {
 	return v.VerifiedAccessInstanceID
 }
+
 func verifiedAccessTrustProvidersKeyFn(v *VerifiedAccessTrustProvider) string {
 	return v.VerifiedAccessTrustProviderID
 }
@@ -273,6 +323,7 @@ func vpcEndpointsKeyFn(v *VpcEndpoint) string                           { return
 func vpcPeeringConnectionsKeyFn(v *VpcPeeringConnection) string         { return v.VpcPeeringConnectionID }
 func vpcsKeyFn(v *VPC) string                                           { return v.ID }
 func vpnConcentratorsKeyFn(v *VpnConcentrator) string                   { return v.VpnConcentratorID }
+
 func vpnConnectionRoutesKeyFn(v *VpnConnectionRoute) string {
 	return v.VpnConnectionID + ":" + v.DestinationCIDR
 }
@@ -350,6 +401,13 @@ var tableRegistrations = []func(*InMemoryBackend){
 			b.registry,
 			"capacityReservationCancellationQuotes",
 			store.New(capacityReservationCancellationQuotesKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.capacityReservationModificationQuotes = store.Register(
+			b.registry,
+			"capacityReservationModificationQuotes",
+			store.New(capacityReservationModificationQuotesKeyFn),
 		)
 	},
 	func(b *InMemoryBackend) {
