@@ -32,50 +32,53 @@ func lexTagExpr(s string) ([]token, error) {
 	var toks []token
 
 	for i := 0; i < len(s); {
-		ch := s[i]
-
-		switch {
-		case ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n':
+		if isSpace(s[i]) {
 			i++
-		case ch == '(':
-			toks = append(toks, token{kind: tokLParen})
-			i++
-		case ch == ')':
-			toks = append(toks, token{kind: tokRParen})
-			i++
-		case ch == '"' || ch == '\'':
-			text, next, ok := lexQuoted(s, i)
-			if !ok {
-				return nil, errBadTagExpr
-			}
 
-			kind := tokName
-			if ch == '\'' {
-				kind = tokString
-			}
-
-			toks = append(toks, token{kind: kind, text: text})
-			i = next
-		case ch == '=' || ch == '<' || ch == '>':
-			op := string(ch)
-			if i+1 < len(s) && (s[i+1] == '=' || (ch == '<' && s[i+1] == '>')) {
-				op = s[i : i+2]
-			}
-
-			toks = append(toks, token{kind: tokOp, text: op})
-			i += len(op)
-		default:
-			word, next := lexWord(s, i)
-			if word == "" {
-				return nil, errBadTagExpr
-			}
-
-			toks = append(toks, wordToken(word))
-			i = next
+			continue
 		}
+
+		tok, next, ok := lexNext(s, i)
+		if !ok {
+			return nil, errBadTagExpr
+		}
+
+		toks = append(toks, tok)
+		i = next
 	}
 
 	return toks, nil
+}
+
+func isSpace(ch byte) bool { return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' }
+
+// lexNext reads the token starting at s[i].
+func lexNext(s string, i int) (token, int, bool) {
+	switch ch := s[i]; ch {
+	case '(':
+		return token{kind: tokLParen}, i + 1, true
+	case ')':
+		return token{kind: tokRParen}, i + 1, true
+	case '"', '\'':
+		text, next, ok := lexQuoted(s, i)
+		kind := tokName
+		if ch == '\'' {
+			kind = tokString
+		}
+
+		return token{kind: kind, text: text}, next, ok
+	case '=', '<', '>':
+		op := string(ch)
+		if i+1 < len(s) && (s[i+1] == '=' || (ch == '<' && s[i+1] == '>')) {
+			op = s[i : i+2]
+		}
+
+		return token{kind: tokOp, text: op}, i + len(op), true
+	default:
+		word, next := lexWord(s, i)
+
+		return wordToken(word), next, word != ""
+	}
 }
 
 // lexQuoted reads a quoted run starting at s[i]; a doubled quote escapes it.
@@ -142,8 +145,7 @@ type tagNode struct {
 }
 
 func (n *tagNode) eval(tags map[string]string) bool {
-	switch n.op {
-	case "":
+	if n.op == "" {
 		if n.and {
 			return n.left.eval(tags) && n.right.eval(tags)
 		}
@@ -294,6 +296,38 @@ func (f *tagFilter) match(tags map[string]string) bool {
 	return len(f.clauses) > 0
 }
 
+type filterBuilder struct {
+	f             *tagFilter
+	sides         map[string]bool
+	allowIn       bool
+	seenContainer bool
+}
+
+func (b *filterBuilder) add(name, op, val string) error {
+	if name == containerKey {
+		if !b.allowIn || b.seenContainer || op != "=" {
+			return errBadTagExpr
+		}
+
+		b.seenContainer = true
+		b.f.container = val
+
+		return nil
+	}
+
+	if side := rangeSide(op); side != "" {
+		if b.sides[name+side] {
+			return errBadTagExpr
+		}
+
+		b.sides[name+side] = true
+	}
+
+	b.f.clauses = append(b.f.clauses, &tagNode{key: name, op: op, val: val})
+
+	return nil
+}
+
 // parseTagFilter parses a Find Blobs by Tags expression: AND-joined
 // =, >, >=, <, <= comparisons plus an optional @container = '<name>'. Same-sided
 // range operators on one key are invalid. allowContainer is false when the
@@ -304,11 +338,9 @@ func parseTagFilter(expr string, allowContainer bool) (*tagFilter, error) {
 		return nil, errBadTagExpr
 	}
 
-	f := &tagFilter{}
-	sides := make(map[string]string)
-	seenContainer := false
+	b := &filterBuilder{f: &tagFilter{}, sides: make(map[string]bool), allowIn: allowContainer}
 
-	for pos := 0; ; {
+	for pos := 0; ; pos++ {
 		if pos+3 > len(toks) {
 			return nil, errBadTagExpr
 		}
@@ -318,27 +350,11 @@ func parseTagFilter(expr string, allowContainer bool) (*tagFilter, error) {
 			return nil, errBadTagExpr
 		}
 
-		pos += 3
-
-		if name.text == containerKey {
-			if !allowContainer || seenContainer || op.text != "=" {
-				return nil, errBadTagExpr
-			}
-
-			seenContainer = true
-			f.container = val.text
-		} else {
-			if side := rangeSide(op.text); side != "" {
-				if sides[name.text+side] != "" {
-					return nil, errBadTagExpr
-				}
-
-				sides[name.text+side] = "x"
-			}
-
-			f.clauses = append(f.clauses, &tagNode{key: name.text, op: op.text, val: val.text})
+		if err = b.add(name.text, op.text, val.text); err != nil {
+			return nil, err
 		}
 
+		pos += 3
 		if pos == len(toks) {
 			break
 		}
@@ -346,15 +362,13 @@ func parseTagFilter(expr string, allowContainer bool) (*tagFilter, error) {
 		if toks[pos].kind != tokAnd {
 			return nil, errBadTagExpr
 		}
-
-		pos++
 	}
 
-	if len(f.clauses) == 0 {
+	if len(b.f.clauses) == 0 {
 		return nil, errBadTagExpr
 	}
 
-	return f, nil
+	return b.f, nil
 }
 
 func rangeSide(op string) string {

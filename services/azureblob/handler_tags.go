@@ -93,7 +93,9 @@ func (h *Handler) findBlobsByTags(c *echo.Context, container string) error {
 	}
 
 	for _, fb := range page.Blobs {
-		out.Blobs = append(out.Blobs, filterBlobXML{Name: fb.Name, ContainerName: fb.Container, Tags: tagsToXML(fb.Tags)})
+		out.Blobs = append(out.Blobs, filterBlobXML{
+			Name: fb.Name, ContainerName: fb.Container, Tags: tagsToXML(fb.Tags),
+		})
 	}
 
 	return h.writeXML(c, http.StatusOK, out)

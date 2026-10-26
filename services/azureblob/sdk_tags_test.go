@@ -141,8 +141,8 @@ func TestSDK_Tags_TagCount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		tags map[string]string
+		name string
 		want int32
 	}{
 		{name: "none", tags: nil, want: 0},
@@ -200,7 +200,8 @@ func TestSDK_Tags_WriteOps(t *testing.T) {
 
 		env := newSDKEnv(t)
 		bb := uploadTagged(t, env, "b.txt", map[string]string{"a": "1"})
-		_, err := bb.UploadBuffer(t.Context(), []byte("new"), &blockblob.UploadBufferOptions{Tags: map[string]string{"b": "2"}})
+		_, err := bb.UploadBuffer(t.Context(), []byte("new"),
+			&blockblob.UploadBufferOptions{Tags: map[string]string{"b": "2"}})
 		require.NoError(t, err)
 		requireTags(t, bb.BlobClient(), map[string]string{"b": "2"})
 	})
@@ -470,7 +471,7 @@ func TestSDK_Tags_SourceIfTags(t *testing.T) {
 	}
 }
 
-func seedFindEnv(t *testing.T) (*sdkEnv, *container.Client) {
+func seedFindEnv(t *testing.T) *sdkEnv {
 	t.Helper()
 
 	env := newSDKEnv(t)
@@ -487,7 +488,7 @@ func seedFindEnv(t *testing.T) (*sdkEnv, *container.Client) {
 		&blockblob.UploadBufferOptions{Tags: map[string]string{"env": "prod", "Rank": "020"}})
 	require.NoError(t, err)
 
-	return env, other
+	return env
 }
 
 func foundNames(blobs []*service.FilterBlobItem) []string {
@@ -516,7 +517,8 @@ func TestSDK_FindBlobsByTags_Account(t *testing.T) {
 		{name: "range", where: `"Rank" >= '020' AND "Rank" < '090'`, want: []string{"other/o.txt", "sdkenv/b.txt"}},
 		{name: "and_two_keys", where: `"env" = 'prod' AND "Rank" > '050'`, want: []string{"sdkenv/c.txt"}},
 		{name: "container_scope", where: `@container = 'other' AND "env" = 'prod'`, want: []string{"other/o.txt"}},
-		{name: "container_only_needs_tag", where: `@container = 'sdkenv' AND "env" = 'dev'`, want: []string{"sdkenv/b.txt"}},
+		{name: "container_scope_dev", where: `@container = 'sdkenv' AND "env" = 'dev'`,
+			want: []string{"sdkenv/b.txt"}},
 		{name: "unknown_container", where: `@container = 'nope' AND "env" = 'prod'`, want: []string{}},
 		{name: "no_match", where: `"env" = 'staging'`, want: []string{}},
 		{name: "case_sensitive", where: `"env" = 'PROD'`, want: []string{}},
@@ -526,7 +528,7 @@ func TestSDK_FindBlobsByTags_Account(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			env, _ := seedFindEnv(t)
+			env := seedFindEnv(t)
 
 			resp, err := env.svc.ServiceClient().FilterBlobs(t.Context(), tt.where, nil)
 			require.NoError(t, err)
@@ -557,7 +559,7 @@ func TestSDK_FindBlobsByTags_Container(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			env, _ := seedFindEnv(t)
+			env := seedFindEnv(t)
 
 			resp, err := env.cc.FilterBlobs(t.Context(), tt.where, nil)
 			require.NoError(t, err)
@@ -568,7 +570,7 @@ func TestSDK_FindBlobsByTags_Container(t *testing.T) {
 	t.Run("missing_container", func(t *testing.T) {
 		t.Parallel()
 
-		env, _ := seedFindEnv(t)
+		env := seedFindEnv(t)
 		_, err := env.svc.ServiceClient().NewContainerClient("ghost").FilterBlobs(t.Context(), `"a" = 'b'`, nil)
 		requireStorageErr(t, err, bloberror.ContainerNotFound, 404)
 	})
@@ -599,7 +601,7 @@ func TestSDK_FindBlobsByTags_InvalidExpressions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			env, _ := seedFindEnv(t)
+			env := seedFindEnv(t)
 
 			var err error
 			if tt.container {
@@ -615,7 +617,7 @@ func TestSDK_FindBlobsByTags_InvalidExpressions(t *testing.T) {
 	t.Run("maxresults_zero", func(t *testing.T) {
 		t.Parallel()
 
-		env, _ := seedFindEnv(t)
+		env := seedFindEnv(t)
 		_, err := env.svc.ServiceClient().FilterBlobs(t.Context(), `"env" = 'prod'`,
 			&service.FilterBlobsOptions{MaxResults: new(int32)})
 		requireStorageErr(t, err, bloberror.InvalidQueryParameterValue, 400)
@@ -624,7 +626,7 @@ func TestSDK_FindBlobsByTags_InvalidExpressions(t *testing.T) {
 	t.Run("bad_marker", func(t *testing.T) {
 		t.Parallel()
 
-		env, _ := seedFindEnv(t)
+		env := seedFindEnv(t)
 		_, err := env.svc.ServiceClient().FilterBlobs(t.Context(), `"env" = 'prod'`,
 			&service.FilterBlobsOptions{Marker: new("!!!")})
 		requireStorageErr(t, err, bloberror.InvalidQueryParameterValue, 400)
@@ -636,10 +638,10 @@ func TestSDK_FindBlobsByTags_Paging(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		pageSize  int32
-		container bool
 		want      []string
 		wantPages int
+		pageSize  int32
+		container bool
 	}{
 		{name: "account_by_one", pageSize: 1, wantPages: 3,
 			want: []string{"other/o.txt", "sdkenv/a.txt", "sdkenv/c.txt"}},
@@ -655,7 +657,7 @@ func TestSDK_FindBlobsByTags_Paging(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			env, _ := seedFindEnv(t)
+			env := seedFindEnv(t)
 
 			var (
 				got    []string
@@ -702,7 +704,7 @@ func TestSDK_FindBlobsByTags_Paging(t *testing.T) {
 func TestSDK_FindBlobsByTags_TracksTagChanges(t *testing.T) {
 	t.Parallel()
 
-	env, _ := seedFindEnv(t)
+	env := seedFindEnv(t)
 	svc := env.svc.ServiceClient()
 
 	_, err := env.cc.NewBlobClient("a.txt").SetTags(t.Context(), map[string]string{"env": "dev"}, nil)

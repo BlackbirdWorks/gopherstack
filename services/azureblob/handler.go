@@ -463,12 +463,10 @@ func (h *Handler) serviceEndpoint() string {
 func (h *Handler) handleAccountLevel(c *echo.Context) error {
 	r := c.Request()
 
-	if r.Method == http.MethodGet && c.QueryParam(queryRestype) == restypeService &&
-		c.QueryParam(queryComp) == compProperties {
+	switch accountOperationFor(r) {
+	case opGetServiceProperties:
 		return h.writeXML(c, http.StatusOK, storageServiceProperties{})
-	}
-
-	if r.Method == http.MethodGet && c.QueryParam(queryComp) == compBlobs {
+	case opFindBlobsByTags:
 		return h.findBlobsByTags(c, "")
 	}
 

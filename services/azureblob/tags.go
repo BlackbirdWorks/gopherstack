@@ -33,9 +33,9 @@ type blobTagsXML struct {
 }
 
 type filterBlobXML struct {
-	Tags          blobTagsXML `xml:"Tags"`
 	Name          string      `xml:"Name"`
 	ContainerName string      `xml:"ContainerName"`
+	Tags          blobTagsXML `xml:"Tags"`
 }
 
 type filterBlobsXML struct {

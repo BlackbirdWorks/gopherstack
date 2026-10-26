@@ -531,7 +531,9 @@ func (h *Handler) copyBlob(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, apiErr)
 	}
 
-	info, err := h.Backend.CopyBlob(srcContainer, srcBlob, src.Query().Get(querySnapshot), container, blob, md, tags, pre)
+	info, err := h.Backend.CopyBlob(
+		srcContainer, srcBlob, src.Query().Get(querySnapshot), container, blob, md, tags, pre,
+	)
 	if err != nil {
 		if done, werr := h.writeBackendError(c, err); done {
 			return werr

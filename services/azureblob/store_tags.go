@@ -31,7 +31,9 @@ type FindBlobsPage struct {
 // tagTargetLocked resolves a blob or snapshot for a tag operation: the lease
 // gate (base blob only) and x-ms-if-tags apply; other conditional headers do
 // not.
-func (b *InMemoryBackend) tagTargetLocked(container, blob, snapshot string, p Precond, require bool) (*storedBlob, error) {
+func (b *InMemoryBackend) tagTargetLocked(
+	container, blob, snapshot string, p Precond, require bool,
+) (*storedBlob, error) {
 	stored, err := b.lookupBlobLocked(container, blob, snapshot)
 	if err != nil {
 		return nil, err
