@@ -852,9 +852,7 @@ func TestServiceRoleAuthzIoTRuleActions(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			require.Eventually(t, func() bool {
-				return broker.Publish("authz/topic", []byte(`{"k":"v"}`), false, 0) == nil
-			}, authzDeadline, authzTick)
+			publishWhenReady(t, broker, "authz/topic", `{"k":"v"}`)
 
 			wantURL, otherURL := dataURL, errURL
 			if tt.wantError {
