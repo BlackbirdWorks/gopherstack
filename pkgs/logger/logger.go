@@ -14,6 +14,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"slices"
 	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
@@ -164,8 +165,7 @@ func AddAttrs(ctx context.Context, attrs ...slog.Attr) context.Context {
 			next.base = l
 		} else {
 			next.base = prev.base
-			merged := make([]slog.Attr, 0, len(prev.attrs)+len(attrs))
-			next.attrs = append(append(merged, prev.attrs...), attrs...)
+			next.attrs = slices.Concat(prev.attrs, attrs)
 		}
 	}
 

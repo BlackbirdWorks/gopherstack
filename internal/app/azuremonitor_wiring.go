@@ -21,6 +21,10 @@ func wireAzureMonitor(byName map[string]service.Registerable) {
 
 	if armH, armOk := byName["AzureARM"].(*azurearm.Handler); armOk {
 		armH.Registry.SetMonitorLogs(&azureMonitorAdapter{backend: monH.Backend})
+
+		if monH.Settings.ValidateTokens && armH.Issuer != nil {
+			monH.Issuer = armH.Issuer
+		}
 	}
 }
 

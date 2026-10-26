@@ -192,3 +192,29 @@ func TestAddAttrsClonesHandlerOnlyWhenLogging(t *testing.T) {
 	assert.Equal(t, int32(1), clone.Load(), "attrs fold into one clone")
 	assert.Equal(t, "level=INFO msg=msg a=1 service=s3\nlevel=INFO msg=again a=1 service=s3\n", buf.String())
 }
+
+func BenchmarkAddAttrsChain(b *testing.B) {
+	base := logger.Save(context.Background(), newBufLogger(&bytes.Buffer{}))
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		ctx := logger.AddAttrs(base, slog.String("a", "1"))
+		ctx = logger.AddAttrs(ctx, slog.String("b", "2"), slog.String("c", "3"))
+		_ = logger.AddAttrs(ctx, slog.String("d", "4"))
+	}
+}
+
+func TestAddAttrsChainKeepsOrderAndParentIntact(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	parent := logger.AddAttrs(logger.Save(context.Background(), newBufLogger(&buf)), slog.String("a", "1"))
+	child := logger.AddAttrs(parent, slog.String("b", "2"), slog.String("c", "3"))
+	_ = logger.AddAttrs(parent, slog.String("x", "9"))
+
+	logger.Load(child).Info("m")
+	assert.Contains(t, buf.String(), "a=1 b=2 c=3")
+	assert.NotContains(t, buf.String(), "x=9")
+}

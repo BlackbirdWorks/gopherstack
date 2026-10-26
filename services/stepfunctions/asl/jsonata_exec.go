@@ -63,7 +63,7 @@ func (e *Executor) jxFinish(
 		}
 	}
 
-	merged := make(map[string]any, len(assign)+len(extraAssign))
+	merged := make(map[string]any, len(assign))
 	maps.Copy(merged, assign)
 	maps.Copy(merged, extraAssign)
 

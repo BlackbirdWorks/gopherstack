@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -57,8 +59,10 @@ var (
 // Handler serves the Logs Ingestion and Logs Query APIs on a dedicated HTTPS listener.
 type Handler struct {
 	Backend *Backend
-	srvMu   *lockmetrics.RWMutex
-	srv     *http.Server
+	// Issuer verifies bearer token signatures when Settings.ValidateTokens is set.
+	Issuer *aadauth.Issuer
+	srvMu  *lockmetrics.RWMutex
+	srv    *http.Server
 	// Settings holds the listener configuration.
 	Settings Settings
 	// Port is the fixed TCP port StartWorker binds.
@@ -75,7 +79,13 @@ var (
 func NewHandler(backend *Backend, settings Settings) *Handler {
 	backend.Configure(settings)
 
+	var issuer *aadauth.Issuer
+	if settings.ValidateTokens {
+		issuer, _ = aadauth.NewIssuer()
+	}
+
 	return &Handler{
+		Issuer:  issuer,
 		Backend: backend, Settings: settings, Port: settings.Port, srvMu: lockmetrics.New("azuremonitor.server"),
 	}
 }
@@ -190,16 +200,39 @@ func (h *Handler) authError(r *http.Request) string {
 		return ""
 	}
 
-	claims := jwt.MapClaims{}
-	if _, _, err := jwt.NewParser().ParseUnverified(token, claims); err != nil {
-		return "The bearer token is not a well-formed JWT"
+	return h.tokenError(token)
+}
+
+// tokenError verifies the token's signature against the emulator's Entra issuer, then expiry and audience.
+func (h *Handler) tokenError(token string) string {
+	if h.Issuer == nil {
+		return "The bearer token signature could not be verified"
 	}
 
-	if exp, err := claims.GetExpirationTime(); err != nil || (exp != nil && exp.Before(time.Now())) {
-		return "The bearer token has expired"
+	claims, err := h.Issuer.Parse(token)
+	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return "The bearer token has expired"
+		}
+
+		return "The bearer token is not a valid signed JWT"
+	}
+
+	aud, err := claims.GetAudience()
+	if err != nil || !slices.ContainsFunc(aud, audienceAllowed) {
+		return "The bearer token audience is not valid for this API"
 	}
 
 	return ""
+}
+
+func audienceAllowed(aud string) bool {
+	switch strings.TrimSuffix(aud, "/") {
+	case "https://api.loganalytics.io", "https://api.loganalytics.azure.com", "https://monitor.azure.com":
+		return true
+	}
+
+	return false
 }
 
 func writeAPIError(c *echo.Context, e *apiError) error {

@@ -360,3 +360,50 @@ func readFile(p string) (string, error) {
 
 	return string(b), err
 }
+
+func TestSFTPAPIGatewayRejectsForeignHosts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"metadata ip", "http://169.254.169.254/latest"},
+		{"public host", "https://example.com/prod"},
+		{"lookalike execute api", "https://abc.execute-api.us-east-1.amazonaws.com.evil.test/prod"},
+		{"non http scheme", "ftp://localhost/prod"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gw := &fakeGateway{body: `{"Role":"arn:aws:iam::000000000000:role/r"}`, status: 200}
+			e := newSFTPEnvCfg(t, transfer.SFTPConfig{APIGateway: gw}, gatewayServer(tt.url))
+
+			_, _, err := e.dial("bob", ssh.Password("hunter2"))
+			require.Error(t, err)
+
+			gw.mu.Lock()
+			defer gw.mu.Unlock()
+			assert.Empty(t, gw.gotURL)
+		})
+	}
+}
+
+func TestHTTPAPIGatewayClientRefusesNonLoopback(t *testing.T) {
+	t.Parallel()
+
+	c := transfer.NewHTTPAPIGatewayClient()
+
+	urls := []string{
+		"http://169.254.169.254/",
+		"https://abc.execute-api.us-east-1.amazonaws.com/p",
+		"http://localhost:99999/",
+	}
+
+	for _, u := range urls {
+		_, _, err := c.Get(t.Context(), u, nil)
+		require.Error(t, err, u)
+	}
+}
