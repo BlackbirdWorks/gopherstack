@@ -3,6 +3,8 @@ package glue
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // createColumnStatisticsTaskSettingsInput holds input for CreateColumnStatisticsTaskSettings.
@@ -258,7 +260,7 @@ func (h *Handler) handleGetColumnStatisticsTaskRuns(
 	matching := make([]*ColumnStatisticsTaskRun, 0, len(all))
 
 	for _, r := range all {
-		if r.DatabaseName == in.DatabaseName && r.TableName == in.TableName {
+		if strs.Equal(r.DatabaseName, in.DatabaseName) && strs.Equal(r.TableName, in.TableName) {
 			matching = append(matching, r)
 		}
 	}

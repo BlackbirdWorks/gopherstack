@@ -1,6 +1,10 @@
 package glue
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
+)
 
 // crawlJob is one in-flight crawl: its snapshot plus the ops it recorded.
 type crawlJob struct {
@@ -58,7 +62,7 @@ func (b *InMemoryBackend) finishCrawlJobLocked(job *crawlJob, crawlErr error, no
 	c.State = stateReady
 	c.LastUpdated = float64(now.Unix())
 
-	dbGone := c.DatabaseName != "" && !b.databases.Has(c.DatabaseName)
+	dbGone := c.DatabaseName != "" && !b.databases.Has(strs.Fold(c.DatabaseName))
 	if crawlErr == nil && dbGone {
 		crawlErr = ErrNotFound
 	}

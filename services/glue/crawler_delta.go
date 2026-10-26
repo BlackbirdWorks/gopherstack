@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -270,7 +272,7 @@ func (r *crawlRun) crawlDeltaTable(ctx context.Context, t DeltaTarget, p string)
 	name := crawlTableName(r.c.TablePrefix, lastPathSegment(prefix))
 	params := map[string]string{paramClassification: classificationParq, crawlerManagedParam: r.c.Name}
 
-	desired := &Table{Name: name, DatabaseName: r.c.DatabaseName, PartitionKeys: pkeys, Parameters: params}
+	desired := &Table{Name: name, DatabaseName: strs.Fold(r.c.DatabaseName), PartitionKeys: pkeys, Parameters: params}
 
 	if t.CreateNativeDeltaTable {
 		params["table_type"] = "DELTA"
