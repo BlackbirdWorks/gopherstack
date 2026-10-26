@@ -21,6 +21,7 @@ const (
 	paramTypeSubnet = "AWS::EC2::Subnet::Id"
 	paramTypeSG     = "AWS::EC2::SecurityGroup::Id"
 	tagAttrPrefix   = "Tags."
+	ec2DefaultName  = "default"
 )
 
 type ec2RuleSource struct{ b ec2.Backend }
@@ -84,7 +85,7 @@ func (s ec2RuleSource) vpcAttribute(vpcID, attr string) (string, bool) {
 	switch attr {
 	case "DefaultSecurityGroup":
 		for _, sg := range s.b.DescribeSecurityGroups(nil) {
-			if sg.VPCID == vpcID && sg.Name == "default" {
+			if sg.VPCID == vpcID && sg.Name == ec2DefaultName {
 				return sg.ID, true
 			}
 		}

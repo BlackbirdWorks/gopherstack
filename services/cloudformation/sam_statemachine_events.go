@@ -11,6 +11,11 @@ const (
 	samKeyDLC       = "DeadLetterConfig"
 	samKeyRetry     = "RetryPolicy"
 	samUnescapeFlag = "UnescapeMappingTemplate"
+	samHTTPPost     = "POST"
+	samKeyPolicyDoc = "PolicyDocument"
+	samKeyResource  = "Resource"
+	samKeySchedExpr = "ScheduleExpression"
+	samKeyStatusCd  = "statusCode"
 
 	smRequestTemplate = `{"input": "$util.escapeJavaScript($input.json('$'))", "stateMachineArn": "${%s}"}`
 	smUnescapedInput  = `{"input": "$util.escapeJavaScript($input.json('$')).replaceAll("\\'","'")", ` +
@@ -52,11 +57,11 @@ func (t *samTranslator) translateStateMachineEvents(smID string, events map[stri
 func startExecutionPolicy(smID, policyName string) map[string]any {
 	return map[string]any{
 		samKeyPolicyName: policyName,
-		"PolicyDocument": map[string]any{
+		samKeyPolicyDoc: map[string]any{
 			samKeyVersion: samPolicyVersion,
 			samKeyStatement: []any{map[string]any{
 				samKeyEffect: stackPolicyEffectAllow, samKeyAction: "states:StartExecution",
-				"Resource": samRef(smID),
+				samKeyResource: samRef(smID),
 			}},
 		},
 	}
@@ -83,10 +88,10 @@ func smDLQPolicy(policyName string, dlc map[string]any) []any {
 
 	return []any{map[string]any{
 		samKeyPolicyName: policyName,
-		"PolicyDocument": map[string]any{
+		samKeyPolicyDoc: map[string]any{
 			samKeyVersion: samPolicyVersion,
 			samKeyStatement: []any{map[string]any{
-				samKeyEffect: stackPolicyEffectAllow, samKeyAction: "sqs:SendMessage", "Resource": arn,
+				samKeyEffect: stackPolicyEffectAllow, samKeyAction: "sqs:SendMessage", samKeyResource: arn,
 			}},
 		},
 	}}
@@ -158,7 +163,7 @@ func (t *samTranslator) smScheduleEvent(smID, name string, props map[string]any)
 		return samErr(smID, "Event [%s] of type Schedule is missing required property 'Schedule'.", name)
 	}
 
-	rule := map[string]any{"ScheduleExpression": props["Schedule"], samKeyState: ruleState(props)}
+	rule := map[string]any{samKeySchedExpr: props["Schedule"], samKeyState: ruleState(props)}
 	for _, k := range []string{attrNameName, samKeyDesc} {
 		if props[k] != nil {
 			rule[k] = props[k]
@@ -204,13 +209,13 @@ func (t *samTranslator) putSMRule(smID, name string, rule, props map[string]any)
 
 func (t *samTranslator) smScheduleV2Event(smID, name string, props map[string]any) error {
 	id := smID + name
-	if err := rejectUnknown(id, props, keySet("ScheduleExpression", "ScheduleExpressionTimezone", "StartDate",
+	if err := rejectUnknown(id, props, keySet(samKeySchedExpr, "ScheduleExpressionTimezone", "StartDate",
 		"EndDate", samKeyState, "Name", "OmitName", samKeyDesc, "GroupName", "FlexibleTimeWindow", samKeyInput,
 		"KmsKeyArn", samKeyRetry, samKeyRoleArn, "PermissionsBoundary", samKeyDLC)); err != nil {
 		return err
 	}
 
-	if props["ScheduleExpression"] == nil {
+	if props[samKeySchedExpr] == nil {
 		return samErr(smID, "Event [%s] of type ScheduleV2 is missing required property 'ScheduleExpression'.", name)
 	}
 
@@ -274,12 +279,29 @@ func (t *samTranslator) smAPIEvent(smID, name string, props map[string]any) erro
 	}
 
 	roleID := id + "Role"
-	if err = t.putSMEventRole(smID, roleID, "apigateway.amazonaws.com", roleID+"StartExecutionPolicy", nil, nil); err != nil {
+	if err = t.putSMEventRole(
+		smID,
+		roleID,
+		"apigateway.amazonaws.com",
+		roleID+"StartExecutionPolicy",
+		nil,
+		nil,
+	); err != nil {
 		return err
 	}
 
 	unescape, _ := props[samUnescapeFlag].(bool)
-	api.addRoute(samRoute{fnID: smID, path: path, method: method, authorizer: authorizer, roleID: roleID, unescape: unescape, apiKey: apiKey})
+	api.addRoute(
+		samRoute{
+			fnID:       smID,
+			path:       path,
+			method:     method,
+			authorizer: authorizer,
+			roleID:     roleID,
+			unescape:   unescape,
+			apiKey:     apiKey,
+		},
+	)
 
 	return nil
 }
@@ -293,11 +315,14 @@ func smIntegration(rt samRoute) map[string]any {
 
 	return map[string]any{
 		"credentials": samGetAtt(rt.roleID, attrNameArn),
-		"httpMethod":  "POST",
+		"httpMethod":  samHTTPPost,
 		"requestTemplates": map[string]any{
 			samJSONMime: map[string]any{samKeyFnSub: fmt.Sprintf(tmpl, rt.fnID)},
 		},
-		samKeyResponses: map[string]any{"200": map[string]any{"statusCode": "200"}, "400": map[string]any{"statusCode": "400"}},
+		samKeyResponses: map[string]any{
+			"200": map[string]any{samKeyStatusCd: "200"},
+			"400": map[string]any{samKeyStatusCd: "400"},
+		},
 		samKeyTypeLower: "aws",
 		"uri":           map[string]any{samKeyFnSub: smStartExecutionURI},
 	}

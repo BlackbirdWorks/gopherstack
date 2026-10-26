@@ -24,8 +24,8 @@ func samAPIHandled() map[string]bool {
 }
 
 type samRoute struct {
-	timeout any
-	apiKey  *bool
+	timeout                        any
+	apiKey                         *bool
 	fnID, path, method, authorizer string
 	// roleID is set for state machine routes: the API Gateway invoke role.
 	roleID   string
@@ -220,7 +220,7 @@ func (a *samAPI) body() (map[string]any, error) {
 		if defs == nil {
 			defs = map[string]any{}
 		}
-		defs[samAPIKeyScheme] = map[string]any{"in": "header", "name": samAPIKeyHeader, samKeyTypeLower: "apiKey"}
+		defs[samAPIKeyScheme] = map[string]any{"in": samLocHeader, "name": samAPIKeyHeader, samKeyTypeLower: "apiKey"}
 		doc["securityDefinitions"] = defs
 	}
 
@@ -283,7 +283,7 @@ func routeOperation(rt samRoute) map[string]any {
 		}
 	}
 	integ := map[string]any{
-		"httpMethod":    "POST",
+		"httpMethod":    samHTTPPost,
 		samKeyTypeLower: "aws_proxy",
 		"uri": map[string]any{samKeyFnSub: "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/" +
 			"2015-03-31/functions/${" + rt.fnID + ".Arn}/invocations"},

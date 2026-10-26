@@ -24,6 +24,16 @@ func samSM(events string) string {
 		samSMDefinition + "      Events:\n" + events
 }
 
+// samEvent renders one event; props are "Key: value" lines at property depth.
+func samEvent(name, typ string, props ...string) string {
+	out := "        " + name + ":\n          Type: " + typ + "\n          Properties:\n"
+	for _, p := range props {
+		out += "            " + p + "\n"
+	}
+
+	return out
+}
+
 func processedResources(t *testing.T, env *samEventEnv) map[string]map[string]any {
 	t.Helper()
 
@@ -31,7 +41,10 @@ func processedResources(t *testing.T, env *samEventEnv) map[string]map[string]an
 		Resources map[string]map[string]any `json:"Resources"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(getTemplate(t, env.client, "sam-stack", types.TemplateStageProcessed)), &doc))
+	require.NoError(
+		t,
+		json.Unmarshal([]byte(getTemplate(t, env.client, "sam-stack", types.TemplateStageProcessed)), &doc),
+	)
 
 	return doc.Resources
 }
@@ -51,9 +64,10 @@ func dig(t *testing.T, v any, path ...string) any {
 func policyNames(t *testing.T, role map[string]any) []string {
 	t.Helper()
 
-	var out []string
+	pols := dig(t, role, "Properties", "Policies").([]any)
+	out := make([]string, 0, len(pols))
 
-	for _, p := range dig(t, role, "Properties", "Policies").([]any) {
+	for _, p := range pols {
 		out = append(out, dig(t, p, "PolicyName").(string))
 	}
 
@@ -65,14 +79,14 @@ func TestSAMTransform_StateMachineEvents(t *testing.T) {
 
 	tests := []struct {
 		check    func(t *testing.T, res map[string]map[string]any)
+		wantType map[string]string
 		name     string
 		events   string
-		wantType map[string]string
 	}{
 		{
 			name: "schedule",
-			events: "        Tick:\n          Type: Schedule\n          Properties:\n            Schedule: rate(1 minute)\n" +
-				"            Name: tick-rule\n            Enabled: false\n            Input: '{\"a\":1}'\n",
+			events: samEvent("Tick", "Schedule", "Schedule: rate(1 minute)", "Name: tick-rule", "Enabled: false",
+				`Input: '{"a":1}'`),
 			wantType: map[string]string{"SMTick": "AWS::Events::Rule", "SMTickRole": "AWS::IAM::Role"},
 			check: func(t *testing.T, res map[string]map[string]any) {
 				t.Helper()
@@ -88,8 +102,14 @@ func TestSAMTransform_StateMachineEvents(t *testing.T) {
 		},
 		{
 			name: "schedule_role_arn_and_target_id",
-			events: "        Tick:\n          Type: Schedule\n          Properties:\n            Schedule: rate(1 minute)\n" +
-				"            RoleArn: arn:aws:iam::000000000000:role/r\n            Target:\n              Id: MyTarget\n",
+			events: samEvent(
+				"Tick",
+				"Schedule",
+				"Schedule: rate(1 minute)",
+				"RoleArn: arn:aws:iam::000000000000:role/r",
+				"Target:",
+				"  Id: MyTarget",
+			),
 			wantType: map[string]string{"SMTick": "AWS::Events::Rule"},
 			check: func(t *testing.T, res map[string]map[string]any) {
 				t.Helper()
@@ -101,9 +121,8 @@ func TestSAMTransform_StateMachineEvents(t *testing.T) {
 		},
 		{
 			name: "cloudwatch_event",
-			events: "        CWEvent:\n          Type: CloudWatchEvent\n          Properties:\n            RuleName: MyRule\n" +
-				"            State: ENABLED\n            Pattern:\n              detail:\n                state:\n" +
-				"                  - terminated\n",
+			events: samEvent("CWEvent", "CloudWatchEvent", "RuleName: MyRule", "State: ENABLED", "Pattern:",
+				"  detail:", "    state:", "      - terminated"),
 			wantType: map[string]string{"SMCWEvent": "AWS::Events::Rule", "SMCWEventRole": "AWS::IAM::Role"},
 			check: func(t *testing.T, res map[string]map[string]any) {
 				t.Helper()
@@ -115,43 +134,50 @@ func TestSAMTransform_StateMachineEvents(t *testing.T) {
 			},
 		},
 		{
-			name: "eventbridge_rule",
-			events: "        Rule:\n          Type: EventBridgeRule\n          Properties:\n            Pattern:\n" +
-				"              source:\n                - my.app\n",
+			name:     "eventbridge_rule",
+			events:   samEvent("Rule", "EventBridgeRule", "Pattern:", "  source:", "    - my.app"),
 			wantType: map[string]string{"SMRule": "AWS::Events::Rule", "SMRuleRole": "AWS::IAM::Role"},
 		},
 		{
 			name: "schedule_v2",
-			events: "        V2:\n          Type: ScheduleV2\n          Properties:\n            ScheduleExpression: rate(1 minute)\n" +
-				"            DeadLetterConfig:\n              Arn: arn:aws:sqs:us-east-1:000000000000:dlq\n",
+			events: samEvent("V2", "ScheduleV2", "ScheduleExpression: rate(1 minute)", "DeadLetterConfig:",
+				"  Arn: arn:aws:sqs:us-east-1:000000000000:dlq"),
 			wantType: map[string]string{"SMV2": "AWS::Scheduler::Schedule", "SMV2Role": "AWS::IAM::Role"},
 			check: func(t *testing.T, res map[string]map[string]any) {
 				t.Helper()
 				assert.Equal(t, []string{"SMV2StartExecutionPolicy", "SMV2SQSPolicy"}, policyNames(t, res["SMV2Role"]))
-				assert.Equal(t, "scheduler.amazonaws.com",
-					dig(t, res["SMV2Role"], "Properties", "AssumeRolePolicyDocument", "Statement").([]any)[0].(map[string]any)["Principal"].(map[string]any)["Service"].([]any)[0])
+				stmt := dig(t, res["SMV2Role"], "Properties", "AssumeRolePolicyDocument", "Statement").([]any)[0]
+				assert.Equal(t, []any{"scheduler.amazonaws.com"}, dig(t, stmt, "Principal", "Service"))
 			},
 		},
 		{
-			name: "api_implicit",
-			events: "        Start:\n          Type: Api\n          Properties:\n            Path: /start\n" +
-				"            Method: post\n",
-			wantType: map[string]string{"SMStartRole": "AWS::IAM::Role", "ServerlessRestApi": "AWS::ApiGateway::RestApi"},
+			name:   "api_implicit",
+			events: samEvent("Start", "Api", "Path: /start", "Method: post"),
+			wantType: map[string]string{
+				"SMStartRole":       "AWS::IAM::Role",
+				"ServerlessRestApi": "AWS::ApiGateway::RestApi",
+			},
 			check: func(t *testing.T, res map[string]map[string]any) {
 				t.Helper()
 				op := dig(t, res["ServerlessRestApi"], "Properties", "Body", "paths", "/start", "post").(map[string]any)
 				integ := op["x-amazon-apigateway-integration"].(map[string]any)
 				assert.Equal(t, "aws", integ["type"])
 				assert.Equal(t, map[string]any{"Fn::GetAtt": []any{"SMStartRole", "Arn"}}, integ["credentials"])
-				assert.Equal(t, map[string]any{"Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}:states:action/StartExecution"}, integ["uri"])
+				assert.Equal(
+					t,
+					map[string]any{
+						"Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}:states:action/StartExecution",
+					},
+					integ["uri"],
+				)
 				assert.Equal(t, []string{"SMStartRoleStartExecutionPolicy"}, policyNames(t, res["SMStartRole"]))
-				assert.Contains(t, dig(t, integ, "requestTemplates", "application/json", "Fn::Sub"), `"stateMachineArn": "${SM}"`)
+				assert.Contains(t, dig(t, integ, "requestTemplates", "application/json", "Fn::Sub"),
+					`"stateMachineArn": "${SM}"`)
 			},
 		},
 		{
-			name: "api_unescape",
-			events: "        Start:\n          Type: Api\n          Properties:\n            Path: /start\n" +
-				"            Method: post\n            UnescapeMappingTemplate: true\n",
+			name:     "api_unescape",
+			events:   samEvent("Start", "Api", "Path: /start", "Method: post", "UnescapeMappingTemplate: true"),
 			wantType: map[string]string{"SMStartRole": "AWS::IAM::Role"},
 			check: func(t *testing.T, res map[string]map[string]any) {
 				t.Helper()
@@ -194,11 +220,15 @@ func TestSAMTransform_StateMachineEventFailures(t *testing.T) {
 		events string
 		reason string
 	}{
-		{"unknown_type", "        E:\n          Type: SQS\n          Properties: {}\n", "not supported"},
-		{"schedule_missing_expression", "        E:\n          Type: Schedule\n          Properties:\n            Name: x\n", "Schedule"},
-		{"unknown_property", "        E:\n          Type: Schedule\n          Properties:\n            Schedule: rate(1 minute)\n            Bogus: 1\n", "Bogus"},
-		{"dlq_generated", "        E:\n          Type: Schedule\n          Properties:\n            Schedule: rate(1 minute)\n            DeadLetterConfig:\n              Type: SQS\n", "DeadLetterConfig"},
-		{"api_missing_method", "        E:\n          Type: Api\n          Properties:\n            Path: /x\n", "'Path' and 'Method'"},
+		{"unknown_type", samEvent("E", "SQS", "Queue: x"), "not supported"},
+		{"schedule_missing_expression", samEvent("E", "Schedule", "Name: x"), "Schedule"},
+		{"unknown_property", samEvent("E", "Schedule", "Schedule: rate(1 minute)", "Bogus: 1"), "Bogus"},
+		{
+			"dlq_generated",
+			samEvent("E", "Schedule", "Schedule: rate(1 minute)", "DeadLetterConfig:", "  Type: SQS"),
+			"DeadLetterConfig",
+		},
+		{"api_missing_method", samEvent("E", "Api", "Path: /x"), "'Path' and 'Method'"},
 	}
 
 	for _, tc := range tests {
@@ -239,10 +269,9 @@ func TestSAMTransform_ApiEventExtras(t *testing.T) {
 	}{
 		{
 			name: "request_parameters",
-			events: "        E:\n          Type: Api\n          Properties:\n            RestApiId: !Ref Api\n            Path: /one\n" +
-				"            Method: get\n            RequestParameters:\n              - method.request.header.Authorization:\n" +
-				"                  Required: true\n                  Caching: true\n              - method.request.querystring.full.type\n" +
-				"              - method.request.path.id\n",
+			events: samEvent("E", "Api", "RestApiId: !Ref Api", "Path: /one", "Method: get", "RequestParameters:",
+				"  - method.request.header.Authorization:", "      Required: true", "      Caching: true",
+				"  - method.request.querystring.full.type", "  - method.request.path.id"),
 			check: func(t *testing.T, paths, _ map[string]any) {
 				t.Helper()
 				op := dig(t, paths, "/one", "get").(map[string]any)
@@ -256,18 +285,22 @@ func TestSAMTransform_ApiEventExtras(t *testing.T) {
 			},
 		},
 		{
-			name: "timeout",
-			events: "        E:\n          Type: Api\n          Properties:\n            RestApiId: !Ref Api\n            Path: /one\n" +
-				"            Method: get\n            TimeoutInMillis: 5000\n",
+			name:   "timeout",
+			events: samEvent("E", "Api", "RestApiId: !Ref Api", "Path: /one", "Method: get", "TimeoutInMillis: 5000"),
 			check: func(t *testing.T, paths, _ map[string]any) {
 				t.Helper()
-				assert.InDelta(t, 5000, dig(t, paths, "/one", "get", "x-amazon-apigateway-integration", "timeoutInMillis"), 0)
+				assert.InDelta(
+					t,
+					5000,
+					dig(t, paths, "/one", "get", "x-amazon-apigateway-integration", "timeoutInMillis"),
+					0,
+				)
 			},
 		},
 		{
 			name: "api_key_required_event",
-			events: "        E:\n          Type: Api\n          Properties:\n            RestApiId: !Ref Api\n            Path: /one\n" +
-				"            Method: get\n            Auth:\n              ApiKeyRequired: true\n",
+			events: samEvent("E", "Api", "RestApiId: !Ref Api", "Path: /one", "Method: get", "Auth:",
+				"  ApiKeyRequired: true"),
 			check: func(t *testing.T, paths, defs map[string]any) {
 				t.Helper()
 				assert.Equal(t, []any{map[string]any{"api_key": []any{}}}, dig(t, paths, "/one", "get", "security"))
@@ -277,9 +310,16 @@ func TestSAMTransform_ApiEventExtras(t *testing.T) {
 		{
 			name:   "api_key_default_override",
 			apiKey: "      Auth:\n        ApiKeyRequired: true\n",
-			events: "        A:\n          Type: Api\n          Properties:\n            RestApiId: !Ref Api\n            Path: /a\n" +
-				"            Method: get\n        B:\n          Type: Api\n          Properties:\n            RestApiId: !Ref Api\n" +
-				"            Path: /b\n            Method: get\n            Auth:\n              ApiKeyRequired: false\n",
+			events: samEvent("A", "Api", "RestApiId: !Ref Api", "Path: /a", "Method: get") +
+				samEvent(
+					"B",
+					"Api",
+					"RestApiId: !Ref Api",
+					"Path: /b",
+					"Method: get",
+					"Auth:",
+					"  ApiKeyRequired: false",
+				),
 			check: func(t *testing.T, paths, defs map[string]any) {
 				t.Helper()
 				assert.Equal(t, []any{map[string]any{"api_key": []any{}}}, dig(t, paths, "/a", "get", "security"))
@@ -311,7 +351,11 @@ func TestSAMTransform_ApiEventExtraFailures(t *testing.T) {
 	tests := []struct {
 		name, props, reason string
 	}{
-		{"bad_request_parameter", "            RequestParameters:\n              - request.header.X\n", "RequestParameters"},
+		{
+			"bad_request_parameter",
+			"            RequestParameters:\n              - request.header.X\n",
+			"RequestParameters",
+		},
 		{"timeout_out_of_range", "            TimeoutInMillis: 60000\n", "TimeoutInMillis"},
 		{"api_key_not_bool", "            Auth:\n              ApiKeyRequired: maybe\n", "ApiKeyRequired"},
 	}

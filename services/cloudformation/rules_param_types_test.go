@@ -57,7 +57,7 @@ func TestRules_AWSSpecificParameterTypes(t *testing.T) {
 		},
 		{
 			name:   "default_security_group",
-			assert: `{"Fn::Contains":[{"Fn::ValueOf":["P","DefaultSecurityGroup"]},{"Fn::ValueOf":["P","DefaultSecurityGroup"]}]}`,
+			assert: `{"Fn::Equals":[{"Fn::ValueOf":["P","DefaultSecurityGroup"]},"{sg}"]}`,
 			ptype:  "AWS::EC2::VPC::Id", param: "{vpc}",
 		},
 		{
@@ -83,11 +83,18 @@ func TestRules_AWSSpecificParameterTypes(t *testing.T) {
 			sn, err := backends.EC2.Backend.CreateSubnet(vpc.ID, "10.9.1.0/24", "us-east-1a")
 			require.NoError(t, err)
 
-			sgs := backends.EC2.Backend.DescribeSecurityGroups(nil)
-			require.NotEmpty(t, sgs)
+			var defaultSG string
+
+			for _, sg := range backends.EC2.Backend.DescribeSecurityGroups(nil) {
+				if sg.VPCID == vpc.ID && sg.Name == "default" {
+					defaultSG = sg.ID
+				}
+			}
+
+			require.NotEmpty(t, defaultSG)
 
 			val := map[string]string{"{vpc}": vpc.ID, "{subnet}": sn.ID}[tc.param]
-			assertion := strings.ReplaceAll(tc.assert, "{sg}", sgs[0].ID)
+			assertion := strings.ReplaceAll(tc.assert, "{sg}", defaultSG)
 			tmpl := fmt.Sprintf(`{"Parameters":{"P":{"Type":%q}},`+
 				`"Rules":{"R":{"Assertions":[{"Assert":%s,"AssertDescription":"bad"}]}},`+
 				`"Resources":{"B":{"Type":"AWS::S3::Bucket"}}}`, tc.ptype, assertion)

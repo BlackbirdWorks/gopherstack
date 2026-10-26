@@ -1336,7 +1336,12 @@ func (b *InMemoryBackend) prepareUpdateLocked(
 		return nil, nil, err
 	}
 
-	if err = preflightTemplateErr(templateBody, merged, b.typeCheckLocked(opts.DisableValidation), b.ruleSource()); err != nil {
+	if err = preflightTemplateErr(
+		templateBody,
+		merged,
+		b.typeCheckLocked(opts.DisableValidation),
+		b.ruleSource(),
+	); err != nil {
 		return nil, nil, err
 	}
 

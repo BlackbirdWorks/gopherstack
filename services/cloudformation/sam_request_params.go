@@ -9,6 +9,7 @@ import (
 const (
 	samIntegrationKey = "x-amazon-apigateway-integration"
 	samSwaggerString  = "string"
+	samLocHeader      = "header"
 	samTimeoutMin     = 50
 	samTimeoutMax     = 29000
 )
@@ -21,7 +22,7 @@ type samReqParam struct {
 }
 
 func samParamLocations() map[string]string {
-	return map[string]string{"header": "header", "querystring": "query", "path": "path"}
+	return map[string]string{"header": samLocHeader, "querystring": "query", "path": "path"}
 }
 
 // parseRequestParameters reads a list of "method.request.<loc>.<name>" strings
