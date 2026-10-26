@@ -207,7 +207,9 @@ func TestAzureKeyVaultARM_CheckNameAvailabilitySDK(t *testing.T) {
 				tt.setup(t, c)
 			}
 
-			vt := armkeyvault.VaultCheckNameAvailabilityParameters{Name: new(tt.vault), Type: new("Microsoft.KeyVault/vaults")}
+			vt := armkeyvault.VaultCheckNameAvailabilityParameters{
+				Name: new(tt.vault), Type: new("Microsoft.KeyVault/vaults"),
+			}
 			res, err := c.CheckNameAvailability(t.Context(), vt, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantFree, *res.NameAvailable)
