@@ -2,8 +2,11 @@
 // protocol codecs, taking and returning JSON-shaped values, so callers need
 // no generated SDK client.
 //
-// Clients whose pinned version ships a schemas package use it directly; the
-// rest use models extracted from their generated clients (legacy/). After an
+// Clients whose pinned version ships a schemas package use it directly,
+// except those nothing else links (modeledServices in cmd/sfnschemagen),
+// which load an embedded copy of the graph (models/) so the package's init
+// cost and ~4 MB of code stay out of the binary; the rest use models
+// extracted from their generated clients (legacy/). After an
 // SDK bump run `go run ./cmd/sfnschemagen` and then `go run ./cmd/ccwiregen`
 // (the Cloud Control wire structs in internal/app) from the repo root; parity
 // tests in this package check every operation against the real clients.

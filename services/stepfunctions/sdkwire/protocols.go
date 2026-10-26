@@ -8,6 +8,7 @@ import (
 	"github.com/aws/smithy-go/transport/http/protocol/ec2query"
 	"github.com/aws/smithy-go/transport/http/protocol/restjson1"
 	"github.com/aws/smithy-go/transport/http/protocol/restxml"
+	"github.com/aws/smithy-go/transport/http/protocol/rpcv2"
 )
 
 func queryProtocol(s *smithy.ServiceSchema) smithyhttp.ClientProtocol { return awsquery.New(s) }
@@ -19,3 +20,5 @@ func restjson1Protocol(s *smithy.ServiceSchema) smithyhttp.ClientProtocol { retu
 func ec2queryProtocol(s *smithy.ServiceSchema) smithyhttp.ClientProtocol { return ec2query.New(s) }
 
 func restxmlProtocol(s *smithy.ServiceSchema) smithyhttp.ClientProtocol { return restxml.New(s) }
+
+func rpcv2CBORProtocol(s *smithy.ServiceSchema) smithyhttp.ClientProtocol { return rpcv2.NewCBOR(s) }
