@@ -11,10 +11,13 @@ import (
 )
 
 const (
-	crStateAssessing  = "assessing"
-	crStateScheduled  = "scheduled"
-	crStateCancelling = "cancelling"
-	crStateExpired    = "expired"
+	crStateAssessing   = "assessing"
+	crStateScheduled   = "scheduled"
+	crStateCancelling  = "cancelling"
+	crStateExpired     = "expired"
+	crStateFailed      = "failed"
+	crStatePending     = "pending"
+	crStateUnsupported = "unsupported"
 
 	crDeliveryIncremental = "incremental"
 	crEndDateLimited      = "limited"
@@ -60,14 +63,14 @@ type CapacityReservationModificationQuote struct {
 type FutureDatedCapacityReservationSpec struct {
 	StartDate          time.Time
 	EndDate            time.Time
-	EndDateType        string
-	DeliveryPreference string
-	CommitmentDuration int64
-	InstanceType       string
 	Tenancy            string
+	DeliveryPreference string
+	InstanceType       string
+	EndDateType        string
 	InstanceMatch      string
 	InstancePlatform   string
 	AvailabilityZone   string
+	CommitmentDuration int64
 	InstanceCount      int
 	HasCommitment      bool
 	Outpost            bool
@@ -160,10 +163,12 @@ func crInstanceFamilyAllowed(instanceType string) bool {
 	return false
 }
 
-func (b *InMemoryBackend) validateFutureDatedLocked(spec *FutureDatedCapacityReservationSpec, now time.Time) error {
+func validateFutureDated(spec *FutureDatedCapacityReservationSpec, now time.Time) error {
 	if spec.Outpost || spec.PlacementGroup {
-		return fmt.Errorf("%w: OutpostArn and PlacementGroupArn are not supported for future-dated Capacity Reservations",
-			ErrInvalidParameterCombination)
+		return fmt.Errorf(
+			"%w: OutpostArn and PlacementGroupArn are not supported for future-dated Capacity Reservations",
+			ErrInvalidParameterCombination,
+		)
 	}
 
 	if !spec.HasCommitment || spec.CommitmentDuration < 1 || spec.CommitmentDuration > crMaxCommitmentSeconds {
@@ -185,9 +190,24 @@ func (b *InMemoryBackend) validateFutureDatedLocked(spec *FutureDatedCapacityRes
 		return fmt.Errorf("%w: StartDate must be between 5 and 120 days in the future", ErrInvalidParameter)
 	}
 
+	if err := validateFutureDatedCapacity(spec); err != nil {
+		return err
+	}
+
+	commitEnd := spec.StartDate.Add(time.Duration(spec.CommitmentDuration) * time.Second)
+	if spec.EndDateType == crEndDateLimited && spec.EndDate.Before(commitEnd) {
+		return fmt.Errorf("%w: EndDate can't be within the commitment duration", ErrInvalidParameter)
+	}
+
+	return nil
+}
+
+func validateFutureDatedCapacity(spec *FutureDatedCapacityReservationSpec) error {
 	if !crInstanceFamilyAllowed(spec.InstanceType) {
-		return fmt.Errorf("%w: future-dated Capacity Reservations support the C, M, R, I, T, and G instance families only",
-			ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: future-dated Capacity Reservations support the C, M, R, I, T, and G instance families only",
+			ErrInvalidParameter,
+		)
 	}
 
 	catalog, ok := instanceTypeCatalog[spec.InstanceType]
@@ -200,11 +220,6 @@ func (b *InMemoryBackend) validateFutureDatedLocked(spec *FutureDatedCapacityRes
 			ErrInvalidParameter, crFutureMinVCPUs)
 	}
 
-	commitEnd := spec.StartDate.Add(time.Duration(spec.CommitmentDuration) * time.Second)
-	if spec.EndDateType == crEndDateLimited && spec.EndDate.Before(commitEnd) {
-		return fmt.Errorf("%w: EndDate can't be within the commitment duration", ErrInvalidParameter)
-	}
-
 	return nil
 }
 
@@ -212,7 +227,10 @@ func validateEndDate(endDateType string, endDate time.Time) error {
 	switch endDateType {
 	case "", crEndDateUnlimited:
 		if !endDate.IsZero() {
-			return fmt.Errorf("%w: EndDate must be omitted when EndDateType is unlimited", ErrInvalidParameterCombination)
+			return fmt.Errorf(
+				"%w: EndDate must be omitted when EndDateType is unlimited",
+				ErrInvalidParameterCombination,
+			)
 		}
 	case crEndDateLimited:
 		if endDate.IsZero() {
@@ -272,7 +290,7 @@ func (b *InMemoryBackend) CreateFutureDatedCapacityReservation(
 	}
 
 	if !spec.StartDate.IsZero() {
-		if err := b.validateFutureDatedLocked(spec, now); err != nil {
+		if err := validateFutureDated(spec, now); err != nil {
 			return nil, err
 		}
 
@@ -323,7 +341,10 @@ func (b *InMemoryBackend) CancelCapacityReservationWithQuote(id, quoteID, charge
 		cr.CancellingUntil = cr.commitmentEnd()
 
 		return nil
-	case cr.State == crStateCancelling, cr.State == crStateExpired, cr.State == "failed", cr.State == "unsupported":
+	case cr.State == crStateCancelling,
+		cr.State == crStateExpired,
+		cr.State == crStateFailed,
+		cr.State == crStateUnsupported:
 		return fmt.Errorf("%w: Capacity Reservation %s is %s", ErrCapacityReservationIncorrectState, id, cr.State)
 	}
 
@@ -341,13 +362,14 @@ func (b *InMemoryBackend) checkCancellationQuoteLocked(
 ) error {
 	if quoteID == "" || charges != crWindDownCharges {
 		return fmt.Errorf(
-			"%w: cancelling a Capacity Reservation in the %s state during its commitment requires QuoteId and ApplyCancellationCharges=%s",
+			"%w: cancelling in the %s state during the commitment requires QuoteId and ApplyCancellationCharges=%s",
 			ErrInvalidParameter, cr.State, crWindDownCharges)
 	}
 
 	q, ok := b.capacityReservationCancellationQuotes.Get(quoteID)
 	if !ok || q.CapacityReservationID != cr.CapacityReservationID {
-		return fmt.Errorf("%w: cancellation quote %s not found for %s", ErrInvalidParameter, quoteID, cr.CapacityReservationID)
+		return fmt.Errorf("%w: cancellation quote %s not found for %s",
+			ErrInvalidParameter, quoteID, cr.CapacityReservationID)
 	}
 
 	if !now.Before(q.ExpirationTime) {
@@ -379,7 +401,9 @@ func (b *InMemoryBackend) CreateCapacityReservationDateChangeQuote(
 	if !cr.futureDated() || cr.State != crStateScheduled {
 		return nil, fmt.Errorf(
 			"%w: date change quotes require an undelivered future-dated Capacity Reservation in the scheduled state (is %s)",
-			ErrCapacityReservationIncorrectState, cr.State)
+			ErrCapacityReservationIncorrectState,
+			cr.State,
+		)
 	}
 
 	newStart = newStart.UTC()
@@ -515,7 +539,8 @@ func (b *InMemoryBackend) checkModifiableLocked(cr *CapacityReservation, p *Modi
 	}
 
 	switch cr.State {
-	case crStateAssessing, "pending", crStateExpired, stateCancelled, crStateCancelling, "failed", "unsupported":
+	case crStateAssessing, crStatePending, crStateExpired, stateCancelled, crStateCancelling,
+		crStateFailed, crStateUnsupported:
 		return fmt.Errorf("%w: Capacity Reservation %s in state %s can't be modified",
 			ErrCapacityReservationIncorrectState, cr.CapacityReservationID, cr.State)
 	case crStateScheduled:
@@ -529,16 +554,24 @@ func (b *InMemoryBackend) checkModifiableLocked(cr *CapacityReservation, p *Modi
 				ErrCapacityReservationIncorrectState)
 		}
 
-		if end := cr.commitmentEnd(); !end.IsZero() && b.now().Before(end) {
-			if p.InstanceCount != nil && *p.InstanceCount < cr.TotalInstanceCount {
-				return fmt.Errorf("%w: can't decrease the instance count within the commitment duration",
-					ErrInvalidParameter)
-			}
+		return checkCommitmentModification(cr, p, b.now())
+	}
 
-			if p.EndDateSet && p.EndDateType == crEndDateLimited && p.EndDate.Before(end) {
-				return fmt.Errorf("%w: EndDate can't be within the commitment duration", ErrInvalidParameter)
-			}
-		}
+	return nil
+}
+
+func checkCommitmentModification(cr *CapacityReservation, p *ModifyCapacityReservationParams, now time.Time) error {
+	end := cr.commitmentEnd()
+	if end.IsZero() || !now.Before(end) {
+		return nil
+	}
+
+	if p.InstanceCount != nil && *p.InstanceCount < cr.TotalInstanceCount {
+		return fmt.Errorf("%w: can't decrease the instance count within the commitment duration", ErrInvalidParameter)
+	}
+
+	if p.EndDateSet && p.EndDateType == crEndDateLimited && p.EndDate.Before(end) {
+		return fmt.Errorf("%w: EndDate can't be within the commitment duration", ErrInvalidParameter)
 	}
 
 	return nil

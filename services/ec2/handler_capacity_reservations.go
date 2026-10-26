@@ -62,7 +62,7 @@ func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) 
 	}
 
 	if cr.futureDated() {
-		item.CommitmentInfo = &capacityReservationCommitmentInfoItem{
+		item.CommitmentInfo = &crCommitmentInfoItem{
 			CommitmentDuration:     cr.CommitmentDuration,
 			CommitmentEndDate:      formatEC2Time(cr.commitmentEnd()),
 			CommittedInstanceCount: int32(cr.TotalInstanceCount), //nolint:gosec // bounded by the 1000-instance limit
@@ -104,13 +104,13 @@ type interruptibleAllocationDetail struct {
 	TargetInstanceCount                int32  `xml:"targetInstanceCount"`
 }
 
-type capacityReservationCommitmentInfoItem struct {
+type crCommitmentInfoItem struct {
 	CommitmentEndDate      string `xml:"commitmentEndDate,omitempty"`
 	CommitmentDuration     int64  `xml:"commitmentDuration"`
 	CommittedInstanceCount int32  `xml:"committedInstanceCount"`
 }
 
-type capacityReservationAdjustmentItem struct {
+type crAdjustmentItem struct {
 	CommitmentEndDate  string `xml:"commitmentEndDate,omitempty"`
 	EndDate            string `xml:"endDate,omitempty"`
 	EndDateType        string `xml:"endDateType,omitempty"`
@@ -119,11 +119,11 @@ type capacityReservationAdjustmentItem struct {
 }
 
 type modifyCapacityReservationResponse struct {
-	AdjustmentDetails *capacityReservationAdjustmentItem `xml:"adjustmentDetails,omitempty"`
-	XMLName           xml.Name                           `xml:"ModifyCapacityReservationResponse"`
-	RequestID         string                             `xml:"requestId"`
-	AdjustmentStatus  string                             `xml:"adjustmentStatus,omitempty"`
-	Return            bool                               `xml:"return"`
+	AdjustmentDetails *crAdjustmentItem `xml:"adjustmentDetails,omitempty"`
+	XMLName           xml.Name          `xml:"ModifyCapacityReservationResponse"`
+	RequestID         string            `xml:"requestId"`
+	AdjustmentStatus  string            `xml:"adjustmentStatus,omitempty"`
+	Return            bool              `xml:"return"`
 }
 
 func optionalTimestamp(vals url.Values, key string) (time.Time, error) {
@@ -246,7 +246,7 @@ func (h *Handler) handleModifyCapacityReservation(vals url.Values, reqID string)
 
 	resp := &modifyCapacityReservationResponse{RequestID: reqID, Return: true, AdjustmentStatus: adj.AdjustmentStatus}
 	if adj.AdjustmentStatus != "" {
-		resp.AdjustmentDetails = &capacityReservationAdjustmentItem{
+		resp.AdjustmentDetails = &crAdjustmentItem{
 			StartDate:          formatEC2Time(adj.StartDate),
 			CommitmentEndDate:  formatEC2Time(adj.CommitmentEndDate),
 			CommitmentDuration: adj.CommitmentDuration,

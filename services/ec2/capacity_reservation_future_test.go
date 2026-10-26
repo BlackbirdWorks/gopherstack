@@ -171,7 +171,8 @@ func TestFutureDatedCapacityReservation_Lifecycle(t *testing.T) {
 	require.NotNil(t, cr.CommitmentInfo)
 	assert.Equal(t, futureCommit, aws.ToInt64(cr.CommitmentInfo.CommitmentDuration))
 	assert.EqualValues(t, 8, aws.ToInt32(cr.CommitmentInfo.CommittedInstanceCount))
-	assert.True(t, start.Add(time.Duration(futureCommit)*time.Second).Equal(aws.ToTime(cr.CommitmentInfo.CommitmentEndDate)))
+	commitEnd := start.Add(time.Duration(futureCommit) * time.Second)
+	assert.True(t, commitEnd.Equal(aws.ToTime(cr.CommitmentInfo.CommitmentEndDate)))
 	assert.True(t, start.Equal(aws.ToTime(cr.StartDate)))
 	assert.True(t, start.Equal(aws.ToTime(cr.OriginalStartDate)))
 	assert.EqualValues(t, 0, aws.ToInt32(cr.AvailableInstanceCount))
@@ -215,10 +216,11 @@ func TestFutureDatedCapacityReservation_Expiry(t *testing.T) {
 	require.NoError(t, err)
 
 	clk.Advance(10*futureDay + time.Minute)
-	assert.Equal(t, types.CapacityReservationStateActive, describeCR(t, client, out.CapacityReservation.CapacityReservationId).State)
+	crID := out.CapacityReservation.CapacityReservationId
+	assert.Equal(t, types.CapacityReservationStateActive, describeCR(t, client, crID).State)
 
 	clk.Advance(time.Duration(futureCommit)*time.Second + time.Hour)
-	assert.Equal(t, types.CapacityReservationStateExpired, describeCR(t, client, out.CapacityReservation.CapacityReservationId).State)
+	assert.Equal(t, types.CapacityReservationStateExpired, describeCR(t, client, crID).State)
 }
 
 func TestFutureDatedCapacityReservation_Cancel(t *testing.T) {
@@ -226,24 +228,33 @@ func TestFutureDatedCapacityReservation_Cancel(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		advance   time.Duration
-		useQuote  bool
 		charges   types.ApplyCancellationCharges
 		wantErr   string
 		wantState types.CapacityReservationState
+		advance   time.Duration
+		useQuote  bool
 	}{
 		{name: "assessing needs no quote", advance: 0, wantState: types.CapacityReservationStateCancelled},
 		{name: "scheduled without quote", advance: 2 * time.Minute, wantErr: "QuoteId"},
 		{
-			name: "scheduled with quote", advance: 2 * time.Minute, useQuote: true,
-			charges: types.ApplyCancellationChargesCommitmentWindDown, wantState: types.CapacityReservationStateCancelling,
+			name:      "scheduled with quote",
+			advance:   2 * time.Minute,
+			useQuote:  true,
+			charges:   types.ApplyCancellationChargesCommitmentWindDown,
+			wantState: types.CapacityReservationStateCancelling,
 		},
 		{name: "active in commitment without quote", advance: 11 * futureDay, wantErr: "QuoteId"},
 		{
-			name: "active in commitment with quote", advance: 11 * futureDay, useQuote: true,
-			charges: types.ApplyCancellationChargesCommitmentWindDown, wantState: types.CapacityReservationStateCancelling,
+			name:      "active in commitment with quote",
+			advance:   11 * futureDay,
+			useQuote:  true,
+			charges:   types.ApplyCancellationChargesCommitmentWindDown,
+			wantState: types.CapacityReservationStateCancelling,
 		},
-		{name: "active after commitment", advance: 10*futureDay + 31*futureDay, wantState: types.CapacityReservationStateCancelled},
+		{
+			name: "active after commitment", advance: 10*futureDay + 31*futureDay,
+			wantState: types.CapacityReservationStateCancelled,
+		},
 	}
 
 	for _, tt := range tests {
@@ -290,12 +301,16 @@ func TestFutureDatedCapacityReservation_Modify(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		advance time.Duration
 		input   ec2sdk.ModifyCapacityReservationInput
+		name    string
 		wantErr string
+		advance time.Duration
 	}{
-		{name: "assessing rejects count", input: ec2sdk.ModifyCapacityReservationInput{InstanceCount: aws.Int32(9)}, wantErr: "IncorrectState"},
+		{
+			name:    "assessing rejects count",
+			input:   ec2sdk.ModifyCapacityReservationInput{InstanceCount: aws.Int32(9)},
+			wantErr: "IncorrectState",
+		},
 		{
 			name: "scheduled rejects count", advance: 2 * time.Minute,
 			input: ec2sdk.ModifyCapacityReservationInput{InstanceCount: aws.Int32(9)}, wantErr: "IncorrectState",
@@ -316,8 +331,11 @@ func TestFutureDatedCapacityReservation_Modify(t *testing.T) {
 			wantErr: "commitment",
 		},
 		{
-			name: "start date needs quote", advance: 2 * time.Minute,
-			input:   ec2sdk.ModifyCapacityReservationInput{StartDate: aws.Time(time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC))},
+			name:    "start date needs quote",
+			advance: 2 * time.Minute,
+			input: ec2sdk.ModifyCapacityReservationInput{
+				StartDate: aws.Time(time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)),
+			},
 			wantErr: "QuoteId",
 		},
 	}
@@ -401,17 +419,23 @@ func TestCapacityReservationDateChangeQuote(t *testing.T) {
 			assert.True(t, newStart.Equal(aws.ToTime(quote.ModificationTerms.ReservationUpdate.NewStartDate)))
 			assert.True(t, newStart.Add(time.Duration(futureCommit)*time.Second).
 				Equal(aws.ToTime(quote.ModificationTerms.ReservationUpdate.NewCommitmentEndDate)))
-			assert.EqualValues(t, futureCommit, aws.ToInt32(quote.ModificationTerms.ReservationUpdate.NewCommitmentDuration))
+			assert.EqualValues(
+				t,
+				futureCommit,
+				aws.ToInt32(quote.ModificationTerms.ReservationUpdate.NewCommitmentDuration),
+			)
 			assert.True(t, start.Equal(aws.ToTime(quote.CurrentConfiguration.StartDate)))
 			assert.True(t, start.Equal(aws.ToTime(quote.CurrentConfiguration.OriginalStartDate)))
 			assert.Equal(t, "scheduled", aws.ToString(quote.CurrentConfiguration.ReservationState))
 			assert.EqualValues(t, 8, aws.ToInt32(quote.CurrentConfiguration.InstanceCount))
-			assert.True(t, aws.ToTime(quote.ExpirationTime).Sub(aws.ToTime(quote.CreateTime)) == 24*time.Hour)
+			assert.Equal(t, aws.ToTime(quote.ExpirationTime).Sub(aws.ToTime(quote.CreateTime)), 24*time.Hour)
 			require.Len(t, quote.Tags, 1)
 
 			desc, err := client.DescribeCapacityReservationDateChangeQuotes(t.Context(),
 				&ec2sdk.DescribeCapacityReservationDateChangeQuotesInput{
-					CapacityReservationModificationQuoteIds: []string{aws.ToString(quote.CapacityReservationModificationQuoteId)},
+					CapacityReservationModificationQuoteIds: []string{
+						aws.ToString(quote.CapacityReservationModificationQuoteId),
+					},
 				})
 			require.NoError(t, err)
 			require.Len(t, desc.CapacityReservationModificationQuotes, 1)
@@ -465,7 +489,8 @@ func TestCapacityReservationDateChangeQuote_Expiry(t *testing.T) {
 		&ec2sdk.DescribeCapacityReservationDateChangeQuotesInput{})
 	require.NoError(t, err)
 	require.Len(t, desc.CapacityReservationModificationQuotes, 1)
-	assert.Equal(t, types.CapacityReservationModificationQuoteStateExpired, desc.CapacityReservationModificationQuotes[0].QuoteState)
+	assert.Equal(t, types.CapacityReservationModificationQuoteStateExpired,
+		desc.CapacityReservationModificationQuotes[0].QuoteState)
 
 	_, err = client.ModifyCapacityReservation(t.Context(), &ec2sdk.ModifyCapacityReservationInput{
 		CapacityReservationId:   out.CapacityReservation.CapacityReservationId,

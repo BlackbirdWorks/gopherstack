@@ -25,29 +25,29 @@ type acceptAddressTransferResponse struct {
 }
 
 type capacityReservationItem struct {
-	InterruptibleCapacityAllocation *interruptibleAllocationDetail         `xml:"interruptibleCapacityAllocation,omitempty"`
-	InterruptionInfo                *interruptionInfoItem                  `xml:"interruptionInfo,omitempty"`
-	CommitmentInfo                  *capacityReservationCommitmentInfoItem `xml:"commitmentInfo,omitempty"`
-	AdjustmentDetails               *capacityReservationAdjustmentItem     `xml:"adjustmentDetails,omitempty"`
-	CreateDate                      string                                 `xml:"createDate,omitempty"`
-	StartDate                       string                                 `xml:"startDate,omitempty"`
-	OriginalStartDate               string                                 `xml:"originalStartDate,omitempty"`
-	EndDate                         string                                 `xml:"endDate,omitempty"`
-	EndDateType                     string                                 `xml:"endDateType,omitempty"`
-	DeliveryPreference              string                                 `xml:"deliveryPreference,omitempty"`
-	AdjustmentStatus                string                                 `xml:"adjustmentStatus,omitempty"`
-	CapacityReservationID           string                                 `xml:"capacityReservationId"`
-	InstanceType                    string                                 `xml:"instanceType"`
-	AvailabilityZone                string                                 `xml:"availabilityZone"`
-	OwnedBy                         string                                 `xml:"ownerId,omitempty"`
-	State                           string                                 `xml:"state"`
-	InstanceMatchCriteria           string                                 `xml:"instanceMatchCriteria,omitempty"`
-	Tenancy                         string                                 `xml:"tenancy,omitempty"`
-	InstancePlatform                string                                 `xml:"instancePlatform,omitempty"`
-	TagSet                          []simpleTagItem                        `xml:"tagSet>item"`
-	AvailableInstanceCount          int                                    `xml:"availableInstanceCount"`
-	TotalInstanceCount              int                                    `xml:"totalInstanceCount"`
-	Interruptible                   bool                                   `xml:"interruptible,omitempty"`
+	InterruptibleCapacityAllocation *interruptibleAllocationDetail `xml:"interruptibleCapacityAllocation,omitempty"`
+	InterruptionInfo                *interruptionInfoItem          `xml:"interruptionInfo,omitempty"`
+	CommitmentInfo                  *crCommitmentInfoItem          `xml:"commitmentInfo,omitempty"`
+	AdjustmentDetails               *crAdjustmentItem              `xml:"adjustmentDetails,omitempty"`
+	CreateDate                      string                         `xml:"createDate,omitempty"`
+	StartDate                       string                         `xml:"startDate,omitempty"`
+	OriginalStartDate               string                         `xml:"originalStartDate,omitempty"`
+	EndDate                         string                         `xml:"endDate,omitempty"`
+	EndDateType                     string                         `xml:"endDateType,omitempty"`
+	DeliveryPreference              string                         `xml:"deliveryPreference,omitempty"`
+	AdjustmentStatus                string                         `xml:"adjustmentStatus,omitempty"`
+	CapacityReservationID           string                         `xml:"capacityReservationId"`
+	InstanceType                    string                         `xml:"instanceType"`
+	AvailabilityZone                string                         `xml:"availabilityZone"`
+	OwnedBy                         string                         `xml:"ownerId,omitempty"`
+	State                           string                         `xml:"state"`
+	InstanceMatchCriteria           string                         `xml:"instanceMatchCriteria,omitempty"`
+	Tenancy                         string                         `xml:"tenancy,omitempty"`
+	InstancePlatform                string                         `xml:"instancePlatform,omitempty"`
+	TagSet                          []simpleTagItem                `xml:"tagSet>item"`
+	AvailableInstanceCount          int                            `xml:"availableInstanceCount"`
+	TotalInstanceCount              int                            `xml:"totalInstanceCount"`
+	Interruptible                   bool                           `xml:"interruptible,omitempty"`
 }
 
 // acceptCapacityReservationBillingOwnershipResponse matches the real

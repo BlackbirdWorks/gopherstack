@@ -61,10 +61,10 @@ func capacityReservationsKeyFn(v *CapacityReservation) string { return v.Capacit
 
 func carrierGatewaysKeyFn(v *CarrierGateway) string           { return v.CarrierGatewayID }
 func classicLinkInstancesKeyFn(v *ClassicLinkInstance) string { return v.InstanceID }
-func clientVpnEndpointsKeyFn(v *ClientVpnEndpoint) string { return v.ClientVpnEndpointID }
+func clientVpnEndpointsKeyFn(v *ClientVpnEndpoint) string     { return v.ClientVpnEndpointID }
 
-func coipCidrsKeyFn(v *CoipCidr) string { return coipCidrKey(v.CoipPoolID, v.Cidr) }
-func coipPoolsKeyFn(v *CoipPool) string { return v.PoolID }
+func coipCidrsKeyFn(v *CoipCidr) string             { return coipCidrKey(v.CoipPoolID, v.Cidr) }
+func coipPoolsKeyFn(v *CoipPool) string             { return v.PoolID }
 func conversionTasksKeyFn(v *ConversionTask) string { return v.ConversionTaskID }
 
 func customerGatewaysKeyFn(v *CustomerGateway) string                     { return v.CustomerGatewayID }
@@ -180,12 +180,12 @@ func networkInterfacesKeyFn(v *NetworkInterface) string       { return v.ID }
 func networkPerformanceSubscriptionsKeyFn(v *NetworkPerformanceSubscription) string {
 	return networkPerformanceSubscriptionKey(v.Source, v.Destination, v.Metric, v.Statistic)
 }
-func niPermissionsKeyFn(v *NetworkInterfacePermission) string { return v.PermissionID }
-func outpostLagsKeyFn(v *OutpostLag) string                   { return v.OutpostLagID }
-func placementGroupsKeyFn(v *PlacementGroup) string           { return v.Name }
-func recycleBinImagesKeyFn(v *RecycleBinImage) string         { return v.ImageID }
-func recycleBinSnapshotsKeyFn(v *Snapshot) string             { return v.SnapshotID }
-func recycleBinVolumesKeyFn(v *RecycleBinVolume) string       { return v.VolumeID }
+func niPermissionsKeyFn(v *NetworkInterfacePermission) string     { return v.PermissionID }
+func outpostLagsKeyFn(v *OutpostLag) string                       { return v.OutpostLagID }
+func placementGroupsKeyFn(v *PlacementGroup) string               { return v.Name }
+func recycleBinImagesKeyFn(v *RecycleBinImage) string             { return v.ImageID }
+func recycleBinSnapshotsKeyFn(v *Snapshot) string                 { return v.SnapshotID }
+func recycleBinVolumesKeyFn(v *RecycleBinVolume) string           { return v.VolumeID }
 func replaceRootVolumeTasksKeyFn(v *ReplaceRootVolumeTask) string { return v.ReplaceRootVolumeTaskID }
 
 func reservedInstancesKeyFn(v *ReservedInstance) string                   { return v.ReservedInstancesID }
@@ -322,7 +322,7 @@ func vpcEndpointServiceConfigsKeyFn(v *VpcEndpointServiceConfig) string { return
 func vpcEndpointsKeyFn(v *VpcEndpoint) string                           { return v.ID }
 func vpcPeeringConnectionsKeyFn(v *VpcPeeringConnection) string         { return v.VpcPeeringConnectionID }
 func vpcsKeyFn(v *VPC) string                                           { return v.ID }
-func vpnConcentratorsKeyFn(v *VpnConcentrator) string { return v.VpnConcentratorID }
+func vpnConcentratorsKeyFn(v *VpnConcentrator) string                   { return v.VpnConcentratorID }
 
 func vpnConnectionRoutesKeyFn(v *VpnConnectionRoute) string {
 	return v.VpnConnectionID + ":" + v.DestinationCIDR
