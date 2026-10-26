@@ -1,9 +1,9 @@
 package ec2
 
 import (
-	"math"
 	"encoding/xml"
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"time"
