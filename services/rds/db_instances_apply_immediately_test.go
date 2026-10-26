@@ -451,11 +451,11 @@ func TestModifyDBInstance_PendingMerge(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		wantClass   string
 		steps       []rds.DBInstanceOptions
 		classes     []string
 		storages    []int
 		wantStorage int
-		wantClass   string
 		wantNil     bool
 	}{
 		{
