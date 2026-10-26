@@ -231,7 +231,7 @@ func TestTargetProxies(t *testing.T) {
 		t.Parallel()
 
 		_, err := httpsProxies.Insert(t.Context(), &computepb.InsertTargetHttpsProxyRequest{
-			Project: project,
+			Project:                  project,
 			TargetHttpsProxyResource: &computepb.TargetHttpsProxy{Name: s("sp-nocert"), UrlMap: s(umRef)},
 		})
 		assertAPIError(t, err, http.StatusBadRequest, "required")
