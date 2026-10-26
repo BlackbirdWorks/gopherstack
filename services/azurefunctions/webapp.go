@@ -298,6 +298,7 @@ func splitCommand(s string) []string {
 func webEnv(a *appState, rt webRuntime, host string, port int) []string {
 	env := map[string]string{
 		"WEBSITE_SITE_NAME": a.Name,
+		"WEBSITE_SLOT_NAME": a.slotName(),
 		"WEBSITE_HOSTNAME":  host,
 		settingPort:         strconv.Itoa(port),
 	}

@@ -53,7 +53,7 @@ func webConfigDefaults(s *storedWebSite) map[string]any {
 		"httpLoggingEnabled":                     false,
 		"logsDirectorySizeLimit":                 webLogsLimitMB,
 		"detailedErrorLoggingEnabled":            false,
-		"publishingUsername":                     "$" + s.Name,
+		"publishingUsername":                     s.publishUser(),
 		"scmType":                                webNone,
 		"use32BitWorkerProcess":                  false,
 		"webSocketsEnabled":                      false,
@@ -140,8 +140,19 @@ func configDefaultProps(name string, s *storedWebSite) map[string]any {
 	return map[string]any{}
 }
 
+// configHolder is the record that stores configuration name: slotConfigNames is shared by a site and its slots.
+func (p *WebProvider) configHolder(s *storedWebSite, name string) *storedWebSite {
+	if name == webSlotConfigNames && s.Slot != "" {
+		if parent, ok := p.sites[webSiteKey(s.Name)]; ok {
+			return parent
+		}
+	}
+
+	return s
+}
+
 func (p *WebProvider) siteFor(id ResourceID) (*storedWebSite, error) {
-	s, ok := p.site(id.ResourceGroup, id.LeafName())
+	s, ok := p.record(id)
 	if !ok {
 		return nil, ErrWebSiteNotFound
 	}
@@ -157,7 +168,7 @@ func configEnvelope(id ResourceID, name string, props map[string]any) map[string
 
 func (p *WebProvider) configProps(s *storedWebSite, name string) (map[string]any, error) {
 	if name == webConfigAppSettings {
-		settings, err := p.dataPlane.Settings(s.Name)
+		settings, err := p.dataPlane.Settings(s.dpName())
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +206,7 @@ func (p *WebProvider) GetConfig(_ context.Context, id ResourceID, name string) (
 		return nil, err
 	}
 
-	props, err := p.configProps(s, canon)
+	props, err := p.configProps(p.configHolder(s, canon), canon)
 	if err != nil {
 		return nil, badWebRequest(err)
 	}
@@ -220,6 +231,11 @@ func (p *WebProvider) PutConfig(
 		return nil, err
 	}
 
+	if s.Pending != nil && (canon == webConfigAppSettings || canon == webConfigWeb || canon == webConfigConn) {
+		return nil, ErrWebSwapPending
+	}
+
+	s = p.configHolder(s, canon)
 	props, _ := body[fieldProperties].(map[string]any)
 
 	switch canon {
@@ -253,7 +269,7 @@ func (p *WebProvider) putAppSettings(s *storedWebSite, props map[string]any, mer
 	next := map[string]string{}
 
 	if merge {
-		cur, err := p.dataPlane.Settings(s.Name)
+		cur, err := p.dataPlane.Settings(s.dpName())
 		if err != nil {
 			return badWebRequest(err)
 		}
@@ -270,7 +286,7 @@ func (p *WebProvider) putAppSettings(s *storedWebSite, props map[string]any, mer
 		next[k] = str
 	}
 
-	if err := p.dataPlane.SetSettings(s.Name, next); err != nil {
+	if err := p.dataPlane.SetSettings(s.dpName(), next); err != nil {
 		return badWebRequest(err)
 	}
 
@@ -283,7 +299,7 @@ func (p *WebProvider) putWebConfig(s *storedWebSite, props map[string]any) error
 	oldCfg, newCfg := siteAppConfig(s.Kind, s.Configs[webConfigWeb]), siteAppConfig(s.Kind, cur)
 
 	if oldCfg != newCfg {
-		if _, err := p.dataPlane.PutApp(s.Name, newCfg); err != nil {
+		if _, err := p.dataPlane.PutApp(s.dpName(), newCfg); err != nil {
 			return badWebRequest(err)
 		}
 	}
@@ -303,7 +319,7 @@ func (p *WebProvider) PublishingCredentials(_ context.Context, id ResourceID) (m
 		return nil, err
 	}
 
-	user, pass, scm, err := p.dataPlane.PublishingCredentials(s.Name)
+	user, pass, scm, err := p.dataPlane.PublishingCredentials(s.dpName())
 	if err != nil {
 		return nil, err
 	}
@@ -351,16 +367,16 @@ func (p *WebProvider) PublishXML(_ context.Context, id ResourceID) ([]byte, erro
 		return nil, err
 	}
 
-	user, pass, scm, err := p.dataPlane.PublishingCredentials(s.Name)
+	user, pass, scm, err := p.dataPlane.PublishingCredentials(s.dpName())
 	if err != nil {
 		return nil, err
 	}
 
-	info, _ := p.dataPlane.AppInfo(s.Name)
+	info, _ := p.dataPlane.AppInfo(s.dpName())
 
 	return xml.Marshal(publishData{Profiles: []publishProfile{
 		{
-			ProfileName:   s.Name + " - Zip Deploy",
+			ProfileName:   s.Name + s.slotSuffix() + " - Zip Deploy",
 			PublishMethod: "ZipDeploy",
 			PublishURL:    strings.TrimPrefix(scm, "http://"),
 			UserName:      user,
@@ -446,6 +462,12 @@ func (p *WebProvider) restore(snap *webSnapshot) {
 		if s != nil {
 			if s.Configs == nil {
 				s.Configs = map[string]map[string]any{}
+			}
+
+			for _, sl := range s.Slots {
+				if sl.Configs == nil {
+					sl.Configs = map[string]map[string]any{}
+				}
 			}
 
 			p.sites[k] = s
