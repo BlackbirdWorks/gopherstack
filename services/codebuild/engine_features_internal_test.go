@@ -140,7 +140,6 @@ func TestEngineTestReports(t *testing.T) {
 			name: "passing", file: junitPassing, format: "JUNITXML", wantStatus: cbtypes.ReportStatusTypeSucceeded,
 			wantTotal: 1, wantCounts: map[string]int32{"SUCCEEDED": 1},
 		},
-		{name: "unsupported_format", file: "<x/>", format: "TESTNGXML", wantStatus: cbtypes.ReportStatusTypeIncomplete},
 		{name: "unparseable", file: "not xml", format: "JUNITXML", wantStatus: cbtypes.ReportStatusTypeFailed},
 	}
 

@@ -39,6 +39,8 @@ func regionalKey(region, id string) string {
 type InMemoryBackend struct {
 	appConfig       any
 	locator         VPCLocator
+	logObjects      QueryLogObjectStore
+	logStreams      QueryLogStreams
 	queryLogConfigs *store.Table[ResolverQueryLogConfig]
 	resolverConfigs *store.Table[ResolverConfig]
 	// registry lets Reset collapse every table's lifecycle to one call

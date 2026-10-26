@@ -32,12 +32,34 @@ type storedPolicy struct {
 
 // managedResource is a snapshot or AMI a policy created and is responsible for expiring.
 type managedResource struct {
-	CreatedAt time.Time `json:"createdAt"`
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`
-	PolicyID  string    `json:"policyId"`
-	Schedule  string    `json:"schedule"`
-	TargetID  string    `json:"targetId"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	ExpiresAt   time.Time    `json:"expiresAt,omitzero"`
+	ArchivedAt  time.Time    `json:"archivedAt,omitzero"`
+	ID          string       `json:"id"`
+	Kind        string       `json:"kind"`
+	PolicyID    string       `json:"policyId"`
+	Schedule    string       `json:"schedule"`
+	TargetID    string       `json:"targetId"`
+	Region      string       `json:"region,omitempty"`
+	CopyOf      string       `json:"copyOf,omitempty"`
+	FastRestore []string     `json:"fastRestore,omitempty"`
+	Shares      []shareGrant `json:"shares,omitempty"`
+	Deprecated  bool         `json:"deprecated,omitempty"`
+}
+
+// shareGrant is one ShareRule applied to a snapshot; a zero UnshareAt keeps it shared until deletion.
+type shareGrant struct {
+	UnshareAt time.Time `json:"unshareAt,omitzero"`
+	Accounts  []string  `json:"accounts"`
+}
+
+// regionOr is the region the resource lives in: its own for cross-region copies, otherwise home.
+func (m *managedResource) regionOr(home string) string {
+	if m.Region != "" {
+		return m.Region
+	}
+
+	return home
 }
 
 func (p *storedPolicy) toPolicy() *Policy {

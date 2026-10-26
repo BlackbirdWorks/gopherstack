@@ -28,6 +28,7 @@ type execEnv struct {
 	dlmClient *dlmsdk.Client
 	ec2Client *ec2sdk.Client
 	ec2       *ec2backend.InMemoryBackend
+	ec2H      *ec2backend.Handler
 	dlmBk     *dlm.InMemoryBackend
 }
 
@@ -36,6 +37,7 @@ func newExecEnv(t *testing.T) *execEnv {
 
 	ec2Bk := ec2backend.NewInMemoryBackend("000000000000", "us-east-1")
 	ec2H := ec2backend.NewHandler(ec2Bk)
+	ec2H.EnableRegions(t.Context())
 	dlmBk := dlm.NewInMemoryBackend("000000000000", "us-east-1")
 	dlmH := dlm.NewHandler(dlmBk)
 	dlmH.SetCompute(dlm.NewEC2Compute(ec2H))
@@ -57,6 +59,7 @@ func newExecEnv(t *testing.T) *execEnv {
 		dlmClient: dlmsdk.NewFromConfig(cfg, func(o *dlmsdk.Options) { o.BaseEndpoint = aws.String(srv.URL) }),
 		ec2Client: ec2sdk.NewFromConfig(cfg, func(o *ec2sdk.Options) { o.BaseEndpoint = aws.String(srv.URL) }),
 		ec2:       ec2Bk,
+		ec2H:      ec2H,
 		dlmBk:     dlmBk,
 	}
 }

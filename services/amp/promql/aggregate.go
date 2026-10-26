@@ -30,6 +30,10 @@ func (e *Engine) evalAggregation(a *Aggregation, t int64) (Value, error) {
 		}
 	}
 
+	if a.Op == opLimitRatio && math.IsNaN(param) {
+		return nil, evalErr("ratio value is NaN")
+	}
+
 	groups := map[string]*group{}
 	order := []string{}
 
@@ -54,6 +58,12 @@ func (e *Engine) evalAggregation(a *Aggregation, t int64) (Value, error) {
 
 		if a.Op == opTopK || a.Op == opBottomK {
 			out = append(out, pickK(g.samples, int(param), a.Op == opTopK)...)
+
+			continue
+		}
+
+		if a.Op == opLimitK || a.Op == opLimitRatio {
+			out = append(out, limitSamples(a.Op, g.samples, param)...)
 
 			continue
 		}

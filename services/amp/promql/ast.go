@@ -15,6 +15,7 @@ type StringLit struct{ V string }
 type VectorSelector struct {
 	Name     string
 	At       *int64
+	AtMarker string
 	Matchers []*Matcher
 	Offset   time.Duration
 }
@@ -63,11 +64,12 @@ const (
 
 // Subquery evaluates Expr over Range at Step resolution; a zero Step uses DefaultSubqueryStep.
 type Subquery struct {
-	Expr   Expr
-	At     *int64
-	Range  time.Duration
-	Step   time.Duration
-	Offset time.Duration
+	Expr     Expr
+	At       *int64
+	AtMarker string
+	Range    time.Duration
+	Step     time.Duration
+	Offset   time.Duration
 }
 
 // Unary negates its operand.
