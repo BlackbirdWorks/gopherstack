@@ -2,9 +2,9 @@ package gcpartifactregistry
 
 import (
 	"cloud.google.com/go/iam/apiv1/iampb"
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
-	"github.com/google/uuid"
 )
 
 const permPrefix = "artifactregistry."

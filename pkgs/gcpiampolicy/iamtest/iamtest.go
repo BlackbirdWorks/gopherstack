@@ -61,7 +61,13 @@ func Run(t *testing.T, ep Endpoint) {
 	first := get(1)
 	assert.Equal(t, int32(1), first.GetVersion())
 
-	conditional, err := set(&iampb.Policy{Bindings: []*iampb.Binding{cond()}, Version: gcpiampolicy.ConditionalVersion, Etag: first.GetEtag()})
+	conditional, err := set(
+		&iampb.Policy{
+			Bindings: []*iampb.Binding{cond()},
+			Version:  gcpiampolicy.ConditionalVersion,
+			Etag:     first.GetEtag(),
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, int32(gcpiampolicy.ConditionalVersion), conditional.GetVersion())
 	assert.NotEqual(t, first.GetEtag(), conditional.GetEtag())
