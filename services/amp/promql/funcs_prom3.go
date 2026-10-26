@@ -111,7 +111,7 @@ func (e *Engine) callSortByLabel(c *Call, t int64) (Value, error) {
 		labels = append(labels, l)
 	}
 
-	desc := c.Func == "sort_by_label_desc"
+	desc := c.Func == fnSortByLabelDesc
 	out := slices.Clone(vec)
 
 	slices.SortStableFunc(out, func(a, b VectorSample) int {
@@ -173,7 +173,7 @@ func chunk(s string) string {
 	return s
 }
 
-// callNativeHistogram applies the native-histogram accessors; only float samples exist here and Prometheus ignores those.
+// callNativeHistogram applies the native-histogram accessors; Prometheus ignores float samples, the only kind stored.
 func (e *Engine) callNativeHistogram(c *Call, t int64) (Value, error) {
 	if _, err := e.instantArg(c.Args[0], t, c.Func); err != nil {
 		return nil, err

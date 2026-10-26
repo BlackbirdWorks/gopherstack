@@ -44,12 +44,12 @@ func TestEngineS3FolderAndSecondarySources(t *testing.T) {
 	}
 
 	tests := []struct {
+		wantSecondary map[string][]string
 		name          string
 		source        ProjectSource
 		secondary     []ProjectSource
 		versions      []ProjectSourceVersion
 		wantPrimary   []string
-		wantSecondary map[string][]string
 	}{
 		{
 			name:        "s3_folder_primary",
@@ -101,7 +101,15 @@ func TestEngineS3FolderAndSecondarySources(t *testing.T) {
 			h := newHarnessWith(t, rt, nil)
 
 			for k, v := range objects {
-				require.NoError(t, h.store.PutObjectBytes(t.Context(), strings.SplitN(k, "/", 2)[0], strings.SplitN(k, "/", 2)[1], []byte(v)))
+				require.NoError(
+					t,
+					h.store.PutObjectBytes(
+						t.Context(),
+						strings.SplitN(k, "/", 2)[0],
+						strings.SplitN(k, "/", 2)[1],
+						[]byte(v),
+					),
+				)
 			}
 
 			h.project(t, ProjectConfig{Source: &tt.source, SecondarySources: tt.secondary})

@@ -20,7 +20,7 @@ var functions = map[string]funcSpec{ //nolint:gochecknoglobals // immutable look
 	"deriv": {1, 1}, "predict_linear": {2, 2}, "quantile_over_time": {2, 2},
 	"stddev_over_time": {1, 1}, "stdvar_over_time": {1, 1}, "present_over_time": {1, 1},
 	"holt_winters": {3, 3}, "double_exponential_smoothing": {3, 3}, "absent_over_time": {1, 1},
-	"sort_by_label": {2, maxArgs}, "sort_by_label_desc": {2, maxArgs}, "histogram_fraction": {3, 3},
+	"sort_by_label": {2, maxArgs}, fnSortByLabelDesc: {2, maxArgs}, "histogram_fraction": {3, 3},
 	"histogram_count": {1, 1}, "histogram_sum": {1, 1}, "histogram_avg": {1, 1},
 	"histogram_stddev": {1, 1}, "histogram_stdvar": {1, 1},
 	"minute": {0, 1}, "hour": {0, 1}, "month": {0, 1}, "year": {0, 1}, "day_of_month": {0, 1},
@@ -28,12 +28,13 @@ var functions = map[string]funcSpec{ //nolint:gochecknoglobals // immutable look
 }
 
 const (
-	msPerSecond = 1000.0
-	roundHalf   = 0.5
-	half        = 2
-	fnSortDesc  = "sort_desc"
-	minSamples  = 2
-	maxArgs     = 1 << 10
+	msPerSecond       = 1000.0
+	roundHalf         = 0.5
+	half              = 2
+	fnSortDesc        = "sort_desc"
+	fnSortByLabelDesc = "sort_by_label_desc"
+	minSamples        = 2
+	maxArgs           = 1 << 10
 )
 
 func (e *Engine) evalCall(c *Call, t int64) (Value, error) {

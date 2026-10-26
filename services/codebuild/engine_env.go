@@ -139,13 +139,15 @@ func (r *buildRunner) builtinEnv(srcDir string) []EnvironmentVariable {
 		{"CODEBUILD_CI", "true"},
 	}
 
-	for _, s := range r.secondary {
-		pairs = append(pairs, [2]string{"CODEBUILD_SRC_DIR_" + s.id, s.containerDir})
-	}
-
-	out := make([]EnvironmentVariable, len(pairs))
+	out := make([]EnvironmentVariable, len(pairs), len(pairs)+len(r.secondary))
 	for i, p := range pairs {
 		out[i] = EnvironmentVariable{Name: p[0], Value: p[1], Type: envTypePlaintext}
+	}
+
+	for _, s := range r.secondary {
+		out = append(out, EnvironmentVariable{
+			Name: "CODEBUILD_SRC_DIR_" + s.id, Value: s.containerDir, Type: envTypePlaintext,
+		})
 	}
 
 	return out

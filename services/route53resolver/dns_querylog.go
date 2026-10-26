@@ -74,7 +74,12 @@ func (r *DNSResolver) logQuery(ctx context.Context, e queryLogEntry) {
 	}
 }
 
-func (r *DNSResolver) deliverQueryLog(ctx context.Context, e queryLogEntry, cfg *ResolverQueryLogConfig, payload string) {
+func (r *DNSResolver) deliverQueryLog(
+	ctx context.Context,
+	e queryLogEntry,
+	cfg *ResolverQueryLogConfig,
+	payload string,
+) {
 	switch queryLogDestinationKind(cfg.DestinationARN) {
 	case "CloudWatchLogs":
 		group, ok := logGroupFromARN(cfg.DestinationARN)

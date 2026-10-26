@@ -13,6 +13,10 @@ const (
 	maxCronScan    = 7 * 24 * 60
 	hoursPerDay    = 24
 	unitDays       = "DAYS"
+	unitWeeks      = "WEEKS"
+	unitMonths     = "MONTHS"
+	unitYears      = "YEARS"
+	valueTrue      = "true"
 	daysPerWeek    = 7
 )
 
@@ -121,11 +125,11 @@ func retainCutoff(rule map[string]any, now time.Time) (time.Time, bool) {
 	unit, _ := rule["IntervalUnit"].(string)
 
 	switch strings.ToUpper(unit) {
-	case "WEEKS":
+	case unitWeeks:
 		return now.AddDate(0, 0, -count*daysPerWeek), true
-	case "MONTHS":
+	case unitMonths:
 		return now.AddDate(0, -count, 0), true
-	case "YEARS":
+	case unitYears:
 		return now.AddDate(-count, 0, 0), true
 	default:
 		return now.AddDate(0, 0, -count), true

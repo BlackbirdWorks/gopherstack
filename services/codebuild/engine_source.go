@@ -53,7 +53,12 @@ func (r *buildRunner) fetchSource(ctx context.Context, dir string) error {
 }
 
 // fetchSourceInto materialises one source; only the primary source drives the resolved version and source cache.
-func (r *buildRunner) fetchSourceInto(ctx context.Context, src *ProjectSource, version, dir string, primary bool) error {
+func (r *buildRunner) fetchSourceInto(
+	ctx context.Context,
+	src *ProjectSource,
+	version, dir string,
+	primary bool,
+) error {
 	if src == nil {
 		return nil
 	}
@@ -77,7 +82,11 @@ func (r *buildRunner) fetchSourceInto(ctx context.Context, src *ProjectSource, v
 func (r *buildRunner) fetchS3Source(ctx context.Context, loc, dir string) error {
 	bucket, key, ok := splitS3Location(loc)
 	if !ok {
-		return fmt.Errorf("%w: S3 source location %q must be bucket/object-key or bucket/folder/", errSourceUnsupported, loc)
+		return fmt.Errorf(
+			"%w: S3 source location %q must be bucket/object-key or bucket/folder/",
+			errSourceUnsupported,
+			loc,
+		)
 	}
 
 	if r.svc.Store == nil {

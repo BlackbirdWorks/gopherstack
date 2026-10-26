@@ -13,41 +13,51 @@ import (
 const (
 	nunit2Sample = `<test-results><test-suite name="Suite"><results>
 <test-case name="Ns.Calc.Add" executed="True" result="Success" time="0.5"/>
-<test-case name="Ns.Calc.Div" executed="True" result="Failure" time="1"><failure><message><![CDATA[div by zero]]></message></failure></test-case>
-<test-case name="Ns.Calc.Skip" executed="False" result="Ignored"><reason><message>later</message></reason></test-case>
+<test-case name="Ns.Calc.Div" executed="True" result="Failure"
+time="1"><failure><message><![CDATA[div by zero]]></message></failure></test-case>
+<test-case name="Ns.Calc.Skip" executed="False"
+result="Ignored"><reason><message>later</message></reason></test-case>
 </results></test-suite></test-results>`
 
 	nunit3Sample = `<test-run><test-suite name="Outer"><test-suite name="Inner">
 <test-case name="Add" classname="Ns.Calc" result="Passed" duration="0.25"/>
-<test-case name="Boom" classname="Ns.Calc" result="Failed" label="Error" duration="1"><failure><message>kaboom</message></failure></test-case>
+<test-case name="Boom" classname="Ns.Calc" result="Failed" label="Error"
+duration="1"><failure><message>kaboom</message></failure></test-case>
 <test-case name="Odd" classname="Ns.Calc" result="Inconclusive"/>
 </test-suite></test-suite></test-run>`
 
 	testNGSample = `<testng-results><suite name="S"><test name="T"><class name="pkg.C">
 <test-method status="PASS" name="ok" duration-ms="1500"/>
-<test-method status="FAIL" name="bad" duration-ms="10"><exception class="E"><message><![CDATA[assert failed]]></message></exception></test-method>
+<test-method status="FAIL" name="bad" duration-ms="10"><exception
+class="E"><message><![CDATA[assert failed]]></message></exception></test-method>
 <test-method status="SKIP" name="skipped" duration-ms="0"/>
 <test-method status="PASS" name="setup" is-config="true" duration-ms="5"/>
 </class></test></suite></testng-results>`
 
 	cucumberSample = `[{"name":"Feature A","uri":"features/a.feature","elements":[
 {"name":"bg","type":"background","steps":[{"result":{"status":"passed","duration":1}}]},
-{"name":"good","type":"scenario","steps":[{"result":{"status":"passed","duration":1000}},{"result":{"status":"passed","duration":500}}]},
-{"name":"bad","type":"scenario","steps":[{"result":{"status":"passed","duration":1}},{"result":{"status":"failed","duration":2,"error_message":"nope"}}]},
+{"name":"good","type":"scenario","steps":[{"result":{"status":"passed",
+"duration":1000}},{"result":{"status":"passed","duration":500}}]},
+{"name":"bad","type":"scenario","steps":[{"result":{"status":"passed",
+"duration":1}},{"result":{"status":"failed","duration":2,"error_message":"nope"}}]},
 {"name":"pend","type":"scenario","steps":[{"result":{"status":"pending","duration":0}}]}]}]`
 
 	trxSample = `<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
 <Results>
 <UnitTestResult testId="1" testName="Add" outcome="Passed" duration="00:00:01.5000000"/>
-<UnitTestResult testId="2" testName="Div" outcome="Failed" duration="00:00:00.2500000"><Output><ErrorInfo><Message>bad div</Message></ErrorInfo></Output></UnitTestResult>
+<UnitTestResult testId="2" testName="Div" outcome="Failed"
+duration="00:00:00.2500000"><Output><ErrorInfo><Message>bad div</Message></ErrorInfo></Output></UnitTestResult>
 <UnitTestResult testId="3" testName="Later" outcome="NotExecuted" duration="00:00:00"/>
 </Results>
-<TestDefinitions><UnitTest id="1"><TestMethod className="Ns.Calc"/></UnitTest><UnitTest id="2"><TestMethod className="Ns.Calc"/></UnitTest></TestDefinitions>
+<TestDefinitions><UnitTest id="1"><TestMethod className="Ns.Calc"/></UnitTest><UnitTest
+id="2"><TestMethod className="Ns.Calc"/></UnitTest></TestDefinitions>
 </TestRun>`
 
 	jacocoSample = `<report name="r"><package name="com/x"><sourcefile name="A.java">
-<counter type="INSTRUCTION" missed="9" covered="9"/><counter type="LINE" missed="1" covered="3"/><counter type="BRANCH" missed="1" covered="1"/>
-</sourcefile><sourcefile name="B.java"><counter type="LINE" missed="0" covered="2"/></sourcefile></package></report>`
+<counter type="INSTRUCTION" missed="9" covered="9"/><counter type="LINE" missed="1"
+covered="3"/><counter type="BRANCH" missed="1" covered="1"/>
+</sourcefile><sourcefile name="B.java"><counter type="LINE" missed="0"
+covered="2"/></sourcefile></package></report>`
 
 	cloverSample = `<coverage><project><package name="p"><file name="a.js" path="src/a.js">
 <line num="1" type="stmt" count="3"/><line num="2" type="stmt" count="0"/>
@@ -65,13 +75,13 @@ func TestEngineExtraReportFormats(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantCov   map[string][4]int32
 		name      string
 		format    string
 		file      string
-		wantCases []wantCase
-		wantCov   map[string][4]int32
-		wantTotal int32
 		wantState cbtypes.ReportStatusType
+		wantCases []wantCase
+		wantTotal int32
 	}{
 		{
 			name: "nunit2", format: "NUNITXML", file: nunit2Sample, wantState: cbtypes.ReportStatusTypeFailed,
@@ -127,7 +137,10 @@ func TestEngineExtraReportFormats(t *testing.T) {
 			assert.Equal(t, tt.wantState, got.Reports[0].Status)
 
 			if tt.wantCases != nil {
-				out, derr := c.DescribeTestCases(t.Context(), &codebuildsdk.DescribeTestCasesInput{ReportArn: aws.String(arns[0])})
+				out, derr := c.DescribeTestCases(
+					t.Context(),
+					&codebuildsdk.DescribeTestCasesInput{ReportArn: aws.String(arns[0])},
+				)
 				require.NoError(t, derr)
 
 				have := map[string]string{}
@@ -145,7 +158,10 @@ func TestEngineExtraReportFormats(t *testing.T) {
 				return
 			}
 
-			out, derr := c.DescribeCodeCoverages(t.Context(), &codebuildsdk.DescribeCodeCoveragesInput{ReportArn: aws.String(arns[0])})
+			out, derr := c.DescribeCodeCoverages(
+				t.Context(),
+				&codebuildsdk.DescribeCodeCoveragesInput{ReportArn: aws.String(arns[0])},
+			)
 			require.NoError(t, derr)
 
 			have := map[string][4]int32{}
@@ -170,15 +186,15 @@ func TestReportFormatDetails(t *testing.T) {
 		file     string
 		caseName string
 		wantMsg  string
-		wantNs   int64
 		wantPfx  string
+		wantNs   int64
 	}{
-		{"nunit2_fail", formatNUnit, nunit2Sample, "Div", "div by zero", 1e9, "Ns.Calc"},
-		{"nunit3_err", formatNUnit3, nunit3Sample, "Boom", "kaboom", 1e9, "Ns.Calc"},
-		{"testng_fail", formatTestNG, testNGSample, "bad", "assert failed", 1e7, "pkg.C"},
-		{"testng_ok", formatTestNG, testNGSample, "ok", "", 1.5e9, "pkg.C"},
-		{"cucumber_fail", formatCucumber, cucumberSample, "bad", "nope", 3, "features/a.feature"},
-		{"trx_fail", formatTRX, trxSample, "Div", "bad div", 2.5e8, "Ns.Calc"},
+		{"nunit2_fail", formatNUnit, nunit2Sample, "Div", "div by zero", "Ns.Calc", 1e9},
+		{"nunit3_err", formatNUnit3, nunit3Sample, "Boom", "kaboom", "Ns.Calc", 1e9},
+		{"testng_fail", formatTestNG, testNGSample, "bad", "assert failed", "pkg.C", 1e7},
+		{"testng_ok", formatTestNG, testNGSample, "ok", "", "pkg.C", 1.5e9},
+		{"cucumber_fail", formatCucumber, cucumberSample, "bad", "nope", "features/a.feature", 3},
+		{"trx_fail", formatTRX, trxSample, "Div", "bad div", "Ns.Calc", 2.5e8},
 	}
 
 	for _, tt := range tests {

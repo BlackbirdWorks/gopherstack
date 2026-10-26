@@ -46,7 +46,7 @@ func (e *Engine) callExtra(c *Call, t int64) (Value, bool, error) {
 		v, err = e.callNativeHistogram(c, t)
 	case "holt_winters", "double_exponential_smoothing":
 		v, err = e.callDoubleExponentialSmoothing(c, t)
-	case "sort_by_label", "sort_by_label_desc":
+	case "sort_by_label", fnSortByLabelDesc:
 		v, err = e.callSortByLabel(c, t)
 	case "predict_linear":
 		v, err = e.callPredictLinear(c, t)

@@ -34,11 +34,11 @@ func addInterval(n any, unit any, base time.Time) (time.Time, bool) {
 	u, _ := unit.(string)
 
 	switch strings.ToUpper(u) {
-	case "WEEKS":
+	case unitWeeks:
 		return base.AddDate(0, 0, count*daysPerWeek), true
-	case "MONTHS":
+	case unitMonths:
 		return base.AddDate(0, count, 0), true
-	case "YEARS":
+	case unitYears:
 		return base.AddDate(count, 0, 0), true
 	default:
 		return base.AddDate(0, 0, count), true
@@ -178,7 +178,13 @@ func (b *InMemoryBackend) crossRegionCopies(ctx context.Context, cc createCtx, m
 	}
 }
 
-func (b *InMemoryBackend) copyTo(ctx context.Context, cc createCtx, m *managedResource, rule map[string]any, dst string) {
+func (b *InMemoryBackend) copyTo(
+	ctx context.Context,
+	cc createCtx,
+	m *managedResource,
+	rule map[string]any,
+	dst string,
+) {
 	tags := copyTags(cc, rule, m.PolicyID, m.Schedule, m.CreatedAt)
 	encrypted, _ := rule["Encrypted"].(bool)
 	cmk, _ := rule["CmkArn"].(string)
@@ -231,7 +237,7 @@ func (b *InMemoryBackend) copyTo(ctx context.Context, cc createCtx, m *managedRe
 // copyTags are the DLM system tags plus, when the rule asks for it, the user-defined tags without variable tags.
 func copyTags(cc createCtx, rule map[string]any, policyID, schedule string, now time.Time) map[string]string {
 	out := map[string]string{
-		tagPolicyID: policyID, tagScheduleName: schedule, tagTimestamp: now.Format(time.RFC3339), tagManaged: "true",
+		tagPolicyID: policyID, tagScheduleName: schedule, tagTimestamp: now.Format(time.RFC3339), tagManaged: valueTrue,
 	}
 
 	if cp, _ := rule["CopyTags"].(bool); !cp {
@@ -274,7 +280,12 @@ func (b *InMemoryBackend) archiveSet(ctx context.Context, s *resourceSet, now ti
 }
 
 // maintain applies the time-driven parts of a schedule's rules to everything it manages.
-func (b *InMemoryBackend) maintain(ctx context.Context, policyID, schedule string, sched map[string]any, now time.Time) {
+func (b *InMemoryBackend) maintain(
+	ctx context.Context,
+	policyID, schedule string,
+	sched map[string]any,
+	now time.Time,
+) {
 	var members []*managedResource
 
 	for _, m := range b.managed.All() {
@@ -289,7 +300,12 @@ func (b *InMemoryBackend) maintain(ctx context.Context, policyID, schedule strin
 	b.expireShares(ctx, members, now)
 	b.expireCopies(ctx, members, now)
 	b.deprecateByCount(ctx, ruleMap(sched, "DeprecateRule"), members, now)
-	b.expireArchived(ctx, ruleMap(ruleMap(ruleMap(sched, "ArchiveRule"), "RetainRule"), "RetentionArchiveTier"), members, now)
+	b.expireArchived(
+		ctx,
+		ruleMap(ruleMap(ruleMap(sched, "ArchiveRule"), "RetainRule"), "RetentionArchiveTier"),
+		members,
+		now,
+	)
 }
 
 func ownedByTarget(members []*managedResource, kind string) map[string][]*managedResource {
@@ -304,7 +320,12 @@ func ownedByTarget(members []*managedResource, kind string) map[string][]*manage
 	return out
 }
 
-func (b *InMemoryBackend) trimFastRestore(ctx context.Context, rule map[string]any, members []*managedResource, now time.Time) {
+func (b *InMemoryBackend) trimFastRestore(
+	ctx context.Context,
+	rule map[string]any,
+	members []*managedResource,
+	now time.Time,
+) {
 	if rule == nil {
 		return
 	}
@@ -350,7 +371,12 @@ func (b *InMemoryBackend) expireCopies(ctx context.Context, members []*managedRe
 	}
 }
 
-func (b *InMemoryBackend) deprecateByCount(ctx context.Context, rule map[string]any, members []*managedResource, now time.Time) {
+func (b *InMemoryBackend) deprecateByCount(
+	ctx context.Context,
+	rule map[string]any,
+	members []*managedResource,
+	now time.Time,
+) {
 	count, ok := numberOf(rule["Count"])
 	if rule == nil || !ok {
 		return
@@ -372,7 +398,12 @@ func (b *InMemoryBackend) deprecateByCount(ctx context.Context, rule map[string]
 	}
 }
 
-func (b *InMemoryBackend) expireArchived(ctx context.Context, tier map[string]any, members []*managedResource, now time.Time) {
+func (b *InMemoryBackend) expireArchived(
+	ctx context.Context,
+	tier map[string]any,
+	members []*managedResource,
+	now time.Time,
+) {
 	if tier == nil {
 		return
 	}

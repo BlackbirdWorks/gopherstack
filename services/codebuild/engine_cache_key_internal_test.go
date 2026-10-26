@@ -60,12 +60,28 @@ func TestEngineCacheKeyAndAction(t *testing.T) {
 		{"same_key", []keyedBuild{{key: "k1"}, {key: "k1"}}, []bool{false, true}},
 		{"other_key_misses", []keyedBuild{{key: "k1"}, {key: "k2"}}, []bool{false, false}},
 		{"key_is_exact", []keyedBuild{{key: "k-1"}, {key: "k"}}, []bool{false, false}},
-		{"fallback_prefix", []keyedBuild{{key: "npm-1"}, {key: "npm-2", fallbacks: []string{"npm-"}}}, []bool{false, true}},
-		{"fallback_miss", []keyedBuild{{key: "npm-1"}, {key: "pip-2", fallbacks: []string{"npm-x", "yarn-"}}}, []bool{false, false}},
-		{"fallback_ignored_without_key", []keyedBuild{{key: "npm-1"}, {fallbacks: []string{"npm-"}}}, []bool{false, false}},
+		{
+			"fallback_prefix",
+			[]keyedBuild{{key: "npm-1"}, {key: "npm-2", fallbacks: []string{"npm-"}}},
+			[]bool{false, true},
+		},
+		{
+			"fallback_miss",
+			[]keyedBuild{{key: "npm-1"}, {key: "pip-2", fallbacks: []string{"npm-x", "yarn-"}}},
+			[]bool{false, false},
+		},
+		{
+			"fallback_ignored_without_key",
+			[]keyedBuild{{key: "npm-1"}, {fallbacks: []string{"npm-"}}},
+			[]bool{false, false},
+		},
 		{"action_restore_never_saves", []keyedBuild{{key: "k1", action: "restore"}, {key: "k1"}}, []bool{false, false}},
 		{"action_save_never_restores", []keyedBuild{{key: "k1"}, {key: "k1", action: "save"}}, []bool{false, false}},
-		{"save_then_restore", []keyedBuild{{key: "k1", action: "save"}, {key: "k1", action: "restore"}}, []bool{false, true}},
+		{
+			"save_then_restore",
+			[]keyedBuild{{key: "k1", action: "save"}, {key: "k1", action: "restore"}},
+			[]bool{false, true},
+		},
 	}
 
 	for cname, cache := range caches {
@@ -81,7 +97,12 @@ func TestEngineCacheKeyAndAction(t *testing.T) {
 				}})
 
 				for _, b := range tt.builds {
-					out := startAndWait(t, h, c, &codebuildsdk.StartBuildInput{BuildspecOverride: aws.String(keyedSpec(b))})
+					out := startAndWait(
+						t,
+						h,
+						c,
+						&codebuildsdk.StartBuildInput{BuildspecOverride: aws.String(keyedSpec(b))},
+					)
 					require.Equal(t, cbtypes.StatusTypeSucceeded, out.BuildStatus, failedPhaseMessage(out))
 				}
 

@@ -69,7 +69,7 @@ func (r *buildRunner) hashFiles(patterns []string) string {
 	outer := sha256.New()
 
 	for _, f := range files {
-		data, rerr := os.ReadFile(filepath.Join(r.workDir, filepath.FromSlash(f))) //nolint:gosec // matched under the workspace
+		data, rerr := os.ReadFile(filepath.Join(r.workDir, filepath.FromSlash(f)))
 		if rerr != nil {
 			continue
 		}
@@ -112,6 +112,10 @@ func (r *buildRunner) fallbackKeys() []string {
 
 func (r *buildRunner) localKeyedDir() string {
 	return filepath.Join(r.cacheRoot(), cacheKeyedDir, r.cacheVersion())
+}
+
+func (r *buildRunner) localKeyedEntry(key string) string {
+	return filepath.Join(r.localKeyedDir(), url.PathEscape(key))
 }
 
 func (r *buildRunner) s3KeyedBase() (string, string, bool) {
@@ -183,7 +187,7 @@ func (r *buildRunner) restoreKeyed(c *ProjectCache) {
 		if c.Type == cacheTypeS3 {
 			bucket, obj, _ := r.s3KeyedObject(matched)
 			r.restoreS3Object(bucket, obj)
-		} else if err := copyTree(filepath.Join(r.localKeyedDir(), url.PathEscape(matched)), r.cacheStage, false); err != nil {
+		} else if err := copyTree(r.localKeyedEntry(matched), r.cacheStage, false); err != nil {
 			r.warnCache("restore local cache", err)
 		}
 

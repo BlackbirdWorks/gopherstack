@@ -130,12 +130,32 @@ func TestInboundSPFMechanisms(t *testing.T) {
 		want string
 	}{
 		{"a_match", fakeDNS{txt: spf("v=spf1 a -all"), addrs: map[string][]string{"sender.test": loop}}, "PASS"},
-		{"a_other_ip", fakeDNS{txt: spf("v=spf1 a -all"), addrs: map[string][]string{"sender.test": {"10.0.0.1"}}}, "FAIL"},
+		{
+			"a_other_ip",
+			fakeDNS{txt: spf("v=spf1 a -all"), addrs: map[string][]string{"sender.test": {"10.0.0.1"}}},
+			"FAIL",
+		},
 		{"a_domain_arg", fakeDNS{txt: spf("v=spf1 a:h.test -all"), addrs: map[string][]string{"h.test": loop}}, "PASS"},
-		{"a_cidr", fakeDNS{txt: spf("v=spf1 a/8 -all"), addrs: map[string][]string{"sender.test": {"127.9.9.9"}}}, "PASS"},
-		{"a_domain_and_cidr", fakeDNS{txt: spf("v=spf1 a:h.test/8 -all"), addrs: map[string][]string{"h.test": {"127.5.5.5"}}}, "PASS"},
-		{"a_dual_cidr", fakeDNS{txt: spf("v=spf1 a/8//64 -all"), addrs: map[string][]string{"sender.test": {"127.2.2.2"}}}, "PASS"},
-		{"a_only_v6_record", fakeDNS{txt: spf("v=spf1 a -all"), addrs: map[string][]string{"sender.test": {"2001:db8::1"}}}, "FAIL"},
+		{
+			"a_cidr",
+			fakeDNS{txt: spf("v=spf1 a/8 -all"), addrs: map[string][]string{"sender.test": {"127.9.9.9"}}},
+			"PASS",
+		},
+		{
+			"a_domain_and_cidr",
+			fakeDNS{txt: spf("v=spf1 a:h.test/8 -all"), addrs: map[string][]string{"h.test": {"127.5.5.5"}}},
+			"PASS",
+		},
+		{
+			"a_dual_cidr",
+			fakeDNS{txt: spf("v=spf1 a/8//64 -all"), addrs: map[string][]string{"sender.test": {"127.2.2.2"}}},
+			"PASS",
+		},
+		{
+			"a_only_v6_record",
+			fakeDNS{txt: spf("v=spf1 a -all"), addrs: map[string][]string{"sender.test": {"2001:db8::1"}}},
+			"FAIL",
+		},
 		{
 			"mx_match",
 			fakeDNS{
@@ -162,17 +182,26 @@ func TestInboundSPFMechanisms(t *testing.T) {
 		},
 		{
 			"exists_macro",
-			fakeDNS{txt: spf("v=spf1 exists:%{i}.rbl.sender.test -all"), addrs: map[string][]string{"127.0.0.1.rbl.sender.test": {"127.0.0.2"}}},
+			fakeDNS{
+				txt:   spf("v=spf1 exists:%{i}.rbl.sender.test -all"),
+				addrs: map[string][]string{"127.0.0.1.rbl.sender.test": {"127.0.0.2"}},
+			},
 			"PASS",
 		},
 		{
 			"exists_reversed_macro",
-			fakeDNS{txt: spf("v=spf1 exists:%{ir}.rbl.test -all"), addrs: map[string][]string{"1.0.0.127.rbl.test": {"127.0.0.2"}}},
+			fakeDNS{
+				txt:   spf("v=spf1 exists:%{ir}.rbl.test -all"),
+				addrs: map[string][]string{"1.0.0.127.rbl.test": {"127.0.0.2"}},
+			},
 			"PASS",
 		},
 		{
 			"exists_sender_macros",
-			fakeDNS{txt: spf("v=spf1 exists:%{l}.%{o}.z.test -all"), addrs: map[string][]string{"bounce.sender.test.z.test": {"127.0.0.2"}}},
+			fakeDNS{
+				txt:   spf("v=spf1 exists:%{l}.%{o}.z.test -all"),
+				addrs: map[string][]string{"bounce.sender.test.z.test": {"127.0.0.2"}},
+			},
 			"PASS",
 		},
 		{"exists_missing", fakeDNS{txt: spf("v=spf1 exists:nope.test -all")}, "FAIL"},
@@ -262,7 +291,13 @@ func TestInboundDMARCOrganizationalDomain(t *testing.T) {
 		{"private_suffix_distinct_orgs", "user1.github.io", "bounce@user2.github.io", "user1.github.io", "FAIL"},
 		{"private_suffix_same_org", "x.user1.github.io", "bounce@y.user1.github.io", "user1.github.io", "PASS"},
 		{"k12_suffix", "a.example.pvt.k12.ma.us", "bounce@b.example.pvt.k12.ma.us", "example.pvt.k12.ma.us", "PASS"},
-		{"k12_suffix_other_school", "a.school1.pvt.k12.ma.us", "bounce@b.school2.pvt.k12.ma.us", "school1.pvt.k12.ma.us", "FAIL"},
+		{
+			"k12_suffix_other_school",
+			"a.school1.pvt.k12.ma.us",
+			"bounce@b.school2.pvt.k12.ma.us",
+			"school1.pvt.k12.ma.us",
+			"FAIL",
+		},
 	}
 
 	for _, tt := range tests {

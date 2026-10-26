@@ -7,11 +7,11 @@ import (
 )
 
 type secondarySource struct {
-	src          ProjectSource
 	id           string
 	hostDir      string
 	containerDir string
 	version      string
+	src          ProjectSource
 }
 
 // prepareSecondarySources creates one workspace per secondary source and returns its container bind mount.

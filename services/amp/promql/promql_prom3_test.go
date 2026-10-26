@@ -46,7 +46,12 @@ func TestDoubleExponentialSmoothing(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "holt_winters", query: `holt_winters(g[35s], 0.5, 0.5)`, vals: []float64{1, 3, 2, 5}, want: 4.875},
-		{name: "renamed", query: `double_exponential_smoothing(g[35s], 0.5, 0.5)`, vals: []float64{1, 3, 2, 5}, want: 4.875},
+		{
+			name:  "renamed",
+			query: `double_exponential_smoothing(g[35s], 0.5, 0.5)`,
+			vals:  []float64{1, 3, 2, 5},
+			want:  4.875,
+		},
 		{name: "linear", query: `holt_winters(g[25s], 0.3, 0.7)`, vals: []float64{0, 10, 20}, want: 20},
 		{name: "one sample", query: `holt_winters(g[5s], 0.5, 0.5)`, vals: []float64{1, 3, 2, 5}, wantNil: true},
 		{name: "sf zero", query: `holt_winters(g[35s], 0, 0.5)`, vals: []float64{1, 2, 3, 4}, wantErr: true},

@@ -58,8 +58,8 @@ func TestPolicyExecution_FastRestoreRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		rule    *dlmtypes.FastRestoreRule
+		name    string
 		wantNew int
 		wantOld int
 	}{
@@ -108,8 +108,8 @@ func TestPolicyExecution_ShareRules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		unshare      *int32
+		name         string
 		wantAfterDay bool
 	}{
 		{name: "unshare_after_a_day", unshare: aws.Int32(1)},
@@ -129,8 +129,13 @@ func TestPolicyExecution_ShareRules(t *testing.T) {
 				rule.UnshareIntervalUnit = dlmtypes.RetentionIntervalUnitValuesDays
 			}
 
-			policyID, created := env.policy(t, dlmtypes.SettablePolicyStateValuesEnabled,
-				volumePolicyDetails(rulesSchedule(func(s *dlmtypes.Schedule) { s.ShareRules = []dlmtypes.ShareRule{rule} })))
+			policyID, created := env.policy(
+				t,
+				dlmtypes.SettablePolicyStateValuesEnabled,
+				volumePolicyDetails(
+					rulesSchedule(func(s *dlmtypes.Schedule) { s.ShareRules = []dlmtypes.ShareRule{rule} }),
+				),
+			)
 
 			var snap string
 
@@ -140,7 +145,7 @@ func TestPolicyExecution_ShareRules(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				var ids []string
+				ids := make([]string, 0, len(out.CreateVolumePermissions))
 				for _, p := range out.CreateVolumePermissions {
 					ids = append(ids, aws.ToString(p.UserId))
 				}
@@ -167,12 +172,12 @@ func TestPolicyExecution_CrossRegionCopy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		sourceRetain *dlmtypes.RetainRule
-		copyTags     bool
+		name         string
+		runs         []time.Duration
 		wantCopies   int
 		wantSources  int
-		runs         []time.Duration
+		copyTags     bool
 	}{
 		{
 			name: "copy_expires_after_its_own_retention", copyTags: true, wantCopies: 1, wantSources: 3,
@@ -294,7 +299,10 @@ func TestPolicyExecution_ArchiveRule(t *testing.T) {
 			policyID, created := env.policy(t, dlmtypes.SettablePolicyStateValuesEnabled, volumePolicyDetails(sched))
 			env.runAt(t, created, tt.runs...)
 
-			tiers, err := env.ec2Client.DescribeSnapshotTierStatus(t.Context(), &ec2sdk.DescribeSnapshotTierStatusInput{})
+			tiers, err := env.ec2Client.DescribeSnapshotTierStatus(
+				t.Context(),
+				&ec2sdk.DescribeSnapshotTierStatusInput{},
+			)
 			require.NoError(t, err)
 
 			archived := map[string]bool{}

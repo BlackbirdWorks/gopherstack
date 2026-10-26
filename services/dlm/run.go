@@ -261,7 +261,7 @@ func scheduleTags(policyID, schedule string, sched map[string]any, t Target, now
 	tags[tagPolicyID] = policyID
 	tags[tagScheduleName] = schedule
 	tags[tagTimestamp] = stamp
-	tags[tagManaged] = "true"
+	tags[tagManaged] = valueTrue
 
 	return tags
 }
@@ -271,9 +271,8 @@ type resourceSet struct {
 	members   []*managedResource
 }
 
-func (b *InMemoryBackend) expire(
-	ctx context.Context, policyID, schedule string, rule map[string]any, archive bool, now time.Time,
-) {
+// standardTierSets groups the schedule's own live standard-tier resources by target and creation time.
+func (b *InMemoryBackend) standardTierSets(policyID, schedule string) map[string]map[time.Time]*resourceSet {
 	byTarget := map[string]map[time.Time]*resourceSet{}
 
 	for _, m := range b.managed.All() {
@@ -296,6 +295,13 @@ func (b *InMemoryBackend) expire(
 		s.members = append(s.members, m)
 	}
 
+	return byTarget
+}
+
+func (b *InMemoryBackend) expire(
+	ctx context.Context, policyID, schedule string, rule map[string]any, archive bool, now time.Time,
+) {
+	byTarget := b.standardTierSets(policyID, schedule)
 	count, byCount := numberOf(rule["Count"])
 	cutoff, byAge := retainCutoff(rule, now)
 

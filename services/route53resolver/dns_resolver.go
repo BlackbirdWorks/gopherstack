@@ -25,7 +25,12 @@ type DNSResolver struct {
 // NewDNSResolver builds a resolver over b. owns reports names the emulator
 // itself serves; those are never forwarded.
 func (b *InMemoryBackend) NewDNSResolver(owns func(string) bool) *DNSResolver {
-	return &DNSResolver{b: b, owns: owns, timeout: defaultForwardTimeout, logMu: lockmetrics.New("route53resolver.querylog")}
+	return &DNSResolver{
+		b:       b,
+		owns:    owns,
+		timeout: defaultForwardTimeout,
+		logMu:   lockmetrics.New("route53resolver.querylog"),
+	}
 }
 
 // Intercept implements the embedded DNS server's interceptor. Queries from

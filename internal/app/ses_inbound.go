@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,9 +65,12 @@ type sesInboundDNS struct {
 }
 
 const (
-	sesInboundMaxZones   = 1000 // page size for hosted-zone scan
-	sesInboundMaxRecords = 100  // page size for record lookup
-	sesInboundMXFields   = 2    // "<preference> <host>"
+	sesInboundMaxZones    = 1000 // page size for hosted-zone scan
+	sesInboundMaxRecords  = 100  // page size for record lookup
+	sesInboundMXFields    = 2    // "<preference> <host>"
+	reverseNibblesPerByte = 2
+	reverseNibbleMask     = 0xf
+	reverseNibbleBits     = 4
 )
 
 var errSESInboundNoRecord = errors.New("no TXT record")
@@ -146,10 +150,14 @@ func reverseName(ip netip.Addr) string {
 	}
 
 	b := ip.As16()
-	nibbles := make([]string, 0, len(b)*2)
+	nibbles := make([]string, 0, len(b)*reverseNibblesPerByte)
 
 	for i := len(b) - 1; i >= 0; i-- {
-		nibbles = append(nibbles, fmt.Sprintf("%x", b[i]&0xf), fmt.Sprintf("%x", b[i]>>4))
+		nibbles = append(
+			nibbles,
+			strconv.FormatUint(uint64(b[i]&reverseNibbleMask), 16),
+			strconv.FormatUint(uint64(b[i]>>reverseNibbleBits), 16),
+		)
 	}
 
 	return strings.Join(nibbles, ".") + ".ip6.arpa"

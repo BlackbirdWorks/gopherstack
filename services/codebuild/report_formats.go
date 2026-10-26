@@ -12,6 +12,8 @@ import (
 
 const (
 	testStatusUnknown = "UNKNOWN"
+	resultFailed      = "failed"
+	msPerSecondF      = 1e3
 
 	formatNUnit     = "NUNITXML"
 	formatNUnit3    = "NUNIT3XML"
@@ -45,7 +47,9 @@ func reportParserFor(format string) (reportParser, bool) {
 	case formatTRX:
 		return reportParser{tests: parseTRX}, true
 	case formatCobertura:
-		return reportParser{coverage: func(d []byte, s string) ([]CodeCoverage, error) { return parseCobertura(d, "", s) }}, true
+		return reportParser{
+			coverage: func(d []byte, s string) ([]CodeCoverage, error) { return parseCobertura(d, "", s) },
+		}, true
 	case formatClover:
 		return reportParser{coverage: parseClover}, true
 	case formatJaCoCo:
@@ -141,7 +145,7 @@ func nunitStatus(result, label string) string {
 	switch strings.ToLower(result) {
 	case "success", "passed":
 		return testStatusSucceeded
-	case "failure", "failed":
+	case "failure", resultFailed:
 		if strings.EqualFold(label, "error") {
 			return testStatusError
 		}
@@ -256,7 +260,7 @@ func parseTestNG(data []byte, source string) ([]TestCase, error) {
 					ms, _ := strconv.ParseFloat(m.DurationMs, 64)
 					out = append(out, TestCase{
 						TestRawDataPath: source, Prefix: c.Name, Name: m.Name, TestSuiteName: s.Name,
-						Status: testNGStatus(m.Status), DurationInNanoSeconds: durationNanos(ms / 1e3),
+						Status: testNGStatus(m.Status), DurationInNanoSeconds: durationNanos(ms / msPerSecondF),
 						Message: strings.TrimSpace(m.Message),
 					})
 				}
@@ -278,8 +282,8 @@ type cucumberFeature struct {
 		Steps []struct {
 			Result struct {
 				Status       string  `json:"status"`
-				Duration     float64 `json:"duration"`
 				ErrorMessage string  `json:"error_message"`
+				Duration     float64 `json:"duration"`
 			} `json:"result"`
 		} `json:"steps"`
 	} `json:"elements"`
@@ -316,9 +320,9 @@ func parseCucumber(data []byte, source string) ([]TestCase, error) {
 	return out, nil
 }
 
-func cucumberStep(cur, msg, step, errMsg string) (status, message string) {
+func cucumberStep(cur, msg, step, errMsg string) (string, string) {
 	switch strings.ToLower(step) {
-	case "failed":
+	case resultFailed:
 		if cur != testStatusFailed {
 			return testStatusFailed, strings.TrimSpace(errMsg)
 		}
@@ -503,8 +507,8 @@ func parseClover(data []byte, source string) ([]CodeCoverage, error) {
 // SimpleCov JSON (.resultset.json): suite -> coverage -> file -> lines/branches.
 
 type simpleCovFile struct {
-	Lines    []*int                    `json:"lines"`
 	Branches map[string]map[string]int `json:"branches"`
+	Lines    []*int                    `json:"lines"`
 }
 
 func parseSimpleCov(data []byte, source string) ([]CodeCoverage, error) {
@@ -519,28 +523,40 @@ func parseSimpleCov(data []byte, source string) ([]CodeCoverage, error) {
 
 	for _, suite := range doc {
 		for name, raw := range suite.Coverage {
-			var f simpleCovFile
-			if err := json.Unmarshal(raw, &f.Lines); err != nil {
-				if err = json.Unmarshal(raw, &f); err != nil {
-					return nil, fmt.Errorf("parse simplecov %s: file %s: %w", source, name, err)
-				}
+			f, err := decodeSimpleCovFile(raw)
+			if err != nil {
+				return nil, fmt.Errorf("parse simplecov %s: file %s: %w", source, name, err)
 			}
 
-			fc := fileEntry(files, name)
-
-			for _, l := range f.Lines {
-				if l != nil {
-					fc.addLine(*l > 0)
-				}
-			}
-
-			for _, branches := range f.Branches {
-				for _, hits := range branches {
-					fc.addBranch(hits > 0)
-				}
-			}
+			f.addTo(fileEntry(files, name))
 		}
 	}
 
 	return coverageRows(files), nil
+}
+
+// decodeSimpleCovFile accepts both the bare line array and the {lines, branches} object.
+func decodeSimpleCovFile(raw json.RawMessage) (simpleCovFile, error) {
+	var f simpleCovFile
+	if err := json.Unmarshal(raw, &f.Lines); err == nil {
+		return f, nil
+	}
+
+	err := json.Unmarshal(raw, &f)
+
+	return f, err
+}
+
+func (f simpleCovFile) addTo(fc *fileCoverage) {
+	for _, l := range f.Lines {
+		if l != nil {
+			fc.addLine(*l > 0)
+		}
+	}
+
+	for _, branches := range f.Branches {
+		for _, hits := range branches {
+			fc.addBranch(hits > 0)
+		}
+	}
 }

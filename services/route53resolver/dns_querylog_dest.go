@@ -52,12 +52,19 @@ func (b *InMemoryBackend) queryLogDestinations() (QueryLogObjectStore, QueryLogS
 }
 
 // s3LogKey is the delivery object for the 5-minute window containing t:
-// <prefix>/AWSLogs/<account>/vpcdnsquerylogs/<vpc>/<yyyy>/<mm>/<dd>/<account>_vpcdnsquerylogs_<vpc>_<window>_<hash>.log.gz
+// <prefix>/AWSLogs/<account>/vpcdnsquerylogs/<vpc>/<yyyy>/<mm>/<dd>/
+// <account>_vpcdnsquerylogs_<vpc>_<window>_<hash>.log.gz.
 func s3LogKey(prefix, account, vpcID, configID string, t time.Time) string {
 	t = t.UTC().Truncate(logFileWindow)
 	window := t.Format(logFileTimeLayout)
 	sum := sha256.Sum256([]byte(configID + "|" + vpcID + "|" + window))
-	name := fmt.Sprintf("%s_vpcdnsquerylogs_%s_%s_%s.log.gz", account, vpcID, window, hex.EncodeToString(sum[:])[:logFileHashLen])
+	name := fmt.Sprintf(
+		"%s_vpcdnsquerylogs_%s_%s_%s.log.gz",
+		account,
+		vpcID,
+		window,
+		hex.EncodeToString(sum[:])[:logFileHashLen],
+	)
 
 	key := fmt.Sprintf("AWSLogs/%s/vpcdnsquerylogs/%s/%s/%s", account, vpcID, t.Format("2006/01/02"), name)
 	if prefix = strings.Trim(prefix, "/"); prefix != "" {
@@ -98,7 +105,12 @@ func (r *DNSResolver) deliverToS3(ctx context.Context, e queryLogEntry, cfg *Res
 	}
 }
 
-func (r *DNSResolver) deliverToFirehose(ctx context.Context, e queryLogEntry, cfg *ResolverQueryLogConfig, payload string) {
+func (r *DNSResolver) deliverToFirehose(
+	ctx context.Context,
+	e queryLogEntry,
+	cfg *ResolverQueryLogConfig,
+	payload string,
+) {
 	_, streams := r.b.queryLogDestinations()
 	if streams == nil {
 		return

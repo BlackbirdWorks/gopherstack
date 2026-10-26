@@ -19,6 +19,9 @@ const (
 	ipv4Bits          = 32
 	ipv6Bits          = 128
 	macroNibbleBits   = 4
+	nibbleMask        = 0xf
+	nibblesPerByte    = 2
+	mechExists        = "exists"
 )
 
 // ErrDNSNotFound is returned by an InboundDNSResolver for a name with no matching records.
@@ -67,10 +70,10 @@ func notFound(err error) bool {
 }
 
 type spfChecker struct {
+	ip      netip.Addr
 	res     InboundTXTResolver
 	dns     InboundDNSResolver
 	sender  string
-	ip      netip.Addr
 	lookups int
 	voids   int
 }
@@ -157,13 +160,26 @@ func (c *spfChecker) countVoid() bool {
 	return c.voids <= maxSPFVoidLookups
 }
 
-var spfQualifiers = map[byte]spfResult{'+': spfPass, '-': spfFail, '~': spfSoftFail, '?': spfNeutral}
+func qualifier(b byte) (spfResult, bool) {
+	switch b {
+	case '+':
+		return spfPass, true
+	case '-':
+		return spfFail, true
+	case '~':
+		return spfSoftFail, true
+	case '?':
+		return spfNeutral, true
+	}
+
+	return spfNone, false
+}
 
 // term evaluates one mechanism; matched reports whether it decided the result.
 func (c *spfChecker) term(ctx context.Context, term, domain string) (spfResult, bool) {
 	q := spfPass
 
-	if r, ok := spfQualifiers[term[0]]; ok {
+	if r, ok := qualifier(term[0]); ok {
 		q, term = r, term[1:]
 	}
 
@@ -186,7 +202,7 @@ func (c *spfChecker) term(ctx context.Context, term, domain string) (spfResult, 
 		return q, spfIPMatch(arg, c.ip)
 	case "include":
 		return c.include(ctx, q, arg, domain)
-	case "a", "mx", "ptr", "exists":
+	case "a", "mx", "ptr", mechExists:
 		return c.dnsMechanism(ctx, q, name, arg, cidr, domain)
 	}
 
@@ -226,7 +242,7 @@ func (c *spfChecker) dnsMechanism(ctx context.Context, q spfResult, name, arg, c
 		spec = arg
 	}
 
-	if before, after, found := strings.Cut(spec, "/"); found && name != "exists" && name != "ptr" {
+	if before, after, found := strings.Cut(spec, "/"); found && name != mechExists && name != "ptr" {
 		spec, cidr = before, "/"+after
 	}
 
@@ -245,10 +261,10 @@ func (c *spfChecker) dnsMechanism(ctx context.Context, q spfResult, name, arg, c
 		matched, res = c.matchHost(ctx, target, cidr)
 	case "mx":
 		matched, res = c.matchMX(ctx, target, cidr)
-	case "exists":
+	case mechExists:
 		matched, res = c.matchExists(ctx, target)
 	default:
-		matched, res = c.matchPTR(ctx, target)
+		matched = c.matchPTR(ctx, target)
 	}
 
 	switch {
@@ -371,10 +387,10 @@ func (c *spfChecker) matchExists(ctx context.Context, name string) (bool, spfRes
 }
 
 // matchPTR validates the client's reverse names with a forward lookup, then compares them to the target domain.
-func (c *spfChecker) matchPTR(ctx context.Context, target string) (bool, spfResult) {
+func (c *spfChecker) matchPTR(ctx context.Context, target string) bool {
 	names, err := c.dns.LookupAddr(ctx, c.ip)
 	if err != nil && !notFound(err) {
-		return false, spfNone
+		return false
 	}
 
 	target = strs.Fold(strings.TrimSuffix(target, "."))
@@ -390,11 +406,11 @@ func (c *spfChecker) matchPTR(ctx context.Context, target string) (bool, spfResu
 		}
 
 		if addrs, ferr := c.dns.LookupIP(ctx, n); ferr == nil && c.addrMatches(addrs, "") {
-			return true, spfNone
+			return true
 		}
 	}
 
-	return false, spfNone
+	return false
 }
 
 func spfIPMatch(cidr string, ip netip.Addr) bool {
@@ -503,10 +519,14 @@ func macroIP(ip netip.Addr) string {
 	}
 
 	b := ip.As16()
-	parts := make([]string, 0, len(b)*2)
+	parts := make([]string, 0, len(b)*nibblesPerByte)
 
 	for _, x := range b {
-		parts = append(parts, strconv.FormatUint(uint64(x>>macroNibbleBits), 16), strconv.FormatUint(uint64(x&0xf), 16))
+		parts = append(
+			parts,
+			strconv.FormatUint(uint64(x>>macroNibbleBits), 16),
+			strconv.FormatUint(uint64(x&nibbleMask), 16),
+		)
 	}
 
 	return strings.Join(parts, ".")

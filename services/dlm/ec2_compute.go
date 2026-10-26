@@ -218,7 +218,10 @@ func (c ec2Compute) ArchiveSnapshot(region, snapshotID string) error {
 		return err //nolint:wrapcheck // logged by the scheduler
 	}
 
-	return bk.CreateTags([]string{snapshotID}, map[string]string{"aws:dlm:archived": "true"}) //nolint:wrapcheck // logged by the scheduler
+	return bk.CreateTags(
+		[]string{snapshotID},
+		map[string]string{"aws:dlm:archived": valueTrue},
+	) //nolint:wrapcheck // logged by the scheduler
 }
 
 func (c ec2Compute) DeprecateImage(region, imageID string, at time.Time) error {
@@ -227,5 +230,8 @@ func (c ec2Compute) DeprecateImage(region, imageID string, at time.Time) error {
 		return err
 	}
 
-	return bk.EnableImageDeprecation(imageID, at.UTC().Format(imageDeprecationLayout)) //nolint:wrapcheck // logged by the scheduler
+	return bk.EnableImageDeprecation(
+		imageID,
+		at.UTC().Format(imageDeprecationLayout),
+	) //nolint:wrapcheck // logged by the scheduler
 }
