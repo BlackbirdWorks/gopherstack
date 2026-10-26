@@ -434,6 +434,7 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-redshift` | `REDSHIFT_ACTIVATION_DELAY` | Redshift cluster `creating` window. |
 | `--lifecycle-redshiftdata` | `REDSHIFTDATA_LIFECYCLE_DELAY` | Redshift Data statement `SUBMITTED`/`STARTED` window before `FINISHED`. |
 | `--lifecycle-redshiftserverless` | `REDSHIFTSERVERLESS_LIFECYCLE_DELAY` | Redshift Serverless workgroup `CREATING`/`MODIFYING`/`DELETING` and namespace `MODIFYING`/`DELETING` window. |
+| `--lifecycle-ec2` | `EC2_LIFECYCLE_DELAY` | EBS volume `creating` window before `available`. |
 | `--lifecycle-dax` | `DAX_LIFECYCLE_DELAY` | DAX cluster/node `creating`/`modifying`/`deleting` window (built-in `1s`). |
 | `--lifecycle-pinpoint` | `PINPOINT_LIFECYCLE_DELAY` | Pinpoint export/import job `CREATED`/`PROCESSING` window before `COMPLETED`. |
 | `--lifecycle-autoscaling` | `AUTOSCALING_LAUNCH_DELAY` | Auto Scaling instance `Pending` window (with an `InProgress` activity) before `InService`. |

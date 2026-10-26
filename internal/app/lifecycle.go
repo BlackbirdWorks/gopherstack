@@ -32,6 +32,7 @@ import (
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	dsqlbackend "github.com/blackbirdworks/gopherstack/services/dsql"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
@@ -98,6 +99,14 @@ func applyOpenSearch(reg service.Registerable, l cliconfig.LifecycleSettings) {
 	if h, ok := reg.(*opensearchbackend.Handler); ok {
 		if bk, isBk := h.Backend.(*opensearchbackend.InMemoryBackend); isBk {
 			bk.SetProcessingDelay(l.Effective(l.OpenSearchProcessing))
+		}
+	}
+}
+
+func applyEC2(reg service.Registerable, l cliconfig.LifecycleSettings) {
+	if h, ok := reg.(*ec2backend.Handler); ok {
+		if bk, isBk := h.Backend.(*ec2backend.InMemoryBackend); isBk {
+			bk.SetVolumeCreateDelay(l.Effective(l.EC2))
 		}
 	}
 }
@@ -762,6 +771,7 @@ func wireLifecycleDelays(byName map[string]service.Registerable, l cliconfig.Lif
 			applyRedshiftServerless(r, l.Effective(l.RedshiftServerless))
 		},
 		"DAX":                 applyDAX,
+		"EC2":                 applyEC2,
 		"VPCLattice":          applyVPCLattice,
 		"KafkaConnect":        applyKafkaConnect,
 		"Grafana":             applyGrafana,

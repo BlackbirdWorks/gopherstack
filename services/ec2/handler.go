@@ -702,6 +702,7 @@ var errCodeLookup = []struct {
 	{ErrDuplicateKeyPairName, "InvalidKeyPair.Duplicate"},
 	{ErrVolumeNotFound, "InvalidVolume.NotFound"},
 	{ErrVolumeInUse, "VolumeInUse"},
+	{ErrVolumeNotAvailable, errCodeIncorrectState},
 	{ErrAddressNotFound, "InvalidAllocationID.NotFound"},
 	{ErrVpcLimitExceeded, "VpcLimitExceeded"},
 	{ErrAddressLimitExceeded, "AddressLimitExceeded"},
