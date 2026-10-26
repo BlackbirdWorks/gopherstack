@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- PromQL: holt_winters/double_exponential_smoothing, native-histogram functions (histogram_count, histogram_sum, histogram_fraction), start() and end() in the @ modifier, limitk and limit_ratio, absent_over_time and sort_by_label are not implemented (a parse error is returned)
+- PromQL: native histograms are not ingested, so histogram_count, histogram_sum, histogram_avg, histogram_stddev and histogram_stdvar (which Prometheus defines on native histograms only) always return an empty vector for float samples; histogram_fraction works on classic le buckets only; limit_ratio samples by an FNV hash of the label set, not Prometheus' hash, so the selected series differ from Prometheus (the positive/negative ratio complement property holds).
 - AlertManagerDefinition: only sns_configs receivers deliver (AMP supports nothing else); silences, the v1 API and template_files are not served; sigv4 settings are accepted and ignored; the dispatcher keeps no notification log across restarts, so a restart renotifies firing alerts
 - Scraper: stored with a real ACTIVE lifecycle but nothing scrapes the EKS or VPC source
 - WorkspaceConfiguration: outOfOrderTimeWindowInSeconds is stored and returned but not enforced; limitsPerLabelSet does not apply to series written by rule evaluation

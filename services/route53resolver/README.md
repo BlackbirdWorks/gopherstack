@@ -16,7 +16,7 @@
 
 ### Known gaps
 
-- Embedded DNS query-log destinations: only CloudWatch Logs log groups are written; S3 and Firehose destinations are accepted but receive nothing.
+- Embedded DNS query-log destinations: CloudWatch Logs groups, S3 buckets (one gzip NDJSON object per config, VPC and 5-minute window under <prefix>/AWSLogs/<account>/vpcdnsquerylogs/<vpc>/<yyyy>/<mm>/<dd>/, rewritten on every query; the file-name hash and the Firehose record framing (one JSON line per record) are not documented by AWS) and Firehose delivery streams receive records; queries answered from the emulator's own static records and cache hits are not distinguished.
 - Embedded DNS forwarding speaks Do53 (UDP, TCP on truncation) only; DoH targets are skipped, and outbound-endpoint ENIs are not the query source.
 - DNS Firewall Advanced rules (DnsThreatProtection) are not evaluated by the embedded DNS; only domain-list rules are.
 - Docker-launched resources are not auto-pointed at the embedded DNS; a query maps to a VPC only when its source address is an EC2 ENI/instance private IP or inside a subnet CIDR.
