@@ -443,15 +443,13 @@ func (b *Broker) SendToClientAwaitAck(
 }
 
 func (b *Broker) notifyConnected(cl *mqtt.Client) {
-	b.publishConnected(cl)
-
 	if o := b.observer.Load(); o != nil {
 		(*o).ClientConnected(cl.ID, cl.Net.Remote)
 	}
 }
 
 func (b *Broker) notifyDisconnected(cl *mqtt.Client, err error) {
-	if cl.IsTakenOver() {
+	if cl.IsTakenOver() || errors.Is(cl.StopCause(), packets.ErrSessionTakenOver) {
 		b.publishDisconnected(cl, reasonDuplicateClientID)
 
 		return
@@ -533,7 +531,7 @@ func (h *ruleHook) ID() string { return "iot-rule-hook" }
 // Provides reports which hook events this hook handles.
 func (h *ruleHook) Provides(b byte) bool {
 	switch b {
-	case mqtt.OnPublish, mqtt.OnPacketRead, mqtt.OnSessionEstablished, mqtt.OnDisconnect,
+	case mqtt.OnPublish, mqtt.OnPacketRead, mqtt.OnSessionEstablish, mqtt.OnSessionEstablished, mqtt.OnDisconnect,
 		mqtt.OnSubscribed, mqtt.OnUnsubscribed:
 		return true
 	default:
@@ -555,6 +553,12 @@ func (h *ruleHook) OnPacketRead(cl *mqtt.Client, pk packets.Packet) (packets.Pac
 	}
 
 	return pk, nil
+}
+
+// OnSessionEstablish publishes the connected event before CONNACK, so a takeover of this
+// session (possible only after CONNACK) can never publish its events ahead of this one.
+func (h *ruleHook) OnSessionEstablish(cl *mqtt.Client, _ packets.Packet) {
+	h.broker.publishConnected(cl)
 }
 
 // OnSessionEstablished reports the new session to the connection observer.
