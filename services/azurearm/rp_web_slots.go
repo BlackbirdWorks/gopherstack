@@ -23,6 +23,11 @@ const (
 	webSlotNameMax     = 19
 	webSlotCombinedMax = 59
 	webTypeSlotsDiff   = "Microsoft.Web/sites/slotsdiffs"
+	webTierStandard    = "standard"
+	webLimitElastic    = 2
+	webLimitStandard   = 5
+	webLimitPremium    = 20
+	webFieldLevel      = "level"
 
 	webDiffGeneral = "General"
 	webDiffSetting = "AppSetting"
@@ -33,9 +38,9 @@ var webSlotNameRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$
 
 // pendingSwap marks a slot whose configuration was prepared for a swap with preview.
 type pendingSwap struct {
-	Target      string            `json:"target"`
 	Settings    map[string]string `json:"settings"`
 	ConnStrings map[string]any    `json:"connStrings,omitempty"`
+	Target      string            `json:"target"`
 }
 
 type swapStatus struct {
@@ -79,11 +84,13 @@ func (s *storedWebSite) slotSuffix() string {
 	return "-" + s.Slot
 }
 
-func isProductionSlot(name string) bool { return name == "" || strings.EqualFold(name, webSlotProduction) }
+func isProductionSlot(name string) bool {
+	return name == "" || strings.EqualFold(name, webSlotProduction)
+}
 
 // record resolves a site or slot id to its stored record.
 func (p *WebProvider) record(id ResourceID) (*storedWebSite, bool) {
-	if len(id.Names) == 2 {
+	if len(id.Names) == webSlotRestSegs {
 		parent, ok := p.site(id.ResourceGroup, id.Names[0])
 		if !ok {
 			return nil, false
@@ -140,7 +147,7 @@ func tierFromSKUName(name string) string {
 	case strings.HasPrefix(name, "b"):
 		return "basic"
 	case strings.HasPrefix(name, "s"):
-		return "standard"
+		return webTierStandard
 	case strings.HasPrefix(name, "p"), strings.HasPrefix(name, "i"):
 		return "premium"
 	}
@@ -152,7 +159,7 @@ func tierFromSKUName(name string) string {
 // (Standard 5, Premium and Isolated 20) and the Azure Functions limits for Consumption (2 slots including
 // production), Premium (3) and Flex Consumption (none).
 func slotLimit(kind string, sku map[string]any) int {
-	tier, _ := sku["tier"].(string)
+	tier, _ := sku[cosmosFieldTier].(string)
 	name, _ := sku["name"].(string)
 
 	tier = strings.ToLower(tier)
@@ -165,17 +172,17 @@ func slotLimit(kind string, sku map[string]any) int {
 		case tier == "dynamic" || strings.EqualFold(name, webPlanSKUDefault):
 			return 1
 		case tier == "elasticpremium" || strings.HasPrefix(strings.ToLower(name), "ep"):
-			return 2
+			return webLimitElastic
 		case tier == "flexconsumption" || strings.EqualFold(name, "FC1"):
 			return 0
 		}
 	}
 
 	switch {
-	case tier == "standard":
-		return 5
+	case tier == webTierStandard:
+		return webLimitStandard
 	case strings.HasPrefix(tier, "premium"), strings.HasPrefix(tier, "isolated"):
-		return 20
+		return webLimitPremium
 	}
 
 	return 0
@@ -221,37 +228,11 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 	}
 
 	slot := id.Names[1]
-	if err := p.checkSlotName(parent.Name, slot); err != nil {
-		return nil, err
-	}
-
 	existing, exists := parent.Slots[strings.ToLower(slot)]
-	if exists && existing.Pending != nil {
-		return nil, ErrWebSwapPending
-	}
-
-	label := slotLabel(parent.Name, slot)
-	if _, taken := p.sites[label]; taken || p.slotLabelTaken(label, parent.Name) {
-		return nil, ErrWebNameTaken
-	}
-
 	props, _ := body[fieldProperties].(map[string]any)
 
-	if farm, _ := props[webFieldServerFarmID].(string); farm != "" {
-		if parentFarm, _ := parent.Extra[webFieldServerFarmID].(string); !strings.EqualFold(farm, parentFarm) {
-			return nil, badWebRequest(fmt.Errorf("%w: a slot runs in its site's App Service plan", ErrWebInvalidSiteConfig))
-		}
-	}
-
-	if !exists {
-		sku, _ := p.siteSKU(parent)
-		if sku == nil && isFunctionAppKind(parent.Kind) {
-			sku = map[string]any{"tier": "Dynamic"}
-		}
-
-		if limit := slotLimit(parent.Kind, sku); len(parent.Slots) >= limit {
-			return nil, fmt.Errorf("%w: %d", ErrWebSlotLimit, limit)
-		}
+	if err := p.checkSlotWritable(parent, slot, existing, props); err != nil {
+		return nil, err
 	}
 
 	rec := &storedWebSite{
@@ -299,9 +280,52 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 	return p.siteBody(ctx, id, rec, info), nil
 }
 
+// checkSlotWritable validates a slot PUT: name, pending swap, hostname, plan and the tier's slot limit.
+func (p *WebProvider) checkSlotWritable(
+	parent *storedWebSite, slot string, existing *storedWebSite, props map[string]any,
+) error {
+	if err := p.checkSlotName(parent.Name, slot); err != nil {
+		return err
+	}
+
+	if existing != nil && existing.Pending != nil {
+		return ErrWebSwapPending
+	}
+
+	label := slotLabel(parent.Name, slot)
+	if _, taken := p.sites[label]; taken || p.slotLabelTaken(label, parent.Name) {
+		return ErrWebNameTaken
+	}
+
+	if farm, _ := props[webFieldServerFarmID].(string); farm != "" {
+		if parentFarm, _ := parent.Extra[webFieldServerFarmID].(string); !strings.EqualFold(farm, parentFarm) {
+			return badWebRequest(fmt.Errorf("%w: a slot runs in its site's App Service plan", ErrWebInvalidSiteConfig))
+		}
+	}
+
+	if existing != nil {
+		return nil
+	}
+
+	sku, _ := p.siteSKU(parent)
+	if sku == nil && isFunctionAppKind(parent.Kind) {
+		sku = map[string]any{cosmosFieldTier: "Dynamic"}
+	}
+
+	if limit := slotLimit(parent.Kind, sku); len(parent.Slots) >= limit {
+		return fmt.Errorf("%w: %d", ErrWebSlotLimit, limit)
+	}
+
+	return nil
+}
+
 // applySlotProps merges the request's siteConfig into rec's web configuration and, when creating, clones another
 // app or slot named by cloningInfo.sourceWebAppId. It returns the app settings to store, or nil to leave them.
-func (p *WebProvider) applySlotProps(parent, rec *storedWebSite, props map[string]any, create bool) (map[string]string, error) {
+func (p *WebProvider) applySlotProps(
+	parent, rec *storedWebSite,
+	props map[string]any,
+	create bool,
+) (map[string]string, error) {
 	var settings map[string]string
 
 	if clone := mapOf(props[webFieldCloning]); create && clone[webFieldCloneSrc] != nil {
@@ -764,7 +788,7 @@ func (p *WebProvider) diffEntry(
 		"id": id.ARMID() + "/slotsdiffs/" + name, fieldName: name, fieldType: webTypeSlotsDiff,
 		fieldProperties: map[string]any{
 			"settingType": kind, "settingName": name, "valueInCurrentSlot": str(cur), "valueInTargetSlot": str(tgt),
-			"level": "Information", "diffRule": "Swap",
+			webFieldLevel: "Information", "diffRule": "Swap",
 			"description": "The setting changes in the current slot when the slots are swapped.",
 		},
 	}

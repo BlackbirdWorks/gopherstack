@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -30,23 +31,18 @@ func (s *fnSDKStack) createPlanSKU(t *testing.T, name, kind, sku, tier string) *
 	return &res.Plan
 }
 
-func (s *fnSDKStack) createSlot(
-	t *testing.T, app, slot string, props *armappservice.SiteProperties,
-) (*armappservice.Site, error) {
+func (s *fnSDKStack) createSlot(t *testing.T, app, slot string, props *armappservice.SiteProperties) error {
 	t.Helper()
 
 	poller, err := s.factory.NewWebAppsClient().BeginCreateOrUpdateSlot(t.Context(), webSDKRG, app, slot,
 		armappservice.Site{Location: new("local"), Kind: new("app,linux"), Properties: props}, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	res, err := poller.PollUntilDone(t.Context(), pollOpts())
-	if err != nil {
-		return nil, err
-	}
+	_, err = poller.PollUntilDone(t.Context(), pollOpts())
 
-	return &res.Site, nil
+	return err
 }
 
 // slotStack is a Standard-tier web app "swapapp" with a "staging" slot, both running the same stack.
@@ -63,7 +59,7 @@ func newSlotStack(t *testing.T) *slotStack {
 	_, err := s.createWebApp(t, slotSDKApp, *plan.ID, &armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")})
 	require.NoError(t, err)
 
-	_, err = s.createSlot(t, slotSDKApp, "staging", &armappservice.SiteProperties{
+	err = s.createSlot(t, slotSDKApp, "staging", &armappservice.SiteProperties{
 		SiteConfig: &armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")},
 	})
 	require.NoError(t, err)
@@ -110,7 +106,7 @@ func (s *slotStack) get(t *testing.T, slot, path string) string {
 	return body
 }
 
-func (s *slotStack) setSettings(t *testing.T, slot string, kv map[string]string) {
+func (s *slotStack) setStagingSettings(t *testing.T, kv map[string]string) {
 	t.Helper()
 
 	props := map[string]*string{}
@@ -119,7 +115,7 @@ func (s *slotStack) setSettings(t *testing.T, slot string, kv map[string]string)
 	}
 
 	_, err := s.factory.NewWebAppsClient().UpdateApplicationSettingsSlot(
-		t.Context(), webSDKRG, slotSDKApp, slot, armappservice.StringDictionary{Properties: props}, nil)
+		t.Context(), webSDKRG, slotSDKApp, "staging", armappservice.StringDictionary{Properties: props}, nil)
 	require.NoError(t, err)
 }
 
@@ -141,7 +137,10 @@ func (s *slotStack) setConnStrings(t *testing.T, slot string, kv map[string]stri
 
 	props := map[string]*armappservice.ConnStringValueTypePair{}
 	for k, v := range kv {
-		props[k] = &armappservice.ConnStringValueTypePair{Value: new(v), Type: new(armappservice.ConnectionStringTypeSQLAzure)}
+		props[k] = &armappservice.ConnStringValueTypePair{
+			Value: new(v),
+			Type:  new(armappservice.ConnectionStringTypeSQLAzure),
+		}
 	}
 
 	dict := armappservice.ConnectionStringDictionary{Properties: props}
@@ -202,11 +201,28 @@ func (s *slotStack) swap(t *testing.T, source, target string) error {
 }
 
 func responseCode(err error) int {
-	if respErr, ok := err.(*azcore.ResponseError); ok {
+	if respErr, ok := errors.AsType[*azcore.ResponseError](err); ok {
 		return respErr.StatusCode
 	}
 
 	return 0
+}
+
+// step runs one stage of a scenario whose stages build on each other, so they cannot run in parallel.
+func step(t *testing.T, name string, fn func()) {
+	t.Helper()
+	t.Log("step:", name)
+	fn()
+}
+
+func slotErr(t *testing.T, app, slot string, props *armappservice.SiteProperties, s *fnSDKStack) func() error {
+	t.Helper()
+
+	return func() error {
+		err := s.createSlot(t, app, slot, props)
+
+		return err
+	}
 }
 
 func TestAzureAppServiceARMSDK_SlotCRUD(t *testing.T) {
@@ -254,9 +270,9 @@ func TestAzureAppServiceARMSDK_SlotCRUD(t *testing.T) {
 
 	assert.Equal(t, []string{slotSDKApp}, siteNames, "slots are not listed as sites")
 
-	t.Run("settings are per slot", func(t *testing.T) {
+	step(t, "settings are per slot", func() {
 		s.setProdSettings(t, map[string]string{"WHO": "prod"})
-		s.setSettings(t, "staging", map[string]string{"WHO": "stg"})
+		s.setStagingSettings(t, map[string]string{"WHO": "stg"})
 
 		slotList, listErr := apps.ListApplicationSettingsSlot(ctx, webSDKRG, slotSDKApp, "staging", nil)
 		require.NoError(t, listErr)
@@ -274,7 +290,7 @@ func TestAzureAppServiceARMSDK_SlotCRUD(t *testing.T) {
 		assert.Equal(t, "Production", s.get(t, "", "/env/WEBSITE_SLOT_NAME"))
 	})
 
-	t.Run("start stop restart", func(t *testing.T) {
+	step(t, "start stop restart", func() {
 		_, stopErr := apps.StopSlot(ctx, webSDKRG, slotSDKApp, "staging", nil)
 		require.NoError(t, stopErr)
 
@@ -293,10 +309,17 @@ func TestAzureAppServiceARMSDK_SlotCRUD(t *testing.T) {
 		assert.Equal(t, "stg", s.get(t, "staging", "/marker"))
 	})
 
-	t.Run("web config", func(t *testing.T) {
-		_, cfgErr := apps.UpdateConfigurationSlot(ctx, webSDKRG, slotSDKApp, "staging", armappservice.SiteConfigResource{
-			Properties: &armappservice.SiteConfig{WebSocketsEnabled: new(true)},
-		}, nil)
+	step(t, "web config", func() {
+		_, cfgErr := apps.UpdateConfigurationSlot(
+			ctx,
+			webSDKRG,
+			slotSDKApp,
+			"staging",
+			armappservice.SiteConfigResource{
+				Properties: &armappservice.SiteConfig{WebSocketsEnabled: new(true)},
+			},
+			nil,
+		)
 		require.NoError(t, cfgErr)
 
 		cfg, getErr := apps.GetConfigurationSlot(ctx, webSDKRG, slotSDKApp, "staging", nil)
@@ -305,8 +328,8 @@ func TestAzureAppServiceARMSDK_SlotCRUD(t *testing.T) {
 		assert.Equal(t, "$"+slotSDKApp+"__staging", *cfg.Properties.PublishingUsername)
 	})
 
-	t.Run("deleting a slot", func(t *testing.T) {
-		_, delErr := s.createSlot(t, slotSDKApp, "temp", nil)
+	step(t, "deleting a slot", func() {
+		delErr := s.createSlot(t, slotSDKApp, "temp", nil)
 		require.NoError(t, delErr)
 
 		_, delErr = apps.DeleteSlot(ctx, webSDKRG, slotSDKApp, "temp", nil)
@@ -320,7 +343,7 @@ func TestAzureAppServiceARMSDK_SlotCRUD(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("deleting the site deletes its slots", func(t *testing.T) {
+	step(t, "deleting the site deletes its slots", func() {
 		_, ok := s.backend.App(slotSDKApp + "/staging")
 		require.True(t, ok)
 
@@ -361,7 +384,7 @@ func TestAzureAppServiceARMSDK_SlotSwapStickySettings(t *testing.T) {
 	s.setProdSettings(t, map[string]string{
 		"SWAPPED": "from-prod", "STICKY": "prod-only", "FUNCTIONS_EXTENSION_VERSION": "~4",
 	})
-	s.setSettings(t, "staging", map[string]string{
+	s.setStagingSettings(t, map[string]string{
 		"SWAPPED": "from-staging", "STICKY": "staging-only", "FUNCTIONS_EXTENSION_VERSION": "~3",
 	})
 	s.setConnStrings(t, "", map[string]string{"DB": "prod-db", "StickyDB": "prod-sticky-db"})
@@ -400,23 +423,30 @@ func TestAzureAppServiceARMSDK_SlotSwapStickySettings(t *testing.T) {
 	assert.Equal(t, "staging", *prod.Properties.SlotSwapStatus.SourceSlotName)
 	assert.Equal(t, "production", *prod.Properties.SlotSwapStatus.DestinationSlotName)
 
-	t.Run("swapping back restores the previous production", func(t *testing.T) {
+	step(t, "swapping back restores the previous production", func() {
 		require.NoError(t, s.swap(t, "staging", "production"))
 		assert.Equal(t, "prod-content", s.get(t, "", "/marker"))
 		assert.Equal(t, "from-prod", s.get(t, "", "/env/SWAPPED"))
 		assert.Equal(t, "prod-only", s.get(t, "", "/env/STICKY"))
 	})
 
-	t.Run("the production slot may be the swap source", func(t *testing.T) {
+	step(t, "the production slot may be the swap source", func() {
 		require.NoError(t, s.swap(t, "", "staging"))
 		assert.Equal(t, "staging-content", s.get(t, "", "/marker"))
 		assert.Equal(t, "prod-only", s.get(t, "", "/env/STICKY"))
 	})
 
-	t.Run("web config follows the content", func(t *testing.T) {
-		_, cfgErr := apps.UpdateConfigurationSlot(ctx, webSDKRG, slotSDKApp, "staging", armappservice.SiteConfigResource{
-			Properties: &armappservice.SiteConfig{LinuxFxVersion: new("NODE|22-lts"), AlwaysOn: new(true)},
-		}, nil)
+	step(t, "web config follows the content", func() {
+		_, cfgErr := apps.UpdateConfigurationSlot(
+			ctx,
+			webSDKRG,
+			slotSDKApp,
+			"staging",
+			armappservice.SiteConfigResource{
+				Properties: &armappservice.SiteConfig{LinuxFxVersion: new("NODE|22-lts"), AlwaysOn: new(true)},
+			},
+			nil,
+		)
 		require.NoError(t, cfgErr)
 		require.NoError(t, s.swap(t, "staging", "production"))
 
@@ -442,21 +472,21 @@ func TestAzureAppServiceARMSDK_SlotSwapWithPreview(t *testing.T) {
 
 	s.stickyNames(t, []string{"STICKY"}, nil)
 	s.setProdSettings(t, map[string]string{"SWAPPED": "from-prod", "STICKY": "prod-only"})
-	s.setSettings(t, "staging", map[string]string{"SWAPPED": "from-staging", "STICKY": "staging-only"})
+	s.setStagingSettings(t, map[string]string{"SWAPPED": "from-staging", "STICKY": "staging-only"})
 	s.deploy(t, "", "prod-content")
 	s.deploy(t, "staging", "staging-content")
 
 	_, err := apps.ApplySlotConfigurationSlot(ctx, webSDKRG, slotSDKApp, "staging", entity, nil)
 	require.NoError(t, err)
 
-	t.Run("first phase runs the source with the target's slot settings", func(t *testing.T) {
+	step(t, "first phase runs the source with the target's slot settings", func() {
 		assert.Equal(t, "prod-only", s.get(t, "staging", "/env/STICKY"))
 		assert.Equal(t, "from-staging", s.get(t, "staging", "/env/SWAPPED"))
 		assert.Equal(t, "staging-content", s.get(t, "staging", "/marker"), "content has not moved yet")
 		assert.Equal(t, "prod-content", s.get(t, "", "/marker"))
 	})
 
-	t.Run("a prepared slot cannot be edited", func(t *testing.T) {
+	step(t, "a prepared slot cannot be edited", func() {
 		_, setErr := apps.UpdateApplicationSettingsSlot(ctx, webSDKRG, slotSDKApp, "staging",
 			armappservice.StringDictionary{Properties: map[string]*string{"X": new("1")}}, nil)
 		require.Error(t, setErr)
@@ -468,17 +498,17 @@ func TestAzureAppServiceARMSDK_SlotSwapWithPreview(t *testing.T) {
 		require.Error(t, applyErr, "the target cannot start another preview")
 	})
 
-	t.Run("reset cancels", func(t *testing.T) {
+	step(t, "reset cancels", func() {
 		_, resetErr := apps.ResetSlotConfigurationSlot(ctx, webSDKRG, slotSDKApp, "staging", nil)
 		require.NoError(t, resetErr)
 
 		assert.Equal(t, "staging-only", s.get(t, "staging", "/env/STICKY"))
 		assert.Equal(t, "prod-content", s.get(t, "", "/marker"))
 
-		s.setSettings(t, "staging", map[string]string{"SWAPPED": "from-staging", "STICKY": "staging-only", "X": "1"})
+		s.setStagingSettings(t, map[string]string{"SWAPPED": "from-staging", "STICKY": "staging-only", "X": "1"})
 	})
 
-	t.Run("complete after the preview", func(t *testing.T) {
+	step(t, "complete after the preview", func() {
 		_, applyErr := apps.ApplySlotConfigurationSlot(ctx, webSDKRG, slotSDKApp, "staging", entity, nil)
 		require.NoError(t, applyErr)
 		require.NoError(t, s.swap(t, "staging", "production"))
@@ -489,10 +519,10 @@ func TestAzureAppServiceARMSDK_SlotSwapWithPreview(t *testing.T) {
 		assert.Equal(t, "staging-only", s.get(t, "staging", "/env/STICKY"), "the slot's own setting is back")
 		assert.Equal(t, "1", s.get(t, "", "/env/X"))
 
-		s.setSettings(t, "staging", map[string]string{"STICKY": "staging-only", "X": "2"})
+		s.setStagingSettings(t, map[string]string{"STICKY": "staging-only", "X": "2"})
 	})
 
-	t.Run("production as the preview source", func(t *testing.T) {
+	step(t, "production as the preview source", func() {
 		_, prodApplyErr := apps.ApplySlotConfigToProduction(ctx, webSDKRG, slotSDKApp,
 			armappservice.CsmSlotEntity{TargetSlot: new("staging"), PreserveVnet: new(false)}, nil)
 		require.NoError(t, prodApplyErr)
@@ -512,7 +542,7 @@ func TestAzureAppServiceARMSDK_SlotDifferences(t *testing.T) {
 
 	s.stickyNames(t, []string{"STICKY"}, nil)
 	s.setProdSettings(t, map[string]string{"A": "prod", "STICKY": "p", "SAME": "x"})
-	s.setSettings(t, "staging", map[string]string{"A": "stg", "STICKY": "s", "SAME": "x", "ONLYSTG": "1"})
+	s.setStagingSettings(t, map[string]string{"A": "stg", "STICKY": "s", "SAME": "x", "ONLYSTG": "1"})
 
 	pager := apps.NewListSlotDifferencesSlotPager(webSDKRG, slotSDKApp, "staging",
 		armappservice.CsmSlotEntity{TargetSlot: new("production"), PreserveVnet: new(false)}, nil)
@@ -579,16 +609,16 @@ func TestAzureAppServiceARMSDK_SlotLimits(t *testing.T) {
 			require.NoError(t, err)
 
 			for i := range tt.want {
-				_, slotErr := s.createSlot(t, "limited", "s"+string(rune('a'+i)), nil)
+				slotErr := s.createSlot(t, "limited", "s"+string(rune('a'+i)), nil)
 				require.NoError(t, slotErr, "slot %d is within the limit", i+1)
 			}
 
-			_, overErr := s.createSlot(t, "limited", "over", nil)
+			overErr := s.createSlot(t, "limited", "over", nil)
 			require.Error(t, overErr)
 			assert.Equal(t, http.StatusConflict, responseCode(overErr))
 
 			if tt.want > 0 {
-				_, updErr := s.createSlot(t, "limited", "sa", nil)
+				updErr := s.createSlot(t, "limited", "sa", nil)
 				require.NoError(t, updErr, "updating an existing slot is not a new slot")
 			}
 		})
@@ -609,7 +639,7 @@ func TestAzureAppServiceARMSDK_SlotErrors(t *testing.T) {
 	s := newSlotStack(t)
 	apps := s.factory.NewWebAppsClient()
 
-	_, err := s.createSlot(t, slotSDKApp, "second", &armappservice.SiteProperties{
+	err := s.createSlot(t, slotSDKApp, "second", &armappservice.SiteProperties{
 		SiteConfig: &armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")},
 	})
 	require.NoError(t, err)
@@ -623,28 +653,47 @@ func TestAzureAppServiceARMSDK_SlotErrors(t *testing.T) {
 		{func() error { return s.swap(t, "staging", "nope") }, "unknown target", http.StatusNotFound},
 		{func() error { return s.swap(t, "nope", "production") }, "unknown source", http.StatusNotFound},
 		{func() error { return s.swap(t, "", "production") }, "production with production", http.StatusBadRequest},
-		{func() error { _, e := s.createSlot(t, slotSDKApp, "production", nil); return e }, "reserved name", http.StatusBadRequest},
-		{func() error { _, e := s.createSlot(t, slotSDKApp, "bad_name", nil); return e }, "bad characters", http.StatusBadRequest},
-		{func() error { _, e := s.createSlot(t, slotSDKApp, "averyveryverylongslotname", nil); return e }, "name too long", http.StatusBadRequest},
-		{func() error { _, e := s.createSlot(t, "ghost", "x", nil); return e }, "unknown site", http.StatusNotFound},
-		{func() error {
-			_, e := s.createSlot(t, slotSDKApp, "other", &armappservice.SiteProperties{ServerFarmID: new(s.planID + "x")})
-			return e
-		}, "different plan", http.StatusBadRequest},
-		{func() error { _, e := apps.GetSlot(t.Context(), webSDKRG, slotSDKApp, "nope", nil); return e }, "get unknown", http.StatusNotFound},
+		{slotErr(t, slotSDKApp, "production", nil, s.fnSDKStack), "reserved name", http.StatusBadRequest},
+		{slotErr(t, slotSDKApp, "bad_name", nil, s.fnSDKStack), "bad characters", http.StatusBadRequest},
+		{
+			slotErr(t, slotSDKApp, "averyveryverylongslotname", nil, s.fnSDKStack),
+			"name too long",
+			http.StatusBadRequest,
+		},
+		{slotErr(t, "ghost", "x", nil, s.fnSDKStack), "unknown site", http.StatusNotFound},
+		{
+			slotErr(
+				t,
+				slotSDKApp,
+				"other",
+				&armappservice.SiteProperties{ServerFarmID: new(s.planID + "x")},
+				s.fnSDKStack,
+			),
+			"different plan",
+			http.StatusBadRequest,
+		},
+		{
+			func() error {
+				_, e := apps.GetSlot(t.Context(), webSDKRG, slotSDKApp, "nope", nil)
+
+				return e
+			},
+			"get unknown",
+			http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := tt.fn()
-			require.Error(t, err)
-			assert.Equal(t, tt.want, responseCode(err), err.Error())
+			fnErr := tt.fn()
+			require.Error(t, fnErr)
+			assert.Equal(t, tt.want, responseCode(fnErr), fnErr.Error())
 		})
 	}
 
-	t.Run("a swap between two slots", func(t *testing.T) {
+	step(t, "a swap between two slots", func() {
 		s.deploy(t, "staging", "one")
 		s.deploy(t, "second", "two")
 		require.NoError(t, s.swap(t, "staging", "second"))
@@ -652,22 +701,27 @@ func TestAzureAppServiceARMSDK_SlotErrors(t *testing.T) {
 		assert.Equal(t, "one", s.get(t, "second", "/marker"))
 	})
 
-	t.Run("a slot may not take a site's hostname", func(t *testing.T) {
+	step(t, "a slot may not take a site's hostname", func() {
 		plan := s.planID
-		_, siteErr := s.createWebApp(t, slotSDKApp+"-staging", plan, &armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")})
+		_, siteErr := s.createWebApp(
+			t,
+			slotSDKApp+"-staging",
+			plan,
+			&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")},
+		)
 		require.Error(t, siteErr)
 		assert.Equal(t, http.StatusConflict, responseCode(siteErr))
 	})
 
-	t.Run("cloning copies settings, not content", func(t *testing.T) {
-		s.setSettings(t, "staging", map[string]string{"CLONED": "yes", "OVERRIDE": "src"})
+	step(t, "cloning copies settings, not content", func() {
+		s.setStagingSettings(t, map[string]string{"CLONED": "yes", "OVERRIDE": "src"})
 		s.deploy(t, "staging", "src-content")
 
 		src := armappservice.CloningInfo{
-			SourceWebAppID: new(*s.mustGetSlot(t, "staging").ID),
+			SourceWebAppID:       new(*s.mustGetSlot(t, "staging").ID),
 			AppSettingsOverrides: map[string]*string{"OVERRIDE": new("dst")},
 		}
-		_, cloneErr := s.createSlot(t, slotSDKApp, "clone", &armappservice.SiteProperties{CloningInfo: &src})
+		cloneErr := s.createSlot(t, slotSDKApp, "clone", &armappservice.SiteProperties{CloningInfo: &src})
 		require.NoError(t, cloneErr)
 
 		list, listErr := apps.ListApplicationSettingsSlot(t.Context(), webSDKRG, slotSDKApp, "clone", nil)
@@ -695,7 +749,7 @@ func TestAzureAppServiceARMSDK_SlotPersistence(t *testing.T) {
 
 	src := newSlotStack(t)
 	src.stickyNames(t, []string{"STICKY"}, nil)
-	src.setSettings(t, "staging", map[string]string{"A": "slot"})
+	src.setStagingSettings(t, map[string]string{"A": "slot"})
 	src.deploy(t, "staging", "staged")
 	require.NoError(t, src.arm.Restore(t.Context(), src.arm.Snapshot(t.Context())), "own snapshot restores")
 
@@ -711,7 +765,8 @@ func TestAzureAppServiceARMSDK_SlotPersistence(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "STICKY", *names.Properties.AppSettingNames[0])
 
-	list, err := dst.factory.NewWebAppsClient().ListApplicationSettingsSlot(t.Context(), webSDKRG, slotSDKApp, "staging", nil)
+	list, err := dst.factory.NewWebAppsClient().
+		ListApplicationSettingsSlot(t.Context(), webSDKRG, slotSDKApp, "staging", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "slot", *list.Properties["A"])
 

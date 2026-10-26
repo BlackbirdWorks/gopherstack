@@ -110,7 +110,10 @@ func (p *WebProvider) functionEnvelope(id ResourceID, host string, f FunctionApp
 	}
 
 	return map[string]any{
-		"id": fid, fieldName: strings.Join(id.Names, "/") + "/" + f.Name, fieldType: webTypeFunction, fieldProperties: props,
+		"id":            fid,
+		fieldName:       strings.Join(id.Names, "/") + "/" + f.Name,
+		fieldType:       webTypeFunction,
+		fieldProperties: props,
 	}
 }
 

@@ -62,7 +62,7 @@ func (a *azureFunctionAppsAdapter) PutApp(
 		Kind: cfg.Kind, LinuxFx: cfg.LinuxFx, AppCommandLine: cfg.AppCommandLine, HealthCheckPath: cfg.HealthCheckPath,
 	}
 
-	if err := azurefunctions.ValidateConfig(appCfg); err != nil && !(isSlotName(name) && cfg.LinuxFx == "") {
+	if err := azurefunctions.ValidateConfig(appCfg); err != nil && (!isSlotName(name) || cfg.LinuxFx != "") {
 		return azurearm.FunctionAppInfo{}, fmt.Errorf("%w: %w", azurearm.ErrWebInvalidSiteConfig, err)
 	}
 

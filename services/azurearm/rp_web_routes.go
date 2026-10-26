@@ -58,12 +58,8 @@ func isSlotResource(segs []string, method string) bool {
 		return false
 	}
 
-	switch len(segs) {
-	case webSiteSegs + webSlotRestSegs:
-		return method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
-	}
-
-	return false
+	return len(segs) == webSiteSegs+webSlotRestSegs &&
+		(method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete)
 }
 
 const (

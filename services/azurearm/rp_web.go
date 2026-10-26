@@ -133,7 +133,8 @@ func errUnsupportedWebType(id ResourceID) error {
 }
 
 func webKind(id ResourceID) string {
-	if len(id.Types) == 2 && strings.EqualFold(id.Types[0], webSitesType) && strings.EqualFold(id.Types[1], webSlotsType) {
+	if len(id.Types) == 2 && strings.EqualFold(id.Types[0], webSitesType) &&
+		strings.EqualFold(id.Types[1], webSlotsType) {
 		return webSlotsType
 	}
 
@@ -256,6 +257,22 @@ func (p *WebProvider) checkSitePlan(kind, farm string) error {
 	return nil
 }
 
+func (p *WebProvider) checkSiteWritable(id ResourceID, name string, existing *storedWebSite) error {
+	if other, taken := p.sites[webSiteKey(name)]; taken && !resourceGroupsEqual(other.ResourceGroup, id.ResourceGroup) {
+		return ErrWebNameTaken
+	}
+
+	if p.slotLabelTaken(name, "") {
+		return ErrWebNameTaken
+	}
+
+	if existing != nil && existing.Pending != nil {
+		return ErrWebSwapPending
+	}
+
+	return nil
+}
+
 func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
 	name := id.LeafName()
 	existing, exists := p.site(id.ResourceGroup, name)
@@ -273,16 +290,8 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, badWebRequest(errWebSiteName)
 	}
 
-	if other, taken := p.sites[webSiteKey(name)]; taken && !resourceGroupsEqual(other.ResourceGroup, id.ResourceGroup) {
-		return nil, ErrWebNameTaken
-	}
-
-	if p.slotLabelTaken(name, "") {
-		return nil, ErrWebNameTaken
-	}
-
-	if exists && existing.Pending != nil {
-		return nil, ErrWebSwapPending
+	if err := p.checkSiteWritable(id, name, existing); err != nil {
+		return nil, err
 	}
 
 	props, _ := body[fieldProperties].(map[string]any)

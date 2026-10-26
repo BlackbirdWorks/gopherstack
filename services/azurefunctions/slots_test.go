@@ -15,7 +15,10 @@ func slotEnv(t *testing.T) *env {
 
 	e := newEnv(t, true)
 	e.backend.PutApp("shop", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts"})
-	e.backend.PutApp(azurefunctions.SlotName("shop", "stg"), azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts"})
+	e.backend.PutApp(
+		azurefunctions.SlotName("shop", "stg"),
+		azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts"},
+	)
 
 	return e
 }
@@ -49,14 +52,14 @@ func TestSlots_HostnameRouting(t *testing.T) {
 	tests := []struct {
 		name     string
 		host     string
-		wantCode int
 		wantSlot string
+		wantCode int
 	}{
-		{"production", "shop." + testDomain, http.StatusOK, "Production"},
-		{"slot", "shop-stg." + testDomain, http.StatusOK, "stg"},
-		{"slot with port", "shop-stg." + testDomain + ":10012", http.StatusOK, "stg"},
-		{"unknown slot", "shop-nope." + testDomain, http.StatusNotFound, ""},
-		{"slot of unknown app", "ghost-stg." + testDomain, http.StatusNotFound, ""},
+		{"production", "shop." + testDomain, "Production", http.StatusOK},
+		{"slot", "shop-stg." + testDomain, "stg", http.StatusOK},
+		{"slot with port", "shop-stg." + testDomain + ":10012", "stg", http.StatusOK},
+		{"unknown slot", "shop-nope." + testDomain, "", http.StatusNotFound},
+		{"slot of unknown app", "ghost-stg." + testDomain, "", http.StatusNotFound},
 	}
 
 	for _, tt := range tests {
@@ -135,7 +138,7 @@ func TestSlots_SwapContent(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 	}
 
-	assert.Equal(t, before+2, len(e.rt.specs()))
+	assert.Len(t, e.rt.specs(), before+2)
 	assert.Equal(t, "stg", markerOf(t, "shop."+testDomain+":10012", e), "production now runs the staged content")
 	assert.Equal(t, "prod", markerOf(t, "shop-stg."+testDomain+":10012", e))
 
