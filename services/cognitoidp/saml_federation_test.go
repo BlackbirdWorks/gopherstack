@@ -49,6 +49,7 @@ type samlOpts struct {
 	extraAud   string
 	encryptTo  *rsa.PublicKey
 	encMode    string
+	emailVals  []string
 	noDest     bool
 	unsolicit  bool
 	expires    time.Duration
@@ -158,7 +159,7 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 		`<saml:AudienceRestriction><saml:Audience>` + o.audience + `</saml:Audience></saml:AudienceRestriction>` +
 		o.extraRestriction() +
 		`</saml:Conditions><saml:AttributeStatement><saml:Attribute Name="` + samlEmailAttr + `">` +
-		`<saml:AttributeValue>alice@corp.example</saml:AttributeValue></saml:Attribute></saml:AttributeStatement>`
+		o.emailXML() + `</saml:Attribute></saml:AttributeStatement>`
 
 	aOpen := `<saml:Assertion xmlns:saml="` + samlNSAssert + `" ID="_assert1" IssueInstant="` + stamp(0) +
 		`" Version="2.0">`
@@ -192,6 +193,19 @@ func (i *samlIDP) response(requestID, acs, poolID string, o *samlOpts) string {
 	}
 
 	return base64.StdEncoding.EncodeToString([]byte(doc))
+}
+
+func (o *samlOpts) emailXML() string {
+	if len(o.emailVals) == 0 {
+		return `<saml:AttributeValue>alice@corp.example</saml:AttributeValue>`
+	}
+
+	var sb strings.Builder
+	for _, v := range o.emailVals {
+		sb.WriteString(`<saml:AttributeValue>` + v + `</saml:AttributeValue>`)
+	}
+
+	return sb.String()
 }
 
 func (o *samlOpts) irt(id string) string {
@@ -477,6 +491,46 @@ func TestSAMLFederation(t *testing.T) {
 			require.Len(t, idents, 1)
 			assert.Equal(t, "SAML", idents[0].(map[string]any)["providerType"])
 			assert.Equal(t, samlEntityID, idents[0].(map[string]any)["issuer"])
+		})
+	}
+}
+
+func TestSAMLMultiValuedAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+		vals []string
+	}{
+		{name: "single", vals: []string{"alice@corp.example"}, want: "alice@corp.example"},
+		{name: "multi", vals: []string{"a", "b", "c"}, want: "[a,b,c]"},
+		{name: "multi encoded", vals: []string{"a b", "x@y.z", "k_1-*"}, want: "[a+b,x%40y.z,k_1-*]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			env := newSAMLEnv(t, false)
+			reqID, relay, _ := env.start(t)
+
+			opts := samlOpts{emailVals: tt.vals}
+			doc := env.idp.response(reqID, env.acs(), env.poolID, &opts)
+			q := locationQuery(t, env.post(t, relay, doc))
+			require.NotEmpty(t, q.Get("code"), q.Encode())
+
+			resp, body := env.postForm(t, "/oauth2/token", url.Values{
+				"grant_type": {"authorization_code"}, "code": {q.Get("code")},
+				"redirect_uri": {oauthRedirect}, "client_id": {env.clientID},
+			}, nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
+
+			var tok map[string]any
+			require.NoError(t, json.Unmarshal(body, &tok))
+
+			claims := env.verifyAgainstJWKS(t, tok["id_token"].(string))
+			assert.Equal(t, tt.want, claims["email"])
 		})
 	}
 }
