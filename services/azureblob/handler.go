@@ -60,6 +60,9 @@ const (
 	opSetContainerMetadata   = "SetContainerMetadata"
 	opGetContainerACL        = "GetContainerACL"
 	opSetContainerACL        = "SetContainerACL"
+	opSetBlobTags            = "SetBlobTags"
+	opGetBlobTags            = "GetBlobTags"
+	opFindBlobsByTags        = "FindBlobsByTags"
 	unknownOperation         = "Unknown"
 )
 
@@ -130,6 +133,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opSetContainerMetadata,
 		opGetContainerACL,
 		opSetContainerACL,
+		opSetBlobTags,
+		opGetBlobTags,
+		opFindBlobsByTags,
 	}
 }
 
@@ -296,6 +302,8 @@ const (
 	compACL          = "acl"
 	compTier         = "tier"
 	compSnapshot     = "snapshot"
+	compTags         = "tags"
+	compBlobs        = "blobs"
 )
 
 // operationFor determines the Azure Blob operation name for a request, for
@@ -326,6 +334,8 @@ func accountOperationFor(r *http.Request) string {
 		return opListContainers
 	case r.Method == http.MethodGet && q.Get(queryRestype) == restypeService && q.Get(queryComp) == compProperties:
 		return opGetServiceProperties
+	case r.Method == http.MethodGet && q.Get(queryComp) == compBlobs:
+		return opFindBlobsByTags
 	default:
 		return unknownOperation
 	}
@@ -369,6 +379,8 @@ func containerReadOp(method, comp string) string {
 		return opListBlobs
 	case method == http.MethodGet && comp == compACL:
 		return opGetContainerACL
+	case method == http.MethodGet && comp == compBlobs:
+		return opFindBlobsByTags
 	case comp == "" || comp == compMetadata:
 		return opGetContainerProperties
 	default:
@@ -390,6 +402,8 @@ func blobOperationFor(r *http.Request) string {
 			return opGetBlobMetadata
 		case compBlockList:
 			return opGetBlockList
+		case compTags:
+			return opGetBlobTags
 		}
 
 		return opGetBlob
@@ -422,6 +436,8 @@ func blobPutOp(comp string, copying bool) string {
 		return opSetBlobMetadata
 	case comp == compTier:
 		return opSetBlobTier
+	case comp == compTags:
+		return opSetBlobTags
 	case comp == compSnapshot:
 		return opSnapshotBlob
 	case copying:
@@ -450,6 +466,10 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 	if r.Method == http.MethodGet && c.QueryParam(queryRestype) == restypeService &&
 		c.QueryParam(queryComp) == compProperties {
 		return h.writeXML(c, http.StatusOK, storageServiceProperties{})
+	}
+
+	if r.Method == http.MethodGet && c.QueryParam(queryComp) == compBlobs {
+		return h.findBlobsByTags(c, "")
 	}
 
 	if r.Method != http.MethodGet || c.QueryParam(queryComp) != compList {
@@ -537,6 +557,8 @@ func (h *Handler) handleContainerLevel(c *echo.Context, container string) error 
 		return h.setContainerMetadata(c, container)
 	case opGetContainerACL:
 		return h.getContainerACL(c, container)
+	case opFindBlobsByTags:
+		return h.findBlobsByTags(c, container)
 	case opSetContainerACL:
 		return h.setContainerACL(c, container)
 	default:
@@ -569,6 +591,10 @@ func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error
 		return h.getBlobMetadata(c, container, blob)
 	case opSetBlobTier:
 		return h.setBlobTier(c, container, blob)
+	case opSetBlobTags:
+		return h.setBlobTags(c, container, blob)
+	case opGetBlobTags:
+		return h.getBlobTags(c, container, blob)
 	case opSnapshotBlob:
 		return h.snapshotBlob(c, container, blob)
 	case opCopyBlob:
@@ -623,6 +649,10 @@ func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
 	attrs.AccessTier = r.Header.Get(headerAccessTier)
 	if attrs.AccessTier != "" && !validTier(attrs.AccessTier) {
 		return h.writeAPIError(c, errInvalidHeader(headerAccessTier))
+	}
+
+	if attrs.Tags, apiErr = tagsFromHeader(r); apiErr != nil {
+		return h.writeAPIError(c, apiErr)
 	}
 
 	pre, apiErr := precondFromRequest(r)
@@ -772,6 +802,10 @@ func (h *Handler) setBlobHeaders(c *echo.Context, info BlobInfo) {
 	hdr.Set("Accept-Ranges", "bytes")
 	setMetadataHeaders(hdr, info.Metadata)
 	setLeaseHeaders(hdr, info.Lease)
+
+	if len(info.Tags) > 0 {
+		hdr.Set("X-Ms-Tag-Count", strconv.Itoa(len(info.Tags)))
+	}
 
 	for name, val := range map[string]string{
 		"Content-Type":        info.ContentType,

@@ -56,7 +56,7 @@ func etagMatches(header, etag string) bool {
 
 // check evaluates the conditions against a blob (exists=false: the blob is
 // absent, which only If-None-Match can satisfy).
-func (p Precond) check(kind condKind, exists bool, etag string, lm time.Time) error {
+func (p Precond) check(kind condKind, exists bool, etag string, lm time.Time, tags map[string]string) error {
 	if !exists {
 		if p.IfMatch != "" || !p.IfModifiedSince.IsZero() || !p.IfUnmodifiedSince.IsZero() || p.IfTags != "" {
 			return errConditionNotMet()
@@ -75,10 +75,8 @@ func (p Precond) check(kind condKind, exists bool, etag string, lm time.Time) er
 		return errConditionNotMet()
 	}
 
-	if p.IfTags != "" {
-		if err := evalTagCondition(p.IfTags); err != nil {
-			return err
-		}
+	if err := p.checkTags(true, tags); err != nil {
+		return err
 	}
 
 	return p.checkNegative(kind, etag, lm)
@@ -131,47 +129,22 @@ func (p Precond) checkContainer(lm time.Time) error {
 	return nil
 }
 
-// evalTagCondition validates an x-ms-if-tags expression. Blob index tags are
-// not modeled, so every blob has none and a well-formed expression is false.
-func evalTagCondition(expr string) error {
-	for _, clause := range splitAnd(expr) {
-		if !validTagClause(strings.TrimSpace(clause)) {
-			return storageErr(http.StatusBadRequest, "InvalidHeaderValue",
-				"The value for one of the HTTP headers is not in the correct format (x-ms-if-tags).")
-		}
+// checkTags evaluates x-ms-if-tags against a blob's tags. A malformed
+// expression is 400; an unmet or absent-blob condition is 412.
+func (p Precond) checkTags(exists bool, tags map[string]string) error {
+	if p.IfTags == "" {
+		return nil
 	}
 
-	return errConditionNotMet()
-}
-
-func splitAnd(expr string) []string {
-	parts := strings.Split(expr, " AND ")
-	if len(parts) == 1 {
-		parts = strings.Split(expr, " and ")
+	node, err := parseTagCondition(p.IfTags)
+	if err != nil {
+		return storageErr(http.StatusBadRequest, "InvalidHeaderValue",
+			"The value for one of the HTTP headers is not in the correct format (x-ms-if-tags).")
 	}
 
-	return parts
-}
-
-func validTagClause(c string) bool {
-	if len(c) < len(`"a"='b'`) || c[0] != '"' {
-		return false
+	if !exists || !node.eval(tags) {
+		return errConditionNotMet()
 	}
 
-	end := strings.Index(c[1:], `"`)
-	if end <= 0 {
-		return false
-	}
-
-	rest := strings.TrimSpace(c[end+2:])
-
-	for _, op := range []string{"<>", ">=", "<=", "=", ">", "<"} {
-		if val, ok := strings.CutPrefix(rest, op); ok {
-			val = strings.TrimSpace(val)
-
-			return len(val) >= 2 && val[0] == '\'' && val[len(val)-1] == '\''
-		}
-	}
-
-	return false
+	return nil
 }

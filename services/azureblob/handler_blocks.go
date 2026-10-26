@@ -197,6 +197,10 @@ func (h *Handler) putBlockList(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, errInvalidHeader(headerAccessTier))
 	}
 
+	if attrs.Tags, apiErr = tagsFromHeader(r); apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
 	body, readErr := h.readBlockBody(c)
 	if readErr != nil {
 		return h.writeAPIError(c, readErr)

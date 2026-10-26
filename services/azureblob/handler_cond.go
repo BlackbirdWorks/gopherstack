@@ -76,6 +76,8 @@ func precondFromRequest(r *http.Request) (Precond, *apiError) {
 		return p, apiErr
 	}
 
+	src.IfTags = r.Header.Get("X-Ms-Source-If-Tags")
+
 	if src != (Precond{}) {
 		p.Source = &src
 	}

@@ -27,6 +27,7 @@ type ListBlobsOptions struct {
 	Marker           string
 	MaxResults       int
 	IncludeSnapshots bool
+	IncludeTags      bool
 }
 
 // ListEntry is one item of a List Blobs page: a blob or a BlobPrefix.
@@ -162,7 +163,7 @@ func (b *InMemoryBackend) writableBlobLocked(container, blob string, p Precond, 
 		return nil, err
 	}
 
-	if err = p.check(condWrite, true, s.ETag, s.LastModified); err != nil {
+	if err = p.check(condWrite, true, s.ETag, s.LastModified, s.Tags); err != nil {
 		return nil, err
 	}
 
@@ -255,6 +256,7 @@ func (b *InMemoryBackend) SnapshotBlob(container, blob string, md map[string]str
 	snap.Lease = nil
 	snap.Data = slices.Clone(s.Data)
 	snap.Blocks = slices.Clone(s.Blocks)
+	snap.Tags = maps.Clone(s.Tags)
 	snap.Snapshot = uniqueSnapshotID(s, b.now())
 
 	if md != nil {
@@ -273,9 +275,9 @@ func (b *InMemoryBackend) SnapshotBlob(container, blob string, md map[string]str
 }
 
 // CopyBlob copies a blob (or snapshot) within the account. A nil md inherits
-// the source metadata.
+// the source metadata; tags are never inherited, only the given ones apply.
 func (b *InMemoryBackend) CopyBlob(
-	srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, md map[string]string, pre ...Precond,
+	srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, md, tags map[string]string, pre ...Precond,
 ) (BlobInfo, error) {
 	b.mu.Lock("CopyBlob")
 	defer b.mu.Unlock()
@@ -292,7 +294,7 @@ func (b *InMemoryBackend) CopyBlob(
 
 	p := firstPre(pre)
 	if p.Source != nil {
-		if err = p.Source.check(condWrite, true, src.ETag, src.LastModified); err != nil {
+		if err = p.Source.check(condWrite, true, src.ETag, src.LastModified, src.Tags); err != nil {
 			return BlobInfo{}, asSourceCondition(err)
 		}
 	}
@@ -306,6 +308,7 @@ func (b *InMemoryBackend) CopyBlob(
 	dst := &storedBlob{
 		Name:         dstBlob,
 		Blocks:       slices.Clone(src.Blocks),
+		Tags:         maps.Clone(tags),
 		Data:         slices.Clone(src.Data),
 		LastModified: b.now(),
 		ETag:         computeBlobETag(src.Data, b.etagSeq),

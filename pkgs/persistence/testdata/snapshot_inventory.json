@@ -3348,6 +3348,7 @@
       "storedBlob.Name string",
       "storedBlob.Snapshot string",
       "storedBlob.Snapshots map[string]*storedBlob",
+      "storedBlob.Tags map[string]string `json:\"Tags,omitempty\"`",
       "storedContainer.ACL []SignedIdentifier",
       "storedContainer.Blobs map[string]*storedBlob",
       "storedContainer.CreatedAt time.Time",
