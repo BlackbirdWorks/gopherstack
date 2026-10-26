@@ -47,6 +47,8 @@ func (b *InMemoryBackend) AssociateTargetsWithJob(
 
 // ListJobExecutionsForJob returns summaries of all executions for a job.
 func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("ListJobExecutionsForJob")
 	defer b.mu.RUnlock()
 
@@ -64,6 +66,8 @@ func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution 
 
 // ListJobExecutionsForThing returns summaries of all executions for a thing.
 func (b *InMemoryBackend) ListJobExecutionsForThing(thingName string) []*JobExecution {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("ListJobExecutionsForThing")
 	defer b.mu.RUnlock()
 
@@ -290,6 +294,8 @@ type JobExecution struct {
 	LastUpdatedAt                    float64                    `json:"lastUpdatedAt,omitempty"`
 	ApproximateSecondsBeforeTimedOut int64                      `json:"approximateSecondsBeforeTimedOut,omitempty"`
 	VersionNumber                    int64                      `json:"versionNumber,omitempty"`
+	InProgressDeadline               float64                    `json:"inProgressDeadline,omitempty"`
+	StepDeadline                     float64                    `json:"stepDeadline,omitempty"`
 	ForceCanceled                    bool                       `json:"forceCanceled,omitempty"`
 }
 
@@ -528,6 +534,8 @@ func (b *InMemoryBackend) jobProcessDetailsLocked(jobID string) *JobProcessDetai
 }
 
 func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("DescribeJob")
 	defer b.mu.RUnlock()
 
@@ -666,6 +674,8 @@ func (b *InMemoryBackend) jobExecutionsForJob(jobID string) []*JobExecution {
 // already enforce. force additionally determines whether IN_PROGRESS job
 // executions are canceled too (QUEUED executions are always canceled).
 func (b *InMemoryBackend) CancelJob(jobID, comment, reasonCode string, force bool) (*Job, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
@@ -681,6 +691,7 @@ func (b *InMemoryBackend) CancelJob(jobID, comment, reasonCode string, force boo
 	j.ReasonCode = reasonCode
 	j.ForceCanceled = force
 	j.LastUpdatedAt = float64(time.Now().Unix())
+	b.queueJobEventLocked("canceled", j)
 
 	now := float64(time.Now().Unix())
 	for _, exec := range b.jobExecutionsForJob(jobID) {
@@ -689,11 +700,13 @@ func (b *InMemoryBackend) CancelJob(jobID, comment, reasonCode string, force boo
 			exec.Status = JobExecCanceled
 			exec.LastUpdatedAt = now
 			b.notifyJob(exec.ThingName)
+			b.queueJobExecutionEventLocked("canceled", exec)
 		case exec.Status == JobExecInProgress && force:
 			exec.Status = JobExecCanceled
 			exec.ForceCanceled = true
 			exec.LastUpdatedAt = now
 			b.notifyJob(exec.ThingName)
+			b.queueJobExecutionEventLocked("canceled", exec)
 		}
 	}
 
@@ -706,6 +719,8 @@ func (b *InMemoryBackend) CancelJob(jobID, comment, reasonCode string, force boo
 // "you can only delete a job which is in a terminal state ('COMPLETED' or
 // 'CANCELED') or an exception will occur").
 func (b *InMemoryBackend) DeleteJob(jobID string, force bool) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
@@ -720,6 +735,7 @@ func (b *InMemoryBackend) deleteJobLocked(jobID string, force bool) error {
 	if j.Status == JobStatusInProgress && !force {
 		return fmt.Errorf("%w: job %q is IN_PROGRESS, set force=true to delete it", ErrInvalidStateTransition, jobID)
 	}
+	b.queueJobEventLocked("deleted", j)
 	b.jobs.Delete(jobID)
 	delete(b.resourceTags, b.jobARN(jobID))
 	// Remove executions. Preserves the original key-prefix check (including
@@ -767,6 +783,8 @@ func (b *InMemoryBackend) AddJobExecutionInternal(e *JobExecution) {
 }
 
 func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExecution, error) {
+	b.sweepJobTimeouts()
+
 	b.mu.RLock("DescribeJobExecution")
 	defer b.mu.RUnlock()
 
@@ -781,6 +799,7 @@ func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExe
 		)
 	}
 	cp := *exec
+	cp.ApproximateSecondsBeforeTimedOut = approxSecondsBeforeTimedOut(exec, float64(time.Now().Unix()))
 
 	return &cp, nil
 }
@@ -809,15 +828,19 @@ type CancelJobExecutionOptions struct {
 // AddThingToThingGroup) — there, an execution is created directly in
 // CANCELED state as a defensive fallback.
 func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("CancelJobExecution")
 	defer b.mu.Unlock()
+
+	b.sweepJobTimeoutsLocked(float64(time.Now().Unix()))
 
 	now := float64(time.Now().Unix())
 	key := jobExecKey(jobID, thingName)
 
 	exec, ok := b.jobExecutions.Get(key)
 	if !ok {
-		b.jobExecutions.Put(&JobExecution{
+		created := &JobExecution{
 			JobID:           jobID,
 			ThingName:       thingName,
 			Status:          JobExecCanceled,
@@ -827,8 +850,10 @@ func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts Cance
 			StatusDetails:   statusDetailsFromMap(opts.StatusDetails),
 			QueuedAt:        now,
 			LastUpdatedAt:   now,
-		})
+		}
+		b.jobExecutions.Put(created)
 		b.notifyJob(thingName)
+		b.queueJobExecutionEventLocked("canceled", created)
 
 		return nil
 	}
@@ -860,6 +885,8 @@ func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts Cance
 
 		maps.Copy(exec.StatusDetails.DetailsMap, opts.StatusDetails)
 	}
+
+	b.queueJobExecutionEventLocked("canceled", exec)
 
 	job, _ := b.jobs.Get(jobID)
 	b.completeJobIfDoneLocked(job, now)
@@ -904,6 +931,8 @@ func isTerminalJobExecutionStatus(status JobExecutionStatus) bool {
 // already-absent execution rather than ResourceNotFoundException, since
 // deletion is the natural end state).
 func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteJobExecution")
 	defer b.mu.Unlock()
 
@@ -921,6 +950,7 @@ func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool
 		)
 	}
 
+	b.queueJobExecutionEventLocked("deleted", exec)
 	b.jobExecutions.Delete(key)
 	b.notifyJob(thingName)
 

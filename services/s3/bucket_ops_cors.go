@@ -100,7 +100,7 @@ func (h *S3Handler) applyCORSActualResponseHeaders(
 	ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string,
 ) {
 	origin := r.Header.Get("Origin")
-	if origin == "" || r.Method == http.MethodOptions {
+	if h.DisableBucketCORS || origin == "" || r.Method == http.MethodOptions {
 		return
 	}
 
@@ -133,6 +133,12 @@ func (h *S3Handler) handleCORSPreflight(
 	bucket string,
 ) {
 	h.setOperation(ctx, "CORSPreflight")
+	if h.DisableBucketCORS {
+		w.WriteHeader(http.StatusForbidden)
+
+		return
+	}
+
 	corsXML, err := h.Backend.GetBucketCORS(ctx, bucket)
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)

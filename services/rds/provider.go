@@ -3,6 +3,8 @@ package rds
 import (
 	"errors"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -80,7 +82,25 @@ func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend) {
 	}
 
 	backend.SetAutoPause(AutoPauseConfigFromEnv())
+	var apiEndpoint string
+	if ep, hasEP := ctx.Config.(interface{ GetEndpoint() string }); hasEP {
+		apiEndpoint = ep.GetEndpoint()
+	}
+
 	backend.EnableEngine(EngineConfig{
 		Runtime: er, Ports: ctx.PortAlloc, Host: os.Getenv("RDS_DB_HOST"), CADir: caDir, DumpDir: dumpDir,
+		PostgresExtensions: extensionsEnabled(), SQLServer: sqlServerEnabled(), APIEndpoint: apiEndpoint,
 	})
+}
+
+// sqlServerEnabled reports whether RDS_SQLSERVER_ENGINE=docker opts sqlserver-* instances into a real container.
+func sqlServerEnabled() bool {
+	return strings.EqualFold(os.Getenv("RDS_SQLSERVER_ENGINE"), EngineDocker)
+}
+
+// extensionsEnabled reports whether RDS_POSTGRES_EXTENSIONS leaves the extension image on (the default).
+func extensionsEnabled() bool {
+	on, err := strconv.ParseBool(os.Getenv("RDS_POSTGRES_EXTENSIONS"))
+
+	return err != nil || on
 }

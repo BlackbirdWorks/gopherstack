@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // maxBatchCreatePartitions is the maximum number of partitions per BatchCreatePartition call.
@@ -14,14 +16,14 @@ const maxBatchCreatePartitions = 100
 
 // partitionKey returns a map key for a partition.
 func partitionKey(dbName, tableName string, values []string) string {
-	return fmt.Sprintf("%s|%s|%s", dbName, tableName, strings.Join(values, "#"))
+	return fmt.Sprintf("%s|%s|%s", strs.Fold(dbName), strs.Fold(tableName), strings.Join(values, "#"))
 }
 
 // deleteTablePartitionsLocked removes all partitions, versions, column
 // statistics, and table optimizers for a table. Must be called with b.mu
 // held for writing.
 func (b *InMemoryBackend) deleteTablePartitionsLocked(dbName, tableName string) {
-	prefix := dbName + "|" + tableName + "|"
+	prefix := strs.Fold(dbName) + "|" + strs.Fold(tableName) + "|"
 
 	for _, p := range b.partitions.Snapshot() {
 		if k := partitionKey(p.DatabaseName, p.TableName, p.Values); strings.HasPrefix(k, prefix) {
@@ -65,6 +67,7 @@ func (b *InMemoryBackend) BatchCreatePartition(
 	dbName, tableName string,
 	inputs []PartitionInput,
 ) ([]*Partition, []PartitionError) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("BatchCreatePartition")
 	defer b.mu.Unlock()
 
@@ -161,6 +164,7 @@ func (b *InMemoryBackend) BatchDeletePartition(
 	dbName, tableName string,
 	values []PartitionValueList,
 ) []PartitionError {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("BatchDeletePartition")
 	defer b.mu.Unlock()
 
@@ -207,6 +211,7 @@ func (b *InMemoryBackend) deletePartitionColumnStatsLocked(partKey string) {
 // filed under, exactly as the previous raw map (keyed externally on the same
 // two parameters) did.
 func (b *InMemoryBackend) AddPartitionInternal(dbName, tableName string, p *Partition) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("AddPartitionInternal")
 	defer b.mu.Unlock()
 
@@ -219,6 +224,7 @@ func (b *InMemoryBackend) AddPartitionInternal(dbName, tableName string, p *Part
 
 // GetPartition retrieves a single partition by its values.
 func (b *InMemoryBackend) GetPartition(dbName, tableName string, values []string) (*Partition, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetPartition")
 	defer b.mu.RUnlock()
 
@@ -235,6 +241,7 @@ func (b *InMemoryBackend) GetPartition(dbName, tableName string, values []string
 
 // GetPartitions returns all partitions for a table, sorted by key.
 func (b *InMemoryBackend) GetPartitions(dbName, tableName string) ([]*Partition, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetPartitions")
 	defer b.mu.RUnlock()
 
@@ -262,6 +269,7 @@ func (b *InMemoryBackend) UpdatePartition(
 	partitionValues []string,
 	input PartitionInput,
 ) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("UpdatePartition")
 	defer b.mu.Unlock()
 

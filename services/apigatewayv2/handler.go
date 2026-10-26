@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/executeapi"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -285,15 +286,30 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/") ||
-			path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/") ||
-			path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/") ||
-			path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/") ||
-			path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/") ||
-			strings.HasPrefix(path, tagsPrefix+"/") ||
-			strings.HasPrefix(path, "/v2proxy/") ||
-			isUserRequestPath(path)
+		if id, _, ok := executeapi.Parse(c.Request()); ok {
+			return h.hasAPI(id)
+		}
+
+		return h.isControlPlanePath(path) || h.isCustomDomainHost(c.Request())
 	}
+}
+
+// isControlPlanePath reports whether path is a v2 management or internal data-plane path.
+func (h *Handler) isControlPlanePath(path string) bool {
+	return path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/") ||
+		path == domainNamesPrefix || strings.HasPrefix(path, domainNamesPrefix+"/") ||
+		path == portalsPrefix || strings.HasPrefix(path, portalsPrefix+"/") ||
+		path == portalProductsPrefix || strings.HasPrefix(path, portalProductsPrefix+"/") ||
+		path == vpcLinksPrefix || strings.HasPrefix(path, vpcLinksPrefix+"/") ||
+		strings.HasPrefix(path, tagsPrefix+"/") ||
+		strings.HasPrefix(path, "/v2proxy/") ||
+		isUserRequestPath(path)
+}
+
+func (h *Handler) isCustomDomainHost(r *http.Request) bool {
+	owner, _ := h.customDomainOwner(r)
+
+	return owner != nil
 }
 
 // isUserRequestPath reports whether the path follows the data-plane format:
@@ -443,6 +459,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		path := c.Request().URL.Path
 		method := c.Request().Method
+
+		if id, rest, ok := executeapi.Parse(c.Request()); ok && h.hasAPI(id) {
+			return h.handleExecuteAPIEcho(c, id, rest)
+		}
+
+		if !h.isControlPlanePath(path) {
+			if owner, host := h.customDomainOwner(c.Request()); owner != nil {
+				return h.handleCustomDomain(c, owner, host)
+			}
+		}
 
 		switch {
 		case strings.HasPrefix(path, "/v2proxy/"):

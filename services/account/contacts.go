@@ -59,6 +59,11 @@ func (b *InMemoryBackend) PutContactInformation(info *ContactInformation) error 
 	b.mu.Lock("PutContactInformation")
 	defer b.mu.Unlock()
 
+	if b.contactInfo == nil || b.contactInfo.PhoneNumber != info.PhoneNumber {
+		b.phoneVerifyNumber = ""
+		b.phoneVerifyOTP = ""
+	}
+
 	cp := *info
 	b.contactInfo = &cp
 

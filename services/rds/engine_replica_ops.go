@@ -160,7 +160,7 @@ func (b *InMemoryBackend) finishPromote(lb *liveDB) {
 
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "rds: promoting read replica failed", "code", "DB_ENGINE_PROMOTE_FAILED")
-		b.failUnit(ctx, lb)
+		b.failUnit(ctx, lb, "promote replica", err)
 
 		return
 	}

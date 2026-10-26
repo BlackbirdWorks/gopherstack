@@ -44,6 +44,7 @@ type backendSnapshot struct {
 	ResourceScanItems   map[string][]ScannedResource                    `json:"resourceScanItems"`
 	ResourceDriftStatus map[string]map[string]string                    `json:"resourceDriftStatus"`
 	ResourceDriftDetail map[string]map[string]StackResourceDrift        `json:"resourceDriftDetail"`
+	PendingStackOps     map[string]*pendingStackOp                      `json:"pendingStackOps,omitempty"`
 	AccountID           string                                          `json:"accountID"`
 	Region              string                                          `json:"region"`
 	Version             int                                             `json:"version"`
@@ -83,6 +84,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ResourceScanItems:   b.resourceScanItems,
 		ResourceDriftStatus: b.resourceDriftStatus,
 		ResourceDriftDetail: b.resourceDriftDetail,
+		PendingStackOps:     b.pendingOps,
 		AccountID:           b.accountID,
 		Region:              b.region,
 	}
@@ -126,6 +128,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.assignSnapshotFields(snap)
 	b.rebuildDerivedIndexes()
 	b.settleInterruptedStackSetOps()
+	b.resumePendingOpsLocked(ctx)
 
 	return nil
 }
@@ -199,6 +202,10 @@ func (b *InMemoryBackend) assignSnapshotFields(snap backendSnapshot) {
 	b.resourceScanItems = snap.ResourceScanItems
 	b.resourceDriftStatus = snap.ResourceDriftStatus
 	b.resourceDriftDetail = snap.ResourceDriftDetail
+	b.pendingOps = snap.PendingStackOps
+	if b.pendingOps == nil {
+		b.pendingOps = make(map[string]*pendingStackOp)
+	}
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 }

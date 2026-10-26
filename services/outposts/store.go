@@ -33,6 +33,7 @@ const (
 // .claude/memories/pkgs-catalog.md's locking rule.
 type InMemoryBackend struct {
 	connections               *store.Table[Connection]
+	privateConnectivity       *store.Table[PrivateConnectivityConfig]
 	outpostsBySite            *store.Index[Outpost]
 	sites                     *store.Table[Site]
 	orders                    *store.Table[Order]

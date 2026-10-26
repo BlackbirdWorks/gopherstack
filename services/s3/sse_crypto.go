@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/md5" //nolint:gosec // G501: MD5 is required by the SSE-C key validation specification
@@ -9,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // Static SSE errors. The Go-style "wrapped static" pattern keeps err113 happy
@@ -288,4 +291,29 @@ func aesGCMDecrypt(key, nonce, ciphertext []byte) ([]byte, error) {
 	}
 
 	return plaintext, nil
+}
+
+// checkSSEKMSKey rejects an SSE-KMS key id KMS does not know with KMS.NotFoundException.
+// It writes the error and returns false on failure.
+func (h *S3Handler) checkSSEKMSKey(
+	ctx context.Context, w http.ResponseWriter, r *http.Request, sse sseInfo,
+) bool {
+	if h.kmsKeys == nil || h.SkipKMSKeyValidation || sse.KMSKeyID == "" {
+		return true
+	}
+
+	if sse.Algorithm != "aws:kms" && sse.Algorithm != "aws:kms:dsse" {
+		return true
+	}
+
+	if h.kmsKeys.KMSKeyExists(ctx, sse.KMSKeyID) {
+		return true
+	}
+
+	httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		Code:    "KMS.NotFoundException",
+		Message: "Key '" + sse.KMSKeyID + "' does not exist",
+	}, http.StatusBadRequest)
+
+	return false
 }

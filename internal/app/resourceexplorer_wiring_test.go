@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ampbackend "github.com/blackbirdworks/gopherstack/services/amp"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -128,4 +129,53 @@ func TestResourceExplorerWiringOrganizationsAccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, retypes.AWSServiceAccessStatusEnabled, after.OrgConfiguration.AWSServiceAccessStatus)
 	assert.NotNil(t, after.OrgConfiguration.ServiceLinkedRole)
+}
+
+func TestResourceExplorerWiringSearchesAllTaggingServices(t *testing.T) {
+	t.Parallel()
+
+	fx := newSFNFixture(t)
+	ctx := t.Context()
+	re := resourceexplorer2.NewFromConfig(fx.cfg)
+
+	ampH, ok := serviceByName(fx.services)["AMP"].(*ampbackend.Handler)
+	require.True(t, ok)
+
+	ws, err := ampH.Backend.CreateWorkspace(ctx, ampbackend.CreateWorkspaceInput{Alias: "re2-untagged"})
+	require.NoError(t, err)
+
+	_, err = re.CreateIndex(ctx, &resourceexplorer2.CreateIndexInput{})
+	require.NoError(t, err)
+
+	view, err := re.CreateView(ctx, &resourceexplorer2.CreateViewInput{ViewName: aws.String("all")})
+	require.NoError(t, err)
+
+	_, err = re.AssociateDefaultView(ctx, &resourceexplorer2.AssociateDefaultViewInput{ViewArn: view.View.ViewArn})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "by_service", query: "service:aps"},
+		{name: "by_id", query: "id:" + ws.WorkspaceID},
+		{name: "negated_other_service", query: "service:aps -service:sqs"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, serr := re.Search(t.Context(), &resourceexplorer2.SearchInput{QueryString: aws.String(tc.query)})
+			require.NoError(t, serr)
+
+			var found bool
+
+			for _, r := range out.Resources {
+				found = found || containsStr(aws.ToString(r.Arn), ws.WorkspaceID)
+			}
+
+			assert.True(t, found, "%s should list the untagged AMP workspace", tc.query)
+		})
+	}
 }

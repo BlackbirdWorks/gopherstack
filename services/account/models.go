@@ -50,6 +50,15 @@ const (
 	StateClosed            State = "CLOSED"
 )
 
+// PhoneNumberVerificationStatus is types.PhoneNumberVerificationStatus.
+type PhoneNumberVerificationStatus string
+
+// Phone number verification statuses returned by SendPhoneNumberVerification and VerifyPhoneNumber.
+const (
+	PhoneNumberVerificationStatusPending  PhoneNumberVerificationStatus = "PENDING"
+	PhoneNumberVerificationStatusVerified PhoneNumberVerificationStatus = "VERIFIED"
+)
+
 // PrimaryEmailUpdateStatus represents the status of the most recent primary
 // email update request, as reported by GetPrimaryEmailUpdateStatus.
 type PrimaryEmailUpdateStatus string

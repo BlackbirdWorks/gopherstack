@@ -189,3 +189,51 @@ func TestPagination_InvalidContinuation(t *testing.T) {
 		})
 	}
 }
+
+// Cosmos DB query executions are stateless on the server and resumable from the token, so a write between pages
+// is visible to the following pages (no snapshot).
+func TestPagination_QueryContinuationIsStateless(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, "/dbs", nil, []byte(`{"id":"d"}`)).Code)
+	require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, "/dbs/d/colls", nil,
+		[]byte(`{"id":"c","partitionKey":{"paths":["/pk"]}}`)).Code)
+
+	for i := range 4 {
+		require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, "/dbs/d/colls/c/docs", nil,
+			fmt.Appendf(nil, `{"id":"k%d","pk":"p"}`, i)).Code)
+	}
+
+	query := func(token string) []string {
+		headers := map[string]string{
+			"X-Ms-Documentdb-Isquery": "true", "Content-Type": "application/query+json",
+			"X-Ms-Max-Item-Count": "2",
+		}
+		if token != "" {
+			headers["X-Ms-Continuation"] = token
+		}
+
+		rec := doRequest(t, h, http.MethodPost, "/dbs/d/colls/c/docs", headers,
+			[]byte(`{"query":"SELECT VALUE c.id FROM c ORDER BY c.id"}`))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		var body struct {
+			Documents []string `json:"Documents"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+
+		return append(body.Documents, "next="+rec.Header().Get("X-Ms-Continuation"))
+	}
+
+	first := query("")
+	require.Equal(t, []string{"k0", "k1"}, first[:2])
+
+	require.Equal(t, http.StatusNoContent,
+		doRequest(t, h, http.MethodDelete, "/dbs/d/colls/c/docs/k3", pkHdr("p"), nil).Code)
+	require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, "/dbs/d/colls/c/docs", nil,
+		[]byte(`{"id":"k2a","pk":"p"}`)).Code)
+
+	second := query(first[2][len("next="):])
+	assert.Equal(t, []string{"k2", "k2a"}, second[:2])
+}

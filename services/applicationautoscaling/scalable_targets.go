@@ -352,6 +352,29 @@ func (b *InMemoryBackend) updateExistingTarget(
 // to all scaling policies and scheduled actions that belong to the same
 // resource (AWS behaviour).
 func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID, scalableDimension string) error {
+	b.mu.RLock("DeregisterScalableTarget")
+
+	var policyARNs []string
+
+	for _, p := range b.scalingPolicies.All() {
+		if p.ServiceNamespace == serviceNamespace && p.ResourceID == resourceID &&
+			p.ScalableDimension == scalableDimension {
+			policyARNs = append(policyARNs, p.ARN)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if err := b.deregisterScalableTarget(serviceNamespace, resourceID, scalableDimension); err != nil {
+		return err
+	}
+
+	b.deleteTargetTrackingAlarms(policyARNs...)
+
+	return nil
+}
+
+func (b *InMemoryBackend) deregisterScalableTarget(serviceNamespace, resourceID, scalableDimension string) error {
 	if serviceNamespace == "" {
 		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
 	}

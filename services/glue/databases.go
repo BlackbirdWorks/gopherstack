@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // cloneDatabase returns a deep copy of a Database.
@@ -48,6 +49,8 @@ func (b *InMemoryBackend) CreateDatabase(
 	b.mu.Lock("CreateDatabase")
 	defer b.mu.Unlock()
 
+	input.Name = strs.Fold(input.Name)
+
 	if input.Name == "" || len(input.Name) > maxNameLen {
 		return nil, ErrValidation
 	}
@@ -86,6 +89,8 @@ func (b *InMemoryBackend) CreateDatabase(
 
 // GetDatabase retrieves a Glue database by name.
 func (b *InMemoryBackend) GetDatabase(name string) (*Database, error) {
+	name = strs.Fold(name)
+
 	b.mu.RLock("GetDatabase")
 	defer b.mu.RUnlock()
 
@@ -120,6 +125,8 @@ func (b *InMemoryBackend) GetDatabases() []*Database {
 // deleted database"), a client must never be able to reach either kind of
 // resource once the database is gone.
 func (b *InMemoryBackend) DeleteDatabase(name string) error {
+	name = strs.Fold(name)
+
 	b.mu.Lock("DeleteDatabase")
 	defer b.mu.Unlock()
 
@@ -138,7 +145,7 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 	}
 
 	for _, u := range b.udfs.All() {
-		if u.DatabaseName == name {
+		if strs.Equal(u.DatabaseName, name) {
 			b.udfs.Delete(b.udfKey(u.DatabaseName, u.FunctionName))
 		}
 	}
@@ -148,6 +155,7 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 
 // UpdateDatabase updates an existing Glue database.
 func (b *InMemoryBackend) UpdateDatabase(name string, input DatabaseInput) error {
+	name = strs.Fold(name)
 	b.mu.Lock("UpdateDatabase")
 	defer b.mu.Unlock()
 

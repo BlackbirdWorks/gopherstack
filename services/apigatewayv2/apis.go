@@ -672,7 +672,7 @@ func jwtSecurityScheme(a *Authorizer) map[string]any {
 	}
 }
 
-var apiIDPattern = regexp.MustCompile(`^[a-z0-9]{10}$`)
+var apiIDPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
 
 // newAPIID returns the pinned API ID when set, else a random one. Callers hold b.mu.
 func (b *InMemoryBackend) newAPIID(pinned string) (string, error) {
@@ -680,7 +680,11 @@ func (b *InMemoryBackend) newAPIID(pinned string) (string, error) {
 		return randomID(), nil
 	}
 
-	if err := tags.ValidatePinnedID(pinned, apiIDPattern, "10 lowercase alphanumeric characters"); err != nil {
+	if err := tags.ValidatePinnedID(
+		pinned,
+		apiIDPattern,
+		"1-32 lowercase alphanumeric characters or hyphens",
+	); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 

@@ -1,8 +1,11 @@
 package servicequotas
 
 import (
+	"bytes"
+	"compress/gzip"
 	_ "embed" // quota catalog
 	"encoding/json"
+	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -10,6 +13,18 @@ import (
 
 //go:embed catalog.json
 var catalogJSON []byte
+
+//go:embed docs_quotas.json.gz
+var docsQuotasGZ []byte
+
+func docsQuotasJSON() ([]byte, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(docsQuotasGZ))
+	if err != nil {
+		return nil, err
+	}
+
+	return io.ReadAll(zr)
+}
 
 // UsageMetric describes the CloudWatch metric that tracks usage of a quota.
 type UsageMetric struct {
@@ -36,6 +51,7 @@ type QuotaDef struct {
 type ServiceDef struct {
 	Code   string     `json:"code"`
 	Name   string     `json:"name"`
+	Source string     `json:"source,omitempty"`
 	Quotas []QuotaDef `json:"quotas"`
 }
 
@@ -49,6 +65,18 @@ var defaultCatalog = sync.OnceValue(func() *Catalog { //nolint:gochecknoglobals 
 	if err := json.Unmarshal(catalogJSON, &svcs); err != nil {
 		panic("servicequotas: embedded catalog is invalid: " + err.Error())
 	}
+
+	raw, err := docsQuotasJSON()
+	if err != nil {
+		panic("servicequotas: embedded docs catalog is invalid: " + err.Error())
+	}
+
+	var docs []ServiceDef
+	if err = json.Unmarshal(raw, &docs); err != nil {
+		panic("servicequotas: embedded docs catalog is invalid: " + err.Error())
+	}
+
+	svcs = mergeServices(svcs, docs)
 
 	slices.SortFunc(svcs, func(a, b ServiceDef) int { return strings.Compare(a.Code, b.Code) })
 
@@ -86,4 +114,39 @@ func (c *Catalog) Quota(serviceCode, quotaCode string) (*ServiceDef, *QuotaDef, 
 	}
 
 	return svc, nil, false
+}
+
+// mergeServices adds the documented services to the curated ones; a curated quota or service name wins.
+func mergeServices(curated, docs []ServiceDef) []ServiceDef {
+	idx := make(map[string]int, len(curated))
+	for i := range curated {
+		idx[curated[i].Code] = i
+	}
+
+	for _, d := range docs {
+		i, ok := idx[d.Code]
+		if !ok {
+			idx[d.Code] = len(curated)
+			curated = append(curated, d)
+
+			continue
+		}
+
+		have := make(map[string]bool, len(curated[i].Quotas))
+		for _, q := range curated[i].Quotas {
+			have[q.Code] = true
+		}
+
+		for _, q := range d.Quotas {
+			if !have[q.Code] {
+				curated[i].Quotas = append(curated[i].Quotas, q)
+			}
+		}
+
+		if curated[i].Source == "" {
+			curated[i].Source = d.Source
+		}
+	}
+
+	return curated
 }

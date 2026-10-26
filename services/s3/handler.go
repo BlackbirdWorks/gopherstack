@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -39,7 +40,6 @@ func regionFromRequest(r *http.Request, defaultRegion string) string {
 }
 
 const (
-	pathSplitParts   = 2
 	tagKeyValueParts = 2
 	defaultMaxKeys   = 1000
 
@@ -59,25 +59,26 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	notifier        NotificationDispatcher
+	kmsKeys         KMSKeyChecker
 	notifyAuth      roleauth.Authorizer
 	notificationCtx context.Context
 	Backend         StorageBackend
 	metrics         cwmetric.Sink
+	notifier        NotificationDispatcher
 	janitor         *Janitor
-	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse
-	// tokens: request-scoped bookkeeping, not backend resource state, so it
-	// stays request-local rather than moving into the backend with the rest
-	// of Object Lambda's config (see object_lambda.go).
+	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse tokens
+	// (request-scoped bookkeeping, not backend state; see object_lambda.go).
 	pendingObjectLambdaRequests sync.Map
-	DefaultRegion               string
 	Endpoint                    string
-	// PresignSecret, when non-empty, opts the handler into cryptographic
-	// verification of presigned-URL signatures (SigV4 query-auth). It is empty
-	// by default so presigned URLs are accepted on structure/expiry alone,
-	// preserving backwards-compatible behaviour.
+	// PresignSecret, when non-empty, enables cryptographic SigV4 verification
+	// of header and presigned-URL signatures; empty checks structure/expiry only.
 	PresignSecret  string
+	DefaultRegion  string
 	notificationMu sync.RWMutex
+	// SkipKMSKeyValidation accepts SSE-KMS key ids KMS does not know.
+	SkipKMSKeyValidation bool
+	// DisableBucketCORS ignores per-bucket CORS configuration.
+	DisableBucketCORS bool
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -101,6 +102,14 @@ func (h *S3Handler) WithPresignValidation(secret string) *S3Handler {
 
 	return h
 }
+
+// KMSKeyChecker reports whether an SSE-KMS key id (id, ARN or alias) exists.
+type KMSKeyChecker interface {
+	KMSKeyExists(ctx context.Context, keyID string) bool
+}
+
+// SetKMSKeyChecker enables SSE-KMS key existence validation against KMS.
+func (h *S3Handler) SetKMSKeyChecker(k KMSKeyChecker) { h.kmsKeys = k }
 
 // WithJanitor attaches a background janitor to the handler.
 func (h *S3Handler) WithJanitor(settings Settings, taskTimeout ...time.Duration) *S3Handler {
@@ -275,10 +284,9 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 		sw.Header().Set("X-Amz-Request-Id", uuid.NewString())
 		sw.Header().Set("X-Amz-Id-2", uuid.NewString()) // Mock ID-2
 
-		log := logger.Load(ctx)
-
 		// Validate presigned URL expiry before processing.
-		if isPresignedRequest(requestWithCtx) &&
+		presigned := isPresignedRequest(requestWithCtx)
+		if presigned &&
 			!h.validatePresignedRequest(ctx, sw, requestWithCtx) {
 			return nil
 		}
@@ -286,7 +294,7 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 		// Validate the Authorization header (SigV4/SigV2) for non-presigned
 		// requests. Structure/expiry are always checked; the cryptographic
 		// signature is only recomputed when a PresignSecret is configured.
-		if !isPresignedRequest(requestWithCtx) &&
+		if !presigned &&
 			!h.verifyHeaderAuth(ctx, sw, requestWithCtx) {
 			return nil
 		}
@@ -314,16 +322,18 @@ func (h *S3Handler) serveHandler() echo.HandlerFunc {
 
 		metrics.bucket = bucketName
 
-		log.DebugContext(
-			ctx,
-			"S3 request",
-			"method",
-			requestWithCtx.Method,
-			"bucket",
-			bucketName,
-			"key",
-			key,
-		)
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			logger.Load(ctx).DebugContext(
+				ctx,
+				"S3 request",
+				"method",
+				requestWithCtx.Method,
+				"bucket",
+				bucketName,
+				"key",
+				key,
+			)
+		}
 
 		if bucketName == "" {
 			h.handleRootRequest(ctx, sw, requestWithCtx)
@@ -528,7 +538,7 @@ func (h *S3Handler) resolveBucketAndKey(
 // parseBucketAndKey is the side-effect-free half of resolveBucketAndKey.
 func (h *S3Handler) parseBucketAndKey(r *http.Request) (string, string, error) {
 	path := strings.TrimPrefix(r.URL.Path, "/")
-	parts := strings.SplitN(path, "/", pathSplitParts)
+	firstSeg, rest, hasRest := strings.Cut(path, "/")
 
 	// Try virtual-hosted-style first: bucket name as subdomain in Host header.
 	if vhBucket := h.extractVirtualHostedBucketName(r); vhBucket != "" {
@@ -542,13 +552,13 @@ func (h *S3Handler) parseBucketAndKey(r *http.Request) (string, string, error) {
 	// Fall back to path-style (/bucket/key).
 	bucket, key := "", ""
 	if path != "" && path != "/" {
-		bucket = parts[0]
+		bucket = firstSeg
 		if !IsValidBucketName(bucket) && !isObjectLambdaAliasRead(r, bucket) {
 			return "", "", ErrInvalidBucketName
 		}
 
-		if len(parts) > 1 {
-			key = parts[1]
+		if hasRest {
+			key = rest
 			if key != "" && !IsValidObjectKey(key) {
 				return "", "", ErrInvalidArgument
 			}

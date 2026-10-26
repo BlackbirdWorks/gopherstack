@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -38,6 +39,20 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ep, ok := ctx.Config.(interface{ GetS3Endpoint() string }); ok {
 		backend.SetDefaultEndpoint(ep.GetS3Endpoint())
 	}
+
+	strategies := endpointstrategy.From(ctx.Config)
+	if err := strategies.Validate(); err != nil {
+		return nil, err
+	}
+
+	backend.SetEndpointStrategy(strategies.SQS)
+
+	var settings Settings
+	if sp, ok := ctx.Config.(SettingsProvider); ok {
+		settings = sp.GetSQSSettings()
+	}
+
+	backend.ApplySettings(settings)
 
 	handler := NewHandler(backend).WithJanitor()
 	handler.DefaultRegion = defaultRegion

@@ -395,11 +395,28 @@ func arnResourceType(resourceARN string) string {
 
 func (b *Backend) taggedSources() []func(string) []taggedResource {
 	return []func(string) []taggedResource{
-		tagsOfFamily(b.users), tagsOfFamily(b.routingProfiles), tagsOfFamily(b.securityProfiles),
-		tagsOfFamily(b.hierarchyGroups), tagsOfFamily(b.queues), tagsOfFamily(b.hours), tagsOfFamily(b.quickConnects),
-		tagsOfFamily(b.flows), tagsOfFamily(b.modules), tagsOfFamily(b.agentStatuses), tagsOfFamily(b.prompts),
-		tagsOfFamily(b.contacts), tagsOfFamily(b.integrations), tagsOfFamily(b.rules), tagsOfFamily(b.taskTemplates),
-		tagsOfFamily(b.vocabularies), tagsOfFamily(b.views), tagsOfFamily(b.evalForms),
+		tagsOfFamily(b.users),
+		tagsOfFamily(b.routingProfiles),
+		tagsOfFamily(b.securityProfiles),
+		tagsOfFamily(b.hierarchyGroups),
+		tagsOfFamily(b.queues),
+		tagsOfFamily(b.hours),
+		tagsOfFamily(b.quickConnects),
+		tagsOfFamily(b.flows),
+		tagsOfFamily(b.modules),
+		tagsOfFamily(b.agentStatuses),
+		tagsOfFamily(b.prompts),
+		tagsOfFamily(b.contacts),
+		tagsOfFamily(b.integrations),
+		tagsOfFamily(b.rules),
+		tagsOfFamily(b.taskTemplates),
+		tagsOfFamily(
+			b.vocabularies,
+		),
+		tagsOfFamily(b.views),
+		tagsOfFamily(b.evalForms),
+		tagsOfFamily(b.dataTables),
+		tagsOfFamily(b.emails), tagsOfFamily(b.workspaces),
 	}
 }
 

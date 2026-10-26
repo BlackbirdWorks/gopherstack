@@ -20,6 +20,10 @@ func badRequest(query, cbor string) errClass {
 
 func classifyError(err error) errClass {
 	switch {
+	case errors.Is(err, ErrResourceMetricsConfigNotFound), errors.Is(err, ErrOTelEnrichmentNotRunning):
+		return errClass{query: "ResourceNotFound", cbor: errResourceNotFoundException, status: http.StatusNotFound}
+	case errors.Is(err, ErrResourceMetricsConfigExists):
+		return errClass{query: errCodeConflict, cbor: errCodeConflict, status: http.StatusConflict}
 	case errors.Is(err, ErrInvalidNextToken):
 		return badRequest("InvalidNextToken", "InvalidNextToken")
 	case errors.Is(err, ErrParamCombination), errors.Is(err, ErrValueAndStatisticSet):
@@ -67,7 +71,7 @@ func stripCodePrefix(msg string) string {
 
 	switch code {
 	case codeInvalidParam, "InvalidParameterCombination", "LimitExceeded", "MissingParameter",
-		"ValidationError", "InvalidNextToken", "ResourceNotFound", "ResourceNotFoundException":
+		"ValidationError", "InvalidNextToken", "ResourceNotFound", "ResourceNotFoundException", errCodeConflict:
 		return rest
 	default:
 		return msg

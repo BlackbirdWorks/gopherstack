@@ -8,10 +8,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kinesis"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/lambda"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
 )
 
 func (r *run) copyEventSourceMappings(ctx context.Context, name string) {

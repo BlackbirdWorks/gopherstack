@@ -84,6 +84,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			return fmt.Errorf("%w: %q", ErrSnapshotContainerNull, name)
 		}
 
+		dropNilStaged(c)
+
 		if c.Blobs == nil {
 			c.Blobs = make(map[string]*storedBlob)
 
@@ -132,4 +134,21 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return nil
+}
+
+// dropNilStaged removes JSON-null staged entries that would panic on use.
+func dropNilStaged(c *storedContainer) {
+	for blob, blocks := range c.Staged {
+		if blocks == nil {
+			delete(c.Staged, blob)
+
+			continue
+		}
+
+		for id, blk := range blocks {
+			if blk == nil {
+				delete(blocks, id)
+			}
+		}
+	}
 }

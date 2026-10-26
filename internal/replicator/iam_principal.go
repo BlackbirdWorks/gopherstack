@@ -5,8 +5,9 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
 )
 
 type principalKind int
@@ -126,7 +127,7 @@ func (r *run) copyPolicies(ctx context.Context, p principal) error {
 
 type pager[O any] interface {
 	HasMorePages() bool
-	NextPage(ctx context.Context, optFns ...func(*iam.Options)) (O, error)
+	NextPage(ctx context.Context) (O, error)
 }
 
 // collect gathers pick(page) across every page.

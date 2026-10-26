@@ -70,6 +70,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateJob", "GetJob", "ListJobs", "UpdateJob", "DeleteJob", "RunJob",
 		"GetExecution", "ListExecutions", "DeleteExecution", "CancelExecution",
 		"GetTask", "ListTasks",
+		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions",
 	}
 }
 

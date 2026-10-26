@@ -168,6 +168,7 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"DeleteLanguageModel":   service.WrapOp(h.handleDeleteLanguageModel),
 		"DescribeLanguageModel": service.WrapOp(h.handleDescribeLanguageModel),
 		"ListLanguageModels":    service.WrapOp(h.handleListLanguageModels),
+		"UpdateLanguageModel":   service.WrapOp(h.handleUpdateLanguageModel),
 		// Vocabularies
 		"CreateVocabulary": service.WrapOp(h.handleCreateVocabulary),
 		"GetVocabulary":    service.WrapOp(h.handleGetVocabulary),
@@ -335,6 +336,7 @@ func allSupportedOps() []string {
 		"TagResource",
 		"UntagResource",
 		"UpdateCallAnalyticsCategory",
+		"UpdateLanguageModel",
 		"UpdateMedicalVocabulary",
 		"UpdateVocabulary",
 		"UpdateVocabularyFilter",

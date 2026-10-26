@@ -99,7 +99,10 @@ func TestSupportedResourceTypes(t *testing.T) {
 				aws.ToString(rt.Service)+":",
 				aws.ToString(rt.ResourceType)[:len(aws.ToString(rt.Service))+1],
 			)
-			assert.NotEmpty(t, rt.CFNResourceTypes)
+
+			if aws.ToString(rt.ResourceType) == "ec2:instance" {
+				assert.Equal(t, []string{"AWS::EC2::Instance"}, rt.CFNResourceTypes)
+			}
 		}
 
 		if token = out.NextToken; token == nil {
@@ -110,6 +113,8 @@ func TestSupportedResourceTypes(t *testing.T) {
 	assert.Len(t, seen, total)
 	assert.True(t, seen["ec2:instance"])
 	assert.True(t, seen["s3:bucket"])
+	assert.True(t, seen["aps:workspace"], "documented types beyond the curated CloudFormation-mapped rows are listed")
+	assert.GreaterOrEqual(t, total, 600)
 }
 
 func TestManagedViews(t *testing.T) {

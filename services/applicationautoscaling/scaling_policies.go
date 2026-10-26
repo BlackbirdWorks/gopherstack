@@ -109,8 +109,27 @@ func validatePutScalingPolicyBasics(
 	return nil
 }
 
-// PutScalingPolicy upserts a scaling policy (update if policyName matches for resource, create otherwise).
+// PutScalingPolicy upserts a scaling policy and, for target tracking, its managed CloudWatch alarms.
 func (b *InMemoryBackend) PutScalingPolicy(
+	serviceNamespace, resourceID, scalableDimension, policyName, policyType string,
+	targetTrackingConfig, stepScalingConfig, predictiveScalingConfig map[string]any,
+) (*ScalingPolicy, error) {
+	p, err := b.putScalingPolicy(
+		serviceNamespace, resourceID, scalableDimension, policyName, policyType,
+		targetTrackingConfig, stepScalingConfig, predictiveScalingConfig,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = b.syncTargetTrackingAlarms(p); err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+func (b *InMemoryBackend) putScalingPolicy(
 	serviceNamespace, resourceID, scalableDimension, policyName, policyType string,
 	targetTrackingConfig, stepScalingConfig, predictiveScalingConfig map[string]any,
 ) (*ScalingPolicy, error) {
@@ -245,24 +264,37 @@ func (b *InMemoryBackend) policiesForTargetLocked(serviceNamespace, resourceID, 
 	return count
 }
 
-// DeleteScalingPolicy removes a scaling policy by name.
+// DeleteScalingPolicy removes a scaling policy by name, along with its managed target tracking alarms.
 func (b *InMemoryBackend) DeleteScalingPolicy(
 	serviceNamespace, resourceID, scalableDimension, policyName string,
 ) error {
+	policyARN, err := b.deleteScalingPolicy(serviceNamespace, resourceID, scalableDimension, policyName)
+	if err != nil {
+		return err
+	}
+
+	b.deleteTargetTrackingAlarms(policyARN)
+
+	return nil
+}
+
+func (b *InMemoryBackend) deleteScalingPolicy(
+	serviceNamespace, resourceID, scalableDimension, policyName string,
+) (string, error) {
 	if serviceNamespace == "" {
-		return fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
+		return "", fmt.Errorf("%w: ServiceNamespace is required", ErrValidation)
 	}
 
 	if resourceID == "" {
-		return fmt.Errorf("%w: ResourceId is required", ErrValidation)
+		return "", fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
 
 	if scalableDimension == "" {
-		return fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
+		return "", fmt.Errorf("%w: ScalableDimension is required", ErrValidation)
 	}
 
 	if policyName == "" {
-		return fmt.Errorf("%w: PolicyName is required", ErrValidation)
+		return "", fmt.Errorf("%w: PolicyName is required", ErrValidation)
 	}
 
 	b.mu.Lock("DeleteScalingPolicy")
@@ -272,14 +304,15 @@ func (b *InMemoryBackend) DeleteScalingPolicy(
 
 	group := b.policiesByName.Get(key)
 	if len(group) == 0 {
-		return fmt.Errorf("%w: No scaling policy found for service namespace: %s, resource ID: %s, "+
+		return "", fmt.Errorf("%w: No scaling policy found for service namespace: %s, resource ID: %s, "+
 			"scalable dimension: %s, policy name: %s", ErrNotFound, serviceNamespace, resourceID,
 			scalableDimension, policyName)
 	}
 
-	b.scalingPolicies.Delete(group[0].ARN)
+	policyARN := group[0].ARN
+	b.scalingPolicies.Delete(policyARN)
 
-	return nil
+	return policyARN, nil
 }
 
 // DescribeScalingPoliciesFilter carries optional filters for DescribeScalingPolicies.

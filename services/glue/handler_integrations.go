@@ -571,3 +571,48 @@ func (h *Handler) handleUpdateIntegrationTableProperties(
 		in.ResourceArn, in.TableName, in.SourceTableConfig, in.TargetTableConfig,
 	)
 }
+
+type listIntegrationTablePropertiesInput struct {
+	Marker     string                             `json:"Marker,omitempty"`
+	Filters    []IntegrationTablePropertiesFilter `json:"Filters,omitempty"`
+	MaxRecords int32                              `json:"MaxRecords,omitempty"`
+}
+
+type integrationTablePropertiesOut struct {
+	SourceTableConfig map[string]any `json:"SourceTableConfig,omitempty"`
+	TargetTableConfig map[string]any `json:"TargetTableConfig,omitempty"`
+	ResourceArn       string         `json:"ResourceArn"`
+	TableName         string         `json:"TableName"`
+}
+
+type listIntegrationTablePropertiesOutput struct {
+	Marker                         string                          `json:"Marker,omitempty"`
+	IntegrationTablePropertiesList []integrationTablePropertiesOut `json:"IntegrationTablePropertiesList"`
+}
+
+func (h *Handler) handleListIntegrationTableProperties(
+	_ context.Context,
+	in *listIntegrationTablePropertiesInput,
+) (*listIntegrationTablePropertiesOutput, error) {
+	props, err := h.Backend.ListIntegrationTableProperties(in.Filters)
+	if err != nil {
+		return nil, err
+	}
+
+	page, next, err := pagedSlice(props, in.Marker, in.MaxRecords, defaultListIntegrationResourcePropertiesLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]integrationTablePropertiesOut, 0, len(page))
+	for _, p := range page {
+		list = append(list, integrationTablePropertiesOut{
+			ResourceArn:       p.ResourceArn,
+			TableName:         p.TableName,
+			SourceTableConfig: p.SourceTableConfig,
+			TargetTableConfig: p.TargetTableConfig,
+		})
+	}
+
+	return &listIntegrationTablePropertiesOutput{IntegrationTablePropertiesList: list, Marker: next}, nil
+}

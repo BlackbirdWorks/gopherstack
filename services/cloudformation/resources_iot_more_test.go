@@ -1,6 +1,13 @@
 package cloudformation_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/json"
+	"encoding/pem"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -189,9 +196,19 @@ func testIoTCertificate(t *testing.T) {
 
 	backends, client := newManagedTypesTestClient(t)
 
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader,
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: "device"}}, key)
+	require.NoError(t, err)
+
+	csrJSON, err := json.Marshal(string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})))
+	require.NoError(t, err)
+
 	tmpl := `{
 "Resources": {"Cert": {"Type": "AWS::IoT::Certificate", "Properties": {
-  "CertificateSigningRequest": "-----BEGIN CERTIFICATE REQUEST-----\nfake\n-----END CERTIFICATE REQUEST-----",
+  "CertificateSigningRequest": ` + string(csrJSON) + `,
   "Status": "ACTIVE"
 }}},
 "Outputs": {"Ref": {"Value": {"Ref": "Cert"}}, "Arn": {"Value": {"Fn::GetAtt": ["Cert", "Arn"]}}}

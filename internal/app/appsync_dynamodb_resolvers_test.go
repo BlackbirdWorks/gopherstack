@@ -22,7 +22,14 @@ type Post { authorId: ID! id: ID! title: String n: Int author: Author }
 type PostPage { items: [Post] nextToken: String scannedCount: Int }
 type PostList { posts: [Post] }
 type BatchOut { data: PostList unprocessedKeys: PostList unprocessedItems: PostList }
+type PostKey { authorId: ID id: ID }
+type TxGetOut { items: [Post] cancellationReasons: [AWSJSON] }
+type TxWriteOut { keys: [PostKey] }
+type SyncOut { items: [Post] nextToken: String scannedCount: Int startedAt: Float }
 type Query {
+  transactGetPosts(authorId: ID!, a: ID!, b: ID!): TxGetOut
+  syncPosts(limit: Int, nextToken: String, lastSync: Float): SyncOut
+  plainSyncPosts: SyncOut
   getPost(authorId: ID!, id: ID!): Post
   queryPosts(authorId: ID!, limit: Int, nextToken: String, fwd: Boolean, minN: Int): PostPage
   queryByTitle(title: String!): PostPage
@@ -32,6 +39,7 @@ type Query {
   authorWithPosts(id: ID!): Author
 }
 type Mutation {
+  transactWritePosts(authorId: ID!, a: ID!, expected: Int): TxWriteOut
   updatePost(authorId: ID!, id: ID!, title: String, expected: Int): Post
   putPostIfNew(authorId: ID!, id: ID!, title: String): Post
   deletePost(authorId: ID!, id: ID!, expected: Int): Post
@@ -55,12 +63,32 @@ func asBatchItem(id string) string {
 		`"id":$util.dynamodb.toDynamoDBJson($ctx.args.` + id + `),"title":{"S":"batch"},"n":{"N":"1"}}`
 }
 
+func asKeyJSON2(id string) string {
+	idExpr := `$ctx.args.` + id
+	if strings.HasPrefix(id, "\"") {
+		idExpr = id
+	}
+
+	return `"key":{"authorId":$util.dynamodb.toDynamoDBJson($ctx.args.authorId),` +
+		`"id":$util.dynamodb.toDynamoDBJson(` + idExpr + `)}`
+}
+
 type asResolverSpec struct {
 	typeName, field, ds, request string
 }
 
 func asDDBResolvers() []asResolverSpec {
 	return []asResolverSpec{
+		{"Query", "transactGetPosts", "posts", asPre + `"operation":"TransactGetItems","transactItems":[` +
+			`{"table":"posts","key":` + asBatchKey("a") + `},{"table":"posts","key":` + asBatchKey("b") + `}]}`},
+		{"Query", "syncPosts", "postsv", asPre + `"operation":"Sync","limit":$util.toJson($ctx.args.limit),` +
+			`"nextToken":$util.toJson($ctx.args.nextToken),"lastSync":$util.toJson($ctx.args.lastSync)}`},
+		{"Query", "plainSyncPosts", "posts", asPre + `"operation":"Sync"}`},
+		{"Mutation", "transactWritePosts", "posts", asPre + `"operation":"TransactWriteItems","transactItems":[` +
+			`{"table":"posts","operation":"PutItem",` + asKeyJSON2("a") +
+			`,"attributeValues":{"title":{"S":"tx"},"n":{"N":"9"}}},` +
+			`{"table":"posts","operation":"ConditionCheck",` + asKeyJSON2("\"p1\"") + `,"condition":{"expression":"n = :e",` +
+			`"expressionValues":{":e":$util.dynamodb.toDynamoDBJson($ctx.args.expected)}}}]}`},
 		{"Query", "getPost", "posts", asPre + `"operation":"GetItem",` + asKeyJSON + `}`},
 		{"Query", "queryPosts", "posts", asPre + `"operation":"Query","query":{"expression":"authorId = :a",` +
 			`"expressionValues":{":a":$util.dynamodb.toDynamoDBJson($ctx.args.authorId)}},` +
@@ -179,12 +207,22 @@ func newASDDBFixture(t *testing.T) *asDDBFixture {
 	})
 	require.NoError(t, err)
 
-	for _, name := range []string{"posts", "authors"} {
+	for _, name := range []string{"posts", "authors", "postsv"} {
 		_, err = as.CreateDataSource(ctx, &appsync.CreateDataSourceInput{
 			ApiId: apiID, Name: aws.String(name), Type: astypes.DataSourceTypeAmazonDynamodb,
 			ServiceRoleArn: aws.String("arn:aws:iam::000000000000:role/r"),
 			DynamodbConfig: &astypes.DynamodbDataSourceConfig{
-				TableName: aws.String(name), AwsRegion: aws.String("us-east-1"),
+				TableName: aws.String(strings.TrimSuffix(name, "v")), AwsRegion: aws.String("us-east-1"),
+				Versioned: name == "postsv",
+				DeltaSyncConfig: func() *astypes.DeltaSyncConfig {
+					if name != "postsv" {
+						return nil
+					}
+
+					return &astypes.DeltaSyncConfig{
+						BaseTableTTL: 0, DeltaSyncTableName: aws.String("posts-delta"), DeltaSyncTableTTL: 60,
+					}
+				}(),
 			},
 		})
 		require.NoError(t, err)
@@ -209,8 +247,9 @@ func newASDDBFixture(t *testing.T) *asDDBFixture {
 type asGQLResponse struct {
 	Data   map[string]any `json:"data"`
 	Errors []struct {
-		Message   string `json:"message"`
-		ErrorType string `json:"errorType"`
+		Data      map[string]any `json:"data"`
+		Message   string         `json:"message"`
+		ErrorType string         `json:"errorType"`
 	} `json:"errors"`
 }
 
@@ -412,6 +451,89 @@ func TestAppSyncDynamoDBConditionFailure(t *testing.T) {
 			assert.Equal(t, "DynamoDB:ConditionalCheckFailedException", res.Errors[0].ErrorType)
 			assert.Contains(t, res.Errors[0].Message, "The conditional request failed")
 			assert.Nil(t, res.Data)
+		})
+	}
+}
+
+func TestAppSyncDynamoDBTransactAndSync(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check   func(a *assert.Assertions, res asGQLResponse)
+		name    string
+		query   string
+		wantErr string
+	}{
+		{
+			name:  "transact get returns null for missing",
+			query: `query { transactGetPosts(authorId: "a1", a: "p1", b: "zz") { items { id title } } }`,
+			check: func(a *assert.Assertions, res asGQLResponse) {
+				out, _ := res.Data["transactGetPosts"].(map[string]any)
+				a.Equal([]any{map[string]any{"id": "p1", "title": "one"}, nil}, out["items"])
+			},
+		},
+		{
+			name:  "transact write returns keys",
+			query: `mutation { transactWritePosts(authorId: "a1", a: "tx1", expected: 1) { keys { authorId id } } }`,
+			check: func(a *assert.Assertions, res asGQLResponse) {
+				out, _ := res.Data["transactWritePosts"].(map[string]any)
+				a.Equal([]any{
+					map[string]any{"authorId": "a1", "id": "tx1"}, map[string]any{"authorId": "a1", "id": "p1"},
+				}, out["keys"])
+			},
+		},
+		{
+			name:    "transact write cancelled by condition check",
+			query:   `mutation { transactWritePosts(authorId: "a1", a: "tx1", expected: 99) { keys { id } } }`,
+			wantErr: "DynamoDB:TransactionCanceledException",
+			check: func(a *assert.Assertions, res asGQLResponse) {
+				reasons, _ := res.Errors[0].Data["cancellationReasons"].([]any)
+				a.Len(reasons, 2)
+				a.Equal("None", reasons[0].(map[string]any)["type"])
+				second, _ := reasons[1].(map[string]any)
+				a.Equal("ConditionalCheckFailed", second["type"])
+				a.Equal(map[string]any{"authorId": "a1", "id": "p1", "title": "one", "n": float64(1)}, second["item"])
+			},
+		},
+		{
+			name:  "sync pages the base table",
+			query: `query { syncPosts(limit: 2) { items { id } nextToken startedAt scannedCount } }`,
+			check: func(a *assert.Assertions, res asGQLResponse) {
+				out, _ := res.Data["syncPosts"].(map[string]any)
+				a.Len(out["items"], 2)
+				a.NotEmpty(out["nextToken"])
+				a.Positive(out["startedAt"])
+			},
+		},
+		{
+			name:    "sync needs a versioned data source",
+			query:   `query { plainSyncPosts { items { id } } }`,
+			wantErr: "requires a versioned",
+		},
+		{
+			name:    "sync with lastSync is unsupported",
+			query:   `query { syncPosts(lastSync: 1) { items { id } } }`,
+			wantErr: "lastSync (delta table) is not supported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newASDDBFixture(t)
+			res := f.do(t, tt.query)
+
+			if tt.wantErr != "" {
+				require.NotEmpty(t, res.Errors)
+				assert.Contains(t, res.Errors[0].ErrorType+res.Errors[0].Message, tt.wantErr)
+			} else {
+				require.Empty(t, res.Errors)
+			}
+
+			if tt.check != nil {
+				tt.check(assert.New(t), res)
+			}
 		})
 	}
 }

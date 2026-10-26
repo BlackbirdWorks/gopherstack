@@ -63,8 +63,36 @@ type DDBWrite struct {
 // DynamoDBError is a DynamoDB service error surfaced to the resolver; Code is
 // the bare error code (e.g. "ConditionalCheckFailedException").
 type DynamoDBError struct {
-	Code    string
+	Result        any
+	Code          string
+	Message       string
+	Cancellations []DDBCancellation
+}
+
+// DDBCancellation is one TransactionCanceledException cancellation reason.
+type DDBCancellation struct {
+	Item    map[string]any
+	Type    string
 	Message string
+}
+
+// DDBTransactGet is one TransactGetItems request item.
+type DDBTransactGet struct {
+	Key   map[string]any
+	Table string
+}
+
+// DDBTransactWrite is one TransactWriteItems request item; Operation is
+// PutItem, UpdateItem, DeleteItem or ConditionCheck.
+type DDBTransactWrite struct {
+	Key       map[string]any
+	Item      map[string]any
+	Update    *DDBExpression
+	Condition *DDBExpression
+	Table     string
+	Operation string
+	// ReturnOnFailure asks for the existing item in the cancellation reason.
+	ReturnOnFailure bool
 }
 
 func (e *DynamoDBError) Error() string {
@@ -89,6 +117,11 @@ type DynamoDBBackend interface {
 	// BatchGetItemRaw returns the items found per table, in no particular order.
 	BatchGetItemRaw(ctx context.Context, keys map[string][]map[string]any) (map[string][]map[string]any, error)
 	BatchWriteItemRaw(ctx context.Context, writes map[string][]DDBWrite) error
+	// TransactGetItemsRaw returns one item (nil when absent) per request, in order.
+	TransactGetItemsRaw(ctx context.Context, items []DDBTransactGet) ([]map[string]any, error)
+	// TransactWriteItemsRaw applies all items atomically. A cancelled
+	// transaction returns a *DynamoDBError whose Cancellations are set.
+	TransactWriteItemsRaw(ctx context.Context, items []DDBTransactWrite) error
 }
 
 // StorageBackend defines the interface for AppSync storage operations.
@@ -208,6 +241,7 @@ type StorageBackend interface {
 	PutGraphqlAPIEnvironmentVariables(apiID string, envVars map[string]string) (map[string]string, error)
 	// EvaluateMappingTemplate evaluates a VTL request/response mapping template.
 	EvaluateMappingTemplate(template, context string) (string, error)
+	EvaluateMappingTemplateLogs(template, context string) (string, []string, error)
 	// EvaluateCode evaluates APPSYNC_JS code.
 	EvaluateCode(code, contextJSON, function, runtime string) (string, error)
 	EvaluateCodeLogs(code, contextJSON, function, runtime string) (string, []string, error)
@@ -269,7 +303,8 @@ type InMemoryBackend struct {
 	resolvers              *store.Table[Resolver]   // key: apiID#TypeName.FieldName
 	resolversByAPI         *store.Index[Resolver]   // apiID → resolvers
 	rtSubs                 map[string]map[*rtSub]struct{}
-	apiKeys                map[string]map[string]*APIKey // apiID → keyID → key (raw; see store_setup.go)
+	respCache              map[string]map[string]cacheEntry // apiID → cache key → response; runtime only
+	apiKeys                map[string]map[string]*APIKey    // apiID → keyID → key (raw; see store_setup.go)
 	apiCaches              *store.Table[APICache]
 	functions              *store.Table[Function] // key: apiID#functionID
 	functionsByAPI         *store.Index[Function] // apiID → functions
@@ -293,6 +328,7 @@ type InMemoryBackend struct {
 	accountID              string
 	region                 string
 	endpoint               string
+	graphqlStrategy        string
 	// sigv4Secret is the AWS_IAM verification secret; empty uses the validator default.
 	sigv4Secret string
 }
@@ -311,6 +347,14 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	registerAllTables(b)
 
 	return b
+}
+
+// SetGraphQLEndpointStrategy selects the GraphQL URI format (see pkgs/endpointstrategy).
+func (b *InMemoryBackend) SetGraphQLEndpointStrategy(strategy string) {
+	b.mu.Lock("SetGraphQLEndpointStrategy")
+	defer b.mu.Unlock()
+
+	b.graphqlStrategy = strategy
 }
 
 // Reset clears all state from the backend, returning it to a clean initial state.

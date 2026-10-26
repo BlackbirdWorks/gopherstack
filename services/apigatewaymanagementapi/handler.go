@@ -149,8 +149,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, connectionsPathPrefix) ||
-			strings.HasPrefix(path, adminPathPrefix)
+		_, ok := connectionIDFromPath(path)
+
+		return ok || strings.HasPrefix(path, adminPathPrefix)
 	}
 }
 
@@ -185,7 +186,29 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return sub
 	}
 
-	return strings.TrimPrefix(path, connectionsPathPrefix)
+	id, _ := connectionIDFromPath(path)
+
+	return id
+}
+
+// connectionIDFromPath extracts the connection id from /@connections/{id} or
+// the stage-prefixed /{stage}/@connections/{id} that the SDK produces when its
+// endpoint is https://{domainName}/{stage}.
+func connectionIDFromPath(path string) (string, bool) {
+	if id, ok := strings.CutPrefix(path, connectionsPathPrefix); ok {
+		return id, true
+	}
+
+	rest := strings.TrimPrefix(path, "/")
+	stage, tail, found := strings.Cut(rest, "/")
+
+	if !found || stage == "" {
+		return "", false
+	}
+
+	id, ok := strings.CutPrefix("/"+tail, connectionsPathPrefix)
+
+	return id, ok
 }
 
 // Handler returns the Echo handler function for API Gateway Management API operations.
@@ -203,11 +226,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log := logger.Load(c.Request().Context())
 
-		if !strings.HasPrefix(path, connectionsPathPrefix) {
+		connectionID, isConn := connectionIDFromPath(path)
+		if !isConn {
 			return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
 		}
 
-		connectionID := strings.TrimPrefix(path, connectionsPathPrefix)
 		if connectionID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "connectionId is required"})
 		}

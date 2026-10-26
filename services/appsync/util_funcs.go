@@ -20,10 +20,20 @@ import (
 // ($util.error, util.error, unauthorized, validation); it surfaces in the
 // GraphQL errors[] array.
 type resolverError struct {
-	Data    any
-	Info    any
-	Message string
-	Type    string
+	Data       any
+	Info       any
+	Message    string
+	Type       string
+	CodeErrors []codeError
+}
+
+// codeError is one EvaluateCode CodeError (types.CodeError / CodeErrorLocation).
+type codeError struct {
+	ErrorType string
+	Value     string
+	Line      int
+	Column    int
+	Span      int
 }
 
 func (e *resolverError) Error() string { return e.Message }
@@ -54,13 +64,14 @@ type utilEnv struct {
 	typeName   string
 	authType   AuthenticationType
 	ext        []map[string]any
+	logs       []string
 }
 
 type utilFn func(u *utilEnv, a []any) (any, error)
 
 func isUtilNamespace(name string) bool {
 	switch name {
-	case "time", "dynamodb", "transform", "str", "math", "list", "map", "xml", "http", "rds":
+	case "time", "dynamodb", "transform", "str", "math", "list", "map", "xml", "http", "rds", "log":
 		return true
 	}
 
@@ -76,7 +87,7 @@ func (u *utilEnv) registry() map[string]utilFn {
 
 	for _, m := range []map[string]utilFn{
 		utilCore(), utilTypes(), utilTime(), utilDynamo(), utilTransform(), utilCollections(),
-		utilExtensions(), utilExtra(), utilRDS(),
+		utilExtensions(), utilExtra(), utilRDS(), utilLog(),
 	} {
 		maps.Copy(u.fns, m)
 	}

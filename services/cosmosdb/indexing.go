@@ -8,9 +8,12 @@ import (
 
 const (
 	indexModeNone  = "none"
+	indexModeLazy  = "lazy"
 	orderAscending = "ascending"
 
 	msgNoCompositeIndex = "The order by query does not have a corresponding composite index that it can be served from."
+	msgOrderByExcluded  = "The index path corresponding to the specified order-by item is excluded."
+	msgLazyIndexing     = "The lazy indexing mode is not available for new containers."
 	msgScanRequired     = "An invalid query has been specified with filters against path(s) excluded from " +
 		"indexing. Consider adding allow scan header in the request."
 )
@@ -63,6 +66,10 @@ func checkQueryIndexing(stmt *sqlSelectStmt, raw json.RawMessage, opts QueryOpti
 
 	if !pol.hasCompositeFor(stmt.orderBy) {
 		return &queryIndexError{msg: msgNoCompositeIndex}
+	}
+
+	if pol.orderByExcluded(stmt.orderBy) {
+		return &queryIndexError{msg: msgOrderByExcluded}
 	}
 
 	if !opts.AllowScan && stmt.where != nil && pol.needsScan(stmt.where) {
@@ -121,6 +128,18 @@ func (p indexingPolicy) hasCompositeFor(keys []sqlOrderKey) bool {
 	return false
 }
 
+// orderByExcluded reports whether a single-key ORDER BY sorts on a property path the policy does not index. A
+// multi-key ORDER BY is served by a composite index instead (hasCompositeFor).
+func (p indexingPolicy) orderByExcluded(keys []sqlOrderKey) bool {
+	if len(keys) != 1 {
+		return false
+	}
+
+	path, ok := rootPath(keys[0].expr)
+
+	return ok && path != "" && !p.indexed(path)
+}
+
 // rootPath renders a property chain on the container row as "/a/b" (array positions as "[]").
 func rootPath(x sqlExpr) (string, bool) {
 	switch n := x.(type) {
@@ -156,6 +175,10 @@ func normalizeIndexPath(p string) string {
 func (p indexingPolicy) indexed(path string) bool {
 	if strings.EqualFold(p.IndexingMode, indexModeNone) {
 		return path == "/id" || path == "/"+sysPropRID
+	}
+
+	if path == "/id" || path == "/"+sysPropTS {
+		return true
 	}
 
 	segs := splitIndexPath(path)

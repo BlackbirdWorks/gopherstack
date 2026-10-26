@@ -176,6 +176,41 @@ func (r *Registry) SetContainerRegistries(c ContainerRegistries) {
 	}
 }
 
+// SetFunctionApps gives the registered Microsoft.Web provider (if any) a real Azure Functions data-plane adapter,
+// replacing its no-op default.
+func (r *Registry) SetFunctionApps(f FunctionApps) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftWeb)
+	if !ok {
+		return
+	}
+
+	if wp, wpOk := p.(*WebProvider); wpOk {
+		wp.dataPlane = f
+	}
+}
+
+// SetACIFileShares gives the registered Microsoft.ContainerInstance provider (if any) the Azure Files seam that
+// azureFile volumes use.
+func (r *Registry) SetACIFileShares(s ACIFileShares) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftContainerInstance)
+	if !ok {
+		return
+	}
+
+	if cp, cpOk := p.(*ContainerInstanceProvider); cpOk {
+		cp.engine.SetFileShares(s)
+	}
+}
+
+// CloseAll stops the workloads of every provider that runs any.
+func (r *Registry) CloseAll() {
+	for _, p := range r.providers {
+		if c, ok := p.(interface{ Close() }); ok {
+			c.Close()
+		}
+	}
+}
+
 // SetKeyVaults gives the registered Microsoft.KeyVault provider (if any) a
 // real KeyVaults adapter, replacing its no-op default.
 func (r *Registry) SetKeyVaults(k KeyVaults) {

@@ -3,6 +3,7 @@ package cosmosdb
 import (
 	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/labstack/echo/v5"
 
@@ -83,17 +84,35 @@ func (h *Handler) getEntity(c *echo.Context, table, partitionKey, rowKey string)
 }
 
 func (h *Handler) queryEntities(c *echo.Context, table string) error {
-	top, topErr := odatatable.ParseTop(c.QueryParam("$top"))
+	r := c.Request()
+
+	feed, failure := h.entityFeed(table, r.URL.Query(), r.Header.Get("Accept"), r.Host)
+	if failure != nil {
+		return h.writeTableError(c, failure.Status, failure.Code, failure.Message)
+	}
+
+	return h.writeTableJSON(c, http.StatusOK, feed)
+}
+
+// entityFeed answers an entity-collection query (the $top, $filter and $select of q) as the OData feed body.
+func (h *Handler) entityFeed(
+	table string, q url.Values, accept, host string,
+) (map[string]any, *odatatable.BatchFailure) {
+	top, topErr := odatatable.ParseTop(q.Get("$top"))
 	if topErr != nil {
-		return h.writeTableError(c, http.StatusBadRequest, "InvalidInput", "The value for $top is invalid.")
+		f := odatatable.NewBatchFailure(http.StatusBadRequest, "InvalidInput", "The value for $top is invalid.")
+
+		return nil, &f
 	}
 
 	var filter odatatable.Node
 
-	if filterParam := c.QueryParam("$filter"); filterParam != "" {
+	if filterParam := q.Get("$filter"); filterParam != "" {
 		node, parseErr := odatatable.ParseFilter(filterParam)
 		if parseErr != nil {
-			return h.writeTableError(c, http.StatusBadRequest, "InvalidInput", "The specified $filter is invalid.")
+			f := odatatable.NewBatchFailure(http.StatusBadRequest, "InvalidInput", "The specified $filter is invalid.")
+
+			return nil, &f
 		}
 
 		filter = node
@@ -101,19 +120,20 @@ func (h *Handler) queryEntities(c *echo.Context, table string) error {
 
 	infos, err := h.TableBackend.QueryEntities(table, filter, top)
 	if err != nil {
-		return h.writeTableNotFoundError(c)
+		f := odatatable.BatchFailureFor(odatatable.ErrTableNotFound)
+
+		return nil, &f
 	}
 
-	r := c.Request()
-	level := tableODataLevelFromAccept(r.Header.Get("Accept"))
-	selectParam := c.QueryParam("$select")
+	level := tableODataLevelFromAccept(accept)
+	selectParam := q.Get("$select")
 
 	values := make([]map[string]any, 0, len(infos))
 	for _, info := range infos {
-		values = append(values, h.encodeTableEntity(info, table, level, selectParam, r.Host))
+		values = append(values, h.encodeTableEntity(info, table, level, selectParam, host))
 	}
 
-	return h.writeTableJSON(c, http.StatusOK, map[string]any{"value": values})
+	return map[string]any{"value": values}, nil
 }
 
 func (h *Handler) replaceEntity(c *echo.Context, table, partitionKey, rowKey string) error {

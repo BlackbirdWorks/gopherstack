@@ -94,7 +94,7 @@ func templateParseFormatErr(body string, err error) error {
 // before any stack exists. A template with a Transform or Fn::ForEach is only
 // checked for syntax: macro expansion can add the resources and parameters
 // the static checks would otherwise flag.
-func preflightTemplateErr(body string, params []Parameter, registered typeKnown) error {
+func preflightTemplateErr(body string, params []Parameter, registered typeKnown, src RuleParamSource) error {
 	tmpl, err := preflightTemplateStructure(body, registered)
 	if errors.Is(err, errEmptyOrTransformed) {
 		return nil
@@ -114,7 +114,7 @@ func preflightTemplateErr(body string, params []Parameter, registered typeKnown)
 		return err
 	}
 
-	return evaluateRules(tmpl, resolved)
+	return evaluateRules(tmpl, resolved, src)
 }
 
 // preflightTemplateStructure runs the parameter-independent checks and returns

@@ -39,10 +39,7 @@ func (b *InMemoryBackend) CreateRepository(
 
 	region := b.regionFor(ctx)
 
-	endpoint := b.endpoint
-	if endpoint == "" {
-		endpoint = fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com", b.accountID, region)
-	}
+	endpoint := b.registryHostLocked(region)
 
 	repo := &Repository{
 		CreatedAt:      time.Now(),

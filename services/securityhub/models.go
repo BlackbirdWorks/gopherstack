@@ -337,3 +337,33 @@ type FindingAggregator struct {
 	RegionLinkingMode        string   `json:"RegionLinkingMode"`
 	Regions                  []string `json:"Regions"`
 }
+
+const (
+	exportDataTypeFindings = "FINDINGS"
+	exportFormatCSV        = "CSV"
+	exportFormatOCSFJSON   = "OCSF_JSON"
+
+	exportStatusRunning   = "RUNNING"
+	exportStatusSucceeded = "SUCCEEDED"
+	exportStatusFailed    = "FAILED"
+	exportStatusCancelled = "CANCELLED"
+)
+
+// ExportJobV2 is a findings export job (StartExportJobV2).
+type ExportJobV2 struct {
+	Filters        map[string]any      `json:"Filters,omitempty"`
+	ExportJobID    string              `json:"ExportJobId"`
+	Name           string              `json:"Name,omitempty"`
+	Status         string              `json:"Status"`
+	DataType       string              `json:"DataType"`
+	StartedAt      string              `json:"StartedAt"`
+	EndedAt        string              `json:"EndedAt,omitempty"`
+	FailureCode    string              `json:"FailureCode,omitempty"`
+	FailureMessage string              `json:"FailureMessage,omitempty"`
+	BucketArn      string              `json:"BucketArn,omitempty"`
+	KmsKeyArn      string              `json:"KmsKeyArn,omitempty"`
+	ObjectPrefix   string              `json:"ObjectPrefix,omitempty"`
+	Format         string              `json:"Format,omitempty"`
+	SelectedFields []string            `json:"SelectedFields,omitempty"`
+	Scopes         []map[string]string `json:"Scopes,omitempty"`
+}

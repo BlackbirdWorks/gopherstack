@@ -74,9 +74,21 @@ func (f *iotRuleFixture) createRule(
 func (f *iotRuleFixture) publish(t *testing.T, topic, payload string) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		return f.broker.Publish(topic, []byte(payload), false, 0) == nil
-	}, authzDeadline, authzTick)
+	publishWhenReady(t, f.broker, topic, payload)
+}
+
+// publishWhenReady publishes once after the broker is serving. Rule actions run inside Publish,
+// so bounding it with a retry deadline fails a slow-but-progressing dispatch and re-sends on error.
+func publishWhenReady(t *testing.T, broker *iotbackend.Broker, topic, payload string) {
+	t.Helper()
+
+	select {
+	case <-broker.Ready():
+	case <-t.Context().Done():
+		t.Fatal("test ended before the iot broker became ready")
+	}
+
+	require.NoError(t, broker.Publish(topic, []byte(payload), false, 0))
 }
 
 func (f *iotRuleFixture) bodies(t *testing.T, queueURL string, want int) []string {
@@ -298,30 +310,23 @@ func iotCaseFirehose(t *testing.T, f *iotRuleFixture) {
 	fhBk, ok := fhH.Backend.(*firehosebackend.InMemoryBackend)
 	require.True(t, ok)
 
-	var body string
+	fhBk.FlushAll(t.Context())
 
-	require.Eventually(t, func() bool {
-		fhBk.FlushAll(t.Context())
+	listed, err := s3c.ListObjectsV2(t.Context(), &s3.ListObjectsV2Input{Bucket: aws.String("iot-fh-bucket")})
+	require.NoError(t, err)
+	require.Len(t, listed.Contents, 1)
 
-		listed, lerr := s3c.ListObjectsV2(t.Context(), &s3.ListObjectsV2Input{Bucket: aws.String("iot-fh-bucket")})
-		if lerr != nil || len(listed.Contents) == 0 {
-			return false
-		}
+	obj, err := s3c.GetObject(t.Context(), &s3.GetObjectInput{
+		Bucket: aws.String("iot-fh-bucket"), Key: listed.Contents[0].Key,
+	})
+	require.NoError(t, err)
 
-		obj, gerr := s3c.GetObject(t.Context(), &s3.GetObjectInput{
-			Bucket: aws.String("iot-fh-bucket"), Key: listed.Contents[0].Key,
-		})
-		if gerr != nil {
-			return false
-		}
+	defer obj.Body.Close()
 
-		defer obj.Body.Close()
+	data, err := io.ReadAll(obj.Body)
+	require.NoError(t, err)
 
-		data, rerr := io.ReadAll(obj.Body)
-		body = string(data)
-
-		return rerr == nil
-	}, authzDeadline, authzTick)
+	body := string(data)
 
 	assert.Equal(t, "{\"a\":1}\n{\"a\":2}\n", body)
 }

@@ -764,6 +764,9 @@ func registerClientVpnOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeClientVpnConnections"] = h.handleDescribeClientVpnConnections
 	ops["ApplySecurityGroupsToClientVpnTargetNetwork"] = h.handleApplySecurityGroupsToClientVpnTargetNetwork
 	ops["RevokeClientVpnIngress"] = h.handleRevokeClientVpnIngress
+	ops["GetClientVpnEndpointAuthorizationPolicy"] = h.handleGetClientVpnEndpointAuthorizationPolicy
+	ops["ModifyClientVpnEndpointAuthorizationPolicy"] = h.handleModifyClientVpnEndpointAuthorizationPolicy
+	ops["DeleteClientVpnEndpointAuthorizationPolicy"] = h.handleDeleteClientVpnEndpointAuthorizationPolicy
 	ops["ModifyClientVpnEndpoint"] = h.handleModifyClientVpnEndpoint
 	ops["DisassociateClientVpnTargetNetwork"] = h.handleDisassociateClientVpnTargetNetwork
 	ops["ExportClientVpnClientConfiguration"] = h.handleExportClientVpnClientConfiguration
@@ -800,6 +803,9 @@ func clientVpnSupportedOperations() []string {
 		"DescribeClientVpnConnections",
 		"ApplySecurityGroupsToClientVpnTargetNetwork",
 		"RevokeClientVpnIngress",
+		"GetClientVpnEndpointAuthorizationPolicy",
+		"ModifyClientVpnEndpointAuthorizationPolicy",
+		"DeleteClientVpnEndpointAuthorizationPolicy",
 		"ModifyClientVpnEndpoint",
 		"DisassociateClientVpnTargetNetwork",
 		"ExportClientVpnClientConfiguration",
@@ -809,4 +815,77 @@ func clientVpnSupportedOperations() []string {
 		"RejectTransitGatewayClientVpnAttachment",
 		"DeleteTransitGatewayClientVpnAttachment",
 	}
+}
+
+// ClientVpnEndpointAuthorizationPolicy responses carry a plain <status> string
+// (ec2@v1.338.3 deserializers.go, awsEc2query_deserializeOpDocument*ClientVpnEndpointAuthorizationPolicyOutput).
+type getClientVpnEndpointAuthorizationPolicyResponse struct {
+	XMLName             xml.Name `xml:"GetClientVpnEndpointAuthorizationPolicyResponse"`
+	RequestID           string   `xml:"requestId"`
+	ClientVpnEndpointID string   `xml:"clientVpnEndpointId"`
+	Description         string   `xml:"description,omitempty"`
+	PolicyDocument      string   `xml:"policyDocument,omitempty"`
+	ShadowMode          string   `xml:"shadowMode,omitempty"`
+	Status              string   `xml:"status"`
+}
+
+type modifyClientVpnEndpointAuthorizationPolicyResponse struct {
+	XMLName   xml.Name `xml:"ModifyClientVpnEndpointAuthorizationPolicyResponse"`
+	RequestID string   `xml:"requestId"`
+	Status    string   `xml:"status"`
+}
+
+type deleteClientVpnEndpointAuthorizationPolicyResponse struct {
+	XMLName   xml.Name `xml:"DeleteClientVpnEndpointAuthorizationPolicyResponse"`
+	RequestID string   `xml:"requestId"`
+	Status    string   `xml:"status"`
+}
+
+func optionalParam(vals url.Values, key string) *string {
+	if !vals.Has(key) {
+		return nil
+	}
+
+	v := vals.Get(key)
+
+	return &v
+}
+
+func (h *Handler) handleGetClientVpnEndpointAuthorizationPolicy(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("ClientVpnEndpointId")
+
+	p, err := h.Backend.GetClientVpnEndpointAuthorizationPolicy(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getClientVpnEndpointAuthorizationPolicyResponse{
+		RequestID: reqID, ClientVpnEndpointID: id, Description: p.Description,
+		PolicyDocument: p.PolicyDocument, ShadowMode: p.ShadowMode, Status: cvpnPolicyStatusActive,
+	}, nil
+}
+
+func (h *Handler) handleModifyClientVpnEndpointAuthorizationPolicy(vals url.Values, reqID string) (any, error) {
+	created, err := h.Backend.ModifyClientVpnEndpointAuthorizationPolicy(
+		vals.Get("ClientVpnEndpointId"), optionalParam(vals, "Description"),
+		optionalParam(vals, "PolicyDocument"), optionalParam(vals, "ShadowMode"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	status := cvpnPolicyStatusUpdating
+	if created {
+		status = cvpnPolicyStatusCreating
+	}
+
+	return &modifyClientVpnEndpointAuthorizationPolicyResponse{RequestID: reqID, Status: status}, nil
+}
+
+func (h *Handler) handleDeleteClientVpnEndpointAuthorizationPolicy(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.DeleteClientVpnEndpointAuthorizationPolicy(vals.Get("ClientVpnEndpointId")); err != nil {
+		return nil, err
+	}
+
+	return &deleteClientVpnEndpointAuthorizationPolicyResponse{RequestID: reqID, Status: cvpnPolicyStatusDeleting}, nil
 }

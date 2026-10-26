@@ -60,7 +60,7 @@ func Register[V any](r *Registry, name string, t *Table[V]) *Table[V] {
 		panic(fmt.Sprintf("store: table %q already registered", name))
 	}
 
-	r.tables[name] = t
+	r.tables[name] = &t.tableCore
 
 	return t
 }

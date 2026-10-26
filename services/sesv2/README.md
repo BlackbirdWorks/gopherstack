@@ -7,16 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 112 (110 ok, 2 partial) |
+| PARITY entries audited | 116 (114 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): AssociateEmailIdentityCertificate, DisassociateEmailIdentityCertificate, ListEmailIdentityCertificates, UpdateConfigurationSet.
 - ListContacts Filter.FilteredStatus without a TopicFilter is not applied: the SDK does not say what it filters against. With both set it matches the topic preference, falling back to the topic default only when UseDefaultIfPreferenceUnavailable is true; that fallback and the status-alone case are from the SDK prose, not observed AWS.
 - SendEmail/SendBulkEmail tenant-association mismatch error code is unconfirmed (BadRequestException is used).
 

@@ -150,7 +150,7 @@ func (s *server) DeleteTag(ctx context.Context, in *artifactregistrypb.DeleteTag
 }
 
 func (s *server) GetIamPolicy(_ context.Context, in *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
-	return s.b.GetIamPolicy(in.GetResource())
+	return s.b.GetIamPolicy(in.GetResource(), in.GetOptions().GetRequestedPolicyVersion())
 }
 
 func (s *server) SetIamPolicy(_ context.Context, in *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
@@ -161,9 +161,104 @@ func (s *server) SetIamPolicy(_ context.Context, in *iampb.SetIamPolicyRequest) 
 func (s *server) TestIamPermissions(
 	_ context.Context, in *iampb.TestIamPermissionsRequest,
 ) (*iampb.TestIamPermissionsResponse, error) {
-	if _, err := s.b.GetIamPolicy(in.GetResource()); err != nil {
+	granted, err := s.b.TestIamPermissions(in.GetResource(), in.GetPermissions())
+	if err != nil {
 		return nil, err
 	}
 
-	return &iampb.TestIamPermissionsResponse{Permissions: in.GetPermissions()}, nil
+	return &iampb.TestIamPermissionsResponse{Permissions: granted}, nil
+}
+
+func (s *server) UpdatePackage(
+	_ context.Context, in *artifactregistrypb.UpdatePackageRequest,
+) (*artifactregistrypb.Package, error) {
+	return s.b.UpdatePackage(in)
+}
+
+func (s *server) UpdateVersion(
+	_ context.Context, in *artifactregistrypb.UpdateVersionRequest,
+) (*artifactregistrypb.Version, error) {
+	return s.b.UpdateVersion(in)
+}
+
+func (s *server) ListFiles(
+	ctx context.Context, in *artifactregistrypb.ListFilesRequest,
+) (*artifactregistrypb.ListFilesResponse, error) {
+	items, next, err := s.b.ListFiles(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &artifactregistrypb.ListFilesResponse{Files: items, NextPageToken: next}, nil
+}
+
+func (s *server) GetFile(ctx context.Context, in *artifactregistrypb.GetFileRequest) (*artifactregistrypb.File, error) {
+	return s.b.GetFile(ctx, in.GetName())
+}
+
+func (s *server) DeleteFile(
+	ctx context.Context, in *artifactregistrypb.DeleteFileRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.DeleteFile(ctx, in.GetName())
+}
+
+func (s *server) UpdateFile(
+	ctx context.Context, in *artifactregistrypb.UpdateFileRequest,
+) (*artifactregistrypb.File, error) {
+	return s.b.UpdateFile(ctx, in)
+}
+
+func (s *server) CreateRule(
+	_ context.Context, in *artifactregistrypb.CreateRuleRequest,
+) (*artifactregistrypb.Rule, error) {
+	return s.b.CreateRule(in)
+}
+
+func (s *server) GetRule(_ context.Context, in *artifactregistrypb.GetRuleRequest) (*artifactregistrypb.Rule, error) {
+	return s.b.GetRule(in.GetName())
+}
+
+func (s *server) ListRules(
+	_ context.Context, in *artifactregistrypb.ListRulesRequest,
+) (*artifactregistrypb.ListRulesResponse, error) {
+	items, next, err := s.b.ListRules(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &artifactregistrypb.ListRulesResponse{Rules: items, NextPageToken: next}, nil
+}
+
+func (s *server) UpdateRule(
+	_ context.Context, in *artifactregistrypb.UpdateRuleRequest,
+) (*artifactregistrypb.Rule, error) {
+	return s.b.UpdateRule(in)
+}
+
+func (s *server) DeleteRule(_ context.Context, in *artifactregistrypb.DeleteRuleRequest) (*emptypb.Empty, error) {
+	return s.b.DeleteRule(in.GetName())
+}
+
+func (s *server) GetProjectSettings(
+	_ context.Context, in *artifactregistrypb.GetProjectSettingsRequest,
+) (*artifactregistrypb.ProjectSettings, error) {
+	return s.b.GetProjectSettings(in.GetName())
+}
+
+func (s *server) UpdateProjectSettings(
+	_ context.Context, in *artifactregistrypb.UpdateProjectSettingsRequest,
+) (*artifactregistrypb.ProjectSettings, error) {
+	return s.b.UpdateProjectSettings(in)
+}
+
+func (s *server) GetVPCSCConfig(
+	_ context.Context, in *artifactregistrypb.GetVPCSCConfigRequest,
+) (*artifactregistrypb.VPCSCConfig, error) {
+	return s.b.GetVPCSCConfig(in.GetName())
+}
+
+func (s *server) UpdateVPCSCConfig(
+	_ context.Context, in *artifactregistrypb.UpdateVPCSCConfigRequest,
+) (*artifactregistrypb.VPCSCConfig, error) {
+	return s.b.UpdateVPCSCConfig(in)
 }

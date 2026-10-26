@@ -3,6 +3,7 @@ package gcpcloudbuild
 import (
 	"cmp"
 	"crypto/subtle"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -85,6 +86,12 @@ func validateEvents(t *cloudbuildpb.BuildTrigger) error {
 
 	if t.GetPubsubConfig() != nil && t.GetPubsubConfig().GetTopic() == "" {
 		return errInvalid("Invalid trigger: pubsub_config.topic is required.")
+	}
+
+	if t.GetFilter() != "" && (t.GetWebhookConfig() != nil || t.GetPubsubConfig() != nil) {
+		if _, err := compileFilter(t.GetFilter()); err != nil {
+			return errInvalid("Invalid trigger filter %q: %v.", t.GetFilter(), err)
+		}
 	}
 
 	return nil
@@ -443,13 +450,53 @@ func (b *InMemoryBackend) ReceiveTriggerWebhook(
 		return err
 	}
 
-	if err = bindWebhook(t, in.GetBody().GetData()); err != nil {
+	return b.fireEvent(r, t, in.GetBody().GetData())
+}
+
+// fireEvent starts a build for an event-driven trigger (webhook, Pub/Sub) from the event's JSON payload.
+// Disabled triggers and events the trigger's filter rejects start nothing.
+func (b *InMemoryBackend) fireEvent(r ref, t *cloudbuildpb.BuildTrigger, payload []byte) error {
+	if t.GetDisabled() {
+		return nil
+	}
+
+	if err := bindWebhook(t, payload); err != nil {
 		return err
 	}
 
-	_, err = b.runTrigger(r, t, nil)
+	if ok, err := triggerFilterMatches(t); err != nil || !ok {
+		return err
+	}
+
+	_, err := b.runTrigger(r, t, nil)
 
 	return err
+}
+
+// triggerFilterMatches evaluates the trigger's CEL filter over its bound substitutions.
+func triggerFilterMatches(t *cloudbuildpb.BuildTrigger) (bool, error) {
+	if t.GetFilter() == "" {
+		return true, nil
+	}
+
+	expr, err := compileFilter(t.GetFilter())
+	if err != nil {
+		return false, errInvalid("Invalid trigger filter: %v.", err)
+	}
+
+	vars := map[string]string{"TRIGGER_NAME": t.GetName()}
+	if tpl, ok := t.GetBuildTemplate().(*cloudbuildpb.BuildTrigger_Build); ok {
+		maps.Copy(vars, tpl.Build.GetSubstitutions())
+	}
+
+	maps.Copy(vars, t.GetSubstitutions())
+
+	ok, err := evalFilter(expr, vars)
+	if err != nil {
+		return false, errInvalid("Trigger filter cannot be evaluated: %v.", err)
+	}
+
+	return ok, nil
 }
 
 // bindWebhook resolves payload bindings in the trigger's substitutions and its build template's.

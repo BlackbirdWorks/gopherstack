@@ -20,6 +20,8 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 		return nil, err
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("CreateThingType")
 	defer b.mu.Unlock()
 
@@ -39,6 +41,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 
 	b.thingTypes.Put(tt)
 	b.putResourceTagsLocked(tt.ThingTypeARN, input.Tags)
+	b.queueThingTypeEventLocked(opCreated, tt)
 
 	return tt, nil
 }
@@ -99,6 +102,8 @@ func (b *InMemoryBackend) checkAssignableThingTypeLocked(name string) error {
 
 // DeprecateThingType marks a thing type as deprecated (or un-deprecates it).
 func (b *InMemoryBackend) DeprecateThingType(input *DeprecateThingTypeInput) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeprecateThingType")
 	defer b.mu.Unlock()
 
@@ -115,11 +120,15 @@ func (b *InMemoryBackend) DeprecateThingType(input *DeprecateThingTypeInput) err
 		tt.DeprecationDate = time.Now()
 	}
 
+	b.queueThingTypeEventLocked(opUpdated, tt)
+
 	return nil
 }
 
 // DeleteThingType deletes a thing type by name. The type must be deprecated first.
 func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteThingType")
 	defer b.mu.Unlock()
 
@@ -138,6 +147,7 @@ func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
 		}
 	}
 
+	b.queueThingTypeEventLocked(opDeleted, tt)
 	b.thingTypes.Delete(thingTypeName)
 	delete(b.resourceTags, tt.ThingTypeARN)
 
@@ -151,6 +161,8 @@ func (b *InMemoryBackend) UpdateThingType(input *UpdateThingTypeInput) error {
 	if input.ThingTypeName == "" {
 		return fmt.Errorf("%w: ThingTypeName is required", ErrValidation)
 	}
+
+	defer b.flushEvents()
 
 	b.mu.Lock("UpdateThingType")
 	defer b.mu.Unlock()
@@ -169,6 +181,8 @@ func (b *InMemoryBackend) UpdateThingType(input *UpdateThingTypeInput) error {
 			tt.SearchableAttributes = append(tt.SearchableAttributes, attr)
 		}
 	}
+
+	b.queueThingTypeEventLocked(opUpdated, tt)
 
 	return nil
 }

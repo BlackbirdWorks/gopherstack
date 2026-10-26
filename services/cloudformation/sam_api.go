@@ -23,7 +23,15 @@ func samAPIHandled() map[string]bool {
 	return keySet(samKeyStageName, "DefinitionBody", "DefinitionUri", "OpenApiVersion", "Cors", samAuthKey)
 }
 
-type samRoute struct{ fnID, path, method, authorizer string }
+type samRoute struct {
+	timeout                        any
+	apiKey                         *bool
+	fnID, path, method, authorizer string
+	// roleID is set for state machine routes: the API Gateway invoke role.
+	roleID   string
+	params   []samReqParam
+	unescape bool
+}
 
 // samAPI accumulates one AWS::Serverless::Api (or the implicit
 // ServerlessRestApi) until every Api event has been seen.
@@ -207,6 +215,18 @@ func (a *samAPI) body() (map[string]any, error) {
 		}
 	}
 	a.addSecurityDefinitions(doc)
+	if a.needsAPIKeyScheme() {
+		defs := asMap(doc["securityDefinitions"])
+		if defs == nil {
+			defs = map[string]any{}
+		}
+		defs[samAPIKeyScheme] = map[string]any{
+			"in":            samLocHeader,
+			samKeyNameLower: samAPIKeyHeader,
+			samKeyTypeLower: "apiKey",
+		}
+		doc["securityDefinitions"] = defs
+	}
 
 	return doc, nil
 }
@@ -229,17 +249,9 @@ func (a *samAPI) addRoutePaths(paths map[string]any) {
 		if verb == "any" {
 			verb = samAnyMethodKey
 		}
-		op := map[string]any{
-			samKeyResponses: map[string]any{},
-			"x-amazon-apigateway-integration": map[string]any{
-				"httpMethod":    "POST",
-				samKeyTypeLower: "aws_proxy",
-				"uri": map[string]any{samKeyFnSub: "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/" +
-					"2015-03-31/functions/${" + rt.fnID + ".Arn}/invocations"},
-			},
-		}
-		if sec := a.auth.authorizerFor(rt); sec != "" {
-			op["security"] = security(sec)
+		op := routeOperation(rt)
+		if sec := a.routeSecurity(rt); len(sec) > 0 {
+			op["security"] = sec
 		}
 		item[verb] = op
 		paths[rt.path] = item
@@ -256,4 +268,74 @@ func (a *samAPI) addSecurityDefinitions(doc map[string]any) {
 	}
 	maps.Copy(defs, a.auth.defs)
 	doc["securityDefinitions"] = defs
+}
+
+const (
+	samAPIKeyScheme = "api_key"
+	samAPIKeyHeader = "x-api-key"
+)
+
+// routeOperation is the swagger operation for one route: a Lambda proxy
+// integration, or the Step Functions StartExecution integration.
+func routeOperation(rt samRoute) map[string]any {
+	if rt.roleID != "" {
+		return map[string]any{
+			samKeyResponses: map[string]any{
+				"200": map[string]any{samKeyDesc: "OK"}, "400": map[string]any{samKeyDesc: "Bad Request"},
+			},
+			samIntegrationKey: smIntegration(rt),
+		}
+	}
+	integ := map[string]any{
+		"httpMethod":    samHTTPPost,
+		samKeyTypeLower: "aws_proxy",
+		"uri": map[string]any{samKeyFnSub: "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/" +
+			"2015-03-31/functions/${" + rt.fnID + ".Arn}/invocations"},
+	}
+	op := map[string]any{samKeyResponses: map[string]any{}, samIntegrationKey: integ}
+	if rt.timeout != nil {
+		integ["timeoutInMillis"] = rt.timeout
+	}
+	if len(rt.params) > 0 {
+		params := make([]any, 0, len(rt.params))
+		var cacheKeys []any
+		for _, p := range rt.params {
+			params = append(params, map[string]any{"in": p.in, samKeyNameLower: p.name, "required": p.required,
+				samKeyTypeLower: samSwaggerString})
+			if p.caching {
+				cacheKeys = append(cacheKeys, p.full)
+			}
+		}
+		op["parameters"] = params
+		if len(cacheKeys) > 0 {
+			integ["cacheKeyParameters"] = cacheKeys
+		}
+	}
+
+	return op
+}
+
+func (a *samAPI) apiKeyRequired(rt samRoute) bool {
+	if rt.apiKey != nil {
+		return *rt.apiKey
+	}
+
+	return a.auth != nil && a.auth.apiKeyDefault
+}
+
+// routeSecurity lists the route's authorizer and, when required, the API key scheme.
+func (a *samAPI) routeSecurity(rt samRoute) []any {
+	var sec []any
+	if name := a.auth.authorizerFor(rt); name != "" {
+		sec = append(sec, security(name)...)
+	}
+	if a.apiKeyRequired(rt) {
+		sec = append(sec, security(samAPIKeyScheme)...)
+	}
+
+	return sec
+}
+
+func (a *samAPI) needsAPIKeyScheme() bool {
+	return slices.ContainsFunc(a.routes, a.apiKeyRequired)
 }

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"slices"
 	"strings"
@@ -28,7 +29,6 @@ import (
 const brokerServerCertValidity = 24 * time.Hour
 
 var (
-	errNoPeerCertificate          = errors.New("iot broker: client presented no certificate")
 	errCertificateOutsideValidity = errors.New("iot broker: client certificate is outside its validity period")
 )
 
@@ -62,10 +62,10 @@ func (b *Broker) brokerTLSConfig() (*tls.Config, error) {
 	return &tls.Config{
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
-		ClientAuth:   tls.RequireAnyClientCert,
+		ClientAuth:   tls.RequestClientCert,
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			if len(cs.PeerCertificates) == 0 {
-				return errNoPeerCertificate
+				return nil
 			}
 
 			now := time.Now()
@@ -116,15 +116,15 @@ func (b *Broker) activeCertARN(der []byte) string {
 	return ""
 }
 
-func (b *Broker) principalOf(cl *mqtt.Client) (string, string, *InMemoryBackend) {
+func (b *Broker) principalOf(cl *mqtt.Client) (string, *x509.Certificate, *InMemoryBackend) {
 	conn, ok := cl.Net.Conn.(*tls.Conn)
 	if !ok {
-		return "", "", nil
+		return "", nil, nil
 	}
 
 	peers := conn.ConnectionState().PeerCertificates
 	if len(peers) == 0 {
-		return "", "", nil
+		return "", nil, nil
 	}
 
 	sum := sha256.Sum256(peers[0].Raw)
@@ -142,19 +142,20 @@ func (b *Broker) principalOf(cl *mqtt.Client) (string, string, *InMemoryBackend)
 		cand.mu.RUnlock()
 
 		if arnStr != "" {
-			return arnStr, peers[0].Subject.CommonName, cand
+			return arnStr, peers[0], cand
 		}
 	}
 
-	return "", "", nil
+	return "", nil, nil
 }
 
 // authHook enforces IoT policies on a broker running with authentication enabled.
 type authHook struct {
 	mqtt.HookBase
 
-	broker  *Broker
-	pending sync.Map
+	broker   *Broker
+	pending  sync.Map
+	sessions sync.Map
 }
 
 func (h *authHook) ID() string { return "iot-auth-hook" }
@@ -188,6 +189,8 @@ func (h *authHook) OnSubscribed(cl *mqtt.Client, pk packets.Packet, _ []byte) {
 }
 
 func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
+	h.dropSession(cl)
+
 	h.pending.Range(func(k, _ any) bool {
 		if key, ok := k.(string); ok && strings.HasPrefix(key, cl.ID+"\x00") {
 			h.pending.Delete(k)
@@ -197,8 +200,20 @@ func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
 	})
 }
 
-func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, _ packets.Packet) bool {
-	return h.allowed(cl, "iot:Connect", "client/"+cl.ID)
+func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) bool {
+	var ok bool
+
+	if principal, _, _ := h.broker.principalOf(cl); principal == "" {
+		ok = h.connectCustom(cl, pk)
+	} else {
+		ok = h.allowed(cl, "iot:Connect", "client/"+cl.ID)
+	}
+
+	if !ok {
+		h.broker.publishConnectFailed(cl)
+	}
+
+	return ok
 }
 
 func (h *authHook) OnACLCheck(cl *mqtt.Client, topic string, write bool) bool {
@@ -219,25 +234,28 @@ func (h *authHook) isPendingFilter(clientID, topic string) bool {
 }
 
 func (h *authHook) allowed(cl *mqtt.Client, action, resource string) bool {
-	principal, commonName, be := h.broker.principalOf(cl)
+	principal, cert, be := h.broker.principalOf(cl)
 	if principal == "" {
-		return false
+		return h.customAllowed(cl, action, resource)
 	}
 
-	return be.authorizeMQTT(principal, cl.ID, commonName, action, resource)
+	return be.authorizeMQTT(principal, cl.ID, cert, action, resource)
 }
 
 // authorizeMQTT evaluates the policies attached to principal, and for a thing connecting
 // as itself those of its thing groups and their ancestors. An explicit Deny wins.
-func (b *InMemoryBackend) authorizeMQTT(principal, clientID, commonName, action, resource string) bool {
+func (b *InMemoryBackend) authorizeMQTT(
+	principal, clientID string, cert *x509.Certificate, action, resource string,
+) bool {
 	b.mu.RLock("authorizeMQTT")
 	defer b.mu.RUnlock()
 
 	ctx := iam.ConditionContext{Extra: map[string]string{
-		"iot:clientid":                       clientID,
-		"iot:certificate.subject.commonname": commonName,
-		"iot:connection.thing.isattached":    "false",
+		ctxKeyClientID:                    clientID,
+		"iot:connection.thing.isattached": "false",
 	}}
+
+	maps.Copy(ctx.Extra, certPolicyVariables(cert))
 
 	targets := []string{principal}
 

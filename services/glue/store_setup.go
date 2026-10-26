@@ -10,9 +10,10 @@ package glue
 // maps -- see the comment block above registerAllTables for the list and why.
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
-func databaseKeyFn(v *Database) string { return v.Name }
+func databaseKeyFn(v *Database) string { return strs.Fold(v.Name) }
 
 // tableRecordKeyFn is the [store.Table] key function for the glue Table type.
 // Named to avoid colliding with the tableKey composite-key helper or the
@@ -72,7 +73,9 @@ func registryKeyFn(v *Registry) string { return v.Name }
 // schemaEntryKeyFn wraps the existing schemaKey composite-key helper.
 func schemaEntryKeyFn(v *Schema) string { return schemaKey(v.RegistryName, v.SchemaName) }
 
-func udfEntryKeyFn(v *UserDefinedFunction) string { return v.DatabaseName + "|" + v.FunctionName }
+func udfEntryKeyFn(v *UserDefinedFunction) string {
+	return strs.Fold(v.DatabaseName) + "|" + v.FunctionName
+}
 
 func securityConfigKeyFn(v *SecurityConfiguration) string { return v.Name }
 
@@ -93,7 +96,7 @@ func blueprintRunKeyFn(v *BlueprintRun) string { return v.RunID }
 func dqRecommendationRunKeyFn(v *DQRuleRecommendationRun) string { return v.RecommendationRunID }
 
 func columnStatTaskSettingsEntryKeyFn(v *ColumnStatisticsTaskSettings) string {
-	return v.DatabaseName + "|" + v.TableName
+	return strs.Fold(v.DatabaseName) + "|" + strs.Fold(v.TableName)
 }
 
 func columnStatTaskRunKeyFn(v *ColumnStatisticsTaskRun) string { return v.ColumnStatisticsTaskRunID }

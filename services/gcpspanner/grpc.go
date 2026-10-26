@@ -58,7 +58,7 @@ func (s *instanceServer) DeleteInstance(
 }
 
 func (s *instanceServer) GetIamPolicy(_ context.Context, in *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
-	return s.b.GetIamPolicy(in.GetResource())
+	return s.b.GetIamPolicy(in.GetResource(), in.GetOptions().GetRequestedPolicyVersion())
 }
 
 func (s *instanceServer) SetIamPolicy(_ context.Context, in *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {

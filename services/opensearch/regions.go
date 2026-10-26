@@ -52,6 +52,7 @@ func (h *Handler) EnableRegions() {
 
 		home.mu.RLock("newRegionBackend")
 		nb.dnsRegistrar = home.dnsRegistrar
+		nb.endpoints = home.endpoints
 		nb.processingDelay = home.processingDelay
 		nb.now = home.now
 		home.mu.RUnlock()
@@ -59,6 +60,8 @@ func (h *Handler) EnableRegions() {
 		p := NewHandler(nb)
 		p.AccountID = h.AccountID
 		p.Region = region
+		p.endpointStrategy = h.endpointStrategy
+		p.customBackend, p.proxyTransport = h.customBackend, h.proxyTransport
 
 		return p
 	})

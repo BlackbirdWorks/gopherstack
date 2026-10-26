@@ -157,7 +157,7 @@ func TestLifecycle_Updating(t *testing.T) {
 					DesiredState: "RUNNING",
 				})
 				require.NoError(t, err)
-				pipes.WaitPipeRunning(t, b, pipeName)
+				waitPipeRunning(t, b, pipeName)
 
 				desc := tt.description
 				updated, err := b.UpdatePipe(context.Background(), pipeName, pipes.UpdatePipeInput{
@@ -291,7 +291,7 @@ func TestLifecycle_StartStop(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
-				pipes.WaitPipeRunning(t, b, tt.name)
+				waitPipeRunning(t, b, tt.name)
 
 				stopped, err := b.StopPipe(context.Background(), tt.name)
 				require.NoError(t, err)
@@ -811,7 +811,7 @@ func TestUpdatePipe_UpdatesLastModifiedTime(t *testing.T) {
 					DesiredState: "RUNNING",
 				})
 				require.NoError(t, err)
-				pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+				waitPipeRunning(t, b, tt.name+"-pipe")
 
 				before, _ := b.GetPipe(context.Background(), tt.name+"-pipe")
 				time.Sleep(2 * time.Millisecond)
@@ -877,7 +877,7 @@ func TestUpdatePipe_Description_AbsentMeansUnchanged(t *testing.T) {
 				DesiredState: "RUNNING",
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name)
+			waitPipeRunning(t, b, tt.name)
 
 			desc := tt.updateDesc
 			_, err = b.UpdatePipe(context.Background(), tt.name, pipes.UpdatePipeInput{
@@ -1047,7 +1047,7 @@ func TestKmsKeyIdentifier_Update(t *testing.T) {
 			}
 			_, err := b.CreatePipe(context.Background(), inp)
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			updated, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				RoleARN:          "arn:aws:iam::123456789012:role/r",

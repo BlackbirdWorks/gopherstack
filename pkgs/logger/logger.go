@@ -14,6 +14,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"slices"
+	"sync/atomic"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 )
@@ -45,12 +47,32 @@ func Save(ctx context.Context, logger *slog.Logger) context.Context {
 		return ctx
 	}
 
+	if p, ok := pendingKey.Get(ctx); ok && p != nil {
+		ctx = pendingKey.Set(ctx, nil)
+	}
+
 	return Key.Set(ctx, logger)
 }
 
 // Load returns the logger carried on ctx, or slog.Default() when none is set.
 // Always returns non-nil so callers can chain methods without a guard.
 func Load(ctx context.Context) *slog.Logger {
+	root := rootLogger(ctx)
+
+	if p := livePending(ctx, root); p != nil {
+		return p.logger()
+	}
+
+	return root
+}
+
+// Enabled reports whether ctx's logger would emit at level, without materialising
+// attrs added by AddAttrs (handler attrs never change a level check).
+func Enabled(ctx context.Context, level slog.Level) bool {
+	return rootLogger(ctx).Enabled(ctx, level)
+}
+
+func rootLogger(ctx context.Context) *slog.Logger {
 	if logger, ok := Key.Get(ctx); ok && logger != nil {
 		return logger
 	}
@@ -58,16 +80,96 @@ func Load(ctx context.Context) *slog.Logger {
 	return slog.Default()
 }
 
-// AddAttrs returns a child context whose logger has attrs pre-attached to
-// every record. slog.Logger.With does not mutate the parent so this is safe
-// for concurrent use across requests.
-func AddAttrs(ctx context.Context, attrs ...slog.Attr) context.Context {
-	parent := Load(ctx)
-	if len(attrs) == 0 {
-		return Save(ctx, parent)
+// pendingKey carries attrs added since the last materialised logger.
+var pendingKey = ctxval.NewKey[*pending]("logger.pending") //nolint:gochecknoglobals // ctxval key, not mutable state.
+
+// pending defers the handler WithAttrs clone until a record is actually logged, so
+// stacked AddAttrs calls cost one clone. root is the Key logger it was built over;
+// a different Save invalidates it.
+type pending struct {
+	root     *slog.Logger
+	base     *slog.Logger
+	resolved atomic.Pointer[slog.Logger]
+	lazy     atomic.Pointer[slog.Logger]
+	attrs    []slog.Attr
+}
+
+// logger returns a logger whose handler defers the WithAttrs clone until a record is
+// handled, so Load plus Enabled checks never pay for it.
+func (p *pending) logger() *slog.Logger {
+	if l := p.resolved.Load(); l != nil {
+		return l
 	}
 
-	return Save(ctx, slog.New(parent.Handler().WithAttrs(attrs)))
+	if l := p.lazy.Load(); l != nil {
+		return l
+	}
+
+	l := slog.New(lazyHandler{p: p})
+	p.lazy.Store(l)
+
+	return l
+}
+
+func (p *pending) materialize() *slog.Logger {
+	if l := p.resolved.Load(); l != nil {
+		return l
+	}
+
+	l := slog.New(p.base.Handler().WithAttrs(p.attrs))
+	p.resolved.Store(l)
+
+	return l
+}
+
+type lazyHandler struct{ p *pending }
+
+func (h lazyHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.p.base.Handler().Enabled(ctx, level)
+}
+
+func (h lazyHandler) Handle(ctx context.Context, r slog.Record) error {
+	return h.p.materialize().Handler().Handle(ctx, r)
+}
+
+func (h lazyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return h.p.materialize().Handler().WithAttrs(attrs)
+}
+
+func (h lazyHandler) WithGroup(name string) slog.Handler {
+	return h.p.materialize().Handler().WithGroup(name)
+}
+
+func livePending(ctx context.Context, root *slog.Logger) *pending {
+	if p, ok := pendingKey.Get(ctx); ok && p != nil && p.root == root {
+		return p
+	}
+
+	return nil
+}
+
+// AddAttrs returns a child context whose logger has attrs pre-attached to
+// every record. slog.Logger.With does not mutate the parent so this is safe
+// for concurrent use across requests. Consecutive calls fold into one handler clone;
+// the caller must not modify attrs afterwards.
+func AddAttrs(ctx context.Context, attrs ...slog.Attr) context.Context {
+	if len(attrs) == 0 {
+		return Save(ctx, Load(ctx))
+	}
+
+	root := rootLogger(ctx)
+	next := &pending{root: root, base: root, attrs: attrs}
+
+	if prev := livePending(ctx, root); prev != nil {
+		if l := prev.resolved.Load(); l != nil {
+			next.base = l
+		} else {
+			next.base = prev.base
+			next.attrs = slices.Concat(prev.attrs, attrs)
+		}
+	}
+
+	return pendingKey.Set(ctx, next)
 }
 
 // WithService returns a child context whose logger carries service=<name>.

@@ -10,6 +10,8 @@ type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
 	registry  *store.Registry
 	policies  *store.Table[storedPolicy] // policyID → policy
+	managed   *store.Table[managedResource]
+	compute   ComputeService
 	accountID string
 	region    string
 	counter   int

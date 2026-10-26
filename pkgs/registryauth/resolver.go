@@ -130,3 +130,11 @@ func (r *Resolver) pullViaMirror(
 
 	return true
 }
+
+// EncodeCredential returns the registryAuth header value for one explicit credential.
+func EncodeCredential(host, user, pass string) string {
+	return encodeAuth(authConfig{Username: user, Password: pass, ServerAddress: normalizeHost(host)})
+}
+
+// HostOf returns the registry host an image reference pulls from.
+func HostOf(ref string) string { return parseRef(ref).host }

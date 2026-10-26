@@ -495,6 +495,31 @@ func TestStepFunctionsSDKIntegration(t *testing.T) {
 				assert.Regexp(t, `^"[0-9a-f-]{36}"$`, aws.ToString(out.Output))
 			},
 		},
+		{
+			name: "route53_zone_id_prefix_trimmed",
+			definition: `{"StartAt":"C","States":{"C":{"Type":"Task",` +
+				`"Resource":"arn:aws:states:::aws-sdk:route53:createHostedZone","Parameters":{` +
+				`"Name":"sfn-r53.example.com.","CallerReference":"sfn-r53-ref"},"ResultPath":"$.zone","Next":"G"},` +
+				`"G":{"Type":"Task","Resource":"arn:aws:states:::aws-sdk:route53:getHostedZone","Parameters":{` +
+				`"Id.$":"$.zone.HostedZone.Id"},"End":true}}}`,
+			input: `{}`,
+			check: func(t *testing.T, out *sfn.StartSyncExecutionOutput) {
+				t.Helper()
+				assert.Equal(t, "sfn-r53.example.com.", jsonAt(t, out.Output, "HostedZone", "Name"))
+				assert.Regexp(t, `^/hostedzone/\w+$`, jsonAt(t, out.Output, "HostedZone", "Id"))
+			},
+		},
+		{
+			name: "route53_missing_zone_caught",
+			definition: `{"StartAt":"G","States":{"G":{"Type":"Task",` +
+				`"Resource":"arn:aws:states:::aws-sdk:route53:getHostedZone","Parameters":{"Id":"/hostedzone/ZNOPE"},` +
+				catchTo("Route53.NoSuchHostedZoneException") + `,"End":true},` + caughtState + `}}`,
+			input: `{}`,
+			check: func(t *testing.T, out *sfn.StartSyncExecutionOutput) {
+				t.Helper()
+				assert.Equal(t, "Route53.NoSuchHostedZoneException", jsonAt(t, out.Output, "err", "Error"))
+			},
+		},
 	}
 
 	for _, tt := range tests {

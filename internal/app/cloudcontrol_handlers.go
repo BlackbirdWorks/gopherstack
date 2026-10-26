@@ -15,18 +15,18 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/aws/smithy-go"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/internal/awswire/cloudwatchlogs"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
@@ -73,7 +73,7 @@ func (t ccTags) toMap() map[string]string {
 func tagsProperty(m map[string]string) []map[string]string {
 	out := make([]map[string]string, 0, len(m))
 	for k, v := range m {
-		out = append(out, map[string]string{"Key": k, "Value": v})
+		out = append(out, map[string]string{ccKeyKey: k, ccKeyValue: v})
 	}
 
 	return out
@@ -189,7 +189,9 @@ func wireCloudControlHandlers(e http.Handler, services []service.Registerable) {
 	bk.RegisterTypeHandler("AWS::DynamoDB::Table", &ccTable{client: dynamodb.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::Logs::LogGroup", &ccLogGroup{client: cloudwatchlogs.NewFromConfig(cfg)})
 	wireCloudControlMoreHandlers(bk, cfg)
-	wireCloudControlInfraHandlers(bk, cfg)
+	if ec2c, err := newCCEC2Client(e, cfg); err == nil {
+		wireCloudControlInfraHandlers(bk, e, cfg, ec2c)
+	}
 	wireCloudControlProvisionedTypes(bk, services)
 }
 
@@ -417,7 +419,7 @@ func (h *ccQueue) Read(ctx context.Context, id string) (map[string]any, error) {
 }
 
 func (h *ccQueue) Update(ctx context.Context, id string, current, desired map[string]any) error {
-	mutable := slices.AppendSeq([]string{"Tags", "ContentBasedDeduplication"}, maps.Keys(ccQueueIntAttrs))
+	mutable := slices.AppendSeq([]string{ccKeyTags, "ContentBasedDeduplication"}, maps.Keys(ccQueueIntAttrs))
 
 	if err := ccRejectUnsupportedChanges(current, desired, mutable...); err != nil {
 		return err

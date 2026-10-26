@@ -33,17 +33,16 @@ families:
   DbInstance: {status: ok, note: "Status is a lazy deadline (pending kind until it elapses, then AVAILABLE); with the docker engine the status leaves CREATING only when the container reports healthy, FAILED when it cannot start."}
   DbCluster: {status: ok, note: "Member instances share the cluster status; updates to type and port propagate to members; reboot can target a subset of members."}
   DbParameterGroup: {status: ok, note: "No delete or update operation exists in the SDK; groups are referenced by instances and clusters by Id."}
-  DbBackup: {status: ok, note: "On-demand backups and scheduled HOURLY, DAILY, WEEKLY and MONTHLY backups (taken on the backend clock by RunScheduled, every 30s in the app), expired after RetentionDays."}
+  DbBackup: {status: ok, note: "On-demand backups and scheduled HOURLY, DAILY, WEEKLY, MONTHLY and CUSTOM_SCHEDULE (cron(min hour dom month dow year), pattern from the CLI reference, dom or dow must be ?, UTC) backups (taken on the backend clock by RunScheduled, every 30s in the app), expired after RetentionDays."}
   Tags: {status: ok, note: "Instances, clusters, parameter groups and backups are taggable."}
   DockerEngine: {status: ok, note: "TIMESTREAM_INFLUXDB_ENGINE=docker runs one influxdb:2 container per instance and per cluster member, initialised with the requested credentials and an admin token (DOCKER_INFLUXDB_INIT_*) and run as the emulator's user on a bind-mounted data directory (under the data dir with --persist, else a temporary directory removed on delete/Close). Reboot restarts the container; a parameter group change recreates it on the same port and directory; restored instances replay the backup with influx restore --full. Parameters map to INFLUXD_* settings (every InfluxDBv2 parameter name is the influxd flag in camelCase). Container output is shipped to the LogDeliveryConfiguration bucket every minute when the bucket exists. After a restart with --persist, instances are started again on their data. Unit-tested with a fake runtime; TestDockerRebootKeepsData runs create, write, reboot, read, backup and restore against a real influxdb:2 image (skipped without Docker or the image)."}
   MaintenanceSchedule: {status: ok, note: "LastMaintenanceTime is set when the window start passes on the backend clock; maintenance itself changes nothing in the container."}
 gaps: []
 items_still_open:
   - DbParameterGroup: InfluxDBv3 parameter groups are stored and returned but have no matching engine, so they are not applied
-  - DbBackupConfigurations: CUSTOM_SCHEDULE (cron) and CONTINUOUS configurations are stored but never run; HOURLY, DAILY, WEEKLY and MONTHLY run on the backend clock
+  - DbBackupConfigurations: CONTINUOUS configurations are stored but never run
   - VpcSubnetIds: existence is checked through EC2 when wired, but all subnets belonging to one VPC and the security groups are not verified
   - AccessDeniedException: never raised; no IAM authorization is modeled
-  - ResourceGroupsTaggingAPI: Timestream for InfluxDB tags are not exposed through the tagging API
 structural_gaps:
   - "InfluxDB v3 Core and Enterprise engines and multi-node clusters have no container image the emulator can run; cluster data planes cannot exist."
   - "Cluster members run as independent servers: there is no replication between them, and a cluster backup is taken from the PRIMARY member."

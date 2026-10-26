@@ -96,7 +96,7 @@ func (h *Handler) handleListJobExecutionsForThing(c *echo.Context) error {
 
 	for i, e := range execs {
 		summaries[i] = map[string]any{
-			"jobId":               e.JobID,
+			keyJobID:              e.JobID,
 			"jobExecutionSummary": toJobExecutionSummaryWire(e),
 		}
 	}
@@ -236,7 +236,7 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 		summaries[i] = map[string]any{
 			keyJobID:          j.JobID,
 			keyJobARN:         j.JobARN,
-			"status":          j.Status,
+			keyStatus:         j.Status,
 			"targetSelection": j.TargetSelection,
 			keyCreatedAt:      j.CreatedAt,
 			keyLastUpdatedAt:  j.LastUpdatedAt,

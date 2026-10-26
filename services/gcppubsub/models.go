@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	projectsSeg  = "projects"
 	deletedTopic = "_deleted-topic_"
 
 	defaultAckDeadline     = 10
@@ -78,7 +79,7 @@ type snapshot struct {
 
 func parseID(name, coll string) (string, bool) {
 	parts := strings.Split(name, "/")
-	if len(parts) != 4 || parts[0] != "projects" || parts[2] != coll || parts[1] == "" || parts[3] == "" {
+	if len(parts) != 4 || parts[0] != projectsSeg || parts[2] != coll || parts[1] == "" || parts[3] == "" {
 		return "", false
 	}
 

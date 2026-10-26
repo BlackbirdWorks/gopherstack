@@ -165,8 +165,10 @@ func TestProvider_WiresSageMakerEndpointLookup(t *testing.T) {
 		return descErr == nil && ep.EndpointStatus == "InService"
 	}, 2*time.Second, 10*time.Millisecond, "endpoint must reach InService via the real FSM")
 
+	// The SageMaker engine is off, so the endpoint passes validation but has no model container:
+	// an honest 503 rather than a made-up response.
 	rec = doRequest(t, h, http.MethodPost, "/endpoints/wired-endpoint/invocations")
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
 type lateSageMakerConfig struct {
@@ -194,7 +196,7 @@ func TestProvider_EndpointLookupResolvesAfterInit(t *testing.T) {
 	require.True(t, ok)
 
 	rec := doRequest(t, h, http.MethodPost, "/endpoints/ghost/invocations")
-	assert.Equal(t, http.StatusOK, rec.Code, "no registry yet: accept")
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "no registry yet: no model container")
 
 	sm = sagemaker.NewHandler(sagemaker.NewInMemoryBackend("000000000000", "us-east-1"))
 
@@ -236,7 +238,7 @@ func TestProvider_RejectsUnknownTargetVariant(t *testing.T) {
 		name     string
 		wantCode int
 	}{
-		{name: "known", variant: "AllTraffic", wantCode: http.StatusOK},
+		{name: "known", variant: "AllTraffic", wantCode: http.StatusServiceUnavailable},
 		{name: "unknown", variant: "Nope", wantCode: http.StatusBadRequest},
 	}
 

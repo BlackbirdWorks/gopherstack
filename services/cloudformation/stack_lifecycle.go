@@ -28,7 +28,9 @@ func (b *InMemoryBackend) DescribeStack(nameOrID string) (*Stack, error) {
 		return nil, ErrStackNotFound
 	}
 
-	return stack, nil
+	cp := *stack
+
+	return &cp, nil
 }
 
 const cfnDefaultPageSize = 100
@@ -100,7 +102,15 @@ func (b *InMemoryBackend) ListAll() []*Stack {
 	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
-	return b.stacks.All()
+	all := b.stacks.All()
+	out := make([]*Stack, len(all))
+
+	for i, s := range all {
+		cp := *s
+		out[i] = &cp
+	}
+
+	return out
 }
 
 // ContinueUpdateRollback continues the rollback for a stack that is in ROLLBACK_IN_PROGRESS

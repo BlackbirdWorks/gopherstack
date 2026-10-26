@@ -99,12 +99,34 @@ func cloudBuildServices(byName map[string]service.Registerable) gcpcloudbuildbac
 func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPRedis(byName)
 	wireGCPCloudBuild(byName)
+	wireGCPEventarc(byName)
+	wireGCPSecretRotation(byName)
+	wireGCPWorkflows(byName)
+	wireGCPRun(byName)
 }
 
 // wireGCPCloudBuild connects Cloud Build to Cloud Storage, Pub/Sub, Cloud Logging, Secret Manager and the
-// Artifact Registry emulator.
+// Artifact Registry emulator, and starts pubsub_config triggers from messages published to Pub/Sub.
 func wireGCPCloudBuild(byName map[string]service.Registerable) {
 	if cb, ok := byName["GCPCloudBuild"].(*gcpcloudbuildbackend.Handler); ok {
 		cb.Backend.SetServices(cloudBuildServices(byName))
+
+		if ps, isPS := byName["GCPPubSub"].(*gcppubsubbackend.Handler); isPS {
+			ps.Backend.ObservePublishes(func(topic string, m *pubsubpb.PubsubMessage) {
+				cb.Backend.HandlePubsubMessage(
+					topic, m.GetData(), m.GetAttributes(), m.GetMessageId(), m.GetPublishTime().AsTime(),
+				)
+			})
+		}
+	}
+}
+
+// wireGCPSecretRotation delivers Secret Manager SECRET_ROTATE notifications to the Pub/Sub emulator.
+func wireGCPSecretRotation(byName map[string]service.Registerable) {
+	sm, okSM := byName["GCPSecretManager"].(*gcpsecretmanagerbackend.Handler)
+	ps, okPS := byName["GCPPubSub"].(*gcppubsubbackend.Handler)
+
+	if okSM && okPS {
+		sm.Backend.SetPublisher(logSinkPublisher{b: ps.Backend})
 	}
 }

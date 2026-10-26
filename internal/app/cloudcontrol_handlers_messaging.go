@@ -11,23 +11,22 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
-	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kintypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
-	"github.com/aws/aws-sdk-go-v2/service/sns"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
+	"github.com/blackbirdworks/gopherstack/internal/awswire/eventbridge"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kinesis"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/lambda"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sfn"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sns"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -216,7 +215,7 @@ func (h *ccTopic) List(ctx context.Context) ([]string, error) {
 
 // --- AWS::ECR::Repository ---
 
-type ccRepository struct{ client *ecr.Client }
+type ccRepository struct{ client *wireECR }
 
 func ccECRTags(m map[string]string) []ecrtypes.Tag {
 	out := make([]ecrtypes.Tag, 0, len(m))
@@ -238,7 +237,7 @@ func (h *ccRepository) Create(ctx context.Context, desired map[string]any) (stri
 		return "", err
 	}
 
-	in := &ecr.CreateRepositoryInput{RepositoryName: aws.String(name), Tags: ccECRTags(tags)}
+	in := &wireECRCreateRepositoryInput{RepositoryName: aws.String(name), Tags: ccECRTags(tags)}
 
 	if m := ccString(desired, "ImageTagMutability"); m != "" {
 		in.ImageTagMutability = ecrtypes.ImageTagMutability(m)
@@ -270,7 +269,7 @@ func (h *ccRepository) Create(ctx context.Context, desired map[string]any) (stri
 }
 
 func (h *ccRepository) Read(ctx context.Context, id string) (map[string]any, error) {
-	out, err := h.client.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
+	out, err := h.client.DescribeRepositories(ctx, &wireECRDescribeRepositoriesInput{
 		RepositoryNames: []string{id},
 	})
 	if err != nil {
@@ -300,7 +299,7 @@ func (h *ccRepository) Read(ctx context.Context, id string) (map[string]any, err
 		model["EncryptionConfiguration"] = enc
 	}
 
-	tags, err := h.client.ListTagsForResource(ctx, &ecr.ListTagsForResourceInput{ResourceArn: r.RepositoryArn})
+	tags, err := h.client.ListTagsForResource(ctx, &wireECRListTagsForResourceInput{ResourceArn: r.RepositoryArn})
 	if err == nil && len(tags.Tags) > 0 {
 		m := make(map[string]string, len(tags.Tags))
 		for _, t := range tags.Tags {
@@ -321,7 +320,7 @@ func (h *ccRepository) Update(ctx context.Context, id string, current, desired m
 	}
 
 	if m := ccString(desired, "ImageTagMutability"); m != "" && m != ccString(current, "ImageTagMutability") {
-		if _, err := h.client.PutImageTagMutability(ctx, &ecr.PutImageTagMutabilityInput{
+		if _, err := h.client.PutImageTagMutability(ctx, &wireECRPutImageTagMutabilityInput{
 			RepositoryName: aws.String(id), ImageTagMutability: ecrtypes.ImageTagMutability(m),
 		}); err != nil {
 			return ccMapError(err)
@@ -334,7 +333,7 @@ func (h *ccRepository) Update(ctx context.Context, id string, current, desired m
 			return err
 		}
 
-		if _, err = h.client.PutImageScanningConfiguration(ctx, &ecr.PutImageScanningConfigurationInput{
+		if _, err = h.client.PutImageScanningConfiguration(ctx, &wireECRPutImageScanningConfigurationInput{
 			RepositoryName: aws.String(id), ImageScanningConfiguration: &scan,
 		}); err != nil {
 			return ccMapError(err)
@@ -345,19 +344,23 @@ func (h *ccRepository) Update(ctx context.Context, id string, current, desired m
 
 	return ccSyncModelTags(current, desired,
 		func(m map[string]string) error {
-			_, err := h.client.TagResource(ctx, &ecr.TagResourceInput{ResourceArn: aws.String(arn), Tags: ccECRTags(m)})
+			_, err := h.client.TagResource(
+				ctx, &wireECRTagResourceInput{ResourceArn: aws.String(arn), Tags: ccECRTags(m)},
+			)
 
 			return err
 		},
 		func(keys []string) error {
-			_, err := h.client.UntagResource(ctx, &ecr.UntagResourceInput{ResourceArn: aws.String(arn), TagKeys: keys})
+			_, err := h.client.UntagResource(
+				ctx, &wireECRUntagResourceInput{ResourceArn: aws.String(arn), TagKeys: keys},
+			)
 
 			return err
 		})
 }
 
 func (h *ccRepository) Delete(ctx context.Context, id string) error {
-	_, err := h.client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
+	_, err := h.client.DeleteRepository(ctx, &wireECRDeleteRepositoryInput{
 		RepositoryName: aws.String(id), Force: true,
 	})
 
@@ -367,9 +370,10 @@ func (h *ccRepository) Delete(ctx context.Context, id string) error {
 func (h *ccRepository) List(ctx context.Context) ([]string, error) {
 	var names []string
 
-	p := ecr.NewDescribeRepositoriesPaginator(h.client, &ecr.DescribeRepositoriesInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
+	in := &wireECRDescribeRepositoriesInput{}
+
+	for {
+		out, err := h.client.DescribeRepositories(ctx, in)
 		if err != nil {
 			return nil, ccMapError(err)
 		}
@@ -377,6 +381,12 @@ func (h *ccRepository) List(ctx context.Context) ([]string, error) {
 		for _, r := range out.Repositories {
 			names = append(names, aws.ToString(r.RepositoryName))
 		}
+
+		if aws.ToString(out.NextToken) == "" {
+			break
+		}
+
+		in.NextToken = out.NextToken
 	}
 
 	return names, nil
@@ -447,12 +457,7 @@ const (
 )
 
 func (h *ccStream) waitActive(ctx context.Context, name string) error {
-	w := kinesis.NewStreamExistsWaiter(h.client, func(o *kinesis.StreamExistsWaiterOptions) {
-		o.MinDelay = ccStreamPollFloor
-		o.MaxDelay = ccStreamPollCeil
-	})
-
-	return ccMapError(w.Wait(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(name)}, ccStreamWait))
+	return ccMapError(awaitStream(ctx, h.client, name, false, ccStreamWait))
 }
 
 func (h *ccStream) setRetention(ctx context.Context, name string, have, want int32) error {
@@ -569,12 +574,7 @@ func (h *ccStream) Delete(ctx context.Context, id string) error {
 		return ccMapError(err)
 	}
 
-	w := kinesis.NewStreamNotExistsWaiter(h.client, func(o *kinesis.StreamNotExistsWaiterOptions) {
-		o.MinDelay = ccStreamPollFloor
-		o.MaxDelay = ccStreamPollCeil
-	})
-
-	return ccMapError(w.Wait(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(id)}, ccStreamWait))
+	return ccMapError(awaitStream(ctx, h.client, id, true, ccStreamWait))
 }
 
 func (h *ccStream) List(ctx context.Context) ([]string, error) {
@@ -928,7 +928,6 @@ func wireCloudControlMoreHandlers(bk *cloudcontrolbackend.InMemoryBackend, cfg a
 	bk.RegisterTypeHandler("AWS::KMS::Key", &ccKey{client: kms.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::SecretsManager::Secret", &ccSecret{client: secretsmanager.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::SSM::Parameter", &ccParameter{client: ssm.NewFromConfig(cfg)})
-	bk.RegisterTypeHandler("AWS::ECR::Repository", &ccRepository{client: ecr.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::Kinesis::Stream", &ccStream{client: kinesis.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::Events::EventBus", &ccEventBus{client: eventbridge.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::Lambda::Function", &ccFunction{client: lambda.NewFromConfig(cfg)})

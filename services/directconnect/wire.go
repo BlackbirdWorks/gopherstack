@@ -159,6 +159,7 @@ type connectionWire struct {
 	AwsDeviceV2                      string                 `json:"awsDeviceV2,omitempty"`
 	AwsLogicalDeviceID               string                 `json:"awsLogicalDeviceId,omitempty"`
 	Bandwidth                        string                 `json:"bandwidth,omitempty"`
+	BillingMode                      string                 `json:"billingMode,omitempty"`
 	ConnectionID                     string                 `json:"connectionId,omitempty"`
 	ConnectionName                   string                 `json:"connectionName,omitempty"`
 	ConnectionState                  string                 `json:"connectionState,omitempty"`

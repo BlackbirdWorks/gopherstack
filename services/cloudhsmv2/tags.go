@@ -110,3 +110,63 @@ func (b *InMemoryBackend) ListTags(
 
 	return page.New(slices.Clone(wireTags(*t)), token, limit, defaultPage), nil
 }
+
+// TagResourceByARN adds or replaces tags given as a map, for callers outside the CloudHSM wire layer.
+func (b *InMemoryBackend) TagResourceByARN(ctx context.Context, ref string, tags map[string]string) error {
+	list := make([]wireTag, 0, len(tags))
+	for k, v := range tags {
+		list = append(list, wireTag{Key: k, Value: v})
+	}
+
+	return b.TagResource(ctx, ref, list)
+}
+
+// TaggedEntry is one taggable resource, for the Resource Groups Tagging API bridge.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources lists the caller's tagged clusters and backups.
+func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every cluster and backup of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
+	sc := b.scopeOf(ctx)
+
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	now := b.now()
+
+	var out []TaggedEntry
+
+	b.clusters.Range(func(c *Cluster) bool {
+		if state, _ := b.clusterStateLocked(
+			c,
+			now,
+		); c.ownedBy(sc) && state != stateDeleted &&
+			(!taggedOnly || len(c.Tags) > 0) {
+			out = append(out, TaggedEntry{ARN: clusterARN(c.Account, c.Region, c.ID), Tags: maps.Clone(c.Tags)})
+		}
+
+		return true
+	})
+
+	b.backups.Range(func(bk *Backup) bool {
+		owned := bk.Account == sc.account && bk.Region == sc.region
+		if owned && backupState(bk, now) != stateDeleted && (!taggedOnly || len(bk.Tags) > 0) {
+			out = append(out, TaggedEntry{ARN: backupARN(bk.Account, bk.Region, bk.ID), Tags: maps.Clone(bk.Tags)})
+		}
+
+		return true
+	})
+
+	return out
+}

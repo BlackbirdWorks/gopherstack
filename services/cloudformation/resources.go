@@ -19,21 +19,25 @@ import (
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -53,12 +57,14 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -176,6 +182,12 @@ type ServiceBackends struct {
 	KinesisVideo      *kinesisvideobackend.Handler
 	ECRPublic         *ecrpublicbackend.Handler
 	KafkaConnect      *kafkaconnectbackend.Handler
+	RUM               *rumbackend.Handler
+	OAM               *oambackend.Handler
+	AppIntegrations   *appintegrationsbackend.Handler
+	CodeGuruReviewer  *codegurureviewerbackend.Handler
+	Connect           *connectbackend.Handler
+	CloudHSMV2        *cloudhsmv2backend.Handler
 	DirectConnect     *directconnectbackend.Handler
 	NetworkManager    *networkmanagerbackend.Handler
 	GlobalAccelerator *globalacceleratorbackend.Handler
@@ -2947,7 +2959,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 		eventBusName = defaultEventBusName
 	}
 
-	pattern := strProp(props, "EventPattern", params, physicalIDs)
+	pattern := jsonProp(props, "EventPattern")
 	schedExpr := strProp(props, "ScheduleExpression", params, physicalIDs)
 	state := strProp(props, "State", params, physicalIDs)
 	if state == "" {
@@ -3506,6 +3518,16 @@ func int64Val(v any) int64 {
 	}
 
 	return 0
+}
+
+// int32Val reads an integer property and reports false when it does not fit in 32 bits.
+func int32Val(v any) (int, bool) {
+	n := int64Val(v)
+	if n < math.MinInt32 || n > math.MaxInt32 {
+		return 0, false
+	}
+
+	return int(n), true
 }
 
 // strSliceProp resolves a property that is expected to be a list of strings (or refs).

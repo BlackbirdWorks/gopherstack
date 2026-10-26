@@ -22,7 +22,7 @@ func TestRedrivePolicyValidated(t *testing.T) {
 	require.NoError(t, err)
 
 	sub, err := b.Subscribe(tp.TopicArn, "http",
-		"http://example.com", "")
+		"http://example.invalid", "")
 	require.NoError(t, err)
 
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy",
@@ -38,7 +38,7 @@ func TestRedrivePolicyRequiresDeadLetterTargetArn(t *testing.T) {
 	tp, err := b.CreateTopic("rdp-req-topic", nil)
 	require.NoError(t, err)
 
-	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.com", "")
+	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
 	require.NoError(t, err)
 
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy",
@@ -54,7 +54,7 @@ func TestRedrivePolicyValidSQSARN(t *testing.T) {
 	tp, err := b.CreateTopic("rdp-valid-topic", nil)
 	require.NoError(t, err)
 
-	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.com", "")
+	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
 	require.NoError(t, err)
 
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy",
@@ -71,7 +71,7 @@ func TestRedrivePolicyRoundTrips(t *testing.T) {
 	tp, err := b.CreateTopic("rdp-rt-topic", nil)
 	require.NoError(t, err)
 
-	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.com", "")
+	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
 	require.NoError(t, err)
 
 	policy := `{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:000000000000:dlq"}`
@@ -295,7 +295,7 @@ func TestSetSubscriptionAttributesDLQExistenceCheck(t *testing.T) {
 			topic, err := b.CreateTopic("check-topic", nil)
 			require.NoError(t, err)
 
-			sub, err := b.Subscribe(topic.TopicArn, "http", "http://example.com/notify", "")
+			sub, err := b.Subscribe(topic.TopicArn, "http", "http://example.invalid/notify", "")
 			require.NoError(t, err)
 
 			redrivePolicy, _ := json.Marshal(map[string]string{
@@ -322,7 +322,7 @@ func TestSetSubscriptionAttributesDLQNoCheckerSkips(t *testing.T) {
 	topic, err := b.CreateTopic("no-checker-topic", nil)
 	require.NoError(t, err)
 
-	sub, err := b.Subscribe(topic.TopicArn, "http", "http://example.com/notify", "")
+	sub, err := b.Subscribe(topic.TopicArn, "http", "http://example.invalid/notify", "")
 	require.NoError(t, err)
 
 	redrivePolicy, _ := json.Marshal(map[string]string{

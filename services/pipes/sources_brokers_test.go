@@ -851,7 +851,7 @@ func TestFilterCriteria_MultiplePatterns(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, pipeName)
+			waitPipeRunning(t, b, pipeName)
 
 			msgs := []*pipes.SQSMessage{{
 				MessageID:     "msg-1",

@@ -23,19 +23,20 @@ const (
 
 // EmailIdentity represents a verified email address or domain identity.
 type EmailIdentity struct {
-	Tags                 map[string]string `json:"tags,omitempty"`
-	Identity             string            `json:"identity"`
-	IdentityType         string            `json:"identityType"`
-	ConfigurationSetName string            `json:"configurationSetName,omitempty"`
-	MailFromDomain       string            `json:"mailFromDomain,omitempty"`
-	MailFromDomainStatus string            `json:"mailFromDomainStatus,omitempty"`
-	BehaviorOnMxFailure  string            `json:"behaviorOnMxFailure,omitempty"`
-	VerificationStatus   string            `json:"verificationStatus"`
-	DkimStatus           string            `json:"dkimStatus"`
-	DkimTokens           []string          `json:"dkimTokens,omitempty"`
-	VerifiedForSending   bool              `json:"verifiedForSending"`
-	FeedbackForwarding   bool              `json:"feedbackForwarding"`
-	DkimSigningEnabled   bool              `json:"dkimSigningEnabled"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+	Certificates         []IdentityCertificate `json:"certificates,omitempty"`
+	Identity             string                `json:"identity"`
+	IdentityType         string                `json:"identityType"`
+	ConfigurationSetName string                `json:"configurationSetName,omitempty"`
+	MailFromDomain       string                `json:"mailFromDomain,omitempty"`
+	MailFromDomainStatus string                `json:"mailFromDomainStatus,omitempty"`
+	BehaviorOnMxFailure  string                `json:"behaviorOnMxFailure,omitempty"`
+	VerificationStatus   string                `json:"verificationStatus"`
+	DkimStatus           string                `json:"dkimStatus"`
+	DkimTokens           []string              `json:"dkimTokens,omitempty"`
+	VerifiedForSending   bool                  `json:"verifiedForSending"`
+	FeedbackForwarding   bool                  `json:"feedbackForwarding"`
+	DkimSigningEnabled   bool                  `json:"dkimSigningEnabled"`
 }
 
 // Clone returns a deep copy of EmailIdentity.
@@ -51,6 +52,7 @@ func (ei *EmailIdentity) Clone() *EmailIdentity {
 	if ei.DkimTokens != nil {
 		cp.DkimTokens = slices.Clone(ei.DkimTokens)
 	}
+	cp.Certificates = slices.Clone(ei.Certificates)
 
 	return &cp
 }

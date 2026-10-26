@@ -1,7 +1,10 @@
 package resourceexplorer2
 
 import (
+	_ "embed" // documented resource type list
+	"encoding/json"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -22,6 +25,9 @@ type SupportedType struct {
 	ResourceType string   `json:"ResourceType"`
 	CFNTypes     []string `json:"CFNResourceTypes,omitempty"`
 }
+
+//go:embed supported_types.json
+var documentedTypesJSON []byte
 
 var supportedTypes = sync.OnceValue(func() []SupportedType { //nolint:gochecknoglobals // immutable catalog
 	rows := [][3]string{
@@ -76,9 +82,28 @@ var supportedTypes = sync.OnceValue(func() []SupportedType { //nolint:gochecknog
 	}
 
 	out := make([]SupportedType, 0, len(rows))
+	seen := make(map[string]bool, len(rows))
+
 	for _, r := range rows {
 		out = append(out, SupportedType{Service: r[0], ResourceType: r[0] + ":" + r[1], CFNTypes: []string{r[2]}})
+		seen[r[0]+":"+r[1]] = true
 	}
+
+	var documented struct {
+		Types []string `json:"types"`
+	}
+
+	if err := json.Unmarshal(documentedTypesJSON, &documented); err != nil {
+		panic("resourceexplorer2: embedded supported types are invalid: " + err.Error())
+	}
+
+	for _, t := range documented.Types {
+		if svc, _, ok := strings.Cut(t, ":"); ok && !seen[t] {
+			out = append(out, SupportedType{Service: svc, ResourceType: t})
+		}
+	}
+
+	slices.SortFunc(out, func(a, b SupportedType) int { return strings.Compare(a.ResourceType, b.ResourceType) })
 
 	return out
 })
@@ -179,17 +204,4 @@ func managedViewPolicy(service, account string) string {
 	return `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"` + service +
 		`"},"Action":"resource-explorer-2:Search","Resource":"*","Condition":{"StringEquals":{"aws:SourceAccount":"` +
 		account + `"}}}]}`
-}
-
-// SupportedServices lists the distinct services of the searchable resource types.
-func SupportedServices() []string {
-	var out []string
-
-	for _, t := range supportedTypes() {
-		if !slices.Contains(out, t.Service) {
-			out = append(out, t.Service)
-		}
-	}
-
-	return out
 }

@@ -1651,6 +1651,11 @@ type Backend interface {
 	DescribeClientVpnRoutes(endpointID string) ([]ClientVpnRoute, error)
 	AuthorizeClientVpnIngress(endpointID, cidr, description string) error
 	RevokeClientVpnIngress(endpointID, cidr string) error
+	GetClientVpnEndpointAuthorizationPolicy(endpointID string) (*ClientVpnAuthPolicy, error)
+	ModifyClientVpnEndpointAuthorizationPolicy(
+		endpointID string, description, policyDocument, shadowMode *string,
+	) (created bool, err error)
+	DeleteClientVpnEndpointAuthorizationPolicy(endpointID string) error
 	DescribeClientVpnAuthorizationRules(endpointID string) ([]ClientVpnAuthRule, error)
 	ModifyClientVpnEndpoint(endpointID, description string, dnsServers []string) error
 	ModifyClientVpnEndpointWithOptions(
@@ -2037,6 +2042,22 @@ type Backend interface {
 	// DescribeCapacityReservationCancellationQuotes returns cancellation
 	// quotes, optionally filtered by ID.
 	DescribeCapacityReservationCancellationQuotes(ids []string) []*CapacityReservationCancellationQuote
+
+	CreateFutureDatedCapacityReservation(
+		spec *FutureDatedCapacityReservationSpec,
+		tags map[string]string,
+	) (*CapacityReservation, error)
+	CancelCapacityReservationWithQuote(reservationID, quoteID, applyCharges string) error
+	ApplyCapacityReservationModification(
+		reservationID string,
+		params *ModifyCapacityReservationParams,
+	) (*CapacityReservationAdjustment, error)
+	CreateCapacityReservationDateChangeQuote(
+		reservationID string,
+		newStartDate time.Time,
+		tags map[string]string,
+	) (*CapacityReservationModificationQuote, error)
+	DescribeCapacityReservationDateChangeQuotes(ids []string) []*CapacityReservationModificationQuote
 
 	EnableCapacityManager(organizationsAccess bool) (string, bool)
 	DisableCapacityManager() (string, bool)

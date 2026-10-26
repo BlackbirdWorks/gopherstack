@@ -54,7 +54,7 @@ func (s *server) ResumeQueue(_ context.Context, in *cloudtaskspb.ResumeQueueRequ
 }
 
 func (s *server) GetIamPolicy(_ context.Context, in *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
-	return s.b.GetIamPolicy(in.GetResource())
+	return s.b.GetIamPolicy(in.GetResource(), in.GetOptions().GetRequestedPolicyVersion())
 }
 
 func (s *server) SetIamPolicy(_ context.Context, in *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {

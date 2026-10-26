@@ -35,17 +35,13 @@ var errUnsupportedReportFormat = errors.New("report file format has no parser in
 // reportTypeForFormat maps a buildspec file-format onto its report group type.
 func reportTypeForFormat(format string) (string, bool) {
 	switch format {
-	case formatJUnit, "CUCUMBERJSON", "TESTNGXML", "NUNITXML", "VISUALSTUDIOTRX":
+	case formatJUnit, formatCucumber, formatTestNG, formatNUnit, formatNUnit3, formatTRX:
 		return reportTypeTest, true
-	case formatCobertura, "CLOVERXML", "JACOCOXML", "SIMPLECOV":
+	case formatCobertura, formatClover, formatJaCoCo, formatSimpleCov:
 		return reportTypeCoverage, true
 	default:
 		return "", false
 	}
-}
-
-func formatSupported(format string) bool {
-	return format == formatJUnit || format == formatCobertura
 }
 
 type junitSuite struct {

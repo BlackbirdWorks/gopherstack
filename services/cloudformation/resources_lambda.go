@@ -342,13 +342,14 @@ func lambdaURLCors(props map[string]any) *lambdabackend.FunctionURLCors {
 	}
 
 	allowCreds, _ := m["AllowCredentials"].(bool)
+	maxAge, _ := int32Val(m["MaxAge"])
 
 	return &lambdabackend.FunctionURLCors{
 		AllowOrigins:     strs("AllowOrigins"),
 		AllowMethods:     strs("AllowMethods"),
 		AllowHeaders:     strs("AllowHeaders"),
 		ExposeHeaders:    strs("ExposeHeaders"),
-		MaxAge:           int(int64Val(m["MaxAge"])),
+		MaxAge:           maxAge,
 		AllowCredentials: allowCreds,
 	}
 }

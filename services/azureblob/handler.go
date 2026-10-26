@@ -51,9 +51,18 @@ const (
 	opSetBlobTier            = "SetBlobTier"
 	opSnapshotBlob           = "SnapshotBlob"
 	opCopyBlob               = "CopyBlob"
+	opPutBlock               = "PutBlock"
+	opPutBlockFromURL        = "PutBlockFromURL"
+	opPutBlockList           = "PutBlockList"
+	opGetBlockList           = "GetBlockList"
+	opLeaseBlob              = "LeaseBlob"
+	opLeaseContainer         = "LeaseContainer"
 	opSetContainerMetadata   = "SetContainerMetadata"
 	opGetContainerACL        = "GetContainerACL"
 	opSetContainerACL        = "SetContainerACL"
+	opSetBlobTags            = "SetBlobTags"
+	opGetBlobTags            = "GetBlobTags"
+	opFindBlobsByTags        = "FindBlobsByTags"
 	unknownOperation         = "Unknown"
 )
 
@@ -115,9 +124,18 @@ func (h *Handler) GetSupportedOperations() []string {
 		opSetBlobTier,
 		opSnapshotBlob,
 		opCopyBlob,
+		opPutBlock,
+		opPutBlockFromURL,
+		opPutBlockList,
+		opGetBlockList,
+		opLeaseBlob,
+		opLeaseContainer,
 		opSetContainerMetadata,
 		opGetContainerACL,
 		opSetContainerACL,
+		opSetBlobTags,
+		opGetBlobTags,
+		opFindBlobsByTags,
 	}
 }
 
@@ -284,6 +302,8 @@ const (
 	compACL          = "acl"
 	compTier         = "tier"
 	compSnapshot     = "snapshot"
+	compTags         = "tags"
+	compBlobs        = "blobs"
 )
 
 // operationFor determines the Azure Blob operation name for a request, for
@@ -314,6 +334,8 @@ func accountOperationFor(r *http.Request) string {
 		return opListContainers
 	case r.Method == http.MethodGet && q.Get(queryRestype) == restypeService && q.Get(queryComp) == compProperties:
 		return opGetServiceProperties
+	case r.Method == http.MethodGet && q.Get(queryComp) == compBlobs:
+		return opFindBlobsByTags
 	default:
 		return unknownOperation
 	}
@@ -337,6 +359,8 @@ func containerOperationFor(r *http.Request) string {
 			return opSetContainerMetadata
 		case compACL:
 			return opSetContainerACL
+		case compLease:
+			return opLeaseContainer
 		case "":
 			return opCreateContainer
 		}
@@ -355,6 +379,8 @@ func containerReadOp(method, comp string) string {
 		return opListBlobs
 	case method == http.MethodGet && comp == compACL:
 		return opGetContainerACL
+	case method == http.MethodGet && comp == compBlobs:
+		return opFindBlobsByTags
 	case comp == "" || comp == compMetadata:
 		return opGetContainerProperties
 	default:
@@ -371,8 +397,13 @@ func blobOperationFor(r *http.Request) string {
 	case http.MethodPut:
 		return blobPutOp(comp, r.Header.Get(headerCopySource) != "")
 	case http.MethodGet:
-		if comp == compMetadata {
+		switch comp {
+		case compMetadata:
 			return opGetBlobMetadata
+		case compBlockList:
+			return opGetBlockList
+		case compTags:
+			return opGetBlobTags
 		}
 
 		return opGetBlob
@@ -391,12 +422,22 @@ func blobOperationFor(r *http.Request) string {
 
 func blobPutOp(comp string, copying bool) string {
 	switch {
+	case comp == compBlock && copying:
+		return opPutBlockFromURL
+	case comp == compBlock:
+		return opPutBlock
+	case comp == compBlockList:
+		return opPutBlockList
+	case comp == compLease:
+		return opLeaseBlob
 	case comp == compProperties:
 		return opSetBlobProperties
 	case comp == compMetadata:
 		return opSetBlobMetadata
 	case comp == compTier:
 		return opSetBlobTier
+	case comp == compTags:
+		return opSetBlobTags
 	case comp == compSnapshot:
 		return opSnapshotBlob
 	case copying:
@@ -422,9 +463,11 @@ func (h *Handler) serviceEndpoint() string {
 func (h *Handler) handleAccountLevel(c *echo.Context) error {
 	r := c.Request()
 
-	if r.Method == http.MethodGet && c.QueryParam(queryRestype) == restypeService &&
-		c.QueryParam(queryComp) == compProperties {
+	switch accountOperationFor(r) {
+	case opGetServiceProperties:
 		return h.writeXML(c, http.StatusOK, storageServiceProperties{})
+	case opFindBlobsByTags:
+		return h.findBlobsByTags(c, "")
 	}
 
 	if r.Method != http.MethodGet || c.QueryParam(queryComp) != compList {
@@ -432,21 +475,55 @@ func (h *Handler) handleAccountLevel(c *echo.Context) error {
 			"A query parameter is not supported for this operation.")
 	}
 
-	containers := h.Backend.ListContainers()
-	result := enumerationResults{
-		ServiceEndpoint: h.serviceEndpoint(),
-		Containers:      &containersList{Container: make([]containerEntry, 0, len(containers))},
+	q := c.QueryParams()
+	opts := ListContainersOptions{Prefix: q.Get("prefix"), Marker: q.Get("marker")}
+
+	if raw := q.Get("maxresults"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
+				"Value for one of the query parameters specified in the request URI is invalid.")
+		}
+
+		opts.MaxResults = min(n, maxListResults)
 	}
 
-	withMetadata := strings.Contains(c.QueryParam("include"), compMetadata)
+	page, err := h.Backend.ListContainersPage(opts)
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
+			"Value for one of the query parameters specified in the request URI is invalid.")
+	}
 
-	for _, ci := range containers {
+	result := enumerationResults{
+		ServiceEndpoint: h.serviceEndpoint(),
+		Prefix:          opts.Prefix,
+		Marker:          opts.Marker,
+		NextMarker:      page.NextMarker,
+		Containers:      &containersList{Container: make([]containerEntry, 0, len(page.Containers))},
+	}
+
+	if opts.MaxResults > 0 {
+		result.MaxResults = strconv.Itoa(opts.MaxResults)
+	}
+
+	withMetadata := false
+
+	for inc := range strings.SplitSeq(q.Get("include"), ",") {
+		if strings.TrimSpace(inc) == compMetadata {
+			withMetadata = true
+		}
+	}
+
+	for _, ci := range page.Containers {
 		entry := containerEntry{
 			Name: ci.Name,
 			Properties: containerProperties{
 				LastModified: ci.LastModified.Format(http.TimeFormat),
 				Etag:         ci.ETag,
 				PublicAccess: ci.PublicAccess,
+				LeaseStatus:  ci.Lease.Status,
+				LeaseState:   ci.Lease.State,
+				LeaseDur:     ci.Lease.Duration,
 			},
 		}
 
@@ -470,12 +547,16 @@ func (h *Handler) handleContainerLevel(c *echo.Context, container string) error 
 		return h.deleteContainer(c, container)
 	case opListBlobs:
 		return h.listBlobs(c, container)
+	case opLeaseContainer:
+		return h.leaseContainer(c, container)
 	case opGetContainerProperties:
 		return h.getContainerProperties(c, container)
 	case opSetContainerMetadata:
 		return h.setContainerMetadata(c, container)
 	case opGetContainerACL:
 		return h.getContainerACL(c, container)
+	case opFindBlobsByTags:
+		return h.findBlobsByTags(c, container)
 	case opSetContainerACL:
 		return h.setContainerACL(c, container)
 	default:
@@ -485,9 +566,13 @@ func (h *Handler) handleContainerLevel(c *echo.Context, container string) error 
 }
 
 func (h *Handler) deleteContainer(c *echo.Context, container string) error {
-	if err := h.Backend.DeleteContainer(container); err != nil {
-		return h.writeError(c, http.StatusNotFound, "ContainerNotFound",
-			"The specified container does not exist.")
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	if err := h.Backend.DeleteContainer(container, pre); err != nil {
+		return h.writeContainerError(c, err)
 	}
 
 	return c.NoContent(http.StatusAccepted)
@@ -504,10 +589,16 @@ func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error
 		return h.getBlobMetadata(c, container, blob)
 	case opSetBlobTier:
 		return h.setBlobTier(c, container, blob)
+	case opSetBlobTags:
+		return h.setBlobTags(c, container, blob)
+	case opGetBlobTags:
+		return h.getBlobTags(c, container, blob)
 	case opSnapshotBlob:
 		return h.snapshotBlob(c, container, blob)
 	case opCopyBlob:
 		return h.copyBlob(c, container, blob)
+	case opPutBlock, opPutBlockFromURL, opPutBlockList, opGetBlockList, opLeaseBlob:
+		return h.handleBlockAndLease(c, container, blob)
 	case opPutBlob:
 		return h.putBlob(c, container, blob)
 	case opGetBlob:
@@ -519,6 +610,19 @@ func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
+	}
+}
+
+func (h *Handler) handleBlockAndLease(c *echo.Context, container, blob string) error {
+	switch blobOperationFor(c.Request()) {
+	case opPutBlockList:
+		return h.putBlockList(c, container, blob)
+	case opGetBlockList:
+		return h.getBlockList(c, container, blob)
+	case opLeaseBlob:
+		return h.leaseBlob(c, container, blob)
+	default:
+		return h.putBlock(c, container, blob)
 	}
 }
 
@@ -545,21 +649,35 @@ func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, errInvalidHeader(headerAccessTier))
 	}
 
+	if attrs.Tags, apiErr = tagsFromHeader(r); apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	pre, apiErr := precondFromRequest(r)
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "InternalError",
 			"Failed to read request body.")
 	}
 
-	info, err := h.Backend.PutBlobWith(container, blob, body, attrs)
+	if apiErr = verifyTransactional(r, body, "Content-Md5", headerContentCRC64); apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	info, err := h.Backend.PutBlobWith(container, blob, body, attrs, pre)
 	if err != nil {
-		return h.writeError(c, http.StatusNotFound, "ContainerNotFound",
-			"The specified container does not exist.")
+		return h.writeContainerError(c, err)
 	}
 
 	hdr := c.Response().Header()
 	hdr.Set("ETag", info.ETag)
 	hdr.Set("Last-Modified", info.LastModified.Format(http.TimeFormat))
+	hdr.Set("Content-MD5", md5Header(body))
+	hdr.Set(headerServerEncry, "true")
 
 	return c.NoContent(http.StatusCreated)
 }
@@ -567,7 +685,12 @@ func (h *Handler) putBlob(c *echo.Context, container, blob string) error {
 func (h *Handler) getBlob(c *echo.Context, container, blob string) error {
 	r := c.Request()
 
-	info, data, err := h.Backend.GetBlobAt(container, blob, c.QueryParam(querySnapshot))
+	pre, apiErr := precondFromRequest(r)
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	info, data, err := h.Backend.GetBlobAt(container, blob, c.QueryParam(querySnapshot), pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
@@ -609,7 +732,12 @@ func (h *Handler) getBlob(c *echo.Context, container, blob string) error {
 }
 
 func (h *Handler) headBlob(c *echo.Context, container, blob string) error {
-	info, err := h.Backend.HeadBlobAt(container, blob, c.QueryParam(querySnapshot))
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	info, err := h.Backend.HeadBlobAt(container, blob, c.QueryParam(querySnapshot), pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
@@ -629,7 +757,12 @@ func (h *Handler) deleteBlob(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, errInvalidHeader(headerDeleteSnapshots))
 	}
 
-	err := h.Backend.DeleteBlobAt(container, blob, c.QueryParam(querySnapshot), mode)
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	err := h.Backend.DeleteBlobAt(container, blob, c.QueryParam(querySnapshot), mode, pre)
 	if errors.Is(err, ErrSnapshotsPresent) {
 		return h.writeError(c, http.StatusConflict, "SnapshotsPresent",
 			"This operation is not permitted because the blob has snapshots.")
@@ -645,6 +778,10 @@ func (h *Handler) deleteBlob(c *echo.Context, container, blob string) error {
 // writeBlobNotFoundError maps a StorageBackend not-found error (either the
 // container or the blob may be missing) to the corresponding Azure error code.
 func (h *Handler) writeBlobNotFoundError(c *echo.Context, err error) error {
+	if done, werr := h.writeBackendError(c, err); done {
+		return werr
+	}
+
 	if errors.Is(err, ErrContainerNotFound) {
 		return h.writeError(c, http.StatusNotFound, "ContainerNotFound",
 			"The specified container does not exist.")
@@ -662,6 +799,11 @@ func (h *Handler) setBlobHeaders(c *echo.Context, info BlobInfo) {
 	hdr.Set("X-Ms-Blob-Type", blockBlobType)
 	hdr.Set("Accept-Ranges", "bytes")
 	setMetadataHeaders(hdr, info.Metadata)
+	setLeaseHeaders(hdr, info.Lease)
+
+	if len(info.Tags) > 0 {
+		hdr.Set("X-Ms-Tag-Count", strconv.Itoa(len(info.Tags)))
+	}
 
 	for name, val := range map[string]string{
 		"Content-Type":        info.ContentType,

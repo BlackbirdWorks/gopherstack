@@ -16,6 +16,8 @@ var errNullEntry = errors.New("azureeventgrid: null snapshot entry")
 type backendSnapshot struct {
 	Topics     map[string]*topic     `json:"topics"`
 	Namespaces map[string]*namespace `json:"namespaces"`
+	Domains    map[string]*domain    `json:"domains,omitempty"`
+	ARMScopes  map[string]*armScope  `json:"armScopes,omitempty"`
 	Version    int                   `json:"version"`
 }
 
@@ -25,7 +27,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "azureeventgrid", backendSnapshot{
-		Version: snapshotVersion, Topics: b.topics, Namespaces: b.namespaces,
+		Version: snapshotVersion, Topics: b.topics, Namespaces: b.namespaces, Domains: b.domains,
+		ARMScopes: b.armScopes,
 	})
 }
 
@@ -44,7 +47,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		logger.Load(ctx).WarnContext(ctx, "azureeventgrid: discarding incompatible snapshot version, starting empty",
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
-		b.topics, b.namespaces = map[string]*topic{}, map[string]*namespace{}
+		b.topics, b.namespaces, b.domains = map[string]*topic{}, map[string]*namespace{}, map[string]*domain{}
+		b.armScopes = map[string]*armScope{}
 
 		return nil
 	}
@@ -53,7 +57,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	b.topics, b.namespaces = snap.Topics, snap.Namespaces
+	b.topics, b.namespaces, b.domains = snap.Topics, snap.Namespaces, snap.Domains
+	b.armScopes = snap.ARMScopes
 
 	return nil
 }
@@ -83,7 +88,47 @@ func normalize(snap *backendSnapshot) error {
 		}
 	}
 
+	if err := normalizeDomains(snap); err != nil {
+		return err
+	}
+
+	if err := normalizeARMScopes(snap); err != nil {
+		return err
+	}
+
 	return normalizeNamespaces(snap.Namespaces)
+}
+
+func normalizeDomains(snap *backendSnapshot) error {
+	if snap.Domains == nil {
+		snap.Domains = map[string]*domain{}
+	}
+
+	for name, d := range snap.Domains {
+		if d == nil {
+			return fmt.Errorf("%w: domain %q", errNullEntry, name)
+		}
+
+		if d.Subs == nil {
+			d.Subs = map[string]*subscription{}
+		}
+
+		if d.Topics == nil {
+			d.Topics = map[string]*domainTopic{}
+		}
+
+		for tname, t := range d.Topics {
+			if t == nil {
+				return fmt.Errorf("%w: domain topic %q", errNullEntry, tname)
+			}
+
+			if t.Subs == nil {
+				t.Subs = map[string]*subscription{}
+			}
+		}
+	}
+
+	return nil
 }
 
 func normalizeNamespaces(nss map[string]*namespace) error {

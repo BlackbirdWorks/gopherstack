@@ -12,25 +12,32 @@ import (
 // resource ID. It is consumed on create and never stored or listed.
 const PinnedIDKey = "gopherstack:id"
 
+// CustomIDKey is the LocalStack-compatible alias of [PinnedIDKey].
+const CustomIDKey = "_custom_id_"
+
 // ErrInvalidPinnedID is returned when a pinned ID does not match the
 // resource type's ID format.
 var ErrInvalidPinnedID = errors.New("invalid " + PinnedIDKey + " tag")
 
 // IsPinnedIDKey reports whether key is the reserved ID-pinning tag.
-func IsPinnedIDKey(key string) bool { return key == PinnedIDKey }
+func IsPinnedIDKey(key string) bool { return key == PinnedIDKey || key == CustomIDKey }
 
 // PinnedIDFromMap returns the pinned ID in m and a copy of m without the
 // reserved key. m is returned unchanged when the key is absent.
 func PinnedIDFromMap(m map[string]string) (string, map[string]string) {
 	id, ok := m[PinnedIDKey]
 	if !ok {
+		id, ok = m[CustomIDKey]
+	}
+
+	if !ok {
 		return "", m
 	}
 
-	rest := make(map[string]string, len(m)-1)
+	rest := make(map[string]string, len(m))
 
 	for k, v := range m {
-		if k != PinnedIDKey {
+		if !IsPinnedIDKey(k) {
 			rest[k] = v
 		}
 	}
@@ -50,7 +57,7 @@ func PinnedIDFromList[T any](list []T, kv func(T) (string, string)) (string, []T
 
 	for _, e := range list {
 		k, v := kv(e)
-		if k == PinnedIDKey {
+		if IsPinnedIDKey(k) {
 			id, found = v, true
 
 			continue
@@ -85,7 +92,7 @@ func PinnedIDFromTagSpecs(vals url.Values, resourceType string) string {
 				break
 			}
 
-			if key == PinnedIDKey {
+			if IsPinnedIDKey(key) {
 				return vals.Get("TagSpecification." + strconv.Itoa(i) + ".Tag." + strconv.Itoa(j) + ".Value")
 			}
 		}

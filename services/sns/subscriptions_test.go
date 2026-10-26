@@ -123,7 +123,7 @@ func TestInMemoryBackend_ListSubscriptions(t *testing.T) {
 			setup: func(b *sns.InMemoryBackend) {
 				tp, _ := b.CreateTopic("ls-topic", nil)
 				b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:ls-q", "")
-				b.Subscribe(tp.TopicArn, "https", "https://example.com", "")
+				b.Subscribe(tp.TopicArn, "https", "https://example.invalid", "")
 			},
 			wantCount: 2,
 		},
@@ -329,7 +329,7 @@ func TestSNSHandler_Subscribe(t *testing.T) {
 				"Version":  {"2010-03-31"},
 				"TopicArn": {"arn:aws:sns:us-east-1:000000000000:http-topic"},
 				"Protocol": {"http"},
-				"Endpoint": {"http://example.com/notify"},
+				"Endpoint": {"http://example.invalid/notify"},
 			},
 			wantStatus:       http.StatusOK,
 			wantBodyContains: []string{"pending confirmation"},
@@ -344,7 +344,7 @@ func TestSNSHandler_Subscribe(t *testing.T) {
 				"Version":  {"2010-03-31"},
 				"TopicArn": {"arn:aws:sns:us-east-1:000000000000:https-topic"},
 				"Protocol": {"https"},
-				"Endpoint": {"https://example.com/notify"},
+				"Endpoint": {"https://example.invalid/notify"},
 			},
 			wantStatus:       http.StatusOK,
 			wantBodyContains: []string{"pending confirmation"},
@@ -694,8 +694,8 @@ func TestSNS_SubscribeProtocols(t *testing.T) {
 		endpoint   string
 		wantStatus int
 	}{
-		{name: "http", protocol: "http", endpoint: "http://example.com/sns", wantStatus: http.StatusOK},
-		{name: "https", protocol: "https", endpoint: "https://example.com/sns", wantStatus: http.StatusOK},
+		{name: "http", protocol: "http", endpoint: "http://example.invalid/sns", wantStatus: http.StatusOK},
+		{name: "https", protocol: "https", endpoint: "https://example.invalid/sns", wantStatus: http.StatusOK},
 		{name: "email", protocol: "email", endpoint: "user@example.com", wantStatus: http.StatusOK},
 		{name: "email_json", protocol: "email-json", endpoint: "user@example.com", wantStatus: http.StatusOK},
 		{
@@ -842,7 +842,7 @@ func TestSNS_ReturnSubscriptionArn(t *testing.T) {
 				"Version":               {"2010-03-31"},
 				"TopicArn":              {topicArn},
 				"Protocol":              {tt.protocol},
-				"Endpoint":              {"http://example.com/endpoint"},
+				"Endpoint":              {"http://example.invalid/endpoint"},
 				"ReturnSubscriptionArn": {tt.returnSubArn},
 			}
 			if tt.protocol == "sqs" {

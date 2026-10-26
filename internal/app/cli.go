@@ -1,6 +1,12 @@
 package app
 
 import (
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sns"
+	sqssdk "github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
+	ssmsdk "github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	"github.com/blackbirdworks/gopherstack/internal/routegates"
 
 	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
@@ -32,25 +38,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
-	appsyncsdksvc "github.com/aws/aws-sdk-go-v2/service/appsync"
-	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
-	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	awsddbstreams "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	ddbstreamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
-	"github.com/aws/aws-sdk-go-v2/service/ecr"
-	"github.com/aws/aws-sdk-go-v2/service/ecs"
-	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/sns"
-	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
-	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
 
@@ -63,6 +55,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -103,7 +96,10 @@ import (
 	azureacrbackend "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
+	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
@@ -176,8 +172,12 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
+	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
+	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
@@ -192,6 +192,7 @@ import (
 	gcpspannerbackend "github.com/blackbirdworks/gopherstack/services/gcpspanner"
 	gcpsqlbackend "github.com/blackbirdworks/gopherstack/services/gcpsql"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
+	gcpworkflowsbackend "github.com/blackbirdworks/gopherstack/services/gcpworkflows"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	globalacceleratorbackend "github.com/blackbirdworks/gopherstack/services/globalaccelerator"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
@@ -233,6 +234,12 @@ import (
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
+	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
+	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
+	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
+	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
@@ -278,6 +285,7 @@ import (
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
+	signinbackend "github.com/blackbirdworks/gopherstack/services/signin"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -334,13 +342,19 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SecretsManager                struct{}            `embed:"" prefix:"secretsmanager-"`
-	SQS                           sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	SNS                           struct{}            `embed:"" prefix:"sns-"`
-	IAM                           struct{}            `embed:"" prefix:"iam-"`
+	SecretsManager                struct{} `embed:"" prefix:"secretsmanager-"`
+	SNS                           struct{} `embed:"" prefix:"sns-"`
+	IAM                           struct{} `embed:"" prefix:"iam-"`
 	shutdownDeadline              time.Time
+	Endpoints                     endpointstrategy.Flags `embed:""`
 	athenaHandler                 service.Registerable
 	kafkaconnectHandler           service.Registerable
+	rumHandler                    service.Registerable
+	oamHandler                    service.Registerable
+	appintegrationsHandler        service.Registerable
+	codegurureviewerHandler       service.Registerable
+	connectHandler                service.Registerable
+	cloudhsmv2Handler             service.Registerable
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
 	grafanaHandler                service.Registerable
@@ -423,6 +437,10 @@ type CLI struct {
 	gcpSecretManagerHandler       service.Registerable
 	gcpCloudTasksHandler          service.Registerable
 	gcpSchedulerHandler           service.Registerable
+	gcpBigtableHandler            service.Registerable
+	gcpEventarcHandler            service.Registerable
+	gcpSpannerHandler             service.Registerable
+	gcpArtifactRegistryHandler    service.Registerable
 	gcpRunHandler                 service.Registerable
 	gcpFunctionsHandler           service.Registerable
 	gcpBigQueryHandler            service.Registerable
@@ -435,6 +453,20 @@ type CLI struct {
 	azureEventHubsHandler         service.Registerable
 	azureEventGridHandler         service.Registerable
 	azureAppConfigHandler         service.Registerable
+	azureFunctionsHandler         service.Registerable
+	azureFileHandler              service.Registerable
+	gcpWorkflowsHandler           service.Registerable
+	gcpDNSHandler                 service.Registerable
+	gcpComputeHandler             service.Registerable
+	ociObjectStorageHandler       service.Registerable
+	ociFunctionsHandler           service.Registerable
+	azureMonitorHandler           service.Registerable
+	ociVaultHandler               service.Registerable
+	ociStreamingHandler           service.Registerable
+	ociIdentityHandler            service.Registerable
+	gcpCloudBuildHandler          service.Registerable
+	gcpRedisHandler               service.Registerable
+	gcpMonitoringHandler          service.Registerable
 	gcpSQLHandler                 service.Registerable
 	gcpLoggingHandler             service.Registerable
 	cosmosDBHandler               service.Registerable
@@ -505,14 +537,7 @@ type CLI struct {
 	accessanalyzerHandler         service.Registerable
 	fsxHandler                    service.Registerable
 	iamClient                     *iam.Client
-	ecsClient                     *ecs.Client
-	amplifyClient                 *amplifysdk.Client
-	codePipelineSDKClient         *codepipelinesdk.Client
-	codeDeployClient              *codedeploysdk.Client
-	iotClient                     *iotsdk.Client
-	eksClient                     *ekssdk.Client
-	appSyncSdkClient              *appsyncsdksvc.Client
-	ecrClient                     *ecr.Client
+	demoCallers                   map[string]demo.Caller
 	secretsManagerClient          *secretsmanager.Client
 	sqsClient                     *sqssdk.Client
 	stsClient                     *stssdk.Client
@@ -541,6 +566,7 @@ type CLI struct {
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	SageMakerEngine               string                            `                                       name:"sagemaker-engine"        env:"SAGEMAKER_ENGINE"                    default:"stub"          help:"SageMaker engine mode: stub (control plane only; InvokeEndpoint is unavailable) or docker (endpoints and jobs run model, training, processing and transform containers)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	RedshiftEngine                string                            `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                     default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	NeptuneEngine                 string                            `                                       name:"neptune-engine"          env:"NEPTUNE_ENGINE"                      default:"stub"          help:"Neptune engine mode: stub (metadata only), embedded (in-process Gremlin, openCypher and Bolt on one graph) or docker (NEPTUNE_GREMLIN=container: a Gremlin Server container per cluster)."`                  //nolint:lll // config struct tags are intentionally verbose
@@ -565,6 +591,7 @@ type CLI struct {
 	Pods                          PodsConfig                        `embed:"" prefix:"pod-"`
 	Extensions                    extensions.Settings               `embed:""`
 	DockerRegistry                registryauth.Settings             `embed:""`
+	OCIObjectStorage              ociobjectstoragebackend.Settings  `embed:"" prefix:"oci-objectstorage-"`
 	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                                help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                              //nolint:lll // config struct tags are intentionally verbose
 	InitDirs                      []string                          `                                       name:"init-dir"                env:"INIT_DIR"                                                    help:"Extra init-hook root holding boot.d/start.d/ready.d/shutdown.d (repeatable; /etc/localstack/init and /etc/gopherstack/init are always checked)."` //nolint:lll // config struct tags are intentionally verbose
 	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                                  help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                            //nolint:lll // config struct tags are intentionally verbose
@@ -575,11 +602,13 @@ type CLI struct {
 	GCPFunctions                  gcpfunctionsbackend.Settings      `embed:"" prefix:"gcp-functions-"`
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	AzureEventGrid                azureeventgridbackend.Settings    `embed:"" prefix:"azure-eventgrid-"`
+	AzureMonitor                  azuremonitorbackend.Settings      `embed:"" prefix:"azure-monitor-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	AzureAppConfig                azureappconfigbackend.Settings    `embed:"" prefix:"azure-appconfig-"`
 	AzureACR                      azureacrbackend.Settings          `embed:"" prefix:"azure-acr-"`
+	AzureFunctions                azurefunctionsbackend.Settings    `embed:"" prefix:"azure-functions-"`
 	AzureRedis                    azureredisbackend.Settings        `embed:"" prefix:"azure-redis-"`
 	AzureSQL                      azuresqlbackend.Settings          `embed:"" prefix:"azure-sql-"`
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
@@ -588,10 +617,10 @@ type CLI struct {
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
-	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
 	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
+	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
 	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
 	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
 	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
@@ -611,6 +640,7 @@ type CLI struct {
 	Kinesis                       kinesisbackend.Settings           `embed:"" prefix:"kinesis-"`
 	STS                           stsbackend.Settings               `embed:"" prefix:"sts-"`
 	AzureQueue                    azurequeuebackend.Settings        `embed:"" prefix:"azure-queue-"`
+	AzureFile                     azurefilebackend.Settings         `embed:"" prefix:"azure-file-"`
 	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
 	GCPStorage                    gcpstoragebackend.Settings        `embed:"" prefix:"gcp-storage-"`
 	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`
@@ -623,6 +653,11 @@ type CLI struct {
 	GCPLogging                    gcploggingbackend.Settings        `embed:"" prefix:"gcp-logging-"`
 	GCPMonitoring                 gcpmonitoringbackend.Settings     `embed:"" prefix:"gcp-monitoring-"`
 	GCPRedis                      gcpredisbackend.Settings          `embed:"" prefix:"gcp-redis-"`
+	GCPBigtable                   gcpbigtablebackend.Settings       `embed:"" prefix:"gcp-bigtable-"`
+	GCPEventarc                   gcpeventarcbackend.Settings       `embed:"" prefix:"gcp-eventarc-"`
+	GCPWorkflows                  gcpworkflowsbackend.Settings      `embed:"" prefix:"gcp-workflows-"`
+	GCPDNS                        gcpdnsbackend.Settings            `embed:"" prefix:"gcp-dns-"`
+	GCPCompute                    gcpcomputebackend.Settings        `embed:"" prefix:"gcp-compute-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -632,7 +667,7 @@ type CLI struct {
 	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                     default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
 	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"                          default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
 	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                              help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM"             default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM,ENFORCE_IAM" default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	EnforceSecurityGroups         bool                              `                                       name:"enforce-security-groups" env:"GOPHERSTACK_ENFORCE_SECURITY_GROUPS" default:"false"         help:"Enforce EC2 security-group ingress on container-backed endpoints (RDS, EC2, DocDB, MSK, caches, MQ, Neptune, ECS); ingress only. Default off."`                                                //nolint:lll // config struct tags are intentionally verbose
 	EnforceServiceQuotas          bool                              `                                       name:"enforce-service-quotas"  env:"GOPHERSTACK_ENFORCE_SERVICE_QUOTAS"  default:"false"         help:"Make S3, EC2, IAM and DynamoDB reject creates beyond the Service Quotas applied limit. Default off."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	IAMAudit                      bool                              `                                       name:"iam-audit"               env:"GOPHERSTACK_IAM_AUDIT,IAM_SOFT_MODE" default:"false"         help:"IAM audit (soft) mode: evaluate and record every request in the IAM Policy Stream but never deny."`                                                                                            //nolint:lll // config struct tags are intentionally verbose
@@ -642,6 +677,13 @@ type CLI struct {
 	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                                 default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
 	TransferSFTP                  bool                              `                                       name:"transfer-sftp"           env:"TRANSFER_SFTP"                       default:"false"         help:"Serve a real SFTP listener per Transfer Family server."`                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
+	SQS                           sqsbackend.Settings               `embed:"" prefix:"sqs-"`
+	Localstack                    LocalstackSettings                `embed:"" prefix:"localstack-"`
+	OCIVault                      ocivaultbackend.Settings          `embed:"" prefix:"oci-vault-"`
+	OCIStreaming                  ocistreamingbackend.Settings      `embed:"" prefix:"oci-streaming-"`
+	OCIIdentity                   ociidentitybackend.Settings       `embed:"" prefix:"oci-identity-"`
+	OCIFunctions                  ocifunctionsbackend.Settings      `embed:"" prefix:"oci-functions-"`
+	OCICore                       ocicorebackend.Settings           `embed:"" prefix:"oci-core-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -711,6 +753,16 @@ func (c *CLI) GetAzureKeyVaultPort() int {
 	return c.AzureKeyVault.Port
 }
 
+// GetAzureMonitorSettings returns Azure Monitor Logs settings (azuremonitor.ConfigProvider).
+func (c *CLI) GetAzureMonitorSettings() azuremonitorbackend.Settings {
+	return c.AzureMonitor
+}
+
+// GetAzureFileSettings returns Azure Files settings (azurefile.ConfigProvider).
+func (c *CLI) GetAzureFileSettings() azurefilebackend.Settings {
+	return c.AzureFile
+}
+
 // GetAzureQueueSettings returns Azure Queue settings (azurequeue.ConfigProvider).
 func (c *CLI) GetAzureQueueSettings() azurequeuebackend.Settings {
 	return c.AzureQueue
@@ -751,6 +803,21 @@ func (c *CLI) GetGCPRedisSettings() gcpredisbackend.Settings { return c.GCPRedis
 // GetGCPSpannerSettings returns Google Cloud Spanner settings (gcpspanner.ConfigProvider).
 func (c *CLI) GetGCPSpannerSettings() gcpspannerbackend.Settings { return c.GCPSpanner }
 
+// GetGCPBigtableSettings returns Google Cloud Bigtable settings (gcpbigtable.ConfigProvider).
+func (c *CLI) GetGCPBigtableSettings() gcpbigtablebackend.Settings { return c.GCPBigtable }
+
+// GetGCPEventarcSettings returns Google Cloud Eventarc settings (gcpeventarc.ConfigProvider).
+func (c *CLI) GetGCPEventarcSettings() gcpeventarcbackend.Settings { return c.GCPEventarc }
+
+// GetGCPWorkflowsSettings returns Google Cloud Workflows settings (gcpworkflows.ConfigProvider).
+func (c *CLI) GetGCPWorkflowsSettings() gcpworkflowsbackend.Settings { return c.GCPWorkflows }
+
+// GetGCPDNSSettings returns Google Cloud DNS settings (gcpdns.ConfigProvider).
+func (c *CLI) GetGCPDNSSettings() gcpdnsbackend.Settings { return c.GCPDNS }
+
+// GetGCPComputeSettings returns Compute Engine settings (gcpcompute.ConfigProvider).
+func (c *CLI) GetGCPComputeSettings() gcpcomputebackend.Settings { return c.GCPCompute }
+
 // GetGCPCloudBuildSettings returns Google Cloud Build settings (gcpcloudbuild.ConfigProvider).
 func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return c.GCPCloudBuild }
 
@@ -779,6 +846,36 @@ func (c *CLI) GetGCPFirestoreSettings() gcpfirestorebackend.Settings {
 // GetGCPStorageSettings returns Google Cloud Storage settings (gcpstorage.ConfigProvider).
 func (c *CLI) GetGCPStorageSettings() gcpstoragebackend.Settings {
 	return c.GCPStorage
+}
+
+// GetOCIObjectStorageSettings returns OCI Object Storage settings (ociobjectstorage.ConfigProvider).
+func (c *CLI) GetOCIObjectStorageSettings() ociobjectstoragebackend.Settings {
+	return c.OCIObjectStorage
+}
+
+// GetOCIVaultSettings returns OCI Vault settings (ocivault.ConfigProvider).
+func (c *CLI) GetOCIVaultSettings() ocivaultbackend.Settings {
+	return c.OCIVault
+}
+
+// GetOCIIdentitySettings returns OCI Identity settings (ociidentity.ConfigProvider).
+func (c *CLI) GetOCIIdentitySettings() ociidentitybackend.Settings {
+	return c.OCIIdentity
+}
+
+// GetOCICoreSettings returns OCI Core Services settings (ocicore.ConfigProvider).
+func (c *CLI) GetOCICoreSettings() ocicorebackend.Settings {
+	return c.OCICore
+}
+
+// GetOCIFunctionsSettings returns OCI Functions settings (ocifunctions.ConfigProvider).
+func (c *CLI) GetOCIFunctionsSettings() ocifunctionsbackend.Settings {
+	return c.OCIFunctions
+}
+
+// GetOCIStreamingSettings returns OCI Streaming settings (ocistreaming.ConfigProvider).
+func (c *CLI) GetOCIStreamingSettings() ocistreamingbackend.Settings {
+	return c.OCIStreaming
 }
 
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
@@ -869,6 +966,16 @@ func (c *CLI) GetEndpoint() string {
 	port := strings.TrimPrefix(c.Port, ":")
 
 	return "http://localhost:" + port
+}
+
+// EndpointStrategies returns the *_ENDPOINT_STRATEGY selections (endpointstrategy.Provider).
+func (c *CLI) EndpointStrategies() endpointstrategy.Config {
+	return c.Endpoints.Config(c.GetS3Endpoint())
+}
+
+// GetSQSSettings returns SQS settings (sqs.SettingsProvider).
+func (c *CLI) GetSQSSettings() sqsbackend.Settings {
+	return c.SQS
 }
 
 // GetLambdaSettings returns Lambda settings (lambda.SettingsProvider).
@@ -1430,6 +1537,9 @@ func (c *CLI) GetMQEngine() string { return c.engineMode("mq-engine", c.MQEngine
 // GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
 func (c *CLI) GetRDSEngine() string { return c.engineMode("rds-engine", c.RDSEngine) }
 
+// GetSageMakerEngine returns the SageMaker engine mode (sagemaker.EngineModeConfig).
+func (c *CLI) GetSageMakerEngine() string { return c.engineMode("sagemaker-engine", c.SageMakerEngine) }
+
 // GetRedshiftEngine returns the Redshift engine mode (redshift.EngineModeConfig).
 func (c *CLI) GetRedshiftEngine() string { return c.engineMode("redshift-engine", c.RedshiftEngine) }
 
@@ -1692,6 +1802,36 @@ func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaConnectHandler() service.Registerable { return c.kafkaconnectHandler }
+
+// GetRUMHandler returns the CloudWatch RUM handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRUMHandler() service.Registerable { return c.rumHandler }
+
+// GetOAMHandler returns the CloudWatch Observability Access Manager handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOAMHandler() service.Registerable { return c.oamHandler }
+
+// GetAppIntegrationsHandler returns the AppIntegrations handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAppIntegrationsHandler() service.Registerable { return c.appintegrationsHandler }
+
+// GetCodeGuruReviewerHandler returns the CodeGuru Reviewer handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeGuruReviewerHandler() service.Registerable { return c.codegurureviewerHandler }
+
+// GetConnectHandler returns the Amazon Connect handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetConnectHandler() service.Registerable { return c.connectHandler }
+
+// GetCloudHSMV2Handler returns the CloudHSM v2 handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCloudHSMV2Handler() service.Registerable { return c.cloudhsmv2Handler }
 
 // GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
 //
@@ -2011,6 +2151,28 @@ func (c *CLI) GetGCPCloudTasksHandler() service.Registerable { return c.gcpCloud
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPSchedulerHandler() service.Registerable { return c.gcpSchedulerHandler }
 
+// GetGCPBigtableHandler returns the Bigtable handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPBigtableHandler() service.Registerable { return c.gcpBigtableHandler }
+
+// GetGCPEventarcHandler returns the Eventarc handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPEventarcHandler() service.Registerable { return c.gcpEventarcHandler }
+
+// GetGCPSpannerHandler returns the Spanner handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPSpannerHandler() service.Registerable { return c.gcpSpannerHandler }
+
+// GetGCPArtifactRegistryHandler returns the Artifact Registry handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPArtifactRegistryHandler() service.Registerable {
+	return c.gcpArtifactRegistryHandler
+}
+
 // GetGCPRunHandler returns the Cloud Run handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2213,6 +2375,12 @@ func (c *CLI) GetPortAllocator() *portalloc.Allocator { return c.portAlloc }
 // Docker healthcheck from scratch containers.
 type rootCLI struct {
 	Health    HealthCmd    `cmd:"" help:"Check server health (for Docker healthcheck)."`
+	Start     StartCmd     `cmd:"" help:"Start a local Gopherstack (container or --host)."`
+	Stop      StopCmd      `cmd:"" help:"Stop the Gopherstack started by 'start'."`
+	Status    StatusCmd    `cmd:"" help:"Show running state, version, uptime and services."`
+	Logs      LogsCmd      `cmd:"" help:"Show or follow the managed instance logs."`
+	Reset     ResetCmd     `cmd:"" help:"Reset in-memory state on the running server."`
+	Snapshot  SnapshotCmd  `cmd:"" help:"Save, load and list state snapshots (alias of pod)."`
 	Pod       PodCmd       `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
 	Replicate ReplicateCmd `cmd:"" help:"Copy resources from real AWS into a running server."`
 	Serve     CLI          `cmd:"" help:"Start the Gopherstack server."                            default:"withargs"`
@@ -2267,6 +2435,7 @@ func Run() {
 
 	kctx := kong.Parse(
 		&root,
+		kong.Bind(newLifecycleDeps()),
 		kong.Name("gopherstack"),
 		kong.Description("In-memory AWS DynamoDB + S3 compatible server."),
 	)
@@ -2280,7 +2449,11 @@ func Run() {
 	switch kctx.Command() {
 	case "health":
 		err = root.Health.Run()
-	case "pod save <name>",
+	case "start", "stop", lifecycleCmdStatus, lifecycleCmdLogs, "reset",
+		"snapshot save <name>",
+		"snapshot load <name>",
+		"snapshot list",
+		"pod save <name>",
 		"pod load <name>",
 		"pod list",
 		"pod versions <name>",
@@ -2411,6 +2584,12 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPSQL", "gcpsql", cli.GCPSQL.Port},
 		{"GCPCloudBuild", "gcpcloudbuild", cli.GCPCloudBuild.Port},
 		{"GCPSpanner", "gcpspanner", cli.GCPSpanner.Port},
+		{"GCPBigtable", "gcpbigtable", cli.GCPBigtable.Port},
+		{"GCPEventarc", "gcpeventarc", cli.GCPEventarc.Port},
+		{"GCPWorkflows", "gcpworkflows", cli.GCPWorkflows.Port},
+		{"GCPDNS", "gcpdns", cli.GCPDNS.Port},
+		{"GCPDNSServer", "gcpdns-server", cli.GCPDNS.DNSPort},
+		{"GCPCompute", "gcpcompute", cli.GCPCompute.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -2418,6 +2597,8 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPIAM", "gcpiam", cli.GCPIAM.Port},
 		{"GCPFirestore", "gcpfirestore", cli.GCPFirestore.Port},
 		{"AzureQueue", "azurequeue", cli.AzureQueue.Port},
+		{"AzureFile", "azurefile", cli.AzureFile.Port},
+		{"AzureMonitor", "azuremonitor", cli.AzureMonitor.Port},
 		{"AzureTable", "azuretable", cli.AzureTable.Port},
 		{"AzureStorageVHost", "azurestoragevhost", cli.AzureStorageVHost.Port},
 		{"CosmosDB", "cosmosdb", cli.CosmosDB.Port},
@@ -2430,8 +2611,15 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
 		{"AzureAppConfig", "azureappconfig", cli.AzureAppConfig.Port},
 		{"AzureContainerRegistry", "azurecontainerregistry", cli.AzureACR.Port},
+		{"AzureFunctions", "azurefunctions", cli.AzureFunctions.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
+		{"OCIObjectStorage", "ociobjectstorage", cli.OCIObjectStorage.Port},
+		{"OCIVault", "ocivault", cli.OCIVault.Port},
+		{"OCIStreaming", "ocistreaming", cli.OCIStreaming.Port},
+		{"OCIIdentity", "ociidentity", cli.OCIIdentity.Port},
+		{"OCIFunctions", "ocifunctions", cli.OCIFunctions.Port},
+		{"OCICore", "ocicore", cli.OCICore.Port},
 	}
 }
 
@@ -2449,6 +2637,10 @@ func setupPortAllocatorWithReservations(ctx context.Context, log *slog.Logger, c
 // initRuntimeStores creates the stores services read from the CLI during Init.
 func initRuntimeStores(cli *CLI) {
 	cli.faultStore, cli.localstackInit = chaos.NewFaultStore(), newLocalstackInitState()
+	if rules := localstackFaultRules(os.Getenv); len(rules) > 0 {
+		cli.faultStore.SetRules(rules)
+	}
+
 	cli.iamStream = iampolicystream.New(iampolicystream.DefaultCapacity)
 }
 
@@ -2470,6 +2662,10 @@ func wireEchoServer(
 
 	if mw := corsMiddleware(cli.CORS); mw != nil {
 		e.Pre(mw)
+	}
+
+	if cli.Localstack.ResponseHeader {
+		e.Pre(localstackResponseHeaderMiddleware)
 	}
 
 	if err := setupChaosAndRegistry(e, log, cli, services); err != nil {
@@ -2522,7 +2718,7 @@ func run(ctx context.Context, cli CLI) error {
 		return err
 	}
 
-	initializeClients(&cli, awsCfgVal)
+	initializeClients(&cli, awsCfgVal, inMemMux)
 
 	janitorCtx, janitorCancel := context.WithCancel(ctx)
 	defer janitorCancel() // also passed to shutdownBackends so janitors stop before backends are torn down
@@ -2751,6 +2947,7 @@ func wireDNSRegistrars(cli *CLI, dnsSrv *gopherDNS.Server) {
 	wireEC2DNS(cli.ec2Handler, dnsSrv)
 	wireServiceDiscoveryDNS(cli.servicediscoveryHandler, dnsSrv)
 	wireRoute53ResolverDNS(cli.route53resolverHandler, dnsSrv)
+	wireRoute53ResolverQueryLogs(cli.route53resolverHandler, cli.s3Handler, cli.firehoseHandler)
 }
 
 // buildEchoServer creates and configures the Echo HTTP server.
@@ -2798,6 +2995,11 @@ func buildEchoServer(
 	registerPricingEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
+	if cli.Persist {
+		e.POST("/_gopherstack/persist/save", buildPersistSaveHandler(persistManager))
+		e.POST("/_gopherstack/persist/load", buildPersistLoadHandler(persistManager))
+	}
+
 	registerPodEndpoints(ctx, log, e, cli.Pods, cli.resolvedDataDir(), persistManager, services)
 	registerReplicateEndpoints(ctx, e)
 
@@ -2850,6 +3052,8 @@ func buildHTTPErrorHandler() func(*echo.Context, error) {
 // buildHealthHandler returns the /_gopherstack/health handler. It reports service
 // names and runtime memory/goroutine stats.
 func buildHealthHandler(services []service.Registerable, disabled []string) echo.HandlerFunc {
+	started := time.Now()
+
 	return func(c *echo.Context) error {
 		names := make([]string, 0, len(services))
 		for _, svc := range services {
@@ -2866,6 +3070,7 @@ func buildHealthHandler(services []service.Registerable, disabled []string) echo
 			Version:    version.Get(),
 			Services:   names,
 			Disabled:   disabled,
+			UptimeSecs: int64(time.Since(started).Seconds()),
 			Goroutines: runtime.NumGoroutine(),
 			HeapAllocB: ms.HeapAlloc,
 			HeapInuseB: ms.HeapInuse,
@@ -3020,7 +3225,7 @@ func registerWebsiteRoutes(e *echo.Echo, services []service.Registerable) {
 }
 
 // initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
-func initializeClients(cli *CLI, awsCfg aws.Config) {
+func initializeClients(cli *CLI, awsCfg aws.Config, handler http.Handler) {
 	cli.ddbClient = dynamodb.NewFromConfig(
 		awsCfg,
 		func(o *dynamodb.Options) {
@@ -3076,59 +3281,7 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
-	cli.ecrClient = ecr.NewFromConfig(
-		awsCfg,
-		func(o *ecr.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.appSyncSdkClient = appsyncsdksvc.NewFromConfig(
-		awsCfg,
-		func(o *appsyncsdksvc.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.amplifyClient = amplifysdk.NewFromConfig(
-		awsCfg,
-		func(o *amplifysdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.ecsClient = ecs.NewFromConfig(
-		awsCfg,
-		func(o *ecs.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.eksClient = ekssdk.NewFromConfig(
-		awsCfg,
-		func(o *ekssdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	initializeIoTAndCodeClients(cli, awsCfg)
-}
-
-// initializeIoTAndCodeClients configures IoT, CodeDeploy and CodePipeline SDK clients.
-func initializeIoTAndCodeClients(cli *CLI, awsCfg aws.Config) {
-	cli.iotClient = iotsdk.NewFromConfig(
-		awsCfg,
-		func(o *iotsdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.codeDeployClient = codedeploysdk.NewFromConfig(
-		awsCfg,
-		func(o *codedeploysdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
-	cli.codePipelineSDKClient = codepipelinesdk.NewFromConfig(
-		awsCfg,
-		func(o *codepipelinesdk.Options) {
-			o.BaseEndpoint = aws.String("http://local")
-		},
-	)
+	cli.demoCallers = newDemoCallers(handler, awsCfg)
 }
 
 // serviceByName builds a lookup map from service Name() to the service instance.
@@ -3218,11 +3371,25 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpSecretManagerHandler = byName["GCPSecretManager"]
 	cli.gcpCloudTasksHandler = byName["GCPCloudTasks"]
 	cli.gcpSchedulerHandler = byName["GCPScheduler"]
+	cli.gcpBigtableHandler = byName["GCPBigtable"]
+	cli.gcpEventarcHandler = byName["GCPEventarc"]
+	cli.gcpSpannerHandler = byName["GCPSpanner"]
+	cli.gcpArtifactRegistryHandler = byName["GCPArtifactRegistry"]
 	cli.gcpRunHandler = byName["GCPRun"]
 	cli.gcpFunctionsHandler = byName["GCPFunctions"]
 	cli.gcpBigQueryHandler = byName["GCPBigQuery"]
 	cli.gcpIAMHandler = byName["GCPIAM"]
 	cli.gcpKMSHandler = byName["GCPKMS"]
+	cli.gcpWorkflowsHandler = byName["GCPWorkflows"]
+	cli.gcpDNSHandler = byName["GCPDNS"]
+	cli.gcpComputeHandler = byName["GCPCompute"]
+	cli.azureFileHandler = byName["AzureFile"]
+	cli.ociObjectStorageHandler = byName["OCIObjectStorage"]
+	cli.ociVaultHandler = byName["OCIVault"]
+	cli.ociStreamingHandler = byName["OCIStreaming"]
+	cli.ociIdentityHandler = byName["OCIIdentity"]
+	cli.ociFunctionsHandler = byName["OCIFunctions"]
+	cli.azureMonitorHandler = byName["AzureMonitor"]
 }
 
 func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {
@@ -3252,6 +3419,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.azureEventHubsHandler = byName["AzureEventHubs"]
 	cli.azureEventGridHandler = byName["AzureEventGrid"]
 	cli.azureAppConfigHandler = byName["AzureAppConfig"]
+	storeConsoleHandlers(cli, byName)
 	cli.gcpSQLHandler = byName["GCPSQL"]
 	cli.gcpLoggingHandler = byName["GCPLogging"]
 	cli.cosmosDBHandler = byName["CosmosDB"]
@@ -3289,6 +3457,12 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
 	cli.kafkaconnectHandler = byName["KafkaConnect"]
+	cli.rumHandler = byName["RUM"]
+	cli.oamHandler = byName["OAM"]
+	cli.appintegrationsHandler = byName["AppIntegrations"]
+	cli.codegurureviewerHandler = byName["CodeGuruReviewer"]
+	cli.connectHandler = byName["Connect"]
+	cli.cloudhsmv2Handler = byName["CloudHSMV2"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
 	cli.kinesisvideoHandler = byName["KinesisVideo"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
@@ -3420,6 +3594,7 @@ func wireCrossServiceDependencies(
 	wireStepFunctionsIntegrations(byName)
 	wireParameterAndKeyIntegrations(byName)
 	wireAPIGatewayIntegrations(byName)
+	wireS3Options(appCtx, byName)
 	wireEventSourcePollers(byName)
 	wireComputeAndObservabilityIntegrations(appCtx, byName)
 	wireCWLogsMetricEmitters(byName)
@@ -3429,6 +3604,47 @@ func wireCrossServiceDependencies(
 	wireAppSyncAndStreamsIntegrations(byName, sigV4SecretOf(appCtx))
 	wireSchedulerAndPipesIntegrations(byName)
 	wireGovernanceIntegrations(byName, services)
+	wireOCIStreamingVault(byName)
+	wireOCIIdentityKeys(byName)
+}
+
+// wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
+func wireOCIStreamingVault(byName map[string]service.Registerable) {
+	streamingH, sok := byName["OCIStreaming"].(*ocistreamingbackend.Handler)
+	vaultH, vok := byName["OCIVault"].(*ocivaultbackend.Handler)
+
+	if sok && vok {
+		streamingH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+	}
+}
+
+// wireOCIIdentityKeys lets API keys uploaded through OCI Identity authenticate requests to every OCI service.
+func wireOCIIdentityKeys(byName map[string]service.Registerable) {
+	identityH, ok := byName["OCIIdentity"].(*ociidentitybackend.Handler)
+	if !ok {
+		return
+	}
+
+	if h, found := byName["OCIObjectStorage"].(*ociobjectstoragebackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIStreaming"].(*ocistreamingbackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCICore"].(*ocicorebackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+	}
 }
 
 // wireMessagingAndEventingIntegrations wires SNS, SQS, EventBridge, and S3
@@ -3644,8 +3860,9 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// delivery requires S3 integration.
 	wireLambdaS3(byName["Lambda"], byName["S3"])
 
-	// Wire S3/CloudWatch Logs/CodeCommit/SSM/Secrets Manager → CodeBuild docker engine.
-	wireCodeBuildEngine(byName)
+	// Wire S3/CloudWatch Logs/CodeCommit/SSM/Secrets Manager → CodeBuild docker engine,
+	// and S3/CloudWatch Logs/SNS → SageMaker container engine.
+	wireContainerEngines(byName)
 
 	// Wire ECR → Lambda so Code.ImageUri on an Image package-type
 	// CreateFunction/UpdateFunctionCode is validated against real ECR state
@@ -4526,6 +4743,7 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, s
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
+	wireGlueDynamoDB(byName["Glue"], byName["DynamoDB"])
 
 	// Wire CloudFront KeyValueStore → CloudFront backend so the data-plane ops
 	// (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) act on
@@ -4580,6 +4798,7 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 	wireIAMToSTS(byName["IAM"], byName["STS"])
 	wireEKSIRSAToSTS(byName["EKS"], byName["STS"])
 	wireEKSTokenAuth(byName)
+	wireEKSPodIdentity(byName)
 	wireCognitoIdentity(byName["CognitoIdentity"], byName["STS"], byName["CognitoIDP"])
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
@@ -4805,6 +5024,7 @@ func getNewestServiceProviders() []service.Provider {
 	return append([]service.Provider{
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
+		&signinbackend.Provider{},
 	}, getMostRecentServiceProviders()...)
 }
 
@@ -4813,18 +5033,27 @@ func getLeadingRecentServiceProviders() []service.Provider {
 	return []service.Provider{
 		&azureblobbackend.Provider{},
 		&azurequeuebackend.Provider{},
+		&azurefilebackend.Provider{},
+		&azuremonitorbackend.Provider{},
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
 		&azureeventhubsbackend.Provider{},
 		&azureeventgridbackend.Provider{},
 		&azureappconfigbackend.Provider{},
 		&azureacrbackend.Provider{},
+		&azurefunctionsbackend.Provider{},
 		&azureredisbackend.Provider{},
 		&azuresqlbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
 		&azurekeyvaultbackend.Provider{},
 		&cosmosdbbackend.Provider{},
 		&gcpstoragebackend.Provider{},
+		&ociobjectstoragebackend.Provider{},
+		&ocivaultbackend.Provider{},
+		&ocistreamingbackend.Provider{},
+		&ociidentitybackend.Provider{},
+		&ocifunctionsbackend.Provider{},
+		&ocicorebackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
@@ -4835,6 +5064,11 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpbigquerybackend.Provider{},
 		&gcpsqlbackend.Provider{},
 		&gcpspannerbackend.Provider{},
+		&gcpbigtablebackend.Provider{},
+		&gcpeventarcbackend.Provider{},
+		&gcpworkflowsbackend.Provider{},
+		&gcpdnsbackend.Provider{},
+		&gcpcomputebackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
@@ -7547,6 +7781,28 @@ func wireCodePipelineS3(codepipelineReg, s3Reg service.Registerable) {
 	cpH.Backend.SetArtifactS3(s3Bk)
 }
 
+// wireGlueDynamoDB lets Glue crawlers infer table schemas from DynamoDB tables.
+func wireGlueDynamoDB(glueReg, ddbReg service.Registerable) {
+	glueH, ok := glueReg.(*gluebackend.Handler)
+	if !ok {
+		return
+	}
+
+	glueBk, bkOk := glueH.Backend.(*gluebackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ddbOk {
+		return
+	}
+
+	if ddbBk, ok2 := ddbH.Backend.(*ddbbackend.InMemoryDB); ok2 {
+		glueBk.SetDynamoDBBackend(ddbBk)
+	}
+}
+
 // wireGlueS3 lets Glue crawlers infer table schemas and partitions from S3 objects.
 func wireGlueS3(glueReg, s3Reg service.Registerable) {
 	glueH, ok := glueReg.(*gluebackend.Handler)
@@ -8555,6 +8811,186 @@ func (a *dynamoDBAdapter) BatchWriteItemRaw(
 	}
 
 	return nil
+}
+
+func (a *dynamoDBAdapter) TransactGetItemsRaw(
+	ctx context.Context,
+	gets []appsyncbackend.DDBTransactGet,
+) ([]map[string]any, error) {
+	items := make([]ddbsdktypes.TransactGetItem, len(gets))
+
+	for i, g := range gets {
+		key, err := ddbmodels.ToSDKItem(g.Key)
+		if err != nil {
+			return nil, fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+		}
+
+		items[i] = ddbsdktypes.TransactGetItem{Get: &ddbsdktypes.Get{TableName: aws.String(g.Table), Key: key}}
+	}
+
+	out, err := a.db.TransactGetItems(ctx, &dynamodb.TransactGetItemsInput{TransactItems: items})
+	if err != nil {
+		return nil, appsyncTransactError(err)
+	}
+
+	res := make([]map[string]any, len(out.Responses))
+	for i, r := range out.Responses {
+		res[i] = ddbmodels.FromSDKItem(r.Item)
+	}
+
+	return res, nil
+}
+
+func (a *dynamoDBAdapter) TransactWriteItemsRaw(
+	ctx context.Context,
+	writes []appsyncbackend.DDBTransactWrite,
+) error {
+	items := make([]ddbsdktypes.TransactWriteItem, len(writes))
+
+	for i := range writes {
+		item, err := appsyncTransactWriteItem(&writes[i])
+		if err != nil {
+			return err
+		}
+
+		items[i] = item
+	}
+
+	_, err := a.db.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
+
+	return appsyncTransactError(err)
+}
+
+func appsyncTransactWriteItem(w *appsyncbackend.DDBTransactWrite) (ddbsdktypes.TransactWriteItem, error) {
+	var out ddbsdktypes.TransactWriteItem
+
+	key, err := ddbmodels.ToSDKItem(w.Key)
+	if err != nil {
+		return out, fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+	}
+
+	var (
+		cond   *string
+		names  map[string]string
+		values map[string]ddbsdktypes.AttributeValue
+	)
+
+	if w.Condition != nil {
+		if cond, names, values, err = appsyncExpr(w.Condition); err != nil {
+			return out, err
+		}
+	}
+
+	onFail := ddbsdktypes.ReturnValuesOnConditionCheckFailureNone
+	if w.ReturnOnFailure {
+		onFail = ddbsdktypes.ReturnValuesOnConditionCheckFailureAllOld
+	}
+
+	table := aws.String(w.Table)
+
+	switch w.Operation {
+	case "PutItem":
+		item, iErr := ddbmodels.ToSDKItem(w.Item)
+		if iErr != nil {
+			return out, fmt.Errorf("appsync ddb adapter: marshal item: %w", iErr)
+		}
+
+		out.Put = &ddbsdktypes.Put{
+			TableName: table, Item: item, ConditionExpression: cond, ExpressionAttributeNames: names,
+			ExpressionAttributeValues: values, ReturnValuesOnConditionCheckFailure: onFail,
+		}
+	case "DeleteItem":
+		out.Delete = &ddbsdktypes.Delete{
+			TableName: table, Key: key, ConditionExpression: cond, ExpressionAttributeNames: names,
+			ExpressionAttributeValues: values, ReturnValuesOnConditionCheckFailure: onFail,
+		}
+	case "ConditionCheck":
+		out.ConditionCheck = &ddbsdktypes.ConditionCheck{
+			TableName: table, Key: key, ConditionExpression: cond, ExpressionAttributeNames: names,
+			ExpressionAttributeValues: values, ReturnValuesOnConditionCheckFailure: onFail,
+		}
+	default:
+		upd, uErr := appsyncTransactUpdate(w, key, cond, names, values, onFail)
+		if uErr != nil {
+			return out, uErr
+		}
+
+		out.Update = upd
+	}
+
+	return out, nil
+}
+
+func appsyncTransactUpdate(
+	w *appsyncbackend.DDBTransactWrite,
+	key map[string]ddbsdktypes.AttributeValue,
+	cond *string,
+	names map[string]string,
+	values map[string]ddbsdktypes.AttributeValue,
+	onFail ddbsdktypes.ReturnValuesOnConditionCheckFailure,
+) (*ddbsdktypes.Update, error) {
+	allNames, allValues := maps.Clone(names), maps.Clone(values)
+	if allNames == nil {
+		allNames = map[string]string{}
+	}
+
+	if allValues == nil {
+		allValues = map[string]ddbsdktypes.AttributeValue{}
+	}
+
+	maps.Copy(allNames, w.Update.Names)
+
+	if len(w.Update.Values) > 0 {
+		uv, err := ddbmodels.ToSDKItem(w.Update.Values)
+		if err != nil {
+			return nil, fmt.Errorf("appsync ddb adapter: marshal values: %w", err)
+		}
+
+		maps.Copy(allValues, uv)
+	}
+
+	upd := &ddbsdktypes.Update{
+		TableName: aws.String(w.Table), Key: key, UpdateExpression: &w.Update.Expression,
+		ConditionExpression: cond, ReturnValuesOnConditionCheckFailure: onFail,
+	}
+
+	if len(allNames) > 0 {
+		upd.ExpressionAttributeNames = allNames
+	}
+
+	if len(allValues) > 0 {
+		upd.ExpressionAttributeValues = allValues
+	}
+
+	return upd, nil
+}
+
+// appsyncTransactError maps a cancelled transaction to a DynamoDBError that
+// carries its per-item cancellation reasons.
+func appsyncTransactError(err error) error {
+	var wireErr *ddbbackend.Error
+	if !errors.As(err, &wireErr) || len(wireErr.CancellationReasons) == 0 {
+		return appsyncDDBError(err)
+	}
+
+	mapped := appsyncDDBError(err)
+
+	de, ok := mapped.(*appsyncbackend.DynamoDBError) //nolint:errorlint // appsyncDDBError returns the concrete type
+	if !ok {
+		return mapped
+	}
+
+	for _, r := range wireErr.CancellationReasons {
+		c := appsyncbackend.DDBCancellation{Type: r.Code, Message: r.Message}
+
+		if item, isMap := r.Item.(map[string]any); isMap {
+			c.Item = item
+		}
+
+		de.Cancellations = append(de.Cancellations, c)
+	}
+
+	return de
 }
 
 func appsyncExpr(
@@ -12400,6 +12836,8 @@ type healthResponse struct {
 	Services []string `json:"services"`
 	// Disabled lists services turned off via --services / --disable-services.
 	Disabled []string `json:"disabled,omitempty"`
+	// UptimeSecs is the seconds since the health handler was built (server start).
+	UptimeSecs int64 `json:"uptime_seconds"`
 	// Goroutines is the current number of live goroutines (runtime.NumGoroutine).
 	// A sustained upward trend indicates a goroutine leak.
 	Goroutines int `json:"goroutines"`
@@ -12777,6 +13215,8 @@ func buildPrincipalResolvers(services []service.Registerable) awsmeta.PrincipalR
 			if r, ok := h.Backend.(awsmeta.PrincipalResolver); ok {
 				chain = append(chain, r)
 			}
+		case *signinbackend.Handler:
+			chain = append(chain, h.Backend)
 		}
 	}
 
@@ -13143,7 +13583,7 @@ func launchPurgeWorker(
 
 // startDNSAndTransparent starts the embedded DNS server, in transparent mode when enabled.
 func startDNSAndTransparent(ctx context.Context, cli *CLI) (*transparentRuntime, *gopherDNS.Server, error) {
-	if cli.Transparent.Enabled {
+	if cli.Transparent.Enabled && !cli.Transparent.DisableInjection {
 		return setupTransparent(ctx, cli.Transparent, cli.DNSListenAddr, cli.DNSResolveIP)
 	}
 
@@ -14380,14 +14820,14 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		SSM:            cli.ssmClient,
 		KMS:            cli.kmsClient,
 		SecretsManager: cli.secretsManagerClient,
-		ECR:            cli.ecrClient,
-		AppSync:        cli.appSyncSdkClient,
-		Amplify:        cli.amplifyClient,
-		ECS:            cli.ecsClient,
-		EKS:            cli.eksClient,
-		IoT:            cli.iotClient,
-		CodeDeploy:     cli.codeDeployClient,
-		CodePipeline:   cli.codePipelineSDKClient,
+		ECR:            cli.demoCallers["ecr"],
+		AppSync:        cli.demoCallers["appsync"],
+		Amplify:        cli.demoCallers["amplify"],
+		ECS:            cli.demoCallers["ecs"],
+		EKS:            cli.demoCallers["eks"],
+		IoT:            cli.demoCallers["iot"],
+		CodeDeploy:     cli.demoCallers["codedeploy"],
+		CodePipeline:   cli.demoCallers["codepipeline"],
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)

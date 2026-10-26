@@ -2,8 +2,10 @@ package transcribe
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -73,6 +75,66 @@ func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageMo
 	b.observeLanguageModel(&cp)
 
 	return &cp, nil
+}
+
+// UpdateLanguageModel changes the data access role and/or encryption
+// configuration of a model that is not IN_PROGRESS.
+func (b *InMemoryBackend) UpdateLanguageModel(
+	modelName, dataAccessRoleArn string, enc *EncryptionConfig,
+) (*LanguageModel, error) {
+	if modelName == "" {
+		return nil, fmt.Errorf("%w: ModelName is required", ErrValidation)
+	}
+
+	if dataAccessRoleArn == "" && enc == nil {
+		return nil, fmt.Errorf("%w: DataAccessRoleArn or EncryptionConfiguration is required", ErrValidation)
+	}
+
+	if enc != nil && !isKMSKeyARN(enc.KMSKey) {
+		return nil, fmt.Errorf("%w: EncryptionConfiguration.KMSKey must be a full KMS key ARN", ErrValidation)
+	}
+
+	b.mu.Lock("UpdateLanguageModel")
+	defer b.mu.Unlock()
+
+	m, ok := b.languageModels.Get(modelName)
+	if !ok {
+		return nil, fmt.Errorf("%w: language model %s not found", ErrNotFound, modelName)
+	}
+
+	cur := *m
+	b.observeLanguageModel(&cur)
+
+	if cur.ModelStatus == jobStatusInProgress {
+		return nil, fmt.Errorf("%w: language model %s is IN_PROGRESS", ErrValidation, modelName)
+	}
+
+	if dataAccessRoleArn != "" {
+		idc := InputDataConfig{}
+		if m.InputDataConfig != nil {
+			idc = *m.InputDataConfig
+		}
+
+		idc.DataAccessRoleArn = dataAccessRoleArn
+		m.InputDataConfig = &idc
+	}
+
+	if enc != nil {
+		cp := *enc
+		cp.KMSEncryptionContext = maps.Clone(enc.KMSEncryptionContext)
+		m.Encryption = &cp
+	}
+
+	m.LastModifiedTime = time.Now()
+
+	out := *m
+	b.observeLanguageModel(&out)
+
+	return &out, nil
+}
+
+func isKMSKeyARN(s string) bool {
+	return strings.HasPrefix(s, "arn:") && strings.Contains(s, ":kms:") && strings.Contains(s, ":key/")
 }
 
 // DeleteLanguageModel removes a custom language model by name.

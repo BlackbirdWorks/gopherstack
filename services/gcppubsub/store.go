@@ -11,20 +11,23 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // InMemoryBackend holds all topics, subscriptions, snapshots and schemas under one lock.
 type InMemoryBackend struct {
-	now      func() time.Time
-	mu       *lockmetrics.RWMutex
-	topics   map[string]*topic
-	subs     map[string]*subscription
-	snaps    map[string]*snapshot
-	schemas  map[string]*schemaRec
-	pushWake chan struct{}
-	lastMsg  int64
+	now       func() time.Time
+	mu        *lockmetrics.RWMutex
+	topics    map[string]*topic
+	subs      map[string]*subscription
+	snaps     map[string]*snapshot
+	schemas   map[string]*schemaRec
+	iam       *gcpiampolicy.Store
+	pushWake  chan struct{}
+	observers []PublishObserver
+	lastMsg   int64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -44,6 +47,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.subs = make(map[string]*subscription)
 	b.snaps = make(map[string]*snapshot)
 	b.schemas = make(map[string]*schemaRec)
+	b.iam = gcpiampolicy.NewStore()
 }
 
 // Reset clears all state.
@@ -175,6 +179,7 @@ func (b *InMemoryBackend) CreateTopic(in *pubsubpb.Topic) (*pubsubpb.Topic, erro
 	}
 
 	t := clone(in)
+	b.dropPolicyLocked(in.GetName())
 	b.topics[in.GetName()] = &topic{pb: t}
 
 	return clone(t), nil
@@ -319,6 +324,7 @@ func (b *InMemoryBackend) DeleteTopic(name string) error {
 	}
 
 	delete(b.topics, name)
+	b.dropPolicyLocked(name)
 
 	for _, s := range b.subs {
 		if s.pb.GetTopic() == name {
@@ -329,6 +335,7 @@ func (b *InMemoryBackend) DeleteTopic(name string) error {
 	for n, sn := range b.snaps {
 		if sn.pb.GetTopic() == name {
 			delete(b.snaps, n)
+			b.dropPolicyLocked(n)
 		}
 	}
 

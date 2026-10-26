@@ -51,6 +51,7 @@ ops:
   GetFolder: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFile: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "deleting a non-existent path silently fabricated a commit before; now FileDoesNotExistException. blobId in response was hardcoded empty; now the removed file's real blob id. This pass: parentCommitId was accepted and silently ignored (documented gap) — now required and validated against the branch tip (ParentCommitIdRequiredException/ParentCommitIdOutdatedException), matching real AWS's DeleteFileInput.ParentCommitId (a required field per the SDK's validators.go). Also never recorded fileHistory — now recorded. FIXED 2026-09-12 (gopherstack-xhu2t): KeepEmptyFolders, same fix and shared helper as CreateCommit -- see that row."}
   GetBlob: {wire: ok, errors: fixed, state: ok, persist: ok, note: "not-found now BlobIdDoesNotExistException, was RepositoryDoesNotExistException"}
+  GetBlobDifferences: {wire: ok, errors: ok, state: ok, persist: n/a, note: "blob_differences.go: LCS line diff (linediff.go) grouped into hunks with contextLines 0-20 (default 3), ignoreWhitespace, binary detection (NUL byte), blob sizes, MaxResults/NextToken paging over hunks; empty beforeBlobId diffs against an empty blob. Errors: BlobIdRequired/InvalidBlobId/BlobIdDoesNotExist/InvalidMaxResults/InvalidContinuationToken/RepositoryDoesNotExist. Out-of-range contextLines is ValidationException (the SDK models no specific exception)."}
   ListFileCommitHistory: {wire: fixed, errors: ok, state: fixed, persist: fixed, note: "revisionDag entries were raw Commit objects; real AWS's shape is FileVersion (blobId/path/commit/revisionChildren) — a real SDK client's FileVersion deserializer could not have read this response at all. Also added nextToken/maxResults pagination (was a documented deferred item) and fixed the underlying state gap: PutFile/DeleteFile never populated fileHistory (see those ops' notes), so single-file writes/deletes were invisible to this op even though it's the primary op AWS clients use to see a file's commit history"}
   CreateApprovalRuleTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetApprovalRuleTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -113,7 +114,6 @@ families:
   merge_object_type_conflicts: {status: ok, note: "2026-10-07: a file/folder clash is resolved by conflictResolution.deleteFiles on the file path or by ACCEPT_SOURCE/ACCEPT_DESTINATION keeping the chosen side's object type (merge_engine.go resolveObjectType). Guarded by TestMergeObjectTypeConflictResolution."}
 gaps: []
 items_still_open:
-  - "Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetBlobDifferences."
   - "Merge limits TipsDivergenceExceeded, MaximumItemsToCompareExceeded, MaximumFileContentToLoadExceeded and MaximumConflictResolutionEntriesExceeded are never raised: the pinned SDK documents no numeric limit to enforce. Unverifiable."
 structural_gaps:
   - "Submodules (FilePathConflictsWithSubmodulePathException is mapped but never returned) can only be created through git push, and the emulator has no git transport."

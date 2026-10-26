@@ -197,6 +197,7 @@ func toConnectionWire(c *Connection) connectionWire {
 		AwsDeviceV2:                      endpointDevice(c.AwsDeviceV2, c.Location),
 		AwsLogicalDeviceID:               endpointDevice(c.AwsLogicalDeviceID, c.Location),
 		Bandwidth:                        c.Bandwidth,
+		BillingMode:                      c.BillingMode,
 		ConnectionID:                     c.ConnectionID,
 		ConnectionName:                   c.ConnectionName,
 		ConnectionState:                  c.ConnectionState,

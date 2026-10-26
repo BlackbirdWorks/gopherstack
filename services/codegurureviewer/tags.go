@@ -1,6 +1,10 @@
 package codegurureviewer
 
-import "maps"
+import (
+	"context"
+	"maps"
+	"strings"
+)
 
 func (b *InMemoryBackend) taggableLocked(arn string) (*associationRecord, error) {
 	a, ok := b.associations.Get(arn)
@@ -74,4 +78,38 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 	}
 
 	return out, nil
+}
+
+// TaggedEntry is one taggable resource, for the Resource Groups Tagging API bridge.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources lists the caller's tagged repository associations.
+func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every repository association of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
+	account, region := b.scope(ctx)
+	owner := ":" + region + ":" + account + ":"
+
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, a := range b.associations.All() {
+		if (!taggedOnly || len(a.Tags) > 0) && strings.Contains(a.ARN, owner) {
+			out = append(out, TaggedEntry{ARN: a.ARN, Tags: maps.Clone(a.Tags)})
+		}
+	}
+
+	return out
 }

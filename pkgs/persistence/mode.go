@@ -16,6 +16,10 @@ const (
 	ModeSnapshot Mode = "snapshot"
 	// ModeHybrid flushes only services changed since the last flush, on an interval and at shutdown.
 	ModeHybrid Mode = "hybrid"
+	// ModeShutdown saves only at graceful shutdown.
+	ModeShutdown Mode = "shutdown"
+	// ModeManual saves only through an explicit SaveNow, never at shutdown.
+	ModeManual Mode = "manual"
 
 	systemPrefix = "system-"
 )
@@ -28,10 +32,10 @@ func ParseMode(s string) (Mode, error) {
 	switch m := Mode(strs.Fold(strings.TrimSpace(s))); m {
 	case "", ModeSnapshot:
 		return ModeSnapshot, nil
-	case ModeHybrid:
+	case ModeHybrid, ModeShutdown, ModeManual:
 		return m, nil
 	default:
-		return "", fmt.Errorf("%w: mode %q (want snapshot or hybrid)", ErrInvalidMode, s)
+		return "", fmt.Errorf("%w: mode %q (want snapshot, hybrid, shutdown or manual)", ErrInvalidMode, s)
 	}
 }
 
@@ -129,4 +133,28 @@ func (p Policy) Uses(mode Mode) bool {
 	}
 
 	return false
+}
+
+// LoadStrategy selects when persisted state is restored.
+type LoadStrategy string
+
+const (
+	// LoadStartup restores every service at startup (default).
+	LoadStartup LoadStrategy = "startup"
+	// LoadRequest restores a service lazily on its first request.
+	LoadRequest LoadStrategy = "request"
+	// LoadManual restores only through an explicit LoadNow.
+	LoadManual LoadStrategy = "manual"
+)
+
+// ParseLoadStrategy validates a load strategy case-insensitively; empty means LoadStartup.
+func ParseLoadStrategy(s string) (LoadStrategy, error) {
+	switch l := LoadStrategy(strs.Fold(strings.TrimSpace(s))); l {
+	case "", LoadStartup:
+		return LoadStartup, nil
+	case LoadRequest, LoadManual:
+		return l, nil
+	default:
+		return "", fmt.Errorf("%w: load strategy %q (want startup, request or manual)", ErrInvalidMode, s)
+	}
 }

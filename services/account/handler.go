@@ -38,6 +38,8 @@ const (
 	pathGetAccountInformation         = "/getAccountInformation"
 	pathPutAccountName                = "/putAccountName"
 	pathGetPrimaryEmailUpdateStatus   = "/getPrimaryEmailUpdateStatus"
+	pathSendPhoneNumberVerification   = "/sendPhoneNumberVerification"
+	pathVerifyPhoneNumber             = "/verifyPhoneNumber"
 	pathGetGovCloudAccountInformation = "/getGovCloudAccountInformation"
 
 	// amznErrorTypeHeader carries the modeled exception type in the AWS
@@ -72,6 +74,8 @@ var operationNames = map[string]string{ //nolint:gochecknoglobals // package-lev
 	pathGetAccountInformation:         "GetAccountInformation",
 	pathPutAccountName:                "PutAccountName",
 	pathGetPrimaryEmailUpdateStatus:   "GetPrimaryEmailUpdateStatus",
+	pathSendPhoneNumberVerification:   "SendPhoneNumberVerification",
+	pathVerifyPhoneNumber:             "VerifyPhoneNumber",
 	pathGetGovCloudAccountInformation: "GetGovCloudAccountInformation",
 }
 
@@ -109,6 +113,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetAccountInformation",
 		"PutAccountName",
 		"GetPrimaryEmailUpdateStatus",
+		"SendPhoneNumberVerification",
+		"VerifyPhoneNumber",
 		"GetGovCloudAccountInformation",
 	}
 }
@@ -181,6 +187,8 @@ var operationHandlers = map[string]handlerFunc{
 	pathGetAccountInformation:         (*Handler).handleGetAccountInformation,
 	pathPutAccountName:                (*Handler).handlePutAccountName,
 	pathGetPrimaryEmailUpdateStatus:   (*Handler).handleGetPrimaryEmailUpdateStatus,
+	pathSendPhoneNumberVerification:   (*Handler).handleSendPhoneNumberVerification,
+	pathVerifyPhoneNumber:             (*Handler).handleVerifyPhoneNumber,
 	pathGetGovCloudAccountInformation: (*Handler).handleGetGovCloudAccountInformation,
 }
 
@@ -560,6 +568,45 @@ func (h *Handler) handleAcceptPrimaryEmailUpdate(c *echo.Context, body []byte) e
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyStatus: PrimaryEmailUpdateStatusAccepted})
+}
+
+func (h *Handler) handleSendPhoneNumberVerification(c *echo.Context, body []byte) error {
+	var req struct {
+		AccountID string `json:"AccountId"`
+	}
+
+	if err := decodeJSON(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	status, err := h.Backend.SendPhoneNumberVerification()
+	if err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyStatus: status})
+}
+
+func (h *Handler) handleVerifyPhoneNumber(c *echo.Context, body []byte) error {
+	var req struct {
+		AccountID string `json:"AccountId"`
+		Otp       string `json:"Otp"`
+	}
+
+	if err := decodeJSON(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	if strings.TrimSpace(req.Otp) == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "Otp is required")
+	}
+
+	status, err := h.Backend.VerifyPhoneNumber(req.Otp)
+	if err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyStatus: status})
 }
 
 func (h *Handler) handleGetAccountInformation(c *echo.Context, body []byte) error {

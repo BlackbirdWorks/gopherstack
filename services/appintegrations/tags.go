@@ -1,6 +1,7 @@
 package appintegrations
 
 import (
+	"context"
 	"maps"
 	"strings"
 )
@@ -94,4 +95,50 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	}
 
 	return out, nil
+}
+
+// TaggedEntry is one taggable resource, for the Resource Groups Tagging API bridge.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources lists the caller's tagged event integrations, data integrations and applications.
+func (b *InMemoryBackend) TaggedResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, true)
+}
+
+// InventoryResources lists every event integration, data integration and application of the caller.
+func (b *InMemoryBackend) InventoryResources(ctx context.Context) []TaggedEntry {
+	return b.entries(ctx, false)
+}
+
+func (b *InMemoryBackend) entries(ctx context.Context, taggedOnly bool) []TaggedEntry {
+	account, region := b.scope(ctx)
+	suffix := ":" + region + ":" + account + ":"
+
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	add := func(arn string, tags map[string]string) {
+		if (!taggedOnly || len(tags) > 0) && strings.Contains(arn, suffix) {
+			out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(tags)})
+		}
+	}
+
+	for _, e := range b.events.All() {
+		add(e.EventIntegrationArn, e.Tags)
+	}
+
+	for _, d := range b.dataIntegs.All() {
+		add(d.Arn, d.Tags)
+	}
+
+	for _, a := range b.apps.All() {
+		add(a.Arn, a.Tags)
+	}
+
+	return out
 }

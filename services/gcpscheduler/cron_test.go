@@ -84,7 +84,6 @@ func TestCronInvalid(t *testing.T) {
 		{"zero step", "*/0 * * * *"},
 		{"junk step", "*/x * * * *"},
 		{"junk value", "a * * * *"},
-		{"app engine syntax", "every 5 minutes"},
 	}
 
 	for _, tt := range tests {

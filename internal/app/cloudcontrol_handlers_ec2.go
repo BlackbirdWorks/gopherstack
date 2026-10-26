@@ -4,59 +4,59 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"strings"
 
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
 const (
-	ccKeyTags  = "Tags"
-	ccKeyVpcID = "VpcId"
+	ccKeyTags      = "Tags"
+	ccKeyVpcID     = "VpcId"
+	ccKeyKey       = "Key"
+	ccKeyValue     = "Value"
+	ccKeyGroupName = "GroupName"
 )
 
-func ccEC2Tags(m map[string]string) []ec2types.Tag {
-	out := make([]ec2types.Tag, 0, len(m))
+func ccEC2Tags(m map[string]string) []any {
+	out := make([]any, 0, len(m))
 	for k, v := range m {
-		out = append(out, ec2types.Tag{Key: aws.String(k), Value: aws.String(v)})
+		out = append(out, map[string]any{ccKeyKey: k, ccKeyValue: v})
 	}
 
 	return out
 }
 
-func ccEC2TagSpec(rt ec2types.ResourceType, tags map[string]string) []ec2types.TagSpecification {
+func ccEC2TagSpec(rt string, tags map[string]string) []any {
 	if len(tags) == 0 {
 		return nil
 	}
 
-	return []ec2types.TagSpecification{{ResourceType: rt, Tags: ccEC2Tags(tags)}}
+	return []any{map[string]any{"ResourceType": rt, ccKeyTags: ccEC2Tags(tags)}}
 }
 
-func ccEC2ModelTags(tags []ec2types.Tag) []map[string]string {
+func ccEC2ModelTags(tags []map[string]any) []map[string]string {
 	m := make(map[string]string, len(tags))
 	for _, t := range tags {
-		m[aws.ToString(t.Key)] = aws.ToString(t.Value)
+		m[ccMapStr(t, "Key")] = ccMapStr(t, "Value")
 	}
 
 	return tagsProperty(m)
 }
 
-func ccEC2SyncTags(ctx context.Context, c *ec2.Client, id string, current, desired map[string]any) error {
+func ccEC2SyncTags(ctx context.Context, c *ccEC2Client, id string, current, desired map[string]any) error {
 	return ccSyncModelTags(current, desired,
 		func(m map[string]string) error {
-			_, err := c.CreateTags(ctx, &ec2.CreateTagsInput{Resources: []string{id}, Tags: ccEC2Tags(m)})
+			_, err := c.call(ctx, "CreateTags", map[string]any{"Resources": []any{id}, "Tags": ccEC2Tags(m)})
 
 			return err
 		},
 		func(keys []string) error {
-			tags := make([]ec2types.Tag, 0, len(keys))
+			tags := make([]any, 0, len(keys))
 			for _, k := range keys {
-				tags = append(tags, ec2types.Tag{Key: aws.String(k)})
+				tags = append(tags, map[string]any{"Key": k})
 			}
 
-			_, err := c.DeleteTags(ctx, &ec2.DeleteTagsInput{Resources: []string{id}, Tags: tags})
+			_, err := c.call(ctx, "DeleteTags", map[string]any{"Resources": []any{id}, "Tags": tags})
 
 			return err
 		})
@@ -70,7 +70,7 @@ func ccBool(m map[string]any, key string) (bool, bool) {
 
 // --- AWS::EC2::VPC ---
 
-type ccVPC struct{ client *ec2.Client }
+type ccVPC struct{ client *ccEC2Client }
 
 func (h *ccVPC) Create(ctx context.Context, desired map[string]any) (string, error) {
 	cidr := ccString(desired, "CidrBlock")
@@ -83,20 +83,19 @@ func (h *ccVPC) Create(ctx context.Context, desired map[string]any) (string, err
 		return "", err
 	}
 
-	in := &ec2.CreateVpcInput{
-		CidrBlock:         aws.String(cidr),
-		TagSpecifications: ccEC2TagSpec(ec2types.ResourceTypeVpc, tags),
-	}
-	if t := ccString(desired, "InstanceTenancy"); t != "" {
-		in.InstanceTenancy = ec2types.Tenancy(t)
+	in := map[string]any{"CidrBlock": cidr}
+	if ts := ccEC2TagSpec("vpc", tags); ts != nil {
+		in["TagSpecifications"] = ts
 	}
 
-	out, err := h.client.CreateVpc(ctx, in)
+	ccSetStr(in, "InstanceTenancy", ccString(desired, "InstanceTenancy"))
+
+	out, err := h.client.call(ctx, "CreateVpc", in)
 	if err != nil {
 		return "", ccMapError(err)
 	}
 
-	id := aws.ToString(out.Vpc.VpcId)
+	id := ccMapStr(ccMapObj(out, "Vpc"), "VpcId")
 
 	if err = h.setDNSAttrs(ctx, id, desired); err != nil {
 		return "", err
@@ -106,17 +105,14 @@ func (h *ccVPC) Create(ctx context.Context, desired map[string]any) (string, err
 }
 
 func (h *ccVPC) setDNSAttrs(ctx context.Context, id string, desired map[string]any) error {
-	if v, ok := ccBool(desired, "EnableDnsSupport"); ok {
-		if _, err := h.client.ModifyVpcAttribute(ctx, &ec2.ModifyVpcAttributeInput{
-			VpcId: aws.String(id), EnableDnsSupport: &ec2types.AttributeBooleanValue{Value: aws.Bool(v)},
-		}); err != nil {
-			return ccMapError(err)
+	for _, k := range []string{"EnableDnsSupport", "EnableDnsHostnames"} {
+		v, ok := ccBool(desired, k)
+		if !ok {
+			continue
 		}
-	}
 
-	if v, ok := ccBool(desired, "EnableDnsHostnames"); ok {
-		if _, err := h.client.ModifyVpcAttribute(ctx, &ec2.ModifyVpcAttributeInput{
-			VpcId: aws.String(id), EnableDnsHostnames: &ec2types.AttributeBooleanValue{Value: aws.Bool(v)},
+		if _, err := h.client.call(ctx, "ModifyVpcAttribute", map[string]any{
+			ccKeyVpcID: id, k: map[string]any{ccKeyValue: v},
 		}); err != nil {
 			return ccMapError(err)
 		}
@@ -125,46 +121,42 @@ func (h *ccVPC) setDNSAttrs(ctx context.Context, id string, desired map[string]a
 	return nil
 }
 
-func (h *ccVPC) dnsAttr(ctx context.Context, id string, attr ec2types.VpcAttributeName) (bool, bool) {
-	out, err := h.client.DescribeVpcAttribute(ctx, &ec2.DescribeVpcAttributeInput{
-		VpcId: aws.String(id), Attribute: attr,
+func (h *ccVPC) dnsAttr(ctx context.Context, id, attr string) (bool, bool) {
+	out, err := h.client.call(ctx, "DescribeVpcAttribute", map[string]any{
+		"VpcId": id, "Attribute": strings.ToLower(attr[:1]) + attr[1:],
 	})
 	if err != nil {
 		return false, false
 	}
 
-	if attr == ec2types.VpcAttributeNameEnableDnsSupport && out.EnableDnsSupport != nil {
-		return aws.ToBool(out.EnableDnsSupport.Value), true
-	}
-
-	if attr == ec2types.VpcAttributeNameEnableDnsHostnames && out.EnableDnsHostnames != nil {
-		return aws.ToBool(out.EnableDnsHostnames.Value), true
+	// The enum value is the output member name with a lowercase first letter.
+	if v := ccMapObj(out, attr); v != nil {
+		return ccMapBool(v, "Value"), true
 	}
 
 	return false, false
 }
 
 func (h *ccVPC) Read(ctx context.Context, id string) (map[string]any, error) {
-	out, err := h.client.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{VpcIds: []string{id}})
+	out, err := h.client.call(ctx, "DescribeVpcs", map[string]any{"VpcIds": []any{id}})
 	if err != nil {
 		return nil, ccMapError(err)
 	}
 
-	if len(out.Vpcs) == 0 {
+	vpcs := ccMapList(out, "Vpcs")
+	if len(vpcs) == 0 {
 		return nil, fmt.Errorf("%w: vpc %s", cloudcontrolbackend.ErrNotFound, id)
 	}
 
-	v := out.Vpcs[0]
+	v := vpcs[0]
 	model := map[string]any{
-		ccKeyVpcID: id, "CidrBlock": aws.ToString(v.CidrBlock), "InstanceTenancy": string(v.InstanceTenancy),
+		ccKeyVpcID: id, "CidrBlock": ccMapStr(v, "CidrBlock"), "InstanceTenancy": ccMapStr(v, "InstanceTenancy"),
 	}
 
-	if val, ok := h.dnsAttr(ctx, id, ec2types.VpcAttributeNameEnableDnsSupport); ok {
-		model["EnableDnsSupport"] = val
-	}
-
-	if val, ok := h.dnsAttr(ctx, id, ec2types.VpcAttributeNameEnableDnsHostnames); ok {
-		model["EnableDnsHostnames"] = val
+	for _, attr := range []string{"EnableDnsSupport", "EnableDnsHostnames"} {
+		if val, ok := h.dnsAttr(ctx, id, attr); ok {
+			model[attr] = val
+		}
 	}
 
 	h.addDefaults(ctx, id, model)
@@ -177,46 +169,52 @@ func (h *ccVPC) Read(ctx context.Context, id string) (map[string]any, error) {
 		model["Ipv6CidrBlocks"] = blocks
 	}
 
-	if len(v.Tags) > 0 {
-		model[ccKeyTags] = ccEC2ModelTags(v.Tags)
+	if tags := ccMapList(v, ccKeyTags); len(tags) > 0 {
+		model[ccKeyTags] = ccEC2ModelTags(tags)
 	}
 
 	return model, nil
 }
 
-func ccVPCAssociationIDs(v ec2types.Vpc) []string {
-	ids := make([]string, 0, len(v.CidrBlockAssociationSet))
+func ccVPCAssociationIDs(v map[string]any) []string {
+	assocs := ccMapList(v, "CidrBlockAssociationSet")
+	ids := make([]string, 0, len(assocs))
 
-	for _, a := range v.CidrBlockAssociationSet {
-		ids = append(ids, aws.ToString(a.AssociationId))
+	for _, a := range assocs {
+		ids = append(ids, ccMapStr(a, "AssociationId"))
 	}
 
 	return ids
 }
 
-func ccVPCIPv6Blocks(v ec2types.Vpc) []string {
-	blocks := make([]string, 0, len(v.Ipv6CidrBlockAssociationSet))
+func ccVPCIPv6Blocks(v map[string]any) []string {
+	assocs := ccMapList(v, "Ipv6CidrBlockAssociationSet")
+	blocks := make([]string, 0, len(assocs))
 
-	for _, a := range v.Ipv6CidrBlockAssociationSet {
-		blocks = append(blocks, aws.ToString(a.Ipv6CidrBlock))
+	for _, a := range assocs {
+		blocks = append(blocks, ccMapStr(a, "Ipv6CidrBlock"))
 	}
 
 	return blocks
 }
 
 func (h *ccVPC) addDefaults(ctx context.Context, id string, model map[string]any) {
-	filter := []ec2types.Filter{{Name: aws.String("vpc-id"), Values: []string{id}}}
+	vpcFilter := ccEC2Filter("vpc-id", id)
 
-	if sgs, err := h.client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
-		Filters: append(filter, ec2types.Filter{Name: aws.String("group-name"), Values: []string{"default"}}),
-	}); err == nil && len(sgs.SecurityGroups) > 0 {
-		model["DefaultSecurityGroup"] = aws.ToString(sgs.SecurityGroups[0].GroupId)
+	if sgs, err := h.client.call(ctx, "DescribeSecurityGroups", map[string]any{
+		"Filters": []any{vpcFilter, ccEC2Filter("group-name", "default")},
+	}); err == nil {
+		if l := ccMapList(sgs, "SecurityGroups"); len(l) > 0 {
+			model["DefaultSecurityGroup"] = ccMapStr(l[0], "GroupId")
+		}
 	}
 
-	if acls, err := h.client.DescribeNetworkAcls(ctx, &ec2.DescribeNetworkAclsInput{
-		Filters: append(filter, ec2types.Filter{Name: aws.String("default"), Values: []string{"true"}}),
-	}); err == nil && len(acls.NetworkAcls) > 0 {
-		model["DefaultNetworkAcl"] = aws.ToString(acls.NetworkAcls[0].NetworkAclId)
+	if acls, err := h.client.call(ctx, "DescribeNetworkAcls", map[string]any{
+		"Filters": []any{vpcFilter, ccEC2Filter("default", "true")},
+	}); err == nil {
+		if l := ccMapList(acls, "NetworkAcls"); len(l) > 0 {
+			model["DefaultNetworkAcl"] = ccMapStr(l[0], "NetworkAclId")
+		}
 	}
 }
 
@@ -260,24 +258,20 @@ func (h *ccVPC) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err := h.client.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(id)})
+	_, err := h.client.call(ctx, "DeleteVpc", map[string]any{"VpcId": id})
 
 	return ccMapError(err)
 }
 
 func (h *ccVPC) List(ctx context.Context) ([]string, error) {
+	vpcs, err := h.client.describe(ctx, "DescribeVpcs", "Vpcs", nil)
+	if err != nil {
+		return nil, ccMapError(err)
+	}
+
 	var ids []string
-
-	p := ec2.NewDescribeVpcsPaginator(h.client, &ec2.DescribeVpcsInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
-		if err != nil {
-			return nil, ccMapError(err)
-		}
-
-		for _, v := range out.Vpcs {
-			ids = append(ids, aws.ToString(v.VpcId))
-		}
+	for _, v := range vpcs {
+		ids = append(ids, ccMapStr(v, ccKeyVpcID))
 	}
 
 	return ids, nil
@@ -285,15 +279,16 @@ func (h *ccVPC) List(ctx context.Context) ([]string, error) {
 
 // --- AWS::EC2::Subnet ---
 
-type ccSubnet struct{ client *ec2.Client }
+type ccSubnet struct{ client *ccEC2Client }
 
 const (
 	ccKeyDNS64    = "EnableDns64"
 	ccKeyPublicIP = "MapPublicIpOnLaunch"
+	ccKeyV6OnCr   = "AssignIpv6AddressOnCreation"
 )
 
 func ccSubnetAttrs() []string {
-	return []string{ccKeyPublicIP, ccKeyDNS64, "AssignIpv6AddressOnCreation"}
+	return []string{ccKeyPublicIP, ccKeyDNS64, ccKeyV6OnCr}
 }
 
 func (h *ccSubnet) Create(ctx context.Context, desired map[string]any) (string, error) {
@@ -309,24 +304,27 @@ func (h *ccSubnet) Create(ctx context.Context, desired map[string]any) (string, 
 		return "", err
 	}
 
-	in := &ec2.CreateSubnetInput{
-		VpcId: aws.String(vpc), CidrBlock: ccOptional(cidr),
-		Ipv6CidrBlock:      ccOptional(ccString(desired, "Ipv6CidrBlock")),
-		AvailabilityZone:   ccOptional(ccString(desired, "AvailabilityZone")),
-		AvailabilityZoneId: ccOptional(ccString(desired, "AvailabilityZoneId")),
-		OutpostArn:         ccOptional(ccString(desired, "OutpostArn")),
-		TagSpecifications:  ccEC2TagSpec(ec2types.ResourceTypeSubnet, tags),
-	}
-	if native {
-		in.Ipv6Native = aws.Bool(true)
+	in := map[string]any{ccKeyVpcID: vpc}
+	ccSetStr(in, "CidrBlock", cidr)
+	ccSetStr(in, "Ipv6CidrBlock", ccString(desired, "Ipv6CidrBlock"))
+	ccSetStr(in, "AvailabilityZone", ccString(desired, "AvailabilityZone"))
+	ccSetStr(in, "AvailabilityZoneId", ccString(desired, "AvailabilityZoneId"))
+	ccSetStr(in, "OutpostArn", ccString(desired, "OutpostArn"))
+
+	if ts := ccEC2TagSpec("subnet", tags); ts != nil {
+		in["TagSpecifications"] = ts
 	}
 
-	out, err := h.client.CreateSubnet(ctx, in)
+	if native {
+		in["Ipv6Native"] = true
+	}
+
+	out, err := h.client.call(ctx, "CreateSubnet", in)
 	if err != nil {
 		return "", ccMapError(err)
 	}
 
-	id := aws.ToString(out.Subnet.SubnetId)
+	id := ccMapStr(ccMapObj(out, "Subnet"), "SubnetId")
 
 	return id, h.setAttrs(ctx, id, desired)
 }
@@ -338,19 +336,9 @@ func (h *ccSubnet) setAttrs(ctx context.Context, id string, desired map[string]a
 			continue
 		}
 
-		val := &ec2types.AttributeBooleanValue{Value: aws.Bool(v)}
-		in := &ec2.ModifySubnetAttributeInput{SubnetId: aws.String(id)}
-
-		switch k {
-		case ccKeyPublicIP:
-			in.MapPublicIpOnLaunch = val
-		case ccKeyDNS64:
-			in.EnableDns64 = val
-		default:
-			in.AssignIpv6AddressOnCreation = val
-		}
-
-		if _, err := h.client.ModifySubnetAttribute(ctx, in); err != nil {
+		if _, err := h.client.call(ctx, "ModifySubnetAttribute", map[string]any{
+			scAttrSubnet: id, k: map[string]any{ccKeyValue: v},
+		}); err != nil {
 			return ccMapError(err)
 		}
 	}
@@ -359,38 +347,39 @@ func (h *ccSubnet) setAttrs(ctx context.Context, id string, desired map[string]a
 }
 
 func (h *ccSubnet) Read(ctx context.Context, id string) (map[string]any, error) {
-	out, err := h.client.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{SubnetIds: []string{id}})
+	out, err := h.client.call(ctx, "DescribeSubnets", map[string]any{"SubnetIds": []any{id}})
 	if err != nil {
 		return nil, ccMapError(err)
 	}
 
-	if len(out.Subnets) == 0 {
+	subnets := ccMapList(out, "Subnets")
+	if len(subnets) == 0 {
 		return nil, fmt.Errorf("%w: subnet %s", cloudcontrolbackend.ErrNotFound, id)
 	}
 
-	s := out.Subnets[0]
+	s := subnets[0]
 	model := map[string]any{
-		"SubnetId": id, ccKeyVpcID: aws.ToString(s.VpcId),
-		"AvailabilityZone": aws.ToString(s.AvailabilityZone), "MapPublicIpOnLaunch": aws.ToBool(s.MapPublicIpOnLaunch),
+		"SubnetId": id, ccKeyVpcID: ccMapStr(s, ccKeyVpcID),
+		"AvailabilityZone": ccMapStr(s, "AvailabilityZone"), ccKeyPublicIP: ccMapBool(s, ccKeyPublicIP),
 	}
 
-	if s.CidrBlock != nil && *s.CidrBlock != "" {
-		model["CidrBlock"] = aws.ToString(s.CidrBlock)
+	if v := ccMapStr(s, "CidrBlock"); v != "" {
+		model["CidrBlock"] = v
 	}
 
-	if s.AvailabilityZoneId != nil {
-		model["AvailabilityZoneId"] = aws.ToString(s.AvailabilityZoneId)
+	if _, present := s["AvailabilityZoneId"]; present {
+		model["AvailabilityZoneId"] = ccMapStr(s, "AvailabilityZoneId")
 	}
 
-	if s.OutpostArn != nil && *s.OutpostArn != "" {
-		model["OutpostArn"] = aws.ToString(s.OutpostArn)
+	if v := ccMapStr(s, "OutpostArn"); v != "" {
+		model["OutpostArn"] = v
 	}
 
 	var v6 []string
 
-	for _, a := range s.Ipv6CidrBlockAssociationSet {
-		if a.Ipv6CidrBlockState != nil && a.Ipv6CidrBlockState.State == ec2types.SubnetCidrBlockStateCodeAssociated {
-			v6 = append(v6, aws.ToString(a.Ipv6CidrBlock))
+	for _, a := range ccMapList(s, "Ipv6CidrBlockAssociationSet") {
+		if ccMapStr(ccMapObj(a, "Ipv6CidrBlockState"), "State") == "associated" {
+			v6 = append(v6, ccMapStr(a, "Ipv6CidrBlock"))
 		}
 	}
 
@@ -399,17 +388,14 @@ func (h *ccSubnet) Read(ctx context.Context, id string) (map[string]any, error) 
 		model["Ipv6CidrBlock"] = v6[0]
 	}
 
-	for k, on := range map[string]*bool{
-		"Ipv6Native": s.Ipv6Native, ccKeyDNS64: s.EnableDns64,
-		"AssignIpv6AddressOnCreation": s.AssignIpv6AddressOnCreation,
-	} {
-		if aws.ToBool(on) {
+	for _, k := range []string{"Ipv6Native", ccKeyDNS64, ccKeyV6OnCr} {
+		if ccMapBool(s, k) {
 			model[k] = true
 		}
 	}
 
-	if len(s.Tags) > 0 {
-		model[ccKeyTags] = ccEC2ModelTags(s.Tags)
+	if tags := ccMapList(s, ccKeyTags); len(tags) > 0 {
+		model[ccKeyTags] = ccEC2ModelTags(tags)
 	}
 
 	return model, nil
@@ -433,24 +419,20 @@ func (h *ccSubnet) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err := h.client.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: aws.String(id)})
+	_, err := h.client.call(ctx, "DeleteSubnet", map[string]any{"SubnetId": id})
 
 	return ccMapError(err)
 }
 
 func (h *ccSubnet) List(ctx context.Context) ([]string, error) {
+	subnets, err := h.client.describe(ctx, "DescribeSubnets", "Subnets", nil)
+	if err != nil {
+		return nil, ccMapError(err)
+	}
+
 	var ids []string
-
-	p := ec2.NewDescribeSubnetsPaginator(h.client, &ec2.DescribeSubnetsInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
-		if err != nil {
-			return nil, ccMapError(err)
-		}
-
-		for _, s := range out.Subnets {
-			ids = append(ids, aws.ToString(s.SubnetId))
-		}
+	for _, s := range subnets {
+		ids = append(ids, ccMapStr(s, "SubnetId"))
 	}
 
 	return ids, nil

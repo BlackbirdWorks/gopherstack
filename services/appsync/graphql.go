@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/vektah/gqlparser/v2"
@@ -74,7 +75,7 @@ func newGraphQLError(err error) graphqlError {
 	}
 
 	if de, ok := errors.AsType[*DynamoDBError](err); ok {
-		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code}
+		return graphqlError{Message: de.Error(), ErrorType: "DynamoDB:" + de.Code, Data: de.Result}
 	}
 
 	return graphqlError{Message: err.Error()}
@@ -131,19 +132,27 @@ func executeGraphQL(
 	env := &execEnv{
 		backend: backend, resolvers: resolvers, datasources: datasources,
 		functions: functions, variables: variables, headers: headers, rc: rc,
+		cache: backend.apiCacheOf(apiID), apiID: apiID,
 	}
 	env.addHeader, _ = respHeaderKey.Get(ctx)
 
 	result, err := env.executeSelectionSet(ctx, parentTypeName, op.SelectionSet)
+	if errors.Is(err, errNullBubble) {
+		return nil, &partialResultError{errs: env.errs}
+	}
+
 	if err != nil {
 		return nil, err
 	}
+
+	backend.applyCacheEvictions(apiID, env.ext)
 
 	if len(env.errs) > 0 {
 		return result, &partialResultError{errs: env.errs}
 	}
 
 	backend.publishMutation(apiID, op, result)
+	backend.invalidateSubscriptions(apiID, env.ext)
 
 	return result, nil
 }
@@ -177,15 +186,19 @@ func findOperation(doc *ast.QueryDocument, operationName string) *ast.OperationD
 
 // execEnv carries the per-request state shared by root and nested resolvers.
 type execEnv struct {
-	backend     *InMemoryBackend
+	headers     map[string]any
+	cache       *APICache
 	resolvers   map[string]*Resolver
 	datasources map[string]*DataSource
 	functions   map[string]*Function
 	variables   map[string]any
-	headers     map[string]any
-	rc          requestIdentity
+	backend     *InMemoryBackend
 	addHeader   func(name, value string)
+	batched     map[string]batchOutcome
+	rc          requestIdentity
+	apiID       string
 	errs        []graphqlError
+	ext         []map[string]any
 }
 
 // executeSelectionSet resolves all root fields in a selection set.
@@ -203,12 +216,18 @@ func (e *execEnv) executeSelectionSet(
 		}
 
 		if e.resolvers[resolverKey(parentTypeName, field.Name)] == nil {
+			if field.Definition != nil && field.Definition.Type.NonNull {
+				e.recordNull(field.Definition.Type, field, []any{field.Alias})
+
+				return nil, errNullBubble
+			}
+
 			result[field.Alias] = nil
 
 			continue
 		}
 
-		val, err := e.resolveFieldValue(ctx, parentTypeName, field, nil)
+		val, err := e.resolveFieldValue(ctx, parentTypeName, field, nil, []any{field.Alias})
 		if err != nil {
 			return nil, err
 		}
@@ -227,21 +246,30 @@ func (e *execEnv) resolveFieldValue(
 	parentTypeName string,
 	field *ast.Field,
 	source map[string]any,
+	path []any,
 ) (any, error) {
 	resolver := e.resolvers[resolverKey(parentTypeName, field.Name)]
 	cc := e.newCallCtx(parentTypeName, field, source == nil)
 
-	val, err := resolveField(
-		ctx, e.backend, resolver, e.datasources, e.functions, extractArguments(field, e.variables), source, cc,
-	)
+	args := extractArguments(field, e.variables)
+
+	val, err := e.cachedResolve(parentTypeName, field, resolver, cc, args, source, func() (any, error) {
+		if out, ok := e.batched[pathString(path)]; ok {
+			return out.val, out.err
+		}
+
+		return resolveField(ctx, e.backend, resolver, e.datasources, e.functions, args, source, cc)
+	})
+	e.ext = append(e.ext, cc.extensionCalls()...)
 	if err != nil {
 		if re, ok := errors.AsType[*resolverError](err); ok {
 			ge := re.graphql()
-			if source == nil {
-				ge.Path = []any{field.Alias}
-			}
-
+			ge.Path = slices.Clone(path)
 			e.errs = append(e.errs, ge)
+
+			if field.Definition != nil && field.Definition.Type.NonNull {
+				return nil, errNullBubble
+			}
 
 			return noValue(), nil
 		}
@@ -249,7 +277,11 @@ func (e *execEnv) resolveFieldValue(
 		return nil, fmt.Errorf("error resolving %s.%s: %w", parentTypeName, field.Name, err)
 	}
 
-	return e.project(ctx, val, field.SelectionSet)
+	if field.Definition == nil {
+		return e.shape(ctx, val, field.SelectionSet, path)
+	}
+
+	return e.complete(ctx, val, field.Definition.Type, field, path)
 }
 
 func (e *execEnv) newCallCtx(parentTypeName string, field *ast.Field, root bool) *callCtx {
@@ -631,6 +663,10 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 		return json.Marshal(value)
 	}
 
+	return json.Marshal(defaultLambdaEvent(mu, args))
+}
+
+func defaultLambdaEvent(mu mappingUnit, args map[string]any) map[string]any {
 	event := map[string]any{jsCtxKeyArguments: args}
 	if mu.Source != nil {
 		event[jsCtxKeySource] = mu.Source
@@ -641,7 +677,7 @@ func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]by
 		event["typeName"] = mu.TypeName
 	}
 
-	return json.Marshal(event)
+	return event
 }
 
 // invokeDynamoDBDataSource executes mu's mapped request against DynamoDB.
@@ -678,7 +714,7 @@ func invokeDynamoDBDataSource(
 
 	ctx = withRegion(ctx, firstNonEmpty(ds.DynamoDBConfig.AWSRegion, backend.region))
 
-	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig.TableName, request)
+	result, err := executeDDBRequest(ctx, backend.ddbBackend, ds.DynamoDBConfig, request)
 	if err != nil {
 		return nil, err
 	}
@@ -732,29 +768,7 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 
 	api, apiOK := b.apis.Get(apiID)
 	schema, _ := b.schemas.Get(apiID)
-
-	// Copy resolver and datasource maps under the lock to avoid data races with
-	// concurrent Create/Delete operations.
-	apiResolvers := b.resolversByAPI.Get(apiID)
-	resolversCopy := make(map[string]*Resolver, len(apiResolvers))
-
-	for _, r := range apiResolvers {
-		resolversCopy[resolverKey(r.TypeName, r.FieldName)] = r
-	}
-
-	apiDatasources := b.datasourcesByAPI.Get(apiID)
-	datasourcesCopy := make(map[string]*DataSource, len(apiDatasources))
-
-	for _, ds := range apiDatasources {
-		datasourcesCopy[ds.Name] = ds
-	}
-
-	apiFunctions := b.functionsByAPI.Get(apiID)
-	functionsCopy := make(map[string]*Function, len(apiFunctions))
-
-	for _, fn := range apiFunctions {
-		functionsCopy[fn.FunctionID] = fn
-	}
+	state := b.execSnapshotLocked(apiID)
 
 	// Snapshot the auth-relevant fields under the lock: UpdateGraphqlAPI
 	// mutates *GraphqlAPI in place under b.mu, so api itself is not safe to
@@ -787,9 +801,47 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 	rc := requestIdentity{identity: res.identity, authType: res.authType, domainName: customDomain}
 
 	return executeGraphQL(
-		ctx, apiID, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
+		ctx, apiID, b, schema, state.resolvers, state.datasources, state.functions, query, operationName, variables,
 		requestHeaders(auth), rc,
 	)
+}
+
+// execState is a lock-free copy of an API's resolvers, data sources and functions.
+type execState struct {
+	resolvers   map[string]*Resolver
+	datasources map[string]*DataSource
+	functions   map[string]*Function
+}
+
+func (b *InMemoryBackend) execSnapshot(apiID string) execState {
+	b.mu.RLock("ExecSnapshot")
+	defer b.mu.RUnlock()
+
+	return b.execSnapshotLocked(apiID)
+}
+
+// execSnapshotLocked copies the maps under the caller's lock so concurrent
+// Create/Delete calls cannot race with execution.
+func (b *InMemoryBackend) execSnapshotLocked(apiID string) execState {
+	st := execState{
+		resolvers:   make(map[string]*Resolver),
+		datasources: make(map[string]*DataSource),
+		functions:   make(map[string]*Function),
+	}
+
+	for _, r := range b.resolversByAPI.Get(apiID) {
+		st.resolvers[resolverKey(r.TypeName, r.FieldName)] = r
+	}
+
+	for _, ds := range b.datasourcesByAPI.Get(apiID) {
+		st.datasources[ds.Name] = ds
+	}
+
+	for _, fn := range b.functionsByAPI.Get(apiID) {
+		st.functions[fn.FunctionID] = fn
+	}
+
+	return st
 }
 
 func firstNonEmpty(vals ...string) string {

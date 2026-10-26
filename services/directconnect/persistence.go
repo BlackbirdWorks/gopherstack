@@ -76,6 +76,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	restoreTagsLocked(b)
+	b.resumeResiliencyTransitionsLocked()
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -113,6 +114,10 @@ func restoreTagsLocked(b *InMemoryBackend) {
 
 	for _, g := range b.gateways.All() {
 		g.Tags = rebuildTags(g.Tags, "directconnect.gateway."+g.DirectConnectGatewayID+".tags")
+	}
+
+	for _, g := range b.resiliencyGroups.All() {
+		g.Tags = rebuildTags(g.Tags, "directconnect.resiliencygroup."+g.ResiliencyGroupID+".tags")
 	}
 }
 

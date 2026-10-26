@@ -34,7 +34,7 @@ func TestUpdatePipe_PreservesOmittedTargetAndEnrichment(t *testing.T) {
 		Target:  aws.String("arn:aws:lambda:us-east-1:123456789012:function:fn1"),
 	})
 	require.NoError(t, err)
-	pipes.WaitPipeRunning(t, backend, "target-enrich-pipe")
+	waitPipeRunning(t, backend, "target-enrich-pipe")
 
 	_, err = client.UpdatePipe(ctx, &pipessdk.UpdatePipeInput{
 		Name:       aws.String("target-enrich-pipe"),

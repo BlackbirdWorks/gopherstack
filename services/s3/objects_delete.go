@@ -2,7 +2,6 @@ package s3
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -58,7 +57,7 @@ func (b *InMemoryBackend) DeleteObject(
 			if hasTags {
 				b.mu.Lock("DeleteObject.tags")
 				if b.tags != nil {
-					delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, *input.Key, vid))
+					delete(b.tags, tagMapKey(bucketName, *input.Key, vid))
 				}
 				b.mu.Unlock()
 			}
@@ -413,7 +412,7 @@ func (b *InMemoryBackend) deleteSingleObject(
 		if obj.VersionId != nil && *obj.VersionId != "" {
 			vid = *obj.VersionId
 		}
-		tagKey = fmt.Sprintf("%s/%s/%s", bucketName, aws.ToString(obj.Key), vid)
+		tagKey = tagMapKey(bucketName, aws.ToString(obj.Key), vid)
 	}
 
 	deleted := types.DeletedObject{

@@ -48,7 +48,7 @@ func TestSDKEventStreamFraming_RealReader(t *testing.T) {
 	}
 	require.NoError(t, stream.Err())
 	require.Len(t, parts, 1)
-	assert.Equal(t, "mock streaming response from Gopherstack", string(parts[0]))
+	assert.Equal(t, "echo:input", string(parts[0]))
 }
 
 func TestHandler_InvokeEndpointWithResponseStream(t *testing.T) {

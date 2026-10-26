@@ -139,7 +139,7 @@ func backupDue(cfg *BackupConfig, created, now time.Time) bool {
 		base = created
 	}
 
-	next := nextBackup(base, cfg.Type)
+	next := nextBackupFor(base, cfg)
 
 	return !next.IsZero() && !next.After(now)
 }

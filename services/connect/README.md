@@ -7,21 +7,18 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 249 (249 ok) |
-| Feature families | 16 (16 ok) |
-| Known gaps | 23 |
+| PARITY entries audited | 312 (312 ok) |
+| Known gaps | 21 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Search*: SearchContactEvaluations SearchDataTables SearchEmailAddresses SearchMetrics SearchNotifications SearchTestCases SearchWorkspaceAssociations SearchWorkspaces are not routed
+- Search*: SearchContactEvaluations SearchMetrics SearchNotifications SearchTestCases are not routed
 - EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed
-- DataTables: BatchCreateDataTableValue BatchDeleteDataTableValue BatchDescribeDataTableValue BatchUpdateDataTableValue CreateDataTable CreateDataTableAttribute DeleteDataTable DeleteDataTableAttribute DescribeDataTable DescribeDataTableAttribute EvaluateDataTableValues ListDataTableAttributes ListDataTablePrimaryValues ListDataTableValues ListDataTables UpdateDataTableAttribute UpdateDataTableMetadata UpdateDataTablePrimaryValues are not routed
-- Workspaces: AssociateWorkspace CreateWorkspace CreateWorkspacePage DeleteWorkspace DeleteWorkspaceMedia DeleteWorkspacePage DescribeWorkspace DisassociateWorkspace ImportWorkspaceMedia ListWorkspaceMedia ListWorkspacePages ListWorkspaces UpdateWorkspaceMetadata UpdateWorkspacePage UpdateWorkspaceTheme UpdateWorkspaceVisibility are not routed
 - TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed
-- Email: AssociateEmailAddressAlias AssociateQueueEmailAddresses CreateEmailAddress DeleteEmailAddress DescribeEmailAddress DisassociateEmailAddressAlias DisassociateQueueEmailAddresses ListQueueEmailAddresses SendOutboundEmail StartEmailContact StartOutboundEmailContact UpdateEmailAddressMetadata are not routed
+- Email: SendOutboundEmail StartEmailContact StartOutboundEmailContact are not routed
 - Notifications: CreateNotification CreatePushNotificationRegistration DeleteNotification DeletePushNotificationRegistration DescribeNotification ListNotifications ListUserNotifications SendOutboundWebNotification UpdateNotificationContent UpdateUserNotificationStatus are not routed
 - Metrics definitions: CreateMetric DeleteMetric DescribeMetric GetContactMetrics ListMetrics UpdateMetricContent UpdateMetricMetadata are not routed
 - AttachedFiles: BatchGetAttachedFileMetadata CompleteAttachedFileUpload CreateAttachedFile DeleteAttachedFile DescribeAttachedFilesConfiguration GetAttachedFile GetPromptFile ListAttachedFilesConfigurations StartAttachedFileUpload UpdateAttachedFilesConfiguration are not routed
@@ -37,7 +34,7 @@
 - Contact.Recordings, QualityMetrics, ChatMetrics, DisconnectDetails and the other contact analytics members are never populated
 - ListQueues QueueTypes=AGENT: per-agent queues are not modeled
 - CreateInstance quota (2 per Region) is not enforced
-- ResourceGroupsTaggingAPI and CloudFormation do not expose or provision Connect resources
+- CloudFormation: AWS::Connect::AWSManagedView, ContactFlowVersion, ContactFlowModuleVersion, ContactFlowModuleAlias, DataLakeAssociation, DataTableRecord, Metric, Notification, TestCase and UserHierarchyStructure are not provisioned; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected
 - Lex bot associations are shape-checked only: no Lex service exists in the emulator
 
 ### Structural gaps

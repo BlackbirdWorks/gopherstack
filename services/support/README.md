@@ -7,16 +7,12 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 16 (16 ok) |
-| Feature families | 5 (5 ok) |
-| Known gaps | 1 |
+| PARITY entries audited | 20 (20 ok) |
+| Feature families | 6 (6 ok) |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): CompleteAttachmentUpload, DescribeAttachmentUploadStatus, GetAttachmentDownloadLink, GetAttachmentUploadLinks.
 
 ### Structural gaps
 

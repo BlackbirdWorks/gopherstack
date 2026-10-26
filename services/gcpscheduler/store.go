@@ -27,7 +27,7 @@ type Publisher interface {
 type jobRec struct {
 	pb        *schedulerpb.Job
 	loc       *time.Location
-	sched     *cronSchedule
+	sched     schedule
 	retryAt   time.Time
 	execStart time.Time
 	fireAt    time.Time

@@ -48,7 +48,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetKinesisSettings()
 	}
 
-	handler := NewHandler(backend)
+	backend.ConfigureLimits(settings.ShardLimit, settings.OnDemandStreamCountLimit)
+
+	handler := NewHandler(backend).WithLatency(settings.Latency, nil)
 	handler.DefaultRegion = defaultRegion
 	handler.AccountID = accountID
 	handler.WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)

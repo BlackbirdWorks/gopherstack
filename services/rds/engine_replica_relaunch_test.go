@@ -75,7 +75,8 @@ func TestEngineRelaunchRebuildsReplicaFromSource(t *testing.T) {
 			nets, connected, _ := g.rt.netState()
 			require.Len(t, nets, 1)
 			assert.Equal(t, []string{"net-" + nets[0] + "/ctr-1"}, connected)
-			assert.True(t, g.rt.execMentions(tt.wantExec), tt.wantExec)
+			require.Eventually(t, func() bool { return g.rt.execMentions(tt.wantExec) }, engineWait,
+				5*time.Millisecond, tt.wantExec)
 
 			require.Eventually(t, func() bool {
 				got, err := g.b.DescribeDBInstances("rep")
@@ -231,4 +232,26 @@ func TestEngineReplicaNetworkFailureIsRetried(t *testing.T) {
 	nets, connected, _ := f.rt.netState()
 	assert.Len(t, nets, 1)
 	assert.Len(t, connected, 1)
+}
+
+func TestEngineRestorePointDurableWhenCaptureReturns(t *testing.T) {
+	t.Parallel()
+
+	for _, engine := range []string{"postgres", "mysql", "mariadb"} {
+		t.Run(engine, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			f := newStreamFixtureIn(t, dir)
+			f.rt.setDump("v1")
+
+			_, err := f.b.CreateDBInstance("src", engine, "db.t3.micro", "appdb", "master", "", 20,
+				rds.DBInstanceOptions{MasterUserPassword: "pw", BackupRetentionPeriod: 1})
+			require.NoError(t, err)
+			f.waitAvailable(t, "src")
+
+			rds.RecordRestorePointsForTest(f.b)
+			assert.True(t, dumpDirHolds(dir, "v1"), "point is on disk once the capture call returns")
+		})
+	}
 }

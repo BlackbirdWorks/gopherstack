@@ -6,6 +6,8 @@ import "errors"
 var (
 	ErrTopicNotFound          = errors.New("azureeventgrid: topic not found")
 	ErrSubscriptionNotFound   = errors.New("azureeventgrid: event subscription not found")
+	ErrDomainNotFound         = errors.New("azureeventgrid: domain not found")
+	ErrDomainTopicNotFound    = errors.New("azureeventgrid: domain topic not found")
 	ErrNamespaceNotFound      = errors.New("azureeventgrid: namespace not found")
 	ErrNamespaceTopicNotFound = errors.New("azureeventgrid: namespace topic not found")
 	ErrPullSubNotFound        = errors.New("azureeventgrid: namespace topic subscription not found")

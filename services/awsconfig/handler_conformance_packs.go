@@ -184,11 +184,10 @@ type describeConformancePackStatusOutput struct {
 func (h *Handler) handleDescribeConformancePackStatus(
 	_ context.Context, in *describeConformancePackStatusInput,
 ) (*describeConformancePackStatusOutput, error) {
+	// Unknown names yield an empty list: the op declares no NoSuchConformancePack error
+	// (configservice@v1.68.4 deserializers.go:3792) and the provider's delete waiter needs that.
 	statuses := h.Backend.DescribeConformancePackStatus(in.ConformancePackNames)
 
-	if err := requireNamed(in.ConformancePackNames, len(statuses), ErrNoSuchConformancePack); err != nil {
-		return nil, err
-	}
 	slices.SortFunc(statuses, func(a, b ConformancePackStatus) int {
 		return strings.Compare(a.ConformancePackName, b.ConformancePackName)
 	})

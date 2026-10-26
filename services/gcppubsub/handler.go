@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
@@ -57,13 +58,44 @@ func (h *Handler) Name() string { return "GCPPubSub" }
 // GetSupportedOperations lists the supported gRPC methods.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"CreateTopic", "UpdateTopic", "GetTopic", "ListTopics", "DeleteTopic", "Publish",
-		"ListTopicSubscriptions", "ListTopicSnapshots", "DetachSubscription",
-		"CreateSubscription", "GetSubscription", "UpdateSubscription", "ListSubscriptions", "DeleteSubscription",
-		"ModifyPushConfig", "Pull", "StreamingPull", "Acknowledge", "ModifyAckDeadline", "Seek",
-		"CreateSnapshot", "GetSnapshot", "UpdateSnapshot", "ListSnapshots", "DeleteSnapshot",
-		"CreateSchema", "GetSchema", "ListSchemas", "ListSchemaRevisions", "CommitSchema", "RollbackSchema",
-		"DeleteSchemaRevision", "DeleteSchema", "ValidateSchema", "ValidateMessage",
+		"CreateTopic",
+		"UpdateTopic",
+		"GetTopic",
+		"ListTopics",
+		"DeleteTopic",
+		"Publish",
+		"ListTopicSubscriptions",
+		"ListTopicSnapshots",
+		"DetachSubscription",
+		"CreateSubscription",
+		"GetSubscription",
+		"UpdateSubscription",
+		"ListSubscriptions",
+		"DeleteSubscription",
+		"ModifyPushConfig",
+		"Pull",
+		"StreamingPull",
+		"Acknowledge",
+		"ModifyAckDeadline",
+		"Seek",
+		"CreateSnapshot",
+		"GetSnapshot",
+		"UpdateSnapshot",
+		"ListSnapshots",
+		"DeleteSnapshot",
+		"SetIamPolicy",
+		"GetIamPolicy",
+		"TestIamPermissions",
+		"CreateSchema",
+		"GetSchema",
+		"ListSchemas",
+		"ListSchemaRevisions",
+		"CommitSchema",
+		"RollbackSchema",
+		"DeleteSchemaRevision",
+		"DeleteSchema",
+		"ValidateSchema",
+		"ValidateMessage",
 	}
 }
 
@@ -132,6 +164,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	pubsubpb.RegisterPublisherServer(srv, &publisherServer{b: h.Backend})
 	pubsubpb.RegisterSubscriberServer(srv, &subscriberServer{b: h.Backend})
 	pubsubpb.RegisterSchemaServiceServer(srv, &schemaServer{b: h.Backend})
+	iampb.RegisterIAMPolicyServer(srv, &iamServer{b: h.Backend})
 
 	pushCtx, cancel := context.WithCancel(context.WithoutCancel(workerCtx))
 

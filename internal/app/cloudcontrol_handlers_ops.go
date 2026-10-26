@@ -7,12 +7,11 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
-	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/internal/awswire/cloudwatch"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -35,7 +34,7 @@ type ccZoneQueryLog struct {
 
 // --- AWS::Route53::HostedZone ---
 
-type ccHostedZone struct{ client *route53.Client }
+type ccHostedZone struct{ client *wireR53 }
 
 func ccZoneID(id string) string {
 	return strings.TrimPrefix(id, "/hostedzone/")
@@ -85,7 +84,7 @@ func (h *ccHostedZone) Create(ctx context.Context, desired map[string]any) (stri
 		return "", err
 	}
 
-	in := &route53.CreateHostedZoneInput{
+	in := &wireR53CreateHostedZoneInput{
 		Name: aws.String(name), CallerReference: aws.String(uuid.NewString()), HostedZoneConfig: &cfg,
 	}
 
@@ -102,7 +101,7 @@ func (h *ccHostedZone) Create(ctx context.Context, desired map[string]any) (stri
 	id := ccZoneID(aws.ToString(out.HostedZone.Id))
 
 	for _, v := range vpcs[min(1, len(vpcs)):] {
-		if _, err = h.client.AssociateVPCWithHostedZone(ctx, &route53.AssociateVPCWithHostedZoneInput{
+		if _, err = h.client.AssociateVPCWithHostedZone(ctx, &wireR53AssociateVPCWithHostedZoneInput{
 			HostedZoneId: aws.String(id),
 			VPC:          &r53types.VPC{VPCId: aws.String(v.VPCId), VPCRegion: r53types.VPCRegion(v.VPCRegion)},
 		}); err != nil {
@@ -127,7 +126,7 @@ func (h *ccHostedZone) syncFeatures(ctx context.Context, id string, desired map[
 		return err
 	}
 
-	_, err = h.client.UpdateHostedZoneFeatures(ctx, &route53.UpdateHostedZoneFeaturesInput{
+	_, err = h.client.UpdateHostedZoneFeatures(ctx, &wireR53UpdateHostedZoneFeaturesInput{
 		HostedZoneId: aws.String(id), EnableAcceleratedRecovery: f.EnableAcceleratedRecovery,
 	})
 
@@ -135,7 +134,7 @@ func (h *ccHostedZone) syncFeatures(ctx context.Context, id string, desired map[
 }
 
 func (h *ccHostedZone) queryLogs(ctx context.Context, id string) ([]r53types.QueryLoggingConfig, error) {
-	out, err := h.client.ListQueryLoggingConfigs(ctx, &route53.ListQueryLoggingConfigsInput{
+	out, err := h.client.ListQueryLoggingConfigs(ctx, &wireR53ListQueryLoggingConfigsInput{
 		HostedZoneId: aws.String(id),
 	})
 	if err != nil {
@@ -161,7 +160,7 @@ func (h *ccHostedZone) syncQueryLogging(ctx context.Context, id string, desired 
 	}
 
 	for _, c := range have {
-		if _, err = h.client.DeleteQueryLoggingConfig(ctx, &route53.DeleteQueryLoggingConfigInput{
+		if _, err = h.client.DeleteQueryLoggingConfig(ctx, &wireR53DeleteQueryLoggingConfigInput{
 			Id: c.Id,
 		}); err != nil {
 			return ccMapError(err)
@@ -172,7 +171,7 @@ func (h *ccHostedZone) syncQueryLogging(ctx context.Context, id string, desired 
 		return nil
 	}
 
-	_, err = h.client.CreateQueryLoggingConfig(ctx, &route53.CreateQueryLoggingConfigInput{
+	_, err = h.client.CreateQueryLoggingConfig(ctx, &wireR53CreateQueryLoggingConfigInput{
 		HostedZoneId: aws.String(id), CloudWatchLogsLogGroupArn: aws.String(want.CloudWatchLogsLogGroupArn),
 	})
 
@@ -184,7 +183,7 @@ func (h *ccHostedZone) changeTags(ctx context.Context, id string, add map[string
 		return nil
 	}
 
-	_, err := h.client.ChangeTagsForResource(ctx, &route53.ChangeTagsForResourceInput{
+	_, err := h.client.ChangeTagsForResource(ctx, &wireR53ChangeTagsForResourceInput{
 		ResourceType: r53types.TagResourceTypeHostedzone, ResourceId: aws.String(id),
 		AddTags: ccR53Tags(add), RemoveTagKeys: remove,
 	})
@@ -193,7 +192,7 @@ func (h *ccHostedZone) changeTags(ctx context.Context, id string, add map[string
 }
 
 func (h *ccHostedZone) Read(ctx context.Context, id string) (map[string]any, error) {
-	out, err := h.client.GetHostedZone(ctx, &route53.GetHostedZoneInput{Id: aws.String(id)})
+	out, err := h.client.GetHostedZone(ctx, &wireR53GetHostedZoneInput{Id: aws.String(id)})
 	if err != nil {
 		return nil, ccMapError(err)
 	}
@@ -220,7 +219,7 @@ func (h *ccHostedZone) Read(ctx context.Context, id string) (map[string]any, err
 		model[ccKeyZoneVPCs] = vpcs
 	}
 
-	if tags, tagErr := h.client.ListTagsForResource(ctx, &route53.ListTagsForResourceInput{
+	if tags, tagErr := h.client.ListTagsForResource(ctx, &wireR53ListTagsForResourceInput{
 		ResourceType: r53types.TagResourceTypeHostedzone, ResourceId: aws.String(id),
 	}); tagErr == nil && tags.ResourceTagSet != nil && len(tags.ResourceTagSet.Tags) > 0 {
 		m := make(map[string]string, len(tags.ResourceTagSet.Tags))
@@ -270,7 +269,7 @@ func (h *ccHostedZone) Update(ctx context.Context, id string, current, desired m
 			return err
 		}
 
-		if _, err = h.client.UpdateHostedZoneComment(ctx, &route53.UpdateHostedZoneCommentInput{
+		if _, err = h.client.UpdateHostedZoneComment(ctx, &wireR53UpdateHostedZoneCommentInput{
 			Id: aws.String(id), Comment: cfg.Comment,
 		}); err != nil {
 			return ccMapError(err)
@@ -316,7 +315,7 @@ func (h *ccHostedZone) syncVPCs(ctx context.Context, id string, current, desired
 			continue
 		}
 
-		if _, err = h.client.AssociateVPCWithHostedZone(ctx, &route53.AssociateVPCWithHostedZoneInput{
+		if _, err = h.client.AssociateVPCWithHostedZone(ctx, &wireR53AssociateVPCWithHostedZoneInput{
 			HostedZoneId: aws.String(id),
 			VPC:          &r53types.VPC{VPCId: aws.String(v.VPCId), VPCRegion: r53types.VPCRegion(v.VPCRegion)},
 		}); err != nil {
@@ -329,7 +328,7 @@ func (h *ccHostedZone) syncVPCs(ctx context.Context, id string, current, desired
 			continue
 		}
 
-		if _, err = h.client.DisassociateVPCFromHostedZone(ctx, &route53.DisassociateVPCFromHostedZoneInput{
+		if _, err = h.client.DisassociateVPCFromHostedZone(ctx, &wireR53DisassociateVPCFromHostedZoneInput{
 			HostedZoneId: aws.String(id),
 			VPC:          &r53types.VPC{VPCId: aws.String(v.VPCId), VPCRegion: r53types.VPCRegion(v.VPCRegion)},
 		}); err != nil {
@@ -341,7 +340,7 @@ func (h *ccHostedZone) syncVPCs(ctx context.Context, id string, current, desired
 }
 
 func (h *ccHostedZone) Delete(ctx context.Context, id string) error {
-	_, err := h.client.DeleteHostedZone(ctx, &route53.DeleteHostedZoneInput{Id: aws.String(id)})
+	_, err := h.client.DeleteHostedZone(ctx, &wireR53DeleteHostedZoneInput{Id: aws.String(id)})
 
 	return ccMapError(err)
 }
@@ -349,9 +348,10 @@ func (h *ccHostedZone) Delete(ctx context.Context, id string) error {
 func (h *ccHostedZone) List(ctx context.Context) ([]string, error) {
 	var ids []string
 
-	p := route53.NewListHostedZonesPaginator(h.client, &route53.ListHostedZonesInput{})
-	for p.HasMorePages() {
-		out, err := p.NextPage(ctx)
+	in := &wireR53ListHostedZonesInput{}
+
+	for {
+		out, err := h.client.ListHostedZones(ctx, in)
 		if err != nil {
 			return nil, ccMapError(err)
 		}
@@ -359,6 +359,12 @@ func (h *ccHostedZone) List(ctx context.Context) ([]string, error) {
 		for _, z := range out.HostedZones {
 			ids = append(ids, ccZoneID(aws.ToString(z.Id)))
 		}
+
+		if !out.IsTruncated || aws.ToString(out.NextMarker) == "" {
+			break
+		}
+
+		in.Marker = out.NextMarker
 	}
 
 	return ids, nil
@@ -399,31 +405,35 @@ type ccEvaluationWindow struct {
 	WallClockWindow *struct{ Timezone *string }
 }
 
-func (w *ccEvaluationWindow) sdk() (cwtypes.EvaluationWindow, error) {
+func (w *ccEvaluationWindow) sdk() (map[string]any, error) {
 	switch {
 	case w.SlidingWindow != nil && w.WallClockWindow != nil:
 		return nil, fmt.Errorf("%w: EvaluationWindow takes exactly one of SlidingWindow or WallClockWindow",
 			cloudcontrolbackend.ErrValidation)
 	case w.WallClockWindow != nil:
-		return &cwtypes.EvaluationWindowMemberWallClockWindow{
-			Value: cwtypes.WallClockWindow{Timezone: w.WallClockWindow.Timezone},
-		}, nil
+		wc := map[string]any{}
+		if w.WallClockWindow.Timezone != nil {
+			wc["Timezone"] = aws.ToString(w.WallClockWindow.Timezone)
+		}
+
+		return map[string]any{"WallClockWindow": wc}, nil
 	case w.SlidingWindow != nil:
-		return &cwtypes.EvaluationWindowMemberSlidingWindow{}, nil
+		return map[string]any{"SlidingWindow": map[string]any{}}, nil
 	default:
 		return nil, fmt.Errorf("%w: EvaluationWindow takes exactly one of SlidingWindow or WallClockWindow",
 			cloudcontrolbackend.ErrValidation)
 	}
 }
 
-func ccEvaluationWindowModel(w cwtypes.EvaluationWindow) any {
-	switch v := w.(type) {
-	case *cwtypes.EvaluationWindowMemberSlidingWindow:
+func ccEvaluationWindowModel(w map[string]any) any {
+	switch {
+	case w["SlidingWindow"] != nil:
 		return map[string]any{"SlidingWindow": map[string]any{}}
-	case *cwtypes.EvaluationWindowMemberWallClockWindow:
+	case w["WallClockWindow"] != nil:
 		wc := map[string]any{}
-		if v.Value.Timezone != nil {
-			wc["Timezone"] = aws.ToString(v.Value.Timezone)
+
+		if m, ok := w["WallClockWindow"].(map[string]any); ok && m["Timezone"] != nil {
+			wc["Timezone"] = m["Timezone"]
 		}
 
 		return map[string]any{"WallClockWindow": wc}
@@ -464,7 +474,7 @@ func (h *ccAlarm) put(ctx context.Context, name string, desired map[string]any, 
 		return err
 	}
 
-	var window cwtypes.EvaluationWindow
+	var window map[string]any
 
 	if spec.EvaluationWindow != nil {
 		if window, err = spec.EvaluationWindow.sdk(); err != nil {
@@ -522,7 +532,7 @@ func (h *ccAlarm) Create(ctx context.Context, desired map[string]any) (string, e
 	return name, h.put(ctx, name, desired, tags)
 }
 
-func (h *ccAlarm) describe(ctx context.Context, name string) (*cwtypes.MetricAlarm, error) {
+func (h *ccAlarm) describe(ctx context.Context, name string) (*cloudwatch.MetricAlarm, error) {
 	out, err := h.client.DescribeAlarms(ctx, &cloudwatch.DescribeAlarmsInput{
 		AlarmNames: []string{name}, AlarmTypes: []cwtypes.AlarmType{cwtypes.AlarmTypeMetricAlarm},
 	})

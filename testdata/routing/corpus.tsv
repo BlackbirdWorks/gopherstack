@@ -15180,39 +15180,39 @@ POST	localhost:4566	/	shield	application/x-amz-json-1.1	AWSShield_20160616.Updat
 POST	localhost:4566	/	shield	application/x-amz-json-1.1	AWSShield_20160616.UpdateEmergencyContactSettings	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/shield#1.0.0	Shield	Shield
 POST	localhost:4566	/	shield	application/x-amz-json-1.1	AWSShield_20160616.UpdateProtectionGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/shield#1.0.0	Shield	Shield
 POST	localhost:4566	/	shield	application/x-amz-json-1.1	AWSShield_20160616.UpdateSubscription	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/shield#1.0.0	Shield	Shield
-POST	localhost:4566	/v1/token	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	localhost:4566	/v1/token	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	signin.us-east-1.amazonaws.com	/v1/token	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	localhost:4566	/v1/token?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/v1/token	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	localhost:4566	/v1/token	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	signin.us-east-1.amazonaws.com	/v1/token	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	localhost:4566	/v1/token?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/v1/token						Batch	Batch
-POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	signin.us-east-1.amazonaws.com	/v1/token?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam&X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	signin.us-east-1.amazonaws.com	/v1/token?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam&X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/v1/token?x-amz-client-auth-method=iam						Batch	Batch
-POST	localhost:4566	/delete-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	localhost:4566	/delete-console-authorization-configuration	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	signin.us-east-1.amazonaws.com	/delete-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	localhost:4566	/delete-console-authorization-configuration?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/delete-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	localhost:4566	/delete-console-authorization-configuration	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	signin.us-east-1.amazonaws.com	/delete-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	localhost:4566	/delete-console-authorization-configuration?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/delete-console-authorization-configuration						S3	S3
-POST	localhost:4566	/delete-resource-permission-statement	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	localhost:4566	/delete-resource-permission-statement	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	signin.us-east-1.amazonaws.com	/delete-resource-permission-statement	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
-POST	localhost:4566	/delete-resource-permission-statement?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/delete-resource-permission-statement	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	localhost:4566	/delete-resource-permission-statement	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	signin.us-east-1.amazonaws.com	/delete-resource-permission-statement	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
+POST	localhost:4566	/delete-resource-permission-statement?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsignin%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/delete-resource-permission-statement						S3	S3
-POST	localhost:4566	/get-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/get-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/get-console-authorization-configuration						S3	S3
-POST	localhost:4566	/get-resource-policy	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/get-resource-policy	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/get-resource-policy						S3	S3
-POST	localhost:4566	/v1/introspect?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/v1/introspect?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/v1/introspect?x-amz-client-auth-method=iam						Batch	Batch
-POST	localhost:4566	/list-resource-permission-statements	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/list-resource-permission-statements	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/list-resource-permission-statements						S3	S3
-POST	localhost:4566	/put-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/put-console-authorization-configuration	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/put-console-authorization-configuration						S3	S3
-POST	localhost:4566	/put-resource-permission-statement	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/put-resource-permission-statement	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/put-resource-permission-statement						S3	S3
-POST	localhost:4566	/v1/revoke?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	S3	S3
+POST	localhost:4566	/v1/revoke?x-amz-client-auth-method=iam	signin				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/signin#1.0.0	Signin	Signin
 POST	localhost:4566	/v1/revoke?x-amz-client-auth-method=iam						Batch	Batch
 POST	localhost:4566	/	sns	application/x-www-form-urlencoded		Action=AddPermission&Version=2010-03-31	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sns#1.0.0	SNS	SNS
 POST	localhost:4566	/		application/x-www-form-urlencoded		Action=AddPermission&Version=2010-03-31		SNS	SNS

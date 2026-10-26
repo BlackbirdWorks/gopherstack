@@ -22,14 +22,19 @@ ops:
   SetIamPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "Stores the policy per secret with a fresh etag; a non-matching etag is ABORTED; bindings need a role and members. Not enforced."}
   GetIamPolicy: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Empty policy with the default etag when none is set."}
   TestIamPermissions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Every requested permission is reported granted; the emulator performs no authorization."}
+  EnableManagedRotation: {wire: ok, errors: ok, state: ok, persist: ok, note: "Needs secret_type CLOUD_SQL_DB_CREDENTIALS and cloud_sql_single_user_credentials (instance_id, username); a second enable is FAILED_PRECONDITION. Adds a version holding the supplied or a generated password and sets rotation.managed_rotation_status ACTIVE."}
+  RotateSecret: {wire: ok, errors: ok, state: ok, persist: ok, note: "FAILED_PRECONDITION unless managed rotation is ACTIVE; adds a version with a freshly generated password."}
+  RegionalSecrets: {wire: ok, errors: ok, state: ok, persist: ok, note: "projects/*/locations/*/secrets/* names on every secret and version RPC; replication must be unset on regional secrets (INVALID_ARGUMENT), global ones still require it. Version replication_status is omitted. On a secretmanager.<loc>.rep.googleapis.com authority, resources outside <loc> are INVALID_ARGUMENT."}
 families:
+  rotation: {status: ok, note: "FireRotations (30s scheduler; injectable clock) publishes SECRET_ROTATE to each topic of every secret whose next_rotation_time passed, with attributes eventType, secretId (full name), dataFormat JSON_API_V1, timestamp and the secret JSON as data, then advances next_rotation_time by whole rotation_period steps past now. Wired to the gcppubsub backend in-process. rotation_period 1h-100y and next_rotation_time 5min-100y ahead are enforced on write (docs.cloud.google.com/secret-manager/docs/secret-rotation)."}
   expiry: {status: ok, note: "Secrets past expire_time are deleted lazily at the start of every RPC and by a 30s janitor; scheduled version destruction is finalised the same way."}
   routing_isolation: {status: ok, note: "Own gRPC server bound in StartWorker to --gcp-secretmanager-port / GCP_SECRETMANAGER_PORT (default 8086, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool. The official client has no emulator variable: use option.WithEndpoint with insecure credentials."}
   auth: {status: partial, note: "No request is authenticated or authorised; IAM policies are stored but not enforced."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
-  - "RotateSecret and EnableManagedRotation are not implemented (UNIMPLEMENTED); rotation settings are stored but no rotation messages are published to topics."
-  - "Regional (locations/*) secrets are not served; only global projects/*/secrets/* resources."
+  - "SECRET_ROTATE delivery is a single best-effort publish per due time (no 7-day retry), failures are dropped; a one-shot rotation clears next_rotation_time (inferred, not documented); TOPIC_CONFIGURED and other event types are not sent."
+  - "Managed rotation generates and stores the password version only; no Cloud SQL instance password is changed."
+  - "Regional secrets share the one listener; the secretmanager.<region>.rep.googleapis.com authority is honoured only for the location check, and location names are not validated against a region list."
   - "Customer-managed encryption keys are stored and echoed in replication_status but never used or validated against Cloud KMS."
   - "Secret tags and secret_type are stored but not validated."
 leaks: {status: clean, note: "Background resources are the grpc.Server and the expiry janitor goroutine, both stopped and joined by Shutdown."}

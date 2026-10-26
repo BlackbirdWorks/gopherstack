@@ -82,6 +82,7 @@ func sdkRouteCases() []string {
 		"TagResource",
 		"UntagResource",
 		"UpdateCallAnalyticsCategory",
+		"UpdateLanguageModel",
 		"UpdateMedicalVocabulary",
 		"UpdateVocabulary",
 		"UpdateVocabularyFilter",

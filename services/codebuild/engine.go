@@ -39,6 +39,8 @@ type EngineRuntime interface {
 type ObjectStore interface {
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
 	PutObjectBytes(ctx context.Context, bucket, key string, data []byte) error
+	// ListObjectKeys returns every object key under prefix.
+	ListObjectKeys(ctx context.Context, bucket, prefix string) ([]string, error)
 }
 
 // LogSink delivers build output to CloudWatch Logs in the emulator.

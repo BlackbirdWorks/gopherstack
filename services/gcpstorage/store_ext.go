@@ -19,6 +19,7 @@ type CopyRequest struct {
 	DstPre        Preconds
 	SrcPre        Preconds
 	Meta          Patch
+	ACL           Patch
 	SrcBucket     string
 	SrcName       string
 	DstBucket     string
@@ -29,6 +30,8 @@ type CopyRequest struct {
 // CopyObject copies an object. A nil Meta inherits the source metadata;
 // otherwise Meta supplies the destination metadata.
 func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("CopyObject")
 	defer b.mu.Unlock()
 
@@ -63,6 +66,12 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 		meta[keyContentType] = marshalRaw(src.ContentType)
 	}
 
+	for _, k := range []string{keyPredefined, keyACL} {
+		if raw, ok := req.ACL[k]; ok {
+			meta[k] = raw
+		}
+	}
+
 	o, apiErr := newObject(dstBk, req.DstName, src.Data, meta, b.nextGen())
 	if apiErr != nil {
 		return nil, apiErr
@@ -72,9 +81,11 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 		o.ComponentCount, o.MD5 = src.ComponentCount, ""
 	}
 
+	b.replacedLocked(dstBk, dstBk.live(req.DstName))
 	dstBk.store(o)
+	b.queueLocked(ObjectFinalized, o)
 
-	return o.clone(), nil
+	return dstBk.out(o), nil
 }
 
 func inheritMeta(src *Object) Patch {
@@ -118,6 +129,8 @@ func (b *InMemoryBackend) ComposeObject(
 			") exceeds the maximum (32)")
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("ComposeObject")
 	defer b.mu.Unlock()
 
@@ -155,9 +168,11 @@ func (b *InMemoryBackend) ComposeObject(
 	}
 
 	o.ComponentCount, o.MD5 = count, ""
+	b.replacedLocked(bk, bk.live(dst))
 	bk.store(o)
+	b.queueLocked(ObjectFinalized, o)
 
-	return o.clone(), nil
+	return bk.out(o), nil
 }
 
 type uploadSession struct {
@@ -204,6 +219,8 @@ type UploadProgress struct {
 // AppendUpload appends chunk at offset. total is the declared object size or
 // -1 when unknown; once the received bytes reach it the object is committed.
 func (b *InMemoryBackend) AppendUpload(id string, offset int64, chunk []byte, total int64) (UploadProgress, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("AppendUpload")
 	defer b.mu.Unlock()
 

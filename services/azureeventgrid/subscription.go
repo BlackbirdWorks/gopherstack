@@ -100,13 +100,15 @@ func webhookProps(d Destination) map[string]any {
 
 	delete(props, propEndpointURL)
 
-	if _, ok := props["maxEventsPerBatch"]; !ok {
-		props["maxEventsPerBatch"] = 1
+	if _, ok := props[propMaxEventsPerBatch]; !ok {
+		props[propMaxEventsPerBatch] = defaultMaxEventsBatch
 	}
 
-	if _, ok := props["preferredBatchSizeInKilobytes"]; !ok {
-		props["preferredBatchSizeInKilobytes"] = 64
+	if _, ok := props[propPreferredBatchKB]; !ok {
+		props[propPreferredBatchKB] = defaultBatchKB
 	}
+
+	withholdSecrets(props)
 
 	return props
 }
@@ -116,16 +118,118 @@ func webhookProps(d Destination) map[string]any {
 func (b *InMemoryBackend) PutSubscription(
 	ctx context.Context, topicName, name string, props map[string]any,
 ) (map[string]any, error) {
+	return b.PutScopedSubscription(ctx, Scope{Topic: topicName}, name, props)
+}
+
+// PutScopedSubscription creates or updates an event subscription on a custom
+// topic, a domain or a domain topic. The first subscription of a missing domain
+// topic creates it when the domain auto-creates topics.
+func (b *InMemoryBackend) PutScopedSubscription(
+	ctx context.Context, sc Scope, name string, props map[string]any,
+) (map[string]any, error) {
 	if !validName(name) {
 		return nil, ErrInvalidName
 	}
 
 	b.mu.RLock("PutSubscription.read")
-	t, err := b.topicLocked(topicName)
+	info, err := b.scopeLocked(sc, true)
+	b.mu.RUnlock()
 
-	var schema, rid string
+	if err != nil {
+		return nil, err
+	}
+
+	spec, err := parseSpec(props, info.schema)
+	if err != nil {
+		return nil, err
+	}
+
+	state, code, err := b.validateEndpoint(ctx, sc, info.rid, name, spec)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.storeSubscription(sc, name, spec, state, code)
+}
+
+func (b *InMemoryBackend) storeSubscription(
+	sc Scope, name string, spec Spec, state, code string,
+) (map[string]any, error) {
+	b.mu.Lock("PutSubscription")
+	defer b.mu.Unlock()
+
+	if err := b.ensureDomainTopicLocked(sc); err != nil {
+		return nil, err
+	}
+
+	b.ensureARMScopeLocked(sc)
+
+	info, err := b.scopeLocked(sc, false)
+	if err != nil {
+		return nil, err
+	}
+
+	s, ok := info.subs[name]
+	if !ok {
+		s = &subscription{Name: name, CreatedAt: b.now().UTC()}
+		info.subs[name] = s
+	}
+
+	s.Spec, s.State, s.ValidationCode = spec, state, code
+
+	return specProps(spec, s.State, info.rid), nil
+}
+
+var patchableMembers = []string{ //nolint:gochecknoglobals // static lookup
+	"destination", "filter", "labels", "expirationTimeUtc", "eventDeliverySchema", "retryPolicy",
+	"deadLetterDestination",
+}
+
+var identityMembers = []string{ //nolint:gochecknoglobals // static lookup
+	"deliveryWithResourceIdentity", "deadLetterWithResourceIdentity",
+}
+
+// mergeSpecPatch overlays the members of an EventSubscriptionUpdateParameters body
+// onto the current spec; a supplied member replaces the stored one, a member that is
+// absent or null keeps it.
+func mergeSpecPatch(cur Spec, patch map[string]any) (map[string]any, error) {
+	for _, k := range identityMembers {
+		if patch[k] != nil {
+			return nil, invalidSpec("%s is not supported", k)
+		}
+	}
+
+	raw, err := json.Marshal(cur)
+	if err != nil {
+		return nil, invalidSpec("current spec is not valid JSON")
+	}
+
+	merged := map[string]any{}
+	if err = json.Unmarshal(raw, &merged); err != nil {
+		return nil, invalidSpec("current spec is not valid JSON")
+	}
+
+	for _, k := range patchableMembers {
+		if v := patch[k]; v != nil {
+			merged[k] = v
+		}
+	}
+
+	return merged, nil
+}
+
+// PatchScopedSubscription applies an EventSubscriptionUpdateParameters body to an
+// existing event subscription and returns its ARM properties. Only the supplied
+// members change; the merged result is validated exactly as a PUT.
+func (b *InMemoryBackend) PatchScopedSubscription(
+	ctx context.Context, sc Scope, name string, patch map[string]any,
+) (map[string]any, error) {
+	b.mu.RLock("PatchSubscription.read")
+	info, s, err := b.subAtLocked(sc, name)
+
+	var cur Spec
 	if err == nil {
-		schema, rid = t.InputSchema, t.ResourceID
+		cur = s.Spec
 	}
 
 	b.mu.RUnlock()
@@ -134,66 +238,68 @@ func (b *InMemoryBackend) PutSubscription(
 		return nil, err
 	}
 
-	spec, err := parseSpec(props, schema)
+	merged, err := mergeSpecPatch(cur, patch)
 	if err != nil {
 		return nil, err
 	}
 
-	state, code, err := b.validateEndpoint(ctx, topicName, rid, name, spec)
+	spec, err := parseSpec(merged, info.schema)
 	if err != nil {
 		return nil, err
 	}
 
-	return b.storeSubscription(topicName, name, spec, state, code)
-}
+	state, code, err := b.validateEndpoint(ctx, sc, info.rid, name, spec)
+	if err != nil {
+		return nil, err
+	}
 
-func (b *InMemoryBackend) storeSubscription(
-	topicName, name string, spec Spec, state, code string,
-) (map[string]any, error) {
-	b.mu.Lock("PutSubscription")
+	b.mu.Lock("PatchSubscription")
 	defer b.mu.Unlock()
 
-	t, err := b.topicLocked(topicName)
+	info, s, err = b.subAtLocked(sc, name)
 	if err != nil {
 		return nil, err
-	}
-
-	s, ok := t.Subs[name]
-	if !ok {
-		s = &subscription{Name: name, CreatedAt: b.now().UTC()}
-		t.Subs[name] = s
 	}
 
 	s.Spec, s.State, s.ValidationCode = spec, state, code
 
-	return specProps(spec, s.State, t.ResourceID), nil
+	return specProps(spec, s.State, info.rid), nil
 }
 
-// Subscription returns the ARM properties of an event subscription.
+// Subscription returns the ARM properties of a custom topic's event subscription.
 func (b *InMemoryBackend) Subscription(topicName, name string) (map[string]any, error) {
+	return b.ScopedSubscription(Scope{Topic: topicName}, name)
+}
+
+// ScopedSubscription returns the ARM properties of an event subscription.
+func (b *InMemoryBackend) ScopedSubscription(sc Scope, name string) (map[string]any, error) {
 	b.mu.RLock("Subscription")
 	defer b.mu.RUnlock()
 
-	t, s, err := b.subLocked(topicName, name)
+	info, s, err := b.subAtLocked(sc, name)
 	if err != nil {
 		return nil, err
 	}
 
-	return specProps(s.Spec, s.State, t.ResourceID), nil
+	return specProps(s.Spec, s.State, info.rid), nil
 }
 
-func (b *InMemoryBackend) subLocked(topicName, name string) (*topic, *subscription, error) {
-	t, err := b.topicLocked(topicName)
+func (b *InMemoryBackend) subLocked(topicName, name string) (scopeInfo, *subscription, error) {
+	return b.subAtLocked(Scope{Topic: topicName}, name)
+}
+
+func (b *InMemoryBackend) subAtLocked(sc Scope, name string) (scopeInfo, *subscription, error) {
+	info, err := b.scopeLocked(sc, false)
 	if err != nil {
-		return nil, nil, err
+		return scopeInfo{}, nil, err
 	}
 
-	s, ok := t.Subs[name]
+	s, ok := info.subs[name]
 	if !ok {
-		return nil, nil, ErrSubscriptionNotFound
+		return scopeInfo{}, nil, ErrSubscriptionNotFound
 	}
 
-	return t, s, nil
+	return info, s, nil
 }
 
 // SubscriptionCreated returns an event subscription's creation time.
@@ -209,12 +315,17 @@ func (b *InMemoryBackend) SubscriptionCreated(topicName, name string) (time.Time
 	return s.CreatedAt, nil
 }
 
-// FullURL returns the complete webhook endpoint URL of an event subscription.
+// FullURL returns the complete webhook endpoint URL of a custom topic's event subscription.
 func (b *InMemoryBackend) FullURL(topicName, name string) (string, error) {
+	return b.ScopedFullURL(Scope{Topic: topicName}, name)
+}
+
+// ScopedFullURL returns the complete webhook endpoint URL of an event subscription.
+func (b *InMemoryBackend) ScopedFullURL(sc Scope, name string) (string, error) {
 	b.mu.RLock("FullURL")
 	defer b.mu.RUnlock()
 
-	_, s, err := b.subLocked(topicName, name)
+	_, s, err := b.subAtLocked(sc, name)
 	if err != nil {
 		return "", err
 	}
@@ -226,17 +337,26 @@ func (b *InMemoryBackend) FullURL(topicName, name string) (string, error) {
 	return s.Spec.Destination.str(propEndpointURL), nil
 }
 
-// DeleteSubscription removes an event subscription and its undelivered events.
+// DeleteSubscription removes a custom topic's event subscription and its undelivered events.
 func (b *InMemoryBackend) DeleteSubscription(topicName, name string) error {
+	return b.DeleteScopedSubscription(Scope{Topic: topicName}, name)
+}
+
+// DeleteScopedSubscription removes an event subscription and its undelivered
+// events; the last subscription of a domain topic also removes the topic when
+// the domain auto-deletes topics.
+func (b *InMemoryBackend) DeleteScopedSubscription(sc Scope, name string) error {
 	b.mu.Lock("DeleteSubscription")
 	defer b.mu.Unlock()
 
-	t, _, err := b.subLocked(topicName, name)
+	info, _, err := b.subAtLocked(sc, name)
 	if err != nil {
 		return err
 	}
 
-	delete(t.Subs, name)
+	delete(info.subs, name)
+	b.autoDeleteDomainTopicLocked(sc)
+	b.dropEmptyARMScopeLocked(sc)
 
 	return nil
 }
@@ -250,17 +370,18 @@ func (b *InMemoryBackend) ConfirmValidation(code string) bool {
 	b.mu.Lock("ConfirmValidation")
 	defer b.mu.Unlock()
 
-	for _, t := range b.topics {
-		for _, s := range t.Subs {
+	confirmed := false
+
+	b.eachSubsLocked(func(_ Scope, _ string, subs map[string]*subscription) {
+		for _, s := range subs {
 			if s.ValidationCode == code {
 				s.State, s.ValidationCode = StateSucceeded, ""
-
-				return true
+				confirmed = true
 			}
 		}
-	}
+	})
 
-	return false
+	return confirmed
 }
 
 // TopicNames returns the custom topic names sorted.

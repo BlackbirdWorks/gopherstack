@@ -5,11 +5,13 @@ package e2e_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -173,22 +175,25 @@ func startGopherstackForAzureCrossSDK(t *testing.T) []string {
 		"--azure-table-port", strconv.Itoa(tablePort),
 		"--cosmosdb-port", strconv.Itoa(cosmosPort),
 	)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
+	// Keep the server's output so a startup failure reports why instead of only timing out.
+	logs := &tailBuffer{}
+	cmd.Stdout = io.MultiWriter(os.Stderr, logs)
+	cmd.Stderr = cmd.Stdout
 
 	require.NoError(t, cmd.Start(), "start gopherstack subprocess")
 
+	exited := make(chan error, 1)
+
+	go func() { exited <- cmd.Wait() }()
+
 	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
+		_ = cmd.Process.Kill()
+		<-exited
 	})
 
-	waitForPort(t, blobPort)
-	waitForPort(t, queuePort)
-	waitForPort(t, tablePort)
-	waitForPort(t, cosmosPort)
+	for _, port := range []int{blobPort, queuePort, tablePort, cosmosPort} {
+		waitForPort(t, port, exited, logs)
+	}
 
 	return []string{
 		fmt.Sprintf("AZURE_BLOB_ENDPOINT=http://localhost:%d", blobPort),
@@ -222,13 +227,16 @@ func mustFreePort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-// waitForPort polls port on localhost until a TCP connection succeeds or 15
-// seconds elapse, failing the test on timeout.
-func waitForPort(t *testing.T, port int) {
+// waitForPort polls port on localhost until a TCP connection succeeds, the server exits, or 60
+// seconds elapse; failures include the server's recent output.
+func waitForPort(t *testing.T, port int, exited <-chan error, out *tailBuffer) {
 	t.Helper()
 
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	tick := time.NewTicker(100 * time.Millisecond)
+
+	defer tick.Stop()
 
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
@@ -238,9 +246,41 @@ func waitForPort(t *testing.T, port int) {
 			return
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case werr := <-exited:
+			require.Failf(t, "gopherstack exited before listening",
+				"address %s: %v\n--- server output (tail) ---\n%s", addr, werr, out.String())
+		case <-tick.C:
+		}
 	}
 
 	require.Failf(t, "gopherstack did not start listening in time",
-		"address %s did not accept a connection within 15s", addr)
+		"address %s did not accept a connection within 60s\n--- server output (tail) ---\n%s", addr, out.String())
+}
+
+// tailBuffer keeps the last tailBufferMax bytes written to it.
+type tailBuffer struct {
+	buf []byte
+	mu  sync.Mutex
+}
+
+const tailBufferMax = 16 << 10
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.buf = append(b.buf, p...)
+	if over := len(b.buf) - tailBufferMax; over > 0 {
+		b.buf = b.buf[over:]
+	}
+
+	return len(p), nil
+}
+
+func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return string(b.buf)
 }

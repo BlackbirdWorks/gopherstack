@@ -206,8 +206,31 @@ type Dataset struct {
 // always otelEnrichmentSingletonKey; there is exactly one row per backend,
 // matching the fact this is an account-wide setting, not a named resource.
 type OTelEnrichmentState struct {
-	Key    string `json:"Key"`
-	Status string `json:"Status"`
+	CreatedAt      time.Time                `json:"CreatedAt,omitzero"`
+	UpdatedAt      time.Time                `json:"UpdatedAt,omitzero"`
+	Key            string                   `json:"Key"`
+	Status         string                   `json:"Status"`
+	IncludeFilters []OTelEnrichmentSelector `json:"IncludeFilters,omitempty"`
+	ExcludeFilters []OTelEnrichmentSelector `json:"ExcludeFilters,omitempty"`
+}
+
+// OTelEnrichmentSelector mirrors types.OTelEnrichmentMetricSelector.
+type OTelEnrichmentSelector struct {
+	Namespace   string   `json:"Namespace"`
+	MetricNames []string `json:"MetricNames,omitempty"`
+}
+
+// ResourceMetricSelection mirrors types.ResourceMetricSelection.
+type ResourceMetricSelection struct {
+	IncludeMetrics []string `json:"IncludeMetrics"`
+}
+
+// ResourceMetricsConfiguration is the per-resource detailed-monitoring config, keyed by ResourceArn.
+type ResourceMetricsConfiguration struct {
+	CreatedAt        time.Time                 `json:"CreatedAt"`
+	UpdatedAt        time.Time                 `json:"UpdatedAt"`
+	ResourceArn      string                    `json:"ResourceArn"`
+	MetricSelections []ResourceMetricSelection `json:"MetricSelections,omitempty"`
 }
 
 // AlarmHistoryItem represents a single history entry for an alarm.

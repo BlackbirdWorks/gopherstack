@@ -35,6 +35,8 @@ func (h *Handler) handlePutScalingPolicy(
 		return nil, err
 	}
 
+	h.Backend.attachAlarms(p)
+
 	return &putScalingPolicyOutput{PolicyARN: p.ARN, Alarms: alarmSummaries(p.Alarms)}, nil
 }
 
@@ -131,6 +133,7 @@ func (h *Handler) handleDescribeScalingPolicies(
 
 	items := make([]scalingPolicySummary, 0, len(policies))
 	for _, p := range policies {
+		h.Backend.attachAlarms(p)
 		items = append(items, scalingPolicySummary{
 			ServiceNamespace:                         p.ServiceNamespace,
 			ResourceID:                               p.ResourceID,

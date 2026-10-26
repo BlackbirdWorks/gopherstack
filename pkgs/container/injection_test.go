@@ -21,6 +21,7 @@ func TestInjection_AppliedOnCreate(t *testing.T) {
 		wantEnv   bool
 	}{
 		{nil, "none", []string{"/a:/b"}, 0, false},
+		{&container.Injection{DNS: []string{"172.17.0.1"}}, "joined namespace", []string{"/a:/b"}, 0, false},
 		{&container.Injection{DNS: []string{"172.17.0.1", "bogus"}}, "dns only", []string{"/a:/b"}, 1, false},
 		{
 			&container.Injection{DNS: []string{"172.17.0.1"}, CAFile: "/host/ca.pem"},
@@ -41,9 +42,12 @@ func TestInjection_AppliedOnCreate(t *testing.T) {
 			mounts := []string{"/a:/b"}
 			env := []string{"X=1", "AWS_CA_BUNDLE=/custom"}
 
-			_, err := rt.CreateAndStart(t.Context(), container.Spec{
-				Image: "img", Mounts: mounts, Env: env,
-			})
+			spec := container.Spec{Image: "img", Mounts: mounts, Env: env}
+			if tt.name == "joined namespace" {
+				spec.Network = "container:other"
+			}
+
+			_, err := rt.CreateAndStart(t.Context(), spec)
 			require.NoError(t, err)
 
 			assert.Len(t, api.lastHost.DNS, tt.wantDNS)

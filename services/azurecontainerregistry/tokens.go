@@ -81,16 +81,27 @@ func parseScopes(raw []string) []tokenAccess {
 }
 
 func (b *InMemoryBackend) verify(tok, kind, reg string) bool {
+	_, ok := b.claims(tok, kind, reg)
+
+	return ok
+}
+
+func (b *InMemoryBackend) claims(tok, kind, reg string) ([]tokenAccess, bool) {
 	var c tokenClaims
 
 	parsed, err := jwt.ParseWithClaims(tok, &c, func(*jwt.Token) (any, error) { return b.secret, nil },
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 		jwt.WithIssuer(tokenIssuer), jwt.WithTimeFunc(b.now), jwt.WithExpirationRequired())
 	if err != nil || !parsed.Valid {
-		return false
+		return nil, false
 	}
 
-	return c.Kind == kind && c.Registry == strs.Fold(reg)
+	return c.Access, c.Kind == kind && c.Registry == strs.Fold(reg)
+}
+
+// accessScopes returns the scopes recorded in an unexpired access token of reg.
+func (b *InMemoryBackend) accessScopes(tok, reg string) ([]tokenAccess, bool) {
+	return b.claims(tok, kindAccess, reg)
 }
 
 // VerifyRefresh reports whether tok is an unexpired refresh token of reg.

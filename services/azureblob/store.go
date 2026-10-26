@@ -2,10 +2,13 @@ package azureblob
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"maps"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -18,6 +21,7 @@ import (
 // coarse lock over one map of containers is sufficient.
 type InMemoryBackend struct {
 	mu         *lockmetrics.RWMutex
+	clock      func() time.Time
 	containers map[string]*storedContainer
 	// etagSeq is a monotonically increasing counter mixed into every ETag
 	// (see computeETag) so that overwriting a blob with byte-identical
@@ -29,11 +33,20 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithClock(time.Now)
+}
+
+// NewInMemoryBackendWithClock is NewInMemoryBackend with an injectable clock
+// driving timestamps, lease expiry and uncommitted-block expiry.
+func NewInMemoryBackendWithClock(clock func() time.Time) *InMemoryBackend {
 	return &InMemoryBackend{
 		mu:         lockmetrics.New("azureblob"),
+		clock:      clock,
 		containers: make(map[string]*storedContainer),
 	}
 }
+
+func (b *InMemoryBackend) now() time.Time { return b.clock().UTC() }
 
 // CreateContainer creates a new, empty container with default settings.
 func (b *InMemoryBackend) CreateContainer(name string) error {
@@ -52,7 +65,7 @@ func (b *InMemoryBackend) CreateContainerWith(name string, opts ContainerOptions
 		return ContainerInfo{}, ErrContainerAlreadyExists
 	}
 
-	now := time.Now().UTC()
+	now := b.now()
 	b.etagSeq++
 
 	c := &storedContainer{
@@ -66,17 +79,30 @@ func (b *InMemoryBackend) CreateContainerWith(name string, opts ContainerOptions
 	}
 	b.containers[name] = c
 
-	return c.info(), nil
+	return c.info(now), nil
 }
 
 // DeleteContainer removes a container and all of its blobs. Returns
-// ErrContainerNotFound if the container does not exist.
-func (b *InMemoryBackend) DeleteContainer(name string) error {
+// ErrContainerNotFound if the container does not exist. An active container
+// lease requires the matching lease id.
+func (b *InMemoryBackend) DeleteContainer(name string, pre ...Precond) error {
 	b.mu.Lock("DeleteContainer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.containers[name]; !ok {
+	c, ok := b.containers[name]
+	if !ok {
 		return ErrContainerNotFound
+	}
+
+	now := b.now()
+	p := firstPre(pre)
+
+	if err := c.Lease.gate(now, p.LeaseID, true, "Container"); err != nil {
+		return err
+	}
+
+	if err := p.checkContainer(c.info(now).LastModified); err != nil {
+		return err
 	}
 
 	delete(b.containers, name)
@@ -87,17 +113,50 @@ func (b *InMemoryBackend) DeleteContainer(name string) error {
 // ListContainers returns a snapshot of all containers, sorted by name (the
 // order Azure's List Containers returns them in).
 func (b *InMemoryBackend) ListContainers() []ContainerInfo {
+	page, _ := b.ListContainersPage(ListContainersOptions{})
+
+	return page.Containers
+}
+
+// ListContainersPage lists containers with prefix filtering and marker
+// paging. Returns ErrInvalidMarker for a marker it did not issue.
+func (b *InMemoryBackend) ListContainersPage(opts ListContainersOptions) (ContainerPage, error) {
 	b.mu.RLock("ListContainers")
 	defer b.mu.RUnlock()
 
-	out := make([]ContainerInfo, 0, len(b.containers))
-	for _, c := range b.containers {
-		out = append(out, c.info())
+	now := b.now()
+	names := make([]string, 0, len(b.containers))
+
+	for name := range b.containers {
+		if strings.HasPrefix(name, opts.Prefix) {
+			names = append(names, name)
+		}
 	}
 
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Strings(names)
 
-	return out
+	if opts.Marker != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(opts.Marker)
+		if err != nil {
+			return ContainerPage{}, ErrInvalidMarker
+		}
+
+		names = names[sort.SearchStrings(names, string(raw)):]
+	}
+
+	var page ContainerPage
+
+	if opts.MaxResults > 0 && len(names) > opts.MaxResults {
+		page.NextMarker = base64.RawURLEncoding.EncodeToString([]byte(names[opts.MaxResults]))
+		names = names[:opts.MaxResults]
+	}
+
+	page.Containers = make([]ContainerInfo, len(names))
+	for i, name := range names {
+		page.Containers[i] = b.containers[name].info(now)
+	}
+
+	return page, nil
 }
 
 // PutBlob stores data as a block blob with only a content type set.
@@ -106,9 +165,11 @@ func (b *InMemoryBackend) PutBlob(container, blob string, data []byte, contentTy
 }
 
 // PutBlobWith stores data as a block blob named blob within container,
-// replacing any existing blob but keeping its snapshots, as Azure does.
-// Returns ErrContainerNotFound if the container does not exist.
-func (b *InMemoryBackend) PutBlobWith(container, blob string, data []byte, attrs BlobAttrs) (BlobInfo, error) {
+// replacing any existing blob but keeping its snapshots and lease, as Azure
+// does. Returns ErrContainerNotFound if the container does not exist.
+func (b *InMemoryBackend) PutBlobWith(
+	container, blob string, data []byte, attrs BlobAttrs, pre ...Precond,
+) (BlobInfo, error) {
 	b.mu.Lock("PutBlob")
 	defer b.mu.Unlock()
 
@@ -117,16 +178,48 @@ func (b *InMemoryBackend) PutBlobWith(container, blob string, data []byte, attrs
 		return BlobInfo{}, ErrContainerNotFound
 	}
 
+	if err := b.guardWriteLocked(c, blob, firstPre(pre)); err != nil {
+		return BlobInfo{}, err
+	}
+
+	stored := b.storeBlobLocked(c, blob, slices.Clone(data), attrs)
+
+	return stored.info(b.now()), nil
+}
+
+// guardWriteLocked applies the lease and conditional checks for a write that
+// creates or replaces blob.
+func (b *InMemoryBackend) guardWriteLocked(c *storedContainer, blob string, p Precond) error {
+	old, exists := c.Blobs[blob]
+	if exists {
+		if err := old.Lease.gate(b.now(), p.LeaseID, true, "Blob"); err != nil {
+			return err
+		}
+
+		return p.check(condCreate, true, old.ETag, old.LastModified, old.Tags)
+	}
+
+	if p.LeaseID != "" {
+		return (*leaseRecord)(nil).gate(b.now(), p.LeaseID, true, "Blob")
+	}
+
+	return p.check(condCreate, false, "", time.Time{}, nil)
+}
+
+// storeBlobLocked replaces c.Blobs[blob] with a new blob holding data,
+// carrying over the old blob's snapshots and lease.
+func (b *InMemoryBackend) storeBlobLocked(c *storedContainer, blob string, data []byte, attrs BlobAttrs) *storedBlob {
 	b.etagSeq++
 
 	stored := &storedBlob{
 		Name:         blob,
-		Data:         append([]byte(nil), data...),
-		LastModified: time.Now().UTC(),
+		Data:         data,
+		LastModified: b.now(),
 		ETag:         computeBlobETag(data, b.etagSeq),
 	}
 	stored.applyAttrs(attrs)
 	stored.Metadata = maps.Clone(attrs.Metadata)
+	stored.Tags = maps.Clone(attrs.Tags)
 
 	if attrs.AccessTier != "" {
 		stored.AccessTier = attrs.AccessTier
@@ -135,11 +228,12 @@ func (b *InMemoryBackend) PutBlobWith(container, blob string, data []byte, attrs
 
 	if old, exists := c.Blobs[blob]; exists {
 		stored.Snapshots = old.Snapshots
+		stored.Lease = old.Lease
 	}
 
 	c.Blobs[blob] = stored
 
-	return stored.info(), nil
+	return stored
 }
 
 // GetBlob returns a blob's metadata and full body; the slice is immutable
@@ -149,16 +243,39 @@ func (b *InMemoryBackend) GetBlob(container, blob string) (BlobInfo, []byte, err
 }
 
 // GetBlobAt is GetBlob for the base blob (snapshot == "") or one snapshot.
-func (b *InMemoryBackend) GetBlobAt(container, blob, snapshot string) (BlobInfo, []byte, error) {
+// Conditional headers and an optional lease id are evaluated.
+func (b *InMemoryBackend) GetBlobAt(container, blob, snapshot string, pre ...Precond) (BlobInfo, []byte, error) {
 	b.mu.RLock("GetBlob")
 	defer b.mu.RUnlock()
 
-	stored, err := b.lookupBlobLocked(container, blob, snapshot)
+	stored, err := b.readableLocked(container, blob, snapshot, firstPre(pre))
 	if err != nil {
 		return BlobInfo{}, nil, err
 	}
 
-	return stored.info(), stored.Data, nil
+	return stored.info(b.now()), stored.Data, nil
+}
+
+// readableLocked resolves a blob for a read and applies lease and
+// conditional checks.
+func (b *InMemoryBackend) readableLocked(container, blob, snapshot string, p Precond) (*storedBlob, error) {
+	stored, err := b.lookupBlobLocked(container, blob, snapshot)
+	if err != nil {
+		return nil, err
+	}
+
+	if snapshot == "" {
+		base := b.containers[container].Blobs[blob]
+		if err = base.Lease.gate(b.now(), p.LeaseID, false, "Blob"); err != nil {
+			return nil, err
+		}
+	}
+
+	if err = p.check(condRead, true, stored.ETag, stored.LastModified, stored.Tags); err != nil {
+		return nil, err
+	}
+
+	return stored, nil
 }
 
 // HeadBlob returns a blob's metadata without its body.
@@ -167,16 +284,16 @@ func (b *InMemoryBackend) HeadBlob(container, blob string) (BlobInfo, error) {
 }
 
 // HeadBlobAt is HeadBlob for the base blob (snapshot == "") or one snapshot.
-func (b *InMemoryBackend) HeadBlobAt(container, blob, snapshot string) (BlobInfo, error) {
+func (b *InMemoryBackend) HeadBlobAt(container, blob, snapshot string, pre ...Precond) (BlobInfo, error) {
 	b.mu.RLock("HeadBlob")
 	defer b.mu.RUnlock()
 
-	stored, err := b.lookupBlobLocked(container, blob, snapshot)
+	stored, err := b.readableLocked(container, blob, snapshot, firstPre(pre))
 	if err != nil {
 		return BlobInfo{}, err
 	}
 
-	return stored.info(), nil
+	return stored.info(b.now()), nil
 }
 
 // DeleteBlob removes a blob that has no snapshots.
@@ -195,9 +312,10 @@ func (b *InMemoryBackend) ListBlobs(container string) ([]BlobInfo, error) {
 		return nil, ErrContainerNotFound
 	}
 
+	now := b.now()
 	out := make([]BlobInfo, 0, len(c.Blobs))
 	for _, stored := range c.Blobs {
-		out = append(out, stored.info())
+		out = append(out, stored.info(now))
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

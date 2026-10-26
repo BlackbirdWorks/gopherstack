@@ -36,6 +36,7 @@ type fakeDockerAPI struct {
 	started     []string
 	stopped     []string
 	removed     []string
+	keptVolumes []string
 	mu          sync.Mutex
 }
 
@@ -100,10 +101,15 @@ func (f *fakeDockerAPI) ContainerStop(
 }
 
 func (f *fakeDockerAPI) ContainerRemove(
-	_ context.Context, id string, _ mobyclient.ContainerRemoveOptions,
+	_ context.Context, id string, opts mobyclient.ContainerRemoveOptions,
 ) (mobyclient.ContainerRemoveResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if !opts.RemoveVolumes {
+		f.keptVolumes = append(f.keptVolumes, id)
+	}
+
 	f.removed = append(f.removed, id)
 
 	return mobyclient.ContainerRemoveResult{}, nil
@@ -213,6 +219,7 @@ func TestDockerComputeLifecycle(t *testing.T) {
 
 			require.NoError(t, dc.Terminate(t.Context(), "i-test1", "deadbeef"))
 			assert.Contains(t, api.removed, "deadbeef")
+			assert.Empty(t, api.keptVolumes, "removal must pass RemoveVolumes")
 		})
 	}
 }

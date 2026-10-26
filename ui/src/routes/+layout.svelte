@@ -11,7 +11,7 @@
 	import RegionPicker from '#lib/components/RegionPicker.svelte';
 	import CloudSwitcher from '#lib/components/CloudSwitcher.svelte';
 	import { categoriesForCloud, cloudFromPath, CLOUD_PARAM } from '#lib/cloud.ts';
-	import { currentCloud, loadBackendInfo, servedAzureServices, servedGcpServices, syncCloudFromUrl, isRouteDisabled } from '#lib/cloud.svelte.ts';
+	import { currentCloud, loadBackendInfo, servedAzureServices, servedGcpServices, servedOciServices, syncCloudFromUrl, isRouteDisabled } from '#lib/cloud.svelte.ts';
 	import { registerConfirmDialog, unregisterConfirmDialog } from '#lib/confirm-dialog.ts';
 
 	let { children } = $props();
@@ -36,7 +36,7 @@
 	const cloud = $derived(currentCloud());
 
 	const visibleSidebarCategories = $derived.by(() => {
-		if (cloud !== 'aws') return categoriesForCloud(cloud, sidebarCategories, servedAzureServices(), servedGcpServices());
+		if (cloud !== 'aws') return categoriesForCloud(cloud, sidebarCategories, servedAzureServices(), servedGcpServices(), servedOciServices());
 		// By default, show only the common (most-used) implemented services. When
 		// showAllServices is toggled on, also surface the "uncommon" (long-tail)
 		// implemented services via getUncommonCategories(), organized by category.
@@ -64,7 +64,7 @@
 		const results = [];
 		const isAws = cloud === 'aws';
 
-		for (const category of isAws ? sidebarCategories : categoriesForCloud(cloud, sidebarCategories, servedAzureServices(), servedGcpServices())) {
+		for (const category of isAws ? sidebarCategories : categoriesForCloud(cloud, sidebarCategories, servedAzureServices(), servedGcpServices(), servedOciServices())) {
 			for (const route of category.routes) {
 				if ((route.label.toLowerCase().includes(query) || route.id.toLowerCase().includes(query)) &&
 					(!isAws || (implementedDashboardRouteIds.has(route.id) && !isRouteDisabled(route.id)))) {
@@ -299,7 +299,7 @@
 			</ul>
 			{#if visibleSidebarCategories.length === 0}
 				<p id="sidebar-empty" class="px-3 mt-6 text-sm text-slate-500 dark:text-slate-400">
-					{cloud === 'gcp' ? 'No GCP services are served by this backend.' : 'No Azure services are served by this backend.'}
+					{cloud === 'gcp' ? 'No GCP services are served by this backend.' : cloud === 'oci' ? 'No Oracle Cloud services are served by this backend.' : 'No Azure services are served by this backend.'}
 				</p>
 			{/if}
 		</div>

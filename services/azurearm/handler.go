@@ -56,6 +56,7 @@ type Handler struct {
 	Issuer   *aadauth.Issuer
 	srvMu    *lockmetrics.RWMutex
 	srv      *http.Server
+	observer ResourceObserver
 	Settings Settings
 	Port     int
 }
@@ -217,7 +218,10 @@ func (h *Handler) dispatch(c *echo.Context, segs []string) error {
 		}
 	}
 
-	return h.dispatchARMResource(c, segs)
+	err := h.dispatchARMResource(c, segs)
+	h.notifyResourceChange(c, segs)
+
+	return err
 }
 
 // bearerTokenError enforces Settings.ValidateTokens
@@ -427,6 +431,10 @@ var armResourceRoutes = []armRoute{
 // dispatchARMResource routes every /subscriptions/... and /tenants shape via
 // armResourceRoutes.
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
+	if handled, err := matchRoutes(eventGridScopeRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(keyVaultRoutes, h, c, segs); handled {
 		return err
 	}
@@ -447,11 +455,27 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(monitorRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(redisRoutes, h, c, segs); handled {
 		return err
 	}
 
 	if handled, err := matchRoutes(sqlRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(containerInstanceRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(webRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(storageFileServiceRoutes, h, c, segs); handled {
 		return err
 	}
 
@@ -833,6 +857,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // Shutdown stops the dedicated ARM listener, mirroring
 // services/azureblob.Handler.Shutdown's graceful-then-forced-close shape.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.Registry.CloseAll()
+
 	h.srvMu.Lock("Shutdown")
 	srv := h.srv
 	h.srv = nil

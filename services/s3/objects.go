@@ -8,9 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"hash"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -405,10 +405,12 @@ func (b *InMemoryBackend) PutObject(
 	b.evictStaleNullTags(bucketName, key, newVersionID, input.Tagging)
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
-	logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
-		"bucket", bucketName, "key", key,
-		"contentType", aws.ToString(input.ContentType),
-		"versionId", newVersionID)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
+			"bucket", bucketName, "key", key,
+			"contentType", aws.ToString(input.ContentType),
+			"versionId", newVersionID)
+	}
 
 	// Async replication to configured destination buckets, parented to the
 	// service context (cancellable on shutdown) rather than the request context.
@@ -493,8 +495,10 @@ func (b *InMemoryBackend) prepareObjectData(
 		return 0, nil, false, "", "", err
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "prepareObjectData trace",
-		"n", n, "dataLen", len(data), "etag", etag)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "prepareObjectData trace",
+			"n", n, "dataLen", len(data), "etag", etag)
+	}
 
 	// 2. Validate Content-MD5 from context if present.
 	if vErr := b.validateContentMD5(ctx, data, etag); vErr != nil {
@@ -690,7 +694,9 @@ func (b *InMemoryBackend) objectTagCount(bucket, key, versionID string) *int32 {
 	b.mu.RLock("objectTagCount")
 	defer b.mu.RUnlock()
 
-	n := len(b.tags[fmt.Sprintf("%s/%s/%s", bucket, key, versionID)])
+	var buf [128]byte
+
+	n := len(b.tags[string(appendTagKey(buf[:0], bucket, key, versionID))])
 	if n == 0 {
 		return nil
 	}
@@ -1052,10 +1058,12 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrLatestDeleteMarker
 	}
 
-	logger.Load(ctx).DebugContext(ctx, "S3 Backend HeadObject",
-		"bucket", bucketName, "key", key,
-		"versionId", aws.ToString(versionID),
-		"foundContentType", ver.ContentType)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "S3 Backend HeadObject",
+			"bucket", bucketName, "key", key,
+			"versionId", aws.ToString(versionID),
+			"foundContentType", ver.ContentType)
+	}
 
 	return b.buildHeadObjectOutput(bucketName, key, ver), nil
 }
@@ -1332,8 +1340,21 @@ func (b *InMemoryBackend) evictStaleNullTags(bucketName, key, newVersionID strin
 	if hasTags {
 		b.mu.Lock("PutObject.evictTags")
 		if b.tags != nil {
-			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
+			delete(b.tags, tagMapKey(bucketName, key, NullVersion))
 		}
 		b.mu.Unlock()
 	}
+}
+
+func appendTagKey(dst []byte, bucket, key, versionID string) []byte {
+	dst = append(dst, bucket...)
+	dst = append(dst, '/')
+	dst = append(dst, key...)
+	dst = append(dst, '/')
+
+	return append(dst, versionID...)
+}
+
+func tagMapKey(bucket, key, versionID string) string {
+	return bucket + "/" + key + "/" + versionID
 }

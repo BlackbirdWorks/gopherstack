@@ -22,10 +22,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dashboard/api/v1/dashboardv1connect"
+	ssmsdk "github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -49,7 +49,10 @@ import (
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
+	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
@@ -93,19 +96,29 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
+	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
+	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
+	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
+	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	gcpredisbackend "github.com/blackbirdworks/gopherstack/services/gcpredis"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	gcpspannerbackend "github.com/blackbirdworks/gopherstack/services/gcpspanner"
 	gcpsqlbackend "github.com/blackbirdworks/gopherstack/services/gcpsql"
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
+	gcpworkflowsbackend "github.com/blackbirdworks/gopherstack/services/gcpworkflows"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
@@ -129,6 +142,11 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
+	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
+	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
@@ -538,6 +556,32 @@ type Config struct {
 	GCPIAMOps *gcpiambackend.Handler
 	// GCPFirestoreOps is called in-process by the /dashboard/api/v1/gcp/firestore proxy.
 	GCPFirestoreOps *gcpfirestorebackend.Handler
+	// GCPBigtableOps, GCPEventarcOps, GCPSpannerOps and GCPArtifactRegistryOps are called in-process by their proxies.
+	GCPBigtableOps         *gcpbigtablebackend.Handler
+	GCPEventarcOps         *gcpeventarcbackend.Handler
+	GCPSpannerOps          *gcpspannerbackend.Handler
+	GCPArtifactRegistryOps *gcpartifactregistrybackend.Handler
+	// GCPCloudBuildOps, GCPRedisOps and GCPMonitoringOps are called in-process by their proxies.
+	GCPCloudBuildOps *gcpcloudbuildbackend.Handler
+	GCPRedisOps      *gcpredisbackend.Handler
+	GCPMonitoringOps *gcpmonitoringbackend.Handler
+	// GCPWorkflowsOps and GCPDNSOps are called in-process by their proxies.
+	GCPWorkflowsOps *gcpworkflowsbackend.Handler
+	GCPDNSOps       *gcpdnsbackend.Handler
+	// GCPComputeOps is dispatched in-process by the /dashboard/api/v1/gcp/compute proxy.
+	GCPComputeOps *gcpcomputebackend.Handler
+	// OCIObjectStorageOps, OCIVaultOps, OCIStreamingOps and OCIIdentityOps are called in-process by their proxies.
+	OCIObjectStorageOps *ociobjectstoragebackend.Handler
+	OCIVaultOps         *ocivaultbackend.Handler
+	OCIStreamingOps     *ocistreamingbackend.Handler
+	OCIIdentityOps      *ociidentitybackend.Handler
+	// OCIFunctionsOps and AzureMonitorOps are called in-process by their proxies.
+	OCIFunctionsOps *ocifunctionsbackend.Handler
+	AzureMonitorOps *azuremonitorbackend.Handler
+	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
+	AzureFileOps *azurefilebackend.Handler
+	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.
+	AzureFunctionsOps *azurefunctionsbackend.Handler
 	// AzureBlobOps is dispatched in-process by the /dashboard/api/v1/azure/blob proxy.
 	AzureBlobOps *azureblobbackend.Handler
 	// AzureQueueOps is dispatched in-process by the /dashboard/api/v1/azure/queue proxy.
@@ -807,6 +851,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerGCPFunctionsRoutes()
 	h.registerGCPIAMRoutes()
 	h.registerGCPFirestoreRoutes()
+	h.registerConsolePageRoutes()
 	h.registerAzureQueueRoutes()
 	h.registerAzureTableRoutes()
 	h.registerAzureServiceBusRoutes()

@@ -52,6 +52,10 @@ type rtSub struct {
 	apiID     string
 	mutations []string
 	set       ast.SelectionSet
+	field     string
+
+	filter       subFilterSet
+	invalidation subFilterSet
 }
 
 type rtMessage struct {
@@ -205,7 +209,7 @@ func (b *InMemoryBackend) startSubscription(
 func (b *InMemoryBackend) prepareSubscription(
 	ctx context.Context, apiID string, req graphqlRequest, auth GraphQLAuth,
 ) (*rtSub, error) {
-	schema, err := b.authorizeRealtime(ctx, apiID, req, auth)
+	schema, ares, err := b.authorizeRealtime(ctx, apiID, req, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -245,18 +249,28 @@ func (b *InMemoryBackend) prepareSubscription(
 		}
 	}
 
+	filter, invalidation, err := b.subscriptionFilters(
+		ctx, apiID, field, req.Variables, requestIdentity{identity: ares.identity, authType: ares.authType},
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &rtSub{
-		apiID:     apiID,
-		alias:     field.Alias,
-		mutations: mutations,
-		set:       field.SelectionSet,
-		args:      extractArguments(field, req.Variables),
+		apiID:        apiID,
+		field:        field.Name,
+		filter:       filter,
+		invalidation: invalidation,
+		alias:        field.Alias,
+		mutations:    mutations,
+		set:          field.SelectionSet,
+		args:         extractArguments(field, req.Variables),
 	}, nil
 }
 
 func (b *InMemoryBackend) authorizeRealtime(
 	ctx context.Context, apiID string, req graphqlRequest, auth GraphQLAuth,
-) (*Schema, error) {
+) (*Schema, authResult, error) {
 	b.mu.RLock("PrepareSubscription")
 	api, apiOK := b.apis.Get(apiID)
 	schema, _ := b.schemas.Get(apiID)
@@ -274,15 +288,15 @@ func (b *InMemoryBackend) authorizeRealtime(
 	b.mu.RUnlock()
 
 	if !apiOK {
-		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+		return nil, authResult{}, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
 
-	_, err := b.authorizeGraphQL(ctx, apiID, primary, additional, req.Query, req.OperationName, req.Variables, auth)
+	res, err := b.authorizeGraphQL(ctx, apiID, primary, additional, req.Query, req.OperationName, req.Variables, auth)
 	if err != nil {
-		return nil, err
+		return nil, authResult{}, err
 	}
 
-	return schema, nil
+	return schema, res, nil
 }
 
 func subscriptionField(op *ast.OperationDefinition) (*ast.Field, error) {
@@ -351,12 +365,19 @@ func (b *InMemoryBackend) publishMutation(apiID string, op *ast.OperationDefinit
 
 		val := result[field.Alias]
 		for _, s := range subs {
-			if slices.Contains(s.mutations, field.Name) && subscriptionArgsMatch(s.args, val) {
-				_ = s.conn.send(map[string]any{
-					keyType: "data", "id": s.id,
-					keyPayload: map[string]any{"data": map[string]any{s.alias: projectSelection(val, s.set)}},
-				})
+			if !slices.Contains(s.mutations, field.Name) || !subscriptionArgsMatch(s.args, val) {
+				continue
 			}
+
+			projected := projectSelection(val, s.set)
+			if !s.filter.matches(projected) {
+				continue
+			}
+
+			_ = s.conn.send(map[string]any{
+				keyType: "data", "id": s.id,
+				keyPayload: map[string]any{"data": map[string]any{s.alias: projected}},
+			})
 		}
 	}
 }

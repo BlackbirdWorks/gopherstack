@@ -20,15 +20,5 @@ func TestSDKCompleteness(t *testing.T) {
 	t.Cleanup(backend.Close)
 
 	h := directconnect.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &directconnectsdk.Client{}, h.GetSupportedOperations(), []string{
-		"AssociateConnectionsToResiliencyGroup",
-		"CreateResiliencyGroup",
-		"DeleteResiliencyGroup",
-		"DisassociateConnectionsFromResiliencyGroup",
-		"GetResiliencyGroup",
-		"ListResiliencyGroupAssociations",
-		"ListResiliencyGroups",
-		"UpdateConnectionsBillingMode",
-		"UpdateResiliencyGroup",
-	})
+	sdkcheck.CheckCompleteness(t, &directconnectsdk.Client{}, h.GetSupportedOperations(), nil)
 }

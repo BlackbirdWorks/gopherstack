@@ -95,6 +95,9 @@ func TestTestInvokeAuthorizer(t *testing.T) {
 	t.Parallel()
 
 	h, b := newRefHandler()
+	b.SetActionTargets(&iot.ActionTargets{Lambda: &fakeAuthLambda{
+		respond: func(map[string]any) any { return authzResponse("authz1", 0, 0, allowAll) },
+	}})
 
 	_, err := b.CreateAuthorizer(&iot.CreateAuthorizerInput{
 		AuthorizerName:        "my-authorizer",
@@ -109,7 +112,7 @@ func TestTestInvokeAuthorizer(t *testing.T) {
 	}, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"isAuthenticated":true`)
-	assert.Contains(t, rec.Body.String(), "authz-")
+	assert.Contains(t, rec.Body.String(), `"principalId":"authz1"`)
 
 	t.Run("unknown_authorizer", func(t *testing.T) {
 		t.Parallel()

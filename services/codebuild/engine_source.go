@@ -49,7 +49,16 @@ func repoNameFromLocation(loc string) string {
 
 // fetchSource materialises the build's primary source into dir.
 func (r *buildRunner) fetchSource(ctx context.Context, dir string) error {
-	src := r.build.Source
+	return r.fetchSourceInto(ctx, r.build.Source, r.build.SourceVersion, dir, true)
+}
+
+// fetchSourceInto materialises one source; only the primary source drives the resolved version and source cache.
+func (r *buildRunner) fetchSourceInto(
+	ctx context.Context,
+	src *ProjectSource,
+	version, dir string,
+	primary bool,
+) error {
 	if src == nil {
 		return nil
 	}
@@ -60,10 +69,10 @@ func (r *buildRunner) fetchSource(ctx context.Context, dir string) error {
 	case sourceTypeS3:
 		return r.fetchS3Source(ctx, src.Location, dir)
 	case sourceTypeCodeCommit:
-		return r.fetchCodeCommitSource(ctx, src.Location, dir)
+		return r.fetchCodeCommitSource(ctx, src.Location, version, dir)
 	default:
 		if isGitSourceType(src.Type) {
-			return r.fetchGitSource(ctx, dir)
+			return r.fetchGitSource(ctx, src, version, dir, primary)
 		}
 
 		return fmt.Errorf("%w: %s", errSourceUnsupported, src.Type)
@@ -72,12 +81,20 @@ func (r *buildRunner) fetchSource(ctx context.Context, dir string) error {
 
 func (r *buildRunner) fetchS3Source(ctx context.Context, loc, dir string) error {
 	bucket, key, ok := splitS3Location(loc)
-	if !ok || strings.HasSuffix(key, "/") {
-		return fmt.Errorf("%w: S3 source location %q must be bucket/object-key", errSourceUnsupported, loc)
+	if !ok {
+		return fmt.Errorf(
+			"%w: S3 source location %q must be bucket/object-key or bucket/folder/",
+			errSourceUnsupported,
+			loc,
+		)
 	}
 
 	if r.svc.Store == nil {
 		return fmt.Errorf("%w: S3", errSourceDependency)
+	}
+
+	if strings.HasSuffix(key, "/") {
+		return r.fetchS3Folder(ctx, bucket, key, dir)
 	}
 
 	data, err := r.svc.Store.GetObjectBytes(ctx, bucket, key)
@@ -92,12 +109,38 @@ func (r *buildRunner) fetchS3Source(ctx context.Context, loc, dir string) error 
 	return writeSafeFile(dir, path.Base(key), data)
 }
 
-func (r *buildRunner) fetchCodeCommitSource(ctx context.Context, loc, dir string) error {
+// fetchS3Folder downloads every object under the folder prefix, keeping paths relative to it.
+func (r *buildRunner) fetchS3Folder(ctx context.Context, bucket, prefix, dir string) error {
+	keys, err := r.svc.Store.ListObjectKeys(ctx, bucket, prefix)
+	if err != nil {
+		return fmt.Errorf("list s3://%s/%s: %w", bucket, prefix, err)
+	}
+
+	for _, k := range keys {
+		rel := strings.TrimPrefix(k, prefix)
+		if rel == "" || strings.HasSuffix(rel, "/") {
+			continue
+		}
+
+		data, gerr := r.svc.Store.GetObjectBytes(ctx, bucket, k)
+		if gerr != nil {
+			return fmt.Errorf("download s3://%s/%s: %w", bucket, k, gerr)
+		}
+
+		if gerr = writeSafeFile(dir, rel, data); gerr != nil {
+			return gerr
+		}
+	}
+
+	return nil
+}
+
+func (r *buildRunner) fetchCodeCommitSource(ctx context.Context, loc, version, dir string) error {
 	if r.svc.Repos == nil {
 		return fmt.Errorf("%w: CodeCommit", errSourceDependency)
 	}
 
-	files, err := r.svc.Repos.RepoFiles(ctx, r.region, repoNameFromLocation(loc), r.build.SourceVersion)
+	files, err := r.svc.Repos.RepoFiles(ctx, r.region, repoNameFromLocation(loc), version)
 	if err != nil {
 		return fmt.Errorf("clone %s: %w", loc, err)
 	}

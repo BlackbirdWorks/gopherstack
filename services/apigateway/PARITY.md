@@ -1323,3 +1323,12 @@ Mapping templates now run a Velocity subset (vtl_parser.go, vtl_engine.go, vtl_o
 ## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
 
 `CreateRestApi` honours the emulator-only `gopherstack:id` tag to pin the REST API ID (10 lowercase alphanumerics). The tag is consumed, never stored or listed; a malformed ID returns `BadRequestException`, a reused ID `ConflictException`, and `TagResource` rejects the key. See docs/pinned-ids.md.
+
+## Notes (2026-10-24 LocalStack invoke URLs and custom IDs)
+
+Data plane also answers LocalStack's documented invoke forms (docs.localstack.cloud/aws/services/apigateway):
+`{apiId}.execute-api.<host>[:port]/{stage}/{path}` and `/_aws/execute-api/{apiId}/{stage}/{path}`,
+claimed only when the API id exists (pkgs/executeapi). `_custom_id_` is accepted as an alias of
+`gopherstack:id` on CreateRestApi; pinned ids may now be 1-32 lowercase alphanumerics or hyphens
+(the LocalStack docs state no format; the previous 10-char rule was gopherstack-only).
+Tests: execute_api_url_test.go, custom_id_test.go. Custom-domain Host routing: bd gopherstack-49qct.40.

@@ -7,6 +7,7 @@ import (
 
 const (
 	errResourceNotFoundException = "ResourceNotFoundException"
+	errCodeConflict              = "ConflictException"
 )
 
 // ErrAlarmNotFound is returned when a requested alarm does not exist.
@@ -135,3 +136,12 @@ var ErrAlarmFamilyFilterExclusive = fmt.Errorf(
 		"each other or with any other parameter except MaxRecords and NextToken",
 	ErrValidation,
 )
+
+// ErrResourceMetricsConfigNotFound is returned when no resource metrics configuration exists for the ARN.
+var ErrResourceMetricsConfigNotFound = errors.New(errResourceNotFoundException)
+
+// ErrResourceMetricsConfigExists is returned by CreateResourceMetricsConfiguration for a duplicate ARN.
+var ErrResourceMetricsConfigExists = errors.New(errCodeConflict)
+
+// ErrOTelEnrichmentNotRunning is returned by UpdateOTelEnrichment while enrichment is stopped.
+var ErrOTelEnrichmentNotRunning = errors.New(errResourceNotFoundException)

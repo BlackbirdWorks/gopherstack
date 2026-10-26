@@ -151,4 +151,14 @@ type StorageBackend interface {
 	GetOTelEnrichment() (string, error)
 	StartOTelEnrichment() error
 	StopOTelEnrichment() error
+	OTelEnrichmentDetails() OTelEnrichmentState
+	UpdateOTelEnrichment(include, exclude []OTelEnrichmentSelector) (OTelEnrichmentState, error)
+	CreateResourceMetricsConfiguration(
+		resourceArn string, selections []ResourceMetricSelection,
+	) (ResourceMetricsConfiguration, error)
+	GetResourceMetricsConfiguration(resourceArn string) (ResourceMetricsConfiguration, error)
+	UpdateResourceMetricsConfiguration(
+		resourceArn string, selections []ResourceMetricSelection,
+	) (ResourceMetricsConfiguration, error)
+	DeleteResourceMetricsConfiguration(resourceArn string) error
 }

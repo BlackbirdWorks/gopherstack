@@ -378,6 +378,8 @@ func (b *InMemoryBackend) update(sc scope, k *kindSpec, op string, in args) (*re
 		return nil, err
 	}
 
+	clearOmitted(k.Name, patch)
+
 	overrides := b.applyUpdate(k, r, patch)
 
 	if !k.Terminal {
@@ -760,9 +762,26 @@ var patchWrapped = map[string][]string{ //nolint:gochecknoglobals // immutable l
 	kindCapacityProvider: {keyDescription},
 	kindPolicyEngine:     {keyDescription},
 	kindPolicy:           {keyDescription},
-	kindRegistry:         {keyDescription, "approvalConfiguration", "authorizerConfiguration"},
+	kindRegistry:         {keyDescription, "approvalConfiguration", keyAuthorizerConfig},
 	kindRegistryRecord:   {keyDescription, "descriptors", "synchronizationConfiguration", "synchronizationType"},
-	kindHarness:          {"authorizerConfiguration", "environmentArtifact", keyMemory},
+	kindHarness:          {keyAuthorizerConfig, "environmentArtifact", keyMemory},
+}
+
+const keyAuthorizerConfig = "authorizerConfiguration"
+
+// putClears lists the update members the pinned SDK documents as cleared when omitted
+// (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); all others merge.
+var putClears = map[string][]string{ //nolint:gochecknoglobals // immutable lookup
+	kindGateway:       {"exceptionLevel"},
+	kindGatewayTarget: {"certificateConfigurations"},
+}
+
+func clearOmitted(kind string, patch map[string]any) {
+	for _, key := range putClears[kind] {
+		if _, present := patch[key]; !present {
+			patch[key] = nil
+		}
+	}
 }
 
 func unwrapUpdated(kind string, patch map[string]any) {

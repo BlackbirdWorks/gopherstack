@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var (
@@ -176,7 +175,7 @@ func (b *InMemoryBackend) buildPlan(
 
 	plan.sql = sqlText
 
-	if err = applyProjection(plan, query, time.Now()); err != nil {
+	if err = applyProjection(plan, query, b.now().UTC()); err != nil {
 		return nil, nil, err
 	}
 

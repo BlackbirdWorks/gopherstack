@@ -42,6 +42,7 @@ type handleCreateCaseInput struct {
 	SeverityCode      string   `json:"severityCode"`
 	CommunicationBody string   `json:"communicationBody"`
 	AttachmentSetID   string   `json:"attachmentSetId,omitempty"`
+	UploadIDs         []string `json:"uploadIds,omitempty"`
 	Language          string   `json:"language,omitempty"`
 	IssueType         string   `json:"issueType,omitempty"`
 	CCEmails          []string `json:"ccEmailAddresses,omitempty"`
@@ -52,7 +53,7 @@ func (h *Handler) handleCreateCase(_ context.Context, in *handleCreateCaseInput)
 		Subject: in.Subject, ServiceCode: in.ServiceCode, CategoryCode: in.CategoryCode,
 		SeverityCode: in.SeverityCode, CommunicationBody: in.CommunicationBody,
 		AttachmentSetID: in.AttachmentSetID, Language: in.Language, IssueType: in.IssueType,
-		CCEmails: in.CCEmails,
+		CCEmails: in.CCEmails, UploadIDs: in.UploadIDs,
 	}
 	if err := validateCreateCase(options); err != nil {
 		return nil, err

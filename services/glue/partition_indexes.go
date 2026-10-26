@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // PartitionIndex describes an index over table partition keys.
@@ -14,7 +16,7 @@ type PartitionIndex struct {
 }
 
 func partitionIndexKey(dbName, tableName, indexName string) string {
-	return dbName + "|" + tableName + "|" + indexName
+	return strs.Fold(dbName) + "|" + strs.Fold(tableName) + "|" + indexName
 }
 
 func clonePartitionIndex(index *PartitionIndex) *PartitionIndex {
@@ -26,6 +28,7 @@ func clonePartitionIndex(index *PartitionIndex) *PartitionIndex {
 
 // CreatePartitionIndex creates an index for an existing table's partition keys.
 func (b *InMemoryBackend) CreatePartitionIndex(dbName, tableName string, input PartitionIndex) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("CreatePartitionIndex")
 	defer b.mu.Unlock()
 
@@ -74,6 +77,7 @@ func validatePartitionIndex(table *Table, input PartitionIndex) error {
 
 // DeletePartitionIndex deletes an index from an existing table.
 func (b *InMemoryBackend) DeletePartitionIndex(dbName, tableName, indexName string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("DeletePartitionIndex")
 	defer b.mu.Unlock()
 
@@ -89,6 +93,7 @@ func (b *InMemoryBackend) DeletePartitionIndex(dbName, tableName, indexName stri
 
 // GetPartitionIndexes lists partition indexes for an existing table.
 func (b *InMemoryBackend) GetPartitionIndexes(dbName, tableName string) ([]*PartitionIndex, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetPartitionIndexes")
 	defer b.mu.RUnlock()
 

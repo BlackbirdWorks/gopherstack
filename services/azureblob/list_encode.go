@@ -18,10 +18,11 @@ const (
 
 // listEcho holds the request parameters echoed back in a List Blobs response.
 type listEcho struct {
-	Prefix     string
-	Marker     string
-	Delimiter  string
-	MaxResults int
+	Prefix      string
+	Marker      string
+	Delimiter   string
+	MaxResults  int
+	IncludeTags bool
 }
 
 func appendOptElem(buf []byte, name, val string) []byte {
@@ -45,7 +46,19 @@ func appendMetadata(buf []byte, md map[string]string) []byte {
 	return append(buf, `</Metadata>`...)
 }
 
-func appendBlobEntry(buf []byte, bi *BlobInfo) []byte {
+func appendTags(buf []byte, tags map[string]string) []byte {
+	buf = append(buf, `<Tags><TagSet>`...)
+	for _, k := range slices.Sorted(maps.Keys(tags)) {
+		buf = append(buf, `<Tag>`...)
+		buf = xmlappend.Elem(buf, "Key", k)
+		buf = xmlappend.Elem(buf, "Value", tags[k])
+		buf = append(buf, `</Tag>`...)
+	}
+
+	return append(buf, `</TagSet></Tags>`...)
+}
+
+func appendBlobEntry(buf []byte, bi *BlobInfo, withTags bool) []byte {
 	buf = append(buf, `<Blob>`...)
 	buf = appendMetadata(buf, bi.Metadata)
 	buf = xmlappend.Elem(buf, "Name", bi.Name)
@@ -71,10 +84,21 @@ func appendBlobEntry(buf []byte, bi *BlobInfo) []byte {
 		buf = xmlappend.Elem(buf, "AccessTierChangeTime", bi.AccessTierChanged.Format(http.TimeFormat))
 	}
 
+	buf = appendOptElem(buf, "LeaseStatus", bi.Lease.Status)
+	buf = appendOptElem(buf, "LeaseState", bi.Lease.State)
+	buf = appendOptElem(buf, "LeaseDuration", bi.Lease.Duration)
 	buf = append(buf, `<Content-Length>`...)
 	buf = strconv.AppendInt(buf, bi.ContentLength, decimalBase)
+	buf = append(buf, `</Content-Length>`...)
 
-	return append(buf, `</Content-Length></Properties></Blob>`...)
+	if withTags && len(bi.Tags) > 0 {
+		buf = xmlappend.Elem(buf, "TagCount", strconv.Itoa(len(bi.Tags)))
+		buf = append(buf, `</Properties>`...)
+
+		return append(appendTags(buf, bi.Tags), `</Blob>`...)
+	}
+
+	return append(buf, `</Properties></Blob>`...)
 }
 
 // encodeBlobList renders the List Blobs response; output is byte-identical to
@@ -112,7 +136,7 @@ func encodeBlobList(endpoint, container string, echo listEcho, page BlobPage) []
 			continue
 		}
 
-		buf = appendBlobEntry(buf, &e.Blob)
+		buf = appendBlobEntry(buf, &e.Blob, echo.IncludeTags)
 	}
 
 	buf = append(buf, `</Blobs>`...)

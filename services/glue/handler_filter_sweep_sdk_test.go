@@ -237,7 +237,7 @@ func TestSDKRoundTrip_GetColumnStatisticsTaskRuns_ScopesByTable(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.ColumnStatisticsTaskRuns, 1, "must scope to the requested db1.tblA run only")
 	assert.Equal(t, "db1", aws.ToString(out.ColumnStatisticsTaskRuns[0].DatabaseName))
-	assert.Equal(t, "tblA", aws.ToString(out.ColumnStatisticsTaskRuns[0].TableName))
+	assert.Equal(t, "tbla", aws.ToString(out.ColumnStatisticsTaskRuns[0].TableName))
 }
 
 // TestSDKRoundTrip_Triggers_DependentJobName proves GetTriggers/ListTriggers'

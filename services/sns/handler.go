@@ -147,9 +147,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
-		if c.Request().Method == http.MethodGet && c.Request().URL.Query().Get("Action") == actionConfirmSubscription &&
-			c.Request().URL.Query().Get("TopicArn") != "" {
-			return true
+		if c.Request().Method == http.MethodGet && mayCarryAction(c.Request().URL.RawQuery) {
+			q := c.Request().URL.Query()
+			if q.Get("Action") == actionConfirmSubscription && q.Get("TopicArn") != "" {
+				return true
+			}
 		}
 
 		ct := c.Request().Header.Get("Content-Type")
@@ -169,6 +171,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.Contains(string(body), snsVersion)
 	}
+}
+
+// mayCarryAction cheaply rejects queries that cannot decode to an Action parameter.
+func mayCarryAction(rawQuery string) bool {
+	return strings.Contains(rawQuery, "Action=") || strings.Contains(rawQuery, "%")
 }
 
 // MatchPriority returns the routing priority for the SNS handler.

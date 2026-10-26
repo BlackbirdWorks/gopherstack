@@ -291,7 +291,7 @@ func (h *S3Handler) signatureMatches(r *http.Request, scope authScope, secret st
 	canonicalReq := buildHeaderCanonicalRequest(r, scope.signedHeaders)
 	amzDate := r.Header.Get("X-Amz-Date")
 	credentialScope := strings.Join(
-		[]string{scope.date, scope.region, scope.service, "aws4_request"}, "/")
+		[]string{scope.date, scope.region, scope.service, sigV4Terminator}, "/")
 
 	stringToSign := strings.Join([]string{
 		sigV4Algorithm,

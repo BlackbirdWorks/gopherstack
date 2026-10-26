@@ -526,6 +526,17 @@ func isValidRuntime(runtime string) bool {
 	return ok
 }
 
+// isDeprecatedRuntime reports whether runtime is past deprecation and not runnable here.
+func isDeprecatedRuntime(runtime string) bool {
+	if _, runnable := runtimeBaseImages[runtime]; runnable {
+		return false
+	}
+
+	_, ok := deprecatedRuntimes[runtime]
+
+	return ok
+}
+
 // durableSupportedRuntimes lists managed runtimes allowed for a Zip durable function.
 // docs.aws.amazon.com/lambda/latest/dg/durable-supported-runtimes.html
 //
@@ -652,9 +663,15 @@ func (b *InMemoryBackend) startContainer(
 		return zipDir, layerDirs, containerID, err
 	}
 
-	efsBinds, efsErr := b.efsMountBinds(fn)
+	efs, efsErr := b.efsMounts(fn)
 	if efsErr != nil {
 		return "", layerDirs, "", efsErr
+	}
+
+	if efs.user != "" {
+		for _, d := range layerDirs {
+			makeTreeWorldReadable(d)
+		}
 	}
 
 	spec := container.Spec{
@@ -667,7 +684,7 @@ func (b *InMemoryBackend) startContainer(
 		spec.Mounts = append(spec.Mounts, layerMount)
 	}
 
-	spec.Mounts = append(spec.Mounts, efsBinds...)
+	efs.apply(&spec)
 	applyDebugPlan(ctx, &spec)
 	spec.OCIRuntime = b.ociRuntime
 
@@ -770,9 +787,17 @@ func (b *InMemoryBackend) createZipContainer(
 	env []string,
 	layerMount string,
 ) (string, error) {
-	efsBinds, efsErr := b.efsMountBinds(fn)
+	efs, efsErr := b.efsMounts(fn)
 	if efsErr != nil {
 		return "", efsErr
+	}
+
+	if efs.user != "" {
+		makeTreeWorldReadable(codeDir)
+
+		if layerMount != "" {
+			makeTreeWorldReadable(layerHostDir(layerMount))
+		}
 	}
 
 	mounts := []string{codeDir + ":/var/task:ro"}
@@ -780,14 +805,14 @@ func (b *InMemoryBackend) createZipContainer(
 		mounts = append(mounts, layerMount)
 	}
 
-	mounts = append(mounts, efsBinds...)
-
 	spec := container.Spec{
 		Image:  baseImage,
 		Name:   fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
 		Env:    env,
 		Mounts: mounts,
 	}
+
+	efs.apply(&spec)
 
 	// Custom runtimes (provided.*) ship the executable as the zip's "bootstrap"
 	// file at /var/task. The provided.al2 base image's default entrypoint runs

@@ -19,7 +19,7 @@ ops:
   ListRumMetricsDestinations: {wire: ok, errors: ok, state: ok, persist: ok, note: "paginated"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "by app monitor ARN"}
   PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "4 KB limit (PolicySizeLimitExceededException), JSON with a Statement (MalformedPolicyDocumentException), PolicyRevisionId compare-and-set"}
-  PutRumEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "data plane (host dataplane.rum.*, same signing name): events validated, stored, forwarded to CloudWatch Logs when CwLogEnabled, and matched against the default AWS/RUM metrics and the CloudWatch metric definitions"}
+  PutRumEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "data plane (host dataplane.rum.*, same signing name): events validated, stored, forwarded to CloudWatch Logs when CwLogEnabled, and matched against the default AWS/RUM metrics and the CloudWatch metric definitions; when AppMonitorConfiguration.Telemetries is non-empty, js_error (errors), performance_navigation/resource/CLS/FID/LCP (performance) and http (http) events of a disabled telemetry are dropped before storage, logs and metrics; session and page-view events are never gated; unset Telemetries collects everything"}
   PutRumMetricsDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "CloudWatch takes no DestinationArn; Evidently needs DestinationArn and IamRoleArn"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "app monitor ARN; 50 tags"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "app monitor ARN"}
@@ -33,12 +33,9 @@ items_still_open:
   - Evidently destinations: destinations and their metric definitions are stored but no events are published to Evidently (no Evidently service)
   - PutRumEvents: the app monitor resource policy and its rum:alias condition are stored but not enforced
   - DeobfuscationConfiguration: source map settings are stored; stack traces are never unminified
-  - Default metrics: Telemetries (errors, performance, http) do not gate the default metric set
   - BatchCreateRumMetricDefinitions: the per-item ErrorCode values (ValidationException, ServiceQuotaExceededException) are assumptions, the SDK does not enumerate them
   - GetAppMonitorData: the TimeRange unit is not stated by the SDK; seconds and milliseconds are both accepted
   - AccessDeniedException and ThrottlingException: never raised; no IAM or throttling is modeled
-  - ResourceGroupsTaggingAPI: app monitor tags are not exposed through the tagging API
-  - CloudFormation: AWS::RUM::AppMonitor is not provisioned by the CloudFormation emulator
 gaps: []
 structural_gaps:
   - Country filter and CountryCode dimension: the service derives countryCode from the sender IP, there is no GeoIP source; only a countryCode already present in event metadata matches

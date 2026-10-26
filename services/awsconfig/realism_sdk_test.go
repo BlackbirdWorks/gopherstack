@@ -274,12 +274,12 @@ func TestSDK_ConformancePackDeploymentLifecycle(t *testing.T) {
 			assert.Equal(t, aws.ToString(put.ConformancePackArn), aws.ToString(st.ConformancePackArn))
 			assert.NotNil(t, st.LastUpdateRequestedTime)
 
-			_, err = c.DescribeConformancePackStatus(
+			missing, err := c.DescribeConformancePackStatus(
 				t.Context(),
 				&configservicesdk.DescribeConformancePackStatusInput{ConformancePackNames: []string{"missing"}},
 			)
-			require.Error(t, err)
-			assert.Equal(t, "NoSuchConformancePackException", apiErrorOf(t, err).ErrorCode())
+			require.NoError(t, err)
+			assert.Empty(t, missing.ConformancePackStatusDetails)
 		})
 	}
 }

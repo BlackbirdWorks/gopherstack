@@ -377,7 +377,11 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 	b.trainingJobsStore(region).Put(tj)
 	b.trainingJobARNIndexStore(region)[jobARN] = opts.TrainingJobName
 
-	b.scheduleTrainingCompletion(b.lifecycleCtx, region, opts.TrainingJobName)
+	if b.engine != nil {
+		b.startTrainingRun(b.engine, region, tj)
+	} else {
+		b.scheduleTrainingCompletion(b.lifecycleCtx, region, opts.TrainingJobName)
+	}
 
 	return cloneTrainingJob(tj), nil
 }
@@ -468,6 +472,10 @@ func (b *InMemoryBackend) StopTrainingJobFSM(ctx context.Context, name string) e
 	advanceTrainingSecondary(tj, SecondaryStatusTransition{
 		Status: pipelineStatusStopping, StatusMessage: "Training job is being stopped",
 	}, time.Now())
+
+	if eng := b.engine; eng != nil && eng.interrupt(engineKey("training", region, name)) {
+		return nil
+	}
 
 	b.runDelayed(b.lifecycleCtx, trainingStoppingToStopped, func() {
 		b.mu.Lock("StopTrainingJobFSM.goroutine")

@@ -66,12 +66,14 @@ func (h *Handler) tagActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			if _, ok := input.Tags[tags.PinnedIDKey]; ok {
-				return 0, nil, fmt.Errorf(
-					"%w: tag %q is only valid on CreateRestApi",
-					ErrInvalidParameter,
-					tags.PinnedIDKey,
-				)
+			for key := range input.Tags {
+				if tags.IsPinnedIDKey(key) {
+					return 0, nil, fmt.Errorf(
+						"%w: tag %q is only valid on CreateRestApi",
+						ErrInvalidParameter,
+						key,
+					)
+				}
 			}
 			if err := h.Backend.TagResource(input.ResourceARN, input.Tags); err != nil {
 				return 0, nil, err

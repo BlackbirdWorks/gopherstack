@@ -99,6 +99,8 @@ type InMemoryBackend struct {
 	s3Fetcher          S3CodeFetcher
 	ecrResolver        ECRResolver
 	efsResolver        EFSResolver
+	kmsResolver        KMSResolver
+	envCiphertext      map[string]map[string]string
 	credIssuer         RoleCredentialIssuer
 	endpointURL        string
 	metrics            cwmetric.Sink
@@ -176,6 +178,7 @@ type InMemoryBackend struct {
 	portAlloc                *portalloc.Allocator
 	runtimes                 map[string]*functionRuntime
 	activeConcurrencies      map[string]int
+	capacityPools            map[string]*capacityPool
 	asyncDelivery            AsyncDestinationDelivery
 	esmS3                    ESMS3Destination
 	accountID                string
@@ -250,12 +253,14 @@ func NewInMemoryBackendWithContext(
 		functionURLServers:       make(map[string]*functionURLServer),
 		versions:                 make(map[string][]*FunctionVersion),
 		versionCounters:          make(map[string]int),
+		envCiphertext:            make(map[string]map[string]string),
 		layers:                   make(map[string][]*LayerVersion),
 		layerVersionCounters:     make(map[string]int64),
 		layerPolicies:            make(map[string]map[int64]map[string]*LayerVersionStatement),
 		eventInvokeConfigs:       make(map[string]*FunctionEventInvokeConfig),
 		functionConcurrencies:    make(map[string]int),
 		activeConcurrencies:      make(map[string]int),
+		capacityPools:            make(map[string]*capacityPool),
 		fisFaults:                make(map[string]*FISInvocationFault),
 		fnCodeSigningConfigs:     make(map[string]string),
 		runtimeManagementConfigs: make(map[string]*RuntimeManagementConfig),

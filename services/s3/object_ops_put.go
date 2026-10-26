@@ -14,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
@@ -94,10 +93,13 @@ func (h *S3Handler) putObject(
 		return
 	}
 
+	if !h.checkSSEKMSKey(ctx, w, r, sse) {
+		return
+	}
+
 	ctx = context.WithValue(ctx, sseKey, sse)
 
-	logger.Load(ctx).DebugContext(ctx, "S3 putObject input",
-		"bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
+	logPutObjectInput(ctx, bucketName, key, r.Header.Get("Content-Type"))
 
 	ctx, md5Err := withContentMD5(ctx, r)
 	if md5Err != nil {
@@ -134,9 +136,7 @@ func (h *S3Handler) putObject(
 	}
 	setSSEResponseHeaders(w, sse)
 
-	logger.Load(ctx).DebugContext(ctx, "S3 putObject output",
-		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
-		"versionId", aws.ToString(ver.VersionId))
+	logPutObjectOutput(ctx, bucketName, key, ver)
 
 	h.notifyObjectCreated(ctx, bucketName, key, ver)
 

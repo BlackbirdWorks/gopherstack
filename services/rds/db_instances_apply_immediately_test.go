@@ -443,3 +443,74 @@ func TestApplyImmediately_ClearsPendingOnNextImmediate(t *testing.T) {
 		t.Errorf("DBInstanceClass = %q, want db.m5.xlarge", modified.DBInstanceClass)
 	}
 }
+
+// TestModifyDBInstance_PendingMerge verifies deferred modifications merge into
+// existing pending values and a modify back to the current value cancels them.
+func TestModifyDBInstance_PendingMerge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		wantClass   string
+		steps       []rds.DBInstanceOptions
+		classes     []string
+		storages    []int
+		wantStorage int
+		wantNil     bool
+	}{
+		{
+			name:     "back_to_current_clears",
+			classes:  []string{"", ""},
+			storages: []int{100, 20},
+			steps:    []rds.DBInstanceOptions{{}, {}},
+			wantNil:  true,
+		},
+		{
+			name:        "merges_fields",
+			classes:     []string{"", "db.t3.large"},
+			storages:    []int{100, 0},
+			steps:       []rds.DBInstanceOptions{{}, {}},
+			wantStorage: 100,
+			wantClass:   "db.t3.large",
+		},
+		{
+			name:        "replaces_pending",
+			classes:     []string{"", ""},
+			storages:    []int{100, 200},
+			steps:       []rds.DBInstanceOptions{{}, {}},
+			wantStorage: 200,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newAuditBackend(t)
+			createAuditInstance(t, b)
+
+			for i, o := range tt.steps {
+				if _, err := b.ModifyDBInstance("mydb", tt.classes[i], tt.storages[i], o); err != nil {
+					t.Fatalf("ModifyDBInstance step %d: %v", i, err)
+				}
+			}
+
+			list, err := b.DescribeDBInstances("mydb")
+			if err != nil || len(list) != 1 {
+				t.Fatalf("DescribeDBInstances: %v (%d)", err, len(list))
+			}
+			inst := list[0]
+			if tt.wantNil {
+				if inst.PendingModifiedValues != nil {
+					t.Fatalf("pending = %+v, want nil", inst.PendingModifiedValues)
+				}
+
+				return
+			}
+			pv := inst.PendingModifiedValues
+			if pv == nil || pv.AllocatedStorage != tt.wantStorage || pv.DBInstanceClass != tt.wantClass {
+				t.Fatalf("pending = %+v, want storage %d class %q", pv, tt.wantStorage, tt.wantClass)
+			}
+		})
+	}
+}

@@ -7,15 +7,11 @@
 
 | Metric | Value |
 | --- | --- |
-| Feature families | 17 (17 ok) |
-| Known gaps | 1 |
+| Feature families | 18 (18 ok) |
+| Known gaps | none |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
-
-### Known gaps
-
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): GetAnalysisLogExport, ListAnalysisLogExports, StartAnalysisLogExport.
 
 ### Structural gaps
 

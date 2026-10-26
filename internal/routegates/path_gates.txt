@@ -8,7 +8,7 @@ AppConfig	/applications /deployementstrategies /deploymentstrategies /experiment
 AppConfigData	/configuration
 AppIntegrations	/applications /dataIntegrations /eventIntegrations /tags
 AppMesh	/v20190125
-AppSync	/v1 /v2
+AppSync	/v1 /v2 /graphql /appsync-api
 Backup	/account-settings /audit /backup /copy-jobs /global-settings /indexes /legal-holds /logically-air-gapped-backup-vaults /resources /restore-access-backup-vaults /restore-jobs /restore-testing /scan /supported-resource-types /tags /tiering-configurations /untag
 Batch	/v1
 Bedrock	/advanced-prompt-optimization-job /automated-reasoning-policies /create-foundation-model-agreement /custom-models /data-retention /delete-foundation-model-agreement /enforcedGuardrailsConfiguration /evaluation-job /foundation-model-availability /foundation-models /guardrails /imported-models /inference-profiles /list-foundation-model-agreement-offers /listTagsForResource /logging /marketplace-model /model-copy-jobs /model-customization /model-import-jobs /model-invocation-job /prompt-routers /provisioned-model-throughput /resource-policy /tagResource /untagResource /use-case-for-model-access

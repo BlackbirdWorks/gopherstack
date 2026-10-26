@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,7 +133,41 @@ func jsError(err error) error {
 		msg = "code execution timed out"
 	}
 
-	return &resolverError{Message: msg, Type: jsErrTypeRuntime}
+	return &resolverError{Message: msg, Type: jsErrTypeRuntime, CodeErrors: codeErrorsOf(err)}
+}
+
+var reSyntaxPos = regexp.MustCompile(`Line (\d+):(\d+) (.+?)(?: \(and \d+ more errors\))?$`)
+
+const codeErrSpanUnknown = -1
+
+// codeErrorsOf locates a goja failure: a syntax error carries line:column in
+// its message; a runtime exception, its innermost stack frame.
+func codeErrorsOf(err error) []codeError {
+	exc, ok := errors.AsType[*goja.Exception](err)
+	if !ok {
+		return nil
+	}
+
+	if m := reSyntaxPos.FindStringSubmatch(exc.Value().String()); m != nil {
+		line, _ := strconv.Atoi(m[1])
+		col, _ := strconv.Atoi(m[2])
+
+		return []codeError{{
+			ErrorType: "PARSER_ERROR", Value: "Parsing error: " + m[3],
+			Line: line, Column: col, Span: codeErrSpanUnknown,
+		}}
+	}
+
+	stack := exc.Stack()
+	if len(stack) == 0 {
+		return nil
+	}
+
+	pos := stack[0].Position()
+
+	return []codeError{{
+		Value: exc.Value().String(), Line: pos.Line, Column: pos.Column, Span: codeErrSpanUnknown,
+	}}
 }
 
 // jsToGo converts a JS value to plain JSON data.
@@ -170,7 +206,7 @@ func bindJSGlobals(sb *jsruntime.Sandbox, ue *utilEnv) {
 		switch rest, isExt := strings.CutPrefix(name, "extensions."); {
 		case isExt:
 			bindUtilFn(sb, ext, rest, name, ue)
-		case name == "qr" || name == "quiet" || name == "toJson" || name == "parseJson":
+		case name == "qr" || name == "quiet" || name == "toJson" || name == "parseJson" || strings.HasPrefix(name, "log."):
 		default:
 			bindUtilFn(sb, util, name, name, ue)
 		}

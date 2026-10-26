@@ -243,12 +243,14 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 
 	neverMatch := []string{
 		"AzureAppConfig", "AzureARM", "AzureBlob", "AzureEventGrid", "AzureEventHubs", "AzureKeyVault", "AzureQueue",
-		"AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
+		"AzureFile", "AzureMonitor", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
 		"GCPStorage", "GCPPubSub", "GCPSecretManager", "GCPKMS", "GCPCloudTasks", "GCPScheduler",
 		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL", "GCPLogging",
 		"GCPMonitoring",
-		"GCPRedis", "AzureRedis", "AzureSQL", "GCPSpanner", "GCPCloudBuild",
-		"AzureContainerRegistry", "GCPArtifactRegistry",
+		"GCPRedis", "AzureRedis", "AzureSQL", "GCPSpanner", "GCPBigtable", "GCPCloudBuild", "GCPEventarc",
+		"GCPWorkflows", "GCPDNS", "GCPCompute",
+		"AzureContainerRegistry", "AzureFunctions", "GCPArtifactRegistry", "OCIObjectStorage",
+		"OCIVault", "OCIStreaming", "OCIIdentity", "OCIFunctions", "OCICore",
 	}
 
 	for _, e := range entries {

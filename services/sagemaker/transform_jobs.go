@@ -210,6 +210,14 @@ func (b *InMemoryBackend) CreateTransformJob(ctx context.Context, opts Transform
 	b.transformJobsStore(region).Put(tj)
 	b.transformJobARNIndexStore(region)[jobARN] = opts.TransformJobName
 
+	if b.engine != nil {
+		m, _ := b.modelsStore(region).Get(opts.ModelName)
+		tj.TransformStartTime = &now
+		b.startTransformRun(b.engine, region, tj, m)
+
+		return cloneTransformJob(tj), nil
+	}
+
 	b.runDelayed(b.lifecycleCtx, transformJobCompletionDelay, func() {
 		b.applyTransformJobCompletion(ctx, opts.TransformJobName)
 	})
@@ -271,6 +279,10 @@ func (b *InMemoryBackend) StopTransformJob(ctx context.Context, name string) err
 
 	tj.TransformJobStatus = pipelineStatusStopping
 	tj.LastModifiedTime = time.Now()
+
+	if eng := b.engine; eng != nil && eng.interrupt(engineKey("transform", region, name)) {
+		return nil
+	}
 
 	b.runDelayed(b.lifecycleCtx, transformJobStoppingDelay, func() {
 		b.mu.Lock("StopTransformJob.goroutine")

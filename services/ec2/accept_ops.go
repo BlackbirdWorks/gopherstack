@@ -51,26 +51,29 @@ type AddressTransfer struct {
 
 // CapacityReservation represents an EC2 Capacity Reservation.
 type CapacityReservation struct {
-	// InterruptibleAllocation is populated on Describe copies of a source reservation only.
-	InterruptibleAllocation *InterruptibleCapacityReservationAllocation `json:"-"`
-	CreateTime              time.Time                                   `json:"createTime"`
-	CapacityReservationID   string                                      `json:"capacityReservationID,omitempty"`
-	InstanceType            string                                      `json:"instanceType,omitempty"`
-	AvailabilityZone        string                                      `json:"availabilityZone,omitempty"`
-	OwnedBy                 string                                      `json:"ownedBy,omitempty"`
-	State                   string                                      `json:"state,omitempty"`
-	// InstancePlatform is the OS platform reserved (e.g. "Linux/UNIX"). Populated
-	// for Capacity Block purchases; empty for plain CreateCapacityReservation
-	// calls that predate this field.
-	InstancePlatform      string `json:"instancePlatform,omitempty"`
-	InstanceMatchCriteria string `json:"instanceMatchCriteria,omitempty"`
-	Tenancy               string `json:"tenancy,omitempty"`
-	// SourceCapacityReservationID is set on an interruptible reservation minted by
-	// CreateInterruptibleCapacityReservationAllocation.
-	SourceCapacityReservationID string `json:"sourceCapacityReservationID,omitempty"`
-	AvailableInstanceCount      int    `json:"availableInstanceCount,omitempty"`
-	TotalInstanceCount          int    `json:"totalInstanceCount,omitempty"`
-	Interruptible               bool   `json:"interruptible,omitempty"`
+	CreateTime                  time.Time                                   `json:"createTime"`
+	StartDate                   time.Time                                   `json:"startDate,omitzero"`
+	OriginalStartDate           time.Time                                   `json:"originalStartDate,omitzero"`
+	EndDate                     time.Time                                   `json:"endDate,omitzero"`
+	AssessmentEnd               time.Time                                   `json:"assessmentEnd,omitzero"`
+	CancellingUntil             time.Time                                   `json:"cancellingUntil,omitzero"`
+	InterruptibleAllocation     *InterruptibleCapacityReservationAllocation `json:"-"`
+	State                       string                                      `json:"state,omitempty"`
+	OwnedBy                     string                                      `json:"ownedBy,omitempty"`
+	AdjustmentStatus            string                                      `json:"adjustmentStatus,omitempty"`
+	SourceCapacityReservationID string                                      `json:"sourceCapacityReservationID,omitempty"`
+	CapacityReservationID       string                                      `json:"capacityReservationID,omitempty"`
+	InstanceType                string                                      `json:"instanceType,omitempty"`
+	AvailabilityZone            string                                      `json:"availabilityZone,omitempty"`
+	DeliveryPreference          string                                      `json:"deliveryPreference,omitempty"`
+	EndDateType                 string                                      `json:"endDateType,omitempty"`
+	InstancePlatform            string                                      `json:"instancePlatform,omitempty"`
+	InstanceMatchCriteria       string                                      `json:"instanceMatchCriteria,omitempty"`
+	Tenancy                     string                                      `json:"tenancy,omitempty"`
+	CommitmentDuration          int64                                       `json:"commitmentDuration,omitempty"`
+	AvailableInstanceCount      int                                         `json:"availableInstanceCount,omitempty"`
+	TotalInstanceCount          int                                         `json:"totalInstanceCount,omitempty"`
+	Interruptible               bool                                        `json:"interruptible,omitempty"`
 }
 
 // ReservedInstancesExchange represents a completed reserved instances exchange.
@@ -273,6 +276,7 @@ func (b *InMemoryBackend) DescribeCapacityReservations(ids []string) []*Capacity
 		}
 
 		cp := *cr
+		advanceCapacityReservation(&cp, b.now().UTC())
 
 		if alloc, ok := b.interruptibleCRAllocations.Get(cr.CapacityReservationID); ok {
 			allocCopy := *alloc

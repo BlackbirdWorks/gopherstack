@@ -827,9 +827,9 @@ func TestStartStop_ConflictException(t *testing.T) {
 
 			// Wait for pipe to exit CREATING state.
 			if tt.setupDesired == "RUNNING" {
-				pipes.WaitPipeRunning(t, b, pipeName)
+				waitPipeRunning(t, b, pipeName)
 			} else {
-				pipes.WaitPipeStopped(t, b, pipeName)
+				waitPipeStopped(t, b, pipeName)
 			}
 
 			rec := auditDo(t, h, http.MethodPost,
@@ -976,7 +976,7 @@ func TestDeletePipe_AlreadyDeleting_ConflictException(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pipes.WaitPipeRunning(t, b, "to-delete")
+	waitPipeRunning(t, b, "to-delete")
 
 	// First delete starts the DELETING transition.
 	_, err = b.DeletePipe(ctx, "to-delete")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 )
 
@@ -62,8 +63,13 @@ func (e *Executor) jxFinish(
 		}
 	}
 
-	e.setVars(assign)
-	e.setVars(extraAssign)
+	merged := make(map[string]any, len(assign))
+	maps.Copy(merged, assign)
+	maps.Copy(merged, extraAssign)
+
+	if err = e.setVars(merged); err != nil {
+		return "", nil, err
+	}
 
 	return next, out, nil
 }
@@ -297,7 +303,9 @@ func (e *Executor) jxCatchOutput(catcher *Catcher, errorResult map[string]any) (
 		}
 	}
 
-	e.setVars(assign)
+	if err = e.setVars(assign); err != nil {
+		return nil, err
+	}
 
 	return out, nil
 }

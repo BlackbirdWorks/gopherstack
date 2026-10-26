@@ -19,6 +19,13 @@ import (
 // credential. See gopherstack-ziv9.
 func allowedWeakHashFiles() map[string]string {
 	return map[string]string{
+		// Azure Blob Content-MD5 headers are the base64 MD5 of the body; integrity checksum, never a credential.
+		"services/azureblob/handler_cond.go": "Azure Blob Content-MD5 header parity",
+		// npm dist.shasum is the SHA-1 of the tarball; content checksum, never a credential.
+		"services/gcpartifactregistry/npm.go": "npm dist.shasum SHA-1 parity",
+		// Maven .sha1/.md5 checksum files and twine md5_digest are defined over those digests; never credentials.
+		"services/gcpartifactregistry/maven.go":  "Maven repository SHA-1/MD5 checksum parity",
+		"services/gcpartifactregistry/python.go": "twine md5_digest upload field verification",
 		// Verified this session: DocumentDescription declares a deprecated Sha1
 		// member beside Hash/HashType (ssm@v1.73.4 types/enums.go:708-724), so an
 		// emulator cannot populate it without computing SHA1. Content-integrity
@@ -26,6 +33,16 @@ func allowedWeakHashFiles() map[string]string {
 		// GCS objects carry an md5Hash field and X-Goog-Hash md5= value defined as the
 		// base64 MD5 of the content; integrity checksum, never a credential.
 		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
+		// OCI Object Storage md5/opc-multipart-md5 headers are base64 MD5 of the content, and API key
+		// fingerprints are the MD5 of the DER public key; integrity/identifier values, never credentials.
+		"services/ociobjectstorage/store.go": "OCI object md5 and multipart md5 parity",
+		"pkgs/ociauth/ociauth.go":            "OCI API key fingerprint is MD5 of the DER public key",
+		// OCI Vault Encrypt/Decrypt expose RSA_OAEP_SHA_1 as a caller-selectable encryption algorithm.
+		"services/ocivault/seal.go": "OCI Vault RSA_OAEP_SHA_1 encryption algorithm parity",
+
+		// Workflows hash.compute_checksum and hash.compute_hmac document MD5 and SHA1 among their algorithms;
+		// a content hash chosen by the workflow author, never a credential.
+		"pkgs/wfinterp/stdlib_text.go": "Workflows hash.compute_checksum MD5/SHA1 parity, verified",
 
 		// GoogleSQL defines MD5() and SHA1() as those digests of the argument; a content hash, never a credential.
 		"services/gcpbigquery/bqsql/udf_str.go": "GoogleSQL MD5()/SHA1() function parity, verified",
@@ -46,6 +63,10 @@ func allowedWeakHashFiles() map[string]string {
 		// certificate x5t claim is a SHA-1 thumbprint (RFC 7515 4.1.7).
 		"services/azurekeyvault/keycrypto.go":  "JWA RSA-OAEP (SHA-1) key-vault algorithm, verified",
 		"services/azurekeyvault/certpolicy.go": "certificate x5t SHA-1 thumbprint, verified",
+
+		// Azure Files Content-MD5 / x-ms-content-md5 headers are defined as the base64 MD5 of the
+		// payload; integrity checksum, never a credential.
+		"services/azurefile/ops_file.go": "Azure Files Content-MD5 header parity, verified",
 
 		// XML-Enc rsa-oaep-mgf1p defaults to SHA-1 (W3C xmlenc-core1 5.4.2); the digest is OAEP
 		// padding for an IdP-encrypted SAML assertion, never a credential hash.

@@ -14,6 +14,16 @@
 	import BigQueryDashboard from '#lib/components/gcp/BigQueryDashboard.svelte';
 	import SqlDashboard from '#lib/components/gcp/SqlDashboard.svelte';
 	import LoggingDashboard from '#lib/components/gcp/LoggingDashboard.svelte';
+	import BigtableDashboard from '#lib/components/gcp/BigtableDashboard.svelte';
+	import EventarcDashboard from '#lib/components/gcp/EventarcDashboard.svelte';
+	import SpannerDashboard from '#lib/components/gcp/SpannerDashboard.svelte';
+	import ArtifactRegistryDashboard from '#lib/components/gcp/ArtifactRegistryDashboard.svelte';
+	import CloudBuildDashboard from '#lib/components/gcp/CloudBuildDashboard.svelte';
+	import RedisDashboard from '#lib/components/gcp/RedisDashboard.svelte';
+	import MonitoringDashboard from '#lib/components/gcp/MonitoringDashboard.svelte';
+	import WorkflowsDashboard from '#lib/components/gcp/WorkflowsDashboard.svelte';
+	import DnsDashboard from '#lib/components/gcp/DnsDashboard.svelte';
+	import ComputeDashboard from '#lib/components/gcp/ComputeDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -53,6 +63,26 @@
 	<SqlDashboard />
 {:else if service?.id === 'logging'}
 	<LoggingDashboard />
+{:else if service?.id === 'bigtable'}
+	<BigtableDashboard />
+{:else if service?.id === 'eventarc'}
+	<EventarcDashboard />
+{:else if service?.id === 'spanner'}
+	<SpannerDashboard />
+{:else if service?.id === 'artifactregistry'}
+	<ArtifactRegistryDashboard />
+{:else if service?.id === 'cloudbuild'}
+	<CloudBuildDashboard />
+{:else if service?.id === 'redis'}
+	<RedisDashboard />
+{:else if service?.id === 'monitoring'}
+	<MonitoringDashboard />
+{:else if service?.id === 'workflows'}
+	<WorkflowsDashboard />
+{:else if service?.id === 'dns'}
+	<DnsDashboard />
+{:else if service?.id === 'compute'}
+	<ComputeDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

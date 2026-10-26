@@ -123,3 +123,112 @@ func (s *channelServer) VerifyNotificationChannel(
 ) (*monitoringpb.NotificationChannel, error) {
 	return s.b.VerifyNotificationChannel(in)
 }
+
+type snoozeServer struct {
+	monitoringpb.UnimplementedSnoozeServiceServer
+	b *InMemoryBackend
+}
+
+func (s *snoozeServer) CreateSnooze(
+	_ context.Context, in *monitoringpb.CreateSnoozeRequest,
+) (*monitoringpb.Snooze, error) {
+	return s.b.CreateSnooze(in)
+}
+
+func (s *snoozeServer) GetSnooze(
+	_ context.Context, in *monitoringpb.GetSnoozeRequest,
+) (*monitoringpb.Snooze, error) {
+	return s.b.GetSnooze(in.GetName())
+}
+
+func (s *snoozeServer) ListSnoozes(
+	_ context.Context, in *monitoringpb.ListSnoozesRequest,
+) (*monitoringpb.ListSnoozesResponse, error) {
+	ss, next, err := s.b.ListSnoozes(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &monitoringpb.ListSnoozesResponse{Snoozes: ss, NextPageToken: next}, nil
+}
+
+func (s *snoozeServer) UpdateSnooze(
+	_ context.Context, in *monitoringpb.UpdateSnoozeRequest,
+) (*monitoringpb.Snooze, error) {
+	return s.b.UpdateSnooze(in)
+}
+
+type serviceServer struct {
+	monitoringpb.UnimplementedServiceMonitoringServiceServer
+	b *InMemoryBackend
+}
+
+func (s *serviceServer) CreateService(
+	_ context.Context, in *monitoringpb.CreateServiceRequest,
+) (*monitoringpb.Service, error) {
+	return s.b.CreateService(in)
+}
+
+func (s *serviceServer) GetService(
+	_ context.Context, in *monitoringpb.GetServiceRequest,
+) (*monitoringpb.Service, error) {
+	return s.b.GetService(in.GetName())
+}
+
+func (s *serviceServer) ListServices(
+	_ context.Context, in *monitoringpb.ListServicesRequest,
+) (*monitoringpb.ListServicesResponse, error) {
+	ss, next, err := s.b.ListServices(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &monitoringpb.ListServicesResponse{Services: ss, NextPageToken: next}, nil
+}
+
+func (s *serviceServer) UpdateService(
+	_ context.Context, in *monitoringpb.UpdateServiceRequest,
+) (*monitoringpb.Service, error) {
+	return s.b.UpdateService(in)
+}
+
+func (s *serviceServer) DeleteService(
+	_ context.Context, in *monitoringpb.DeleteServiceRequest,
+) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, s.b.DeleteService(in.GetName())
+}
+
+func (s *serviceServer) CreateServiceLevelObjective(
+	_ context.Context, in *monitoringpb.CreateServiceLevelObjectiveRequest,
+) (*monitoringpb.ServiceLevelObjective, error) {
+	return s.b.CreateServiceLevelObjective(in)
+}
+
+func (s *serviceServer) GetServiceLevelObjective(
+	_ context.Context, in *monitoringpb.GetServiceLevelObjectiveRequest,
+) (*monitoringpb.ServiceLevelObjective, error) {
+	return s.b.GetServiceLevelObjective(in.GetName())
+}
+
+func (s *serviceServer) ListServiceLevelObjectives(
+	_ context.Context, in *monitoringpb.ListServiceLevelObjectivesRequest,
+) (*monitoringpb.ListServiceLevelObjectivesResponse, error) {
+	ss, next, err := s.b.ListServiceLevelObjectives(in)
+	if err != nil {
+		return nil, err
+	}
+
+	return &monitoringpb.ListServiceLevelObjectivesResponse{ServiceLevelObjectives: ss, NextPageToken: next}, nil
+}
+
+func (s *serviceServer) UpdateServiceLevelObjective(
+	_ context.Context, in *monitoringpb.UpdateServiceLevelObjectiveRequest,
+) (*monitoringpb.ServiceLevelObjective, error) {
+	return s.b.UpdateServiceLevelObjective(in)
+}
+
+func (s *serviceServer) DeleteServiceLevelObjective(
+	_ context.Context, in *monitoringpb.DeleteServiceLevelObjectiveRequest,
+) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, s.b.DeleteServiceLevelObjective(in.GetName())
+}

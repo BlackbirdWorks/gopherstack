@@ -6,7 +6,13 @@ import {
   CLOUD_STORAGE_KEY,
   availableAzureServices,
   availableGcpServices,
+  availableOciServices,
+  azureServiceById,
   categoriesForCloud,
+  CLOUDS,
+  GCP_SERVICES,
+  OCI_SERVICES,
+  ociRoute,
   parseCloud,
   readStoredCloud,
   resolveCloud,
@@ -20,6 +26,8 @@ describe("parseCloud", () => {
     ["aws", "aws"],
     ["Azure", "azure"],
     [" GCP ", "gcp"],
+    ["oci", "oci"],
+    [" Oci ", "oci"],
     ["oracle", null],
     ["", null],
     [null, null],
@@ -70,8 +78,14 @@ describe("storage", () => {
 
 describe("availableAzureServices", () => {
   it("lists only services the backend reports, case-insensitively", () => {
-    const got = availableAzureServices(["S3", "azureblob", "CosmosDB", "AzureQueue"]);
-    expect(got.map((s) => s.id)).toEqual(["blob", "queue", "cosmosdb"]);
+    const got = availableAzureServices([
+      "S3",
+      "azureblob",
+      "CosmosDB",
+      "AzureQueue",
+      "AzureMonitor",
+    ]);
+    expect(got.map((s) => s.id)).toEqual(["blob", "queue", "cosmosdb", "monitor"]);
   });
 
   it("is empty when no Azure service is served", () => {
@@ -80,7 +94,8 @@ describe("availableAzureServices", () => {
 
   it("has unique ids and ports", () => {
     expect(new Set(AZURE_SERVICES.map((s) => s.id)).size).toBe(AZURE_SERVICES.length);
-    expect(new Set(AZURE_SERVICES.map((s) => s.defaultPort)).size).toBe(AZURE_SERVICES.length);
+    const labels = new Map(AZURE_SERVICES.map((s) => [s.portLabel, s.defaultPort]));
+    expect(new Set(labels.values()).size).toBe(labels.size);
   });
 });
 
@@ -144,8 +159,84 @@ describe("cloudFromPath", () => {
     ["/dashboard/azure/blob", "azure"],
     ["/dashboard/gcp", "gcp"],
     ["/dashboard/gcp/sql", "gcp"],
+    ["/dashboard/oci", "oci"],
+    ["/dashboard/oci/vault", "oci"],
+    ["/dashboard/ocifoo", null],
     ["/dashboard/s3", null],
     ["/dashboard/gcpfoo", null],
     ["/dashboard/", null],
   ])("%s", (path, want) => expect(cloudFromPath(path)).toBe(want));
+});
+
+describe("Oracle Cloud", () => {
+  it("is registered in the switcher with a label and icon", () => {
+    expect(CLOUDS.find((c) => c.id === "oci")).toEqual({
+      id: "oci",
+      label: "Oracle Cloud",
+      icon: "oci",
+    });
+  });
+
+  it("lists only served services, case-insensitively", () => {
+    const got = availableOciServices([
+      "S3",
+      "ocivault",
+      "OCIObjectStorage",
+      "OCIIdentity",
+      "OCIFunctions",
+    ]);
+    expect(got.map((s) => s.id)).toEqual(["objectstorage", "vault", "identity", "functions"]);
+    expect(availableOciServices(["S3"])).toEqual([]);
+  });
+
+  it("has unique ids and ports", () => {
+    expect(new Set(OCI_SERVICES.map((s) => s.id)).size).toBe(OCI_SERVICES.length);
+    expect(new Set(OCI_SERVICES.map((s) => s.defaultPort)).size).toBe(OCI_SERVICES.length);
+  });
+
+  it("builds an Oracle Cloud category of per-service routes", () => {
+    const cats = categoriesForCloud(
+      "oci",
+      sidebarCategories,
+      [],
+      [],
+      availableOciServices(["OCIStreaming", "OCIVault"]),
+    );
+    expect(cats).toHaveLength(1);
+    expect(cats[0]?.routes.map((r) => r.href)).toEqual([
+      "/dashboard/oci/vault",
+      "/dashboard/oci/streaming",
+    ]);
+    expect(categoriesForCloud("oci", sidebarCategories, [], [], [])).toEqual([]);
+  });
+
+  it("derives route ids and icons from the service id", () => {
+    const [first] = OCI_SERVICES;
+    expect(ociRoute(first)).toEqual({
+      id: "oci-objectstorage",
+      href: "/dashboard/oci/objectstorage",
+      label: "Object Storage",
+      icon: "oci-objectstorage",
+    });
+  });
+});
+
+describe("new GCP console pages", () => {
+  it("registers Workflows and Cloud DNS", () => {
+    expect(availableGcpServices(["GCPWorkflows", "GCPDNS"]).map((s) => s.id)).toEqual([
+      "workflows",
+      "dns",
+    ]);
+    expect(new Set(GCP_SERVICES.map((s) => s.defaultPort)).size).toBe(GCP_SERVICES.length);
+  });
+
+  it("registers Compute Engine and Container Instances", () => {
+    expect(availableGcpServices(["GCPCompute"]).map((s) => s.id)).toEqual(["compute"]);
+    expect(availableAzureServices(["AzureARM"]).map((s) => s.id)).toEqual(["arm", "aci"]);
+    expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
+  });
+
+  it("registers Azure Files", () => {
+    expect(availableAzureServices(["AzureFile"]).map((s) => s.id)).toEqual(["file"]);
+  });
 });

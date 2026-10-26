@@ -379,6 +379,9 @@ func (b *InMemoryBackend) ListExecutions(in *runpb.ListExecutionsRequest) ([]*ru
 		in.GetParent()+"/executions/",
 		func(e *execRec) *runpb.Execution { return clone(e.pb) },
 	)
+	if in.GetShowDeleted() {
+		all = mergeDeleted(b, all, b.deleted.executions, in.GetParent()+"/executions/", clone[*runpb.Execution])
+	}
 	b.mu.RUnlock()
 
 	return paginate(all, in.GetPageToken(), in.GetPageSize())
@@ -479,6 +482,7 @@ func (b *InMemoryBackend) DeleteExecution(
 	view := clone(ex.pb)
 	view.DeleteTime = b.ts()
 	b.purgeExecutionsLocked(in.GetName())
+	b.entombExecutionLocked(view)
 	b.mu.Unlock()
 
 	return b.doneOp(opName(n.parent()), view, view)

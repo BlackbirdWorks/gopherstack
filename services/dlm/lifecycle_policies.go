@@ -80,6 +80,12 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(policyID string) error {
 
 	b.policies.Delete(policyID)
 
+	for _, m := range b.managed.All() {
+		if m.PolicyID == policyID {
+			b.managed.Delete(m.ID)
+		}
+	}
+
 	return nil
 }
 

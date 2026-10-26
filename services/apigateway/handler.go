@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/executeapi"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -51,31 +52,26 @@ type JWKSProvider interface {
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend      StorageBackend
+	metrics      cwmetric.Sink
 	jwksProvider JWKSProvider
 	lambda       LambdaInvoker
 	sqsSender    SQSSender
 	snsPublisher SNSPublisher
 	awsInvoker   AWSServiceInvoker
-	httpClient   *http.Client
 	authCache    *authorizerCache
+	httpClient   *http.Client
 	respCache    *responseCache
 	peers        *regionpeers.Set[Handler]
-	// selRegexpCache is a bounded LRU of compiled selection-pattern regexps. It is
-	// keyed by user-supplied patterns, so it must be size-capped to prevent unbounded
-	// growth.
+	// selRegexpCache is a size-capped LRU: keyed by user-supplied patterns.
 	selRegexpCache *regexpCache
-	// dispatchCache is the op→handler table, built exactly once (see dispatchOnce)
-	// instead of per request.
+	// dispatchCache is the op->handler table, built once (see dispatchOnce).
 	dispatchCache map[string]actionFn
-	// trieCache holds the per-deployment routing trie (map[deploymentID]*resourcePathTrie).
-	// A deployment's snapshot is immutable once created, so entries are built once and
-	// evicted only when their deployment is deleted (see deleteDeploymentAction /
-	// deleteRestAPIAction).
-	trieCache sync.Map
-	metrics   cwmetric.Sink
-	region    string
-	// dispatchOnce guards the one-time build of dispatchCache.
+	// trieCache holds the immutable per-deployment routing trie, evicted on deployment delete.
+	trieCache    sync.Map
+	region       string
 	dispatchOnce sync.Once
+	// DisableCustomCORS ignores per-resource CORS configuration on executed APIs.
+	DisableCustomCORS bool
 }
 
 // EnableRegions makes h serve every other region through lazily built per-region
@@ -372,6 +368,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
+		if id, _, ok := executeapi.Parse(c.Request()); ok {
+			return h.hasRestAPI(id)
+		}
+
 		// Stage invoke URLs (stageInvokeURL in store.go) land here; unclaimed, they fall
 		// through to S3's catch-all (S3 excludes /api/, /metrics/, /dashboard/, not /proxy/).
 		if strings.HasPrefix(path, "/proxy/") {
@@ -384,7 +384,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return strings.Contains(after, ":apigateway:")
 		}
 
-		return false
+		owner, _ := h.customDomainOwner(c.Request())
+
+		return owner != nil
 	}
 }
 
@@ -462,6 +464,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
 			return c.JSON(http.StatusOK, h.GetSupportedOperations())
+		}
+
+		if id, rest, ok := executeapi.Parse(c.Request()); ok && h.hasRestAPI(id) {
+			return h.handleExecuteAPIEcho(c, id, rest)
+		}
+
+		if handled, err := h.serveCustomDomain(c); handled {
+			return err
 		}
 
 		// Handle proxy invocations for deployed API stages.
@@ -838,6 +848,30 @@ func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 
 	r := c.Request().Clone(c.Request().Context())
 	r.URL.Path = "/" + stageName + resourcePath
+
+	owner := h.invokeOwner(apiID)
+	owner.handleProxyRequest(apiID, stageName)(c.Response(), owner.invokeRequest(r))
+
+	return nil
+}
+
+// hasRestAPI reports whether h or a peer region owns the REST API.
+func (h *Handler) hasRestAPI(apiID string) bool {
+	_, err := h.invokeOwner(apiID).Backend.GetRestAPI(apiID)
+
+	return err == nil
+}
+
+// handleExecuteAPIEcho serves {apiId}.execute-api.<host>/{stage}/{path} and
+// /_aws/execute-api/{apiId}/{stage}/{path}; rest is "/{stage}/{path}".
+func (h *Handler) handleExecuteAPIEcho(c *echo.Context, apiID, rest string) error {
+	stageName, _, _ := strings.Cut(strings.TrimPrefix(rest, "/"), "/")
+	if stageName == "" {
+		return c.String(http.StatusNotFound, "invalid execute-api path")
+	}
+
+	r := c.Request().Clone(c.Request().Context())
+	r.URL.Path = rest
 
 	owner := h.invokeOwner(apiID)
 	owner.handleProxyRequest(apiID, stageName)(c.Response(), owner.invokeRequest(r))

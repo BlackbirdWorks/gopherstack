@@ -50,7 +50,7 @@ func TestEngineDockerSecurityGroupEnforcement(t *testing.T) {
 				got, derr := b.DescribeDBInstances("sg1")
 				require.NoError(t, derr)
 				inst = got[0]
-				require.NotEqual(t, "failed", inst.DBInstanceStatus)
+				requireNotFailed(t, b, "sg1", inst.DBInstanceStatus)
 
 				return inst.DBInstanceStatus == "available"
 			}, dockerEngineWait, 500*time.Millisecond)

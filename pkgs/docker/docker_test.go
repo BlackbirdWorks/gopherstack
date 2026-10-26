@@ -30,6 +30,7 @@ type mockDockerAPI struct {
 	listError   error
 	pingError   error
 	containers  map[string]string
+	keptVolumes []string
 	images      []image.Summary
 	counter     int
 	mu          sync.Mutex
@@ -116,7 +117,13 @@ func (m *mockDockerAPI) ContainerStop(_ context.Context, _ string, _ container.S
 	return m.stopError
 }
 
-func (m *mockDockerAPI) ContainerRemove(_ context.Context, containerID string, _ container.RemoveOptions) error {
+func (m *mockDockerAPI) ContainerRemove(_ context.Context, containerID string, opts container.RemoveOptions) error {
+	if !opts.RemoveVolumes {
+		m.mu.Lock()
+		m.keptVolumes = append(m.keptVolumes, containerID)
+		m.mu.Unlock()
+	}
+
 	if m.removeError != nil {
 		return m.removeError
 	}
@@ -317,9 +324,10 @@ func TestClient_StopAndRemove(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(t *testing.T, api *mockDockerAPI, c *docker.Client) string
-		name    string
-		wantErr bool
+		setup              func(t *testing.T, api *mockDockerAPI, c *docker.Client) string
+		name               string
+		wantErr            bool
+		wantVolumesRemoved bool
 	}{
 		{
 			name: "success",
@@ -330,6 +338,7 @@ func TestClient_StopAndRemove(t *testing.T) {
 
 				return id
 			},
+			wantVolumesRemoved: true,
 		},
 		{
 			name: "stop_error",
@@ -368,6 +377,12 @@ func TestClient_StopAndRemove(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
+			if tt.wantVolumesRemoved {
+				api.mu.Lock()
+				defer api.mu.Unlock()
+				assert.Empty(t, api.keptVolumes, "removal must pass RemoveVolumes")
+			}
 		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -74,7 +75,7 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 	apiID := randomAPIID()
 	apiARN := arn.Build("appsync", b.region, b.accountID, "apis/"+apiID)
 
-	graphqlEndpoint := fmt.Sprintf("%s/v1/apis/%s/graphql", b.endpoint, apiID)
+	graphqlEndpoint := endpointstrategy.GraphQLURI(b.graphqlStrategy, b.endpoint, apiID)
 
 	now := time.Now().Unix()
 

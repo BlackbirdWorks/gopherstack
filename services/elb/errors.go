@@ -84,7 +84,8 @@ var (
 func publicMessage(code, raw string) string {
 	detail := strings.TrimPrefix(raw, code)
 	detail = strings.TrimPrefix(detail, ": ")
-	name := strings.Trim(detail, `"`)
+	// Escaped so a name can never close the quotes in the message (names never contain them).
+	name := strings.ReplaceAll(strings.Trim(detail, `"`), "'", `\'`)
 
 	switch code {
 	case "LoadBalancerNotFound":

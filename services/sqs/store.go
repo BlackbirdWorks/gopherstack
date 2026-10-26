@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -55,10 +56,15 @@ type InMemoryBackend struct {
 	// queueDeletedRecentlyWindowSecs are pruned lazily by CreateQueue's own
 	// check and swept periodically by pruneState so the map cannot grow
 	// unboundedly across a long-lived backend that deletes many queues.
-	recentlyDeleted map[string]time.Time
-	accountID       string
-	region          string
-	defaultEndpoint string
+	recentlyDeleted  map[string]time.Time
+	accountID        string
+	region           string
+	defaultEndpoint  string
+	endpointStrategy string
+	noPurgeCooldown  atomic.Bool
+	noDeletedWait    atomic.Bool
+	noRetention      atomic.Bool
+	noMetrics        atomic.Bool
 }
 
 // queueTableKey is the [store.Table] key function for b.queues, deriving the
@@ -75,6 +81,22 @@ func (b *InMemoryBackend) SetDefaultEndpoint(endpoint string) {
 	b.defaultEndpoint = endpoint
 }
 
+// SetEndpointStrategy selects the queue URL format (see pkgs/endpointstrategy); empty keeps http://host/account/name.
+func (b *InMemoryBackend) SetEndpointStrategy(strategy string) {
+	b.mu.Lock("SetEndpointStrategy")
+	defer b.mu.Unlock()
+
+	b.endpointStrategy = strategy
+}
+
+// ApplySettings applies the behaviour toggles; the zero Settings keeps AWS behaviour.
+func (b *InMemoryBackend) ApplySettings(s Settings) {
+	b.noPurgeCooldown.Store(s.DisablePurgeCooldown)
+	b.noDeletedWait.Store(s.DisableRecentlyDeletedWait)
+	b.noRetention.Store(s.DisableMessageRetention)
+	b.noMetrics.Store(s.DisableCloudWatchMetrics)
+}
+
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.
 func (b *InMemoryBackend) SetMetricEmitter(e cwmetric.Emitter) {
 	b.mu.Lock("SetMetricEmitter")
@@ -85,6 +107,10 @@ func (b *InMemoryBackend) SetMetricEmitter(e cwmetric.Emitter) {
 
 // emitMetric publishes an AWS/SQS metric with the QueueName dimension asynchronously.
 func (b *InMemoryBackend) emitMetric(region, queueName, name, unit string, value float64) {
+	if b.noMetrics.Load() {
+		return
+	}
+
 	var e cwmetric.Emitter
 	func() {
 		b.mu.RLock("emitMetric")

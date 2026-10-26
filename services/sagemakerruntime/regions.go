@@ -16,6 +16,7 @@ func (h *Handler) EnableRegions() {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackend(home.accountID, region)
 		nb.endpointLookup = home.endpointLookup
+		nb.containerInvoker = home.containerInvoker
 
 		return NewHandler(nb)
 	})

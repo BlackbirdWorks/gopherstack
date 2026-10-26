@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -53,7 +54,13 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 	// The endpoint for repository URIs is set to the Gopherstack server address.
 	// At init time we don't know the actual port; the CLI sets this after startup.
 	// For now use an empty string; SetEndpoint() can be called later.
+	strategies := endpointstrategy.From(appCtx.Config)
+	if err := strategies.Validate(); err != nil {
+		return nil, err
+	}
+
 	backend := NewInMemoryBackend(accountID, region, "")
+	backend.SetEndpointStrategy(strategies)
 
 	var registryHandler http.Handler
 

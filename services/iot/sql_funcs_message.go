@@ -16,7 +16,7 @@ import (
 func messageFuncs() map[string]funcDef {
 	return map[string]funcDef{
 		"topic":       {impl: topicFunc},
-		"timestamp":   {impl: func(c *sqlCtx, _ []any) any { return c.msg.received.UnixMilli() }},
+		keyTimestamp:  {impl: func(c *sqlCtx, _ []any) any { return c.msg.received.UnixMilli() }},
 		"clientid":    {impl: clientIDFunc},
 		"newuuid":     {impl: func(*sqlCtx, []any) any { return uuid.NewString() }},
 		"accountid":   {impl: func(c *sqlCtx, _ []any) any { return c.msg.account }},

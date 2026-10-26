@@ -134,7 +134,7 @@ func TestEnrichmentParameters_Update(t *testing.T) {
 			}
 			_, err := b.CreatePipe(context.Background(), inp)
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			updated, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
 				RoleARN:              "arn:aws:iam::123456789012:role/r",
@@ -203,7 +203,7 @@ func TestPipeEnrichmentTracking(t *testing.T) {
 				DesiredState: "RUNNING",
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, pipeName)
+			waitPipeRunning(t, b, pipeName)
 
 			pipes.PollAllPipesOnce(context.Background(), r)
 
@@ -253,7 +253,7 @@ func TestEnrichment_LambdaInvocation(t *testing.T) {
 				DesiredState: "RUNNING",
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name)
+			waitPipeRunning(t, b, tt.name)
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: `{"original":true}`}},
@@ -333,7 +333,7 @@ func TestEnrichment_RecordedOnlyWhenConfigured(t *testing.T) {
 				DesiredState: "RUNNING",
 			})
 			require.NoError(t, err)
-			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
+			waitPipeRunning(t, b, tt.name+"-pipe")
 
 			sqsReader := &b3MockSQSReader{
 				messages: []*pipes.SQSMessage{{MessageID: "m1", ReceiptHandle: "rh1", Body: "{}"}},

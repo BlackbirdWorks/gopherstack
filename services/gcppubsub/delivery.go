@@ -33,17 +33,50 @@ func msgSize(m *message) int64 {
 	return n
 }
 
-// Publish appends messages to a topic and fans them out to its subscriptions.
+// PublishObserver is called after every accepted publish, once per message, outside the backend lock.
+type PublishObserver func(topic string, msg *pubsubpb.PubsubMessage)
+
+// ObservePublishes registers fn to see every message published from now on.
+func (b *InMemoryBackend) ObservePublishes(fn PublishObserver) {
+	b.mu.Lock("ObservePublishes")
+	defer b.mu.Unlock()
+
+	b.observers = append(b.observers, fn)
+}
+
+// Publish appends messages to a topic, fans them out to its subscriptions and notifies publish observers.
 func (b *InMemoryBackend) Publish(req *pubsubpb.PublishRequest) ([]string, error) {
+	ids, stored, observers, err := b.publish(req)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, m := range stored {
+		pm := &pubsubpb.PubsubMessage{
+			Data: m.Data, Attributes: m.Attrs, MessageId: m.ID,
+			PublishTime: timestamppb.New(m.PublishTime), OrderingKey: m.OrderingKey,
+		}
+
+		for _, fn := range observers {
+			fn(req.GetTopic(), pm)
+		}
+	}
+
+	return ids, nil
+}
+
+func (b *InMemoryBackend) publish(
+	req *pubsubpb.PublishRequest,
+) ([]string, []*message, []PublishObserver, error) {
 	msgs := req.GetMessages()
 	if len(msgs) == 0 {
-		return nil, errInvalid(
+		return nil, nil, nil, errInvalid(
 			"The value for message_count is too small. You passed 0 in the request, but the minimum value is 1.",
 		)
 	}
 
 	if len(msgs) > maxPublishBatch {
-		return nil, errInvalid(
+		return nil, nil, nil, errInvalid(
 			"The value for message_count is too large. You passed %d in the request, but the maximum value is %d.",
 			len(msgs),
 			maxPublishBatch,
@@ -54,12 +87,12 @@ func (b *InMemoryBackend) Publish(req *pubsubpb.PublishRequest) ([]string, error
 
 	for _, m := range msgs {
 		if len(m.GetData()) == 0 && len(m.GetAttributes()) == 0 {
-			return nil, errInvalid("At least one of 'data' or 'attributes' must be specified.")
+			return nil, nil, nil, errInvalid("At least one of 'data' or 'attributes' must be specified.")
 		}
 
 		for k := range m.GetAttributes() {
 			if k == "" {
-				return nil, errInvalid("Attribute keys must be non-empty.")
+				return nil, nil, nil, errInvalid("Attribute keys must be non-empty.")
 			}
 		}
 
@@ -67,7 +100,7 @@ func (b *InMemoryBackend) Publish(req *pubsubpb.PublishRequest) ([]string, error
 	}
 
 	if total > maxPublishBytes {
-		return nil, errInvalid("Request payload size exceeds the limit: %d bytes.", maxPublishBytes)
+		return nil, nil, nil, errInvalid("Request payload size exceeds the limit: %d bytes.", maxPublishBytes)
 	}
 
 	b.mu.Lock("Publish")
@@ -75,11 +108,11 @@ func (b *InMemoryBackend) Publish(req *pubsubpb.PublishRequest) ([]string, error
 
 	t, ok := b.topics[req.GetTopic()]
 	if !ok {
-		return nil, errNotFound("topics", req.GetTopic())
+		return nil, nil, nil, errNotFound("topics", req.GetTopic())
 	}
 
 	if err := b.validateAgainstSchemaLocked(t, msgs); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	b.sweepSubsLocked()
@@ -102,7 +135,7 @@ func (b *InMemoryBackend) Publish(req *pubsubpb.PublishRequest) ([]string, error
 
 	b.fanOutLocked(req.GetTopic(), t, stored)
 
-	return ids, nil
+	return ids, stored, slices.Clone(b.observers), nil
 }
 
 func (b *InMemoryBackend) fanOutLocked(topicName string, t *topic, msgs []*message) {

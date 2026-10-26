@@ -17,16 +17,17 @@ import (
 
 // Handler is the Echo HTTP handler for Kinesis operations.
 type Handler struct {
-	Backend       StorageBackend
-	janitor       *Janitor
-	ops           map[string]kinesisDispatchFn
-	DefaultRegion string
-	AccountID     string
-	subscriptions subscriptionTracker
-	// subscribeToShard* set the SubscribeToShard stream cadence; tests shorten them via WithSubscribeToShardTiming.
+	Backend                           StorageBackend
+	janitor                           *Janitor
+	ops                               map[string]kinesisDispatchFn
+	sleep                             func(ctx context.Context, d time.Duration) error
+	DefaultRegion                     string
+	AccountID                         string
+	subscriptions                     subscriptionTracker
 	subscribeToShardStreamDuration    time.Duration
 	subscribeToShardPollInterval      time.Duration
 	subscribeToShardHeartbeatInterval time.Duration
+	latency                           time.Duration
 }
 
 // NewHandler creates a new Kinesis Handler.
@@ -40,6 +41,35 @@ func NewHandler(backend StorageBackend) *Handler {
 	h.ops = h.buildOps()
 
 	return h
+}
+
+// WithLatency delays each non-streaming response by d. A nil sleep uses a context-aware timer;
+// tests inject a fake.
+func (h *Handler) WithLatency(d time.Duration, sleep func(ctx context.Context, d time.Duration) error) *Handler {
+	h.latency = d
+	h.sleep = sleep
+
+	return h
+}
+
+func (h *Handler) delay(ctx context.Context) error {
+	if h.latency <= 0 {
+		return nil
+	}
+
+	if h.sleep != nil {
+		return h.sleep(ctx, h.latency)
+	}
+
+	t := time.NewTimer(h.latency)
+	defer t.Stop()
+
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // WithSubscribeToShardTiming overrides SubscribeToShard's stream duration,
@@ -253,6 +283,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		// dispatched before the normal JSON target handler.
 		if c.Request().Header.Get("X-Amz-Target") == kinesisTargetPrefix+"SubscribeToShard" {
 			return h.handleSubscribeToShardHTTP(c)
+		}
+
+		if err := h.delay(c.Request().Context()); err != nil {
+			return nil //nolint:nilerr // client went away during the artificial delay
 		}
 
 		if service.IsCBORRequest(c.Request()) {

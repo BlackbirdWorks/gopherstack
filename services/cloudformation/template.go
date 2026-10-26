@@ -1497,7 +1497,7 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 	resType := resourceTypeFor(logicalID, ctx)
 
 	// Custom resource Data outputs are stored in physicalIDs as "logicalID/Key".
-	if resType == cfnTypeCustomResource || strings.HasPrefix(resType, "Custom::") {
+	if usesStashedAttrs(resType) {
 		if v := getCustomResourceAttrFromPhysicalIDs(logicalID, attrName, ctx.physicalIDs); v != "" {
 			return v
 		}
@@ -1550,6 +1550,7 @@ func resolveGetAtt(logicalID, attrName string, ctx resolveCtx) string {
 			resTypeAthenaNamedQuery, resTypeAthenaCapacityReservation,
 			resTypeMemoryDBCluster,
 			resTypeLambdaCodeSigningConfig, resTypeEventsEndpoint, resTypeSchedulerScheduleGroup,
+			resTypeRUMAppMonitor, resTypeOAMLink, resTypeCloudHSMCluster,
 			resTypeAppSyncDomainName,
 			resTypeR53RResolverRuleAssoc, resTypeR53RFirewallDomainList, resTypeR53RFirewallRuleGroup,
 			resTypeR53RFirewallRGAssoc, resTypeR53RQueryLogConfig, resTypeR53RQueryLogConfigAssc,

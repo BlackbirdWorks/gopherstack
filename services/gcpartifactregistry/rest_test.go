@@ -118,7 +118,7 @@ func TestIAMPolicy(t *testing.T) {
 	_, err = e.client.SetIamPolicy(t.Context(), &iampb.SetIamPolicyRequest{
 		Resource: repoName("iamrepo"), Policy: &iampb.Policy{Etag: []byte("stale")},
 	})
-	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.Equal(t, codes.Aborted, status.Code(err))
 
 	_, err = e.client.GetIamPolicy(t.Context(), &iampb.GetIamPolicyRequest{Resource: repoName("ghost")})
 	assert.Equal(t, codes.NotFound, status.Code(err))

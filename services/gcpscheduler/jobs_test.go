@@ -89,7 +89,7 @@ func TestCreateJobErrors(t *testing.T) {
 		}), "name under other parent", location},
 		{good(func(j *schedulerpb.Job) { j.Name = location + "/jobs/bad id" }), "bad id", location},
 		{good(func(j *schedulerpb.Job) { j.Schedule = "" }), "no schedule", location},
-		{good(func(j *schedulerpb.Job) { j.Schedule = "every 5 minutes" }), "bad cron", location},
+		{good(func(j *schedulerpb.Job) { j.Schedule = "every 6 hours mon,wed,fri" }), "bad cron", location},
 		{good(func(j *schedulerpb.Job) { j.TimeZone = "Mars/Olympus" }), "bad zone", location},
 		{good(func(j *schedulerpb.Job) { j.Target = nil }), "no target", location},
 		{good(func(j *schedulerpb.Job) {

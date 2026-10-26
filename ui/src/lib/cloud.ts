@@ -1,11 +1,12 @@
 import type { DashboardCategory, DashboardRoute } from "./nav";
 
-export type Cloud = "aws" | "azure" | "gcp";
+export type Cloud = "aws" | "azure" | "gcp" | "oci";
 
-export const CLOUDS: readonly { id: Cloud; label: string }[] = [
+export const CLOUDS: readonly { id: Cloud; label: string; icon?: string }[] = [
   { id: "aws", label: "AWS" },
-  { id: "azure", label: "Azure" },
-  { id: "gcp", label: "GCP" },
+  { id: "azure", label: "Azure", icon: "azure" },
+  { id: "gcp", label: "GCP", icon: "gcp" },
+  { id: "oci", label: "Oracle Cloud", icon: "oci" },
 ];
 
 export const DEFAULT_CLOUD: Cloud = "aws";
@@ -103,6 +104,38 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     healthName: "CosmosDB",
     portLabel: "cosmosdb",
     defaultPort: 8081,
+  },
+  {
+    id: "functions",
+    label: "Functions",
+    description: "Azure Functions",
+    healthName: "AzureFunctions",
+    portLabel: "azurefunctions",
+    defaultPort: 10012,
+  },
+  {
+    id: "file",
+    label: "Files",
+    description: "Azure Files",
+    healthName: "AzureFile",
+    portLabel: "azurefile",
+    defaultPort: 10009,
+  },
+  {
+    id: "monitor",
+    label: "Monitor Logs",
+    description: "Azure Monitor Logs",
+    healthName: "AzureMonitor",
+    portLabel: "azuremonitor",
+    defaultPort: 10013,
+  },
+  {
+    id: "aci",
+    label: "Container Instances",
+    description: "Azure Container Instances (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
   },
 ];
 
@@ -222,6 +255,140 @@ export const GCP_SERVICES: readonly GcpService[] = [
     portLabel: "gcpfirestore",
     defaultPort: 8080,
   },
+  {
+    id: "bigtable",
+    label: "Bigtable",
+    description: "Google Cloud Bigtable",
+    healthName: "GCPBigtable",
+    portLabel: "gcpbigtable",
+    defaultPort: 8137,
+  },
+  {
+    id: "eventarc",
+    label: "Eventarc",
+    description: "Google Cloud Eventarc",
+    healthName: "GCPEventarc",
+    portLabel: "gcpeventarc",
+    defaultPort: 8138,
+  },
+  {
+    id: "spanner",
+    label: "Cloud Spanner",
+    description: "Google Cloud Spanner",
+    healthName: "GCPSpanner",
+    portLabel: "gcpspanner",
+    defaultPort: 8135,
+  },
+  {
+    id: "artifactregistry",
+    label: "Artifact Registry",
+    description: "Google Artifact Registry",
+    healthName: "GCPArtifactRegistry",
+    portLabel: "gcpartifactregistry",
+    defaultPort: 8134,
+  },
+  {
+    id: "cloudbuild",
+    label: "Cloud Build",
+    description: "Google Cloud Build",
+    healthName: "GCPCloudBuild",
+    portLabel: "gcpcloudbuild",
+    defaultPort: 8136,
+  },
+  {
+    id: "redis",
+    label: "Memorystore Redis",
+    description: "Google Memorystore for Redis",
+    healthName: "GCPRedis",
+    portLabel: "gcpredis",
+    defaultPort: 8133,
+  },
+  {
+    id: "monitoring",
+    label: "Cloud Monitoring",
+    description: "Google Cloud Monitoring",
+    healthName: "GCPMonitoring",
+    portLabel: "gcpmonitoring",
+    defaultPort: 8132,
+  },
+  {
+    id: "workflows",
+    label: "Workflows",
+    description: "Google Cloud Workflows",
+    healthName: "GCPWorkflows",
+    portLabel: "gcpworkflows",
+    defaultPort: 8139,
+  },
+  {
+    id: "dns",
+    label: "Cloud DNS",
+    description: "Google Cloud DNS",
+    healthName: "GCPDNS",
+    portLabel: "gcpdns",
+    defaultPort: 8140,
+  },
+  {
+    id: "compute",
+    label: "Compute Engine",
+    description: "Google Compute Engine",
+    healthName: "GCPCompute",
+    portLabel: "gcpcompute",
+    defaultPort: 8142,
+  },
+];
+
+export type OciService = {
+  id: string;
+  label: string;
+  description: string;
+  /** Registerable Name() reported by /_gopherstack/health. */
+  healthName: string;
+  /** Label the server reserves the fixed port under (/dashboard/api/system/state). */
+  portLabel: string;
+  defaultPort: number;
+};
+
+export const OCI_SERVICES: readonly OciService[] = [
+  {
+    id: "objectstorage",
+    label: "Object Storage",
+    description: "Oracle Cloud Object Storage",
+    healthName: "OCIObjectStorage",
+    portLabel: "ociobjectstorage",
+    defaultPort: 8150,
+  },
+  {
+    id: "vault",
+    label: "Vault",
+    description: "Oracle Cloud Vault: keys and secrets",
+    healthName: "OCIVault",
+    portLabel: "ocivault",
+    defaultPort: 8151,
+  },
+  {
+    id: "streaming",
+    label: "Streaming",
+    description: "Oracle Cloud Streaming",
+    healthName: "OCIStreaming",
+    portLabel: "ocistreaming",
+    defaultPort: 8152,
+  },
+  {
+    id: "identity",
+    label: "Identity",
+    description: "Oracle Cloud Identity and Access Management",
+    healthName: "OCIIdentity",
+    portLabel: "ociidentity",
+    defaultPort: 8153,
+  },
+  {
+    id: "functions",
+    label: "Functions",
+    description: "Oracle Cloud Functions",
+    healthName: "OCIFunctions",
+    portLabel: "ocifunctions",
+    defaultPort: 8154,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {
@@ -229,9 +396,9 @@ export function parseCloud(value: string | null | undefined): Cloud | null {
   return CLOUDS.find((c) => c.id === v)?.id ?? null;
 }
 
-/** The cloud a dashboard path belongs to (/dashboard/azure/..., /dashboard/gcp/...), else null. */
+/** The cloud a dashboard path belongs to (/dashboard/azure/..., /dashboard/gcp/..., /dashboard/oci/...), else null. */
 export function cloudFromPath(pathname: string): Cloud | null {
-  const m = /^\/dashboard\/(azure|gcp)(\/|$)/.exec(pathname);
+  const m = /^\/dashboard\/(azure|gcp|oci)(\/|$)/.exec(pathname);
   return m ? parseCloud(m[1]) : null;
 }
 
@@ -278,6 +445,25 @@ export function gcpServiceById(id: string): GcpService | undefined {
   return GCP_SERVICES.find((s) => s.id === id);
 }
 
+/** OCI services the backend actually serves, in catalog order. */
+export function availableOciServices(healthNames: readonly string[]): OciService[] {
+  const served = new Set(healthNames.map((n) => n.toLowerCase()));
+  return OCI_SERVICES.filter((s) => served.has(s.healthName.toLowerCase()));
+}
+
+export function ociServiceById(id: string): OciService | undefined {
+  return OCI_SERVICES.find((s) => s.id === id);
+}
+
+export function ociRoute(service: OciService): DashboardRoute {
+  return {
+    id: `oci-${service.id}`,
+    href: `/dashboard/oci/${service.id}`,
+    label: service.label,
+    icon: `oci-${service.id}`,
+  };
+}
+
 export function gcpRoute(service: GcpService): DashboardRoute {
   return {
     id: `gcp-${service.id}`,
@@ -302,8 +488,19 @@ export function categoriesForCloud(
   awsCategories: DashboardCategory[],
   azureServices: readonly AzureService[],
   gcpServices: readonly GcpService[] = [],
+  ociServices: readonly OciService[] = [],
 ): DashboardCategory[] {
   if (cloud === "aws") return awsCategories;
+  if (cloud === "oci") {
+    if (ociServices.length === 0) return [];
+    return [
+      {
+        id: "oci-services",
+        label: "Oracle Cloud Services",
+        routes: ociServices.map((svc) => ociRoute(svc)),
+      },
+    ];
+  }
   if (cloud === "gcp") {
     if (gcpServices.length === 0) return [];
     return [

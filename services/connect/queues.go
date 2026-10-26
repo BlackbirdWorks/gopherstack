@@ -113,7 +113,7 @@ func (b *Backend) CreateQueue(ctx context.Context, in *CreateQueueInput) (*queue
 
 	inst := r.Instance.ID
 
-	if err = b.checkQueueRefs(inst, in); err != nil {
+	if err = firstError(b.checkQueueRefs(inst, in), b.checkOutboundEmail(inst, in.OutboundEmailConfig)); err != nil {
 		return nil, err
 	}
 
@@ -321,6 +321,10 @@ func (b *Backend) UpdateQueueOutboundEmailConfig(ctx context.Context, in *Update
 	}
 
 	return b.updateQueue(ctx, in, func(q *queueRec) error {
+		if err := b.checkOutboundEmail(q.InstanceID, in.OutboundEmailConfig); err != nil {
+			return err
+		}
+
 		q.Queue.OutboundEmailConfig = in.OutboundEmailConfig
 
 		return nil

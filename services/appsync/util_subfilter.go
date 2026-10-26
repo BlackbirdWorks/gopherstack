@@ -7,7 +7,7 @@ import (
 
 func isSubFilterOp(op string) bool {
 	switch op {
-	case "eq", "ne", "le", "lt", "ge", "gt", "contains", "notContains", mBeginsWith, "in", "notIn", "between",
+	case "eq", "ne", "le", "lt", "ge", "gt", "contains", "notContains", mBeginsWith, "in", "notIn", opBetween,
 		"containsAny":
 		return true
 	}
@@ -69,7 +69,7 @@ func filterGroups(in map[string]any, ignored map[string]bool) ([][]subFilter, er
 			continue
 		case k == "or":
 			next, err = orGroups(in[k], ignored)
-		case k == "and":
+		case k == filterAnd:
 			next, err = andGroups(in[k], ignored)
 		default:
 			next, err = fieldGroups(k, in[k])

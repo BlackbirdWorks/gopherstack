@@ -3,10 +3,17 @@ package lambda
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
 
 const (
@@ -109,29 +116,92 @@ func (h *Handler) validateFileSystemConfigsInput(c *echo.Context, cfgs []*FileSy
 	return true
 }
 
-// efsMountBinds returns the bind-mount strings for fn's FileSystemConfigs.
-func (b *InMemoryBackend) efsMountBinds(fn *FunctionConfiguration) ([]string, error) {
+// efsPlan is the container-side result of resolving a function's FileSystemConfigs: the bind
+// mounts, and the access point's PosixUser as the container process identity. The runtime
+// abstraction has no per-mount identity mapping, so the whole function process runs as the
+// PosixUser (files it creates carry that uid/gid on the host backing directory).
+type efsPlan struct {
+	user   string
+	binds  []string
+	groups []string
+}
+
+func (p efsPlan) apply(spec *container.Spec) {
+	spec.Mounts = append(spec.Mounts, p.binds...)
+
+	if p.user != "" {
+		spec.User = p.user
+		spec.GroupAdd = p.groups
+	}
+}
+
+// efsMounts resolves fn's FileSystemConfigs into an efsPlan.
+func (b *InMemoryBackend) efsMounts(fn *FunctionConfiguration) (efsPlan, error) {
 	if len(fn.FileSystemConfigs) == 0 {
-		return nil, nil
+		return efsPlan{}, nil
 	}
 
 	r := b.efsResolverSnapshot()
 	if r == nil {
-		return nil, fmt.Errorf("%w: %w", ErrLambdaUnavailable, errEFSUnavailable)
+		return efsPlan{}, fmt.Errorf("%w: %w", ErrLambdaUnavailable, errEFSUnavailable)
 	}
 
-	binds := make([]string, 0, len(fn.FileSystemConfigs))
+	plan := efsPlan{binds: make([]string, 0, len(fn.FileSystemConfigs))}
 
 	for _, cfg := range fn.FileSystemConfigs {
 		m, err := r.ResolveMount(cfg.Arn)
 		if err != nil {
-			return nil, fmt.Errorf("%w: mount %s: %w", ErrLambdaUnavailable, cfg.Arn, err)
+			return efsPlan{}, fmt.Errorf("%w: mount %s: %w", ErrLambdaUnavailable, cfg.Arn, err)
 		}
 
-		binds = append(binds, m.HostDir+":"+cfg.LocalMountPath)
+		plan.binds = append(plan.binds, m.HostDir+":"+cfg.LocalMountPath)
+
+		if m.HasPosixUser && plan.user == "" {
+			plan.user = strconv.FormatInt(m.UID, 10) + ":" + strconv.FormatInt(m.GID, 10)
+
+			for _, g := range m.SecondaryGIDs {
+				plan.groups = append(plan.groups, strconv.FormatInt(g, 10))
+			}
+		}
 	}
 
-	return binds, nil
+	return plan, nil
+}
+
+const (
+	worldRead os.FileMode = 0o044
+	worldExec os.FileMode = 0o011
+	ownerExec os.FileMode = 0o100
+)
+
+// layerHostDir returns the host side of a "host:container[:ro]" bind string.
+func layerHostDir(bind string) string {
+	host, _, _ := strings.Cut(bind, ":")
+
+	return host
+}
+
+// makeTreeWorldReadable lets a non-root PosixUser read the extracted code directory.
+func makeTreeWorldReadable(root string) {
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // best effort
+		}
+
+		info, infoErr := d.Info()
+		if infoErr != nil {
+			return nil //nolint:nilerr // best effort
+		}
+
+		extra := worldRead
+		if d.IsDir() || info.Mode()&ownerExec != 0 {
+			extra |= worldExec
+		}
+
+		_ = os.Chmod(p, info.Mode().Perm()|extra) // #nosec G122 -- emulator-owned temp tree
+
+		return nil
+	})
 }
 
 // validateFileSystemConfigsUpdate checks the effective FileSystemConfigs/VpcConfig after an update.

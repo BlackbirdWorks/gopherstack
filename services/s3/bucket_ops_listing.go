@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -58,18 +59,20 @@ func (h *S3Handler) listObjects(
 		return
 	}
 
-	prefix := r.URL.Query().Get("prefix")
-	delimiter := r.URL.Query().Get("delimiter")
-	marker := r.URL.Query().Get("marker")
-	encodingType := r.URL.Query().Get("encoding-type")
+	prefix := httputils.RawQueryGet(r.URL.RawQuery, "prefix")
+	delimiter := httputils.RawQueryGet(r.URL.RawQuery, "delimiter")
+	marker := httputils.RawQueryGet(r.URL.RawQuery, "marker")
+	encodingType := httputils.RawQueryGet(r.URL.RawQuery, "encoding-type")
 
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 listObjects input",
-		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
-	)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(
+			ctx,
+			"S3 listObjects input",
+			"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
+		)
+	}
 
-	maxKeys, mkErr := parseMaxKeys(r.URL.Query().Get("max-keys"))
+	maxKeys, mkErr := parseMaxKeys(httputils.RawQueryGet(r.URL.RawQuery, "max-keys"))
 	if mkErr != nil {
 		WriteError(ctx, w, r, mkErr)
 
@@ -468,5 +471,5 @@ func (h *S3Handler) handleListDirectoryBuckets(
 // never reaches the wire at all (client-side error "get identity: bucket
 // name is missing", not a gopherstack bug -- see PARITY.md).
 func isListDirectoryBucketsRequest(r *http.Request) bool {
-	return r.URL.Query().Get("x-id") == "ListDirectoryBuckets"
+	return httputils.RawQueryGet(r.URL.RawQuery, "x-id") == "ListDirectoryBuckets"
 }

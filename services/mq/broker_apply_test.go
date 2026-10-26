@@ -37,12 +37,23 @@ const stockActiveMQXML = `<beans xmlns="http://www.springframework.org/schema/be
 var errExecDown = errors.New("exec down")
 
 type reconfigRuntime struct {
-	execErr error
-	writes  []map[string]string
+	startGate chan struct{}
+	execErr   error
+	writes    []map[string]string
 	fakeRuntime
+	emu    sync.Mutex
 	stops  int
 	starts int
-	emu    sync.Mutex
+}
+
+func (r *reconfigRuntime) holdStarts() func() {
+	gate := make(chan struct{})
+
+	r.emu.Lock()
+	r.startGate = gate
+	r.emu.Unlock()
+
+	return sync.OnceFunc(func() { close(gate) })
 }
 
 func (r *reconfigRuntime) Exec(_ context.Context, _ string, cmd []string) (container.ExecResult, error) {
@@ -83,7 +94,19 @@ func (r *reconfigRuntime) StopContainer(context.Context, string) error {
 	return nil
 }
 
-func (r *reconfigRuntime) StartContainer(context.Context, string) error {
+func (r *reconfigRuntime) StartContainer(ctx context.Context, _ string) error {
+	r.emu.Lock()
+	gate := r.startGate
+	r.emu.Unlock()
+
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	r.emu.Lock()
 	defer r.emu.Unlock()
 
@@ -194,8 +217,12 @@ func TestDockerBrokerReboot_AppliesUsersAndConfiguration(t *testing.T) {
 			writes, _, _ = rt.snapshot()
 			require.Len(t, writes, 1, "users are staged until reboot")
 
+			release := rt.holdStarts()
+			t.Cleanup(release)
+
 			require.NoError(t, b.RebootBroker(br.BrokerID))
 			assert.Equal(t, mq.BrokerStateRebooting, brokerState(b, br.BrokerID))
+			release()
 
 			require.Eventually(t, func() bool {
 				return brokerState(b, br.BrokerID) == mq.BrokerStateRunning

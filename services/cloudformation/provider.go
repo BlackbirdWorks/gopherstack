@@ -1,6 +1,9 @@
 package cloudformation
 
 import (
+	"os"
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
@@ -10,21 +13,25 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
+	appintegrationsbackend "github.com/blackbirdworks/gopherstack/services/appintegrations"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudhsmv2backend "github.com/blackbirdworks/gopherstack/services/cloudhsmv2"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codegurureviewerbackend "github.com/blackbirdworks/gopherstack/services/codegurureviewer"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	connectbackend "github.com/blackbirdworks/gopherstack/services/connect"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
@@ -52,12 +59,14 @@ import (
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
+	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	rumbackend "github.com/blackbirdworks/gopherstack/services/rum"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -162,6 +171,12 @@ type BackendsProvider interface {
 	GetKinesisVideoHandler() service.Registerable
 	GetECRPublicHandler() service.Registerable
 	GetKafkaConnectHandler() service.Registerable
+	GetRUMHandler() service.Registerable
+	GetOAMHandler() service.Registerable
+	GetAppIntegrationsHandler() service.Registerable
+	GetCodeGuruReviewerHandler() service.Registerable
+	GetConnectHandler() service.Registerable
+	GetCloudHSMV2Handler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -216,6 +231,12 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.KinesisVideo, _ = getHandler[*kinesisvideobackend.Handler](bp.GetKinesisVideoHandler())
 	backends.ECRPublic, _ = getHandler[*ecrpublicbackend.Handler](bp.GetECRPublicHandler())
 	backends.KafkaConnect, _ = getHandler[*kafkaconnectbackend.Handler](bp.GetKafkaConnectHandler())
+	backends.RUM, _ = getHandler[*rumbackend.Handler](bp.GetRUMHandler())
+	backends.OAM, _ = getHandler[*oambackend.Handler](bp.GetOAMHandler())
+	backends.AppIntegrations, _ = getHandler[*appintegrationsbackend.Handler](bp.GetAppIntegrationsHandler())
+	backends.CodeGuruReviewer, _ = getHandler[*codegurureviewerbackend.Handler](bp.GetCodeGuruReviewerHandler())
+	backends.Connect, _ = getHandler[*connectbackend.Handler](bp.GetConnectHandler())
+	backends.CloudHSMV2, _ = getHandler[*cloudhsmv2backend.Handler](bp.GetCloudHSMV2Handler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.
@@ -298,6 +319,9 @@ func getHandler[T any](h service.Registerable) (T, bool) {
 	return v, ok
 }
 
+// provisioningDelayEnv opts into async stack provisioning (e.g. "2s").
+const provisioningDelayEnv = "GOPHERSTACK_CFN_PROVISIONING_DELAY"
+
 // Init initializes the CloudFormation service backend and handler.
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
@@ -324,6 +348,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	creator := NewResourceCreator(backends)
 	backend := NewInMemoryBackendWithConfig(accountID, region, creator)
+	if d, err := time.ParseDuration(os.Getenv(provisioningDelayEnv)); err == nil {
+		backend.SetProvisioningDelay(d)
+	}
+
 	handler := NewHandler(backend)
 	handler.EnableRegions()
 

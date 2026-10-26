@@ -3,13 +3,10 @@ package apigatewayv2
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -68,8 +65,7 @@ func TestInvokeWSRoute_DeploymentSnapshot(t *testing.T) {
 
 			require.NoError(t, h.Backend.DeleteRoute(api.APIID, route.RouteID))
 
-			c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/", nil), httptest.NewRecorder())
-			err = h.invokeWSRoute(c, api.APIID, "prod", "chat", "conn-1", nil)
+			_, _, err = h.wsRoute(api.APIID, "prod", "chat")
 
 			if tt.wantErr {
 				require.ErrorIs(t, err, ErrRouteNotFound)
@@ -104,8 +100,11 @@ func TestInvokeWSRoute_LambdaFailureIsIntegrationInvoke(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/", nil), httptest.NewRecorder())
-	err = h.invokeWSRoute(c, api.APIID, "$default", "chat", "conn-1", nil)
+	route, dep, err := h.wsRoute(api.APIID, "$default", "chat")
+	require.NoError(t, err)
+
+	s := &wsSession{h: h, apiID: api.APIID}
+	_, err = s.invoke(context.Background(), dep, route, s.messageEvent("chat", nil, false))
 
 	require.ErrorIs(t, err, ErrIntegrationInvoke)
 }

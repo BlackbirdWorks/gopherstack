@@ -86,6 +86,10 @@ func (b *InMemoryBackend) UpdateShardCount(
 		return nil, ErrShardCountScaling
 	}
 
+	if limErr := b.checkShardLimitLocked(region, stream, targetCount-currentCount); limErr != nil {
+		return nil, limErr
+	}
+
 	reshardTo(stream, targetCount)
 	stream.Status = streamStatusUpdating
 	stream.ReadyAt = b.nowFunc().Add(streamTransitionDelay)
@@ -326,6 +330,10 @@ func (b *InMemoryBackend) SplitShard(ctx context.Context, input *SplitShardInput
 	shard := findShard(stream.Shards, input.ShardToSplit)
 	if shard == nil {
 		return ErrInvalidArgument
+	}
+
+	if limErr := b.checkShardLimitLocked(region, stream, 1); limErr != nil {
+		return limErr
 	}
 
 	newStart := new(big.Int)

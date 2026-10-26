@@ -45,10 +45,14 @@ type Broker struct {
 	// server is accessed atomically to avoid data races between Start and Publish.
 	server       atomic.Pointer[mqtt.Server]
 	observer     atomic.Pointer[iotdataplane.ConnectionObserver]
+	clock        atomic.Pointer[BrokerClock]
+	runCtx       atomic.Pointer[context.Context]
 	ready        chan struct{}
 	backend      *InMemoryBackend
 	others       func() []*InMemoryBackend
 	acks         sync.Map
+	sessions     sync.Map
+	versions     sync.Map
 	boundPort    atomic.Int64
 	authRequired atomic.Bool
 	readyOnce    sync.Once
@@ -74,6 +78,8 @@ func (b *Broker) Ready() <-chan struct{} { return b.ready }
 // It blocks until ctx is cancelled.
 func (b *Broker) Start(ctx context.Context) error {
 	log := logger.Load(ctx)
+
+	b.runCtx.Store(&ctx)
 
 	s := mqtt.New(&mqtt.Options{
 		Logger:       log,
@@ -443,9 +449,13 @@ func (b *Broker) notifyConnected(cl *mqtt.Client) {
 }
 
 func (b *Broker) notifyDisconnected(cl *mqtt.Client, err error) {
-	if cl.IsTakenOver() {
+	if cl.IsTakenOver() || errors.Is(cl.StopCause(), packets.ErrSessionTakenOver) {
+		b.publishDisconnected(cl, reasonDuplicateClientID)
+
 		return
 	}
+
+	b.publishDisconnected(cl, disconnectReason(cl.StopCause(), err))
 
 	if o := b.observer.Load(); o != nil {
 		(*o).ClientDisconnected(cl.ID, disconnectReason(cl.StopCause(), err))
@@ -521,7 +531,8 @@ func (h *ruleHook) ID() string { return "iot-rule-hook" }
 // Provides reports which hook events this hook handles.
 func (h *ruleHook) Provides(b byte) bool {
 	switch b {
-	case mqtt.OnPublish, mqtt.OnPacketRead, mqtt.OnSessionEstablished, mqtt.OnDisconnect:
+	case mqtt.OnPublish, mqtt.OnPacketRead, mqtt.OnSessionEstablish, mqtt.OnSessionEstablished, mqtt.OnDisconnect,
+		mqtt.OnSubscribed, mqtt.OnUnsubscribed:
 		return true
 	default:
 		return false
@@ -544,6 +555,12 @@ func (h *ruleHook) OnPacketRead(cl *mqtt.Client, pk packets.Packet) (packets.Pac
 	return pk, nil
 }
 
+// OnSessionEstablish publishes the connected event before CONNACK, so a takeover of this
+// session (possible only after CONNACK) can never publish its events ahead of this one.
+func (h *ruleHook) OnSessionEstablish(cl *mqtt.Client, _ packets.Packet) {
+	h.broker.publishConnected(cl)
+}
+
 // OnSessionEstablished reports the new session to the connection observer.
 func (h *ruleHook) OnSessionEstablished(cl *mqtt.Client, _ packets.Packet) {
 	h.broker.notifyConnected(cl)
@@ -563,6 +580,10 @@ func (h *ruleHook) OnPublish(cl *mqtt.Client, pk packets.Packet) (packets.Packet
 
 	if jr, ok := parseJobsTopic(pk.TopicName); ok && pk.Origin != mqtt.InlineClientId {
 		h.broker.handleJobsRequest(pk.TopicName, jr, pk.Payload)
+	}
+
+	if cr, ok := parseCommandResponseTopic(pk.TopicName); ok && pk.Origin != mqtt.InlineClientId {
+		h.broker.handleCommandResponse(cr, pk.Payload)
 	}
 
 	ruleName, ingestTopic, ingest := basicIngestTopic(pk.TopicName)

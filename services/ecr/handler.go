@@ -71,6 +71,7 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 	h.peers = regionpeers.New(home.Region(), func(region string) *Handler {
 		nb := NewInMemoryBackend(home.accountID, region, home.ProxyEndpoint())
 		nb.replicationSettleDelay = home.replicationSettleDelay
+		nb.endpoints = home.endpoints
 		p := NewHandler(nb, nil)
 
 		if h.janitor == nil {

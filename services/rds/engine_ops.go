@@ -31,7 +31,7 @@ func (b *InMemoryBackend) execUnitOp(lb *liveDB, id string, op unitOp) {
 	rt := b.engine.cfg.Runtime
 
 	if err := b.stopPhase(ctx, rt, id, op); err != nil {
-		b.failUnit(ctx, lb)
+		b.failUnit(ctx, lb, "stop container", err)
 
 		return
 	}
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) execUnitOp(lb *liveDB, id string, op unitOp) {
 	scancel()
 
 	if err != nil {
-		b.failUnit(ctx, lb)
+		b.failUnit(ctx, lb, "start container", err)
 
 		return
 	}
@@ -207,7 +207,7 @@ func (b *InMemoryBackend) relaunchUnitsLocked() {
 	var replicas []*DBInstance
 
 	for _, inst := range b.instances.All() {
-		if engineKind(inst.Engine) == "" || inst.DBInstanceStatus == instanceStatusDeleting {
+		if b.engine.kindOf(inst.Engine) == "" || inst.DBInstanceStatus == instanceStatusDeleting {
 			continue
 		}
 
@@ -285,7 +285,7 @@ func (b *InMemoryBackend) engineManaged(engine string) bool {
 	b.mu.RLock("engineManaged")
 	defer b.mu.RUnlock()
 
-	return b.engine != nil && engineKind(engine) != ""
+	return b.engine != nil && b.engine.kindOf(engine) != ""
 }
 
 // guardEngineModify rejects ModifyDBInstance while a real engine is not up and applies a new master password.

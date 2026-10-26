@@ -49,6 +49,9 @@ type buildRunner struct {
 	containerID   string
 	region        string
 	cacheStage    string
+	cacheKey      string
+	secondary     []secondarySource
+	envMap        map[string]string
 	srcDir        string
 	cfg           EngineConfig
 	masked        []string
@@ -337,6 +340,13 @@ func (r *buildRunner) provision() outcome {
 		return clientError("Failed to prepare cache: %v", err)
 	}
 
+	secMounts, err := r.prepareSecondarySources()
+	if err != nil {
+		return clientError("Failed to prepare secondary sources: %v", err)
+	}
+
+	cacheMounts = append(cacheMounts, secMounts...)
+
 	spec := container.Spec{
 		Image:      resolveImage(image, r.cfg.DefaultImage),
 		Entrypoint: []string{"tail", "-f", "/dev/null"},
@@ -398,11 +408,19 @@ func (r *buildRunner) cleanup() {
 		_ = os.RemoveAll(r.cacheStage)
 	}
 
+	for _, s := range r.secondary {
+		_ = os.RemoveAll(s.hostDir)
+	}
+
 	r.b.finishRun(r.build.ID)
 }
 
 func (r *buildRunner) downloadSource() outcome {
 	if err := r.fetchSource(r.ctx, r.workDir); err != nil {
+		return outcome{status: buildStatusFailed, code: codeClientError, msg: err.Error()}
+	}
+
+	if err := r.fetchSecondarySources(); err != nil {
 		return outcome{status: buildStatusFailed, code: codeClientError, msg: err.Error()}
 	}
 
@@ -417,9 +435,14 @@ func (r *buildRunner) downloadSource() outcome {
 	}
 
 	r.spec = spec
+
+	if out := r.exportEnv(); !out.ok() {
+		return out
+	}
+
 	r.restoreCache()
 
-	return r.exportEnv()
+	return outcome{}
 }
 
 // exportEnv resolves the build's variables and writes them to the container's shared env file.
@@ -440,6 +463,11 @@ func (r *buildRunner) exportEnv() outcome {
 	r.log.masked = masked
 
 	all := append(r.builtinEnv(r.srcDir), resolved...)
+
+	r.envMap = make(map[string]string, len(all))
+	for _, v := range all {
+		r.envMap[v.Name] = v.Value
+	}
 
 	res, err := r.rt.Exec(r.ctx, r.containerID, shellInvocation(envFileScript(all)))
 	if err != nil || res.ExitCode != 0 {

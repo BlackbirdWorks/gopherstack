@@ -36,6 +36,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		WithCompressionMinBytes(settings.CompressionMinBytes)
 	handler := NewHandler(backend).WithJanitor(settings, ctx.JanitorTimeout)
 	handler.Endpoint = endpoint
+	handler.SkipKMSKeyValidation = settings.SkipKMSKeyValidation
+	handler.DisableBucketCORS = settings.DisableCustomCORS
 
 	return handler, nil
 }

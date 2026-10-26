@@ -6,7 +6,6 @@ import (
 	"reflect"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/efs"
 	efstypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
 
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
@@ -36,7 +35,7 @@ func ccPropChanged(current, desired map[string]any, key string) bool {
 func (h *ccFileSystem) replicationFor(
 	ctx context.Context, id string,
 ) (efstypes.ReplicationConfigurationDescription, bool, error) {
-	out, err := h.client.DescribeReplicationConfigurations(ctx, &efs.DescribeReplicationConfigurationsInput{
+	out, err := h.client.DescribeReplicationConfigurations(ctx, &wireEFSDescribeReplicationConfigurationsInput{
 		FileSystemId: aws.String(id),
 	})
 	if err != nil {
@@ -58,7 +57,7 @@ func (h *ccFileSystem) dropReplication(ctx context.Context, id string) error {
 		return err
 	}
 
-	_, err = h.client.DeleteReplicationConfiguration(ctx, &efs.DeleteReplicationConfigurationInput{
+	_, err = h.client.DeleteReplicationConfiguration(ctx, &wireEFSDeleteReplicationConfigurationInput{
 		SourceFileSystemId: aws.String(id),
 	})
 
@@ -94,7 +93,7 @@ func (h *ccFileSystem) syncReplication(ctx context.Context, id string, desired m
 	}
 
 	d := want.Destinations[0]
-	_, err = h.client.CreateReplicationConfiguration(ctx, &efs.CreateReplicationConfigurationInput{
+	_, err = h.client.CreateReplicationConfiguration(ctx, &wireEFSCreateReplicationConfigurationInput{
 		SourceFileSystemId: aws.String(id),
 		Destinations: []efstypes.DestinationToCreate{{
 			AvailabilityZoneName: d.AvailabilityZoneName, FileSystemId: d.FileSystemID,

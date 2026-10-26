@@ -21,9 +21,9 @@
 - ListServiceIndexes: not implemented; same reason as GetServiceIndex
 - ListServiceViews: not implemented; same reason as GetServiceIndex
 - ListStreamingAccessForServices: not implemented; no service streaming access is ever granted
-- ListSupportedResourceTypes: 46 curated types, not the full AWS catalog
+- ListSupportedResourceTypes: types are listed whether or not an emulated service can produce them; only CFNResourceTypes of the 48 curated rows are populated
 - Search: keywords match as case-insensitive substrings over the ARN and tag text, not as AWS tokens; the application filter is unsupported and an unknown filter is treated as a keyword
-- Search: only services wired into the tagging aggregation (and the five EC2 kinds) are indexed; other emulated services are invisible
+- Search: a service is searchable once its tagging provider is wired; untagged resources appear only for services that register a tagging inventory provider (AMP, AppIntegrations, CloudHSM v2, CodeGuru Reviewer, RUM, Timestream for InfluxDB, EC2 kinds); every other service lists tagged resources only
 - GetManagedView: the two managed views (SSM, Resilience Hub) are emulator-defined; real names, ARNs and policies are unverified
 - ListIndexesForMembers: no organization membership or delegated-administrator check
 - CreateView: organization and OU scopes are accepted without validating them against Organizations

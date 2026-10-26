@@ -19,8 +19,9 @@ var (
 	errRegionTransitionInProgress = errors.New(
 		"ConflictException: region is already changing in the opposite direction",
 	)
-	errNoPendingUpdate = errors.New("ResourceNotFoundException: no primary email update in progress")
-	errInvalidOTP      = errors.New("ValidationException: invalid OTP")
+	errNoPendingPhoneVerification = errors.New("ResourceNotFoundException: no phone number verification in progress")
+	errNoPendingUpdate            = errors.New("ResourceNotFoundException: no primary email update in progress")
+	errInvalidOTP                 = errors.New("ValidationException: invalid OTP")
 	// errInvalidNextToken is returned when ListRegions receives an undecodable cursor.
 	errInvalidNextToken = errors.New("ValidationException: invalid nextToken")
 	// errNoPrimaryEmailUpdateStatus is returned by GetPrimaryEmailUpdateStatus

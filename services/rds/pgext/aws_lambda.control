@@ -1,0 +1,5 @@
+comment = 'AWS Lambda integration'
+default_version = '1.0'
+relocatable = false
+schema = aws_lambda
+requires = 'aws_commons'

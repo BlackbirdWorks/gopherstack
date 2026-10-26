@@ -452,7 +452,11 @@ var spotPriceBaseTable = map[string]float64{
 var (
 	ErrVolumeNotFound = errors.New("InvalidVolume.NotFound")
 	ErrVolumeInUse    = errors.New("VolumeInUse")
+	// ErrVolumeNotAvailable is returned for operations on a volume still in the creating state.
+	ErrVolumeNotAvailable = errors.New("IncorrectState")
 )
+
+const volumeStateCreating = "creating"
 
 const (
 	volTypeDefaultGP2 = "gp2"
@@ -468,6 +472,8 @@ type Volume struct {
 	VolumeType string            `json:"volumeType,omitempty"`
 	State      string            `json:"state,omitempty"`
 	KmsKeyID   string            `json:"kmsKeyId,omitempty"`
+	// AvailableAt is when a creating volume becomes available.
+	AvailableAt time.Time `json:"availableAt,omitzero"`
 	// SnapshotID is the EBS snapshot this volume was restored from, or empty
 	// for a volume created from scratch. Real AWS lineage field.
 	SnapshotID string `json:"snapshotID,omitempty"`
@@ -546,16 +552,24 @@ func (b *InMemoryBackend) CreateVolume(
 	}
 
 	id := newVolumeID()
+	now := b.now()
+	state, availableAt := stateAvailable, time.Time{}
+
+	if b.volumeCreateDelay > 0 {
+		state, availableAt = volumeStateCreating, now.Add(b.volumeCreateDelay)
+	}
+
 	vol := &Volume{
-		ID:         id,
-		AZ:         az,
-		VolumeType: volType,
-		Size:       size,
-		State:      stateAvailable,
-		CreateTime: time.Now(),
-		SnapshotID: snapshotID,
-		Encrypted:  encrypted,
-		KmsKeyID:   kmsKeyID,
+		ID:          id,
+		AZ:          az,
+		VolumeType:  volType,
+		Size:        size,
+		State:       state,
+		AvailableAt: availableAt,
+		CreateTime:  now,
+		SnapshotID:  snapshotID,
+		Encrypted:   encrypted,
+		KmsKeyID:    kmsKeyID,
 	}
 	if len(volumeInitializationRate) > 0 {
 		vol.VolumeInitializationRate = volumeInitializationRate[0]
@@ -637,6 +651,10 @@ func (b *InMemoryBackend) AttachVolume(
 		return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}
 
+	if vol.State == volumeStateCreating {
+		return nil, fmt.Errorf("%w: volume %s is in the creating state", ErrVolumeNotAvailable, volumeID)
+	}
+
 	if vol.Attachment != nil {
 		return nil, fmt.Errorf("%w: volume %s is already attached", ErrVolumeInUse, volumeID)
 	}
@@ -684,4 +702,49 @@ func (b *InMemoryBackend) DetachVolume(volumeID string, _ bool) (*VolumeAttachme
 	vol.State = stateAvailable
 
 	return &att, nil
+}
+
+// SetVolumeCreateDelay sets how long CreateVolume leaves a volume in the creating state; zero is instant.
+func (b *InMemoryBackend) SetVolumeCreateDelay(d time.Duration) {
+	b.mu.Lock("SetVolumeCreateDelay")
+	defer b.mu.Unlock()
+
+	b.volumeCreateDelay = d
+}
+
+// SetClock overrides the clock behind volume creation deadlines; nil restores time.Now.
+func (b *InMemoryBackend) SetClock(clock func() time.Time) {
+	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
+
+	b.clock = clock
+}
+
+func (b *InMemoryBackend) now() time.Time {
+	if b.clock != nil {
+		return b.clock()
+	}
+
+	return time.Now()
+}
+
+func (b *InMemoryBackend) volumesTransitionalLocked() bool {
+	for _, v := range b.volumes.All() {
+		if v.State == volumeStateCreating {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *InMemoryBackend) advanceVolumesLocked() {
+	now := b.now()
+
+	for _, v := range b.volumes.All() {
+		if v.State == volumeStateCreating && !now.Before(v.AvailableAt) {
+			v.State = stateAvailable
+			v.AvailableAt = time.Time{}
+		}
+	}
 }

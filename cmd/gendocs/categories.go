@@ -21,16 +21,25 @@ const (
 	slugAzureBlob       = "azureblob"
 	slugAzureKeyVault   = "azurekeyvault"
 	slugAzureQueue      = "azurequeue"
+	slugAzureFile       = "azurefile"
+	slugAzureMonitor    = "azuremonitor"
 	slugAzureTable      = "azuretable"
 	slugAzureServiceBus = "azureservicebus"
 	slugAzureEventHubs  = "azureeventhubs"
 	slugAzureEventGrid  = "azureeventgrid"
 	slugAzureAppConfig  = "azureappconfig"
 	slugAzureACR        = "azurecontainerregistry"
+	slugAzureFunctions  = "azurefunctions"
 	slugCosmosDB        = "cosmosdb"
 	slugAzureRedis      = "azureredis"
 	slugAzureSQL        = "azuresql"
 	slugGCPStorage      = "gcpstorage"
+	slugOCIObjectStore  = "ociobjectstorage"
+	slugOCIVault        = "ocivault"
+	slugOCIStreaming    = "ocistreaming"
+	slugOCIIdentity     = "ociidentity"
+	slugOCIFunctions    = "ocifunctions"
+	slugOCICore         = "ocicore"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
 	slugGCPKMS          = "gcpkms"
@@ -45,6 +54,11 @@ const (
 	slugGCPRedis        = "gcpredis"
 	slugGCPArtifactReg  = "gcpartifactregistry"
 	slugGCPSpanner      = "gcpspanner"
+	slugGCPBigtable     = "gcpbigtable"
+	slugGCPEventarc     = "gcpeventarc"
+	slugGCPWorkflows    = "gcpworkflows"
+	slugGCPDNS          = "gcpdns"
+	slugGCPCompute      = "gcpcompute"
 	slugGCPCloudBuild   = "gcpcloudbuild"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
@@ -58,6 +72,12 @@ const (
 // Kept as a function (not a package-level var) per the repo's
 // gochecknoglobals convention — build-fresh-per-call is cheap here since
 // gendocs runs once as a CLI, not in a hot path.
+func ociSlugs() []string {
+	return []string{
+		slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions, slugOCICore,
+	}
+}
+
 func categoryGroups() []categoryGroup {
 	return []categoryGroup{
 		{"Compute", []string{
@@ -97,7 +117,7 @@ func categoryGroups() []categoryGroup {
 		}},
 		{"Identity & Access", []string{
 			"accessanalyzer", "cognitoidentity", "cognitoidp", "directoryservice",
-			"iam", "identitystore", "rolesanywhere", "sso", "ssoadmin", "ssooidc", "sts",
+			"iam", "identitystore", "rolesanywhere", "signin", "sso", "ssoadmin", "ssooidc", "sts",
 		}},
 		{"Management & Governance", []string{
 			"account", "appconfig", "appconfigdata", "applicationautoscaling",
@@ -131,12 +151,15 @@ func categoryGroups() []categoryGroup {
 				slugAzureBlob,
 				slugAzureKeyVault,
 				slugAzureQueue,
+				slugAzureFile,
+				slugAzureMonitor,
 				slugAzureTable,
 				slugAzureServiceBus,
 				slugAzureEventHubs,
 				slugAzureEventGrid,
 				slugAzureAppConfig,
 				slugAzureACR,
+				slugAzureFunctions,
 				slugCosmosDB,
 				slugAzureRedis,
 				slugAzureSQL,
@@ -146,8 +169,10 @@ func categoryGroups() []categoryGroup {
 			slugGCPStorage, slugGCPPubSub, slugGCPSecretMgr, slugGCPKMS, slugGCPCloudTasks, slugGCPScheduler,
 			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery, slugGCPSQL,
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
-			slugGCPCloudBuild,
+			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows, slugGCPDNS,
+			slugGCPCompute,
 		}},
+		{"OCI", ociSlugs()},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
 		}},
@@ -217,12 +242,15 @@ func displayNamesA() map[string]string {
 		slugAzureBlob:             "Azure Blob Storage",
 		slugAzureKeyVault:         "Azure Key Vault",
 		slugAzureQueue:            "Azure Queue Storage",
+		slugAzureFile:             "Azure Files",
+		slugAzureMonitor:          "Azure Monitor Logs",
 		slugAzureTable:            "Azure Table Storage",
 		slugAzureServiceBus:       "Azure Service Bus",
 		slugAzureEventHubs:        "Azure Event Hubs",
 		slugAzureEventGrid:        "Azure Event Grid",
 		slugAzureAppConfig:        "Azure App Configuration",
 		slugAzureACR:              "Azure Container Registry",
+		slugAzureFunctions:        "Azure Functions",
 		slugAzureRedis:            "Azure Cache for Redis",
 		slugAzureSQL:              "Azure SQL Database",
 		"backup":                  "Backup",
@@ -255,6 +283,12 @@ func displayNamesB() map[string]string {
 		"comprehend":       "Comprehend",
 		slugCosmosDB:       "Azure Cosmos DB",
 		slugGCPStorage:     "Google Cloud Storage",
+		slugOCIObjectStore: "OCI Object Storage",
+		slugOCIVault:       "OCI Vault",
+		slugOCIStreaming:   "OCI Streaming",
+		slugOCIIdentity:    "OCI Identity",
+		slugOCIFunctions:   "OCI Functions",
+		slugOCICore:        "OCI Core Services",
 		slugGCPPubSub:      "Google Cloud Pub/Sub",
 		slugGCPSecretMgr:   "Google Secret Manager",
 		slugGCPKMS:         "Google Cloud KMS",
@@ -269,6 +303,11 @@ func displayNamesB() map[string]string {
 		slugGCPRedis:       "Memorystore for Redis",
 		slugGCPArtifactReg: "Artifact Registry",
 		slugGCPSpanner:     "Cloud Spanner",
+		slugGCPBigtable:    "Cloud Bigtable",
+		slugGCPEventarc:    "Eventarc",
+		slugGCPWorkflows:   "Workflows",
+		slugGCPDNS:         "Cloud DNS",
+		slugGCPCompute:     "Compute Engine",
 		slugGCPCloudBuild:  "Cloud Build",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",
@@ -369,6 +408,7 @@ func displayNamesD() map[string]string {
 		"s3control":           "S3 Control",
 		"s3files":             "S3 Files",
 		"s3tables":            "S3 Tables",
+		"signin":              "Sign-In",
 		"sagemaker":           "SageMaker",
 		"sagemakerruntime":    "SageMaker Runtime",
 		"scheduler":           "EventBridge Scheduler",

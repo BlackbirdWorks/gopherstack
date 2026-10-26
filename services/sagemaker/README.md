@@ -7,22 +7,22 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 69 (69 ok) |
+| PARITY entries audited | 70 (70 ok) |
 | Feature families | 34 (10 ok, 24 partial) |
-| Known gaps | 2 |
-| Structural gaps (can't be emulated) | 11 |
+| Known gaps | 1 |
+| Structural gaps (can't be emulated) | 19 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): AttachClusterNodeNetworkInterface.
 - DescribeJobSchemaVersion/ListJobSchemaVersions serve one synthetic JobConfigSchemaVersion ("1.0") with a generic per-JobCategory schema: checked api_op_DescribeJobSchemaVersion.go and the API reference, neither publishes per-category schema content, so there is no ground truth to model.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Container-backed workloads need a reachable container runtime (SAGEMAKER_ENGINE=docker, or --engines=docker/auto): with the default stub engine endpoints and jobs stay control-plane objects and InvokeEndpoint returns ServiceUnavailable. Files created by containers running as root in new sub-directories of the staging area may not be removable by the emulator user.
 - Presigned URL expiry (2026-10-07): ExpiresInSeconds/SessionExpirationDurationInSeconds are range-checked against the API reference but not enforced; the synthetic AuthorizedUrl is not served by anything that could expire or single-use it.
 - List summaries (AutoMLJobSummary.FailureReason/PartialFailureReasons, ClusterSummary.TrainingPlanArns/ImageVersionStatus, ClusterNodeSummary.ImageVersionStatus/NodeLogicalId/PrivateDnsHostname/UltraServerInfo, DeviceSummary.AgentVersion/LatestHeartbeat/Models, FlowDefinitionSummary.FailureReason, LineageGroupSummary.DisplayName, HyperParameterTrainingJobSummary final-metric/objective-status, TrainingJobSummary.WarmPoolStatus, ProcessingJobSummary.ExitMessage): no failure FSM, warm pool, device heartbeat, EC2 networking or training process exists to source them.
 - DescribeApp/DescribeDomain server-derived fields (App EffectiveTrustedIdentityPropagationStatus/FailureReason/LastHealthCheckTimestamp/LastUserActivityTimestamp, Domain FailureReason/HomeEfsFileSystemId/SingleSignOn*): no app runtime, EFS or IAM Identity Center to derive them.
@@ -34,6 +34,13 @@ These do not block an A grade — no implementation could produce real data here
 - Workteam ProductListingIds: Marketplace vendor listings are not settable via Create/UpdateWorkteam and no Marketplace subsystem exists.
 - AIRecommendationJob.Recommendations is always empty: no benchmark/recommendation compute, and fabricating metrics is forbidden.
 - ProductionVariantSummary DeployedImages (resolved ECR digests) and InstancePools/CapacityReservationConfig need real deployment infrastructure.
+- Container engine (SAGEMAKER_ENGINE=docker) runs ONE container set per production variant: InitialInstanceCount > 1 and multi-instance training/processing/transform run a single algo-1; ShadowProductionVariants are not deployed and no traffic is mirrored.
+- Container engine does not run endpoints that serve InferenceComponents (no endpoint-level ModelName), containers defined by ModelPackageName, or MME models: TargetModel is forwarded as a header but the /models load API is not driven.
+- TrainingJob engine: Pipe/FastFile input modes behave as File; CheckpointConfig, managed spot, distributed training, profiler/debugger rules and MetricDefinitions regex scraping are not run; non-S3 (EFS/FSx) channels and AlgorithmName without TrainingSpecification.TrainingImage fail the job.
+- ProcessingJob engine: Athena/Redshift DatasetDefinition inputs and FeatureStoreOutput fail the job; S3UploadMode Continuous uploads at job end; ProcessingJob ExitMessage is not populated.
+- TransformJob engine: DataProcessing InputFilter/OutputFilter/JoinSource and RecordIO/TFRecord SplitType fail the job (no JSONPath/RecordIO engine); BatchDataCapture is not written; MaxConcurrentTransforms is not honoured (requests run sequentially).
+- Async inference engine: NotificationConfig.IncludeInferenceResponseIn is not embedded in SNS messages; RequestTTLSeconds is not enforced; ClientConfig.MaxConcurrentInvocationsPerInstance is not applied.
+- After a snapshot Restore, restored endpoints keep their persisted status but no container is started for them until the endpoint is updated or recreated (invoke returns ServiceUnavailable); running training/processing/transform jobs are not resumed.
 
 ## More
 

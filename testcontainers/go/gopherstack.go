@@ -51,10 +51,16 @@ const (
 	AzureARM          = "10006"
 	AzureEventGrid    = "10007"
 	AzureAppConfig    = "10008"
+	AzureFile         = "10009"
+	AzureMonitor      = "10013"
 	AzureACR          = "10011"
 	AzureStorageVHost = "10010"
 	AzureCosmosDB     = "8081"
 )
+
+func ociPorts() map[string]string {
+	return map[string]string{"objectstorage": "8150", "vault": "8151", "streaming": "8152", "identity": "8153", "functions": "8154", "core": "8155"}
+}
 
 func gcpPorts() map[string]string {
 	return map[string]string{
@@ -75,6 +81,12 @@ func gcpPorts() map[string]string {
 		"artifactregistry": "8134",
 		"spanner":          "8135",
 		"cloudbuild":       "8136",
+		"bigtable":         "8137",
+		"eventarc":         "8138",
+		"workflows":        "8139",
+		"dns":              "8140",
+		"dnsserver":        "8141",
+		"compute":          "8142",
 		"bigquery":         "9050",
 	}
 }
@@ -82,12 +94,16 @@ func gcpPorts() map[string]string {
 func azurePorts() []string {
 	return []string{
 		AzureBlobPort, AzureQueuePort, AzureTablePort, AzureServiceBus, AzureKeyVault,
-		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureACR, AzureStorageVHost, AzureCosmosDB,
+		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureFile, AzureMonitor, AzureACR, AzureStorageVHost,
+		AzureCosmosDB,
 	}
 }
 
 // ErrUnknownGCPService is returned by GCPEndpoint for an unsupported service name.
 var ErrUnknownGCPService = errors.New("unknown gcp service")
+
+// ErrUnknownOCIService is returned by OCIEndpoint for an unknown service name.
+var ErrUnknownOCIService = errors.New("unknown oci service")
 
 // Container is a running Gopherstack container.
 type Container struct {
@@ -133,8 +149,8 @@ func WithCustomizer(c ...testcontainers.ContainerCustomizer) Option {
 }
 
 func exposed() []string {
-	azure, gcp := azurePorts(), gcpPorts()
-	ports := make([]string, 0, 1+len(azure)+len(gcp))
+	azure, gcp, oci := azurePorts(), gcpPorts(), ociPorts()
+	ports := make([]string, 0, 1+len(azure)+len(gcp)+len(oci))
 	ports = append(ports, APIPort+"/tcp")
 
 	for _, p := range azure {
@@ -142,6 +158,10 @@ func exposed() []string {
 	}
 
 	for _, p := range gcp {
+		ports = append(ports, p+"/tcp")
+	}
+
+	for _, p := range oci {
 		ports = append(ports, p+"/tcp")
 	}
 
@@ -254,12 +274,12 @@ func (c *Container) AWSConfig(ctx context.Context) (aws.Config, error) {
 
 // AzureEndpoints returns the base URL (http://host:port, no account path) of
 // every Azure listener, keyed by "blob", "queue", "table", "servicebus",
-// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "acr", "storagevhost", "cosmosdb".
+// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "file", "monitor", "acr", "storagevhost", "cosmosdb".
 func (c *Container) AzureEndpoints(ctx context.Context) (map[string]string, error) {
 	named := map[string]string{
 		"blob": AzureBlobPort, "queue": AzureQueuePort, "table": AzureTablePort,
 		"servicebus": AzureServiceBus, "keyvault": AzureKeyVault, "eventhubs": AzureEventHubs,
-		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "acr": AzureACR,
+		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "file": AzureFile, "monitor": AzureMonitor, "acr": AzureACR,
 		"storagevhost": AzureStorageVHost, "cosmosdb": AzureCosmosDB,
 	}
 	out := make(map[string]string, len(named))
@@ -288,9 +308,9 @@ func (c *Container) AzureConnectionString(ctx context.Context) (string, error) {
 
 	return fmt.Sprintf(
 		"DefaultEndpointsProtocol=http;AccountName=%s;AccountKey=%s;"+
-			"BlobEndpoint=%s%s;QueueEndpoint=%s%s;TableEndpoint=%s%s;",
+			"BlobEndpoint=%s%s;QueueEndpoint=%s%s;TableEndpoint=%s%s;FileEndpoint=%s%s;",
 		AzureAccountName, AzureAccountKey,
-		eps["blob"], acct, eps["queue"], acct, eps["table"], acct,
+		eps["blob"], acct, eps["queue"], acct, eps["table"], acct, eps["file"], acct,
 	), nil
 }
 
@@ -304,4 +324,19 @@ func (c *Container) GCPEndpoint(ctx context.Context, service string) (string, er
 	}
 
 	return c.hostPort(ctx, port)
+}
+
+// OCIEndpoint returns the http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client Host.
+func (c *Container) OCIEndpoint(ctx context.Context, service string) (string, error) {
+	port, ok := ociPorts()[strings.ToLower(service)]
+	if !ok {
+		return "", fmt.Errorf("%w: %q", ErrUnknownOCIService, service)
+	}
+
+	hp, err := c.hostPort(ctx, port)
+	if err != nil {
+		return "", err
+	}
+
+	return "http://" + hp, nil
 }

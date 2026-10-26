@@ -530,10 +530,10 @@ func TestSAMTransform_EventFailures(t *testing.T) {
 			reason: "AWS_IAM",
 		},
 		{
-			name: "api_auth_api_key_unsupported",
+			name: "api_auth_usage_plan_unsupported",
 			template: samHeader + "Resources:\n  A:\n    Type: AWS::Serverless::Api\n    Properties:\n      StageName: p\n" +
-				"      Auth:\n        ApiKeyRequired: true\n",
-			reason: "ApiKeyRequired",
+				"      Auth:\n        UsagePlan:\n          CreateUsagePlan: PER_API\n",
+			reason: "UsagePlan",
 		},
 		{
 			name:     "schedulev2_missing_expression",

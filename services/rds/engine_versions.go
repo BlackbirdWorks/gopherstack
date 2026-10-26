@@ -218,7 +218,7 @@ func oracleEngineVersion() DBEngineVersion {
 
 func sqlServerEngineVersion() DBEngineVersion {
 	return DBEngineVersion{
-		Engine: "sqlserver-se", EngineVersion: "15.00.4345.5.v1",
+		Engine: engineSQLServerSE, EngineVersion: "15.00.4345.5.v1",
 		DBEngineDescription: "SQL Server 2019 Standard Edition", IsDefault: true,
 		SupportedTimezones: []string{
 			"Central Standard Time", "Eastern Standard Time", "Pacific Standard Time", "UTC",
@@ -409,9 +409,9 @@ var validDBInstanceEngines = map[string]bool{
 	"oracle-se2-cdb":        true,
 	enginePostgres:          true,
 	"sqlserver-dev-ee":      true,
-	"sqlserver-ee":          true,
+	engineSQLServerEE:       true,
 	"sqlserver-se":          true,
-	"sqlserver-ex":          true,
+	engineSQLServerEX:       true,
 	"sqlserver-web":         true,
 }
 

@@ -147,6 +147,10 @@ const (
 // against serializers.go). It does not itself consider HTTP method --
 // schemasOpForRoute combines the returned kind with the method.
 func parseSchemasPath(path string) (schemasPathMatch, bool) {
+	if !strings.HasPrefix(strings.TrimLeft(path, "/"), "v1") {
+		return schemasPathMatch{}, false
+	}
+
 	segs := splitSchemasPath(path)
 	if len(segs) < segCountRegistriesOrDiscover || segs[0] != "v1" {
 		return schemasPathMatch{}, false

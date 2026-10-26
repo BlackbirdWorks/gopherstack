@@ -325,7 +325,7 @@ func (b *InMemoryBackend) stackTags(
 		tags = map[string]string{}
 	}
 
-	maps.Copy(tags, b.tagOptionTags(lp))
+	maps.Copy(tags, b.tagOptionTags(b.callerAccount(ctx), lp))
 	maps.Copy(tags, user)
 
 	tags["aws:servicecatalog:productArn"] = lp.prod.ARN

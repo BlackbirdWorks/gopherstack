@@ -63,6 +63,9 @@ type InMemoryBackend struct {
 	channels     map[string]*channelRec
 	uptime       map[string]*uptimeRec
 	groups       map[string]*monitoringpb.Group
+	snoozes      map[string]*monitoringpb.Snooze
+	services     map[string]*monitoringpb.Service
+	slos         map[string]*monitoringpb.ServiceLevelObjective
 	incidents    map[string]*Incident
 	deliveries   []Delivery
 	insecureOnce sync.Once
@@ -87,6 +90,9 @@ func (b *InMemoryBackend) resetMaps() {
 	b.channels = make(map[string]*channelRec)
 	b.uptime = make(map[string]*uptimeRec)
 	b.groups = make(map[string]*monitoringpb.Group)
+	b.snoozes = make(map[string]*monitoringpb.Snooze)
+	b.services = make(map[string]*monitoringpb.Service)
+	b.slos = make(map[string]*monitoringpb.ServiceLevelObjective)
 	b.incidents = make(map[string]*Incident)
 	b.deliveries = nil
 }

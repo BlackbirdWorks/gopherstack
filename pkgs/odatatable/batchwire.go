@@ -15,13 +15,14 @@ import (
 )
 
 const (
-	maxBatchOps       = 100
-	maxBatchBodyBytes = 4 << 20
-	mimeMultipartMix  = "multipart/mixed"
-	crlf              = "\r\n"
-	batchRequestParts = 3
-	batchBatchResName = "$batch"
-	batchTablesName   = "Tables"
+	maxBatchOps         = 100
+	maxBatchBodyBytes   = 4 << 20
+	mimeMultipartMix    = "multipart/mixed"
+	mimeApplicationHTTP = "application/http"
+	crlf                = "\r\n"
+	batchRequestParts   = 3
+	batchBatchResName   = "$batch"
+	batchTablesName     = "Tables"
 	// HeaderContentID is the per-operation Content-ID header echoed in batch responses.
 	HeaderContentID = "Content-ID"
 	headerMethodOvr = "X-Http-Method"
@@ -33,6 +34,8 @@ var (
 	ErrBatchEmpty      = errors.New("the batch request contains no operations")
 	ErrBatchTooMany    = errors.New("the batch request contains more than 100 operations")
 	ErrBatchNotChange  = errors.New("only a single changeset is supported")
+	ErrBatchTooLarge   = errors.New("the batch request payload exceeds 4 MiB")
+	ErrBatchRetrieve   = errors.New("a retrieve must be the only operation in a batch")
 	ErrBatchOpMalform  = errors.New("a batch operation is malformed")
 	ErrBatchOpMissing  = errors.New("an If-Match header is required for delete")
 	ErrBatchDifferent  = errors.New("all commands in a batch must operate on same entity group")
@@ -42,6 +45,7 @@ var (
 // WireBatchOp is one parsed operation of a $batch changeset.
 type WireBatchOp struct {
 	Headers http.Header
+	Query   url.Values
 	Table   string
 	Op      BatchOp
 }
@@ -78,17 +82,21 @@ func BatchFailureFor(err error) BatchFailure {
 // ReadBatch parses a $batch request into its changeset operations. resourceOf maps an embedded request's URL path
 // to the resource segment (for example, stripping a leading account name).
 func ReadBatch(r *http.Request, resourceOf func(path string) string) ([]WireBatchOp, error) {
-	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || mediaType != mimeMultipartMix || params["boundary"] == "" {
-		return nil, ErrBatchOpMalform
-	}
+	return readBatch(r, resourceOf, false)
+}
 
-	body, readErr := io.ReadAll(io.LimitReader(r.Body, maxBatchBodyBytes))
-	if readErr != nil {
-		return nil, ErrBatchOpMalform
-	}
+// ReadBatchOrRetrieve is ReadBatch for services that also answer a batch holding one bare read outside a changeset:
+// a point retrieve (GET <table>(PartitionKey='..',RowKey='..')) or an entity-collection query (GET <table>() with
+// optional $filter, $top and $select), returned as a single BatchRetrieve or BatchQuery op.
+func ReadBatchOrRetrieve(r *http.Request, resourceOf func(path string) string) ([]WireBatchOp, error) {
+	return readBatch(r, resourceOf, true)
+}
 
-	outer := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+func readBatch(r *http.Request, resourceOf func(path string) string, allowRetrieve bool) ([]WireBatchOp, error) {
+	outer, err := openBatch(r)
+	if err != nil {
+		return nil, err
+	}
 
 	part, err := outer.NextPart()
 	if err != nil {
@@ -96,6 +104,10 @@ func ReadBatch(r *http.Request, resourceOf func(path string) string) ([]WireBatc
 	}
 
 	innerType, innerParams, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+	if allowRetrieve && err == nil && innerType == mimeApplicationHTTP {
+		return readRetrieve(outer, part, resourceOf)
+	}
+
 	if err != nil || innerType != mimeMultipartMix || innerParams["boundary"] == "" {
 		return nil, ErrBatchNotChange
 	}
@@ -110,6 +122,49 @@ func ReadBatch(r *http.Request, resourceOf func(path string) string) ([]WireBatc
 	}
 
 	return readChangeset(raw, innerParams["boundary"], resourceOf)
+}
+
+// openBatch checks the batch Content-Type and 4 MiB payload limit and returns the outer multipart reader.
+func openBatch(r *http.Request) (*multipart.Reader, error) {
+	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != mimeMultipartMix || params["boundary"] == "" {
+		return nil, ErrBatchOpMalform
+	}
+
+	body, readErr := io.ReadAll(io.LimitReader(r.Body, maxBatchBodyBytes+1))
+	if readErr != nil {
+		return nil, ErrBatchOpMalform
+	}
+
+	if len(body) > maxBatchBodyBytes {
+		return nil, ErrBatchTooLarge
+	}
+
+	return multipart.NewReader(bytes.NewReader(body), params["boundary"]), nil
+}
+
+func readRetrieve(
+	outer *multipart.Reader, part *multipart.Part, resourceOf func(string) string,
+) ([]WireBatchOp, error) {
+	raw, err := io.ReadAll(part)
+	if err != nil {
+		return nil, ErrBatchOpMalform
+	}
+
+	op, err := parseWireBatchOp(raw, resourceOf)
+	if err != nil {
+		return nil, err
+	}
+
+	if op.Op.Kind != BatchRetrieve && op.Op.Kind != BatchQuery {
+		return nil, ErrBatchOpMalform
+	}
+
+	if _, more := outer.NextPart(); more == nil {
+		return nil, ErrBatchRetrieve
+	}
+
+	return []WireBatchOp{op}, nil
 }
 
 func readChangeset(raw []byte, boundary string, resourceOf func(string) string) ([]WireBatchOp, error) {
@@ -135,6 +190,10 @@ func readChangeset(raw []byte, boundary string, resourceOf func(string) string) 
 		op, parseErr := parseWireBatchOp(pb, resourceOf)
 		if parseErr != nil {
 			return nil, parseErr
+		}
+
+		if op.Op.Kind == BatchRetrieve || op.Op.Kind == BatchQuery {
+			return nil, ErrBatchRetrieve
 		}
 
 		if id := p.Header.Get(HeaderContentID); id != "" {
@@ -202,12 +261,16 @@ func parseWireBatchOp(msg []byte, resourceOf func(string) string) (WireBatchOp, 
 
 	table, inner, isItem, isCollection := classifyBatchResource(resourceOf(u.Path))
 
+	if method == http.MethodGet && isCollection {
+		return WireBatchOp{Table: table, Op: BatchOp{Kind: BatchQuery}, Headers: headers, Query: u.Query()}, nil
+	}
+
 	op, err := buildBatchOperation(method, isItem, isCollection, inner, headers, body)
 	if err != nil {
 		return WireBatchOp{}, err
 	}
 
-	return WireBatchOp{Table: table, Op: op, Headers: headers}, nil
+	return WireBatchOp{Table: table, Op: op, Headers: headers, Query: u.Query()}, nil
 }
 
 // classifyBatchResource splits a resource segment into table name, key predicate, and whether it addresses a single
@@ -258,6 +321,10 @@ func buildBatchOperation(
 	op := BatchOp{PartitionKey: pk, RowKey: rk, IfMatch: headers.Get("If-Match")}
 
 	switch method {
+	case http.MethodGet:
+		op.Kind = BatchRetrieve
+
+		return op, nil
 	case http.MethodDelete:
 		if op.IfMatch == "" {
 			return BatchOp{}, ErrBatchOpMissing
@@ -360,6 +427,14 @@ func RenderBatchResponse(parts []BatchResponsePart, newID func() string) (string
 	sb.WriteString("--" + changeset + "--" + crlf + "--" + batch + "--" + crlf)
 
 	return "multipart/mixed; boundary=" + batch, []byte(sb.String())
+}
+
+// RenderRetrieveResponse builds the 202 body for a batch holding one retrieve: the operation response sits directly
+// in the batch boundary, with no changeset.
+func RenderRetrieveResponse(part BatchResponsePart, newID func() string) (string, []byte) {
+	batch := "batchresponse_" + newID()
+
+	return "multipart/mixed; boundary=" + batch, []byte(part.render(batch) + "--" + batch + "--" + crlf)
 }
 
 type failureEnvelope struct {

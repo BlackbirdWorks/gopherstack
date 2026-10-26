@@ -31,6 +31,9 @@ const (
 	ddbOpBatchGetItem     = "BatchGetItem"
 	ddbOpBatchPutItem     = "BatchPutItem"
 	ddbOpBatchDeleteItem  = "BatchDeleteItem"
+	ddbOpSync             = "Sync"
+	ddbOpTransactGet      = "TransactGetItems"
+	ddbOpTransactWrite    = "TransactWriteItems"
 	ddbBatchGetMaxKeys    = 100
 	ddbBatchWriteMaxItems = 25
 )
@@ -43,8 +46,11 @@ func isCondFailed(err error) bool {
 
 // executeDDBRequest runs one AppSync DynamoDB request object against ddb and
 // returns the plain-JSON result AppSync exposes as $ctx.result.
-func executeDDBRequest(ctx context.Context, ddb DynamoDBBackend, table string, req map[string]any) (any, error) {
+func executeDDBRequest(
+	ctx context.Context, ddb DynamoDBBackend, cfg *DynamoDBDataSourceConfig, req map[string]any,
+) (any, error) {
 	operation, _ := req["operation"].(string)
+	table := cfg.TableName
 
 	switch operation {
 	case ddbOpGetItem:
@@ -66,6 +72,12 @@ func executeDDBRequest(ctx context.Context, ddb DynamoDBBackend, table string, r
 		return ddbBatchGet(ctx, ddb, req)
 	case ddbOpBatchPutItem, ddbOpBatchDeleteItem:
 		return ddbBatchWrite(ctx, ddb, req, operation == ddbOpBatchPutItem)
+	case ddbOpSync:
+		return ddbSync(ctx, ddb, cfg, req)
+	case ddbOpTransactGet:
+		return ddbTransactGet(ctx, ddb, req)
+	case ddbOpTransactWrite:
+		return ddbTransactWrite(ctx, ddb, req)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDynamoDBOp, operation)
 	}

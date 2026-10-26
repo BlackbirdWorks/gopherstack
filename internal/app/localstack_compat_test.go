@@ -54,9 +54,183 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			want: map[string]string{"LAMBDA_KEEP_CONTAINERS": "true"},
 		},
 		{
-			name: "ignored_and_prefix", environ: []string{"EAGER_SERVICE_LOADING=1", "LOCALSTACK_AUTH_TOKEN=x"},
+			name: "benign_not_warned", environ: []string{"EAGER_SERVICE_LOADING=1", "LOCALSTACK_AUTH_TOKEN=x"},
 			want: map[string]string{}, wantEnable: true,
-			wantIgnored: []string{"EAGER_SERVICE_LOADING", "LOCALSTACK_AUTH_TOKEN"},
+		},
+		{
+			name:    "unsupported_warned",
+			environ: []string{"LAMBDA_TRUNCATE_STDOUT=1", "LOCALSTACK_FOO=1"},
+			want:    map[string]string{}, wantEnable: true,
+			wantIgnored: []string{"LAMBDA_TRUNCATE_STDOUT", "LOCALSTACK_FOO"},
+		},
+		{
+			name: "lambda_limits", environ: []string{
+				"LAMBDA_LIMITS_CONCURRENT_EXECUTIONS=50", "LAMBDA_LIMITS_CODE_SIZE_ZIPPED=1024",
+				"LAMBDA_LIMITS_MAX_FUNCTION_ENVVAR_SIZE_BYTES=8192", "LAMBDA_RUNTIME_VALIDATION=1",
+				"LAMBDA_LIMITS_TOTAL_CODE_SIZE=99", "LAMBDA_LIMITS_CODE_SIZE_UNZIPPED=77",
+				"LAMBDA_LIMITS_CREATE_FUNCTION_REQUEST_SIZE=5", "LAMBDA_LIMITS_MINIMUM_UNRESERVED_CONCURRENCY=7",
+			},
+			want: map[string]string{
+				"LAMBDA_ACCOUNT_CONCURRENT_EXECUTIONS": "50", "LAMBDA_CODE_SIZE_ZIPPED": "1024",
+				"LAMBDA_MAX_ENVIRONMENT_BYTES": "8192", "LAMBDA_STRICT_RUNTIME_VALIDATION": "true",
+				"LAMBDA_ACCOUNT_TOTAL_CODE_SIZE": "99", "LAMBDA_CODE_SIZE_UNZIPPED": "77",
+				"LAMBDA_CREATE_FUNCTION_REQUEST_SIZE": "5", "LAMBDA_ACCOUNT_MIN_UNRESERVED_CONCURRENCY": "7",
+			},
+		},
+		{
+			name: "lambda_runtime_validation_off", environ: []string{"LAMBDA_RUNTIME_VALIDATION=0"},
+			want: map[string]string{},
+		},
+		{
+			name: "kinesis_limits", environ: []string{
+				"KINESIS_LATENCY=250", "KINESIS_SHARD_LIMIT=Infinity", "KINESIS_ON_DEMAND_STREAM_COUNT_LIMIT=3",
+			},
+			want: map[string]string{
+				"KINESIS_RESPONSE_LATENCY": "250ms", "KINESIS_ACCOUNT_SHARD_LIMIT": "-1",
+				"KINESIS_ACCOUNT_ON_DEMAND_STREAM_LIMIT": "3",
+			},
+		},
+		{
+			name:    "native_env_wins_over_alias",
+			environ: []string{"KINESIS_SHARD_LIMIT=9", "KINESIS_ACCOUNT_SHARD_LIMIT=4"},
+			want:    map[string]string{},
+		},
+		{
+			name: "dns_address", environ: []string{"DNS_ADDRESS=127.0.0.1", "DNS_SERVER=9.9.9.9"},
+			want: map[string]string{"DNS_ADDR": "127.0.0.1:53", "TRANSPARENT_DNS_UPSTREAM": "9.9.9.9:53"},
+		},
+		{
+			name: "dns_patterns_and_injection",
+			environ: []string{
+				"DNS_NAME_PATTERNS_TO_RESOLVE_UPSTREAM=.*ecr.*",
+				"DISABLE_TRANSPARENT_ENDPOINT_INJECTION=1",
+			},
+			want: map[string]string{
+				"TRANSPARENT_DNS_SKIP_PATTERNS":          ".*ecr.*",
+				"TRANSPARENT_DISABLE_ENDPOINT_INJECTION": "true",
+			},
+		},
+		{
+			name:    "dns_patterns_native_wins",
+			environ: []string{"DNS_NAME_PATTERNS_TO_RESOLVE_UPSTREAM=a", "TRANSPARENT_DNS_SKIP_PATTERNS=b"},
+			want:    map[string]string{},
+		},
+		{
+			name:    "injection_not_disabled",
+			environ: []string{"DISABLE_TRANSPARENT_ENDPOINT_INJECTION=0"},
+			want:    map[string]string{},
+		},
+		{name: "dns_address_disabled", environ: []string{"DNS_ADDRESS=0"}, want: map[string]string{}},
+		{
+			name:    "snapshot_scheduled",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=scheduled", "SNAPSHOT_FLUSH_INTERVAL=30"},
+			want: map[string]string{
+				"GOPHERSTACK_PERSIST_MODE":           "hybrid",
+				"GOPHERSTACK_PERSIST_FLUSH_INTERVAL": "30s",
+			},
+		},
+		{
+			name:    "snapshot_on_request_startup",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=ON_REQUEST", "SNAPSHOT_LOAD_STRATEGY=ON_STARTUP"},
+			want:    map[string]string{"GOPHERSTACK_PERSIST_MODE": "snapshot"},
+		},
+		{
+			name:    "snapshot_manual",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=MANUAL", "SNAPSHOT_LOAD_STRATEGY=MANUAL"},
+			want: map[string]string{
+				"GOPHERSTACK_PERSIST_MODE": "manual",
+				"GOPHERSTACK_PERSIST_LOAD": "manual",
+			},
+		},
+		{
+			name:    "snapshot_on_shutdown_load_on_request",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=on_shutdown", "SNAPSHOT_LOAD_STRATEGY=ON_REQUEST"},
+			want: map[string]string{
+				"GOPHERSTACK_PERSIST_MODE": "shutdown",
+				"GOPHERSTACK_PERSIST_LOAD": "request",
+			},
+		},
+		{
+			name:    "snapshot_unknown_strategies_unsupported",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=BOGUS", "SNAPSHOT_LOAD_STRATEGY=BOGUS"},
+			want:    map[string]string{}, wantIgnored: []string{"SNAPSHOT_LOAD_STRATEGY", "SNAPSHOT_SAVE_STRATEGY"},
+		},
+		{
+			name:    "snapshot_native_mode_wins",
+			environ: []string{"SNAPSHOT_SAVE_STRATEGY=MANUAL", "GOPHERSTACK_PERSIST_MODE=hybrid"},
+			want:    map[string]string{},
+		},
+		{
+			name: "lambda_knobs", environ: []string{"LAMBDA_KEEPALIVE_MS=5000", "HOSTNAME_FROM_LAMBDA=host.x"},
+			want: map[string]string{"LAMBDA_IDLE_TIMEOUT": "5s", "LAMBDA_DOCKER_HOST": "host.x"},
+		},
+		{
+			name:    "lambda_keepalive_native_wins",
+			environ: []string{"LAMBDA_KEEPALIVE_MS=5000", "LAMBDA_IDLE_TIMEOUT=1m"},
+			want:    map[string]string{},
+		},
+		{
+			name:    "port_range",
+			environ: []string{"EXTERNAL_SERVICE_PORTS_START=4510", "EXTERNAL_SERVICE_PORTS_END=4559"},
+			want:    map[string]string{"PORT_RANGE_START": "4510", "PORT_RANGE_END": "4560"},
+		},
+		{
+			name: "proxy_and_ca",
+			environ: []string{
+				"OUTBOUND_HTTP_PROXY=http://p:1", "OUTBOUND_HTTPS_PROXY=http://p:2", "REQUESTS_CA_BUNDLE=/ca.pem",
+			},
+			want: map[string]string{
+				"HTTP_PROXY":    "http://p:1",
+				"HTTPS_PROXY":   "http://p:2",
+				"SSL_CERT_FILE": "/ca.pem",
+			},
+		},
+		{
+			name: "s3_skip_signature_validation_off", environ: []string{"S3_SKIP_SIGNATURE_VALIDATION=0"},
+			want: map[string]string{"GOPHERSTACK_S3_VALIDATE_SIGNATURES": "true"},
+		},
+		{
+			name: "s3_skip_kms_key_validation_handled_natively", environ: []string{"S3_SKIP_KMS_KEY_VALIDATION=0"},
+			want: map[string]string{},
+		},
+		{
+			name: "s3_skip_signature_validation_default", environ: []string{"S3_SKIP_SIGNATURE_VALIDATION=1"},
+			want: map[string]string{},
+		},
+		{
+			name: "s3_native_validate_wins",
+			environ: []string{
+				"S3_SKIP_SIGNATURE_VALIDATION=0", "GOPHERSTACK_S3_VALIDATE_SIGNATURES=false",
+			},
+			want: map[string]string{},
+		},
+		{
+			name: "s3_and_cors_toggles_handled",
+			environ: []string{
+				"S3_VALIDATE_SIGNATURES=1", "S3_SKIP_KMS_KEY_VALIDATION=1",
+				"DISABLE_CUSTOM_CORS_S3=1", "DISABLE_CUSTOM_CORS_APIGATEWAY=1",
+			},
+			want: map[string]string{},
+		},
+		{
+			name: "sqs_toggles_off",
+			environ: []string{
+				"SQS_DELAY_PURGE_RETRY=0", "SQS_DELAY_RECENTLY_DELETED=false", "SQS_ENABLE_MESSAGE_RETENTION_PERIOD=0",
+			},
+			want: map[string]string{
+				"GOPHERSTACK_SQS_DISABLE_PURGE_COOLDOWN":            "true",
+				"GOPHERSTACK_SQS_DISABLE_RECENTLY_DELETED_COOLDOWN": "true",
+				"GOPHERSTACK_SQS_DISABLE_MESSAGE_RETENTION":         "true",
+			},
+		},
+		{
+			name:    "sqs_toggles_on_noop",
+			environ: []string{"SQS_DELAY_PURGE_RETRY=1", "SQS_ENABLE_MESSAGE_RETENTION_PERIOD=1"},
+			want:    map[string]string{},
+		},
+		{
+			name: "docker_flags_family_benign", environ: []string{"LAMBDA_DOCKER_FLAGS=-x", "PROVIDER_OVERRIDE_S3=v2"},
+			want: map[string]string{},
 		},
 	}
 
@@ -203,4 +377,43 @@ func TestLocalstackPrefixDoesNotBreakS3(t *testing.T) {
 
 	status, _ := devDo(t, http.MethodGet, srv.URL+"/_localstack/info", "")
 	assert.Equal(t, http.StatusOK, status)
+}
+
+func TestLocalstackFaultRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		env  map[string]string
+		name string
+		want []string
+	}{
+		{name: "none", env: map[string]string{}},
+		{name: "kinesis", env: map[string]string{"KINESIS_ERROR_PROBABILITY": "0.5"}, want: []string{"kinesis"}},
+		{
+			name: "both", want: []string{"kinesis", "dynamodb"},
+			env: map[string]string{"KINESIS_ERROR_PROBABILITY": "1", "DYNAMODB_ERROR_PROBABILITY": "0.1"},
+		},
+		{name: "zero", env: map[string]string{"DYNAMODB_ERROR_PROBABILITY": "0"}},
+		{name: "out_of_range", env: map[string]string{"DYNAMODB_ERROR_PROBABILITY": "2"}},
+		{name: "garbage", env: map[string]string{"DYNAMODB_ERROR_PROBABILITY": "x"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rules := localstackFaultRules(func(k string) string { return tt.env[k] })
+
+			var got []string
+
+			for _, r := range rules {
+				got = append(got, r.Service)
+				assert.Equal(t, "ProvisionedThroughputExceededException", r.Error.Code)
+				assert.Equal(t, http.StatusBadRequest, r.Error.StatusCode)
+				require.NotNil(t, r.Probability)
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

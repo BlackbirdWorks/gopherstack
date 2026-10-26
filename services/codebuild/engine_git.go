@@ -236,13 +236,11 @@ func (g *gitClient) updateSubmodules(ctx context.Context, depth int32) error {
 	return err
 }
 
-func (r *buildRunner) fetchGitSource(ctx context.Context, dir string) error {
-	src := r.build.Source
-
+func (r *buildRunner) fetchGitSource(ctx context.Context, src *ProjectSource, version, dir string, primary bool) error {
 	req := gitRequest{
 		serverType: src.Type,
 		location:   src.Location,
-		version:    r.build.SourceVersion,
+		version:    version,
 		depth:      src.GitCloneDepth,
 		submodules: src.GitSubmodulesConfig != nil && src.GitSubmodulesConfig.FetchSubmodules,
 		insecure:   src.InsecureSsl,
@@ -255,15 +253,19 @@ func (r *buildRunner) fetchGitSource(ctx context.Context, dir string) error {
 		return err
 	}
 
-	r.restoreSourceCache(dir)
+	if primary {
+		r.restoreSourceCache(dir)
+	}
 
 	commit, err := g.clone(ctx, req)
 	if err != nil {
 		return fmt.Errorf("clone %s: %w", src.Location, err)
 	}
 
-	r.saveSourceCache(dir)
-	r.setResolvedVersion(commit)
+	if primary {
+		r.saveSourceCache(dir)
+		r.setResolvedVersion(commit)
+	}
 
 	return nil
 }

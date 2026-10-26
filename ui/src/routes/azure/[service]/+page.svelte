@@ -3,11 +3,15 @@
 	import { page } from '$app/state';
 	import { azureServiceById } from '#lib/cloud.ts';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
+	import ContainerInstancesDashboard from '#lib/components/azure/ContainerInstancesDashboard.svelte';
 	import EventHubsDashboard from '#lib/components/azure/EventHubsDashboard.svelte';
 	import EventGridDashboard from '#lib/components/azure/EventGridDashboard.svelte';
 	import AppConfigDashboard from '#lib/components/azure/AppConfigDashboard.svelte';
 	import CosmosHub from '#lib/components/azure/CosmosHub.svelte';
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
+	import FilesDashboard from '#lib/components/azure/FilesDashboard.svelte';
+	import FunctionsDashboard from '#lib/components/azure/FunctionsDashboard.svelte';
+	import MonitorDashboard from '#lib/components/azure/MonitorDashboard.svelte';
 	import KeyVaultDashboard from '#lib/components/azure/KeyVaultDashboard.svelte';
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
 	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
@@ -44,6 +48,14 @@
 	<EventGridDashboard />
 {:else if service?.id === 'appconfig'}
 	<AppConfigDashboard />
+{:else if service?.id === 'functions'}
+	<FunctionsDashboard />
+{:else if service?.id === 'file'}
+	<FilesDashboard />
+{:else if service?.id === 'monitor'}
+	<MonitorDashboard />
+{:else if service?.id === 'aci'}
+	<ContainerInstancesDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

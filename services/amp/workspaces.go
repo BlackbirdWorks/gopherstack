@@ -26,6 +26,9 @@ type CreateWorkspaceInput struct {
 	KMSKeyARN   string
 }
 
+// maxWorkspacesPerRegion is the default AMP workspaces-per-Region service quota.
+const maxWorkspacesPerRegion = 25
+
 type endpointBaseKey struct{}
 
 func (b *InMemoryBackend) endpoint(ctx context.Context, sc scope, id string) string {
@@ -99,6 +102,11 @@ func (b *InMemoryBackend) CreateWorkspace(ctx context.Context, in CreateWorkspac
 		func(w *Workspace) string { return w.ID },
 		func(id string) (*Workspace, error) { return b.workspaceLocked(sc, id) },
 		func() (*Workspace, error) {
+			if b.workspaceCountLocked(sc) >= maxWorkspacesPerRegion {
+				return nil, quotaExceeded(resWorkspace,
+					"Workspace quota of %d per Region exceeded", maxWorkspacesPerRegion)
+			}
+
 			id := "ws-" + uuid.NewString()
 			w := &Workspace{
 				ID: id, ARN: sc.arn("workspace/" + id), AccountID: sc.account, Region: sc.region,
@@ -115,6 +123,20 @@ func (b *InMemoryBackend) CreateWorkspace(ctx context.Context, in CreateWorkspac
 	}
 
 	return b.wireWorkspace(ctx, w), nil
+}
+
+func (b *InMemoryBackend) workspaceCountLocked(sc scope) int {
+	n := 0
+
+	b.workspaces.Range(func(w *Workspace) bool {
+		if sc.owns(w.AccountID, w.Region) && !b.gone(w.Pending) {
+			n++
+		}
+
+		return true
+	})
+
+	return n
 }
 
 func mapIdem(err error) error {

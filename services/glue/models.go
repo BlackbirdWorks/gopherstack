@@ -321,9 +321,14 @@ type CrawlHistoryEntry struct {
 	// copies fields explicitly and never includes it, so it never reaches the wire).
 	WorkflowRunID string `json:"workflowRunId,omitempty"`
 	// TriggerName is internal-only, like WorkflowRunID: the trigger that started this crawl.
-	TriggerName string  `json:"triggerName,omitempty"`
-	StartTime   float64 `json:"StartTime,omitempty"`
-	EndTime     float64 `json:"EndTime,omitempty"`
+	TriggerName  string  `json:"triggerName,omitempty"`
+	ErrorMessage string  `json:"ErrorMessage,omitempty"`
+	StartTime    float64 `json:"StartTime,omitempty"`
+	EndTime      float64 `json:"EndTime,omitempty"`
+	// Per-run catalog changes; internal-only, they feed GetCrawlerMetrics.
+	TablesAdded   int `json:"tablesAdded,omitempty"`
+	TablesUpdated int `json:"tablesUpdated,omitempty"`
+	TablesDeleted int `json:"tablesDeleted,omitempty"`
 }
 
 // ConnectionsList holds connections for a Glue job.
@@ -1583,4 +1588,10 @@ type Classifier struct {
 	XMLClassifier  *XMLClassifier  `json:"XMLClassifier,omitempty"`
 	JSONClassifier *JSONClassifier `json:"JsonClassifier,omitempty"`
 	CsvClassifier  *CsvClassifier  `json:"CsvClassifier,omitempty"`
+}
+
+// IntegrationTablePropertiesFilter is one ListIntegrationTableProperties filter.
+type IntegrationTablePropertiesFilter struct {
+	Name   string   `json:"Name"`
+	Values []string `json:"Values"`
 }

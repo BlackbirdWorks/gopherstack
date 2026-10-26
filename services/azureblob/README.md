@@ -7,22 +7,19 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 19 (17 ok, 2 partial) |
+| PARITY entries audited | 29 (27 ok, 2 partial) |
 | Feature families | 5 (3 ok, 2 partial) |
-| Known gaps | 8 |
+| Known gaps | 5 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Put Block / Put Block List (large-object multipart upload) is not implemented; Put Blob accepts only a single whole-body BlockBlob PUT.
 - Blob versions (x-ms-version-id, include=versions, version-scoped read/delete) and soft-delete (include=deleted, undelete) are not modeled.
-- No conditional-header support (If-Match/If-None-Match/If-Modified-Since/If-Unmodified-Since) on any operation.
 - Copy Blob is same-account and synchronous only; no cross-account or URL sources, no Abort Copy, no x-ms-copy-* properties on the destination.
-- No lease support, and Archive rehydration is instantaneous rather than asynchronous.
-- List Containers returns every container in one page; no prefix/marker/maxresults.
+- Archive rehydration is instantaneous rather than asynchronous.
 - SharedKey signatures are not verified (families.auth), so stored access policies and SAS tokens never gate a request.
-- No append or page blobs, blob index tags, or Set/Get Blob Service Properties beyond the empty read.
+- No append or page blobs, or Set/Get Blob Service Properties beyond the empty read.
 
 ### Deferred
 

@@ -92,10 +92,22 @@ func (h *Handler) handleUpdateTerms(_ context.Context, in *updateTermsInput) (*u
 
 func (h *Handler) termsOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateTerms":   service.WrapOp(h.handleCreateTerms),
-		"DeleteTerms":   service.WrapOp(h.handleDeleteTerms),
-		"DescribeTerms": service.WrapOp(h.handleDescribeTerms),
-		"ListTerms":     service.WrapOp(h.handleListTerms),
-		"UpdateTerms":   service.WrapOp(h.handleUpdateTerms),
+		"CreateTerms":           service.WrapOp(h.handleCreateTerms),
+		"DeleteTerms":           service.WrapOp(h.handleDeleteTerms),
+		"DescribeTerms":         service.WrapOp(h.handleDescribeTerms),
+		"ListTerms":             service.WrapOp(h.handleListTerms),
+		"DescribeTermsByClient": service.WrapOp(h.handleDescribeTermsByClient),
+		"UpdateTerms":           service.WrapOp(h.handleUpdateTerms),
 	}
+}
+
+func (h *Handler) handleDescribeTermsByClient(
+	_ context.Context, in *describeTermsByClientInput,
+) (*describeTermsOutput, error) {
+	t, err := h.Backend.DescribeTermsByClient(in.UserPoolID, in.ClientID, in.TermsName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeTermsOutput{Terms: toTermsType(t)}, nil
 }

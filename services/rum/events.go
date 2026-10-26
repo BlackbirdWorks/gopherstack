@@ -196,6 +196,10 @@ func (b *InMemoryBackend) storeEvents(in *PutEventsInput) (delivery, error) {
 	defs := b.cloudWatchDefsLocked(m.ID)
 
 	for _, e := range in.RumEvents {
+		if !m.collects(e.Type) {
+			continue
+		}
+
 		doc := eventDoc(m, in, e)
 
 		raw, merr := json.Marshal(doc)

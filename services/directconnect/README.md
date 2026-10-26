@@ -7,15 +7,16 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 64 (63 ok, 1 partial) |
-| Known gaps | 1 |
+| PARITY entries audited | 73 (72 ok, 1 partial) |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 8 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): AssociateConnectionsToResiliencyGroup, CreateResiliencyGroup, DeleteResiliencyGroup, DisassociateConnectionsFromResiliencyGroup, GetResiliencyGroup, ListResiliencyGroupAssociations, ListResiliencyGroups, UpdateConnectionsBillingMode, UpdateResiliencyGroup.
+- Resiliency groups: the ID format (dxrg-<8 hex>) and ARN resource path (dxrg/<id>) are UNCONFIRMED -- the SDK shows neither. Also inferred, not documented: a group with associated connections cannot be deleted, and a connection belongs to at most one group (both raise DirectConnectClientException).
+- UpdateConnectionsBillingMode: Connection.billingMode is only reported once set (no default PayAsYouGo on create), and the Connection prefixPool* members are not modeled.
 
 ### Structural gaps
 

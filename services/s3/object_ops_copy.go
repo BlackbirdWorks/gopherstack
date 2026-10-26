@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -121,6 +122,10 @@ func (h *S3Handler) copyObject(
 
 		return
 	}
+	if !h.checkSSEKMSKey(ctx, w, r, destSSE) {
+		return
+	}
+
 	ctx = context.WithValue(ctx, sseKey, destSSE)
 
 	// AWS rejects copying an object onto itself unless some attribute changes.
@@ -159,10 +164,12 @@ func (h *S3Handler) copyObject(
 	tagging, taggingReplace := buildCopyTagging(r)
 	expires := buildCopyExpires(r, srcVer.ExpiresString)
 
-	logger.Load(ctx).DebugContext(ctx, "CopyObject source info",
-		"srcContentType", aws.ToString(contentType),
-		"metadataDirective", r.Header.Get("X-Amz-Metadata-Directive"),
-		"taggingDirective", r.Header.Get("X-Amz-Tagging-Directive"))
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Load(ctx).DebugContext(ctx, "CopyObject source info",
+			"srcContentType", aws.ToString(contentType),
+			"metadataDirective", r.Header.Get("X-Amz-Metadata-Directive"),
+			"taggingDirective", r.Header.Get("X-Amz-Tagging-Directive"))
+	}
 
 	hdrs := buildCopyContentHeaders(r, srcVer)
 

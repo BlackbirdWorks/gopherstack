@@ -34,6 +34,24 @@ func (h *Handler) writeCORSPreflight(w http.ResponseWriter, r *http.Request, cor
 	w.WriteHeader(http.StatusOK)
 }
 
+// applyResourceCORS answers a preflight or decorates the response from the resource's CORS
+// configuration; it reports whether the request was a preflight that is already answered.
+func (h *Handler) applyResourceCORS(w http.ResponseWriter, r *http.Request, resource *Resource) bool {
+	if resource.CorsConfiguration == nil || h.DisableCustomCORS {
+		return false
+	}
+
+	if r.Method == http.MethodOptions {
+		h.writeCORSPreflight(w, r, resource.CorsConfiguration)
+
+		return true
+	}
+
+	h.addCORSHeaders(w, r, resource.CorsConfiguration)
+
+	return false
+}
+
 // addCORSHeaders adds Access-Control-* headers to the response based on the CorsConfiguration.
 func (h *Handler) addCORSHeaders(w http.ResponseWriter, r *http.Request, cors *CorsConfiguration) {
 	origin := r.Header.Get("Origin")

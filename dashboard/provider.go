@@ -21,7 +21,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	"github.com/blackbirdworks/gopherstack/services/azurefile"
+	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
@@ -38,24 +41,39 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery"
+	"github.com/blackbirdworks/gopherstack/services/gcpbigtable"
+	"github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	"github.com/blackbirdworks/gopherstack/services/gcpdns"
+	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcplogging"
+	"github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+	"github.com/blackbirdworks/gopherstack/services/gcpredis"
 	"github.com/blackbirdworks/gopherstack/services/gcprun"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
+	"github.com/blackbirdworks/gopherstack/services/gcpspanner"
 	"github.com/blackbirdworks/gopherstack/services/gcpsql"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
+	"github.com/blackbirdworks/gopherstack/services/gcpworkflows"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
+	"github.com/blackbirdworks/gopherstack/services/ociidentity"
+	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	"github.com/blackbirdworks/gopherstack/services/ocistreaming"
+	"github.com/blackbirdworks/gopherstack/services/ocivault"
 	"github.com/blackbirdworks/gopherstack/services/route53"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
@@ -246,6 +264,20 @@ func wireGCPOps(ctx *service.AppContext, conf *Config) {
 		conf.GCPSchedulerOps, _ = getHandler[*gcpscheduler.Handler](gp.GetGCPSchedulerHandler())
 	}
 
+	wireGCPExplorerOps(ctx, conf)
+
+	if gp, ok := ctx.Config.(interface{ GetGCPCloudBuildHandler() service.Registerable }); ok {
+		conf.GCPCloudBuildOps, _ = getHandler[*gcpcloudbuild.Handler](gp.GetGCPCloudBuildHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPRedisHandler() service.Registerable }); ok {
+		conf.GCPRedisOps, _ = getHandler[*gcpredis.Handler](gp.GetGCPRedisHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPMonitoringHandler() service.Registerable }); ok {
+		conf.GCPMonitoringOps, _ = getHandler[*gcpmonitoring.Handler](gp.GetGCPMonitoringHandler())
+	}
+
 	if gp, hasRun := ctx.Config.(interface{ GetGCPRunHandler() service.Registerable }); hasRun {
 		conf.GCPRunOps, _ = getHandler[*gcprun.Handler](gp.GetGCPRunHandler())
 	}
@@ -270,6 +302,12 @@ func linkCloudExtras(conf *Config, cfg any) {
 		conf.AzureEventGridOps, _ = getHandler[*azureeventgrid.Handler](p.GetAzureEventGridHandler())
 	}
 
+	if p, ok := cfg.(interface{ GetAzureFunctionsHandler() service.Registerable }); ok {
+		conf.AzureFunctionsOps, _ = getHandler[*azurefunctions.Handler](p.GetAzureFunctionsHandler())
+	}
+
+	linkConsoleExtras(conf, cfg)
+
 	if p, ok := cfg.(interface{ GetAzureAppConfigHandler() service.Registerable }); ok {
 		conf.AzureAppConfigOps, _ = getHandler[*azureappconfig.Handler](p.GetAzureAppConfigHandler())
 	}
@@ -280,5 +318,67 @@ func linkCloudExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetGCPLoggingHandler() service.Registerable }); ok {
 		conf.GCPLoggingOps, _ = getHandler[*gcplogging.Handler](p.GetGCPLoggingHandler())
+	}
+}
+
+func wireGCPExplorerOps(ctx *service.AppContext, conf *Config) {
+	if gp, ok := ctx.Config.(interface{ GetGCPBigtableHandler() service.Registerable }); ok {
+		conf.GCPBigtableOps, _ = getHandler[*gcpbigtable.Handler](gp.GetGCPBigtableHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPEventarcHandler() service.Registerable }); ok {
+		conf.GCPEventarcOps, _ = getHandler[*gcpeventarc.Handler](gp.GetGCPEventarcHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPSpannerHandler() service.Registerable }); ok {
+		conf.GCPSpannerOps, _ = getHandler[*gcpspanner.Handler](gp.GetGCPSpannerHandler())
+	}
+
+	if gp, ok := ctx.Config.(interface{ GetGCPArtifactRegistryHandler() service.Registerable }); ok {
+		conf.GCPArtifactRegistryOps, _ = getHandler[*gcpartifactregistry.Handler](gp.GetGCPArtifactRegistryHandler())
+	}
+}
+
+// linkConsoleExtras resolves the Workflows, Cloud DNS, Azure Files and Oracle Cloud
+// handlers the dashboard proxies call in-process.
+func linkConsoleExtras(conf *Config, cfg any) {
+	if p, ok := cfg.(interface{ GetGCPWorkflowsHandler() service.Registerable }); ok {
+		conf.GCPWorkflowsOps, _ = getHandler[*gcpworkflows.Handler](p.GetGCPWorkflowsHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPDNSHandler() service.Registerable }); ok {
+		conf.GCPDNSOps, _ = getHandler[*gcpdns.Handler](p.GetGCPDNSHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPComputeHandler() service.Registerable }); ok {
+		conf.GCPComputeOps, _ = getHandler[*gcpcompute.Handler](p.GetGCPComputeHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureFileHandler() service.Registerable }); ok {
+		conf.AzureFileOps, _ = getHandler[*azurefile.Handler](p.GetAzureFileHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIObjectStorageHandler() service.Registerable }); ok {
+		conf.OCIObjectStorageOps, _ = getHandler[*ociobjectstorage.Handler](p.GetOCIObjectStorageHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIVaultHandler() service.Registerable }); ok {
+		conf.OCIVaultOps, _ = getHandler[*ocivault.Handler](p.GetOCIVaultHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIStreamingHandler() service.Registerable }); ok {
+		conf.OCIStreamingOps, _ = getHandler[*ocistreaming.Handler](p.GetOCIStreamingHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIIdentityHandler() service.Registerable }); ok {
+		conf.OCIIdentityOps, _ = getHandler[*ociidentity.Handler](p.GetOCIIdentityHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIFunctionsHandler() service.Registerable }); ok {
+		conf.OCIFunctionsOps, _ = getHandler[*ocifunctions.Handler](p.GetOCIFunctionsHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureMonitorHandler() service.Registerable }); ok {
+		conf.AzureMonitorOps, _ = getHandler[*azuremonitor.Handler](p.GetAzureMonitorHandler())
 	}
 }

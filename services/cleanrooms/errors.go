@@ -1,8 +1,14 @@
 package cleanrooms
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
+import (
+	"errors"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 var (
+	// ErrAccessDenied maps to AccessDeniedException (403).
+	ErrAccessDenied  = errors.New("AccessDeniedException")
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)

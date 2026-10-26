@@ -62,6 +62,22 @@ aws dynamodb list-tables --endpoint-url http://localhost:8000
 aws s3 mb s3://my-bucket --endpoint-url http://localhost:8000
 ```
 
+## Managing a local instance
+
+The `gopherstack` binary can run and manage a local instance itself. It binds to loopback only unless you pass `--bind`.
+
+```bash
+gopherstack start                      # Docker container from ghcr.io/blackbirdworks/gopherstack:latest
+gopherstack start --host --persist     # background host process, state kept under the state dir
+gopherstack status [--json]            # version, uptime, per-cloud services and their state
+gopherstack logs -f -n 200             # tail / follow the container or host-process log
+gopherstack reset [--service S3]       # clear in-memory state on the running server
+gopherstack snapshot save|load|list    # named state snapshots (same machinery as `gopherstack pod`)
+gopherstack stop                       # stop and remove it (safe to repeat)
+```
+
+`start` flags: `--image`, `--tag`, `--host`, `--bind` (default `127.0.0.1`), `--port` (default `8000`), `-p/--publish` for extra ports, `--data-dir` (mounted at `/data` in the container), `--persist`, `-e/--env KEY=VALUE` (or `KEY` to copy from your shell), `--timeout`, `--name`, `--state-dir`. It waits for `/_gopherstack/health` and, on failure, prints the tail of the container or process log. The pidfile, state and host log live in `$XDG_STATE_HOME/gopherstack` (`~/.local/state/gopherstack`). Commands that talk to a running server use `--endpoint` / `GOPHERSTACK_ENDPOINT` (default `http://localhost:8000`).
+
 ## Installation
 
 ### Docker
@@ -236,18 +252,27 @@ precedence is **defaults < persisted config < env vars / CLI flags**.
 | `--data-dir` | `GOPHERSTACK_DATA_DIR` | *(empty)* | Directory for persistence data files. Empty resolves to `~/.gopherstack/data`, or `/data` inside a container. |
 | `--account-id` | `ACCOUNT_ID` | `000000000000` | Mock AWS account ID used in ARNs. |
 | `--persist` | `PERSIST` | `false` | Enable snapshot-based persistence across restarts. |
-| `--persist-mode` | `GOPHERSTACK_PERSIST_MODE` | `snapshot` | `snapshot` or `hybrid` (see [docs/persistence.md](docs/persistence.md)). |
+| `--persist-mode` | `GOPHERSTACK_PERSIST_MODE` | `snapshot` | `snapshot`, `hybrid`, `shutdown` or `manual` (see [docs/persistence.md](docs/persistence.md)). |
+| `--persist-load` | `GOPHERSTACK_PERSIST_LOAD` | `startup` | `startup`, `request` (lazy per service) or `manual` (see [docs/persistence.md](docs/persistence.md)). |
+| `--s3-skip-kms-key-validation` | `GOPHERSTACK_S3_SKIP_KMS_KEY_VALIDATION` | `false` | SSE-KMS key ids unknown to KMS are rejected with `KMS.NotFoundException`, as on AWS (LocalStack skips by default); set to accept them. |
 | `--persist-services` / `--persist-exclude` | `GOPHERSTACK_PERSIST_SERVICES` / `GOPHERSTACK_PERSIST_EXCLUDE` | *(all)* | Allow/deny lists of services to persist (case-insensitive). |
 | `--persist-service-mode` | `GOPHERSTACK_PERSIST_SERVICE_MODE` | *(none)* | Per-service mode override, e.g. `s3=hybrid,sqs=snapshot`. |
 | `--persist-flush-interval` | `GOPHERSTACK_PERSIST_FLUSH_INTERVAL` | `5s` | Hybrid flush interval (worst-case loss on a crash). |
 | `--demo` | `DEMO` | `false` | Load demo data on startup. |
-| `--enforce-iam` | `GOPHERSTACK_ENFORCE_IAM` | `false` | Evaluate every request against attached IAM policies. |
+| `--enforce-iam` | `GOPHERSTACK_ENFORCE_IAM` (alias `ENFORCE_IAM`) | `false` | Evaluate every request against attached IAM policies. |
 | `--enforce-security-groups` | `GOPHERSTACK_ENFORCE_SECURITY_GROUPS` | `false` | Admit clients to container-backed endpoints only when a security-group ingress rule allows them (RDS, EC2 docker instances, DocumentDB, MSK, ElastiCache, MemoryDB, Amazon MQ, Neptune, ECS awsvpc tasks). Egress is not enforced. See [docs/security-groups.md](docs/security-groups.md). |
 | `--tls` | `TLS` | `false` | Serve over HTTPS (self-signed certificate unless `--tls-cert`/`--tls-key` are set). |
 | `--tls-cert` | `TLS_CERT` | *(empty)* | Path to a TLS certificate (PEM). Requires `--tls-key`. |
 | `--tls-key` | `TLS_KEY` | *(empty)* | Path to a TLS private key (PEM). |
 | `--compression` | `COMPRESSION` | `on` | Runtime response compression (`on`/`off`). See [Response compression](#response-compression). |
 | `--validate-sigv4` | `VALIDATE_SIGV4` | `false` | Cryptographically validate AWS SigV4 request signatures (opt-in). |
+| `--sqs-disable-purge-cooldown` | `GOPHERSTACK_SQS_DISABLE_PURGE_COOLDOWN` (LocalStack `SQS_DELAY_PURGE_RETRY=0`) | `false` | Allow `PurgeQueue` within 60 seconds of the previous purge. |
+| `--sqs-disable-recently-deleted-wait` | `GOPHERSTACK_SQS_DISABLE_RECENTLY_DELETED_COOLDOWN` (LocalStack `SQS_DELAY_RECENTLY_DELETED=0`) | `false` | Allow recreating a queue within 60 seconds of deleting it. |
+| `--sqs-disable-message-retention` | `GOPHERSTACK_SQS_DISABLE_MESSAGE_RETENTION` (LocalStack `SQS_ENABLE_MESSAGE_RETENTION_PERIOD=0`) | `false` | Never expire messages by `MessageRetentionPeriod`. |
+| `--sqs-disable-cloudwatch-metrics` | `SQS_DISABLE_CLOUDWATCH_METRICS` | `false` | Do not publish `AWS/SQS` metrics to CloudWatch. |
+| `--pod-autoload` | `GOPHERSTACK_POD_AUTOLOAD` (alias `AUTO_LOAD_POD`) | *(empty)* | Comma-separated `NAME[:VERSION]` pods loaded in order at startup. |
+| `--pod-merge-strategy` | `GOPHERSTACK_POD_MERGE_STRATEGY` (alias `MERGE_STRATEGY`) | `overwrite` | How autoloaded pods combine with current state: `overwrite`, `service-merge` or `account-region-merge`. |
+| `--localstack-response-header` | `GOPHERSTACK_LOCALSTACK_RESPONSE_HEADER` (alias `LOCALSTACK_RESPONSE_HEADER_ENABLED`) | `false` | Add `X-Localstack: true` to every response. |
 | (env only) | `GOPHERSTACK_PARTITION_STRICT` | `true` | Reject signed requests that reference an ARN from another partition than the signing region (e.g. `arn:aws-cn:` from `us-east-1`). In `cn-*`/`us-gov-*` regions `arn:aws:` ARNs are tolerated while IAM/S3 still emit them. Set `false` to disable. |
 | `--sigv4-secret` | `SIGV4_SECRET` | `test` | Secret access key SigV4 validation signs against (only used with `--validate-sigv4`). |
 | `--dns-addr` | `DNS_ADDR` | *(empty)* | Address for the embedded DNS server (e.g. `:10053`). Empty disables it. |
@@ -300,11 +325,15 @@ A single switch picks the default for every container-backed engine (RDS/Aurora,
 | `--transparent-container-dns` | `TRANSPARENT_CONTAINER_DNS` | `--dns-resolve-ip` unless loopback | DNS IP handed to spawned containers. |
 | `--transparent-ca-dir` | `TRANSPARENT_CA_DIR` | ephemeral | Directory to persist the CA so it is trusted once. |
 | `--transparent-container-ca-path` | `TRANSPARENT_CONTAINER_CA_PATH` | temp file (skipped when containerised) | CA PEM path visible to the Docker daemon; required to inject the CA when gopherstack itself runs in Docker. |
-| `--rds-engine` | `RDS_ENGINE` | `stub` | RDS engine mode: `stub` (metadata only) or `docker` (real `postgres`/`mysql`/`mariadb` container per DB instance, one per Aurora cluster; Data API stays on SQLite; `RDS_DB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
+| `--rds-engine` | `RDS_ENGINE` | `stub` | RDS engine mode: `stub` (metadata only) or `docker` (real `postgres`/`mysql`/`mariadb` container per DB instance, one per Aurora cluster; Data API stays on SQLite; `RDS_DB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces; Postgres runs `postgis/postgis` + pgvector with RDS-style `aws_s3`/`aws_lambda` extensions unless `RDS_POSTGRES_EXTENSIONS=false`; `RDS_SQLSERVER_ENGINE=docker` opts `sqlserver-*` into a real SQL Server container (amd64 only; accepts the Microsoft EULA); `RDS_CALLOUT_HOST`/`RDS_CALLOUT_BIND` set the address containers dial / the callout listener binds (default: container bridge gateway, never a wildcard)). |
 | `--docdb-engine` | `DOCDB_ENGINE` | `stub` | DocumentDB engine mode: `stub` (metadata only) or `docker` (one plaintext `mongo` container per cluster, `mongo:4.4` for 3.6/4.0 and `mongo:5.0` for 5.0; `DOCDB_HOST` overrides the advertised host, default `127.0.0.1`; ports bind loopback only unless it is non-loopback, then all interfaces). |
 | `--redshift-engine` | `REDSHIFT_ENGINE` | `stub` | Redshift engine mode: `stub` (metadata only) or `docker` (one `postgres:17` container per provisioned cluster with MasterUsername/MasterUserPassword/DBName; Endpoint reports the published `127.0.0.1` port and the Redshift Data API runs SQL against it; `REDSHIFT_HOST` overrides the advertised host; Serverless workgroups stay metadata-only). |
 | `--neptune-engine` | `NEPTUNE_ENGINE` | `stub` | Neptune engine mode: `stub` (metadata only), `embedded` (in-process Gremlin, openCypher and Bolt over one persisted property graph; no container runtime) or `docker` (the same in-process graph by default; `NEPTUNE_GREMLIN=container` runs one `tinkerpop/gremlin-server` container per cluster instead, TinkerPop 3.4.13 for engine 1.0/1.1, 3.5.7 for 1.2, 3.6.8 for 1.3, 3.7.3 later). Endpoint, ReaderEndpoint, Port and member instances report the published `127.0.0.1` port, Gremlin over WebSocket/HTTP at `/gremlin`; `NEPTUNE_HOST` overrides the advertised host; no IAM auth. |
 | `--opensearch-engine` | `OPENSEARCH_ENGINE` | `stub` | OpenSearch engine mode: `stub` (API-only) or `docker`. |
+| `--sqs-endpoint-strategy` | `SQS_ENDPOINT_STRATEGY` | *(empty)* | Queue URL format: `standard` (`sqs.<region>.localhost.localstack.cloud:PORT/<acct>/<name>`), `domain` (`<region>.queue.localhost.localstack.cloud:PORT/...`, region omitted for us-east-1), `path` (`localhost:PORT/queue/<region>/<acct>/<name>`), `off`, `dynamic`. Empty keeps `http://localhost:PORT/<acct>/<name>` (same as `off`). |
+| `--opensearch-endpoint-strategy` | `OPENSEARCH_ENDPOINT_STRATEGY` | *(empty)* | Domain endpoint format: `domain` (`<name>.<region>.<opensearch\|es>.localhost.localstack.cloud:PORT`) or `path` (`localhost:PORT/<opensearch\|es>/<region>/<name>`). `port` is rejected: there is no per-domain listener. Empty keeps `search-<name>-<acct>.<region>.es.amazonaws.com`. |
+| `--graphql-endpoint-strategy` | `GRAPHQL_ENDPOINT_STRATEGY` | *(empty)* | AppSync `uris.GRAPHQL` format: `legacy` (`/graphql/<id>`), `path` (`/appsync-api/<id>/graphql`), `domain` (`<id>.appsync-api.localhost.localstack.cloud:PORT/graphql`). Empty keeps `/v1/apis/<id>/graphql`. |
+| `--ecr-endpoint-strategy` | `ECR_ENDPOINT_STRATEGY` | *(empty)* | ECR `repositoryUri` host: `domain` (`<acct>.dkr.ecr.<region>.localhost.localstack.cloud:PORT`) or `off` (`localhost.localstack.cloud:PORT`). Empty keeps the AWS-style host. |
 | `--elasticsearch-engine` | `ELASTICSEARCH_ENGINE` | `stub` | Elasticsearch engine mode: `stub` (API-only) or `docker`. |
 | `--ec2-provider` | `EC2_PROVIDER` | `inmemory` | EC2 compute provider: `inmemory` (stub) or `docker` (launches real containers as instances). |
 | `--ec2-docker-image` | `EC2_DOCKER_IMAGE` | `amazonlinux:2` | Docker image used by the EC2 docker provider. |
@@ -405,6 +434,7 @@ By default resources settle instantly. Set a dwell to make Creating/Processing/P
 | `--lifecycle-redshift` | `REDSHIFT_ACTIVATION_DELAY` | Redshift cluster `creating` window. |
 | `--lifecycle-redshiftdata` | `REDSHIFTDATA_LIFECYCLE_DELAY` | Redshift Data statement `SUBMITTED`/`STARTED` window before `FINISHED`. |
 | `--lifecycle-redshiftserverless` | `REDSHIFTSERVERLESS_LIFECYCLE_DELAY` | Redshift Serverless workgroup `CREATING`/`MODIFYING`/`DELETING` and namespace `MODIFYING`/`DELETING` window. |
+| `--lifecycle-ec2` | `EC2_LIFECYCLE_DELAY` | EBS volume `creating` window before `available`. |
 | `--lifecycle-dax` | `DAX_LIFECYCLE_DELAY` | DAX cluster/node `creating`/`modifying`/`deleting` window (built-in `1s`). |
 | `--lifecycle-pinpoint` | `PINPOINT_LIFECYCLE_DELAY` | Pinpoint export/import job `CREATED`/`PROCESSING` window before `COMPLETED`. |
 | `--lifecycle-autoscaling` | `AUTOSCALING_LAUNCH_DELAY` | Auto Scaling instance `Pending` window (with an `InProgress` activity) before `InService`. |
@@ -646,8 +676,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [App Runner](services/apprunner/README.md) | A | 37 | clean |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 1 gap; 2 structural gaps |
-| [Batch](services/batch/README.md) | A | 45 | 1 gap; 3 structural gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 4 gaps; 18 structural gaps; 5 deferred |
+| [Batch](services/batch/README.md) | A | 48 | 3 structural gaps |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 2 gaps; 18 structural gaps; 5 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 4 structural gaps |
 | [Lambda](services/lambda/README.md) | A | — | 11 families; 1 gap; 10 structural gaps |
 
@@ -657,17 +687,17 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 2 structural gaps; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 5 structural gaps |
-| [EKS](services/eks/README.md) | A | 70 | 2 gaps; 5 structural gaps; 1 deferred |
+| [EKS](services/eks/README.md) | A | 71 | 1 gap; 5 structural gaps; 1 deferred |
 
 ### Storage
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Backup](services/backup/README.md) | A | 66 | 2 gaps; 3 structural gaps |
-| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
+| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | 2 gaps |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
-| [S3](services/s3/README.md) | A | 26 | 4 gaps; 4 structural gaps |
+| [S3](services/s3/README.md) | A | 26 | 3 gaps; 4 structural gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 6 structural gaps; 2 deferred |
 | [S3 Files](services/s3files/README.md) | B | 21 | 7 gaps; 1 structural gap |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
@@ -686,7 +716,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 7 gaps; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 52 | 4 gaps; 7 structural gaps |
+| [RDS](services/rds/README.md) | A | 52 | 6 gaps; 7 structural gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 7 | 4 structural gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 5 gaps; 5 structural gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 4 structural gaps; 1 deferred |
@@ -699,7 +729,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [API Gateway](services/apigateway/README.md) | A | 123 | 2 gaps; 1 structural gap; 2 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 2 deferred |
-| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 5 gaps; 1 structural gap |
+| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 6 gaps; 1 structural gap |
 | [ARC Zonal Shift](services/arczonalshift/README.md) | A | 15 | 1 structural gap |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 1 structural gap |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 structural gaps; 1 deferred |
@@ -719,13 +749,13 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 2 structural gaps; 1 deferred |
-| [AppSync](services/appsync/README.md) | A | 74 | 7 gaps; 1 structural gap; 2 deferred |
+| [AppSync](services/appsync/README.md) | A | 74 | 6 gaps; 1 structural gap; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 66 | 2 gaps; 3 structural gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 2 structural gaps |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 structural gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 2 gaps; 3 structural gaps; 1 deferred |
-| [SES v2](services/sesv2/README.md) | A | 112 | 3 gaps; 2 structural gaps |
+| [SES v2](services/sesv2/README.md) | A | 116 | 2 gaps; 2 structural gaps |
 | [SNS](services/sns/README.md) | A | 34 | 1 structural gap; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 2 gaps; 1 structural gap |
 | [SWF](services/swf/README.md) | A | 39 | clean |
@@ -737,7 +767,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Athena](services/athena/README.md) | A | 26 | 7 gaps; 6 structural gaps; 1 deferred |
-| [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 1 gap; 5 structural gaps |
+| [Clean Rooms](services/cleanrooms/README.md) | A | — | 18 families; 5 structural gaps |
 | [EMR](services/emr/README.md) | A | 65 | 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 structural gap |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 1 structural gap |
@@ -750,7 +780,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 1 gap; 2 structural gaps |
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps; 1 structural gap |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 4 gaps; 1 structural gap; 1 deferred |
-| [OpenSearch](services/opensearch/README.md) | A | 19 | 1 structural gap |
+| [OpenSearch](services/opensearch/README.md) | A | 19 | 1 gap; 1 structural gap |
 | [QuickSight](services/quicksight/README.md) | A | 81 | 3 gaps; 7 structural gaps |
 
 ### Security
@@ -765,7 +795,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [KMS](services/kms/README.md) | A | 54 | 1 gap; 1 structural gap; 1 deferred |
 | [Macie](services/macie2/README.md) | A | 81 | clean |
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 1 structural gap; 2 deferred |
-| [Security Hub](services/securityhub/README.md) | A | 116 | 3 gaps; 4 structural gaps |
+| [Security Hub](services/securityhub/README.md) | A | 120 | 4 gaps; 4 structural gaps |
 | [Shield](services/shield/README.md) | A | 36 | 1 structural gap; 1 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 2 gaps; 1 structural gap |
 | [WAF](services/waf/README.md) | A | 4 | 3 structural gaps |
@@ -776,7 +806,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 gap; 4 deferred |
-| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 7 gaps; 3 structural gaps |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 71 | 6 gaps; 3 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
 | [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 1 gap; 5 structural gaps; 1 deferred |
@@ -786,19 +816,20 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 1 gap; 2 structural gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
 | [STS](services/sts/README.md) | A | 11 | 1 structural gap; 1 deferred |
+| [Sign-In](services/signin/README.md) | B | 11 | 7 gaps; 1 structural gap |
 
 ### Management & Governance
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Account](services/account/README.md) | A | 16 | 1 gap; 3 structural gaps; 1 deferred |
+| [Account](services/account/README.md) | A | 18 | 3 structural gaps; 1 deferred |
 | [AppConfig](services/appconfig/README.md) | A | 56 | 2 gaps; 1 structural gap |
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | clean |
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 1 gap; 2 structural gaps; 2 deferred |
 | [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 1 gap; 3 structural gaps |
 | [CloudFormation](services/cloudformation/README.md) | A | 73 | 6 gaps; 2 structural gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 2 gaps; 4 structural gaps |
-| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 1 gap; 1 structural gap; 16 deferred |
+| [CloudWatch](services/cloudwatch/README.md) | A | 55 | 1 structural gap; 16 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 86 | 5 gaps; 9 structural gaps |
 | [Config](services/awsconfig/README.md) | A | 102 | 4 gaps; 2 structural gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 5 structural gaps; 2 deferred |
@@ -816,8 +847,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | 3 structural gaps |
 | [CodeArtifact](services/codeartifact/README.md) | A | 48 | 3 gaps; 3 structural gaps |
-| [CodeBuild](services/codebuild/README.md) | A | 59 | 7 gaps; 2 structural gaps; 1 deferred |
-| [CodeCommit](services/codecommit/README.md) | A | 79 | 2 gaps; 1 structural gap |
+| [CodeBuild](services/codebuild/README.md) | A | 59 | 6 gaps; 2 structural gaps; 1 deferred |
+| [CodeCommit](services/codecommit/README.md) | A | 80 | 1 gap; 1 structural gap |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 1 gap |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 3 structural gaps; 1 deferred |
 | [CodePipeline](services/codepipeline/README.md) | A | 22 | 3 gaps; 7 structural gaps; 1 deferred |
@@ -830,17 +861,17 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Bedrock](services/bedrock/README.md) | A | 80 | 1 gap; 3 structural gaps |
-| [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 3 gaps; 3 structural gaps; 2 deferred |
+| [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 2 gaps; 3 structural gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 3 gaps; 5 structural gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 1 gap; 1 structural gap; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 1 gap |
 | [Personalize](services/personalize/README.md) | A | 74 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 3 structural gaps; 3 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 69 | 2 gaps; 11 structural gaps |
-| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 structural gap |
+| [SageMaker](services/sagemaker/README.md) | A | 70 | 1 gap; 19 structural gaps |
+| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap; 1 structural gap |
 | [Textract](services/textract/README.md) | A | 25 | 2 structural gaps; 1 deferred |
-| [Transcribe](services/transcribe/README.md) | A | 43 | 1 gap; 2 structural gaps |
+| [Transcribe](services/transcribe/README.md) | A | 44 | 2 structural gaps |
 | [Translate](services/translate/README.md) | A | 19 | 1 gap; 2 structural gaps |
 
 ### Media
@@ -859,7 +890,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 1 gap; 1 structural gap |
-| [IoT Core](services/iot/README.md) | A | 88 | 9 gaps; 5 structural gaps |
+| [IoT Core](services/iot/README.md) | A | 88 | 10 gaps; 4 structural gaps |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 1 structural gap; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 structural gaps |
 
@@ -876,13 +907,16 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 13 gaps |
-| [Azure Blob Storage](services/azureblob/README.md) | C | 19 | 8 gaps; 3 deferred |
+| [Azure Blob Storage](services/azureblob/README.md) | C | 29 | 5 gaps; 3 deferred |
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 13 gaps |
 | [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 10 gaps |
-| [Azure Cosmos DB](services/cosmosdb/README.md) | B | 32 | 10 gaps |
-| [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 19 gaps |
+| [Azure Cosmos DB](services/cosmosdb/README.md) | B | 32 | 9 gaps |
+| [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 15 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 9 gaps |
-| [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
+| [Azure Files](services/azurefile/README.md) | B | 38 | 11 gaps |
+| [Azure Functions](services/azurefunctions/README.md) | B | 6 | 12 gaps |
+| [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 4 gaps |
+| [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
 | [Azure SQL Database](services/azuresql/README.md) | B | 14 | 11 gaps |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
@@ -892,44 +926,60 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Artifact Registry](services/gcpartifactregistry/README.md) | B | 23 | 10 gaps |
+| [Artifact Registry](services/gcpartifactregistry/README.md) | B | 40 | 13 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
-| [Cloud Build](services/gcpcloudbuild/README.md) | B | 19 | 11 gaps |
+| [Cloud Bigtable](services/gcpbigtable/README.md) | B | 43 | 8 gaps |
+| [Cloud Build](services/gcpcloudbuild/README.md) | B | 20 | 11 gaps |
+| [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 5 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 40 | 7 gaps |
-| [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 39 | 10 gaps |
-| [Cloud Run](services/gcprun/README.md) | B | 20 | 7 gaps |
+| [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 53 | 11 gaps |
+| [Cloud Run](services/gcprun/README.md) | B | 20 | 5 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 38 | 7 gaps |
-| [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
+| [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 4 gaps |
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 18 | 6 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 3 gaps |
+| [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 10 gaps |
+| [Eventarc](services/gcpeventarc/README.md) | B | 24 | 10 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
-| [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 35 | 6 gaps |
-| [Google Cloud Storage](services/gcpstorage/README.md) | B | 23 | 8 gaps |
-| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 15 | 4 gaps |
+| [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 6 gaps |
+| [Google Cloud Storage](services/gcpstorage/README.md) | B | 28 | 8 gaps |
+| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 5 gaps |
 | [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 7 gaps |
+| [Workflows](services/gcpworkflows/README.md) | B | 13 | 8 gaps |
+
+### OCI
+
+| Service | Parity | PARITY Entries | Notes |
+|---|---|---|---|
+| [OCI Core Services](services/ocicore/README.md) | B | 135 | 11 gaps |
+| [OCI Functions](services/ocifunctions/README.md) | B | 16 | 9 gaps |
+| [OCI Identity](services/ociidentity/README.md) | B | 70 | 9 gaps |
+| [OCI Object Storage](services/ociobjectstorage/README.md) | B | 45 | 11 gaps |
+| [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 9 gaps |
+| [OCI Vault](services/ocivault/README.md) | B | 45 | 11 gaps |
 
 ### Other
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Amp](services/amp/README.md) | B | 44 | 10 gaps; 2 structural gaps |
+| [Amp](services/amp/README.md) | B | 44 | 9 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
-| [Appintegrations](services/appintegrations/README.md) | B | 23 | 4 gaps; 1 structural gap |
-| [Azurearm](services/azurearm/README.md) | B | 20 | 8 gaps; 3 deferred |
+| [Appintegrations](services/appintegrations/README.md) | B | 23 | 3 gaps; 1 structural gap |
+| [Azurearm](services/azurearm/README.md) | B | 20 | 14 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
 | [Bedrockagentcore](services/bedrockagentcore/README.md) | B | 30 | 11 gaps; 2 structural gaps |
 | [Bedrockagentcorecontrol](services/bedrockagentcorecontrol/README.md) | B | 171 | 12 gaps; 2 structural gaps |
 | [Budgets](services/budgets/README.md) | B | 26 | 8 gaps |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
-| [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 9 gaps; 3 structural gaps |
-| [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 6 gaps; 2 structural gaps |
-| [Connect](services/connect/README.md) | B | 249 | 23 gaps; 2 structural gaps |
+| [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 7 gaps; 3 structural gaps |
+| [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 5 gaps; 2 structural gaps |
+| [Connect](services/connect/README.md) | B | 312 | 21 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 6 gaps |
-| [Directconnect](services/directconnect/README.md) | A | 64 | 1 gap; 8 structural gaps; 1 deferred |
+| [Directconnect](services/directconnect/README.md) | A | 73 | 2 gaps; 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 3 structural gaps |
 | [Ecrpublic](services/ecrpublic/README.md) | A | 23 | 3 structural gaps |
 | [Globalaccelerator](services/globalaccelerator/README.md) | B | 56 | 4 gaps; 2 structural gaps |
@@ -937,24 +987,24 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 5 structural gaps; 1 deferred |
 | [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 gaps; 3 structural gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
-| [Lightsail](services/lightsail/README.md) | A | — | 28 families; 2 gaps; 6 structural gaps; 2 deferred |
+| [Lightsail](services/lightsail/README.md) | A | — | 29 families; 1 gap; 6 structural gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 structural gaps |
 | [Marketplaceentitlementservice](services/marketplaceentitlementservice/README.md) | B | 1 | 3 gaps; 1 structural gap |
 | [Marketplacemetering](services/marketplacemetering/README.md) | B | 4 | 5 gaps; 2 structural gaps |
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 8 structural gaps; 1 deferred |
 | [Networkfirewall](services/networkfirewall/README.md) | B | 85 | 4 gaps; 3 structural gaps |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 4 gaps; 2 structural gaps |
-| [Oam](services/oam/README.md) | B | 15 | 4 gaps; 1 structural gap |
-| [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 7 structural gaps |
+| [Oam](services/oam/README.md) | B | 15 | 3 gaps; 1 structural gap |
+| [Outposts](services/outposts/README.md) | A | 45 | 2 gaps; 7 structural gaps |
 | [Pricing](services/pricing/README.md) | B | 5 | 5 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 7 structural gaps |
 | [Resourceexplorer2](services/resourceexplorer2/README.md) | B | 27 | 13 gaps; 1 structural gap |
-| [Rum](services/rum/README.md) | B | 20 | 9 gaps; 2 structural gaps |
+| [Rum](services/rum/README.md) | B | 20 | 6 gaps; 2 structural gaps |
 | [S3vectors](services/s3vectors/README.md) | B | 21 | 8 gaps; 1 structural gap |
-| [Servicecatalog](services/servicecatalog/README.md) | B | 90 | 9 gaps; 1 structural gap |
+| [Servicecatalog](services/servicecatalog/README.md) | B | 90 | 7 gaps; 1 structural gap |
 | [Servicequotas](services/servicequotas/README.md) | B | 26 | 8 gaps; 1 structural gap |
-| [Support](services/support/README.md) | A | 16 | 1 gap; 1 structural gap; 1 deferred |
-| [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 5 gaps; 3 structural gaps |
+| [Support](services/support/README.md) | A | 20 | 1 structural gap; 1 deferred |
+| [Timestreaminfluxdb](services/timestreaminfluxdb/README.md) | B | 24 | 4 gaps; 3 structural gaps |
 | [WorkSpaces](services/workspaces/README.md) | A | 34 | 4 gaps; 2 structural gaps |
 <!-- END GENERATED SERVICES -->
 

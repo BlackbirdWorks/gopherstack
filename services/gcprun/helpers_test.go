@@ -34,11 +34,24 @@ func newEnv(t *testing.T, withRuntime bool) *env {
 	t.Helper()
 
 	rt := newFakeRuntime()
+
+	var source func() (gcprun.Runner, error)
+	if withRuntime {
+		source = func() (gcprun.Runner, error) { return rt, nil }
+	}
+
+	return newEnvWith(t, rt, source)
+}
+
+// newEnvWith builds an env whose container runtime comes from source (nil disables workloads).
+func newEnvWith(t *testing.T, rt *fakeRuntime, source func() (gcprun.Runner, error)) *env {
+	t.Helper()
+
 	h := gcprun.NewHandler(gcprun.NewInMemoryBackend())
 	h.Port, h.IngressPort = 0, 0
 
-	if withRuntime {
-		h.Backend.SetRuntime(func() (gcprun.Runner, error) { return rt, nil })
+	if source != nil {
+		h.Backend.SetRuntime(source)
 	}
 
 	require.NoError(t, h.StartWorker(t.Context()))

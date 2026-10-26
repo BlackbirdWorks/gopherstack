@@ -117,22 +117,7 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 	//                    without creating tables (the crawl was interrupted).
 	for name, readyAt := range b.crawlerReadyAt {
 		if now.After(readyAt) {
-			c, ok := b.crawlers.Get(name)
-			if ok && c.State == stateRunning {
-				c.State = stateReady
-				c.LastUpdated = float64(now.Unix())
-				created := b.createCrawlerTablesLocked(c)
-				b.finishCrawlHistoryLocked(name, "COMPLETED", created, now)
-				b.setLastCrawlLocked(c, "SUCCEEDED")
-				b.recordCrawlCompletionLocked(name, "SUCCEEDED")
-			} else if ok && c.State == stateStopping {
-				c.State = stateReady
-				c.LastUpdated = float64(now.Unix())
-				b.finishCrawlHistoryLocked(name, "STOPPED", 0, now)
-				b.setLastCrawlLocked(c, "CANCELLED")
-				b.recordCrawlCompletionLocked(name, "CANCELLED")
-			}
-
+			b.completeCrawlLocked(name, now)
 			delete(b.crawlerReadyAt, name)
 		}
 	}
@@ -288,6 +273,8 @@ func (b *InMemoryBackend) advanceStates(now time.Time) {
 		return
 	}
 
+	var jobs []*crawlJob
+
 	events := func() []runCompletion {
 		b.mu.Lock("advanceStates.apply")
 		defer b.mu.Unlock()
@@ -298,11 +285,13 @@ func (b *InMemoryBackend) advanceStates(now time.Time) {
 
 		ev := b.triggerEvents
 		b.triggerEvents = nil
+		jobs, b.pendingCrawls = b.pendingCrawls, nil
 
 		return ev
 	}()
 
 	b.dispatchTriggerEvents(events)
+	b.runCrawlJobs(jobs, now)
 }
 
 // StartReconciler starts the managed background reconciler that advances Glue job-run
@@ -384,3 +373,25 @@ func (b *InMemoryBackend) StopReconciler() {
 // retained for callers (and tests) that manage a backend's lifecycle directly; it is
 // an idempotent alias for StopReconciler.
 func (b *InMemoryBackend) Close() { b.StopReconciler() }
+
+// completeCrawlLocked starts the crawl of a RUNNING crawler (finished later by
+// runCrawlJobs, unlocked) or finishes a STOPPING one. b.mu must be held.
+func (b *InMemoryBackend) completeCrawlLocked(name string, now time.Time) {
+	c, ok := b.crawlers.Get(name)
+	if !ok {
+		return
+	}
+
+	switch c.State {
+	case stateRunning:
+		b.startCrawlLocked(c)
+	case stateStopping:
+		delete(b.crawlInFlight, name)
+
+		c.State = stateReady
+		c.LastUpdated = float64(now.Unix())
+		b.finishCrawlHistoryLocked(name, crawlerStateStoppedCrawl, crawlStats{}, now)
+		b.setLastCrawlLocked(c, "CANCELLED")
+		b.recordCrawlCompletionLocked(name, "CANCELLED")
+	}
+}

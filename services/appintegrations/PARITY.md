@@ -38,7 +38,6 @@ items_still_open:
   - "DataIntegrationAssociation.LastExecutionStatus: never emitted because no AppFlow execution exists"
   - "KmsKey: stored as given, not looked up in the KMS emulator"
   - "CreateDataIntegrationAssociation duplicate: the code for a second association of one DataIntegration is not documented; the emulator uses InvalidRequestException"
-  - "ResourceGroupsTaggingAPI and CloudFormation do not expose or provision AppIntegrations resources"
 structural_gaps:
   - "No AppFlow data plane: data integrations never pull data, so executions, schedules and file configuration have no effect beyond being stored."
 deferred: []

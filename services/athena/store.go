@@ -54,6 +54,7 @@ func isValidDataCatalogType(t string) bool {
 // and resourceTags remain plain maps -- see the store_setup.go file doc for
 // why each is left as-is.
 type InMemoryBackend struct {
+	now                           func() time.Time
 	glueSource                    GlueMetadataSource
 	s3                            S3Storer
 	registry                      *store.Registry
@@ -91,6 +92,11 @@ func (b *InMemoryBackend) SetGlueMetadataSource(src GlueMetadataSource) {
 	b.glueSource = src
 }
 
+// SetClock overrides the clock used for NOW in partition projection.
+func (b *InMemoryBackend) SetClock(now func() time.Time) {
+	b.now = now
+}
+
 // SetS3Backend wires S3 so a succeeded query execution's result actually
 // writes an object to ResultConfiguration.OutputLocation, instead of only
 // storing/echoing the configuration.
@@ -113,6 +119,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		queryResults: make(map[string]*sqlResult),
 		cancels:      make(map[string]context.CancelFunc),
 		limits:       defaultEngineLimits(),
+		now:          time.Now,
 		tableData:    make(map[string][]map[string]any),
 		resourceTags: make(map[string]map[string]string),
 		region:       region,

@@ -24,6 +24,7 @@ type ConfigurationSet struct {
 	VdmOptions                   *VdmOptions            `json:"vdmOptions,omitempty"`
 	Tags                         map[string]string      `json:"tags,omitempty"`
 	ArchivingOptions             *ArchivingOptions      `json:"archivingOptions,omitempty"`
+	MessageSecurity              *MessageSecurity       `json:"messageSecurity,omitempty"`
 	SuppressionValidation        *SuppressionValidation `json:"suppressionValidation,omitempty"`
 	DeliverySendingPoolName      string                 `json:"deliverySendingPoolName,omitempty"`
 	DeliveryTLSPolicy            string                 `json:"deliveryTlsPolicy,omitempty"`
@@ -34,6 +35,25 @@ type ConfigurationSet struct {
 	SuppressionReasons           []string               `json:"suppressionReasons,omitempty"`
 	SendingEnabled               bool                   `json:"sendingEnabled"`
 	ReputationMetricsEnabled     bool                   `json:"reputationMetricsEnabled"`
+}
+
+// MessageSecurity is MessageSecurityOptions.SigningScheme: exactly one of the
+// DefaultScheme or SmimeScheme union members.
+type MessageSecurity struct {
+	SmimeSignatureFormat string `json:"smimeSignatureFormat,omitempty"`
+	Smime                bool   `json:"smime"`
+}
+
+func (m *MessageSecurity) validate() error {
+	if m == nil {
+		return fmt.Errorf("%w: MessageSecurityOptions.SigningScheme is required", ErrInvalidInput)
+	}
+
+	if m.Smime && m.SmimeSignatureFormat != "DETACHED" {
+		return fmt.Errorf("%w: SmimeScheme.SignatureFormat must be DETACHED", ErrInvalidInput)
+	}
+
+	return nil
 }
 
 // SuppressionValidation is SuppressionOptions.ValidationOptions: the Auto Validation switch and confidence verdict.
@@ -93,6 +113,11 @@ func (cs *ConfigurationSet) Clone() *ConfigurationSet {
 	if cs.SuppressionValidation != nil {
 		v := *cs.SuppressionValidation
 		cp.SuppressionValidation = &v
+	}
+
+	if cs.MessageSecurity != nil {
+		m := *cs.MessageSecurity
+		cp.MessageSecurity = &m
 	}
 
 	return &cp
@@ -282,6 +307,26 @@ func (b *InMemoryBackend) PutConfigurationSetSendingOptions(
 	}
 
 	cs.SendingEnabled = sendingEnabled
+
+	return nil
+}
+
+// UpdateConfigurationSet replaces the message security (signing scheme) of a configuration set.
+func (b *InMemoryBackend) UpdateConfigurationSet(name string, sec *MessageSecurity) error {
+	if err := sec.validate(); err != nil {
+		return err
+	}
+
+	b.mu.Lock("UpdateConfigurationSet")
+	defer b.mu.Unlock()
+
+	cs, ok := b.configurationSets.Get(name)
+	if !ok {
+		return configSetMissing(name)
+	}
+
+	cp := *sec
+	cs.MessageSecurity = &cp
 
 	return nil
 }

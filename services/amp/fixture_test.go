@@ -38,7 +38,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 
 	return newFixtureFromBackend(t, amp.NewInMemoryBackend(testAccount, "us-east-1"),
-		&fakeClock{t: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)})
+		&fakeClock{t: time.Unix(0, 0).UTC()})
 }
 
 func newFixtureFromBackend(t *testing.T, backend *amp.InMemoryBackend, clock *fakeClock) *fixture {

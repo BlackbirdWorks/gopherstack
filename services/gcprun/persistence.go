@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/run/apiv2/runpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -42,6 +43,11 @@ type backendSnapshot struct {
 	Executions map[string]json.RawMessage `json:"executions"`
 	Tasks      map[string]taskSnap        `json:"tasks"`
 	Operations map[string]json.RawMessage `json:"operations"`
+	DeletedSvc map[string]json.RawMessage `json:"deletedServices"`
+	DeletedJob map[string]json.RawMessage `json:"deletedJobs"`
+	DeletedExe map[string]json.RawMessage `json:"deletedExecutions"`
+	IAM        map[string]json.RawMessage `json:"iamPolicies"`
+	IAMSeq     uint64                     `json:"iamSeq"`
 	Version    int                        `json:"version"`
 }
 
@@ -52,6 +58,30 @@ func marshalPB(m proto.Message) json.RawMessage {
 	}
 
 	return raw
+}
+
+func marshalMap[T proto.Message](m map[string]T) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(m))
+	for k, v := range m {
+		out[k] = marshalPB(v)
+	}
+
+	return out
+}
+
+func unmarshalMap[T proto.Message](raw map[string]json.RawMessage, mk func() T, what string) (map[string]T, error) {
+	out := make(map[string]T, len(raw))
+
+	for k, r := range raw {
+		v, err := unmarshalPB(r, mk())
+		if err != nil {
+			return nil, fmt.Errorf("gcprun: restore %s %q: %w", what, k, err)
+		}
+
+		out[k] = v
+	}
+
+	return out, nil
 }
 
 func unmarshalPB[T proto.Message](raw json.RawMessage, m T) (T, error) {
@@ -94,6 +124,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	for name, t := range b.tasks {
 		snap.Tasks[name] = taskSnap{Task: marshalPB(t.pb), State: string(t.state)}
 	}
+
+	snap.DeletedSvc, snap.DeletedJob, snap.DeletedExe = marshalMap(b.deleted.services),
+		marshalMap(b.deleted.jobs), marshalMap(b.deleted.executions)
+
+	policies, seq := b.iam.Snapshot()
+	snap.IAM, snap.IAMSeq = marshalMap(policies), seq
 
 	return persistence.MarshalSnapshot(ctx, "gcprun", snap)
 }
@@ -161,7 +197,7 @@ func (b *InMemoryBackend) restoreLocked(snap *backendSnapshot) error {
 			return fmt.Errorf("gcprun: restore revision %q: %w", name, err)
 		}
 
-		b.revisions[name] = &revRec{pb: pb, startErr: r.StartErr, seq: r.Seq}
+		b.revisions[name] = &revRec{pb: pb, startErr: r.StartErr, seq: r.Seq, changed: make(chan struct{})}
 	}
 
 	for name, raw := range snap.Jobs {
@@ -174,6 +210,10 @@ func (b *InMemoryBackend) restoreLocked(snap *backendSnapshot) error {
 	}
 
 	if err := b.restoreRuns(snap); err != nil {
+		return err
+	}
+
+	if err := b.restoreExtras(snap); err != nil {
 		return err
 	}
 
@@ -200,6 +240,43 @@ func (b *InMemoryBackend) restoreRuns(snap *backendSnapshot) error {
 
 		b.tasks[name] = &taskRec{pb: pb, state: taskState(t.State)}
 	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) restoreExtras(snap *backendSnapshot) error {
+	var err error
+
+	if b.deleted.services, err = unmarshalMap(
+		snap.DeletedSvc,
+		func() *runpb.Service { return &runpb.Service{} },
+		"deleted service",
+	); err != nil {
+		return err
+	}
+
+	if b.deleted.jobs, err = unmarshalMap(
+		snap.DeletedJob,
+		func() *runpb.Job { return &runpb.Job{} },
+		"deleted job",
+	); err != nil {
+		return err
+	}
+
+	if b.deleted.executions, err = unmarshalMap(
+		snap.DeletedExe,
+		func() *runpb.Execution { return &runpb.Execution{} },
+		"deleted execution",
+	); err != nil {
+		return err
+	}
+
+	policies, err := unmarshalMap(snap.IAM, func() *iampb.Policy { return &iampb.Policy{} }, "iam policy")
+	if err != nil {
+		return err
+	}
+
+	b.iam.Restore(policies, snap.IAMSeq)
 
 	return nil
 }

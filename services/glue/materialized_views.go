@@ -5,6 +5,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
+
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -26,6 +28,7 @@ var ErrMaterializedViewRefreshTaskNotRunning = awserr.New(
 func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(
 	dbName, tableName string,
 ) (*MaterializedViewRefreshRun, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("StartMaterializedViewRefreshTaskRun")
 	defer b.mu.Unlock()
 
@@ -48,6 +51,7 @@ func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(
 // identifies the run by DatabaseName+TableName, not a run ID (glue@v1.152.0
 // api_op_StopMaterializedViewRefreshTaskRun.go has no run-ID member at all).
 func (b *InMemoryBackend) StopMaterializedViewRefreshTaskRun(dbName, tableName string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("StopMaterializedViewRefreshTaskRun")
 	defer b.mu.Unlock()
 

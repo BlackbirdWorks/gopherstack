@@ -48,7 +48,7 @@ func waitClusterAvailable(t *testing.T, b *rds.InMemoryBackend, id string, wait 
 	require.Eventually(t, func() bool {
 		got, err := b.DescribeDBClusters(id)
 		require.NoError(t, err)
-		require.NotEqual(t, "failed", got[0].Status)
+		requireNotFailed(t, b, id, got[0].Status)
 
 		c = got[0]
 

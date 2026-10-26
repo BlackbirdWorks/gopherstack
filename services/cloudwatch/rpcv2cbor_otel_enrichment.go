@@ -8,12 +8,9 @@ import (
 )
 
 func (h *Handler) cborGetOTelEnrichment(_ cbor.Map, c *echo.Context) error {
-	status, err := h.Backend.GetOTelEnrichment()
-	if err != nil {
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
-	}
+	st := h.Backend.OTelEnrichmentDetails()
 
-	return writeCBOR(c, cbor.Map{keyStatus: cbor.String(status)})
+	return writeCBOR(c, cborOTelFields(st, cbor.Map{keyStatus: cbor.String(st.Status)}))
 }
 
 func (h *Handler) cborStartOTelEnrichment(_ cbor.Map, c *echo.Context) error {
@@ -21,7 +18,7 @@ func (h *Handler) cborStartOTelEnrichment(_ cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeCBOR(c, cbor.Map{})
+	return writeCBOR(c, cborOTelFields(h.Backend.OTelEnrichmentDetails(), cbor.Map{}))
 }
 
 func (h *Handler) cborStopOTelEnrichment(_ cbor.Map, c *echo.Context) error {

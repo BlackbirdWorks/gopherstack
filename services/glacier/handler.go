@@ -48,8 +48,6 @@ const (
 	minPoliciesPathSegments = 3
 	// minRouteSegments is the minimum path segments required to route a request.
 	minRouteSegments = 2
-	// routeSplitParts is the max split parts when parsing the route prefix.
-	routeSplitParts = 3
 	// minJobPathSegments is the minimum segments for job paths.
 	minJobPathSegments = 5
 	// lockIDLength is the length of the generated vault lock ID.
@@ -182,16 +180,14 @@ func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 // Glacier uses paths like /{accountId}/vaults/... where accountId is "-" or a real account ID.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
-		segs := strings.SplitN(strings.TrimPrefix(path, "/"), "/", routeSplitParts)
-
-		if len(segs) < minRouteSegments {
+		_, rest, ok := strings.Cut(strings.TrimPrefix(c.Request().URL.Path, "/"), "/")
+		if !ok {
 			return false
 		}
 
-		// Check that the second segment is "vaults", "policies", or "provisioned-capacity"
-		// Glacier paths: /{accountId}/vaults, /{accountId}/policies, /{accountId}/provisioned-capacity
-		return segs[1] == "vaults" || segs[1] == "policies" || segs[1] == "provisioned-capacity"
+		second, _, _ := strings.Cut(rest, "/")
+
+		return second == "vaults" || second == "policies" || second == "provisioned-capacity"
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -118,10 +120,13 @@ const (
 
 // Handler is the HTTP handler for OpenSearch operations.
 type Handler struct {
-	Backend   StorageBackend
-	peers     *regionpeers.Set[Handler]
-	AccountID string
-	Region    string
+	endpointStrategy string
+	customBackend    *url.URL
+	proxyTransport   http.RoundTripper
+	Backend          StorageBackend
+	peers            *regionpeers.Set[Handler]
+	AccountID        string
+	Region           string
 }
 
 // NewHandler creates a new OpenSearch Handler.
@@ -206,8 +211,42 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
+		if _, ok := h.strategyRequest(c.Request()); ok {
+			return true
+		}
+
 		return isOpenSearchPath(c.Request().URL.Path)
 	}
+}
+
+// strategyRequest recognises a data-plane request addressed to a strategy-formatted endpoint.
+func (h *Handler) strategyRequest(r *http.Request) (endpointstrategy.OpenSearchRequest, bool) {
+	if h.endpointStrategy == "" || isOpenSearchPath(r.URL.Path) {
+		return endpointstrategy.OpenSearchRequest{}, false
+	}
+
+	return endpointstrategy.ParseOpenSearchRequest(r.Host, r.URL.Path)
+}
+
+// indexRest maps OpenSearch's /<index>/_doc|_search|_count form onto the backend's /index/<index>/... routes.
+func indexRest(rest string) string {
+	segs := strings.Split(strings.TrimPrefix(rest, "/"), "/")
+	if len(segs) >= 2 && segs[0] != "" && segs[0] != "index" && !strings.HasPrefix(segs[0], "_") {
+		switch segs[1] {
+		case indexOpDoc, indexOpSearch, indexOpCount:
+			return "/index" + rest
+		}
+	}
+
+	return rest
+}
+
+func rewriteStrategyRequest(r *http.Request, osr endpointstrategy.OpenSearchRequest) *http.Request {
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = openSearchPathPrefix + "/" + osr.Domain + indexRest(osr.Rest)
+	r2.URL.RawPath = ""
+
+	return withDataPlaneTarget(r2, dataPlaneTarget{domain: osr.Domain, path: osr.Rest})
 }
 
 // Reset clears the handler's backend state.
@@ -222,6 +261,10 @@ func (h *Handler) Reset() {
 // ServeHTTP implements [http.Handler] for the OpenSearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = canonicalTagsPath(r.URL.Path)
+
+	if h.serveDataPlane(w, r) {
+		return
+	}
 
 	if h.handleTagRoutes(w, r) {
 		return
@@ -519,6 +562,11 @@ func domainNameFromRest(rest string) string {
 // Handle satisfies the Echo handler interface.
 func (h *Handler) Handle(c *echo.Context) error {
 	region := requestRegion(c.Request().Host, awsmeta.Region(c.Request().Context()))
+	if osr, ok := h.strategyRequest(c.Request()); ok {
+		region = osr.Region
+		c.SetRequest(rewriteStrategyRequest(c.Request(), osr))
+	}
+
 	if p := h.peers.Get(region); p != nil {
 		return p.Handle(c)
 	}

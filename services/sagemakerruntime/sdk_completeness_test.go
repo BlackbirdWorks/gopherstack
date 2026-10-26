@@ -16,7 +16,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := newEchoBackend()
 	h := sagemakerruntime.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &sagemakerruntimesdk.Client{}, h.GetSupportedOperations(), nil)
 }

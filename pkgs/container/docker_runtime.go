@@ -238,6 +238,13 @@ func (r *DockerRuntime) PullImage(ctx context.Context, imageRef string) error {
 	return registryauth.Pull(ctx, imageRef, r.pullOnce, registryauth.TaggerFrom(r.docker))
 }
 
+// PullImageWithCredentials pulls imageRef authenticating to the registry as username/password.
+func (r *DockerRuntime) PullImageWithCredentials(ctx context.Context, imageRef, username, password string) error {
+	host := registryauth.HostOf(imageRef)
+
+	return r.pullOnce(ctx, imageRef, registryauth.EncodeCredential(host, username, password))
+}
+
 func (r *DockerRuntime) pullOnce(ctx context.Context, ref, auth string) error {
 	rc, err := r.docker.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
@@ -245,9 +252,45 @@ func (r *DockerRuntime) pullOnce(ctx context.Context, ref, auth string) error {
 	}
 	defer rc.Close()
 
+	if w, ok := rc.(interface{ Wait(context.Context) error }); ok {
+		if werr := w.Wait(ctx); werr != nil {
+			return fmt.Errorf("image pull %q: %w", ref, werr)
+		}
+
+		return nil
+	}
+
 	_, _ = io.Copy(io.Discard, rc)
 
 	return nil
+}
+
+const (
+	pullAttempts     = 3
+	pullRetryBackoff = 3 * time.Second
+)
+
+// pullWithRetry retries a failed pull: registries throttle and drop streams on busy CI hosts.
+func (r *DockerRuntime) pullWithRetry(ctx context.Context, imageRef string) error {
+	var err error
+
+	for attempt := range pullAttempts {
+		if err = r.PullImage(ctx, imageRef); err == nil {
+			return nil
+		}
+
+		if attempt == pullAttempts-1 {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(pullRetryBackoff * time.Duration(attempt+1)):
+		}
+	}
+
+	return err
 }
 
 // HasImage reports whether the given image reference is already present locally.
@@ -284,7 +327,10 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		Binds:      spec.Mounts,
 		Privileged: spec.Privileged,
 		Runtime:    spec.OCIRuntime,
+		GroupAdd:   spec.GroupAdd,
 	}
+	hostCfg.Memory = spec.MemoryBytes
+	hostCfg.NanoCPUs = spec.NanoCPUs
 
 	if spec.Network != "" {
 		hostCfg.NetworkMode = dockercontainer.NetworkMode(spec.Network)
@@ -307,7 +353,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	// LocalStack) pull the runtime/base image on demand; without this a clean
 	// host fails container creation with "No such image".
 	if has, herr := r.HasImage(ctx, spec.Image); herr == nil && !has {
-		if perr := r.PullImage(ctx, spec.Image); perr != nil {
+		if perr := r.pullWithRetry(ctx, spec.Image); perr != nil {
 			return "", fmt.Errorf("ensure image %q: %w", spec.Image, perr)
 		}
 	}
@@ -318,7 +364,11 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	}
 
 	if startErr := r.docker.ContainerStart(ctx, resp.ID, dockercontainer.StartOptions{}); startErr != nil {
-		_ = r.docker.ContainerRemove(context.WithoutCancel(ctx), resp.ID, dockercontainer.RemoveOptions{Force: true})
+		_ = r.docker.ContainerRemove(
+			context.WithoutCancel(ctx),
+			resp.ID,
+			dockercontainer.RemoveOptions{Force: true, RemoveVolumes: true},
+		)
 
 		return "", fmt.Errorf("container start %q: %w", resp.ID, startErr)
 	}
@@ -361,7 +411,11 @@ func (r *DockerRuntime) StopAndRemove(ctx context.Context, containerID string) e
 		return fmt.Errorf("container stop %q: %w", containerID, err)
 	}
 
-	if err := r.docker.ContainerRemove(ctx, containerID, dockercontainer.RemoveOptions{Force: true}); err != nil {
+	if err := r.docker.ContainerRemove(
+		ctx,
+		containerID,
+		dockercontainer.RemoveOptions{Force: true, RemoveVolumes: true},
+	); err != nil {
 		return fmt.Errorf("container remove %q: %w", containerID, err)
 	}
 

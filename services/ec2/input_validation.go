@@ -147,7 +147,8 @@ func errorMessage(code, msg string) string {
 	if m := notFoundCodeRe.FindStringSubmatch(code); m != nil && detail != "" && !strings.ContainsAny(detail, " :") {
 		kind := m[1]
 
-		return fmt.Sprintf("The %s ID '%s' does not exist", strings.ToLower(kind[:1])+kind[1:], detail)
+		return fmt.Sprintf("The %s ID '%s' does not exist", strings.ToLower(kind[:1])+kind[1:],
+			strings.ReplaceAll(detail, "'", `\'`))
 	}
 
 	return detail

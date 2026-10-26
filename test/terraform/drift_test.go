@@ -736,7 +736,7 @@ func TestTerraformDrift_RDS(t *testing.T) {
 	tests := []driftTestCase{
 		{
 			name:       "allocated_storage",
-			fixture:    "rds/success",
+			fixture:    "rds/drift",
 			providerFn: rdsProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
@@ -750,6 +750,7 @@ func TestTerraformDrift_RDS(t *testing.T) {
 				_, err := client.ModifyDBInstance(ctx, &rdssvc.ModifyDBInstanceInput{
 					DBInstanceIdentifier: aws.String(vars["Identifier"].(string)),
 					AllocatedStorage:     aws.Int32(100),
+					ApplyImmediately:     aws.Bool(true),
 				})
 				require.NoError(t, err, "ModifyDBInstance should succeed to introduce drift")
 			},

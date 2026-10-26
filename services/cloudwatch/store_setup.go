@@ -35,6 +35,8 @@ func dashboardsKeyFn(v *dashboardRecord) string         { return v.Name }
 func datasetsKeyFn(v *Dataset) string                   { return v.DatasetID }
 func otelEnrichmentKeyFn(v *OTelEnrichmentState) string { return v.Key }
 
+func resourceMetricsKeyFn(v *ResourceMetricsConfiguration) string { return v.ResourceArn }
+
 func anomalyDetectorsKeyFn(v *AnomalyDetector) string {
 	return detectorKey(v)
 }
@@ -74,6 +76,9 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.otelEnrichment = store.Register(b.registry, "otelEnrichment", store.New(otelEnrichmentKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.resourceMetrics = store.Register(b.registry, "resourceMetricsConfigurations", store.New(resourceMetricsKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.dashboards = store.Register(b.registry, "dashboards", store.New(dashboardsKeyFn))

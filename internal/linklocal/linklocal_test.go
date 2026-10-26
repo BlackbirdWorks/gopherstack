@@ -29,6 +29,7 @@ type fakeDocker struct {
 	created     []mobyclient.ContainerCreateOptions
 	connected   []mobyclient.NetworkConnectOptions
 	removedCtrs []string
+	keptVolumes []string
 	mu          sync.Mutex
 }
 
@@ -112,10 +113,15 @@ func (f *fakeDocker) ContainerInspect(
 }
 
 func (f *fakeDocker) ContainerRemove(
-	_ context.Context, id string, _ mobyclient.ContainerRemoveOptions,
+	_ context.Context, id string, opts mobyclient.ContainerRemoveOptions,
 ) (mobyclient.ContainerRemoveResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if !opts.RemoveVolumes {
+		f.keptVolumes = append(f.keptVolumes, id)
+	}
+
 	f.removedCtrs = append(f.removedCtrs, id)
 
 	return mobyclient.ContainerRemoveResult{}, nil
@@ -177,6 +183,7 @@ func TestManagerEnsure(t *testing.T) {
 			assert.Len(t, f.netCreated, tt.wantNets)
 			assert.Len(t, f.created, tt.wantCreated)
 			assert.Len(t, f.removedCtrs, tt.wantRemoved)
+			assert.Empty(t, f.keptVolumes, "removal must pass RemoveVolumes")
 		})
 	}
 }

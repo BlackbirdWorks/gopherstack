@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,16 +13,35 @@ import (
 
 const contentJSON = "application/json; charset=utf-8"
 
-func (j job) eventObject() []byte { return j.d.Event }
+func (j job) eventObject() []byte { return j.ds[0].Event }
 
 func (j job) eventArray() []byte {
-	return bytes.Join([][]byte{[]byte("["), j.d.Event, []byte("]")}, nil)
+	events := make([][]byte, 0, len(j.ds))
+	for _, d := range j.ds {
+		events = append(events, d.Event)
+	}
+
+	return bytes.Join([][]byte{[]byte("["), bytes.Join(events, []byte(",")), []byte("]")}, nil)
+}
+
+func (j job) maxAttempts() int {
+	n := 0
+	for _, d := range j.ds {
+		n = max(n, d.Attempts)
+	}
+
+	return n
 }
 
 func (b *InMemoryBackend) deliverWebhook(ctx context.Context, j job) outcome {
 	body, ctype := j.eventArray(), contentJSON
+
 	if j.spec.EventDeliverySchema == SchemaCloudEvent {
 		body, ctype = j.eventObject(), "application/cloudevents+json; charset=utf-8"
+
+		if maxEvents, _ := j.spec.Destination.batchLimits(); maxEvents > 1 {
+			body, ctype = j.eventArray(), "application/cloudevents-batch+json; charset=utf-8"
+		}
 	}
 
 	target, err := parseWebhookURL(j.spec.Destination.str(propEndpointURL))
@@ -34,10 +54,12 @@ func (b *InMemoryBackend) deliverWebhook(ctx context.Context, j job) outcome {
 		return outcome{label: outcomeGeneric, permanent: true}
 	}
 
+	maps.Copy(req.Header, j.spec.Destination.webhookHeaders(j.ds[0].Event))
+
 	req.Header.Set("Content-Type", ctype)
 	req.Header.Set("Aeg-Event-Type", "Notification")
 	req.Header.Set("Aeg-Subscription-Name", strings.ToUpper(j.sub))
-	req.Header.Set("Aeg-Delivery-Count", strconv.Itoa(j.d.Attempts))
+	req.Header.Set("Aeg-Delivery-Count", strconv.Itoa(j.maxAttempts()))
 	req.Header.Set("Aeg-Metadata-Version", "1")
 
 	resp, err := b.httpc.Do(req)
@@ -73,8 +95,8 @@ func statusOutcome(code int) outcome {
 
 func (j job) message(body []byte) Message {
 	return Message{
-		ID:          j.d.ID,
-		Subject:     strField(decodeFields(j.d.Event), "subject"),
+		ID:          j.ds[0].ID,
+		Subject:     strField(decodeFields(j.ds[0].Event), "subject"),
 		ContentType: "application/json",
 		Body:        body,
 	}

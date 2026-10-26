@@ -3,10 +3,12 @@ package glue
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 func (b *InMemoryBackend) tableOptimizerKey(dbName, tableName, optimizerType string) string {
-	return dbName + "|" + tableName + "|" + optimizerType
+	return strs.Fold(dbName) + "|" + strs.Fold(tableName) + "|" + optimizerType
 }
 
 // tableOptimizerRecord is the tableOptimizers store's internal storage
@@ -39,6 +41,7 @@ func (b *InMemoryBackend) CreateTableOptimizer(
 	_, dbName, tableName, optimizerType string,
 	config TableOptimizerConfiguration,
 ) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("CreateTableOptimizer")
 	defer b.mu.Unlock()
 
@@ -74,6 +77,7 @@ func (b *InMemoryBackend) CreateTableOptimizer(
 func (b *InMemoryBackend) GetTableOptimizer(
 	dbName, tableName, optimizerType string,
 ) (*TableOptimizer, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetTableOptimizer")
 	defer b.mu.RUnlock()
 
@@ -95,6 +99,7 @@ func (b *InMemoryBackend) UpdateTableOptimizer(
 	dbName, tableName, optimizerType string,
 	config TableOptimizerConfiguration,
 ) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("UpdateTableOptimizer")
 	defer b.mu.Unlock()
 
@@ -115,6 +120,7 @@ func (b *InMemoryBackend) UpdateTableOptimizer(
 }
 
 func (b *InMemoryBackend) DeleteTableOptimizer(dbName, tableName, optimizerType string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("DeleteTableOptimizer")
 	defer b.mu.Unlock()
 

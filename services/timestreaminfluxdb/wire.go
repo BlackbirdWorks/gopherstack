@@ -245,7 +245,7 @@ func (b *InMemoryBackend) wireBackupConfigs(cfgs []BackupConfig) []wBackupConfig
 			CustomSchedule: c.CustomSchedule, Type: c.Type, RetentionDays: c.RetentionDays, Enabled: c.Enabled,
 		}
 		if c.Enabled {
-			w.NextAutomatedBackupTime = timePtr(nextBackup(now, c.Type))
+			w.NextAutomatedBackupTime = timePtr(nextBackupFor(now, &c))
 		}
 
 		out = append(out, w)

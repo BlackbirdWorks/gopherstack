@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 )
 
 func errRequired(param string) *APIError {
@@ -45,6 +47,8 @@ func (h *Handler) insertBucket(c *echo.Context, _ route) error {
 		return err
 	}
 
+	p = withACLParams(c, p, keyPredefined, keyPredefDef)
+
 	b, err := h.Backend.CreateBucket(project, p)
 	if err != nil {
 		return err
@@ -78,6 +82,8 @@ func (h *Handler) updateBucket(c *echo.Context, rt route) error {
 		return err
 	}
 
+	p = withACLParams(c, p, keyPredefined, keyPredefDef)
+
 	b, err := h.Backend.UpdateBucket(rt.bucket, p, c.Request().Method == http.MethodPut, pre)
 	if err != nil {
 		return err
@@ -100,7 +106,7 @@ func (h *Handler) deleteBucket(c *echo.Context, rt route) error {
 }
 
 func (h *Handler) getIamPolicy(c *echo.Context, rt route) error {
-	pol, err := h.Backend.GetIAMPolicy(rt.bucket)
+	pol, err := h.Backend.GetIAMPolicy(rt.bucket, requestedPolicyVersion(c))
 	if err != nil {
 		return err
 	}
@@ -127,19 +133,25 @@ func (h *Handler) setIamPolicy(c *echo.Context, rt route) error {
 	return c.JSON(http.StatusOK, policyResource(rt.bucket, pol))
 }
 
-// testIamPermissions reports every requested permission as granted: the
+// testIamPermissions reports the requested storage permissions as granted: the
 // emulator does not authenticate callers.
 func (h *Handler) testIamPermissions(c *echo.Context, rt route) error {
 	if _, err := h.Backend.GetBucket(rt.bucket, Preconds{}); err != nil {
 		return err
 	}
 
-	perms := c.QueryParams()["permissions"]
-	if perms == nil {
-		perms = []string{}
-	}
+	perms := gcpiampolicy.Granted(c.QueryParams()["permissions"], "storage.")
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyKind: "storage#testIamPermissionsResponse", "permissions": perms,
 	})
+}
+
+func requestedPolicyVersion(c *echo.Context) int {
+	v, err := strconv.Atoi(c.QueryParam("optionsRequestedPolicyVersion"))
+	if err != nil || v < 1 {
+		return 1
+	}
+
+	return v
 }

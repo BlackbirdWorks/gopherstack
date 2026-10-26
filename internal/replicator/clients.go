@@ -10,22 +10,21 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/sns"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 
+	"github.com/blackbirdworks/gopherstack/internal/awswire/cloudwatchlogs"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/eventbridge"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kinesis"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/lambda"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sns"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 )
 
@@ -42,7 +41,7 @@ type sdkClients struct {
 	sns    *sns.Client
 	ddb    *dynamodb.Client
 	iam    *iam.Client
-	ec2    *ec2.Client
+	ec2    *ec2Wire
 	lambda *lambda.Client
 	ssm    *ssm.Client
 	sm     *secretsmanager.Client
@@ -96,7 +95,7 @@ func newClients(ctx context.Context, ep Endpoint, isTarget bool) (*sdkClients, e
 		sns:    sns.NewFromConfig(cfg),
 		ddb:    dynamodb.NewFromConfig(cfg),
 		iam:    iam.NewFromConfig(cfg),
-		ec2:    ec2.NewFromConfig(cfg),
+		ec2:    newEC2Wire(cfg, hc),
 		lambda: lambda.NewFromConfig(cfg),
 		ssm:    ssm.NewFromConfig(cfg),
 		sm:     secretsmanager.NewFromConfig(cfg),

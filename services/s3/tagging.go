@@ -2,7 +2,6 @@ package s3
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"slices"
 
@@ -62,7 +61,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 	b.mu.Lock("PutObjectTagging")
 	defer b.mu.Unlock()
 
-	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, resolvedVersionID)
+	tagKey := tagMapKey(bucketName, key, resolvedVersionID)
 	if b.tags == nil {
 		b.tags = make(map[string][]types.Tag)
 	}
@@ -121,7 +120,7 @@ func (b *InMemoryBackend) GetObjectTagging(
 	b.mu.RLock("GetObjectTagging")
 	defer b.mu.RUnlock()
 
-	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, vid)
+	tagKey := tagMapKey(bucketName, key, vid)
 	tags := slices.Clone(b.tags[tagKey])
 
 	return &s3.GetObjectTaggingOutput{

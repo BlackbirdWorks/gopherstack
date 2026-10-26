@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -19,7 +21,7 @@ func cloneUDF(u *UserDefinedFunction) *UserDefinedFunction {
 }
 
 func (b *InMemoryBackend) udfKey(dbName, name string) string {
-	return dbName + "|" + name
+	return strs.Fold(dbName) + "|" + name
 }
 
 func (b *InMemoryBackend) udfARN(dbName, name string) string {
@@ -31,7 +33,7 @@ func (b *InMemoryBackend) udfARN(dbName, name string) string {
 func (b *InMemoryBackend) countUDFsInDatabase(dbName string) int {
 	n := 0
 	b.udfs.Range(func(u *UserDefinedFunction) bool {
-		if u.DatabaseName == dbName {
+		if strs.Equal(u.DatabaseName, dbName) {
 			n++
 		}
 
@@ -46,6 +48,7 @@ func (b *InMemoryBackend) CreateUserDefinedFunction(
 	input UserDefinedFunction,
 	tags map[string]string,
 ) (*UserDefinedFunction, error) {
+	dbName = strs.Fold(dbName)
 	b.mu.Lock("CreateUserDefinedFunction")
 	defer b.mu.Unlock()
 
@@ -85,6 +88,7 @@ func (b *InMemoryBackend) CreateUserDefinedFunction(
 func (b *InMemoryBackend) GetUserDefinedFunction(
 	dbName, name string,
 ) (*UserDefinedFunction, error) {
+	dbName = strs.Fold(dbName)
 	b.mu.RLock("GetUserDefinedFunction")
 	defer b.mu.RUnlock()
 
@@ -102,6 +106,7 @@ func (b *InMemoryBackend) GetUserDefinedFunction(
 }
 
 func (b *InMemoryBackend) GetUserDefinedFunctions(dbName string) []*UserDefinedFunction {
+	dbName = strs.Fold(dbName)
 	b.mu.RLock("GetUserDefinedFunctions")
 	defer b.mu.RUnlock()
 
@@ -120,6 +125,7 @@ func (b *InMemoryBackend) UpdateUserDefinedFunction(
 	dbName, name string,
 	input UserDefinedFunction,
 ) error {
+	dbName = strs.Fold(dbName)
 	b.mu.Lock("UpdateUserDefinedFunction")
 	defer b.mu.Unlock()
 
@@ -145,6 +151,7 @@ func (b *InMemoryBackend) UpdateUserDefinedFunction(
 }
 
 func (b *InMemoryBackend) DeleteUserDefinedFunction(dbName, name string) error {
+	dbName = strs.Fold(dbName)
 	b.mu.Lock("DeleteUserDefinedFunction")
 	defer b.mu.Unlock()
 

@@ -12,6 +12,7 @@ import (
 	"net"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -79,29 +80,43 @@ type EngineLogin struct {
 	User     string
 	Password string
 	DBName   string
+	// AdminPassword is the sa password of a SQL Server container; empty for other engines.
+	AdminPassword string
 }
 
 // EngineConfig configures docker-backed RDS databases.
 type EngineConfig struct {
-	Runtime              EngineRuntime
-	Ports                *portalloc.Allocator
-	Probe                func(ctx context.Context, l EngineLogin) error
-	SetPassword          func(ctx context.Context, l EngineLogin, newPassword string) error
-	Now                  func() time.Time
-	ReplicaStatus        func(ctx context.Context, l EngineLogin) (ReplicaStatus, error)
-	Host                 string
-	CADir                string
-	DumpDir              string
+	Runtime       EngineRuntime
+	Ports         *portalloc.Allocator
+	Probe         func(ctx context.Context, l EngineLogin) error
+	SetPassword   func(ctx context.Context, l EngineLogin, newPassword string) error
+	Now           func() time.Time
+	ReplicaStatus func(ctx context.Context, l EngineLogin) (ReplicaStatus, error)
+	// RoleLookup reports whether the unit key has an IAM role associated for a feature.
+	RoleLookup func(key, feature string) bool
+	Host       string
+	CADir      string
+	DumpDir    string
+	// APIEndpoint is the emulator's own base URL, used by the aws_s3/aws_lambda callouts.
+	APIEndpoint string
+	// HostArch overrides the CPU architecture checked before launching SQL Server; empty means runtime.GOARCH.
+	HostArch             string
 	ReplicaPollInterval  time.Duration
 	StartTimeout         time.Duration
 	RestorePointInterval time.Duration
+	// PostgresExtensions runs postgres units on an image with postgis and pgvector plus the aws_s3/aws_lambda extensions.
+	PostgresExtensions bool
+	// SQLServer runs sqlserver-* instances on a real SQL Server container (amd64 only, opt-in).
+	SQLServer bool
 }
 
 type liveDB struct {
 	gone        chan struct{}
+	capture     chan struct{}
 	proxy       atomic.Pointer[pgProxy]
 	fwd         atomic.Pointer[tcpForwarder]
 	net         atomic.Pointer[replNet]
+	extDir      atomic.Pointer[string]
 	repl        *replicaState
 	eps         sync.Map
 	kind        string
@@ -110,6 +125,7 @@ type liveDB struct {
 	ctrName     string
 	key         string
 	version     string
+	engine      string
 	user        string
 	resourceID  string
 	dbName      string
@@ -185,12 +201,16 @@ type dbEngine struct {
 	data       map[string]engineData
 	points     map[string][]restorePoint
 	checked    map[string]time.Time
+	failures   map[string]string
 	store      *dumpStore
 	ca         *engineCA
 	tlsCfg     *tls.Config
+	ext        *pgExt
+	callout    *calloutServer
 	cfg        EngineConfig
 	wg         sync.WaitGroup
 	tlsOnce    sync.Once
+	calloutMu  sync.Mutex
 	execBroken atomic.Bool
 }
 
@@ -226,6 +246,10 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 	b.engine = &dbEngine{
 		cfg: cfg, units: make(map[string]*liveDB), data: make(map[string]engineData),
 		points: make(map[string][]restorePoint), checked: make(map[string]time.Time),
+		ext: newPgExt(),
+	}
+	if cfg.PostgresExtensions && cfg.RoleLookup == nil {
+		b.engine.cfg.RoleLookup = b.unitHasRole
 	}
 
 	if cfg.DumpDir != "" {
@@ -234,6 +258,19 @@ func (b *InMemoryBackend) EnableEngine(cfg EngineConfig) {
 	}
 
 	b.startRestorePointLoop()
+}
+
+// kindOf is engineKind plus the opt-in SQL Server editions; a nil engine knows no kind.
+func (e *dbEngine) kindOf(engine string) string {
+	if k := engineKind(engine); k != "" {
+		return k
+	}
+
+	if e != nil && e.cfg.SQLServer && sqlServerEngine(engine) {
+		return engineSQLServer
+	}
+
+	return ""
 }
 
 // engineKind maps an RDS engine name to its base database; "" means no real engine is available.
@@ -252,6 +289,8 @@ func engineKind(engine string) string {
 
 func engineImage(kind, version string) string {
 	switch kind {
+	case engineSQLServer:
+		return sqlServerImage(version)
 	case enginePostgres:
 		return "postgres:" + pickVersion(
 			version, defaultPostgresMajor, versionSegmentsMajor, "13", "14", "15", "16", "17")
@@ -279,14 +318,21 @@ func pickVersion(version, fallback string, segments int, allowed ...string) stri
 }
 
 func engineContainerPort(kind string) int {
-	if kind == enginePostgres {
+	switch kind {
+	case enginePostgres:
 		return pgContainerPort
+	case engineSQLServer:
+		return sqlServerContainerPort
 	}
 
 	return mysqlContainerPort
 }
 
 func engineEnv(lb *liveDB) []string {
+	if lb.kind == engineSQLServer {
+		return sqlServerEnv(lb, lb.engine)
+	}
+
 	if lb.kind == enginePostgres {
 		env := []string{"POSTGRES_USER=" + lb.user, "POSTGRES_PASSWORD=" + lb.password}
 		if lb.dbName != "" {
@@ -317,19 +363,29 @@ func (e *dbEngine) spec(lb *liveDB, plan replPlan) container.Spec {
 			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(engineContainerPort(lb.kind)))},
 		Network: plan.network,
 	}
-	applyReplicationFlags(&s, lb, plan)
+	if lb.kind != engineSQLServer {
+		applyReplicationFlags(&s, lb, plan)
+	}
+
+	e.applyPgExt(&s, lb)
 
 	return s
 }
 
 func (e *dbEngine) login(lb *liveDB) EngineLogin {
-	return EngineLogin{
+	l := EngineLogin{
 		Kind:     lb.kind,
 		Addr:     net.JoinHostPort(e.cfg.Host, strconv.Itoa(lb.port)),
 		User:     lb.user,
 		Password: lb.password,
 		DBName:   lb.dbName,
 	}
+
+	if lb.kind == engineSQLServer {
+		l.AdminPassword = sqlServerSAPassword(lb.ctrName)
+	}
+
+	return l
 }
 
 func (e *dbEngine) acquirePort() (int, error) {
@@ -397,7 +453,7 @@ func randomPassword() string {
 
 // validateEngineLogin rejects master usernames the real engines cannot be provisioned with.
 func (b *InMemoryBackend) validateEngineLogin(engine, masterUser string) error {
-	if b.engine == nil || engineKind(engine) == "" || engineUserRegex.MatchString(masterUser) {
+	if b.engine == nil || b.engine.kindOf(engine) == "" || engineUserRegex.MatchString(masterUser) {
 		return nil
 	}
 
@@ -476,7 +532,8 @@ func (b *InMemoryBackend) launchSeededUnitLocked(
 	}
 
 	lb := &liveDB{
-		gone: make(chan struct{}), key: key, resourceID: resourceID, kind: engineKind(engine),
+		gone: make(chan struct{}), capture: make(chan struct{}, 1), key: key, resourceID: resourceID,
+		kind: e.kindOf(engine), engine: engine,
 		version: version, user: user, password: password, dbName: dbName, seed: seed,
 		ctrName: "gopherstack-rds-" + randomPassword(), serverID: randomServerID(),
 	}
@@ -499,7 +556,7 @@ func (b *InMemoryBackend) provisionInstanceLocked(inst *DBInstance, password str
 
 // provisionSeededInstanceLocked is provisionInstanceLocked for an instance restored from existing data.
 func (b *InMemoryBackend) provisionSeededInstanceLocked(inst *DBInstance, password string, seed engineSeed) bool {
-	if b.engine == nil || engineKind(inst.Engine) == "" {
+	if b.engine == nil || b.engine.kindOf(inst.Engine) == "" {
 		return false
 	}
 
@@ -550,6 +607,12 @@ func (b *InMemoryBackend) runUnit(lb *liveDB) {
 
 	defer cancel()
 
+	if lb.kind == engineSQLServer && cmp.Or(e.cfg.HostArch, runtime.GOARCH) != "amd64" {
+		b.failUnit(ctx, lb, "check platform", errSQLServerArch)
+
+		return
+	}
+
 	var port int
 
 	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
@@ -567,6 +630,12 @@ func (b *InMemoryBackend) runUnit(lb *liveDB) {
 				return container.Spec{}, errUnitDetached
 			}
 
+			if perr := e.preparePgExt(ctx, lb); perr != nil {
+				e.releasePort(p)
+
+				return container.Spec{}, perr
+			}
+
 			plan, err := b.replicaPlan(ctx, lb)
 			if err != nil {
 				e.releasePort(p)
@@ -582,7 +651,7 @@ func (b *InMemoryBackend) runUnit(lb *liveDB) {
 		})
 	if err != nil {
 		if !errors.Is(err, errUnitDetached) {
-			b.failUnit(ctx, lb)
+			b.failUnit(ctx, lb, "create and start container", err)
 		}
 
 		return
@@ -635,15 +704,15 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	ctx, cancel := context.WithTimeout(ctx, b.engine.cfg.StartTimeout)
 	defer cancel()
 
-	if b.engine.awaitReady(ctx, login) != nil || b.applySeed(ctx, lb) != nil || b.guardReplica(ctx, lb) != nil {
-		b.failUnit(ctx, lb)
+	if stage, err := b.awaitUnit(ctx, lb, login); err != nil {
+		b.failUnit(ctx, lb, stage, err)
 
 		return
 	}
 
 	if lb.kind == enginePostgres && lb.proxy.Load() == nil {
 		if err := b.startProxy(lb); err != nil {
-			b.failUnit(ctx, lb)
+			b.failUnit(ctx, lb, "start proxy", err)
 
 			return
 		}
@@ -651,7 +720,7 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 
 	if lb.kind != enginePostgres && lb.fwd.Load() == nil {
 		if err := b.startForwarder(lb); err != nil {
-			b.failUnit(ctx, lb)
+			b.failUnit(ctx, lb, "start forwarder", err)
 
 			return
 		}
@@ -660,6 +729,22 @@ func (b *InMemoryBackend) awaitAndMark(ctx context.Context, lb *liveDB) {
 	b.markUnitReady(lb)
 	b.startReplicaMonitor(lb)
 	b.recordRestorePoint(lb)
+}
+
+func (b *InMemoryBackend) awaitUnit(ctx context.Context, lb *liveDB, login EngineLogin) (string, error) {
+	if err := b.engine.awaitReady(ctx, login); err != nil {
+		return "await readiness", err
+	}
+
+	if err := b.applySeed(ctx, lb); err != nil {
+		return "apply seed", err
+	}
+
+	if err := b.guardReplica(ctx, lb); err != nil {
+		return "guard replica", err
+	}
+
+	return "", nil
 }
 
 func (e *dbEngine) awaitReady(ctx context.Context, login EngineLogin) error {
@@ -747,7 +832,9 @@ func (b *InMemoryBackend) markUnitReady(lb *liveDB) {
 }
 
 // failUnit marks a still-wanted unit's resources failed and releases its container.
-func (b *InMemoryBackend) failUnit(ctx context.Context, lb *liveDB) {
+func (b *InMemoryBackend) failUnit(ctx context.Context, lb *liveDB, stage string, cause error) {
+	reason := b.failureReason(lb, stage, cause)
+
 	b.mu.Lock("rdsEngineFail")
 
 	if !b.attachedLocked(lb) {
@@ -757,6 +844,12 @@ func (b *InMemoryBackend) failUnit(ctx context.Context, lb *liveDB) {
 	}
 
 	delete(b.engine.units, lb.key)
+
+	if b.engine.failures == nil {
+		b.engine.failures = make(map[string]string)
+	}
+
+	b.engine.failures[normalizeID(lb.resourceID)] = reason
 	b.unitStatusesLocked(lb, func(inst *DBInstance) {
 		inst.DBInstanceStatus = instanceStatusFailed
 		delete(b.instanceReadyAt, inst.DBInstanceIdentifier)
@@ -766,7 +859,8 @@ func (b *InMemoryBackend) failUnit(ctx context.Context, lb *liveDB) {
 	})
 	b.mu.Unlock()
 
-	logger.Load(ctx).WarnContext(ctx, "rds: database engine failed to start", "code", engineStartFailedCode)
+	logger.Load(ctx).WarnContext(ctx, "rds: database engine failed to start",
+		"code", engineStartFailedCode, "resource", lb.resourceID, "reason", reason)
 	b.engine.reap(lb)
 }
 
@@ -794,6 +888,7 @@ func (b *InMemoryBackend) Close() {
 	}
 
 	e.wg.Wait()
+	e.stopCallout()
 
 	if c, ok := e.cfg.Runtime.(io.Closer); ok {
 		_ = c.Close()

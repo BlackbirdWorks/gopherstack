@@ -13,6 +13,8 @@ import (
 // dispatchPodIdentityOps handles pod identity association CRUD operations.
 func (h *Handler) dispatchPodIdentityOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
+	case opAssumeRoleForPodIdentity:
+		return true, h.handleAssumeRoleForPodIdentity(c, route.clusterName, body)
 	case opCreatePodIdentityAssociation:
 		return true, h.handleCreatePodIdentityAssociation(c, route.clusterName, body)
 	case opDeletePodIdentityAssociation:
@@ -67,10 +69,10 @@ func podIdentityToJSON(a *PodIdentityAssociation) map[string]any {
 
 	m := map[string]any{
 		keyClusterName:       a.ClusterName,
-		"associationId":      a.AssociationID,
-		"associationArn":     a.ARN,
+		keyAssociationID:     a.AssociationID,
+		keyAssociationARN:    a.ARN,
 		keyNamespace:         a.Namespace,
-		"serviceAccount":     a.ServiceAccount,
+		keyServiceAccount:    a.ServiceAccount,
 		"roleArn":            a.RoleARN,
 		keyCreatedAt:         a.CreatedAt.Unix(),
 		keyModifiedAt:        modifiedAt.Unix(),

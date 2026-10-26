@@ -20,7 +20,7 @@ import (
 )
 
 // directConnectTargetPrefix is the literal X-Amz-Target prefix every one of
-// this service's 63 operations carries -- "OvertureService", Direct
+// this service's 72 operations carries -- "OvertureService", Direct
 // Connect's real internal AWS codename (confirmed by grepping every op's
 // own X-Amz-Target header literal in the SDK's serializers.go -- see
 // PARITY.md). Unlike outposts/resiliencehub (restjson1, path-routed), this
@@ -57,7 +57,7 @@ var _ service.Shutdowner = (*Handler)(nil)
 func (h *Handler) Name() string { return "DirectConnect" }
 
 // GetSupportedOperations returns every operation this handler routes -- all
-// 63 operations on the aws-sdk-go-v2/service/directconnect client, per
+// 72 operations on the aws-sdk-go-v2/service/directconnect client, per
 // sdk_completeness_test.go's empty exception list.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
@@ -68,6 +68,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AllocatePublicVirtualInterface",
 		"AllocateTransitVirtualInterface",
 		"AssociateConnectionWithLag",
+		"AssociateConnectionsToResiliencyGroup",
 		"AssociateHostedConnection",
 		"AssociateMacSecKey",
 		"AssociateVirtualInterface",
@@ -83,6 +84,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateDirectConnectGatewayAssociationProposal",
 		"CreateInterconnect",
 		"CreateLag",
+		"CreateResiliencyGroup",
 		"CreatePrivateVirtualInterface",
 		"CreatePublicVirtualInterface",
 		"CreateTransitVirtualInterface",
@@ -93,6 +95,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteDirectConnectGatewayAssociationProposal",
 		"DeleteInterconnect",
 		"DeleteLag",
+		"DeleteResiliencyGroup",
 		"DeleteVirtualInterface",
 		"DescribeConnectionLoa",
 		"DescribeConnections",
@@ -113,7 +116,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeVirtualGateways",
 		"DescribeVirtualInterfaces",
 		"DisassociateConnectionFromLag",
+		"DisassociateConnectionsFromResiliencyGroup",
 		"DisassociateMacSecKey",
+		"GetResiliencyGroup",
+		"ListResiliencyGroupAssociations",
+		"ListResiliencyGroups",
 		"ListVirtualInterfaceRoutes",
 		"ListVirtualInterfaceTestHistory",
 		"StartBgpFailoverTest",
@@ -121,9 +128,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"UpdateConnection",
+		"UpdateConnectionsBillingMode",
 		"UpdateDirectConnectGateway",
 		"UpdateDirectConnectGatewayAssociation",
 		"UpdateLag",
+		"UpdateResiliencyGroup",
 		"UpdateVirtualInterfaceAttributes",
 	}
 }
@@ -185,7 +194,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return extractFirstResourceByKeys(
 		m,
 		"resourceArn", "connectionId", "virtualInterfaceId", "lagId",
-		"interconnectId", "directConnectGatewayId", "associationId", "proposalId",
+		"interconnectId", "resiliencyGroupId", "directConnectGatewayId", "associationId", "proposalId",
 	)
 }
 
@@ -229,7 +238,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes action to its handler via the flat opTable() map, keeping
 // this function itself a single map lookup (cyclomatic complexity 1)
-// instead of one giant switch over all 63 operations.
+// instead of one giant switch over all 72 operations.
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	fn, ok := h.opTable()[action]
 	if !ok {
@@ -250,6 +259,7 @@ func (h *Handler) opTable() map[string]opFunc {
 
 	maps.Copy(table, h.connectionOps())
 	maps.Copy(table, h.lagAndInterconnectOps())
+	maps.Copy(table, h.resiliencyGroupOps())
 	maps.Copy(table, h.vifOps())
 	maps.Copy(table, h.bgpOps())
 	maps.Copy(table, h.gatewayOps())

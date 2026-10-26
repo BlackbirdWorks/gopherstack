@@ -92,7 +92,8 @@ func (r *buildRunner) processReport(name string, rep specReport) error {
 }
 
 func (r *buildRunner) parseReportFiles(base, format string, files []string) reportContent {
-	if !formatSupported(format) {
+	parser, ok := reportParserFor(format)
+	if !ok {
 		r.log.write(r.ctx, marker("%v: %s", errUnsupportedReportFormat, format))
 
 		return reportContent{status: reportStatusIncomplete}
@@ -103,7 +104,7 @@ func (r *buildRunner) parseReportFiles(base, format string, files []string) repo
 	for _, f := range files {
 		data, err := os.ReadFile(filepath.Join(base, filepath.FromSlash(f)))
 		if err == nil {
-			err = parseReportFile(&c, format, data, f)
+			err = parseReportFile(&c, parser, data, f)
 		}
 
 		if err != nil {
@@ -116,15 +117,15 @@ func (r *buildRunner) parseReportFiles(base, format string, files []string) repo
 	return c
 }
 
-func parseReportFile(c *reportContent, format string, data []byte, source string) error {
-	if format == formatJUnit {
-		cases, err := parseJUnit(data, "", source)
+func parseReportFile(c *reportContent, p reportParser, data []byte, source string) error {
+	if p.tests != nil {
+		cases, err := p.tests(data, source)
 		c.tests = append(c.tests, cases...)
 
 		return err
 	}
 
-	cov, err := parseCobertura(data, "", source)
+	cov, err := p.coverage(data, source)
 	c.coverages = append(c.coverages, cov...)
 
 	return err

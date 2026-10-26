@@ -43,6 +43,7 @@ func (b *InMemoryBackend) Reset() {
 		b.functions.Reset()
 
 		b.versionCounters = make(map[string]int)
+		b.envCiphertext = make(map[string]map[string]string)
 		b.versions = make(map[string][]*FunctionVersion)
 		b.layers = make(map[string][]*LayerVersion)
 		b.layerVersionCounters = make(map[string]int64)
@@ -52,6 +53,7 @@ func (b *InMemoryBackend) Reset() {
 		b.eventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
 		b.functionConcurrencies = make(map[string]int)
 		b.activeConcurrencies = make(map[string]int)
+		b.capacityPools = make(map[string]*capacityPool)
 		b.fisFaults = make(map[string]*FISInvocationFault)
 		b.runtimes = make(map[string]*functionRuntime)
 		b.functionURLServers = make(map[string]*functionURLServer)
@@ -139,6 +141,7 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) []*functionURLSe
 	urlServers := b.detachURLServersLocked(name)
 	b.deleteAliasesForFunctionLocked(name)
 	delete(b.versionCounters, name)
+	b.deleteCiphertextLocked(name)
 	delete(b.versions, name)
 	delete(b.eventInvokeConfigs, name)
 	maps.DeleteFunc(b.eventInvokeConfigs, func(k string, _ *FunctionEventInvokeConfig) bool {
@@ -146,6 +149,7 @@ func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) []*functionURLSe
 	})
 	delete(b.functionConcurrencies, name)
 	delete(b.activeConcurrencies, name)
+	delete(b.capacityPools, name)
 	b.deleteProvisionedConcurrenciesForFunctionLocked(name)
 	delete(b.fisFaults, name)
 	// Removes both the unqualified resource-policy and any qualifier-scoped

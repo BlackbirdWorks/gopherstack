@@ -18,11 +18,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 	h := ec2.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &ec2sdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateCapacityReservationDateChangeQuote",
-		"DeleteClientVpnEndpointAuthorizationPolicy",
-		"DescribeCapacityReservationDateChangeQuotes",
-		"GetClientVpnEndpointAuthorizationPolicy",
-		"ModifyClientVpnEndpointAuthorizationPolicy",
-	})
+	sdkcheck.CheckCompleteness(t, &ec2sdk.Client{}, h.GetSupportedOperations(), nil)
 }

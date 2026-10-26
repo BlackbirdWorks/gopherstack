@@ -48,7 +48,7 @@ var _ service.Shutdowner = (*Handler)(nil)
 func (h *Handler) Name() string { return "Outposts" }
 
 // GetSupportedOperations returns every operation this handler routes -- all
-// 43 operations on the aws-sdk-go-v2/service/outposts client, per
+// 45 operations on the aws-sdk-go-v2/service/outposts client, per
 // sdk_completeness_test.go's empty exception list.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
@@ -56,6 +56,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CancelOrder",
 		"CreateOrder",
 		"CreateOutpost",
+		"CreatePrivateConnectivityConfig",
 		"CreateQuote",
 		"CreateRenewal",
 		"CreateSite",
@@ -70,6 +71,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetOutpostBillingInformation",
 		"GetOutpostInstanceTypes",
 		"GetOutpostSupportedInstanceTypes",
+		"GetPrivateConnectivityConfig",
 		"GetQuote",
 		"GetRenewalPricing",
 		"GetSite",
@@ -331,6 +333,8 @@ func (h *Handler) routeOutpostSubResource(sub, method string) (string, dispatchF
 		if method == http.MethodPost {
 			return "StartOutpostDecommission", h.handleStartOutpostDecommission
 		}
+	case segPrivateConnectivity:
+		return h.routePrivateConnectivity(method)
 	case "assets":
 		if method == http.MethodGet {
 			return "ListAssets", h.handleListAssets
@@ -343,6 +347,17 @@ func (h *Handler) routeOutpostSubResource(sub, method string) (string, dispatchF
 		if method == http.MethodPost {
 			return "StartCapacityTask", h.handleStartCapacityTask
 		}
+	}
+
+	return "", nil
+}
+
+func (h *Handler) routePrivateConnectivity(method string) (string, dispatchFunc) {
+	switch method {
+	case http.MethodPost:
+		return "CreatePrivateConnectivityConfig", h.handleCreatePrivateConnectivityConfig
+	case http.MethodGet:
+		return "GetPrivateConnectivityConfig", h.handleGetPrivateConnectivityConfig
 	}
 
 	return "", nil

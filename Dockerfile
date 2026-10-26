@@ -22,7 +22,7 @@ COPY . .
 # to avoid OOM inside the container. Fall back to building in-container if assets are absent.
 RUN if [ ! -f dashboard/static/spa/index.html ]; then \
         npm --prefix ui ci --include=optional && \
-        NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run build; \
+        NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run build; \
     fi
 
 # Build the Go app

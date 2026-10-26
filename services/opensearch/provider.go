@@ -3,6 +3,7 @@ package opensearch
 import (
 	"errors"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -46,9 +47,19 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	// docker mode is reserved for future use; for now both modes use the in-memory backend.
 	_ = engineMode
 
+	strategies := endpointstrategy.From(ctx.Config)
+	if err := strategies.Validate(); err != nil {
+		return nil, err
+	}
+
 	backend := NewInMemoryBackend(accountID, region)
+	backend.SetEndpointStrategy(strategies)
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
+	handler.endpointStrategy = strategies.OpenSearch
+
+	custom, _ := strategies.CustomBackendURL()
+	handler.setCustomBackend(custom)
 	handler.Region = region
 	handler.EnableRegions()
 

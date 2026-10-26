@@ -17,7 +17,7 @@
 ### Known gaps
 
 - Inbound SMTP: WorkMail/Connect actions are recorded only (no delivery path); spam/virus verdicts are PASS or DISABLED by ScanEnabled alone (no content scanner).
-- Inbound SMTP: SPF evaluates ip4/ip6/include/redirect/all only (the resolver is TXT-only, so a/mx/exists/ptr never match); DMARC organizational domain is a heuristic, not the public suffix list.
+- Inbound SMTP: SPF a/mx/ptr/exists mechanisms (with macros, dual CIDR, the 10-lookup and 2-void-lookup limits) need a resolver implementing InboundDNSResolver (the app wires Route 53 hosted zones); a TXT-only resolver skips those mechanisms. The exp modifier, HELO identity checks and the %{p} macro are not evaluated (the HELO and %{h} fall back to the MAIL FROM domain).
 
 ### Structural gaps
 

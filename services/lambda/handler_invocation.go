@@ -305,6 +305,14 @@ func (h *Handler) writeInvokeError(c *echo.Context, name string, invokeErr error
 		return h.writeError(c, http.StatusTooManyRequests, "TooManyRequestsException", invokeErr.Error())
 	}
 
+	if errors.Is(invokeErr, ErrResourceNotReady) {
+		return h.writeError(c, http.StatusBadGateway, "ResourceNotReadyException", invokeErr.Error())
+	}
+
+	if code := kmsInvokeError(invokeErr); code != "" {
+		return h.writeError(c, invokeStatusForKMS, code, invokeErr.Error())
+	}
+
 	return h.writeError(c, http.StatusInternalServerError, "ServiceException", invokeErr.Error())
 }
 
@@ -448,6 +456,14 @@ func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) e
 				"TooManyRequestsException",
 				invokeErr.Error(),
 			)
+		}
+
+		if errors.Is(invokeErr, ErrResourceNotReady) {
+			return h.writeError(c, http.StatusBadGateway, "ResourceNotReadyException", invokeErr.Error())
+		}
+
+		if code := kmsInvokeError(invokeErr); code != "" {
+			return h.writeError(c, invokeStatusForKMS, code, invokeErr.Error())
 		}
 
 		return h.writeError(

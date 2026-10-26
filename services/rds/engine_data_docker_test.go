@@ -19,7 +19,7 @@ func awaitDockerInstance(t *testing.T, b *rds.InMemoryBackend, id string) rds.DB
 		got, err := b.DescribeDBInstances(id)
 		require.NoError(t, err)
 		inst = got[0]
-		require.NotEqual(t, "failed", inst.DBInstanceStatus)
+		requireNotFailed(t, b, id, inst.DBInstanceStatus)
 
 		return inst.DBInstanceStatus == "available"
 	}, dockerEngineWait, 500*time.Millisecond)

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -100,6 +101,7 @@ func (h *S3Handler) newObjectLambdaEvent(r *http.Request, route objectLambdaRout
 		ev.UserIdentity = &objectLambdaUserIdentity{
 			Type: string(p.Kind), PrincipalID: p.UserID, ARN: p.Arn, AccountID: p.AccountID,
 			UserName: p.UserName, AccessKeyID: awsmeta.AccessKeyID(r.Context()),
+			SessionContext: objectLambdaSessionContext(p, regionFromRequest(r, h.DefaultRegion), time.Now().UTC()),
 		}
 	}
 
@@ -217,12 +219,12 @@ func (h *S3Handler) handleObjectLambdaHeadObject(
 	key string,
 ) {
 	in := fmt.Sprintf("%s/%s/%s", h.Endpoint, route.bucket, key)
-	if v := r.URL.Query().Get("versionId"); v != "" {
+	if v := httputils.RawQueryGet(r.URL.RawQuery, "versionId"); v != "" {
 		in += "?versionId=" + url.QueryEscape(v)
 	}
 
 	ev := h.newObjectLambdaEvent(r, route)
-	ev.HeadObjectContext = &objectLambdaInputContext{InputS3URL: in}
+	ev.HeadObjectContext = &objectLambdaInputContext{InputS3URL: h.presignObjectLambdaInput(r, http.MethodHead, in)}
 
 	res, ok := h.callObjectLambda(ctx, w, r, route, ev)
 	if !ok {
@@ -267,6 +269,8 @@ func (h *S3Handler) handleObjectLambdaList(
 	if r.URL.RawQuery != "" {
 		in += "?" + r.URL.RawQuery
 	}
+
+	in = h.presignObjectLambdaInput(r, http.MethodGet, in)
 
 	ev := h.newObjectLambdaEvent(r, route)
 	if action == objectLambdaActionListObjectsV2 {

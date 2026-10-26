@@ -33,6 +33,7 @@ type ContainerInfo struct {
 	CreatedAt    time.Time
 	LastModified time.Time
 	Metadata     map[string]string
+	Lease        LeaseProps
 	Name         string
 	ETag         string
 	PublicAccess string
@@ -48,6 +49,7 @@ type ContainerOptions struct {
 // BlobAttrs are the client-settable properties of a blob.
 type BlobAttrs struct {
 	Metadata           map[string]string
+	Tags               map[string]string
 	ContentType        string
 	ContentEncoding    string
 	ContentLanguage    string
@@ -63,6 +65,7 @@ type BlobInfo struct {
 	LastModified       time.Time
 	AccessTierChanged  time.Time
 	Metadata           map[string]string
+	Tags               map[string]string
 	Name               string
 	ContentType        string
 	ContentEncoding    string
@@ -73,6 +76,7 @@ type BlobInfo struct {
 	ETag               string
 	AccessTier         string
 	Snapshot           string
+	Lease              LeaseProps
 	ContentLength      int64
 	AccessTierInferred bool
 }
@@ -83,21 +87,24 @@ type storedBlob struct {
 	LastModified       time.Time
 	AccessTierChanged  time.Time
 	Metadata           map[string]string
+	Tags               map[string]string `json:"Tags,omitempty"`
 	Snapshots          map[string]*storedBlob
-	Name               string
-	ContentType        string
+	Lease              *leaseRecord
+	ContentDisposition string
 	ContentEncoding    string
 	ContentLanguage    string
-	ContentDisposition string
+	ContentType        string
 	CacheControl       string
 	ContentMD5         string
 	ETag               string
 	AccessTier         string
 	Snapshot           string
+	Name               string
 	Data               []byte
+	Blocks             []committedBlock
 }
 
-func (b *storedBlob) info() BlobInfo {
+func (b *storedBlob) info(now time.Time) BlobInfo {
 	tier, inferred := b.AccessTier, false
 	if tier == "" {
 		tier, inferred = TierHot, true
@@ -115,10 +122,12 @@ func (b *storedBlob) info() BlobInfo {
 		LastModified:       b.LastModified,
 		ContentLength:      int64(len(b.Data)),
 		Metadata:           maps.Clone(b.Metadata),
+		Tags:               maps.Clone(b.Tags),
 		AccessTier:         tier,
 		AccessTierInferred: inferred,
 		AccessTierChanged:  b.AccessTierChanged,
 		Snapshot:           b.Snapshot,
+		Lease:              b.Lease.props(now),
 	}
 }
 
@@ -128,13 +137,15 @@ type storedContainer struct {
 	LastModified time.Time
 	Blobs        map[string]*storedBlob
 	Metadata     map[string]string
+	Staged       map[string]map[string]*stagedBlock
+	Lease        *leaseRecord
 	Name         string
 	ETag         string
 	PublicAccess string
 	ACL          []SignedIdentifier
 }
 
-func (c *storedContainer) info() ContainerInfo {
+func (c *storedContainer) info(now time.Time) ContainerInfo {
 	modified, etag := c.LastModified, c.ETag
 	if modified.IsZero() {
 		modified = c.CreatedAt
@@ -152,6 +163,7 @@ func (c *storedContainer) info() ContainerInfo {
 		Metadata:     maps.Clone(c.Metadata),
 		PublicAccess: c.PublicAccess,
 		ACL:          slices.Clone(c.ACL),
+		Lease:        c.Lease.props(now),
 	}
 }
 
@@ -217,6 +229,9 @@ type containerProperties struct {
 	LastModified string `xml:"Last-Modified"`
 	Etag         string `xml:"Etag"`
 	PublicAccess string `xml:"PublicAccess,omitempty"`
+	LeaseStatus  string `xml:"LeaseStatus"`
+	LeaseState   string `xml:"LeaseState"`
+	LeaseDur     string `xml:"LeaseDuration,omitempty"`
 }
 
 // blobsList holds blobEntry and blobPrefixEntry items in listing order.
@@ -250,6 +265,9 @@ type blobProperties struct {
 	AccessTier         string `xml:"AccessTier,omitempty"`
 	AccessTierInferred string `xml:"AccessTierInferred,omitempty"`
 	AccessTierChange   string `xml:"AccessTierChangeTime,omitempty"`
+	LeaseStatus        string `xml:"LeaseStatus,omitempty"`
+	LeaseState         string `xml:"LeaseState,omitempty"`
+	LeaseDur           string `xml:"LeaseDuration,omitempty"`
 	ContentLength      int64  `xml:"Content-Length"`
 }
 

@@ -86,8 +86,10 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AddAttachmentsToSet",
 		"AddCommunicationToCase",
+		"CompleteAttachmentUpload",
 		"CreateCase",
 		"DescribeAttachment",
+		"DescribeAttachmentUploadStatus",
 		"DescribeCases",
 		"DescribeCommunications",
 		"DescribeCreateCaseOptions",
@@ -98,6 +100,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeTrustedAdvisorCheckResult",
 		"DescribeTrustedAdvisorCheckSummaries",
 		"DescribeTrustedAdvisorChecks",
+		"GetAttachmentDownloadLink",
+		"GetAttachmentUploadLinks",
 		"RefreshTrustedAdvisorCheck",
 		"ResolveCase",
 	}
@@ -166,6 +170,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		c.SetRequest(c.Request().WithContext(requestBaseKey.Set(c.Request().Context(), requestBaseURL(c.Request()))))
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"Support", "application/x-amz-json-1.1",
@@ -189,6 +195,12 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		),
 		"AddAttachmentsToSet":       service.WrapOp(h.handleAddAttachmentsToSet),
 		"DescribeAttachment":        service.WrapOp(h.handleDescribeAttachment),
+		"GetAttachmentUploadLinks":  service.WrapOp(h.handleGetAttachmentUploadLinks),
+		"CompleteAttachmentUpload":  service.WrapOp(h.handleCompleteAttachmentUpload),
+		"GetAttachmentDownloadLink": service.WrapOp(h.handleGetAttachmentDownloadLink),
+		"DescribeAttachmentUploadStatus": service.WrapOp(
+			h.handleDescribeAttachmentUploadStatus,
+		),
 		"DescribeCreateCaseOptions": service.WrapOp(h.handleDescribeCreateCaseOptions),
 		"DescribeServices":          service.WrapOp(h.handleDescribeServices),
 		"DescribeSeverityLevels":    service.WrapOp(h.handleDescribeSeverityLevels),
@@ -265,6 +277,10 @@ func resolveErrorType(err error) (string, int) {
 		return "CaseIdNotFound", http.StatusBadRequest
 	case errors.Is(err, ErrAttachmentNotFound):
 		return "AttachmentIdNotFound", http.StatusBadRequest
+	case errors.Is(err, ErrUploadIDNotFound):
+		return "UploadIdNotFound", http.StatusBadRequest
+	case errors.Is(err, ErrDryRun):
+		return "DryRunOperationException", http.StatusBadRequest
 	case errors.Is(err, ErrAttachmentSetNotFound):
 		return "AttachmentSetIdNotFound", http.StatusBadRequest
 	case errors.Is(err, ErrAttachmentSetExpired):
@@ -312,7 +328,7 @@ func errorMessage(errType string, err error) string {
 	for _, sentinel := range []error{
 		ErrNotFound, ErrAttachmentNotFound, ErrValidation, ErrAttachmentSetNotFound, ErrAttachmentSetExpired,
 		ErrAttachmentSetSizeLimitExceeded, ErrAttachmentLimitExceeded, ErrCaseCreationLimitExceeded,
-		ErrDescribeAttachmentLimitExceeded,
+		ErrDescribeAttachmentLimitExceeded, ErrUploadIDNotFound, ErrDryRun,
 	} {
 		if errors.Is(err, sentinel) {
 			msg = strings.TrimPrefix(msg, sentinel.Error()+": ")

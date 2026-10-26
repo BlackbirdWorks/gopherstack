@@ -18,10 +18,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := support.NewInMemoryBackend()
 	h := support.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &supportsdk.Client{}, h.GetSupportedOperations(), []string{
-		"CompleteAttachmentUpload",
-		"DescribeAttachmentUploadStatus",
-		"GetAttachmentDownloadLink",
-		"GetAttachmentUploadLinks",
-	})
+	sdkcheck.CheckCompleteness(t, &supportsdk.Client{}, h.GetSupportedOperations(), nil)
 }

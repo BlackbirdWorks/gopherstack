@@ -333,7 +333,7 @@ func (d *DockerCompute) Terminate(ctx context.Context, instanceID, providerID st
 
 	if _, err := d.api.ContainerRemove(
 		ctx, providerID,
-		mobyclient.ContainerRemoveOptions{Force: true},
+		mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
 	); err != nil {
 		return fmt.Errorf("container remove: %w", err)
 	}
@@ -602,7 +602,7 @@ func pickHostPort(ports mobynetwork.PortMap) int {
 func (d *DockerCompute) cleanupAfterFailure(ctx context.Context, containerID string, port int) {
 	timeout := stopTimeoutSec
 	_, _ = d.api.ContainerStop(ctx, containerID, mobyclient.ContainerStopOptions{Timeout: &timeout})
-	_, _ = d.api.ContainerRemove(ctx, containerID, mobyclient.ContainerRemoveOptions{Force: true})
+	_, _ = d.api.ContainerRemove(ctx, containerID, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	d.releaseSSHPort(port)
 }
 

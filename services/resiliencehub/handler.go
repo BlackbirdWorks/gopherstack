@@ -147,7 +147,9 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
 // PARITY.md's routing section).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		segs := rawPathSegments(c.Request())
+		var buf [pathSegBuf]string
+
+		segs := appendPathSegments(buf[:0], c.Request())
 		if len(segs) == 0 {
 			return false
 		}
@@ -239,7 +241,9 @@ func (h *Handler) homeHandler() echo.HandlerFunc {
 
 // dispatch resolves r to its routeEntry via the flat routes() table.
 func (h *Handler) dispatch(r *http.Request) (routeEntry, bool) {
-	segs := rawPathSegments(r)
+	var buf [pathSegBuf]string
+
+	segs := appendPathSegments(buf[:0], r)
 	if len(segs) == 0 {
 		return routeEntry{}, false
 	}
@@ -306,6 +310,14 @@ func addResourceFields(body map[string]any, apiErr *apiError) {
 // -- matches services/outposts and services/grafana's helper of the same
 // name (the house fix for the ARN-in-path route-matching trap).
 func rawPathSegments(r *http.Request) []string {
+	return appendPathSegments(nil, r)
+}
+
+const pathSegBuf = 8
+
+// appendPathSegments appends rawPathSegments' result to dst; a caller-owned stack buffer keeps
+// the hot matcher path allocation-free.
+func appendPathSegments(dst []string, r *http.Request) []string {
 	rawPath := r.URL.RawPath
 	if rawPath == "" {
 		rawPath = r.URL.Path
@@ -313,9 +325,7 @@ func rawPathSegments(r *http.Request) []string {
 
 	rawPath = strings.TrimPrefix(rawPath, "/")
 
-	// Manual scan instead of strings.Split: avoids the intermediate parts
-	// slice allocation on every matcher call.
-	segments := make([]string, 0, strings.Count(rawPath, "/")+1)
+	segments := dst
 
 	for rawPath != "" {
 		seg := rawPath

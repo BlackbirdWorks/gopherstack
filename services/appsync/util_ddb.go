@@ -131,6 +131,8 @@ func utilTransform() map[string]utilFn {
 	return map[string]utilFn{
 		"transform.toDynamoDBFilterExpression":    exprFn,
 		"transform.toDynamoDBConditionExpression": exprFn,
+		"transform.toElasticsearchQueryDSL":       toQueryDSL,
+		"transform.toOpenSearchQueryDSL":          toQueryDSL,
 	}
 }
 
@@ -208,7 +210,7 @@ func (b *exprBuilder) filter(f map[string]any) (string, error) {
 		)
 
 		switch k {
-		case "and", "or":
+		case filterAnd, "or":
 			p, err = b.group(k, listOf(f[k]))
 		case "not":
 			sub, _ := f[k].(map[string]any)
@@ -287,7 +289,7 @@ func (b *exprBuilder) op(field, op string, v any) (string, error) {
 		return fn + "(" + n + ", " + b.value(field, op, v) + ")", nil
 	case "notContains":
 		return "NOT contains(" + n + ", " + b.value(field, op, v) + ")", nil
-	case "between":
+	case opBetween:
 		bounds := listOf(v)
 		if len(bounds) != betweenBounds {
 			return "", fmt.Errorf("%w: between requires two values", ErrValidation)

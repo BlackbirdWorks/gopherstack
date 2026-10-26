@@ -62,7 +62,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateSecret", "GetSecret", "UpdateSecret", "ListSecrets", "DeleteSecret",
 		"AddSecretVersion", "GetSecretVersion", "ListSecretVersions", "AccessSecretVersion",
 		"EnableSecretVersion", "DisableSecretVersion", "DestroySecretVersion",
-		"SetIamPolicy", "GetIamPolicy", "TestIamPermissions",
+		"EnableManagedRotation", "RotateSecret", "SetIamPolicy", "GetIamPolicy", "TestIamPermissions",
 	}
 }
 
@@ -124,7 +124,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpsecretmanager", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := grpc.NewServer(grpc.UnaryInterceptor(logInterceptor(log)))
+	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(logInterceptor(log), regionalInterceptor))
 	secretmanagerpb.RegisterSecretManagerServiceServer(srv, &server{b: h.Backend})
 
 	sweepCtx, cancel := context.WithCancel(context.WithoutCancel(workerCtx))
@@ -137,12 +137,18 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	log.InfoContext(workerCtx, "gcpsecretmanager: starting dedicated gRPC listener", "port", h.Port)
 
-	h.wg.Add(2) //nolint:mnd // expiry janitor and gRPC serve loop
+	h.wg.Add(3) //nolint:mnd // expiry janitor, rotation scheduler and gRPC serve loop
 
 	go func() {
 		defer h.wg.Done()
 
 		h.Backend.RunJanitor(sweepCtx, sweepInterval)
+	}()
+
+	go func() {
+		defer h.wg.Done()
+
+		h.Backend.RunRotations(sweepCtx, sweepInterval)
 	}()
 
 	go func() {

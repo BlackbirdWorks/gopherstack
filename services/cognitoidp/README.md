@@ -7,16 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 68 (68 ok) |
-| Known gaps | 7 |
+| PARITY entries audited | 71 (71 ok) |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Operations added by the SDK bump and not yet implemented (listed in sdk_completeness_test.go notImplemented): AdminDeleteSoftwareToken, DescribeTermsByClient, GetClientToken.
-- Federation (gopherstack-49qct.35 follow-up): SAML SHA-1 signatures and digests are rejected, SAML attribute multi-values keep the first value only, encrypted NameID (EncryptedID) in LogoutRequest is rejected, SLO is single-session per IdP (no cross-IdP fan-out), RSA-1.5 key transport is refused by design. Social providers (Google, Facebook, LoginWithAmazon, SignInWithApple) share the OIDC code path with built-in endpoint defaults; DescribeIdentityProvider does not echo those defaults, Google people-API attributes and Apple's first-login `user` form field are not read, and no live provider is exercised in tests.
+- Federation (gopherstack-49qct.35 follow-up): SAML SHA-1 signatures and digests are rejected, encrypted NameID (EncryptedID) in LogoutRequest is rejected, SLO is single-session per IdP (no cross-IdP fan-out), RSA-1.5 key transport is refused by design. Social providers (Google, Facebook, LoginWithAmazon, SignInWithApple) share the OIDC code path with built-in endpoint defaults; DescribeIdentityProvider does not echo those defaults, Google people-API attributes and Apple's first-login `user` form field are not read, and no live provider is exercised in tests.
 - Code delivery (gopherstack-49qct.19): CustomEmailSender/CustomSMSSender triggers receive the code as base64 of a plain KMS Encrypt ciphertext, not the AWS Encryption SDK message format, and carry no clientMetadata; COGNITO_DEFAULT email send failures only log (the emulator's SES quota would otherwise break sign-up); SES SourceArn region/account are not matched against the caller; no Cognito-side delivery rate limit (LimitExceededException) is modelled.
 - WebAuthnMfaSettings (passkey MFA applies only when passkey is the first factor, which USER_AUTH here does not offer) and the SignUp/ConfirmSignUp Session auto sign-in are not modelled: the SDK docs for SignUp/ConfirmSignUp/InitiateAuth state the Session is usable with USER_AUTH but name no auth parameter or challenge for consuming it.
 - domains: DomainDescriptionType.Version (app version) is not documented beyond its name, so it stays unpopulated rather than fabricated.

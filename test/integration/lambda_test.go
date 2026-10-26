@@ -318,7 +318,11 @@ func removeLambdaTestArtifacts(imageTag string) {
 
 	if err == nil {
 		for _, c := range containers {
-			_ = cli.ContainerRemove(cleanupCtx, c.ID, dockerapicontainer.RemoveOptions{Force: true})
+			_ = cli.ContainerRemove(
+				cleanupCtx,
+				c.ID,
+				dockerapicontainer.RemoveOptions{Force: true, RemoveVolumes: true},
+			)
 		}
 	}
 

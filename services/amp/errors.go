@@ -27,6 +27,10 @@ func conflict(resType, id, format string, args ...any) error {
 	return restroute.Conflict(format, args...).With("resourceId", id).With("resourceType", resType)
 }
 
+func quotaExceeded(resType, format string, args ...any) error {
+	return restroute.QuotaExceeded(format, args...).With("resourceType", resType).With("serviceCode", serviceName)
+}
+
 func invalid(format string, args ...any) error {
 	return restroute.Validation(format, args...).With("reason", "FIELD_VALIDATION_FAILED")
 }

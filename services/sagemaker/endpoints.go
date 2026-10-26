@@ -342,20 +342,34 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 	ep.EndpointStatus = statusDeleting
 	ep.LastModifiedTime = time.Now()
 
-	b.runDelayed(b.lifecycleCtx, endpointDeletingToDeleted, func() {
-		b.mu.Lock("DeleteEndpoint.goroutine")
-		defer b.mu.Unlock()
+	if eng := b.engine; eng != nil {
+		b.goEngine(func() {
+			key := engineKey("endpoint", region, name)
+			eng.interrupt(key)
+			eng.removeDeployment(key).stop()
+			b.finishEndpointDelete(region, name)
+		})
 
-		cur, found := b.endpointsStore(region).Get(name)
-		if !found || cur.EndpointStatus != statusDeleting {
-			return
-		}
+		return nil
+	}
 
-		delete(b.endpointARNIndexStore(region), cur.EndpointArn)
-		b.endpointsStore(region).Delete(name)
-	})
+	b.runDelayed(b.lifecycleCtx, endpointDeletingToDeleted, func() { b.finishEndpointDelete(region, name) })
 
 	return nil
+}
+
+// finishEndpointDelete drops an endpoint that is still Deleting.
+func (b *InMemoryBackend) finishEndpointDelete(region, name string) {
+	b.mu.Lock("DeleteEndpoint.goroutine")
+	defer b.mu.Unlock()
+
+	cur, found := b.endpointsStore(region).Get(name)
+	if !found || cur.EndpointStatus != statusDeleting {
+		return
+	}
+
+	delete(b.endpointARNIndexStore(region), cur.EndpointArn)
+	b.endpointsStore(region).Delete(name)
 }
 
 // UpdateEndpointOptions holds input fields for UpdateEndpoint
@@ -488,19 +502,24 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 		ep.LastModifiedTime = time.Now()
 
 		if nextStatus == statusInService {
-			for i := range ep.ProductionVariants {
-				ep.ProductionVariants[i].CurrentWeight = ep.ProductionVariants[i].DesiredWeight
-				ep.ProductionVariants[i].CurrentInstanceCount = ep.ProductionVariants[i].DesiredInstanceCount
-				pv := &ep.ProductionVariants[i]
-				pv.CurrentServerless = cloneServerlessConfig(pv.DesiredServerless)
-				ep.ProductionVariants[i].VariantStatus = nil
-			}
-
-			for i := range ep.ShadowProductionVariants {
-				ep.ShadowProductionVariants[i].VariantStatus = nil
-			}
+			markEndpointInService(ep)
 		}
 	})
+}
+
+// markEndpointInService promotes desired variant settings to current and clears transitional status.
+func markEndpointInService(ep *Endpoint) {
+	for i := range ep.ProductionVariants {
+		ep.ProductionVariants[i].CurrentWeight = ep.ProductionVariants[i].DesiredWeight
+		ep.ProductionVariants[i].CurrentInstanceCount = ep.ProductionVariants[i].DesiredInstanceCount
+		pv := &ep.ProductionVariants[i]
+		pv.CurrentServerless = cloneServerlessConfig(pv.DesiredServerless)
+		ep.ProductionVariants[i].VariantStatus = nil
+	}
+
+	for i := range ep.ShadowProductionVariants {
+		ep.ShadowProductionVariants[i].VariantStatus = nil
+	}
 }
 
 // CreateEndpointFSM creates an endpoint and schedules Creating → InService.
@@ -515,6 +534,13 @@ func (b *InMemoryBackend) CreateEndpointFSM(ctx context.Context, opts CreateEndp
 	if err != nil {
 		return nil, err
 	}
+
+	if eng := b.engineOrNil(); eng != nil {
+		b.provisionEndpoint(eng, region, opts.Name, nil)
+
+		return ep, nil
+	}
+
 	b.scheduleEndpointTransition(
 		lifecycleCtx, region, opts.Name, statusCreating, statusInService, endpointCreatingToInService,
 	)
@@ -534,10 +560,19 @@ func (b *InMemoryBackend) UpdateEndpointFSM(
 	lifecycleCtx := b.lifecycleCtx
 	b.mu.RUnlock()
 
+	prev, _ := b.DescribeEndpoint(ctx, name)
+
 	ep, err := b.UpdateEndpoint(ctx, name, opts)
 	if err != nil {
 		return nil, err
 	}
+
+	if eng := b.engineOrNil(); eng != nil {
+		b.provisionEndpoint(eng, region, name, prev)
+
+		return ep, nil
+	}
+
 	b.scheduleEndpointTransition(
 		lifecycleCtx, region, name, statusUpdating, statusInService, endpointUpdatingToInService,
 	)

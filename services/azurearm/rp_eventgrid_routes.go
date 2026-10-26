@@ -10,6 +10,8 @@ import (
 const (
 	egActionRegenerate = "regenerateKey"
 	egActionFullURL    = "getFullUrl"
+	egActionDelivery   = "getDeliveryAttributes"
+	egDomainTopicsSegs = 9
 	egProviderSegIdx   = 5
 	egMinActionSegs    = 8
 	egOperationSegs    = 8
@@ -33,8 +35,22 @@ func isEventGridAction(segs []string, action string, r *http.Request) bool {
 		strings.EqualFold(segs[len(segs)-1], action)
 }
 
+func isEventSubscriptionPatch(segs []string, r *http.Request) bool {
+	if r.Method != http.MethodPatch || !isEventGridScope(segs) {
+		return false
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs))
+
+	return err == nil && isEventSubscriptionKind(classifyEventGridPath(id))
+}
+
 //nolint:gochecknoglobals // static route table, read-only after init
 var eventGridRoutes = []armRoute{
+	{
+		match:  isEventSubscriptionPatch,
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleEventSubscriptionPatch(c, segs) },
+	},
 	{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodDelete && isEventGridScope(segs)
@@ -59,6 +75,83 @@ var eventGridRoutes = []armRoute{
 		match:  func(segs []string, r *http.Request) bool { return isEventGridAction(segs, egActionFullURL, r) },
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleEventGridFullURL(c, segs) },
 	},
+	{
+		match: func(segs []string, r *http.Request) bool { return isEventGridAction(segs, egActionDelivery, r) },
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleEventGridDeliveryAttributes(c, segs)
+		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodGet && len(segs) == egDomainTopicsSegs && isEventGridScope(segs) &&
+				strings.EqualFold(segs[6], egDomainsType) && strings.EqualFold(segs[8], "topics")
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleListDomainTopics(c, segs) },
+	},
+}
+
+// handleEventSubscriptionPatch serves EventSubscriptionsClient.BeginUpdate (PATCH with a flat
+// EventSubscriptionUpdateParameters body); like PUT it answers 201 with the subscription.
+func (h *Handler) handleEventSubscriptionPatch(c *echo.Context, segs []string) error {
+	p, ok := h.eventGridProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := p.PatchSubscription(c.Request().Context(), id, body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusCreated, out)
+}
+
+func (h *Handler) handleListDomainTopics(c *echo.Context, segs []string) error {
+	p, ok := h.eventGridProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	values, err := p.ListDomainTopics(c.Request().Context(), id)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: values})
+}
+
+func (h *Handler) handleEventGridDeliveryAttributes(c *echo.Context, segs []string) error {
+	p, ok := h.eventGridProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	out, err := p.DeliveryAttributes(c.Request().Context(), id)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
 }
 
 func (h *Handler) handleEventGridRegenerate(c *echo.Context, segs []string) error {

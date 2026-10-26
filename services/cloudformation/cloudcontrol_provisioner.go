@@ -109,13 +109,13 @@ func (p *CloudControlProvisioner) Provision(
 // Update applies desired in place when the creator has an in-place updater for
 // the type; otherwise any real change is NotUpdatable (stacks would replace).
 func (p *CloudControlProvisioner) Update(
-	_ context.Context, typeName, identifier string, current, desired map[string]any,
+	ctx context.Context, typeName, identifier string, current, desired map[string]any,
 ) error {
 	if reflect.DeepEqual(current, desired) {
 		return nil
 	}
 
-	handled, err := p.rc.UpdateInPlace(typeName, identifier, desired, map[string]string{}, p.context("", typeName))
+	handled, err := p.rc.UpdateInPlace(ctx, typeName, identifier, desired, map[string]string{}, p.context("", typeName))
 	if err != nil {
 		return ccFailure(err)
 	}

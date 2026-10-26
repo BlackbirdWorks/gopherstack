@@ -28,10 +28,14 @@ AZURE_PORTS = {
     "arm": 10006,
     "eventgrid": 10007,
     "appconfig": 10008,
+    "file": 10009,
+    "monitor": 10013,
     "acr": 10011,
     "storagevhost": 10010,
     "cosmosdb": 8081,
 }
+
+OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155}
 
 GCP_PORTS = {
     "storage": 4443,
@@ -51,6 +55,12 @@ GCP_PORTS = {
     "artifactregistry": 8134,
     "spanner": 8135,
     "cloudbuild": 8136,
+    "bigtable": 8137,
+    "eventarc": 8138,
+    "workflows": 8139,
+    "dns": 8140,
+    "dnsserver": 8141,
+    "compute": 8142,
     "bigquery": 9050,
 }
 
@@ -65,7 +75,7 @@ class GopherstackContainer(DockerContainer):
         super().__init__(image, **kwargs)
         self._startup_timeout = startup_timeout
         self._services: list[str] = []
-        for port in [API_PORT, *AZURE_PORTS.values(), *GCP_PORTS.values()]:
+        for port in [API_PORT, *AZURE_PORTS.values(), *GCP_PORTS.values(), *OCI_PORTS.values()]:
             self.with_exposed_ports(port)
 
     def with_services(self, *names: str) -> GopherstackContainer:
@@ -143,7 +153,16 @@ class GopherstackContainer(DockerContainer):
             f"DefaultEndpointsProtocol=http;AccountName={AZURE_ACCOUNT_NAME};"
             f"AccountKey={AZURE_ACCOUNT_KEY};BlobEndpoint={eps['blob']}{acct};"
             f"QueueEndpoint={eps['queue']}{acct};TableEndpoint={eps['table']}{acct};"
+            f"FileEndpoint={eps['file']}{acct};"
         )
+
+    def get_oci_endpoint(self, service: str) -> str:
+        """http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client host."""
+        try:
+            port = OCI_PORTS[service.lower()]
+        except KeyError:
+            raise ValueError(f"unknown oci service {service!r}") from None
+        return "http://" + self._host_port(port)
 
     def get_gcp_endpoint(self, service: str) -> str:
         """host:port of a GCP service (storage is the STORAGE_EMULATOR_HOST value)."""

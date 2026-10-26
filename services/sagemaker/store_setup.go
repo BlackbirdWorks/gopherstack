@@ -91,6 +91,10 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
 // Reset reinitialises all maps to empty, clearing all stored resources.
 func (b *InMemoryBackend) Reset() {
+	if eng := b.engineOrNil(); eng != nil {
+		defer eng.stopAll()
+	}
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 

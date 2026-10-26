@@ -82,7 +82,32 @@ func (b *InMemoryBackend) serveDocker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if b.dockerPullDenied(r, dp) {
+		writeRegError(w, http.StatusForbidden, "DENIED", "A download rule denies access to this package.")
+
+		return
+	}
+
 	b.proxy(w, r, dp.project, dp.id)
+}
+
+// dockerPullDenied reports whether a download rule blocks a manifest or blob read.
+func (b *InMemoryBackend) dockerPullDenied(r *http.Request, dp dockerPath) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+
+	for _, kind := range []string{"/manifests/", "/blobs/"} {
+		if image, _, ok := strings.Cut(
+			dp.tail,
+			kind,
+		); ok && image != "" &&
+			!strings.HasPrefix(dp.tail[len(image):], "/blobs/uploads") {
+			return b.downloadDenied(r.Context(), dp.project, dp.id, image)
+		}
+	}
+
+	return false
 }
 
 func challengeDocker(w http.ResponseWriter, r *http.Request) {

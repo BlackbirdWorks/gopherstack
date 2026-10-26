@@ -29,7 +29,7 @@ func TestDockerShellOpener(t *testing.T) {
 	require.NoError(t, err)
 
 	id := strings.TrimSpace(string(out))
-	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", id).Run() })
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-fv", id).Run() })
 
 	opener, err := ssm.NewDockerShellOpener()
 	require.NoError(t, err)

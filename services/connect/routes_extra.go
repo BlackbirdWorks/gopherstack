@@ -22,6 +22,9 @@ func extraRoutes() []restroute.Route {
 		trafficRoutes(),
 		flowAssociationRoutes(),
 		securityExtraRoutes(),
+		dataTableRoutes(),
+		emailRoutes(),
+		workspaceRoutes(),
 	)
 }
 
@@ -174,6 +177,10 @@ func searchOps() map[string]string {
 		"SearchAgentStatuses":             "/search-agent-statuses",
 		"SearchContactFlowModules":        "/search-contact-flow-modules",
 		"SearchContactFlows":              "/search-contact-flows",
+		"SearchDataTables":                "/search-data-tables",
+		"SearchEmailAddresses":            "/search-email-addresses",
+		"SearchWorkspaceAssociations":     "/search-workspace-associations",
+		"SearchWorkspaces":                "/search-workspaces",
 		"SearchEvaluationForms":           "/search-evaluation-forms",
 		"SearchHoursOfOperationOverrides": "/search-hours-of-operation-overrides",
 		"SearchHoursOfOperations":         "/search-hours-of-operations",

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -38,12 +39,14 @@ type pbSnapSnap struct {
 }
 
 type backendSnapshot struct {
-	Topics    map[string]topicSnap  `json:"topics"`
-	Subs      map[string]subSnap    `json:"subs"`
-	Snapshots map[string]pbSnapSnap `json:"snapshots"`
-	Schemas   map[string]*schemaRec `json:"schemas"`
-	LastMsg   int64                 `json:"lastMsg"`
-	Version   int                   `json:"version"`
+	Topics    map[string]topicSnap       `json:"topics"`
+	Subs      map[string]subSnap         `json:"subs"`
+	Snapshots map[string]pbSnapSnap      `json:"snapshots"`
+	Schemas   map[string]*schemaRec      `json:"schemas"`
+	Policies  map[string]json.RawMessage `json:"policies,omitempty"`
+	LastMsg   int64                      `json:"lastMsg"`
+	EtagSeq   uint64                     `json:"etagSeq,omitempty"`
+	Version   int                        `json:"version"`
 }
 
 func marshalPB(m proto.Message) json.RawMessage {
@@ -64,13 +67,21 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	iamPolicies, iamSeq := b.iam.Snapshot()
+
 	snap := backendSnapshot{
 		Version:   snapshotVersion,
 		LastMsg:   b.lastMsg,
+		EtagSeq:   iamSeq,
+		Policies:  make(map[string]json.RawMessage, len(iamPolicies)),
 		Schemas:   b.schemas,
 		Topics:    make(map[string]topicSnap, len(b.topics)),
 		Subs:      make(map[string]subSnap, len(b.subs)),
 		Snapshots: make(map[string]pbSnapSnap, len(b.snaps)),
+	}
+
+	for n, p := range iamPolicies {
+		snap.Policies[n] = marshalPB(p)
 	}
 
 	for n, t := range b.topics {
@@ -118,10 +129,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	policies, err := decodePolicies(snap.Policies)
+	if err != nil {
+		return err
+	}
+
 	for _, s := range b.subs {
 		b.notifyLocked(s)
 	}
 
+	_, curSeq := b.iam.Snapshot()
+	b.iam.Restore(policies, max(curSeq, snap.EtagSeq))
 	b.topics, b.subs, b.snaps = topics, subs, snaps
 	b.schemas = snap.Schemas
 
@@ -133,6 +151,21 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.signalPush()
 
 	return nil
+}
+
+func decodePolicies(raw map[string]json.RawMessage) (map[string]*iampb.Policy, error) {
+	out := make(map[string]*iampb.Policy, len(raw))
+
+	for n, r := range raw {
+		p := &iampb.Policy{}
+		if err := unmarshalPB(r, p); err != nil {
+			return nil, fmt.Errorf("gcppubsub: restore policy %q: %w", n, err)
+		}
+
+		out[n] = p
+	}
+
+	return out, nil
 }
 
 func decodeSnapshot(snap backendSnapshot) (map[string]*topic, map[string]*subscription, map[string]*snapshot, error) {

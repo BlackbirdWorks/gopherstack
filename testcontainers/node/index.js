@@ -10,13 +10,15 @@ export const AZURE_ACCOUNT_KEY =
 
 export const AZURE_PORTS = {
   blob: 10000, queue: 10001, table: 10002, servicebus: 10003, keyvault: 10004,
-  eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
+  eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, file: 10009, monitor: 10013, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
 };
+
+export const OCI_PORTS = { objectstorage: 8150, vault: 8151, streaming: 8152, identity: 8153, functions: 8154, core: 8155 };
 
 export const GCP_PORTS = {
   storage: 4443, firestore: 8080, pubsub: 8085, secretmanager: 8086, kms: 8087,
   cloudtasks: 8123, scheduler: 8124, iam: 8125, run: 8126, functions: 8128,
-  sql: 8130, logging: 8131, monitoring: 8132, redis: 8133, artifactregistry: 8134, spanner: 8135, cloudbuild: 8136, bigquery: 9050,
+  sql: 8130, logging: 8131, monitoring: 8132, redis: 8133, artifactregistry: 8134, spanner: 8135, cloudbuild: 8136, bigtable: 8137, eventarc: 8138, workflows: 8139, dns: 8140, dnsserver: 8141, compute: 8142, bigquery: 9050,
 };
 
 const DATA_DIR = "/data";
@@ -59,7 +61,7 @@ export class GopherstackContainer {
   async start() {
     const env = { ...this.#env };
     if (this.#services.length > 0) env.GOPHERSTACK_SERVICES = this.#services.join(",");
-    const ports = [API_PORT, ...Object.values(AZURE_PORTS), ...Object.values(GCP_PORTS)];
+    const ports = [API_PORT, ...Object.values(AZURE_PORTS), ...Object.values(GCP_PORTS), ...Object.values(OCI_PORTS)];
     const started = await new GenericContainer(this.#image)
       .withExposedPorts(...ports)
       .withEnvironment(env)
@@ -106,8 +108,15 @@ export class StartedGopherstackContainer {
     const acct = `/${AZURE_ACCOUNT_NAME}`;
     return (
       `DefaultEndpointsProtocol=http;AccountName=${AZURE_ACCOUNT_NAME};AccountKey=${AZURE_ACCOUNT_KEY};` +
-      `BlobEndpoint=${eps.blob}${acct};QueueEndpoint=${eps.queue}${acct};TableEndpoint=${eps.table}${acct};`
+      `BlobEndpoint=${eps.blob}${acct};QueueEndpoint=${eps.queue}${acct};TableEndpoint=${eps.table}${acct};FileEndpoint=${eps.file}${acct};`
     );
+  }
+
+  /** http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client host. */
+  getOciEndpoint(service) {
+    const port = OCI_PORTS[String(service).toLowerCase()];
+    if (port === undefined) throw new Error(`unknown oci service "${service}"`);
+    return `http://${this.#hostPort(port)}`;
   }
 
   /** host:port of a GCP service; storage is the STORAGE_EMULATOR_HOST value. */

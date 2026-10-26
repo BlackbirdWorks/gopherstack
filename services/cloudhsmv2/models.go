@@ -53,6 +53,10 @@ type Cluster struct {
 	SourceBackupID string            `json:"sourceBackupId,omitempty"`
 	CSR            string            `json:"csr"`
 	ClusterCert    string            `json:"clusterCert,omitempty"`
+	HsmKey         string            `json:"hsmKey,omitempty"`
+	HsmCert        string            `json:"hsmCert,omitempty"`
+	AwsHwCert      string            `json:"awsHwCert,omitempty"`
+	MfrHwCert      string            `json:"mfrHwCert,omitempty"`
 	RetentionDays  int               `json:"retentionDays"`
 	Initialized    bool              `json:"initialized"`
 }

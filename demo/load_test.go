@@ -7,22 +7,21 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	codepipelinesvc "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/sns"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/iam"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/kms"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/secretsmanager"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sns"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
+	"github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -213,6 +212,8 @@ func TestLoadECS(t *testing.T) {
 			ecsClient := ecs.NewFromConfig(cfg, func(o *ecs.Options) {
 				o.BaseEndpoint = aws.String("http://local")
 			})
+			ecsCaller, err := demo.NewWireCaller("ecs", e, cfg.Credentials, cfg.Region)
+			require.NoError(t, err)
 
 			loadClients := &demo.Clients{
 				DynamoDB: ddbClient,
@@ -241,7 +242,7 @@ func TestLoadECS(t *testing.T) {
 					cfg,
 					func(o *secretsmanager.Options) { o.BaseEndpoint = aws.String("http://local") },
 				),
-				ECS: ecsClient,
+				ECS: ecsCaller,
 			}
 			err = demo.LoadData(t.Context(), loadClients)
 			require.NoError(t, err)
@@ -329,9 +330,8 @@ func TestLoadCodePipeline(t *testing.T) {
 			ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
 				o.BaseEndpoint = aws.String("http://local")
 			})
-			cpClient := codepipelinesvc.NewFromConfig(cfg, func(o *codepipelinesvc.Options) {
-				o.BaseEndpoint = aws.String("http://local")
-			})
+			cpClient, err := demo.NewWireCaller("codepipeline", e, cfg.Credentials, cfg.Region)
+			require.NoError(t, err)
 
 			loadClients := &demo.Clients{
 				DynamoDB: ddbClient,
