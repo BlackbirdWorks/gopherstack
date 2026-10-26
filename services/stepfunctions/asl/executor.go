@@ -3404,7 +3404,11 @@ func (e *Executor) resolveToleratedFailureCount(state *State, mapInput any) (int
 
 	switch {
 	case state.ToleratedFailureCountPath != "":
-		val, err := applyPath(state.ToleratedFailureCountPath, e.pathArg(state.ToleratedFailureCountPath, mapInput), e.jsonPathCache)
+		val, err := applyPath(
+			state.ToleratedFailureCountPath,
+			e.pathArg(state.ToleratedFailureCountPath, mapInput),
+			e.jsonPathCache,
+		)
 		if err != nil {
 			return 0, false, fmt.Errorf("ToleratedFailureCountPath error: %w", err)
 		}
@@ -3436,7 +3440,11 @@ func (e *Executor) resolveToleratedFailurePercentageThreshold(
 	case e.jxPctSet:
 		pct = e.jxPct
 	case state.ToleratedFailurePercentagePath != "":
-		val, err := applyPath(state.ToleratedFailurePercentagePath, e.pathArg(state.ToleratedFailurePercentagePath, mapInput), e.jsonPathCache)
+		val, err := applyPath(
+			state.ToleratedFailurePercentagePath,
+			e.pathArg(state.ToleratedFailurePercentagePath, mapInput),
+			e.jsonPathCache,
+		)
 		if err != nil {
 			return 0, false, fmt.Errorf("ToleratedFailurePercentagePath error: %w", err)
 		}
