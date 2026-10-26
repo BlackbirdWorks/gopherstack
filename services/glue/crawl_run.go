@@ -313,7 +313,8 @@ func (r *crawlRun) sweepGoneTables() {
 	for _, tbl := range r.b.tables.All() {
 		key := tableKey(tbl.DatabaseName, tbl.Name)
 
-		if !strs.Equal(tbl.DatabaseName, r.c.DatabaseName) || tbl.Parameters[crawlerManagedParam] != r.c.Name || r.seen[key] {
+		if !strs.Equal(tbl.DatabaseName, r.c.DatabaseName) || tbl.Parameters[crawlerManagedParam] != r.c.Name ||
+			r.seen[key] {
 			continue
 		}
 

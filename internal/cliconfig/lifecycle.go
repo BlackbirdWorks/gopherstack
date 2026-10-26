@@ -98,7 +98,7 @@ type LifecycleSettings struct {
 	ARCZonalShift                time.Duration `name:"arczonalshift"                  env:"ARCZONALSHIFT_PRACTICE_RUN_DURATION"  default:"0s" help:"ARC zonal shift practice run ACTIVE window; 0 keeps the built-in 30m; ignores the global delay."`     //nolint:lll // config struct tags are intentionally verbose
 	EKS                          time.Duration `name:"eks"                            env:"EKS_LIFECYCLE_DELAY"                  default:"0s" help:"EKS transitional-state window (built-in 100ms)."`                                                     //nolint:lll // config struct tags are intentionally verbose
 	Backup                       time.Duration `name:"backup"                         env:"BACKUP_LIFECYCLE_DELAY"               default:"0s" help:"Backup restore and copy job PENDING/CREATED/RUNNING window before COMPLETED."`                        //nolint:lll // config struct tags are intentionally verbose
-	EC2                          time.Duration `name:"ec2"                            env:"EC2_LIFECYCLE_DELAY"                  default:"0s" help:"EBS volume creating window before available."`                                                 //nolint:lll // config struct tags are intentionally verbose
+	EC2                          time.Duration `name:"ec2"                            env:"EC2_LIFECYCLE_DELAY"                  default:"0s" help:"EBS volume creating window before available."`                                                        //nolint:lll // config struct tags are intentionally verbose
 }
 
 // Effective returns specific, or Delay when specific is 0.

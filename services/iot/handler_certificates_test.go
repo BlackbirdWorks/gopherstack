@@ -261,7 +261,9 @@ func TestCertificate_LastModifiedDate_SetOnCreate(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
-	cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t), SetAsActive: true})
+	cert, err := b.CreateCertificateFromCsr(
+		csrInput(t, true),
+	)
 	require.NoError(t, err)
 	assert.False(t, cert.LastModifiedAt.IsZero(), "LastModifiedAt should be set on certificate creation")
 }
@@ -441,7 +443,9 @@ func TestUpdateCertificate_StatusTransitions(t *testing.T) {
 			t.Parallel()
 
 			_, b := newR3Handler()
-			cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t), SetAsActive: tt.setAsActive})
+			cert, err := b.CreateCertificateFromCsr(
+				csrInput(t, tt.setAsActive),
+			)
 			require.NoError(t, err)
 
 			err = b.UpdateCertificate(&iot.UpdateCertificateInput{
@@ -461,7 +465,7 @@ func TestUpdateCertificate_UpdatesLastModifiedDate(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
-	cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t)})
+	cert, err := b.CreateCertificateFromCsr(csrInput(t, false))
 	require.NoError(t, err)
 	initial := cert.LastModifiedAt
 
@@ -497,7 +501,9 @@ func TestCertificate_IDIs64HexChars(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
-	cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t), SetAsActive: true})
+	cert, err := b.CreateCertificateFromCsr(
+		csrInput(t, true),
+	)
 	require.NoError(t, err)
 
 	assert.Len(t, cert.CertificateID, 64, "certificate ID should be 64 hex characters")
@@ -512,7 +518,9 @@ func TestCertificate_ARNContainsRegionAndAccount(t *testing.T) {
 	t.Parallel()
 
 	b := iot.NewInMemoryBackendWithConfig("111122223333", "eu-west-1")
-	cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t), SetAsActive: true})
+	cert, err := b.CreateCertificateFromCsr(
+		csrInput(t, true),
+	)
 	require.NoError(t, err)
 
 	assert.True(t, strings.HasPrefix(cert.ARN, "arn:aws:iot:eu-west-1:111122223333:cert/"),
@@ -547,7 +555,9 @@ func TestReset_ClearsCertificates(t *testing.T) {
 	t.Parallel()
 
 	_, b := newR3Handler()
-	_, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t), SetAsActive: true})
+	_, err := b.CreateCertificateFromCsr(
+		csrInput(t, true),
+	)
 	require.NoError(t, err)
 
 	b.Reset()
@@ -564,7 +574,9 @@ func TestCertificate_StatusTransitions(t *testing.T) {
 			t.Parallel()
 
 			_, b := newR3Handler()
-			cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t)})
+			cert, err := b.CreateCertificateFromCsr(
+				csrInput(t, false),
+			)
 			require.NoError(t, err)
 
 			err = b.UpdateCertificate(&iot.UpdateCertificateInput{
@@ -656,7 +668,9 @@ func TestUpdateCertificate_RejectsPendingStatuses(t *testing.T) {
 			t.Parallel()
 
 			b := iot.NewInMemoryBackend()
-			cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t)})
+			cert, err := b.CreateCertificateFromCsr(
+				csrInput(t, false),
+			)
 			require.NoError(t, err)
 
 			err = b.UpdateCertificate(&iot.UpdateCertificateInput{
@@ -698,7 +712,9 @@ func TestDeleteCertificate_ActiveBlocked(t *testing.T) {
 			t.Parallel()
 
 			b := iot.NewInMemoryBackend()
-			cert, err := b.CreateCertificateFromCsr(&iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t), SetAsActive: tt.setActive})
+			cert, err := b.CreateCertificateFromCsr(
+				csrInput(t, tt.setActive),
+			)
 			require.NoError(t, err)
 
 			err = b.DeleteCertificate(cert.CertificateID, false)

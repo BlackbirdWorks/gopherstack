@@ -75,7 +75,11 @@ func TestSDKRoundTrip_NamesFoldToLowercase(t *testing.T) {
 			require.NoError(t, err)
 
 			part, err := client.GetPartition(ctx, &gluesdk.GetPartitionInput{
-				DatabaseName: aws.String("mydb"), TableName: aws.String("mytable"), PartitionValues: []string{"2026-01-01"},
+				DatabaseName: aws.String(
+					"mydb",
+				),
+				TableName:       aws.String("mytable"),
+				PartitionValues: []string{"2026-01-01"},
 			})
 			require.NoError(t, err)
 			assert.Equal(t, "mytable", aws.ToString(part.Partition.TableName))
@@ -101,12 +105,16 @@ func TestRestore_FoldsMixedCaseNames(t *testing.T) {
 	src := glue.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := src.CreateDatabase(glue.DatabaseInput{Name: "legacydb"}, nil)
 	require.NoError(t, err)
-	_, err = src.CreateTable("legacydb", glue.TableInput{Name: "legacytable", PartitionKeys: []glue.Column{{Name: "d"}}})
+	_, err = src.CreateTable(
+		"legacydb",
+		glue.TableInput{Name: "legacytable", PartitionKeys: []glue.Column{{Name: "d"}}},
+	)
 	require.NoError(t, err)
 	_, errs := src.BatchCreatePartition("legacydb", "legacytable", []glue.PartitionInput{{Values: []string{"v"}}})
 	require.Empty(t, errs)
 
-	snap := strings.NewReplacer("legacydb", "LegacyDB", "legacytable", "LegacyTable").Replace(string(src.Snapshot(t.Context())))
+	snap := strings.NewReplacer("legacydb", "LegacyDB", "legacytable", "LegacyTable").
+		Replace(string(src.Snapshot(t.Context())))
 
 	dst := glue.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, dst.Restore(t.Context(), []byte(snap)))

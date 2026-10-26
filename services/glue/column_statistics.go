@@ -182,6 +182,7 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRun(
 	dbName, tableName, role string,
 ) (*ColumnStatisticsTaskRun, error) {
 	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
+
 	return b.StartColumnStatisticsTaskRunWithOptions(dbName, tableName, role, ColumnStatisticsRunOptions{})
 }
 

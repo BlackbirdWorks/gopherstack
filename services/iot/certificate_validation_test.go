@@ -43,6 +43,8 @@ func TestCertificateInputValidation_RealClient(t *testing.T) {
 		{
 			name: "csr not pem", wantErr: "InvalidRequestException",
 			call: func(t *testing.T, c *iotsdk.Client) error {
+				t.Helper()
+
 				_, err := c.CreateCertificateFromCsr(t.Context(), &iotsdk.CreateCertificateFromCsrInput{
 					CertificateSigningRequest: aws.String("csr-data"),
 				})
@@ -53,6 +55,8 @@ func TestCertificateInputValidation_RealClient(t *testing.T) {
 		{
 			name: "csr pem garbage", wantErr: "InvalidRequestException",
 			call: func(t *testing.T, c *iotsdk.Client) error {
+				t.Helper()
+
 				_, err := c.CreateCertificateFromCsr(t.Context(), &iotsdk.CreateCertificateFromCsrInput{
 					CertificateSigningRequest: aws.String(
 						"-----BEGIN CERTIFICATE REQUEST-----\nzz\n-----END CERTIFICATE REQUEST-----"),
@@ -64,6 +68,8 @@ func TestCertificateInputValidation_RealClient(t *testing.T) {
 		{
 			name: "register cert not pem", wantErr: "CertificateValidationException",
 			call: func(t *testing.T, c *iotsdk.Client) error {
+				t.Helper()
+
 				_, err := c.RegisterCertificate(t.Context(), &iotsdk.RegisterCertificateInput{
 					CertificatePem: aws.String("PEM"),
 				})
@@ -74,6 +80,8 @@ func TestCertificateInputValidation_RealClient(t *testing.T) {
 		{
 			name: "register without ca cert garbage", wantErr: "CertificateValidationException",
 			call: func(t *testing.T, c *iotsdk.Client) error {
+				t.Helper()
+
 				_, err := c.RegisterCertificateWithoutCA(t.Context(), &iotsdk.RegisterCertificateWithoutCAInput{
 					CertificatePem: aws.String("-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----"),
 				})
@@ -84,6 +92,8 @@ func TestCertificateInputValidation_RealClient(t *testing.T) {
 		{
 			name: "valid csr",
 			call: func(t *testing.T, c *iotsdk.Client) error {
+				t.Helper()
+
 				_, err := c.CreateCertificateFromCsr(t.Context(), &iotsdk.CreateCertificateFromCsrInput{
 					CertificateSigningRequest: aws.String(mintCSR(t)),
 				})
@@ -131,4 +141,10 @@ func mintCertPEM(t *testing.T) string {
 	certPEM, _, _ := mintCert(t, "device", nil, nil)
 
 	return certPEM
+}
+
+func csrInput(t *testing.T, active bool) *iot.CreateCertificateFromCsrInput {
+	t.Helper()
+
+	return &iot.CreateCertificateFromCsrInput{CertificateSigningRequest: mintCSR(t), SetAsActive: active}
 }

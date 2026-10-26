@@ -11,9 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 	"github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -255,7 +256,12 @@ func (r *crawlRun) writeJDBCTables(t JDBCTarget, ep jdbcEndpoint, dbName string,
 		}
 
 		r.upsert(&Table{
-			Name: crawlTableName(r.c.TablePrefix, tc.name), DatabaseName: strs.Fold(r.c.DatabaseName), Parameters: params,
+			Name: crawlTableName(
+				r.c.TablePrefix,
+				tc.name,
+			),
+			DatabaseName: strs.Fold(r.c.DatabaseName),
+			Parameters:   params,
 			StorageDescriptor: StorageDescriptor{
 				Columns: tc.cols, Location: tc.location,
 				Parameters: map[string]string{"connectionName": t.ConnectionName, crawlerManagedParam: r.c.Name},

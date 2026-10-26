@@ -35,7 +35,7 @@ func (h *S3Handler) presignObjectLambdaInput(r *http.Request, method, rawURL str
 	now := time.Now().UTC()
 	date := now.Format("20060102")
 	region := regionFromRequest(r, h.DefaultRegion)
-	scope := strings.Join([]string{date, region, "s3", "aws4_request"}, "/")
+	scope := strings.Join([]string{date, region, "s3", sigV4Terminator}, "/")
 
 	q := u.Query()
 	q.Set("X-Amz-Algorithm", presignedAlgorithm)
@@ -47,7 +47,10 @@ func (h *S3Handler) presignObjectLambdaInput(r *http.Request, method, rawURL str
 
 	signed := &http.Request{Method: method, URL: u, Host: u.Host, Header: http.Header{}}
 	canonical := h.buildPresignCanonicalRequest(signed, []string{"host"})
-	toSign := strings.Join([]string{presignedAlgorithm, now.Format(presignedDateFormat), scope, hexSHA256(canonical)}, "\n")
+	toSign := strings.Join(
+		[]string{presignedAlgorithm, now.Format(presignedDateFormat), scope, hexSHA256(canonical)},
+		"\n",
+	)
 	sig := hex.EncodeToString(hmacSHA256Bytes(derivePresignSigningKey(h.PresignSecret, date, region, "s3"), toSign))
 
 	q.Set("X-Amz-Signature", sig)
@@ -68,7 +71,7 @@ func objectLambdaSessionContext(p *awsmeta.Principal, region string, now time.Ti
 
 	return &objectLambdaSession{
 		Attributes: objectLambdaSessionAttrs{
-			MFAAuthenticated: "false",
+			MFAAuthenticated: strconv.FormatBool(false),
 			CreationDate:     now.Format(time.UnixDate),
 		},
 		SessionIssuer: objectLambdaSessionIssuer{

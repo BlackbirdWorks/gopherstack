@@ -617,7 +617,6 @@ type InMemoryBackend struct {
 	mu                             *lockmetrics.RWMutex
 	lifecycleStop                  chan struct{}
 	clock                          func() time.Time
-	volumeCreateDelay              time.Duration
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
 	instanceIDsByVPC               map[string]map[string]struct{}
@@ -635,6 +634,7 @@ type InMemoryBackend struct {
 	freePrivateIPs                 []string
 	nextPrivateIPIndex             int
 	nextElasticIPIndex             int
+	volumeCreateDelay              time.Duration
 	ebsEncryptionByDefault         bool
 	serialConsoleAccess            bool
 	reachabilityAnalyzerOrgSharing bool

@@ -53,14 +53,13 @@ type objectLambdaUserRequest struct {
 }
 
 type objectLambdaUserIdentity struct {
-	Type        string `json:"type"`
-	PrincipalID string `json:"principalId,omitempty"`
-	ARN         string `json:"arn"`
-	AccountID   string `json:"accountId"`
-	UserName    string `json:"userName,omitempty"`
-	AccessKeyID string `json:"accessKeyId,omitempty"`
-
 	SessionContext *objectLambdaSession `json:"sessionContext,omitempty"`
+	Type           string               `json:"type"`
+	PrincipalID    string               `json:"principalId,omitempty"`
+	ARN            string               `json:"arn"`
+	AccountID      string               `json:"accountId"`
+	UserName       string               `json:"userName,omitempty"`
+	AccessKeyID    string               `json:"accessKeyId,omitempty"`
 }
 
 type objectLambdaSession struct {

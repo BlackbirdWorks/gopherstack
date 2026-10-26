@@ -242,7 +242,10 @@ func (b *InMemoryBackend) RegisterCertificateWithoutCA(input *RegisterCertificat
 func (b *InMemoryBackend) certificatePEMOrIssued(supplied string) (string, error) {
 	if supplied != "" {
 		if parseCertPEM(supplied) == nil {
-			return "", fmt.Errorf("%w: certificatePem is not a valid PEM-encoded X.509 certificate", ErrCertificateValidation)
+			return "", fmt.Errorf(
+				"%w: certificatePem is not a valid PEM-encoded X.509 certificate",
+				ErrCertificateValidation,
+			)
 		}
 
 		return supplied, nil

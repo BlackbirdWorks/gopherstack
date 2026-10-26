@@ -40,10 +40,10 @@ func TestRealClient_CreateVolumeCreatingState(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		delay     time.Duration
-		advance   time.Duration
 		wantFirst types.VolumeState
 		wantThen  types.VolumeState
+		delay     time.Duration
+		advance   time.Duration
 	}{
 		{name: "no delay", wantFirst: types.VolumeStateAvailable, wantThen: types.VolumeStateAvailable},
 		{
@@ -86,7 +86,9 @@ func TestRealClient_CreateVolumeCreatingState(t *testing.T) {
 
 			if tt.wantFirst == types.VolumeStateCreating {
 				_, aerr := client.AttachVolume(t.Context(), &ec2sdk.AttachVolumeInput{
-					VolumeId: created.VolumeId, InstanceId: aws.String("i-0123456789abcdef0"), Device: aws.String("/dev/sdf"),
+					VolumeId:   created.VolumeId,
+					InstanceId: aws.String("i-0123456789abcdef0"),
+					Device:     aws.String("/dev/sdf"),
 				})
 				require.ErrorContains(t, aerr, "IncorrectState")
 			}
