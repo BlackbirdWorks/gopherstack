@@ -13,6 +13,8 @@ import (
 // dispatchPodIdentityOps handles pod identity association CRUD operations.
 func (h *Handler) dispatchPodIdentityOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
+	case opAssumeRoleForPodIdentity:
+		return true, h.handleAssumeRoleForPodIdentity(c, route.clusterName, body)
 	case opCreatePodIdentityAssociation:
 		return true, h.handleCreatePodIdentityAssociation(c, route.clusterName, body)
 	case opDeletePodIdentityAssociation:
