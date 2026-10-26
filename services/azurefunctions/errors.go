@@ -22,5 +22,6 @@ var (
 	errUnsafePath    = errors.New("archive entry escapes the site directory")
 	errTooLarge      = errors.New("archive is too large when unpacked")
 	errNoHost        = errors.New("function app is not running")
-	errUnsupportedRT = errors.New("unsupported function runtime")
+	errUnsupportedRT = errors.New("unsupported runtime")
+	errInvalidConfig = errors.New("invalid site configuration")
 )

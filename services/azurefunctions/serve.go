@@ -19,6 +19,10 @@ const (
 		"<body><h1>Your Azure Function App is up and running.</h1>" +
 		"<p>Deploy your code to this app to start serving functions.</p></body></html>"
 	scmLabel = "scm"
+
+	webWelcomePage = "<!DOCTYPE html><html><head><title>Your web app is running and waiting for your content" +
+		"</title></head><body><h1>Your web app is running and waiting for your content.</h1>" +
+		"<p>Deploy your code to this app to start serving it.</p></body></html>"
 )
 
 func hostOnly(hostport string) string {
@@ -85,8 +89,13 @@ func (b *InMemoryBackend) serveInvoke(w http.ResponseWriter, r *http.Request, na
 		return
 	}
 
-	servable, stopped := a.servable(), a.Stopped
+	servable, stopped, web := a.servable(), a.Stopped, a.isWeb()
 	b.mu.RUnlock()
+
+	page := welcomePage
+	if web {
+		page = webWelcomePage
+	}
 
 	switch {
 	case stopped:
@@ -96,7 +105,7 @@ func (b *InMemoryBackend) serveInvoke(w http.ResponseWriter, r *http.Request, na
 	case !servable:
 		if r.URL.Path == "/" {
 			w.Header().Set("Content-Type", "text/html")
-			_, _ = w.Write([]byte(welcomePage))
+			_, _ = w.Write([]byte(page))
 
 			return
 		}
@@ -116,7 +125,12 @@ func (b *InMemoryBackend) serveInvoke(w http.ResponseWriter, r *http.Request, na
 			code = http.StatusServiceUnavailable
 		}
 
-		http.Error(w, "function host is not serving: "+err.Error(), code)
+		what := "function host"
+		if web {
+			what = "web app"
+		}
+
+		http.Error(w, what+" is not serving: "+err.Error(), code)
 
 		return
 	}

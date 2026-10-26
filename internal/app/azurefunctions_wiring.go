@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
@@ -49,14 +50,22 @@ func mapFunctionsError(err error) error {
 func functionAppInfo(i azurefunctions.AppInfo) azurearm.FunctionAppInfo {
 	return azurearm.FunctionAppInfo{
 		Created: i.Created, LastDeploy: i.LastDeploy, HostName: i.HostName, SCMHost: i.SCMHost, Image: i.Image,
-		Worker: i.Worker, Stopped: i.Stopped, Deployed: i.Deployed,
+		Worker: i.Worker, Failure: i.Failure, Stopped: i.Stopped, Deployed: i.Deployed,
 	}
 }
 
 func (a *azureFunctionAppsAdapter) PutApp(
 	name string, cfg azurearm.FunctionAppConfig,
 ) (azurearm.FunctionAppInfo, error) {
-	return functionAppInfo(a.backend.PutApp(name, azurefunctions.AppConfig{Kind: cfg.Kind, LinuxFx: cfg.LinuxFx})), nil
+	appCfg := azurefunctions.AppConfig{
+		Kind: cfg.Kind, LinuxFx: cfg.LinuxFx, AppCommandLine: cfg.AppCommandLine, HealthCheckPath: cfg.HealthCheckPath,
+	}
+
+	if err := azurefunctions.ValidateConfig(appCfg); err != nil {
+		return azurearm.FunctionAppInfo{}, fmt.Errorf("%w: %w", azurearm.ErrWebInvalidSiteConfig, err)
+	}
+
+	return functionAppInfo(a.backend.PutApp(name, appCfg)), nil
 }
 
 func (a *azureFunctionAppsAdapter) DeleteApp(name string) error {

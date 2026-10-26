@@ -167,13 +167,16 @@ func mkScratch(pattern string) (string, error) {
 
 // launch starts a host container for a snapshot of the app and waits until it accepts connections.
 func (b *InMemoryBackend) launch(st *appState, host string) (box, error) {
+	if st.isWeb() {
+		return b.launchWeb(st, host)
+	}
+
 	rc, err := chooseRuntime(st.Settings, st.LinuxFx)
 	if err != nil {
 		return box{}, err
 	}
 
-	runner, err := b.runner()
-	if err != nil {
+	if _, err = b.runner(); err != nil {
 		return box{}, err
 	}
 
@@ -197,6 +200,25 @@ func (b *InMemoryBackend) launch(st *appState, host string) (box, error) {
 		}
 	}
 
+	return b.startContainer(x, func(port int) container.Spec {
+		return hostSpec(st, rc, host, x.dir, x.secretsDir, port)
+	}, gcpserve.WaitReady)
+}
+
+// startContainer publishes a host port, starts the container mk describes and waits until ready passes. On failure
+// it tears x down and returns the error.
+func (b *InMemoryBackend) startContainer(
+	x box,
+	mk func(port int) container.Spec,
+	ready func(ctx context.Context, port int) error,
+) (box, error) {
+	runner, err := b.runner()
+	if err != nil {
+		b.teardown(x)
+
+		return box{}, err
+	}
+
 	x.port, err = gcpserve.AcquirePort(b.baseCtx(), b.portPool(), "azurefunctions")
 	if err != nil {
 		b.teardown(x)
@@ -211,9 +233,9 @@ func (b *InMemoryBackend) launch(st *appState, host string) (box, error) {
 	ctx, cancel := context.WithTimeout(b.baseCtx(), timeout)
 	defer cancel()
 
-	x.id, err = runner.CreateAndStart(ctx, hostSpec(st, rc, host, x.dir, x.secretsDir, x.port))
+	x.id, err = runner.CreateAndStart(ctx, mk(x.port))
 	if err == nil {
-		if err = gcpserve.WaitReady(ctx, x.port); err != nil {
+		if err = ready(ctx, x.port); err != nil {
 			stopCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), teardownTimeout)
 			_ = runner.StopAndRemove(stopCtx, x.id)
 
@@ -250,6 +272,10 @@ func (b *InMemoryBackend) materialize(zipData []byte) (string, error) {
 
 // servable reports whether the app has something a host can run.
 func (a *app) servable() bool {
+	if a.isWeb() {
+		return a.webServable()
+	}
+
 	return len(a.Zip) > 0 || len(a.LinuxFx) > len(dockerPrefix) && a.LinuxFx[:len(dockerPrefix)] == dockerPrefix
 }
 

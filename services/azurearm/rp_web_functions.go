@@ -134,6 +134,15 @@ func (p *WebProvider) ListFunctions(ctx context.Context, id ResourceID) ([]map[s
 	return out, nil
 }
 
+func (p *WebProvider) lockedFunctionApp(id ResourceID) (*storedWebSite, error) {
+	s, _, err := p.lockedApp(id)
+	if err == nil && !isFunctionAppKind(s.Kind) {
+		return nil, ErrWebNotFunctionApp
+	}
+
+	return s, err
+}
+
 func (p *WebProvider) lockedApp(id ResourceID) (*storedWebSite, FunctionAppInfo, error) {
 	p.mu.RLock("lockedApp")
 	defer p.mu.RUnlock()
@@ -258,7 +267,7 @@ func keyValue(body map[string]any) string {
 
 // HostKeys serves POST .../host/default/listkeys.
 func (p *WebProvider) HostKeys(_ context.Context, id ResourceID) (map[string]any, error) {
-	s, _, err := p.lockedApp(id)
+	s, err := p.lockedFunctionApp(id)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +295,7 @@ func (p *WebProvider) HostKeys(_ context.Context, id ResourceID) (map[string]any
 func (p *WebProvider) SetHostKey(
 	_ context.Context, id ResourceID, keyType, keyName string, body map[string]any,
 ) (map[string]any, error) {
-	s, _, err := p.lockedApp(id)
+	s, err := p.lockedFunctionApp(id)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +310,7 @@ func (p *WebProvider) SetHostKey(
 
 // DeleteHostKey serves DELETE .../host/default/{keyType}/{name}.
 func (p *WebProvider) DeleteHostKey(_ context.Context, id ResourceID, keyType, keyName string) error {
-	s, _, err := p.lockedApp(id)
+	s, err := p.lockedFunctionApp(id)
 	if err != nil {
 		return err
 	}

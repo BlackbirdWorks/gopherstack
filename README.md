@@ -914,7 +914,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 15 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 9 gaps |
 | [Azure Files](services/azurefile/README.md) | B | 38 | 11 gaps |
-| [Azure Functions](services/azurefunctions/README.md) | B | 6 | 8 gaps |
+| [Azure Functions](services/azurefunctions/README.md) | B | 6 | 12 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 4 gaps |
 | [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |

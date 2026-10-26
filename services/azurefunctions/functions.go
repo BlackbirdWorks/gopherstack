@@ -127,6 +127,12 @@ func (b *InMemoryBackend) Functions(ctx context.Context, name string) ([]Functio
 		return nil, err
 	}
 
+	if a.isWeb() {
+		b.mu.RUnlock()
+
+		return nil, nil
+	}
+
 	servable, zipData, worker := a.servable(), a.Zip, ""
 	if rc, rcErr := chooseRuntime(a.Settings, a.LinuxFx); rcErr == nil {
 		worker = rc.worker
