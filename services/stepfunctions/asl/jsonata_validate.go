@@ -117,6 +117,12 @@ func walkStates(states map[string]*State, lang string, outer map[string]struct{}
 }
 
 func walkNested(name string, st *State, lang string, inner map[string]struct{}) error {
+	if isDistributedProcessor(st) {
+		if err := checkDistributedScope(name, st.ItemProcessor.States, inner); err != nil {
+			return err
+		}
+	}
+
 	for _, sub := range nestedMachines(st) {
 		subLang, err := resolveLang(fmt.Sprintf("state %q", name), sub.ql, lang)
 		if err != nil {

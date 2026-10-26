@@ -1,6 +1,7 @@
 package asl
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -53,16 +54,72 @@ func (e *Executor) visibleVars() map[string]any {
 	return m
 }
 
-func (e *Executor) setVars(vals map[string]any) {
+const (
+	maxAssignBytes        = 256 * 1024
+	maxExecutionVarsBytes = 10 * 1024 * 1024
+	errCodeDataLimit      = "States.DataLimitExceeded"
+)
+
+func dataLimitError(format string, args ...any) error {
+	return &FailError{ErrCode: errCodeDataLimit, Cause: fmt.Sprintf(format, args...)}
+}
+
+// setVars stores vals after enforcing the "Limits" section of the AWS
+// variables guide: 256 KiB per Assign field and 10 MiB of variables per execution.
+func (e *Executor) setVars(vals map[string]any) error {
 	if len(vals) == 0 {
-		return
+		return nil
+	}
+
+	sizes := make(map[string]int, len(vals))
+	assignTotal := 0
+
+	for name, v := range vals {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return dataLimitError("variable %q cannot be serialized: %v", name, err)
+		}
+
+		sizes[name] = len(b)
+		assignTotal += len(b)
+	}
+
+	if assignTotal > maxAssignBytes {
+		return dataLimitError("the variables assigned by a single Assign field total %d bytes, over the %d byte limit",
+			assignTotal, maxAssignBytes)
+	}
+
+	total := e.outerVarBytes + assignTotal
+	for name, n := range e.varSizes {
+		if _, replaced := sizes[name]; !replaced {
+			total += n
+		}
+	}
+
+	if total > maxExecutionVarsBytes {
+		return dataLimitError("stored variables total %d bytes, over the %d byte per-execution limit",
+			total, maxExecutionVarsBytes)
 	}
 
 	if e.vars == nil {
 		e.vars = make(map[string]any, len(vals))
+		e.varSizes = make(map[string]int, len(vals))
 	}
 
 	maps.Copy(e.vars, vals)
+	maps.Copy(e.varSizes, sizes)
+
+	return nil
+}
+
+// varBytes is the serialized size of this scope's own variables.
+func (e *Executor) varBytes() int {
+	n := 0
+	for _, s := range e.varSizes {
+		n += s
+	}
+
+	return n
 }
 
 // splitVarRef splits "$name.a.b" into ("name", "a.b"); "$." and "$$" are not variables.
@@ -141,7 +198,5 @@ func (e *Executor) assignJSONPath(tmpl map[string]any, data any) error {
 		return fmt.Errorf("assign error: %w", err)
 	}
 
-	e.setVars(vals)
-
-	return nil
+	return e.setVars(vals)
 }
