@@ -33,11 +33,11 @@ type ContainerInfo struct {
 	CreatedAt    time.Time
 	LastModified time.Time
 	Metadata     map[string]string
+	Lease        LeaseProps
 	Name         string
 	ETag         string
 	PublicAccess string
 	ACL          []SignedIdentifier
-	Lease        LeaseProps
 }
 
 // ContainerOptions are the create-time settings of a container.
@@ -86,19 +86,19 @@ type storedBlob struct {
 	AccessTierChanged  time.Time
 	Metadata           map[string]string
 	Snapshots          map[string]*storedBlob
-	Name               string
-	ContentType        string
+	Lease              *leaseRecord
+	ContentDisposition string
 	ContentEncoding    string
 	ContentLanguage    string
-	ContentDisposition string
+	ContentType        string
 	CacheControl       string
 	ContentMD5         string
 	ETag               string
 	AccessTier         string
 	Snapshot           string
+	Name               string
 	Data               []byte
 	Blocks             []committedBlock
-	Lease              *leaseRecord
 }
 
 func (b *storedBlob) info(now time.Time) BlobInfo {
@@ -133,12 +133,12 @@ type storedContainer struct {
 	LastModified time.Time
 	Blobs        map[string]*storedBlob
 	Metadata     map[string]string
+	Staged       map[string]map[string]*stagedBlock
+	Lease        *leaseRecord
 	Name         string
 	ETag         string
 	PublicAccess string
 	ACL          []SignedIdentifier
-	Staged       map[string]map[string]*stagedBlock
-	Lease        *leaseRecord
 }
 
 func (c *storedContainer) info(now time.Time) ContainerInfo {
@@ -261,10 +261,10 @@ type blobProperties struct {
 	AccessTier         string `xml:"AccessTier,omitempty"`
 	AccessTierInferred string `xml:"AccessTierInferred,omitempty"`
 	AccessTierChange   string `xml:"AccessTierChangeTime,omitempty"`
-	ContentLength      int64  `xml:"Content-Length"`
 	LeaseStatus        string `xml:"LeaseStatus,omitempty"`
 	LeaseState         string `xml:"LeaseState,omitempty"`
 	LeaseDur           string `xml:"LeaseDuration,omitempty"`
+	ContentLength      int64  `xml:"Content-Length"`
 }
 
 // metadataXML marshals as <Metadata><key>value</key>...</Metadata> with keys sorted.

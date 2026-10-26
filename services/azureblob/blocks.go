@@ -56,9 +56,9 @@ type BlockEntry struct {
 // BlockList is the Get Block List result. HasBlob is false when only
 // uncommitted blocks exist.
 type BlockList struct {
-	Blob        BlobInfo
 	Committed   []BlockEntry
 	Uncommitted []BlockEntry
+	Blob        BlobInfo
 	HasBlob     bool
 }
 
@@ -146,7 +146,12 @@ func (b *InMemoryBackend) PutBlock(container, blob, blockID string, data []byte,
 }
 
 // blockSource resolves one Put Block List entry to its bytes and size.
-func resolveBlock(ref BlockRef, staged map[string]*stagedBlock, old *storedBlob, offsets map[string][2]int64) ([]byte, bool) {
+func resolveBlock(
+	ref BlockRef,
+	staged map[string]*stagedBlock,
+	old *storedBlob,
+	offsets map[string][2]int64,
+) ([]byte, bool) {
 	if ref.Kind != BlockKindCommitted {
 		if blk, ok := staged[ref.ID]; ok {
 			return blk.Data, true
@@ -258,7 +263,8 @@ func (b *InMemoryBackend) GetBlockList(
 
 	stored, err := b.readableLocked(container, blob, snapshot, p)
 	if err != nil {
-		if errors.Is(err, ErrBlobNotFound) && snapshot == "" && listType != BlockListCommitted && len(out.Uncommitted) > 0 {
+		if errors.Is(err, ErrBlobNotFound) && snapshot == "" && listType != BlockListCommitted &&
+			len(out.Uncommitted) > 0 {
 			return out, nil
 		}
 

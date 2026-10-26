@@ -198,8 +198,11 @@ func acquireLease(slot **leaseRecord, now time.Time, req LeaseRequest, st string
 		}
 
 		if st == LeaseStateBreaking {
-			return LeaseResult{}, leaseErr(http.StatusConflict, "LeaseIsBreakingAndCannotBeAcquired",
-				"The lease ID matched, but the lease is currently in breaking state and cannot be acquired until it is broken.")
+			return LeaseResult{}, leaseErr(
+				http.StatusConflict,
+				"LeaseIsBreakingAndCannotBeAcquired",
+				"The lease ID matched, but the lease is currently in breaking state and cannot be acquired until it is broken.",
+			)
 		}
 	}
 

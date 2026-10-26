@@ -15,9 +15,9 @@ const (
 	headerLeaseBreak    = "X-Ms-Lease-Break-Period"
 	headerProposedLease = "X-Ms-Proposed-Lease-Id"
 
-	minLeaseSeconds   = 15
-	maxLeaseSeconds   = 60
-	maxBreakSeconds   = 60
+	minLeaseSeconds = 15
+	maxLeaseSeconds = 60
+	maxBreakSeconds = 60
 )
 
 func errMissingHeader(name string) *apiError {

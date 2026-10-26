@@ -28,14 +28,14 @@ type blockListRequest struct {
 }
 
 type blockListReqItem struct {
-	XMLName xml.Name
-	ID      string `xml:",chardata"`
+	XMLName xml.Name `xml:""`
+	ID      string   `xml:",chardata"`
 }
 
 type blockListResponse struct {
-	XMLName     xml.Name      `xml:"BlockList"`
 	Committed   *blockEntries `xml:"CommittedBlocks"`
 	Uncommitted *blockEntries `xml:"UncommittedBlocks"`
+	XMLName     xml.Name      `xml:"BlockList"`
 }
 
 type blockEntries struct {
@@ -54,7 +54,7 @@ func blockEntriesXML(in []BlockEntry) *blockEntries {
 
 	out := &blockEntries{Block: make([]blockXML, len(in))}
 	for i, e := range in {
-		out.Block[i] = blockXML{Name: e.Name, Size: e.Size}
+		out.Block[i] = blockXML(e)
 	}
 
 	return out

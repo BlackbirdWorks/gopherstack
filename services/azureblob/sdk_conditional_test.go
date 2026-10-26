@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/stretchr/testify/assert"
@@ -41,11 +41,15 @@ func condCases() []condCase {
 			build: func(e azcore.ETag, _ time.Time) *blob.ModifiedAccessConditions {
 				return &blob.ModifiedAccessConditions{IfNoneMatch: &e}
 			}},
-		{name: "if_modified_since_before", want: 200, build: func(_ azcore.ETag, lm time.Time) *blob.ModifiedAccessConditions {
-			t := lm.Add(-time.Hour)
+		{
+			name: "if_modified_since_before",
+			want: 200,
+			build: func(_ azcore.ETag, lm time.Time) *blob.ModifiedAccessConditions {
+				t := lm.Add(-time.Hour)
 
-			return &blob.ModifiedAccessConditions{IfModifiedSince: &t}
-		}},
+				return &blob.ModifiedAccessConditions{IfModifiedSince: &t}
+			},
+		},
 		{name: "if_modified_since_equal", want: -1, wantCode: bloberror.ConditionNotMet,
 			build: func(_ azcore.ETag, lm time.Time) *blob.ModifiedAccessConditions {
 				return &blob.ModifiedAccessConditions{IfModifiedSince: &lm}
@@ -56,9 +60,13 @@ func condCases() []condCase {
 
 				return &blob.ModifiedAccessConditions{IfUnmodifiedSince: &t}
 			}},
-		{name: "if_unmodified_since_equal", want: 200, build: func(_ azcore.ETag, lm time.Time) *blob.ModifiedAccessConditions {
-			return &blob.ModifiedAccessConditions{IfUnmodifiedSince: &lm}
-		}},
+		{
+			name: "if_unmodified_since_equal",
+			want: 200,
+			build: func(_ azcore.ETag, lm time.Time) *blob.ModifiedAccessConditions {
+				return &blob.ModifiedAccessConditions{IfUnmodifiedSince: &lm}
+			},
+		},
 		{name: "if_tags", want: 412, wantCode: bloberror.ConditionNotMet,
 			build: func(azcore.ETag, time.Time) *blob.ModifiedAccessConditions {
 				return &blob.ModifiedAccessConditions{IfTags: new(`"env" = 'prod'`)}
@@ -99,7 +107,8 @@ func TestSDK_Conditional_Reads(t *testing.T) {
 				if op == "download" {
 					var resp blob.DownloadStreamResponse
 
-					resp, err = bb.BlobClient().DownloadStream(t.Context(), &blob.DownloadStreamOptions{AccessConditions: ac})
+					resp, err = bb.BlobClient().
+						DownloadStream(t.Context(), &blob.DownloadStreamOptions{AccessConditions: ac})
 					if err == nil && resp.Body != nil {
 						_ = resp.Body.Close()
 					}
@@ -134,40 +143,57 @@ func TestSDK_Conditional_Writes(t *testing.T) {
 
 	ops := map[string]func(t *testing.T, bb *blockblob.Client, mac *blob.ModifiedAccessConditions) error{
 		"metadata": func(t *testing.T, bb *blockblob.Client, mac *blob.ModifiedAccessConditions) error {
+			t.Helper()
+
 			_, err := bb.SetMetadata(t.Context(), map[string]*string{"a": new("b")},
 				&blob.SetMetadataOptions{AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: mac}})
 
 			return err
 		},
 		"properties": func(t *testing.T, bb *blockblob.Client, mac *blob.ModifiedAccessConditions) error {
+			t.Helper()
+
 			_, err := bb.SetHTTPHeaders(t.Context(), blob.HTTPHeaders{BlobContentType: new("text/x")},
 				&blob.SetHTTPHeadersOptions{AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: mac}})
 
 			return err
 		},
 		"snapshot": func(t *testing.T, bb *blockblob.Client, mac *blob.ModifiedAccessConditions) error {
+			t.Helper()
+
 			_, err := bb.CreateSnapshot(t.Context(),
 				&blob.CreateSnapshotOptions{AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: mac}})
 
 			return err
 		},
 		"upload": func(t *testing.T, bb *blockblob.Client, mac *blob.ModifiedAccessConditions) error {
+			t.Helper()
+
 			_, err := bb.Upload(t.Context(), body("new"),
 				&blockblob.UploadOptions{AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: mac}})
 
 			return err
 		},
 		"commit": func(t *testing.T, bb *blockblob.Client, mac *blob.ModifiedAccessConditions) error {
+			t.Helper()
+
 			if _, err := bb.StageBlock(t.Context(), blockID(0), body("x"), nil); err != nil {
 				return err
 			}
 
-			_, err := bb.CommitBlockList(t.Context(), []string{blockID(0)},
-				&blockblob.CommitBlockListOptions{AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: mac}})
+			_, err := bb.CommitBlockList(
+				t.Context(),
+				[]string{blockID(0)},
+				&blockblob.CommitBlockListOptions{
+					AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: mac},
+				},
+			)
 
 			return err
 		},
 		"delete": func(t *testing.T, bb *blockblob.Client, mac *blob.ModifiedAccessConditions) error {
+			t.Helper()
+
 			_, err := bb.Delete(t.Context(),
 				&blob.DeleteOptions{AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: mac}})
 
@@ -203,11 +229,11 @@ func TestSDK_Conditional_Create(t *testing.T) {
 	star := azcore.ETagAny
 
 	tests := []struct {
-		name     string
-		exists   bool
 		mac      blob.ModifiedAccessConditions
+		name     string
 		wantCode bloberror.Code
 		status   int
+		exists   bool
 	}{
 		{name: "none_match_star_missing", mac: blob.ModifiedAccessConditions{IfNoneMatch: &star}},
 		{name: "none_match_star_exists", exists: true, mac: blob.ModifiedAccessConditions{IfNoneMatch: &star},
@@ -291,9 +317,12 @@ func TestSDK_Conditional_Copy(t *testing.T) {
 				return
 			}
 
-			requireStorageErr(t, err, tt.wantCode, map[bloberror.Code]int{
-				bloberror.SourceConditionNotMet: 412, bloberror.BlobAlreadyExists: 409,
-			}[tt.wantCode])
+			status := 412
+			if tt.wantCode == bloberror.BlobAlreadyExists {
+				status = 409
+			}
+
+			requireStorageErr(t, err, tt.wantCode, status)
 		})
 	}
 }
@@ -302,8 +331,8 @@ func TestSDK_Conditional_Container(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		build func(lm time.Time) *container.ModifiedAccessConditions
+		name  string
 		want  bool
 	}{
 		{name: "unmodified_since_before", want: false, build: func(lm time.Time) *container.ModifiedAccessConditions {
@@ -352,7 +381,9 @@ func TestSDK_Conditional_304CarriesValidators(t *testing.T) {
 	bb, etag, _ := seedSDKBlob(t, env, "v.txt")
 
 	_, err := bb.GetProperties(t.Context(), &blob.GetPropertiesOptions{
-		AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: &etag}},
+		AccessConditions: &blob.AccessConditions{
+			ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: &etag},
+		},
 	})
 
 	var re *azcore.ResponseError

@@ -27,8 +27,8 @@ func TestSDK_ListContainers_Paging(t *testing.T) {
 	tests := []struct {
 		name      string
 		prefix    string
-		maxResult int32
 		wantPages [][]string
+		maxResult int32
 	}{
 		{name: "all_one_page", wantPages: [][]string{{"a1", "a2", "a3", "b1", "b2", "sdkenv"}}},
 		{name: "prefix", prefix: "a", wantPages: [][]string{{"a1", "a2", "a3"}}},
@@ -62,7 +62,7 @@ func TestSDK_ListContainers_Paging(t *testing.T) {
 				page, err := pager.NextPage(t.Context())
 				require.NoError(t, err)
 
-				names := []string{}
+				names := make([]string, 0, len(page.ContainerItems))
 
 				for _, item := range page.ContainerItems {
 					names = append(names, *item.Name)
@@ -75,7 +75,7 @@ func TestSDK_ListContainers_Paging(t *testing.T) {
 				pages = append(pages, names)
 
 				if tt.maxResult > 0 {
-					assert.EqualValues(t, tt.maxResult, *page.MaxResults)
+					assert.Equal(t, tt.maxResult, *page.MaxResults)
 				}
 
 				if tt.prefix != "" {

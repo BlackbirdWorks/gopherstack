@@ -1,7 +1,6 @@
 package azureblob_test
 
 import (
-	"errors"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -21,13 +20,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 )
 
-var clockStart = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+func clockStart() time.Time { return time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC) }
 
 type fakeClock struct{ ns atomic.Int64 }
 
 func newFakeClock() *fakeClock {
 	c := &fakeClock{}
-	c.ns.Store(clockStart.UnixNano())
+	c.ns.Store(clockStart().UnixNano())
 
 	return c
 }
@@ -90,7 +89,7 @@ func requireStatus(t *testing.T, err error, status int) {
 
 	var re *azcore.ResponseError
 
-	require.True(t, errors.As(err, &re), "want ResponseError, got %v", err)
+	require.ErrorAs(t, err, &re)
 	assert.Equal(t, status, re.StatusCode)
 }
 

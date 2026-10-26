@@ -10,13 +10,13 @@ import (
 // Zero time and empty string mean "header absent". Source holds the
 // x-ms-source-if-* conditions of copy-style operations.
 type Precond struct {
-	Source             *Precond
-	IfModifiedSince    time.Time
-	IfUnmodifiedSince  time.Time
-	IfMatch            string
-	IfNoneMatch        string
-	IfTags             string
-	LeaseID            string
+	Source            *Precond
+	IfModifiedSince   time.Time
+	IfUnmodifiedSince time.Time
+	IfMatch           string
+	IfNoneMatch       string
+	IfTags            string
+	LeaseID           string
 }
 
 type condKind int
@@ -90,7 +90,11 @@ func (p Precond) checkNegative(kind condKind, etag string, lm time.Time) error {
 			return errConditionNotMet()
 		}
 
-		e := storageErr(http.StatusNotModified, "ConditionNotMet", "The condition specified using HTTP conditional header(s) is not met.")
+		e := storageErr(
+			http.StatusNotModified,
+			"ConditionNotMet",
+			"The condition specified using HTTP conditional header(s) is not met.",
+		)
 		e.Header = http.Header{"Etag": {etag}, "Last-Modified": {lm.Format(http.TimeFormat)}}
 
 		return e

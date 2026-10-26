@@ -1,15 +1,15 @@
 package azureblob_test
 
 import (
-	"crypto/md5" //nolint:gosec // test of the Content-MD5 wire header
+	"crypto/md5"
 	"encoding/base64"
 	"io"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -187,8 +187,20 @@ func TestSDK_BlockBlob_BlockIDRules(t *testing.T) {
 		status   int
 	}{
 		{name: "equal_length", first: "AAAA", second: "BBBB"},
-		{name: "unequal_length", first: "AAAA", second: "AAAAAAAA", wantCode: bloberror.InvalidBlobOrBlock, status: 400},
-		{name: "not_base64", first: "AAAA", second: "!!notbase64", wantCode: bloberror.InvalidQueryParameterValue, status: 400},
+		{
+			name:     "unequal_length",
+			first:    "AAAA",
+			second:   "AAAAAAAA",
+			wantCode: bloberror.InvalidBlobOrBlock,
+			status:   400,
+		},
+		{
+			name:     "not_base64",
+			first:    "AAAA",
+			second:   "!!notbase64",
+			wantCode: bloberror.InvalidQueryParameterValue,
+			status:   400,
+		},
 		{name: "too_long", first: base64.StdEncoding.EncodeToString(make([]byte, 65)), second: "",
 			wantCode: bloberror.InvalidQueryParameterValue, status: 400},
 	}
@@ -309,8 +321,8 @@ func TestSDK_BlockBlob_GetBlockListMissingBlob(t *testing.T) {
 func TestSDK_BlockBlob_TransactionalValidation(t *testing.T) {
 	t.Parallel()
 
-	sum := md5.Sum([]byte("payload")) //nolint:gosec // wire checksum under test
-	bad := md5.Sum([]byte("other"))    //nolint:gosec // wire checksum under test
+	sum := md5.Sum([]byte("payload"))
+	bad := md5.Sum([]byte("other"))
 
 	tests := []struct {
 		name     string
@@ -349,11 +361,11 @@ func TestSDK_BlockBlob_StageBlockFromURL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		srcRange blob.HTTPRange
 		src      func(env *sdkEnv) string
+		name     string
 		want     string
 		wantCode bloberror.Code
+		srcRange blob.HTTPRange
 		status   int
 	}{
 		{name: "whole", want: "0123456789"},
@@ -381,7 +393,12 @@ func TestSDK_BlockBlob_StageBlockFromURL(t *testing.T) {
 
 			dst := env.cc.NewBlockBlobClient("dst.bin")
 
-			_, err = dst.StageBlockFromURL(ctx, blockID(0), srcURL, &blockblob.StageBlockFromURLOptions{Range: tt.srcRange})
+			_, err = dst.StageBlockFromURL(
+				ctx,
+				blockID(0),
+				srcURL,
+				&blockblob.StageBlockFromURLOptions{Range: tt.srcRange},
+			)
 			if tt.wantCode != "" {
 				requireStorageErr(t, err, tt.wantCode, tt.status)
 

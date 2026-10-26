@@ -573,14 +573,8 @@ func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error
 		return h.snapshotBlob(c, container, blob)
 	case opCopyBlob:
 		return h.copyBlob(c, container, blob)
-	case opPutBlock, opPutBlockFromURL:
-		return h.putBlock(c, container, blob)
-	case opPutBlockList:
-		return h.putBlockList(c, container, blob)
-	case opGetBlockList:
-		return h.getBlockList(c, container, blob)
-	case opLeaseBlob:
-		return h.leaseBlob(c, container, blob)
+	case opPutBlock, opPutBlockFromURL, opPutBlockList, opGetBlockList, opLeaseBlob:
+		return h.handleBlockAndLease(c, container, blob)
 	case opPutBlob:
 		return h.putBlob(c, container, blob)
 	case opGetBlob:
@@ -592,6 +586,19 @@ func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
+	}
+}
+
+func (h *Handler) handleBlockAndLease(c *echo.Context, container, blob string) error {
+	switch blobOperationFor(c.Request()) {
+	case opPutBlockList:
+		return h.putBlockList(c, container, blob)
+	case opGetBlockList:
+		return h.getBlockList(c, container, blob)
+	case opLeaseBlob:
+		return h.leaseBlob(c, container, blob)
+	default:
+		return h.putBlock(c, container, blob)
 	}
 }
 

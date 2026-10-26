@@ -3,8 +3,8 @@ package azureblob
 import (
 	"encoding/base64"
 	"errors"
-	"net/http"
 	"maps"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash/crc64"
+	"maps"
 	"net/http"
 	"time"
 
@@ -23,7 +24,7 @@ const (
 	headerPrefixSourceIf = "X-Ms-Source-"
 )
 
-var crc64Table = crc64.MakeTable(crc64Polynomial)
+func crc64Table() *crc64.Table { return crc64.MakeTable(crc64Polynomial) }
 
 func parseHTTPDate(r *http.Request, name string) (time.Time, *apiError) {
 	raw := r.Header.Get(name)
@@ -91,9 +92,7 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) (bool, error) {
 	}
 
 	if se.Status == http.StatusNotModified {
-		for k, v := range se.Header {
-			c.Response().Header()[k] = v
-		}
+		maps.Copy(c.Response().Header(), se.Header)
 
 		return true, c.NoContent(http.StatusNotModified)
 	}
@@ -116,7 +115,8 @@ func verifyTransactional(r *http.Request, body []byte, md5Header, crcHeader stri
 
 		if want != base64.StdEncoding.EncodeToString(sum[:]) {
 			return &apiError{
-				status: http.StatusBadRequest, code: "Md5Mismatch",
+				status:  http.StatusBadRequest,
+				code:    "Md5Mismatch",
 				message: "The MD5 value specified in the request did not match with the MD5 value calculated by the server.",
 			}
 		}
@@ -124,7 +124,8 @@ func verifyTransactional(r *http.Request, body []byte, md5Header, crcHeader stri
 
 	if want := r.Header.Get(crcHeader); want != "" && want != crc64Header(body) {
 		return &apiError{
-			status: http.StatusBadRequest, code: "Crc64Mismatch",
+			status:  http.StatusBadRequest,
+			code:    "Crc64Mismatch",
 			message: "The CRC64 value specified in the request did not match with the CRC64 value calculated by the server.",
 		}
 	}
@@ -134,7 +135,7 @@ func verifyTransactional(r *http.Request, body []byte, md5Header, crcHeader stri
 
 func crc64Header(body []byte) string {
 	var buf [8]byte
-	binary.LittleEndian.PutUint64(buf[:], crc64.Checksum(body, crc64Table))
+	binary.LittleEndian.PutUint64(buf[:], crc64.Checksum(body, crc64Table()))
 
 	return base64.StdEncoding.EncodeToString(buf[:])
 }

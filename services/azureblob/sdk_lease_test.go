@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/lease"
@@ -46,8 +46,8 @@ func TestSDK_Lease_AcquireDurations(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		duration int32
 		wantDur  string
+		duration int32
 		wantErr  bool
 	}{
 		{name: "infinite", duration: -1, wantDur: "infinite"},
@@ -89,9 +89,9 @@ func TestSDK_Lease_FixedLeaseExpiry(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		advance   time.Duration
 		wantState string
 		wantLock  string
+		advance   time.Duration
 	}{
 		{name: "before_expiry", advance: 14 * time.Second, wantState: "leased", wantLock: "locked"},
 		{name: "at_expiry", advance: 15 * time.Second, wantState: "expired", wantLock: "unlocked"},
@@ -137,35 +137,53 @@ func TestSDK_Lease_WriteGating(t *testing.T) {
 
 	ops := map[string]func(t *testing.T, bb *blockblob.Client, id *string) error{
 		"upload": func(t *testing.T, bb *blockblob.Client, id *string) error {
+			t.Helper()
+
 			_, err := bb.Upload(t.Context(), body("n"), &blockblob.UploadOptions{
-				AccessConditions: &blob.AccessConditions{LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id}},
+				AccessConditions: &blob.AccessConditions{
+					LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id},
+				},
 			})
 
 			return err
 		},
 		"metadata": func(t *testing.T, bb *blockblob.Client, id *string) error {
+			t.Helper()
+
 			_, err := bb.SetMetadata(t.Context(), map[string]*string{"a": new("b")}, &blob.SetMetadataOptions{
-				AccessConditions: &blob.AccessConditions{LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id}},
+				AccessConditions: &blob.AccessConditions{
+					LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id},
+				},
 			})
 
 			return err
 		},
 		"properties": func(t *testing.T, bb *blockblob.Client, id *string) error {
+			t.Helper()
+
 			_, err := bb.SetHTTPHeaders(t.Context(), blob.HTTPHeaders{BlobContentType: new("a/b")},
 				&blob.SetHTTPHeadersOptions{
-					AccessConditions: &blob.AccessConditions{LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id}},
+					AccessConditions: &blob.AccessConditions{
+						LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id},
+					},
 				})
 
 			return err
 		},
 		"delete": func(t *testing.T, bb *blockblob.Client, id *string) error {
+			t.Helper()
+
 			_, err := bb.Delete(t.Context(), &blob.DeleteOptions{
-				AccessConditions: &blob.AccessConditions{LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id}},
+				AccessConditions: &blob.AccessConditions{
+					LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id},
+				},
 			})
 
 			return err
 		},
 		"stage_block": func(t *testing.T, bb *blockblob.Client, id *string) error {
+			t.Helper()
+
 			_, err := bb.StageBlock(t.Context(), blockID(0), body("n"), &blockblob.StageBlockOptions{
 				LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id},
 			})
@@ -173,6 +191,8 @@ func TestSDK_Lease_WriteGating(t *testing.T) {
 			return err
 		},
 		"commit": func(t *testing.T, bb *blockblob.Client, id *string) error {
+			t.Helper()
+
 			if _, err := bb.StageBlock(t.Context(), blockID(0), body("n"), &blockblob.StageBlockOptions{
 				LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: new(leaseA)},
 			}); err != nil {
@@ -180,7 +200,9 @@ func TestSDK_Lease_WriteGating(t *testing.T) {
 			}
 
 			_, err := bb.CommitBlockList(t.Context(), []string{blockID(0)}, &blockblob.CommitBlockListOptions{
-				AccessConditions: &blob.AccessConditions{LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id}},
+				AccessConditions: &blob.AccessConditions{
+					LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: id},
+				},
 			})
 
 			return err
@@ -228,7 +250,9 @@ func TestSDK_Lease_ReadsAndNoLease(t *testing.T) {
 	bb, _, _ := seedSDKBlob(t, env, "r.txt")
 
 	_, err := bb.SetMetadata(t.Context(), nil, &blob.SetMetadataOptions{
-		AccessConditions: &blob.AccessConditions{LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: new(leaseA)}},
+		AccessConditions: &blob.AccessConditions{
+			LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: new(leaseA)},
+		},
 	})
 	requireStorageErr(t, err, bloberror.LeaseNotPresentWithBlobOperation, 412)
 
@@ -238,7 +262,9 @@ func TestSDK_Lease_ReadsAndNoLease(t *testing.T) {
 	assert.Equal(t, "data", downloadAll(t, bb.BlobClient()), "reads never need the lease id")
 
 	_, err = bb.UploadBuffer(t.Context(), []byte("v2"), &blockblob.UploadBufferOptions{
-		AccessConditions: &blob.AccessConditions{LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: new(leaseA)}},
+		AccessConditions: &blob.AccessConditions{
+			LeaseAccessConditions: &blob.LeaseAccessConditions{LeaseID: new(leaseA)},
+		},
 	})
 	require.NoError(t, err)
 
@@ -353,13 +379,13 @@ func TestSDK_Lease_Break(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		duration     int32
-		period       *int32
-		wantTime     int32
-		wantState    string
-		advance      time.Duration
-		wantAfter    string
+		period    *int32
+		name      string
+		wantState string
+		wantAfter string
+		advance   time.Duration
+		duration  int32
+		wantTime  int32
 	}{
 		{name: "fixed_with_period", duration: 60, period: new(int32(10)), wantTime: 10, wantState: "breaking",
 			advance: 10 * time.Second, wantAfter: "broken"},
