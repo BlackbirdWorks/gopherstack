@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
-| Feature families | 5 (5 ok) |
-| Known gaps | 8 |
+| Feature families | 6 (6 ok) |
+| Known gaps | 14 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -23,6 +23,12 @@
 - Multi-account namespace isolation: all ARM-created storage accounts alias one shared Blob/Queue/Table container/queue/table namespace (services/azureblob/azurequeue/azuretable discard the account-name path segment entirely). Two ARM storage accounts see each other's containers. Deferred to M10 per AZURE.md section 10.4's original note; StorageAccounts.RegisterAccount/DeleteAccount (interfaces.go) is the forward-compat seam for that fix.
 - ARM error codes are a small hand-picked table (errors.go's errorDetails), not audited against ARM's full published error-code catalog the way services/sqs's errorDetails table has been over multiple audit passes.
 - management locks, Azure Policy, RBAC/Microsoft.Authorization, ARM template deployments (Microsoft.Resources/deployments), PATCH-merge semantics beyond full-replace, $filter/$expand and nextLink pagination on list operations, cross-subscription/cross-tenant, resource moves, What-If, and LRO polling are all explicitly out of MVP scope per AZURE.md section 10.1/10.3 -- not bugs, deliberate scope boundaries for this milestone.
+- Container Instances: interactive exec and attach need a websocket terminal session; both answer 501 NotImplemented.
+- Container Instances: not supported and rejected with 400 InvalidRequestContent: Windows containers, gitRepo volumes, GPUs, liveness/readiness probes, init containers, identity, zones, subnet and DNS configuration, diagnostics, confidential/dedicated SKUs, spot priority, encryption, extensions, UDP ports.
+- Container Instances: azureFile volumes are copied from the Azure Files share when the containers start and written back when a container exits and when the group stops or is deleted, not synchronized live; the storage account key is accepted without being checked.
+- Container Instances: the group address is 127.0.0.1 and ports are published on pool-assigned host ports (reported in a PortPublished event), not on the declared port numbers; Private addresses behave the same.
+- Container Instances: restarting a failed container under Never is not done (the platform may restart it); the restart back-off starts at 10s and caps at 5 minutes. Resource requests are validated but only limits are enforced, and per-group CPU/memory maxima are not checked.
+- Container Instances: sibling endpoints (locations/{loc}/usages, cachedImages, capabilities, the operations list, outboundNetworkDependenciesEndpoints, container group profiles) are not implemented; a restored snapshot brings groups back Stopped.
 
 ### Deferred
 

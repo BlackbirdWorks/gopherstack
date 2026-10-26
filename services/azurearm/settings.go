@@ -27,6 +27,12 @@ const DefaultClientSecret = "gopherstack"
 // document; must equal the Terraform provider's own `environment` setting.
 const DefaultEnvironmentName = "gopherstack"
 
+// ACIEngineAuto runs container groups in the container runtime; ACIEngineNone fails them to provision.
+const (
+	ACIEngineAuto = "auto"
+	ACIEngineNone = "none"
+)
+
 // DefaultLocation is the default Azure "location" value used when a request
 // doesn't specify one.
 const DefaultLocation = "local"
@@ -118,6 +124,7 @@ type Settings struct {
 	EventGridPort         int    `json:"eventGridPort"         env:"AZURE_ARM_EVENTGRID_PORT"                default:"10007"                                name:"eventgrid-port"          help:"The services/azureeventgrid HTTPS listener's port, used to build topic endpoints when --azure-arm-advertise-eventgrid isn't set. Must match --azure-eventgrid-port."`                                   //nolint:lll // config struct tags are intentionally verbose
 	AppConfigPort         int    `json:"appConfigPort"         env:"AZURE_ARM_APPCONFIG_PORT"                default:"10008"                                name:"appconfig-port"          help:"The services/azureappconfig HTTPS listener's port, used to build store endpoints when --azure-arm-advertise-appconfig isn't set. Must match --azure-appconfig-port."`                                   //nolint:lll // config struct tags are intentionally verbose
 	ACRPort               int    `json:"acrPort"               env:"AZURE_ARM_ACR_PORT"                      default:"10011"                                name:"acr-port"                help:"The services/azurecontainerregistry listener's port, used to build loginServer when --azure-arm-advertise-acr isn't set. Must match --azure-acr-port."`                                                 //nolint:lll // config struct tags are intentionally verbose
+	ACIEngine             string `json:"aciEngine"             env:"AZURE_ARM_ACI_ENGINE"                    default:"auto"                                 name:"aci-engine"              enum:"auto,none" help:"Container Instances engine: auto (run container groups in the container runtime when reachable) or none (container groups fail to provision)."`                                        //nolint:lll // config struct tags are intentionally verbose
 	ValidateTokens        bool   `json:"validateTokens"        env:"AZURE_ARM_VALIDATE_TOKENS"               default:"false"                                name:"validate-tokens"         help:"Cryptographically validate ARM bearer tokens (opt-in); by default any token, or none, is accepted."`                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 }
 
@@ -132,6 +139,7 @@ func DefaultSettings() Settings {
 		Environment:      DefaultEnvironmentName,
 		Location:         DefaultLocation,
 		Port:             DefaultPort,
+		ACIEngine:        ACIEngineAuto,
 		StorageVHostPort: DefaultStorageVHostPort,
 		ServiceBusPort:   DefaultServiceBusPort,
 		KeyVaultPort:     DefaultKeyVaultPort,

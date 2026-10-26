@@ -238,6 +238,13 @@ func (r *DockerRuntime) PullImage(ctx context.Context, imageRef string) error {
 	return registryauth.Pull(ctx, imageRef, r.pullOnce, registryauth.TaggerFrom(r.docker))
 }
 
+// PullImageWithCredentials pulls imageRef authenticating to the registry as username/password.
+func (r *DockerRuntime) PullImageWithCredentials(ctx context.Context, imageRef, username, password string) error {
+	host := registryauth.HostOf(imageRef)
+
+	return r.pullOnce(ctx, imageRef, registryauth.EncodeCredential(host, username, password))
+}
+
 func (r *DockerRuntime) pullOnce(ctx context.Context, ref, auth string) error {
 	rc, err := r.docker.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
@@ -322,6 +329,8 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		Runtime:    spec.OCIRuntime,
 		GroupAdd:   spec.GroupAdd,
 	}
+	hostCfg.Memory = spec.MemoryBytes
+	hostCfg.NanoCPUs = spec.NanoCPUs
 
 	if spec.Network != "" {
 		hostCfg.NetworkMode = dockercontainer.NetworkMode(spec.Network)

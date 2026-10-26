@@ -72,6 +72,10 @@ type Spec struct {
 	Ports      []string
 	Tmpfs      []string
 	Privileged bool
+	// MemoryBytes caps container memory; zero is unlimited.
+	MemoryBytes int64
+	// NanoCPUs caps CPU in billionths of a CPU; zero is unlimited.
+	NanoCPUs int64
 }
 
 // ExecResult is the outcome of a command run inside a container.
