@@ -54,6 +54,7 @@ func isValidDataCatalogType(t string) bool {
 // and resourceTags remain plain maps -- see the store_setup.go file doc for
 // why each is left as-is.
 type InMemoryBackend struct {
+	now                           func() time.Time
 	glueSource                    GlueMetadataSource
 	s3                            S3Storer
 	registry                      *store.Registry
@@ -83,7 +84,6 @@ type InMemoryBackend struct {
 	region                        string
 	accountID                     string
 	limits                        EngineLimits
-	now                           func() time.Time
 }
 
 // SetGlueMetadataSource wires a GLUE-type DataCatalog's database/table reads
