@@ -43,9 +43,9 @@ func scaledEnv(t *testing.T, o scaleOpts) (*env, *fakeClock, string) {
 }
 
 type result struct {
+	err  error
 	body string
 	code int
-	err  error
 }
 
 // fetch issues a request in the background and delivers its outcome on the returned channel.
@@ -232,11 +232,11 @@ func TestScaling_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		o    *runpb.RevisionScaling
+		name string
 	}{
-		{"min above max", &runpb.RevisionScaling{MinInstanceCount: 3, MaxInstanceCount: 2}},
-		{"negative min", &runpb.RevisionScaling{MinInstanceCount: -1}},
+		{name: "min above max", o: &runpb.RevisionScaling{MinInstanceCount: 3, MaxInstanceCount: 2}},
+		{name: "negative min", o: &runpb.RevisionScaling{MinInstanceCount: -1}},
 	}
 
 	for _, tt := range tests {
@@ -254,4 +254,3 @@ func TestScaling_Validation(t *testing.T) {
 		})
 	}
 }
-

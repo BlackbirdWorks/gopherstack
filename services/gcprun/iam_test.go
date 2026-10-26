@@ -97,7 +97,8 @@ func TestIAM_ServiceAndJob(t *testing.T) {
 			assert.Equal(t, set.GetEtag(), tt.get(t, tt.resource).GetEtag())
 
 			_, err = tt.set(t, &iampb.SetIamPolicyRequest{
-				Resource: tt.resource, Policy: &iampb.Policy{Etag: empty.GetEtag(), Bindings: []*iampb.Binding{binding}},
+				Resource: tt.resource,
+				Policy:   &iampb.Policy{Etag: empty.GetEtag(), Bindings: []*iampb.Binding{binding}},
 			})
 			assert.Equal(t, codes.Aborted, status.Code(err), "stale etag")
 

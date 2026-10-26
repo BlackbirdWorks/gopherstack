@@ -247,15 +247,27 @@ func (b *InMemoryBackend) restoreRuns(snap *backendSnapshot) error {
 func (b *InMemoryBackend) restoreExtras(snap *backendSnapshot) error {
 	var err error
 
-	if b.deleted.services, err = unmarshalMap(snap.DeletedSvc, func() *runpb.Service { return &runpb.Service{} }, "deleted service"); err != nil {
+	if b.deleted.services, err = unmarshalMap(
+		snap.DeletedSvc,
+		func() *runpb.Service { return &runpb.Service{} },
+		"deleted service",
+	); err != nil {
 		return err
 	}
 
-	if b.deleted.jobs, err = unmarshalMap(snap.DeletedJob, func() *runpb.Job { return &runpb.Job{} }, "deleted job"); err != nil {
+	if b.deleted.jobs, err = unmarshalMap(
+		snap.DeletedJob,
+		func() *runpb.Job { return &runpb.Job{} },
+		"deleted job",
+	); err != nil {
 		return err
 	}
 
-	if b.deleted.executions, err = unmarshalMap(snap.DeletedExe, func() *runpb.Execution { return &runpb.Execution{} }, "deleted execution"); err != nil {
+	if b.deleted.executions, err = unmarshalMap(
+		snap.DeletedExe,
+		func() *runpb.Execution { return &runpb.Execution{} },
+		"deleted execution",
+	); err != nil {
 		return err
 	}
 

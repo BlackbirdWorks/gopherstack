@@ -3799,7 +3799,6 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	wireGCPFunctions(byName)
 	wireGCPBigQuery(byName)
 	wireGCPSQL(byName)
-	wireGCPRun(byName)
 	wireGCPLogging(byName)
 	wireGCPMonitoring(byName)
 	wireGCPStorageConsumers(byName)

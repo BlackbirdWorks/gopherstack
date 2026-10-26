@@ -51,9 +51,12 @@ func (c *LogCapture) Start(ctx context.Context, rt any, id string, t LogTarget) 
 	})
 }
 
+// StopFunc ends a followed log stream after waiting up to drain for it to finish.
+type StopFunc func(drain time.Duration)
+
 // Follow is Start for a workload whose output must be complete before it is removed: the returned stop waits up
 // to drain for the stream to end on its own (the container has exited), then cancels it. It is a no-op without a sink.
-func (c *LogCapture) Follow(ctx context.Context, rt any, id string, t LogTarget) (stop func(drain time.Duration)) {
+func (c *LogCapture) Follow(ctx context.Context, rt any, id string, t LogTarget) StopFunc {
 	sink := c.current()
 	if sink == nil {
 		return func(time.Duration) {}

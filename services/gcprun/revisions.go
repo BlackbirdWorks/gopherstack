@@ -184,7 +184,6 @@ func (b *InMemoryBackend) stopContainer(runner Runner, id string) {
 	}
 }
 
-
 // teardown retires every instance of a revision that is no longer reachable through the backend maps.
 func (b *InMemoryBackend) teardown(r *revRec) {
 	b.mu.Lock("teardown")

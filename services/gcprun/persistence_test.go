@@ -1,8 +1,9 @@
 package gcprun_test
 
 import (
-	"cloud.google.com/go/iam/apiv1/iampb"
 	"testing"
+
+	"cloud.google.com/go/iam/apiv1/iampb"
 
 	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/stretchr/testify/assert"

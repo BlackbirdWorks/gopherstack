@@ -26,7 +26,8 @@ const dockerfile = `FROM alpine:3.21
 RUN mkdir -p /www && printf '%s\n' '#!/bin/sh' \
   'read -r method path rest' \
   'while read -r l; do [ "$l" = "$(printf "\r")" ] && break; done' \
-  'case "$path" in /slow) sleep 4; body=slow-done;; /) body=$(cat /www/index.html);; *) body=$(cat "/www$path" 2>/dev/null);; esac' \
+  'case "$path" in /slow) sleep 4; body=slow-done;; /) f=/www/index.html;; *) f="/www$path";; esac' \
+  'if [ -z "$body" ]; then body=$(cat "$f" 2>/dev/null); fi' \
   'printf "HTTP/1.1 200 OK\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s" "${#body}" "$body"' \
   > /handler.sh && chmod +x /handler.sh
 `

@@ -65,27 +65,27 @@ type taskRec struct {
 
 // InMemoryBackend holds all Cloud Run state under one lock.
 type InMemoryBackend struct {
-	clock          atomic.Pointer[clockBox]
-	mu             *lockmetrics.RWMutex
-	runCtx         context.Context //nolint:containedctx // workload lifetime, set by the worker
-	runtime        func() (Runner, error)
-	onClose        func()
 	ports          PortPool
+	prober         Prober
+	runCtx         context.Context
+	secrets        SecretResolver
+	services       map[string]*svcRec
+	runtime        func() (Runner, error)
 	transport      *http.Transport
 	ops            *gcplro.Store
 	logs           *gcpserve.LogCapture
 	wg             *sync.WaitGroup
 	monWG          *sync.WaitGroup
-	prober         Prober
-	secrets        SecretResolver
-	idleTimeout    time.Duration
-	services       map[string]*svcRec
+	mu             *lockmetrics.RWMutex
+	clock          atomic.Pointer[clockBox]
+	iam            *gcpiampolicy.Store
+	onClose        func()
 	revisions      map[string]*revRec
 	jobs           map[string]*runpb.Job
 	executions     map[string]*execRec
 	tasks          map[string]*taskRec
 	deleted        *tombstones
-	iam            *gcpiampolicy.Store
+	idleTimeout    time.Duration
 	startupTimeout time.Duration
 	ingressPort    int
 	rr             atomic.Uint64

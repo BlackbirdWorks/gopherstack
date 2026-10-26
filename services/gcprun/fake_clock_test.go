@@ -31,8 +31,8 @@ func (t *fakeTimer) Stop() bool {
 // fakeClock is a manually advanced gcprun.Clock.
 type fakeClock struct {
 	now     time.Time
-	timers  []*fakeTimer
 	changed chan struct{}
+	timers  []*fakeTimer
 	mu      sync.Mutex
 }
 

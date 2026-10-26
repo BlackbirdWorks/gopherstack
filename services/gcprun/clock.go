@@ -27,7 +27,9 @@ func (realClock) Now() time.Time { return time.Now() }
 
 func (realClock) NewTimer(d time.Duration) Timer { return realTimer{t: time.NewTimer(d)} }
 
-func (realClock) AfterFunc(d time.Duration, f func()) Timer { return realTimer{t: time.AfterFunc(d, f)} }
+func (realClock) AfterFunc(d time.Duration, f func()) Timer {
+	return realTimer{t: time.AfterFunc(d, f)}
+}
 
 type clockBox struct{ Clock }
 

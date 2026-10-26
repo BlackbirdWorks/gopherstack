@@ -25,15 +25,27 @@ func TestStore_SetGet(t *testing.T) {
 	tests := []struct {
 		in       *iampb.Policy
 		name     string
-		wantCode codes.Code
 		wantRole string
+		wantCode codes.Code
 		read     int32
 	}{
 		{in: &iampb.Policy{Bindings: []*iampb.Binding{binding("r", "m")}}, name: "plain", wantRole: "r", read: 1},
 		{in: &iampb.Policy{}, name: "empty", read: 1},
-		{in: &iampb.Policy{Bindings: []*iampb.Binding{binding("", "m")}}, name: "no role", wantCode: codes.InvalidArgument},
-		{in: &iampb.Policy{Bindings: []*iampb.Binding{binding("r")}}, name: "no member", wantCode: codes.InvalidArgument},
-		{in: &iampb.Policy{Bindings: []*iampb.Binding{cond}}, name: "condition needs v3", wantCode: codes.InvalidArgument},
+		{
+			in:       &iampb.Policy{Bindings: []*iampb.Binding{binding("", "m")}},
+			name:     "no role",
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			in:       &iampb.Policy{Bindings: []*iampb.Binding{binding("r")}},
+			name:     "no member",
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			in:       &iampb.Policy{Bindings: []*iampb.Binding{cond}},
+			name:     "condition needs v3",
+			wantCode: codes.InvalidArgument,
+		},
 		{
 			in: &iampb.Policy{Version: 3, Bindings: []*iampb.Binding{cond}}, name: "condition v3 read v1",
 			wantRole: "r_withcond_", read: 1,

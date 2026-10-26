@@ -213,7 +213,10 @@ func resolveProbe(c *runpb.Container, p *runpb.Probe) (probeSpec, bool) {
 		initialDelay: time.Duration(p.GetInitialDelaySeconds()) * time.Second,
 		period:       secondsOr(p.GetPeriodSeconds(), defaultProbePeriod),
 		failures:     int(p.GetFailureThreshold()),
-		target:       ProbeTarget{Container: c.GetName(), Timeout: secondsOr(p.GetTimeoutSeconds(), defaultProbeTimeout)},
+		target: ProbeTarget{
+			Container: c.GetName(),
+			Timeout:   secondsOr(p.GetTimeoutSeconds(), defaultProbeTimeout),
+		},
 	}
 
 	if spec.failures <= 0 {

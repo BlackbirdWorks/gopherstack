@@ -14,9 +14,9 @@ func TestJobLogCapture(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		tasks     int32
 		lines     []fakeLine
 		wantTexts []string
+		tasks     int32
 	}{
 		{
 			name: "one task", tasks: 1,

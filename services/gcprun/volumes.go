@@ -18,7 +18,11 @@ const (
 	shmDir         = "/dev/shm"
 )
 
-var errNoSecrets = errors.New("secret manager is not available in this emulator")
+var (
+	errNoSecrets         = errors.New("secret manager is not available in this emulator")
+	errUnsupportedVolume = errors.New("unsupported volume")
+	errSecretPath        = errors.New("secret volume path must be relative and stay inside the volume")
+)
 
 // SecretResolver returns the payload of a Secret Manager version resource name
 // (projects/{p}/secrets/{s}/versions/{v}).
@@ -82,7 +86,10 @@ func (b *InMemoryBackend) revisionEnv(project string, c *runpb.Container) ([]str
 
 // materializeVolumes creates the host directory behind every volume of the revision.
 // It returns volume name to host path and the directories to remove at teardown.
-func (b *InMemoryBackend) materializeVolumes(project string, vols []*runpb.Volume) (map[string]string, []string, error) {
+func (b *InMemoryBackend) materializeVolumes(
+	project string,
+	vols []*runpb.Volume,
+) (map[string]string, []string, error) {
 	paths := make(map[string]string, len(vols))
 
 	var dirs []string
@@ -105,14 +112,14 @@ func (b *InMemoryBackend) materializeVolumes(project string, vols []*runpb.Volum
 		case *runpb.Volume_Secret:
 			dir, err = b.secretDir(project, src.Secret)
 		case *runpb.Volume_Gcs:
-			err = fmt.Errorf("volume %q: Cloud Storage FUSE volumes are not supported (they need a FUSE mount inside the "+
-				"container)", v.GetName())
+			err = fmt.Errorf("%w: volume %q is a Cloud Storage FUSE volume, which needs a FUSE mount inside the "+
+				"container", errUnsupportedVolume, v.GetName())
 		case *runpb.Volume_Nfs:
-			err = fmt.Errorf("volume %q: NFS volumes are not supported", v.GetName())
+			err = fmt.Errorf("%w: volume %q is an NFS volume", errUnsupportedVolume, v.GetName())
 		case *runpb.Volume_CloudSqlInstance:
-			err = fmt.Errorf("volume %q: Cloud SQL volumes are not supported", v.GetName())
+			err = fmt.Errorf("%w: volume %q is a Cloud SQL volume", errUnsupportedVolume, v.GetName())
 		default:
-			err = fmt.Errorf("volume %q has no supported source", v.GetName())
+			err = fmt.Errorf("%w: volume %q has no source", errUnsupportedVolume, v.GetName())
 		}
 
 		if dir != "" {
@@ -197,7 +204,7 @@ func (b *InMemoryBackend) secretDir(project string, src *runpb.SecretVolumeSourc
 func writeSecretFile(dir, rel string, data []byte, mode os.FileMode) error {
 	clean := filepath.Clean(rel)
 	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
-		return fmt.Errorf("secret volume path %q must be relative and stay inside the volume", rel)
+		return fmt.Errorf("%w: %q", errSecretPath, rel)
 	}
 
 	full := filepath.Join(dir, clean)

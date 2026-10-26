@@ -25,19 +25,19 @@ var (
 
 // inst is one running copy of a revision: every container of the revision sharing a network namespace.
 type inst struct {
-	ready     chan struct{}
 	err       error
 	idle      Timer
-	mctx      context.Context //nolint:containedctx // lifetime of the instance's containers and probes
-	cancel    context.CancelFunc
-	cleaned   atomic.Bool
-	seq       uint64
+	mctx      context.Context
 	ports     map[int]int
-	ids       []string
+	cancel    context.CancelFunc
+	ready     chan struct{}
 	hostPorts []int
+	ids       []string
 	dirs      []string
+	seq       uint64
 	hostPort  int
 	inflight  int
+	cleaned   atomic.Bool
 	dead      bool
 }
 
@@ -59,8 +59,8 @@ func (b *InMemoryBackend) SetIdleTimeout(d time.Duration) {
 	}
 }
 
-func (b *InMemoryBackend) scalingLimits(r *revRec) (minN, maxN int) {
-	minN, maxN = int(r.pb.GetScaling().GetMinInstanceCount()), int(r.pb.GetScaling().GetMaxInstanceCount())
+func (b *InMemoryBackend) scalingLimits(r *revRec) (int, int) {
+	minN, maxN := int(r.pb.GetScaling().GetMinInstanceCount()), int(r.pb.GetScaling().GetMaxInstanceCount())
 
 	if svc := b.services[r.pb.GetService()]; svc != nil {
 		if minN == 0 {

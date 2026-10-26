@@ -49,10 +49,10 @@ type fakeRuntime struct {
 	exitFn  func(env func(string) string) int
 	gate    chan struct{}
 	release chan struct{}
-	slow    atomic.Int64
 	lines   []fakeLine
 	started []container.Spec
 	removed []string
+	slow    atomic.Int64
 	streams atomic.Int64
 	seq     atomic.Int64
 	mu      sync.Mutex

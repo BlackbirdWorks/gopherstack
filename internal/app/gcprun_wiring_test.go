@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 
@@ -40,12 +39,12 @@ func TestWireGCPRun_SecretEnv(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		wired   bool
 		wantEnv string
 		wantMsg string
+		wired   bool
 	}{
-		{"wired", true, "TOKEN=hunter2", ""},
-		{"not wired", false, "", "secret manager is not available"},
+		{name: "wired", wired: true, wantEnv: "TOKEN=hunter2"},
+		{name: "not wired", wantMsg: "secret manager is not available"},
 	}
 
 	for _, tt := range tests {
@@ -66,9 +65,7 @@ func TestWireGCPRun_SecretEnv(t *testing.T) {
 			wireGCPRun(byName)
 
 			_, err := sm.Backend.CreateSecret(&secretmanagerpb.CreateSecretRequest{
-				Parent: "projects/p", SecretId: "api-token", Secret: &secretmanagerpb.Secret{Replication: &secretmanagerpb.Replication{
-					Replication: &secretmanagerpb.Replication_Automatic_{Automatic: &secretmanagerpb.Replication_Automatic{}},
-				}},
+				Parent: "projects/p", SecretId: "api-token", Secret: automaticSecret(),
 			})
 			require.NoError(t, err)
 
@@ -117,7 +114,13 @@ func TestWireGCPRun_SecretEnv(t *testing.T) {
 
 			tasks, _, terr := run.Backend.ListTasks(&runpb.ListTasksRequest{Parent: ex[0].GetName()})
 			require.NoError(t, terr)
-			assert.True(t, strings.Contains(tasks[0].GetLastAttemptResult().GetStatus().GetMessage(), tt.wantMsg))
+			assert.Contains(t, tasks[0].GetLastAttemptResult().GetStatus().GetMessage(), tt.wantMsg)
 		})
 	}
+}
+
+func automaticSecret() *secretmanagerpb.Secret {
+	return &secretmanagerpb.Secret{Replication: &secretmanagerpb.Replication{
+		Replication: &secretmanagerpb.Replication_Automatic_{Automatic: &secretmanagerpb.Replication_Automatic{}},
+	}}
 }

@@ -52,7 +52,11 @@ func validateDependencies(cs []*runpb.Container) error {
 	for _, c := range cs {
 		for _, d := range c.GetDependsOn() {
 			if !names[d] {
-				return errInvalid("Container %q depends on %q, which is not a container of the revision.", c.GetName(), d)
+				return errInvalid(
+					"Container %q depends on %q, which is not a container of the revision.",
+					c.GetName(),
+					d,
+				)
 			}
 
 			if d == c.GetName() {

@@ -65,14 +65,14 @@ func httpProbe(port int32, period, threshold int32) *runpb.Probe {
 	}
 }
 
-func appAndSidecar() (app, sidecar *runpb.Container) {
-	app = &runpb.Container{
+func appAndSidecar() (*runpb.Container, *runpb.Container) {
+	app := &runpb.Container{
 		Name: "app", Image: "example/app:1",
 		Ports:     []*runpb.ContainerPort{{ContainerPort: 8080}},
 		DependsOn: []string{"sidecar"},
 		Env:       []*runpb.EnvVar{{Name: "MODE", Values: &runpb.EnvVar_Value{Value: "app"}}},
 	}
-	sidecar = &runpb.Container{Name: "sidecar", Image: "example/sidecar:1"}
+	sidecar := &runpb.Container{Name: "sidecar", Image: "example/sidecar:1"}
 
 	return app, sidecar
 }
@@ -81,15 +81,22 @@ func multiService(cs ...*runpb.Container) *runpb.Service {
 	return &runpb.Service{Template: &runpb.RevisionTemplate{Containers: cs}}
 }
 
+// tryDeploy creates the service and waits for the deployment; safe to call from any goroutine.
+func (e *env) tryDeploy(ctx context.Context, id string, svc *runpb.Service) (*runpb.Service, error) {
+	op, err := e.services.CreateService(ctx, &runpb.CreateServiceRequest{
+		Parent: parent, ServiceId: id, Service: svc,
+	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // test helper passes the client error through
+	}
+
+	return op.Wait(ctx)
+}
+
 func (e *env) deploy(t *testing.T, id string, svc *runpb.Service) (*runpb.Service, error) {
 	t.Helper()
 
-	op, err := e.services.CreateService(t.Context(), &runpb.CreateServiceRequest{
-		Parent: parent, ServiceId: id, Service: svc,
-	})
-	require.NoError(t, err)
-
-	return op.Wait(t.Context())
+	return e.tryDeploy(t.Context(), id, svc)
 }
 
 func TestMultiContainer_SidecarSharesNetworkAndOrdering(t *testing.T) {
@@ -150,10 +157,10 @@ func TestMultiContainer_StartupProbeGatesDependents(t *testing.T) {
 	app, sidecar := appAndSidecar()
 	sidecar.StartupProbe = tcpProbe(9000, 10, 5)
 
-	done := make(chan error, 1)
+	done, ctx := make(chan error, 1), t.Context()
 
 	go func() {
-		_, err := e.deploy(t, "web", multiService(app, sidecar))
+		_, err := e.tryDeploy(ctx, "web", multiService(app, sidecar))
 		done <- err
 	}()
 
@@ -185,10 +192,10 @@ func TestMultiContainer_StartupProbeFailureFailsDeploy(t *testing.T) {
 	app, sidecar := appAndSidecar()
 	sidecar.StartupProbe = tcpProbe(9000, 10, 2)
 
-	done := make(chan error, 1)
+	done, ctx := make(chan error, 1), t.Context()
 
 	go func() {
-		_, err := e.deploy(t, "web", multiService(app, sidecar))
+		_, err := e.tryDeploy(ctx, "web", multiService(app, sidecar))
 		done <- err
 	}()
 
@@ -250,40 +257,40 @@ func TestMultiContainer_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		build func() *runpb.Service
+		name  string
 	}{
-		{"unknown dependency", func() *runpb.Service {
+		{name: "unknown dependency", build: func() *runpb.Service {
 			a, s := appAndSidecar()
 			a.DependsOn = []string{"ghost"}
 
 			return multiService(a, s)
 		}},
-		{"dependency cycle", func() *runpb.Service {
+		{name: "dependency cycle", build: func() *runpb.Service {
 			a, s := appAndSidecar()
 			s.DependsOn = []string{"app"}
 
 			return multiService(a, s)
 		}},
-		{"duplicate names", func() *runpb.Service {
+		{name: "duplicate names", build: func() *runpb.Service {
 			a, s := appAndSidecar()
 			s.Name = "app"
 
 			return multiService(a, s)
 		}},
-		{"probe without a port", func() *runpb.Service {
+		{name: "probe without a port", build: func() *runpb.Service {
 			a, s := appAndSidecar()
 			s.StartupProbe = tcpProbe(0, 10, 3)
 
 			return multiService(a, s)
 		}},
-		{"tcp liveness probe", func() *runpb.Service {
+		{name: "tcp liveness probe", build: func() *runpb.Service {
 			a, s := appAndSidecar()
 			a.LivenessProbe = tcpProbe(8080, 10, 3)
 
 			return multiService(a, s)
 		}},
-		{"probe timeout above period", func() *runpb.Service {
+		{name: "probe timeout above period", build: func() *runpb.Service {
 			a, s := appAndSidecar()
 			a.StartupProbe = &runpb.Probe{
 				TimeoutSeconds: 5, PeriodSeconds: 2,
@@ -292,7 +299,7 @@ func TestMultiContainer_Validation(t *testing.T) {
 
 			return multiService(a, s)
 		}},
-		{"mount of unknown volume", func() *runpb.Service {
+		{name: "mount of unknown volume", build: func() *runpb.Service {
 			a, s := appAndSidecar()
 			a.VolumeMounts = []*runpb.VolumeMount{{Name: "nope", MountPath: "/x"}}
 
@@ -372,7 +379,8 @@ func TestVolumes_EmptyDirSecretAndEnv(t *testing.T) {
 
 	owner, joined := specs[0], specs[1]
 	scratch := hostMount(t, joined.Mounts, "/data")
-	assert.Equal(t, scratch+"/logs", hostMount(t, owner.Mounts, "/shared"), "the emptyDir is shared; sub_path narrows it")
+	shared := hostMount(t, owner.Mounts, "/shared")
+	assert.Equal(t, scratch+"/logs", shared, "the emptyDir is shared; sub_path narrows it")
 
 	secretDir := hostMount(t, joined.Mounts, "/secrets")
 	content, err := os.ReadFile(secretDir + "/nested/password")

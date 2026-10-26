@@ -2,6 +2,7 @@ package gcprun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -15,12 +16,12 @@ import (
 // prepared is one container of an instance with its environment, mounts and probes resolved.
 type prepared struct {
 	c        *runpb.Container
+	env      []string
+	mounts   []string
 	startup  probeSpec
 	liveness probeSpec
 	hasStart bool
 	hasLive  bool
-	env      []string
-	mounts   []string
 	isIngres bool
 }
 
@@ -82,7 +83,7 @@ func (b *InMemoryBackend) prepare(rev *runpb.Revision, paths map[string]string) 
 func containerSpec(rev *runpb.Revision, p prepared, seq uint64, idx int) container.Spec {
 	return container.Spec{
 		Image:      p.c.GetImage(),
-		Name:       "gopherstack-run-" + lastSegment(rev.GetName()) + "-" + strconv.FormatUint(seq, 10) + "-" + strconv.Itoa(idx),
+		Name:       fmt.Sprintf("gopherstack-run-%s-%d-%d", lastSegment(rev.GetName()), seq, idx),
 		Env:        p.env,
 		Mounts:     p.mounts,
 		WorkingDir: p.c.GetWorkingDir(),
@@ -105,18 +106,7 @@ func (b *InMemoryBackend) bringUp(name string, in *inst, rev *runpb.Revision) {
 	}
 
 	if err != nil {
-		in.err = err
-		if r != nil {
-			if !in.dead {
-				b.detachLocked(r, in)
-			}
-
-			if err != errRetired { //nolint:errorlint // sentinel identity, never wrapped
-				r.startErr = err.Error()
-			}
-
-			r.notifyLocked()
-		}
+		b.failInstLocked(r, in, err)
 	} else {
 		r.startErr = ""
 		r.avgStart = took
@@ -131,6 +121,25 @@ func (b *InMemoryBackend) bringUp(name string, in *inst, rev *runpb.Revision) {
 	if err != nil {
 		b.cleanupInst(in)
 	}
+}
+
+// failInstLocked records a failed start: the instance leaves the pool and waiters see err.
+func (b *InMemoryBackend) failInstLocked(r *revRec, in *inst, err error) {
+	in.err = err
+
+	if r == nil {
+		return
+	}
+
+	if !in.dead {
+		b.detachLocked(r, in)
+	}
+
+	if !errors.Is(err, errRetired) {
+		r.startErr = err.Error()
+	}
+
+	r.notifyLocked()
 }
 
 func (b *InMemoryBackend) startMonitorsLocked(name string, in *inst, rev *runpb.Revision) {
@@ -303,4 +312,3 @@ func (b *InMemoryBackend) cleanupInst(in *inst) {
 
 	removeDirs(in.dirs)
 }
-
