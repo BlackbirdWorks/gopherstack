@@ -474,6 +474,7 @@ type Executor struct {
 	execSem              *semaphore.Weighted
 	jxNums               map[string]int
 	vars                 map[string]any
+	varSizes             map[string]int
 	contextOverride      map[string]any
 	execMeta             executionMeta
 	branchName           string
@@ -484,6 +485,7 @@ type Executor struct {
 	jxPct                float64
 	mapItemIdx           int
 	retrierRetryCount    int
+	outerVarBytes        int
 	jxPctSet             bool
 	inMapItem            bool
 	caught               bool
@@ -612,6 +614,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		mapItemIdx:           e.mapItemIdx,
 		mapItemValue:         e.mapItemValue,
 		outerVars:            e.visibleVars(),
+		outerVarBytes:        e.outerVarBytes + e.varBytes(),
 	}
 }
 
@@ -622,6 +625,11 @@ func (e *Executor) newMapItemExecutor(sm *StateMachine, idx int, itemValue any) 
 	sub.inMapItem = true
 	sub.mapItemIdx = idx
 	sub.mapItemValue = itemValue
+
+	if isDistributedMapIterator(sm) {
+		sub.outerVars = nil
+		sub.outerVarBytes = 0
+	}
 
 	return sub
 }
@@ -833,7 +841,7 @@ func (e *Executor) runJSONPathState(
 ) (string, any, error) {
 	e.inspect("input", value)
 
-	effectiveInput, err := applyPath(state.InputPath, value, e.jsonPathCache)
+	effectiveInput, err := applyPath(state.InputPath, e.pathArg(state.InputPath, value), e.jsonPathCache)
 	if err != nil {
 		return "", nil, fmt.Errorf("InputPath error in state %q: %w", current, err)
 	}
@@ -915,7 +923,7 @@ func (e *Executor) applyStateOutputTransforms(
 	e.inspect("afterResultPath", finalOutput)
 
 	// Apply OutputPath.
-	finalOutput, err = applyPath(state.OutputPath, finalOutput)
+	finalOutput, err = applyPath(state.OutputPath, e.pathArg(state.OutputPath, finalOutput))
 	if err != nil {
 		return nil, fmt.Errorf("OutputPath error in state %q: %w", stateName, err)
 	}
@@ -1016,7 +1024,7 @@ func (e *Executor) resolveWaitDuration(state *State, input any) (time.Duration, 
 
 // resolveSecondsPath resolves the wait duration from a path to a numeric value.
 func (e *Executor) resolveSecondsPath(path string, input any) (time.Duration, error) {
-	val, err := applyPath(path, input, e.jsonPathCache)
+	val, err := applyPath(path, e.pathArg(path, input), e.jsonPathCache)
 	if err != nil {
 		return 0, fmt.Errorf("SecondsPath error: %w", err)
 	}
@@ -1049,7 +1057,7 @@ func resolveTimestampDuration(timestamp string) (time.Duration, error) {
 
 // resolveTimestampPath resolves the wait duration from a path to a timestamp string.
 func (e *Executor) resolveTimestampPath(path string, input any) (time.Duration, error) {
-	val, err := applyPath(path, input, e.jsonPathCache)
+	val, err := applyPath(path, e.pathArg(path, input), e.jsonPathCache)
 	if err != nil {
 		return 0, fmt.Errorf("TimestampPath error: %w", err)
 	}
@@ -1093,8 +1101,13 @@ func (e *Executor) waitForDuration(ctx context.Context, d time.Duration) error {
 
 // executeChoice handles Choice state.
 func (e *Executor) executeChoice(state *State, input any) (string, any, error) {
+	choiceScope := input
+	if e.varFn() != nil {
+		choiceScope = pathEvalInput{data: input, context: e.buildContextObject(), vars: e.varFn()}
+	}
+
 	for _, rule := range state.Choices {
-		if evaluateChoiceRule(&rule, input, e.jsonPathCache) {
+		if evaluateChoiceRule(&rule, choiceScope, e.jsonPathCache) {
 			if rule.Next == "" {
 				return "", nil, ErrChoiceNoNext
 			}
@@ -2430,7 +2443,11 @@ func (e *Executor) resolveItemBatcherLimits(batcher *ItemBatcher, mapInput any) 
 	maxItems := batcher.MaxItemsPerBatch
 
 	if batcher.MaxItemsPerBatchPath != "" {
-		val, err := applyPath(batcher.MaxItemsPerBatchPath, mapInput, e.jsonPathCache)
+		val, err := applyPath(
+			batcher.MaxItemsPerBatchPath,
+			e.pathArg(batcher.MaxItemsPerBatchPath, mapInput),
+			e.jsonPathCache,
+		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("MaxItemsPerBatchPath error: %w", err)
 		}
@@ -2446,7 +2463,11 @@ func (e *Executor) resolveItemBatcherLimits(batcher *ItemBatcher, mapInput any) 
 	maxBytes := batcher.MaxInputBytesPerBatch
 
 	if batcher.MaxInputBytesPerBatchPath != "" {
-		val, err := applyPath(batcher.MaxInputBytesPerBatchPath, mapInput, e.jsonPathCache)
+		val, err := applyPath(
+			batcher.MaxInputBytesPerBatchPath,
+			e.pathArg(batcher.MaxInputBytesPerBatchPath, mapInput),
+			e.jsonPathCache,
+		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("MaxInputBytesPerBatchPath error: %w", err)
 		}
@@ -2665,7 +2686,7 @@ func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any)
 		return e.jxMapItems(state)
 	}
 
-	items, err := resolveItems(state.ItemsPath, input)
+	items, err := resolveItems(state.ItemsPath, input, e.pathArg(state.ItemsPath, input))
 	if err != nil {
 		return nil, fmt.Errorf("map ItemsPath error: %w", err)
 	}
@@ -2688,7 +2709,7 @@ func (e *Executor) truncateReaderItems(items []any, cfg *ReaderConfig, mapInput 
 	maxItems := cfg.MaxItems
 
 	if cfg.MaxItemsPath != "" {
-		val, err := applyPath(cfg.MaxItemsPath, mapInput, e.jsonPathCache)
+		val, err := applyPath(cfg.MaxItemsPath, e.pathArg(cfg.MaxItemsPath, mapInput), e.jsonPathCache)
 		if err != nil {
 			return nil, fmt.Errorf("MaxItemsPath error: %w", err)
 		}
@@ -3383,7 +3404,11 @@ func (e *Executor) resolveToleratedFailureCount(state *State, mapInput any) (int
 
 	switch {
 	case state.ToleratedFailureCountPath != "":
-		val, err := applyPath(state.ToleratedFailureCountPath, mapInput, e.jsonPathCache)
+		val, err := applyPath(
+			state.ToleratedFailureCountPath,
+			e.pathArg(state.ToleratedFailureCountPath, mapInput),
+			e.jsonPathCache,
+		)
 		if err != nil {
 			return 0, false, fmt.Errorf("ToleratedFailureCountPath error: %w", err)
 		}
@@ -3415,7 +3440,11 @@ func (e *Executor) resolveToleratedFailurePercentageThreshold(
 	case e.jxPctSet:
 		pct = e.jxPct
 	case state.ToleratedFailurePercentagePath != "":
-		val, err := applyPath(state.ToleratedFailurePercentagePath, mapInput, e.jsonPathCache)
+		val, err := applyPath(
+			state.ToleratedFailurePercentagePath,
+			e.pathArg(state.ToleratedFailurePercentagePath, mapInput),
+			e.jsonPathCache,
+		)
 		if err != nil {
 			return 0, false, fmt.Errorf("ToleratedFailurePercentagePath error: %w", err)
 		}
@@ -3451,7 +3480,7 @@ func (e *Executor) resolveMaxConcurrency(state *State, mapInput any) (int, error
 		return state.MaxConcurrency, nil
 	}
 
-	val, err := applyPath(state.MaxConcurrencyPath, mapInput, e.jsonPathCache)
+	val, err := applyPath(state.MaxConcurrencyPath, e.pathArg(state.MaxConcurrencyPath, mapInput), e.jsonPathCache)
 	if err != nil {
 		return 0, fmt.Errorf("MaxConcurrencyPath error: %w", err)
 	}
@@ -3489,7 +3518,7 @@ func (e *Executor) resolveTaskTimeoutSeconds(state *State, input any) (int, erro
 		return state.TimeoutSeconds, nil
 	}
 
-	val, err := applyPath(state.TimeoutSecondsPath, input, e.jsonPathCache)
+	val, err := applyPath(state.TimeoutSecondsPath, e.pathArg(state.TimeoutSecondsPath, input), e.jsonPathCache)
 	if err != nil {
 		return 0, fmt.Errorf("TimeoutSecondsPath error: %w", err)
 	}
@@ -3513,7 +3542,7 @@ func (e *Executor) resolveTaskHeartbeatSeconds(state *State, input any) (int, er
 		return state.HeartbeatSeconds, nil
 	}
 
-	val, err := applyPath(state.HeartbeatSecondsPath, input, e.jsonPathCache)
+	val, err := applyPath(state.HeartbeatSecondsPath, e.pathArg(state.HeartbeatSecondsPath, input), e.jsonPathCache)
 	if err != nil {
 		return 0, fmt.Errorf("HeartbeatSecondsPath error: %w", err)
 	}
@@ -3560,6 +3589,16 @@ type pathEvalInput struct {
 	vars    varFunc
 	data    any
 	context any
+}
+
+// pathArg wraps value with variable and context scope when path needs them.
+func (e *Executor) pathArg(path string, value any) any {
+	_, _, isVar := splitVarRef(path)
+	if !isVar && !strings.HasPrefix(path, "$$") {
+		return value
+	}
+
+	return pathEvalInput{data: value, context: e.buildContextObject(), vars: e.varFn()}
 }
 
 // applyPath applies an InputPath or OutputPath to a value.
@@ -4367,7 +4406,7 @@ func isEMRResource(resource string) bool {
 }
 
 // resolveItems returns the array of items for a Map state.
-func resolveItems(itemsPath string, input any) ([]any, error) {
+func resolveItems(itemsPath string, input, pathScope any) ([]any, error) {
 	if itemsPath == "" || itemsPath == "$" {
 		arr, ok := input.([]any)
 		if !ok {
@@ -4377,7 +4416,7 @@ func resolveItems(itemsPath string, input any) ([]any, error) {
 		return arr, nil
 	}
 
-	val, err := applyPath(itemsPath, input)
+	val, err := applyPath(itemsPath, pathScope)
 	if err != nil {
 		return nil, err
 	}
