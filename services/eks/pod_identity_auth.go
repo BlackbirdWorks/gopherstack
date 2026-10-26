@@ -102,11 +102,6 @@ func (h *Handler) SetPodIdentityRoleAssumer(a PodIdentityRoleAssumer) {
 }
 
 type podIdentityClaims struct {
-	Audience   audience `json:"aud"`
-	Expiry     int64    `json:"exp"`
-	NotBefore  int64    `json:"nbf"`
-	Subject    string   `json:"sub"`
-	Issuer     string   `json:"iss"`
 	Kubernetes struct {
 		Namespace      string `json:"namespace"`
 		ServiceAccount struct {
@@ -117,6 +112,11 @@ type podIdentityClaims struct {
 			UID  string `json:"uid"`
 		} `json:"pod"`
 	} `json:"kubernetes.io"`
+	Subject   string   `json:"sub"`
+	Issuer    string   `json:"iss"`
+	Audience  audience `json:"aud"`
+	Expiry    int64    `json:"exp"`
+	NotBefore int64    `json:"nbf"`
 }
 
 // audience decodes the JWT aud claim, which may be a string or an array.

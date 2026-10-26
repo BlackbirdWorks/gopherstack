@@ -14,7 +14,7 @@ import (
 func TestAppEngineCronNext(t *testing.T) {
 	t.Parallel()
 
-	utc := func(m time.Month, d, h, min int) time.Time { return time.Date(2030, m, d, h, min, 0, 0, time.UTC) }
+	utc := func(m time.Month, d, h, mi int) time.Time { return time.Date(2030, m, d, h, mi, 0, 0, time.UTC) }
 	base := utc(time.January, 15, 10, 7) // a Tuesday
 
 	tests := []struct {
@@ -27,7 +27,13 @@ func TestAppEngineCronNext(t *testing.T) {
 		{base, utc(1, 15, 10, 10), "every 5 minutes", "every 5 minutes", "UTC"},
 		{base, utc(1, 15, 10, 30), "every 30 mins", "every 30 mins", "UTC"},
 		{utc(1, 15, 13, 58), utc(1, 15, 14, 0), "from to is inclusive", "every 5 minutes from 10:00 to 14:00", "UTC"},
-		{utc(1, 15, 14, 0), utc(1, 16, 10, 0), "from to wraps to next day", "every 5 minutes from 10:00 to 14:00", "UTC"},
+		{
+			utc(1, 15, 14, 0),
+			utc(1, 16, 10, 0),
+			"from to wraps to next day",
+			"every 5 minutes from 10:00 to 14:00",
+			"UTC",
+		},
 		{base, utc(1, 15, 12, 0), "every 2 hours synchronized", "every 2 hours synchronized", "UTC"},
 		{utc(1, 15, 16, 30), utc(1, 16, 8, 0), "hours from to", "every 1 hours from 08:00 to 16:00", "UTC"},
 		{base, utc(1, 16, 0, 0), "every day", "every day 00:00", "UTC"},

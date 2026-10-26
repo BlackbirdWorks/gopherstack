@@ -11,7 +11,10 @@ const serviceSessionDurationDefault = DefaultDurationSeconds
 func (b *InMemoryBackend) AssumeRoleForService(
 	servicePrincipal, roleArn, sessionName string,
 ) (*AssumeRoleResponse, error) {
-	return b.AssumeRoleForServiceWith(servicePrincipal, &AssumeRoleInput{RoleArn: roleArn, RoleSessionName: sessionName})
+	return b.AssumeRoleForServiceWith(
+		servicePrincipal,
+		&AssumeRoleInput{RoleArn: roleArn, RoleSessionName: sessionName},
+	)
 }
 
 // AssumeRoleForServiceWith is AssumeRoleForService carrying session tags, an inline policy and an external ID.

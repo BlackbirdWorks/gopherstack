@@ -2,6 +2,7 @@ package gcpscheduler
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,22 +21,24 @@ type schedule interface {
 	next(t time.Time, loc *time.Location) time.Time
 }
 
-//nolint:gochecknoglobals // immutable lookup tables
-var (
-	grocDays = map[string]int{
-		"sunday": 0, "sun": 0, "monday": 1, "mon": 1, "tuesday": 2, "tue": 2, "wednesday": 3, "wed": 3,
-		"thursday": 4, "thu": 4, "friday": 5, "fri": 5, "saturday": 6, "sat": 6,
+func grocDays() [][]string {
+	return [][]string{
+		{"sunday", "sun"}, {"monday", "mon"}, {"tuesday", "tue"}, {"wednesday", "wed"},
+		{"thursday", "thu"}, {"friday", "fri"}, {"saturday", "sat"},
 	}
-	grocMonths = map[string]int{
-		"january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3, "april": 4, "apr": 4,
-		"may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7, "august": 8, "aug": 8,
-		"september": 9, "sep": 9, "october": 10, "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12,
+}
+
+func grocMonths() [][]string {
+	return [][]string{
+		{"january", "jan"}, {"february", "feb"}, {"march", "mar"}, {"april", "apr"}, {"may"}, {"june", "jun"},
+		{"july", "jul"}, {"august", "aug"}, {"september", "sep"}, {"october", "oct"}, {"november", "nov"},
+		{"december", "dec"},
 	}
-	grocOrdinals = map[string]int{
-		"1st": 1, "first": 1, "2nd": 2, "second": 2, "3rd": 3, "third": 3,
-		"4th": 4, "fourth": 4, "5th": 5, "fifth": 5,
-	}
-)
+}
+
+func grocOrdinals() [][]string {
+	return [][]string{{"first", "1st"}, {"second", "2nd"}, {"third", "3rd"}, {"fourth", "4th"}, {"fifth", "5th"}}
+}
 
 // parseCron accepts unix-cron or the App Engine cron (groc) format Cloud Scheduler documents.
 func parseCron(expr string) (schedule, error) {
@@ -101,7 +104,16 @@ func (g *grocCalendar) next(t time.Time, loc *time.Location) time.Time {
 
 	for range maxSearchDays {
 		if g.dayMatches(day) {
-			c := time.Date(day.Year(), day.Month(), day.Day(), g.minute/minutesPerHour, g.minute%minutesPerHour, 0, 0, loc)
+			c := time.Date(
+				day.Year(),
+				day.Month(),
+				day.Day(),
+				g.minute/minutesPerHour,
+				g.minute%minutesPerHour,
+				0,
+				0,
+				loc,
+			)
 			if c.After(t) {
 				return c
 			}
@@ -114,7 +126,7 @@ func (g *grocCalendar) next(t time.Time, loc *time.Location) time.Time {
 }
 
 func grocErr(format string, a ...any) error {
-	return fmt.Errorf("%w: "+format, append([]any{errCron}, a...)...)
+	return fmt.Errorf("%w: %s", errCron, fmt.Sprintf(format, a...))
 }
 
 func parseGroc(expr string) (schedule, error) {
@@ -154,7 +166,7 @@ func parseGrocInterval(n int, unit string, rest []string) (schedule, error) {
 
 	switch {
 	case len(rest) == 0 || (len(rest) == 1 && rest[0] == "synchronized"):
-	case len(rest) == 4 && rest[0] == "from" && rest[2] == "to": //nolint:mnd // from HH:MM to HH:MM
+	case len(rest) == 4 && rest[0] == "from" && rest[2] == "to":
 		var err error
 
 		if g.from, err = parseHHMM(rest[1]); err != nil {
@@ -187,20 +199,32 @@ func parseHHMM(s string) (int, error) {
 	return hv*minutesPerHour + mv, nil
 }
 
-func nameMask(list string, names map[string]int, all string, allMask uint64) (uint64, bool) {
-	if list == all {
-		return allMask, true
+// nameMask resolves a comma list of names (or the all keyword) to a bit mask; base is the value of table[0].
+func nameMask(list string, table [][]string, base int, all string) (uint64, bool) {
+	if list == all && all != "" {
+		var m uint64
+		for i := range table {
+			m |= 1 << uint(base+i)
+		}
+
+		return m, true
 	}
 
 	var mask uint64
 
 	for item := range strings.SplitSeq(list, ",") {
-		v, ok := names[item]
-		if !ok {
-			return 0, false
+		found := false
+
+		for i, names := range table {
+			if slices.Contains(names, item) {
+				mask |= 1 << uint(base+i)
+				found = true
+			}
 		}
 
-		mask |= 1 << uint(v)
+		if !found {
+			return 0, false
+		}
 	}
 
 	return mask, true
@@ -223,53 +247,19 @@ func numMask(list string, lo, hi int) (uint64, bool) {
 
 func parseGrocCalendar(toks []string, every bool) (schedule, error) {
 	g := &grocCalendar{}
-	ok := false
 
-	if m, found := nameMask(toks[0], grocOrdinals, "", 0); found {
-		g.ordinals, toks = m, toks[1:]
-		every = true
-	} else if m, found = numMask(toks[0], 1, maxDom); found {
-		g.doms, toks = m, toks[1:]
-
-		if len(toks) == 0 || toks[0] != "of" {
-			return nil, grocErr("a day-of-month list must be followed by \"of\"")
-		}
+	toks, err := parseGrocDays(g, toks, every)
+	if err != nil {
+		return nil, err
 	}
 
-	if g.doms == 0 {
-		if len(toks) == 0 {
-			return nil, grocErr("a day of the week is required")
-		}
-
-		if g.dows, ok = nameMask(toks[0], grocDays, "day", 1<<daysPerWeek-1); !ok {
-			return nil, grocErr("unknown day %q", toks[0])
-		}
-
-		if !every && g.ordinals == 0 {
-			return nil, grocErr("a daily schedule must start with \"every\"")
-		}
-
-		toks = toks[1:]
-	}
-
-	g.months = 1<<13 - 2 //nolint:mnd // bits 1..12
-
-	if len(toks) > 0 && toks[0] == "of" {
-		if len(toks) < timeParts {
-			return nil, grocErr("\"of\" must be followed by months")
-		}
-
-		if g.months, ok = nameMask(toks[1], grocMonths, "month", g.months); !ok {
-			return nil, grocErr("unknown month %q", toks[1])
-		}
-
-		toks = toks[timeParts:]
+	if toks, err = parseGrocMonths(g, toks); err != nil {
+		return nil, err
 	}
 
 	switch len(toks) {
 	case 0:
 	case 1:
-		var err error
 		if g.minute, err = parseHHMM(toks[0]); err != nil {
 			return nil, err
 		}
@@ -278,4 +268,57 @@ func parseGrocCalendar(toks []string, every bool) (schedule, error) {
 	}
 
 	return g, nil
+}
+
+// parseGrocDays fills the ordinal/weekday or month-day part and returns the remaining tokens.
+func parseGrocDays(g *grocCalendar, toks []string, every bool) ([]string, error) {
+	if m, found := nameMask(toks[0], grocOrdinals(), 1, ""); found {
+		g.ordinals, toks, every = m, toks[1:], true
+	} else if m, found = numMask(toks[0], 1, maxDom); found {
+		g.doms, toks = m, toks[1:]
+
+		if len(toks) == 0 || toks[0] != "of" {
+			return nil, grocErr("a day-of-month list must be followed by \"of\"")
+		}
+
+		return toks, nil
+	}
+
+	if len(toks) == 0 {
+		return nil, grocErr("a day of the week is required")
+	}
+
+	var ok bool
+
+	if g.dows, ok = nameMask(toks[0], grocDays(), 0, "day"); !ok {
+		return nil, grocErr("unknown day %q", toks[0])
+	}
+
+	if !every {
+		return nil, grocErr("a daily schedule must start with \"every\"")
+	}
+
+	return toks[1:], nil
+}
+
+// parseGrocMonths reads the optional "of <months>" part; no part means every month.
+func parseGrocMonths(g *grocCalendar, toks []string) ([]string, error) {
+	months := grocMonths()
+	g.months, _ = nameMask("month", months, 1, "month")
+
+	if len(toks) == 0 || toks[0] != "of" {
+		return toks, nil
+	}
+
+	if len(toks) < 2 { //nolint:mnd // "of" plus the month list
+		return nil, grocErr("\"of\" must be followed by months")
+	}
+
+	var ok bool
+
+	if g.months, ok = nameMask(toks[1], months, 1, "month"); !ok {
+		return nil, grocErr("unknown month %q", toks[1])
+	}
+
+	return toks[2:], nil
 }

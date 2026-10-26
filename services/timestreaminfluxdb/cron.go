@@ -9,9 +9,11 @@ import (
 )
 
 // customScheduleRE is the documented customSchedule pattern: cron( + six fields + ).
-var customScheduleRE = regexp.MustCompile(`^cron\(\S+ \S+ \S+ \S+ \S+ \S+\)$`) //nolint:gochecknoglobals // immutable
+var customScheduleRE = regexp.MustCompile(`^cron\(\S+ \S+ \S+ \S+ \S+ \S+\)$`)
 
 const (
+	backupCustomSchedule = "CUSTOM_SCHEDULE"
+
 	cronFieldCount     = 6
 	cronSearchYears    = 8
 	minCustomSchedule  = 9
@@ -75,7 +77,13 @@ func fieldHasValue(kind awscron.FieldKind, field string, lo, hi int) bool {
 
 func (c cronSpec) dayMatches(d time.Time) bool {
 	return awscron.MatchField(awscron.FieldYear, c.f[cronFieldYearIdx], d.Year(), awscron.YearMin, awscron.YearMax) &&
-		awscron.MatchField(awscron.FieldMonth, c.f[cronFieldMonthIdx], int(d.Month()), awscron.MonthMin, awscron.MonthMax) &&
+		awscron.MatchField(
+			awscron.FieldMonth,
+			c.f[cronFieldMonthIdx],
+			int(d.Month()),
+			awscron.MonthMin,
+			awscron.MonthMax,
+		) &&
 		awscron.MatchDayFields(c.f[cronFieldDomIdx], c.f[cronFieldDowIdx], d)
 }
 
@@ -101,7 +109,13 @@ func (c cronSpec) next(t time.Time) time.Time {
 					continue
 				}
 
-				if awscron.MatchField(awscron.FieldMinute, c.f[cronFieldMinuteIdx], m, awscron.MinuteMin, awscron.MinuteMax) {
+				if awscron.MatchField(
+					awscron.FieldMinute,
+					c.f[cronFieldMinuteIdx],
+					m,
+					awscron.MinuteMin,
+					awscron.MinuteMax,
+				) {
 					return at
 				}
 			}
@@ -113,7 +127,7 @@ func (c cronSpec) next(t time.Time) time.Time {
 
 // nextBackupFor is the next run of cfg after t; zero when the type has no computed schedule.
 func nextBackupFor(t time.Time, cfg *BackupConfig) time.Time {
-	if cfg.Type == "CUSTOM_SCHEDULE" {
+	if cfg.Type == backupCustomSchedule {
 		spec, ok := parseCustomSchedule(cfg.CustomSchedule)
 		if !ok {
 			return time.Time{}

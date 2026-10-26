@@ -543,10 +543,10 @@ func TestCustomScheduleBackupsRunOnTheClock(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantNext time.Time
 		name     string
 		cron     string
 		advance  time.Duration
-		wantNext time.Time
 	}{
 		{
 			name: "daily at 05:30", cron: "cron(30 5 * * ? *)", advance: 2*time.Hour + 30*time.Minute,

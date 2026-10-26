@@ -120,7 +120,12 @@ func TestAssumeRoleForPodIdentity(t *testing.T) {
 			wantCode: "InvalidTokenException",
 		},
 		{name: "garbage token", cluster: "c1", raw: "not-a-jwt", wantCode: "InvalidParameterException"},
-		{name: "forged signature", cluster: "c1", raw: "eyJhbGciOiJSUzI1NiJ9.e30.c2ln", wantCode: "InvalidTokenException"},
+		{
+			name:     "forged signature",
+			cluster:  "c1",
+			raw:      "eyJhbGciOiJSUzI1NiJ9.e30.c2ln",
+			wantCode: "InvalidTokenException",
+		},
 		{name: "unknown cluster", cluster: "nope", raw: "a.b.c", wantCode: "ResourceNotFoundException"},
 		{
 			name: "sts refuses", cluster: "c1", assoc: &eks.PodIdentityAssociationInput{}, ns: "default",
@@ -164,7 +169,11 @@ func TestAssumeRoleForPodIdentity(t *testing.T) {
 			assert.True(t, out.Credentials.Expiration.Equal(time.Date(2031, 1, 2, 3, 4, 5, 0, time.UTC)))
 			assert.Contains(t, aws.ToString(out.PodIdentityAssociation.AssociationArn), "podidentityassociation/")
 			assert.Contains(t, aws.ToString(out.AssumedRoleUser.Arn), ":assumed-role/app/eks-c1-app-pod-1-")
-			assert.Regexp(t, `^AROAEXAMPLE:eks-c1-app-pod-1-[0-9a-f-]{36}$`, aws.ToString(out.AssumedRoleUser.AssumeRoleId))
+			assert.Regexp(
+				t,
+				`^AROAEXAMPLE:eks-c1-app-pod-1-[0-9a-f-]{36}$`,
+				aws.ToString(out.AssumedRoleUser.AssumeRoleId),
+			)
 
 			require.Len(t, e.assumer.calls, 1)
 			assert.Len(t, e.assumer.calls[0].Tags, tt.wantTags)

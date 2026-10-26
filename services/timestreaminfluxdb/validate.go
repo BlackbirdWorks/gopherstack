@@ -176,13 +176,15 @@ func validateBackupConfigs(cfgs []BackupConfig) error {
 			return invalid("backup retentionDays must be between 1 and %d", maxRetention)
 		}
 
-		if (c.Type == "CUSTOM_SCHEDULE") != (c.CustomSchedule != "") {
+		if (c.Type == backupCustomSchedule) != (c.CustomSchedule != "") {
 			return invalid("customSchedule is required for, and only valid with, CUSTOM_SCHEDULE backups")
 		}
 
-		if c.Type == "CUSTOM_SCHEDULE" {
+		if c.Type == backupCustomSchedule {
 			if _, ok := parseCustomSchedule(c.CustomSchedule); !ok {
-				return invalid("customSchedule must be a valid cron(minute hour day-of-month month day-of-week year) expression")
+				return invalid(
+					"customSchedule must be a valid cron(minute hour day-of-month month day-of-week year) expression",
+				)
 			}
 		}
 	}
@@ -370,7 +372,7 @@ func failoverMods() []string {
 }
 
 func backupTypes() []string {
-	return []string{"HOURLY", "DAILY", "WEEKLY", "MONTHLY", "CUSTOM_SCHEDULE", "CONTINUOUS"}
+	return []string{"HOURLY", "DAILY", "WEEKLY", "MONTHLY", backupCustomSchedule, "CONTINUOUS"}
 }
 
 func logLevels() []string {
