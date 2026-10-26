@@ -121,6 +121,14 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azurefile",
     defaultPort: 10009,
   },
+  {
+    id: "monitor",
+    label: "Monitor Logs",
+    description: "Azure Monitor Logs",
+    healthName: "AzureMonitor",
+    portLabel: "azuremonitor",
+    defaultPort: 10013,
+  },
 ];
 
 export type GcpService = {
@@ -356,6 +364,14 @@ export const OCI_SERVICES: readonly OciService[] = [
     healthName: "OCIIdentity",
     portLabel: "ociidentity",
     defaultPort: 8153,
+  },
+  {
+    id: "functions",
+    label: "Functions",
+    description: "Oracle Cloud Functions",
+    healthName: "OCIFunctions",
+    portLabel: "ocifunctions",
+    defaultPort: 8154,
   },
 ];
 

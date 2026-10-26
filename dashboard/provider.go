@@ -24,6 +24,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azurefile"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
@@ -67,6 +68,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	"github.com/blackbirdworks/gopherstack/services/ocistreaming"
@@ -365,5 +367,13 @@ func linkConsoleExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetOCIIdentityHandler() service.Registerable }); ok {
 		conf.OCIIdentityOps, _ = getHandler[*ociidentity.Handler](p.GetOCIIdentityHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIFunctionsHandler() service.Registerable }); ok {
+		conf.OCIFunctionsOps, _ = getHandler[*ocifunctions.Handler](p.GetOCIFunctionsHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureMonitorHandler() service.Registerable }); ok {
+		conf.AzureMonitorOps, _ = getHandler[*azuremonitor.Handler](p.GetAzureMonitorHandler())
 	}
 }

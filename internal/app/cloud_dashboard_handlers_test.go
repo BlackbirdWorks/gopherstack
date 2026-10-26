@@ -7,8 +7,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurefile"
+	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	"github.com/blackbirdworks/gopherstack/services/gcpdns"
 	"github.com/blackbirdworks/gopherstack/services/gcpworkflows"
+	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	"github.com/blackbirdworks/gopherstack/services/ocistreaming"
@@ -29,6 +31,9 @@ func TestConsolePageHandlersReachDashboard(t *testing.T) {
 		"OCIVault":         ocivault.NewHandler(ocivault.NewInMemoryBackend()),
 		"OCIStreaming":     ocistreaming.NewHandler(ocistreaming.NewInMemoryBackend()),
 		"OCIIdentity":      ociidentity.NewHandler(ociidentity.NewInMemoryBackend()),
+		"OCIFunctions":     ocifunctions.NewHandler(ocifunctions.NewInMemoryBackend()),
+		"AzureMonitor": azuremonitor.NewHandler(
+			azuremonitor.NewBackend(azuremonitor.DefaultSettings()), azuremonitor.DefaultSettings()),
 	}
 
 	cli := &CLI{}
@@ -42,6 +47,8 @@ func TestConsolePageHandlersReachDashboard(t *testing.T) {
 		"OCIVault":         cli.GetOCIVaultHandler(),
 		"OCIStreaming":     cli.GetOCIStreamingHandler(),
 		"OCIIdentity":      cli.GetOCIIdentityHandler(),
+		"OCIFunctions":     cli.GetOCIFunctionsHandler(),
+		"AzureMonitor":     cli.GetAzureMonitorHandler(),
 	}
 
 	for name, want := range byName {

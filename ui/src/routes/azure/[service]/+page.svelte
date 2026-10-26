@@ -10,6 +10,7 @@
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
 	import FilesDashboard from '#lib/components/azure/FilesDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/azure/FunctionsDashboard.svelte';
+	import MonitorDashboard from '#lib/components/azure/MonitorDashboard.svelte';
 	import KeyVaultDashboard from '#lib/components/azure/KeyVaultDashboard.svelte';
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
 	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
@@ -50,6 +51,8 @@
 	<FunctionsDashboard />
 {:else if service?.id === 'file'}
 	<FilesDashboard />
+{:else if service?.id === 'monitor'}
+	<MonitorDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

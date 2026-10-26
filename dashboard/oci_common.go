@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	"github.com/blackbirdworks/gopherstack/services/ocistreaming"
@@ -32,6 +33,7 @@ func ociAPIError(err error) (int, string, string, bool) {
 		ve *ocivault.APIError
 		se *ocistreaming.APIError
 		ie *ociidentity.APIError
+		fe *ocifunctions.APIError
 	)
 
 	switch {
@@ -43,6 +45,8 @@ func ociAPIError(err error) (int, string, string, bool) {
 		return se.Status, se.Code, se.Message, true
 	case errors.As(err, &ie):
 		return ie.Status, ie.Code, ie.Message, true
+	case errors.As(err, &fe):
+		return fe.Status, fe.Code, fe.Message, true
 	}
 
 	return 0, "", "", false
