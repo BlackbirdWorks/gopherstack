@@ -398,12 +398,8 @@ func (b *InMemoryBackend) deleteHealthCheck(project, region, name string) (*comp
 		return nil, errNotFound(hcPath(project, region, name))
 	}
 
-	for _, m := range b.migs {
-		for _, p := range m.Mgr.AutoHealingPolicies {
-			if p.HealthCheck == h.SelfLink {
-				return nil, errInUse("healthCheck", trimURL(h.SelfLink), trimURL(m.Mgr.SelfLink))
-			}
-		}
+	if err := b.lbInUseLocked("health_check", h.SelfLink); err != nil {
+		return nil, err
 	}
 
 	delete(b.healths, key(project, hcLoc(region), name))

@@ -3,6 +3,7 @@ package gcpcompute
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	computeapi "google.golang.org/api/compute/v1"
 
@@ -14,24 +15,36 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Networks  map[string]*computeapi.Network          `json:"networks"`
-	Subnets   map[string]*computeapi.Subnetwork       `json:"subnets"`
-	Firewalls map[string]*computeapi.Firewall         `json:"firewalls"`
-	Routes    map[string]*computeapi.Route            `json:"routes"`
-	Addresses map[string]*computeapi.Address          `json:"addresses"`
-	Routers   map[string]*routerRec                   `json:"routers"`
-	Disks     map[string]*computeapi.Disk             `json:"disks"`
-	Images    map[string]*computeapi.Image            `json:"images"`
-	Snapshots map[string]*computeapi.Snapshot         `json:"snapshots"`
-	Instances map[string]*instRec                     `json:"instances"`
-	Templates map[string]*computeapi.InstanceTemplate `json:"templates"`
-	Healths   map[string]*computeapi.HealthCheck      `json:"healthChecks"`
-	Migs      map[string]*migRec                      `json:"instanceGroupManagers"`
-	Groups    map[string]*groupRec                    `json:"instanceGroups"`
-	Scalers   map[string]*computeapi.Autoscaler       `json:"autoscalers"`
-	Ops       map[string]*opRec                       `json:"ops"`
-	Projects  map[string]*computeapi.Metadata         `json:"projects"`
-	Version   int                                     `json:"version"`
+	Networks        map[string]*computeapi.Network              `json:"networks"`
+	Subnets         map[string]*computeapi.Subnetwork           `json:"subnets"`
+	Firewalls       map[string]*computeapi.Firewall             `json:"firewalls"`
+	Routes          map[string]*computeapi.Route                `json:"routes"`
+	Addresses       map[string]*computeapi.Address              `json:"addresses"`
+	Routers         map[string]*routerRec                       `json:"routers"`
+	Disks           map[string]*computeapi.Disk                 `json:"disks"`
+	Images          map[string]*computeapi.Image                `json:"images"`
+	Snapshots       map[string]*computeapi.Snapshot             `json:"snapshots"`
+	Instances       map[string]*instRec                         `json:"instances"`
+	Templates       map[string]*computeapi.InstanceTemplate     `json:"templates"`
+	Healths         map[string]*computeapi.HealthCheck          `json:"healthChecks"`
+	Migs            map[string]*migRec                          `json:"instanceGroupManagers"`
+	Groups          map[string]*groupRec                        `json:"instanceGroups"`
+	Scalers         map[string]*computeapi.Autoscaler           `json:"autoscalers"`
+	BackendServices map[string]*computeapi.BackendService       `json:"backendServices"`
+	BackendBuckets  map[string]*computeapi.BackendBucket        `json:"backendBuckets"`
+	URLMaps         map[string]*computeapi.UrlMap               `json:"urlMaps"`
+	HTTPProxies     map[string]*computeapi.TargetHttpProxy      `json:"targetHttpProxies"`
+	HTTPSProxies    map[string]*computeapi.TargetHttpsProxy     `json:"targetHttpsProxies"`
+	TCPProxies      map[string]*computeapi.TargetTcpProxy       `json:"targetTcpProxies"`
+	SSLProxies      map[string]*computeapi.TargetSslProxy       `json:"targetSslProxies"`
+	SSLCerts        map[string]*computeapi.SslCertificate       `json:"sslCertificates"`
+	SSLPolicies     map[string]*computeapi.SslPolicy            `json:"sslPolicies"`
+	FwdRules        map[string]*computeapi.ForwardingRule       `json:"forwardingRules"`
+	NEGs            map[string]*computeapi.NetworkEndpointGroup `json:"networkEndpointGroups"`
+	NEGEndpoints    map[string][]*computeapi.NetworkEndpoint    `json:"networkEndpoints"`
+	Ops             map[string]*opRec                           `json:"ops"`
+	Projects        map[string]*computeapi.Metadata             `json:"projects"`
+	Version         int                                         `json:"version"`
 }
 
 // Snapshot serialises the backend state.
@@ -44,6 +57,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Routes: b.routes, Addresses: b.addresses, Routers: b.routers, Disks: b.disks, Images: b.images,
 		Snapshots: b.snapshots, Instances: b.instances, Ops: b.ops, Projects: b.projects,
 		Templates: b.templates, Healths: b.healths, Migs: b.migs, Groups: b.groups, Scalers: b.scalers,
+		BackendServices: b.backendSvcs, BackendBuckets: b.backendBuckets, URLMaps: b.urlMaps,
+		HTTPProxies: b.httpProxies, HTTPSProxies: b.httpsProxies, TCPProxies: b.tcpProxies,
+		SSLProxies: b.sslProxies, SSLCerts: b.sslCerts, SSLPolicies: b.sslPolicies, FwdRules: b.fwdRules,
+		NEGs: b.negs, NEGEndpoints: b.negEndpoints,
 	})
 }
 
@@ -88,6 +105,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		copyNonNil(b.ops, snap.Ops), copyNonNil(b.projects, snap.Projects),
 		copyNonNil(b.templates, snap.Templates), copyNonNil(b.healths, snap.Healths),
 		copyNonNil(b.migs, snap.Migs), copyNonNil(b.groups, snap.Groups), copyNonNil(b.scalers, snap.Scalers),
+		copyNonNil(b.backendSvcs, snap.BackendServices), copyNonNil(b.backendBuckets, snap.BackendBuckets),
+		copyNonNil(b.urlMaps, snap.URLMaps), copyNonNil(b.httpProxies, snap.HTTPProxies),
+		copyNonNil(b.httpsProxies, snap.HTTPSProxies), copyNonNil(b.tcpProxies, snap.TCPProxies),
+		copyNonNil(b.sslProxies, snap.SSLProxies), copyNonNil(b.sslCerts, snap.SSLCerts),
+		copyNonNil(b.sslPolicies, snap.SSLPolicies), copyNonNil(b.fwdRules, snap.FwdRules),
+		copyNonNil(b.negs, snap.NEGs),
 	} {
 		if err != nil {
 			b.resetMaps()
@@ -95,6 +118,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			return err
 		}
 	}
+
+	maps.Copy(b.negEndpoints, snap.NEGEndpoints)
 
 	for _, r := range b.routers {
 		if r.Router == nil {

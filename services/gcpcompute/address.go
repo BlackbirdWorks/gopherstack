@@ -71,6 +71,12 @@ func (b *InMemoryBackend) usedExternalLocked() map[string]bool {
 		}
 	}
 
+	for _, r := range b.fwdRules {
+		if r.IPAddress != "" && r.Subnetwork == "" {
+			used[r.IPAddress] = true
+		}
+	}
+
 	return used
 }
 
@@ -121,6 +127,12 @@ func (b *InMemoryBackend) usedInternalLocked(subnetLink string) map[netip.Addr]b
 		}
 	}
 
+	for _, r := range b.fwdRules {
+		if ip, err := netip.ParseAddr(r.IPAddress); err == nil && r.Subnetwork == subnetLink {
+			used[ip] = true
+		}
+	}
+
 	return used
 }
 
@@ -140,6 +152,12 @@ func (b *InMemoryBackend) addressUsersLocked(a *computeapi.Address) []string {
 					users = append(users, r.Router.SelfLink)
 				}
 			}
+		}
+	}
+
+	for _, r := range b.fwdRules {
+		if r.IPAddress == a.Address && (a.Region == r.Region) {
+			users = append(users, r.SelfLink)
 		}
 	}
 

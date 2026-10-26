@@ -78,27 +78,39 @@ type opRec struct {
 
 // InMemoryBackend holds all Compute Engine state under one lock.
 type InMemoryBackend struct {
-	now       func() time.Time
-	sleep     func(context.Context, time.Duration)
-	mu        *lockmetrics.RWMutex
-	networks  map[string]*computeapi.Network
-	subnets   map[string]*computeapi.Subnetwork
-	firewalls map[string]*computeapi.Firewall
-	routes    map[string]*computeapi.Route
-	addresses map[string]*computeapi.Address
-	routers   map[string]*routerRec
-	disks     map[string]*computeapi.Disk
-	images    map[string]*computeapi.Image
-	snapshots map[string]*computeapi.Snapshot
-	instances map[string]*instRec
-	templates map[string]*computeapi.InstanceTemplate
-	healths   map[string]*computeapi.HealthCheck
-	migs      map[string]*migRec
-	groups    map[string]*groupRec
-	scalers   map[string]*computeapi.Autoscaler
-	ops       map[string]*opRec
-	projects  map[string]*computeapi.Metadata
-	timing    Timing
+	now            func() time.Time
+	sleep          func(context.Context, time.Duration)
+	mu             *lockmetrics.RWMutex
+	networks       map[string]*computeapi.Network
+	subnets        map[string]*computeapi.Subnetwork
+	firewalls      map[string]*computeapi.Firewall
+	routes         map[string]*computeapi.Route
+	addresses      map[string]*computeapi.Address
+	routers        map[string]*routerRec
+	disks          map[string]*computeapi.Disk
+	images         map[string]*computeapi.Image
+	snapshots      map[string]*computeapi.Snapshot
+	instances      map[string]*instRec
+	templates      map[string]*computeapi.InstanceTemplate
+	healths        map[string]*computeapi.HealthCheck
+	migs           map[string]*migRec
+	groups         map[string]*groupRec
+	scalers        map[string]*computeapi.Autoscaler
+	backendSvcs    map[string]*computeapi.BackendService
+	backendBuckets map[string]*computeapi.BackendBucket
+	urlMaps        map[string]*computeapi.UrlMap
+	httpProxies    map[string]*computeapi.TargetHttpProxy
+	httpsProxies   map[string]*computeapi.TargetHttpsProxy
+	tcpProxies     map[string]*computeapi.TargetTcpProxy
+	sslProxies     map[string]*computeapi.TargetSslProxy
+	sslCerts       map[string]*computeapi.SslCertificate
+	sslPolicies    map[string]*computeapi.SslPolicy
+	fwdRules       map[string]*computeapi.ForwardingRule
+	negs           map[string]*computeapi.NetworkEndpointGroup
+	negEndpoints   map[string][]*computeapi.NetworkEndpoint
+	ops            map[string]*opRec
+	projects       map[string]*computeapi.Metadata
+	timing         Timing
 }
 
 // NewInMemoryBackend creates an empty backend on the wall clock.
@@ -153,6 +165,18 @@ func (b *InMemoryBackend) resetMaps() {
 	b.migs = map[string]*migRec{}
 	b.groups = map[string]*groupRec{}
 	b.scalers = map[string]*computeapi.Autoscaler{}
+	b.backendSvcs = map[string]*computeapi.BackendService{}
+	b.backendBuckets = map[string]*computeapi.BackendBucket{}
+	b.urlMaps = map[string]*computeapi.UrlMap{}
+	b.httpProxies = map[string]*computeapi.TargetHttpProxy{}
+	b.httpsProxies = map[string]*computeapi.TargetHttpsProxy{}
+	b.tcpProxies = map[string]*computeapi.TargetTcpProxy{}
+	b.sslProxies = map[string]*computeapi.TargetSslProxy{}
+	b.sslCerts = map[string]*computeapi.SslCertificate{}
+	b.sslPolicies = map[string]*computeapi.SslPolicy{}
+	b.fwdRules = map[string]*computeapi.ForwardingRule{}
+	b.negs = map[string]*computeapi.NetworkEndpointGroup{}
+	b.negEndpoints = map[string][]*computeapi.NetworkEndpoint{}
 	b.ops = map[string]*opRec{}
 	b.projects = map[string]*computeapi.Metadata{}
 }
