@@ -33,6 +33,7 @@ type objectJSON struct {
 	MD5Hash            string            `json:"md5Hash,omitempty"`
 	CRC32C             string            `json:"crc32c"`
 	ETag               string            `json:"etag"`
+	ACL                []aclResource     `json:"acl,omitempty"`
 	ComponentCount     int64             `json:"componentCount,omitempty"`
 	TemporaryHold      bool              `json:"temporaryHold,omitempty"`
 	EventBasedHold     bool              `json:"eventBasedHold,omitempty"`
@@ -56,6 +57,15 @@ func objectResource(base string, o *Object) objectJSON {
 	gen := strconv.FormatInt(o.Generation, 10)
 	esc := url.PathEscape(o.Name)
 
+	res := objectResourceBase(base, o, gen, esc)
+	if !o.hideACL && len(o.ACL) > 0 {
+		res.ACL = renderACLList(base, aclTarget{bucket: o.Bucket, object: o.Name, gen: o.Generation, kind: aclObject}, o.ACL)
+	}
+
+	return res
+}
+
+func objectResourceBase(base string, o *Object, gen, esc string) objectJSON {
 	return objectJSON{
 		Kind:               "storage#object",
 		ID:                 o.Bucket + "/" + o.Name + "/" + gen,
@@ -117,6 +127,11 @@ func bucketResource(base string, b *Bucket) map[string]any {
 
 	if b.DefaultEventBasedHold {
 		res["defaultEventBasedHold"] = true
+	}
+
+	if !b.ubla() {
+		res[keyACL] = renderACLList(base, aclTarget{bucket: b.Name, kind: aclBucket}, b.ACL)
+		res[keyDefaultACL] = renderACLList(base, aclTarget{bucket: b.Name, kind: aclDefaultObject}, b.DefaultObjectACL)
 	}
 
 	for k, v := range b.Config {

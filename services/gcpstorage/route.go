@@ -49,6 +49,8 @@ type route struct {
 	object    string
 	dstBucket string
 	dstObject string
+	entity    string
+	acl       aclKind
 }
 
 func splitSegments(escaped string) []string {
@@ -172,12 +174,38 @@ func jsonRoute(method string, s []string) route {
 		})
 	case len(s) == bucketSubRouteSegment && s[2] == segO:
 		rt.op = methodOp(method, map[string]string{http.MethodGet: opListObjects})
+	case s[2] == "acl" || s[2] == "defaultObjectAcl":
+		rt = aclRoute(method, s)
 	case len(s) == bucketSubRouteSegment && s[2] == segIam:
 		rt.op = methodOp(method, map[string]string{http.MethodGet: opGetIamPolicy, http.MethodPut: opSetIamPolicy})
 	case len(s) == objectRouteSegments && s[2] == segIam && s[3] == "testPermissions":
 		rt.op = methodOp(method, map[string]string{http.MethodGet: opTestIamPermissions})
 	default:
 		rt = objectRoute(method, s)
+	}
+
+	return rt
+}
+
+// aclRoute parses /b/{b}/acl[/{entity}], /b/{b}/defaultObjectAcl[/{entity}] and /b/{b}/o/{o}/acl[/{entity}].
+func aclRoute(method string, s []string) route {
+	rt := route{bucket: s[1], op: unknownOperation, acl: aclBucket}
+	rest := s[3:]
+
+	if s[2] == "defaultObjectAcl" {
+		rt.acl = aclDefaultObject
+	}
+
+	return aclRouteTail(rt, method, rest)
+}
+
+func aclRouteTail(rt route, method string, rest []string) route {
+	switch len(rest) {
+	case 0:
+		rt.op = aclOp(method, false, rt.acl)
+	case 1:
+		rt.entity = rest[0]
+		rt.op = aclOp(method, true, rt.acl)
 	}
 
 	return rt
@@ -190,6 +218,12 @@ func objectRoute(method string, s []string) route {
 	}
 
 	rt.object = s[3]
+
+	if len(s) > objectRouteSegments && s[4] == "acl" && len(s) <= objectRouteSegments+2 {
+		rt.acl = aclObject
+
+		return aclRouteTail(rt, method, s[5:])
+	}
 
 	switch {
 	case len(s) == objectRouteSegments:
@@ -211,4 +245,23 @@ func objectRoute(method string, s []string) route {
 	}
 
 	return rt
+}
+
+var aclVerbs = map[string]map[bool]string{
+	http.MethodGet:    {false: "List", true: "Get"},
+	http.MethodPost:   {false: "Insert"},
+	http.MethodPut:    {true: "Update"},
+	http.MethodPatch:  {true: "Patch"},
+	http.MethodDelete: {true: "Delete"},
+}
+
+var aclFamilies = map[aclKind]string{aclBucket: "BucketAcl", aclDefaultObject: "DefaultObjectAcl", aclObject: "ObjectAcl"}
+
+func aclOp(method string, withEntity bool, kind aclKind) string {
+	verb, ok := aclVerbs[method][withEntity]
+	if !ok {
+		return unknownOperation
+	}
+
+	return verb + aclFamilies[kind]
 }

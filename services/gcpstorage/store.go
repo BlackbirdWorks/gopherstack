@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -161,7 +160,7 @@ func (b *InMemoryBackend) CreateBucket(project string, p Patch) (*Bucket, error)
 		IAM:     IAMPolicy{Etag: initialIAMEtag, Version: 1, Bindings: []IAMBinding{}},
 	}
 
-	if apiErr := applyBucket(bk, p); apiErr != nil {
+	if apiErr := applyBucket(bk, p, true); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -246,7 +245,7 @@ func (b *InMemoryBackend) UpdateBucket(name string, p Patch, replace bool, pre P
 		next.resetMutable()
 	}
 
-	if apiErr := applyBucket(next, p); apiErr != nil {
+	if apiErr := applyBucket(next, p, false); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -375,6 +374,12 @@ func newObject(bk *Bucket, name string, data []byte, p Patch, gen int64) (*Objec
 		o.ContentType = defaultContentType
 	}
 
+	acl, apiErr := objectACL(bk, p)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	o.ACL = acl
 	o.CRC32C, o.MD5 = crc32cOf(data), md5Of(data)
 
 	if want := p.str("crc32c"); want != "" && want != o.CRC32C {
@@ -433,7 +438,7 @@ func (b *InMemoryBackend) putLocked(bucket, name string, data []byte, p Patch, p
 	bk.store(o)
 	b.queueLocked(ObjectFinalized, o)
 
-	return o.clone(), nil
+	return bk.out(o), nil
 }
 
 func objectNotFound(bucket, name string) *APIError {
@@ -459,7 +464,7 @@ func (b *InMemoryBackend) GetObject(bucket, name string, gen int64, pre Preconds
 		return nil, apiErr
 	}
 
-	return o.clone(), nil
+	return bk.out(o), nil
 }
 
 // UpdateObject applies a PATCH (replace=false) or PUT (replace=true) body.
@@ -498,12 +503,27 @@ func (b *InMemoryBackend) UpdateObject(
 		next.ContentType = defaultContentType
 	}
 
+	if hasACLInput(p, keyPredefined, keyACL) {
+		if bk.ubla() {
+			return nil, errUBLA()
+		}
+
+		acl, set, aclErr := aclFromPatch(p, keyPredefined, keyACL, aclObject, bk.Project)
+		if aclErr != nil {
+			return nil, aclErr
+		}
+
+		if set {
+			next.ACL = acl
+		}
+	}
+
 	next.Metageneration++
 	next.Updated = time.Now().UTC()
 	*cur = *next
 	b.queueLocked(ObjectMetadataUpdated, cur)
 
-	return next.clone(), nil
+	return bk.out(next), nil
 }
 
 // DeleteObject deletes the live version (archiving it in a versioned bucket)
@@ -554,86 +574,7 @@ type ListOptions struct {
 	MaxResults               int
 	Versions                 bool
 	IncludeTrailingDelimiter bool
-}
-
-// ListResult is one page of objects and collapsed prefixes.
-type ListResult struct {
-	Next     string
-	Items    []*Object
-	Prefixes []string
-}
-
-type listEntry struct {
-	obj    *Object
-	prefix string
-}
-
-// ListObjects lists objects in name order, collapsing delimited prefixes.
-func (b *InMemoryBackend) ListObjects(bucket string, opts ListOptions) (ListResult, error) {
-	b.mu.RLock("ListObjects")
-	defer b.mu.RUnlock()
-
-	bk, err := b.bucketLocked(bucket)
-	if err != nil {
-		return ListResult{}, err
-	}
-
-	pg := page.New(listEntries(bk, opts), opts.PageToken, opts.MaxResults, defaultMaxResults)
-	res := ListResult{Next: pg.Next}
-
-	for _, e := range pg.Data {
-		if e.obj != nil {
-			res.Items = append(res.Items, e.obj)
-		} else {
-			res.Prefixes = append(res.Prefixes, e.prefix)
-		}
-	}
-
-	return res, nil
-}
-
-func matchingNames(bk *Bucket, opts ListOptions) []string {
-	names := make([]string, 0, len(bk.Objects))
-
-	for n := range bk.Objects {
-		if strings.HasPrefix(n, opts.Prefix) && n >= opts.StartOffset && (opts.EndOffset == "" || n < opts.EndOffset) {
-			names = append(names, n)
-		}
-	}
-
-	sort.Strings(names)
-
-	return names
-}
-
-func listEntries(bk *Bucket, opts ListOptions) []listEntry {
-	names := matchingNames(bk, opts)
-
-	var entries []listEntry
-
-	seen := map[string]bool{}
-
-	for _, n := range names {
-		if cp := collapsedPrefix(n, opts); cp != "" {
-			if !seen[cp] {
-				seen[cp] = true
-
-				entries = append(entries, listEntry{prefix: cp})
-			}
-
-			if cp != n || !opts.IncludeTrailingDelimiter {
-				continue
-			}
-		}
-
-		for _, o := range bk.Objects[n] {
-			if opts.Versions || o.Deleted.IsZero() {
-				entries = append(entries, listEntry{obj: o.clone()})
-			}
-		}
-	}
-
-	return entries
+	MatchGlob                string
 }
 
 func collapsedPrefix(name string, opts ListOptions) string {

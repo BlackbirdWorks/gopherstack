@@ -45,6 +45,8 @@ func (h *Handler) insertBucket(c *echo.Context, _ route) error {
 		return err
 	}
 
+	p = withACLParams(c, p, keyPredefined, keyPredefDef)
+
 	b, err := h.Backend.CreateBucket(project, p)
 	if err != nil {
 		return err
@@ -77,6 +79,8 @@ func (h *Handler) updateBucket(c *echo.Context, rt route) error {
 	if err != nil {
 		return err
 	}
+
+	p = withACLParams(c, p, keyPredefined, keyPredefDef)
 
 	b, err := h.Backend.UpdateBucket(rt.bucket, p, c.Request().Method == http.MethodPut, pre)
 	if err != nil {

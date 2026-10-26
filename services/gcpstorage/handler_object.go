@@ -26,6 +26,7 @@ func (h *Handler) listObjects(c *echo.Context, rt route) error {
 		PageToken: q.Get("pageToken"), MaxResults: limit,
 		Versions:                 q.Get("versions") == "true",
 		IncludeTrailingDelimiter: q.Get("includeTrailingDelimiter") == "true",
+		MatchGlob:                q.Get("matchGlob"),
 	})
 	if err != nil {
 		return err
@@ -107,6 +108,8 @@ func (h *Handler) updateObject(c *echo.Context, rt route) error {
 		return err
 	}
 
+	p = withACLParams(c, p, keyPredefined)
+
 	o, err := h.Backend.UpdateObject(rt.bucket, rt.object, gen, p, c.Request().Method == http.MethodPut, pre)
 	if err != nil {
 		return err
@@ -181,6 +184,11 @@ func (h *Handler) copyObject(c *echo.Context, rt route) error {
 		req.Meta = p
 	}
 
+	req.ACL = withDestinationACL(c, Patch{keyACL: p[keyACL]})
+	if _, ok := p[keyACL]; !ok {
+		delete(req.ACL, keyACL)
+	}
+
 	o, err := h.Backend.CopyObject(req)
 	if err != nil {
 		return err
@@ -248,6 +256,8 @@ func (h *Handler) composeObject(c *echo.Context, rt route) error {
 	if meta == nil {
 		meta = Patch{}
 	}
+
+	meta = withDestinationACL(c, meta)
 
 	o, err := h.Backend.ComposeObject(rt.bucket, rt.object, sources, meta, pre)
 	if err != nil {

@@ -15630,7 +15630,9 @@
   },
   "gcppubsub": {
     "fields": [
+      "backendSnapshot.EtagSeq uint64 `json:\"etagSeq,omitempty\"`",
       "backendSnapshot.LastMsg int64 `json:\"lastMsg\"`",
+      "backendSnapshot.Policies map[string]json.RawMessage `json:\"policies,omitempty\"`",
       "backendSnapshot.Schemas map[string]*schemaRec `json:\"schemas\"`",
       "backendSnapshot.Snapshots map[string]pbSnapSnap `json:\"snapshots\"`",
       "backendSnapshot.Subs map[string]subSnap `json:\"subs\"`",
@@ -15849,9 +15851,13 @@
   },
   "gcpstorage": {
     "fields": [
+      "ACLEntry.Entity string `json:\"entity\"`",
+      "ACLEntry.Role string `json:\"role\"`",
+      "Bucket.ACL []ACLEntry `json:\"acl,omitempty\"`",
       "Bucket.Config map[string]json.RawMessage `json:\"config,omitempty\"`",
       "Bucket.Created time.Time `json:\"created\"`",
       "Bucket.DefaultEventBasedHold bool `json:\"defaultEventBasedHold,omitempty\"`",
+      "Bucket.DefaultObjectACL []ACLEntry `json:\"defaultObjectAcl,omitempty\"`",
       "Bucket.IAM IAMPolicy `json:\"iam\"`",
       "Bucket.Labels map[string]string `json:\"labels,omitempty\"`",
       "Bucket.Location string `json:\"location\"`",
@@ -15867,6 +15873,7 @@
       "IAMBinding.Role string `json:\"role\"`",
       "IAMPolicy.Bindings []IAMBinding `json:\"bindings\"`",
       "IAMPolicy.Etag string `json:\"etag\"`",
+      "Object.ACL []ACLEntry `json:\"acl,omitempty\"`",
       "Object.Bucket string `json:\"bucket\"`",
       "Object.CRC32C string `json:\"crc32c\"`",
       "Object.CacheControl string `json:\"cacheControl,omitempty\"`",
@@ -15888,6 +15895,7 @@
       "Object.StorageClass string `json:\"storageClass\"`",
       "Object.TemporaryHold bool `json:\"temporaryHold,omitempty\"`",
       "Object.Updated time.Time `json:\"updated\"`",
+      "Object.hideACL bool",
       "backendSnapshot.Buckets map[string]*Bucket `json:\"buckets\"`"
     ],
     "version": 1

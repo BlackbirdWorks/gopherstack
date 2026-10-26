@@ -19,6 +19,7 @@ type CopyRequest struct {
 	DstPre        Preconds
 	SrcPre        Preconds
 	Meta          Patch
+	ACL           Patch
 	SrcBucket     string
 	SrcName       string
 	DstBucket     string
@@ -65,6 +66,12 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 		meta[keyContentType] = marshalRaw(src.ContentType)
 	}
 
+	for _, k := range []string{keyPredefined, keyACL} {
+		if raw, ok := req.ACL[k]; ok {
+			meta[k] = raw
+		}
+	}
+
 	o, apiErr := newObject(dstBk, req.DstName, src.Data, meta, b.nextGen())
 	if apiErr != nil {
 		return nil, apiErr
@@ -78,7 +85,7 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 	dstBk.store(o)
 	b.queueLocked(ObjectFinalized, o)
 
-	return o.clone(), nil
+	return dstBk.out(o), nil
 }
 
 func inheritMeta(src *Object) Patch {
@@ -165,7 +172,7 @@ func (b *InMemoryBackend) ComposeObject(
 	bk.store(o)
 	b.queueLocked(ObjectFinalized, o)
 
-	return o.clone(), nil
+	return bk.out(o), nil
 }
 
 type uploadSession struct {

@@ -42,17 +42,28 @@ type Object struct {
 	Data               []byte            `json:"data"`
 	Generation         int64             `json:"generation"`
 	Metageneration     int64             `json:"metageneration"`
+	ACL                []ACLEntry        `json:"acl,omitempty"`
 	ComponentCount     int64             `json:"componentCount,omitempty"`
 	TemporaryHold      bool              `json:"temporaryHold,omitempty"`
 	EventBasedHold     bool              `json:"eventBasedHold,omitempty"`
+	hideACL            bool
 }
 
 // Size returns the object size in bytes.
 func (o *Object) Size() int64 { return int64(len(o.Data)) }
 
+// out returns a copy of o for a caller, hiding its ACL when the bucket uses uniform bucket-level access.
+func (b *Bucket) out(o *Object) *Object {
+	c := o.clone()
+	c.hideACL = b.ubla()
+
+	return c
+}
+
 func (o *Object) clone() *Object {
 	c := *o
 	c.Metadata = maps.Clone(o.Metadata)
+	c.ACL = slices.Clone(o.ACL)
 
 	return &c
 }
@@ -69,6 +80,8 @@ type Bucket struct {
 	Location              string                     `json:"location"`
 	StorageClass          string                     `json:"storageClass"`
 	IAM                   IAMPolicy                  `json:"iam"`
+	ACL                   []ACLEntry                 `json:"acl,omitempty"`
+	DefaultObjectACL      []ACLEntry                 `json:"defaultObjectAcl,omitempty"`
 	Metageneration        int64                      `json:"metageneration"`
 	Versioning            bool                       `json:"versioning,omitempty"`
 	DefaultEventBasedHold bool                       `json:"defaultEventBasedHold,omitempty"`
@@ -81,6 +94,8 @@ func (b *Bucket) clone() *Bucket {
 	c.Labels = maps.Clone(b.Labels)
 	c.Config = maps.Clone(b.Config)
 	c.IAM.Bindings = slices.Clone(b.IAM.Bindings)
+	c.ACL = slices.Clone(b.ACL)
+	c.DefaultObjectACL = slices.Clone(b.DefaultObjectACL)
 
 	return &c
 }
