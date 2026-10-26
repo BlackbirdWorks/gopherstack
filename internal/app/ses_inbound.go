@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -56,19 +58,105 @@ func (a sesInboundKMS) GenerateDataKey(
 	return out.Plaintext, out.CiphertextBlob, nil
 }
 
-// sesInboundDNS answers TXT lookups from the Route 53 hosted zones.
+// sesInboundDNS answers TXT, address, MX and PTR lookups from the Route 53 hosted zones.
 type sesInboundDNS struct {
 	bk *route53backend.InMemoryBackend
 }
 
 const (
 	sesInboundMaxZones   = 1000 // page size for hosted-zone scan
-	sesInboundMaxRecords = 100  // page size for TXT record lookup
+	sesInboundMaxRecords = 100  // page size for record lookup
+	sesInboundMXFields   = 2    // "<preference> <host>"
 )
 
 var errSESInboundNoRecord = errors.New("no TXT record")
 
 func (a sesInboundDNS) LookupTXT(_ context.Context, name string) ([]string, error) {
+	vals, err := a.records(name, "TXT")
+	if err != nil {
+		return nil, err
+	}
+
+	for i, v := range vals {
+		vals[i] = strings.ReplaceAll(strings.Trim(v, `"`), `" "`, "")
+	}
+
+	return vals, nil
+}
+
+// LookupIP returns the A and AAAA record addresses of name.
+func (a sesInboundDNS) LookupIP(_ context.Context, name string) ([]netip.Addr, error) {
+	var out []netip.Addr
+
+	for _, typ := range []string{"A", "AAAA"} {
+		vals, err := a.records(name, typ)
+		if err != nil {
+			continue
+		}
+
+		for _, v := range vals {
+			if ip, perr := netip.ParseAddr(strings.TrimSpace(v)); perr == nil {
+				out = append(out, ip)
+			}
+		}
+	}
+
+	if len(out) == 0 {
+		return nil, sesbackend.ErrDNSNotFound
+	}
+
+	return out, nil
+}
+
+// LookupMX returns the exchanger host names of the MX records of name.
+func (a sesInboundDNS) LookupMX(_ context.Context, name string) ([]string, error) {
+	vals, err := a.records(name, "MX")
+	if err != nil {
+		return nil, sesbackend.ErrDNSNotFound
+	}
+
+	out := make([]string, 0, len(vals))
+
+	for _, v := range vals {
+		if f := strings.Fields(v); len(f) == sesInboundMXFields {
+			out = append(out, f[1])
+		}
+	}
+
+	return out, nil
+}
+
+// LookupAddr returns the PTR names of ip from the in-addr.arpa and ip6.arpa zones.
+func (a sesInboundDNS) LookupAddr(_ context.Context, ip netip.Addr) ([]string, error) {
+	vals, err := a.records(reverseName(ip), "PTR")
+	if err != nil {
+		return nil, sesbackend.ErrDNSNotFound
+	}
+
+	return vals, nil
+}
+
+func reverseName(ip netip.Addr) string {
+	ip = ip.Unmap()
+
+	if ip.Is4() {
+		b := ip.As4()
+
+		return fmt.Sprintf("%d.%d.%d.%d.in-addr.arpa", b[3], b[2], b[1], b[0])
+	}
+
+	b := ip.As16()
+	nibbles := make([]string, 0, len(b)*2)
+
+	for i := len(b) - 1; i >= 0; i-- {
+		nibbles = append(nibbles, fmt.Sprintf("%x", b[i]&0xf), fmt.Sprintf("%x", b[i]>>4))
+	}
+
+	return strings.Join(nibbles, ".") + ".ip6.arpa"
+}
+
+// records returns the values of the typ records at name from the first hosted zone that has any.
+func (a sesInboundDNS) records(name, typ string) ([]string, error) {
 	fqdn := strings.ToLower(strings.TrimSuffix(name, ".")) + "."
 
 	zones, err := a.bk.ListHostedZones("", sesInboundMaxZones, "", "")
@@ -81,7 +169,7 @@ func (a sesInboundDNS) LookupTXT(_ context.Context, name string) ([]string, erro
 			continue
 		}
 
-		if vals := a.zoneTXT(z.ID, fqdn); len(vals) > 0 {
+		if vals := a.zoneRecords(z.ID, fqdn, typ); len(vals) > 0 {
 			return vals, nil
 		}
 	}
@@ -89,8 +177,8 @@ func (a sesInboundDNS) LookupTXT(_ context.Context, name string) ([]string, erro
 	return nil, errSESInboundNoRecord
 }
 
-func (a sesInboundDNS) zoneTXT(zoneID, fqdn string) []string {
-	pg, err := a.bk.ListResourceRecordSets(zoneID, fqdn, "TXT", "", sesInboundMaxRecords)
+func (a sesInboundDNS) zoneRecords(zoneID, fqdn, typ string) []string {
+	pg, err := a.bk.ListResourceRecordSets(zoneID, fqdn, typ, "", sesInboundMaxRecords)
 	if err != nil {
 		return nil
 	}
@@ -98,12 +186,12 @@ func (a sesInboundDNS) zoneTXT(zoneID, fqdn string) []string {
 	var out []string
 
 	for _, rr := range pg.Records {
-		if !strings.EqualFold(rr.Name, fqdn) || rr.Type != "TXT" {
+		if !strings.EqualFold(rr.Name, fqdn) || rr.Type != typ {
 			continue
 		}
 
 		for _, r := range rr.Records {
-			out = append(out, strings.ReplaceAll(strings.Trim(r.Value, `"`), `" "`, ""))
+			out = append(out, r.Value)
 		}
 	}
 

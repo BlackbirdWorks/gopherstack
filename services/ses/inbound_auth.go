@@ -3,8 +3,9 @@ package ses
 import (
 	"context"
 	"net/mail"
-	"net/netip"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
@@ -12,8 +13,6 @@ import (
 const (
 	verdictFail             = "FAIL"
 	verdictProcessingFailed = "PROCESSING_FAILED"
-	maxSPFLookups           = 10
-	orgLabels               = 2
 )
 
 // InboundTXTResolver answers TXT lookups for SPF, DKIM and DMARC evaluation.
@@ -68,100 +67,6 @@ func txtRecords(ctx context.Context, res InboundTXTResolver, name string, prefix
 	return out
 }
 
-// checkSPF evaluates the sender domain's v=spf1 record against the client IP.
-func checkSPF(ctx context.Context, res InboundTXTResolver, from, clientIP string) string {
-	domain := domainOf(from)
-	ip, err := netip.ParseAddr(clientIP)
-
-	if domain == "" || domain == strs.Fold(from) || err != nil {
-		return verdictGray
-	}
-
-	lookups := 0
-
-	return spfEval(ctx, res, domain, ip.Unmap(), &lookups)
-}
-
-func spfEval(ctx context.Context, res InboundTXTResolver, domain string, ip netip.Addr, lookups *int) string {
-	recs := txtRecords(ctx, res, domain, "v=spf1")
-	if len(recs) != 1 {
-		if len(recs) > 1 {
-			return verdictProcessingFailed
-		}
-
-		return verdictGray
-	}
-
-	terms := strings.Fields(recs[0])[1:]
-	redirect := ""
-
-	for _, t := range terms {
-		if k, v, ok := strings.Cut(t, "="); ok && strs.Equal(k, "redirect") {
-			redirect = v
-
-			continue
-		}
-
-		if out, matched := spfTerm(ctx, res, t, ip, lookups); matched {
-			return out
-		}
-	}
-
-	if redirect != "" && *lookups < maxSPFLookups {
-		*lookups++
-
-		return spfEval(ctx, res, strs.Fold(redirect), ip, lookups)
-	}
-
-	return verdictGray
-}
-
-// spfTerm evaluates one mechanism; matched reports whether it decided the result.
-func spfTerm(ctx context.Context, res InboundTXTResolver, term string, ip netip.Addr, lookups *int) (string, bool) {
-	result := map[byte]string{'+': verdictPass, '-': verdictFail, '~': verdictFail, '?': verdictGray}
-
-	q := byte('+')
-	if _, ok := result[term[0]]; ok {
-		q, term = term[0], term[1:]
-	}
-
-	name, arg, _ := strings.Cut(term, ":")
-	if cidr, ok := strings.CutPrefix(term, "ip4:"); ok {
-		arg, name = cidr, "ip4"
-	} else if cidr, ok = strings.CutPrefix(term, "ip6:"); ok {
-		arg, name = cidr, "ip6"
-	}
-
-	switch strs.Fold(name) {
-	case "all":
-		return result[q], true
-	case "ip4", "ip6":
-		return result[q], spfIPMatch(arg, ip)
-	case "include":
-		if *lookups >= maxSPFLookups {
-			return verdictProcessingFailed, true
-		}
-
-		*lookups++
-
-		if spfEval(ctx, res, strs.Fold(arg), ip, lookups) == verdictPass {
-			return result[q], true
-		}
-	}
-
-	return "", false
-}
-
-func spfIPMatch(cidr string, ip netip.Addr) bool {
-	if pfx, err := netip.ParsePrefix(cidr); err == nil {
-		return pfx.Contains(ip)
-	}
-
-	a, err := netip.ParseAddr(cidr)
-
-	return err == nil && a.Unmap() == ip
-}
-
 // fromDomain returns the RFC5322.From domain, or "".
 func fromDomain(data []byte) string {
 	for _, h := range parseHeaderBlock(data) {
@@ -180,23 +85,13 @@ func fromDomain(data []byte) string {
 	return ""
 }
 
-// orgDomain approximates the organizational domain without a public suffix list.
+// orgDomain is the RFC 7489 organizational domain: the public suffix plus one label.
 func orgDomain(d string) string {
-	labels := strings.Split(d, ".")
-	if len(labels) <= orgLabels {
-		return d
+	if org, err := publicsuffix.EffectiveTLDPlusOne(d); err == nil {
+		return org
 	}
 
-	n := orgLabels
-
-	switch labels[len(labels)-2] {
-	case "co", "com", "org", "net", "gov", "ac", "edu":
-		if len(labels[len(labels)-1]) == orgLabels {
-			n = orgLabels + 1
-		}
-	}
-
-	return strings.Join(labels[len(labels)-n:], ".")
+	return d
 }
 
 func aligned(a, b string, strict bool) bool {
