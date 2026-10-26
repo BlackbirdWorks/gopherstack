@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
@@ -43,12 +44,12 @@ type svcRec struct {
 }
 
 type revRec struct {
-	pb          *runpb.Revision
-	starting    chan struct{}
-	containerID string
-	startErr    string
-	hostPort    int
-	seq         int
+	pb       *runpb.Revision
+	changed  chan struct{}
+	startErr string
+	insts    []*inst
+	avgStart time.Duration
+	seq      int
 }
 
 type execRec struct {
@@ -64,7 +65,7 @@ type taskRec struct {
 
 // InMemoryBackend holds all Cloud Run state under one lock.
 type InMemoryBackend struct {
-	now            func() time.Time
+	clock          atomic.Pointer[clockBox]
 	mu             *lockmetrics.RWMutex
 	runCtx         context.Context //nolint:containedctx // workload lifetime, set by the worker
 	runtime        func() (Runner, error)
@@ -74,28 +75,38 @@ type InMemoryBackend struct {
 	ops            *gcplro.Store
 	logs           *gcpserve.LogCapture
 	wg             *sync.WaitGroup
+	monWG          *sync.WaitGroup
+	prober         Prober
+	secrets        SecretResolver
+	idleTimeout    time.Duration
 	services       map[string]*svcRec
 	revisions      map[string]*revRec
 	jobs           map[string]*runpb.Job
 	executions     map[string]*execRec
 	tasks          map[string]*taskRec
+	deleted        *tombstones
+	iam            *gcpiampolicy.Store
 	startupTimeout time.Duration
 	ingressPort    int
 	rr             atomic.Uint64
+	instSeq        atomic.Uint64
 }
 
 // NewInMemoryBackend creates an empty backend with no container runtime.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		mu:             lockmetrics.New("gcprun"),
-		now:            time.Now,
 		runCtx:         context.Background(),
 		ops:            gcplro.New("gcprun"),
 		logs:           gcpserve.NewLogCapture("gcprun.logs"),
 		wg:             &sync.WaitGroup{},
+		monWG:          &sync.WaitGroup{},
+		idleTimeout:    DefaultIdleTimeout,
 		transport:      httpclient.NewTransport(),
 		startupTimeout: DefaultStartupTimeout,
 	}
+	b.clock.Store(&clockBox{Clock: realClock{}})
+	b.prober = &netProber{transport: b.transport}
 	b.resetMaps()
 
 	return b
@@ -107,6 +118,8 @@ func (b *InMemoryBackend) resetMaps() {
 	b.jobs = make(map[string]*runpb.Job)
 	b.executions = make(map[string]*execRec)
 	b.tasks = make(map[string]*taskRec)
+	b.deleted = newTombstones()
+	b.iam = gcpiampolicy.NewStore()
 }
 
 // Reset stops every workload and clears all state.
@@ -124,6 +137,7 @@ func (b *InMemoryBackend) Reset() {
 	}
 
 	b.wg.Wait()
+	b.monWG.Wait()
 	b.logs.Wait()
 }
 
@@ -197,6 +211,7 @@ func (b *InMemoryBackend) Close() {
 		b.teardown(r)
 	}
 
+	b.monWG.Wait()
 	b.logs.Wait()
 	b.transport.CloseIdleConnections()
 
@@ -217,7 +232,7 @@ func (b *InMemoryBackend) cancelAllLocked() {
 	}
 }
 
-func (b *InMemoryBackend) ts() *timestamppb.Timestamp { return timestamppb.New(b.now()) }
+func (b *InMemoryBackend) ts() *timestamppb.Timestamp { return timestamppb.New(b.clk().Now()) }
 
 func newUID() string { return uuid.NewString() }
 

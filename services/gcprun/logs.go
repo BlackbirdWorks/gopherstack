@@ -2,6 +2,8 @@ package gcprun
 
 import (
 	"net/http"
+	"strconv"
+	"time"
 
 	"cloud.google.com/go/run/apiv2/runpb"
 
@@ -29,8 +31,8 @@ func revisionLogTarget(rev *runpb.Revision, instance string) gcpserve.LogTarget 
 	return t
 }
 
-func (b *InMemoryBackend) captureOutput(runner Runner, id string, rev *runpb.Revision) {
-	if t := revisionLogTarget(rev, id); t.Resource != nil {
+func (b *InMemoryBackend) captureOutput(runner Runner, id string, rev *runpb.Revision, instance string) {
+	if t := revisionLogTarget(rev, instance); t.Resource != nil {
 		b.logs.Start(b.baseCtx(), runner, id, t)
 	}
 }
@@ -48,20 +50,44 @@ func (b *InMemoryBackend) serveLogged(w http.ResponseWriter, r *http.Request, po
 
 	rec.Attach(proxy)
 
-	start := b.now()
+	start := b.clk().Now()
 
 	proxy.ServeHTTP(w, r)
-	b.logs.Request(b.baseCtx(), t, r, rec, b.now().Sub(start))
+	b.logs.Request(b.baseCtx(), t, r, rec, b.clk().Now().Sub(start))
 }
 
-func (b *InMemoryBackend) ingressTarget(revName string) (int, gcpserve.LogTarget) {
-	b.mu.RLock("ingressTarget")
-	defer b.mu.RUnlock()
+const logDrainTimeout = 5 * time.Second
 
-	rev := b.revisions[revName]
-	if rev == nil {
-		return 0, gcpserve.LogTarget{}
+// taskLogTarget is where a job task attempt's output goes: the cloud_run_job resource with the execution, task and
+// instance labels the Logging docs list for job entries.
+func taskLogTarget(ex *runpb.Execution, t *runpb.Task, attemptNo int, instance string) gcpserve.LogTarget {
+	n, err := parseName(ex.GetJob(), "jobs")
+	if err != nil {
+		return gcpserve.LogTarget{}
 	}
 
-	return rev.hostPort, revisionLogTarget(rev.pb, rev.containerID)
+	return gcpserve.LogTarget{
+		Project:  n.project,
+		Resource: gcpserve.CloudRunJobResource(n.project, n.ids[0], n.location),
+		Labels: map[string]string{
+			"execution_name": lastSegment(ex.GetName()),
+			"task_index":     strconv.Itoa(int(t.GetIndex())),
+			"task_attempt":   strconv.Itoa(attemptNo),
+			"instanceId":     instance,
+		},
+	}
+}
+
+// followTask streams a task container's output to Cloud Logging; the returned stop drains it once the container exited.
+func (b *InMemoryBackend) followTask(
+	runner Runner, id string, ex *runpb.Execution, t *runpb.Task, attemptNo int,
+) func() {
+	target := taskLogTarget(ex, t, attemptNo, id)
+	if target.Resource == nil {
+		return func() {}
+	}
+
+	stop := b.logs.Follow(b.baseCtx(), runner, id, target)
+
+	return func() { stop(logDrainTimeout) }
 }

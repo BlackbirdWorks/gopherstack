@@ -12,8 +12,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -102,7 +100,7 @@ func validateTemplate(t *runpb.RevisionTemplate) error {
 		return errInvalid("max_instance_request_concurrency must not be negative.")
 	}
 
-	return nil
+	return validateRuntimeShape(t)
 }
 
 // newRevisionLocked builds the next revision of svc from tmpl.
@@ -157,7 +155,7 @@ func newRevisionLocked(
 
 	pb.Etag = etag(uid, 1, now)
 
-	return &revRec{pb: pb, seq: svc.revSeq}, nil
+	return &revRec{pb: pb, seq: svc.revSeq, changed: make(chan struct{})}, nil
 }
 
 func ingressContainer(cs []*runpb.Container) (*runpb.Container, int) {
@@ -170,82 +168,11 @@ func ingressContainer(cs []*runpb.Container) (*runpb.Container, int) {
 	return cs[0], defaultContainerPort
 }
 
-func envList(c *runpb.Container) []string {
-	env := make([]string, 0, len(c.GetEnv())+1)
-	for _, e := range c.GetEnv() {
-		env = append(env, e.GetName()+"="+e.GetValue())
-	}
-
-	return env
-}
-
-func revisionSpec(rev *runpb.Revision, hostPort int) container.Spec {
-	c, port := ingressContainer(rev.GetContainers())
-	svc := lastSegment(rev.GetService())
-	env := append(envList(c),
-		"PORT="+strconv.Itoa(port), "K_SERVICE="+svc, "K_REVISION="+lastSegment(rev.GetName()), "K_CONFIGURATION="+svc)
-
-	return container.Spec{
-		Image:      c.GetImage(),
-		Name:       "gopherstack-run-" + lastSegment(rev.GetName()) + "-" + strconv.Itoa(hostPort),
-		Env:        env,
-		Entrypoint: c.GetCommand(),
-		Cmd:        c.GetArgs(),
-		Ports: []string{
-			container.PortSpec(container.LoopbackHost, strconv.Itoa(hostPort), strconv.Itoa(port)),
-		},
-	}
-}
-
 func (b *InMemoryBackend) baseCtx() context.Context {
 	b.mu.RLock("baseCtx")
 	defer b.mu.RUnlock()
 
 	return b.runCtx
-}
-
-// launch starts the revision's ingress container and waits until it accepts connections.
-func (b *InMemoryBackend) launch(rev *runpb.Revision) (string, int, error) {
-	runner, err := b.runner()
-	if err != nil {
-		return "", 0, err
-	}
-
-	b.mu.RLock("launch")
-	timeout := b.startupTimeout
-	b.mu.RUnlock()
-
-	ctx, cancel := context.WithTimeout(b.baseCtx(), timeout)
-	defer cancel()
-
-	var port int
-
-	id, err := container.CreateAndStartRetry(ctx, runner,
-		func() (container.Spec, error) {
-			p, perr := b.acquirePort()
-			if perr != nil {
-				return container.Spec{}, fmt.Errorf("allocate host port: %w", perr)
-			}
-
-			port = p
-
-			return revisionSpec(rev, p), nil
-		},
-		func() { b.releasePort(port) })
-	if err != nil {
-		return "", 0, fmt.Errorf("start container: %w", err)
-	}
-
-	b.captureOutput(runner, id, rev)
-
-	if err = gcpserve.WaitReady(ctx, port); err != nil {
-		b.stopContainer(runner, id)
-		b.releasePort(port)
-
-		return "", 0, err
-	}
-
-	return id, port, nil
 }
 
 func (b *InMemoryBackend) stopContainer(runner Runner, id string) {
@@ -257,82 +184,14 @@ func (b *InMemoryBackend) stopContainer(runner Runner, id string) {
 	}
 }
 
-// teardown stops r's container, if any, and frees its host port.
+
+// teardown retires every instance of a revision that is no longer reachable through the backend maps.
 func (b *InMemoryBackend) teardown(r *revRec) {
-	if r.containerID == "" {
-		return
-	}
-
-	if runner, err := b.runner(); err == nil {
-		b.stopContainer(runner, r.containerID)
-	}
-
-	b.releasePort(r.hostPort)
-}
-
-// startRevision starts name's container once; concurrent callers wait for the same start.
-func (b *InMemoryBackend) startRevision(ctx context.Context, name string) error {
-	b.mu.Lock("startRevision")
-
-	r, ok := b.revisions[name]
-	if !ok {
-		b.mu.Unlock()
-
-		return errStartFailed
-	}
-
-	if r.containerID != "" {
-		b.mu.Unlock()
-
-		return nil
-	}
-
-	if ch := r.starting; ch != nil {
-		b.mu.Unlock()
-
-		select {
-		case <-ch:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-
-		return b.startResult(name)
-	}
-
-	r.starting = make(chan struct{})
-	ch, pb := r.starting, clone(r.pb)
+	b.mu.Lock("teardown")
+	insts := b.detachAllLocked(r)
 	b.mu.Unlock()
 
-	id, port, err := b.launch(pb)
-
-	b.mu.Lock("startRevision.done")
-
-	cur, still := b.revisions[name]
-	if still {
-		cur.starting = nil
-		cur.containerID, cur.hostPort, cur.startErr = id, port, ""
-
-		if err != nil {
-			cur.startErr = err.Error()
-		}
+	for _, in := range insts {
+		b.teardownInst(in)
 	}
-	b.mu.Unlock()
-	close(ch)
-
-	if !still && err == nil {
-		b.teardown(&revRec{containerID: id, hostPort: port})
-	}
-
-	return err
-}
-
-func (b *InMemoryBackend) startResult(name string) error {
-	b.mu.RLock("startResult")
-	defer b.mu.RUnlock()
-
-	if r, ok := b.revisions[name]; ok && r.startErr != "" {
-		return fmt.Errorf("%w: %s", errStartFailed, r.startErr)
-	}
-
-	return nil
 }

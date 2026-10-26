@@ -48,6 +48,8 @@ type fakeRuntime struct {
 	boxes   map[string]*fakeContainer
 	exitFn  func(env func(string) string) int
 	gate    chan struct{}
+	release chan struct{}
+	slow    atomic.Int64
 	lines   []fakeLine
 	started []container.Spec
 	removed []string
@@ -62,7 +64,7 @@ type fakeLine struct {
 }
 
 func newFakeRuntime() *fakeRuntime {
-	return &fakeRuntime{boxes: map[string]*fakeContainer{}}
+	return &fakeRuntime{boxes: map[string]*fakeContainer{}, release: make(chan struct{})}
 }
 
 func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
@@ -85,7 +87,7 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 	f.started = append(f.started, spec)
 	f.mu.Unlock()
 
-	if len(spec.Ports) == 0 {
+	if len(spec.Ports) == 0 && !strings.HasPrefix(spec.Network, "container:") {
 		go f.runJob(c)
 	}
 
@@ -104,6 +106,16 @@ func (f *fakeRuntime) serve(c *fakeContainer) error {
 	}
 
 	c.srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			f.slow.Add(1)
+			defer f.slow.Add(-1)
+
+			select {
+			case <-f.release:
+			case <-r.Context().Done():
+			}
+		}
+
 		_, _ = fmt.Fprintf(
 			w,
 			"revision=%s port=%s host=%s path=%s",
@@ -227,4 +239,11 @@ func (f *fakeRuntime) StreamLogs(ctx context.Context, id string, stdout, stderr 
 	}
 
 	return nil
+}
+
+func (f *fakeRuntime) removedIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.removed...)
 }

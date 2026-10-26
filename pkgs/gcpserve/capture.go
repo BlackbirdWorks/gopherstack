@@ -51,6 +51,39 @@ func (c *LogCapture) Start(ctx context.Context, rt any, id string, t LogTarget) 
 	})
 }
 
+// Follow is Start for a workload whose output must be complete before it is removed: the returned stop waits up
+// to drain for the stream to end on its own (the container has exited), then cancels it. It is a no-op without a sink.
+func (c *LogCapture) Follow(ctx context.Context, rt any, id string, t LogTarget) (stop func(drain time.Duration)) {
+	sink := c.current()
+	if sink == nil {
+		return func(time.Duration) {}
+	}
+
+	fctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	c.wg.Go(func() {
+		defer close(done)
+
+		if err := StreamLogs(fctx, rt, id, t, sink); err != nil {
+			logger.Load(ctx).DebugContext(ctx, "gcpserve: log capture ended", "container", id, "error", err)
+		}
+	})
+
+	return func(drain time.Duration) {
+		timer := time.NewTimer(drain)
+		defer timer.Stop()
+
+		select {
+		case <-done:
+		case <-timer.C:
+		}
+
+		cancel()
+		<-done
+	}
+}
+
 // Request writes the request log for a finished request; a no-op without a sink.
 func (c *LogCapture) Request(
 	ctx context.Context,

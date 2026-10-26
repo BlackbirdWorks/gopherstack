@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/run/apiv2/runpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 )
 
 const localhostSuffix = ".localhost"
@@ -56,10 +57,15 @@ func (b *InMemoryBackend) serveIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = b.startRevision(r.Context(), revName); err != nil {
+	in, release, err := b.acquire(r.Context(), revName)
+	if err != nil {
 		code := http.StatusBadGateway
-		if errors.Is(err, errNoRuntime) {
+
+		switch {
+		case errors.Is(err, errNoRuntime), errors.Is(err, errRevisionGone), errors.Is(err, errRetired):
 			code = http.StatusServiceUnavailable
+		case errors.Is(err, errQueueTimeout):
+			code = http.StatusTooManyRequests
 		}
 
 		http.Error(w, "revision is not serving: "+err.Error(), code)
@@ -67,14 +73,20 @@ func (b *InMemoryBackend) serveIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	port, target := b.ingressTarget(revName)
-	if port == 0 {
-		http.Error(w, "revision was removed", http.StatusServiceUnavailable)
+	defer release()
 
-		return
+	b.serveLogged(w, r, in.hostPort, b.ingressTarget(revName, in))
+}
+
+func (b *InMemoryBackend) ingressTarget(revName string, in *inst) gcpserve.LogTarget {
+	b.mu.RLock("ingressTarget")
+	defer b.mu.RUnlock()
+
+	if rev := b.revisions[revName]; rev != nil {
+		return revisionLogTarget(rev.pb, in.id())
 	}
 
-	b.serveLogged(w, r, port, target)
+	return gcpserve.LogTarget{}
 }
 
 func (b *InMemoryBackend) proxy(port int) *httputil.ReverseProxy {

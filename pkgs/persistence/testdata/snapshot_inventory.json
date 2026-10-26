@@ -15832,7 +15832,12 @@
   },
   "gcprun": {
     "fields": [
+      "backendSnapshot.DeletedExe map[string]json.RawMessage `json:\"deletedExecutions\"`",
+      "backendSnapshot.DeletedJob map[string]json.RawMessage `json:\"deletedJobs\"`",
+      "backendSnapshot.DeletedSvc map[string]json.RawMessage `json:\"deletedServices\"`",
       "backendSnapshot.Executions map[string]json.RawMessage `json:\"executions\"`",
+      "backendSnapshot.IAM map[string]json.RawMessage `json:\"iamPolicies\"`",
+      "backendSnapshot.IAMSeq uint64 `json:\"iamSeq\"`",
       "backendSnapshot.Jobs map[string]json.RawMessage `json:\"jobs\"`",
       "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
       "backendSnapshot.Revisions map[string]revSnap `json:\"revisions\"`",

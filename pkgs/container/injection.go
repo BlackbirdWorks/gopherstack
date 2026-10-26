@@ -50,7 +50,12 @@ func (i *Injection) apply(cfg *dockercontainer.Config, hostCfg *dockercontainer.
 		return
 	}
 
+	// A container joining another's network namespace inherits its DNS; the daemon rejects --dns there.
 	for _, s := range i.DNS {
+		if hostCfg.NetworkMode.IsContainer() {
+			break
+		}
+
 		if addr, err := netip.ParseAddr(s); err == nil {
 			hostCfg.DNS = append(hostCfg.DNS, addr)
 		}
