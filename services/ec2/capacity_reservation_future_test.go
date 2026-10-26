@@ -428,7 +428,7 @@ func TestCapacityReservationDateChangeQuote(t *testing.T) {
 			assert.True(t, start.Equal(aws.ToTime(quote.CurrentConfiguration.OriginalStartDate)))
 			assert.Equal(t, "scheduled", aws.ToString(quote.CurrentConfiguration.ReservationState))
 			assert.EqualValues(t, 8, aws.ToInt32(quote.CurrentConfiguration.InstanceCount))
-			assert.Equal(t, aws.ToTime(quote.ExpirationTime).Sub(aws.ToTime(quote.CreateTime)), 24*time.Hour)
+			assert.Equal(t, 24*time.Hour, aws.ToTime(quote.ExpirationTime).Sub(aws.ToTime(quote.CreateTime)))
 			require.Len(t, quote.Tags, 1)
 
 			desc, err := client.DescribeCapacityReservationDateChangeQuotes(t.Context(),
