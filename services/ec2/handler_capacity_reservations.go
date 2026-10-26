@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"math"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -65,7 +66,7 @@ func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) 
 		item.CommitmentInfo = &crCommitmentInfoItem{
 			CommitmentDuration:     cr.CommitmentDuration,
 			CommitmentEndDate:      formatEC2Time(cr.commitmentEnd()),
-			CommittedInstanceCount: int32(cr.TotalInstanceCount), //nolint:gosec // bounded by the 1000-instance limit
+			CommittedInstanceCount: clampInt32(cr.TotalInstanceCount),
 		}
 	}
 
@@ -461,4 +462,16 @@ func (h *Handler) handleDescribeCapacityReservationTopology(vals url.Values, req
 	}
 
 	return resp, nil
+}
+
+func clampInt32(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if v < 0 {
+		return 0
+	}
+
+	return int32(v)
 }
