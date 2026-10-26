@@ -18,37 +18,49 @@ func TestSubnetCreate(t *testing.T) {
 	other := e.mkVcn(t, "10.9.0.0/16", "other")
 	e.mkSubnet(t, v, "10.0.1.0/24")
 
+	_, err := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{CreateSubnetDetails: core.CreateSubnetDetails{
+		CompartmentId: new(testComp), VcnId: v.Id, CidrBlock: new("10.0.20.0/24"), DnsLabel: new("web"),
+	}})
+	require.NoError(t, err)
+
 	otherSL, err := e.client.CreateSecurityList(ctx, core.CreateSecurityListRequest{
-		CreateSecurityListDetails: core.CreateSecurityListDetails{
-			CompartmentId: new(testComp), VcnId: other.Id,
-			IngressSecurityRules: []core.IngressSecurityRule{}, EgressSecurityRules: []core.EgressSecurityRule{},
-		},
+		CompartmentId: new(testComp), VcnId: other.Id,
+		IngressSecurityRules: []core.IngressSecurityRule{}, EgressSecurityRules: []core.EgressSecurityRule{},
 	})
 	require.NoError(t, err)
 
 	tests := []struct {
 		name     string
-		d        core.CreateSubnetDetails
 		wantCode string
+		d        core.CreateSubnetDetails
 		status   int
 	}{
-		{"ok", core.CreateSubnetDetails{CidrBlock: new("10.0.2.0/24"), DnsLabel: new("web")}, "", 0},
-		{"ad specific", core.CreateSubnetDetails{CidrBlock: new("10.0.3.0/24"),
-			AvailabilityDomain: new("Abcd:US-ASHBURN-AD-1")}, "", 0},
-		{"private", core.CreateSubnetDetails{CidrBlock: new("10.0.4.0/24"), ProhibitPublicIpOnVnic: new(true)}, "", 0},
-		{"outside vcn", core.CreateSubnetDetails{CidrBlock: new("192.168.0.0/24")}, "InvalidParameter", 400},
-		{"overlap", core.CreateSubnetDetails{CidrBlock: new("10.0.1.128/25")}, "InvalidParameter", 400},
-		{"missing cidr", core.CreateSubnetDetails{}, "MissingParameter", 400},
-		{"too small", core.CreateSubnetDetails{CidrBlock: new("10.0.5.0/31")}, "InvalidParameter", 400},
-		{"bad ad", core.CreateSubnetDetails{CidrBlock: new("10.0.6.0/24"), AvailabilityDomain: new("AD-1")},
-			"InvalidParameter", 400},
-		{"dup dns label", core.CreateSubnetDetails{CidrBlock: new("10.0.7.0/24"), DnsLabel: new("WEB")}, "Conflict", 409},
-		{"other vcn security list", core.CreateSubnetDetails{CidrBlock: new("10.0.8.0/24"),
-			SecurityListIds: []string{*otherSL.Id}}, "InvalidParameter", 400},
-		{"unknown security list", core.CreateSubnetDetails{CidrBlock: new("10.0.8.0/24"),
-			SecurityListIds: []string{"ocid1.securitylist.oc1.iad.nope"}}, "NotAuthorizedOrNotFound", 404},
-		{"private but ingress", core.CreateSubnetDetails{CidrBlock: new("10.0.9.0/24"),
-			ProhibitPublicIpOnVnic: new(true), ProhibitInternetIngress: new(false)}, "InvalidParameter", 400},
+		{"ok", "", core.CreateSubnetDetails{CidrBlock: new("10.0.2.0/24"), DnsLabel: new("app")}, 0},
+		{"ad specific", "", core.CreateSubnetDetails{CidrBlock: new("10.0.3.0/24"),
+			AvailabilityDomain: new("Abcd:US-ASHBURN-AD-1")}, 0},
+		{"private", "", core.CreateSubnetDetails{CidrBlock: new("10.0.4.0/24"), ProhibitPublicIpOnVnic: new(true)}, 0},
+		{"outside vcn", "InvalidParameter", core.CreateSubnetDetails{CidrBlock: new("192.168.0.0/24")}, 400},
+		{"overlap", "InvalidParameter", core.CreateSubnetDetails{CidrBlock: new("10.0.1.128/25")}, 400},
+		{"missing cidr", "MissingParameter", core.CreateSubnetDetails{}, 400},
+		{"too small", "InvalidParameter", core.CreateSubnetDetails{CidrBlock: new("10.0.5.0/31")}, 400},
+		{
+			"bad ad",
+			"InvalidParameter",
+			core.CreateSubnetDetails{CidrBlock: new("10.0.6.0/24"), AvailabilityDomain: new("AD-1")},
+			400,
+		},
+		{
+			"dup dns label",
+			"Conflict",
+			core.CreateSubnetDetails{CidrBlock: new("10.0.7.0/24"), DnsLabel: new("WEB")},
+			409,
+		},
+		{"other vcn security list", "InvalidParameter", core.CreateSubnetDetails{CidrBlock: new("10.0.8.0/24"),
+			SecurityListIds: []string{*otherSL.Id}}, 400},
+		{"unknown security list", "NotAuthorizedOrNotFound", core.CreateSubnetDetails{CidrBlock: new("10.0.8.0/24"),
+			SecurityListIds: []string{"ocid1.securitylist.oc1.iad.nope"}}, 404},
+		{"private but ingress", "InvalidParameter", core.CreateSubnetDetails{CidrBlock: new("10.0.9.0/24"),
+			ProhibitPublicIpOnVnic: new(true), ProhibitInternetIngress: new(false)}, 400},
 	}
 
 	for _, tt := range tests {
@@ -56,10 +68,10 @@ func TestSubnetCreate(t *testing.T) {
 			t.Parallel()
 
 			tt.d.CompartmentId, tt.d.VcnId = new(testComp), v.Id
-			r, err := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{CreateSubnetDetails: tt.d})
+			r, cerr := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{CreateSubnetDetails: tt.d})
 
 			if tt.wantCode == "" {
-				require.NoError(t, err)
+				require.NoError(t, cerr)
 				assert.Equal(t, *v.DefaultRouteTableId, *r.RouteTableId)
 				assert.Equal(t, []string{*v.DefaultSecurityListId}, r.SecurityListIds)
 				assert.Equal(t, *v.DefaultDhcpOptionsId, *r.DhcpOptionsId)
@@ -68,7 +80,7 @@ func TestSubnetCreate(t *testing.T) {
 				return
 			}
 
-			se := svcErr(t, err)
+			se := svcErr(t, cerr)
 			assert.Equal(t, tt.status, se.GetHTTPStatusCode())
 			assert.Equal(t, tt.wantCode, se.GetCode())
 		})
@@ -82,10 +94,9 @@ func TestSubnetDetails(t *testing.T) {
 	ctx := t.Context()
 	v := e.mkVcn(t, "10.0.0.0/16", "det")
 
-	r, err := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{CreateSubnetDetails: core.CreateSubnetDetails{
+	r, err := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{
 		CompartmentId: new(testComp), VcnId: v.Id, CidrBlock: new("10.0.1.0/24"), DnsLabel: new("app"),
-		ProhibitPublicIpOnVnic: new(true),
-	}})
+		ProhibitPublicIpOnVnic: new(true)})
 	require.NoError(t, err)
 
 	s := r.Subnet
@@ -96,14 +107,12 @@ func TestSubnetDetails(t *testing.T) {
 	assert.Nil(t, s.AvailabilityDomain)
 	assert.Equal(t, []string{"10.0.1.0/24"}, s.Ipv4CidrBlocks)
 
-	nolabel, err := e.client.CreateVcn(ctx, core.CreateVcnRequest{CreateVcnDetails: core.CreateVcnDetails{
-		CompartmentId: new(testComp), CidrBlocks: []string{"10.5.0.0/16"},
-	}})
+	nolabel, err := e.client.CreateVcn(ctx, core.CreateVcnRequest{
+		CompartmentId: new(testComp), CidrBlocks: []string{"10.5.0.0/16"}})
 	require.NoError(t, err)
 
-	_, err = e.client.CreateSubnet(ctx, core.CreateSubnetRequest{CreateSubnetDetails: core.CreateSubnetDetails{
-		CompartmentId: new(testComp), VcnId: nolabel.Id, CidrBlock: new("10.5.1.0/24"), DnsLabel: new("x"),
-	}})
+	_, err = e.client.CreateSubnet(ctx, core.CreateSubnetRequest{
+		CompartmentId: new(testComp), VcnId: nolabel.Id, CidrBlock: new("10.5.1.0/24"), DnsLabel: new("x")})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 }
 
@@ -113,9 +122,8 @@ func TestSubnetIPv6AndUpdate(t *testing.T) {
 	e := newEnv(t, false)
 	ctx := t.Context()
 
-	vr, err := e.client.CreateVcn(ctx, core.CreateVcnRequest{CreateVcnDetails: core.CreateVcnDetails{
-		CompartmentId: new(testComp), CidrBlocks: []string{"10.0.0.0/16"}, IsIpv6Enabled: new(true),
-	}})
+	vr, err := e.client.CreateVcn(ctx, core.CreateVcnRequest{
+		CompartmentId: new(testComp), CidrBlocks: []string{"10.0.0.0/16"}, IsIpv6Enabled: new(true)})
 	require.NoError(t, err)
 
 	v6 := vr.Ipv6CidrBlocks[0]
@@ -135,38 +143,45 @@ func TestSubnetIPv6AndUpdate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		r, err := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{CreateSubnetDetails: core.CreateSubnetDetails{
-			CompartmentId: new(testComp), VcnId: vr.Id, CidrBlock: new(tt.v4), Ipv6CidrBlock: new(tt.cidr),
-		}})
+		r, cerr := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{
+			CompartmentId: new(testComp), VcnId: vr.Id, CidrBlock: new(tt.v4), Ipv6CidrBlock: new(tt.cidr)})
 		if tt.wantOK {
-			require.NoError(t, err, tt.name)
+			require.NoError(t, cerr, tt.name)
 			assert.Equal(t, tt.cidr, *r.Ipv6CidrBlock, tt.name)
 		} else {
-			assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), tt.name)
+			assert.Equal(t, "InvalidParameter", svcErr(t, cerr).GetCode(), tt.name)
 		}
 	}
 
 	s := e.mkSubnet(t, vr.Vcn, "10.0.9.0/24")
-	rt, err := e.client.CreateRouteTable(ctx, core.CreateRouteTableRequest{CreateRouteTableDetails: core.CreateRouteTableDetails{
-		CompartmentId: new(testComp), VcnId: vr.Id, RouteRules: []core.RouteRule{},
-	}})
+	rt, err := e.client.CreateRouteTable(
+		ctx,
+		core.CreateRouteTableRequest{
+			CompartmentId: new(testComp), VcnId: vr.Id, RouteRules: []core.RouteRule{}},
+	)
 	require.NoError(t, err)
 
-	u, err := e.client.UpdateSubnet(ctx, core.UpdateSubnetRequest{SubnetId: s.Id, UpdateSubnetDetails: core.UpdateSubnetDetails{
-		RouteTableId: rt.Id, DisplayName: new("renamed"), FreeformTags: map[string]string{"k": "v"},
-	}})
+	u, err := e.client.UpdateSubnet(
+		ctx,
+		core.UpdateSubnetRequest{SubnetId: s.Id,
+			RouteTableId: rt.Id, DisplayName: new("renamed"), FreeformTags: map[string]string{"k": "v"}},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, *rt.Id, *u.RouteTableId)
 	assert.Equal(t, "renamed", *u.DisplayName)
 	assert.Equal(t, "v", u.FreeformTags["k"])
 
-	_, err = e.client.UpdateSubnet(ctx, core.UpdateSubnetRequest{SubnetId: s.Id, UpdateSubnetDetails: core.UpdateSubnetDetails{
-		CidrBlock: new("10.0.8.0/24"),
-	}})
+	_, err = e.client.UpdateSubnet(
+		ctx,
+		core.UpdateSubnetRequest{SubnetId: s.Id,
+			CidrBlock: new("10.0.8.0/24")},
+	)
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 
-	_, err = e.client.UpdateSubnet(ctx, core.UpdateSubnetRequest{SubnetId: s.Id, UpdateSubnetDetails: core.UpdateSubnetDetails{
-		SecurityListIds: []string{"a", "b", "c", "d", "e", "f"},
-	}})
+	_, err = e.client.UpdateSubnet(
+		ctx,
+		core.UpdateSubnetRequest{SubnetId: s.Id,
+			SecurityListIds: []string{"a", "b", "c", "d", "e", "f"}},
+	)
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), "at most five security lists")
 }

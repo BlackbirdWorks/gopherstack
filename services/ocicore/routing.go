@@ -6,11 +6,11 @@ const maxRouteRules = 200
 
 // CreateRouteTableIn is the CreateRouteTable request body.
 type CreateRouteTableIn struct {
+	TagsIn
 	CompartmentID string      `json:"compartmentId"`
 	VcnID         string      `json:"vcnId"`
 	DisplayName   string      `json:"displayName"`
 	RouteRules    []RouteRule `json:"routeRules"`
-	TagsIn
 }
 
 // checkTarget validates a route rule target and returns the attached service for service gateways.
@@ -173,20 +173,18 @@ func (b *InMemoryBackend) UpdateRouteTable(id, ifMatch string, in UpdateRouteTab
 
 // CreateDhcpOptionsIn is the CreateDhcpOptions request body.
 type CreateDhcpOptionsIn struct {
+	TagsIn
 	CompartmentID  string       `json:"compartmentId"`
 	VcnID          string       `json:"vcnId"`
 	DisplayName    string       `json:"displayName"`
 	DomainNameType string       `json:"domainNameType"`
 	Options        []DhcpOption `json:"options"`
-	TagsIn
 }
 
 const maxCollection = 300
 
-var domainTypes = []string{"SUBNET_DOMAIN", "VCN_DOMAIN", "CUSTOM_DOMAIN"}
-
 func validateDhcp(opts []DhcpOption, domainType string) *APIError {
-	if domainType != "" && !slices.Contains(domainTypes, domainType) {
+	if domainType != "" && !slices.Contains([]string{"SUBNET_DOMAIN", "VCN_DOMAIN", domainCustom}, domainType) {
 		return errParam("domainNameType must be one of SUBNET_DOMAIN, VCN_DOMAIN, CUSTOM_DOMAIN")
 	}
 
@@ -207,38 +205,44 @@ func validateDhcp(opts []DhcpOption, domainType string) *APIError {
 	return nil
 }
 
-func validateDhcpOption(o DhcpOption) *APIError {
+func validateDNSOption(o DhcpOption) *APIError {
 	const maxDNS = 3
 
+	switch o.ServerType {
+	case "VcnLocal", "VcnLocalPlusInternet":
+		if len(o.CustomDNSServers) > 0 {
+			return errParam("customDnsServers is only valid with serverType CustomDnsServer")
+		}
+	case "CustomDnsServer":
+		if len(o.CustomDNSServers) == 0 || len(o.CustomDNSServers) > maxDNS {
+			return errParam("customDnsServers must list between 1 and 3 IPv4 addresses")
+		}
+
+		for _, s := range o.CustomDNSServers {
+			if a, ok := parseAddr(s); !ok || !a.Is4() {
+				return errParam("customDnsServers entry " + s + " is not a valid IPv4 address")
+			}
+		}
+	default:
+		return errParam("serverType must be VcnLocal, VcnLocalPlusInternet or CustomDnsServer")
+	}
+
+	return nil
+}
+
+func validateDhcpOption(o DhcpOption) *APIError {
 	switch o.Type {
 	case "DomainNameServer":
-		switch o.ServerType {
-		case "VcnLocal", "VcnLocalPlusInternet":
-			if len(o.CustomDNSServers) > 0 {
-				return errParam("customDnsServers is only valid with serverType CustomDnsServer")
-			}
-		case "CustomDnsServer":
-			if len(o.CustomDNSServers) == 0 || len(o.CustomDNSServers) > maxDNS {
-				return errParam("customDnsServers must list between 1 and 3 IPv4 addresses")
-			}
-
-			for _, s := range o.CustomDNSServers {
-				if a, ok := parseAddr(s); !ok || !a.Is4() {
-					return errParam("customDnsServers entry " + s + " is not a valid IPv4 address")
-				}
-			}
-		default:
-			return errParam("serverType must be VcnLocal, VcnLocalPlusInternet or CustomDnsServer")
-		}
+		return validateDNSOption(o)
 	case "SearchDomain":
 		if len(o.SearchDomainNames) != 1 || o.SearchDomainNames[0] == "" {
 			return errParam("searchDomainNames must contain exactly one domain name")
 		}
-	default:
-		return errParam("option type must be DomainNameServer or SearchDomain")
+
+		return nil
 	}
 
-	return nil
+	return errParam("option type must be DomainNameServer or SearchDomain")
 }
 
 // CreateDhcpOptions creates a DHCP options set.
@@ -264,7 +268,7 @@ func (b *InMemoryBackend) CreateDhcpOptions(in CreateDhcpOptionsIn) (resource, s
 	}
 
 	if in.DomainNameType == "" {
-		in.DomainNameType = "CUSTOM_DOMAIN"
+		in.DomainNameType = domainCustom
 	}
 
 	d := &DhcpOptions{

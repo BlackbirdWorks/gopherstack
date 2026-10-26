@@ -23,23 +23,53 @@ func TestSecurityListRules(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		wantCode string
 		ingress  []core.IngressSecurityRule
 		egress   []core.EgressSecurityRule
-		wantCode string
 	}{
-		{"tcp", []core.IngressSecurityRule{{Protocol: new("6"), Source: new("0.0.0.0/0"), TcpOptions: tcpOpts(80, 443)}}, nil, ""},
-		{"icmp", []core.IngressSecurityRule{{Protocol: new("1"), Source: new("10.0.0.0/8"),
-			IcmpOptions: &core.IcmpOptions{Type: &icmpType}}}, nil, ""},
-		{"service egress", nil, []core.EgressSecurityRule{{Protocol: new("all"), Destination: new("oci-iad-objectstorage"),
-			DestinationType: core.EgressSecurityRuleDestinationTypeServiceCidrBlock}}, ""},
-		{"bad protocol", []core.IngressSecurityRule{{Protocol: new("tcp"), Source: new("0.0.0.0/0")}}, nil, "InvalidParameter"},
-		{"bad cidr", []core.IngressSecurityRule{{Protocol: new("6"), Source: new("everyone")}}, nil, "InvalidParameter"},
-		{"tcp options on udp", []core.IngressSecurityRule{{Protocol: new("17"), Source: new("0.0.0.0/0"),
-			TcpOptions: tcpOpts(1, 2)}}, nil, "InvalidParameter"},
-		{"inverted ports", []core.IngressSecurityRule{{Protocol: new("6"), Source: new("0.0.0.0/0"),
-			TcpOptions: tcpOpts(90, 80)}}, nil, "InvalidParameter"},
-		{"unknown service", nil, []core.EgressSecurityRule{{Protocol: new("all"), Destination: new("nope"),
-			DestinationType: core.EgressSecurityRuleDestinationTypeServiceCidrBlock}}, "InvalidParameter"},
+		{
+			"tcp",
+			"",
+			[]core.IngressSecurityRule{{Protocol: new("6"), Source: new("0.0.0.0/0"), TcpOptions: tcpOpts(80, 443)}},
+			nil,
+		},
+		{"icmp", "", []core.IngressSecurityRule{{Protocol: new("1"), Source: new("10.0.0.0/8"),
+			IcmpOptions: &core.IcmpOptions{Type: &icmpType}}}, nil},
+		{
+			"service egress",
+			"",
+			nil,
+			[]core.EgressSecurityRule{{Protocol: new("all"), Destination: new("oci-iad-objectstorage"),
+				DestinationType: core.EgressSecurityRuleDestinationTypeServiceCidrBlock}},
+		},
+		{
+			"bad protocol",
+			"InvalidParameter",
+			[]core.IngressSecurityRule{{Protocol: new("tcp"), Source: new("0.0.0.0/0")}},
+			nil,
+		},
+		{
+			"bad cidr",
+			"InvalidParameter",
+			[]core.IngressSecurityRule{{Protocol: new("6"), Source: new("everyone")}},
+			nil,
+		},
+		{
+			"tcp options on udp",
+			"InvalidParameter",
+			[]core.IngressSecurityRule{{Protocol: new("17"), Source: new("0.0.0.0/0"),
+				TcpOptions: tcpOpts(1, 2)}},
+			nil,
+		},
+		{"inverted ports", "InvalidParameter", []core.IngressSecurityRule{{Protocol: new("6"), Source: new("0.0.0.0/0"),
+			TcpOptions: tcpOpts(90, 80)}}, nil},
+		{
+			"unknown service",
+			"InvalidParameter",
+			nil,
+			[]core.EgressSecurityRule{{Protocol: new("all"), Destination: new("nope"),
+				DestinationType: core.EgressSecurityRuleDestinationTypeServiceCidrBlock}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -55,9 +85,12 @@ func TestSecurityListRules(t *testing.T) {
 			}
 
 			r, err := e.client.CreateSecurityList(ctx, core.CreateSecurityListRequest{
-				CreateSecurityListDetails: core.CreateSecurityListDetails{
-					CompartmentId: new(testComp), VcnId: v.Id, IngressSecurityRules: tt.ingress, EgressSecurityRules: tt.egress,
-				},
+				CompartmentId: new(
+					testComp,
+				),
+				VcnId:                v.Id,
+				IngressSecurityRules: tt.ingress,
+				EgressSecurityRules:  tt.egress,
 			})
 			if tt.wantCode != "" {
 				assert.Equal(t, tt.wantCode, svcErr(t, err).GetCode())
@@ -69,8 +102,8 @@ func TestSecurityListRules(t *testing.T) {
 			assert.NotEmpty(t, *r.DisplayName)
 
 			u, err := e.client.UpdateSecurityList(ctx, core.UpdateSecurityListRequest{SecurityListId: r.Id,
-				UpdateSecurityListDetails: core.UpdateSecurityListDetails{
-					EgressSecurityRules: []core.EgressSecurityRule{{Protocol: new("all"), Destination: new("0.0.0.0/0")}},
+				EgressSecurityRules: []core.EgressSecurityRule{
+					{Protocol: new("all"), Destination: new("0.0.0.0/0")},
 				}})
 			require.NoError(t, err)
 			assert.Len(t, u.EgressSecurityRules, 1)
@@ -89,7 +122,8 @@ func TestNetworkSecurityGroup(t *testing.T) {
 
 	mk := func(vcn *string) core.NetworkSecurityGroup {
 		r, err := e.client.CreateNetworkSecurityGroup(ctx, core.CreateNetworkSecurityGroupRequest{
-			CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{CompartmentId: new(testComp), VcnId: vcn},
+			CompartmentId: new(testComp),
+			VcnId:         vcn,
 		})
 		require.NoError(t, err)
 
@@ -100,8 +134,8 @@ func TestNetworkSecurityGroup(t *testing.T) {
 
 	add := func(d ...core.AddSecurityRuleDetails) (core.AddNetworkSecurityGroupSecurityRulesResponse, error) {
 		return e.client.AddNetworkSecurityGroupSecurityRules(ctx, core.AddNetworkSecurityGroupSecurityRulesRequest{
-			NetworkSecurityGroupId:                      a.Id,
-			AddNetworkSecurityGroupSecurityRulesDetails: core.AddNetworkSecurityGroupSecurityRulesDetails{SecurityRules: d},
+			NetworkSecurityGroupId: a.Id,
+			SecurityRules:          d,
 		})
 	}
 
@@ -112,14 +146,33 @@ func TestNetworkSecurityGroup(t *testing.T) {
 	}{
 		{"ingress cidr", core.AddSecurityRuleDetails{Direction: core.AddSecurityRuleDetailsDirectionIngress,
 			Protocol: new("6"), Source: new("0.0.0.0/0"), TcpOptions: tcpOpts(22, 22)}, ""},
-		{"ingress nsg", core.AddSecurityRuleDetails{Direction: core.AddSecurityRuleDetailsDirectionIngress,
-			Protocol: new("all"), Source: b.Id, SourceType: core.AddSecurityRuleDetailsSourceTypeNetworkSecurityGroup}, ""},
+		{
+			"ingress nsg",
+			core.AddSecurityRuleDetails{
+				Direction: core.AddSecurityRuleDetailsDirectionIngress,
+				Protocol: new(
+					"all",
+				),
+				Source:     b.Id,
+				SourceType: core.AddSecurityRuleDetailsSourceTypeNetworkSecurityGroup,
+			},
+			"",
+		},
 		{"egress service", core.AddSecurityRuleDetails{Direction: core.AddSecurityRuleDetailsDirectionEgress,
 			Protocol: new("all"), Destination: new("oci-iad-objectstorage"),
 			DestinationType: core.AddSecurityRuleDetailsDestinationTypeServiceCidrBlock}, ""},
-		{"foreign nsg", core.AddSecurityRuleDetails{Direction: core.AddSecurityRuleDetailsDirectionIngress,
-			Protocol: new("all"), Source: foreign.Id, SourceType: core.AddSecurityRuleDetailsSourceTypeNetworkSecurityGroup},
-			"InvalidParameter"},
+		{
+			"foreign nsg",
+			core.AddSecurityRuleDetails{
+				Direction: core.AddSecurityRuleDetailsDirectionIngress,
+				Protocol: new(
+					"all",
+				),
+				Source:     foreign.Id,
+				SourceType: core.AddSecurityRuleDetailsSourceTypeNetworkSecurityGroup,
+			},
+			"InvalidParameter",
+		},
 		{"missing source", core.AddSecurityRuleDetails{Direction: core.AddSecurityRuleDetailsDirectionIngress,
 			Protocol: new("6")}, "MissingParameter"},
 		{"bad protocol", core.AddSecurityRuleDetails{Direction: core.AddSecurityRuleDetailsDirectionEgress,
@@ -149,46 +202,55 @@ func TestNetworkSecurityGroup(t *testing.T) {
 	assert.Equal(t, ids[2], *l.Items[0].Id, "newest first")
 
 	l, err = e.client.ListNetworkSecurityGroupSecurityRules(ctx, core.ListNetworkSecurityGroupSecurityRulesRequest{
-		NetworkSecurityGroupId: a.Id, Direction: core.ListNetworkSecurityGroupSecurityRulesDirectionIngress, Limit: new(1)})
+		NetworkSecurityGroupId: a.Id,
+		Direction:              core.ListNetworkSecurityGroupSecurityRulesDirectionIngress,
+		Limit:                  new(1),
+	})
 	require.NoError(t, err)
 	assert.Len(t, l.Items, 1)
 	assert.NotNil(t, l.OpcNextPage)
 
-	up, err := e.client.UpdateNetworkSecurityGroupSecurityRules(ctx, core.UpdateNetworkSecurityGroupSecurityRulesRequest{
-		NetworkSecurityGroupId: a.Id,
-		UpdateNetworkSecurityGroupSecurityRulesDetails: core.UpdateNetworkSecurityGroupSecurityRulesDetails{
+	up, err := e.client.UpdateNetworkSecurityGroupSecurityRules(
+		ctx,
+		core.UpdateNetworkSecurityGroupSecurityRulesRequest{
+			NetworkSecurityGroupId: a.Id,
 			SecurityRules: []core.UpdateSecurityRuleDetails{{
 				Id: &ids[0], Direction: core.UpdateSecurityRuleDetailsDirectionIngress, Protocol: new("17"),
 				Source: new("10.0.0.0/8"), Description: new("udp now"),
 			}},
 		},
-	})
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "17", *up.SecurityRules[0].Protocol)
 	assert.Nil(t, up.SecurityRules[0].TcpOptions)
 
 	_, err = e.client.UpdateNetworkSecurityGroupSecurityRules(ctx, core.UpdateNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId: a.Id,
-		UpdateNetworkSecurityGroupSecurityRulesDetails: core.UpdateNetworkSecurityGroupSecurityRulesDetails{
-			SecurityRules: []core.UpdateSecurityRuleDetails{{Id: new("nope"),
-				Direction: core.UpdateSecurityRuleDetailsDirectionIngress, Protocol: new("6"), Source: new("0.0.0.0/0")}},
+		SecurityRules: []core.UpdateSecurityRuleDetails{
+			{
+				Id:        new("nope"),
+				Direction: core.UpdateSecurityRuleDetailsDirectionIngress,
+				Protocol:  new("6"),
+				Source:    new("0.0.0.0/0"),
+			},
 		}})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
-	_, err = e.client.DeleteNetworkSecurityGroup(ctx, core.DeleteNetworkSecurityGroupRequest{NetworkSecurityGroupId: b.Id})
+	_, err = e.client.DeleteNetworkSecurityGroup(
+		ctx,
+		core.DeleteNetworkSecurityGroupRequest{NetworkSecurityGroupId: b.Id},
+	)
 	assert.Equal(t, "Conflict", svcErr(t, err).GetCode(), "b is a rule source of a")
 
 	_, err = e.client.RemoveNetworkSecurityGroupSecurityRules(ctx, core.RemoveNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId: a.Id,
-		RemoveNetworkSecurityGroupSecurityRulesDetails: core.RemoveNetworkSecurityGroupSecurityRulesDetails{
-			SecurityRuleIds: []string{ids[1], "missing"}},
+		SecurityRuleIds:        []string{ids[1], "missing"},
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.client.RemoveNetworkSecurityGroupSecurityRules(ctx, core.RemoveNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId: a.Id,
-		RemoveNetworkSecurityGroupSecurityRulesDetails: core.RemoveNetworkSecurityGroupSecurityRulesDetails{
-			SecurityRuleIds: []string{ids[1]}},
+		SecurityRuleIds:        []string{ids[1]},
 	})
 	require.NoError(t, err)
 
@@ -197,10 +259,16 @@ func TestNetworkSecurityGroup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, l.Items, 2)
 
-	_, err = e.client.DeleteNetworkSecurityGroup(ctx, core.DeleteNetworkSecurityGroupRequest{NetworkSecurityGroupId: b.Id})
+	_, err = e.client.DeleteNetworkSecurityGroup(
+		ctx,
+		core.DeleteNetworkSecurityGroupRequest{NetworkSecurityGroupId: b.Id},
+	)
 	require.NoError(t, err)
 
-	vn, err := e.client.ListNetworkSecurityGroupVnics(ctx, core.ListNetworkSecurityGroupVnicsRequest{NetworkSecurityGroupId: a.Id})
+	vn, err := e.client.ListNetworkSecurityGroupVnics(
+		ctx,
+		core.ListNetworkSecurityGroupVnicsRequest{NetworkSecurityGroupId: a.Id},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, vn.Items)
 

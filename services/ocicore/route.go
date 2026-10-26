@@ -25,8 +25,9 @@ const (
 )
 
 const (
-	adminPrefix = "_gopherstack"
-	apiBase     = "/20160918"
+	routesPerKind = 6
+	adminPrefix   = "_gopherstack"
+	apiBase       = "/20160918"
 )
 
 var resourceParams = []string{ //nolint:gochecknoglobals // immutable
@@ -40,7 +41,7 @@ func rt(method, path, op string) restroute.Route {
 
 func routeTable() []restroute.Route {
 	nsg := "/networkSecurityGroups/{networkSecurityGroupId}"
-	routes := []restroute.Route{
+	fixed := []restroute.Route{
 		rt(http.MethodGet, "/services", opListServices),
 		rt(http.MethodGet, "/services/{serviceId}", opGetService),
 		rt(http.MethodPost, "/serviceGateways/{serviceGatewayId}/actions/attachService", opAttachService),
@@ -53,6 +54,7 @@ func routeTable() []restroute.Route {
 		rt(http.MethodGet, nsg+"/vnics", opListNsgVnics),
 		rt(http.MethodPost, "/publicIps/actions/getByIpAddress", opPublicIPByAddr),
 	}
+	routes := append(make([]restroute.Route, 0, len(fixed)+routesPerKind*len(cruds())), fixed...)
 
 	for _, c := range cruds() {
 		item := c.path + "/{" + c.id + "}"

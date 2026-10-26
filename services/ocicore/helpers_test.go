@@ -135,9 +135,8 @@ func svcErr(t *testing.T, err error) common.ServiceError {
 func (e *env) mkVcn(t *testing.T, cidr, name string) core.Vcn {
 	t.Helper()
 
-	r, err := e.client.CreateVcn(t.Context(), core.CreateVcnRequest{CreateVcnDetails: core.CreateVcnDetails{
-		CompartmentId: new(testComp), CidrBlocks: []string{cidr}, DisplayName: new(name), DnsLabel: new("lab" + name),
-	}})
+	r, err := e.client.CreateVcn(t.Context(), core.CreateVcnRequest{
+		CompartmentId: new(testComp), CidrBlocks: []string{cidr}, DisplayName: new(name), DnsLabel: new("lab" + name)})
 	require.NoError(t, err)
 
 	return r.Vcn
@@ -146,9 +145,8 @@ func (e *env) mkVcn(t *testing.T, cidr, name string) core.Vcn {
 func (e *env) mkSubnet(t *testing.T, vcn core.Vcn, cidr string) core.Subnet {
 	t.Helper()
 
-	r, err := e.client.CreateSubnet(t.Context(), core.CreateSubnetRequest{CreateSubnetDetails: core.CreateSubnetDetails{
-		CompartmentId: new(testComp), VcnId: vcn.Id, CidrBlock: new(cidr),
-	}})
+	r, err := e.client.CreateSubnet(t.Context(), core.CreateSubnetRequest{
+		CompartmentId: new(testComp), VcnId: vcn.Id, CidrBlock: new(cidr)})
 	require.NoError(t, err)
 
 	return r.Subnet

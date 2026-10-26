@@ -16,27 +16,73 @@ func (b *InMemoryBackend) liveRefs(match func(resource) bool) []resource {
 	return out
 }
 
+// liveOf returns the live resources of type T accepted by match.
+func liveOf[T resource](b *InMemoryBackend, match func(T) bool) []T {
+	var out []T
+
+	for _, r := range b.res {
+		if t, ok := r.(T); ok && live(r) && match(t) {
+			out = append(out, t)
+		}
+	}
+
+	return out
+}
+
+func inVcn[T resource](vcnID string) func(T) bool {
+	return func(t T) bool { return t.vcnRef() == vcnID }
+}
+
 func (b *InMemoryBackend) isDefault(vcnID, id string) bool {
 	v, ok := b.res[vcnID].(*Vcn)
 
 	return ok && (v.DefaultRouteTableID == id || v.DefaultSecurityList == id || v.DefaultDhcpOptionsID == id)
 }
 
-func usedBy(what, id string, refs []resource) *APIError {
+func usedBy(what, id, user string) *APIError {
+	if user == "" {
+		return nil
+	}
+
+	return errConflict("The " + what + " " + id + " cannot be deleted because it is in use by " + user)
+}
+
+func firstID[T resource](items []T) string {
+	if len(items) == 0 {
+		return ""
+	}
+
+	return items[0].base().ID
+}
+
+func routesTo(id string) func(*RouteTable) bool {
+	return func(rt *RouteTable) bool {
+		return slices.ContainsFunc(rt.RouteRules, func(x RouteRule) bool { return x.NetworkEntityID == id })
+	}
+}
+
+func defaultOf(what string) *APIError {
+	return errConflict("The default " + what + " of a VCN cannot be deleted")
+}
+
+func (b *InMemoryBackend) deleteVcnCheck(id string) *APIError {
+	refs := b.liveRefs(func(x resource) bool { return x.vcnRef() == id && !b.isDefault(id, x.base().ID) })
 	if len(refs) == 0 {
 		return nil
 	}
 
-	return errConflict("The " + what + " " + id + " cannot be deleted because it is in use by " +
-		refs[0].base().ID)
+	return errConflict("The Vcn " + id + " cannot be deleted because it still contains " +
+		ocidKind(refs[0].base().ID) + " " + refs[0].base().ID)
 }
 
-func routeTarget(id string) func(resource) bool {
-	return func(r resource) bool {
-		rt, ok := r.(*RouteTable)
-
-		return ok && slices.ContainsFunc(rt.RouteRules, func(x RouteRule) bool { return x.NetworkEntityID == id })
+func (b *InMemoryBackend) deleteNsgCheck(id string) *APIError {
+	for _, rule := range b.nsgRules {
+		if rule.NsgID != id && (rule.Source == id || rule.Destination == id) && live(b.res[rule.NsgID]) {
+			return errConflict("The network security group " + id + " is referenced by a rule of " + rule.NsgID)
+		}
 	}
+
+	return nil
 }
 
 // deleteCheck enforces the documented delete-in-use conflicts; callers hold the write lock.
@@ -45,45 +91,31 @@ func (b *InMemoryBackend) deleteCheck(r resource) *APIError {
 
 	switch v := r.(type) {
 	case *Vcn:
-		refs := b.liveRefs(func(x resource) bool { return x.vcnRef() == id && !b.isDefault(id, x.base().ID) })
-		if len(refs) > 0 {
-			return errConflict("The Vcn " + id + " cannot be deleted because it still contains " +
-				ocidKind(refs[0].base().ID) + " " + refs[0].base().ID)
-		}
+		return b.deleteVcnCheck(id)
 	case *RouteTable:
 		if b.isDefault(v.VcnID, id) {
-			return errConflict("The default route table of a VCN cannot be deleted")
+			return defaultOf("route table")
 		}
 
-		return usedBy("route table", id, b.liveRefs(func(x resource) bool { return routeTableRef(x) == id }))
+		return usedBy("route table", id, firstUser(b, func(x resource) bool { return routeTableRef(x) == id }))
 	case *SecurityList:
 		if b.isDefault(v.VcnID, id) {
-			return errConflict("The default security list of a VCN cannot be deleted")
+			return defaultOf("security list")
 		}
 
-		return usedBy("security list", id, b.liveRefs(func(x resource) bool {
-			s, ok := x.(*Subnet)
-
-			return ok && slices.Contains(s.SecurityListIDs, id)
-		}))
+		return usedBy("security list", id, firstID(liveOf(b, func(s *Subnet) bool {
+			return slices.Contains(s.SecurityListIDs, id)
+		})))
 	case *DhcpOptions:
 		if b.isDefault(v.VcnID, id) {
-			return errConflict("The default DHCP options of a VCN cannot be deleted")
+			return defaultOf("DHCP options")
 		}
 
-		return usedBy("DHCP options", id, b.liveRefs(func(x resource) bool {
-			s, ok := x.(*Subnet)
-
-			return ok && s.DhcpOptionsID == id
-		}))
+		return usedBy("DHCP options", id, firstID(liveOf(b, func(s *Subnet) bool { return s.DhcpOptionsID == id })))
 	case *InternetGateway, *NatGateway, *ServiceGateway, *LocalPeeringGateway:
-		return usedBy("gateway", id, b.liveRefs(routeTarget(id)))
+		return usedBy("gateway", id, firstID(liveOf(b, routesTo(id))))
 	case *NetworkSecurityGroup:
-		for _, rule := range b.nsgRules {
-			if rule.NsgID != id && (rule.Source == id || rule.Destination == id) && live(b.res[rule.NsgID]) {
-				return errConflict("The network security group " + id + " is referenced by a rule of " + rule.NsgID)
-			}
-		}
+		return b.deleteNsgCheck(id)
 	case *PublicIP:
 		if v.AssignedEntityType == entityNAT {
 			return errConflict("The public IP " + id + " is assigned to " + v.AssignedEntityID)
@@ -91,6 +123,10 @@ func (b *InMemoryBackend) deleteCheck(r resource) *APIError {
 	}
 
 	return nil
+}
+
+func firstUser(b *InMemoryBackend, match func(resource) bool) string {
+	return firstID(b.liveRefs(match))
 }
 
 func routeTableRef(r resource) string {

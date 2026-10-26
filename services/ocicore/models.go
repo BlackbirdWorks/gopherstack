@@ -218,8 +218,8 @@ type SecurityRule struct {
 // NSGRule is a stored network security group rule.
 type NSGRule struct {
 	NsgID string `json:"nsgId"`
-	Seq   int64  `json:"seq"`
 	SecurityRule
+	Seq int64 `json:"seq"`
 }
 
 // DhcpOption is one DHCP option; Type selects the populated fields.
@@ -284,14 +284,69 @@ func (v *DhcpOptions) vcnRef() string          { return v.VcnID }
 func (v *LocalPeeringGateway) vcnRef() string  { return v.VcnID }
 func (v *PublicIP) vcnRef() string             { return "" }
 
-func (v *Vcn) view() resource                  { c := *v; c.Internal = nil; return &c }
-func (v *Subnet) view() resource               { c := *v; c.Internal = nil; return &c }
-func (v *InternetGateway) view() resource      { c := *v; c.Internal = nil; return &c }
-func (v *NatGateway) view() resource           { c := *v; c.Internal = nil; return &c }
-func (v *ServiceGateway) view() resource       { c := *v; c.Internal = nil; return &c }
-func (v *RouteTable) view() resource           { c := *v; c.Internal = nil; return &c }
-func (v *SecurityList) view() resource         { c := *v; c.Internal = nil; return &c }
-func (v *NetworkSecurityGroup) view() resource { c := *v; c.Internal = nil; return &c }
-func (v *DhcpOptions) view() resource          { c := *v; c.Internal = nil; return &c }
-func (v *LocalPeeringGateway) view() resource  { c := *v; c.Internal = nil; return &c }
-func (v *PublicIP) view() resource             { c := *v; c.Internal = nil; return &c }
+func (v *Vcn) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *Subnet) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *InternetGateway) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *NatGateway) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *ServiceGateway) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *RouteTable) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *SecurityList) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *NetworkSecurityGroup) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *DhcpOptions) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *LocalPeeringGateway) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}
+func (v *PublicIP) view() resource {
+	c := *v
+	c.Internal = nil
+
+	return &c
+}

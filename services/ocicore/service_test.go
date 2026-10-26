@@ -20,14 +20,15 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	s := e.mkSubnet(t, v, "10.0.1.0/24")
 
 	nsg, err := e.client.CreateNetworkSecurityGroup(ctx, core.CreateNetworkSecurityGroupRequest{
-		CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{CompartmentId: new(testComp), VcnId: v.Id}})
+		CompartmentId: new(testComp),
+		VcnId:         v.Id,
+	})
 	require.NoError(t, err)
 
 	rules, err := e.client.AddNetworkSecurityGroupSecurityRules(ctx, core.AddNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId: nsg.Id,
-		AddNetworkSecurityGroupSecurityRulesDetails: core.AddNetworkSecurityGroupSecurityRulesDetails{
-			SecurityRules: []core.AddSecurityRuleDetails{{Direction: core.AddSecurityRuleDetailsDirectionIngress,
-				Protocol: new("all"), Source: new("0.0.0.0/0")}}}})
+		SecurityRules: []core.AddSecurityRuleDetails{{Direction: core.AddSecurityRuleDetailsDirectionIngress,
+			Protocol: new("all"), Source: new("0.0.0.0/0")}}})
 	require.NoError(t, err)
 
 	data := e.backend.Snapshot(ctx)
@@ -97,7 +98,7 @@ func TestUnknownRoute(t *testing.T) {
 
 	e := newEnv(t, false)
 
-	resp, err := http.Get(e.base + "/20160918/nothing") //nolint:noctx // plain probe
+	resp, err := http.Get(e.base + "/20160918/nothing")
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)

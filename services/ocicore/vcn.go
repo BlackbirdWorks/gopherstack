@@ -10,6 +10,7 @@ const vcnDomainSuffix = ".oraclevcn.com"
 
 // CreateVcnIn is the CreateVcn request body.
 type CreateVcnIn struct {
+	TagsIn
 	IsIpv6Enabled    *bool    `json:"isIpv6Enabled"`
 	CompartmentID    string   `json:"compartmentId"`
 	DisplayName      string   `json:"displayName"`
@@ -17,7 +18,6 @@ type CreateVcnIn struct {
 	DNSLabel         string   `json:"dnsLabel"`
 	CidrBlocks       []string `json:"cidrBlocks"`
 	Ipv6PrivateCidrs []string `json:"ipv6PrivateCidrBlocks"`
-	TagsIn
 }
 
 func vcnCidrs(in CreateVcnIn) ([]string, *APIError) {
@@ -75,9 +75,9 @@ func defaultIngress(vcnCidrs []string, v6 bool) []IngressRule {
 	f := false
 	three, four := 3, 4
 	rules := []IngressRule{
-		{Protocol: "6", Source: "0.0.0.0/0", SourceType: ctCIDR, IsStateless: &f,
-			TCPOptions: &PortOptions{DestinationPortRange: &PortRange{Min: 22, Max: 22}}},
-		{Protocol: "1", Source: "0.0.0.0/0", SourceType: ctCIDR, IsStateless: &f,
+		{Protocol: "6", Source: anyV4, SourceType: ctCIDR, IsStateless: &f,
+			TCPOptions: &PortOptions{DestinationPortRange: &PortRange{Min: sshPort, Max: sshPort}}},
+		{Protocol: "1", Source: anyV4, SourceType: ctCIDR, IsStateless: &f,
 			IcmpOptions: &IcmpOptions{Type: three, Code: &four}},
 	}
 
@@ -89,9 +89,9 @@ func defaultIngress(vcnCidrs []string, v6 bool) []IngressRule {
 	if v6 {
 		zero, two := 0, 2
 		rules = append(rules,
-			IngressRule{Protocol: "6", Source: "::/0", SourceType: ctCIDR, IsStateless: &f,
-				TCPOptions: &PortOptions{DestinationPortRange: &PortRange{Min: 22, Max: 22}}},
-			IngressRule{Protocol: "58", Source: "::/0", SourceType: ctCIDR, IsStateless: &f,
+			IngressRule{Protocol: "6", Source: anyV6, SourceType: ctCIDR, IsStateless: &f,
+				TCPOptions: &PortOptions{DestinationPortRange: &PortRange{Min: sshPort, Max: sshPort}}},
+			IngressRule{Protocol: "58", Source: anyV6, SourceType: ctCIDR, IsStateless: &f,
 				IcmpOptions: &IcmpOptions{Type: two, Code: &zero}})
 	}
 
@@ -100,10 +100,13 @@ func defaultIngress(vcnCidrs []string, v6 bool) []IngressRule {
 
 func defaultEgress(v6 bool) []EgressRule {
 	f := false
-	rules := []EgressRule{{Protocol: "all", Destination: "0.0.0.0/0", DestinationType: ctCIDR, IsStateless: &f}}
+	rules := []EgressRule{{Protocol: "all", Destination: anyV4, DestinationType: ctCIDR, IsStateless: &f}}
 
 	if v6 {
-		rules = append(rules, EgressRule{Protocol: "all", Destination: "::/0", DestinationType: ctCIDR, IsStateless: &f})
+		rules = append(
+			rules,
+			EgressRule{Protocol: "all", Destination: anyV6, DestinationType: ctCIDR, IsStateless: &f},
+		)
 	}
 
 	return rules
@@ -137,7 +140,7 @@ func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (resource, string, *APIError
 		return nil, "", aerr
 	}
 
-	if len(b.liveRefs(func(r resource) bool { _, ok := r.(*Vcn); return ok })) >= maxVcns {
+	if len(liveOf(b, func(*Vcn) bool { return true })) >= maxVcns {
 		return nil, "", errLimit("The region VCN limit (50) has been reached")
 	}
 
@@ -153,7 +156,7 @@ func (b *InMemoryBackend) CreateVcn(in CreateVcnIn) (resource, string, *APIError
 	}
 
 	search := []DhcpOption{{Type: "DomainNameServer", ServerType: "VcnLocalPlusInternet"}}
-	domainType := "CUSTOM_DOMAIN"
+	domainType := domainCustom
 
 	if in.DNSLabel != "" {
 		v.VcnDomainName = strings.ToLower(in.DNSLabel) + vcnDomainSuffix
@@ -189,7 +192,7 @@ type UpdateVcnIn = UpdateIn
 
 // UpdateVcn changes a VCN's name and tags.
 func (b *InMemoryBackend) UpdateVcn(id, ifMatch string, in UpdateVcnIn) (resource, string, *APIError) {
-	return updateWith(b, id, ifMatch, in, func(v *Vcn) *APIError { return nil })
+	return updateWith(b, id, ifMatch, in, func(*Vcn) *APIError { return nil })
 }
 
 // updateWith is the shared update skeleton: state and etag checks, a type specific mutation, name and tags.

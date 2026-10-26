@@ -19,11 +19,11 @@ const (
 
 // CreateLpgIn is the CreateLocalPeeringGateway request body.
 type CreateLpgIn struct {
+	TagsIn
 	CompartmentID string `json:"compartmentId"`
 	VcnID         string `json:"vcnId"`
 	DisplayName   string `json:"displayName"`
 	RouteTableID  string `json:"routeTableId"`
-	TagsIn
 }
 
 // CreateLocalPeeringGateway creates a local peering gateway.
@@ -135,12 +135,12 @@ func cidrsOverlap(a, c []string) bool {
 
 // CreatePublicIPIn is the CreatePublicIp request body.
 type CreatePublicIPIn struct {
+	TagsIn
 	CompartmentID  string `json:"compartmentId"`
 	DisplayName    string `json:"displayName"`
 	Lifetime       string `json:"lifetime"`
 	PrivateIPID    string `json:"privateIpId"`
 	PublicIPPoolID string `json:"publicIpPoolId"`
-	TagsIn
 }
 
 // CreatePublicIP allocates a reserved public IP. Ephemeral IPs belong to VNICs, which this emulator lacks.
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (resource, string,
 		return nil, "", errNotFound(in.PublicIPPoolID)
 	}
 
-	reserved := b.liveRefs(func(r resource) bool { p, ok := r.(*PublicIP); return ok && p.Lifetime == lifetimeReserved })
+	reserved := liveOf(b, func(p *PublicIP) bool { return p.Lifetime == lifetimeReserved })
 	if len(reserved) >= maxReservedIP {
 		return nil, "", errLimit("The region reserved public IP limit (50) has been reached")
 	}
@@ -194,7 +194,7 @@ type UpdatePublicIPIn struct {
 	UpdateIn
 }
 
-// UpdatePublicIP changes a public IP's name and tags. Assigning to a private IP needs VNICs, so only unassigning is possible.
+// UpdatePublicIP changes a public IP's name and tags; assigning to a private IP needs VNICs, which are not emulated.
 func (b *InMemoryBackend) UpdatePublicIP(id, ifMatch string, in UpdatePublicIPIn) (resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(p *PublicIP) *APIError {
 		if in.PrivateIPID == nil {

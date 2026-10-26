@@ -3,6 +3,7 @@ package ocicore
 import (
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -79,11 +80,10 @@ func (b *InMemoryBackend) optRouteTable(id, vcnID string) *APIError {
 	return refInVcn[*RouteTable](b, id, vcnID, "route table")
 }
 
-// gatewayBase runs the checks every gateway create shares and enforces the one-per-VCN limits.
+// gatewayLimit enforces the per-VCN count limit of one resource type.
 func gatewayLimit[T resource](b *InMemoryBackend, vcnID, what string, limit int) *APIError {
-	n := len(b.liveRefs(func(r resource) bool { _, ok := r.(T); return ok && r.vcnRef() == vcnID }))
-	if n >= limit {
-		return errLimit("A VCN can have at most " + fmt.Sprint(limit) + " " + what)
+	if len(liveOf(b, inVcn[T](vcnID))) >= limit {
+		return errLimit("A VCN can have at most " + strconv.Itoa(limit) + " " + what)
 	}
 
 	return nil
@@ -112,12 +112,12 @@ func (b *InMemoryBackend) gatewayVcn(compartment, vcnID, name, rt string) (*Vcn,
 
 // CreateInternetGatewayIn is the CreateInternetGateway request body.
 type CreateInternetGatewayIn struct {
+	TagsIn
 	IsEnabled     *bool  `json:"isEnabled"`
 	CompartmentID string `json:"compartmentId"`
 	VcnID         string `json:"vcnId"`
 	DisplayName   string `json:"displayName"`
 	RouteTableID  string `json:"routeTableId"`
-	TagsIn
 }
 
 // CreateInternetGateway creates an internet gateway.
@@ -155,7 +155,10 @@ type UpdateInternetGatewayIn struct {
 }
 
 // UpdateInternetGateway changes an internet gateway.
-func (b *InMemoryBackend) UpdateInternetGateway(id, ifMatch string, in UpdateInternetGatewayIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateInternetGateway(
+	id, ifMatch string,
+	in UpdateInternetGatewayIn,
+) (resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *InternetGateway) *APIError {
 		if in.RouteTableID != nil {
 			if aerr := b.optRouteTable(*in.RouteTableID, g.VcnID); aerr != nil {
@@ -175,13 +178,13 @@ func (b *InMemoryBackend) UpdateInternetGateway(id, ifMatch string, in UpdateInt
 
 // CreateNatGatewayIn is the CreateNatGateway request body.
 type CreateNatGatewayIn struct {
+	TagsIn
 	BlockTraffic  *bool  `json:"blockTraffic"`
 	CompartmentID string `json:"compartmentId"`
 	VcnID         string `json:"vcnId"`
 	DisplayName   string `json:"displayName"`
 	PublicIPID    string `json:"publicIpId"`
 	RouteTableID  string `json:"routeTableId"`
-	TagsIn
 }
 
 // CreateNatGateway creates a NAT gateway backed by a reserved or newly allocated public IP.
@@ -307,12 +310,12 @@ func checkServiceMix(refs []ServiceRef) *APIError {
 
 // CreateServiceGatewayIn is the CreateServiceGateway request body.
 type CreateServiceGatewayIn struct {
+	TagsIn
 	CompartmentID string        `json:"compartmentId"`
 	VcnID         string        `json:"vcnId"`
 	DisplayName   string        `json:"displayName"`
 	RouteTableID  string        `json:"routeTableId"`
 	Services      []ServiceIDIn `json:"services"`
-	TagsIn
 }
 
 // CreateServiceGateway creates a service gateway.
@@ -356,7 +359,10 @@ type UpdateServiceGatewayIn struct {
 }
 
 // UpdateServiceGateway changes a service gateway; services replaces the attached list.
-func (b *InMemoryBackend) UpdateServiceGateway(id, ifMatch string, in UpdateServiceGatewayIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateServiceGateway(
+	id, ifMatch string,
+	in UpdateServiceGatewayIn,
+) (resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *ServiceGateway) *APIError {
 		if in.RouteTableID != nil {
 			if aerr := b.optRouteTable(*in.RouteTableID, g.VcnID); aerr != nil {
@@ -395,15 +401,17 @@ func (b *InMemoryBackend) UpdateServiceGateway(id, ifMatch string, in UpdateServ
 
 // sgwRulesStillValid refuses to drop a service that a route rule still targets through this gateway.
 func (b *InMemoryBackend) sgwRulesStillValid(g *ServiceGateway, refs []ServiceRef) *APIError {
-	for _, rt := range b.liveRefs(routeTarget(g.ID)) {
-		for _, rule := range rt.(*RouteTable).RouteRules { //nolint:forcetypeassert // filtered by routeTarget
+	for _, rt := range liveOf(b, routesTo(g.ID)) {
+		for _, rule := range rt.RouteRules {
 			if rule.NetworkEntityID != g.ID {
 				continue
 			}
 
 			svc, _ := serviceByCidr(rule.Destination)
 			if !slices.ContainsFunc(refs, func(r ServiceRef) bool { return r.ServiceID == svc.ID }) {
-				return errConflict("The service " + rule.Destination + " is still used by a route rule of " + rt.base().ID)
+				return errConflict(
+					"The service " + rule.Destination + " is still used by a route rule of " + rt.ID,
+				)
 			}
 		}
 	}

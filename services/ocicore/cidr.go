@@ -1,17 +1,20 @@
 package ocicore
 
 import (
+	"fmt"
 	"net/netip"
 	"regexp"
-	"strings"
 )
 
 const (
 	minV4Bits    = 16
 	maxV4Bits    = 30
 	v6SubnetBits = 64
-	v6VcnBits    = 56
 	maxVcnCidrs  = 16
+	anyV4        = "0.0.0.0/0"
+	anyV6        = "::/0"
+	sshPort      = 22
+	domainCustom = "CUSTOM_DOMAIN"
 )
 
 var dnsLabelRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{0,14}$`)
@@ -32,7 +35,9 @@ func parseV4(s, what string) (netip.Prefix, *APIError) {
 	}
 
 	if p != p.Masked() {
-		return netip.Prefix{}, errParam(what + " " + s + " must be a network address, for example " + p.Masked().String())
+		return netip.Prefix{}, errParam(
+			what + " " + s + " must be a network address, for example " + p.Masked().String(),
+		)
 	}
 
 	if p.Bits() < minV4Bits || p.Bits() > maxV4Bits {
@@ -59,19 +64,9 @@ func parseAnyCidr(s string) (netip.Prefix, bool) {
 }
 
 // v6Block builds the Oracle-allocated /56 for the n-th IPv6-enabled VCN.
-func v6Block(n int64) string {
-	return "2603:c020:4000:" + strings.ToLower(hex16(n<<8)) + "::/" + "56"
-}
+func v6Block(n int64) string { return fmt.Sprintf("2603:c020:4000:%x00::/56", n) }
 
-func hex16(n int64) string {
-	const digits = "0123456789abcdef"
-
-	out := []byte{digits[(n>>12)&0xf], digits[(n>>8)&0xf], digits[(n>>4)&0xf], digits[n&0xf]}
-
-	return string(out)
-}
-
-// firstHost returns the address at offset n from the prefix base.
+// hostAt returns the address at offset n from the prefix base.
 func hostAt(p netip.Prefix, n int) string {
 	a := p.Masked().Addr()
 	for range n {

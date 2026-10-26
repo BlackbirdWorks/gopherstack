@@ -13,7 +13,8 @@ func (e *env) mkLpg(t *testing.T, vcn core.Vcn) core.LocalPeeringGateway {
 	t.Helper()
 
 	r, err := e.client.CreateLocalPeeringGateway(t.Context(), core.CreateLocalPeeringGatewayRequest{
-		CreateLocalPeeringGatewayDetails: core.CreateLocalPeeringGatewayDetails{CompartmentId: new(testComp), VcnId: vcn.Id},
+		CompartmentId: new(testComp),
+		VcnId:         vcn.Id,
 	})
 	require.NoError(t, err)
 
@@ -33,7 +34,8 @@ func TestLocalPeeringGateway(t *testing.T) {
 
 	connect := func(from, to *string) error {
 		_, err := e.client.ConnectLocalPeeringGateways(ctx, core.ConnectLocalPeeringGatewaysRequest{
-			LocalPeeringGatewayId: from, ConnectLocalPeeringGatewaysDetails: core.ConnectLocalPeeringGatewaysDetails{PeerId: to},
+			LocalPeeringGatewayId: from,
+			PeerId:                to,
 		})
 
 		return err
@@ -47,7 +49,13 @@ func TestLocalPeeringGateway(t *testing.T) {
 	}{
 		{"same vcn", la.Id, la2.Id, "InvalidParameter", http.StatusBadRequest},
 		{"overlapping cidrs", la.Id, lc.Id, "InvalidParameter", http.StatusBadRequest},
-		{"unknown peer", la.Id, new("ocid1.localpeeringgateway.oc1.iad.nope"), "NotAuthorizedOrNotFound", http.StatusNotFound},
+		{
+			"unknown peer",
+			la.Id,
+			new("ocid1.localpeeringgateway.oc1.iad.nope"),
+			"NotAuthorizedOrNotFound",
+			http.StatusNotFound,
+		},
 		{"ok", la.Id, lb.Id, "", 0},
 		{"already peered", la2.Id, lb.Id, "Conflict", http.StatusConflict},
 	}
@@ -75,7 +83,10 @@ func TestLocalPeeringGateway(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, *la.Id, *gb.PeerId)
 
-	_, err = e.client.DeleteLocalPeeringGateway(ctx, core.DeleteLocalPeeringGatewayRequest{LocalPeeringGatewayId: la.Id})
+	_, err = e.client.DeleteLocalPeeringGateway(
+		ctx,
+		core.DeleteLocalPeeringGatewayRequest{LocalPeeringGatewayId: la.Id},
+	)
 	require.NoError(t, err)
 
 	gb, err = e.client.GetLocalPeeringGateway(ctx, core.GetLocalPeeringGatewayRequest{LocalPeeringGatewayId: lb.Id})
@@ -90,36 +101,51 @@ func TestDhcpOptions(t *testing.T) {
 	ctx := t.Context()
 	v := e.mkVcn(t, "10.0.0.0/16", "dh")
 
-	custom := core.DhcpDnsOption{ServerType: core.DhcpDnsOptionServerTypeCustomdnsserver, CustomDnsServers: []string{"8.8.8.8"}}
+	custom := core.DhcpDnsOption{
+		ServerType:       core.DhcpDnsOptionServerTypeCustomdnsserver,
+		CustomDnsServers: []string{"8.8.8.8"},
+	}
 	search := core.DhcpSearchDomainOption{SearchDomainNames: []string{"example.com"}}
 
 	tests := []struct {
 		name     string
-		opts     []core.DhcpOption
 		wantCode string
+		opts     []core.DhcpOption
 	}{
-		{"custom dns and search", []core.DhcpOption{custom, search}, ""},
-		{"vcn local", []core.DhcpOption{core.DhcpDnsOption{ServerType: core.DhcpDnsOptionServerTypeVcnlocal}}, ""},
-		{"empty", []core.DhcpOption{}, ""},
-		{"custom without servers", []core.DhcpOption{core.DhcpDnsOption{
-			ServerType: core.DhcpDnsOptionServerTypeCustomdnsserver}}, "InvalidParameter"},
-		{"bad address", []core.DhcpOption{core.DhcpDnsOption{
-			ServerType: core.DhcpDnsOptionServerTypeCustomdnsserver, CustomDnsServers: []string{"dns.local"}}}, "InvalidParameter"},
-		{"too many servers", []core.DhcpOption{core.DhcpDnsOption{
-			ServerType: core.DhcpDnsOptionServerTypeCustomdnsserver, CustomDnsServers: []string{"1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"}}},
-			"InvalidParameter"},
-		{"duplicate type", []core.DhcpOption{search, search}, "InvalidParameter"},
-		{"two search domains", []core.DhcpOption{core.DhcpSearchDomainOption{SearchDomainNames: []string{"a.com", "b.com"}}},
-			"InvalidParameter"},
+		{"custom dns and search", "", []core.DhcpOption{custom, search}},
+		{"vcn local", "", []core.DhcpOption{core.DhcpDnsOption{ServerType: core.DhcpDnsOptionServerTypeVcnlocal}}},
+		{"empty", "", []core.DhcpOption{}},
+		{"custom without servers", "InvalidParameter", []core.DhcpOption{core.DhcpDnsOption{
+			ServerType: core.DhcpDnsOptionServerTypeCustomdnsserver}}},
+		{"bad address", "InvalidParameter", []core.DhcpOption{
+			core.DhcpDnsOption{
+				ServerType:       core.DhcpDnsOptionServerTypeCustomdnsserver,
+				CustomDnsServers: []string{"dns.local"},
+			},
+		}},
+		{"too many servers", "InvalidParameter", []core.DhcpOption{
+			core.DhcpDnsOption{
+				ServerType:       core.DhcpDnsOptionServerTypeCustomdnsserver,
+				CustomDnsServers: []string{"1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"},
+			},
+		}},
+		{"duplicate type", "InvalidParameter", []core.DhcpOption{search, search}},
+		{
+			"two search domains",
+			"InvalidParameter",
+			[]core.DhcpOption{core.DhcpSearchDomainOption{SearchDomainNames: []string{"a.com", "b.com"}}},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r, err := e.client.CreateDhcpOptions(ctx, core.CreateDhcpOptionsRequest{CreateDhcpDetails: core.CreateDhcpDetails{
-				CompartmentId: new(testComp), VcnId: v.Id, Options: tt.opts,
-			}})
+			r, err := e.client.CreateDhcpOptions(
+				ctx,
+				core.CreateDhcpOptionsRequest{
+					CompartmentId: new(testComp), VcnId: v.Id, Options: tt.opts},
+			)
 			if tt.wantCode != "" {
 				assert.Equal(t, tt.wantCode, svcErr(t, err).GetCode())
 
@@ -130,7 +156,7 @@ func TestDhcpOptions(t *testing.T) {
 			assert.Len(t, r.Options, len(tt.opts))
 
 			u, err := e.client.UpdateDhcpOptions(ctx, core.UpdateDhcpOptionsRequest{DhcpId: r.Id,
-				UpdateDhcpDetails: core.UpdateDhcpDetails{DisplayName: new("n")}})
+				DisplayName: new("n")})
 			require.NoError(t, err)
 			assert.Len(t, u.Options, len(tt.opts))
 		})

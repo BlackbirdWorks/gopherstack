@@ -30,8 +30,18 @@ func TestVcnCreate(t *testing.T) {
 		{"host bits", core.CreateVcnDetails{CidrBlocks: []string{"10.0.1.0/16"}}, "InvalidParameter", 400},
 		{"ipv6 cidr", core.CreateVcnDetails{CidrBlocks: []string{"fd00::/48"}}, "InvalidParameter", 400},
 		{"link local", core.CreateVcnDetails{CidrBlocks: []string{"169.254.0.0/16"}}, "InvalidParameter", 400},
-		{"overlap", core.CreateVcnDetails{CidrBlocks: []string{"10.0.0.0/16", "10.0.128.0/17"}}, "InvalidParameter", 400},
-		{"bad label", core.CreateVcnDetails{CidrBlocks: []string{"10.4.0.0/16"}, DnsLabel: new("1abc")}, "InvalidParameter", 400},
+		{
+			"overlap",
+			core.CreateVcnDetails{CidrBlocks: []string{"10.0.0.0/16", "10.0.128.0/17"}},
+			"InvalidParameter",
+			400,
+		},
+		{
+			"bad label",
+			core.CreateVcnDetails{CidrBlocks: []string{"10.4.0.0/16"}, DnsLabel: new("1abc")},
+			"InvalidParameter",
+			400,
+		},
 		{"long label", core.CreateVcnDetails{CidrBlocks: []string{"10.4.0.0/16"}, DnsLabel: new("abcdefghijklmnop")},
 			"InvalidParameter", 400},
 		{"cidrBlock not in list", core.CreateVcnDetails{CidrBlock: new("10.5.0.0/16"),
@@ -70,10 +80,9 @@ func TestVcnDefaults(t *testing.T) {
 	e := newEnv(t, false)
 	ctx := t.Context()
 
-	r, err := e.client.CreateVcn(ctx, core.CreateVcnRequest{CreateVcnDetails: core.CreateVcnDetails{
+	r, err := e.client.CreateVcn(ctx, core.CreateVcnRequest{
 		CompartmentId: new(testComp), CidrBlocks: []string{"10.0.0.0/16"}, DisplayName: new("main"),
-		DnsLabel: new("Main"), IsIpv6Enabled: new(true),
-	}})
+		DnsLabel: new("Main"), IsIpv6Enabled: new(true)})
 	require.NoError(t, err)
 
 	v := r.Vcn
@@ -150,7 +159,7 @@ func TestVcnLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.client.UpdateVcn(ctx, core.UpdateVcnRequest{VcnId: v.Id,
-		UpdateVcnDetails: core.UpdateVcnDetails{DisplayName: new("x")}})
+		DisplayName: new("x")})
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
 
 	e.clock.Advance(2 * time.Hour)
@@ -181,16 +190,16 @@ func TestEtagIfMatch(t *testing.T) {
 	tests[1].ifMatch = *got.Etag
 
 	for _, tt := range tests {
-		_, err := e.client.UpdateVcn(ctx, core.UpdateVcnRequest{
-			VcnId: v.Id, IfMatch: &tt.ifMatch, UpdateVcnDetails: core.UpdateVcnDetails{DisplayName: new("renamed")},
+		_, cerr := e.client.UpdateVcn(ctx, core.UpdateVcnRequest{
+			VcnId: v.Id, IfMatch: &tt.ifMatch, DisplayName: new("renamed"),
 		})
 		if tt.status == 0 {
-			require.NoError(t, err, tt.name)
+			require.NoError(t, cerr, tt.name)
 
 			continue
 		}
 
-		se := svcErr(t, err)
+		se := svcErr(t, cerr)
 		assert.Equal(t, tt.status, se.GetHTTPStatusCode(), tt.name)
 		assert.Equal(t, "NoEtagMatch", se.GetCode(), tt.name)
 	}
@@ -216,7 +225,7 @@ func TestVcnListing(t *testing.T) {
 	}
 
 	names := func(r core.ListVcnsResponse) []string {
-		var out []string
+		out := make([]string, 0, len(r.Items))
 		for _, v := range r.Items {
 			out = append(out, *v.DisplayName)
 		}
@@ -258,7 +267,7 @@ func TestVcnListing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, names(r))
 
-	resp, err := http.Get(e.base + "/20160918/vcns") //nolint:noctx // plain unsigned probe
+	resp, err := http.Get(e.base + "/20160918/vcns")
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -273,7 +282,7 @@ func TestChangeCompartment(t *testing.T) {
 	dest := "ocid1.compartment.oc1..dest"
 
 	_, err := e.client.ChangeVcnCompartment(ctx, core.ChangeVcnCompartmentRequest{
-		VcnId: v.Id, ChangeVcnCompartmentDetails: core.ChangeVcnCompartmentDetails{CompartmentId: &dest},
+		VcnId: v.Id, CompartmentId: &dest,
 	})
 	require.NoError(t, err)
 
@@ -282,7 +291,10 @@ func TestChangeCompartment(t *testing.T) {
 	assert.Equal(t, dest, *got.CompartmentId)
 
 	_, err = e.client.ChangeVcnCompartment(ctx, core.ChangeVcnCompartmentRequest{
-		VcnId: new("ocid1.vcn.oc1.iad.nope"), ChangeVcnCompartmentDetails: core.ChangeVcnCompartmentDetails{CompartmentId: &dest},
+		VcnId: new(
+			"ocid1.vcn.oc1.iad.nope",
+		),
+		CompartmentId: &dest,
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
@@ -293,9 +305,8 @@ func TestCompartmentChecker(t *testing.T) {
 	e := newEnv(t, false)
 	e.backend.SetCompartmentChecker(func(id string) bool { return id == testComp })
 
-	_, err := e.client.CreateVcn(t.Context(), core.CreateVcnRequest{CreateVcnDetails: core.CreateVcnDetails{
-		CompartmentId: new("ocid1.compartment.oc1..ghost"), CidrBlocks: []string{"10.0.0.0/16"},
-	}})
+	_, err := e.client.CreateVcn(t.Context(), core.CreateVcnRequest{
+		CompartmentId: new("ocid1.compartment.oc1..ghost"), CidrBlocks: []string{"10.0.0.0/16"}})
 	se := svcErr(t, err)
 	assert.Equal(t, http.StatusNotFound, se.GetHTTPStatusCode())
 	assert.Equal(t, "NotAuthorizedOrNotFound", se.GetCode())

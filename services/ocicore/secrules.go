@@ -46,28 +46,42 @@ func validPorts(o *PortOptions) *APIError {
 	return nil
 }
 
+func validIcmp(icmp *IcmpOptions) *APIError {
+	if icmp.Type < 0 || icmp.Type > maxIcmpField ||
+		(icmp.Code != nil && (*icmp.Code < 0 || *icmp.Code > maxIcmpField)) {
+		return errParam("ICMP type and code must be between 0 and 255")
+	}
+
+	return nil
+}
+
+func optionsMatch(proto string, icmp *IcmpOptions, tcp, udp *PortOptions) bool {
+	return (tcp == nil || proto == protoTCP) && (udp == nil || proto == protoUDP) &&
+		(icmp == nil || proto == protoICMP || proto == protoICMPv6)
+}
+
 // ruleOptions validates the protocol and the protocol specific options shared by every rule shape.
 func ruleOptions(proto string, icmp *IcmpOptions, tcp, udp *PortOptions) *APIError {
 	if !validProtocol(proto) {
 		return errParam("protocol " + proto + " must be all or an IANA protocol number")
 	}
 
-	if (tcp != nil && proto != protoTCP) || (udp != nil && proto != protoUDP) ||
-		(icmp != nil && proto != protoICMP && proto != protoICMPv6) {
+	if !optionsMatch(proto, icmp, tcp, udp) {
 		return errParam("Protocol options do not match protocol " + proto)
 	}
 
 	for _, o := range []*PortOptions{tcp, udp} {
-		if o != nil {
-			if aerr := validPorts(o); aerr != nil {
-				return aerr
-			}
+		if o == nil {
+			continue
+		}
+
+		if aerr := validPorts(o); aerr != nil {
+			return aerr
 		}
 	}
 
-	if icmp != nil && (icmp.Type < 0 || icmp.Type > maxIcmpField ||
-		(icmp.Code != nil && (*icmp.Code < 0 || *icmp.Code > maxIcmpField))) {
-		return errParam("ICMP type and code must be between 0 and 255")
+	if icmp != nil {
+		return validIcmp(icmp)
 	}
 
 	return nil
@@ -174,12 +188,12 @@ func (b *InMemoryBackend) validateLists(in []IngressRule, eg []EgressRule) ([]In
 
 // CreateSecurityListIn is the CreateSecurityList request body.
 type CreateSecurityListIn struct {
+	TagsIn
 	CompartmentID string        `json:"compartmentId"`
 	VcnID         string        `json:"vcnId"`
 	DisplayName   string        `json:"displayName"`
 	IngressRules  []IngressRule `json:"ingressSecurityRules"`
 	EgressRules   []EgressRule  `json:"egressSecurityRules"`
-	TagsIn
 }
 
 // CreateSecurityList creates a security list.
@@ -218,7 +232,10 @@ type UpdateSecurityListIn struct {
 }
 
 // UpdateSecurityList changes a security list; rule lists replace the existing ones.
-func (b *InMemoryBackend) UpdateSecurityList(id, ifMatch string, in UpdateSecurityListIn) (resource, string, *APIError) {
+func (b *InMemoryBackend) UpdateSecurityList(
+	id, ifMatch string,
+	in UpdateSecurityListIn,
+) (resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(sl *SecurityList) *APIError {
 		ing, egr := sl.IngressRules, sl.EgressRules
 
@@ -243,10 +260,10 @@ func (b *InMemoryBackend) UpdateSecurityList(id, ifMatch string, in UpdateSecuri
 
 // CreateNsgIn is the CreateNetworkSecurityGroup request body.
 type CreateNsgIn struct {
+	TagsIn
 	CompartmentID string `json:"compartmentId"`
 	VcnID         string `json:"vcnId"`
 	DisplayName   string `json:"displayName"`
-	TagsIn
 }
 
 // CreateNetworkSecurityGroup creates an NSG.
@@ -363,9 +380,9 @@ func (b *InMemoryBackend) AddSecurityRules(id string, in SecurityRulesIn) (Secur
 	built := make([]*NSGRule, 0, len(in.SecurityRules))
 
 	for _, r := range in.SecurityRules {
-		rule, aerr := b.buildRule(n, r)
-		if aerr != nil {
-			return SecurityRulesOut{}, aerr
+		rule, rerr := b.buildRule(n, r)
+		if rerr != nil {
+			return SecurityRulesOut{}, rerr
 		}
 
 		rule.ID, rule.TimeCreated = strings.ToUpper(uuid.NewString()), now
@@ -407,9 +424,9 @@ func (b *InMemoryBackend) UpdateSecurityRules(id string, in SecurityRulesIn) (Se
 			return SecurityRulesOut{}, errNotFound(r.ID)
 		}
 
-		rule, aerr := b.buildRule(n, r)
-		if aerr != nil {
-			return SecurityRulesOut{}, aerr
+		rule, rerr := b.buildRule(n, r)
+		if rerr != nil {
+			return SecurityRulesOut{}, rerr
 		}
 
 		rule.ID, rule.TimeCreated = old.ID, old.TimeCreated

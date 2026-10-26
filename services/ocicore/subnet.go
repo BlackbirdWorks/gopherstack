@@ -14,26 +14,27 @@ const (
 	ctNSG       = "NETWORK_SECURITY_GROUP"
 	maxSubnets  = 300
 	maxSubnetSL = 5
+	macSpace    = 1 << 24
 )
 
 var adRe = regexp.MustCompile(`^[A-Za-z]{4}:US-ASHBURN-AD-[1-3]$`)
 
 // CreateSubnetIn is the CreateSubnet request body.
 type CreateSubnetIn struct {
+	TagsIn
 	ProhibitInternetIngress *bool    `json:"prohibitInternetIngress"`
 	ProhibitPublicIPOnVnic  *bool    `json:"prohibitPublicIpOnVnic"`
-	CompartmentID           string   `json:"compartmentId"`
-	VcnID                   string   `json:"vcnId"`
+	DhcpOptionsID           string   `json:"dhcpOptionsId"`
 	AvailabilityDomain      string   `json:"availabilityDomain"`
 	CidrBlock               string   `json:"cidrBlock"`
-	DhcpOptionsID           string   `json:"dhcpOptionsId"`
+	VcnID                   string   `json:"vcnId"`
 	DisplayName             string   `json:"displayName"`
 	DNSLabel                string   `json:"dnsLabel"`
 	Ipv6CidrBlock           string   `json:"ipv6CidrBlock"`
 	RouteTableID            string   `json:"routeTableId"`
+	CompartmentID           string   `json:"compartmentId"`
 	Ipv4CidrBlocks          []string `json:"ipv4CidrBlocks"`
 	SecurityListIDs         []string `json:"securityListIds"`
-	TagsIn
 }
 
 // refInVcn checks that id names a live resource of type T in the given VCN.
@@ -98,9 +99,9 @@ func (b *InMemoryBackend) subnetCidr(v *Vcn, in CreateSubnetIn) (netip.Prefix, *
 		return p, errParam("Subnet CIDR block " + cidr + " is not within the VCN CIDR blocks")
 	}
 
-	for _, s := range b.liveRefs(func(r resource) bool { _, ok := r.(*Subnet); return ok && r.vcnRef() == v.ID }) {
-		if netip.MustParsePrefix(s.(*Subnet).CidrBlock).Overlaps(p) { //nolint:forcetypeassert // filtered above
-			return p, errParam("Subnet CIDR block " + cidr + " overlaps subnet " + s.base().ID)
+	for _, s := range liveOf(b, inVcn[*Subnet](v.ID)) {
+		if netip.MustParsePrefix(s.CidrBlock).Overlaps(p) {
+			return p, errParam("Subnet CIDR block " + cidr + " overlaps subnet " + s.ID)
 		}
 	}
 
@@ -117,13 +118,16 @@ func (b *InMemoryBackend) subnetV6(v *Vcn, cidr string) *APIError {
 		return errParam("ipv6CidrBlock must be a /64 IPv6 prefix")
 	}
 
-	if !slices.ContainsFunc(v.Ipv6CidrBlocks, func(c string) bool { return netip.MustParsePrefix(c).Contains(p.Addr()) }) {
+	if !slices.ContainsFunc(
+		v.Ipv6CidrBlocks,
+		func(c string) bool { return netip.MustParsePrefix(c).Contains(p.Addr()) },
+	) {
 		return errParam("ipv6CidrBlock " + cidr + " is not within the VCN IPv6 prefixes")
 	}
 
-	for _, s := range b.liveRefs(func(r resource) bool { _, ok := r.(*Subnet); return ok && r.vcnRef() == v.ID }) {
-		if s.(*Subnet).Ipv6CidrBlock == cidr { //nolint:forcetypeassert // filtered above
-			return errParam("ipv6CidrBlock " + cidr + " is already used by subnet " + s.base().ID)
+	for _, s := range liveOf(b, inVcn[*Subnet](v.ID)) {
+		if s.Ipv6CidrBlock == cidr {
+			return errParam("ipv6CidrBlock " + cidr + " is already used by subnet " + s.ID)
 		}
 	}
 
@@ -166,70 +170,42 @@ func (b *InMemoryBackend) subnetDNS(v *Vcn, label string) (string, *APIError) {
 		return "", errParam("A subnet dnsLabel requires the VCN to have a dnsLabel")
 	}
 
-	dup := b.liveRefs(func(r resource) bool {
-		s, ok := r.(*Subnet)
-
-		return ok && s.VcnID == v.ID && strings.EqualFold(s.DNSLabel, label)
-	})
+	dup := liveOf(b, func(s *Subnet) bool { return s.VcnID == v.ID && strings.EqualFold(s.DNSLabel, label) })
 	if len(dup) > 0 {
-		return "", errConflict("The dnsLabel " + label + " is already used by subnet " + dup[0].base().ID)
+		return "", errConflict("The dnsLabel " + label + " is already used by subnet " + dup[0].ID)
 	}
 
 	return strings.ToLower(label) + "." + v.VcnDomainName, nil
 }
 
 func routerMac(seq int64) string {
-	return fmt.Sprintf("00:00:17:%02X:%02X:%02X", seq>>16&0xff, seq>>8&0xff, seq&0xff)
+	h := fmt.Sprintf("%06X", seq%macSpace)
+
+	return "00:00:17:" + h[0:2] + ":" + h[2:4] + ":" + h[4:6]
 }
 
-// CreateSubnet creates a subnet in a VCN.
-func (b *InMemoryBackend) CreateSubnet(in CreateSubnetIn) (resource, string, *APIError) {
-	b.mu.Lock("CreateSubnet")
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) subnetVcn(in CreateSubnetIn) (*Vcn, *APIError) {
 	if aerr := b.checkCompartment(in.CompartmentID); aerr != nil {
-		return nil, "", aerr
+		return nil, aerr
 	}
 
 	if in.VcnID == "" {
-		return nil, "", errMissing("vcnId is required")
+		return nil, errMissing("vcnId is required")
 	}
 
 	if aerr := validName(in.DisplayName); aerr != nil {
-		return nil, "", aerr
-	}
-
-	v, aerr := getLive[*Vcn](b, in.VcnID)
-	if aerr != nil {
-		return nil, "", aerr
+		return nil, aerr
 	}
 
 	if in.AvailabilityDomain != "" && !adRe.MatchString(in.AvailabilityDomain) {
-		return nil, "", errParam("availabilityDomain " + in.AvailabilityDomain + " is not a valid availability domain")
+		return nil, errParam("availabilityDomain " + in.AvailabilityDomain + " is not a valid availability domain")
 	}
 
-	p, aerr := b.subnetCidr(v, in)
-	if aerr != nil {
-		return nil, "", aerr
-	}
+	return getLive[*Vcn](b, in.VcnID)
+}
 
-	if aerr = b.subnetV6(v, in.Ipv6CidrBlock); aerr != nil {
-		return nil, "", aerr
-	}
-
-	domain, aerr := b.subnetDNS(v, in.DNSLabel)
-	if aerr != nil {
-		return nil, "", aerr
-	}
-
-	if aerr = b.subnetRefs(v, &in); aerr != nil {
-		return nil, "", aerr
-	}
-
-	if len(b.liveRefs(func(r resource) bool { _, ok := r.(*Subnet); return ok && r.vcnRef() == v.ID })) >= maxSubnets {
-		return nil, "", errLimit("The VCN subnet limit (300) has been reached")
-	}
-
+// subnetAccess resolves prohibitPublicIpOnVnic and prohibitInternetIngress, which default together.
+func subnetAccess(in CreateSubnetIn) ([2]bool, *APIError) {
 	private := in.ProhibitPublicIPOnVnic != nil && *in.ProhibitPublicIPOnVnic
 	ingress := private
 
@@ -238,14 +214,64 @@ func (b *InMemoryBackend) CreateSubnet(in CreateSubnetIn) (resource, string, *AP
 	}
 
 	if private && !ingress {
-		return nil, "", errParam("prohibitInternetIngress cannot be false when prohibitPublicIpOnVnic is true")
+		return [2]bool{}, errParam("prohibitInternetIngress cannot be false when prohibitPublicIpOnVnic is true")
+	}
+
+	return [2]bool{private, ingress}, nil
+}
+
+// subnetChecks validates everything a new subnet depends on and returns its CIDR and DNS domain.
+func (b *InMemoryBackend) subnetChecks(v *Vcn, in *CreateSubnetIn) (netip.Prefix, string, *APIError) {
+	p, aerr := b.subnetCidr(v, *in)
+	if aerr != nil {
+		return p, "", aerr
+	}
+
+	if aerr = b.subnetV6(v, in.Ipv6CidrBlock); aerr != nil {
+		return p, "", aerr
+	}
+
+	domain, aerr := b.subnetDNS(v, in.DNSLabel)
+	if aerr != nil {
+		return p, "", aerr
+	}
+
+	if aerr = b.subnetRefs(v, in); aerr != nil {
+		return p, "", aerr
+	}
+
+	if len(liveOf(b, inVcn[*Subnet](v.ID))) >= maxSubnets {
+		return p, "", errLimit("The VCN subnet limit (300) has been reached")
+	}
+
+	return p, domain, nil
+}
+
+// CreateSubnet creates a subnet in a VCN.
+func (b *InMemoryBackend) CreateSubnet(in CreateSubnetIn) (resource, string, *APIError) {
+	b.mu.Lock("CreateSubnet")
+	defer b.mu.Unlock()
+
+	v, aerr := b.subnetVcn(in)
+	if aerr != nil {
+		return nil, "", aerr
+	}
+
+	p, domain, aerr := b.subnetChecks(v, &in)
+	if aerr != nil {
+		return nil, "", aerr
+	}
+
+	access, aerr := subnetAccess(in)
+	if aerr != nil {
+		return nil, "", aerr
 	}
 
 	s := &Subnet{
 		Base: b.newBase(kindSubnet, in.CompartmentID, in.DisplayName, in.TagsIn), VcnID: v.ID, CidrBlock: p.String(),
 		Ipv4CidrBlocks: []string{p.String()}, DhcpOptionsID: in.DhcpOptionsID, RouteTableID: in.RouteTableID,
 		SecurityListIDs: in.SecurityListIDs, DNSLabel: in.DNSLabel, SubnetDomainName: domain,
-		ProhibitInternetIngress: ingress, ProhibitPublicIPOnVnic: private, VirtualRouterIP: hostAt(p, 1),
+		ProhibitInternetIngress: access[1], ProhibitPublicIPOnVnic: access[0], VirtualRouterIP: hostAt(p, 1),
 	}
 	s.VirtualRouterMac = routerMac(s.Internal.Seq)
 
@@ -272,6 +298,14 @@ type UpdateSubnetIn struct {
 	UpdateIn
 }
 
+func optRef[T resource](b *InMemoryBackend, id *string, vcnID, what string) *APIError {
+	if id == nil {
+		return nil
+	}
+
+	return refInVcn[T](b, *id, vcnID, what)
+}
+
 // UpdateSubnet changes a subnet's name, tags and associations.
 func (b *InMemoryBackend) UpdateSubnet(id, ifMatch string, in UpdateSubnetIn) (resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(s *Subnet) *APIError {
@@ -279,19 +313,15 @@ func (b *InMemoryBackend) UpdateSubnet(id, ifMatch string, in UpdateSubnetIn) (r
 			return errParam("Modifying a subnet CIDR block is not supported")
 		}
 
-		if in.RouteTableID != nil {
-			if aerr := refInVcn[*RouteTable](b, *in.RouteTableID, s.VcnID, "route table"); aerr != nil {
-				return aerr
-			}
+		if aerr := optRef[*RouteTable](b, in.RouteTableID, s.VcnID, "route table"); aerr != nil {
+			return aerr
 		}
 
-		if in.DhcpOptionsID != nil {
-			if aerr := refInVcn[*DhcpOptions](b, *in.DhcpOptionsID, s.VcnID, "DHCP options"); aerr != nil {
-				return aerr
-			}
+		if aerr := optRef[*DhcpOptions](b, in.DhcpOptionsID, s.VcnID, "DHCP options"); aerr != nil {
+			return aerr
 		}
 
-		var sls []string
+		sls := s.SecurityListIDs
 
 		if in.SecurityListIDs != nil {
 			var aerr *APIError
@@ -300,18 +330,18 @@ func (b *InMemoryBackend) UpdateSubnet(id, ifMatch string, in UpdateSubnetIn) (r
 			}
 		}
 
-		if in.RouteTableID != nil {
-			s.RouteTableID = *in.RouteTableID
-		}
-
-		if in.DhcpOptionsID != nil {
-			s.DhcpOptionsID = *in.DhcpOptionsID
-		}
-
-		if in.SecurityListIDs != nil {
-			s.SecurityListIDs = sls
-		}
+		s.SecurityListIDs = sls
+		s.RouteTableID = cmpOr(in.RouteTableID, s.RouteTableID)
+		s.DhcpOptionsID = cmpOr(in.DhcpOptionsID, s.DhcpOptionsID)
 
 		return nil
 	})
+}
+
+func cmpOr(p *string, def string) string {
+	if p == nil {
+		return def
+	}
+
+	return *p
 }

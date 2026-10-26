@@ -1,11 +1,10 @@
 package ocicore
 
 import (
+	"maps"
 	"net/http"
 	"strconv"
 )
-
-type result func(*InMemoryBackend) (resource, string, *APIError)
 
 func send(q *req, v resource, etag string, aerr *APIError) error {
 	if aerr != nil {
@@ -36,8 +35,16 @@ func (q *req) listOpts() (ListOpts, error) {
 	}
 
 	return ListOpts{
-		Compartment: q.query("compartmentId"), DisplayName: q.query("displayName"), State: q.query("lifecycleState"),
-		VcnID: q.query("vcnId"), SortBy: q.query("sortBy"), Order: q.query("sortOrder"), Page: q.query("page"), Limit: n,
+		Compartment: q.query("compartmentId"),
+		DisplayName: q.query("displayName"),
+		State:       q.query("lifecycleState"),
+		VcnID: q.query(
+			"vcnId",
+		),
+		SortBy: q.query("sortBy"),
+		Order:  q.query("sortOrder"),
+		Page:   q.query("page"),
+		Limit:  n,
 	}, nil
 }
 
@@ -196,9 +203,7 @@ func buildOps() map[string]opFunc {
 	}
 
 	for _, c := range cruds() {
-		for k, v := range c.ops {
-			ops[k] = v
-		}
+		maps.Copy(ops, c.ops)
 	}
 
 	return ops
@@ -260,7 +265,11 @@ func (h *Handler) connectLpg(q *req) error {
 		return err
 	}
 
-	if aerr := h.Backend.ConnectLocalPeeringGateways(q.param("localPeeringGatewayId"), in.PeerID, q.ifMatch()); aerr != nil {
+	if aerr := h.Backend.ConnectLocalPeeringGateways(
+		q.param("localPeeringGatewayId"),
+		in.PeerID,
+		q.ifMatch(),
+	); aerr != nil {
 		return aerr
 	}
 
