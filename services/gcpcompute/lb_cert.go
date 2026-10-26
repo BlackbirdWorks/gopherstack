@@ -93,7 +93,9 @@ func prepManagedCert(c lbCtx, in *computeapi.SslCertificate) *APIError {
 	}
 
 	if in.Certificate != "" || in.PrivateKey != "" || in.SelfManaged != nil {
-		return errInvalid("Invalid value for field 'resource': a MANAGED certificate takes no certificate or private key.")
+		return errInvalid(
+			"Invalid value for field 'resource': a MANAGED certificate takes no certificate or private key.",
+		)
 	}
 
 	if len(in.Managed.Domains) > maxManagedSANs {

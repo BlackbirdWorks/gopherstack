@@ -17,7 +17,12 @@ const (
 	schemeInternalManaged = "INTERNAL_MANAGED"
 	schemeSelfManaged     = "INTERNAL_SELF_MANAGED"
 	protoHTTP             = "HTTP"
+	protoHTTPS            = "HTTPS"
+	protoHTTP2            = "HTTP2"
+	protoGRPC             = "GRPC"
+	protoUDP              = "UDP"
 	protoTCP              = "TCP"
+	affinityNone          = "NONE"
 	modeUtilization       = "UTILIZATION"
 	modeRate              = "RATE"
 	modeConnection        = "CONNECTION"
@@ -32,14 +37,14 @@ const (
 
 var (
 	bsProtocols = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-		"HTTP": true, "HTTPS": true, "HTTP2": true, "H2C": true, "GRPC": true,
-		"TCP": true, "SSL": true, "UDP": true, "UNSPECIFIED": true,
+		protoHTTP: true, protoHTTPS: true, protoHTTP2: true, "H2C": true, protoGRPC: true,
+		protoTCP: true, "SSL": true, protoUDP: true, "UNSPECIFIED": true,
 	}
 	bsHTTPProtocols = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-		"HTTP": true, "HTTPS": true, "HTTP2": true, "H2C": true, "GRPC": true,
+		protoHTTP: true, protoHTTPS: true, protoHTTP2: true, "H2C": true, protoGRPC: true,
 	}
 	bsAffinities = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-		"NONE": true, "CLIENT_IP": true, "CLIENT_IP_PROTO": true, "CLIENT_IP_PORT_PROTO": true,
+		affinityNone: true, "CLIENT_IP": true, "CLIENT_IP_PROTO": true, "CLIENT_IP_PORT_PROTO": true,
 		"GENERATED_COOKIE": true, "HEADER_FIELD": true, "HTTP_COOKIE": true, "STRONG_COOKIE_AFFINITY": true,
 	}
 	cacheModes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
@@ -141,7 +146,11 @@ func prepBackendService(b *InMemoryBackend, c lbCtx, in *computeapi.BackendServi
 	}
 
 	if len(hcs) > 1 {
-		return errField("resource.healthChecks", strings.Join(in.HealthChecks, ","), "At most one health check is allowed.")
+		return errField(
+			"resource.healthChecks",
+			strings.Join(in.HealthChecks, ","),
+			"At most one health check is allowed.",
+		)
 	}
 
 	in.HealthChecks = hcs
@@ -166,8 +175,12 @@ func normalizeBSProtocol(in *computeapi.BackendService) *APIError {
 	}
 
 	if in.LoadBalancingScheme == schemeInternal && in.Protocol != protoTCP &&
-		in.Protocol != "UDP" && in.Protocol != "UNSPECIFIED" {
-		return errField("resource.protocol", in.Protocol, "An INTERNAL backend service supports TCP, UDP and UNSPECIFIED.")
+		in.Protocol != protoUDP && in.Protocol != "UNSPECIFIED" {
+		return errField(
+			"resource.protocol",
+			in.Protocol,
+			"An INTERNAL backend service supports TCP, UDP and UNSPECIFIED.",
+		)
 	}
 
 	if in.Port < 0 || in.Port > hcMaxPort {
@@ -188,7 +201,7 @@ func normalizeBSScalars(in *computeapi.BackendService) *APIError {
 	}
 
 	if in.SessionAffinity == "" {
-		in.SessionAffinity = "NONE"
+		in.SessionAffinity = affinityNone
 	}
 
 	if !bsAffinities[in.SessionAffinity] {
@@ -333,6 +346,10 @@ func rawHas(list []any, i int, field string) bool {
 	return ok
 }
 
+func internetNEG(n *computeapi.NetworkEndpointGroup) bool {
+	return n != nil && (n.NetworkEndpointType == negInternetIPPort || n.NetworkEndpointType == negInternetFQDN)
+}
+
 func (b *InMemoryBackend) prepBackendsLocked(c lbCtx, in *computeapi.BackendService, raw map[string]any) *APIError {
 	rb := rawBackends(raw)
 	keep := rb == nil
@@ -358,8 +375,7 @@ func (b *InMemoryBackend) prepBackendsLocked(c lbCtx, in *computeapi.BackendServ
 		serverless := g.neg != nil && g.neg.NetworkEndpointType == negServerless
 		needsHC = needsHC || !serverless
 
-		if g.neg != nil && g.neg.NetworkEndpointType == negInternetIPPort && c.scope != scopeGlobal ||
-			g.neg != nil && g.neg.NetworkEndpointType == negInternetFQDN && c.scope != scopeGlobal {
+		if internetNEG(g.neg) && c.scope != scopeGlobal {
 			return errField("resource.backends.group", be.Group, "Internet NEGs need a global backend service.")
 		}
 
@@ -375,19 +391,7 @@ func (b *InMemoryBackend) prepBackendsLocked(c lbCtx, in *computeapi.BackendServ
 	return nil
 }
 
-func normalizeBackend(in *computeapi.BackendService, be *computeapi.Backend, g backendGroup, serverless, scalerSet bool) *APIError {
-	if serverless {
-		if be.BalancingMode != "" {
-			return errField("resource.backends.balancingMode", be.BalancingMode, "Serverless NEG backends take no balancing mode.")
-		}
-
-		return nil
-	}
-
-	if be.BalancingMode == "" {
-		be.BalancingMode = defaultBalancingMode(in, g)
-	}
-
+func checkBalancingMode(be *computeapi.Backend, g backendGroup) *APIError {
 	switch be.BalancingMode {
 	case modeUtilization:
 		if g.neg != nil {
@@ -409,6 +413,35 @@ func normalizeBackend(in *computeapi.BackendService, be *computeapi.Backend, g b
 	case modeConnection:
 	default:
 		return errField("resource.backends.balancingMode", be.BalancingMode, "")
+	}
+
+	return nil
+}
+
+func normalizeBackend(
+	in *computeapi.BackendService,
+	be *computeapi.Backend,
+	g backendGroup,
+	serverless, scalerSet bool,
+) *APIError {
+	if serverless {
+		if be.BalancingMode != "" {
+			return errField(
+				"resource.backends.balancingMode",
+				be.BalancingMode,
+				"Serverless NEG backends take no balancing mode.",
+			)
+		}
+
+		return nil
+	}
+
+	if be.BalancingMode == "" {
+		be.BalancingMode = defaultBalancingMode(in, g)
+	}
+
+	if err := checkBalancingMode(be, g); err != nil {
+		return err
 	}
 
 	if !scalerSet && be.CapacityScaler == 0 {
@@ -478,7 +511,10 @@ func checkSignedKey(names []string, key *computeapi.SignedUrlKey) *APIError {
 	}
 
 	if slices.Contains(names, key.KeyName) {
-		return errInvalid("Invalid value for field 'keyName': '%s'. A signed URL key with this name exists.", key.KeyName)
+		return errInvalid(
+			"Invalid value for field 'keyName': '%s'. A signed URL key with this name exists.",
+			key.KeyName,
+		)
 	}
 
 	if len(names) >= maxSignedKeys {
@@ -491,59 +527,97 @@ func checkSignedKey(names []string, key *computeapi.SignedUrlKey) *APIError {
 func (b *InMemoryBackend) addBackendServiceKey(
 	c lbCtx, name string, key *computeapi.SignedUrlKey,
 ) (*computeapi.Operation, error) {
-	return lbMutate(b, bsSpec(), c, name, "addSignedUrlKey", nil, func(cur *computeapi.BackendService) (*computeapi.BackendService, *APIError) {
-		if cur.CdnPolicy == nil {
-			cur.CdnPolicy = &computeapi.BackendServiceCdnPolicy{}
-		}
+	return lbMutate(
+		b,
+		bsSpec(),
+		c,
+		name,
+		"addSignedUrlKey",
+		nil,
+		func(cur *computeapi.BackendService) (*computeapi.BackendService, *APIError) {
+			if cur.CdnPolicy == nil {
+				cur.CdnPolicy = &computeapi.BackendServiceCdnPolicy{}
+			}
 
-		if err := checkSignedKey(cur.CdnPolicy.SignedUrlKeyNames, key); err != nil {
-			return nil, err
-		}
+			if err := checkSignedKey(cur.CdnPolicy.SignedUrlKeyNames, key); err != nil {
+				return nil, err
+			}
 
-		cur.CdnPolicy.SignedUrlKeyNames = append(cur.CdnPolicy.SignedUrlKeyNames, key.KeyName)
+			cur.CdnPolicy.SignedUrlKeyNames = append(cur.CdnPolicy.SignedUrlKeyNames, key.KeyName)
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }
 
 func (b *InMemoryBackend) deleteBackendServiceKey(c lbCtx, name, keyName string) (*computeapi.Operation, error) {
-	return lbMutate(b, bsSpec(), c, name, "deleteSignedUrlKey", nil, func(cur *computeapi.BackendService) (*computeapi.BackendService, *APIError) {
-		if cur.CdnPolicy == nil || !slices.Contains(cur.CdnPolicy.SignedUrlKeyNames, keyName) {
-			return nil, errInvalid("Invalid value for field 'keyName': '%s'. No such signed URL key.", keyName)
-		}
+	return lbMutate(
+		b,
+		bsSpec(),
+		c,
+		name,
+		"deleteSignedUrlKey",
+		nil,
+		func(cur *computeapi.BackendService) (*computeapi.BackendService, *APIError) {
+			if cur.CdnPolicy == nil || !slices.Contains(cur.CdnPolicy.SignedUrlKeyNames, keyName) {
+				return nil, errInvalid("Invalid value for field 'keyName': '%s'. No such signed URL key.", keyName)
+			}
 
-		cur.CdnPolicy.SignedUrlKeyNames = slices.DeleteFunc(cur.CdnPolicy.SignedUrlKeyNames, func(s string) bool { return s == keyName })
+			cur.CdnPolicy.SignedUrlKeyNames = slices.DeleteFunc(
+				cur.CdnPolicy.SignedUrlKeyNames,
+				func(s string) bool { return s == keyName },
+			)
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }
 
 func (b *InMemoryBackend) addBackendBucketKey(
 	c lbCtx, name string, key *computeapi.SignedUrlKey,
 ) (*computeapi.Operation, error) {
-	return lbMutate(b, bucketSpec(), c, name, "addSignedUrlKey", nil, func(cur *computeapi.BackendBucket) (*computeapi.BackendBucket, *APIError) {
-		if cur.CdnPolicy == nil {
-			cur.CdnPolicy = &computeapi.BackendBucketCdnPolicy{}
-		}
+	return lbMutate(
+		b,
+		bucketSpec(),
+		c,
+		name,
+		"addSignedUrlKey",
+		nil,
+		func(cur *computeapi.BackendBucket) (*computeapi.BackendBucket, *APIError) {
+			if cur.CdnPolicy == nil {
+				cur.CdnPolicy = &computeapi.BackendBucketCdnPolicy{}
+			}
 
-		if err := checkSignedKey(cur.CdnPolicy.SignedUrlKeyNames, key); err != nil {
-			return nil, err
-		}
+			if err := checkSignedKey(cur.CdnPolicy.SignedUrlKeyNames, key); err != nil {
+				return nil, err
+			}
 
-		cur.CdnPolicy.SignedUrlKeyNames = append(cur.CdnPolicy.SignedUrlKeyNames, key.KeyName)
+			cur.CdnPolicy.SignedUrlKeyNames = append(cur.CdnPolicy.SignedUrlKeyNames, key.KeyName)
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }
 
 func (b *InMemoryBackend) deleteBackendBucketKey(c lbCtx, name, keyName string) (*computeapi.Operation, error) {
-	return lbMutate(b, bucketSpec(), c, name, "deleteSignedUrlKey", nil, func(cur *computeapi.BackendBucket) (*computeapi.BackendBucket, *APIError) {
-		if cur.CdnPolicy == nil || !slices.Contains(cur.CdnPolicy.SignedUrlKeyNames, keyName) {
-			return nil, errInvalid("Invalid value for field 'keyName': '%s'. No such signed URL key.", keyName)
-		}
+	return lbMutate(
+		b,
+		bucketSpec(),
+		c,
+		name,
+		"deleteSignedUrlKey",
+		nil,
+		func(cur *computeapi.BackendBucket) (*computeapi.BackendBucket, *APIError) {
+			if cur.CdnPolicy == nil || !slices.Contains(cur.CdnPolicy.SignedUrlKeyNames, keyName) {
+				return nil, errInvalid("Invalid value for field 'keyName': '%s'. No such signed URL key.", keyName)
+			}
 
-		cur.CdnPolicy.SignedUrlKeyNames = slices.DeleteFunc(cur.CdnPolicy.SignedUrlKeyNames, func(s string) bool { return s == keyName })
+			cur.CdnPolicy.SignedUrlKeyNames = slices.DeleteFunc(
+				cur.CdnPolicy.SignedUrlKeyNames,
+				func(s string) bool { return s == keyName },
+			)
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }

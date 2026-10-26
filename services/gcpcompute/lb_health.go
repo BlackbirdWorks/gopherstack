@@ -71,7 +71,11 @@ func (b *InMemoryBackend) backendServiceHealth(
 	}
 
 	if !member {
-		return nil, errInvalid("Invalid value for field 'group': '%s'. The group is not a backend of '%s'.", group, name)
+		return nil, errInvalid(
+			"Invalid value for field 'group': '%s'. The group is not a backend of '%s'.",
+			group,
+			name,
+		)
 	}
 
 	out := &computeapi.BackendServiceGroupHealth{Kind: "compute#backendServiceGroupHealth"}

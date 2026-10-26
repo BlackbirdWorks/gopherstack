@@ -2,7 +2,6 @@ package gcpcompute
 
 import (
 	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -16,10 +15,23 @@ const (
 	targetKindCnt = 4
 )
 
-var (
-	tcpProxyPorts = []int64{25, 43, 110, 143, 195, 443, 465, 587, 700, 993, 995, 1883, 5222} //nolint:gochecknoglobals // read-only lookup table
-	ruleProtocols = []string{protoTCP, "UDP", "ESP", "AH", "SCTP", "ICMP", protoL3}          //nolint:gochecknoglobals // read-only lookup table
-)
+func classicTCPPort(p int64) bool {
+	switch p {
+	case 25, 43, 110, 143, 195, 443, 465, 587, 700, 993, 995, 1883, 5222:
+		return true
+	}
+
+	return false
+}
+
+func validRuleProtocol(p string) bool {
+	switch p {
+	case protoTCP, protoUDP, "ESP", "AH", "SCTP", "ICMP", protoL3:
+		return true
+	}
+
+	return false
+}
 
 func fwdRuleSpec() lbSpec[computeapi.ForwardingRule] {
 	return lbSpec[computeapi.ForwardingRule]{
@@ -97,49 +109,33 @@ func (b *InMemoryBackend) resolveRuleTargetLocked(c lbCtx, in *computeapi.Forwar
 
 // proxyServiceLocked returns the backend service a proxy ultimately sends traffic to, if it is a service.
 func (b *InMemoryBackend) proxyServiceLocked(target string) *computeapi.BackendService {
-	var svc string
+	svc := ""
 
 	switch ruleTargetKind(target) {
 	case collHTTPProxy:
-		for _, p := range b.httpProxies {
-			if p.SelfLink == target {
-				svc = b.urlMapDefaultLocked(p.UrlMap)
-			}
+		if p := lbFind(b, httpProxySpec(), target); p != nil {
+			svc = b.urlMapDefaultLocked(p.UrlMap)
 		}
 	case collHTTPSProxy:
-		for _, p := range b.httpsProxies {
-			if p.SelfLink == target {
-				svc = b.urlMapDefaultLocked(p.UrlMap)
-			}
+		if p := lbFind(b, httpsProxySpec(), target); p != nil {
+			svc = b.urlMapDefaultLocked(p.UrlMap)
 		}
 	case collTCPProxy:
-		for _, p := range b.tcpProxies {
-			if p.SelfLink == target {
-				svc = p.Service
-			}
+		if p := lbFind(b, tcpProxySpec(), target); p != nil {
+			svc = p.Service
 		}
 	case collSSLProxy:
-		for _, p := range b.sslProxies {
-			if p.SelfLink == target {
-				svc = p.Service
-			}
+		if p := lbFind(b, sslProxySpec(), target); p != nil {
+			svc = p.Service
 		}
 	}
 
-	for _, bs := range b.backendSvcs {
-		if bs.SelfLink == svc {
-			return bs
-		}
-	}
-
-	return nil
+	return lbFind(b, bsSpec(), svc)
 }
 
 func (b *InMemoryBackend) urlMapDefaultLocked(link string) string {
-	for _, m := range b.urlMaps {
-		if m.SelfLink == link {
-			return firstService(m.DefaultService, m.DefaultRouteAction)
-		}
+	if m := lbFind(b, urlMapSpec(), link); m != nil {
+		return firstService(m.DefaultService, m.DefaultRouteAction)
 	}
 
 	return ""
@@ -157,7 +153,9 @@ func prepForwardingRule(b *InMemoryBackend, c lbCtx, in *computeapi.ForwardingRu
 	}
 
 	if (in.Target == "") == (in.BackendService == "") {
-		return errInvalid("Invalid value for field 'resource': exactly one of target or backendService must be specified.")
+		return errInvalid(
+			"Invalid value for field 'resource': exactly one of target or backendService must be specified.",
+		)
 	}
 
 	if err := b.resolveRuleBackendLocked(c, in); err != nil {
@@ -227,7 +225,11 @@ func (b *InMemoryBackend) resolveRuleBackendLocked(c lbCtx, in *computeapi.Forwa
 	in.Target = l
 
 	if c.scope == scopeRegion && scheme == schemeExternal || scheme == schemeInternal {
-		return errField("resource.loadBalancingScheme", scheme, "A proxy target needs a managed or self-managed scheme.")
+		return errField(
+			"resource.loadBalancingScheme",
+			scheme,
+			"A proxy target needs a managed or self-managed scheme.",
+		)
 	}
 
 	return b.schemeMatchesLocked(b.proxySvcLink(l), scheme)
@@ -289,7 +291,9 @@ func (b *InMemoryBackend) prepRuleNetworkLocked(c lbCtx, in *computeapi.Forwardi
 		in.Network = n.SelfLink
 	default:
 		if in.Network != "" || in.Subnetwork != "" {
-			return errInvalid("Invalid value for field 'resource.network': external rules take no network or subnetwork.")
+			return errInvalid(
+				"Invalid value for field 'resource.network': external rules take no network or subnetwork.",
+			)
 		}
 	}
 
@@ -301,7 +305,7 @@ func prepRulePorts(in *computeapi.ForwardingRule) *APIError {
 		in.IPProtocol = protoTCP
 	}
 
-	if !slices.Contains(ruleProtocols, in.IPProtocol) {
+	if !validRuleProtocol(in.IPProtocol) {
 		return errField("resource.IPProtocol", in.IPProtocol, "")
 	}
 
@@ -318,7 +322,9 @@ func prepRulePorts(in *computeapi.ForwardingRule) *APIError {
 	}
 
 	if set != 1 {
-		return errInvalid("Invalid value for field 'resource': exactly one of portRange, ports or allPorts must be specified.")
+		return errInvalid(
+			"Invalid value for field 'resource': exactly one of portRange, ports or allPorts must be specified.",
+		)
 	}
 
 	if in.PortRange != "" && in.LoadBalancingScheme == schemeInternal {
@@ -374,7 +380,11 @@ func prepProxyRulePorts(in *computeapi.ForwardingRule) *APIError {
 	}
 
 	if lo != hi || !classicPortOK(ruleTargetKind(in.Target), lo) {
-		return errField("resource.portRange", in.PortRange, "Not a port the target proxy type supports for EXTERNAL rules.")
+		return errField(
+			"resource.portRange",
+			in.PortRange,
+			"Not a port the target proxy type supports for EXTERNAL rules.",
+		)
 	}
 
 	return nil
@@ -388,7 +398,7 @@ func classicPortOK(kind string, p int64) bool {
 		return p == portHTTPS
 	}
 
-	return slices.Contains(tcpProxyPorts, p)
+	return classicTCPPort(p)
 }
 
 func (b *InMemoryBackend) prepRuleIPLocked(c lbCtx, in *computeapi.ForwardingRule) *APIError {
@@ -450,30 +460,9 @@ func (b *InMemoryBackend) reservedRuleIPLocked(c lbCtx, raw string, internal boo
 		want = addrInternal
 	}
 
-	var found *computeapi.Address
-
-	if ip, err := netip.ParseAddr(raw); err == nil && ip.Is4() {
-		for _, a := range b.addresses {
-			if a.Address == raw && addrInScope(a, c) && a.AddressType != "" {
-				found = a
-			}
-		}
-
-		if found == nil {
-			return "", errField("resource.IPAddress", raw, "The address is not a reserved address in this scope.")
-		}
-	} else {
-		r, ok := parseRef(raw, collAddresses, c.project, c.loc)
-		if !ok {
-			return "", errField("resource.IPAddress", raw, "Not an IP address or reserved address reference.")
-		}
-
-		a, aerr := b.getAddressLocked(r.project, c.scope, c.loc, r.name)
-		if aerr != nil {
-			return "", aerr
-		}
-
-		found = a
+	found, err := b.findReservedLocked(c, raw)
+	if err != nil {
+		return "", err
 	}
 
 	if found.AddressType != want {
@@ -481,6 +470,25 @@ func (b *InMemoryBackend) reservedRuleIPLocked(c lbCtx, raw string, internal boo
 	}
 
 	return found.Address, nil
+}
+
+func (b *InMemoryBackend) findReservedLocked(c lbCtx, raw string) (*computeapi.Address, *APIError) {
+	if ip, err := netip.ParseAddr(raw); err == nil && ip.Is4() {
+		for _, a := range b.addresses {
+			if a.Address == raw && addrInScope(a, c) && a.AddressType != "" {
+				return a, nil
+			}
+		}
+
+		return nil, errField("resource.IPAddress", raw, "The address is not a reserved address in this scope.")
+	}
+
+	r, ok := parseRef(raw, collAddresses, c.project, c.loc)
+	if !ok {
+		return nil, errField("resource.IPAddress", raw, "Not an IP address or reserved address reference.")
+	}
+
+	return b.getAddressLocked(r.project, c.scope, c.loc, r.name)
 }
 
 func addrInScope(a *computeapi.Address, c lbCtx) bool {
@@ -515,7 +523,8 @@ func (b *InMemoryBackend) ruleConflictLocked(in *computeapi.ForwardingRule) *API
 	lo, hi := rulePortSpan(in)
 
 	for _, o := range b.fwdRules {
-		if o.IPAddress != in.IPAddress || o.IPProtocol != in.IPProtocol || o.Region != in.Region || o.SelfLink == in.SelfLink {
+		if o.IPAddress != in.IPAddress || o.IPProtocol != in.IPProtocol || o.Region != in.Region ||
+			o.SelfLink == in.SelfLink {
 			continue
 		}
 
@@ -530,26 +539,42 @@ func (b *InMemoryBackend) ruleConflictLocked(in *computeapi.ForwardingRule) *API
 }
 
 func (b *InMemoryBackend) setRuleTarget(c lbCtx, name, target string) (*computeapi.Operation, error) {
-	return lbMutate(b, fwdRuleSpec(), c, name, "setTarget", nil, func(cur *computeapi.ForwardingRule) (*computeapi.ForwardingRule, *APIError) {
-		if cur.Target == "" {
-			return nil, errInvalid("The forwarding rule targets a backend service; setTarget needs a target.")
-		}
+	return lbMutate(
+		b,
+		fwdRuleSpec(),
+		c,
+		name,
+		"setTarget",
+		nil,
+		func(cur *computeapi.ForwardingRule) (*computeapi.ForwardingRule, *APIError) {
+			if cur.Target == "" {
+				return nil, errInvalid("The forwarding rule targets a backend service; setTarget needs a target.")
+			}
 
-		cur.Target = target
+			cur.Target = target
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }
 
 func (b *InMemoryBackend) setRuleLabels(c lbCtx, name string, req labelsRequest) (*computeapi.Operation, error) {
-	return lbMutate(b, fwdRuleSpec(), c, name, "setLabels", nil, func(cur *computeapi.ForwardingRule) (*computeapi.ForwardingRule, *APIError) {
-		labels, _, err := applyLabels(cur.Labels, cur.LabelFingerprint, req)
-		if err != nil {
-			return nil, err
-		}
+	return lbMutate(
+		b,
+		fwdRuleSpec(),
+		c,
+		name,
+		"setLabels",
+		nil,
+		func(cur *computeapi.ForwardingRule) (*computeapi.ForwardingRule, *APIError) {
+			labels, _, err := applyLabels(cur.Labels, cur.LabelFingerprint, req)
+			if err != nil {
+				return nil, err
+			}
 
-		cur.Labels = labels
+			cur.Labels = labels
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }

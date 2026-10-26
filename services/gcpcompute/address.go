@@ -53,15 +53,7 @@ func (b *InMemoryBackend) usedExternalLocked() map[string]bool {
 		}
 	}
 
-	for _, r := range b.instances {
-		for _, nic := range r.Inst.NetworkInterfaces {
-			for _, ac := range nic.AccessConfigs {
-				if ac.NatIP != "" {
-					used[ac.NatIP] = true
-				}
-			}
-		}
-	}
+	b.markNatIPsLocked(used)
 
 	for _, r := range b.routers {
 		for _, ips := range r.AutoIPs {
@@ -78,6 +70,18 @@ func (b *InMemoryBackend) usedExternalLocked() map[string]bool {
 	}
 
 	return used
+}
+
+func (b *InMemoryBackend) markNatIPsLocked(used map[string]bool) {
+	for _, r := range b.instances {
+		for _, nic := range r.Inst.NetworkInterfaces {
+			for _, ac := range nic.AccessConfigs {
+				if ac.NatIP != "" {
+					used[ac.NatIP] = true
+				}
+			}
+		}
+	}
 }
 
 // allocExternalLocked takes the lowest free public address from the region's pool ("" is the global pool).

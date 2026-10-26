@@ -40,12 +40,12 @@ func (e *env) finish(t *testing.T, op *compute.Operation, err error) error {
 	return op.Wait(t.Context())
 }
 
-func (e *env) lbHC(t *testing.T, name string) {
+func (e *env) lbHC(t *testing.T) {
 	t.Helper()
 
 	op, err := e.healthChecks(t).Insert(t.Context(), &computepb.InsertHealthCheckRequest{
 		Project: project, HealthCheckResource: &computepb.HealthCheck{
-			Name: s(name), HttpHealthCheck: &computepb.HTTPHealthCheck{},
+			Name: s("hc"), HttpHealthCheck: &computepb.HTTPHealthCheck{},
 		},
 	})
 	e.done(t, op, err)
@@ -72,7 +72,7 @@ func (e *env) lbMap(t *testing.T, um *computepb.UrlMap) error {
 // lbStack creates hc, an unmanaged group ig, backend service bs and url map um.
 func (e *env) lbStack(t *testing.T) {
 	t.Helper()
-	e.lbHC(t, "hc")
+	e.lbHC(t)
 	e.group(t, "ig")
 	require.NoError(t, e.lbBS(t, &computepb.BackendService{
 		Name: s("bs"), HealthChecks: []string{hcRef},

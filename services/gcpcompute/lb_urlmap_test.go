@@ -48,7 +48,10 @@ func TestURLMapInsert(t *testing.T) {
 		{
 			name: "duplicate host", status: http.StatusBadRequest, reason: "invalid",
 			mutate: func(m *computepb.UrlMap) {
-				m.HostRules = append(m.HostRules, &computepb.HostRule{Hosts: []string{"*.example.com"}, PathMatcher: s("pm")})
+				m.HostRules = append(
+					m.HostRules,
+					&computepb.HostRule{Hosts: []string{"*.example.com"}, PathMatcher: s("pm")},
+				)
 			},
 		},
 		{
@@ -104,7 +107,11 @@ func TestURLMapInsert(t *testing.T) {
 
 			require.NoError(t, err)
 
-			got, gerr := client(t, e, compute.NewUrlMapsRESTClient).Get(t.Context(), &computepb.GetUrlMapRequest{Project: project, UrlMap: "um2"})
+			got, gerr := client(
+				t,
+				e,
+				compute.NewUrlMapsRESTClient,
+			).Get(t.Context(), &computepb.GetUrlMapRequest{Project: project, UrlMap: "um2"})
 			require.NoError(t, gerr)
 			assert.Contains(t, got.GetDefaultService(), "/global/backendServices/bs")
 			assert.Contains(t, got.GetPathMatchers()[0].GetPathRules()[0].GetService(), "/backendServices/api")
@@ -146,7 +153,11 @@ func TestURLMapValidate(t *testing.T) {
 			m := twoBackendMap("probe")
 			tt.mutate(m)
 
-			res, err := client(t, e, compute.NewUrlMapsRESTClient).Validate(t.Context(), &computepb.ValidateUrlMapRequest{
+			res, err := client(
+				t,
+				e,
+				compute.NewUrlMapsRESTClient,
+			).Validate(t.Context(), &computepb.ValidateUrlMapRequest{
 				Project: project, UrlMap: "um",
 				UrlMapsValidateRequestResource: &computepb.UrlMapsValidateRequest{Resource: m},
 			})
@@ -187,7 +198,7 @@ func TestRegionalURLMap(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, got.GetSelfLink(), "/regions/"+region+"/urlMaps/rum")
 
-	e.lbHC(t, "hc")
+	e.lbHC(t)
 	e.group(t, "ig")
 	require.NoError(t, e.lbBS(t, &computepb.BackendService{Name: s("bs"), HealthChecks: []string{hcRef}}))
 

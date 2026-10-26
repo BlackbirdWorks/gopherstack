@@ -38,14 +38,6 @@ func (c lbCtx) locKey() string {
 	return c.loc
 }
 
-func (c lbCtx) entryScope() string {
-	if c.scope == scopeGlobal {
-		return scopeGlobal
-	}
-
-	return c.scope + "/" + c.loc
-}
-
 // lbMeta points at the identity fields every load-balancing resource carries.
 type lbMeta struct {
 	name    *string
@@ -397,6 +389,21 @@ func (b *InMemoryBackend) lbUsersLocked(self string) []string {
 func (b *InMemoryBackend) lbInUseLocked(noun, self string) *APIError {
 	if users := b.lbUsersLocked(self); len(users) > 0 {
 		return errInUse(noun, trimURL(self), trimURL(users[0]))
+	}
+
+	return nil
+}
+
+// lbFind returns the stored resource with the given selfLink, or nil.
+func lbFind[T any](b *InMemoryBackend, sp lbSpec[T], self string) *T {
+	if self == "" {
+		return nil
+	}
+
+	for _, v := range sp.m(b) {
+		if *sp.meta(v).self == self {
+			return v
+		}
 	}
 
 	return nil

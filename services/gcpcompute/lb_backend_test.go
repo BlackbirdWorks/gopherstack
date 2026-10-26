@@ -87,7 +87,10 @@ func TestBackendServiceInsert(t *testing.T) {
 		{
 			name: "unknown group", status: http.StatusNotFound, reason: "notFound",
 			bs: &computepb.BackendService{
-				HealthChecks: []string{hcRef}, Backends: []*computepb.Backend{{Group: s("zones/" + zone + "/instanceGroups/x")}},
+				HealthChecks: []string{
+					hcRef,
+				},
+				Backends: []*computepb.Backend{{Group: s("zones/" + zone + "/instanceGroups/x")}},
 			},
 		},
 		{
@@ -118,7 +121,7 @@ func TestBackendServiceInsert(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.lbHC(t, "hc")
+			e.lbHC(t)
 			e.group(t, "ig")
 
 			tt.bs.Name = s("bs")
@@ -149,10 +152,14 @@ func TestBackendServiceLifecycle(t *testing.T) {
 	bss := client(t, e, compute.NewBackendServicesRESTClient)
 
 	t.Run("duplicate", func(t *testing.T) {
+		t.Parallel()
+
 		assertAPIError(t, e.lbBS(t, &computepb.BackendService{Name: s("bs")}), http.StatusConflict, "alreadyExists")
 	})
 
 	t.Run("patch keeps backends and changes fingerprint", func(t *testing.T) {
+		t.Parallel()
+
 		before, err := bss.Get(t.Context(), &computepb.GetBackendServiceRequest{Project: project, BackendService: "bs"})
 		require.NoError(t, err)
 
@@ -170,6 +177,8 @@ func TestBackendServiceLifecycle(t *testing.T) {
 	})
 
 	t.Run("update needs current fingerprint", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := bss.Update(t.Context(), &computepb.UpdateBackendServiceRequest{
 			Project: project, BackendService: "bs",
 			BackendServiceResource: &computepb.BackendService{Name: s("bs"), Fingerprint: s("stale")},
@@ -178,6 +187,8 @@ func TestBackendServiceLifecycle(t *testing.T) {
 	})
 
 	t.Run("list and aggregated", func(t *testing.T) {
+		t.Parallel()
+
 		n := 0
 		it := bss.List(t.Context(), &computepb.ListBackendServicesRequest{Project: project})
 
@@ -232,14 +243,22 @@ func TestRegionalBackendService(t *testing.T) {
 			rhc := client(t, e, compute.NewRegionHealthChecksRESTClient)
 
 			op, err := rhc.Insert(t.Context(), &computepb.InsertRegionHealthCheckRequest{
-				Project: project, Region: region,
-				HealthCheckResource: &computepb.HealthCheck{Name: s("rhc"), TcpHealthCheck: &computepb.TCPHealthCheck{}},
+				Project: project,
+				Region:  region,
+				HealthCheckResource: &computepb.HealthCheck{
+					Name:           s("rhc"),
+					TcpHealthCheck: &computepb.TCPHealthCheck{},
+				},
 			})
 			e.done(t, op, err)
 
 			op, err = rbs.Insert(t.Context(), &computepb.InsertRegionBackendServiceRequest{
 				Project: project, Region: region, BackendServiceResource: &computepb.BackendService{
-					Name: s("rbs"), LoadBalancingScheme: s(tt.scheme), HealthChecks: []string{regBase + "healthChecks/rhc"},
+					Name: s(
+						"rbs",
+					),
+					LoadBalancingScheme: s(tt.scheme),
+					HealthChecks:        []string{regBase + "healthChecks/rhc"},
 				},
 			})
 
@@ -273,9 +292,9 @@ func TestBackendServiceGetHealth(t *testing.T) {
 
 	tests := []struct {
 		name  string
+		state string
 		hcs   []string
 		stop  bool
-		state string
 	}{
 		{name: "running with health check", hcs: []string{hcRef}, state: "HEALTHY"},
 		{name: "stopped with health check", hcs: []string{hcRef}, stop: true, state: "UNHEALTHY"},
@@ -287,7 +306,7 @@ func TestBackendServiceGetHealth(t *testing.T) {
 
 			e := newEnv(t)
 			e.baseNet(t)
-			e.lbHC(t, "hc")
+			e.lbHC(t)
 			e.group(t, "ig")
 			e.vm(t, vmSpec("vm1"))
 			require.NoError(t, e.addToGroup(t, "ig", "vm1"))
@@ -316,8 +335,11 @@ func TestBackendServiceGetHealth(t *testing.T) {
 			assert.Equal(t, int32(80), h.GetHealthStatus()[0].GetPort())
 
 			_, err = bss.GetHealth(t.Context(), &computepb.GetHealthBackendServiceRequest{
-				Project: project, BackendService: "bs",
-				ResourceGroupReferenceResource: &computepb.ResourceGroupReference{Group: s("zones/" + zone + "/instanceGroups/other")},
+				Project:        project,
+				BackendService: "bs",
+				ResourceGroupReferenceResource: &computepb.ResourceGroupReference{
+					Group: s("zones/" + zone + "/instanceGroups/other"),
+				},
 			})
 			assertAPIError(t, err, http.StatusNotFound, "notFound")
 		})
@@ -349,7 +371,10 @@ func TestBackendBucketAndSignedKeys(t *testing.T) {
 				res.BucketName = s(tt.bucket)
 			}
 
-			op, err := bb.Insert(t.Context(), &computepb.InsertBackendBucketRequest{Project: project, BackendBucketResource: res})
+			op, err := bb.Insert(
+				t.Context(),
+				&computepb.InsertBackendBucketRequest{Project: project, BackendBucketResource: res},
+			)
 			if tt.status != 0 {
 				assertAPIError(t, err, tt.status, "")
 

@@ -37,7 +37,8 @@ func TestGlobalForwardingRule(t *testing.T) {
 			check: func(t *testing.T, e *env, r *computepb.ForwardingRule) {
 				t.Helper()
 
-				a, err := e.globalAddresses(t).Get(t.Context(), &computepb.GetGlobalAddressRequest{Project: project, Address: "vip"})
+				a, err := e.globalAddresses(t).
+					Get(t.Context(), &computepb.GetGlobalAddressRequest{Project: project, Address: "vip"})
 				require.NoError(t, err)
 				assert.Equal(t, a.GetAddress(), r.GetIPAddress())
 				assert.Equal(t, "IN_USE", a.GetStatus())
@@ -48,7 +49,9 @@ func TestGlobalForwardingRule(t *testing.T) {
 			name: "no port", rule: &computepb.ForwardingRule{Target: s(proxyRef)}, status: http.StatusBadRequest,
 		},
 		{
-			name: "http proxy on 443", rule: &computepb.ForwardingRule{Target: s(proxyRef), PortRange: s("443")}, status: http.StatusBadRequest,
+			name:   "http proxy on 443",
+			rule:   &computepb.ForwardingRule{Target: s(proxyRef), PortRange: s("443")},
+			status: http.StatusBadRequest,
 		},
 		{
 			name: "target and backend service", status: http.StatusBadRequest,
@@ -67,16 +70,26 @@ func TestGlobalForwardingRule(t *testing.T) {
 			rule: &computepb.ForwardingRule{Target: s(proxyRef), PortRange: s("80"), IPProtocol: s("UDP")},
 		},
 		{
-			name: "scheme mismatch with backend", status: http.StatusBadRequest,
-			rule: &computepb.ForwardingRule{Target: s(proxyRef), PortRange: s("80"), LoadBalancingScheme: s("EXTERNAL_MANAGED")},
+			name:   "scheme mismatch with backend",
+			status: http.StatusBadRequest,
+			rule: &computepb.ForwardingRule{
+				Target:              s(proxyRef),
+				PortRange:           s("80"),
+				LoadBalancingScheme: s("EXTERNAL_MANAGED"),
+			},
 		},
 		{
 			name: "unreserved ip", status: http.StatusBadRequest,
 			rule: &computepb.ForwardingRule{Target: s(proxyRef), PortRange: s("80"), IPAddress: s("203.0.113.9")},
 		},
 		{
-			name: "internal scheme is regional", status: http.StatusBadRequest,
-			rule: &computepb.ForwardingRule{Target: s(proxyRef), PortRange: s("80"), LoadBalancingScheme: s("INTERNAL")},
+			name:   "internal scheme is regional",
+			status: http.StatusBadRequest,
+			rule: &computepb.ForwardingRule{
+				Target:              s(proxyRef),
+				PortRange:           s("80"),
+				LoadBalancingScheme: s("INTERNAL"),
+			},
 		},
 	}
 
@@ -120,21 +133,28 @@ func TestForwardingRuleConflictsAndMutations(t *testing.T) {
 	require.NoError(t, e.lbProxy(t, "px", umRef))
 	require.NoError(t, e.lbProxy(t, "px2", umRef))
 
-	op, err := e.globalAddresses(t).Insert(t.Context(), &computepb.InsertGlobalAddressRequest{
+	addrOp, addrErr := e.globalAddresses(t).Insert(t.Context(), &computepb.InsertGlobalAddressRequest{
 		Project: project, AddressResource: &computepb.Address{Name: s("vip")},
 	})
-	e.done(t, op, err)
+	e.done(t, addrOp, addrErr)
 
 	vip := s(gl + "addresses/vip")
-	require.NoError(t, e.lbRule(t, &computepb.ForwardingRule{Name: s("a"), Target: s(proxyRef), PortRange: s("80"), IPAddress: vip}))
+	require.NoError(
+		t,
+		e.lbRule(t, &computepb.ForwardingRule{Name: s("a"), Target: s(proxyRef), PortRange: s("80"), IPAddress: vip}),
+	)
 
 	t.Run("same ip and port conflicts", func(t *testing.T) {
+		t.Parallel()
+
 		assertAPIError(t, e.lbRule(t, &computepb.ForwardingRule{
 			Name: s("b"), Target: s(gl + "targetHttpProxies/px2"), PortRange: s("80"), IPAddress: vip,
 		}), http.StatusBadRequest, "invalid")
 	})
 
 	t.Run("same ip different port shares", func(t *testing.T) {
+		t.Parallel()
+
 		require.NoError(t, e.lbRule(t, &computepb.ForwardingRule{
 			Name: s("c"), Target: s(gl + "targetHttpProxies/px2"), PortRange: s("8080"), IPAddress: vip,
 		}))
@@ -143,13 +163,18 @@ func TestForwardingRuleConflictsAndMutations(t *testing.T) {
 	rules := client(t, e, compute.NewGlobalForwardingRulesRESTClient)
 
 	t.Run("set target", func(t *testing.T) {
+		t.Parallel()
+
 		op, err := rules.SetTarget(t.Context(), &computepb.SetTargetGlobalForwardingRuleRequest{
 			Project: project, ForwardingRule: "a",
 			TargetReferenceResource: &computepb.TargetReference{Target: s(gl + "targetHttpProxies/px2")},
 		})
 		e.done(t, op, err)
 
-		got, err := rules.Get(t.Context(), &computepb.GetGlobalForwardingRuleRequest{Project: project, ForwardingRule: "a"})
+		got, err := rules.Get(
+			t.Context(),
+			&computepb.GetGlobalForwardingRuleRequest{Project: project, ForwardingRule: "a"},
+		)
 		require.NoError(t, err)
 		assert.Contains(t, got.GetTarget(), "/px2")
 
@@ -161,7 +186,10 @@ func TestForwardingRuleConflictsAndMutations(t *testing.T) {
 	})
 
 	t.Run("address held while in use", func(t *testing.T) {
-		_, err := e.globalAddresses(t).Delete(t.Context(), &computepb.DeleteGlobalAddressRequest{Project: project, Address: "vip"})
+		t.Parallel()
+
+		_, err := e.globalAddresses(t).
+			Delete(t.Context(), &computepb.DeleteGlobalAddressRequest{Project: project, Address: "vip"})
 		assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 	})
 }
@@ -197,13 +225,22 @@ func TestRegionalForwardingRule(t *testing.T) {
 			rule: &computepb.ForwardingRule{LoadBalancingScheme: s("INTERNAL"), AllPorts: new(true)},
 		},
 		{
-			name: "internal rejects portRange", status: http.StatusBadRequest,
-			rule: &computepb.ForwardingRule{LoadBalancingScheme: s("INTERNAL"), Subnetwork: s(subnetRef), PortRange: s("80")},
+			name:   "internal rejects portRange",
+			status: http.StatusBadRequest,
+			rule: &computepb.ForwardingRule{
+				LoadBalancingScheme: s("INTERNAL"),
+				Subnetwork:          s(subnetRef),
+				PortRange:           s("80"),
+			},
 		},
 		{
 			name: "too many ports", status: http.StatusBadRequest,
 			rule: &computepb.ForwardingRule{
-				LoadBalancingScheme: s("INTERNAL"), Subnetwork: s(subnetRef), Ports: []string{"1", "2", "3", "4", "5", "6"},
+				LoadBalancingScheme: s(
+					"INTERNAL",
+				),
+				Subnetwork: s(subnetRef),
+				Ports:      []string{"1", "2", "3", "4", "5", "6"},
 			},
 		},
 	}
@@ -220,8 +257,12 @@ func TestRegionalForwardingRule(t *testing.T) {
 			rules := client(t, e, compute.NewForwardingRulesRESTClient)
 
 			op, err := rhc.Insert(t.Context(), &computepb.InsertRegionHealthCheckRequest{
-				Project: project, Region: region,
-				HealthCheckResource: &computepb.HealthCheck{Name: s("rhc"), TcpHealthCheck: &computepb.TCPHealthCheck{}},
+				Project: project,
+				Region:  region,
+				HealthCheckResource: &computepb.HealthCheck{
+					Name:           s("rhc"),
+					TcpHealthCheck: &computepb.TCPHealthCheck{},
+				},
 			})
 			e.done(t, op, err)
 
@@ -251,7 +292,10 @@ func TestRegionalForwardingRule(t *testing.T) {
 
 			e.done(t, op, err)
 
-			got, gerr := rules.Get(t.Context(), &computepb.GetForwardingRuleRequest{Project: project, Region: region, ForwardingRule: "rfr"})
+			got, gerr := rules.Get(
+				t.Context(),
+				&computepb.GetForwardingRuleRequest{Project: project, Region: region, ForwardingRule: "rfr"},
+			)
 			require.NoError(t, gerr)
 			assert.Contains(t, got.GetSelfLink(), "/regions/"+region+"/forwardingRules/rfr")
 			tt.check(t, got)

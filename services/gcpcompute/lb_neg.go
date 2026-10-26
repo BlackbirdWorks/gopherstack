@@ -125,16 +125,11 @@ func prepServerlessNEG(in *computeapi.NetworkEndpointGroup) *APIError {
 	}
 
 	n := 0
-	if in.CloudRun != nil {
-		n++
-	}
 
-	if in.AppEngine != nil {
-		n++
-	}
-
-	if in.CloudFunction != nil {
-		n++
+	for _, set := range []bool{in.CloudRun != nil, in.AppEngine != nil, in.CloudFunction != nil} {
+		if set {
+			n++
+		}
 	}
 
 	if n != 1 {
@@ -142,20 +137,8 @@ func prepServerlessNEG(in *computeapi.NetworkEndpointGroup) *APIError {
 			"cloudFunction must be specified for a SERVERLESS network endpoint group.")
 	}
 
-	if cr := in.CloudRun; cr != nil {
-		if cr.Service == "" && cr.UrlMask == "" {
-			return errRequired("resource.cloudRun.service")
-		}
-
-		if cr.Service != "" && cr.UrlMask != "" {
-			return errInvalid("Invalid value for field 'resource.cloudRun': service and urlMask are mutually exclusive.")
-		}
-
-		if cr.Service != "" {
-			if err := validName("resource.cloudRun.service", cr.Service); err != nil {
-				return err
-			}
-		}
+	if err := checkCloudRun(in.CloudRun); err != nil {
+		return err
 	}
 
 	if cf := in.CloudFunction; cf != nil && cf.Function == "" && cf.UrlMask == "" {
@@ -165,8 +148,19 @@ func prepServerlessNEG(in *computeapi.NetworkEndpointGroup) *APIError {
 	return nil
 }
 
-func negCtx(rq *request, scope string) lbCtx {
-	return lbCtx{project: rq.rt.project, scope: scope, loc: rq.rt.loc}
+func checkCloudRun(cr *computeapi.NetworkEndpointGroupCloudRun) *APIError {
+	switch {
+	case cr == nil:
+		return nil
+	case cr.Service == "" && cr.UrlMask == "":
+		return errRequired("resource.cloudRun.service")
+	case cr.Service != "" && cr.UrlMask != "":
+		return errInvalid("Invalid value for field 'resource.cloudRun': service and urlMask are mutually exclusive.")
+	case cr.Service != "":
+		return validName("resource.cloudRun.service", cr.Service)
+	}
+
+	return nil
 }
 
 func endpointKey(e *computeapi.NetworkEndpoint) string {
@@ -199,7 +193,11 @@ func (b *InMemoryBackend) normalizeEndpointLocked(
 		return endpointIP(e)
 	case negInternetFQDN:
 		if e.Fqdn == "" || len(e.Fqdn) > maxFQDN || e.IpAddress != "" {
-			return errField("networkEndpoints.fqdn", e.Fqdn, "An INTERNET_FQDN_PORT endpoint needs an FQDN and no IP address.")
+			return errField(
+				"networkEndpoints.fqdn",
+				e.Fqdn,
+				"An INTERNET_FQDN_PORT endpoint needs an FQDN and no IP address.",
+			)
 		}
 	}
 
@@ -264,7 +262,11 @@ func (b *InMemoryBackend) normalizeVMEndpointLocked(
 	return nil
 }
 
-func (b *InMemoryBackend) attachEndpoints(c lbCtx, name string, eps []*computeapi.NetworkEndpoint) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) attachEndpoints(
+	c lbCtx,
+	name string,
+	eps []*computeapi.NetworkEndpoint,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("AttachNetworkEndpoints")
 	defer b.mu.Unlock()
 
@@ -288,7 +290,10 @@ func (b *InMemoryBackend) attachEndpoints(c lbCtx, name string, eps []*computeap
 		}
 
 		if have[endpointKey(e)] {
-			return nil, errInvalid("Invalid value for field 'networkEndpoints': endpoint '%s' is already attached.", endpointKey(e))
+			return nil, errInvalid(
+				"Invalid value for field 'networkEndpoints': endpoint '%s' is already attached.",
+				endpointKey(e),
+			)
 		}
 
 		have[endpointKey(e)] = true
@@ -298,10 +303,18 @@ func (b *InMemoryBackend) attachEndpoints(c lbCtx, name string, eps []*computeap
 
 	b.negEndpoints[k], neg.Size = next, int64(len(next))
 
-	return b.newOpLocked(opPrefix+collNEG+".attachNetworkEndpoints", lbTargetOf(c, collNEG, name, neg.Id), b.timing.Done), nil
+	return b.newOpLocked(
+		opPrefix+collNEG+".attachNetworkEndpoints",
+		lbTargetOf(c, collNEG, name, neg.Id),
+		b.timing.Done,
+	), nil
 }
 
-func (b *InMemoryBackend) detachEndpoints(c lbCtx, name string, eps []*computeapi.NetworkEndpoint) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) detachEndpoints(
+	c lbCtx,
+	name string,
+	eps []*computeapi.NetworkEndpoint,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("DetachNetworkEndpoints")
 	defer b.mu.Unlock()
 
@@ -338,7 +351,11 @@ func (b *InMemoryBackend) detachEndpoints(c lbCtx, name string, eps []*computeap
 
 	b.negEndpoints[k], neg.Size = next, int64(len(next))
 
-	return b.newOpLocked(opPrefix+collNEG+".detachNetworkEndpoints", lbTargetOf(c, collNEG, name, neg.Id), b.timing.Done), nil
+	return b.newOpLocked(
+		opPrefix+collNEG+".detachNetworkEndpoints",
+		lbTargetOf(c, collNEG, name, neg.Id),
+		b.timing.Done,
+	), nil
 }
 
 func (b *InMemoryBackend) negForEndpointsLocked(

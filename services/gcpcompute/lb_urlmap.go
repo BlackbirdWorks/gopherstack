@@ -45,14 +45,33 @@ func urlMapTargets(m *computeapi.UrlMap) []urlTarget {
 
 	for _, pm := range m.PathMatchers {
 		f := "resource.pathMatchers[" + pm.Name + "]"
-		out = append(out, urlTarget{svc: &pm.DefaultService, ra: pm.DefaultRouteAction, redir: pm.DefaultUrlRedirect, field: f + ".defaultService"})
+		out = append(
+			out,
+			urlTarget{
+				svc:   &pm.DefaultService,
+				ra:    pm.DefaultRouteAction,
+				redir: pm.DefaultUrlRedirect,
+				field: f + ".defaultService",
+			},
+		)
 
 		for _, pr := range pm.PathRules {
-			out = append(out, urlTarget{svc: &pr.Service, ra: pr.RouteAction, redir: pr.UrlRedirect, field: f + ".pathRules.service"})
+			out = append(
+				out,
+				urlTarget{svc: &pr.Service, ra: pr.RouteAction, redir: pr.UrlRedirect, field: f + ".pathRules.service"},
+			)
 		}
 
 		for _, rr := range pm.RouteRules {
-			out = append(out, urlTarget{svc: &rr.Service, ra: rr.RouteAction, redir: rr.UrlRedirect, field: f + ".routeRules.service"})
+			out = append(
+				out,
+				urlTarget{
+					svc:   &rr.Service,
+					ra:    rr.RouteAction,
+					redir: rr.UrlRedirect,
+					field: f + ".routeRules.service",
+				},
+			)
 		}
 	}
 
@@ -275,8 +294,14 @@ func prepURLMap(b *InMemoryBackend, c lbCtx, in *computeapi.UrlMap, _ map[string
 	if fails := evalURLMapTests(in); len(fails) > 0 {
 		f := fails[0]
 
-		return errInvalid("Invalid value for field 'resource.tests': test for host '%s' path '%s' expected service '%s' "+
-			"but got '%s'.", f.Host, f.Path, f.ExpectedService, f.ActualService)
+		return errInvalid(
+			"Invalid value for field 'resource.tests': test for host '%s' path '%s' expected service '%s' "+
+				"but got '%s'.",
+			f.Host,
+			f.Path,
+			f.ExpectedService,
+			f.ActualService,
+		)
 	}
 
 	return nil
@@ -353,30 +378,32 @@ func routeRuleMatches(rr *computeapi.HttpRouteRule, path string) bool {
 		return true
 	}
 
-	for _, mr := range rr.MatchRules {
-		if len(mr.HeaderMatches) > 0 || len(mr.QueryParameterMatches) > 0 || len(mr.MetadataFilters) > 0 {
-			continue
-		}
+	return slices.ContainsFunc(rr.MatchRules, func(mr *computeapi.HttpRouteRuleMatch) bool {
+		return matchRuleMatches(mr, path)
+	})
+}
 
-		p, full, prefix := path, mr.FullPathMatch, mr.PrefixMatch
-
-		if mr.IgnoreCase {
-			p, full, prefix = strings.ToLower(p), strings.ToLower(full), strings.ToLower(prefix)
-		}
-
-		switch {
-		case full != "" && p == full, prefix != "" && strings.HasPrefix(p, prefix):
-			return true
-		case mr.RegexMatch != "":
-			if re, err := regexp.Compile("^(?:" + mr.RegexMatch + ")$"); err == nil && re.MatchString(path) {
-				return true
-			}
-		case full == "" && prefix == "" && mr.PathTemplateMatch == "":
-			return true
-		}
+func matchRuleMatches(mr *computeapi.HttpRouteRuleMatch, path string) bool {
+	if len(mr.HeaderMatches) > 0 || len(mr.QueryParameterMatches) > 0 || len(mr.MetadataFilters) > 0 {
+		return false
 	}
 
-	return false
+	p, full, prefix := path, mr.FullPathMatch, mr.PrefixMatch
+
+	if mr.IgnoreCase {
+		p, full, prefix = strings.ToLower(p), strings.ToLower(full), strings.ToLower(prefix)
+	}
+
+	switch {
+	case full != "" && p == full, prefix != "" && strings.HasPrefix(p, prefix):
+		return true
+	case mr.RegexMatch != "":
+		re, err := regexp.Compile("^(?:" + mr.RegexMatch + ")$")
+
+		return err == nil && re.MatchString(path)
+	}
+
+	return full == "" && prefix == "" && mr.PathTemplateMatch == ""
 }
 
 // routeURLMap returns the service a request for host and path is routed to ("" for a redirect or no match).
@@ -431,7 +458,10 @@ func evalURLMapTests(m *computeapi.UrlMap) []*computeapi.TestFailure {
 	return out
 }
 
-func (b *InMemoryBackend) validateURLMap(c lbCtx, req *computeapi.UrlMapsValidateRequest) (*computeapi.UrlMapsValidateResponse, error) {
+func (b *InMemoryBackend) validateURLMap(
+	c lbCtx,
+	req *computeapi.UrlMapsValidateRequest,
+) (*computeapi.UrlMapsValidateResponse, error) {
 	if req.Resource == nil {
 		return nil, errRequired("resource")
 	}

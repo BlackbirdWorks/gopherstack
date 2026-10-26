@@ -93,7 +93,10 @@ func sslProxySpec() lbSpec[computeapi.TargetSslProxy] {
 
 func keepAliveOK(v int64) *APIError {
 	if v != 0 && (v < keepAliveMin || v > keepAliveMax) {
-		return errInvalid("Invalid value for field 'resource.httpKeepAliveTimeoutSec': '%d'. Must be between 5 and 600.", v)
+		return errInvalid(
+			"Invalid value for field 'resource.httpKeepAliveTimeoutSec': '%d'. Must be between 5 and 600.",
+			v,
+		)
 	}
 
 	return nil
@@ -192,7 +195,8 @@ func prepHTTPSProxy(b *InMemoryBackend, c lbCtx, in *computeapi.TargetHttpsProxy
 		return errField("resource.quicOverride", in.QuicOverride, "")
 	}
 
-	if in.TlsEarlyData != "" && !slices.Contains([]string{tlsEarlyDataOff, "PERMISSIVE", "STRICT", "UNRESTRICTED"}, in.TlsEarlyData) {
+	if in.TlsEarlyData != "" &&
+		!slices.Contains([]string{tlsEarlyDataOff, "PERMISSIVE", "STRICT", "UNRESTRICTED"}, in.TlsEarlyData) {
 		return errField("resource.tlsEarlyData", in.TlsEarlyData, "")
 	}
 

@@ -28,20 +28,7 @@ func registerLB[T any](h *Handler, sp lbSpec[T], o lbOpts[T]) {
 		}
 
 		h.scopedList(sp.coll, scope, sp.kind+"List", aggKind, sp.coll, o.agg, list)
-
-		get := o.get
-		if get == nil {
-			get = func(h *Handler, rq *request) (any, error) { return lbGet(h.Backend, sp, ctxOf(rq), rq.rt.name) }
-		}
-
-		h.reg(sp.coll, scope, verbGet, get)
-		h.reg(sp.coll, scope, verbDelete, func(h *Handler, rq *request) (any, error) {
-			if o.del != nil {
-				return opResult(o.del(h.Backend, ctxOf(rq), rq.rt.name))
-			}
-
-			return opResult(lbDelete(h.Backend, sp, ctxOf(rq), rq.rt.name, nil))
-		})
+		registerLBReadDelete(h, sp, o, scope)
 
 		if !o.noInsert {
 			h.reg(sp.coll, scope, verbInsert, func(h *Handler, rq *request) (any, error) {
@@ -54,27 +41,47 @@ func registerLB[T any](h *Handler, sp lbSpec[T], o lbOpts[T]) {
 			})
 		}
 
-		if o.patch {
-			h.reg(sp.coll, scope, verbPatch, func(h *Handler, rq *request) (any, error) {
-				_, raw, err := decode[T](rq)
-				if err != nil {
-					return nil, err
-				}
+		registerLBUpdates(h, sp, o, scope)
+	}
+}
 
-				return opResult(lbPatch(h.Backend, sp, ctxOf(rq), rq.rt.name, raw))
-			})
+func registerLBReadDelete[T any](h *Handler, sp lbSpec[T], o lbOpts[T], scope string) {
+	get := o.get
+	if get == nil {
+		get = func(h *Handler, rq *request) (any, error) { return lbGet(h.Backend, sp, ctxOf(rq), rq.rt.name) }
+	}
+
+	h.reg(sp.coll, scope, verbGet, get)
+	h.reg(sp.coll, scope, verbDelete, func(h *Handler, rq *request) (any, error) {
+		if o.del != nil {
+			return opResult(o.del(h.Backend, ctxOf(rq), rq.rt.name))
 		}
 
-		if o.put {
-			h.reg(sp.coll, scope, verbUpdate, func(h *Handler, rq *request) (any, error) {
-				in, raw, err := decode[T](rq)
-				if err != nil {
-					return nil, err
-				}
+		return opResult(lbDelete(h.Backend, sp, ctxOf(rq), rq.rt.name, nil))
+	})
+}
 
-				return opResult(lbReplace(h.Backend, sp, ctxOf(rq), rq.rt.name, in, raw))
-			})
-		}
+func registerLBUpdates[T any](h *Handler, sp lbSpec[T], o lbOpts[T], scope string) {
+	if o.patch {
+		h.reg(sp.coll, scope, verbPatch, func(h *Handler, rq *request) (any, error) {
+			_, raw, err := decode[T](rq)
+			if err != nil {
+				return nil, err
+			}
+
+			return opResult(lbPatch(h.Backend, sp, ctxOf(rq), rq.rt.name, raw))
+		})
+	}
+
+	if o.put {
+		h.reg(sp.coll, scope, verbUpdate, func(h *Handler, rq *request) (any, error) {
+			in, raw, err := decode[T](rq)
+			if err != nil {
+				return nil, err
+			}
+
+			return opResult(lbReplace(h.Backend, sp, ctxOf(rq), rq.rt.name, in, raw))
+		})
 	}
 }
 
@@ -178,45 +185,118 @@ func (h *Handler) registerProxyOps() {
 	global := []string{scopeGlobal}
 
 	registerLB(h, httpProxySpec(), lbOpts[computeapi.TargetHttpProxy]{scopes: both, agg: globalAndRegions()})
-	regSetter(h, httpProxySpec(), both, "setUrlMap", func(cur *computeapi.TargetHttpProxy, r *computeapi.UrlMapReference) {
-		cur.UrlMap = r.UrlMap
-	})
+	regSetter(
+		h,
+		httpProxySpec(),
+		both,
+		"setUrlMap",
+		func(cur *computeapi.TargetHttpProxy, r *computeapi.UrlMapReference) {
+			cur.UrlMap = r.UrlMap
+		},
+	)
 
 	registerLB(h, httpsProxySpec(), lbOpts[computeapi.TargetHttpsProxy]{scopes: both, agg: globalAndRegions()})
-	regSetter(h, httpsProxySpec(), both, "setUrlMap", func(cur *computeapi.TargetHttpsProxy, r *computeapi.UrlMapReference) {
-		cur.UrlMap = r.UrlMap
-	})
-	regSetter(h, httpsProxySpec(), both, "setSslCertificates", func(cur *computeapi.TargetHttpsProxy, r *computeapi.TargetHttpsProxiesSetSslCertificatesRequest) {
-		cur.SslCertificates = r.SslCertificates
-	})
-	regSetter(h, httpsProxySpec(), global, "setSslPolicy", func(cur *computeapi.TargetHttpsProxy, r *computeapi.SslPolicyReference) {
-		cur.SslPolicy = r.SslPolicy
-	})
-	regSetter(h, httpsProxySpec(), global, "setQuicOverride", func(cur *computeapi.TargetHttpsProxy, r *computeapi.TargetHttpsProxiesSetQuicOverrideRequest) {
-		cur.QuicOverride = r.QuicOverride
-	})
+	regSetter(
+		h,
+		httpsProxySpec(),
+		both,
+		"setUrlMap",
+		func(cur *computeapi.TargetHttpsProxy, r *computeapi.UrlMapReference) {
+			cur.UrlMap = r.UrlMap
+		},
+	)
+	regSetter(
+		h,
+		httpsProxySpec(),
+		both,
+		"setSslCertificates",
+		func(cur *computeapi.TargetHttpsProxy, r *computeapi.TargetHttpsProxiesSetSslCertificatesRequest) {
+			cur.SslCertificates = r.SslCertificates
+		},
+	)
+	regSetter(
+		h,
+		httpsProxySpec(),
+		global,
+		"setSslPolicy",
+		func(cur *computeapi.TargetHttpsProxy, r *computeapi.SslPolicyReference) {
+			cur.SslPolicy = r.SslPolicy
+		},
+	)
+	regSetter(
+		h,
+		httpsProxySpec(),
+		global,
+		"setQuicOverride",
+		func(cur *computeapi.TargetHttpsProxy, r *computeapi.TargetHttpsProxiesSetQuicOverrideRequest) {
+			cur.QuicOverride = r.QuicOverride
+		},
+	)
+
+	h.registerTCPSSLProxyOps()
+}
+
+func (h *Handler) registerTCPSSLProxyOps() {
+	both := []string{scopeGlobal, scopeRegion}
+	global := []string{scopeGlobal}
 
 	registerLB(h, tcpProxySpec(), lbOpts[computeapi.TargetTcpProxy]{scopes: both, agg: globalAndRegions()})
-	regSetter(h, tcpProxySpec(), both, "setBackendService", func(cur *computeapi.TargetTcpProxy, r *computeapi.TargetTcpProxiesSetBackendServiceRequest) {
-		cur.Service = r.Service
-	})
-	regSetter(h, tcpProxySpec(), both, "setProxyHeader", func(cur *computeapi.TargetTcpProxy, r *computeapi.TargetTcpProxiesSetProxyHeaderRequest) {
-		cur.ProxyHeader = r.ProxyHeader
-	})
+	regSetter(
+		h,
+		tcpProxySpec(),
+		both,
+		"setBackendService",
+		func(cur *computeapi.TargetTcpProxy, r *computeapi.TargetTcpProxiesSetBackendServiceRequest) {
+			cur.Service = r.Service
+		},
+	)
+	regSetter(
+		h,
+		tcpProxySpec(),
+		both,
+		"setProxyHeader",
+		func(cur *computeapi.TargetTcpProxy, r *computeapi.TargetTcpProxiesSetProxyHeaderRequest) {
+			cur.ProxyHeader = r.ProxyHeader
+		},
+	)
 
 	registerLB(h, sslProxySpec(), lbOpts[computeapi.TargetSslProxy]{scopes: global})
-	regSetter(h, sslProxySpec(), global, "setBackendService", func(cur *computeapi.TargetSslProxy, r *computeapi.TargetSslProxiesSetBackendServiceRequest) {
-		cur.Service = r.Service
-	})
-	regSetter(h, sslProxySpec(), global, "setProxyHeader", func(cur *computeapi.TargetSslProxy, r *computeapi.TargetSslProxiesSetProxyHeaderRequest) {
-		cur.ProxyHeader = r.ProxyHeader
-	})
-	regSetter(h, sslProxySpec(), global, "setSslCertificates", func(cur *computeapi.TargetSslProxy, r *computeapi.TargetSslProxiesSetSslCertificatesRequest) {
-		cur.SslCertificates = r.SslCertificates
-	})
-	regSetter(h, sslProxySpec(), global, "setSslPolicy", func(cur *computeapi.TargetSslProxy, r *computeapi.SslPolicyReference) {
-		cur.SslPolicy = r.SslPolicy
-	})
+	regSetter(
+		h,
+		sslProxySpec(),
+		global,
+		"setBackendService",
+		func(cur *computeapi.TargetSslProxy, r *computeapi.TargetSslProxiesSetBackendServiceRequest) {
+			cur.Service = r.Service
+		},
+	)
+	regSetter(
+		h,
+		sslProxySpec(),
+		global,
+		"setProxyHeader",
+		func(cur *computeapi.TargetSslProxy, r *computeapi.TargetSslProxiesSetProxyHeaderRequest) {
+			cur.ProxyHeader = r.ProxyHeader
+		},
+	)
+	regSetter(
+		h,
+		sslProxySpec(),
+		global,
+		"setSslCertificates",
+		func(cur *computeapi.TargetSslProxy, r *computeapi.TargetSslProxiesSetSslCertificatesRequest) {
+			cur.SslCertificates = r.SslCertificates
+		},
+	)
+	regSetter(
+		h,
+		sslProxySpec(),
+		global,
+		"setSslPolicy",
+		func(cur *computeapi.TargetSslProxy, r *computeapi.SslPolicyReference) {
+			cur.SslPolicy = r.SslPolicy
+		},
+	)
 }
 
 func (h *Handler) registerCertOps() {
@@ -227,7 +307,9 @@ func (h *Handler) registerCertOps() {
 		scopes: []string{scopeGlobal}, patch: true,
 		get: func(h *Handler, rq *request) (any, error) {
 			if rq.rt.name == "listAvailableFeatures" {
-				return &computeapi.SslPoliciesListAvailableFeaturesResponse{Features: append([]string{}, sslFeatures...)}, nil
+				return &computeapi.SslPoliciesListAvailableFeaturesResponse{
+					Features: append([]string{}, sslFeatures...),
+				}, nil
 			}
 
 			return lbGet(h.Backend, sslPolicySpec(), ctxOf(rq), rq.rt.name)
