@@ -171,7 +171,6 @@ func categoryGroups() []categoryGroup {
 			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows, slugGCPDNS,
 		}},
 		{"OCI", ociSlugs()},
-		},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
 		}},
