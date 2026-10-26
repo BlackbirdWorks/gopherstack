@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -34,13 +35,14 @@ const (
 	aciDefaultStartup  = 10 * time.Minute
 	aciNanoPerCPU      = 1e9
 	aciBytesPerGB      = 1 << 30
+	aciNonceLen        = 6
 )
 
 // Sentinel errors returned by the engine.
 var (
 	ErrACIGroupNotFound     = errors.New("azurearm: container group not found")
 	ErrACIContainerNotFound = errors.New("azurearm: container not found in the group")
-	ErrACINotRunning        = errors.New("azurearm: container has no logs because it was never started or the group is stopped")
+	ErrACINotRunning        = errors.New("azurearm: container has no logs: never started, or the group is stopped")
 )
 
 // ACIEvent is one entry of an instanceView events list.
@@ -65,9 +67,9 @@ type ACIState struct {
 // ACIContainerView is a container's instanceView.
 type ACIContainerView struct {
 	Prev     *ACIState
+	Cur      ACIState
 	Name     string
 	Events   []ACIEvent
-	Cur      ACIState
 	Restarts int
 }
 
@@ -81,20 +83,20 @@ type ACIView struct {
 }
 
 type aciConfig struct {
+	Provider *ContainerInstanceProvider
 	Key      string
 	Name     string
 	Props    aciPropsWire
-	Provider *ContainerInstanceProvider
 }
 
 type aciCont struct {
-	ready    chan struct{}
 	startErr error
+	ready    chan struct{}
 	prev     *ACIState
+	cur      ACIState
 	name     string
 	id       string
 	events   []ACIEvent
-	cur      ACIState
 	restarts int
 }
 
@@ -122,19 +124,19 @@ type aciRun struct {
 
 // ACIEngine runs container groups in the container runtime.
 type ACIEngine struct {
-	ctx      context.Context //nolint:containedctx // engine lifetime, cancelled by Close
-	cancel   context.CancelFunc
-	runtime  func() (ACIRuntime, error)
 	ports    ACIPortPool
+	ctx      context.Context
 	shares   ACIFileShares
-	now      func() time.Time
 	backoff  func(restarts int) time.Duration
+	runtime  func() (ACIRuntime, error)
+	now      func() time.Time
+	cancel   context.CancelFunc
 	mu       *lockmetrics.RWMutex
 	runs     map[string]*aciRun
 	onClose  func()
 	disabled string
-	startup  time.Duration
 	nonce    string
+	startup  time.Duration
 	seq      atomic.Uint64
 }
 
@@ -145,7 +147,7 @@ func NewACIEngine(runtime func() (ACIRuntime, error), disabledReason string) *AC
 	return &ACIEngine{
 		ctx: ctx, cancel: cancel, runtime: runtime, disabled: disabledReason, now: time.Now,
 		mu: lockmetrics.New("azurearm.aci"), runs: map[string]*aciRun{}, startup: aciDefaultStartup,
-		backoff: defaultACIBackoff, nonce: awsid.NewN("", 6) + "-",
+		backoff: defaultACIBackoff, nonce: awsid.NewN("", aciNonceLen) + "-",
 	}
 }
 
@@ -322,7 +324,14 @@ func (e *ACIEngine) containerSpec(run *aciRun, cfg aciConfig, c aciContainerWire
 	p := c.Properties
 	spec := container.Spec{
 		Image: p.Image,
-		Name:  "gopherstack-aci-" + strs.Fold(cfg.Name) + "-" + strs.Fold(c.Name) + "-" + e.nonce + strconv.FormatUint(n, 10),
+		Name: "gopherstack-aci-" + strs.Fold(
+			cfg.Name,
+		) + "-" + strs.Fold(
+			c.Name,
+		) + "-" + e.nonce + strconv.FormatUint(
+			n,
+			10,
+		),
 	}
 
 	if len(p.Command) > 0 {
@@ -356,7 +365,10 @@ func (e *ACIEngine) containerSpec(run *aciRun, cfg aciConfig, c aciContainerWire
 
 	for _, pt := range p.Ports {
 		if hp, ok := run.hostPorts[pt.Port]; ok {
-			spec.Ports = append(spec.Ports, container.PortSpec(container.LoopbackHost, strconv.Itoa(hp), strconv.Itoa(pt.Port)))
+			spec.Ports = append(
+				spec.Ports,
+				container.PortSpec(container.LoopbackHost, strconv.Itoa(hp), strconv.Itoa(pt.Port)),
+			)
 		}
 	}
 
@@ -717,9 +729,7 @@ func (e *ACIEngine) View(key string) (ACIView, bool) {
 		State: groupState(run),
 	}
 
-	for k, hp := range run.hostPorts {
-		v.HostPorts[k] = hp
-	}
+	maps.Copy(v.HostPorts, run.hostPorts)
 
 	for _, c := range run.conts {
 		cv := ACIContainerView{Name: c.name, Restarts: c.restarts, Cur: c.cur, Events: slices.Clone(c.events)}

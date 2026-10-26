@@ -218,7 +218,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
 	if settings.ACIEngine == ACIEngineNone {
-		return NewACIEngine(nil, "the container engine is disabled (--azure-arm-aci-engine=none); container groups cannot run")
+		return NewACIEngine(nil, aciDisabledReason)
 	}
 
 	lr := gcpserve.NewLazyRuntime(ctx.Logger, "azurearm.aci.runtime")
@@ -239,3 +239,5 @@ func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
 
 	return engine
 }
+
+const aciDisabledReason = "the container engine is disabled (--azure-arm-aci-engine=none); container groups cannot run"

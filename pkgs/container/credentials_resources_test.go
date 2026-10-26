@@ -71,7 +71,12 @@ func TestCreateAndStartAppliesResourceLimits(t *testing.T) {
 		wantMem  int64
 		wantNano int64
 	}{
-		{"limited", container.Spec{Image: "busybox", MemoryBytes: 512 << 20, NanoCPUs: 1_500_000_000}, 512 << 20, 1_500_000_000},
+		{
+			"limited",
+			container.Spec{Image: "busybox", MemoryBytes: 512 << 20, NanoCPUs: 1_500_000_000},
+			512 << 20,
+			1_500_000_000,
+		},
 		{"unlimited", container.Spec{Image: "busybox"}, 0, 0},
 	}
 

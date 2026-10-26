@@ -45,11 +45,18 @@ func TestACIDocker_RunToCompletion(t *testing.T) {
 		name      string
 		script    string
 		wantState string
-		wantExit  int32
 		wantLogs  []string
+		wantExit  int32
 	}{
-		{"exit-zero", "echo hello-aci; echo greeting=$GREETING; echo oops >&2", "Succeeded", 0, []string{"hello-aci", "greeting=world", "oops"}},
-		{"exit-nonzero", "echo failing; exit 3", "Failed", 3, []string{"failing"}},
+		{
+			name: "exit-zero", wantState: "Succeeded", wantExit: 0,
+			script:   "echo hello-aci; echo greeting=$GREETING; echo oops >&2",
+			wantLogs: []string{"hello-aci", "greeting=world", "oops"},
+		},
+		{
+			name: "exit-nonzero", wantState: "Failed", wantExit: 3,
+			script: "echo failing; exit 3", wantLogs: []string{"failing"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -111,11 +118,18 @@ func TestACIDocker_PublishedPortServes(t *testing.T) {
 	s := newACIDockerStack(t)
 
 	_, err := s.create(t, "rg", "web", aciOpts{
-		image: "alpine:3.21", policy: armcontainerinstance.ContainerGroupRestartPolicyAlways,
-		command: []string{"sh", "-c", `while true; do printf "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nserved-by-aci\n" | nc -l -p 8080; done`},
+		image:  "alpine:3.21",
+		policy: armcontainerinstance.ContainerGroupRestartPolicyAlways,
+		command: []string{
+			"sh",
+			"-c",
+			`while true; do printf "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nserved-by-aci\n" | nc -l -p 8080; done`,
+		},
 		ip: &armcontainerinstance.IPAddress{
-			Type:  new(armcontainerinstance.ContainerGroupIPAddressTypePublic),
-			Ports: []*armcontainerinstance.Port{{Port: new(int32(8080)), Protocol: new(armcontainerinstance.ContainerGroupNetworkProtocolTCP)}},
+			Type: new(armcontainerinstance.ContainerGroupIPAddressTypePublic),
+			Ports: []*armcontainerinstance.Port{
+				{Port: new(int32(8080)), Protocol: new(armcontainerinstance.ContainerGroupNetworkProtocolTCP)},
+			},
 		},
 		ports: []*armcontainerinstance.ContainerPort{{Port: new(int32(8080))}},
 	})
@@ -132,13 +146,13 @@ func TestACIDocker_PublishedPortServes(t *testing.T) {
 	require.NotEmpty(t, addr)
 
 	require.Eventually(t, func() bool {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/", http.NoBody)
-		if err != nil {
+		req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/", http.NoBody)
+		if reqErr != nil {
 			return false
 		}
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
+		resp, doErr := http.DefaultClient.Do(req)
+		if doErr != nil {
 			return false
 		}
 		defer resp.Body.Close()

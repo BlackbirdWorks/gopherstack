@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	aciScratchPerm = 0o777 //nolint:gosec // bind-mounted for the container's own user
-	aciFilePerm    = 0o666 //nolint:gosec // bind-mounted for the container's own user
+	aciScratchPerm = 0o777
+	aciFilePerm    = 0o666
 )
 
 // ACIShareTree is the content of an Azure Files share: slash paths to file bytes, and directory paths.
@@ -169,7 +169,13 @@ func (e *ACIEngine) syncShares(run *aciRun) {
 func readACITree(root string) (ACIShareTree, error) {
 	tree := ACIShareTree{Files: map[string][]byte{}}
 
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	rt, err := os.OpenRoot(root)
+	if err != nil {
+		return tree, fmt.Errorf("open volume dir: %w", err)
+	}
+	defer rt.Close()
+
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || p == root {
 			return err
 		}
@@ -185,7 +191,7 @@ func readACITree(root string) (ACIShareTree, error) {
 		case d.IsDir():
 			tree.Dirs = append(tree.Dirs, rel)
 		case d.Type().IsRegular():
-			data, readErr := os.ReadFile(p)
+			data, readErr := rt.ReadFile(rel)
 			if readErr != nil {
 				return readErr
 			}

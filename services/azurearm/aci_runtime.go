@@ -9,13 +9,13 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
 
 var (
 	errACINoExitStatus = errors.New("the container runtime cannot report exit status")
 	errACINoLogs       = errors.New("the container runtime cannot read logs")
 	errACINoCredPull   = errors.New("the container runtime cannot pull with registry credentials")
-	errACINoRuntime    = errors.New("no container runtime is available")
 )
 
 // ACICredential is an imageRegistryCredentials entry.
@@ -110,7 +110,7 @@ func (d dockerACIRuntime) Remove(ctx context.Context, id string) error {
 func NewDockerACIRuntime(r gcpserve.Runner) ACIRuntime { return dockerACIRuntime{r: r} }
 
 func credentialFor(ref string, creds []aciCredWire) *ACICredential {
-	host := strings.ToLower(refHost(ref))
+	host := strings.ToLower(registryauth.HostOf(ref))
 
 	for _, c := range creds {
 		if strings.EqualFold(strings.TrimSuffix(c.Server, "/"), host) {
@@ -119,14 +119,4 @@ func credentialFor(ref string, creds []aciCredWire) *ACICredential {
 	}
 
 	return nil
-}
-
-// refHost returns the registry host of an image reference; docker.io when it names none.
-func refHost(ref string) string {
-	first, _, ok := strings.Cut(ref, "/")
-	if ok && (strings.ContainsAny(first, ".:") || first == "localhost") {
-		return first
-	}
-
-	return "docker.io"
 }

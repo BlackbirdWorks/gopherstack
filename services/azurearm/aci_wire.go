@@ -31,9 +31,9 @@ var (
 )
 
 type aciEnvWire struct {
-	Name        string  `json:"name"`
 	Value       *string `json:"value,omitempty"`
 	SecureValue *string `json:"secureValue,omitempty"`
+	Name        string  `json:"name"`
 }
 
 type aciResourceWire struct {
@@ -47,8 +47,8 @@ type aciResourcesWire struct {
 }
 
 type aciPortWire struct {
-	Port     int    `json:"port"`
 	Protocol string `json:"protocol,omitempty"`
+	Port     int    `json:"port"`
 }
 
 type aciMountWire struct {
@@ -94,11 +94,11 @@ type aciAzureFileWire struct {
 }
 
 type aciVolumeWire struct {
-	Name      string            `json:"name"`
 	EmptyDir  *json.RawMessage  `json:"emptyDir,omitempty"`
 	Secret    map[string]string `json:"secret,omitempty"`
 	AzureFile *aciAzureFileWire `json:"azureFile,omitempty"`
 	GitRepo   *json.RawMessage  `json:"gitRepo,omitempty"`
+	Name      string            `json:"name"`
 }
 
 // aciPropsWire is the supported subset of containerGroups properties; unknown properties are rejected.
@@ -147,6 +147,38 @@ func parseACIProps(raw any) (aciPropsWire, error) {
 }
 
 func (p *aciPropsWire) normalize() error {
+	if err := p.normalizeEnums(); err != nil {
+		return err
+	}
+
+	p.ProvisioningState, p.InstanceView = "", nil
+
+	if len(p.Containers) == 0 {
+		return aciBad("at least one container is required")
+	}
+
+	vols, err := p.normalizeVolumes()
+	if err != nil {
+		return err
+	}
+
+	names := map[string]bool{}
+	ports := map[int]bool{}
+
+	for i := range p.Containers {
+		if err = p.Containers[i].normalize(vols, names, ports); err != nil {
+			return err
+		}
+	}
+
+	if err = p.normalizeIP(ports); err != nil {
+		return err
+	}
+
+	return p.normalizeCreds()
+}
+
+func (p *aciPropsWire) normalizeEnums() error {
 	if p.OSType == "" {
 		return aciBad("osType is required")
 	}
@@ -177,31 +209,8 @@ func (p *aciPropsWire) normalize() error {
 	}
 
 	p.SKU, p.Priority = "", ""
-	p.ProvisioningState, p.InstanceView = "", nil
 
-	if len(p.Containers) == 0 {
-		return aciBad("at least one container is required")
-	}
-
-	vols, err := p.normalizeVolumes()
-	if err != nil {
-		return err
-	}
-
-	names := map[string]bool{}
-	ports := map[int]bool{}
-
-	for i := range p.Containers {
-		if err = p.Containers[i].normalize(vols, names, ports); err != nil {
-			return err
-		}
-	}
-
-	if err = p.normalizeIP(ports); err != nil {
-		return err
-	}
-
-	return p.normalizeCreds()
+	return nil
 }
 
 func (p *aciPropsWire) normalizeVolumes() (map[string]bool, error) {
@@ -217,33 +226,41 @@ func (p *aciPropsWire) normalizeVolumes() (map[string]bool, error) {
 
 		vols[key] = true
 
-		kinds := 0
-
-		for _, set := range []bool{v.EmptyDir != nil, v.Secret != nil, v.AzureFile != nil, v.GitRepo != nil} {
-			if set {
-				kinds++
-			}
-		}
-
-		switch {
-		case kinds != 1:
-			return nil, aciBad("volume %q must define exactly one of emptyDir, secret, azureFile", v.Name)
-		case v.GitRepo != nil:
-			return nil, aciUnsupported("gitRepo volumes")
-		case v.AzureFile != nil && (v.AzureFile.ShareName == "" || v.AzureFile.StorageAccountName == "" ||
-			v.AzureFile.StorageAccountKey == ""):
-			return nil, aciBad("azureFile volume %q needs shareName, storageAccountName and storageAccountKey", v.Name)
-		}
-
-		for k, val := range v.Secret {
-			dec, err := base64.StdEncoding.DecodeString(val)
-			if err != nil || len(dec) > aciMaxSecretBytes || k == "" || strings.ContainsAny(k, "/\\") {
-				return nil, aciBad("secret volume %q key %q must be a file name with a base64 value", v.Name, k)
-			}
+		if err := v.validate(); err != nil {
+			return nil, err
 		}
 	}
 
 	return vols, nil
+}
+
+func (v *aciVolumeWire) validate() error {
+	kinds := 0
+
+	for _, set := range []bool{v.EmptyDir != nil, v.Secret != nil, v.AzureFile != nil, v.GitRepo != nil} {
+		if set {
+			kinds++
+		}
+	}
+
+	switch {
+	case kinds != 1:
+		return aciBad("volume %q must define exactly one of emptyDir, secret, azureFile", v.Name)
+	case v.GitRepo != nil:
+		return aciUnsupported("gitRepo volumes")
+	case v.AzureFile != nil && (v.AzureFile.ShareName == "" || v.AzureFile.StorageAccountName == "" ||
+		v.AzureFile.StorageAccountKey == ""):
+		return aciBad("azureFile volume %q needs shareName, storageAccountName and storageAccountKey", v.Name)
+	}
+
+	for k, val := range v.Secret {
+		dec, err := base64.StdEncoding.DecodeString(val)
+		if err != nil || len(dec) > aciMaxSecretBytes || k == "" || strings.ContainsAny(k, "/\\") {
+			return aciBad("secret volume %q key %q must be a file name with a base64 value", v.Name, k)
+		}
+	}
+
+	return nil
 }
 
 func (c *aciContainerWire) normalize(vols, names map[string]bool, ports map[int]bool) error {
@@ -260,19 +277,8 @@ func (c *aciContainerWire) normalize(vols, names map[string]bool, ports map[int]
 
 	names[key] = true
 
-	rq := (*aciResourceWire)(nil)
-	if r := c.Properties.Resources; r != nil {
-		rq = r.Requests
-	}
-
-	if rq == nil || rq.CPU <= 0 || rq.MemoryInGB <= 0 {
-		return aciBad("container %q needs resources.requests.cpu and memoryInGB", c.Name)
-	}
-
-	for _, e := range c.Properties.EnvironmentVariables {
-		if e.Name == "" || (e.Value == nil) == (e.SecureValue == nil) {
-			return aciBad("container %q environment variables need a name and exactly one of value, secureValue", c.Name)
-		}
+	if err := c.validateRuntime(vols); err != nil {
+		return err
 	}
 
 	for i := range c.Properties.Ports {
@@ -284,13 +290,33 @@ func (c *aciContainerWire) normalize(vols, names map[string]bool, ports map[int]
 		ports[pt.Port] = true
 	}
 
+	c.Properties.InstanceView = nil
+
+	return nil
+}
+
+func (c *aciContainerWire) validateRuntime(vols map[string]bool) error {
+	var rq *aciResourceWire
+	if r := c.Properties.Resources; r != nil {
+		rq = r.Requests
+	}
+
+	if rq == nil || rq.CPU <= 0 || rq.MemoryInGB <= 0 {
+		return aciBad("container %q needs resources.requests.cpu and memoryInGB", c.Name)
+	}
+
+	for _, e := range c.Properties.EnvironmentVariables {
+		if e.Name == "" || (e.Value == nil) == (e.SecureValue == nil) {
+			return aciBad("container %q environment variables need a name and exactly one of value or secureValue",
+				c.Name)
+		}
+	}
+
 	for _, m := range c.Properties.VolumeMounts {
 		if !vols[strings.ToLower(m.Name)] || !strings.HasPrefix(m.MountPath, "/") {
 			return aciBad("container %q has a volume mount for an unknown volume or a relative mountPath", c.Name)
 		}
 	}
-
-	c.Properties.InstanceView = nil
 
 	return nil
 }

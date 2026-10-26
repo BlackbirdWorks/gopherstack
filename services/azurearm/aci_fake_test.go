@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"testing"
-
-	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
-var errFakePull = errors.New("pull access denied")
+var (
+	errFakePull    = errors.New("pull access denied")
+	errFakeBox     = errors.New("no such container")
+	errFakeNoShare = errors.New("share not found")
+)
 
 type fakeBox struct {
 	exit    chan int
@@ -84,7 +85,7 @@ func (f *fakeACIRuntime) Wait(ctx context.Context, id string) (int, error) {
 	f.mu.Unlock()
 
 	if b == nil {
-		return 0, errors.New("no such container")
+		return 0, errFakeBox
 	}
 
 	select {
@@ -103,7 +104,7 @@ func (f *fakeACIRuntime) Logs(_ context.Context, id, tail string) (string, error
 	f.mu.Unlock()
 
 	if b == nil || b.removed {
-		return "", errors.New("no such container")
+		return "", errFakeBox
 	}
 
 	lines := []string{"starting " + b.spec.Image, "line two", "line three"}
@@ -168,7 +169,7 @@ func (f *fakeShares) ExportShare(account, share string) (azurearm.ACIShareTree, 
 
 	t, ok := f.trees[account+"/"+share]
 	if !ok {
-		return azurearm.ACIShareTree{}, errors.New("share not found")
+		return azurearm.ACIShareTree{}, errFakeNoShare
 	}
 
 	return t, nil
@@ -188,9 +189,4 @@ func (f *fakeShares) tree(account, share string) azurearm.ACIShareTree {
 	defer f.mu.Unlock()
 
 	return f.trees[account+"/"+share]
-}
-
-func mustNoErr(t *testing.T, err error) {
-	t.Helper()
-	require.NoError(t, err)
 }

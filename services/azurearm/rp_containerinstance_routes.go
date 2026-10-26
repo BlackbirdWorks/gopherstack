@@ -17,6 +17,9 @@ const (
 	aciContainerIdx   = 9
 	aciContainerOpIdx = 10
 	aciSegContainers  = "containers"
+	aciActionStart    = "start"
+	aciActionStop     = "stop"
+	aciActionRestart  = "restart"
 )
 
 func isACIScope(segs []string, n int) bool {
@@ -32,7 +35,7 @@ func isACIAction(segs []string, r *http.Request) bool {
 	}
 
 	switch strings.ToLower(segs[aciActionSegs-1]) {
-	case "start", "stop", "restart":
+	case aciActionStart, aciActionStop, aciActionRestart:
 		return true
 	}
 
@@ -56,7 +59,7 @@ func isACIContainerOp(segs []string, r *http.Request, method string, ops ...stri
 //nolint:gochecknoglobals // static route table, read-only after init
 var containerInstanceRoutes = []armRoute{
 	{
-		match:  func(segs []string, r *http.Request) bool { return isACIAction(segs, r) },
+		match:  isACIAction,
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACIAction(c, segs) },
 	},
 	{

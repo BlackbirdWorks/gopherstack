@@ -38,9 +38,9 @@ type aciStack struct {
 	rt      *fakeACIRuntime
 	shares  *fakeShares
 	engine  *azurearm.ACIEngine
-	url     string
 	client  *http.Client
 	handler *azurearm.Handler
+	url     string
 }
 
 func newACIStackWith(t *testing.T, rt *fakeACIRuntime) *aciStack {
@@ -84,7 +84,15 @@ func newACIStackWith(t *testing.T, rt *fakeACIRuntime) *aciStack {
 	})
 	require.NoError(t, err)
 
-	return &aciStack{factory: f, rt: rt, shares: shares, engine: engine, url: srv.URL, client: srv.Client(), handler: armH}
+	return &aciStack{
+		factory: f,
+		rt:      rt,
+		shares:  shares,
+		engine:  engine,
+		url:     srv.URL,
+		client:  srv.Client(),
+		handler: armH,
+	}
 }
 
 func newACIStack(t *testing.T) *aciStack {
@@ -98,6 +106,8 @@ func pollFast() *runtime.PollUntilDoneOptions {
 }
 
 type aciOpts struct {
+	ip      *armcontainerinstance.IPAddress
+	limits  *armcontainerinstance.ResourceLimits
 	policy  armcontainerinstance.ContainerGroupRestartPolicy
 	image   string
 	command []string
@@ -105,9 +115,7 @@ type aciOpts struct {
 	mounts  []*armcontainerinstance.VolumeMount
 	volumes []*armcontainerinstance.Volume
 	creds   []*armcontainerinstance.ImageRegistryCredential
-	ip      *armcontainerinstance.IPAddress
 	ports   []*armcontainerinstance.ContainerPort
-	limits  *armcontainerinstance.ResourceLimits
 }
 
 func (o aciOpts) group() armcontainerinstance.ContainerGroup {
@@ -258,7 +266,8 @@ func TestACISDK_Lifecycle(t *testing.T) {
 
 	assert.Equal(t, 2, all)
 
-	logs, err := s.factory.NewContainersClient().ListLogs(ctx, "rg1", "grp1", "main", &armcontainerinstance.ContainersClientListLogsOptions{Tail: new(int32(1))})
+	logs, err := s.factory.NewContainersClient().
+		ListLogs(ctx, "rg1", "grp1", "main", &armcontainerinstance.ContainersClientListLogsOptions{Tail: new(int32(1))})
 	require.NoError(t, err)
 	assert.Equal(t, "line three\n", *logs.Content)
 
@@ -286,7 +295,13 @@ func TestACISDK_Lifecycle(t *testing.T) {
 	s.waitState(t, "rg1", "grp1", "Running")
 	assert.Len(t, s.rt.started(), 4)
 
-	patched, err := groups.Update(ctx, "rg1", "grp1", armcontainerinstance.Resource{Tags: map[string]*string{"k": new("v")}}, nil)
+	patched, err := groups.Update(
+		ctx,
+		"rg1",
+		"grp1",
+		armcontainerinstance.Resource{Tags: map[string]*string{"k": new("v")}},
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "v", *patched.Tags["k"])
 
@@ -309,17 +324,47 @@ func TestACISDK_RestartPolicy(t *testing.T) {
 	tests := []struct {
 		name      string
 		policy    armcontainerinstance.ContainerGroupRestartPolicy
-		script    []int
 		wantState string
 		wantCont  string
+		script    []int
 		wantExit  int32
 		wantRest  int32
 	}{
-		{"never-success", armcontainerinstance.ContainerGroupRestartPolicyNever, []int{0}, "Succeeded", "Terminated", 0, 0},
-		{"never-failure", armcontainerinstance.ContainerGroupRestartPolicyNever, []int{3}, "Failed", "Terminated", 3, 0},
-		{"onfailure-recovers", armcontainerinstance.ContainerGroupRestartPolicyOnFailure, []int{1, 2, 0}, "Succeeded", "Terminated", 0, 2},
-		{"onfailure-success-stays", armcontainerinstance.ContainerGroupRestartPolicyOnFailure, []int{0}, "Succeeded", "Terminated", 0, 0},
-		{"always-restarts-success", armcontainerinstance.ContainerGroupRestartPolicyAlways, []int{0, 0}, "Running", "Running", -1, 2},
+		{
+			name: "never-success", policy: armcontainerinstance.ContainerGroupRestartPolicyNever, script: []int{0},
+			wantState: "Succeeded", wantCont: "Terminated", wantExit: 0, wantRest: 0,
+		},
+		{
+			name: "never-failure", policy: armcontainerinstance.ContainerGroupRestartPolicyNever, script: []int{3},
+			wantState: "Failed", wantCont: "Terminated", wantExit: 3, wantRest: 0,
+		},
+		{
+			name:      "onfailure-recovers",
+			policy:    armcontainerinstance.ContainerGroupRestartPolicyOnFailure,
+			script:    []int{1, 2, 0},
+			wantState: "Succeeded",
+			wantCont:  "Terminated",
+			wantExit:  0,
+			wantRest:  2,
+		},
+		{
+			name:      "onfailure-success-stays",
+			policy:    armcontainerinstance.ContainerGroupRestartPolicyOnFailure,
+			script:    []int{0},
+			wantState: "Succeeded",
+			wantCont:  "Terminated",
+			wantExit:  0,
+			wantRest:  0,
+		},
+		{
+			name:      "always-restarts-success",
+			policy:    armcontainerinstance.ContainerGroupRestartPolicyAlways,
+			script:    []int{0, 0},
+			wantState: "Running",
+			wantCont:  "Running",
+			wantExit:  -1,
+			wantRest:  2,
+		},
 	}
 
 	for _, tc := range tests {
@@ -464,7 +509,9 @@ func TestACISDK_IPAddressAndPorts(t *testing.T) {
 	ip := &armcontainerinstance.IPAddress{
 		Type:         new(armcontainerinstance.ContainerGroupIPAddressTypePublic),
 		DNSNameLabel: new("my-app"),
-		Ports:        []*armcontainerinstance.Port{{Port: new(int32(8080)), Protocol: new(armcontainerinstance.ContainerGroupNetworkProtocolTCP)}},
+		Ports: []*armcontainerinstance.Port{
+			{Port: new(int32(8080)), Protocol: new(armcontainerinstance.ContainerGroupNetworkProtocolTCP)},
+		},
 	}
 
 	g, err := s.create(t, "rg", "web", aciOpts{
@@ -600,10 +647,20 @@ func TestACISDK_Validation(t *testing.T) {
 		{func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.OSType = new(armcontainerinstance.OperatingSystemTypesWindows)
 		}, "windows", "osType"},
-		{func(g *armcontainerinstance.ContainerGroup) { g.Properties.Containers = nil }, "no-containers", "at least one container"},
-		{func(g *armcontainerinstance.ContainerGroup) { g.Properties.Containers[0].Properties.Resources = nil }, "no-resources", "requests"},
+		{
+			func(g *armcontainerinstance.ContainerGroup) { g.Properties.Containers = nil },
+			"no-containers",
+			"at least one container",
+		},
+		{
+			func(g *armcontainerinstance.ContainerGroup) { g.Properties.Containers[0].Properties.Resources = nil },
+			"no-resources",
+			"requests",
+		},
 		{func(g *armcontainerinstance.ContainerGroup) {
-			g.Properties.Volumes = []*armcontainerinstance.Volume{{Name: new("g"), GitRepo: &armcontainerinstance.GitRepoVolume{Repository: new("https://x/y.git")}}}
+			g.Properties.Volumes = []*armcontainerinstance.Volume{
+				{Name: new("g"), GitRepo: &armcontainerinstance.GitRepoVolume{Repository: new("https://x/y.git")}},
+			}
 		}, "gitrepo", "gitRepo"},
 		{func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.Containers[0].Properties.LivenessProbe = &armcontainerinstance.ContainerProbe{}
@@ -668,7 +725,12 @@ func TestACISDK_DeleteResourceGroupStopsContainers(t *testing.T) {
 	assert.Equal(t, 1, s.rt.live())
 
 	rgURL := s.url + "/subscriptions/" + aciSub + "/resourcegroups/rg?api-version=2021-04-01"
-	putReq, err := http.NewRequestWithContext(t.Context(), http.MethodPut, rgURL, strings.NewReader(`{"location":"local"}`))
+	putReq, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPut,
+		rgURL,
+		strings.NewReader(`{"location":"local"}`),
+	)
 	require.NoError(t, err)
 
 	putReq.Header.Set("Content-Type", "application/json")

@@ -20,6 +20,7 @@ const (
 	aciLoopbackIP                       = "127.0.0.1"
 	aciPrefixLen                        = len("azurearm: invalid container group: ")
 	aciFQDNSuffix                       = "azurecontainer.io"
+	aciKeyServer                        = "server"
 )
 
 func aciAPIVersions() []string { return []string{"2023-05-01"} }
@@ -185,8 +186,11 @@ func (p *ContainerInstanceProvider) List(_ context.Context, id ResourceID) ([]ma
 
 	for _, g := range recs {
 		gid := ResourceID{
-			SubscriptionID: id.SubscriptionID, ResourceGroup: g.ResourceGroup, Namespace: namespaceMicrosoftContainerInstance,
-			Types: []string{aciGroupsType}, Names: []string{g.Name},
+			SubscriptionID: id.SubscriptionID,
+			ResourceGroup:  g.ResourceGroup,
+			Namespace:      namespaceMicrosoftContainerInstance,
+			Types:          []string{aciGroupsType},
+			Names:          []string{g.Name},
 		}
 		out = append(out, p.bodyOf(gid, g))
 	}
@@ -238,13 +242,13 @@ func (p *ContainerInstanceProvider) Action(_ context.Context, id ResourceID, act
 	cfg := p.config(rec)
 
 	switch action {
-	case "stop":
+	case aciActionStop:
 		p.engine.Stop(cfg.Key)
-	case "start":
+	case aciActionStart:
 		if !p.engine.Active(cfg.Key) {
 			p.engine.Deploy(cfg)
 		}
-	case "restart":
+	case aciActionRestart:
 		p.engine.Deploy(cfg)
 	}
 
@@ -252,7 +256,11 @@ func (p *ContainerInstanceProvider) Action(_ context.Context, id ResourceID, act
 }
 
 // Patch replaces the group's tags.
-func (p *ContainerInstanceProvider) Patch(_ context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
+func (p *ContainerInstanceProvider) Patch(
+	_ context.Context,
+	id ResourceID,
+	body map[string]any,
+) (map[string]any, error) {
 	p.mu.Lock("Patch")
 	rec, ok := p.group(id.ResourceGroup, id.LeafName())
 
@@ -271,7 +279,12 @@ func (p *ContainerInstanceProvider) Patch(_ context.Context, id ResourceID, body
 }
 
 // Logs returns a container's logs.
-func (p *ContainerInstanceProvider) Logs(ctx context.Context, id ResourceID, container string, tail int) (string, error) {
+func (p *ContainerInstanceProvider) Logs(
+	ctx context.Context,
+	id ResourceID,
+	container string,
+	tail int,
+) (string, error) {
 	p.mu.RLock("Logs")
 	rec, ok := p.group(id.ResourceGroup, id.LeafName())
 	p.mu.RUnlock()
@@ -288,8 +301,14 @@ func aciEventsBody(events []ACIEvent) []map[string]any {
 
 	for _, ev := range events {
 		out = append(out, map[string]any{
-			"count": ev.Count, "firstTimestamp": ev.First.Format(time.RFC3339Nano),
-			"lastTimestamp": ev.Last.Format(time.RFC3339Nano), "message": ev.Message, fieldName: ev.Name, "type": ev.Type,
+			"count":          ev.Count,
+			"firstTimestamp": ev.First.Format(time.RFC3339Nano),
+			"lastTimestamp": ev.Last.Format(
+				time.RFC3339Nano,
+			),
+			fieldMessage: ev.Message,
+			fieldName:    ev.Name,
+			fieldType:    ev.Type,
 		})
 	}
 
@@ -301,7 +320,7 @@ func aciStateBody(s *ACIState) map[string]any {
 		return nil
 	}
 
-	m := map[string]any{"state": s.State}
+	m := map[string]any{sqlPropState: s.State}
 	if s.Detail != "" {
 		m["detailStatus"] = s.Detail
 	}
@@ -364,7 +383,7 @@ func aciContainerBody(c aciContainerWire, view *ACIContainerView) map[string]any
 			iv["previousState"] = aciStateBody(view.Prev)
 		}
 	} else {
-		iv["currentState"] = map[string]any{"state": aciStateTerminated, "detailStatus": aciStateStopped}
+		iv["currentState"] = map[string]any{sqlPropState: aciStateTerminated, "detailStatus": aciStateStopped}
 	}
 
 	props["instanceView"] = iv
@@ -425,7 +444,7 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 	props := map[string]any{
 		fieldProvisioningState: prov, "containers": conts, "osType": pp.OSType, "restartPolicy": pp.RestartPolicy,
 		"volumes":      aciVolumesBody(pp.Volumes),
-		"instanceView": map[string]any{"events": events, "state": state},
+		"instanceView": map[string]any{"events": events, sqlPropState: state},
 	}
 
 	if len(pp.Volumes) == 0 {
@@ -439,7 +458,7 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 	if len(pp.ImageRegistryCredentials) > 0 {
 		creds := make([]map[string]any, 0, len(pp.ImageRegistryCredentials))
 		for _, c := range pp.ImageRegistryCredentials {
-			creds = append(creds, map[string]any{"server": c.Server, "username": c.Username})
+			creds = append(creds, map[string]any{aciKeyServer: c.Server, "username": c.Username})
 		}
 
 		props["imageRegistryCredentials"] = creds
@@ -453,7 +472,7 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 
 func (p *ContainerInstanceProvider) ipBody(rec *storedACIGroup, allocated bool) map[string]any {
 	ip := rec.Props.IPAddress
-	m := map[string]any{"type": ip.Type, "ports": ip.Ports}
+	m := map[string]any{fieldType: ip.Type, "ports": ip.Ports}
 
 	if allocated {
 		m["ip"] = aciLoopbackIP
