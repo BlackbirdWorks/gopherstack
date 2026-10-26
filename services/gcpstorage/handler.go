@@ -63,6 +63,8 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		opXMLDeleteObject: h.xmlDeleteObject,
 	}
 
+	h.registerACL()
+
 	return h
 }
 
@@ -71,13 +73,13 @@ func (h *Handler) Name() string { return "GCPStorage" }
 
 // GetSupportedOperations lists the supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
+	return append(aclOpNames(), []string{
 		opListBuckets, opInsertBucket, opGetBucket, opPatchBucket, opUpdateBucket, opDeleteBucket,
 		opGetIamPolicy, opSetIamPolicy, opTestIamPermissions, opListObjects, opGetObject, opPatchObject,
 		opUpdateObject, opDeleteObject, opCopyObject, opRewriteObject, opComposeObject, opInsertObject,
 		opResumableUpload, opCancelUpload, opDownloadObject, opXMLGetObject, opXMLHeadObject,
 		opXMLPutObject, opXMLDeleteObject,
-	}
+	}...)
 }
 
 // RouteMatcher never matches: GCS runs on its own listener.
@@ -195,6 +197,34 @@ func readBody(c *echo.Context) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// withACLParams copies the predefined-ACL query parameters into the request patch.
+func withACLParams(c *echo.Context, p Patch, keys ...string) Patch {
+	if p == nil {
+		p = Patch{}
+	}
+
+	for _, k := range keys {
+		if v := c.QueryParam(k); v != "" {
+			p[k] = marshalRaw(v)
+		}
+	}
+
+	return p
+}
+
+// withDestinationACL maps destinationPredefinedAcl, used by copy, rewrite and compose, onto the patch.
+func withDestinationACL(c *echo.Context, p Patch) Patch {
+	if p == nil {
+		p = Patch{}
+	}
+
+	if v := c.QueryParam("destinationPredefinedAcl"); v != "" {
+		p[keyPredefined] = marshalRaw(v)
+	}
+
+	return p
 }
 
 func readPatch(c *echo.Context) (Patch, error) {

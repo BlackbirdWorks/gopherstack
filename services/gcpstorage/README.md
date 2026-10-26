@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 23 (22 ok, 1 partial) |
+| PARITY entries audited | 28 (27 ok, 1 partial) |
 | Feature families | 8 (6 ok, 2 partial) |
 | Known gaps | 8 |
 | Deferred items | 0 |
@@ -15,14 +15,14 @@
 
 ### Known gaps
 
-- No bucket or object ACL endpoints (/b/{b}/acl, /b/{b}/defaultObjectAcl, /b/{b}/o/{o}/acl); acl fields on bucket bodies are stored but predefinedAcl is ignored.
+- ACLs are stored, never evaluated. Entities are not resolved (no entityId), uploads are attributed to a fixed emulator identity, and project team entities use a project number derived from the project id.
 - No gzip transcoding: an object stored with contentEncoding gzip is always served compressed.
 - No notification configs, HMAC keys, bucket relocation, soft-delete restore, object restore, or the project serviceAccount endpoint.
 - Lifecycle, retention policies, holds and CORS are stored but not enforced.
 - Signed URLs (V2/V4) are not verified and no request is authenticated.
 - Virtual-hosted-style URLs (bucket.storage.googleapis.com) and XML bucket listing, multipart XML uploads and x-goog-copy-source are not supported.
 - Customer-supplied and KMS encryption keys are accepted but not applied.
-- ListObjects ignores matchGlob; page tokens are index-based, so they shift if objects change between pages.
+- softDeleted and includeFoldersAsPrefixes are not supported on ListObjects; matchGlob combined with prefix applies the glob to the full name.
 
 ## More
 

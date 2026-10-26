@@ -57,6 +57,8 @@ func (h *Handler) finishInsert(c *echo.Context, bucket, name string, data []byte
 		return errRequired("name")
 	}
 
+	meta = withACLParams(c, meta, keyPredefined)
+
 	o, err := h.Backend.PutObject(bucket, name, data, meta, pre)
 	if err != nil {
 		return err
@@ -128,6 +130,8 @@ func (h *Handler) startResumable(c *echo.Context, bucket string, pre Preconds) e
 	if name == "" {
 		return errRequired("name")
 	}
+
+	meta = withACLParams(c, meta, keyPredefined)
 
 	id, err := h.Backend.StartUpload(bucket, name, meta, pre)
 	if err != nil {

@@ -110,6 +110,20 @@ func (s *server) DestroySecretVersion(
 	return s.b.DestroySecretVersion(in)
 }
 
+func (s *server) EnableManagedRotation(
+	_ context.Context,
+	in *secretmanagerpb.EnableManagedRotationRequest,
+) (*secretmanagerpb.SecretVersion, error) {
+	return s.b.EnableManagedRotation(in)
+}
+
+func (s *server) RotateSecret(
+	_ context.Context,
+	in *secretmanagerpb.RotateSecretRequest,
+) (*secretmanagerpb.SecretVersion, error) {
+	return s.b.RotateSecret(in)
+}
+
 func (s *server) SetIamPolicy(_ context.Context, in *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
 	return s.b.SetIamPolicy(in)
 }

@@ -100,6 +100,7 @@ func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPRedis(byName)
 	wireGCPCloudBuild(byName)
 	wireGCPEventarc(byName)
+	wireGCPSecretRotation(byName)
 	wireGCPWorkflows(byName)
 }
 
@@ -116,5 +117,15 @@ func wireGCPCloudBuild(byName map[string]service.Registerable) {
 				)
 			})
 		}
+	}
+}
+
+// wireGCPSecretRotation delivers Secret Manager SECRET_ROTATE notifications to the Pub/Sub emulator.
+func wireGCPSecretRotation(byName map[string]service.Registerable) {
+	sm, okSM := byName["GCPSecretManager"].(*gcpsecretmanagerbackend.Handler)
+	ps, okPS := byName["GCPPubSub"].(*gcppubsubbackend.Handler)
+
+	if okSM && okPS {
+		sm.Backend.SetPublisher(logSinkPublisher{b: ps.Backend})
 	}
 }

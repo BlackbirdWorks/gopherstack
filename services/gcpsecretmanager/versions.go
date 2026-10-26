@@ -45,6 +45,10 @@ func replicationStatus(s *secretmanagerpb.Secret, n int64) *secretmanagerpb.Repl
 		}
 	}
 
+	if isRegional(s.GetName()) {
+		return nil
+	}
+
 	switch r := s.GetReplication().GetReplication().(type) {
 	case *secretmanagerpb.Replication_UserManaged_:
 		replicas := make([]*secretmanagerpb.ReplicationStatus_UserManagedStatus_ReplicaStatus, 0,
@@ -96,24 +100,28 @@ func (b *InMemoryBackend) AddSecretVersion(
 		return nil, err
 	}
 
+	return cloneVersion(b.addVersionLocked(rec, req.GetParent(), payload.GetData(), payload.DataCrc32C != nil)), nil
+}
+
+func (b *InMemoryBackend) addVersionLocked(rec *secretRec, secret string, data []byte, clientSum bool) *versionRec {
 	n := rec.nextVer
 	rec.nextVer++
 
 	v := &versionRec{
 		num:  n,
-		data: slices.Clone(payload.GetData()),
+		data: slices.Clone(data),
 		pb: &secretmanagerpb.SecretVersion{
-			Name:                           req.GetParent() + "/versions/" + itoa(n),
+			Name:                           secret + "/versions/" + itoa(n),
 			CreateTime:                     timestamppb.New(b.now()),
 			State:                          secretmanagerpb.SecretVersion_ENABLED,
 			ReplicationStatus:              replicationStatus(rec.pb, n),
 			Etag:                           b.nextEtag(),
-			ClientSpecifiedPayloadChecksum: payload.DataCrc32C != nil,
+			ClientSpecifiedPayloadChecksum: clientSum,
 		},
 	}
 	rec.versions = append(rec.versions, v)
 
-	return cloneVersion(v), nil
+	return v
 }
 
 // parseVersionName splits projects/p/secrets/s/versions/v into the secret name and version ref.
@@ -247,7 +255,7 @@ func (b *InMemoryBackend) ListSecretVersions(
 
 func itemOfVersion(pb *secretmanagerpb.SecretVersion) item {
 	it := item{
-		"name":        {pb.GetName()},
+		fieldName:     {pb.GetName()},
 		"state":       {pb.GetState().String()},
 		"create_time": {pb.GetCreateTime().AsTime().Format(time.RFC3339Nano)},
 		"*":           {pb.GetName(), pb.GetState().String()},

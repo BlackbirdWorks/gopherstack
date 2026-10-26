@@ -241,6 +241,7 @@ func (b *InMemoryBackend) CreateSchema(req *pubsubpb.CreateSchemaRequest) (*pubs
 
 	rev := schemaRevision{ID: awsid.NewN("", revisionIDLen), Definition: in.GetDefinition(), Created: b.now()}
 	rec := &schemaRec{Name: name, Type: int32(in.GetType()), Revisions: []schemaRevision{rev}}
+	b.dropPolicyLocked(name)
 	b.schemas[name] = rec
 
 	return rec.view(rev, true), nil
@@ -429,6 +430,7 @@ func (b *InMemoryBackend) DeleteSchema(name string) error {
 	}
 
 	delete(b.schemas, name)
+	b.dropPolicyLocked(name)
 
 	for _, t := range b.topics {
 		if ss := t.pb.GetSchemaSettings(); ss != nil && ss.GetSchema() == name {

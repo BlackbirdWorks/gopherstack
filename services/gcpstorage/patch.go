@@ -175,7 +175,7 @@ func isConfigKey(k string) bool {
 	switch k {
 	case "cors", "lifecycle", "website", "logging", "encryption", "retentionPolicy", "iamConfiguration",
 		"billing", "autoclass", "softDeletePolicy", "customPlacementConfig", "hierarchicalNamespace",
-		"ipFilter", "objectRetention", "acl", "defaultObjectAcl", "rpo":
+		"ipFilter", "objectRetention", "rpo":
 		return true
 	default:
 		return false
@@ -183,7 +183,7 @@ func isConfigKey(k string) bool {
 }
 
 // applyBucket applies the writable bucket fields of p to b.
-func applyBucket(b *Bucket, p Patch) *APIError {
+func applyBucket(b *Bucket, p Patch, create bool) *APIError {
 	var apiErr *APIError
 
 	if raw, ok := p["labels"]; ok {
@@ -215,6 +215,10 @@ func applyBucket(b *Bucket, p Patch) *APIError {
 		}
 
 		b.StorageClass = sc
+	}
+
+	if apiErr = applyBucketACL(b, p, create); apiErr != nil {
+		return apiErr
 	}
 
 	for k, raw := range p {
