@@ -514,13 +514,3 @@ func (b *InMemoryBackend) ListSecurityRules(id string, o RuleListOpts) (page.Pag
 
 	return page.Page[SecurityRule]{Data: out, Next: pg.Next}, nil
 }
-
-// ListNsgVnics lists the VNICs in an NSG; this emulator has no compute, so it is always empty.
-func (b *InMemoryBackend) ListNsgVnics(id string) *APIError {
-	b.mu.RLock("ListNsgVnics")
-	defer b.mu.RUnlock()
-
-	_, aerr := get[*NetworkSecurityGroup](b, id)
-
-	return aerr
-}

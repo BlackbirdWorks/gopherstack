@@ -157,7 +157,10 @@ func publicIPFilter(q *req) func(resource) bool {
 	return func(r resource) bool {
 		p, ok := r.(*PublicIP)
 
-		return ok && p.Scope == q.query("scope") && (life == "" || p.Lifetime == life)
+		ad := q.query("availabilityDomain")
+
+		return ok && p.Scope == q.query("scope") && (life == "" || p.Lifetime == life) &&
+			(ad == "" || (p.AvailabilityDomain != nil && *p.AvailabilityDomain == ad))
 	}
 }
 
@@ -184,6 +187,12 @@ func cruds() []crud {
 		newCrud[*LocalPeeringGateway]("LocalPeeringGateway", "LocalPeeringGateways", "/localPeeringGateways",
 			"localPeeringGatewayId", (*InMemoryBackend).CreateLocalPeeringGateway,
 			(*InMemoryBackend).UpdateLocalPeeringGateway, nil),
+		newCrud[*Volume]("Volume", "Volumes", "/volumes", "volumeId",
+			(*InMemoryBackend).CreateVolume, (*InMemoryBackend).UpdateVolume, volumeFilter),
+		newCrud[*BootVolume]("BootVolume", "BootVolumes", "/bootVolumes", "bootVolumeId",
+			(*InMemoryBackend).CreateBootVolume, (*InMemoryBackend).UpdateBootVolume, volumeFilter),
+		newCrud[*VolumeBackup]("VolumeBackup", "VolumeBackups", "/volumeBackups", "volumeBackupId",
+			(*InMemoryBackend).CreateVolumeBackup, (*InMemoryBackend).UpdateVolumeBackup, backupFilter),
 		newCrud[*PublicIP]("PublicIp", "PublicIps", "/publicIps", "publicIpId",
 			(*InMemoryBackend).CreatePublicIP, (*InMemoryBackend).UpdatePublicIP, publicIPFilter),
 	}
@@ -205,6 +214,8 @@ func buildOps() map[string]opFunc {
 	for _, c := range cruds() {
 		maps.Copy(ops, c.ops)
 	}
+
+	maps.Copy(ops, computeOps())
 
 	return ops
 }
@@ -335,11 +346,19 @@ func (h *Handler) listNsgRules(q *req) error {
 }
 
 func (h *Handler) listNsgVnics(q *req) error {
-	if aerr := h.Backend.ListNsgVnics(q.param("networkSecurityGroupId")); aerr != nil {
+	o, err := q.listOpts()
+	if err != nil {
+		return err
+	}
+
+	pg, aerr := h.Backend.ListNsgVnics(q.param("networkSecurityGroupId"), o)
+	if aerr != nil {
 		return aerr
 	}
 
-	return q.json(http.StatusOK, []struct{}{}, "")
+	q.nextPage(pg.Next)
+
+	return q.json(http.StatusOK, pg.Data, "")
 }
 
 func (h *Handler) publicIPByAddress(q *req) error {

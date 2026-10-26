@@ -76,6 +76,10 @@ func (b *InMemoryBackend) deleteVcnCheck(id string) *APIError {
 }
 
 func (b *InMemoryBackend) deleteNsgCheck(id string) *APIError {
+	if v := firstID(liveOf(b, func(x *Vnic) bool { return slices.Contains(x.NsgIDs, id) })); v != "" {
+		return errConflict("The network security group " + id + " is used by VNIC " + v)
+	}
+
 	for _, rule := range b.nsgRules {
 		if rule.NsgID != id && (rule.Source == id || rule.Destination == id) && live(b.res[rule.NsgID]) {
 			return errConflict("The network security group " + id + " is referenced by a rule of " + rule.NsgID)
@@ -120,6 +124,28 @@ func (b *InMemoryBackend) deleteCheck(r resource) *APIError {
 		if v.AssignedEntityType == entityNAT {
 			return errConflict("The public IP " + id + " is assigned to " + v.AssignedEntityID)
 		}
+	case *Subnet:
+		return b.deleteSubnetCheck(id)
+	case *Volume:
+		return usedBy("volume", id, firstID(liveOf(b, func(a *VolumeAttachment) bool { return a.VolumeID == id })))
+	case *BootVolume:
+		return usedBy(
+			"boot volume",
+			id,
+			firstID(liveOf(b, func(a *BootVolumeAttachment) bool { return a.BootVolumeID == id })),
+		)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) deleteSubnetCheck(id string) *APIError {
+	if v := firstID(liveOf(b, func(x *Vnic) bool { return x.SubnetID == id })); v != "" {
+		return errConflict("The subnet " + id + " cannot be deleted because it still contains VNIC " + v)
+	}
+
+	if p := firstID(liveOf(b, func(x *PrivateIP) bool { return x.SubnetID == id })); p != "" {
+		return errConflict("The subnet " + id + " cannot be deleted because it still contains private IP " + p)
 	}
 
 	return nil
@@ -155,6 +181,10 @@ func (b *InMemoryBackend) terminate(r resource) {
 				b.markTerminating(d)
 			}
 		}
+	case *Volume:
+		b.dropAssignments(v.ID)
+	case *BootVolume:
+		b.dropAssignments(v.ID)
 	case *NatGateway:
 		b.releaseNatIP(v)
 	case *LocalPeeringGateway:
@@ -164,5 +194,11 @@ func (b *InMemoryBackend) terminate(r resource) {
 		}
 	}
 
+	vnicID := ""
+	if ip, ok := r.(*PublicIP); ok {
+		vnicID = b.vnicOfPublic(ip)
+	}
+
 	b.markTerminating(r)
+	b.refreshVnic(vnicID)
 }

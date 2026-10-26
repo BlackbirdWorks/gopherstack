@@ -143,7 +143,7 @@ type CreatePublicIPIn struct {
 	PublicIPPoolID string `json:"publicIpPoolId"`
 }
 
-// CreatePublicIP allocates a reserved public IP. Ephemeral IPs belong to VNICs, which this emulator lacks.
+// CreatePublicIP allocates a reserved public IP, or an ephemeral one for a private IP.
 func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (resource, string, *APIError) {
 	b.mu.Lock("CreatePublicIP")
 	defer b.mu.Unlock()
@@ -166,8 +166,15 @@ func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (resource, string,
 		return nil, "", errParam("lifetime must be EPHEMERAL or RESERVED")
 	}
 
+	var target *PrivateIP
+
 	if in.PrivateIPID != "" {
-		return nil, "", errNotFound(in.PrivateIPID)
+		p, aerr := b.assignableTarget(in.PrivateIPID, nil)
+		if aerr != nil {
+			return nil, "", aerr
+		}
+
+		target = p
 	}
 
 	if in.PublicIPPoolID != "" {
@@ -181,11 +188,38 @@ func (b *InMemoryBackend) CreatePublicIP(in CreatePublicIPIn) (resource, string,
 
 	p := &PublicIP{
 		Base: b.newBase(kindPublicIP, in.CompartmentID, in.DisplayName, in.TagsIn), IPAddress: b.allocIP(),
-		Lifetime: lifetimeReserved, Scope: scopeRegion,
+		Lifetime: in.Lifetime, Scope: scopeRegion,
 	}
+	if in.Lifetime == lifetimeEphemeral {
+		p.Scope = scopeAD
+	}
+
 	b.add(p)
 
+	if target != nil {
+		b.assignPublic(p, target)
+		b.refreshVnic(target.VnicID)
+	}
+
 	return p.view(), p.Internal.Etag, nil
+}
+
+// assignableTarget finds a private IP a public IP can be assigned to; self is the public IP being moved.
+func (b *InMemoryBackend) assignableTarget(id string, self *PublicIP) (*PrivateIP, *APIError) {
+	p, aerr := getLive[*PrivateIP](b, id)
+	if aerr != nil {
+		return nil, aerr
+	}
+
+	if p.VnicID == "" {
+		return nil, errState("The private IP " + id + " is not assigned to a VNIC")
+	}
+
+	if cur := b.publicOf(id); cur != nil && cur != self {
+		return nil, errConflict("The private IP " + id + " already has public IP " + cur.ID)
+	}
+
+	return p, nil
 }
 
 // UpdatePublicIPIn is the UpdatePublicIp request body.
@@ -194,19 +228,39 @@ type UpdatePublicIPIn struct {
 	UpdateIn
 }
 
-// UpdatePublicIP changes a public IP's name and tags; assigning to a private IP needs VNICs, which are not emulated.
+// UpdatePublicIP changes a public IP's name and tags, and assigns, moves or unassigns a reserved one.
 func (b *InMemoryBackend) UpdatePublicIP(id, ifMatch string, in UpdatePublicIPIn) (resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(p *PublicIP) *APIError {
 		if in.PrivateIPID == nil {
 			return nil
 		}
 
-		if *in.PrivateIPID != "" {
-			return errNotFound(*in.PrivateIPID)
-		}
-
 		if p.AssignedEntityType == entityNAT {
 			return errConflict("The public IP " + p.ID + " is assigned to a NAT gateway")
+		}
+
+		if p.Lifetime == lifetimeEphemeral {
+			return errParam("An ephemeral public IP cannot be reassigned")
+		}
+
+		var target *PrivateIP
+
+		if *in.PrivateIPID != "" {
+			t, aerr := b.assignableTarget(*in.PrivateIPID, p)
+			if aerr != nil {
+				return aerr
+			}
+
+			target = t
+		}
+
+		if p.AssignedEntityType == entityPrivateIP {
+			b.unassignPublic(p)
+		}
+
+		if target != nil {
+			b.assignPublic(p, target)
+			b.refreshVnic(target.VnicID)
 		}
 
 		return nil

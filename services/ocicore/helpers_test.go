@@ -71,6 +71,8 @@ type env struct {
 	handler *oci.Handler
 	clock   *fakeClock
 	client  core.VirtualNetworkClient
+	compute core.ComputeClient
+	block   core.BlockstorageClient
 	kp      keyPair
 	base    string
 }
@@ -106,6 +108,26 @@ func newEnv(t *testing.T, enforce bool) *env {
 	kp := newKeyPair(t)
 	e := &env{backend: be, handler: h, clock: clock, kp: kp, base: fmt.Sprintf("http://localhost:%d", h.Port)}
 	e.client = e.clientFor(t, "ocid1.user.oc1..bootstrap", kp)
+	prov := common.NewRawConfigurationProvider(
+		testTenancy,
+		"ocid1.user.oc1..bootstrap",
+		testRegion,
+		kp.fprint,
+		kp.privPEM,
+		nil,
+	)
+
+	cc, err := core.NewComputeClientWithConfigurationProvider(prov)
+	require.NoError(t, err)
+
+	cc.Host = e.base
+	e.compute = cc
+
+	bc, err := core.NewBlockstorageClientWithConfigurationProvider(prov)
+	require.NoError(t, err)
+
+	bc.Host = e.base
+	e.block = bc
 
 	return e
 }
