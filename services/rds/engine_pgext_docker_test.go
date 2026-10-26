@@ -1,6 +1,7 @@
 package rds_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -142,23 +143,23 @@ func TestPostgresExtensionsDocker(t *testing.T) {
 	t.Parallel()
 
 	env := startPgExtEnv(t)
-	ctx := dbCtx(t)
+	setupCtx := dbCtx(t)
 
 	status, _ := env.s3Do(t, http.MethodPut, "/"+pgExtBucket, "")
 	require.Equal(t, http.StatusOK, status)
 	status, _ = env.s3Do(t, http.MethodPut, "/"+pgExtBucket+"/in/data file.csv", "1,alpha\n2,beta\n3,gamma\n")
 	require.Equal(t, http.StatusOK, status)
 
-	_, err := env.db.ExecContext(ctx, "CREATE EXTENSION aws_s3 CASCADE; CREATE EXTENSION aws_lambda CASCADE")
+	_, err := env.db.ExecContext(setupCtx, "CREATE EXTENSION aws_s3 CASCADE; CREATE EXTENSION aws_lambda CASCADE")
 	require.NoError(t, err)
 
 	env.role(t, "s3Import", true)
 
 	tests := []struct {
-		run  func(t *testing.T)
+		run  func(ctx context.Context, t *testing.T)
 		name string
 	}{
-		{name: "postgis", run: func(t *testing.T) {
+		{name: "postgis", run: func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			_, qerr := env.db.ExecContext(ctx, `CREATE EXTENSION postgis;
@@ -186,7 +187,7 @@ ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(0, 0), 4326))`)
 			require.NoError(t, rows.Err())
 			assert.Equal(t, []string{"a", "b"}, got)
 		}},
-		{name: "pgvector", run: func(t *testing.T) {
+		{name: "pgvector", run: func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			_, qerr := env.db.ExecContext(ctx, `CREATE EXTENSION vector;
@@ -200,7 +201,7 @@ INSERT INTO vecs VALUES (1, '[1,1,1]'), (2, '[9,9,9]'), (3, '[1,2,1]')`)
 				"SELECT id FROM vecs ORDER BY embedding <-> '[8,8,8]' LIMIT 1").Scan(&id))
 			assert.Equal(t, 2, id)
 		}},
-		{name: "s3_import", run: func(t *testing.T) {
+		{name: "s3_import", run: func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			_, qerr := env.db.ExecContext(ctx, "CREATE TABLE imp (id int, name text)")
@@ -222,7 +223,7 @@ INSERT INTO vecs VALUES (1, '[1,1,1]'), (2, '[9,9,9]'), (3, '[1,2,1]')`)
 				pgExtBucket+`', 'in/missing.csv', 'us-east-1')`)
 			require.ErrorContains(t, qerr, "does not exist")
 		}},
-		{name: "s3_export_role_lifecycle", run: func(t *testing.T) {
+		{name: "s3_export_role_lifecycle", run: func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			_, qerr := env.db.ExecContext(ctx,
@@ -248,7 +249,7 @@ INSERT INTO vecs VALUES (1, '[1,1,1]'), (2, '[9,9,9]'), (3, '[1,2,1]')`)
 			assert.Equal(t, "1,row1\n2,row2\n3,row3\n4,row4\n", body)
 			assert.EqualValues(t, len(body), bytes)
 		}},
-		{name: "lambda_role_lifecycle", run: func(t *testing.T) {
+		{name: "lambda_role_lifecycle", run: func(ctx context.Context, t *testing.T) {
 			t.Helper()
 
 			const q = `SELECT status_code, payload::text, executed_version FROM aws_lambda.invoke(
@@ -284,7 +285,7 @@ INSERT INTO vecs VALUES (1, '[1,1,1]'), (2, '[9,9,9]'), (3, '[1,2,1]')`)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t)
+			tt.run(dbCtx(t), t)
 		})
 	}
 }
