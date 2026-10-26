@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 
 	"cloud.google.com/go/run/apiv2/runpb"
@@ -22,9 +23,9 @@ type attempt struct {
 	timedOut bool
 }
 
-func taskSpec(ex *runpb.Execution, t *runpb.Task, attemptNo int) container.Spec {
+func taskSpec(ex *runpb.Execution, t *runpb.Task, attemptNo int, base []string) container.Spec {
 	c := t.GetContainers()[0]
-	env := append(envList(c),
+	env := append(slices.Clone(base),
 		"CLOUD_RUN_JOB="+lastSegment(ex.GetJob()),
 		"CLOUD_RUN_EXECUTION="+lastSegment(ex.GetName()),
 		"CLOUD_RUN_TASK_INDEX="+strconv.Itoa(int(t.GetIndex())),
@@ -42,7 +43,9 @@ func taskSpec(ex *runpb.Execution, t *runpb.Task, attemptNo int) container.Spec 
 }
 
 // runAttempt runs one container to completion within the task timeout.
-func (b *InMemoryBackend) runAttempt(ctx context.Context, runner Runner, spec container.Spec, t *runpb.Task) attempt {
+func (b *InMemoryBackend) runAttempt(
+	ctx context.Context, runner Runner, spec container.Spec, ex *runpb.Execution, t *runpb.Task, attemptNo int,
+) attempt {
 	actx, cancel := context.WithTimeout(ctx, t.GetTimeout().AsDuration())
 	defer cancel()
 
@@ -55,6 +58,9 @@ func (b *InMemoryBackend) runAttempt(ctx context.Context, runner Runner, spec co
 	}
 
 	defer b.stopContainer(runner, id)
+
+	stopLogs := b.followTask(runner, id, ex, t, attemptNo)
+	defer stopLogs()
 
 	waiter, ok := runner.(container.ExitWaiter)
 	if !ok {
@@ -85,7 +91,14 @@ func (b *InMemoryBackend) runTask(ctx context.Context, execName, taskName string
 			return
 		}
 
-		res := b.runAttempt(ctx, runner, taskSpec(ex, t, n), t)
+		env, eerr := b.taskEnv(ex, t)
+		if eerr != nil {
+			b.settleTask(taskName, stateFailed, eerr.Error(), 0)
+
+			return
+		}
+
+		res := b.runAttempt(ctx, runner, taskSpec(ex, t, n, env), ex, t, n)
 
 		if ctx.Err() != nil {
 			b.settleTask(taskName, stateCancelled, "Task was cancelled.", 0)
@@ -108,6 +121,16 @@ func (b *InMemoryBackend) runTask(ctx context.Context, execName, taskName string
 			return
 		}
 	}
+}
+
+// taskEnv returns the task container's environment with secret references resolved.
+func (b *InMemoryBackend) taskEnv(ex *runpb.Execution, t *runpb.Task) ([]string, error) {
+	project := ""
+	if n, err := parseName(ex.GetJob(), "jobs"); err == nil {
+		project = n.project
+	}
+
+	return b.revisionEnv(project, t.GetContainers()[0])
 }
 
 func attemptMessage(a attempt) string {

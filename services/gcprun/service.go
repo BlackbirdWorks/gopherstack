@@ -223,9 +223,11 @@ func (b *InMemoryBackend) deploy(op, svcName, revName string) {
 	idle := b.reapIdleLocked(rec)
 	b.mu.Unlock()
 
-	for _, r := range idle {
-		b.teardown(r)
+	for _, in := range idle {
+		b.teardownInst(in)
 	}
+
+	b.warmServing(svcName)
 
 	if failure != "" {
 		b.failOp(op, view, status.New(codes.FailedPrecondition, failure))
@@ -284,8 +286,8 @@ func (b *InMemoryBackend) settleLocked(rec *svcRec, rev *revRec, err error) stri
 	return failure
 }
 
-// reapIdleLocked detaches containers of revisions that receive no traffic; they restart on demand.
-func (b *InMemoryBackend) reapIdleLocked(rec *svcRec) []*revRec {
+// reapIdleLocked detaches the instances of revisions that receive no traffic; they restart on demand.
+func (b *InMemoryBackend) reapIdleLocked(rec *svcRec) []*inst {
 	serving := map[string]bool{}
 	for _, st := range rec.pb.GetTrafficStatuses() {
 		if st.GetPercent() > 0 || st.GetTag() != "" {
@@ -293,18 +295,34 @@ func (b *InMemoryBackend) reapIdleLocked(rec *svcRec) []*revRec {
 		}
 	}
 
-	var idle []*revRec
+	var idle []*inst
 
 	for name, r := range b.revisions {
-		if r.pb.GetService() != rec.pb.GetName() || r.containerID == "" || serving[lastSegment(name)] {
+		if r.pb.GetService() != rec.pb.GetName() || serving[lastSegment(name)] {
 			continue
 		}
 
-		idle = append(idle, &revRec{containerID: r.containerID, hostPort: r.hostPort})
-		r.containerID, r.hostPort = "", 0
+		idle = append(idle, b.detachAllLocked(r)...)
 	}
 
 	return idle
+}
+
+// detachAllLocked removes every instance from r's pool and returns them for teardown.
+func (b *InMemoryBackend) detachAllLocked(r *revRec) []*inst {
+	out := r.insts
+	r.insts = nil
+
+	for _, in := range out {
+		in.dead = true
+		stopTimer(in)
+	}
+
+	if len(out) > 0 {
+		r.notifyLocked()
+	}
+
+	return out
 }
 
 // GetService returns the named service.
@@ -335,6 +353,9 @@ func (b *InMemoryBackend) ListServices(in *runpb.ListServicesRequest) ([]*runpb.
 	b.mu.RLock("ListServices")
 
 	all := collect(b.services, p.parent()+"/services/", b.viewLocked)
+	if in.GetShowDeleted() {
+		all = mergeDeleted(b, all, b.deleted.services, p.parent()+"/services/", clone[*runpb.Service])
+	}
 	b.mu.RUnlock()
 
 	return paginate(all, in.GetPageToken(), in.GetPageSize())
@@ -451,14 +472,18 @@ func (b *InMemoryBackend) commitUpdateLocked(
 	b.refreshLocked(rec)
 	view := b.viewLocked(rec)
 
-	var idle []*revRec
+	var idle []*inst
 	if rev == nil {
 		idle = b.reapIdleLocked(rec)
 	}
 	b.mu.Unlock()
 
-	for _, r := range idle {
-		b.teardown(r)
+	for _, in := range idle {
+		b.teardownInst(in)
+	}
+
+	if rev == nil {
+		b.warmServing(work.GetName())
 	}
 
 	if rev != nil {
@@ -500,6 +525,7 @@ func (b *InMemoryBackend) DeleteService(in *runpb.DeleteServiceRequest) (*longru
 	}
 
 	removed := b.removeServiceLocked(in.GetName())
+	b.entombServiceLocked(view)
 	b.mu.Unlock()
 
 	for _, r := range removed {
@@ -511,6 +537,7 @@ func (b *InMemoryBackend) DeleteService(in *runpb.DeleteServiceRequest) (*longru
 
 func (b *InMemoryBackend) removeServiceLocked(name string) []*revRec {
 	delete(b.services, name)
+	b.iam.Drop(name)
 
 	var removed []*revRec
 

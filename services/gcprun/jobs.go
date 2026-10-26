@@ -152,6 +152,9 @@ func (b *InMemoryBackend) ListJobs(in *runpb.ListJobsRequest) ([]*runpb.Job, str
 	b.mu.RLock("ListJobs")
 
 	all := collect(b.jobs, p.parent()+"/jobs/", clone[*runpb.Job])
+	if in.GetShowDeleted() {
+		all = mergeDeleted(b, all, b.deleted.jobs, p.parent()+"/jobs/", clone[*runpb.Job])
+	}
 	b.mu.RUnlock()
 
 	return paginate(all, in.GetPageToken(), in.GetPageSize())
@@ -235,6 +238,8 @@ func (b *InMemoryBackend) DeleteJob(in *runpb.DeleteJobRequest) (*longrunningpb.
 	}
 
 	delete(b.jobs, in.GetName())
+	b.iam.Drop(in.GetName())
+	b.entombJobLocked(view)
 
 	var waits []chan struct{}
 

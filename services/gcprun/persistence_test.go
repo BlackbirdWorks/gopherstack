@@ -3,6 +3,8 @@ package gcprun_test
 import (
 	"testing"
 
+	"cloud.google.com/go/iam/apiv1/iampb"
+
 	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,4 +87,40 @@ func TestReset(t *testing.T) {
 
 	_, err := e.services.ListServices(t.Context(), &runpb.ListServicesRequest{Parent: parent}).Next()
 	assert.Error(t, err)
+}
+
+func TestPersistence_IAMAndTombstones(t *testing.T) {
+	t.Parallel()
+
+	src := newEnv(t, true)
+	svc := src.createService(t, "keep", "i")
+	gone := src.createService(t, "gone", "i")
+
+	set, err := src.services.SetIamPolicy(t.Context(), &iampb.SetIamPolicyRequest{
+		Resource: svc.GetName(),
+		Policy:   &iampb.Policy{Bindings: []*iampb.Binding{{Role: "roles/run.invoker", Members: []string{"allUsers"}}}},
+	})
+	require.NoError(t, err)
+
+	del, err := src.services.DeleteService(t.Context(), &runpb.DeleteServiceRequest{Name: gone.GetName()})
+	require.NoError(t, err)
+	_, err = del.Wait(t.Context())
+	require.NoError(t, err)
+
+	dst := newEnv(t, true)
+	require.NoError(t, dst.handler.Restore(t.Context(), src.handler.Snapshot(t.Context())))
+
+	got, err := dst.services.GetIamPolicy(t.Context(), &iampb.GetIamPolicyRequest{Resource: svc.GetName()})
+	require.NoError(t, err)
+	assert.Equal(t, set.GetEtag(), got.GetEtag())
+	assert.Equal(t, "roles/run.invoker", got.GetBindings()[0].GetRole())
+
+	next, err := dst.services.SetIamPolicy(t.Context(), &iampb.SetIamPolicyRequest{
+		Resource: svc.GetName(), Policy: &iampb.Policy{Etag: set.GetEtag()},
+	})
+	require.NoError(t, err)
+	assert.NotEqual(t, set.GetEtag(), next.GetEtag(), "the etag sequence continues after a restore")
+
+	shown := dst.services.ListServices(t.Context(), &runpb.ListServicesRequest{Parent: parent, ShowDeleted: true})
+	assert.Equal(t, []string{gone.GetName(), svc.GetName()}, names(t, shown.Next))
 }

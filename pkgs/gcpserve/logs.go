@@ -51,6 +51,18 @@ func CloudRunResource(project, service, revision, location string) *monitoredres
 	}
 }
 
+// CloudRunJobResource returns the cloud_run_job resource that Cloud Run job tasks log under.
+func CloudRunJobResource(project, job, location string) *monitoredres.MonitoredResource {
+	return &monitoredres.MonitoredResource{
+		Type: "cloud_run_job",
+		Labels: map[string]string{
+			"project_id": project,
+			"job_name":   job,
+			"location":   location,
+		},
+	}
+}
+
 // StreamLogs follows container id's output and writes each line to sink until the container goes away or ctx ends.
 // rt must implement container.LogStreamer.
 func StreamLogs(ctx context.Context, rt any, id string, t LogTarget, sink LogSink) error {
