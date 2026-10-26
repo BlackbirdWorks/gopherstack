@@ -17,7 +17,7 @@
 
 - The Kafka compatibility API (bootstrap servers, SASL and the Kafka wire protocol) is not implemented; kafkaSettings are stored and returned and bootstrapServers is whatever the caller set.
 - Create, delete and update responses report the transitional state but updates and compartment moves complete immediately; there is no UPDATING state and work requests only model CREATE, UPDATE and DELETE completion times.
-- Cursors never expire, and the 2 MiB/s consumer throughput and per-group request-rate limits are not enforced; only the 1 MiB/s per-partition ingest, 1 MiB request and 256 byte key limits are.
+- The 2 MiB/s consumer throughput and per-group request-rate limits are not enforced; only the 1 MiB/s per-partition ingest, 1 MiB request and 256 byte key limits are.
 - Partition and stream counts per tenancy, partition limits per stream (1 to 1000 here) and the exact error code strings for failed PutMessages entries are unverified against the live service.
 - Error codes and statuses for a duplicate stream name (409 Conflict), deleting a non-empty pool (409 IncorrectState), a lost group reservation on commit (409 IncorrectState) and an unusable customEncryptionKey (400 InvalidParameter) are unverified.
 - Private stream pools only store their subnet and NSG settings; endpoints are not network-isolated and endpointFqdn is the addressed host.

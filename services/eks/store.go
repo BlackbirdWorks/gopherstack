@@ -51,6 +51,7 @@ type InMemoryBackend struct {
 	baseCtx                          context.Context
 	clusterEng                       *clusterEngine
 	credentials                      CredentialResolver
+	podIdentityAssumer               PodIdentityRoleAssumer
 	idcApps                          IdcApplicationManager
 	oidcKeys                         *safemap.Map[string, *rsa.PrivateKey]
 	accountID                        string

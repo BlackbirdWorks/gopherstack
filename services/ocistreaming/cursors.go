@@ -21,6 +21,8 @@ const (
 	cursorAtTime      = "AT_TIME"
 	cursorAtOffset    = "AT_OFFSET"
 	cursorAfterOffset = "AFTER_OFFSET"
+
+	cursorLifetime = 5 * time.Minute
 )
 
 // cursorTok is the decoded form of an opaque cursor value.
@@ -32,6 +34,7 @@ type cursorTok struct {
 	Offset   int64         `json:"o"`
 	Part     int           `json:"p"`
 	Timeout  int           `json:"t,omitempty"`
+	Issued   int64         `json:"x,omitempty"`
 	Commit   bool          `json:"c,omitempty"`
 }
 
@@ -168,7 +171,9 @@ func (b *InMemoryBackend) CreateCursor(streamID string, in CreateCursorIn) (curs
 		return cursorWire{}, aerr
 	}
 
-	return cursorWire{Value: cursorTok{Stream: streamID, Part: part, Offset: off}.encode()}, nil
+	return cursorWire{Value: cursorTok{
+		Stream: streamID, Part: part, Offset: off, Issued: b.nowUTC().UnixMilli(),
+	}.encode()}, nil
 }
 
 // GetMessages reads from a plain or group cursor and returns the cursor for the next call.
@@ -201,6 +206,13 @@ func (b *InMemoryBackend) GetMessages(streamID, cursor string, limit int) ([]mes
 	if cur.Part >= len(s.Parts) {
 		return nil, "", errParam("The cursor partition does not exist")
 	}
+
+	now := b.nowUTC()
+	if cur.Issued > 0 && now.After(time.UnixMilli(cur.Issued).Add(cursorLifetime)) {
+		return nil, "", errParam("The cursor has expired; create a new cursor")
+	}
+
+	cur.Issued = now.UnixMilli()
 
 	msgs := s.read(cur.Part, cur.Offset, limit)
 	cur.Offset = max(cur.Offset, s.Parts[cur.Part].Base)

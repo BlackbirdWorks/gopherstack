@@ -11,13 +11,21 @@ const serviceSessionDurationDefault = DefaultDurationSeconds
 func (b *InMemoryBackend) AssumeRoleForService(
 	servicePrincipal, roleArn, sessionName string,
 ) (*AssumeRoleResponse, error) {
-	input := &AssumeRoleInput{RoleArn: roleArn, RoleSessionName: sessionName}
+	return b.AssumeRoleForServiceWith(
+		servicePrincipal,
+		&AssumeRoleInput{RoleArn: roleArn, RoleSessionName: sessionName},
+	)
+}
 
+// AssumeRoleForServiceWith is AssumeRoleForService carrying session tags, an inline policy and an external ID.
+func (b *InMemoryBackend) AssumeRoleForServiceWith(
+	servicePrincipal string, input *AssumeRoleInput,
+) (*AssumeRoleResponse, error) {
 	if err := validateAssumeRoleInput(input); err != nil {
 		return nil, err
 	}
 
-	maxDuration, err := b.serviceRoleMaxDuration(servicePrincipal, roleArn)
+	maxDuration, err := b.serviceRoleMaxDuration(servicePrincipal, input.RoleArn)
 	if err != nil {
 		return nil, err
 	}

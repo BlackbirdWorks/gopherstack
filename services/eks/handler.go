@@ -389,6 +389,14 @@ func parseClusterAssocPath(method, clusterName string, parts []string, maxParts 
 		return parseIdentityProviderRoute(method, clusterName, parts, maxParts)
 	}
 
+	if parts[1] == "assume-role-for-pod-identity" && len(parts) == 2 {
+		if method == http.MethodPost {
+			return eksRoute{operation: opAssumeRoleForPodIdentity, clusterName: clusterName}
+		}
+
+		return eksRoute{operation: opUnknown}
+	}
+
 	if parts[1] == "pod-identity-associations" {
 		return parsePodIdentityRoute(method, clusterName, parts)
 	}
@@ -587,6 +595,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", msg))
 	case errors.Is(err, ErrInvalidRequest):
 		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", msg))
+	case errors.Is(err, ErrInvalidToken):
+		return c.JSON(http.StatusBadRequest, errResp("InvalidTokenException", msg))
+	case errors.Is(err, ErrExpiredToken):
+		return c.JSON(http.StatusBadRequest, errResp("ExpiredTokenException", msg))
+	case errors.Is(err, ErrAccessDenied):
+		return c.JSON(http.StatusBadRequest, errResp("AccessDeniedException", msg))
+	case errors.Is(err, ErrServiceUnavailable):
+		return c.JSON(http.StatusServiceUnavailable, errResp("ServiceUnavailableException", msg))
 	case errors.Is(err, ErrResourceLimitExceeded):
 		return c.JSON(http.StatusBadRequest, errResp("ResourceLimitExceededException", msg))
 	default:

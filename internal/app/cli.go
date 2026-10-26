@@ -4777,6 +4777,7 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 	wireIAMToSTS(byName["IAM"], byName["STS"])
 	wireEKSIRSAToSTS(byName["EKS"], byName["STS"])
 	wireEKSTokenAuth(byName)
+	wireEKSPodIdentity(byName)
 	wireCognitoIdentity(byName["CognitoIdentity"], byName["STS"], byName["CognitoIDP"])
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.

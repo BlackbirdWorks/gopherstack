@@ -7,15 +7,14 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 70 (70 ok) |
-| Known gaps | 2 |
+| PARITY entries audited | 71 (71 ok) |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- EKS Pod Identity Agent credential endpoint (eks-auth AssumeRoleForPodIdentity): pod identity associations are modelled but the eks-auth SDK module is not in go.mod (which must stay unchanged), so its wire shape cannot be verified here (gopherstack-cefu7.30).
 - DescribeClusterVersions IncludeAll has no documented default exclusion (checked api_op_DescribeClusterVersions.go and API_DescribeClusterVersions.html), so it stays a no-op; DescribeAddonVersions owner/publisher filter values and the ConfigUpdate UpdateParam encoding are not stated by the pinned SDK or the API reference.
 
 ### Structural gaps

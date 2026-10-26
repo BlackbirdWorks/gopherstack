@@ -9,14 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 10 (10 ok) |
 | Feature families | 9 (4 ok, 5 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - Job state DISABLED and UPDATE_FAILED are never produced (updates are applied atomically); ResumeJob and PauseJob refuse them if they appear.
-- App Engine cron schedule syntax (every N minutes, every monday 09:00) is not supported; only unix-cron.
 - CreateJob does not validate the location against the supported-region catalog or the project against any registry.
 - Persisted in-flight attempts are not resumed mid-flight; after a restore the next cron slot or the persisted retry time applies.
 - Cloud Scheduler job-level max_doublings default (5) follows the documentation; the value the live service echoes was not verified.

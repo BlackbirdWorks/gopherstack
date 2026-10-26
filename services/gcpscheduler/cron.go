@@ -10,13 +10,14 @@ import (
 )
 
 const (
-	maxMinute     = 59
-	maxHour       = 23
-	maxDom        = 31
-	maxMonth      = 12
-	maxSearchDays = 366 * 9
-	dowSunday     = 0
-	dowAlt        = 7
+	cronFieldCount = 5
+	maxMinute      = 59
+	maxHour        = 23
+	maxDom         = 31
+	maxMonth       = 12
+	maxSearchDays  = 366 * 9
+	dowSunday      = 0
+	dowAlt         = 7
 )
 
 // cronSchedule is a parsed five-field unix-cron expression.
@@ -61,9 +62,9 @@ func cronMacro(name string) (string, bool) {
 	return "", false
 }
 
-// parseCron parses a unix-cron expression: five fields supporting *, lists, ranges, steps, month and weekday
+// parseUnixCron parses a unix-cron expression: five fields supporting *, lists, ranges, steps, month and weekday
 // names, plus the @hourly-style macros.
-func parseCron(expr string) (*cronSchedule, error) {
+func parseUnixCron(expr string) (*cronSchedule, error) {
 	expr = strings.TrimSpace(expr)
 	if m, ok := cronMacro(expr); ok {
 		expr = m
