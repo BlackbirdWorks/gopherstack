@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const settleYields = 2000
-
 func TestFrontendListenerWaitGroupOrdering(t *testing.T) {
 	t.Parallel()
 
@@ -99,10 +97,6 @@ func TestFrontendListenerWaitGroupOrdering(t *testing.T) {
 
 				require.NoError(t, tt.start(b, lb))
 				<-dialed
-
-				for range settleYields {
-					runtime.Gosched()
-				}
 
 				lb.release()
 				<-waited

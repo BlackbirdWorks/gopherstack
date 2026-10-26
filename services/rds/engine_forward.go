@@ -17,7 +17,7 @@ type tcpForwarder struct {
 	ln      net.Listener
 	be      *InMemoryBackend
 	lb      *liveDB
-	conns   sync.Map
+	conns   connSet
 	wg      sync.WaitGroup
 	port    int
 	once    sync.Once
@@ -28,13 +28,7 @@ func (f *tcpForwarder) close() {
 	f.once.Do(func() {
 		_ = f.ln.Close()
 
-		f.conns.Range(func(k, _ any) bool {
-			if c, ok := k.(net.Conn); ok {
-				_ = c.Close()
-			}
-
-			return true
-		})
+		f.conns.closeAll()
 
 		f.be.engine.releasePort(f.port)
 	})
@@ -85,9 +79,12 @@ func (f *tcpForwarder) acceptLoop() {
 			return
 		}
 
-		f.conns.Store(conn, struct{}{})
+		if !f.conns.add(conn) {
+			continue
+		}
+
 		f.wg.Go(func() {
-			defer f.conns.Delete(conn)
+			defer f.conns.remove(conn)
 
 			f.serve(conn)
 		})

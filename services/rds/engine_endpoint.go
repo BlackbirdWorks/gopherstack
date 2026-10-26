@@ -19,7 +19,7 @@ type endpointListener struct {
 	be    *InMemoryBackend
 	lb    *liveDB
 	id    string
-	conns sync.Map
+	conns connSet
 	wg    sync.WaitGroup
 	port  int
 	once  sync.Once
@@ -29,13 +29,7 @@ func (l *endpointListener) close() {
 	l.once.Do(func() {
 		_ = l.ln.Close()
 
-		l.conns.Range(func(k, _ any) bool {
-			if c, ok := k.(net.Conn); ok {
-				_ = c.Close()
-			}
-
-			return true
-		})
+		l.conns.closeAll()
 
 		l.be.engine.releasePort(l.port)
 	})
@@ -139,9 +133,12 @@ func (l *endpointListener) acceptLoop() {
 			return
 		}
 
-		l.conns.Store(conn, struct{}{})
+		if !l.conns.add(conn) {
+			continue
+		}
+
 		l.wg.Go(func() {
-			defer l.conns.Delete(conn)
+			defer l.conns.remove(conn)
 
 			l.serve(conn)
 		})
