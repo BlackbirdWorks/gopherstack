@@ -652,7 +652,7 @@ func TestDroppedMembers_ListFiltersAndCertificates(t *testing.T) {
 				)
 
 				dev, err := e.client.RegisterCertificate(t.Context(), &iotsdk.RegisterCertificateInput{
-					CertificatePem:   aws.String("dev-pem"),
+					CertificatePem:   aws.String(mintCertPEM(t)),
 					CaCertificatePem: aws.String("ca-pem-1"),
 					SetAsActive:      aws.Bool(true), //nolint:staticcheck // deprecated member under test
 				})
