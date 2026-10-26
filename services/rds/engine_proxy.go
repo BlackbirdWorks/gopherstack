@@ -55,7 +55,7 @@ type pgProxy struct {
 	be     *InMemoryBackend
 	lb     *liveDB
 	tlsCfg *tls.Config
-	conns  sync.Map
+	conns  connSet
 	wg     sync.WaitGroup
 	port   int
 	once   sync.Once
@@ -65,13 +65,7 @@ func (p *pgProxy) close() {
 	p.once.Do(func() {
 		_ = p.ln.Close()
 
-		p.conns.Range(func(k, _ any) bool {
-			if c, ok := k.(net.Conn); ok {
-				_ = c.Close()
-			}
-
-			return true
-		})
+		p.conns.closeAll()
 
 		p.be.engine.releasePort(p.port)
 	})
@@ -158,9 +152,12 @@ func (p *pgProxy) acceptLoop() {
 			return
 		}
 
-		p.conns.Store(conn, struct{}{})
+		if !p.conns.add(conn) {
+			continue
+		}
+
 		p.wg.Go(func() {
-			defer p.conns.Delete(conn)
+			defer p.conns.remove(conn)
 
 			p.serve(conn)
 		})
