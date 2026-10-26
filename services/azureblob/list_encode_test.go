@@ -22,8 +22,8 @@ func TestEncodeBlobList_MatchesXMLMarshal(t *testing.T) {
 		name      string
 		container string
 		endpoint  string
-		echo      listEcho
 		page      BlobPage
+		echo      listEcho
 	}{
 		{name: "empty", container: "c", endpoint: "http://x:1"},
 		{name: "no_container", endpoint: "http://x:1", page: BlobPage{Entries: []ListEntry{

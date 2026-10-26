@@ -350,8 +350,11 @@ func (h *Handler) listBlobs(c *echo.Context, container string) error {
 	}
 
 	for inc := range strings.SplitSeq(q.Get("include"), ",") {
-		if strings.TrimSpace(inc) == "snapshots" {
+		switch strings.TrimSpace(inc) {
+		case "snapshots":
 			opts.IncludeSnapshots = true
+		case compTags:
+			opts.IncludeTags = true
 		}
 	}
 
@@ -375,7 +378,10 @@ func (h *Handler) listBlobs(c *echo.Context, container string) error {
 		return h.writeContainerNotFound(c)
 	}
 
-	echoed := listEcho{Prefix: opts.Prefix, Marker: opts.Marker, Delimiter: opts.Delimiter, MaxResults: opts.MaxResults}
+	echoed := listEcho{
+		Prefix: opts.Prefix, Marker: opts.Marker, Delimiter: opts.Delimiter,
+		MaxResults: opts.MaxResults, IncludeTags: opts.IncludeTags,
+	}
 
 	return c.XMLBlob(http.StatusOK, encodeBlobList(h.serviceEndpoint(), container, echoed, page))
 }
@@ -502,6 +508,11 @@ func (h *Handler) copyBlob(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, apiErr)
 	}
 
+	tags, apiErr := tagsFromHeader(r)
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
 	src, err := url.Parse(r.Header.Get(headerCopySource))
 	if err != nil {
 		return h.writeAPIError(c, errInvalidHeader(headerCopySource))
@@ -520,7 +531,9 @@ func (h *Handler) copyBlob(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, apiErr)
 	}
 
-	info, err := h.Backend.CopyBlob(srcContainer, srcBlob, src.Query().Get(querySnapshot), container, blob, md, pre)
+	info, err := h.Backend.CopyBlob(
+		srcContainer, srcBlob, src.Query().Get(querySnapshot), container, blob, md, tags, pre,
+	)
 	if err != nil {
 		if done, werr := h.writeBackendError(c, err); done {
 			return werr

@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 26 (24 ok, 2 partial) |
+| PARITY entries audited | 29 (27 ok, 2 partial) |
 | Feature families | 5 (3 ok, 2 partial) |
 | Known gaps | 5 |
 | Deferred items | 3 |
@@ -19,7 +19,7 @@
 - Copy Blob is same-account and synchronous only; no cross-account or URL sources, no Abort Copy, no x-ms-copy-* properties on the destination.
 - Archive rehydration is instantaneous rather than asynchronous.
 - SharedKey signatures are not verified (families.auth), so stored access policies and SAS tokens never gate a request.
-- No append or page blobs, blob index tags (so x-ms-if-tags never matches), or Set/Get Blob Service Properties beyond the empty read.
+- No append or page blobs, or Set/Get Blob Service Properties beyond the empty read.
 
 ### Deferred
 

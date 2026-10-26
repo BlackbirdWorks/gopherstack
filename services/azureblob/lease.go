@@ -302,7 +302,7 @@ func (b *InMemoryBackend) LeaseBlob(container, blob string, req LeaseRequest) (L
 		return LeaseResult{}, err
 	}
 
-	if err = req.Cond.check(condWrite, true, s.ETag, s.LastModified); err != nil {
+	if err = req.Cond.check(condWrite, true, s.ETag, s.LastModified, s.Tags); err != nil {
 		return LeaseResult{}, err
 	}
 

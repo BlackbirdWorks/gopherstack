@@ -196,14 +196,14 @@ func (b *InMemoryBackend) guardWriteLocked(c *storedContainer, blob string, p Pr
 			return err
 		}
 
-		return p.check(condCreate, true, old.ETag, old.LastModified)
+		return p.check(condCreate, true, old.ETag, old.LastModified, old.Tags)
 	}
 
 	if p.LeaseID != "" {
 		return (*leaseRecord)(nil).gate(b.now(), p.LeaseID, true, "Blob")
 	}
 
-	return p.check(condCreate, false, "", time.Time{})
+	return p.check(condCreate, false, "", time.Time{}, nil)
 }
 
 // storeBlobLocked replaces c.Blobs[blob] with a new blob holding data,
@@ -219,6 +219,7 @@ func (b *InMemoryBackend) storeBlobLocked(c *storedContainer, blob string, data 
 	}
 	stored.applyAttrs(attrs)
 	stored.Metadata = maps.Clone(attrs.Metadata)
+	stored.Tags = maps.Clone(attrs.Tags)
 
 	if attrs.AccessTier != "" {
 		stored.AccessTier = attrs.AccessTier
@@ -270,7 +271,7 @@ func (b *InMemoryBackend) readableLocked(container, blob, snapshot string, p Pre
 		}
 	}
 
-	if err = p.check(condRead, true, stored.ETag, stored.LastModified); err != nil {
+	if err = p.check(condRead, true, stored.ETag, stored.LastModified, stored.Tags); err != nil {
 		return nil, err
 	}
 

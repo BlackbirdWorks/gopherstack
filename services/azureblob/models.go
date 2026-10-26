@@ -49,6 +49,7 @@ type ContainerOptions struct {
 // BlobAttrs are the client-settable properties of a blob.
 type BlobAttrs struct {
 	Metadata           map[string]string
+	Tags               map[string]string
 	ContentType        string
 	ContentEncoding    string
 	ContentLanguage    string
@@ -64,6 +65,7 @@ type BlobInfo struct {
 	LastModified       time.Time
 	AccessTierChanged  time.Time
 	Metadata           map[string]string
+	Tags               map[string]string
 	Name               string
 	ContentType        string
 	ContentEncoding    string
@@ -85,6 +87,7 @@ type storedBlob struct {
 	LastModified       time.Time
 	AccessTierChanged  time.Time
 	Metadata           map[string]string
+	Tags               map[string]string `json:"Tags,omitempty"`
 	Snapshots          map[string]*storedBlob
 	Lease              *leaseRecord
 	ContentDisposition string
@@ -119,6 +122,7 @@ func (b *storedBlob) info(now time.Time) BlobInfo {
 		LastModified:       b.LastModified,
 		ContentLength:      int64(len(b.Data)),
 		Metadata:           maps.Clone(b.Metadata),
+		Tags:               maps.Clone(b.Tags),
 		AccessTier:         tier,
 		AccessTierInferred: inferred,
 		AccessTierChanged:  b.AccessTierChanged,

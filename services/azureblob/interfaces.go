@@ -26,9 +26,13 @@ type StorageBackend interface {
 	SetBlobTier(container, blob, tier string, pre ...Precond) (string, BlobInfo, error)
 	SnapshotBlob(container, blob string, md map[string]string, pre ...Precond) (BlobInfo, error)
 	CopyBlob(
-		srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, md map[string]string, pre ...Precond,
+		srcContainer, srcBlob, srcSnapshot, dstContainer, dstBlob string, md, tags map[string]string, pre ...Precond,
 	) (BlobInfo, error)
 	LeaseBlob(container, blob string, req LeaseRequest) (LeaseResult, error)
+
+	SetBlobTags(container, blob, snapshot string, tags map[string]string, pre ...Precond) error
+	GetBlobTags(container, blob, snapshot string, pre ...Precond) (map[string]string, error)
+	FindBlobsByTags(container string, opts FindBlobsOptions) (FindBlobsPage, error)
 
 	PutBlock(container, blob, blockID string, data []byte, pre ...Precond) error
 	CommitBlockList(container, blob string, refs []BlockRef, attrs BlobAttrs, pre ...Precond) (BlobInfo, error)
