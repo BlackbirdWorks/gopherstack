@@ -59,6 +59,26 @@ type objectLambdaUserIdentity struct {
 	AccountID   string `json:"accountId"`
 	UserName    string `json:"userName,omitempty"`
 	AccessKeyID string `json:"accessKeyId,omitempty"`
+
+	SessionContext *objectLambdaSession `json:"sessionContext,omitempty"`
+}
+
+type objectLambdaSession struct {
+	Attributes    objectLambdaSessionAttrs  `json:"attributes"`
+	SessionIssuer objectLambdaSessionIssuer `json:"sessionIssuer"`
+}
+
+type objectLambdaSessionAttrs struct {
+	MFAAuthenticated string `json:"mfaAuthenticated"`
+	CreationDate     string `json:"creationDate"`
+}
+
+type objectLambdaSessionIssuer struct {
+	Type        string `json:"type"`
+	PrincipalID string `json:"principalId,omitempty"`
+	ARN         string `json:"arn"`
+	AccountID   string `json:"accountId"`
+	UserName    string `json:"userName"`
 }
 
 // objectLambdaEvent is the JSON payload sent to the Lambda; exactly one *Context member is set.
@@ -167,7 +187,8 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 	lambdaARN := route.lambdaARN
 	event := h.newObjectLambdaEvent(r, route)
 	event.GetObjectContext = &objectLambdaGetObjectContext{
-		InputS3URL:  fmt.Sprintf("%s/%s/%s", h.Endpoint, route.bucket, key),
+		InputS3URL: h.presignObjectLambdaInput(
+			r, http.MethodGet, fmt.Sprintf("%s/%s/%s", h.Endpoint, route.bucket, key)),
 		OutputRoute: "gopherstack",
 		OutputToken: token,
 	}
