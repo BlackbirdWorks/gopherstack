@@ -39,6 +39,7 @@ const (
 	slugOCIStreaming    = "ocistreaming"
 	slugOCIIdentity     = "ociidentity"
 	slugOCIFunctions    = "ocifunctions"
+	slugOCICore         = "ocicore"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
 	slugGCPKMS          = "gcpkms"
@@ -163,7 +164,7 @@ func categoryGroups() []categoryGroup {
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
 			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows, slugGCPDNS,
 		}},
-		{"OCI", []string{slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions}},
+		{"OCI", []string{slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions, slugOCICore}},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
 		}},
@@ -279,6 +280,7 @@ func displayNamesB() map[string]string {
 		slugOCIStreaming:   "OCI Streaming",
 		slugOCIIdentity:    "OCI Identity",
 		slugOCIFunctions:   "OCI Functions",
+		slugOCICore:        "OCI Core Services",
 		slugGCPPubSub:      "Google Cloud Pub/Sub",
 		slugGCPSecretMgr:   "Google Secret Manager",
 		slugGCPKMS:         "Google Cloud KMS",
