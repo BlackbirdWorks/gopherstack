@@ -8,6 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurefile"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
+	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
 	"github.com/blackbirdworks/gopherstack/services/gcpdns"
 	"github.com/blackbirdworks/gopherstack/services/gcpworkflows"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -26,6 +27,7 @@ func TestConsolePageHandlersReachDashboard(t *testing.T) {
 	byName := map[string]service.Registerable{
 		"GCPWorkflows":     wf,
 		"GCPDNS":           gcpdns.NewHandler(gcpdns.NewInMemoryBackend()),
+		"GCPCompute":       gcpcompute.NewHandler(gcpcompute.NewInMemoryBackend()),
 		"AzureFile":        azurefile.NewHandler(azurefile.NewInMemoryBackend()),
 		"OCIObjectStorage": ociobjectstorage.NewHandler(ociobjectstorage.NewInMemoryBackend()),
 		"OCIVault":         ocivault.NewHandler(ocivault.NewInMemoryBackend()),
@@ -42,6 +44,7 @@ func TestConsolePageHandlersReachDashboard(t *testing.T) {
 	got := map[string]service.Registerable{
 		"GCPWorkflows":     cli.GetGCPWorkflowsHandler(),
 		"GCPDNS":           cli.GetGCPDNSHandler(),
+		"GCPCompute":       cli.GetGCPComputeHandler(),
 		"AzureFile":        cli.GetAzureFileHandler(),
 		"OCIObjectStorage": cli.GetOCIObjectStorageHandler(),
 		"OCIVault":         cli.GetOCIVaultHandler(),

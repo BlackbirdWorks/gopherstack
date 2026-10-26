@@ -64,6 +64,11 @@ func (c *CLI) GetGCPWorkflowsHandler() service.Registerable { return c.gcpWorkfl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPDNSHandler() service.Registerable { return c.gcpDNSHandler }
 
+// GetGCPComputeHandler returns the GCPCompute handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPComputeHandler() service.Registerable { return c.gcpComputeHandler }
+
 // GetAzureFileHandler returns the AzureFile handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface

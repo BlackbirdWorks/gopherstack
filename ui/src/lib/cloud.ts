@@ -129,6 +129,14 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azuremonitor",
     defaultPort: 10013,
   },
+  {
+    id: "aci",
+    label: "Container Instances",
+    description: "Azure Container Instances (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
 ];
 
 export type GcpService = {
@@ -318,6 +326,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     healthName: "GCPDNS",
     portLabel: "gcpdns",
     defaultPort: 8140,
+  },
+  {
+    id: "compute",
+    label: "Compute Engine",
+    description: "Google Compute Engine",
+    healthName: "GCPCompute",
+    portLabel: "gcpcompute",
+    defaultPort: 8142,
   },
 ];
 

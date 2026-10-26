@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { azureServiceById } from '#lib/cloud.ts';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
+	import ContainerInstancesDashboard from '#lib/components/azure/ContainerInstancesDashboard.svelte';
 	import EventHubsDashboard from '#lib/components/azure/EventHubsDashboard.svelte';
 	import EventGridDashboard from '#lib/components/azure/EventGridDashboard.svelte';
 	import AppConfigDashboard from '#lib/components/azure/AppConfigDashboard.svelte';
@@ -53,6 +54,8 @@
 	<FilesDashboard />
 {:else if service?.id === 'monitor'}
 	<MonitorDashboard />
+{:else if service?.id === 'aci'}
+	<ContainerInstancesDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

@@ -46,6 +46,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
 	"github.com/blackbirdworks/gopherstack/services/gcpdns"
 	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -347,6 +348,10 @@ func linkConsoleExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetGCPDNSHandler() service.Registerable }); ok {
 		conf.GCPDNSOps, _ = getHandler[*gcpdns.Handler](p.GetGCPDNSHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPComputeHandler() service.Registerable }); ok {
+		conf.GCPComputeOps, _ = getHandler[*gcpcompute.Handler](p.GetGCPComputeHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetAzureFileHandler() service.Registerable }); ok {

@@ -7,6 +7,7 @@ import {
   availableAzureServices,
   availableGcpServices,
   availableOciServices,
+  azureServiceById,
   categoriesForCloud,
   CLOUDS,
   GCP_SERVICES,
@@ -93,7 +94,8 @@ describe("availableAzureServices", () => {
 
   it("has unique ids and ports", () => {
     expect(new Set(AZURE_SERVICES.map((s) => s.id)).size).toBe(AZURE_SERVICES.length);
-    expect(new Set(AZURE_SERVICES.map((s) => s.defaultPort)).size).toBe(AZURE_SERVICES.length);
+    const labels = new Map(AZURE_SERVICES.map((s) => [s.portLabel, s.defaultPort]));
+    expect(new Set(labels.values()).size).toBe(labels.size);
   });
 });
 
@@ -226,6 +228,12 @@ describe("new GCP console pages", () => {
       "dns",
     ]);
     expect(new Set(GCP_SERVICES.map((s) => s.defaultPort)).size).toBe(GCP_SERVICES.length);
+  });
+
+  it("registers Compute Engine and Container Instances", () => {
+    expect(availableGcpServices(["GCPCompute"]).map((s) => s.id)).toEqual(["compute"]);
+    expect(availableAzureServices(["AzureARM"]).map((s) => s.id)).toEqual(["arm", "aci"]);
+    expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
 
   it("registers Azure Files", () => {
