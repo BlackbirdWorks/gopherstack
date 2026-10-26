@@ -42,7 +42,7 @@ type req struct {
 
 type opFunc func(h *Handler, q *req) error
 
-// Handler serves OCI Core Services networking (core API 20160918): VCNs, subnets, gateways, routing and security.
+// Handler serves OCI Core Services (core API 20160918): networking, compute and block storage control plane.
 type Handler struct {
 	Backend     *InMemoryBackend
 	srvMu       *lockmetrics.RWMutex

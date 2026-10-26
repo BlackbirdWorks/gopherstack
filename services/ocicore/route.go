@@ -33,6 +33,8 @@ const (
 var resourceParams = []string{ //nolint:gochecknoglobals // immutable
 	"vcnId", "subnetId", "igId", "natGatewayId", "serviceGatewayId", "rtId", "securityListId",
 	"networkSecurityGroupId", "dhcpId", "localPeeringGatewayId", "publicIpId", "serviceId",
+	"instanceId", "imageId", "vnicAttachmentId", "vnicId", "privateIpId", "volumeId", "bootVolumeId",
+	"volumeAttachmentId", "bootVolumeAttachmentId", "volumeBackupId", "policyId", "policyAssignmentId",
 }
 
 func rt(method, path, op string) restroute.Route {
@@ -55,6 +57,7 @@ func routeTable() []restroute.Route {
 		rt(http.MethodPost, "/publicIps/actions/getByIpAddress", opPublicIPByAddr),
 	}
 	routes := append(make([]restroute.Route, 0, len(fixed)+routesPerKind*len(cruds())), fixed...)
+	routes = append(routes, computeRoutes()...)
 
 	for _, c := range cruds() {
 		item := c.path + "/{" + c.id + "}"

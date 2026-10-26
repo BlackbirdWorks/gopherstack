@@ -100,9 +100,24 @@ func ocidKind(id string) string {
 }
 
 func live(r resource) bool {
-	s := r.base().LifecycleState
+	switch r.base().LifecycleState {
+	case statTerminating, statTerminated, statDetaching, statDetached, statDeleted:
+		return false
+	}
 
-	return s != statTerminating && s != statTerminated
+	return true
+}
+
+func terminal(state string) bool {
+	return state == statTerminated || state == statDetached || state == statDeleted
+}
+
+// moveTo enters an interim state that settles into final after the transition window.
+func (b *InMemoryBackend) moveTo(r resource, interim, final string) {
+	bs := r.base()
+	at := b.nowUTC().Add(transitionWindow)
+	bs.LifecycleState, bs.Internal.TransitionAt, bs.Internal.NextState = interim, &at, final
+	b.bump(r)
 }
 
 // TagsIn carries the tags accepted by create and update calls.
@@ -231,14 +246,14 @@ func (b *InMemoryBackend) Sweep() {
 			at := *in.TransitionAt
 			in.TransitionAt = nil
 
-			switch bs.LifecycleState {
-			case statProvisioning:
-				bs.LifecycleState = statAvailable
-				if p, ok := r.(*PublicIP); ok && p.AssignedEntityID != "" {
-					p.LifecycleState = statAssigned
+			switch {
+			case in.NextState != "":
+				bs.LifecycleState, in.NextState = in.NextState, ""
+				if terminal(bs.LifecycleState) {
+					in.TimeDeleted = &at
 				}
-			case statTerminating:
-				bs.LifecycleState, in.TimeDeleted = statTerminated, &at
+			default:
+				b.settle(r, at)
 			}
 		}
 
@@ -246,6 +261,20 @@ func (b *InMemoryBackend) Sweep() {
 			delete(b.res, id)
 			b.dropRules(id)
 		}
+	}
+}
+
+func (b *InMemoryBackend) settle(r resource, at time.Time) {
+	bs := r.base()
+
+	switch bs.LifecycleState {
+	case statProvisioning:
+		bs.LifecycleState = statAvailable
+		if p, ok := r.(*PublicIP); ok && p.AssignedEntityID != "" {
+			p.LifecycleState = statAssigned
+		}
+	case statTerminating:
+		bs.LifecycleState, bs.Internal.TimeDeleted = statTerminated, &at
 	}
 }
 

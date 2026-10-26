@@ -13,23 +13,35 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Vcns      map[string]*Vcn                  `json:"vcns"`
-	Subnets   map[string]*Subnet               `json:"subnets"`
-	IGWs      map[string]*InternetGateway      `json:"internetGateways"`
-	NATs      map[string]*NatGateway           `json:"natGateways"`
-	SGWs      map[string]*ServiceGateway       `json:"serviceGateways"`
-	RouteTabs map[string]*RouteTable           `json:"routeTables"`
-	SecLists  map[string]*SecurityList         `json:"securityLists"`
-	NSGs      map[string]*NetworkSecurityGroup `json:"networkSecurityGroups"`
-	NSGRules  map[string]*NSGRule              `json:"securityRules"`
-	Dhcp      map[string]*DhcpOptions          `json:"dhcpOptions"`
-	LPGs      map[string]*LocalPeeringGateway  `json:"localPeeringGateways"`
-	PublicIPs map[string]*PublicIP             `json:"publicIps"`
-	Auth      []ociauth.KeyRecord              `json:"authKeys"`
-	Version   int                              `json:"version"`
-	Seq       int64                            `json:"seq"`
-	IPSeq     int64                            `json:"ipSeq"`
-	IPv6Seq   int64                            `json:"ipv6Seq"`
+	Vcns       map[string]*Vcn                    `json:"vcns"`
+	Subnets    map[string]*Subnet                 `json:"subnets"`
+	IGWs       map[string]*InternetGateway        `json:"internetGateways"`
+	NATs       map[string]*NatGateway             `json:"natGateways"`
+	SGWs       map[string]*ServiceGateway         `json:"serviceGateways"`
+	RouteTabs  map[string]*RouteTable             `json:"routeTables"`
+	SecLists   map[string]*SecurityList           `json:"securityLists"`
+	NSGs       map[string]*NetworkSecurityGroup   `json:"networkSecurityGroups"`
+	NSGRules   map[string]*NSGRule                `json:"securityRules"`
+	Dhcp       map[string]*DhcpOptions            `json:"dhcpOptions"`
+	LPGs       map[string]*LocalPeeringGateway    `json:"localPeeringGateways"`
+	PublicIPs  map[string]*PublicIP               `json:"publicIps"`
+	Instances  map[string]*Instance               `json:"instances"`
+	Images     map[string]*Image                  `json:"images"`
+	Vnics      map[string]*Vnic                   `json:"vnics"`
+	PrivateIPs map[string]*PrivateIP              `json:"privateIps"`
+	VnicAtts   map[string]*VnicAttachment         `json:"vnicAttachments"`
+	Volumes    map[string]*Volume                 `json:"volumes"`
+	BootVols   map[string]*BootVolume             `json:"bootVolumes"`
+	VolAtts    map[string]*VolumeAttachment       `json:"volumeAttachments"`
+	BootAtts   map[string]*BootVolumeAttachment   `json:"bootVolumeAttachments"`
+	Backups    map[string]*VolumeBackup           `json:"volumeBackups"`
+	Policies   map[string]*VolumeBackupPolicy     `json:"volumeBackupPolicies"`
+	Assigns    map[string]*BackupPolicyAssignment `json:"volumeBackupPolicyAssignments"`
+	Auth       []ociauth.KeyRecord                `json:"authKeys"`
+	Version    int                                `json:"version"`
+	Seq        int64                              `json:"seq"`
+	IPSeq      int64                              `json:"ipSeq"`
+	IPv6Seq    int64                              `json:"ipv6Seq"`
 }
 
 func typed[T resource](res map[string]resource) map[string]T {
@@ -56,7 +68,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		IGWs: typed[*InternetGateway](b.res), NATs: typed[*NatGateway](b.res), SGWs: typed[*ServiceGateway](b.res),
 		RouteTabs: typed[*RouteTable](b.res), SecLists: typed[*SecurityList](b.res),
 		NSGs: typed[*NetworkSecurityGroup](b.res), NSGRules: b.nsgRules, Dhcp: typed[*DhcpOptions](b.res),
-		LPGs: typed[*LocalPeeringGateway](b.res), PublicIPs: typed[*PublicIP](b.res), Auth: keys,
+		LPGs: typed[*LocalPeeringGateway](b.res), PublicIPs: typed[*PublicIP](b.res),
+		Instances: typed[*Instance](b.res), Images: typed[*Image](b.res), Vnics: typed[*Vnic](b.res),
+		PrivateIPs: typed[*PrivateIP](b.res), VnicAtts: typed[*VnicAttachment](b.res), Volumes: typed[*Volume](b.res),
+		BootVols: typed[*BootVolume](b.res), VolAtts: typed[*VolumeAttachment](b.res),
+		BootAtts: typed[*BootVolumeAttachment](b.res), Backups: typed[*VolumeBackup](b.res),
+		Policies: typed[*VolumeBackupPolicy](b.res), Assigns: typed[*BackupPolicyAssignment](b.res), Auth: keys,
 		Seq: b.seq, IPSeq: b.ipSeq, IPv6Seq: b.ipv6Seq,
 	})
 }
@@ -128,7 +145,13 @@ func mergeAll(dst map[string]resource, s *backendSnapshot) error {
 		mergeKind("service gateway", dst, s.SGWs), mergeKind("route table", dst, s.RouteTabs),
 		mergeKind("security list", dst, s.SecLists), mergeKind("network security group", dst, s.NSGs),
 		mergeKind("DHCP options", dst, s.Dhcp), mergeKind("local peering gateway", dst, s.LPGs),
-		mergeKind("public IP", dst, s.PublicIPs),
+		mergeKind("public IP", dst, s.PublicIPs), mergeKind("instance", dst, s.Instances),
+		mergeKind("image", dst, s.Images), mergeKind("VNIC", dst, s.Vnics),
+		mergeKind("private IP", dst, s.PrivateIPs), mergeKind("VNIC attachment", dst, s.VnicAtts),
+		mergeKind("volume", dst, s.Volumes), mergeKind("boot volume", dst, s.BootVols),
+		mergeKind("volume attachment", dst, s.VolAtts), mergeKind("boot volume attachment", dst, s.BootAtts),
+		mergeKind("volume backup", dst, s.Backups), mergeKind("volume backup policy", dst, s.Policies),
+		mergeKind("volume backup policy assignment", dst, s.Assigns),
 	}
 
 	for _, err := range checks {

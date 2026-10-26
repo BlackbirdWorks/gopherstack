@@ -33,6 +33,8 @@ type Internal struct {
 	TransitionAt *time.Time `json:"transitionAt,omitempty"`
 	TimeDeleted  *time.Time `json:"timeDeleted,omitempty"`
 	Etag         string     `json:"etag"`
+	NextState    string     `json:"nextState,omitempty"`
+	Arch         string     `json:"arch,omitempty"`
 	Seq          int64      `json:"seq"`
 }
 

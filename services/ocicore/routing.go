@@ -28,13 +28,32 @@ func (b *InMemoryBackend) checkTarget(rule RouteRule, vcnID string) *APIError {
 		aerr = refInVcn[*LocalPeeringGateway](b, id, vcnID, "local peering gateway")
 	case kindSGW:
 		aerr = b.checkSgwTarget(rule, vcnID)
-	case kindDRG, "privateip":
-		// DRGs and private IPs belong to services this emulator does not model; the OCID shape is all we can check.
+	case kindPrivateIP:
+		aerr = b.checkPrivateIPTarget(id, vcnID)
+	case kindDRG:
+		// DRGs belong to a service this emulator does not model; the OCID shape is all we can check.
 	default:
 		return errParam("networkEntityId " + id + " is not a valid route target")
 	}
 
 	return aerr
+}
+
+func (b *InMemoryBackend) checkPrivateIPTarget(id, vcnID string) *APIError {
+	p, aerr := getLive[*PrivateIP](b, id)
+	if aerr != nil {
+		return aerr
+	}
+
+	if s, err := get[*Subnet](b, p.SubnetID); err != nil || s.VcnID != vcnID {
+		return errParam("The private IP " + id + " belongs to a different VCN")
+	}
+
+	if p.VnicID == "" {
+		return errParam("The private IP " + id + " is not assigned to a VNIC")
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) checkSgwTarget(rule RouteRule, vcnID string) *APIError {
