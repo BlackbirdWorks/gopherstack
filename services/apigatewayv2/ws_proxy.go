@@ -275,7 +275,8 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName string)
 	// Register before completing the handshake: once the client sees 101 the connection must
 	// already be addressable via @connections, as it is on AWS after $connect succeeds.
 	if h.managementAPI != nil {
-		if _, regErr := h.managementAPI.CreateConnection(s.connID, s.sourceIP, s.userAgent, s.downstream); regErr != nil {
+		_, regErr := h.managementAPI.CreateConnection(s.connID, s.sourceIP, s.userAgent, s.downstream)
+		if regErr != nil {
 			log.Error("apigatewayv2: failed to register connection", "error", regErr)
 
 			return regErr
