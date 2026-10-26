@@ -677,7 +677,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | clean |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 1 gap; 2 structural gaps |
 | [Batch](services/batch/README.md) | A | 48 | 3 structural gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 4 gaps; 18 structural gaps; 5 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 3 gaps; 18 structural gaps; 5 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 4 structural gaps |
 | [Lambda](services/lambda/README.md) | A | — | 11 families; 1 gap; 10 structural gaps |
 
@@ -697,7 +697,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | 2 gaps |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 1 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 2 structural gaps |
-| [S3](services/s3/README.md) | A | 26 | 4 gaps; 4 structural gaps |
+| [S3](services/s3/README.md) | A | 26 | 3 gaps; 4 structural gaps |
 | [S3 Control](services/s3control/README.md) | A | 44 | 3 gaps; 6 structural gaps; 2 deferred |
 | [S3 Files](services/s3files/README.md) | B | 21 | 7 gaps; 1 structural gap |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
@@ -771,7 +771,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EMR](services/emr/README.md) | A | 65 | 7 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 structural gap |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 1 structural gap |
-| [Glue](services/glue/README.md) | A | 59 | 4 gaps; 5 structural gaps; 2 deferred |
+| [Glue](services/glue/README.md) | A | 59 | 3 gaps; 5 structural gaps; 2 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 1 structural gap |
 | [Kinesis](services/kinesis/README.md) | A | 39 | 1 gap; 5 structural gaps |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | clean |
@@ -890,7 +890,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 1 gap; 1 structural gap |
-| [IoT Core](services/iot/README.md) | A | 88 | 11 gaps; 4 structural gaps |
+| [IoT Core](services/iot/README.md) | A | 88 | 10 gaps; 4 structural gaps |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 1 structural gap; 1 deferred |
 | [IoT Wireless](services/iotwireless/README.md) | A | 21 | 2 structural gaps |
 
