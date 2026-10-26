@@ -52,6 +52,7 @@ import (
 	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
 	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
+	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
@@ -140,6 +141,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
@@ -570,6 +572,9 @@ type Config struct {
 	OCIVaultOps         *ocivaultbackend.Handler
 	OCIStreamingOps     *ocistreamingbackend.Handler
 	OCIIdentityOps      *ociidentitybackend.Handler
+	// OCIFunctionsOps and AzureMonitorOps are called in-process by their proxies.
+	OCIFunctionsOps *ocifunctionsbackend.Handler
+	AzureMonitorOps *azuremonitorbackend.Handler
 	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
 	AzureFileOps *azurefilebackend.Handler
 	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.

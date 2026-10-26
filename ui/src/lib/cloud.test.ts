@@ -77,8 +77,14 @@ describe("storage", () => {
 
 describe("availableAzureServices", () => {
   it("lists only services the backend reports, case-insensitively", () => {
-    const got = availableAzureServices(["S3", "azureblob", "CosmosDB", "AzureQueue"]);
-    expect(got.map((s) => s.id)).toEqual(["blob", "queue", "cosmosdb"]);
+    const got = availableAzureServices([
+      "S3",
+      "azureblob",
+      "CosmosDB",
+      "AzureQueue",
+      "AzureMonitor",
+    ]);
+    expect(got.map((s) => s.id)).toEqual(["blob", "queue", "cosmosdb", "monitor"]);
   });
 
   it("is empty when no Azure service is served", () => {
@@ -170,8 +176,14 @@ describe("Oracle Cloud", () => {
   });
 
   it("lists only served services, case-insensitively", () => {
-    const got = availableOciServices(["S3", "ocivault", "OCIObjectStorage", "OCIIdentity"]);
-    expect(got.map((s) => s.id)).toEqual(["objectstorage", "vault", "identity"]);
+    const got = availableOciServices([
+      "S3",
+      "ocivault",
+      "OCIObjectStorage",
+      "OCIIdentity",
+      "OCIFunctions",
+    ]);
+    expect(got.map((s) => s.id)).toEqual(["objectstorage", "vault", "identity", "functions"]);
     expect(availableOciServices(["S3"])).toEqual([]);
   });
 

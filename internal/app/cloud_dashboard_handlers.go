@@ -88,3 +88,13 @@ func (c *CLI) GetOCIStreamingHandler() service.Registerable { return c.ociStream
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOCIIdentityHandler() service.Registerable { return c.ociIdentityHandler }
+
+// GetOCIFunctionsHandler returns the OCIFunctions handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIFunctionsHandler() service.Registerable { return c.ociFunctionsHandler }
+
+// GetAzureMonitorHandler returns the AzureMonitor handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureMonitorHandler() service.Registerable { return c.azureMonitorHandler }
