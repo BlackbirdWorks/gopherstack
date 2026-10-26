@@ -110,8 +110,20 @@ func TestAzureMonitorProxy(t *testing.T) {
 
 		h, cid := seedAzureMonitor(t)
 		runGCPSteps(t, h, []gcpStep{
-			{http.MethodPost, azMonRoot + "/workspaces/" + cid + "/query", `{"query":"print x=1","timespan":"PT1H"}`, `"type":"long"`, 200},
-			{http.MethodPost, azMonRoot + "/workspaces/dashws/query", `{"query":"AppEvents_CL | count"}`, `"PrimaryResult"`, 200},
+			{
+				http.MethodPost,
+				azMonRoot + "/workspaces/" + cid + "/query",
+				`{"query":"print x=1","timespan":"PT1H"}`,
+				`"type":"long"`,
+				200,
+			},
+			{
+				http.MethodPost,
+				azMonRoot + "/workspaces/dashws/query",
+				`{"query":"AppEvents_CL | count"}`,
+				`"PrimaryResult"`,
+				200,
+			},
 		})
 	})
 
@@ -148,9 +160,21 @@ func TestAzureMonitorProxy(t *testing.T) {
 		h, cid := seedAzureMonitor(t)
 		runGCPSteps(t, h, []gcpStep{
 			{http.MethodGet, azMonRoot + "/workspaces/nope/tables", "", "NOT_FOUND", 404},
-			{http.MethodPost, azMonRoot + "/workspaces/nope/query", `{"query":"print 1"}`, "WorkspaceNotFoundError", 404},
+			{
+				http.MethodPost,
+				azMonRoot + "/workspaces/nope/query",
+				`{"query":"print 1"}`,
+				"WorkspaceNotFoundError",
+				404,
+			},
 			{http.MethodPost, azMonRoot + "/workspaces/" + cid + "/query", `{"query":""}`, "BadArgumentError", 400},
-			{http.MethodPost, azMonRoot + "/workspaces/" + cid + "/query", `{"query":"print 1","timespan":"bogus"}`, "timespan", 400},
+			{
+				http.MethodPost,
+				azMonRoot + "/workspaces/" + cid + "/query",
+				`{"query":"print 1","timespan":"bogus"}`,
+				"timespan",
+				400,
+			},
 			{http.MethodPost, azMonRoot + "/workspaces/" + cid + "/query", `not json`, "invalid request body", 400},
 		})
 	})

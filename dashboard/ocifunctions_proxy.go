@@ -23,7 +23,7 @@ const (
 	ociInvokeMaxBody   = 1 << 20
 )
 
-var ociSecretKeyRe = regexp.MustCompile( //nolint:gochecknoglobals // compiled once
+var ociSecretKeyRe = regexp.MustCompile(
 	`(?i)(secret|passw|pwd|token|credential|private|auth|bearer|signature|api[_-]?key|access[_-]?key|[_-]key$|^key)`)
 
 type ociFunctionsAPI struct {
@@ -198,7 +198,12 @@ func (a *ociFunctionsAPI) invoke(c *echo.Context) error {
 		return ociFail(c, err)
 	}
 
-	out := ociInvokeOut{Status: res.Status, CallID: res.CallID, Headers: map[string]string{}, Base64: base64.StdEncoding.EncodeToString(res.Body)}
+	out := ociInvokeOut{
+		Status:  res.Status,
+		CallID:  res.CallID,
+		Headers: map[string]string{},
+		Base64:  base64.StdEncoding.EncodeToString(res.Body),
+	}
 
 	for k, vs := range res.Header {
 		out.Headers[k] = strings.Join(vs, ", ")

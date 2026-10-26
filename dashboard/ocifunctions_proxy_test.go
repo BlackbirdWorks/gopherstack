@@ -23,7 +23,11 @@ type ociFnSeed struct {
 	fnID  string
 }
 
-func ociFnCall(t *testing.T, h *ocifunctions.Handler, method, path, body string) (*httptest.ResponseRecorder, map[string]any) {
+func ociFnCall(
+	t *testing.T,
+	h *ocifunctions.Handler,
+	method, path, body string,
+) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
 
 	rec := httptest.NewRecorder()
@@ -106,8 +110,20 @@ func TestOCIFunctionsProxy(t *testing.T) {
 
 		s := seedOCIFunctions(t)
 		runGCPSteps(t, s.h, []gcpStep{
-			{http.MethodPost, ociFnRoot + "/functions/" + s.fnID + "/invoke", `{"body":"{}","dryRun":true}`, `"status":200`, 200},
-			{http.MethodPost, ociFnRoot + "/functions/" + s.fnID + "/invoke", `{"body":"{}"}`, "function engine unavailable", 503},
+			{
+				http.MethodPost,
+				ociFnRoot + "/functions/" + s.fnID + "/invoke",
+				`{"body":"{}","dryRun":true}`,
+				`"status":200`,
+				200,
+			},
+			{
+				http.MethodPost,
+				ociFnRoot + "/functions/" + s.fnID + "/invoke",
+				`{"body":"{}"}`,
+				"function engine unavailable",
+				503,
+			},
 		})
 	})
 
