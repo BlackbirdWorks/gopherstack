@@ -272,23 +272,27 @@ func (h *Handler) handleWebSocketProxy(c *echo.Context, apiID, stageName string)
 		return err
 	}
 
+	// Register before completing the handshake: once the client sees 101 the connection must
+	// already be addressable via @connections, as it is on AWS after $connect succeeds.
+	if h.managementAPI != nil {
+		if _, regErr := h.managementAPI.CreateConnection(s.connID, s.sourceIP, s.userAgent, s.downstream); regErr != nil {
+			log.Error("apigatewayv2: failed to register connection", "error", regErr)
+
+			return regErr
+		}
+	}
+
 	upgrader := websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}
 
 	conn, upgradeErr := upgrader.Upgrade(c.Response(), req, nil)
 	if upgradeErr != nil {
 		log.Error("apigatewayv2: websocket upgrade failed", "error", upgradeErr)
 
-		return upgradeErr
-	}
-
-	if h.managementAPI != nil {
-		_, regErr := h.managementAPI.CreateConnection(s.connID, s.sourceIP, s.userAgent, s.downstream)
-		if regErr != nil {
-			log.Error("apigatewayv2: failed to register connection", "error", regErr)
-			_ = conn.Close()
-
-			return regErr
+		if h.managementAPI != nil {
+			_ = h.managementAPI.DeleteConnection(s.connID)
 		}
+
+		return upgradeErr
 	}
 
 	go func() {
