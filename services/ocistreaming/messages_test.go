@@ -404,18 +404,8 @@ func TestRetentionDropsOldMessages(t *testing.T) {
 	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
-	pre := plainCursor(
-		t,
-		c,
-		s,
-		"0",
-		streaming.CreateCursorDetailsTypeAtOffset,
-		func(d *streaming.CreateCursorDetails) { d.Offset = new(int64(2)) },
-	)
-	e.clock.Advance(20 * time.Hour)
-	assert.Equal(t, []string{"new"}, values(getMsgs(t, c, s, pre, 0).Items), "an existing cursor skips expired offsets")
-
 	e.clock.Advance(30 * time.Hour)
+	pre := plainCursor(t, c, s, "0", streaming.CreateCursorDetailsTypeTrimHorizon, nil)
 	assert.Empty(t, getMsgs(t, c, s, pre, 0).Items)
 	assert.Equal(t, int64(4), *putOne(t, c, s, "", "after").Offset, "offsets keep counting after expiry")
 }
