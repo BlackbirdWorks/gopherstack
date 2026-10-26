@@ -63,6 +63,7 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	h.registerStorageOps()
 	h.registerInstanceOps()
 	h.registerCatalogOps()
+	h.registerGroupOps()
 
 	return h
 }

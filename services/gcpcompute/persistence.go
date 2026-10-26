@@ -14,19 +14,24 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Networks  map[string]*computeapi.Network    `json:"networks"`
-	Subnets   map[string]*computeapi.Subnetwork `json:"subnets"`
-	Firewalls map[string]*computeapi.Firewall   `json:"firewalls"`
-	Routes    map[string]*computeapi.Route      `json:"routes"`
-	Addresses map[string]*computeapi.Address    `json:"addresses"`
-	Routers   map[string]*routerRec             `json:"routers"`
-	Disks     map[string]*computeapi.Disk       `json:"disks"`
-	Images    map[string]*computeapi.Image      `json:"images"`
-	Snapshots map[string]*computeapi.Snapshot   `json:"snapshots"`
-	Instances map[string]*instRec               `json:"instances"`
-	Ops       map[string]*opRec                 `json:"ops"`
-	Projects  map[string]*computeapi.Metadata   `json:"projects"`
-	Version   int                               `json:"version"`
+	Networks  map[string]*computeapi.Network          `json:"networks"`
+	Subnets   map[string]*computeapi.Subnetwork       `json:"subnets"`
+	Firewalls map[string]*computeapi.Firewall         `json:"firewalls"`
+	Routes    map[string]*computeapi.Route            `json:"routes"`
+	Addresses map[string]*computeapi.Address          `json:"addresses"`
+	Routers   map[string]*routerRec                   `json:"routers"`
+	Disks     map[string]*computeapi.Disk             `json:"disks"`
+	Images    map[string]*computeapi.Image            `json:"images"`
+	Snapshots map[string]*computeapi.Snapshot         `json:"snapshots"`
+	Instances map[string]*instRec                     `json:"instances"`
+	Templates map[string]*computeapi.InstanceTemplate `json:"templates"`
+	Healths   map[string]*computeapi.HealthCheck      `json:"healthChecks"`
+	Migs      map[string]*migRec                      `json:"instanceGroupManagers"`
+	Groups    map[string]*groupRec                    `json:"instanceGroups"`
+	Scalers   map[string]*computeapi.Autoscaler       `json:"autoscalers"`
+	Ops       map[string]*opRec                       `json:"ops"`
+	Projects  map[string]*computeapi.Metadata         `json:"projects"`
+	Version   int                                     `json:"version"`
 }
 
 // Snapshot serialises the backend state.
@@ -38,6 +43,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version: snapshotVersion, Networks: b.networks, Subnets: b.subnets, Firewalls: b.firewalls,
 		Routes: b.routes, Addresses: b.addresses, Routers: b.routers, Disks: b.disks, Images: b.images,
 		Snapshots: b.snapshots, Instances: b.instances, Ops: b.ops, Projects: b.projects,
+		Templates: b.templates, Healths: b.healths, Migs: b.migs, Groups: b.groups, Scalers: b.scalers,
 	})
 }
 
@@ -80,6 +86,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		copyNonNil(b.disks, snap.Disks), copyNonNil(b.images, snap.Images),
 		copyNonNil(b.snapshots, snap.Snapshots), copyNonNil(b.instances, snap.Instances),
 		copyNonNil(b.ops, snap.Ops), copyNonNil(b.projects, snap.Projects),
+		copyNonNil(b.templates, snap.Templates), copyNonNil(b.healths, snap.Healths),
+		copyNonNil(b.migs, snap.Migs), copyNonNil(b.groups, snap.Groups), copyNonNil(b.scalers, snap.Scalers),
 	} {
 		if err != nil {
 			b.resetMaps()
@@ -101,6 +109,22 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			b.resetMaps()
 
 			return fmt.Errorf("%w: instance", ErrSnapshotNull)
+		}
+	}
+
+	for _, r := range b.migs {
+		if r.Mgr == nil {
+			b.resetMaps()
+
+			return fmt.Errorf("%w: instance group manager", ErrSnapshotNull)
+		}
+	}
+
+	for _, r := range b.groups {
+		if r.Group == nil {
+			b.resetMaps()
+
+			return fmt.Errorf("%w: instance group", ErrSnapshotNull)
 		}
 	}
 

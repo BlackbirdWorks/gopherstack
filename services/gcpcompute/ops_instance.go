@@ -16,9 +16,18 @@ func (h *Handler) registerInstanceOps() {
 		return h.Backend.getInstance(rq.rt.project, rq.rt.loc, rq.rt.name)
 	})
 	h.reg("instances", z, verbInsert, func(h *Handler, rq *request) (any, error) {
-		in, _, err := decode[computeapi.Instance](rq)
+		in, raw, err := decode[computeapi.Instance](rq)
 		if err != nil {
 			return nil, err
+		}
+
+		if tmpl := rq.q.Get("sourceInstanceTemplate"); tmpl != "" {
+			merged, merr := h.Backend.instanceFromTemplate(rq.rt.project, tmpl, raw)
+			if merr != nil {
+				return nil, merr
+			}
+
+			in = merged
 		}
 
 		return opResult(h.Backend.insertInstance(rq.rt.project, rq.rt.loc, in))
