@@ -528,3 +528,95 @@ func settled(e *opsEnv, getStatus func() types.ClusterStatus) func() bool {
 		return getStatus() == types.ClusterStatusAvailable
 	}
 }
+
+func customBackupInstance(name, cron string) *sdk.CreateDbInstanceInput {
+	in := instanceInput(name)
+	in.DbBackupConfigurations = []types.DbBackupConfiguration{{
+		Enabled: aws.Bool(true), RetentionDays: aws.Int32(2),
+		Type: types.AutomatedDbBackupTypeCustomSchedule, CustomSchedule: aws.String(cron),
+	}}
+
+	return in
+}
+
+func TestCustomScheduleBackupsRunOnTheClock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		cron     string
+		advance  time.Duration
+		wantNext time.Time
+	}{
+		{
+			name: "daily at 05:30", cron: "cron(30 5 * * ? *)", advance: 2*time.Hour + 30*time.Minute,
+			wantNext: time.Date(2026, 1, 3, 5, 30, 0, 0, time.UTC),
+		},
+		{
+			name: "every 15 minutes", cron: "cron(0/15 * * * ? *)", advance: 15 * time.Minute,
+			wantNext: time.Date(2026, 1, 2, 3, 30, 0, 0, time.UTC),
+		},
+		{
+			name: "monday morning", cron: "cron(0 9 ? * MON *)", advance: 3*24*time.Hour + 6*time.Hour,
+			wantNext: time.Date(2026, 1, 12, 9, 0, 0, 0, time.UTC),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newOpsEnv(t)
+			id := e.available(t, customBackupInstance("cron-db", tt.cron))
+
+			e.backend.RunScheduled(t.Context())
+
+			list, err := e.client.ListDbBackups(t.Context(), &sdk.ListDbBackupsInput{DbResourceId: id})
+			require.NoError(t, err)
+			assert.Empty(t, list.Items, "nothing is due at creation")
+
+			e.clock.advance(tt.advance)
+			e.backend.RunScheduled(t.Context())
+
+			list, err = e.client.ListDbBackups(t.Context(), &sdk.ListDbBackupsInput{DbResourceId: id})
+			require.NoError(t, err)
+			require.Len(t, list.Items, 1)
+			assert.Equal(t, "CUSTOM_SCHEDULE", string(list.Items[0].Type))
+
+			e.backend.RunScheduled(t.Context())
+
+			list, err = e.client.ListDbBackups(t.Context(), &sdk.ListDbBackupsInput{DbResourceId: id})
+			require.NoError(t, err)
+			assert.Len(t, list.Items, 1, "the same slot does not back up twice")
+
+			got, err := e.client.GetDbInstance(t.Context(), &sdk.GetDbInstanceInput{Identifier: id})
+			require.NoError(t, err)
+			require.Len(t, got.DbBackupConfigurations, 1)
+			require.NotNil(t, got.DbBackupConfigurations[0].NextAutomatedBackupTime)
+			assert.True(t, tt.wantNext.Equal(*got.DbBackupConfigurations[0].NextAutomatedBackupTime),
+				"next slot %v", got.DbBackupConfigurations[0].NextAutomatedBackupTime)
+		})
+	}
+}
+
+func TestCustomScheduleRejectsMalformedCron(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ name, cron string }{
+		{"no wrapper", "30 5 * * ? *"},
+		{"five fields", "cron(30 5 * * ?)"},
+		{"both day fields", "cron(30 5 1 * MON *)"},
+		{"hour out of range", "cron(0 25 * * ? *)"},
+		{"unknown name", "cron(0 5 * FOO ? *)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			_, err := f.client.CreateDbInstance(t.Context(), customBackupInstance("bad-cron", tt.cron))
+			assert.Equal(t, "ValidationException", apiCode(err))
+		})
+	}
+}

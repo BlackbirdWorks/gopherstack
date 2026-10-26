@@ -179,6 +179,12 @@ func validateBackupConfigs(cfgs []BackupConfig) error {
 		if (c.Type == "CUSTOM_SCHEDULE") != (c.CustomSchedule != "") {
 			return invalid("customSchedule is required for, and only valid with, CUSTOM_SCHEDULE backups")
 		}
+
+		if c.Type == "CUSTOM_SCHEDULE" {
+			if _, ok := parseCustomSchedule(c.CustomSchedule); !ok {
+				return invalid("customSchedule must be a valid cron(minute hour day-of-month month day-of-week year) expression")
+			}
+		}
 	}
 
 	return nil
