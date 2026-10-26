@@ -71,8 +71,11 @@ func TestHealthCheckSpecs(t *testing.T) {
 			},
 		},
 		{
-			name: "grpc named port", wantType: "GRPC",
-			hc: &computepb.HealthCheck{GrpcHealthCheck: &computepb.GRPCHealthCheck{PortName: s("grpc"), GrpcServiceName: s("svc")}},
+			name:     "grpc named port",
+			wantType: "GRPC",
+			hc: &computepb.HealthCheck{
+				GrpcHealthCheck: &computepb.GRPCHealthCheck{PortName: s("grpc"), GrpcServiceName: s("svc")},
+			},
 			check: func(t *testing.T, h *computepb.HealthCheck) {
 				t.Helper()
 				assert.Equal(t, "USE_NAMED_PORT", h.GetGrpcHealthCheck().GetPortSpecification())
@@ -99,7 +102,11 @@ func TestHealthCheckSpecs(t *testing.T) {
 
 				if regional {
 					op, err := e.regionHealthChecks(t).Insert(t.Context(),
-						&computepb.InsertRegionHealthCheckRequest{Project: project, Region: region, HealthCheckResource: hc})
+						&computepb.InsertRegionHealthCheckRequest{
+							Project:             project,
+							Region:              region,
+							HealthCheckResource: hc,
+						})
 					e.done(t, op, err)
 
 					got, err = e.regionHealthChecks(t).Get(t.Context(),
@@ -145,7 +152,9 @@ func TestHealthCheckValidation(t *testing.T) {
 		{
 			name: "timeout over interval", status: http.StatusBadRequest,
 			hc: &computepb.HealthCheck{
-				TcpHealthCheck: &computepb.TCPHealthCheck{}, CheckIntervalSec: proto.Int32(5), TimeoutSec: proto.Int32(10),
+				TcpHealthCheck:   &computepb.TCPHealthCheck{},
+				CheckIntervalSec: proto.Int32(5),
+				TimeoutSec:       proto.Int32(10),
 			},
 		},
 		{
@@ -163,10 +172,17 @@ func TestHealthCheckValidation(t *testing.T) {
 		{
 			name: "named and fixed", status: http.StatusBadRequest,
 			hc: &computepb.HealthCheck{
-				TcpHealthCheck: &computepb.TCPHealthCheck{PortSpecification: s("USE_NAMED_PORT"), Port: proto.Int32(80)},
+				TcpHealthCheck: &computepb.TCPHealthCheck{
+					PortSpecification: s("USE_NAMED_PORT"),
+					Port:              proto.Int32(80),
+				},
 			},
 		},
-		{name: "grpc needs a port", hc: &computepb.HealthCheck{GrpcHealthCheck: &computepb.GRPCHealthCheck{}}, status: http.StatusBadRequest},
+		{
+			name:   "grpc needs a port",
+			hc:     &computepb.HealthCheck{GrpcHealthCheck: &computepb.GRPCHealthCheck{}},
+			status: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -190,25 +206,31 @@ func TestHealthCheckPatchUpdateDelete(t *testing.T) {
 	e.healthCheck(t, "hc")
 
 	op, err := e.healthChecks(t).Patch(t.Context(), &computepb.PatchHealthCheckRequest{
-		Project: project, HealthCheck: "hc", HealthCheckResource: &computepb.HealthCheck{CheckIntervalSec: proto.Int32(30), TimeoutSec: proto.Int32(10)},
+		Project:             project,
+		HealthCheck:         "hc",
+		HealthCheckResource: &computepb.HealthCheck{CheckIntervalSec: proto.Int32(30), TimeoutSec: proto.Int32(10)},
 	})
 	e.done(t, op, err)
 
-	got, err := e.healthChecks(t).Get(t.Context(), &computepb.GetHealthCheckRequest{Project: project, HealthCheck: "hc"})
+	got, err := e.healthChecks(t).
+		Get(t.Context(), &computepb.GetHealthCheckRequest{Project: project, HealthCheck: "hc"})
 	require.NoError(t, err)
 	assert.Equal(t, int32(30), got.GetCheckIntervalSec())
 	assert.Equal(t, int32(80), got.GetTcpHealthCheck().GetPort())
 
 	op, err = e.healthChecks(t).Patch(t.Context(), &computepb.PatchHealthCheckRequest{
-		Project: project, HealthCheck: "hc",
-		HealthCheckResource: &computepb.HealthCheck{HttpHealthCheck: &computepb.HTTPHealthCheck{Port: proto.Int32(8080)}},
+		Project:     project,
+		HealthCheck: "hc",
+		HealthCheckResource: &computepb.HealthCheck{
+			HttpHealthCheck: &computepb.HTTPHealthCheck{Port: proto.Int32(8080)},
+		},
 	})
 	e.done(t, op, err)
 
 	got, err = e.healthChecks(t).Get(t.Context(), &computepb.GetHealthCheckRequest{Project: project, HealthCheck: "hc"})
 	require.NoError(t, err)
 	assert.Equal(t, "HTTP", got.GetType())
-	assert.Nil(t, got.TcpHealthCheck)
+	assert.Nil(t, got.GetTcpHealthCheck())
 	assert.Equal(t, int32(8080), got.GetHttpHealthCheck().GetPort())
 
 	op, err = e.healthChecks(t).Update(t.Context(), &computepb.UpdateHealthCheckRequest{
@@ -227,10 +249,12 @@ func TestHealthCheckPatchUpdateDelete(t *testing.T) {
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "")
 
-	_, err = e.healthChecks(t).Delete(t.Context(), &computepb.DeleteHealthCheckRequest{Project: project, HealthCheck: "nope"})
+	_, err = e.healthChecks(t).
+		Delete(t.Context(), &computepb.DeleteHealthCheckRequest{Project: project, HealthCheck: "nope"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
-	op, err = e.healthChecks(t).Delete(t.Context(), &computepb.DeleteHealthCheckRequest{Project: project, HealthCheck: "hc"})
+	op, err = e.healthChecks(t).
+		Delete(t.Context(), &computepb.DeleteHealthCheckRequest{Project: project, HealthCheck: "hc"})
 	e.done(t, op, err)
 
 	_, err = e.healthChecks(t).Get(t.Context(), &computepb.GetHealthCheckRequest{Project: project, HealthCheck: "hc"})

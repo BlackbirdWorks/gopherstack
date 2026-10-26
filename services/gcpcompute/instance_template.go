@@ -63,18 +63,21 @@ func (b *InMemoryBackend) normalizePropsLocked(p *computeapi.InstanceProperties)
 	for _, d := range p.Disks {
 		d.Kind = "compute#attachedDisk"
 		if d.Type == "" {
-			d.Type = "PERSISTENT"
+			d.Type = diskPersist
 		}
 
 		if d.Mode == "" {
-			d.Mode = "READ_WRITE"
+			d.Mode = modeReadWrite
 		}
 	}
 
 	return nil
 }
 
-func (b *InMemoryBackend) insertTemplate(project, region string, in *computeapi.InstanceTemplate) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) insertTemplate(
+	project, region string,
+	in *computeapi.InstanceTemplate,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("InsertInstanceTemplate")
 	defer b.mu.Unlock()
 
@@ -83,7 +86,11 @@ func (b *InMemoryBackend) insertTemplate(project, region string, in *computeapi.
 	}
 
 	if in.SourceInstance != "" {
-		return nil, errField("resource.sourceInstance", in.SourceInstance, "Creating a template from an instance is not supported by this emulator.")
+		return nil, errField(
+			"resource.sourceInstance",
+			in.SourceInstance,
+			"Creating a template from an instance is not supported by this emulator.",
+		)
 	}
 
 	k := templateKey(project, region, in.Name)

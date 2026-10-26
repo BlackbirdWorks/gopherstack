@@ -22,7 +22,7 @@ func TestGroupsSurviveSnapshotRestore(t *testing.T) {
 	require.NoError(t, src.scaler(t, scalerSpec("as", 2, 5)))
 	src.settle()
 
-	before := src.managed(t, "web")
+	before := src.managed(t)
 	data := src.backend.Snapshot(t.Context())
 
 	dst := newEnv(t)
@@ -31,26 +31,29 @@ func TestGroupsSurviveSnapshotRestore(t *testing.T) {
 	dst.clock.Advance(src.clock.Now().Sub(dst.clock.Now()))
 	dst.settle()
 
-	m := dst.getMig(t, "web")
+	m := dst.getMig(t)
 	assert.Equal(t, int32(2), m.GetTargetSize())
 	assert.True(t, m.GetStatus().GetIsStable())
 	assert.Contains(t, m.GetStatus().GetAutoscaler(), "/autoscalers/as")
 
-	after := dst.managed(t, "web")
+	after := dst.managed(t)
 	require.Len(t, after, 2)
 	assert.Equal(t, before[0].GetName(), after[0].GetName())
 	assert.Equal(t, before[0].GetId(), after[0].GetId())
 
-	_, err := dst.templates(t).Get(t.Context(), &computepb.GetInstanceTemplateRequest{Project: project, InstanceTemplate: "tpl"})
+	_, err := dst.templates(t).
+		Get(t.Context(), &computepb.GetInstanceTemplateRequest{Project: project, InstanceTemplate: "tpl"})
 	require.NoError(t, err)
 
 	_, err = dst.healthChecks(t).Get(t.Context(), &computepb.GetHealthCheckRequest{Project: project, HealthCheck: "hc"})
 	require.NoError(t, err)
 
-	_, err = dst.groups(t).Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
+	_, err = dst.groups(t).
+		Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
 	require.NoError(t, err)
 
-	_, err = dst.autoscalers(t).Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
+	_, err = dst.autoscalers(t).
+		Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
 	require.NoError(t, err)
 
 	_, err = dst.migs(t).Resize(t.Context(), &computepb.ResizeInstanceGroupManagerRequest{

@@ -1,6 +1,7 @@
 package gcpcompute_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -98,7 +99,9 @@ func (e *env) template(t *testing.T, name string) string {
 	t.Helper()
 
 	op, err := e.templates(t).
-		Insert(t.Context(), &computepb.InsertInstanceTemplateRequest{Project: project, InstanceTemplateResource: tmplSpec(name)})
+		Insert(t.Context(), &computepb.InsertInstanceTemplateRequest{
+			Project: project, InstanceTemplateResource: tmplSpec(name),
+		})
 	e.done(t, op, err)
 
 	return globalTmplPath + name
@@ -117,40 +120,42 @@ func (e *env) healthCheck(t *testing.T, name string) string {
 	return "projects/" + project + "/global/healthChecks/" + name
 }
 
-func (e *env) mig(t *testing.T, name, tmpl string, size int32) *computepb.InstanceGroupManager {
+func (e *env) mig(t *testing.T, name, tmpl string, size int32) {
 	t.Helper()
 
 	op, err := e.migs(t).Insert(t.Context(), &computepb.InsertInstanceGroupManagerRequest{
 		Project: project, Zone: zone, InstanceGroupManagerResource: &computepb.InstanceGroupManager{
-			Name: s(name), BaseInstanceName: s(name), InstanceTemplate: s(tmpl), TargetSize: proto.Int32(size),
+			Name: s(name), BaseInstanceName: s(name), InstanceTemplate: s(tmpl), TargetSize: new(size),
 		},
 	})
 	e.done(t, op, err)
-
-	return e.getMig(t, name)
 }
 
-func (e *env) getMig(t *testing.T, name string) *computepb.InstanceGroupManager {
+func (e *env) getMig(t *testing.T) *computepb.InstanceGroupManager {
 	t.Helper()
 
 	m, err := e.migs(t).Get(t.Context(),
-		&computepb.GetInstanceGroupManagerRequest{Project: project, Zone: zone, InstanceGroupManager: name})
+		&computepb.GetInstanceGroupManagerRequest{Project: project, Zone: zone, InstanceGroupManager: "web"})
 	require.NoError(t, err)
 
 	return m
 }
 
-func (e *env) managed(t *testing.T, name string) []*computepb.ManagedInstance {
+func (e *env) managed(t *testing.T) []*computepb.ManagedInstance {
 	t.Helper()
 
 	it := e.migs(t).ListManagedInstances(t.Context(),
-		&computepb.ListManagedInstancesInstanceGroupManagersRequest{Project: project, Zone: zone, InstanceGroupManager: name})
+		&computepb.ListManagedInstancesInstanceGroupManagersRequest{
+			Project:              project,
+			Zone:                 zone,
+			InstanceGroupManager: "web",
+		})
 
 	var out []*computepb.ManagedInstance
 
 	for {
 		mi, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return out
 		}
 
@@ -169,7 +174,7 @@ func (e *env) vmNames(t *testing.T) []string {
 
 	for {
 		vm, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return out
 		}
 

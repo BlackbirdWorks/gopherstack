@@ -1,6 +1,7 @@
 package gcpcompute_test
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -17,8 +18,8 @@ func scalerSpec(name string, minN, maxN int32) *computepb.Autoscaler {
 	return &computepb.Autoscaler{
 		Name: s(name), Target: s(migTargetPath),
 		AutoscalingPolicy: &computepb.AutoscalingPolicy{
-			MinNumReplicas: proto.Int32(minN), MaxNumReplicas: proto.Int32(maxN),
-			CpuUtilization: &computepb.AutoscalingPolicyCpuUtilization{UtilizationTarget: proto.Float64(0.5)},
+			MinNumReplicas: new(minN), MaxNumReplicas: new(maxN),
+			CpuUtilization: &computepb.AutoscalingPolicyCpuUtilization{UtilizationTarget: new(0.5)},
 		},
 	}
 }
@@ -42,9 +43,9 @@ func TestAutoscalerBoundsDriveTargetSize(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		mode       string
 		start      int32
 		minN, maxN int32
-		mode       string
 		want       int32
 	}{
 		{name: "raised to min", start: 1, minN: 3, maxN: 6, want: 3},
@@ -67,14 +68,15 @@ func TestAutoscalerBoundsDriveTargetSize(t *testing.T) {
 			}
 
 			require.NoError(t, e.scaler(t, spec))
-			assert.Equal(t, tt.want, e.getMig(t, "web").GetTargetSize())
+			assert.Equal(t, tt.want, e.getMig(t).GetTargetSize())
 			assert.Len(t, e.vmNames(t), int(tt.want))
 
-			a, err := e.autoscalers(t).Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
+			a, err := e.autoscalers(t).
+				Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
 			require.NoError(t, err)
 			assert.Equal(t, "ACTIVE", a.GetStatus())
 			assert.Equal(t, tt.want, a.GetRecommendedSize())
-			assert.Contains(t, e.getMig(t, "web").GetStatus().GetAutoscaler(), "/zones/"+zone+"/autoscalers/as")
+			assert.Contains(t, e.getMig(t).GetStatus().GetAutoscaler(), "/zones/"+zone+"/autoscalers/as")
 		})
 	}
 }
@@ -92,7 +94,7 @@ func TestAutoscalerResizeIsClamped(t *testing.T) {
 			Project: project, Zone: zone, InstanceGroupManager: "web", Size: c.ask,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, c.want, e.getMig(t, "web").GetTargetSize())
+		assert.Equal(t, c.want, e.getMig(t).GetTargetSize())
 	}
 }
 
@@ -106,18 +108,48 @@ func TestAutoscalerValidation(t *testing.T) {
 		status int
 	}{
 		{name: "no target", mod: func(a *computepb.Autoscaler) { a.Target = nil }, status: 400, reason: "required"},
-		{name: "unknown target", mod: func(a *computepb.Autoscaler) { a.Target = s("zones/" + zone + "/instanceGroupManagers/none") }, status: 404, reason: "notFound"},
-		{name: "other zone", mod: func(a *computepb.Autoscaler) { a.Target = s("zones/" + otherZone + "/instanceGroupManagers/web") }, status: 400, reason: "invalid"},
-		{name: "no policy", mod: func(a *computepb.Autoscaler) { a.AutoscalingPolicy = nil }, status: 400, reason: "required"},
-		{name: "max zero", mod: func(a *computepb.Autoscaler) { a.AutoscalingPolicy.MaxNumReplicas = proto.Int32(0) }, status: 400, reason: "invalid"},
-		{name: "min over max", mod: func(a *computepb.Autoscaler) { a.AutoscalingPolicy.MinNumReplicas = proto.Int32(9) }, status: 400, reason: "invalid"},
+		{
+			name:   "unknown target",
+			mod:    func(a *computepb.Autoscaler) { a.Target = s("zones/" + zone + "/instanceGroupManagers/none") },
+			status: 404,
+			reason: "notFound",
+		},
+		{
+			name:   "other zone",
+			mod:    func(a *computepb.Autoscaler) { a.Target = s("zones/" + otherZone + "/instanceGroupManagers/web") },
+			status: 400,
+			reason: "invalid",
+		},
+		{
+			name:   "no policy",
+			mod:    func(a *computepb.Autoscaler) { a.AutoscalingPolicy = nil },
+			status: 400,
+			reason: "required",
+		},
+		{
+			name:   "max zero",
+			mod:    func(a *computepb.Autoscaler) { a.AutoscalingPolicy.MaxNumReplicas = proto.Int32(0) },
+			status: 400,
+			reason: "invalid",
+		},
+		{
+			name:   "min over max",
+			mod:    func(a *computepb.Autoscaler) { a.AutoscalingPolicy.MinNumReplicas = proto.Int32(9) },
+			status: 400,
+			reason: "invalid",
+		},
 		{
 			name: "cpu target over one", status: 400, reason: "invalid",
 			mod: func(a *computepb.Autoscaler) {
-				a.AutoscalingPolicy.CpuUtilization.UtilizationTarget = proto.Float64(1.5)
+				a.AutoscalingPolicy.CpuUtilization.UtilizationTarget = new(1.5)
 			},
 		},
-		{name: "bad mode", mod: func(a *computepb.Autoscaler) { a.AutoscalingPolicy.Mode = s("SIDEWAYS") }, status: 400, reason: "invalid"},
+		{
+			name:   "bad mode",
+			mod:    func(a *computepb.Autoscaler) { a.AutoscalingPolicy.Mode = s("SIDEWAYS") },
+			status: 400,
+			reason: "invalid",
+		},
 		{
 			name: "custom metric without name", status: 400, reason: "required",
 			mod: func(a *computepb.Autoscaler) {
@@ -130,7 +162,11 @@ func TestAutoscalerValidation(t *testing.T) {
 			name: "custom metric bad type", status: 400, reason: "invalid",
 			mod: func(a *computepb.Autoscaler) {
 				a.AutoscalingPolicy.CustomMetricUtilizations = []*computepb.AutoscalingPolicyCustomMetricUtilization{
-					{Metric: s("custom.googleapis.com/q"), UtilizationTarget: proto.Float64(1), UtilizationTargetType: s("NOPE")},
+					{
+						Metric:                s("custom.googleapis.com/q"),
+						UtilizationTarget:     proto.Float64(1),
+						UtilizationTargetType: s("NOPE"),
+					},
 				}
 			},
 		},
@@ -148,7 +184,7 @@ func TestAutoscalerValidation(t *testing.T) {
 			tt.mod(spec)
 
 			assertAPIError(t, e.scaler(t, spec), tt.status, tt.reason)
-			assert.Equal(t, int32(1), e.getMig(t, "web").GetTargetSize())
+			assert.Equal(t, int32(1), e.getMig(t).GetTargetSize())
 		})
 	}
 
@@ -177,7 +213,8 @@ func TestAutoscalerValidation(t *testing.T) {
 		}
 		require.NoError(t, e.scaler(t, spec))
 
-		a, err := e.autoscalers(t).Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
+		a, err := e.autoscalers(t).
+			Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
 		require.NoError(t, err)
 		assert.Equal(t, int32(1), a.GetAutoscalingPolicy().GetMinNumReplicas())
 		assert.Equal(t, int32(60), a.GetAutoscalingPolicy().GetCoolDownPeriodSec())
@@ -195,22 +232,27 @@ func TestAutoscalerPatchUpdateDelete(t *testing.T) {
 	require.NoError(t, e.scaler(t, scalerSpec("as", 1, 3)))
 
 	op, err := e.autoscalers(t).Patch(t.Context(), &computepb.PatchAutoscalerRequest{
-		Project: project, Zone: zone, Autoscaler: s("as"),
-		AutoscalerResource: &computepb.Autoscaler{AutoscalingPolicy: &computepb.AutoscalingPolicy{MinNumReplicas: proto.Int32(2)}},
+		Project:    project,
+		Zone:       zone,
+		Autoscaler: s("as"),
+		AutoscalerResource: &computepb.Autoscaler{
+			AutoscalingPolicy: &computepb.AutoscalingPolicy{MinNumReplicas: proto.Int32(2)},
+		},
 	})
 	e.done(t, op, err)
 
-	a, err := e.autoscalers(t).Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
+	a, err := e.autoscalers(t).
+		Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), a.GetAutoscalingPolicy().GetMinNumReplicas())
 	assert.Equal(t, int32(3), a.GetAutoscalingPolicy().GetMaxNumReplicas())
-	assert.Equal(t, int32(2), e.getMig(t, "web").GetTargetSize())
+	assert.Equal(t, int32(2), e.getMig(t).GetTargetSize())
 
 	op, err = e.autoscalers(t).Update(t.Context(), &computepb.UpdateAutoscalerRequest{
 		Project: project, Zone: zone, Autoscaler: s("as"), AutoscalerResource: scalerSpec("as", 4, 6),
 	})
 	e.done(t, op, err)
-	assert.Equal(t, int32(4), e.getMig(t, "web").GetTargetSize())
+	assert.Equal(t, int32(4), e.getMig(t).GetTargetSize())
 
 	_, err = e.autoscalers(t).Update(t.Context(), &computepb.UpdateAutoscalerRequest{
 		Project: project, Zone: zone, Autoscaler: s("as"), AutoscalerResource: scalerSpec("as", 9, 6),
@@ -222,7 +264,7 @@ func TestAutoscalerPatchUpdateDelete(t *testing.T) {
 
 	for {
 		_, nerr := it.Next()
-		if nerr == iterator.Done {
+		if errors.Is(nerr, iterator.Done) {
 			break
 		}
 
@@ -233,11 +275,13 @@ func TestAutoscalerPatchUpdateDelete(t *testing.T) {
 
 	assert.Equal(t, 1, n)
 
-	op, err = e.autoscalers(t).Delete(t.Context(), &computepb.DeleteAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
+	op, err = e.autoscalers(t).
+		Delete(t.Context(), &computepb.DeleteAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
 	e.done(t, op, err)
-	assert.Equal(t, int32(4), e.getMig(t, "web").GetTargetSize(), "deleting the autoscaler keeps the size")
+	assert.Equal(t, int32(4), e.getMig(t).GetTargetSize(), "deleting the autoscaler keeps the size")
 
-	_, err = e.autoscalers(t).Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
+	_, err = e.autoscalers(t).
+		Get(t.Context(), &computepb.GetAutoscalerRequest{Project: project, Zone: zone, Autoscaler: "as"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 }
 
@@ -280,6 +324,7 @@ func TestRegionalAutoscalerAndCascade(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	_, err = e.regionAutoscalers(t).Get(t.Context(), &computepb.GetRegionAutoscalerRequest{Project: project, Region: region, Autoscaler: "ras"})
+	_, err = e.regionAutoscalers(t).
+		Get(t.Context(), &computepb.GetRegionAutoscalerRequest{Project: project, Region: region, Autoscaler: "ras"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 }

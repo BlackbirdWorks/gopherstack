@@ -82,7 +82,7 @@ func (b *InMemoryBackend) createInstanceForLocked(project string, rec *migRec, z
 	return err
 }
 
-func (b *InMemoryBackend) removeMemberInstanceLocked(project string, rec *migRec, m *memberRec) {
+func (b *InMemoryBackend) removeMemberInstanceLocked(project string, m *memberRec) {
 	if r, ok := b.instances[key(project, m.Zone, m.Name)]; ok {
 		b.removeInstanceLocked(project, m.Zone, r)
 	}
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) growLocked(project string, rec *migRec, n int) *APIErr
 
 		if err := b.createInstanceForLocked(project, rec, zone, name, tmpl); err != nil {
 			for _, m := range added {
-				b.removeMemberInstanceLocked(project, rec, m)
+				b.removeMemberInstanceLocked(project, m)
 				rec.Members = dropMember(rec.Members, m)
 			}
 
@@ -221,9 +221,9 @@ func dropMember(ms []*memberRec, drop *memberRec) []*memberRec {
 	return out
 }
 
-func (b *InMemoryBackend) markDeletingLocked(project string, rec *migRec, m *memberRec) {
+func (b *InMemoryBackend) markDeletingLocked(project string, m *memberRec) {
 	m.Deleting, m.DeleteAt = true, b.now().UTC().Add(b.timing.Stop)
-	b.removeMemberInstanceLocked(project, rec, m)
+	b.removeMemberInstanceLocked(project, m)
 }
 
 func (b *InMemoryBackend) shrinkLocked(project string, rec *migRec, n int) {
@@ -269,7 +269,7 @@ func (b *InMemoryBackend) shrinkLocked(project string, rec *migRec, n int) {
 			return live[i].Name > live[j].Name
 		})
 
-		b.markDeletingLocked(project, rec, live[0])
+		b.markDeletingLocked(project, live[0])
 	}
 }
 
@@ -346,7 +346,7 @@ func (b *InMemoryBackend) recreateMemberLocked(project string, rec *migRec, m *m
 	}
 
 	tmpl := b.pickVersion(rec, templateCounts(others))
-	b.removeMemberInstanceLocked(project, rec, m)
+	b.removeMemberInstanceLocked(project, m)
 
 	if err := b.createInstanceForLocked(project, rec, m.Zone, m.Name, tmpl); err != nil {
 		rec.Members = dropMember(rec.Members, m)
@@ -360,8 +360,8 @@ func (b *InMemoryBackend) recreateMemberLocked(project string, rec *migRec, m *m
 }
 
 type memberAction struct {
-	action string
 	inst   *instRec
+	action string
 }
 
 func (b *InMemoryBackend) memberActionLocked(project string, m *memberRec) (memberAction, bool) {

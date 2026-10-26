@@ -259,16 +259,16 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 	created *[]string,
 ) (*computeapi.AttachedDisk, *APIError) {
 	field := "resource.disks[" + strconv.Itoa(idx) + "]"
-	if ad.Type != "" && ad.Type != "PERSISTENT" {
+	if ad.Type != "" && ad.Type != diskPersist {
 		return nil, errField(field+".type", ad.Type, "Only PERSISTENT disks are supported.")
 	}
 
 	mode := ad.Mode
 	if mode == "" {
-		mode = "READ_WRITE"
+		mode = modeReadWrite
 	}
 
-	if mode != "READ_WRITE" && mode != modeReadOnly {
+	if mode != modeReadWrite && mode != modeReadOnly {
 		return nil, errField(field+".mode", mode, "")
 	}
 
@@ -314,7 +314,7 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 
 	return &computeapi.AttachedDisk{
 		Kind:            "compute#attachedDisk",
-		Type:            "PERSISTENT",
+		Type:            diskPersist,
 		Mode:            mode,
 		Source:          d.SelfLink,
 		Index:           int64(idx),
@@ -728,7 +728,10 @@ func (b *InMemoryBackend) insertInstance(project, zone string, in *computeapi.In
 	return b.newOpLocked("insert", instTarget(project, zone, inst), b.timing.Stage), nil
 }
 
-func (b *InMemoryBackend) insertInstanceLocked(project, zone string, in *computeapi.Instance) (*computeapi.Instance, *APIError) {
+func (b *InMemoryBackend) insertInstanceLocked(
+	project, zone string,
+	in *computeapi.Instance,
+) (*computeapi.Instance, *APIError) {
 	if err := validName("name", in.Name); err != nil {
 		return nil, err
 	}

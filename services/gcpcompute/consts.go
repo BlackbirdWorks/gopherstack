@@ -5,6 +5,8 @@ const (
 	statusReady   = "READY"
 	tierStandard  = "STANDARD"
 	modeReadOnly  = "READ_ONLY"
+	modeReadWrite = "READ_WRITE"
+	diskPersist   = "PERSISTENT"
 	platBroadwell = "Intel Broadwell"
 	diskSizeRange = "10GB-65536GB"
 	collProjects  = "projects"

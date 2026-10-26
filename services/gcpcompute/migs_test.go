@@ -1,6 +1,7 @@
 package gcpcompute_test
 
 import (
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -30,7 +31,7 @@ func TestMIGLifecycleOnClock(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, op)
 
-	m := e.getMig(t, "web")
+	m := e.getMig(t)
 	assert.Equal(t, int32(3), m.GetTargetSize())
 	assert.Equal(t, "web", m.GetBaseInstanceName())
 	assert.Contains(t, m.GetInstanceGroup(), "/zones/"+zone+"/instanceGroups/web")
@@ -50,12 +51,12 @@ func TestMIGLifecycleOnClock(t *testing.T) {
 
 	e.settle()
 
-	m = e.getMig(t, "web")
+	m = e.getMig(t)
 	assert.True(t, m.GetStatus().GetIsStable())
 	assert.True(t, m.GetStatus().GetVersionTarget().GetIsReached())
 	assert.Equal(t, int32(3), m.GetCurrentActions().GetNone())
 
-	mis := e.managed(t, "web")
+	mis := e.managed(t)
 	require.Len(t, mis, 3)
 
 	for _, mi := range mis {
@@ -76,7 +77,7 @@ func TestMIGLifecycleOnClock(t *testing.T) {
 
 	e.settle()
 	assert.Len(t, e.vmNames(t), 1)
-	assert.Len(t, e.managed(t, "web"), 1)
+	assert.Len(t, e.managed(t), 1)
 }
 
 func TestMIGResizeTransitions(t *testing.T) {
@@ -92,19 +93,19 @@ func TestMIGResizeTransitions(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	mis := e.managed(t, "web")
+	mis := e.managed(t)
 	require.Len(t, mis, 2)
 
 	actions := []string{mis[0].GetCurrentAction(), mis[1].GetCurrentAction()}
 	sort.Strings(actions)
 	assert.Equal(t, []string{"DELETING", "NONE"}, actions)
-	assert.False(t, e.getMig(t, "web").GetStatus().GetIsStable())
+	assert.False(t, e.getMig(t).GetStatus().GetIsStable())
 	assert.Len(t, e.vmNames(t), 1)
 
 	e.clock.Advance(gcpcomputeTiming().Stop)
 
-	assert.Len(t, e.managed(t, "web"), 1)
-	assert.True(t, e.getMig(t, "web").GetStatus().GetIsStable())
+	assert.Len(t, e.managed(t), 1)
+	assert.True(t, e.getMig(t).GetStatus().GetIsStable())
 
 	_, err = e.migs(t).Resize(t.Context(), &computepb.ResizeInstanceGroupManagerRequest{
 		Project: project, Zone: zone, InstanceGroupManager: "web", Size: 4,
@@ -113,7 +114,7 @@ func TestMIGResizeTransitions(t *testing.T) {
 	assert.Len(t, e.vmNames(t), 4)
 
 	e.clock.Advance(time.Second)
-	assert.True(t, e.getMig(t, "web").GetStatus().GetIsStable())
+	assert.True(t, e.getMig(t).GetStatus().GetIsStable())
 }
 
 func TestMIGValidation(t *testing.T) {
@@ -125,18 +126,38 @@ func TestMIGValidation(t *testing.T) {
 		reason string
 		status int
 	}{
-		{name: "no base name", mod: func(m *computepb.InstanceGroupManager) { m.BaseInstanceName = nil }, status: 400, reason: "required"},
-		{name: "bad base name", mod: func(m *computepb.InstanceGroupManager) { m.BaseInstanceName = s("Web_X") }, status: 400, reason: "invalid"},
+		{
+			name:   "no base name",
+			mod:    func(m *computepb.InstanceGroupManager) { m.BaseInstanceName = nil },
+			status: 400,
+			reason: "required",
+		},
+		{
+			name:   "bad base name",
+			mod:    func(m *computepb.InstanceGroupManager) { m.BaseInstanceName = s("Web_X") },
+			status: 400,
+			reason: "invalid",
+		},
 		{
 			name: "long base name", status: 400, reason: "invalid",
 			mod: func(m *computepb.InstanceGroupManager) { m.BaseInstanceName = s(strings.Repeat("a", 59)) },
 		},
-		{name: "no template", mod: func(m *computepb.InstanceGroupManager) { m.InstanceTemplate = nil }, status: 400, reason: "required"},
+		{
+			name:   "no template",
+			mod:    func(m *computepb.InstanceGroupManager) { m.InstanceTemplate = nil },
+			status: 400,
+			reason: "required",
+		},
 		{
 			name: "missing template", status: 404, reason: "notFound",
 			mod: func(m *computepb.InstanceGroupManager) { m.InstanceTemplate = s(globalTmplPath + "none") },
 		},
-		{name: "negative size", mod: func(m *computepb.InstanceGroupManager) { m.TargetSize = proto.Int32(-1) }, status: 400, reason: "invalid"},
+		{
+			name:   "negative size",
+			mod:    func(m *computepb.InstanceGroupManager) { m.TargetSize = proto.Int32(-1) },
+			status: 400,
+			reason: "invalid",
+		},
 		{
 			name: "template and versions", status: 400, reason: "invalid",
 			mod: func(m *computepb.InstanceGroupManager) {
@@ -146,13 +167,18 @@ func TestMIGValidation(t *testing.T) {
 		{
 			name: "duplicate named port", status: 400, reason: "invalid",
 			mod: func(m *computepb.InstanceGroupManager) {
-				m.NamedPorts = []*computepb.NamedPort{{Name: s("a"), Port: proto.Int32(1)}, {Name: s("a"), Port: proto.Int32(2)}}
+				m.NamedPorts = []*computepb.NamedPort{
+					{Name: s("a"), Port: proto.Int32(1)},
+					{Name: s("a"), Port: proto.Int32(2)},
+				}
 			},
 		},
 		{
 			name: "unknown health check", status: 404, reason: "notFound",
 			mod: func(m *computepb.InstanceGroupManager) {
-				m.AutoHealingPolicies = []*computepb.InstanceGroupManagerAutoHealingPolicy{{HealthCheck: s("global/healthChecks/none")}}
+				m.AutoHealingPolicies = []*computepb.InstanceGroupManagerAutoHealingPolicy{
+					{HealthCheck: s("global/healthChecks/none")},
+				}
 			},
 		},
 		{
@@ -184,7 +210,11 @@ func TestMIGValidation(t *testing.T) {
 			tt.mod(spec)
 
 			_, err := e.migs(t).Insert(t.Context(),
-				&computepb.InsertInstanceGroupManagerRequest{Project: project, Zone: zone, InstanceGroupManagerResource: spec})
+				&computepb.InsertInstanceGroupManagerRequest{
+					Project:                      project,
+					Zone:                         zone,
+					InstanceGroupManagerResource: spec,
+				})
 			assertAPIError(t, err, tt.status, tt.reason)
 			assert.Empty(t, e.vmNames(t))
 		})
@@ -217,7 +247,12 @@ func TestMIGValidation(t *testing.T) {
 
 		_, err := e.migs(t).Insert(t.Context(), &computepb.InsertInstanceGroupManagerRequest{
 			Project: project, Zone: zone, InstanceGroupManagerResource: &computepb.InstanceGroupManager{
-				Name: s("web"), BaseInstanceName: s("web"), InstanceTemplate: s(e.template(t, "tpl")), TargetSize: proto.Int32(2),
+				Name: s(
+					"web",
+				),
+				BaseInstanceName: s("web"),
+				InstanceTemplate: s(e.template(t, "tpl")),
+				TargetSize:       proto.Int32(2),
 			},
 		})
 		require.Error(t, err, "no subnetwork exists in this project")
@@ -259,7 +294,7 @@ func TestRegionalMIGSpreadsAcrossZones(t *testing.T) {
 			op, err := e.regionMigs(t).Insert(t.Context(), &computepb.InsertRegionInstanceGroupManagerRequest{
 				Project: project, Region: region, InstanceGroupManagerResource: &computepb.InstanceGroupManager{
 					Name: s("rweb"), BaseInstanceName: s("rweb"), InstanceTemplate: s(tmpl),
-					TargetSize: proto.Int32(tt.size), DistributionPolicy: dp,
+					TargetSize: new(tt.size), DistributionPolicy: dp,
 				},
 			})
 			e.done(t, op, err)
@@ -272,15 +307,16 @@ func TestRegionalMIGSpreadsAcrossZones(t *testing.T) {
 			assert.True(t, m.GetStatus().GetIsStable())
 			assert.Equal(t, "EVEN", m.GetDistributionPolicy().GetTargetShape())
 
-			it := e.regionMigs(t).ListManagedInstances(t.Context(), &computepb.ListManagedInstancesRegionInstanceGroupManagersRequest{
-				Project: project, Region: region, InstanceGroupManager: "rweb",
-			})
+			it := e.regionMigs(t).
+				ListManagedInstances(t.Context(), &computepb.ListManagedInstancesRegionInstanceGroupManagersRequest{
+					Project: project, Region: region, InstanceGroupManager: "rweb",
+				})
 
 			perZone := map[string]int{}
 
 			for {
 				mi, nerr := it.Next()
-				if nerr == iterator.Done {
+				if errors.Is(nerr, iterator.Done) {
 					break
 				}
 
@@ -338,21 +374,22 @@ func TestMIGSetInstanceTemplate(t *testing.T) {
 			e.done(t, op, err)
 			e.settle()
 
-			op, err = e.migs(t).SetInstanceTemplate(t.Context(), &computepb.SetInstanceTemplateInstanceGroupManagerRequest{
-				Project: project, Zone: zone, InstanceGroupManager: "web",
-				InstanceGroupManagersSetInstanceTemplateRequestResource: &computepb.InstanceGroupManagersSetInstanceTemplateRequest{
-					InstanceTemplate: s(newT),
-				},
-			})
+			op, err = e.migs(t).
+				SetInstanceTemplate(t.Context(), &computepb.SetInstanceTemplateInstanceGroupManagerRequest{
+					Project:              project,
+					Zone:                 zone,
+					InstanceGroupManager: "web",
+					InstanceGroupManagersSetInstanceTemplateRequestResource: setTmplReq(newT),
+				})
 			e.done(t, op, err)
 
-			m := e.getMig(t, "web")
+			m := e.getMig(t)
 			assert.Equal(t, newT, trimToPath(m.GetInstanceTemplate()))
 
 			count := func(tmpl string) int {
 				n := 0
 
-				for _, mi := range e.managed(t, "web") {
+				for _, mi := range e.managed(t) {
 					if trimToPath(mi.GetVersion().GetInstanceTemplate()) == tmpl {
 						n++
 					}
@@ -365,7 +402,8 @@ func TestMIGSetInstanceTemplate(t *testing.T) {
 			assert.Equal(t, 2-tt.wantOldCount, count(newT))
 			assert.Equal(t, tt.wantOldCount == 0, m.GetStatus().GetVersionTarget().GetIsReached())
 
-			_, err = e.templates(t).Delete(t.Context(), &computepb.DeleteInstanceTemplateRequest{Project: project, InstanceTemplate: "v2"})
+			_, err = e.templates(t).
+				Delete(t.Context(), &computepb.DeleteInstanceTemplateRequest{Project: project, InstanceTemplate: "v2"})
 			assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
 			e.settle()
@@ -386,7 +424,9 @@ func TestMIGSetInstanceTemplate(t *testing.T) {
 		e.mig(t, "web", e.template(t, "tpl"), 0)
 
 		_, err := e.migs(t).SetInstanceTemplate(t.Context(), &computepb.SetInstanceTemplateInstanceGroupManagerRequest{
-			Project: project, Zone: zone, InstanceGroupManager: "web",
+			Project:              project,
+			Zone:                 zone,
+			InstanceGroupManager: "web",
 			InstanceGroupManagersSetInstanceTemplateRequestResource: &computepb.InstanceGroupManagersSetInstanceTemplateRequest{
 				InstanceTemplate: s(globalTmplPath + "none"),
 			},
@@ -407,20 +447,24 @@ func TestMIGVersionsCanary(t *testing.T) {
 			Name: s("web"), BaseInstanceName: s("web"), TargetSize: proto.Int32(5),
 			Versions: []*computepb.InstanceGroupManagerVersion{
 				{InstanceTemplate: s(stable), Name: s("stable")},
-				{InstanceTemplate: s(canary), Name: s("canary"), TargetSize: &computepb.FixedOrPercent{Percent: proto.Int32(40)}},
+				{
+					InstanceTemplate: s(canary),
+					Name:             s("canary"),
+					TargetSize:       &computepb.FixedOrPercent{Percent: proto.Int32(40)},
+				},
 			},
 		},
 	})
 	e.done(t, op, err)
 	e.settle()
 
-	m := e.getMig(t, "web")
+	m := e.getMig(t)
 	require.Len(t, m.GetVersions(), 2)
 	assert.Empty(t, m.GetInstanceTemplate())
 	assert.True(t, m.GetStatus().GetVersionTarget().GetIsReached())
 
 	byTmpl := map[string]int{}
-	for _, mi := range e.managed(t, "web") {
+	for _, mi := range e.managed(t) {
 		byTmpl[trimToPath(mi.GetVersion().GetInstanceTemplate())]++
 	}
 
@@ -428,8 +472,12 @@ func TestMIGVersionsCanary(t *testing.T) {
 
 	_, err = e.migs(t).Insert(t.Context(), &computepb.InsertInstanceGroupManagerRequest{
 		Project: project, Zone: zone, InstanceGroupManagerResource: &computepb.InstanceGroupManager{
-			Name: s("bad"), BaseInstanceName: s("bad"),
-			Versions: []*computepb.InstanceGroupManagerVersion{{InstanceTemplate: s(stable)}, {InstanceTemplate: s(canary)}},
+			Name:             s("bad"),
+			BaseInstanceName: s("bad"),
+			Versions: []*computepb.InstanceGroupManagerVersion{
+				{InstanceTemplate: s(stable)},
+				{InstanceTemplate: s(canary)},
+			},
 		},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
@@ -459,7 +507,7 @@ func TestMIGInstanceOps(t *testing.T) {
 			e.mig(t, "web", e.template(t, "tpl"), 3)
 			e.settle()
 
-			mis := e.managed(t, "web")
+			mis := e.managed(t)
 			victim := mis[0]
 			oldID := victim.GetId()
 			urls := []string{victim.GetInstance()}
@@ -468,34 +516,47 @@ func TestMIGInstanceOps(t *testing.T) {
 
 			switch tt.verb {
 			case "recreate":
-				_, err = e.migs(t).RecreateInstances(t.Context(), &computepb.RecreateInstancesInstanceGroupManagerRequest{
-					Project: project, Zone: zone, InstanceGroupManager: "web",
-					InstanceGroupManagersRecreateInstancesRequestResource: &computepb.InstanceGroupManagersRecreateInstancesRequest{Instances: urls},
-				})
+				_, err = e.migs(t).
+					RecreateInstances(t.Context(), &computepb.RecreateInstancesInstanceGroupManagerRequest{
+						Project:              project,
+						Zone:                 zone,
+						InstanceGroupManager: "web",
+						InstanceGroupManagersRecreateInstancesRequestResource: &computepb.InstanceGroupManagersRecreateInstancesRequest{
+							Instances: urls,
+						},
+					})
 			case "delete":
 				_, err = e.migs(t).DeleteInstances(t.Context(), &computepb.DeleteInstancesInstanceGroupManagerRequest{
-					Project: project, Zone: zone, InstanceGroupManager: "web",
-					InstanceGroupManagersDeleteInstancesRequestResource: &computepb.InstanceGroupManagersDeleteInstancesRequest{Instances: urls},
+					Project:              project,
+					Zone:                 zone,
+					InstanceGroupManager: "web",
+					InstanceGroupManagersDeleteInstancesRequestResource: &computepb.InstanceGroupManagersDeleteInstancesRequest{
+						Instances: urls,
+					},
 				})
 			case "abandon":
 				_, err = e.migs(t).AbandonInstances(t.Context(), &computepb.AbandonInstancesInstanceGroupManagerRequest{
-					Project: project, Zone: zone, InstanceGroupManager: "web",
-					InstanceGroupManagersAbandonInstancesRequestResource: &computepb.InstanceGroupManagersAbandonInstancesRequest{Instances: urls},
+					Project:              project,
+					Zone:                 zone,
+					InstanceGroupManager: "web",
+					InstanceGroupManagersAbandonInstancesRequestResource: &computepb.InstanceGroupManagersAbandonInstancesRequest{
+						Instances: urls,
+					},
 				})
 			}
 
 			require.NoError(t, err)
 
-			m := e.getMig(t, "web")
+			m := e.getMig(t)
 			assert.Equal(t, tt.wantTarget, m.GetTargetSize())
 			assert.Len(t, e.vmNames(t), tt.wantVMs)
-			assert.Len(t, e.managed(t, "web"), tt.wantMIs)
+			assert.Len(t, e.managed(t), tt.wantMIs)
 
 			switch tt.verb {
 			case "recreate":
 				assert.Equal(t, int32(1), m.GetCurrentActions().GetRecreating())
 
-				for _, mi := range e.managed(t, "web") {
+				for _, mi := range e.managed(t) {
 					if mi.GetName() == victim.GetName() {
 						assert.Equal(t, "RECREATING", mi.GetCurrentAction())
 						assert.NotEqual(t, oldID, mi.GetId(), "a new instance with the same name")
@@ -503,11 +564,11 @@ func TestMIGInstanceOps(t *testing.T) {
 				}
 
 				e.settle()
-				assert.True(t, e.getMig(t, "web").GetStatus().GetIsStable())
+				assert.True(t, e.getMig(t).GetStatus().GetIsStable())
 			case "delete":
 				assert.Equal(t, int32(1), m.GetCurrentActions().GetDeleting())
 				e.settle()
-				assert.Len(t, e.managed(t, "web"), 2)
+				assert.Len(t, e.managed(t), 2)
 			case "abandon":
 				_ = e.getVM(t, victim.GetName())
 			}
@@ -534,7 +595,7 @@ func TestMIGInstanceOps(t *testing.T) {
 		req.InstanceGroupManagersDeleteInstancesRequestResource.SkipInstancesOnValidationError = new(true)
 		_, err = e.migs(t).DeleteInstances(t.Context(), req)
 		require.NoError(t, err)
-		assert.Equal(t, int32(1), e.getMig(t, "web").GetTargetSize())
+		assert.Equal(t, int32(1), e.getMig(t).GetTargetSize())
 	})
 }
 
@@ -546,7 +607,7 @@ func TestMIGHealsDeletedInstance(t *testing.T) {
 	e.mig(t, "web", e.template(t, "tpl"), 2)
 	e.settle()
 
-	victim := e.managed(t, "web")[0]
+	victim := e.managed(t)[0]
 
 	op, err := e.instances(t).Delete(t.Context(), &computepb.DeleteInstanceRequest{
 		Project: project, Zone: zone, Instance: victim.GetName(),
@@ -569,20 +630,27 @@ func TestMIGDeleteRemovesInstances(t *testing.T) {
 
 	op, err := e.migs(t).Insert(t.Context(), &computepb.InsertInstanceGroupManagerRequest{
 		Project: project, Zone: zone, InstanceGroupManagerResource: &computepb.InstanceGroupManager{
-			Name: s("web"), BaseInstanceName: s("web"), InstanceTemplate: s(tmpl), TargetSize: proto.Int32(2),
-			AutoHealingPolicies: []*computepb.InstanceGroupManagerAutoHealingPolicy{{HealthCheck: s(hc), InitialDelaySec: proto.Int32(60)}},
+			Name:             s("web"),
+			BaseInstanceName: s("web"),
+			InstanceTemplate: s(tmpl),
+			TargetSize:       proto.Int32(2),
+			AutoHealingPolicies: []*computepb.InstanceGroupManagerAutoHealingPolicy{
+				{HealthCheck: s(hc), InitialDelaySec: proto.Int32(60)},
+			},
 		},
 	})
 	e.done(t, op, err)
 
-	m := e.getMig(t, "web")
+	m := e.getMig(t)
 	require.Len(t, m.GetAutoHealingPolicies(), 1)
 	assert.Equal(t, int32(60), m.GetAutoHealingPolicies()[0].GetInitialDelaySec())
 
-	_, err = e.healthChecks(t).Delete(t.Context(), &computepb.DeleteHealthCheckRequest{Project: project, HealthCheck: "hc"})
+	_, err = e.healthChecks(t).
+		Delete(t.Context(), &computepb.DeleteHealthCheckRequest{Project: project, HealthCheck: "hc"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
-	_, err = e.templates(t).Delete(t.Context(), &computepb.DeleteInstanceTemplateRequest{Project: project, InstanceTemplate: "tpl"})
+	_, err = e.templates(t).
+		Delete(t.Context(), &computepb.DeleteInstanceTemplateRequest{Project: project, InstanceTemplate: "tpl"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
 	op, err = e.migs(t).Delete(t.Context(), &computepb.DeleteInstanceGroupManagerRequest{
@@ -597,10 +665,12 @@ func TestMIGDeleteRemovesInstances(t *testing.T) {
 	})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
-	op, err = e.healthChecks(t).Delete(t.Context(), &computepb.DeleteHealthCheckRequest{Project: project, HealthCheck: "hc"})
+	op, err = e.healthChecks(t).
+		Delete(t.Context(), &computepb.DeleteHealthCheckRequest{Project: project, HealthCheck: "hc"})
 	e.done(t, op, err)
 
-	op, err = e.templates(t).Delete(t.Context(), &computepb.DeleteInstanceTemplateRequest{Project: project, InstanceTemplate: "tpl"})
+	op, err = e.templates(t).
+		Delete(t.Context(), &computepb.DeleteInstanceTemplateRequest{Project: project, InstanceTemplate: "tpl"})
 	e.done(t, op, err)
 }
 
@@ -619,7 +689,7 @@ func TestMIGPatchAndTargetPools(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	m := e.getMig(t, "web")
+	m := e.getMig(t)
 	assert.Equal(t, int32(3), m.GetTargetSize())
 	require.Len(t, m.GetNamedPorts(), 1)
 	assert.Equal(t, int32(8080), m.GetNamedPorts()[0].GetPort())
@@ -647,7 +717,7 @@ func TestMIGPatchAndTargetPools(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, pools, e.getMig(t, "web").GetTargetPools())
+	assert.Equal(t, pools, e.getMig(t).GetTargetPools())
 }
 
 func TestMIGListAndAggregated(t *testing.T) {
@@ -667,13 +737,14 @@ func TestMIGListAndAggregated(t *testing.T) {
 	e.done(t, op, err)
 
 	collect := func(filter string) []string {
-		it := e.migs(t).List(t.Context(), &computepb.ListInstanceGroupManagersRequest{Project: project, Zone: zone, Filter: &filter})
+		it := e.migs(t).
+			List(t.Context(), &computepb.ListInstanceGroupManagersRequest{Project: project, Zone: zone, Filter: &filter})
 
 		var out []string
 
 		for {
 			m, nerr := it.Next()
-			if nerr == iterator.Done {
+			if errors.Is(nerr, iterator.Done) {
 				return out
 			}
 
@@ -686,12 +757,13 @@ func TestMIGListAndAggregated(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, collect(""))
 	assert.Equal(t, []string{"b"}, collect("name = b"))
 
-	agg := e.migs(t).AggregatedList(t.Context(), &computepb.AggregatedListInstanceGroupManagersRequest{Project: project})
+	agg := e.migs(t).
+		AggregatedList(t.Context(), &computepb.AggregatedListInstanceGroupManagersRequest{Project: project})
 	total := 0
 
 	for {
 		pair, nerr := agg.Next()
-		if nerr == iterator.Done {
+		if errors.Is(nerr, iterator.Done) {
 			break
 		}
 
@@ -727,4 +799,8 @@ func metadataValue(vm *computepb.Instance, key string) string {
 	}
 
 	return ""
+}
+
+func setTmplReq(tmpl string) *computepb.InstanceGroupManagersSetInstanceTemplateRequest {
+	return &computepb.InstanceGroupManagersSetInstanceTemplateRequest{InstanceTemplate: s(tmpl)}
 }

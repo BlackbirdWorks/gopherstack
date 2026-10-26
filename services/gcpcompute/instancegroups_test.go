@@ -1,6 +1,7 @@
 package gcpcompute_test
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -25,15 +26,19 @@ func (e *env) groupMembers(t *testing.T, name, state string) []*computepb.Instan
 	t.Helper()
 
 	it := e.groups(t).ListInstances(t.Context(), &computepb.ListInstancesInstanceGroupsRequest{
-		Project: project, Zone: zone, InstanceGroup: name,
-		InstanceGroupsListInstancesRequestResource: &computepb.InstanceGroupsListInstancesRequest{InstanceState: s(state)},
+		Project:       project,
+		Zone:          zone,
+		InstanceGroup: name,
+		InstanceGroupsListInstancesRequestResource: &computepb.InstanceGroupsListInstancesRequest{
+			InstanceState: s(state),
+		},
 	})
 
 	var out []*computepb.InstanceWithNamedPorts
 
 	for {
 		m, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return out
 		}
 
@@ -73,14 +78,16 @@ func TestUnmanagedInstanceGroup(t *testing.T) {
 	e.settle()
 	e.group(t, "ug")
 
-	g, err := e.groups(t).Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
+	g, err := e.groups(t).
+		Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), g.GetSize())
 	assert.Contains(t, g.GetSelfLink(), "/zones/"+zone+"/instanceGroups/ug")
 
 	require.NoError(t, e.addToGroup(t, "ug", "vm1", "vm2"))
 
-	g, err = e.groups(t).Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
+	g, err = e.groups(t).
+		Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), g.GetSize())
 	assert.Contains(t, g.GetNetwork(), "/global/networks/vpc")
@@ -92,7 +99,8 @@ func TestUnmanagedInstanceGroup(t *testing.T) {
 	assertAPIError(t, e.addToGroup(t, "ug", "vm1"), http.StatusBadRequest, "invalid")
 	assertAPIError(t, e.addToGroup(t, "ug", "ghost"), http.StatusNotFound, "notFound")
 
-	op, err := e.instances(t).Stop(t.Context(), &computepb.StopInstanceRequest{Project: project, Zone: zone, Instance: "vm2"})
+	op, err := e.instances(t).
+		Stop(t.Context(), &computepb.StopInstanceRequest{Project: project, Zone: zone, Instance: "vm2"})
 	e.done(t, op, err)
 	assert.Len(t, e.groupMembers(t, "ug", "ALL"), 2)
 
@@ -102,7 +110,10 @@ func TestUnmanagedInstanceGroup(t *testing.T) {
 		state string
 		want  int
 		code  int
-	}{{"RUNNING", 1, http.StatusOK}, {"ALL", 2, http.StatusOK}, {"", 2, http.StatusOK}, {"BOGUS", 0, http.StatusBadRequest}} {
+	}{
+		{"RUNNING", 1, http.StatusOK}, {"ALL", 2, http.StatusOK}, {"", 2, http.StatusOK},
+		{"BOGUS", 0, http.StatusBadRequest},
+	} {
 		code, body := rawDo(t, e, http.MethodPost, listPath, `{"instanceState":"`+c.state+`"}`)
 		assert.Equal(t, c.code, code, c.state)
 		assert.Equal(t, c.want, strings.Count(body, `"instance":`), c.state)
@@ -145,14 +156,17 @@ func TestUnmanagedInstanceGroup(t *testing.T) {
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
-	op, err = e.instances(t).Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "vm2"})
+	op, err = e.instances(t).
+		Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "vm2"})
 	e.done(t, op, err)
 	assert.Empty(t, e.groupMembers(t, "ug", "ALL"), "deleting an instance removes it from its groups")
 
-	op, err = e.groups(t).Delete(t.Context(), &computepb.DeleteInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
+	op, err = e.groups(t).
+		Delete(t.Context(), &computepb.DeleteInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
 	e.done(t, op, err)
 
-	_, err = e.groups(t).Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
+	_, err = e.groups(t).
+		Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "ug"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 }
 
@@ -192,7 +206,8 @@ func TestInstanceGroupNetworkAndNameRules(t *testing.T) {
 	})
 	assertAPIError(t, err, http.StatusConflict, "alreadyExists")
 
-	_, err = e.groups(t).Delete(t.Context(), &computepb.DeleteInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "managed"})
+	_, err = e.groups(t).
+		Delete(t.Context(), &computepb.DeleteInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "managed"})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 	assertAPIError(t, e.addToGroup(t, "managed", "vm1"), http.StatusBadRequest, "invalid")
 }
@@ -241,7 +256,7 @@ func TestManagedInstanceGroupView(t *testing.T) {
 
 				for {
 					_, nerr := it.Next()
-					if nerr == iterator.Done {
+					if errors.Is(nerr, iterator.Done) {
 						break
 					}
 
@@ -252,12 +267,15 @@ func TestManagedInstanceGroupView(t *testing.T) {
 
 				assert.Equal(t, 4, n)
 
-				op, err = e.regionGroups(t).SetNamedPorts(t.Context(), &computepb.SetNamedPortsRegionInstanceGroupRequest{
-					Project: project, Region: region, InstanceGroup: "m",
-					RegionInstanceGroupsSetNamedPortsRequestResource: &computepb.RegionInstanceGroupsSetNamedPortsRequest{
-						NamedPorts: []*computepb.NamedPort{{Name: s("http"), Port: proto.Int32(80)}},
-					},
-				})
+				op, err = e.regionGroups(t).
+					SetNamedPorts(t.Context(), &computepb.SetNamedPortsRegionInstanceGroupRequest{
+						Project:       project,
+						Region:        region,
+						InstanceGroup: "m",
+						RegionInstanceGroupsSetNamedPortsRequestResource: &computepb.RegionInstanceGroupsSetNamedPortsRequest{
+							NamedPorts: []*computepb.NamedPort{{Name: s("http"), Port: proto.Int32(80)}},
+						},
+					})
 				e.done(t, op, err)
 
 				mg, err := e.regionMigs(t).Get(t.Context(), &computepb.GetRegionInstanceGroupManagerRequest{
@@ -269,7 +287,8 @@ func TestManagedInstanceGroupView(t *testing.T) {
 				e.mig(t, "m", tmpl, 4)
 				e.settle()
 
-				g, err := e.groups(t).Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "m"})
+				g, err := e.groups(t).
+					Get(t.Context(), &computepb.GetInstanceGroupRequest{Project: project, Zone: zone, InstanceGroup: "m"})
 				require.NoError(t, err)
 
 				size = g.GetSize()

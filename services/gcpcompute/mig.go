@@ -88,43 +88,24 @@ func validNamedPorts(ports []*computeapi.NamedPort) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) normalizeVersionsLocked(project, region string, m *computeapi.InstanceGroupManager) *APIError {
-	switch {
-	case m.InstanceTemplate != "" && len(m.Versions) == 1 && m.Versions[0].InstanceTemplate == m.InstanceTemplate:
-	case m.InstanceTemplate != "" && len(m.Versions) > 0:
-		return errInvalid("Invalid value for field 'resource.versions': instanceTemplate and versions are mutually exclusive.")
-	case m.InstanceTemplate != "":
-		m.Versions = []*computeapi.InstanceGroupManagerVersion{{InstanceTemplate: m.InstanceTemplate}}
-	case len(m.Versions) == 0:
-		return errRequired("resource.instanceTemplate")
+func (b *InMemoryBackend) normalizeVersionsLocked(
+	project, region string,
+	m *computeapi.InstanceGroupManager,
+) *APIError {
+	if err := seedVersions(m); err != nil {
+		return err
 	}
 
 	unsized := 0
 
 	for _, v := range m.Versions {
-		t, err := b.resolveTemplateLocked(project, v.InstanceTemplate, "resource.versions.instanceTemplate")
-		if err != nil {
+		if err := b.resolveVersionLocked(project, region, v); err != nil {
 			return err
 		}
 
-		if tr := lastSegment(t.Region); tr != "" && tr != region {
-			return errField("resource.versions.instanceTemplate", v.InstanceTemplate, "The template is in a different region.")
-		}
-
-		v.InstanceTemplate = t.SelfLink
-
-		ts := v.TargetSize
-		if ts == nil {
+		if v.TargetSize == nil {
 			unsized++
-
-			continue
 		}
-
-		if ts.Fixed < 0 || ts.Percent < 0 || ts.Percent > maxPercent || (ts.Fixed != 0 && ts.Percent != 0) {
-			return errInvalid("Invalid value for field 'resource.versions.targetSize': either fixed or percent in 0-100.")
-		}
-
-		v.TargetSize = &computeapi.FixedOrPercent{Fixed: ts.Fixed, Percent: ts.Percent}
 	}
 
 	if len(m.Versions) > 1 && unsized > 1 {
@@ -136,6 +117,55 @@ func (b *InMemoryBackend) normalizeVersionsLocked(project, region string, m *com
 	} else {
 		m.InstanceTemplate = ""
 	}
+
+	return nil
+}
+
+func seedVersions(m *computeapi.InstanceGroupManager) *APIError {
+	switch {
+	case m.InstanceTemplate != "" && len(m.Versions) == 1 && m.Versions[0].InstanceTemplate == m.InstanceTemplate:
+	case m.InstanceTemplate != "" && len(m.Versions) > 0:
+		return errInvalid(
+			"Invalid value for field 'resource.versions': instanceTemplate and versions are mutually exclusive.",
+		)
+	case m.InstanceTemplate != "":
+		m.Versions = []*computeapi.InstanceGroupManagerVersion{{InstanceTemplate: m.InstanceTemplate}}
+	case len(m.Versions) == 0:
+		return errRequired("resource.instanceTemplate")
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) resolveVersionLocked(
+	project, region string,
+	v *computeapi.InstanceGroupManagerVersion,
+) *APIError {
+	t, err := b.resolveTemplateLocked(project, v.InstanceTemplate, "resource.versions.instanceTemplate")
+	if err != nil {
+		return err
+	}
+
+	if tr := lastSegment(t.Region); tr != "" && tr != region {
+		return errField(
+			"resource.versions.instanceTemplate",
+			v.InstanceTemplate,
+			"The template is in a different region.",
+		)
+	}
+
+	v.InstanceTemplate = t.SelfLink
+
+	ts := v.TargetSize
+	if ts == nil {
+		return nil
+	}
+
+	if ts.Fixed < 0 || ts.Percent < 0 || ts.Percent > maxPercent || (ts.Fixed != 0 && ts.Percent != 0) {
+		return errInvalid("Invalid value for field 'resource.versions.targetSize': either fixed or percent in 0-100.")
+	}
+
+	v.TargetSize = &computeapi.FixedOrPercent{Fixed: ts.Fixed, Percent: ts.Percent}
 
 	return nil
 }
@@ -180,7 +210,10 @@ func (b *InMemoryBackend) normalizeHealingLocked(project string, m *computeapi.I
 	return nil
 }
 
-func normalizeUpdatePolicy(p *computeapi.InstanceGroupManagerUpdatePolicy, zones int) (*computeapi.InstanceGroupManagerUpdatePolicy, *APIError) {
+func normalizeUpdatePolicy(
+	p *computeapi.InstanceGroupManagerUpdatePolicy,
+	zones int,
+) (*computeapi.InstanceGroupManagerUpdatePolicy, *APIError) {
 	if p == nil {
 		p = &computeapi.InstanceGroupManagerUpdatePolicy{}
 	}
@@ -240,7 +273,11 @@ func (b *InMemoryBackend) normalizeDistribution(m *computeapi.InstanceGroupManag
 	for _, z := range dp.Zones {
 		zn := lastSegment(z.Zone)
 		if !zoneExists(zn) || regionOfZone(zn) != region || seen[zn] {
-			return errField("resource.distributionPolicy.zones.zone", z.Zone, "Not a distinct zone of the group's region.")
+			return errField(
+				"resource.distributionPolicy.zones.zone",
+				z.Zone,
+				"Not a distinct zone of the group's region.",
+			)
 		}
 
 		seen[zn] = true
@@ -252,10 +289,8 @@ func (b *InMemoryBackend) normalizeDistribution(m *computeapi.InstanceGroupManag
 }
 
 func (b *InMemoryBackend) normalizeMIGLocked(project, scope, loc string, m *computeapi.InstanceGroupManager) *APIError {
-	region := ""
-	if scope == scopeRegion {
-		region = loc
-	} else {
+	region := loc
+	if scope == scopeZone {
 		region = regionOfZone(loc)
 	}
 
@@ -263,7 +298,11 @@ func (b *InMemoryBackend) normalizeMIGLocked(project, scope, loc string, m *comp
 		return err
 	}
 
-	if err := validName("resource.baseInstanceName", m.BaseInstanceName); err != nil || len(m.BaseInstanceName) > maxBaseNameLen {
+	if err := validName(
+		"resource.baseInstanceName",
+		m.BaseInstanceName,
+	); err != nil ||
+		len(m.BaseInstanceName) > maxBaseNameLen {
 		if err == nil {
 			err = errField("resource.baseInstanceName", m.BaseInstanceName, "Must be at most 58 characters.")
 		}
@@ -308,7 +347,10 @@ func (b *InMemoryBackend) normalizeMIGLocked(project, scope, loc string, m *comp
 	return nil
 }
 
-func (b *InMemoryBackend) insertMIG(project, scope, loc string, in *computeapi.InstanceGroupManager) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) insertMIG(
+	project, scope, loc string,
+	in *computeapi.InstanceGroupManager,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("InsertInstanceGroupManager")
 	defer b.mu.Unlock()
 
@@ -418,7 +460,7 @@ func (b *InMemoryBackend) deleteMIG(project, scope, loc, name string) (*computea
 	}
 
 	for _, m := range liveMembers(r) {
-		b.removeMemberInstanceLocked(project, r, m)
+		b.removeMemberInstanceLocked(project, m)
 	}
 
 	for k, a := range b.scalers {
@@ -471,7 +513,11 @@ func (b *InMemoryBackend) updateMIG(
 	}
 
 	if next.BaseInstanceName != rec.Mgr.BaseInstanceName && next.BaseInstanceName != "" {
-		return nil, errField("resource.baseInstanceName", next.BaseInstanceName, "The base instance name cannot be changed.")
+		return nil, errField(
+			"resource.baseInstanceName",
+			next.BaseInstanceName,
+			"The base instance name cannot be changed.",
+		)
 	}
 
 	next.Name, next.BaseInstanceName = rec.Mgr.Name, rec.Mgr.BaseInstanceName
@@ -485,7 +531,8 @@ func (b *InMemoryBackend) updateMIG(
 	}
 
 	next.Kind, next.Id, next.CreationTimestamp = rec.Mgr.Kind, rec.Mgr.Id, rec.Mgr.CreationTimestamp
-	next.SelfLink, next.InstanceGroup, next.Zone, next.Region = rec.Mgr.SelfLink, rec.Mgr.InstanceGroup, rec.Mgr.Zone, rec.Mgr.Region
+	next.SelfLink, next.InstanceGroup = rec.Mgr.SelfLink, rec.Mgr.InstanceGroup
+	next.Zone, next.Region = rec.Mgr.Zone, rec.Mgr.Region
 	next.Status, next.CurrentActions, next.Fingerprint = nil, nil, newFingerprint()
 
 	if next.DistributionPolicy != nil {
@@ -498,7 +545,12 @@ func (b *InMemoryBackend) updateMIG(
 }
 
 // commitMIGLocked swaps in next, rolls the group's instances to match and restores the old config on failure.
-func (b *InMemoryBackend) commitMIGLocked(project string, rec *migRec, next *computeapi.InstanceGroupManager, verb string) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) commitMIGLocked(
+	project string,
+	rec *migRec,
+	next *computeapi.InstanceGroupManager,
+	verb string,
+) (*computeapi.Operation, error) {
 	old := rec.Mgr
 	rec.Mgr = next
 
@@ -579,7 +631,10 @@ type targetPoolsRequest struct {
 	TargetPools []string `json:"targetPools"`
 }
 
-func (b *InMemoryBackend) setMIGTargetPools(project, scope, loc, name string, in targetPoolsRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setMIGTargetPools(
+	project, scope, loc, name string,
+	in targetPoolsRequest,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetTargetPools")
 	defer b.mu.Unlock()
 

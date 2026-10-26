@@ -174,6 +174,10 @@ func (h *Handler) registerMIGActions(scope string) {
 		return opResult(h.Backend.setMIGTargetPools(rq.rt.project, scope, rq.rt.loc, rq.rt.name, *in))
 	})
 
+	h.registerMIGMemberOps(scope)
+}
+
+func (h *Handler) registerMIGMemberOps(scope string) {
 	for verb, fn := range map[string]migMemberOp{
 		"recreateInstances": (*InMemoryBackend).recreateMIGInstances,
 		"deleteInstances":   (*InMemoryBackend).deleteMIGInstances,
@@ -204,7 +208,9 @@ func (h *Handler) registerMIGActions(scope string) {
 		out := &computeapi.InstanceGroupManagersListManagedInstancesResponse{NextPageToken: pg.Next}
 
 		for _, e := range pg.Data {
-			out.ManagedInstances = append(out.ManagedInstances, e.item.(*computeapi.ManagedInstance))
+			if mi, ok := e.item.(*computeapi.ManagedInstance); ok {
+				out.ManagedInstances = append(out.ManagedInstances, mi)
+			}
 		}
 
 		return out, nil

@@ -9,6 +9,8 @@ import (
 const (
 	collHealth         = "healthChecks"
 	hcMaxPort          = 65535
+	portHTTP           = 80
+	portHTTPS          = 443
 	hcMaxSec           = 300
 	hcMaxThreshold     = 10
 	hcDefaultSec       = 5
@@ -35,35 +37,56 @@ func hcSpecs(h *computeapi.HealthCheck) []hcSpec {
 
 	if s := h.HttpHealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ: "HTTP", field: "httpHealthCheck", defPort: 80, httpStyle: true,
-			port: &s.Port, portName: &s.PortName, portSpec: &s.PortSpecification, proxy: &s.ProxyHeader, path: &s.RequestPath,
+			typ:       "HTTP",
+			field:     "httpHealthCheck",
+			defPort:   portHTTP,
+			httpStyle: true,
+			port:      &s.Port,
+			portName:  &s.PortName,
+			portSpec:  &s.PortSpecification,
+			proxy:     &s.ProxyHeader,
+			path:      &s.RequestPath,
 		})
 	}
 
 	if s := h.HttpsHealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ: "HTTPS", field: "httpsHealthCheck", defPort: 443, httpStyle: true,
-			port: &s.Port, portName: &s.PortName, portSpec: &s.PortSpecification, proxy: &s.ProxyHeader, path: &s.RequestPath,
+			typ:       "HTTPS",
+			field:     "httpsHealthCheck",
+			defPort:   portHTTPS,
+			httpStyle: true,
+			port:      &s.Port,
+			portName:  &s.PortName,
+			portSpec:  &s.PortSpecification,
+			proxy:     &s.ProxyHeader,
+			path:      &s.RequestPath,
 		})
 	}
 
 	if s := h.Http2HealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ: "HTTP2", field: "http2HealthCheck", defPort: 443, httpStyle: true,
-			port: &s.Port, portName: &s.PortName, portSpec: &s.PortSpecification, proxy: &s.ProxyHeader, path: &s.RequestPath,
+			typ:       "HTTP2",
+			field:     "http2HealthCheck",
+			defPort:   portHTTPS,
+			httpStyle: true,
+			port:      &s.Port,
+			portName:  &s.PortName,
+			portSpec:  &s.PortSpecification,
+			proxy:     &s.ProxyHeader,
+			path:      &s.RequestPath,
 		})
 	}
 
 	if s := h.TcpHealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ: "TCP", field: "tcpHealthCheck", defPort: 80,
+			typ: "TCP", field: "tcpHealthCheck", defPort: portHTTP,
 			port: &s.Port, portName: &s.PortName, portSpec: &s.PortSpecification, proxy: &s.ProxyHeader,
 		})
 	}
 
 	if s := h.SslHealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ: "SSL", field: "sslHealthCheck", defPort: 443,
+			typ: "SSL", field: "sslHealthCheck", defPort: portHTTPS,
 			port: &s.Port, portName: &s.PortName, portSpec: &s.PortSpecification, proxy: &s.ProxyHeader,
 		})
 	}
@@ -83,60 +106,17 @@ func hcExactlyOne() *APIError {
 		"http2HealthCheck, tcpHealthCheck, sslHealthCheck or grpcHealthCheck must be specified.")
 }
 
-func ensureSpec(h *computeapi.HealthCheck, typ string) {
-	switch typ {
-	case "HTTP":
-		h.HttpHealthCheck = &computeapi.HTTPHealthCheck{}
-	case "HTTPS":
-		h.HttpsHealthCheck = &computeapi.HTTPSHealthCheck{}
-	case "HTTP2":
-		h.Http2HealthCheck = &computeapi.HTTP2HealthCheck{}
-	case "TCP":
-		h.TcpHealthCheck = &computeapi.TCPHealthCheck{}
-	case "SSL":
-		h.SslHealthCheck = &computeapi.SSLHealthCheck{}
-	case "GRPC":
-		h.GrpcHealthCheck = &computeapi.GRPCHealthCheck{}
-	}
-}
-
 func validateSpec(sp hcSpec) *APIError {
 	f := "resource." + sp.field
 
-	switch {
-	case *sp.portName != "" && *sp.portSpec == "":
+	if *sp.portName != "" && *sp.portSpec == "" {
 		*sp.portSpec = portNamed
-	case *sp.portSpec == "":
+	} else if *sp.portSpec == "" {
 		*sp.portSpec = portFixed
 	}
 
-	switch *sp.portSpec {
-	case portFixed:
-		if *sp.portName != "" {
-			return errField(f+".portName", *sp.portName, "portName is only valid with USE_NAMED_PORT.")
-		}
-
-		if *sp.port == 0 {
-			if sp.defPort == 0 {
-				return errRequired(f + ".port")
-			}
-
-			*sp.port = sp.defPort
-		}
-	case portNamed:
-		if *sp.portName == "" {
-			return errRequired(f + ".portName")
-		}
-
-		if *sp.port != 0 {
-			return errField(f+".port", "", "port is not valid with USE_NAMED_PORT.")
-		}
-	case portServing:
-		if *sp.port != 0 || *sp.portName != "" {
-			return errField(f+".portSpecification", portServing, "port and portName are not valid with USE_SERVING_PORT.")
-		}
-	default:
-		return errField(f+".portSpecification", *sp.portSpec, "")
+	if err := validatePortSpec(sp, f); err != nil {
+		return err
 	}
 
 	if *sp.port < 0 || *sp.port > hcMaxPort {
@@ -161,6 +141,43 @@ func validateSpec(sp hcSpec) *APIError {
 		if !strings.HasPrefix(*sp.path, "/") {
 			return errField(f+".requestPath", *sp.path, "Must start with '/'.")
 		}
+	}
+
+	return nil
+}
+
+func validatePortSpec(sp hcSpec, f string) *APIError {
+	switch *sp.portSpec {
+	case portFixed:
+		if *sp.portName != "" {
+			return errField(f+".portName", *sp.portName, "portName is only valid with USE_NAMED_PORT.")
+		}
+
+		if *sp.port == 0 {
+			if sp.defPort == 0 {
+				return errRequired(f + ".port")
+			}
+
+			*sp.port = sp.defPort
+		}
+	case portNamed:
+		if *sp.portName == "" {
+			return errRequired(f + ".portName")
+		}
+
+		if *sp.port != 0 {
+			return errField(f+".port", "", "port is not valid with USE_NAMED_PORT.")
+		}
+	case portServing:
+		if *sp.port != 0 || *sp.portName != "" {
+			return errField(
+				f+".portSpecification",
+				portServing,
+				"port and portName are not valid with USE_SERVING_PORT.",
+			)
+		}
+	default:
+		return errField(f+".portSpecification", *sp.portSpec, "")
 	}
 
 	return nil
@@ -241,7 +258,10 @@ func hcTarget(project, region string, h *computeapi.HealthCheck) target {
 	return t
 }
 
-func (b *InMemoryBackend) insertHealthCheck(project, region string, in *computeapi.HealthCheck) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) insertHealthCheck(
+	project, region string,
+	in *computeapi.HealthCheck,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("InsertHealthCheck")
 	defer b.mu.Unlock()
 

@@ -78,26 +78,39 @@ func validateSignals(p *computeapi.AutoscalingPolicy) *APIError {
 	}
 
 	if l := p.LoadBalancingUtilization; l != nil && (l.UtilizationTarget <= 0 || l.UtilizationTarget > 1) {
-		return errField("resource.autoscalingPolicy.loadBalancingUtilization.utilizationTarget", "", "Must be in (0, 1].")
+		return errField(
+			"resource.autoscalingPolicy.loadBalancingUtilization.utilizationTarget", "", "Must be in (0, 1].",
+		)
 	}
 
 	for _, m := range p.CustomMetricUtilizations {
-		if m.Metric == "" {
-			return errRequired("resource.autoscalingPolicy.customMetricUtilizations.metric")
-		}
-
-		if m.UtilizationTarget <= 0 && m.SingleInstanceAssignment <= 0 {
-			return errField("resource.autoscalingPolicy.customMetricUtilizations.utilizationTarget", m.Metric, "Must be positive.")
-		}
-
-		if t := m.UtilizationTargetType; t != "" && !slices.Contains([]string{"GAUGE", "DELTA_PER_SECOND", "DELTA_PER_MINUTE"}, t) {
-			return errField("resource.autoscalingPolicy.customMetricUtilizations.utilizationTargetType", t, "")
+		if err := validateCustomMetric(m); err != nil {
+			return err
 		}
 	}
 
 	if p.CpuUtilization == nil && p.LoadBalancingUtilization == nil && len(p.CustomMetricUtilizations) == 0 &&
 		len(p.ScalingSchedules) == 0 {
 		p.CpuUtilization = &computeapi.AutoscalingPolicyCpuUtilization{UtilizationTarget: defaultCPUTarget}
+	}
+
+	return nil
+}
+
+func validateCustomMetric(m *computeapi.AutoscalingPolicyCustomMetricUtilization) *APIError {
+	const field = "resource.autoscalingPolicy.customMetricUtilizations."
+
+	if m.Metric == "" {
+		return errRequired(field + "metric")
+	}
+
+	if m.UtilizationTarget <= 0 && m.SingleInstanceAssignment <= 0 {
+		return errField(field+"utilizationTarget", m.Metric, "Must be positive.")
+	}
+
+	t := m.UtilizationTargetType
+	if t != "" && !slices.Contains([]string{"GAUGE", "DELTA_PER_SECOND", "DELTA_PER_MINUTE"}, t) {
+		return errField(field+"utilizationTargetType", t, "")
 	}
 
 	return nil
@@ -126,7 +139,10 @@ func (b *InMemoryBackend) applyScalerLocked(rec *migRec) {
 	a.RecommendedSize = rec.Mgr.TargetSize
 }
 
-func (b *InMemoryBackend) resolveScalerTargetLocked(project, scope, loc string, a *computeapi.Autoscaler) (*migRec, *APIError) {
+func (b *InMemoryBackend) resolveScalerTargetLocked(
+	project, scope, loc string,
+	a *computeapi.Autoscaler,
+) (*migRec, *APIError) {
 	if a.Target == "" {
 		return nil, errRequired("resource.target")
 	}
@@ -144,7 +160,11 @@ func (b *InMemoryBackend) resolveScalerTargetLocked(project, scope, loc string, 
 	return rec, nil
 }
 
-func (b *InMemoryBackend) finishScalerLocked(project, scope, loc string, a *computeapi.Autoscaler, rec *migRec) *APIError {
+func (b *InMemoryBackend) finishScalerLocked(
+	project, scope, loc string,
+	a *computeapi.Autoscaler,
+	rec *migRec,
+) *APIError {
 	a.Target = rec.Mgr.SelfLink
 	a.Status = scalerActive
 	a.RecommendedSize = rec.Mgr.TargetSize
@@ -174,7 +194,10 @@ func (b *InMemoryBackend) finishScalerLocked(project, scope, loc string, a *comp
 	return nil
 }
 
-func (b *InMemoryBackend) insertScaler(project, scope, loc string, in *computeapi.Autoscaler) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) insertScaler(
+	project, scope, loc string,
+	in *computeapi.Autoscaler,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("InsertAutoscaler")
 	defer b.mu.Unlock()
 
@@ -194,8 +217,11 @@ func (b *InMemoryBackend) insertScaler(project, scope, loc string, in *computeap
 	}
 
 	if existing := b.scalerForLocked(rec.Mgr.SelfLink); existing != nil {
-		return nil, errInvalid("Invalid value for field 'resource.target': '%s'. The instance group manager already has autoscaler '%s'.",
-			in.Target, existing.Name)
+		return nil, errInvalid(
+			"Invalid value for field 'resource.target': '%s'. The instance group manager already has autoscaler '%s'.",
+			in.Target,
+			existing.Name,
+		)
 	}
 
 	if err = normalizePolicy(in.AutoscalingPolicy); err != nil {
@@ -287,7 +313,8 @@ func (b *InMemoryBackend) updateScaler(
 		return nil, errField("resource.name", next.Name, "The name of an autoscaler cannot be changed.")
 	}
 
-	next.Name, next.Id, next.Kind, next.CreationTimestamp, next.SelfLink = cur.Name, cur.Id, cur.Kind, cur.CreationTimestamp, cur.SelfLink
+	next.Name, next.Id, next.Kind = cur.Name, cur.Id, cur.Kind
+	next.CreationTimestamp, next.SelfLink = cur.CreationTimestamp, cur.SelfLink
 
 	if next.Target == "" {
 		next.Target = cur.Target

@@ -1,6 +1,7 @@
 package gcpcompute_test
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -53,7 +54,11 @@ func TestInstanceTemplates(t *testing.T) {
 			get := func(name string) (*computepb.InstanceTemplate, error) {
 				if tt.regional {
 					return e.regionTemplates(t).Get(t.Context(),
-						&computepb.GetRegionInstanceTemplateRequest{Project: project, Region: region, InstanceTemplate: name})
+						&computepb.GetRegionInstanceTemplateRequest{
+							Project:          project,
+							Region:           region,
+							InstanceTemplate: name,
+						})
 				}
 
 				return e.templates(t).Get(t.Context(),
@@ -114,13 +119,14 @@ func TestInstanceTemplateListAndDelete(t *testing.T) {
 	e.done(t, op, err)
 
 	names := func(filter string) []string {
-		it := e.templates(t).List(t.Context(), &computepb.ListInstanceTemplatesRequest{Project: project, Filter: &filter})
+		it := e.templates(t).
+			List(t.Context(), &computepb.ListInstanceTemplatesRequest{Project: project, Filter: &filter})
 
 		var out []string
 
 		for {
 			tp, nerr := it.Next()
-			if nerr == iterator.Done {
+			if errors.Is(nerr, iterator.Done) {
 				return out
 			}
 
@@ -133,12 +139,13 @@ func TestInstanceTemplateListAndDelete(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, names(""))
 	assert.Equal(t, []string{"b"}, names("name = b"))
 
-	agg := e.templates(t).AggregatedList(t.Context(), &computepb.AggregatedListInstanceTemplatesRequest{Project: project})
+	agg := e.templates(t).
+		AggregatedList(t.Context(), &computepb.AggregatedListInstanceTemplatesRequest{Project: project})
 	total := 0
 
 	for {
 		pair, nerr := agg.Next()
-		if nerr == iterator.Done {
+		if errors.Is(nerr, iterator.Done) {
 			break
 		}
 
@@ -149,10 +156,12 @@ func TestInstanceTemplateListAndDelete(t *testing.T) {
 
 	assert.Equal(t, 3, total)
 
-	op, err = e.templates(t).Delete(t.Context(), &computepb.DeleteInstanceTemplateRequest{Project: project, InstanceTemplate: "a"})
+	op, err = e.templates(t).
+		Delete(t.Context(), &computepb.DeleteInstanceTemplateRequest{Project: project, InstanceTemplate: "a"})
 	e.done(t, op, err)
 
-	_, err = e.templates(t).Get(t.Context(), &computepb.GetInstanceTemplateRequest{Project: project, InstanceTemplate: "a"})
+	_, err = e.templates(t).
+		Get(t.Context(), &computepb.GetInstanceTemplateRequest{Project: project, InstanceTemplate: "a"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 	assert.Equal(t, []string{"b"}, names(""))
 }

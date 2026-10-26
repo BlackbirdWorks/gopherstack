@@ -74,7 +74,10 @@ func (b *InMemoryBackend) derivedGroupLocked(rec *migRec) *computeapi.InstanceGr
 	return g
 }
 
-func (b *InMemoryBackend) insertGroup(project, zone string, in *computeapi.InstanceGroup) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) insertGroup(
+	project, zone string,
+	in *computeapi.InstanceGroup,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("InsertInstanceGroup")
 	defer b.mu.Unlock()
 
@@ -104,10 +107,12 @@ func (b *InMemoryBackend) insertGroup(project, zone string, in *computeapi.Insta
 	return b.newOpLocked(opGroup+"insert", groupOpTarget(project, scopeZone, zone, g), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) findGroupLocked(project, scope, loc, name string) (*computeapi.InstanceGroup, []string, *migRec, *APIError) {
+func (b *InMemoryBackend) findGroupLocked(
+	project, scope, loc, name string,
+) (*computeapi.InstanceGroup, []string, *APIError) {
 	if scope == scopeZone {
 		if g, ok := b.groups[key(project, loc, name)]; ok {
-			return b.groupViewLocked(g), g.Members, nil, nil
+			return b.groupViewLocked(g), g.Members, nil
 		}
 	}
 
@@ -118,17 +123,17 @@ func (b *InMemoryBackend) findGroupLocked(project, scope, loc, name string) (*co
 			members = append(members, zoneLink(project, m.Zone, "instances", m.Name))
 		}
 
-		return b.derivedGroupLocked(rec), members, rec, nil
+		return b.derivedGroupLocked(rec), members, nil
 	}
 
-	return nil, nil, nil, errNotFound(relPath(project, scope, loc, collGroups, name))
+	return nil, nil, errNotFound(relPath(project, scope, loc, collGroups, name))
 }
 
 func (b *InMemoryBackend) getGroup(project, scope, loc, name string) (*computeapi.InstanceGroup, error) {
 	b.mu.RLock("GetInstanceGroup")
 	defer b.mu.RUnlock()
 
-	g, _, _, err := b.findGroupLocked(project, scope, loc, name)
+	g, _, err := b.findGroupLocked(project, scope, loc, name)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +149,8 @@ func (b *InMemoryBackend) listGroups(project, scope, loc string) []entry {
 
 	for _, g := range b.groups {
 		z := lastSegment(g.Group.Zone)
-		if strings.HasPrefix(g.Group.SelfLink, apiBase+"projects/"+project+"/") && (scope == "" || scope == scopeZone && z == loc) {
+		if strings.HasPrefix(g.Group.SelfLink, apiBase+"projects/"+project+"/") &&
+			(scope == "" || scope == scopeZone && z == loc) {
 			out = append(out, entry{scope: scopeZone + "/" + z, item: b.groupViewLocked(g)})
 		}
 	}
@@ -166,7 +172,10 @@ func (b *InMemoryBackend) deleteGroup(project, zone, name string) (*computeapi.O
 	g, ok := b.groups[key(project, zone, name)]
 	if !ok {
 		if _, managed := b.migs[key(project, zone, name)]; managed {
-			return nil, errInvalid("The instance group '%s' is managed by an instance group manager and cannot be deleted directly.", name)
+			return nil, errInvalid(
+				"The instance group '%s' is managed by an instance group manager and cannot be deleted directly.",
+				name,
+			)
 		}
 
 		return nil, errNotFound(relPath(project, scopeZone, zone, collGroups, name))
@@ -177,7 +186,10 @@ func (b *InMemoryBackend) deleteGroup(project, zone, name string) (*computeapi.O
 	return b.newOpLocked(opGroup+"delete", groupOpTarget(project, scopeZone, zone, g.Group), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) resolveGroupInstanceLocked(project, zone string, ref *computeapi.InstanceReference) (*instRec, *APIError) {
+func (b *InMemoryBackend) resolveGroupInstanceLocked(
+	project, zone string,
+	ref *computeapi.InstanceReference,
+) (*instRec, *APIError) {
 	r, err := refLocated(ref.Instance, "instances", scopeZone, project, zone)
 	if err != nil || r.loc != zone {
 		return nil, errField("instances", ref.Instance, "The URL is malformed or names a different zone.")
@@ -191,7 +203,10 @@ func (b *InMemoryBackend) resolveGroupInstanceLocked(project, zone string, ref *
 	return inst, nil
 }
 
-func (b *InMemoryBackend) addGroupInstances(project, zone, name string, in groupInstancesRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) addGroupInstances(
+	project, zone, name string,
+	in groupInstancesRequest,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("AddInstances")
 	defer b.mu.Unlock()
 
@@ -214,13 +229,21 @@ func (b *InMemoryBackend) addGroupInstances(project, zone, name string, in group
 		}
 
 		if slices.Contains(staged, inst.Inst.SelfLink) {
-			return nil, errInvalid("Instance '%s' is already a member of the instance group '%s'.", trimURL(inst.Inst.SelfLink), name)
+			return nil, errInvalid(
+				"Instance '%s' is already a member of the instance group '%s'.",
+				trimURL(inst.Inst.SelfLink),
+				name,
+			)
 		}
 
 		if len(inst.Inst.NetworkInterfaces) > 0 {
 			n := inst.Inst.NetworkInterfaces[0]
 			if network != "" && n.Network != network {
-				return nil, errInvalid("Instance '%s' is not in network '%s' of the instance group.", trimURL(inst.Inst.SelfLink), trimURL(network))
+				return nil, errInvalid(
+					"Instance '%s' is not in network '%s' of the instance group.",
+					trimURL(inst.Inst.SelfLink),
+					trimURL(network),
+				)
 			}
 
 			network, subnet = n.Network, n.Subnetwork
@@ -242,13 +265,19 @@ func (b *InMemoryBackend) unmanagedLocked(project, zone, name string) (*groupRec
 	}
 
 	if _, managed := b.migs[key(project, zone, name)]; managed {
-		return nil, errInvalid("The instance group '%s' is managed; use the instance group manager to change its members.", name)
+		return nil, errInvalid(
+			"The instance group '%s' is managed; use the instance group manager to change its members.",
+			name,
+		)
 	}
 
 	return nil, errNotFound(relPath(project, scopeZone, zone, collGroups, name))
 }
 
-func (b *InMemoryBackend) removeGroupInstances(project, zone, name string, in groupInstancesRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) removeGroupInstances(
+	project, zone, name string,
+	in groupInstancesRequest,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("RemoveInstances")
 	defer b.mu.Unlock()
 
@@ -279,10 +308,17 @@ func (b *InMemoryBackend) removeGroupInstances(project, zone, name string, in gr
 
 	g.Members = staged
 
-	return b.newOpLocked(opGroup+"removeInstances", groupOpTarget(project, scopeZone, zone, g.Group), b.timing.Done), nil
+	return b.newOpLocked(
+		opGroup+"removeInstances",
+		groupOpTarget(project, scopeZone, zone, g.Group),
+		b.timing.Done,
+	), nil
 }
 
-func (b *InMemoryBackend) setGroupNamedPorts(project, scope, loc, name string, in namedPortsRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setGroupNamedPorts(
+	project, scope, loc, name string,
+	in namedPortsRequest,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetNamedPorts")
 	defer b.mu.Unlock()
 
@@ -298,7 +334,11 @@ func (b *InMemoryBackend) setGroupNamedPorts(project, scope, loc, name string, i
 
 			g.Group.NamedPorts, g.Group.Fingerprint = in.NamedPorts, newFingerprint()
 
-			return b.newOpLocked(opGroup+"setNamedPorts", groupOpTarget(project, scope, loc, g.Group), b.timing.Done), nil
+			return b.newOpLocked(
+				opGroup+"setNamedPorts",
+				groupOpTarget(project, scope, loc, g.Group),
+				b.timing.Done,
+			), nil
 		}
 	}
 
@@ -321,7 +361,7 @@ func (b *InMemoryBackend) listGroupInstances(project, scope, loc, name, state st
 		return nil, errField("instanceState", state, "")
 	}
 
-	g, members, _, err := b.findGroupLocked(project, scope, loc, name)
+	g, members, err := b.findGroupLocked(project, scope, loc, name)
 	if err != nil {
 		return nil, err
 	}
