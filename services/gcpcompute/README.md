@@ -8,13 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 8 (5 ok, 2 partial, 1 gap) |
-| Known gaps | 7 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
-- Instance templates, instance group managers, managed and unmanaged instance groups, regional disks, instantSnapshots, machine images, reservations, resource policies, health checks, backend services, forwarding rules, target pools/proxies, URL maps, SSL certificates, VPN gateways/tunnels, interconnects, network peerings (addPeering/removePeering), shared VPC, security policies and licenses are not routed (404).
+- Load balancing control plane (backend services, URL maps, target HTTP(S)/SSL/TCP proxies, global and regional forwarding rules, target pools, SSL certificates, network endpoint groups) is not implemented, so group managers cannot be used as backends and targetPools are stored unchecked.
+- Instance groups: instance health is never probed (health checks are state only, so autoHealingPolicies are stored and validated but no instance is ever repaired, instanceHealth and lastAttempt stay empty); utilization-based autoscaling has no metric source; updatePolicy pacing (maxSurge, maxUnavailable, minimalAction, replacementMethod), stateful policy, per-instance configs, resize requests, createInstances, applyUpdatesToInstances, start/stop/suspend/resume instances and listErrors are not implemented; instance creation errors fail the whole call instead of surfacing as group errors.
+- Instance templates cannot be created from sourceInstance and do not support regional-only fields beyond the stored properties; GRPC_WITH_TLS health checks and regional composite health checks are not modelled.
+- Regional disks, instantSnapshots, machine images, reservations, resource policies, VPN gateways/tunnels, interconnects, network peerings (addPeering/removePeering), shared VPC, security policies and licenses are not routed (404).
 - Instances: update (PUT), updateNetworkInterface, setScheduling, setServiceAccount, setMinCpuPlatform, setShieldedInstanceConfig, suspend/resume, getSerialPortOutput, getGuestAttributes, bulkInsert, listReferrers and simulateMaintenanceEvent are not implemented; local SSD (SCRATCH) disks, GPUs, IPv6 and alias IP ranges are rejected or stored without effect.
 - System subnet routes (default-route-* per subnetwork) are not generated; only the 0.0.0.0/0 internet route is created with a network. Routes cannot use VPN tunnel, ILB, hub, peering or network next hops.
 - Global INTERNAL addresses (VPC peering ranges), IPv6 addresses and prefix-length reservations are rejected.

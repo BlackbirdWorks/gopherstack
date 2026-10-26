@@ -48,6 +48,26 @@ type routerRec struct {
 	AutoIPs map[string][]string `json:"autoIps"`
 }
 
+type memberRec struct {
+	DeleteAt   time.Time `json:"deleteAt"`
+	Name       string    `json:"name"`
+	Zone       string    `json:"zone"`
+	Template   string    `json:"template"`
+	Deleting   bool      `json:"deleting"`
+	Recreating bool      `json:"recreating"`
+}
+
+type migRec struct {
+	Project string                           `json:"project"`
+	Mgr     *computeapi.InstanceGroupManager `json:"mgr"`
+	Members []*memberRec                     `json:"members"`
+}
+
+type groupRec struct {
+	Group   *computeapi.InstanceGroup `json:"group"`
+	Members []string                  `json:"members"`
+}
+
 type opRec struct {
 	Created time.Time             `json:"created"`
 	Op      *computeapi.Operation `json:"op"`
@@ -71,6 +91,11 @@ type InMemoryBackend struct {
 	images    map[string]*computeapi.Image
 	snapshots map[string]*computeapi.Snapshot
 	instances map[string]*instRec
+	templates map[string]*computeapi.InstanceTemplate
+	healths   map[string]*computeapi.HealthCheck
+	migs      map[string]*migRec
+	groups    map[string]*groupRec
+	scalers   map[string]*computeapi.Autoscaler
 	ops       map[string]*opRec
 	projects  map[string]*computeapi.Metadata
 	timing    Timing
@@ -123,6 +148,11 @@ func (b *InMemoryBackend) resetMaps() {
 	b.images = map[string]*computeapi.Image{}
 	b.snapshots = map[string]*computeapi.Snapshot{}
 	b.instances = map[string]*instRec{}
+	b.templates = map[string]*computeapi.InstanceTemplate{}
+	b.healths = map[string]*computeapi.HealthCheck{}
+	b.migs = map[string]*migRec{}
+	b.groups = map[string]*groupRec{}
+	b.scalers = map[string]*computeapi.Autoscaler{}
 	b.ops = map[string]*opRec{}
 	b.projects = map[string]*computeapi.Metadata{}
 }

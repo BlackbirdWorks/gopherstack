@@ -259,16 +259,16 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 	created *[]string,
 ) (*computeapi.AttachedDisk, *APIError) {
 	field := "resource.disks[" + strconv.Itoa(idx) + "]"
-	if ad.Type != "" && ad.Type != "PERSISTENT" {
+	if ad.Type != "" && ad.Type != diskPersist {
 		return nil, errField(field+".type", ad.Type, "Only PERSISTENT disks are supported.")
 	}
 
 	mode := ad.Mode
 	if mode == "" {
-		mode = "READ_WRITE"
+		mode = modeReadWrite
 	}
 
-	if mode != "READ_WRITE" && mode != modeReadOnly {
+	if mode != modeReadWrite && mode != modeReadOnly {
 		return nil, errField(field+".mode", mode, "")
 	}
 
@@ -314,7 +314,7 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 
 	return &computeapi.AttachedDisk{
 		Kind:            "compute#attachedDisk",
-		Type:            "PERSISTENT",
+		Type:            diskPersist,
 		Mode:            mode,
 		Source:          d.SelfLink,
 		Index:           int64(idx),
@@ -720,6 +720,18 @@ func (b *InMemoryBackend) insertInstance(project, zone string, in *computeapi.In
 	b.mu.Lock("InsertInstance")
 	defer b.mu.Unlock()
 
+	inst, err := b.insertInstanceLocked(project, zone, in)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.newOpLocked("insert", instTarget(project, zone, inst), b.timing.Stage), nil
+}
+
+func (b *InMemoryBackend) insertInstanceLocked(
+	project, zone string,
+	in *computeapi.Instance,
+) (*computeapi.Instance, *APIError) {
 	if err := validName("name", in.Name); err != nil {
 		return nil, err
 	}
@@ -763,7 +775,7 @@ func (b *InMemoryBackend) insertInstance(project, zone string, in *computeapi.In
 	inst := b.assembleInstanceLocked(project, zone, in, machine, sched, nics, disks)
 	b.instances[key(project, zone, in.Name)] = &instRec{Inst: inst, Phase: phaseStart, Since: b.now().UTC()}
 
-	return b.newOpLocked("insert", instTarget(project, zone, inst), b.timing.Stage), nil
+	return inst, nil
 }
 
 func validTagList(t *computeapi.Tags) *APIError {
@@ -893,7 +905,14 @@ func (b *InMemoryBackend) deleteInstance(project, zone, name string) (*computeap
 		)
 	}
 
-	delete(b.instances, key(project, zone, name))
+	b.removeInstanceLocked(project, zone, r)
+	b.sweepGroupsLocked()
+
+	return b.newOpLocked("delete", instTarget(project, zone, r.Inst), b.timing.Stop), nil
+}
+
+func (b *InMemoryBackend) removeInstanceLocked(project, zone string, r *instRec) {
+	delete(b.instances, key(project, zone, r.Inst.Name))
 
 	for _, ad := range r.Inst.Disks {
 		if ad.AutoDelete {
@@ -901,7 +920,7 @@ func (b *InMemoryBackend) deleteInstance(project, zone, name string) (*computeap
 		}
 	}
 
-	return b.newOpLocked("delete", instTarget(project, zone, r.Inst), b.timing.Stop), nil
+	b.dropFromGroupsLocked(r.Inst.SelfLink)
 }
 
 func (b *InMemoryBackend) startInstance(project, zone, name string) (*computeapi.Operation, error) {
