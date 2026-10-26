@@ -2959,7 +2959,7 @@ func (rc *ResourceCreator) createEventBridgeRule(
 		eventBusName = defaultEventBusName
 	}
 
-	pattern := strProp(props, "EventPattern", params, physicalIDs)
+	pattern := jsonProp(props, "EventPattern")
 	schedExpr := strProp(props, "ScheduleExpression", params, physicalIDs)
 	state := strProp(props, "State", params, physicalIDs)
 	if state == "" {

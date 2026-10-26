@@ -6175,6 +6175,7 @@
       "backendSnapshot.ChangeSets map[string]map[string]*ChangeSet `json:\"changeSets\"`",
       "backendSnapshot.Events map[string][]StackEvent `json:\"events\"`",
       "backendSnapshot.HandlerProgress map[string]string `json:\"handlerProgress\"`",
+      "backendSnapshot.PendingStackOps map[string]*pendingStackOp `json:\"pendingStackOps,omitempty\"`",
       "backendSnapshot.Region string `json:\"region\"`",
       "backendSnapshot.ResourceDriftDetail map[string]map[string]StackResourceDrift `json:\"resourceDriftDetail\"`",
       "backendSnapshot.ResourceDriftStatus map[string]map[string]string `json:\"resourceDriftStatus\"`",
@@ -6187,7 +6188,14 @@
       "backendSnapshot.StackSetOperations map[string]map[string]*StackSetOperation `json:\"stackSetOperations\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.TypeConfigs map[string]string `json:\"typeConfigs\"`",
-      "backendSnapshot.TypeVersions map[string][]*RegisteredTypeVersion `json:\"typeVersions\"`"
+      "backendSnapshot.TypeVersions map[string][]*RegisteredTypeVersion `json:\"typeVersions\"`",
+      "pendingStackOp.DisableValidation bool `json:\"disableValidation,omitempty\"`",
+      "pendingStackOp.Kind string `json:\"kind\"`",
+      "pendingStackOp.OldParams []Parameter `json:\"oldParams,omitempty\"`",
+      "pendingStackOp.OldTemplateBody string `json:\"oldTemplateBody,omitempty\"`",
+      "pendingStackOp.OnFailure string `json:\"onFailure,omitempty\"`",
+      "pendingStackOp.ResourceTypes []string `json:\"resourceTypes,omitempty\"`",
+      "pendingStackOp.RetainExceptOnCreate bool `json:\"retainExceptOnCreate,omitempty\"`"
     ],
     "version": 1
   },

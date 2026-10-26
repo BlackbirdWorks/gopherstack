@@ -157,7 +157,7 @@ func (rc *ResourceCreator) createEventsArchive(
 		ArchiveName:    name,
 		EventSourceArn: strProp(props, "SourceArn", params, physicalIDs),
 		Description:    strProp(props, "Description", params, physicalIDs),
-		EventPattern:   strProp(props, "EventPattern", params, physicalIDs),
+		EventPattern:   jsonProp(props, "EventPattern"),
 	})
 	if err != nil {
 		return "", fmt.Errorf("create EventBridge archive %s: %w", name, err)

@@ -299,9 +299,9 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 		DisableValidation:     cs.DisableValidation,
 	}
 	if cs.ChangeSetType == changeSetTypeCreate {
-		_, execErr = b.CreateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
+		_, execErr = b.createStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts, false)
 	} else {
-		_, execErr = b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
+		_, execErr = b.updateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts, false)
 	}
 
 	func() {

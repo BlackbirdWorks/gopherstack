@@ -14,7 +14,7 @@ func samLayerAllowed() map[string]bool {
 
 func samSMAllowed() map[string]bool {
 	return keySet("Definition", "DefinitionUri", "DefinitionSubstitutions", "Role", "Policies",
-		"Name", "Type", "Tracing", "Logging", "Tags", "PermissionsBoundary")
+		"Name", "Type", "Tracing", "Logging", "Tags", "PermissionsBoundary", "Events")
 }
 
 func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error {
@@ -124,8 +124,11 @@ func (t *samTranslator) translateStateMachine(id string, r map[string]any) error
 	}
 	base := map[string]any{samKeyType: "AWS::StepFunctions::StateMachine", samKeyProps: sm}
 	carryAttrs(r, base)
+	if err := t.put(id, base); err != nil {
+		return err
+	}
 
-	return t.put(id, base)
+	return t.translateStateMachineEvents(id, asMap(props["Events"]))
 }
 
 func smDefinition(id string, props, sm map[string]any) error {
