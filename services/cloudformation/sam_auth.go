@@ -18,16 +18,22 @@ type samAuth struct {
 	perms         map[string]map[string]any
 	defaultAuth   string
 	corsPreflight bool
+	apiKeyDefault bool
 }
 
 func samAuthKeys() map[string]bool {
-	return keySet("DefaultAuthorizer", "Authorizers", "AddDefaultAuthorizerToCorsPreflight")
+	return keySet("DefaultAuthorizer", "Authorizers", "AddDefaultAuthorizerToCorsPreflight", "ApiKeyRequired")
 }
 
 func (t *samTranslator) parseAPIAuth(apiID string, props map[string]any) (*samAuth, error) {
 	raw := asMap(props[samAuthKey])
 	if raw == nil {
 		return &samAuth{}, nil
+	}
+	if v, ok := raw["ApiKeyRequired"]; ok {
+		if _, isBool := v.(bool); !isBool {
+			return nil, samErr(apiID, "Auth.ApiKeyRequired must be a boolean.")
+		}
 	}
 	if err := rejectUnknown(apiID, raw, samAuthKeys()); err != nil {
 		return nil, err
@@ -36,6 +42,7 @@ func (t *samTranslator) parseAPIAuth(apiID string, props map[string]any) (*samAu
 		defs:          map[string]any{},
 		perms:         map[string]map[string]any{},
 		corsPreflight: raw["AddDefaultAuthorizerToCorsPreflight"] != false,
+		apiKeyDefault: raw["ApiKeyRequired"] == true,
 	}
 	authorizers := asMap(raw["Authorizers"])
 	for _, name := range slices.Sorted(maps.Keys(authorizers)) {

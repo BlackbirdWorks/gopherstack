@@ -192,7 +192,8 @@ func (t *samTranslator) putRule(ev *samEventCtx, name string, rule map[string]an
 }
 
 func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]any) error {
-	if err := rejectUnknown(ev.id+name, props, keySet("Path", "Method", "RestApiId", samAuthKey)); err != nil {
+	if err := rejectUnknown(ev.id+name, props, keySet("Path", "Method", "RestApiId", samAuthKey,
+		"RequestParameters", "TimeoutInMillis")); err != nil {
 		return err
 	}
 	path, _ := props["Path"].(string)
@@ -204,11 +205,20 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 	if err != nil {
 		return err
 	}
-	authorizer, err := eventAuthorizer(ev.id, name, props)
+	authorizer, apiKey, err := eventAuth(ev.id, name, props)
 	if err != nil {
 		return err
 	}
-	api.addRoute(samRoute{fnID: ev.id, path: path, method: method, authorizer: authorizer})
+	params, err := parseRequestParameters(ev.id, name, props["RequestParameters"])
+	if err != nil {
+		return err
+	}
+	timeout, err := parseAPITimeout(ev.id, name, props["TimeoutInMillis"])
+	if err != nil {
+		return err
+	}
+	api.addRoute(samRoute{fnID: ev.id, path: path, method: method, authorizer: authorizer, apiKey: apiKey,
+		params: params, timeout: timeout})
 	for _, stage := range []string{api.stageName, "Test"} {
 		src := map[string]any{samKeyFnSub: "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${" +
 			api.id + "}/" + stageSegment(stage) + "/" + permissionMethod(method) + permissionPath(path)}
@@ -243,13 +253,21 @@ func permissionPath(p string) string {
 	return samPathParam.ReplaceAllString(p, "*")
 }
 
-// eventAuthorizer reads Auth.Authorizer; any other Auth key is rejected.
-func eventAuthorizer(fnID, name string, props map[string]any) (string, error) {
+// eventAuth reads Auth.Authorizer and Auth.ApiKeyRequired; any other Auth key is rejected.
+func eventAuth(fnID, name string, props map[string]any) (string, *bool, error) {
 	auth := asMap(props[samAuthKey])
-	if err := rejectUnknown(fnID+name, auth, keySet("Authorizer")); err != nil {
-		return "", err
+	if err := rejectUnknown(fnID+name, auth, keySet("Authorizer", "ApiKeyRequired")); err != nil {
+		return "", nil, err
 	}
 	a, _ := auth["Authorizer"].(string)
+	var apiKey *bool
+	if v, ok := auth["ApiKeyRequired"]; ok {
+		b, isBool := v.(bool)
+		if !isBool {
+			return "", nil, samErr(fnID, "Event [%s] Auth.ApiKeyRequired must be a boolean.", name)
+		}
+		apiKey = &b
+	}
 
-	return a, nil
+	return a, apiKey, nil
 }
