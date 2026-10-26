@@ -2463,7 +2463,11 @@ func (e *Executor) resolveItemBatcherLimits(batcher *ItemBatcher, mapInput any) 
 	maxBytes := batcher.MaxInputBytesPerBatch
 
 	if batcher.MaxInputBytesPerBatchPath != "" {
-		val, err := applyPath(batcher.MaxInputBytesPerBatchPath, e.pathArg(batcher.MaxInputBytesPerBatchPath, mapInput), e.jsonPathCache)
+		val, err := applyPath(
+			batcher.MaxInputBytesPerBatchPath,
+			e.pathArg(batcher.MaxInputBytesPerBatchPath, mapInput),
+			e.jsonPathCache,
+		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("MaxInputBytesPerBatchPath error: %w", err)
 		}
