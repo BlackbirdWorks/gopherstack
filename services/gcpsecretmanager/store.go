@@ -57,10 +57,11 @@ type secretRec struct {
 
 // InMemoryBackend holds all secrets, versions and IAM policies under one lock.
 type InMemoryBackend struct {
-	now     func() time.Time
-	mu      *lockmetrics.RWMutex
-	secrets map[string]*secretRec
-	etagSeq uint64
+	now       func() time.Time
+	mu        *lockmetrics.RWMutex
+	secrets   map[string]*secretRec
+	publisher TopicPublisher
+	etagSeq   uint64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -136,20 +137,36 @@ func (b *InMemoryBackend) nextEtag() string {
 
 func secretName(project, id string) string { return "projects/" + project + "/secrets/" + id }
 
+// parseProject returns "project" or "project/locations/location" for a secret parent.
 func parseProject(parent string) (string, error) {
-	rest, ok := strings.CutPrefix(parent, "projects/")
-	if !ok || rest == "" || strings.Contains(rest, "/") {
-		return "", errInvalid("Invalid parent %q. Expected projects/{project}.", parent)
+	parts := strings.Split(parent, "/")
+	global := len(parts) == 2 && parts[0] == "projects" && parts[1] != ""
+	regional := len(parts) == 4 && parts[0] == "projects" && parts[2] == "locations" && parts[1] != "" && parts[3] != ""
+
+	if !global && !regional {
+		return "", errInvalid(
+			"Invalid parent %q. Expected projects/{project} or projects/{project}/locations/{location}.", parent)
 	}
 
-	return rest, nil
+	return strings.TrimPrefix(parent, "projects/"), nil
+}
+
+// isRegional reports whether a resource name lives under projects/*/locations/*.
+func isRegional(name string) bool {
+	parts := strings.Split(name, "/")
+
+	return len(parts) > 3 && parts[2] == "locations"
 }
 
 func parseSecretName(name string) (string, error) {
 	parts := strings.Split(name, "/")
-	if len(parts) != 4 || parts[0] != "projects" || parts[2] != "secrets" || parts[1] == "" ||
-		!secretIDRe.MatchString(parts[3]) {
-		return "", errInvalid("Invalid secret name %q. Expected projects/{project}/secrets/{secret}.", name)
+	n := len(parts)
+	global := n == 4 && parts[2] == "secrets"
+	regional := n == 6 && parts[2] == "locations" && parts[4] == "secrets" && parts[3] != ""
+
+	if parts[0] != "projects" || parts[1] == "" || (!global && !regional) || !secretIDRe.MatchString(parts[n-1]) {
+		return "", errInvalid("Invalid secret name %q. Expected projects/{project}/secrets/{secret} or "+
+			"projects/{project}/locations/{location}/secrets/{secret}.", name)
 	}
 
 	return name, nil
@@ -295,14 +312,7 @@ func (b *InMemoryBackend) validateSecret(pb *secretmanagerpb.Secret, checkFuture
 		return err
 	}
 
-	if checkFuture {
-		now := b.now()
-		if rt := pb.GetRotation().GetNextRotationTime(); rt != nil && !rt.AsTime().After(now) {
-			return errInvalid("next_rotation_time must be in the future.")
-		}
-	}
-
-	return nil
+	return validateRotationTimes(pb.GetRotation(), b.now(), checkFuture)
 }
 
 // resolveExpiry converts an input ttl to a stored expire_time.
@@ -339,7 +349,11 @@ func (b *InMemoryBackend) CreateSecret(req *secretmanagerpb.CreateSecretRequest)
 		pb = &secretmanagerpb.Secret{}
 	}
 
-	if err = validateReplication(pb.GetReplication()); err != nil {
+	if strings.Contains(project, "/") {
+		if pb.GetReplication() != nil {
+			return nil, errInvalid("replication cannot be set on a regional secret.")
+		}
+	} else if err = validateReplication(pb.GetReplication()); err != nil {
 		return nil, err
 	}
 
