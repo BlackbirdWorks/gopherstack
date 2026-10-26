@@ -101,6 +101,7 @@ import (
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
 	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -567,6 +568,8 @@ type Config struct {
 	// GCPWorkflowsOps and GCPDNSOps are called in-process by their proxies.
 	GCPWorkflowsOps *gcpworkflowsbackend.Handler
 	GCPDNSOps       *gcpdnsbackend.Handler
+	// GCPComputeOps is dispatched in-process by the /dashboard/api/v1/gcp/compute proxy.
+	GCPComputeOps *gcpcomputebackend.Handler
 	// OCIObjectStorageOps, OCIVaultOps, OCIStreamingOps and OCIIdentityOps are called in-process by their proxies.
 	OCIObjectStorageOps *ociobjectstoragebackend.Handler
 	OCIVaultOps         *ocivaultbackend.Handler

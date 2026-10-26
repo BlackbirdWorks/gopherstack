@@ -23,6 +23,7 @@
 	import MonitoringDashboard from '#lib/components/gcp/MonitoringDashboard.svelte';
 	import WorkflowsDashboard from '#lib/components/gcp/WorkflowsDashboard.svelte';
 	import DnsDashboard from '#lib/components/gcp/DnsDashboard.svelte';
+	import ComputeDashboard from '#lib/components/gcp/ComputeDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -80,6 +81,8 @@
 	<WorkflowsDashboard />
 {:else if service?.id === 'dns'}
 	<DnsDashboard />
+{:else if service?.id === 'compute'}
+	<ComputeDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

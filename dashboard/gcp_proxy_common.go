@@ -226,4 +226,6 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerOCIIdentityRoutes()
 	h.registerOCIFunctionsRoutes()
 	h.registerAzureMonitorRoutes()
+	h.registerGCPComputeRoutes()
+	h.registerAzureACIRoutes()
 }
