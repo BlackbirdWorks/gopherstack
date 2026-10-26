@@ -71,6 +71,12 @@ const (
 // Kept as a function (not a package-level var) per the repo's
 // gochecknoglobals convention — build-fresh-per-call is cheap here since
 // gendocs runs once as a CLI, not in a hot path.
+func ociSlugs() []string {
+	return []string{
+		slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions, slugOCICore,
+	}
+}
+
 func categoryGroups() []categoryGroup {
 	return []categoryGroup{
 		{"Compute", []string{
@@ -164,16 +170,7 @@ func categoryGroups() []categoryGroup {
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
 			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows, slugGCPDNS,
 		}},
-		{
-			"OCI",
-			[]string{
-				slugOCIObjectStore,
-				slugOCIVault,
-				slugOCIStreaming,
-				slugOCIIdentity,
-				slugOCIFunctions,
-				slugOCICore,
-			},
+		{"OCI", ociSlugs()},
 		},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
