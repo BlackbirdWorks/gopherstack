@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -49,32 +46,6 @@ func wireSageMakerEngine(byName map[string]service.Registerable) {
 }
 
 type sagemakerS3 struct{ codebuildS3 }
-
-func (s sagemakerS3) ListObjectKeys(ctx context.Context, bucket, prefix string) ([]string, error) {
-	var (
-		keys  []string
-		token *string
-	)
-
-	for {
-		out, err := s.backend.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{
-			Bucket: aws.String(bucket), Prefix: aws.String(prefix), ContinuationToken: token,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		for _, o := range out.Contents {
-			keys = append(keys, aws.ToString(o.Key))
-		}
-
-		if !aws.ToBool(out.IsTruncated) || out.NextContinuationToken == nil {
-			return keys, nil
-		}
-
-		token = out.NextContinuationToken
-	}
-}
 
 type sagemakerSNS struct{ sns *snsbackend.InMemoryBackend }
 

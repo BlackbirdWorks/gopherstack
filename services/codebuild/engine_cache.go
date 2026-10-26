@@ -38,7 +38,10 @@ const (
 var errCacheCommand = errors.New("cache archive command failed")
 
 type specCache struct {
-	Paths []string `yaml:"paths"`
+	Key          string   `yaml:"key"`
+	Action       string   `yaml:"action"`
+	FallbackKeys []string `yaml:"fallback-keys"`
+	Paths        []string `yaml:"paths"`
 }
 
 func (r *buildRunner) cacheCfg() *ProjectCache {
@@ -92,12 +95,6 @@ func (r *buildRunner) cacheMounts() ([]string, error) {
 
 	r.cacheStage = stage
 
-	if c.Type == cacheTypeS3 {
-		r.downloadS3Cache(c.Location)
-	} else if cerr := copyTree(filepath.Join(r.cacheRoot(), cacheCustomDir), stage, false); cerr != nil {
-		r.warnCache("restore local cache", cerr)
-	}
-
 	return append(mounts, stage+":"+containerCacheDir), nil
 }
 
@@ -113,22 +110,6 @@ func s3CacheLocation(loc, project string) (string, string, bool) {
 	}
 
 	return bucket, strings.Trim(prefix+"/"+project+"/"+cacheS3Object, "/"), true
-}
-
-func (r *buildRunner) downloadS3Cache(loc string) {
-	bucket, key, ok := s3CacheLocation(loc, r.build.ProjectName)
-	if !ok || r.svc.Store == nil {
-		return
-	}
-
-	data, err := r.svc.Store.GetObjectBytes(r.ctx, bucket, key)
-	if err != nil {
-		return
-	}
-
-	if uerr := untarGz(data, r.cacheStage); uerr != nil {
-		r.warnCache("restore s3 cache", uerr)
-	}
 }
 
 // splitCachePaths separates source-relative patterns from absolute container directories.
@@ -182,7 +163,14 @@ func (r *buildRunner) restoreCache() {
 		return
 	}
 
+	r.resolveCacheKey()
+
+	if r.cacheAction() == cacheActionSave {
+		return
+	}
+
 	r.log.write(r.ctx, marker("Restoring cache"))
+	r.populateStage()
 
 	if err := copyTree(filepath.Join(r.cacheStage, cacheSrcDir), r.workDir, true); err != nil {
 		r.warnCache("restore", err)
@@ -224,17 +212,23 @@ func (r *buildRunner) saveCache() error {
 		return nil
 	}
 
+	if r.cacheAction() == cacheActionRestore {
+		return nil
+	}
+
+	if r.cacheKey != "" && r.keyedExists(r.cacheKey) {
+		r.log.write(r.ctx, marker("Cache for key %q already exists, not updating", r.cacheKey))
+
+		return nil
+	}
+
 	r.log.write(r.ctx, marker("Saving cache"))
 
 	if err := r.stageCache(rel, abs); err != nil {
 		return err
 	}
 
-	if c := r.cacheCfg(); c.Type == cacheTypeS3 {
-		return r.uploadS3Cache(c.Location)
-	}
-
-	return replaceTree(r.cacheStage, filepath.Join(r.cacheRoot(), cacheCustomDir))
+	return r.persistStage()
 }
 
 func (r *buildRunner) stageCache(rel, abs []string) error {
@@ -273,9 +267,8 @@ func (r *buildRunner) execCache(script string) error {
 	return nil
 }
 
-func (r *buildRunner) uploadS3Cache(loc string) error {
-	bucket, key, ok := s3CacheLocation(loc, r.build.ProjectName)
-	if !ok || r.svc.Store == nil {
+func (r *buildRunner) uploadS3Cache(bucket, key string) error {
+	if r.svc.Store == nil {
 		return fmt.Errorf("%w: S3 cache", errSourceDependency)
 	}
 
@@ -537,7 +530,11 @@ func (b *InMemoryBackend) invalidateEngineCache(ctx context.Context, proj *Proje
 		return nil
 	}
 
-	return store.PutObjectBytes(ctx, bucket, objKey, emptyArchive())
+	if err := store.PutObjectBytes(ctx, bucket, objKey, emptyArchive()); err != nil {
+		return err
+	}
+
+	return emptyKeyedObjects(ctx, store, proj)
 }
 
 func emptyArchive() []byte {

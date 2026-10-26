@@ -73,6 +73,32 @@ func (s codebuildS3) PutObjectBytes(ctx context.Context, bucket, key string, dat
 	return err
 }
 
+func (s codebuildS3) ListObjectKeys(ctx context.Context, bucket, prefix string) ([]string, error) {
+	var (
+		keys  []string
+		token *string
+	)
+
+	for {
+		out, err := s.backend.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{
+			Bucket: aws.String(bucket), Prefix: aws.String(prefix), ContinuationToken: token,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, o := range out.Contents {
+			keys = append(keys, aws.ToString(o.Key))
+		}
+
+		if !aws.ToBool(out.IsTruncated) || out.NextContinuationToken == nil {
+			return keys, nil
+		}
+
+		token = out.NextContinuationToken
+	}
+}
+
 type codebuildLogs struct {
 	backend *cwlogsbackend.InMemoryBackend
 }

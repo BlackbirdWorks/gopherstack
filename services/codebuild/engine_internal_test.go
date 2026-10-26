@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,23 @@ func (s *fakeStore) PutObjectBytes(_ context.Context, bucket, key string, data [
 	s.objects[bucket+"/"+key] = data
 
 	return nil
+}
+
+func (s *fakeStore) ListObjectKeys(_ context.Context, bucket, prefix string) ([]string, error) {
+	s.mu.RLock("list")
+	defer s.mu.RUnlock()
+
+	var out []string
+
+	for k := range s.objects {
+		if strings.HasPrefix(k, bucket+"/"+prefix) {
+			out = append(out, strings.TrimPrefix(k, bucket+"/"))
+		}
+	}
+
+	sort.Strings(out)
+
+	return out, nil
 }
 
 func (s *fakeStore) keys() []string {
