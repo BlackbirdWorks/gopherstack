@@ -23,6 +23,11 @@ const (
 	httpDefaultPort      = 80
 	httpsDefaultPort     = 443
 	maxPort              = 65535
+	schemeHTTP           = "http"
+	schemeHTTPS          = "https"
+	hostLoopbackV4       = "127.0.0.1"
+	hostLocalhost        = "localhost"
+	hostLoopbackV6       = "::1"
 )
 
 // APIGatewayClient performs the GET an API_GATEWAY identity provider needs.
@@ -81,26 +86,12 @@ func loopbackTarget(rawURL string) (string, error) {
 		return "", err
 	}
 
-	var origin string
-
-	switch {
-	case u.Scheme == "http" && u.Hostname() == "127.0.0.1":
-		origin = fmt.Sprintf("http://127.0.0.1:%d", port)
-	case u.Scheme == "https" && u.Hostname() == "127.0.0.1":
-		origin = fmt.Sprintf("https://127.0.0.1:%d", port)
-	case u.Scheme == "http" && u.Hostname() == "localhost":
-		origin = fmt.Sprintf("http://localhost:%d", port)
-	case u.Scheme == "https" && u.Hostname() == "localhost":
-		origin = fmt.Sprintf("https://localhost:%d", port)
-	case u.Scheme == "http" && u.Hostname() == "::1":
-		origin = fmt.Sprintf("http://[::1]:%d", port)
-	case u.Scheme == "https" && u.Hostname() == "::1":
-		origin = fmt.Sprintf("https://[::1]:%d", port)
-	default:
+	scheme, host, ok := loopbackOrigin(u.Scheme, u.Hostname())
+	if !ok {
 		return "", fmt.Errorf("%w: identity provider url must target the emulator", errSFTPDenied)
 	}
 
-	target := origin + u.EscapedPath()
+	target := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, u.EscapedPath())
 	if u.RawQuery != "" {
 		target += "?" + u.RawQuery
 	}
@@ -108,10 +99,37 @@ func loopbackTarget(rawURL string) (string, error) {
 	return target, nil
 }
 
+// loopbackOrigin maps a scheme and loopback host onto fixed literals.
+func loopbackOrigin(scheme, host string) (string, string, bool) {
+	var outScheme, outHost string
+
+	switch scheme {
+	case schemeHTTP:
+		outScheme = schemeHTTP
+	case schemeHTTPS:
+		outScheme = schemeHTTPS
+	default:
+		return "", "", false
+	}
+
+	switch host {
+	case hostLoopbackV4:
+		outHost = hostLoopbackV4
+	case hostLocalhost:
+		outHost = hostLocalhost
+	case hostLoopbackV6:
+		outHost = "[" + hostLoopbackV6 + "]"
+	default:
+		return "", "", false
+	}
+
+	return outScheme, outHost, true
+}
+
 func urlPort(u *url.URL) (int, error) {
 	ps := u.Port()
 	if ps == "" {
-		if u.Scheme == "https" {
+		if u.Scheme == schemeHTTPS {
 			return httpsDefaultPort, nil
 		}
 
@@ -130,7 +148,7 @@ var executeAPIHost = regexp.MustCompile(`^[a-z0-9]+\.execute-api\.[a-z0-9-]+\.am
 
 func apiGatewayHostAllowed(host string) bool {
 	switch host {
-	case "127.0.0.1", "localhost", "::1":
+	case hostLoopbackV4, hostLocalhost, hostLoopbackV6:
 		return true
 	}
 
@@ -140,7 +158,7 @@ func apiGatewayHostAllowed(host string) bool {
 // apiGatewayConfigURL builds {Url}/servers/{serverId}/users/{username}/config per the Transfer docs.
 func apiGatewayConfigURL(base, serverID, user, ip string) (string, error) {
 	u, err := url.Parse(base)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || (u.Scheme != schemeHTTP && u.Scheme != schemeHTTPS) || u.Host == "" {
 		return "", fmt.Errorf("%w: invalid identity provider url", errSFTPDenied)
 	}
 

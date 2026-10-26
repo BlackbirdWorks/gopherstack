@@ -396,7 +396,13 @@ func TestHTTPAPIGatewayClientRefusesNonLoopback(t *testing.T) {
 
 	c := transfer.NewHTTPAPIGatewayClient()
 
-	for _, u := range []string{"http://169.254.169.254/", "https://abc.execute-api.us-east-1.amazonaws.com/p", "http://localhost:99999/"} {
+	urls := []string{
+		"http://169.254.169.254/",
+		"https://abc.execute-api.us-east-1.amazonaws.com/p",
+		"http://localhost:99999/",
+	}
+
+	for _, u := range urls {
 		_, _, err := c.Get(t.Context(), u, nil)
 		require.Error(t, err, u)
 	}

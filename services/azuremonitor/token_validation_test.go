@@ -41,26 +41,42 @@ func TestValidateTokensVerifiesSignature(t *testing.T) {
 	const monitorAud = "https://api.loganalytics.io"
 
 	tests := []struct {
-		token  func(t *testing.T, iss *aadauth.Issuer) string
-		name   string
-		wait   time.Duration
-		want   int
+		token func(t *testing.T, iss *aadauth.Issuer) string
+		name  string
+		wait  time.Duration
+		want  int
 	}{
 		{
 			name: "valid", want: http.StatusOK,
-			token: func(t *testing.T, iss *aadauth.Issuer) string { return issue(t, iss, monitorAud, 3600) },
+			token: func(t *testing.T, iss *aadauth.Issuer) string {
+				t.Helper()
+
+				return issue(t, iss, monitorAud, 3600)
+			},
 		},
 		{
 			name: "unsigned by issuer", want: http.StatusUnauthorized,
-			token: func(t *testing.T, _ *aadauth.Issuer) string { return forgedToken(t, monitorAud) },
+			token: func(t *testing.T, _ *aadauth.Issuer) string {
+				t.Helper()
+
+				return forgedToken(t, monitorAud)
+			},
 		},
 		{
 			name: "expired", want: http.StatusUnauthorized, wait: 5 * time.Second,
-			token: func(t *testing.T, iss *aadauth.Issuer) string { return issue(t, iss, monitorAud, 1) },
+			token: func(t *testing.T, iss *aadauth.Issuer) string {
+				t.Helper()
+
+				return issue(t, iss, monitorAud, 1)
+			},
 		},
 		{
 			name: "wrong audience", want: http.StatusUnauthorized,
-			token: func(t *testing.T, iss *aadauth.Issuer) string { return issue(t, iss, "https://management.azure.com", 3600) },
+			token: func(t *testing.T, iss *aadauth.Issuer) string {
+				t.Helper()
+
+				return issue(t, iss, "https://management.azure.com", 3600)
+			},
 		},
 	}
 

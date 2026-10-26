@@ -51,12 +51,6 @@ const (
 	statusOK          = http.StatusOK
 )
 
-var validAudiences = []string{
-	"https://api.loganalytics.io",
-	"https://api.loganalytics.azure.com",
-	"https://monitor.azure.com",
-}
-
 var (
 	errTLSKeyMissing  = errors.New("azuremonitor: --azure-monitor-tls-cert set without --azure-monitor-tls-key")
 	errTLSCertMissing = errors.New("azuremonitor: --azure-monitor-tls-key set without --azure-monitor-tls-cert")
@@ -67,8 +61,8 @@ type Handler struct {
 	Backend *Backend
 	// Issuer verifies bearer token signatures when Settings.ValidateTokens is set.
 	Issuer *aadauth.Issuer
-	srvMu   *lockmetrics.RWMutex
-	srv     *http.Server
+	srvMu  *lockmetrics.RWMutex
+	srv    *http.Server
 	// Settings holds the listener configuration.
 	Settings Settings
 	// Port is the fixed TCP port StartWorker binds.
@@ -91,7 +85,7 @@ func NewHandler(backend *Backend, settings Settings) *Handler {
 	}
 
 	return &Handler{
-		Issuer: issuer,
+		Issuer:  issuer,
 		Backend: backend, Settings: settings, Port: settings.Port, srvMu: lockmetrics.New("azuremonitor.server"),
 	}
 }
@@ -233,7 +227,12 @@ func (h *Handler) tokenError(token string) string {
 }
 
 func audienceAllowed(aud string) bool {
-	return slices.Contains(validAudiences, strings.TrimSuffix(aud, "/"))
+	switch strings.TrimSuffix(aud, "/") {
+	case "https://api.loganalytics.io", "https://api.loganalytics.azure.com", "https://monitor.azure.com":
+		return true
+	}
+
+	return false
 }
 
 func writeAPIError(c *echo.Context, e *apiError) error {
