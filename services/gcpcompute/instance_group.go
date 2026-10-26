@@ -181,6 +181,10 @@ func (b *InMemoryBackend) deleteGroup(project, zone, name string) (*computeapi.O
 		return nil, errNotFound(relPath(project, scopeZone, zone, collGroups, name))
 	}
 
+	if err := b.lbInUseLocked("instance_group", g.Group.SelfLink); err != nil {
+		return nil, err
+	}
+
 	delete(b.groups, key(project, zone, name))
 
 	return b.newOpLocked(opGroup+"delete", groupOpTarget(project, scopeZone, zone, g.Group), b.timing.Done), nil

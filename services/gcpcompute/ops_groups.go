@@ -12,6 +12,7 @@ func (h *Handler) registerGroupOps() {
 	h.registerMIGOps()
 	h.registerInstanceGroupOps()
 	h.registerAutoscalerOps()
+	h.registerLBOps()
 }
 
 func (h *Handler) registerTemplateOps() {

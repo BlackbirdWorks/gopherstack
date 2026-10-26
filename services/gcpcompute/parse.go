@@ -130,6 +130,13 @@ func parseRequest(escapedPath string) (reqRoute, bool) {
 
 		rt.scope, rt.loc, rest = rest[0], rest[1], rest[2:]
 	default:
+		if len(rest) == maxPathTail {
+			// The SDK sends targetHttp(s)Proxies setUrlMap/setSslCertificates without the global segment.
+			rt.scope = scopeGlobal
+
+			return finishRoute(rt, rest)
+		}
+
 		rt.collection, rt.name, rt.action = collProjects, rt.project, rest[0]
 
 		return rt, len(rest) == 1

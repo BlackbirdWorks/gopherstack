@@ -37,7 +37,7 @@ func hcSpecs(h *computeapi.HealthCheck) []hcSpec {
 
 	if s := h.HttpHealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ:       "HTTP",
+			typ:       protoHTTP,
 			field:     "httpHealthCheck",
 			defPort:   portHTTP,
 			httpStyle: true,
@@ -51,7 +51,7 @@ func hcSpecs(h *computeapi.HealthCheck) []hcSpec {
 
 	if s := h.HttpsHealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ:       "HTTPS",
+			typ:       protoHTTPS,
 			field:     "httpsHealthCheck",
 			defPort:   portHTTPS,
 			httpStyle: true,
@@ -65,7 +65,7 @@ func hcSpecs(h *computeapi.HealthCheck) []hcSpec {
 
 	if s := h.Http2HealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ:       "HTTP2",
+			typ:       protoHTTP2,
 			field:     "http2HealthCheck",
 			defPort:   portHTTPS,
 			httpStyle: true,
@@ -93,7 +93,7 @@ func hcSpecs(h *computeapi.HealthCheck) []hcSpec {
 
 	if s := h.GrpcHealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ: "GRPC", field: "grpcHealthCheck",
+			typ: protoGRPC, field: "grpcHealthCheck",
 			port: &s.Port, portName: &s.PortName, portSpec: &s.PortSpecification,
 		})
 	}
@@ -125,10 +125,10 @@ func validateSpec(sp hcSpec) *APIError {
 
 	if sp.proxy != nil {
 		if *sp.proxy == "" {
-			*sp.proxy = "NONE"
+			*sp.proxy = proxyHeaderNone
 		}
 
-		if *sp.proxy != "NONE" && *sp.proxy != "PROXY_V1" {
+		if *sp.proxy != proxyHeaderNone && *sp.proxy != "PROXY_V1" {
 			return errField(f+".proxyHeader", *sp.proxy, "")
 		}
 	}
@@ -398,12 +398,8 @@ func (b *InMemoryBackend) deleteHealthCheck(project, region, name string) (*comp
 		return nil, errNotFound(hcPath(project, region, name))
 	}
 
-	for _, m := range b.migs {
-		for _, p := range m.Mgr.AutoHealingPolicies {
-			if p.HealthCheck == h.SelfLink {
-				return nil, errInUse("healthCheck", trimURL(h.SelfLink), trimURL(m.Mgr.SelfLink))
-			}
-		}
+	if err := b.lbInUseLocked("health_check", h.SelfLink); err != nil {
+		return nil, err
 	}
 
 	delete(b.healths, key(project, hcLoc(region), name))

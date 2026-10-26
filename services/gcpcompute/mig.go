@@ -459,6 +459,10 @@ func (b *InMemoryBackend) deleteMIG(project, scope, loc, name string) (*computea
 		return nil, err
 	}
 
+	if uerr := b.lbInUseLocked("instance_group", r.Mgr.InstanceGroup); uerr != nil {
+		return nil, uerr
+	}
+
 	for _, m := range liveMembers(r) {
 		b.removeMemberInstanceLocked(project, m)
 	}
