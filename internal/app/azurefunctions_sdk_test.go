@@ -554,7 +554,7 @@ func TestAzureFunctionsARMSDK_Validation(t *testing.T) {
 		kind string
 		farm string
 	}{
-		{"web app kind is unsupported", fnSDKRG, "webapp1", "app,linux", *plan.ID},
+		{"windows web app kind is unsupported", fnSDKRG, "webapp1", "app", *plan.ID},
 		{"missing plan", fnSDKRG, "noplan", "functionapp,linux", strings.Replace(*plan.ID, "valplan", "ghost", 1)},
 		{"name taken in another group", "other-rg", "taken-name", "functionapp,linux", *plan.ID},
 		{"invalid name", fnSDKRG, "bad_name", "functionapp,linux", *plan.ID},

@@ -51,6 +51,8 @@ type appState struct {
 	Name            string                       `json:"name"`
 	Kind            string                       `json:"kind"`
 	LinuxFx         string                       `json:"linuxFx"`
+	AppCommandLine  string                       `json:"appCommandLine,omitempty"`
+	HealthCheckPath string                       `json:"healthCheckPath,omitempty"`
 	MasterKey       string                       `json:"masterKey"`
 	PublishPassword string                       `json:"publishPassword"`
 	Zip             []byte                       `json:"zip"`
@@ -202,8 +204,10 @@ func (b *InMemoryBackend) scmHostNameLocked(name string) string {
 
 // AppConfig is what ARM supplies about a site: its kind and the runtime stack it selected.
 type AppConfig struct {
-	Kind    string
-	LinuxFx string
+	Kind            string
+	LinuxFx         string
+	AppCommandLine  string
+	HealthCheckPath string
 }
 
 // AppInfo is the data plane's view of an app.
@@ -214,6 +218,7 @@ type AppInfo struct {
 	SCMHost    string
 	Image      string
 	Worker     string
+	Failure    string
 	Stopped    bool
 	Deployed   bool
 }
@@ -228,8 +233,22 @@ func (b *InMemoryBackend) infoLocked(a *app) AppInfo {
 		info.LastDeploy = a.Deployments[n-1].Finished
 	}
 
-	if rc, err := chooseRuntime(a.Settings, a.LinuxFx); err == nil {
-		info.Image, info.Worker = rc.image, rc.worker
+	switch {
+	case a.isWeb():
+		if rt, err := chooseWebRuntime(a.LinuxFx); err == nil {
+			info.Image = rt.image
+		}
+	default:
+		if rc, err := chooseRuntime(a.Settings, a.LinuxFx); err == nil {
+			info.Image, info.Worker = rc.image, rc.worker
+		}
+	}
+
+	switch {
+	case b.runtime == nil:
+		info.Failure = errNoRuntime.Error()
+	case a.startErr != "":
+		info.Failure = a.startErr
 	}
 
 	return info
@@ -262,8 +281,9 @@ func (b *InMemoryBackend) PutApp(name string, cfg AppConfig) AppInfo {
 
 	var old box
 
-	if a.LinuxFx != cfg.LinuxFx {
-		a.LinuxFx = cfg.LinuxFx
+	if a.LinuxFx != cfg.LinuxFx || a.AppCommandLine != cfg.AppCommandLine || a.HealthCheckPath != cfg.HealthCheckPath {
+		a.LinuxFx, a.AppCommandLine, a.HealthCheckPath = cfg.LinuxFx, cfg.AppCommandLine, cfg.HealthCheckPath
+		a.startErr = ""
 		old = b.takeBoxLocked(a)
 	}
 

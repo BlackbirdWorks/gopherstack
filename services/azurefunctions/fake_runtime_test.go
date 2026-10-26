@@ -37,7 +37,9 @@ type fakeRuntime struct {
 	reqs    []hostRequest
 	removed []string
 	seq     atomic.Int64
-	mu      sync.Mutex
+	// unhealthy is how many health-check probes still get a 503.
+	unhealthy atomic.Int64
+	mu        sync.Mutex
 }
 
 func newFakeRuntime() *fakeRuntime { return &fakeRuntime{boxes: map[string]*fakeContainer{}} }
@@ -56,6 +58,12 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 	c := &fakeContainer{spec: spec}
 	c.srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.UserAgent() == gcpserve.ProbeUserAgent {
+			return
+		}
+
+		if r.UserAgent() == "HealthCheck/1.0" && f.unhealthy.Add(-1) >= 0 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+
 			return
 		}
 

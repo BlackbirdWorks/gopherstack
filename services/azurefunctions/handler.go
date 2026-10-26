@@ -1,7 +1,8 @@
-// Package azurefunctions emulates Azure Functions: function apps whose HTTP-triggered functions run in the
-// official Azure Functions host containers behind <app>.<domain>/api/<function>, with the host's own
-// authLevel key enforcement, and the Kudu zip-deploy API on <app>.scm.<domain>. Apps are created through the ARM
-// Microsoft.Web provider, which shares their settings, keys and packages. See PARITY.md.
+// Package azurefunctions emulates Azure Functions and Linux App Service web apps. Function apps' HTTP-triggered
+// functions run in the official Azure Functions host containers behind <app>.<domain>/api/<function>, with the
+// host's own authLevel key enforcement; web apps run their stack or custom image behind <app>.<domain>. Both get
+// the Kudu zip-deploy API on <app>.scm.<domain>. Apps are created through the ARM Microsoft.Web provider, which
+// shares their settings, keys and packages. See PARITY.md.
 package azurefunctions
 
 import (

@@ -25,6 +25,10 @@ const (
 	webFieldAppSettings   = "appSettings"
 	webFieldReserved      = "reserved"
 	webKindFunctionApp    = "functionapp"
+	webKindApp            = "app"
+	webKindLinux          = "linux"
+	webFieldAppCmd        = "appCommandLine"
+	webFieldHealthCheck   = "healthCheckPath"
 	webConfigWeb          = "web"
 	webConfigAppSettings  = "appsettings"
 	webCodeBadRequest     = "BadRequest"
@@ -140,7 +144,9 @@ func webKind(id ResourceID) string {
 
 func badWebRequest(err error) error {
 	if errors.Is(err, ErrWebFunctionsUnavailable) || errors.Is(err, ErrWebNameTaken) ||
-		errors.Is(err, ErrWebUnsupportedKind) || errors.Is(err, ErrWebPlanNotFound) {
+		errors.Is(err, ErrWebUnsupportedKind) || errors.Is(err, ErrWebPlanNotFound) ||
+		errors.Is(err, ErrWebPlanNotLinux) || errors.Is(err, ErrWebNotFunctionApp) ||
+		errors.Is(err, ErrWebInvalidSiteConfig) {
 		return err
 	}
 
@@ -179,6 +185,39 @@ func isFunctionAppKind(kind string) bool {
 	return strings.Contains(strings.ToLower(kind), webKindFunctionApp)
 }
 
+func kindHasToken(kind, token string) bool {
+	for _, t := range strings.Split(strings.ToLower(kind), ",") {
+		if strings.TrimSpace(t) == token {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isLinuxWebAppKind(kind string) bool {
+	return kindHasToken(kind, webKindApp) && kindHasToken(kind, webKindLinux)
+}
+
+func isLinuxKind(kind string) bool { return strings.Contains(strings.ToLower(kind), webKindLinux) }
+
+// planReserved reports whether the plan hosts Linux workers (properties.reserved or a linux kind).
+func (p *WebProvider) planReserved(serverFarmID string) bool {
+	pid, err := ParseGenericResourcePath(serverFarmID)
+	if err != nil {
+		return false
+	}
+
+	pl, ok := p.plans[planKey(pid.ResourceGroup, pid.LeafName())]
+	if !ok {
+		return false
+	}
+
+	reserved, _ := pl.Extra[webFieldReserved].(bool)
+
+	return reserved || isLinuxKind(pl.Kind)
+}
+
 func (p *WebProvider) planExists(serverFarmID string) bool {
 	if serverFarmID == "" {
 		return true
@@ -203,7 +242,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		kind = existing.Kind
 	}
 
-	if !isFunctionAppKind(kind) {
+	if !isFunctionAppKind(kind) && !isLinuxWebAppKind(kind) {
 		return nil, ErrWebUnsupportedKind
 	}
 
@@ -220,6 +259,14 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	farm, _ := props[webFieldServerFarmID].(string)
 	if !p.planExists(farm) {
 		return nil, ErrWebPlanNotFound
+	}
+
+	if !isFunctionAppKind(kind) && farm == "" {
+		return nil, badWebRequest(fmt.Errorf("%w: %w", ErrWebInvalidSiteConfig, errWebPlanRequired))
+	}
+
+	if farm != "" && isLinuxKind(kind) && !p.planReserved(farm) {
+		return nil, ErrWebPlanNotLinux
 	}
 
 	rec := &storedWebSite{
@@ -240,9 +287,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	cfgWeb := mergeWebConfig(rec.Configs[webConfigWeb], siteCfg)
 	rec.Configs[webConfigWeb] = cfgWeb
 
-	linuxFx, _ := cfgWeb[webFieldLinuxFx].(string)
-
-	info, err := p.dataPlane.PutApp(name, FunctionAppConfig{Kind: kind, LinuxFx: linuxFx})
+	info, err := p.dataPlane.PutApp(name, siteAppConfig(kind, cfgWeb))
 	if err != nil {
 		return nil, badWebRequest(err)
 	}
@@ -256,6 +301,14 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	p.sites[webSiteKey(name)] = rec
 
 	return p.siteBody(ctx, id, rec, info), nil
+}
+
+func siteAppConfig(kind string, cfg map[string]any) FunctionAppConfig {
+	fx, _ := cfg[webFieldLinuxFx].(string)
+	cmd, _ := cfg[webFieldAppCmd].(string)
+	health, _ := cfg[webFieldHealthCheck].(string)
+
+	return FunctionAppConfig{Kind: kind, LinuxFx: fx, AppCommandLine: cmd, HealthCheckPath: health}
 }
 
 // mergeWebConfig overlays the request's siteConfig (minus appSettings, which the data plane owns) on cur.
@@ -324,8 +377,18 @@ func (p *WebProvider) siteBody(
 	cfg := webConfigDefaults(s)
 	siteCfg := map[string]any{
 		webFieldWorkers: cfg[webFieldWorkers], webFieldLinuxFx: cfg[webFieldLinuxFx], "alwaysOn": cfg["alwaysOn"],
-		"acrUseManagedIdentityCreds": false, "http20Enabled": cfg["http20Enabled"], "functionAppScaleLimit": 0,
-		"minimumElasticInstanceCount": 0,
+		"acrUseManagedIdentityCreds": false, "http20Enabled": cfg["http20Enabled"],
+	}
+
+	if isFunctionAppKind(s.Kind) {
+		siteCfg["functionAppScaleLimit"], siteCfg["minimumElasticInstanceCount"] = 0, 0
+	} else {
+		siteCfg[webFieldAppCmd], siteCfg[webFieldHealthCheck] = cfg[webFieldAppCmd], cfg[webFieldHealthCheck]
+	}
+
+	availability := "Normal"
+	if info.Failure != "" {
+		availability = "Limited"
 	}
 
 	props := map[string]any{
@@ -337,7 +400,7 @@ func (p *WebProvider) siteBody(
 		"repositorySiteName": s.Name,
 		"usageState":         "Normal",
 		acrWebhookEnabled:    true,
-		"availabilityState":  "Normal",
+		"availabilityState":  availability,
 		"hostNameSslStates": []any{
 			map[string]any{fieldName: info.HostName, "sslState": redisPublicDisabled, "hostType": skuTierStandard},
 			map[string]any{fieldName: info.SCMHost, "sslState": redisPublicDisabled, "hostType": "Repository"},
@@ -524,6 +587,10 @@ func (p *WebProvider) DeleteResourcesInGroup(_ context.Context, resourceGroup st
 }
 
 func webErrorDetails(err error) (errorEntry, bool) {
+	if errors.Is(err, ErrWebInvalidSiteConfig) {
+		return errorEntry{webCodeBadRequest, err.Error(), http.StatusBadRequest}, true
+	}
+
 	table := []struct {
 		err   error
 		entry errorEntry
@@ -539,6 +606,13 @@ func webErrorDetails(err error) (errorEntry, bool) {
 			ErrWebNameTaken,
 			errorEntry{redisCodeConflict, "A site with the given name already exists.", http.StatusConflict},
 		},
+		{ErrWebPlanNotLinux, errorEntry{
+			webCodeBadRequest, "A Linux app must be hosted on a Linux (reserved) App Service plan.",
+			http.StatusBadRequest,
+		}},
+		{ErrWebNotFunctionApp, errorEntry{
+			webCodeBadRequest, "This operation is only valid for function apps.", http.StatusBadRequest,
+		}},
 		{ErrWebPlanInUse, errorEntry{
 			redisCodeConflict, "Cannot delete the server farm because it still has sites.", http.StatusConflict,
 		}},
@@ -546,7 +620,7 @@ func webErrorDetails(err error) (errorEntry, bool) {
 			ErrWebUnsupportedKind,
 			errorEntry{
 				webCodeBadRequest,
-				"Only function apps (kind containing 'functionapp') are supported.",
+				"Only Linux web apps (kind app,linux) and function apps (kind containing 'functionapp') are supported.",
 				http.StatusBadRequest,
 			},
 		},

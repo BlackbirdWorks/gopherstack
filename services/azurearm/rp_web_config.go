@@ -86,6 +86,12 @@ func webConfigDefaults(s *storedWebSite) map[string]any {
 		}},
 	}
 
+	if !isFunctionAppKind(s.Kind) {
+		delete(out, "functionAppScaleLimit")
+		delete(out, "functionsRuntimeScaleMonitoringEnabled")
+		delete(out, "minimumElasticInstanceCount")
+	}
+
 	maps.Copy(out, stored)
 
 	return out
@@ -274,11 +280,10 @@ func (p *WebProvider) putAppSettings(s *storedWebSite, props map[string]any, mer
 func (p *WebProvider) putWebConfig(s *storedWebSite, props map[string]any) error {
 	cur := mergeWebConfig(s.Configs[webConfigWeb], props)
 
-	oldFx, _ := s.Configs[webConfigWeb][webFieldLinuxFx].(string)
-	newFx, _ := cur[webFieldLinuxFx].(string)
+	oldCfg, newCfg := siteAppConfig(s.Kind, s.Configs[webConfigWeb]), siteAppConfig(s.Kind, cur)
 
-	if oldFx != newFx {
-		if _, err := p.dataPlane.PutApp(s.Name, FunctionAppConfig{Kind: s.Kind, LinuxFx: newFx}); err != nil {
+	if oldCfg != newCfg {
+		if _, err := p.dataPlane.PutApp(s.Name, newCfg); err != nil {
 			return badWebRequest(err)
 		}
 	}

@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 6 (6 ok) |
-| Feature families | 5 (5 ok) |
-| Known gaps | 8 |
+| Feature families | 6 (6 ok) |
+| Known gaps | 12 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
@@ -21,6 +21,10 @@
 - The listener is plain HTTP; Kudu only supports zipdeploy, publish?type=zip, deployments and the site zip download (no vfs, command, logstream or webjobs APIs).
 - Windows function apps and Functions runtime versions other than ~4 run in the same Linux v4 images.
 - Not implemented: DELETE sites/{name}/functions/{fn}, deployment slots, functions/admin/token, syncfunctiontriggers, Flex Consumption (functionAppConfig), app-level managed identity, VNet integration, custom domains and certificates, easy auth (authsettings are stored only).
+- Deployment slots (sites/slots CRUD, slotConfigNames behaviour, swap with preview, complete and reset) are not implemented; slot-specific hostnames <app>-<slot>.<domain> are not routed.
+- Web apps: private registries (DOCKER_REGISTRY_SERVER_* credentials, ACR managed identity) are not supported, so only images the local runtime can pull anonymously start; EXPOSE auto-detection is not done (DOCKER apps use WEBSITES_PORT, PORT or 80).
+- Web apps: no remote build (Oryx), so Node and Python dependencies must be inside the zip; Python apps need appCommandLine or an app.py/main.py entry (no gunicorn auto-detection); Tomcat, JBoss, Ruby and Go stacks, Windows web apps, multi-container (sitecontainers) and docker-compose apps are rejected with 400.
+- Web apps: alwaysOn does not keep a container warm (hosts are never reaped anyway) and is not validated against the plan tier; an unhealthy running instance is not evicted or restarted after startup.
 - Hosts are never reaped while idle; a stopped, redeployed or deleted app, or an emulator shutdown, removes them.
 - No dashboard page.
 
