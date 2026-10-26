@@ -74,7 +74,12 @@ func appendBlobEntry(buf []byte, bi *BlobInfo) []byte {
 	buf = append(buf, `<Content-Length>`...)
 	buf = strconv.AppendInt(buf, bi.ContentLength, decimalBase)
 
-	return append(buf, `</Content-Length></Properties></Blob>`...)
+	buf = append(buf, `</Content-Length>`...)
+	buf = appendOptElem(buf, "LeaseStatus", bi.Lease.Status)
+	buf = appendOptElem(buf, "LeaseState", bi.Lease.State)
+	buf = appendOptElem(buf, "LeaseDuration", bi.Lease.Duration)
+
+	return append(buf, `</Properties></Blob>`...)
 }
 
 // encodeBlobList renders the List Blobs response; output is byte-identical to

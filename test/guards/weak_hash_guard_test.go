@@ -19,6 +19,8 @@ import (
 // credential. See gopherstack-ziv9.
 func allowedWeakHashFiles() map[string]string {
 	return map[string]string{
+		// Azure Blob Content-MD5 request/response headers are the base64 MD5 of the body; integrity checksum, never a credential.
+		"services/azureblob/handler_cond.go": "Azure Blob Content-MD5 header parity",
 		// npm dist.shasum is the SHA-1 of the tarball; content checksum, never a credential.
 		"services/gcpartifactregistry/npm.go": "npm dist.shasum SHA-1 parity",
 		// Maven .sha1/.md5 checksum files and twine md5_digest are defined over those digests; never credentials.

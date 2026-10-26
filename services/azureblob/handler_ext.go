@@ -181,8 +181,7 @@ func (h *Handler) setContainerHeaders(c *echo.Context, ci ContainerInfo) {
 	hdr := c.Response().Header()
 	hdr.Set("Last-Modified", ci.LastModified.Format(http.TimeFormat))
 	hdr.Set("ETag", ci.ETag)
-	hdr.Set("X-Ms-Lease-Status", "unlocked")
-	hdr.Set("X-Ms-Lease-State", "available")
+	setLeaseHeaders(hdr, ci.Lease)
 	setMetadataHeaders(hdr, ci.Metadata)
 
 	if ci.PublicAccess != "" {
@@ -226,9 +225,14 @@ func (h *Handler) createContainer(c *echo.Context, container string) error {
 
 // getContainerProperties serves Get Container Properties / Metadata (GET or HEAD).
 func (h *Handler) getContainerProperties(c *echo.Context, container string) error {
-	ci, err := h.Backend.GetContainer(container)
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	ci, err := h.Backend.GetContainer(container, pre)
 	if err != nil {
-		return h.writeContainerNotFound(c)
+		return h.writeContainerError(c, err)
 	}
 
 	h.setContainerHeaders(c, ci)
@@ -242,9 +246,14 @@ func (h *Handler) setContainerMetadata(c *echo.Context, container string) error 
 		return h.writeAPIError(c, apiErr)
 	}
 
-	ci, err := h.Backend.SetContainerMetadata(container, md)
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	ci, err := h.Backend.SetContainerMetadata(container, md, pre)
 	if err != nil {
-		return h.writeContainerNotFound(c)
+		return h.writeContainerError(c, err)
 	}
 
 	c.Response().Header().Set("ETag", ci.ETag)
@@ -254,9 +263,14 @@ func (h *Handler) setContainerMetadata(c *echo.Context, container string) error 
 }
 
 func (h *Handler) getContainerACL(c *echo.Context, container string) error {
-	ci, err := h.Backend.GetContainer(container)
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	ci, err := h.Backend.GetContainer(container, pre)
 	if err != nil {
-		return h.writeContainerNotFound(c)
+		return h.writeContainerError(c, err)
 	}
 
 	c.Response().Header().Set("ETag", ci.ETag)
@@ -311,9 +325,14 @@ func (h *Handler) setContainerACL(c *echo.Context, container string) error {
 		})
 	}
 
-	ci, err := h.Backend.SetContainerACL(container, access, ids)
+	pre, apiErr := precondFromRequest(r)
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	ci, err := h.Backend.SetContainerACL(container, access, ids, pre)
 	if err != nil {
-		return h.writeContainerNotFound(c)
+		return h.writeContainerError(c, err)
 	}
 
 	c.Response().Header().Set("ETag", ci.ETag)
@@ -367,7 +386,12 @@ func (h *Handler) setBlobProperties(c *echo.Context, container, blob string) err
 		return h.writeAPIError(c, apiErr)
 	}
 
-	info, err := h.Backend.SetBlobProperties(container, blob, attrs)
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	info, err := h.Backend.SetBlobProperties(container, blob, attrs, pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
@@ -388,7 +412,12 @@ func (h *Handler) setBlobMetadata(c *echo.Context, container, blob string) error
 		return h.writeAPIError(c, apiErr)
 	}
 
-	info, err := h.Backend.SetBlobMetadata(container, blob, md)
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	info, err := h.Backend.SetBlobMetadata(container, blob, md, pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
@@ -399,7 +428,12 @@ func (h *Handler) setBlobMetadata(c *echo.Context, container, blob string) error
 }
 
 func (h *Handler) getBlobMetadata(c *echo.Context, container, blob string) error {
-	info, err := h.Backend.HeadBlobAt(container, blob, c.QueryParam(querySnapshot))
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	info, err := h.Backend.HeadBlobAt(container, blob, c.QueryParam(querySnapshot), pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
@@ -421,7 +455,12 @@ func (h *Handler) setBlobTier(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, errInvalidHeader(headerAccessTier))
 	}
 
-	prev, _, err := h.Backend.SetBlobTier(container, blob, tier)
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	prev, _, err := h.Backend.SetBlobTier(container, blob, tier, pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
@@ -439,7 +478,12 @@ func (h *Handler) snapshotBlob(c *echo.Context, container, blob string) error {
 		return h.writeAPIError(c, apiErr)
 	}
 
-	info, err := h.Backend.SnapshotBlob(container, blob, md)
+	pre, apiErr := precondFromRequest(c.Request())
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	info, err := h.Backend.SnapshotBlob(container, blob, md, pre)
 	if err != nil {
 		return h.writeBlobNotFoundError(c, err)
 	}
@@ -471,8 +515,17 @@ func (h *Handler) copyBlob(c *echo.Context, container, blob string) error {
 			"Could not verify the copy source within the specified time.")
 	}
 
-	info, err := h.Backend.CopyBlob(srcContainer, srcBlob, src.Query().Get(querySnapshot), container, blob, md)
+	pre, apiErr := precondFromRequest(r)
+	if apiErr != nil {
+		return h.writeAPIError(c, apiErr)
+	}
+
+	info, err := h.Backend.CopyBlob(srcContainer, srcBlob, src.Query().Get(querySnapshot), container, blob, md, pre)
 	if err != nil {
+		if done, werr := h.writeBackendError(c, err); done {
+			return werr
+		}
+
 		if errors.Is(err, ErrContainerNotFound) && srcContainer != container {
 			if _, cErr := h.Backend.GetContainer(container); cErr != nil {
 				return h.writeContainerNotFound(c)

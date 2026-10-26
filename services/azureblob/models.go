@@ -37,6 +37,7 @@ type ContainerInfo struct {
 	ETag         string
 	PublicAccess string
 	ACL          []SignedIdentifier
+	Lease        LeaseProps
 }
 
 // ContainerOptions are the create-time settings of a container.
@@ -73,6 +74,7 @@ type BlobInfo struct {
 	ETag               string
 	AccessTier         string
 	Snapshot           string
+	Lease              LeaseProps
 	ContentLength      int64
 	AccessTierInferred bool
 }
@@ -95,9 +97,11 @@ type storedBlob struct {
 	AccessTier         string
 	Snapshot           string
 	Data               []byte
+	Blocks             []committedBlock
+	Lease              *leaseRecord
 }
 
-func (b *storedBlob) info() BlobInfo {
+func (b *storedBlob) info(now time.Time) BlobInfo {
 	tier, inferred := b.AccessTier, false
 	if tier == "" {
 		tier, inferred = TierHot, true
@@ -119,6 +123,7 @@ func (b *storedBlob) info() BlobInfo {
 		AccessTierInferred: inferred,
 		AccessTierChanged:  b.AccessTierChanged,
 		Snapshot:           b.Snapshot,
+		Lease:              b.Lease.props(now),
 	}
 }
 
@@ -132,9 +137,11 @@ type storedContainer struct {
 	ETag         string
 	PublicAccess string
 	ACL          []SignedIdentifier
+	Staged       map[string]map[string]*stagedBlock
+	Lease        *leaseRecord
 }
 
-func (c *storedContainer) info() ContainerInfo {
+func (c *storedContainer) info(now time.Time) ContainerInfo {
 	modified, etag := c.LastModified, c.ETag
 	if modified.IsZero() {
 		modified = c.CreatedAt
@@ -152,6 +159,7 @@ func (c *storedContainer) info() ContainerInfo {
 		Metadata:     maps.Clone(c.Metadata),
 		PublicAccess: c.PublicAccess,
 		ACL:          slices.Clone(c.ACL),
+		Lease:        c.Lease.props(now),
 	}
 }
 
@@ -217,6 +225,9 @@ type containerProperties struct {
 	LastModified string `xml:"Last-Modified"`
 	Etag         string `xml:"Etag"`
 	PublicAccess string `xml:"PublicAccess,omitempty"`
+	LeaseStatus  string `xml:"LeaseStatus"`
+	LeaseState   string `xml:"LeaseState"`
+	LeaseDur     string `xml:"LeaseDuration,omitempty"`
 }
 
 // blobsList holds blobEntry and blobPrefixEntry items in listing order.
@@ -251,6 +262,9 @@ type blobProperties struct {
 	AccessTierInferred string `xml:"AccessTierInferred,omitempty"`
 	AccessTierChange   string `xml:"AccessTierChangeTime,omitempty"`
 	ContentLength      int64  `xml:"Content-Length"`
+	LeaseStatus        string `xml:"LeaseStatus,omitempty"`
+	LeaseState         string `xml:"LeaseState,omitempty"`
+	LeaseDur           string `xml:"LeaseDuration,omitempty"`
 }
 
 // metadataXML marshals as <Metadata><key>value</key>...</Metadata> with keys sorted.
