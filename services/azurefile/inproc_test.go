@@ -1,23 +1,24 @@
-package azurefile
+package azurefile_test
 
 import (
+	"io"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
+	"github.com/blackbirdworks/gopherstack/services/azurefile"
 )
 
-func newShareBackend(t *testing.T) *InMemoryBackend {
+func newShareEnv(t *testing.T) *env {
 	t.Helper()
 
-	b := NewInMemoryBackend()
+	e := newEnv(t)
+	_, err := e.svc.NewShareClient("share1").Create(ctx(t), nil)
+	require.NoError(t, err)
 
-	b.mu.Lock("test")
-	b.acct("Acct").Shares["share1"] = b.newShare("share1", time.Now())
-	b.mu.Unlock()
-
-	return b
+	return e
 }
 
 func TestShareTreeRoundTrip(t *testing.T) {
@@ -25,27 +26,27 @@ func TestShareTreeRoundTrip(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		steps []ShareTree
-		want  ShareTree
+		steps []azurefile.ShareTree
+		want  azurefile.ShareTree
 	}{
 		{
 			name: "create",
-			steps: []ShareTree{{
+			steps: []azurefile.ShareTree{{
 				Dirs:  []string{"d", "d/e"},
 				Files: map[string][]byte{"a.txt": []byte("A"), "d/b.txt": []byte("B"), "d/e/c.txt": nil},
 			}},
-			want: ShareTree{
+			want: azurefile.ShareTree{
 				Dirs:  []string{"d", "d/e"},
 				Files: map[string][]byte{"a.txt": []byte("A"), "d/b.txt": []byte("B"), "d/e/c.txt": {}},
 			},
 		},
 		{
 			name: "update-and-remove",
-			steps: []ShareTree{
+			steps: []azurefile.ShareTree{
 				{Dirs: []string{"d"}, Files: map[string][]byte{"a.txt": []byte("A"), "d/b.txt": []byte("B")}},
 				{Files: map[string][]byte{"a.txt": []byte("A2"), "new.txt": []byte("N")}},
 			},
-			want: ShareTree{Files: map[string][]byte{"a.txt": []byte("A2"), "new.txt": []byte("N")}},
+			want: azurefile.ShareTree{Files: map[string][]byte{"a.txt": []byte("A2"), "new.txt": []byte("N")}},
 		},
 	}
 
@@ -53,16 +54,16 @@ func TestShareTreeRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newShareBackend(t)
+			e := newShareEnv(t)
 
 			for _, step := range tc.steps {
-				require.NoError(t, b.ApplyShare("acct", "SHARE1", step))
+				require.NoError(t, e.h.Backend.ApplyShare(azureauth.DefaultAccountName, "SHARE1", step))
 			}
 
-			got, err := b.ExportShare("ACCT", "share1")
+			got, err := e.h.Backend.ExportShare(azureauth.DefaultAccountName, "share1")
 			require.NoError(t, err)
 			assert.Equal(t, tc.want.Dirs, got.Dirs)
-			assert.Equal(t, len(tc.want.Files), len(got.Files))
+			assert.Len(t, got.Files, len(tc.want.Files))
 
 			for p, data := range tc.want.Files {
 				assert.Equal(t, string(data), string(got.Files[p]), p)
@@ -71,35 +72,39 @@ func TestShareTreeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestShareTreeUnchangedFileKeepsETag(t *testing.T) {
+func TestShareTreeVisibleThroughDataPlaneAndKeepsETag(t *testing.T) {
 	t.Parallel()
 
-	b := newShareBackend(t)
-	tree := ShareTree{Files: map[string][]byte{"a.txt": []byte("A")}}
+	e := newShareEnv(t)
+	tree := azurefile.ShareTree{Files: map[string][]byte{"a.txt": []byte("hello")}}
 
-	require.NoError(t, b.ApplyShare("acct", "share1", tree))
+	require.NoError(t, e.h.Backend.ApplyShare(azureauth.DefaultAccountName, "share1", tree))
 
-	etag := func() string {
-		b.mu.RLock("test")
-		defer b.mu.RUnlock()
+	fc := e.svc.NewShareClient("share1").NewRootDirectoryClient().NewFileClient("a.txt")
 
-		sh, _ := b.liveShare("acct", "share1")
+	props, err := fc.GetProperties(ctx(t), nil)
+	require.NoError(t, err)
 
-		return sh.Root.child("a.txt").ETag
-	}
+	dl, err := fc.DownloadStream(ctx(t), nil)
+	require.NoError(t, err)
 
-	before := etag()
+	body, err := io.ReadAll(dl.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(body))
 
-	require.NoError(t, b.ApplyShare("acct", "share1", tree))
-	assert.Equal(t, before, etag())
+	require.NoError(t, e.h.Backend.ApplyShare(azureauth.DefaultAccountName, "share1", tree))
+
+	again, err := fc.GetProperties(ctx(t), nil)
+	require.NoError(t, err)
+	assert.Equal(t, *props.ETag, *again.ETag, "an unchanged file is left alone")
 }
 
 func TestShareTreeMissingShare(t *testing.T) {
 	t.Parallel()
 
-	b := newShareBackend(t)
+	e := newShareEnv(t)
 
-	_, err := b.ExportShare("acct", "nope")
-	require.ErrorIs(t, err, ErrShareNotFound)
-	require.ErrorIs(t, b.ApplyShare("other", "share1", ShareTree{}), ErrShareNotFound)
+	_, err := e.h.Backend.ExportShare(azureauth.DefaultAccountName, "nope")
+	require.ErrorIs(t, err, azurefile.ErrShareNotFound)
+	require.ErrorIs(t, e.h.Backend.ApplyShare("other", "share1", azurefile.ShareTree{}), azurefile.ErrShareNotFound)
 }
