@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const defaultForwardTimeout = 2 * time.Second
@@ -15,6 +17,7 @@ const defaultForwardTimeout = 2 * time.Second
 // reaching the embedded DNS server from a VPC.
 type DNSResolver struct {
 	b       *InMemoryBackend
+	logMu   *lockmetrics.RWMutex
 	owns    func(string) bool
 	timeout time.Duration
 }
@@ -22,7 +25,7 @@ type DNSResolver struct {
 // NewDNSResolver builds a resolver over b. owns reports names the emulator
 // itself serves; those are never forwarded.
 func (b *InMemoryBackend) NewDNSResolver(owns func(string) bool) *DNSResolver {
-	return &DNSResolver{b: b, owns: owns, timeout: defaultForwardTimeout}
+	return &DNSResolver{b: b, owns: owns, timeout: defaultForwardTimeout, logMu: lockmetrics.New("route53resolver.querylog")}
 }
 
 // Intercept implements the embedded DNS server's interceptor. Queries from

@@ -51,14 +51,9 @@ type queryLogRecord struct {
 	Answers             []queryLogAnswer `json:"answers"`
 }
 
-// logQuery writes one record to each CloudWatch Logs destination of the query
-// log configs associated with the VPC.
+// logQuery writes one record to the CloudWatch Logs, S3 or Firehose destination of every active
+// query log config associated with the VPC.
 func (r *DNSResolver) logQuery(ctx context.Context, e queryLogEntry) {
-	logs := r.b.logsBackend()
-	if logs == nil {
-		return
-	}
-
 	var payload string
 
 	for _, a := range r.b.ListResolverQueryLogConfigAssociations(ctx) {
@@ -71,16 +66,25 @@ func (r *DNSResolver) logQuery(ctx context.Context, e queryLogEntry) {
 			continue
 		}
 
-		group, ok := logGroupFromARN(cfg.DestinationARN)
-		if !ok {
-			continue
-		}
-
 		if payload == "" {
 			payload = r.b.queryLogJSON(e)
 		}
 
-		putQueryLog(ctx, logs, group, e.vpcID, payload)
+		r.deliverQueryLog(ctx, e, cfg, payload)
+	}
+}
+
+func (r *DNSResolver) deliverQueryLog(ctx context.Context, e queryLogEntry, cfg *ResolverQueryLogConfig, payload string) {
+	switch queryLogDestinationKind(cfg.DestinationARN) {
+	case "CloudWatchLogs":
+		group, ok := logGroupFromARN(cfg.DestinationARN)
+		if logs := r.b.logsBackend(); ok && logs != nil {
+			putQueryLog(ctx, logs, group, e.vpcID, payload)
+		}
+	case "S3":
+		r.deliverToS3(ctx, e, cfg, payload)
+	case "KinesisFirehose":
+		r.deliverToFirehose(ctx, e, cfg, payload)
 	}
 }
 
