@@ -2,7 +2,6 @@ package eks
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -13,42 +12,53 @@ func TestVerifyPodIdentityTokenClaims(t *testing.T) {
 	t.Parallel()
 
 	b := NewInMemoryBackend(context.Background(), "123456789012", "us-east-1")
-	c, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
-	require.NoError(t, err)
+	c, cerr := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, cerr)
 
-	key, err := b.signingKey(c.OIDCIssuer)
-	require.NoError(t, err)
+	key, kerr := b.signingKey(c.OIDCIssuer)
+	require.NoError(t, kerr)
+
+	const sub = "system:serviceaccount:d:a"
 
 	now := time.Now()
 
+	claims := func(iss string, aud any, sub string, exp, nbf int64) map[string]any {
+		m := map[string]any{"iss": iss, "aud": aud, "sub": sub}
+		if exp != 0 {
+			m["exp"] = exp
+		}
+
+		if nbf != 0 {
+			m["nbf"] = nbf
+		}
+
+		return m
+	}
+
 	tests := []struct {
-		claims  map[string]any
 		wantErr error
+		claims  map[string]any
 		name    string
 	}{
 		{
-			name:    "expired",
-			claims:  map[string]any{"iss": c.OIDCIssuer, "aud": []string{PodIdentityAudience}, "exp": now.Add(-time.Minute).Unix(), "sub": "system:serviceaccount:d:a"},
-			wantErr: ErrExpiredToken,
+			name: "expired", wantErr: ErrExpiredToken,
+			claims: claims(c.OIDCIssuer, []string{PodIdentityAudience}, sub, now.Add(-time.Minute).Unix(), 0),
 		},
 		{
-			name:    "not yet valid",
-			claims:  map[string]any{"iss": c.OIDCIssuer, "aud": PodIdentityAudience, "nbf": now.Add(time.Hour).Unix(), "sub": "system:serviceaccount:d:a"},
-			wantErr: ErrInvalidToken,
+			name: "not yet valid", wantErr: ErrInvalidToken,
+			claims: claims(c.OIDCIssuer, PodIdentityAudience, sub, 0, now.Add(time.Hour).Unix()),
 		},
 		{
-			name:    "foreign issuer",
-			claims:  map[string]any{"iss": "https://elsewhere", "aud": PodIdentityAudience, "sub": "system:serviceaccount:d:a"},
-			wantErr: ErrInvalidToken,
+			name: "foreign issuer", wantErr: ErrInvalidToken,
+			claims: claims("https://elsewhere", PodIdentityAudience, sub, 0, 0),
 		},
 		{
-			name:    "not a service account",
-			claims:  map[string]any{"iss": c.OIDCIssuer, "aud": PodIdentityAudience, "sub": "user:bob"},
-			wantErr: ErrInvalidToken,
+			name: "not a service account", wantErr: ErrInvalidToken,
+			claims: claims(c.OIDCIssuer, PodIdentityAudience, "user:bob", 0, 0),
 		},
 		{
-			name:   "string audience",
-			claims: map[string]any{"iss": c.OIDCIssuer, "aud": PodIdentityAudience, "sub": "system:serviceaccount:d:a"},
+			name: "string audience", wantErr: nil,
+			claims: claims(c.OIDCIssuer, PodIdentityAudience, sub, 0, 0),
 		},
 	}
 
@@ -56,17 +66,17 @@ func TestVerifyPodIdentityTokenClaims(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tok, err := signServiceAccountJWT(key, tt.claims)
-			require.NoError(t, err)
+			tok, serr := signServiceAccountJWT(key, tt.claims)
+			require.NoError(t, serr)
 
-			_, err = verifyPodIdentityToken(tok, c.OIDCIssuer, &key.PublicKey, now)
+			_, err := verifyPodIdentityToken(tok, c.OIDCIssuer, &key.PublicKey, now)
 			if tt.wantErr == nil {
 				require.NoError(t, err)
 
 				return
 			}
 
-			require.True(t, errors.Is(err, tt.wantErr), "got %v", err)
+			require.ErrorIs(t, err, tt.wantErr)
 		})
 	}
 }

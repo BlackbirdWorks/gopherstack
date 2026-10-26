@@ -389,7 +389,7 @@ func parseClusterAssocPath(method, clusterName string, parts []string, maxParts 
 		return parseIdentityProviderRoute(method, clusterName, parts, maxParts)
 	}
 
-	if parts[1] == "assume-role-for-pod-identity" && len(parts) == 2 { //nolint:mnd // /clusters/{name}/assume-role-for-pod-identity
+	if parts[1] == "assume-role-for-pod-identity" && len(parts) == 2 { //nolint:mnd // two path segments
 		if method == http.MethodPost {
 			return eksRoute{operation: opAssumeRoleForPodIdentity, clusterName: clusterName}
 		}

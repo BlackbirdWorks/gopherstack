@@ -65,7 +65,9 @@ func newKVSDKClient(t *testing.T) *armkeyvault.VaultsClient {
 	return c
 }
 
-func createSDKVault(t *testing.T, c *armkeyvault.VaultsClient, name string, protect bool, mode *armkeyvault.CreateMode) {
+func createSDKVault(
+	t *testing.T, c *armkeyvault.VaultsClient, name string, protect bool, mode *armkeyvault.CreateMode,
+) {
 	t.Helper()
 
 	sku := armkeyvault.SKUNameStandard
@@ -170,21 +172,25 @@ func TestAzureKeyVaultARM_CheckNameAvailabilitySDK(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(t *testing.T, c *armkeyvault.VaultsClient)
 		name       string
 		vault      string
-		setup      func(t *testing.T, c *armkeyvault.VaultsClient)
-		wantFree   bool
 		wantReason armkeyvault.Reason
+		wantFree   bool
 	}{
 		{name: "free", vault: "freename", wantFree: true},
 		{name: "invalid", vault: "1bad", wantReason: armkeyvault.ReasonAccountNameInvalid},
 		{
 			name: "taken", vault: "taken", wantReason: armkeyvault.ReasonAlreadyExists,
-			setup: func(t *testing.T, c *armkeyvault.VaultsClient) { createSDKVault(t, c, "taken", false, nil) },
+			setup: func(t *testing.T, c *armkeyvault.VaultsClient) {
+				t.Helper()
+				createSDKVault(t, c, "taken", false, nil)
+			},
 		},
 		{
 			name: "soft deleted still reserved", vault: "reserved", wantReason: armkeyvault.ReasonAlreadyExists,
 			setup: func(t *testing.T, c *armkeyvault.VaultsClient) {
+				t.Helper()
 				createSDKVault(t, c, "reserved", false, nil)
 				_, err := c.Delete(t.Context(), kvSDKRG, "reserved", nil)
 				require.NoError(t, err)

@@ -15,8 +15,8 @@ func TestEKSPodIdentityAssumerIssuesSTSSessions(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		req     eksbackend.PodIdentityRoleRequest
 		wantTag string
+		req     eksbackend.PodIdentityRoleRequest
 	}{
 		{
 			name: "first hop carries session tags",

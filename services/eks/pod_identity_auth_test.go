@@ -61,20 +61,26 @@ func newPodAuthEnv(t *testing.T) *podAuthEnv {
 	return &podAuthEnv{client: client, backend: b, assumer: a}
 }
 
-func (e *podAuthEnv) token(t *testing.T, ns, sa, pod string, aud ...string) string {
+func (e *podAuthEnv) token(t *testing.T, ns, pod, aud string) string {
 	t.Helper()
 
+	var auds []string
+	if aud != "" {
+		auds = []string{aud}
+	}
+
 	tok, err := e.backend.MintServiceAccountToken("c1", eks.ServiceAccountTokenRequest{
-		Namespace: ns, Name: sa, PodName: pod, Audiences: aud,
+		Namespace: ns, Name: "app", PodName: pod, Audiences: auds,
 	})
 	require.NoError(t, err)
 
 	return tok.Token
 }
 
+var errTrustRefused = errors.New("trust policy does not allow pods.eks.amazonaws.com")
+
 func apiErrCode(err error) string {
-	var ae smithy.APIError
-	if errors.As(err, &ae) {
+	if ae, ok := errors.AsType[smithy.APIError](err); ok {
 		return ae.ErrorCode()
 	}
 
@@ -84,58 +90,41 @@ func apiErrCode(err error) string {
 func TestAssumeRoleForPodIdentity(t *testing.T) {
 	t.Parallel()
 
+	const (
+		goodAud = eks.PodIdentityAudience
+		roleARN = "arn:aws:iam::123456789012:role/app"
+	)
+
 	tests := []struct {
+		assoc    *eks.PodIdentityAssociationInput
+		stsErr   error
 		name     string
 		cluster  string
-		assoc    *eks.PodIdentityAssociationInput
-		token    func(t *testing.T, e *podAuthEnv) string
-		stsErr   error
+		ns       string
+		aud      string
+		raw      string
 		wantCode string
 		wantTags int
 	}{
 		{
-			name: "credentials", cluster: "c1", assoc: &eks.PodIdentityAssociationInput{}, wantTags: 6,
-			token: func(t *testing.T, e *podAuthEnv) string {
-				return e.token(t, "default", "app", "app-pod-1", eks.PodIdentityAudience)
-			},
+			name: "credentials", cluster: "c1", assoc: &eks.PodIdentityAssociationInput{}, ns: "default",
+			aud: goodAud, wantTags: 6,
 		},
 		{
-			name: "session tags disabled", cluster: "c1", assoc: &eks.PodIdentityAssociationInput{DisableSessionTags: true},
-			token: func(t *testing.T, e *podAuthEnv) string {
-				return e.token(t, "default", "app", "app-pod-1", eks.PodIdentityAudience)
-			},
+			name: "session tags disabled", cluster: "c1", ns: "default", aud: goodAud,
+			assoc: &eks.PodIdentityAssociationInput{DisableSessionTags: true},
 		},
+		{name: "no association", cluster: "c1", ns: "other", aud: goodAud, wantCode: "AccessDeniedException"},
 		{
-			name: "no association", cluster: "c1", wantCode: "AccessDeniedException",
-			token: func(t *testing.T, e *podAuthEnv) string {
-				return e.token(t, "other", "app", "p", eks.PodIdentityAudience)
-			},
-		},
-		{
-			name: "irsa audience rejected", cluster: "c1", assoc: &eks.PodIdentityAssociationInput{},
+			name: "irsa audience rejected", cluster: "c1", assoc: &eks.PodIdentityAssociationInput{}, ns: "default",
 			wantCode: "InvalidTokenException",
-			token: func(t *testing.T, e *podAuthEnv) string {
-				return e.token(t, "default", "app", "p")
-			},
 		},
+		{name: "garbage token", cluster: "c1", raw: "not-a-jwt", wantCode: "InvalidParameterException"},
+		{name: "forged signature", cluster: "c1", raw: "eyJhbGciOiJSUzI1NiJ9.e30.c2ln", wantCode: "InvalidTokenException"},
+		{name: "unknown cluster", cluster: "nope", raw: "a.b.c", wantCode: "ResourceNotFoundException"},
 		{
-			name: "garbage token", cluster: "c1", wantCode: "InvalidParameterException",
-			token: func(*testing.T, *podAuthEnv) string { return "not-a-jwt" },
-		},
-		{
-			name: "forged signature", cluster: "c1", wantCode: "InvalidTokenException",
-			token: func(*testing.T, *podAuthEnv) string { return "eyJhbGciOiJSUzI1NiJ9.e30.c2ln" },
-		},
-		{
-			name: "unknown cluster", cluster: "nope", wantCode: "ResourceNotFoundException",
-			token: func(*testing.T, *podAuthEnv) string { return "a.b.c" },
-		},
-		{
-			name: "sts refuses", cluster: "c1", assoc: &eks.PodIdentityAssociationInput{},
-			stsErr: errors.New("trust policy does not allow pods.eks.amazonaws.com"), wantCode: "AccessDeniedException",
-			token: func(t *testing.T, e *podAuthEnv) string {
-				return e.token(t, "default", "app", "p", eks.PodIdentityAudience)
-			},
+			name: "sts refuses", cluster: "c1", assoc: &eks.PodIdentityAssociationInput{}, ns: "default",
+			aud: goodAud, stsErr: errTrustRefused, wantCode: "AccessDeniedException",
 		},
 	}
 
@@ -147,13 +136,17 @@ func TestAssumeRoleForPodIdentity(t *testing.T) {
 			e.assumer.err = tt.stsErr
 
 			if tt.assoc != nil {
-				_, err := e.backend.CreatePodIdentityAssociation(
-					"c1", "default", "app", "arn:aws:iam::123456789012:role/app", nil, *tt.assoc)
+				_, err := e.backend.CreatePodIdentityAssociation("c1", "default", "app", roleARN, nil, *tt.assoc)
 				require.NoError(t, err)
 			}
 
+			token := tt.raw
+			if token == "" {
+				token = e.token(t, tt.ns, "app-pod-1", tt.aud)
+			}
+
 			out, err := e.client.AssumeRoleForPodIdentity(t.Context(), &eksauth.AssumeRoleForPodIdentityInput{
-				ClusterName: aws.String(tt.cluster), Token: aws.String(tt.token(t, e)),
+				ClusterName: aws.String(tt.cluster), Token: aws.String(token),
 			})
 
 			if tt.wantCode != "" {
@@ -186,11 +179,13 @@ func TestAssumeRoleForPodIdentityTargetRole(t *testing.T) {
 	e := newPodAuthEnv(t)
 
 	_, err := e.backend.CreatePodIdentityAssociation("c1", "default", "app", "arn:aws:iam::123456789012:role/app", nil,
-		eks.PodIdentityAssociationInput{TargetRoleARN: "arn:aws:iam::210987654321:role/target", Policy: `{"Version":"2012-10-17"}`})
+		eks.PodIdentityAssociationInput{
+			TargetRoleARN: "arn:aws:iam::210987654321:role/target", Policy: `{"Version":"2012-10-17"}`,
+		})
 	require.NoError(t, err)
 
 	_, err = e.client.AssumeRoleForPodIdentity(t.Context(), &eksauth.AssumeRoleForPodIdentityInput{
-		ClusterName: aws.String("c1"), Token: aws.String(e.token(t, "default", "app", "p", eks.PodIdentityAudience)),
+		ClusterName: aws.String("c1"), Token: aws.String(e.token(t, "default", "p", eks.PodIdentityAudience)),
 	})
 	require.NoError(t, err)
 

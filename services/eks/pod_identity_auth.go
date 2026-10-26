@@ -26,6 +26,10 @@ const (
 
 	podIdentitySessionMax = 64
 	jwtParts              = 3
+
+	keyAssociationID      = "associationId"
+	keyAssociationARN     = "associationArn"
+	keyServiceAccount     = "serviceAccount"
 	serviceAccountSubject = "system:serviceaccount:"
 )
 
@@ -98,11 +102,11 @@ func (h *Handler) SetPodIdentityRoleAssumer(a PodIdentityRoleAssumer) {
 }
 
 type podIdentityClaims struct {
-	Subject    string   `json:"sub"`
-	Issuer     string   `json:"iss"`
 	Audience   audience `json:"aud"`
 	Expiry     int64    `json:"exp"`
 	NotBefore  int64    `json:"nbf"`
+	Subject    string   `json:"sub"`
+	Issuer     string   `json:"iss"`
 	Kubernetes struct {
 		Namespace      string `json:"namespace"`
 		ServiceAccount struct {
@@ -315,7 +319,7 @@ func (h *Handler) handleAssumeRoleForPodIdentity(c *echo.Context, clusterName st
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"assumedRoleUser": map[string]string{"arn": res.Creds.AssumedRoleARN, "assumeRoleId": res.Creds.AssumedRoleID},
+		"assumedRoleUser": map[string]string{keyArn: res.Creds.AssumedRoleARN, "assumeRoleId": res.Creds.AssumedRoleID},
 		"audience":        PodIdentityAudience,
 		"credentials": map[string]any{
 			"accessKeyId":     res.Creds.AccessKeyID,
@@ -324,8 +328,8 @@ func (h *Handler) handleAssumeRoleForPodIdentity(c *echo.Context, clusterName st
 			"expiration":      res.Creds.Expiration.Unix(),
 		},
 		"podIdentityAssociation": map[string]string{
-			"associationArn": res.AssociationARN, "associationId": res.AssociationID,
+			keyAssociationARN: res.AssociationARN, keyAssociationID: res.AssociationID,
 		},
-		"subject": map[string]string{"namespace": res.Namespace, "serviceAccount": res.ServiceAccount},
+		"subject": map[string]string{"namespace": res.Namespace, keyServiceAccount: res.ServiceAccount},
 	})
 }
