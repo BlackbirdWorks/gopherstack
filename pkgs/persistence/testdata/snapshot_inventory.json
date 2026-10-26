@@ -15633,6 +15633,20 @@
     ],
     "version": 1
   },
+  "gcpdatastore": {
+    "fields": [
+      "backendSnapshot.Entities map[string]entitySnap `json:\"entities\"`",
+      "backendSnapshot.Indexes map[string]json.RawMessage `json:\"indexes\"`",
+      "backendSnapshot.LastCommit time.Time `json:\"lastCommit\"`",
+      "backendSnapshot.NextIndex int64 `json:\"nextIndex\"`",
+      "backendSnapshot.Operations map[string]json.RawMessage `json:\"operations\"`",
+      "backendSnapshot.UsedIDs map[string][]int64 `json:\"usedIds\"`",
+      "entitySnap.Created time.Time `json:\"created\"`",
+      "entitySnap.Entity json.RawMessage `json:\"entity\"`",
+      "entitySnap.Updated time.Time `json:\"updated\"`"
+    ],
+    "version": 1
+  },
   "gcpdns": {
     "fields": [
       "backendSnapshot.Policies map[string]*dnsapi.Policy `json:\"policies\"`",

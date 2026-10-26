@@ -9,6 +9,7 @@ require (
 	cloud.google.com/go/cloudbuild v1.34.0
 	cloud.google.com/go/cloudtasks v1.20.0
 	cloud.google.com/go/compute v1.72.0
+	cloud.google.com/go/datastore v1.25.0
 	cloud.google.com/go/eventarc v1.26.0
 	cloud.google.com/go/firestore v1.26.0
 	cloud.google.com/go/functions v1.26.0

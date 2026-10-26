@@ -87,6 +87,7 @@ func gcpPorts() map[string]string {
 		"dns":              "8140",
 		"dnsserver":        "8141",
 		"compute":          "8142",
+		"datastore":        "8143",
 		"bigquery":         "9050",
 	}
 }

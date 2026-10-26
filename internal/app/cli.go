@@ -176,6 +176,7 @@ import (
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	gcpdatastorebackend "github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -657,6 +658,7 @@ type CLI struct {
 	GCPEventarc                   gcpeventarcbackend.Settings       `embed:"" prefix:"gcp-eventarc-"`
 	GCPWorkflows                  gcpworkflowsbackend.Settings      `embed:"" prefix:"gcp-workflows-"`
 	GCPDNS                        gcpdnsbackend.Settings            `embed:"" prefix:"gcp-dns-"`
+	GCPDatastore                  gcpdatastorebackend.Settings      `embed:"" prefix:"gcp-datastore-"`
 	GCPCompute                    gcpcomputebackend.Settings        `embed:"" prefix:"gcp-compute-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
@@ -811,6 +813,9 @@ func (c *CLI) GetGCPEventarcSettings() gcpeventarcbackend.Settings { return c.GC
 
 // GetGCPWorkflowsSettings returns Google Cloud Workflows settings (gcpworkflows.ConfigProvider).
 func (c *CLI) GetGCPWorkflowsSettings() gcpworkflowsbackend.Settings { return c.GCPWorkflows }
+
+// GetGCPDatastoreSettings returns Google Cloud Datastore settings (gcpdatastore.ConfigProvider).
+func (c *CLI) GetGCPDatastoreSettings() gcpdatastorebackend.Settings { return c.GCPDatastore }
 
 // GetGCPDNSSettings returns Google Cloud DNS settings (gcpdns.ConfigProvider).
 func (c *CLI) GetGCPDNSSettings() gcpdnsbackend.Settings { return c.GCPDNS }
@@ -2587,6 +2592,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPBigtable", "gcpbigtable", cli.GCPBigtable.Port},
 		{"GCPEventarc", "gcpeventarc", cli.GCPEventarc.Port},
 		{"GCPWorkflows", "gcpworkflows", cli.GCPWorkflows.Port},
+		{"GCPDatastore", "gcpdatastore", cli.GCPDatastore.Port},
 		{"GCPDNS", "gcpdns", cli.GCPDNS.Port},
 		{"GCPDNSServer", "gcpdns-server", cli.GCPDNS.DNSPort},
 		{"GCPCompute", "gcpcompute", cli.GCPCompute.Port},
@@ -5067,6 +5073,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpbigtablebackend.Provider{},
 		&gcpeventarcbackend.Provider{},
 		&gcpworkflowsbackend.Provider{},
+		&gcpdatastorebackend.Provider{},
 		&gcpdnsbackend.Provider{},
 		&gcpcomputebackend.Provider{},
 		&gcploggingbackend.Provider{},

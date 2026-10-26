@@ -15,6 +15,7 @@ require (
 	cloud.google.com/go/cloudbuild v1.34.0 // indirect
 	cloud.google.com/go/cloudtasks v1.20.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
+	cloud.google.com/go/datastore v1.25.0 // indirect
 	cloud.google.com/go/eventarc v1.26.0 // indirect
 	cloud.google.com/go/firestore v1.26.0 // indirect
 	cloud.google.com/go/functions v1.26.0 // indirect
