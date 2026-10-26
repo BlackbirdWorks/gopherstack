@@ -164,7 +164,17 @@ func categoryGroups() []categoryGroup {
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
 			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows, slugGCPDNS,
 		}},
-		{"OCI", []string{slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions, slugOCICore}},
+		{
+			"OCI",
+			[]string{
+				slugOCIObjectStore,
+				slugOCIVault,
+				slugOCIStreaming,
+				slugOCIIdentity,
+				slugOCIFunctions,
+				slugOCICore,
+			},
+		},
 		{"Other", []string{
 			"appstream", "managedblockchain", "omics", "support", "workspaces",
 		}},

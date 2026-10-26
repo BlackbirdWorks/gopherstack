@@ -18,9 +18,8 @@ func TestSubnetCreate(t *testing.T) {
 	other := e.mkVcn(t, "10.9.0.0/16", "other")
 	e.mkSubnet(t, v, "10.0.1.0/24")
 
-	_, err := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{CreateSubnetDetails: core.CreateSubnetDetails{
-		CompartmentId: new(testComp), VcnId: v.Id, CidrBlock: new("10.0.20.0/24"), DnsLabel: new("web"),
-	}})
+	_, err := e.client.CreateSubnet(ctx, core.CreateSubnetRequest{
+		CompartmentId: new(testComp), VcnId: v.Id, CidrBlock: new("10.0.20.0/24"), DnsLabel: new("web")})
 	require.NoError(t, err)
 
 	otherSL, err := e.client.CreateSecurityList(ctx, core.CreateSecurityListRequest{

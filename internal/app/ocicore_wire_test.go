@@ -15,20 +15,24 @@ func TestWireOCICore(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		compartment func(idH *ociidentitybackend.Handler) string
+		name        string
 		wantOK      bool
 	}{
-		{"tenancy is accepted", func(*ociidentitybackend.Handler) string { return ociidentitybackend.TenancyID }, true},
-		{"unknown compartment is rejected", func(*ociidentitybackend.Handler) string { return "ocid1.compartment.oc1..ghost" }, false},
-		{"identity compartment is accepted", func(h *ociidentitybackend.Handler) string {
+		{func(*ociidentitybackend.Handler) string { return ociidentitybackend.TenancyID }, "tenancy is accepted", true},
+		{
+			func(*ociidentitybackend.Handler) string { return "ocid1.compartment.oc1..ghost" },
+			"unknown compartment is rejected",
+			false,
+		},
+		{func(h *ociidentitybackend.Handler) string {
 			c, _, err := h.Backend.CreateCompartment(ociidentitybackend.CreateCompartmentIn{
 				CompartmentID: ociidentitybackend.TenancyID, Name: "net", Description: "d",
 			})
 			require.NoError(t, err)
 
 			return c.ID
-		}, true},
+		}, "identity compartment is accepted", true},
 	}
 
 	for _, tt := range tests {
