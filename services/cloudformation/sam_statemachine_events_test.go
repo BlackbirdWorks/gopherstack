@@ -2,6 +2,7 @@ package cloudformation_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -26,12 +27,15 @@ func samSM(events string) string {
 
 // samEvent renders one event; props are "Key: value" lines at property depth.
 func samEvent(name, typ string, props ...string) string {
-	out := "        " + name + ":\n          Type: " + typ + "\n          Properties:\n"
+	var sb strings.Builder
+
+	sb.WriteString("        " + name + ":\n          Type: " + typ + "\n          Properties:\n")
+
 	for _, p := range props {
-		out += "            " + p + "\n"
+		sb.WriteString("            " + p + "\n")
 	}
 
-	return out
+	return sb.String()
 }
 
 func processedResources(t *testing.T, env *samEventEnv) map[string]map[string]any {

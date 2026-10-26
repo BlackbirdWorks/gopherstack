@@ -86,7 +86,7 @@ func samAuthorizer(apiID, name string, v any) (map[string]any, map[string]any, e
 
 func samAuthDef(header string, ext map[string]any, authType string) map[string]any {
 	return map[string]any{
-		samKeyTypeLower: "apiKey", "name": header, "in": "header",
+		samKeyTypeLower: "apiKey", samKeyNameLower: header, "in": samLocHeader,
 		"x-amazon-apigateway-authtype": authType, "x-amazon-apigateway-authorizer": ext,
 	}
 }

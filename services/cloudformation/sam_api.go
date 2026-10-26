@@ -220,7 +220,11 @@ func (a *samAPI) body() (map[string]any, error) {
 		if defs == nil {
 			defs = map[string]any{}
 		}
-		defs[samAPIKeyScheme] = map[string]any{"in": samLocHeader, "name": samAPIKeyHeader, samKeyTypeLower: "apiKey"}
+		defs[samAPIKeyScheme] = map[string]any{
+			"in":            samLocHeader,
+			samKeyNameLower: samAPIKeyHeader,
+			samKeyTypeLower: "apiKey",
+		}
 		doc["securityDefinitions"] = defs
 	}
 
@@ -296,7 +300,7 @@ func routeOperation(rt samRoute) map[string]any {
 		params := make([]any, 0, len(rt.params))
 		var cacheKeys []any
 		for _, p := range rt.params {
-			params = append(params, map[string]any{"in": p.in, "name": p.name, "required": p.required,
+			params = append(params, map[string]any{"in": p.in, samKeyNameLower: p.name, "required": p.required,
 				samKeyTypeLower: samSwaggerString})
 			if p.caching {
 				cacheKeys = append(cacheKeys, p.full)

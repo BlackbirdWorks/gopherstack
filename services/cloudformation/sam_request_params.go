@@ -10,6 +10,7 @@ const (
 	samIntegrationKey = "x-amazon-apigateway-integration"
 	samSwaggerString  = "string"
 	samLocHeader      = "header"
+	samKeyNameLower   = "name"
 	samTimeoutMin     = 50
 	samTimeoutMax     = 29000
 )
