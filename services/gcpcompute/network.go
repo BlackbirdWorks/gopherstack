@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/netip"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	computeapi "google.golang.org/api/compute/v1"
@@ -51,7 +53,7 @@ func (b *InMemoryBackend) getNetworkLocked(project, name string) (*computeapi.Ne
 func (b *InMemoryBackend) resolveNetworkLocked(project, raw string) (*computeapi.Network, *APIError) {
 	r, err := refGlobal(raw, "networks", project)
 	if err != nil {
-		return nil, errField("network", raw, "The URL is malformed.")
+		return nil, errField(collNetwork, raw, "The URL is malformed.")
 	}
 
 	return b.getNetworkLocked(r.project, r.name)
@@ -94,7 +96,11 @@ func validRoutingConfig(rc *computeapi.NetworkRoutingConfig) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) insertNetwork(project string, in *computeapi.Network, autoGiven bool) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) insertNetwork(
+	project string,
+	in *computeapi.Network,
+	autoGiven bool,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("InsertNetwork")
 	defer b.mu.Unlock()
 
@@ -138,7 +144,7 @@ func (b *InMemoryBackend) insertNetwork(project string, in *computeapi.Network, 
 		n.NetworkFirewallPolicyEnforcementOrder = enforceOrderDef
 	}
 
-	n.SelfLinkWithId = globalLink(project, "networks", int64Str(int64(n.Id)))
+	n.SelfLinkWithId = globalLink(project, "networks", strconv.FormatUint(n.Id, 10))
 	b.networks[key(project, n.Name)] = n
 
 	if n.AutoCreateSubnetworks {
@@ -177,40 +183,48 @@ func (b *InMemoryBackend) listNetworks(project string) []entry {
 	return out
 }
 
-func (b *InMemoryBackend) networkUserLocked(project string, n *computeapi.Network) (kind, path string) {
+func (b *InMemoryBackend) networkUserLocked(project string, n *computeapi.Network) string {
+	if by := b.networkRefsLocked(project, n); by != "" {
+		return by
+	}
+
+	for _, r := range b.routers {
+		if r.Router.Network == n.SelfLink {
+			return trimURL(r.Router.SelfLink)
+		}
+	}
+
+	for _, r := range b.instances {
+		if slices.ContainsFunc(r.Inst.NetworkInterfaces, func(nic *computeapi.NetworkInterface) bool {
+			return nic.Network == n.SelfLink
+		}) {
+			return trimURL(r.Inst.SelfLink)
+		}
+	}
+
+	return ""
+}
+
+func (b *InMemoryBackend) networkRefsLocked(project string, n *computeapi.Network) string {
 	for _, f := range b.firewalls {
 		if f.Network == n.SelfLink {
-			return "network", relPath(project, scopeGlobal, "", "firewalls", f.Name)
+			return relPath(project, scopeGlobal, "", "firewalls", f.Name)
 		}
 	}
 
 	for _, r := range b.routes {
 		if r.Network == n.SelfLink && !isSystemRoute(r) {
-			return "network", relPath(project, scopeGlobal, "", "routes", r.Name)
+			return relPath(project, scopeGlobal, "", "routes", r.Name)
 		}
 	}
 
 	for _, s := range b.subnets {
-		if s.Network == n.SelfLink && !(n.AutoCreateSubnetworks && s.Name == n.Name) {
-			return "network", trimURL(s.SelfLink)
+		if s.Network == n.SelfLink && (!n.AutoCreateSubnetworks || s.Name != n.Name) {
+			return trimURL(s.SelfLink)
 		}
 	}
 
-	for _, r := range b.routers {
-		if r.Router.Network == n.SelfLink {
-			return "network", trimURL(r.Router.SelfLink)
-		}
-	}
-
-	for _, r := range b.instances {
-		for _, nic := range r.Inst.NetworkInterfaces {
-			if nic.Network == n.SelfLink {
-				return "network", trimURL(r.Inst.SelfLink)
-			}
-		}
-	}
-
-	return "", ""
+	return ""
 }
 
 func isSystemRoute(r *computeapi.Route) bool {
@@ -226,8 +240,8 @@ func (b *InMemoryBackend) deleteNetwork(project, name string) (*computeapi.Opera
 		return nil, err
 	}
 
-	if _, by := b.networkUserLocked(project, n); by != "" {
-		return nil, errInUse("network", relPath(project, scopeGlobal, "", "networks", name), by)
+	if by := b.networkUserLocked(project, n); by != "" {
+		return nil, errInUse(collNetwork, relPath(project, scopeGlobal, "", "networks", name), by)
 	}
 
 	for k, s := range b.subnets {
@@ -247,13 +261,17 @@ func (b *InMemoryBackend) deleteNetwork(project, name string) (*computeapi.Opera
 	return b.newOpLocked("delete", netTarget(project, n), b.timing.Done), nil
 }
 
-var networkPatchable = map[string]bool{
+var networkPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 	"name": true, "routingConfig": true, "mtu": true, "description": true,
 	"networkFirewallPolicyEnforcementOrder": true, "kind": true, "id": true, "selfLink": true,
 	"creationTimestamp": true, "autoCreateSubnetworks": true, "subnetworks": true, "selfLinkWithId": true,
 }
 
-func (b *InMemoryBackend) patchNetwork(project, name string, in *computeapi.Network, raw map[string]any) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) patchNetwork(
+	project, name string,
+	in *computeapi.Network,
+	raw map[string]any,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("PatchNetwork")
 	defer b.mu.Unlock()
 

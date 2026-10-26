@@ -54,8 +54,15 @@ func (h *Handler) registerVPCOps() {
 
 func (h *Handler) registerSubnetOps() {
 	r := scopeRegion
-	h.scopedList("subnetworks", r, "compute#subnetworkList", "compute#subnetworkAggregatedList", "subnetworks", regionScopes(),
-		func(b *InMemoryBackend, p, s, l string) []entry { return b.listSubnets(p, s, l) })
+	h.scopedList(
+		"subnetworks",
+		r,
+		"compute#subnetworkList",
+		"compute#subnetworkAggregatedList",
+		"subnetworks",
+		regionScopes(),
+		func(b *InMemoryBackend, p, s, l string) []entry { return b.listSubnets(p, s, l) },
+	)
 	h.reg("subnetworks", r, verbGet, func(h *Handler, rq *request) (any, error) {
 		return h.Backend.getSubnet(rq.rt.project, rq.rt.loc, rq.rt.name)
 	})
@@ -92,7 +99,9 @@ func (h *Handler) registerSubnetOps() {
 			return nil, err
 		}
 
-		return opResult(h.Backend.setSubnetPrivateGoogleAccess(rq.rt.project, rq.rt.loc, rq.rt.name, in.PrivateIPGoogleAccess))
+		return opResult(
+			h.Backend.setSubnetPrivateGoogleAccess(rq.rt.project, rq.rt.loc, rq.rt.name, in.PrivateIPGoogleAccess),
+		)
 	})
 }
 

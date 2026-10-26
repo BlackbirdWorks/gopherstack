@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	physBlockBytes = 4096
 	minDiskGb      = 10
 	maxDiskGb      = 65536
 	defaultDiskTyp = "pd-standard"
@@ -147,10 +148,20 @@ func (b *InMemoryBackend) createDiskLocked(project, zone string, in *computeapi.
 	}
 
 	d := &computeapi.Disk{
-		Kind: "compute#disk", Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name, Description: in.Description,
-		SizeGb: size, Zone: scopeURL(project, scopeZone, zone), Status: "READY", SelfLink: zoneLink(project, zone, "disks", in.Name),
-		Type: zoneLink(project, zone, "diskTypes", dt.name), Labels: in.Labels, LabelFingerprint: labelFP(in.Labels),
-		PhysicalBlockSizeBytes: 4096, Architecture: "X86_64",
+		Kind:                   "compute#disk",
+		Id:                     newID(),
+		CreationTimestamp:      b.stamp(),
+		Name:                   in.Name,
+		Description:            in.Description,
+		SizeGb:                 size,
+		Zone:                   scopeURL(project, scopeZone, zone),
+		Status:                 statusReady,
+		SelfLink:               zoneLink(project, zone, "disks", in.Name),
+		Type:                   zoneLink(project, zone, "diskTypes", dt.name),
+		Labels:                 in.Labels,
+		LabelFingerprint:       labelFP(in.Labels),
+		PhysicalBlockSizeBytes: physBlockBytes,
+		Architecture:           archX86,
 	}
 
 	if src.image != nil {
@@ -269,7 +280,9 @@ func (b *InMemoryBackend) setDiskLabels(project, zone, name string, req labelsRe
 
 func storageLocationFor(zone string) string {
 	switch {
-	case strings.HasPrefix(zone, "us-"), strings.HasPrefix(zone, "northamerica-"), strings.HasPrefix(zone, "southamerica-"):
+	case strings.HasPrefix(zone, "us-"),
+		strings.HasPrefix(zone, "northamerica-"),
+		strings.HasPrefix(zone, "southamerica-"):
 		return "us"
 	case strings.HasPrefix(zone, "europe-"):
 		return "eu"
@@ -278,7 +291,10 @@ func storageLocationFor(zone string) string {
 	return "asia"
 }
 
-func (b *InMemoryBackend) createSnapshot(project, zone, name string, in *computeapi.Snapshot) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) createSnapshot(
+	project, zone, name string,
+	in *computeapi.Snapshot,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("CreateSnapshot")
 	defer b.mu.Unlock()
 
@@ -306,9 +322,9 @@ func (b *InMemoryBackend) createSnapshot(project, zone, name string, in *compute
 
 	s := &computeapi.Snapshot{
 		Kind: "compute#snapshot", Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name, Description: in.Description,
-		Status: "READY", DiskSizeGb: d.SizeGb, SourceDisk: d.SelfLink, SourceDiskId: strconv.FormatUint(d.Id, 10),
+		Status: statusReady, DiskSizeGb: d.SizeGb, SourceDisk: d.SelfLink, SourceDiskId: strconv.FormatUint(d.Id, 10),
 		SelfLink: globalLink(project, "snapshots", in.Name), Labels: in.Labels, LabelFingerprint: labelFP(in.Labels),
-		StorageLocations: locs, SnapshotType: "STANDARD", Architecture: d.Architecture,
+		StorageLocations: locs, SnapshotType: tierStandard, Architecture: d.Architecture,
 		Licenses: d.Licenses, GuestOsFeatures: d.GuestOsFeatures,
 	}
 	b.snapshots[key(project, in.Name)] = s
@@ -354,7 +370,11 @@ func (b *InMemoryBackend) deleteSnapshot(project, name string) (*computeapi.Oper
 
 	delete(b.snapshots, key(project, name))
 
-	return b.newOpLocked("delete", target{project: project, scope: scopeGlobal, collection: "snapshots", name: name, id: s.Id}, b.timing.Done), nil
+	return b.newOpLocked(
+		"delete",
+		target{project: project, scope: scopeGlobal, collection: "snapshots", name: name, id: s.Id},
+		b.timing.Done,
+	), nil
 }
 
 func (b *InMemoryBackend) setSnapshotLabels(project, name string, req labelsRequest) (*computeapi.Operation, error) {
@@ -373,5 +393,9 @@ func (b *InMemoryBackend) setSnapshotLabels(project, name string, req labelsRequ
 
 	s.Labels, s.LabelFingerprint = labels, fp
 
-	return b.newOpLocked("setLabels", target{project: project, scope: scopeGlobal, collection: "snapshots", name: name, id: s.Id}, b.timing.Done), nil
+	return b.newOpLocked(
+		"setLabels",
+		target{project: project, scope: scopeGlobal, collection: "snapshots", name: name, id: s.Id},
+		b.timing.Done,
+	), nil
 }

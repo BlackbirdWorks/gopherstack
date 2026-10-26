@@ -154,7 +154,10 @@ func opScopeKey(op *computeapi.Operation) string {
 }
 
 // waitOperation blocks on the backend clock until the operation is DONE and returns it.
-func (b *InMemoryBackend) waitOperation(ctx context.Context, project, scope, loc, name string) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) waitOperation(
+	ctx context.Context,
+	project, scope, loc, name string,
+) (*computeapi.Operation, error) {
 	b.mu.RLock("WaitOperation")
 	r, err := b.getOpLocked(project, scope, loc, name)
 

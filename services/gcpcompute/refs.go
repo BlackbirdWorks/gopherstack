@@ -14,8 +14,8 @@ func trimURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if i := strings.Index(raw, "/compute/"); i >= 0 {
 		rest := raw[i+len("/compute/"):]
-		if j := strings.IndexByte(rest, '/'); j >= 0 {
-			return rest[j+1:]
+		if _, after, ok := strings.Cut(rest, "/"); ok {
+			return after
 		}
 	}
 
@@ -42,7 +42,7 @@ func parseRef(raw, collection, defProject, defLoc string) (ref, bool) {
 
 	rest := parts[:len(parts)-2]
 
-	if len(rest) >= 2 && rest[0] == "projects" {
+	if len(rest) >= 2 && rest[0] == collProjects {
 		r.project = rest[1]
 		rest = rest[2:]
 	}

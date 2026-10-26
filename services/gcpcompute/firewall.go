@@ -2,6 +2,7 @@ package gcpcompute
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,9 +20,22 @@ const (
 
 var (
 	portRE      = regexp.MustCompile(`^(\d{1,5})(-(\d{1,5}))?$`)
-	protocolSet = map[string]bool{"tcp": true, "udp": true, "icmp": true, "esp": true, "ah": true, "sctp": true, "ipip": true, "all": true}
-	portProtos  = map[string]bool{"tcp": true, "udp": true, "sctp": true}
-	tagRE       = nameRE
+	protocolSet = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
+		"tcp":  true,
+		"udp":  true,
+		"icmp": true,
+		"esp":  true,
+		"ah":   true,
+		"sctp": true,
+		"ipip": true,
+		"all":  true,
+	}
+	portProtos = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
+		"tcp":  true,
+		"udp":  true,
+		"sctp": true,
+	}
+	tagRE = nameRE //nolint:gochecknoglobals // read-only lookup table
 )
 
 func fwTarget(project string, f *computeapi.Firewall) target {
@@ -33,7 +47,11 @@ func validProtocol(field, proto string, ports []string) *APIError {
 
 	if !protocolSet[p] {
 		if n, err := strconv.Atoi(proto); err != nil || n < 0 || n > 255 {
-			return errField(field+".IPProtocol", proto, "Must be one of tcp, udp, icmp, esp, ah, sctp, ipip, all or a protocol number.")
+			return errField(
+				field+".IPProtocol",
+				proto,
+				"Must be one of tcp, udp, icmp, esp, ah, sctp, ipip, all or a protocol number.",
+			)
 		}
 
 		p = ""
@@ -113,6 +131,14 @@ func validateFirewall(f *computeapi.Firewall) *APIError {
 		return errField("resource.priority", strconv.FormatInt(f.Priority, 10), "Priority must be between 0 and 65535.")
 	}
 
+	if err := validateDirection(f); err != nil {
+		return err
+	}
+
+	return validateFirewallTargets(f)
+}
+
+func validateDirection(f *computeapi.Firewall) *APIError {
 	switch f.Direction {
 	case dirIngress:
 		if len(f.DestinationRanges) > 0 {
@@ -120,22 +146,29 @@ func validateFirewall(f *computeapi.Firewall) *APIError {
 		}
 
 		if len(f.TargetServiceAccounts) > 0 && len(f.TargetTags) > 0 {
-			return errInvalid("Invalid value for field 'resource.targetTags': targetTags and targetServiceAccounts are mutually exclusive.")
+			return errInvalid("Invalid value for field 'resource.targetTags': " +
+				"targetTags and targetServiceAccounts are mutually exclusive.")
 		}
 	case dirEgress:
 		if len(f.SourceRanges)+len(f.SourceTags)+len(f.SourceServiceAccounts) > 0 {
-			return errInvalid("Invalid value for field 'resource.sourceRanges': source fields are not valid for EGRESS rules.")
+			return errInvalid(
+				"Invalid value for field 'resource.sourceRanges': source fields are not valid for EGRESS rules.",
+			)
 		}
 	default:
 		return errField("resource.direction", f.Direction, "Must be INGRESS or EGRESS.")
 	}
 
-	for field, ranges := range map[string][]string{
-		"resource.sourceRanges": f.SourceRanges, "resource.destinationRanges": f.DestinationRanges,
-	} {
-		if err := validRanges(field, ranges); err != nil {
-			return err
-		}
+	return nil
+}
+
+func validateFirewallTargets(f *computeapi.Firewall) *APIError {
+	if err := validRanges("resource.sourceRanges", f.SourceRanges); err != nil {
+		return err
+	}
+
+	if err := validRanges("resource.destinationRanges", f.DestinationRanges); err != nil {
+		return err
 	}
 
 	if err := validTags("resource.sourceTags", f.SourceTags); err != nil {
@@ -199,13 +232,7 @@ func (b *InMemoryBackend) insertFirewall(project string, in *computeapi.Firewall
 }
 
 func hasForced(fields []string, name string) bool {
-	for _, f := range fields {
-		if f == name {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(fields, name)
 }
 
 func (b *InMemoryBackend) getFirewall(project, name string) (*computeapi.Firewall, error) {
@@ -257,7 +284,10 @@ func (b *InMemoryBackend) deleteFirewall(project, name string) (*computeapi.Oper
 }
 
 // updateFirewall applies a PUT (full replace) when merged is the complete new body, or a PATCH merge result.
-func (b *InMemoryBackend) updateFirewall(project, name, opType string, build func(cur *computeapi.Firewall) (*computeapi.Firewall, *APIError)) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) updateFirewall(
+	project, name, opType string,
+	build func(cur *computeapi.Firewall) (*computeapi.Firewall, *APIError),
+) (*computeapi.Operation, error) {
 	b.mu.Lock("UpdateFirewall")
 	defer b.mu.Unlock()
 

@@ -98,7 +98,11 @@ func regionScopes() []string {
 }
 
 // scopedList registers list and aggregatedList for a collection whose entries come from fn.
-func (h *Handler) scopedList(collection, scope, kind, aggKind, aggKey string, scopes []string, fn func(b *InMemoryBackend, project, scope, loc string) []entry) {
+func (h *Handler) scopedList(
+	collection, scope, kind, aggKind, aggKey string,
+	scopes []string,
+	fn func(b *InMemoryBackend, project, scope, loc string) []entry,
+) {
 	h.reg(collection, scope, verbList, func(h *Handler, rq *request) (any, error) {
 		return listBody(rq, kind, fn(h.Backend, rq.rt.project, rq.rt.scope, rq.rt.loc))
 	})

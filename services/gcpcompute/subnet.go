@@ -54,9 +54,13 @@ func (b *InMemoryBackend) networkRangesLocked(network, skip string) []netip.Pref
 	return out
 }
 
-func validSecondaries(secs []*computeapi.SubnetworkSecondaryRange, taken []netip.Prefix, existing int) (*APIError, []netip.Prefix) {
+func validSecondaries(
+	secs []*computeapi.SubnetworkSecondaryRange,
+	taken []netip.Prefix,
+	existing int,
+) *APIError {
 	if existing+len(secs) > maxSecondaryRanges {
-		return errInvalid("Too many secondary ranges; at most %d are allowed.", maxSecondaryRanges), taken
+		return errInvalid("Too many secondary ranges; at most %d are allowed.", maxSecondaryRanges)
 	}
 
 	names := map[string]bool{}
@@ -65,31 +69,38 @@ func validSecondaries(secs []*computeapi.SubnetworkSecondaryRange, taken []netip
 		field := "resource.secondaryIpRanges[" + int64Str(int64(i)) + "]"
 
 		if err := validName(field+".rangeName", sec.RangeName); err != nil {
-			return err, taken
+			return err
 		}
 
 		if names[sec.RangeName] {
-			return errField(field+".rangeName", sec.RangeName, "Duplicate secondary range name."), taken
+			return errField(field+".rangeName", sec.RangeName, "Duplicate secondary range name.")
 		}
 
 		names[sec.RangeName] = true
 
 		p, err := parseSubnetCIDR(field+".ipCidrRange", sec.IpCidrRange)
 		if err != nil {
-			return err, taken
+			return err
 		}
 
 		if overlaps(p, taken...) {
-			return errField(field+".ipCidrRange", sec.IpCidrRange, "Range overlaps with an existing range in the network."), taken
+			return errField(
+				field+".ipCidrRange",
+				sec.IpCidrRange,
+				"Range overlaps with an existing range in the network.",
+			)
 		}
 
 		taken = append(taken, p)
 	}
 
-	return nil, taken
+	return nil
 }
 
-func (b *InMemoryBackend) insertSubnet(project, region string, in *computeapi.Subnetwork) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) insertSubnet(
+	project, region string,
+	in *computeapi.Subnetwork,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("InsertSubnet")
 	defer b.mu.Unlock()
 
@@ -102,7 +113,7 @@ func (b *InMemoryBackend) insertSubnet(project, region string, in *computeapi.Su
 	}
 
 	if in.Network == "" {
-		return nil, errRequired("network")
+		return nil, errRequired(collNetwork)
 	}
 
 	n, err := b.resolveNetworkLocked(project, in.Network)
@@ -111,7 +122,10 @@ func (b *InMemoryBackend) insertSubnet(project, region string, in *computeapi.Su
 	}
 
 	if n.AutoCreateSubnetworks {
-		return nil, errInvalid("Invalid value for field 'resource.network': '%s'. Subnetworks cannot be created in an auto mode network.", in.Network)
+		return nil, errInvalid(
+			"Invalid value for field 'resource.network': '%s'. Subnetworks cannot be created in an auto mode network.",
+			in.Network,
+		)
 	}
 
 	if _, dup := b.subnets[key(project, region, in.Name)]; dup {
@@ -125,10 +139,14 @@ func (b *InMemoryBackend) insertSubnet(project, region string, in *computeapi.Su
 
 	taken := b.networkRangesLocked(n.SelfLink, "")
 	if overlaps(p, taken...) {
-		return nil, errField("resource.ipCidrRange", in.IpCidrRange, "Range overlaps with an existing subnetwork in the network.")
+		return nil, errField(
+			"resource.ipCidrRange",
+			in.IpCidrRange,
+			"Range overlaps with an existing subnetwork in the network.",
+		)
 	}
 
-	if apiErr, _ := validSecondaries(in.SecondaryIpRanges, append(taken, p), 0); apiErr != nil {
+	if apiErr := validSecondaries(in.SecondaryIpRanges, append(taken, p), 0); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -244,7 +262,11 @@ func (b *InMemoryBackend) expandSubnet(project, region, name, cidr string) (*com
 
 	cur := netip.MustParsePrefix(s.IpCidrRange)
 	if next.Bits() >= cur.Bits() || !next.Contains(cur.Addr()) {
-		return nil, errField("ipCidrRange", cidr, "New range must be a strictly larger range that contains the existing range "+s.IpCidrRange+".")
+		return nil, errField(
+			"ipCidrRange",
+			cidr,
+			"New range must be a strictly larger range that contains the existing range "+s.IpCidrRange+".",
+		)
 	}
 
 	if overlaps(next, b.networkRangesLocked(s.Network, s.SelfLink)...) {
@@ -256,7 +278,10 @@ func (b *InMemoryBackend) expandSubnet(project, region, name, cidr string) (*com
 	return b.newOpLocked("expandIpCidrRange", subnetTarget(project, region, s), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) setSubnetPrivateGoogleAccess(project, region, name string, enabled bool) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setSubnetPrivateGoogleAccess(
+	project, region, name string,
+	enabled bool,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetPrivateIpGoogleAccess")
 	defer b.mu.Unlock()
 
@@ -270,14 +295,18 @@ func (b *InMemoryBackend) setSubnetPrivateGoogleAccess(project, region, name str
 	return b.newOpLocked("setPrivateIpGoogleAccess", subnetTarget(project, region, s), b.timing.Done), nil
 }
 
-var subnetPatchable = map[string]bool{
-	"name": true, "network": true, "ipCidrRange": true, "secondaryIpRanges": true, "privateIpGoogleAccess": true,
+var subnetPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
+	"name": true, collNetwork: true, "ipCidrRange": true, "secondaryIpRanges": true, "privateIpGoogleAccess": true,
 	"enableFlowLogs": true, "logConfig": true, "description": true, "fingerprint": true, "region": true,
 	"kind": true, "id": true, "selfLink": true, "creationTimestamp": true, "gatewayAddress": true, "purpose": true,
 	"stackType": true, "privateIpv6GoogleAccess": true,
 }
 
-func (b *InMemoryBackend) patchSubnet(project, region, name string, in *computeapi.Subnetwork, raw map[string]any) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) patchSubnet(
+	project, region, name string,
+	in *computeapi.Subnetwork,
+	raw map[string]any,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("PatchSubnet")
 	defer b.mu.Unlock()
 
@@ -297,7 +326,11 @@ func (b *InMemoryBackend) patchSubnet(project, region, name string, in *computea
 	}
 
 	if in.IpCidrRange != "" && in.IpCidrRange != s.IpCidrRange {
-		return nil, errField("resource.ipCidrRange", in.IpCidrRange, "Use expandIpCidrRange to change the primary range.")
+		return nil, errField(
+			"resource.ipCidrRange",
+			in.IpCidrRange,
+			"Use expandIpCidrRange to change the primary range.",
+		)
 	}
 
 	if err = b.mergeSecondariesLocked(s, in); err != nil {
@@ -338,7 +371,11 @@ func (b *InMemoryBackend) mergeSecondariesLocked(s, in *computeapi.Subnetwork) *
 	for _, sec := range in.SecondaryIpRanges {
 		if cidr, ok := have[sec.RangeName]; ok {
 			if cidr != sec.IpCidrRange {
-				return errField("resource.secondaryIpRanges", sec.RangeName, "An existing secondary range cannot be changed.")
+				return errField(
+					"resource.secondaryIpRanges",
+					sec.RangeName,
+					"An existing secondary range cannot be changed.",
+				)
 			}
 
 			continue
@@ -354,7 +391,7 @@ func (b *InMemoryBackend) mergeSecondariesLocked(s, in *computeapi.Subnetwork) *
 		taken = append(taken, netip.MustParsePrefix(sec.IpCidrRange))
 	}
 
-	if err, _ := validSecondaries(added, taken, len(s.SecondaryIpRanges)); err != nil {
+	if err := validSecondaries(added, taken, len(s.SecondaryIpRanges)); err != nil {
 		return err
 	}
 

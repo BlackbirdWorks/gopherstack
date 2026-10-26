@@ -28,7 +28,9 @@ func freePort(t *testing.T) int {
 
 type fakeConfig struct{ port int }
 
-func (f fakeConfig) GetGCPComputeSettings() gcpcompute.Settings { return gcpcompute.Settings{Port: f.port} }
+func (f fakeConfig) GetGCPComputeSettings() gcpcompute.Settings {
+	return gcpcompute.Settings{Port: f.port}
+}
 
 func TestHandlerMetadata(t *testing.T) {
 	t.Parallel()

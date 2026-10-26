@@ -21,18 +21,42 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	spec.Labels = map[string]string{"env": "x"}
 	vm := src.vm(t, spec)
 
-	op, err := src.addresses(t).Insert(t.Context(), &computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: &computepb.Address{Name: s("keep")}})
+	op, err := src.addresses(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertAddressRequest{
+				Project:         project,
+				Region:          region,
+				AddressResource: &computepb.Address{Name: s("keep")},
+			},
+		)
 	src.done(t, op, err)
 
-	op, err = src.firewalls(t).Insert(t.Context(), &computepb.InsertFirewallRequest{Project: project, FirewallResource: &computepb.Firewall{
-		Name: s("fw"), Network: s("global/networks/vpc"), Allowed: allow("tcp", "22"), SourceRanges: []string{"10.0.0.0/8"}, Priority: proto.Int32(0),
-	}})
+	op, err = src.firewalls(t).
+		Insert(t.Context(), &computepb.InsertFirewallRequest{Project: project, FirewallResource: &computepb.Firewall{
+			Name: s(
+				"fw",
+			),
+			Network:      s("global/networks/vpc"),
+			Allowed:      allow("tcp", "22"),
+			SourceRanges: []string{"10.0.0.0/8"},
+			Priority:     proto.Int32(0),
+		}})
 	src.done(t, op, err)
 
-	op, err = src.routers(t).Insert(t.Context(), &computepb.InsertRouterRequest{Project: project, Region: region, RouterResource: &computepb.Router{
-		Name: s("rtr"), Network: s("global/networks/vpc"),
-		Nats: []*computepb.RouterNat{{Name: s("n"), NatIpAllocateOption: s("AUTO_ONLY"), SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES")}},
-	}})
+	op, err = src.routers(t).
+		Insert(t.Context(), &computepb.InsertRouterRequest{Project: project, Region: region,
+			RouterResource: &computepb.Router{
+				Name:    s("rtr"),
+				Network: s("global/networks/vpc"),
+				Nats: []*computepb.RouterNat{
+					{
+						Name:                          s("n"),
+						NatIpAllocateOption:           s("AUTO_ONLY"),
+						SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+					},
+				},
+			}})
 	src.done(t, op, err)
 
 	op, err = src.disks(t).CreateSnapshot(t.Context(), &computepb.CreateSnapshotDiskRequest{
@@ -40,7 +64,14 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	})
 	src.done(t, op, err)
 
-	op, err = src.images(t).Insert(t.Context(), &computepb.InsertImageRequest{Project: project, ImageResource: &computepb.Image{Name: s("img"), SourceDisk: s("zones/" + zone + "/disks/vm1")}})
+	op, err = src.images(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertImageRequest{
+				Project:       project,
+				ImageResource: &computepb.Image{Name: s("img"), SourceDisk: s("zones/" + zone + "/disks/vm1")},
+			},
+		)
 	src.done(t, op, err)
 
 	data := src.backend.Snapshot(t.Context())
@@ -52,7 +83,11 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	got := dst.getVM(t, "vm1")
 	assert.Equal(t, vm.GetId(), got.GetId())
 	assert.Equal(t, vm.GetNetworkInterfaces()[0].GetNetworkIP(), got.GetNetworkInterfaces()[0].GetNetworkIP())
-	assert.Equal(t, vm.GetNetworkInterfaces()[0].GetAccessConfigs()[0].GetNatIP(), got.GetNetworkInterfaces()[0].GetAccessConfigs()[0].GetNatIP())
+	assert.Equal(
+		t,
+		vm.GetNetworkInterfaces()[0].GetAccessConfigs()[0].GetNatIP(),
+		got.GetNetworkInterfaces()[0].GetAccessConfigs()[0].GetNatIP(),
+	)
 	assert.Equal(t, vm.GetMetadata().GetFingerprint(), got.GetMetadata().GetFingerprint())
 	assert.Equal(t, map[string]string{"env": "x"}, got.GetLabels())
 
@@ -60,7 +95,11 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), fw.GetPriority())
 
-	st, err := dst.routers(t).GetRouterStatus(t.Context(), &computepb.GetRouterStatusRouterRequest{Project: project, Region: region, Router: "rtr"})
+	st, err := dst.routers(t).
+		GetRouterStatus(
+			t.Context(),
+			&computepb.GetRouterStatusRouterRequest{Project: project, Region: region, Router: "rtr"},
+		)
 	require.NoError(t, err)
 	assert.Len(t, st.GetResult().GetNatStatus()[0].GetAutoAllocatedNatIps(), 1)
 
@@ -72,7 +111,8 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	_, err = dst.images(t).Get(t.Context(), &computepb.GetImageRequest{Project: project, Image: "img"})
 	require.NoError(t, err)
 
-	_, err = dst.addresses(t).Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "keep"})
+	_, err = dst.addresses(t).
+		Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "keep"})
 	require.NoError(t, err)
 
 	n, err := dst.networks(t).Get(t.Context(), &computepb.GetNetworkRequest{Project: project, Network: "vpc"})
@@ -88,7 +128,8 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 
 	dst.backend.Reset()
 
-	_, err = dst.instances(t).Get(t.Context(), &computepb.GetInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+	_, err = dst.instances(t).
+		Get(t.Context(), &computepb.GetInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	assertAPIError(t, err, 404, "notFound")
 }
 

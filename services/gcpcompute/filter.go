@@ -3,9 +3,12 @@ package gcpcompute
 import (
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
+
+const quotePair = 2
 
 type filterNode interface {
 	eval(doc map[string]any) bool
@@ -17,9 +20,9 @@ type (
 	notNode  struct{ n filterNode }
 	compNode struct {
 		re    *regexp.Regexp
-		field []string
 		op    string
 		value string
+		field []string
 	}
 )
 
@@ -123,15 +126,7 @@ func (n compNode) eval(doc map[string]any) bool {
 		return negate
 	}
 
-	hit := false
-
-	for _, v := range vals {
-		if n.matches(v) {
-			hit = true
-
-			break
-		}
-	}
+	hit := slices.ContainsFunc(vals, n.matches)
 
 	return hit != negate
 }
@@ -147,20 +142,20 @@ func tokenize(s string) ([]string, bool) {
 	for i := 0; i < len(s); {
 		c := s[i]
 
-		switch {
-		case c == ' ' || c == '\t' || c == '\n':
+		switch c {
+		case ' ', '\t', '\n':
 			i++
-		case c == '(' || c == ')':
+		case '(', ')':
 			toks = append(toks, string(c))
 			i++
-		case c == '"' || c == '\'':
+		case '"', '\'':
 			j := strings.IndexByte(s[i+1:], c)
 			if j < 0 {
 				return nil, false
 			}
 
 			toks = append(toks, "\x00"+s[i+1:i+1+j])
-			i += j + 2
+			i += j + quotePair
 		default:
 			j := i
 			for j < len(s) && !strings.ContainsRune(" \t\n()", rune(s[j])) {
@@ -250,10 +245,10 @@ func (p *filterParser) parseUnary() (filterNode, bool) {
 	return p.parseComp()
 }
 
-var filterOps = []string{"!=", ">=", "<=", "=", ">", "<", ":"}
+var filterOps = []string{"!=", ">=", "<=", "=", ">", "<", ":"} //nolint:gochecknoglobals // read-only lookup table
 
 // splitFused splits "field=value" style tokens written without spaces around the operator.
-func splitFused(tok string) (field, op, rest string, ok bool) {
+func splitFused(tok string) (string, string, string, bool) {
 	i := strings.IndexAny(tok, "=!<>:")
 	if i <= 0 {
 		return "", "", "", false

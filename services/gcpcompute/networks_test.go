@@ -19,14 +19,19 @@ func TestAutoNetworkLifecycle(t *testing.T) {
 	nets := e.networks(t)
 
 	op, err := nets.Insert(t.Context(), &computepb.InsertNetworkRequest{
-		Project: project, NetworkResource: &computepb.Network{Name: s("auto-net"), AutoCreateSubnetworks: proto.Bool(true)},
+		Project:         project,
+		NetworkResource: &computepb.Network{Name: s("auto-net"), AutoCreateSubnetworks: new(true)},
 	})
 	require.NoError(t, err)
 
 	pb := op.Proto()
 	assert.Equal(t, "insert", pb.GetOperationType())
 	assert.Equal(t, computepb.Operation_PENDING, pb.GetStatus())
-	assert.Equal(t, "https://www.googleapis.com/compute/v1/projects/"+project+"/global/networks/auto-net", pb.GetTargetLink())
+	assert.Equal(
+		t,
+		"https://www.googleapis.com/compute/v1/projects/"+project+"/global/networks/auto-net",
+		pb.GetTargetLink(),
+	)
 	assert.Contains(t, pb.GetSelfLink(), "/global/operations/operation-")
 	assert.NotZero(t, pb.GetTargetId())
 
@@ -43,7 +48,8 @@ func TestAutoNetworkLifecycle(t *testing.T) {
 	assert.Contains(t, n.GetSelfLinkWithId(), "/global/networks/")
 	assert.GreaterOrEqual(t, len(n.GetSubnetworks()), 10)
 
-	sub, err := e.subnets(t).Get(t.Context(), &computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "auto-net"})
+	sub, err := e.subnets(t).
+		Get(t.Context(), &computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "auto-net"})
 	require.NoError(t, err)
 	assert.Equal(t, "10.128.0.0/20", sub.GetIpCidrRange())
 	assert.Equal(t, "10.128.0.1", sub.GetGatewayAddress())
@@ -60,7 +66,8 @@ func TestAutoNetworkLifecycle(t *testing.T) {
 	_, err = nets.Get(t.Context(), &computepb.GetNetworkRequest{Project: project, Network: "auto-net"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
-	_, err = e.subnets(t).Get(t.Context(), &computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "auto-net"})
+	_, err = e.subnets(t).
+		Get(t.Context(), &computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "auto-net"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
 	_, err = routes.Next()
@@ -81,7 +88,12 @@ func TestNetworkInsertErrors(t *testing.T) {
 		{&computepb.Network{Name: s("dup")}, "duplicate", "alreadyExists", 409},
 		{&computepb.Network{Name: s("legacy"), IPv4Range: s("10.0.0.0/8")}, "legacy", "invalid", 400},
 		{&computepb.Network{Name: s("mtu"), Mtu: proto.Int32(100)}, "mtu", "invalid", 400},
-		{&computepb.Network{Name: s("rm"), RoutingConfig: &computepb.NetworkRoutingConfig{RoutingMode: s("WORLD")}}, "routing mode", "invalid", 400},
+		{
+			&computepb.Network{Name: s("rm"), RoutingConfig: &computepb.NetworkRoutingConfig{RoutingMode: s("WORLD")}},
+			"routing mode",
+			"invalid",
+			400,
+		},
 	}
 
 	for _, tt := range tests {
@@ -91,7 +103,8 @@ func TestNetworkInsertErrors(t *testing.T) {
 			e := newEnv(t)
 			e.network(t, "dup", false)
 
-			_, err := e.networks(t).Insert(t.Context(), &computepb.InsertNetworkRequest{Project: project, NetworkResource: tt.net})
+			_, err := e.networks(t).
+				Insert(t.Context(), &computepb.InsertNetworkRequest{Project: project, NetworkResource: tt.net})
 			assertAPIError(t, err, tt.status, tt.reason)
 		})
 	}
@@ -118,12 +131,20 @@ func TestNetworkCustomModeAndPatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "GLOBAL", n.GetRoutingConfig().GetRoutingMode())
 
-	_, err = e.networks(t).SwitchToCustomMode(t.Context(), &computepb.SwitchToCustomModeNetworkRequest{Project: project, Network: "custom"})
+	_, err = e.networks(t).
+		SwitchToCustomMode(
+			t.Context(),
+			&computepb.SwitchToCustomModeNetworkRequest{Project: project, Network: "custom"},
+		)
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	e.network(t, "auto", true)
 
-	op, err = e.networks(t).SwitchToCustomMode(t.Context(), &computepb.SwitchToCustomModeNetworkRequest{Project: project, Network: "auto"})
+	op, err = e.networks(t).
+		SwitchToCustomMode(
+			t.Context(),
+			&computepb.SwitchToCustomModeNetworkRequest{Project: project, Network: "auto"},
+		)
 	e.done(t, op, err)
 
 	n, err = e.networks(t).Get(t.Context(), &computepb.GetNetworkRequest{Project: project, Network: "auto"})
@@ -145,13 +166,31 @@ func TestSubnetworks(t *testing.T) {
 		status int
 	}{
 		{&computepb.Subnetwork{Name: s("ok"), IpCidrRange: s("10.1.0.0/24")}, "valid", "", 200},
-		{&computepb.Subnetwork{Name: s("secondary"), IpCidrRange: s("10.2.0.0/24"), SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
-			{RangeName: s("pods"), IpCidrRange: s("192.168.0.0/20")},
-		}}, "secondary ranges", "", 200},
+		{
+			&computepb.Subnetwork{
+				Name:        s("secondary"),
+				IpCidrRange: s("10.2.0.0/24"),
+				SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
+					{RangeName: s("pods"), IpCidrRange: s("192.168.0.0/20")},
+				},
+			},
+			"secondary ranges",
+			"",
+			200,
+		},
 		{&computepb.Subnetwork{Name: s("overlap"), IpCidrRange: s("10.0.128.0/24")}, "overlap", "invalid", 400},
-		{&computepb.Subnetwork{Name: s("secoverlap"), IpCidrRange: s("10.3.0.0/24"), SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
-			{RangeName: s("pods"), IpCidrRange: s("10.6.0.0/24")},
-		}}, "secondary overlap", "invalid", 400},
+		{
+			&computepb.Subnetwork{
+				Name:        s("secoverlap"),
+				IpCidrRange: s("10.3.0.0/24"),
+				SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
+					{RangeName: s("pods"), IpCidrRange: s("10.6.0.0/24")},
+				},
+			},
+			"secondary overlap",
+			"invalid",
+			400,
+		},
 		{&computepb.Subnetwork{Name: s("public"), IpCidrRange: s("8.8.8.0/24")}, "public range", "invalid", 400},
 		{&computepb.Subnetwork{Name: s("host"), IpCidrRange: s("10.4.0.1/24")}, "host bits", "invalid", 400},
 		{&computepb.Subnetwork{Name: s("tiny"), IpCidrRange: s("10.5.0.0/30")}, "too small", "invalid", 400},
@@ -166,8 +205,8 @@ func TestSubnetworks(t *testing.T) {
 
 			e := newEnv(t)
 			e.network(t, "vpc", false)
-			e.subnet(t, "vpc", "base", "10.0.128.0/20")
-			e.subnet(t, "vpc", "base2", "10.6.0.0/24")
+			e.subnet(t, "base", "10.0.128.0/20")
+			e.subnet(t, "base2", "10.6.0.0/24")
 
 			tt.sub.Network = s("global/networks/vpc")
 
@@ -190,8 +229,8 @@ func TestSubnetExpandPatchDelete(t *testing.T) {
 
 	e := newEnv(t)
 	e.network(t, "vpc", false)
-	e.subnet(t, "vpc", "s1", "10.0.0.0/24")
-	e.subnet(t, "vpc", "s2", "10.0.2.0/24")
+	e.subnet(t, "s1", "10.0.0.0/24")
+	e.subnet(t, "s2", "10.0.2.0/24")
 
 	subs := e.subnets(t)
 
@@ -209,8 +248,12 @@ func TestSubnetExpandPatchDelete(t *testing.T) {
 
 	for _, tt := range tests {
 		op, err := subs.ExpandIpCidrRange(t.Context(), &computepb.ExpandIpCidrRangeSubnetworkRequest{
-			Project: project, Region: region, Subnetwork: "s1",
-			SubnetworksExpandIpCidrRangeRequestResource: &computepb.SubnetworksExpandIpCidrRangeRequest{IpCidrRange: s(tt.cidr)},
+			Project:    project,
+			Region:     region,
+			Subnetwork: "s1",
+			SubnetworksExpandIpCidrRangeRequestResource: &computepb.SubnetworksExpandIpCidrRangeRequest{
+				IpCidrRange: s(tt.cidr),
+			},
 		})
 		if tt.status == http.StatusOK {
 			e.done(t, op, err)
@@ -221,18 +264,28 @@ func TestSubnetExpandPatchDelete(t *testing.T) {
 		assertAPIError(t, err, tt.status, tt.reason)
 	}
 
-	got, err := subs.Get(t.Context(), &computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "s1"})
+	got, err := subs.Get(
+		t.Context(),
+		&computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "s1"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.0.0/23", got.GetIpCidrRange())
 
 	fp := got.GetFingerprint()
 	op, err := subs.SetPrivateIpGoogleAccess(t.Context(), &computepb.SetPrivateIpGoogleAccessSubnetworkRequest{
-		Project: project, Region: region, Subnetwork: "s1",
-		SubnetworksSetPrivateIpGoogleAccessRequestResource: &computepb.SubnetworksSetPrivateIpGoogleAccessRequest{PrivateIpGoogleAccess: proto.Bool(true)},
+		Project:    project,
+		Region:     region,
+		Subnetwork: "s1",
+		SubnetworksSetPrivateIpGoogleAccessRequestResource: &computepb.SubnetworksSetPrivateIpGoogleAccessRequest{
+			PrivateIpGoogleAccess: new(true),
+		},
 	})
 	e.done(t, op, err)
 
-	got, err = subs.Get(t.Context(), &computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "s1"})
+	got, err = subs.Get(
+		t.Context(),
+		&computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "s1"},
+	)
 	require.NoError(t, err)
 	assert.True(t, got.GetPrivateIpGoogleAccess())
 	assert.NotEqual(t, fp, got.GetFingerprint())
@@ -240,8 +293,10 @@ func TestSubnetExpandPatchDelete(t *testing.T) {
 	op, err = subs.Patch(t.Context(), &computepb.PatchSubnetworkRequest{
 		Project: project, Region: region, Subnetwork: "s1",
 		SubnetworkResource: &computepb.Subnetwork{
-			Fingerprint:       got.Fingerprint,
-			SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{{RangeName: s("svc"), IpCidrRange: s("172.16.0.0/20")}},
+			Fingerprint: got.Fingerprint,
+			SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
+				{RangeName: s("svc"), IpCidrRange: s("172.16.0.0/20")},
+			},
 		},
 	})
 	e.done(t, op, err)
@@ -255,10 +310,16 @@ func TestSubnetExpandPatchDelete(t *testing.T) {
 	_, err = e.networks(t).Delete(t.Context(), &computepb.DeleteNetworkRequest{Project: project, Network: "vpc"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
-	op, err = subs.Delete(t.Context(), &computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "s1"})
+	op, err = subs.Delete(
+		t.Context(),
+		&computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "s1"},
+	)
 	e.done(t, op, err)
 
-	_, err = subs.Delete(t.Context(), &computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "s1"})
+	_, err = subs.Delete(
+		t.Context(),
+		&computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "s1"},
+	)
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
 	e.clock.Advance(time.Second)

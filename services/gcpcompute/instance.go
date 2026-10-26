@@ -61,7 +61,7 @@ func cpuPlatformFor(machine string) string {
 		return "Intel Haswell"
 	}
 
-	return "Intel Broadwell"
+	return platBroadwell
 }
 
 func (b *InMemoryBackend) instViewLocked(r *instRec) *computeapi.Instance {
@@ -119,7 +119,11 @@ func validMetadata(m *computeapi.Metadata) *APIError {
 
 	for _, it := range m.Items {
 		if it == nil || len(it.Key) == 0 || len(it.Key) > maxMetaKey || !metaKeyOK(it.Key) {
-			return errField("metadata.items.key", keyOf(it), "Metadata keys must be 1-128 characters of letters, digits, '-' or '_'.")
+			return errField(
+				"metadata.items.key",
+				keyOf(it),
+				"Metadata keys must be 1-128 characters of letters, digits, '-' or '_'.",
+			)
 		}
 
 		if seen[it.Key] {
@@ -162,7 +166,7 @@ func keyOf(it *computeapi.MetadataItems) string {
 
 func metaKeyOK(k string) bool {
 	for _, c := range k {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 			return false
 		}
 	}
@@ -214,11 +218,14 @@ func defaultScheduling(in *computeapi.Scheduling) (*computeapi.Scheduling, *APIE
 	spot := s.Preemptible || s.ProvisioningModel == "SPOT"
 
 	if spot && s.AutomaticRestart != nil && *s.AutomaticRestart {
-		return nil, errInvalid("Invalid value for field 'resource.scheduling.automaticRestart': 'true'. Preemptible and spot instances cannot be automatically restarted.")
+		return nil, errInvalid(
+			"Invalid value for field 'resource.scheduling.automaticRestart': 'true'. Preemptible and spot " +
+				"instances cannot be automatically restarted.",
+		)
 	}
 
 	if s.ProvisioningModel == "" {
-		s.ProvisioningModel = "STANDARD"
+		s.ProvisioningModel = tierStandard
 		if s.Preemptible {
 			s.ProvisioningModel = "SPOT"
 		}
@@ -245,7 +252,12 @@ func defaultScheduling(in *computeapi.Scheduling) (*computeapi.Scheduling, *APIE
 	return s, nil
 }
 
-func (b *InMemoryBackend) resolveAttachedLocked(project, zone, instName string, idx int, ad *computeapi.AttachedDisk, created *[]string) (*computeapi.AttachedDisk, *APIError) {
+func (b *InMemoryBackend) resolveAttachedLocked(
+	project, zone, instName string,
+	idx int,
+	ad *computeapi.AttachedDisk,
+	created *[]string,
+) (*computeapi.AttachedDisk, *APIError) {
 	field := "resource.disks[" + strconv.Itoa(idx) + "]"
 	if ad.Type != "" && ad.Type != "PERSISTENT" {
 		return nil, errField(field+".type", ad.Type, "Only PERSISTENT disks are supported.")
@@ -256,7 +268,7 @@ func (b *InMemoryBackend) resolveAttachedLocked(project, zone, instName string, 
 		mode = "READ_WRITE"
 	}
 
-	if mode != "READ_WRITE" && mode != "READ_ONLY" {
+	if mode != "READ_WRITE" && mode != modeReadOnly {
 		return nil, errField(field+".mode", mode, "")
 	}
 
@@ -294,13 +306,26 @@ func (b *InMemoryBackend) resolveAttachedLocked(project, zone, instName string, 
 		*created = append(*created, key(project, zone, made.Name))
 		d = made
 	default:
-		return nil, errInvalid("Invalid value for field '%s': ''. Either source or initializeParams must be specified.", field)
+		return nil, errInvalid(
+			"Invalid value for field '%s': ''. Either source or initializeParams must be specified.",
+			field,
+		)
 	}
 
 	return &computeapi.AttachedDisk{
-		Kind: "compute#attachedDisk", Type: "PERSISTENT", Mode: mode, Source: d.SelfLink, Index: int64(idx),
-		Boot: ad.Boot, AutoDelete: ad.AutoDelete, DeviceName: deviceName(ad.DeviceName, idx), Interface: ifaceOf(ad.Interface),
-		DiskSizeGb: d.SizeGb, GuestOsFeatures: d.GuestOsFeatures, Licenses: d.Licenses, Architecture: d.Architecture,
+		Kind:            "compute#attachedDisk",
+		Type:            "PERSISTENT",
+		Mode:            mode,
+		Source:          d.SelfLink,
+		Index:           int64(idx),
+		Boot:            ad.Boot,
+		AutoDelete:      ad.AutoDelete,
+		DeviceName:      deviceName(ad.DeviceName, idx),
+		Interface:       ifaceOf(ad.Interface),
+		DiskSizeGb:      d.SizeGb,
+		GuestOsFeatures: d.GuestOsFeatures,
+		Licenses:        d.Licenses,
+		Architecture:    d.Architecture,
 	}, nil
 }
 
@@ -326,7 +351,11 @@ func (b *InMemoryBackend) rollbackDisksLocked(keys []string) {
 	}
 }
 
-func (b *InMemoryBackend) buildDisksLocked(project, zone string, in *computeapi.Instance, created *[]string) ([]*computeapi.AttachedDisk, *APIError) {
+func (b *InMemoryBackend) buildDisksLocked(
+	project, zone string,
+	in *computeapi.Instance,
+	created *[]string,
+) ([]*computeapi.AttachedDisk, *APIError) {
 	if len(in.Disks) == 0 {
 		return nil, errInvalid("Invalid value for field 'resource.disks': ''. At least one boot disk is required.")
 	}
@@ -336,7 +365,9 @@ func (b *InMemoryBackend) buildDisksLocked(project, zone string, in *computeapi.
 	}
 
 	if !in.Disks[0].Boot {
-		return nil, errInvalid("Invalid value for field 'resource.disks[0].boot': 'false'. The first disk must be the boot disk.")
+		return nil, errInvalid(
+			"Invalid value for field 'resource.disks[0].boot': 'false'. The first disk must be the boot disk.",
+		)
 	}
 
 	out := make([]*computeapi.AttachedDisk, 0, len(in.Disks))
@@ -345,7 +376,10 @@ func (b *InMemoryBackend) buildDisksLocked(project, zone string, in *computeapi.
 
 	for i, ad := range in.Disks {
 		if i > 0 && ad.Boot {
-			return nil, errInvalid("Invalid value for field 'resource.disks[%d].boot': 'true'. Only one boot disk is allowed.", i)
+			return nil, errInvalid(
+				"Invalid value for field 'resource.disks[%d].boot': 'true'. Only one boot disk is allowed.",
+				i,
+			)
 		}
 
 		att, err := b.resolveAttachedLocked(project, zone, in.Name, i, ad, created)
@@ -377,7 +411,7 @@ func (b *InMemoryBackend) diskWriterLocked(ad *computeapi.AttachedDisk, skip str
 		}
 
 		for _, have := range r.Inst.Disks {
-			if have.Source == ad.Source && (have.Mode != "READ_ONLY" || ad.Mode != "READ_ONLY") {
+			if have.Source == ad.Source && (have.Mode != modeReadOnly || ad.Mode != modeReadOnly) {
 				return trimURL(r.Inst.SelfLink)
 			}
 		}
@@ -386,9 +420,14 @@ func (b *InMemoryBackend) diskWriterLocked(ad *computeapi.AttachedDisk, skip str
 	return ""
 }
 
-func (b *InMemoryBackend) buildNICsLocked(project, zone string, in *computeapi.Instance) ([]*computeapi.NetworkInterface, *APIError) {
+func (b *InMemoryBackend) buildNICsLocked(
+	project, zone string,
+	in *computeapi.Instance,
+) ([]*computeapi.NetworkInterface, *APIError) {
 	if len(in.NetworkInterfaces) == 0 {
-		return nil, errInvalid("Invalid value for field 'resource.networkInterfaces': ''. At least one network interface is required.")
+		return nil, errInvalid(
+			"Invalid value for field 'resource.networkInterfaces': ''. At least one network interface is required.",
+		)
 	}
 
 	if len(in.NetworkInterfaces) > maxNICs {
@@ -409,7 +448,10 @@ func (b *InMemoryBackend) buildNICsLocked(project, zone string, in *computeapi.I
 		}
 
 		if nets[built.Network] {
-			return nil, errInvalid("Invalid value for field 'resource.networkInterfaces[%d]': network interfaces must be on different networks.", i)
+			return nil, errInvalid(
+				"Invalid value for field 'resource.networkInterfaces[%d]': network interfaces must be on different networks.",
+				i,
+			)
 		}
 
 		nets[built.Network] = true
@@ -419,35 +461,55 @@ func (b *InMemoryBackend) buildNICsLocked(project, zone string, in *computeapi.I
 	return out, nil
 }
 
-func (b *InMemoryBackend) pickSubnetLocked(project, region string, idx int, nic *computeapi.NetworkInterface) (*computeapi.Subnetwork, *APIError) {
-	field := "resource.networkInterfaces[" + strconv.Itoa(idx) + "]"
+func (b *InMemoryBackend) explicitSubnetLocked(
+	project, region, field string,
+	nic *computeapi.NetworkInterface,
+) (*computeapi.Subnetwork, *APIError) {
+	s, err := b.resolveSubnetLocked(project, region, nic.Subnetwork)
+	if err != nil {
+		return nil, err
+	}
 
-	if nic.Subnetwork != "" {
-		s, err := b.resolveSubnetLocked(project, region, nic.Subnetwork)
-		if err != nil {
-			return nil, err
-		}
-
-		if lastSegment(s.Region) != region {
-			return nil, errField(field+".subnetwork", nic.Subnetwork, "Subnetwork is in region '"+lastSegment(s.Region)+"' but the instance is in region '"+region+"'.")
-		}
-
-		if nic.Network != "" {
-			n, nerr := b.resolveNetworkLocked(project, nic.Network)
-			if nerr != nil {
-				return nil, nerr
-			}
-
-			if n.SelfLink != s.Network {
-				return nil, errField(field+".network", nic.Network, "Subnetwork does not belong to this network.")
-			}
-		}
-
-		return s, nil
+	if lastSegment(s.Region) != region {
+		return nil, errField(
+			field+".subnetwork",
+			nic.Subnetwork,
+			"Subnetwork is in region '"+lastSegment(s.Region)+"' but the instance is in region '"+region+"'.",
+		)
 	}
 
 	if nic.Network == "" {
-		return nil, errInvalid("Invalid value for field '%s.network': ''. A network or subnetwork must be specified.", field)
+		return s, nil
+	}
+
+	n, err := b.resolveNetworkLocked(project, nic.Network)
+	if err != nil {
+		return nil, err
+	}
+
+	if n.SelfLink != s.Network {
+		return nil, errField(field+".network", nic.Network, "Subnetwork does not belong to this network.")
+	}
+
+	return s, nil
+}
+
+func (b *InMemoryBackend) pickSubnetLocked(
+	project, region string,
+	idx int,
+	nic *computeapi.NetworkInterface,
+) (*computeapi.Subnetwork, *APIError) {
+	field := "resource.networkInterfaces[" + strconv.Itoa(idx) + "]"
+
+	if nic.Subnetwork != "" {
+		return b.explicitSubnetLocked(project, region, field, nic)
+	}
+
+	if nic.Network == "" {
+		return nil, errInvalid(
+			"Invalid value for field '%s.network': ''. A network or subnetwork must be specified.",
+			field,
+		)
 	}
 
 	n, err := b.resolveNetworkLocked(project, nic.Network)
@@ -456,7 +518,11 @@ func (b *InMemoryBackend) pickSubnetLocked(project, region string, idx int, nic 
 	}
 
 	if !n.AutoCreateSubnetworks {
-		return nil, errInvalid("Invalid value for field '%s.subnetwork': ''. Subnetwork must be specified for custom mode network '%s'.", field, n.Name)
+		return nil, errInvalid(
+			"Invalid value for field '%s.subnetwork': ''. Subnetwork must be specified for custom mode network '%s'.",
+			field,
+			n.Name,
+		)
 	}
 
 	for _, s := range b.subnets {
@@ -468,7 +534,13 @@ func (b *InMemoryBackend) pickSubnetLocked(project, region string, idx int, nic 
 	return nil, errNotFound(relPath(project, scopeRegion, region, "subnetworks", n.Name))
 }
 
-func (b *InMemoryBackend) buildNICLocked(project, region string, idx int, in *computeapi.NetworkInterface, taken map[netip.Addr]bool, pendingExt *[]string) (*computeapi.NetworkInterface, *APIError) {
+func (b *InMemoryBackend) buildNICLocked(
+	project, region string,
+	idx int,
+	in *computeapi.NetworkInterface,
+	taken map[netip.Addr]bool,
+	pendingExt *[]string,
+) (*computeapi.NetworkInterface, *APIError) {
 	s, err := b.pickSubnetLocked(project, region, idx, in)
 	if err != nil {
 		return nil, err
@@ -493,11 +565,19 @@ func (b *InMemoryBackend) buildNICLocked(project, region string, idx int, in *co
 		first, last := usableRange(p)
 
 		if perr != nil || parsed.Compare(first) < 0 || parsed.Compare(last) > 0 {
-			return nil, errField("resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP", in.NetworkIP, "The IP address is not in the usable range of subnetwork '"+s.Name+"'.")
+			return nil, errField(
+				"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
+				in.NetworkIP,
+				"The IP address is not in the usable range of subnetwork '"+s.Name+"'.",
+			)
 		}
 
 		if used[parsed] && !b.reservedFreeLocked(s.SelfLink, in.NetworkIP) {
-			return nil, errField("resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP", in.NetworkIP, "The IP address is already in use.")
+			return nil, errField(
+				"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
+				in.NetworkIP,
+				"The IP address is already in use.",
+			)
 		}
 
 		ip = parsed
@@ -512,7 +592,7 @@ func (b *InMemoryBackend) buildNICLocked(project, region string, idx int, in *co
 	}
 
 	for _, ac := range in.AccessConfigs {
-		built, aerr := b.buildAccessConfigLocked(project, region, ac, *pendingExt)
+		built, aerr := b.buildAccessConfigLocked(region, ac, *pendingExt)
 		if aerr != nil {
 			return nil, aerr
 		}
@@ -544,9 +624,17 @@ func (b *InMemoryBackend) reservedFreeLocked(subnet, ip string) bool {
 	return false
 }
 
-func (b *InMemoryBackend) buildAccessConfigLocked(project, region string, in *computeapi.AccessConfig, pending []string) (*computeapi.AccessConfig, *APIError) {
+func (b *InMemoryBackend) buildAccessConfigLocked(
+	region string,
+	in *computeapi.AccessConfig,
+	pending []string,
+) (*computeapi.AccessConfig, *APIError) {
 	if in.Type != "" && in.Type != natType {
-		return nil, errField("resource.networkInterfaces.accessConfigs.type", in.Type, "Only ONE_TO_ONE_NAT is supported.")
+		return nil, errField(
+			"resource.networkInterfaces.accessConfigs.type",
+			in.Type,
+			"Only ONE_TO_ONE_NAT is supported.",
+		)
 	}
 
 	ac := &computeapi.AccessConfig{
@@ -564,12 +652,20 @@ func (b *InMemoryBackend) buildAccessConfigLocked(project, region string, in *co
 
 	if in.NatIP != "" {
 		if a := b.findExternalAddressLocked(region, in.NatIP); a == nil {
-			return nil, errInvalid("Invalid value for field 'resource.networkInterfaces.accessConfigs.natIP': '%s'. External IP address was not found in region '%s'.", in.NatIP, region)
+			return nil, errInvalid(
+				"Invalid value for field 'resource.networkInterfaces.accessConfigs.natIP': '%s'. "+
+					"External IP address was not found in region '%s'.",
+				in.NatIP,
+				region,
+			)
 		}
 
 		for _, r := range b.instances {
 			if usesNatIP(r.Inst, in.NatIP) {
-				return nil, errInvalid("Invalid value for field 'resource.networkInterfaces.accessConfigs.natIP': '%s'. IP address is already in use.", in.NatIP)
+				return nil, errInvalid(
+					"Invalid value for field 'resource.networkInterfaces.accessConfigs.natIP': '%s'. IP address is already in use.",
+					in.NatIP,
+				)
 			}
 		}
 
@@ -688,7 +784,14 @@ func firstErr(errs ...*APIError) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) assembleInstanceLocked(project, zone string, in *computeapi.Instance, machine string, sched *computeapi.Scheduling, nics []*computeapi.NetworkInterface, disks []*computeapi.AttachedDisk) *computeapi.Instance {
+func (b *InMemoryBackend) assembleInstanceLocked(
+	project, zone string,
+	in *computeapi.Instance,
+	machine string,
+	sched *computeapi.Scheduling,
+	nics []*computeapi.NetworkInterface,
+	disks []*computeapi.AttachedDisk,
+) *computeapi.Instance {
 	now := b.stamp()
 	tags := &computeapi.Tags{}
 
@@ -710,14 +813,36 @@ func (b *InMemoryBackend) assembleInstanceLocked(project, zone string, in *compu
 	}
 
 	return &computeapi.Instance{
-		Kind: "compute#instance", Id: newID(), CreationTimestamp: now, Name: in.Name, Description: in.Description,
-		Zone: scopeURL(project, scopeZone, zone), MachineType: machine, SelfLink: zoneLink(project, zone, "instances", in.Name),
-		NetworkInterfaces: nics, Disks: disks, Metadata: normalizeMetadata(in.Metadata), Tags: tags, Labels: in.Labels,
-		LabelFingerprint: labelFP(in.Labels), Scheduling: sched, ServiceAccounts: in.ServiceAccounts,
-		CanIpForward: in.CanIpForward, DeletionProtection: in.DeletionProtection, MinCpuPlatform: in.MinCpuPlatform,
-		Hostname: in.Hostname, Fingerprint: newFingerprint(), LastStartTimestamp: now, ShieldedInstanceConfig: shielded,
-		ReservationAffinity: &computeapi.ReservationAffinity{ConsumeReservationType: "ANY_RESERVATION"},
-		DisplayDevice:       in.DisplayDevice, GuestAccelerators: in.GuestAccelerators,
+		Kind:              "compute#instance",
+		Id:                newID(),
+		CreationTimestamp: now,
+		Name:              in.Name,
+		Description:       in.Description,
+		Zone: scopeURL(
+			project,
+			scopeZone,
+			zone,
+		),
+		MachineType:            machine,
+		SelfLink:               zoneLink(project, zone, "instances", in.Name),
+		NetworkInterfaces:      nics,
+		Disks:                  disks,
+		Metadata:               normalizeMetadata(in.Metadata),
+		Tags:                   tags,
+		Labels:                 in.Labels,
+		LabelFingerprint:       labelFP(in.Labels),
+		Scheduling:             sched,
+		ServiceAccounts:        in.ServiceAccounts,
+		CanIpForward:           in.CanIpForward,
+		DeletionProtection:     in.DeletionProtection,
+		MinCpuPlatform:         in.MinCpuPlatform,
+		Hostname:               in.Hostname,
+		Fingerprint:            newFingerprint(),
+		LastStartTimestamp:     now,
+		ShieldedInstanceConfig: shielded,
+		ReservationAffinity:    &computeapi.ReservationAffinity{ConsumeReservationType: "ANY_RESERVATION"},
+		DisplayDevice:          in.DisplayDevice,
+		GuestAccelerators:      in.GuestAccelerators,
 	}
 }
 
@@ -761,7 +886,11 @@ func (b *InMemoryBackend) deleteInstance(project, zone, name string) (*computeap
 	}
 
 	if r.Inst.DeletionProtection {
-		return nil, errInvalid("Invalid value for field 'deletionProtection': 'true'. Cannot delete instance '%s' while deletion protection is enabled.", name)
+		return nil, errInvalid(
+			"Invalid value for field 'deletionProtection': 'true'. Cannot delete instance '%s' "+
+				"while deletion protection is enabled.",
+			name,
+		)
 	}
 
 	delete(b.instances, key(project, zone, name))
@@ -865,7 +994,10 @@ func (b *InMemoryBackend) resetInstance(project, zone, name string) (*computeapi
 	return b.newOpLocked("reset", instTarget(project, zone, r.Inst), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) setInstanceMetadata(project, zone, name string, m *computeapi.Metadata) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setInstanceMetadata(
+	project, zone, name string,
+	m *computeapi.Metadata,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetInstanceMetadata")
 	defer b.mu.Unlock()
 
@@ -888,7 +1020,10 @@ func (b *InMemoryBackend) setInstanceMetadata(project, zone, name string, m *com
 	return b.newOpLocked("setMetadata", instTarget(project, zone, r.Inst), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) setInstanceLabels(project, zone, name string, req labelsRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setInstanceLabels(
+	project, zone, name string,
+	req labelsRequest,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetInstanceLabels")
 	defer b.mu.Unlock()
 
@@ -908,7 +1043,10 @@ func (b *InMemoryBackend) setInstanceLabels(project, zone, name string, req labe
 	return b.newOpLocked("setLabels", instTarget(project, zone, r.Inst), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) setInstanceTags(project, zone, name string, t *computeapi.Tags) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setInstanceTags(
+	project, zone, name string,
+	t *computeapi.Tags,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetInstanceTags")
 	defer b.mu.Unlock()
 
@@ -941,7 +1079,10 @@ func (b *InMemoryBackend) setInstanceMachineType(project, zone, name, machine st
 	}
 
 	if r.status(b.now().UTC(), b.timing) != stTerminated {
-		return nil, errNotReady(relPath(project, scopeZone, zone, "instances", name), "the instance must be TERMINATED to change its machine type")
+		return nil, errNotReady(
+			relPath(project, scopeZone, zone, "instances", name),
+			"the instance must be TERMINATED to change its machine type",
+		)
 	}
 
 	link, err := b.resolveMachineLocked(project, zone, machine)
@@ -970,7 +1111,10 @@ func (b *InMemoryBackend) setDeletionProtection(project, zone, name string, on b
 	return b.newOpLocked("setDeletionProtection", instTarget(project, zone, r.Inst), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) attachDisk(project, zone, name string, ad *computeapi.AttachedDisk) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) attachDisk(
+	project, zone, name string,
+	ad *computeapi.AttachedDisk,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("AttachDisk")
 	defer b.mu.Unlock()
 
@@ -984,7 +1128,9 @@ func (b *InMemoryBackend) attachDisk(project, zone, name string, ad *computeapi.
 	}
 
 	if ad.Boot || ad.Source == "" {
-		return nil, errInvalid("Invalid value for field 'source': attachDisk requires an existing non-boot disk source.")
+		return nil, errInvalid(
+			"Invalid value for field 'source': attachDisk requires an existing non-boot disk source.",
+		)
 	}
 
 	idx := 0
@@ -1001,7 +1147,10 @@ func (b *InMemoryBackend) attachDisk(project, zone, name string, ad *computeapi.
 
 	for _, have := range r.Inst.Disks {
 		if have.DeviceName == att.DeviceName || have.Source == att.Source {
-			return nil, errInvalid("Invalid value for field 'deviceName': '%s'. The disk is already attached to this instance.", att.DeviceName)
+			return nil, errInvalid(
+				"Invalid value for field 'deviceName': '%s'. The disk is already attached to this instance.",
+				att.DeviceName,
+			)
 		}
 	}
 
@@ -1039,7 +1188,10 @@ func (b *InMemoryBackend) detachDisk(project, zone, name, device string) (*compu
 		}
 
 		if ad.Boot && r.status(b.now().UTC(), b.timing) != stTerminated {
-			return nil, errNotReady(relPath(project, scopeZone, zone, "instances", name), "the boot disk can only be detached from a TERMINATED instance")
+			return nil, errNotReady(
+				relPath(project, scopeZone, zone, "instances", name),
+				"the boot disk can only be detached from a TERMINATED instance",
+			)
 		}
 
 		r.Inst.Disks = append(r.Inst.Disks[:i], r.Inst.Disks[i+1:]...)
@@ -1070,7 +1222,10 @@ func (b *InMemoryBackend) findNICLocked(r *instRec, name string) (*computeapi.Ne
 	return nil, errField("networkInterface", name, "No such network interface.")
 }
 
-func (b *InMemoryBackend) addAccessConfig(project, zone, name, nicName string, in *computeapi.AccessConfig) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) addAccessConfig(
+	project, zone, name, nicName string,
+	in *computeapi.AccessConfig,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("AddAccessConfig")
 	defer b.mu.Unlock()
 
@@ -1084,14 +1239,17 @@ func (b *InMemoryBackend) addAccessConfig(project, zone, name, nicName string, i
 		return nil, err
 	}
 
-	ac, err := b.buildAccessConfigLocked(project, regionOfZone(zone), in, nil)
+	ac, err := b.buildAccessConfigLocked(regionOfZone(zone), in, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, have := range nic.AccessConfigs {
 		if have.Name == ac.Name {
-			return nil, errInvalid("Invalid value for field 'accessConfig.name': '%s'. An access config with this name already exists.", ac.Name)
+			return nil, errInvalid(
+				"Invalid value for field 'accessConfig.name': '%s'. An access config with this name already exists.",
+				ac.Name,
+			)
 		}
 	}
 
@@ -1106,7 +1264,9 @@ func (b *InMemoryBackend) addAccessConfig(project, zone, name, nicName string, i
 	return b.newOpLocked("addAccessConfig", instTarget(project, zone, r.Inst), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) deleteAccessConfig(project, zone, name, nicName, acName string) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) deleteAccessConfig(
+	project, zone, name, nicName, acName string,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("DeleteAccessConfig")
 	defer b.mu.Unlock()
 

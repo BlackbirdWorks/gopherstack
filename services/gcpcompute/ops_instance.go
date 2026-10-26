@@ -83,7 +83,14 @@ func (h *Handler) registerInstanceMutations() {
 		return opResult(h.Backend.setInstanceMachineType(rq.rt.project, rq.rt.loc, rq.rt.name, in.MachineType))
 	})
 	h.reg("instances", z, "setDeletionProtection", func(h *Handler, rq *request) (any, error) {
-		return opResult(h.Backend.setDeletionProtection(rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("deletionProtection") != "false"))
+		return opResult(
+			h.Backend.setDeletionProtection(
+				rq.rt.project,
+				rq.rt.loc,
+				rq.rt.name,
+				rq.q.Get("deletionProtection") != "false",
+			),
+		)
 	})
 	h.reg("instances", z, "attachDisk", func(h *Handler, rq *request) (any, error) {
 		in, _, err := decode[computeapi.AttachedDisk](rq)
@@ -102,9 +109,19 @@ func (h *Handler) registerInstanceMutations() {
 			return nil, err
 		}
 
-		return opResult(h.Backend.addAccessConfig(rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("networkInterface"), in))
+		return opResult(
+			h.Backend.addAccessConfig(rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("networkInterface"), in),
+		)
 	})
 	h.reg("instances", z, "deleteAccessConfig", func(h *Handler, rq *request) (any, error) {
-		return opResult(h.Backend.deleteAccessConfig(rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("networkInterface"), rq.q.Get("accessConfig")))
+		return opResult(
+			h.Backend.deleteAccessConfig(
+				rq.rt.project,
+				rq.rt.loc,
+				rq.rt.name,
+				rq.q.Get("networkInterface"),
+				rq.q.Get("accessConfig"),
+			),
+		)
 	})
 }

@@ -29,7 +29,11 @@ func (b *InMemoryBackend) insertImage(project string, in *computeapi.Image) (*co
 	}
 
 	if in.RawDisk != nil {
-		return nil, errField("resource.rawDisk", "", "Importing raw disks from Cloud Storage is not supported by this emulator.")
+		return nil, errField(
+			"resource.rawDisk",
+			"",
+			"Importing raw disks from Cloud Storage is not supported by this emulator.",
+		)
 	}
 
 	if _, dup := b.images[key(project, in.Name)]; dup {
@@ -37,10 +41,19 @@ func (b *InMemoryBackend) insertImage(project string, in *computeapi.Image) (*co
 	}
 
 	img := &computeapi.Image{
-		Kind: "compute#image", Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name, Description: in.Description,
-		Family: in.Family, Status: "READY", SourceType: "RAW", Labels: in.Labels, LabelFingerprint: labelFP(in.Labels),
-		SelfLink: globalLink(project, "images", in.Name), Architecture: "X86_64",
-		StorageLocations: in.StorageLocations,
+		Kind:              "compute#image",
+		Id:                newID(),
+		CreationTimestamp: b.stamp(),
+		Name:              in.Name,
+		Description:       in.Description,
+		Family:            in.Family,
+		Status:            statusReady,
+		SourceType:        "RAW",
+		Labels:            in.Labels,
+		LabelFingerprint:  labelFP(in.Labels),
+		SelfLink:          globalLink(project, "images", in.Name),
+		Architecture:      archX86,
+		StorageLocations:  in.StorageLocations,
 	}
 
 	if err := b.imageSourceLocked(project, in, img); err != nil {
@@ -66,7 +79,10 @@ func (b *InMemoryBackend) imageSourceLocked(project string, in, img *computeapi.
 	}
 
 	if n != 1 {
-		return errInvalid("Invalid value for field 'resource': ''. Exactly one of sourceDisk, sourceSnapshot or sourceImage must be specified.")
+		return errInvalid(
+			"Invalid value for field 'resource': ''. Exactly one of sourceDisk, sourceSnapshot " +
+				"or sourceImage must be specified.",
+		)
 	}
 
 	switch {
@@ -94,7 +110,10 @@ func (b *InMemoryBackend) imageSourceLocked(project string, in, img *computeapi.
 			return errNotFound(relPath(r.project, scopeGlobal, "", "snapshots", r.name))
 		}
 
-		img.SourceSnapshot, img.SourceSnapshotId, img.DiskSizeGb = s.SelfLink, strconv.FormatUint(s.Id, 10), s.DiskSizeGb
+		img.SourceSnapshot, img.SourceSnapshotId, img.DiskSizeGb = s.SelfLink, strconv.FormatUint(
+			s.Id,
+			10,
+		), s.DiskSizeGb
 		img.Licenses, img.GuestOsFeatures = s.Licenses, s.GuestOsFeatures
 	default:
 		src, err := b.resolveImageLocked(project, in.SourceImage)
@@ -102,7 +121,10 @@ func (b *InMemoryBackend) imageSourceLocked(project string, in, img *computeapi.
 			return err
 		}
 
-		img.SourceImage, img.SourceImageId, img.DiskSizeGb = src.SelfLink, strconv.FormatUint(src.Id, 10), src.DiskSizeGb
+		img.SourceImage, img.SourceImageId, img.DiskSizeGb = src.SelfLink, strconv.FormatUint(
+			src.Id,
+			10,
+		), src.DiskSizeGb
 		img.Licenses, img.GuestOsFeatures = src.Licenses, src.GuestOsFeatures
 	}
 
@@ -118,7 +140,11 @@ func (b *InMemoryBackend) deleteImage(project, name string) (*computeapi.Operati
 	defer b.mu.Unlock()
 
 	if publicImageProject(project) {
-		return nil, errForbidden("Required 'compute.images.delete' permission for 'projects/%s/global/images/%s'", project, name)
+		return nil, errForbidden(
+			"Required 'compute.images.delete' permission for 'projects/%s/global/images/%s'",
+			project,
+			name,
+		)
 	}
 
 	img, ok := b.images[key(project, name)]
@@ -136,7 +162,11 @@ func (b *InMemoryBackend) setImageLabels(project, name string, req labelsRequest
 	defer b.mu.Unlock()
 
 	if publicImageProject(project) {
-		return nil, errForbidden("Required 'compute.images.setLabels' permission for 'projects/%s/global/images/%s'", project, name)
+		return nil, errForbidden(
+			"Required 'compute.images.setLabels' permission for 'projects/%s/global/images/%s'",
+			project,
+			name,
+		)
 	}
 
 	img, ok := b.images[key(project, name)]
@@ -170,14 +200,25 @@ func (b *InMemoryBackend) getProject(project string) *computeapi.Project {
 	defer b.mu.Unlock()
 
 	return &computeapi.Project{
-		Kind: "compute#project", Id: stableID("project", project), Name: project, CreationTimestamp: catalogCreated,
-		CommonInstanceMetadata: clone(b.projectMetaLocked(project)), SelfLink: apiBase + "projects/" + project,
-		DefaultNetworkTier: tierPremium, XpnProjectStatus: "UNSPECIFIED_XPN_PROJECT_STATUS",
-		DefaultServiceAccount: strconv.FormatUint(stableID("project", project)%1_000_000_000_000, 10) + "-compute@developer.gserviceaccount.com",
+		Kind:                   "compute#project",
+		Id:                     stableID("project", project),
+		Name:                   project,
+		CreationTimestamp:      catalogCreated,
+		CommonInstanceMetadata: clone(b.projectMetaLocked(project)),
+		SelfLink:               apiBase + "projects/" + project,
+		DefaultNetworkTier:     tierPremium,
+		XpnProjectStatus:       "UNSPECIFIED_XPN_PROJECT_STATUS",
+		DefaultServiceAccount: strconv.FormatUint(
+			stableID("project", project)%1_000_000_000_000,
+			10,
+		) + "-compute@developer.gserviceaccount.com",
 	}
 }
 
-func (b *InMemoryBackend) setCommonInstanceMetadata(project string, in *computeapi.Metadata) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setCommonInstanceMetadata(
+	project string,
+	in *computeapi.Metadata,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetCommonInstanceMetadata")
 	defer b.mu.Unlock()
 
@@ -193,22 +234,15 @@ func (b *InMemoryBackend) setCommonInstanceMetadata(project string, in *computea
 	b.projects[project] = normalizeMetadata(in)
 
 	return b.newOpLocked("setCommonInstanceMetadata", target{
-		project: project, scope: scopeGlobal, collection: "projects", name: "",
+		project: project, scope: scopeGlobal, collection: collProjects, name: "",
 	}, b.timing.Done), nil
 }
 
-func catalogEntries[T any](items []*T, scope string) []entry {
-	out := make([]entry, len(items))
-	for i, it := range items {
-		out[i] = entry{scope: scope, item: it}
-	}
-
-	return out
-}
-
 func (b *InMemoryBackend) listZones(project string) []entry {
-	var out []entry
-	for _, z := range allZones() {
+	zones := allZones()
+	out := make([]entry, 0, len(zones))
+
+	for _, z := range zones {
 		out = append(out, entry{scope: scopeGlobal, item: zoneResource(project, z)})
 	}
 
@@ -216,7 +250,8 @@ func (b *InMemoryBackend) listZones(project string) []entry {
 }
 
 func (b *InMemoryBackend) listRegions(project string) []entry {
-	var out []entry
+	out := make([]entry, 0, len(regionCatalog))
+
 	for _, r := range regionCatalog {
 		out = append(out, entry{scope: scopeGlobal, item: regionResource(project, r)})
 	}

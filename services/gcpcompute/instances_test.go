@@ -25,7 +25,7 @@ const (
 func (e *env) baseNet(t *testing.T) {
 	t.Helper()
 	e.network(t, "vpc", false)
-	e.subnet(t, "vpc", "sub", "10.10.0.0/24")
+	e.subnet(t, "sub", "10.10.0.0/24")
 
 	op, err := e.subnets(t).Insert(t.Context(), &computepb.InsertSubnetworkRequest{
 		Project: project, Region: otherRegion, SubnetworkResource: &computepb.Subnetwork{
@@ -39,10 +39,16 @@ func vmSpec(name string) *computepb.Instance {
 	return &computepb.Instance{
 		Name:        s(name),
 		MachineType: s(e2Medium),
-		Disks: []*computepb.AttachedDisk{{
-			Boot: proto.Bool(true), AutoDelete: proto.Bool(true),
-			InitializeParams: &computepb.AttachedDiskInitializeParams{SourceImage: s(debianFam), DiskSizeGb: proto.Int64(20)},
-		}},
+		Disks: []*computepb.AttachedDisk{
+			{
+				Boot:       new(true),
+				AutoDelete: new(true),
+				InitializeParams: &computepb.AttachedDiskInitializeParams{
+					SourceImage: s(debianFam),
+					DiskSizeGb:  proto.Int64(20),
+				},
+			},
+		},
 		NetworkInterfaces: []*computepb.NetworkInterface{{
 			Subnetwork:    s(subnetRef),
 			AccessConfigs: []*computepb.AccessConfig{{Name: s("External NAT"), Type: s("ONE_TO_ONE_NAT")}},
@@ -53,7 +59,8 @@ func vmSpec(name string) *computepb.Instance {
 func (e *env) vm(t *testing.T, spec *computepb.Instance) *computepb.Instance {
 	t.Helper()
 
-	op, err := e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: spec})
+	op, err := e.instances(t).
+		Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: spec})
 	e.done(t, op, err)
 
 	return e.getVM(t, spec.GetName())
@@ -62,7 +69,8 @@ func (e *env) vm(t *testing.T, spec *computepb.Instance) *computepb.Instance {
 func (e *env) getVM(t *testing.T, name string) *computepb.Instance {
 	t.Helper()
 
-	inst, err := e.instances(t).Get(t.Context(), &computepb.GetInstanceRequest{Project: project, Zone: zone, Instance: name})
+	inst, err := e.instances(t).
+		Get(t.Context(), &computepb.GetInstanceRequest{Project: project, Zone: zone, Instance: name})
 	require.NoError(t, err)
 
 	return inst
@@ -74,7 +82,11 @@ func TestInstanceStatusTransitions(t *testing.T) {
 	e := newEnv(t)
 	e.baseNet(t)
 
-	op, err := e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: vmSpec("vm1")})
+	op, err := e.instances(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: vmSpec("vm1")},
+		)
 	require.NoError(t, err)
 	assert.Equal(t, computepb.Operation_PENDING, op.Proto().GetStatus())
 	assert.Contains(t, op.Proto().GetZone(), "/zones/"+zone)
@@ -84,14 +96,17 @@ func TestInstanceStatusTransitions(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		at     time.Duration
 		status string
+		at     time.Duration
 		opStat computepb.Operation_Status
 	}{
-		{"provisioning", 0, "PROVISIONING", computepb.Operation_PENDING},
-		{"still provisioning", timing.Provision - time.Millisecond, "PROVISIONING", computepb.Operation_RUNNING},
-		{"staging", timing.Provision, "STAGING", computepb.Operation_RUNNING},
-		{"running", timing.Stage, "RUNNING", computepb.Operation_DONE},
+		{name: "provisioning", at: 0, status: "PROVISIONING", opStat: computepb.Operation_PENDING},
+		{
+			name: "still provisioning", at: timing.Provision - time.Millisecond,
+			status: "PROVISIONING", opStat: computepb.Operation_RUNNING,
+		},
+		{name: "staging", at: timing.Provision, status: "STAGING", opStat: computepb.Operation_RUNNING},
+		{name: "running", at: timing.Stage, status: "RUNNING", opStat: computepb.Operation_DONE},
 	}
 
 	var elapsed time.Duration
@@ -103,7 +118,11 @@ func TestInstanceStatusTransitions(t *testing.T) {
 		inst := e.getVM(t, "vm1")
 		assert.Equal(t, tt.status, inst.GetStatus(), tt.name)
 
-		got, gerr := e.zoneOps(t).Get(t.Context(), &computepb.GetZoneOperationRequest{Project: project, Zone: zone, Operation: op.Name()})
+		got, gerr := e.zoneOps(t).
+			Get(
+				t.Context(),
+				&computepb.GetZoneOperationRequest{Project: project, Zone: zone, Operation: op.Name()},
+			)
 		require.NoError(t, gerr)
 
 		if tt.name == "still provisioning" {
@@ -133,8 +152,16 @@ func TestInstanceInsertShape(t *testing.T) {
 
 	assert.Equal(t, "compute#instance", inst.GetKind())
 	assert.Equal(t, stRunning, inst.GetStatus())
-	assert.Equal(t, "https://www.googleapis.com/compute/v1/projects/"+project+"/zones/"+zone+"/instances/vm1", inst.GetSelfLink())
-	assert.Equal(t, "https://www.googleapis.com/compute/v1/projects/"+project+"/zones/"+zone+"/machineTypes/e2-medium", inst.GetMachineType())
+	assert.Equal(
+		t,
+		"https://www.googleapis.com/compute/v1/projects/"+project+"/zones/"+zone+"/instances/vm1",
+		inst.GetSelfLink(),
+	)
+	assert.Equal(
+		t,
+		"https://www.googleapis.com/compute/v1/projects/"+project+"/zones/"+zone+"/machineTypes/e2-medium",
+		inst.GetMachineType(),
+	)
 	assert.NotZero(t, inst.GetId())
 	assert.NotEmpty(t, inst.GetCreationTimestamp())
 	assert.NotEmpty(t, inst.GetFingerprint())
@@ -193,10 +220,20 @@ func TestInstanceInsertErrors(t *testing.T) {
 		{func(i *computepb.Instance) { i.Name = s("Bad_Name") }, "bad name", "invalid", 400},
 		{func(i *computepb.Instance) { i.Name = s("exists") }, "duplicate", "alreadyExists", 409},
 		{func(i *computepb.Instance) { i.MachineType = nil }, "no machine type", "required", 400},
-		{func(i *computepb.Instance) { i.MachineType = s("zones/" + zone + "/machineTypes/z9-huge") }, "unknown machine type", "notFound", 404},
-		{func(i *computepb.Instance) { i.MachineType = s("zones/" + otherZone + "/machineTypes/e2-medium") }, "machine type other zone", "invalid", 400},
+		{
+			func(i *computepb.Instance) { i.MachineType = s("zones/" + zone + "/machineTypes/z9-huge") },
+			"unknown machine type",
+			"notFound",
+			404,
+		},
+		{
+			func(i *computepb.Instance) { i.MachineType = s("zones/" + otherZone + "/machineTypes/e2-medium") },
+			"machine type other zone",
+			"invalid",
+			400,
+		},
 		{func(i *computepb.Instance) { i.Disks = nil }, "no disks", "invalid", 400},
-		{func(i *computepb.Instance) { i.Disks[0].Boot = proto.Bool(false) }, "first disk not boot", "invalid", 400},
+		{func(i *computepb.Instance) { i.Disks[0].Boot = new(false) }, "first disk not boot", "invalid", 400},
 		{func(i *computepb.Instance) {
 			i.Disks[0].InitializeParams.SourceImage = s("projects/debian-cloud/global/images/family/nope")
 		}, "unknown image", "notFound", 404},
@@ -213,17 +250,37 @@ func TestInstanceInsertErrors(t *testing.T) {
 		{func(i *computepb.Instance) {
 			i.NetworkInterfaces[0].Subnetwork = s("regions/" + region + "/subnetworks/ghost")
 		}, "unknown subnet", "notFound", 404},
-		{func(i *computepb.Instance) { i.NetworkInterfaces[0].NetworkIP = s("10.99.0.4") }, "ip outside subnet", "invalid", 400},
-		{func(i *computepb.Instance) { i.NetworkInterfaces[0].NetworkIP = s("10.10.0.1") }, "gateway ip", "invalid", 400},
-		{func(i *computepb.Instance) { i.NetworkInterfaces[0].AccessConfigs[0].NatIP = s("34.1.2.3") }, "unreserved nat ip", "invalid", 400},
+		{
+			func(i *computepb.Instance) { i.NetworkInterfaces[0].NetworkIP = s("10.99.0.4") },
+			"ip outside subnet",
+			"invalid",
+			400,
+		},
+		{
+			func(i *computepb.Instance) { i.NetworkInterfaces[0].NetworkIP = s("10.10.0.1") },
+			"gateway ip",
+			"invalid",
+			400,
+		},
+		{
+			func(i *computepb.Instance) { i.NetworkInterfaces[0].AccessConfigs[0].NatIP = s("34.1.2.3") },
+			"unreserved nat ip",
+			"invalid",
+			400,
+		},
 		{func(i *computepb.Instance) {
-			i.Scheduling = &computepb.Scheduling{Preemptible: proto.Bool(true), AutomaticRestart: proto.Bool(true)}
+			i.Scheduling = &computepb.Scheduling{Preemptible: new(true), AutomaticRestart: new(true)}
 		}, "preemptible auto restart", "invalid", 400},
 		{func(i *computepb.Instance) { i.Labels = map[string]string{"Bad": "x"} }, "bad label", "invalid", 400},
 		{func(i *computepb.Instance) {
 			i.Metadata = &computepb.Metadata{Items: []*computepb.Items{{Key: s("a b")}}}
 		}, "bad metadata key", "invalid", 400},
-		{func(i *computepb.Instance) { i.Tags = &computepb.Tags{Items: []string{"Bad Tag"}} }, "bad tag", "invalid", 400},
+		{
+			func(i *computepb.Instance) { i.Tags = &computepb.Tags{Items: []string{"Bad Tag"}} },
+			"bad tag",
+			"invalid",
+			400,
+		},
 	}
 
 	for _, tt := range tests {
@@ -239,7 +296,11 @@ func TestInstanceInsertErrors(t *testing.T) {
 			spec := vmSpec("fresh")
 			tt.mut(spec)
 
-			_, err := e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: spec})
+			_, err := e.instances(t).
+				Insert(
+					t.Context(),
+					&computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: spec},
+				)
 			assertAPIError(t, err, tt.status, tt.reason)
 			assert.Equal(t, disksBefore, countDisks(t, e), "failed insert must not leak disks")
 		})
@@ -285,7 +346,8 @@ func TestInstanceIPAllocation(t *testing.T) {
 	assert.Equal(t, []string{"10.10.0.2", "10.10.0.3", "10.10.0.4"}, []string{ia, ib, ic})
 	assert.Len(t, map[string]bool{ea: true, eb: true, ec: true}, 3)
 
-	op, err := e.instances(t).Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "a"})
+	op, err := e.instances(t).
+		Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "a"})
 	e.done(t, op, err)
 
 	e.vm(t, vmSpec("d"))
@@ -303,7 +365,11 @@ func TestInstanceIPAllocation(t *testing.T) {
 	clash := vmSpec("f")
 	clash.NetworkInterfaces[0].NetworkIP = s("10.10.0.100")
 
-	_, err = e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: clash})
+	_, err = e.instances(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: clash},
+		)
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 }
 
@@ -389,15 +455,38 @@ func TestInstanceMetadataLabelsTags(t *testing.T) {
 		reason string
 		status int
 	}{
-		{&computepb.Metadata{Fingerprint: s("stale"), Items: []*computepb.Items{item("a", "1")}}, "stale fingerprint", "conditionNotMet", 412},
+		{
+			&computepb.Metadata{Fingerprint: s("stale"), Items: []*computepb.Items{item("a", "1")}},
+			"stale fingerprint",
+			"conditionNotMet",
+			412,
+		},
 		{&computepb.Metadata{Items: []*computepb.Items{item("a", "1")}}, "missing fingerprint", "conditionNotMet", 412},
-		{&computepb.Metadata{Fingerprint: md.Fingerprint, Items: []*computepb.Items{item("a", "1"), item("a", "2")}}, "duplicate keys", "invalid", 400},
-		{&computepb.Metadata{Fingerprint: md.Fingerprint, Items: []*computepb.Items{item("bad key", "1")}}, "bad key", "invalid", 400},
+		{
+			&computepb.Metadata{Fingerprint: md.Fingerprint, Items: []*computepb.Items{item("a", "1"), item("a", "2")}},
+			"duplicate keys",
+			"invalid",
+			400,
+		},
+		{
+			&computepb.Metadata{Fingerprint: md.Fingerprint, Items: []*computepb.Items{item("bad key", "1")}},
+			"bad key",
+			"invalid",
+			400,
+		},
 		{&computepb.Metadata{Fingerprint: md.Fingerprint, Items: []*computepb.Items{item("a", "1")}}, "ok", "", 200},
 	}
 
 	for _, tt := range metaTests {
-		op, err := insts.SetMetadata(t.Context(), &computepb.SetMetadataInstanceRequest{Project: project, Zone: zone, Instance: "vm1", MetadataResource: tt.meta})
+		op, err := insts.SetMetadata(
+			t.Context(),
+			&computepb.SetMetadataInstanceRequest{
+				Project:          project,
+				Zone:             zone,
+				Instance:         "vm1",
+				MetadataResource: tt.meta,
+			},
+		)
 		if tt.status == http.StatusOK {
 			e.done(t, op, err)
 
@@ -413,25 +502,43 @@ func TestInstanceMetadataLabelsTags(t *testing.T) {
 	assert.NotEqual(t, inst.GetFingerprint(), after.GetFingerprint())
 
 	_, err := insts.SetMetadata(t.Context(), &computepb.SetMetadataInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1", MetadataResource: &computepb.Metadata{Fingerprint: md.Fingerprint},
+		Project:          project,
+		Zone:             zone,
+		Instance:         "vm1",
+		MetadataResource: &computepb.Metadata{Fingerprint: md.Fingerprint},
 	})
 	assertAPIError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 
 	_, err = insts.SetLabels(t.Context(), &computepb.SetLabelsInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1",
-		InstancesSetLabelsRequestResource: &computepb.InstancesSetLabelsRequest{Labels: map[string]string{"a": "b"}, LabelFingerprint: s("stale")},
+		Project:  project,
+		Zone:     zone,
+		Instance: "vm1",
+		InstancesSetLabelsRequestResource: &computepb.InstancesSetLabelsRequest{
+			Labels:           map[string]string{"a": "b"},
+			LabelFingerprint: s("stale"),
+		},
 	})
 	assertAPIError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 
 	_, err = insts.SetLabels(t.Context(), &computepb.SetLabelsInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1",
-		InstancesSetLabelsRequestResource: &computepb.InstancesSetLabelsRequest{Labels: map[string]string{"A": "b"}, LabelFingerprint: after.LabelFingerprint},
+		Project:  project,
+		Zone:     zone,
+		Instance: "vm1",
+		InstancesSetLabelsRequestResource: &computepb.InstancesSetLabelsRequest{
+			Labels:           map[string]string{"A": "b"},
+			LabelFingerprint: after.LabelFingerprint,
+		},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	op, err := insts.SetLabels(t.Context(), &computepb.SetLabelsInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1",
-		InstancesSetLabelsRequestResource: &computepb.InstancesSetLabelsRequest{Labels: map[string]string{"team": "core"}, LabelFingerprint: after.LabelFingerprint},
+		Project:  project,
+		Zone:     zone,
+		Instance: "vm1",
+		InstancesSetLabelsRequestResource: &computepb.InstancesSetLabelsRequest{
+			Labels:           map[string]string{"team": "core"},
+			LabelFingerprint: after.LabelFingerprint,
+		},
 	})
 	e.done(t, op, err)
 
@@ -440,12 +547,18 @@ func TestInstanceMetadataLabelsTags(t *testing.T) {
 	assert.NotEqual(t, after.GetLabelFingerprint(), labelled.GetLabelFingerprint())
 
 	_, err = insts.SetTags(t.Context(), &computepb.SetTagsInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1", TagsResource: &computepb.Tags{Items: []string{"x"}, Fingerprint: s("stale")},
+		Project:      project,
+		Zone:         zone,
+		Instance:     "vm1",
+		TagsResource: &computepb.Tags{Items: []string{"x"}, Fingerprint: s("stale")},
 	})
 	assertAPIError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 
 	op, err = insts.SetTags(t.Context(), &computepb.SetTagsInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1", TagsResource: &computepb.Tags{Items: []string{"web", "db"}, Fingerprint: labelled.GetTags().Fingerprint},
+		Project:      project,
+		Zone:         zone,
+		Instance:     "vm1",
+		TagsResource: &computepb.Tags{Items: []string{"web", "db"}, Fingerprint: labelled.GetTags().Fingerprint},
 	})
 	e.done(t, op, err)
 
@@ -494,23 +607,57 @@ func TestInstanceDisksAttachDetach(t *testing.T) {
 	e.vm(t, vmSpec("vm1"))
 	e.vm(t, vmSpec("vm2"))
 
-	op, err := e.disks(t).Insert(t.Context(), &computepb.InsertDiskRequest{Project: project, Zone: zone, DiskResource: &computepb.Disk{Name: s("data"), SizeGb: proto.Int64(10)}})
+	op, err := e.disks(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertDiskRequest{
+				Project:      project,
+				Zone:         zone,
+				DiskResource: &computepb.Disk{Name: s("data"), SizeGb: proto.Int64(10)},
+			},
+		)
 	e.done(t, op, err)
 
 	attach := func(inst string, ad *computepb.AttachedDisk) error {
-		op, err := insts.AttachDisk(t.Context(), &computepb.AttachDiskInstanceRequest{Project: project, Zone: zone, Instance: inst, AttachedDiskResource: ad})
-		if err == nil {
-			e.done(t, op, err)
+		aop, aerr := insts.AttachDisk(
+			t.Context(),
+			&computepb.AttachDiskInstanceRequest{
+				Project:              project,
+				Zone:                 zone,
+				Instance:             inst,
+				AttachedDiskResource: ad,
+			},
+		)
+		if aerr == nil {
+			e.done(t, aop, aerr)
 		}
 
-		return err
+		return aerr
 	}
 
-	assertAPIError(t, attach("vm1", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/ghost")}), http.StatusNotFound, "notFound")
+	assertAPIError(
+		t,
+		attach("vm1", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/ghost")}),
+		http.StatusNotFound,
+		"notFound",
+	)
 	assertAPIError(t, attach("vm1", &computepb.AttachedDisk{}), http.StatusBadRequest, "invalid")
-	require.NoError(t, attach("vm1", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data"), DeviceName: s("data-disk")}))
-	assertAPIError(t, attach("vm1", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data")}), http.StatusBadRequest, "invalid")
-	assertAPIError(t, attach("vm2", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data")}), http.StatusBadRequest, "resourceInUseByAnotherResource")
+	require.NoError(
+		t,
+		attach("vm1", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data"), DeviceName: s("data-disk")}),
+	)
+	assertAPIError(
+		t,
+		attach("vm1", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data")}),
+		http.StatusBadRequest,
+		"invalid",
+	)
+	assertAPIError(
+		t,
+		attach("vm2", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data")}),
+		http.StatusBadRequest,
+		"resourceInUseByAnotherResource",
+	)
 
 	vm1 := e.getVM(t, "vm1")
 	require.Len(t, vm1.GetDisks(), 2)
@@ -526,13 +673,27 @@ func TestInstanceDisksAttachDetach(t *testing.T) {
 	_, err = e.disks(t).Delete(t.Context(), &computepb.DeleteDiskRequest{Project: project, Zone: zone, Disk: "data"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
-	_, err = insts.DetachDisk(t.Context(), &computepb.DetachDiskInstanceRequest{Project: project, Zone: zone, Instance: "vm1", DeviceName: "persistent-disk-0"})
+	_, err = insts.DetachDisk(
+		t.Context(),
+		&computepb.DetachDiskInstanceRequest{
+			Project:    project,
+			Zone:       zone,
+			Instance:   "vm1",
+			DeviceName: "persistent-disk-0",
+		},
+	)
 	assertAPIError(t, err, http.StatusBadRequest, "resourceNotReady")
 
-	_, err = insts.DetachDisk(t.Context(), &computepb.DetachDiskInstanceRequest{Project: project, Zone: zone, Instance: "vm1", DeviceName: "nope"})
+	_, err = insts.DetachDisk(
+		t.Context(),
+		&computepb.DetachDiskInstanceRequest{Project: project, Zone: zone, Instance: "vm1", DeviceName: "nope"},
+	)
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
-	op, err = insts.DetachDisk(t.Context(), &computepb.DetachDiskInstanceRequest{Project: project, Zone: zone, Instance: "vm1", DeviceName: "data-disk"})
+	op, err = insts.DetachDisk(
+		t.Context(),
+		&computepb.DetachDiskInstanceRequest{Project: project, Zone: zone, Instance: "vm1", DeviceName: "data-disk"},
+	)
 	e.done(t, op, err)
 
 	disk, err = e.disks(t).Get(t.Context(), &computepb.GetDiskRequest{Project: project, Zone: zone, Disk: "data"})
@@ -540,8 +701,14 @@ func TestInstanceDisksAttachDetach(t *testing.T) {
 	assert.Empty(t, disk.GetUsers())
 	assert.NotEmpty(t, disk.GetLastDetachTimestamp())
 
-	require.NoError(t, attach("vm2", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data"), Mode: s("READ_ONLY")}))
-	require.NoError(t, attach("vm1", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data"), Mode: s("READ_ONLY")}))
+	require.NoError(
+		t,
+		attach("vm2", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data"), Mode: s("READ_ONLY")}),
+	)
+	require.NoError(
+		t,
+		attach("vm1", &computepb.AttachedDisk{Source: s("zones/" + zone + "/disks/data"), Mode: s("READ_ONLY")}),
+	)
 }
 
 func TestInstanceDelete(t *testing.T) {
@@ -552,18 +719,22 @@ func TestInstanceDelete(t *testing.T) {
 	insts := e.instances(t)
 
 	spec := vmSpec("vm1")
-	spec.DeletionProtection = proto.Bool(true)
+	spec.DeletionProtection = new(true)
 	e.vm(t, spec)
 
 	_, err := insts.Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	op, err := insts.SetDeletionProtection(t.Context(), &computepb.SetDeletionProtectionInstanceRequest{
-		Project: project, Zone: zone, Resource: "vm1", DeletionProtection: proto.Bool(false),
+		Project: project, Zone: zone, Resource: "vm1", DeletionProtection: new(false),
 	})
 	e.done(t, op, err)
 
-	_, err = e.subnets(t).Delete(t.Context(), &computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "sub"})
+	_, err = e.subnets(t).
+		Delete(
+			t.Context(),
+			&computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "sub"},
+		)
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
 	op, err = insts.Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
@@ -575,7 +746,11 @@ func TestInstanceDelete(t *testing.T) {
 	_, err = e.disks(t).Get(t.Context(), &computepb.GetDiskRequest{Project: project, Zone: zone, Disk: "vm1"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
-	op, err = e.subnets(t).Delete(t.Context(), &computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "sub"})
+	op, err = e.subnets(t).
+		Delete(
+			t.Context(),
+			&computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "sub"},
+		)
 	e.done(t, op, err)
 }
 
@@ -590,14 +765,20 @@ func TestInstanceStaticAddresses(t *testing.T) {
 		{Name: s("ext")},
 		{Name: s("int"), AddressType: s("INTERNAL"), Subnetwork: s(subnetRef)},
 	} {
-		op, err := addrs.Insert(t.Context(), &computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: a})
+		op, err := addrs.Insert(
+			t.Context(),
+			&computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: a},
+		)
 		e.done(t, op, err)
 	}
 
 	ext, err := addrs.Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "ext"})
 	require.NoError(t, err)
 
-	internal, err := addrs.Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "int"})
+	internal, err := addrs.Get(
+		t.Context(),
+		&computepb.GetAddressRequest{Project: project, Region: region, Address: "int"},
+	)
 	require.NoError(t, err)
 
 	spec := vmSpec("vm1")
@@ -610,23 +791,39 @@ func TestInstanceStaticAddresses(t *testing.T) {
 	assert.Equal(t, ext.GetAddress(), nic.GetAccessConfigs()[0].GetNatIP())
 
 	for _, name := range []string{"ext", "int"} {
-		got, gerr := addrs.Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: name})
+		got, gerr := addrs.Get(
+			t.Context(),
+			&computepb.GetAddressRequest{Project: project, Region: region, Address: name},
+		)
 		require.NoError(t, gerr)
 		assert.Equal(t, "IN_USE", got.GetStatus(), name)
 		assert.Equal(t, []string{inst.GetSelfLink()}, got.GetUsers(), name)
 
-		_, gerr = addrs.Delete(t.Context(), &computepb.DeleteAddressRequest{Project: project, Region: region, Address: name})
+		_, gerr = addrs.Delete(
+			t.Context(),
+			&computepb.DeleteAddressRequest{Project: project, Region: region, Address: name},
+		)
 		assertAPIError(t, gerr, http.StatusBadRequest, "resourceInUseByAnotherResource")
 	}
 
 	other := vmSpec("vm2")
 	other.NetworkInterfaces[0].AccessConfigs[0].NatIP = s(ext.GetAddress())
-	_, err = e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: other})
+	_, err = e.instances(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: other},
+		)
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
-	op, err := e.instances(t).Stop(t.Context(), &computepb.StopInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+	op, err := e.instances(t).
+		Stop(t.Context(), &computepb.StopInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	e.done(t, op, err)
-	assert.Equal(t, ext.GetAddress(), e.getVM(t, "vm1").GetNetworkInterfaces()[0].GetAccessConfigs()[0].GetNatIP(), "static IP survives a stop")
+	assert.Equal(
+		t,
+		ext.GetAddress(),
+		e.getVM(t, "vm1").GetNetworkInterfaces()[0].GetAccessConfigs()[0].GetNatIP(),
+		"static IP survives a stop",
+	)
 }
 
 func TestInstanceAccessConfigs(t *testing.T) {
@@ -659,7 +856,11 @@ func TestInstanceAccessConfigs(t *testing.T) {
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	_, err = insts.AddAccessConfig(t.Context(), &computepb.AddAccessConfigInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1", NetworkInterface: "nic9", AccessConfigResource: &computepb.AccessConfig{Name: s("x")},
+		Project:              project,
+		Zone:                 zone,
+		Instance:             "vm1",
+		NetworkInterface:     "nic9",
+		AccessConfigResource: &computepb.AccessConfig{Name: s("x")},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 

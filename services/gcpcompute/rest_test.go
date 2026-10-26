@@ -15,11 +15,11 @@ import (
 )
 
 type listDoc struct {
-	Items         []map[string]any `json:"items"`
 	Kind          string           `json:"kind"`
 	ID            string           `json:"id"`
 	SelfLink      string           `json:"selfLink"`
 	NextPageToken string           `json:"nextPageToken"`
+	Items         []map[string]any `json:"items"`
 }
 
 func getJSON[T any](t *testing.T, e *env, path string, want int) T {
@@ -50,7 +50,8 @@ func seedInstances(t *testing.T, e *env) {
 	for _, v := range []struct {
 		name, mt, env string
 	}{
-		{"alpha", "e2-medium", "prod"}, {"bravo", "e2-small", "dev"}, {"charlie", "n2-standard-2", "prod"}, {"delta", "e2-medium", "dev"},
+		{"alpha", "e2-medium", "prod"}, {"bravo", "e2-small", "dev"},
+		{"charlie", "n2-standard-2", "prod"}, {"delta", "e2-medium", "dev"},
 	} {
 		spec := vmSpec(v.name)
 		spec.MachineType = s("zones/" + zone + "/machineTypes/" + v.mt)
@@ -63,7 +64,11 @@ func seedInstances(t *testing.T, e *env) {
 	east.NetworkInterfaces[0].Subnetwork = s("regions/" + otherRegion + "/subnetworks/east")
 	east.NetworkInterfaces[0].AccessConfigs = nil
 
-	op, err := e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: otherZone, InstanceResource: east})
+	op, err := e.instances(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertInstanceRequest{Project: project, Zone: otherZone, InstanceResource: east},
+		)
 	e.done(t, op, err)
 }
 
@@ -88,15 +93,27 @@ func TestInstanceListFilterOrderPaging(t *testing.T) {
 		{"and", "filter=" + url.QueryEscape(`labels.env = prod AND machineType = ".*e2-medium"`), []string{"alpha"}},
 		{"or", "filter=" + url.QueryEscape(`name = alpha OR name = charlie`), []string{"alpha", "charlie"}},
 		{"not", "filter=" + url.QueryEscape(`NOT labels.env = prod`), []string{"bravo", "delta"}},
-		{"parentheses", "filter=" + url.QueryEscape(`(name = alpha OR name = bravo) AND labels.env = prod`), []string{"alpha"}},
+		{
+			"parentheses",
+			"filter=" + url.QueryEscape(`(name = alpha OR name = bravo) AND labels.env = prod`),
+			[]string{"alpha"},
+		},
 		{"implicit and", "filter=" + url.QueryEscape(`(name = alpha) (labels.env = prod)`), []string{"alpha"}},
 		{"nested field", "filter=" + url.QueryEscape(`networkInterfaces.networkIP = "10.10.0.2"`), []string{"alpha"}},
 		{"has operator", "filter=" + url.QueryEscape(`labels.env:*`), []string{"alpha", "bravo", "charlie", "delta"}},
 		{"has missing", "filter=" + url.QueryEscape(`labels.team:*`), nil},
 		{"status", "filter=" + url.QueryEscape(`status = RUNNING`), []string{"alpha", "bravo", "charlie", "delta"}},
 		{"order desc", "orderBy=" + url.QueryEscape("name desc"), []string{"delta", "charlie", "bravo", "alpha"}},
-		{"order explicit asc", "orderBy=" + url.QueryEscape("name asc"), []string{"alpha", "bravo", "charlie", "delta"}},
-		{"order by label", "orderBy=" + url.QueryEscape("labels.env desc") + "&filter=" + url.QueryEscape("name != delta"), []string{"alpha", "charlie", "bravo"}},
+		{
+			"order explicit asc",
+			"orderBy=" + url.QueryEscape("name asc"),
+			[]string{"alpha", "bravo", "charlie", "delta"},
+		},
+		{
+			"order by label",
+			"orderBy=" + url.QueryEscape("labels.env desc") + "&filter=" + url.QueryEscape("name != delta"),
+			[]string{"alpha", "charlie", "bravo"},
+		},
 		{"max results", "maxResults=2", []string{"alpha", "bravo"}},
 	}
 
@@ -107,7 +124,11 @@ func TestInstanceListFilterOrderPaging(t *testing.T) {
 			got := getJSON[listDoc](t, e, base+"?"+tt.query, http.StatusOK)
 			assert.Equal(t, "compute#instanceList", got.Kind)
 			assert.Equal(t, "projects/"+project+"/zones/"+zone+"/instances", got.ID)
-			assert.Equal(t, "https://www.googleapis.com/compute/v1/projects/"+project+"/zones/"+zone+"/instances", got.SelfLink)
+			assert.Equal(
+				t,
+				"https://www.googleapis.com/compute/v1/projects/"+project+"/zones/"+zone+"/instances",
+				got.SelfLink,
+			)
 
 			if tt.want == nil {
 				assert.Empty(t, got.Items)
@@ -181,8 +202,10 @@ func TestListQueryErrors(t *testing.T) {
 
 			var doc struct {
 				Error struct {
-					Errors []struct{ Reason string } `json:"errors"`
-					Code   int                       `json:"code"`
+					Errors []struct {
+						Reason string `json:"reason"`
+					} `json:"errors"`
+					Code int `json:"code"`
 				} `json:"error"`
 			}
 
@@ -221,7 +244,12 @@ func TestAggregatedList(t *testing.T) {
 	assert.Equal(t, "NO_RESULTS_ON_PAGE", got.Items["zones/europe-west1-b"].Warning.Code)
 	assert.Empty(t, got.Items["zones/europe-west1-b"].Items)
 
-	filtered := getJSON[agg](t, e, "/compute/v1/projects/"+project+"/aggregated/instances?filter="+url.QueryEscape(`labels.env = prod`), http.StatusOK)
+	filtered := getJSON[agg](
+		t,
+		e,
+		"/compute/v1/projects/"+project+"/aggregated/instances?filter="+url.QueryEscape(`labels.env = prod`),
+		http.StatusOK,
+	)
 	assert.Equal(t, []string{"alpha", "charlie"}, names(filtered.Items["zones/"+zone].Items))
 	assert.Empty(t, filtered.Items["zones/"+otherZone].Items)
 
@@ -265,14 +293,34 @@ func TestAggregatedListsOtherKinds(t *testing.T) {
 	e.baseNet(t)
 
 	for _, a := range []string{"a1", "a2"} {
-		op, err := e.addresses(t).Insert(t.Context(), &computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: &computepb.Address{Name: s(a)}})
+		op, err := e.addresses(t).
+			Insert(
+				t.Context(),
+				&computepb.InsertAddressRequest{
+					Project:         project,
+					Region:          region,
+					AddressResource: &computepb.Address{Name: s(a)},
+				},
+			)
 		e.done(t, op, err)
 	}
 
-	op, err := e.globalAddresses(t).Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{Name: s("g1")}})
+	op, err := e.globalAddresses(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{Name: s("g1")}},
+		)
 	e.done(t, op, err)
 
-	op, err = e.disks(t).Insert(t.Context(), &computepb.InsertDiskRequest{Project: project, Zone: otherZone, DiskResource: &computepb.Disk{Name: s("d1"), SizeGb: proto.Int64(10)}})
+	op, err = e.disks(t).
+		Insert(
+			t.Context(),
+			&computepb.InsertDiskRequest{
+				Project:      project,
+				Zone:         otherZone,
+				DiskResource: &computepb.Disk{Name: s("d1"), SizeGb: proto.Int64(10)},
+			},
+		)
 	e.done(t, op, err)
 
 	type scoped struct {
@@ -296,11 +344,41 @@ func TestAggregatedListsOtherKinds(t *testing.T) {
 		scope string
 		want  []string
 	}{
-		{"addresses", "compute#addressAggregatedList", func(s scoped) []map[string]any { return s.Addresses }, "regions/" + region, []string{"a1", "a2"}},
-		{"addresses", "compute#addressAggregatedList", func(s scoped) []map[string]any { return s.Addresses }, "global", []string{"g1"}},
-		{"disks", "compute#diskAggregatedList", func(s scoped) []map[string]any { return s.Disks }, "zones/" + otherZone, []string{"d1"}},
-		{"subnetworks", "compute#subnetworkAggregatedList", func(s scoped) []map[string]any { return s.Subnets }, "regions/" + region, []string{"sub"}},
-		{"machineTypes", "compute#machineTypeAggregatedList", func(s scoped) []map[string]any { return s.Machines }, "zones/" + zone, nil},
+		{
+			"addresses",
+			"compute#addressAggregatedList",
+			func(s scoped) []map[string]any { return s.Addresses },
+			"regions/" + region,
+			[]string{"a1", "a2"},
+		},
+		{
+			"addresses",
+			"compute#addressAggregatedList",
+			func(s scoped) []map[string]any { return s.Addresses },
+			"global",
+			[]string{"g1"},
+		},
+		{
+			"disks",
+			"compute#diskAggregatedList",
+			func(s scoped) []map[string]any { return s.Disks },
+			"zones/" + otherZone,
+			[]string{"d1"},
+		},
+		{
+			"subnetworks",
+			"compute#subnetworkAggregatedList",
+			func(s scoped) []map[string]any { return s.Subnets },
+			"regions/" + region,
+			[]string{"sub"},
+		},
+		{
+			"machineTypes",
+			"compute#machineTypeAggregatedList",
+			func(s scoped) []map[string]any { return s.Machines },
+			"zones/" + zone,
+			nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -312,7 +390,12 @@ func TestAggregatedListsOtherKinds(t *testing.T) {
 				q = "?filter=" + url.QueryEscape("name = e2-micro")
 			}
 
-			got := getJSON[agg](t, e, fmt.Sprintf("/compute/v1/projects/%s/aggregated/%s%s", project, tt.path, q), http.StatusOK)
+			got := getJSON[agg](
+				t,
+				e,
+				fmt.Sprintf("/compute/v1/projects/%s/aggregated/%s%s", project, tt.path, q),
+				http.StatusOK,
+			)
 			assert.Equal(t, tt.kind, got.Kind)
 
 			if tt.want == nil {
@@ -342,7 +425,12 @@ func TestRawRouting(t *testing.T) {
 		{"unknown collection", http.MethodGet, "/compute/v1/projects/p/global/widgets", http.StatusNotFound},
 		{"wrong scope", http.MethodGet, "/compute/v1/projects/p/zones/" + zone + "/networks", http.StatusNotFound},
 		{"wrong method", http.MethodPut, "/compute/v1/projects/p/global/networks", http.StatusNotFound},
-		{"action wrong method", http.MethodGet, "/compute/v1/projects/p/zones/" + zone + "/instances/x/start", http.StatusNotFound},
+		{
+			"action wrong method",
+			http.MethodGet,
+			"/compute/v1/projects/p/zones/" + zone + "/instances/x/start",
+			http.StatusNotFound,
+		},
 		{"unknown zone", http.MethodGet, "/compute/v1/projects/p/zones/mars-a/instances", http.StatusNotFound},
 		{"unknown region", http.MethodGet, "/compute/v1/projects/p/regions/mars/subnetworks", http.StatusNotFound},
 		{"beta prefix", http.MethodGet, "/compute/beta/projects/p/global/networks", http.StatusOK},
@@ -377,7 +465,9 @@ func TestErrorBodyShape(t *testing.T) {
 		Error struct {
 			Message string `json:"message"`
 			Errors  []struct {
-				Message, Domain, Reason string
+				Message string `json:"message"`
+				Domain  string `json:"domain"`
+				Reason  string `json:"reason"`
 			} `json:"errors"`
 			Code int `json:"code"`
 		} `json:"error"`

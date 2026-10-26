@@ -3,16 +3,24 @@ package gcpcompute
 import (
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"sort"
+	"strconv"
 
 	computeapi "google.golang.org/api/compute/v1"
 )
 
 const (
-	catalogCreated = "1969-12-31T16:00:00.000-08:00"
-	maxPDs         = 128
-	maxPDSizeGb    = 263168
-	gbToMb         = 1024
+	catalogCreated     = "1969-12-31T16:00:00.000-08:00"
+	maxPDs             = 128
+	maxPDSizeGb        = 263168
+	gbToMb             = 1024
+	zonesPerRegionHint = 3
+	zonesABC           = "abc"
+	memStepMb          = 256
+	gbStd              = 4
+	gbHigh             = 8
+	gbN1               = 3.75
 )
 
 type regionSpec struct {
@@ -23,25 +31,30 @@ type regionSpec struct {
 }
 
 // regionCatalog lists the supported regions with their documented auto-mode subnet ranges.
-var regionCatalog = []regionSpec{
-	{"asia-east1", "10.140.0.0/20", "abc", "Intel Broadwell"},
-	{"asia-northeast1", "10.146.0.0/20", "abc", "Intel Broadwell"},
-	{"asia-south1", "10.160.0.0/20", "abc", "Intel Broadwell"},
-	{"asia-southeast1", "10.148.0.0/20", "abc", "Intel Broadwell"},
-	{"australia-southeast1", "10.152.0.0/20", "abc", "Intel Broadwell"},
-	{"europe-west1", "10.132.0.0/20", "bcd", "Intel Broadwell"},
-	{"europe-west2", "10.154.0.0/20", "abc", "Intel Broadwell"},
-	{"europe-west3", "10.156.0.0/20", "abc", "Intel Broadwell"},
-	{"europe-west4", "10.164.0.0/20", "abc", "Intel Broadwell"},
-	{"southamerica-east1", "10.158.0.0/20", "abc", "Intel Broadwell"},
-	{"us-central1", "10.128.0.0/20", "abcf", "Intel Broadwell"},
-	{"us-east1", "10.142.0.0/20", "bcd", "Intel Broadwell"},
-	{"us-east4", "10.150.0.0/20", "abc", "Intel Broadwell"},
-	{"us-west1", "10.138.0.0/20", "abc", "Intel Broadwell"},
-	{"us-west2", "10.168.0.0/20", "abc", "Intel Broadwell"},
+var regionCatalog = []regionSpec{ //nolint:gochecknoglobals // read-only lookup table
+	{"asia-east1", "10.140.0.0/20", zonesABC, platBroadwell},
+	{"asia-northeast1", "10.146.0.0/20", zonesABC, platBroadwell},
+	{"asia-south1", "10.160.0.0/20", zonesABC, platBroadwell},
+	{"asia-southeast1", "10.148.0.0/20", zonesABC, platBroadwell},
+	{"australia-southeast1", "10.152.0.0/20", zonesABC, platBroadwell},
+	{"europe-west1", "10.132.0.0/20", "bcd", platBroadwell},
+	{"europe-west2", "10.154.0.0/20", zonesABC, platBroadwell},
+	{"europe-west3", "10.156.0.0/20", zonesABC, platBroadwell},
+	{"europe-west4", "10.164.0.0/20", zonesABC, platBroadwell},
+	{"southamerica-east1", "10.158.0.0/20", zonesABC, platBroadwell},
+	{"us-central1", "10.128.0.0/20", "abcf", platBroadwell},
+	{"us-east1", "10.142.0.0/20", "bcd", platBroadwell},
+	{"us-east4", "10.150.0.0/20", zonesABC, platBroadwell},
+	{"us-west1", "10.138.0.0/20", zonesABC, platBroadwell},
+	{"us-west2", "10.168.0.0/20", zonesABC, platBroadwell},
 }
 
-var cpuPlatforms = []string{"Intel Broadwell", "Intel Cascade Lake", "Intel Skylake", "AMD Rome"}
+var cpuPlatforms = []string{ //nolint:gochecknoglobals // read-only lookup table
+	platBroadwell,
+	"Intel Cascade Lake",
+	"Intel Skylake",
+	"AMD Rome",
+}
 
 func stableID(parts ...string) uint64 {
 	h := fnv.New64a()
@@ -73,7 +86,7 @@ func zoneNames(r regionSpec) []string {
 }
 
 func allZones() []string {
-	var out []string
+	out := make([]string, 0, len(regionCatalog)*zonesPerRegionHint)
 	for _, r := range regionCatalog {
 		out = append(out, zoneNames(r)...)
 	}
@@ -89,13 +102,7 @@ func zoneExists(zone string) bool {
 		return false
 	}
 
-	for _, z := range zoneNames(r) {
-		if z == zone {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(zoneNames(r), zone)
 }
 
 func zoneResource(project, zone string) *computeapi.Zone {
@@ -142,31 +149,50 @@ func buildMachineSpecs() []machineSpec {
 		}
 	}
 
-	out = append(out,
-		machineSpec{"e2-micro", "Efficient Instance, 2 vCPU (1/4 shared physical core) and 1 GB RAM", 2, 1 * gbToMb, true},
-		machineSpec{"e2-small", "Efficient Instance, 2 vCPU (1/2 shared physical core) and 2 GB RAM", 2, 2 * gbToMb, true},
-		machineSpec{"e2-medium", "Efficient Instance, 2 vCPU (1/2 shared physical core) and 4 GB RAM", 2, 4 * gbToMb, true},
+	out = append(
+		out,
+		machineSpec{
+			"e2-micro",
+			"Efficient Instance, 2 vCPU (1/4 shared physical core) and 1 GB RAM",
+			2,
+			1 * gbToMb,
+			true,
+		},
+		machineSpec{
+			"e2-small",
+			"Efficient Instance, 2 vCPU (1/2 shared physical core) and 2 GB RAM",
+			2,
+			2 * gbToMb,
+			true,
+		},
+		machineSpec{
+			"e2-medium",
+			"Efficient Instance, 2 vCPU (1/2 shared physical core) and 4 GB RAM",
+			2,
+			4 * gbToMb,
+			true,
+		},
 	)
-	add("e2", "standard", []int64{2, 4, 8, 16, 32}, 4)
-	add("e2", "highmem", []int64{2, 4, 8, 16}, 8)
+	add("e2", "standard", []int64{2, 4, 8, 16, 32}, gbStd)
+	add("e2", "highmem", []int64{2, 4, 8, 16}, gbHigh)
 	add("e2", "highcpu", []int64{2, 4, 8, 16, 32}, 1)
-	add("n2", "standard", []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128}, 4)
-	add("n2", "highmem", []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128}, 8)
+	add("n2", "standard", []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128}, gbStd)
+	add("n2", "highmem", []int64{2, 4, 8, 16, 32, 48, 64, 80, 96, 128}, gbHigh)
 	add("n2", "highcpu", []int64{2, 4, 8, 16, 32, 48, 64, 80, 96}, 1)
-	add("n1", "standard", []int64{1, 2, 4, 8, 16, 32, 64, 96}, 3.75)
+	add("n1", "standard", []int64{1, 2, 4, 8, 16, 32, 64, 96}, gbN1)
 
 	return out
 }
 
 func trimFloat(f float64) string {
 	if f == float64(int64(f)) {
-		return fmt.Sprintf("%d", int64(f))
+		return strconv.FormatInt(int64(f), 10)
 	}
 
 	return fmt.Sprintf("%g", f)
 }
 
-var machineSpecs = buildMachineSpecs()
+var machineSpecs = buildMachineSpecs() //nolint:gochecknoglobals // read-only lookup table
 
 func findMachine(name string) (machineSpec, bool) {
 	for _, m := range machineSpecs {
@@ -183,7 +209,7 @@ func machineResource(project, zone string, m machineSpec) *computeapi.MachineTyp
 		Kind: "compute#machineType", Id: stableID("machineType", zone, m.name), CreationTimestamp: catalogCreated,
 		Name: m.name, Description: m.desc, GuestCpus: m.cpus, MemoryMb: m.memMb, ImageSpaceGb: 0,
 		MaximumPersistentDisks: maxPDs, MaximumPersistentDisksSizeGb: maxPDSizeGb, IsSharedCpu: m.shared,
-		Zone: zone, SelfLink: zoneLink(project, zone, "machineTypes", m.name), Architecture: "X86_64",
+		Zone: zone, SelfLink: zoneLink(project, zone, "machineTypes", m.name), Architecture: archX86,
 	}
 }
 
@@ -192,10 +218,10 @@ type diskTypeSpec struct {
 	defaultGb         int64
 }
 
-var diskTypeCatalog = []diskTypeSpec{
-	{"pd-balanced", "Balanced Persistent Disk", "10GB-65536GB", 100},
-	{"pd-ssd", "SSD Persistent Disk", "10GB-65536GB", 100},
-	{"pd-standard", "Standard Persistent Disk", "10GB-65536GB", 500},
+var diskTypeCatalog = []diskTypeSpec{ //nolint:gochecknoglobals // read-only lookup table
+	{"pd-balanced", "Balanced Persistent Disk", diskSizeRange, 100},
+	{"pd-ssd", "SSD Persistent Disk", diskSizeRange, 100},
+	{"pd-standard", "Standard Persistent Disk", diskSizeRange, 500},
 }
 
 func findDiskType(name string) (diskTypeSpec, bool) {
@@ -216,13 +242,19 @@ func diskTypeResource(project, zone string, d diskTypeSpec) *computeapi.DiskType
 	}
 }
 
-func customMachine(name string) (cpus, memMb int64, ok bool) {
+func customMachine(name string) (int64, int64, bool) {
 	var c, m int64
-	if n, err := fmt.Sscanf(name, "custom-%d-%d", &c, &m); err != nil || n != 2 || name != fmt.Sprintf("custom-%d-%d", c, m) {
+	if n, err := fmt.Sscanf(
+		name,
+		"custom-%d-%d",
+		&c,
+		&m,
+	); err != nil || n != 2 ||
+		name != fmt.Sprintf("custom-%d-%d", c, m) {
 		return 0, 0, false
 	}
 
-	if c < 1 || (c != 1 && c%2 != 0) || m < gbToMb*c/2 || m%256 != 0 {
+	if c < 1 || (c != 1 && c%2 != 0) || m < gbToMb*c/2 || m%memStepMb != 0 {
 		return 0, 0, false
 	}
 

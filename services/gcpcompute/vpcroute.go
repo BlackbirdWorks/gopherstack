@@ -14,52 +14,76 @@ func routeTarget(project string, r *computeapi.Route) target {
 }
 
 func (b *InMemoryBackend) resolveNextHopLocked(project string, in, out *computeapi.Route) *APIError {
+	if in.NextHopVpnTunnel != "" || in.NextHopIlb != "" || in.NextHopHub != "" || in.NextHopPeering != "" ||
+		in.NextHopNetwork != "" {
+		return errInvalid(
+			"Invalid value for field 'resource': next hop type is not supported by this emulator " +
+				"(use nextHopGateway, nextHopIp or nextHopInstance).",
+		)
+	}
+
 	set := 0
 
-	if in.NextHopGateway != "" {
-		set++
-
-		r, err := refGlobal(in.NextHopGateway, "gateways", project)
-		if err != nil || r.name != defaultGateway {
-			return errField("resource.nextHopGateway", in.NextHopGateway, "Only the default internet gateway is supported.")
+	for _, given := range []bool{in.NextHopGateway != "", in.NextHopIp != "", in.NextHopInstance != ""} {
+		if given {
+			set++
 		}
-
-		out.NextHopGateway = globalLink(r.project, "gateways", defaultGateway)
-	}
-
-	if in.NextHopIp != "" {
-		set++
-
-		if a, err := netip.ParseAddr(in.NextHopIp); err != nil || !a.Is4() {
-			return errField("resource.nextHopIp", in.NextHopIp, "Must be a valid IPv4 address.")
-		}
-
-		out.NextHopIp = in.NextHopIp
-	}
-
-	if in.NextHopInstance != "" {
-		set++
-
-		r, err := refLocated(in.NextHopInstance, "instances", scopeZone, project, "")
-		if err != nil {
-			return errField("resource.nextHopInstance", in.NextHopInstance, "The URL is malformed.")
-		}
-
-		rec, ok := b.instances[key(r.project, r.loc, r.name)]
-		if !ok {
-			return errNotFound(relPath(r.project, scopeZone, r.loc, "instances", r.name))
-		}
-
-		out.NextHopInstance = rec.Inst.SelfLink
-	}
-
-	if in.NextHopVpnTunnel != "" || in.NextHopIlb != "" || in.NextHopHub != "" || in.NextHopPeering != "" || in.NextHopNetwork != "" {
-		return errInvalid("Invalid value for field 'resource': next hop type is not supported by this emulator (use nextHopGateway, nextHopIp or nextHopInstance).")
 	}
 
 	if set != 1 {
-		return errInvalid("Invalid value for field 'resource': ''. Exactly one next hop (nextHopGateway, nextHopIp, nextHopInstance) must be specified.")
+		return errInvalid(
+			"Invalid value for field 'resource': ''. Exactly one next hop " +
+				"(nextHopGateway, nextHopIp, nextHopInstance) must be specified.",
+		)
 	}
+
+	switch {
+	case in.NextHopGateway != "":
+		return resolveGateway(project, in, out)
+	case in.NextHopIp != "":
+		return resolveNextHopIP(in, out)
+	}
+
+	return b.resolveNextHopInstanceLocked(project, in, out)
+}
+
+func resolveGateway(project string, in, out *computeapi.Route) *APIError {
+	r, err := refGlobal(in.NextHopGateway, "gateways", project)
+	if err != nil || r.name != defaultGateway {
+		return errField(
+			"resource.nextHopGateway",
+			in.NextHopGateway,
+			"Only the default internet gateway is supported.",
+		)
+	}
+
+	out.NextHopGateway = globalLink(r.project, "gateways", defaultGateway)
+
+	return nil
+}
+
+func resolveNextHopIP(in, out *computeapi.Route) *APIError {
+	if a, err := netip.ParseAddr(in.NextHopIp); err != nil || !a.Is4() {
+		return errField("resource.nextHopIp", in.NextHopIp, "Must be a valid IPv4 address.")
+	}
+
+	out.NextHopIp = in.NextHopIp
+
+	return nil
+}
+
+func (b *InMemoryBackend) resolveNextHopInstanceLocked(project string, in, out *computeapi.Route) *APIError {
+	r, err := refLocated(in.NextHopInstance, "instances", scopeZone, project, "")
+	if err != nil {
+		return errField("resource.nextHopInstance", in.NextHopInstance, "The URL is malformed.")
+	}
+
+	rec, ok := b.instances[key(r.project, r.loc, r.name)]
+	if !ok {
+		return errNotFound(relPath(r.project, scopeZone, r.loc, "instances", r.name))
+	}
+
+	out.NextHopInstance = rec.Inst.SelfLink
 
 	return nil
 }

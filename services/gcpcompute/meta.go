@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"strings"
-	"time"
 )
 
 const (
@@ -35,12 +34,6 @@ func fingerprint(parts ...string) string {
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 
 	return base64.URLEncoding.EncodeToString(sum[:fpBytes])
-}
-
-func fingerprintOf(v any) string {
-	data, _ := json.Marshal(v)
-
-	return fingerprint(string(data))
 }
 
 func newFingerprint() string {
@@ -115,20 +108,11 @@ func clone[T any](v *T) *T {
 	return out
 }
 
-func cloneAll[T any](in []*T) []*T {
-	out := make([]*T, len(in))
-	for i, v := range in {
-		out[i] = clone(v)
-	}
-
-	return out
-}
-
 func key(parts ...string) string { return strings.Join(parts, "/") }
 
 func lastSegment(s string) string {
-	if i := strings.LastIndexByte(s, '/'); i >= 0 {
-		return s[i+1:]
+	if _, after, ok := strings.CutLast(s, "/"); ok {
+		return after
 	}
 
 	return s
@@ -142,7 +126,19 @@ func regionOfZone(zone string) string {
 	return zone
 }
 
-func since(now, t time.Time) time.Duration { return now.Sub(t) }
+func fromDoc[T any](m map[string]any) (*T, error) {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+
+	out := new(T)
+	if err = json.Unmarshal(data, out); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
 
 // mergePatch applies a JSON merge patch (RFC 7386) to dst.
 func mergePatch(dst, patch map[string]any) {
@@ -164,18 +160,4 @@ func mergePatch(dst, patch map[string]any) {
 
 		dst[k] = v
 	}
-}
-
-func fromDoc[T any](m map[string]any) (*T, error) {
-	data, err := json.Marshal(m)
-	if err != nil {
-		return nil, err
-	}
-
-	out := new(T)
-	if err = json.Unmarshal(data, out); err != nil {
-		return nil, err
-	}
-
-	return out, nil
 }

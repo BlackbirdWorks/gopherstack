@@ -9,6 +9,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+const (
+	defPending   = 50 * time.Millisecond
+	defDone      = 400 * time.Millisecond
+	defProvision = 100 * time.Millisecond
+	defStage     = 300 * time.Millisecond
+	defStop      = 300 * time.Millisecond
+)
+
 // Timing controls how long operations and instance state transitions take on the backend clock.
 type Timing struct {
 	Pending   time.Duration
@@ -21,18 +29,18 @@ type Timing struct {
 // DefaultTiming returns the transition delays used unless a test overrides them.
 func DefaultTiming() Timing {
 	return Timing{
-		Pending:   50 * time.Millisecond,
-		Done:      400 * time.Millisecond,
-		Provision: 100 * time.Millisecond,
-		Stage:     300 * time.Millisecond,
-		Stop:      300 * time.Millisecond,
+		Pending:   defPending,
+		Done:      defDone,
+		Provision: defProvision,
+		Stage:     defStage,
+		Stop:      defStop,
 	}
 }
 
 type instRec struct {
+	Since time.Time            `json:"since"`
 	Inst  *computeapi.Instance `json:"inst"`
 	Phase string               `json:"phase"`
-	Since time.Time            `json:"since"`
 }
 
 type routerRec struct {
@@ -41,9 +49,9 @@ type routerRec struct {
 }
 
 type opRec struct {
+	Created time.Time             `json:"created"`
 	Op      *computeapi.Operation `json:"op"`
 	Project string                `json:"project"`
-	Created time.Time             `json:"created"`
 	Pending time.Duration         `json:"pending"`
 	Done    time.Duration         `json:"done"`
 }

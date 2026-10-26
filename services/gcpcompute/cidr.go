@@ -3,15 +3,17 @@ package gcpcompute
 import (
 	"encoding/binary"
 	"net/netip"
+	"slices"
 )
 
 const (
 	minSubnetBits = 8
 	maxSubnetBits = 29
 	reservedTail  = 2
+	ipv4Bits      = 32
 )
 
-var privatePrefixes = []netip.Prefix{
+var privatePrefixes = []netip.Prefix{ //nolint:gochecknoglobals // read-only lookup table
 	netip.MustParsePrefix("10.0.0.0/8"),
 	netip.MustParsePrefix("172.16.0.0/12"),
 	netip.MustParsePrefix("192.168.0.0/16"),
@@ -57,7 +59,7 @@ func gateway(p netip.Prefix) netip.Addr { return p.Addr().Next() }
 
 func lastAddr(p netip.Prefix) netip.Addr {
 	a := p.Addr().As4()
-	v := binary.BigEndian.Uint32(a[:]) | (1<<(32-p.Bits()) - 1)
+	v := binary.BigEndian.Uint32(a[:]) | (1<<(ipv4Bits-p.Bits()) - 1)
 
 	var out [4]byte
 
@@ -67,9 +69,9 @@ func lastAddr(p netip.Prefix) netip.Addr {
 }
 
 // usableRange is the allocatable span: the first two and last two addresses of a subnet are reserved.
-func usableRange(p netip.Prefix) (first, last netip.Addr) {
-	first = p.Addr().Next().Next()
-	last = lastAddr(p)
+func usableRange(p netip.Prefix) (netip.Addr, netip.Addr) {
+	first := p.Addr().Next().Next()
+	last := lastAddr(p)
 
 	for range reservedTail {
 		last = last.Prev()
@@ -91,11 +93,5 @@ func nextFree(p netip.Prefix, used map[netip.Addr]bool) (netip.Addr, bool) {
 }
 
 func overlaps(a netip.Prefix, others ...netip.Prefix) bool {
-	for _, o := range others {
-		if a.Overlaps(o) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(others, a.Overlaps)
 }

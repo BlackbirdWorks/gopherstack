@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
 )
@@ -51,8 +50,8 @@ func (c *fakeClock) Sleep(_ context.Context, d time.Duration) { c.Advance(d) }
 type env struct {
 	backend *gcpcompute.InMemoryBackend
 	clock   *fakeClock
-	opts    []option.ClientOption
 	url     string
+	opts    []option.ClientOption
 }
 
 func newEnv(t *testing.T) *env {
@@ -74,7 +73,11 @@ func newEnv(t *testing.T) *env {
 	}
 }
 
-func client[T interface{ Close() error }](t *testing.T, e *env, mk func(context.Context, ...option.ClientOption) (T, error)) T {
+func client[T interface{ Close() error }](
+	t *testing.T,
+	e *env,
+	mk func(context.Context, ...option.ClientOption) (T, error),
+) T {
 	t.Helper()
 
 	c, err := mk(t.Context(), e.opts...)
@@ -85,74 +88,110 @@ func client[T interface{ Close() error }](t *testing.T, e *env, mk func(context.
 }
 
 func (e *env) networks(t *testing.T) *compute.NetworksClient {
+	t.Helper()
+
 	return client(t, e, compute.NewNetworksRESTClient)
 }
 
 func (e *env) subnets(t *testing.T) *compute.SubnetworksClient {
+	t.Helper()
+
 	return client(t, e, compute.NewSubnetworksRESTClient)
 }
 
 func (e *env) firewalls(t *testing.T) *compute.FirewallsClient {
+	t.Helper()
+
 	return client(t, e, compute.NewFirewallsRESTClient)
 }
 
 func (e *env) routes(t *testing.T) *compute.RoutesClient {
+	t.Helper()
+
 	return client(t, e, compute.NewRoutesRESTClient)
 }
 
 func (e *env) addresses(t *testing.T) *compute.AddressesClient {
+	t.Helper()
+
 	return client(t, e, compute.NewAddressesRESTClient)
 }
 
 func (e *env) globalAddresses(t *testing.T) *compute.GlobalAddressesClient {
+	t.Helper()
+
 	return client(t, e, compute.NewGlobalAddressesRESTClient)
 }
 
 func (e *env) routers(t *testing.T) *compute.RoutersClient {
+	t.Helper()
+
 	return client(t, e, compute.NewRoutersRESTClient)
 }
 
 func (e *env) disks(t *testing.T) *compute.DisksClient {
+	t.Helper()
+
 	return client(t, e, compute.NewDisksRESTClient)
 }
 
 func (e *env) snapshots(t *testing.T) *compute.SnapshotsClient {
+	t.Helper()
+
 	return client(t, e, compute.NewSnapshotsRESTClient)
 }
 
 func (e *env) images(t *testing.T) *compute.ImagesClient {
+	t.Helper()
+
 	return client(t, e, compute.NewImagesRESTClient)
 }
 
 func (e *env) instances(t *testing.T) *compute.InstancesClient {
+	t.Helper()
+
 	return client(t, e, compute.NewInstancesRESTClient)
 }
 
 func (e *env) zoneOps(t *testing.T) *compute.ZoneOperationsClient {
+	t.Helper()
+
 	return client(t, e, compute.NewZoneOperationsRESTClient)
 }
 
 func (e *env) globalOps(t *testing.T) *compute.GlobalOperationsClient {
+	t.Helper()
+
 	return client(t, e, compute.NewGlobalOperationsRESTClient)
 }
 
 func (e *env) regionOps(t *testing.T) *compute.RegionOperationsClient {
+	t.Helper()
+
 	return client(t, e, compute.NewRegionOperationsRESTClient)
 }
 
 func (e *env) machineTypes(t *testing.T) *compute.MachineTypesClient {
+	t.Helper()
+
 	return client(t, e, compute.NewMachineTypesRESTClient)
 }
 
 func (e *env) zones(t *testing.T) *compute.ZonesClient {
+	t.Helper()
+
 	return client(t, e, compute.NewZonesRESTClient)
 }
 
 func (e *env) regions(t *testing.T) *compute.RegionsClient {
+	t.Helper()
+
 	return client(t, e, compute.NewRegionsRESTClient)
 }
 
 func (e *env) projects(t *testing.T) *compute.ProjectsClient {
+	t.Helper()
+
 	return client(t, e, compute.NewProjectsRESTClient)
 }
 
@@ -196,7 +235,7 @@ func rawDo(t *testing.T, e *env, method, path, body string) (int, string) {
 	return resp.StatusCode, string(data)
 }
 
-func s(v string) *string { return proto.String(v) }
+func s(v string) *string { return new(v) }
 
 // done requires the call to succeed, lets the fake clock run past the operation and waits for it.
 func (e *env) done(t *testing.T, op *compute.Operation, err error) {
@@ -211,17 +250,17 @@ func (e *env) network(t *testing.T, name string, auto bool) {
 	t.Helper()
 
 	op, err := e.networks(t).Insert(t.Context(), &computepb.InsertNetworkRequest{
-		Project: project, NetworkResource: &computepb.Network{Name: s(name), AutoCreateSubnetworks: proto.Bool(auto)},
+		Project: project, NetworkResource: &computepb.Network{Name: s(name), AutoCreateSubnetworks: new(auto)},
 	})
 	e.done(t, op, err)
 }
 
-func (e *env) subnet(t *testing.T, network, name, cidr string) {
+func (e *env) subnet(t *testing.T, name, cidr string) {
 	t.Helper()
 
 	op, err := e.subnets(t).Insert(t.Context(), &computepb.InsertSubnetworkRequest{
 		Project: project, Region: region, SubnetworkResource: &computepb.Subnetwork{
-			Name: s(name), Network: s("projects/" + project + "/global/networks/" + network), IpCidrRange: s(cidr),
+			Name: s(name), Network: s("projects/" + project + "/global/networks/vpc"), IpCidrRange: s(cidr),
 		},
 	})
 	e.done(t, op, err)

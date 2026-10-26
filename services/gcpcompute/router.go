@@ -22,17 +22,26 @@ const (
 )
 
 var (
-	natSourceModes = map[string]bool{
+	natSourceModes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 		"ALL_SUBNETWORKS_ALL_IP_RANGES": true, "ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES": true, natList: true,
 	}
-	natRangeKinds = map[string]bool{"ALL_IP_RANGES": true, "PRIMARY_IP_RANGE": true, "LIST_OF_SECONDARY_IP_RANGES": true}
+	natRangeKinds = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
+		"ALL_IP_RANGES":               true,
+		"PRIMARY_IP_RANGE":            true,
+		"LIST_OF_SECONDARY_IP_RANGES": true,
+	}
 )
 
 func routerTarget(project, region string, r *computeapi.Router) target {
 	return target{project: project, scope: scopeRegion, loc: region, collection: "routers", name: r.Name, id: r.Id}
 }
 
-func (b *InMemoryBackend) normalizeNatLocked(project, region string, router *computeapi.Router, nat *computeapi.RouterNat, self string) *APIError {
+func (b *InMemoryBackend) normalizeNatLocked(
+	project, region string,
+	router *computeapi.Router,
+	nat *computeapi.RouterNat,
+	self string,
+) *APIError {
 	if err := validName("resource.nats.name", nat.Name); err != nil {
 		return err
 	}
@@ -54,7 +63,11 @@ func (b *InMemoryBackend) normalizeNatLocked(project, region string, router *com
 
 		nat.NatIps = ips
 	default:
-		return errField("resource.nats.natIpAllocateOption", nat.NatIpAllocateOption, "Must be AUTO_ONLY or MANUAL_ONLY.")
+		return errField(
+			"resource.nats.natIpAllocateOption",
+			nat.NatIpAllocateOption,
+			"Must be AUTO_ONLY or MANUAL_ONLY.",
+		)
 	}
 
 	if err := b.resolveNatSubnetsLocked(project, region, router, nat); err != nil {
@@ -66,7 +79,11 @@ func (b *InMemoryBackend) normalizeNatLocked(project, region string, router *com
 	return nil
 }
 
-func (b *InMemoryBackend) resolveNatIPsLocked(project, region string, refs []string, self string) ([]string, *APIError) {
+func (b *InMemoryBackend) resolveNatIPsLocked(
+	project, region string,
+	refs []string,
+	self string,
+) ([]string, *APIError) {
 	if len(refs) == 0 {
 		return nil, errRequired("resource.nats.natIps")
 	}
@@ -100,10 +117,16 @@ func (b *InMemoryBackend) resolveNatIPsLocked(project, region string, refs []str
 	return out, nil
 }
 
-func (b *InMemoryBackend) resolveNatSubnetsLocked(project, region string, router *computeapi.Router, nat *computeapi.RouterNat) *APIError {
+func (b *InMemoryBackend) resolveNatSubnetsLocked(
+	project, region string,
+	router *computeapi.Router,
+	nat *computeapi.RouterNat,
+) *APIError {
 	if nat.SourceSubnetworkIpRangesToNat != natList {
 		if len(nat.Subnetworks) > 0 {
-			return errInvalid("Invalid value for field 'resource.nats.subnetworks': only valid with LIST_OF_SUBNETWORKS.")
+			return errInvalid(
+				"Invalid value for field 'resource.nats.subnetworks': only valid with LIST_OF_SUBNETWORKS.",
+			)
 		}
 
 		return nil
@@ -195,7 +218,11 @@ func validateBgp(bgp *computeapi.RouterBgp) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) finishRouterLocked(project, region string, r *computeapi.Router, old *routerRec) (*routerRec, *APIError) {
+func (b *InMemoryBackend) finishRouterLocked(
+	project, region string,
+	r *computeapi.Router,
+	old *routerRec,
+) (*routerRec, *APIError) {
 	if err := validateBgp(r.Bgp); err != nil {
 		return nil, err
 	}
@@ -333,7 +360,10 @@ func (b *InMemoryBackend) deleteRouter(project, region, name string) (*computeap
 	return b.newOpLocked("delete", routerTarget(project, region, r.Router), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) updateRouter(project, region, name, opType string, build func(cur *computeapi.Router) (*computeapi.Router, *APIError)) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) updateRouter(
+	project, region, name, opType string,
+	build func(cur *computeapi.Router) (*computeapi.Router, *APIError),
+) (*computeapi.Operation, error) {
 	b.mu.Lock("UpdateRouter")
 	defer b.mu.Unlock()
 
@@ -356,7 +386,8 @@ func (b *InMemoryBackend) updateRouter(project, region, name, opType string, bui
 	}
 
 	next.Name, next.Network, next.Id, next.Kind = cur.Router.Name, cur.Router.Network, cur.Router.Id, cur.Router.Kind
-	next.CreationTimestamp, next.SelfLink, next.Region = cur.Router.CreationTimestamp, cur.Router.SelfLink, cur.Router.Region
+	next.CreationTimestamp, next.SelfLink = cur.Router.CreationTimestamp, cur.Router.SelfLink
+	next.Region = cur.Router.Region
 
 	rec, apiErr := b.finishRouterLocked(project, region, next, cur)
 	if apiErr != nil {
@@ -417,7 +448,13 @@ func (b *InMemoryBackend) routerStatus(project, region, name string) (*computeap
 	return &computeapi.RouterStatusResponse{Kind: "compute#routerStatusResponse", Result: res}, nil
 }
 
-func natServes(b *InMemoryBackend, nat *computeapi.RouterNat, router *computeapi.Router, inst *computeapi.Instance, region string) bool {
+func natServes(
+	b *InMemoryBackend,
+	nat *computeapi.RouterNat,
+	router *computeapi.Router,
+	inst *computeapi.Instance,
+	region string,
+) bool {
 	if regionOfZone(lastSegment(inst.Zone)) != region {
 		return false
 	}

@@ -124,11 +124,11 @@ func (h *Handler) Addr() string {
 // Reset removes all state.
 func (h *Handler) Reset() { h.Backend.Reset() }
 
-var readVerbs = map[string]bool{
+var readVerbs = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 	verbList: true, verbAggList: true, verbGet: true, "getRouterStatus": true, "getFromFamily": true,
 }
 
-var verbMethods = map[string]string{
+var verbMethods = map[string]string{ //nolint:gochecknoglobals // read-only lookup table
 	verbInsert: http.MethodPost, verbDelete: http.MethodDelete, verbPatch: http.MethodPatch, verbUpdate: http.MethodPut,
 }
 

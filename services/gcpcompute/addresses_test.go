@@ -24,6 +24,8 @@ func TestRegionalAddresses(t *testing.T) {
 		{
 			addr: &computepb.Address{Name: s("ext")}, name: "external default", status: 200,
 			check: func(t *testing.T, a *computepb.Address) {
+				t.Helper()
+
 				assert.Equal(t, "EXTERNAL", a.GetAddressType())
 				assert.True(t, strings.HasPrefix(a.GetAddress(), "34."))
 				assert.Equal(t, "PREMIUM", a.GetNetworkTier())
@@ -32,28 +34,101 @@ func TestRegionalAddresses(t *testing.T) {
 			},
 		},
 		{
-			addr: &computepb.Address{Name: s("int"), AddressType: s("INTERNAL"), Subnetwork: s("regions/" + region + "/subnetworks/sub")}, name: "internal from subnet", status: 200,
+			addr: &computepb.Address{
+				Name:        s("int"),
+				AddressType: s("INTERNAL"),
+				Subnetwork:  s("regions/" + region + "/subnetworks/sub"),
+			},
+			name:   "internal from subnet",
+			status: 200,
 			check: func(t *testing.T, a *computepb.Address) {
+				t.Helper()
+
 				assert.Equal(t, "10.10.0.2", a.GetAddress())
 				assert.Equal(t, "GCE_ENDPOINT", a.GetPurpose())
 				assert.Contains(t, a.GetSubnetwork(), "/subnetworks/sub")
 			},
 		},
 		{
-			addr: &computepb.Address{Name: s("pinned"), AddressType: s("INTERNAL"), Address: s("10.10.0.77"), Subnetwork: s("regions/" + region + "/subnetworks/sub")}, name: "internal explicit", status: 200,
-			check: func(t *testing.T, a *computepb.Address) { assert.Equal(t, "10.10.0.77", a.GetAddress()) },
+			addr: &computepb.Address{
+				Name:        s("pinned"),
+				AddressType: s("INTERNAL"),
+				Address:     s("10.10.0.77"),
+				Subnetwork:  s("regions/" + region + "/subnetworks/sub"),
+			},
+			name:   "internal explicit",
+			status: 200,
+			check: func(t *testing.T, a *computepb.Address) {
+				t.Helper()
+				assert.Equal(t, "10.10.0.77", a.GetAddress())
+			},
 		},
-		{addr: &computepb.Address{Name: s("outside"), AddressType: s("INTERNAL"), Address: s("10.99.0.5"), Subnetwork: s("regions/" + region + "/subnetworks/sub")}, name: "internal outside range", status: 400, reason: "invalid"},
-		{addr: &computepb.Address{Name: s("gateway"), AddressType: s("INTERNAL"), Address: s("10.10.0.1"), Subnetwork: s("regions/" + region + "/subnetworks/sub")}, name: "internal reserved gateway", status: 400, reason: "invalid"},
-		{addr: &computepb.Address{Name: s("last"), AddressType: s("INTERNAL"), Address: s("10.10.0.255"), Subnetwork: s("regions/" + region + "/subnetworks/sub")}, name: "internal broadcast", status: 400, reason: "invalid"},
-		{addr: &computepb.Address{Name: s("nosub"), AddressType: s("INTERNAL")}, name: "internal without subnet", status: 400, reason: "required"},
+		{
+			addr: &computepb.Address{
+				Name:        s("outside"),
+				AddressType: s("INTERNAL"),
+				Address:     s("10.99.0.5"),
+				Subnetwork:  s("regions/" + region + "/subnetworks/sub"),
+			},
+			name:   "internal outside range",
+			status: 400,
+			reason: "invalid",
+		},
+		{
+			addr: &computepb.Address{
+				Name:        s("gateway"),
+				AddressType: s("INTERNAL"),
+				Address:     s("10.10.0.1"),
+				Subnetwork:  s("regions/" + region + "/subnetworks/sub"),
+			},
+			name:   "internal reserved gateway",
+			status: 400,
+			reason: "invalid",
+		},
+		{
+			addr: &computepb.Address{
+				Name:        s("last"),
+				AddressType: s("INTERNAL"),
+				Address:     s("10.10.0.255"),
+				Subnetwork:  s("regions/" + region + "/subnetworks/sub"),
+			},
+			name:   "internal broadcast",
+			status: 400,
+			reason: "invalid",
+		},
+		{
+			addr:   &computepb.Address{Name: s("nosub"), AddressType: s("INTERNAL")},
+			name:   "internal without subnet",
+			status: 400,
+			reason: "required",
+		},
 		{addr: &computepb.Address{Name: s("v6"), IpVersion: s("IPV6")}, name: "ipv6", status: 400, reason: "invalid"},
-		{addr: &computepb.Address{Name: s("tier"), NetworkTier: s("SILVER")}, name: "bad tier", status: 400, reason: "invalid"},
-		{addr: &computepb.Address{Name: s("weird"), AddressType: s("SIDE")}, name: "bad type", status: 400, reason: "invalid"},
+		{
+			addr:   &computepb.Address{Name: s("tier"), NetworkTier: s("SILVER")},
+			name:   "bad tier",
+			status: 400,
+			reason: "invalid",
+		},
+		{
+			addr:   &computepb.Address{Name: s("weird"), AddressType: s("SIDE")},
+			name:   "bad type",
+			status: 400,
+			reason: "invalid",
+		},
 		{addr: &computepb.Address{Name: s("dup")}, name: "duplicate", status: 409, reason: "alreadyExists"},
 		{addr: &computepb.Address{Name: s("Bad")}, name: "bad name", status: 400, reason: "invalid"},
-		{addr: &computepb.Address{Name: s("lbl"), Labels: map[string]string{"UPPER": "x"}}, name: "bad label", status: 400, reason: "invalid"},
-		{addr: &computepb.Address{Name: s("badip"), Address: s("not-an-ip")}, name: "bad explicit ip", status: 400, reason: "invalid"},
+		{
+			addr:   &computepb.Address{Name: s("lbl"), Labels: map[string]string{"UPPER": "x"}},
+			name:   "bad label",
+			status: 400,
+			reason: "invalid",
+		},
+		{
+			addr:   &computepb.Address{Name: s("badip"), Address: s("not-an-ip")},
+			name:   "bad explicit ip",
+			status: 400,
+			reason: "invalid",
+		},
 	}
 
 	for _, tt := range tests {
@@ -62,13 +137,23 @@ func TestRegionalAddresses(t *testing.T) {
 
 			e := newEnv(t)
 			e.network(t, "vpc", false)
-			e.subnet(t, "vpc", "sub", "10.10.0.0/24")
+			e.subnet(t, "sub", "10.10.0.0/24")
 
 			addrs := e.addresses(t)
-			op, err := addrs.Insert(t.Context(), &computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: &computepb.Address{Name: s("dup")}})
+			op, err := addrs.Insert(
+				t.Context(),
+				&computepb.InsertAddressRequest{
+					Project:         project,
+					Region:          region,
+					AddressResource: &computepb.Address{Name: s("dup")},
+				},
+			)
 			e.done(t, op, err)
 
-			op, err = addrs.Insert(t.Context(), &computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: tt.addr})
+			op, err = addrs.Insert(
+				t.Context(),
+				&computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: tt.addr},
+			)
 			if tt.status != http.StatusOK {
 				assertAPIError(t, err, tt.status, tt.reason)
 
@@ -77,7 +162,10 @@ func TestRegionalAddresses(t *testing.T) {
 
 			e.done(t, op, err)
 
-			got, err := addrs.Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: tt.addr.GetName()})
+			got, err := addrs.Get(
+				t.Context(),
+				&computepb.GetAddressRequest{Project: project, Region: region, Address: tt.addr.GetName()},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, "compute#address", got.GetKind())
 			assert.Contains(t, got.GetSelfLink(), "/regions/"+region+"/addresses/"+tt.addr.GetName())
@@ -95,7 +183,14 @@ func TestAddressUniquenessAndLabels(t *testing.T) {
 	seen := map[string]bool{}
 
 	for _, n := range []string{"a", "b", "c"} {
-		op, err := addrs.Insert(t.Context(), &computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: &computepb.Address{Name: s(n)}})
+		op, err := addrs.Insert(
+			t.Context(),
+			&computepb.InsertAddressRequest{
+				Project:         project,
+				Region:          region,
+				AddressResource: &computepb.Address{Name: s(n)},
+			},
+		)
 		e.done(t, op, err)
 
 		got, err := addrs.Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: n})
@@ -107,18 +202,35 @@ func TestAddressUniquenessAndLabels(t *testing.T) {
 	a, err := addrs.Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a"})
 	require.NoError(t, err)
 
-	_, err = addrs.Insert(t.Context(), &computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: &computepb.Address{Name: s("steal"), Address: s(a.GetAddress())}})
+	_, err = addrs.Insert(
+		t.Context(),
+		&computepb.InsertAddressRequest{
+			Project:         project,
+			Region:          region,
+			AddressResource: &computepb.Address{Name: s("steal"), Address: s(a.GetAddress())},
+		},
+	)
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	_, err = addrs.SetLabels(t.Context(), &computepb.SetLabelsAddressRequest{
-		Project: project, Region: region, Resource: "a",
-		RegionSetLabelsRequestResource: &computepb.RegionSetLabelsRequest{Labels: map[string]string{"env": "x"}, LabelFingerprint: s("stale")},
+		Project:  project,
+		Region:   region,
+		Resource: "a",
+		RegionSetLabelsRequestResource: &computepb.RegionSetLabelsRequest{
+			Labels:           map[string]string{"env": "x"},
+			LabelFingerprint: s("stale"),
+		},
 	})
 	assertAPIError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 
 	op, err := addrs.SetLabels(t.Context(), &computepb.SetLabelsAddressRequest{
-		Project: project, Region: region, Resource: "a",
-		RegionSetLabelsRequestResource: &computepb.RegionSetLabelsRequest{Labels: map[string]string{"env": "x"}, LabelFingerprint: a.LabelFingerprint},
+		Project:  project,
+		Region:   region,
+		Resource: "a",
+		RegionSetLabelsRequestResource: &computepb.RegionSetLabelsRequest{
+			Labels:           map[string]string{"env": "x"},
+			LabelFingerprint: a.LabelFingerprint,
+		},
 	})
 	e.done(t, op, err)
 
@@ -140,7 +252,10 @@ func TestGlobalAddresses(t *testing.T) {
 	e := newEnv(t)
 	ga := e.globalAddresses(t)
 
-	op, err := ga.Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{Name: s("lb")}})
+	op, err := ga.Insert(
+		t.Context(),
+		&computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{Name: s("lb")}},
+	)
 	e.done(t, op, err)
 
 	got, err := ga.Get(t.Context(), &computepb.GetGlobalAddressRequest{Project: project, Address: "lb"})
@@ -149,10 +264,17 @@ func TestGlobalAddresses(t *testing.T) {
 	assert.Contains(t, got.GetSelfLink(), "/global/addresses/lb")
 	assert.Empty(t, got.GetRegion())
 
-	_, err = ga.Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{Name: s("int"), AddressType: s("INTERNAL")}})
+	_, err = ga.Insert(
+		t.Context(),
+		&computepb.InsertGlobalAddressRequest{
+			Project:         project,
+			AddressResource: &computepb.Address{Name: s("int"), AddressType: s("INTERNAL")},
+		},
+	)
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
-	_, err = e.addresses(t).Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "lb"})
+	_, err = e.addresses(t).
+		Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "lb"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
 	op, err = ga.Delete(t.Context(), &computepb.DeleteGlobalAddressRequest{Project: project, Address: "lb"})
@@ -164,13 +286,23 @@ func TestRouterNat(t *testing.T) {
 
 	e := newEnv(t)
 	e.network(t, "vpc", false)
-	e.subnet(t, "vpc", "sub", "10.10.0.0/24")
+	e.subnet(t, "sub", "10.10.0.0/24")
 
 	addrs := e.addresses(t)
-	op, err := addrs.Insert(t.Context(), &computepb.InsertAddressRequest{Project: project, Region: region, AddressResource: &computepb.Address{Name: s("nat-ip")}})
+	op, err := addrs.Insert(
+		t.Context(),
+		&computepb.InsertAddressRequest{
+			Project:         project,
+			Region:          region,
+			AddressResource: &computepb.Address{Name: s("nat-ip")},
+		},
+	)
 	e.done(t, op, err)
 
-	nat, err := addrs.Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "nat-ip"})
+	nat, err := addrs.Get(
+		t.Context(),
+		&computepb.GetAddressRequest{Project: project, Region: region, Address: "nat-ip"},
+	)
 	require.NoError(t, err)
 
 	routers := e.routers(t)
@@ -178,11 +310,24 @@ func TestRouterNat(t *testing.T) {
 		Project: project, Region: region, RouterResource: &computepb.Router{
 			Name: s("rtr"), Network: s("global/networks/vpc"), Bgp: &computepb.RouterBgp{Asn: proto.Uint32(64514)},
 			Nats: []*computepb.RouterNat{
-				{Name: s("auto"), NatIpAllocateOption: s("AUTO_ONLY"), SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES")},
 				{
-					Name: s("manual"), NatIpAllocateOption: s("MANUAL_ONLY"), SourceSubnetworkIpRangesToNat: s("LIST_OF_SUBNETWORKS"),
-					NatIps:      []string{nat.GetSelfLink()},
-					Subnetworks: []*computepb.RouterNatSubnetworkToNat{{Name: s("regions/" + region + "/subnetworks/sub"), SourceIpRangesToNat: []string{"ALL_IP_RANGES"}}},
+					Name:                          s("auto"),
+					NatIpAllocateOption:           s("AUTO_ONLY"),
+					SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+				},
+				{
+					Name: s(
+						"manual",
+					),
+					NatIpAllocateOption:           s("MANUAL_ONLY"),
+					SourceSubnetworkIpRangesToNat: s("LIST_OF_SUBNETWORKS"),
+					NatIps:                        []string{nat.GetSelfLink()},
+					Subnetworks: []*computepb.RouterNatSubnetworkToNat{
+						{
+							Name:                s("regions/" + region + "/subnetworks/sub"),
+							SourceIpRangesToNat: []string{"ALL_IP_RANGES"},
+						},
+					},
 				},
 			},
 		},
@@ -199,41 +344,66 @@ func TestRouterNat(t *testing.T) {
 	assert.Equal(t, int32(64), r.GetNats()[0].GetMinPortsPerVm())
 	assert.Contains(t, r.GetNats()[1].GetSubnetworks()[0].GetName(), "/subnetworks/sub")
 
-	status, err := routers.GetRouterStatus(t.Context(), &computepb.GetRouterStatusRouterRequest{Project: project, Region: region, Router: "rtr"})
+	status, err := routers.GetRouterStatus(
+		t.Context(),
+		&computepb.GetRouterStatusRouterRequest{Project: project, Region: region, Router: "rtr"},
+	)
 	require.NoError(t, err)
 	require.Len(t, status.GetResult().GetNatStatus(), 2)
 	assert.Len(t, status.GetResult().GetNatStatus()[0].GetAutoAllocatedNatIps(), 1)
 	assert.Equal(t, []string{nat.GetAddress()}, status.GetResult().GetNatStatus()[1].GetUserAllocatedNatIps())
 
-	cur, err := addrs.Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "nat-ip"})
+	cur, err := addrs.Get(
+		t.Context(),
+		&computepb.GetAddressRequest{Project: project, Region: region, Address: "nat-ip"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "IN_USE", cur.GetStatus())
 	assert.Contains(t, cur.GetUsers()[0], "/routers/rtr")
 
-	_, err = addrs.Delete(t.Context(), &computepb.DeleteAddressRequest{Project: project, Region: region, Address: "nat-ip"})
+	_, err = addrs.Delete(
+		t.Context(),
+		&computepb.DeleteAddressRequest{Project: project, Region: region, Address: "nat-ip"},
+	)
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
 	autoIP := status.GetResult().GetNatStatus()[0].GetAutoAllocatedNatIps()[0]
 
 	op, err = routers.Patch(t.Context(), &computepb.PatchRouterRequest{
 		Project: project, Region: region, Router: "rtr", RouterResource: &computepb.Router{
-			Nats: []*computepb.RouterNat{{Name: s("auto"), NatIpAllocateOption: s("AUTO_ONLY"), SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES"), MinPortsPerVm: proto.Int32(128)}},
+			Nats: []*computepb.RouterNat{
+				{
+					Name:                          s("auto"),
+					NatIpAllocateOption:           s("AUTO_ONLY"),
+					SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES"),
+					MinPortsPerVm:                 proto.Int32(128),
+				},
+			},
 		},
 	})
 	e.done(t, op, err)
 
-	status, err = routers.GetRouterStatus(t.Context(), &computepb.GetRouterStatusRouterRequest{Project: project, Region: region, Router: "rtr"})
+	status, err = routers.GetRouterStatus(
+		t.Context(),
+		&computepb.GetRouterStatusRouterRequest{Project: project, Region: region, Router: "rtr"},
+	)
 	require.NoError(t, err)
 	require.Len(t, status.GetResult().GetNatStatus(), 1)
 	assert.Equal(t, []string{autoIP}, status.GetResult().GetNatStatus()[0].GetAutoAllocatedNatIps())
 
-	op, err = addrs.Delete(t.Context(), &computepb.DeleteAddressRequest{Project: project, Region: region, Address: "nat-ip"})
+	op, err = addrs.Delete(
+		t.Context(),
+		&computepb.DeleteAddressRequest{Project: project, Region: region, Address: "nat-ip"},
+	)
 	e.done(t, op, err)
 
 	_, err = e.networks(t).Delete(t.Context(), &computepb.DeleteNetworkRequest{Project: project, Network: "vpc"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
-	op, err = routers.Delete(t.Context(), &computepb.DeleteRouterRequest{Project: project, Region: region, Router: "rtr"})
+	op, err = routers.Delete(
+		t.Context(),
+		&computepb.DeleteRouterRequest{Project: project, Region: region, Router: "rtr"},
+	)
 	e.done(t, op, err)
 }
 
@@ -250,16 +420,93 @@ func TestRouterValidation(t *testing.T) {
 	}{
 		{&computepb.Router{Name: s("r")}, "no network", "required", 400},
 		{&computepb.Router{Name: s("r"), Network: s("global/networks/missing")}, "missing network", "notFound", 404},
-		{&computepb.Router{Name: s("r"), Network: s("global/networks/vpc"), Bgp: &computepb.RouterBgp{Asn: proto.Uint32(0)}}, "asn", "invalid", 400},
-		{&computepb.Router{Name: s("r"), Network: s("global/networks/vpc"), Nats: nat(&computepb.RouterNat{Name: s("n"), NatIpAllocateOption: s("AUTO_ONLY")})}, "no source mode", "invalid", 400},
-		{&computepb.Router{Name: s("r"), Network: s("global/networks/vpc"), Nats: nat(&computepb.RouterNat{Name: s("n"), NatIpAllocateOption: s("MANUAL_ONLY"), SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES")})}, "manual without ips", "required", 400},
-		{&computepb.Router{Name: s("r"), Network: s("global/networks/vpc"), Nats: nat(&computepb.RouterNat{Name: s("n"), NatIpAllocateOption: s("AUTO_ONLY"), SourceSubnetworkIpRangesToNat: s("LIST_OF_SUBNETWORKS")})}, "list without subnets", "required", 400},
-		{&computepb.Router{Name: s("r"), Network: s("global/networks/vpc"), Nats: nat(&computepb.RouterNat{Name: s("n"), NatIpAllocateOption: s("AUTO_ONLY"), SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES"), NatIps: []string{"x"}})}, "auto with ips", "invalid", 400},
+		{
+			&computepb.Router{
+				Name:    s("r"),
+				Network: s("global/networks/vpc"),
+				Bgp:     &computepb.RouterBgp{Asn: proto.Uint32(0)},
+			},
+			"asn",
+			"invalid",
+			400,
+		},
+		{
+			&computepb.Router{
+				Name:    s("r"),
+				Network: s("global/networks/vpc"),
+				Nats:    nat(&computepb.RouterNat{Name: s("n"), NatIpAllocateOption: s("AUTO_ONLY")}),
+			},
+			"no source mode",
+			"invalid",
+			400,
+		},
+		{
+			&computepb.Router{
+				Name:    s("r"),
+				Network: s("global/networks/vpc"),
+				Nats: nat(
+					&computepb.RouterNat{
+						Name:                          s("n"),
+						NatIpAllocateOption:           s("MANUAL_ONLY"),
+						SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+					},
+				),
+			},
+			"manual without ips",
+			"required",
+			400,
+		},
+		{
+			&computepb.Router{
+				Name:    s("r"),
+				Network: s("global/networks/vpc"),
+				Nats: nat(
+					&computepb.RouterNat{
+						Name:                          s("n"),
+						NatIpAllocateOption:           s("AUTO_ONLY"),
+						SourceSubnetworkIpRangesToNat: s("LIST_OF_SUBNETWORKS"),
+					},
+				),
+			},
+			"list without subnets",
+			"required",
+			400,
+		},
+		{
+			&computepb.Router{
+				Name:    s("r"),
+				Network: s("global/networks/vpc"),
+				Nats: nat(
+					&computepb.RouterNat{
+						Name:                          s("n"),
+						NatIpAllocateOption:           s("AUTO_ONLY"),
+						SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+						NatIps:                        []string{"x"},
+					},
+				),
+			},
+			"auto with ips",
+			"invalid",
+			400,
+		},
 		{&computepb.Router{Name: s("r"), Network: s("global/networks/vpc"), Nats: []*computepb.RouterNat{
-			{Name: s("n"), NatIpAllocateOption: s("AUTO_ONLY"), SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES")},
-			{Name: s("n"), NatIpAllocateOption: s("AUTO_ONLY"), SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES")},
+			{
+				Name:                          s("n"),
+				NatIpAllocateOption:           s("AUTO_ONLY"),
+				SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+			},
+			{
+				Name:                          s("n"),
+				NatIpAllocateOption:           s("AUTO_ONLY"),
+				SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+			},
 		}}, "duplicate nat", "invalid", 400},
-		{&computepb.Router{Name: s("dup"), Network: s("global/networks/vpc")}, "duplicate router", "alreadyExists", 409},
+		{
+			&computepb.Router{Name: s("dup"), Network: s("global/networks/vpc")},
+			"duplicate router",
+			"alreadyExists",
+			409,
+		},
 	}
 
 	for _, tt := range tests {
@@ -270,11 +517,17 @@ func TestRouterValidation(t *testing.T) {
 			e.network(t, "vpc", false)
 
 			op, err := e.routers(t).Insert(t.Context(), &computepb.InsertRouterRequest{
-				Project: project, Region: region, RouterResource: &computepb.Router{Name: s("dup"), Network: s("global/networks/vpc")},
+				Project:        project,
+				Region:         region,
+				RouterResource: &computepb.Router{Name: s("dup"), Network: s("global/networks/vpc")},
 			})
 			e.done(t, op, err)
 
-			_, err = e.routers(t).Insert(t.Context(), &computepb.InsertRouterRequest{Project: project, Region: region, RouterResource: tt.router})
+			_, err = e.routers(t).
+				Insert(
+					t.Context(),
+					&computepb.InsertRouterRequest{Project: project, Region: region, RouterResource: tt.router},
+				)
 			assertAPIError(t, err, tt.status, tt.reason)
 		})
 	}

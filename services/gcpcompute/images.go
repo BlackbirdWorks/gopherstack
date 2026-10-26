@@ -18,16 +18,88 @@ type imageSpec struct {
 }
 
 // imageCatalog is the public image catalog: pinned point releases of documented families.
-var imageCatalog = []imageSpec{
-	{"debian-cloud", "debian-11", "debian-11-bullseye-v20260115", "Debian, Debian GNU/Linux, 11 (bullseye), amd64 built on 20260115", "debian-11-bullseye", "2026-01-15", 10},
-	{"debian-cloud", "debian-12", "debian-12-bookworm-v20260115", "Debian, Debian GNU/Linux, 12 (bookworm), amd64 built on 20260115", "debian-12-bookworm", "2026-01-15", 10},
-	{"debian-cloud", "debian-13", "debian-13-trixie-v20260115", "Debian, Debian GNU/Linux, 13 (trixie), amd64 built on 20260115", "debian-13-trixie", "2026-01-15", 10},
-	{"ubuntu-os-cloud", "ubuntu-2004-lts", "ubuntu-2004-focal-v20260108", "Canonical, Ubuntu, 20.04 LTS, amd64 focal image built on 2026-01-08", "ubuntu-2004-lts", "2026-01-08", 10},
-	{"ubuntu-os-cloud", "ubuntu-2204-lts", "ubuntu-2204-jammy-v20260108", "Canonical, Ubuntu, 22.04 LTS, amd64 jammy image built on 2026-01-08", "ubuntu-2204-lts", "2026-01-08", 10},
-	{"ubuntu-os-cloud", "ubuntu-2404-lts-amd64", "ubuntu-2404-noble-amd64-v20260108", "Canonical, Ubuntu, 24.04 LTS, amd64 noble image built on 2026-01-08", "ubuntu-2404-lts", "2026-01-08", 10},
-	{"rocky-linux-cloud", "rocky-linux-8", "rocky-linux-8-v20260112", "Rocky Linux, Rocky Linux, 8, x86_64 built on 20260112", "rocky-linux-8", "2026-01-12", 20},
-	{"rocky-linux-cloud", "rocky-linux-9", "rocky-linux-9-v20260112", "Rocky Linux, Rocky Linux, 9, x86_64 built on 20260112", "rocky-linux-9", "2026-01-12", 20},
-	{"centos-cloud", "centos-stream-9", "centos-stream-9-v20260112", "CentOS, CentOS, Stream 9, x86_64 built on 20260112", "centos-stream-9", "2026-01-12", 20},
+var imageCatalog = []imageSpec{ //nolint:gochecknoglobals // read-only lookup table
+	{
+		projDebian,
+		"debian-11",
+		"debian-11-bullseye-v20260115",
+		"Debian, Debian GNU/Linux, 11 (bullseye), amd64 built on 20260115",
+		"debian-11-bullseye",
+		dateDebian,
+		10,
+	},
+	{
+		projDebian,
+		"debian-12",
+		"debian-12-bookworm-v20260115",
+		"Debian, Debian GNU/Linux, 12 (bookworm), amd64 built on 20260115",
+		"debian-12-bookworm",
+		dateDebian,
+		10,
+	},
+	{
+		projDebian,
+		"debian-13",
+		"debian-13-trixie-v20260115",
+		"Debian, Debian GNU/Linux, 13 (trixie), amd64 built on 20260115",
+		"debian-13-trixie",
+		dateDebian,
+		10,
+	},
+	{
+		projUbuntu,
+		"ubuntu-2004-lts",
+		"ubuntu-2004-focal-v20260108",
+		"Canonical, Ubuntu, 20.04 LTS, amd64 focal image built on 2026-01-08",
+		"ubuntu-2004-lts",
+		dateUbuntu,
+		10,
+	},
+	{
+		projUbuntu,
+		"ubuntu-2204-lts",
+		"ubuntu-2204-jammy-v20260108",
+		"Canonical, Ubuntu, 22.04 LTS, amd64 jammy image built on 2026-01-08",
+		"ubuntu-2204-lts",
+		dateUbuntu,
+		10,
+	},
+	{
+		projUbuntu,
+		"ubuntu-2404-lts-amd64",
+		"ubuntu-2404-noble-amd64-v20260108",
+		"Canonical, Ubuntu, 24.04 LTS, amd64 noble image built on 2026-01-08",
+		"ubuntu-2404-lts",
+		dateUbuntu,
+		10,
+	},
+	{
+		"rocky-linux-cloud",
+		"rocky-linux-8",
+		"rocky-linux-8-v20260112",
+		"Rocky Linux, Rocky Linux, 8, x86_64 built on 20260112",
+		"rocky-linux-8",
+		dateRocky,
+		20,
+	},
+	{
+		"rocky-linux-cloud",
+		"rocky-linux-9",
+		"rocky-linux-9-v20260112",
+		"Rocky Linux, Rocky Linux, 9, x86_64 built on 20260112",
+		"rocky-linux-9",
+		dateRocky,
+		20,
+	},
+	{
+		"centos-cloud",
+		"centos-stream-9",
+		"centos-stream-9-v20260112",
+		"CentOS, CentOS, Stream 9, x86_64 built on 20260112",
+		"centos-stream-9",
+		dateRocky,
+		20,
+	},
 }
 
 func publicImageProject(project string) bool {
@@ -42,12 +114,25 @@ func publicImageProject(project string) bool {
 
 func catalogImage(s imageSpec) *computeapi.Image {
 	return &computeapi.Image{
-		Kind: "compute#image", Id: stableID("image", s.project, s.name), CreationTimestamp: s.date + "T12:00:00.000-08:00",
-		Name: s.name, Description: s.desc, SourceType: "RAW", Status: "READY", DiskSizeGb: s.sizeGb, Family: s.family,
-		Licenses:         []string{globalLink(s.project, "licenses", s.license)},
-		SelfLink:         globalLink(s.project, "images", s.name),
-		LabelFingerprint: emptyLabelsFP, Architecture: "X86_64", StorageLocations: []string{"us"},
-		GuestOsFeatures: []*computeapi.GuestOsFeature{{Type: "UEFI_COMPATIBLE"}, {Type: "VIRTIO_SCSI_MULTIQUEUE"}, {Type: "GVNIC"}},
+		Kind:              "compute#image",
+		Id:                stableID("image", s.project, s.name),
+		CreationTimestamp: s.date + "T12:00:00.000-08:00",
+		Name:              s.name,
+		Description:       s.desc,
+		SourceType:        "RAW",
+		Status:            statusReady,
+		DiskSizeGb:        s.sizeGb,
+		Family:            s.family,
+		Licenses:          []string{globalLink(s.project, "licenses", s.license)},
+		SelfLink:          globalLink(s.project, "images", s.name),
+		LabelFingerprint:  emptyLabelsFP,
+		Architecture:      archX86,
+		StorageLocations:  []string{"us"},
+		GuestOsFeatures: []*computeapi.GuestOsFeature{
+			{Type: "UEFI_COMPATIBLE"},
+			{Type: "VIRTIO_SCSI_MULTIQUEUE"},
+			{Type: "GVNIC"},
+		},
 	}
 }
 
@@ -88,8 +173,11 @@ func (b *InMemoryBackend) imagesOfLocked(project string) []*computeapi.Image {
 	return out
 }
 
-func parseImageRef(raw, defProject string) (project, name string, family, ok bool) {
+func parseImageRef(raw, defProject string) (string, string, bool, bool) {
 	parts := strings.Split(trimURL(raw), "/")
+
+	family := false
+
 	if n := len(parts); n >= 2 && parts[n-2] == "family" {
 		family = true
 		parts = append(parts[:n-2], parts[n-1])

@@ -2,6 +2,7 @@ package gcpcompute
 
 import (
 	"encoding/json"
+	"maps"
 	"regexp"
 	"sort"
 )
@@ -93,9 +94,7 @@ func applyLabels(cur map[string]string, curFP string, req labelsRequest) (map[st
 	}
 
 	next := map[string]string{}
-	for k, v := range req.Labels {
-		next[k] = v
-	}
+	maps.Copy(next, req.Labels)
 
 	return next, labelFP(next), nil
 }

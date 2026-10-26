@@ -20,7 +20,7 @@ const (
 	poolMax         = poolBlock * poolBlock
 )
 
-func addrScopeOf(a *computeapi.Address) (scope, loc string) {
+func addrScopeOf(a *computeapi.Address) (string, string) {
 	if a.Region == "" {
 		return scopeGlobal, ""
 	}
@@ -180,7 +180,10 @@ func (b *InMemoryBackend) addressViewLocked(a *computeapi.Address) *computeapi.A
 	return out
 }
 
-func (b *InMemoryBackend) buildAddressLocked(project, region string, in *computeapi.Address) (*computeapi.Address, *APIError) {
+func (b *InMemoryBackend) buildAddressLocked(
+	project, region string,
+	in *computeapi.Address,
+) (*computeapi.Address, *APIError) {
 	if err := validName("name", in.Name); err != nil {
 		return nil, err
 	}
@@ -230,7 +233,9 @@ func (b *InMemoryBackend) buildAddressLocked(project, region string, in *compute
 
 func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.Address) *APIError {
 	if in.Subnetwork != "" || in.Network != "" {
-		return errInvalid("Invalid value for field 'resource.subnetwork': EXTERNAL addresses cannot specify a network or subnetwork.")
+		return errInvalid(
+			"Invalid value for field 'resource.subnetwork': EXTERNAL addresses cannot specify a network or subnetwork.",
+		)
 	}
 
 	a.NetworkTier = in.NetworkTier
@@ -238,7 +243,7 @@ func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.A
 		a.NetworkTier = tierPremium
 	}
 
-	if a.NetworkTier != tierPremium && !(region != "" && a.NetworkTier == "STANDARD") {
+	if a.NetworkTier != tierPremium && (region == "" || a.NetworkTier != tierStandard) {
 		return errField("resource.networkTier", a.NetworkTier, "")
 	}
 
@@ -269,7 +274,11 @@ func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.A
 
 func (b *InMemoryBackend) buildInternalLocked(project, region string, in, a *computeapi.Address) *APIError {
 	if region == "" {
-		return errField("resource.addressType", addrInternal, "Global internal addresses are not supported by this emulator.")
+		return errField(
+			"resource.addressType",
+			addrInternal,
+			"Global internal addresses are not supported by this emulator.",
+		)
 	}
 
 	if in.Subnetwork == "" {
@@ -300,7 +309,11 @@ func (b *InMemoryBackend) buildInternalLocked(project, region string, in, a *com
 		first, last := usableRange(p)
 
 		if perr != nil || parsed.Compare(first) < 0 || parsed.Compare(last) > 0 {
-			return errField("resource.address", in.Address, "The IP address is not in the usable range of subnetwork '"+s.Name+"'.")
+			return errField(
+				"resource.address",
+				in.Address,
+				"The IP address is not in the usable range of subnetwork '"+s.Name+"'.",
+			)
 		}
 
 		if used[parsed] {
@@ -410,7 +423,10 @@ func (b *InMemoryBackend) deleteAddress(project, scope, region, name string) (*c
 	return b.newOpLocked("delete", addrTarget(project, a), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) setAddressLabels(project, scope, region, name string, req labelsRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setAddressLabels(
+	project, scope, region, name string,
+	req labelsRequest,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetAddressLabels")
 	defer b.mu.Unlock()
 

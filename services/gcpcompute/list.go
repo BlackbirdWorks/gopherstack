@@ -12,6 +12,7 @@ import (
 const (
 	defaultPageSize = 500
 	desc            = "desc"
+	maxOrderTerms   = 2
 )
 
 type entry struct {
@@ -48,12 +49,12 @@ func parseListQuery(q url.Values) (listQuery, *APIError) {
 
 	if ob := strings.TrimSpace(q.Get("orderBy")); ob != "" {
 		fields := strings.Fields(ob)
-		if len(fields) > 2 || (len(fields) == 2 && fields[1] != desc && fields[1] != "asc") {
+		if len(fields) > maxOrderTerms || (len(fields) == maxOrderTerms && fields[1] != desc && fields[1] != "asc") {
 			return lq, errField("orderBy", ob, "")
 		}
 
 		lq.orderField = fields[0]
-		lq.descending = len(fields) == 2 && fields[1] == desc
+		lq.descending = len(fields) == maxOrderTerms && fields[1] == desc
 	}
 
 	return lq, nil

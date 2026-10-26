@@ -8,6 +8,7 @@ import (
 
 const (
 	nameInRegionOrZone = 2
+	maxPathTail        = 3
 	verbList           = "list"
 	verbAggList        = "aggList"
 	verbGet            = "get"
@@ -17,7 +18,11 @@ const (
 	verbUpdate         = "update"
 )
 
-var apiPrefixes = []string{"/compute/v1/", "/compute/beta/", "/compute/alpha/"}
+var apiPrefixes = []string{ //nolint:gochecknoglobals // read-only lookup table
+	"/compute/v1/",
+	"/compute/beta/",
+	"/compute/alpha/",
+}
 
 type reqRoute struct {
 	project    string
@@ -59,8 +64,8 @@ func splitPath(escaped string) ([]string, bool) {
 	var raw string
 
 	for _, p := range apiPrefixes {
-		if strings.HasPrefix(escaped, p) {
-			raw = strings.TrimPrefix(escaped, p)
+		if after, ok := strings.CutPrefix(escaped, p); ok {
+			raw = after
 
 			break
 		}
@@ -80,7 +85,7 @@ func splitPath(escaped string) ([]string, bool) {
 		parts[i] = u
 	}
 
-	if len(parts) < 2 || parts[0] != "projects" || parts[1] == "" {
+	if len(parts) < 2 || parts[0] != collProjects || parts[1] == "" {
 		return nil, false
 	}
 
@@ -97,7 +102,7 @@ func parseRequest(escapedPath string) (reqRoute, bool) {
 	rest := parts[2:]
 
 	if len(rest) == 0 {
-		rt.collection, rt.name = "projects", rt.project
+		rt.collection, rt.name = collProjects, rt.project
 
 		return rt, true
 	}
@@ -125,7 +130,7 @@ func parseRequest(escapedPath string) (reqRoute, bool) {
 
 		rt.scope, rt.loc, rest = rest[0], rest[1], rest[2:]
 	default:
-		rt.collection, rt.name, rt.action = "projects", rt.project, rest[0]
+		rt.collection, rt.name, rt.action = collProjects, rt.project, rest[0]
 
 		return rt, len(rest) == 1
 	}
@@ -134,7 +139,7 @@ func parseRequest(escapedPath string) (reqRoute, bool) {
 }
 
 func finishRoute(rt reqRoute, rest []string) (reqRoute, bool) {
-	if len(rest) == 0 || len(rest) > 3 {
+	if len(rest) == 0 || len(rest) > maxPathTail {
 		return reqRoute{}, false
 	}
 
@@ -144,7 +149,7 @@ func finishRoute(rt reqRoute, rest []string) (reqRoute, bool) {
 		rt.name = rest[1]
 	}
 
-	if len(rest) == 3 {
+	if len(rest) == maxPathTail {
 		rt.action = rest[2]
 	}
 

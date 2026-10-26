@@ -90,7 +90,11 @@ func TestMachineTypes(t *testing.T) {
 
 			e := newEnv(t)
 
-			got, err := e.machineTypes(t).Get(t.Context(), &computepb.GetMachineTypeRequest{Project: project, Zone: zone, MachineType: tt.mt})
+			got, err := e.machineTypes(t).
+				Get(
+					t.Context(),
+					&computepb.GetMachineTypeRequest{Project: project, Zone: zone, MachineType: tt.mt},
+				)
 			if tt.status != http.StatusOK {
 				assertAPIError(t, err, tt.status, "notFound")
 
@@ -101,7 +105,11 @@ func TestMachineTypes(t *testing.T) {
 			assert.Equal(t, tt.cpus, got.GetGuestCpus())
 			assert.Equal(t, tt.memMb, got.GetMemoryMb())
 			assert.Equal(t, tt.shared, got.GetIsSharedCpu())
-			assert.Equal(t, "https://www.googleapis.com/compute/v1/projects/"+project+"/zones/"+zone+"/machineTypes/"+tt.mt, got.GetSelfLink())
+			assert.Equal(
+				t,
+				"https://www.googleapis.com/compute/v1/projects/"+project+"/zones/"+zone+"/machineTypes/"+tt.mt,
+				got.GetSelfLink(),
+			)
 			assert.Equal(t, zone, got.GetZone())
 		})
 	}
@@ -128,7 +136,19 @@ func TestMachineTypeListFilter(t *testing.T) {
 		names = append(names, got.GetName())
 	}
 
-	assert.Equal(t, []string{"n2-standard-96", "n2-standard-80", "n2-standard-64", "n2-standard-48", "n2-standard-32", "n2-standard-16", "n2-standard-128"}, names)
+	assert.Equal(
+		t,
+		[]string{
+			"n2-standard-96",
+			"n2-standard-80",
+			"n2-standard-64",
+			"n2-standard-48",
+			"n2-standard-32",
+			"n2-standard-16",
+			"n2-standard-128",
+		},
+		names,
+	)
 }
 
 func TestProjectCommonMetadata(t *testing.T) {
@@ -146,12 +166,20 @@ func TestProjectCommonMetadata(t *testing.T) {
 	require.NotEmpty(t, fp)
 
 	_, err = projects.SetCommonInstanceMetadata(t.Context(), &computepb.SetCommonInstanceMetadataProjectRequest{
-		Project: project, MetadataResource: &computepb.Metadata{Fingerprint: s("stale"), Items: []*computepb.Items{{Key: s("enable-oslogin"), Value: s("TRUE")}}},
+		Project: project,
+		MetadataResource: &computepb.Metadata{
+			Fingerprint: s("stale"),
+			Items:       []*computepb.Items{{Key: s("enable-oslogin"), Value: s("TRUE")}},
+		},
 	})
 	assertAPIError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 
 	op, err := projects.SetCommonInstanceMetadata(t.Context(), &computepb.SetCommonInstanceMetadataProjectRequest{
-		Project: project, MetadataResource: &computepb.Metadata{Fingerprint: s(fp), Items: []*computepb.Items{{Key: s("enable-oslogin"), Value: s("TRUE")}}},
+		Project: project,
+		MetadataResource: &computepb.Metadata{
+			Fingerprint: s(fp),
+			Items:       []*computepb.Items{{Key: s("enable-oslogin"), Value: s("TRUE")}},
+		},
 	})
 	e.done(t, op, err)
 
