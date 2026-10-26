@@ -15487,6 +15487,33 @@
     ],
     "version": 1
   },
+  "gcpcompute": {
+    "fields": [
+      "backendSnapshot.Addresses map[string]*computeapi.Address `json:\"addresses\"`",
+      "backendSnapshot.Disks map[string]*computeapi.Disk `json:\"disks\"`",
+      "backendSnapshot.Firewalls map[string]*computeapi.Firewall `json:\"firewalls\"`",
+      "backendSnapshot.Images map[string]*computeapi.Image `json:\"images\"`",
+      "backendSnapshot.Instances map[string]*instRec `json:\"instances\"`",
+      "backendSnapshot.Networks map[string]*computeapi.Network `json:\"networks\"`",
+      "backendSnapshot.Ops map[string]*opRec `json:\"ops\"`",
+      "backendSnapshot.Projects map[string]*computeapi.Metadata `json:\"projects\"`",
+      "backendSnapshot.Routers map[string]*routerRec `json:\"routers\"`",
+      "backendSnapshot.Routes map[string]*computeapi.Route `json:\"routes\"`",
+      "backendSnapshot.Snapshots map[string]*computeapi.Snapshot `json:\"snapshots\"`",
+      "backendSnapshot.Subnets map[string]*computeapi.Subnetwork `json:\"subnets\"`",
+      "instRec.Inst *computeapi.Instance `json:\"inst\"`",
+      "instRec.Phase string `json:\"phase\"`",
+      "instRec.Since time.Time `json:\"since\"`",
+      "opRec.Created time.Time `json:\"created\"`",
+      "opRec.Done time.Duration `json:\"done\"`",
+      "opRec.Op *computeapi.Operation `json:\"op\"`",
+      "opRec.Pending time.Duration `json:\"pending\"`",
+      "opRec.Project string `json:\"project\"`",
+      "routerRec.AutoIPs map[string][]string `json:\"autoIps\"`",
+      "routerRec.Router *computeapi.Router `json:\"router\"`"
+    ],
+    "version": 1
+  },
   "gcpdns": {
     "fields": [
       "backendSnapshot.Policies map[string]*dnsapi.Policy `json:\"policies\"`",
