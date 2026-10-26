@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"

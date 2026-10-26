@@ -36,7 +36,7 @@ func (b *InMemoryBackend) SetIamPolicy(resource string, policy *iampb.Policy) (*
 		return nil, err
 	}
 
-	if err := gcpiampolicy.Validate(policy); err != nil {
+	if err = gcpiampolicy.Validate(policy); err != nil {
 		return nil, err
 	}
 

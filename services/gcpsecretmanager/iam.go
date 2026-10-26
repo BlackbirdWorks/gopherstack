@@ -63,7 +63,7 @@ func (b *InMemoryBackend) GetIamPolicy(resource string, version int32) (*iampb.P
 	return gcpiampolicy.View(rec.policy, version), nil
 }
 
-// TestIamPermissions reports the requested Secret Manager permissions as granted: the emulator performs no authorization.
+// TestIamPermissions reports the requested Secret Manager permissions as granted; there is no authorization.
 func (b *InMemoryBackend) TestIamPermissions(
 	req *iampb.TestIamPermissionsRequest,
 ) (*iampb.TestIamPermissionsResponse, error) {

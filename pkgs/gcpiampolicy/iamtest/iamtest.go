@@ -11,6 +11,8 @@ import (
 	"google.golang.org/genproto/googleapis/type/expr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 )
 
 // Endpoint is one resource's IAM surface.
@@ -52,21 +54,22 @@ func Run(t *testing.T, ep Endpoint) {
 	_, err := set(&iampb.Policy{Bindings: []*iampb.Binding{cond()}, Version: 1})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err), "conditions require policy version 3")
 
-	_, err = set(&iampb.Policy{Bindings: []*iampb.Binding{{Role: "roles/viewer", Members: []string{"user:a@example.com"}}}})
+	plain := &iampb.Binding{Role: "roles/viewer", Members: []string{"user:a@example.com"}}
+	_, err = set(&iampb.Policy{Bindings: []*iampb.Binding{plain}})
 	require.NoError(t, err)
 
 	first := get(1)
 	assert.Equal(t, int32(1), first.GetVersion())
 
-	conditional, err := set(&iampb.Policy{Bindings: []*iampb.Binding{cond()}, Version: 3, Etag: first.GetEtag()})
+	conditional, err := set(&iampb.Policy{Bindings: []*iampb.Binding{cond()}, Version: gcpiampolicy.ConditionalVersion, Etag: first.GetEtag()})
 	require.NoError(t, err)
-	assert.Equal(t, int32(3), conditional.GetVersion())
+	assert.Equal(t, int32(gcpiampolicy.ConditionalVersion), conditional.GetVersion())
 	assert.NotEqual(t, first.GetEtag(), conditional.GetEtag())
 
 	_, err = set(&iampb.Policy{Etag: first.GetEtag()})
 	assert.Equal(t, codes.Aborted, status.Code(err), "a stale etag aborts")
 
-	v3 := get(3)
+	v3 := get(gcpiampolicy.ConditionalVersion)
 	require.Len(t, v3.GetBindings(), 1)
 	assert.Equal(t, "expires", v3.GetBindings()[0].GetCondition().GetTitle())
 
