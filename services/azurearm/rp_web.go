@@ -186,7 +186,7 @@ func isFunctionAppKind(kind string) bool {
 }
 
 func kindHasToken(kind, token string) bool {
-	for _, t := range strings.Split(strings.ToLower(kind), ",") {
+	for t := range strings.SplitSeq(strings.ToLower(kind), ",") {
 		if strings.TrimSpace(t) == token {
 			return true
 		}
@@ -233,6 +233,18 @@ func (p *WebProvider) planExists(serverFarmID string) bool {
 	return ok
 }
 
+func (p *WebProvider) checkSitePlan(kind, farm string) error {
+	if !isFunctionAppKind(kind) && farm == "" {
+		return badWebRequest(fmt.Errorf("%w: %w", ErrWebInvalidSiteConfig, errWebPlanRequired))
+	}
+
+	if farm != "" && isLinuxKind(kind) && !p.planReserved(farm) {
+		return ErrWebPlanNotLinux
+	}
+
+	return nil
+}
+
 func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
 	name := id.LeafName()
 	existing, exists := p.site(id.ResourceGroup, name)
@@ -261,12 +273,8 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, ErrWebPlanNotFound
 	}
 
-	if !isFunctionAppKind(kind) && farm == "" {
-		return nil, badWebRequest(fmt.Errorf("%w: %w", ErrWebInvalidSiteConfig, errWebPlanRequired))
-	}
-
-	if farm != "" && isLinuxKind(kind) && !p.planReserved(farm) {
-		return nil, ErrWebPlanNotLinux
+	if err := p.checkSitePlan(kind, farm); err != nil {
+		return nil, err
 	}
 
 	rec := &storedWebSite{

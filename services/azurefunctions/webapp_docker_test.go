@@ -36,11 +36,16 @@ func TestDocker_WebAppContainer(t *testing.T) {
 	e.backend.Configure(azurefunctions.Settings{StartupTimeout: 5 * time.Minute})
 
 	e.backend.PutApp("shop", azurefunctions.AppConfig{
-		Kind: webKind, LinuxFx: "DOCKER|busybox:1.36", HealthCheckPath: "/healthz.txt",
-		AppCommandLine: `sh -c "mkdir -p /www && echo ok > /www/healthz.txt && echo hello-from-$GREETING > /www/index.html && ` +
-			`exec httpd -f -p 8081 -h /www"`,
+		Kind:            webKind,
+		LinuxFx:         "DOCKER|busybox:1.36",
+		HealthCheckPath: "/healthz.txt",
+		AppCommandLine: `sh -c "mkdir -p /www && echo ok > /www/healthz.txt && ` +
+			`echo hello-from-$GREETING > /www/index.html && exec httpd -f -p 8081 -h /www"`,
 	})
-	require.NoError(t, e.backend.SetSettings("shop", map[string]string{"WEBSITES_PORT": "8081", "GREETING": "appservice"}))
+	require.NoError(
+		t,
+		e.backend.SetSettings("shop", map[string]string{"WEBSITES_PORT": "8081", "GREETING": "appservice"}),
+	)
 
 	host := "shop." + testDomain
 

@@ -48,8 +48,8 @@ type FunctionHostKeys struct {
 	MasterKey    string
 }
 
-// FunctionApps is the seam the Microsoft.Web resource provider uses to keep function apps and Linux web apps in step with the
-// Azure Functions data plane. Primitive types only, so this package never imports the data-plane service.
+// FunctionApps is the seam the Microsoft.Web resource provider uses to keep function apps and Linux web apps in
+// step with the Azure Functions data plane. Primitive types only, so this package never imports the data-plane service.
 // Implementations return ErrWebSiteNotFound, ErrWebFunctionNotFound, ErrWebKeyNotFound or ErrWebInvalidKeyType.
 type FunctionApps interface {
 	PutApp(name string, cfg FunctionAppConfig) (FunctionAppInfo, error)

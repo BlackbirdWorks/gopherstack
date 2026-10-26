@@ -29,7 +29,11 @@ func (s *fnSDKStack) createLinuxPlan(t *testing.T, name, kind string, reserved b
 	return &res.Plan
 }
 
-func (s *fnSDKStack) createWebApp(t *testing.T, name, planID string, cfg *armappservice.SiteConfig) (*armappservice.Site, error) {
+func (s *fnSDKStack) createWebApp(
+	t *testing.T,
+	name, planID string,
+	cfg *armappservice.SiteConfig,
+) (*armappservice.Site, error) {
 	t.Helper()
 
 	poller, err := s.factory.NewWebAppsClient().BeginCreateOrUpdate(t.Context(), webSDKRG, name, armappservice.Site{
@@ -59,9 +63,14 @@ func TestAzureAppServiceARMSDK_WebAppLifecycle(t *testing.T) {
 	require.Equal(t, "Basic", *plan.SKU.Tier)
 
 	site, err := s.createWebApp(t, "webapp1", *plan.ID, &armappservice.SiteConfig{
-		LinuxFxVersion: new("DOCKER|busybox:1.36"), AlwaysOn: new(true), AppCommandLine: new("httpd -f -p 8081"),
+		LinuxFxVersion:  new("DOCKER|busybox:1.36"),
+		AlwaysOn:        new(true),
+		AppCommandLine:  new("httpd -f -p 8081"),
 		HealthCheckPath: new("/healthz"),
-		AppSettings:     []*armappservice.NameValuePair{{Name: new("WEBSITES_PORT"), Value: new("8081")}, {Name: new("GREETING"), Value: new("hi")}},
+		AppSettings: []*armappservice.NameValuePair{
+			{Name: new("WEBSITES_PORT"), Value: new("8081")},
+			{Name: new("GREETING"), Value: new("hi")},
+		},
 	})
 	require.NoError(t, err)
 
@@ -106,7 +115,12 @@ func TestAzureAppServiceARMSDK_WebAppLifecycle(t *testing.T) {
 	t.Run("stop start restart", func(t *testing.T) {
 		t.Parallel()
 
-		other, createErr := s.createWebApp(t, "webapp2", *plan.ID, &armappservice.SiteConfig{LinuxFxVersion: new("DOCKER|busybox")})
+		other, createErr := s.createWebApp(
+			t,
+			"webapp2",
+			*plan.ID,
+			&armappservice.SiteConfig{LinuxFxVersion: new("DOCKER|busybox")},
+		)
 		require.NoError(t, createErr)
 
 		_, stopErr := apps.Stop(ctx, webSDKRG, *other.Name, nil)
@@ -132,11 +146,19 @@ func TestAzureAppServiceARMSDK_WebAppLifecycle(t *testing.T) {
 	t.Run("config update changes the stack", func(t *testing.T) {
 		t.Parallel()
 
-		app, createErr := s.createWebApp(t, "webapp3", *plan.ID, &armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")})
+		app, createErr := s.createWebApp(
+			t,
+			"webapp3",
+			*plan.ID,
+			&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")},
+		)
 		require.NoError(t, createErr)
 
 		_, updErr := apps.UpdateConfiguration(ctx, webSDKRG, *app.Name, armappservice.SiteConfigResource{
-			Properties: &armappservice.SiteConfig{LinuxFxVersion: new("PYTHON|3.12"), AppCommandLine: new("python srv.py")},
+			Properties: &armappservice.SiteConfig{
+				LinuxFxVersion: new("PYTHON|3.12"),
+				AppCommandLine: new("python srv.py"),
+			},
 		}, nil)
 		require.NoError(t, updErr)
 
@@ -185,23 +207,54 @@ func TestAzureAppServiceARMSDK_Validation(t *testing.T) {
 		farm    string
 		wantMsg string
 	}{
-		{&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")}, "linux app on non-reserved plan", "app,linux", *windows.ID, "Linux"},
-		{&armappservice.SiteConfig{LinuxFxVersion: new("RUBY|3.2")}, "unsupported stack", "app,linux", *linux.ID, "RUBY"},
+		{
+			&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")},
+			"linux app on non-reserved plan",
+			"app,linux",
+			*windows.ID,
+			"Linux",
+		},
+		{
+			&armappservice.SiteConfig{LinuxFxVersion: new("RUBY|3.2")},
+			"unsupported stack",
+			"app,linux",
+			*linux.ID,
+			"RUBY",
+		},
 		{nil, "stack required", "app,linux", *linux.ID, "linuxFxVersion"},
-		{&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts"), HealthCheckPath: new("nope")}, "health path", "app,linux", *linux.ID, "healthCheckPath"},
-		{&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")}, "windows web app", "app", *linux.ID, "Linux web apps"},
-		{&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")}, "plan required", "app,linux", "", "serverFarmId"},
+		{
+			&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts"), HealthCheckPath: new("nope")},
+			"health path",
+			"app,linux",
+			*linux.ID,
+			"healthCheckPath",
+		},
+		{
+			&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")},
+			"windows web app",
+			"app",
+			*linux.ID,
+			"Linux web apps",
+		},
+		{
+			&armappservice.SiteConfig{LinuxFxVersion: new("NODE|20-lts")},
+			"plan required",
+			"app,linux",
+			"",
+			"serverFarmId",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			poller, err := s.factory.NewWebAppsClient().BeginCreateOrUpdate(t.Context(), webSDKRG, "val-"+strings.ReplaceAll(tt.name, " ", "-"),
-				armappservice.Site{
-					Location: new("local"), Kind: new(tt.kind),
-					Properties: &armappservice.SiteProperties{ServerFarmID: new(tt.farm), SiteConfig: tt.cfg},
-				}, nil)
+			poller, err := s.factory.NewWebAppsClient().
+				BeginCreateOrUpdate(t.Context(), webSDKRG, "val-"+strings.ReplaceAll(tt.name, " ", "-"),
+					armappservice.Site{
+						Location: new("local"), Kind: new(tt.kind),
+						Properties: &armappservice.SiteProperties{ServerFarmID: new(tt.farm), SiteConfig: tt.cfg},
+					}, nil)
 			if err == nil {
 				_, err = poller.PollUntilDone(t.Context(), pollOpts())
 			}

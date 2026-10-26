@@ -22,6 +22,8 @@ const (
 	settingNodeVersion = "WEBSITE_NODE_DEFAULT_VERSION"
 	settingRunFromPkg  = "WEBSITE_RUN_FROM_PACKAGE"
 	dockerPrefix       = "DOCKER|"
+	ver311             = "3.11"
+	ver80              = "8.0"
 )
 
 // runtimeFamily is one worker runtime and the image tags the official Functions v4 images publish for it.
@@ -35,21 +37,21 @@ type runtimeFamily struct {
 func runtimeFamilies() map[string]runtimeFamily {
 	return map[string]runtimeFamily{
 		workerNode: {
-			repo: "node", tagFmt: "4-node%s", def: "20", versions: []string{"18", "20", "22", "24"},
+			repo: workerNode, tagFmt: "4-node%s", def: "20", versions: []string{"18", "20", "22", "24"},
 		},
 		workerPython: {
-			repo: "python", tagFmt: "4-python%s", def: "3.11",
-			versions: []string{"3.9", "3.10", "3.11", "3.12", "3.13"},
+			repo: workerPython, tagFmt: "4-python%s", def: ver311,
+			versions: []string{"3.9", "3.10", ver311, "3.12", "3.13"},
 		},
 		workerDotnetIs: {
 			repo:     "dotnet-isolated",
 			tagFmt:   "4-dotnet-isolated%s",
-			def:      "8.0",
-			versions: []string{"8.0", "9.0", "10.0"},
+			def:      ver80,
+			versions: []string{ver80, "9.0", "10.0"},
 		},
-		workerDotnet: {repo: "dotnet", tagFmt: "%s", def: "4", versions: []string{"4"}},
+		workerDotnet: {repo: workerDotnet, tagFmt: "%s", def: "4", versions: []string{"4"}},
 		workerJava: {
-			repo: "java", tagFmt: "4-java%s", def: "17", versions: []string{"11", "17", "21", "25"},
+			repo: workerJava, tagFmt: "4-java%s", def: "17", versions: []string{"11", "17", "21", "25"},
 		},
 		workerPS: {
 			repo: "powershell", tagFmt: "4-powershell%s", def: "7.4", versions: []string{"7.2", "7.4"},

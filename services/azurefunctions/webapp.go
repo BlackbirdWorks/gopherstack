@@ -24,10 +24,10 @@ const (
 	settingPort         = "PORT"
 	settingAppStorage   = "WEBSITES_ENABLE_APP_SERVICE_STORAGE"
 
-	stackNode   = "node"
-	stackPython = "python"
+	stackNode   = workerNode
+	stackPython = workerPython
 	stackDotnet = "dotnetcore"
-	stackJava   = "java"
+	stackJava   = workerJava
 	stackPHP    = "php"
 
 	codePort       = 8080
@@ -52,11 +52,11 @@ func webFamilies() map[string]webFamily {
 			image:    func(v string) string { return "node:" + v + "-slim" },
 		},
 		stackPython: {
-			versions: []string{"3.9", "3.10", "3.11", "3.12", "3.13"},
+			versions: []string{"3.9", "3.10", ver311, "3.12", "3.13"},
 			image:    func(v string) string { return "python:" + v + "-slim" },
 		},
 		stackDotnet: {
-			versions: []string{"6.0", "7.0", "8.0", "9.0", "10.0"},
+			versions: []string{"6.0", "7.0", ver80, "9.0", "10.0"},
 			image:    func(v string) string { return "mcr.microsoft.com/dotnet/aspnet:" + v },
 		},
 		stackJava: {
@@ -85,13 +85,13 @@ func (a *appState) isWeb() bool { return !isFunctionKind(a.Kind) }
 
 func stackFromFx(head string) string {
 	switch strings.ToLower(head) {
-	case "node":
+	case workerNode:
 		return stackNode
-	case "python":
+	case workerPython:
 		return stackPython
-	case "dotnetcore", "dotnet":
+	case stackDotnet, workerDotnet:
 		return stackDotnet
-	case "java":
+	case workerJava:
 		return stackJava
 	case "php":
 		return stackPHP
@@ -400,8 +400,8 @@ func (b *InMemoryBackend) launchWeb(st *appState, host string) (box, error) {
 	}
 
 	ready := func(ctx context.Context, port int) error {
-		if err := gcpserve.WaitReady(ctx, port); err != nil {
-			return err
+		if readyErr := gcpserve.WaitReady(ctx, port); readyErr != nil {
+			return readyErr
 		}
 
 		return waitHealthy(ctx, port, st.HealthCheckPath)

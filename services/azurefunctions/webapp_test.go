@@ -39,24 +39,39 @@ func TestWebApp_ContainerSpec(t *testing.T) {
 		wantMount string
 	}{
 		{
-			name: "node npm start", linuxFx: "NODE|20-lts", files: map[string]string{"package.json": `{"scripts":{"start":"x"}}`},
-			wantImage: "node:20-slim", wantCmd: "npm start", wantPort: "8080", wantMount: "/home/site/wwwroot",
+			name:      "node npm start",
+			linuxFx:   "NODE|20-lts",
+			files:     map[string]string{"package.json": `{"scripts":{"start":"x"}}`},
+			wantImage: "node:20-slim",
+			wantCmd:   "npm start",
+			wantPort:  "8080",
+			wantMount: "/home/site/wwwroot",
 		},
 		{
 			name: "node entry file", linuxFx: "NODE|22-lts", files: map[string]string{"server.js": "1"},
 			wantImage: "node:22-slim", wantCmd: "node server.js", wantPort: "8080", wantMount: "/home/site/wwwroot",
 		},
 		{
-			name: "node command line", linuxFx: "NODE|20-lts", cmdLine: "node custom.js --flag", files: map[string]string{"custom.js": "1"},
-			wantImage: "node:20-slim", wantCmd: "sh -c node custom.js --flag", wantPort: "8080", wantMount: "/home/site/wwwroot",
+			name:      "node command line",
+			linuxFx:   "NODE|20-lts",
+			cmdLine:   "node custom.js --flag",
+			files:     map[string]string{"custom.js": "1"},
+			wantImage: "node:20-slim",
+			wantCmd:   "sh -c node custom.js --flag",
+			wantPort:  "8080",
+			wantMount: "/home/site/wwwroot",
 		},
 		{
 			name: "python", linuxFx: "PYTHON|3.12", files: map[string]string{"app.py": "1"},
 			wantImage: "python:3.12-slim", wantCmd: "python app.py", wantPort: "8080", wantMount: "/home/site/wwwroot",
 		},
 		{
-			name: "dotnet", linuxFx: "DOTNETCORE|8.0", files: map[string]string{"web.runtimeconfig.json": "{}", "web.dll": "1"},
-			wantImage: "mcr.microsoft.com/dotnet/aspnet:8.0", wantCmd: "dotnet web.dll", wantPort: "8080",
+			name:      "dotnet",
+			linuxFx:   "DOTNETCORE|8.0",
+			files:     map[string]string{"web.runtimeconfig.json": "{}", "web.dll": "1"},
+			wantImage: "mcr.microsoft.com/dotnet/aspnet:8.0",
+			wantCmd:   "dotnet web.dll",
+			wantPort:  "8080",
 			wantMount: "/home/site/wwwroot",
 		},
 		{
@@ -73,9 +88,13 @@ func TestWebApp_ContainerSpec(t *testing.T) {
 			wantImage: "nginx:alpine", wantCmd: "", wantPort: "80",
 		},
 		{
-			name: "docker websites port and command", linuxFx: "DOCKER|reg.example/app:1", cmdLine: `serve "a b" -p 9000`,
+			name:      "docker websites port and command",
+			linuxFx:   "DOCKER|reg.example/app:1",
+			cmdLine:   `serve "a b" -p 9000`,
 			settings:  map[string]string{"WEBSITES_PORT": "9000"},
-			wantImage: "reg.example/app:1", wantCmd: "serve a b -p 9000", wantPort: "9000",
+			wantImage: "reg.example/app:1",
+			wantCmd:   "serve a b -p 9000",
+			wantPort:  "9000",
 		},
 	}
 
@@ -84,7 +103,10 @@ func TestWebApp_ContainerSpec(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t, true)
-			e.backend.PutApp("webapp", azurefunctions.AppConfig{Kind: webKind, LinuxFx: tt.linuxFx, AppCommandLine: tt.cmdLine})
+			e.backend.PutApp(
+				"webapp",
+				azurefunctions.AppConfig{Kind: webKind, LinuxFx: tt.linuxFx, AppCommandLine: tt.cmdLine},
+			)
 			require.NoError(t, e.backend.SetSettings("webapp", tt.settings))
 
 			if tt.files != nil {
@@ -144,7 +166,13 @@ func TestWebApp_NotServable(t *testing.T) {
 			"no startup command", "NODE|20-lts", map[string]string{"readme.txt": "x"}, "no startup command",
 			http.StatusBadGateway,
 		},
-		{"dotnet without runtimeconfig", "DOTNETCORE|8.0", map[string]string{"a.txt": "x"}, "appCommandLine", http.StatusBadGateway},
+		{
+			"dotnet without runtimeconfig",
+			"DOTNETCORE|8.0",
+			map[string]string{"a.txt": "x"},
+			"appCommandLine",
+			http.StatusBadGateway,
+		},
 	}
 
 	for _, tt := range tests {
@@ -221,14 +249,14 @@ func TestWebApp_HealthCheck(t *testing.T) {
 	tests := []struct {
 		name      string
 		path      string
+		wantBody  string
 		unhealthy int64
 		timeout   time.Duration
 		wantCode  int
-		wantBody  string
 	}{
-		{"healthy after retries", "/healthz", 2, 30 * time.Second, http.StatusOK, "echo /"},
-		{"never healthy", "/healthz", 1 << 20, 600 * time.Millisecond, http.StatusBadGateway, "health check /healthz"},
-		{"no path means no probe", "", 1 << 20, 30 * time.Second, http.StatusOK, "echo /"},
+		{"healthy after retries", "/healthz", "echo /", 2, 30 * time.Second, http.StatusOK},
+		{"never healthy", "/healthz", "health check /healthz", 1 << 20, 600 * time.Millisecond, http.StatusBadGateway},
+		{"no path means no probe", "", "echo /", 1 << 20, 30 * time.Second, http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -238,7 +266,10 @@ func TestWebApp_HealthCheck(t *testing.T) {
 			e := newEnv(t, true)
 			e.rt.unhealthy.Store(tt.unhealthy)
 			e.backend.Configure(azurefunctions.Settings{StartupTimeout: tt.timeout})
-			e.backend.PutApp("w", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "DOCKER|busybox", HealthCheckPath: tt.path})
+			e.backend.PutApp(
+				"w",
+				azurefunctions.AppConfig{Kind: webKind, LinuxFx: "DOCKER|busybox", HealthCheckPath: tt.path},
+			)
 
 			resp, body := e.do(t, http.MethodGet, "w."+testDomain, "/", nil, nil)
 			assert.Equal(t, tt.wantCode, resp.StatusCode)
@@ -266,7 +297,11 @@ func TestWebApp_ValidateConfig(t *testing.T) {
 		{"unknown stack", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "RUBY|3.2"}, "RUBY"},
 		{"tomcat", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "TOMCAT|10.0-java17"}, "TOMCAT"},
 		{"old node", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|10-lts"}, "supported: 18"},
-		{"health path", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts", HealthCheckPath: "up"}, "healthCheckPath"},
+		{
+			"health path",
+			azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts", HealthCheckPath: "up"},
+			"healthCheckPath",
+		},
 	}
 
 	for _, tt := range tests {
