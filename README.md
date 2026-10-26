@@ -942,9 +942,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Eventarc](services/gcpeventarc/README.md) | B | 24 | 10 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
-| [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 35 | 6 gaps |
-| [Google Cloud Storage](services/gcpstorage/README.md) | B | 23 | 8 gaps |
-| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 15 | 4 gaps |
+| [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 6 gaps |
+| [Google Cloud Storage](services/gcpstorage/README.md) | B | 28 | 8 gaps |
+| [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 5 gaps |
 | [Memorystore for Redis](services/gcpredis/README.md) | B | 14 | 7 gaps |
 | [Workflows](services/gcpworkflows/README.md) | B | 13 | 8 gaps |
 

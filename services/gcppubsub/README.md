@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 35 (34 ok, 1 partial) |
+| PARITY entries audited | 38 (37 ok, 1 partial) |
 | Feature families | 6 (3 ok, 3 partial) |
 | Known gaps | 6 |
 | Deferred items | 0 |
@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- No IAMPolicy RPCs (SetIamPolicy/GetIamPolicy/TestIamPermissions) on topics, subscriptions, snapshots or schemas.
+- TestIamPermissions grants every requested pubsub.<collection>.* permission; policies are stored, not evaluated, and role names are not checked against the gcpiam catalog.
 - BigQuery, Cloud Storage and Bigtable subscriptions, topic ingestion sources and message transforms are rejected UNIMPLEMENTED.
 - PROTOCOL_BUFFER schemas are not compiled: definitions get a lexical check and messages a wire-format or JSON-object check only.
 - Push OIDC tokens are stored but not generated; push endpoints are not verified.
