@@ -175,6 +175,7 @@ import (
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
+	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
 	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -654,6 +655,7 @@ type CLI struct {
 	GCPEventarc                   gcpeventarcbackend.Settings       `embed:"" prefix:"gcp-eventarc-"`
 	GCPWorkflows                  gcpworkflowsbackend.Settings      `embed:"" prefix:"gcp-workflows-"`
 	GCPDNS                        gcpdnsbackend.Settings            `embed:"" prefix:"gcp-dns-"`
+	GCPCompute                    gcpcomputebackend.Settings        `embed:"" prefix:"gcp-compute-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -809,6 +811,9 @@ func (c *CLI) GetGCPWorkflowsSettings() gcpworkflowsbackend.Settings { return c.
 
 // GetGCPDNSSettings returns Google Cloud DNS settings (gcpdns.ConfigProvider).
 func (c *CLI) GetGCPDNSSettings() gcpdnsbackend.Settings { return c.GCPDNS }
+
+// GetGCPComputeSettings returns Compute Engine settings (gcpcompute.ConfigProvider).
+func (c *CLI) GetGCPComputeSettings() gcpcomputebackend.Settings { return c.GCPCompute }
 
 // GetGCPCloudBuildSettings returns Google Cloud Build settings (gcpcloudbuild.ConfigProvider).
 func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return c.GCPCloudBuild }
@@ -2576,6 +2581,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPWorkflows", "gcpworkflows", cli.GCPWorkflows.Port},
 		{"GCPDNS", "gcpdns", cli.GCPDNS.Port},
 		{"GCPDNSServer", "gcpdns-server", cli.GCPDNS.DNSPort},
+		{"GCPCompute", "gcpcompute", cli.GCPCompute.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -5046,6 +5052,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpeventarcbackend.Provider{},
 		&gcpworkflowsbackend.Provider{},
 		&gcpdnsbackend.Provider{},
+		&gcpcomputebackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},

@@ -57,6 +57,7 @@ const (
 	slugGCPEventarc     = "gcpeventarc"
 	slugGCPWorkflows    = "gcpworkflows"
 	slugGCPDNS          = "gcpdns"
+	slugGCPCompute      = "gcpcompute"
 	slugGCPCloudBuild   = "gcpcloudbuild"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
@@ -162,6 +163,7 @@ func categoryGroups() []categoryGroup {
 			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery, slugGCPSQL,
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
 			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows, slugGCPDNS,
+			slugGCPCompute,
 		}},
 		{"OCI", []string{slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions}},
 		{"Other", []string{
@@ -297,6 +299,7 @@ func displayNamesB() map[string]string {
 		slugGCPEventarc:    "Eventarc",
 		slugGCPWorkflows:   "Workflows",
 		slugGCPDNS:         "Cloud DNS",
+		slugGCPCompute:     "Compute Engine",
 		slugGCPCloudBuild:  "Cloud Build",
 		slugGCPFirestore:   "Google Cloud Firestore",
 		slugGCPIAM:         "Cloud IAM",

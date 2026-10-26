@@ -86,6 +86,7 @@ func gcpPorts() map[string]string {
 		"workflows":        "8139",
 		"dns":              "8140",
 		"dnsserver":        "8141",
+		"compute":          "8142",
 		"bigquery":         "9050",
 	}
 }

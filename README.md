@@ -940,6 +940,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 4 gaps |
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 18 | 6 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 3 gaps |
+| [Compute Engine](services/gcpcompute/README.md) | B | — | 8 families; 7 gaps |
 | [Eventarc](services/gcpeventarc/README.md) | B | 24 | 10 gaps |
 | [Google Cloud Firestore](services/gcpfirestore/README.md) | B | 15 | 4 gaps |
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
