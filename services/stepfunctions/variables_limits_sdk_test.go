@@ -19,7 +19,7 @@ func bigInput(n int) string {
 }
 
 func chainedAssigns(count int) string {
-	var states []string
+	states := make([]string, 0, count)
 
 	for i := range count {
 		next := `"End":true`

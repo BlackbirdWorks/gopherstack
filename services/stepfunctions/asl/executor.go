@@ -1101,7 +1101,7 @@ func (e *Executor) waitForDuration(ctx context.Context, d time.Duration) error {
 
 // executeChoice handles Choice state.
 func (e *Executor) executeChoice(state *State, input any) (string, any, error) {
-	var choiceScope any = input
+	choiceScope := input
 	if e.varFn() != nil {
 		choiceScope = pathEvalInput{data: input, context: e.buildContextObject(), vars: e.varFn()}
 	}
@@ -2443,7 +2443,11 @@ func (e *Executor) resolveItemBatcherLimits(batcher *ItemBatcher, mapInput any) 
 	maxItems := batcher.MaxItemsPerBatch
 
 	if batcher.MaxItemsPerBatchPath != "" {
-		val, err := applyPath(batcher.MaxItemsPerBatchPath, e.pathArg(batcher.MaxItemsPerBatchPath, mapInput), e.jsonPathCache)
+		val, err := applyPath(
+			batcher.MaxItemsPerBatchPath,
+			e.pathArg(batcher.MaxItemsPerBatchPath, mapInput),
+			e.jsonPathCache,
+		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("MaxItemsPerBatchPath error: %w", err)
 		}
