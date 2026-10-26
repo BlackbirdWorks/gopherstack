@@ -226,7 +226,7 @@ func containerMounts(c *runpb.Container, paths map[string]string, readOnly map[s
 	for _, m := range c.GetVolumeMounts() {
 		host, ok := paths[m.GetName()]
 		if !ok {
-			return nil, fmt.Errorf("volume mount %q references an unknown volume", m.GetName())
+			return nil, fmt.Errorf("%w: volume mount %q references an unknown volume", errUnsupportedVolume, m.GetName())
 		}
 
 		if sub := m.GetSubPath(); sub != "" {
