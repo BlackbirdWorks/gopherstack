@@ -42,15 +42,18 @@ ops:
   DeleteSchema: {wire: ok, errors: ok, state: ok, persist: ok, note: "Topics that referenced the schema point at _deleted-schema_ and stop validating."}
   ValidateSchema: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Same definition checks as CreateSchema."}
   ValidateMessage: {wire: ok, errors: ok, state: partial, persist: n/a, note: "AVRO is fully validated in JSON (union-wrapped Avro JSON) and binary encodings. PROTOCOL_BUFFER binary is checked for well-formed wire format and JSON for being an object, not against the message fields."}
+  SetIamPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "google.iam.v1.IAMPolicy on topics, subscriptions, snapshots and schemas. A non-empty etag must match (ABORTED otherwise); empty etag overwrites; bindings need role and members; conditional bindings need version 3 (INVALID_ARGUMENT otherwise); policies drop with their resource."}
+  GetIamPolicy: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Empty policy with etag 0x002001 when none is set. Policies without conditions are version 1; conditional ones are version 3 only when requested_policy_version is 3, else version 1 with conditions dropped and _withcond_<hash> role suffixes (docs.cloud.google.com/iam/docs/policies)."}
+  TestIamPermissions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Empty permission list is INVALID_ARGUMENT; NOT_FOUND for missing resources."}
 families:
   delivery: {status: ok, note: "Per-subscription message state with ack ids per delivery, lease expiry redelivery, retry_policy exponential backoff, ordering keys (one outstanding message per key, in publish order), dead-letter forwarding after max_delivery_attempts (with CloudPubSubDeadLetterSource* attributes and delivery_attempt on received messages) and expiration of idle subscriptions."}
   filtering: {status: ok, note: "attributes.k = / != \"v\", attributes:k, hasPrefix(attributes.k, \"p\"), NOT, AND, OR and parentheses; invalid filters are INVALID_ARGUMENT. Filtered-out messages are never stored for the subscription."}
   push: {status: partial, note: "HTTP POST of the JSON envelope (message.data base64, attributes, messageId, publishTime, subscription, deliveryAttempt) or the raw payload with X-Goog-Pubsub-* headers for no_wrapper; 102/200/201/202/204 ack, anything else retries after at least 1s or the retry_policy backoff. OIDC tokens are stored but never minted or sent."}
   routing_isolation: {status: ok, note: "Own gRPC server bound in StartWorker to --gcp-pubsub-port / GCP_PUBSUB_PORT (default 8085, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool. Point clients at it with PUBSUB_EMULATOR_HOST=localhost:8085."}
-  auth: {status: partial, note: "No request is authenticated or authorised; credentials and IAM policies (the IAMPolicy service) are not served."}
+  auth: {status: partial, note: "No request is authenticated or authorised; IAM policies are stored but not enforced."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. gRPC calls are not fed to the shared telemetry operation metrics."}
 items_still_open:
-  - "No IAMPolicy RPCs (SetIamPolicy/GetIamPolicy/TestIamPermissions) on topics, subscriptions, snapshots or schemas."
+  - "TestIamPermissions grants every requested pubsub.<collection>.* permission; policies are stored, not evaluated, and role names are not checked against the gcpiam catalog."
   - "BigQuery, Cloud Storage and Bigtable subscriptions, topic ingestion sources and message transforms are rejected UNIMPLEMENTED."
   - "PROTOCOL_BUFFER schemas are not compiled: definitions get a lexical check and messages a wire-format or JSON-object check only."
   - "Push OIDC tokens are stored but not generated; push endpoints are not verified."

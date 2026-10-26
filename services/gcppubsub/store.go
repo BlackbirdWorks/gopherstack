@@ -1,6 +1,7 @@
 package gcppubsub
 
 import (
+	"cloud.google.com/go/iam/apiv1/iampb"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +24,8 @@ type InMemoryBackend struct {
 	subs      map[string]*subscription
 	snaps     map[string]*snapshot
 	schemas   map[string]*schemaRec
+	policies  map[string]*iampb.Policy
+	etagSeq   uint64
 	pushWake  chan struct{}
 	observers []PublishObserver
 	lastMsg   int64
@@ -45,6 +48,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.subs = make(map[string]*subscription)
 	b.snaps = make(map[string]*snapshot)
 	b.schemas = make(map[string]*schemaRec)
+	b.policies = make(map[string]*iampb.Policy)
 }
 
 // Reset clears all state.
@@ -58,6 +62,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.resetMaps()
 	b.lastMsg = 0
+	b.etagSeq = 0
 }
 
 func (b *InMemoryBackend) nextMsgID() string {
@@ -176,6 +181,7 @@ func (b *InMemoryBackend) CreateTopic(in *pubsubpb.Topic) (*pubsubpb.Topic, erro
 	}
 
 	t := clone(in)
+	b.dropPolicyLocked(in.GetName())
 	b.topics[in.GetName()] = &topic{pb: t}
 
 	return clone(t), nil
@@ -320,6 +326,7 @@ func (b *InMemoryBackend) DeleteTopic(name string) error {
 	}
 
 	delete(b.topics, name)
+	b.dropPolicyLocked(name)
 
 	for _, s := range b.subs {
 		if s.pb.GetTopic() == name {
@@ -330,6 +337,7 @@ func (b *InMemoryBackend) DeleteTopic(name string) error {
 	for n, sn := range b.snaps {
 		if sn.pb.GetTopic() == name {
 			delete(b.snaps, n)
+			b.dropPolicyLocked(n)
 		}
 	}
 

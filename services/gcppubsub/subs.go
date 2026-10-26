@@ -164,6 +164,7 @@ func (b *InMemoryBackend) sweepSubsLocked() {
 		if s.expired(now) {
 			b.notifyLocked(s)
 			delete(b.subs, name)
+			b.dropPolicyLocked(name)
 		}
 	}
 }
@@ -213,6 +214,7 @@ func (b *InMemoryBackend) CreateSubscription(in *pubsubpb.Subscription) (*pubsub
 		wake:       make(chan struct{}),
 		lastActive: b.now(),
 	}
+	b.dropPolicyLocked(sub.GetName())
 	b.subs[sub.GetName()] = s
 
 	if sub.GetPushConfig().GetPushEndpoint() != "" {
@@ -314,6 +316,7 @@ func (b *InMemoryBackend) DeleteSubscription(name string) error {
 
 	b.notifyLocked(s)
 	delete(b.subs, name)
+	b.dropPolicyLocked(name)
 
 	return nil
 }
@@ -388,6 +391,7 @@ func (b *InMemoryBackend) CreateSnapshot(req *pubsubpb.CreateSnapshotRequest) (*
 			ExpireTime: timestamppb.New(now.Add(snapshotLifetime)),
 		},
 	}
+	b.dropPolicyLocked(req.GetName())
 	b.snaps[req.GetName()] = sn
 
 	return clone(sn.pb), nil
@@ -493,6 +497,7 @@ func (b *InMemoryBackend) DeleteSnapshot(name string) error {
 	}
 
 	delete(b.snaps, name)
+	b.dropPolicyLocked(name)
 
 	return nil
 }
