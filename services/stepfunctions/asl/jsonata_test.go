@@ -117,3 +117,18 @@ func TestJSONata_EvalTimeout(t *testing.T) {
 	require.True(t, res.Failed)
 	assert.Equal(t, "States.QueryEvaluationError", res.Error)
 }
+
+func TestJSONata_ChoiceRuleAssignMergesWithStateAssign(t *testing.T) {
+	t.Parallel()
+
+	sm, err := asl.Parse(`{"QueryLanguage":"JSONata","StartAt":"C","States":{
+		"C":{"Type":"Choice","Assign":{"a":1},
+			"Choices":[{"Condition":"{% true %}","Next":"P","Assign":{"b":2}}]},
+		"P":{"Type":"Pass","Output":"{% {'a': $a, 'b': $b} %}","End":true}}}`)
+	require.NoError(t, err)
+
+	res, err := asl.NewExecutor(sm, nil, nil).Execute(t.Context(), "arn", `{}`)
+	require.NoError(t, err)
+	require.False(t, res.Failed)
+	assert.Equal(t, map[string]any{"a": float64(1), "b": float64(2)}, res.Output)
+}
