@@ -40,6 +40,14 @@ func (e *Engine) callExtra(c *Call, t int64) (Value, bool, error) {
 		v, err = e.callLabelJoin(c, t)
 	case "histogram_quantile":
 		v, err = e.callHistogramQuantile(c, t)
+	case "histogram_fraction":
+		v, err = e.callHistogramFraction(c, t)
+	case "histogram_count", "histogram_sum", "histogram_avg", "histogram_stddev", "histogram_stdvar":
+		v, err = e.callNativeHistogram(c, t)
+	case "holt_winters", "double_exponential_smoothing":
+		v, err = e.callDoubleExponentialSmoothing(c, t)
+	case "sort_by_label", "sort_by_label_desc":
+		v, err = e.callSortByLabel(c, t)
 	case "predict_linear":
 		v, err = e.callPredictLinear(c, t)
 	case "quantile_over_time":
@@ -196,6 +204,22 @@ func (e *Engine) callHistogramQuantile(c *Call, t int64) (Value, error) {
 		return nil, err
 	}
 
+	groups, order := groupBuckets(vec)
+
+	out := Vector{}
+
+	for _, k := range order {
+		g := groups[k]
+		out = append(out, VectorSample{Metric: g.labels, T: t, V: bucketQuantile(q, g.buckets)})
+	}
+
+	sortVector(out)
+
+	return out, nil
+}
+
+// groupBuckets groups classic histogram bucket samples by their labels without le.
+func groupBuckets(vec Vector) (map[string]*histGroup, []string) {
 	groups := map[string]*histGroup{}
 	order := []string{}
 
@@ -218,16 +242,7 @@ func (e *Engine) callHistogramQuantile(c *Call, t int64) (Value, error) {
 		g.buckets = append(g.buckets, bucket{upper: le, count: s.V})
 	}
 
-	out := Vector{}
-
-	for _, k := range order {
-		g := groups[k]
-		out = append(out, VectorSample{Metric: g.labels, T: t, V: bucketQuantile(q, g.buckets)})
-	}
-
-	sortVector(out)
-
-	return out, nil
+	return groups, order
 }
 
 type histGroup struct {

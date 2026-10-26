@@ -362,6 +362,14 @@ func (p *parser) atSuffix(e Expr) (Expr, error) {
 		neg = true
 	}
 
+	if marker, ok, err := p.atMarker(neg); ok || err != nil {
+		if err != nil {
+			return nil, err
+		}
+
+		return setAtMarker(e, marker)
+	}
+
 	n := p.advance()
 	if n.kind != tokNumber {
 		return nil, syntaxErr(n.pos, "expected timestamp after @")
@@ -383,6 +391,50 @@ func (p *parser) atSuffix(e Expr) (Expr, error) {
 		x.At = &ms
 	default:
 		return nil, syntaxErr(n.pos, "@ modifier is only valid on a selector or subquery")
+	}
+
+	return e, nil
+}
+
+const (
+	atStart = "start"
+	atEnd   = "end"
+)
+
+// atMarker parses `start()` or `end()` after an @.
+func (p *parser) atMarker(neg bool) (string, bool, error) {
+	t := p.peek()
+	if t.kind != tokIdent || (t.text != atStart && t.text != atEnd) {
+		return "", false, nil
+	}
+
+	if neg {
+		return "", false, syntaxErr(t.pos, "unexpected %q after \"-\"", t.text)
+	}
+
+	p.advance()
+
+	if err := p.expectOp("("); err != nil {
+		return "", false, err
+	}
+
+	if err := p.expectOp(")"); err != nil {
+		return "", false, err
+	}
+
+	return t.text, true, nil
+}
+
+func setAtMarker(e Expr, marker string) (Expr, error) {
+	switch x := e.(type) {
+	case *VectorSelector:
+		x.AtMarker = marker
+	case *MatrixSelector:
+		x.VS.AtMarker = marker
+	case *Subquery:
+		x.AtMarker = marker
+	default:
+		return nil, ErrSyntax
 	}
 
 	return e, nil
@@ -440,11 +492,14 @@ func (p *parser) opPrimary() (Expr, error) {
 var aggregators = map[string]bool{ //nolint:gochecknoglobals // immutable lookup
 	"sum": true, "avg": true, "min": true, "max": true, "count": true, "group": true,
 	"stddev": true, "stdvar": true, opTopK: true, opBottomK: true, "quantile": true, opCountValues: true,
+	opLimitK: true, opLimitRatio: true,
 }
 
 var paramAggregators = map[string]bool{ //nolint:gochecknoglobals // immutable lookup
 	opBottomK:     true,
 	opTopK:        true,
+	opLimitK:      true,
+	opLimitRatio:  true,
 	"quantile":    true,
 	opCountValues: true,
 }

@@ -21,6 +21,9 @@ const (
 	opUnless   = "unless"
 	opTopK     = "topk"
 	opBottomK  = "bottomk"
+	opLimitK   = "limitk"
+
+	opLimitRatio = "limit_ratio"
 )
 
 // MaxRangeSteps bounds a range query's resolution like Prometheus.
@@ -125,6 +128,7 @@ func (e *Engine) Instant(src string, ts time.Time) (Value, error) {
 // InstantExpr evaluates a parsed expression at ts.
 func (e *Engine) InstantExpr(expr Expr, ts time.Time) (Value, error) {
 	t := ts.UnixMilli()
+	resolveAt(expr, t, t)
 
 	v, err := e.eval(expr, t)
 	if err != nil {
@@ -156,6 +160,8 @@ func (e *Engine) Range(src string, start, end time.Time, step time.Duration) (Ma
 	if err != nil {
 		return nil, err
 	}
+
+	resolveAt(expr, start.UnixMilli(), end.UnixMilli())
 
 	if isRangeExpr(expr) {
 		return nil, evalErr(

@@ -19,6 +19,10 @@ var functions = map[string]funcSpec{ //nolint:gochecknoglobals // immutable look
 	"label_replace": {5, 5}, "label_join": {3, maxArgs}, "histogram_quantile": {2, 2},
 	"deriv": {1, 1}, "predict_linear": {2, 2}, "quantile_over_time": {2, 2},
 	"stddev_over_time": {1, 1}, "stdvar_over_time": {1, 1}, "present_over_time": {1, 1},
+	"holt_winters": {3, 3}, "double_exponential_smoothing": {3, 3}, "absent_over_time": {1, 1},
+	"sort_by_label": {2, maxArgs}, "sort_by_label_desc": {2, maxArgs}, "histogram_fraction": {3, 3},
+	"histogram_count": {1, 1}, "histogram_sum": {1, 1}, "histogram_avg": {1, 1},
+	"histogram_stddev": {1, 1}, "histogram_stdvar": {1, 1},
 	"minute": {0, 1}, "hour": {0, 1}, "month": {0, 1}, "year": {0, 1}, "day_of_month": {0, 1},
 	"day_of_week": {0, 1}, "day_of_year": {0, 1}, "days_in_month": {0, 1}, "timestamp": {1, 1},
 }
@@ -42,6 +46,8 @@ func (e *Engine) evalCall(c *Call, t int64) (Value, error) {
 		return e.callScalar(c, t)
 	case "absent":
 		return e.callAbsent(c, t)
+	case "absent_over_time":
+		return e.callAbsentOverTime(c, t)
 	case "sort", fnSortDesc:
 		return e.callSort(c, t)
 	}
@@ -117,17 +123,48 @@ func (e *Engine) callAbsent(c *Call, t int64) (Value, error) {
 		return Vector{}, nil
 	}
 
+	return Vector{{Metric: absentLabels(c.Args[0]), T: t, V: 1}}, nil
+}
+
+// absentLabels are the equality matchers of the selector inside an absent call.
+func absentLabels(arg Expr) Labels {
 	lbls := Labels{}
 
-	if vs, ok := c.Args[0].(*VectorSelector); ok {
-		for _, m := range vs.Matchers {
-			if m.Type == MatchEqual && m.Name != NameLabel {
-				lbls[m.Name] = m.Value
-			}
+	var vs *VectorSelector
+
+	switch x := arg.(type) {
+	case *VectorSelector:
+		vs = x
+	case *MatrixSelector:
+		vs = x.VS
+	}
+
+	if vs == nil {
+		return lbls
+	}
+
+	for _, m := range vs.Matchers {
+		if m.Type == MatchEqual && m.Name != NameLabel {
+			lbls[m.Name] = m.Value
 		}
 	}
 
-	return Vector{{Metric: lbls, T: t, V: 1}}, nil
+	return lbls
+}
+
+func (e *Engine) callAbsentOverTime(c *Call, t int64) (Value, error) {
+	m, _, _, err := e.rangeArg(c.Args[0], t, c.Func)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, s := range m {
+		if len(s.Samples) > 0 {
+			return Vector{}, nil
+		}
+	}
+
+	return Vector{{Metric: absentLabels(c.Args[0]), T: t, V: 1}}, nil
 }
 
 func (e *Engine) callSort(c *Call, t int64) (Value, error) {
