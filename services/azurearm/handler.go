@@ -467,6 +467,10 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(containerInstanceRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(webRoutes, h, c, segs); handled {
 		return err
 	}
@@ -853,6 +857,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // Shutdown stops the dedicated ARM listener, mirroring
 // services/azureblob.Handler.Shutdown's graceful-then-forced-close shape.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.Registry.CloseAll()
+
 	h.srvMu.Lock("Shutdown")
 	srv := h.srv
 	h.srv = nil

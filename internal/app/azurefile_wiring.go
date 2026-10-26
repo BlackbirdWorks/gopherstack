@@ -25,6 +25,7 @@ func wireAzureFile(byName map[string]service.Registerable) {
 
 	if armH, armOk := byName["AzureARM"].(*azurearm.Handler); armOk {
 		armH.Registry.SetFileServices(fileH.Backend)
+		armH.Registry.SetACIFileShares(aciFileShares{backend: fileH.Backend})
 	}
 
 	if vhostH, vhostOk := byName["AzureStorageVHost"].(*azurestoragevhost.Handler); vhostOk {

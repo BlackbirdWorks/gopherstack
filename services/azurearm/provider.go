@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -200,6 +202,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	registry.Register(NewWebProvider(nil))
 
+	registry.Register(NewContainerInstanceProvider(newACIEngine(ctx, settings)))
+
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
 	issuer, err := aadauth.NewIssuer()
@@ -211,3 +215,29 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	return handler, nil
 }
+
+func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
+	if settings.ACIEngine == ACIEngineNone {
+		return NewACIEngine(nil, aciDisabledReason)
+	}
+
+	lr := gcpserve.NewLazyRuntime(ctx.Logger, "azurearm.aci.runtime")
+	engine := NewACIEngine(func() (ACIRuntime, error) {
+		r, err := lr.Get()
+		if err != nil {
+			return nil, err
+		}
+
+		return NewDockerACIRuntime(r), nil
+	}, "")
+
+	engine.SetOnClose(func() { _ = lr.Close() })
+
+	if ctx.PortAlloc != nil {
+		engine.SetPortPool(ctx.PortAlloc)
+	}
+
+	return engine
+}
+
+const aciDisabledReason = "the container engine is disabled (--azure-arm-aci-engine=none); container groups cannot run"

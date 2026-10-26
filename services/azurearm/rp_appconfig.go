@@ -473,7 +473,7 @@ func providerErrorDetails(err error) (errorEntry, bool) {
 	for _, lookup := range []func(error) (errorEntry, bool){
 		cosmosErrorDetails, eventHubErrorDetails, eventGridErrorDetails,
 		appConfigErrorDetails, acrErrorDetails, redisErrorDetails, sqlErrorDetails, webErrorDetails,
-		monitorErrorDetails,
+		monitorErrorDetails, aciErrorDetails,
 	} {
 		if e, ok := lookup(err); ok {
 			return e, true
