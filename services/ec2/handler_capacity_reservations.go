@@ -2,8 +2,10 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 type createCapacityReservationResponse struct {
@@ -50,6 +52,21 @@ func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) 
 		AvailableInstanceCount: cr.AvailableInstanceCount,
 		TagSet:                 tagItemsFromMap(tags),
 		Interruptible:          cr.Interruptible,
+		CreateDate:             formatEC2Time(cr.CreateTime),
+		StartDate:              formatEC2Time(cr.StartDate),
+		OriginalStartDate:      formatEC2Time(cr.OriginalStartDate),
+		EndDate:                formatEC2Time(cr.EndDate),
+		EndDateType:            cr.EndDateType,
+		DeliveryPreference:     cr.DeliveryPreference,
+		AdjustmentStatus:       cr.AdjustmentStatus,
+	}
+
+	if cr.futureDated() {
+		item.CommitmentInfo = &capacityReservationCommitmentInfoItem{
+			CommitmentDuration:     cr.CommitmentDuration,
+			CommitmentEndDate:      formatEC2Time(cr.commitmentEnd()),
+			CommittedInstanceCount: int32(cr.TotalInstanceCount), //nolint:gosec // bounded by the 1000-instance limit
+		}
 	}
 
 	if cr.Interruptible {
@@ -87,16 +104,49 @@ type interruptibleAllocationDetail struct {
 	TargetInstanceCount                int32  `xml:"targetInstanceCount"`
 }
 
+type capacityReservationCommitmentInfoItem struct {
+	CommitmentEndDate      string `xml:"commitmentEndDate,omitempty"`
+	CommitmentDuration     int64  `xml:"commitmentDuration"`
+	CommittedInstanceCount int32  `xml:"committedInstanceCount"`
+}
+
+type capacityReservationAdjustmentItem struct {
+	CommitmentEndDate  string `xml:"commitmentEndDate,omitempty"`
+	EndDate            string `xml:"endDate,omitempty"`
+	EndDateType        string `xml:"endDateType,omitempty"`
+	StartDate          string `xml:"startDate,omitempty"`
+	CommitmentDuration int64  `xml:"commitmentDuration,omitempty"`
+}
+
+type modifyCapacityReservationResponse struct {
+	AdjustmentDetails *capacityReservationAdjustmentItem `xml:"adjustmentDetails,omitempty"`
+	XMLName           xml.Name                           `xml:"ModifyCapacityReservationResponse"`
+	RequestID         string                             `xml:"requestId"`
+	AdjustmentStatus  string                             `xml:"adjustmentStatus,omitempty"`
+	Return            bool                               `xml:"return"`
+}
+
+func optionalTimestamp(vals url.Values, key string) (time.Time, error) {
+	t, err := parseEC2Timestamp(vals.Get(key))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: %s: %w", ErrInvalidParameter, key, err)
+	}
+
+	if t == nil {
+		return time.Time{}, nil
+	}
+
+	return t.UTC(), nil
+}
+
 func (h *Handler) handleCreateCapacityReservation(vals url.Values, reqID string) (any, error) {
-	instanceType := vals.Get("InstanceType")
-	az := vals.Get("AvailabilityZone")
 	count, _ := strconv.Atoi(vals.Get("InstanceCount"))
 	if count == 0 {
 		count = 1
 	}
 
 	instanceMatchCriteria := vals.Get("InstanceMatchCriteria")
-	if instanceMatchCriteria == "" {
+	if instanceMatchCriteria == "" && vals.Get("StartDate") == "" {
 		instanceMatchCriteria = "open"
 	}
 
@@ -105,14 +155,38 @@ func (h *Handler) handleCreateCapacityReservation(vals url.Values, reqID string)
 		tenancy = crFleetTenancyDefault
 	}
 
-	tags := parseTagSpecificationPlural(vals, "capacity-reservation")
-
-	cr, err := h.Backend.CreateCapacityReservation(instanceType, az, instanceMatchCriteria, tenancy, count, tags)
+	startDate, err := optionalTimestamp(vals, "StartDate")
 	if err != nil {
 		return nil, err
 	}
 
-	h.Backend.SetCapacityReservationInstancePlatform(cr.CapacityReservationID, vals.Get("InstancePlatform"))
+	endDate, err := optionalTimestamp(vals, "EndDate")
+	if err != nil {
+		return nil, err
+	}
+
+	duration, _ := strconv.ParseInt(vals.Get("CommitmentDuration"), 10, 64)
+	tags := parseTagSpecificationPlural(vals, "capacity-reservation")
+
+	cr, err := h.Backend.CreateFutureDatedCapacityReservation(&FutureDatedCapacityReservationSpec{
+		InstanceType:       vals.Get("InstanceType"),
+		AvailabilityZone:   vals.Get("AvailabilityZone"),
+		InstanceMatch:      instanceMatchCriteria,
+		Tenancy:            tenancy,
+		InstancePlatform:   vals.Get("InstancePlatform"),
+		InstanceCount:      count,
+		StartDate:          startDate,
+		EndDate:            endDate,
+		EndDateType:        vals.Get("EndDateType"),
+		DeliveryPreference: vals.Get("DeliveryPreference"),
+		CommitmentDuration: duration,
+		HasCommitment:      vals.Get("CommitmentDuration") != "",
+		Outpost:            vals.Get("OutpostArn") != "",
+		PlacementGroup:     vals.Get("PlacementGroupArn") != "",
+	}, tags)
+	if err != nil {
+		return nil, err
+	}
 
 	return &createCapacityReservationResponse{
 		RequestID:           reqID,
@@ -121,8 +195,10 @@ func (h *Handler) handleCreateCapacityReservation(vals url.Values, reqID string)
 }
 
 func (h *Handler) handleCancelCapacityReservation(vals url.Values, reqID string) (any, error) {
-	id := vals.Get("CapacityReservationId")
-	if err := h.Backend.CancelCapacityReservation(id); err != nil {
+	err := h.Backend.CancelCapacityReservationWithQuote(
+		vals.Get("CapacityReservationId"), vals.Get("QuoteId"), vals.Get("ApplyCancellationCharges"),
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -134,17 +210,52 @@ func (h *Handler) handleCancelCapacityReservation(vals url.Values, reqID string)
 }
 
 func (h *Handler) handleModifyCapacityReservation(vals url.Values, reqID string) (any, error) {
-	id := vals.Get("CapacityReservationId")
-	count, _ := strconv.Atoi(vals.Get("InstanceCount"))
-	if err := h.Backend.ModifyCapacityReservation(id, count); err != nil {
+	startDate, err := optionalTimestamp(vals, "StartDate")
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyCapacityReservationResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	endDate, err := optionalTimestamp(vals, "EndDate")
+	if err != nil {
+		return nil, err
+	}
+
+	params := &ModifyCapacityReservationParams{
+		StartDate:             startDate,
+		EndDate:               endDate,
+		EndDateType:           vals.Get("EndDateType"),
+		EndDateSet:            vals.Get("EndDate") != "" || vals.Get("EndDateType") != "",
+		InstanceMatchCriteria: vals.Get("InstanceMatchCriteria"),
+		QuoteID:               vals.Get("QuoteId"),
+		AcceptTerms:           vals.Get("AcceptModificationTerms") == ec2BooleanTrue,
+	}
+
+	if raw := vals.Get("InstanceCount"); raw != "" {
+		n, convErr := strconv.Atoi(raw)
+		if convErr != nil {
+			return nil, fmt.Errorf("%w: InstanceCount", ErrInvalidParameter)
+		}
+
+		params.InstanceCount = &n
+	}
+
+	adj, err := h.Backend.ApplyCapacityReservationModification(vals.Get("CapacityReservationId"), params)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &modifyCapacityReservationResponse{RequestID: reqID, Return: true, AdjustmentStatus: adj.AdjustmentStatus}
+	if adj.AdjustmentStatus != "" {
+		resp.AdjustmentDetails = &capacityReservationAdjustmentItem{
+			StartDate:          formatEC2Time(adj.StartDate),
+			CommitmentEndDate:  formatEC2Time(adj.CommitmentEndDate),
+			CommitmentDuration: adj.CommitmentDuration,
+			EndDate:            formatEC2Time(adj.EndDate),
+			EndDateType:        adj.EndDateType,
+		}
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleGetGroupsForCapacityReservation(

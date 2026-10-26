@@ -54,6 +54,15 @@ type CapacityReservation struct {
 	// InterruptibleAllocation is populated on Describe copies of a source reservation only.
 	InterruptibleAllocation *InterruptibleCapacityReservationAllocation `json:"-"`
 	CreateTime              time.Time                                   `json:"createTime"`
+	StartDate               time.Time                                   `json:"startDate,omitzero"`
+	OriginalStartDate       time.Time                                   `json:"originalStartDate,omitzero"`
+	EndDate                 time.Time                                   `json:"endDate,omitzero"`
+	AssessmentEnd           time.Time                                   `json:"assessmentEnd,omitzero"`
+	CancellingUntil         time.Time                                   `json:"cancellingUntil,omitzero"`
+	EndDateType             string                                      `json:"endDateType,omitempty"`
+	DeliveryPreference      string                                      `json:"deliveryPreference,omitempty"`
+	AdjustmentStatus        string                                      `json:"adjustmentStatus,omitempty"`
+	CommitmentDuration      int64                                       `json:"commitmentDuration,omitempty"`
 	CapacityReservationID   string                                      `json:"capacityReservationID,omitempty"`
 	InstanceType            string                                      `json:"instanceType,omitempty"`
 	AvailabilityZone        string                                      `json:"availabilityZone,omitempty"`
@@ -273,6 +282,7 @@ func (b *InMemoryBackend) DescribeCapacityReservations(ids []string) []*Capacity
 		}
 
 		cp := *cr
+		advanceCapacityReservation(&cp, b.now().UTC())
 
 		if alloc, ok := b.interruptibleCRAllocations.Get(cr.CapacityReservationID); ok {
 			allocCopy := *alloc

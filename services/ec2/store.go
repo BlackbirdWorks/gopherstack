@@ -546,6 +546,7 @@ type InMemoryBackend struct {
 	capacityManagerDataExports            *store.Table[CapacityManagerDataExport]
 	capacityManagerState                  *CapacityManagerState
 	capacityReservationCancellationQuotes *store.Table[CapacityReservationCancellationQuote]
+	capacityReservationModificationQuotes *store.Table[CapacityReservationModificationQuote]
 	// VerifiedAccess policy / logging additions
 	verifiedAccessEndpointPolicies       map[string]*VerifiedAccessPolicy
 	verifiedAccessGroupPolicies          map[string]*VerifiedAccessPolicy

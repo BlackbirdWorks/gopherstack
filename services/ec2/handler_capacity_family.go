@@ -52,6 +52,9 @@ func registerCapacityFamilyOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateCapacityReservationCancellationQuote"] = h.handleCreateCapacityReservationCancellationQuote
 	ops["DescribeCapacityReservationCancellationQuotes"] = h.handleDescribeCapacityReservationCancellationQuotes
 
+	ops["CreateCapacityReservationDateChangeQuote"] = h.handleCreateCapacityReservationDateChangeQuote
+	ops["DescribeCapacityReservationDateChangeQuotes"] = h.handleDescribeCapacityReservationDateChangeQuotes
+
 	ops["GetCapacityManagerMonitoredTagKeys"] = h.handleGetCapacityManagerMonitoredTagKeys
 	ops["UpdateCapacityManagerMonitoredTagKeys"] = h.handleUpdateCapacityManagerMonitoredTagKeys
 }
@@ -72,6 +75,8 @@ func capacityFamilySupportedOperations() []string {
 		"DescribeCapacityReservationTopology",
 		"CreateCapacityReservationCancellationQuote",
 		"DescribeCapacityReservationCancellationQuotes",
+		"CreateCapacityReservationDateChangeQuote",
+		"DescribeCapacityReservationDateChangeQuotes",
 		"GetCapacityManagerMonitoredTagKeys",
 		"UpdateCapacityManagerMonitoredTagKeys",
 	}
