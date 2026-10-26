@@ -26,22 +26,32 @@ const (
 	computeScopeGlobal  = "global"
 	computeScopeZones   = "zones"
 	computeScopeRegions = "regions"
+	computeInstances    = "instances"
+	computeOperations   = "operations"
+	computeDisks        = "disks"
+	computeAddresses    = "addresses"
+	computeRouters      = "routers"
+	computeStart        = "start"
+	computeStop         = "stop"
+	computeReset        = "reset"
 )
 
+//nolint:gochecknoglobals // read-only lookup tables
 var (
-	computeAggregated = []string{ //nolint:gochecknoglobals // read-only lookup table
-		"instances", "disks", "subnetworks", "addresses", "routers", "operations",
+	computeAggregated = []string{
+		computeInstances, computeDisks, "subnetworks", computeAddresses, computeRouters, computeOperations,
 	}
-	computeGlobal = []string{ //nolint:gochecknoglobals // read-only lookup table
-		"networks", "firewalls", "routes", "snapshots", "operations", "addresses",
+	computeGlobal = []string{
+		"networks", "firewalls", "routes", "snapshots", computeOperations, computeAddresses,
 	}
-	computeZonal    = []string{"instances", "disks", "operations"} //nolint:gochecknoglobals // read-only lookup table
-	computeRegional = []string{                                    //nolint:gochecknoglobals // read-only lookup table
-		"subnetworks", "addresses", "routers", "operations",
-	}
-	computeInstanceActions = []string{"start", "stop", "reset"} //nolint:gochecknoglobals // read-only lookup table
-	computeQueryKeys       = []string{                          //nolint:gochecknoglobals // read-only lookup table
-		"filter", "maxResults", "pageToken", "orderBy",
+	computeZonal           = []string{computeInstances, computeDisks, computeOperations}
+	computeRegional        = []string{"subnetworks", computeAddresses, computeRouters, computeOperations}
+	computeInstanceActions = []string{computeStart, computeStop, computeReset}
+	computeQueryKeys       = []string{
+		"filter",
+		"maxResults",
+		"pageToken",
+		"orderBy",
 	}
 )
 
@@ -64,7 +74,12 @@ func (h *DashboardHandler) registerGCPComputeRoutes() {
 
 		apiPath, ok := gcpComputeProxyPath(r.Method, strings.TrimPrefix(r.URL.EscapedPath(), gcpComputeProxyPrefix))
 		if !ok {
-			return cloudJSONFail(c, http.StatusBadRequest, cloudStatusBadArg, "unsupported Compute Engine proxy request")
+			return cloudJSONFail(
+				c,
+				http.StatusBadRequest,
+				cloudStatusBadArg,
+				"unsupported Compute Engine proxy request",
+			)
 		}
 
 		fwd := r.Clone(r.Context())
@@ -99,7 +114,7 @@ func gcpComputeQuery(in url.Values) string {
 // limited to instance start/stop/reset and deleting instances, disks, snapshots and addresses.
 func gcpComputeProxyPath(method, raw string) (string, bool) {
 	parts := strings.Split(strings.TrimPrefix(raw, "/"), "/")
-	if len(parts) < computeMinSegs || parts[0] != "projects" {
+	if len(parts) < computeMinSegs || parts[0] != gcpRESTProjectsSeg {
 		return "", false
 	}
 
@@ -135,7 +150,8 @@ func computeReadable(parts []string) bool {
 	case computeScopeAgg:
 		return n == computeGlobalList && slices.Contains(computeAggregated, parts[computeGlobalList-1])
 	case computeScopeGlobal:
-		return (n == computeGlobalList || n == computeGlobalItem) && slices.Contains(computeGlobal, parts[computeGlobalList-1])
+		return (n == computeGlobalList || n == computeGlobalItem) &&
+			slices.Contains(computeGlobal, parts[computeGlobalList-1])
 	case computeScopeZones:
 		return n <= computeGlobalList || computeScopedRead(parts, computeZonal)
 	case computeScopeRegions:
@@ -157,7 +173,7 @@ func computeScopedRead(parts, collections []string) bool {
 
 func computeActionable(parts []string) bool {
 	return len(parts) == computeScopedVerb && parts[computeScopeIdx] == computeScopeZones &&
-		parts[computeScopedColl] == "instances" && slices.Contains(computeInstanceActions, parts[computeScopedVerb-1])
+		parts[computeScopedColl] == computeInstances && slices.Contains(computeInstanceActions, parts[computeScopedVerb-1])
 }
 
 func computeDeletable(parts []string) bool {
@@ -165,11 +181,13 @@ func computeDeletable(parts []string) bool {
 
 	switch parts[computeScopeIdx] {
 	case computeScopeZones:
-		return n == computeScopedItem && (parts[computeScopedColl] == "instances" || parts[computeScopedColl] == "disks")
+		return n == computeScopedItem &&
+			(parts[computeScopedColl] == computeInstances || parts[computeScopedColl] == computeDisks)
 	case computeScopeRegions:
-		return n == computeScopedItem && parts[computeScopedColl] == "addresses"
+		return n == computeScopedItem && parts[computeScopedColl] == computeAddresses
 	case computeScopeGlobal:
-		return n == computeGlobalItem && (parts[computeGlobalList-1] == "snapshots" || parts[computeGlobalList-1] == "addresses")
+		return n == computeGlobalItem &&
+			(parts[computeGlobalList-1] == "snapshots" || parts[computeGlobalList-1] == computeAddresses)
 	}
 
 	return false

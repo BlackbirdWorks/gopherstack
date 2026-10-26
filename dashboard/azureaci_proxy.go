@@ -3,6 +3,7 @@ package dashboard
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -18,8 +19,13 @@ const (
 	aciPxAction     = 9
 	aciPxLogs       = 11
 	aciPxNamespace  = "microsoft.containerinstance"
+	aciPxStart      = "start"
+	aciPxStop       = "stop"
+	aciPxRestart    = "restart"
 	aciPxGroupsType = "containergroups"
 )
+
+var aciPxActions = []string{aciPxStart, aciPxStop, aciPxRestart} //nolint:gochecknoglobals // read-only lookup table
 
 // registerAzureACIRoutes exposes Azure Container Instances container groups to the SPA by dispatching in-process to
 // the ARM handler, so responses keep the real shape. Only container group reads, logs, start/stop/restart and delete
@@ -34,18 +40,16 @@ func (h *DashboardHandler) registerAzureACIRoutes() {
 
 	serve := func(c *echo.Context) error {
 		if inner == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]any{
-				keyError: map[string]string{"code": errServiceUnavailable, "message": "Azure Container Instances is not enabled"},
-			})
+			return azureACIFail(c, http.StatusServiceUnavailable, errServiceUnavailable,
+				"Azure Container Instances is not enabled")
 		}
 
 		r := c.Request()
 
 		armPath, ok := azureACIProxyPath(r.Method, strings.TrimPrefix(r.URL.EscapedPath(), azureACIProxyPrefix))
 		if !ok {
-			return c.JSON(http.StatusBadRequest, map[string]any{
-				keyError: map[string]string{"code": "InvalidRequestUri", "message": "unsupported Container Instances proxy request"},
-			})
+			return azureACIFail(c, http.StatusBadRequest, "InvalidRequestUri",
+				"unsupported Container Instances proxy request")
 		}
 
 		q := url.Values{}
@@ -88,29 +92,41 @@ func azureACIProxyPath(method, raw string) (string, bool) {
 	return "/" + strings.Join(parts, "/"), true
 }
 
+type azureACIErrorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func azureACIFail(c *echo.Context, status int, code, msg string) error {
+	return c.JSON(status, map[string]azureACIErrorBody{keyError: {Code: code, Message: msg}})
+}
+
 func aciProxyAllowed(method string, p []string) bool {
 	n := len(p)
 	if n < aciPxSubList || p[0] != "subscriptions" {
 		return false
 	}
 
-	switch {
-	case n == aciPxSubList:
+	if n == aciPxSubList {
 		return method == http.MethodGet && p[2] == "providers" && p[3] == aciPxNamespace && p[4] == aciPxGroupsType
-	case n < aciPxGroupList:
+	}
+
+	if n < aciPxGroupList || p[2] != "resourcegroups" || p[4] != "providers" || p[5] != aciPxNamespace ||
+		p[6] != aciPxGroupsType {
 		return false
 	}
 
-	if p[2] != "resourcegroups" || p[4] != "providers" || p[5] != aciPxNamespace || p[6] != aciPxGroupsType {
-		return false
-	}
+	return aciProxyGroupOp(method, p)
+}
+
+func aciProxyGroupOp(method string, p []string) bool {
+	n := len(p)
 
 	switch method {
 	case http.MethodGet:
-		return n == aciPxGroupList || n == aciPxGroup ||
-			(n == aciPxLogs && p[8] == "containers" && p[10] == "logs")
+		return n == aciPxGroupList || n == aciPxGroup || (n == aciPxLogs && p[8] == "containers" && p[10] == "logs")
 	case http.MethodPost:
-		return n == aciPxAction && (p[8] == "start" || p[8] == "stop" || p[8] == "restart")
+		return n == aciPxAction && slices.Contains(aciPxActions, p[8])
 	case http.MethodDelete:
 		return n == aciPxGroup
 	}

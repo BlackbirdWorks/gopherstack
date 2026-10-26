@@ -69,17 +69,35 @@ func TestAzureACIProxy(t *testing.T) {
 		name  string
 		steps []gcpStep
 	}{
-		{"browse", []gcpStep{
-			{http.MethodGet, root + "/resourcegroups?api-version=2021-04-01", "", "InvalidRequestUri", 400},
-			{http.MethodGet, root + "/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI, "", `"web"`, 200},
-			{
-				http.MethodGet, root + "/resourceGroups/demo/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI,
-				"", `"restartPolicy":"Never"`, 200,
+		{
+			"browse",
+			[]gcpStep{
+				{http.MethodGet, root + "/resourcegroups?api-version=2021-04-01", "", "InvalidRequestUri", 400},
+				{
+					http.MethodGet,
+					root + "/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI,
+					"",
+					`"web"`,
+					200,
+				},
+				{
+					http.MethodGet,
+					root + "/resourceGroups/demo/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI,
+					"",
+					`"restartPolicy":"Never"`,
+					200,
+				},
+				{http.MethodGet, grp + aciAPI, "", `"provisioningState":"Failed"`, 200},
+				{http.MethodGet, grp + aciAPI, "", `"PLAIN"`, 200},
+				{
+					http.MethodGet,
+					grp + "/containers/app/logs" + aciAPI + "&tail=10",
+					"",
+					"ContainerGroupNotRunning",
+					400,
+				},
 			},
-			{http.MethodGet, grp + aciAPI, "", `"provisioningState":"Failed"`, 200},
-			{http.MethodGet, grp + aciAPI, "", `"PLAIN"`, 200},
-			{http.MethodGet, grp + "/containers/app/logs" + aciAPI + "&tail=10", "", "ContainerGroupNotRunning", 400},
-		}},
+		},
 		{"actions", []gcpStep{
 			{http.MethodPost, grp + "/stop" + aciAPI, "", "", 204},
 			{http.MethodPost, grp + "/start" + aciAPI, "", "", 204},
@@ -87,22 +105,37 @@ func TestAzureACIProxy(t *testing.T) {
 			{http.MethodDelete, grp + aciAPI, "", "", 200},
 			{http.MethodGet, grp + aciAPI, "", "ResourceNotFound", 404},
 		}},
-		{"rejects", []gcpStep{
-			{http.MethodPut, grp + aciAPI, aciBody, "Method Not Allowed", 405},
-			{http.MethodPatch, grp + aciAPI, "{}", "Method Not Allowed", 405},
-			{http.MethodPost, grp + "/exec" + aciAPI, "{}", "InvalidRequestUri", 400},
-			{http.MethodPost, grp + aciAPI, "{}", "InvalidRequestUri", 400},
-			{http.MethodGet, root + "/providers/Microsoft.Storage/storageAccounts" + aciAPI, "", "InvalidRequestUri", 400},
-			{
-				http.MethodGet, root + "/resourceGroups/demo/providers/Microsoft.Storage/storageAccounts/x" + aciAPI,
-				"", "InvalidRequestUri", 400,
+		{
+			"rejects",
+			[]gcpStep{
+				{http.MethodPut, grp + aciAPI, aciBody, "Method Not Allowed", 405},
+				{http.MethodPatch, grp + aciAPI, "{}", "Method Not Allowed", 405},
+				{http.MethodPost, grp + "/exec" + aciAPI, "{}", "InvalidRequestUri", 400},
+				{http.MethodPost, grp + aciAPI, "{}", "InvalidRequestUri", 400},
+				{
+					http.MethodGet,
+					root + "/providers/Microsoft.Storage/storageAccounts" + aciAPI,
+					"",
+					"InvalidRequestUri",
+					400,
+				},
+				{
+					http.MethodGet,
+					root + "/resourceGroups/demo/providers/Microsoft.Storage/storageAccounts/x" + aciAPI,
+					"",
+					"InvalidRequestUri",
+					400,
+				},
+				{http.MethodGet, "/dashboard/api/v1/azure/aci/metadata/endpoints", "", "InvalidRequestUri", 400},
+				{
+					http.MethodGet,
+					root + "/resourceGroups/%2e%2e/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI,
+					"",
+					"InvalidRequestUri",
+					400,
+				},
 			},
-			{http.MethodGet, "/dashboard/api/v1/azure/aci/metadata/endpoints", "", "InvalidRequestUri", 400},
-			{
-				http.MethodGet, root + "/resourceGroups/%2e%2e/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI,
-				"", "InvalidRequestUri", 400,
-			},
-		}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -121,7 +154,8 @@ func TestAzureACIProxyNeverReturnsSecrets(t *testing.T) {
 	for _, path := range []string{
 		"/dashboard/api/v1/azure/aci" + aciGroup + aciAPI,
 		"/dashboard/api/v1/azure/aci" + aciRGPath + "/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI,
-		"/dashboard/api/v1/azure/aci/subscriptions/" + aciSub + "/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI,
+		"/dashboard/api/v1/azure/aci/subscriptions/" + aciSub +
+			"/providers/Microsoft.ContainerInstance/containerGroups" + aciAPI,
 		"/dashboard/api/v1/azure/aci" + aciGroup + "/containers/app/logs" + aciAPI,
 	} {
 		rec := httptest.NewRecorder()
@@ -142,7 +176,11 @@ func TestAzureACIProxyUnserved(t *testing.T) {
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/dashboard/api/v1/azure/aci/subscriptions/"+aciSub+"/providers/Microsoft.ContainerInstance/containerGroups", nil)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/dashboard/api/v1/azure/aci/subscriptions/"+aciSub+"/providers/Microsoft.ContainerInstance/containerGroups",
+		nil,
+	)
 
 	h := dashboard.NewHandler(dashboard.Config{})
 	require.NoError(t, h.Handler()(echo.NewContext(req, rec)))
