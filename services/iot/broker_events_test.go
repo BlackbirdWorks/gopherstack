@@ -253,8 +253,12 @@ func TestBrokerLifecycleEventsFeedRules(t *testing.T) {
 	c := connectPaho(t, e.port, "rule-dev")
 	c.Disconnect(100)
 
+	// Other clients' presence events (e.g. the readiness probe disconnecting) also match the rule.
 	got := w.next(t, "seen/presence")
-	assert.Equal(t, "rule-dev", got["clientId"])
+	for got["clientId"] != "rule-dev" {
+		got = w.next(t, "seen/presence")
+	}
+
 	assert.Equal(t, "connected", got["eventType"])
 }
 
