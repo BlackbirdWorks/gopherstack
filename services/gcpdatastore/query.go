@@ -2,6 +2,7 @@ package gcpdatastore
 
 import (
 	"bytes"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -35,14 +36,13 @@ type row struct {
 }
 
 type queryResult struct {
-	rows        []*row
-	skipped     int
-	skipCursor  []byte
-	endCursor   []byte
-	more        datastorepb.QueryResultBatch_MoreResultsType
-	resultType  datastorepb.EntityResult_ResultType
-	readTime    *timestamppb.Timestamp
-	cursorsOnly bool
+	readTime   *timestamppb.Timestamp
+	rows       []*row
+	skipCursor []byte
+	endCursor  []byte
+	skipped    int
+	more       datastorepb.QueryResultBatch_MoreResultsType
+	resultType datastorepb.EntityResult_ResultType
 }
 
 func (b *InMemoryBackend) candidates(p *queryPlan, rv *readView) ([]*cand, error) {
@@ -81,7 +81,7 @@ func (b *InMemoryBackend) candidates(p *queryPlan, rv *readView) ([]*cand, error
 	return out, nil
 }
 
-func (b *InMemoryBackend) metaCandidate(part partition, kind string, id *datastorepb.Key_PathElement) *cand {
+func (b *InMemoryBackend) metaCandidate(part partition, id *datastorepb.Key_PathElement) *cand {
 	key := &datastorepb.Key{PartitionId: part.stored(), Path: []*datastorepb.Key_PathElement{id}}
 
 	return &cand{key: key, ent: &datastorepb.Entity{Key: key}, ver: &entVer{}}
@@ -99,7 +99,7 @@ func (b *InMemoryBackend) kindCandidates(p *queryPlan, rv *readView) []*cand {
 	out := make([]*cand, 0, len(kinds))
 
 	for k := range kinds {
-		out = append(out, b.metaCandidate(p.part, kindProperty, &datastorepb.Key_PathElement{
+		out = append(out, b.metaCandidate(p.part, &datastorepb.Key_PathElement{
 			Kind: kindProperty, IdType: &datastorepb.Key_PathElement_Name{Name: k},
 		}))
 	}
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) namespaceCandidates(p *queryPlan, rv *readView) []*can
 			el.IdType = &datastorepb.Key_PathElement_Name{Name: ns}
 		}
 
-		out = append(out, b.metaCandidate(root, nsProperty, el))
+		out = append(out, b.metaCandidate(root, el))
 	}
 
 	return out
@@ -268,9 +268,7 @@ func (p *queryPlan) projectionRows(c *cand) []map[string]*datastorepb.Value {
 		for _, combo := range combos {
 			for _, v := range uniqueValues(vals) {
 				m := make(map[string]*datastorepb.Value, len(combo)+1)
-				for k, x := range combo {
-					m[k] = x
-				}
+				maps.Copy(m, combo)
 
 				m[name] = v
 				next = append(next, m)
@@ -311,33 +309,39 @@ func (p *queryPlan) buildRows(cands []*cand) []*row {
 		}
 
 		for _, combo := range combos {
-			vals, ok := p.sortValues(c, combo)
-			if !ok {
-				continue
+			if r := p.rowFor(c, combo, hasProj); r != nil {
+				rows = append(rows, r)
 			}
-
-			r := &row{key: c.key, ver: c.ver, vals: vals}
-
-			switch {
-			case p.keysOnly:
-				r.ent = &datastorepb.Entity{Key: c.key}
-			case hasProj:
-				r.ent = projected(c, p.proj, combo)
-
-				for _, name := range p.proj {
-					if name != keyProperty {
-						r.vals = append(r.vals, combo[name])
-					}
-				}
-			default:
-				r.ent = c.ent
-			}
-
-			rows = append(rows, r)
 		}
 	}
 
 	return rows
+}
+
+func (p *queryPlan) rowFor(c *cand, combo map[string]*datastorepb.Value, hasProj bool) *row {
+	vals, ok := p.sortValues(c, combo)
+	if !ok {
+		return nil
+	}
+
+	r := &row{key: c.key, ver: c.ver, vals: vals}
+
+	switch {
+	case p.keysOnly:
+		r.ent = &datastorepb.Entity{Key: c.key}
+	case hasProj:
+		r.ent = projected(c, p.proj, combo)
+
+		for _, name := range p.proj {
+			if name != keyProperty {
+				r.vals = append(r.vals, combo[name])
+			}
+		}
+	default:
+		r.ent = c.ent
+	}
+
+	return r
 }
 
 func projected(c *cand, proj []string, combo map[string]*datastorepb.Value) *datastorepb.Entity {
@@ -532,7 +536,7 @@ func (b *InMemoryBackend) execQuery(p *queryPlan, rv *readView) (*queryResult, e
 	return p.slice(rows, rv)
 }
 
-func (p *queryPlan) slice(rows []*row, rv *readView) (*queryResult, error) {
+func (p *queryPlan) posWidth() int {
 	width := len(p.orders)
 	if len(p.proj) > 0 && !p.keysOnly {
 		width += len(p.proj)
@@ -541,23 +545,30 @@ func (p *queryPlan) slice(rows []*row, rv *readView) (*queryResult, error) {
 		}
 	}
 
-	res := &queryResult{readTime: timestamppb.New(rv.at), resultType: datastorepb.EntityResult_FULL}
+	return width
+}
 
+func (p *queryPlan) resultType() datastorepb.EntityResult_ResultType {
 	switch {
 	case p.keysOnly:
-		res.resultType = datastorepb.EntityResult_KEY_ONLY
+		return datastorepb.EntityResult_KEY_ONLY
 	case len(p.proj) > 0:
-		res.resultType = datastorepb.EntityResult_PROJECTION
+		return datastorepb.EntityResult_PROJECTION
+	default:
+		return datastorepb.EntityResult_FULL
+	}
+}
+
+// window applies the start and end cursors and reports whether rows remain beyond the end cursor.
+func (p *queryPlan) window(rows []*row) ([]*row, bool, error) {
+	startPos, err := cursorPos(p.q.GetStartCursor(), p.posWidth())
+	if err != nil {
+		return nil, false, err
 	}
 
-	startPos, err := cursorPos(p.q.GetStartCursor(), width)
+	endPos, err := cursorPos(p.q.GetEndCursor(), p.posWidth())
 	if err != nil {
-		return nil, err
-	}
-
-	endPos, err := cursorPos(p.q.GetEndCursor(), width)
-	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if startPos != nil {
@@ -571,6 +582,17 @@ func (p *queryPlan) slice(rows []*row, rv *readView) (*queryResult, error) {
 		i := sort.Search(len(rows), func(i int) bool { return p.comparePos(rows[i].vals, endPos) > 0 })
 		beyondEnd = i < len(rows)
 		rows = rows[:i]
+	}
+
+	return rows, beyondEnd, nil
+}
+
+func (p *queryPlan) slice(rows []*row, rv *readView) (*queryResult, error) {
+	res := &queryResult{readTime: timestamppb.New(rv.at), resultType: p.resultType()}
+
+	rows, beyondEnd, err := p.window(rows)
+	if err != nil {
+		return nil, err
 	}
 
 	skip := min(p.offset, len(rows))
@@ -589,8 +611,8 @@ func (p *queryPlan) slice(rows []*row, rv *readView) (*queryResult, error) {
 	if !p.unbounded {
 		capped = min(take, batchSize)
 	}
-	res.rows = rows[:capped]
 
+	res.rows = rows[:capped]
 	res.more = moreResults(p, len(rows), capped, take, beyondEnd)
 
 	switch {

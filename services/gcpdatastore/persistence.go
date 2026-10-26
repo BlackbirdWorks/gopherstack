@@ -18,9 +18,9 @@ import (
 const snapshotVersion = 1
 
 type entitySnap struct {
-	Entity  json.RawMessage `json:"entity"`
 	Created time.Time       `json:"created"`
 	Updated time.Time       `json:"updated"`
+	Entity  json.RawMessage `json:"entity"`
 	Version int64           `json:"version"`
 }
 
@@ -108,7 +108,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			return fmt.Errorf("gcpdatastore: restore entity: %w", err)
 		}
 
-		ents[ks] = &entRec{key: e.GetKey(), vers: []entVer{{at: es.Updated, created: es.Created, ent: e, version: es.Version}}}
+		ents[ks] = &entRec{
+			key:  e.GetKey(),
+			vers: []entVer{{at: es.Updated, created: es.Created, ent: e, version: es.Version}},
+		}
 	}
 
 	indexes := make(map[string]*adminpb.Index, len(snap.Indexes))

@@ -19,7 +19,11 @@ func TestSnapshotRestore(t *testing.T) {
 	src := newLooseEnv(t)
 	idx := src.createIndex(t, "Task", adminpb.Index_NONE, prop("Done", false), prop("Priority", false))
 
-	_, err := src.client.Put(t.Context(), datastore.NameKey("P", "n", datastore.NameKey("Parent", "p", nil)), &task{Name: "nested", Tags: []string{"q"}})
+	_, err := src.client.Put(
+		t.Context(),
+		datastore.NameKey("P", "n", datastore.NameKey("Parent", "p", nil)),
+		&task{Name: "nested", Tags: []string{"q"}},
+	)
 	require.NoError(t, err)
 
 	data := src.handler.Snapshot(t.Context())
@@ -32,7 +36,10 @@ func TestSnapshotRestore(t *testing.T) {
 	assert.Equal(t, []string{"a", "b", "c", "d", "e"}, names(keys))
 
 	var got task
-	require.NoError(t, dst.client.Get(t.Context(), datastore.NameKey("P", "n", datastore.NameKey("Parent", "p", nil)), &got))
+	require.NoError(
+		t,
+		dst.client.Get(t.Context(), datastore.NameKey("P", "n", datastore.NameKey("Parent", "p", nil)), &got),
+	)
 	assert.Equal(t, []string{"q"}, got.Tags)
 
 	_, err = dst.admin.GetIndex(t.Context(), &adminpb.GetIndexRequest{ProjectId: project, IndexId: idx.GetIndexId()})
@@ -69,19 +76,31 @@ func TestREST(t *testing.T) {
 			Status: 200, Contains: []string{`"found"`, `"missing"`, `"integerValue":"5"`},
 		},
 		{
-			Name: "run query", Method: http.MethodPost, Path: "/v1/projects/p:runQuery",
-			Body:   `{"query":{"kind":[{"name":"Task"}],"filter":{"propertyFilter":{"property":{"name":"n"},"op":"GREATER_THAN","value":{"integerValue":"1"}}}}}`,
-			Status: 200, Contains: []string{`"entityResults"`, `"NO_MORE_RESULTS"`},
+			Name:   "run query",
+			Method: http.MethodPost,
+			Path:   "/v1/projects/p:runQuery",
+			Body: `{"query":{"kind":[{"name":"Task"}],"filter":{"propertyFilter":` +
+				`{"property":{"name":"n"},"op":"GREATER_THAN","value":{"integerValue":"1"}}}}}`,
+			Status:   200,
+			Contains: []string{`"entityResults"`, `"NO_MORE_RESULTS"`},
 		},
 		{
-			Name: "gql query", Method: http.MethodPost, Path: "/v1/projects/p:runQuery",
-			Body:   `{"gqlQuery":{"queryString":"SELECT * FROM Task WHERE n = @v","namedBindings":{"v":{"value":{"integerValue":"5"}}}}}`,
-			Status: 200, Contains: []string{`"r1"`},
+			Name:   "gql query",
+			Method: http.MethodPost,
+			Path:   "/v1/projects/p:runQuery",
+			Body: `{"gqlQuery":{"queryString":"SELECT * FROM Task WHERE n = @v",` +
+				`"namedBindings":{"v":{"value":{"integerValue":"5"}}}}}`,
+			Status:   200,
+			Contains: []string{`"r1"`},
 		},
 		{
-			Name: "aggregation", Method: http.MethodPost, Path: "/v1/projects/p:runAggregationQuery",
-			Body:   `{"aggregationQuery":{"nestedQuery":{"kind":[{"name":"Task"}]},"aggregations":[{"count":{},"alias":"c"}]}}`,
-			Status: 200, Contains: []string{`"c"`, `"integerValue":"1"`},
+			Name:   "aggregation",
+			Method: http.MethodPost,
+			Path:   "/v1/projects/p:runAggregationQuery",
+			Body: `{"aggregationQuery":{"nestedQuery":{"kind":[{"name":"Task"}]},` +
+				`"aggregations":[{"count":{},"alias":"c"}]}}`,
+			Status:   200,
+			Contains: []string{`"c"`, `"integerValue":"1"`},
 		},
 		{
 			Name: "begin transaction", Method: http.MethodPost, Path: "/v1/projects/p:beginTransaction",

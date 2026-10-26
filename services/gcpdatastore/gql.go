@@ -38,87 +38,125 @@ type gqlParser struct {
 	toks     []token
 	pos      int
 	literals bool
-	aggAlias int
+}
+
+type lexer struct {
+	rs   []rune
+	toks []token
+	i    int
 }
 
 func tokenizeGQL(s string) ([]token, error) {
-	var toks []token
+	l := &lexer{rs: []rune(s)}
 
-	rs := []rune(s)
-
-	for i := 0; i < len(rs); {
-		c := rs[i]
-
-		switch {
-		case unicode.IsSpace(c):
-			i++
-		case c == '\'' || c == '"' || c == '`':
-			text, next, err := scanQuoted(rs, i)
-			if err != nil {
-				return nil, err
-			}
-
-			kind := tokString
-			if c != '\'' {
-				kind = tokIdent
-			}
-
-			toks = append(toks, token{kind: kind, text: text})
-			i = next
-		case c == '@' || c == ':':
-			j := i + 1
-			for j < len(rs) && (unicode.IsLetter(rs[j]) || unicode.IsDigit(rs[j]) || rs[j] == '_') {
-				j++
-			}
-
-			if j == i+1 {
-				return nil, errInvalid("GQL syntax error: empty binding name.")
-			}
-
-			toks = append(toks, token{kind: tokBinding, text: string(rs[i+1 : j])})
-			i = j
-		case unicode.IsDigit(c) || (c == '-' && i+1 < len(rs) && unicode.IsDigit(rs[i+1])):
-			j := i + 1
-			for j < len(rs) && (unicode.IsDigit(rs[j]) || rs[j] == '.' || rs[j] == 'e' || rs[j] == 'E' ||
-				((rs[j] == '+' || rs[j] == '-') && (rs[j-1] == 'e' || rs[j-1] == 'E'))) {
-				j++
-			}
-
-			toks = append(toks, token{kind: tokNumber, text: string(rs[i:j])})
-			i = j
-		case unicode.IsLetter(c) || c == '_':
-			j := i + 1
-			for j < len(rs) && (unicode.IsLetter(rs[j]) || unicode.IsDigit(rs[j]) || rs[j] == '_' || rs[j] == '.') {
-				j++
-			}
-
-			toks = append(toks, token{kind: tokIdent, text: string(rs[i:j])})
-			i = j
-		default:
-			two := ""
-			if i+1 < len(rs) {
-				two = string(rs[i : i+2])
-			}
-
-			if two == "<=" || two == ">=" || two == "!=" || two == "<>" {
-				toks = append(toks, token{kind: tokPunct, text: two})
-				i += 2
-
-				continue
-			}
-
-			if strings.ContainsRune("(),*=<>;", c) {
-				toks = append(toks, token{kind: tokPunct, text: string(c)})
-				i++
-
-				continue
-			}
-
-			return nil, errInvalid("GQL syntax error: unexpected character %q.", string(c))
+	for l.i < len(l.rs) {
+		if err := l.step(); err != nil {
+			return nil, err
 		}
 	}
 
-	return toks, nil
+	return l.toks, nil
+}
+
+func isIdentRune(c rune) bool { return unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' }
+
+func (l *lexer) step() error {
+	c := l.rs[l.i]
+
+	switch {
+	case unicode.IsSpace(c):
+		l.i++
+	case c == '\'' || c == '"' || c == '`':
+		return l.quoted(c)
+	case c == '@' || c == ':':
+		return l.binding()
+	case unicode.IsDigit(c) || (c == '-' && l.i+1 < len(l.rs) && unicode.IsDigit(l.rs[l.i+1])):
+		l.number()
+	case unicode.IsLetter(c) || c == '_':
+		l.ident()
+	default:
+		return l.punct(c)
+	}
+
+	return nil
+}
+
+func (l *lexer) quoted(q rune) error {
+	text, next, err := scanQuoted(l.rs, l.i)
+	if err != nil {
+		return err
+	}
+
+	kind := tokString
+	if q != '\'' {
+		kind = tokIdent
+	}
+
+	l.toks = append(l.toks, token{kind: kind, text: text})
+	l.i = next
+
+	return nil
+}
+
+func (l *lexer) binding() error {
+	j := l.i + 1
+	for j < len(l.rs) && isIdentRune(l.rs[j]) {
+		j++
+	}
+
+	if j == l.i+1 {
+		return errInvalid("GQL syntax error: empty binding name.")
+	}
+
+	l.toks = append(l.toks, token{kind: tokBinding, text: string(l.rs[l.i+1 : j])})
+	l.i = j
+
+	return nil
+}
+
+func isExponentSign(rs []rune, j int) bool {
+	return (rs[j] == '+' || rs[j] == '-') && (rs[j-1] == 'e' || rs[j-1] == 'E')
+}
+
+func (l *lexer) number() {
+	j := l.i + 1
+	for j < len(l.rs) && (unicode.IsDigit(l.rs[j]) || strings.ContainsRune(".eE", l.rs[j]) || isExponentSign(l.rs, j)) {
+		j++
+	}
+
+	l.toks = append(l.toks, token{kind: tokNumber, text: string(l.rs[l.i:j])})
+	l.i = j
+}
+
+func (l *lexer) ident() {
+	j := l.i + 1
+	for j < len(l.rs) && (isIdentRune(l.rs[j]) || l.rs[j] == '.') {
+		j++
+	}
+
+	l.toks = append(l.toks, token{kind: tokIdent, text: string(l.rs[l.i:j])})
+	l.i = j
+}
+
+func (l *lexer) punct(c rune) error {
+	if l.i+1 < len(l.rs) {
+		switch two := string(l.rs[l.i : l.i+2]); two {
+		case "<=", ">=", "!=", "<>":
+			l.toks = append(l.toks, token{kind: tokPunct, text: two})
+			l.i += 2
+
+			return nil
+		}
+	}
+
+	if !strings.ContainsRune("(),*=<>;", c) {
+		return errInvalid("GQL syntax error: unexpected character %q.", string(c))
+	}
+
+	l.toks = append(l.toks, token{kind: tokPunct, text: string(c)})
+	l.i++
+
+	return nil
 }
 
 func scanQuoted(rs []rune, start int) (string, int, error) {
@@ -328,37 +366,8 @@ func (p *gqlParser) aggFunc() (*datastorepb.AggregationQuery_Aggregation, bool, 
 	p.pos += 2
 
 	a := &datastorepb.AggregationQuery_Aggregation{}
-
-	switch name {
-	case "COUNT":
-		if err := p.expect("*"); err != nil {
-			return nil, false, err
-		}
-
-		a.Operator = &datastorepb.AggregationQuery_Aggregation_Count_{Count: &datastorepb.AggregationQuery_Aggregation_Count{}}
-	case "COUNT_UP_TO":
-		v, err := p.value()
-		if err != nil {
-			return nil, false, err
-		}
-
-		a.Operator = &datastorepb.AggregationQuery_Aggregation_Count_{Count: &datastorepb.AggregationQuery_Aggregation_Count{
-			UpTo: wrapperspb.Int64(v.GetIntegerValue()),
-		}}
-	default:
-		prop := p.next()
-		if prop.kind != tokIdent {
-			return nil, false, errInvalid("GQL syntax error: expected a property name in %s.", name)
-		}
-
-		ref := &datastorepb.PropertyReference{Name: prop.text}
-		if name == "SUM" {
-			a.Operator = &datastorepb.AggregationQuery_Aggregation_Sum_{
-				Sum: &datastorepb.AggregationQuery_Aggregation_Sum{Property: ref}}
-		} else {
-			a.Operator = &datastorepb.AggregationQuery_Aggregation_Avg_{
-				Avg: &datastorepb.AggregationQuery_Aggregation_Avg{Property: ref}}
-		}
+	if err := p.aggOperator(name, a); err != nil {
+		return nil, false, err
 	}
 
 	if err := p.expect(")"); err != nil {
@@ -377,6 +386,48 @@ func (p *gqlParser) aggFunc() (*datastorepb.AggregationQuery_Aggregation, bool, 
 	return a, true, nil
 }
 
+func (p *gqlParser) aggOperator(name string, a *datastorepb.AggregationQuery_Aggregation) error {
+	switch name {
+	case "COUNT":
+		a.Operator = &datastorepb.AggregationQuery_Aggregation_Count_{
+			Count: &datastorepb.AggregationQuery_Aggregation_Count{},
+		}
+
+		return p.expect("*")
+	case "COUNT_UP_TO":
+		v, err := p.value()
+		if err != nil {
+			return err
+		}
+
+		a.Operator = &datastorepb.AggregationQuery_Aggregation_Count_{
+			Count: &datastorepb.AggregationQuery_Aggregation_Count{
+				UpTo: wrapperspb.Int64(v.GetIntegerValue()),
+			},
+		}
+
+		return nil
+	}
+
+	prop := p.next()
+	if prop.kind != tokIdent {
+		return errInvalid("GQL syntax error: expected a property name in %s.", name)
+	}
+
+	ref := &datastorepb.PropertyReference{Name: prop.text}
+	if name == "SUM" {
+		a.Operator = &datastorepb.AggregationQuery_Aggregation_Sum_{
+			Sum: &datastorepb.AggregationQuery_Aggregation_Sum{Property: ref},
+		}
+	} else {
+		a.Operator = &datastorepb.AggregationQuery_Aggregation_Avg_{
+			Avg: &datastorepb.AggregationQuery_Aggregation_Avg{Property: ref},
+		}
+	}
+
+	return nil
+}
+
 // selectList parses the projection after SELECT; aggregation shorthand is returned separately.
 func (p *gqlParser) selectList(q *datastorepb.Query) ([]*datastorepb.AggregationQuery_Aggregation, error) {
 	if p.accept("*") {
@@ -388,57 +439,15 @@ func (p *gqlParser) selectList(q *datastorepb.Query) ([]*datastorepb.Aggregation
 	var on []*datastorepb.PropertyReference
 
 	if distinct && p.kw("ON") {
-		if err := p.expect("("); err != nil {
-			return nil, err
-		}
-
-		for {
-			t := p.next()
-			if t.kind != tokIdent {
-				return nil, errInvalid("GQL syntax error: expected a property name in DISTINCT ON.")
-			}
-
-			on = append(on, &datastorepb.PropertyReference{Name: t.text})
-
-			if !p.accept(",") {
-				break
-			}
-		}
-
-		if err := p.expect(")"); err != nil {
+		var err error
+		if on, err = p.distinctOn(); err != nil {
 			return nil, err
 		}
 	}
 
-	var (
-		aggs  []*datastorepb.AggregationQuery_Aggregation
-		props []*datastorepb.PropertyReference
-	)
-
-	for {
-		a, ok, err := p.aggFunc()
-		if err != nil {
-			return nil, err
-		}
-
-		if ok {
-			aggs = append(aggs, a)
-		} else {
-			t := p.next()
-			if t.kind != tokIdent {
-				return nil, errInvalid("GQL syntax error: expected a property name but found %q.", t.text)
-			}
-
-			props = append(props, &datastorepb.PropertyReference{Name: t.text})
-		}
-
-		if !p.accept(",") {
-			break
-		}
-	}
-
-	if len(aggs) > 0 && len(props) > 0 {
-		return nil, errInvalid("GQL syntax error: aggregations cannot be mixed with properties.")
+	aggs, props, err := p.selectItems()
+	if err != nil {
+		return nil, err
 	}
 
 	for _, pr := range props {
@@ -453,6 +462,66 @@ func (p *gqlParser) selectList(q *datastorepb.Query) ([]*datastorepb.Aggregation
 	}
 
 	return aggs, nil
+}
+
+func (p *gqlParser) distinctOn() ([]*datastorepb.PropertyReference, error) {
+	if err := p.expect("("); err != nil {
+		return nil, err
+	}
+
+	var on []*datastorepb.PropertyReference
+
+	for {
+		t := p.next()
+		if t.kind != tokIdent {
+			return nil, errInvalid("GQL syntax error: expected a property name in DISTINCT ON.")
+		}
+
+		on = append(on, &datastorepb.PropertyReference{Name: t.text})
+
+		if !p.accept(",") {
+			break
+		}
+	}
+
+	return on, p.expect(")")
+}
+
+func (p *gqlParser) selectItems() (
+	[]*datastorepb.AggregationQuery_Aggregation, []*datastorepb.PropertyReference, error,
+) {
+	var (
+		aggs  []*datastorepb.AggregationQuery_Aggregation
+		props []*datastorepb.PropertyReference
+	)
+
+	for {
+		a, ok, err := p.aggFunc()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if ok {
+			aggs = append(aggs, a)
+		} else {
+			t := p.next()
+			if t.kind != tokIdent {
+				return nil, nil, errInvalid("GQL syntax error: expected a property name but found %q.", t.text)
+			}
+
+			props = append(props, &datastorepb.PropertyReference{Name: t.text})
+		}
+
+		if !p.accept(",") {
+			break
+		}
+	}
+
+	if len(aggs) > 0 && len(props) > 0 {
+		return nil, nil, errInvalid("GQL syntax error: aggregations cannot be mixed with properties.")
+	}
+
+	return aggs, props, nil
 }
 
 func (p *gqlParser) queryTail(q *datastorepb.Query) error {
@@ -525,47 +594,51 @@ func (p *gqlParser) intArg() (int64, error) {
 	return v.GetIntegerValue(), nil
 }
 
+func (p *gqlParser) limitClause(q *datastorepb.Query) error {
+	n, err := p.intArg()
+	if err != nil {
+		return err
+	}
+
+	if p.accept(",") {
+		q.Offset = clampInt32(int(n))
+
+		if n, err = p.intArg(); err != nil {
+			return err
+		}
+	}
+
+	q.Limit = wrapperspb.Int32(clampInt32(int(n)))
+
+	return nil
+}
+
+func (p *gqlParser) offsetClause(q *datastorepb.Query) error {
+	n, err := p.intArg()
+	q.Offset = clampInt32(int(n))
+
+	return err
+}
+
 func (p *gqlParser) limitOffset(q *datastorepb.Query) error {
 	for {
+		var err error
+
 		switch {
 		case p.kw("LIMIT"):
-			n, err := p.intArg()
-			if err != nil {
-				return err
-			}
-
-			if p.accept(",") {
-				q.Offset = clampInt32(int(n))
-
-				if n, err = p.intArg(); err != nil {
-					return err
-				}
-			}
-
-			q.Limit = wrapperspb.Int32(clampInt32(int(n)))
+			err = p.limitClause(q)
 		case p.kw("OFFSET"):
-			n, err := p.intArg()
-			if err != nil {
-				return err
-			}
-
-			q.Offset = clampInt32(int(n))
+			err = p.offsetClause(q)
 		case p.kw("START"):
-			c, err := p.cursorArg()
-			if err != nil {
-				return err
-			}
-
-			q.StartCursor = c
+			q.StartCursor, err = p.cursorArg()
 		case p.kw("END"):
-			c, err := p.cursorArg()
-			if err != nil {
-				return err
-			}
-
-			q.EndCursor = c
+			q.EndCursor, err = p.cursorArg()
 		default:
 			return nil
+		}
+
+		if err != nil {
+			return err
 		}
 	}
 }
@@ -665,21 +738,35 @@ func (p *gqlParser) term() (*datastorepb.Filter, error) {
 		return nil, err
 	}
 
-	return &datastorepb.Filter{FilterType: &datastorepb.Filter_PropertyFilter{PropertyFilter: &datastorepb.PropertyFilter{
-		Property: &datastorepb.PropertyReference{Name: prop.text}, Op: op, Value: val,
-	}}}, nil
+	return &datastorepb.Filter{
+		FilterType: &datastorepb.Filter_PropertyFilter{PropertyFilter: &datastorepb.PropertyFilter{
+			Property: &datastorepb.PropertyReference{Name: prop.text}, Op: op, Value: val,
+		}},
+	}, nil
 }
 
-var gqlOps = map[string]datastorepb.PropertyFilter_Operator{
-	"=": datastorepb.PropertyFilter_EQUAL, "<": datastorepb.PropertyFilter_LESS_THAN,
-	"<=": datastorepb.PropertyFilter_LESS_THAN_OR_EQUAL, ">": datastorepb.PropertyFilter_GREATER_THAN,
-	">=": datastorepb.PropertyFilter_GREATER_THAN_OR_EQUAL, "!=": datastorepb.PropertyFilter_NOT_EQUAL,
-	"<>": datastorepb.PropertyFilter_NOT_EQUAL,
+func gqlOperator(s string) (datastorepb.PropertyFilter_Operator, bool) {
+	switch s {
+	case "=":
+		return datastorepb.PropertyFilter_EQUAL, true
+	case "<":
+		return datastorepb.PropertyFilter_LESS_THAN, true
+	case "<=":
+		return datastorepb.PropertyFilter_LESS_THAN_OR_EQUAL, true
+	case ">":
+		return datastorepb.PropertyFilter_GREATER_THAN, true
+	case ">=":
+		return datastorepb.PropertyFilter_GREATER_THAN_OR_EQUAL, true
+	case "!=", "<>":
+		return datastorepb.PropertyFilter_NOT_EQUAL, true
+	default:
+		return 0, false
+	}
 }
 
 func (p *gqlParser) condition() (datastorepb.PropertyFilter_Operator, *datastorepb.Value, error) {
 	t := p.peek()
-	if op, ok := gqlOps[t.text]; ok && t.kind == tokPunct {
+	if op, ok := gqlOperator(t.text); ok && t.kind == tokPunct {
 		p.pos++
 		v, err := p.value()
 
@@ -752,7 +839,9 @@ func (p *gqlParser) listValue() (*datastorepb.Value, error) {
 		return nil, err
 	}
 
-	return &datastorepb.Value{ValueType: &datastorepb.Value_ArrayValue{ArrayValue: &datastorepb.ArrayValue{Values: vals}}}, nil
+	return &datastorepb.Value{
+		ValueType: &datastorepb.Value_ArrayValue{ArrayValue: &datastorepb.ArrayValue{Values: vals}},
+	}, nil
 }
 
 func (p *gqlParser) value() (*datastorepb.Value, error) {
@@ -804,7 +893,9 @@ func numberLiteral(s string) (*datastorepb.Value, error) {
 func (p *gqlParser) identValue(word string) (*datastorepb.Value, error) {
 	switch strings.ToUpper(word) {
 	case "TRUE", "FALSE":
-		return &datastorepb.Value{ValueType: &datastorepb.Value_BooleanValue{BooleanValue: strings.EqualFold(word, "true")}}, nil
+		return &datastorepb.Value{
+			ValueType: &datastorepb.Value_BooleanValue{BooleanValue: strings.EqualFold(word, "true")},
+		}, nil
 	case "NULL":
 		return nullValue(), nil
 	case "BLOB":
@@ -863,31 +954,13 @@ func (p *gqlParser) keyLiteral() (*datastorepb.Value, error) {
 	var parts []token
 
 	for {
-		if p.isKw("PROJECT") || p.isKw("NAMESPACE") {
-			which := strings.ToUpper(p.next().text)
+		part, isPart, err := p.keyArg(key)
+		if err != nil {
+			return nil, err
+		}
 
-			s, err := p.stringArg()
-			if err != nil {
-				return nil, err
-			}
-
-			if which == "PROJECT" {
-				key.PartitionId.ProjectId = s
-			} else {
-				key.PartitionId.NamespaceId = s
-			}
-		} else {
-			t := p.next()
-			if t.kind == tokBinding {
-				v, err := p.bindingToken(t.text)
-				if err != nil {
-					return nil, err
-				}
-
-				t = v
-			}
-
-			parts = append(parts, t)
+		if isPart {
+			parts = append(parts, part)
 		}
 
 		if !p.accept(",") {
@@ -904,17 +977,9 @@ func (p *gqlParser) keyLiteral() (*datastorepb.Value, error) {
 	}
 
 	for i := 0; i < len(parts); i += 2 {
-		el := &datastorepb.Key_PathElement{Kind: parts[i].text}
-
-		if parts[i+1].kind == tokNumber {
-			n, err := strconv.ParseInt(parts[i+1].text, 10, 64)
-			if err != nil {
-				return nil, errInvalid("GQL: invalid key id %q.", parts[i+1].text)
-			}
-
-			el.IdType = &datastorepb.Key_PathElement_Id{Id: n}
-		} else {
-			el.IdType = &datastorepb.Key_PathElement_Name{Name: parts[i+1].text}
+		el, err := pathElement(parts[i], parts[i+1])
+		if err != nil {
+			return nil, err
 		}
 
 		key.Path = append(key.Path, el)
@@ -923,14 +988,61 @@ func (p *gqlParser) keyLiteral() (*datastorepb.Value, error) {
 	return keyValue(key), nil
 }
 
+// keyArg parses one KEY(...) argument: a PROJECT/NAMESPACE setting (applied to key) or a path token.
+func (p *gqlParser) keyArg(key *datastorepb.Key) (token, bool, error) {
+	if p.isKw("PROJECT") || p.isKw("NAMESPACE") {
+		which := strings.ToUpper(p.next().text)
+
+		s, err := p.stringArg()
+		if err != nil {
+			return token{}, false, err
+		}
+
+		if which == "PROJECT" {
+			key.PartitionId.ProjectId = s
+		} else {
+			key.PartitionId.NamespaceId = s
+		}
+
+		return token{}, false, nil
+	}
+
+	t := p.next()
+	if t.kind == tokBinding {
+		bt, err := p.bindingToken(t.text)
+
+		return bt, true, err
+	}
+
+	return t, true, nil
+}
+
+func pathElement(kind, id token) (*datastorepb.Key_PathElement, error) {
+	el := &datastorepb.Key_PathElement{Kind: kind.text}
+
+	if id.kind != tokNumber {
+		el.IdType = &datastorepb.Key_PathElement_Name{Name: id.text}
+
+		return el, nil
+	}
+
+	n, err := strconv.ParseInt(id.text, 10, 64)
+	if err != nil {
+		return nil, errInvalid("GQL: invalid key id %q.", id.text)
+	}
+
+	el.IdType = &datastorepb.Key_PathElement_Id{Id: n}
+
+	return el, nil
+}
+
 func (p *gqlParser) bindingToken(name string) (token, error) {
 	bp, err := p.binding(name)
 	if err != nil {
 		return token{}, err
 	}
 
-	switch v := bp.GetParameterType().(type) {
-	case *datastorepb.GqlQueryParameter_Value:
+	if v, ok := bp.GetParameterType().(*datastorepb.GqlQueryParameter_Value); ok {
 		switch vt := v.Value.GetValueType().(type) {
 		case *datastorepb.Value_IntegerValue:
 			return token{kind: tokNumber, text: strconv.FormatInt(vt.IntegerValue, 10)}, nil

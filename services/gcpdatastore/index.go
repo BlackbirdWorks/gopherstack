@@ -14,8 +14,8 @@ type indexSignature struct {
 	ancestor bool
 }
 
-// compositeNeeded applies the documented rules for which queries built-in indexes cannot serve.
-func (p *queryPlan) compositeNeeded() (indexSignature, bool) {
+// signature collects the equality properties and the sort list a query's index must cover.
+func (p *queryPlan) signature() (indexSignature, int) {
 	sig := indexSignature{ancestor: p.ancestor != nil}
 
 	for n := range p.eqProps {
@@ -25,11 +25,8 @@ func (p *queryPlan) compositeNeeded() (indexSignature, bool) {
 	slices.Sort(sig.eq)
 
 	for _, o := range p.explicit {
-		if _, eq := p.eqProps[o.name]; eq && o.name != keyProperty {
-			continue
-		}
-
-		if o.name == keyProperty && !o.desc {
+		_, eq := p.eqProps[o.name]
+		if (eq && o.name != keyProperty) || (o.name == keyProperty && !o.desc) {
 			continue
 		}
 
@@ -44,24 +41,26 @@ func (p *queryPlan) compositeNeeded() (indexSignature, bool) {
 		}
 	}
 
+	return sig, explicit
+}
+
+// compositeNeeded applies the documented rules for which queries built-in indexes cannot serve.
+func (p *queryPlan) compositeNeeded() (indexSignature, bool) {
+	sig, explicit := p.signature()
+
 	hasEq := len(sig.eq) > 0
 	hasIneq := len(p.ineq) > 0
 	onIneq := explicit == 1 && len(p.ineq) == 1 && sig.sorts[0].name == p.ineq[0] && !sig.sorts[0].desc
-
-	need := false
+	descKey := slices.ContainsFunc(sig.sorts, func(o order) bool { return o.name == keyProperty && o.desc })
 
 	switch {
-	case p.ancestor != nil && hasIneq, hasIneq && hasEq:
-		need = true
-	case slices.ContainsFunc(sig.sorts, func(o order) bool { return o.name == keyProperty && o.desc }):
-		need = true
-	case explicit > 1:
-		need = true
-	case explicit == 1 && !onIneq && (hasEq || hasIneq || p.ancestor != nil):
-		need = true
+	case p.ancestor != nil && hasIneq, hasIneq && hasEq, descKey, explicit > 1:
+		return sig, true
+	case explicit == 1 && !onIneq:
+		return sig, hasEq || hasIneq || p.ancestor != nil
+	default:
+		return sig, false
 	}
-
-	return sig, need
 }
 
 func (b *InMemoryBackend) checkIndex(p *queryPlan) error {

@@ -23,8 +23,8 @@ func errPrecondition(format string, a ...any) error {
 	return status.Error(codes.FailedPrecondition, fmt.Sprintf(format, a...))
 }
 
-func errUnimplemented(format string, a ...any) error {
-	return status.Error(codes.Unimplemented, fmt.Sprintf(format, a...))
+func errUnimplemented(msg string) error {
+	return status.Error(codes.Unimplemented, msg)
 }
 
 func errContention() error {

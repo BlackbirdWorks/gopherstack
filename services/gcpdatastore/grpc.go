@@ -39,13 +39,13 @@ func (s *server) Rollback(_ context.Context, in *datastorepb.RollbackRequest) (*
 	return s.b.Rollback(in)
 }
 
-func (s *server) AllocateIds(
+func (s *server) AllocateIds( //nolint:revive // name fixed by the generated gRPC interface
 	_ context.Context, in *datastorepb.AllocateIdsRequest,
 ) (*datastorepb.AllocateIdsResponse, error) {
 	return s.b.AllocateIDs(in)
 }
 
-func (s *server) ReserveIds(
+func (s *server) ReserveIds( //nolint:revive // name fixed by the generated gRPC interface
 	_ context.Context, in *datastorepb.ReserveIdsRequest,
 ) (*datastorepb.ReserveIdsResponse, error) {
 	return s.b.ReserveIDs(in)

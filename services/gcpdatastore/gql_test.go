@@ -44,8 +44,11 @@ func TestGQL(t *testing.T) {
 		{&datastorepb.GqlQuery{QueryString: "SELECT * FROM Task"}, "select all", []string{"a", "b", "c", "d", "e"}},
 		{
 			&datastorepb.GqlQuery{
-				QueryString:        "SELECT * FROM Task WHERE Done = @1 AND Priority > @2",
-				PositionalBindings: []*datastorepb.GqlQueryParameter{param(&datastorepb.Value{ValueType: &datastorepb.Value_BooleanValue{BooleanValue: true}}), param(intVal(1))},
+				QueryString: "SELECT * FROM Task WHERE Done = @1 AND Priority > @2",
+				PositionalBindings: []*datastorepb.GqlQueryParameter{
+					param(&datastorepb.Value{ValueType: &datastorepb.Value_BooleanValue{BooleanValue: true}}),
+					param(intVal(1)),
+				},
 			},
 			"positional bindings", []string{"c", "e"},
 		},
@@ -57,28 +60,48 @@ func TestGQL(t *testing.T) {
 			"named bindings order limit", []string{"e", "d"},
 		},
 		{
-			&datastorepb.GqlQuery{QueryString: "SELECT * FROM Task WHERE Priority IN (1, 3) OR Tags = 'z'", AllowLiterals: true},
-			"literals in and or", []string{"a", "c"},
+			&datastorepb.GqlQuery{
+				QueryString:   "SELECT * FROM Task WHERE Priority IN (1, 3) OR Tags = 'z'",
+				AllowLiterals: true,
+			},
+			"literals in and or",
+			[]string{"a", "c"},
 		},
 		{
-			&datastorepb.GqlQuery{QueryString: "SELECT * FROM Task WHERE Priority NOT IN ARRAY(1,2,3) ORDER BY Priority", AllowLiterals: true},
-			"not in", []string{"d", "e"},
+			&datastorepb.GqlQuery{
+				QueryString:   "SELECT * FROM Task WHERE Priority NOT IN ARRAY(1,2,3) ORDER BY Priority",
+				AllowLiterals: true,
+			},
+			"not in",
+			[]string{"d", "e"},
 		},
 		{
-			&datastorepb.GqlQuery{QueryString: "SELECT * FROM Task WHERE Tags CONTAINS 'x' ORDER BY Priority LIMIT 1, 5", AllowLiterals: true},
-			"contains and limit offset", []string{"e"},
+			&datastorepb.GqlQuery{
+				QueryString:   "SELECT * FROM Task WHERE Tags CONTAINS 'x' ORDER BY Priority LIMIT 1, 5",
+				AllowLiterals: true,
+			},
+			"contains and limit offset",
+			[]string{"e"},
 		},
 		{
-			&datastorepb.GqlQuery{QueryString: "SELECT * FROM Task WHERE __key__ = KEY(Task, 'c')", AllowLiterals: true},
-			"key literal", []string{"c"},
+			&datastorepb.GqlQuery{
+				QueryString:   "SELECT * FROM Task WHERE __key__ = KEY(Task, 'c')",
+				AllowLiterals: true,
+			},
+			"key literal",
+			[]string{"c"},
 		},
 		{
 			&datastorepb.GqlQuery{QueryString: "SELECT * FROM Task WHERE Priority > 3 OFFSET 1", AllowLiterals: true},
 			"offset clause", []string{"e"},
 		},
 		{
-			&datastorepb.GqlQuery{QueryString: "SELECT __key__ FROM Task WHERE Done = true LIMIT 2", AllowLiterals: true},
-			"key only", []string{"a", "c"},
+			&datastorepb.GqlQuery{
+				QueryString:   "SELECT __key__ FROM Task WHERE Done = true LIMIT 2",
+				AllowLiterals: true,
+			},
+			"key only",
+			[]string{"a", "c"},
 		},
 	}
 
@@ -128,7 +151,11 @@ func TestAggregations(t *testing.T) {
 		t.Parallel()
 
 		e := newLooseEnv(t)
-		aq := datastore.NewQuery("Task").NewAggregationQuery().WithCount("n").WithSum("Priority", "total").WithAvg("Score", "mean")
+		aq := datastore.NewQuery("Task").
+			NewAggregationQuery().
+			WithCount("n").
+			WithSum("Priority", "total").
+			WithAvg("Score", "mean")
 
 		res, err := e.client.RunAggregationQuery(t.Context(), aq)
 		require.NoError(t, err)
@@ -147,7 +174,10 @@ func TestAggregations(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 3, n)
 
-		res, err := e.client.RunAggregationQuery(t.Context(), datastore.NewQuery("Task").Limit(2).NewAggregationQuery().WithCount("c"))
+		res, err := e.client.RunAggregationQuery(
+			t.Context(),
+			datastore.NewQuery("Task").Limit(2).NewAggregationQuery().WithCount("c"),
+		)
 		require.NoError(t, err)
 		assert.EqualValues(t, 2, res["c"].(*datastorepb.Value).GetIntegerValue())
 	})
@@ -160,7 +190,8 @@ func TestAggregations(t *testing.T) {
 		resp, err := e.raw.RunAggregationQuery(t.Context(), &datastorepb.RunAggregationQueryRequest{
 			ProjectId: project,
 			QueryType: &datastorepb.RunAggregationQueryRequest_GqlQuery{GqlQuery: &datastorepb.GqlQuery{
-				QueryString:   "AGGREGATE COUNT_UP_TO(3) AS capped, COUNT(*), SUM(Score) OVER (SELECT * FROM Task WHERE Done = true)",
+				QueryString: "AGGREGATE COUNT_UP_TO(3) AS capped, COUNT(*), SUM(Score) " +
+					"OVER (SELECT * FROM Task WHERE Done = true)",
 				AllowLiterals: true,
 			}},
 		})
@@ -178,15 +209,25 @@ func TestAggregations(t *testing.T) {
 			}},
 		})
 		require.NoError(t, err)
-		assert.EqualValues(t, 5, short.GetBatch().GetAggregationResults()[0].GetAggregateProperties()["n"].GetIntegerValue())
+		assert.EqualValues(
+			t,
+			5,
+			short.GetBatch().GetAggregationResults()[0].GetAggregateProperties()["n"].GetIntegerValue(),
+		)
 	})
 
 	t.Run("sum of nothing and avg of nothing", func(t *testing.T) {
 		t.Parallel()
 
 		e := newLooseEnv(t)
-		res, err := e.client.RunAggregationQuery(t.Context(),
-			datastore.NewQuery("Task").FilterField("Priority", ">", 100).NewAggregationQuery().WithSum("Priority", "s").WithAvg("Priority", "a"))
+		res, err := e.client.RunAggregationQuery(
+			t.Context(),
+			datastore.NewQuery("Task").
+				FilterField("Priority", ">", 100).
+				NewAggregationQuery().
+				WithSum("Priority", "s").
+				WithAvg("Priority", "a"),
+		)
 		require.NoError(t, err)
 		assert.EqualValues(t, 0, res["s"].(*datastorepb.Value).GetIntegerValue())
 		_, isNull := res["a"].(*datastorepb.Value).GetValueType().(*datastorepb.Value_NullValue)
@@ -197,7 +238,10 @@ func TestAggregations(t *testing.T) {
 		t.Parallel()
 
 		e := newLooseEnv(t)
-		_, err := e.client.RunAggregationQuery(t.Context(), datastore.NewQuery("Task").NewAggregationQuery().WithCount("x").WithCount("x"))
+		_, err := e.client.RunAggregationQuery(
+			t.Context(),
+			datastore.NewQuery("Task").NewAggregationQuery().WithCount("x").WithCount("x"),
+		)
 		assert.Error(t, err)
 	})
 }
@@ -206,9 +250,11 @@ func TestQueryValidation(t *testing.T) {
 	t.Parallel()
 
 	prop := func(n string, op datastorepb.PropertyFilter_Operator, v *datastorepb.Value) *datastorepb.Filter {
-		return &datastorepb.Filter{FilterType: &datastorepb.Filter_PropertyFilter{PropertyFilter: &datastorepb.PropertyFilter{
-			Property: &datastorepb.PropertyReference{Name: n}, Op: op, Value: v,
-		}}}
+		return &datastorepb.Filter{
+			FilterType: &datastorepb.Filter_PropertyFilter{PropertyFilter: &datastorepb.PropertyFilter{
+				Property: &datastorepb.PropertyReference{Name: n}, Op: op, Value: v,
+			}},
+		}
 	}
 
 	tests := []struct {
@@ -218,7 +264,10 @@ func TestQueryValidation(t *testing.T) {
 		{&datastorepb.Query{Kind: []*datastorepb.KindExpression{{Name: "A"}, {Name: "B"}}}, "two kinds"},
 		{&datastorepb.Query{Kind: []*datastorepb.KindExpression{{Name: "A"}}, Offset: -1}, "negative offset"},
 		{&datastorepb.Query{
-			Kind: []*datastorepb.KindExpression{{Name: "A"}}, Filter: prop("x", datastorepb.PropertyFilter_IN, intVal(1)),
+			Kind: []*datastorepb.KindExpression{
+				{Name: "A"},
+			},
+			Filter: prop("x", datastorepb.PropertyFilter_IN, intVal(1)),
 		}, "in needs array"},
 		{&datastorepb.Query{
 			Kind:   []*datastorepb.KindExpression{{Name: "A"}},
@@ -229,12 +278,26 @@ func TestQueryValidation(t *testing.T) {
 			Kind:   []*datastorepb.KindExpression{{Name: "A"}},
 			Filter: prop("x", datastorepb.PropertyFilter_HAS_ANCESTOR, intVal(1)),
 		}, "ancestor needs key"},
-		{&datastorepb.Query{Filter: prop("x", datastorepb.PropertyFilter_EQUAL, intVal(1))}, "kindless property filter"},
+		{
+			&datastorepb.Query{Filter: prop("x", datastorepb.PropertyFilter_EQUAL, intVal(1))},
+			"kindless property filter",
+		},
 		{&datastorepb.Query{
-			Kind: []*datastorepb.KindExpression{{Name: "A"}}, Filter: &datastorepb.Filter{FilterType: &datastorepb.Filter_CompositeFilter{
-				CompositeFilter: &datastorepb.CompositeFilter{Op: datastorepb.CompositeFilter_AND, Filters: []*datastorepb.Filter{
-					prop("x", datastorepb.PropertyFilter_NOT_EQUAL, intVal(1)), prop("y", datastorepb.PropertyFilter_NOT_EQUAL, intVal(2)),
-				}},
+			Kind: []*datastorepb.KindExpression{
+				{Name: "A"},
+			},
+			Filter: &datastorepb.Filter{FilterType: &datastorepb.Filter_CompositeFilter{
+				CompositeFilter: &datastorepb.CompositeFilter{
+					Op: datastorepb.CompositeFilter_AND,
+					Filters: []*datastorepb.Filter{
+						prop(
+							"x",
+							datastorepb.PropertyFilter_NOT_EQUAL,
+							intVal(1),
+						),
+						prop("y", datastorepb.PropertyFilter_NOT_EQUAL, intVal(2)),
+					},
+				},
 			}},
 		}, "two not equal"},
 	}

@@ -25,17 +25,17 @@ type queryPlan struct {
 	ancestor  *datastorepb.Key
 	filter    *datastorepb.Filter
 	q         *datastorepb.Query
+	eqProps   map[string]struct{}
 	part      partition
 	kind      string
-	orders    []order
-	explicit  []order
-	proj      []string
 	distinct  []string
-	eqProps   map[string]struct{}
+	proj      []string
+	explicit  []order
+	orders    []order
 	ineq      []string
-	nonKey    bool
 	offset    int
 	limit     int
+	nonKey    bool
 	hasLimit  bool
 	keysOnly  bool
 	unbounded bool
@@ -106,26 +106,15 @@ func (p *queryPlan) kindlessOK() bool {
 
 // splitAncestor removes the HAS_ANCESTOR filter, which must sit at the top level of an AND.
 func splitAncestor(f *datastorepb.Filter) (*datastorepb.Filter, *datastorepb.Key, error) {
-	if f == nil || f.GetFilterType() == nil {
-		return nil, nil, nil
-	}
-
 	switch t := f.GetFilterType().(type) {
 	case *datastorepb.Filter_PropertyFilter:
 		if t.PropertyFilter.GetOp() != datastorepb.PropertyFilter_HAS_ANCESTOR {
-			if containsAncestor(f) {
-				return nil, nil, errInvalid("HAS_ANCESTOR is invalid here.")
-			}
-
 			return f, nil, nil
 		}
 
 		k, err := ancestorKey(t.PropertyFilter)
-		if err != nil {
-			return nil, nil, err
-		}
 
-		return nil, k, nil
+		return nil, k, err
 	case *datastorepb.Filter_CompositeFilter:
 		cf := t.CompositeFilter
 		if cf.GetOp() != datastorepb.CompositeFilter_AND {
@@ -136,39 +125,43 @@ func splitAncestor(f *datastorepb.Filter) (*datastorepb.Filter, *datastorepb.Key
 			return f, nil, nil
 		}
 
-		var anc *datastorepb.Key
+		return splitAncestorAnd(cf)
+	default:
+		return nil, nil, nil
+	}
+}
 
-		kept := make([]*datastorepb.Filter, 0, len(cf.GetFilters()))
+func splitAncestorAnd(cf *datastorepb.CompositeFilter) (*datastorepb.Filter, *datastorepb.Key, error) {
+	var anc *datastorepb.Key
 
-		for _, child := range cf.GetFilters() {
-			rest, k, err := splitAncestor(child)
-			if err != nil {
-				return nil, nil, err
-			}
+	kept := make([]*datastorepb.Filter, 0, len(cf.GetFilters()))
 
-			if k != nil {
-				if anc != nil {
-					return nil, nil, errInvalid("A query may have at most one HAS_ANCESTOR filter.")
-				}
-
-				anc = k
-			}
-
-			if rest != nil {
-				kept = append(kept, rest)
-			}
+	for _, child := range cf.GetFilters() {
+		rest, k, err := splitAncestor(child)
+		if err != nil {
+			return nil, nil, err
 		}
 
-		if len(kept) == 0 {
-			return nil, anc, nil
+		if k != nil && anc != nil {
+			return nil, nil, errInvalid("A query may have at most one HAS_ANCESTOR filter.")
 		}
 
-		return &datastorepb.Filter{FilterType: &datastorepb.Filter_CompositeFilter{
-			CompositeFilter: &datastorepb.CompositeFilter{Op: datastorepb.CompositeFilter_AND, Filters: kept},
-		}}, anc, nil
+		if k != nil {
+			anc = k
+		}
+
+		if rest != nil {
+			kept = append(kept, rest)
+		}
 	}
 
-	return f, nil, nil
+	if len(kept) == 0 {
+		return nil, anc, nil
+	}
+
+	return &datastorepb.Filter{FilterType: &datastorepb.Filter_CompositeFilter{
+		CompositeFilter: &datastorepb.CompositeFilter{Op: datastorepb.CompositeFilter_AND, Filters: kept},
+	}}, anc, nil
 }
 
 func containsAncestor(f *datastorepb.Filter) bool {
@@ -255,41 +248,50 @@ func (p *queryPlan) analyzeProp(pf *datastorepb.PropertyFilter, notEq *int) erro
 	switch pf.GetOp() {
 	case datastorepb.PropertyFilter_OPERATOR_UNSPECIFIED:
 		return errInvalid("The filter on %q requires an operator.", name)
+	case datastorepb.PropertyFilter_HAS_ANCESTOR:
+		return errInvalid("HAS_ANCESTOR is invalid here.")
 	case datastorepb.PropertyFilter_EQUAL:
 		p.noteEq(name)
-	case datastorepb.PropertyFilter_IN:
-		n, err := arrayFilterSize(pf, maxInValues)
-		if err != nil {
-			return err
-		}
-
-		if n == 0 {
-			return errInvalid("IN filter on %q requires at least one value.", name)
-		}
-
-		p.noteEq(name)
-	case datastorepb.PropertyFilter_NOT_IN:
-		n, err := arrayFilterSize(pf, maxNotInValues)
-		if err != nil {
-			return err
-		}
-
-		if n == 0 {
-			return errInvalid("NOT_IN filter on %q requires at least one value.", name)
-		}
-
-		*notEq++
-
-		p.noteIneq(name)
+	case datastorepb.PropertyFilter_IN, datastorepb.PropertyFilter_NOT_IN:
+		return p.analyzeList(pf, notEq)
 	case datastorepb.PropertyFilter_NOT_EQUAL:
 		*notEq++
 
 		p.noteIneq(name)
-	case datastorepb.PropertyFilter_HAS_ANCESTOR:
-		return errInvalid("HAS_ANCESTOR is invalid here.")
 	default:
 		p.noteIneq(name)
 	}
+
+	return nil
+}
+
+func (p *queryPlan) analyzeList(pf *datastorepb.PropertyFilter, notEq *int) error {
+	name := pf.GetProperty().GetName()
+	isIn := pf.GetOp() == datastorepb.PropertyFilter_IN
+
+	limit := maxNotInValues
+	if isIn {
+		limit = maxInValues
+	}
+
+	n, err := arrayFilterSize(pf, limit)
+	if err != nil {
+		return err
+	}
+
+	if n == 0 {
+		return errInvalid("The %s filter on %q requires at least one value.", pf.GetOp(), name)
+	}
+
+	if isIn {
+		p.noteEq(name)
+
+		return nil
+	}
+
+	*notEq++
+
+	p.noteIneq(name)
 
 	return nil
 }
@@ -309,7 +311,12 @@ func arrayFilterSize(pf *datastorepb.PropertyFilter, limit int) (int, error) {
 
 	n := len(arrayElems(pf.GetValue()))
 	if n > limit {
-		return 0, errInvalid("The %s filter on %q allows at most %d values.", pf.GetOp(), pf.GetProperty().GetName(), limit)
+		return 0, errInvalid(
+			"The %s filter on %q allows at most %d values.",
+			pf.GetOp(),
+			pf.GetProperty().GetName(),
+			limit,
+		)
 	}
 
 	return n, nil
@@ -362,7 +369,10 @@ func (p *queryPlan) planOrders(q *datastorepb.Query) error {
 			return errInvalid("A sort order requires a property name.")
 		}
 
-		p.explicit = append(p.explicit, order{name: name, desc: o.GetDirection() == datastorepb.PropertyOrder_DESCENDING})
+		p.explicit = append(
+			p.explicit,
+			order{name: name, desc: o.GetDirection() == datastorepb.PropertyOrder_DESCENDING},
+		)
 	}
 
 	if len(p.ineq) > 0 && len(p.explicit) > 0 && len(p.ineq) == 1 && p.explicit[0].name != p.ineq[0] {

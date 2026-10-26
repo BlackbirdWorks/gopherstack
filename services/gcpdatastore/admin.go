@@ -93,7 +93,8 @@ func validateIndex(project string, idx *adminpb.Index) error {
 }
 
 func sameDefinition(a, b *adminpb.Index) bool {
-	if a.GetKind() != b.GetKind() || a.GetAncestor() != b.GetAncestor() || len(a.GetProperties()) != len(b.GetProperties()) {
+	if a.GetKind() != b.GetKind() || a.GetAncestor() != b.GetAncestor() ||
+		len(a.GetProperties()) != len(b.GetProperties()) {
 		return false
 	}
 

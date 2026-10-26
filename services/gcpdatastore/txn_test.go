@@ -21,35 +21,43 @@ func TestTransactionConflicts(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T, e *env, tx *datastore.Transaction)
 		want error
+		run  func(t *testing.T, e *env, tx *datastore.Transaction)
+		name string
 	}{
-		{"read entity changed outside", func(t *testing.T, e *env, tx *datastore.Transaction) {
+		{datastore.ErrConcurrentTransaction, func(t *testing.T, e *env, tx *datastore.Transaction) {
+			t.Helper()
+
 			var c counter
 			require.NoError(t, tx.Get(datastore.NameKey("C", "k", nil), &c))
 			_, err := e.client.Put(t.Context(), datastore.NameKey("C", "k", nil), &counter{N: 9})
 			require.NoError(t, err)
 			_, err = tx.Put(datastore.NameKey("C", "other", nil), &counter{N: 1})
 			require.NoError(t, err)
-		}, datastore.ErrConcurrentTransaction},
-		{"unrelated entity changed outside", func(t *testing.T, e *env, tx *datastore.Transaction) {
+		}, "read entity changed outside"},
+		{nil, func(t *testing.T, e *env, tx *datastore.Transaction) {
+			t.Helper()
+
 			var c counter
 			require.NoError(t, tx.Get(datastore.NameKey("C", "k", nil), &c))
 			_, err := e.client.Put(t.Context(), datastore.NameKey("C", "unrelated", nil), &counter{N: 9})
 			require.NoError(t, err)
 			_, err = tx.Put(datastore.NameKey("C", "k", nil), &counter{N: 2})
 			require.NoError(t, err)
-		}, nil},
-		{"write write on same entity", func(t *testing.T, e *env, tx *datastore.Transaction) {
+		}, "unrelated entity changed outside"},
+		{datastore.ErrConcurrentTransaction, func(t *testing.T, e *env, tx *datastore.Transaction) {
+			t.Helper()
+
 			var c counter
 			require.NoError(t, tx.Get(datastore.NameKey("C", "k", nil), &c))
 			_, err := e.client.Put(t.Context(), datastore.NameKey("C", "blind", nil), &counter{N: 1})
 			require.NoError(t, err)
 			_, err = tx.Put(datastore.NameKey("C", "blind", nil), &counter{N: 2})
 			require.NoError(t, err)
-		}, datastore.ErrConcurrentTransaction},
-		{"query scope gains an entity", func(t *testing.T, e *env, tx *datastore.Transaction) {
+		}, "write write on same entity"},
+		{datastore.ErrConcurrentTransaction, func(t *testing.T, e *env, tx *datastore.Transaction) {
+			t.Helper()
+
 			var out []counter
 			_, err := e.client.GetAll(t.Context(), datastore.NewQuery("C").Transaction(tx), &out)
 			require.NoError(t, err)
@@ -57,8 +65,10 @@ func TestTransactionConflicts(t *testing.T) {
 			require.NoError(t, err)
 			_, err = tx.Put(datastore.NameKey("Elsewhere", "x", nil), &counter{N: 1})
 			require.NoError(t, err)
-		}, datastore.ErrConcurrentTransaction},
-		{"query scope of another kind", func(t *testing.T, e *env, tx *datastore.Transaction) {
+		}, "query scope gains an entity"},
+		{nil, func(t *testing.T, e *env, tx *datastore.Transaction) {
+			t.Helper()
+
 			var out []counter
 			_, err := e.client.GetAll(t.Context(), datastore.NewQuery("C").Transaction(tx), &out)
 			require.NoError(t, err)
@@ -66,7 +76,7 @@ func TestTransactionConflicts(t *testing.T) {
 			require.NoError(t, err)
 			_, err = tx.Put(datastore.NameKey("Elsewhere", "x", nil), &counter{N: 1})
 			require.NoError(t, err)
-		}, nil},
+		}, "query scope of another kind"},
 	}
 
 	for _, tt := range tests {
@@ -131,7 +141,7 @@ func TestTransactionLifecycle(t *testing.T) {
 		assert.Equal(t, 1, c.N)
 
 		_, err = tx.Commit()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		ro, err := e.client.NewTransaction(t.Context(), datastore.ReadOnly)
 		require.NoError(t, err)
@@ -148,11 +158,15 @@ func TestTransactionLifecycle(t *testing.T) {
 
 		e := newEnv(t)
 		_, err := e.raw.Commit(t.Context(), &datastorepb.CommitRequest{
-			ProjectId: project, TransactionSelector: &datastorepb.CommitRequest_Transaction{Transaction: []byte("nope")},
+			ProjectId:           project,
+			TransactionSelector: &datastorepb.CommitRequest_Transaction{Transaction: []byte("nope")},
 		})
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 
-		_, err = e.raw.Rollback(t.Context(), &datastorepb.RollbackRequest{ProjectId: project, Transaction: []byte("nope")})
+		_, err = e.raw.Rollback(
+			t.Context(),
+			&datastorepb.RollbackRequest{ProjectId: project, Transaction: []byte("nope")},
+		)
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 
@@ -170,7 +184,13 @@ func TestTransactionLifecycle(t *testing.T) {
 		e := newEnv(t)
 		resp, err := e.raw.Lookup(t.Context(), &datastorepb.LookupRequest{
 			ProjectId: project,
-			Keys:      []*datastorepb.Key{{Path: []*datastorepb.Key_PathElement{{Kind: "C", IdType: &datastorepb.Key_PathElement_Name{Name: "k"}}}}},
+			Keys: []*datastorepb.Key{
+				{
+					Path: []*datastorepb.Key_PathElement{
+						{Kind: "C", IdType: &datastorepb.Key_PathElement_Name{Name: "k"}},
+					},
+				},
+			},
 			ReadOptions: &datastorepb.ReadOptions{ConsistencyType: &datastorepb.ReadOptions_NewTransaction{
 				NewTransaction: &datastorepb.TransactionOptions{},
 			}},
@@ -269,12 +289,14 @@ func TestRunInTransactionRetries(t *testing.T) {
 	})
 }
 
-func nameKey(kind, name string) *datastorepb.Key {
-	return &datastorepb.Key{Path: []*datastorepb.Key_PathElement{{Kind: kind, IdType: &datastorepb.Key_PathElement_Name{Name: name}}}}
+func nameKey(name string) *datastorepb.Key {
+	return &datastorepb.Key{
+		Path: []*datastorepb.Key_PathElement{{Kind: "K", IdType: &datastorepb.Key_PathElement_Name{Name: name}}},
+	}
 }
 
-func strEntity(kind, name string, props map[string]*datastorepb.Value) *datastorepb.Entity {
-	return &datastorepb.Entity{Key: nameKey(kind, name), Properties: props}
+func strEntity(name string, props map[string]*datastorepb.Value) *datastorepb.Entity {
+	return &datastorepb.Entity{Key: nameKey(name), Properties: props}
 }
 
 func intVal(n int64) *datastorepb.Value {
@@ -304,7 +326,11 @@ func TestMutationSemantics(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t)
-		ins := &datastorepb.Mutation{Operation: &datastorepb.Mutation_Insert{Insert: strEntity("K", "a", map[string]*datastorepb.Value{"n": intVal(1)})}}
+		ins := &datastorepb.Mutation{
+			Operation: &datastorepb.Mutation_Insert{
+				Insert: strEntity("a", map[string]*datastorepb.Value{"n": intVal(1)}),
+			},
+		}
 
 		r1, err := e.commit(t, ins)
 		require.NoError(t, err)
@@ -314,13 +340,21 @@ func TestMutationSemantics(t *testing.T) {
 		_, err = e.commit(t, ins)
 		assert.Equal(t, codes.AlreadyExists, status.Code(err))
 
-		upd := &datastorepb.Mutation{Operation: &datastorepb.Mutation_Update{Update: strEntity("K", "a", map[string]*datastorepb.Value{"n": intVal(2)})}}
+		upd := &datastorepb.Mutation{
+			Operation: &datastorepb.Mutation_Update{
+				Update: strEntity("a", map[string]*datastorepb.Value{"n": intVal(2)}),
+			},
+		}
 		r2, err := e.commit(t, upd)
 		require.NoError(t, err)
 		assert.Greater(t, r2.GetMutationResults()[0].GetVersion(), r1.GetMutationResults()[0].GetVersion())
-		assert.Equal(t, r1.GetMutationResults()[0].GetCreateTime().AsTime(), r2.GetMutationResults()[0].GetCreateTime().AsTime())
+		assert.Equal(
+			t,
+			r1.GetMutationResults()[0].GetCreateTime().AsTime(),
+			r2.GetMutationResults()[0].GetCreateTime().AsTime(),
+		)
 
-		missing := &datastorepb.Mutation{Operation: &datastorepb.Mutation_Update{Update: strEntity("K", "zz", nil)}}
+		missing := &datastorepb.Mutation{Operation: &datastorepb.Mutation_Update{Update: strEntity("zz", nil)}}
 		_, err = e.commit(t, missing)
 		assert.Equal(t, codes.NotFound, status.Code(err))
 	})
@@ -329,13 +363,13 @@ func TestMutationSemantics(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t)
-		r1, err := e.commit(t, upsert(strEntity("K", "a", map[string]*datastorepb.Value{"n": intVal(1)})))
+		r1, err := e.commit(t, upsert(strEntity("a", map[string]*datastorepb.Value{"n": intVal(1)})))
 		require.NoError(t, err)
 
 		v1 := r1.GetMutationResults()[0].GetVersion()
 
 		guarded := func(base int64, strat datastorepb.Mutation_ConflictResolutionStrategy, n int64) *datastorepb.Mutation {
-			m := upsert(strEntity("K", "a", map[string]*datastorepb.Value{"n": intVal(n)}))
+			m := upsert(strEntity("a", map[string]*datastorepb.Value{"n": intVal(n)}))
 			m.ConflictDetectionStrategy = &datastorepb.Mutation_BaseVersion{BaseVersion: base}
 			m.ConflictResolutionStrategy = strat
 
@@ -363,15 +397,26 @@ func TestMutationSemantics(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t)
-		_, err := e.commit(t, upsert(strEntity("K", "a", map[string]*datastorepb.Value{"keep": intVal(1), "change": intVal(1), "drop": intVal(1)})))
+		_, err := e.commit(
+			t,
+			upsert(
+				strEntity(
+					"a",
+					map[string]*datastorepb.Value{"keep": intVal(1), "change": intVal(1), "drop": intVal(1)},
+				),
+			),
+		)
 		require.NoError(t, err)
 
-		m := upsert(strEntity("K", "a", map[string]*datastorepb.Value{"change": intVal(2), "ignored": intVal(9)}))
+		m := upsert(strEntity("a", map[string]*datastorepb.Value{"change": intVal(2), "ignored": intVal(9)}))
 		m.PropertyMask = &datastorepb.PropertyMask{Paths: []string{"change", "drop"}}
 		_, err = e.commit(t, m)
 		require.NoError(t, err)
 
-		resp, err := e.raw.Lookup(t.Context(), &datastorepb.LookupRequest{ProjectId: project, Keys: []*datastorepb.Key{nameKey("K", "a")}})
+		resp, err := e.raw.Lookup(
+			t.Context(),
+			&datastorepb.LookupRequest{ProjectId: project, Keys: []*datastorepb.Key{nameKey("a")}},
+		)
 		require.NoError(t, err)
 
 		props := resp.GetFound()[0].GetEntity().GetProperties()
@@ -385,22 +430,37 @@ func TestMutationSemantics(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t)
-		_, err := e.commit(t, upsert(strEntity("K", "a", map[string]*datastorepb.Value{"n": intVal(5)})))
+		_, err := e.commit(t, upsert(strEntity("a", map[string]*datastorepb.Value{"n": intVal(5)})))
 		require.NoError(t, err)
 
-		m := upsert(strEntity("K", "a", map[string]*datastorepb.Value{"n": intVal(5)}))
+		m := upsert(strEntity("a", map[string]*datastorepb.Value{"n": intVal(5)}))
 		m.PropertyTransforms = []*datastorepb.PropertyTransform{
 			{Property: "n", TransformType: &datastorepb.PropertyTransform_Increment{Increment: intVal(3)}},
 			{Property: "hi", TransformType: &datastorepb.PropertyTransform_Maximum{Maximum: intVal(10)}},
-			{Property: "stamp", TransformType: &datastorepb.PropertyTransform_SetToServerValue{SetToServerValue: datastorepb.PropertyTransform_REQUEST_TIME}},
-			{Property: "tags", TransformType: &datastorepb.PropertyTransform_AppendMissingElements{AppendMissingElements: &datastorepb.ArrayValue{Values: []*datastorepb.Value{strVal("a"), strVal("b")}}}},
+			{
+				Property: "stamp",
+				TransformType: &datastorepb.PropertyTransform_SetToServerValue{
+					SetToServerValue: datastorepb.PropertyTransform_REQUEST_TIME,
+				},
+			},
+			{
+				Property: "tags",
+				TransformType: &datastorepb.PropertyTransform_AppendMissingElements{
+					AppendMissingElements: &datastorepb.ArrayValue{
+						Values: []*datastorepb.Value{strVal("a"), strVal("b")},
+					},
+				},
+			},
 		}
 
 		resp, err := e.commit(t, m)
 		require.NoError(t, err)
 		assert.EqualValues(t, 8, resp.GetMutationResults()[0].GetTransformResults()[0].GetIntegerValue())
 
-		got, err := e.raw.Lookup(t.Context(), &datastorepb.LookupRequest{ProjectId: project, Keys: []*datastorepb.Key{nameKey("K", "a")}})
+		got, err := e.raw.Lookup(
+			t.Context(),
+			&datastorepb.LookupRequest{ProjectId: project, Keys: []*datastorepb.Key{nameKey("a")}},
+		)
 		require.NoError(t, err)
 
 		props := got.GetFound()[0].GetEntity().GetProperties()
@@ -414,7 +474,7 @@ func TestMutationSemantics(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t)
-		_, err := e.commit(t, upsert(strEntity("K", "a", nil)), upsert(strEntity("K", "a", nil)))
+		_, err := e.commit(t, upsert(strEntity("a", nil)), upsert(strEntity("a", nil)))
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 
@@ -422,8 +482,8 @@ func TestMutationSemantics(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t)
-		bad := &datastorepb.Mutation{Operation: &datastorepb.Mutation_Update{Update: strEntity("K", "missing", nil)}}
-		_, err := e.commit(t, upsert(strEntity("K", "a", nil)), bad)
+		bad := &datastorepb.Mutation{Operation: &datastorepb.Mutation_Update{Update: strEntity("missing", nil)}}
+		_, err := e.commit(t, upsert(strEntity("a", nil)), bad)
 		require.Error(t, err)
 
 		var got struct{}
@@ -438,15 +498,15 @@ func TestReadTimeAndIDs(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t)
-		r1, err := e.commit(t, upsert(strEntity("K", "a", map[string]*datastorepb.Value{"n": intVal(1)})))
+		r1, err := e.commit(t, upsert(strEntity("a", map[string]*datastorepb.Value{"n": intVal(1)})))
 		require.NoError(t, err)
 
-		_, err = e.commit(t, upsert(strEntity("K", "a", map[string]*datastorepb.Value{"n": intVal(2)})))
+		_, err = e.commit(t, upsert(strEntity("a", map[string]*datastorepb.Value{"n": intVal(2)})))
 		require.NoError(t, err)
 
 		at := func(ts *timestamppb.Timestamp) (*datastorepb.LookupResponse, error) {
 			return e.raw.Lookup(t.Context(), &datastorepb.LookupRequest{
-				ProjectId: project, Keys: []*datastorepb.Key{nameKey("K", "a")},
+				ProjectId: project, Keys: []*datastorepb.Key{nameKey("a")},
 				ReadOptions: &datastorepb.ReadOptions{ConsistencyType: &datastorepb.ReadOptions_ReadTime{ReadTime: ts}},
 			})
 		}
@@ -469,7 +529,12 @@ func TestReadTimeAndIDs(t *testing.T) {
 		e := newEnv(t)
 		parent := datastore.NameKey("P", "p", nil)
 		keys, err := e.client.AllocateIDs(t.Context(), []*datastore.Key{
-			datastore.IncompleteKey("K", parent), datastore.IncompleteKey("K", parent), datastore.IncompleteKey("K", nil),
+			datastore.IncompleteKey(
+				"K",
+				parent,
+			),
+			datastore.IncompleteKey("K", parent),
+			datastore.IncompleteKey("K", nil),
 		})
 		require.NoError(t, err)
 		require.Len(t, keys, 3)
@@ -493,7 +558,9 @@ func TestReadTimeAndIDs(t *testing.T) {
 		e := newEnv(t)
 		_, err := e.raw.ReserveIds(t.Context(), &datastorepb.ReserveIdsRequest{
 			ProjectId: project,
-			Keys:      []*datastorepb.Key{{Path: []*datastorepb.Key_PathElement{{Kind: "K", IdType: &datastorepb.Key_PathElement_Id{Id: 77}}}}},
+			Keys: []*datastorepb.Key{
+				{Path: []*datastorepb.Key_PathElement{{Kind: "K", IdType: &datastorepb.Key_PathElement_Id{Id: 77}}}},
+			},
 		})
 		require.NoError(t, err)
 

@@ -30,13 +30,13 @@ func (c *commitCtx) transform(
 		parent := ensureParent(e, splitPath(pt.GetProperty()))
 		name := splitPath(pt.GetProperty())[len(splitPath(pt.GetProperty()))-1]
 
-		res, err := applyTransform(parent.Properties[name], pt, c.at)
+		res, err := applyTransform(parent.GetProperties()[name], pt, c.at)
 		if err != nil {
 			return nil, err
 		}
 
 		if res.set != nil {
-			parent.Properties[name] = res.set
+			parent.GetProperties()[name] = res.set
 		}
 
 		out = append(out, res.result)
@@ -47,20 +47,20 @@ func (c *commitCtx) transform(
 
 func ensureParent(e *datastorepb.Entity, path []string) *datastorepb.Entity {
 	cur := e
-	if cur.Properties == nil {
+	if cur.GetProperties() == nil {
 		cur.Properties = map[string]*datastorepb.Value{}
 	}
 
 	for _, head := range path[:len(path)-1] {
-		v := cur.Properties[head]
+		v := cur.GetProperties()[head]
 		ev, ok := v.GetValueType().(*datastorepb.Value_EntityValue)
 
 		if !ok {
 			ev = &datastorepb.Value_EntityValue{EntityValue: &datastorepb.Entity{}}
-			cur.Properties[head] = &datastorepb.Value{ValueType: ev}
+			cur.GetProperties()[head] = &datastorepb.Value{ValueType: ev}
 		}
 
-		if ev.EntityValue.Properties == nil {
+		if ev.EntityValue.GetProperties() == nil {
 			ev.EntityValue.Properties = map[string]*datastorepb.Value{}
 		}
 
@@ -210,7 +210,9 @@ func arrayTransform(cur *datastorepb.Value, args []*datastorepb.Value, appendMis
 	}
 
 	return transformResult{
-		set:    &datastorepb.Value{ValueType: &datastorepb.Value_ArrayValue{ArrayValue: &datastorepb.ArrayValue{Values: next}}},
+		set: &datastorepb.Value{
+			ValueType: &datastorepb.Value_ArrayValue{ArrayValue: &datastorepb.ArrayValue{Values: next}},
+		},
 		result: nullValue(),
 	}
 }

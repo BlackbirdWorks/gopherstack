@@ -190,18 +190,6 @@ func (b *InMemoryBackend) readNowLocked() time.Time {
 	return t
 }
 
-// nextCommitLocked allocates a strictly increasing commit time.
-func (b *InMemoryBackend) nextCommitLocked() time.Time {
-	t := b.wallLocked()
-	if !t.After(b.lastCommit) {
-		t = b.lastCommit.Add(time.Microsecond)
-	}
-
-	b.lastCommit = t
-
-	return t
-}
-
 func (b *InMemoryBackend) sweepLocked(now time.Time) {
 	if now.Sub(b.lastSweep) < sweepEvery {
 		return

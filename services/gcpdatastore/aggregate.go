@@ -9,6 +9,12 @@ import (
 
 const maxAggregations = 5
 
+const (
+	aggCount = "count"
+	aggSum   = "sum"
+	aggAvg   = "avg"
+)
+
 type aggSpec struct {
 	alias string
 	kind  string
@@ -31,7 +37,7 @@ func aggSpecs(aggs []*datastorepb.AggregationQuery_Aggregation) ([]aggSpec, erro
 
 		switch op := a.GetOperator().(type) {
 		case *datastorepb.AggregationQuery_Aggregation_Count_:
-			s.kind = "count"
+			s.kind = aggCount
 
 			if op.Count.GetUpTo() != nil {
 				if op.Count.GetUpTo().GetValue() < 0 {
@@ -41,14 +47,14 @@ func aggSpecs(aggs []*datastorepb.AggregationQuery_Aggregation) ([]aggSpec, erro
 				s.upTo, s.hasUp = op.Count.GetUpTo().GetValue(), true
 			}
 		case *datastorepb.AggregationQuery_Aggregation_Sum_:
-			s.kind, s.prop = "sum", op.Sum.GetProperty().GetName()
+			s.kind, s.prop = aggSum, op.Sum.GetProperty().GetName()
 		case *datastorepb.AggregationQuery_Aggregation_Avg_:
-			s.kind, s.prop = "avg", op.Avg.GetProperty().GetName()
+			s.kind, s.prop = aggAvg, op.Avg.GetProperty().GetName()
 		default:
 			return nil, errInvalid("An aggregation requires an operator.")
 		}
 
-		if s.kind != "count" && s.prop == "" {
+		if s.kind != aggCount && s.prop == "" {
 			return nil, errInvalid("The %s aggregation requires a property.", s.kind)
 		}
 
@@ -71,7 +77,7 @@ func aggSpecs(aggs []*datastorepb.AggregationQuery_Aggregation) ([]aggSpec, erro
 }
 
 func (s aggSpec) compute(rows []*row) *datastorepb.Value {
-	if s.kind == "count" {
+	if s.kind == aggCount {
 		n := int64(len(rows))
 		if s.hasUp {
 			n = min(n, s.upTo)
@@ -110,7 +116,7 @@ func (s aggSpec) compute(rows []*row) *datastorepb.Value {
 		fsum += float64(n)
 	}
 
-	if s.kind == "avg" {
+	if s.kind == aggAvg {
 		if count == 0 {
 			return nullValue()
 		}

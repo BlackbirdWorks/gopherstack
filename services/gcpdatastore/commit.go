@@ -359,35 +359,46 @@ func (c *commitCtx) touch(ks string) error {
 	return nil
 }
 
-func (c *commitCtx) applyWrite(m *datastorepb.Mutation, e *datastorepb.Entity) (*datastorepb.MutationResult, error) {
-	_, isInsert := m.GetOperation().(*datastorepb.Mutation_Insert)
-	_, isUpdate := m.GetOperation().(*datastorepb.Mutation_Update)
-
-	key, part, err := normKey(e.GetKey(), c.req, !isUpdate, true)
+// writeTarget validates a write mutation's entity and resolves its key, allocating an id for incomplete keys.
+func (c *commitCtx) writeTarget(
+	m *datastorepb.Mutation, e *datastorepb.Entity, update bool,
+) (*datastorepb.Key, *datastorepb.Entity, *datastorepb.MutationResult, error) {
+	key, part, err := normKey(e.GetKey(), c.req, !update, true)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	if len(m.GetPropertyTransforms()) > maxTransforms {
-		return nil, errInvalid("A mutation may have at most %d property transforms.", maxTransforms)
+		return nil, nil, nil, errInvalid("A mutation may have at most %d property transforms.", maxTransforms)
 	}
 
 	prepared, err := prepareEntity(e, c.req)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	res := &datastorepb.MutationResult{}
 
 	if !isComplete(key) {
-		var id int64
-
-		if id, err = c.b.allocIDLocked(part); err != nil {
-			return nil, err
+		id, aerr := c.b.allocIDLocked(part)
+		if aerr != nil {
+			return nil, nil, nil, aerr
 		}
 
 		lastElem(key).IdType = &datastorepb.Key_PathElement_Id{Id: id}
 		res.Key = key
+	}
+
+	return key, prepared, res, nil
+}
+
+func (c *commitCtx) applyWrite(m *datastorepb.Mutation, e *datastorepb.Entity) (*datastorepb.MutationResult, error) {
+	_, isInsert := m.GetOperation().(*datastorepb.Mutation_Insert)
+	_, isUpdate := m.GetOperation().(*datastorepb.Mutation_Update)
+
+	key, prepared, res, err := c.writeTarget(m, e, isUpdate)
+	if err != nil {
+		return nil, err
 	}
 
 	ks := keyString(key)
@@ -435,7 +446,7 @@ func (c *commitCtx) applyWrite(m *datastorepb.Mutation, e *datastorepb.Entity) (
 
 func applyMask(existing, incoming *datastorepb.Entity, paths []string) *datastorepb.Entity {
 	out, _ := proto.Clone(existing).(*datastorepb.Entity)
-	if out.Properties == nil {
+	if out.GetProperties() == nil {
 		out.Properties = map[string]*datastorepb.Value{}
 	}
 
@@ -453,7 +464,7 @@ func setPath(dst, src *datastorepb.Entity, path []string) {
 		if v, ok := src.GetProperties()[head]; ok {
 			dst.Properties[head] = v
 		} else {
-			delete(dst.Properties, head)
+			delete(dst.GetProperties(), head)
 		}
 
 		return
@@ -461,7 +472,7 @@ func setPath(dst, src *datastorepb.Entity, path []string) {
 
 	sv, ok := src.GetProperties()[head].GetValueType().(*datastorepb.Value_EntityValue)
 	if !ok {
-		delete(dst.Properties, head)
+		delete(dst.GetProperties(), head)
 
 		return
 	}
@@ -475,7 +486,7 @@ func setPath(dst, src *datastorepb.Entity, path []string) {
 	}
 
 	sub := dv.GetEntityValue()
-	if sub.Properties == nil {
+	if sub.GetProperties() == nil {
 		sub.Properties = map[string]*datastorepb.Value{}
 	}
 

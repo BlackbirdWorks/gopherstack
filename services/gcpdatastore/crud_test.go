@@ -16,10 +16,12 @@ func TestCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T, e *env)
+		name string
 	}{
-		{"put get delete", func(t *testing.T, e *env) {
+		{func(t *testing.T, e *env) {
+			t.Helper()
+
 			k := datastore.NameKey("Task", "one", nil)
 			_, err := e.client.Put(t.Context(), k, &task{Name: "one", Priority: 7, Tags: []string{"p", "q"}, Note: "n"})
 			require.NoError(t, err)
@@ -30,8 +32,10 @@ func TestCRUD(t *testing.T) {
 
 			require.NoError(t, e.client.Delete(t.Context(), k))
 			assert.ErrorIs(t, e.client.Get(t.Context(), k, &got), datastore.ErrNoSuchEntity)
-		}},
-		{"incomplete key allocates id", func(t *testing.T, e *env) {
+		}, "put get delete"},
+		{func(t *testing.T, e *env) {
+			t.Helper()
+
 			k, err := e.client.Put(t.Context(), datastore.IncompleteKey("Task", nil), &task{Name: "auto"})
 			require.NoError(t, err)
 			assert.NotZero(t, k.ID)
@@ -39,24 +43,34 @@ func TestCRUD(t *testing.T) {
 			var got task
 			require.NoError(t, e.client.Get(t.Context(), k, &got))
 			assert.Equal(t, "auto", got.Name)
-		}},
-		{"getmulti reports missing per key", func(t *testing.T, e *env) {
+		}, "incomplete key allocates id"},
+		{func(t *testing.T, e *env) {
+			t.Helper()
+
 			e.seed(t, "Task", map[string]task{"a": {}, "b": {}})
 
 			keys := []*datastore.Key{
-				datastore.NameKey("Task", "a", nil), datastore.NameKey("Task", "nope", nil), datastore.NameKey("Task", "b", nil),
+				datastore.NameKey(
+					"Task",
+					"a",
+					nil,
+				),
+				datastore.NameKey("Task", "nope", nil),
+				datastore.NameKey("Task", "b", nil),
 			}
 			dst := make([]task, 3)
 			err := e.client.GetMulti(t.Context(), keys, dst)
 
 			var me datastore.MultiError
 			require.ErrorAs(t, err, &me)
-			assert.NoError(t, me[0])
-			assert.ErrorIs(t, me[1], datastore.ErrNoSuchEntity)
-			assert.NoError(t, me[2])
+			require.NoError(t, me[0])
+			require.ErrorIs(t, me[1], datastore.ErrNoSuchEntity)
+			require.NoError(t, me[2])
 			assert.Equal(t, "b", dst[2].Name)
-		}},
-		{"putmulti and deletemulti", func(t *testing.T, e *env) {
+		}, "getmulti reports missing per key"},
+		{func(t *testing.T, e *env) {
+			t.Helper()
+
 			keys := []*datastore.Key{datastore.NameKey("Task", "a", nil), datastore.NameKey("Task", "b", nil)}
 			_, err := e.client.PutMulti(t.Context(), keys, []task{{Name: "a"}, {Name: "b"}})
 			require.NoError(t, err)
@@ -65,8 +79,10 @@ func TestCRUD(t *testing.T) {
 			n, err := e.client.Count(t.Context(), datastore.NewQuery("Task"))
 			require.NoError(t, err)
 			assert.Zero(t, n)
-		}},
-		{"ancestor paths and namespaces are separate", func(t *testing.T, e *env) {
+		}, "putmulti and deletemulti"},
+		{func(t *testing.T, e *env) {
+			t.Helper()
+
 			parent := datastore.NameKey("List", "l1", nil)
 			child := datastore.NameKey("Task", "c", parent)
 			nsKey := datastore.NameKey("Task", "c", nil)
@@ -82,7 +98,7 @@ func TestCRUD(t *testing.T) {
 			require.NoError(t, e.client.Get(t.Context(), nsKey, &b))
 			assert.Equal(t, "default-ns", a.Name)
 			assert.Equal(t, "other-ns", b.Name)
-		}},
+		}, "ancestor paths and namespaces are separate"},
 	}
 
 	for _, tt := range tests {
@@ -122,7 +138,11 @@ func TestInvalidRequests(t *testing.T) {
 		_, err := e.raw.Commit(t.Context(), &datastorepb.CommitRequest{
 			ProjectId: project, Mode: datastorepb.CommitRequest_NON_TRANSACTIONAL,
 			Mutations: []*datastorepb.Mutation{{Operation: &datastorepb.Mutation_Upsert{Upsert: &datastorepb.Entity{
-				Key: &datastorepb.Key{Path: []*datastorepb.Key_PathElement{{Kind: "Task", IdType: &datastorepb.Key_PathElement_Name{Name: "x"}}}},
+				Key: &datastorepb.Key{
+					Path: []*datastorepb.Key_PathElement{
+						{Kind: "Task", IdType: &datastorepb.Key_PathElement_Name{Name: "x"}},
+					},
+				},
 				Properties: map[string]*datastorepb.Value{"s": {
 					ValueType: &datastorepb.Value_StringValue{StringValue: strings.Repeat("x", 1600)},
 				}},

@@ -17,6 +17,8 @@ const (
 	maxEntityDepth   = 20
 	meaningReserved  = 18
 	keyProperty      = "__key__"
+	entriesPerValue  = 2
+	nanosPerMicro    = 1000
 )
 
 // Value type buckets in index order; values of different buckets never satisfy an inequality together.
@@ -168,7 +170,7 @@ func isArray(v *datastorepb.Value) bool {
 // indexedLeaves flattens v into the values an index holds: array elements individually, unindexed ones dropped.
 func indexedLeaves(v *datastorepb.Value) []*datastorepb.Value {
 	if isArray(v) {
-		var out []*datastorepb.Value
+		out := make([]*datastorepb.Value, 0, len(arrayElems(v)))
 
 		for _, e := range arrayElems(v) {
 			out = append(out, indexedLeaves(e)...)
@@ -205,7 +207,7 @@ func propValues(e *datastorepb.Entity, path string) []*datastorepb.Value {
 
 func descend(v *datastorepb.Value, rest string) []*datastorepb.Value {
 	if isArray(v) {
-		var out []*datastorepb.Value
+		out := make([]*datastorepb.Value, 0, len(arrayElems(v)))
 
 		for _, el := range arrayElems(v) {
 			out = append(out, descend(el, rest)...)
@@ -233,7 +235,7 @@ func countIndexed(e *datastorepb.Entity) int {
 	n := 0
 
 	for _, v := range e.GetProperties() {
-		n += 2 * len(indexedLeaves(v))
+		n += entriesPerValue * len(indexedLeaves(v))
 	}
 
 	return n
@@ -349,7 +351,7 @@ func truncateTimes(e *datastorepb.Entity) {
 func truncateValue(v *datastorepb.Value) {
 	switch t := v.GetValueType().(type) {
 	case *datastorepb.Value_TimestampValue:
-		t.TimestampValue.Nanos -= t.TimestampValue.GetNanos() % 1000
+		t.TimestampValue.Nanos -= t.TimestampValue.GetNanos() % nanosPerMicro
 	case *datastorepb.Value_ArrayValue:
 		for _, el := range t.ArrayValue.GetValues() {
 			truncateValue(el)

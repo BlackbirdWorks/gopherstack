@@ -1,7 +1,9 @@
 package gcpdatastore_test
 
 import (
+	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"cloud.google.com/go/datastore"
@@ -86,7 +88,11 @@ func TestQueryFilters(t *testing.T) {
 		{datastore.NewQuery("Task").Order("-Priority").Limit(2), "limit", []string{"e", "d"}},
 		{datastore.NewQuery("Task").Offset(1).Limit(2), "offset and limit", []string{"b", "c"}},
 		{datastore.NewQuery("Task").Order("-Priority").Offset(3), "offset past most", []string{"b", "a"}},
-		{datastore.NewQuery("Task").Order("Priority").Order("-Score"), "multiple orders", []string{"a", "b", "c", "d", "e"}},
+		{
+			datastore.NewQuery("Task").Order("Priority").Order("-Score"),
+			"multiple orders",
+			[]string{"a", "b", "c", "d", "e"},
+		},
 		{datastore.NewQuery("Task").EventualConsistency(), "eventual", []string{"a", "b", "c", "d", "e"}},
 		{datastore.NewQuery("Task").KeysOnly().FilterField("Done", "=", true), "keys only", []string{"a", "c", "e"}},
 		{datastore.NewQuery("Other"), "other kind", nil},
@@ -115,7 +121,11 @@ func TestQueryOrderExact(t *testing.T) {
 	}{
 		{datastore.NewQuery("Task").Order("-Priority"), "priority desc", []string{"e", "d", "c", "b", "a"}},
 		{datastore.NewQuery("Task").Order("Score"), "score asc", []string{"a", "b", "c", "d", "e"}},
-		{datastore.NewQuery("Task").FilterField("Priority", ">", 1).Order("Priority"), "range ordered", []string{"b", "c", "d", "e"}},
+		{
+			datastore.NewQuery("Task").FilterField("Priority", ">", 1).Order("Priority"),
+			"range ordered",
+			[]string{"b", "c", "d", "e"},
+		},
 		{datastore.NewQuery("Task").Order("-__key__"), "key desc", []string{"e", "d", "c", "b", "a"}},
 		{datastore.NewQuery("Task").Offset(1).Limit(2).Order("-Priority"), "offset limit desc", []string{"d", "c"}},
 	}
@@ -143,7 +153,11 @@ func TestQueryAncestorAndKindless(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err := e.client.Put(t.Context(), datastore.NameKey("Item", "z", datastore.NameKey("List", "l2", nil)), &task{Name: "z"})
+	_, err := e.client.Put(
+		t.Context(),
+		datastore.NameKey("Item", "z", datastore.NameKey("List", "l2", nil)),
+		&task{Name: "z"},
+	)
 	require.NoError(t, err)
 
 	keys := e.keys(t, datastore.NewQuery("Item").Ancestor(parent), false)
@@ -156,7 +170,11 @@ func TestQueryAncestorAndKindless(t *testing.T) {
 	keys = e.keys(t, datastore.NewQuery("Item").Ancestor(parent).FilterField("Priority", "=", 1), false)
 	assert.Equal(t, []string{"x", "y"}, names(keys))
 
-	keys = e.keys(t, datastore.NewQuery("Item").FilterField("__key__", ">", datastore.NameKey("Item", "x", parent)), false)
+	keys = e.keys(
+		t,
+		datastore.NewQuery("Item").FilterField("__key__", ">", datastore.NameKey("Item", "x", parent)),
+		false,
+	)
 	assert.ElementsMatch(t, []string{"y", "z"}, names(keys))
 
 	_, err = e.client.GetAll(t.Context(), datastore.NewQuery("").FilterField("Priority", "=", 1).KeysOnly(), nil)
@@ -172,8 +190,16 @@ func TestQueryProjection(t *testing.T) {
 		want  []string
 	}{
 		{datastore.NewQuery("Task").Project("Priority").Order("Priority"), "scalar", []string{"1", "2", "3", "4", "5"}},
-		{datastore.NewQuery("Task").Project("Tags").Order("Tags"), "array expands per element", []string{"x", "x", "y", "y", "z"}},
-		{datastore.NewQuery("Task").Project("Tags").Order("Tags").Distinct(), "array distinct", []string{"x", "y", "z"}},
+		{
+			datastore.NewQuery("Task").Project("Tags").Order("Tags"),
+			"array expands per element",
+			[]string{"x", "x", "y", "y", "z"},
+		},
+		{
+			datastore.NewQuery("Task").Project("Tags").Order("Tags").Distinct(),
+			"array distinct",
+			[]string{"x", "y", "z"},
+		},
 		{datastore.NewQuery("Task").Project("Done").DistinctOn("Done"), "distinct on", []string{"true", "false"}},
 	}
 
@@ -194,9 +220,9 @@ func TestQueryProjection(t *testing.T) {
 				case len(g.Tags) > 0:
 					vals = append(vals, g.Tags[0])
 				case tt.name == "scalar":
-					vals = append(vals, fmt.Sprint(g.Priority))
+					vals = append(vals, strconv.Itoa(g.Priority))
 				default:
-					vals = append(vals, fmt.Sprint(g.Done))
+					vals = append(vals, strconv.FormatBool(g.Done))
 				}
 			}
 
@@ -236,7 +262,7 @@ func TestQueryCursors(t *testing.T) {
 				var tk task
 
 				_, err := it.Next(&tk)
-				if err == iterator.Done {
+				if errors.Is(err, iterator.Done) {
 					break
 				}
 

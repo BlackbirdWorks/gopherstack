@@ -14,6 +14,8 @@ const (
 	maxNameBytes  = 1500
 	maxKeysLookup = 1000
 	defaultDBName = "(default)"
+	pathSep       = 0x1e
+	kindSep       = 0x1f
 )
 
 // partition is the (project, database, namespace) a key lives in.
@@ -25,17 +27,15 @@ func (p partition) String() string {
 	return p.project + "\x00" + p.database + "\x00" + p.namespace
 }
 
-func (p partition) pb() *datastorepb.PartitionId {
-	return &datastorepb.PartitionId{ProjectId: p.project, DatabaseId: p.database, NamespaceId: p.namespace}
-}
-
 func requestPartition(project, database string) (partition, error) {
 	if project == "" {
 		return partition{}, errInvalid("Missing required project ID.")
 	}
 
 	if database == defaultDBName {
-		return partition{}, errInvalid("database_id '(default)' is not allowed; use the empty string for the default database.")
+		return partition{}, errInvalid(
+			"database_id '(default)' is not allowed; use the empty string for the default database.",
+		)
 	}
 
 	return partition{project: project, database: database}, nil
@@ -132,7 +132,8 @@ func normKey(k *datastorepb.Key, req partition, allowIncomplete, forWrite bool) 
 			return nil, partition{}, err
 		}
 
-		out.Path = append(out.Path, proto.Clone(e).(*datastorepb.Key_PathElement)) //nolint:forcetypeassert // Clone preserves type
+		el, _ := proto.Clone(e).(*datastorepb.Key_PathElement)
+		out.Path = append(out.Path, el)
 	}
 
 	return out, p, nil
@@ -155,6 +156,26 @@ func validateElem(e *datastorepb.Key_PathElement, forWrite, last, allowIncomplet
 		return errInvalid("The key path element kind %q is reserved/read-only.", e.GetKind())
 	}
 
+	if err := validateElemID(e, forWrite); err != nil {
+		return err
+	}
+
+	if elemHasID(e) {
+		return nil
+	}
+
+	if !last {
+		return errInvalid("Only the last element of a key path may be incomplete.")
+	}
+
+	if !allowIncomplete {
+		return errInvalid("The key path element must have an id or name: %s.", e.GetKind())
+	}
+
+	return nil
+}
+
+func validateElemID(e *datastorepb.Key_PathElement, forWrite bool) error {
 	switch id := e.GetIdType().(type) {
 	case *datastorepb.Key_PathElement_Id:
 		if id.Id < 0 {
@@ -174,14 +195,6 @@ func validateElem(e *datastorepb.Key_PathElement, forWrite, last, allowIncomplet
 		}
 	}
 
-	if !elemHasID(e) && (!last || !allowIncomplete) {
-		if last {
-			return errInvalid("The key path element must have an id or name: %s.", e.GetKind())
-		}
-
-		return errInvalid("Only the last element of a key path may be incomplete.")
-	}
-
 	return nil
 }
 
@@ -197,9 +210,9 @@ func keyString(k *datastorepb.Key) string {
 	sb.WriteString(pid.GetNamespaceId())
 
 	for _, e := range k.GetPath() {
-		sb.WriteByte(0x1e)
+		sb.WriteByte(pathSep)
 		sb.WriteString(e.GetKind())
-		sb.WriteByte(0x1f)
+		sb.WriteByte(kindSep)
 
 		if n, ok := e.GetIdType().(*datastorepb.Key_PathElement_Name); ok {
 			sb.WriteByte('n')
@@ -303,20 +316,23 @@ func clampInt32(n int) int32 {
 // from p only when nsDefault is set (query filters), because stored keys carry their own namespace.
 func stampKey(k *datastorepb.Key, p partition, nsDefault bool) *datastorepb.Key {
 	out, _ := proto.Clone(k).(*datastorepb.Key)
-	if out.PartitionId == nil {
-		out.PartitionId = &datastorepb.PartitionId{}
+
+	pid := out.GetPartitionId()
+	if pid == nil {
+		pid = &datastorepb.PartitionId{}
+		out.PartitionId = pid
 	}
 
-	if out.PartitionId.ProjectId == "" {
-		out.PartitionId.ProjectId = p.project
+	if pid.GetProjectId() == "" {
+		pid.ProjectId = p.project
 	}
 
-	if out.PartitionId.DatabaseId == "" {
-		out.PartitionId.DatabaseId = p.database
+	if pid.GetDatabaseId() == "" {
+		pid.DatabaseId = p.database
 	}
 
-	if nsDefault && out.PartitionId.NamespaceId == "" {
-		out.PartitionId.NamespaceId = p.namespace
+	if nsDefault && pid.GetNamespaceId() == "" {
+		pid.NamespaceId = p.namespace
 	}
 
 	return out
