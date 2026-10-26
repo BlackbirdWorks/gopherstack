@@ -687,7 +687,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 2 structural gaps; 2 deferred |
 | [ECS](services/ecs/README.md) | A | 65 | 5 structural gaps |
-| [EKS](services/eks/README.md) | A | 70 | 2 gaps; 5 structural gaps; 1 deferred |
+| [EKS](services/eks/README.md) | A | 71 | 1 gap; 5 structural gaps; 1 deferred |
 
 ### Storage
 
@@ -915,7 +915,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 9 gaps |
 | [Azure Files](services/azurefile/README.md) | B | 38 | 11 gaps |
 | [Azure Functions](services/azurefunctions/README.md) | B | 6 | 8 gaps |
-| [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 5 gaps |
+| [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 4 gaps |
 | [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
 | [Azure SQL Database](services/azuresql/README.md) | B | 14 | 11 gaps |
@@ -937,7 +937,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 53 | 11 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 7 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 38 | 7 gaps |
-| [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 5 gaps |
+| [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 4 gaps |
 | [Cloud Spanner](services/gcpspanner/README.md) | B | 18 | 6 gaps |
 | [Cloud Tasks](services/gcpcloudtasks/README.md) | B | 20 | 3 gaps |
 | [Eventarc](services/gcpeventarc/README.md) | B | 24 | 10 gaps |

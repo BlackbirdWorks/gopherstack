@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 15 (12 ok, 3 partial) |
+| PARITY entries audited | 15 (13 ok, 2 partial) |
 | Feature families | 5 (4 ok, 1 partial) |
-| Known gaps | 5 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,7 +18,6 @@
 - Third-party certificate issuers (DigiCert, GlobalSign) are rejected; AutoRenew of Unknown-issuer certificates (which would open a new pending CSR) is not executed.
 - Key release (ReleaseKey, release_policy), GetKeyAttestation and ES256K/P-256K (no secp256k1 in go.mod) are not implemented.
 - Notify and EmailContacts lifetime actions are recorded only; nothing is delivered.
-- ARM Microsoft.KeyVault: deletedVaults, checkNameAvailability and vault purge are not implemented; ARM vault metadata is not persisted.
 - Backups use an opaque gopherstack blob, not Azure's format.
 
 ## More

@@ -17,7 +17,7 @@
 ### Known gaps
 
 - DbParameterGroup: InfluxDBv3 parameter groups are stored and returned but have no matching engine, so they are not applied
-- DbBackupConfigurations: CUSTOM_SCHEDULE (cron) and CONTINUOUS configurations are stored but never run; HOURLY, DAILY, WEEKLY and MONTHLY run on the backend clock
+- DbBackupConfigurations: CONTINUOUS configurations are stored but never run
 - VpcSubnetIds: existence is checked through EC2 when wired, but all subnets belonging to one VPC and the security groups are not verified
 - AccessDeniedException: never raised; no IAM authorization is modeled
 
