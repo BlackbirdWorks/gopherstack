@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/iam/apiv1/iampb"
 
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -25,10 +25,9 @@ type InMemoryBackend struct {
 	subs      map[string]*subscription
 	snaps     map[string]*snapshot
 	schemas   map[string]*schemaRec
-	policies  map[string]*iampb.Policy
+	iam       *gcpiampolicy.Store
 	pushWake  chan struct{}
 	observers []PublishObserver
-	etagSeq   uint64
 	lastMsg   int64
 }
 
@@ -49,7 +48,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.subs = make(map[string]*subscription)
 	b.snaps = make(map[string]*snapshot)
 	b.schemas = make(map[string]*schemaRec)
-	b.policies = make(map[string]*iampb.Policy)
+	b.iam = gcpiampolicy.NewStore()
 }
 
 // Reset clears all state.
@@ -63,7 +62,6 @@ func (b *InMemoryBackend) Reset() {
 
 	b.resetMaps()
 	b.lastMsg = 0
-	b.etagSeq = 0
 }
 
 func (b *InMemoryBackend) nextMsgID() string {

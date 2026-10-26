@@ -140,43 +140,64 @@ func view(p *iampb.Policy, requested int32) *iampb.Policy {
 	return out
 }
 
-// Set validates and stores in as the policy of name. A non-empty etag must match the stored one.
-func (s *Store) Set(name string, in *iampb.Policy) (*iampb.Policy, error) {
+// Apply validates in and builds the policy to store in place of current (nil when unset).
+// A non-empty etag in in must match current's. etag mints the new etag.
+func Apply(current, in *iampb.Policy, etag func() []byte) (*iampb.Policy, error) {
 	if err := Validate(in); err != nil {
 		return nil, err
 	}
 
-	current := EmptyEtag()
-	if p := s.policies[name]; p != nil {
-		current = p.GetEtag()
+	cur := EmptyEtag()
+	if current != nil {
+		cur = current.GetEtag()
 	}
 
-	if et := in.GetEtag(); len(et) > 0 && !bytes.Equal(et, current) {
+	if et := in.GetEtag(); len(et) > 0 && !bytes.Equal(et, cur) {
 		return nil, status.Error(codes.Aborted,
 			"There were concurrent policy changes. Please retry the whole read-modify-write with exponential backoff.")
 	}
 
 	next := clonePolicy(in)
-	next.Etag = s.nextEtag()
+	next.Etag = etag()
 	next.Version = 1
 
 	if hasConditions(next) {
 		next.Version = conditionalVer
 	}
 
+	return next, nil
+}
+
+// Empty returns the policy of a resource that has none set.
+func Empty() *iampb.Policy { return &iampb.Policy{Etag: EmptyEtag()} }
+
+// SetView is the response to a successful SetIamPolicy: the stored policy at version 3.
+func SetView(stored *iampb.Policy) *iampb.Policy { return view(stored, conditionalVer) }
+
+// View renders a stored policy (nil when unset) for a reader asking for requestedVersion.
+func View(stored *iampb.Policy, requestedVersion int32) *iampb.Policy {
+	if stored == nil {
+		return Empty()
+	}
+
+	return view(stored, requestedVersion)
+}
+
+// Set validates and stores in as the policy of name. A non-empty etag must match the stored one.
+func (s *Store) Set(name string, in *iampb.Policy) (*iampb.Policy, error) {
+	next, err := Apply(s.policies[name], in, s.nextEtag)
+	if err != nil {
+		return nil, err
+	}
+
 	s.policies[name] = next
 
-	return view(next, conditionalVer), nil
+	return SetView(next), nil
 }
 
 // Get returns the policy of name, or an empty policy when none is set.
 func (s *Store) Get(name string, requestedVersion int32) *iampb.Policy {
-	p := s.policies[name]
-	if p == nil {
-		return &iampb.Policy{Etag: EmptyEtag()}
-	}
-
-	return view(p, requestedVersion)
+	return View(s.policies[name], requestedVersion)
 }
 
 // Granted returns the requested permissions that start with prefix: the emulator performs no authorization,
@@ -192,3 +213,9 @@ func Granted(requested []string, prefix string) []string {
 
 	return granted
 }
+
+// HasConditions reports whether any binding of p carries a condition.
+func HasConditions(p *iampb.Policy) bool { return hasConditions(p) }
+
+// ConditionalVersion is the policy version required to read or write conditional bindings.
+const ConditionalVersion = conditionalVer

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -279,14 +280,18 @@ func (b *InMemoryBackend) DeleteBucket(name string, pre Preconds) error {
 	return nil
 }
 
-// GetIAMPolicy returns the bucket IAM policy.
-func (b *InMemoryBackend) GetIAMPolicy(name string) (IAMPolicy, error) {
+// GetIAMPolicy returns the bucket IAM policy; policies with conditional bindings need requestedVersion >= 3.
+func (b *InMemoryBackend) GetIAMPolicy(name string, requestedVersion int) (IAMPolicy, error) {
 	b.mu.RLock("GetIAMPolicy")
 	defer b.mu.RUnlock()
 
 	bk, err := b.bucketLocked(name)
 	if err != nil {
 		return IAMPolicy{}, err
+	}
+
+	if requestedVersion < gcpiampolicy.ConditionalVersion && gcpiampolicy.HasConditions(policyToPB(bk.IAM)) {
+		return IAMPolicy{}, errInvalid("Requested policy version must be 3 for a bucket with IAM Conditions.")
 	}
 
 	pol := bk.IAM
@@ -305,36 +310,16 @@ func (b *InMemoryBackend) SetIAMPolicy(name string, pol IAMPolicy) (IAMPolicy, e
 		return IAMPolicy{}, err
 	}
 
-	if pol.Etag != "" && pol.Etag != bk.IAM.Etag {
-		return IAMPolicy{}, errPrecondition()
+	next, err := gcpiampolicy.Apply(policyToPB(bk.IAM), policyToPB(pol), b.nextIAMEtag)
+	if err != nil {
+		return IAMPolicy{}, iamErr(err)
 	}
 
-	for _, bind := range pol.Bindings {
-		if bind.Role == "" || len(bind.Members) == 0 {
-			return IAMPolicy{}, errInvalid("Invalid IAM binding: role and members are required.")
-		}
-	}
-
-	b.iamSeq++
-
-	var seq [8]byte
-
-	binary.BigEndian.PutUint64(seq[:], b.iamSeq)
-
-	if pol.Bindings == nil {
-		pol.Bindings = []IAMBinding{}
-	}
-
-	if pol.Version == 0 {
-		pol.Version = 1
-	}
-
-	pol.Etag = base64.StdEncoding.EncodeToString(seq[:])
-	bk.IAM = pol
+	bk.IAM = policyFromPB(next)
 	bk.Updated = time.Now().UTC()
 
-	out := pol
-	out.Bindings = slices.Clone(pol.Bindings)
+	out := bk.IAM
+	out.Bindings = slices.Clone(out.Bindings)
 
 	return out, nil
 }

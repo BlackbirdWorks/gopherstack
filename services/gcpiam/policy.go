@@ -1,23 +1,13 @@
 package gcpiam
 
 import (
-	"bytes"
-	"slices"
 	"strings"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
-	"google.golang.org/protobuf/proto"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 )
 
 const maxBindings = 1500
-
-func emptyPolicyEtag() []byte { return []byte{0x00, 0x20, 0x01} }
-
-func clonePolicy(p *iampb.Policy) *iampb.Policy {
-	out, _ := proto.Clone(p).(*iampb.Policy)
-
-	return out
-}
 
 func memberValid(m string) bool {
 	if m == "allUsers" || m == "allAuthenticatedUsers" {
@@ -81,8 +71,8 @@ func (b *InMemoryBackend) roleRefValidLocked(role string) error {
 	return nil
 }
 
-// GetIamPolicy returns a service account's IAM policy, or an empty one with the initial etag.
-func (b *InMemoryBackend) GetIamPolicy(resource string) (*iampb.Policy, error) {
+// GetIamPolicy returns a service account's IAM policy at the requested version, or an empty one.
+func (b *InMemoryBackend) GetIamPolicy(resource string, version int32) (*iampb.Policy, error) {
 	b.mu.RLock("GetIamPolicy")
 	defer b.mu.RUnlock()
 
@@ -91,17 +81,13 @@ func (b *InMemoryBackend) GetIamPolicy(resource string) (*iampb.Policy, error) {
 		return nil, err
 	}
 
-	if rec.policy != nil {
-		return clonePolicy(rec.policy), nil
-	}
-
-	return &iampb.Policy{Etag: emptyPolicyEtag()}, nil
+	return gcpiampolicy.View(rec.policy, version), nil
 }
 
 // SetIamPolicy replaces a service account's policy; a non-empty etag must match the stored one.
 func (b *InMemoryBackend) SetIamPolicy(req *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
-	if req.GetPolicy() == nil {
-		return nil, errInvalid("policy must be specified.")
+	if err := gcpiampolicy.Validate(req.GetPolicy()); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("SetIamPolicy")
@@ -116,24 +102,17 @@ func (b *InMemoryBackend) SetIamPolicy(req *iampb.SetIamPolicyRequest) (*iampb.P
 		return nil, err
 	}
 
-	current := emptyPolicyEtag()
-	if rec.policy != nil {
-		current = rec.policy.GetEtag()
+	next, err := gcpiampolicy.Apply(rec.policy, req.GetPolicy(), b.nextEtag)
+	if err != nil {
+		return nil, err
 	}
 
-	if et := req.GetPolicy().GetEtag(); len(et) > 0 && !bytes.Equal(et, current) {
-		return nil, errAborted("There were concurrent policy changes. " +
-			"Please retry the whole read-modify-write with exponential backoff.")
-	}
-
-	next := clonePolicy(req.GetPolicy())
-	next.Etag = b.nextEtag()
 	rec.policy = next
 
-	return clonePolicy(next), nil
+	return gcpiampolicy.SetView(next), nil
 }
 
-// TestIamPermissions reports every requested permission as granted: the emulator performs no authorization.
+// TestIamPermissions reports the requested IAM permissions as granted: the emulator performs no authorization.
 func (b *InMemoryBackend) TestIamPermissions(
 	req *iampb.TestIamPermissionsRequest,
 ) (*iampb.TestIamPermissionsResponse, error) {
@@ -144,5 +123,5 @@ func (b *InMemoryBackend) TestIamPermissions(
 		return nil, err
 	}
 
-	return &iampb.TestIamPermissionsResponse{Permissions: slices.Clone(req.GetPermissions())}, nil
+	return &iampb.TestIamPermissionsResponse{Permissions: gcpiampolicy.Granted(req.GetPermissions(), "iam.")}, nil
 }

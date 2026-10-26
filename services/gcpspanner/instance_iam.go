@@ -1,45 +1,27 @@
 package gcpspanner
 
 import (
-	"encoding/base64"
 	"encoding/binary"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 )
 
 const etagLen = 8
 
-func clonePolicy(p *iampb.Policy) *iampb.Policy {
-	out, _ := proto.Clone(p).(*iampb.Policy)
-
-	return out
-}
+const permPrefix = "spanner."
 
 func (b *InMemoryBackend) nextEtag() []byte {
 	b.etagSeq++
 	raw := make([]byte, etagLen)
 	binary.BigEndian.PutUint64(raw, b.etagSeq)
 
-	return []byte(base64.StdEncoding.EncodeToString(raw))
+	return raw
 }
 
-func emptyPolicy() *iampb.Policy { return &iampb.Policy{Etag: []byte("ACAB")} }
-
-func validatePolicy(p *iampb.Policy) error {
-	for _, bind := range p.GetBindings() {
-		if bind.GetRole() == "" || len(bind.GetMembers()) == 0 {
-			return errInvalid("Every binding needs a role and at least one member.")
-		}
-	}
-
-	return nil
-}
-
-// GetIamPolicy returns the policy of an instance.
-func (b *InMemoryBackend) GetIamPolicy(resource string) (*iampb.Policy, error) {
+// GetIamPolicy returns the policy of an instance at the requested version.
+func (b *InMemoryBackend) GetIamPolicy(resource string, version int32) (*iampb.Policy, error) {
 	if _, _, err := parseInstance(resource); err != nil {
 		return nil, err
 	}
@@ -52,11 +34,7 @@ func (b *InMemoryBackend) GetIamPolicy(resource string) (*iampb.Policy, error) {
 		return nil, errInstanceNotFound(resource)
 	}
 
-	if rec.policy == nil {
-		return emptyPolicy(), nil
-	}
-
-	return clonePolicy(rec.policy), nil
+	return gcpiampolicy.View(rec.policy, version), nil
 }
 
 // SetIamPolicy replaces the policy of an instance; a stale etag aborts the call.
@@ -65,11 +43,7 @@ func (b *InMemoryBackend) SetIamPolicy(in *iampb.SetIamPolicyRequest) (*iampb.Po
 		return nil, err
 	}
 
-	if in.GetPolicy() == nil {
-		return nil, errInvalid("policy is required.")
-	}
-
-	if err := validatePolicy(in.GetPolicy()); err != nil {
+	if err := gcpiampolicy.Validate(in.GetPolicy()); err != nil {
 		return nil, err
 	}
 
@@ -81,23 +55,17 @@ func (b *InMemoryBackend) SetIamPolicy(in *iampb.SetIamPolicyRequest) (*iampb.Po
 		return nil, errInstanceNotFound(in.GetResource())
 	}
 
-	cur := emptyPolicy()
-	if rec.policy != nil {
-		cur = rec.policy
+	next, err := gcpiampolicy.Apply(rec.policy, in.GetPolicy(), b.nextEtag)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(in.GetPolicy().GetEtag()) > 0 && string(in.GetPolicy().GetEtag()) != string(cur.GetEtag()) {
-		return nil, status.Error(codes.Aborted, "The policy etag does not match the current policy; read it again.")
-	}
-
-	next := clonePolicy(in.GetPolicy())
-	next.Etag = b.nextEtag()
 	rec.policy = next
 
-	return clonePolicy(next), nil
+	return gcpiampolicy.SetView(next), nil
 }
 
-// TestIamPermissions reports every requested permission as granted: the emulator authorises all callers.
+// TestIamPermissions reports the requested Spanner permissions as granted: the emulator authorises all callers.
 func (b *InMemoryBackend) TestIamPermissions(
 	in *iampb.TestIamPermissionsRequest,
 ) (*iampb.TestIamPermissionsResponse, error) {
@@ -105,5 +73,5 @@ func (b *InMemoryBackend) TestIamPermissions(
 		return nil, err
 	}
 
-	return &iampb.TestIamPermissionsResponse{Permissions: in.GetPermissions()}, nil
+	return &iampb.TestIamPermissionsResponse{Permissions: gcpiampolicy.Granted(in.GetPermissions(), permPrefix)}, nil
 }

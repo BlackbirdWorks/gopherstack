@@ -1,32 +1,24 @@
 package gcpbigtable
 
 import (
-	"encoding/base64"
 	"encoding/binary"
 	"strings"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 )
 
-const etagLen = 8
+const (
+	etagLen    = 8
+	permPrefix = "bigtable."
+)
 
 func (b *InMemoryBackend) nextEtag() []byte {
 	raw := make([]byte, etagLen)
 	binary.BigEndian.PutUint64(raw, b.nextSeq())
 
-	return []byte(base64.StdEncoding.EncodeToString(raw))
-}
-
-func emptyPolicy() *iampb.Policy { return &iampb.Policy{Etag: []byte("ACAB")} }
-
-func validatePolicy(p *iampb.Policy) error {
-	for _, bind := range p.GetBindings() {
-		if bind.GetRole() == "" || len(bind.GetMembers()) == 0 {
-			return errInvalid("Every binding needs a role and at least one member.")
-		}
-	}
-
-	return nil
+	return raw
 }
 
 // policySlot returns the policy pointer of an instance, table or backup resource.
@@ -76,8 +68,8 @@ func (b *InMemoryBackend) policySlot(resource string) (**iampb.Policy, error) {
 	}
 }
 
-// GetIamPolicy returns the policy of an instance, table or backup.
-func (b *InMemoryBackend) GetIamPolicy(resource string) (*iampb.Policy, error) {
+// GetIamPolicy returns the policy of an instance, table or backup at the requested version.
+func (b *InMemoryBackend) GetIamPolicy(resource string, version int32) (*iampb.Policy, error) {
 	b.mu.RLock("GetIamPolicy")
 	defer b.mu.RUnlock()
 
@@ -86,20 +78,12 @@ func (b *InMemoryBackend) GetIamPolicy(resource string) (*iampb.Policy, error) {
 		return nil, err
 	}
 
-	if *slot == nil {
-		return emptyPolicy(), nil
-	}
-
-	return clone(*slot), nil
+	return gcpiampolicy.View(*slot, version), nil
 }
 
 // SetIamPolicy replaces a policy; a stale etag aborts the call.
 func (b *InMemoryBackend) SetIamPolicy(in *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
-	if in.GetPolicy() == nil {
-		return nil, errInvalid("policy is required.")
-	}
-
-	if err := validatePolicy(in.GetPolicy()); err != nil {
+	if err := gcpiampolicy.Validate(in.GetPolicy()); err != nil {
 		return nil, err
 	}
 
@@ -111,23 +95,17 @@ func (b *InMemoryBackend) SetIamPolicy(in *iampb.SetIamPolicyRequest) (*iampb.Po
 		return nil, err
 	}
 
-	cur := emptyPolicy()
-	if *slot != nil {
-		cur = *slot
+	next, err := gcpiampolicy.Apply(*slot, in.GetPolicy(), b.nextEtag)
+	if err != nil {
+		return nil, err
 	}
 
-	if len(in.GetPolicy().GetEtag()) > 0 && string(in.GetPolicy().GetEtag()) != string(cur.GetEtag()) {
-		return nil, errAborted("The policy etag does not match the current policy; read it again.")
-	}
-
-	next := clone(in.GetPolicy())
-	next.Etag = b.nextEtag()
 	*slot = next
 
-	return clone(next), nil
+	return gcpiampolicy.SetView(next), nil
 }
 
-// TestIamPermissions reports every requested permission as granted: the emulator authorises all callers.
+// TestIamPermissions reports the requested Bigtable permissions as granted: the emulator authorises all callers.
 func (b *InMemoryBackend) TestIamPermissions(
 	in *iampb.TestIamPermissionsRequest,
 ) (*iampb.TestIamPermissionsResponse, error) {
@@ -138,5 +116,5 @@ func (b *InMemoryBackend) TestIamPermissions(
 		return nil, err
 	}
 
-	return &iampb.TestIamPermissionsResponse{Permissions: in.GetPermissions()}, nil
+	return &iampb.TestIamPermissionsResponse{Permissions: gcpiampolicy.Granted(in.GetPermissions(), permPrefix)}, nil
 }

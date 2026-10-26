@@ -150,7 +150,7 @@ func (s *server) DeleteTag(ctx context.Context, in *artifactregistrypb.DeleteTag
 }
 
 func (s *server) GetIamPolicy(_ context.Context, in *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
-	return s.b.GetIamPolicy(in.GetResource())
+	return s.b.GetIamPolicy(in.GetResource(), in.GetOptions().GetRequestedPolicyVersion())
 }
 
 func (s *server) SetIamPolicy(_ context.Context, in *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
@@ -161,11 +161,12 @@ func (s *server) SetIamPolicy(_ context.Context, in *iampb.SetIamPolicyRequest) 
 func (s *server) TestIamPermissions(
 	_ context.Context, in *iampb.TestIamPermissionsRequest,
 ) (*iampb.TestIamPermissionsResponse, error) {
-	if _, err := s.b.GetIamPolicy(in.GetResource()); err != nil {
+	granted, err := s.b.TestIamPermissions(in.GetResource(), in.GetPermissions())
+	if err != nil {
 		return nil, err
 	}
 
-	return &iampb.TestIamPermissionsResponse{Permissions: in.GetPermissions()}, nil
+	return &iampb.TestIamPermissionsResponse{Permissions: granted}, nil
 }
 
 func (s *server) UpdatePackage(

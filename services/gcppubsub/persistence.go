@@ -67,18 +67,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	iamPolicies, iamSeq := b.iam.Snapshot()
+
 	snap := backendSnapshot{
 		Version:   snapshotVersion,
 		LastMsg:   b.lastMsg,
-		EtagSeq:   b.etagSeq,
-		Policies:  make(map[string]json.RawMessage, len(b.policies)),
+		EtagSeq:   iamSeq,
+		Policies:  make(map[string]json.RawMessage, len(iamPolicies)),
 		Schemas:   b.schemas,
 		Topics:    make(map[string]topicSnap, len(b.topics)),
 		Subs:      make(map[string]subSnap, len(b.subs)),
 		Snapshots: make(map[string]pbSnapSnap, len(b.snaps)),
 	}
 
-	for n, p := range b.policies {
+	for n, p := range iamPolicies {
 		snap.Policies[n] = marshalPB(p)
 	}
 
@@ -136,8 +138,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.notifyLocked(s)
 	}
 
-	b.policies = policies
-	b.etagSeq = max(b.etagSeq, snap.EtagSeq)
+	_, curSeq := b.iam.Snapshot()
+	b.iam.Restore(policies, max(curSeq, snap.EtagSeq))
 	b.topics, b.subs, b.snaps = topics, subs, snaps
 	b.schemas = snap.Schemas
 

@@ -2,18 +2,17 @@ package gcpartifactregistry
 
 import (
 	"cloud.google.com/go/iam/apiv1/iampb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/proto"
 )
 
-func clonePolicy(p *iampb.Policy) *iampb.Policy {
-	out, _ := proto.Clone(p).(*iampb.Policy)
+const permPrefix = "artifactregistry."
 
-	return out
-}
+func newEtag() []byte { return []byte(uuid.NewString()) }
 
-// GetIamPolicy returns a repository's policy, or an empty one with an etag if none was set.
-func (b *InMemoryBackend) GetIamPolicy(resource string) (*iampb.Policy, error) {
+// GetIamPolicy returns a repository's policy at the requested version, or an empty one with an etag if none was set.
+func (b *InMemoryBackend) GetIamPolicy(resource string, version int32) (*iampb.Policy, error) {
 	ref, err := parseRepo(resource)
 	if err != nil {
 		return nil, err
@@ -27,22 +26,18 @@ func (b *InMemoryBackend) GetIamPolicy(resource string) (*iampb.Policy, error) {
 		return nil, errNotFound("Repository %q not found.", ref.full())
 	}
 
-	if rec.iam == nil {
-		return &iampb.Policy{Etag: []byte("ACAB")}, nil
-	}
-
-	return clonePolicy(rec.iam), nil
+	return gcpiampolicy.View(rec.iam, version), nil
 }
 
-// SetIamPolicy replaces a repository's policy; a stale etag is ABORTED-style FAILED_PRECONDITION.
+// SetIamPolicy replaces a repository's policy; a stale etag aborts the call.
 func (b *InMemoryBackend) SetIamPolicy(resource string, policy *iampb.Policy) (*iampb.Policy, error) {
 	ref, err := parseRepo(resource)
 	if err != nil {
 		return nil, err
 	}
 
-	if policy == nil {
-		return nil, errInvalid("policy is required.")
+	if err := gcpiampolicy.Validate(policy); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("SetIamPolicy")
@@ -53,13 +48,21 @@ func (b *InMemoryBackend) SetIamPolicy(resource string, policy *iampb.Policy) (*
 		return nil, errNotFound("Repository %q not found.", ref.full())
 	}
 
-	if len(policy.GetEtag()) > 0 && rec.iam != nil && string(policy.GetEtag()) != string(rec.iam.GetEtag()) {
-		return nil, errPrecondition("The policy was modified concurrently; fetch it again.")
+	next, err := gcpiampolicy.Apply(rec.iam, policy, newEtag)
+	if err != nil {
+		return nil, err
 	}
 
-	next := clonePolicy(policy)
-	next.Etag = []byte(uuid.NewString())
 	rec.iam = next
 
-	return clonePolicy(next), nil
+	return gcpiampolicy.SetView(next), nil
+}
+
+// TestIamPermissions reports the requested Artifact Registry permissions as granted: the emulator does not enforce IAM.
+func (b *InMemoryBackend) TestIamPermissions(resource string, perms []string) ([]string, error) {
+	if _, err := b.GetIamPolicy(resource, 1); err != nil {
+		return nil, err
+	}
+
+	return gcpiampolicy.Granted(perms, permPrefix), nil
 }

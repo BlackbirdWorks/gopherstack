@@ -1,39 +1,21 @@
 package gcppubsub
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"slices"
 	"strings"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
-	"google.golang.org/genproto/googleapis/type/expr"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 )
 
 const (
-	etagLen         = 8
-	conditionalVer  = 3
-	withCondSuffix  = "_withcond_"
-	condHashHexLen  = 20
 	iamCollSchemas  = "schemas"
 	iamCollTopics   = "topics"
 	iamCollSubs     = "subscriptions"
 	iamCollSnapshot = "snapshots"
 )
-
-func emptyPolicyEtag() []byte { return []byte{0x00, 0x20, 0x01} }
-
-func clonePolicy(p *iampb.Policy) *iampb.Policy {
-	out, _ := proto.Clone(p).(*iampb.Policy)
-
-	return out
-}
 
 // iamKind returns the collection of an IAM-capable resource name, or "" when the name is not one.
 func iamKind(name string) string {
@@ -83,112 +65,20 @@ func (b *InMemoryBackend) iamTargetLocked(name string) (string, error) {
 	return kind, nil
 }
 
-func (b *InMemoryBackend) nextPolicyEtag() []byte {
-	b.etagSeq++
-
-	raw := make([]byte, etagLen)
-	binary.BigEndian.PutUint64(raw, b.etagSeq)
-
-	return raw
-}
-
-func hasConditions(p *iampb.Policy) bool {
-	return slices.ContainsFunc(p.GetBindings(), func(bd *iampb.Binding) bool { return bd.GetCondition() != nil })
-}
-
-func validatePolicy(p *iampb.Policy) error {
-	for _, bd := range p.GetBindings() {
-		if bd.GetRole() == "" || len(bd.GetMembers()) == 0 {
-			return errInvalid("Every binding needs a role and at least one member.")
-		}
-
-		if c := bd.GetCondition(); c != nil && c.GetExpression() == "" {
-			return errInvalid("Condition expression must not be empty.")
-		}
-	}
-
-	if hasConditions(p) && p.GetVersion() < conditionalVer {
-		return errInvalid("Invalid IAM policy: policy version must be 3 when a binding has a condition.")
-	}
-
-	return nil
-}
-
-func conditionHash(c *expr.Expr) string {
-	sum := sha256.Sum256([]byte(c.GetExpression() + "\x00" + c.GetTitle() + "\x00" + c.GetDescription()))
-
-	return hex.EncodeToString(sum[:])[:condHashHexLen]
-}
-
-// policyView renders a stored policy for a reader asking for the given policy version.
-func policyView(p *iampb.Policy, requested int32) *iampb.Policy {
-	out := clonePolicy(p)
-
-	if !hasConditions(out) {
-		out.Version = 1
-
-		return out
-	}
-
-	if requested >= conditionalVer {
-		out.Version = conditionalVer
-
-		return out
-	}
-
-	out.Version = 1
-
-	for _, bd := range out.GetBindings() {
-		if c := bd.GetCondition(); c != nil {
-			bd.Role += withCondSuffix + conditionHash(c)
-			bd.Condition = nil
-		}
-	}
-
-	return out
-}
-
 // SetIamPolicy replaces a resource's IAM policy; a non-empty etag must match the stored policy.
 func (b *InMemoryBackend) SetIamPolicy(req *iampb.SetIamPolicyRequest) (*iampb.Policy, error) {
-	if req.GetPolicy() == nil {
-		return nil, errInvalid("policy must be specified.")
-	}
-
-	if err := validatePolicy(req.GetPolicy()); err != nil {
+	if err := gcpiampolicy.Validate(req.GetPolicy()); err != nil {
 		return nil, err
 	}
 
 	b.mu.Lock("SetIamPolicy")
 	defer b.mu.Unlock()
 
-	name := req.GetResource()
-
-	if _, err := b.iamTargetLocked(name); err != nil {
+	if _, err := b.iamTargetLocked(req.GetResource()); err != nil {
 		return nil, err
 	}
 
-	current := emptyPolicyEtag()
-	if p := b.policies[name]; p != nil {
-		current = p.GetEtag()
-	}
-
-	if et := req.GetPolicy().GetEtag(); len(et) > 0 && !bytes.Equal(et, current) {
-		return nil, status.Error(codes.Aborted,
-			"There were concurrent policy changes. Please retry the whole read-modify-write with exponential backoff.")
-	}
-
-	next := clonePolicy(req.GetPolicy())
-	next.Etag = b.nextPolicyEtag()
-
-	if hasConditions(next) {
-		next.Version = conditionalVer
-	} else {
-		next.Version = 1
-	}
-
-	b.policies[name] = next
-
-	return policyView(next, conditionalVer), nil
+	return b.iam.Set(req.GetResource(), req.GetPolicy())
 }
 
 // GetIamPolicy returns a resource's IAM policy, or an empty policy when none is set.
@@ -196,18 +86,11 @@ func (b *InMemoryBackend) GetIamPolicy(req *iampb.GetIamPolicyRequest) (*iampb.P
 	b.mu.RLock("GetIamPolicy")
 	defer b.mu.RUnlock()
 
-	name := req.GetResource()
-
-	if _, err := b.iamTargetLocked(name); err != nil {
+	if _, err := b.iamTargetLocked(req.GetResource()); err != nil {
 		return nil, err
 	}
 
-	p := b.policies[name]
-	if p == nil {
-		return &iampb.Policy{Etag: emptyPolicyEtag()}, nil
-	}
-
-	return policyView(p, req.GetOptions().GetRequestedPolicyVersion()), nil
+	return b.iam.Get(req.GetResource(), req.GetOptions().GetRequestedPolicyVersion()), nil
 }
 
 // TestIamPermissions reports the requested permissions that apply to the resource type as granted:
@@ -227,19 +110,12 @@ func (b *InMemoryBackend) TestIamPermissions(
 		return nil, err
 	}
 
-	prefix := "pubsub." + kind + "."
-	granted := make([]string, 0, len(req.GetPermissions()))
-
-	for _, p := range req.GetPermissions() {
-		if strings.HasPrefix(p, prefix) {
-			granted = append(granted, p)
-		}
-	}
-
-	return &iampb.TestIamPermissionsResponse{Permissions: granted}, nil
+	return &iampb.TestIamPermissionsResponse{
+		Permissions: gcpiampolicy.Granted(req.GetPermissions(), "pubsub."+kind+"."),
+	}, nil
 }
 
-func (b *InMemoryBackend) dropPolicyLocked(name string) { delete(b.policies, name) }
+func (b *InMemoryBackend) dropPolicyLocked(name string) { b.iam.Drop(name) }
 
 type iamServer struct {
 	iampb.UnimplementedIAMPolicyServer
