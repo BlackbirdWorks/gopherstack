@@ -17,6 +17,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -650,7 +652,7 @@ func (r *crawlRun) legacyS3(t S3Target) {
 	}
 
 	name := strings.NewReplacer("/", "_", "-", "_", ".", "_").Replace(prefix)
-	tbl := &Table{Name: name, DatabaseName: r.c.DatabaseName, CreateTime: float64(time.Now().Unix())}
+	tbl := &Table{Name: name, DatabaseName: strs.Fold(r.c.DatabaseName), CreateTime: float64(time.Now().Unix())}
 
 	r.ops = append(r.ops, func(a *crawlRun) {
 		if !a.b.tables.Has(tableKey(tbl.DatabaseName, tbl.Name)) {
@@ -687,7 +689,7 @@ func (r *crawlRun) crawlGroup(ctx context.Context, bucket string, g crawlGroup) 
 	maps.Copy(params, f.params)
 
 	tbl := r.upsert(&Table{
-		Name: name, DatabaseName: c.DatabaseName, TableType: tableTypeExternal,
+		Name: name, DatabaseName: strs.Fold(c.DatabaseName), TableType: tableTypeExternal,
 		Parameters:    params,
 		PartitionKeys: partitionKeysFor(files),
 		StorageDescriptor: StorageDescriptor{

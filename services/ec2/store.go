@@ -616,6 +616,7 @@ type InMemoryBackend struct {
 	registry                       *store.Registry
 	mu                             *lockmetrics.RWMutex
 	lifecycleStop                  chan struct{}
+	clock                          func() time.Time
 	eniIDByAttachment              map[string]string
 	eniIDsByInstance               map[string]map[string]struct{}
 	instanceIDsByVPC               map[string]map[string]struct{}
@@ -633,6 +634,7 @@ type InMemoryBackend struct {
 	freePrivateIPs                 []string
 	nextPrivateIPIndex             int
 	nextElasticIPIndex             int
+	volumeCreateDelay              time.Duration
 	ebsEncryptionByDefault         bool
 	serialConsoleAccess            bool
 	reachabilityAnalyzerOrgSharing bool
@@ -966,7 +968,7 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 		}
 	}
 
-	hasTransitional = hasTransitional || b.natGatewaysTransitionalLocked()
+	hasTransitional = hasTransitional || b.natGatewaysTransitionalLocked() || b.volumesTransitionalLocked()
 	b.mu.RUnlock()
 
 	if !hasTransitional {
@@ -989,6 +991,7 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 	}
 
 	b.advanceNatGatewaysLocked()
+	b.advanceVolumesLocked()
 }
 
 // initDefaults pre-populates a default VPC, subnet, and security group.

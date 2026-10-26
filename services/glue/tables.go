@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // cloneColumns returns a deep copy of a Column slice, including each column's
@@ -87,12 +89,12 @@ func cloneTable(t *Table) *Table {
 
 // tableKey returns a map key for a table.
 func tableKey(dbName, tableName string) string {
-	return fmt.Sprintf("%s|%s", dbName, tableName)
+	return fmt.Sprintf("%s|%s", strs.Fold(dbName), strs.Fold(tableName))
 }
 
 // tableVersionKey returns a map key for a table version.
 func tableVersionKey(dbName, tableName, versionID string) string {
-	return fmt.Sprintf("%s|%s|%s", dbName, tableName, versionID)
+	return fmt.Sprintf("%s|%s|%s", strs.Fold(dbName), strs.Fold(tableName), versionID)
 }
 
 // countTablesInDatabase returns the number of tables currently stored under
@@ -100,7 +102,7 @@ func tableVersionKey(dbName, tableName, versionID string) string {
 func (b *InMemoryBackend) countTablesInDatabase(dbName string) int {
 	n := 0
 	b.tables.Range(func(t *Table) bool {
-		if t.DatabaseName == dbName {
+		if strs.Equal(t.DatabaseName, dbName) {
 			n++
 		}
 
@@ -125,8 +127,11 @@ func applyTableInputExtras(t *Table, input TableInput) {
 
 // CreateTable creates a new Glue table in a database.
 func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, error) {
+	dbName = strs.Fold(dbName)
 	b.mu.Lock("CreateTable")
 	defer b.mu.Unlock()
+
+	input.Name = strs.Fold(input.Name)
 
 	if !b.databases.Has(dbName) {
 		return nil, ErrNotFound
@@ -202,6 +207,7 @@ func (b *InMemoryBackend) addTableVersionLocked(t *Table) {
 
 // GetTable retrieves a Glue table.
 func (b *InMemoryBackend) GetTable(dbName, tableName string) (*Table, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetTable")
 	defer b.mu.RUnlock()
 
@@ -215,6 +221,7 @@ func (b *InMemoryBackend) GetTable(dbName, tableName string) (*Table, error) {
 
 // GetTables returns all tables in a database sorted by name.
 func (b *InMemoryBackend) GetTables(dbName string) ([]*Table, error) {
+	dbName = strs.Fold(dbName)
 	b.mu.RLock("GetTables")
 	defer b.mu.RUnlock()
 
@@ -241,8 +248,11 @@ func (b *InMemoryBackend) GetTables(dbName string) ([]*Table, error) {
 
 // UpdateTable updates an existing Glue table.
 func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
+	dbName = strs.Fold(dbName)
 	b.mu.Lock("UpdateTable")
 	defer b.mu.Unlock()
+
+	input.Name = strs.Fold(input.Name)
 
 	key := tableKey(dbName, input.Name)
 
@@ -270,6 +280,7 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 
 // DeleteTable deletes a Glue table and all its partitions.
 func (b *InMemoryBackend) DeleteTable(dbName, tableName string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("DeleteTable")
 	defer b.mu.Unlock()
 
@@ -286,6 +297,7 @@ func (b *InMemoryBackend) DeleteTable(dbName, tableName string) error {
 
 // BatchDeleteTable deletes multiple tables and cascades to partitions and versions.
 func (b *InMemoryBackend) BatchDeleteTable(dbName string, tableNames []string) []TableError {
+	dbName = strs.Fold(dbName)
 	b.mu.Lock("BatchDeleteTable")
 	defer b.mu.Unlock()
 
@@ -317,6 +329,7 @@ func (b *InMemoryBackend) BatchDeleteTableVersion(
 	dbName, tableName string,
 	versionIDs []string,
 ) []TableVersionError {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("BatchDeleteTableVersion")
 	defer b.mu.Unlock()
 
@@ -351,6 +364,7 @@ func (b *InMemoryBackend) BatchDeleteTableVersion(
 // dbName/tableName this entry is filed under, exactly as the previous raw map
 // (keyed externally on the same two parameters) did.
 func (b *InMemoryBackend) AddTableVersionInternal(dbName, tableName string, tv *TableVersion) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("AddTableVersionInternal")
 	defer b.mu.Unlock()
 
@@ -401,6 +415,7 @@ func (b *InMemoryBackend) SearchTables(searchText string) []*Table {
 }
 
 func (b *InMemoryBackend) DeleteTableVersion(dbName, tableName, versionID string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("DeleteTableVersion")
 	defer b.mu.Unlock()
 
@@ -421,6 +436,7 @@ func (b *InMemoryBackend) DeleteTableVersion(dbName, tableName, versionID string
 
 // GetTableVersions returns all stored versions for a table, sorted by versionID.
 func (b *InMemoryBackend) GetTableVersions(dbName, tableName string) []*TableVersion {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetTableVersions")
 	defer b.mu.RUnlock()
 
@@ -451,6 +467,7 @@ func (b *InMemoryBackend) GetTableVersions(dbName, tableName string) []*TableVer
 func (b *InMemoryBackend) GetTableVersion(
 	dbName, tableName, versionID string,
 ) (*TableVersion, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetTableVersion")
 	defer b.mu.RUnlock()
 

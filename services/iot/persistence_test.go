@@ -104,7 +104,7 @@ func seedCertificates(t *testing.T, b *iot.InMemoryBackend) string {
 	t.Helper()
 
 	cert, err := b.RegisterCertificateWithoutCA(&iot.RegisterCertificateInput{
-		CertificatePem: "fake-pem",
+		CertificatePem: mintCertPEM(t),
 		Status:         "ACTIVE",
 	})
 	require.NoError(t, err)

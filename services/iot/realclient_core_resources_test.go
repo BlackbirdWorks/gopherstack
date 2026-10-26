@@ -340,10 +340,8 @@ func testCertificatesRealClient(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(created.KeyPair.PrivateKey))
 
 	fromCsr, err := client.CreateCertificateFromCsr(t.Context(), &iotsdk.CreateCertificateFromCsrInput{
-		CertificateSigningRequest: aws.String(
-			"-----BEGIN CERTIFICATE REQUEST-----\nzz\n-----END CERTIFICATE REQUEST-----",
-		),
-		SetAsActive: true,
+		CertificateSigningRequest: aws.String(mintCSR(t)),
+		SetAsActive:               true,
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(fromCsr.CertificateId))
@@ -355,14 +353,14 @@ func testCertificatesRealClient(t *testing.T) {
 	assert.Equal(t, types.CertificateStatusActive, fromCsrDesc.CertificateDescription.Status)
 
 	registered, err := client.RegisterCertificate(t.Context(), &iotsdk.RegisterCertificateInput{
-		CertificatePem: aws.String("-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----"),
+		CertificatePem: aws.String(mintCertPEM(t)),
 		Status:         types.CertificateStatusActive,
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, aws.ToString(registered.CertificateId))
 
 	registeredNoCA, err := client.RegisterCertificateWithoutCA(t.Context(), &iotsdk.RegisterCertificateWithoutCAInput{
-		CertificatePem: aws.String("-----BEGIN CERTIFICATE-----\ndef\n-----END CERTIFICATE-----"),
+		CertificatePem: aws.String(mintCertPEM(t)),
 		Status:         types.CertificateStatusActive,
 	})
 	require.NoError(t, err)

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -107,7 +109,7 @@ func (b *InMemoryBackend) snapshotCrawlLocked(c *Crawler) *crawlRun {
 	}
 
 	for _, t := range b.tables.All() {
-		if t.DatabaseName == c.DatabaseName {
+		if strs.Equal(t.DatabaseName, c.DatabaseName) {
 			r.tables.Put(cloneTable(t))
 		}
 	}
@@ -311,7 +313,8 @@ func (r *crawlRun) sweepGoneTables() {
 	for _, tbl := range r.b.tables.All() {
 		key := tableKey(tbl.DatabaseName, tbl.Name)
 
-		if tbl.DatabaseName != r.c.DatabaseName || tbl.Parameters[crawlerManagedParam] != r.c.Name || r.seen[key] {
+		if !strs.Equal(tbl.DatabaseName, r.c.DatabaseName) || tbl.Parameters[crawlerManagedParam] != r.c.Name ||
+			r.seen[key] {
 			continue
 		}
 

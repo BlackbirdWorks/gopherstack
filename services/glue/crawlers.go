@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // ErrCrawlerRunning is returned when an operation requires the crawler to not be running.
@@ -157,7 +158,7 @@ func (b *InMemoryBackend) CreateCrawlerWithOptions(
 	}
 
 	if dbName != "" {
-		if !b.databases.Has(dbName) {
+		if !b.databases.Has(strs.Fold(dbName)) {
 			return nil, ErrNotFound
 		}
 	}

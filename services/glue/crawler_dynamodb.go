@@ -15,6 +15,7 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -267,7 +268,7 @@ func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
 	}
 
 	r.upsert(&Table{
-		Name: crawlTableName(r.c.TablePrefix, t.Path), DatabaseName: r.c.DatabaseName,
+		Name: crawlTableName(r.c.TablePrefix, t.Path), DatabaseName: strs.Fold(r.c.DatabaseName),
 		Parameters: params,
 		StorageDescriptor: StorageDescriptor{
 			Columns: cols, Location: t.Path, InputFormat: ddbInputFormat, OutputFormat: ddbOutputFormat,

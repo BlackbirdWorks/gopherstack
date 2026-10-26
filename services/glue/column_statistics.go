@@ -6,6 +6,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
+
 	"github.com/google/uuid"
 )
 
@@ -13,7 +15,7 @@ var ErrColumnStatTaskRunNotFound = fmt.Errorf("column statistics task run not fo
 
 // columnStatTaskKey builds the key for task settings.
 func columnStatTaskKey(dbName, tableName string) string {
-	return dbName + "|" + tableName
+	return strs.Fold(dbName) + "|" + strs.Fold(tableName)
 }
 
 // ColumnStatisticsTaskSettingsOptions are the Create/UpdateColumnStatisticsTaskSettings members; empty means unset.
@@ -57,6 +59,7 @@ func (b *InMemoryBackend) CreateColumnStatisticsTaskSettings(
 	dbName, tableName string,
 	opts ColumnStatisticsTaskSettingsOptions,
 ) (*ColumnStatisticsTaskSettings, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("CreateColumnStatisticsTaskSettings")
 	defer b.mu.Unlock()
 
@@ -78,6 +81,7 @@ func cloneColumnStatisticsTaskSettings(s *ColumnStatisticsTaskSettings) *ColumnS
 func (b *InMemoryBackend) GetColumnStatisticsTaskSettings(
 	dbName, tableName string,
 ) (*ColumnStatisticsTaskSettings, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetColumnStatisticsTaskSettings")
 	defer b.mu.RUnlock()
 
@@ -98,6 +102,7 @@ func (b *InMemoryBackend) UpdateColumnStatisticsTaskSettings(
 	dbName, tableName string,
 	opts ColumnStatisticsTaskSettingsOptions,
 ) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("UpdateColumnStatisticsTaskSettings")
 	defer b.mu.Unlock()
 
@@ -115,6 +120,7 @@ func (b *InMemoryBackend) UpdateColumnStatisticsTaskSettings(
 
 // DeleteColumnStatisticsTaskSettings removes task settings.
 func (b *InMemoryBackend) DeleteColumnStatisticsTaskSettings(dbName, tableName string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("DeleteColumnStatisticsTaskSettings")
 	defer b.mu.Unlock()
 
@@ -128,6 +134,7 @@ func (b *InMemoryBackend) DeleteColumnStatisticsTaskSettings(dbName, tableName s
 // CreateColumnStatisticsTaskSettings), matching AWS's requirement that a
 // schedule can only be attached to existing task settings.
 func (b *InMemoryBackend) StartColumnStatisticsTaskRunSchedule(dbName, tableName string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	if dbName == "" || tableName == "" {
 		return fmt.Errorf("%w: DatabaseName and TableName are required", ErrValidation)
 	}
@@ -150,6 +157,7 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRunSchedule(dbName, tableName
 // StopColumnStatisticsTaskRunSchedule disables the run schedule for a table's
 // column statistics task settings.
 func (b *InMemoryBackend) StopColumnStatisticsTaskRunSchedule(dbName, tableName string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	if dbName == "" || tableName == "" {
 		return fmt.Errorf("%w: DatabaseName and TableName are required", ErrValidation)
 	}
@@ -173,6 +181,8 @@ func (b *InMemoryBackend) StopColumnStatisticsTaskRunSchedule(dbName, tableName 
 func (b *InMemoryBackend) StartColumnStatisticsTaskRun(
 	dbName, tableName, role string,
 ) (*ColumnStatisticsTaskRun, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
+
 	return b.StartColumnStatisticsTaskRunWithOptions(dbName, tableName, role, ColumnStatisticsRunOptions{})
 }
 
@@ -194,6 +204,7 @@ type ColumnStatisticsRunOptions struct {
 func (b *InMemoryBackend) StartColumnStatisticsTaskRunWithOptions(
 	dbName, tableName, role string, opts ColumnStatisticsRunOptions,
 ) (*ColumnStatisticsTaskRun, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("StartColumnStatisticsTaskRun")
 	defer b.mu.Unlock()
 
@@ -222,6 +233,7 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRunWithOptions(
 // api_op_StopColumnStatisticsTaskRun.go has no run-ID member at all) --
 // mirrors StopMaterializedViewRefreshTaskRun's identical shape.
 func (b *InMemoryBackend) StopColumnStatisticsTaskRun(dbName, tableName string) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("StopColumnStatisticsTaskRun")
 	defer b.mu.Unlock()
 
@@ -296,13 +308,14 @@ func cloneColumnStats(cs *ColumnStatistics) *ColumnStatistics {
 }
 
 func (b *InMemoryBackend) columnStatsKey(dbName, tableName, colName string) string {
-	return dbName + "|" + tableName + "|" + colName
+	return strs.Fold(dbName) + "|" + strs.Fold(tableName) + "|" + colName
 }
 
 func (b *InMemoryBackend) UpdateColumnStatisticsForTable(
 	dbName, tableName string,
 	stats []*ColumnStatistics,
 ) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("UpdateColumnStatisticsForTable")
 	defer b.mu.Unlock()
 
@@ -323,6 +336,7 @@ func (b *InMemoryBackend) GetColumnStatisticsForTable(
 	dbName, tableName string,
 	columnNames []string,
 ) ([]*ColumnStatistics, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetColumnStatisticsForTable")
 	defer b.mu.RUnlock()
 
@@ -350,6 +364,7 @@ func (b *InMemoryBackend) GetColumnStatisticsForTable(
 func (b *InMemoryBackend) DeleteColumnStatisticsForTable(
 	dbName, tableName, columnName string,
 ) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("DeleteColumnStatisticsForTable")
 	defer b.mu.Unlock()
 
@@ -364,6 +379,7 @@ func (b *InMemoryBackend) UpdateColumnStatisticsForPartition(
 	partitionValues []string,
 	stats []*ColumnStatistics,
 ) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("UpdateColumnStatisticsForPartition")
 	defer b.mu.Unlock()
 
@@ -383,6 +399,7 @@ func (b *InMemoryBackend) GetColumnStatisticsForPartition(
 	partitionValues []string,
 	columnNames []string,
 ) ([]*ColumnStatistics, error) {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.RLock("GetColumnStatisticsForPartition")
 	defer b.mu.RUnlock()
 
@@ -413,6 +430,7 @@ func (b *InMemoryBackend) DeleteColumnStatisticsForPartition(
 	partitionValues []string,
 	columnName string,
 ) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("DeleteColumnStatisticsForPartition")
 	defer b.mu.Unlock()
 

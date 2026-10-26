@@ -2,6 +2,8 @@ package glue
 
 import (
 	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // getMaterializedViewRefreshTaskRunInput holds input for
@@ -83,11 +85,11 @@ func (h *Handler) handleListMaterializedViewRefreshTaskRuns(
 	matching := make([]*MaterializedViewRefreshRun, 0, len(all))
 
 	for _, r := range all {
-		if in.DatabaseName != "" && r.DatabaseName != in.DatabaseName {
+		if in.DatabaseName != "" && !strs.Equal(r.DatabaseName, in.DatabaseName) {
 			continue
 		}
 
-		if in.TableName != "" && r.TableName != in.TableName {
+		if in.TableName != "" && !strs.Equal(r.TableName, in.TableName) {
 			continue
 		}
 

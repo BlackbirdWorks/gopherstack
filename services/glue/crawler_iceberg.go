@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const icebergMetadataDir = "metadata"
@@ -140,7 +142,7 @@ func (r *crawlRun) crawlIcebergTable(ctx context.Context, bucket, root string, k
 
 	r.upsert(&Table{
 		Name:         crawlTableName(r.c.TablePrefix, lastPathSegment(root)),
-		DatabaseName: r.c.DatabaseName,
+		DatabaseName: strs.Fold(r.c.DatabaseName),
 		Parameters:   params,
 		StorageDescriptor: StorageDescriptor{
 			Columns:    cols,

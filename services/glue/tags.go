@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // TagResource adds tags to a resource by ARN.
@@ -407,7 +408,7 @@ func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {
 		return nil
 	}
 
-	db, ok := b.databases.Get(name)
+	db, ok := b.databases.Get(strs.Fold(name))
 	if !ok {
 		return nil
 	}

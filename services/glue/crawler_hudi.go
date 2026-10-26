@@ -10,6 +10,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -26,9 +28,7 @@ const (
 	hudiCommitSuffix = ".commit"
 )
 
-var (
-	errHudiNoSchema = errors.New("no Hudi schema in hoodie.properties or a completed commit")
-)
+var errHudiNoSchema = errors.New("no Hudi schema in hoodie.properties or a completed commit")
 
 func hudiMetaColumns() []string {
 	return []string{
@@ -272,7 +272,7 @@ func (r *crawlRun) crawlHudiTable(ctx context.Context, bucket, root string, keys
 		params := map[string]string{paramClassification: classificationParq, crawlerManagedParam: r.c.Name}
 
 		tbl := r.upsert(&Table{
-			Name: crawlTableName(r.c.TablePrefix, baseName+v.suffix), DatabaseName: r.c.DatabaseName,
+			Name: crawlTableName(r.c.TablePrefix, baseName+v.suffix), DatabaseName: strs.Fold(r.c.DatabaseName),
 			Parameters: params, PartitionKeys: pkeys,
 			StorageDescriptor: StorageDescriptor{
 				Columns: cols, Location: location, InputFormat: v.input, OutputFormat: parquetOutput,

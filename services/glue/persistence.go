@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 // glueSnapshotVersion identifies the shape of backendSnapshot's Tables blob
@@ -139,6 +141,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.restoreFromSnapshot(snap)
 	b.restoreDeterministicARNs()
 	b.restoreResourceTags(snap.ResourceTags)
+	b.foldRestoredNames()
 
 	return nil
 }
@@ -266,3 +269,61 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		func(p *Handler) { p.Backend.StopReconciler() },
 	)
 }
+
+// foldRestoredNames lowercases database/table names (and the map keys built from them) in snapshots
+// written before Glue name folding, so older mixed-case catalogs stay reachable.
+func (b *InMemoryBackend) foldRestoredNames() {
+	for _, db := range b.databases.All() {
+		db.Name = strs.Fold(db.Name)
+		db.ARN = b.databaseARN(db.Name)
+	}
+
+	for _, t := range b.tables.All() {
+		t.DatabaseName, t.Name = strs.Fold(t.DatabaseName), strs.Fold(t.Name)
+	}
+
+	for _, p := range b.partitions.All() {
+		p.DatabaseName, p.TableName = strs.Fold(p.DatabaseName), strs.Fold(p.TableName)
+	}
+
+	for _, tv := range b.tableVersions.All() {
+		if tv.Table != nil {
+			tv.Table.DatabaseName, tv.Table.Name = strs.Fold(tv.Table.DatabaseName), strs.Fold(tv.Table.Name)
+		}
+	}
+
+	for _, u := range b.udfs.All() {
+		u.DatabaseName = strs.Fold(u.DatabaseName)
+		u.FunctionARN = b.udfARN(u.DatabaseName, u.FunctionName)
+	}
+
+	for _, r := range b.tableOptimizers.All() {
+		r.DatabaseName, r.TableName = strs.Fold(r.DatabaseName), strs.Fold(r.TableName)
+	}
+
+	for _, s := range b.columnStatTaskSettings.All() {
+		s.DatabaseName, s.TableName = strs.Fold(s.DatabaseName), strs.Fold(s.TableName)
+	}
+
+	b.partitionIndexes = foldKeyHeads(b.partitionIndexes)
+	b.tableColumnStats = foldKeyHeads(b.tableColumnStats)
+	b.partitionColumnStats = foldKeyHeads(b.partitionColumnStats)
+}
+
+// foldKeyHeads lowercases the leading "db|table" segments of every "db|table|rest" key.
+func foldKeyHeads[V any](m map[string]V) map[string]V {
+	out := make(map[string]V, len(m))
+
+	for k, v := range m {
+		parts := strings.SplitN(k, "|", keyHeadParts+1)
+		for i := 0; i < len(parts) && i < keyHeadParts; i++ {
+			parts[i] = strs.Fold(parts[i])
+		}
+
+		out[strings.Join(parts, "|")] = v
+	}
+
+	return out
+}
+
+const keyHeadParts = 2

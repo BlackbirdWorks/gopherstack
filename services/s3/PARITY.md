@@ -45,7 +45,6 @@ ops:
 gaps: []
 items_still_open:
   - "Rejections the pinned SDK lists no error code for, so none is invented: Object Annotations 1 B-1 MiB payload window and ObjectIfMatch; RenameObject and CreateSession accepted on non-directory buckets; directory buckets still accept ACL/tagging/versioning/lifecycle/website/CORS."
-  - "Object Lambda inputS3Url is an unsigned emulator URL, not a presigned one; userIdentity omits sessionContext."
   - "ListBucketIntelligentTieringConfigurations is unpaginated (the SDK documents no page size)."
   - "Notification destinations are validated only at PutBucketNotificationConfiguration; the SDK documents no per-configuration error detail shape."
 structural_gaps:

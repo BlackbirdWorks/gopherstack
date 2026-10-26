@@ -2,7 +2,9 @@ package cognitoidp
 
 import (
 	"crypto/rsa"
+	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -162,11 +164,45 @@ func attributeClaims(a *xnode) map[string]any {
 
 	for _, attr := range stmt.childrenNamed(nsSAMLAssertion, "Attribute") {
 		if vals := attr.childrenNamed(nsSAMLAssertion, "AttributeValue"); len(vals) > 0 && attr.attr("Name") != "" {
-			claims[attr.attr("Name")] = vals[0].textContent()
+			claims[attr.attr("Name")] = flattenSAMLValues(vals)
 		}
 	}
 
 	return claims
+}
+
+// flattenSAMLValues joins multiple values as "[v1,v2]" with each value form-encoded, as Cognito's
+// attribute-mapping docs describe; a single value is kept verbatim.
+func flattenSAMLValues(vals []*xnode) string {
+	if len(vals) == 1 {
+		return vals[0].textContent()
+	}
+
+	parts := make([]string, len(vals))
+	for i, v := range vals {
+		parts[i] = formEncodeValue(v.textContent())
+	}
+
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+// formEncodeValue form-encodes s, leaving only alphanumerics and . - * _ unescaped.
+func formEncodeValue(s string) string {
+	var sb strings.Builder
+
+	for _, c := range []byte(s) {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
+			c == '.', c == '-', c == '*', c == '_':
+			sb.WriteByte(c)
+		case c == ' ':
+			sb.WriteByte('+')
+		default:
+			fmt.Fprintf(&sb, "%%%02X", c)
+		}
+	}
+
+	return sb.String()
 }
 
 func authnSessionIndex(a *xnode) string {

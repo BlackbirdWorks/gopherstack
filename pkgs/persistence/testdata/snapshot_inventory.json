@@ -12159,6 +12159,7 @@
       "VgwTelemetry.StatusMessage string `json:\"statusMessage,omitempty\"`",
       "Volume.AZ string `json:\"az,omitempty\"`",
       "Volume.Attachment *VolumeAttachment `json:\"attachment,omitempty\"`",
+      "Volume.AvailableAt time.Time `json:\"availableAt,omitzero\"`",
       "Volume.CreateTime time.Time `json:\"createTime\"`",
       "Volume.Encrypted bool `json:\"encrypted,omitempty\"`",
       "Volume.ID string `json:\"id,omitempty\"`",

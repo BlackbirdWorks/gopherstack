@@ -159,11 +159,7 @@ func (b *InMemoryBackend) CreateCertificateFromCsr(input *CreateCertificateFromC
 
 	certPEM, ok := b.certificateFromCSR(input.CertificateSigningRequest)
 	if !ok {
-		var err error
-
-		if certPEM, _, _, err = b.generateKeyAndCertificate(); err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("%w: certificateSigningRequest is not a valid PEM-encoded CSR", ErrValidation)
 	}
 
 	cert := b.newCertificate(certPEM, status, certModeDefault)
@@ -245,6 +241,13 @@ func (b *InMemoryBackend) RegisterCertificateWithoutCA(input *RegisterCertificat
 // certificatePEMOrIssued returns supplied, or a freshly issued certificate when the caller sent none.
 func (b *InMemoryBackend) certificatePEMOrIssued(supplied string) (string, error) {
 	if supplied != "" {
+		if parseCertPEM(supplied) == nil {
+			return "", fmt.Errorf(
+				"%w: certificatePem is not a valid PEM-encoded X.509 certificate",
+				ErrCertificateValidation,
+			)
+		}
+
 		return supplied, nil
 	}
 

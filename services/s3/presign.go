@@ -26,6 +26,9 @@ const presignedDateFormat = "20060102T150405Z"
 // presignedAlgorithm is the only supported pre-signed URL signing algorithm.
 const presignedAlgorithm = "AWS4-HMAC-SHA256"
 
+// sigV4Terminator is the final credential-scope segment and signing-key derivation step.
+const sigV4Terminator = "aws4_request"
+
 // maxPresignExpirySeconds is the maximum lifetime AWS accepts for a presigned
 // URL: 7 days expressed in seconds.
 const maxPresignExpirySeconds int64 = 604800
@@ -251,7 +254,7 @@ func (h *S3Handler) verifyPresignedSignature(
 	sort.Strings(headerNames)
 
 	canonicalReq := h.buildPresignCanonicalRequest(r, headerNames)
-	credentialScope := strings.Join([]string{scopeDate, region, service, "aws4_request"}, "/")
+	credentialScope := strings.Join([]string{scopeDate, region, service, sigV4Terminator}, "/")
 	stringToSign := strings.Join([]string{
 		presignedAlgorithm,
 		amzDate,
@@ -364,7 +367,7 @@ func derivePresignSigningKey(secret, date, region, service string) []byte {
 	kRegion := hmacSHA256Bytes(kDate, region)
 	kService := hmacSHA256Bytes(kRegion, service)
 
-	return hmacSHA256Bytes(kService, "aws4_request")
+	return hmacSHA256Bytes(kService, sigV4Terminator)
 }
 
 // hmacSHA256Bytes returns HMAC-SHA256(key, data).
