@@ -168,7 +168,7 @@ func templateCounts(members []*memberRec) map[string]int {
 
 func (b *InMemoryBackend) pickVersion(rec *migRec, counts map[string]int) string {
 	vs := rec.Mgr.Versions
-	alloc := versionAlloc(vs, int(rec.Mgr.TargetSize))
+	alloc := versionAlloc(vs, migTargetSize(rec.Mgr.TargetSize))
 	best, bestDef := 0, math.MinInt
 
 	for i, v := range vs {
@@ -235,7 +235,7 @@ func (b *InMemoryBackend) shrinkLocked(project string, rec *migRec, n int) {
 
 		tc, zc := templateCounts(live), zoneCounts(rec)
 		want := map[string]int{}
-		alloc := versionAlloc(rec.Mgr.Versions, int(rec.Mgr.TargetSize))
+		alloc := versionAlloc(rec.Mgr.Versions, migTargetSize(rec.Mgr.TargetSize))
 
 		for i, v := range rec.Mgr.Versions {
 			want[v.InstanceTemplate] += alloc[i]
@@ -294,7 +294,7 @@ func (b *InMemoryBackend) reconcileLocked(rec *migRec) *APIError {
 	b.healVanishedLocked(project, rec)
 
 	live := len(liveMembers(rec))
-	want := int(rec.Mgr.TargetSize)
+	want := migTargetSize(rec.Mgr.TargetSize)
 
 	switch {
 	case live > want:
@@ -421,7 +421,7 @@ func (b *InMemoryBackend) migViewLocked(rec *migRec) *computeapi.InstanceGroupMa
 		}
 	}
 
-	alloc := versionAlloc(out.Versions, int(out.TargetSize))
+	alloc := versionAlloc(out.Versions, migTargetSize(out.TargetSize))
 	for i, v := range out.Versions {
 		calc := &computeapi.FixedOrPercent{Calculated: int64(alloc[i])}
 		if v.TargetSize != nil {
@@ -438,7 +438,7 @@ func (b *InMemoryBackend) migViewLocked(rec *migRec) *computeapi.InstanceGroupMa
 	live := len(liveMembers(rec))
 	out.CurrentActions = sum
 	out.Status = &computeapi.InstanceGroupManagerStatus{
-		IsStable:      stable && versionOK && live == int(out.TargetSize),
+		IsStable:      stable && versionOK && live == migTargetSize(out.TargetSize),
 		VersionTarget: &computeapi.InstanceGroupManagerStatusVersionTarget{IsReached: versionOK},
 	}
 
@@ -478,4 +478,16 @@ func (b *InMemoryBackend) managedInstancesLocked(rec *migRec) []*computeapi.Mana
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
 	return out
+}
+
+func migTargetSize(v int64) int {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if v < 0 {
+		return 0
+	}
+
+	return int(v)
 }

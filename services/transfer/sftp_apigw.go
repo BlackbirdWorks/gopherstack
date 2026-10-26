@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -91,7 +92,7 @@ func loopbackTarget(rawURL string) (string, error) {
 		return "", fmt.Errorf("%w: identity provider url must target the emulator", errSFTPDenied)
 	}
 
-	target := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, u.EscapedPath())
+	target := fmt.Sprintf("%s://%s:%d/", scheme, host, port) + strings.TrimPrefix(u.EscapedPath(), "/")
 	if u.RawQuery != "" {
 		target += "?" + u.RawQuery
 	}

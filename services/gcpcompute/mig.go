@@ -1,6 +1,7 @@
 package gcpcompute
 
 import (
+	"math"
 	"slices"
 	"strings"
 
@@ -312,6 +313,10 @@ func (b *InMemoryBackend) normalizeMIGLocked(project, scope, loc string, m *comp
 
 	if m.TargetSize < 0 {
 		return errField("resource.targetSize", "", "Must not be negative.")
+	}
+
+	if m.TargetSize > math.MaxInt32 {
+		return errField("resource.targetSize", "", "Must be at most 2147483647.")
 	}
 
 	if err := firstErr(
