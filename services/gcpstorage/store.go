@@ -571,10 +571,10 @@ type ListOptions struct {
 	StartOffset              string
 	EndOffset                string
 	PageToken                string
+	MatchGlob                string
 	MaxResults               int
 	Versions                 bool
 	IncludeTrailingDelimiter bool
-	MatchGlob                string
 }
 
 func collapsedPrefix(name string, opts ListOptions) string {

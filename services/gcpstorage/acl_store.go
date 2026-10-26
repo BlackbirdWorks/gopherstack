@@ -1,6 +1,9 @@
 package gcpstorage
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // aclRef locates the ACL list a request targets; the pointer is valid while the backend lock is held.
 func (b *InMemoryBackend) aclRefLocked(t aclTarget) (*[]ACLEntry, *Bucket, *Object, error) {
@@ -115,8 +118,7 @@ func (b *InMemoryBackend) DeleteACL(t aclTarget, entity string) error {
 		return errACLNotFound(entity)
 	}
 
-	next := append([]ACLEntry(nil), (*list)[:i]...)
-	*list = append(next, (*list)[i+1:]...)
+	*list = slices.Delete(slices.Clone(*list), i, i+1)
 	b.touchACLLocked(bk, o)
 
 	return nil

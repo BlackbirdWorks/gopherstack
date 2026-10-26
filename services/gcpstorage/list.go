@@ -164,40 +164,40 @@ func listEntries(bk *Bucket, opts ListOptions, match *regexp.Regexp, after *list
 	var entries []listEntry
 
 	seen := map[string]bool{}
-
-	add := func(e listEntry) {
-		if after == nil || e.key.cmp(*after) > 0 {
-			entries = append(entries, e)
-		}
-	}
+	matches := func(s string) bool { return match == nil || match.MatchString(s) }
 
 	for _, n := range matchingNames(bk, opts, after) {
 		if cp := collapsedPrefix(n, opts); cp != "" {
-			if !seen[cp] {
-				seen[cp] = true
-
-				if match == nil || match.MatchString(cp) {
-					add(listEntry{prefix: cp, key: listKey{name: cp, rank: rankPrefix}})
-				}
+			if !seen[cp] && matches(cp) {
+				entries = append(entries, listEntry{prefix: cp, key: listKey{name: cp, rank: rankPrefix}})
 			}
+
+			seen[cp] = true
 
 			if cp != n || !opts.IncludeTrailingDelimiter {
 				continue
 			}
 		}
 
-		if match != nil && !match.MatchString(n) {
-			continue
-		}
-
-		for _, o := range bk.Objects[n] {
-			if opts.Versions || o.Deleted.IsZero() {
-				add(listEntry{obj: bk.out(o), key: listKey{name: n, gen: o.Generation, rank: rankObject}})
-			}
+		if matches(n) {
+			entries = append(entries, objectEntries(bk, n, opts.Versions)...)
 		}
 	}
 
+	entries = slices.DeleteFunc(entries, func(e listEntry) bool { return after != nil && e.key.cmp(*after) <= 0 })
 	slices.SortStableFunc(entries, func(a, c listEntry) int { return a.key.cmp(c.key) })
 
 	return entries
+}
+
+func objectEntries(bk *Bucket, name string, versions bool) []listEntry {
+	var out []listEntry
+
+	for _, o := range bk.Objects[name] {
+		if versions || o.Deleted.IsZero() {
+			out = append(out, listEntry{obj: bk.out(o), key: listKey{name: name, gen: o.Generation, rank: rankObject}})
+		}
+	}
+
+	return out
 }

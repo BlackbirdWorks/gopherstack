@@ -20,20 +20,25 @@ import (
 )
 
 const (
-	maxPayloadBytes  = 64 << 10
-	maxLabels        = 64
-	maxLabelLen      = 63
-	maxAnnotations   = 64
-	maxAnnotationsSz = 16 << 10
-	maxTopics        = 10
-	maxAliases       = 50
-	maxReplicas      = 40
-	minRotationEvery = time.Hour
-	minDestroyTTL    = 24 * time.Hour
-	defaultPageSize  = 25
-	maxPageSize      = 25000
-	kindLabels       = "labels"
-	kindAnnotations  = "annotations"
+	maxPayloadBytes     = 64 << 10
+	maxLabels           = 64
+	maxLabelLen         = 63
+	maxAnnotations      = 64
+	maxAnnotationsSz    = 16 << 10
+	maxTopics           = 10
+	maxAliases          = 50
+	maxReplicas         = 40
+	minRotationEvery    = time.Hour
+	minDestroyTTL       = 24 * time.Hour
+	defaultPageSize     = 25
+	maxPageSize         = 25000
+	kindLabels          = "labels"
+	kindAnnotations     = "annotations"
+	segProjects         = "projects"
+	segLocations        = "locations"
+	fieldName           = "name"
+	regionalParts       = 4
+	regionalSecretParts = 6
 )
 
 var (
@@ -140,8 +145,9 @@ func secretName(project, id string) string { return "projects/" + project + "/se
 // parseProject returns "project" or "project/locations/location" for a secret parent.
 func parseProject(parent string) (string, error) {
 	parts := strings.Split(parent, "/")
-	global := len(parts) == 2 && parts[0] == "projects" && parts[1] != ""
-	regional := len(parts) == 4 && parts[0] == "projects" && parts[2] == "locations" && parts[1] != "" && parts[3] != ""
+	global := len(parts) == 2 && parts[0] == segProjects && parts[1] != ""
+	regional := len(parts) == regionalParts && parts[0] == segProjects && parts[2] == segLocations &&
+		parts[1] != "" && parts[3] != ""
 
 	if !global && !regional {
 		return "", errInvalid(
@@ -155,14 +161,14 @@ func parseProject(parent string) (string, error) {
 func isRegional(name string) bool {
 	parts := strings.Split(name, "/")
 
-	return len(parts) > 3 && parts[2] == "locations"
+	return len(parts) > regionalParts-1 && parts[2] == segLocations
 }
 
 func parseSecretName(name string) (string, error) {
 	parts := strings.Split(name, "/")
 	n := len(parts)
-	global := n == 4 && parts[2] == "secrets"
-	regional := n == 6 && parts[2] == "locations" && parts[4] == "secrets" && parts[3] != ""
+	global := n == regionalParts && parts[2] == "secrets"
+	regional := n == regionalSecretParts && parts[2] == segLocations && parts[4] == "secrets" && parts[3] != ""
 
 	if parts[0] != "projects" || parts[1] == "" || (!global && !regional) || !secretIDRe.MatchString(parts[n-1]) {
 		return "", errInvalid("Invalid secret name %q. Expected projects/{project}/secrets/{secret} or "+
@@ -551,7 +557,7 @@ func ensureRotation(s *secretmanagerpb.Secret) *secretmanagerpb.Rotation {
 
 func itemOfSecret(pb *secretmanagerpb.Secret) item {
 	it := item{
-		"name":        {pb.GetName()},
+		fieldName:     {pb.GetName()},
 		"create_time": {pb.GetCreateTime().AsTime().Format(time.RFC3339Nano)},
 	}
 

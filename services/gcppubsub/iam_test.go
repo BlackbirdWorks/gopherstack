@@ -27,9 +27,9 @@ type iamAPI interface {
 
 type iamTarget struct {
 	api  iamAPI
+	del  func()
 	name string
 	perm string
-	del  func()
 }
 
 // iamTargets creates one resource of every IAM-capable kind.
@@ -56,16 +56,25 @@ func iamTargets(t *testing.T, e *env) map[string]iamTarget {
 	require.NoError(t, err)
 
 	return map[string]iamTarget{
-		"topic": {e.client.TopicAdminClient, tp, "pubsub.topics.publish", func() {
-			require.NoError(t, e.client.TopicAdminClient.DeleteTopic(t.Context(), &pubsubpb.DeleteTopicRequest{Topic: tp}))
+		"topic": {api: e.client.TopicAdminClient, name: tp, perm: "pubsub.topics.publish", del: func() {
+			require.NoError(
+				t,
+				e.client.TopicAdminClient.DeleteTopic(t.Context(), &pubsubpb.DeleteTopicRequest{Topic: tp}),
+			)
 		}},
-		"subscription": {admin, sub, "pubsub.subscriptions.consume", func() {
-			require.NoError(t, admin.DeleteSubscription(t.Context(), &pubsubpb.DeleteSubscriptionRequest{Subscription: sub}))
+		"subscription": {api: admin, name: sub, perm: "pubsub.subscriptions.consume", del: func() {
+			require.NoError(
+				t,
+				admin.DeleteSubscription(t.Context(), &pubsubpb.DeleteSubscriptionRequest{Subscription: sub}),
+			)
 		}},
-		"snapshot": {admin, snap.GetName(), "pubsub.snapshots.seek", func() {
-			require.NoError(t, admin.DeleteSnapshot(t.Context(), &pubsubpb.DeleteSnapshotRequest{Snapshot: snap.GetName()}))
+		"snapshot": {api: admin, name: snap.GetName(), perm: "pubsub.snapshots.seek", del: func() {
+			require.NoError(
+				t,
+				admin.DeleteSnapshot(t.Context(), &pubsubpb.DeleteSnapshotRequest{Snapshot: snap.GetName()}),
+			)
 		}},
-		"schema": {sc, sch.GetName(), "pubsub.schemas.get", func() {
+		"schema": {api: sc, name: sch.GetName(), perm: "pubsub.schemas.get", del: func() {
 			require.NoError(t, sc.DeleteSchema(t.Context(), &pubsubpb.DeleteSchemaRequest{Name: sch.GetName()}))
 		}},
 	}
@@ -182,17 +191,21 @@ func TestIAMTestPermissions(t *testing.T) {
 	}
 }
 
-func TestIAMPolicyConditions(t *testing.T) {
-	t.Parallel()
-
-	e := newEnv(t)
-	tp := e.topic(t, "cond-topic")
-	api := e.client.TopicAdminClient
+func condBindings() []*iampb.Binding {
 	cond := &expr.Expr{Title: "soon", Expression: `request.time < timestamp("2030-01-01T00:00:00Z")`}
-	bindings := []*iampb.Binding{
+
+	return []*iampb.Binding{
 		{Role: "roles/pubsub.viewer", Members: []string{"user:a@example.com"}},
 		{Role: "roles/pubsub.publisher", Members: []string{"user:a@example.com"}, Condition: cond},
 	}
+}
+
+func TestIAMPolicyConditionVersions(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	api := e.client.TopicAdminClient
+	bindings := condBindings()
 
 	for name, tc := range map[string]struct {
 		version int32
@@ -203,12 +216,31 @@ func TestIAMPolicyConditions(t *testing.T) {
 		"v3 accepted": {3, codes.OK},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			own := e.topic(t, "cond-"+strings.ReplaceAll(name, " ", "-"))
+
 			_, err := api.SetIamPolicy(t.Context(), &iampb.SetIamPolicyRequest{
-				Resource: tp, Policy: &iampb.Policy{Version: tc.version, Bindings: bindings},
+				Resource: own, Policy: &iampb.Policy{Version: tc.version, Bindings: bindings},
 			})
 			assert.Equal(t, tc.code, status.Code(err))
 		})
 	}
+}
+
+func TestIAMPolicyConditions(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	tp := e.topic(t, "cond-topic")
+	api := e.client.TopicAdminClient
+	bindings := condBindings()
+	cond := bindings[1].GetCondition()
+
+	_, err := api.SetIamPolicy(t.Context(), &iampb.SetIamPolicyRequest{
+		Resource: tp, Policy: &iampb.Policy{Version: 3, Bindings: bindings},
+	})
+	require.NoError(t, err)
 
 	v3, err := api.GetIamPolicy(t.Context(), &iampb.GetIamPolicyRequest{
 		Resource: tp, Options: &iampb.GetPolicyOptions{RequestedPolicyVersion: 3},

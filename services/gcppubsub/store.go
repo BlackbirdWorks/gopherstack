@@ -1,11 +1,12 @@
 package gcppubsub
 
 import (
-	"cloud.google.com/go/iam/apiv1/iampb"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"cloud.google.com/go/iam/apiv1/iampb"
 
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"google.golang.org/protobuf/proto"
@@ -25,9 +26,9 @@ type InMemoryBackend struct {
 	snaps     map[string]*snapshot
 	schemas   map[string]*schemaRec
 	policies  map[string]*iampb.Policy
-	etagSeq   uint64
 	pushWake  chan struct{}
 	observers []PublishObserver
+	etagSeq   uint64
 	lastMsg   int64
 }
 

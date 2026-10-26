@@ -13,7 +13,7 @@ type aclBody struct {
 }
 
 func aclOpNames() []string {
-	var names []string
+	names := make([]string, 0, 18) //nolint:mnd // 3 families x 6 verbs
 
 	for _, fam := range []string{"BucketAcl", "DefaultObjectAcl", "ObjectAcl"} {
 		for _, verb := range []string{"List", "Insert", "Get", "Update", "Patch", "Delete"} {
@@ -108,7 +108,7 @@ func (h *Handler) aclWrite(c *echo.Context, rt route, t aclTarget, base string) 
 		return errInvalid("Required: entity and role.")
 	}
 
-	e, gen, err := h.Backend.SetACL(t, ACLEntry{Entity: in.Entity, Role: in.Role})
+	e, gen, err := h.Backend.SetACL(t, ACLEntry(in))
 	if err != nil {
 		return err
 	}

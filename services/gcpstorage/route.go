@@ -234,34 +234,60 @@ func objectRoute(method string, s []string) route {
 	case len(s) == composeRouteSegments && s[4] == "compose" && method == http.MethodPost:
 		rt.op = opComposeObject
 	case len(s) == copyRouteSegments && s[5] == segB && s[7] == segO && method == http.MethodPost:
-		rt.dstBucket, rt.dstObject = s[6], s[8]
-
-		switch s[4] {
-		case "copyTo":
-			rt.op = opCopyObject
-		case "rewriteTo":
-			rt.op = opRewriteObject
-		}
+		rt = copyRoute(rt, s)
 	}
 
 	return rt
 }
 
-var aclVerbs = map[string]map[bool]string{
-	http.MethodGet:    {false: "List", true: "Get"},
-	http.MethodPost:   {false: "Insert"},
-	http.MethodPut:    {true: "Update"},
-	http.MethodPatch:  {true: "Patch"},
-	http.MethodDelete: {true: "Delete"},
+func copyRoute(rt route, s []string) route {
+	rt.dstBucket, rt.dstObject = s[6], s[8]
+
+	switch s[4] {
+	case "copyTo":
+		rt.op = opCopyObject
+	case "rewriteTo":
+		rt.op = opRewriteObject
+	}
+
+	return rt
 }
 
-var aclFamilies = map[aclKind]string{aclBucket: "BucketAcl", aclDefaultObject: "DefaultObjectAcl", aclObject: "ObjectAcl"}
+func aclVerb(method string, withEntity bool) string {
+	switch {
+	case method == http.MethodGet && !withEntity:
+		return "List"
+	case method == http.MethodGet:
+		return "Get"
+	case method == http.MethodPost && !withEntity:
+		return "Insert"
+	case method == http.MethodPut && withEntity:
+		return "Update"
+	case method == http.MethodPatch && withEntity:
+		return "Patch"
+	case method == http.MethodDelete && withEntity:
+		return "Delete"
+	default:
+		return ""
+	}
+}
+
+func aclFamily(kind aclKind) string {
+	switch kind {
+	case aclBucket:
+		return "BucketAcl"
+	case aclDefaultObject:
+		return "DefaultObjectAcl"
+	default:
+		return "ObjectAcl"
+	}
+}
 
 func aclOp(method string, withEntity bool, kind aclKind) string {
-	verb, ok := aclVerbs[method][withEntity]
-	if !ok {
+	verb := aclVerb(method, withEntity)
+	if verb == "" {
 		return unknownOperation
 	}
 
-	return verb + aclFamilies[kind]
+	return verb + aclFamily(kind)
 }

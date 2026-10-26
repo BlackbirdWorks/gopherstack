@@ -255,7 +255,7 @@ func (b *InMemoryBackend) ListSecretVersions(
 
 func itemOfVersion(pb *secretmanagerpb.SecretVersion) item {
 	it := item{
-		"name":        {pb.GetName()},
+		fieldName:     {pb.GetName()},
 		"state":       {pb.GetState().String()},
 		"create_time": {pb.GetCreateTime().AsTime().Format(time.RFC3339Nano)},
 		"*":           {pb.GetName(), pb.GetState().String()},

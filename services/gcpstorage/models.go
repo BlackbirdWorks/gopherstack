@@ -29,20 +29,20 @@ type Object struct {
 	Deleted            time.Time         `json:"deleted"`
 	CustomTime         time.Time         `json:"customTime"`
 	Metadata           map[string]string `json:"metadata,omitempty"`
-	Bucket             string            `json:"bucket"`
-	Name               string            `json:"name"`
+	ContentLanguage    string            `json:"contentLanguage,omitempty"`
+	CRC32C             string            `json:"crc32c"`
 	ContentType        string            `json:"contentType"`
 	ContentEncoding    string            `json:"contentEncoding,omitempty"`
 	ContentDisposition string            `json:"contentDisposition,omitempty"`
-	ContentLanguage    string            `json:"contentLanguage,omitempty"`
+	Bucket             string            `json:"bucket"`
 	CacheControl       string            `json:"cacheControl,omitempty"`
 	StorageClass       string            `json:"storageClass"`
 	MD5                string            `json:"md5,omitempty"`
-	CRC32C             string            `json:"crc32c"`
+	Name               string            `json:"name"`
 	Data               []byte            `json:"data"`
+	ACL                []ACLEntry        `json:"acl,omitempty"`
 	Generation         int64             `json:"generation"`
 	Metageneration     int64             `json:"metageneration"`
-	ACL                []ACLEntry        `json:"acl,omitempty"`
 	ComponentCount     int64             `json:"componentCount,omitempty"`
 	TemporaryHold      bool              `json:"temporaryHold,omitempty"`
 	EventBasedHold     bool              `json:"eventBasedHold,omitempty"`
@@ -75,13 +75,13 @@ type Bucket struct {
 	Objects               map[string][]*Object       `json:"objects"`
 	Labels                map[string]string          `json:"labels,omitempty"`
 	Config                map[string]json.RawMessage `json:"config,omitempty"`
-	Name                  string                     `json:"name"`
 	Project               string                     `json:"project"`
+	Name                  string                     `json:"name"`
 	Location              string                     `json:"location"`
 	StorageClass          string                     `json:"storageClass"`
-	IAM                   IAMPolicy                  `json:"iam"`
 	ACL                   []ACLEntry                 `json:"acl,omitempty"`
 	DefaultObjectACL      []ACLEntry                 `json:"defaultObjectAcl,omitempty"`
+	IAM                   IAMPolicy                  `json:"iam"`
 	Metageneration        int64                      `json:"metageneration"`
 	Versioning            bool                       `json:"versioning,omitempty"`
 	DefaultEventBasedHold bool                       `json:"defaultEventBasedHold,omitempty"`

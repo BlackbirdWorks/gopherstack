@@ -91,8 +91,8 @@ func (b *InMemoryBackend) advanceRotationLocked(rec *secretRec, now time.Time) {
 	}
 
 	next := rot.GetNextRotationTime().AsTime()
-	skipped := now.Sub(next)/period + 1
-	rot.NextRotationTime = timestamppb.New(next.Add(skipped * period))
+	skipped := int64(now.Sub(next)/period) + 1
+	rot.NextRotationTime = timestamppb.New(next.Add(time.Duration(skipped) * period))
 	rec.pb.Etag = b.nextEtag()
 }
 
@@ -202,7 +202,9 @@ func (b *InMemoryBackend) EnableManagedRotation(
 }
 
 // RotateSecret adds a freshly generated password version to a secret with managed rotation enabled.
-func (b *InMemoryBackend) RotateSecret(req *secretmanagerpb.RotateSecretRequest) (*secretmanagerpb.SecretVersion, error) {
+func (b *InMemoryBackend) RotateSecret(
+	req *secretmanagerpb.RotateSecretRequest,
+) (*secretmanagerpb.SecretVersion, error) {
 	password, err := randomPassword()
 	if err != nil {
 		return nil, err

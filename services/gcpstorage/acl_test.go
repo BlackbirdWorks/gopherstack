@@ -2,6 +2,7 @@ package gcpstorage_test
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -88,32 +89,43 @@ func TestSDK_ACLRejectsBadInput(t *testing.T) {
 	b := s.bucket(t, "acl-bad", nil)
 	write(t, b.Object("o"), []byte("x"), 0, nil)
 
-	for name, tc := range map[string]struct {
+	type badCase struct {
 		h      *storage.ACLHandle
 		entity storage.ACLEntity
 		role   storage.ACLRole
-	}{
-		"bad entity":           {b.ACL(), "nobody", storage.RoleReader},
-		"bad role":             {b.ACL(), storage.AllUsers, "ADMIN"},
-		"writer on object":     {b.Object("o").ACL(), storage.AllUsers, storage.RoleWriter},
-		"writer on default":    {b.DefaultObjectACL(), storage.AllUsers, storage.RoleWriter},
-		"object not found":     {b.Object("missing").ACL(), storage.AllUsers, storage.RoleReader},
-		"malformed team":       {b.ACL(), "project-nobody-1", storage.RoleReader},
-		"writer on bucket ok?": {b.ACL(), storage.AllUsers, storage.RoleWriter},
+		status int
+		ok     bool
+	}
+
+	for name, tc := range map[string]badCase{
+		"bad entity": {h: b.ACL(), entity: "nobody", role: storage.RoleReader, status: http.StatusBadRequest},
+		"bad role":   {h: b.ACL(), entity: storage.AllUsers, role: "ADMIN", status: http.StatusBadRequest},
+		"writer on object": {
+			h: b.Object("o").ACL(), entity: storage.AllUsers, role: storage.RoleWriter, status: http.StatusBadRequest,
+		},
+		"writer on default": {
+			h: b.DefaultObjectACL(), entity: storage.AllUsers, role: storage.RoleWriter, status: http.StatusBadRequest,
+		},
+		"object not found": {
+			h: b.Object("missing").ACL(), entity: storage.AllUsers, role: storage.RoleReader, status: http.StatusNotFound,
+		},
+		"malformed team": {
+			h: b.ACL(), entity: "project-nobody-1", role: storage.RoleReader, status: http.StatusBadRequest,
+		},
+		"writer on bucket": {h: b.ACL(), entity: storage.AllUsers, role: storage.RoleWriter, ok: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			err := tc.h.Set(ctx, tc.entity, tc.role)
 
-			switch name {
-			case "writer on bucket ok?":
-				assert.NoError(t, err)
-			case "object not found":
-				assert.Equal(t, http.StatusNotFound, apiCode(err))
-			default:
-				assert.Equal(t, http.StatusBadRequest, apiCode(err))
+			if tc.ok {
+				require.NoError(t, err)
+
+				return
 			}
+
+			assert.Equal(t, tc.status, apiCode(err))
 		})
 	}
 }
@@ -125,26 +137,32 @@ func TestSDK_PredefinedACL(t *testing.T) {
 
 	owners := "project-owners"
 
-	for name, tc := range map[string]struct {
-		predefined string
+	type preCase struct {
 		bucket     want
 		object     want
+		predefined string
 		bucketBad  bool
 		objectBad  bool
-	}{
-		"private": {
+	}
+
+	pre := func(predefined string, bucket, object want, bucketBad, objectBad bool) preCase {
+		return preCase{bucket, object, predefined, bucketBad, objectBad}
+	}
+
+	for name, tc := range map[string]preCase{
+		"private": pre(
 			"private",
 			want{owners: storage.RoleOwner},
 			want{"user-emulator@test-project.iam.gserviceaccount.com": storage.RoleOwner},
 			false, false,
-		},
-		"publicRead": {
+		),
+		"publicRead": pre(
 			"publicRead",
 			want{owners: storage.RoleOwner, "allUsers": storage.RoleReader},
 			want{"user-emulator@test-project.iam.gserviceaccount.com": storage.RoleOwner, "allUsers": storage.RoleReader},
 			false, false,
-		},
-		"authenticatedRead": {
+		),
+		"authenticatedRead": pre(
 			"authenticatedRead",
 			want{owners: storage.RoleOwner, "allAuthenticatedUsers": storage.RoleReader},
 			want{
@@ -152,32 +170,32 @@ func TestSDK_PredefinedACL(t *testing.T) {
 				"allAuthenticatedUsers":                              storage.RoleReader,
 			},
 			false, false,
-		},
-		"projectPrivate": {
+		),
+		"projectPrivate": pre(
 			"projectPrivate",
 			want{owners: storage.RoleOwner, "project-editors": storage.RoleOwner, "project-viewers": storage.RoleReader},
 			want{owners: storage.RoleOwner, "project-editors": storage.RoleOwner, "project-viewers": storage.RoleReader},
 			false, false,
-		},
-		"publicReadWrite": {
+		),
+		"publicReadWrite": pre(
 			"publicReadWrite",
 			want{owners: storage.RoleOwner, "allUsers": storage.RoleWriter},
 			nil,
 			false, true,
-		},
-		"bucketOwnerRead": {
+		),
+		"bucketOwnerRead": pre(
 			"bucketOwnerRead",
 			nil,
 			want{"user-emulator@test-project.iam.gserviceaccount.com": storage.RoleOwner, owners: storage.RoleReader},
 			true, false,
-		},
-		"bucketOwnerFullControl": {
+		),
+		"bucketOwnerFullControl": pre(
 			"bucketOwnerFullControl",
 			nil,
 			want{"user-emulator@test-project.iam.gserviceaccount.com": storage.RoleOwner, owners: storage.RoleOwner},
 			true, false,
-		},
-		"unknown": {"nonsense", nil, nil, true, true},
+		),
+		"unknown": pre("nonsense", nil, nil, true, true),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -186,7 +204,8 @@ func TestSDK_PredefinedACL(t *testing.T) {
 			ctx := t.Context()
 			id := strings.ToLower(name)
 
-			err := s.client.Bucket("pre-b-"+id).Create(ctx, sdkProject, &storage.BucketAttrs{PredefinedACL: tc.predefined})
+			err := s.client.Bucket("pre-b-"+id).
+				Create(ctx, sdkProject, &storage.BucketAttrs{PredefinedACL: tc.predefined})
 			if tc.bucketBad {
 				assert.Equal(t, http.StatusBadRequest, apiCode(err))
 			} else {
@@ -311,21 +330,35 @@ func TestSDK_UniformBucketLevelAccessRejectsACL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, oa.ACL)
 
-	for name, call := range map[string]func() error{
-		"bucket list":   func() error { _, e := b.ACL().List(ctx); return e },
+	calls := map[string]func() error{
+		"bucket list": func() error {
+			_, e := b.ACL().List(ctx)
+
+			return e
+		},
 		"bucket set":    func() error { return b.ACL().Set(ctx, storage.AllUsers, storage.RoleReader) },
 		"bucket delete": func() error { return b.ACL().Delete(ctx, storage.AllUsers) },
-		"default list":  func() error { _, e := b.DefaultObjectACL().List(ctx); return e },
-		"default set":   func() error { return b.DefaultObjectACL().Set(ctx, storage.AllUsers, storage.RoleReader) },
-		"object list":   func() error { _, e := b.Object("o").ACL().List(ctx); return e },
+		"default list": func() error {
+			_, e := b.DefaultObjectACL().List(ctx)
+
+			return e
+		},
+		"default set": func() error { return b.DefaultObjectACL().Set(ctx, storage.AllUsers, storage.RoleReader) },
+		"object list": func() error {
+			_, e := b.Object("o").ACL().List(ctx)
+
+			return e
+		},
 		"object set":    func() error { return b.Object("o").ACL().Set(ctx, storage.AllUsers, storage.RoleReader) },
 		"object delete": func() error { return b.Object("o").ACL().Delete(ctx, storage.AllUsers) },
 		"update bucket": func() error {
 			_, e := b.Update(ctx, storage.BucketAttrsToUpdate{PredefinedACL: "publicRead"})
+
 			return e
 		},
 		"update object": func() error {
 			_, e := b.Object("o").Update(ctx, storage.ObjectAttrsToUpdate{PredefinedACL: "private"})
+
 			return e
 		},
 		"upload private": func() error {
@@ -335,15 +368,32 @@ func TestSDK_UniformBucketLevelAccessRejectsACL(t *testing.T) {
 
 			return w.Close()
 		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := call()
-			assert.Equal(t, http.StatusBadRequest, apiCode(err))
-			assert.Contains(t, err.Error(), "uniform bucket-level access")
-		})
 	}
 
-	_, err = b.Update(ctx, storage.BucketAttrsToUpdate{
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			callErr := call()
+			assert.Equal(t, http.StatusBadRequest, apiCode(callErr))
+			require.Error(t, callErr)
+			assert.Contains(t, callErr.Error(), "uniform bucket-level access")
+		})
+	}
+}
+
+func TestSDK_UniformBucketLevelAccessDisable(t *testing.T) {
+	t.Parallel()
+
+	s := newSDK(t)
+	ctx := t.Context()
+	b := s.bucket(t, "ubla-off", &storage.BucketAttrs{
+		UniformBucketLevelAccess: storage.UniformBucketLevelAccess{Enabled: true},
+	})
+
+	require.Error(t, b.ACL().Set(ctx, storage.AllUsers, storage.RoleReader))
+
+	_, err := b.Update(ctx, storage.BucketAttrsToUpdate{
 		UniformBucketLevelAccess: &storage.UniformBucketLevelAccess{Enabled: false},
 	})
 	require.NoError(t, err)
@@ -395,7 +445,7 @@ func listNames(t *testing.T, b *storage.BucketHandle, q *storage.Query) ([]strin
 	}
 }
 
-func errorsIsDone(err error) bool { return err == iterator.Done }
+func errorsIsDone(err error) bool { return errors.Is(err, iterator.Done) }
 
 func TestSDK_MatchGlob(t *testing.T) {
 	t.Parallel()
@@ -417,18 +467,20 @@ func TestSDK_MatchGlob(t *testing.T) {
 		names    []string
 		prefixes []string
 	}{
-		"star no slash":      {glob: "*.txt", names: []string{"a.txt", "ab.txt", "b.txt", "é.txt"}},
-		"question":           {glob: "?.txt", names: []string{"a.txt", "b.txt", "é.txt"}},
-		"double star":        {glob: "**.jpg", names: []string{"c.jpg", "foo/baz/qux.jpg"}},
-		"double star slash":  {glob: "foo/**/bar", names: []string{"foo/bar", "foo/baz/bar"}},
-		"class":              {glob: "[ab].txt", names: []string{"a.txt", "b.txt"}},
-		"range":              {glob: "dog[0-9]", names: []string{"dog1"}},
-		"negated class":      {glob: "[!a].txt", names: []string{"b.txt", "é.txt"}},
-		"caret class":        {glob: "[^ab].txt", names: []string{"é.txt"}},
-		"braces":             {glob: "*.{jpg,txt}", names: []string{"a.txt", "ab.txt", "b.txt", "c.jpg", "é.txt"}},
-		"nested braces":      {glob: "{a,{b,c}}.{txt,jpg}", names: []string{"a.txt", "b.txt", "c.jpg"}},
-		"escaped star":       {glob: `dog\*`, names: nil},
-		"only objects":       {glob: "**?", delim: "/", names: []string{"a.txt", "ab.txt", "b.txt", "c.jpg", "dog1", "dog22", "é.txt"}},
+		"star no slash":     {glob: "*.txt", names: []string{"a.txt", "ab.txt", "b.txt", "é.txt"}},
+		"question":          {glob: "?.txt", names: []string{"a.txt", "b.txt", "é.txt"}},
+		"double star":       {glob: "**.jpg", names: []string{"c.jpg", "foo/baz/qux.jpg"}},
+		"double star slash": {glob: "foo/**/bar", names: []string{"foo/bar", "foo/baz/bar"}},
+		"class":             {glob: "[ab].txt", names: []string{"a.txt", "b.txt"}},
+		"range":             {glob: "dog[0-9]", names: []string{"dog1"}},
+		"negated class":     {glob: "[!a].txt", names: []string{"b.txt", "é.txt"}},
+		"caret class":       {glob: "[^ab].txt", names: []string{"é.txt"}},
+		"braces":            {glob: "*.{jpg,txt}", names: []string{"a.txt", "ab.txt", "b.txt", "c.jpg", "é.txt"}},
+		"nested braces":     {glob: "{a,{b,c}}.{txt,jpg}", names: []string{"a.txt", "b.txt", "c.jpg"}},
+		"escaped star":      {glob: `dog\*`, names: nil},
+		"only objects": {
+			glob: "**?", delim: "/", names: []string{"a.txt", "ab.txt", "b.txt", "c.jpg", "dog1", "dog22", "é.txt"},
+		},
 		"only prefixes":      {glob: "**/", delim: "/", prefixes: []string{"foo/"}},
 		"with prefix":        {glob: "foo/*.txt", prefix: "foo/", names: []string{"foo/x.txt"}},
 		"prefix excludes":    {glob: "*.txt", prefix: "foo/", names: nil},
@@ -437,7 +489,11 @@ func TestSDK_MatchGlob(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			names, prefixes := listNames(t, b, &storage.Query{MatchGlob: tc.glob, Delimiter: tc.delim, Prefix: tc.prefix})
+			names, prefixes := listNames(
+				t,
+				b,
+				&storage.Query{MatchGlob: tc.glob, Delimiter: tc.delim, Prefix: tc.prefix},
+			)
 			assert.Equal(t, tc.names, names)
 			assert.Equal(t, tc.prefixes, prefixes)
 		})
@@ -529,7 +585,8 @@ func TestSDK_PageTokenWithDelimiterAndVersions(t *testing.T) {
 
 		var err error
 
-		token, err = iterator.NewPager(b.Objects(ctx, &storage.Query{Delimiter: "/", Versions: true}), 1, token).NextPage(&page)
+		token, err = iterator.NewPager(b.Objects(ctx, &storage.Query{Delimiter: "/", Versions: true}), 1, token).
+			NextPage(&page)
 		require.NoError(t, err)
 
 		for _, a := range page {

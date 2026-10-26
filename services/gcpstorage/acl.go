@@ -30,13 +30,14 @@ const (
 	entityAllUsers = "allUsers"
 	entityAllAuth  = "allAuthenticatedUsers"
 
-	maxACLEntries   = 100
-	aclEtag         = "CAE="
-	keyPredefined   = "predefinedAcl"
-	keyPredefDef    = "predefinedDefaultObjectAcl"
-	keyACL          = "acl"
-	keyDefaultACL   = "defaultObjectAcl"
-	projectNumWidth = 12
+	maxACLEntries    = 100
+	aclEtag          = "CAE="
+	keyPredefined    = "predefinedAcl"
+	keyPredefDef     = "predefinedDefaultObjectAcl"
+	keyACL           = "acl"
+	keyDefaultACL    = "defaultObjectAcl"
+	projectNumWidth  = 12
+	projectNumberMod = 1_000_000_000_000
 )
 
 const ublaMessage = "Cannot use ACL API to update bucket policy when uniform bucket-level access is enabled. " +
@@ -53,7 +54,7 @@ func projectNumber(project string) string {
 		h *= 1099511628211
 	}
 
-	n := itoa64(int64(h % 1_000_000_000_000)) //nolint:gosec // modulo keeps it in range
+	n := itoa64(int64(h % projectNumberMod))
 
 	return strings.Repeat("0", projectNumWidth-len(n)) + n
 }

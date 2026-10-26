@@ -38,7 +38,7 @@ func clonePolicy(p *iampb.Policy) *iampb.Policy {
 // iamKind returns the collection of an IAM-capable resource name, or "" when the name is not one.
 func iamKind(name string) string {
 	parts := strings.Split(name, "/")
-	if len(parts) != 4 || parts[0] != "projects" || parts[1] == "" || parts[3] == "" {
+	if len(parts) != 4 || parts[0] != projectsSeg || parts[1] == "" || parts[3] == "" {
 		return ""
 	}
 

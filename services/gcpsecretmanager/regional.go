@@ -45,7 +45,7 @@ func resourceLocation(req any) string {
 
 	m := msg.ProtoReflect()
 
-	for _, field := range []string{"name", "parent", "resource"} {
+	for _, field := range []string{fieldName, "parent", "resource"} {
 		fd := m.Descriptor().Fields().ByName(protoreflect.Name(field))
 		if fd == nil {
 			continue
@@ -53,7 +53,7 @@ func resourceLocation(req any) string {
 
 		parts := strings.Split(m.Get(fd).String(), "/")
 		for i := 0; i+1 < len(parts); i++ {
-			if parts[i] == "locations" {
+			if parts[i] == segLocations {
 				return parts[i+1]
 			}
 		}

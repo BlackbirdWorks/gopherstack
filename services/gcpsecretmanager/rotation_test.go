@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -20,6 +21,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
+)
+
+const (
+	centralHost   = "secretmanager.us-central1.rep.googleapis.com"
+	centralParent = proj + "/locations/us-central1"
 )
 
 type pubsubBridge struct{ b *gcppubsub.InMemoryBackend }
@@ -34,8 +40,8 @@ func (p pubsubBridge) Publish(topic string, data []byte, attrs map[string]string
 }
 
 type sink struct {
-	mu   sync.Mutex
 	msgs []*pubsubpb.PubsubMessage
+	mu   sync.Mutex
 }
 
 func (s *sink) take() []*pubsubpb.PubsubMessage {
@@ -246,7 +252,7 @@ func TestRegionalSecrets(t *testing.T) {
 
 	e := newEnv(t)
 	ctx := t.Context()
-	parent := proj + "/locations/us-central1"
+	parent := centralParent
 
 	created, err := e.client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
 		Parent: parent, SecretId: "reg", Secret: &secretmanagerpb.Secret{Labels: map[string]string{"k": "v"}},
@@ -286,7 +292,7 @@ func TestRegionalSecrets(t *testing.T) {
 	assert.Equal(t, created.GetName(), s.GetName())
 
 	_, err = regional.Next()
-	assert.Error(t, err, "global secrets are not listed under a location")
+	require.ErrorIs(t, err, iterator.Done, "global secrets are not listed under a location")
 
 	upd, err := e.client.UpdateSecret(ctx, &secretmanagerpb.UpdateSecretRequest{
 		Secret:     &secretmanagerpb.Secret{Name: created.GetName(), Labels: map[string]string{"k": "w"}},
@@ -323,9 +329,9 @@ func TestRegionalEndpointLocationCheck(t *testing.T) {
 		repl      bool
 		code      codes.Code
 	}{
-		"matching region":    {"secretmanager.us-central1.rep.googleapis.com", proj + "/locations/us-central1", false, codes.OK},
-		"other region":       {"secretmanager.us-central1.rep.googleapis.com", proj + "/locations/us-east1", false, codes.InvalidArgument},
-		"global on regional": {"secretmanager.us-central1.rep.googleapis.com", proj, true, codes.InvalidArgument},
+		"matching region":    {centralHost, centralParent, false, codes.OK},
+		"other region":       {centralHost, proj + "/locations/us-east1", false, codes.InvalidArgument},
+		"global on regional": {centralHost, proj, true, codes.InvalidArgument},
 		"global endpoint":    {"secretmanager.googleapis.com", proj, true, codes.OK},
 	} {
 		t.Run(name, func(t *testing.T) {

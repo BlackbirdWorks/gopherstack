@@ -59,7 +59,11 @@ func objectResource(base string, o *Object) objectJSON {
 
 	res := objectResourceBase(base, o, gen, esc)
 	if !o.hideACL && len(o.ACL) > 0 {
-		res.ACL = renderACLList(base, aclTarget{bucket: o.Bucket, object: o.Name, gen: o.Generation, kind: aclObject}, o.ACL)
+		res.ACL = renderACLList(
+			base,
+			aclTarget{bucket: o.Bucket, object: o.Name, gen: o.Generation, kind: aclObject},
+			o.ACL,
+		)
 	}
 
 	return res
