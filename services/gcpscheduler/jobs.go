@@ -173,7 +173,7 @@ func defaultRetry(r *schedulerpb.RetryConfig) (*schedulerpb.RetryConfig, error) 
 }
 
 // prepare validates j and fills its mutable-field defaults, returning the parsed schedule and location.
-func prepare(j *schedulerpb.Job) (*cronSchedule, *time.Location, error) {
+func prepare(j *schedulerpb.Job) (schedule, *time.Location, error) {
 	if len(j.GetDescription()) > maxDescription {
 		return nil, nil, errInvalid("description must be at most %d characters.", maxDescription)
 	}
@@ -198,7 +198,7 @@ func prepare(j *schedulerpb.Job) (*cronSchedule, *time.Location, error) {
 
 	sched, err := parseCron(j.GetSchedule())
 	if err != nil {
-		return nil, nil, errInvalid("Invalid schedule: %v. Only unix-cron syntax is supported.", err)
+		return nil, nil, errInvalid("Invalid schedule: %v. Use unix-cron or the App Engine cron format.", err)
 	}
 
 	if d := j.GetAttemptDeadline(); d != nil && (d.AsDuration() < minDeadline || d.AsDuration() > maxDeadline) {
