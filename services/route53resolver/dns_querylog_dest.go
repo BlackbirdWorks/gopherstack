@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
-	s3ArnPrefix       = "arn:aws:s3:::"
 	logFileWindow     = 5 * time.Minute
 	logFileHashLen    = 8
 	logFileTimeLayout = "20060102T1504Z"
@@ -73,7 +73,7 @@ func (r *DNSResolver) deliverToS3(ctx context.Context, e queryLogEntry, cfg *Res
 		return
 	}
 
-	bucket, prefix, _ := strings.Cut(strings.TrimPrefix(cfg.DestinationARN, s3ArnPrefix), "/")
+	bucket, prefix, _ := strings.Cut(strings.TrimPrefix(cfg.DestinationARN, arn.BuildS3("")), "/")
 	if bucket == "" {
 		return
 	}

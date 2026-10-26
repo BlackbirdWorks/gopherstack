@@ -132,8 +132,9 @@ func TestPolicyExecution_ShareRules(t *testing.T) {
 			policyID, created := env.policy(t, dlmtypes.SettablePolicyStateValuesEnabled,
 				volumePolicyDetails(rulesSchedule(func(s *dlmtypes.Schedule) { s.ShareRules = []dlmtypes.ShareRule{rule} })))
 
+			var snap string
+
 			perms := func() []string {
-				snap := aws.ToString(env.managedSnapshots(t, policyID)[0].SnapshotId)
 				out, err := env.ec2Client.DescribeSnapshotAttribute(t.Context(), &ec2sdk.DescribeSnapshotAttributeInput{
 					SnapshotId: aws.String(snap), Attribute: ec2types.SnapshotAttributeNameCreateVolumePermission,
 				})
@@ -148,6 +149,7 @@ func TestPolicyExecution_ShareRules(t *testing.T) {
 			}
 
 			env.runAt(t, created, time.Second)
+			snap = aws.ToString(env.managedSnapshots(t, policyID)[0].SnapshotId)
 			assert.Equal(t, []string{sharedAcct}, perms())
 
 			env.runAt(t, created, 25*hour)
