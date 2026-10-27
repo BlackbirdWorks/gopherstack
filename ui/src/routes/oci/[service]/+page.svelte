@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { ociServiceById } from '#lib/cloud.ts';
+	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
 	import ObjectStorageDashboard from '#lib/components/oci/ObjectStorageDashboard.svelte';
@@ -29,6 +30,8 @@
 	<IdentityDashboard />
 {:else if service?.id === 'functions'}
 	<FunctionsDashboard />
+{:else if service?.id === 'core'}
+	<CoreDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}

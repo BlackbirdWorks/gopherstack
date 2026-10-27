@@ -8,6 +8,8 @@ import {
   availableGcpServices,
   availableOciServices,
   azureServiceById,
+  gcpServiceById,
+  ociServiceById,
   categoriesForCloud,
   CLOUDS,
   GCP_SERVICES,
@@ -232,11 +234,23 @@ describe("new GCP console pages", () => {
 
   it("registers Compute Engine and Container Instances", () => {
     expect(availableGcpServices(["GCPCompute"]).map((s) => s.id)).toEqual(["compute"]);
-    expect(availableAzureServices(["AzureARM"]).map((s) => s.id)).toEqual(["arm", "aci"]);
+    expect(availableAzureServices(["AzureARM"]).map((s) => s.id)).toEqual([
+      "arm",
+      "aci",
+      "appservice",
+    ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
 
   it("registers Azure Files", () => {
     expect(availableAzureServices(["AzureFile"]).map((s) => s.id)).toEqual(["file"]);
+  });
+
+  it("registers Datastore, Core Services and App Service", () => {
+    expect(availableGcpServices(["GCPDatastore"]).map((s) => s.id)).toEqual(["datastore"]);
+    expect(availableOciServices(["OCICore"]).map((s) => s.id)).toEqual(["core"]);
+    expect(azureServiceById("appservice")?.portLabel).toBe("azurearm");
+    expect(gcpServiceById("datastore")?.portLabel).toBe("gcpdatastore");
+    expect(ociServiceById("core")?.portLabel).toBe("ocicore");
   });
 });

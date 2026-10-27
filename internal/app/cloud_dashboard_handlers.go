@@ -64,6 +64,11 @@ func (c *CLI) GetGCPWorkflowsHandler() service.Registerable { return c.gcpWorkfl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPDNSHandler() service.Registerable { return c.gcpDNSHandler }
 
+// GetGCPDatastoreHandler returns the GCPDatastore handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPDatastoreHandler() service.Registerable { return c.gcpDatastoreHandler }
+
 // GetGCPComputeHandler returns the GCPCompute handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -98,6 +103,11 @@ func (c *CLI) GetOCIIdentityHandler() service.Registerable { return c.ociIdentit
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOCIFunctionsHandler() service.Registerable { return c.ociFunctionsHandler }
+
+// GetOCICoreHandler returns the OCICore handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCICoreHandler() service.Registerable { return c.ociCoreHandler }
 
 // GetAzureMonitorHandler returns the AzureMonitor handler for the dashboard proxy.
 //
