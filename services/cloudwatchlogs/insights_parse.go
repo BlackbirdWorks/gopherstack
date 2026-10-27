@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // parseParseCommand parses "parse [source] <"glob"|/regex/> [as f1, f2, ...]".
@@ -111,11 +112,14 @@ func buildParseStage(source string, pat exprToken, names []string) (queryStage, 
 	return &parseStage{source: source, re: re, names: names}, nil
 }
 
+//nolint:gochecknoglobals // compiled once, read-only
+var namedGroupRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\(\?<([a-zA-Z_][a-zA-Z0-9_]*)>`)
+})
+
 // normalizeNamedGroups rewrites "(?<name>" to Go's "(?P<name>" named-group form.
 func normalizeNamedGroups(pattern string) string {
-	re := regexp.MustCompile(`\(\?<([a-zA-Z_][a-zA-Z0-9_]*)>`)
-
-	return re.ReplaceAllString(pattern, `(?P<$1>`)
+	return namedGroupRe().ReplaceAllString(pattern, `(?P<$1>`)
 }
 
 // globToRegex converts a Logs Insights glob (literals plus "*" wildcards) into a

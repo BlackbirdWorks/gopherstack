@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
@@ -423,9 +424,10 @@ func (b *InMemoryBackend) effectAlter(e bqsql.Effect) error {
 	return nil
 }
 
-func labelPairs() *regexp.Regexp {
+//nolint:gochecknoglobals // compiled once, read-only
+var labelPairs = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\(\s*["']([^"']*)["']\s*,\s*["']([^"']*)["']\s*\)`)
-}
+})
 
 // optionsMeta maps DDL OPTIONS(...) to the REST metadata fields they set.
 func optionsMeta(opts map[string]string) map[string]any {
