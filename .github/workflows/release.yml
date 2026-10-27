@@ -251,7 +251,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: Build SPA
         shell: bash
@@ -271,7 +271,6 @@ jobs:
           version="${TAG#v}"
           tags=production
           ldflags="-s -w -X ${VERSION_PKG}.Build=${version}"
-          [ "$RUNNER_OS" = "Linux" ] && tags="$tags,webkit2_41"
           [ "$RUNNER_OS" = "Windows" ] && ldflags="$ldflags -H windowsgui"
           [ "$RUNNER_OS" = "macOS" ] && ldflags="$ldflags -extldflags '-framework UniformTypeIdentifiers'"
           mkdir -p ../out/pkg

@@ -98,7 +98,7 @@ server and dashboard (system webview, no browser needed). Download
 
 - macOS: unzip and open `Gopherstack.app`. It is ad-hoc signed, not notarized, so the first launch needs approval: System Settings → Privacy & Security → Open Anyway, or `xattr -dr com.apple.quarantine Gopherstack.app`
 - Windows: unzip and run `gopherstack-desktop.exe` (needs the WebView2 runtime, preinstalled on Windows 11)
-- Linux: extract and run `gopherstack-desktop` (needs `libgtk-3` and `libwebkit2gtk-4.1`)
+- Linux: extract and run `gopherstack-desktop` (needs GTK 4 and WebKitGTK 6.0: `libgtk-4-1` and `libwebkitgtk-6.0-4`)
 
 It serves on port 8000 if free, otherwise a random loopback port, and accepts
 the same flags and environment variables as the headless binary (e.g. `--port`).
@@ -222,7 +222,7 @@ A built-in UI at `http://localhost:8000/dashboard` for inspecting and managing l
 ### Desktop App
 
 `gopherstack-desktop` runs the full emulator and its dashboard as a native app on
-macOS, Windows and Linux, with no browser or terminal needed. It's built with Wails
+macOS, Windows and Linux, with no browser or terminal needed. It's built with Wails v3
 on the system webview, so it adds only a few MB over the headless binary, and it
 ships with every release next to the headless `gopherstack`. See
 [Desktop app](#desktop-app) for install steps.
