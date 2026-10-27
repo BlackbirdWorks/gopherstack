@@ -83,7 +83,7 @@ func (d *DockerEngine) followLogs(id string) {
 	buf.cancel = cancel
 	buf.mu.Unlock()
 
-	if cur, ok := d.logs.Load(id); !ok || asLogBuffer(cur) != buf {
+	if cur, loaded := d.logs.Load(id); !loaded || asLogBuffer(cur) != buf {
 		cancel()
 
 		return
