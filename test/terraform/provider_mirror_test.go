@@ -169,10 +169,15 @@ func setupProviderMirror(tofuBin string, logger *slog.Logger) error {
 	}
 
 	list := strings.Join(sources, ", ")
-	cfg := fmt.Sprintf(
-		"provider_installation {\n  filesystem_mirror {\n    path    = %q\n    include = [%s]\n  }\n  direct {\n    exclude = [%s]\n  }\n}\n",
-		mirrorDir, list, list,
-	)
+	cfg := "provider_installation {\n" +
+		"  filesystem_mirror {\n" +
+		fmt.Sprintf("    path    = %q\n", mirrorDir) +
+		fmt.Sprintf("    include = [%s]\n", list) +
+		"  }\n" +
+		"  direct {\n" +
+		fmt.Sprintf("    exclude = [%s]\n", list) +
+		"  }\n" +
+		"}\n"
 
 	cfgPath := filepath.Join(mirrorDir, "cli.tfrc")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
