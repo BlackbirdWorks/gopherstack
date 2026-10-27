@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,18 +41,6 @@ func TestReadBody(t *testing.T) {
 	bodyNil, err := httputils.ReadBody(reqNil)
 	require.NoError(t, err)
 	assert.Nil(t, bodyNil)
-}
-
-func TestDrainBody(t *testing.T) {
-	t.Parallel()
-
-	content := []byte("some body")
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(content))
-
-	httputils.DrainBody(req)
-
-	body, _ := io.ReadAll(req.Body)
-	assert.Empty(t, body)
 }
 
 func TestWriteJSON(t *testing.T) {

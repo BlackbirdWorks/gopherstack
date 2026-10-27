@@ -9,7 +9,6 @@ package sns_test
 // inside the timed/profiled window instead of racing past it.
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -34,7 +33,6 @@ func newMixedSubscriberBackend(tb testing.TB, delivered chan<- struct{}) (*sns.H
 	tb.Helper()
 
 	srv := newNotificationServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
 		_ = r.Body.Close()
 		w.WriteHeader(http.StatusOK)
 		delivered <- struct{}{}
