@@ -61,14 +61,14 @@ func (p *WebProvider) Patch(ctx context.Context, id ResourceID, body map[string]
 		fieldProperties: ehMerge(map[string]any{}, s.Extra, nil),
 	}
 
-	if s.Identity != nil {
-		merged["identity"] = s.Identity
+	if ident := p.ids.body(s.Managed); ident != nil {
+		merged[fieldIdentity] = ident
 	}
 
 	merged[webFieldKind] = s.Kind
 	p.mu.RUnlock()
 
-	for _, k := range []string{fieldLocation, webFieldKind, "identity"} {
+	for _, k := range []string{fieldLocation, webFieldKind, fieldIdentity} {
 		if v, found := body[k]; found {
 			merged[k] = v
 		}

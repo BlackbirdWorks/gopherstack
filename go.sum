@@ -71,6 +71,7 @@ github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 h1:qgnWTiWs1G7AqcKZegFvkJD1
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3/go.mod h1:XtxD48QPInqoj+GMlcRlXHEYsoOxFnP6w2JgIZ9rDS4=
 github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1 h1:u93s+zU2JD62im61Bm5CZIc1ZrOJaIAWEg0WOrMVkEo=
 github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1/go.mod h1:oXtinPO4OLj9d1DOTrqrL1oRwGhcqadvAmrl6wTeGlk=
+github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0 h1:w3gDUJlJ0BfBsHH02DCBDwbkmMSXJqBj6nBOCo9iocY=
 github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2 v2.2.0 h1:80ijeACessBdODMsTjR0zf7t1Uvhc+hCqcXc0BcW9ZA=
 github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2 v2.2.0/go.mod h1:RPzAQTYyoren3gG5K0QSiWTSUhGCB47LY//1MGdODv0=
 github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0 h1:wtCn7MemMD9eo4/NdpJ6S/MFD2BV2CDwoEfvl5th2vM=
@@ -93,6 +94,8 @@ github.com/Azure/azure-sdk-for-go/sdk/monitor/query/azlogs v1.2.0 h1:KzTYJVNtaAp
 github.com/Azure/azure-sdk-for-go/sdk/monitor/query/azlogs v1.2.0/go.mod h1:a+dxW5k1ZbYaibMYrFuhZEZELPgZslm81QR4CMchMX0=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v6 v6.0.0 h1:vhXsRicy0J6KLMsd7sAL6ll2CMEag2V2tIpuVI2CZP0=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v6 v6.0.0/go.mod h1:8bqI53aVbpaMreTHLfgG5VcqQKmfBc99UZtPozthauQ=
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9 v9.0.0 h1:GhX9IxyAokIUIIYs4v7PjK+tTUM72dpIjtDhB8OkQ9s=
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9 v9.0.0/go.mod h1:uStAlZ315xBw8h/xv12/hsAEo+hFlwZH4MeD0YVaUp4=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance/v2 v2.4.0 h1:+dIXMjlifRbG3d01DF8dwckUSXADuW5dgBNt1fbkpv0=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance/v2 v2.4.0/go.mod h1:FN0UJ15tJ7kV7JYrYAleEq44Ew1cUiyLcJrfrTxHGd0=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry v1.2.0 h1:DWlwvVV5r/Wy1561nZ3wrpI1/vDIBRY/Wd1HWaRBZWA=
@@ -151,6 +154,7 @@ github.com/Azure/go-ansiterm v0.0.0-20261008234906-119c4d577770 h1:n3LUIJHwvkpfv
 github.com/Azure/go-ansiterm v0.0.0-20261008234906-119c4d577770/go.mod h1:DMNF6Kxv+EcuUvVuNkvC3f+BjEEmc/Fn9aU+qiD8zpU=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.8.0 h1:Nljr4q1GRA/5vCrMONS+g4u4LRHNgOXVSh3O43J2CnI=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.8.0/go.mod h1:Y33QHnf0FfdVewFFISOGe20mkZbxX4H839o955/PoeI=
+github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 h1:0O6j18nQDoIff6/mtosT5LNU2WehEwp+LqfX6699oqY=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c h1:pxW6RcqyfI9/kWtOwnv/G+AzdKuy2ZrqINhenH4HyNs=
 github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=

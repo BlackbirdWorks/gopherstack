@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -464,10 +466,14 @@ func (p *WebProvider) restore(snap *webSnapshot) {
 				s.Configs = map[string]map[string]any{}
 			}
 
+			p.migrateIdentity(s)
+
 			for _, sl := range s.Slots {
 				if sl.Configs == nil {
 					sl.Configs = map[string]map[string]any{}
 				}
+
+				p.migrateIdentity(sl)
 			}
 
 			p.sites[k] = s
@@ -479,4 +485,22 @@ func (p *WebProvider) restore(snap *webSnapshot) {
 			p.plans[k] = pl
 		}
 	}
+}
+
+// migrateIdentity upgrades the identity block older snapshots stored verbatim: the type is kept, a system-assigned
+// principal is issued, and user-assigned references (never resolved back then) are dropped.
+func (p *WebProvider) migrateIdentity(s *storedWebSite) {
+	legacy := s.Identity
+	s.Identity = nil
+
+	if s.Managed.isSet() || len(legacy) == 0 {
+		return
+	}
+
+	typ, ok := normIdentityType(strOf(legacy, fieldType))
+	if !ok || typ == identityNone || typ == identityUser {
+		return
+	}
+
+	s.Managed = resourceIdentity{Type: identitySystem, PrincipalID: uuid.NewString(), TenantID: p.ids.tenantID()}
 }

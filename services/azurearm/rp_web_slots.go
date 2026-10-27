@@ -235,10 +235,15 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
+	ident, err := p.siteIdentity(body, existing)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &storedWebSite{
 		Name: parent.Name, Slot: slot, ResourceGroup: parent.ResourceGroup, Location: parent.Location,
 		Kind: parent.Kind, Created: time.Now().UTC(), Tags: stringTags(body[fieldTags]),
-		Identity: mapOf(body["identity"]), Configs: map[string]map[string]any{}, Extra: webSiteExtra(props),
+		Managed: ident, Configs: map[string]map[string]any{}, Extra: webSiteExtra(props),
 	}
 	rec.Extra[webFieldServerFarmID] = parent.Extra[webFieldServerFarmID]
 

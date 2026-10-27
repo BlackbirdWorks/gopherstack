@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
-| Feature families | 8 (8 ok) |
-| Known gaps | 20 |
+| Feature families | 10 (10 ok) |
+| Known gaps | 26 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -24,17 +24,23 @@
 - ARM error codes are a small hand-picked table (errors.go's errorDetails), not audited against ARM's full published error-code catalog the way services/sqs's errorDetails table has been over multiple audit passes.
 - management locks, Azure Policy, RBAC/Microsoft.Authorization, ARM template deployments (Microsoft.Resources/deployments), PATCH-merge semantics beyond full-replace, $filter/$expand and nextLink pagination on list operations, cross-subscription/cross-tenant, resource moves, What-If, and LRO polling are all explicitly out of MVP scope per AZURE.md section 10.1/10.3 -- not bugs, deliberate scope boundaries for this milestone.
 - Container Instances: interactive exec and attach need a websocket terminal session; both answer 501 NotImplemented.
-- Container Instances: not supported and rejected with 400 InvalidRequestContent: Windows containers, gitRepo volumes, GPUs, liveness/readiness probes, init containers, identity, zones, subnet and DNS configuration, diagnostics, confidential/dedicated SKUs, spot priority, encryption, extensions, UDP ports.
+- Container Instances: not supported and rejected with 400 InvalidRequestContent: Windows containers, gitRepo volumes, GPUs, liveness/readiness probes, init containers, zones, subnet and DNS configuration, diagnostics, confidential/dedicated SKUs, spot priority, encryption, extensions, UDP ports.
 - Container Instances: azureFile volumes are copied from the Azure Files share when the containers start and written back when a container exits and when the group stops or is deleted, not synchronized live; the storage account key is accepted without being checked.
 - Container Instances: the group address is 127.0.0.1 and ports are published on pool-assigned host ports (reported in a PortPublished event), not on the declared port numbers; Private addresses behave the same.
 - Container Instances: restarting a failed container under Never is not done (the platform may restart it); the restart back-off starts at 10s and caps at 5 minutes. Resource requests are validated but only limits are enforced, and per-group CPU/memory maxima are not checked.
 - Container Instances: sibling endpoints (locations/{loc}/usages, cachedImages, capabilities, the operations list, outboundNetworkDependenciesEndpoints, container group profiles) are not implemented; a restored snapshot brings groups back Stopped.
 - Network: not modelled (they stay in the generic metadata-only store): load balancers, NAT gateways, application gateways, firewalls, VPN/ExpressRoute, private endpoints, application security groups, DDoS plans, service endpoint policies, flow logs, public IP prefixes, virtual network taps and every other Microsoft.Network type.
-- Network: IPv6 private addresses on NICs are rejected; IPv6 public addresses come from 2001:db8::/32. Subnet addressing with ipamPoolPrefixAllocations and NAT/gateway-subnet rules are not enforced, and NICs are not attached to virtual machines (no vm/primary/hostedWorkloads state).
+- Network: IPv6 private addresses on NICs are rejected; IPv6 public addresses come from 2001:db8::/32. Subnet addressing with ipamPoolPrefixAllocations and NAT/gateway-subnet rules are not enforced (NICs report the virtualMachine and primary back-references of an attached Compute VM but never hostedWorkloads).
 - Network: GET operations/{id} is stateless (every id reports Succeeded); there are no failed or in-progress long-running operations. Error codes other than InUse*, PublicIPAddressCannotBeDeleted and InvalidResourceReference are not verified against Microsoft Learn (AddressSpaceOverlap, VnetAddressSpacesOverlap, SecurityRule*, PrivateIPAddress*, SubnetIsFull, InUseSubnetCannotBeUpdated, DnsRecordInUse).
 - Network: PUT of a virtual network without a subnets (or securityRules, routes) key keeps the stored children; an explicit empty array removes them. ARM replaces the set on any PUT.
 - Private DNS: auto-registration of NIC addresses into linked zones, one-registration-link-per-vnet and overlapping-namespace conflicts, zone deletion rules, $top paging of record sets by recordSetNameSuffix, and Microsoft.Network/dnszones (public DNS) are not implemented.
-- ManagedIdentity: listAssociatedResources, the identities/default scope and isolationScope are not implemented. Web apps echo a supplied identity block without generating principalId/tenantId (no system-assigned or user-assigned resolution), and container groups still reject identity.
+- Compute: not modelled (they stay in the generic metadata-only store): VM extensions and run commands, images and galleries, proximity placement groups, capacity reservations, dedicated hosts, disk encryption sets and disk accesses, restore points, SSH public key resources, usages and the operations list.
+- Compute: virtual machines do not run; unmanaged (vhd) disks, inline networkInterfaceConfigurations, Spot eviction, boot diagnostics, maintenance, capture, reimage, reapply, runCommand, convertToManagedDisks, attachDetachDataDisks and simulateEviction answer 501 NotImplemented or are rejected. Platform images are not looked up (any publisher/offer/sku with a latest or Major.Minor.Build version is accepted and exactVersion is not reported); the vmSizes catalog is a representative subset available in every location and zone.
+- Compute: disks accept Empty, FromImage, Copy and Upload; Import, ImportSecure, Restore and CopyStart are rejected, beginGetAccess/endGetAccess answer 501 (an Upload disk stays ReadyToUpload), and Ultra/Premium v2 IOPS limits, shared disks (maxShares), bursting, encryption sets and zone-versus-VM zone matching are stored but not enforced.
+- Compute: scale sets are Uniform only (Flexible is rejected); instances are state records, so their network interfaces are not created in Microsoft.Network and subnets referenced by a scale set can still be deleted. Rolling upgrades, autoscale, scale-in policy, per-instance power actions and instance-level PUT/PATCH are not implemented.
+- Compute: a virtual machine cannot be added to an availability set after creation (PropertyChangeNotAllowed) and an omitted availabilitySet, osProfile or storageProfile on update keeps the stored value. Network interfaces of a virtual machine in a removed resource group are released but a virtual machine whose NIC group is removed first keeps its dangling NIC reference.
+- Identity: container group zones are still rejected; managed-identity role assignments and token endpoints (IMDS) do not exist, so a system-assigned principal has no permissions to evaluate.
+- ManagedIdentity: listAssociatedResources, the identities/default scope and isolationScope are not implemented. Identity blocks (Compute, Web, Container Instances) resolve user-assigned identities by resource group and name, ignoring the subscription; deleting an identity that a resource still references is allowed and the reference then reports empty principalId/clientId.
 
 ### Deferred
 
