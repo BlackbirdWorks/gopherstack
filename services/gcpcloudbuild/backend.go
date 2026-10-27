@@ -40,12 +40,12 @@ type InMemoryBackend struct {
 	pools    map[string]*cloudbuildpb.WorkerPool
 	cancels  map[string]context.CancelFunc
 	ops      *gcplro.Store
-	running  int
 	idle     chan struct{}
 	rt       Runtime
 	svc      Services
 	workDir  string
 	noEngine string
+	running  int
 }
 
 // NewInMemoryBackend creates an empty backend with no container runtime.

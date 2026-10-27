@@ -529,7 +529,7 @@ func TestWaitConcurrentWithCreateBuild(t *testing.T) {
 				cop, err := e.client.CreateBuild(t.Context(), &cloudbuildpb.CreateBuildRequest{
 					Parent: parent, Build: buildOf(step("img")),
 				})
-				assert.NoError(t, err)
+				require.NoError(t, err)
 
 				_, err = cop.Wait(t.Context())
 				assert.NoError(t, err)
