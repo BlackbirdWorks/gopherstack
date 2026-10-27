@@ -12,19 +12,21 @@ import (
 )
 
 const (
-	nsLocationsIdx   = 4
-	nsOpKindIdx      = 6
-	nsOpSegs         = 8
-	nsListSegs       = 5
-	nsRGListSegs     = 7
-	nsRGInstanceSegs = 8
-	nsAPIVersionKey  = "api-version"
-	nsOperations     = "operations"
-	nsOperationRes   = "operationResults"
-	nsCheckIPAction  = "CheckIPAddressAvailability"
-	nsCheckIPSegs    = 9
-	apiVersionMinYr  = 2015
-	apiVersionMaxYr  = 2026
+	nsLocationsIdx    = 4
+	nsSubNamespaceIdx = 3
+	nsRGNamespaceIdx  = 5
+	nsOpKindIdx       = 6
+	nsOpSegs          = 8
+	nsListSegs        = 5
+	nsRGListSegs      = 7
+	nsRGInstanceSegs  = 8
+	nsAPIVersionKey   = "api-version"
+	nsOperations      = "operations"
+	nsOperationRes    = "operationResults"
+	nsCheckIPAction   = "CheckIPAddressAvailability"
+	nsCheckIPSegs     = 9
+	apiVersionMinYr   = 2015
+	apiVersionMaxYr   = 2026
 )
 
 var apiVersionRe = regexp.MustCompile(`^(\d{4})-\d{2}-\d{2}(-preview)?$`)
@@ -36,16 +38,18 @@ func isNamespaceScope(segs []string, ns string) bool {
 	}
 
 	if segAt(segs, providersOrResourceGroupsIdx, providersSegment) {
-		return segAt(segs, 3, ns)
+		return segAt(segs, nsSubNamespaceIdx, ns)
 	}
 
 	return len(segs) >= nsRGListSegs && segAt(segs, providersOrResourceGroupsIdx, resourceGroupsSegment) &&
-		segAt(segs, providerNamespaceActionIdx, providersSegment) && segAt(segs, 5, ns)
+		segAt(segs, providerNamespaceActionIdx, providersSegment) && segAt(segs, nsRGNamespaceIdx, ns)
 }
 
 func isNamespaceOperation(segs []string, ns string) bool {
-	return len(segs) == nsOpSegs && isSubscriptionScoped(segs) && segAt(segs, 2, providersSegment) &&
-		segAt(segs, 3, ns) && segAt(segs, nsLocationsIdx, "locations") &&
+	return len(segs) == nsOpSegs && isSubscriptionScoped(segs) &&
+		segAt(segs, providersOrResourceGroupsIdx, providersSegment) &&
+		segAt(segs, nsSubNamespaceIdx, ns) &&
+		segAt(segs, nsLocationsIdx, "locations") &&
 		(segAt(segs, nsOpKindIdx, nsOperations) || segAt(segs, nsOpKindIdx, nsOperationRes))
 }
 
@@ -82,7 +86,7 @@ func (h *Handler) handleNSOperation(c *echo.Context, segs []string) error {
 		return c.NoContent(http.StatusNoContent)
 	}
 
-	return h.writeJSON(c, http.StatusOK, map[string]any{"status": netStatusSucceeded, fieldName: segs[nsOpSegs-1]})
+	return h.writeJSON(c, http.StatusOK, map[string]any{netPropStatus: netStatusSucceeded, fieldName: segs[nsOpSegs-1]})
 }
 
 // checkNSAPIVersion enforces the api-version query parameter the way ARM does.
@@ -111,9 +115,16 @@ func (h *Handler) checkNSAPIVersion(c *echo.Context, ns string, supported []stri
 	}
 
 	if year < apiVersionMinYr || year > apiVersionMaxYr {
-		_ = h.writeError(c, http.StatusBadRequest, "NoRegisteredProviderFound",
+		_ = h.writeError(
+			c,
+			http.StatusBadRequest,
+			"NoRegisteredProviderFound",
 			"No registered resource provider found for location '"+DefaultLocation+"' and API version '"+v+"' for type '"+
-				typ+"'. The supported api-versions are '"+strings.Join(supported, ", ")+"'.")
+				typ+"'. The supported api-versions are '"+strings.Join(
+				supported,
+				", ",
+			)+"'.",
+		)
 
 		return false
 	}
@@ -263,7 +274,8 @@ func (h *Handler) handleCheckIP(c *echo.Context, segs []string) error {
 
 // isSyncType reports whether writes to id complete without a long-running operation.
 func isSyncType(id ResourceID) bool {
-	if id.Namespace == namespaceMicrosoftManagedIdentity || strings.EqualFold(id.Namespace, namespaceMicrosoftManagedIdentity) {
+	if id.Namespace == namespaceMicrosoftManagedIdentity ||
+		strings.EqualFold(id.Namespace, namespaceMicrosoftManagedIdentity) {
 		return true
 	}
 
@@ -286,7 +298,6 @@ func (h *Handler) setNSOperation(c *echo.Context, id ResourceID, withLocation bo
 	if withLocation {
 		hdr.Set("Location", base+nsOperationRes+"/"+opID+query)
 	}
-
 }
 
 // preconditionFailed checks If-Match / If-None-Match against the stored etag and reports whether it answered 412.
@@ -305,7 +316,7 @@ func (h *Handler) preconditionFailed(c *echo.Context, id ResourceID) (bool, erro
 	case ifNone == "*" && exists:
 		return true, h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
 			"The resource "+id.LeafName()+" already exists.")
-	case ifMatch != "" && ifMatch != "*" && !(exists && etagEqual(strOf(cur, netFieldEtag), ifMatch)):
+	case ifMatch != "" && ifMatch != "*" && (!exists || !etagEqual(strOf(cur, netFieldEtag), ifMatch)):
 		return true, h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
 			"The ETag value '"+ifMatch+"' does not match the current ETag of the resource.")
 	}
@@ -333,7 +344,7 @@ func (h *Handler) handleNSPut(c *echo.Context, id ResourceID) error {
 	}
 
 	if etag := strOf(out, netFieldEtag); etag != "" {
-		c.Response().Header().Set("Etag", etag)
+		c.Response().Header().Set("ETag", etag)
 	}
 
 	if !isSyncType(id) {

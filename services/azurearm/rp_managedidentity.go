@@ -104,7 +104,7 @@ func (p *ManagedIdentityProvider) DeleteResourcesInGroup(_ context.Context, reso
 
 func msiKey(rg, name string) string { return strings.ToLower(rg + "/" + name) }
 
-func msiKind(id ResourceID) (identity, federated bool) {
+func msiKind(id ResourceID) (bool, bool) {
 	if len(id.Types) == 0 || !strings.EqualFold(id.Types[0], msiIdentitiesType) {
 		return false, false
 	}
@@ -118,10 +118,13 @@ func msiKind(id ResourceID) (identity, federated bool) {
 
 func (p *ManagedIdentityProvider) identityBody(id ResourceID, i *storedIdentity) map[string]any {
 	out := map[string]any{
-		netFieldID: id.ARMID(), fieldName: i.Name, fieldType: namespaceMicrosoftManagedIdentity + "/" + msiIdentitiesType,
-		fieldLocation: i.Location, fieldTags: tagsOrEmpty(i.Tags),
+		netFieldID:    id.ARMID(),
+		fieldName:     i.Name,
+		fieldType:     namespaceMicrosoftManagedIdentity + "/" + msiIdentitiesType,
+		fieldLocation: i.Location,
+		fieldTags:     tagsOrEmpty(i.Tags),
 		fieldProperties: map[string]any{
-			"tenantId": p.tenantID, "principalId": i.PrincipalID, "clientId": i.ClientID,
+			netFieldTenantID: p.tenantID, "principalId": i.PrincipalID, "clientId": i.ClientID,
 		},
 	}
 
@@ -168,7 +171,11 @@ func (p *ManagedIdentityProvider) putIdentity(id ResourceID, body map[string]any
 	loc := normLocation(strOf(body, fieldLocation))
 
 	if loc == "" && !exists {
-		return nil, netErr(http.StatusBadRequest, netCodeLocation, "The location property is required for this definition.")
+		return nil, netErr(
+			http.StatusBadRequest,
+			netCodeLocation,
+			"The location property is required for this definition.",
+		)
 	}
 
 	rec := &storedIdentity{
@@ -204,7 +211,10 @@ func (p *ManagedIdentityProvider) putFederated(id ResourceID, body map[string]an
 
 	props := propsOf(body)
 	f := &storedFederated{
-		Name: name, Issuer: strOf(props, "issuer"), Subject: strOf(props, "subject"), Audiences: strList(props["audiences"]),
+		Name:      name,
+		Issuer:    strOf(props, "issuer"),
+		Subject:   strOf(props, "subject"),
+		Audiences: strList(props["audiences"]),
 	}
 
 	if u, err := url.Parse(f.Issuer); err != nil || u.Scheme != "https" || u.Host == "" {
@@ -345,8 +355,11 @@ func (p *ManagedIdentityProvider) List(_ context.Context, id ResourceID) ([]map[
 
 	for _, i := range recs {
 		iid := ResourceID{
-			SubscriptionID: id.SubscriptionID, ResourceGroup: i.ResourceGrp, Namespace: namespaceMicrosoftManagedIdentity,
-			Types: []string{msiIdentitiesType}, Names: []string{i.Name},
+			SubscriptionID: id.SubscriptionID,
+			ResourceGroup:  i.ResourceGrp,
+			Namespace:      namespaceMicrosoftManagedIdentity,
+			Types:          []string{msiIdentitiesType},
+			Names:          []string{i.Name},
 		}
 		out = append(out, p.identityBody(iid, i))
 	}

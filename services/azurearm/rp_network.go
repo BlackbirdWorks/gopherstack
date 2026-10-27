@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
 	"sort"
@@ -49,6 +50,17 @@ const (
 	netFieldAddrPrefixes = "addressPrefixes"
 	netFieldResourceGUID = "resourceGuid"
 	netFieldPrefixes     = "addressSpace"
+	netFieldTier         = "tier"
+	netNone              = "None"
+	netEnabled           = "Enabled"
+	netDisabled          = "Disabled"
+	netFieldTenantID     = "tenantId"
+	netPropStatus        = "status"
+	netPropDescription   = "description"
+	netPropPriority      = "priority"
+	netPropAvailable     = "available"
+	ruleTagVNet          = "VirtualNetwork"
+	subnetJoinAction     = "Microsoft.Network/virtualNetworks/subnets/join/action"
 )
 
 var netNameRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9_])?$`)
@@ -81,8 +93,7 @@ func netBad(format string, args ...any) error {
 }
 
 func netErrorDetails(err error) (errorEntry, bool) {
-	var ne *netError
-	if errors.As(err, &ne) {
+	if ne, ok := errors.AsType[*netError](err); ok {
 		return errorEntry{ne.code, ne.msg, ne.status}, true
 	}
 
@@ -150,7 +161,7 @@ func (p *NetworkProvider) Namespace() string { return namespaceMicrosoftNetwork 
 // ResourceTypes implements ResourceProvider.
 func (p *NetworkProvider) ResourceTypes() []ResourceTypeDef {
 	v := networkAPIVersions()
-	defs := make([]ResourceTypeDef, 0)
+	defs := make([]ResourceTypeDef, 0, 13+len(dnsRecordTypes)) //nolint:mnd // modelled type count
 
 	for _, t := range []string{
 		netVNets, netVNets + "/" + netSubnets, netVNets + "/" + netPeerings,
@@ -222,14 +233,10 @@ func (p *NetworkProvider) ofType(typ string) []*netParent {
 	return out
 }
 
-func netSub(id ResourceID) ResourceID {
-	return ResourceID{SubscriptionID: id.SubscriptionID, ResourceGroup: id.ResourceGroup, Namespace: id.Namespace}
-}
-
-func (it *netParent) id(sub string) ResourceID {
+func (n *netParent) id(sub string) ResourceID {
 	return ResourceID{
-		SubscriptionID: sub, ResourceGroup: it.RG, Namespace: namespaceMicrosoftNetwork,
-		Types: []string{it.Type}, Names: []string{it.Obj.Name},
+		SubscriptionID: sub, ResourceGroup: n.RG, Namespace: namespaceMicrosoftNetwork,
+		Types: []string{n.Type}, Names: []string{n.Obj.Name},
 	}
 }
 
@@ -260,9 +267,7 @@ func propsOf(body map[string]any) map[string]any {
 func takeProps(body map[string]any, drop ...string) map[string]any {
 	out := map[string]any{}
 
-	for k, v := range propsOf(body) {
-		out[k] = v
-	}
+	maps.Copy(out, propsOf(body))
 
 	for _, k := range drop {
 		delete(out, k)
@@ -319,14 +324,6 @@ func refMissing(idStr string) error {
 			"and that both resources are in the same region.", idStr)
 }
 
-func refSub(m map[string]any, k string) map[string]any {
-	if id := subID(m, k); id != "" {
-		return map[string]any{netFieldID: id}
-	}
-
-	return nil
-}
-
 func (p *NetworkProvider) envelope(id ResourceID, typ string, o *netObj, props map[string]any) map[string]any {
 	out := map[string]any{
 		netFieldID: id.ARMID(), fieldName: o.Name, fieldType: namespaceMicrosoftNetwork + "/" + typ,
@@ -341,9 +338,7 @@ func (p *NetworkProvider) envelope(id ResourceID, typ string, o *netObj, props m
 		out[fieldTags] = o.Tags
 	}
 
-	for k, v := range o.Extra {
-		out[k] = v
-	}
+	maps.Copy(out, o.Extra)
 
 	return out
 }
@@ -583,7 +578,11 @@ func (p *NetworkProvider) validateTopCommon(top string, id ResourceID, body map[
 
 	if loc, _ := body[fieldLocation].(string); loc == "" {
 		if _, exists := p.top(top, id.ResourceGroup, id.Names[0]); !exists {
-			return netErr(http.StatusBadRequest, netCodeLocation, "The location property is required for this definition.")
+			return netErr(
+				http.StatusBadRequest,
+				netCodeLocation,
+				"The location property is required for this definition.",
+			)
 		}
 	}
 
@@ -669,7 +668,7 @@ func (p *NetworkProvider) putKid(top, kt string, id ResourceID, body map[string]
 	case netRoutes:
 		created, err = p.writeRoute(parent, id.Names[1], body)
 	case netLinks:
-		created, err = p.writeLink(parent, id, id.Names[1], body)
+		created, err = p.writeLink(parent, id.Names[1], body)
 	case netDefRules, netIPConfigs:
 		err = ErrResourceNotFound
 	default:
@@ -739,11 +738,7 @@ func (p *NetworkProvider) listKids(parent *netParent, kt string, id ResourceID) 
 
 	switch kt {
 	case netDefRules:
-		for _, r := range defaultRulesFor(parent) {
-			out = append(out, r)
-		}
-
-		return out
+		return append(out, defaultRulesFor(parent)...)
 	case netIPConfigs:
 		return p.listIPConfigs(parent)
 	}
@@ -761,7 +756,7 @@ func (p *NetworkProvider) listKids(parent *netParent, kt string, id ResourceID) 
 func (p *NetworkProvider) bodyKid(parent *netParent, kt string, id ResourceID, k *netObj) map[string]any {
 	switch kt {
 	case netSubnets:
-		return p.bodySubnet(parent, id, k)
+		return p.bodySubnet(id, k)
 	case netPeerings:
 		return p.bodyPeering(parent, id, k)
 	case netRules:

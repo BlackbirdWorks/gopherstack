@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"net/http"
 	"net/netip"
+	"slices"
 )
 
 // netParsePrefix parses a canonical CIDR prefix.
@@ -44,17 +45,18 @@ func prefixInside(inner netip.Prefix, outer []netip.Prefix) bool {
 
 func prefixesOverlap(a, b []netip.Prefix) bool {
 	for _, x := range a {
-		for _, y := range b {
-			if x.Overlaps(y) {
-				return true
-			}
+		if slices.ContainsFunc(b, x.Overlaps) {
+			return true
 		}
 	}
 
 	return false
 }
 
-const netReservedLow = 4
+const (
+	netReservedLow = 4
+	ipv4Bits       = 32
+)
 
 func v4u(a netip.Addr) uint32 {
 	b := a.As4()
@@ -78,7 +80,7 @@ func subnetRange(pf netip.Prefix) (uint32, uint32, bool) {
 	}
 
 	base := v4u(pf.Masked().Addr())
-	size := uint32(1) << uint(32-pf.Bits()) //nolint:gosec // bits is 0..32
+	size := uint32(1) << uint(ipv4Bits-pf.Bits())
 
 	if size <= netReservedLow+1 {
 		return 0, 0, false

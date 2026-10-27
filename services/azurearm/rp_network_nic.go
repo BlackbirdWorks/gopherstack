@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"maps"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -9,21 +10,23 @@ import (
 )
 
 const (
-	pipTypePath      = "Microsoft.Network/publicIPAddresses"
-	ipConfigTypePath = "Microsoft.Network/networkInterfaces/ipConfigurations"
-	methodStatic     = "Static"
-	methodDynamic    = "Dynamic"
-	versionV4        = "IPv4"
-	versionV6        = "IPv6"
-	auxIP            = "ip"
-	skuBasic         = "Basic"
-	skuStandard      = "Standard"
-	minIdleTimeout   = 4
-	maxIdleTimeout   = 30
-	maxSuggestions   = 5
-	nicMACPrefix     = "00-0D-3A-"
+	pipTypePath        = "Microsoft.Network/publicIPAddresses"
+	ipConfigTypePath   = "Microsoft.Network/networkInterfaces/ipConfigurations"
+	methodStatic       = "Static"
+	methodDynamic      = "Dynamic"
+	versionV4          = "IPv4"
+	versionV6          = "IPv6"
+	auxIP              = "ip"
+	skuBasic           = "Basic"
+	skuStandard        = skuTierStandard
+	defaultIdleTimeout = 4
+	minIdleTimeout     = 4
+	maxIdleTimeout     = 30
+	maxSuggestions     = 5
+	nicMACPrefix       = "00-0D-3A-"
 )
 
+//nolint:gochecknoglobals // read-only tables
 var (
 	dnsLabelRe = regexp.MustCompile(`^[a-z][a-z0-9-]{1,61}[a-z0-9]$`)
 	// pipRanges are the RFC 5737 documentation ranges; the emulator hands out public addresses from them in order,
@@ -74,44 +77,58 @@ func (p *NetworkProvider) allocPIP(version string) (string, error) {
 		"No more public IP addresses are available in the emulator's documentation ranges.")
 }
 
-func (p *NetworkProvider) putPIP(id ResourceID, body map[string]any) (map[string]any, bool, error) {
+type pipSettings struct {
+	skuName, tier, method, version string
+	idle                           int
+}
+
+func parsePIPSettings(name string, body map[string]any) (pipSettings, error) {
 	props := propsOf(body)
 	skuIn, _ := body[netFieldSKU].(map[string]any)
+	st := pipSettings{idle: defaultIdleTimeout}
 
-	skuName, ok := canonEnum(firstNonEmpty(strOf(skuIn, fieldName), skuBasic), []string{skuBasic, skuStandard})
-	if !ok {
-		return nil, false, netBad("Public IP address SKU name must be Basic or Standard.")
-	}
+	var ok [4]bool
 
-	tier, ok := canonEnum(firstNonEmpty(strOf(skuIn, "tier"), "Regional"), []string{"Regional", "Global"})
-	if !ok || (tier == "Global" && skuName != skuStandard) {
-		return nil, false, netBad("Public IP address SKU tier must be Regional, or Global with the Standard SKU.")
-	}
-
-	method, ok := canonEnum(firstNonEmpty(strOf(props, "publicIPAllocationMethod"), methodDynamic),
+	st.skuName, ok[0] = canonEnum(firstNonEmpty(strOf(skuIn, fieldName), skuBasic), []string{skuBasic, skuStandard})
+	st.tier, ok[1] = canonEnum(firstNonEmpty(strOf(skuIn, netFieldTier), "Regional"), []string{"Regional", "Global"})
+	st.method, ok[2] = canonEnum(firstNonEmpty(strOf(props, "publicIPAllocationMethod"), methodDynamic),
 		[]string{methodStatic, methodDynamic})
-	if !ok {
-		return nil, false, netBad("publicIPAllocationMethod must be Static or Dynamic.")
-	}
-
-	if skuName == skuStandard && method != methodStatic {
-		return nil, false, netBad("Standard SKU public IP address %s must use the Static allocation method.", id.Names[0])
-	}
-
-	version, ok := canonEnum(firstNonEmpty(strOf(props, "publicIPAddressVersion"), versionV4),
+	st.version, ok[3] = canonEnum(firstNonEmpty(strOf(props, "publicIPAddressVersion"), versionV4),
 		[]string{versionV4, versionV6})
-	if !ok {
-		return nil, false, netBad("publicIPAddressVersion must be IPv4 or IPv6.")
+
+	switch {
+	case !ok[0]:
+		return st, netBad("Public IP address SKU name must be Basic or Standard.")
+	case !ok[1] || (st.tier == "Global" && st.skuName != skuStandard):
+		return st, netBad("Public IP address SKU tier must be Regional, or Global with the Standard SKU.")
+	case !ok[2]:
+		return st, netBad("publicIPAllocationMethod must be Static or Dynamic.")
+	case !ok[3]:
+		return st, netBad("publicIPAddressVersion must be IPv4 or IPv6.")
+	case st.skuName == skuStandard && st.method != methodStatic:
+		return st, netBad("Standard SKU public IP address %s must use the Static allocation method.", name)
 	}
 
-	idle := 4
 	if v, set := props["idleTimeoutInMinutes"]; set {
-		idle = intOf(v)
+		st.idle = intOf(v)
 	}
 
-	if idle < minIdleTimeout || idle > maxIdleTimeout {
-		return nil, false, netBad("idleTimeoutInMinutes must be between %d and %d.", minIdleTimeout, maxIdleTimeout)
+	if st.idle < minIdleTimeout || st.idle > maxIdleTimeout {
+		return st, netBad("idleTimeoutInMinutes must be between %d and %d.", minIdleTimeout, maxIdleTimeout)
 	}
+
+	return st, nil
+}
+
+func (p *NetworkProvider) putPIP(id ResourceID, body map[string]any) (map[string]any, bool, error) {
+	props := propsOf(body)
+
+	st, err := parsePIPSettings(id.Names[0], body)
+	if err != nil {
+		return nil, false, err
+	}
+
+	skuName, tier, method, version, idle := st.skuName, st.tier, st.method, st.version, st.idle
 
 	loc := normLocation(strOf(body, fieldLocation))
 	old, existed := p.top(netPIPs, id.ResourceGroup, id.Names[0])
@@ -137,11 +154,11 @@ func (p *NetworkProvider) putPIP(id ResourceID, body map[string]any) (map[string
 	}
 
 	it, obj, created := p.upsertTop(netPIPs, id, body)
-	obj.Props = takeProps(body, "ipAddress", "ipConfiguration", "provisioningState", netFieldResourceGUID,
+	obj.Props = takeProps(body, "ipAddress", "ipConfiguration", fieldProvisioningState, netFieldResourceGUID,
 		"linkedPublicIPAddress", "servicePublicIPAddress")
 	obj.Props["publicIPAllocationMethod"], obj.Props["publicIPAddressVersion"] = method, version
 	obj.Props["idleTimeoutInMinutes"] = idle
-	obj.Extra = map[string]any{netFieldSKU: map[string]any{fieldName: skuName, "tier": tier}}
+	obj.Extra = map[string]any{netFieldSKU: map[string]any{fieldName: skuName, netFieldTier: tier}}
 
 	if z, has := body[netFieldZones]; has {
 		obj.Extra[netFieldZones] = z
@@ -172,9 +189,7 @@ func (p *NetworkProvider) pipDNS(id ResourceID, props map[string]any, loc string
 
 	out := map[string]any{}
 
-	for k, v := range d {
-		out[k] = v
-	}
+	maps.Copy(out, d)
 
 	delete(out, "fqdn")
 
@@ -192,7 +207,7 @@ func (p *NetworkProvider) pipDNS(id ResourceID, props map[string]any, loc string
 		dn, _ := o.Obj.Props["dnsSettings"].(map[string]any)
 
 		if strings.EqualFold(strOf(dn, "domainNameLabel"), label) && o.Obj.Location == loc &&
-			!(strings.EqualFold(o.Obj.Name, id.Names[0]) && strings.EqualFold(o.RG, id.ResourceGroup)) {
+			(!strings.EqualFold(o.Obj.Name, id.Names[0]) || !strings.EqualFold(o.RG, id.ResourceGroup)) {
 			return nil, netErr(http.StatusConflict, "DnsRecordInUse",
 				"DNS record %s.%s.cloudapp.azure.com is already used by another public IP.", label, loc)
 		}
@@ -206,9 +221,7 @@ func (p *NetworkProvider) pipDNS(id ResourceID, props map[string]any, loc string
 func (p *NetworkProvider) bodyPIP(id ResourceID, it *netParent) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range it.Obj.Props {
-		props[k] = v
-	}
+	maps.Copy(props, it.Obj.Props)
 
 	if ip := it.Obj.Aux[auxIP]; ip != "" {
 		props["ipAddress"] = ip
@@ -218,7 +231,7 @@ func (p *NetworkProvider) bodyPIP(id ResourceID, it *netParent) map[string]any {
 		props["ipConfiguration"] = map[string]any{netFieldID: user}
 	}
 
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = it.Obj.GUID
 
 	return p.envelope(id, netPIPs, &it.Obj, props)
@@ -414,7 +427,7 @@ func (p *NetworkProvider) putNIC(id ResourceID, body map[string]any) (map[string
 	}
 
 	it, obj, created := p.upsertTop(netNICs, id, body)
-	obj.Props = takeProps(body, "macAddress", "provisioningState", netFieldResourceGUID, "virtualMachine",
+	obj.Props = takeProps(body, "macAddress", fieldProvisioningState, netFieldResourceGUID, "virtualMachine",
 		"privateEndpoint", "primary", "tapConfigurations", "hostedWorkloads", "vnetEncryptionSupported")
 	obj.Props[netIPConfigs] = cfgs
 
@@ -459,7 +472,12 @@ func (p *NetworkProvider) normalizeIPConfigs(
 			return nil, err
 		}
 
-		cp, err := p.normalizeIPConfig(nicID+"/"+netIPConfigs+"/"+name, propsOf(m), prevCfg[strings.ToLower(name)], used)
+		cp, err := p.normalizeIPConfig(
+			nicID+"/"+netIPConfigs+"/"+name,
+			propsOf(m),
+			prevCfg[strings.ToLower(name)],
+			used,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -482,19 +500,28 @@ func (p *NetworkProvider) normalizeIPConfigs(
 	return out, nil
 }
 
-func (p *NetworkProvider) normalizeIPConfig(
-	cfgID string, cp, prev map[string]any, used map[string]map[string]string,
-) (map[string]any, error) {
+func parseIPConfigMode(cfgID string, cp map[string]any) (string, string, error) {
 	version, ok := canonEnum(firstNonEmpty(strOf(cp, "privateIPAddressVersion"), versionV4),
 		[]string{versionV4, versionV6})
 	if !ok || version == versionV6 {
-		return nil, netBad("IP configuration %s: only IPv4 private addresses are supported.", cfgID)
+		return "", "", netBad("IP configuration %s: only IPv4 private addresses are supported.", cfgID)
 	}
 
 	method, ok := canonEnum(firstNonEmpty(strOf(cp, "privateIPAllocationMethod"), methodDynamic),
 		[]string{methodStatic, methodDynamic})
 	if !ok {
-		return nil, netBad("privateIPAllocationMethod must be Static or Dynamic.")
+		return "", "", netBad("privateIPAllocationMethod must be Static or Dynamic.")
+	}
+
+	return method, version, nil
+}
+
+func (p *NetworkProvider) normalizeIPConfig(
+	cfgID string, cp, prev map[string]any, used map[string]map[string]string,
+) (map[string]any, error) {
+	method, version, err := parseIPConfigMode(cfgID, cp)
+	if err != nil {
+		return nil, err
 	}
 
 	sid := subID(cp, netFieldSubnet)
@@ -529,42 +556,47 @@ func (p *NetworkProvider) normalizeIPConfig(
 
 	used[key][addr] = cfgID
 
-	out := map[string]any{}
-
-	for k, v := range cp {
-		out[k] = v
-	}
-
-	delete(out, "provisioningState")
+	out := maps.Clone(cp)
+	delete(out, fieldProvisioningState)
 
 	out[netFieldSubnet] = map[string]any{netFieldID: sid}
 	out["privateIPAddress"], out["privateIPAllocationMethod"], out["privateIPAddressVersion"] = addr, method, version
 
-	if pid := subID(cp, "publicIPAddress"); pid != "" {
-		pip, exists := p.netRef(pid, netPIPs)
-		if !exists {
-			return nil, refMissing(pid)
-		}
-
-		if user := p.pipUser(pip.armID()); user != "" && !sameNIC(user, cfgID) {
-			return nil, netErr(http.StatusBadRequest, "PublicIPAddressInUse",
-				"Public IP address %s is already allocated to resource %s.", pid, user)
-		}
-
-		out["publicIPAddress"] = map[string]any{netFieldID: pid}
+	if err = p.bindPublicIP(cfgID, cp, out); err != nil {
+		return nil, err
 	}
 
 	return out, nil
 }
 
+// bindPublicIP validates the public IP reference of an IP configuration and records it in out.
+func (p *NetworkProvider) bindPublicIP(cfgID string, cp, out map[string]any) error {
+	pid := subID(cp, "publicIPAddress")
+	if pid == "" {
+		return nil
+	}
+
+	pip, exists := p.netRef(pid, netPIPs)
+	if !exists {
+		return refMissing(pid)
+	}
+
+	if user := p.pipUser(pip.armID()); user != "" && !sameNIC(user, cfgID) {
+		return netErr(http.StatusBadRequest, "PublicIPAddressInUse",
+			"Public IP address %s is already allocated to resource %s.", pid, user)
+	}
+
+	out["publicIPAddress"] = map[string]any{netFieldID: pid}
+
+	return nil
+}
+
 func (p *NetworkProvider) bodyNIC(id ResourceID, it *netParent) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range it.Obj.Props {
-		props[k] = v
-	}
+	maps.Copy(props, it.Obj.Props)
 
-	cfgs := []any{}
+	cfgs := make([]any, 0, len(anyList(it.Obj.Props[netIPConfigs])))
 	for _, c := range anyList(it.Obj.Props[netIPConfigs]) {
 		m, _ := c.(map[string]any)
 		cfgs = append(cfgs, p.ipConfigBody(it, strOf(m, fieldName), propsOf(m)))
@@ -572,11 +604,11 @@ func (p *NetworkProvider) bodyNIC(id ResourceID, it *netParent) map[string]any {
 
 	props[netIPConfigs] = cfgs
 	props["macAddress"] = it.Obj.Aux["mac"]
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = it.Obj.GUID
 	props["tapConfigurations"] = []any{}
 	props["hostedWorkloads"] = []any{}
-	props["nicType"] = "Standard"
+	props["nicType"] = skuTierStandard
 	props["vnetEncryptionSupported"] = false
 
 	for _, k := range []string{"enableAcceleratedNetworking", "enableIPForwarding", "disableTcpStateTracking"} {
@@ -588,9 +620,7 @@ func (p *NetworkProvider) bodyNIC(id ResourceID, it *netParent) map[string]any {
 	dns := map[string]any{}
 
 	if d, ok := props["dnsSettings"].(map[string]any); ok {
-		for k, v := range d {
-			dns[k] = v
-		}
+		maps.Copy(dns, d)
 	}
 
 	for _, k := range []string{"dnsServers", "appliedDnsServers"} {
@@ -608,11 +638,9 @@ func (p *NetworkProvider) bodyNIC(id ResourceID, it *netParent) map[string]any {
 func (p *NetworkProvider) ipConfigBody(nic *netParent, name string, cp map[string]any) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range cp {
-		props[k] = v
-	}
+	maps.Copy(props, cp)
 
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 
 	if pid := subID(cp, "publicIPAddress"); pid != "" {
 		props["publicIPAddress"] = map[string]any{netFieldID: pid}
@@ -636,7 +664,7 @@ func (p *NetworkProvider) getIPConfig(nic *netParent, id ResourceID) (map[string
 }
 
 func (p *NetworkProvider) listIPConfigs(nic *netParent) []map[string]any {
-	out := []map[string]any{}
+	out := make([]map[string]any, 0, len(anyList(nic.Obj.Props[netIPConfigs])))
 
 	for _, c := range anyList(nic.Obj.Props[netIPConfigs]) {
 		m, _ := c.(map[string]any)
@@ -676,7 +704,7 @@ func (p *NetworkProvider) checkIPAvailability(vnet *netParent, ip string) (map[s
 		}
 
 		if !subnetReserved(pf, addr) && taken[addr.String()] == "" {
-			return map[string]any{"available": true}, nil
+			return map[string]any{netPropAvailable: true}, nil
 		}
 
 		suggest := []string{}
@@ -688,10 +716,10 @@ func (p *NetworkProvider) checkIPAvailability(vnet *netParent, ip string) (map[s
 			}
 		}
 
-		return map[string]any{"available": false, "availableIPAddresses": suggest}, nil
+		return map[string]any{netPropAvailable: false, "availableIPAddresses": suggest}, nil
 	}
 
-	return map[string]any{"available": false, "availableIPAddresses": []string{}}, nil
+	return map[string]any{netPropAvailable: false, "availableIPAddresses": []string{}}, nil
 }
 
 // --- deletion rules, reconciliation ---

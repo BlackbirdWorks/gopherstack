@@ -92,15 +92,19 @@ func (s *netStack) rawDo(t *testing.T, method, path, body string) *http.Response
 }
 
 func sdkErrCode(err error) string {
-	var re *azcore.ResponseError
-	if errors.As(err, &re) {
+	if re, ok := errors.AsType[*azcore.ResponseError](err); ok {
 		return re.ErrorCode
 	}
 
 	return ""
 }
 
-func (s *netStack) vnet(t *testing.T, name string, prefixes []string, subnets map[string]string) armnetwork.VirtualNetwork {
+func (s *netStack) vnet(
+	t *testing.T,
+	name string,
+	prefixes []string,
+	subnets map[string]string,
+) armnetwork.VirtualNetwork {
 	t.Helper()
 
 	v := armnetwork.VirtualNetwork{
@@ -164,15 +168,20 @@ func TestNetworkSDK_VNetSubnetValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		prefixes []string
 		subnets  map[string]string
+		name     string
 		wantCode string
+		prefixes []string
 	}{
-		{name: "valid", prefixes: []string{"10.0.0.0/16"}, subnets: map[string]string{"a": "10.0.1.0/24", "b": "10.0.2.0/24"}},
+		{
+			name:     "valid",
+			prefixes: []string{"10.0.0.0/16"},
+			subnets:  map[string]string{"a": "10.0.1.0/24", "b": "10.0.2.0/24"},
+		},
 		{name: "empty space", prefixes: nil, wantCode: "InvalidRequestFormat"},
 		{name: "bad cidr", prefixes: []string{"10.0.0.5/16"}, wantCode: "InvalidCIDRNotation"},
-		{name: "overlapping space", prefixes: []string{"10.0.0.0/16", "10.0.1.0/24"}, wantCode: "AddressSpaceOverlap"},
+		{name: "overlapping space", prefixes: []string{"10.0.0.0/16", "10.0.1.0/24"},
+			wantCode: "AddressSpaceOverlap"},
 		{
 			name: "subnet outside space", prefixes: []string{"10.0.0.0/16"},
 			subnets: map[string]string{"a": "10.1.0.0/24"}, wantCode: "NetcfgInvalidSubnet",
@@ -183,7 +192,8 @@ func TestNetworkSDK_VNetSubnetValidation(t *testing.T) {
 		},
 		{
 			name: "subnets overlap", prefixes: []string{"10.0.0.0/16"},
-			subnets: map[string]string{"a": "10.0.0.0/24", "b": "10.0.0.128/25"}, wantCode: "NetcfgSubnetRangesOverlap",
+			subnets: map[string]string{"a": "10.0.0.0/24",
+				"b": "10.0.0.128/25"}, wantCode: "NetcfgSubnetRangesOverlap",
 		},
 	}
 
@@ -245,10 +255,14 @@ func TestNetworkSDK_SubnetChild(t *testing.T) {
 		poller, err := sc.BeginCreateOrUpdate(t.Context(), netRG, "vnet1", tt.name, armnetwork.Subnet{
 			Properties: &armnetwork.SubnetPropertiesFormat{
 				AddressPrefix: new(tt.prefix),
-				Delegations: []*armnetwork.Delegation{{
-					Name:       new("d"),
-					Properties: &armnetwork.ServiceDelegationPropertiesFormat{ServiceName: new("Microsoft.Web/serverFarms")},
-				}},
+				Delegations: []*armnetwork.Delegation{
+					{
+						Name: new("d"),
+						Properties: &armnetwork.ServiceDelegationPropertiesFormat{
+							ServiceName: new("Microsoft.Web/serverFarms"),
+						},
+					},
+				},
 				ServiceEndpoints: []*armnetwork.ServiceEndpointPropertiesFormat{{Service: new("Microsoft.Storage")}},
 			},
 		}, nil)
@@ -267,7 +281,11 @@ func TestNetworkSDK_SubnetChild(t *testing.T) {
 
 		sp := res.Properties
 		require.Len(t, sp.Delegations, 1)
-		assert.Equal(t, []*string{new("Microsoft.Network/virtualNetworks/subnets/action")}, sp.Delegations[0].Properties.Actions)
+		assert.Equal(
+			t,
+			[]*string{new("Microsoft.Network/virtualNetworks/subnets/action")},
+			sp.Delegations[0].Properties.Actions,
+		)
 		require.Len(t, sp.ServiceEndpoints, 1)
 		assert.Equal(t, "westus", *sp.ServiceEndpoints[0].Locations[0])
 	}
@@ -298,11 +316,36 @@ func TestNetworkSDK_NICAddressAllocation(t *testing.T) {
 		{name: "dyn1", method: armnetwork.IPAllocationMethodDynamic, wantIP: "10.0.1.4"},
 		{name: "dyn2", method: armnetwork.IPAllocationMethodDynamic, wantIP: "10.0.1.5"},
 		{name: "static ok", method: armnetwork.IPAllocationMethodStatic, addr: "10.0.1.100", wantIP: "10.0.1.100"},
-		{name: "reserved low", method: armnetwork.IPAllocationMethodStatic, addr: "10.0.1.3", wantCode: "PrivateIPAddressIsReserved"},
-		{name: "reserved gw", method: armnetwork.IPAllocationMethodStatic, addr: "10.0.1.1", wantCode: "PrivateIPAddressIsReserved"},
-		{name: "reserved last", method: armnetwork.IPAllocationMethodStatic, addr: "10.0.1.255", wantCode: "PrivateIPAddressIsReserved"},
-		{name: "taken", method: armnetwork.IPAllocationMethodStatic, addr: "10.0.1.4", wantCode: "PrivateIPAddressIsAllocated"},
-		{name: "outside", method: armnetwork.IPAllocationMethodStatic, addr: "10.0.2.9", wantCode: "PrivateIPAddressNotInSubnet"},
+		{
+			name:     "reserved low",
+			method:   armnetwork.IPAllocationMethodStatic,
+			addr:     "10.0.1.3",
+			wantCode: "PrivateIPAddressIsReserved",
+		},
+		{
+			name:     "reserved gw",
+			method:   armnetwork.IPAllocationMethodStatic,
+			addr:     "10.0.1.1",
+			wantCode: "PrivateIPAddressIsReserved",
+		},
+		{
+			name:     "reserved last",
+			method:   armnetwork.IPAllocationMethodStatic,
+			addr:     "10.0.1.255",
+			wantCode: "PrivateIPAddressIsReserved",
+		},
+		{
+			name:     "taken",
+			method:   armnetwork.IPAllocationMethodStatic,
+			addr:     "10.0.1.4",
+			wantCode: "PrivateIPAddressIsAllocated",
+		},
+		{
+			name:     "outside",
+			method:   armnetwork.IPAllocationMethodStatic,
+			addr:     "10.0.2.9",
+			wantCode: "PrivateIPAddressNotInSubnet",
+		},
 		{name: "last usable", method: armnetwork.IPAllocationMethodStatic, addr: "10.0.1.254", wantIP: "10.0.1.254"},
 	}
 
@@ -338,16 +381,19 @@ func TestNetworkSDK_NICAddressAllocation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "10.0.1.4", *reuse.Properties.IPConfigurations[0].Properties.PrivateIPAddress)
 
-	avail, err := s.net.NewVirtualNetworksClient().CheckIPAddressAvailability(t.Context(), netRG, "vnet1", "10.0.1.5", nil)
+	avail, err := s.net.NewVirtualNetworksClient().
+		CheckIPAddressAvailability(t.Context(), netRG, "vnet1", "10.0.1.5", nil)
 	require.NoError(t, err)
 	assert.False(t, *avail.Available)
 	assert.NotEmpty(t, avail.AvailableIPAddresses)
 
-	avail, err = s.net.NewVirtualNetworksClient().CheckIPAddressAvailability(t.Context(), netRG, "vnet1", "10.0.1.200", nil)
+	avail, err = s.net.NewVirtualNetworksClient().
+		CheckIPAddressAvailability(t.Context(), netRG, "vnet1", "10.0.1.200", nil)
 	require.NoError(t, err)
 	assert.True(t, *avail.Available)
 
-	_, err = s.net.NewVirtualNetworksClient().CheckIPAddressAvailability(t.Context(), netRG, "vnet1", "172.16.0.1", nil)
+	_, err = s.net.NewVirtualNetworksClient().CheckIPAddressAvailability(t.Context(), netRG, "vnet1",
+		"172.16.0.1", nil)
 	assert.Equal(t, "PrivateIPAddressNotInAnySubnet", sdkErrCode(err))
 }
 
@@ -357,7 +403,8 @@ func TestNetworkSDK_PublicIP(t *testing.T) {
 	s := newNetStack(t)
 	pc := s.net.NewPublicIPAddressesClient()
 
-	create := func(name string, sku armnetwork.PublicIPAddressSKUName, m armnetwork.IPAllocationMethod) (armnetwork.PublicIPAddress, error) {
+	create := func(name string, sku armnetwork.PublicIPAddressSKUName,
+		m armnetwork.IPAllocationMethod) (armnetwork.PublicIPAddress, error) {
 		p, err := pc.BeginCreateOrUpdate(t.Context(), netRG, name, armnetwork.PublicIPAddress{
 			Location: new("westus"),
 			SKU:      &armnetwork.PublicIPAddressSKU{Name: new(sku)},
@@ -499,23 +546,35 @@ func TestNetworkSDK_DefaultSecurityRules(t *testing.T) {
 	}{
 		{name: "ok", rule: rule("ssh", 110, armnetwork.SecurityRuleDirectionInbound)},
 		{name: "same prio other dir", rule: rule("out", 100, armnetwork.SecurityRuleDirectionOutbound)},
-		{name: "conflict", rule: rule("dup", 100, armnetwork.SecurityRuleDirectionInbound), wantCode: "SecurityRuleConflict"},
-		{name: "low prio", rule: rule("low", 99, armnetwork.SecurityRuleDirectionInbound), wantCode: "SecurityRuleInvalidPriority"},
-		{name: "high prio", rule: rule("high", 4097, armnetwork.SecurityRuleDirectionInbound), wantCode: "SecurityRuleInvalidPriority"},
+		{
+			name:     "conflict",
+			rule:     rule("dup", 100, armnetwork.SecurityRuleDirectionInbound),
+			wantCode: "SecurityRuleConflict",
+		},
+		{
+			name:     "low prio",
+			rule:     rule("low", 99, armnetwork.SecurityRuleDirectionInbound),
+			wantCode: "SecurityRuleInvalidPriority",
+		},
+		{
+			name:     "high prio",
+			rule:     rule("high", 4097, armnetwork.SecurityRuleDirectionInbound),
+			wantCode: "SecurityRuleInvalidPriority",
+		},
 	}
 
 	for _, tt := range tests {
-		p, err := rc.BeginCreateOrUpdate(t.Context(), netRG, "nsg1", *tt.rule.Name, *tt.rule, nil)
+		p, cerr := rc.BeginCreateOrUpdate(t.Context(), netRG, "nsg1", *tt.rule.Name, *tt.rule, nil)
 		if tt.wantCode != "" {
-			require.Error(t, err, tt.name)
-			assert.Equal(t, tt.wantCode, sdkErrCode(err), tt.name)
+			require.Error(t, cerr, tt.name)
+			assert.Equal(t, tt.wantCode, sdkErrCode(cerr), tt.name)
 
 			continue
 		}
 
-		require.NoError(t, err, tt.name)
-		_, err = p.PollUntilDone(t.Context(), pollFast())
-		require.NoError(t, err, tt.name)
+		require.NoError(t, cerr, tt.name)
+		_, cerr = p.PollUntilDone(t.Context(), pollFast())
+		require.NoError(t, cerr, tt.name)
 	}
 
 	bad := rule("ports", 200, armnetwork.SecurityRuleDirectionInbound)
@@ -675,7 +734,9 @@ func TestNetworkSDK_Peering(t *testing.T) {
 
 	peer := func(local, name string, remote *string) (armnetwork.VirtualNetworkPeering, error) {
 		p, err := pc.BeginCreateOrUpdate(ctx, netRG, local, name, armnetwork.VirtualNetworkPeering{
-			Properties: &armnetwork.VirtualNetworkPeeringPropertiesFormat{RemoteVirtualNetwork: &armnetwork.SubResource{ID: remote}},
+			Properties: &armnetwork.VirtualNetworkPeeringPropertiesFormat{
+				RemoteVirtualNetwork: &armnetwork.SubResource{ID: remote},
+			},
 		}, nil)
 		if err != nil {
 			return armnetwork.VirtualNetworkPeering{}, err
@@ -754,7 +815,11 @@ func TestNetworkSDK_RouteTableValidation(t *testing.T) {
 			AddressPrefix: new("0.0.0.0/0"), NextHopType: new(armnetwork.RouteNextHopTypeVirtualAppliance),
 		}, wantCode: "InvalidRequestFormat"},
 		{name: "ip-on-internet", props: armnetwork.RoutePropertiesFormat{
-			AddressPrefix: new("0.0.0.0/0"), NextHopType: new(armnetwork.RouteNextHopTypeInternet), NextHopIPAddress: new("1.2.3.4"),
+			AddressPrefix: new(
+				"0.0.0.0/0",
+			),
+			NextHopType:      new(armnetwork.RouteNextHopTypeInternet),
+			NextHopIPAddress: new("1.2.3.4"),
 		}, wantCode: "InvalidRequestFormat"},
 		{name: "bad-cidr", props: armnetwork.RoutePropertiesFormat{
 			AddressPrefix: new("10.9.0.1/16"), NextHopType: new(armnetwork.RouteNextHopTypeNone),
@@ -762,17 +827,18 @@ func TestNetworkSDK_RouteTableValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		rp, err := s.net.NewRoutesClient().BeginCreateOrUpdate(ctx, netRG, "rt1", tt.name, armnetwork.Route{Properties: &tt.props}, nil)
+		rp, cerr := s.net.NewRoutesClient().
+			BeginCreateOrUpdate(ctx, netRG, "rt1", tt.name, armnetwork.Route{Properties: &tt.props}, nil)
 		if tt.wantCode != "" {
-			require.Error(t, err, tt.name)
-			assert.Equal(t, tt.wantCode, sdkErrCode(err), tt.name)
+			require.Error(t, cerr, tt.name)
+			assert.Equal(t, tt.wantCode, sdkErrCode(cerr), tt.name)
 
 			continue
 		}
 
-		require.NoError(t, err, tt.name)
-		_, err = rp.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err, tt.name)
+		require.NoError(t, cerr, tt.name)
+		_, cerr = rp.PollUntilDone(ctx, pollFast())
+		require.NoError(t, cerr, tt.name)
 	}
 
 	got, err := s.net.NewRouteTablesClient().Get(ctx, netRG, "rt1", nil)
@@ -780,7 +846,8 @@ func TestNetworkSDK_RouteTableValidation(t *testing.T) {
 	assert.Len(t, got.Properties.Routes, 2)
 	assert.NotEmpty(t, *got.Etag)
 
-	upd, err := s.net.NewRouteTablesClient().UpdateTags(ctx, netRG, "rt1", armnetwork.TagsObject{Tags: map[string]*string{"x": new("y")}}, nil)
+	upd, err := s.net.NewRouteTablesClient().
+		UpdateTags(ctx, netRG, "rt1", armnetwork.TagsObject{Tags: map[string]*string{"x": new("y")}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]*string{"x": new("y")}, upd.Tags)
 	assert.Len(t, upd.Properties.Routes, 2)
@@ -798,8 +865,10 @@ func TestNetworkSDK_ListScopesAndCascade(t *testing.T) {
 	}
 
 	p, err := s.net.NewVirtualNetworksClient().BeginCreateOrUpdate(ctx, "rg-other", "v3", armnetwork.VirtualNetwork{
-		Location:   new("westus"),
-		Properties: &armnetwork.VirtualNetworkPropertiesFormat{AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{new("10.2.0.0/16")}}},
+		Location: new("westus"),
+		Properties: &armnetwork.VirtualNetworkPropertiesFormat{
+			AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{new("10.2.0.0/16")}},
+		},
 	}, nil)
 	require.NoError(t, err)
 	_, err = p.PollUntilDone(ctx, pollFast())
@@ -867,26 +936,36 @@ func TestNetworkSDK_SnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	pp, err := s.net.NewPublicIPAddressesClient().BeginCreateOrUpdate(ctx, netRG, "pip1", armnetwork.PublicIPAddress{
-		Location: new("westus"), SKU: &armnetwork.PublicIPAddressSKU{Name: new(armnetwork.PublicIPAddressSKUNameStandard)},
-		Properties: &armnetwork.PublicIPAddressPropertiesFormat{PublicIPAllocationMethod: new(armnetwork.IPAllocationMethodStatic)},
+		Location: new(
+			"westus",
+		),
+		SKU: &armnetwork.PublicIPAddressSKU{Name: new(armnetwork.PublicIPAddressSKUNameStandard)},
+		Properties: &armnetwork.PublicIPAddressPropertiesFormat{
+			PublicIPAllocationMethod: new(armnetwork.IPAllocationMethodStatic),
+		},
 	}, nil)
 	require.NoError(t, err)
 	pip, err := pp.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
 
-	peer, err := s.net.NewVirtualNetworkPeeringsClient().BeginCreateOrUpdate(ctx, netRG, "vnet1", "p", armnetwork.VirtualNetworkPeering{
-		Properties: &armnetwork.VirtualNetworkPeeringPropertiesFormat{RemoteVirtualNetwork: &armnetwork.SubResource{ID: b.ID}},
-	}, nil)
+	peer, err := s.net.NewVirtualNetworkPeeringsClient().
+		BeginCreateOrUpdate(ctx, netRG, "vnet1", "p", armnetwork.VirtualNetworkPeering{
+			Properties: &armnetwork.VirtualNetworkPeeringPropertiesFormat{
+				RemoteVirtualNetwork: &armnetwork.SubResource{ID: b.ID},
+			},
+		}, nil)
 	require.NoError(t, err)
 	_, err = peer.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
 
-	zp, err := s.dns.NewPrivateZonesClient().BeginCreateOrUpdate(ctx, netRG, "contoso.internal", armprivatedns.PrivateZone{Location: new("global")}, nil)
+	zp, err := s.dns.NewPrivateZonesClient().
+		BeginCreateOrUpdate(ctx, netRG, "contoso.internal", armprivatedns.PrivateZone{Location: new("global")}, nil)
 	require.NoError(t, err)
 	_, err = zp.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
 
-	_, err = s.msi.NewUserAssignedIdentitiesClient().CreateOrUpdate(ctx, netRG, "id-one", armmsi.Identity{Location: new("westus")}, nil)
+	_, err = s.msi.NewUserAssignedIdentitiesClient().
+		CreateOrUpdate(ctx, netRG, "id-one", armmsi.Identity{Location: new("westus")}, nil)
 	require.NoError(t, err)
 
 	snap := s.handler.Snapshot(ctx)
@@ -901,7 +980,11 @@ func TestNetworkSDK_SnapshotRestore(t *testing.T) {
 	require.Len(t, got.Properties.Subnets, 1)
 	require.Len(t, got.Properties.Subnets[0].Properties.IPConfigurations, 1)
 	require.Len(t, got.Properties.VirtualNetworkPeerings, 1)
-	assert.Equal(t, armnetwork.VirtualNetworkPeeringStateInitiated, *got.Properties.VirtualNetworkPeerings[0].Properties.PeeringState)
+	assert.Equal(
+		t,
+		armnetwork.VirtualNetworkPeeringStateInitiated,
+		*got.Properties.VirtualNetworkPeerings[0].Properties.PeeringState,
+	)
 
 	nic, err := fresh.net.NewInterfacesClient().Get(ctx, netRG, "nic1", nil)
 	require.NoError(t, err)
@@ -936,18 +1019,53 @@ func TestNetworkSDK_Protocol(t *testing.T) {
 		method     string
 		path       string
 		body       string
-		wantStatus int
 		wantCode   string
 		wantHeader string
+		wantStatus int
 	}{
-		{name: "missing api-version", method: http.MethodGet, path: base, wantStatus: 400, wantCode: "MissingApiVersionParameter"},
-		{name: "malformed api-version", method: http.MethodGet, path: base + "?api-version=x", wantStatus: 400, wantCode: "InvalidApiVersionParameter"},
-		{name: "unknown api-version", method: http.MethodGet, path: base + "?api-version=1999-01-01", wantStatus: 400, wantCode: "NoRegisteredProviderFound"},
-		{name: "get missing", method: http.MethodGet, path: base + "?api-version=2025-03-01", wantStatus: 404, wantCode: "ResourceNotFound"},
-		{name: "no location", method: http.MethodPut, path: base + "?api-version=2025-03-01", body: `{}`, wantStatus: 400, wantCode: "LocationRequired"},
 		{
-			name: "bad name", method: http.MethodPut, path: strings.Replace(base, "rt1", "bad%20name", 1) + "?api-version=2025-03-01",
-			body: `{"location":"westus"}`, wantStatus: 400, wantCode: "InvalidResourceName",
+			name:       "missing api-version",
+			method:     http.MethodGet,
+			path:       base,
+			wantStatus: 400,
+			wantCode:   "MissingApiVersionParameter",
+		},
+		{
+			name:       "malformed api-version",
+			method:     http.MethodGet,
+			path:       base + "?api-version=x",
+			wantStatus: 400,
+			wantCode:   "InvalidApiVersionParameter",
+		},
+		{
+			name:       "unknown api-version",
+			method:     http.MethodGet,
+			path:       base + "?api-version=1999-01-01",
+			wantStatus: 400,
+			wantCode:   "NoRegisteredProviderFound",
+		},
+		{
+			name:       "get missing",
+			method:     http.MethodGet,
+			path:       base + "?api-version=2025-03-01",
+			wantStatus: 404,
+			wantCode:   "ResourceNotFound",
+		},
+		{
+			name:       "no location",
+			method:     http.MethodPut,
+			path:       base + "?api-version=2025-03-01",
+			body:       `{}`,
+			wantStatus: 400,
+			wantCode:   "LocationRequired",
+		},
+		{
+			name:       "bad name",
+			method:     http.MethodPut,
+			path:       strings.Replace(base, "rt1", "bad%20name", 1) + "?api-version=2025-03-01",
+			body:       `{"location":"westus"}`,
+			wantStatus: 400,
+			wantCode:   "InvalidResourceName",
 		},
 		{
 			name: "create is 201 with async header", method: http.MethodPut, path: base + "?api-version=2025-03-01",
@@ -957,8 +1075,19 @@ func TestNetworkSDK_Protocol(t *testing.T) {
 			name: "update is 200", method: http.MethodPut, path: base + "?api-version=2025-03-01",
 			body: `{"location":"westus"}`, wantStatus: 200, wantHeader: "Azure-Asyncoperation",
 		},
-		{name: "delete is 202", method: http.MethodDelete, path: base + "?api-version=2025-03-01", wantStatus: 202, wantHeader: "Location"},
-		{name: "delete again is 204", method: http.MethodDelete, path: base + "?api-version=2025-03-01", wantStatus: 204},
+		{
+			name:       "delete is 202",
+			method:     http.MethodDelete,
+			path:       base + "?api-version=2025-03-01",
+			wantStatus: 202,
+			wantHeader: "Location",
+		},
+		{
+			name:       "delete again is 204",
+			method:     http.MethodDelete,
+			path:       base + "?api-version=2025-03-01",
+			wantStatus: 204,
+		},
 	}
 
 	// sequential: the cases walk a resource through its lifecycle
@@ -980,8 +1109,12 @@ func TestNetworkSDK_Protocol(t *testing.T) {
 		}
 	}
 
-	op := s.rawDo(t, http.MethodGet,
-		"/subscriptions/"+aciSub+"/providers/Microsoft.Network/locations/westus/operations/abc?api-version=2025-03-01", "")
+	op := s.rawDo(
+		t,
+		http.MethodGet,
+		"/subscriptions/"+aciSub+"/providers/Microsoft.Network/locations/westus/operations/abc?api-version=2025-03-01",
+		"",
+	)
 	assert.Equal(t, 200, op.StatusCode)
 }
 

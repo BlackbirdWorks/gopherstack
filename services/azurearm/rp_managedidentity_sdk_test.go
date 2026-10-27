@@ -55,7 +55,8 @@ func TestManagedIdentitySDK_Lifecycle(t *testing.T) {
 	assert.Equal(t, *first.Properties.PrincipalID, *upd.Properties.PrincipalID, "ids are generated once")
 	assert.Equal(t, *first.Properties.ClientID, *upd.Properties.ClientID)
 
-	patched, err := c.Update(ctx, netRG, "id-app", armmsi.IdentityUpdate{Tags: map[string]*string{"z": new("1")}}, nil)
+	patched, err := c.Update(ctx, netRG, "id-app", armmsi.IdentityUpdate{Tags: map[string]*string{"z": new("1")}},
+		nil)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]*string{"z": new("1")}, patched.Tags)
 	assert.Equal(t, *first.Properties.ClientID, *patched.Properties.ClientID)
@@ -132,13 +133,36 @@ func TestManagedIdentitySDK_FederatedCredentials(t *testing.T) {
 		fname    string
 		wantCode string
 	}{
-		{name: "ok", fname: "gh-main", cred: cred("https://token.actions.githubusercontent.com", "repo:o/r:ref:refs/heads/main", aad)},
-		{name: "ok2", fname: "gh-pr", cred: cred("https://token.actions.githubusercontent.com", "repo:o/r:pull_request", aad)},
+		{
+			name:  "ok",
+			fname: "gh-main",
+			cred:  cred("https://token.actions.githubusercontent.com", "repo:o/r:ref:refs/heads/main", aad),
+		},
+		{
+			name:  "ok2",
+			fname: "gh-pr",
+			cred:  cred("https://token.actions.githubusercontent.com", "repo:o/r:pull_request", aad),
+		},
 		{name: "same issuer subject", fname: "gh-dup", wantCode: "Conflict",
 			cred: cred("https://token.actions.githubusercontent.com", "repo:o/r:pull_request", aad)},
-		{name: "http issuer", fname: "gh-http", wantCode: "InvalidRequestContent", cred: cred("http://x.example", "s", aad)},
-		{name: "no subject", fname: "gh-nosub", wantCode: "InvalidRequestContent", cred: cred("https://x.example", "", aad)},
-		{name: "two audiences", fname: "gh-aud", wantCode: "InvalidRequestContent", cred: cred("https://x.example", "s", aad, "b")},
+		{
+			name:     "http issuer",
+			fname:    "gh-http",
+			wantCode: "InvalidRequestContent",
+			cred:     cred("http://x.example", "s", aad),
+		},
+		{
+			name:     "no subject",
+			fname:    "gh-nosub",
+			wantCode: "InvalidRequestContent",
+			cred:     cred("https://x.example", "", aad),
+		},
+		{
+			name:     "two audiences",
+			fname:    "gh-aud",
+			wantCode: "InvalidRequestContent",
+			cred:     cred("https://x.example", "s", aad, "b"),
+		},
 		{name: "bad name", fname: "x", wantCode: "InvalidResourceName", cred: cred("https://x.example", "s", aad)},
 	}
 
@@ -160,7 +184,8 @@ func TestManagedIdentitySDK_FederatedCredentials(t *testing.T) {
 
 	var names []string
 
-	for pg := fc.NewListPager(netRG, "id-app", &armmsi.FederatedIdentityCredentialsClientListOptions{Top: new(int32(1))}); pg.More(); {
+	for pg := fc.NewListPager(netRG, "id-app",
+		&armmsi.FederatedIdentityCredentialsClientListOptions{Top: new(int32(1))}); pg.More(); {
 		page, perr := pg.NextPage(ctx)
 		require.NoError(t, perr)
 		require.LessOrEqual(t, len(page.Value), 1)
@@ -195,18 +220,26 @@ func TestPrivateDNSSDK_ZonesRecordsLinks(t *testing.T) {
 	_, err := zc.BeginCreateOrUpdate(ctx, netRG, "single", armprivatedns.PrivateZone{Location: new("global")}, nil)
 	assert.Equal(t, "InvalidResourceName", sdkErrCode(err))
 
-	zp, err := zc.BeginCreateOrUpdate(ctx, netRG, "contoso.internal", armprivatedns.PrivateZone{Location: new("global")}, nil)
+	zp, err := zc.BeginCreateOrUpdate(
+		ctx,
+		netRG,
+		"contoso.internal",
+		armprivatedns.PrivateZone{Location: new("global")},
+		nil,
+	)
 	require.NoError(t, err)
 	zone, err := zp.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, *zone.Properties.NumberOfRecordSets, "the SOA set exists from creation")
 	assert.EqualValues(t, 25000, *zone.Properties.MaxNumberOfRecordSets)
 
-	_, err = zc.BeginCreateOrUpdate(ctx, netRG, "contoso.internal", armprivatedns.PrivateZone{Location: new("global")},
+	_, err = zc.BeginCreateOrUpdate(ctx, netRG, "contoso.internal",
+		armprivatedns.PrivateZone{Location: new("global")},
 		&armprivatedns.PrivateZonesClientBeginCreateOrUpdateOptions{IfNoneMatch: new("*")})
 	assert.Equal(t, "PreconditionFailed", sdkErrCode(err))
 
-	_, err = zc.BeginCreateOrUpdate(ctx, netRG, "contoso.internal", armprivatedns.PrivateZone{Location: new("global")},
+	_, err = zc.BeginCreateOrUpdate(ctx, netRG, "contoso.internal",
+		armprivatedns.PrivateZone{Location: new("global")},
 		&armprivatedns.PrivateZonesClientBeginCreateOrUpdateOptions{IfMatch: new("stale")})
 	assert.Equal(t, "PreconditionFailed", sdkErrCode(err))
 
@@ -220,18 +253,39 @@ func TestPrivateDNSSDK_ZonesRecordsLinks(t *testing.T) {
 		set      armprivatedns.RecordSet
 		wantCode string
 	}{
-		{name: "a", rtype: armprivatedns.RecordTypeA, rname: "www", set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
-			TTL: ttl, ARecords: []*armprivatedns.ARecord{{IPv4Address: new("10.0.0.4")}},
-		}}},
-		{name: "bad a", rtype: armprivatedns.RecordTypeA, rname: "bad", wantCode: "BadRequest", set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
-			TTL: ttl, ARecords: []*armprivatedns.ARecord{{IPv4Address: new("nope")}},
-		}}},
-		{name: "txt", rtype: armprivatedns.RecordTypeTXT, rname: "info", set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
-			TTL: ttl, TxtRecords: []*armprivatedns.TxtRecord{{Value: []*string{new("hello")}}},
-		}}},
-		{name: "cname", rtype: armprivatedns.RecordTypeCNAME, rname: "alias", set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
-			TTL: ttl, CnameRecord: &armprivatedns.CnameRecord{Cname: new("www.contoso.internal")},
-		}}},
+		{
+			name:  "a",
+			rtype: armprivatedns.RecordTypeA,
+			rname: "www",
+			set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
+				TTL: ttl, ARecords: []*armprivatedns.ARecord{{IPv4Address: new("10.0.0.4")}},
+			}},
+		},
+		{
+			name:     "bad a",
+			rtype:    armprivatedns.RecordTypeA,
+			rname:    "bad",
+			wantCode: "BadRequest",
+			set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
+				TTL: ttl, ARecords: []*armprivatedns.ARecord{{IPv4Address: new("nope")}},
+			}},
+		},
+		{
+			name:  "txt",
+			rtype: armprivatedns.RecordTypeTXT,
+			rname: "info",
+			set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
+				TTL: ttl, TxtRecords: []*armprivatedns.TxtRecord{{Value: []*string{new("hello")}}},
+			}},
+		},
+		{
+			name:  "cname",
+			rtype: armprivatedns.RecordTypeCNAME,
+			rname: "alias",
+			set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
+				TTL: ttl, CnameRecord: &armprivatedns.CnameRecord{Cname: new("www.contoso.internal")},
+			}},
+		},
 		{name: "cname clashes with a", rtype: armprivatedns.RecordTypeCNAME, rname: "www", wantCode: "Conflict",
 			set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
 				TTL: ttl, CnameRecord: &armprivatedns.CnameRecord{Cname: new("x.contoso.internal")},
@@ -240,9 +294,15 @@ func TestPrivateDNSSDK_ZonesRecordsLinks(t *testing.T) {
 			set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
 				TTL: ttl, CnameRecord: &armprivatedns.CnameRecord{Cname: new("x.contoso.internal")},
 			}}},
-		{name: "no ttl", rtype: armprivatedns.RecordTypeA, rname: "nottl", wantCode: "BadRequest", set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
-			ARecords: []*armprivatedns.ARecord{{IPv4Address: new("10.0.0.5")}},
-		}}},
+		{
+			name:     "no ttl",
+			rtype:    armprivatedns.RecordTypeA,
+			rname:    "nottl",
+			wantCode: "BadRequest",
+			set: armprivatedns.RecordSet{Properties: &armprivatedns.RecordSetProperties{
+				ARecords: []*armprivatedns.ARecord{{IPv4Address: new("10.0.0.5")}},
+			}},
+		},
 	}
 
 	for _, tt := range tests {

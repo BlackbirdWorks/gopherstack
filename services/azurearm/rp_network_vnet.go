@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"maps"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -19,13 +20,14 @@ const (
 	propSubnetRT       = "routeTable"
 )
 
+//nolint:gochecknoglobals // read-only table
 var delegationActions = map[string][]string{
 	"microsoft.web/serverfarms":                   {"Microsoft.Network/virtualNetworks/subnets/action"},
 	"microsoft.containerinstance/containergroups": {"Microsoft.Network/virtualNetworks/subnets/action"},
-	"microsoft.dbforpostgresql/flexibleservers":   {"Microsoft.Network/virtualNetworks/subnets/join/action"},
-	"microsoft.dbformysql/flexibleservers":        {"Microsoft.Network/virtualNetworks/subnets/join/action"},
+	"microsoft.dbforpostgresql/flexibleservers":   {subnetJoinAction},
+	"microsoft.dbformysql/flexibleservers":        {subnetJoinAction},
 	"microsoft.sql/managedinstances": {
-		"Microsoft.Network/virtualNetworks/subnets/join/action",
+		subnetJoinAction,
 		"Microsoft.Network/virtualNetworks/subnets/prepareNetworkPolicies/action",
 		"Microsoft.Network/virtualNetworks/subnets/unprepareNetworkPolicies/action",
 	},
@@ -44,26 +46,25 @@ func subnetPrefixes(o *netObj) []netip.Prefix {
 	return out
 }
 
-func (p *NetworkProvider) putVNet(id ResourceID, body map[string]any) (map[string]any, bool, error) {
-	props := propsOf(body)
-
+// validateVNetSpace checks the address space and DNS servers of a virtual network definition.
+func validateVNetSpace(name string, props map[string]any) ([]string, []netip.Prefix, error) {
 	space, _ := props["addressSpace"].(map[string]any)
 	prefixes := strList(space[netFieldAddrPrefixes])
 
 	if len(prefixes) == 0 {
-		return nil, false, netBad("Virtual network %s must have at least one address prefix in addressSpace.", id.Names[0])
+		return nil, nil, netBad("Virtual network %s must have at least one address prefix in addressSpace.", name)
 	}
 
 	parsed, err := netParsePrefixes(prefixes)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
 
 	for i := range parsed {
 		for j := i + 1; j < len(parsed); j++ {
 			if parsed[i].Overlaps(parsed[j]) {
-				return nil, false, netErr(http.StatusBadRequest, "AddressSpaceOverlap",
-					"Address prefixes %s and %s of virtual network %s overlap.", prefixes[i], prefixes[j], id.Names[0])
+				return nil, nil, netErr(http.StatusBadRequest, "AddressSpaceOverlap",
+					"Address prefixes %s and %s of virtual network %s overlap.", prefixes[i], prefixes[j], name)
 			}
 		}
 	}
@@ -71,9 +72,20 @@ func (p *NetworkProvider) putVNet(id ResourceID, body map[string]any) (map[strin
 	if dns, _ := props["dhcpOptions"].(map[string]any); dns != nil {
 		for _, s := range strList(dns["dnsServers"]) {
 			if _, perr := netip.ParseAddr(s); perr != nil {
-				return nil, false, netBad("DNS server %s is not a valid IP address.", s)
+				return nil, nil, netBad("DNS server %s is not a valid IP address.", s)
 			}
 		}
+	}
+
+	return prefixes, parsed, nil
+}
+
+func (p *NetworkProvider) putVNet(id ResourceID, body map[string]any) (map[string]any, bool, error) {
+	props := propsOf(body)
+
+	prefixes, parsed, err := validateVNetSpace(id.Names[0], props)
+	if err != nil {
+		return nil, false, err
 	}
 
 	old, existed := p.top(netVNets, id.ResourceGroup, id.Names[0])
@@ -100,7 +112,7 @@ func (p *NetworkProvider) putVNet(id ResourceID, body map[string]any) (map[strin
 	}
 
 	it, _, created := p.upsertTop(netVNets, id, body)
-	it.Obj.Props = takeProps(body, netSubnets, netPeerings, "provisioningState", netFieldResourceGUID)
+	it.Obj.Props = takeProps(body, netSubnets, netPeerings, fieldProvisioningState, netFieldResourceGUID)
 	it.Obj.Props["addressSpace"] = map[string]any{netFieldAddrPrefixes: prefixes}
 
 	if subnets != nil {
@@ -120,7 +132,7 @@ func (p *NetworkProvider) inlineSubnets(
 ) ([]*netObj, error) {
 	rawVal, has := props[netSubnets]
 	if !has {
-		return nil, nil //nolint:nilnil // subnets are kept when the request omits them
+		return nil, nil
 	}
 
 	raw, ok := rawVal.([]any)
@@ -157,7 +169,7 @@ func (p *NetworkProvider) inlineSubnets(
 func (p *NetworkProvider) inlinePeerings(id ResourceID, old *netParent, props map[string]any) ([]*netObj, error) {
 	raw, ok := props[netPeerings].([]any)
 	if !ok {
-		return nil, nil //nolint:nilnil // peerings are kept when the request omits them
+		return nil, nil
 	}
 
 	out := make([]*netObj, 0, len(raw))
@@ -300,7 +312,7 @@ func (p *NetworkProvider) normalizeSubnet(
 		}
 	}
 
-	out := takeProps(map[string]any{fieldProperties: props}, netFieldAddrPrefix, "provisioningState",
+	out := takeProps(map[string]any{fieldProperties: props}, netFieldAddrPrefix, fieldProvisioningState,
 		"ipConfigurations", "privateEndpoints", "purpose", "resourceNavigationLinks", "serviceAssociationLinks",
 		"ipConfigurationProfiles")
 	out[netFieldAddrPrefixes] = prefixes
@@ -354,9 +366,9 @@ func normalizeSubnetPolicies(props map[string]any) error {
 		key, def string
 		ok       []string
 	}{
-		{"privateEndpointNetworkPolicies", "Disabled",
-			[]string{"Enabled", "Disabled", "NetworkSecurityGroupEnabled", "RouteTableEnabled"}},
-		{"privateLinkServiceNetworkPolicies", "Enabled", []string{"Enabled", "Disabled"}},
+		{"privateEndpointNetworkPolicies", netDisabled,
+			[]string{netEnabled, netDisabled, "NetworkSecurityGroupEnabled", "RouteTableEnabled"}},
+		{"privateLinkServiceNetworkPolicies", netEnabled, []string{netEnabled, netDisabled}},
 	} {
 		v := strOf(props, c.key)
 		if v == "" {
@@ -427,7 +439,7 @@ func normalizeEndpoints(v any, loc string) (any, error) {
 			locs = []string{loc}
 		}
 
-		out = append(out, map[string]any{"service": svc, "locations": locs, "provisioningState": netStatusSucceeded})
+		out = append(out, map[string]any{"service": svc, "locations": locs, fieldProvisioningState: netStatusSucceeded})
 	}
 
 	return out, nil
@@ -473,27 +485,25 @@ func (p *NetworkProvider) writeSubnet(vnet *netParent, name string, body map[str
 func (p *NetworkProvider) bodyVNet(id ResourceID, it *netParent) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range it.Obj.Props {
-		props[k] = v
-	}
+	maps.Copy(props, it.Obj.Props)
 
 	if _, ok := props["enableDdosProtection"]; !ok {
 		props["enableDdosProtection"] = false
 	}
 
-	subnets := []any{}
+	subnets := make([]any, 0, len(it.Kids[netSubnets]))
 	for _, s := range it.Kids[netSubnets] {
-		subnets = append(subnets, p.bodySubnet(it, kidID(id, netSubnets, s.Name), s))
+		subnets = append(subnets, p.bodySubnet(kidID(id, netSubnets, s.Name), s))
 	}
 
-	peerings := []any{}
+	peerings := make([]any, 0, len(it.Kids[netPeerings]))
 	for _, s := range it.Kids[netPeerings] {
 		peerings = append(peerings, p.bodyPeering(it, kidID(id, netPeerings, s.Name), s))
 	}
 
 	props[netSubnets] = subnets
 	props["virtualNetworkPeerings"] = peerings
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = it.Obj.GUID
 
 	return p.envelope(id, netVNets, &it.Obj, props)
@@ -506,29 +516,25 @@ func kidID(parent ResourceID, kt, name string) ResourceID {
 	}
 }
 
-func (p *NetworkProvider) bodySubnet(vnet *netParent, id ResourceID, s *netObj) map[string]any {
+func (p *NetworkProvider) bodySubnet(id ResourceID, s *netObj) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range s.Props {
-		props[k] = v
-	}
+	maps.Copy(props, s.Props)
 
 	prefixes := strList(s.Props[netFieldAddrPrefixes])
 	if len(prefixes) == 1 {
 		props[netFieldAddrPrefix] = prefixes[0]
 	}
 
-	delegs := []any{}
+	delegs := make([]any, 0, len(anyList(s.Props["delegations"])))
 
 	for _, d := range anyList(s.Props["delegations"]) {
 		m, _ := d.(map[string]any)
 		dp := map[string]any{}
 
-		for k, v := range propsOf(m) {
-			dp[k] = v
-		}
+		maps.Copy(dp, propsOf(m))
 
-		dp["provisioningState"] = netStatusSucceeded
+		dp[fieldProvisioningState] = netStatusSucceeded
 		delegs = append(delegs, map[string]any{
 			netFieldID: id.ARMID() + "/delegations/" + strOf(m, fieldName), fieldName: strOf(m, fieldName),
 			fieldType: "Microsoft.Network/virtualNetworks/subnets/delegations", fieldProperties: dp,
@@ -547,7 +553,7 @@ func (p *NetworkProvider) bodySubnet(vnet *netParent, id ResourceID, s *netObj) 
 		props["ipConfigurations"] = cfgs
 	}
 
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 
 	return map[string]any{
 		netFieldID: id.ARMID(), fieldName: s.Name, fieldType: subnetTypePath, netFieldEtag: s.Etag,
@@ -596,7 +602,7 @@ func (p *NetworkProvider) normalizePeering(
 	}
 
 	out := takeProps(map[string]any{fieldProperties: props}, "peeringState", "peeringSyncLevel", "remoteAddressSpace",
-		"remoteVirtualNetworkAddressSpace", "provisioningState", netFieldResourceGUID)
+		"remoteVirtualNetworkAddressSpace", fieldProvisioningState, netFieldResourceGUID)
 	out["remoteVirtualNetwork"] = map[string]any{netFieldID: remoteID}
 
 	for k, def := range map[string]bool{
@@ -638,9 +644,7 @@ func (p *NetworkProvider) writePeering(vnet *netParent, id ResourceID, name stri
 func (p *NetworkProvider) bodyPeering(vnet *netParent, id ResourceID, k *netObj) map[string]any {
 	props := map[string]any{}
 
-	for key, v := range k.Props {
-		props[key] = v
-	}
+	maps.Copy(props, k.Props)
 
 	state := k.Aux[auxState]
 	if state == "" {
@@ -648,10 +652,12 @@ func (p *NetworkProvider) bodyPeering(vnet *netParent, id ResourceID, k *netObj)
 	}
 
 	props["peeringState"] = state
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = k.GUID
 
-	props["localAddressSpace"] = map[string]any{netFieldAddrPrefixes: strList(vnet.Obj.Props["addressSpace"].(map[string]any)[netFieldAddrPrefixes])}
+	props["localAddressSpace"] = map[string]any{
+		netFieldAddrPrefixes: strList(propsMap(vnet.Obj.Props["addressSpace"])[netFieldAddrPrefixes]),
+	}
 	props["localVirtualNetworkAddressSpace"] = props["localAddressSpace"]
 
 	if remote, ok := p.netRef(subID(k.Props, "remoteVirtualNetwork"), netVNets); ok {
@@ -665,8 +671,11 @@ func (p *NetworkProvider) bodyPeering(vnet *netParent, id ResourceID, k *netObj)
 	}
 
 	return map[string]any{
-		netFieldID: id.ARMID(), fieldName: k.Name, fieldType: "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
-		netFieldEtag: k.Etag, fieldProperties: props,
+		netFieldID:      id.ARMID(),
+		fieldName:       k.Name,
+		fieldType:       "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+		netFieldEtag:    k.Etag,
+		fieldProperties: props,
 	}
 }
 

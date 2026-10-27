@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"maps"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -25,10 +26,19 @@ const (
 	linkTypePath     = "Microsoft.Network/privateDnsZones/virtualNetworkLinks"
 	dnsZoneTypePath  = "Microsoft.Network/privateDnsZones"
 	dnsCodeBad       = "BadRequest"
+	dnsAAAA          = "AAAA"
+	dnsPTR           = "PTR"
+	dnsSRV           = "SRV"
+	dnsTXT           = "TXT"
+	soaExpire        = 2419200
+	soaMinTTL        = 10
+	soaDefaultTTL    = 3600
+	soaRetry         = 300
 )
 
+//nolint:gochecknoglobals // read-only tables
 var (
-	dnsRecordTypes = []string{"A", "AAAA", dnsCNAME, "MX", "PTR", dnsSOA, "SRV", "TXT"}
+	dnsRecordTypes = []string{"A", dnsAAAA, dnsCNAME, "MX", dnsPTR, dnsSOA, dnsSRV, dnsTXT}
 	dnsLabelOK     = regexp.MustCompile(`^[A-Za-z0-9_*]([A-Za-z0-9_*-]*[A-Za-z0-9_*])?$`)
 	dnsZoneLabelOK = regexp.MustCompile(`^[A-Za-z0-9_]([A-Za-z0-9_-]*[A-Za-z0-9_])?$`)
 )
@@ -59,7 +69,7 @@ func validRecordName(name string) bool {
 		return false
 	}
 
-	for _, l := range strings.Split(name, ".") {
+	for l := range strings.SplitSeq(name, ".") {
 		if len(l) > dnsMaxLabel || !dnsLabelOK.MatchString(l) {
 			return false
 		}
@@ -70,8 +80,8 @@ func validRecordName(name string) bool {
 
 func defaultSOA() map[string]any {
 	return map[string]any{
-		"email": "azureprivatedns-host.microsoft.com", "expireTime": 2419200, "host": "azureprivatedns.net",
-		"minimumTtl": 10, "refreshTime": 3600, "retryTime": 300, "serialNumber": 1,
+		"email": "azureprivatedns-host.microsoft.com", "expireTime": soaExpire, "host": "azureprivatedns.net",
+		"minimumTtl": soaMinTTL, "refreshTime": soaDefaultTTL, "retryTime": soaRetry, "serialNumber": 1,
 	}
 }
 
@@ -84,7 +94,7 @@ func (p *NetworkProvider) putZone(id ResourceID, body map[string]any) (map[strin
 	if created {
 		soa := &netObj{
 			Name: dnsApex, Etag: uuid.NewString(), GUID: uuid.NewString(),
-			Props: map[string]any{"ttl": 3600, "soaRecord": defaultSOA()},
+			Props: map[string]any{"ttl": soaDefaultTTL, "soaRecord": defaultSOA()},
 		}
 		it.Kids[dnsSOA] = []*netObj{soa}
 	}
@@ -110,7 +120,7 @@ func (p *NetworkProvider) bodyZone(id ResourceID, it *netParent) map[string]any 
 		"maxNumberOfVirtualNetworkLinks": dnsMaxLinks, "numberOfVirtualNetworkLinks": links,
 		"maxNumberOfVirtualNetworkLinksWithRegistration": dnsMaxRegLinks,
 		"numberOfVirtualNetworkLinksWithRegistration":    reg,
-		"provisioningState":                              netStatusSucceeded,
+		fieldProvisioningState:                           netStatusSucceeded,
 	}
 
 	return p.envelope(id, netZones, &it.Obj, props)
@@ -161,8 +171,8 @@ func recordData(rt, name string, props, out map[string]any) error {
 	bad := func(format string, a ...any) error { return netErr(http.StatusBadRequest, dnsCodeBad, format, a...) }
 
 	field := map[string]string{
-		"A": "aRecords", "AAAA": "aaaaRecords", "MX": "mxRecords", "PTR": "ptrRecords", "SRV": "srvRecords",
-		"TXT": "txtRecords",
+		"A": "aRecords", dnsAAAA: "aaaaRecords", "MX": "mxRecords", dnsPTR: "ptrRecords", dnsSRV: "srvRecords",
+		dnsTXT: "txtRecords",
 	}[rt]
 
 	switch rt {
@@ -186,9 +196,7 @@ func recordData(rt, name string, props, out map[string]any) error {
 
 		soa := defaultSOA()
 
-		for k, v := range propsMap(props["soaRecord"]) {
-			soa[k] = v
-		}
+		maps.Copy(soa, propsMap(props["soaRecord"]))
 
 		out["soaRecord"] = soa
 
@@ -227,7 +235,7 @@ func checkRecord(rt string, r map[string]any) error {
 		if a, err := netip.ParseAddr(strOf(r, "ipv4Address")); err != nil || !a.Is4() {
 			return bad("ipv4Address must be an IPv4 address")
 		}
-	case "AAAA":
+	case dnsAAAA:
 		if a, err := netip.ParseAddr(strOf(r, "ipv6Address")); err != nil || !a.Is6() {
 			return bad("ipv6Address must be an IPv6 address")
 		}
@@ -235,15 +243,15 @@ func checkRecord(rt string, r map[string]any) error {
 		if strOf(r, "exchange") == "" {
 			return bad("exchange is required")
 		}
-	case "PTR":
+	case dnsPTR:
 		if strOf(r, "ptrdname") == "" {
 			return bad("ptrdname is required")
 		}
-	case "SRV":
+	case dnsSRV:
 		if strOf(r, "target") == "" {
 			return bad("target is required")
 		}
-	case "TXT":
+	case dnsTXT:
 		if len(strList(r["value"])) == 0 {
 			return bad("value is required")
 		}
@@ -285,9 +293,7 @@ func (p *NetworkProvider) writeRecord(zone *netParent, rt, name string, body map
 func (p *NetworkProvider) bodyRecord(zone *netParent, rt string, id ResourceID, k *netObj) map[string]any {
 	props := map[string]any{}
 
-	for key, v := range k.Props {
-		props[key] = v
-	}
+	maps.Copy(props, k.Props)
 
 	props["fqdn"] = recordFQDN(zone.Obj.Name, k.Name)
 	props["isAutoRegistered"] = false
@@ -313,7 +319,7 @@ func (p *NetworkProvider) listAllRecords(zone *netParent, id ResourceID) []map[s
 	return out
 }
 
-func (p *NetworkProvider) writeLink(zone *netParent, id ResourceID, name string, body map[string]any) (bool, error) {
+func (p *NetworkProvider) writeLink(zone *netParent, name string, body map[string]any) (bool, error) {
 	props := propsOf(body)
 
 	vid := subID(props, "virtualNetwork")
@@ -326,7 +332,7 @@ func (p *NetworkProvider) writeLink(zone *netParent, id ResourceID, name string,
 	}
 
 	prev, idx := zone.kid(netLinks, name)
-	out := takeProps(body, "virtualNetworkLinkState", "provisioningState")
+	out := takeProps(body, "virtualNetworkLinkState", fieldProvisioningState)
 	out["virtualNetwork"] = map[string]any{netFieldID: vid}
 
 	if _, set := out["registrationEnabled"].(bool); !set {
@@ -355,12 +361,10 @@ func (p *NetworkProvider) writeLink(zone *netParent, id ResourceID, name string,
 func (p *NetworkProvider) bodyLink(_ *netParent, id ResourceID, k *netObj) map[string]any {
 	props := map[string]any{}
 
-	for key, v := range k.Props {
-		props[key] = v
-	}
+	maps.Copy(props, k.Props)
 
 	props["virtualNetworkLinkState"] = "Completed"
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 
 	out := map[string]any{
 		netFieldID: id.ARMID(), fieldName: k.Name, fieldType: linkTypePath, netFieldEtag: k.Etag,

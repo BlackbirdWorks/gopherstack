@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"maps"
 	"net/http"
 	"net/netip"
 	"regexp"
@@ -31,12 +32,13 @@ const (
 	propDestPort     = "destinationPortRange"
 )
 
+//nolint:gochecknoglobals // read-only tables
 var (
 	tagRe       = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9.]*$`)
 	ruleProtos  = []string{"Tcp", "Udp", "Icmp", "Esp", "Ah", ruleWildcard}
 	ruleAccess  = []string{ruleAllow, ruleDeny}
 	ruleDirs    = []string{ruleInbound, ruleOutbound}
-	nextHopKind = []string{"VirtualNetworkGateway", "VnetLocal", "Internet", nextHopAppliance, "None"}
+	nextHopKind = []string{"VirtualNetworkGateway", "VnetLocal", "Internet", nextHopAppliance, netNone}
 )
 
 type defaultRuleDef struct {
@@ -44,14 +46,15 @@ type defaultRuleDef struct {
 	priority                          int
 }
 
+//nolint:gochecknoglobals // read-only table
 var defaultRuleDefs = []defaultRuleDef{
 	{"AllowVnetInBound", "Allow inbound traffic from all VMs in VNET", ruleInbound, ruleAllow,
-		"VirtualNetwork", "VirtualNetwork", 65000},
+		ruleTagVNet, ruleTagVNet, 65000},
 	{"AllowAzureLoadBalancerInBound", "Allow inbound traffic from azure load balancer", ruleInbound, ruleAllow,
 		"AzureLoadBalancer", ruleWildcard, 65001},
 	{"DenyAllInBound", "Deny all inbound traffic", ruleInbound, ruleDeny, ruleWildcard, ruleWildcard, 65500},
 	{"AllowVnetOutBound", "Allow outbound traffic from all VMs to all VMs in VNET", ruleOutbound, ruleAllow,
-		"VirtualNetwork", "VirtualNetwork", 65000},
+		ruleTagVNet, ruleTagVNet, 65000},
 	{"AllowInternetOutBound", "Allow outbound traffic from all VMs to Internet", ruleOutbound, ruleAllow,
 		ruleWildcard, "Internet", 65001},
 	{"DenyAllOutBound", "Deny all outbound traffic", ruleOutbound, ruleDeny, ruleWildcard, ruleWildcard, 65500},
@@ -73,8 +76,8 @@ func defaultRuleBody(nsg *netParent, d defaultRuleDef) map[string]any {
 		netFieldEtag: `W/"` + uuid.NewSHA1(uuid.NameSpaceOID, []byte(nsg.Obj.GUID+d.name)).String() + `"`,
 		fieldProperties: map[string]any{
 			"protocol": ruleWildcard, propSourcePort: ruleWildcard, propDestPort: ruleWildcard,
-			propSourcePrefix: d.src, propDestPrefix: d.dst, "access": d.access, "priority": d.priority,
-			"direction": d.dir, "description": d.desc, "provisioningState": netStatusSucceeded,
+			propSourcePrefix: d.src, propDestPrefix: d.dst, "access": d.access, netPropPriority: d.priority,
+			"direction": d.dir, netPropDescription: d.desc, fieldProvisioningState: netStatusSucceeded,
 			"sourceAddressPrefixes": []string{}, "destinationAddressPrefixes": []string{},
 		},
 	}
@@ -139,7 +142,7 @@ func validAddressPrefix(s string) bool {
 
 // normalizeRule validates a security rule definition.
 func normalizeRule(name string, props map[string]any, prev *netObj) (*netObj, error) {
-	out := takeProps(map[string]any{fieldProperties: props}, "provisioningState")
+	out := takeProps(map[string]any{fieldProperties: props}, fieldProvisioningState)
 
 	for _, c := range []struct {
 		key     string
@@ -153,14 +156,14 @@ func normalizeRule(name string, props map[string]any, prev *netObj) (*netObj, er
 		out[c.key] = canon
 	}
 
-	prio, ok := out["priority"].(float64)
+	prio, ok := out[netPropPriority].(float64)
 	if !ok || prio < minRulePriority || prio > maxRulePriority || prio != float64(int(prio)) {
 		return nil, netErr(http.StatusBadRequest, "SecurityRuleInvalidPriority",
 			"Security rule %s has invalid Priority. Value should be between %d and %d.",
 			name, minRulePriority, maxRulePriority)
 	}
 
-	out["priority"] = int(prio)
+	out[netPropPriority] = int(prio)
 
 	if err := ruleEndpoint(name, out, "source", propSourcePrefix, "sourceAddressPrefixes", propSourcePort,
 		"sourcePortRanges"); err != nil {
@@ -222,11 +225,11 @@ func ruleConflict(list []*netObj) error {
 	seen := map[string]string{}
 
 	for _, r := range list {
-		key := strOf(r.Props, "direction") + "/" + strconv.Itoa(intOf(r.Props["priority"]))
+		key := strOf(r.Props, "direction") + "/" + strconv.Itoa(intOf(r.Props[netPropPriority]))
 		if other, dup := seen[key]; dup {
 			return netErr(http.StatusBadRequest, "SecurityRuleConflict",
 				"Rules %s and %s have the same Priority %d and Direction %s.", other, r.Name,
-				intOf(r.Props["priority"]), strOf(r.Props, "direction"))
+				intOf(r.Props[netPropPriority]), strOf(r.Props, "direction"))
 		}
 
 		seen[key] = r.Name
@@ -246,46 +249,65 @@ func intOf(v any) int {
 	return 0
 }
 
+// inlineKids normalizes an inline child array of a top-level definition; nil means the key was absent.
+func (p *NetworkProvider) inlineKids(
+	body map[string]any, key, kt string, old *netParent,
+	build func(name string, props map[string]any, prev *netObj) (*netObj, error),
+) ([]*netObj, error) {
+	raw, has := propsOf(body)[key]
+	if !has {
+		return nil, nil
+	}
+
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil, netBad("%s must be an array.", key)
+	}
+
+	out := make([]*netObj, 0, len(arr))
+
+	for _, e := range arr {
+		m, _ := e.(map[string]any)
+		name := strOf(m, fieldName)
+
+		if err := validNetName(name, netMaxName); err != nil {
+			return nil, err
+		}
+
+		if hasObj(out, name) {
+			return nil, netBad("%s name %s is used more than once.", key, name)
+		}
+
+		var prev *netObj
+		if old != nil {
+			prev, _ = old.kid(kt, name)
+		}
+
+		o, err := build(name, propsOf(m), prev)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, o)
+	}
+
+	return out, nil
+}
+
 func (p *NetworkProvider) putNSG(id ResourceID, body map[string]any) (map[string]any, bool, error) {
-	var rules []*netObj
+	old, _ := p.top(netNSGs, id.ResourceGroup, id.Names[0])
 
-	if raw, has := propsOf(body)[netRules]; has {
-		arr, ok := raw.([]any)
-		if !ok {
-			return nil, false, netBad("securityRules must be an array.")
-		}
+	rules, err := p.inlineKids(body, netRules, netRules, old, normalizeRule)
+	if err != nil {
+		return nil, false, err
+	}
 
-		old, _ := p.top(netNSGs, id.ResourceGroup, id.Names[0])
-		rules = make([]*netObj, 0, len(arr))
-
-		for _, e := range arr {
-			m, _ := e.(map[string]any)
-			name := strOf(m, fieldName)
-
-			if err := validNetName(name, netMaxName); err != nil {
-				return nil, false, err
-			}
-
-			var prev *netObj
-			if old != nil {
-				prev, _ = old.kid(netRules, name)
-			}
-
-			r, err := normalizeRule(name, propsOf(m), prev)
-			if err != nil {
-				return nil, false, err
-			}
-
-			rules = append(rules, r)
-		}
-
-		if err := ruleConflict(rules); err != nil {
-			return nil, false, err
-		}
+	if err = ruleConflict(rules); err != nil {
+		return nil, false, err
 	}
 
 	it, _, created := p.upsertTop(netNSGs, id, body)
-	it.Obj.Props = takeProps(body, netRules, netDefRules, "networkInterfaces", "subnets", "provisioningState",
+	it.Obj.Props = takeProps(body, netRules, netDefRules, "networkInterfaces", "subnets", fieldProvisioningState,
 		netFieldResourceGUID)
 
 	if rules != nil {
@@ -298,23 +320,21 @@ func (p *NetworkProvider) putNSG(id ResourceID, body map[string]any) (map[string
 func (p *NetworkProvider) bodyNSG(id ResourceID, it *netParent) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range it.Obj.Props {
-		props[k] = v
-	}
+	maps.Copy(props, it.Obj.Props)
 
-	rules := []any{}
+	rules := make([]any, 0, len(it.Kids[netRules]))
 	for _, r := range it.Kids[netRules] {
 		rules = append(rules, p.bodyRule(kidID(id, netRules, r.Name), r))
 	}
 
-	defs := []any{}
+	defs := make([]any, 0, len(defaultRuleDefs))
 	for _, d := range defaultRulesFor(it) {
 		defs = append(defs, d)
 	}
 
 	props[netRules] = rules
 	props[netDefRules] = defs
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = it.Obj.GUID
 
 	if nics := p.nsgNICs(it.armID()); len(nics) > 0 {
@@ -340,11 +360,9 @@ func idRefs(ids []string) []any {
 func (p *NetworkProvider) bodyRule(id ResourceID, r *netObj) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range r.Props {
-		props[k] = v
-	}
+	maps.Copy(props, r.Props)
 
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 
 	return map[string]any{
 		netFieldID: id.ARMID(), fieldName: r.Name, fieldType: ruleTypePath, netFieldEtag: r.Etag,
@@ -407,7 +425,7 @@ func (p *NetworkProvider) nsgNICs(nsgID string) []string {
 // --- route tables ---
 
 func normalizeRoute(name string, props map[string]any, prev *netObj) (*netObj, error) {
-	out := takeProps(map[string]any{fieldProperties: props}, "provisioningState")
+	out := takeProps(map[string]any{fieldProperties: props}, fieldProvisioningState)
 
 	if _, err := netParsePrefix(strOf(out, netFieldAddrPrefix)); err != nil {
 		return nil, err
@@ -446,45 +464,15 @@ func normalizeRoute(name string, props map[string]any, prev *netObj) (*netObj, e
 }
 
 func (p *NetworkProvider) putRT(id ResourceID, body map[string]any) (map[string]any, bool, error) {
-	var routes []*netObj
+	old, _ := p.top(netRTs, id.ResourceGroup, id.Names[0])
 
-	if raw, has := propsOf(body)[netRoutes]; has {
-		arr, ok := raw.([]any)
-		if !ok {
-			return nil, false, netBad("routes must be an array.")
-		}
-
-		old, _ := p.top(netRTs, id.ResourceGroup, id.Names[0])
-		routes = make([]*netObj, 0, len(arr))
-
-		for _, e := range arr {
-			m, _ := e.(map[string]any)
-			name := strOf(m, fieldName)
-
-			if err := validNetName(name, netMaxName); err != nil {
-				return nil, false, err
-			}
-
-			if hasObj(routes, name) {
-				return nil, false, netBad("Route name %s is used more than once.", name)
-			}
-
-			var prev *netObj
-			if old != nil {
-				prev, _ = old.kid(netRoutes, name)
-			}
-
-			r, err := normalizeRoute(name, propsOf(m), prev)
-			if err != nil {
-				return nil, false, err
-			}
-
-			routes = append(routes, r)
-		}
+	routes, err := p.inlineKids(body, netRoutes, netRoutes, old, normalizeRoute)
+	if err != nil {
+		return nil, false, err
 	}
 
 	it, _, created := p.upsertTop(netRTs, id, body)
-	it.Obj.Props = takeProps(body, netRoutes, "subnets", "provisioningState", netFieldResourceGUID)
+	it.Obj.Props = takeProps(body, netRoutes, "subnets", fieldProvisioningState, netFieldResourceGUID)
 
 	if routes != nil {
 		it.Kids[netRoutes] = routes
@@ -496,21 +484,19 @@ func (p *NetworkProvider) putRT(id ResourceID, body map[string]any) (map[string]
 func (p *NetworkProvider) bodyRT(id ResourceID, it *netParent) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range it.Obj.Props {
-		props[k] = v
-	}
+	maps.Copy(props, it.Obj.Props)
 
 	if _, ok := props["disableBgpRoutePropagation"].(bool); !ok {
 		props["disableBgpRoutePropagation"] = false
 	}
 
-	routes := []any{}
+	routes := make([]any, 0, len(it.Kids[netRoutes]))
 	for _, r := range it.Kids[netRoutes] {
 		routes = append(routes, p.bodyRoute(kidID(id, netRoutes, r.Name), r))
 	}
 
 	props[netRoutes] = routes
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = it.Obj.GUID
 
 	if subs := p.rtSubnets(it.armID()); len(subs) > 0 {
@@ -523,11 +509,9 @@ func (p *NetworkProvider) bodyRT(id ResourceID, it *netParent) map[string]any {
 func (p *NetworkProvider) bodyRoute(id ResourceID, r *netObj) map[string]any {
 	props := map[string]any{}
 
-	for k, v := range r.Props {
-		props[k] = v
-	}
+	maps.Copy(props, r.Props)
 
-	props["provisioningState"] = netStatusSucceeded
+	props[fieldProvisioningState] = netStatusSucceeded
 
 	return map[string]any{
 		netFieldID: id.ARMID(), fieldName: r.Name, fieldType: routeTypePath, netFieldEtag: r.Etag,

@@ -431,64 +431,14 @@ var armResourceRoutes = []armRoute{
 // dispatchARMResource routes every /subscriptions/... and /tenants shape via
 // armResourceRoutes.
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
-	if handled, err := matchRoutes(eventGridScopeRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(keyVaultRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(cosmosRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(eventGridRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(appConfigRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(containerRegistryRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(monitorRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(redisRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(sqlRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(containerInstanceRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(networkRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(managedIdentityRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(webRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(storageFileServiceRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(armResourceRoutes, h, c, segs); handled {
-		return err
+	for _, table := range [][]armRoute{
+		eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes, eventGridRoutes, appConfigRoutes, containerRegistryRoutes,
+		monitorRoutes, redisRoutes, sqlRoutes, containerInstanceRoutes, networkRoutes, managedIdentityRoutes,
+		webRoutes, storageFileServiceRoutes, armResourceRoutes,
+	} {
+		if handled, err := matchRoutes(table, h, c, segs); handled {
+			return err
+		}
 	}
 
 	return h.writeNotFound(c)
