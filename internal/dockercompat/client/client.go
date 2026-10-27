@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	mobyclient "github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -517,4 +518,41 @@ func (e *InteractiveExec) Resize(ctx context.Context, cols, rows uint) error {
 	_, err := e.cli.inner.ExecResize(ctx, e.ID, mobyclient.ExecResizeOptions{Height: rows, Width: cols})
 
 	return err
+}
+
+// ContainerInspect returns a container's full inspect response.
+func (c *Client) ContainerInspect(
+	ctx context.Context,
+	containerID string,
+) (compatcontainer.InspectResponse, error) {
+	res, err := c.inner.ContainerInspect(ctx, containerID, mobyclient.ContainerInspectOptions{})
+	if err != nil {
+		return compatcontainer.InspectResponse{}, err
+	}
+
+	return res.Container, nil
+}
+
+// VolumeExists reports whether a Docker volume named name exists.
+func (c *Client) VolumeExists(ctx context.Context, name string) (bool, error) {
+	_, err := c.inner.VolumeInspect(ctx, name, mobyclient.VolumeInspectOptions{})
+	if err == nil {
+		return true, nil
+	}
+
+	if cerrdefs.IsNotFound(err) {
+		return false, nil
+	}
+
+	return false, err
+}
+
+// VolumeRemove force-removes a Docker volume; a missing volume is not an error.
+func (c *Client) VolumeRemove(ctx context.Context, name string) error {
+	_, err := c.inner.VolumeRemove(ctx, name, mobyclient.VolumeRemoveOptions{Force: true})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		return err
+	}
+
+	return nil
 }

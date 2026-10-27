@@ -139,7 +139,7 @@ func syncContainerStatuses(task *Task, exitCode *int) {
 				task.Containers[i].RuntimeID = newDockerContainerID()
 			}
 
-			if task.Containers[i].HealthStatus == containerHealthStatusUnknown {
+			if !task.runtimeHealth && task.Containers[i].HealthStatus == containerHealthStatusUnknown {
 				task.Containers[i].HealthStatus = containerHealthStatusHealthy
 			}
 		}
