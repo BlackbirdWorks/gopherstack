@@ -8,7 +8,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -632,9 +632,9 @@ func (h *Handler) handleEntityLevel(c *echo.Context, req parsedRequest) error {
 }
 
 func (h *Handler) createEntity(c *echo.Context, name string) error {
-	body, err := io.ReadAll(c.Request().Body)
+	body, err := httputils.ReadBodyLimit(c.Request(), maxHTTPBodyBytes)
 	if err != nil {
-		return h.writeError(c, http.StatusBadRequest, "BadRequest", "Unable to read request body.")
+		return h.writeBodyReadError(c, err)
 	}
 
 	kind, cfg := resolveEntityKind(c, body)
@@ -756,9 +756,9 @@ func (h *Handler) handleSubscriptionLevel(c *echo.Context, req parsedRequest) er
 // it -- every subscription behaves as match-all. See CreateSubscription's
 // doc comment and PARITY.md.
 func (h *Handler) createSubscription(c *echo.Context, topic, name string) error {
-	body, err := io.ReadAll(c.Request().Body)
+	body, err := httputils.ReadBodyLimit(c.Request(), maxHTTPBodyBytes)
 	if err != nil {
-		return h.writeError(c, http.StatusBadRequest, "BadRequest", "Unable to read request body.")
+		return h.writeBodyReadError(c, err)
 	}
 
 	var cfg EntityConfig
@@ -873,9 +873,9 @@ func (h *Handler) handleSendLevel(c *echo.Context, req parsedRequest) error {
 			"Cannot send directly to a subscription.")
 	}
 
-	body, err := io.ReadAll(c.Request().Body)
+	body, err := httputils.ReadBodyLimit(c.Request(), maxHTTPBodyBytes)
 	if err != nil {
-		return h.writeError(c, http.StatusBadRequest, "BadRequest", "Unable to read request body.")
+		return h.writeBodyReadError(c, err)
 	}
 
 	bp := brokerPropertiesFromHeader(c.Request())
@@ -1186,6 +1186,18 @@ type azureError struct {
 }
 
 // writeError writes a standard Service Bus REST error body.
+// maxHTTPBodyBytes is the 1 MiB single-message ceiling for the HTTP protocol across tiers.
+const maxHTTPBodyBytes int64 = 1 << 20
+
+func (h *Handler) writeBodyReadError(c *echo.Context, err error) error {
+	if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+		return h.writeError(c, http.StatusRequestEntityTooLarge, "MessageSizeExceeded",
+			"The request body exceeds the maximum message size of 1 MiB.")
+	}
+
+	return h.writeError(c, http.StatusBadRequest, "BadRequest", "Unable to read request body.")
+}
+
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
 	body, err := json.Marshal(azureError{Code: code, Message: message})
 	if err != nil {

@@ -1,11 +1,13 @@
 package omics
 
 import (
-	"io"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 func (h *Handler) handleBatchDeleteReadSet(c *echo.Context, storeID string) error {
@@ -392,8 +394,15 @@ func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID str
 		partSource = "SOURCE1"
 	}
 
-	data, err := io.ReadAll(c.Request().Body)
+	data, err := httputils.ReadBodyLimit(c.Request(), h.partLimit())
 	if err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "part payload exceeds the maximum part size of 100 MiB"),
+			)
+		}
+
 		return c.JSON(
 			http.StatusInternalServerError,
 			errResp("InternalServerException", "failed to read request body"),

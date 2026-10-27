@@ -197,6 +197,19 @@ type Handler struct {
 	idem    *idempotency.Memo
 	s3      S3ObjectReader
 	Backend StorageBackend
+
+	maxPartBytes int64
+}
+
+// maxReadSetPartBytes is the documented 100 MiB ceiling of one multipart read-set part.
+const maxReadSetPartBytes int64 = 100 << 20
+
+func (h *Handler) partLimit() int64 {
+	if h.maxPartBytes > 0 {
+		return h.maxPartBytes
+	}
+
+	return maxReadSetPartBytes
 }
 
 // NewHandler constructs a new Handler.
