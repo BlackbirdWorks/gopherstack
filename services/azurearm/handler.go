@@ -471,6 +471,14 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		return err
 	}
 
+	if handled, err := matchRoutes(networkRoutes, h, c, segs); handled {
+		return err
+	}
+
+	if handled, err := matchRoutes(managedIdentityRoutes, h, c, segs); handled {
+		return err
+	}
+
 	if handled, err := matchRoutes(webRoutes, h, c, segs); handled {
 		return err
 	}

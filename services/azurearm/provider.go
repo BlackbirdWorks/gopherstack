@@ -204,6 +204,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	registry.Register(NewContainerInstanceProvider(newACIEngine(ctx, settings)))
 
+	registry.Register(NewNetworkProvider(backend))
+
+	registry.Register(NewManagedIdentityProvider(settings.TenantID))
+
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
 	issuer, err := aadauth.NewIssuer()

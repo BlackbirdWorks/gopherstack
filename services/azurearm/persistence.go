@@ -36,6 +36,8 @@ type armSnapshot struct {
 	SQL                 *sqlSnapshot               `json:"sql,omitempty"`
 	Web                 *webSnapshot               `json:"web,omitempty"`
 	ContainerInstance   *containerInstanceSnapshot `json:"containerInstance,omitempty"`
+	Network             *networkSnapshot           `json:"network,omitempty"`
+	ManagedIdentity     *managedIdentitySnapshot   `json:"managedIdentity,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -206,6 +208,14 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.ContainerInstance = p.snapshot()
 	}
 
+	if p, ok := h.networkProvider(); ok {
+		st.Network = p.snapshot()
+	}
+
+	if p, ok := h.managedIdentityProvider(); ok {
+		st.ManagedIdentity = p.snapshot()
+	}
+
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
 
@@ -254,6 +264,14 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.containerInstanceProvider(); ok {
 		p.restore(snap.ContainerInstance)
+	}
+
+	if p, ok := h.networkProvider(); ok {
+		p.restore(snap.Network)
+	}
+
+	if p, ok := h.managedIdentityProvider(); ok {
+		p.restore(snap.ManagedIdentity)
 	}
 
 	return nil
