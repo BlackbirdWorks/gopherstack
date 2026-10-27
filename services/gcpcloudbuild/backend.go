@@ -3,7 +3,6 @@ package gcpcloudbuild
 import (
 	"context"
 	"os"
-	"sync"
 	"time"
 
 	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
@@ -41,7 +40,8 @@ type InMemoryBackend struct {
 	pools    map[string]*cloudbuildpb.WorkerPool
 	cancels  map[string]context.CancelFunc
 	ops      *gcplro.Store
-	wg       *sync.WaitGroup
+	running  int
+	idle     chan struct{}
 	rt       Runtime
 	svc      Services
 	workDir  string
@@ -54,7 +54,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		now: time.Now, after: realTimer, ctx: context.Background(), mu: lockmetrics.New("gcpcloudbuild"),
 		builds: map[string]*buildRec{}, triggers: map[string]*cloudbuildpb.BuildTrigger{},
 		pools: map[string]*cloudbuildpb.WorkerPool{}, cancels: map[string]context.CancelFunc{},
-		ops: gcplro.New("gcpcloudbuild"), wg: &sync.WaitGroup{}, workDir: os.TempDir(),
+		ops: gcplro.New("gcpcloudbuild"), workDir: os.TempDir(),
 		noEngine: reasonNoRuntime,
 	}
 }
@@ -108,7 +108,15 @@ func (b *InMemoryBackend) SetClock(now func() time.Time, after timerFunc) {
 }
 
 // Wait blocks until every running build goroutine has exited.
-func (b *InMemoryBackend) Wait() { b.wg.Wait() }
+func (b *InMemoryBackend) Wait() {
+	b.mu.RLock("Wait")
+	idle := b.idle
+	b.mu.RUnlock()
+
+	if idle != nil {
+		<-idle
+	}
+}
 
 // Close cancels running builds and waits for them to exit.
 func (b *InMemoryBackend) Close() {
@@ -119,7 +127,7 @@ func (b *InMemoryBackend) Close() {
 	}
 
 	b.mu.RUnlock()
-	b.wg.Wait()
+	b.Wait()
 }
 
 // Reset cancels running builds and drops all state.

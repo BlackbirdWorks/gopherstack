@@ -515,3 +515,32 @@ func TestCancelBeatsKilledStepExit(t *testing.T) {
 	got := e.get(t, meta.GetBuild().GetName())
 	assert.Equal(t, cloudbuildpb.Build_CANCELLED, got.GetStatus())
 }
+
+func TestWaitConcurrentWithCreateBuild(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, nil)
+
+	var wg sync.WaitGroup
+
+	for range 8 {
+		wg.Go(func() {
+			for range 5 {
+				cop, err := e.client.CreateBuild(t.Context(), &cloudbuildpb.CreateBuildRequest{
+					Parent: parent, Build: buildOf(step("img")),
+				})
+				assert.NoError(t, err)
+
+				_, err = cop.Wait(t.Context())
+				assert.NoError(t, err)
+			}
+		})
+		wg.Go(func() {
+			for range 50 {
+				e.backend.Wait()
+			}
+		})
+	}
+
+	wg.Wait()
+}
