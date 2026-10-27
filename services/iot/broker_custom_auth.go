@@ -67,6 +67,8 @@ type customSession struct {
 
 // connectCustom authenticates a client that presented no certificate through a custom authorizer.
 func (h *authHook) connectCustom(cl *mqtt.Client, pk packets.Packet) bool {
+	h.sweepClosed()
+
 	b := h.broker
 	username := string(pk.Connect.Username)
 	_, query, _ := strings.Cut(username, "?")
@@ -166,6 +168,17 @@ func (h *authHook) customAllowed(cl *mqtt.Client, action, resource string) bool 
 	}
 
 	return h.broker.backend.authorizeDocs(sess.docs, cl.ID, action, resource)
+}
+
+// sweepClosed drops sessions of closed clients: mochi skips OnDisconnect when CONNACK fails after auth.
+func (h *authHook) sweepClosed() {
+	h.sessions.Range(func(k, _ any) bool {
+		if cl, ok := k.(*mqtt.Client); ok && cl.Closed() {
+			h.dropSession(cl)
+		}
+
+		return true
+	})
 }
 
 func (h *authHook) dropSession(cl *mqtt.Client) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type notFoundRewrite struct {
@@ -11,7 +12,8 @@ type notFoundRewrite struct {
 	repl string
 }
 
-func notFoundRewrites() []notFoundRewrite {
+//nolint:gochecknoglobals // compiled once, read-only
+var notFoundRewrites = sync.OnceValue(func() []notFoundRewrite {
 	return []notFoundRewrite{
 		{regexp.MustCompile(`^cluster snapshot (.+) not found$`), "DBClusterSnapshot not found: $1"},
 		{regexp.MustCompile(`^cluster parameter group (.+) not found$`), "DBParameterGroup not found: $1"},
@@ -19,7 +21,7 @@ func notFoundRewrites() []notFoundRewrite {
 		{regexp.MustCompile(`^cluster (.+) not found$`), "DBCluster not found: $1"},
 		{regexp.MustCompile(`^instance (.+) not found$`), "DBInstance $1 not found."},
 	}
-}
+})
 
 func wireMessage(code, msg string) string {
 	msg = strings.TrimPrefix(msg, code+": ")
