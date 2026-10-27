@@ -20,6 +20,7 @@ const (
 )
 
 var (
+	errSecretRead      = errors.New("could not read secret")
 	errNoSecretManager = errors.New("no Secret Manager is available in this emulator")
 	versionRe          = regexp.MustCompile(`^([0-9]+|latest)$`)
 )
@@ -149,11 +150,7 @@ func (b *InMemoryBackend) secretBytes(project, secret, version string) ([]byte, 
 
 	data, err := fn(name)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"secret %s: %s",
-			name,
-			status.Convert(err).Message(),
-		) //nolint:err113 // status text is the message
+		return nil, fmt.Errorf("%w %s: %s", errSecretRead, name, status.Convert(err).Message())
 	}
 
 	return data, nil

@@ -74,10 +74,13 @@ func TestTriggers_Validation(t *testing.T) {
 			EventFilters: []*functionspb.EventFilter{filter("bucket", "b1"), filter("document", "x")},
 		}, "storage bad attribute", true},
 		{&functionspb.EventTrigger{
-			EventType: typeFinalized, PubsubTopic: topic, EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},
+			EventType:    typeFinalized,
+			PubsubTopic:  topic,
+			EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},
 		}, "storage with topic", true},
 		{&functionspb.EventTrigger{
-			EventType: "google.cloud.storage.object.v1.exploded", EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},
+			EventType:    "google.cloud.storage.object.v1.exploded",
+			EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},
 		}, "unknown storage kind", true},
 		{&functionspb.EventTrigger{
 			EventType: typeWritten, EventFilters: []*functionspb.EventFilter{
