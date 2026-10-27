@@ -1,6 +1,6 @@
 ---
 service: iot
-sdk_module: aws-sdk-go-v2/service/iot@v1.84.3
+sdk_module: aws-sdk-go-v2/service/iot@v1.84.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
 last_audit_commit: 22b4f068c  # 2026-09-20 RouteMatcher collision fix; prior: bfdb308be (iot-and-ses)
 last_audit_date: 2026-10-12

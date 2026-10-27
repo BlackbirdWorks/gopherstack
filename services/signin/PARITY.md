@@ -1,6 +1,6 @@
 ---
 service: signin
-sdk_module: aws-sdk-go-v2/service/signin@v1.10.3
+sdk_module: aws-sdk-go-v2/service/signin@v1.10.4
 last_audit_commit: 7b35a020d
 last_audit_date: 2026-10-24
 overall: B            # all 11 SDK operations are real, state-backed and driven through the SDK client behind the production router; B until the open items close.

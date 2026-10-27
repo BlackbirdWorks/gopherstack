@@ -1,6 +1,6 @@
 ---
 service: secretsmanager
-sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.50.3
+sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.50.4
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
 last_audit_date: 2026-10-12
 overall: A            # 2026-08-30 pass: two real filter bugs found and fixed, both in the shared

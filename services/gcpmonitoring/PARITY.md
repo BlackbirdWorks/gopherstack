@@ -1,6 +1,6 @@
 ---
 service: gcpmonitoring
-sdk_module: cloud.google.com/go/monitoring@v1.30.0
+sdk_module: cloud.google.com/go/monitoring@v1.31.0
 last_audit_commit: c7e82dfd3
 last_audit_date: 2026-10-21
 overall: B

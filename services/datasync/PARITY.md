@@ -1,7 +1,7 @@
 ---
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: datasync
-sdk_module: aws-sdk-go-v2/service/datasync@v1.67.3
+sdk_module: aws-sdk-go-v2/service/datasync@v1.67.4
 last_audit_commit: bfdb308be  # terraform-coverage sweep (datasync-and-sesv2): FSx/EFS LocationUri fixes; prior 49cff86c4
 last_audit_date: 2026-10-10
 overall: A            # systemic field-diff sweep: 20+ genuine wire-shape bugs found & fixed

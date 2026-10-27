@@ -1,6 +1,6 @@
 ---
 service: backup
-sdk_module: aws-sdk-go-v2/service/backup@v1.69.0
+sdk_module: aws-sdk-go-v2/service/backup@v1.69.1
 last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (ssm-and-backup); prior: 4a7682d1e
 last_audit_date: 2026-10-12  # prior: 2026-09-19
 overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 prior deferred items field-diffed and closed; a service-wide error-code/HTTP-status bug found and fixed (see notes) + gopherstack-21my (per-item field sweep: copy-job-summary AccountId, recovery-point StorageClass leak, backup-vault list lock/creator fields, protected-resource last-vault/recovery-point ARNs)

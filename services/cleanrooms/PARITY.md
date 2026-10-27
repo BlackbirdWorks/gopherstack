@@ -1,6 +1,6 @@
 ---
 service: cleanrooms
-sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.57.3   # bumped from v1.48.0 this pass (go.mod already pinned v1.49.4; PARITY.md was stale)
+sdk_module: aws-sdk-go-v2/service/cleanrooms@v1.57.4   # bumped from v1.48.0 this pass (go.mod already pinned v1.49.4; PARITY.md was stale)
 last_audit_commit: 841743e85
 last_audit_date: 2026-10-07
 overall: A            # systemic invented-field cleanup + several real state-machine/wire-shape bugs fixed (prior pass); IntermediateTable family implemented for real at the same quality bar (2026-07-25 pass)

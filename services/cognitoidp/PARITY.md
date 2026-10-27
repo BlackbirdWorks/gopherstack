@@ -1,6 +1,6 @@
 ---
 service: cognitoidp
-sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@v1.75.2
+sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@v1.75.3
 last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: 5ba338ed2
 last_audit_date: 2026-10-11
 # 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a

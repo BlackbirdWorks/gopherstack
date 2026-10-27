@@ -1,6 +1,6 @@
 ---
 service: ecr
-sdk_module: aws-sdk-go-v2/service/ecr@v1.66.3
+sdk_module: aws-sdk-go-v2/service/ecr@v1.66.4
 last_audit_commit: f78c3b7c7  # 2026-09-24 goroutine-leak audit (gopherstack-1x2u0)
 last_audit_date: 2026-10-07
 overall: A  # round 4 (gopherstack-6flj wrapper-key sweep) found and fixed 6 more real wire-shape bugs the round-3 "wire: ok" claims had missed -- see "Genuine fixes made this pass, round 4" below. Round 3 closed every remaining gap it found: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.

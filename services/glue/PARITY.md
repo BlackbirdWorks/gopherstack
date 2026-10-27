@@ -1,6 +1,6 @@
 ---
 service: glue
-sdk_module: aws-sdk-go-v2/service/glue@v1.169.0
+sdk_module: aws-sdk-go-v2/service/glue@v1.170.0
 last_audit_commit: 2bc650bf9
 last_audit_date: 2026-10-09
 # 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
