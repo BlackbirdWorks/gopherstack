@@ -160,6 +160,7 @@ type InMemoryBackend struct {
 	blueprints                *store.Table[Blueprint]
 	customEntityTypes         *store.Table[CustomEntityType]
 	dataQualityResult         *store.Table[DataQualityResult]
+	dataQualityResultV2       *store.Table[DataQualityResultV2]
 	devEndpoints              *store.Table[DevEndpoint]
 	jobRuns                   map[string][]*JobRun // key: jobName
 	jobBookmarks              *store.Table[JobBookmark]

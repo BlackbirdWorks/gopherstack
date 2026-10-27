@@ -77,6 +77,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "BatchGetDataQualityResultV2",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleBatchGetDataQualityResultV2)
+		},
+	},
+	{
 		name: "BatchGetDataQualityRulesetEvaluationRun",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleBatchGetDataQualityRulesetEvaluationRun)
@@ -676,6 +682,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "GetDataQualityResultV2",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetDataQualityResultV2)
+		},
+	},
+	{
 		name: "GetDataQualityRuleRecommendationRun",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleGetDataQualityRuleRecommendationRun)
@@ -970,6 +982,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "ListDataQualityResultsV2",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleListDataQualityResultsV2)
+		},
+	},
+	{
 		name: "ListDataQualityRuleRecommendationRuns",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleListDataQualityRuleRecommendationRuns)
@@ -1093,6 +1111,12 @@ var glueOpBindings = []struct {
 		name: "ModifyIntegration",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleModifyIntegration)
+		},
+	},
+	{
+		name: "PublishDataQualityResultV2",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handlePublishDataQualityResultV2)
 		},
 	},
 	{
