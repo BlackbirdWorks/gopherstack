@@ -635,7 +635,7 @@ func (h *Handler) readRequestBody(c *echo.Context, op string) ([]byte, error) {
 	decoder := json.NewDecoder(c.Request().Body)
 	var raw json.RawMessage
 	if err := decoder.Decode(&raw); err != nil {
-		return nil, nil
+		raw = nil
 	}
 
 	return raw, nil

@@ -23,8 +23,8 @@ func TestEvalRouteSelectionExpression_BodyCap(t *testing.T) {
 
 	tests := []struct {
 		name string
-		size int
 		want string
+		size int
 	}{
 		{name: "at cap", size: limit, want: "go"},
 		{name: "over cap", size: limit + 1, want: ""},

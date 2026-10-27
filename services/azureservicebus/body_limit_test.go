@@ -24,7 +24,10 @@ func TestHTTPBodyLimit(t *testing.T) {
 		{name: "send over limit", method: http.MethodPost, path: "/q1/messages", size: limit + 1, wantTooLarge: true},
 		{name: "create at limit", method: http.MethodPut, path: "/q2", size: limit},
 		{name: "create over limit", method: http.MethodPut, path: "/q3", size: limit + 1, wantTooLarge: true},
-		{name: "subscription over limit", method: http.MethodPut, path: "/t1/subscriptions/s1", size: limit + 1, wantTooLarge: true},
+		{
+			name: "subscription over limit", method: http.MethodPut, path: "/t1/subscriptions/s1",
+			size: limit + 1, wantTooLarge: true,
+		},
 	}
 
 	for _, tc := range tests {

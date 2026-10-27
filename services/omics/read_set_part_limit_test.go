@@ -19,9 +19,9 @@ func TestUploadReadSetPart_SizeLimit(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		wantMsg    string
 		size       int
 		wantStatus int
-		wantMsg    string
 	}{
 		{name: "at limit", size: limit, wantStatus: http.StatusNotFound},
 		{name: "over limit", size: limit + 1, wantStatus: http.StatusBadRequest, wantMsg: "maximum part size"},

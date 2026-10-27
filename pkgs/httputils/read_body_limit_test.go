@@ -1,7 +1,6 @@
 package httputils_test
 
 import (
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -33,12 +32,13 @@ func TestReadBodyLimit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(http.MethodPost, "/", io.NopCloser(strings.NewReader(strings.Repeat("a", tc.size))))
+			payload := strings.Repeat("a", tc.size)
+			req := httptest.NewRequest(http.MethodPost, "/", io.NopCloser(strings.NewReader(payload)))
 			got, err := httputils.ReadBodyLimit(req, tc.limit)
 
 			if tc.tooLong {
 				var mbe *http.MaxBytesError
-				require.True(t, errors.As(err, &mbe))
+				require.ErrorAs(t, err, &mbe)
 				assert.Equal(t, tc.limit, mbe.Limit)
 
 				return

@@ -21,9 +21,9 @@ func TestPublishPackageVersion_AssetSizeLimit(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		wantCode   string
 		size       int
 		wantStatus int
-		wantCode   string
 	}{
 		{name: "at limit", size: limit, wantStatus: http.StatusNotFound, wantCode: "ResourceNotFoundException"},
 		{
