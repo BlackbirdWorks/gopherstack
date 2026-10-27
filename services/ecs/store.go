@@ -20,6 +20,7 @@ const (
 	statusDeleteInProgress  = "DELETE_IN_PROGRESS"
 	statusProvisioning      = "PROVISIONING"
 	statusPending           = "PENDING"
+	statusActivating        = "ACTIVATING"
 	statusDeactivating      = "DEACTIVATING"
 	statusStopping          = "STOPPING"
 	statusDeprovisioning    = "DEPROVISIONING"
@@ -164,6 +165,10 @@ type InMemoryBackend struct {
 	// lifecycle (PROVISIONING→PENDING→RUNNING). Zero finalizes immediately.
 	startDelay time.Duration
 	hooksMu    sync.Mutex
+	// nowFn overrides time.Now for task launch timestamps (tests).
+	nowFn func() time.Time
+	// launches tracks in-flight launch goroutines, guarded by mu.
+	launches launchTracker
 }
 
 // TaskRunner is the interface for launching container tasks.
@@ -200,14 +205,18 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 
 // Reset zeroes all backend state for test isolation.
 func (b *InMemoryBackend) Reset() {
+	_, idle := b.cancelLaunches(false)
+
 	tasks := b.resetLocked()
 
-	if b.runner == nil {
-		return
+	if b.runner != nil {
+		for _, t := range tasks {
+			_ = b.runner.StopTask(t)
+		}
 	}
 
-	for _, t := range tasks {
-		_ = b.runner.StopTask(t)
+	if idle != nil {
+		<-idle
 	}
 }
 

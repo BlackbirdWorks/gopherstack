@@ -580,6 +580,7 @@ func TestDeleteCluster_LeavesNoRunningContainers(t *testing.T) {
 						Cluster:        "test-cluster",
 						TaskDefinition: "test",
 					})
+					tasks = settleTasks(t, backend, tasks)
 					require.NoError(t, runErr)
 					require.Len(t, tasks, 1)
 
@@ -740,6 +741,7 @@ func TestBackend_RunTask_FailedRunnerSetsSTOPPED(t *testing.T) {
 				TaskDefinition: "fail-task",
 				Count:          tt.count,
 			})
+			tasks = settleTasks(t, backend, tasks)
 			require.NoError(t, err, "RunTask API should not return an error (runner error is internal)")
 			require.Len(t, tasks, tt.wantTasks)
 
@@ -778,6 +780,7 @@ func TestBackend_StopTask_LockReleasedBeforeDockerCall(t *testing.T) {
 		TaskDefinition: "svc-task",
 		Count:          1,
 	})
+	runOut = settleTasks(t, backend, runOut)
 	require.NoError(t, err)
 	require.Len(t, runOut, 1)
 
@@ -832,6 +835,7 @@ func TestDockerRunner_ForwardsAwslogsContainerOutput(t *testing.T) {
 	require.NoError(t, err)
 
 	tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "awslogs-docker"})
+	tasks = settleTasks(t, backend, tasks)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
@@ -907,6 +911,7 @@ func TestDockerRunner_StopTask_CancelsLogForwarding(t *testing.T) {
 	require.NoError(t, err)
 
 	tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "awslogs-block"})
+	tasks = settleTasks(t, backend, tasks)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
@@ -949,6 +954,7 @@ func TestDockerRunner_ContainerExit_MovesTaskToStopped(t *testing.T) {
 	require.NoError(t, err)
 
 	tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "batch-job"})
+	tasks = settleTasks(t, backend, tasks)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	taskArn := tasks[0].TaskArn
@@ -1001,6 +1007,7 @@ func TestDockerRunner_StopTask_CancelsContainerWait(t *testing.T) {
 	require.NoError(t, err)
 
 	tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "long-runner"})
+	tasks = settleTasks(t, backend, tasks)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
@@ -1058,6 +1065,7 @@ func TestDockerRunner_ContainerExit_EssentialSemantics(t *testing.T) {
 			require.NoError(t, err)
 
 			tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "multi"})
+			tasks = settleTasks(t, backend, tasks)
 			require.NoError(t, err)
 			require.Len(t, tasks, 1)
 			taskArn := tasks[0].TaskArn

@@ -1042,6 +1042,9 @@ type Task struct {
 	StartedAt            *time.Time            `json:"startedAt,omitempty"`
 	StoppedAt            *time.Time            `json:"stoppedAt,omitempty"`
 	ConnectivityAt       *time.Time            `json:"connectivityAt,omitempty"`
+	CreatedAt            *time.Time            `json:"createdAt,omitempty"`
+	PullStartedAt        *time.Time            `json:"pullStartedAt,omitempty"`
+	PullStoppedAt        *time.Time            `json:"pullStoppedAt,omitempty"`
 	Overrides            *TaskOverride         `json:"overrides,omitempty"`
 	NetworkConfiguration *NetworkConfiguration `json:"networkConfiguration,omitempty"`
 	Group                string                `json:"group,omitempty"`

@@ -106,7 +106,7 @@ func TestTaskStateChangeEvents(t *testing.T) {
 		{
 			name: "failed_launch", runner: failingRunner{},
 			run:        func(*testing.T, *InMemoryBackend, string) {},
-			wantStatus: []string{"PROVISIONING", "PENDING", "STOPPED"},
+			wantStatus: []string{"PROVISIONING", "PENDING", "ACTIVATING", "STOPPED"},
 			wantReason: "container start failed: simulated container start failure",
 		},
 		{
@@ -153,6 +153,7 @@ func TestTaskStateChangeEvents(t *testing.T) {
 			tasks, _, err := b.RunTask(RunTaskInput{
 				Cluster: "ev", TaskDefinition: tdArn, Group: "family:ev-app", StartedBy: "tester",
 			})
+			tasks = settleTasks(t, b, tasks)
 			require.NoError(t, err)
 			require.Len(t, tasks, 1)
 
@@ -194,6 +195,7 @@ func TestTaskStateChangeEventStoppedExitCode(t *testing.T) {
 	b, pub, tdArn := newEventBackend(t, NewNoopRunner())
 
 	tasks, _, err := b.RunTask(RunTaskInput{Cluster: "ev", TaskDefinition: tdArn})
+	tasks = settleTasks(t, b, tasks)
 	require.NoError(t, err)
 
 	b.markTaskStoppedByContainerExit(tasks[0].TaskArn, "app", 3)
@@ -339,6 +341,7 @@ func TestDeploymentFailedEvent(t *testing.T) {
 
 	_, _, err = b.RunTask(RunTaskInput{Cluster: "ev", TaskDefinition: tdArn, Group: "service:svc", Count: 3})
 	require.NoError(t, err)
+	b.awaitLaunches()
 
 	evs := pub.ofType(detailTypeDeploymentState)
 	assert.Equal(t, []string{eventDeploymentInProgress, eventDeploymentFailed}, eventNames(evs))
@@ -356,6 +359,7 @@ func TestEventsWithoutPublisher(t *testing.T) {
 	require.NoError(t, err)
 
 	tasks, _, err := b.RunTask(RunTaskInput{Cluster: "np", TaskDefinition: tdArn})
+	tasks = settleTasks(t, b, tasks)
 	require.NoError(t, err)
 	assert.Equal(t, statusRunning, tasks[0].LastStatus)
 }

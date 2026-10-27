@@ -493,6 +493,9 @@ type taskView struct {
 	StartedAt            float64              `json:"startedAt,omitempty"`
 	StoppedAt            float64              `json:"stoppedAt,omitempty"`
 	ConnectivityAt       float64              `json:"connectivityAt,omitempty"`
+	CreatedAt            float64              `json:"createdAt,omitempty"`
+	PullStartedAt        float64              `json:"pullStartedAt,omitempty"`
+	PullStoppedAt        float64              `json:"pullStoppedAt,omitempty"`
 	EnableExecuteCommand bool                 `json:"enableExecuteCommand,omitempty"`
 }
 
@@ -571,6 +574,18 @@ func toTaskView(t Task) taskView {
 
 	if t.ConnectivityAt != nil {
 		v.ConnectivityAt = float64(t.ConnectivityAt.Unix())
+	}
+
+	if t.CreatedAt != nil {
+		v.CreatedAt = float64(t.CreatedAt.Unix())
+	}
+
+	if t.PullStartedAt != nil {
+		v.PullStartedAt = float64(t.PullStartedAt.Unix())
+	}
+
+	if t.PullStoppedAt != nil {
+		v.PullStoppedAt = float64(t.PullStoppedAt.Unix())
 	}
 
 	return v

@@ -28,7 +28,7 @@ func taskBelongsToDeployment(t *Task, dep *Deployment) bool {
 
 func taskIsLive(t *Task) bool {
 	switch t.LastStatus {
-	case statusRunning, statusPending, statusProvisioning:
+	case statusRunning, statusPending, statusProvisioning, statusActivating:
 		return true
 	}
 

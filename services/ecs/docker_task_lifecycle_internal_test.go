@@ -25,6 +25,7 @@ func newLifecycleBackend(t *testing.T, fake *fakeDockerClient, defs []ContainerD
 	require.NoError(t, err)
 
 	tasks, failures, err := b.RunTask(RunTaskInput{Cluster: "c", TaskDefinition: "job"})
+	tasks = settleTasks(t, b, tasks)
 	require.NoError(t, err)
 	require.Empty(t, failures)
 	require.Len(t, tasks, 1)
@@ -194,6 +195,7 @@ func TestDockerTask_SecretFailureStopsTask(t *testing.T) {
 	require.NoError(t, err)
 
 	tasks, _, err := b.RunTask(RunTaskInput{Cluster: "c", TaskDefinition: "job"})
+	tasks = settleTasks(t, b, tasks)
 	require.NoError(t, err)
 
 	got := describeOne(t, b, tasks[0].TaskArn)

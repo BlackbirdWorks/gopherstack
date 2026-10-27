@@ -48,10 +48,16 @@ var (
 // launchState lets StopTask abort a RunTask that is still starting containers.
 type launchState struct {
 	abort chan struct{}
+	stop  context.CancelFunc
 	once  sync.Once
 }
 
-func (l *launchState) cancel() { l.once.Do(func() { close(l.abort) }) }
+func (l *launchState) cancel() {
+	l.once.Do(func() {
+		close(l.abort)
+		l.stop()
+	})
+}
 
 // containerExit records a watched container's final exit code; done closes once code is set.
 type containerExit struct {
@@ -157,7 +163,13 @@ func orderContainers(defs []ContainerDefinition) ([]int, error) {
 
 // RunTask starts td's containers in dependency order, gating each on its dependsOn conditions.
 func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
-	ctx := r.svcCtx
+	return r.RunTaskContext(r.svcCtx, task, td)
+}
+
+// RunTaskContext is RunTask with ctx cancelling the launch (pulls, gates, starts) and rolling it back.
+func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td *TaskDefinition) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
 
 	orderIdx, err := orderContainers(td.ContainerDefinitions)
 	if err != nil {
@@ -187,7 +199,7 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 		needsExit: exitDependencies(order),
 		pidMode:   hostOrNone(td.PidMode),
 		ipcMode:   hostOrNone(td.IpcMode),
-		state:     &launchState{abort: make(chan struct{})},
+		state:     &launchState{abort: make(chan struct{}), stop: cancel},
 	}
 
 	r.mu.Lock()
@@ -203,7 +215,7 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 
 	for _, cd := range order {
 		if launchErr := r.launchContainer(ctx, l, cd); launchErr != nil {
-			r.abortLaunch(ctx, l)
+			r.abortLaunch(r.svcCtx, l)
 
 			return launchErr
 		}
@@ -211,9 +223,13 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 
 	select {
 	case <-l.state.abort:
-		r.abortLaunch(ctx, l)
+		r.abortLaunch(r.svcCtx, l)
 
 		return errTaskStoppedDuringLaunch
+	case <-ctx.Done():
+		r.abortLaunch(r.svcCtx, l)
+
+		return fmt.Errorf("%w: %w", errTaskStoppedDuringLaunch, ctx.Err())
 	default:
 	}
 
@@ -286,6 +302,8 @@ func (r *realDockerRunner) launchContainer(ctx context.Context, l *launch, cd Co
 	select {
 	case <-l.state.abort:
 		return errTaskStoppedDuringLaunch
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %w", errTaskStoppedDuringLaunch, ctx.Err())
 	default:
 	}
 
