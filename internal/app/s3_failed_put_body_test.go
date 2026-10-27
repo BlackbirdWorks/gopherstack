@@ -1,7 +1,6 @@
 package app
 
 import (
-	"errors"
 	"io"
 	"net/http"
 	"sync/atomic"
@@ -83,7 +82,7 @@ func TestS3FailedPutDoesNotDrainBody(t *testing.T) {
 
 	var apiErr smithy.APIError
 
-	require.True(t, errors.As(err, &apiErr), "want API error, got %v", err)
+	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, "NoSuchBucket", apiErr.ErrorCode())
 	assert.Less(t, consumed.Load(), int64(failedPutBodySize), "handler must not read the whole failed body")
 }

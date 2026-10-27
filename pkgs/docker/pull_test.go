@@ -21,8 +21,9 @@ func TestConsumePullStream(t *testing.T) {
 		{name: "success", stream: `{"status":"Pulling"}` + "\n" + `{"status":"Downloaded"}` + "\n"},
 		{name: "empty", stream: ""},
 		{
-			name:    "error detail",
-			stream:  `{"status":"Pulling"}` + "\n" + `{"errorDetail":{"message":"manifest unknown"},"error":"manifest unknown"}` + "\n" + `{"status":"x"}`,
+			name: "error detail",
+			stream: `{"status":"Pulling"}` + "\n" +
+				`{"errorDetail":{"message":"manifest unknown"},"error":"manifest unknown"}` + "\n" + `{"status":"x"}`,
 			wantErr: "manifest unknown",
 		},
 		{name: "error only", stream: `{"error":"denied: requested access"}`, wantErr: "denied: requested access"},

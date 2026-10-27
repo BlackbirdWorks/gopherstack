@@ -193,7 +193,11 @@ func TestClient_PullImage(t *testing.T) {
 		wantErr    bool
 	}{
 		{name: "success"},
-		{name: "error in stream", pullStream: `{"errorDetail":{"message":"manifest unknown"},"error":"manifest unknown"}`, wantErr: true},
+		{
+			name:       "error in stream",
+			pullStream: `{"errorDetail":{"message":"manifest unknown"},"error":"manifest unknown"}`,
+			wantErr:    true,
+		},
 		{name: "error", pullErr: errNetworkError, wantErr: true},
 	}
 

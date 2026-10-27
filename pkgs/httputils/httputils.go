@@ -241,7 +241,7 @@ func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err
 
 // WriteS3ErrorResponse writes an S3-compatible XML error response.
 // Writes the error as XML.
-func WriteS3ErrorResponse(ctx context.Context, w http.ResponseWriter, r *http.Request, s3Err any, code int) {
+func WriteS3ErrorResponse(ctx context.Context, w http.ResponseWriter, _ *http.Request, s3Err any, code int) {
 	WriteXML(ctx, w, code, s3Err)
 }
 

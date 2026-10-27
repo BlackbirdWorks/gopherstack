@@ -7,6 +7,9 @@ import (
 	"io"
 )
 
+// ErrImagePull wraps failures the daemon reports in an image pull stream.
+var ErrImagePull = errors.New("image pull failed")
+
 type pullMessage struct {
 	ErrorDetail *struct {
 		Message string `json:"message"`
@@ -36,13 +39,13 @@ func ConsumePullStream(r io.Reader) error {
 		if msg.ErrorDetail != nil && msg.ErrorDetail.Message != "" {
 			_, _ = io.Copy(io.Discard, io.MultiReader(dec.Buffered(), r))
 
-			return fmt.Errorf("image pull: %s", msg.ErrorDetail.Message)
+			return fmt.Errorf("%w: %s", ErrImagePull, msg.ErrorDetail.Message)
 		}
 
 		if msg.Error != "" {
 			_, _ = io.Copy(io.Discard, io.MultiReader(dec.Buffered(), r))
 
-			return fmt.Errorf("image pull: %s", msg.Error)
+			return fmt.Errorf("%w: %s", ErrImagePull, msg.Error)
 		}
 	}
 }
