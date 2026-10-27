@@ -92,7 +92,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.mu.Lock("Restore")
-	boxes := b.takeAllLocked()
+	pools := b.takeAllLocked()
 	b.resetMaps()
 
 	err := b.restoreLocked(&snap)
@@ -103,9 +103,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 	b.mu.Unlock()
 
-	for _, x := range boxes {
-		b.teardown(x)
-	}
+	closeAll(pools)
 
 	return err
 }

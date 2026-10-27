@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -168,6 +169,7 @@ func (b *InMemoryBackend) deliver(ctx context.Context, j job) result {
 	}
 
 	req.Header = j.out.header.Clone()
+	gcpserve.MarkInternal(req)
 
 	resp, err := j.client.Do(req)
 	if err != nil {

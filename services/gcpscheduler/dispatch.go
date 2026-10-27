@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -123,6 +124,7 @@ func (b *InMemoryBackend) deliver(ctx context.Context, a attempt) result {
 	}
 
 	req.Header = a.http.header.Clone()
+	gcpserve.MarkInternal(req)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
