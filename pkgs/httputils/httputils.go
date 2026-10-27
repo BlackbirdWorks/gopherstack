@@ -158,16 +158,6 @@ func ParseFormBody(r *http.Request) (url.Values, error) {
 	return brc.form, brc.formErr
 }
 
-// DrainBody reads and discards the request body.
-// This is important for HTTP keep-alive, as the server needs to know
-// the request body has been fully consumed before reusing the connection.
-func DrainBody(r *http.Request) {
-	if r.Body != nil {
-		_, _ = io.Copy(io.Discard, r.Body)
-		_ = r.Body.Close()
-	}
-}
-
 // WriteJSON marshals the payload to JSON, sets standard headers, and writes the response.
 // Sets Content-Type to "application/json" and Content-Length.
 func WriteJSON(ctx context.Context, w http.ResponseWriter, code int, payload any) {
@@ -242,9 +232,7 @@ func WriteDynamoDBResponse(ctx context.Context, w http.ResponseWriter, code int,
 
 // WriteError writes an error response with structured logging.
 // Uses the logger from ctx to record the error with context.
-// Drains the request body to ensure connection reuse.
 func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error, code int) {
-	DrainBody(r)
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "request failed", "error", err, "code", code, "path", r.URL.Path)
 	}
@@ -252,9 +240,8 @@ func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err
 }
 
 // WriteS3ErrorResponse writes an S3-compatible XML error response.
-// Drains the request body and writes the error as XML.
+// Writes the error as XML.
 func WriteS3ErrorResponse(ctx context.Context, w http.ResponseWriter, r *http.Request, s3Err any, code int) {
-	DrainBody(r)
 	WriteXML(ctx, w, code, s3Err)
 }
 

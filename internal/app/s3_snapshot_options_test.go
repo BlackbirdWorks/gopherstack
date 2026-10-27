@@ -182,6 +182,14 @@ type optionsFixture struct {
 func newOptionsFixture(t *testing.T, mutate func(*CLI)) *optionsFixture {
 	t.Helper()
 
+	return newWrappedOptionsFixture(t, mutate, nil)
+}
+
+func newWrappedOptionsFixture(
+	t *testing.T, mutate func(*CLI), wrap func(http.Handler) http.Handler,
+) *optionsFixture {
+	t.Helper()
+
 	log := buildLogger("")
 	cli := CLI{AccountID: "000000000000", Region: "us-east-1"}
 	mutate(&cli)
@@ -196,7 +204,12 @@ func newOptionsFixture(t *testing.T, mutate func(*CLI)) *optionsFixture {
 	e := buildEchoServer(t.Context(), log, nil, services, cli)
 	require.NoError(t, setupChaosAndRegistry(e, log, &cli, services))
 
-	srv := httptest.NewServer(e)
+	var h http.Handler = e
+	if wrap != nil {
+		h = wrap(h)
+	}
+
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
 	addr := srv.Listener.Addr().String()
