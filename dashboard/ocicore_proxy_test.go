@@ -95,13 +95,16 @@ func TestOCICoreProxyInstanceActions(t *testing.T) {
 	})
 	require.Nil(t, aerr)
 
-	imgs, aerr := b.ListImages(ocicore.ImageListOpts{Compartment: ociCoreComp, OS: "Oracle Linux", OSVersion: "9", Shape: "VM.Standard.E4.Flex"})
+	imgs, aerr := b.ListImages(ocicore.ImageListOpts{
+		Compartment: ociCoreComp, OS: "Oracle Linux", OSVersion: "9", Shape: "VM.Standard.E4.Flex",
+	})
 	require.Nil(t, aerr)
 	require.NotEmpty(t, imgs.Data)
 
 	inst, _, aerr := b.LaunchInstance(ocicore.LaunchInstanceIn{
 		CompartmentID: ociCoreComp, AvailabilityDomain: "Abcd:US-ASHBURN-AD-1", Shape: "VM.Standard.E4.Flex",
-		DisplayName: "web", Metadata: map[string]string{"user_data": "c2VjcmV0LXRva2Vu"}, ShapeConfig: &ocicore.ShapeConfigIn{Ocpus: new(2.0)},
+		DisplayName: "web", Metadata: map[string]string{"user_data": "c2VjcmV0LXRva2Vu"},
+		ShapeConfig:       &ocicore.ShapeConfigIn{Ocpus: new(2.0)},
 		SourceDetails:     &ocicore.SourceDetails{SourceType: "image", ImageID: imgs.Data[0].(*ocicore.Image).ID},
 		CreateVnicDetails: &ocicore.CreateVnicIn{SubnetID: subnet.(*ocicore.Subnet).ID},
 	})

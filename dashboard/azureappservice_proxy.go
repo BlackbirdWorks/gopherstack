@@ -25,7 +25,7 @@ const (
 )
 
 var appPxActions = []string{ //nolint:gochecknoglobals // read-only lookup table
-	"start", "stop", "restart", "slotsswap", "applyslotconfig", "resetslotconfig", "slotsdiffs",
+	aciPxStart, aciPxStop, aciPxRestart, "slotsswap", "applyslotconfig", "resetslotconfig", "slotsdiffs",
 }
 
 // registerAzureAppServiceRoutes exposes Microsoft.Web web apps and their slots to the SPA by dispatching
@@ -94,16 +94,16 @@ func azureAppServiceProxyPath(method, raw string) (string, bool) {
 
 func appProxyAllowed(method string, p []string) bool {
 	n := len(p)
-	if n < appPxSubList || p[0] != "subscriptions" {
+	if n < appPxSubList || p[0] != azureServiceBusSubs {
 		return false
 	}
 
 	if n == appPxSubList {
-		return method == http.MethodGet && p[2] == "providers" && p[3] == appPxNamespace && p[4] == appPxSitesType
+		return method == http.MethodGet && p[2] == earcProvidersKind && p[3] == appPxNamespace &&
+			p[4] == appPxSitesType
 	}
 
-	if n < appPxSite || p[2] != "resourcegroups" || p[4] != "providers" || p[5] != appPxNamespace ||
-		p[6] != appPxSitesType {
+	if !appProxyIsSite(p) {
 		return false
 	}
 
@@ -117,6 +117,11 @@ func appProxyAllowed(method string, p []string) bool {
 	}
 
 	return appProxySiteOp(method, rest)
+}
+
+func appProxyIsSite(p []string) bool {
+	return len(p) >= appPxSite && p[2] == "resourcegroups" && p[4] == earcProvidersKind &&
+		p[5] == appPxNamespace && p[6] == appPxSitesType
 }
 
 // appProxySlotOp allows the operations below sites/{name}/slots/{slot}; rest is empty for the slot itself.

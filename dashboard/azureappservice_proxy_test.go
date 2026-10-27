@@ -31,9 +31,9 @@ const (
 type fakeFunctionApps struct {
 	azurearm.FunctionApps
 
-	mu   sync.Mutex
 	apps map[string]*azurearm.FunctionAppInfo
 	cfg  map[string]map[string]string
+	mu   sync.Mutex
 }
 
 func newFakeFunctionApps() *fakeFunctionApps {

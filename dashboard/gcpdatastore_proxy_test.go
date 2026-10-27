@@ -23,7 +23,9 @@ func TestGCPDatastoreProxy(t *testing.T) {
 		d := gcpdatastore.NewHandler(gcpdatastore.NewInMemoryBackend())
 		key := &datastorepb.Key{
 			PartitionId: &datastorepb.PartitionId{ProjectId: "p"},
-			Path:        []*datastorepb.Key_PathElement{{Kind: "Task", IdType: &datastorepb.Key_PathElement_Name{Name: "t1"}}},
+			Path: []*datastorepb.Key_PathElement{
+				{Kind: "Task", IdType: &datastorepb.Key_PathElement_Name{Name: "t1"}},
+			},
 		}
 		_, err := d.Backend.Commit(&datastorepb.CommitRequest{
 			ProjectId: "p", Mode: datastorepb.CommitRequest_NON_TRANSACTIONAL,

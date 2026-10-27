@@ -21,11 +21,13 @@ const (
 var ociCoreReadKinds = []string{ //nolint:gochecknoglobals // immutable allowlist
 	"vcns", "subnets", "routeTables", "securityLists", "networkSecurityGroups", "internetGateways",
 	"natGateways", "serviceGateways", "dhcps", "localPeeringGateways", "publicIps", "privateIps",
-	"instances", "vnicAttachments", "vnics", "volumes", "bootVolumes", "volumeAttachments",
+	btInstancesKind, "vnicAttachments", "vnics", "volumes", "bootVolumes", "volumeAttachments",
 	"bootVolumeAttachments", "volumeBackups", "shapes", "images",
 }
 
-var ociCoreInstanceActions = []string{"START", "STOP", "SOFTSTOP", "SOFTRESET", "RESET"} //nolint:gochecknoglobals // immutable
+var ociCoreInstanceActions = []string{ //nolint:gochecknoglobals // immutable
+	"START", "STOP", "SOFTSTOP", "SOFTRESET", "RESET",
+}
 
 // registerOCICoreRoutes serves the Core Services page by dispatching in-process to the emulator's handler
 // without request signing. Only the listed read paths and instance power actions are reachable.
@@ -89,7 +91,7 @@ func ociCoreRelay(c *echo.Context, rec *httptest.ResponseRecorder) error {
 		if err := json.Unmarshal(body, &doc); err == nil {
 			ociCoreScrub(doc)
 
-			if out, err := json.Marshal(doc); err == nil {
+			if out, merr := json.Marshal(doc); merr == nil {
 				body = out
 			}
 		}
@@ -133,7 +135,7 @@ func ociCoreProxyPath(method, raw string, query url.Values) (string, bool) {
 	}
 
 	if method == http.MethodPost {
-		if len(parts) != ociCoreItemSegs || parts[0] != "instances" ||
+		if len(parts) != ociCoreItemSegs || parts[0] != btInstancesKind ||
 			!slices.Contains(ociCoreInstanceActions, strings.ToUpper(query.Get("action"))) {
 			return "", false
 		}
