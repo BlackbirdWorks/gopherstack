@@ -38,8 +38,8 @@ type seenEvent struct {
 type eventRuntime struct {
 	events chan seenEvent
 	specs  chan container.Spec
-	mu     sync.Mutex
 	boxes  map[string]*http.Server
+	mu     sync.Mutex
 	seq    int
 }
 
@@ -54,7 +54,7 @@ func (r *eventRuntime) CreateAndStart(_ context.Context, spec container.Spec) (s
 		return "", err
 	}
 
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	srv := &http.Server{Handler: http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
 		if req.UserAgent() == gcpserve.ProbeUserAgent {
 			return
 		}
@@ -153,7 +153,8 @@ func TestWireGCPFunctions_StorageFirestoreAndSecrets(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, zw.Close())
 
-	_, err = gcs.Backend.PutObject("src", "fn.zip", buf.Bytes(), gcpstoragebackend.Patch{}, gcpstoragebackend.Preconds{})
+	_, err = gcs.Backend.PutObject("src", "fn.zip", buf.Bytes(), gcpstoragebackend.Patch{},
+		gcpstoragebackend.Preconds{})
 	require.NoError(t, err)
 
 	create := func(id string, et *functionspb.EventTrigger, secrets bool) {

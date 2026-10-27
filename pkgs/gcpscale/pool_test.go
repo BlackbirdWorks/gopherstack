@@ -15,6 +15,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/testleak"
 )
 
+var errStart = errors.New("boom")
+
 func TestMain(m *testing.M) { testleak.VerifyTestMain(m) }
 
 type timer struct {
@@ -24,7 +26,11 @@ type timer struct {
 }
 
 func (t *timer) C() <-chan time.Time { return t.c }
-func (t *timer) Stop() bool          { t.fn = nil; t.at = -1; return true }
+func (t *timer) Stop() bool {
+	t.fn, t.at = nil, -1
+
+	return true
+}
 
 // clock hands out timers that only fire when the test calls fire.
 type clock struct {
@@ -87,7 +93,7 @@ func (f *fixture) pool(l gcpscale.Limits, clk gcpscale.Clock) *gcpscale.Pool[int
 	return gcpscale.New("test", gcpscale.Config[int]{
 		Start: func(context.Context) (int, error) {
 			if f.failNow.Load() {
-				return 0, errors.New("boom")
+				return 0, errStart
 			}
 
 			return int(f.started.Add(1)), nil
@@ -199,7 +205,7 @@ func TestPool_IdleScaleDownKeepsMinimum(t *testing.T) {
 
 	require.NoError(t, p.Ensure(t.Context(), 1))
 
-	var releases []func()
+	releases := make([]func(), 0, 3)
 
 	for range 3 {
 		_, rel, err := p.Acquire(t.Context())

@@ -17,6 +17,7 @@ const (
 	DefaultMaxInstances = 100
 	minQueueTimeout     = 10 * time.Second
 	queueStartupFactor  = 3.5
+	avgDivisor          = 2
 )
 
 // ErrSaturated means every instance slot stayed busy until the pending-queue timeout (HTTP 429 on Cloud Run).
@@ -58,8 +59,8 @@ type Pool[T any] struct {
 	cfg      Config[T]
 	mu       *lockmetrics.RWMutex
 	changed  chan struct{}
-	wg       sync.WaitGroup
 	slots    []*slot[T]
+	wg       sync.WaitGroup
 	avgStart time.Duration
 	closed   bool
 }
@@ -134,7 +135,7 @@ func (p *Pool[T]) growLocked() *slot[T] {
 			if p.avgStart == 0 {
 				p.avgStart = d
 			} else {
-				p.avgStart = (p.avgStart + d) / 2
+				p.avgStart = (p.avgStart + d) / avgDivisor
 			}
 		}
 

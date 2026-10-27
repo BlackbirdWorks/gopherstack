@@ -88,19 +88,19 @@ func TestFirestoreEventPayload(t *testing.T) {
 		ev.Extensions)
 
 	// DocumentEventData: value=1, old_value=2, update_mask=3.
-	fields := map[protowire.Number][]byte{}
+	fields := map[int32][]byte{}
 
 	for raw := ev.Data; len(raw) > 0; {
 		num, _, l := protowire.ConsumeTag(raw)
 		v, l2 := protowire.ConsumeBytes(raw[l:])
-		fields[num] = v
+		fields[int32(num)] = v
 		raw = raw[l+l2:]
 	}
 
 	got := &firestorepb.Document{}
 	require.NoError(t, proto.Unmarshal(fields[1], got))
 	assert.True(t, proto.Equal(doc, got))
-	assert.Contains(t, fields, protowire.Number(2))
+	assert.Contains(t, fields, int32(2))
 
 	path, _, _ := protowire.ConsumeTag(fields[3])
 	assert.Equal(t, protowire.Number(1), path, "update_mask.field_paths is field 1")

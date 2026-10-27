@@ -24,6 +24,7 @@ const (
 	contentTypeJSON  = "application/json"
 	contentTypeProto = "application/protobuf"
 	docSegment       = "/documents/"
+	maskField        = protowire.Number(3)
 )
 
 // CloudEvent is one event in binary content mode: attributes travel as ce-* headers, the payload as the body.
@@ -121,7 +122,7 @@ func FirestoreEvent(id, kind string, doc, old *firestorepb.Document, mask []stri
 			m = protowire.AppendString(m, p)
 		}
 
-		body = protowire.AppendTag(body, 3, protowire.BytesType)
+		body = protowire.AppendTag(body, maskField, protowire.BytesType)
 		body = protowire.AppendBytes(body, m)
 	}
 
