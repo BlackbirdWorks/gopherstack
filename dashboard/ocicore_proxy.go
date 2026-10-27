@@ -57,7 +57,12 @@ func (h *DashboardHandler) registerOCICoreRoutes() {
 		apiPath, ok := ociCoreProxyPath(r.Method, strings.TrimPrefix(r.URL.EscapedPath(), ociCorePrefix+"/api"),
 			r.URL.Query())
 		if !ok {
-			return cloudJSONFail(c, http.StatusBadRequest, "InvalidParameter", "unsupported Core Services proxy request")
+			return cloudJSONFail(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameter",
+				"unsupported Core Services proxy request",
+			)
 		}
 
 		fwd := r.Clone(r.Context())

@@ -59,14 +59,26 @@ func TestGCPDatastoreProxy(t *testing.T) {
 		steps []gcpStep
 	}{
 		{"kinds", []gcpStep{
-			{http.MethodPost, base + ":runQuery", `{"query":{"kind":[{"name":"__kind__"}],"projection":[]}}`, `"Task"`, 200},
+			{
+				http.MethodPost,
+				base + ":runQuery",
+				`{"query":{"kind":[{"name":"__kind__"}],"projection":[]}}`,
+				`"Task"`,
+				200,
+			},
 		}},
 		{"namespaces", []gcpStep{
 			{http.MethodPost, base + ":runQuery", `{"query":{"kind":[{"name":"__namespace__"}]}}`, `"batch"`, 200},
 		}},
 		{"entities", []gcpStep{
 			{http.MethodPost, base + ":runQuery", `{"query":{"kind":[{"name":"Task"}]}}`, `"write tests"`, 200},
-			{http.MethodPost, base + ":runQuery", `{"query":{"kind":[{"name":"Task"}]}}`, `"excludeFromIndexes":true`, 200},
+			{
+				http.MethodPost,
+				base + ":runQuery",
+				`{"query":{"kind":[{"name":"Task"}]}}`,
+				`"excludeFromIndexes":true`,
+				200,
+			},
 		}},
 		{"gql", []gcpStep{
 			{http.MethodPost, base + ":runQuery",
