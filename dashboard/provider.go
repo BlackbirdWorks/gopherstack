@@ -47,6 +47,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	"github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	"github.com/blackbirdworks/gopherstack/services/gcpdns"
 	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -69,6 +70,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
@@ -350,6 +352,10 @@ func linkConsoleExtras(conf *Config, cfg any) {
 		conf.GCPDNSOps, _ = getHandler[*gcpdns.Handler](p.GetGCPDNSHandler())
 	}
 
+	if p, ok := cfg.(interface{ GetGCPDatastoreHandler() service.Registerable }); ok {
+		conf.GCPDatastoreOps, _ = getHandler[*gcpdatastore.Handler](p.GetGCPDatastoreHandler())
+	}
+
 	if p, ok := cfg.(interface{ GetGCPComputeHandler() service.Registerable }); ok {
 		conf.GCPComputeOps, _ = getHandler[*gcpcompute.Handler](p.GetGCPComputeHandler())
 	}
@@ -372,6 +378,10 @@ func linkConsoleExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetOCIIdentityHandler() service.Registerable }); ok {
 		conf.OCIIdentityOps, _ = getHandler[*ociidentity.Handler](p.GetOCIIdentityHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCICoreHandler() service.Registerable }); ok {
+		conf.OCICoreOps, _ = getHandler[*ocicore.Handler](p.GetOCICoreHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetOCIFunctionsHandler() service.Registerable }); ok {

@@ -102,6 +102,7 @@ import (
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	gcpdatastorebackend "github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
@@ -142,6 +143,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
@@ -568,6 +570,8 @@ type Config struct {
 	// GCPWorkflowsOps and GCPDNSOps are called in-process by their proxies.
 	GCPWorkflowsOps *gcpworkflowsbackend.Handler
 	GCPDNSOps       *gcpdnsbackend.Handler
+	// GCPDatastoreOps is called in-process by the /dashboard/api/v1/gcp/datastore proxy.
+	GCPDatastoreOps *gcpdatastorebackend.Handler
 	// GCPComputeOps is dispatched in-process by the /dashboard/api/v1/gcp/compute proxy.
 	GCPComputeOps *gcpcomputebackend.Handler
 	// OCIObjectStorageOps, OCIVaultOps, OCIStreamingOps and OCIIdentityOps are called in-process by their proxies.
@@ -578,6 +582,8 @@ type Config struct {
 	// OCIFunctionsOps and AzureMonitorOps are called in-process by their proxies.
 	OCIFunctionsOps *ocifunctionsbackend.Handler
 	AzureMonitorOps *azuremonitorbackend.Handler
+	// OCICoreOps is dispatched in-process by the /dashboard/api/v1/oci/core proxy.
+	OCICoreOps *ocicorebackend.Handler
 	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
 	AzureFileOps *azurefilebackend.Handler
 	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.

@@ -137,6 +137,14 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azurearm",
     defaultPort: 10006,
   },
+  {
+    id: "appservice",
+    label: "App Service",
+    description: "Azure App Service web apps and slots (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
 ];
 
 export type GcpService = {
@@ -335,6 +343,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     portLabel: "gcpcompute",
     defaultPort: 8142,
   },
+  {
+    id: "datastore",
+    label: "Datastore",
+    description: "Google Cloud Datastore",
+    healthName: "GCPDatastore",
+    portLabel: "gcpdatastore",
+    defaultPort: 8143,
+  },
 ];
 
 export type OciService = {
@@ -388,6 +404,14 @@ export const OCI_SERVICES: readonly OciService[] = [
     healthName: "OCIFunctions",
     portLabel: "ocifunctions",
     defaultPort: 8154,
+  },
+  {
+    id: "core",
+    label: "Core Services",
+    description: "Oracle Cloud networking, compute and block storage",
+    healthName: "OCICore",
+    portLabel: "ocicore",
+    defaultPort: 8155,
   },
 ];
 

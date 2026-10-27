@@ -458,9 +458,11 @@ type CLI struct {
 	azureFileHandler              service.Registerable
 	gcpWorkflowsHandler           service.Registerable
 	gcpDNSHandler                 service.Registerable
+	gcpDatastoreHandler           service.Registerable
 	gcpComputeHandler             service.Registerable
 	ociObjectStorageHandler       service.Registerable
 	ociFunctionsHandler           service.Registerable
+	ociCoreHandler                service.Registerable
 	azureMonitorHandler           service.Registerable
 	ociVaultHandler               service.Registerable
 	ociStreamingHandler           service.Registerable
@@ -3388,6 +3390,7 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpKMSHandler = byName["GCPKMS"]
 	cli.gcpWorkflowsHandler = byName["GCPWorkflows"]
 	cli.gcpDNSHandler = byName["GCPDNS"]
+	cli.gcpDatastoreHandler = byName["GCPDatastore"]
 	cli.gcpComputeHandler = byName["GCPCompute"]
 	cli.azureFileHandler = byName["AzureFile"]
 	cli.ociObjectStorageHandler = byName["OCIObjectStorage"]
@@ -3395,6 +3398,7 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ociStreamingHandler = byName["OCIStreaming"]
 	cli.ociIdentityHandler = byName["OCIIdentity"]
 	cli.ociFunctionsHandler = byName["OCIFunctions"]
+	cli.ociCoreHandler = byName["OCICore"]
 	cli.azureMonitorHandler = byName["AzureMonitor"]
 }
 

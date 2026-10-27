@@ -472,6 +472,10 @@ func (p *WebProvider) siteBody(
 		}
 	}
 
+	if s.Pending != nil {
+		props["targetSwapSlot"] = s.Pending.Target
+	}
+
 	out := map[string]any{
 		"id":            id.ARMID(),
 		fieldName:       resName,
