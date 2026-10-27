@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
-| Feature families | 6 (6 ok) |
-| Known gaps | 14 |
+| Feature families | 8 (8 ok) |
+| Known gaps | 20 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -29,6 +29,12 @@
 - Container Instances: the group address is 127.0.0.1 and ports are published on pool-assigned host ports (reported in a PortPublished event), not on the declared port numbers; Private addresses behave the same.
 - Container Instances: restarting a failed container under Never is not done (the platform may restart it); the restart back-off starts at 10s and caps at 5 minutes. Resource requests are validated but only limits are enforced, and per-group CPU/memory maxima are not checked.
 - Container Instances: sibling endpoints (locations/{loc}/usages, cachedImages, capabilities, the operations list, outboundNetworkDependenciesEndpoints, container group profiles) are not implemented; a restored snapshot brings groups back Stopped.
+- Network: not modelled (they stay in the generic metadata-only store): load balancers, NAT gateways, application gateways, firewalls, VPN/ExpressRoute, private endpoints, application security groups, DDoS plans, service endpoint policies, flow logs, public IP prefixes, virtual network taps and every other Microsoft.Network type.
+- Network: IPv6 private addresses on NICs are rejected; IPv6 public addresses come from 2001:db8::/32. Subnet addressing with ipamPoolPrefixAllocations and NAT/gateway-subnet rules are not enforced, and NICs are not attached to virtual machines (no vm/primary/hostedWorkloads state).
+- Network: GET operations/{id} is stateless (every id reports Succeeded); there are no failed or in-progress long-running operations. Error codes other than InUse*, PublicIPAddressCannotBeDeleted and InvalidResourceReference are not verified against Microsoft Learn (AddressSpaceOverlap, VnetAddressSpacesOverlap, SecurityRule*, PrivateIPAddress*, SubnetIsFull, InUseSubnetCannotBeUpdated, DnsRecordInUse).
+- Network: PUT of a virtual network without a subnets (or securityRules, routes) key keeps the stored children; an explicit empty array removes them. ARM replaces the set on any PUT.
+- Private DNS: auto-registration of NIC addresses into linked zones, one-registration-link-per-vnet and overlapping-namespace conflicts, zone deletion rules, $top paging of record sets by recordSetNameSuffix, and Microsoft.Network/dnszones (public DNS) are not implemented.
+- ManagedIdentity: listAssociatedResources, the identities/default scope and isolationScope are not implemented. Web apps echo a supplied identity block without generating principalId/tenantId (no system-assigned or user-assigned resolution), and container groups still reject identity.
 
 ### Deferred
 
