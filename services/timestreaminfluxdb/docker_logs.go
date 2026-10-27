@@ -83,6 +83,12 @@ func (d *DockerEngine) followLogs(id string) {
 	buf.cancel = cancel
 	buf.mu.Unlock()
 
+	if cur, ok := d.logs.Load(id); !ok || asLogBuffer(cur) != buf {
+		cancel()
+
+		return
+	}
+
 	var out, errw io.Writer = &logWriter{buf: buf, stream: 0}, &logWriter{buf: buf, stream: 1}
 
 	go func() { _ = streamer.StreamLogs(ctx, id, out, errw) }()
@@ -108,8 +114,14 @@ func (d *DockerEngine) DrainLogs(h EngineHandle) []byte {
 
 func (d *DockerEngine) dropLogs(id string) {
 	if v, ok := d.logs.LoadAndDelete(id); ok {
-		if buf := asLogBuffer(v); buf.cancel != nil {
-			buf.cancel()
+		buf := asLogBuffer(v)
+
+		buf.mu.Lock()
+		cancel := buf.cancel
+		buf.mu.Unlock()
+
+		if cancel != nil {
+			cancel()
 		}
 	}
 }
