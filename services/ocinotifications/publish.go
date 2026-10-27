@@ -32,7 +32,7 @@ type PublishIn struct {
 	Body  *string `json:"body"`
 }
 
-type publishWire struct {
+type PublishWire struct {
 	TimeStamp time.Time `json:"timeStamp"`
 	MessageID string    `json:"messageId"`
 }
@@ -132,9 +132,9 @@ func (b *InMemoryBackend) cancelConfirmations(subID string) {
 }
 
 // PublishMessage fans a message out to every ACTIVE subscription of a topic.
-func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in PublishIn) (publishWire, error) {
+func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in PublishIn) (PublishWire, error) {
 	if in.Body == nil {
-		return publishWire{}, errMissing("body is required")
+		return PublishWire{}, errMissing("body is required")
 	}
 
 	if messageType == "" {
@@ -142,7 +142,7 @@ func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in Publish
 	}
 
 	if messageType != msgJSON && messageType != msgRawText {
-		return publishWire{}, errParam("messageType must be JSON or RAW_TEXT")
+		return PublishWire{}, errParam("messageType must be JSON or RAW_TEXT")
 	}
 
 	title := ""
@@ -151,11 +151,11 @@ func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in Publish
 	}
 
 	if len(*in.Body)+len(title) > maxMessageBytes {
-		return publishWire{}, errParam("a message is limited to 64 KB")
+		return PublishWire{}, errParam("a message is limited to 64 KB")
 	}
 
 	if messageType == msgJSON && !json.Valid([]byte(*in.Body)) {
-		return publishWire{}, errParam("body must be valid JSON when messageType is JSON")
+		return PublishWire{}, errParam("body must be valid JSON when messageType is JSON")
 	}
 
 	b.mu.Lock("PublishMessage")
@@ -163,10 +163,10 @@ func (b *InMemoryBackend) PublishMessage(topicID, messageType string, in Publish
 
 	t, aerr := b.activeTopic(topicID)
 	if aerr != nil {
-		return publishWire{}, aerr
+		return PublishWire{}, aerr
 	}
 
-	res := publishWire{MessageID: uuid.NewString(), TimeStamp: b.nowUTC()}
+	res := PublishWire{MessageID: uuid.NewString(), TimeStamp: b.nowUTC()}
 
 	for _, s := range b.topicSubs(t.ID) {
 		if s.State != subActive {

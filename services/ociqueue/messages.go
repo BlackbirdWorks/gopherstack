@@ -36,7 +36,7 @@ type putMessagesIn struct {
 	Messages []putEntryIn `json:"messages"`
 }
 
-type putMessageWire struct {
+type PutMessageWire struct {
 	ExpireAfter time.Time `json:"expireAfter"`
 	ID          int64     `json:"id"`
 }
@@ -46,7 +46,7 @@ type metaWire struct {
 	ChannelID        string            `json:"channelId"`
 }
 
-type getMessageWire struct {
+type GetMessageWire struct {
 	VisibleAfter  time.Time `json:"visibleAfter"`
 	ExpireAfter   time.Time `json:"expireAfter"`
 	CreatedAt     time.Time `json:"createdAt"`
@@ -65,7 +65,7 @@ type GetParams struct {
 	ChannelFilter string
 }
 
-type updatedWire struct {
+type UpdatedWire struct {
 	VisibleAfter time.Time `json:"visibleAfter"`
 	ID           int64     `json:"id"`
 }
@@ -77,7 +77,7 @@ type resultEntryWire struct {
 	ErrorMessage *string    `json:"errorMessage,omitempty"`
 }
 
-type batchResultWire struct {
+type BatchResultWire struct {
 	Entries        []resultEntryWire `json:"entries"`
 	ServerFailures int               `json:"serverFailures"`
 	ClientFailures int               `json:"clientFailures"`
@@ -98,7 +98,7 @@ type statsWire struct {
 	SizeInBytes      int64 `json:"sizeInBytes"`
 }
 
-type queueStatsWire struct {
+type QueueStatsWire struct {
 	Queue statsWire `json:"queue"`
 	DLQ   statsWire `json:"dlq"`
 }
@@ -160,7 +160,7 @@ func validatePut(in putMessagesIn) *APIError {
 }
 
 // PutMessages appends messages to a queue.
-func (b *InMemoryBackend) PutMessages(queueID string, in putMessagesIn) ([]putMessageWire, error) {
+func (b *InMemoryBackend) PutMessages(queueID string, in putMessagesIn) ([]PutMessageWire, error) {
 	if aerr := validatePut(in); aerr != nil {
 		return nil, aerr
 	}
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) PutMessages(queueID string, in putMessagesIn) ([]putMe
 	}
 
 	now := b.nowUTC()
-	out := make([]putMessageWire, 0, len(in.Messages))
+	out := make([]PutMessageWire, 0, len(in.Messages))
 
 	for _, e := range in.Messages {
 		m := &Message{
@@ -188,7 +188,7 @@ func (b *InMemoryBackend) PutMessages(queueID string, in putMessagesIn) ([]putMe
 		}
 
 		q.Messages = append(q.Messages, m)
-		out = append(out, putMessageWire{ID: m.ID, ExpireAfter: m.Expire})
+		out = append(out, PutMessageWire{ID: m.ID, ExpireAfter: m.Expire})
 	}
 
 	q.notify()
@@ -198,8 +198,8 @@ func (b *InMemoryBackend) PutMessages(queueID string, in putMessagesIn) ([]putMe
 
 func matchChannel(m *Message, filter string) bool { return filter == "" || m.Channel == filter }
 
-func (m *Message) view() getMessageWire {
-	w := getMessageWire{
+func (m *Message) view() GetMessageWire {
+	w := GetMessageWire{
 		ID: m.ID, Content: m.Content, Receipt: m.Receipt, DeliveryCount: m.Deliveries,
 		VisibleAfter: m.VisibleAfter, ExpireAfter: m.Expire, CreatedAt: m.Created,
 	}
@@ -213,7 +213,7 @@ func (m *Message) view() getMessageWire {
 type pollResult struct {
 	wake    <-chan struct{}
 	after   func(time.Duration) <-chan time.Time
-	msgs    []getMessageWire
+	msgs    []GetMessageWire
 	until   time.Duration
 	timeout int
 }
@@ -231,7 +231,7 @@ func (b *InMemoryBackend) pollOnce(queueID string, p GetParams) (pollResult, err
 	vis, limit := def(p.Visibility, q.Visibility), def(p.Limit, defaultGetLimit)
 	res := pollResult{timeout: def(p.Timeout, q.Timeout), after: b.after, wake: q.waiter(), until: -1}
 	now := b.nowUTC()
-	res.msgs = []getMessageWire{}
+	res.msgs = []GetMessageWire{}
 
 	for _, m := range q.Messages {
 		if !matchChannel(m, p.ChannelFilter) {
@@ -266,7 +266,7 @@ func (b *InMemoryBackend) pollOnce(queueID string, p GetParams) (pollResult, err
 // GetMessages returns visible messages, long polling until one arrives, timeout elapses, ctx or stop ends.
 func (b *InMemoryBackend) GetMessages(
 	ctx context.Context, stop <-chan struct{}, queueID string, p GetParams,
-) ([]getMessageWire, error) {
+) ([]GetMessageWire, error) {
 	if aerr := firstErr(
 		inRange("visibilityInSeconds", p.Visibility, 0, maxVisibility),
 		inRange("timeoutInSeconds", p.Timeout, 0, maxPollTimeout),
@@ -340,13 +340,13 @@ func (b *InMemoryBackend) setVisibility(q *Queue, receipt string, vis int) (*Mes
 }
 
 // UpdateMessage changes the visibility of one in-flight message.
-func (b *InMemoryBackend) UpdateMessage(queueID, receipt string, vis *int) (updatedWire, error) {
+func (b *InMemoryBackend) UpdateMessage(queueID, receipt string, vis *int) (UpdatedWire, error) {
 	if vis == nil {
-		return updatedWire{}, errMissing("visibilityInSeconds is required")
+		return UpdatedWire{}, errMissing("visibilityInSeconds is required")
 	}
 
 	if aerr := inRange("visibilityInSeconds", vis, 0, maxVisibility); aerr != nil {
-		return updatedWire{}, aerr
+		return UpdatedWire{}, aerr
 	}
 
 	b.mu.Lock("UpdateMessage")
@@ -354,15 +354,15 @@ func (b *InMemoryBackend) UpdateMessage(queueID, receipt string, vis *int) (upda
 
 	q, aerr := b.dataQueue(queueID)
 	if aerr != nil {
-		return updatedWire{}, aerr
+		return UpdatedWire{}, aerr
 	}
 
 	m, aerr := b.setVisibility(q, receipt, *vis)
 	if aerr != nil {
-		return updatedWire{}, aerr
+		return UpdatedWire{}, aerr
 	}
 
-	return updatedWire{ID: m.ID, VisibleAfter: m.VisibleAfter}, nil
+	return UpdatedWire{ID: m.ID, VisibleAfter: m.VisibleAfter}, nil
 }
 
 func checkEntries(n int) *APIError {
@@ -377,25 +377,25 @@ func checkEntries(n int) *APIError {
 	return nil
 }
 
-func failEntry(res *batchResultWire, msg string) {
+func failEntry(res *BatchResultWire, msg string) {
 	code := http.StatusNotFound
 	res.ClientFailures++
 	res.Entries = append(res.Entries, resultEntryWire{ErrorCode: &code, ErrorMessage: &msg})
 }
 
 // UpdateMessages changes the visibility of several in-flight messages; each entry reports its own result.
-func (b *InMemoryBackend) UpdateMessages(queueID string, in receiptsIn) (batchResultWire, error) {
+func (b *InMemoryBackend) UpdateMessages(queueID string, in receiptsIn) (BatchResultWire, error) {
 	if aerr := checkEntries(len(in.Entries)); aerr != nil {
-		return batchResultWire{}, aerr
+		return BatchResultWire{}, aerr
 	}
 
 	for _, e := range in.Entries {
 		if e.Visibility == nil {
-			return batchResultWire{}, errMissing("every entry requires visibilityInSeconds")
+			return BatchResultWire{}, errMissing("every entry requires visibilityInSeconds")
 		}
 
 		if aerr := inRange("visibilityInSeconds", e.Visibility, 0, maxVisibility); aerr != nil {
-			return batchResultWire{}, aerr
+			return BatchResultWire{}, aerr
 		}
 	}
 
@@ -404,10 +404,10 @@ func (b *InMemoryBackend) UpdateMessages(queueID string, in receiptsIn) (batchRe
 
 	q, aerr := b.dataQueue(queueID)
 	if aerr != nil {
-		return batchResultWire{}, aerr
+		return BatchResultWire{}, aerr
 	}
 
-	res := batchResultWire{Entries: make([]resultEntryWire, 0, len(in.Entries))}
+	res := BatchResultWire{Entries: make([]resultEntryWire, 0, len(in.Entries))}
 
 	for _, e := range in.Entries {
 		m, ae := b.setVisibility(q, e.Receipt, *e.Visibility)
@@ -454,9 +454,9 @@ func (b *InMemoryBackend) DeleteMessage(queueID, receipt string) error {
 }
 
 // DeleteMessages deletes several messages by receipt; each entry reports its own result.
-func (b *InMemoryBackend) DeleteMessages(queueID string, in receiptsIn) (batchResultWire, error) {
+func (b *InMemoryBackend) DeleteMessages(queueID string, in receiptsIn) (BatchResultWire, error) {
 	if aerr := checkEntries(len(in.Entries)); aerr != nil {
-		return batchResultWire{}, aerr
+		return BatchResultWire{}, aerr
 	}
 
 	b.mu.Lock("DeleteMessages")
@@ -464,10 +464,10 @@ func (b *InMemoryBackend) DeleteMessages(queueID string, in receiptsIn) (batchRe
 
 	q, aerr := b.dataQueue(queueID)
 	if aerr != nil {
-		return batchResultWire{}, aerr
+		return BatchResultWire{}, aerr
 	}
 
-	res := batchResultWire{Entries: make([]resultEntryWire, 0, len(in.Entries))}
+	res := BatchResultWire{Entries: make([]resultEntryWire, 0, len(in.Entries))}
 
 	for _, e := range in.Entries {
 		if !q.remove(e.Receipt) {
@@ -505,18 +505,18 @@ func tally(msgs []*Message, now time.Time, channel string) statsWire {
 }
 
 // GetStats counts visible and in-flight messages and their size, for the queue and its dead letter queue.
-func (b *InMemoryBackend) GetStats(queueID, channel string) (queueStatsWire, error) {
+func (b *InMemoryBackend) GetStats(queueID, channel string) (QueueStatsWire, error) {
 	b.mu.Lock("GetStats")
 	defer b.mu.Unlock()
 
 	q, aerr := b.dataQueue(queueID)
 	if aerr != nil {
-		return queueStatsWire{}, aerr
+		return QueueStatsWire{}, aerr
 	}
 
 	now := b.nowUTC()
 
-	return queueStatsWire{Queue: tally(q.Messages, now, channel), DLQ: tally(q.DLQ, now, channel)}, nil
+	return QueueStatsWire{Queue: tally(q.Messages, now, channel), DLQ: tally(q.DLQ, now, channel)}, nil
 }
 
 // ListChannels lists the channels that currently hold messages.

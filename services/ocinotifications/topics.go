@@ -23,7 +23,7 @@ type UpdateTopicIn struct {
 	Description *string `json:"description"`
 }
 
-type topicWire struct {
+type TopicWire struct {
 	TimeCreated    time.Time                 `json:"timeCreated"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
@@ -37,8 +37,8 @@ type topicWire struct {
 	Etag           string                    `json:"etag"`
 }
 
-func topicView(t *Topic, endpoint string) topicWire {
-	return topicWire{
+func topicView(t *Topic, endpoint string) TopicWire {
+	return TopicWire{
 		Name:           t.Name,
 		TopicID:        t.ID,
 		CompartmentID:  t.CompartmentID,
@@ -83,17 +83,17 @@ func (b *InMemoryBackend) activeTopic(id string) (*Topic, *APIError) {
 }
 
 // CreateTopic creates a topic in CREATING state.
-func (b *InMemoryBackend) CreateTopic(in CreateTopicIn, endpoint string) (topicWire, error) {
+func (b *InMemoryBackend) CreateTopic(in CreateTopicIn, endpoint string) (TopicWire, error) {
 	if in.Compartment == "" {
-		return topicWire{}, errMissing("compartmentId is required")
+		return TopicWire{}, errMissing("compartmentId is required")
 	}
 
 	if strings.TrimSpace(in.Name) == "" {
-		return topicWire{}, errMissing("name is required")
+		return TopicWire{}, errMissing("name is required")
 	}
 
 	if len(in.Name) > maxName {
-		return topicWire{}, errParam("name must be at most 256 characters")
+		return TopicWire{}, errParam("name must be at most 256 characters")
 	}
 
 	b.mu.Lock("CreateTopic")
@@ -103,7 +103,7 @@ func (b *InMemoryBackend) CreateTopic(in CreateTopicIn, endpoint string) (topicW
 
 	for _, t := range b.topics {
 		if t.Name == in.Name {
-			return topicWire{}, errExists("A topic named " + in.Name + " already exists")
+			return TopicWire{}, errExists("A topic named " + in.Name + " already exists")
 		}
 	}
 
@@ -124,13 +124,13 @@ func (b *InMemoryBackend) CreateTopic(in CreateTopicIn, endpoint string) (topicW
 }
 
 // GetTopic returns one topic.
-func (b *InMemoryBackend) GetTopic(id, endpoint string) (topicWire, error) {
+func (b *InMemoryBackend) GetTopic(id, endpoint string) (TopicWire, error) {
 	b.mu.Lock("GetTopic")
 	defer b.mu.Unlock()
 
 	t, aerr := b.topic(id)
 	if aerr != nil {
-		return topicWire{}, aerr
+		return TopicWire{}, aerr
 	}
 
 	return topicView(t, endpoint), nil
@@ -140,9 +140,9 @@ func (b *InMemoryBackend) GetTopic(id, endpoint string) (topicWire, error) {
 func (b *InMemoryBackend) ListTopics(
 	compartment, id, name, state, endpoint string,
 	o ListOpts,
-) (page.Page[topicWire], error) {
+) (page.Page[TopicWire], error) {
 	if compartment == "" {
-		return page.Page[topicWire]{}, errMissing("compartmentId is required")
+		return page.Page[TopicWire]{}, errMissing("compartmentId is required")
 	}
 
 	b.mu.Lock("ListTopics")
@@ -162,26 +162,26 @@ func (b *InMemoryBackend) ListTopics(
 	pg := paginate(all, o, func(t *Topic) string { return t.State },
 		func(t *Topic) (time.Time, int64) { return t.TimeCreated, t.Seq })
 
-	out := make([]topicWire, 0, len(pg.Data))
+	out := make([]TopicWire, 0, len(pg.Data))
 	for _, t := range pg.Data {
 		out = append(out, topicView(t, endpoint))
 	}
 
-	return page.Page[topicWire]{Data: out, Next: pg.Next}, nil
+	return page.Page[TopicWire]{Data: out, Next: pg.Next}, nil
 }
 
 // UpdateTopic changes a topic's description and tags.
-func (b *InMemoryBackend) UpdateTopic(id, ifMatch, endpoint string, in UpdateTopicIn) (topicWire, error) {
+func (b *InMemoryBackend) UpdateTopic(id, ifMatch, endpoint string, in UpdateTopicIn) (TopicWire, error) {
 	b.mu.Lock("UpdateTopic")
 	defer b.mu.Unlock()
 
 	t, aerr := b.activeTopic(id)
 	if aerr != nil {
-		return topicWire{}, aerr
+		return TopicWire{}, aerr
 	}
 
 	if aerr = checkEtag(t.Etag, ifMatch); aerr != nil {
-		return topicWire{}, aerr
+		return TopicWire{}, aerr
 	}
 
 	if in.Description != nil {

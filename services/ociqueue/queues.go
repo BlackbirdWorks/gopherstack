@@ -57,7 +57,7 @@ type PurgeIn struct {
 	ChannelIDs      []string `json:"channelIds"`
 }
 
-type queueWire struct {
+type QueueWire struct {
 	TimeCreated      time.Time                 `json:"timeCreated"`
 	TimeUpdated      time.Time                 `json:"timeUpdated"`
 	FreeformTags     map[string]string         `json:"freeformTags,omitempty"`
@@ -87,8 +87,8 @@ type queueSummaryWire struct {
 	MessagesEndpoint string                    `json:"messagesEndpoint"`
 }
 
-func queueView(q *Queue, endpoint string) queueWire {
-	w := queueWire{
+func queueView(q *Queue, endpoint string) QueueWire {
+	w := QueueWire{
 		ID: q.ID, CompartmentID: q.CompartmentID, Name: q.Name, LifecycleState: q.State, MessagesEndpoint: endpoint,
 		Retention: q.Retention, Visibility: q.Visibility, Timeout: q.Timeout, DLQCount: q.DLQCount,
 		ChannelLimit: q.ChannelLimit, TimeCreated: q.TimeCreated, TimeUpdated: q.TimeUpdated,
@@ -213,13 +213,13 @@ func (b *InMemoryBackend) CreateQueue(in CreateQueueIn) (string, error) {
 }
 
 // GetQueue returns one queue and its etag.
-func (b *InMemoryBackend) GetQueue(id, endpoint string) (queueWire, string, error) {
+func (b *InMemoryBackend) GetQueue(id, endpoint string) (QueueWire, string, error) {
 	b.mu.Lock("GetQueue")
 	defer b.mu.Unlock()
 
 	q, ok := b.queues[id]
 	if !ok {
-		return queueWire{}, "", errNotFound(id)
+		return QueueWire{}, "", errNotFound(id)
 	}
 
 	b.settle(q, b.nowUTC())
