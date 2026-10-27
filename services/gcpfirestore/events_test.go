@@ -1,6 +1,7 @@
 package gcpfirestore_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -55,13 +56,13 @@ func TestObserveDocuments(t *testing.T) {
 
 	tests := []struct {
 		kind       gcpfirestore.DocumentEventKind
+		updateMask []string
 		hasOld     bool
 		hasNew     bool
-		updateMask []string
 	}{
-		{gcpfirestore.DocumentCreated, false, true, nil},
-		{gcpfirestore.DocumentUpdated, true, true, []string{"age"}},
-		{gcpfirestore.DocumentDeleted, true, false, nil},
+		{gcpfirestore.DocumentCreated, nil, false, true},
+		{gcpfirestore.DocumentUpdated, []string{"age"}, true, true},
+		{gcpfirestore.DocumentDeleted, nil, true, false},
 	}
 
 	for i, tt := range tests {
@@ -78,17 +79,20 @@ func TestObserveDocuments(t *testing.T) {
 	assert.Equal(t, int64(30), got[1].Old.GetFields()["age"].GetIntegerValue())
 }
 
-func TestObserveDocumentsBatchWrite(t *testing.T) {
+func TestObserveDocumentsTransaction(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
 	log := &eventLog{}
 	e.handler.Backend.ObserveDocuments(log.add)
 
-	batch := e.client.Batch()
-	batch.Set(e.client.Collection("a").Doc("1"), map[string]any{"v": 1})
-	batch.Set(e.client.Collection("a").Doc("2"), map[string]any{"v": 2})
-	_, err := batch.Commit(t.Context())
+	err := e.client.RunTransaction(t.Context(), func(_ context.Context, tx *firestore.Transaction) error {
+		if serr := tx.Set(e.client.Collection("a").Doc("1"), map[string]any{"v": 1}); serr != nil {
+			return serr
+		}
+
+		return tx.Set(e.client.Collection("a").Doc("2"), map[string]any{"v": 2})
+	})
 	require.NoError(t, err)
 
 	got := log.snapshot()

@@ -1,6 +1,7 @@
 package gcpfunctions
 
 import (
+	"slices"
 	"strings"
 
 	"cloud.google.com/go/functions/apiv2/functionspb"
@@ -40,17 +41,7 @@ func firestoreKinds() []string {
 func hasKind(prefix, typ string, kinds []string) bool {
 	suffix, ok := strings.CutPrefix(typ, prefix)
 
-	return ok && contains(kinds, suffix)
-}
-
-func contains(list []string, v string) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-
-	return false
+	return ok && slices.Contains(kinds, suffix)
 }
 
 func isStorageType(typ string) bool {
@@ -62,7 +53,8 @@ func isFirestoreType(typ string) bool {
 }
 
 func supportedEventTypes() string {
-	out := []string{EventTypePubSub}
+	out := make([]string, 1, 1+len(storageKinds())+len(firestoreKinds()))
+	out[0] = EventTypePubSub
 
 	for _, k := range storageKinds() {
 		out = append(out, gcpevents.StorageTypePrefix+k)
@@ -77,14 +69,18 @@ func supportedEventTypes() string {
 
 // checkFilters rejects filters on attributes outside allowed, empty values, duplicates, bad operators and bad
 // path patterns, and returns the filters by attribute.
-func checkFilters(et *functionspb.EventTrigger, allowed []string, patterned ...string) (map[string]*functionspb.EventFilter, error) {
+func checkFilters(
+	et *functionspb.EventTrigger,
+	allowed []string,
+	patterned ...string,
+) (map[string]*functionspb.EventFilter, error) {
 	out := map[string]*functionspb.EventFilter{}
 
 	for _, f := range et.GetEventFilters() {
 		a := f.GetAttribute()
 
 		switch {
-		case !contains(allowed, a):
+		case !slices.Contains(allowed, a):
 			return nil, errInvalid("Attribute %q cannot be used to filter events of type %q; use %s.",
 				a, et.GetEventType(), strings.Join(allowed, ", "))
 		case f.GetValue() == "":
@@ -96,7 +92,7 @@ func checkFilters(et *functionspb.EventTrigger, allowed []string, patterned ...s
 		switch f.GetOperator() {
 		case "":
 		case gcpevents.OperatorPathPattern:
-			if !contains(patterned, a) {
+			if !slices.Contains(patterned, a) {
 				return nil, errInvalid("Attribute %q does not support path patterns.", a)
 			}
 

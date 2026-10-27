@@ -20,7 +20,7 @@ const (
 )
 
 var (
-	errNoSecretManager = errors.New("Secret Manager is not available in this emulator")
+	errNoSecretManager = errors.New("no Secret Manager is available in this emulator")
 	versionRe          = regexp.MustCompile(`^([0-9]+|latest)$`)
 )
 
@@ -43,6 +43,14 @@ func reservedMountPath(p string) bool {
 }
 
 func validateSecrets(sc *functionspb.ServiceConfig) error {
+	if err := validateSecretEnv(sc); err != nil {
+		return err
+	}
+
+	return validateSecretVolumes(sc.GetSecretVolumes())
+}
+
+func validateSecretEnv(sc *functionspb.ServiceConfig) error {
 	keys := map[string]bool{}
 
 	for k := range sc.GetEnvironmentVariables() {
@@ -50,15 +58,12 @@ func validateSecrets(sc *functionspb.ServiceConfig) error {
 	}
 
 	for _, s := range sc.GetSecretEnvironmentVariables() {
-		if !envNameRe.MatchString(s.GetKey()) {
+		switch {
+		case !envNameRe.MatchString(s.GetKey()):
 			return errInvalid("Secret environment variable name %q is invalid.", s.GetKey())
-		}
-
-		if reservedEnv(s.GetKey()) {
+		case reservedEnv(s.GetKey()):
 			return errInvalid("The following reserved env names were provided: %s.", s.GetKey())
-		}
-
-		if keys[s.GetKey()] {
+		case keys[s.GetKey()]:
 			return errInvalid("Environment variable %q is set more than once.", s.GetKey())
 		}
 
@@ -69,15 +74,19 @@ func validateSecrets(sc *functionspb.ServiceConfig) error {
 		}
 	}
 
+	return nil
+}
+
+func validateSecretVolumes(vols []*functionspb.SecretVolume) error {
 	mounts := map[string]bool{}
 
-	for _, v := range sc.GetSecretVolumes() {
+	for _, v := range vols {
 		mp := path.Clean(v.GetMountPath())
-		if !path.IsAbs(mp) || mp == "/" || reservedMountPath(mp) || mp == srcMount || mp == workspace {
-			return errInvalid("Secret volume mount_path %q is not allowed.", v.GetMountPath())
-		}
 
-		if mounts[mp] {
+		switch {
+		case !path.IsAbs(mp) || mp == "/" || reservedMountPath(mp) || mp == srcMount || mp == workspace:
+			return errInvalid("Secret volume mount_path %q is not allowed.", v.GetMountPath())
+		case mounts[mp]:
 			return errInvalid("Secret volume mount_path %q is used more than once.", mp)
 		}
 
@@ -140,7 +149,11 @@ func (b *InMemoryBackend) secretBytes(project, secret, version string) ([]byte, 
 
 	data, err := fn(name)
 	if err != nil {
-		return nil, fmt.Errorf("secret %s: %s", name, status.Convert(err).Message()) //nolint:err113 // status text is the message
+		return nil, fmt.Errorf(
+			"secret %s: %s",
+			name,
+			status.Convert(err).Message(),
+		) //nolint:err113 // status text is the message
 	}
 
 	return data, nil

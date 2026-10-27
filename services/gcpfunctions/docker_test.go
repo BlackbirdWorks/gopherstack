@@ -124,7 +124,7 @@ func TestDocker_StorageTriggeredFunction(t *testing.T) {
 		})
 	})
 
-	triggerFn(e, t, typeFinalized, 0, filter("bucket", "inbox"))
+	triggerFn(t, e, typeFinalized, 0, filter("bucket", "inbox"))
 
 	_, err = gcs.PutObject("inbox", "docs/a.txt", []byte("hello"), gcpstorage.Patch{}, gcpstorage.Preconds{})
 	require.NoError(t, err)

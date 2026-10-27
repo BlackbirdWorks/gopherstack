@@ -161,24 +161,22 @@ func TestLogRequestEntryForEventDeliveries(t *testing.T) {
 	const requests = "projects/test-project/logs/run.googleapis.com%2Frequests"
 
 	tests := []struct {
+		deliver    func(t *testing.T, e *env, fn *functionspb.Function)
 		name       string
 		reply      int32
 		wantStatus int32
 		wantSev    ltype.LogSeverity
-		deliver    func(t *testing.T, e *env, fn *functionspb.Function)
 	}{
-		{"pubsub ok", http.StatusOK, http.StatusOK, ltype.LogSeverity_INFO,
-			func(t *testing.T, e *env, fn *functionspb.Function) {
-				t.Helper()
+		{func(t *testing.T, e *env, fn *functionspb.Function) {
+			t.Helper()
 
-				code, _ := e.call(t, http.MethodPost, "localhost", "/_gcf/events/"+fn.GetName(), envelope)
-				require.Equal(t, http.StatusOK, code)
-			}},
-		{"pubsub failing", http.StatusInternalServerError, http.StatusInternalServerError, ltype.LogSeverity_ERROR,
-			func(t *testing.T, e *env, fn *functionspb.Function) {
-				t.Helper()
-				e.call(t, http.MethodPost, "localhost", "/_gcf/events/"+fn.GetName(), envelope)
-			}},
+			code, _ := e.call(t, http.MethodPost, "localhost", "/_gcf/events/"+fn.GetName(), envelope)
+			require.Equal(t, http.StatusOK, code)
+		}, "pubsub ok", http.StatusOK, http.StatusOK, ltype.LogSeverity_INFO},
+		{func(t *testing.T, e *env, fn *functionspb.Function) {
+			t.Helper()
+			e.call(t, http.MethodPost, "localhost", "/_gcf/events/"+fn.GetName(), envelope)
+		}, "pubsub failing", http.StatusInternalServerError, http.StatusInternalServerError, ltype.LogSeverity_ERROR},
 	}
 
 	for _, tt := range tests {
@@ -206,7 +204,7 @@ func TestLogRequestEntryForStorageTrigger(t *testing.T) {
 	t.Parallel()
 
 	e, ch := logEnv(t)
-	triggerFn(e, t, typeFinalized, 0, filter("bucket", "b1"))
+	triggerFn(t, e, typeFinalized, 0, filter("bucket", "b1"))
 	e.handler.Backend.HandleStorageEvent(gcpfunctions.StorageEvent{
 		Type: "finalized", Bucket: "b1", Name: "o", Data: []byte(`{}`),
 	})

@@ -174,7 +174,9 @@ func TestWireGCPFunctions_StorageFirestoreAndSecrets(t *testing.T) {
 			fn.ServiceConfig.SecretEnvironmentVariables = []*functionspb.SecretEnvVar{{Key: "TOKEN", Secret: "token"}}
 		}
 
-		_, cerr := fns.Backend.CreateFunction(&functionspb.CreateFunctionRequest{Parent: loc, FunctionId: id, Function: fn})
+		_, cerr := fns.Backend.CreateFunction(
+			&functionspb.CreateFunctionRequest{Parent: loc, FunctionId: id, Function: fn},
+		)
 		require.NoError(t, cerr)
 		fns.Backend.Drain()
 	}
@@ -187,7 +189,13 @@ func TestWireGCPFunctions_StorageFirestoreAndSecrets(t *testing.T) {
 	spec := <-rt.specs
 	assert.Contains(t, spec.Env, "TOKEN=hunter2")
 
-	_, err = gcs.Backend.PutObject("inbox", "a.txt", []byte("hello"), gcpstoragebackend.Patch{}, gcpstoragebackend.Preconds{})
+	_, err = gcs.Backend.PutObject(
+		"inbox",
+		"a.txt",
+		[]byte("hello"),
+		gcpstoragebackend.Patch{},
+		gcpstoragebackend.Preconds{},
+	)
 	require.NoError(t, err)
 
 	ev := nextSeen(t, rt.events)

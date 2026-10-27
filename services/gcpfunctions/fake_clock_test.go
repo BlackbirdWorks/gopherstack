@@ -99,7 +99,7 @@ func (c *fakeClock) durations() []time.Duration {
 // waitTimers blocks until at least n timers are armed; waitNew counts only NewTimer timers.
 func (c *fakeClock) waitTimers(t *testing.T, n int) { t.Helper(); c.wait(t, n, false) }
 
-func (c *fakeClock) waitNew(t *testing.T, n int) { t.Helper(); c.wait(t, n, true) }
+func (c *fakeClock) waitNew(t *testing.T) { t.Helper(); c.wait(t, 1, true) }
 
 func (c *fakeClock) wait(t *testing.T, n int, onlyNew bool) {
 	t.Helper()

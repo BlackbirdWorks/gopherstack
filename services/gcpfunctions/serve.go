@@ -121,7 +121,13 @@ func signatureType(fn *functionspb.Function) string {
 	return sigHTTP
 }
 
-func functionSpec(fn *functionspb.Function, rt *runtimeSpec, srcDir string, hostPort int, sec *secretSet) container.Spec {
+func functionSpec(
+	fn *functionspb.Function,
+	rt *runtimeSpec,
+	srcDir string,
+	hostPort int,
+	sec *secretSet,
+) container.Spec {
 	id := lastSegment(fn.GetName())
 	sc := fn.GetServiceConfig()
 

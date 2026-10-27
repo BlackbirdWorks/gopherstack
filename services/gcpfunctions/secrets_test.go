@@ -56,13 +56,13 @@ func TestSecrets_EnvAndVolumes(t *testing.T) {
 	e.handler.Backend.SetSecretResolver(secretStore())
 
 	spec := fnSpec(e.upload(t, zipOf(t, nodeFilesFn())))
-	spec.ServiceConfig.SecretEnvironmentVariables = []*functionspb.SecretEnvVar{
+	spec.GetServiceConfig().SecretEnvironmentVariables = []*functionspb.SecretEnvVar{
 		{Key: "PINNED", Secret: "api-key", Version: "1"},
 		{Key: "LATEST", Secret: "api-key", Version: "latest"},
 		{Key: "UNSET", Secret: "api-key"},
 		{Key: "CROSS", ProjectId: "other", Secret: "shared", Version: "latest"},
 	}
-	spec.ServiceConfig.SecretVolumes = []*functionspb.SecretVolume{
+	spec.GetServiceConfig().SecretVolumes = []*functionspb.SecretVolume{
 		{MountPath: "/etc/secrets", Secret: "api-key", Versions: []*functionspb.SecretVolume_SecretVersion{
 			{Version: "1", Path: "old/key"}, {Version: "latest", Path: "key"},
 		}},
@@ -109,33 +109,41 @@ func TestSecrets_DeployFailures(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		secrets  func(string) ([]byte, error)
+		name     string
+		wantText string
 		env      []*functionspb.SecretEnvVar
 		vols     []*functionspb.SecretVolume
-		wantText string
 	}{
 		{
-			"missing secret", secretStore(),
-			[]*functionspb.SecretEnvVar{{Key: "K", Secret: "nope", Version: "latest"}}, nil,
+			secretStore(),
+			"missing secret",
 			"Secret Version [projects/test-project/secrets/nope/versions/latest] not found.",
+			[]*functionspb.SecretEnvVar{{Key: "K", Secret: "nope", Version: "latest"}},
+			nil,
 		},
 		{
-			"missing version", secretStore(),
-			[]*functionspb.SecretEnvVar{{Key: "K", Secret: "api-key", Version: "9"}}, nil,
+			secretStore(),
+			"missing version",
 			"versions/9] not found.",
+			[]*functionspb.SecretEnvVar{{Key: "K", Secret: "api-key", Version: "9"}},
+			nil,
 		},
 		{
-			"disabled version", secretStore(),
-			[]*functionspb.SecretEnvVar{{Key: "K", Secret: "off", Version: "1"}}, nil,
+			secretStore(),
+			"disabled version",
 			"is in DISABLED state.",
+			[]*functionspb.SecretEnvVar{{Key: "K", Secret: "off", Version: "1"}},
+			nil,
 		},
 		{
-			"missing volume secret", secretStore(), nil,
-			[]*functionspb.SecretVolume{{MountPath: "/etc/s", Secret: "nope"}},
+			secretStore(),
+			"missing volume secret",
 			"not found.",
+			nil,
+			[]*functionspb.SecretVolume{{MountPath: "/etc/s", Secret: "nope"}},
 		},
-		{"no secret manager", nil, []*functionspb.SecretEnvVar{{Key: "K", Secret: "api-key"}}, nil, "Secret Manager"},
+		{nil, "no secret manager", "Secret Manager", []*functionspb.SecretEnvVar{{Key: "K", Secret: "api-key"}}, nil},
 	}
 
 	for _, tt := range tests {
@@ -148,8 +156,8 @@ func TestSecrets_DeployFailures(t *testing.T) {
 			}
 
 			spec := fnSpec(e.upload(t, zipOf(t, nodeFilesFn())))
-			spec.ServiceConfig.SecretEnvironmentVariables = tt.env
-			spec.ServiceConfig.SecretVolumes = tt.vols
+			spec.GetServiceConfig().SecretEnvironmentVariables = tt.env
+			spec.GetServiceConfig().SecretVolumes = tt.vols
 
 			err := e.createErr(t, "bad", spec)
 			require.Error(t, err)
@@ -164,39 +172,39 @@ func TestSecrets_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		set  func(sc *functionspb.ServiceConfig)
+		name string
 	}{
-		{"bad key", func(sc *functionspb.ServiceConfig) {
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretEnvironmentVariables = []*functionspb.SecretEnvVar{{Key: "1BAD", Secret: "s"}}
-		}},
-		{"reserved key", func(sc *functionspb.ServiceConfig) {
+		}, "bad key"},
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretEnvironmentVariables = []*functionspb.SecretEnvVar{{Key: "PORT", Secret: "s"}}
-		}},
-		{"duplicate with plain env", func(sc *functionspb.ServiceConfig) {
+		}, "reserved key"},
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretEnvironmentVariables = []*functionspb.SecretEnvVar{{Key: "GREETING", Secret: "s"}}
-		}},
-		{"resource name as secret", func(sc *functionspb.ServiceConfig) {
+		}, "duplicate with plain env"},
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretEnvironmentVariables = []*functionspb.SecretEnvVar{{Key: "K", Secret: "projects/p/secrets/s"}}
-		}},
-		{"bad version", func(sc *functionspb.ServiceConfig) {
+		}, "resource name as secret"},
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretEnvironmentVariables = []*functionspb.SecretEnvVar{{Key: "K", Secret: "s", Version: "newest"}}
-		}},
-		{"mount under proc", func(sc *functionspb.ServiceConfig) {
+		}, "bad version"},
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretVolumes = []*functionspb.SecretVolume{{MountPath: "/proc/x", Secret: "s"}}
-		}},
-		{"relative mount", func(sc *functionspb.ServiceConfig) {
+		}, "mount under proc"},
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretVolumes = []*functionspb.SecretVolume{{MountPath: "etc/s", Secret: "s"}}
-		}},
-		{"duplicate mount", func(sc *functionspb.ServiceConfig) {
+		}, "relative mount"},
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretVolumes = []*functionspb.SecretVolume{
 				{MountPath: "/etc/s", Secret: "a"}, {MountPath: "/etc/s/", Secret: "b"},
 			}
-		}},
-		{"escaping path", func(sc *functionspb.ServiceConfig) {
+		}, "duplicate mount"},
+		{func(sc *functionspb.ServiceConfig) {
 			sc.SecretVolumes = []*functionspb.SecretVolume{{MountPath: "/etc/s", Secret: "s",
 				Versions: []*functionspb.SecretVolume_SecretVersion{{Version: "1", Path: ""}}}}
-		}},
+		}, "escaping path"},
 	}
 
 	for _, tt := range tests {
@@ -205,7 +213,7 @@ func TestSecrets_Validation(t *testing.T) {
 
 			e := newEnv(t, true)
 			spec := fnSpec(e.upload(t, zipOf(t, nodeFilesFn())))
-			tt.set(spec.ServiceConfig)
+			tt.set(spec.GetServiceConfig())
 
 			err := e.createErr(t, "bad", spec)
 			assert.Equal(t, codes.InvalidArgument, status.Code(err))

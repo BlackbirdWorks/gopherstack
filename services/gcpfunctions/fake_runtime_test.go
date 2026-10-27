@@ -35,6 +35,7 @@ type fakeRuntime struct {
 	failRun error
 	gate    chan struct{}
 	boxes   map[string]*fakeContainer
+	hold    atomic.Pointer[chan struct{}]
 	started []container.Spec
 	reqs    []received
 	lines   []fakeLine
@@ -43,7 +44,6 @@ type fakeRuntime struct {
 	seq     atomic.Int64
 	mu      sync.Mutex
 	reply   atomic.Int32
-	hold    atomic.Pointer[chan struct{}]
 }
 
 type fakeLine struct {

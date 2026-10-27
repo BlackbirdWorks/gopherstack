@@ -48,7 +48,7 @@ func TestServiceConfig_ResourceValidation(t *testing.T) {
 
 			e := newEnv(t, true)
 			spec := fnSpec(e.upload(t, zipOf(t, nodeFilesFn())))
-			spec.ServiceConfig.AvailableMemory, spec.ServiceConfig.AvailableCpu = tt.memory, tt.cpu
+			spec.GetServiceConfig().AvailableMemory, spec.GetServiceConfig().AvailableCpu = tt.memory, tt.cpu
 
 			err := e.createErr(t, "res", spec)
 			if tt.wantErr {
@@ -76,7 +76,7 @@ func TestServiceConfig_DerivedCPU(t *testing.T) {
 
 			e := newEnv(t, true)
 			spec := fnSpec(e.upload(t, zipOf(t, nodeFilesFn())))
-			spec.ServiceConfig.AvailableMemory = tt.memory
+			spec.GetServiceConfig().AvailableMemory = tt.memory
 
 			fn := e.createFunction(t, "cpu", spec)
 			assert.Equal(t, tt.want, fn.GetServiceConfig().GetAvailableCpu())
@@ -84,11 +84,11 @@ func TestServiceConfig_DerivedCPU(t *testing.T) {
 	}
 }
 
-func scaled(e *env, t *testing.T, id string, mutate func(sc *functionspb.ServiceConfig)) *functionspb.Function {
+func scaled(t *testing.T, e *env, id string, mutate func(sc *functionspb.ServiceConfig)) *functionspb.Function {
 	t.Helper()
 
 	spec := fnSpec(e.upload(t, zipOf(t, nodeFilesFn())))
-	mutate(spec.ServiceConfig)
+	mutate(spec.GetServiceConfig())
 
 	return e.createFunction(t, id, spec)
 }
@@ -150,7 +150,7 @@ func TestScaling_ConcurrencyAndMaxInstances(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t, true)
-			fn := scaled(e, t, "scale", func(sc *functionspb.ServiceConfig) {
+			fn := scaled(t, e, "scale", func(sc *functionspb.ServiceConfig) {
 				sc.MaxInstanceRequestConcurrency, sc.MaxInstanceCount = tt.concurrency, tt.max
 				sc.AvailableCpu, sc.AvailableMemory = "1", "512Mi"
 			})
@@ -181,7 +181,7 @@ func TestScaling_QueueTimeoutIs429(t *testing.T) {
 	clk := newFakeClock()
 	e.handler.Backend.SetClock(clk)
 
-	fn := scaled(e, t, "full", func(sc *functionspb.ServiceConfig) {
+	fn := scaled(t, e, "full", func(sc *functionspb.ServiceConfig) {
 		sc.MaxInstanceRequestConcurrency, sc.MaxInstanceCount = 1, 1
 	})
 	release := e.rt.holdRequests()
@@ -192,7 +192,7 @@ func TestScaling_QueueTimeoutIs429(t *testing.T) {
 	require.Eventually(t, func() bool { return len(e.rt.requests()) == 1 }, 10*time.Second, 5*time.Millisecond)
 
 	second := e.callAsync(t, hostOf(fn))
-	clk.waitNew(t, 1)
+	clk.waitNew(t)
 	clk.advance(10 * time.Second)
 
 	assert.Equal(t, http.StatusTooManyRequests, <-second)
@@ -210,7 +210,7 @@ func TestScaling_MinInstancesAndIdleScaleDown(t *testing.T) {
 	e.handler.Backend.SetClock(clk)
 	e.handler.Backend.SetIdleTimeout(time.Minute)
 
-	fn := scaled(e, t, "warm", func(sc *functionspb.ServiceConfig) {
+	fn := scaled(t, e, "warm", func(sc *functionspb.ServiceConfig) {
 		sc.MinInstanceCount, sc.MaxInstanceCount, sc.MaxInstanceRequestConcurrency = 2, 4, 1
 	})
 	assert.Equal(t, 2, e.rt.running(), "minimum instances start at deploy")
@@ -243,7 +243,7 @@ func TestScaling_RequestTimeoutIs504(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, true)
-	fn := scaled(e, t, "slow", func(sc *functionspb.ServiceConfig) { sc.TimeoutSeconds = 1 })
+	fn := scaled(t, e, "slow", func(sc *functionspb.ServiceConfig) { sc.TimeoutSeconds = 1 })
 	release := e.rt.holdRequests()
 
 	t.Cleanup(release)
@@ -258,23 +258,39 @@ func TestIngressSettings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setting functionspb.ServiceConfig_IngressSettings
 		headers map[string]string
+		name    string
 		want    int
+		setting functionspb.ServiceConfig_IngressSettings
 	}{
-		{"allow all external", functionspb.ServiceConfig_ALLOW_ALL, nil, http.StatusOK},
-		{"unspecified allows external", functionspb.ServiceConfig_INGRESS_SETTINGS_UNSPECIFIED, nil, http.StatusOK},
-		{"internal only blocks external", functionspb.ServiceConfig_ALLOW_INTERNAL_ONLY, nil, http.StatusNotFound},
-		{"internal only blocks gclb", functionspb.ServiceConfig_ALLOW_INTERNAL_ONLY,
-			map[string]string{"Via": "1.1 google"}, http.StatusNotFound},
-		{"internal only allows internal", functionspb.ServiceConfig_ALLOW_INTERNAL_ONLY,
-			map[string]string{"X-Gopherstack-Network": "internal"}, http.StatusOK},
-		{"gclb blocks external", functionspb.ServiceConfig_ALLOW_INTERNAL_AND_GCLB, nil, http.StatusNotFound},
-		{"gclb allows load balancer", functionspb.ServiceConfig_ALLOW_INTERNAL_AND_GCLB,
-			map[string]string{"Via": "1.1 google"}, http.StatusOK},
-		{"gclb allows internal", functionspb.ServiceConfig_ALLOW_INTERNAL_AND_GCLB,
-			map[string]string{"X-Gopherstack-Network": "internal"}, http.StatusOK},
+		{nil, "allow all external", http.StatusOK, functionspb.ServiceConfig_ALLOW_ALL},
+		{nil, "unspecified allows external", http.StatusOK, functionspb.ServiceConfig_INGRESS_SETTINGS_UNSPECIFIED},
+		{nil, "internal only blocks external", http.StatusNotFound, functionspb.ServiceConfig_ALLOW_INTERNAL_ONLY},
+		{
+			map[string]string{"Via": "1.1 google"},
+			"internal only blocks gclb",
+			http.StatusNotFound,
+			functionspb.ServiceConfig_ALLOW_INTERNAL_ONLY,
+		},
+		{
+			map[string]string{"X-Gopherstack-Network": "internal"},
+			"internal only allows internal",
+			http.StatusOK,
+			functionspb.ServiceConfig_ALLOW_INTERNAL_ONLY,
+		},
+		{nil, "gclb blocks external", http.StatusNotFound, functionspb.ServiceConfig_ALLOW_INTERNAL_AND_GCLB},
+		{
+			map[string]string{"Via": "1.1 google"},
+			"gclb allows load balancer",
+			http.StatusOK,
+			functionspb.ServiceConfig_ALLOW_INTERNAL_AND_GCLB,
+		},
+		{
+			map[string]string{"X-Gopherstack-Network": "internal"},
+			"gclb allows internal",
+			http.StatusOK,
+			functionspb.ServiceConfig_ALLOW_INTERNAL_AND_GCLB,
+		},
 	}
 
 	for _, tt := range tests {
@@ -282,7 +298,7 @@ func TestIngressSettings(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t, true)
-			fn := scaled(e, t, "ing", func(sc *functionspb.ServiceConfig) { sc.IngressSettings = tt.setting })
+			fn := scaled(t, e, "ing", func(sc *functionspb.ServiceConfig) { sc.IngressSettings = tt.setting })
 
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
 				"http://"+e.handler.IngressAddr()+"/", nil)

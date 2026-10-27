@@ -40,71 +40,71 @@ func patternFilter(attr, value string) *functionspb.EventFilter {
 	return &functionspb.EventFilter{Attribute: attr, Value: value, Operator: gcpevents.OperatorPathPattern}
 }
 
-func triggerFn(e *env, t *testing.T, typ string, retry functionspb.EventTrigger_RetryPolicy,
+func triggerFn(t *testing.T, e *env, typ string, retry functionspb.EventTrigger_RetryPolicy,
 	filters ...*functionspb.EventFilter,
-) *functionspb.Function {
+) {
 	t.Helper()
 
 	spec := fnSpec(e.upload(t, zipOf(t, nodeFilesFn())))
 	spec.EventTrigger = &functionspb.EventTrigger{EventType: typ, EventFilters: filters, RetryPolicy: retry}
 
-	return e.createFunction(t, "trig", spec)
+	e.createFunction(t, "trig", spec)
 }
 
 func TestTriggers_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		trigger *functionspb.EventTrigger
+		name    string
 		wantErr bool
 	}{
-		{"storage ok", &functionspb.EventTrigger{
+		{&functionspb.EventTrigger{
 			EventType: typeFinalized, EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},
-		}, false},
-		{"storage bucket pattern", &functionspb.EventTrigger{
+		}, "storage ok", false},
+		{&functionspb.EventTrigger{
 			EventType: typeDeleted, EventFilters: []*functionspb.EventFilter{patternFilter("bucket", "logs-*")},
-		}, false},
-		{"storage without bucket", &functionspb.EventTrigger{EventType: typeFinalized}, true},
-		{"storage unknown bucket", &functionspb.EventTrigger{
+		}, "storage bucket pattern", false},
+		{&functionspb.EventTrigger{EventType: typeFinalized}, "storage without bucket", true},
+		{&functionspb.EventTrigger{
 			EventType: typeFinalized, EventFilters: []*functionspb.EventFilter{filter("bucket", "nope")},
-		}, true},
-		{"storage bad attribute", &functionspb.EventTrigger{
+		}, "storage unknown bucket", true},
+		{&functionspb.EventTrigger{
 			EventType:    typeFinalized,
 			EventFilters: []*functionspb.EventFilter{filter("bucket", "b1"), filter("document", "x")},
-		}, true},
-		{"storage with topic", &functionspb.EventTrigger{
+		}, "storage bad attribute", true},
+		{&functionspb.EventTrigger{
 			EventType: typeFinalized, PubsubTopic: topic, EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},
-		}, true},
-		{"unknown storage kind", &functionspb.EventTrigger{
+		}, "storage with topic", true},
+		{&functionspb.EventTrigger{
 			EventType: "google.cloud.storage.object.v1.exploded", EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},
-		}, true},
-		{"firestore ok", &functionspb.EventTrigger{
+		}, "unknown storage kind", true},
+		{&functionspb.EventTrigger{
 			EventType: typeWritten, EventFilters: []*functionspb.EventFilter{
 				filter("database", "(default)"), patternFilter("document", "users/{id}"),
 			},
-		}, false},
-		{"firestore without database", &functionspb.EventTrigger{
+		}, "firestore ok", false},
+		{&functionspb.EventTrigger{
 			EventType: typeCreated, EventFilters: []*functionspb.EventFilter{patternFilter("document", "users/{id}")},
-		}, true},
-		{"firestore bad pattern", &functionspb.EventTrigger{
+		}, "firestore without database", true},
+		{&functionspb.EventTrigger{
 			EventType: typeCreated, EventFilters: []*functionspb.EventFilter{
 				filter("database", "(default)"), patternFilter("document", "users/{bad id}"),
 			},
-		}, true},
-		{"firestore pattern on database", &functionspb.EventTrigger{
+		}, "firestore bad pattern", true},
+		{&functionspb.EventTrigger{
 			EventType: typeCreated, EventFilters: []*functionspb.EventFilter{patternFilter("database", "(default)")},
-		}, true},
-		{"firestore bad operator", &functionspb.EventTrigger{
+		}, "firestore pattern on database", true},
+		{&functionspb.EventTrigger{
 			EventType: typeCreated, EventFilters: []*functionspb.EventFilter{
 				filter("database", "(default)"), {Attribute: "document", Value: "a", Operator: "regex"},
 			},
-		}, true},
-		{"audit log unsupported", &functionspb.EventTrigger{EventType: "google.cloud.audit.log.v1.written"}, true},
-		{"pubsub with filters", &functionspb.EventTrigger{
+		}, "firestore bad operator", true},
+		{&functionspb.EventTrigger{EventType: "google.cloud.audit.log.v1.written"}, "audit log unsupported", true},
+		{&functionspb.EventTrigger{
 			EventType: gcpfunctions.EventTypePubSub, PubsubTopic: topic,
 			EventFilters: []*functionspb.EventFilter{filter("bucket", "b1")},
-		}, true},
+		}, "pubsub with filters", true},
 	}
 
 	for _, tt := range tests {
@@ -142,13 +142,17 @@ func TestStorageTrigger_Delivery(t *testing.T) {
 	const object = `{"bucket":"b1","name":"dir/a.txt","generation":"7","size":"5","contentType":"text/plain"}`
 
 	e := newEnv(t, true)
-	triggerFn(e, t, typeFinalized, 0, filter("bucket", "b1"))
+	triggerFn(t, e, typeFinalized, 0, filter("bucket", "b1"))
 
 	b := e.handler.Backend
 	at := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 
-	b.HandleStorageEvent(gcpfunctions.StorageEvent{Type: "deleted", Bucket: "b1", Name: "x", Data: []byte(`{}`), Time: at})
-	b.HandleStorageEvent(gcpfunctions.StorageEvent{Type: "finalized", Bucket: "other", Name: "x", Data: []byte(`{}`), Time: at})
+	b.HandleStorageEvent(
+		gcpfunctions.StorageEvent{Type: "deleted", Bucket: "b1", Name: "x", Data: []byte(`{}`), Time: at},
+	)
+	b.HandleStorageEvent(
+		gcpfunctions.StorageEvent{Type: "finalized", Bucket: "other", Name: "x", Data: []byte(`{}`), Time: at},
+	)
 	b.HandleStorageEvent(gcpfunctions.StorageEvent{
 		Type: "finalized", Bucket: "b1", Name: "dir/a.txt", Data: []byte(object), Time: at,
 	})
@@ -172,11 +176,13 @@ func TestStorageTrigger_BucketPattern(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, true)
-	triggerFn(e, t, typeFinalized, 0, patternFilter("bucket", "logs-*"))
+	triggerFn(t, e, typeFinalized, 0, patternFilter("bucket", "logs-*"))
 
 	b := e.handler.Backend
 	b.HandleStorageEvent(gcpfunctions.StorageEvent{Type: "finalized", Bucket: "data", Name: "x", Data: []byte(`{}`)})
-	b.HandleStorageEvent(gcpfunctions.StorageEvent{Type: "finalized", Bucket: "logs-prod", Name: "x", Data: []byte(`{}`)})
+	b.HandleStorageEvent(
+		gcpfunctions.StorageEvent{Type: "finalized", Bucket: "logs-prod", Name: "x", Data: []byte(`{}`)},
+	)
 
 	reqs := e.waitRequests(t, 1)
 	require.Len(t, reqs, 1)
@@ -197,7 +203,12 @@ func docEvent(kind, path string, old, cur map[string]string) gcpfunctions.Docume
 		return d
 	}
 
-	ev := gcpfunctions.DocumentEvent{Kind: kind, Old: mk(old), New: mk(cur), Time: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	ev := gcpfunctions.DocumentEvent{
+		Kind: kind,
+		Old:  mk(old),
+		New:  mk(cur),
+		Time: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+	}
 	if kind == "updated" {
 		ev.UpdateMask = []string{"name"}
 	}
@@ -238,38 +249,79 @@ func TestFirestoreTrigger_Delivery(t *testing.T) {
 	tests := []struct {
 		name     string
 		typ      string
-		filters  []*functionspb.EventFilter
-		event    gcpfunctions.DocumentEvent
-		want     bool
 		wantType string
+		event    gcpfunctions.DocumentEvent
+		filters  []*functionspb.EventFilter
+		want     bool
 	}{
-		{"created matches pattern", typeCreated,
+		{
+			"created matches pattern",
+			typeCreated,
+			typeCreated,
+			docEvent("created", "users/alice", nil, map[string]string{"name": "Alice"}),
 			[]*functionspb.EventFilter{filter("database", "(default)"), patternFilter("document", "users/{id}")},
-			docEvent("created", "users/alice", nil, map[string]string{"name": "Alice"}), true, typeCreated},
-		{"created ignores updates", typeCreated,
+			true,
+		},
+		{"created ignores updates", typeCreated, "", docEvent(
+			"updated",
+			"users/alice",
+			map[string]string{"name": "A"},
+			map[string]string{"name": "B"},
+		), []*functionspb.EventFilter{filter("database", "(default)")}, false},
+		{"updated carries old value", typeUpdated, typeUpdated, docEvent(
+			"updated",
+			"users/alice",
+			map[string]string{"name": "A"},
+			map[string]string{"name": "B"},
+		), []*functionspb.EventFilter{filter("database", "(default)")}, true},
+		{
+			"written sees deletes",
+			typeWritten,
+			typeWritten,
+			docEvent("deleted", "users/alice", map[string]string{"name": "A"}, nil),
 			[]*functionspb.EventFilter{filter("database", "(default)")},
-			docEvent("updated", "users/alice", map[string]string{"name": "A"}, map[string]string{"name": "B"}), false, ""},
-		{"updated carries old value", typeUpdated,
-			[]*functionspb.EventFilter{filter("database", "(default)")},
-			docEvent("updated", "users/alice", map[string]string{"name": "A"}, map[string]string{"name": "B"}), true, typeUpdated},
-		{"written sees deletes", typeWritten,
-			[]*functionspb.EventFilter{filter("database", "(default)")},
-			docEvent("deleted", "users/alice", map[string]string{"name": "A"}, nil), true, typeWritten},
-		{"pattern is one segment", typeWritten,
+			true,
+		},
+		{
+			"pattern is one segment",
+			typeWritten,
+			"",
+			docEvent("created", "users/alice/orders/1", nil, map[string]string{"a": "b"}),
 			[]*functionspb.EventFilter{filter("database", "(default)"), patternFilter("document", "users/{id}")},
-			docEvent("created", "users/alice/orders/1", nil, map[string]string{"a": "b"}), false, ""},
-		{"multi segment pattern", typeWritten,
+			false,
+		},
+		{
+			"multi segment pattern",
+			typeWritten,
+			typeWritten,
+			docEvent("created", "users/alice/orders/1", nil, map[string]string{"a": "b"}),
 			[]*functionspb.EventFilter{filter("database", "(default)"), patternFilter("document", "users/{path=**}")},
-			docEvent("created", "users/alice/orders/1", nil, map[string]string{"a": "b"}), true, typeWritten},
-		{"exact document", typeWritten,
+			true,
+		},
+		{
+			"exact document",
+			typeWritten,
+			"",
+			docEvent("created", "users/alice", nil, map[string]string{"a": "b"}),
 			[]*functionspb.EventFilter{filter("database", "(default)"), filter("document", "users/bob")},
-			docEvent("created", "users/alice", nil, map[string]string{"a": "b"}), false, ""},
-		{"other database", typeWritten,
+			false,
+		},
+		{
+			"other database",
+			typeWritten,
+			"",
+			docEvent("created", "users/alice", nil, map[string]string{"a": "b"}),
 			[]*functionspb.EventFilter{filter("database", "analytics")},
-			docEvent("created", "users/alice", nil, map[string]string{"a": "b"}), false, ""},
-		{"namespace default", typeWritten,
+			false,
+		},
+		{
+			"namespace default",
+			typeWritten,
+			typeWritten,
+			docEvent("created", "users/alice", nil, map[string]string{"a": "b"}),
 			[]*functionspb.EventFilter{filter("database", "(default)"), filter("namespace", "(default)")},
-			docEvent("created", "users/alice", nil, map[string]string{"a": "b"}), true, typeWritten},
+			true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -277,7 +329,7 @@ func TestFirestoreTrigger_Delivery(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t, true)
-			triggerFn(e, t, tt.typ, 0, tt.filters...)
+			triggerFn(t, e, tt.typ, 0, tt.filters...)
 			e.handler.Backend.HandleDocumentEvent(tt.event)
 
 			if !tt.want {
@@ -317,12 +369,15 @@ func TestEventTrigger_Retry(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		retry functionspb.EventTrigger_RetryPolicy
 		want  []time.Duration
+		retry functionspb.EventTrigger_RetryPolicy
 	}{
-		{"retry backs off exponentially", functionspb.EventTrigger_RETRY_POLICY_RETRY,
-			[]time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second}},
-		{"do not retry gives up", functionspb.EventTrigger_RETRY_POLICY_DO_NOT_RETRY, nil},
+		{
+			"retry backs off exponentially",
+			[]time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second},
+			functionspb.EventTrigger_RETRY_POLICY_RETRY,
+		},
+		{"do not retry gives up", nil, functionspb.EventTrigger_RETRY_POLICY_DO_NOT_RETRY},
 	}
 
 	for _, tt := range tests {
@@ -334,7 +389,7 @@ func TestEventTrigger_Retry(t *testing.T) {
 			e.handler.Backend.SetClock(clk)
 			e.rt.reply.Store(http.StatusInternalServerError)
 
-			triggerFn(e, t, typeFinalized, tt.retry, filter("bucket", "b1"))
+			triggerFn(t, e, typeFinalized, tt.retry, filter("bucket", "b1"))
 			e.handler.Backend.HandleStorageEvent(gcpfunctions.StorageEvent{
 				Type: "finalized", Bucket: "b1", Name: "o", Data: []byte(`{}`),
 			})
@@ -350,14 +405,14 @@ func TestEventTrigger_Retry(t *testing.T) {
 			}
 
 			for i, d := range tt.want {
-				clk.waitNew(t, 1)
+				clk.waitNew(t)
 				require.Equal(t, d, clk.durations()[i])
 				clk.advance(d)
 				e.waitRequests(t, i+2)
 			}
 
 			e.rt.reply.Store(http.StatusOK)
-			clk.waitNew(t, 1)
+			clk.waitNew(t)
 			clk.advance(80 * time.Second)
 
 			reqs := e.waitRequests(t, len(tt.want)+2)
@@ -383,12 +438,14 @@ func TestEventTrigger_RetryStopsWhenRetentionEnds(t *testing.T) {
 	e.handler.Backend.SetRetryPolicy(10*time.Second, 10*time.Second, 25*time.Second)
 	e.rt.reply.Store(http.StatusInternalServerError)
 
-	triggerFn(e, t, typeFinalized, functionspb.EventTrigger_RETRY_POLICY_RETRY, filter("bucket", "b1"))
-	e.handler.Backend.HandleStorageEvent(gcpfunctions.StorageEvent{Type: "finalized", Bucket: "b1", Name: "o", Data: []byte(`{}`)})
+	triggerFn(t, e, typeFinalized, functionspb.EventTrigger_RETRY_POLICY_RETRY, filter("bucket", "b1"))
+	e.handler.Backend.HandleStorageEvent(
+		gcpfunctions.StorageEvent{Type: "finalized", Bucket: "b1", Name: "o", Data: []byte(`{}`)},
+	)
 
 	for i := range 2 {
 		e.waitRequests(t, i+1)
-		clk.waitNew(t, 1)
+		clk.waitNew(t)
 		clk.advance(10 * time.Second)
 	}
 
