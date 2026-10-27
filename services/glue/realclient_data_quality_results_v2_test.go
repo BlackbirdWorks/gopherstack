@@ -197,7 +197,10 @@ func TestRealClient_DataQualityResultsV2(t *testing.T) {
 			id := publishDQV2(t, client, 0.6, "c", map[string]string{}, "")
 			backend.AddDataQualityResultInternal(&glue.DataQualityResult{ResultID: "v1-only", Score: 0.4})
 
-			v1, err := client.GetDataQualityResult(t.Context(), &gluesdk.GetDataQualityResultInput{ResultId: aws.String(id)})
+			v1, err := client.GetDataQualityResult(
+				t.Context(),
+				&gluesdk.GetDataQualityResultInput{ResultId: aws.String(id)},
+			)
 			require.NoError(t, err)
 			assert.InDelta(t, 0.6, aws.ToFloat64(v1.Score), 1e-9)
 
