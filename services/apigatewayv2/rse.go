@@ -72,8 +72,20 @@ func parseJSONBody(r *http.Request) map[string]any {
 		return nil
 	}
 
-	raw, err := io.ReadAll(r.Body)
-	_ = r.Body.Close()
+	orig := r.Body
+	raw, err := io.ReadAll(io.LimitReader(orig, maxHTTPAPIBodyBytes+1))
+
+	if len(raw) > int(maxHTTPAPIBodyBytes) {
+		// Over the payload cap: leave the stream intact for the caller and skip parsing.
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(raw), orig), orig}
+
+		return nil
+	}
+
+	_ = orig.Close()
 
 	// Restore the body so callers can read it again.
 	r.Body = io.NopCloser(bytes.NewReader(raw))

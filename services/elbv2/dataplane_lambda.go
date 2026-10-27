@@ -3,13 +3,18 @@ package elbv2
 import (
 	"encoding/base64"
 	"encoding/json"
-	"io"
+	"errors"
 	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
+
+// maxLambdaTargetBodyBytes is the 1 MB request body limit for ALB Lambda targets.
+const maxLambdaTargetBodyBytes int64 = 1 << 20
 
 const lambdaMultiValueAttr = "lambda.multi_value_headers.enabled"
 
@@ -50,8 +55,14 @@ func (h *Handler) serveLambda(w http.ResponseWriter, req *dpRequest, tg *TargetG
 		return
 	}
 
-	body, err := io.ReadAll(req.r.Body)
+	body, err := httputils.ReadBodyLimit(req.r, maxLambdaTargetBodyBytes)
 	if err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			writeDPError(w, http.StatusRequestEntityTooLarge, "413 Request Entity Too Large")
+
+			return
+		}
+
 		writeDPError(w, http.StatusBadGateway, msgBadGateway)
 
 		return

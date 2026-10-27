@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"strconv"
@@ -185,7 +184,12 @@ var errInvalidRequest = errors.New("invalid request")
 type Handler struct {
 	ops     map[string]func(*echo.Context, []byte) error
 	Backend *InMemoryBackend
+
+	maxAssetBytes int64
 }
+
+// maxAssetSize is the documented 5 GiB per-asset ceiling.
+const maxAssetSize int64 = 5 << 30
 
 // NewHandler creates a new CodeArtifact handler.
 
@@ -569,7 +573,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.Debug("codeartifact request", "operation", route.operation, "path", path)
 
-		return h.dispatch(c, route, readRequestBody(c, route.operation))
+		body, readErr := h.readRequestBody(c, route.operation)
+		if readErr != nil {
+			return c.JSON(
+				http.StatusPaymentRequired,
+				errResp("ServiceQuotaExceededException", "asset exceeds the maximum asset size of 5 GiB"),
+			)
+		}
+
+		return h.dispatch(c, route, body)
 	}
 }
 
@@ -601,27 +613,32 @@ func (h *Handler) checkDomainOwner(owner string) error {
 // not a JSON document -- attempting a JSON decode there would silently discard every
 // published asset's bytes. Every other op's httpPayload-less body is a JSON document.
 
-func readRequestBody(c *echo.Context, op string) []byte {
+func (h *Handler) readRequestBody(c *echo.Context, op string) ([]byte, error) {
 	if c.Request().Body == nil {
-		return nil
+		return nil, nil
 	}
 
 	if op == opPublishPackageVersion {
-		raw, err := io.ReadAll(c.Request().Body)
-		if err != nil {
-			return nil
+		limit := maxAssetSize
+		if h.maxAssetBytes > 0 {
+			limit = h.maxAssetBytes
 		}
 
-		return raw
+		raw, err := httputils.ReadBodyLimit(c.Request(), limit)
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return nil, err
+		}
+
+		return raw, nil
 	}
 
 	decoder := json.NewDecoder(c.Request().Body)
 	var raw json.RawMessage
 	if err := decoder.Decode(&raw); err != nil {
-		return nil
+		raw = nil
 	}
 
-	return raw
+	return raw, nil
 }
 
 func (h *Handler) dispatch(c *echo.Context, route codeartifactRoute, body []byte) error {
