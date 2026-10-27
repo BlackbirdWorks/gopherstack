@@ -138,6 +138,19 @@ jobs:
           sudo mkswap /mnt/release.swap
           sudo swapon /mnt/release.swap
 
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
+        run: |
+          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+          df -h / /tmp "$base" || true
+
       # .goreleaser.yml's before hook runs `task ui-build`.
       - name: Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0

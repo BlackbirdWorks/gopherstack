@@ -374,3 +374,15 @@ func TestSFTPRestartRebinds(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, hostKey, again, "generated host key must persist across restarts")
 }
+
+func TestSFTPNoListenerAfterClose(t *testing.T) {
+	t.Parallel()
+
+	e := newSFTPEnv(t, nil, nil)
+	e.backend.Close()
+	require.Empty(t, e.backend.SFTPAddress(e.serverID))
+
+	e.backend.EnableSFTP(transfer.SFTPConfig{Store: e.store})
+
+	assert.Empty(t, e.backend.SFTPAddress(e.serverID))
+}

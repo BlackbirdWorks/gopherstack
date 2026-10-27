@@ -47,6 +47,7 @@ type InMemoryBackend struct {
 	work            *worker.Group
 	accountID       string
 	region          string
+	sftpClosed      bool // set by Close under sftpMu; late timer callbacks must not bind listeners
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -71,7 +72,7 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 // backend. It is safe to call multiple times.
 func (b *InMemoryBackend) Close() {
 	b.work.Stop()
-	b.stopAllSFTP()
+	b.closeSFTP()
 }
 
 // AccountID returns the AWS account ID for this backend.

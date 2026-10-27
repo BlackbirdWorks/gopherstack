@@ -85,6 +85,15 @@ func (b *InMemoryBackend) SFTPAddress(serverID string) string {
 	return ""
 }
 
+// closeSFTP stops every listener and bars new ones; in-flight timer callbacks can still call reconcileSFTP.
+func (b *InMemoryBackend) closeSFTP() {
+	b.sftpMu.Lock("closeSFTP")
+	b.sftpClosed = true
+	b.sftpMu.Unlock()
+
+	b.stopAllSFTP()
+}
+
 func (b *InMemoryBackend) stopAllSFTP() {
 	b.sftpMu.Lock("stopAllSFTP")
 	defer b.sftpMu.Unlock()
@@ -109,7 +118,7 @@ func (b *InMemoryBackend) reconcileSFTP(serverID string) {
 	b.sftpMu.Lock("reconcileSFTP")
 	defer b.sftpMu.Unlock()
 
-	if b.sftp == nil {
+	if b.sftp == nil || b.sftpClosed {
 		return
 	}
 
