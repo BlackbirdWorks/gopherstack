@@ -229,7 +229,10 @@ func TestRealClient_DataQualityResultsV2(t *testing.T) {
 			require.NoError(t, restored.Restore(t.Context(), snap))
 
 			c2 := newTestGlueClient(t, glue.NewHandler(restored))
-			got, err := c2.GetDataQualityResultV2(t.Context(), &gluesdk.GetDataQualityResultV2Input{ResultId: aws.String(id)})
+			got, err := c2.GetDataQualityResultV2(
+				t.Context(),
+				&gluesdk.GetDataQualityResultV2Input{ResultId: aws.String(id)},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, map[string]string{"x": "y"}, got.Dimensions)
 			require.NotNil(t, got.ResultPublishedOn)
