@@ -1,6 +1,7 @@
 package docker_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 // mockDockerAPI is a test double for docker.APIClient.
 type mockDockerAPI struct {
 	pullError   error
+	pullStream  string
 	createError error
 	startError  error
 	stopError   error
@@ -58,7 +60,7 @@ func (m *mockDockerAPI) ImagePull(_ context.Context, _ string, _ image.PullOptio
 		return nil, m.pullError
 	}
 
-	return io.NopCloser(strings.NewReader("pull output")), nil
+	return io.NopCloser(strings.NewReader(cmp.Or(m.pullStream, `{"status":"Pulling"}`))), nil
 }
 
 func (m *mockDockerAPI) ImageList(_ context.Context, opts image.ListOptions) ([]image.Summary, error) {
@@ -185,11 +187,13 @@ func TestClient_PullImage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		pullErr error
-		name    string
-		wantErr bool
+		pullErr    error
+		name       string
+		pullStream string
+		wantErr    bool
 	}{
 		{name: "success"},
+		{name: "error in stream", pullStream: `{"errorDetail":{"message":"manifest unknown"},"error":"manifest unknown"}`, wantErr: true},
 		{name: "error", pullErr: errNetworkError, wantErr: true},
 	}
 
@@ -199,6 +203,7 @@ func TestClient_PullImage(t *testing.T) {
 
 			api := newMockAPI()
 			api.pullError = tt.pullErr
+			api.pullStream = tt.pullStream
 			c := docker.NewClientWithAPI(api, docker.Config{})
 
 			err := c.PullImage(t.Context(), "alpine:latest")

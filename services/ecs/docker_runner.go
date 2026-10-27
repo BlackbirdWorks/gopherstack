@@ -19,6 +19,7 @@ import (
 	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
@@ -331,7 +332,7 @@ func (r *realDockerRunner) pullOnce(ctx context.Context, image, auth string) err
 		return fmt.Errorf("pull image %s: %w", image, err)
 	}
 
-	if _, copyErr := io.Copy(io.Discard, reader); copyErr != nil {
+	if copyErr := docker.ConsumePullStream(reader); copyErr != nil {
 		_ = reader.Close()
 
 		return fmt.Errorf("drain image pull response for %s: %w", image, copyErr)

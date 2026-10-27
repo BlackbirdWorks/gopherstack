@@ -222,7 +222,9 @@ func (c *Client) pullOnce(ctx context.Context, ref, auth string) error {
 		return nil
 	}
 
-	_, _ = io.Copy(io.Discard, rc)
+	if perr := ConsumePullStream(rc); perr != nil {
+		return fmt.Errorf("image pull %q: %w", ref, perr)
+	}
 
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 	dockerimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
+	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 )
 
 const (
@@ -165,7 +166,7 @@ func (r *dockerContainerRunner) pullImage(ctx context.Context, image string) err
 		return err
 	}
 
-	_, copyErr := io.Copy(io.Discard, rc)
+	copyErr := docker.ConsumePullStream(rc)
 	_ = rc.Close()
 
 	return copyErr
