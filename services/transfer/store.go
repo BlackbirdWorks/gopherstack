@@ -44,10 +44,10 @@ type InMemoryBackend struct {
 	sftpMu          *lockmetrics.RWMutex // guards sftp + sftpListeners; lock order sftpMu -> mu
 	sftp            *SFTPConfig
 	sftpListeners   map[string]*sftpListener
-	sftpClosed      bool // set by Close under sftpMu; late timer callbacks must not bind listeners
 	work            *worker.Group
 	accountID       string
 	region          string
+	sftpClosed      bool // set by Close under sftpMu; late timer callbacks must not bind listeners
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
