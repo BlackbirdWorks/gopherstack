@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"math"
 	"net/http"
 	"time"
@@ -20,8 +19,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
-
-const drainLimit = 1 << 20
 
 // job is one started dispatch attempt.
 type job struct {
@@ -177,7 +174,6 @@ func (b *InMemoryBackend) deliver(ctx context.Context, j job) result {
 		return result{err: err}
 	}
 
-	_, _ = io.CopyN(io.Discard, resp.Body, drainLimit)
 	_ = resp.Body.Close()
 
 	return result{sc: resp.StatusCode}

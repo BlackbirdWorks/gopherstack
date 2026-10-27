@@ -317,7 +317,6 @@ func (b *InMemoryBackend) deliver(ctx context.Context, rec *statusRecorder, port
 	}
 	defer resp.Body.Close()
 
-	_, _ = io.Copy(io.Discard, resp.Body)
 	rec.code = resp.StatusCode
 }
 

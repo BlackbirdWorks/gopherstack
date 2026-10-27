@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -168,7 +167,6 @@ func TestPutMetricData_RawEncodings(t *testing.T) {
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
-			_, _ = io.Copy(io.Discard, resp.Body)
 
 			assert.Equal(t, tt.wantCode, resp.StatusCode)
 		})
@@ -209,7 +207,6 @@ func TestPutMetricData_FormGzipRoutes(t *testing.T) {
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
-			_, _ = io.Copy(io.Discard, resp.Body)
 
 			assert.Equal(t, tt.wantCode, resp.StatusCode)
 		})

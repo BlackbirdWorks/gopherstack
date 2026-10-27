@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"net/url"
@@ -21,7 +20,6 @@ import (
 
 const (
 	payloadVersion = "1.2"
-	maxResponse    = 64 << 10
 )
 
 // target is a snapshot of a notification channel taken when the incident changed state.
@@ -174,8 +172,6 @@ func (b *InMemoryBackend) postWebhook(ctx context.Context, t target, payload []b
 	}
 
 	defer resp.Body.Close()
-
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponse))
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("%w: %s", errWebhookStatus, resp.Status)

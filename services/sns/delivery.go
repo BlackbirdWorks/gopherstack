@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -231,7 +230,6 @@ func deliverHTTPWithMeta(parent context.Context, d httpDelivery, client *http.Cl
 		if err == nil {
 			// Not defer: a later failed attempt sets resp to nil and the
 			// deferred close would dereference it at goroutine exit.
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
 			_ = resp.Body.Close()
 
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
