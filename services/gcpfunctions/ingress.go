@@ -1,7 +1,6 @@
 package gcpfunctions
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +14,9 @@ import (
 	"cloud.google.com/go/functions/apiv2/functionspb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpevents"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 )
 
 const (
@@ -24,12 +26,14 @@ const (
 
 // target is the routing view of one function.
 type target struct {
-	name     string
-	topic    string
-	timeout  time.Duration
-	state    functionspb.Function_State
-	hasEvent bool
-	retry    bool
+	name      string
+	topic     string
+	eventType string
+	timeout   time.Duration
+	state     functionspb.Function_State
+	ingress   functionspb.ServiceConfig_IngressSettings
+	hasEvent  bool
+	retry     bool
 }
 
 // IngressHandler serves <function>-<hash>-<region>.localhost invocations plus the reserved /_gcf/ endpoints
@@ -97,16 +101,26 @@ func (b *InMemoryBackend) serveDownload(w http.ResponseWriter, r *http.Request) 
 	_, _ = w.Write(data)
 }
 
+func requestTimeout(sc *functionspb.ServiceConfig) time.Duration {
+	if t := sc.GetTimeoutSeconds(); t > 0 {
+		return time.Duration(t) * time.Second
+	}
+
+	return defaultTO * time.Second
+}
+
 func (b *InMemoryBackend) targetOf(name string, rec *fnRec) target {
 	et := rec.pb.GetEventTrigger()
 
 	return target{
-		name:     name,
-		state:    rec.pb.GetState(),
-		timeout:  time.Duration(rec.pb.GetServiceConfig().GetTimeoutSeconds()) * time.Second,
-		hasEvent: et != nil,
-		topic:    et.GetPubsubTopic(),
-		retry:    et.GetRetryPolicy() == functionspb.EventTrigger_RETRY_POLICY_RETRY,
+		name:      name,
+		state:     rec.pb.GetState(),
+		timeout:   requestTimeout(rec.pb.GetServiceConfig()),
+		ingress:   rec.pb.GetServiceConfig().GetIngressSettings(),
+		hasEvent:  et != nil,
+		topic:     et.GetPubsubTopic(),
+		eventType: et.GetEventType(),
+		retry:     et.GetRetryPolicy() == functionspb.EventTrigger_RETRY_POLICY_RETRY,
 	}
 }
 
@@ -163,48 +177,89 @@ func (b *InMemoryBackend) awaitDeploy(ctx context.Context, t target) target {
 	return t
 }
 
-// readyPort starts t's container if needed and returns its host port, or writes the error response.
-func (b *InMemoryBackend) readyPort(w http.ResponseWriter, r *http.Request, t target) (int, bool) {
+func internalRequest(r *http.Request) bool { return gcpserve.IsInternal(r) }
+
+// viaGCLB reports whether a Google Cloud load balancer forwarded the request (it adds "Via: 1.1 google").
+func viaGCLB(r *http.Request) bool {
+	return strings.Contains(strings.ToLower(strings.Join(r.Header.Values("Via"), ",")), "1.1 google")
+}
+
+func ingressAllowed(mode functionspb.ServiceConfig_IngressSettings, r *http.Request) bool {
+	switch mode { //nolint:exhaustive // unspecified and ALLOW_ALL accept every caller
+	case functionspb.ServiceConfig_ALLOW_INTERNAL_ONLY:
+		return internalRequest(r)
+	case functionspb.ServiceConfig_ALLOW_INTERNAL_AND_GCLB:
+		return internalRequest(r) || viaGCLB(r)
+	}
+
+	return true
+}
+
+// invoke runs r on an instance of t's function: it enforces ingress settings, waits for a deployment in flight,
+// takes a concurrency slot (starting an instance when allowed), applies the timeout and proxies the request.
+func (b *InMemoryBackend) invoke(w http.ResponseWriter, r *http.Request, t target) {
+	if !ingressAllowed(t.ingress, r) {
+		http.Error(w, "function does not accept requests from this source (ingress_settings)", http.StatusNotFound)
+
+		return
+	}
+
 	if t.state == functionspb.Function_DEPLOYING {
 		t = b.awaitDeploy(r.Context(), t)
 	}
 
-	switch t.state { //nolint:exhaustive // other states are serviceable or handled below
+	switch t.state { //nolint:exhaustive // other states are serviceable
 	case functionspb.Function_DEPLOYING:
 		http.Error(w, "function is still deploying", http.StatusServiceUnavailable)
 
-		return 0, false
+		return
 	case functionspb.Function_DELETING:
 		http.Error(w, "function is being deleted", http.StatusNotFound)
 
-		return 0, false
+		return
 	case functionspb.Function_FAILED:
 		http.Error(w, "function failed to deploy", http.StatusServiceUnavailable)
 
-		return 0, false
+		return
 	}
 
-	if err := b.startFunction(r.Context(), t.name); err != nil {
-		code := http.StatusBadGateway
-		if errors.Is(err, errNoRuntime) {
-			code = http.StatusServiceUnavailable
-		}
+	pool, err := b.poolFor(t.name)
+	if err != nil {
+		http.Error(w, "function was removed", http.StatusServiceUnavailable)
 
-		http.Error(w, "function is not serving: "+err.Error(), code)
-
-		return 0, false
+		return
 	}
 
-	b.mu.RLock("readyPort")
-	defer b.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(r.Context(), t.timeout)
+	defer cancel()
 
-	if rec := b.functions[t.name]; rec != nil && rec.hostPort != 0 {
-		return rec.hostPort, true
+	bx, release, err := pool.Acquire(ctx)
+	if err != nil {
+		code, msg := acquireFailure(err)
+		http.Error(w, msg, code)
+
+		return
+	}
+	defer release()
+
+	r = r.WithContext(ctx)
+	r.Header.Del(gcpserve.InternalNetworkHeader)
+	b.serveLogged(w, r, bx.port, b.invokeTarget(t.name, bx.id))
+}
+
+func acquireFailure(err error) (int, string) {
+	switch {
+	case errors.Is(err, gcpscale.ErrSaturated):
+		return http.StatusTooManyRequests, "no instance available: " + err.Error()
+	case errors.Is(err, context.DeadlineExceeded):
+		return http.StatusGatewayTimeout, "the request timed out before an instance served it"
+	case errors.Is(err, gcpscale.ErrClosed):
+		return http.StatusServiceUnavailable, "function is being redeployed; retry"
+	case errors.Is(err, errNoRuntime):
+		return http.StatusServiceUnavailable, "function is not serving: " + err.Error()
 	}
 
-	http.Error(w, "function was removed", http.StatusServiceUnavailable)
-
-	return 0, false
+	return http.StatusBadGateway, "function is not serving: " + err.Error()
 }
 
 func (b *InMemoryBackend) serveInvoke(w http.ResponseWriter, r *http.Request) {
@@ -222,15 +277,7 @@ func (b *InMemoryBackend) serveInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	port, ready := b.readyPort(w, r, t)
-	if !ready {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), t.timeout)
-	defer cancel()
-
-	b.serveLogged(w, r.WithContext(ctx), port, b.invokeTarget(t.name))
+	b.invoke(w, r, t)
 }
 
 type pushMessage struct {
@@ -268,10 +315,20 @@ func (b *InMemoryBackend) serveEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec := &statusRecorder{header: http.Header{}, code: http.StatusOK}
-	if port, ready := b.readyPort(rec, r, t); ready {
-		b.deliver(r.Context(), rec, port, t, env)
+	body, err := json.Marshal(env)
+	if err != nil {
+		http.Error(w, "encode event: "+err.Error(), http.StatusInternalServerError)
+
+		return
 	}
+
+	ev := gcpevents.CloudEvent{
+		ID: env.Message.MessageID, Type: EventTypePubSub, Source: "//pubsub.googleapis.com/" + t.topic,
+		Time: env.Message.PublishTime, ContentType: "application/json", Data: body,
+	}
+
+	rec := &statusRecorder{header: http.Header{}, code: http.StatusOK}
+	b.deliver(r.Context(), rec, t, ev)
 
 	if rec.code >= http.StatusBadRequest && !t.retry {
 		w.WriteHeader(http.StatusNoContent)
@@ -282,42 +339,34 @@ func (b *InMemoryBackend) serveEvent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(rec.code)
 }
 
-func (b *InMemoryBackend) deliver(ctx context.Context, rec *statusRecorder, port int, t target, env pushEnvelope) {
-	body, err := json.Marshal(env)
+// deliver sends ev to t's function the way Eventarc does: a POST in binary content mode from inside the network.
+func (b *InMemoryBackend) deliver(ctx context.Context, rec *statusRecorder, t target, ev gcpevents.CloudEvent) {
+	host := b.hostOf(t.name)
+
+	req, err := ev.NewRequest(ctx, "http://"+host+"/")
 	if err != nil {
 		rec.code = http.StatusInternalServerError
 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, t.timeout)
-	defer cancel()
+	req.Host = host
+	req.RemoteAddr = net.JoinHostPort(container.LoopbackHost, "0")
+	gcpserve.MarkInternal(req)
 
-	url := "http://" + net.JoinHostPort(container.LoopbackHost, strconv.Itoa(port)) + "/"
+	b.invoke(rec, req, t)
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+func (b *InMemoryBackend) hostOf(name string) string {
+	n, err := parseName(name)
 	if err != nil {
-		rec.code = http.StatusInternalServerError
-
-		return
+		return "localhost"
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Ce-Specversion", "1.0")
-	req.Header.Set("Ce-Id", env.Message.MessageID)
-	req.Header.Set("Ce-Type", EventTypePubSub)
-	req.Header.Set("Ce-Source", "//pubsub.googleapis.com/"+t.topic)
-	req.Header.Set("Ce-Time", env.Message.PublishTime)
+	b.mu.RLock("hostOf")
+	defer b.mu.RUnlock()
 
-	resp, err := (&http.Client{Transport: b.transport}).Do(req)
-	if err != nil {
-		rec.code = http.StatusBadGateway
-
-		return
-	}
-	defer resp.Body.Close()
-
-	rec.code = resp.StatusCode
+	return b.host(n)
 }
 
 // statusRecorder captures the status an internal step would have written.

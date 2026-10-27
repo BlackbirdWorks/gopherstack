@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -40,19 +41,15 @@ type ObjectReader interface {
 }
 
 type fnRec struct {
-	pb          *functionspb.Function
-	starting    chan struct{}
-	deployed    chan struct{}
-	failure     string
-	containerID string
-	startErr    string
-	srcDir      string
-	subName     string
-	zip         []byte
-	hostPort    int
-	revSeq      int
-	epoch       int
-	pending     int
+	pb       *functionspb.Function
+	pool     *gcpscale.Pool[box]
+	deployed chan struct{}
+	failure  string
+	subName  string
+	zip      []byte
+	revSeq   int
+	epoch    int
+	pending  int
 }
 
 type uploadRec struct {
@@ -73,10 +70,21 @@ type InMemoryBackend struct {
 	transport      *http.Transport
 	ops            *gcplro.Store
 	logs           *gcpserve.LogCapture
+	secrets        gcpserve.SecretResolver
+	buckets        BucketLookup
+	images         func(runtime, image string) string
+	clock          gcpscale.Clock
+	evCtx          context.Context //nolint:containedctx // cancels event redelivery on Reset and Close
+	evCancel       context.CancelFunc
+	evWG           *sync.WaitGroup
 	wg             *sync.WaitGroup
 	functions      map[string]*fnRec
 	uploads        map[string]*uploadRec
 	startupTimeout time.Duration
+	idleTimeout    time.Duration
+	retryMin       time.Duration
+	retryMax       time.Duration
+	retention      time.Duration
 	ingressPort    int
 	lastGen        int64
 }
@@ -92,7 +100,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 		wg:             &sync.WaitGroup{},
 		transport:      httpclient.NewTransport(),
 		startupTimeout: DefaultStartupTimeout,
+		clock:          gcpscale.RealClock{},
+		idleTimeout:    gcpscale.DefaultIdleTimeout,
+		retryMin:       DefaultRetryMin,
+		retryMax:       DefaultRetryMax,
+		retention:      DefaultRetention,
+		evWG:           &sync.WaitGroup{},
 	}
+	b.evCtx, b.evCancel = context.WithCancel(context.Background())
 	b.resetMaps()
 
 	return b
@@ -106,17 +121,14 @@ func (b *InMemoryBackend) resetMaps() {
 // Reset stops every function and clears all state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
-	boxes := b.takeAllLocked()
+	pools := b.takeAllLocked()
 	b.resetMaps()
 	b.mu.Unlock()
 
+	b.stopEvents()
 	b.ops.Reset()
 	b.wg.Wait()
-
-	for _, x := range boxes {
-		b.teardown(x)
-	}
-
+	closeAll(pools)
 	b.logs.Wait()
 }
 
@@ -186,22 +198,30 @@ func (b *InMemoryBackend) SetIngressPort(p int) {
 	b.ingressPort = p
 }
 
-// Drain blocks until every background deployment has finished.
-func (b *InMemoryBackend) Drain() { b.wg.Wait() }
+// Drain blocks until every background deployment and event delivery has finished.
+func (b *InMemoryBackend) Drain() {
+	b.wg.Wait()
+
+	b.mu.RLock("Drain")
+	wg := b.evWG
+	b.mu.RUnlock()
+
+	if wg != nil {
+		wg.Wait()
+	}
+}
 
 // Close stops all containers and releases idle connections.
 func (b *InMemoryBackend) Close() {
 	b.wg.Wait()
 
 	b.mu.Lock("Close")
-	boxes := b.takeAllLocked()
+	pools := b.takeAllLocked()
 	hook := b.onClose
 	b.mu.Unlock()
 
-	for _, x := range boxes {
-		b.teardown(x)
-	}
-
+	b.stopEvents()
+	closeAll(pools)
 	b.logs.Wait()
 	b.transport.CloseIdleConnections()
 

@@ -35,6 +35,7 @@ type fakeRuntime struct {
 	failRun error
 	gate    chan struct{}
 	boxes   map[string]*fakeContainer
+	hold    atomic.Pointer[chan struct{}]
 	started []container.Spec
 	reqs    []received
 	lines   []fakeLine
@@ -107,6 +108,14 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 		f.mu.Lock()
 		f.reqs = append(f.reqs, rec)
 		f.mu.Unlock()
+
+		if h := f.hold.Load(); h != nil {
+			select {
+			case <-*h:
+			case <-r.Context().Done():
+				return
+			}
+		}
 
 		w.WriteHeader(int(f.reply.Load()))
 		_ = json.NewEncoder(w).Encode(rec)
@@ -205,4 +214,14 @@ func (f *fakeRuntime) StreamLogs(ctx context.Context, id string, stdout, stderr 
 	}
 
 	return nil
+}
+
+// holdRequests makes every request block until the returned function is called.
+func (f *fakeRuntime) holdRequests() func() {
+	ch := make(chan struct{})
+	f.hold.Store(&ch)
+
+	var once sync.Once
+
+	return func() { once.Do(func() { close(ch) }) }
 }

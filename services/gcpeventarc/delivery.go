@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -249,6 +250,7 @@ func (b *InMemoryBackend) send(ctx context.Context, t *eventarcpb.Trigger, targe
 	}
 
 	req.Header.Set("Content-Type", contentTypeFor(t))
+	gcpserve.MarkInternal(req)
 	req.Header.Set("Ce-Specversion", "1.0")
 	req.Header.Set("Ce-Id", ev.id)
 	req.Header.Set("Ce-Source", ev.source)

@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/functions/apiv2/functionspb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -23,32 +24,38 @@ const (
 	envExtra        = 7
 )
 
-var (
-	errStartFailed = errors.New("function failed to start")
-	errStale       = errors.New("function was redeployed while starting; retry")
-)
+var errStartFailed = errors.New("function failed to start")
 
-// box is the container and scratch directory serving one function revision.
+// box is one running instance: its container, scratch directories and host port.
 type box struct {
 	id   string
-	dir  string
+	dirs []string
 	port int
 }
 
-func (b *InMemoryBackend) takeBoxLocked(r *fnRec) box {
-	x := box{id: r.containerID, dir: r.srcDir, port: r.hostPort}
-	r.containerID, r.srcDir, r.hostPort = "", "", 0
+func (b *InMemoryBackend) takePoolLocked(r *fnRec) *gcpscale.Pool[box] {
+	p := r.pool
+	r.pool = nil
 
-	return x
+	return p
 }
 
-func (b *InMemoryBackend) takeAllLocked() []box {
-	out := make([]box, 0, len(b.functions))
+func (b *InMemoryBackend) takeAllLocked() []*gcpscale.Pool[box] {
+	out := make([]*gcpscale.Pool[box], 0, len(b.functions))
+
 	for _, r := range b.functions {
-		out = append(out, b.takeBoxLocked(r))
+		if p := b.takePoolLocked(r); p != nil {
+			out = append(out, p)
+		}
 	}
 
 	return out
+}
+
+func closeAll(pools []*gcpscale.Pool[box]) {
+	for _, p := range pools {
+		p.Close()
+	}
 }
 
 func (b *InMemoryBackend) baseCtx() context.Context {
@@ -91,9 +98,11 @@ func (b *InMemoryBackend) stopContainer(r Runner, id string) {
 	}
 }
 
-// teardown stops x's container, frees its port and removes its source directory.
+// teardown stops x's container, frees its port and removes its scratch directories.
 func (b *InMemoryBackend) teardown(x box) {
-	removeDir(x.dir)
+	for _, d := range x.dirs {
+		removeDir(d)
+	}
 
 	if x.id != "" {
 		if r, err := b.runner(); err == nil {
@@ -112,15 +121,22 @@ func signatureType(fn *functionspb.Function) string {
 	return sigHTTP
 }
 
-func functionSpec(fn *functionspb.Function, rt *runtimeSpec, srcDir string, hostPort int) container.Spec {
+func functionSpec(
+	fn *functionspb.Function,
+	rt *runtimeSpec,
+	srcDir string,
+	hostPort int,
+	sec *secretSet,
+) container.Spec {
 	id := lastSegment(fn.GetName())
 	sc := fn.GetServiceConfig()
 
-	env := make([]string, 0, len(sc.GetEnvironmentVariables())+envExtra)
+	env := make([]string, 0, len(sc.GetEnvironmentVariables())+len(sec.env)+envExtra)
 	for k, v := range sc.GetEnvironmentVariables() {
 		env = append(env, k+"="+v)
 	}
 
+	env = append(env, sec.env...)
 	env = append(env,
 		"PORT="+strconv.Itoa(containerPort),
 		"FUNCTION_TARGET="+fn.GetBuildConfig().GetEntryPoint(),
@@ -135,7 +151,7 @@ func functionSpec(fn *functionspb.Function, rt *runtimeSpec, srcDir string, host
 		Image:      rt.image,
 		Name:       "gopherstack-gcf-" + id + "-" + strconv.Itoa(hostPort),
 		Env:        env,
-		Mounts:     []string{srcDir + ":" + srcMount + ":ro"},
+		Mounts:     append([]string{srcDir + ":" + srcMount + ":ro"}, sec.mounts...),
 		Entrypoint: []string{"sh", "-c"},
 		Cmd:        []string{rt.script()},
 		Ports: []string{
@@ -170,7 +186,7 @@ func materialize(data []byte, rt *runtimeSpec) (string, error) {
 	return dir, nil
 }
 
-// launch starts the container for fn and waits until it accepts connections.
+// launch starts one instance of fn and waits until it accepts connections.
 func (b *InMemoryBackend) launch(fn *functionspb.Function, data []byte) (box, error) {
 	rt, err := lookupRuntime(fn.GetBuildConfig().GetRuntime())
 	if err != nil {
@@ -182,16 +198,25 @@ func (b *InMemoryBackend) launch(fn *functionspb.Function, data []byte) (box, er
 		return box{}, err
 	}
 
+	rt = b.withImage(rt)
+
 	dir, err := materialize(data, rt)
 	if err != nil {
 		return box{}, err
 	}
 
-	pool := b.portPool()
-
-	port, err := gcpserve.AcquirePort(b.baseCtx(), pool, "gcpfunctions")
+	sec, err := b.mountSecrets(fn)
 	if err != nil {
 		removeDir(dir)
+		sec.cleanup()
+
+		return box{}, err
+	}
+
+	port, err := gcpserve.AcquirePort(b.baseCtx(), b.portPool(), "gcpfunctions")
+	if err != nil {
+		removeDir(dir)
+		sec.cleanup()
 
 		return box{}, fmt.Errorf("allocate host port: %w", err)
 	}
@@ -203,7 +228,7 @@ func (b *InMemoryBackend) launch(fn *functionspb.Function, data []byte) (box, er
 	ctx, cancel := context.WithTimeout(b.baseCtx(), timeout)
 	defer cancel()
 
-	id, err := runner.CreateAndStart(ctx, functionSpec(fn, rt, dir, port))
+	id, err := runner.CreateAndStart(ctx, functionSpec(fn, rt, dir, port, sec))
 	if err == nil {
 		b.captureOutput(runner, id, fn)
 
@@ -217,7 +242,7 @@ func (b *InMemoryBackend) launch(fn *functionspb.Function, data []byte) (box, er
 		}
 	}
 
-	x := box{id: id, dir: dir, port: port}
+	x := box{id: id, dirs: append([]string{dir}, sec.dirs...), port: port}
 	if err != nil {
 		x.id = ""
 		b.teardown(x)
@@ -228,74 +253,64 @@ func (b *InMemoryBackend) launch(fn *functionspb.Function, data []byte) (box, er
 	return x, nil
 }
 
-// startFunction starts name's container once; concurrent callers wait for the same start.
-func (b *InMemoryBackend) startFunction(ctx context.Context, name string) error {
-	b.mu.Lock("startFunction")
+// newPoolLocked builds the instance pool for rec's current revision.
+func (b *InMemoryBackend) newPoolLocked(rec *fnRec) *gcpscale.Pool[box] {
+	pb, data := clone(rec.pb), rec.zip
+	sc := pb.GetServiceConfig()
+
+	return gcpscale.New(lastSegment(pb.GetName()), gcpscale.Config[box]{
+		Start: func(context.Context) (box, error) { return b.launch(pb, data) },
+		Stop:  b.teardown,
+		Limits: func() gcpscale.Limits {
+			return gcpscale.Limits{
+				Min:         int(sc.GetMinInstanceCount()),
+				Max:         int(sc.GetMaxInstanceCount()),
+				Concurrency: int(sc.GetMaxInstanceRequestConcurrency()),
+			}
+		},
+		Clock:       b.clock,
+		Base:        b.runCtx,
+		IdleTimeout: b.idleTimeout,
+	})
+}
+
+// poolFor returns name's instance pool, creating it on first use.
+func (b *InMemoryBackend) poolFor(name string) (*gcpscale.Pool[box], error) {
+	b.mu.Lock("poolFor")
+	defer b.mu.Unlock()
 
 	r, ok := b.functions[name]
 	if !ok {
-		b.mu.Unlock()
-
-		return errStartFailed
+		return nil, errStartFailed
 	}
 
-	if r.containerID != "" {
-		b.mu.Unlock()
-
-		return nil
+	if r.pool == nil {
+		r.pool = b.newPoolLocked(r)
 	}
 
-	if ch := r.starting; ch != nil {
-		b.mu.Unlock()
-
-		select {
-		case <-ch:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-
-		return b.startResult(name)
-	}
-
-	r.starting = make(chan struct{})
-	ch, pb, data, epoch := r.starting, clone(r.pb), r.zip, r.epoch
-	b.mu.Unlock()
-
-	x, err := b.launch(pb, data)
-
-	b.mu.Lock("startFunction.done")
-
-	cur, still := b.functions[name]
-	if still && cur.epoch != epoch && err == nil {
-		err = errStale
-	}
-
-	if still {
-		cur.starting, cur.startErr = nil, ""
-
-		if err != nil {
-			cur.startErr = err.Error()
-		} else {
-			cur.containerID, cur.srcDir, cur.hostPort = x.id, x.dir, x.port
-		}
-	}
-	b.mu.Unlock()
-	close(ch)
-
-	if (!still || err != nil) && x.id != "" {
-		b.teardown(x)
-	}
-
-	return err
+	return r.pool, nil
 }
 
-func (b *InMemoryBackend) startResult(name string) error {
-	b.mu.RLock("startResult")
-	defer b.mu.RUnlock()
+// SetImageResolver lets the base image of a runtime be replaced, for example with a mirror. The resolver gets the
+// runtime id and its default image.
+func (b *InMemoryBackend) SetImageResolver(fn func(runtime, image string) string) {
+	b.mu.Lock("SetImageResolver")
+	defer b.mu.Unlock()
 
-	if r, ok := b.functions[name]; ok && r.startErr != "" {
-		return fmt.Errorf("%w: %s", errStartFailed, r.startErr)
+	b.images = fn
+}
+
+func (b *InMemoryBackend) withImage(rt *runtimeSpec) *runtimeSpec {
+	b.mu.RLock("withImage")
+	fn := b.images
+	b.mu.RUnlock()
+
+	if fn == nil {
+		return rt
 	}
 
-	return nil
+	out := *rt
+	out.image = fn(rt.id, rt.image)
+
+	return &out
 }
