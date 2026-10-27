@@ -13,7 +13,7 @@ export const AZURE_PORTS = {
   eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, file: 10009, monitor: 10013, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
 };
 
-export const OCI_PORTS = { objectstorage: 8150, vault: 8151, streaming: 8152, identity: 8153, functions: 8154, core: 8155 };
+export const OCI_PORTS = { objectstorage: 8150, vault: 8151, streaming: 8152, identity: 8153, functions: 8154, core: 8155, queue: 8156, notifications: 8157 };
 
 export const GCP_PORTS = {
   storage: 4443, firestore: 8080, pubsub: 8085, secretmanager: 8086, kms: 8087,
@@ -112,7 +112,7 @@ export class StartedGopherstackContainer {
     );
   }
 
-  /** http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client host. */
+  /** http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core, queue, notifications), usable as the OCI SDK client host. */
   getOciEndpoint(service) {
     const port = OCI_PORTS[String(service).toLowerCase()];
     if (port === undefined) throw new Error(`unknown oci service "${service}"`);

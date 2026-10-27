@@ -238,7 +238,9 @@ import (
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	ociqueuebackend "github.com/blackbirdworks/gopherstack/services/ociqueue"
 	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
 	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
@@ -686,6 +688,8 @@ type CLI struct {
 	OCIIdentity                   ociidentitybackend.Settings       `embed:"" prefix:"oci-identity-"`
 	OCIFunctions                  ocifunctionsbackend.Settings      `embed:"" prefix:"oci-functions-"`
 	OCICore                       ocicorebackend.Settings           `embed:"" prefix:"oci-core-"`
+	OCIQueue                      ociqueuebackend.Settings          `embed:"" prefix:"oci-queue-"`
+	OCINotifications              ocinotificationsbackend.Settings  `embed:"" prefix:"oci-notifications-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -881,6 +885,16 @@ func (c *CLI) GetOCIFunctionsSettings() ocifunctionsbackend.Settings {
 // GetOCIStreamingSettings returns OCI Streaming settings (ocistreaming.ConfigProvider).
 func (c *CLI) GetOCIStreamingSettings() ocistreamingbackend.Settings {
 	return c.OCIStreaming
+}
+
+// GetOCIQueueSettings returns OCI Queue settings (ociqueue.ConfigProvider).
+func (c *CLI) GetOCIQueueSettings() ociqueuebackend.Settings {
+	return c.OCIQueue
+}
+
+// GetOCINotificationsSettings returns OCI Notifications settings (ocinotifications.ConfigProvider).
+func (c *CLI) GetOCINotificationsSettings() ocinotificationsbackend.Settings {
+	return c.OCINotifications
 }
 
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
@@ -2626,6 +2640,8 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIIdentity", "ociidentity", cli.OCIIdentity.Port},
 		{"OCIFunctions", "ocifunctions", cli.OCIFunctions.Port},
 		{"OCICore", "ocicore", cli.OCICore.Port},
+		{"OCIQueue", "ociqueue", cli.OCIQueue.Port},
+		{"OCINotifications", "ocinotifications", cli.OCINotifications.Port},
 	}
 }
 
@@ -3612,6 +3628,7 @@ func wireCrossServiceDependencies(
 	wireGovernanceIntegrations(byName, services)
 	wireOCIStreamingVault(byName)
 	wireOCIIdentityKeys(byName)
+	wireOCIQueueNotifications(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -3621,6 +3638,27 @@ func wireOCIStreamingVault(byName map[string]service.Registerable) {
 
 	if sok && vok {
 		streamingH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+	}
+}
+
+// wireOCIQueueNotifications lets OCI Queue validate customEncryptionKeyId against OCI Vault keys and lets OCI
+// Notifications invoke OCI Functions for ORACLE_FUNCTIONS subscriptions.
+func wireOCIQueueNotifications(byName map[string]service.Registerable) {
+	if queueH, ok := byName["OCIQueue"].(*ociqueuebackend.Handler); ok {
+		if vaultH, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
+			queueH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+		}
+	}
+
+	if notifyH, ok := byName["OCINotifications"].(*ocinotificationsbackend.Handler); ok {
+		if fnH, found := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); found {
+			notifyH.Backend.SetFunctionInvoker(
+				func(ctx context.Context, fnID string, h http.Header, body []byte) error {
+					_, err := fnH.Backend.Invoke(ctx, fnID, ocifunctionsbackend.InvokeIn{Header: h, Body: body})
+
+					return err
+				})
+		}
 	}
 }
 
@@ -3650,6 +3688,14 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 	if h, found := byName["OCICore"].(*ocicorebackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+	}
+
+	if h, found := byName["OCIQueue"].(*ociqueuebackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCINotifications"].(*ocinotificationsbackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
 	}
 }
 
@@ -5060,6 +5106,8 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ociidentitybackend.Provider{},
 		&ocifunctionsbackend.Provider{},
 		&ocicorebackend.Provider{},
+		&ociqueuebackend.Provider{},
+		&ocinotificationsbackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},

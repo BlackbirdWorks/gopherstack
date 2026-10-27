@@ -59,7 +59,7 @@ const (
 )
 
 func ociPorts() map[string]string {
-	return map[string]string{"objectstorage": "8150", "vault": "8151", "streaming": "8152", "identity": "8153", "functions": "8154", "core": "8155"}
+	return map[string]string{"objectstorage": "8150", "vault": "8151", "streaming": "8152", "identity": "8153", "functions": "8154", "core": "8155", "queue": "8156", "notifications": "8157"}
 }
 
 func gcpPorts() map[string]string {
@@ -327,7 +327,7 @@ func (c *Container) GCPEndpoint(ctx context.Context, service string) (string, er
 	return c.hostPort(ctx, port)
 }
 
-// OCIEndpoint returns the http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client Host.
+// OCIEndpoint returns the http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core, queue, notifications), usable as the OCI SDK client Host.
 func (c *Container) OCIEndpoint(ctx context.Context, service string) (string, error) {
 	port, ok := ociPorts()[strings.ToLower(service)]
 	if !ok {

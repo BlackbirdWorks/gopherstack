@@ -35,7 +35,7 @@ AZURE_PORTS = {
     "cosmosdb": 8081,
 }
 
-OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155}
+OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155, "queue": 8156, "notifications": 8157}
 
 GCP_PORTS = {
     "storage": 4443,
@@ -158,7 +158,7 @@ class GopherstackContainer(DockerContainer):
         )
 
     def get_oci_endpoint(self, service: str) -> str:
-        """http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client host."""
+        """http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core, queue, notifications), usable as the OCI SDK client host."""
         try:
             port = OCI_PORTS[service.lower()]
         except KeyError:
