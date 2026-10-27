@@ -563,7 +563,7 @@ func TestFunctionsDelivery(t *testing.T) {
 			if tt.invoker != nil {
 				e.backend.SetFunctionInvoker(func(ctx context.Context, fn string, h http.Header, body []byte) error {
 					mu.Lock()
-					seen = append(seen, fn+"|"+string(body)+"|"+strings.Join(h["X-OCI-NS-TopicName"], ","))
+					seen = append(seen, fn+"|"+string(body)+"|"+headerValue(h, "x-oci-ns-topicname"))
 					mu.Unlock()
 
 					return tt.invoker(ctx, fn, h, body)
@@ -618,4 +618,15 @@ func TestFunctionsRetryOnError(t *testing.T) {
 
 		return len(ds) == 1 && ds[0].Attempts == 2 && ds[0].LastError == "function failed"
 	}, 5*time.Second, 5*time.Millisecond)
+}
+
+// headerValue reads a header whose key keeps Oracle's documented casing, so Header.Get cannot find it.
+func headerValue(h http.Header, name string) string {
+	for k, v := range h {
+		if strings.EqualFold(k, name) && len(v) > 0 {
+			return v[0]
+		}
+	}
+
+	return ""
 }
