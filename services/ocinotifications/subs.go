@@ -60,7 +60,7 @@ type UpdateSubscriptionIn struct {
 	DeliveryPolicy *deliveryPolicyWire `json:"deliveryPolicy"`
 }
 
-type subWire struct {
+type SubWire struct {
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
 	ID             string                    `json:"id"`
@@ -88,7 +88,7 @@ type subSummaryWire struct {
 	CreatedTime    int64                     `json:"createdTime"`
 }
 
-type confirmationWire struct {
+type ConfirmationWire struct {
 	TopicName      string `json:"topicName"`
 	TopicID        string `json:"topicId"`
 	Endpoint       string `json:"endpoint"`
@@ -103,10 +103,10 @@ func policyOf(s *Subscription) deliveryPolicyWire {
 	}
 }
 
-func subView(s *Subscription) subWire {
+func subView(s *Subscription) SubWire {
 	pol, _ := json.Marshal(policyOf(s)) //nolint:errchkjson // static shape
 
-	return subWire{
+	return SubWire{
 		ID:             s.ID,
 		TopicID:        s.TopicID,
 		Protocol:       s.Protocol,
@@ -206,17 +206,17 @@ func unsubscribeURL(s *Subscription) string {
 
 // CreateSubscription subscribes an endpoint to a topic; protocols that need it start PENDING and are sent a
 // confirmation.
-func (b *InMemoryBackend) CreateSubscription(in CreateSubscriptionIn, baseURL string) (subWire, error) {
+func (b *InMemoryBackend) CreateSubscription(in CreateSubscriptionIn, baseURL string) (SubWire, error) {
 	if in.TopicID == "" || in.Compartment == "" {
-		return subWire{}, errMissing("topicId and compartmentId are required")
+		return SubWire{}, errMissing("topicId and compartmentId are required")
 	}
 
 	if in.Protocol == "" {
-		return subWire{}, errMissing("protocol is required")
+		return SubWire{}, errMissing("protocol is required")
 	}
 
 	if aerr := validateEndpoint(in.Protocol, in.Endpoint); aerr != nil {
-		return subWire{}, aerr
+		return SubWire{}, aerr
 	}
 
 	b.mu.Lock("CreateSubscription")
@@ -224,12 +224,12 @@ func (b *InMemoryBackend) CreateSubscription(in CreateSubscriptionIn, baseURL st
 
 	topic, aerr := b.activeTopic(in.TopicID)
 	if aerr != nil {
-		return subWire{}, aerr
+		return SubWire{}, aerr
 	}
 
 	for _, s := range b.subs {
 		if s.TopicID == in.TopicID && s.Protocol == in.Protocol && s.Endpoint == in.Endpoint {
-			return subWire{}, errExists("The endpoint is already subscribed to this topic")
+			return SubWire{}, errExists("The endpoint is already subscribed to this topic")
 		}
 	}
 
@@ -254,13 +254,13 @@ func (b *InMemoryBackend) CreateSubscription(in CreateSubscriptionIn, baseURL st
 }
 
 // GetSubscription returns one subscription.
-func (b *InMemoryBackend) GetSubscription(id string) (subWire, error) {
+func (b *InMemoryBackend) GetSubscription(id string) (SubWire, error) {
 	b.mu.Lock("GetSubscription")
 	defer b.mu.Unlock()
 
 	s, aerr := b.sub(id)
 	if aerr != nil {
-		return subWire{}, aerr
+		return SubWire{}, aerr
 	}
 
 	return subView(s), nil
@@ -421,13 +421,13 @@ func (b *InMemoryBackend) tokenSub(id, token, protocol string, unsub bool) (*Sub
 }
 
 // ConfirmSubscription activates a PENDING subscription from the token sent to its endpoint.
-func (b *InMemoryBackend) ConfirmSubscription(id, token, protocol string) (confirmationWire, error) {
+func (b *InMemoryBackend) ConfirmSubscription(id, token, protocol string) (ConfirmationWire, error) {
 	b.mu.Lock("ConfirmSubscription")
 	defer b.mu.Unlock()
 
 	s, topic, aerr := b.tokenSub(id, token, protocol, false)
 	if aerr != nil {
-		return confirmationWire{}, aerr
+		return ConfirmationWire{}, aerr
 	}
 
 	if s.State == subPending {
@@ -441,7 +441,7 @@ func (b *InMemoryBackend) ConfirmSubscription(id, token, protocol string) (confi
 		name = topic.Name
 	}
 
-	return confirmationWire{
+	return ConfirmationWire{
 		TopicName: name, TopicID: s.TopicID, Endpoint: s.Endpoint, UnsubscribeURL: unsubscribeURL(s),
 		Message: "Subscription confirmed", SubscriptionID: s.ID,
 	}, nil
@@ -463,24 +463,24 @@ func (b *InMemoryBackend) Unsubscribe(id, token, protocol string) (string, error
 }
 
 // ResendConfirmation sends a PENDING subscription's confirmation again.
-func (b *InMemoryBackend) ResendConfirmation(id string) (subWire, string, error) {
+func (b *InMemoryBackend) ResendConfirmation(id string) (SubWire, string, error) {
 	b.mu.Lock("ResendConfirmation")
 	defer b.mu.Unlock()
 
 	s, aerr := b.sub(id)
 	if aerr != nil {
-		return subWire{}, "", aerr
+		return SubWire{}, "", aerr
 	}
 
 	if s.State != subPending {
-		return subWire{}, "", errState(
+		return SubWire{}, "", errState(
 			"Subscription " + id + " is " + s.State + "; only PENDING subscriptions can be resent",
 		)
 	}
 
 	topic, aerr := b.activeTopic(s.TopicID)
 	if aerr != nil {
-		return subWire{}, "", aerr
+		return SubWire{}, "", aerr
 	}
 
 	b.cancelConfirmations(s.ID)

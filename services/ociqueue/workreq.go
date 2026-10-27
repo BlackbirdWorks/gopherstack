@@ -16,7 +16,7 @@ type wrResourceWire struct {
 	EntityURI  string `json:"entityUri,omitempty"`
 }
 
-type workRequestWire struct {
+type WorkRequestWire struct {
 	TimeAccepted    time.Time        `json:"timeAccepted"`
 	TimeStarted     *time.Time       `json:"timeStarted,omitempty"`
 	TimeFinished    *time.Time       `json:"timeFinished,omitempty"`
@@ -44,9 +44,9 @@ func (b *InMemoryBackend) newWR(op, compartment, id, action, uri string, finish 
 	return wr.ID
 }
 
-func (b *InMemoryBackend) wrView(wr *WorkRequest) workRequestWire {
+func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
 	now := b.nowUTC()
-	out := workRequestWire{
+	out := WorkRequestWire{
 		OperationType: wr.Operation, ID: wr.ID, CompartmentID: wr.CompartmentID, TimeAccepted: wr.Accepted,
 		Status: "IN_PROGRESS", PercentComplete: halfComplete, TimeStarted: &wr.Accepted,
 		Resources: []wrResourceWire{{
@@ -63,13 +63,13 @@ func (b *InMemoryBackend) wrView(wr *WorkRequest) workRequestWire {
 }
 
 // GetWorkRequest returns one work request.
-func (b *InMemoryBackend) GetWorkRequest(id string) (workRequestWire, error) {
+func (b *InMemoryBackend) GetWorkRequest(id string) (WorkRequestWire, error) {
 	b.mu.RLock("GetWorkRequest")
 	defer b.mu.RUnlock()
 
 	wr, ok := b.workReqs[id]
 	if !ok {
-		return workRequestWire{}, errNotFound(id)
+		return WorkRequestWire{}, errNotFound(id)
 	}
 
 	return b.wrView(wr), nil
@@ -78,9 +78,9 @@ func (b *InMemoryBackend) GetWorkRequest(id string) (workRequestWire, error) {
 // ListWorkRequests lists the work requests of a compartment, optionally for one resource.
 func (b *InMemoryBackend) ListWorkRequests(
 	compartment, resourceID, id string, o ListOpts,
-) (page.Page[workRequestWire], error) {
+) (page.Page[WorkRequestWire], error) {
 	if compartment == "" && id == "" {
-		return page.Page[workRequestWire]{}, errMissing("compartmentId is required")
+		return page.Page[WorkRequestWire]{}, errMissing("compartmentId is required")
 	}
 
 	b.mu.RLock("ListWorkRequests")
@@ -100,12 +100,12 @@ func (b *InMemoryBackend) ListWorkRequests(
 	pg := paginate(all, o, func(w *WorkRequest) string { return w.ID },
 		func(w *WorkRequest) (time.Time, int64) { return w.Accepted, w.Seq })
 
-	out := make([]workRequestWire, 0, len(pg.Data))
+	out := make([]WorkRequestWire, 0, len(pg.Data))
 	for _, wr := range pg.Data {
 		out = append(out, b.wrView(wr))
 	}
 
-	return page.Page[workRequestWire]{Data: out, Next: pg.Next}, nil
+	return page.Page[WorkRequestWire]{Data: out, Next: pg.Next}, nil
 }
 
 // WorkRequestLogs returns the log entries of a work request.
