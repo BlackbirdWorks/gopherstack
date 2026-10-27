@@ -2,6 +2,6 @@ azure-storage-blob==12.31.0
 azure-storage-queue==12.18.0
 azure-data-tables==12.7.0
 azure-cosmos==4.17.1
-boto3==1.43.111
+boto3==1.43.112
 botocore==1.43.115
 s3transfer==0.19.3

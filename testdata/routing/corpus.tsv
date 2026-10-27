@@ -7326,7 +7326,9 @@ POST	localhost:4566	/		application/x-amz-json-1.1	AWSGlue.BatchGetCrawlers	{}		G
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.BatchGetCustomEntityTypes	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/		application/x-amz-json-1.1	AWSGlue.BatchGetCustomEntityTypes	{}		Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.BatchGetDataQualityResult	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
+POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.BatchGetDataQualityResultV2	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/		application/x-amz-json-1.1	AWSGlue.BatchGetDataQualityResult	{}		Glue	Glue
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSGlue.BatchGetDataQualityResultV2	{}		Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.BatchGetDataQualityRulesetEvaluationRun	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/		application/x-amz-json-1.1	AWSGlue.BatchGetDataQualityRulesetEvaluationRun	{}		Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.BatchGetDevEndpoints	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
@@ -7459,6 +7461,7 @@ POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetDataflowGraph	{
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetDataQualityModel	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetDataQualityModelResult	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetDataQualityResult	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
+POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetDataQualityResultV2	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetDataQualityRuleRecommendationRun	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetDataQualityRuleset	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetDataQualityRulesetEvaluationRun	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
@@ -7525,6 +7528,8 @@ POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListCrawlers	{}	Us
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListCrawls	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListCustomEntityTypes	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListDataQualityResults	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
+POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListDataQualityResultsV2	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
+POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.PublishDataQualityResultV2	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListDataQualityRuleRecommendationRuns	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListDataQualityRulesetEvaluationRuns	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
 POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListDataQualityRulesets	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue

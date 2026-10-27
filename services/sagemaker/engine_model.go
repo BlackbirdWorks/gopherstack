@@ -291,7 +291,6 @@ func (e *engineState) ping(ctx context.Context, rc *runningContainer) bool {
 		return false
 	}
 
-	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 
 	return resp.StatusCode == http.StatusOK

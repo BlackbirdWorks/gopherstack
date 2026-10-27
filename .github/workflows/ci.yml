@@ -189,7 +189,7 @@ jobs:
       - name: Install Linux webview dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: Verify build with all tag combinations
         run: task build-check
@@ -199,7 +199,7 @@ jobs:
         run: |
           mkdir -p ../dashboard/static/spa
           touch ../dashboard/static/spa/.keep
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -tags "production,webkit2_41" -o /dev/null .
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -tags "production" -o /dev/null .
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -tags "production" -ldflags "-H windowsgui" -o /dev/null .
           CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -buildvcs=false -tags "production" -ldflags "-H windowsgui" -o /dev/null .
 
@@ -380,7 +380,7 @@ jobs:
 
       - name: Upload govulncheck SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           sarif_file: govulncheck.sarif
           category: govulncheck
@@ -452,7 +452,7 @@ jobs:
           free -h
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           languages: ${{ matrix.language }}
           build-mode: 'manual'
@@ -464,7 +464,7 @@ jobs:
         run: go build -p 2 ./...
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           category: "/language:${{ matrix.language }}"
 

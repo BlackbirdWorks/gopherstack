@@ -1,5 +1,5 @@
 service: bedrock
-sdk_module: aws-sdk-go-v2/service/bedrock@v1.73.3
+sdk_module: aws-sdk-go-v2/service/bedrock@v1.73.4
 last_audit_commit: d9715a7fd
 last_audit_date: 2026-10-07
 overall: A            # RESTORED A-->A (parity-5, 2026-07-31, follow-up pass): the

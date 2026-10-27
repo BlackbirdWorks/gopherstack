@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transcribe
-sdk_module: aws-sdk-go-v2/service/transcribe@v1.66.3   # version audited against
+sdk_module: aws-sdk-go-v2/service/transcribe@v1.66.4   # version audited against
 last_audit_commit: 7480cad08                      # HEAD after the 2026-09-19 list-summary-shapes sweep
 last_audit_date: 2026-10-07
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op

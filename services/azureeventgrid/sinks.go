@@ -3,7 +3,6 @@ package azureeventgrid
 import (
 	"bytes"
 	"context"
-	"io"
 	"maps"
 	"net/http"
 	"strconv"
@@ -68,8 +67,6 @@ func (b *InMemoryBackend) deliverWebhook(ctx context.Context, j job) outcome {
 	}
 
 	defer resp.Body.Close()
-
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBytes))
 
 	return statusOutcome(resp.StatusCode)
 }

@@ -1,6 +1,6 @@
 ---
 service: ec2
-sdk_module: aws-sdk-go-v2/service/ec2@v1.338.3   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
+sdk_module: aws-sdk-go-v2/service/ec2@v1.338.4   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit: 5cb6665a0   # was 30db30dd8
 last_audit_date: 2026-10-11
 overall: A   # Filter.N sweep, 2026-10-01 second pass: DescribeRegions (endpoint, region-name),

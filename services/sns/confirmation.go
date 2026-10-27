@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -130,7 +129,6 @@ func (b *InMemoryBackend) deliverSubscriptionConfirmation(
 		return
 	}
 
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
 	_ = resp.Body.Close()
 }
 

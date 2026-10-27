@@ -1,6 +1,6 @@
 ---
 service: lambda
-sdk_module: aws-sdk-go-v2/service/lambda@v1.112.0
+sdk_module: aws-sdk-go-v2/service/lambda@v1.112.2
 last_audit_commit: 51ea2ace0
 last_audit_date: 2026-10-07
 overall: A   # 2026-09-26: Invoke's durable-execution wiring closed the last two items_still_open entries; all gates green

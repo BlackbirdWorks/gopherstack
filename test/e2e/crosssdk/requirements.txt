@@ -23,9 +23,9 @@ azure-storage-queue==12.18.0 \
     --hash=sha256:672dac5a7df2e93134f1b8ac6dc0df29823b9daa490b61bda1f88601403b5aa9 \
     --hash=sha256:a91e5dce29279aa8528ee6a43a5aed10e22de94dae9a4c5dccbd4d1aee2cc5c1
     # via -r requirements.in
-boto3==1.43.111 \
-    --hash=sha256:5ae342a16c848909cd42d4be404f69d9082e5705460198d4d3327eca5f6cddcb \
-    --hash=sha256:c79994619c8d89e45f6fd0edc5c5b5a70c9358f00423f4c99cb64931f89ecf37
+boto3==1.43.112 \
+    --hash=sha256:add1216791e16c4f737676a0f5d6d2fa6240eef61619c6c44df9eeeaf88f24ff \
+    --hash=sha256:599548a8c8e93cf0223bcb35b615c82f29d30295e992b94863cfbb2405ee33e5
     # via -r requirements.in
 botocore==1.43.115 \
     --hash=sha256:9ceda640c868bc15f5399129e8cfdef8cbb4b350e8a99547c9b5f477cfb9619a \

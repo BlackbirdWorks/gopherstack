@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -17,8 +16,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
-
-const drainLimit = 1 << 20
 
 // result is what came back from one attempt; sc is 0 when no HTTP response arrived.
 type result struct {
@@ -132,7 +129,6 @@ func (b *InMemoryBackend) deliver(ctx context.Context, a attempt) result {
 		return result{err: err}
 	}
 
-	_, _ = io.CopyN(io.Discard, resp.Body, drainLimit)
 	_ = resp.Body.Close()
 
 	return result{sc: resp.StatusCode}

@@ -1,6 +1,6 @@
 ---
 service: securityhub
-sdk_module: aws-sdk-go-v2/service/securityhub@v1.84.0
+sdk_module: aws-sdk-go-v2/service/securityhub@v1.84.1
 last_audit_commit: b7c35baea  # 2026-09-19 terraform-coverage sweep (guardduty-and-securityhub); prior: 75c14a90f
 last_audit_date: 2026-10-07
 overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, SecurityHub V2 opt-in

@@ -131,16 +131,28 @@ func (b *InMemoryBackend) launch(r ref) {
 	ctx, cancel := context.WithCancel(b.ctx)
 	b.cancels[r.key()] = cancel
 
+	if b.running == 0 {
+		b.idle = make(chan struct{})
+	}
+
+	b.running++
+
 	b.mu.Unlock()
 
-	b.wg.Go(func() {
+	go func() {
 		defer func() {
 			cancel()
 			b.mu.Lock("launch.done")
 			delete(b.cancels, r.key())
+
+			if b.running--; b.running == 0 {
+				close(b.idle)
+				b.idle = nil
+			}
+
 			b.mu.Unlock()
 		}()
 
 		b.execute(ctx, r)
-	})
+	}()
 }

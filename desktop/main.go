@@ -13,12 +13,8 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/internal/app"
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	"github.com/wailsapp/wails/v2/pkg/menu/keys"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed loading
@@ -33,8 +29,9 @@ const (
 )
 
 type desktop struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
+	app      *application.App
+	window   *application.WebviewWindow
+	cancel   func()
 	domReady chan struct{}
 	errs     chan error
 	stopped  chan struct{}
@@ -47,9 +44,7 @@ func (d *desktop) url() string {
 	return "http://127.0.0.1:" + strconv.Itoa(d.port) + "/dashboard"
 }
 
-func (d *desktop) startup(ctx context.Context) {
-	d.ctx = ctx
-
+func (d *desktop) startup() {
 	srvCtx, cancel := context.WithCancel(context.Background())
 	d.cancel = cancel
 
@@ -83,21 +78,20 @@ func (d *desktop) startup(ctx context.Context) {
 				return
 			}
 
-			runtime.WindowExecJS(ctx, `window.location.replace(`+strconv.Quote(d.url())+`)`)
+			d.window.SetURL(d.url())
 		}
 	}()
 }
 
 func (d *desktop) fail(err error) {
-	_, _ = runtime.MessageDialog(d.ctx, runtime.MessageDialogOptions{
-		Type:    runtime.ErrorDialog,
-		Title:   "Gopherstack",
-		Message: "Failed to start the Gopherstack server: " + err.Error(),
-	})
-	runtime.Quit(d.ctx)
+	d.app.Dialog.Error().
+		SetTitle("Gopherstack").
+		SetMessage("Failed to start the Gopherstack server: " + err.Error()).
+		Show()
+	d.app.Quit()
 }
 
-func (d *desktop) shutdown(context.Context) {
+func (d *desktop) shutdown() {
 	if d.cancel == nil {
 		return
 	}
@@ -110,19 +104,19 @@ func (d *desktop) shutdown(context.Context) {
 	}
 }
 
-func (d *desktop) menu() *menu.Menu {
-	m := menu.NewMenu()
+func (d *desktop) menu() *application.Menu {
+	m := d.app.NewMenu()
 
 	file := m.AddSubmenu("Gopherstack")
-	file.AddText("Reload", keys.CmdOrCtrl("r"), func(*menu.CallbackData) {
-		runtime.WindowReloadApp(d.ctx)
+	file.Add("Reload").SetAccelerator("CmdOrCtrl+R").OnClick(func(*application.Context) {
+		d.window.Reload()
 	})
-	file.AddText("Open in Browser", keys.CmdOrCtrl("b"), func(*menu.CallbackData) {
-		runtime.BrowserOpenURL(d.ctx, d.url())
+	file.Add("Open in Browser").SetAccelerator("CmdOrCtrl+B").OnClick(func(*application.Context) {
+		_ = d.app.Browser.OpenURL(d.url())
 	})
 	file.AddSeparator()
-	file.AddText("Quit", keys.CmdOrCtrl("q"), func(*menu.CallbackData) {
-		runtime.Quit(d.ctx)
+	file.Add("Quit").SetAccelerator("CmdOrCtrl+Q").OnClick(func(*application.Context) {
+		d.app.Quit()
 	})
 
 	return m
@@ -143,17 +137,30 @@ func main() {
 		stopped:  make(chan struct{}),
 	}
 
-	err = wails.Run(&options.App{
-		Title:       "Gopherstack",
-		Width:       windowWidth,
-		Height:      windowHeight,
-		AssetServer: &assetserver.Options{Assets: loadingFS()},
-		Menu:        d.menu(),
-		OnStartup:   d.startup,
-		OnDomReady:  func(context.Context) { d.domOnce.Do(func() { close(d.domReady) }) },
+	d.app = application.New(application.Options{
+		Name:        "Gopherstack",
+		Description: "AWS emulator with a native dashboard window",
+		Assets:      application.AssetOptions{Handler: application.BundledAssetFileServer(loadingFS())},
 		OnShutdown:  d.shutdown,
 	})
-	if err != nil {
+
+	d.app.Menu.Set(d.menu())
+
+	d.window = d.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:              "Gopherstack",
+		Width:              windowWidth,
+		Height:             windowHeight,
+		UseApplicationMenu: true,
+	})
+	d.window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		d.domOnce.Do(func() { close(d.domReady) })
+	})
+
+	d.app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		d.startup()
+	})
+
+	if err = d.app.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}

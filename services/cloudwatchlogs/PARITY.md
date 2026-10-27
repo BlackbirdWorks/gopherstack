@@ -1,6 +1,6 @@
 ---
 service: cloudwatchlogs
-sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.89.2
+sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.89.3
 last_audit_commit: 2bc650bf9  # 2026-09-19 terraform glue-and-cloudwatch-logs (anomaly detector visibility-time unit bug)
 last_audit_date: 2026-10-07
 overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read dataSourceType

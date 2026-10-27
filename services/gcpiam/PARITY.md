@@ -1,6 +1,6 @@
 ---
 service: gcpiam
-sdk_module: cloud.google.com/go/iam@v1.12.0
+sdk_module: cloud.google.com/go/iam@v1.14.0
 last_audit_commit: 880da1baa
 last_audit_date: 2026-10-19
 overall: B

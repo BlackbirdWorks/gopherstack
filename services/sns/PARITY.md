@@ -1,6 +1,6 @@
 ---
 service: sns
-sdk_module: aws-sdk-go-v2/service/sns@v1.47.4
+sdk_module: aws-sdk-go-v2/service/sns@v1.47.5
 last_audit_commit: a72029cb1  # 2026-09-24 replayMessagesToSubscription deliveryWg tracking fix (bd 1x2u0)
 last_audit_date: 2026-10-07
 overall: A

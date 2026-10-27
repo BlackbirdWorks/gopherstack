@@ -1,6 +1,6 @@
 ---
 service: route53
-sdk_module: aws-sdk-go-v2/service/route53@v1.70.3
+sdk_module: aws-sdk-go-v2/service/route53@v1.70.4
 last_audit_commit: 70d96e12d  # 2026-09-19 cloudfront-and-route53/15 terraform sweep
 last_audit_date: 2026-10-11
 overall: A          # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):

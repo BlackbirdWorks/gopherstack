@@ -22,6 +22,8 @@ type lifecycleSession struct {
 	id        string
 	principal string
 	version   int64
+	// established is set once mochi reached OnSessionEstablished; OnDisconnect fires only from then on.
+	established atomic.Bool
 }
 
 // publishEvent publishes a registry event; it is dropped while the broker is not serving.
@@ -68,6 +70,8 @@ func (b *Broker) publishConnected(cl *mqtt.Client) {
 		return
 	}
 
+	b.sweepUnestablished()
+
 	sess := &lifecycleSession{
 		id: uuid.NewString(), principal: b.principalIdentifier(cl), version: b.nextVersion(cl.ID),
 	}
@@ -82,6 +86,26 @@ func (b *Broker) publishConnected(cl *mqtt.Client) {
 		"ipAddress":               sourceIPOf(cl),
 		jobsExecutionStateVersion: sess.version,
 	})
+}
+
+// sweepUnestablished drops sessions whose CONNACK/resend failed: mochi skips OnDisconnect for them.
+func (b *Broker) sweepUnestablished() {
+	b.sessions.Range(func(k, v any) bool {
+		cl, _ := k.(*mqtt.Client)
+		sess, _ := v.(*lifecycleSession)
+
+		if cl != nil && sess != nil && !sess.established.Load() && cl.Closed() {
+			b.sessions.Delete(k)
+		}
+
+		return true
+	})
+}
+
+func (b *Broker) markEstablished(cl *mqtt.Client) {
+	if sess := b.session(cl); sess != nil {
+		sess.established.Store(true)
+	}
 }
 
 func (b *Broker) session(cl *mqtt.Client) *lifecycleSession {

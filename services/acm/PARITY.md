@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: acm
-sdk_module: aws-sdk-go-v2/service/acm@v1.50.3   # version audited against
+sdk_module: aws-sdk-go-v2/service/acm@v1.50.4   # version audited against
 last_audit_commit: 090ec574b
 last_audit_date: 2026-10-10
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op

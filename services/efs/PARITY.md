@@ -1,6 +1,6 @@
 ---
 service: efs
-sdk_module: aws-sdk-go-v2/service/efs@v1.49.3   # version audited against
+sdk_module: aws-sdk-go-v2/service/efs@v1.49.4   # version audited against
 last_audit_commit: d79e0612c
 last_audit_date: 2026-10-07
 overall: A            # gopherstack-wks5 (2026-08-30): field-identity request-parameter sweep found and

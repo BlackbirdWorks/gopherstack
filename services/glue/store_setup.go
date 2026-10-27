@@ -210,6 +210,13 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.dataQualityResult = store.Register(b.registry, "dataQualityResult", store.New(dataQualityResultKeyFn))
 	},
 	func(b *InMemoryBackend) {
+		b.dataQualityResultV2 = store.Register(
+			b.registry,
+			"dataQualityResultV2",
+			store.New(dataQualityResultV2KeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
 		b.devEndpoints = store.Register(b.registry, "devEndpoints", store.New(devEndpointKeyFn))
 	},
 	func(b *InMemoryBackend) {

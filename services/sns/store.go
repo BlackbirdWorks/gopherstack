@@ -89,10 +89,6 @@ const (
 	// snsLambdaInvocationType is the Lambda invocation type for SNS delivery (fire-and-forget).
 	snsLambdaInvocationType = "Event"
 
-	// maxDeliveryResponseBytes is the maximum number of bytes read from an HTTP
-	// delivery response body to prevent unbounded memory growth from large responses.
-	maxDeliveryResponseBytes = 64 * 1024 // 64 KiB
-
 	// maxFilterPolicySizeBytes is the maximum byte size of a FilterPolicy JSON string
 	// that will be parsed. Policies exceeding this limit are treated as no filter.
 	maxFilterPolicySizeBytes = 256 * 1024 // 256 KiB

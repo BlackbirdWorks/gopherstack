@@ -39,7 +39,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(acmschemas.CertificateManager),
 			SigningName:  "acm",
-			UserAgentAPI: "api/acm#1.50.3",
+			UserAgentAPI: "api/acm#1.50.4",
 			Ops: map[string]*Op{
 				"AddTagsToCertificate":                     {Schema: smithy.NewOperationSchema(acmschemas.AddTagsToCertificate, acmschemas.AddTagsToCertificateRequest, nil)},
 				"CreateAcmeDomainValidation":               {Schema: smithy.NewOperationSchema(acmschemas.CreateAcmeDomainValidation, acmschemas.CreateAcmeDomainValidationRequest, acmschemas.CreateAcmeDomainValidationResponse), Token: "IdempotencyToken"},
@@ -88,7 +88,7 @@ func init() {
 		return &Service{
 			Protocol:     restjson1.New(amplifyschemas.Amplify),
 			SigningName:  "amplify",
-			UserAgentAPI: "api/amplify#1.48.3",
+			UserAgentAPI: "api/amplify#1.48.4",
 			Ops: map[string]*Op{
 				"CreateApp":                {Schema: smithy.NewOperationSchema(amplifyschemas.CreateApp, amplifyschemas.CreateAppRequest, amplifyschemas.CreateAppResult)},
 				"CreateBackendEnvironment": {Schema: smithy.NewOperationSchema(amplifyschemas.CreateBackendEnvironment, amplifyschemas.CreateBackendEnvironmentRequest, amplifyschemas.CreateBackendEnvironmentResult)},
@@ -134,7 +134,7 @@ func init() {
 		return &Service{
 			Protocol:     restjson1.New(apigatewayschemas.BackplaneControlService),
 			SigningName:  "apigateway",
-			UserAgentAPI: "api/apigateway#1.52.0",
+			UserAgentAPI: "api/apigateway#1.52.1",
 			Headers:      map[string]string{"Accept": "application/json"},
 			Ops: map[string]*Op{
 				"CreateApiKey":                      {Schema: smithy.NewOperationSchema(apigatewayschemas.CreateApiKey, apigatewayschemas.CreateApiKeyRequest, apigatewayschemas.ApiKey)},
@@ -268,7 +268,7 @@ func init() {
 		return &Service{
 			Protocol:     restjson1.New(appsyncschemas.AWSDeepdishControlPlaneService),
 			SigningName:  "appsync",
-			UserAgentAPI: "api/appsync#1.62.3",
+			UserAgentAPI: "api/appsync#1.62.4",
 			Ops: map[string]*Op{
 				"AssociateApi":                      {Schema: smithy.NewOperationSchema(appsyncschemas.AssociateApi, appsyncschemas.AssociateApiRequest, appsyncschemas.AssociateApiResponse)},
 				"AssociateMergedGraphqlApi":         {Schema: smithy.NewOperationSchema(appsyncschemas.AssociateMergedGraphqlApi, appsyncschemas.AssociateMergedGraphqlApiRequest, appsyncschemas.AssociateMergedGraphqlApiResponse)},
@@ -351,7 +351,7 @@ func init() {
 		return &Service{
 			Protocol:     restjson1.New(bedrockschemas.AmazonBedrockControlPlaneService),
 			SigningName:  "bedrock",
-			UserAgentAPI: "api/bedrock#1.73.3",
+			UserAgentAPI: "api/bedrock#1.73.4",
 			Ops: map[string]*Op{
 				"BatchDeleteAdvancedPromptOptimizationJob":             {Schema: smithy.NewOperationSchema(bedrockschemas.BatchDeleteAdvancedPromptOptimizationJob, bedrockschemas.BatchDeleteAdvancedPromptOptimizationJobRequest, bedrockschemas.BatchDeleteAdvancedPromptOptimizationJobResponse)},
 				"BatchDeleteEvaluationJob":                             {Schema: smithy.NewOperationSchema(bedrockschemas.BatchDeleteEvaluationJob, bedrockschemas.BatchDeleteEvaluationJobRequest, bedrockschemas.BatchDeleteEvaluationJobResponse)},
@@ -468,7 +468,7 @@ func init() {
 		return &Service{
 			Protocol:     rpcv2.NewCBOR(cloudwatchschemas.GraniteServiceVersion20100801),
 			SigningName:  "monitoring",
-			UserAgentAPI: "api/cloudwatch#1.73.2",
+			UserAgentAPI: "api/cloudwatch#1.73.3",
 			Ops: map[string]*Op{
 				"AssociateDatasetKmsKey":             {Schema: smithy.NewOperationSchema(cloudwatchschemas.AssociateDatasetKmsKey, cloudwatchschemas.AssociateDatasetKmsKeyInput, cloudwatchschemas.AssociateDatasetKmsKeyOutput)},
 				"CreateResourceMetricsConfiguration": {Schema: smithy.NewOperationSchema(cloudwatchschemas.CreateResourceMetricsConfiguration, cloudwatchschemas.CreateResourceMetricsConfigurationInput, cloudwatchschemas.CreateResourceMetricsConfigurationOutput)},
@@ -532,7 +532,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(cloudwatchlogsschemas.Logs_20140328),
 			SigningName:  "logs",
-			UserAgentAPI: "api/cloudwatchlogs#1.89.2",
+			UserAgentAPI: "api/cloudwatchlogs#1.89.3",
 			Ops: map[string]*Op{
 				"AssociateKmsKey":                          {Schema: smithy.NewOperationSchema(cloudwatchlogsschemas.AssociateKmsKey, cloudwatchlogsschemas.AssociateKmsKeyRequest, nil)},
 				"AssociateSourceToS3TableIntegration":      {Schema: smithy.NewOperationSchema(cloudwatchlogsschemas.AssociateSourceToS3TableIntegration, cloudwatchlogsschemas.AssociateSourceToS3TableIntegrationRequest, cloudwatchlogsschemas.AssociateSourceToS3TableIntegrationResponse)},
@@ -659,7 +659,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(codebuildschemas.CodeBuild_20161006),
 			SigningName:  "codebuild",
-			UserAgentAPI: "api/codebuild#1.78.3",
+			UserAgentAPI: "api/codebuild#1.78.4",
 			Ops: map[string]*Op{
 				"BatchDeleteBuilds":               {Schema: smithy.NewOperationSchema(codebuildschemas.BatchDeleteBuilds, codebuildschemas.BatchDeleteBuildsInput, codebuildschemas.BatchDeleteBuildsOutput)},
 				"BatchGetBuildBatches":            {Schema: smithy.NewOperationSchema(codebuildschemas.BatchGetBuildBatches, codebuildschemas.BatchGetBuildBatchesInput, codebuildschemas.BatchGetBuildBatchesOutput)},
@@ -727,7 +727,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(codedeployschemas.CodeDeploy_20141006),
 			SigningName:  "codedeploy",
-			UserAgentAPI: "api/codedeploy#1.45.3",
+			UserAgentAPI: "api/codedeploy#1.45.4",
 			Ops: map[string]*Op{
 				"AddTagsToOnPremisesInstances":         {Schema: smithy.NewOperationSchema(codedeployschemas.AddTagsToOnPremisesInstances, codedeployschemas.AddTagsToOnPremisesInstancesInput, nil)},
 				"BatchGetApplicationRevisions":         {Schema: smithy.NewOperationSchema(codedeployschemas.BatchGetApplicationRevisions, codedeployschemas.BatchGetApplicationRevisionsInput, codedeployschemas.BatchGetApplicationRevisionsOutput)},
@@ -783,7 +783,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(codepipelineschemas.CodePipeline_20150709),
 			SigningName:  "codepipeline",
-			UserAgentAPI: "api/codepipeline#1.55.3",
+			UserAgentAPI: "api/codepipeline#1.55.4",
 			Ops: map[string]*Op{
 				"AcknowledgeJob":                   {Schema: smithy.NewOperationSchema(codepipelineschemas.AcknowledgeJob, codepipelineschemas.AcknowledgeJobInput, codepipelineschemas.AcknowledgeJobOutput)},
 				"AcknowledgeThirdPartyJob":         {Schema: smithy.NewOperationSchema(codepipelineschemas.AcknowledgeThirdPartyJob, codepipelineschemas.AcknowledgeThirdPartyJobInput, codepipelineschemas.AcknowledgeThirdPartyJobOutput)},
@@ -836,7 +836,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(cognitoidentityproviderschemas.AWSCognitoIdentityProviderService),
 			SigningName:  "cognito-idp",
-			UserAgentAPI: "api/cognitoidentityprovider#1.75.2",
+			UserAgentAPI: "api/cognitoidentityprovider#1.75.3",
 			Ops: map[string]*Op{
 				"AddCustomAttributes":                  {Schema: smithy.NewOperationSchema(cognitoidentityproviderschemas.AddCustomAttributes, cognitoidentityproviderschemas.AddCustomAttributesRequest, cognitoidentityproviderschemas.AddCustomAttributesResponse)},
 				"AddUserPoolClientSecret":              {Schema: smithy.NewOperationSchema(cognitoidentityproviderschemas.AddUserPoolClientSecret, cognitoidentityproviderschemas.AddUserPoolClientSecretRequest, cognitoidentityproviderschemas.AddUserPoolClientSecretResponse)},
@@ -977,7 +977,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New10(dynamodbschemas.DynamoDB_20120810),
 			SigningName:  "dynamodb",
-			UserAgentAPI: "api/dynamodb#1.70.2",
+			UserAgentAPI: "api/dynamodb#1.70.3",
 			Ops: map[string]*Op{
 				"BatchExecuteStatement":               {Schema: smithy.NewOperationSchema(dynamodbschemas.BatchExecuteStatement, dynamodbschemas.BatchExecuteStatementInput, dynamodbschemas.BatchExecuteStatementOutput)},
 				"BatchGetItem":                        {Schema: smithy.NewOperationSchema(dynamodbschemas.BatchGetItem, dynamodbschemas.BatchGetItemInput, dynamodbschemas.BatchGetItemOutput)},
@@ -1044,7 +1044,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(ecrschemas.AmazonEC2ContainerRegistry_V20150921),
 			SigningName:  "ecr",
-			UserAgentAPI: "api/ecr#1.66.3",
+			UserAgentAPI: "api/ecr#1.66.4",
 			Ops: map[string]*Op{
 				"BatchCheckLayerAvailability":             {Schema: smithy.NewOperationSchema(ecrschemas.BatchCheckLayerAvailability, ecrschemas.BatchCheckLayerAvailabilityRequest, ecrschemas.BatchCheckLayerAvailabilityResponse)},
 				"BatchDeleteImage":                        {Schema: smithy.NewOperationSchema(ecrschemas.BatchDeleteImage, ecrschemas.BatchDeleteImageRequest, ecrschemas.BatchDeleteImageResponse)},
@@ -1111,7 +1111,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(ecsschemas.AmazonEC2ContainerServiceV20141113),
 			SigningName:  "ecs",
-			UserAgentAPI: "api/ecs#1.100.2",
+			UserAgentAPI: "api/ecs#1.100.3",
 			Ops: map[string]*Op{
 				"ContinueServiceDeployment":     {Schema: smithy.NewOperationSchema(ecsschemas.ContinueServiceDeployment, ecsschemas.ContinueServiceDeploymentRequest, ecsschemas.ContinueServiceDeploymentResponse)},
 				"CreateCapacityProvider":        {Schema: smithy.NewOperationSchema(ecsschemas.CreateCapacityProvider, ecsschemas.CreateCapacityProviderRequest, ecsschemas.CreateCapacityProviderResponse)},
@@ -1197,7 +1197,7 @@ func init() {
 		return &Service{
 			Protocol:     restjson1.New(eksschemas.AWSWesleyFrontend),
 			SigningName:  "eks",
-			UserAgentAPI: "api/eks#1.104.0",
+			UserAgentAPI: "api/eks#1.104.1",
 			Ops: map[string]*Op{
 				"ActivateCertificateAuthority":       {Schema: smithy.NewOperationSchema(eksschemas.ActivateCertificateAuthority, eksschemas.ActivateCertificateAuthorityRequest, eksschemas.ActivateCertificateAuthorityResponse), Token: "ClientRequestToken"},
 				"AssociateAccessPolicy":              {Schema: smithy.NewOperationSchema(eksschemas.AssociateAccessPolicy, eksschemas.AssociateAccessPolicyRequest, eksschemas.AssociateAccessPolicyResponse)},
@@ -1276,7 +1276,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(eventbridgeschemas.AWSEvents),
 			SigningName:  "events",
-			UserAgentAPI: "api/eventbridge#1.55.2",
+			UserAgentAPI: "api/eventbridge#1.55.3",
 			Ops: map[string]*Op{
 				"ActivateEventSource":            {Schema: smithy.NewOperationSchema(eventbridgeschemas.ActivateEventSource, eventbridgeschemas.ActivateEventSourceRequest, nil)},
 				"CancelReplay":                   {Schema: smithy.NewOperationSchema(eventbridgeschemas.CancelReplay, eventbridgeschemas.CancelReplayRequest, eventbridgeschemas.CancelReplayResponse)},
@@ -1342,7 +1342,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(glueschemas.AWSGlue),
 			SigningName:  "glue",
-			UserAgentAPI: "api/glue#1.169.0",
+			UserAgentAPI: "api/glue#1.170.0",
 			Ops: map[string]*Op{
 				"AssociateGlossaryTerms":                  {Schema: smithy.NewOperationSchema(glueschemas.AssociateGlossaryTerms, glueschemas.AssociateGlossaryTermsRequest, glueschemas.AssociateGlossaryTermsResponse), Token: "ClientToken"},
 				"BatchCreatePartition":                    {Schema: smithy.NewOperationSchema(glueschemas.BatchCreatePartition, glueschemas.BatchCreatePartitionRequest, glueschemas.BatchCreatePartitionResponse)},
@@ -1354,6 +1354,7 @@ func init() {
 				"BatchGetCrawlers":                        {Schema: smithy.NewOperationSchema(glueschemas.BatchGetCrawlers, glueschemas.BatchGetCrawlersRequest, glueschemas.BatchGetCrawlersResponse)},
 				"BatchGetCustomEntityTypes":               {Schema: smithy.NewOperationSchema(glueschemas.BatchGetCustomEntityTypes, glueschemas.BatchGetCustomEntityTypesRequest, glueschemas.BatchGetCustomEntityTypesResponse)},
 				"BatchGetDataQualityResult":               {Schema: smithy.NewOperationSchema(glueschemas.BatchGetDataQualityResult, glueschemas.BatchGetDataQualityResultRequest, glueschemas.BatchGetDataQualityResultResponse)},
+				"BatchGetDataQualityResultV2":             {Schema: smithy.NewOperationSchema(glueschemas.BatchGetDataQualityResultV2, glueschemas.BatchGetDataQualityResultV2Request, glueschemas.BatchGetDataQualityResultV2Response)},
 				"BatchGetDataQualityRulesetEvaluationRun": {Schema: smithy.NewOperationSchema(glueschemas.BatchGetDataQualityRulesetEvaluationRun, glueschemas.BatchGetDataQualityRulesetEvaluationRunRequest, glueschemas.BatchGetDataQualityRulesetEvaluationRunResponse)},
 				"BatchGetDevEndpoints":                    {Schema: smithy.NewOperationSchema(glueschemas.BatchGetDevEndpoints, glueschemas.BatchGetDevEndpointsRequest, glueschemas.BatchGetDevEndpointsResponse)},
 				"BatchGetIterableForms":                   {Schema: smithy.NewOperationSchema(glueschemas.BatchGetIterableForms, glueschemas.BatchGetIterableFormsRequest, glueschemas.BatchGetIterableFormsResponse)},
@@ -1473,6 +1474,7 @@ func init() {
 				"GetDataQualityModel":                     {Schema: smithy.NewOperationSchema(glueschemas.GetDataQualityModel, glueschemas.GetDataQualityModelRequest, glueschemas.GetDataQualityModelResponse)},
 				"GetDataQualityModelResult":               {Schema: smithy.NewOperationSchema(glueschemas.GetDataQualityModelResult, glueschemas.GetDataQualityModelResultRequest, glueschemas.GetDataQualityModelResultResponse)},
 				"GetDataQualityResult":                    {Schema: smithy.NewOperationSchema(glueschemas.GetDataQualityResult, glueschemas.GetDataQualityResultRequest, glueschemas.GetDataQualityResultResponse)},
+				"GetDataQualityResultV2":                  {Schema: smithy.NewOperationSchema(glueschemas.GetDataQualityResultV2, glueschemas.GetDataQualityResultV2Request, glueschemas.GetDataQualityResultV2Response)},
 				"GetDataQualityRuleRecommendationRun":     {Schema: smithy.NewOperationSchema(glueschemas.GetDataQualityRuleRecommendationRun, glueschemas.GetDataQualityRuleRecommendationRunRequest, glueschemas.GetDataQualityRuleRecommendationRunResponse)},
 				"GetDataQualityRuleset":                   {Schema: smithy.NewOperationSchema(glueschemas.GetDataQualityRuleset, glueschemas.GetDataQualityRulesetRequest, glueschemas.GetDataQualityRulesetResponse)},
 				"GetDataQualityRulesetEvaluationRun":      {Schema: smithy.NewOperationSchema(glueschemas.GetDataQualityRulesetEvaluationRun, glueschemas.GetDataQualityRulesetEvaluationRunRequest, glueschemas.GetDataQualityRulesetEvaluationRunResponse)},
@@ -1544,6 +1546,7 @@ func init() {
 				"ListCrawls":                              {Schema: smithy.NewOperationSchema(glueschemas.ListCrawls, glueschemas.ListCrawlsRequest, glueschemas.ListCrawlsResponse)},
 				"ListCustomEntityTypes":                   {Schema: smithy.NewOperationSchema(glueschemas.ListCustomEntityTypes, glueschemas.ListCustomEntityTypesRequest, glueschemas.ListCustomEntityTypesResponse)},
 				"ListDataQualityResults":                  {Schema: smithy.NewOperationSchema(glueschemas.ListDataQualityResults, glueschemas.ListDataQualityResultsRequest, glueschemas.ListDataQualityResultsResponse)},
+				"ListDataQualityResultsV2":                {Schema: smithy.NewOperationSchema(glueschemas.ListDataQualityResultsV2, glueschemas.ListDataQualityResultsV2Request, glueschemas.ListDataQualityResultsV2Response)},
 				"ListDataQualityRuleRecommendationRuns":   {Schema: smithy.NewOperationSchema(glueschemas.ListDataQualityRuleRecommendationRuns, glueschemas.ListDataQualityRuleRecommendationRunsRequest, glueschemas.ListDataQualityRuleRecommendationRunsResponse)},
 				"ListDataQualityRulesetEvaluationRuns":    {Schema: smithy.NewOperationSchema(glueschemas.ListDataQualityRulesetEvaluationRuns, glueschemas.ListDataQualityRulesetEvaluationRunsRequest, glueschemas.ListDataQualityRulesetEvaluationRunsResponse)},
 				"ListDataQualityRulesets":                 {Schema: smithy.NewOperationSchema(glueschemas.ListDataQualityRulesets, glueschemas.ListDataQualityRulesetsRequest, glueschemas.ListDataQualityRulesetsResponse)},
@@ -1570,6 +1573,7 @@ func init() {
 				"ListUsageProfiles":                       {Schema: smithy.NewOperationSchema(glueschemas.ListUsageProfiles, glueschemas.ListUsageProfilesRequest, glueschemas.ListUsageProfilesResponse)},
 				"ListWorkflows":                           {Schema: smithy.NewOperationSchema(glueschemas.ListWorkflows, glueschemas.ListWorkflowsRequest, glueschemas.ListWorkflowsResponse)},
 				"ModifyIntegration":                       {Schema: smithy.NewOperationSchema(glueschemas.ModifyIntegration, glueschemas.ModifyIntegrationRequest, glueschemas.ModifyIntegrationResponse)},
+				"PublishDataQualityResultV2":              {Schema: smithy.NewOperationSchema(glueschemas.PublishDataQualityResultV2, glueschemas.PublishDataQualityResultV2Request, glueschemas.PublishDataQualityResultV2Response), Token: "ClientToken"},
 				"PutAsset":                                {Schema: smithy.NewOperationSchema(glueschemas.PutAsset, glueschemas.PutAssetRequest, glueschemas.PutAssetResponse), Token: "ClientToken"},
 				"PutAssetType":                            {Schema: smithy.NewOperationSchema(glueschemas.PutAssetType, glueschemas.PutAssetTypeRequest, glueschemas.PutAssetTypeResponse), Token: "ClientToken"},
 				"PutAttachment":                           {Schema: smithy.NewOperationSchema(glueschemas.PutAttachment, glueschemas.PutAttachmentRequest, glueschemas.PutAttachmentResponse), Token: "ClientToken"},
@@ -1653,7 +1657,7 @@ func init() {
 		return &Service{
 			Protocol:     restjson1.New(iotschemas.AWSIotService),
 			SigningName:  "iot",
-			UserAgentAPI: "api/iot#1.84.3",
+			UserAgentAPI: "api/iot#1.84.4",
 			Ops: map[string]*Op{
 				"AcceptCertificateTransfer":             {Schema: smithy.NewOperationSchema(iotschemas.AcceptCertificateTransfer, iotschemas.AcceptCertificateTransferRequest, nil)},
 				"AddThingToBillingGroup":                {Schema: smithy.NewOperationSchema(iotschemas.AddThingToBillingGroup, iotschemas.AddThingToBillingGroupRequest, iotschemas.AddThingToBillingGroupResponse)},
@@ -1934,7 +1938,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(kinesisschemas.Kinesis_20131202),
 			SigningName:  "kinesis",
-			UserAgentAPI: "api/kinesis#1.56.3",
+			UserAgentAPI: "api/kinesis#1.56.4",
 			Ops: map[string]*Op{
 				"AddTagsToStream":                        {Schema: smithy.NewOperationSchema(kinesisschemas.AddTagsToStream, kinesisschemas.AddTagsToStreamInput, nil)},
 				"CreateChannel":                          {Schema: smithy.NewOperationSchema(kinesisschemas.CreateChannel, kinesisschemas.CreateChannelInput, kinesisschemas.CreateChannelOutput)},
@@ -1988,7 +1992,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(kmsschemas.TrentService),
 			SigningName:  "kms",
-			UserAgentAPI: "api/kms#1.61.3",
+			UserAgentAPI: "api/kms#1.61.4",
 			Ops: map[string]*Op{
 				"CancelKeyDeletion":                   {Schema: smithy.NewOperationSchema(kmsschemas.CancelKeyDeletion, kmsschemas.CancelKeyDeletionRequest, kmsschemas.CancelKeyDeletionResponse)},
 				"ConnectCustomKeyStore":               {Schema: smithy.NewOperationSchema(kmsschemas.ConnectCustomKeyStore, kmsschemas.ConnectCustomKeyStoreRequest, kmsschemas.ConnectCustomKeyStoreResponse)},
@@ -2051,7 +2055,7 @@ func init() {
 		return &Service{
 			Protocol:     restjson1.New(lambdaschemas.AWSGirApiService),
 			SigningName:  "lambda",
-			UserAgentAPI: "api/lambda#1.112.0",
+			UserAgentAPI: "api/lambda#1.112.2",
 			Ops: map[string]*Op{
 				"AddLayerVersionPermission":              {Schema: smithy.NewOperationSchema(lambdaschemas.AddLayerVersionPermission, lambdaschemas.AddLayerVersionPermissionRequest, lambdaschemas.AddLayerVersionPermissionResponse)},
 				"AddPermission":                          {Schema: smithy.NewOperationSchema(lambdaschemas.AddPermission, lambdaschemas.AddPermissionRequest, lambdaschemas.AddPermissionResponse)},
@@ -2148,7 +2152,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(secretsmanagerschemas.Secretsmanager),
 			SigningName:  "secretsmanager",
-			UserAgentAPI: "api/secretsmanager#1.50.3",
+			UserAgentAPI: "api/secretsmanager#1.50.4",
 			Ops: map[string]*Op{
 				"BatchGetSecretValue":          {Schema: smithy.NewOperationSchema(secretsmanagerschemas.BatchGetSecretValue, secretsmanagerschemas.BatchGetSecretValueRequest, secretsmanagerschemas.BatchGetSecretValueResponse)},
 				"CancelRotateSecret":           {Schema: smithy.NewOperationSchema(secretsmanagerschemas.CancelRotateSecret, secretsmanagerschemas.CancelRotateSecretRequest, secretsmanagerschemas.CancelRotateSecretResponse)},
@@ -2180,7 +2184,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New10(sfnschemas.AWSStepFunctions),
 			SigningName:  "states",
-			UserAgentAPI: "api/sfn#1.51.3",
+			UserAgentAPI: "api/sfn#1.51.4",
 			Ops: map[string]*Op{
 				"CreateActivity":                   {Schema: smithy.NewOperationSchema(sfnschemas.CreateActivity, sfnschemas.CreateActivityInput, sfnschemas.CreateActivityOutput)},
 				"CreateStateMachine":               {Schema: smithy.NewOperationSchema(sfnschemas.CreateStateMachine, sfnschemas.CreateStateMachineInput, sfnschemas.CreateStateMachineOutput)},
@@ -2226,7 +2230,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New10(sqsschemas.AmazonSQS),
 			SigningName:  "sqs",
-			UserAgentAPI: "api/sqs#1.52.3",
+			UserAgentAPI: "api/sqs#1.52.4",
 			Ops: map[string]*Op{
 				"AddPermission":                {Schema: smithy.NewOperationSchema(sqsschemas.AddPermission, sqsschemas.AddPermissionRequest, nil)},
 				"CancelMessageMoveTask":        {Schema: smithy.NewOperationSchema(sqsschemas.CancelMessageMoveTask, sqsschemas.CancelMessageMoveTaskRequest, sqsschemas.CancelMessageMoveTaskResult)},
@@ -2258,7 +2262,7 @@ func init() {
 		return &Service{
 			Protocol:     awsjson.New11(transcribeschemas.Transcribe),
 			SigningName:  "transcribe",
-			UserAgentAPI: "api/transcribe#1.66.3",
+			UserAgentAPI: "api/transcribe#1.66.4",
 			Ops: map[string]*Op{
 				"CreateCallAnalyticsCategory":   {Schema: smithy.NewOperationSchema(transcribeschemas.CreateCallAnalyticsCategory, transcribeschemas.CreateCallAnalyticsCategoryRequest, transcribeschemas.CreateCallAnalyticsCategoryResponse)},
 				"CreateLanguageModel":           {Schema: smithy.NewOperationSchema(transcribeschemas.CreateLanguageModel, transcribeschemas.CreateLanguageModelRequest, transcribeschemas.CreateLanguageModelResponse)},
@@ -2365,19 +2369,19 @@ func init() {
 		return legacyService("cloudformation", "cloudformation", "api/cloudformation#1.82.0", queryProtocol)
 	})
 	register("ec2", func() *Service {
-		return legacyService("ec2", "ec2", "api/ec2#1.338.3", ec2queryProtocol)
+		return legacyService("ec2", "ec2", "api/ec2#1.338.4", ec2queryProtocol)
 	})
 	register("efs", func() *Service {
-		return legacyService("efs", "elasticfilesystem", "api/efs#1.49.3", restjson1Protocol)
+		return legacyService("efs", "elasticfilesystem", "api/efs#1.49.4", restjson1Protocol)
 	})
 	register("elasticache", func() *Service {
 		return legacyService("elasticache", "elasticache", "api/elasticache#1.63.2", queryProtocol)
 	})
 	register("elasticloadbalancingv2", func() *Service {
-		return legacyService("elasticloadbalancingv2", "elasticloadbalancing", "api/elasticloadbalancingv2#1.63.3", queryProtocol)
+		return legacyService("elasticloadbalancingv2", "elasticloadbalancing", "api/elasticloadbalancingv2#1.63.4", queryProtocol)
 	})
 	register("iam", func() *Service {
-		return legacyService("iam", "iam", "api/iam#1.64.3", queryProtocol)
+		return legacyService("iam", "iam", "api/iam#1.64.4", queryProtocol)
 	})
 	register("rds", func() *Service {
 		return legacyService("rds", "rds", "api/rds#1.130.2", queryProtocol)
@@ -2389,10 +2393,10 @@ func init() {
 		return legacyService("redshiftdata", "redshift-data", "api/redshiftdata#1.49.2", awsjson11Protocol)
 	})
 	register("rekognition", func() *Service {
-		return legacyService("rekognition", "rekognition", "api/rekognition#1.60.2", awsjson11Protocol)
+		return legacyService("rekognition", "rekognition", "api/rekognition#1.60.3", awsjson11Protocol)
 	})
 	register("route53", func() *Service {
-		return legacyService("route53", "route53", "api/route53#1.70.3", restxmlProtocol)
+		return legacyService("route53", "route53", "api/route53#1.70.4", restxmlProtocol)
 	})
 	register("scheduler", func() *Service {
 		return legacyService("scheduler", "scheduler", "api/scheduler#1.25.3", restjson1Protocol)
@@ -2401,12 +2405,12 @@ func init() {
 		return legacyService("ses", "ses", "api/ses#1.42.3", queryProtocol)
 	})
 	register("sns", func() *Service {
-		return legacyService("sns", "sns", "api/sns#1.47.4", queryProtocol)
+		return legacyService("sns", "sns", "api/sns#1.47.5", queryProtocol)
 	})
 	register("ssm", func() *Service {
-		return legacyService("ssm", "ssm", "api/ssm#1.79.2", awsjson11Protocol)
+		return legacyService("ssm", "ssm", "api/ssm#1.79.3", awsjson11Protocol)
 	})
 	register("sts", func() *Service {
-		return legacyService("sts", "sts", "api/sts#1.51.3", queryProtocol)
+		return legacyService("sts", "sts", "api/sts#1.51.4", queryProtocol)
 	})
 }

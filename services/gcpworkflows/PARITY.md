@@ -1,6 +1,6 @@
 ---
 service: gcpworkflows
-sdk_module: cloud.google.com/go/workflows@v1.20.0
+sdk_module: cloud.google.com/go/workflows@v1.21.0
 last_audit_commit: d02c76d92
 last_audit_date: 2026-10-25
 overall: B

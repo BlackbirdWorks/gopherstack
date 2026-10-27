@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/netip"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 	mobyclient "github.com/moby/moby/client"
 
 	"github.com/blackbirdworks/gopherstack/internal/linklocal"
+	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
@@ -410,7 +410,7 @@ func (d *DockerCompute) pullOnce(ctx context.Context, ref, auth string) error {
 
 	defer func() { _ = rc.Close() }()
 
-	if _, copyErr := io.Copy(io.Discard, rc); copyErr != nil {
+	if copyErr := docker.ConsumePullStream(rc); copyErr != nil {
 		return fmt.Errorf("drain image pull: %w", copyErr)
 	}
 

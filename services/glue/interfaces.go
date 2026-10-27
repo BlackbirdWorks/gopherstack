@@ -520,6 +520,9 @@ type StorageBackend interface {
 	// DataQuality listing and model operations.
 	ListDataQualityEvaluationRuns() []*DataQualityEvaluationRun
 	ListDataQualityResults() []*DataQualityResult
+	PublishDataQualityResultV2(in DataQualityResultV2) (string, error)
+	BatchGetDataQualityResultV2(ids []string) ([]*DataQualityResultV2, []string)
+	ListDataQualityResultsV2(filter *DataQualityResultV2Filter) []*DataQualityResultV2
 	PutDataQualityStatisticAnnotation(profileID, statisticID, inclusion string)
 	ListDataQualityStatisticAnnotations(profileID, statisticID string) []*StatisticAnnotation
 

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
-sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.73.2
+sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.73.3
 last_audit_commit: 88924fa3b  # 2026-09-24 perf sweep: storeDatum in-place cap eviction
 last_audit_date: 2026-10-07
 overall: A            # 2026-08-07 pass (bd gopherstack-lrmf): metric streams now actually deliver
