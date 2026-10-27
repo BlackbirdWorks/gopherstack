@@ -90,6 +90,7 @@ type InMemoryBackend struct {
 	credIssuer       RoleCredentialIssuer
 	endpointURL      string
 	linkLocal        LinkLocal
+	secrets          SecretsResolver
 	hooksInFlight    map[string]struct{}
 	asgResolver      AutoScalingGroupResolver
 	asgController    AutoScalingGroupController

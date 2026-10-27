@@ -269,6 +269,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/xray v1.45.3
 	github.com/aws/smithy-go v1.28.5
 	github.com/cedar-policy/cedar-go v1.8.0
+	github.com/containerd/errdefs v1.0.0
 	github.com/distribution/distribution/v3 v3.1.2
 	github.com/dop251/goja v0.0.0-20261012212121-0c308c5ed11b
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -355,7 +356,6 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
-	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.2.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect

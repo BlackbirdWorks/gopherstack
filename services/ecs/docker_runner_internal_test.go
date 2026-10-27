@@ -32,6 +32,12 @@ var (
 // It assigns sequential IDs to created containers and records all operations.
 type fakeDockerClient struct {
 	containerLogs          map[string][]byte
+	states                 map[string]*dockertypes.State
+	waitByID               map[string]chan dockertypes.WaitResponse
+	volumes                map[string]bool
+	creates                []createCall
+	volumesRemoved         []string
+	stopTimeouts           map[string]int
 	stats                  map[string]string
 	envs                   [][]string
 	waitResult             chan dockertypes.WaitResponse
@@ -55,10 +61,17 @@ func (f *fakeDockerClient) ImagePull(_ context.Context, _ string, _ dockerimage.
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
+// createCall records one ContainerCreate request.
+type createCall struct {
+	cfg  *dockertypes.Config
+	host *dockertypes.HostConfig
+	id   string
+}
+
 func (f *fakeDockerClient) ContainerCreate(
 	_ context.Context,
 	cfg *dockertypes.Config,
-	_ *dockertypes.HostConfig,
+	host *dockertypes.HostConfig,
 	_ *dockernetwork.NetworkingConfig,
 	_ *ocispec.Platform,
 	_ string,
@@ -69,6 +82,7 @@ func (f *fakeDockerClient) ContainerCreate(
 	f.envs = append(f.envs, append([]string(nil), cfg.Env...))
 	f.nextID++
 	id := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), f.nextID)
+	f.creates = append(f.creates, createCall{cfg: cfg, host: host, id: id})
 
 	return dockertypes.CreateResponse{ID: id}, nil
 }
@@ -90,9 +104,17 @@ func (f *fakeDockerClient) ContainerStart(_ context.Context, containerID string,
 	return nil
 }
 
-func (f *fakeDockerClient) ContainerStop(_ context.Context, containerID string, _ dockertypes.StopOptions) error {
+func (f *fakeDockerClient) ContainerStop(_ context.Context, containerID string, opts dockertypes.StopOptions) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if opts.Timeout != nil {
+		if f.stopTimeouts == nil {
+			f.stopTimeouts = map[string]int{}
+		}
+
+		f.stopTimeouts[containerID] = *opts.Timeout
+	}
 
 	if f.stopErrOnID != "" && containerID == f.stopErrOnID {
 		return errContainerStopFailed
@@ -182,6 +204,9 @@ func (f *fakeDockerClient) ContainerWait(
 	f.mu.Lock()
 	f.waitRequestedOn = append(f.waitRequestedOn, containerID)
 	ch := f.waitResult
+	if own, ok := f.waitByID[containerID]; ok {
+		ch = own
+	}
 	f.mu.Unlock()
 
 	resultC := make(chan dockertypes.WaitResponse, 1)
@@ -1065,4 +1090,34 @@ func TestDockerRunner_ContainerExit_EssentialSemantics(t *testing.T) {
 			assert.Len(t, fake.stopped, tt.wantSiblings)
 		})
 	}
+}
+
+// ContainerInspect returns the configured state for containerID, or a plain running container.
+func (f *fakeDockerClient) ContainerInspect(_ context.Context, containerID string) (dockertypes.InspectResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if st, ok := f.states[containerID]; ok {
+		cp := *st
+
+		return dockertypes.InspectResponse{ID: containerID, State: &cp}, nil
+	}
+
+	return dockertypes.InspectResponse{ID: containerID, State: &dockertypes.State{Running: true}}, nil
+}
+
+func (f *fakeDockerClient) VolumeExists(_ context.Context, name string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.volumes[name], nil
+}
+
+func (f *fakeDockerClient) VolumeRemove(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.volumesRemoved = append(f.volumesRemoved, name)
+
+	return nil
 }

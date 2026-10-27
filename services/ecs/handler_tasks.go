@@ -478,6 +478,8 @@ type taskView struct {
 	DesiredStatus        string               `json:"desiredStatus"`
 	Connectivity         string               `json:"connectivity,omitempty"`
 	StoppedReason        string               `json:"stoppedReason,omitempty"`
+	StopCode             string               `json:"stopCode,omitempty"`
+	HealthStatus         string               `json:"healthStatus,omitempty"`
 	Group                string               `json:"group,omitempty"`
 	LaunchType           string               `json:"launchType,omitempty"`
 	ContainerInstanceArn string               `json:"containerInstanceArn,omitempty"`
@@ -503,6 +505,8 @@ func toTaskView(t Task) taskView {
 		DesiredStatus:        t.DesiredStatus,
 		Connectivity:         t.Connectivity,
 		StoppedReason:        t.StoppedReason,
+		StopCode:             t.StopCode,
+		HealthStatus:         t.HealthStatus,
 		Group:                t.Group,
 		LaunchType:           t.LaunchType,
 		ContainerInstanceArn: t.ContainerInstanceArn,

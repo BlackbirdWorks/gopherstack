@@ -234,6 +234,7 @@ func (b *InMemoryBackend) stopServiceTask(clusterName, taskArn, reason string) e
 		task.DesiredStatus = statusStopped
 		task.StoppedAt = &now
 		task.StoppedReason = reason
+		task.StopCode = stopCodeServiceSchedulerInitiated
 		syncContainerStatuses(task, nil)
 		b.emitTaskStateLocked(task)
 		b.deregisterTaskFromELBv2Locked(task, clusterName)

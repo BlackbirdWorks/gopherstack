@@ -9,10 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | none |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Docker runtime container definition: environmentFiles (S3), firelensConfiguration, resourceRequirements (GPU), repositoryCredentials (pull auth), non-awslogs logConfiguration drivers, ephemeralStorage and task-level cpu/memory cgroups are stored but not applied to the Docker container.
+- Docker runtime volumes: efsVolumeConfiguration and configuredAtLaunch (EBS) volumes fail the task with a TaskFailedToStart stoppedReason instead of mounting; networkMode host/none/awsvpc ENI semantics and pidMode/ipcMode 'task' are not mapped (pidMode/ipcMode 'host' and ipcMode 'none' are).
+- Docker runtime dependsOn: RunTask blocks until every dependsOn gate passes (real ECS returns PROVISIONING and gates asynchronously); the stoppedReason text for a failed dependency is unverified against real ECS; the default dependency timeout is 3 minutes.
+- Docker runtime health: an UNHEALTHY essential container is reported (container and task healthStatus) but does not replace the task as a service scheduler would; container restarts are applied but restart counts are not reported.
 
 ### Structural gaps
 

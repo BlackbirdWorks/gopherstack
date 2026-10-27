@@ -1,6 +1,7 @@
 package ecs
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -208,6 +209,7 @@ func (b *InMemoryBackend) applyPendingTransition(task *Task) {
 
 	if task.LastStatus == statusProvisioning {
 		task.LastStatus = statusPending
+		_, task.runtimeHealth = b.runner.(containerHealthRunner)
 		b.emitTaskStateLocked(task)
 	}
 }
@@ -308,6 +310,13 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 	task.DesiredStatus = statusStopped
 	task.StoppedAt = &now
 	task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
+	task.StopCode = stopCodeTaskFailedToStart
+
+	var launchErr *taskLaunchError
+	if errors.As(runErr, &launchErr) {
+		task.StoppedReason = launchErr.Reason
+	}
+
 	exitCode := 1
 	syncContainerStatuses(task, &exitCode)
 	b.emitTaskStateLocked(task)
@@ -642,6 +651,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		prevStatus := task.LastStatus
 		task.DesiredStatus = statusStopped
 		task.StoppedReason = reason
+		task.StopCode = stopCodeUserInitiated
 
 		// Decrement the cached cluster counters once, as the task leaves its active
 		// state. This is done up front for both the fast and delayed paths so the
@@ -775,6 +785,10 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 
 		if task.StoppedReason == "" {
 			task.StoppedReason = "Essential container in task exited"
+		}
+
+		if task.StopCode == "" {
+			task.StopCode = stopCodeEssentialContainerExited
 		}
 
 		syncContainerStatuses(task, nil)
