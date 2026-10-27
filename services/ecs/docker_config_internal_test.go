@@ -11,10 +11,6 @@ import (
 	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 )
 
-func intPtr(i int) *int { return &i }
-
-func boolPtr(b bool) *bool { return &b }
-
 func TestBuildDockerConfigs(t *testing.T) {
 	t.Parallel()
 
@@ -30,8 +26,10 @@ func TestBuildDockerConfigs(t *testing.T) {
 				User: "1000:1000", WorkingDirectory: "/srv", Hostname: "web",
 			},
 			check: func(t *testing.T, cfg *dockertypes.Config, _ *dockertypes.HostConfig) {
-				assert.Equal(t, []string{"sh", "-c", "echo hi"}, []string(cfg.Cmd))
-				assert.Equal(t, []string{"/bin/entry"}, []string(cfg.Entrypoint))
+				t.Helper()
+
+				assert.Equal(t, []string{"sh", "-c", "echo hi"}, cfg.Cmd)
+				assert.Equal(t, []string{"/bin/entry"}, cfg.Entrypoint)
 				assert.Equal(t, "1000:1000", cfg.User)
 				assert.Equal(t, "/srv", cfg.WorkingDir)
 				assert.Equal(t, "web", cfg.Hostname)
@@ -41,6 +39,8 @@ func TestBuildDockerConfigs(t *testing.T) {
 			name: "cpu_memory_limits",
 			cd:   ContainerDefinition{CPU: 512, Memory: 256, MemoryReservation: 128},
 			check: func(t *testing.T, _ *dockertypes.Config, host *dockertypes.HostConfig) {
+				t.Helper()
+
 				assert.EqualValues(t, 512, host.CPUShares)
 				assert.EqualValues(t, 256<<20, host.Memory)
 				assert.EqualValues(t, 128<<20, host.MemoryReservation)
@@ -50,6 +50,8 @@ func TestBuildDockerConfigs(t *testing.T) {
 			name: "ulimits",
 			cd:   ContainerDefinition{Ulimits: []Ulimit{{Name: "nofile", SoftLimit: 1024, HardLimit: 4096}}},
 			check: func(t *testing.T, _ *dockertypes.Config, host *dockertypes.HostConfig) {
+				t.Helper()
+
 				require.Len(t, host.Ulimits, 1)
 				assert.Equal(t, "nofile", host.Ulimits[0].Name)
 				assert.EqualValues(t, 1024, host.Ulimits[0].Soft)
@@ -62,15 +64,17 @@ func TestBuildDockerConfigs(t *testing.T) {
 				Memory: 100,
 				LinuxParameters: &LinuxParameters{
 					Capabilities:       &KernelCapabilities{Add: []string{"SYS_PTRACE"}, Drop: []string{"NET_RAW"}},
-					InitProcessEnabled: boolPtr(true),
-					SharedMemorySize:   intPtr(64),
-					MaxSwap:            intPtr(50),
-					Swappiness:         intPtr(10),
+					InitProcessEnabled: new(true),
+					SharedMemorySize:   new(64),
+					MaxSwap:            new(50),
+					Swappiness:         new(10),
 					Devices:            []Device{{HostPath: "/dev/fuse", Permissions: []string{"read", "mknod"}}},
 					Tmpfs:              []Tmpfs{{ContainerPath: "/run", Size: 16, MountOptions: []string{"noexec"}}},
 				},
 			},
 			check: func(t *testing.T, _ *dockertypes.Config, host *dockertypes.HostConfig) {
+				t.Helper()
+
 				assert.Equal(t, []string{"SYS_PTRACE"}, host.CapAdd)
 				assert.Equal(t, []string{"NET_RAW"}, host.CapDrop)
 				require.NotNil(t, host.Init)
@@ -95,6 +99,8 @@ func TestBuildDockerConfigs(t *testing.T) {
 				DockerSecurityOptions: []string{"no-new-privileges"},
 			},
 			check: func(t *testing.T, cfg *dockertypes.Config, host *dockertypes.HostConfig) {
+				t.Helper()
+
 				assert.True(t, host.Privileged)
 				assert.True(t, host.ReadonlyRootfs)
 				assert.True(t, cfg.NetworkDisabled)
@@ -110,14 +116,18 @@ func TestBuildDockerConfigs(t *testing.T) {
 			name: "stop_timeout_default",
 			cd:   ContainerDefinition{},
 			check: func(t *testing.T, cfg *dockertypes.Config, _ *dockertypes.HostConfig) {
+				t.Helper()
+
 				require.NotNil(t, cfg.StopTimeout)
 				assert.Equal(t, 30, *cfg.StopTimeout)
 			},
 		},
 		{
 			name: "stop_timeout_explicit",
-			cd:   ContainerDefinition{StopTimeout: intPtr(5)},
+			cd:   ContainerDefinition{StopTimeout: new(5)},
 			check: func(t *testing.T, cfg *dockertypes.Config, _ *dockertypes.HostConfig) {
+				t.Helper()
+
 				require.NotNil(t, cfg.StopTimeout)
 				assert.Equal(t, 5, *cfg.StopTimeout)
 			},
@@ -126,6 +136,8 @@ func TestBuildDockerConfigs(t *testing.T) {
 			name: "healthcheck_defaults",
 			cd:   ContainerDefinition{HealthCheck: &HealthCheck{Command: []string{"CMD-SHELL", "true"}}},
 			check: func(t *testing.T, cfg *dockertypes.Config, _ *dockertypes.HostConfig) {
+				t.Helper()
+
 				require.NotNil(t, cfg.Healthcheck)
 				assert.Equal(t, []string{"CMD-SHELL", "true"}, cfg.Healthcheck.Test)
 				assert.Equal(t, 30*time.Second, cfg.Healthcheck.Interval)
@@ -140,6 +152,8 @@ func TestBuildDockerConfigs(t *testing.T) {
 				Command: []string{"CMD", "ls"}, Interval: 6, Timeout: 3, Retries: 2, StartPeriod: 10,
 			}},
 			check: func(t *testing.T, cfg *dockertypes.Config, _ *dockertypes.HostConfig) {
+				t.Helper()
+
 				require.NotNil(t, cfg.Healthcheck)
 				assert.Equal(t, 6*time.Second, cfg.Healthcheck.Interval)
 				assert.Equal(t, 3*time.Second, cfg.Healthcheck.Timeout)
@@ -149,8 +163,14 @@ func TestBuildDockerConfigs(t *testing.T) {
 		},
 		{
 			name: "labels_tty_stdin",
-			cd:   ContainerDefinition{DockerLabels: map[string]string{"a": "b"}, Interactive: true, PseudoTerminal: true},
+			cd: ContainerDefinition{
+				DockerLabels:   map[string]string{"a": "b"},
+				Interactive:    true,
+				PseudoTerminal: true,
+			},
 			check: func(t *testing.T, cfg *dockertypes.Config, _ *dockertypes.HostConfig) {
+				t.Helper()
+
 				assert.Equal(t, "b", cfg.Labels["a"])
 				assert.Equal(t, "arn:task", cfg.Labels["gopherstack.ecs.task"])
 				assert.True(t, cfg.OpenStdin)
@@ -199,8 +219,11 @@ func TestContainerMounts(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:   "bind_readonly_and_volume",
-			points: []MountPoint{{SourceVolume: "data", ContainerPath: "/d", ReadOnly: true}, {SourceVolume: "tmp", ContainerPath: "/t"}},
+			name: "bind_readonly_and_volume",
+			points: []MountPoint{
+				{SourceVolume: "data", ContainerPath: "/d", ReadOnly: true},
+				{SourceVolume: "tmp", ContainerPath: "/t"},
+			},
 			want: []mount.Mount{
 				{Type: mount.TypeBind, Source: "/host/data", Target: "/d", ReadOnly: true},
 				{Type: mount.TypeVolume, Source: "gopherstack-ecs-t-tmp", Target: "/t"},

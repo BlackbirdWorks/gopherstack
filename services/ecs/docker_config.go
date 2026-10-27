@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"fmt"
+	"maps"
 	"net/netip"
 	"strings"
 	"time"
@@ -28,14 +29,14 @@ const (
 // containerInput is everything createContainer needs to map one container definition to Docker.
 type containerInput struct {
 	task         *Task
-	cd           ContainerDefinition
 	portBindings dockernetwork.PortMap
 	exposedPorts dockernetwork.PortSet
+	pidMode      string
+	ipcMode      string
 	env          []string
 	mounts       []mount.Mount
 	volumesFrom  []string
-	pidMode      string
-	ipcMode      string
+	cd           ContainerDefinition
 }
 
 // buildDockerConfigs maps an ECS container definition onto the Docker create and host configs.
@@ -76,9 +77,7 @@ func buildDockerConfigs(in containerInput) (*dockertypes.Config, *dockertypes.Ho
 	applyLinuxParameters(hostCfg, cd)
 
 	labels := map[string]string{}
-	for k, v := range cd.DockerLabels {
-		labels[k] = v
-	}
+	maps.Copy(labels, cd.DockerLabels)
 
 	labels["gopherstack.ecs.task"] = in.task.TaskArn
 	labels["gopherstack.ecs.cluster"] = in.task.ClusterArn

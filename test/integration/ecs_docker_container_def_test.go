@@ -71,7 +71,9 @@ func TestIntegration_ECS_DockerContainerDefinition(t *testing.T) {
 				Secrets: []ecstypes.Secret{{
 					Name: aws.String("DB_PASS"), ValueFrom: aws.String(aws.ToString(secret.ARN) + ":password::"),
 				}},
-				MountPoints: []ecstypes.MountPoint{{SourceVolume: aws.String("shared"), ContainerPath: aws.String("/data")}},
+				MountPoints: []ecstypes.MountPoint{
+					{SourceVolume: aws.String("shared"), ContainerPath: aws.String("/data")},
+				},
 				DependsOn: []ecstypes.ContainerDependency{{
 					ContainerName: aws.String("db"), Condition: ecstypes.ContainerConditionHealthy,
 				}},
@@ -86,7 +88,9 @@ func TestIntegration_ECS_DockerContainerDefinition(t *testing.T) {
 					Interval: aws.Int32(5), Timeout: aws.Int32(3), Retries: aws.Int32(3),
 				},
 				StopTimeout: aws.Int32(2),
-				MountPoints: []ecstypes.MountPoint{{SourceVolume: aws.String("shared"), ContainerPath: aws.String("/data")}},
+				MountPoints: []ecstypes.MountPoint{
+					{SourceVolume: aws.String("shared"), ContainerPath: aws.String("/data")},
+				},
 			},
 		},
 	})
@@ -162,7 +166,10 @@ func TestIntegration_ECS_DockerContainerDefinition(t *testing.T) {
 	exitArn := aws.ToString(exitRun.Tasks[0].TaskArn)
 
 	require.Eventually(t, func() bool {
-		out, derr := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(clusterName), Tasks: []string{exitArn}})
+		out, derr := client.DescribeTasks(
+			ctx,
+			&ecs.DescribeTasksInput{Cluster: aws.String(clusterName), Tasks: []string{exitArn}},
+		)
 		if derr != nil || len(out.Tasks) != 1 || aws.ToString(out.Tasks[0].LastStatus) != "STOPPED" {
 			return false
 		}

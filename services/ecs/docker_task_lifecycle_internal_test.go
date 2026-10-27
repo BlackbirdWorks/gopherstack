@@ -61,14 +61,20 @@ func TestDockerTask_EssentialExit(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		exitIdx       int
-		exitCode      int64
 		wantTask      string
 		wantStopCode  string
-		wantStopped   bool
 		wantOtherLast string
+		exitIdx       int
+		exitCode      int64
+		wantStopped   bool
 	}{
-		{name: "non_essential_exit_keeps_task", exitIdx: 2, exitCode: 4, wantTask: statusRunning, wantOtherLast: statusRunning},
+		{
+			name:          "non_essential_exit_keeps_task",
+			exitIdx:       2,
+			exitCode:      4,
+			wantTask:      statusRunning,
+			wantOtherLast: statusRunning,
+		},
 		{
 			name: "essential_exit_stops_task", exitIdx: 1, exitCode: 9, wantTask: statusStopped,
 			wantStopCode: stopCodeEssentialContainerExited, wantStopped: true, wantOtherLast: statusStopped,
@@ -131,7 +137,12 @@ func TestDockerTask_HealthStatus(t *testing.T) {
 	}{
 		{name: "healthy", dockerStatus: "healthy", wantContainer: "HEALTHY", wantTask: "HEALTHY"},
 		{name: "unhealthy", dockerStatus: "unhealthy", wantContainer: "UNHEALTHY", wantTask: "UNHEALTHY"},
-		{name: "starting_is_not_fabricated_healthy", dockerStatus: "starting", wantContainer: "UNKNOWN", wantTask: "UNKNOWN"},
+		{
+			name:          "starting_is_not_fabricated_healthy",
+			dockerStatus:  "starting",
+			wantContainer: "UNKNOWN",
+			wantTask:      "UNKNOWN",
+		},
 	}
 
 	for _, tt := range tests {
@@ -232,8 +243,10 @@ func TestRegisterTaskDefinition_ContainerRuntimeValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "unknown_dependency",
-			defs:    []ContainerDefinition{{Name: "a", Image: "x", Essential: true, DependsOn: dep("ghost", dependsStart)}},
+			name: "unknown_dependency",
+			defs: []ContainerDefinition{
+				{Name: "a", Image: "x", Essential: true, DependsOn: dep("ghost", dependsStart)},
+			},
 			wantErr: true,
 		},
 		{
@@ -244,19 +257,26 @@ func TestRegisterTaskDefinition_ContainerRuntimeValidation(t *testing.T) {
 		{
 			name: "mount_of_undefined_volume",
 			defs: []ContainerDefinition{
-				{Name: "a", Image: "x", Essential: true, MountPoints: []MountPoint{{SourceVolume: "v", ContainerPath: "/v"}}},
+				{
+					Name:        "a",
+					Image:       "x",
+					Essential:   true,
+					MountPoints: []MountPoint{{SourceVolume: "v", ContainerPath: "/v"}},
+				},
 			},
 			wantErr: true,
 		},
 		{
 			name:    "autoprovision_needs_shared_scope",
 			defs:    []ContainerDefinition{{Name: "a", Image: "x", Essential: true}},
-			volumes: []Volume{{Name: "v", DockerVolumeConfig: &DockerVolumeConfig{Autoprovision: boolPtr(true)}}},
+			volumes: []Volume{{Name: "v", DockerVolumeConfig: &DockerVolumeConfig{Autoprovision: new(true)}}},
 			wantErr: true,
 		},
 		{
-			name:    "bad_healthcheck_command",
-			defs:    []ContainerDefinition{{Name: "a", Image: "x", Essential: true, HealthCheck: &HealthCheck{Command: []string{"true"}}}},
+			name: "bad_healthcheck_command",
+			defs: []ContainerDefinition{
+				{Name: "a", Image: "x", Essential: true, HealthCheck: &HealthCheck{Command: []string{"true"}}},
+			},
 			wantErr: true,
 		},
 	}

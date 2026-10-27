@@ -37,7 +37,11 @@ func validateContainerRuntime(defs []ContainerDefinition, volumes []Volume) erro
 	return nil
 }
 
-func validateContainerRefs(cd ContainerDefinition, byName map[string]ContainerDefinition, volumes map[string]bool) error {
+func validateContainerRefs(
+	cd ContainerDefinition,
+	byName map[string]ContainerDefinition,
+	volumes map[string]bool,
+) error {
 	for _, d := range cd.DependsOn {
 		if !slices.Contains([]string{dependsStart, dependsComplete, dependsSuccess, dependsHealthy}, d.Condition) {
 			return fmt.Errorf("%w: container %q dependsOn %q has invalid condition %q",

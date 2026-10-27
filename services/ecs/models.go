@@ -810,35 +810,35 @@ type ManagedStorageConfiguration struct {
 // ContainerDefinition represents a container definition in a task definition.
 type ContainerDefinition struct {
 	LogConfiguration       *LogConfiguration       `json:"logConfiguration,omitempty"`
-	FirelensConfiguration  *FirelensConfiguration  `json:"firelensConfiguration,omitempty"`
+	StartTimeout           *int                    `json:"startTimeout,omitempty"`
 	HealthCheck            *HealthCheck            `json:"healthCheck,omitempty"`
 	RepositoryCredentials  *RepositoryCredentials  `json:"repositoryCredentials,omitempty"`
-	Image                  string                  `json:"image"`
+	LinuxParameters        *LinuxParameters        `json:"linuxParameters,omitempty"`
+	StopTimeout            *int                    `json:"stopTimeout,omitempty"`
+	DockerLabels           map[string]string       `json:"dockerLabels,omitempty"`
+	RestartPolicy          *ContainerRestartPolicy `json:"restartPolicy,omitempty"`
+	FirelensConfiguration  *FirelensConfiguration  `json:"firelensConfiguration,omitempty"`
+	User                   string                  `json:"user,omitempty"`
+	Hostname               string                  `json:"hostname,omitempty"`
 	Name                   string                  `json:"name"`
-	EntryPoint             []string                `json:"entryPoint,omitempty"`
-	Command                []string                `json:"command,omitempty"`
-	Environment            []KeyValuePair          `json:"environment,omitempty"`
+	WorkingDirectory       string                  `json:"workingDirectory,omitempty"`
+	Image                  string                  `json:"image"`
 	Secrets                []SecretReference       `json:"secrets,omitempty"`
-	EnvironmentFiles       []EnvironmentFile       `json:"environmentFiles,omitempty"`
-	ResourceRequirements   []ResourceRequirement   `json:"resourceRequirements,omitempty"`
-	PortMappings           []PortMapping           `json:"portMappings,omitempty"`
-	MountPoints            []MountPoint            `json:"mountPoints,omitempty"`
-	VolumesFrom            []VolumeFrom            `json:"volumesFrom,omitempty"`
-	DependsOn              []ContainerDependency   `json:"dependsOn,omitempty"`
+	Environment            []KeyValuePair          `json:"environment,omitempty"`
 	Ulimits                []Ulimit                `json:"ulimits,omitempty"`
 	DNSServers             []string                `json:"dnsServers,omitempty"`
 	DNSSearchDomains       []string                `json:"dnsSearchDomains,omitempty"`
 	ExtraHosts             []HostEntry             `json:"extraHosts,omitempty"`
 	SystemControls         []SystemControl         `json:"systemControls,omitempty"`
 	DockerSecurityOptions  []string                `json:"dockerSecurityOptions,omitempty"`
-	DockerLabels           map[string]string       `json:"dockerLabels,omitempty"`
-	LinuxParameters        *LinuxParameters        `json:"linuxParameters,omitempty"`
-	RestartPolicy          *ContainerRestartPolicy `json:"restartPolicy,omitempty"`
-	StopTimeout            *int                    `json:"stopTimeout,omitempty"`
-	StartTimeout           *int                    `json:"startTimeout,omitempty"`
-	User                   string                  `json:"user,omitempty"`
-	WorkingDirectory       string                  `json:"workingDirectory,omitempty"`
-	Hostname               string                  `json:"hostname,omitempty"`
+	VolumesFrom            []VolumeFrom            `json:"volumesFrom,omitempty"`
+	MountPoints            []MountPoint            `json:"mountPoints,omitempty"`
+	PortMappings           []PortMapping           `json:"portMappings,omitempty"`
+	ResourceRequirements   []ResourceRequirement   `json:"resourceRequirements,omitempty"`
+	EnvironmentFiles       []EnvironmentFile       `json:"environmentFiles,omitempty"`
+	DependsOn              []ContainerDependency   `json:"dependsOn,omitempty"`
+	Command                []string                `json:"command,omitempty"`
+	EntryPoint             []string                `json:"entryPoint,omitempty"`
 	Memory                 int                     `json:"memory,omitempty"`
 	MemoryReservation      int                     `json:"memoryReservation,omitempty"`
 	CPU                    int                     `json:"cpu,omitempty"`
@@ -1044,8 +1044,8 @@ type Task struct {
 	ConnectivityAt       *time.Time            `json:"connectivityAt,omitempty"`
 	Overrides            *TaskOverride         `json:"overrides,omitempty"`
 	NetworkConfiguration *NetworkConfiguration `json:"networkConfiguration,omitempty"`
-	TaskArn              string                `json:"taskArn"`
-	ClusterArn           string                `json:"clusterArn"`
+	Group                string                `json:"group,omitempty"`
+	PlatformVersion      string                `json:"platformVersion,omitempty"`
 	TaskDefinitionArn    string                `json:"taskDefinitionArn"`
 	LastStatus           string                `json:"lastStatus"`
 	DesiredStatus        string                `json:"desiredStatus"`
@@ -1053,11 +1053,11 @@ type Task struct {
 	StoppedReason        string                `json:"stoppedReason,omitempty"`
 	StopCode             string                `json:"stopCode,omitempty"`
 	HealthStatus         string                `json:"healthStatus,omitempty"`
-	Group                string                `json:"group,omitempty"`
+	TaskArn              string                `json:"taskArn"`
 	LaunchType           string                `json:"launchType,omitempty"`
 	ContainerInstanceArn string                `json:"containerInstanceArn,omitempty"`
 	StartedBy            string                `json:"startedBy,omitempty"`
-	PlatformVersion      string                `json:"platformVersion,omitempty"`
+	ClusterArn           string                `json:"clusterArn"`
 	PlatformFamily       string                `json:"platformFamily,omitempty"`
 	RuntimeID            string                `json:"runtimeId,omitempty"`
 	PropagateTags        string                `json:"propagateTags,omitempty"`
@@ -1072,10 +1072,10 @@ type Task struct {
 	Tags                 []Tag            `json:"tags,omitempty"`
 	Attachments          []TaskAttachment `json:"attachments,omitempty"`
 	Containers           []Container      `json:"containers,omitempty"`
-	EnableExecuteCommand bool             `json:"enableExecuteCommand,omitempty"`
+	version              int64
+	EnableExecuteCommand bool `json:"enableExecuteCommand,omitempty"`
 	// AwaitingCapacity marks a PROVISIONING task waiting for a managed-scaling provider to add instances.
 	AwaitingCapacity bool `json:"awaitingCapacity,omitempty"`
-	version          int64
 	runtimeHealth    bool
 }
 

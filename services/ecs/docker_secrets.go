@@ -9,6 +9,9 @@ import (
 )
 
 const (
+	sourceASM = "asm"
+	sourceSSM = "ssm"
+
 	secretsManagerARNParts = 7
 	secretARNMinParts      = 6
 )
@@ -39,12 +42,12 @@ func (b *InMemoryBackend) secretsResolver() SecretsResolver {
 }
 
 type secretRef struct {
-	secretsManager bool
 	region         string
 	id             string
 	jsonKey        string
 	versionStage   string
 	versionID      string
+	secretsManager bool
 }
 
 // parseSecretRef understands the valueFrom forms in the ECS task definition parameters docs: a Secrets Manager
@@ -79,7 +82,7 @@ func parseSecretRef(valueFrom, defaultRegion string) (secretRef, error) {
 		}
 
 		return ref, nil
-	case "ssm":
+	case sourceSSM:
 		name, ok := strings.CutPrefix(strings.Join(parts[5:], ":"), "parameter")
 		if !ok {
 			return secretRef{}, fmt.Errorf("%w: %q", errSecretReference, valueFrom)
@@ -87,7 +90,11 @@ func parseSecretRef(valueFrom, defaultRegion string) (secretRef, error) {
 
 		return secretRef{region: parts[3], id: name}, nil
 	default:
-		return secretRef{}, fmt.Errorf("%w: %q is neither a Secrets Manager nor an SSM ARN", errSecretReference, valueFrom)
+		return secretRef{}, fmt.Errorf(
+			"%w: %q is neither a Secrets Manager nor an SSM ARN",
+			errSecretReference,
+			valueFrom,
+		)
 	}
 }
 
@@ -95,7 +102,7 @@ func parseSecretRef(valueFrom, defaultRegion string) (secretRef, error) {
 func (b *InMemoryBackend) resolveSecret(ctx context.Context, valueFrom string) (string, error) {
 	ref, err := parseSecretRef(valueFrom, b.region)
 	if err != nil {
-		return "", secretLaunchError("asm", valueFrom, err)
+		return "", secretLaunchError(sourceASM, valueFrom, err)
 	}
 
 	resolver := b.secretsResolver()
@@ -106,7 +113,7 @@ func (b *InMemoryBackend) resolveSecret(ctx context.Context, valueFrom string) (
 	if !ref.secretsManager {
 		val, perr := resolveParameter(ctx, resolver, ref)
 		if perr != nil {
-			return "", secretLaunchError("ssm", valueFrom, perr)
+			return "", secretLaunchError(sourceSSM, valueFrom, perr)
 		}
 
 		return val, nil
@@ -114,7 +121,7 @@ func (b *InMemoryBackend) resolveSecret(ctx context.Context, valueFrom string) (
 
 	val, err := resolver.SecretString(ctx, ref.region, ref.id, ref.versionStage, ref.versionID)
 	if err != nil {
-		return "", secretLaunchError("asm", valueFrom, err)
+		return "", secretLaunchError(sourceASM, valueFrom, err)
 	}
 
 	if ref.jsonKey == "" {
@@ -123,7 +130,7 @@ func (b *InMemoryBackend) resolveSecret(ctx context.Context, valueFrom string) (
 
 	extracted, err := jsonSecretField(val, ref.jsonKey)
 	if err != nil {
-		return "", secretLaunchError("asm", valueFrom, err)
+		return "", secretLaunchError(sourceASM, valueFrom, err)
 	}
 
 	return extracted, nil
@@ -133,10 +140,10 @@ var errSecretsUnavailable = errors.New("secrets backend is not wired")
 
 func secretSource(ref secretRef) string {
 	if ref.secretsManager {
-		return "asm"
+		return sourceASM
 	}
 
-	return "ssm"
+	return sourceSSM
 }
 
 // resolveParameter tries the name as written in the ARN, then with a leading slash toggled, since an ARN does
@@ -147,9 +154,9 @@ func resolveParameter(ctx context.Context, resolver SecretsResolver, ref secretR
 		return val, nil
 	}
 
-	alt := "/" + ref.id
-	if strings.HasPrefix(ref.id, "/") {
-		alt = strings.TrimPrefix(ref.id, "/")
+	alt, hadSlash := strings.CutPrefix(ref.id, "/")
+	if !hadSlash {
+		alt = "/" + ref.id
 	}
 
 	if alt != "" && alt != ref.id {
@@ -192,11 +199,11 @@ func secretLaunchError(source, valueFrom string, err error) error {
 }
 
 func secretSourceName(source string) string {
-	if source == "asm" {
+	if source == sourceASM {
 		return "secrets manager"
 	}
 
-	return "ssm"
+	return sourceSSM
 }
 
 // taskLaunchError carries the stoppedReason of a task that failed to start.

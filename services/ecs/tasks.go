@@ -312,8 +312,7 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 	task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
 	task.StopCode = stopCodeTaskFailedToStart
 
-	var launchErr *taskLaunchError
-	if errors.As(runErr, &launchErr) {
+	if launchErr, ok := errors.AsType[*taskLaunchError](runErr); ok {
 		task.StoppedReason = launchErr.Reason
 	}
 

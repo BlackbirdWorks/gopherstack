@@ -13,7 +13,10 @@ const (
 	volumeScopeShared = "shared"
 )
 
-var errUnsupportedVolume = errors.New("unsupported volume")
+var (
+	errUnsupportedVolume = errors.New("unsupported volume")
+	errUndefinedVolume   = errors.New("mounts undefined volume")
+)
 
 // volumeSpec is a task-level volume resolved to its Docker mount source.
 type volumeSpec struct {
@@ -76,16 +79,8 @@ func (r *realDockerRunner) dockerVolumeSpec(
 	if cfg.Scope == volumeScopeShared {
 		name = v.Name
 
-		if cfg.Autoprovision == nil || !*cfg.Autoprovision {
-			exists, err := r.cli.VolumeExists(ctx, name)
-			if err != nil {
-				return volumeSpec{}, fmt.Errorf("inspect docker volume %q: %w", name, err)
-			}
-
-			if !exists {
-				return volumeSpec{}, fmt.Errorf(
-					"%w: shared docker volume %q does not exist and autoprovision is false", errUnsupportedVolume, name)
-			}
+		if err := r.requireSharedVolume(ctx, cfg, name); err != nil {
+			return volumeSpec{}, err
 		}
 	} else {
 		plan.taskVols = append(plan.taskVols, name)
@@ -99,6 +94,25 @@ func (r *realDockerRunner) dockerVolumeSpec(
 	return volumeSpec{mount: mount.Mount{Type: mount.TypeVolume, Source: name, VolumeOptions: vo}}, nil
 }
 
+// requireSharedVolume fails unless a shared volume without autoprovision already exists.
+func (r *realDockerRunner) requireSharedVolume(ctx context.Context, cfg *DockerVolumeConfig, name string) error {
+	if cfg.Autoprovision != nil && *cfg.Autoprovision {
+		return nil
+	}
+
+	exists, err := r.cli.VolumeExists(ctx, name)
+	if err != nil {
+		return fmt.Errorf("inspect docker volume %q: %w", name, err)
+	}
+
+	if !exists {
+		return fmt.Errorf("%w: shared docker volume %q does not exist and autoprovision is false",
+			errUnsupportedVolume, name)
+	}
+
+	return nil
+}
+
 // containerMounts builds cd's mounts from its mountPoints.
 func containerMounts(cd ContainerDefinition, plan *volumePlan) ([]mount.Mount, error) {
 	out := make([]mount.Mount, 0, len(cd.MountPoints))
@@ -106,7 +120,7 @@ func containerMounts(cd ContainerDefinition, plan *volumePlan) ([]mount.Mount, e
 	for _, mp := range cd.MountPoints {
 		spec, ok := plan.specs[mp.SourceVolume]
 		if !ok {
-			return nil, fmt.Errorf("container %q mounts undefined volume %q", cd.Name, mp.SourceVolume)
+			return nil, fmt.Errorf("container %q %w %q", cd.Name, errUndefinedVolume, mp.SourceVolume)
 		}
 
 		m := spec.mount

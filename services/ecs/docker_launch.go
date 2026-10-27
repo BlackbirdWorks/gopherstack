@@ -39,6 +39,10 @@ var (
 	errTaskStoppedDuringLaunch = errors.New("task stopped while its containers were starting")
 	errDependency              = errors.New("container dependency not satisfied")
 	errDependencyCycle         = errors.New("circular container dependency")
+	errUnsupportedCondition    = errors.New("unsupported condition")
+	errNoExitWatcher           = errors.New("no exit watcher for container")
+	errExited                  = errors.New("exited")
+	errBecameUnhealthy         = errors.New("became unhealthy")
 )
 
 // launchState lets StopTask abort a RunTask that is still starting containers.
@@ -68,75 +72,87 @@ type launch struct {
 	order     []string
 }
 
-// orderContainers sorts defs so dependsOn targets and volumesFrom sources are created first, keeping
-// definition order otherwise.
-func orderContainers(defs []ContainerDefinition) ([]int, error) {
-	index := make(map[string]int, len(defs))
-	for i, cd := range defs {
-		index[cd.Name] = i
+// containerOrderer is a depth-first topological sort over dependsOn and volumesFrom edges.
+type containerOrderer struct {
+	defs  []ContainerDefinition
+	index map[string]int
+	state []int
+	out   []int
+}
+
+const (
+	orderVisiting = 1
+	orderDone     = 2
+)
+
+func (o *containerOrderer) dependencies(cd ContainerDefinition) ([]string, error) {
+	names := make([]string, 0, len(cd.DependsOn)+len(cd.VolumesFrom))
+
+	for _, d := range cd.DependsOn {
+		names = append(names, d.ContainerName)
 	}
 
-	deps := func(cd ContainerDefinition) ([]string, error) {
-		var names []string
-
-		for _, d := range cd.DependsOn {
-			names = append(names, d.ContainerName)
-		}
-
-		for _, v := range cd.VolumesFrom {
-			names = append(names, v.SourceContainer)
-		}
-
-		for _, n := range names {
-			if _, ok := index[n]; !ok {
-				return nil, fmt.Errorf("%w: container %q references undefined container %q", errDependency, cd.Name, n)
-			}
-		}
-
-		return names, nil
+	for _, v := range cd.VolumesFrom {
+		names = append(names, v.SourceContainer)
 	}
 
-	out := make([]int, 0, len(defs))
-	state := make([]int, len(defs))
-
-	var visit func(i int) error
-
-	visit = func(i int) error {
-		cd := defs[i]
-
-		switch state[i] {
-		case 2: //nolint:mnd // visited
-			return nil
-		case 1:
-			return fmt.Errorf("%w involving %q", errDependencyCycle, cd.Name)
+	for _, n := range names {
+		if _, ok := o.index[n]; !ok {
+			return nil, fmt.Errorf("%w: container %q references undefined container %q", errDependency, cd.Name, n)
 		}
+	}
 
-		state[i] = 1
+	return names, nil
+}
 
-		names, err := deps(cd)
-		if err != nil {
+func (o *containerOrderer) visit(i int) error {
+	switch o.state[i] {
+	case orderDone:
+		return nil
+	case orderVisiting:
+		return fmt.Errorf("%w involving %q", errDependencyCycle, o.defs[i].Name)
+	}
+
+	o.state[i] = orderVisiting
+
+	names, err := o.dependencies(o.defs[i])
+	if err != nil {
+		return err
+	}
+
+	for _, n := range names {
+		if err = o.visit(o.index[n]); err != nil {
 			return err
 		}
+	}
 
-		for _, n := range names {
-			if err = visit(index[n]); err != nil {
-				return err
-			}
-		}
+	o.state[i] = orderDone
+	o.out = append(o.out, i)
 
-		state[i] = 2
-		out = append(out, i)
+	return nil
+}
 
-		return nil
+// orderContainers returns the indices of defs sorted so dependsOn targets and volumesFrom sources come first,
+// keeping definition order otherwise.
+func orderContainers(defs []ContainerDefinition) ([]int, error) {
+	o := &containerOrderer{
+		defs:  defs,
+		index: make(map[string]int, len(defs)),
+		state: make([]int, len(defs)),
+		out:   make([]int, 0, len(defs)),
+	}
+
+	for i, cd := range defs {
+		o.index[cd.Name] = i
 	}
 
 	for i := range defs {
-		if err := visit(i); err != nil {
+		if err := o.visit(i); err != nil {
 			return nil, err
 		}
 	}
 
-	return out, nil
+	return o.out, nil
 }
 
 // RunTask starts td's containers in dependency order, gating each on its dependsOn conditions.
@@ -237,7 +253,10 @@ func exitDependencies(defs []ContainerDefinition) map[string]bool {
 	return out
 }
 
-func (r *realDockerRunner) resolveSecretEnv(ctx context.Context, defs []ContainerDefinition) (map[string][]string, error) {
+func (r *realDockerRunner) resolveSecretEnv(
+	ctx context.Context,
+	defs []ContainerDefinition,
+) (map[string][]string, error) {
 	out := make(map[string][]string, len(defs))
 
 	r.mu.Lock()
@@ -492,7 +511,7 @@ func (r *realDockerRunner) awaitDependencies(ctx context.Context, l *launch, cd 
 		case dependsHealthy:
 			err = r.awaitHealthy(dctx, l, id)
 		default:
-			err = fmt.Errorf("unsupported condition %q", dep.Condition)
+			err = fmt.Errorf("%w %q", errUnsupportedCondition, dep.Condition)
 		}
 
 		if err != nil {
@@ -513,7 +532,7 @@ func (r *realDockerRunner) awaitExit(ctx context.Context, l *launch, id string) 
 	r.mu.Unlock()
 
 	if ex == nil {
-		return 0, fmt.Errorf("no exit watcher for container %s", id)
+		return 0, fmt.Errorf("%w %s", errNoExitWatcher, id)
 	}
 
 	select {
@@ -533,7 +552,7 @@ func (r *realDockerRunner) awaitSuccess(ctx context.Context, l *launch, id strin
 	}
 
 	if code != 0 {
-		return fmt.Errorf("exited with code %d", code)
+		return fmt.Errorf("%w with code %d", errExited, code)
 	}
 
 	return nil
@@ -551,7 +570,7 @@ func (r *realDockerRunner) awaitHealthy(ctx context.Context, l *launch, id strin
 
 		if st := resp.State; st != nil {
 			if !st.Running {
-				return fmt.Errorf("exited with code %d before becoming healthy", st.ExitCode)
+				return fmt.Errorf("%w with code %d before becoming healthy", errExited, st.ExitCode)
 			}
 
 			if st.Health != nil {
@@ -559,7 +578,7 @@ func (r *realDockerRunner) awaitHealthy(ctx context.Context, l *launch, id strin
 				case healthDockerHealthy:
 					return nil
 				case healthDockerUnhealthy:
-					return errors.New("became unhealthy") //nolint:err113 // reason text only
+					return errBecameUnhealthy
 				}
 			}
 		}
@@ -702,7 +721,8 @@ func (r *realDockerRunner) finishContainer(
 	r.mu.Unlock()
 
 	if reason != nil {
-		if resp, err := r.cli.ContainerInspect(ctx, containerID); err == nil && resp.State != nil && resp.State.OOMKilled {
+		if resp, err := r.cli.ContainerInspect(ctx, containerID); err == nil && resp.State != nil &&
+			resp.State.OOMKilled {
 			reason(taskArn, name, oomReason)
 		}
 	}

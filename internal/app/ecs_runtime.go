@@ -25,7 +25,10 @@ type ecsSecrets struct {
 	byName map[string]service.Registerable
 }
 
-func (a *ecsSecrets) SecretString(ctx context.Context, region, secretID, versionStage, versionID string) (string, error) {
+func (a *ecsSecrets) SecretString(
+	ctx context.Context,
+	region, secretID, versionStage, versionID string,
+) (string, error) {
 	h, ok := a.byName["SecretsManager"].(*smbackend.Handler)
 	if !ok {
 		return "", errECSSecretsUnavailable

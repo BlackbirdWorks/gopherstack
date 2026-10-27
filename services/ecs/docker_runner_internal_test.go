@@ -1093,7 +1093,10 @@ func TestDockerRunner_ContainerExit_EssentialSemantics(t *testing.T) {
 }
 
 // ContainerInspect returns the configured state for containerID, or a plain running container.
-func (f *fakeDockerClient) ContainerInspect(_ context.Context, containerID string) (dockertypes.InspectResponse, error) {
+func (f *fakeDockerClient) ContainerInspect(
+	_ context.Context,
+	containerID string,
+) (dockertypes.InspectResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

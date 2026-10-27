@@ -18,6 +18,12 @@ import (
 
 const launchTaskArn = "arn:aws:ecs:us-east-1:000000000000:task/default/task-1"
 
+var (
+	errTestMissing        = errors.New("missing")
+	errTestParamNotFound  = errors.New("ParameterNotFound")
+	errTestSecretNotFound = errors.New("ResourceNotFoundException")
+)
+
 func fakeID(n int) string {
 	return "aaaaaaaaaaaa0" + string(rune('0'+n))
 }
@@ -55,8 +61,6 @@ func (f *fakeDockerClient) createAt(i int) createCall {
 func TestRunTask_Secrets(t *testing.T) {
 	t.Parallel()
 
-	errMissing := errors.New("missing")
-
 	tests := []struct {
 		lookup    func(ctx context.Context, valueFrom string) (string, error)
 		name      string
@@ -74,7 +78,7 @@ func TestRunTask_Secrets(t *testing.T) {
 		{
 			name: "lookup_failure_stops_before_any_container",
 			lookup: func(context.Context, string) (string, error) {
-				return "", &taskLaunchError{Reason: "ResourceInitializationError: boom", Err: errMissing}
+				return "", &taskLaunchError{Reason: "ResourceInitializationError: boom", Err: errTestMissing}
 			},
 			wantErr:   true,
 			wantNoRun: true,
@@ -114,11 +118,11 @@ func TestRunTask_Secrets(t *testing.T) {
 }
 
 type fakeSecrets struct {
-	smValue   string
 	smErr     error
 	ssmValues map[string]string
-	mu        sync.Mutex
+	smValue   string
 	smCalls   []string
+	mu        sync.Mutex
 }
 
 func (f *fakeSecrets) SecretString(_ context.Context, region, id, stage, version string) (string, error) {
@@ -135,7 +139,7 @@ func (f *fakeSecrets) ParameterValue(_ context.Context, region, name string) (st
 		return v, nil
 	}
 
-	return "", errors.New("ParameterNotFound")
+	return "", errTestParamNotFound
 }
 
 func TestResolveSecret(t *testing.T) {
@@ -170,7 +174,7 @@ func TestResolveSecret(t *testing.T) {
 		},
 		{
 			name: "secret_not_found", valueFrom: sm,
-			resolver: &fakeSecrets{smErr: errors.New("ResourceNotFoundException")}, wantErr: "secrets manager",
+			resolver: &fakeSecrets{smErr: errTestSecretNotFound}, wantErr: "secrets manager",
 		},
 		{
 			name: "ssm_name", valueFrom: "/app/db",
@@ -243,6 +247,8 @@ func TestRunTask_Volumes(t *testing.T) {
 			volumes: []Volume{{Name: "data", Host: &HostVolumeProperties{SourcePath: "/srv/data"}}},
 			mounts:  []MountPoint{{SourceVolume: "data", ContainerPath: "/data", ReadOnly: true}},
 			check: func(t *testing.T, fake *fakeDockerClient) {
+				t.Helper()
+
 				assert.Equal(t, []mount.Mount{{
 					Type: mount.TypeBind, Source: "/srv/data", Target: "/data", ReadOnly: true,
 					BindOptions: &mount.BindOptions{CreateMountpoint: true},
@@ -254,6 +260,8 @@ func TestRunTask_Volumes(t *testing.T) {
 			volumes: []Volume{{Name: "scratch"}},
 			mounts:  []MountPoint{{SourceVolume: "scratch", ContainerPath: "/tmp/s"}},
 			check: func(t *testing.T, fake *fakeDockerClient) {
+				t.Helper()
+
 				assert.Equal(t, []mount.Mount{{
 					Type: mount.TypeVolume, Source: taskVol + "scratch", Target: "/tmp/s",
 				}}, fake.createAt(0).host.Mounts)
@@ -267,6 +275,8 @@ func TestRunTask_Volumes(t *testing.T) {
 			}}},
 			mounts: []MountPoint{{SourceVolume: "d", ContainerPath: "/d"}},
 			check: func(t *testing.T, fake *fakeDockerClient) {
+				t.Helper()
+
 				assert.Equal(t, []mount.Mount{{
 					Type: mount.TypeVolume, Source: taskVol + "d", Target: "/d",
 					VolumeOptions: &mount.VolumeOptions{
@@ -279,10 +289,12 @@ func TestRunTask_Volumes(t *testing.T) {
 		{
 			name: "shared_autoprovision",
 			volumes: []Volume{{Name: "shared", DockerVolumeConfig: &DockerVolumeConfig{
-				Scope: "shared", Autoprovision: boolPtr(true),
+				Scope: "shared", Autoprovision: new(true),
 			}}},
 			mounts: []MountPoint{{SourceVolume: "shared", ContainerPath: "/s"}},
 			check: func(t *testing.T, fake *fakeDockerClient) {
+				t.Helper()
+
 				assert.Equal(t, "shared", fake.createAt(0).host.Mounts[0].Source)
 				assert.Empty(t, fake.volumesRemoved)
 			},
@@ -299,6 +311,8 @@ func TestRunTask_Volumes(t *testing.T) {
 			volumes: []Volume{{Name: "shared", DockerVolumeConfig: &DockerVolumeConfig{Scope: "shared"}}},
 			mounts:  []MountPoint{{SourceVolume: "shared", ContainerPath: "/s"}},
 			check: func(t *testing.T, fake *fakeDockerClient) {
+				t.Helper()
+
 				assert.Equal(t, "shared", fake.createAt(0).host.Mounts[0].Source)
 			},
 		},
@@ -347,7 +361,12 @@ func TestRunTask_VolumesFromOrdersSourceFirst(t *testing.T) {
 	fake := &fakeDockerClient{}
 	r := newLaunchRunner(t, fake)
 	td := &TaskDefinition{ContainerDefinitions: []ContainerDefinition{
-		{Name: "consumer", Image: "consumer", Essential: true, VolumesFrom: []VolumeFrom{{SourceContainer: "owner", ReadOnly: true}}},
+		{
+			Name:        "consumer",
+			Image:       "consumer",
+			Essential:   true,
+			VolumesFrom: []VolumeFrom{{SourceContainer: "owner", ReadOnly: true}},
+		},
 		{Name: "owner", Image: "owner", Essential: true},
 	}}
 
@@ -368,7 +387,9 @@ func TestOrderContainers_Errors(t *testing.T) {
 	}{
 		{
 			name: "unknown_dependency",
-			defs: []ContainerDefinition{{Name: "a", DependsOn: []ContainerDependency{{ContainerName: "ghost", Condition: "START"}}}},
+			defs: []ContainerDefinition{
+				{Name: "a", DependsOn: []ContainerDependency{{ContainerName: "ghost", Condition: "START"}}},
+			},
 		},
 		{
 			name: "cycle",
@@ -437,7 +458,12 @@ func TestRunTask_DependsOnSuccess(t *testing.T) {
 
 			go func() { done <- r.RunTask(launchTask(), td) }()
 
-			require.Eventually(t, func() bool { return len(fake.createdImages()) == 1 }, 2*time.Second, time.Millisecond)
+			require.Eventually(
+				t,
+				func() bool { return len(fake.createdImages()) == 1 },
+				2*time.Second,
+				time.Millisecond,
+			)
 
 			select {
 			case <-done:
@@ -469,7 +495,10 @@ func TestRunTask_DependsOnHealthy(t *testing.T) {
 	t.Parallel()
 
 	healthy := func(status string) *dockertypes.State {
-		return &dockertypes.State{Running: true, Health: &mobycontainer.Health{Status: mobycontainer.HealthStatus(status)}}
+		return &dockertypes.State{
+			Running: true,
+			Health:  &mobycontainer.Health{Status: mobycontainer.HealthStatus(status)},
+		}
 	}
 
 	tests := []struct {
@@ -500,7 +529,12 @@ func TestRunTask_DependsOnHealthy(t *testing.T) {
 
 			go func() { done <- r.RunTask(launchTask(), td) }()
 
-			require.Eventually(t, func() bool { return len(fake.createdImages()) == 1 }, 2*time.Second, time.Millisecond)
+			require.Eventually(
+				t,
+				func() bool { return len(fake.createdImages()) == 1 },
+				2*time.Second,
+				time.Millisecond,
+			)
 			assert.Len(t, fake.createdImages(), 1, "app waits while db is still starting")
 
 			fake.mu.Lock()
@@ -551,8 +585,13 @@ func TestStopTask_ReverseOrderAndStopTimeout(t *testing.T) {
 	td := &TaskDefinition{
 		Volumes: []Volume{{Name: "scratch"}},
 		ContainerDefinitions: []ContainerDefinition{
-			{Name: "a", Image: "a", Essential: true, MountPoints: []MountPoint{{SourceVolume: "scratch", ContainerPath: "/s"}}},
-			{Name: "b", Image: "b", Essential: true, StopTimeout: intPtr(7), DependsOn: dep("a", dependsStart)},
+			{
+				Name:        "a",
+				Image:       "a",
+				Essential:   true,
+				MountPoints: []MountPoint{{SourceVolume: "scratch", ContainerPath: "/s"}},
+			},
+			{Name: "b", Image: "b", Essential: true, StopTimeout: new(7), DependsOn: dep("a", dependsStart)},
 			{Name: "c", Image: "c", Essential: true, DependsOn: dep("b", dependsStart)},
 		},
 	}
@@ -565,7 +604,12 @@ func TestStopTask_ReverseOrderAndStopTimeout(t *testing.T) {
 
 	assert.Equal(t, []string{fakeID(3), fakeID(2), fakeID(1)}, fake.stopped, "reverse of start order")
 	assert.Equal(t, map[string]int{fakeID(1): 30, fakeID(2): 7, fakeID(3): 30}, fake.stopTimeouts)
-	assert.ElementsMatch(t, []string{fakeID(1), fakeID(2), fakeID(3)}, fake.removed, "containers removed with task volumes")
+	assert.ElementsMatch(
+		t,
+		[]string{fakeID(1), fakeID(2), fakeID(3)},
+		fake.removed,
+		"containers removed with task volumes",
+	)
 	assert.Equal(t, []string{"gopherstack-ecs-task-1-scratch"}, fake.volumesRemoved)
 }
 
