@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type notFoundRewrite struct {
@@ -11,18 +12,21 @@ type notFoundRewrite struct {
 	repl string
 }
 
-var notFoundRewrites = []notFoundRewrite{
-	{regexp.MustCompile(`^cluster snapshot (.+) not found$`), "DBClusterSnapshot not found: $1"},
-	{regexp.MustCompile(`^cluster parameter group (.+) not found$`), "DBParameterGroup not found: $1"},
-	{regexp.MustCompile(`^subnet group (.+) not found$`), "DBSubnetGroup not found: $1"},
-	{regexp.MustCompile(`^cluster (.+) not found$`), "DBCluster not found: $1"},
-	{regexp.MustCompile(`^instance (.+) not found$`), "DBInstance $1 not found."},
-}
+//nolint:gochecknoglobals // compiled once, read-only
+var notFoundRewrites = sync.OnceValue(func() []notFoundRewrite {
+	return []notFoundRewrite{
+		{regexp.MustCompile(`^cluster snapshot (.+) not found$`), "DBClusterSnapshot not found: $1"},
+		{regexp.MustCompile(`^cluster parameter group (.+) not found$`), "DBParameterGroup not found: $1"},
+		{regexp.MustCompile(`^subnet group (.+) not found$`), "DBSubnetGroup not found: $1"},
+		{regexp.MustCompile(`^cluster (.+) not found$`), "DBCluster not found: $1"},
+		{regexp.MustCompile(`^instance (.+) not found$`), "DBInstance $1 not found."},
+	}
+})
 
 func wireMessage(code, msg string) string {
 	msg = strings.TrimPrefix(msg, code+": ")
 	msg = strings.TrimPrefix(msg, strings.TrimSuffix(code, "Fault")+": ")
-	for _, r := range notFoundRewrites {
+	for _, r := range notFoundRewrites() {
 		if r.re.MatchString(msg) {
 			return r.re.ReplaceAllString(msg, r.repl)
 		}

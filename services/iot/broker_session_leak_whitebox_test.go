@@ -22,7 +22,11 @@ func newTestMQTTClient(t *testing.T, id string) *mqtt.Client {
 func countSessions(b *Broker) int {
 	n := 0
 
-	b.sessions.Range(func(_, _ any) bool { n++; return true })
+	b.sessions.Range(func(_, _ any) bool {
+		n++
+
+		return true
+	})
 
 	return n
 }
@@ -82,7 +86,11 @@ func TestAuthHook_CustomSessionsSweptForClosedClients(t *testing.T) {
 			cl := newTestMQTTClient(t, "dev-custom")
 			stopped := false
 
-			h.sessions.Store(cl, &customSession{stop: func() bool { stopped = true; return true }})
+			h.sessions.Store(cl, &customSession{stop: func() bool {
+				stopped = true
+
+				return true
+			}})
 
 			if tt.closed {
 				cl.Stop(nil)
