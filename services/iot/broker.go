@@ -443,6 +443,8 @@ func (b *Broker) SendToClientAwaitAck(
 }
 
 func (b *Broker) notifyConnected(cl *mqtt.Client) {
+	b.markEstablished(cl)
+
 	if o := b.observer.Load(); o != nil {
 		(*o).ClientConnected(cl.ID, cl.Net.Remote)
 	}
