@@ -58,18 +58,19 @@ func webAPIVersions() []string {
 
 type storedWebSite struct {
 	Created       time.Time                 `json:"created"`
-	Tags          map[string]string         `json:"tags,omitempty"`
-	Identity      map[string]any            `json:"identity,omitempty"`
+	Pending       *pendingSwap              `json:"pendingSwap,omitempty"`
 	Extra         map[string]any            `json:"extra,omitempty"`
 	Configs       map[string]map[string]any `json:"configs,omitempty"`
 	Slots         map[string]*storedWebSite `json:"slots,omitempty"`
-	Pending       *pendingSwap              `json:"pendingSwap,omitempty"`
+	Tags          map[string]string         `json:"tags,omitempty"`
 	LastSwap      *swapStatus               `json:"lastSwap,omitempty"`
 	Name          string                    `json:"name"`
 	Slot          string                    `json:"slot,omitempty"`
 	ResourceGroup string                    `json:"resourceGroup"`
 	Location      string                    `json:"location"`
 	Kind          string                    `json:"kind"`
+	Identity      map[string]any            `json:"identity,omitempty"`
+	Managed       resourceIdentity          `json:"managedIdentity"`
 }
 
 type storedWebPlan struct {
@@ -91,6 +92,7 @@ type WebProvider struct {
 	mu        *lockmetrics.RWMutex
 	sites     map[string]*storedWebSite
 	plans     map[string]*storedWebPlan
+	ids       *identityService
 }
 
 // NewWebProvider creates a WebProvider; dataPlane may be nil.
@@ -273,6 +275,18 @@ func (p *WebProvider) checkSiteWritable(id ResourceID, name string, existing *st
 	return nil
 }
 
+// siteIdentity applies a request's identity block on top of the identity of the existing site (nil for a new one).
+func (p *WebProvider) siteIdentity(body map[string]any, existing *storedWebSite) (resourceIdentity, error) {
+	var prev resourceIdentity
+	if existing != nil {
+		prev = existing.Managed
+	}
+
+	_, present := body[fieldIdentity]
+
+	return p.ids.apply(body[fieldIdentity], present, prev)
+}
+
 func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
 	name := id.LeafName()
 	existing, exists := p.site(id.ResourceGroup, name)
@@ -305,9 +319,14 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
+	ident, err := p.siteIdentity(body, existing)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &storedWebSite{
 		Name: name, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Kind: kind, Created: time.Now().UTC(),
-		Tags: stringTags(body[fieldTags]), Identity: mapOf(body["identity"]), Configs: map[string]map[string]any{},
+		Tags: stringTags(body[fieldTags]), Managed: ident, Configs: map[string]map[string]any{},
 		Extra: webSiteExtra(props),
 	}
 
@@ -486,8 +505,8 @@ func (p *WebProvider) siteBody(
 		fieldProperties: ehMerge(props, s.Extra, nil),
 	}
 
-	if s.Identity != nil {
-		out["identity"] = s.Identity
+	if ident := p.ids.body(s.Managed); ident != nil {
+		out[fieldIdentity] = ident
 	}
 
 	return out

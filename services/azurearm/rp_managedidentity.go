@@ -385,3 +385,22 @@ func (p *ManagedIdentityProvider) PatchTags(id ResourceID, tags map[string]strin
 
 	return p.identityBody(id, i), nil
 }
+
+// lookupUserAssigned resolves a user-assigned identity's ARM id to its principal and client ids.
+func (p *ManagedIdentityProvider) lookupUserAssigned(idStr string) (string, string, bool) {
+	rid, err := ParseGenericResourcePath(idStr)
+	if err != nil || !strings.EqualFold(rid.Namespace, namespaceMicrosoftManagedIdentity) ||
+		len(rid.Types) != 1 || !strings.EqualFold(rid.Types[0], msiIdentitiesType) {
+		return "", "", false
+	}
+
+	p.mu.RLock("lookupUserAssigned")
+	defer p.mu.RUnlock()
+
+	i, ok := p.identities[msiKey(rid.ResourceGroup, rid.Names[0])]
+	if !ok {
+		return "", "", false
+	}
+
+	return i.PrincipalID, i.ClientID, true
+}

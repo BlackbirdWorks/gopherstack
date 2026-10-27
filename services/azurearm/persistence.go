@@ -38,6 +38,7 @@ type armSnapshot struct {
 	ContainerInstance   *containerInstanceSnapshot `json:"containerInstance,omitempty"`
 	Network             *networkSnapshot           `json:"network,omitempty"`
 	ManagedIdentity     *managedIdentitySnapshot   `json:"managedIdentity,omitempty"`
+	Compute             *computeSnapshot           `json:"compute,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -216,6 +217,10 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.ManagedIdentity = p.snapshot()
 	}
 
+	if p, ok := h.computeProvider(); ok {
+		st.Compute = p.snapshot()
+	}
+
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
 
@@ -272,6 +277,10 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.managedIdentityProvider(); ok {
 		p.restore(snap.ManagedIdentity)
+	}
+
+	if p, ok := h.computeProvider(); ok {
+		p.restore(snap.Compute)
 	}
 
 	return nil

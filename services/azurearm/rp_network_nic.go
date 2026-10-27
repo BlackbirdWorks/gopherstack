@@ -632,6 +632,8 @@ func (p *NetworkProvider) bodyNIC(id ResourceID, it *netParent) map[string]any {
 	dns["internalDomainNameSuffix"] = it.Obj.Aux["suffix"]
 	props["dnsSettings"] = dns
 
+	nicVMBackRef(props, it.Obj.Aux)
+
 	return p.envelope(id, netNICs, &it.Obj, props)
 }
 
@@ -739,6 +741,10 @@ func (p *NetworkProvider) checkTopDelete(it *netParent, _ ResourceID) error {
 				"Network security group %s cannot be deleted because it is in use by the following resources: %s. "+
 					"In order to delete the Network security group, remove the association with the resource(s). "+
 					"To learn how to do this, see aka.ms/deletensg.", it.Obj.Name, strings.Join(users, ", "))
+		}
+	case netNICs:
+		if vm := it.Obj.Aux[auxVM]; vm != "" {
+			return nicInUse(it.armID(), vm)
 		}
 	case netRTs:
 		if users := p.rtSubnets(it.armID()); len(users) > 0 {

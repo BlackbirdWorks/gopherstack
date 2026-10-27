@@ -177,15 +177,26 @@ func (h *Handler) handleNamespace(c *echo.Context, segs []string, ns string) err
 		return h.handleLegacyNamespace(c, segs, t)
 	}
 
-	supported := networkAPIVersions()
-	if ns == namespaceMicrosoftManagedIdentity {
-		supported = msiAPIVersions()
-	}
-
-	if !h.checkNSAPIVersion(c, ns, supported, ns+"/"+firstType(t.id)) {
+	if !h.checkNSAPIVersion(c, ns, namespaceAPIVersions(ns), ns+"/"+firstType(t.id)) {
 		return nil
 	}
 
+	return h.nsDispatch(c, t, segs)
+}
+
+func namespaceAPIVersions(ns string) []string {
+	switch ns {
+	case namespaceMicrosoftManagedIdentity:
+		return msiAPIVersions()
+	case namespaceMicrosoftCompute:
+		return computeAPIVersions()
+	}
+
+	return networkAPIVersions()
+}
+
+// nsDispatch serves the generic list/PUT/GET/DELETE/PATCH shapes once the api-version has been checked.
+func (h *Handler) nsDispatch(c *echo.Context, t nsTarget, segs []string) error {
 	if t.listing {
 		return h.handleNSList(c, t.id, segs)
 	}
@@ -227,13 +238,28 @@ func (h *Handler) handleNSList(c *echo.Context, id ResourceID, segs []string) er
 		return h.writeAPIError(c, err)
 	}
 
-	return h.writeJSON(c, http.StatusOK, h.pageNS(c, values))
+	return h.writeJSON(c, http.StatusOK, h.pageNS(c, values, nsDefaultTop(id.Namespace)))
+}
+
+const computePageSize = 100
+
+// nsDefaultTop is the page size applied when the caller sends no $top; 0 means everything in one page.
+func nsDefaultTop(ns string) int {
+	if strings.EqualFold(ns, namespaceMicrosoftCompute) {
+		return computePageSize
+	}
+
+	return 0
 }
 
 // pageNS applies $top/$skiptoken paging to a list result and adds nextLink when more items remain.
-func (h *Handler) pageNS(c *echo.Context, values []map[string]any) map[string]any {
+func (h *Handler) pageNS(c *echo.Context, values []map[string]any, defaultTop int) map[string]any {
 	top, err := strconv.Atoi(c.QueryParam("$top"))
 	if err != nil || top <= 0 {
+		top = defaultTop
+	}
+
+	if top <= 0 {
 		return map[string]any{fieldValue: values}
 	}
 
@@ -279,6 +305,10 @@ func isSyncType(id ResourceID) bool {
 		return true
 	}
 
+	if strings.EqualFold(id.Namespace, namespaceMicrosoftCompute) && strings.EqualFold(firstType(id), cmpAvSets) {
+		return true
+	}
+
 	if len(id.Types) == 2 && strings.EqualFold(id.Types[0], netZones) {
 		return !strings.EqualFold(id.Types[1], netLinks)
 	}
@@ -312,6 +342,13 @@ func (h *Handler) preconditionFailed(c *echo.Context, id ResourceID) (bool, erro
 	cur, err := h.Registry.Get(c.Request().Context(), id)
 	exists := err == nil
 
+	if et, ok := h.Registry.providerFor(id).(etagSource); ok {
+		var tag string
+
+		tag, exists = et.etagOf(id)
+		cur = map[string]any{netFieldEtag: tag}
+	}
+
 	switch {
 	case ifNone == "*" && exists:
 		return true, h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailed",
@@ -343,7 +380,12 @@ func (h *Handler) handleNSPut(c *echo.Context, id ResourceID) error {
 		return h.writeAPIError(c, err)
 	}
 
-	if etag := strOf(out, netFieldEtag); etag != "" {
+	etag := strOf(out, netFieldEtag)
+	if et, ok := h.Registry.providerFor(id).(etagSource); ok {
+		etag, _ = et.etagOf(id)
+	}
+
+	if etag != "" {
 		c.Response().Header().Set("ETag", etag)
 	}
 
@@ -352,7 +394,7 @@ func (h *Handler) handleNSPut(c *echo.Context, id ResourceID) error {
 	}
 
 	status := http.StatusOK
-	if created {
+	if created && createAnswers201(id) {
 		status = http.StatusCreated
 	}
 
@@ -386,8 +428,32 @@ type tagPatcher interface {
 	PatchTags(id ResourceID, tags map[string]string) (map[string]any, error)
 }
 
+// etagSource is implemented by providers whose resources carry an etag that is not part of the response body.
+type etagSource interface {
+	etagOf(id ResourceID) (string, bool)
+}
+
+// resourcePatcher is implemented by providers that support PATCH of more than tags.
+type resourcePatcher interface {
+	PatchResource(id ResourceID, body map[string]any) (map[string]any, error)
+}
+
 func (h *Handler) handleNSPatch(c *echo.Context, id ResourceID) error {
 	p := h.Registry.providerFor(id)
+
+	if rp, ok := p.(resourcePatcher); ok {
+		body, err := decodeJSONBody(c.Request())
+		if err != nil {
+			return h.writeAPIError(c, err)
+		}
+
+		out, err := rp.PatchResource(id, body)
+		if err != nil {
+			return h.writeAPIError(c, err)
+		}
+
+		return h.writeJSON(c, http.StatusOK, out)
+	}
 
 	tp, ok := p.(tagPatcher)
 	if !ok {
@@ -427,4 +493,18 @@ func (h *Handler) managedIdentityProvider() (*ManagedIdentityProvider, bool) {
 	mp, ok := p.(*ManagedIdentityProvider)
 
 	return mp, ok
+}
+
+// createAnswers201 is false for the Compute types whose SDK operations accept only 200 or 202 on PUT.
+func createAnswers201(id ResourceID) bool {
+	if !strings.EqualFold(id.Namespace, namespaceMicrosoftCompute) {
+		return true
+	}
+
+	switch canonicalCmpType(firstType(id)) {
+	case cmpDisks, cmpSnaps, cmpAvSets:
+		return false
+	}
+
+	return true
 }

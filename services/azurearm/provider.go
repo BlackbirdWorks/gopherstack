@@ -196,9 +196,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	registry.Register(NewMonitorProvider(namespaceMicrosoftOperationalInsights, backend, nil))
 	registry.Register(NewMonitorProvider(namespaceMicrosoftInsights, backend, nil))
 
-	registerLocalProviders(registry, backend, settings)
+	ids := registerLocalProviders(registry, backend, settings)
 
-	registry.Register(NewContainerInstanceProvider(newACIEngine(ctx, settings)))
+	aci := NewContainerInstanceProvider(newACIEngine(ctx, settings))
+	aci.ids = ids
+	registry.Register(aci)
 
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
@@ -239,10 +241,20 @@ func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
 const aciDisabledReason = "the container engine is disabled (--azure-arm-aci-engine=none); container groups cannot run"
 
 // registerLocalProviders registers the providers that have no data-plane seam to wire up later.
-func registerLocalProviders(registry *Registry, backend *InMemoryBackend, settings Settings) {
+func registerLocalProviders(registry *Registry, backend *InMemoryBackend, settings Settings) *identityService {
+	msi := NewManagedIdentityProvider(settings.TenantID)
+	ids := newIdentityService(msi, settings.TenantID)
+	network := NewNetworkProvider(backend)
+
+	web := NewWebProvider(nil)
+	web.ids = ids
+
 	registry.Register(NewRedisProvider(nil))
 	registry.Register(NewSQLProvider(nil))
-	registry.Register(NewWebProvider(nil))
-	registry.Register(NewNetworkProvider(backend))
-	registry.Register(NewManagedIdentityProvider(settings.TenantID))
+	registry.Register(web)
+	registry.Register(network)
+	registry.Register(msi)
+	registry.Register(NewComputeProvider(backend, network, ids))
+
+	return ids
 }
