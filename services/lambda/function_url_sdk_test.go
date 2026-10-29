@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -88,7 +89,7 @@ func TestFunctionURL_SDKOpsAndHostRouting(t *testing.T) {
 	req.Host = host
 	req.Header.Set("Origin", "https://example.com")
 
-	resp, doErr := http.DefaultClient.Do(req)
+	resp, doErr := testclient.New(t).Do(req)
 	require.NoError(t, doErr)
 
 	defer resp.Body.Close()

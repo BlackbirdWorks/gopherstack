@@ -17,6 +17,8 @@ import (
 	metricpb "google.golang.org/genproto/googleapis/api/metric"
 	"google.golang.org/genproto/googleapis/api/monitoredres"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 const (
@@ -47,7 +49,7 @@ func (e *env) promGet(t *testing.T, path string, params url.Values) (int, []byte
 	// no keep-alive: an idle pooled connection outlives the test and trips goleak
 	req.Close = true
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()

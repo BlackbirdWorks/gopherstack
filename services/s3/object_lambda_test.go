@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -56,7 +57,7 @@ func (l *staticObjectLambda) InvokeFunction(
 		wgorReq.Header.Set("X-Amz-Fwd-Status", l.fwdStatus)
 	}
 
-	wgorResp, err := http.DefaultClient.Do(wgorReq)
+	wgorResp, err := noKeepAliveClient().Do(wgorReq)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -454,4 +455,11 @@ func TestS3ObjectLambda_AliasCannotCreateBucket(t *testing.T) {
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, httptest.NewRequest(http.MethodPut, "/myolap-abcd1234--ol-s3", nil))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func noKeepAliveClient() *http.Client {
+	tr := httpclient.NewTransport()
+	tr.DisableKeepAlives = true
+
+	return &http.Client{Transport: tr}
 }

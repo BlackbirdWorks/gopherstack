@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
 
@@ -62,7 +63,7 @@ func cypherDo(t *testing.T, method, target, contentType, body string) (int, map[
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()
@@ -162,5 +163,5 @@ func cypherGet(t *testing.T, target string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 	require.NoError(t, err)
 
-	return http.DefaultClient.Do(req)
+	return testclient.New(t).Do(req)
 }

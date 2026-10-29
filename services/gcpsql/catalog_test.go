@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	sqladmin "google.golang.org/api/sqladmin/v1"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestFlagsAndTiers(t *testing.T) {
@@ -109,7 +111,7 @@ func TestUnknownRouteIs404(t *testing.T) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, e.url+"/v1/projects/p/nonsense", nil)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

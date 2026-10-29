@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -29,6 +30,7 @@ const ptrLeakLogStream = "stream-1"
 // ptrLeakCaptureTransport records the raw bytes of the last HTTP response,
 // then replays them so the real SDK deserializer still sees the full body.
 type ptrLeakCaptureTransport struct {
+	rt   http.RoundTripper
 	body []byte
 	mu   sync.Mutex
 }
@@ -43,7 +45,7 @@ func (c *ptrLeakCaptureTransport) Body() []byte {
 }
 
 func (c *ptrLeakCaptureTransport) Do(req *http.Request) (*http.Response, error) {
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	resp, err := c.rt.RoundTrip(req)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +90,7 @@ func newCapturingWireTestCloudWatchLogsClient(
 	)
 	require.NoError(t, err)
 
-	capture := &ptrLeakCaptureTransport{}
+	capture := &ptrLeakCaptureTransport{rt: testclient.New(t).Transport}
 
 	client := cwlsdk.NewFromConfig(cfg, func(o *cwlsdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)

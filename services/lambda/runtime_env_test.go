@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -390,7 +391,7 @@ func TestRuntimeTraceHeader(t *testing.T) {
 				fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", base), nil)
 			require.NoError(t, err)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

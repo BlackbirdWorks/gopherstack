@@ -12,15 +12,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53recoverycontrolconfig/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
-type hostRoundTripper struct{ host string }
+type hostRoundTripper struct {
+	rt   http.RoundTripper
+	host string
+}
 
 func (h hostRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
 	r.Host = h.host
 
-	return http.DefaultTransport.RoundTrip(r)
+	return h.rt.RoundTrip(r)
 }
 
 func (f *fixture) clientVia(t *testing.T, host string) *sdk.Client {
@@ -34,7 +39,7 @@ func (f *fixture) clientVia(t *testing.T, host string) *sdk.Client {
 
 	return sdk.NewFromConfig(cfg, func(o *sdk.Options) {
 		o.BaseEndpoint = aws.String(f.url)
-		o.HTTPClient = &http.Client{Transport: hostRoundTripper{host: host}}
+		o.HTTPClient = &http.Client{Transport: hostRoundTripper{host: host, rt: testclient.New(t).Transport}}
 	})
 }
 

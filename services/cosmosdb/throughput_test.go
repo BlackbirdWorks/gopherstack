@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -73,7 +74,7 @@ func (s *throughputServer) do(method, path string, headers map[string]string, bo
 		req.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(s.t).Do(req)
 	require.NoError(s.t, err)
 
 	defer func() { _ = resp.Body.Close() }()

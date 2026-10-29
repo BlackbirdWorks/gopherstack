@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	ent "github.com/blackbirdworks/gopherstack/services/marketplaceentitlementservice"
 )
 
@@ -318,7 +319,7 @@ func TestLegacyJSONTarget(t *testing.T) {
 			req.Header.Set("X-Amz-Target", tt.target)
 			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

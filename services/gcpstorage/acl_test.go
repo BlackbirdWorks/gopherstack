@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func aclMap(rules []storage.ACLRule) map[string]storage.ACLRole {
@@ -300,7 +302,7 @@ func TestACLComposePredefined(t *testing.T) {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusOK, resp.StatusCode)

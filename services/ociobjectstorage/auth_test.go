@@ -10,6 +10,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestSignatureVerification(t *testing.T) {
@@ -96,7 +98,7 @@ func TestBodyHashIsVerified(t *testing.T) {
 			testTenancy+"/"+testUser+"/"+e.keys.fprint+`",algorithm="rsa-sha256",signature="AAAA"`,
 	)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()
