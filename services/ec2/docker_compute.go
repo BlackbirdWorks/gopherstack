@@ -242,22 +242,7 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		req.MetadataEndpoint = ""
 	}
 
-	entrypoint := buildEntrypointScript(req.AuthorizedKey, req.UserData)
-	hostCfg, networkCfg, exposed := d.buildContainerConfigs(hostPort, req, vn, hasNet)
-	hostCfg.Mounts = append(hostCfg.Mounts, mounts...)
-	createOpts := mobyclient.ContainerCreateOptions{
-		Config: &mobycontainer.Config{
-			Image:        image,
-			ExposedPorts: exposed,
-			Cmd:          []string{"/bin/sh", "-c", entrypoint},
-			Labels:       d.buildLabels(req),
-			Env:          d.flags.apply(hostCfg, containerEnv(req), exposed),
-			Hostname:     dockerHostname(req.InstanceID),
-		},
-		HostConfig:       hostCfg,
-		NetworkingConfig: networkCfg,
-		Name:             "gopherstack-" + req.InstanceID,
-	}
+	createOpts := d.createOptions(req, image, mounts, hostPort, vn, hasNet)
 
 	resp, createErr := d.api.ContainerCreate(ctx, createOpts)
 	if createErr != nil {
@@ -324,6 +309,28 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		NetworkNote:     vn.note,
 		PublishedPorts:  got.published,
 	}, nil
+}
+
+// createOptions assembles the container definition for an instance.
+func (d *DockerCompute) createOptions(
+	req LaunchRequest, image string, mounts []mobymount.Mount, hostPort int, vn vpcNetwork, hasNet bool,
+) mobyclient.ContainerCreateOptions {
+	hostCfg, networkCfg, exposed := d.buildContainerConfigs(hostPort, req, vn, hasNet)
+	hostCfg.Mounts = append(hostCfg.Mounts, mounts...)
+
+	return mobyclient.ContainerCreateOptions{
+		Config: &mobycontainer.Config{
+			Image:        image,
+			ExposedPorts: exposed,
+			Cmd:          []string{"/bin/sh", "-c", buildEntrypointScript(req.AuthorizedKey, req.UserData)},
+			Labels:       d.buildLabels(req),
+			Env:          d.flags.apply(hostCfg, containerEnv(req), exposed),
+			Hostname:     dockerHostname(req.InstanceID),
+		},
+		HostConfig:       hostCfg,
+		NetworkingConfig: networkCfg,
+		Name:             "gopherstack-" + req.InstanceID,
+	}
 }
 
 // prepareLaunch resolves the image the instance runs, makes it available locally and creates its EBS volumes.

@@ -134,7 +134,6 @@ func TestDockerComputeLiveCommitAndLaunchFromLocalImage(t *testing.T) {
 
 	b := launchLive(t, dc, LaunchRequest{InstanceID: instB, DockerImage: ref})
 	assert.Zero(t, execExit(t, cli, b.ProviderID, "grep -q golden /marker"), "instance runs the committed image")
-
 }
 
 func indexOfAMI(list []DiscoveredImage, amiID string) int {
