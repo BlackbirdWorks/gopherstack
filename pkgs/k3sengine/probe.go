@@ -1,4 +1,4 @@
-package eks
+package k3sengine
 
 import (
 	"context"
@@ -12,21 +12,23 @@ import (
 
 const maxProbeBody = 1 << 20
 
-var errNotReady = errors.New("readyz not ok")
+// ErrNotReady is returned while the API server has not answered /readyz with 200.
+var ErrNotReady = errors.New("readyz not ok")
 
-// probeK3s requires /readyz to answer 200 for the bearer token over TLS verified against the pre-provisioned CA.
-func probeK3s(ctx context.Context, addr, token string, caPEM []byte) error {
+// Probe requires /readyz to answer 200 for the bearer token over TLS verified against the pre-provisioned CA.
+func Probe(ctx context.Context, addr, token string, caPEM []byte) error {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(caPEM) {
-		return fmt.Errorf("%w: cluster CA is not a certificate", errNotReady)
+		return fmt.Errorf("%w: cluster CA is not a certificate", ErrNotReady)
 	}
 
-	_, err := httpGet(ctx, addr, "/readyz", token, &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12})
+	_, err := HTTPGet(ctx, addr, "/readyz", token, &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12})
 
 	return err
 }
 
-func httpGet(ctx context.Context, addr, path, token string, tlsCfg *tls.Config) ([]byte, error) {
+// HTTPGet GETs https://addr/path with an optional bearer token and requires a 200.
+func HTTPGet(ctx context.Context, addr, path, token string, tlsCfg *tls.Config) ([]byte, error) {
 	tr := &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true}
 	defer tr.CloseIdleConnections()
 
@@ -52,7 +54,7 @@ func httpGet(ctx context.Context, addr, path, token string, tlsCfg *tls.Config) 
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: %s returned %d", errNotReady, path, resp.StatusCode)
+		return nil, fmt.Errorf("%w: %s returned %d", ErrNotReady, path, resp.StatusCode)
 	}
 
 	return body, nil

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 )
 
 const (
@@ -185,32 +187,19 @@ func validateLBPortList(ports []int) error {
 	return nil
 }
 
-func versionMinorKey(version string) (string, bool) {
-	parts := strings.Split(version, ".")
-	if len(parts) < majorMinorParts || parts[0] != "1" {
-		return "", false
-	}
-
-	if _, err := strconv.Atoi(parts[1]); err != nil {
-		return "", false
-	}
-
-	return parts[0] + "." + parts[1], true
-}
-
 // imageFor resolves the k3s image: full override, then per-minor pin, then built-in tags; otherwise unsupported.
 func (e *clusterEngine) imageFor(version string) (string, error) {
 	if e.cfg.Image != "" {
 		return e.cfg.Image, nil
 	}
 
-	if key, ok := versionMinorKey(version); ok {
+	if key, ok := k3sengine.MinorKey(version); ok {
 		if tag, pinned := e.cfg.ImageTags[key]; pinned {
 			return K3sImageRepo + ":" + tag, nil
 		}
 	}
 
-	if tag, ok := k3sTag(version); ok {
+	if tag, ok := k3sengine.Tag(version); ok {
 		return K3sImageRepo + ":" + tag, nil
 	}
 

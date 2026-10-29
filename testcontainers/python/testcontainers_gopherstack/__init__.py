@@ -62,6 +62,7 @@ GCP_PORTS = {
     "dnsserver": 8141,
     "compute": 8142,
     "datastore": 8143,
+    "container": 8144,
     "bigquery": 9050,
 }
 

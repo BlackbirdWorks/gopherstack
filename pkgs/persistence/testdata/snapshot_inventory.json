@@ -15752,6 +15752,36 @@
     ],
     "version": 1
   },
+  "gcpcontainer": {
+    "fields": [
+      "backendSnapshot.Clusters map[string]clusterSnap `json:\"clusters\"`",
+      "backendSnapshot.Ops map[string]opSnap `json:\"operations\"`",
+      "backendSnapshot.Seq uint64 `json:\"seq\"`",
+      "clusterSnap.Cluster json.RawMessage `json:\"cluster\"`",
+      "clusterSnap.DeleteOp string `json:\"deleteOp\"`",
+      "clusterSnap.Failure string `json:\"failure\"`",
+      "clusterSnap.Pools []poolSnap `json:\"pools\"`",
+      "clusterSnap.Project string `json:\"project\"`",
+      "clusterSnap.Rotation *rotationRec `json:\"rotation,omitempty\"`",
+      "opSnap.Cluster string `json:\"cluster\"`",
+      "opSnap.EndAt time.Time `json:\"endAt\"`",
+      "opSnap.Failure string `json:\"failure\"`",
+      "opSnap.Finished bool `json:\"finished\"`",
+      "opSnap.Kind opKind `json:\"kind\"`",
+      "opSnap.Location string `json:\"location\"`",
+      "opSnap.Manual bool `json:\"manual\"`",
+      "opSnap.Op json.RawMessage `json:\"op\"`",
+      "opSnap.Pool string `json:\"pool\"`",
+      "opSnap.Project string `json:\"project\"`",
+      "poolSnap.DeleteOp string `json:\"deleteOp\"`",
+      "poolSnap.Pool json.RawMessage `json:\"pool\"`",
+      "poolSnap.PrevVersion string `json:\"prevVersion\"`",
+      "poolSnap.Size int32 `json:\"size\"`",
+      "rotationRec.Credentials bool",
+      "rotationRec.OldEndpoint string"
+    ],
+    "version": 1
+  },
   "gcpdatastore": {
     "fields": [
       "backendSnapshot.Entities map[string]entitySnap `json:\"entities\"`",
