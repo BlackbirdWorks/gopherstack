@@ -48,16 +48,16 @@ type flexInstance interface {
 }
 
 type dockerFlexEngine struct {
-	cfg  DockerFlexConfig
 	rt   container.Runtime
-	mu   sync.Mutex
 	live map[string]flexInstance
 	pg   *pgengine.Engine
 	my   *mysqlengine.Engine
 	kind string
+	cfg  DockerFlexConfig
+	mu   sync.Mutex
 }
 
-// NewDockerFlexEngine returns a FlexEngine for kind "postgres" or "mysql".
+// NewDockerFlexEngine returns a FlexEngine for kind flexKindPostgres or flexKindMySQL.
 func NewDockerFlexEngine(kind string, cfg DockerFlexConfig) FlexEngine {
 	return &dockerFlexEngine{cfg: cfg, kind: kind, live: map[string]flexInstance{}}
 }
@@ -76,13 +76,17 @@ func (e *dockerFlexEngine) init() error {
 	}
 
 	switch e.kind {
-	case "postgres":
+	case flexKindPostgres:
 		e.pg, err = pgengine.New(pgengine.Config{
 			Runtime: rt, Ports: e.cfg.Ports, Logger: e.cfg.Logger, Prefix: "azflexpg", StartTimeout: e.cfg.StartTimeout,
 		})
 	default:
 		e.my, err = mysqlengine.New(mysqlengine.Config{
-			Runtime: rt, Ports: e.cfg.Ports, Logger: e.cfg.Logger, Prefix: "azflexmysql", StartTimeout: e.cfg.StartTimeout,
+			Runtime:      rt,
+			Ports:        e.cfg.Ports,
+			Logger:       e.cfg.Logger,
+			Prefix:       "azflexmysql",
+			StartTimeout: e.cfg.StartTimeout,
 		})
 	}
 
@@ -100,7 +104,7 @@ func (e *dockerFlexEngine) image(version string) string {
 		return e.cfg.Image
 	}
 
-	if e.kind == "postgres" {
+	if e.kind == flexKindPostgres {
 		return flexPGImagePrefix + version
 	}
 
@@ -169,7 +173,7 @@ func endpointOf(inst flexInstance) FlexEndpoint {
 func (e *dockerFlexEngine) launch(ctx context.Context, id string, spec FlexSpec) (flexInstance, error) {
 	secret := flexSecret()
 
-	if e.kind == "postgres" {
+	if e.kind == flexKindPostgres {
 		s, err := e.pg.Launch(ctx, pgengine.Spec{ID: id, Image: e.image(spec.Version), Password: secret})
 		if err != nil {
 			return nil, fmt.Errorf("launch postgres: %w", err)
@@ -281,7 +285,10 @@ func (m *mysqlInstance) EnsureAdmin(ctx context.Context, user, password string) 
 }
 
 func (m *mysqlInstance) CreateDatabase(ctx context.Context, name, charset, collation string) error {
-	return m.s.Exec(ctx, "CREATE DATABASE IF NOT EXISTS `"+name+"` CHARACTER SET "+charset+" COLLATE "+collation) //nolint:wrapcheck // as above
+	return m.s.Exec(
+		ctx,
+		"CREATE DATABASE IF NOT EXISTS `"+name+"` CHARACTER SET "+charset+" COLLATE "+collation,
+	) //nolint:wrapcheck // as above
 }
 
 func (m *mysqlInstance) DropDatabase(ctx context.Context, name string) error {

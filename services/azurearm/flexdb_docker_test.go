@@ -71,7 +71,7 @@ func TestPGFlexDockerEngine(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), flexDockerStart)
 	t.Cleanup(cancel)
 
-	srv := pgServer("pgadmin")
+	srv := pgServer()
 	v := srvVersion16
 	srv.Properties.Version = &v
 
@@ -184,21 +184,7 @@ func TestMySQLFlexDockerEngine(t *testing.T) {
 	_, err = db.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
 
-	rows, err := open(flexPassword, "").QueryContext(ctx, "SHOW DATABASES")
-	require.NoError(t, err)
-
-	var names []string
-
-	for rows.Next() {
-		var n string
-		require.NoError(t, rows.Scan(&n))
-
-		names = append(names, n)
-	}
-
-	require.NoError(t, rows.Err())
-	_ = rows.Close()
-	assert.Contains(t, names, "shop")
+	assert.Contains(t, mysqlDatabases(ctx, t, open(flexPassword, "")), "shop")
 
 	require.NoError(t, open(flexPassword, "shop").PingContext(ctx))
 
@@ -207,20 +193,7 @@ func TestMySQLFlexDockerEngine(t *testing.T) {
 	_, err = drop.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
 
-	rows, err = open(flexPassword, "").QueryContext(ctx, "SHOW DATABASES")
-	require.NoError(t, err)
-
-	names = nil
-
-	for rows.Next() {
-		var n string
-		require.NoError(t, rows.Scan(&n))
-
-		names = append(names, n)
-	}
-
-	_ = rows.Close()
-	assert.NotContains(t, names, "shop")
+	assert.NotContains(t, mysqlDatabases(ctx, t, open(flexPassword, "")), "shop")
 
 	up, err := f.NewServersClient().BeginUpdate(ctx, flexRG, "my-docker", myPasswordUpdate("N3wS3cret!pw"), nil)
 	require.NoError(t, err)
@@ -246,4 +219,26 @@ func TestMySQLFlexDockerEngine(t *testing.T) {
 	require.NoError(t, err)
 	_, err = del.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
+}
+
+func mysqlDatabases(ctx context.Context, t *testing.T, db *sql.DB) []string {
+	t.Helper()
+
+	rows, err := db.QueryContext(ctx, "SHOW DATABASES")
+	require.NoError(t, err)
+
+	defer rows.Close()
+
+	var names []string
+
+	for rows.Next() {
+		var n string
+		require.NoError(t, rows.Scan(&n))
+
+		names = append(names, n)
+	}
+
+	require.NoError(t, rows.Err())
+
+	return names
 }

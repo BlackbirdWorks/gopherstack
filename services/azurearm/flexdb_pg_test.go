@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/postgresql/armpostgresqlflexibleservers/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func (s *flexStack) pgFactory(t *testing.T) *armpostgresqlflexibleservers.Client
 	return f
 }
 
-func pgServer(login string) armpostgresqlflexibleservers.Server {
+func pgServer() armpostgresqlflexibleservers.Server {
 	return armpostgresqlflexibleservers.Server{
 		Location: new(flexLoc),
 		Tags:     map[string]*string{"env": new("test")},
@@ -32,7 +33,7 @@ func pgServer(login string) armpostgresqlflexibleservers.Server {
 			Name: new("Standard_B1ms"), Tier: new(armpostgresqlflexibleservers.SKUTierBurstable),
 		},
 		Properties: &armpostgresqlflexibleservers.ServerProperties{
-			AdministratorLogin:         new(login),
+			AdministratorLogin:         new("pgadmin"),
 			AdministratorLoginPassword: new(flexPassword),
 			Version:                    new(armpostgresqlflexibleservers.ServerVersion("16")),
 			Storage:                    &armpostgresqlflexibleservers.Storage{StorageSizeGB: new(int32(32))},
@@ -44,7 +45,7 @@ func pgServer(login string) armpostgresqlflexibleservers.Server {
 func (s *flexStack) pgCreate(t *testing.T, name string) armpostgresqlflexibleservers.Server {
 	t.Helper()
 
-	poller, err := s.pgFactory(t).NewServersClient().BeginCreate(t.Context(), flexRG, name, pgServer("pgadmin"), nil)
+	poller, err := s.pgFactory(t).NewServersClient().BeginCreate(t.Context(), flexRG, name, pgServer(), nil)
 	require.NoError(t, err)
 
 	res, err := poller.PollUntilDone(t.Context(), pollFast())
@@ -75,12 +76,13 @@ func TestPGFlexServerCRUD(t *testing.T) {
 	assert.NotContains(t, string(enc), flexPassword)
 	assert.NotContains(t, string(enc), "administratorLoginPassword")
 
-	up, err := f.NewServersClient().BeginUpdate(t.Context(), flexRG, "pg-crud", armpostgresqlflexibleservers.ServerForUpdate{
-		Tags: map[string]*string{"env": new("prod")},
-		Properties: &armpostgresqlflexibleservers.ServerPropertiesForUpdate{
-			Storage: &armpostgresqlflexibleservers.Storage{StorageSizeGB: new(int32(64))},
-		},
-	}, nil)
+	up, err := f.NewServersClient().
+		BeginUpdate(t.Context(), flexRG, "pg-crud", armpostgresqlflexibleservers.ServerForUpdate{
+			Tags: map[string]*string{"env": new("prod")},
+			Properties: &armpostgresqlflexibleservers.ServerPropertiesForUpdate{
+				Storage: &armpostgresqlflexibleservers.Storage{StorageSizeGB: new(int32(64))},
+			},
+		}, nil)
 	require.NoError(t, err)
 
 	upRes, err := up.PollUntilDone(t.Context(), pollFast())
@@ -122,54 +124,92 @@ func TestPGFlexServerCRUD(t *testing.T) {
 	assert.Equal(t, "ResourceNotFound", respErr.ErrorCode)
 }
 
+const pgLoginPW = `"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"`
+
+func pgReq(props string) string {
+	return `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{` + props + `}}`
+}
+
 func TestPGFlexServerValidation(t *testing.T) {
 	t.Parallel()
 
 	s := newFlexStack(t, nil)
-	s.pgCreate(t, "pg-taken")
+	subnet := "/subscriptions/" + aciSub + "/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s"
+	zone := "/subscriptions/" + aciSub + "/resourceGroups/rg/providers/Microsoft.Network/privateDnsZones/z"
 
 	tests := []struct {
-		name     string
-		server   string
-		body     string
-		wantCode string
-		status   int
+		name   string
+		server string
+		body   string
+		status int
 	}{
-		{"unknown sku", "pg-v1", `{"location":"x","sku":{"name":"Standard_Z9","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"}}`, "InvalidParameterValue", 400},
-		{"tier mismatch", "pg-v2", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"GeneralPurpose"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"}}`, "InvalidParameterValue", 400},
-		{"missing sku", "pg-v3", `{"location":"x","properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"}}`, "InvalidParameterValue", 400},
-		{"bad version", "pg-v4", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"version":"9","administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"}}`, "InvalidParameterValue", 400},
-		{"reserved login", "pg-v5", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"admin","administratorLoginPassword":"` + flexPassword + `"}}`, "InvalidParameterValue", 400},
-		{"pg_ login", "pg-v6", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"pg_boss","administratorLoginPassword":"` + flexPassword + `"}}`, "InvalidParameterValue", 400},
-		{"weak password", "pg-v7", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"password"}}`, "InvalidParameterValue", 400},
-		{"short password", "pg-v8", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"Ab1!"}}`, "InvalidParameterValue", 400},
-		{"missing password", "pg-v9", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1"}}`, "InvalidParameterValue", 400},
-		{"bad storage", "pg-v10", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `","storage":{"storageSizeGB":33}}}`, "InvalidParameterValue", 400},
-		{"low retention", "pg-v11", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `","backup":{"backupRetentionDays":6}}}`, "InvalidParameterValue", 400},
-		{"high retention", "pg-v12", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `","backup":{"backupRetentionDays":36}}}`, "InvalidParameterValue", 400},
-		{"burstable ha", "pg-v13", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `","highAvailability":{"mode":"ZoneRedundant"}}}`, "InvalidParameterValue", 400},
-		{"uppercase name", "PG-V14", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"}}`, "InvalidParameterValue", 400},
-		{"bad create mode", "pg-v15", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"createMode":"Bogus","administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"}}`, "InvalidParameterValue", 400},
-		{"subnet without dns", "pg-v16", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `","network":{"delegatedSubnetResourceId":"/subscriptions/` + aciSub + `/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s"}}}`, "InvalidParameterValue", 400},
-		{"missing subnet", "pg-v17", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `","network":{"delegatedSubnetResourceId":"/subscriptions/` + aciSub + `/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/v/subnets/s","privateDnsZoneArmResourceId":"/subscriptions/` + aciSub + `/resourceGroups/rg/providers/Microsoft.Network/privateDnsZones/z.private.postgres.database.azure.com"}}}`, "InvalidParameterValue", 400},
-		{"replica without source", "pg-v18", `{"location":"x","properties":{"createMode":"Replica"}}`, "InvalidParameterValue", 400},
-		{"patch missing", "pg-nope", `{"tags":{"a":"b"}}`, "ResourceNotFound", 404},
+		{
+			"unknown sku",
+			"pg-v1",
+			`{"location":"x","sku":{"name":"Standard_Z9","tier":"Burstable"},"properties":{` + pgLoginPW + `}}`,
+			400,
+		},
+		{
+			"tier mismatch",
+			"pg-v2",
+			`{"location":"x","sku":{"name":"Standard_B1ms","tier":"GeneralPurpose"},"properties":{` + pgLoginPW + `}}`,
+			400,
+		},
+		{"missing sku", "pg-v3", `{"location":"x","properties":{` + pgLoginPW + `}}`, 400},
+		{"bad version", "pg-v4", pgReq(pgLoginPW + `,"version":"9"`), 400},
+		{
+			"reserved login",
+			"pg-v5",
+			pgReq(`"administratorLogin":"admin","administratorLoginPassword":"` + flexPassword + `"`),
+			400,
+		},
+		{
+			"pg_ login",
+			"pg-v6",
+			pgReq(`"administratorLogin":"pg_boss","administratorLoginPassword":"` + flexPassword + `"`),
+			400,
+		},
+		{"weak password", "pg-v7", pgReq(`"administratorLogin":"a1","administratorLoginPassword":"password"`), 400},
+		{"short password", "pg-v8", pgReq(`"administratorLogin":"a1","administratorLoginPassword":"Ab1!"`), 400},
+		{"missing password", "pg-v9", pgReq(`"administratorLogin":"a1"`), 400},
+		{"bad storage", "pg-v10", pgReq(pgLoginPW + `,"storage":{"storageSizeGB":33}`), 400},
+		{"low retention", "pg-v11", pgReq(pgLoginPW + `,"backup":{"backupRetentionDays":6}`), 400},
+		{"high retention", "pg-v12", pgReq(pgLoginPW + `,"backup":{"backupRetentionDays":36}`), 400},
+		{"burstable ha", "pg-v13", pgReq(pgLoginPW + `,"highAvailability":{"mode":"ZoneRedundant"}`), 400},
+		{"uppercase name", "PG-V14", pgReq(pgLoginPW), 400},
+		{"bad create mode", "pg-v15", pgReq(pgLoginPW + `,"createMode":"Bogus"`), 400},
+		{
+			"subnet without dns",
+			"pg-v16",
+			pgReq(pgLoginPW + `,"network":{"delegatedSubnetResourceId":"` + subnet + `"}`),
+			400,
+		},
+		{"missing subnet", "pg-v17", pgReq(pgLoginPW + `,"network":{"delegatedSubnetResourceId":"` + subnet +
+			`","privateDnsZoneArmResourceId":"` + zone + `"}`), 400},
+		{"replica without source", "pg-v18", `{"location":"x","properties":{"createMode":"Replica"}}`, 400},
+		{"valid", "pg-v19", pgReq(pgLoginPW + `,"version":"15"`), 201},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			method := http.MethodPut
-			if tt.name == "patch missing" {
-				method = http.MethodPatch
-			}
-
-			status, body := s.raw(t, method, flexServerPath(pgNS, tt.server), tt.body, flexAPIPG)
+			status, body := s.raw(t, http.MethodPut, flexServerPath(pgNS, tt.server), tt.body, flexAPIPG)
 			assert.Equal(t, tt.status, status, body)
-			assert.Equal(t, tt.wantCode, flexErrCode(body))
+
+			if tt.status == http.StatusBadRequest {
+				assert.Equal(t, "InvalidParameterValue", flexErrCode(body))
+			}
 		})
 	}
+
+	t.Run("patch missing", func(t *testing.T) {
+		t.Parallel()
+
+		status, body := s.raw(t, http.MethodPatch, flexServerPath(pgNS, "pg-nope"), `{"tags":{"a":"b"}}`, flexAPIPG)
+		assert.Equal(t, http.StatusNotFound, status)
+		assert.Equal(t, "ResourceNotFound", flexErrCode(body))
+	})
 }
 
 func TestPGFlexNameConflictAcrossGroups(t *testing.T) {
@@ -179,210 +219,226 @@ func TestPGFlexNameConflictAcrossGroups(t *testing.T) {
 	s.pgCreate(t, "pg-global")
 	s.raw(t, http.MethodPut, "/subscriptions/"+aciSub+"/resourcegroups/other", `{"location":"x"}`, "2021-04-01")
 
-	status, body := s.raw(t, http.MethodPut,
+	status, body := s.raw(
+		t,
+		http.MethodPut,
 		"/subscriptions/"+aciSub+"/resourceGroups/other/providers/"+pgNS+"/flexibleServers/pg-global",
-		`{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"`+flexPassword+`"}}`,
-		flexAPIPG)
+		pgReq(pgLoginPW),
+		flexAPIPG,
+	)
 	assert.Equal(t, http.StatusConflict, status)
 	assert.Equal(t, "ServerNameAlreadyExists", flexErrCode(body))
 }
 
-func TestPGFlexFirewallDatabasesConfigs(t *testing.T) {
+func pgPoll[T any](t *testing.T, poller *runtime.Poller[T], err error) T {
+	t.Helper()
+
+	require.NoError(t, err)
+
+	res, err := poller.PollUntilDone(t.Context(), pollFast())
+	require.NoError(t, err)
+
+	return res
+}
+
+func TestPGFlexFirewall(t *testing.T) {
 	t.Parallel()
 
 	s := newFlexStack(t, nil)
-	s.pgCreate(t, "pg-kids")
+	s.pgCreate(t, "pg-fw")
 
-	f := s.pgFactory(t)
+	fw := s.pgFactory(t).NewFirewallRulesClient()
 	ctx := t.Context()
 
-	t.Run("firewall", func(t *testing.T) {
-		fw := f.NewFirewallRulesClient()
-
-		for _, name := range []string{"AllowAllAzureServicesAndResourcesWithinAzureIps_2026", "office"} {
-			start, end := "10.0.0.1", "10.0.0.9"
-			if strings.HasPrefix(name, "AllowAll") {
-				start, end = "0.0.0.0", "0.0.0.0"
-			}
-
-			p, err := fw.BeginCreateOrUpdate(ctx, flexRG, "pg-kids", name, armpostgresqlflexibleservers.FirewallRule{
-				Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
-					StartIPAddress: &start, EndIPAddress: &end,
-				},
-			}, nil)
-			require.NoError(t, err)
-
-			res, err := p.PollUntilDone(ctx, pollFast())
-			require.NoError(t, err)
-			assert.Equal(t, start, *res.Properties.StartIPAddress)
+	for _, name := range []string{"AllowAllAzureServicesAndResourcesWithinAzureIps_2026", "office"} {
+		start, end := "10.0.0.1", "10.0.0.9"
+		if strings.HasPrefix(name, "AllowAll") {
+			start, end = "0.0.0.0", "0.0.0.0"
 		}
 
-		got, err := fw.Get(ctx, flexRG, "pg-kids", "office", nil)
-		require.NoError(t, err)
-		assert.Equal(t, "10.0.0.9", *got.Properties.EndIPAddress)
-
-		count := 0
-		pager := fw.NewListByServerPager(flexRG, "pg-kids", nil)
-
-		for pager.More() {
-			page, err := pager.NextPage(ctx)
-			require.NoError(t, err)
-
-			count += len(page.Value)
-		}
-
-		assert.Equal(t, 2, count)
-
-		del, err := fw.BeginDelete(ctx, flexRG, "pg-kids", "office", nil)
-		require.NoError(t, err)
-		_, err = del.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
-
-		_, err = fw.Get(ctx, flexRG, "pg-kids", "office", nil)
-		require.Error(t, err)
-	})
-
-	t.Run("firewall invalid", func(t *testing.T) {
-		path := flexServerPath(pgNS, "pg-kids") + "/firewallRules/"
-
-		for name, body := range map[string]string{
-			"bad-ip":     `{"properties":{"startIpAddress":"nope","endIpAddress":"1.1.1.1"}}`,
-			"reversed":   `{"properties":{"startIpAddress":"10.0.0.9","endIpAddress":"10.0.0.1"}}`,
-			"ipv6":       `{"properties":{"startIpAddress":"::1","endIpAddress":"::2"}}`,
-			"bad name !": `{"properties":{"startIpAddress":"1.1.1.1","endIpAddress":"1.1.1.2"}}`,
-		} {
-			status, resp := s.raw(t, http.MethodPut, path+strings.ReplaceAll(name, " ", "%20"), body, flexAPIPG)
-			assert.Equal(t, http.StatusBadRequest, status, name)
-			assert.Equal(t, "InvalidParameterValue", flexErrCode(resp), name)
-		}
-	})
-
-	t.Run("databases", func(t *testing.T) {
-		dbs := f.NewDatabasesClient()
-
-		p, err := dbs.BeginCreate(ctx, flexRG, "pg-kids", "appdb", armpostgresqlflexibleservers.Database{}, nil)
-		require.NoError(t, err)
-
-		res, err := p.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
-		assert.Equal(t, "UTF8", *res.Properties.Charset)
-		assert.Equal(t, "en_US.utf8", *res.Properties.Collation)
-
-		var names []string
-
-		pager := dbs.NewListByServerPager(flexRG, "pg-kids", nil)
-		for pager.More() {
-			page, err := pager.NextPage(ctx)
-			require.NoError(t, err)
-
-			for _, d := range page.Value {
-				names = append(names, *d.Name)
-			}
-		}
-
-		assert.ElementsMatch(t, []string{"appdb", "azure_maintenance", "azure_sys", "postgres"}, names)
-
-		_, err = dbs.BeginCreate(ctx, flexRG, "pg-kids", "postgres", armpostgresqlflexibleservers.Database{}, nil)
-		require.Error(t, err)
-
-		del, err := dbs.BeginDelete(ctx, flexRG, "pg-kids", "appdb", nil)
-		require.NoError(t, err)
-		_, err = del.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
-
-		_, err = dbs.Get(ctx, flexRG, "pg-kids", "appdb", nil)
-		require.Error(t, err)
-
-		_, err = dbs.BeginDelete(ctx, flexRG, "pg-kids", "postgres", nil)
-		require.Error(t, err)
-	})
-
-	t.Run("configurations", func(t *testing.T) {
-		cfg := f.NewConfigurationsClient()
-
-		def, err := cfg.Get(ctx, flexRG, "pg-kids", "max_connections", nil)
-		require.NoError(t, err)
-		assert.Equal(t, "50", *def.Properties.Value)
-		assert.Equal(t, "system-default", *def.Properties.Source)
-		assert.Equal(t, "25-262143", *def.Properties.AllowedValues)
-		assert.False(t, *def.Properties.IsReadOnly)
-
-		put, err := cfg.BeginPut(ctx, flexRG, "pg-kids", "work_mem", armpostgresqlflexibleservers.Configuration{
-			Properties: &armpostgresqlflexibleservers.ConfigurationProperties{
-				Value: new("8192"), Source: new("user-override"),
+		p, err := fw.BeginCreateOrUpdate(ctx, flexRG, "pg-fw", name, armpostgresqlflexibleservers.FirewallRule{
+			Properties: &armpostgresqlflexibleservers.FirewallRuleProperties{
+				StartIPAddress: &start,
+				EndIPAddress:   &end,
 			},
 		}, nil)
-		require.NoError(t, err)
+		res := pgPoll(t, p, err)
+		assert.Equal(t, start, *res.Properties.StartIPAddress)
+	}
 
-		res, err := put.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
-		assert.Equal(t, "8192", *res.Properties.Value)
-		assert.Equal(t, "user-override", *res.Properties.Source)
+	got, err := fw.Get(ctx, flexRG, "pg-fw", "office", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "10.0.0.9", *got.Properties.EndIPAddress)
 
-		static, err := cfg.BeginPut(ctx, flexRG, "pg-kids", "wal_level", armpostgresqlflexibleservers.Configuration{
-			Properties: &armpostgresqlflexibleservers.ConfigurationProperties{Value: new("logical")},
-		}, nil)
-		require.NoError(t, err)
-		_, err = static.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
+	count := 0
+	pager := fw.NewListByServerPager(flexRG, "pg-fw", nil)
 
-		got, err := cfg.Get(ctx, flexRG, "pg-kids", "wal_level", nil)
-		require.NoError(t, err)
-		assert.True(t, *got.Properties.IsConfigPendingRestart)
+	for pager.More() {
+		page, pageErr := pager.NextPage(ctx)
+		require.NoError(t, pageErr)
 
-		rst, err := f.NewServersClient().BeginRestart(ctx, flexRG, "pg-kids", nil)
-		require.NoError(t, err)
-		_, err = rst.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
+		count += len(page.Value)
+	}
 
-		got, err = cfg.Get(ctx, flexRG, "pg-kids", "wal_level", nil)
-		require.NoError(t, err)
-		assert.False(t, *got.Properties.IsConfigPendingRestart)
-		assert.Equal(t, "logical", *got.Properties.Value)
+	assert.Equal(t, 2, count)
 
-		reset, err := cfg.BeginUpdate(ctx, flexRG, "pg-kids", "work_mem", armpostgresqlflexibleservers.ConfigurationForUpdate{
+	del, err := fw.BeginDelete(ctx, flexRG, "pg-fw", "office", nil)
+	pgPoll(t, del, err)
+
+	_, err = fw.Get(ctx, flexRG, "pg-fw", "office", nil)
+	require.Error(t, err)
+
+	path := flexServerPath(pgNS, "pg-fw") + "/firewallRules/"
+
+	for name, body := range map[string]string{
+		"bad-ip":   `{"properties":{"startIpAddress":"nope","endIpAddress":"1.1.1.1"}}`,
+		"reversed": `{"properties":{"startIpAddress":"10.0.0.9","endIpAddress":"10.0.0.1"}}`,
+		"ipv6":     `{"properties":{"startIpAddress":"::1","endIpAddress":"::2"}}`,
+		"bad%20!":  `{"properties":{"startIpAddress":"1.1.1.1","endIpAddress":"1.1.1.2"}}`,
+	} {
+		status, resp := s.raw(t, http.MethodPut, path+name, body, flexAPIPG)
+		assert.Equal(t, http.StatusBadRequest, status, name)
+		assert.Equal(t, "InvalidParameterValue", flexErrCode(resp), name)
+	}
+}
+
+func TestPGFlexDatabases(t *testing.T) {
+	t.Parallel()
+
+	s := newFlexStack(t, nil)
+	s.pgCreate(t, "pg-db")
+
+	dbs := s.pgFactory(t).NewDatabasesClient()
+	ctx := t.Context()
+
+	p, err := dbs.BeginCreate(ctx, flexRG, "pg-db", "appdb", armpostgresqlflexibleservers.Database{}, nil)
+	res := pgPoll(t, p, err)
+	assert.Equal(t, "UTF8", *res.Properties.Charset)
+	assert.Equal(t, "en_US.utf8", *res.Properties.Collation)
+
+	var names []string
+
+	pager := dbs.NewListByServerPager(flexRG, "pg-db", nil)
+	for pager.More() {
+		page, pageErr := pager.NextPage(ctx)
+		require.NoError(t, pageErr)
+
+		for _, d := range page.Value {
+			names = append(names, *d.Name)
+		}
+	}
+
+	assert.ElementsMatch(t, []string{"appdb", "azure_maintenance", "azure_sys", "postgres"}, names)
+
+	_, err = dbs.BeginCreate(ctx, flexRG, "pg-db", "postgres", armpostgresqlflexibleservers.Database{}, nil)
+	require.Error(t, err)
+
+	del, err := dbs.BeginDelete(ctx, flexRG, "pg-db", "appdb", nil)
+	pgPoll(t, del, err)
+
+	_, err = dbs.Get(ctx, flexRG, "pg-db", "appdb", nil)
+	require.Error(t, err)
+
+	_, err = dbs.BeginDelete(ctx, flexRG, "pg-db", "postgres", nil)
+	require.Error(t, err)
+}
+
+func TestPGFlexConfigurations(t *testing.T) {
+	t.Parallel()
+
+	s := newFlexStack(t, nil)
+	s.pgCreate(t, "pg-cfg")
+
+	f := s.pgFactory(t)
+	cfg := f.NewConfigurationsClient()
+	ctx := t.Context()
+
+	def, err := cfg.Get(ctx, flexRG, "pg-cfg", "max_connections", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "50", *def.Properties.Value)
+	assert.Equal(t, "system-default", *def.Properties.Source)
+	assert.Equal(t, "25-262143", *def.Properties.AllowedValues)
+	assert.False(t, *def.Properties.IsReadOnly)
+
+	put, err := cfg.BeginPut(ctx, flexRG, "pg-cfg", "work_mem", armpostgresqlflexibleservers.Configuration{
+		Properties: &armpostgresqlflexibleservers.ConfigurationProperties{
+			Value: new("8192"), Source: new("user-override"),
+		},
+	}, nil)
+	res := pgPoll(t, put, err)
+	assert.Equal(t, "8192", *res.Properties.Value)
+	assert.Equal(t, "user-override", *res.Properties.Source)
+
+	static, err := cfg.BeginPut(ctx, flexRG, "pg-cfg", "wal_level", armpostgresqlflexibleservers.Configuration{
+		Properties: &armpostgresqlflexibleservers.ConfigurationProperties{Value: new("logical")},
+	}, nil)
+	pgPoll(t, static, err)
+
+	got, err := cfg.Get(ctx, flexRG, "pg-cfg", "wal_level", nil)
+	require.NoError(t, err)
+	assert.True(t, *got.Properties.IsConfigPendingRestart)
+
+	rst, err := f.NewServersClient().BeginRestart(ctx, flexRG, "pg-cfg", nil)
+	pgPoll(t, rst, err)
+
+	got, err = cfg.Get(ctx, flexRG, "pg-cfg", "wal_level", nil)
+	require.NoError(t, err)
+	assert.False(t, *got.Properties.IsConfigPendingRestart)
+	assert.Equal(t, "logical", *got.Properties.Value)
+
+	reset, err := cfg.BeginUpdate(
+		ctx,
+		flexRG,
+		"pg-cfg",
+		"work_mem",
+		armpostgresqlflexibleservers.ConfigurationForUpdate{
 			Properties: &armpostgresqlflexibleservers.ConfigurationProperties{Source: new("system-default")},
-		}, nil)
-		require.NoError(t, err)
-		_, err = reset.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
+		},
+		nil,
+	)
+	pgPoll(t, reset, err)
 
-		got, err = cfg.Get(ctx, flexRG, "pg-kids", "work_mem", nil)
-		require.NoError(t, err)
-		assert.Equal(t, "4096", *got.Properties.Value)
+	got, err = cfg.Get(ctx, flexRG, "pg-cfg", "work_mem", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "4096", *got.Properties.Value)
 
-		count := 0
-		pager := cfg.NewListByServerPager(flexRG, "pg-kids", nil)
+	count := 0
+	pager := cfg.NewListByServerPager(flexRG, "pg-cfg", nil)
 
-		for pager.More() {
-			page, err := pager.NextPage(ctx)
-			require.NoError(t, err)
+	for pager.More() {
+		page, pageErr := pager.NextPage(ctx)
+		require.NoError(t, pageErr)
 
-			count += len(page.Value)
-		}
+		count += len(page.Value)
+	}
 
-		assert.Greater(t, count, 10)
-	})
+	assert.Greater(t, count, 10)
+}
 
-	t.Run("configuration errors", func(t *testing.T) {
-		path := flexServerPath(pgNS, "pg-kids") + "/configurations/"
+func TestPGFlexConfigurationErrors(t *testing.T) {
+	t.Parallel()
 
-		for name, tc := range map[string]struct{ body, code string }{
-			"max_connections":  {`{"properties":{"value":"5"}}`, "InvalidParameterValue"},
-			"log_statement":    {`{"properties":{"value":"bogus"}}`, "InvalidParameterValue"},
-			"server_version":   {`{"properties":{"value":"1"}}`, "InvalidParameterValue"},
-			"azure.extensions": {`{"properties":{"value":"NOT_AN_EXT"}}`, "InvalidParameterValue"},
-			"work_mem":         {`{"properties":{}}`, "InvalidParameterValue"},
-			"no_such_param":    {`{"properties":{"value":"1"}}`, "ResourceNotFound"},
-		} {
-			status, resp := s.raw(t, http.MethodPut, path+name, tc.body, flexAPIPG)
-			assert.GreaterOrEqual(t, status, http.StatusBadRequest, name)
-			assert.Equal(t, tc.code, flexErrCode(resp), name)
-		}
+	s := newFlexStack(t, nil)
+	s.pgCreate(t, "pg-cfgerr")
 
-		status, resp := s.raw(t, http.MethodPut, path+"azure.extensions", `{"properties":{"value":"pg_trgm,uuid-ossp"}}`, flexAPIPG)
-		assert.Equal(t, http.StatusOK, status, resp)
-	})
+	path := flexServerPath(pgNS, "pg-cfgerr") + "/configurations/"
+
+	for name, tc := range map[string]struct{ body, code string }{
+		"max_connections":  {`{"properties":{"value":"5"}}`, "InvalidParameterValue"},
+		"log_statement":    {`{"properties":{"value":"bogus"}}`, "InvalidParameterValue"},
+		"server_version":   {`{"properties":{"value":"1"}}`, "InvalidParameterValue"},
+		"azure.extensions": {`{"properties":{"value":"NOT_AN_EXT"}}`, "InvalidParameterValue"},
+		"work_mem":         {`{"properties":{}}`, "InvalidParameterValue"},
+		"no_such_param":    {`{"properties":{"value":"1"}}`, "ResourceNotFound"},
+	} {
+		status, resp := s.raw(t, http.MethodPut, path+name, tc.body, flexAPIPG)
+		assert.GreaterOrEqual(t, status, http.StatusBadRequest, name)
+		assert.Equal(t, tc.code, flexErrCode(resp), name)
+	}
+
+	status, resp := s.raw(t, http.MethodPut, path+"azure.extensions",
+		`{"properties":{"value":"pg_trgm,uuid-ossp"}}`, flexAPIPG)
+	assert.Equal(t, http.StatusOK, status, resp)
 }
 
 func TestPGFlexStartStopRestart(t *testing.T) {
@@ -409,7 +465,13 @@ func TestPGFlexStartStopRestart(t *testing.T) {
 	_, err = f.NewServersClient().BeginRestart(ctx, flexRG, "pg-power", nil)
 	require.Error(t, err)
 
-	status, body := s.raw(t, http.MethodPut, flexServerPath(pgNS, "pg-power")+"/databases/blocked", `{"properties":{}}`, flexAPIPG)
+	status, body := s.raw(
+		t,
+		http.MethodPut,
+		flexServerPath(pgNS, "pg-power")+"/databases/blocked",
+		`{"properties":{}}`,
+		flexAPIPG,
+	)
 	assert.Equal(t, http.StatusConflict, status)
 	assert.Equal(t, "ServerNotReady", flexErrCode(body))
 
@@ -436,7 +498,7 @@ func TestPGFlexStopRefusals(t *testing.T) {
 	f := s.pgFactory(t)
 	ctx := t.Context()
 
-	srv := pgServer("pgadmin")
+	srv := pgServer()
 	srv.SKU = &armpostgresqlflexibleservers.SKU{
 		Name: new("Standard_D2ds_v5"), Tier: new(armpostgresqlflexibleservers.SKUTierGeneralPurpose),
 	}
@@ -623,9 +685,13 @@ func TestPGFlexPointInTimeRestore(t *testing.T) {
 				pit = `,"pointInTimeUTC":"` + tt.pit + `"`
 			}
 
-			status, resp := s.raw(t, http.MethodPut, flexServerPath(pgNS, "pg-pitr-"+strings.ReplaceAll(tt.name, " ", "")),
+			status, resp := s.raw(
+				t,
+				http.MethodPut,
+				flexServerPath(pgNS, "pg-pitr-"+strings.ReplaceAll(tt.name, " ", "")),
 				`{"location":"x","properties":{"createMode":"PointInTimeRestore","sourceServerResourceId":"`+*src.ID+`"`+pit+`}}`,
-				flexAPIPG)
+				flexAPIPG,
+			)
 			assert.Equal(t, tt.status, status, resp)
 			assert.Equal(t, tt.wantCode, flexErrCode(resp))
 		})
@@ -688,7 +754,8 @@ func TestPGFlexEngine(t *testing.T) {
 	}
 	eng.mu.Unlock()
 
-	db, err := f.NewDatabasesClient().BeginCreate(ctx, flexRG, "pg-engine", "shop", armpostgresqlflexibleservers.Database{}, nil)
+	db, err := f.NewDatabasesClient().
+		BeginCreate(ctx, flexRG, "pg-engine", "shop", armpostgresqlflexibleservers.Database{}, nil)
 	require.NoError(t, err)
 	_, err = db.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
@@ -742,7 +809,7 @@ func TestPGFlexEngineFailure(t *testing.T) {
 	s := newFlexStack(t, eng)
 	ctx := t.Context()
 
-	poller, err := s.pgFactory(t).NewServersClient().BeginCreate(ctx, flexRG, "pg-fail", pgServer("pgadmin"), nil)
+	poller, err := s.pgFactory(t).NewServersClient().BeginCreate(ctx, flexRG, "pg-fail", pgServer(), nil)
 	require.NoError(t, err)
 
 	_, err = poller.PollUntilDone(ctx, pollFast())

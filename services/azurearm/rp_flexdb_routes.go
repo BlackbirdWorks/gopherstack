@@ -21,7 +21,7 @@ const (
 	flexOpNsIdx       = 3
 	flexOpKindIdx     = 6
 	flexLocSegIdx     = 4
-	flexLocNameIdx    = 5
+	flexProvidersIdx  = 2
 	flexSubNsIdx      = 3
 	flexOpAsync       = "azureAsyncOperation"
 	flexOpProgress    = "operationProgress"
@@ -53,7 +53,7 @@ func isFlexChildType(segs []string) bool {
 }
 
 func isFlexLocationOp(segs []string) bool {
-	if len(segs) != flexLocOpSegs || !isSubscriptionScoped(segs) || !segAt(segs, 2, providersSegment) ||
+	if len(segs) != flexLocOpSegs || !isSubscriptionScoped(segs) || !segAt(segs, flexProvidersIdx, providersSegment) ||
 		!flexNS(segs[flexOpNsIdx]) || !segAt(segs, flexLocSegIdx, "locations") {
 		return false
 	}
@@ -70,7 +70,9 @@ func isFlexWrite(segs []string, r *http.Request) bool {
 	switch r.Method {
 	case http.MethodPut, http.MethodDelete:
 	case http.MethodPatch:
-		if !isFlexScope(segs, flexServerSegs) && !(isFlexScope(segs, flexChildSegs) && segAt(segs, flexServerSegs, flexConfigsType)) {
+		patchable := isFlexScope(segs, flexServerSegs) ||
+			(isFlexScope(segs, flexChildSegs) && segAt(segs, flexServerSegs, flexConfigsType))
+		if !patchable {
 			return false
 		}
 	default:
@@ -86,7 +88,7 @@ func isFlexAction(segs []string, r *http.Request) bool {
 	}
 
 	switch strings.ToLower(segs[flexServerSegs]) {
-	case "start", "stop", "restart":
+	case aksActionStart, aksActionStop, "restart":
 		return true
 	}
 
@@ -102,8 +104,10 @@ func isFlexList(segs []string, r *http.Request) bool {
 }
 
 func isFlexSubOp(segs []string, r *http.Request, n int, last string, method string) bool {
-	return r.Method == method && len(segs) == n && isSubscriptionScoped(segs) && segAt(segs, 2, providersSegment) &&
-		flexNS(segs[flexSubNsIdx]) && strings.EqualFold(segs[n-1], last) &&
+	return r.Method == method && len(segs) == n && isSubscriptionScoped(segs) &&
+		segAt(segs, flexProvidersIdx, providersSegment) &&
+		flexNS(segs[flexSubNsIdx]) &&
+		strings.EqualFold(segs[n-1], last) &&
 		(n == flexSubSegs || segAt(segs, flexLocSegIdx, "locations"))
 }
 
@@ -163,7 +167,7 @@ func (h *Handler) flexProviderFor(ns string) (*FlexDBProvider, bool) {
 // setFlexOperation points the response's Azure-AsyncOperation and Location headers at status resources.
 func (h *Handler) setFlexOperation(c *echo.Context, p *FlexDBProvider, sub, opID string) {
 	asyncKind := flexOpAsync
-	if p.flavor.kind == "mysql" {
+	if p.flavor.kind == flexKindMySQL {
 		asyncKind = flexOpProgress
 	}
 
@@ -219,16 +223,16 @@ func (h *Handler) handleFlexOperation(c *echo.Context, segs []string) error {
 
 func flexOpStatus(opID string, op flexOp, done bool) map[string]any {
 	out := map[string]any{
-		fieldName: opID, "status": flexStatusRunning, "startTime": op.Started.UTC().Format(time.RFC3339Nano),
+		fieldName: opID, acrPropStatus: flexStatusRunning, "startTime": op.Started.UTC().Format(time.RFC3339Nano),
 	}
 
 	switch {
 	case done && op.ErrMsg != "":
-		out["status"] = flexStatusFailed
-		out["error"] = map[string]any{"code": "InternalServerError", fieldMessage: op.ErrMsg}
+		out[acrPropStatus] = flexStatusFailed
+		out["error"] = map[string]any{aksFieldCode: "InternalServerError", fieldMessage: op.ErrMsg}
 		out["endTime"] = op.ReadyAt.UTC().Format(time.RFC3339Nano)
 	case done:
-		out["status"] = flexStatusOK
+		out[acrPropStatus] = flexStatusOK
 		out["endTime"] = op.ReadyAt.UTC().Format(time.RFC3339Nano)
 	}
 
@@ -355,15 +359,20 @@ func (h *Handler) handleFlexCapabilities(c *echo.Context, segs []string) error {
 
 func (h *Handler) handleFlexCapabilitySets(c *echo.Context, segs []string) error {
 	p, ok := h.flexProviderFor(segs[flexSubNsIdx])
-	if !ok || p.flavor.kind != "mysql" {
+	if !ok || p.flavor.kind != flexKindMySQL {
 		return h.writeNotFound(c)
 	}
 
 	set := p.CapabilitySet(segs[1])
 
 	if len(segs) == flexLocOpSegs {
-		if !strings.EqualFold(segs[len(segs)-1], "default") {
-			return h.writeError(c, http.StatusNotFound, armErrorCodeResourceNotFound, "The capability set was not found.")
+		if !strings.EqualFold(segs[len(segs)-1], aksDefaultName) {
+			return h.writeError(
+				c,
+				http.StatusNotFound,
+				armErrorCodeResourceNotFound,
+				"The capability set was not found.",
+			)
 		}
 
 		return h.writeJSON(c, http.StatusOK, set)

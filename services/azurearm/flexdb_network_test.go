@@ -8,28 +8,59 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFlexPrivateAccess(t *testing.T) {
+func flexVNetFixture(t *testing.T, s *flexStack) string {
+	t.Helper()
+
+	vnet := "/subscriptions/" + aciSub + "/resourceGroups/" + flexRG + "/providers/Microsoft.Network/virtualNetworks/vn"
+	subnet := func(name, prefix, service string) string {
+		deleg := ""
+		if service != "" {
+			deleg = `,"delegations":[{"name":"d","properties":{"serviceName":"` + service + `"}}]`
+		}
+
+		return `{"name":"` + name + `","properties":{"addressPrefix":"` + prefix + `"` + deleg + `}}`
+	}
+
+	body := `{"location":"` + flexLoc + `","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]},"subnets":[` +
+		subnet(
+			"pgsub",
+			"10.0.1.0/24",
+			"Microsoft.DBforPostgreSQL/flexibleServers",
+		) + "," +
+		subnet(
+			"mysub",
+			"10.0.2.0/24",
+			"Microsoft.DBforMySQL/flexibleServers",
+		) + "," +
+		subnet(
+			"plain",
+			"10.0.3.0/24",
+			"",
+		) + `]}}`
+
+	status, resp := s.raw(t, http.MethodPut, vnet, body, "2023-09-01")
+	require.Less(t, status, http.StatusMultipleChoices, resp)
+
+	return vnet
+}
+
+func flexZone(kind string) string {
+	return "/subscriptions/" + aciSub + "/resourceGroups/" + flexRG +
+		"/providers/Microsoft.Network/privateDnsZones/zone.private." + kind + ".database.azure.com"
+}
+
+func flexPrivateBody(vnet, subnet, dnsKey, zone, extra string) string {
+	return `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{` + pgLoginPW +
+		`,"network":{"delegatedSubnetResourceId":"` + vnet + `/subnets/` + subnet + `","` + dnsKey + `":"` + zone +
+		`"` + extra + `}}}`
+}
+
+func TestFlexPrivateAccessValidation(t *testing.T) {
 	t.Parallel()
 
 	s := newFlexStack(t, nil)
-	vnet := "/subscriptions/" + aciSub + "/resourceGroups/" + flexRG + "/providers/Microsoft.Network/virtualNetworks/vn"
-
-	status, body := s.raw(t, http.MethodPut, vnet, `{"location":"`+flexLoc+`","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]},"subnets":[`+
-		`{"name":"pgsub","properties":{"addressPrefix":"10.0.1.0/24","delegations":[{"name":"d","properties":{"serviceName":"Microsoft.DBforPostgreSQL/flexibleServers"}}]}},`+
-		`{"name":"mysub","properties":{"addressPrefix":"10.0.2.0/24","delegations":[{"name":"d","properties":{"serviceName":"Microsoft.DBforMySQL/flexibleServers"}}]}},`+
-		`{"name":"plain","properties":{"addressPrefix":"10.0.3.0/24"}}]}}`, "2023-09-01")
-	require.Less(t, status, http.StatusMultipleChoices, body)
-
-	zone := func(kind string) string {
-		return "/subscriptions/" + aciSub + "/resourceGroups/" + flexRG +
-			"/providers/Microsoft.Network/privateDnsZones/zone.private." + kind + ".database.azure.com"
-	}
-
-	pgBody := func(subnet, extra string) string {
-		return `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1",` +
-			`"administratorLoginPassword":"` + flexPassword + `","network":{"delegatedSubnetResourceId":"` + vnet + `/subnets/` +
-			subnet + `","privateDnsZoneArmResourceId":"` + zone("postgres") + `"` + extra + `}}}`
-	}
+	vnet := flexVNetFixture(t, s)
+	pgZone, myZone := flexZone("postgres"), flexZone("mysql")
 
 	tests := []struct {
 		name   string
@@ -39,42 +70,72 @@ func TestFlexPrivateAccess(t *testing.T) {
 		api    string
 		status int
 	}{
-		{"pg delegated", pgNS, "pgpriv", pgBody("pgsub", ""), flexAPIPG, http.StatusCreated},
-		{"pg wrong delegation", pgNS, "pgwrong", pgBody("mysub", ""), flexAPIPG, http.StatusBadRequest},
-		{"pg undelegated", pgNS, "pgplain", pgBody("plain", ""), flexAPIPG, http.StatusBadRequest},
-		{"pg missing subnet", pgNS, "pgmissing", pgBody("nope", ""), flexAPIPG, http.StatusBadRequest},
-		{"pg public enabled", pgNS, "pgboth", pgBody("pgsub", `,"publicNetworkAccess":"Enabled"`), flexAPIPG, http.StatusBadRequest},
-		{"mysql delegated", myNS, "mypriv", `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{"administratorLogin":"a1",` +
-			`"administratorLoginPassword":"` + flexPassword + `","network":{"delegatedSubnetResourceId":"` + vnet + `/subnets/mysub",` +
-			`"privateDnsZoneResourceId":"` + zone("mysql") + `"}}}`, flexAPIMy, http.StatusCreated},
+		{"pg delegated", pgNS, "pgpriv", flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", pgZone, ""),
+			flexAPIPG, http.StatusCreated},
+		{
+			"pg wrong delegation",
+			pgNS,
+			"pgwrong",
+			flexPrivateBody(vnet, "mysub", "privateDnsZoneArmResourceId", pgZone, ""),
+			flexAPIPG,
+			http.StatusBadRequest,
+		},
+		{"pg undelegated", pgNS, "pgplain", flexPrivateBody(vnet, "plain", "privateDnsZoneArmResourceId", pgZone, ""),
+			flexAPIPG, http.StatusBadRequest},
+		{
+			"pg missing subnet",
+			pgNS,
+			"pgmissing",
+			flexPrivateBody(vnet, "nope", "privateDnsZoneArmResourceId", pgZone, ""),
+			flexAPIPG,
+			http.StatusBadRequest,
+		},
+		{"pg public enabled", pgNS, "pgboth",
+			flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", pgZone, `,"publicNetworkAccess":"Enabled"`),
+			flexAPIPG, http.StatusBadRequest},
+		{"mysql delegated", myNS, "mypriv", flexPrivateBody(vnet, "mysub", "privateDnsZoneResourceId", myZone, ""),
+			flexAPIMy, http.StatusCreated},
 	}
 
-	t.Run("cases", func(t *testing.T) {
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-				status, resp := s.raw(t, http.MethodPut, flexServerPath(tt.ns, tt.server), tt.body, tt.api)
-				assert.Equal(t, tt.status, status, resp)
-			})
-		}
-	})
+			status, resp := s.raw(t, http.MethodPut, flexServerPath(tt.ns, tt.server), tt.body, tt.api)
+			assert.Equal(t, tt.status, status, resp)
+		})
+	}
+}
 
-	t.Run("effects", func(t *testing.T) {
-		_, srv := s.raw(t, http.MethodGet, flexServerPath(pgNS, "pgpriv"), "", flexAPIPG)
-		props, _ := srv["properties"].(map[string]any)
-		net, _ := props["network"].(map[string]any)
+func TestFlexPrivateAccessEffects(t *testing.T) {
+	t.Parallel()
 
-		assert.Equal(t, "Disabled", net["publicNetworkAccess"])
-		assert.Equal(t, "pgpriv.zone.private.postgres.database.azure.com", props["fullyQualifiedDomainName"])
+	s := newFlexStack(t, nil)
+	vnet := flexVNetFixture(t, s)
+	zone := flexZone("postgres")
+	path := flexServerPath(pgNS, "pgeff")
 
-		status, resp := s.raw(t, http.MethodPut, flexServerPath(pgNS, "pgpriv")+"/firewallRules/r",
-			`{"properties":{"startIpAddress":"1.1.1.1","endIpAddress":"1.1.1.1"}}`, flexAPIPG)
-		assert.Equal(t, http.StatusBadRequest, status, resp)
+	status, resp := s.raw(t, http.MethodPut, path,
+		flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", zone, ""), flexAPIPG)
+	require.Equal(t, http.StatusCreated, status, resp)
 
-		status, resp = s.raw(t, http.MethodPatch, flexServerPath(pgNS, "pgpriv"),
-			`{"properties":{"network":{"delegatedSubnetResourceId":"`+vnet+`/subnets/mysub","privateDnsZoneArmResourceId":"`+zone("postgres")+`"}}}`,
-			flexAPIPG)
-		assert.Equal(t, http.StatusBadRequest, status, resp)
-	})
+	props, _ := resp["properties"].(map[string]any)
+	net, _ := props["network"].(map[string]any)
+
+	assert.Equal(t, "Disabled", net["publicNetworkAccess"])
+	assert.Equal(t, "pgeff.zone.private.postgres.database.azure.com", props["fullyQualifiedDomainName"])
+
+	status, resp = s.raw(t, http.MethodPut, path+"/firewallRules/r",
+		`{"properties":{"startIpAddress":"1.1.1.1","endIpAddress":"1.1.1.1"}}`, flexAPIPG)
+	assert.Equal(t, http.StatusBadRequest, status, resp)
+
+	status, resp = s.raw(
+		t,
+		http.MethodPatch,
+		path,
+		`{"properties":{"network":{"delegatedSubnetResourceId":"`+vnet+`/subnets/mysub","privateDnsZoneArmResourceId":"`+
+			zone+`"}}}`,
+		flexAPIPG,
+	)
+	assert.Equal(t, http.StatusBadRequest, status, resp)
 }

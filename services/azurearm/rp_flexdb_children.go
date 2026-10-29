@@ -26,7 +26,7 @@ func (p *FlexDBProvider) writeDatabase(id ResourceID, body map[string]any) (flex
 		charset = v
 	}
 
-	if v, ok := flexStr(props, "collation"); ok && v != "" {
+	if v, ok := flexStr(props, flexPropCollation); ok && v != "" {
 		collation = v
 	}
 
@@ -57,7 +57,7 @@ func (p *FlexDBProvider) writeDatabase(id ResourceID, body map[string]any) (flex
 }
 
 func flexEngineError() error {
-	return &flexError{"ServiceUnavailable", flexOpFailedMsg, 503}
+	return &flexError{redisCodeUnavailable, flexOpFailedMsg, 503}
 }
 
 func (p *FlexDBProvider) storeDatabase(id ResourceID, db flexDatabase) (FlexEngine, string, bool, error) {
@@ -140,7 +140,7 @@ func (p *FlexDBProvider) configValue(rec *flexServer, c flexConfigDef) (string, 
 }
 
 func (p *FlexDBProvider) configDefault(rec *flexServer, c flexConfigDef) string {
-	if c.name == "max_connections" && p.flavor.kind == "postgres" {
+	if c.name == cfgMaxConn && p.flavor.kind == flexKindPostgres {
 		if v := p.maxConnections(rec); v != "" {
 			return v
 		}
@@ -151,7 +151,7 @@ func (p *FlexDBProvider) configDefault(rec *flexServer, c flexConfigDef) string 
 	}
 
 	if c.name == "sql_generate_invisible_primary_key" && rec.Version == "5.7" {
-		return "OFF"
+		return cfgOff
 	}
 
 	return c.def
@@ -175,11 +175,11 @@ func (p *FlexDBProvider) configEnvelope(id ResourceID, rec *flexServer, c flexCo
 
 	props := map[string]any{
 		"value": value, "source": source, "defaultValue": def, "dataType": c.dataType,
-		"description": c.desc, "allowedValues": c.allowedValues(), "isReadOnly": p.flexBool(c.readOnly),
+		netPropDescription: c.desc, "allowedValues": c.allowedValues(), "isReadOnly": p.flexBool(c.readOnly),
 		"isDynamicConfig":        p.flexBool(!c.static && !c.readOnly),
 		"isConfigPendingRestart": p.flexBool(rec.Pending[c.name]),
 		"documentationLink": "https://learn.microsoft.com/azure/" + map[string]string{
-			"postgres": "postgresql", "mysql": "mysql",
+			flexKindPostgres: "postgresql", flexKindMySQL: flexKindMySQL,
 		}[p.flavor.kind] + "/flexible-server/concepts-server-parameters",
 	}
 
@@ -187,7 +187,7 @@ func (p *FlexDBProvider) configEnvelope(id ResourceID, rec *flexServer, c flexCo
 		props["unit"] = c.unit
 	}
 
-	if p.flavor.kind == "mysql" {
+	if p.flavor.kind == flexKindMySQL {
 		props["currentValue"] = value
 	}
 
@@ -226,8 +226,8 @@ func (p *FlexDBProvider) writeConfig(id ResourceID, body map[string]any) (flexRe
 			return flexResult{}, flexInvalid("A value is required for the server parameter '%s'.", c.name)
 		}
 
-		if err := validConfigValue(c, value); err != nil {
-			return flexResult{}, flexInvalid("The value for '%s' is not valid: %s.", c.name, err.Error())
+		if why := configValueProblem(c, value); why != "" {
+			return flexResult{}, flexInvalid("The value for '%s' is not valid: %s.", c.name, why)
 		}
 	}
 
@@ -265,14 +265,14 @@ func (p *FlexDBProvider) writeConfig(id ResourceID, body map[string]any) (flexRe
 // CheckName answers checkNameAvailability for a server name. Names are unique across the subscription.
 func (p *FlexDBProvider) CheckName(_ context.Context, name, typ string) map[string]any {
 	want := p.flavor.ns + "/" + flexServersType
-	out := map[string]any{"name": name, "type": typ, "nameAvailable": true}
+	out := map[string]any{fieldName: name, fieldType: typ, "nameAvailable": true}
 
 	switch {
 	case !strings.EqualFold(typ, want):
-		out["nameAvailable"], out["reason"] = false, "Invalid"
+		out["nameAvailable"], out["reason"] = false, webReasonInvalid
 		out["message"] = "The resource type must be " + want + "."
 	case validFlexName(name) != nil:
-		out["nameAvailable"], out["reason"] = false, "Invalid"
+		out["nameAvailable"], out["reason"] = false, webReasonInvalid
 		out["message"] = "The server name must be 3 to 63 characters of lowercase letters, digits and hyphens, " +
 			"and cannot start or end with a hyphen."
 	default:
@@ -281,7 +281,7 @@ func (p *FlexDBProvider) CheckName(_ context.Context, name, typ string) map[stri
 
 		for _, r := range p.res {
 			if strings.EqualFold(r.Name, name) {
-				out["nameAvailable"], out["reason"] = false, "AlreadyExists"
+				out["nameAvailable"], out["reason"] = false, kvReasonAlreadyExists
 				out["message"] = "Server '" + name + "' already exists. Choose a different name."
 			}
 		}
@@ -290,18 +290,9 @@ func (p *FlexDBProvider) CheckName(_ context.Context, name, typ string) map[stri
 	return out
 }
 
-func int64s(vs ...int) []int64 {
-	out := make([]int64, len(vs))
-	for i, v := range vs {
-		out[i] = int64(v)
-	}
-
-	return out
-}
-
 // Capabilities returns the location capability list in the flavor's v1 shape.
 func (p *FlexDBProvider) Capabilities() []map[string]any {
-	if p.flavor.kind == "postgres" {
+	if p.flavor.kind == flexKindPostgres {
 		return []map[string]any{p.pgCapabilities()}
 	}
 
@@ -310,10 +301,10 @@ func (p *FlexDBProvider) Capabilities() []map[string]any {
 
 func (p *FlexDBProvider) pgCapabilities() map[string]any {
 	f := p.flavor
-	editions := []any{}
+	editions := make([]any, 0, flexTierCount)
 
 	for _, tier := range []string{tierBurstable, tierGeneralPurpose, tierMemoryOptimized} {
-		versions := []any{}
+		versions := make([]any, 0, len(f.versions))
 
 		for _, v := range f.versions {
 			cores := []any{}
@@ -321,37 +312,42 @@ func (p *FlexDBProvider) pgCapabilities() map[string]any {
 			for _, s := range f.skus {
 				if s.tier == tier {
 					cores = append(cores, map[string]any{
-						fieldName: s.name, "vCores": s.vcores, "supportedMemoryPerVcoreMB": s.memGiB * flexMemMB / s.vcores,
-						"status": "Available",
+						fieldName:                   s.name,
+						"vCores":                    s.vcores,
+						"supportedMemoryPerVcoreMB": s.memGiB * flexMemMB / s.vcores,
+						acrPropStatus:               flexAvailable,
 					})
 				}
 			}
 
-			versions = append(versions, map[string]any{fieldName: v, "status": "Available", "supportedVcores": cores})
+			versions = append(
+				versions,
+				map[string]any{fieldName: v, acrPropStatus: flexAvailable, "supportedVcores": cores},
+			)
 		}
 
-		sizes := []any{}
+		sizes := make([]any, 0, len(f.storageSizes))
 
 		for _, gb := range f.storageSizes {
 			t, iops := pgStorageTier(gb)
 			sizes = append(sizes, map[string]any{
-				fieldName: t, "storageSizeMB": gb * flexMemMB, "supportedIops": iops, "status": "Available",
+				fieldName: t, "storageSizeMB": gb * flexMemMB, "supportedIops": iops, acrPropStatus: flexAvailable,
 			})
 		}
 
 		editions = append(editions, map[string]any{
-			fieldName: tier, "status": "Available", "supportedServerVersions": versions,
-			"supportedStorageEditions": []any{map[string]any{
-				fieldName: "ManagedDisk", "status": "Available", "supportedStorageMB": sizes,
+			fieldName: tier, acrPropStatus: flexAvailable, flexPropSupportedVersions: versions,
+			flexPropStorageEditions: []any{map[string]any{
+				fieldName: "ManagedDisk", acrPropStatus: flexAvailable, "supportedStorageMB": sizes,
 			}},
 		})
 	}
 
 	return map[string]any{
-		fieldName: "FlexibleServerCapabilities", "zone": "none", "status": "Available",
+		fieldName: "FlexibleServerCapabilities", "zone": aksPluginNone, acrPropStatus: flexAvailable,
 		"supportedHAMode": []string{flexHASameZone, flexHAZoneRedundant}, "geoBackupSupported": true,
 		"zoneRedundantHaSupported": true, "zoneRedundantHaAndGeoBackupSupported": true,
-		"fastProvisioningSupported": false, "supportedFlexibleServerEditions": editions,
+		"fastProvisioningSupported": false, flexPropServerEditions: editions,
 	}
 }
 
@@ -386,47 +382,53 @@ func (p *FlexDBProvider) mysqlSKUCaps(tier string, v2 bool) []any {
 func (p *FlexDBProvider) mysqlStorageCaps() []any {
 	f := p.flavor
 
-	return []any{map[string]any{
-		fieldName: "Premium_LRS", "minStorageSize": f.minStorage * flexMemMB, "maxStorageSize": f.maxStorage * flexMemMB,
-		"minBackupRetentionDays": f.minRetention, "maxBackupRetentionDays": flexMinRetentionMax,
-		"minBackupIntervalHours": 24, "maxBackupIntervalHours": 24,
-	}}
+	return []any{
+		map[string]any{
+			fieldName:                "Premium_LRS",
+			"minStorageSize":         f.minStorage * flexMemMB,
+			"maxStorageSize":         f.maxStorage * flexMemMB,
+			"minBackupRetentionDays": f.minRetention,
+			"maxBackupRetentionDays": flexMinRetentionMax,
+			"minBackupIntervalHours": flexBackupHours,
+			"maxBackupIntervalHours": flexBackupHours,
+		},
+	}
 }
 
 func (p *FlexDBProvider) mysqlCapabilities() map[string]any {
-	editions := []any{}
+	editions := make([]any, 0, flexTierCount)
 
 	for _, tier := range []string{tierBurstable, tierGeneralPurpose, tierMemoryOptimized} {
-		versions := []any{}
+		versions := make([]any, 0, len(p.flavor.versions))
 		for _, v := range p.flavor.versions {
 			versions = append(versions, map[string]any{fieldName: v, "supportedSkus": p.mysqlSKUCaps(tier, false)})
 		}
 
 		editions = append(editions, map[string]any{
-			fieldName: tier, "supportedServerVersions": versions, "supportedStorageEditions": p.mysqlStorageCaps(),
+			fieldName: tier, flexPropSupportedVersions: versions, flexPropStorageEditions: p.mysqlStorageCaps(),
 		})
 	}
 
 	return map[string]any{
-		"zone": "none", "supportedHAMode": []string{flexHASameZone, flexHAZoneRedundant},
-		"supportedGeoBackupRegions": []string{}, "supportedFlexibleServerEditions": editions,
+		"zone": aksPluginNone, "supportedHAMode": []string{flexHASameZone, flexHAZoneRedundant},
+		"supportedGeoBackupRegions": []string{}, flexPropServerEditions: editions,
 	}
 }
 
-// CapabilitySet returns the MySQL v2 capability set named "default".
+// CapabilitySet returns the MySQL v2 capability set named aksDefaultName.
 func (p *FlexDBProvider) CapabilitySet(sub string) map[string]any {
-	editions := []any{}
+	editions := make([]any, 0, flexTierCount)
 
 	for _, tier := range []string{tierBurstable, tierGeneralPurpose, tierMemoryOptimized} {
 		def := map[string]string{tierBurstable: "Standard_B1ms", tierGeneralPurpose: "Standard_D2ads_v5",
 			tierMemoryOptimized: "Standard_E2ads_v5"}[tier]
 		editions = append(editions, map[string]any{
 			fieldName: tier, "defaultSku": def, "defaultStorageSize": p.flavor.defaultStorage * flexMemMB,
-			"supportedStorageEditions": p.mysqlStorageCaps(), "supportedSkus": p.mysqlSKUCaps(tier, true),
+			flexPropStorageEditions: p.mysqlStorageCaps(), "supportedSkus": p.mysqlSKUCaps(tier, true),
 		})
 	}
 
-	versions := []any{}
+	versions := make([]any, 0, len(p.flavor.versions))
 	for _, v := range p.flavor.versions {
 		versions = append(versions, map[string]any{fieldName: v})
 	}
@@ -434,10 +436,10 @@ func (p *FlexDBProvider) CapabilitySet(sub string) map[string]any {
 	return map[string]any{
 		"id": "/subscriptions/" + sub + "/providers/" + p.flavor.ns + "/locations/" + DefaultLocation +
 			"/capabilitySets/default",
-		fieldName: "default", fieldType: p.flavor.ns + "/locations/capabilitySets",
+		fieldName: aksDefaultName, fieldType: p.flavor.ns + "/locations/capabilitySets",
 		fieldProperties: map[string]any{
-			"supportedGeoBackupRegions": []string{}, "supportedFlexibleServerEditions": editions,
-			"supportedServerVersions": versions,
+			"supportedGeoBackupRegions": []string{}, flexPropServerEditions: editions,
+			flexPropSupportedVersions: versions,
 		},
 	}
 }

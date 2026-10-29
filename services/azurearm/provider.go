@@ -261,7 +261,12 @@ func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
 const aciDisabledReason = "the container engine is disabled (--azure-arm-aci-engine=none); container groups cannot run"
 
 // registerLocalProviders registers the providers that have no data-plane seam to wire up later.
-func registerLocalProviders(ctx *service.AppContext, registry *Registry, backend *InMemoryBackend, settings Settings) *identityService {
+func registerLocalProviders(
+	ctx *service.AppContext,
+	registry *Registry,
+	backend *InMemoryBackend,
+	settings Settings,
+) *identityService {
 	msi := NewManagedIdentityProvider(settings.TenantID)
 	ids := newIdentityService(msi, settings.TenantID)
 	network := NewNetworkProvider(backend)

@@ -34,7 +34,7 @@ type FlexEngine interface {
 }
 
 // subnetDelegatedTo reports whether the subnet exists and carries a delegation to service.
-func (p *NetworkProvider) subnetDelegatedTo(subnetID, service string) (found, delegated bool) {
+func (p *NetworkProvider) subnetDelegatedTo(subnetID, service string) (bool, bool) {
 	p.mu.RLock("subnetDelegatedTo")
 	defer p.mu.RUnlock()
 

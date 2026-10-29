@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -57,7 +58,7 @@ func validFlexName(name string) error {
 }
 
 func (f *flexFlavor) validLogin(login string) error {
-	if !f.loginRE.MatchString(login) || strings.HasPrefix(strings.ToLower(login), "pg_") && f.kind == "postgres" {
+	if !f.loginRE.MatchString(login) || strings.HasPrefix(strings.ToLower(login), "pg_") && f.kind == flexKindPostgres {
 		return flexInvalid("The administrator login is not valid: use up to %d letters, digits and underscores, "+
 			"and do not start with pg_.", f.maxLoginLen)
 	}
@@ -204,7 +205,12 @@ func (p *FlexDBProvider) userDatabases(rec *flexServer) []flexDatabase {
 	return out
 }
 
-func (p *FlexDBProvider) createEngineDatabases(ctx context.Context, eng FlexEngine, key string, dbs []flexDatabase) error {
+func (p *FlexDBProvider) createEngineDatabases(
+	ctx context.Context,
+	eng FlexEngine,
+	key string,
+	dbs []flexDatabase,
+) error {
 	for _, d := range dbs {
 		if err := eng.CreateDatabase(ctx, key, d.Name, d.Charset, d.Collation); err != nil {
 			return err //nolint:wrapcheck // reduced to a fixed message by the operation
@@ -240,7 +246,7 @@ func (p *FlexDBProvider) newServer(id ResourceID, body, props map[string]any) (*
 		CreateMode: flexModeDefault, Databases: map[string]flexDatabase{}, Firewall: map[string]flexFirewall{},
 	}
 
-	if p.flavor.kind == "mysql" {
+	if p.flavor.kind == flexKindMySQL {
 		rec.AutoGrow = flexEnabled
 	}
 
@@ -266,7 +272,10 @@ func (p *FlexDBProvider) applyCreateMode(rec *flexServer, mode string, props map
 	case flexModeReplica, flexModePITR, flexModeGeo:
 		rec.CreateMode = mode
 	default:
-		return flexInvalid("createMode '%s' is not valid; use Default, PointInTimeRestore, GeoRestore or Replica.", mode)
+		return flexInvalid(
+			"createMode '%s' is not valid; use Default, PointInTimeRestore, GeoRestore or Replica.",
+			mode,
+		)
 	}
 
 	if p.engine != nil {
@@ -333,21 +342,12 @@ func (p *FlexDBProvider) inheritFrom(rec, src *flexServer, props map[string]any)
 	rec.Subnet, rec.DNSZone, rec.PublicAcc = src.Subnet, src.DNSZone, src.PublicAcc
 
 	if rec.CreateMode != flexModeReplica {
-		rec.Databases, rec.Config = cloneFlexDBs(src.Databases), cloneStrMap(src.Config)
+		rec.Databases, rec.Config = maps.Clone(src.Databases), cloneStrMap(src.Config)
 	} else {
-		rec.Databases = cloneFlexDBs(src.Databases)
+		rec.Databases = maps.Clone(src.Databases)
 	}
 
 	return nil
-}
-
-func cloneFlexDBs(in map[string]flexDatabase) map[string]flexDatabase {
-	out := make(map[string]flexDatabase, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-
-	return out
 }
 
 func (p *FlexDBProvider) checkRestorePoint(rec, src *flexServer, props map[string]any) error {
@@ -440,21 +440,8 @@ func (p *FlexDBProvider) applySKU(rec *flexServer, sku map[string]any) error {
 }
 
 func (p *FlexDBProvider) applyIdentityProps(rec *flexServer, props map[string]any, exists bool) (string, error) {
-	f := p.flavor
-
-	if v, ok := flexStr(props, "version"); ok && v != "" {
-		if !f.validVersion(v) {
-			return "", flexInvalid("The server version '%s' is not supported; supported versions: %s.", v,
-				strings.Join(f.versions, ", "))
-		}
-
-		if exists && v != rec.Version {
-			if err := f.checkUpgrade(rec.Version, v); err != nil {
-				return "", err
-			}
-		}
-
-		rec.Version = v
+	if err := p.applyVersion(rec, props, exists); err != nil {
+		return "", err
 	}
 
 	if v, ok := flexStr(props, "administratorLogin"); ok && v != "" {
@@ -462,7 +449,7 @@ func (p *FlexDBProvider) applyIdentityProps(rec *flexServer, props map[string]an
 			return "", flexInvalid("The administrator login cannot be changed after the server is created.")
 		}
 
-		if err := f.validLogin(v); err != nil {
+		if err := p.flavor.validLogin(v); err != nil {
 			return "", err
 		}
 
@@ -483,8 +470,30 @@ func (p *FlexDBProvider) applyIdentityProps(rec *flexServer, props map[string]an
 	return pw, nil
 }
 
+func (p *FlexDBProvider) applyVersion(rec *flexServer, props map[string]any, exists bool) error {
+	v, ok := flexStr(props, "version")
+	if !ok || v == "" {
+		return nil
+	}
+
+	if !p.flavor.validVersion(v) {
+		return flexInvalid("The server version '%s' is not supported; supported versions: %s.", v,
+			strings.Join(p.flavor.versions, ", "))
+	}
+
+	if exists && v != rec.Version {
+		if err := p.flavor.checkUpgrade(rec.Version, v); err != nil {
+			return err
+		}
+	}
+
+	rec.Version = v
+
+	return nil
+}
+
 func (f *flexFlavor) checkUpgrade(from, to string) error {
-	if f.kind != "postgres" {
+	if f.kind != flexKindPostgres {
 		return flexInvalid("The major version of a MySQL flexible server cannot be changed.")
 	}
 
@@ -528,7 +537,7 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 
 	rec.Iops = 0
 
-	if iops, ok := flexInt(st, "iops"); ok && f.kind == "mysql" {
+	if iops, ok := flexInt(st, "iops"); ok && f.kind == flexKindMySQL {
 		if iops < mysqlBaseIops || iops > mysqlMaxIops {
 			return flexInvalid("storage.iops must be between %d and %d.", mysqlBaseIops, mysqlMaxIops)
 		}
@@ -607,7 +616,7 @@ func (p *FlexDBProvider) applyHA(rec *flexServer, props map[string]any, exists b
 			return flexInvalid("highAvailability.mode must be Disabled, ZoneRedundant or SameZone.")
 		}
 
-		if exists && p.flavor.kind == "mysql" && mode == flexHAZoneRedundant && rec.HAMode != mode {
+		if exists && p.flavor.kind == flexKindMySQL && mode == flexHAZoneRedundant && rec.HAMode != mode {
 			return flexInvalid("Zone-redundant high availability can only be set when the server is created.")
 		}
 
@@ -631,25 +640,8 @@ func (p *FlexDBProvider) applyNetwork(rec *flexServer, props map[string]any, exi
 		return nil
 	}
 
-	subnet, hasSubnet := flexStr(n, "delegatedSubnetResourceId")
-	dns, _ := flexStr(n, "privateDnsZoneArmResourceId")
-
-	if d, ok := flexStr(n, "privateDnsZoneResourceId"); ok {
-		dns = d
-	}
-
-	if hasSubnet && subnet != rec.Subnet {
-		if exists {
-			return flexInvalid("The connectivity method cannot be changed after the server is created.")
-		}
-
-		if subnet != "" {
-			if err := p.checkSubnet(subnet, dns); err != nil {
-				return err
-			}
-		}
-
-		rec.Subnet, rec.DNSZone = subnet, dns
+	if err := p.applySubnet(rec, n, exists); err != nil {
+		return err
 	}
 
 	pub, hasPub := flexStr(n, "publicNetworkAccess")
@@ -667,6 +659,33 @@ func (p *FlexDBProvider) applyNetwork(rec *flexServer, props map[string]any, exi
 	case hasPub && pub != "":
 		rec.PublicAcc = pub
 	}
+
+	return nil
+}
+
+func (p *FlexDBProvider) applySubnet(rec *flexServer, n map[string]any, exists bool) error {
+	subnet, hasSubnet := flexStr(n, "delegatedSubnetResourceId")
+	dns, _ := flexStr(n, "privateDnsZoneArmResourceId")
+
+	if d, ok := flexStr(n, "privateDnsZoneResourceId"); ok {
+		dns = d
+	}
+
+	if !hasSubnet || subnet == rec.Subnet {
+		return nil
+	}
+
+	if exists {
+		return flexInvalid("The connectivity method cannot be changed after the server is created.")
+	}
+
+	if subnet != "" {
+		if err := p.checkSubnet(subnet, dns); err != nil {
+			return err
+		}
+	}
+
+	rec.Subnet, rec.DNSZone = subnet, dns
 
 	return nil
 }
@@ -732,13 +751,13 @@ func (p *FlexDBProvider) applyRoleChange(rec *flexServer, props map[string]any) 
 	isReplica := rec.CreateMode == flexModeReplica && rec.SourceID != ""
 
 	switch {
-	case role == flexRoleNone || role == "Primary" && isReplica:
+	case role == flexRoleNone || role == flexRolePrimary && isReplica:
 		if !isReplica {
 			return nil
 		}
 
 		rec.SourceID = ""
-	case role == p.flavor.roleReplica && isReplica, role == p.flavor.roleSource, role == "Primary":
+	case role == p.flavor.roleReplica && isReplica, role == p.flavor.roleSource, role == flexRolePrimary:
 	default:
 		return flexInvalid("replicationRole '%s' cannot be set on this server.", role)
 	}
@@ -794,7 +813,7 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 	eng := p.engine
 
 	switch action {
-	case "stop":
+	case aksActionStop:
 		if err = p.checkStop(rec, key); err != nil {
 			return "", err
 		}
@@ -809,7 +828,7 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 		if eng != nil {
 			run = func(ctx context.Context) error { return eng.Stop(ctx, key) }
 		}
-	case "start":
+	case aksActionStart:
 		if state == flexStateReady {
 			return p.newOp(id.ARMID(), false, key, nil), nil
 		}

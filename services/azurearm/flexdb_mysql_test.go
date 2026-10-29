@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/mysql/armmysqlflexibleservers/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,39 +115,49 @@ func (s *flexStack) rawNoFail(t *testing.T, method, path, body, api string) int 
 	return status
 }
 
+const myLoginPW = `"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"`
+
+func myReq(props string) string {
+	return `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{` + props + `}}`
+}
+
 func TestMySQLFlexServerValidation(t *testing.T) {
 	t.Parallel()
 
 	s := newFlexStack(t, nil)
-
-	base := func(props string) string {
-		return `{"location":"x","sku":{"name":"Standard_B1ms","tier":"Burstable"},"properties":{` + props + `}}`
+	login := func(l string) string {
+		return `"administratorLogin":"` + l + `","administratorLoginPassword":"` + flexPassword + `"`
 	}
-	ok := `"administratorLogin":"a1","administratorLoginPassword":"` + flexPassword + `"`
+	geo := `{"location":"x","properties":{"createMode":"GeoRestore","sourceServerResourceId":"/subscriptions/` +
+		aciSub + `/resourceGroups/` + flexRG + `/providers/` + myNS + `/flexibleServers/myv-0"}}`
 
 	tests := []struct {
 		name   string
 		body   string
 		status int
 	}{
-		{"valid 5.7", base(ok + `,"version":"5.7"`), http.StatusCreated},
-		{"valid 8.4", base(ok + `,"version":"8.4"`), http.StatusCreated},
-		{"bad version", base(ok + `,"version":"8.1"`), http.StatusBadRequest},
-		{"storage below min", base(ok + `,"storage":{"storageSizeGB":19}`), http.StatusBadRequest},
-		{"storage above max", base(ok + `,"storage":{"storageSizeGB":16385}`), http.StatusBadRequest},
-		{"storage valid odd", base(ok + `,"storage":{"storageSizeGB":33}`), http.StatusCreated},
-		{"retention zero", base(ok + `,"backup":{"backupRetentionDays":0}`), http.StatusBadRequest},
-		{"retention 36", base(ok + `,"backup":{"backupRetentionDays":36}`), http.StatusBadRequest},
-		{"retention 35", base(ok + `,"backup":{"backupRetentionDays":35}`), http.StatusCreated},
-		{"geo invalid", base(ok + `,"backup":{"geoRedundantBackup":"Maybe"}`), http.StatusBadRequest},
-		{"reserved root", base(`"administratorLogin":"root","administratorLoginPassword":"` + flexPassword + `"`), http.StatusBadRequest},
-		{"long login", base(`"administratorLogin":"` + strings.Repeat("a", 33) + `","administratorLoginPassword":"` + flexPassword + `"`), http.StatusBadRequest},
-		{"dash login", base(`"administratorLogin":"a-b","administratorLoginPassword":"` + flexPassword + `"`), http.StatusBadRequest},
-		{"weak password", base(`"administratorLogin":"a1","administratorLoginPassword":"alllowercase1"`), http.StatusBadRequest},
-		{"burstable zr", base(ok + `,"highAvailability":{"mode":"ZoneRedundant"}`), http.StatusBadRequest},
-		{"bad zone", base(ok + `,"availabilityZone":"7"`), http.StatusBadRequest},
-		{"bad access", base(ok + `,"network":{"publicNetworkAccess":"Sometimes"}`), http.StatusBadRequest},
-		{"geo restore without geo backup", `{"location":"x","properties":{"createMode":"GeoRestore","sourceServerResourceId":"/subscriptions/` + aciSub + `/resourceGroups/` + flexRG + `/providers/` + myNS + `/flexibleServers/myv-0"}}`, http.StatusBadRequest},
+		{"valid 5.7", myReq(myLoginPW + `,"version":"5.7"`), http.StatusCreated},
+		{"valid 8.4", myReq(myLoginPW + `,"version":"8.4"`), http.StatusCreated},
+		{"bad version", myReq(myLoginPW + `,"version":"8.1"`), http.StatusBadRequest},
+		{"storage below min", myReq(myLoginPW + `,"storage":{"storageSizeGB":19}`), http.StatusBadRequest},
+		{"storage above max", myReq(myLoginPW + `,"storage":{"storageSizeGB":16385}`), http.StatusBadRequest},
+		{"storage valid odd", myReq(myLoginPW + `,"storage":{"storageSizeGB":33}`), http.StatusCreated},
+		{"retention zero", myReq(myLoginPW + `,"backup":{"backupRetentionDays":0}`), http.StatusBadRequest},
+		{"retention 36", myReq(myLoginPW + `,"backup":{"backupRetentionDays":36}`), http.StatusBadRequest},
+		{"retention 35", myReq(myLoginPW + `,"backup":{"backupRetentionDays":35}`), http.StatusCreated},
+		{"geo invalid", myReq(myLoginPW + `,"backup":{"geoRedundantBackup":"Maybe"}`), http.StatusBadRequest},
+		{"reserved root", myReq(login("root")), http.StatusBadRequest},
+		{"long login", myReq(login(strings.Repeat("a", 33))), http.StatusBadRequest},
+		{"dash login", myReq(login("a-b")), http.StatusBadRequest},
+		{
+			"weak password",
+			myReq(`"administratorLogin":"a1","administratorLoginPassword":"alllowercase1"`),
+			http.StatusBadRequest,
+		},
+		{"burstable zr", myReq(myLoginPW + `,"highAvailability":{"mode":"ZoneRedundant"}`), http.StatusBadRequest},
+		{"bad zone", myReq(myLoginPW + `,"availabilityZone":"7"`), http.StatusBadRequest},
+		{"bad access", myReq(myLoginPW + `,"network":{"publicNetworkAccess":"Sometimes"}`), http.StatusBadRequest},
+		{"geo restore without source", geo, http.StatusBadRequest},
 	}
 
 	for i, tt := range tests {
@@ -186,158 +197,169 @@ func TestMySQLFlexSKUCatalog(t *testing.T) {
 		t.Run(tt.sku+"/"+tt.tier, func(t *testing.T) {
 			t.Parallel()
 
-			status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "mysku-"+string(rune('a'+i))),
-				`{"location":"x","sku":{"name":"`+tt.sku+`","tier":"`+tt.tier+`"},"properties":{"administratorLogin":"a1","administratorLoginPassword":"`+flexPassword+`"}}`,
-				flexAPIMy)
+			body := `{"location":"x","sku":{"name":"` + tt.sku + `","tier":"` + tt.tier + `"},"properties":{` + myLoginPW + `}}`
+			status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "mysku-"+string(rune('a'+i))), body, flexAPIMy)
 			assert.Equal(t, tt.status, status)
 		})
 	}
 }
 
-func TestMySQLFlexChildren(t *testing.T) {
+func myPoll[T any](t *testing.T, poller *runtime.Poller[T], err error) T {
+	t.Helper()
+
+	require.NoError(t, err)
+
+	res, err := poller.PollUntilDone(t.Context(), pollFast())
+	require.NoError(t, err)
+
+	return res
+}
+
+func TestMySQLFlexFirewall(t *testing.T) {
 	t.Parallel()
 
 	s := newFlexStack(t, nil)
-	s.myCreate(t, "my-kids")
+	s.myCreate(t, "my-fw")
 
-	f := s.myFactory(t)
+	fw := s.myFactory(t).NewFirewallRulesClient()
+	ctx := t.Context()
+	start, end := "0.0.0.0", "0.0.0.0"
+	rule := "AllowAllAzureServicesAndResourcesWithinAzureIps_x"
+
+	p, err := fw.BeginCreateOrUpdate(ctx, flexRG, "my-fw", rule,
+		armmysqlflexibleservers.FirewallRule{Properties: &armmysqlflexibleservers.FirewallRuleProperties{
+			StartIPAddress: &start, EndIPAddress: &end,
+		}}, nil)
+	res := myPoll(t, p, err)
+	assert.Equal(t, "0.0.0.0", *res.Properties.EndIPAddress)
+
+	got, err := fw.Get(ctx, flexRG, "my-fw", rule, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "0.0.0.0", *got.Properties.StartIPAddress)
+
+	del, err := fw.BeginDelete(ctx, flexRG, "my-fw", rule, nil)
+	myPoll(t, del, err)
+
+	page, err := fw.NewListByServerPager(flexRG, "my-fw", nil).NextPage(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, page.Value)
+
+	status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-fw")+"/firewallRules/bad",
+		`{"properties":{"startIpAddress":"2.2.2.2","endIpAddress":"1.1.1.1"}}`, flexAPIMy)
+	assert.Equal(t, http.StatusBadRequest, status)
+}
+
+func TestMySQLFlexDatabases(t *testing.T) {
+	t.Parallel()
+
+	s := newFlexStack(t, nil)
+	s.myCreate(t, "my-db")
+
+	dbs := s.myFactory(t).NewDatabasesClient()
 	ctx := t.Context()
 
-	t.Run("firewall", func(t *testing.T) {
-		fw := f.NewFirewallRulesClient()
-		start, end := "0.0.0.0", "0.0.0.0"
+	p, err := dbs.BeginCreateOrUpdate(ctx, flexRG, "my-db", "appdb", armmysqlflexibleservers.Database{
+		Properties: &armmysqlflexibleservers.DatabaseProperties{
+			Charset: new("latin1"), Collation: new("latin1_swedish_ci"),
+		},
+	}, nil)
+	res := myPoll(t, p, err)
+	assert.Equal(t, "latin1", *res.Properties.Charset)
 
-		p, err := fw.BeginCreateOrUpdate(ctx, flexRG, "my-kids", "AllowAllAzureServicesAndResourcesWithinAzureIps_x",
-			armmysqlflexibleservers.FirewallRule{Properties: &armmysqlflexibleservers.FirewallRuleProperties{
-				StartIPAddress: &start, EndIPAddress: &end,
-			}}, nil)
-		require.NoError(t, err)
+	def, err := dbs.BeginCreateOrUpdate(ctx, flexRG, "my-db", "plain", armmysqlflexibleservers.Database{}, nil)
+	defRes := myPoll(t, def, err)
+	assert.Equal(t, "utf8mb4", *defRes.Properties.Charset)
+	assert.Equal(t, "utf8mb4_0900_ai_ci", *defRes.Properties.Collation)
 
-		res, err := p.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
-		assert.Equal(t, "0.0.0.0", *res.Properties.EndIPAddress)
+	status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-db")+"/databases/appdb",
+		`{"properties":{"charset":"utf8mb4","collation":"utf8mb4_bin"}}`, flexAPIMy)
+	assert.Equal(t, http.StatusBadRequest, status)
 
-		got, err := fw.Get(ctx, flexRG, "my-kids", "AllowAllAzureServicesAndResourcesWithinAzureIps_x", nil)
-		require.NoError(t, err)
-		assert.Equal(t, "0.0.0.0", *got.Properties.StartIPAddress)
+	_, err = dbs.BeginCreateOrUpdate(ctx, flexRG, "my-db", "mysql", armmysqlflexibleservers.Database{}, nil)
+	require.Error(t, err)
 
-		del, err := fw.BeginDelete(ctx, flexRG, "my-kids", "AllowAllAzureServicesAndResourcesWithinAzureIps_x", nil)
-		require.NoError(t, err)
-		_, err = del.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
+	var names []string
 
-		pager := fw.NewListByServerPager(flexRG, "my-kids", nil)
-		page, err := pager.NextPage(ctx)
-		require.NoError(t, err)
-		assert.Empty(t, page.Value)
+	pager := dbs.NewListByServerPager(flexRG, "my-db", nil)
+	for pager.More() {
+		page, pageErr := pager.NextPage(ctx)
+		require.NoError(t, pageErr)
 
-		status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-kids")+"/firewallRules/bad",
-			`{"properties":{"startIpAddress":"2.2.2.2","endIpAddress":"1.1.1.1"}}`, flexAPIMy)
-		assert.Equal(t, http.StatusBadRequest, status)
-	})
-
-	t.Run("databases", func(t *testing.T) {
-		dbs := f.NewDatabasesClient()
-
-		p, err := dbs.BeginCreateOrUpdate(ctx, flexRG, "my-kids", "appdb", armmysqlflexibleservers.Database{
-			Properties: &armmysqlflexibleservers.DatabaseProperties{
-				Charset: new("latin1"), Collation: new("latin1_swedish_ci"),
-			},
-		}, nil)
-		require.NoError(t, err)
-
-		res, err := p.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
-		assert.Equal(t, "latin1", *res.Properties.Charset)
-
-		def, err := dbs.BeginCreateOrUpdate(ctx, flexRG, "my-kids", "plain", armmysqlflexibleservers.Database{}, nil)
-		require.NoError(t, err)
-		defRes, err := def.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
-		assert.Equal(t, "utf8mb4", *defRes.Properties.Charset)
-		assert.Equal(t, "utf8mb4_0900_ai_ci", *defRes.Properties.Collation)
-
-		status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-kids")+"/databases/appdb",
-			`{"properties":{"charset":"utf8mb4","collation":"utf8mb4_bin"}}`, flexAPIMy)
-		assert.Equal(t, http.StatusBadRequest, status)
-
-		_, err = dbs.BeginCreateOrUpdate(ctx, flexRG, "my-kids", "mysql", armmysqlflexibleservers.Database{}, nil)
-		require.Error(t, err)
-
-		var names []string
-
-		pager := dbs.NewListByServerPager(flexRG, "my-kids", nil)
-		for pager.More() {
-			page, err := pager.NextPage(ctx)
-			require.NoError(t, err)
-
-			for _, d := range page.Value {
-				names = append(names, *d.Name)
-			}
+		for _, d := range page.Value {
+			names = append(names, *d.Name)
 		}
+	}
 
-		assert.ElementsMatch(t, []string{"appdb", "plain", "information_schema", "mysql", "performance_schema", "sys"}, names)
+	assert.ElementsMatch(
+		t,
+		[]string{"appdb", "plain", "information_schema", "mysql", "performance_schema", "sys"},
+		names,
+	)
 
-		del, err := dbs.BeginDelete(ctx, flexRG, "my-kids", "appdb", nil)
-		require.NoError(t, err)
-		_, err = del.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
+	del, err := dbs.BeginDelete(ctx, flexRG, "my-db", "appdb", nil)
+	myPoll(t, del, err)
 
-		_, err = dbs.BeginDelete(ctx, flexRG, "my-kids", "sys", nil)
-		require.Error(t, err)
-	})
+	_, err = dbs.BeginDelete(ctx, flexRG, "my-db", "sys", nil)
+	require.Error(t, err)
+}
 
-	t.Run("configurations", func(t *testing.T) {
-		cfg := f.NewConfigurationsClient()
+func TestMySQLFlexConfigurations(t *testing.T) {
+	t.Parallel()
 
-		def, err := cfg.Get(ctx, flexRG, "my-kids", "wait_timeout", nil)
-		require.NoError(t, err)
-		assert.Equal(t, "28800", *def.Properties.Value)
-		assert.Equal(t, armmysqlflexibleservers.ConfigurationSourceSystemDefault, *def.Properties.Source)
-		assert.Equal(t, armmysqlflexibleservers.IsDynamicConfigTrue, *def.Properties.IsDynamicConfig)
-		assert.Equal(t, armmysqlflexibleservers.IsReadOnlyFalse, *def.Properties.IsReadOnly)
+	s := newFlexStack(t, nil)
+	s.myCreate(t, "my-cfg")
 
-		put, err := cfg.BeginCreateOrUpdate(ctx, flexRG, "my-kids", "wait_timeout", armmysqlflexibleservers.Configuration{
-			Properties: &armmysqlflexibleservers.ConfigurationProperties{
-				Value: new("600"), Source: new(armmysqlflexibleservers.ConfigurationSourceUserOverride),
-			},
-		}, nil)
-		require.NoError(t, err)
+	cfg := s.myFactory(t).NewConfigurationsClient()
+	ctx := t.Context()
 
-		res, err := put.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
-		assert.Equal(t, "600", *res.Properties.Value)
-		assert.Equal(t, "600", *res.Properties.CurrentValue)
+	def, err := cfg.Get(ctx, flexRG, "my-cfg", "wait_timeout", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "28800", *def.Properties.Value)
+	assert.Equal(t, armmysqlflexibleservers.ConfigurationSourceSystemDefault, *def.Properties.Source)
+	assert.Equal(t, armmysqlflexibleservers.IsDynamicConfigTrue, *def.Properties.IsDynamicConfig)
+	assert.Equal(t, armmysqlflexibleservers.IsReadOnlyFalse, *def.Properties.IsReadOnly)
 
-		ro, err := cfg.BeginCreateOrUpdate(ctx, flexRG, "my-kids", "lower_case_table_names", armmysqlflexibleservers.Configuration{
+	put, err := cfg.BeginCreateOrUpdate(ctx, flexRG, "my-cfg", "wait_timeout", armmysqlflexibleservers.Configuration{
+		Properties: &armmysqlflexibleservers.ConfigurationProperties{
+			Value: new("600"), Source: new(armmysqlflexibleservers.ConfigurationSourceUserOverride),
+		},
+	}, nil)
+	res := myPoll(t, put, err)
+	assert.Equal(t, "600", *res.Properties.Value)
+	assert.Equal(t, "600", *res.Properties.CurrentValue)
+
+	_, err = cfg.BeginCreateOrUpdate(
+		ctx,
+		flexRG,
+		"my-cfg",
+		"lower_case_table_names",
+		armmysqlflexibleservers.Configuration{
 			Properties: &armmysqlflexibleservers.ConfigurationProperties{Value: new("2")},
-		}, nil)
-		require.Error(t, err)
-		assert.Nil(t, ro)
+		},
+		nil,
+	)
+	require.Error(t, err)
 
-		for name, val := range map[string]string{
-			"slow_query_log": "MAYBE", "wait_timeout": "0", "sql_mode": "NOT_A_MODE", "tls_version": "TLSv1.0",
-		} {
-			status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-kids")+"/configurations/"+name,
-				`{"properties":{"value":"`+val+`"}}`, flexAPIMy)
-			assert.Equal(t, http.StatusBadRequest, status, name)
-		}
+	for name, val := range map[string]string{
+		"slow_query_log": "MAYBE", "wait_timeout": "0", "sql_mode": "NOT_A_MODE", "tls_version": "TLSv1.0",
+	} {
+		status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-cfg")+"/configurations/"+name,
+			`{"properties":{"value":"`+val+`"}}`, flexAPIMy)
+		assert.Equal(t, http.StatusBadRequest, status, name)
+	}
 
-		status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-kids")+"/configurations/sql_mode",
-			`{"properties":{"value":"ANSI_QUOTES,STRICT_ALL_TABLES"}}`, flexAPIMy)
-		assert.Equal(t, http.StatusOK, status)
+	status, _ := s.raw(t, http.MethodPut, flexServerPath(myNS, "my-cfg")+"/configurations/sql_mode",
+		`{"properties":{"value":"ANSI_QUOTES,STRICT_ALL_TABLES"}}`, flexAPIMy)
+	assert.Equal(t, http.StatusOK, status)
 
-		tls, err := cfg.BeginCreateOrUpdate(ctx, flexRG, "my-kids", "tls_version", armmysqlflexibleservers.Configuration{
-			Properties: &armmysqlflexibleservers.ConfigurationProperties{Value: new("TLSv1.2,TLSv1.3")},
-		}, nil)
-		require.NoError(t, err)
-		_, err = tls.PollUntilDone(ctx, pollFast())
-		require.NoError(t, err)
+	tls, err := cfg.BeginCreateOrUpdate(ctx, flexRG, "my-cfg", "tls_version", armmysqlflexibleservers.Configuration{
+		Properties: &armmysqlflexibleservers.ConfigurationProperties{Value: new("TLSv1.2,TLSv1.3")},
+	}, nil)
+	myPoll(t, tls, err)
 
-		got, err := cfg.Get(ctx, flexRG, "my-kids", "tls_version", nil)
-		require.NoError(t, err)
-		assert.Equal(t, armmysqlflexibleservers.IsConfigPendingRestartTrue, *got.Properties.IsConfigPendingRestart)
-	})
+	got, err := cfg.Get(ctx, flexRG, "my-cfg", "tls_version", nil)
+	require.NoError(t, err)
+	assert.Equal(t, armmysqlflexibleservers.IsConfigPendingRestartTrue, *got.Properties.IsConfigPendingRestart)
 }
 
 func TestMySQLFlexReplicasPowerAndCapabilities(t *testing.T) {
@@ -387,7 +409,8 @@ func TestMySQLFlexReplicasPowerAndCapabilities(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, armmysqlflexibleservers.ServerStateStopped, *got.Properties.State)
 
-	_, err = f.NewServersClient().BeginRestart(ctx, flexRG, "my-solo", armmysqlflexibleservers.ServerRestartParameter{}, nil)
+	_, err = f.NewServersClient().
+		BeginRestart(ctx, flexRG, "my-solo", armmysqlflexibleservers.ServerRestartParameter{}, nil)
 	require.Error(t, err)
 
 	start, err := f.NewServersClient().BeginStart(ctx, flexRG, "my-solo", nil)
@@ -437,7 +460,8 @@ func TestMySQLFlexEngineAndPersistence(t *testing.T) {
 	s.myCreate(t, "my-engine")
 	assert.Contains(t, eng.log(), "ensure:myadmin:8.0.21")
 
-	db, err := f.NewDatabasesClient().BeginCreateOrUpdate(ctx, flexRG, "my-engine", "shop", armmysqlflexibleservers.Database{}, nil)
+	db, err := f.NewDatabasesClient().
+		BeginCreateOrUpdate(ctx, flexRG, "my-engine", "shop", armmysqlflexibleservers.Database{}, nil)
 	require.NoError(t, err)
 	_, err = db.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)

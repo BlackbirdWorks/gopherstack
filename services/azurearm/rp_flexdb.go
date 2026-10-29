@@ -236,8 +236,14 @@ func (p *FlexDBProvider) notFound(id ResourceID, what string) error {
 func (p *FlexDBProvider) childNotFound(id ResourceID) error {
 	return &flexError{
 		armErrorCodeResourceNotFound,
-		fmt.Sprintf("The Resource '%s/%s/%s/%s' under resource group '%s' was not found.",
-			p.flavor.ns, flexServersType, strings.Join(id.Names, "/"), strings.Join(id.Types[1:], "/"), id.ResourceGroup),
+		fmt.Sprintf(
+			"The Resource '%s/%s/%s/%s' under resource group '%s' was not found.",
+			p.flavor.ns,
+			flexServersType,
+			strings.Join(id.Names, "/"),
+			strings.Join(id.Types[1:], "/"),
+			id.ResourceGroup,
+		),
 		http.StatusNotFound,
 	}
 }
@@ -489,7 +495,7 @@ func (p *FlexDBProvider) finishOp(opID, key string, err error) {
 }
 
 // OperationStatus reports whether opID is known, finished, and its failure message.
-func (p *FlexDBProvider) OperationStatus(opID string) (op flexOp, known, done bool) {
+func (p *FlexDBProvider) OperationStatus(opID string) (flexOp, bool, bool) {
 	p.opMu.RLock("OperationStatus")
 	defer p.opMu.RUnlock()
 

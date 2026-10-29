@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"maps"
 	"net"
 	"slices"
 	"strconv"
@@ -46,13 +47,13 @@ func (p *FlexDBProvider) serverBody(id ResourceID, rec *flexServer) map[string]a
 		haState = "Healthy"
 	}
 
-	ha := map[string]any{"mode": rec.HAMode, "state": haState}
+	ha := map[string]any{"mode": rec.HAMode, auxState: haState}
 	if rec.StandbyZone != "" {
 		ha["standbyAvailabilityZone"] = rec.StandbyZone
 	}
 
 	props := map[string]any{
-		"state": p.stateOf(rec), "version": rec.Version, "fullyQualifiedDomainName": p.fqdn(rec),
+		auxState: p.stateOf(rec), sqlPropVersion: rec.Version, flexPropFQDN: p.fqdn(rec),
 		"administratorLogin": rec.Login, "storage": p.storageBody(rec), "backup": p.backupBody(rec),
 		"network": p.networkBody(rec), "highAvailability": ha,
 		"createMode": rec.CreateMode, "replicationRole": p.role(id, rec), "replicaCapacity": f.maxReplicas,
@@ -80,7 +81,7 @@ func (p *FlexDBProvider) serverBody(id ResourceID, rec *flexServer) map[string]a
 	out := map[string]any{
 		"id": id.ARMID(), fieldName: rec.Name, fieldType: f.ns + "/" + flexServersType,
 		fieldLocation: rec.Location, fieldTags: tagsOrEmpty(rec.Tags), fieldProperties: props,
-		"sku": map[string]any{fieldName: rec.SKUName, "tier": rec.SKUTier},
+		acrFieldSKU: map[string]any{fieldName: rec.SKUName, aksFieldTier: rec.SKUTier},
 		"systemData": map[string]any{
 			"createdAt": rec.CreatedAt.Format("2006-01-02T15:04:05.0000000Z"),
 		},
@@ -94,11 +95,13 @@ func (p *FlexDBProvider) serverBody(id ResourceID, rec *flexServer) map[string]a
 }
 
 func (p *FlexDBProvider) kindProps(id ResourceID, props map[string]any, rec *flexServer) {
-	if p.flavor.kind == "postgres" {
-		props["authConfig"] = mergeFlexMap(map[string]any{"activeDirectoryAuth": flexDisabled, "passwordAuth": flexEnabled},
-			rec.AuthConfig)
-		props["dataEncryption"] = mergeFlexMap(map[string]any{"type": "SystemManaged"}, rec.Encryption)
-		props["replica"] = map[string]any{"role": p.role(id, rec), "capacity": p.flavor.maxReplicas}
+	if p.flavor.kind == flexKindPostgres {
+		props["authConfig"] = mergeFlexMap(
+			map[string]any{"activeDirectoryAuth": flexDisabled, "passwordAuth": flexEnabled},
+			rec.AuthConfig,
+		)
+		props["dataEncryption"] = mergeFlexMap(map[string]any{fieldType: "SystemManaged"}, rec.Encryption)
+		props["replica"] = map[string]any{"role": p.role(id, rec), cmpFieldCapacity: p.flavor.maxReplicas}
 
 		return
 	}
@@ -112,19 +115,17 @@ func (p *FlexDBProvider) kindProps(id ResourceID, props map[string]any, rec *fle
 }
 
 func mergeFlexMap(base, over map[string]any) map[string]any {
-	for k, v := range over {
-		base[k] = v
-	}
+	maps.Copy(base, over)
 
 	return base
 }
 
 func (p *FlexDBProvider) storageBody(rec *flexServer) map[string]any {
-	if p.flavor.kind == "postgres" {
+	if p.flavor.kind == flexKindPostgres {
 		tier, iops := pgStorageTier(rec.StorageGB)
 
 		return map[string]any{
-			"storageSizeGB": rec.StorageGB, "autoGrow": rec.AutoGrow, "tier": tier, "iops": iops,
+			"storageSizeGB": rec.StorageGB, "autoGrow": rec.AutoGrow, aksFieldTier: tier, "iops": iops,
 		}
 	}
 
@@ -146,15 +147,15 @@ func (p *FlexDBProvider) backupBody(rec *flexServer) map[string]any {
 		"earliestRestoreDate": earliest.Format("2006-01-02T15:04:05.0000000Z"),
 	}
 
-	if p.flavor.kind == "mysql" {
-		out["backupIntervalHours"] = 24
+	if p.flavor.kind == flexKindMySQL {
+		out["backupIntervalHours"] = flexBackupHours
 	}
 
 	return out
 }
 
 func (p *FlexDBProvider) networkBody(rec *flexServer) map[string]any {
-	out := map[string]any{"publicNetworkAccess": rec.PublicAcc}
+	out := map[string]any{cosmosFieldPublicNetwork: rec.PublicAcc}
 
 	if rec.Subnet != "" {
 		out["delegatedSubnetResourceId"] = rec.Subnet
@@ -162,7 +163,7 @@ func (p *FlexDBProvider) networkBody(rec *flexServer) map[string]any {
 
 	if rec.DNSZone != "" {
 		key := "privateDnsZoneArmResourceId"
-		if p.flavor.kind == "mysql" {
+		if p.flavor.kind == flexKindMySQL {
 			key = "privateDnsZoneResourceId"
 		}
 
@@ -212,7 +213,11 @@ func (p *FlexDBProvider) databaseBody(id ResourceID, db flexDatabase) map[string
 	rid := id
 	rid.Names = []string{id.Names[0], db.Name}
 
-	return p.childEnvelope(rid, flexDatabasesType, map[string]any{"charset": db.Charset, "collation": db.Collation})
+	return p.childEnvelope(
+		rid,
+		flexDatabasesType,
+		map[string]any{"charset": db.Charset, flexPropCollation: db.Collation},
+	)
 }
 
 // ListChildren returns the firewall rules, databases, configurations or replicas of a server.
@@ -261,7 +266,7 @@ func validIPv4(s string) (net.IP, bool) {
 	return ip, ip != nil && !strings.Contains(s, ":")
 }
 
-var flexRuleNameChars = func(r rune) bool {
+func flexRuleNameChar(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-'
 }
 
@@ -271,8 +276,11 @@ func (p *FlexDBProvider) writeFirewall(id ResourceID, body map[string]any) (flex
 	props := flexMap(body, fieldProperties)
 	name := id.LeafName()
 
-	if name == "" || len(name) > flexMaxRuleName || strings.IndexFunc(name, func(r rune) bool { return !flexRuleNameChars(r) }) >= 0 {
-		return flexResult{}, flexInvalid("The firewall rule name must be 1 to 128 letters, digits, hyphens or underscores.")
+	if name == "" || len(name) > flexMaxRuleName ||
+		strings.IndexFunc(name, func(r rune) bool { return !flexRuleNameChar(r) }) >= 0 {
+		return flexResult{}, flexInvalid(
+			"The firewall rule name must be 1 to 128 letters, digits, hyphens or underscores.",
+		)
 	}
 
 	start, _ := flexStr(props, "startIpAddress")
@@ -297,7 +305,9 @@ func (p *FlexDBProvider) writeFirewall(id ResourceID, body map[string]any) (flex
 	}
 
 	if rec.Subnet != "" {
-		return flexResult{}, flexInvalid("Firewall rules are not supported on a server with virtual network integration.")
+		return flexResult{}, flexInvalid(
+			"Firewall rules are not supported on a server with virtual network integration.",
+		)
 	}
 
 	if rec.Firewall == nil {

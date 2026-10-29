@@ -43,8 +43,8 @@ type flexStack struct {
 	pg      *azurearm.FlexDBProvider
 	my      *azurearm.FlexDBProvider
 	client  *http.Client
-	url     string
 	opts    *arm.ClientOptions
+	url     string
 }
 
 func newFlexStack(t *testing.T, engine azurearm.FlexEngine) *flexStack {
@@ -148,12 +148,12 @@ func flexServerPath(ns, name string) string {
 }
 
 type fakeFlexEngine struct {
-	failEnsure bool
-	mu         sync.Mutex
-	calls      []string
 	dbs        map[string][]string
 	pw         map[string]string
 	live       map[string]bool
+	calls      []string
+	mu         sync.Mutex
+	failEnsure bool
 }
 
 func newFakeFlexEngine() *fakeFlexEngine {
@@ -207,9 +207,23 @@ func (f *fakeFlexEngine) SetPassword(_ context.Context, id, login, password stri
 	return nil
 }
 
-func (f *fakeFlexEngine) Stop(context.Context, string) error    { f.record("stop"); return nil }
-func (f *fakeFlexEngine) Start(context.Context, string) error   { f.record("start"); return nil }
-func (f *fakeFlexEngine) Restart(context.Context, string) error { f.record("restart"); return nil }
+func (f *fakeFlexEngine) Stop(context.Context, string) error {
+	f.record("stop")
+
+	return nil
+}
+
+func (f *fakeFlexEngine) Start(context.Context, string) error {
+	f.record("start")
+
+	return nil
+}
+
+func (f *fakeFlexEngine) Restart(context.Context, string) error {
+	f.record("restart")
+
+	return nil
+}
 
 func (f *fakeFlexEngine) CreateDatabase(_ context.Context, id, name, charset, collation string) error {
 	f.record("createdb:" + name + ":" + charset + ":" + collation)
