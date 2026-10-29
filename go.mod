@@ -290,6 +290,7 @@ require (
 	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/client v0.6.2
 	github.com/mochi-mqtt/server/v2 v2.7.9
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/oracle/oci-go-sdk/v65 v65.126.2
@@ -392,6 +393,7 @@ require (
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/pprof v0.0.0-20261012231050-2af12c3f4d87 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -438,6 +440,8 @@ require (
 	github.com/redis/go-redis/extra/redisotel/v9 v9.23.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rs/xid v1.6.0 // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.9 // indirect
 	github.com/shopspring/decimal v1.5.0 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
@@ -449,6 +453,7 @@ require (
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/twpayne/go-geom v1.7.0 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect

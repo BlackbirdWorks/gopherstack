@@ -78,6 +78,17 @@ gopherstack stop                       # stop and remove it (safe to repeat)
 
 `start` flags: `--image`, `--tag`, `--host`, `--bind` (default `127.0.0.1`), `--port` (default `8000`), `-p/--publish` for extra ports, `--data-dir` (mounted at `/data` in the container), `--persist`, `-e/--env KEY=VALUE` (or `KEY` to copy from your shell), `--timeout`, `--name`, `--state-dir`. It waits for `/_gopherstack/health` and, on failure, prints the tail of the container or process log. The pidfile, state and host log live in `$XDG_STATE_HOME/gopherstack` (`~/.local/state/gopherstack`). Commands that talk to a running server use `--endpoint` / `GOPHERSTACK_ENDPOINT` (default `http://localhost:8000`).
 
+## MCP server for AI assistants
+
+Gopherstack ships a built-in [Model Context Protocol](https://modelcontextprotocol.io) server so assistants can inspect and control a running instance: health and enabled services, state snapshots, resets, chaos faults, request traces, IAM denials and init hooks. Secrets (IAM secret keys, KMS material, Secrets Manager values, request headers and bodies) are never returned.
+
+```bash
+gopherstack mcp --endpoint http://localhost:8000        # stdio server for MCP clients
+gopherstack serve --mcp-enabled                          # also serve streamable HTTP at /_gopherstack/mcp
+```
+
+The HTTP endpoint accepts loopback clients only unless `--mcp-token` / `GOPHERSTACK_MCP_TOKEN` is set, in which case every request needs `Authorization: Bearer <token>`. See [docs/mcp.md](docs/mcp.md) for client configuration and the tool list.
+
 ## Installation
 
 ### Docker
@@ -1125,6 +1136,7 @@ cdk deploy
 - [Architecture](docs/architecture/README.md)
 - [Examples](examples/README.md)
 - [Chaos Testing](docs/chaos.md)
+- [MCP server](docs/mcp.md)
 
 ## Development
 
