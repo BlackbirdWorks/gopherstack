@@ -3,7 +3,13 @@ package codepipeline
 // runBuiltinAction runs an AWS-owned action none of the seam-specific cases in runOneAction took. Providers the
 // emulator implements are dispatched; the legacy ones whose seam is unwired keep completing instantly; anything
 // else fails rather than reporting work that never happened.
-func (b *InMemoryBackend) runBuiltinAction(region string, p *Pipeline, execID string, action Action, ae *ActionExecution) {
+func (b *InMemoryBackend) runBuiltinAction(
+	region string,
+	p *Pipeline,
+	execID string,
+	action Action,
+	ae *ActionExecution,
+) {
 	ctx := b.regionContext(region)
 	id := action.ActionTypeID
 

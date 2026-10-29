@@ -65,7 +65,7 @@ func zipEntry(data []byte, name string) ([]byte, error) {
 		return io.ReadAll(io.LimitReader(rc, maxExtractedBytes))
 	}
 
-	return nil, fmt.Errorf("file %q not found in artifact", name)
+	return nil, fmt.Errorf("%w: file %q not found in artifact", ErrValidation, name)
 }
 
 // artifactFile reads file from the named input artifact of action.

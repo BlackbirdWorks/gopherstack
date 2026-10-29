@@ -98,13 +98,21 @@ func (b *InMemoryBackend) ecsStartDeployment(
 
 	var defs []imageDefinition
 	if err = json.Unmarshal(body, &defs); err != nil || len(defs) == 0 {
-		return "", fmt.Errorf("%w: image definitions file %q must be a non-empty JSON array of name/imageUri", ErrValidation, file)
+		return "", fmt.Errorf(
+			"%w: image definitions file %q must be a non-empty JSON array of name/imageUri",
+			ErrValidation,
+			file,
+		)
 	}
 
 	images := make(map[string]string, len(defs))
 	for _, d := range defs {
 		if d.Name == "" || d.ImageURI == "" {
-			return "", fmt.Errorf("%w: image definitions file %q has an entry without name or imageUri", ErrValidation, file)
+			return "", fmt.Errorf(
+				"%w: image definitions file %q has an entry without name or imageUri",
+				ErrValidation,
+				file,
+			)
 		}
 
 		images[d.Name] = d.ImageURI
@@ -116,7 +124,7 @@ func (b *InMemoryBackend) ecsStartDeployment(
 	}
 
 	if svc == nil {
-		return "", fmt.Errorf("service %s was not found in cluster %s", service, cluster)
+		return "", fmt.Errorf("%w: service %s was not found in cluster %s", ErrValidation, service, cluster)
 	}
 
 	newTD, err := b.ecsDeployer.RegisterRevisionWithImages(ctx, svc.TaskDefinition, images)
@@ -149,11 +157,22 @@ func (b *InMemoryBackend) ecsEvaluate(action Action, ae *ActionExecution, svc *E
 
 	switch {
 	case primary == nil && live > 0 && b.ecsTimedOut(action, ae):
-		failActionf(ae, failureJobFailed, "Deployment of %s did not start before the deployment timeout", ae.ExternalExecutionID)
+		failActionf(
+			ae,
+			failureJobFailed,
+			"Deployment of %s did not start before the deployment timeout",
+			ae.ExternalExecutionID,
+		)
 	case primary == nil:
 		return
 	case primary.RolloutState == ecsRolloutFailed:
-		failActionf(ae, failureJobFailed, "Deployment of %s failed: %s", ae.ExternalExecutionID, primary.RolloutStateReason)
+		failActionf(
+			ae,
+			failureJobFailed,
+			"Deployment of %s failed: %s",
+			ae.ExternalExecutionID,
+			primary.RolloutStateReason,
+		)
 	case live == 1 && ecsSteady(primary):
 		ae.Status = statusSucceeded
 	case b.ecsTimedOut(action, ae):

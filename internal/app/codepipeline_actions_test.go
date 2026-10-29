@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"maps"
 	"testing"
 	"time"
 
@@ -81,14 +82,17 @@ func (e *actionPipelineEnv) putSource(t *testing.T, files map[string]string) {
 func (e *actionPipelineEnv) createPipeline(t *testing.T, name string, stages ...cptypes.StageDeclaration) error {
 	t.Helper()
 
-	_, err := e.cpc.CreatePipeline(t.Context(), &codepipeline.CreatePipelineInput{Pipeline: &cptypes.PipelineDeclaration{
-		Name:    aws.String(name),
-		RoleArn: aws.String("arn:aws:iam::000000000000:role/cp"),
-		ArtifactStore: &cptypes.ArtifactStore{
-			Type: cptypes.ArtifactStoreTypeS3, Location: aws.String("art-bkt"),
-		},
-		Stages: stages,
-	}})
+	_, err := e.cpc.CreatePipeline(
+		t.Context(),
+		&codepipeline.CreatePipelineInput{Pipeline: &cptypes.PipelineDeclaration{
+			Name:    aws.String(name),
+			RoleArn: aws.String("arn:aws:iam::000000000000:role/cp"),
+			ArtifactStore: &cptypes.ArtifactStore{
+				Type: cptypes.ArtifactStoreTypeS3, Location: aws.String("art-bkt"),
+			},
+			Stages: stages,
+		}},
+	)
 
 	return err
 }
@@ -99,7 +103,10 @@ func s3SourceStage(out string) cptypes.StageDeclaration {
 }
 
 // run starts the pipeline and waits for a terminal execution status.
-func (e *actionPipelineEnv) run(t *testing.T, name string) (cptypes.PipelineExecutionStatus, map[string]cptypes.ActionExecutionDetail) {
+func (e *actionPipelineEnv) run(
+	t *testing.T,
+	name string,
+) (cptypes.PipelineExecutionStatus, map[string]cptypes.ActionExecutionDetail) {
 	t.Helper()
 
 	ctx := t.Context()
@@ -190,8 +197,11 @@ func TestCodePipelineCloudFormationDeploy(t *testing.T) {
 			wantStack:  true,
 		},
 		{
-			name:  "template configuration parameters",
-			files: map[string]string{"template.json": cfnPipelineTemplate, "conf.json": `{"Parameters":{"Env":"staging"}}`},
+			name: "template configuration parameters",
+			files: map[string]string{
+				"template.json": cfnPipelineTemplate,
+				"conf.json":     `{"Parameters":{"Env":"staging"}}`,
+			},
 			cfg: map[string]string{
 				"ActionMode": "CREATE_UPDATE", "StackName": "cp-stack", "TemplatePath": "SrcOut::template.json",
 				"TemplateConfiguration": "SrcOut::conf.json", "OutputFileName": "StackOutputs.json",
@@ -274,12 +284,19 @@ func TestCodePipelineCloudFormationDeploy(t *testing.T) {
 			}
 
 			if tt.wantStack {
-				out, err := cfn.DescribeStacks(t.Context(), &cloudformation.DescribeStacksInput{StackName: aws.String("cp-stack")})
+				out, err := cfn.DescribeStacks(
+					t.Context(),
+					&cloudformation.DescribeStacksInput{StackName: aws.String("cp-stack")},
+				)
 				require.NoError(t, err)
 				require.Len(t, out.Stacks, 1)
 				assert.Equal(t, "CREATE_COMPLETE", string(out.Stacks[0].StackStatus))
 				assert.Equal(t, tt.wantOutput, env.object(t, "out/StackOutputs.json"))
-				assert.Equal(t, tt.wantOutput == `{"EnvOut":"prod"}`, actions["Deploy"].Output.OutputVariables["EnvOut"] == "prod")
+				assert.Equal(
+					t,
+					tt.wantOutput == `{"EnvOut":"prod"}`,
+					actions["Deploy"].Output.OutputVariables["EnvOut"] == "prod",
+				)
 			}
 
 			if tt.wantDeleted {
@@ -330,14 +347,8 @@ func TestCodePipelineCloudFormationChangeSets(t *testing.T) {
 
 func mergeStringMaps(a, b map[string]string) map[string]string {
 	out := make(map[string]string, len(a)+len(b))
-
-	for k, v := range a {
-		out[k] = v
-	}
-
-	for k, v := range b {
-		out[k] = v
-	}
+	maps.Copy(out, a)
+	maps.Copy(out, b)
 
 	return out
 }
@@ -421,12 +432,18 @@ func TestCodePipelineECSDeploy(t *testing.T) {
 			require.Len(t, svc.Services, 1)
 			assert.Contains(t, aws.ToString(svc.Services[0].TaskDefinition), "task-definition/app:2")
 
-			td, err := ecsc.DescribeTaskDefinition(ctx, &ecs.DescribeTaskDefinitionInput{TaskDefinition: aws.String("app:2")})
+			td, err := ecsc.DescribeTaskDefinition(
+				ctx,
+				&ecs.DescribeTaskDefinitionInput{TaskDefinition: aws.String("app:2")},
+			)
 			require.NoError(t, err)
 			require.Len(t, td.TaskDefinition.ContainerDefinitions, 1)
 			assert.Equal(t, tt.wantImage, aws.ToString(td.TaskDefinition.ContainerDefinitions[0].Image))
 
-			old, err := ecsc.DescribeTaskDefinition(ctx, &ecs.DescribeTaskDefinitionInput{TaskDefinition: aws.String("app:1")})
+			old, err := ecsc.DescribeTaskDefinition(
+				ctx,
+				&ecs.DescribeTaskDefinitionInput{TaskDefinition: aws.String("app:1")},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, "nginx:1.0", aws.ToString(old.TaskDefinition.ContainerDefinitions[0].Image))
 		})
@@ -444,7 +461,12 @@ func TestCodePipelineECRSource(t *testing.T) {
 	}{
 		{name: "default tag latest", tag: "", wantStatus: cptypes.PipelineExecutionStatusSucceeded},
 		{name: "explicit tag", tag: "v1", wantStatus: cptypes.PipelineExecutionStatusSucceeded},
-		{name: "missing tag fails", tag: "nope", wantStatus: cptypes.PipelineExecutionStatusFailed, wantErr: "does not exist"},
+		{
+			name:       "missing tag fails",
+			tag:        "nope",
+			wantStatus: cptypes.PipelineExecutionStatusFailed,
+			wantErr:    "does not exist",
+		},
 	}
 
 	for _, tt := range tests {
@@ -460,7 +482,9 @@ func TestCodePipelineECRSource(t *testing.T) {
 
 			for _, tag := range []string{"latest", "v1"} {
 				_, err = ecrc.PutImage(ctx, &ecr.PutImageInput{
-					RepositoryName: aws.String("img"), ImageTag: aws.String(tag), ImageManifest: aws.String(`{"schemaVersion":2}`),
+					RepositoryName: aws.String(
+						"img",
+					), ImageTag: aws.String(tag), ImageManifest: aws.String(`{"schemaVersion":2}`),
 				})
 				require.NoError(t, err)
 			}
@@ -488,7 +512,9 @@ func TestCodePipelineECRSource(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(env.object(t, "out/imageDetail.json")), &detail))
 
 			imgs, err := ecrc.DescribeImages(ctx, &ecr.DescribeImagesInput{
-				RepositoryName: aws.String("img"), ImageIds: []ecrtypes.ImageIdentifier{{ImageTag: aws.String("latest")}},
+				RepositoryName: aws.String(
+					"img",
+				), ImageIds: []ecrtypes.ImageIdentifier{{ImageTag: aws.String("latest")}},
 			})
 			require.NoError(t, err)
 			require.NotEmpty(t, imgs.ImageDetails)
@@ -547,11 +573,26 @@ func TestCodePipelineUnsupportedBuiltinActions(t *testing.T) {
 		wantCreate   string
 		wantExecFail string
 	}{
-		{name: "unknown provider rejected", category: "Deploy", provider: "Teleport", version: "1", wantCreate: "InvalidActionDeclarationException"},
-		{name: "unknown version rejected", category: "Deploy", provider: "ECS", version: "9", wantCreate: "InvalidActionDeclarationException"},
+		{
+			name:       "unknown provider rejected",
+			category:   "Deploy",
+			provider:   "Teleport",
+			version:    "1",
+			wantCreate: "InvalidActionDeclarationException",
+		},
+		{
+			name:       "unknown version rejected",
+			category:   "Deploy",
+			provider:   "ECS",
+			version:    "9",
+			wantCreate: "InvalidActionDeclarationException",
+		},
 		{
 			name: "bad cfn action mode rejected", category: "Deploy", provider: "CloudFormation", version: "1",
-			cfg: map[string]string{"ActionMode": "BOGUS", "StackName": "s"}, wantCreate: "InvalidActionDeclarationException",
+			cfg: map[string]string{
+				"ActionMode": "BOGUS",
+				"StackName":  "s",
+			}, wantCreate: "InvalidActionDeclarationException",
 		},
 		{
 			name: "valid but unimplemented fails", category: "Deploy", provider: "ElasticBeanstalk", version: "1",
@@ -561,8 +602,9 @@ func TestCodePipelineUnsupportedBuiltinActions(t *testing.T) {
 		{
 			name: "codestar connection fails", category: "Source", provider: "CodeStarSourceConnection", version: "1",
 			cfg: map[string]string{
-				"ConnectionArn": "arn:aws:codeconnections:us-east-1:000000000000:connection/abc", "FullRepositoryId": "o/r",
-				"BranchName": "main",
+				"ConnectionArn":    "arn:aws:codeconnections:us-east-1:000000000000:connection/abc",
+				"FullRepositoryId": "o/r",
+				"BranchName":       "main",
 			},
 			wantExecFail: "third-party repository content",
 		},

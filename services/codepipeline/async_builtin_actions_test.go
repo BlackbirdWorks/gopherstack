@@ -23,8 +23,8 @@ import (
 type scriptedStacks struct {
 	codepipeline.StackDeployer
 
-	mu      sync.Mutex
 	script  []codepipeline.StackState
+	mu      sync.Mutex
 	deleted int
 	calls   int
 }
@@ -137,14 +137,16 @@ func TestBuiltinActions_WaitForBackendState(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		script     []codepipeline.StackState
 		wantStatus string
 		wantMsg    string
+		script     []codepipeline.StackState
 		wantDelete int
 	}{
 		{
-			name:       "delete waits then succeeds",
-			script:     []codepipeline.StackState{{Status: "CREATE_COMPLETE"}, {Status: "DELETE_IN_PROGRESS"}, {Status: "DELETE_COMPLETE"}},
+			name: "delete waits then succeeds",
+			script: []codepipeline.StackState{
+				{Status: "CREATE_COMPLETE"}, {Status: "DELETE_IN_PROGRESS"}, {Status: "DELETE_COMPLETE"},
+			},
 			wantStatus: "Succeeded",
 			wantDelete: 1,
 		},

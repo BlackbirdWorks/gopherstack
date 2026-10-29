@@ -73,8 +73,8 @@ func (b *InMemoryBackend) runCodeBuildAction(
 
 // pendingAction identifies an InProgress backend-driven action execution awaiting its backend resource.
 type pendingAction struct {
+	action           *Action
 	ae               *ActionExecution
-	action           Action
 	region, pipeline string
 }
 
@@ -84,24 +84,35 @@ func (b *InMemoryBackend) pendingActionsLocked(includeBuilds bool) []pendingActi
 	for region, byPipeline := range b.actionExecutions {
 		for name, aes := range byPipeline {
 			for _, ae := range aes {
-				if ae.Status != statusInProgress || ae.Token != "" {
-					continue
-				}
-
-				action := b.declaredAction(region, name, ae)
-				if action == nil {
-					continue
-				}
-
-				isBuild := includeBuilds && ae.ExternalExecutionID != "" && isBuiltinAction(*action, actionProviderCodeBuild)
-				if isBuild || isAsyncBuiltin(*action) {
-					out = append(out, pendingAction{region: region, pipeline: name, ae: ae, action: *action})
+				if action := b.pendingDeclaration(region, name, ae, includeBuilds); action != nil {
+					out = append(out, pendingAction{region: region, pipeline: name, ae: ae, action: action})
 				}
 			}
 		}
 	}
 
 	return out
+}
+
+// pendingDeclaration returns the declaration of ae's action when ae is waiting on a backend resource.
+func (b *InMemoryBackend) pendingDeclaration(
+	region, pipelineName string, ae *ActionExecution, includeBuilds bool,
+) *Action {
+	if ae.Status != statusInProgress || ae.Token != "" {
+		return nil
+	}
+
+	action := b.declaredAction(region, pipelineName, ae)
+	if action == nil {
+		return nil
+	}
+
+	isBuild := includeBuilds && ae.ExternalExecutionID != "" && isBuiltinAction(*action, actionProviderCodeBuild)
+	if !isBuild && !isAsyncBuiltin(*action) {
+		return nil
+	}
+
+	return action
 }
 
 // declaredAction returns the pipeline's declaration of the action behind ae, or nil.
@@ -151,12 +162,12 @@ func (b *InMemoryBackend) settleAction(runner CodeBuildRunner, pa pendingAction)
 	}
 
 	switch {
-	case isBuiltinAction(pa.action, actionProviderCodeBuild):
+	case isBuiltinAction((*pa.action), actionProviderCodeBuild):
 		b.settleBuild(ctx, runner, p, pa)
-	case isBuiltinAction(pa.action, actionProviderCloudFormation):
-		b.advanceCloudFormation(ctx, p, ae.PipelineExecutionID, pa.action, ae)
-	case isBuiltinAction(pa.action, actionProviderECS):
-		b.advanceECS(ctx, p, ae.PipelineExecutionID, pa.action, ae)
+	case isBuiltinAction((*pa.action), actionProviderCloudFormation):
+		b.advanceCloudFormation(ctx, p, ae.PipelineExecutionID, (*pa.action), ae)
+	case isBuiltinAction((*pa.action), actionProviderECS):
+		b.advanceECS(ctx, p, ae.PipelineExecutionID, (*pa.action), ae)
 	}
 
 	if ae.Status == statusInProgress {
@@ -188,7 +199,7 @@ func (b *InMemoryBackend) settleBuild(ctx context.Context, runner CodeBuildRunne
 	default:
 		ae.Status = statusSucceeded
 
-		if perr := b.passThroughArtifacts(ctx, p, ae.PipelineExecutionID, pa.action); perr != nil {
+		if perr := b.passThroughArtifacts(ctx, p, ae.PipelineExecutionID, (*pa.action)); perr != nil {
 			failActionf(ae, failureJobFailed, "%v", perr)
 		}
 	}

@@ -249,7 +249,8 @@ func (d *codepipelineECSDeployer) RegisterRevisionWithImages(
 	}
 
 	if replaced != len(images) {
-		return "", fmt.Errorf("image definitions name containers that are not in task definition %s", base.TaskDefinitionArn)
+		return "", fmt.Errorf("%w: image definitions name containers that are not in task definition %s",
+			ecsbackend.ErrInvalidParameter, base.TaskDefinitionArn)
 	}
 
 	rev, err := bk.RegisterTaskDefinition(ecsbackend.RegisterTaskDefinitionInput{
