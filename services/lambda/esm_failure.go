@@ -83,6 +83,7 @@ func failureDestination(m *EventSourceMapping) string {
 
 // invokeOutcome is the result of one synchronous batch invocation.
 type invokeOutcome struct {
+	body            []byte
 	err             error
 	requestID       string
 	functionError   string

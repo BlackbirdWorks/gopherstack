@@ -22,6 +22,7 @@ gaps: []
 items_still_open:
   - "--lambda-isolation=firecracker is rejected at startup: no firecracker binary is installed on the build host, so no microVM runner exists. Design: export the function image with `docker export` into an ext4 rootfs, boot it under firecracker with a configured kernel image (--lambda-firecracker-kernel), and reach the Runtime API over vsock (or a TAP device) instead of the docker bridge. Needs /dev/kvm access and a firecracker binary to build and test (gopherstack-cefu7.7)."
 structural_gaps:
+  - "Stream ESM ParallelizationFactor/TumblingWindowInSeconds: records are hashed by partition key (Kinesis) or item key (DynamoDB) onto N ordered lanes, drained concurrently; a retrying lane pauses reads for the whole shard, tumbling state is kept per lane, and windows close on the clock only once the shard is caught up (Kinesis's up-to-2-minute idle wait is not modeled)."
   - "ESM SchemaRegistryErrorCount and EventPollerUnit metrics: no Glue/Confluent schema-registry integration or poller-unit billing model exist to measure (ProvisionedPollers is emitted for SQS mappings with ProvisionedPollerConfig)."
   - "Kafka ESM LoggingConfig DEBUG offsets are logged on every commit, not once a minute, and omit endOffset; INFO/WARN omit securityProtocol, saslMechanism, networkConfig, assignedPartitions (no VPC/auth/rebalance model)."
   - "Invoke TenantId is validated (required for PER_TENANT, rejected otherwise) but does not route to a tenant-dedicated execution environment: one environment pool per function."
