@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 59 (58 ok, 1 partial) |
 | Feature families | 29 (24 ok, 5 partial) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
@@ -20,6 +20,7 @@
 - Request members accepted and ignored with no determinable effect: Tags on CreateColumnStatisticsTaskSettings/CreateIntegrationResourceProperty/RegisterConnectionType/CreateCustomEntityType (the Glue ARN guide lists no ARN for them); UpdateTable VersionId/Force/ViewUpdateAction (UpdateTable API reference names no mismatch behavior); ModifyIntegration.IntegrationName (ARN is name-keyed); Get/ResetJobBookmark.RunId (one bookmark per job; per-run semantics undocumented); GetConnection.ApplyOverrideForComputeEnvironment; GetTable/GetTables/SearchTables IncludeStatusDetails; GetDatabases/SearchTables ResourceShareType (no cross-account shares).
 - Crawler targets not crawled: CatalogTargets (re-crawling existing catalog tables; needs Data Catalog event/DLQ semantics for Iceberg/Delta variants) and MongoDBTargets (no MongoDB/DocumentDB wire driver in go.mod). A crawl with either target stores them and produces no tables. Crawler gaps in the implemented targets: JDBC SECRET_ID auth is not resolved (PASSWORD only; SECRET_ID fails the crawl), JDBC engines are postgresql/mysql/redshift only; Delta checkpoint parquet files are not read (JSON commits only; WriteManifest needs the log to start at commit 0); Hudi schema is read from hoodie.table.create.schema or JSON .commit files (1.x Avro timeline files are not parsed); DynamoDB scanRate is accepted but never throttles (no RCU accounting); CRAWL_EVENT_MODE is not event driven; Delta native-table and DEPRECATED_BY_CRAWLER parameter names are best-effort (not verified against a real catalog).
 - PublishDataQualityResultV2 members with no read path in glue@v1.170.0 are accepted and not stored: RunConfiguration, Statistics, Telemetry, DataQualitySecurityConfiguration. Published results carry no DataSource/ProfileId, so a ListDataQualityResultsV2 DataSource filter matches nothing and GetDataQualityResultV2 omits both.
+- Interactive sessions run statements only with --glue-engine=docker (GLUE_ENGINE, or --engines=docker): CreateSession then starts a long-lived container (public.ecr.aws/glue/aws-glue-libs image per GlueVersion, or GLUE_ENGINE_IMAGE) holding a persistent Python REPL (pyspark/GlueContext preloaded for glueetl/gluestreaming). With the engine disabled (default) RunStatement on a READY session returns a statement in ERROR whose Output.ErrorValue says how to enable it; no output is fabricated. Not modeled even with the engine: the session Role's credentials and S3 endpoint wiring inside the container, WorkerType/NumberOfWorkers resource limits (recorded only), Connections, SecurityConfiguration, Session Progress/DPUSeconds/ExecutionTime/ProfileName, and the default AWS Glue image tags are not pull-verified in CI. Interpreter state does not survive a gopherstack restart: restored READY sessions fail on the next RunStatement, restored queued/running statements become ERROR.
 
 ### Structural gaps
 

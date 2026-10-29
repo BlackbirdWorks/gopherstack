@@ -29,6 +29,7 @@ func TestHandler_StatementOmitsSessionID(t *testing.T) {
 			dispatchNewOp(t, h, "CreateSession", map[string]any{
 				"Id": "s", "Role": "r", "Command": map[string]any{"Name": "glueetl"},
 			})
+			waitHandlerSessionReady(t, h, "s")
 			run := dispatchNewOp(t, h, "RunStatement", map[string]any{"SessionId": "s", "Code": tc.code})
 			id := run["Id"]
 
@@ -66,6 +67,8 @@ func TestSDK_StatementFieldsSurvive(t *testing.T) {
 				Id: aws.String("s"), Role: aws.String("r"), Command: &types.SessionCommand{Name: aws.String("glueetl")},
 			})
 			require.NoError(t, err)
+
+			waitClientSessionReady(t, client, "s")
 
 			run, err := client.RunStatement(ctx, &gluesdk.RunStatementInput{
 				SessionId: aws.String("s"), Code: aws.String(tc.code),

@@ -219,6 +219,13 @@ type InMemoryBackend struct {
 	sessionReadyAt     map[string]time.Time            // sessionID → readyAt for PROVISIONING→READY
 	sessionStopAt      map[string]time.Time            // sessionID → stopAt for STOPPING→STOPPED
 
+	// engine-backed interactive sessions; liveSessions is never persisted
+	sessionEngine SessionEngine
+	liveSessions  map[string]*liveSession
+	clockFn       func() time.Time
+	sessIdle      chan struct{}
+	sessWorkers   int
+
 	// connection-type registry (custom types registered via RegisterConnectionType).
 	customConnectionTypes *store.Table[ConnectionTypeInfo]
 
@@ -303,6 +310,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		integrationReadyAt:        make(map[string]time.Time),
 		sessionReadyAt:            make(map[string]time.Time),
 		sessionStopAt:             make(map[string]time.Time),
+		liveSessions:              make(map[string]*liveSession),
 	}
 
 	registerAllTables(b)
@@ -323,6 +331,8 @@ func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend 
 
 // Reset clears all backend state, returning it to the initial empty state.
 func (b *InMemoryBackend) Reset() {
+	b.detachLiveSessions()
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 

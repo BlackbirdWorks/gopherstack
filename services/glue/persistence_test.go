@@ -3,6 +3,7 @@ package glue_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,6 +88,7 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	_, err = b.CreateSession("sess1", "role1", glue.SessionCommand{Name: "glueetl"}, glue.Session{})
 	require.NoError(t, err)
+	glue.AdvanceStatesForTest(b, time.Now().Add(time.Minute))
 	_, err = b.RunStatement("sess1", "print(1)") // populates raw sessionStatements
 	require.NoError(t, err)
 	require.NoError(t, b.CreateTableOptimizer("cat1", "db1", "tbl1", "compaction", glue.TableOptimizerConfiguration{}))
