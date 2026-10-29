@@ -142,15 +142,10 @@ func (h *Handler) proxyUpgrade(
 	w http.ResponseWriter,
 	req *dpRequest,
 	ap netip.AddrPort,
-	secure bool,
+	scheme string,
 	sticky string,
 	tg *TargetGroup,
 ) {
-	scheme := "http"
-	if secure {
-		scheme = "https"
-	}
-
 	rp := &httputil.ReverseProxy{
 		Transport: h.dp.client.Transport,
 		Rewrite: func(pr *httputil.ProxyRequest) {
