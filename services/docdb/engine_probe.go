@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,14 +23,9 @@ const (
 
 var (
 	errShellFailed = errors.New("mongo shell failed")
+	errExecFailed  = errors.New("exec mongo shell failed")
 	errBadReply    = errors.New("unexpected mongod reply")
 )
-
-func jsString(s string) string {
-	b, _ := json.Marshal(s)
-
-	return string(b)
-}
 
 // isMasterMessage builds an OP_MSG of {isMaster: 1, $db: "admin"}, which mongod 3.6+ answers unauthenticated.
 func isMasterMessage() []byte {
