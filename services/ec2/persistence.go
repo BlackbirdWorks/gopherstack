@@ -478,6 +478,8 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	h.adoptComputeInstances(ctx)
+
 	return h.peers.Restore(
 		data,
 		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },

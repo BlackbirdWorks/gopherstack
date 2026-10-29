@@ -1,6 +1,7 @@
 package container
 
 import (
+	"maps"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -112,4 +113,20 @@ func ResourceLabels(service, resource string) map[string]string {
 // gopherstack removes it at startup before the service relaunches.
 func ServiceLabels(service string) map[string]string {
 	return map[string]string{LabelService: service}
+}
+
+// ManagedLabels are the labels for a container started outside DockerRuntime: this process's identity plus the
+// service labels, with the resource key when resource is non-empty (only then can a restart adopt it).
+func ManagedLabels(service, resource string) map[string]string {
+	l := CurrentIdentity().Labels()
+
+	if resource == "" {
+		maps.Copy(l, ServiceLabels(service))
+
+		return l
+	}
+
+	maps.Copy(l, ResourceLabels(service, resource))
+
+	return l
 }
