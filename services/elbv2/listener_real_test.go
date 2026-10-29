@@ -93,8 +93,8 @@ func TestRealListener_HTTPForwardHeaders(t *testing.T) {
 		name       string
 		priorXFF   string
 		wantXFF    string
-		wantNoXFF  bool
 		wantPrefix string
+		wantNoXFF  bool
 	}{
 		{name: "append default", wantXFF: "127.0.0.1"},
 		{name: "append existing", priorXFF: "10.0.0.9", wantXFF: "10.0.0.9, 127.0.0.1"},
@@ -171,7 +171,14 @@ func TestRealListener_HTTPSTerminationAndSNI(t *testing.T) {
 			tg := f.tg(t, "tg-https", elbv2types.ProtocolEnumHttp, echo.addr())
 			certA := f.cert(t, "a", "a.example.test", "127.0.0.1")
 			certB := f.cert(t, "b", "b.example.test")
-			l := f.listener(t, lb, elbv2types.ProtocolEnumHttps, 443, tg, listenerOpts{certs: []string{certA}, policy: policyTLS12})
+			l := f.listener(
+				t,
+				lb,
+				elbv2types.ProtocolEnumHttps,
+				443,
+				tg,
+				listenerOpts{certs: []string{certA}, policy: policyTLS12},
+			)
 
 			_, err := f.client.AddListenerCertificates(t.Context(), &elbv2sdk.AddListenerCertificatesInput{
 				ListenerArn:  aws.String(l),
@@ -252,7 +259,14 @@ func TestRealListener_SecurityPolicyVersions(t *testing.T) {
 			lb := f.lb(t, "alb-pol", elbv2types.LoadBalancerTypeEnumApplication)
 			tg := f.tg(t, "tg-pol", elbv2types.ProtocolEnumHttp, echo.addr())
 			cert := f.cert(t, "pol", "127.0.0.1")
-			l := f.listener(t, lb, elbv2types.ProtocolEnumHttps, 443, tg, listenerOpts{certs: []string{cert}, policy: tt.policy})
+			l := f.listener(
+				t,
+				lb,
+				elbv2types.ProtocolEnumHttps,
+				443,
+				tg,
+				listenerOpts{certs: []string{cert}, policy: tt.policy},
+			)
 
 			conn, err := tls.Dial("tcp", f.addr(t, l), &tls.Config{
 				RootCAs: f.ca.Pool(), ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12, MaxVersion: tt.maxVersion,
@@ -563,7 +577,10 @@ func TestRealListener_Lifecycle(t *testing.T) {
 		{name: "delete load balancer", act: func(t *testing.T, f *realFixture, lb, _ string) {
 			t.Helper()
 
-			_, err := f.client.DeleteLoadBalancer(t.Context(), &elbv2sdk.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lb)})
+			_, err := f.client.DeleteLoadBalancer(
+				t.Context(),
+				&elbv2sdk.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lb)},
+			)
 			require.NoError(t, err)
 		}},
 		{name: "backend close", act: func(t *testing.T, f *realFixture, _, _ string) {

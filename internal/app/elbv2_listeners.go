@@ -8,7 +8,7 @@ import (
 
 // ELBv2Settings selects how ELBv2 listeners carry traffic.
 type ELBv2Settings struct {
-	Listeners    string `name:"listeners"     env:"ELBV2_LISTENERS"     default:"routed" enum:"routed,real" help:"ELBv2 data plane: routed (path/host routing on the emulator port) or real (a local socket per listener, TLS termination for HTTPS/TLS)."`                           //nolint:lll,golines // config struct tags are intentionally verbose
+	Listeners    string `name:"listeners"     env:"ELBV2_LISTENERS"     default:"routed"    enum:"routed,real" help:"ELBv2 data plane: routed (path/host routing on the emulator port) or real (a local socket per listener, TLS termination for HTTPS/TLS)."`                        //nolint:lll,golines // config struct tags are intentionally verbose
 	ListenerHost string `name:"listener-host" env:"ELBV2_LISTENER_HOST" default:"127.0.0.1"                    help:"Bind address for real ELBv2 listeners. Requested ports below 1024 or already taken map to a port from the shared pool; see GET /_gopherstack/elbv2/_listeners."` //nolint:lll,golines // config struct tags are intentionally verbose
 }
 

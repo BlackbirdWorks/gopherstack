@@ -49,16 +49,18 @@ func (b *InMemoryBackend) serveHTTPListener(bl *boundListener, h *Handler, arn s
 
 	bl.srv = srv
 
-	bl.wg.Add(1)
-
-	go func() {
-		defer bl.wg.Done()
-
+	bl.wg.Go(func() {
 		_ = srv.Serve(ln)
-	}()
+	})
 }
 
-func (h *Handler) serveListenerHTTP(w http.ResponseWriter, r *http.Request, be StorageBackend, lb *LoadBalancer, l *Listener) {
+func (h *Handler) serveListenerHTTP(
+	w http.ResponseWriter,
+	r *http.Request,
+	be StorageBackend,
+	lb *LoadBalancer,
+	l *Listener,
+) {
 	if r.TLS != nil {
 		r.Header.Set(tlsVersionHeader, tlsVersionName(r.TLS.Version))
 		r.Header.Set(tlsCipherHeader, opensslCipherName(r.TLS.CipherSuite))
@@ -136,7 +138,14 @@ func isUpgradeRequest(r *http.Request) bool {
 
 // proxyUpgrade tunnels a connection upgrade (WebSocket) to the target: the request goes through
 // unmodified apart from the forwarding headers, and a 101 turns both sockets into a raw pipe.
-func (h *Handler) proxyUpgrade(w http.ResponseWriter, req *dpRequest, ap netip.AddrPort, secure bool, sticky string, tg *TargetGroup) {
+func (h *Handler) proxyUpgrade(
+	w http.ResponseWriter,
+	req *dpRequest,
+	ap netip.AddrPort,
+	secure bool,
+	sticky string,
+	tg *TargetGroup,
+) {
 	ctx := req.r.Context()
 
 	d := net.Dialer{Timeout: dialTimeout}

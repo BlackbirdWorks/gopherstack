@@ -86,7 +86,10 @@ func TestInitializeServices_ELBv2RealListenersTerminateACMCert(t *testing.T) {
 
 			client := elbv2sdk.NewFromConfig(awsCfg, func(o *elbv2sdk.Options) { o.BaseEndpoint = aws.String(srv.URL) })
 
-			lb, err := client.CreateLoadBalancer(t.Context(), &elbv2sdk.CreateLoadBalancerInput{Name: aws.String("real-lb")})
+			lb, err := client.CreateLoadBalancer(
+				t.Context(),
+				&elbv2sdk.CreateLoadBalancerInput{Name: aws.String("real-lb")},
+			)
 			require.NoError(t, err)
 
 			tgOut, err := client.CreateTargetGroup(t.Context(), &elbv2sdk.CreateTargetGroupInput{
@@ -107,8 +110,10 @@ func TestInitializeServices_ELBv2RealListenersTerminateACMCert(t *testing.T) {
 			lOut, err := client.CreateListener(t.Context(), &elbv2sdk.CreateListenerInput{
 				LoadBalancerArn: lb.LoadBalancers[0].LoadBalancerArn, Protocol: elbv2types.ProtocolEnumHttps,
 				Port: aws.Int32(443), SslPolicy: aws.String("ELBSecurityPolicy-TLS13-1-2-2021-06"),
-				Certificates:   []elbv2types.Certificate{{CertificateArn: aws.String(cert.ARN)}},
-				DefaultActions: []elbv2types.Action{{Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: aws.String(tgArn)}},
+				Certificates: []elbv2types.Certificate{{CertificateArn: aws.String(cert.ARN)}},
+				DefaultActions: []elbv2types.Action{
+					{Type: elbv2types.ActionTypeEnumForward, TargetGroupArn: aws.String(tgArn)},
+				},
 			})
 			require.NoError(t, err)
 
@@ -131,7 +136,7 @@ func TestInitializeServices_ELBv2RealListenersTerminateACMCert(t *testing.T) {
 			}
 			t.Cleanup(tr.CloseIdleConnections)
 
-			resp, err := (&http.Client{Transport: tr}).Get("https://" + ep.Address + "/") //nolint:noctx // test
+			resp, err := (&http.Client{Transport: tr}).Get("https://" + ep.Address + "/")
 			require.NoError(t, err)
 
 			defer resp.Body.Close()
@@ -152,5 +157,5 @@ func splitHostPort(t *testing.T, addr string) (string, int32) {
 	n, err := strconv.Atoi(p)
 	require.NoError(t, err)
 
-	return h, int32(n) //nolint:gosec // test port
+	return h, int32(n)
 }

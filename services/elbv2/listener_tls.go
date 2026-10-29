@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 var (
@@ -13,42 +14,48 @@ var (
 	errNoMatchingServer = errors.New("no compatible certificate for requested server name")
 )
 
+const (
+	alpnHTTP11 = "http/1.1"
+	alpnHTTP10 = "http/1.0"
+	alpnH2     = "h2"
+)
+
 const defaultSSLPolicy = "ELBSecurityPolicy-2016-08"
 
-// goCipherSuite maps an OpenSSL cipher name from the security-policy tables to a Go suite.
-// Suites Go does not implement (ECDHE CBC-SHA384, RSA-SHA256 AES256) report false.
+// cipherTable pairs a policy-table OpenSSL cipher name with its IANA name. Suites Go does not
+// implement (ECDHE CBC-SHA384, RSA AES256-SHA256) are absent and dropped from the policy.
+const cipherTable = `
+ECDHE-ECDSA-AES128-GCM-SHA256 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+ECDHE-RSA-AES128-GCM-SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+ECDHE-ECDSA-AES256-GCM-SHA384 TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+ECDHE-RSA-AES256-GCM-SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+ECDHE-ECDSA-AES128-SHA256 TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+ECDHE-RSA-AES128-SHA256 TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
+ECDHE-ECDSA-AES128-SHA TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+ECDHE-RSA-AES128-SHA TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+ECDHE-ECDSA-AES256-SHA TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+ECDHE-RSA-AES256-SHA TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+AES128-GCM-SHA256 TLS_RSA_WITH_AES_128_GCM_SHA256
+AES256-GCM-SHA384 TLS_RSA_WITH_AES_256_GCM_SHA384
+AES128-SHA256 TLS_RSA_WITH_AES_128_CBC_SHA256
+AES128-SHA TLS_RSA_WITH_AES_128_CBC_SHA
+AES256-SHA TLS_RSA_WITH_AES_256_CBC_SHA
+`
+
 func goCipherSuite(name string) (uint16, bool) {
-	switch name {
-	case "ECDHE-ECDSA-AES128-GCM-SHA256":
-		return tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, true
-	case "ECDHE-RSA-AES128-GCM-SHA256":
-		return tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, true
-	case "ECDHE-ECDSA-AES256-GCM-SHA384":
-		return tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, true
-	case "ECDHE-RSA-AES256-GCM-SHA384":
-		return tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, true
-	case "ECDHE-ECDSA-AES128-SHA256":
-		return tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, true
-	case "ECDHE-RSA-AES128-SHA256":
-		return tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, true
-	case "ECDHE-ECDSA-AES128-SHA":
-		return tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, true
-	case "ECDHE-RSA-AES128-SHA":
-		return tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, true
-	case "ECDHE-ECDSA-AES256-SHA":
-		return tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, true
-	case "ECDHE-RSA-AES256-SHA":
-		return tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, true
-	case "AES128-GCM-SHA256":
-		return tls.TLS_RSA_WITH_AES_128_GCM_SHA256, true
-	case "AES256-GCM-SHA384":
-		return tls.TLS_RSA_WITH_AES_256_GCM_SHA384, true
-	case "AES128-SHA256":
-		return tls.TLS_RSA_WITH_AES_128_CBC_SHA256, true
-	case "AES128-SHA":
-		return tls.TLS_RSA_WITH_AES_128_CBC_SHA, true
-	case "AES256-SHA":
-		return tls.TLS_RSA_WITH_AES_256_CBC_SHA, true
+	for line := range strings.Lines(cipherTable) {
+		f := strings.Fields(line)
+		if len(f) != 2 || f[0] != name {
+			continue
+		}
+
+		for _, list := range [][]*tls.CipherSuite{tls.CipherSuites(), tls.InsecureCipherSuites()} {
+			for _, s := range list {
+				if s.Name == f[1] {
+					return s.ID, true
+				}
+			}
+		}
 	}
 
 	return 0, false
@@ -143,13 +150,13 @@ func alpnProtocols(policy []string) []string {
 
 	switch policy[0] {
 	case "HTTP1Only":
-		return []string{"http/1.1", "http/1.0"}
+		return []string{alpnHTTP11, alpnHTTP10}
 	case "HTTP2Only":
-		return []string{"h2"}
+		return []string{alpnH2}
 	case "HTTP2Optional":
-		return []string{"http/1.1", "http/1.0", "h2"}
+		return []string{alpnHTTP11, alpnHTTP10, alpnH2}
 	case "HTTP2Preferred":
-		return []string{"h2", "http/1.1", "http/1.0"}
+		return []string{alpnH2, alpnHTTP11, alpnHTTP10}
 	}
 
 	return nil
@@ -181,37 +188,12 @@ func loadKeyPair(r CertificateResolver, arn string) (*tls.Certificate, error) {
 
 // selectCertificate follows the documented ALB algorithm: a SNI match among the certificate list wins
 // (ECDSA over RSA, then latest expiry); no SNI or no match falls back to the default certificate.
-func selectCertificate(certs []*tls.Certificate, def *tls.Certificate, hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+func selectCertificate(
+	certs []*tls.Certificate, def *tls.Certificate, hello *tls.ClientHelloInfo,
+) (*tls.Certificate, error) {
 	if hello.ServerName != "" {
-		var matched []*tls.Certificate
-
-		for _, c := range certs {
-			if c.Leaf.VerifyHostname(hello.ServerName) == nil {
-				matched = append(matched, c)
-			}
-		}
-
-		if len(matched) > 0 {
-			matched = slices.DeleteFunc(matched, func(c *tls.Certificate) bool {
-				return hello.SupportsCertificate(c) != nil
-			})
-			if len(matched) == 0 {
-				return nil, errNoMatchingServer
-			}
-
-			slices.SortStableFunc(matched, func(a, b *tls.Certificate) int {
-				if ea, eb := isECDSA(a), isECDSA(b); ea != eb {
-					if ea {
-						return -1
-					}
-
-					return 1
-				}
-
-				return b.Leaf.NotAfter.Compare(a.Leaf.NotAfter)
-			})
-
-			return matched[0], nil
+		if matched := matchingCerts(certs, hello.ServerName); len(matched) > 0 {
+			return bestCompatible(matched, hello)
 		}
 	}
 
@@ -220,6 +202,33 @@ func selectCertificate(certs []*tls.Certificate, def *tls.Certificate, hello *tl
 	}
 
 	return def, nil
+}
+
+func matchingCerts(certs []*tls.Certificate, serverName string) []*tls.Certificate {
+	return slices.DeleteFunc(slices.Clone(certs), func(c *tls.Certificate) bool {
+		return c.Leaf.VerifyHostname(serverName) != nil
+	})
+}
+
+func bestCompatible(matched []*tls.Certificate, hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	usable := slices.DeleteFunc(matched, func(c *tls.Certificate) bool { return hello.SupportsCertificate(c) != nil })
+	if len(usable) == 0 {
+		return nil, errNoMatchingServer
+	}
+
+	slices.SortStableFunc(usable, func(a, b *tls.Certificate) int {
+		if ea, eb := isECDSA(a), isECDSA(b); ea != eb {
+			if ea {
+				return -1
+			}
+
+			return 1
+		}
+
+		return b.Leaf.NotAfter.Compare(a.Leaf.NotAfter)
+	})
+
+	return usable[0], nil
 }
 
 func isECDSA(c *tls.Certificate) bool { return c.Leaf.PublicKeyAlgorithm == x509.ECDSA }

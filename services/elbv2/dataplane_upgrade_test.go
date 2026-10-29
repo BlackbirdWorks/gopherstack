@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -99,7 +98,7 @@ func TestDataPlane_XFFProcessingModes(t *testing.T) {
 
 			lines := headerLines(got.body)
 			if tt.wantAbsen {
-				assert.False(t, strings.Contains(got.body, "X-Forwarded-For"))
+				assert.NotContains(t, got.body, "X-Forwarded-For")
 
 				return
 			}

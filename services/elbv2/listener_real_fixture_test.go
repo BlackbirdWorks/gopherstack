@@ -22,9 +22,13 @@ type pemPair struct{ cert, key []byte }
 
 type realCertResolver struct{ certs map[string]pemPair }
 
-func (r *realCertResolver) ResolveCertificate(arn string) bool { _, ok := r.certs[arn]; return ok }
-func (r *realCertResolver) AddInUseBy(string, string)          {}
-func (r *realCertResolver) RemoveInUseBy(string, string)       {}
+func (r *realCertResolver) ResolveCertificate(arn string) bool {
+	_, ok := r.certs[arn]
+
+	return ok
+}
+func (r *realCertResolver) AddInUseBy(string, string)    {}
+func (r *realCertResolver) RemoveInUseBy(string, string) {}
 
 func (r *realCertResolver) CertificateKeyPair(arn string) ([]byte, []byte, bool) {
 	p, ok := r.certs[arn]

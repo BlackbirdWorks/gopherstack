@@ -53,8 +53,6 @@ func pipeConns(ctx context.Context, client net.Conn, clientR io.Reader, target n
 	var wg sync.WaitGroup
 
 	cp := func(dst net.Conn, src io.Reader) {
-		defer wg.Done()
-
 		_, _ = io.Copy(dst, src)
 
 		if cw, ok := dst.(closeWriter); ok {
@@ -62,10 +60,8 @@ func pipeConns(ctx context.Context, client net.Conn, clientR io.Reader, target n
 		}
 	}
 
-	wg.Add(2)
-
-	go cp(target, clientR)
-	go cp(client, targetR)
+	wg.Go(func() { cp(target, clientR) })
+	wg.Go(func() { cp(client, targetR) })
 
 	wg.Wait()
 	close(finished)
@@ -83,41 +79,32 @@ func (b *InMemoryBackend) serveL4Listener(bl *boundListener, h *Handler, arn str
 			ln = tls.NewListener(ln, &tls.Config{GetConfigForClient: b.clientConfig(arn, true)})
 		}
 
-		bl.wg.Add(1)
-
-		go func() {
-			defer bl.wg.Done()
-
+		bl.wg.Go(func() {
 			for {
 				c, err := ln.Accept()
 				if err != nil {
 					return
 				}
 
-				bl.wg.Add(1)
-
-				go func() {
-					defer bl.wg.Done()
-
-					h.serveTCPConn(bl.ctx, b, arn, c)
-				}()
+				bl.wg.Go(func() { h.serveTCPConn(bl.ctx, b, arn, c) })
 			}
-		}()
+		})
 	}
 
 	if bl.udp != nil {
-		bl.wg.Add(1)
-
-		go func() {
-			defer bl.wg.Done()
-
+		bl.wg.Go(func() {
 			h.serveUDP(bl, b, arn)
-		}()
+		})
 	}
 }
 
 // pickL4Target resolves the forward action's target group and one routable target address.
-func (h *Handler) pickL4Target(be StorageBackend, l *Listener, lb *LoadBalancer, client netip.Addr) (*TargetGroup, netip.AddrPort, bool) {
+func (h *Handler) pickL4Target(
+	be StorageBackend,
+	l *Listener,
+	lb *LoadBalancer,
+	client netip.Addr,
+) (*TargetGroup, netip.AddrPort, bool) {
 	var tuples []TargetGroupTuple
 
 	for _, a := range l.DefaultActions {
@@ -191,7 +178,7 @@ func (h *Handler) serveTCPConn(ctx context.Context, b *InMemoryBackend, arn stri
 
 	tconn, err := d.DialContext(ctx, "tcp", ap.String())
 	if err != nil {
-		logger.Load(ctx).Debug("elbv2: nlb target dial failed", "target", ap.String(), "error", err)
+		logger.Load(ctx).DebugContext(ctx, "elbv2: nlb target dial failed", "target", ap.String(), "error", err)
 
 		return
 	}
@@ -306,10 +293,7 @@ func (h *Handler) newUDPSession(
 	sess := &udpSession{conn: conn}
 	sessions.Store(key, sess)
 
-	bl.wg.Add(1)
-
-	go func() {
-		defer bl.wg.Done()
+	bl.wg.Go(func() {
 		defer conn.Close()
 		defer sessions.Delete(key)
 		defer context.AfterFunc(bl.ctx, func() { _ = conn.Close() })()
@@ -328,7 +312,7 @@ func (h *Handler) newUDPSession(
 				return
 			}
 		}
-	}()
+	})
 
 	return sess
 }
