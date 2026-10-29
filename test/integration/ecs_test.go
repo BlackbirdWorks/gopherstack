@@ -886,21 +886,17 @@ func TestIntegration_ECS_ExecuteCommand(t *testing.T) {
 
 	taskArn := runOut.Tasks[0].TaskArn
 
-	// ExecuteCommand on running task.
-	execOut, err := client.ExecuteCommand(ctx, &ecs.ExecuteCommandInput{
+	// The integration server has no docker task runtime, so no exec agent can connect.
+	_, err = client.ExecuteCommand(ctx, &ecs.ExecuteCommandInput{
 		Cluster:     aws.String(clusterName),
 		Task:        taskArn,
 		Container:   aws.String("app"),
 		Command:     aws.String("/bin/sh"),
 		Interactive: true,
 	})
-	require.NoError(t, err)
-	require.NotNil(t, execOut.Session)
-	assert.NotEmpty(t, aws.ToString(execOut.Session.SessionId))
-	assert.NotEmpty(t, aws.ToString(execOut.Session.StreamUrl))
-	assert.NotEmpty(t, aws.ToString(execOut.Session.TokenValue))
-	assert.NotEmpty(t, aws.ToString(execOut.ClusterArn))
-	assert.Equal(t, aws.ToString(taskArn), aws.ToString(execOut.TaskArn))
+
+	var notConnected *ecstypes.TargetNotConnectedException
+	require.ErrorAs(t, err, &notConnected)
 }
 
 // TestIntegration_ECS_DockerRuntime tests ECS task execution when the Docker
