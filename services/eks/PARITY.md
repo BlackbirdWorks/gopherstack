@@ -1388,8 +1388,11 @@ Cluster tags (read at CreateCluster and on Restore; later TagResource edits do n
 the stub engine; an invalid value fails CreateCluster with `InvalidParameterException`):
 
 - `gopherstack:volume-mount` = `host:container[:ro|rw],...`: bind mounts into the k3s server container. Paths must be
-  absolute without `..`; container path unique and not `/`; at most 16. This mounts arbitrary host paths into a
-  privileged container, so only enable the docker engine for callers you trust.
+  absolute without `..`; container path unique and not `/`; at most 16. Host mounts are off by default: with `EKS_VOLUME_MOUNT_ALLOW` empty the tag fails with
+  `InvalidParameterException` ("host volume mounts are disabled; set EKS_VOLUME_MOUNT_ALLOW"). `EKS_VOLUME_MOUNT_ALLOW` is a
+  comma list of absolute host path prefixes (not `/`, no `..`); every mount's host path must exist and, after
+  `filepath.Clean` + `EvalSymlinks`, lie inside an allowed prefix (also symlink-resolved), so symlink escapes and
+  sibling-prefix paths are rejected.
 - `gopherstack:lb-ports` = `8080,8443`: replaces the `EKS_LB_PORTS` default for the cluster. Each port is published on a
   free host port (same bind host as the API port); k3s servicelb is enabled for such clusters (Traefik stays off), so a
   `type: LoadBalancer` Service on that port is reachable on the host. Published ports are not an AWS field, so they are

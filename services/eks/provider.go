@@ -40,6 +40,13 @@ func enableDockerClusters(ctx *service.AppContext, backend *InMemoryBackend) {
 		return
 	}
 
+	mountAllow, err := ParseVolumeMountAllow(os.Getenv("EKS_VOLUME_MOUNT_ALLOW"))
+	if err != nil {
+		ctx.Logger.Warn("EKS: invalid EKS_VOLUME_MOUNT_ALLOW; clusters stay metadata-only", "error", err)
+
+		return
+	}
+
 	rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
 	if err != nil {
 		ctx.Logger.Warn("EKS: container runtime unavailable; clusters stay metadata-only", "error", err)
@@ -57,6 +64,8 @@ func enableDockerClusters(ctx *service.AppContext, backend *InMemoryBackend) {
 
 		ImageTags: tags,
 		LBPorts:   lbPorts,
+
+		VolumeMountAllow: mountAllow,
 	})
 	if err != nil {
 		ctx.Logger.Warn("EKS: invalid cluster engine configuration; clusters stay metadata-only", "error", err)

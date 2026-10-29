@@ -3,6 +3,7 @@ package eks
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -216,6 +217,67 @@ func (e *clusterEngine) imageFor(version string) (string, error) {
 	return "", fmt.Errorf("%w: unsupported Kubernetes version %q for the cluster engine", ErrValidation, version)
 }
 
+// ParseVolumeMountAllow parses a comma list of absolute host path prefixes.
+func ParseVolumeMountAllow(v string) ([]string, error) {
+	var out []string
+
+	for item := range strings.SplitSeq(v, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+
+	return out, validateMountAllow(out)
+}
+
+func validateMountAllow(prefixes []string) error {
+	for _, p := range prefixes {
+		clean, err := absCleanPath("allowed", p)
+		if err != nil || clean == "/" {
+			return fmt.Errorf("%w: volume mount allowlist entry %q must be an absolute path other than /",
+				ErrInvalidClusterEngineConfig, p)
+		}
+	}
+
+	return nil
+}
+
+func insidePrefix(p, prefix string) bool {
+	return p == prefix || strings.HasPrefix(p, prefix+string(filepath.Separator))
+}
+
+// checkMountsAllowed requires every host path to resolve (symlinks included) inside an allowed prefix.
+func (e *clusterEngine) checkMountsAllowed(mounts []string) error {
+	if len(mounts) == 0 {
+		return nil
+	}
+
+	if len(e.cfg.VolumeMountAllow) == 0 {
+		return fmt.Errorf("%w: host volume mounts are disabled; set EKS_VOLUME_MOUNT_ALLOW", ErrValidation)
+	}
+
+	for _, m := range mounts {
+		host, _, _ := strings.Cut(m, ":")
+
+		real, err := filepath.EvalSymlinks(filepath.Clean(host))
+		if err != nil || !e.allowedHost(real) {
+			return fmt.Errorf("%w: host path %q is not inside EKS_VOLUME_MOUNT_ALLOW", ErrValidation, host)
+		}
+	}
+
+	return nil
+}
+
+func (e *clusterEngine) allowedHost(real string) bool {
+	for _, a := range e.cfg.VolumeMountAllow {
+		if ra, err := filepath.EvalSymlinks(filepath.Clean(a)); err == nil && insidePrefix(real, ra) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // resolveLaunch validates the cluster's tags against the engine and returns its container options.
 func (e *clusterEngine) resolveLaunch(version string, kv map[string]string) (launchOptions, string, error) {
 	img, err := e.imageFor(version)
@@ -227,6 +289,10 @@ func (e *clusterEngine) resolveLaunch(version string, kv map[string]string) (lau
 
 	if v, ok := kv[TagVolumeMount]; ok {
 		if opts.mounts, err = ParseVolumeMounts(v); err != nil {
+			return launchOptions{}, "", err
+		}
+
+		if err = e.checkMountsAllowed(opts.mounts); err != nil {
 			return launchOptions{}, "", err
 		}
 	}

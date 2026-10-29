@@ -160,10 +160,10 @@ func TestDockerCluster_LaunchOptions(t *testing.T) {
 		{
 			name: "tag_mount_and_ports", version: "1.31", wantImage: "rancher/k3s:v1.31.14-k3s1",
 			tags: map[string]string{
-				eks.TagVolumeMount: "/tmp/src:/mnt/src:ro,/tmp/b:/mnt/b",
+				eks.TagVolumeMount: "{d}/src:/mnt/src:ro,{d}/b:/mnt/b",
 				eks.TagLBPorts:     "8080,8443",
 			},
-			wantMounts: []string{"/tmp/src:/mnt/src:ro", "/tmp/b:/mnt/b"}, wantLBPorts: []int{8080, 8443},
+			wantMounts: []string{"{d}/src:/mnt/src:ro", "{d}/b:/mnt/b"}, wantLBPorts: []int{8080, 8443},
 			wantServLB: true,
 		},
 		{
@@ -199,12 +199,26 @@ func TestDockerCluster_LaunchOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			dir := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "src"), 0o750))
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "b"), 0o750))
+
+			tags := map[string]string{}
+			for k, v := range tt.tags {
+				tags[k] = strings.ReplaceAll(v, "{d}", dir)
+			}
+
+			for i, m := range tt.wantMounts {
+				tt.wantMounts[i] = strings.ReplaceAll(m, "{d}", dir)
+			}
+
 			rt := &fakeClusterRuntime{}
 			tt.cfg.Probe = newGatedClusterProbe().probe
 			tt.cfg.Ports = mustPortAlloc(t)
+			tt.cfg.VolumeMountAllow = []string{dir}
 			b := dockerClusterBackend(t, rt, tt.cfg)
 
-			_, err := b.CreateCluster("c1", tt.version, "", nil, nil, tt.tags)
+			_, err := b.CreateCluster("c1", tt.version, "", nil, nil, tags)
 			require.NoError(t, err)
 			waitSpecs(t, rt)
 
@@ -579,4 +593,83 @@ func TestExistingCluster_SDKDescribeReachesExternalCluster(t *testing.T) {
 	_, err = client.DeleteCluster(t.Context(), &ekssdk.DeleteClusterInput{Name: aws.String("ext")})
 	require.NoError(t, err)
 	assert.Contains(t, get(), "v1.31.0", "DeleteCluster must not touch the external cluster")
+}
+
+func TestDockerCluster_VolumeMountAllowlist(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mount   func(t *testing.T, allowed, outside string) string
+		allow   bool
+		wantErr bool
+	}{
+		{name: "default_off", allow: false, wantErr: true,
+			mount: func(_ *testing.T, allowed, _ string) string { return allowed + ":/mnt/x" }},
+		{name: "allowed", allow: true,
+			mount: func(_ *testing.T, allowed, _ string) string { return allowed + ":/mnt/x" }},
+		{name: "outside_prefix", allow: true, wantErr: true,
+			mount: func(_ *testing.T, _, outside string) string { return outside + ":/mnt/x" }},
+		{name: "missing_path", allow: true, wantErr: true,
+			mount: func(_ *testing.T, allowed, _ string) string { return allowed + "/nope:/mnt/x" }},
+		{name: "symlink_escape", allow: true, wantErr: true,
+			mount: func(t *testing.T, allowed, outside string) string {
+				t.Helper()
+
+				link := filepath.Join(allowed, "escape")
+				require.NoError(t, os.Symlink(outside, link))
+
+				return link + ":/mnt/x"
+			}},
+		{name: "prefix_sibling", allow: true, wantErr: true,
+			mount: func(t *testing.T, allowed, _ string) string {
+				t.Helper()
+
+				sib := allowed + "-sibling"
+				require.NoError(t, os.Mkdir(sib, 0o750))
+				t.Cleanup(func() { _ = os.Remove(sib) })
+
+				return sib + ":/mnt/x"
+			}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			allowed, outside := t.TempDir(), t.TempDir()
+			cfg := eks.ClusterEngineConfig{Probe: newGatedClusterProbe().probe}
+
+			if tt.allow {
+				cfg.VolumeMountAllow = []string{allowed}
+			}
+
+			rt := &fakeClusterRuntime{}
+			b := dockerClusterBackend(t, rt, cfg)
+
+			_, err := b.CreateCluster("c1", "1.31", "", nil, nil, map[string]string{
+				eks.TagVolumeMount: tt.mount(t, allowed, outside),
+			})
+			if tt.wantErr {
+				require.ErrorIs(t, err, eks.ErrValidation)
+				assert.Equal(t, 0, b.ClusterCount())
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEnableClusters_RejectsBadMountAllow(t *testing.T) {
+	t.Parallel()
+
+	for _, allow := range [][]string{{"/"}, {"/a/.."}, {"rel"}, {"//"}} {
+		b := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+		err := b.EnableClusters(eks.ClusterEngineConfig{
+			Runtime: &fakeClusterRuntime{}, Token: testToken, VolumeMountAllow: allow,
+		})
+		require.ErrorIs(t, err, eks.ErrInvalidClusterEngineConfig, allow)
+	}
 }

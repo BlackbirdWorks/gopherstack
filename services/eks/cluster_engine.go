@@ -128,17 +128,18 @@ type ClusterRuntime interface {
 
 // ClusterEngineConfig configures docker-backed EKS clusters.
 type ClusterEngineConfig struct {
-	Runtime      ClusterRuntime
-	Credentials  CredentialResolver
-	Ports        *portalloc.Allocator
-	Logger       *slog.Logger
-	Probe        func(ctx context.Context, addr, token string) ([]byte, error)
-	Host         string
-	Token        string
-	Image        string
-	ImageTags    map[string]string
-	LBPorts      []int
-	StartTimeout time.Duration
+	Runtime          ClusterRuntime
+	Credentials      CredentialResolver
+	Ports            *portalloc.Allocator
+	Logger           *slog.Logger
+	Probe            func(ctx context.Context, addr, token string) ([]byte, error)
+	Host             string
+	Token            string
+	Image            string
+	ImageTags        map[string]string
+	LBPorts          []int
+	VolumeMountAllow []string
+	StartTimeout     time.Duration
 }
 
 type liveCluster struct {
@@ -189,6 +190,10 @@ func (b *InMemoryBackend) EnableClusters(cfg ClusterEngineConfig) error {
 	}
 
 	if err := validateK3sImageTags(cfg.ImageTags); err != nil {
+		return err
+	}
+
+	if err := validateMountAllow(cfg.VolumeMountAllow); err != nil {
 		return err
 	}
 

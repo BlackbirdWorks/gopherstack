@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -85,7 +86,9 @@ func newRealClusterBackend(t *testing.T) (*eks.InMemoryBackend, *recordingCluste
 
 	rec := &recordingClusterRuntime{Runtime: rt}
 	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-	require.NoError(t, b.EnableClusters(eks.ClusterEngineConfig{Runtime: rec, StartTimeout: k3sStartWait}))
+	require.NoError(t, b.EnableClusters(eks.ClusterEngineConfig{
+		Runtime: rec, StartTimeout: k3sStartWait, VolumeMountAllow: []string{os.TempDir()},
+	}))
 	t.Cleanup(b.Close)
 
 	return b, rec
