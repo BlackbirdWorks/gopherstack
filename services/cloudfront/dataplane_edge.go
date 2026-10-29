@@ -34,6 +34,7 @@ const (
 	keyBody             = "body"
 	keyContentLength    = "content-length"
 	keyTransferEncoding = "transfer-encoding"
+	keyVia              = "via"
 	keyConfig           = "config"
 	keyRequest          = "request"
 	keyCustom           = "custom"
@@ -104,16 +105,16 @@ func edgeDisallowed(name string) bool {
 func edgeReadOnly(eventType string) []string {
 	switch eventType {
 	case eventViewerRequest:
-		return []string{"cdn-loop", keyContentLength, "host", keyTransferEncoding, "via"}
+		return []string{"cdn-loop", keyContentLength, "host", keyTransferEncoding, keyVia}
 	case eventOriginRequest:
 		return []string{
 			"accept-encoding", "cdn-loop", keyContentLength, "if-modified-since", "if-none-match", "if-range",
-			"if-unmodified-since", keyTransferEncoding, "via",
+			"if-unmodified-since", keyTransferEncoding, keyVia,
 		}
 	case eventOriginResponse:
-		return []string{keyTransferEncoding, "via"}
+		return []string{keyTransferEncoding, keyVia}
 	default:
-		return []string{"warning", "via", keyContentLength, "content-encoding", keyTransferEncoding}
+		return []string{"warning", keyVia, keyContentLength, "content-encoding", keyTransferEncoding}
 	}
 }
 

@@ -763,10 +763,11 @@ func TestLambdaEdge_Associations(t *testing.T) {
 			}
 
 			if tt.cfFn != "" {
+				cfARN := publishFn(t, f, "cffn", `function handler(e){return e.request;}`)
 				def.FunctionAssociations = &types.FunctionAssociations{
 					Quantity: aws.Int32(1),
 					Items: []types.FunctionAssociation{{
-						EventType: tt.cfFn, FunctionARN: aws.String(publishFn(t, f, "cffn", `function handler(e){return e.request;}`)),
+						EventType: tt.cfFn, FunctionARN: aws.String(cfARN),
 					}},
 				}
 			}
