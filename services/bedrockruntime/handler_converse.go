@@ -86,7 +86,7 @@ func buildConverseResponse(req *converseRequest) map[string]any {
 	inputTokens := estimateTokensFromMessages(req.Messages, req.System)
 
 	return map[string]any{
-		"output": map[string]any{
+		keyOutput: map[string]any{
 			keyMessage: map[string]any{
 				keyRole:    roleAssistant,
 				keyContent: []map[string]any{{keyText: mockResponseText}},
@@ -98,8 +98,8 @@ func buildConverseResponse(req *converseRequest) map[string]any {
 			convOutputTokens: mockOutputTokenCount,
 			convTotalTokens:  inputTokens + mockOutputTokenCount,
 		},
-		"metrics": map[string]any{
-			"latencyMs": mockLatencyMS,
+		keyMetrics: map[string]any{
+			keyLatencyMs: mockLatencyMS,
 		},
 	}
 }
@@ -231,7 +231,7 @@ func (h *Handler) handleConverseStream(
 
 	writeStreamEvent("contentBlockDelta", map[string]any{
 		convContentIdx: 0,
-		"delta":        map[string]any{keyText: mockResponseText},
+		keyDelta:       map[string]any{keyText: mockResponseText},
 	})
 
 	writeStreamEvent("contentBlockStop", map[string]any{
@@ -248,8 +248,8 @@ func (h *Handler) handleConverseStream(
 			convOutputTokens: mockOutputTokenCount,
 			convTotalTokens:  inputTokens + mockOutputTokenCount,
 		},
-		"metrics": map[string]any{
-			"latencyMs": mockLatencyMS,
+		keyMetrics: map[string]any{
+			keyLatencyMs: mockLatencyMS,
 		},
 	}
 	echoConverseConfig(metadata, &req)

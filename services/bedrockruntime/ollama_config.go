@@ -103,8 +103,6 @@ func parseModelMap(spec string) ([]modelRule, error) {
 	return rules, nil
 }
 
-var geoPrefixes = []string{"us-gov.", "us.", "eu.", "apac.", "au.", "ca.", "jp.", "global."}
-
 // modelCandidates lists the identifiers a rule may match: the id itself, the resource
 // part of an ARN, and either without a cross-region inference-profile prefix.
 func modelCandidates(modelID string) []string {
@@ -120,7 +118,7 @@ func modelCandidates(modelID string) []string {
 		out = append(out, id)
 	}
 
-	for _, p := range geoPrefixes {
+	for _, p := range []string{"us-gov.", "us.", "eu.", "apac.", "au.", "ca.", "jp.", "global."} {
 		if rest, ok := strings.CutPrefix(id, p); ok {
 			out = append(out, rest)
 

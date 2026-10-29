@@ -152,7 +152,7 @@ func (o *ollamaBackend) post(ctx context.Context, call *ollamaCall) (*http.Respo
 		return nil, fmt.Errorf("%w: %w", errOllamaUnreachable, err)
 	}
 
-	if resp.StatusCode/100 != 2 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		defer resp.Body.Close()
 
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxOllamaErrBody))
@@ -198,8 +198,8 @@ func (o *ollamaBackend) run(
 			return nil, &ollamaStatusError{status: http.StatusInternalServerError, msg: ch.Error}
 		}
 
-		if err := res.absorb(&ch, onText, onTool); err != nil {
-			return nil, err
+		if aerr := res.absorb(&ch, onText, onTool); aerr != nil {
+			return nil, aerr
 		}
 
 		if ch.Done || call.embed != nil {
@@ -237,7 +237,7 @@ func (r *ollamaResult) absorb(ch *ollamaChunk, onText func(string) error, onTool
 	if ch.Done {
 		r.DoneReason = ch.DoneReason
 		if r.DoneReason == "" {
-			r.DoneReason = "stop"
+			r.DoneReason = stopStop
 		}
 
 		r.PromptTokens, r.EvalTokens = ch.PromptEvalCount, ch.EvalCount

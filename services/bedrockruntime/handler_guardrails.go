@@ -174,7 +174,7 @@ func (h *Handler) handleApplyGuardrail(
 	resp := map[string]any{
 		"action":      topLevelGuardrailAction(action),
 		"assessments": buildGuardrailAssessments(action, matchedKeyword),
-		"outputs":     buildGuardrailOutputs(req),
+		keyOutputs:    buildGuardrailOutputs(req),
 		keyUsage: map[string]any{
 			"topicPolicyUnits":                    0,
 			"contentPolicyUnits":                  0,

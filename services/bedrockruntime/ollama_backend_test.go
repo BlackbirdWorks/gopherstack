@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -26,15 +28,15 @@ import (
 )
 
 type fakeReply struct {
+	errMsg string
 	lines  []map[string]any
 	status int
-	errMsg string
 }
 
 type ollamaRecorder struct {
-	mu   sync.Mutex
 	reqs []map[string]any
 	path []string
+	mu   sync.Mutex
 }
 
 func (r *ollamaRecorder) last(t *testing.T) (string, map[string]any) {
@@ -48,33 +50,38 @@ func (r *ollamaRecorder) last(t *testing.T) (string, map[string]any) {
 
 func collapse(lines []map[string]any) map[string]any {
 	out := map[string]any{}
-	content, resp := "", ""
+
+	var content, resp strings.Builder
+
 	var calls []any
 
 	for _, l := range lines {
-		for k, v := range l {
-			out[k] = v
-		}
-		if m, ok := l["message"].(map[string]any); ok {
-			content += m["content"].(string)
-			if tc, ok := m["tool_calls"].([]any); ok {
+		maps.Copy(out, l)
+
+		if m, isMsg := l["message"].(map[string]any); isMsg {
+			content.WriteString(m["content"].(string))
+
+			if tc, hasCalls := m["tool_calls"].([]any); hasCalls {
 				calls = append(calls, tc...)
 			}
 		}
-		if s, ok := l["response"].(string); ok {
-			resp += s
+
+		if r, isResp := l["response"].(string); isResp {
+			resp.WriteString(r)
 		}
 	}
 
-	if _, ok := out["message"]; ok {
-		msg := map[string]any{"role": "assistant", "content": content}
+	if _, hasMsg := out["message"]; hasMsg {
+		msg := map[string]any{"role": "assistant", "content": content.String()}
 		if len(calls) > 0 {
 			msg["tool_calls"] = calls
 		}
+
 		out["message"] = msg
 	}
-	if _, ok := out["response"]; ok {
-		out["response"] = resp
+
+	if _, hasResp := out["response"]; hasResp {
+		out["response"] = resp.String()
 	}
 
 	return out
@@ -145,13 +152,21 @@ func newOllamaSDKClient(t *testing.T, cfg bedrockruntime.LLMConfig) *bedrockrunt
 }
 
 const testModelMap = "anthropic.claude-*=llama3.2,amazon.titan-embed-*=nomic-embed-text," +
-	"amazon.titan-text-*=llama3.2,amazon.nova-*=llama3.2,meta.llama*=llama3.2,mistral.*=mistral,cohere.embed-*=nomic-embed-text," +
+	"amazon.titan-text-*=llama3.2,amazon.nova-*=llama3.2,meta.llama*=llama3.2,mistral.*=mistral," +
+	"cohere.embed-*=nomic-embed-text," +
 	"cohere.command-r*=llama3.2,ai21.*=llama3.2"
 
 func chatLines(parts ...string) []map[string]any {
 	var out []map[string]any
 	for _, p := range parts {
-		out = append(out, map[string]any{"model": "llama3.2", "message": map[string]any{"role": "assistant", "content": p}, "done": false})
+		out = append(
+			out,
+			map[string]any{
+				"model":   "llama3.2",
+				"message": map[string]any{"role": "assistant", "content": p},
+				"done":    false,
+			},
+		)
 	}
 
 	return append(out, map[string]any{
@@ -163,9 +178,17 @@ func chatLines(parts ...string) []map[string]any {
 func toolLines() []map[string]any {
 	return []map[string]any{
 		{"message": map[string]any{"role": "assistant", "content": "", "tool_calls": []any{
-			map[string]any{"function": map[string]any{"name": "get_weather", "arguments": map[string]any{"city": "Paris"}}},
+			map[string]any{
+				"function": map[string]any{"name": "get_weather", "arguments": map[string]any{"city": "Paris"}},
+			},
 		}}, "done": false},
-		{"message": map[string]any{"role": "assistant", "content": ""}, "done": true, "done_reason": "stop", "prompt_eval_count": 11, "eval_count": 5},
+		{
+			"message":           map[string]any{"role": "assistant", "content": ""},
+			"done":              true,
+			"done_reason":       "stop",
+			"prompt_eval_count": 11,
+			"eval_count":        5,
+		},
 	}
 }
 
@@ -175,11 +198,17 @@ func genLines(parts ...string) []map[string]any {
 		out = append(out, map[string]any{"response": p, "done": false})
 	}
 
-	return append(out, map[string]any{"response": "", "done": true, "done_reason": "stop", "prompt_eval_count": 4, "eval_count": 2})
+	return append(
+		out,
+		map[string]any{"response": "", "done": true, "done_reason": "stop", "prompt_eval_count": 4, "eval_count": 2},
+	)
 }
 
 func userText(s string) types.Message {
-	return types.Message{Role: types.ConversationRoleUser, Content: []types.ContentBlock{&types.ContentBlockMemberText{Value: s}}}
+	return types.Message{
+		Role:    types.ConversationRoleUser,
+		Content: []types.ContentBlock{&types.ContentBlockMemberText{Value: s}},
+	}
 }
 
 func weatherTool() *types.ToolConfiguration {
@@ -195,12 +224,12 @@ func TestOllamaBackend_Converse(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name       string
-		reply      []map[string]any
 		in         func() *bedrockruntimesdk.ConverseInput
 		checkReq   func(t *testing.T, req map[string]any)
 		checkOut   func(t *testing.T, out *bedrockruntimesdk.ConverseOutput)
+		name       string
 		wantStop   types.StopReason
+		reply      []map[string]any
 		wantInput  int32
 		wantOutput int32
 	}{
@@ -213,11 +242,14 @@ func TestOllamaBackend_Converse(t *testing.T) {
 					System:   []types.SystemContentBlock{&types.SystemContentBlockMemberText{Value: "be brief"}},
 					Messages: []types.Message{userText("hi")},
 					InferenceConfig: &types.InferenceConfiguration{
-						MaxTokens: aws.Int32(50), Temperature: aws.Float32(0.5), TopP: aws.Float32(0.5), StopSequences: []string{"END"},
+						MaxTokens: aws.Int32(
+							50,
+						), Temperature: aws.Float32(0.5), TopP: aws.Float32(0.5), StopSequences: []string{"END"},
 					},
 				}
 			},
 			checkReq: func(t *testing.T, req map[string]any) {
+				t.Helper()
 				assert.Equal(t, "llama3.2", req["model"])
 				msgs, _ := req["messages"].([]any)
 				require.Len(t, msgs, 2)
@@ -229,6 +261,7 @@ func TestOllamaBackend_Converse(t *testing.T) {
 				assert.Equal(t, []any{"END"}, opts["stop"])
 			},
 			checkOut: func(t *testing.T, out *bedrockruntimesdk.ConverseOutput) {
+				t.Helper()
 				msg := out.Output.(*types.ConverseOutputMemberMessage).Value
 				require.Len(t, msg.Content, 1)
 				assert.Equal(t, "Hello there", msg.Content[0].(*types.ContentBlockMemberText).Value)
@@ -243,9 +276,11 @@ func TestOllamaBackend_Converse(t *testing.T) {
 				"done_reason": "length", "prompt_eval_count": 1, "eval_count": 2,
 			}},
 			in: func() *bedrockruntimesdk.ConverseInput {
-				return &bedrockruntimesdk.ConverseInput{ModelId: aws.String("anthropic.claude-3-haiku-20240307-v1:0"), Messages: []types.Message{userText("hi")}}
+				return &bedrockruntimesdk.ConverseInput{
+					ModelId:  aws.String("anthropic.claude-3-haiku-20240307-v1:0"),
+					Messages: []types.Message{userText("hi")},
+				}
 			},
-			checkOut: func(t *testing.T, out *bedrockruntimesdk.ConverseOutput) {},
 			wantStop: types.StopReasonMaxTokens, wantInput: 1, wantOutput: 2,
 		},
 		{
@@ -253,11 +288,14 @@ func TestOllamaBackend_Converse(t *testing.T) {
 			reply: toolLines(),
 			in: func() *bedrockruntimesdk.ConverseInput {
 				return &bedrockruntimesdk.ConverseInput{
-					ModelId: aws.String("us.anthropic.claude-3-haiku-20240307-v1:0"), Messages: []types.Message{userText("weather?")},
+					ModelId: aws.String(
+						"us.anthropic.claude-3-haiku-20240307-v1:0",
+					), Messages: []types.Message{userText("weather?")},
 					ToolConfig: weatherTool(),
 				}
 			},
 			checkReq: func(t *testing.T, req map[string]any) {
+				t.Helper()
 				tools, _ := req["tools"].([]any)
 				require.Len(t, tools, 1)
 				fn := tools[0].(map[string]any)["function"].(map[string]any)
@@ -265,6 +303,7 @@ func TestOllamaBackend_Converse(t *testing.T) {
 				assert.Equal(t, "object", fn["parameters"].(map[string]any)["type"])
 			},
 			checkOut: func(t *testing.T, out *bedrockruntimesdk.ConverseOutput) {
+				t.Helper()
 				msg := out.Output.(*types.ConverseOutputMemberMessage).Value
 				require.Len(t, msg.Content, 1)
 				tu := msg.Content[0].(*types.ContentBlockMemberToolUse).Value
@@ -287,21 +326,33 @@ func TestOllamaBackend_Converse(t *testing.T) {
 						{Role: types.ConversationRoleUser, Content: []types.ContentBlock{
 							&types.ContentBlockMemberText{Value: "weather in Paris, and this picture?"},
 							&types.ContentBlockMemberImage{Value: types.ImageBlock{
-								Format: types.ImageFormatPng, Source: &types.ImageSourceMemberBytes{Value: []byte("PNGDATA")},
+								Format: types.ImageFormatPng,
+								Source: &types.ImageSourceMemberBytes{Value: []byte("PNGDATA")},
 							}},
 						}},
-						{Role: types.ConversationRoleAssistant, Content: []types.ContentBlock{&types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
-							ToolUseId: aws.String("tu-1"), Name: aws.String("get_weather"),
-							Input: document.NewLazyDocument(map[string]any{"city": "Paris"}),
-						}}}},
-						{Role: types.ConversationRoleUser, Content: []types.ContentBlock{&types.ContentBlockMemberToolResult{Value: types.ToolResultBlock{
-							ToolUseId: aws.String("tu-1"),
-							Content:   []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{Value: "22C"}},
-						}}}},
+						{
+							Role: types.ConversationRoleAssistant,
+							Content: []types.ContentBlock{&types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
+								ToolUseId: aws.String("tu-1"), Name: aws.String("get_weather"),
+								Input: document.NewLazyDocument(map[string]any{"city": "Paris"}),
+							}}},
+						},
+						{
+							Role: types.ConversationRoleUser,
+							Content: []types.ContentBlock{
+								&types.ContentBlockMemberToolResult{Value: types.ToolResultBlock{
+									ToolUseId: aws.String("tu-1"),
+									Content: []types.ToolResultContentBlock{
+										&types.ToolResultContentBlockMemberText{Value: "22C"},
+									},
+								}},
+							},
+						},
 					},
 				}
 			},
 			checkReq: func(t *testing.T, req map[string]any) {
+				t.Helper()
 				msgs, _ := req["messages"].([]any)
 				require.Len(t, msgs, 3)
 				first := msgs[0].(map[string]any)
@@ -315,6 +366,7 @@ func TestOllamaBackend_Converse(t *testing.T) {
 				assert.Equal(t, "get_weather", tool["tool_name"])
 			},
 			checkOut: func(t *testing.T, out *bedrockruntimesdk.ConverseOutput) {
+				t.Helper()
 				msg := out.Output.(*types.ConverseOutputMemberMessage).Value
 				assert.Equal(t, "sunny", msg.Content[0].(*types.ContentBlockMemberText).Value)
 			},
@@ -324,10 +376,14 @@ func TestOllamaBackend_Converse(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Helper()
 			t.Parallel()
 
 			url, rec := newFakeOllama(t, func(string, map[string]any) fakeReply { return fakeReply{lines: tc.reply} })
-			client := newOllamaSDKClient(t, bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap})
+			client := newOllamaSDKClient(
+				t,
+				bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap},
+			)
 
 			out, err := client.Converse(t.Context(), tc.in())
 			require.NoError(t, err)
@@ -338,7 +394,9 @@ func TestOllamaBackend_Converse(t *testing.T) {
 			if tc.checkReq != nil {
 				tc.checkReq(t, req)
 			}
-			tc.checkOut(t, out)
+			if tc.checkOut != nil {
+				tc.checkOut(t, out)
+			}
 			assert.Equal(t, tc.wantStop, out.StopReason)
 			assert.Equal(t, tc.wantInput, aws.ToInt32(out.Usage.InputTokens))
 			assert.Equal(t, tc.wantOutput, aws.ToInt32(out.Usage.OutputTokens))
@@ -353,28 +411,49 @@ func TestOllamaBackend_ConverseStream(t *testing.T) {
 	cases := []struct {
 		name  string
 		reply []map[string]any
-		tools bool
 		want  []string
+		tools bool
 	}{
 		{
 			name: "text", reply: chatLines("Hel", "lo"),
-			want: []string{"messageStart", "contentBlockStart", "contentBlockDelta", "contentBlockDelta", "contentBlockStop", "messageStop", "metadata"},
+			want: []string{
+				"messageStart",
+				"contentBlockStart",
+				"contentBlockDelta",
+				"contentBlockDelta",
+				"contentBlockStop",
+				"messageStop",
+				"metadata",
+			},
 		},
 		{
 			name: "tool use", reply: toolLines(), tools: true,
-			want: []string{"messageStart", "contentBlockStart", "contentBlockDelta", "contentBlockStop", "messageStop", "metadata"},
+			want: []string{
+				"messageStart",
+				"contentBlockStart",
+				"contentBlockDelta",
+				"contentBlockStop",
+				"messageStop",
+				"metadata",
+			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Helper()
 			t.Parallel()
 
 			url, rec := newFakeOllama(t, func(string, map[string]any) fakeReply { return fakeReply{lines: tc.reply} })
-			client := newOllamaSDKClient(t, bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap})
+			client := newOllamaSDKClient(
+				t,
+				bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap},
+			)
 
 			in := &bedrockruntimesdk.ConverseStreamInput{
-				ModelId: aws.String("anthropic.claude-3-haiku-20240307-v1:0"), Messages: []types.Message{userText("hi")},
+				ModelId: aws.String(
+					"anthropic.claude-3-haiku-20240307-v1:0",
+				), Messages: []types.Message{userText("hi")},
 			}
 			if tc.tools {
 				in.ToolConfig = weatherTool()
@@ -449,18 +528,23 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 	embed := map[string]any{"embeddings": []any{[]any{0.1, 0.2}, []any{0.3, 0.4}}, "prompt_eval_count": 6}
 
 	cases := []struct {
+		check    func(t *testing.T, req map[string]any, out map[string]any)
 		name     string
 		modelID  string
 		body     string
-		reply    []map[string]any
 		wantPath string
-		check    func(t *testing.T, req map[string]any, out map[string]any)
+		reply    []map[string]any
 	}{
 		{
-			name: "anthropic messages", modelID: "anthropic.claude-3-sonnet-20240229-v1:0", wantPath: "/api/chat", reply: chatLines("Hi ", "you"),
-			body: `{"anthropic_version":"bedrock-2023-05-31","max_tokens":20,"system":"sys","temperature":0.2,"stop_sequences":["X"],
+			name:     "anthropic messages",
+			modelID:  "anthropic.claude-3-sonnet-20240229-v1:0",
+			wantPath: "/api/chat",
+			reply:    chatLines("Hi ", "you"),
+			body: `{"anthropic_version":"bedrock-2023-05-31","max_tokens":20,"system":"sys",
+"temperature":0.2,"stop_sequences":["X"],
 "messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				msgs := req["messages"].([]any)
 				assert.Equal(t, "sys", msgs[0].(map[string]any)["content"])
 				assert.Equal(t, "hello", msgs[1].(map[string]any)["content"])
@@ -475,11 +559,19 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			},
 		},
 		{
-			name: "anthropic tool use", modelID: "anthropic.claude-3-sonnet-20240229-v1:0", wantPath: "/api/chat", reply: toolLines(),
+			name:     "anthropic tool use",
+			modelID:  "anthropic.claude-3-sonnet-20240229-v1:0",
+			wantPath: "/api/chat",
+			reply:    toolLines(),
 			body: `{"anthropic_version":"bedrock-2023-05-31","max_tokens":20,"messages":[{"role":"user","content":"w?"}],
 "tools":[{"name":"get_weather","description":"d","input_schema":{"type":"object"}}]}`,
 			check: func(t *testing.T, req, out map[string]any) {
-				assert.Equal(t, "get_weather", req["tools"].([]any)[0].(map[string]any)["function"].(map[string]any)["name"])
+				t.Helper()
+				assert.Equal(
+					t,
+					"get_weather",
+					req["tools"].([]any)[0].(map[string]any)["function"].(map[string]any)["name"],
+				)
 				assert.Equal(t, "tool_use", out["stop_reason"])
 				c := out["content"].([]any)[0].(map[string]any)
 				assert.Equal(t, "tool_use", c["type"])
@@ -489,9 +581,14 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			},
 		},
 		{
-			name: "titan text", modelID: "amazon.titan-text-express-v1", wantPath: "/api/generate", reply: genLines("titan ", "out"),
-			body: `{"inputText":"hey","textGenerationConfig":{"maxTokenCount":9,"temperature":0.1,"topP":0.9,"stopSequences":["Z"]}}`,
+			name:     "titan text",
+			modelID:  "amazon.titan-text-express-v1",
+			wantPath: "/api/generate",
+			reply:    genLines("titan ", "out"),
+			body: `{"inputText":"hey","textGenerationConfig":{"maxTokenCount":9,"temperature":0.1,
+"topP":0.9,"stopSequences":["Z"]}}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				assert.Equal(t, "hey", req["prompt"])
 				assert.InDelta(t, 9, req["options"].(map[string]any)["num_predict"], 0)
 				r := out["results"].([]any)[0].(map[string]any)
@@ -502,9 +599,13 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			},
 		},
 		{
-			name: "titan embed v1", modelID: "amazon.titan-embed-text-v1", wantPath: "/api/embed", reply: []map[string]any{embed},
-			body: `{"inputText":"embed me"}`,
+			name:     "titan embed v1",
+			modelID:  "amazon.titan-embed-text-v1",
+			wantPath: "/api/embed",
+			reply:    []map[string]any{embed},
+			body:     `{"inputText":"embed me"}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				assert.Equal(t, "nomic-embed-text", req["model"])
 				assert.Equal(t, []any{"embed me"}, req["input"])
 				assert.Equal(t, []any{0.1, 0.2}, out["embedding"])
@@ -513,18 +614,26 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			},
 		},
 		{
-			name: "titan embed v2", modelID: "amazon.titan-embed-text-v2:0", wantPath: "/api/embed", reply: []map[string]any{embed},
-			body: `{"inputText":"embed me","dimensions":256,"embeddingTypes":["float"]}`,
+			name:     "titan embed v2",
+			modelID:  "amazon.titan-embed-text-v2:0",
+			wantPath: "/api/embed",
+			reply:    []map[string]any{embed},
+			body:     `{"inputText":"embed me","dimensions":256,"embeddingTypes":["float"]}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				assert.InDelta(t, 256, req["dimensions"], 0)
 				assert.Equal(t, map[string]any{"float": []any{0.1, 0.2}}, out["embeddingsByType"])
 			},
 		},
 		{
-			name: "nova", modelID: "amazon.nova-lite-v1:0", wantPath: "/api/chat", reply: chatLines("nova"),
+			name:     "nova",
+			modelID:  "amazon.nova-lite-v1:0",
+			wantPath: "/api/chat",
+			reply:    chatLines("nova"),
 			body: `{"schemaVersion":"messages-v1","system":[{"text":"s"}],"messages":[{"role":"user","content":[{"text":"hi"}]}],
 "inferenceConfig":{"max_new_tokens":33,"temperature":0.3}}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				assert.InDelta(t, 33, req["options"].(map[string]any)["num_predict"], 0)
 				msg := out["output"].(map[string]any)["message"].(map[string]any)
 				assert.Equal(t, "nova", msg["content"].([]any)[0].(map[string]any)["text"])
@@ -533,9 +642,13 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			},
 		},
 		{
-			name: "llama", modelID: "meta.llama3-70b-instruct-v1:0", wantPath: "/api/generate", reply: genLines("llama"),
-			body: `{"prompt":"p","max_gen_len":5,"temperature":0.5,"top_p":0.9}`,
+			name:     "llama",
+			modelID:  "meta.llama3-70b-instruct-v1:0",
+			wantPath: "/api/generate",
+			reply:    genLines("llama"),
+			body:     `{"prompt":"p","max_gen_len":5,"temperature":0.5,"top_p":0.9}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				assert.InDelta(t, 5, req["options"].(map[string]any)["num_predict"], 0)
 				assert.Equal(t, "llama", out["generation"])
 				assert.Equal(t, "stop", out["stop_reason"])
@@ -544,9 +657,13 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			},
 		},
 		{
-			name: "mistral", modelID: "mistral.mistral-7b-instruct-v0:2", wantPath: "/api/generate", reply: genLines("m"),
-			body: `{"prompt":"<s>[INST] hi [/INST]","max_tokens":8,"stop":["S"],"top_k":40}`,
+			name:     "mistral",
+			modelID:  "mistral.mistral-7b-instruct-v0:2",
+			wantPath: "/api/generate",
+			reply:    genLines("m"),
+			body:     `{"prompt":"<s>[INST] hi [/INST]","max_tokens":8,"stop":["S"],"top_k":40}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				assert.Equal(t, "mistral", req["model"])
 				assert.InDelta(t, 40, req["options"].(map[string]any)["top_k"], 0)
 				o := out["outputs"].([]any)[0].(map[string]any)
@@ -555,9 +672,13 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			},
 		},
 		{
-			name: "cohere embed", modelID: "cohere.embed-english-v3", wantPath: "/api/embed", reply: []map[string]any{embed},
-			body: `{"texts":["a","b"],"input_type":"search_document"}`,
+			name:     "cohere embed",
+			modelID:  "cohere.embed-english-v3",
+			wantPath: "/api/embed",
+			reply:    []map[string]any{embed},
+			body:     `{"texts":["a","b"],"input_type":"search_document"}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				assert.Equal(t, []any{"a", "b"}, req["input"])
 				assert.Equal(t, "embeddings_floats", out["response_type"])
 				assert.Len(t, out["embeddings"], 2)
@@ -566,17 +687,23 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 			},
 		},
 		{
-			name: "cohere embed by type", modelID: "cohere.embed-english-v3", wantPath: "/api/embed", reply: []map[string]any{embed},
-			body: `{"texts":["a","b"],"input_type":"search_query","embedding_types":["float"]}`,
+			name:     "cohere embed by type",
+			modelID:  "cohere.embed-english-v3",
+			wantPath: "/api/embed",
+			reply:    []map[string]any{embed},
+			body:     `{"texts":["a","b"],"input_type":"search_query","embedding_types":["float"]}`,
 			check: func(t *testing.T, _, out map[string]any) {
+				t.Helper()
 				assert.Equal(t, "embeddings_by_type", out["response_type"])
 				assert.Len(t, out["embeddings"].(map[string]any)["float"], 2)
 			},
 		},
 		{
 			name: "cohere command r", modelID: "cohere.command-r-v1:0", wantPath: "/api/chat", reply: chatLines("ok"),
-			body: `{"message":"next","preamble":"pre","chat_history":[{"role":"USER","message":"q"},{"role":"CHATBOT","message":"a"}],"max_tokens":12,"k":10}`,
+			body: `{"message":"next","preamble":"pre","max_tokens":12,"k":10,
+"chat_history":[{"role":"USER","message":"q"},{"role":"CHATBOT","message":"a"}]}`,
 			check: func(t *testing.T, req, out map[string]any) {
+				t.Helper()
 				msgs := req["messages"].([]any)
 				require.Len(t, msgs, 4)
 				assert.Equal(t, "assistant", msgs[2].(map[string]any)["role"])
@@ -589,10 +716,14 @@ func TestOllamaBackend_InvokeModel(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Helper()
 			t.Parallel()
 
 			url, rec := newFakeOllama(t, func(string, map[string]any) fakeReply { return fakeReply{lines: tc.reply} })
-			client := newOllamaSDKClient(t, bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap})
+			client := newOllamaSDKClient(
+				t,
+				bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap},
+			)
 
 			resp, err := client.InvokeModel(t.Context(), &bedrockruntimesdk.InvokeModelInput{
 				ModelId: aws.String(tc.modelID), Body: []byte(tc.body), ContentType: aws.String("application/json"),
@@ -613,15 +744,19 @@ func TestOllamaBackend_InvokeModelStream(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
+		check   func(t *testing.T, chunks []map[string]any)
 		name    string
 		modelID string
 		body    string
 		reply   []map[string]any
-		check   func(t *testing.T, chunks []map[string]any)
 	}{
 		{
-			name: "titan", modelID: "amazon.titan-text-express-v1", reply: genLines("a", "b"), body: `{"inputText":"x"}`,
+			name:    "titan",
+			modelID: "amazon.titan-text-express-v1",
+			reply:   genLines("a", "b"),
+			body:    `{"inputText":"x"}`,
 			check: func(t *testing.T, ch []map[string]any) {
+				t.Helper()
 				require.Len(t, ch, 3)
 				assert.Equal(t, "a", ch[0]["outputText"])
 				assert.Nil(t, ch[0]["completionReason"])
@@ -633,6 +768,7 @@ func TestOllamaBackend_InvokeModelStream(t *testing.T) {
 		{
 			name: "llama", modelID: "meta.llama3-8b-instruct-v1:0", reply: genLines("a", "b"), body: `{"prompt":"x"}`,
 			check: func(t *testing.T, ch []map[string]any) {
+				t.Helper()
 				require.Len(t, ch, 3)
 				assert.Equal(t, "b", ch[1]["generation"])
 				assert.Equal(t, "stop", ch[2]["stop_reason"])
@@ -640,23 +776,34 @@ func TestOllamaBackend_InvokeModelStream(t *testing.T) {
 			},
 		},
 		{
-			name: "mistral", modelID: "mistral.mixtral-8x7b-instruct-v0:1", reply: genLines("a"), body: `{"prompt":"x"}`,
+			name:    "mistral",
+			modelID: "mistral.mixtral-8x7b-instruct-v0:1",
+			reply:   genLines("a"),
+			body:    `{"prompt":"x"}`,
 			check: func(t *testing.T, ch []map[string]any) {
+				t.Helper()
 				require.Len(t, ch, 2)
 				assert.Equal(t, "a", ch[0]["outputs"].([]any)[0].(map[string]any)["text"])
 				assert.Equal(t, "stop", ch[1]["outputs"].([]any)[0].(map[string]any)["stop_reason"])
 			},
 		},
 		{
-			name: "anthropic", modelID: "anthropic.claude-3-haiku-20240307-v1:0", reply: chatLines("a", "b"),
-			body: `{"anthropic_version":"bedrock-2023-05-31","max_tokens":5,"messages":[{"role":"user","content":"x"}]}`,
+			name:    "anthropic",
+			modelID: "anthropic.claude-3-haiku-20240307-v1:0",
+			reply:   chatLines("a", "b"),
+			body:    `{"anthropic_version":"bedrock-2023-05-31","max_tokens":5,"messages":[{"role":"user","content":"x"}]}`,
 			check: func(t *testing.T, ch []map[string]any) {
-				var types []any
+				t.Helper()
+				types := make([]any, 0, len(ch))
 				for _, c := range ch {
 					types = append(types, c["type"])
 				}
-				assert.Equal(t, []any{"message_start", "content_block_start", "content_block_delta", "content_block_delta",
-					"content_block_stop", "message_delta", "message_stop"}, types)
+				assert.Equal(
+					t,
+					[]any{"message_start", "content_block_start", "content_block_delta", "content_block_delta",
+						"content_block_stop", "message_delta", "message_stop"},
+					types,
+				)
 				assert.Equal(t, "text_delta", ch[2]["delta"].(map[string]any)["type"])
 				assert.Equal(t, "end_turn", ch[5]["delta"].(map[string]any)["stop_reason"])
 				assert.InDelta(t, 3, ch[5]["usage"].(map[string]any)["output_tokens"], 0)
@@ -667,6 +814,7 @@ func TestOllamaBackend_InvokeModelStream(t *testing.T) {
 			name: "nova", modelID: "amazon.nova-pro-v1:0", reply: chatLines("a"),
 			body: `{"schemaVersion":"messages-v1","messages":[{"role":"user","content":[{"text":"x"}]}]}`,
 			check: func(t *testing.T, ch []map[string]any) {
+				t.Helper()
 				require.GreaterOrEqual(t, len(ch), 5)
 				assert.Contains(t, ch[0], "messageStart")
 				assert.Contains(t, ch[len(ch)-2], "messageStop")
@@ -677,14 +825,21 @@ func TestOllamaBackend_InvokeModelStream(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Helper()
 			t.Parallel()
 
 			url, rec := newFakeOllama(t, func(string, map[string]any) fakeReply { return fakeReply{lines: tc.reply} })
-			client := newOllamaSDKClient(t, bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap})
+			client := newOllamaSDKClient(
+				t,
+				bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap},
+			)
 
-			resp, err := client.InvokeModelWithResponseStream(t.Context(), &bedrockruntimesdk.InvokeModelWithResponseStreamInput{
-				ModelId: aws.String(tc.modelID), Body: []byte(tc.body), ContentType: aws.String("application/json"),
-			})
+			resp, err := client.InvokeModelWithResponseStream(
+				t.Context(),
+				&bedrockruntimesdk.InvokeModelWithResponseStreamInput{
+					ModelId: aws.String(tc.modelID), Body: []byte(tc.body), ContentType: aws.String("application/json"),
+				},
+			)
 			require.NoError(t, err)
 			stream := resp.GetStream()
 			t.Cleanup(func() { _ = stream.Close() })
@@ -716,52 +871,101 @@ func TestOllamaBackend_Errors(t *testing.T) {
 	t.Parallel()
 
 	converse := func(client *bedrockruntimesdk.Client, id string) error {
-		_, err := client.Converse(t.Context(), &bedrockruntimesdk.ConverseInput{ModelId: aws.String(id), Messages: []types.Message{userText("hi")}})
+		_, err := client.Converse(
+			t.Context(),
+			&bedrockruntimesdk.ConverseInput{ModelId: aws.String(id), Messages: []types.Message{userText("hi")}},
+		)
 
 		return err
 	}
 	invoke := func(client *bedrockruntimesdk.Client, id, body string) error {
-		_, err := client.InvokeModel(t.Context(), &bedrockruntimesdk.InvokeModelInput{ModelId: aws.String(id), Body: []byte(body)})
+		_, err := client.InvokeModel(
+			t.Context(),
+			&bedrockruntimesdk.InvokeModelInput{ModelId: aws.String(id), Body: []byte(body)},
+		)
 
 		return err
 	}
 
 	cases := []struct {
+		call    func(c *bedrockruntimesdk.Client) error
+		wantErr func(error) bool
 		name    string
 		reply   fakeReply
 		down    bool
-		call    func(c *bedrockruntimesdk.Client) error
-		wantErr func(error) bool
 	}{
-		{name: "ollama down converse", down: true, call: func(c *bedrockruntimesdk.Client) error { return converse(c, "anthropic.claude-3-haiku-20240307-v1:0") }, wantErr: isErr[*types.ServiceUnavailableException]},
+		{
+			name:    "ollama down converse",
+			down:    true,
+			call:    func(c *bedrockruntimesdk.Client) error { return converse(c, "anthropic.claude-3-haiku-20240307-v1:0") },
+			wantErr: isErr[*types.ServiceUnavailableException],
+		},
 		{name: "ollama down invoke", down: true, call: func(c *bedrockruntimesdk.Client) error {
 			return invoke(c, "meta.llama3-8b-instruct-v1:0", `{"prompt":"x"}`)
 		}, wantErr: isErr[*types.ServiceUnavailableException]},
-		{name: "model not pulled", reply: fakeReply{status: 404, errMsg: "model not found, try pulling it first"}, call: func(c *bedrockruntimesdk.Client) error { return converse(c, "anthropic.claude-3-haiku-20240307-v1:0") }, wantErr: isErr[*types.ModelNotReadyException]},
-		{name: "ollama bad request", reply: fakeReply{status: 400, errMsg: "does not support tools"}, call: func(c *bedrockruntimesdk.Client) error { return converse(c, "anthropic.claude-3-haiku-20240307-v1:0") }, wantErr: isErr[*types.ValidationException]},
-		{name: "ollama 500", reply: fakeReply{status: 500, errMsg: "boom"}, call: func(c *bedrockruntimesdk.Client) error { return converse(c, "anthropic.claude-3-haiku-20240307-v1:0") }, wantErr: isErr[*types.ModelErrorException]},
+		{
+			name:    "model not pulled",
+			reply:   fakeReply{status: 404, errMsg: "model not found, try pulling it first"},
+			call:    func(c *bedrockruntimesdk.Client) error { return converse(c, "anthropic.claude-3-haiku-20240307-v1:0") },
+			wantErr: isErr[*types.ModelNotReadyException],
+		},
+		{
+			name:    "ollama bad request",
+			reply:   fakeReply{status: 400, errMsg: "does not support tools"},
+			call:    func(c *bedrockruntimesdk.Client) error { return converse(c, "anthropic.claude-3-haiku-20240307-v1:0") },
+			wantErr: isErr[*types.ValidationException],
+		},
+		{
+			name:    "ollama 500",
+			reply:   fakeReply{status: 500, errMsg: "boom"},
+			call:    func(c *bedrockruntimesdk.Client) error { return converse(c, "anthropic.claude-3-haiku-20240307-v1:0") },
+			wantErr: isErr[*types.ModelErrorException],
+		},
 		{name: "embedding stream", call: func(c *bedrockruntimesdk.Client) error {
-			_, err := c.InvokeModelWithResponseStream(t.Context(), &bedrockruntimesdk.InvokeModelWithResponseStreamInput{
-				ModelId: aws.String("amazon.titan-embed-text-v1"), Body: []byte(`{"inputText":"x"}`),
-			})
+			_, err := c.InvokeModelWithResponseStream(
+				t.Context(),
+				&bedrockruntimesdk.InvokeModelWithResponseStreamInput{
+					ModelId: aws.String("amazon.titan-embed-text-v1"), Body: []byte(`{"inputText":"x"}`),
+				},
+			)
 
 			return err
 		}, wantErr: isErr[*types.ValidationException]},
-		{name: "unmapped model", call: func(c *bedrockruntimesdk.Client) error { return converse(c, "cohere.command-text-v14") }, wantErr: isErr[*types.ResourceNotFoundException]},
-		{name: "unsupported family", call: func(c *bedrockruntimesdk.Client) error { return invoke(c, "ai21.jamba-1-5-large-v1:0", `{}`) }, wantErr: isErr[*types.ValidationException]},
-		{name: "malformed body", call: func(c *bedrockruntimesdk.Client) error { return invoke(c, "meta.llama3-8b-instruct-v1:0", `{not json`) }, wantErr: isErr[*types.ValidationException]},
-		{name: "missing prompt", call: func(c *bedrockruntimesdk.Client) error { return invoke(c, "meta.llama3-8b-instruct-v1:0", `{}`) }, wantErr: isErr[*types.ValidationException]},
+		{
+			name:    "unmapped model",
+			call:    func(c *bedrockruntimesdk.Client) error { return converse(c, "cohere.command-text-v14") },
+			wantErr: isErr[*types.ResourceNotFoundException],
+		},
+		{
+			name:    "unsupported family",
+			call:    func(c *bedrockruntimesdk.Client) error { return invoke(c, "ai21.jamba-1-5-large-v1:0", `{}`) },
+			wantErr: isErr[*types.ValidationException],
+		},
+		{
+			name:    "malformed body",
+			call:    func(c *bedrockruntimesdk.Client) error { return invoke(c, "meta.llama3-8b-instruct-v1:0", `{not json`) },
+			wantErr: isErr[*types.ValidationException],
+		},
+		{
+			name:    "missing prompt",
+			call:    func(c *bedrockruntimesdk.Client) error { return invoke(c, "meta.llama3-8b-instruct-v1:0", `{}`) },
+			wantErr: isErr[*types.ValidationException],
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Helper()
 			t.Parallel()
 
 			url, _ := newFakeOllama(t, func(string, map[string]any) fakeReply { return tc.reply })
 			if tc.down {
 				url = "http://127.0.0.1:1"
 			}
-			client := newOllamaSDKClient(t, bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap})
+			client := newOllamaSDKClient(
+				t,
+				bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap},
+			)
 
 			err := tc.call(client)
 			require.Error(t, err)
@@ -775,15 +979,22 @@ func TestOllamaBackend_MockDefaultUnchanged(t *testing.T) {
 
 	for _, backend := range []string{"", "mock"} {
 		t.Run("backend="+backend, func(t *testing.T) {
+			t.Helper()
 			t.Parallel()
 
 			client := newOllamaSDKClient(t, bedrockruntime.LLMConfig{Backend: backend, OllamaURL: "http://127.0.0.1:1"})
 			out, err := client.Converse(t.Context(), &bedrockruntimesdk.ConverseInput{
-				ModelId: aws.String("anthropic.claude-3-haiku-20240307-v1:0"), Messages: []types.Message{userText("hi")},
+				ModelId: aws.String(
+					"anthropic.claude-3-haiku-20240307-v1:0",
+				), Messages: []types.Message{userText("hi")},
 			})
 			require.NoError(t, err)
 			msg := out.Output.(*types.ConverseOutputMemberMessage).Value
-			assert.Equal(t, "This is a mock response from Gopherstack.", msg.Content[0].(*types.ContentBlockMemberText).Value)
+			assert.Equal(
+				t,
+				"This is a mock response from Gopherstack.",
+				msg.Content[0].(*types.ContentBlockMemberText).Value,
+			)
 		})
 	}
 }
@@ -798,12 +1009,17 @@ func TestOllamaBackend_ModelMapMatching(t *testing.T) {
 	}{
 		{name: "plain", modelID: "anthropic.claude-3-haiku-20240307-v1:0", want: "llama3.2"},
 		{name: "geo profile", modelID: "eu.anthropic.claude-3-haiku-20240307-v1:0", want: "llama3.2"},
-		{name: "profile arn", modelID: "arn:aws:bedrock:us-east-1:111122223333:inference-profile/us.anthropic.claude-3-sonnet-20240229-v1:0", want: "llama3.2"},
+		{
+			name:    "profile arn",
+			modelID: "arn:aws:bedrock:us-east-1:111122223333:inference-profile/us.anthropic.claude-3-sonnet-20240229-v1:0",
+			want:    "llama3.2",
+		},
 		{name: "second rule", modelID: "amazon.titan-embed-text-v2:0", want: "nomic-embed-text"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Helper()
 			t.Parallel()
 
 			url, rec := newFakeOllama(t, func(p string, _ map[string]any) fakeReply {
@@ -813,13 +1029,28 @@ func TestOllamaBackend_ModelMapMatching(t *testing.T) {
 
 				return fakeReply{lines: chatLines("x")}
 			})
-			client := newOllamaSDKClient(t, bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap})
+			client := newOllamaSDKClient(
+				t,
+				bedrockruntime.LLMConfig{Backend: "ollama", OllamaURL: url, ModelMap: testModelMap},
+			)
 
 			var err error
 			if tc.want == "nomic-embed-text" {
-				_, err = client.InvokeModel(t.Context(), &bedrockruntimesdk.InvokeModelInput{ModelId: aws.String(tc.modelID), Body: []byte(`{"inputText":"a"}`)})
+				_, err = client.InvokeModel(
+					t.Context(),
+					&bedrockruntimesdk.InvokeModelInput{
+						ModelId: aws.String(tc.modelID),
+						Body:    []byte(`{"inputText":"a"}`),
+					},
+				)
 			} else {
-				_, err = client.Converse(t.Context(), &bedrockruntimesdk.ConverseInput{ModelId: aws.String(tc.modelID), Messages: []types.Message{userText("hi")}})
+				_, err = client.Converse(
+					t.Context(),
+					&bedrockruntimesdk.ConverseInput{
+						ModelId:  aws.String(tc.modelID),
+						Messages: []types.Message{userText("hi")},
+					},
+				)
 			}
 			require.NoError(t, err)
 
@@ -847,6 +1078,7 @@ func TestOllamaBackend_SetLLMValidation(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Helper()
 			t.Parallel()
 
 			err := bedrockruntime.NewInMemoryBackend("000000000000", "us-east-1").SetLLM(tc.cfg)

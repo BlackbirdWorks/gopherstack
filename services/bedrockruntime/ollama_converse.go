@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -264,7 +265,7 @@ func (o *ollamaBackend) converseCall(modelID string, body []byte) (*ollamaCall, 
 	}}, nil
 }
 
-// converseStopReason maps an Ollama outcome to types.StopReason. Ollama reports "stop"
+// converseStopReason maps an Ollama outcome to types.StopReason. Ollama reports stopStop
 // for both end of turn and stop-sequence hits, so stop_sequence is never produced.
 func converseStopReason(res *ollamaResult) string {
 	switch {
@@ -283,7 +284,7 @@ func toolUseBlock(tc ollamaToolCall) map[string]any {
 		id = awsid.New(toolUseIDPrefix)
 	}
 
-	return map[string]any{"toolUseId": id, "name": tc.Function.Name, "input": objectOrEmpty(tc.Function.Arguments)}
+	return map[string]any{"toolUseId": id, keyName: tc.Function.Name, keyInput: objectOrEmpty(tc.Function.Arguments)}
 }
 
 func tokenUsage(res *ollamaResult) map[string]any {
@@ -301,18 +302,24 @@ func buildOllamaConverseResponse(res *ollamaResult, took time.Duration) map[stri
 	}
 
 	for _, tc := range res.ToolCalls {
-		content = append(content, map[string]any{"toolUse": toolUseBlock(tc)})
+		content = append(content, map[string]any{keyToolUse: toolUseBlock(tc)})
 	}
 
 	return map[string]any{
-		"output":          map[string]any{keyMessage: map[string]any{keyRole: roleAssistant, keyContent: content}},
+		keyOutput:         map[string]any{keyMessage: map[string]any{keyRole: roleAssistant, keyContent: content}},
 		convStopReasonKey: converseStopReason(res),
 		keyUsage:          tokenUsage(res),
-		"metrics":         map[string]any{"latencyMs": took.Milliseconds()},
+		keyMetrics:        map[string]any{keyLatencyMs: took.Milliseconds()},
 	}
 }
 
-func (h *Handler) handleOllamaConverse(c *echo.Context, o *ollamaBackend, modelID string, body []byte, req *converseRequest) error {
+func (h *Handler) handleOllamaConverse(
+	c *echo.Context,
+	o *ollamaBackend,
+	modelID string,
+	body []byte,
+	req *converseRequest,
+) error {
 	call, err := o.converseCall(modelID, body)
 	if err != nil {
 		return writeLLMError(c, err)
@@ -377,7 +384,7 @@ func (s *converseStreamer) text(t string) error {
 		s.textOpen = true
 	}
 
-	s.emit("contentBlockDelta", map[string]any{convContentIdx: s.idx, "delta": map[string]any{keyText: t}})
+	s.emit("contentBlockDelta", map[string]any{convContentIdx: s.idx, keyDelta: map[string]any{keyText: t}})
 
 	return nil
 }
@@ -389,11 +396,13 @@ func (s *converseStreamer) tool(tc ollamaToolCall) error {
 	tu := toolUseBlock(tc)
 	s.emit("contentBlockStart", map[string]any{
 		convContentIdx: s.idx,
-		"start":        map[string]any{"toolUse": map[string]any{"toolUseId": tu["toolUseId"], "name": tu["name"]}},
+		"start":        map[string]any{keyToolUse: map[string]any{"toolUseId": tu["toolUseId"], keyName: tu[keyName]}},
 	})
 	s.emit("contentBlockDelta", map[string]any{
 		convContentIdx: s.idx,
-		"delta":        map[string]any{"toolUse": map[string]any{"input": string(objectOrEmpty(tc.Function.Arguments))}},
+		keyDelta: map[string]any{
+			keyToolUse: map[string]any{keyInput: string(objectOrEmpty(tc.Function.Arguments))},
+		},
 	})
 	s.emit("contentBlockStop", map[string]any{convContentIdx: s.idx})
 	s.idx++
@@ -410,7 +419,7 @@ func (s *converseStreamer) finish(res *ollamaResult, meta map[string]any) {
 	s.emit("metadata", meta)
 }
 
-func frameWriter(c *echo.Context) (emit func(string, any), exception func(string, string)) {
+func frameWriter(c *echo.Context) (func(string, any), func(string, string)) {
 	write := func(headers [][2]string, payload any) {
 		data, err := json.Marshal(payload)
 		if err != nil {
@@ -421,14 +430,14 @@ func frameWriter(c *echo.Context) (emit func(string, any), exception func(string
 		flushResponse(c.Response())
 	}
 
-	emit = func(eventType string, payload any) {
+	emit := func(eventType string, payload any) {
 		write([][2]string{
 			{hdrMessageType, hdrMessageTypeEvent},
 			{hdrEventType, eventType},
 			{hdrContentType, contentTypeJSON},
 		}, payload)
 	}
-	exception = func(excType, msg string) {
+	exception := func(excType, msg string) {
 		write([][2]string{
 			{hdrMessageType, "exception"},
 			{":exception-type", excType},
@@ -466,7 +475,7 @@ func (h *Handler) handleOllamaConverseStream(
 	}
 
 	took := time.Since(start)
-	meta := map[string]any{"metrics": map[string]any{"latencyMs": took.Milliseconds()}}
+	meta := map[string]any{keyMetrics: map[string]any{keyLatencyMs: took.Milliseconds()}}
 	echoConverseConfig(meta, req)
 	s.finish(res, meta)
 
@@ -484,9 +493,7 @@ func mustJSON(v any) []byte {
 
 func llmErrorBody(excType, msg string, extra map[string]any) map[string]any {
 	m := map[string]any{"__type": excType, keyMessage: msg}
-	for k, v := range extra {
-		m[k] = v
-	}
+	maps.Copy(m, extra)
 
 	return m
 }

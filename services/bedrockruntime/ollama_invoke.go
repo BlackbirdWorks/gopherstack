@@ -21,14 +21,22 @@ const (
 	titanFinish          = "FINISH"
 	titanLength          = "LENGTH"
 	stopLength           = "length"
-	stopStop             = "stop"
 	typeToolUse          = "tool_use"
 	typeText             = "text"
 	typeEvent            = "type"
 	keyIndex             = "index"
+	chatTurnPair         = 2
 )
 
-var errMalformed = errors.New("malformed input request")
+var (
+	errMalformed   = errors.New("malformed input request")
+	errMissingKey  = errors.New("required key not found")
+	errImageSource = errors.New("image block requires source")
+)
+
+func missingKey(name string) error {
+	return malformed(fmt.Errorf("%w: [%s]", errMissingKey, name))
+}
 
 // invokePlan is one family's translation of an InvokeModel body.
 type invokePlan struct {
@@ -100,29 +108,29 @@ type anthropicBlock struct {
 	Source *struct {
 		Data string `json:"data"`
 	} `json:"source"`
-	Input     json.RawMessage `json:"input"`
-	Content   json.RawMessage `json:"content"`
 	Type      string          `json:"type"`
 	Text      string          `json:"text"`
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	ToolUseID string          `json:"tool_use_id"`
+	Input     json.RawMessage `json:"input"`
+	Content   json.RawMessage `json:"content"`
 }
 
 type anthropicRequest struct {
-	Messages []struct {
+	MaxTokens         *int     `json:"max_tokens"`
+	MaxTokensToSample *int     `json:"max_tokens_to_sample"`
+	Temperature       *float64 `json:"temperature"`
+	TopP              *float64 `json:"top_p"`
+	TopK              *int     `json:"top_k"`
+	Prompt            string   `json:"prompt"`
+	Messages          []struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 	} `json:"messages"`
-	System            json.RawMessage `json:"system"`
-	Tools             []anthropicTool `json:"tools"`
-	StopSequences     []string        `json:"stop_sequences"`
-	MaxTokens         *int            `json:"max_tokens"`
-	MaxTokensToSample *int            `json:"max_tokens_to_sample"`
-	Temperature       *float64        `json:"temperature"`
-	TopP              *float64        `json:"top_p"`
-	TopK              *int            `json:"top_k"`
-	Prompt            string          `json:"prompt"`
+	System        json.RawMessage `json:"system"`
+	Tools         []anthropicTool `json:"tools"`
+	StopSequences []string        `json:"stop_sequences"`
 }
 
 type anthropicTool struct {
@@ -161,7 +169,7 @@ func anthropicToCv(role string, raw json.RawMessage) (cvMessage, error) {
 			m.Content = append(m.Content, cvBlock{Text: &t})
 		case "image":
 			if b.Source == nil {
-				return m, malformed(errors.New("image block requires source"))
+				return m, malformed(errImageSource)
 			}
 
 			img := &cvImage{}
@@ -263,9 +271,9 @@ func buildAnthropic(target, modelID string, body []byte) (*invokePlan, error) {
 		call: call,
 		render: func(res *ollamaResult) any {
 			return map[string]any{
-				"id": awsid.New("msg_"), typeEvent: "message", keyRole: roleAssistant, keyModel: modelID,
-				keyContent: anthropicContent(res), keyStopReason: anthropicStopReason(res), "stop_sequence": nil,
-				keyUsage: map[string]any{"input_tokens": res.PromptTokens, "output_tokens": res.EvalTokens},
+				"id": awsid.New("msg_"), typeEvent: keyMessage, keyRole: roleAssistant, keyModel: modelID,
+				keyContent: anthropicContent(res), keyStopReason: anthropicStopReason(res), keyStopSequence: nil,
+				keyUsage: map[string]any{keyInputCountSnake: res.PromptTokens, keyOutputCountSnake: res.EvalTokens},
 			}
 		},
 		streamer: func(id string) invokeStreamer { return &anthropicStreamer{modelID: id} },
@@ -279,9 +287,9 @@ func buildAnthropicCompletion(target string, req *anthropicRequest) *invokePlan 
 			Options: opts(req.MaxTokensToSample, req.Temperature, req.TopP, req.TopK, req.StopSequences),
 		}},
 		render: func(res *ollamaResult) any {
-			out := map[string]any{"completion": res.Text, keyStopReason: "stop_sequence", "stop": "\n\nHuman:"}
+			out := map[string]any{keyCompletion: res.Text, keyStopReason: keyStopSequence, stopStop: "\n\nHuman:"}
 			if res.DoneReason == stopLength {
-				out[keyStopReason], out["stop"] = stopReasonMaxTokens, nil
+				out[keyStopReason], out[stopStop] = stopReasonMaxTokens, nil
 			}
 
 			return out
@@ -303,7 +311,7 @@ func anthropicStopReason(res *ollamaResult) string {
 func anthropicToolUse(tc ollamaToolCall) map[string]any {
 	tu := toolUseBlock(tc)
 
-	return map[string]any{typeEvent: typeToolUse, "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]}
+	return map[string]any{typeEvent: typeToolUse, "id": tu["toolUseId"], keyName: tu[keyName], keyInput: tu[keyInput]}
 }
 
 func anthropicContent(res *ollamaResult) []map[string]any {
@@ -335,10 +343,10 @@ func (s *anthropicStreamer) begin() []any {
 
 	return []any{map[string]any{
 		typeEvent: "message_start",
-		"message": map[string]any{
-			"id": awsid.New("msg_"), typeEvent: "message", keyRole: roleAssistant, keyModel: s.modelID,
-			keyContent: []any{}, keyStopReason: nil, "stop_sequence": nil,
-			keyUsage: map[string]any{"input_tokens": 0, "output_tokens": 0},
+		keyMessage: map[string]any{
+			"id": awsid.New("msg_"), typeEvent: keyMessage, keyRole: roleAssistant, keyModel: s.modelID,
+			keyContent: []any{}, keyStopReason: nil, keyStopSequence: nil,
+			keyUsage: map[string]any{keyInputCountSnake: 0, keyOutputCountSnake: 0},
 		},
 	}}
 }
@@ -368,21 +376,21 @@ func (s *anthropicStreamer) text(t string) []any {
 
 	return append(out, map[string]any{
 		typeEvent: "content_block_delta", keyIndex: s.idx,
-		"delta": map[string]any{typeEvent: "text_delta", keyText: t},
+		keyDelta: map[string]any{typeEvent: "text_delta", keyText: t},
 	})
 }
 
 func (s *anthropicStreamer) tool(tc ollamaToolCall) []any {
 	out := append(s.begin(), s.closeText()...)
 	tu := anthropicToolUse(tc)
-	input := tu["input"]
-	tu["input"] = map[string]any{}
+	input := tu[keyInput]
+	tu[keyInput] = map[string]any{}
 
 	out = append(out,
 		map[string]any{typeEvent: "content_block_start", keyIndex: s.idx, "content_block": tu},
 		map[string]any{
 			typeEvent: "content_block_delta", keyIndex: s.idx,
-			"delta": map[string]any{typeEvent: "input_json_delta", "partial_json": string(mustJSON(input))},
+			keyDelta: map[string]any{typeEvent: "input_json_delta", "partial_json": string(mustJSON(input))},
 		},
 		map[string]any{typeEvent: "content_block_stop", keyIndex: s.idx},
 	)
@@ -397,8 +405,8 @@ func (s *anthropicStreamer) end(res *ollamaResult, took time.Duration) []any {
 	return append(out,
 		map[string]any{
 			typeEvent: "message_delta",
-			"delta":   map[string]any{keyStopReason: anthropicStopReason(res), "stop_sequence": nil},
-			keyUsage:  map[string]any{"output_tokens": res.EvalTokens},
+			keyDelta:  map[string]any{keyStopReason: anthropicStopReason(res), keyStopSequence: nil},
+			keyUsage:  map[string]any{keyOutputCountSnake: res.EvalTokens},
 		},
 		map[string]any{typeEvent: "message_stop", keyInvocationMetrics: metricsBlock(res, took)},
 	)
@@ -421,7 +429,7 @@ func buildTitanText(target, _ string, body []byte) (*invokePlan, error) {
 	}
 
 	if req.InputText == "" {
-		return nil, malformed(errors.New("required key [inputText] not found"))
+		return nil, missingKey("inputText")
 	}
 
 	o := &ollamaOptions{}
@@ -433,9 +441,9 @@ func buildTitanText(target, _ string, body []byte) (*invokePlan, error) {
 		call: &ollamaCall{gen: &ollamaGenerateReq{Model: target, Prompt: req.InputText, Options: o}},
 		render: func(res *ollamaResult) any {
 			return map[string]any{
-				"inputTextTokenCount": res.PromptTokens,
-				"results": []map[string]any{{
-					"tokenCount": res.EvalTokens, "outputText": res.Text, "completionReason": titanReason(res),
+				keyInputTextCount: res.PromptTokens,
+				keyResults: []map[string]any{{
+					"tokenCount": res.EvalTokens, keyOutputText: res.Text, keyCompletionReason: titanReason(res),
 				}},
 			}
 		},
@@ -458,15 +466,15 @@ func (s *titanStreamer) begin() []any { return nil }
 func (s *titanStreamer) text(t string) []any {
 	s.n++
 
-	return []any{map[string]any{"outputText": t, keyIndex: s.n - 1, "completionReason": nil}}
+	return []any{map[string]any{keyOutputText: t, keyIndex: s.n - 1, keyCompletionReason: nil}}
 }
 
 func (*titanStreamer) tool(ollamaToolCall) []any { return nil }
 
 func (s *titanStreamer) end(res *ollamaResult, took time.Duration) []any {
 	return []any{map[string]any{
-		"outputText": "", keyIndex: s.n, "totalOutputTextTokenCount": res.EvalTokens,
-		"completionReason": titanReason(res), "inputTextTokenCount": res.PromptTokens,
+		keyOutputText: "", keyIndex: s.n, "totalOutputTextTokenCount": res.EvalTokens,
+		keyCompletionReason: titanReason(res), keyInputTextCount: res.PromptTokens,
 		keyInvocationMetrics: metricsBlock(res, took),
 	}}
 }
@@ -483,11 +491,11 @@ func buildTitanEmbed(target, modelID string, body []byte) (*invokePlan, error) {
 	}
 
 	if req.InputText == "" {
-		return nil, malformed(errors.New("required key [inputText] not found"))
+		return nil, missingKey("inputText")
 	}
 
 	for _, t := range req.EmbeddingTypes {
-		if t != "float" {
+		if t != keyFloat {
 			return nil, fmt.Errorf("%w: embeddingTypes %q is not supported by the ollama backend (float only)",
 				errUnsupportedContent, t)
 		}
@@ -503,9 +511,9 @@ func buildTitanEmbed(target, modelID string, body []byte) (*invokePlan, error) {
 	return &invokePlan{
 		call: &ollamaCall{embed: e},
 		render: func(res *ollamaResult) any {
-			out := map[string]any{"embedding": firstEmbedding(res), "inputTextTokenCount": res.PromptTokens}
+			out := map[string]any{"embedding": firstEmbedding(res), keyInputTextCount: res.PromptTokens}
 			if v2 {
-				out["embeddingsByType"] = map[string]any{"float": firstEmbedding(res)}
+				out["embeddingsByType"] = map[string]any{keyFloat: firstEmbedding(res)}
 			}
 
 			return out
@@ -554,7 +562,7 @@ func buildNova(target, _ string, body []byte) (*invokePlan, error) {
 		}},
 		render: func(res *ollamaResult) any {
 			out := buildOllamaConverseResponse(res, 0)
-			delete(out, "metrics")
+			delete(out, keyMetrics)
 
 			return out
 		},
@@ -581,7 +589,12 @@ func (s *novaStreamer) drain() []any {
 	return out
 }
 
-func (s *novaStreamer) begin() []any { s.init(); s.conv.begin(); return s.drain() }
+func (s *novaStreamer) begin() []any {
+	s.init()
+	s.conv.begin()
+
+	return s.drain()
+}
 
 func (s *novaStreamer) text(t string) []any {
 	s.init()
@@ -618,7 +631,7 @@ func buildLlama(target, _ string, body []byte) (*invokePlan, error) {
 	}
 
 	if req.Prompt == "" {
-		return nil, malformed(errors.New("required key [prompt] not found"))
+		return nil, missingKey("prompt")
 	}
 
 	reason := func(res *ollamaResult) string {
@@ -635,19 +648,24 @@ func buildLlama(target, _ string, body []byte) (*invokePlan, error) {
 		}},
 		render: func(res *ollamaResult) any {
 			return map[string]any{
-				"generation": res.Text, "prompt_token_count": res.PromptTokens,
-				"generation_token_count": res.EvalTokens, keyStopReason: reason(res),
+				keyGeneration: res.Text, keyPromptCount: res.PromptTokens,
+				keyGenCount: res.EvalTokens, keyStopReason: reason(res),
 			}
 		},
 		streamer: func(string) invokeStreamer {
 			return &simpleStreamer{
 				delta: func(t string) any {
-					return map[string]any{"generation": t, "prompt_token_count": nil, "generation_token_count": nil, keyStopReason: nil}
+					return map[string]any{
+						keyGeneration:  t,
+						keyPromptCount: nil,
+						keyGenCount:    nil,
+						keyStopReason:  nil,
+					}
 				},
 				last: func(res *ollamaResult, took time.Duration) any {
 					return map[string]any{
-						"generation": "", "prompt_token_count": res.PromptTokens,
-						"generation_token_count": res.EvalTokens, keyStopReason: reason(res),
+						keyGeneration: "", keyPromptCount: res.PromptTokens,
+						keyGenCount: res.EvalTokens, keyStopReason: reason(res),
 						keyInvocationMetrics: metricsBlock(res, took),
 					}
 				},
@@ -670,7 +688,7 @@ func buildMistral(target, _ string, body []byte) (*invokePlan, error) {
 	}
 
 	if req.Prompt == "" {
-		return nil, malformed(errors.New("required key [prompt] not found"))
+		return nil, missingKey("prompt")
 	}
 
 	reason := func(res *ollamaResult) string {
@@ -681,12 +699,13 @@ func buildMistral(target, _ string, body []byte) (*invokePlan, error) {
 		return stopStop
 	}
 	output := func(t string, stop any) any {
-		return map[string]any{"outputs": []map[string]any{{keyText: t, keyStopReason: stop}}}
+		return map[string]any{keyOutputs: []map[string]any{{keyText: t, keyStopReason: stop}}}
 	}
 
 	return &invokePlan{
 		call: &ollamaCall{gen: &ollamaGenerateReq{
-			Model: target, Prompt: req.Prompt, Options: opts(req.MaxTokens, req.Temperature, req.TopP, req.TopK, req.Stop),
+			Model: target, Prompt: req.Prompt,
+			Options: opts(req.MaxTokens, req.Temperature, req.TopP, req.TopK, req.Stop),
 		}},
 		render: func(res *ollamaResult) any { return output(res.Text, reason(res)) },
 		streamer: func(string) invokeStreamer {
@@ -731,11 +750,11 @@ func buildCohereEmbed(target, _ string, body []byte) (*invokePlan, error) {
 	}
 
 	if len(req.Texts) == 0 {
-		return nil, malformed(errors.New("required key [texts] not found"))
+		return nil, missingKey("texts")
 	}
 
 	for _, t := range req.EmbeddingTypes {
-		if t != "float" {
+		if t != keyFloat {
 			return nil, fmt.Errorf("%w: embedding_types %q is not supported by the ollama backend (float only)",
 				errUnsupportedContent, t)
 		}
@@ -749,7 +768,7 @@ func buildCohereEmbed(target, _ string, body []byte) (*invokePlan, error) {
 			out := map[string]any{"id": awsid.New(""), "texts": req.Texts}
 			if byType {
 				out["response_type"] = "embeddings_by_type"
-				out["embeddings"] = map[string]any{"float": res.Embeddings}
+				out["embeddings"] = map[string]any{keyFloat: res.Embeddings}
 			} else {
 				out["response_type"] = "embeddings_floats"
 				out["embeddings"] = res.Embeddings
@@ -779,7 +798,7 @@ func buildCohereChat(target, _ string, body []byte) (*invokePlan, error) {
 	}
 
 	if req.Message == "" {
-		return nil, malformed(errors.New("required key [message] not found"))
+		return nil, missingKey("message")
 	}
 
 	var msgs []ollamaMessage
@@ -805,14 +824,14 @@ func buildCohereChat(target, _ string, body []byte) (*invokePlan, error) {
 	}
 
 	history := func(res *ollamaResult) []map[string]string {
-		h := make([]map[string]string, 0, len(req.History)+2)
+		h := make([]map[string]string, 0, len(req.History)+chatTurnPair)
 		for _, m := range req.History {
-			h = append(h, map[string]string{"role": strings.ToUpper(m.Role), keyMessage: m.Message})
+			h = append(h, map[string]string{keyRole: strings.ToUpper(m.Role), keyMessage: m.Message})
 		}
 
 		return append(h,
-			map[string]string{"role": "USER", keyMessage: req.Message},
-			map[string]string{"role": "CHATBOT", keyMessage: res.Text})
+			map[string]string{keyRole: "USER", keyMessage: req.Message},
+			map[string]string{keyRole: "CHATBOT", keyMessage: res.Text})
 	}
 	finish := func(res *ollamaResult) string {
 		if res.DoneReason == stopLength {
@@ -824,13 +843,15 @@ func buildCohereChat(target, _ string, body []byte) (*invokePlan, error) {
 	final := func(res *ollamaResult) map[string]any {
 		return map[string]any{
 			"response_id": awsid.New(""), "text": res.Text, "generation_id": awsid.New(""),
-			"chat_history": history(res), "finish_reason": finish(res),
+			"chat_history": history(res), keyFinishReason: finish(res),
 		}
 	}
 
 	return &invokePlan{
 		call: &ollamaCall{chat: &ollamaChatReq{
-			Model: target, Messages: msgs, Options: opts(req.MaxTokens, req.Temperature, req.P, topK, req.StopSequences),
+			Model:    target,
+			Messages: msgs,
+			Options:  opts(req.MaxTokens, req.Temperature, req.P, topK, req.StopSequences),
 		}},
 		render: func(res *ollamaResult) any { return final(res) },
 		streamer: func(string) invokeStreamer {
@@ -841,7 +862,7 @@ func buildCohereChat(target, _ string, body []byte) (*invokePlan, error) {
 				last: func(res *ollamaResult, _ time.Duration) any {
 					return map[string]any{
 						"is_finished": true, "event_type": "stream-end",
-						"finish_reason": finish(res), "response": final(res),
+						keyFinishReason: finish(res), "response": final(res),
 					}
 				},
 			}
@@ -938,8 +959,16 @@ func (h *Handler) handleOllamaInvokeStream(c *echo.Context, o *ollamaBackend, mo
 	start := time.Now()
 
 	res, err := o.run(c.Request().Context(), plan.call,
-		func(t string) error { send(append(st.begin(), st.text(t)...)); return nil },
-		func(tc ollamaToolCall) error { send(append(st.begin(), st.tool(tc)...)); return nil },
+		func(t string) error {
+			send(append(st.begin(), st.text(t)...))
+
+			return nil
+		},
+		func(tc ollamaToolCall) error {
+			send(append(st.begin(), st.tool(tc)...))
+
+			return nil
+		},
 	)
 	if err != nil {
 		if !started {
