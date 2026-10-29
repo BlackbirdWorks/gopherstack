@@ -627,10 +627,10 @@ type Job struct {
 	CreatedAt                  int64           `json:"createdAt"`
 	nodeCount                  int32
 	SchedulingPriorityOverride int32 `json:"schedulingPriorityOverride,omitempty"`
-	isMainNode    bool
-	PropagateTags bool `json:"propagateTags,omitempty"`
-	IsCancelled   bool `json:"isCancelled"`
-	IsTerminated  bool `json:"isTerminated"`
+	isMainNode                 bool
+	PropagateTags              bool `json:"propagateTags,omitempty"`
+	IsCancelled                bool `json:"isCancelled"`
+	IsTerminated               bool `json:"isTerminated"`
 }
 
 // ConsumableResource represents a Batch consumable resource.
