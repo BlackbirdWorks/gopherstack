@@ -64,7 +64,7 @@ func engineEntries() []engineEntry {
 		{func(c *CLI) *string { return &c.GKEEngine }, "gke-engine", "GKE_ENGINE", enginesStub},
 		{
 			func(c *CLI) *string { return &c.OCIContainerEngine.Engine },
-			"oci-container-engine-engine", "OKE_ENGINE", enginesStub,
+			"oci-oke-engine", "OKE_ENGINE", enginesStub,
 		},
 		{func(c *CLI) *string { return &c.RDSEngine }, "rds-engine", "RDS_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.DocDBEngine }, "docdb-engine", "DOCDB_ENGINE", enginesStub},

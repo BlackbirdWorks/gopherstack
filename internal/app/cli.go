@@ -626,6 +626,7 @@ type CLI struct {
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
+	OCIContainerEngine            ocioke.Settings                   `embed:"" prefix:"oci-oke-"`
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
@@ -701,7 +702,6 @@ type CLI struct {
 	OCICore                       ocicorebackend.Settings           `embed:"" prefix:"oci-core-"`
 	OCIQueue                      ociqueuebackend.Settings          `embed:"" prefix:"oci-queue-"`
 	OCINotifications              ocinotificationsbackend.Settings  `embed:"" prefix:"oci-notifications-"`
-	OCIContainerEngine            ocioke.Settings                   `embed:"" prefix:"oci-container-engine-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -916,7 +916,9 @@ func (c *CLI) GetOCIContainerEngineSettings() ocioke.Settings {
 }
 
 // GetOCIContainerEngineEngine returns the OKE engine mode (ocicontainerengine.EngineConfigProvider).
-func (c *CLI) GetOCIContainerEngineEngine() string { return c.engineMode("oci-container-engine-engine", c.OCIContainerEngine.Engine) }
+func (c *CLI) GetOCIContainerEngineEngine() string {
+	return c.engineMode("oci-oke-engine", c.OCIContainerEngine.Engine)
+}
 
 // GetOCINotificationsSettings returns OCI Notifications settings (ocinotifications.ConfigProvider).
 func (c *CLI) GetOCINotificationsSettings() ocinotificationsbackend.Settings {
