@@ -112,12 +112,12 @@ func TestDataPlane_UpgradeNon101Passthrough(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantStatus int
 		name       string
 		upgrade    string
 		wantBody   string
+		wantStatus int
 	}{
-		{name: "target rejects upgrade", upgrade: "tls/1.0", wantStatus: http.StatusBadRequest, wantBody: "no upgrade"},
+		{name: "target rejects upgrade", upgrade: "tls/1.0", wantBody: "no upgrade", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
