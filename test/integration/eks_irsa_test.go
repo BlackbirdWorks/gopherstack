@@ -93,7 +93,8 @@ func TestIntegration_EKS_IRSA(t *testing.T) {
 	host := strings.TrimPrefix(issuer, "https://")
 	id := issuer[strings.LastIndex(issuer, "/")+1:]
 
-	disc, err := testclient.New(t).Get(endpoint + "/_gopherstack/eks/oidc/id/" + id + "/.well-known/openid-configuration")
+	disc, err := testclient.New(t).
+		Get(endpoint + "/_gopherstack/eks/oidc/id/" + id + "/.well-known/openid-configuration")
 	require.NoError(t, err)
 
 	defer disc.Body.Close()

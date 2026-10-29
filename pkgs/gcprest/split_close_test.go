@@ -52,9 +52,7 @@ func TestSplitterCloseReleasesUnsniffedConns(t *testing.T) {
 	_, readErr := idle.Read(make([]byte, 1))
 	require.Error(t, readErr)
 
-	var nerr net.Error
-
-	if errors.As(readErr, &nerr) {
+	if nerr, ok := errors.AsType[net.Error](readErr); ok {
 		assert.False(t, nerr.Timeout(), "server kept the idle connection open after Close")
 	}
 }
