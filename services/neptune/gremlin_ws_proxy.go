@@ -15,6 +15,7 @@ const (
 	wsFrameLimit   = 4 << 20
 	wsDialTimeout  = 10 * time.Second
 	wsOutQueue     = 16
+	wsWriteTimeout = 30 * time.Second
 	detailUnparsed = "Access denied: the request frame could not be inspected for authorization: "
 )
 
@@ -74,39 +75,8 @@ func (f *cypherFront) proxyGremlinWS(w http.ResponseWriter, r *http.Request) {
 
 	out := make(chan wsOut, wsOutQueue)
 
-	go func() {
-		defer cancel()
-
-		for {
-			mt, data, rerr := up.ReadMessage()
-			if rerr != nil {
-				return
-			}
-
-			select {
-			case out <- wsOut{mt: mt, data: data}:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	go func() {
-		defer cancel()
-
-		for {
-			select {
-			case m := <-out:
-				_ = client.SetWriteDeadline(time.Now().Add(cypherCloseTimeout * 6))
-
-				if client.WriteMessage(m.mt, m.data) != nil {
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+	go relayUpstream(ctx, cancel, up, out)
+	go writeClient(ctx, cancel, client, out)
 
 	f.pumpClientFrames(ctx, client, up, caller, out)
 }
@@ -154,4 +124,38 @@ func refuseFrame(ctx context.Context, caller *iamCaller, mt int, data []byte, ou
 	}
 
 	return true
+}
+
+func relayUpstream(ctx context.Context, cancel context.CancelFunc, up *websocket.Conn, out chan<- wsOut) {
+	defer cancel()
+
+	for {
+		mt, data, err := up.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		select {
+		case out <- wsOut{mt: mt, data: data}:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func writeClient(ctx context.Context, cancel context.CancelFunc, client *websocket.Conn, out <-chan wsOut) {
+	defer cancel()
+
+	for {
+		select {
+		case m := <-out:
+			_ = client.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+
+			if client.WriteMessage(m.mt, m.data) != nil {
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }

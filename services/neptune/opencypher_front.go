@@ -37,17 +37,17 @@ const (
 // cypherFront serves a cluster's Neptune port: /openCypher, Bolt and (with no upstream) /gremlin are answered
 // in-process over one graph; with an upstream, /gremlin is proxied to the Gremlin Server container instead.
 type cypherFront struct {
+	ctx            context.Context
 	srv            *http.Server
 	proxy          *httputil.ReverseProxy
-	upstream       string
 	tr             *http.Transport
 	graph          *opencypher.Graph
 	queries        *queryTracker
 	gremlin        *gremlin.Server
 	gremlinQueries *queryTracker
 	auth           func() clusterAuth
-	ctx            context.Context //nolint:containedctx // lifetime of the listener
 	cancel         context.CancelFunc
+	upstream       string
 	up             atomic.Bool
 }
 

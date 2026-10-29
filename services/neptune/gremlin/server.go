@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	opEval           = "eval"
+	opBytecode       = "bytecode"
 	maxFrameBytes    = 4 << 20
 	maxScriptBytes   = 1 << 20
 	defaultBatchSize = 64
@@ -187,9 +189,9 @@ func (s *Server) handleFrame(ctx context.Context, conn *websocket.Conn, mt int, 
 
 func (s *Server) execute(ctx context.Context, msg *message) ([]any, error) {
 	switch msg.op {
-	case "eval":
+	case opEval:
 		return s.evalMessage(ctx, msg)
-	case "bytecode":
+	case opBytecode:
 		return s.bytecodeMessage(ctx, msg)
 	case "close":
 		return nil, nil
@@ -379,7 +381,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := uuid.NewString()
-	msg := &message{id: id, op: "eval", args: map[string]any{"gremlin": req.Gremlin}}
+	msg := &message{id: id, op: opEval, args: map[string]any{"gremlin": req.Gremlin}}
 
 	if req.Bindings != nil {
 		b := NewMap()

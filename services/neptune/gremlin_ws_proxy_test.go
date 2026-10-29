@@ -76,9 +76,9 @@ func (wsIdentities) GetPoliciesForRole(string) ([]string, error) { return nil, n
 
 // fakeGremlin records the frames a Gremlin Server would receive and answers each with a 200 text response.
 type fakeGremlin struct {
-	srv  *httptest.Server
-	got  [][]byte
-	mu   sync.Mutex
+	srv *httptest.Server
+	got [][]byte
+	mu  sync.Mutex
 }
 
 func newFakeGremlin(t *testing.T) *fakeGremlin {
@@ -142,13 +142,13 @@ func wsEval(script string) []byte {
 }
 
 func gbStr(s string) []byte {
-	return append(binary.BigEndian.AppendUint32(nil, uint32(len(s))), s...) //nolint:gosec // short test strings
+	return append(binary.BigEndian.AppendUint32(nil, uint32(len(s))), s...)
 }
 
 func gbBytecodeFrame(steps ...string) []byte {
 	var bc []byte
 
-	bc = binary.BigEndian.AppendUint32(bc, uint32(len(steps))) //nolint:gosec // small
+	bc = binary.BigEndian.AppendUint32(bc, uint32(len(steps)))
 	for _, s := range steps {
 		bc = append(bc, gbStr(s)...)
 		bc = binary.BigEndian.AppendUint32(bc, 0)
@@ -179,12 +179,12 @@ func TestGremlinProxyFrameAuthorization(t *testing.T) {
 	tests := []struct {
 		name        string
 		accessKey   string
-		mt          int
+		wantMsg     string
 		payload     []byte
+		mt          int
+		wantCode    float64
 		enforce     bool
 		wantForward bool
-		wantCode    float64
-		wantMsg     string
 	}{
 		{
 			name: "read_forwarded", accessKey: "AKIAREAD", mt: websocket.TextMessage,
@@ -208,7 +208,10 @@ func TestGremlinProxyFrameAuthorization(t *testing.T) {
 		},
 		{
 			name: "graphbinary_bytecode_read_forwarded", accessKey: "AKIAREAD", mt: websocket.BinaryMessage,
-			payload: gbBytecodeFrame("V", "count"), enforce: true, wantForward: true, wantCode: 200, wantMsg: "upstream",
+			payload: gbBytecodeFrame(
+				"V",
+				"count",
+			), enforce: true, wantForward: true, wantCode: 200, wantMsg: "upstream",
 		},
 		{
 			name: "unparseable_denied", accessKey: "AKIAWRITE", mt: websocket.TextMessage,
@@ -234,8 +237,9 @@ func TestGremlinProxyFrameAuthorization(t *testing.T) {
 			port := wsFreePort(t)
 			auth := func() clusterAuth {
 				return clusterAuth{
-					enabled: true, region: wsTestRegion, resourceARN: "arn:aws:neptune-db:us-east-1:000000000000:cluster-X/*",
-					cfg: IAMAuthConfig{Identities: wsIdentities{}, Enforce: tt.enforce},
+					enabled: true, region: wsTestRegion,
+					resourceARN: "arn:aws:neptune-db:us-east-1:000000000000:cluster-X/*",
+					cfg:         IAMAuthConfig{Identities: wsIdentities{}, Enforce: tt.enforce},
 				}
 			}
 

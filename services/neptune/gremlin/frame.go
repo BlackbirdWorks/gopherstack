@@ -34,14 +34,14 @@ func ClassifyFrame(messageType int, data []byte) (FrameRequest, error) {
 	req := FrameRequest{ID: msg.id, codec: msg.codec}
 
 	switch msg.op {
-	case "eval":
+	case opEval:
 		script, ok := msg.args["gremlin"].(string)
 		if !ok || strings.TrimSpace(script) == "" {
 			return req, invalidArg("A message with an [eval] op code requires a [gremlin] argument.")
 		}
 
 		req.Access = ScriptAccess(script)
-	case "bytecode":
+	case opBytecode:
 		tr, ok := msg.args["gremlin"].(*Traversal)
 		if !ok {
 			return req, invalidArg("A message with a [bytecode] op code requires a [gremlin] argument of bytecode.")
@@ -63,20 +63,11 @@ func recoverFrame(messageType int, data []byte) FrameRequest {
 	body := data
 
 	if messageType == websocket.BinaryMessage {
-		if len(data) == 0 || int(data[0])+1 > len(data) {
-			return req
-		}
+		var mime string
 
-		mime := string(data[1 : 1+int(data[0])])
-		body = data[1+int(data[0]):]
-
+		mime, body = splitMime(data)
 		if mime == mimeGraphBinary {
-			if len(body) >= 1+uuidBytes && body[0] == gbVersion {
-				req.ID = formatUUID(body[1 : 1+uuidBytes])
-				req.codec = codecBinary
-			}
-
-			return req
+			return recoverBinary(req, body)
 		}
 
 		if mime == mimeGraphSONv2 {
@@ -105,4 +96,23 @@ func DeniedFrame(req FrameRequest, err error) (int, []byte) {
 // DeniedError is the AccessDeniedException a client receives when detail explains the refusal.
 func DeniedError(detail string) error {
 	return &Error{Code: CodeUnauthorized, Status: StatusForbidden, Detail: detail}
+}
+
+func splitMime(data []byte) (string, []byte) {
+	if len(data) == 0 || int(data[0])+1 > len(data) {
+		return "", nil
+	}
+
+	n := int(data[0])
+
+	return string(data[1 : 1+n]), data[1+n:]
+}
+
+func recoverBinary(req FrameRequest, body []byte) FrameRequest {
+	if len(body) >= 1+uuidBytes && body[0] == gbVersion {
+		req.ID = formatUUID(body[1 : 1+uuidBytes])
+		req.codec = codecBinary
+	}
+
+	return req
 }
