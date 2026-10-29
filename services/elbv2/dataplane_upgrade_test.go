@@ -107,3 +107,47 @@ func TestDataPlane_XFFProcessingModes(t *testing.T) {
 		})
 	}
 }
+
+func TestDataPlane_UpgradeNon101Passthrough(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		upgrade    string
+		wantBody   string
+		wantStatus int
+	}{
+		{name: "target rejects upgrade", upgrade: "tls/1.0", wantBody: "no upgrade", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newDPFixture(t)
+			tg := f.tg(t, "tg-no101", elbv2types.TargetTypeEnumIp, "")
+			f.register(t, tg, wsTarget(t))
+			f.listener(t, forwardAction(tg))
+
+			conn, err := net.Dial("tcp", f.srvAddr)
+			require.NoError(t, err)
+
+			defer conn.Close()
+			require.NoError(t, conn.SetDeadline(time.Now().Add(10*time.Second)))
+
+			_, err = io.WriteString(conn, "GET /_gopherstack/elbv2/"+f.lbName+"/x HTTP/1.1\r\nHost: "+f.srvAddr+
+				"\r\nConnection: Upgrade\r\nUpgrade: "+tt.upgrade+"\r\n\r\n")
+			require.NoError(t, err)
+
+			resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, resp.StatusCode)
+			assert.Contains(t, string(body), tt.wantBody)
+		})
+	}
+}

@@ -1,14 +1,14 @@
 package elbv2
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -136,103 +136,36 @@ func isUpgradeRequest(r *http.Request) bool {
 	return false
 }
 
-// proxyUpgrade tunnels a connection upgrade (WebSocket) to the target: the request goes through
-// unmodified apart from the forwarding headers, and a 101 turns both sockets into a raw pipe.
+// proxyUpgrade forwards a connection upgrade (WebSocket) to the target via httputil.ReverseProxy,
+// which switches to a raw pipe on a 101.
 func (h *Handler) proxyUpgrade(
 	w http.ResponseWriter,
 	req *dpRequest,
 	ap netip.AddrPort,
-	secure bool,
+	scheme string,
 	sticky string,
 	tg *TargetGroup,
 ) {
-	ctx := req.r.Context()
+	rp := &httputil.ReverseProxy{
+		Transport: h.dp.client.Transport,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.Out.URL.Scheme = scheme
+			pr.Out.URL.Host = ap.String()
+			pr.Out.Host = pr.In.Host
+			pr.Out.Header["X-Forwarded-For"] = slices.Clone(pr.In.Header.Values("X-Forwarded-For"))
+			setForwardHeaders(pr.Out.Header, req)
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			if sticky != "" && resp.StatusCode == http.StatusSwitchingProtocols {
+				resp.Header.Add("Set-Cookie", stickyCookie(tg, sticky))
+			}
 
-	d := net.Dialer{Timeout: dialTimeout}
-
-	tconn, err := d.DialContext(ctx, "tcp", ap.String())
-	if err != nil {
-		writeDPError(w, http.StatusBadGateway, msgBadGateway)
-
-		return
+			return nil
+		},
+		ErrorHandler: func(ew http.ResponseWriter, _ *http.Request, _ error) {
+			writeDPError(ew, http.StatusBadGateway, msgBadGateway)
+		},
 	}
 
-	defer tconn.Close()
-
-	if secure {
-		tc := tls.Client(tconn, targetTLSConfig())
-		if err = tc.HandshakeContext(ctx); err != nil {
-			writeDPError(w, http.StatusBadGateway, msgBadGateway)
-
-			return
-		}
-
-		tconn = tc
-	}
-
-	target := req.rawPath
-	if q := req.r.URL.RawQuery; q != "" {
-		target += "?" + q
-	}
-
-	out, err := http.NewRequestWithContext(ctx, req.r.Method, "http://"+ap.String()+target, nil)
-	if err != nil {
-		writeDPError(w, http.StatusBadGateway, msgBadGateway)
-
-		return
-	}
-
-	for k, vs := range req.r.Header {
-		out.Header[k] = append([]string(nil), vs...)
-	}
-
-	setForwardHeaders(out.Header, req)
-	out.Host = req.r.Host
-
-	if err = out.Write(tconn); err != nil {
-		writeDPError(w, http.StatusBadGateway, msgBadGateway)
-
-		return
-	}
-
-	tr := bufio.NewReader(tconn)
-
-	respMethod := http.MethodGet
-	if req.r.Method == http.MethodHead {
-		respMethod = http.MethodHead
-	}
-
-	resp, err := http.ReadResponse(tr, &http.Request{Method: respMethod})
-	if err != nil {
-		writeDPError(w, http.StatusBadGateway, msgBadGateway)
-
-		return
-	}
-
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		defer resp.Body.Close()
-
-		copyHeaders(w.Header(), resp.Header)
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
-
-		return
-	}
-
-	if sticky != "" {
-		resp.Header.Add("Set-Cookie", stickyCookie(tg, sticky))
-	}
-
-	cconn, crw, err := http.NewResponseController(w).Hijack()
-	if err != nil {
-		return
-	}
-
-	defer cconn.Close()
-
-	if err = resp.Write(cconn); err != nil {
-		return
-	}
-
-	pipeConns(ctx, cconn, crw.Reader, tconn, tr)
+	rp.ServeHTTP(w, req.r)
 }

@@ -256,7 +256,7 @@ func (h *Handler) proxyTo(w http.ResponseWriter, req *dpRequest, tg *TargetGroup
 	}
 
 	if isUpgradeRequest(req.r) {
-		h.proxyUpgrade(w, req, ap, scheme == "https", sticky, tg)
+		h.proxyUpgrade(w, req, ap, scheme, sticky, tg)
 
 		return
 	}
