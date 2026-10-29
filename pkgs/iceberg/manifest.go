@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/hamba/avro/v2"
-	"github.com/hamba/avro/v2/ocf"
+	"github.com/iskorotkov/avro/v2"
+	"github.com/iskorotkov/avro/v2/ocf"
 )
 
 // Manifest entry statuses and content types from the table spec.

@@ -197,7 +197,12 @@ func (h *Handler) proxyUpgrade(
 
 	tr := bufio.NewReader(tconn)
 
-	resp, err := http.ReadResponse(tr, out)
+	respMethod := http.MethodGet
+	if req.r.Method == http.MethodHead {
+		respMethod = http.MethodHead
+	}
+
+	resp, err := http.ReadResponse(tr, &http.Request{Method: respMethod})
 	if err != nil {
 		writeDPError(w, http.StatusBadGateway, msgBadGateway)
 
