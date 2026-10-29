@@ -6,6 +6,9 @@
 	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
+	import LoggingDashboard from '#lib/components/oci/LoggingDashboard.svelte';
+	import MonitoringDashboard from '#lib/components/oci/MonitoringDashboard.svelte';
+	import MySQLDashboard from '#lib/components/oci/MySQLDashboard.svelte';
 	import NotificationsDashboard from '#lib/components/oci/NotificationsDashboard.svelte';
 	import ObjectStorageDashboard from '#lib/components/oci/ObjectStorageDashboard.svelte';
 	import QueueDashboard from '#lib/components/oci/QueueDashboard.svelte';
@@ -41,6 +44,12 @@
 	<NotificationsDashboard />
 {:else if service?.id === 'containerengine'}
 	<ContainerEngineDashboard />
+{:else if service?.id === 'mysql'}
+	<MySQLDashboard />
+{:else if service?.id === 'logging'}
+	<LoggingDashboard />
+{:else if service?.id === 'monitoring'}
+	<MonitoringDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}

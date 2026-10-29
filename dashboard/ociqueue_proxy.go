@@ -101,7 +101,7 @@ func ociQueueParts(method, raw string) ([]string, bool) {
 			return parts, parts[2] == ociQueueStats || parts[2] == ociQueuePeek
 		}
 	case http.MethodPost:
-		return parts, len(parts) == ociQueueActSegs && parts[2] == "actions" && parts[3] == ociQueuePurge
+		return parts, len(parts) == ociQueueActSegs && parts[2] == ociActionsSeg && parts[3] == ociQueuePurge
 	}
 
 	return nil, false

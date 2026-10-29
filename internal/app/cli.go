@@ -474,6 +474,9 @@ type CLI struct {
 	ociQueueHandler               service.Registerable
 	ociNotificationsHandler       service.Registerable
 	ociContainerEngineHandler     service.Registerable
+	ociMySQLHandler               service.Registerable
+	ociLoggingHandler             service.Registerable
+	ociMonitoringHandler          service.Registerable
 	azureMonitorHandler           service.Registerable
 	ociVaultHandler               service.Registerable
 	ociStreamingHandler           service.Registerable
@@ -3483,6 +3486,9 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ociQueueHandler = byName["OCIQueue"]
 	cli.ociNotificationsHandler = byName["OCINotifications"]
 	cli.ociContainerEngineHandler = byName["OCIContainerEngine"]
+	cli.ociMySQLHandler = byName["OCIMySQL"]
+	cli.ociLoggingHandler = byName["OCILogging"]
+	cli.ociMonitoringHandler = byName["OCIMonitoring"]
 	cli.azureMonitorHandler = byName["AzureMonitor"]
 }
 

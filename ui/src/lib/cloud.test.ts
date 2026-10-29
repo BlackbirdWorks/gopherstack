@@ -274,4 +274,13 @@ describe("new GCP console pages", () => {
     expect(ociServiceById("queue")?.portLabel).toBe("ociqueue");
     expect(ociServiceById("notifications")?.portLabel).toBe("ocinotifications");
   });
+
+  it("registers MySQL HeatWave, Logging and Monitoring", () => {
+    expect(
+      availableOciServices(["OCIMySQL", "OCILogging", "OCIMonitoring"]).map((s) => s.id),
+    ).toEqual(["mysql", "logging", "monitoring"]);
+    expect(ociServiceById("mysql")?.portLabel).toBe("ocimysql");
+    expect(ociServiceById("logging")?.defaultPort).toBe(8160);
+    expect(ociServiceById("monitoring")?.healthName).toBe("OCIMonitoring");
+  });
 });
