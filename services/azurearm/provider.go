@@ -3,8 +3,11 @@ package azurearm
 import (
 	"errors"
 	"fmt"
+	"os"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -198,6 +201,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	ids := registerLocalProviders(registry, backend, settings)
 	registerContainerProviders(registry, backend, newACIEngine(ctx, settings), ids)
+	registerContainerService(ctx, registry, backend, ids, settings)
 
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
@@ -268,4 +272,41 @@ func registerContainerProviders(registry *Registry, backend *InMemoryBackend, en
 	}
 
 	registry.Register(NewContainerAppsProvider(engine, backend, network, ids))
+}
+
+// registerContainerService registers Microsoft.ContainerService; the docker engine dials the container runtime on the
+// first cluster, not at startup.
+func registerContainerService(
+	ctx *service.AppContext, registry *Registry, backend *InMemoryBackend, ids *identityService, settings Settings,
+) {
+	var network *NetworkProvider
+	if np, ok := registry.ProviderNamed(namespaceMicrosoftNetwork); ok {
+		network, _ = np.(*NetworkProvider)
+	}
+
+	aks := NewContainerServiceProvider(backend, network, ids)
+	aks.SetResourceGroupCascade(registry.DeleteResourcesInGroup)
+
+	if settings.AKSEngine == AKSEngineDocker {
+		aks.SetEngineFactory(func() (*k3sengine.Engine, error) {
+			rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
+			if err != nil {
+				return nil, fmt.Errorf("aks engine: container runtime: %w", err)
+			}
+
+			eng, err := k3sengine.New(k3sengine.Config{
+				Runtime: rt, Ports: ctx.PortAlloc, Logger: ctx.Logger, Prefix: "aks",
+				Host: os.Getenv("AKS_CLUSTER_HOST"), Token: os.Getenv("AKS_CLUSTER_TOKEN"),
+			})
+			if err != nil {
+				_ = rt.Close()
+
+				return nil, fmt.Errorf("aks engine: %w", err)
+			}
+
+			return eng, nil
+		}, os.Getenv("AKS_K3S_IMAGE"))
+	}
+
+	registry.Register(aks)
 }

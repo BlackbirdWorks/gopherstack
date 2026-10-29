@@ -103,6 +103,8 @@ github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armconta
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance/v2 v2.4.0/go.mod h1:FN0UJ15tJ7kV7JYrYAleEq44Ew1cUiyLcJrfrTxHGd0=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry v1.2.0 h1:DWlwvVV5r/Wy1561nZ3wrpI1/vDIBRY/Wd1HWaRBZWA=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry v1.2.0/go.mod h1:E7ltexgRDmeJ0fJWv0D/HLwY2xbDdN+uv+X2uZtOx3w=
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v9 v9.7.0 h1:Su+wzyfj14nd/cDvZ/B0WJYY+OGT0elZw5yrWY/3pZQ=
+github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerservice/armcontainerservice/v9 v9.7.0/go.mod h1:NJWUwxR3ahbD53ia/cTjBSr+0hYHCTjSSoIZ0A2cvLo=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventgrid/armeventgrid/v2 v2.3.0 h1:8JkRfARpQbzTzD+HGQAf67VIqQg3qXLIcAqtPYr/V0Q=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventgrid/armeventgrid/v2 v2.3.0/go.mod h1:NOM/LtCJfoU69VkmxPxV6PMxDm/MsOvmsao/5V5Rhgs=
 github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0 h1:4hGvxD72TluuFIXVr8f4XkKZfqAa7Pj61t0jmQ7+kes=

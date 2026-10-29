@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
-| Feature families | 11 (11 ok) |
-| Known gaps | 31 |
+| Feature families | 12 (12 ok) |
+| Known gaps | 34 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -23,6 +23,9 @@
 - Multi-account namespace isolation: all ARM-created storage accounts alias one shared Blob/Queue/Table container/queue/table namespace (services/azureblob/azurequeue/azuretable discard the account-name path segment entirely). Two ARM storage accounts see each other's containers. Deferred to M10 per AZURE.md section 10.4's original note; StorageAccounts.RegisterAccount/DeleteAccount (interfaces.go) is the forward-compat seam for that fix.
 - ARM error codes are a small hand-picked table (errors.go's errorDetails), not audited against ARM's full published error-code catalog the way services/sqs's errorDetails table has been over multiple audit passes.
 - management locks, Azure Policy, RBAC/Microsoft.Authorization, ARM template deployments (Microsoft.Resources/deployments), PATCH-merge semantics beyond full-replace, $filter/$expand and nextLink pagination on list operations, cross-subscription/cross-tenant, resource moves, What-If, and LRO polling are all explicitly out of MVP scope per AZURE.md section 10.1/10.3 -- not bugs, deliberate scope boundaries for this milestone.
+- AKS: runCommand answers 501 NotImplemented (no pods are scheduled to run commands in); abort, rotateClusterCertificates, resetAADProfile, resetServicePrincipalProfile, maintenanceConfigurations, trustedAccessRoleBindings, snapshots, machines, managedNamespaces and private endpoint connections are not modelled (the generic store keeps what is PUT).
+- AKS: node pools are metadata; no VMs back them and the k3s engine runs one server node regardless of pool counts. stop removes the container, so k3s state is lost across stop/start and across restore.
+- AKS: addon profiles, AAD, auto-upgrade, http proxy, security and storage profiles are stored and returned but not interpreted; the VM catalog and Kubernetes patch versions are representative subsets; the kubeconfig carries a bearer token only (no client certificates).
 - Container Apps: init containers, subPath mounts, NfsAzureFile volumes, additional TCP ports, exposedPort/TCP transport routing, session affinity, CORS, ipSecurityRestrictions enforcement, custom domains, Dapr runtime, probes and managed-identity registry pulls are stored but not run or enforced.
 - Container Apps: KEDA scale rules other than the http/tcp concurrency settings (queue, custom) are stored but never scale replicas; scale-out is driven by in-flight requests through the ingress.
 - Container Apps jobs: Schedule and Event triggers are stored and validated but never fire (only start runs an execution); replicaRetryLimit and replicaTimeout are not enforced.
