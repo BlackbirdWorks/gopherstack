@@ -384,10 +384,10 @@ func (s *Server) Start(ctx context.Context) error {
 	return s.waitReady(ctx)
 }
 
-func (s *Server) run(ctx context.Context, cmd []string) error {
+func (s *Server) run(ctx context.Context, op string, cmd []string) error {
 	res, err := s.e.cfg.Runtime.Exec(ctx, s.container(), cmd)
 	if err != nil {
-		return fmt.Errorf("exec %s: %w", cmd[0], err)
+		return fmt.Errorf("exec %s: %w", op, err)
 	}
 
 	if res.ExitCode != 0 {
@@ -396,7 +396,7 @@ func (s *Server) run(ctx context.Context, cmd []string) error {
 			msg = msg[:stderrLimit]
 		}
 
-		return fmt.Errorf("%w: %s exited %d: %s", errExec, cmd[0], res.ExitCode, msg)
+		return fmt.Errorf("%w: %s exited %d: %s", errExec, op, res.ExitCode, msg)
 	}
 
 	return nil
@@ -444,7 +444,7 @@ func (s *Server) Dump(ctx context.Context) ([]byte, error) {
 		"--add-drop-database", "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", "--databases",
 	}, dbs...)
 
-	if err = s.run(ctx, cmd); err != nil {
+	if err = s.run(ctx, "mysqldump", cmd); err != nil {
 		return nil, err
 	}
 
@@ -469,7 +469,7 @@ func (s *Server) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("write dump: %w", err)
 	}
 
-	return s.run(ctx, []string{
+	return s.run(ctx, mysqlBin, []string{
 		"env", "MYSQL_PWD=" + s.spec.RootPassword, mysqlBin, "-u" + RootUser, "-e", "source " + dumpMount + "/in.sql",
 	})
 }

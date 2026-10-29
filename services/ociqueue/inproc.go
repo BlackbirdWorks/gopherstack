@@ -61,12 +61,8 @@ func (b *InMemoryBackend) Peek(queueID string, dlq bool, limit int) ([]PeekedMes
 		src = q.DLQ
 	}
 
-	if limit > maxGetLimit {
-		limit = maxGetLimit
-	}
-
 	now := b.nowUTC()
-	out := make([]PeekedMessage, 0, min(limit, len(src)))
+	out := make([]PeekedMessage, 0, maxGetLimit)
 
 	for _, m := range src {
 		if len(out) >= limit {
