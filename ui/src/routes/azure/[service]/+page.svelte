@@ -4,6 +4,7 @@
 	import { azureServiceById } from '#lib/cloud.ts';
 	import AppServiceDashboard from '#lib/components/azure/AppServiceDashboard.svelte';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
+	import KubernetesServiceDashboard from '#lib/components/azure/KubernetesServiceDashboard.svelte';
 	import ContainerAppsDashboard from '#lib/components/azure/ContainerAppsDashboard.svelte';
 	import ContainerInstancesDashboard from '#lib/components/azure/ContainerInstancesDashboard.svelte';
 	import EventHubsDashboard from '#lib/components/azure/EventHubsDashboard.svelte';
@@ -65,6 +66,8 @@
 	<ContainerAppsDashboard />
 {:else if service?.id === 'vm'}
 	<VirtualMachinesDashboard />
+{:else if service?.id === 'aks'}
+	<KubernetesServiceDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

@@ -116,8 +116,10 @@ func (p *ContainerServiceProvider) checkPool(
 	}
 
 	if prev != nil {
+		effective := prev.profile(false)
+
 		for _, k := range aksImmutablePool() {
-			if err := aksKeepImmutable(name, k, props, prev.Props); err != nil {
+			if err := aksKeepImmutable(name, k, props, effective); err != nil {
 				return nil, err
 			}
 		}

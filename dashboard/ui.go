@@ -147,6 +147,7 @@ import (
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ocicontainerenginebackend "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	ociqueuebackend "github.com/blackbirdworks/gopherstack/services/ociqueue"
@@ -591,6 +592,8 @@ type Config struct {
 	GCPContainerOps     *gcpcontainerbackend.Handler
 	OCIQueueOps         *ociqueuebackend.Handler
 	OCINotificationsOps *ocinotificationsbackend.Handler
+	// OCIContainerEngineOps is dispatched in-process by the /dashboard/api/v1/oci/containerengine proxy.
+	OCIContainerEngineOps *ocicontainerenginebackend.Handler
 	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
 	AzureFileOps *azurefilebackend.Handler
 	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.
