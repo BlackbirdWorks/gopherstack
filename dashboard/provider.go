@@ -75,6 +75,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
+	"github.com/blackbirdworks/gopherstack/services/ocilogging"
+	"github.com/blackbirdworks/gopherstack/services/ocimonitoring"
+	"github.com/blackbirdworks/gopherstack/services/ocimysql"
 	"github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	"github.com/blackbirdworks/gopherstack/services/ociqueue"
@@ -413,7 +416,24 @@ func linkContainerQueueExtras(conf *Config, cfg any) {
 		conf.OCIContainerEngineOps, _ = getHandler[*ocicontainerengine.Handler](p.GetOCIContainerEngineHandler())
 	}
 
+	linkOCIObservabilityExtras(conf, cfg)
+
 	if p, ok := cfg.(interface{ GetOCINotificationsHandler() service.Registerable }); ok {
 		conf.OCINotificationsOps, _ = getHandler[*ocinotifications.Handler](p.GetOCINotificationsHandler())
+	}
+}
+
+// linkOCIObservabilityExtras links the MySQL HeatWave, Logging and Monitoring handlers used by their proxies.
+func linkOCIObservabilityExtras(conf *Config, cfg any) {
+	if p, ok := cfg.(interface{ GetOCIMySQLHandler() service.Registerable }); ok {
+		conf.OCIMySQLOps, _ = getHandler[*ocimysql.Handler](p.GetOCIMySQLHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCILoggingHandler() service.Registerable }); ok {
+		conf.OCILoggingOps, _ = getHandler[*ocilogging.Handler](p.GetOCILoggingHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIMonitoringHandler() service.Registerable }); ok {
+		conf.OCIMonitoringOps, _ = getHandler[*ocimonitoring.Handler](p.GetOCIMonitoringHandler())
 	}
 }

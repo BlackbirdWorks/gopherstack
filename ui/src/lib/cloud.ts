@@ -470,6 +470,30 @@ export const OCI_SERVICES: readonly OciService[] = [
     portLabel: "ocicontainerengine",
     defaultPort: 8158,
   },
+  {
+    id: "mysql",
+    label: "MySQL HeatWave",
+    description: "Oracle Cloud MySQL HeatWave DB systems, backups and configurations",
+    healthName: "OCIMySQL",
+    portLabel: "ocimysql",
+    defaultPort: 8159,
+  },
+  {
+    id: "logging",
+    label: "Logging",
+    description: "Oracle Cloud Logging log groups, logs and search",
+    healthName: "OCILogging",
+    portLabel: "ocilogging",
+    defaultPort: 8160,
+  },
+  {
+    id: "monitoring",
+    label: "Monitoring",
+    description: "Oracle Cloud Monitoring metrics, queries and alarms",
+    healthName: "OCIMonitoring",
+    portLabel: "ocimonitoring",
+    defaultPort: 8161,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {

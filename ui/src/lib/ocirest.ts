@@ -10,10 +10,20 @@ async function ociGet(
   base: string,
   path: string,
   fetchFn: FetchFn,
+  post?: unknown,
 ): Promise<{ body: unknown; next: string }> {
   let res: Response;
   try {
-    res = await fetchFn(`${base}${path}`);
+    res = await fetchFn(
+      `${base}${path}`,
+      post === undefined
+        ? undefined
+        : {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(post),
+          },
+    );
   } catch (e) {
     throw new GcpRestError(0, "NetworkError", e instanceof Error ? e.message : String(e));
   }
@@ -52,6 +62,35 @@ export async function ociListPages(
     page = next;
   } while (page);
   return out;
+}
+
+/** Like `ociListPages` for a list that is a POST with a JSON body (Monitoring ListMetrics). */
+export async function ociPostPages(
+  base: string,
+  path: string,
+  query: string,
+  body: unknown,
+  fetchFn: FetchFn = fetch,
+): Promise<Json[]> {
+  const out: Json[] = [];
+  let page = "";
+  do {
+    const qs = [query, page ? `page=${enc(page)}` : ""].filter(Boolean).join("&");
+    const res = await ociGet(base, qs ? `${path}?${qs}` : path, fetchFn, body);
+    out.push(...arr(res.body));
+    page = res.next;
+  } while (page);
+  return out;
+}
+
+/** One POST whose JSON answer is returned with the opc-next-page token (log search, metric queries). */
+export function ociPostOne(
+  base: string,
+  path: string,
+  body: unknown,
+  fetchFn: FetchFn = fetch,
+): Promise<{ body: unknown; next: string }> {
+  return ociGet(base, path, fetchFn, body);
 }
 
 export async function ociGetOne(
