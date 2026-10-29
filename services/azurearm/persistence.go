@@ -39,6 +39,7 @@ type armSnapshot struct {
 	Network             *networkSnapshot           `json:"network,omitempty"`
 	ManagedIdentity     *managedIdentitySnapshot   `json:"managedIdentity,omitempty"`
 	Compute             *computeSnapshot           `json:"compute,omitempty"`
+	ContainerApps       *containerAppsSnapshot     `json:"containerApps,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -221,6 +222,10 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.Compute = p.snapshot()
 	}
 
+	if p, ok := h.containerAppsProvider(); ok {
+		st.ContainerApps = p.snapshot()
+	}
+
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
 
@@ -271,6 +276,13 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		p.restore(snap.ContainerInstance)
 	}
 
+	h.restoreInfra(snap)
+
+	return nil
+}
+
+// restoreInfra restores the network, identity, compute and container apps providers.
+func (h *Handler) restoreInfra(snap armSnapshot) {
 	if p, ok := h.networkProvider(); ok {
 		p.restore(snap.Network)
 	}
@@ -283,5 +295,7 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		p.restore(snap.Compute)
 	}
 
-	return nil
+	if p, ok := h.containerAppsProvider(); ok {
+		p.restore(snap.ContainerApps)
+	}
 }

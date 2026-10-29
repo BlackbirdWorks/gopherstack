@@ -190,6 +190,8 @@ func namespaceAPIVersions(ns string) []string {
 		return msiAPIVersions()
 	case namespaceMicrosoftCompute:
 		return computeAPIVersions()
+	case namespaceMicrosoftApp:
+		return acaAPIVersions()
 	}
 
 	return networkAPIVersions()
@@ -306,6 +308,10 @@ func isSyncType(id ResourceID) bool {
 	}
 
 	if strings.EqualFold(id.Namespace, namespaceMicrosoftCompute) && strings.EqualFold(firstType(id), cmpAvSets) {
+		return true
+	}
+
+	if strings.EqualFold(id.Namespace, namespaceMicrosoftApp) && acaTargetOf(id).kind == acaKindStorage {
 		return true
 	}
 

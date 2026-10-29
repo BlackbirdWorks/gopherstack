@@ -197,10 +197,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	registry.Register(NewMonitorProvider(namespaceMicrosoftInsights, backend, nil))
 
 	ids := registerLocalProviders(registry, backend, settings)
-
-	aci := NewContainerInstanceProvider(newACIEngine(ctx, settings))
-	aci.ids = ids
-	registry.Register(aci)
+	registerContainerProviders(registry, backend, newACIEngine(ctx, settings), ids)
 
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
@@ -257,4 +254,18 @@ func registerLocalProviders(registry *Registry, backend *InMemoryBackend, settin
 	registry.Register(NewComputeProvider(backend, network, ids))
 
 	return ids
+}
+
+// registerContainerProviders registers Container Instances and Container Apps over one shared container engine.
+func registerContainerProviders(registry *Registry, backend *InMemoryBackend, engine *ACIEngine, ids *identityService) {
+	aci := NewContainerInstanceProvider(engine)
+	aci.ids = ids
+	registry.Register(aci)
+
+	var network *NetworkProvider
+	if np, ok := registry.ProviderNamed(namespaceMicrosoftNetwork); ok {
+		network, _ = np.(*NetworkProvider)
+	}
+
+	registry.Register(NewContainerAppsProvider(engine, backend, network, ids))
 }

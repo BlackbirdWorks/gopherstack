@@ -132,6 +132,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		path := strings.TrimSuffix(r.URL.Path, "/")
 		segs := splitARMPath(path)
 
+		if cp, ok := h.containerAppsProvider(); ok && cp.ServeIngress(c.Response(), r) {
+			return nil
+		}
+
 		host := hostFromHostHeader(r.Host)
 		ctx := WithRequestHost(r.Context(), host)
 		c.SetRequest(r.WithContext(ctx))
@@ -433,8 +437,8 @@ var armResourceRoutes = []armRoute{
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 	for _, table := range [][]armRoute{
 		eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes, eventGridRoutes, appConfigRoutes, containerRegistryRoutes,
-		monitorRoutes, redisRoutes, sqlRoutes, containerInstanceRoutes, networkRoutes, managedIdentityRoutes, computeRoutes,
-		webRoutes, storageFileServiceRoutes, armResourceRoutes,
+		monitorRoutes, redisRoutes, sqlRoutes, containerInstanceRoutes, containerAppsRoutes, networkRoutes,
+		managedIdentityRoutes, computeRoutes, webRoutes, storageFileServiceRoutes, armResourceRoutes,
 	} {
 		if handled, err := matchRoutes(table, h, c, segs); handled {
 			return err

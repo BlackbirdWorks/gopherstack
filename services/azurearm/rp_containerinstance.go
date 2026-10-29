@@ -217,7 +217,7 @@ func (p *ContainerInstanceProvider) Reset() {
 	p.groups = map[string]*storedACIGroup{}
 	p.mu.Unlock()
 
-	p.engine.RemoveAll()
+	p.engine.RemoveUnprefixed(acaKeyPrefix)
 }
 
 // DeleteResourcesInGroup implements ResourceProvider.

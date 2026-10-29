@@ -598,6 +598,7 @@ type CLI struct {
 	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"                         default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
 	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"                  default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
 	Pods                          PodsConfig                        `embed:"" prefix:"pod-"`
+	MCP                           MCPConfig                         `embed:"" prefix:"mcp-"`
 	Extensions                    extensions.Settings               `embed:""`
 	DockerRegistry                registryauth.Settings             `embed:""`
 	OCIObjectStorage              ociobjectstoragebackend.Settings  `embed:"" prefix:"oci-objectstorage-"`
@@ -2427,6 +2428,7 @@ type rootCLI struct {
 	Snapshot  SnapshotCmd  `cmd:"" help:"Save, load and list state snapshots (alias of pod)."`
 	Pod       PodCmd       `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
 	Replicate ReplicateCmd `cmd:"" help:"Copy resources from real AWS into a running server."`
+	Mcp       McpCmd       `cmd:"" help:"Serve MCP tools over stdio for a running Gopherstack."`
 	Serve     CLI          `cmd:"" help:"Start the Gopherstack server."                            default:"withargs"`
 }
 
@@ -2503,7 +2505,7 @@ func Run() {
 		"pod versions <name>",
 		"pod delete <name>",
 		"pod inspect <name>",
-		"replicate":
+		"replicate", "mcp":
 		err = kctx.Run()
 	default:
 		// Opt-in pprof server for local profiling / PGO data collection.
@@ -3051,6 +3053,7 @@ func buildEchoServer(
 
 	registerPodEndpoints(ctx, log, e, cli.Pods, cli.resolvedDataDir(), persistManager, services)
 	registerReplicateEndpoints(ctx, e)
+	registerMCPEndpoint(ctx, log, e, cli.MCP)
 
 	registerWebsiteRoutes(e, services)
 
@@ -13938,7 +13941,9 @@ func wireAzureARMResourceProviders(armReg, sbReg, kvReg, cosmosReg, ehReg servic
 	wireAzureARMEventHubs(armReg, ehReg)
 
 	if kvH, kvOk := kvReg.(*azurekeyvaultbackend.Handler); kvOk {
-		armH.Registry.SetKeyVaults(&azureKeyVaultsAdapter{backend: kvH.Backend})
+		kvAdapter := &azureKeyVaultsAdapter{backend: kvH.Backend}
+		armH.Registry.SetKeyVaults(kvAdapter)
+		armH.Registry.SetKeyVaultSecrets(kvAdapter)
 	}
 
 	if cosmosH, cosmosOk := cosmosReg.(*cosmosdbbackend.Handler); cosmosOk {
