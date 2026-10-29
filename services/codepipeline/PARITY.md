@@ -139,6 +139,9 @@ families:
   approvalGate: {status: ok, note: "NEW in the 2026-07-23 pass: StartPipelineExecution/PutActionRevision/PutApprovalResult/RetryStageExecution/RollbackStage all now share one action-run engine (action_engine.go) that gates on Approval-category actions with a real system-generated token, exposed only via GetPipelineState (matching real AWS -- there is no other way for a real client to obtain it). This closed 3 of the 4 gaps and all 3 deferred items from the 2026-07-12 audit at once, since they all stemmed from the SAME missing action-state machine. Unchanged, not re-diffed this pass."}
 gaps: []
 items_still_open:
+  - "Source/CodeStarSourceConnection always FAILS the action (ConfigurationError): the emulator's codeconnections service stores connection metadata only and holds no GitHub/Bitbucket/GitLab repository content to build an artifact from. Source/CodeCommit supports OutputArtifactFormat CODE_ZIP only (CODEBUILD_CLONE_REF fails)."
+  - "No automatic source-change detection: PollForSourceChanges and EventBridge-driven triggers for S3/ECR/CodeCommit sources are not modelled; executions start via StartPipelineExecution (or an EventBridge/Scheduler target). Source/ECR therefore always reads the current tag at execution start and ignores source-revision overrides."
+  - "Deploy/ECS completion is read from the ECS backend's per-deployment rolloutState (a single remaining deployment with rollout COMPLETED, falling back to runningCount >= desiredCount); the emulator's ECS reconciler takes ~10s to settle a one-task service. DeploymentTimeout (default 60 min) is enforced against the backend clock (SetClock). Deploy/CloudFormation ignores RoleArn for authorization and writes OutputFileName as the only file in the output artifact (real CodePipeline's artifact layout for it is undocumented beyond 'a JSON file with the specified name'). Fn::GetArtifactAtt URL is https://s3.<region>.amazonaws.com/<bucket>/<key>."
   - "gopherstack-wlab (2026-09-08, reconfirmed 2026-09-18): CreateCustomActionType/DeleteCustomActionType/DeletePipeline/UpdatePipeline/OverrideStageCondition/RetryStageExecution/StopPipelineExecution each emit a wire error code (InvalidStructureException/ActionTypeNotFoundException/PipelineNotFoundException x2/PipelineExecutionNotFoundException x3) absent from that op's own declared set per botocore codepipeline/2015-07-09/service-2.json; every declared candidate's doc text was checked and none fits, and a real client's errors.As still resolves each to its own concrete type (undeclared_error_codes_test.go). The real code is not determinable from the SDK."
   - "No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts)."
   - "handleError's InvalidActionException (unknown-action routing fallback) names no type codepipeline@v1.49.4 declares; see the 2026-08-29 errcodeaudit note."
@@ -148,7 +151,7 @@ structural_gaps:
   - "JobData/ThirdPartyJobData omit ArtifactCredentials, InputArtifacts, OutputArtifacts and EncryptionKey: no artifact store or STS exists to issue them."
   - "ListDeployActionExecutionTargets returns empty: no real deploy targets exist behind Deploy actions."
   - "ListWebhookItem.ErrorCode/ErrorMessage are never set: webhook registration against a third party cannot fail in an emulator."
-  - "Built-in action providers other than Build/CodeBuild, Invoke/Lambda, Deploy/CodeDeploy and Source/Deploy S3 (ECR, CodeCommit, ...) always Succeed in runOneAction: no real source/deploy targets. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult)."
+  - "Built-in action providers the emulator does not implement (Build/ECRBuildAndPublish, Test/DeviceFarm, Deploy/ElasticBeanstalk, ServiceCatalog, AppConfig, OpsWorks, Alexa, CodeDeployToECS, CloudFormationStackSet, CloudFormationStackInstances, EKS, EC2, Invoke/StepFunctions, Invoke/InspectorScan, Compute/Commands) FAIL the action with ConfigurationError 'not supported by this emulator' rather than succeeding. Implemented built-ins: Manual approval, CodeBuild, Lambda, CodeDeploy, S3 source/deploy, CloudFormation deploy, ECS deploy, ECR source, CodeCommit source. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult)."
   - "Build/CodeBuild waits for the real build status, but the emulated build runs no buildspec: the primary input artifact is passed through unchanged as every output artifact, and exported variables are not produced. Source/S3 and Deploy/S3 move real objects when the S3 seam is wired (internal/app/cli.go wireCodePipelineS3); the artifact store key is derived from pipeline, artifact name and execution ID. A missing source object fails the action with ConfigurationError (code chosen from the FailureType enum; the docs name none)."
 deferred:
   - "Subsystem-gated work: see items_still_open."
@@ -657,3 +660,18 @@ GetPipelineState now returns stage-level latestExecution ({pipelineExecutionId, 
 ## 2026-10-12 (deep realism pass)
 
 ListActionExecutions returns each action's `input` (actionTypeId, configuration, region, roleArn, namespace) from the pipeline declaration and the execution's pipelineVersion (`TestListActionExecutions_InputAndVersion`). Still open, needing internal/app/cli.go wiring: Source/S3 and Deploy/S3 actions do not touch S3 (no revision ids, no artifacts written), and Build/CodeBuild succeeds on StartBuild acceptance instead of waiting for the build's final status; both need a status-returning CodeBuild seam and an S3 seam passed in from internal/app/cli.go.
+
+### 2026-10-27: built-in action engine (gopherstack-49qct.67)
+
+Unknown AWS-owned action types (category/provider/version not in the action structure reference, or a
+CloudFormation ActionMode outside the five documented values) are rejected at CreatePipeline/UpdatePipeline with
+InvalidActionDeclarationException; required-configuration keys are not enforced at declaration time. At run time
+any AWS-owned provider the emulator does not implement fails with ConfigurationError instead of the previous silent
+Succeeded. New real providers: Deploy/CloudFormation (all five ActionModes, TemplatePath/TemplateConfiguration,
+ParameterOverrides with Fn::GetParam/Fn::GetArtifactAtt, Capabilities, OutputFileName, stack outputs as output
+variables; waits for the stack's terminal status and fails with its status reason), Deploy/ECS (imagedefinitions.json
+-> new task definition revision -> UpdateService -> wait for rollout), Source/ECR (imageDetail.json per the
+file-reference docs, output variables RegistryId/RepositoryName/ImageTag/ImageDigest/ImageURI), Source/CodeCommit
+(branch head files as a zip, CommitId/BranchName/RepositoryName/CommitMessage variables). Backends are wired in
+internal/app/codepipeline_action_wiring.go. Tests: internal/app/codepipeline_actions_test.go (SDK) and
+services/codepipeline/async_builtin_actions_test.go.

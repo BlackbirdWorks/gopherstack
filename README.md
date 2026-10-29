@@ -851,7 +851,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CodeCommit](services/codecommit/README.md) | A | 80 | 1 gap; 1 structural gap |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 1 gap |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 3 structural gaps; 1 deferred |
-| [CodePipeline](services/codepipeline/README.md) | A | 22 | 3 gaps; 7 structural gaps; 1 deferred |
+| [CodePipeline](services/codepipeline/README.md) | A | 22 | 6 gaps; 7 structural gaps; 1 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
 | [X-Ray](services/xray/README.md) | A | 38 | 2 gaps; 6 structural gaps; 1 deferred |

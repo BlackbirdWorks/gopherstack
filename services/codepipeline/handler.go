@@ -318,6 +318,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrResourceNotFound, "ResourceNotFoundException"},
 		{ErrStageNotFound, "StageNotFoundException"},
 		{ErrInvalidStructure, "InvalidStructureException"},
+		{ErrInvalidActionDeclaration, "InvalidActionDeclarationException"},
 		{ErrExecutionNotFound, "PipelineExecutionNotFoundException"},
 		{ErrVersionNotFound, "PipelineVersionNotFoundException"},
 		{ErrActionNotFound, "ActionNotFoundException"},
