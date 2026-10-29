@@ -264,7 +264,11 @@ func (h *Handler) handleDescribeJobs(ctx context.Context, in *describeJobsInput)
 
 func jobNodeDetails(j *Job) *nodeDetails {
 	if j.nodeIndex == nil {
-		return nil
+		if j.NodeProperties == nil {
+			return nil
+		}
+
+		return &nodeDetails{IsMainNode: true, NodeIndex: j.NodeProperties.MainNode}
 	}
 
 	return &nodeDetails{IsMainNode: j.isMainNode, NodeIndex: *j.nodeIndex}

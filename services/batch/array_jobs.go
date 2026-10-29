@@ -237,6 +237,10 @@ func nodeJobFrom(parent *Job, np *NodeProperties, index int32) *Job {
 	n.isMainNode = index == np.MainNode
 	n.Attempts = nil
 
+	if int(index) < len(parent.nodeRuns) {
+		parent.nodeRuns[index].applyTo(&n)
+	}
+
 	return &n
 }
 

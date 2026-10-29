@@ -42,6 +42,7 @@ type runState struct {
 	cancel     context.CancelFunc
 	timer      *time.Timer
 	arrayIndex *int32
+	nodes      []*nodePlan
 	logGroup   string
 	jobRoleArn string
 	region     string
@@ -55,6 +56,8 @@ type runState struct {
 	timeout    time.Duration
 	vcpus      float64
 	attempt    int32
+	mainNode   int32
+	numNodes   int32
 	timedOut   atomic.Bool
 }
 
@@ -150,7 +153,11 @@ func (b *InMemoryBackend) execOwnsLocked(job *Job) bool {
 
 	jd, ok := b.jobDefinitions.Get(regionKey(job.region, job.JobDefinition))
 
-	return ok && jd.NodeProperties == nil && jd.ContainerProperties != nil && jd.ContainerProperties.Image != ""
+	if ok && jd.NodeProperties != nil {
+		return b.nodesExecutableLocked(job)
+	}
+
+	return ok && jd.ContainerProperties != nil && jd.ContainerProperties.Image != ""
 }
 
 type dispatchCandidate struct {
@@ -255,6 +262,12 @@ func (b *InMemoryBackend) tryStartLocked(job *Job) {
 		return
 	}
 
+	if jd.NodeProperties != nil {
+		b.tryStartMultiNodeLocked(job, jd, jq)
+
+		return
+	}
+
 	detail := b.buildJobContainerDetail(job.region, job)
 	if detail == nil {
 		return
@@ -306,22 +319,9 @@ func (b *InMemoryBackend) newRunStateLocked(
 		jobRoleArn: detail.JobRoleArn,
 		attempt:    job.attemptCount + 1,
 		timeout:    time.Duration(b.effectiveTimeoutSeconds(job)) * time.Second,
-		logGroup:   defaultBatchLogGroup,
 	}
 
-	prefix := jd.JobDefinitionName
-
-	if lc := detail.LogConfiguration; lc != nil {
-		if g := lc.Options[logGroupOption]; g != "" {
-			rs.logGroup = g
-		}
-
-		if p := lc.Options[logStreamPrefixOpt]; p != "" {
-			prefix = p
-		}
-	}
-
-	rs.logStream = fmt.Sprintf("%s/default/%s", prefix, newTaskID())
+	rs.logGroup, rs.logStream = logTarget(detail, jd.JobDefinitionName)
 
 	if job.ArrayParentID != "" && job.ArrayProperties != nil {
 		idx := job.ArrayProperties.Index
@@ -329,6 +329,23 @@ func (b *InMemoryBackend) newRunStateLocked(
 	}
 
 	return rs
+}
+
+// logTarget resolves the CloudWatch log group and a fresh stream name for a container.
+func logTarget(detail *ContainerDetail, defName string) (string, string) {
+	group, prefix := defaultBatchLogGroup, defName
+
+	if lc := detail.LogConfiguration; lc != nil {
+		if g := lc.Options[logGroupOption]; g != "" {
+			group = g
+		}
+
+		if p := lc.Options[logStreamPrefixOpt]; p != "" {
+			prefix = p
+		}
+	}
+
+	return group, fmt.Sprintf("%s/default/%s", prefix, newTaskID())
 }
 
 // pickCELocked returns the first queue-ordered compute environment that is
