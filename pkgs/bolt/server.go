@@ -37,6 +37,7 @@ const (
 	CodeSyntax        = "Neo.ClientError.Statement.SyntaxError"
 	CodeInvalid       = "Neo.ClientError.Request.Invalid"
 	CodeUnauthorized  = "Neo.ClientError.Security.Unauthorized"
+	CodeForbidden     = "Neo.ClientError.Security.Forbidden"
 	CodeConstraint    = "Neo.ClientError.Schema.ConstraintValidationFailed"
 	CodeTransient     = "Neo.TransientError.Transaction.Terminated"
 	CodeDatabaseError = "Neo.DatabaseError.General.UnknownError"
