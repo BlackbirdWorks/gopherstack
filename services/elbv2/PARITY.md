@@ -90,7 +90,7 @@ items_still_open:
   - "Kept lenient for in-repo fixtures: a target group attached to no listener reports healthy (real AWS: unused/Target.NotInUse), an ALB with subnets in one AZ is accepted, and health-check defaults stay 3/3/5 because the SDK docs and observed AWS values disagree."
   - "LB VpcId/ZoneName from the real subnet needs internal/app/cli.go to give elbEC2ResolverAdapter SubnetVPC(id) and SubnetAZ(id) (same bodies as efsEC2ResolverAdapter); until then they stay vpc-00000000 and index-derived zones."
 structural_gaps:
-  - "Data plane has no real listener sockets or TLS: HTTPS listeners are served as plain HTTP on the emulator port (X-Forwarded-Proto reports the listener protocol), the client address is the TCP peer of the emulator, and HTTP/2, gRPC and WebSocket upgrades are not proxied."
+  - "Default (--elbv2-listeners=routed) data plane has no real listener sockets or TLS: HTTPS listeners are served as plain HTTP on the emulator port and the client address is the TCP peer of the emulator. --elbv2-listeners=real binds a socket per listener (see 2026-10-29 section); HTTP/2, gRPC, mTLS, UDP proxy protocol and IAM-uploaded server certificates (no private key stored) are not served even there."
   - "GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound."
 deferred:
   - "TargetHealth.AnomalyDetection and AdministrativeOverride are never returned: no anomaly-mitigation or zonal-shift subsystem exists to source them, and the default values AWS reports when idle are unverified."
@@ -601,3 +601,21 @@ Fixed on the way: the HTTP health probe always hit the target group port instead
 ## 2026-10-11 reserved ID-pinning tag (gopherstack-cefu7.23)
 
 `CreateLoadBalancer` honours the emulator-only `gopherstack:id` tag to pin the ARN suffix (16 lowercase hex digits). The tag is consumed, never stored or listed; a malformed ID returns `ValidationError`, a reused ID `DuplicateLoadBalancerName`, and `AddTags` rejects the key. See docs/pinned-ids.md.
+
+## 2026-10-29 real listeners (gopherstack-49qct.73)
+
+`--elbv2-listeners=real` (`ELBV2_LISTENERS`, default `routed`; bind address `--elbv2-listener-host`, default 127.0.0.1) binds a local socket per listener.
+Requested port >= 1024 and free binds directly; otherwise a port comes from the shared pool (`ctx.PortAlloc`, ephemeral when nil). The mapping is
+`InMemoryBackend.ListenerEndpoint(s)` and `GET /_gopherstack/elbv2/_listeners`. Create/Modify (port or protocol change)/Delete listener, DeleteLoadBalancer,
+Restore and Close reconcile sockets; policy and certificate changes apply on the next handshake without a rebind.
+
+- ALB HTTP/HTTPS run the existing rule engine and target forwarding. HTTPS terminates TLS with ACM certs (`CertificateKeyPairResolver`; imported and
+  emulator-issued certs both hold a private key). SNI: matching certificates among the listener list win (ECDSA before RSA, then latest expiry), no SNI or
+  no match uses the default certificate, matches the client cannot use fail the handshake (docs: https-listener-certificates). The default certificate
+  always takes part in SNI matching, a leniency over the docs (they require AddListenerCertificates).
+- SslPolicy derives min/max version and TLS 1.2 suites from `ssl_policy_catalog.go`; suites Go lacks (ECDHE CBC-SHA384, RSA AES256-SHA256) are dropped;
+  TLS 1.3 suites are not configurable in Go. Default policy ELBSecurityPolicy-2016-08.
+- X-Forwarded-For honours `routing.http.xff_header_processing.mode` (append/preserve/remove) and `routing.http.xff_client_port.enabled` on the load
+  balancer, in routed mode too. HTTPS adds X-Amzn-Tls-Version and X-Amzn-Tls-Cipher-Suite. WebSocket upgrades are tunnelled in both modes.
+- NLB TCP, TLS (terminate, then plain or TLS to the target), UDP (120 s flow idle) and TCP_UDP proxy to the forward action's target group. TLS ALPN policy
+  is honoured. `proxy_protocol_v2.enabled` prepends a PROXY v2 header (no TLVs) on TCP; not on UDP. NLB listener rules (source-ip) and TLS session resumption are not modelled.

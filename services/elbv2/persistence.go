@@ -80,9 +80,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return persistence.MarshalSnapshot(ctx, "elbv2", snap)
 }
 
-// Restore loads backend state from a JSON snapshot.
-// It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
+// restore loads backend state from a JSON snapshot.
+func (b *InMemoryBackend) restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
 	if err := persistence.UnmarshalSnapshot(ctx, "elbv2", data, &snap); err != nil {

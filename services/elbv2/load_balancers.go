@@ -536,8 +536,8 @@ func sortLoadBalancersByName(result []LoadBalancer) {
 	})
 }
 
-// DeleteLoadBalancer deletes a load balancer by ARN.
-func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
+// deleteLoadBalancer deletes a load balancer by ARN.
+func (b *InMemoryBackend) deleteLoadBalancer(lbArn string) error {
 	b.mu.Lock("DeleteLoadBalancer")
 	defer b.mu.Unlock()
 
