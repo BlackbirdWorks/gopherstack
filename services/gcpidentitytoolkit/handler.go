@@ -32,6 +32,7 @@ const (
 	readTimeout       = 5 * time.Minute
 	idleTimeout       = 120 * time.Second
 	keyCacheSeconds   = 3600
+	supportedOpCount  = 14
 )
 
 // Handler serves the Identity Toolkit and Secure Token REST APIs on a dedicated listener.
@@ -62,14 +63,12 @@ func (h *Handler) Name() string { return "GCPIdentityToolkit" }
 
 // GetSupportedOperations lists the supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	ops := []string{
-		"AdminCreate", "BatchGet", "CreateSessionCookie", "Token", "PublicKeys", "GetConfig", "UpdateConfig",
-		"ListTenants", "CreateTenant", "GetTenant", "UpdateTenant", "DeleteTenant", "ListOobCodes", "ClearAccounts",
-	}
-
-	for _, v := range accountVerbs {
-		ops = append(ops, v)
-	}
+	ops := make([]string, 0, supportedOpCount+len(accountVerbs))
+	ops = append(ops,
+		opAdminCreate, opBatchGet, opCreateSessionCookie, opToken, opPublicKeys, opGetConfig, opUpdateConfig,
+		opListTenants, opCreateTenant, opGetTenant, opUpdateTenant, opDeleteTenant, opListOobCodes, opClearAccounts,
+	)
+	ops = append(ops, accountVerbs...)
 
 	return ops
 }
@@ -115,7 +114,8 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 func (h *Handler) fail(c *echo.Context, err error) error {
 	var ae *APIError
 	if !errors.As(err, &ae) {
-		logger.Load(c.Request().Context()).ErrorContext(c.Request().Context(), "gcpidentitytoolkit: internal error", "error", err)
+		logger.Load(c.Request().Context()).
+			ErrorContext(c.Request().Context(), "gcpidentitytoolkit: internal error", "error", err)
 
 		ae = &APIError{HTTP: http.StatusInternalServerError, Status: "INTERNAL", Message: "Internal error encountered."}
 	}
@@ -192,16 +192,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-
 func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 	cl := h.call(c, rt)
 
 	switch rt.op {
-	case "Token":
+	case opToken:
 		return h.token(c)
-	case "PublicKeys":
+	case opPublicKeys:
 		return h.publicKeys(c)
-	case "ListOobCodes", "ClearAccounts":
+	case opListOobCodes, opClearAccounts:
 		return h.emulatorOp(rt, cl)
 	}
 
@@ -213,8 +212,7 @@ func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 		return nil, errNoKey()
 	}
 
-	switch rt.version {
-	case "v2":
+	if rt.version == "v2" {
 		return h.adminV2(c, rt)
 	}
 
@@ -222,11 +220,11 @@ func (h *Handler) dispatch(c *echo.Context, rt route) (any, error) {
 }
 
 //nolint:gochecknoglobals // immutable lookup table
-var adminOps = []string{"AdminCreate", "BatchGet", "batchCreate", "batchDelete", "query", "CreateSessionCookie"}
+var adminOps = []string{opAdminCreate, opBatchGet, opBatchCreate, opBatchDelete, opQuery, opCreateSessionCookie}
 
 func (h *Handler) emulatorOp(rt route, cl call) (any, error) {
 	switch rt.op {
-	case "ListOobCodes":
+	case opListOobCodes:
 		codes, err := h.Backend.OOBCodes(cl.project, rt.tenant)
 		if err != nil {
 			return nil, err
@@ -252,9 +250,9 @@ func adminGuard(cl call) error {
 
 func (h *Handler) accountOp(c *echo.Context, rt route, cl call) (any, error) {
 	switch rt.op {
-	case "BatchGet":
+	case opBatchGet:
 		return h.batchGet(c, cl)
-	case "batchCreate":
+	case opBatchCreate:
 		if err := adminGuard(cl); err != nil {
 			return nil, err
 		}
@@ -265,7 +263,7 @@ func (h *Handler) accountOp(c *echo.Context, rt route, cl call) (any, error) {
 		}
 
 		return h.Backend.BatchCreate(cl, req)
-	case "batchDelete":
+	case opBatchDelete:
 		if err := adminGuard(cl); err != nil {
 			return nil, err
 		}
@@ -280,7 +278,7 @@ func (h *Handler) accountOp(c *echo.Context, rt route, cl call) (any, error) {
 		}
 
 		return h.Backend.BatchDelete(cl, req.LocalIDs, req.Force, req.TenantID)
-	case "query":
+	case opQuery:
 		if err := adminGuard(cl); err != nil {
 			return nil, err
 		}
@@ -307,7 +305,7 @@ func (h *Handler) authOp(op string, cl call, req *authRequest) (any, error) {
 	switch op {
 	case "signUp":
 		return b.SignUp(cl, req)
-	case "AdminCreate":
+	case opAdminCreate:
 		return b.AdminCreate(cl, req)
 	case "signInWithPassword":
 		return b.SignInWithPassword(cl, req)
@@ -324,14 +322,14 @@ func (h *Handler) authOp(op string, cl call, req *authRequest) (any, error) {
 			return nil, err
 		}
 
-		return map[string]any{"kind": "identitytoolkit#DeleteAccountResponse"}, nil
+		return map[string]any{keyKind: "identitytoolkit#DeleteAccountResponse"}, nil
 	case "sendOobCode":
 		return b.SendOobCode(cl, req)
-	case "resetPassword":
+	case opResetPassword:
 		return b.ResetPassword(cl, req)
 	case "createAuthUri":
 		return b.CreateAuthURI(cl, req)
-	case "CreateSessionCookie":
+	case opCreateSessionCookie:
 		return b.CreateSessionCookie(cl, req)
 	}
 
@@ -343,7 +341,7 @@ func (h *Handler) batchGet(c *echo.Context, cl call) (any, error) {
 		return nil, err
 	}
 
-	max := 0
+	maxResults := 0
 
 	if raw := c.QueryParam("maxResults"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -351,68 +349,85 @@ func (h *Handler) batchGet(c *echo.Context, cl call) (any, error) {
 			return nil, idtk("INVALID_MAX_RESULTS")
 		}
 
-		max = n
+		maxResults = n
 	}
 
-	return h.Backend.BatchGet(cl, c.QueryParam("tenantId"), c.QueryParam("nextPageToken"), max)
+	return h.Backend.BatchGet(cl, c.QueryParam("tenantId"), c.QueryParam("nextPageToken"), maxResults)
 }
 
 func (h *Handler) adminV2(c *echo.Context, rt route) (any, error) {
+	switch rt.op {
+	case opGetConfig, opUpdateConfig:
+		return h.configOp(c, rt)
+	case opListTenants:
+		return h.listTenants(c, rt)
+	case opCreateTenant, opGetTenant, opUpdateTenant, opDeleteTenant:
+		return h.tenantOp(c, rt)
+	}
+
+	return nil, errNotFound("NOT_FOUND")
+}
+
+func (h *Handler) configOp(c *echo.Context, rt route) (any, error) {
+	if rt.op == opGetConfig {
+		return h.Backend.GetConfig(rt.project), nil
+	}
+
+	_, raw, err := readJSON[idtkv2.GoogleCloudIdentitytoolkitAdminV2Config](c)
+	if err != nil {
+		return nil, err
+	}
+
+	return h.Backend.UpdateConfig(rt.project, raw, c.QueryParam("updateMask"))
+}
+
+func (h *Handler) tenantOp(c *echo.Context, rt route) (any, error) {
 	b := h.Backend
 
 	switch rt.op {
-	case "GetConfig":
-		return b.GetConfig(rt.project), nil
-	case "UpdateConfig":
-		_, raw, err := readJSON[idtkv2.GoogleCloudIdentitytoolkitAdminV2Config](c)
-		if err != nil {
-			return nil, err
-		}
-
-		return b.UpdateConfig(rt.project, raw, c.QueryParam("updateMask"))
-	case "CreateTenant":
+	case opCreateTenant:
 		in, _, err := readJSON[idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant](c)
 		if err != nil {
 			return nil, err
 		}
 
 		return b.CreateTenant(rt.project, in)
-	case "GetTenant":
+	case opGetTenant:
 		return b.GetTenant(rt.project, rt.id)
-	case "UpdateTenant":
+	case opUpdateTenant:
 		_, raw, err := readJSON[idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant](c)
 		if err != nil {
 			return nil, err
 		}
 
 		return b.UpdateTenant(rt.project, rt.id, raw, c.QueryParam("updateMask"))
-	case "DeleteTenant":
-		if err := b.DeleteTenant(rt.project, rt.id); err != nil {
-			return nil, err
-		}
-
-		return map[string]any{}, nil
-	case "ListTenants":
-		size := 0
-
-		if raw := c.QueryParam("pageSize"); raw != "" {
-			n, err := strconv.Atoi(raw)
-			if err != nil || n < 0 {
-				return nil, errInvalidArg("Invalid page size.")
-			}
-
-			size = n
-		}
-
-		pg, err := b.ListTenants(rt.project, c.QueryParam("pageToken"), size)
-		if err != nil {
-			return nil, err
-		}
-
-		return &idtkv2.GoogleCloudIdentitytoolkitAdminV2ListTenantsResponse{Tenants: pg.Data, NextPageToken: pg.Next}, nil
 	}
 
-	return nil, errNotFound("NOT_FOUND")
+	if err := b.DeleteTenant(rt.project, rt.id); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+func (h *Handler) listTenants(c *echo.Context, rt route) (any, error) {
+	size := 0
+
+	if raw := c.QueryParam("pageSize"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return nil, errInvalidArg("Invalid page size.")
+		}
+
+		size = n
+	}
+
+	pg, err := h.Backend.ListTenants(rt.project, c.QueryParam("pageToken"), size)
+	if err != nil {
+		return nil, err
+	}
+
+	return &idtkv2.GoogleCloudIdentitytoolkitAdminV2ListTenantsResponse{Tenants: pg.Data, NextPageToken: pg.Next}, nil
 }
 
 func (h *Handler) token(c *echo.Context) (any, error) {
@@ -466,7 +481,7 @@ func (h *Handler) publicKeys(c *echo.Context) (any, error) {
 
 func jwkOf(kid string, pub *rsa.PublicKey) map[string]string {
 	return map[string]string{
-		"kty": "RSA", "alg": "RS256", "use": "sig", "kid": kid,
+		"kty": "RSA", "alg": algRS256, "use": "sig", "kid": kid,
 		"n": base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
 		"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
 	}
@@ -488,7 +503,12 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	e.Use(logger.EchoMiddleware(log))
 	e.Any("/*", telemetry.WrapEchoHandler("GCPIdentityToolkit", h.Handler(), h))
 
-	srv := &http.Server{Handler: e, ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: readTimeout, IdleTimeout: idleTimeout}
+	srv := &http.Server{
+		Handler:           e,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+	}
 
 	h.srvMu.Lock("StartWorker")
 	h.srv, h.addr = srv, listener.Addr().String()

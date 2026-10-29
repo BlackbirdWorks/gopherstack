@@ -22,17 +22,28 @@ func TestSignUpAndSignIn(t *testing.T) {
 	}{
 		{name: "ok", email: "a@example.com", pw: "secret1", status: http.StatusOK},
 		{name: "email case folded", email: "Mixed@Example.com", pw: "secret1", status: http.StatusOK},
-		{name: "weak password", email: "b@example.com", pw: "123", status: 400, msg: "WEAK_PASSWORD : Password should be at least 6 characters"},
+		{
+			name:   "weak password",
+			email:  "b@example.com",
+			pw:     "123",
+			status: 400,
+			msg:    "WEAK_PASSWORD : Password should be at least 6 characters",
+		},
 		{name: "bad email", email: "not-an-email", pw: "secret1", status: 400, msg: "INVALID_EMAIL"},
 		{name: "missing password", email: "c@example.com", status: 400, msg: "MISSING_PASSWORD"},
 		{
 			name: "duplicate", email: "d@example.com", pw: "secret1", status: 400, msg: "EMAIL_EXISTS",
-			prep: func(t *testing.T, e *env) { e.signUp(t, "D@example.com", "secret1") },
+			prep: func(t *testing.T, e *env) {
+				t.Helper()
+				e.signUp(t, "D@example.com")
+			},
 		},
 		{
 			name: "provider disabled", email: "e@example.com", pw: "secret1", status: 400,
 			msg: "OPERATION_NOT_ALLOWED : Password sign-in is disabled for this project.",
 			prep: func(t *testing.T, e *env) {
+				t.Helper()
+
 				e.setConfig(t, map[string]any{"signIn": map[string]any{"email": map[string]any{"enabled": false}}})
 			},
 		},
@@ -61,7 +72,11 @@ func TestSignUpAndSignIn(t *testing.T) {
 			assert.NotEmpty(t, r.str("refreshToken"))
 			assert.Equal(t, "3600", r.str("expiresIn"))
 
-			in := e.client(t, "signInWithPassword", map[string]any{"email": tt.email, "password": tt.pw, "returnSecureToken": true})
+			in := e.client(
+				t,
+				"signInWithPassword",
+				map[string]any{"email": tt.email, "password": tt.pw, "returnSecureToken": true},
+			)
 			require.Equal(t, http.StatusOK, in.status, in.body)
 			assert.Equal(t, r.str("localId"), in.str("localId"))
 			assert.Equal(t, true, in.body["registered"])
@@ -76,15 +91,34 @@ func TestSignInErrors(t *testing.T) {
 		name    string
 		email   string
 		pw      string
+		msg     string
 		privacy bool
 		disable bool
-		msg     string
 	}{
-		{name: "wrong password with protection", email: "u@example.com", pw: "wrongpw", privacy: true, msg: "INVALID_LOGIN_CREDENTIALS"},
-		{name: "unknown email with protection", email: "x@example.com", pw: "wrongpw", privacy: true, msg: "INVALID_LOGIN_CREDENTIALS"},
+		{
+			name:    "wrong password with protection",
+			email:   "u@example.com",
+			pw:      "wrongpw",
+			privacy: true,
+			msg:     "INVALID_LOGIN_CREDENTIALS",
+		},
+		{
+			name:    "unknown email with protection",
+			email:   "x@example.com",
+			pw:      "wrongpw",
+			privacy: true,
+			msg:     "INVALID_LOGIN_CREDENTIALS",
+		},
 		{name: "wrong password without protection", email: "u@example.com", pw: "wrongpw", msg: "INVALID_PASSWORD"},
 		{name: "unknown email without protection", email: "x@example.com", pw: "wrongpw", msg: "EMAIL_NOT_FOUND"},
-		{name: "disabled user", email: "u@example.com", pw: "secret1", privacy: true, disable: true, msg: "USER_DISABLED : The user account has been disabled by an administrator."},
+		{
+			name:    "disabled user",
+			email:   "u@example.com",
+			pw:      "secret1",
+			privacy: true,
+			disable: true,
+			msg:     "USER_DISABLED : The user account has been disabled by an administrator.",
+		},
 	}
 
 	for _, tt := range tests {
@@ -92,9 +126,12 @@ func TestSignInErrors(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			up := e.signUp(t, "u@example.com", "secret1")
+			up := e.signUp(t, "u@example.com")
 
-			e.setConfig(t, map[string]any{"emailPrivacyConfig": map[string]any{"enableImprovedEmailPrivacy": tt.privacy}})
+			e.setConfig(
+				t,
+				map[string]any{"emailPrivacyConfig": map[string]any{"enableImprovedEmailPrivacy": tt.privacy}},
+			)
 
 			if tt.disable {
 				r := e.admin(t, "update", map[string]any{"localId": up.str("localId"), "disableUser": true})
@@ -114,14 +151,27 @@ func TestAuthRequirements(t *testing.T) {
 		name   string
 		path   string
 		auth   string
-		status int
 		msg    string
+		status int
 	}{
-		{name: "client call without key", path: "/v1/accounts:signUp", status: http.StatusForbidden, msg: "The request is missing a valid API key."},
+		{
+			name:   "client call without key",
+			path:   "/v1/accounts:signUp",
+			status: http.StatusForbidden,
+			msg:    "The request is missing a valid API key.",
+		},
 		{name: "client call with key", path: "/v1/accounts:signUp?key=abc", status: http.StatusOK},
-		{name: "admin path without bearer", path: "/v1/projects/p1/accounts:batchGet?key=abc", status: http.StatusUnauthorized},
+		{
+			name:   "admin path without bearer",
+			path:   "/v1/projects/p1/accounts:batchGet?key=abc",
+			status: http.StatusUnauthorized,
+		},
 		{name: "tenants without bearer", path: "/v2/projects/p1/tenants?key=abc", status: http.StatusUnauthorized},
-		{name: "emulator prefix", path: "/identitytoolkit.googleapis.com/v1/accounts:signUp?key=abc", status: http.StatusOK},
+		{
+			name:   "emulator prefix",
+			path:   "/identitytoolkit.googleapis.com/v1/accounts:signUp?key=abc",
+			status: http.StatusOK,
+		},
 		{name: "unknown route", path: "/v1/nope", status: http.StatusNotFound},
 	}
 
@@ -180,7 +230,11 @@ func TestAnonymousSignUp(t *testing.T) {
 			require.Len(t, users, 1)
 			assert.NotContains(t, users[0], "email")
 
-			link := e.client(t, "signUp", map[string]any{"idToken": r.str("idToken"), "email": "anon@example.com", "password": "secret1"})
+			link := e.client(
+				t,
+				"signUp",
+				map[string]any{"idToken": r.str("idToken"), "email": "anon@example.com", "password": "secret1"},
+			)
 			require.Equal(t, http.StatusOK, link.status, link.body)
 			assert.Equal(t, r.str("localId"), link.str("localId"))
 		})
@@ -191,7 +245,7 @@ func TestLookupRedactsHashForClients(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	up := e.signUp(t, "h@example.com", "secret1")
+	up := e.signUp(t, "h@example.com")
 
 	client := e.client(t, "lookup", map[string]any{"idToken": up.str("idToken")})
 	require.Equal(t, http.StatusOK, client.status, client.body)
@@ -220,10 +274,10 @@ func TestUpdateAccount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		body   func(idToken string) map[string]any
-		msg    string
 		check  func(*testing.T, result)
+		name   string
+		msg    string
 		second bool
 	}{
 		{
@@ -232,6 +286,8 @@ func TestUpdateAccount(t *testing.T) {
 				return map[string]any{"idToken": id, "displayName": "Ann", "photoUrl": "http://x/y.png"}
 			},
 			check: func(t *testing.T, r result) {
+				t.Helper()
+
 				assert.Equal(t, "Ann", r.str("displayName"))
 				assert.Equal(t, "http://x/y.png", r.str("photoUrl"))
 			},
@@ -242,6 +298,8 @@ func TestUpdateAccount(t *testing.T) {
 				return map[string]any{"idToken": id, "deleteAttribute": []string{"DISPLAY_NAME", "PHOTO_URL"}}
 			},
 			check: func(t *testing.T, r result) {
+				t.Helper()
+
 				assert.Empty(t, r.str("displayName"))
 				assert.Empty(t, r.str("photoUrl"))
 			},
@@ -252,6 +310,8 @@ func TestUpdateAccount(t *testing.T) {
 				return map[string]any{"idToken": id, "email": "new@example.com", "returnSecureToken": true}
 			},
 			check: func(t *testing.T, r result) {
+				t.Helper()
+
 				assert.Equal(t, "new@example.com", r.str("email"))
 				assert.NotEmpty(t, r.str("idToken"))
 			},
@@ -274,7 +334,10 @@ func TestUpdateAccount(t *testing.T) {
 		{
 			name: "client cannot disable",
 			body: func(id string) map[string]any { return map[string]any{"idToken": id, "disableUser": true} },
-			check: func(t *testing.T, r result) { assert.Equal(t, "identitytoolkit#SetAccountInfoResponse", r.str("kind")) },
+			check: func(t *testing.T, r result) {
+				t.Helper()
+				assert.Equal(t, "identitytoolkit#SetAccountInfoResponse", r.str("kind"))
+			},
 		},
 	}
 
@@ -283,8 +346,8 @@ func TestUpdateAccount(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			up := e.signUp(t, "me@example.com", "secret1")
-			e.signUp(t, "other@example.com", "secret1")
+			up := e.signUp(t, "me@example.com")
+			e.signUp(t, "other@example.com")
 
 			r := e.client(t, "update", tt.body(up.str("idToken")))
 			if tt.msg != "" {
@@ -303,7 +366,7 @@ func TestClientDisableIsIgnored(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	up := e.signUp(t, "me@example.com", "secret1")
+	up := e.signUp(t, "me@example.com")
 	e.client(t, "update", map[string]any{"idToken": up.str("idToken"), "disableUser": true})
 
 	in := e.client(t, "signInWithPassword", map[string]any{"email": "me@example.com", "password": "secret1"})
@@ -321,7 +384,11 @@ func TestCustomAttributes(t *testing.T) {
 		{name: "valid", attrs: `{"role":"admin","level":3}`},
 		{name: "reserved claim", attrs: `{"sub":"x"}`, msg: "FORBIDDEN_CLAIM : sub"},
 		{name: "invalid json", attrs: `{nope`, msg: "INVALID_CLAIMS"},
-		{name: "too large", attrs: `{"k":"` + string(make([]byte, 0)) + repeat('x', 1001) + `"}`, msg: "CLAIMS_TOO_LARGE"},
+		{
+			name:  "too large",
+			attrs: `{"k":"` + string(make([]byte, 0)) + repeat('x', 1001) + `"}`,
+			msg:   "CLAIMS_TOO_LARGE",
+		},
 	}
 
 	for _, tt := range tests {
@@ -329,7 +396,7 @@ func TestCustomAttributes(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			up := e.signUp(t, "c@example.com", "secret1")
+			up := e.signUp(t, "c@example.com")
 
 			r := e.admin(t, "update", map[string]any{"localId": up.str("localId"), "customAttributes": tt.attrs})
 			if tt.msg != "" {
@@ -359,7 +426,7 @@ func TestDeleteAccount(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	up := e.signUp(t, "del@example.com", "secret1")
+	up := e.signUp(t, "del@example.com")
 
 	r := e.client(t, "delete", map[string]any{"idToken": up.str("idToken")})
 	require.Equal(t, http.StatusOK, r.status, r.body)
@@ -378,10 +445,16 @@ func TestTokenExpiryAndRefresh(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	up := e.signUp(t, "tok@example.com", "secret1")
+	up := e.signUp(t, "tok@example.com")
 
 	refresh := func(tok string) result {
-		return e.do(t, http.MethodPost, "/v1/token?key=k", "", map[string]any{"grant_type": "refresh_token", "refresh_token": tok})
+		return e.do(
+			t,
+			http.MethodPost,
+			"/v1/token?key=k",
+			"",
+			map[string]any{"grant_type": "refresh_token", "refresh_token": tok},
+		)
 	}
 
 	e.clock.Advance(time.Hour + time.Minute)
@@ -416,7 +489,7 @@ func TestRevokeRefreshTokens(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	up := e.signUp(t, "rev@example.com", "secret1")
+	up := e.signUp(t, "rev@example.com")
 
 	e.clock.Advance(2 * time.Second)
 
@@ -426,7 +499,13 @@ func TestRevokeRefreshTokens(t *testing.T) {
 	lk := e.client(t, "lookup", map[string]any{"idToken": up.str("idToken")})
 	e.assertErr(t, lk, http.StatusBadRequest, "TOKEN_EXPIRED")
 
-	rf := e.do(t, http.MethodPost, "/v1/token?key=k", "", map[string]any{"grant_type": "refresh_token", "refresh_token": up.str("refreshToken")})
+	rf := e.do(
+		t,
+		http.MethodPost,
+		"/v1/token?key=k",
+		"",
+		map[string]any{"grant_type": "refresh_token", "refresh_token": up.str("refreshToken")},
+	)
 	assert.Equal(t, "TOKEN_EXPIRED", rf.errMsg())
 
 	in := e.client(t, "signInWithPassword", map[string]any{"email": "rev@example.com", "password": "secret1"})

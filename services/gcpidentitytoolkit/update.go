@@ -13,17 +13,20 @@ const (
 	reqEmailSignin   = "EMAIL_SIGNIN"
 	reqVerifyChange  = "VERIFY_AND_CHANGE_EMAIL"
 	oobBytes         = 16
+	resetTTL         = time.Hour
+	signinTTL        = 6 * time.Hour
+	verifyTTL        = 3 * 24 * time.Hour
 )
 
 //nolint:gochecknoglobals // immutable lookup tables
 var (
 	oobModes = map[string]string{
-		reqPasswordReset: "resetPassword", reqVerifyEmail: "verifyEmail",
+		reqPasswordReset: opResetPassword, reqVerifyEmail: "verifyEmail",
 		reqEmailSignin: "signIn", reqVerifyChange: "verifyAndChangeEmail",
 	}
 	oobTTL = map[string]time.Duration{
-		reqPasswordReset: time.Hour, reqVerifyEmail: 3 * 24 * time.Hour,
-		reqEmailSignin: 6 * time.Hour, reqVerifyChange: 3 * 24 * time.Hour,
+		reqPasswordReset: resetTTL, reqVerifyEmail: verifyTTL,
+		reqEmailSignin: signinTTL, reqVerifyChange: verifyTTL,
 	}
 )
 
@@ -43,37 +46,58 @@ func (b *InMemoryBackend) Update(c call, r *authRequest) (*setAccountResponse, e
 		return b.applyOobUpdateLocked(sc, r.OobCode)
 	}
 
-	var u *userRec
+	u, err := b.updateTargetLocked(sc, c, r)
+	if err != nil {
+		return nil, err
+	}
 
 	selfService := r.IDToken != ""
 
-	switch {
-	case selfService:
-		if u, _, err = b.userForTokenLocked(sc, r.IDToken); err != nil {
-			return nil, err
-		}
-	case c.admin:
-		if r.LocalID.first() == "" {
-			return nil, idtk("MISSING_LOCAL_ID")
-		}
-
-		var ok bool
-		if u, ok = sc.users[r.LocalID.first()]; !ok {
-			return nil, idtk("USER_NOT_FOUND")
-		}
-	default:
-		return nil, idtk("MISSING_ID_TOKEN")
-	}
-
-	admin := c.admin && !selfService
-	tokensStale, err := b.applyUpdateLocked(sc, u, r, admin)
-
+	stale, err := b.applyUpdateLocked(sc, u, r, c.admin && !selfService)
 	if err != nil {
 		return nil, err
 	}
 
 	syncProviders(u)
 
+	out := updateResponse(u)
+
+	if selfService && stale && r.ReturnSecureToken != nil && *r.ReturnSecureToken {
+		s, iErr := b.issueLocked(sc, u, passwordProv, nil)
+		if iErr != nil {
+			return nil, iErr
+		}
+
+		out.IDToken, out.RefreshToken, out.ExpiresIn = s.IDToken, s.RefreshToken, expiresInSecs
+	}
+
+	return out, nil
+}
+
+func (b *InMemoryBackend) updateTargetLocked(sc *scope, c call, r *authRequest) (*userRec, error) {
+	if r.IDToken != "" {
+		u, _, err := b.userForTokenLocked(sc, r.IDToken)
+
+		return u, err
+	}
+
+	if !c.admin {
+		return nil, idtk("MISSING_ID_TOKEN")
+	}
+
+	if r.LocalID.first() == "" {
+		return nil, idtk("MISSING_LOCAL_ID")
+	}
+
+	u, ok := sc.users[r.LocalID.first()]
+	if !ok {
+		return nil, idtk("USER_NOT_FOUND")
+	}
+
+	return u, nil
+}
+
+func updateResponse(u *userRec) *setAccountResponse {
 	out := &setAccountResponse{
 		Kind: "identitytoolkit#SetAccountInfoResponse", LocalID: u.UID, Email: u.Email,
 		DisplayName: u.DisplayName, PhotoURL: u.PhotoURL, EmailVerified: u.EmailVerified,
@@ -87,66 +111,19 @@ func (b *InMemoryBackend) Update(c call, r *authRequest) (*setAccountResponse, e
 		out.ProviderUserInfo = append(out.ProviderUserInfo, providerWire(p))
 	}
 
-	if selfService && tokensStale && r.ReturnSecureToken != nil && *r.ReturnSecureToken {
-		s, iErr := b.issueLocked(sc, u, passwordProv, nil)
-		if iErr != nil {
-			return nil, iErr
-		}
-
-		out.IDToken, out.RefreshToken, out.ExpiresIn = s.IDToken, s.RefreshToken, expiresInSecs
-	}
-
-	return out, nil
+	return out
 }
 
 // applyUpdateLocked validates every change before mutating, so a rejected update leaves the account untouched.
 func (b *InMemoryBackend) applyUpdateLocked(sc *scope, u *userRec, r *authRequest, admin bool) (bool, error) {
-	newEmail := strs.Fold(r.Email.first())
-	pw := r.Password
-
-	if newEmail != "" && newEmail != u.Email {
-		if !validEmail(newEmail) {
-			return false, idtk("INVALID_EMAIL")
-		}
-
-		if o := sc.byEmail(newEmail); o != nil && o.UID != u.UID {
-			return false, idtk("EMAIL_EXISTS")
-		}
-	}
-
-	if pw != "" {
-		if err := checkPassword(sc, pw); err != nil {
-			return false, err
-		}
-
-		if u.Email == "" && newEmail == "" {
-			return false, idtk("MISSING_EMAIL")
-		}
-	}
-
-	phone := r.PhoneNumber.first()
-	if admin && phone != "" {
-		if !e164.MatchString(phone) {
-			return false, idtk("INVALID_PHONE_NUMBER", "Invalid format.")
-		}
-
-		if o := sc.byPhone(phone); o != nil && o.UID != u.UID {
-			return false, idtk("PHONE_NUMBER_EXISTS")
-		}
-	}
-
-	claims := ""
-
-	if admin && r.CustomAttributes != nil {
-		var err error
-		if claims, err = parseClaims(*r.CustomAttributes); err != nil {
-			return false, err
-		}
+	claims, err := b.validateUpdateLocked(sc, u, r, admin)
+	if err != nil {
+		return false, err
 	}
 
 	stale := false
 
-	if newEmail != "" && newEmail != u.Email {
+	if newEmail := strs.Fold(r.Email.first()); newEmail != "" && newEmail != u.Email {
 		u.Email, u.EmailVerified, stale = newEmail, false, true
 	}
 
@@ -154,8 +131,8 @@ func (b *InMemoryBackend) applyUpdateLocked(sc *scope, u *userRec, r *authReques
 		u.EmailVerified = *r.EmailVerified
 	}
 
-	if pw != "" {
-		if err := b.setPasswordLocked(sc, u, pw); err != nil {
+	if r.Password != "" {
+		if err = b.setPasswordLocked(sc, u, r.Password); err != nil {
 			return false, err
 		}
 
@@ -175,10 +152,76 @@ func (b *InMemoryBackend) applyUpdateLocked(sc *scope, u *userRec, r *authReques
 	b.deleteAttributes(u, r.DeleteAttribute, r.DeleteProvider)
 
 	if admin {
-		b.applyAdminFieldsLocked(u, r, phone, claims)
+		b.applyAdminFieldsLocked(u, r, r.PhoneNumber.first(), claims)
 	}
 
 	return stale, nil
+}
+
+// validateUpdateLocked checks an update without mutating; it returns the parsed custom claims.
+func (b *InMemoryBackend) validateUpdateLocked(sc *scope, u *userRec, r *authRequest, admin bool) (string, error) {
+	if err := validateSelfServiceUpdate(sc, u, r); err != nil {
+		return "", err
+	}
+
+	if !admin {
+		return "", nil
+	}
+
+	if err := validateAdminUpdate(sc, u, r); err != nil {
+		return "", err
+	}
+
+	if r.CustomAttributes != nil {
+		return parseClaims(*r.CustomAttributes)
+	}
+
+	return "", nil
+}
+
+func validateSelfServiceUpdate(sc *scope, u *userRec, r *authRequest) error {
+	newEmail := strs.Fold(r.Email.first())
+
+	if newEmail != "" && newEmail != u.Email {
+		if !validEmail(newEmail) {
+			return idtk("INVALID_EMAIL")
+		}
+
+		if o := sc.byEmail(newEmail); o != nil && o.UID != u.UID {
+			return idtk("EMAIL_EXISTS")
+		}
+	}
+
+	if r.Password == "" {
+		return nil
+	}
+
+	if err := checkPassword(sc, r.Password); err != nil {
+		return err
+	}
+
+	if u.Email == "" && newEmail == "" {
+		return idtk("MISSING_EMAIL")
+	}
+
+	return nil
+}
+
+func validateAdminUpdate(sc *scope, u *userRec, r *authRequest) error {
+	phone := r.PhoneNumber.first()
+	if phone == "" {
+		return nil
+	}
+
+	if !e164.MatchString(phone) {
+		return idtk("INVALID_PHONE_NUMBER", "Invalid format.")
+	}
+
+	if o := sc.byPhone(phone); o != nil && o.UID != u.UID {
+		return idtk("PHONE_NUMBER_EXISTS")
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) deleteAttributes(u *userRec, attrs, providers []string) {
@@ -325,8 +368,8 @@ func (b *InMemoryBackend) SendOobCode(c call, r *authRequest) (*oobResponse, err
 }
 
 // oobTargetLocked resolves the address a code is for; silent means enumeration protection swallowed the request.
-func (b *InMemoryBackend) oobTargetLocked(sc *scope, c call, r *authRequest) (email string, silent bool, err error) {
-	email = strs.Fold(r.Email.first())
+func (b *InMemoryBackend) oobTargetLocked(sc *scope, c call, r *authRequest) (string, bool, error) {
+	email := strs.Fold(r.Email.first())
 
 	switch r.RequestType {
 	case reqPasswordReset:
@@ -422,7 +465,7 @@ func (b *InMemoryBackend) ResetPassword(c call, r *authRequest) (map[string]any,
 	}
 
 	out := map[string]any{
-		"kind": "identitytoolkit#ResetPasswordResponse", "email": rec.Email, "requestType": rec.RequestType,
+		keyKind: "identitytoolkit#ResetPasswordResponse", "email": rec.Email, "requestType": rec.RequestType,
 	}
 
 	if rec.RequestType == reqVerifyChange {

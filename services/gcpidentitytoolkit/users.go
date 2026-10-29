@@ -56,11 +56,17 @@ func checkStrength(o *idtkv2.GoogleCloudIdentitytoolkitAdminV2CustomStrengthOpti
 	var missing []string
 
 	if o.MinPasswordLength > 0 && int64(len(pw)) < o.MinPasswordLength {
-		missing = append(missing, "Password must contain at least "+strconv.FormatInt(o.MinPasswordLength, 10)+" characters")
+		missing = append(
+			missing,
+			"Password must contain at least "+strconv.FormatInt(o.MinPasswordLength, 10)+" characters",
+		)
 	}
 
 	if o.MaxPasswordLength > 0 && int64(len(pw)) > o.MaxPasswordLength {
-		missing = append(missing, "Password must contain at most "+strconv.FormatInt(o.MaxPasswordLength, 10)+" characters")
+		missing = append(
+			missing,
+			"Password must contain at most "+strconv.FormatInt(o.MaxPasswordLength, 10)+" characters",
+		)
 	}
 
 	var lower, upper, digit, other bool
@@ -96,7 +102,10 @@ func checkStrength(o *idtkv2.GoogleCloudIdentitytoolkitAdminV2CustomStrengthOpti
 		return nil
 	}
 
-	return idtk("PASSWORD_DOES_NOT_MEET_REQUIREMENTS", "Missing password requirements: ["+strings.Join(missing, ", ")+"]")
+	return idtk(
+		"PASSWORD_DOES_NOT_MEET_REQUIREMENTS",
+		"Missing password requirements: ["+strings.Join(missing, ", ")+"]",
+	)
 }
 
 // setPasswordLocked hashes pw with the project's native scheme.
@@ -166,44 +175,15 @@ func (b *InMemoryBackend) createUserLocked(sc *scope, n newUser, overwrite bool)
 		}
 	}
 
-	if len(uid) > maxUIDLen {
-		return nil, idtk("INVALID_LOCAL_ID", "Invalid localId")
-	}
+	n.email = strs.Fold(n.email)
 
-	if old := sc.users[uid]; old != nil && !overwrite {
-		return nil, idtk("DUPLICATE_LOCAL_ID")
-	}
-
-	email := strs.Fold(n.email)
-	if email != "" {
-		if !validEmail(email) {
-			return nil, idtk("INVALID_EMAIL")
-		}
-
-		if o := sc.byEmail(email); o != nil && o.UID != uid {
-			return nil, idtk("EMAIL_EXISTS")
-		}
-	}
-
-	if n.phone != "" {
-		if !e164.MatchString(n.phone) {
-			return nil, idtk("INVALID_PHONE_NUMBER", "Invalid format.")
-		}
-
-		if o := sc.byPhone(n.phone); o != nil && o.UID != uid {
-			return nil, idtk("PHONE_NUMBER_EXISTS")
-		}
-	}
-
-	if n.password != "" {
-		if err := checkPassword(sc, n.password); err != nil {
-			return nil, err
-		}
+	if err := validateNewUserLocked(sc, uid, n, overwrite); err != nil {
+		return nil, err
 	}
 
 	now := b.nowMillis()
 	u := &userRec{
-		UID: uid, Email: email, DisplayName: n.displayName, PhotoURL: n.photoURL, Phone: n.phone,
+		UID: uid, Email: n.email, DisplayName: n.displayName, PhotoURL: n.photoURL, Phone: n.phone,
 		EmailVerified: n.emailVerified, Disabled: n.disabled, Anonymous: n.anonymous, CustomAttrs: n.customAttrs,
 		CreatedAt: now, LastLoginAt: n.lastLoginAt, Providers: n.providers,
 		PasswordHash: n.passwordHash, Salt: n.salt, Hash: n.hash,
@@ -223,6 +203,42 @@ func (b *InMemoryBackend) createUserLocked(sc *scope, n newUser, overwrite bool)
 	sc.users[uid] = u
 
 	return u, nil
+}
+
+func validateNewUserLocked(sc *scope, uid string, n newUser, overwrite bool) error {
+	if len(uid) > maxUIDLen {
+		return idtk("INVALID_LOCAL_ID", "Invalid localId")
+	}
+
+	if sc.users[uid] != nil && !overwrite {
+		return idtk("DUPLICATE_LOCAL_ID")
+	}
+
+	if n.email != "" {
+		if !validEmail(n.email) {
+			return idtk("INVALID_EMAIL")
+		}
+
+		if o := sc.byEmail(n.email); o != nil && o.UID != uid {
+			return idtk("EMAIL_EXISTS")
+		}
+	}
+
+	if n.phone != "" {
+		if !e164.MatchString(n.phone) {
+			return idtk("INVALID_PHONE_NUMBER", "Invalid format.")
+		}
+
+		if o := sc.byPhone(n.phone); o != nil && o.UID != uid {
+			return idtk("PHONE_NUMBER_EXISTS")
+		}
+	}
+
+	if n.password != "" {
+		return checkPassword(sc, n.password)
+	}
+
+	return nil
 }
 
 func (b *InMemoryBackend) toWire(sc *scope, u *userRec, admin bool) userWire {

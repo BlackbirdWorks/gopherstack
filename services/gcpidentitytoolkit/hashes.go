@@ -30,14 +30,19 @@ const (
 	scryptKeyLen      = 32
 	sha1Len           = 20
 	nativeSignerBytes = 64
+	saltBytes         = 16
+	algMD5            = "MD5"
+	algSHA1           = "SHA1"
+	algSHA256         = "SHA256"
+	algSHA512         = "SHA512"
 )
 
 // hashSpec describes how one password hash was produced; the zero Algorithm means the project's native scrypt.
 type hashSpec struct {
 	Algorithm         string `json:"algorithm"`
+	PasswordHashOrder string `json:"passwordHashOrder,omitempty"`
 	SignerKey         []byte `json:"signerKey,omitempty"`
 	SaltSeparator     []byte `json:"saltSeparator,omitempty"`
-	PasswordHashOrder string `json:"passwordHashOrder,omitempty"`
 	Rounds            int64  `json:"rounds,omitempty"`
 	MemoryCost        int64  `json:"memoryCost,omitempty"`
 	CPUMemCost        int64  `json:"cpuMemCost,omitempty"`
@@ -58,7 +63,11 @@ func newNativeSpec() hashSpec {
 
 // decodeB64 accepts standard and URL alphabets, padded or not.
 func decodeB64(s string) ([]byte, error) {
-	for _, enc := range []*base64.Encoding{base64.RawURLEncoding, base64.URLEncoding, base64.RawStdEncoding, base64.StdEncoding} {
+	encodings := []*base64.Encoding{
+		base64.RawURLEncoding, base64.URLEncoding, base64.RawStdEncoding, base64.StdEncoding,
+	}
+
+	for _, enc := range encodings {
 		if b, err := enc.DecodeString(s); err == nil {
 			return b, nil
 		}
@@ -68,7 +77,7 @@ func decodeB64(s string) ([]byte, error) {
 }
 
 func newSalt() []byte {
-	salt := make([]byte, 16)
+	salt := make([]byte, saltBytes)
 	_, _ = rand.Read(salt)
 
 	return salt
@@ -76,14 +85,14 @@ func newSalt() []byte {
 
 func hasher(alg string) func() hash.Hash {
 	switch alg {
-	case "HMAC_SHA256", "SHA256", algPBKDF2SHA256:
+	case algHMACSHA256, algSHA256, algPBKDF2SHA256:
 		return sha256.New
-	case "HMAC_SHA512", "SHA512":
+	case algHMACSHA512, algSHA512:
 		return sha512.New
-	case "HMAC_SHA1", "SHA1", algPBKDFSHA1:
-		return sha1.New //nolint:gosec // legacy import support
-	case "HMAC_MD5", "MD5":
-		return md5.New //nolint:gosec // legacy import support
+	case algHMACSHA1, algSHA1, algPBKDFSHA1:
+		return sha1.New
+	case algHMACMD5, algMD5:
+		return md5.New
 	}
 
 	return nil
@@ -108,17 +117,24 @@ func (h hashSpec) compute(password string, salt []byte) ([]byte, error) {
 	case algScrypt:
 		return h.firebaseScrypt(password, salt)
 	case algStdScrypt:
-		return scrypt.Key([]byte(password), salt, int(h.CPUMemCost), int(h.BlockSize), int(h.Parallelization), int(h.DKLen))
+		return scrypt.Key(
+			[]byte(password),
+			salt,
+			int(h.CPUMemCost),
+			int(h.BlockSize),
+			int(h.Parallelization),
+			int(h.DKLen),
+		)
 	case algPBKDFSHA1:
-		return pbkdf2.Key(sha1.New, password, salt, int(h.Rounds), sha1Len) //nolint:gosec // legacy import support
+		return pbkdf2.Key(sha1.New, password, salt, int(h.Rounds), sha1Len)
 	case algPBKDF2SHA256:
 		return pbkdf2.Key(sha256.New, password, salt, int(h.Rounds), sha256.Size)
-	case "HMAC_SHA256", "HMAC_SHA512", "HMAC_SHA1", "HMAC_MD5":
+	case algHMACSHA256, algHMACSHA512, algHMACSHA1, algHMACMD5:
 		mac := hmac.New(hasher(h.Algorithm), h.SignerKey)
 		mac.Write(h.message(password, salt))
 
 		return mac.Sum(nil), nil
-	case "MD5", "SHA1", "SHA256", "SHA512":
+	case algMD5, algSHA1, algSHA256, algSHA512:
 		return h.iterated(password, salt), nil
 	}
 
@@ -153,6 +169,7 @@ func (h hashSpec) firebaseScrypt(password string, salt []byte) ([]byte, error) {
 	}
 
 	out := make([]byte, len(h.SignerKey))
+	//nolint:gosec // Firebase's password scheme is defined with an all-zero CTR IV
 	cipher.NewCTR(block, make([]byte, aes.BlockSize)).XORKeyStream(out, h.SignerKey)
 
 	return out, nil
@@ -174,32 +191,31 @@ func (h hashSpec) verify(password string, salt, stored []byte) bool {
 
 // validate rejects specs the backend cannot compute.
 func (h hashSpec) validate() error {
-	switch h.Algorithm {
-	case algBcrypt:
-		return nil
-	case algScrypt:
-		if len(h.SignerKey) == 0 || h.Rounds < 1 || h.MemoryCost < 1 || h.MemoryCost > 20 {
-			return errBadAlgorithm
-		}
-	case algStdScrypt:
-		if h.CPUMemCost < 2 || h.BlockSize < 1 || h.Parallelization < 1 || h.DKLen < 1 {
-			return errBadAlgorithm
-		}
-	case algPBKDFSHA1, algPBKDF2SHA256:
-		if h.Rounds < 1 {
-			return errBadAlgorithm
-		}
-	case "HMAC_SHA256", "HMAC_SHA512", "HMAC_SHA1", "HMAC_MD5":
-		if len(h.SignerKey) == 0 {
-			return errBadAlgorithm
-		}
-	case "MD5", "SHA1", "SHA256", "SHA512":
-		if h.Rounds < 1 {
-			return errBadAlgorithm
-		}
-	default:
+	check, ok := specChecks[h.Algorithm]
+	if !ok || (check != nil && !check(h)) {
 		return errBadAlgorithm
 	}
 
 	return nil
+}
+
+//nolint:gochecknoglobals // immutable lookup table
+var specChecks = map[string]func(hashSpec) bool{
+	algBcrypt: nil,
+	algScrypt: func(h hashSpec) bool {
+		return len(h.SignerKey) > 0 && h.Rounds >= 1 && h.MemoryCost >= 1 && h.MemoryCost <= 20
+	},
+	algStdScrypt: func(h hashSpec) bool {
+		return h.CPUMemCost >= 2 && h.BlockSize >= 1 && h.Parallelization >= 1 && h.DKLen >= 1
+	},
+	algPBKDFSHA1:    func(h hashSpec) bool { return h.Rounds >= 1 },
+	algPBKDF2SHA256: func(h hashSpec) bool { return h.Rounds >= 1 },
+	algHMACSHA256:   func(h hashSpec) bool { return len(h.SignerKey) > 0 },
+	algHMACSHA512:   func(h hashSpec) bool { return len(h.SignerKey) > 0 },
+	algHMACSHA1:     func(h hashSpec) bool { return len(h.SignerKey) > 0 },
+	algHMACMD5:      func(h hashSpec) bool { return len(h.SignerKey) > 0 },
+	algMD5:          func(h hashSpec) bool { return h.Rounds >= 1 },
+	algSHA1:         func(h hashSpec) bool { return h.Rounds >= 1 },
+	algSHA256:       func(h hashSpec) bool { return h.Rounds >= 1 },
+	algSHA512:       func(h hashSpec) bool { return h.Rounds >= 1 },
 }

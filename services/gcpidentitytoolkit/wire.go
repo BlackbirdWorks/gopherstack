@@ -42,20 +42,20 @@ type providerWire struct {
 
 type userWire struct {
 	PasswordUpdatedAt *float64       `json:"passwordUpdatedAt,omitempty"`
-	LocalID           string         `json:"localId,omitempty"`
-	Email             string         `json:"email,omitempty"`
+	CustomAttributes  string         `json:"customAttributes,omitempty"`
+	TenantID          string         `json:"tenantId,omitempty"`
 	DisplayName       string         `json:"displayName,omitempty"`
 	PhotoURL          string         `json:"photoUrl,omitempty"`
 	PhoneNumber       string         `json:"phoneNumber,omitempty"`
 	PasswordHash      string         `json:"passwordHash,omitempty"`
 	Salt              string         `json:"salt,omitempty"`
-	CustomAttributes  string         `json:"customAttributes,omitempty"`
+	LocalID           string         `json:"localId,omitempty"`
+	Email             string         `json:"email,omitempty"`
+	LastRefreshAt     string         `json:"lastRefreshAt,omitempty"`
+	ProviderUserInfo  []providerWire `json:"providerUserInfo,omitempty"`
+	ValidSince        flexInt        `json:"validSince,omitempty"`
 	CreatedAt         flexInt        `json:"createdAt,omitempty"`
 	LastLoginAt       flexInt        `json:"lastLoginAt,omitempty"`
-	LastRefreshAt     string         `json:"lastRefreshAt,omitempty"`
-	ValidSince        flexInt        `json:"validSince,omitempty"`
-	TenantID          string         `json:"tenantId,omitempty"`
-	ProviderUserInfo  []providerWire `json:"providerUserInfo,omitempty"`
 	EmailVerified     bool           `json:"emailVerified,omitempty"`
 	Disabled          bool           `json:"disabled,omitempty"`
 	CustomAuth        bool           `json:"customAuth,omitempty"`
@@ -66,10 +66,10 @@ func (u userWire) MarshalJSON() ([]byte, error) {
 	type alias userWire
 
 	aux := struct {
-		alias
 		CreatedAt   string `json:"createdAt,omitempty"`
 		LastLoginAt string `json:"lastLoginAt,omitempty"`
 		ValidSince  string `json:"validSince,omitempty"`
+		alias
 	}{alias: alias(u)}
 
 	if u.CreatedAt != 0 {
@@ -89,38 +89,38 @@ func (u userWire) MarshalJSON() ([]byte, error) {
 
 // authRequest is the union of the request fields the account operations read.
 type authRequest struct {
-	ReturnSecureToken *bool             `json:"returnSecureToken"`
-	DisableUser       *bool             `json:"disableUser"`
-	EmailVerified     *bool             `json:"emailVerified"`
-	Disabled          *bool             `json:"disabled"`
-	LinkProvider      *providerWire     `json:"linkProviderUserInfo"`
-	Email             flexStrings       `json:"email"`
-	LocalID           flexStrings       `json:"localId"`
-	PhoneNumber       flexStrings       `json:"phoneNumber"`
-	FederatedUserID   []providerWire    `json:"federatedUserId"`
-	DeleteAttribute   []string          `json:"deleteAttribute"`
-	DeleteProvider    []string          `json:"deleteProvider"`
-	Provider          []string          `json:"provider"`
-	Password          string            `json:"password"`
-	IDToken           string            `json:"idToken"`
-	TenantID          string            `json:"tenantId"`
-	DisplayName       *string           `json:"displayName"`
-	PhotoURL          *string           `json:"photoUrl"`
-	CustomAttributes  *string           `json:"customAttributes"`
-	OobCode           string            `json:"oobCode"`
-	NewPassword       string            `json:"newPassword"`
-	Token             string            `json:"token"`
-	RequestType       string            `json:"requestType"`
-	NewEmail          string            `json:"newEmail"`
-	ContinueURL       string            `json:"continueUrl"`
-	ContinueURI       string            `json:"continueUri"`
-	Identifier        string            `json:"identifier"`
-	ProviderID        string            `json:"providerId"`
-	ReturnOobLink     bool              `json:"returnOobLink"`
-	ValidSince        flexInt           `json:"validSince"`
-	CreatedAt         flexInt           `json:"createdAt"`
-	LastLoginAt       flexInt           `json:"lastLoginAt"`
-	ValidDuration     flexInt           `json:"validDuration"`
+	DisplayName       *string        `json:"displayName"`
+	DisableUser       *bool          `json:"disableUser"`
+	EmailVerified     *bool          `json:"emailVerified"`
+	Disabled          *bool          `json:"disabled"`
+	LinkProvider      *providerWire  `json:"linkProviderUserInfo"`
+	ReturnSecureToken *bool          `json:"returnSecureToken"`
+	CustomAttributes  *string        `json:"customAttributes"`
+	PhotoURL          *string        `json:"photoUrl"`
+	ContinueURI       string         `json:"continueUri"`
+	NewPassword       string         `json:"newPassword"`
+	ProviderID        string         `json:"providerId"`
+	Identifier        string         `json:"identifier"`
+	Password          string         `json:"password"`
+	IDToken           string         `json:"idToken"`
+	TenantID          string         `json:"tenantId"`
+	ContinueURL       string         `json:"continueUrl"`
+	NewEmail          string         `json:"newEmail"`
+	RequestType       string         `json:"requestType"`
+	OobCode           string         `json:"oobCode"`
+	Token             string         `json:"token"`
+	DeleteAttribute   []string       `json:"deleteAttribute"`
+	LocalID           flexStrings    `json:"localId"`
+	PhoneNumber       flexStrings    `json:"phoneNumber"`
+	FederatedUserID   []providerWire `json:"federatedUserId"`
+	Email             flexStrings    `json:"email"`
+	Provider          []string       `json:"provider"`
+	DeleteProvider    []string       `json:"deleteProvider"`
+	ValidSince        flexInt        `json:"validSince"`
+	CreatedAt         flexInt        `json:"createdAt"`
+	LastLoginAt       flexInt        `json:"lastLoginAt"`
+	ValidDuration     flexInt        `json:"validDuration"`
+	ReturnOobLink     bool           `json:"returnOobLink"`
 }
 
 // flexStrings decodes a string or an array of strings.
@@ -172,10 +172,10 @@ type setAccountResponse struct {
 	PhotoURL         string         `json:"photoUrl,omitempty"`
 	NewEmail         string         `json:"newEmail,omitempty"`
 	PasswordHash     string         `json:"passwordHash,omitempty"`
-	ProviderUserInfo []providerWire `json:"providerUserInfo,omitempty"`
 	IDToken          string         `json:"idToken,omitempty"`
 	RefreshToken     string         `json:"refreshToken,omitempty"`
 	ExpiresIn        string         `json:"expiresIn,omitempty"`
+	ProviderUserInfo []providerWire `json:"providerUserInfo,omitempty"`
 	EmailVerified    bool           `json:"emailVerified,omitempty"`
 }
 

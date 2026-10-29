@@ -1,9 +1,11 @@
 package gcpidentitytoolkit
 
 import (
+	"errors"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	idtkv2 "google.golang.org/api/identitytoolkit/v2"
@@ -13,11 +15,12 @@ import (
 )
 
 const (
-	batchGetDefault = 20
-	queryDefault    = 500
-	maxImportUsers  = 1000
-	tenantIDRandLen = 5
-	tenantPageSize  = 20
+	batchGetDefault   = 20
+	queryDefault      = 500
+	maxImportUsers    = 1000
+	tenantIDRandLen   = 5
+	tenantSuffixBytes = 8
+	tenantPageSize    = 20
 )
 
 var tenantNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{3,19}$`)
@@ -51,7 +54,7 @@ func (b *InMemoryBackend) AdminCreate(c call, r *authRequest) (map[string]any, e
 		return nil, err
 	}
 
-	return map[string]any{"kind": "identitytoolkit#SignupNewUserResponse", "localId": u.UID}, nil
+	return map[string]any{keyKind: "identitytoolkit#SignupNewUserResponse", "localId": u.UID}, nil
 }
 
 // uploadRequest is the body of accounts:batchCreate.
@@ -141,7 +144,7 @@ func (b *InMemoryBackend) BatchCreate(c call, r *uploadRequest) (map[string]any,
 		}
 	}
 
-	out := map[string]any{"kind": "identitytoolkit#UploadAccountResponse"}
+	out := map[string]any{keyKind: "identitytoolkit#UploadAccountResponse"}
 	if len(failures) > 0 {
 		out["error"] = failures
 	}
@@ -156,7 +159,8 @@ func (b *InMemoryBackend) importOneLocked(sc *scope, w *userWire, spec *hashSpec
 
 	n := newUser{
 		uid: w.LocalID, email: w.Email, displayName: w.DisplayName, photoURL: w.PhotoURL, phone: w.PhoneNumber,
-		emailVerified: w.EmailVerified, disabled: w.Disabled, createdAt: int64(w.CreatedAt), lastLoginAt: int64(w.LastLoginAt),
+		emailVerified: w.EmailVerified, disabled: w.Disabled, createdAt: int64(w.CreatedAt),
+		lastLoginAt: int64(w.LastLoginAt),
 	}
 
 	if w.CustomAttributes != "" {
@@ -168,19 +172,8 @@ func (b *InMemoryBackend) importOneLocked(sc *scope, w *userWire, spec *hashSpec
 		n.customAttrs = claims
 	}
 
-	if w.PasswordHash != "" {
-		if spec == nil || w.Email == "" {
-			return "Password hash requires an email and a hash algorithm"
-		}
-
-		hash, err1 := decodeB64(w.PasswordHash)
-		salt, err2 := decodeOptional(w.Salt)
-
-		if err1 != nil || err2 != nil {
-			return "Invalid base64 in passwordHash or salt"
-		}
-
-		n.passwordHash, n.salt, n.hash = hash, salt, spec
+	if msg := importPassword(&n, w, spec); msg != "" {
+		return msg
 	}
 
 	for _, p := range w.ProviderUserInfo {
@@ -192,12 +185,33 @@ func (b *InMemoryBackend) importOneLocked(sc *scope, w *userWire, spec *hashSpec
 	}
 
 	if _, err := b.createUserLocked(sc, n, overwrite); err != nil {
-		if ae, ok := err.(*APIError); ok { //nolint:errorlint // createUserLocked only returns *APIError
+		if ae, ok := errors.AsType[*APIError](err); ok {
 			return ae.Message
 		}
 
 		return err.Error()
 	}
+
+	return ""
+}
+
+func importPassword(n *newUser, w *userWire, spec *hashSpec) string {
+	if w.PasswordHash == "" {
+		return ""
+	}
+
+	if spec == nil || w.Email == "" {
+		return "Password hash requires an email and a hash algorithm"
+	}
+
+	hash, err1 := decodeB64(w.PasswordHash)
+	salt, err2 := decodeOptional(w.Salt)
+
+	if err1 != nil || err2 != nil {
+		return "Invalid base64 in passwordHash or salt"
+	}
+
+	n.passwordHash, n.salt, n.hash = hash, salt, spec
 
 	return ""
 }
@@ -252,8 +266,8 @@ func (b *InMemoryBackend) BatchDelete(c call, ids []string, force bool, tenant s
 }
 
 // BatchGet pages through accounts with their full password hashes.
-func (b *InMemoryBackend) BatchGet(c call, tenant, token string, max int) (map[string]any, error) {
-	if max < 0 || max > maxPage {
+func (b *InMemoryBackend) BatchGet(c call, tenant, token string, maxResults int) (map[string]any, error) {
+	if maxResults < 0 || maxResults > maxPage {
 		return nil, idtk("INVALID_MAX_RESULTS")
 	}
 
@@ -274,14 +288,14 @@ func (b *InMemoryBackend) BatchGet(c call, tenant, token string, max int) (map[s
 	}
 
 	all := sc.sorted()
-	pg := page.New(all, token, max, batchGetDefault)
+	pg := page.New(all, token, maxResults, batchGetDefault)
 	users := make([]userWire, 0, len(pg.Data))
 
 	for _, u := range pg.Data {
 		users = append(users, b.toWire(sc, u, true))
 	}
 
-	out := map[string]any{"kind": "identitytoolkit#DownloadAccountResponse"}
+	out := map[string]any{keyKind: "identitytoolkit#DownloadAccountResponse"}
 	if len(users) > 0 {
 		out["users"] = users
 	}
@@ -295,17 +309,17 @@ func (b *InMemoryBackend) BatchGet(c call, tenant, token string, max int) (map[s
 
 // queryRequest is the body of accounts:query.
 type queryRequest struct {
-	ReturnUserInfo *bool `json:"returnUserInfo"`
+	ReturnUserInfo *bool  `json:"returnUserInfo"`
+	SortBy         string `json:"sortBy"`
+	Order          string `json:"order"`
+	TenantID       string `json:"tenantId"`
 	Expression     []struct {
 		Email       string `json:"email"`
 		PhoneNumber string `json:"phoneNumber"`
 		UserID      string `json:"userId"`
 	} `json:"expression"`
-	SortBy   string  `json:"sortBy"`
-	Order    string  `json:"order"`
-	TenantID string  `json:"tenantId"`
-	Limit    flexInt `json:"limit"`
-	Offset   flexInt `json:"offset"`
+	Limit  flexInt `json:"limit"`
+	Offset flexInt `json:"offset"`
 }
 
 // Query filters, sorts and pages accounts (accounts:query).
@@ -330,18 +344,7 @@ func (b *InMemoryBackend) Query(c call, r *queryRequest) (map[string]any, error)
 	matched := make([]*userRec, 0)
 
 	for _, u := range sc.sorted() {
-		ok := true
-
-		for _, e := range r.Expression {
-			if (e.Email != "" && !strs.Equal(e.Email, u.Email)) ||
-				(e.PhoneNumber != "" && e.PhoneNumber != u.Phone) || (e.UserID != "" && e.UserID != u.UID) {
-				ok = false
-
-				break
-			}
-		}
-
-		if ok {
+		if r.matches(u) {
 			matched = append(matched, u)
 		}
 	}
@@ -373,6 +376,17 @@ func (b *InMemoryBackend) Query(c call, r *queryRequest) (map[string]any, error)
 	return out, nil
 }
 
+func (r *queryRequest) matches(u *userRec) bool {
+	for _, e := range r.Expression {
+		if (e.Email != "" && !strs.Equal(e.Email, u.Email)) ||
+			(e.PhoneNumber != "" && e.PhoneNumber != u.Phone) || (e.UserID != "" && e.UserID != u.UID) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func sortUsers(us []*userRec, by, order string) {
 	less := func(a, b *userRec) bool { return a.CreatedAt < b.CreatedAt }
 
@@ -396,7 +410,7 @@ func sortUsers(us []*userRec, by, order string) {
 	})
 }
 
-func itoa(n int) string { return strconvU(uint64(n)) }
+func itoa(n int) string { return strconv.Itoa(n) }
 
 // ClearAccounts deletes every account in a project or tenant (emulator reset endpoint).
 func (b *InMemoryBackend) ClearAccounts(project, tenant string) error {
@@ -454,7 +468,10 @@ func (b *InMemoryBackend) OOBCodes(project, tenant string) ([]OOBCode, error) {
 
 	out := make([]OOBCode, 0, len(list))
 	for _, e := range list {
-		out = append(out, OOBCode{Email: e.rec.Email, OobCode: e.code, OobLink: e.rec.Link, RequestType: e.rec.RequestType})
+		out = append(
+			out,
+			OOBCode{Email: e.rec.Email, OobCode: e.code, OobLink: e.rec.Link, RequestType: e.rec.RequestType},
+		)
 	}
 
 	return out, nil
@@ -466,6 +483,7 @@ func (b *InMemoryBackend) GetConfig(project string) *idtkv2.GoogleCloudIdentityt
 	defer b.mu.Unlock()
 
 	p := b.projectLocked(project)
+
 	return withHashConfig(p)
 }
 
@@ -495,7 +513,7 @@ func maskedPatch(patch map[string]any, mask string) map[string]any {
 
 	out := map[string]any{}
 
-	for _, path := range strings.Split(mask, ",") {
+	for path := range strings.SplitSeq(mask, ",") {
 		parts := strings.Split(strings.TrimSpace(path), ".")
 
 		var val any = patch
@@ -534,7 +552,11 @@ func maskedPatch(patch map[string]any, mask string) map[string]any {
 }
 
 // UpdateConfig merges a patch into the project configuration.
-func (b *InMemoryBackend) UpdateConfig(project string, patch map[string]any, mask string) (*idtkv2.GoogleCloudIdentitytoolkitAdminV2Config, error) {
+func (b *InMemoryBackend) UpdateConfig(
+	project string,
+	patch map[string]any,
+	mask string,
+) (*idtkv2.GoogleCloudIdentitytoolkitAdminV2Config, error) {
 	for _, k := range []string{"name", "signIn.hashConfig"} {
 		if mask == k {
 			return nil, errInvalidArg("Field %q is output only.", k)
@@ -560,9 +582,15 @@ func (b *InMemoryBackend) UpdateConfig(project string, patch map[string]any, mas
 func tenantName(project, id string) string { return "projects/" + project + "/tenants/" + id }
 
 // CreateTenant creates a tenant with a generated id.
-func (b *InMemoryBackend) CreateTenant(project string, in *idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant) (*idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant, error) {
+func (b *InMemoryBackend) CreateTenant(
+	project string,
+	in *idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant,
+) (*idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant, error) {
 	if !tenantNameRE.MatchString(in.DisplayName) {
-		return nil, errInvalidArg("Invalid tenant display name: must be 4-20 characters, start with a letter and contain only letters, digits and hyphens.")
+		return nil, errInvalidArg(
+			"Invalid tenant display name: must be 4-20 characters, start with a letter " +
+				"and contain only letters, digits and hyphens.",
+		)
 	}
 
 	b.mu.Lock("CreateTenant")
@@ -578,7 +606,7 @@ func (b *InMemoryBackend) CreateTenant(project string, in *idtkv2.GoogleCloudIde
 			id = id[:20-tenantIDRandLen-1]
 		}
 
-		id += "-" + strings.ToLower(randomToken(8))[:tenantIDRandLen]
+		id += "-" + strings.ToLower(randomToken(tenantSuffixBytes))[:tenantIDRandLen]
 		id = strings.NewReplacer("_", "x").Replace(id)
 
 		if _, taken := p.Tenants[id]; !taken {
@@ -608,7 +636,10 @@ func (b *InMemoryBackend) GetTenant(project, id string) (*idtkv2.GoogleCloudIden
 }
 
 // ListTenants pages through a project's tenants.
-func (b *InMemoryBackend) ListTenants(project, token string, size int) (page.Page[*idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant], error) {
+func (b *InMemoryBackend) ListTenants(
+	project, token string,
+	size int,
+) (page.Page[*idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant], error) {
 	if err := page.ValidateToken(token); err != nil {
 		return page.Page[*idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant]{}, errInvalidArg("Invalid page token.")
 	}
@@ -634,7 +665,11 @@ func (b *InMemoryBackend) ListTenants(project, token string, size int) (page.Pag
 }
 
 // UpdateTenant merges a patch into a tenant.
-func (b *InMemoryBackend) UpdateTenant(project, id string, patch map[string]any, mask string) (*idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant, error) {
+func (b *InMemoryBackend) UpdateTenant(
+	project, id string,
+	patch map[string]any,
+	mask string,
+) (*idtkv2.GoogleCloudIdentitytoolkitAdminV2Tenant, error) {
 	b.mu.Lock("UpdateTenant")
 	defer b.mu.Unlock()
 

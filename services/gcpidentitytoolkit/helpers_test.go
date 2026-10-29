@@ -19,7 +19,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 )
 
-const adminAuth = "Bearer owner"
+const (
+	adminAuth    = "Bearer owner"
+	testPassword = "secret1"
+)
 
 type fakeClock struct {
 	t  time.Time
@@ -145,10 +148,10 @@ func (e *env) admin(t *testing.T, verb string, body any) result {
 	return e.do(t, http.MethodPost, "/v1/projects/"+e.project+"/accounts:"+verb, adminAuth, body)
 }
 
-func (e *env) signUp(t *testing.T, email, pw string) result {
+func (e *env) signUp(t *testing.T, email string) result {
 	t.Helper()
 
-	r := e.client(t, "signUp", map[string]any{"email": email, "password": pw, "returnSecureToken": true})
+	r := e.client(t, "signUp", map[string]any{"email": email, "password": testPassword, "returnSecureToken": true})
 	require.Equal(t, http.StatusOK, r.status, r.body)
 
 	return r
@@ -168,4 +171,8 @@ func (e *env) assertErr(t *testing.T, r result, status int, msg string) {
 	assert.Equal(t, msg, r.errMsg())
 }
 
-func testClient(t *testing.T) *http.Client { return testclient.New(t) }
+func testClient(t *testing.T) *http.Client {
+	t.Helper()
+
+	return testclient.New(t)
+}

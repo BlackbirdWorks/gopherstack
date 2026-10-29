@@ -34,9 +34,11 @@ const (
 	phoneProv      = "phone"
 	customProv     = "custom"
 	rootTenantKey  = ""
+	fakeAPIKey     = "fake-api-key" //nolint:gosec // placeholder shown in config, not a credential
 	timeLayoutRFC  = time.RFC3339Nano
 	redactedHash   = "UkVEQUNURUQ="
 	maxClaimsBytes = 1000
+	uidLen         = 28
 )
 
 type providerRec struct {
@@ -153,9 +155,11 @@ func defaultConfig(project string) *idtkv2.GoogleCloudIdentitytoolkitAdminV2Conf
 			Email:     &idtkv2.GoogleCloudIdentitytoolkitAdminV2Email{Enabled: true},
 			Anonymous: &idtkv2.GoogleCloudIdentitytoolkitAdminV2Anonymous{Enabled: true},
 		},
-		EmailPrivacyConfig: &idtkv2.GoogleCloudIdentitytoolkitAdminV2EmailPrivacyConfig{EnableImprovedEmailPrivacy: true},
-		Mfa:                &idtkv2.GoogleCloudIdentitytoolkitAdminV2MultiFactorAuthConfig{State: "DISABLED"},
-		Client:             &idtkv2.GoogleCloudIdentitytoolkitAdminV2ClientConfig{ApiKey: "fake-api-key"},
+		EmailPrivacyConfig: &idtkv2.GoogleCloudIdentitytoolkitAdminV2EmailPrivacyConfig{
+			EnableImprovedEmailPrivacy: true,
+		},
+		Mfa:    &idtkv2.GoogleCloudIdentitytoolkitAdminV2MultiFactorAuthConfig{State: "DISABLED"},
+		Client: &idtkv2.GoogleCloudIdentitytoolkitAdminV2ClientConfig{ApiKey: fakeAPIKey},
 		PasswordPolicyConfig: &idtkv2.GoogleCloudIdentitytoolkitAdminV2PasswordPolicyConfig{
 			PasswordPolicyEnforcementState: "OFF",
 		},
@@ -184,13 +188,13 @@ func (b *InMemoryBackend) projectLocked(project string) *projectRec {
 type scope struct {
 	proj     *projectRec
 	users    map[string]*userRec
+	policy   *idtkv2.GoogleCloudIdentitytoolkitAdminV2PasswordPolicyConfig
 	project  string
 	tenant   string
 	password bool
 	link     bool
 	anon     bool
 	privacy  bool
-	policy   *idtkv2.GoogleCloudIdentitytoolkitAdminV2PasswordPolicyConfig
 }
 
 func (b *InMemoryBackend) scopeLocked(project, tenant string) (*scope, error) {
@@ -282,7 +286,7 @@ func (s *scope) sorted() []*userRec {
 func newUID() string {
 	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-	raw := make([]byte, 28)
+	raw := make([]byte, uidLen)
 	_, _ = rand.Read(raw)
 
 	for i, c := range raw {

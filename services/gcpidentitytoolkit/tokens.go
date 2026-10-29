@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"time"
 
@@ -14,9 +15,9 @@ import (
 )
 
 const (
-	securetokenIssuer = "https://securetoken.google.com/"
+	securetokenIssuer = "https://securetoken.google.com/" //nolint:gosec // public URL, not a credential
 	sessionIssuer     = "https://session.firebase.google.com/"
-	customTokenAud    = "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit"
+	customTokenAud    = "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit" //nolint:gosec,lll // public audience
 	maxCustomTokenAge = time.Hour
 	clockSkew         = 5 * time.Minute
 )
@@ -113,21 +114,24 @@ func identities(u *userRec) map[string][]string {
 	return out
 }
 
-func (b *InMemoryBackend) tokenClaims(sc *scope, u *userRec, provider string, authTime int64, issuer string, extra map[string]any) jwt.MapClaims {
+func (b *InMemoryBackend) tokenClaims(
+	sc *scope,
+	u *userRec,
+	provider string,
+	authTime int64,
+	issuer string,
+	extra map[string]any,
+) jwt.MapClaims {
 	claims := jwt.MapClaims{}
 
 	if u.CustomAttrs != "" {
 		var custom map[string]any
 		if json.Unmarshal([]byte(u.CustomAttrs), &custom) == nil {
-			for k, v := range custom {
-				claims[k] = v
-			}
+			maps.Copy(claims, custom)
 		}
 	}
 
-	for k, v := range extra {
-		claims[k] = v
-	}
+	maps.Copy(claims, extra)
 
 	if u.DisplayName != "" {
 		claims["name"] = u.DisplayName
@@ -224,7 +228,11 @@ func (b *InMemoryBackend) verifyJWTLocked(raw, project, issuer string) (*verifie
 	}
 
 	claims := jwt.MapClaims{}
-	parser := jwt.NewParser(jwt.WithValidMethods([]string{"RS256"}), jwt.WithTimeFunc(b.now), jwt.WithExpirationRequired())
+	parser := jwt.NewParser(
+		jwt.WithValidMethods([]string{algRS256}),
+		jwt.WithTimeFunc(b.now),
+		jwt.WithExpirationRequired(),
+	)
 
 	_, err = parser.ParseWithClaims(raw, claims, func(*jwt.Token) (any, error) { return &priv.PublicKey, nil })
 	if err != nil {
@@ -281,29 +289,42 @@ func (b *InMemoryBackend) userForTokenLocked(sc *scope, raw string) (*userRec, *
 	return u, vt, nil
 }
 
-// customTokenClaims validates a custom token and returns the uid and developer claims.
 func (b *InMemoryBackend) customTokenLocked(raw string, sc *scope) (string, map[string]any, error) {
-	bad := func(detail string) error { return idtk("INVALID_CUSTOM_TOKEN", detail) }
-
 	claims := jwt.MapClaims{}
 
 	tok, _, err := jwt.NewParser().ParseUnverified(raw, claims)
 	if err != nil {
-		return "", nil, bad("Invalid token format.")
+		return "", nil, idtk("INVALID_CUSTOM_TOKEN", "Invalid token format.")
 	}
 
-	switch tok.Method.Alg() {
+	if err = b.checkCustomSignature(raw, tok.Method.Alg(), claims); err != nil {
+		return "", nil, err
+	}
+
+	return b.checkCustomClaims(claims, sc)
+}
+
+func (b *InMemoryBackend) checkCustomSignature(raw, alg string, claims jwt.MapClaims) error {
+	bad := func(detail string) error { return idtk("INVALID_CUSTOM_TOKEN", detail) }
+
+	switch alg {
 	case "none":
 		if parts := strings.Split(raw, "."); len(parts) != 3 || parts[2] != "" {
-			return "", nil, bad("Unsigned token carries a signature.")
+			return bad("Unsigned token carries a signature.")
 		}
-	case "RS256":
+	case algRS256:
 		if !b.verifyCustomSignature(raw, claims) {
-			return "", nil, bad("Token signature could not be verified against a known service account key.")
+			return bad("Token signature could not be verified against a known service account key.")
 		}
 	default:
-		return "", nil, bad("Unsupported algorithm.")
+		return bad("Unsupported algorithm.")
 	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) checkCustomClaims(claims jwt.MapClaims, sc *scope) (string, map[string]any, error) {
+	bad := func(detail string) error { return idtk("INVALID_CUSTOM_TOKEN", detail) }
 
 	if aud, _ := claims["aud"].(string); aud != customTokenAud {
 		return "", nil, bad("Invalid audience.")
@@ -313,7 +334,7 @@ func (b *InMemoryBackend) customTokenLocked(raw string, sc *scope) (string, map[
 
 	exp, err := claims.GetExpirationTime()
 	if err != nil || exp == nil || now.After(exp.Add(clockSkew)) {
-		return "", nil, idtk("INVALID_CUSTOM_TOKEN", "Token has expired.")
+		return "", nil, bad("Token has expired.")
 	}
 
 	iat, err := claims.GetIssuedAt()
@@ -348,7 +369,7 @@ func (b *InMemoryBackend) verifyCustomSignature(raw string, claims jwt.MapClaims
 	iss, _ := claims["iss"].(string)
 
 	for _, key := range b.customKeys(iss) {
-		parser := jwt.NewParser(jwt.WithValidMethods([]string{"RS256"}), jwt.WithoutClaimsValidation())
+		parser := jwt.NewParser(jwt.WithValidMethods([]string{algRS256}), jwt.WithoutClaimsValidation())
 		if _, err := parser.Parse(raw, func(*jwt.Token) (any, error) { return key, nil }); err == nil {
 			return true
 		}
@@ -358,7 +379,7 @@ func (b *InMemoryBackend) verifyCustomSignature(raw string, claims jwt.MapClaims
 }
 
 // publicKeyCert returns the signing certificate and key id, creating keys on first use.
-func (b *InMemoryBackend) publicKeyCert() (kid, certPEM string, pub *rsa.PublicKey, err error) {
+func (b *InMemoryBackend) publicKeyCert() (string, string, *rsa.PublicKey, error) {
 	b.mu.Lock("publicKeyCert")
 	defer b.mu.Unlock()
 
@@ -369,4 +390,3 @@ func (b *InMemoryBackend) publicKeyCert() (kid, certPEM string, pub *rsa.PublicK
 
 	return keys.KID, keys.Cert, &priv.PublicKey, nil
 }
-

@@ -3,6 +3,7 @@ package gcpidentitytoolkit
 import (
 	"net/url"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
@@ -46,12 +47,12 @@ func (b *InMemoryBackend) SignUp(c call, r *authRequest) (*tokenResponse, error)
 			return nil, idtk("ADMIN_ONLY_OPERATION")
 		}
 
-		u, err := b.createUserLocked(sc, newUser{anonymous: true}, false)
-		if err != nil {
-			return nil, err
+		anon, cErr := b.createUserLocked(sc, newUser{anonymous: true}, false)
+		if cErr != nil {
+			return nil, cErr
 		}
 
-		return b.finishSignInLocked(sc, u, anonProvider, "identitytoolkit#SignupNewUserResponse")
+		return b.finishSignInLocked(sc, anon, anonProvider, "identitytoolkit#SignupNewUserResponse")
 	}
 
 	if !sc.password {
@@ -315,7 +316,7 @@ func (b *InMemoryBackend) Lookup(c call, r *authRequest) (map[string]any, error)
 		users = append(users, b.toWire(sc, u, c.admin && r.IDToken == ""))
 	}
 
-	out := map[string]any{"kind": "identitytoolkit#GetAccountInfoResponse"}
+	out := map[string]any{keyKind: "identitytoolkit#GetAccountInfoResponse"}
 	if len(users) > 0 {
 		out["users"] = users
 	}
@@ -444,28 +445,8 @@ func projectNumber(project string) string {
 		h *= 1099511628211
 	}
 
-	return strconvU(h%1_000_000_000_000 + 100_000_000_000)
+	return strconv.FormatUint(h%projectNumberMod+projectNumberFloor, 10)
 }
-
-func strconvU(n uint64) string {
-	const digits = "0123456789"
-
-	if n == 0 {
-		return "0"
-	}
-
-	var buf [20]byte
-
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = digits[n%10]
-		n /= 10
-	}
-
-	return string(buf[i:])
-}
-
 
 // CreateAuthURI reports sign-in methods for an identifier, honouring email enumeration protection.
 func (b *InMemoryBackend) CreateAuthURI(c call, r *authRequest) (map[string]any, error) {
@@ -493,7 +474,7 @@ func (b *InMemoryBackend) CreateAuthURI(c call, r *authRequest) (map[string]any,
 		return nil, idtk("INVALID_IDENTIFIER")
 	}
 
-	out := map[string]any{"kind": "identitytoolkit#CreateAuthUriResponse", "sessionId": randomToken(sessionBytes)}
+	out := map[string]any{keyKind: "identitytoolkit#CreateAuthUriResponse", "sessionId": randomToken(sessionBytes)}
 	if sc.privacy {
 		return out, nil
 	}
@@ -519,16 +500,22 @@ func (b *InMemoryBackend) CreateAuthURI(c call, r *authRequest) (map[string]any,
 	return out, nil
 }
 
-const sessionBytes = 8
+const (
+	sessionBytes       = 8
+	projectNumberMod   = 1_000_000_000_000
+	projectNumberFloor = 100_000_000_000
+	minCookieTTL       = 5 * time.Minute
+	maxCookieTTL       = 14 * 24 * time.Hour
+)
 
 // CreateSessionCookie mints a session cookie from an ID token.
 func (b *InMemoryBackend) CreateSessionCookie(c call, r *authRequest) (map[string]string, error) {
 	dur := int64(r.ValidDuration)
 	if dur == 0 {
-		dur = int64((14 * 24 * time.Hour).Seconds())
+		dur = int64(maxCookieTTL.Seconds())
 	}
 
-	if dur < int64((5 * time.Minute).Seconds()) || dur > int64((14 * 24 * time.Hour).Seconds()) {
+	if dur < int64(minCookieTTL.Seconds()) || dur > int64(maxCookieTTL.Seconds()) {
 		return nil, idtk("INVALID_DURATION")
 	}
 
@@ -578,7 +565,7 @@ func oobLink(host, mode, code, continueURL, tenant string) string {
 	q.Set("mode", mode)
 	q.Set("lang", "en")
 	q.Set("oobCode", code)
-	q.Set("apiKey", "fake-api-key")
+	q.Set("apiKey", fakeAPIKey)
 
 	if continueURL != "" {
 		q.Set("continueUrl", continueURL)
@@ -590,4 +577,3 @@ func oobLink(host, mode, code, continueURL, tenant string) string {
 
 	return "http://" + host + "/emulator/action?" + q.Encode()
 }
-

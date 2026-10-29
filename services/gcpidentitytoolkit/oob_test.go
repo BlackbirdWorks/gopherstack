@@ -9,22 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type oobList struct {
-	Codes []struct {
-		Email       string `json:"email"`
-		OobCode     string `json:"oobCode"`
-		OobLink     string `json:"oobLink"`
-		RequestType string `json:"requestType"`
-	}
-}
-
-func (e *env) oobCodes(t *testing.T, tenant string) []map[string]any {
+func (e *env) oobCodes(t *testing.T) []map[string]any {
 	t.Helper()
 
 	path := "/emulator/v1/projects/" + e.project + "/oobCodes"
-	if tenant != "" {
-		path += "?tenantId=" + tenant
-	}
 
 	r := e.do(t, http.MethodGet, path, "", nil)
 	require.Equal(t, http.StatusOK, r.status, r.body)
@@ -45,9 +33,9 @@ func TestPasswordResetFlow(t *testing.T) {
 	tests := []struct {
 		name    string
 		email   string
-		privacy bool
 		wantErr string
 		wantOOB int
+		privacy bool
 	}{
 		{name: "known email", email: "rp@example.com", privacy: true, wantOOB: 1},
 		{name: "unknown email with protection is silent", email: "ghost@example.com", privacy: true},
@@ -59,8 +47,11 @@ func TestPasswordResetFlow(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.signUp(t, "rp@example.com", "secret1")
-			e.setConfig(t, map[string]any{"emailPrivacyConfig": map[string]any{"enableImprovedEmailPrivacy": tt.privacy}})
+			e.signUp(t, "rp@example.com")
+			e.setConfig(
+				t,
+				map[string]any{"emailPrivacyConfig": map[string]any{"enableImprovedEmailPrivacy": tt.privacy}},
+			)
 
 			r := e.client(t, "sendOobCode", map[string]any{"requestType": "PASSWORD_RESET", "email": tt.email})
 			if tt.wantErr != "" {
@@ -73,7 +64,7 @@ func TestPasswordResetFlow(t *testing.T) {
 			assert.Equal(t, tt.email, r.str("email"))
 			assert.Empty(t, r.str("oobCode"), "client calls never see the code")
 
-			codes := e.oobCodes(t, "")
+			codes := e.oobCodes(t)
 			require.Len(t, codes, tt.wantOOB)
 
 			if tt.wantOOB == 0 {
@@ -111,8 +102,8 @@ func TestOobExpiry(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		advance time.Duration
 		msg     string
+		advance time.Duration
 	}{
 		{name: "within ttl", advance: 59 * time.Minute},
 		{name: "after ttl", advance: 61 * time.Minute, msg: "EXPIRED_OOB_CODE"},
@@ -123,10 +114,10 @@ func TestOobExpiry(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.signUp(t, "x@example.com", "secret1")
+			e.signUp(t, "x@example.com")
 			e.client(t, "sendOobCode", map[string]any{"requestType": "PASSWORD_RESET", "email": "x@example.com"})
 
-			code := e.oobCodes(t, "")[0]["oobCode"].(string)
+			code := e.oobCodes(t)[0]["oobCode"].(string)
 			e.clock.Advance(tt.advance)
 
 			r := e.client(t, "resetPassword", map[string]any{"oobCode": code})
@@ -145,12 +136,12 @@ func TestVerifyEmailFlow(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	up := e.signUp(t, "v@example.com", "secret1")
+	up := e.signUp(t, "v@example.com")
 
 	r := e.client(t, "sendOobCode", map[string]any{"requestType": "VERIFY_EMAIL", "idToken": up.str("idToken")})
 	require.Equal(t, http.StatusOK, r.status, r.body)
 
-	code := e.oobCodes(t, "")[0]["oobCode"].(string)
+	code := e.oobCodes(t)[0]["oobCode"].(string)
 
 	upd := e.client(t, "update", map[string]any{"oobCode": code})
 	require.Equal(t, http.StatusOK, upd.status, upd.body)
@@ -158,7 +149,7 @@ func TestVerifyEmailFlow(t *testing.T) {
 
 	lk := e.admin(t, "lookup", map[string]any{"localId": []string{up.str("localId")}})
 	assert.Equal(t, true, lk.body["users"].([]any)[0].(map[string]any)["emailVerified"])
-	assert.Empty(t, e.oobCodes(t, ""))
+	assert.Empty(t, e.oobCodes(t))
 }
 
 func TestEmailLinkSignIn(t *testing.T) {
@@ -166,16 +157,21 @@ func TestEmailLinkSignIn(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		existing bool
-		link     bool
 		email    string
 		msg      string
+		existing bool
+		link     bool
 		isNew    bool
 	}{
 		{name: "new user", link: true, email: "new@example.com", isNew: true},
 		{name: "existing user", existing: true, link: true, email: "old@example.com"},
 		{name: "wrong email", link: true, email: "other@example.com", msg: "INVALID_EMAIL"},
-		{name: "link sign-in disabled", link: false, email: "new@example.com", msg: "OPERATION_NOT_ALLOWED : Email link sign-in is disabled for this project."},
+		{
+			name:  "link sign-in disabled",
+			link:  false,
+			email: "new@example.com",
+			msg:   "OPERATION_NOT_ALLOWED : Email link sign-in is disabled for this project.",
+		},
 	}
 
 	for _, tt := range tests {
@@ -184,7 +180,7 @@ func TestEmailLinkSignIn(t *testing.T) {
 
 			e := newEnv(t)
 			if tt.existing {
-				e.signUp(t, "old@example.com", "secret1")
+				e.signUp(t, "old@example.com")
 			}
 
 			target := tt.email
@@ -193,7 +189,10 @@ func TestEmailLinkSignIn(t *testing.T) {
 			}
 
 			if !tt.link {
-				e.setConfig(t, map[string]any{"signIn": map[string]any{"email": map[string]any{"passwordRequired": true}}})
+				e.setConfig(
+					t,
+					map[string]any{"signIn": map[string]any{"email": map[string]any{"passwordRequired": true}}},
+				)
 
 				r := e.client(t, "sendOobCode", map[string]any{"requestType": "EMAIL_SIGNIN", "email": target})
 				e.assertErr(t, r, http.StatusBadRequest, tt.msg)
@@ -204,7 +203,7 @@ func TestEmailLinkSignIn(t *testing.T) {
 			r := e.client(t, "sendOobCode", map[string]any{"requestType": "EMAIL_SIGNIN", "email": target})
 			require.Equal(t, http.StatusOK, r.status, r.body)
 
-			code := e.oobCodes(t, "")[0]["oobCode"].(string)
+			code := e.oobCodes(t)[0]["oobCode"].(string)
 
 			in := e.client(t, "signInWithEmailLink", map[string]any{"email": tt.email, "oobCode": code})
 			if tt.msg != "" {
@@ -232,12 +231,44 @@ func TestAdminOobLink(t *testing.T) {
 		mode string
 		msg  string
 	}{
-		{name: "password reset", body: map[string]any{"requestType": "PASSWORD_RESET", "email": "a@example.com"}, mode: "mode=resetPassword"},
-		{name: "verify email", body: map[string]any{"requestType": "VERIFY_EMAIL", "email": "a@example.com"}, mode: "mode=verifyEmail"},
-		{name: "email signin", body: map[string]any{"requestType": "EMAIL_SIGNIN", "email": "z@example.com", "continueUrl": "https://app.example.com/done"}, mode: "mode=signIn"},
-		{name: "change email", body: map[string]any{"requestType": "VERIFY_AND_CHANGE_EMAIL", "email": "a@example.com", "newEmail": "b@example.com"}, mode: "mode=verifyAndChangeEmail"},
-		{name: "unknown user", body: map[string]any{"requestType": "PASSWORD_RESET", "email": "no@example.com"}, msg: "EMAIL_NOT_FOUND"},
-		{name: "bad type", body: map[string]any{"requestType": "NOPE", "email": "a@example.com"}, msg: "INVALID_REQ_TYPE : Unsupported request type."},
+		{
+			name: "password reset",
+			body: map[string]any{"requestType": "PASSWORD_RESET", "email": "a@example.com"},
+			mode: "mode=resetPassword",
+		},
+		{
+			name: "verify email",
+			body: map[string]any{"requestType": "VERIFY_EMAIL", "email": "a@example.com"},
+			mode: "mode=verifyEmail",
+		},
+		{
+			name: "email signin",
+			body: map[string]any{
+				"requestType": "EMAIL_SIGNIN",
+				"email":       "z@example.com",
+				"continueUrl": "https://app.example.com/done",
+			},
+			mode: "mode=signIn",
+		},
+		{
+			name: "change email",
+			body: map[string]any{
+				"requestType": "VERIFY_AND_CHANGE_EMAIL",
+				"email":       "a@example.com",
+				"newEmail":    "b@example.com",
+			},
+			mode: "mode=verifyAndChangeEmail",
+		},
+		{
+			name: "unknown user",
+			body: map[string]any{"requestType": "PASSWORD_RESET", "email": "no@example.com"},
+			msg:  "EMAIL_NOT_FOUND",
+		},
+		{
+			name: "bad type",
+			body: map[string]any{"requestType": "NOPE", "email": "a@example.com"},
+			msg:  "INVALID_REQ_TYPE : Unsupported request type.",
+		},
 	}
 
 	for _, tt := range tests {
@@ -245,7 +276,7 @@ func TestAdminOobLink(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.signUp(t, "a@example.com", "secret1")
+			e.signUp(t, "a@example.com")
 
 			tt.body["returnOobLink"] = true
 
@@ -267,10 +298,13 @@ func TestVerifyAndChangeEmail(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	up := e.signUp(t, "a@example.com", "secret1")
+	up := e.signUp(t, "a@example.com")
 
 	r := e.admin(t, "sendOobCode", map[string]any{
-		"requestType": "VERIFY_AND_CHANGE_EMAIL", "email": "a@example.com", "newEmail": "B@example.com", "returnOobLink": true,
+		"requestType":   "VERIFY_AND_CHANGE_EMAIL",
+		"email":         "a@example.com",
+		"newEmail":      "B@example.com",
+		"returnOobLink": true,
 	})
 	require.Equal(t, http.StatusOK, r.status, r.body)
 
@@ -289,11 +323,11 @@ func TestCreateAuthURI(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		privacy    bool
 		identifier string
-		registered bool
-		methods    []any
 		msg        string
+		methods    []any
+		privacy    bool
+		registered bool
 	}{
 		{name: "protection hides existence", privacy: true, identifier: "me@example.com"},
 		{name: "registered", identifier: "me@example.com", registered: true, methods: []any{"password", "emailLink"}},
@@ -306,10 +340,17 @@ func TestCreateAuthURI(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.signUp(t, "me@example.com", "secret1")
-			e.setConfig(t, map[string]any{"emailPrivacyConfig": map[string]any{"enableImprovedEmailPrivacy": tt.privacy}})
+			e.signUp(t, "me@example.com")
+			e.setConfig(
+				t,
+				map[string]any{"emailPrivacyConfig": map[string]any{"enableImprovedEmailPrivacy": tt.privacy}},
+			)
 
-			r := e.client(t, "createAuthUri", map[string]any{"identifier": tt.identifier, "continueUri": "http://localhost"})
+			r := e.client(
+				t,
+				"createAuthUri",
+				map[string]any{"identifier": tt.identifier, "continueUri": "http://localhost"},
+			)
 			if tt.msg != "" {
 				e.assertErr(t, r, http.StatusBadRequest, tt.msg)
 

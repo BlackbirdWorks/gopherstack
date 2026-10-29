@@ -1,13 +1,20 @@
 package gcpidentitytoolkit
 
 import (
-	"slices"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 )
 
-var hostPrefixes = []string{"/identitytoolkit.googleapis.com", "/securetoken.googleapis.com"} //nolint:gochecknoglobals // immutable
+//nolint:gochecknoglobals // immutable lookup tables
+var (
+	hostPrefixes = []string{"/identitytoolkit.googleapis.com", "/securetoken.googleapis.com"}
+	accountVerbs = []string{
+		"signUp", "signInWithPassword", "signInWithCustomToken", "signInWithEmailLink", "lookup", "update", "delete",
+		"sendOobCode", opResetPassword, "createAuthUri", opBatchCreate, opBatchDelete, opQuery,
+	}
+)
 
 type route struct {
 	op      string
@@ -47,71 +54,54 @@ func parseRoute(r *http.Request) route {
 	case "emulator":
 		return emulatorRoute(r, parts)
 	case "robot", "service_accounts", "identitytoolkit":
-		return route{op: "PublicKeys"}
+		return route{op: opPublicKeys}
 	case "v1", "v2":
-		rt := route{version: parts[0]}
-
-		return versionedRoute(r, rt, parts[1:])
+		return versionedRoute(r, route{version: parts[0]}, parts[1:])
 	}
 
 	return route{}
 }
 
 func emulatorRoute(r *http.Request, parts []string) route {
-	if len(parts) == 5 && parts[1] == "v1" && parts[2] == "projects" {
-		rt := route{project: parts[3], tenant: r.URL.Query().Get("tenantId")}
+	const emulatorPathLen = 5
 
-		switch {
-		case parts[4] == "oobCodes" && r.Method == http.MethodGet:
-			rt.op = "ListOobCodes"
-		case parts[4] == "accounts" && r.Method == http.MethodDelete:
-			rt.op = "ClearAccounts"
-		}
-
-		return rt
+	if len(parts) != emulatorPathLen || parts[1] != "v1" || parts[2] != "projects" {
+		return route{}
 	}
 
-	return route{}
+	rt := route{project: parts[3], tenant: r.URL.Query().Get("tenantId")}
+
+	switch {
+	case parts[4] == "oobCodes" && r.Method == http.MethodGet:
+		rt.op = opListOobCodes
+	case parts[4] == "accounts" && r.Method == http.MethodDelete:
+		rt.op = opClearAccounts
+	}
+
+	return rt
 }
 
 func versionedRoute(r *http.Request, rt route, rest []string) route {
-	if len(rest) == 0 {
+	switch {
+	case len(rest) == 0:
 		return route{}
+	case rt.version == "v1" && rest[0] == "token" && len(rest) == 1:
+		rt.op = opToken
+	case rest[0] == "projects" && len(rest) >= 2:
+		return projectRoute(r, rt, rest[1], rest[2:])
+	case rt.version == "v1" && len(rest) == 1:
+		rt.op = accountVerb(r, rest[0])
 	}
 
-	if rt.version == "v1" && rest[0] == "token" && len(rest) == 1 {
-		rt.op = "Token"
+	return rt
+}
 
-		return rt
-	}
-
-	if rest[0] != "projects" {
-		if rt.version == "v1" && len(rest) == 1 {
-			rt.op = accountVerb(r, rest[0])
-		}
-
-		return rt
-	}
-
-	if len(rest) < 2 {
-		return route{}
-	}
-
-	proj := rest[1]
+func projectRoute(r *http.Request, rt route, proj string, tail []string) route {
 	rt.project = proj
-	tail := rest[2:]
 
 	if before, verb, ok := strings.Cut(proj, ":"); ok {
 		rt.project = before
-
-		if r.Method == http.MethodPost && rt.version == "v1" {
-			switch verb {
-			case "createSessionCookie":
-				rt.op = "CreateSessionCookie"
-			case "queryAccounts":
-				rt.op = "query"
-			}
-		}
+		rt.op = projectColonVerb(r, rt, verb)
 
 		return rt
 	}
@@ -120,16 +110,13 @@ func versionedRoute(r *http.Request, rt route, rest []string) route {
 		return v2Route(r, rt, tail)
 	}
 
-	if len(tail) >= 2 && tail[0] == "tenants" {
+	if len(tail) >= 2 && tail[0] == segTenants {
 		rt.tenant = tail[1]
 		tail = tail[2:]
 
 		if before, verb, ok := strings.Cut(rt.tenant, ":"); ok {
 			rt.tenant = before
-
-			if verb == "createSessionCookie" && r.Method == http.MethodPost {
-				rt.op = "CreateSessionCookie"
-			}
+			rt.op = projectColonVerb(r, rt, verb)
 
 			return rt
 		}
@@ -142,15 +129,27 @@ func versionedRoute(r *http.Request, rt route, rest []string) route {
 	return rt
 }
 
-func projectVerb(r *http.Request, seg string) string {
-	switch {
-	case seg == "accounts" && r.Method == http.MethodPost:
-		return "AdminCreate"
-	case strings.HasPrefix(seg, "accounts:"):
-		return accountVerb(r, seg)
+func projectColonVerb(r *http.Request, rt route, verb string) string {
+	if r.Method != http.MethodPost || rt.version != "v1" {
+		return ""
+	}
+
+	switch verb {
+	case "createSessionCookie":
+		return opCreateSessionCookie
+	case "queryAccounts":
+		return opQuery
 	}
 
 	return ""
+}
+
+func projectVerb(r *http.Request, seg string) string {
+	if seg == "accounts" && r.Method == http.MethodPost {
+		return opAdminCreate
+	}
+
+	return accountVerb(r, seg)
 }
 
 func accountVerb(r *http.Request, seg string) string {
@@ -161,57 +160,33 @@ func accountVerb(r *http.Request, seg string) string {
 
 	if verb == "batchGet" {
 		if r.Method == http.MethodGet {
-			return "BatchGet"
+			return opBatchGet
 		}
 
 		return ""
 	}
 
-	if r.Method != http.MethodPost {
-		return ""
-	}
-
-	if slices.Contains(accountVerbs, verb) {
+	if r.Method == http.MethodPost && slices.Contains(accountVerbs, verb) {
 		return verb
 	}
 
 	return ""
 }
 
-//nolint:gochecknoglobals // immutable lookup table
-var accountVerbs = []string{
-	"signUp", "signInWithPassword", "signInWithCustomToken", "signInWithEmailLink", "lookup", "update", "delete",
-	"sendOobCode", "resetPassword", "createAuthUri", "batchCreate", "batchDelete", "query",
-}
-
 func v2Route(r *http.Request, rt route, tail []string) route {
 	switch {
 	case len(tail) == 1 && tail[0] == "config":
-		switch r.Method {
-		case http.MethodGet:
-			rt.op = "GetConfig"
-		case http.MethodPatch:
-			rt.op = "UpdateConfig"
-		}
-	case len(tail) == 1 && tail[0] == "tenants":
-		switch r.Method {
-		case http.MethodGet:
-			rt.op = "ListTenants"
-		case http.MethodPost:
-			rt.op = "CreateTenant"
-		}
-	case len(tail) == 2 && tail[0] == "tenants":
+		rt.op = pick(r.Method, map[string]string{http.MethodGet: opGetConfig, http.MethodPatch: opUpdateConfig})
+	case len(tail) == 1 && tail[0] == segTenants:
+		rt.op = pick(r.Method, map[string]string{http.MethodGet: opListTenants, http.MethodPost: opCreateTenant})
+	case len(tail) == 2 && tail[0] == segTenants:
 		rt.id = tail[1]
-
-		switch r.Method {
-		case http.MethodGet:
-			rt.op = "GetTenant"
-		case http.MethodPatch:
-			rt.op = "UpdateTenant"
-		case http.MethodDelete:
-			rt.op = "DeleteTenant"
-		}
+		rt.op = pick(r.Method, map[string]string{
+			http.MethodGet: opGetTenant, http.MethodPatch: opUpdateTenant, http.MethodDelete: opDeleteTenant,
+		})
 	}
 
 	return rt
 }
+
+func pick(method string, ops map[string]string) string { return ops[method] }

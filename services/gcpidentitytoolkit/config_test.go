@@ -15,23 +15,24 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/identitytoolkit/v1"
 	"google.golang.org/api/option"
-
 )
 
 func TestProjectConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
+		check  func(*testing.T, result)
 		name   string
 		method string
 		path   string
-		body   map[string]any
 		status int
-		check  func(*testing.T, result)
 	}{
 		{
 			name: "defaults", method: http.MethodGet, status: http.StatusOK,
 			check: func(t *testing.T, r result) {
+				t.Helper()
+
 				signIn := r.body["signIn"].(map[string]any)
 				assert.Equal(t, true, signIn["email"].(map[string]any)["enabled"])
 				assert.Equal(t, true, signIn["anonymous"].(map[string]any)["enabled"])
@@ -40,17 +41,31 @@ func TestProjectConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "patch with mask", method: http.MethodPatch, path: "?updateMask=authorizedDomains",
-			body: map[string]any{"authorizedDomains": []string{"a.example.com"}, "autodeleteAnonymousUsers": true}, status: http.StatusOK,
+			name:   "patch with mask",
+			method: http.MethodPatch,
+			path:   "?updateMask=authorizedDomains",
+			body: map[string]any{
+				"authorizedDomains":        []string{"a.example.com"},
+				"autodeleteAnonymousUsers": true,
+			},
+			status: http.StatusOK,
 			check: func(t *testing.T, r result) {
+				t.Helper()
+
 				assert.Equal(t, []any{"a.example.com"}, r.body["authorizedDomains"])
 				assert.NotContains(t, r.body, "autodeleteAnonymousUsers", "fields outside the mask are ignored")
 			},
 		},
 		{
-			name: "patch nested", method: http.MethodPatch,
-			body: map[string]any{"signIn": map[string]any{"anonymous": map[string]any{"enabled": false}}}, status: http.StatusOK,
+			name:   "patch nested",
+			method: http.MethodPatch,
+			body: map[string]any{
+				"signIn": map[string]any{"anonymous": map[string]any{"enabled": false}},
+			},
+			status: http.StatusOK,
 			check: func(t *testing.T, r result) {
+				t.Helper()
+
 				signIn := r.body["signIn"].(map[string]any)
 				assert.NotContains(t, signIn["anonymous"], "enabled")
 				assert.Equal(t, true, signIn["email"].(map[string]any)["enabled"], "siblings are preserved")
@@ -81,8 +96,19 @@ func TestPasswordPolicy(t *testing.T) {
 		msg   string
 	}{
 		{name: "enforced and met", state: "ENFORCE", pw: "Abcdef1!"},
-		{name: "enforced missing upper and digit", state: "ENFORCE", pw: "abcdefg!", msg: "PASSWORD_DOES_NOT_MEET_REQUIREMENTS : Missing password requirements: [Password must contain an upper case character, Password must contain a numeric character]"},
-		{name: "enforced too short", state: "ENFORCE", pw: "Ab1!", msg: "WEAK_PASSWORD : Password should be at least 6 characters"},
+		{
+			name:  "enforced missing upper and digit",
+			state: "ENFORCE",
+			pw:    "abcdefg!",
+			msg: "PASSWORD_DOES_NOT_MEET_REQUIREMENTS : Missing password requirements: " +
+				"[Password must contain an upper case character, Password must contain a numeric character]",
+		},
+		{
+			name:  "enforced too short",
+			state: "ENFORCE",
+			pw:    "Ab1!",
+			msg:   "WEAK_PASSWORD : Password should be at least 6 characters",
+		},
 		{name: "off", state: "OFF", pw: "abcdefg"},
 	}
 
@@ -120,7 +146,11 @@ func TestTenantsREST(t *testing.T) {
 	}{
 		{name: "ok", body: map[string]any{"displayName": "my-tenant", "allowPasswordSignup": true}},
 		{name: "too short", body: map[string]any{"displayName": "ab"}, msg: "Invalid tenant display name"},
-		{name: "bad chars", body: map[string]any{"displayName": "no spaces allowed"}, msg: "Invalid tenant display name"},
+		{
+			name: "bad chars",
+			body: map[string]any{"displayName": "no spaces allowed"},
+			msg:  "Invalid tenant display name",
+		},
 	}
 
 	for _, tt := range tests {
@@ -157,7 +187,13 @@ func TestTenantsREST(t *testing.T) {
 			miss := e.do(t, http.MethodGet, base+"/nope-12345", adminAuth, nil)
 			e.assertErr(t, miss, http.StatusNotFound, "TENANT_NOT_FOUND")
 
-			unknown := e.do(t, http.MethodPost, "/v1/projects/"+e.project+"/tenants/nope-12345/accounts:signUp?key=k", "", map[string]any{})
+			unknown := e.do(
+				t,
+				http.MethodPost,
+				"/v1/projects/"+e.project+"/tenants/nope-12345/accounts:signUp?key=k",
+				"",
+				map[string]any{},
+			)
 			e.assertErr(t, unknown, http.StatusNotFound, "TENANT_NOT_FOUND")
 
 			del := e.do(t, http.MethodDelete, base+"/"+id, adminAuth, nil)
@@ -178,9 +214,23 @@ func TestTenantProviderFlags(t *testing.T) {
 		body   map[string]any
 		msg    string
 	}{
-		{name: "password signup off by default", tenant: map[string]any{"displayName": "no-pass"}, body: map[string]any{"email": "a@example.com", "password": "secret1"}, msg: "OPERATION_NOT_ALLOWED : Password sign-in is disabled for this project."},
-		{name: "anonymous off by default", tenant: map[string]any{"displayName": "no-anon"}, body: map[string]any{}, msg: "ADMIN_ONLY_OPERATION"},
-		{name: "anonymous on", tenant: map[string]any{"displayName": "yes-anon", "enableAnonymousUser": true}, body: map[string]any{}},
+		{
+			name:   "password signup off by default",
+			tenant: map[string]any{"displayName": "no-pass"},
+			body:   map[string]any{"email": "a@example.com", "password": "secret1"},
+			msg:    "OPERATION_NOT_ALLOWED : Password sign-in is disabled for this project.",
+		},
+		{
+			name:   "anonymous off by default",
+			tenant: map[string]any{"displayName": "no-anon"},
+			body:   map[string]any{},
+			msg:    "ADMIN_ONLY_OPERATION",
+		},
+		{
+			name:   "anonymous on",
+			tenant: map[string]any{"displayName": "yes-anon", "enableAnonymousUser": true},
+			body:   map[string]any{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -192,7 +242,13 @@ func TestTenantProviderFlags(t *testing.T) {
 			require.Equal(t, http.StatusOK, tn.status, tn.body)
 
 			id := tn.str("name")[len("projects/"+e.project+"/tenants/"):]
-			r := e.do(t, http.MethodPost, "/v1/projects/"+e.project+"/tenants/"+id+"/accounts:signUp?key=k", "", tt.body)
+			r := e.do(
+				t,
+				http.MethodPost,
+				"/v1/projects/"+e.project+"/tenants/"+id+"/accounts:signUp?key=k",
+				"",
+				tt.body,
+			)
 
 			if tt.msg != "" {
 				e.assertErr(t, r, http.StatusBadRequest, tt.msg)
@@ -209,7 +265,7 @@ func TestSigningKeyEndpoints(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	up := e.signUp(t, "k@example.com", "secret1")
+	up := e.signUp(t, "k@example.com")
 
 	x509Resp := e.do(t, http.MethodGet, "/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com", "", nil)
 	require.Equal(t, http.StatusOK, x509Resp.status)
@@ -239,7 +295,7 @@ func TestSigningKeyEndpoints(t *testing.T) {
 	assert.Equal(t, up.str("localId"), claims["user_id"])
 	assert.Equal(t, up.str("localId"), claims["sub"])
 	assert.Equal(t, "password", claims["firebase"].(map[string]any)["sign_in_provider"])
-	assert.EqualValues(t, 3600, claims["exp"].(float64)-claims["iat"].(float64))
+	assert.InDelta(t, 3600, claims["exp"].(float64)-claims["iat"].(float64), 0)
 	assert.NotZero(t, claims["auth_time"])
 
 	jwk := e.do(t, http.MethodGet, "/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com", "", nil)
@@ -268,8 +324,13 @@ func TestCustomTokenRS256(t *testing.T) {
 
 	mint := func(key *rsa.PrivateKey, iss string, now time.Time, uid string) string {
 		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-			"iss": iss, "sub": iss, "aud": "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit",
-			"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "uid": uid, "claims": map[string]any{"k": "v"},
+			"iss":    iss,
+			"sub":    iss,
+			"aud":    "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit",
+			"iat":    now.Unix(),
+			"exp":    now.Add(time.Hour).Unix(),
+			"uid":    uid,
+			"claims": map[string]any{"k": "v"},
 		})
 		s, signErr := tok.SignedString(key)
 		require.NoError(t, signErr)
@@ -278,13 +339,13 @@ func TestCustomTokenRS256(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		key    *rsa.PrivateKey
-		iss    string
-		wired  bool
-		uid    string
+		key     *rsa.PrivateKey
+		name    string
+		iss     string
+		uid     string
 		advance time.Duration
-		ok     bool
+		wired   bool
+		ok      bool
 	}{
 		{name: "known service account", key: priv, iss: sa, wired: true, uid: "u1", ok: true},
 		{name: "wrong key", key: other, iss: sa, wired: true, uid: "u1"},
@@ -330,11 +391,17 @@ func TestPersistence(t *testing.T) {
 	t.Parallel()
 
 	src := newEnv(t)
-	up := src.signUp(t, "keep@example.com", "secret1")
+	up := src.signUp(t, "keep@example.com")
 	src.client(t, "sendOobCode", map[string]any{"requestType": "PASSWORD_RESET", "email": "keep@example.com"})
 	src.setConfig(t, map[string]any{"authorizedDomains": []string{"keep.example.com"}})
 
-	tn := src.do(t, http.MethodPost, "/v2/projects/"+src.project+"/tenants", adminAuth, map[string]any{"displayName": "kept-tenant"})
+	tn := src.do(
+		t,
+		http.MethodPost,
+		"/v2/projects/"+src.project+"/tenants",
+		adminAuth,
+		map[string]any{"displayName": "kept-tenant"},
+	)
 	require.Equal(t, http.StatusOK, tn.status)
 
 	data := src.backend.Snapshot(t.Context())
@@ -350,10 +417,16 @@ func TestPersistence(t *testing.T) {
 	in := dst.client(t, "signInWithPassword", map[string]any{"email": "keep@example.com", "password": "secret1"})
 	assert.Equal(t, http.StatusOK, in.status, in.body)
 
-	rf := dst.do(t, http.MethodPost, "/v1/token?key=k", "", map[string]any{"grant_type": "refresh_token", "refresh_token": up.str("refreshToken")})
+	rf := dst.do(
+		t,
+		http.MethodPost,
+		"/v1/token?key=k",
+		"",
+		map[string]any{"grant_type": "refresh_token", "refresh_token": up.str("refreshToken")},
+	)
 	assert.Equal(t, http.StatusOK, rf.status, rf.body)
 
-	assert.Len(t, dst.oobCodes(t, ""), 1)
+	assert.Len(t, dst.oobCodes(t), 1)
 
 	cfg := dst.do(t, http.MethodGet, "/v2/projects/"+dst.project+"/config", adminAuth, nil)
 	assert.Equal(t, []any{"keep.example.com"}, cfg.body["authorizedDomains"])
@@ -374,8 +447,13 @@ func TestGeneratedClientWireShapes(t *testing.T) {
 
 	e := newEnv(t)
 
-	svc, err := identitytoolkit.NewService(t.Context(), option.WithEndpoint(e.url+"/"), option.WithoutAuthentication(), option.WithHTTPClient(
-		&http.Client{Transport: keyAdder{rt: e.hc.Transport}}))
+	svc, err := identitytoolkit.NewService(
+		t.Context(),
+		option.WithEndpoint(e.url+"/"),
+		option.WithoutAuthentication(),
+		option.WithHTTPClient(
+			&http.Client{Transport: keyAdder{rt: e.hc.Transport}}),
+	)
 	require.NoError(t, err)
 
 	up, err := svc.Accounts.SignUp(&identitytoolkit.GoogleCloudIdentitytoolkitV1SignUpRequest{
@@ -392,7 +470,8 @@ func TestGeneratedClientWireShapes(t *testing.T) {
 	assert.True(t, in.Registered)
 	assert.Equal(t, up.LocalId, in.LocalId)
 
-	lk, err := svc.Accounts.Lookup(&identitytoolkit.GoogleCloudIdentitytoolkitV1GetAccountInfoRequest{IdToken: in.IdToken}).Do()
+	lookupReq := &identitytoolkit.GoogleCloudIdentitytoolkitV1GetAccountInfoRequest{IdToken: in.IdToken}
+	lk, err := svc.Accounts.Lookup(lookupReq).Do()
 	require.NoError(t, err)
 	require.Len(t, lk.Users, 1)
 	assert.Positive(t, lk.Users[0].CreatedAt)
@@ -404,7 +483,6 @@ func TestGeneratedClientWireShapes(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "Gen", upd.DisplayName)
-
 }
 
 type keyAdder struct{ rt http.RoundTripper }

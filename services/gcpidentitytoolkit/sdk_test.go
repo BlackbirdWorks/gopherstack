@@ -2,6 +2,7 @@ package gcpidentitytoolkit_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -31,7 +32,11 @@ func (e *env) sub(t *testing.T) *env {
 func (e *env) sdk(t *testing.T) *auth.Client {
 	t.Helper()
 
-	app, err := firebase.NewApp(context.Background(), &firebase.Config{ProjectID: e.project}, option.WithoutAuthentication())
+	app, err := firebase.NewApp(
+		context.Background(),
+		&firebase.Config{ProjectID: e.project},
+		option.WithoutAuthentication(),
+	)
 	require.NoError(t, err)
 
 	c, err := app.Auth(context.Background())
@@ -51,7 +56,7 @@ func (e *env) signInToken(t *testing.T, email, pw string) result {
 
 // TestAdminSDK drives the server through firebase.google.com/go/v4/auth in FIREBASE_AUTH_EMULATOR_HOST mode.
 // t.Setenv forbids t.Parallel on this parent; its subtests run in parallel.
-func TestAdminSDK(t *testing.T) {
+func TestAdminSDK(t *testing.T) { //nolint:tparallel // t.Setenv forbids t.Parallel on the parent
 	root := newEnv(t)
 
 	u, err := url.Parse(root.url)
@@ -68,11 +73,11 @@ func TestAdminSDK(t *testing.T) {
 
 	// These own the shared clock (revocation compares second-resolution timestamps), so they run first and alone.
 	for _, tt := range []struct {
-		name string
 		run  func(*testing.T, *env, *auth.Client)
+		name string
 	}{
-		{"revoke and disable", sdkRevokeDisable},
-		{"session cookie", sdkSessionCookie},
+		{name: "revoke and disable", run: sdkRevokeDisable},
+		{name: "session cookie", run: sdkSessionCookie},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root.clock.Set(skewedNow())
@@ -81,17 +86,17 @@ func TestAdminSDK(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name string
 		run  func(*testing.T, *env, *auth.Client)
+		name string
 	}{
-		{"users crud", sdkUsersCRUD},
-		{"list and query", sdkListQuery},
-		{"tokens and claims", sdkTokensClaims},
-		{"custom token", sdkCustomToken},
-		{"import hashes", sdkImportHashes},
-		{"tenants", sdkTenants},
-		{"email links", sdkEmailLinks},
-		{"delete users", sdkDeleteUsers},
+		{name: "users crud", run: sdkUsersCRUD},
+		{name: "list and query", run: sdkListQuery},
+		{name: "tokens and claims", run: sdkTokensClaims},
+		{name: "custom token", run: sdkCustomToken},
+		{name: "import hashes", run: sdkImportHashes},
+		{name: "tenants", run: sdkTenants},
+		{name: "email links", run: sdkEmailLinks},
+		{name: "delete users", run: sdkDeleteUsers},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -102,6 +107,8 @@ func TestAdminSDK(t *testing.T) {
 }
 
 func sdkUsersCRUD(t *testing.T, _ *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	created, err := c.CreateUser(ctx, (&auth.UserToCreate{}).UID("sdk-u1").Email("Sdk@Example.com").Password("secret1").
@@ -150,16 +157,21 @@ func sdkUsersCRUD(t *testing.T, _ *env, c *auth.Client) {
 	_, err = c.GetUser(ctx, "missing")
 	assert.True(t, auth.IsUserNotFound(err), err)
 
-	assert.NoError(t, c.DeleteUser(ctx, "sdk-u1"))
+	require.NoError(t, c.DeleteUser(ctx, "sdk-u1"))
 	assert.True(t, auth.IsUserNotFound(c.DeleteUser(ctx, "sdk-u1")))
 
-	res, err := c.GetUsers(ctx, []auth.UserIdentifier{auth.UIDIdentifier{UID: "nope"}, auth.EmailIdentifier{Email: "x@example.com"}})
+	res, err := c.GetUsers(
+		ctx,
+		[]auth.UserIdentifier{auth.UIDIdentifier{UID: "nope"}, auth.EmailIdentifier{Email: "x@example.com"}},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, res.Users)
 	assert.Len(t, res.NotFound, 2)
 }
 
 func sdkListQuery(t *testing.T, _ *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	for _, id := range []string{"l1", "l2", "l3"} {
@@ -172,7 +184,7 @@ func sdkListQuery(t *testing.T, _ *env, c *auth.Client) {
 
 	for {
 		u, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 
@@ -194,9 +206,14 @@ func sdkListQuery(t *testing.T, _ *env, c *auth.Client) {
 }
 
 func sdkTokensClaims(t *testing.T, e *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
-	_, err := c.CreateUser(ctx, (&auth.UserToCreate{}).UID("t1").Email("t1@example.com").Password("secret1").DisplayName("T One"))
+	_, err := c.CreateUser(
+		ctx,
+		(&auth.UserToCreate{}).UID("t1").Email("t1@example.com").Password("secret1").DisplayName("T One"),
+	)
 	require.NoError(t, err)
 	require.NoError(t, c.SetCustomUserClaims(ctx, "t1", map[string]any{"role": "admin", "level": 7}))
 
@@ -228,6 +245,8 @@ func sdkTokensClaims(t *testing.T, e *env, c *auth.Client) {
 }
 
 func sdkRevokeDisable(t *testing.T, e *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	_, err := c.CreateUser(ctx, (&auth.UserToCreate{}).UID("r1").Email("r1@example.com").Password("secret1"))
@@ -254,7 +273,7 @@ func sdkRevokeDisable(t *testing.T, e *env, c *auth.Client) {
 
 	fresh := e.signInToken(t, "r1@example.com", "secret1")
 	_, err = c.VerifyIDTokenAndCheckRevoked(ctx, fresh.str("idToken"))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	_, err = c.UpdateUser(ctx, "r1", (&auth.UserToUpdate{}).Disabled(true))
 	require.NoError(t, err)
@@ -267,6 +286,8 @@ func sdkRevokeDisable(t *testing.T, e *env, c *auth.Client) {
 }
 
 func sdkCustomToken(t *testing.T, e *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	ct, err := c.CustomTokenWithClaims(ctx, "custom-1", map[string]any{"team": "blue"})
@@ -285,7 +306,13 @@ func sdkCustomToken(t *testing.T, e *env, c *auth.Client) {
 	again := e.client(t, "signInWithCustomToken", map[string]any{"token": ct})
 	assert.NotEqual(t, true, again.body["isNewUser"])
 
-	refreshed := e.do(t, http.MethodPost, "/v1/token?key=k", "", map[string]any{"grant_type": "refresh_token", "refresh_token": r.str("refreshToken")})
+	refreshed := e.do(
+		t,
+		http.MethodPost,
+		"/v1/token?key=k",
+		"",
+		map[string]any{"grant_type": "refresh_token", "refresh_token": r.str("refreshToken")},
+	)
 	require.Equal(t, http.StatusOK, refreshed.status, refreshed.body)
 
 	tok, err = c.VerifyIDToken(ctx, refreshed.str("id_token"))
@@ -297,6 +324,8 @@ func sdkCustomToken(t *testing.T, e *env, c *auth.Client) {
 }
 
 func sdkImportHashes(t *testing.T, e *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	bc, err := bcrypt.GenerateFromPassword([]byte("secret1"), bcrypt.MinCost)
@@ -330,11 +359,16 @@ func sdkImportHashes(t *testing.T, e *env, c *auth.Client) {
 }
 
 func sdkTenants(t *testing.T, e *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	tm := c.TenantManager
 
-	a, err := tm.CreateTenant(ctx, (&auth.TenantToCreate{}).DisplayName("tenant-a").AllowPasswordSignUp(true).EnableEmailLinkSignIn(true))
+	a, err := tm.CreateTenant(
+		ctx,
+		(&auth.TenantToCreate{}).DisplayName("tenant-a").AllowPasswordSignUp(true).EnableEmailLinkSignIn(true),
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "tenant-a", a.DisplayName)
 	assert.True(t, a.AllowPasswordSignUp)
@@ -372,10 +406,18 @@ func sdkTenants(t *testing.T, e *env, c *auth.Client) {
 	_, err = ta.CreateUser(ctx, (&auth.UserToCreate{}).Email("same@example.com"))
 	assert.True(t, auth.IsEmailAlreadyExists(err))
 
-	in := e.client(t, "signInWithPassword", map[string]any{"email": "same@example.com", "password": "secret1", "tenantId": a.ID})
+	in := e.client(
+		t,
+		"signInWithPassword",
+		map[string]any{"email": "same@example.com", "password": "secret1", "tenantId": a.ID},
+	)
 	require.Equal(t, http.StatusOK, in.status, in.body)
 
-	wrong := e.client(t, "signInWithPassword", map[string]any{"email": "same@example.com", "password": "secret1", "tenantId": b.ID})
+	wrong := e.client(
+		t,
+		"signInWithPassword",
+		map[string]any{"email": "same@example.com", "password": "secret1", "tenantId": b.ID},
+	)
 	assert.Equal(t, http.StatusBadRequest, wrong.status)
 
 	tok, err := ta.VerifyIDToken(ctx, in.str("idToken"))
@@ -383,7 +425,7 @@ func sdkTenants(t *testing.T, e *env, c *auth.Client) {
 	assert.Equal(t, a.ID, tok.Firebase.Tenant)
 
 	_, err = tb.VerifyIDToken(ctx, in.str("idToken"))
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = tm.AuthForTenant("ghost")
 	require.NoError(t, err)
@@ -397,7 +439,7 @@ func sdkTenants(t *testing.T, e *env, c *auth.Client) {
 
 	for {
 		tn, nErr := it.Next()
-		if nErr == iterator.Done {
+		if errors.Is(nErr, iterator.Done) {
 			break
 		}
 
@@ -417,6 +459,8 @@ func sdkTenants(t *testing.T, e *env, c *auth.Client) {
 }
 
 func sdkSessionCookie(t *testing.T, e *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	_, err := c.CreateUser(ctx, (&auth.UserToCreate{}).UID("sc").Email("sc@example.com").Password("secret1"))
@@ -442,6 +486,8 @@ func sdkSessionCookie(t *testing.T, e *env, c *auth.Client) {
 }
 
 func sdkEmailLinks(t *testing.T, e *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	_, err := c.CreateUser(ctx, (&auth.UserToCreate{}).UID("em").Email("em@example.com").Password("secret1"))
@@ -454,7 +500,11 @@ func sdkEmailLinks(t *testing.T, e *env, c *auth.Client) {
 	require.NoError(t, err)
 	assert.Equal(t, "resetPassword", lu.Query().Get("mode"))
 
-	done := e.client(t, "resetPassword", map[string]any{"oobCode": lu.Query().Get("oobCode"), "newPassword": "changed1"})
+	done := e.client(
+		t,
+		"resetPassword",
+		map[string]any{"oobCode": lu.Query().Get("oobCode"), "newPassword": "changed1"},
+	)
 	require.Equal(t, http.StatusOK, done.status, done.body)
 
 	e.signInToken(t, "em@example.com", "changed1")
@@ -475,18 +525,28 @@ func sdkEmailLinks(t *testing.T, e *env, c *auth.Client) {
 	_, err = c.PasswordResetLink(ctx, "ghost@example.com")
 	assert.True(t, auth.IsEmailNotFound(err), err)
 
-	slink, err := c.EmailSignInLink(ctx, "new-link@example.com", &auth.ActionCodeSettings{URL: "https://app.example.com/finish", HandleCodeInApp: true})
+	slink, err := c.EmailSignInLink(
+		ctx,
+		"new-link@example.com",
+		&auth.ActionCodeSettings{URL: "https://app.example.com/finish", HandleCodeInApp: true},
+	)
 	require.NoError(t, err)
 
 	su, err := url.Parse(slink)
 	require.NoError(t, err)
 
-	in := e.client(t, "signInWithEmailLink", map[string]any{"email": "new-link@example.com", "oobCode": su.Query().Get("oobCode")})
+	in := e.client(
+		t,
+		"signInWithEmailLink",
+		map[string]any{"email": "new-link@example.com", "oobCode": su.Query().Get("oobCode")},
+	)
 	require.Equal(t, http.StatusOK, in.status, in.body)
 	assert.Equal(t, true, in.body["isNewUser"])
 }
 
 func sdkDeleteUsers(t *testing.T, _ *env, c *auth.Client) {
+	t.Helper()
+
 	ctx := t.Context()
 
 	for _, id := range []string{"d1", "d2"} {
