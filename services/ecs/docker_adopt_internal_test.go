@@ -131,11 +131,11 @@ func TestManagedLabelsForTaskContainer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		plan         *volumePlan
-		fronted      bool
+		name         string
 		wantResource string
 		wantVolumes  string
+		fronted      bool
 	}{
 		{name: "adoptable", plan: &volumePlan{}, wantResource: ecsResourceKey(adoptTaskArn, "web")},
 		{
@@ -194,8 +194,8 @@ func TestRestoredTasksAdoptedOrStopped(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		adopt      bool
 		wantStatus string
+		adopt      bool
 	}{
 		{name: "containers survived", adopt: true, wantStatus: statusRunning},
 		{name: "containers lost", adopt: false, wantStatus: statusStopped},

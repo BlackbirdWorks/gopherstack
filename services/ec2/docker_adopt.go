@@ -111,7 +111,6 @@ func (d *DockerCompute) discardOrphan(ctx context.Context, id string) {
 	_, _ = d.api.ContainerRemove(ctx, id, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 }
 
-
 // adoptCandidates lists the restored pending or running instances that were on a provider container.
 func (b *InMemoryBackend) adoptCandidates() []AdoptSpec {
 	b.mu.RLock("adoptCandidates")

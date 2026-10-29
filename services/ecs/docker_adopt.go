@@ -52,8 +52,8 @@ func (r *realDockerRunner) AdoptTask(ctx context.Context, task *Task, td *TaskDe
 }
 
 type adoptedContainer struct {
-	def     ContainerDefinition
 	id      string
+	def     ContainerDefinition
 	timeout int
 }
 

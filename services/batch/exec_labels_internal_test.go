@@ -13,11 +13,15 @@ func TestRunContainerStampsIdentityLabels(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		spec ContainerSpec
 		name string
 		job  string
+		spec ContainerSpec
 	}{
-		{name: "with job label", spec: ContainerSpec{Image: "x", Labels: map[string]string{"gopherstack.batch.job": "j-1"}}, job: "j-1"},
+		{
+			name: "with job label",
+			spec: ContainerSpec{Image: "x", Labels: map[string]string{"gopherstack.batch.job": "j-1"}},
+			job:  "j-1",
+		},
 		{name: "no spec labels", spec: ContainerSpec{Image: "x"}},
 	}
 

@@ -78,8 +78,10 @@ func TestDockerRunnerLiveCrashedTaskAdopted(t *testing.T) {
 	stopTimeout := 1
 
 	td, err := b1.RegisterTaskDefinition(RegisterTaskDefinitionInput{
-		Family:               "adopt-live",
-		ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: liveImage, Essential: true, StopTimeout: &stopTimeout}},
+		Family: "adopt-live",
+		ContainerDefinitions: []ContainerDefinition{
+			{Name: "app", Image: liveImage, Essential: true, StopTimeout: &stopTimeout},
+		},
 	})
 	require.NoError(t, err)
 

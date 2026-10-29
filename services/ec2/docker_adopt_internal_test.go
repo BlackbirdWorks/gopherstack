@@ -81,11 +81,11 @@ func TestAdoptInstance(t *testing.T) {
 	spec := AdoptSpec{InstanceID: "i-adopt", ProviderID: "cid", ImageID: "ami-1"}
 
 	tests := []struct {
-		cfg         DockerComputeConfig
-		claimed     container.ManagedContainer
 		spec        AdoptSpec
 		name        string
+		claimed     container.ManagedContainer
 		wantRemoved []string
+		cfg         DockerComputeConfig
 		notClaimed  bool
 		stopped     bool
 		wantAdopt   bool
