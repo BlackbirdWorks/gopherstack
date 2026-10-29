@@ -45,8 +45,8 @@ func dockerEnv(t *testing.T) *env {
 
 	objects := &fakeObjects{data: map[string][]byte{}}
 	h.Backend.SetObjectStore(objects)
-	t.Cleanup(h.Backend.Reset)
 	t.Cleanup(h.Backend.Close)
+	t.Cleanup(h.Backend.Reset)
 
 	e := echo.New()
 	e.Any("/*", h.Handler())

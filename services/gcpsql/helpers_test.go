@@ -275,6 +275,13 @@ func (f *fakeEngine) Purge(context.Context) {
 	f.purged, f.closed = true, true
 }
 
+func (f *fakeEngine) RemoveVolumes(context.Context) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.purged = true
+}
+
 func (f *fakeEngine) Persistent() bool { return f.persistent }
 
 func (f *fakeEngine) snapshot() fakeEngine {

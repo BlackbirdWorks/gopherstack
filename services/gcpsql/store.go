@@ -140,16 +140,6 @@ func (b *InMemoryBackend) takeEnginesLocked() []Engine {
 	return engines
 }
 
-func closeEngine(e Engine, purge bool) {
-	if purge {
-		purgeEngine(context.Background(), e)
-
-		return
-	}
-
-	e.Close(context.Background())
-}
-
 func (b *InMemoryBackend) shutdown(renew bool) {
 	b.mu.Lock("shutdown")
 	b.cancel()
@@ -169,7 +159,15 @@ func (b *InMemoryBackend) shutdown(renew bool) {
 	b.mu.Unlock()
 
 	for _, e := range engines {
-		closeEngine(e, renew)
+		e.Close(context.Background())
+	}
+
+	if renew {
+		for _, e := range engines {
+			if vr, ok := e.(VolumeRemover); ok {
+				vr.RemoveVolumes(context.Background())
+			}
+		}
 	}
 
 	if !renew && closer != nil {

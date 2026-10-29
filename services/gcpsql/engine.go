@@ -107,6 +107,12 @@ type Purger interface {
 	Purge(ctx context.Context)
 }
 
+// VolumeRemover is implemented by engines whose persistent volumes can be deleted after Close; Reset closes every
+// engine before removing any volume so a clone's mount of its source's archive cannot block the removal.
+type VolumeRemover interface {
+	RemoveVolumes(ctx context.Context)
+}
+
 // VolumeSweeper is implemented by launchers that can delete persistent volumes no instance owns.
 type VolumeSweeper interface {
 	SweepVolumes(ctx context.Context, keep map[string]bool)

@@ -131,15 +131,16 @@ type dockerEngine struct {
 	pool     *portalloc.Allocator
 	mu       *lockmetrics.RWMutex
 	net      *sourceNet
-	password string
-	volData  string
+	ctrID    string
+	image    string
 	id       string
 	replPass string
 	dir      string
-	ctrID    string
+	password string
 	ctrName  string
-	image    string
+	volData  string
 	volPITR  string
+	netID    string
 	spec     LaunchSpec
 	port     int
 	kind     dbKind
@@ -246,6 +247,10 @@ func (e *dockerEngine) prepare() (container.Spec, error) {
 
 	if r := e.netSource(); r != nil {
 		spec.Network = r.Network
+
+		e.mu.Lock("prepare")
+		e.netID = r.NetworkID
+		e.mu.Unlock()
 	}
 
 	cport := pgPort

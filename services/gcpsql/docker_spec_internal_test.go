@@ -17,10 +17,10 @@ func TestPGLaunchSpec(t *testing.T) {
 	rec := &Recovery{At: time.Date(2026, 10, 29, 12, 0, 1, 500_000_000, time.UTC), Volume: "src-pitr"}
 
 	tests := []struct {
+		eng        dockerEngine
 		name       string
 		wantMounts []string
 		wantEnv    []string
-		eng        dockerEngine
 		wantEntry  bool
 		wantCmd    bool
 	}{

@@ -185,6 +185,7 @@ func (e *dockerEngine) sourceNetwork(ctx context.Context, nr container.NetworkRu
 		}
 
 		e.net = &sourceNet{id: id, name: name}
+		e.netID = id
 	}
 
 	if !e.net.connected.Load() {
@@ -198,8 +199,8 @@ func (e *dockerEngine) sourceNetwork(ctx context.Context, nr container.NetworkRu
 	return e.net, nil
 }
 
-// releaseNetwork removes the replication network; a network still in use by a replica is removed by whichever
-// engine closes last.
+// releaseNetwork removes the replication network; a network still in use by another engine is removed by
+// whichever engine closes last.
 func (e *dockerEngine) releaseNetwork(ctx context.Context) {
 	nr, ok := e.rt.(container.NetworkRuntime)
 	if !ok {
@@ -207,16 +208,7 @@ func (e *dockerEngine) releaseNetwork(ctx context.Context) {
 	}
 
 	e.mu.RLock("releaseNetwork")
-
-	id := ""
-
-	switch {
-	case e.net != nil:
-		id = e.net.id
-	case e.netSource() != nil:
-		id = e.netSource().NetworkID
-	}
-
+	id := e.netID
 	e.mu.RUnlock()
 
 	if id != "" {
@@ -268,7 +260,7 @@ func (e *dockerEngine) mysqlResetStmt() string {
 // AttachReplica implements Replicator; PostgreSQL replicas already stream from pg_basebackup's recovery config.
 func (e *dockerEngine) AttachReplica(ctx context.Context, src ReplicaSource, seed []byte) error {
 	e.mu.Lock("AttachReplica")
-	e.spec.Replica = &src
+	e.spec.Replica, e.netID = &src, src.NetworkID
 	e.mu.Unlock()
 
 	if e.kind == kindPostgres {
@@ -417,7 +409,11 @@ func (e *dockerEngine) reguard(ctx context.Context) {
 // Purge implements Purger: it closes the engine and deletes its persistent volumes.
 func (e *dockerEngine) Purge(ctx context.Context) {
 	e.Close(ctx)
+	e.RemoveVolumes(ctx)
+}
 
+// RemoveVolumes implements VolumeRemover; the engine must be closed first.
+func (e *dockerEngine) RemoveVolumes(ctx context.Context) {
 	if e.vols == nil {
 		return
 	}
