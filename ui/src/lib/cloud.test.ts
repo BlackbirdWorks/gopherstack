@@ -240,6 +240,7 @@ describe("new GCP console pages", () => {
       "appservice",
       "containerapps",
       "vm",
+      "aks",
     ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
@@ -262,6 +263,11 @@ describe("new GCP console pages", () => {
       "queue",
       "notifications",
     ]);
+    expect(availableOciServices(["OCIContainerEngine"]).map((s) => s.id)).toEqual([
+      "containerengine",
+    ]);
+    expect(azureServiceById("aks")?.portLabel).toBe("azurearm");
+    expect(ociServiceById("containerengine")?.portLabel).toBe("ocicontainerengine");
     expect(azureServiceById("containerapps")?.portLabel).toBe("azurearm");
     expect(azureServiceById("vm")?.portLabel).toBe("azurearm");
     expect(gcpServiceById("container")?.portLabel).toBe("gcpcontainer");

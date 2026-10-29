@@ -71,6 +71,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
@@ -406,6 +407,10 @@ func linkContainerQueueExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetOCIQueueHandler() service.Registerable }); ok {
 		conf.OCIQueueOps, _ = getHandler[*ociqueue.Handler](p.GetOCIQueueHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIContainerEngineHandler() service.Registerable }); ok {
+		conf.OCIContainerEngineOps, _ = getHandler[*ocicontainerengine.Handler](p.GetOCIContainerEngineHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetOCINotificationsHandler() service.Registerable }); ok {

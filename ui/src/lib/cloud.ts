@@ -162,6 +162,14 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azurearm",
     defaultPort: 10006,
   },
+  {
+    id: "aks",
+    label: "Kubernetes Service",
+    description: "Azure Kubernetes Service clusters and agent pools (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
 ];
 
 export type GcpService = {
@@ -453,6 +461,14 @@ export const OCI_SERVICES: readonly OciService[] = [
     healthName: "OCINotifications",
     portLabel: "ocinotifications",
     defaultPort: 8157,
+  },
+  {
+    id: "containerengine",
+    label: "Container Engine",
+    description: "Oracle Container Engine for Kubernetes clusters and node pools",
+    healthName: "OCIContainerEngine",
+    portLabel: "ocicontainerengine",
+    defaultPort: 8158,
   },
 ];
 

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { ociServiceById } from '#lib/cloud.ts';
+	import ContainerEngineDashboard from '#lib/components/oci/ContainerEngineDashboard.svelte';
 	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
@@ -38,6 +39,8 @@
 	<QueueDashboard />
 {:else if service?.id === 'notifications'}
 	<NotificationsDashboard />
+{:else if service?.id === 'containerengine'}
+	<ContainerEngineDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}
