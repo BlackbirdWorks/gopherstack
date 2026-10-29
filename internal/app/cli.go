@@ -3924,6 +3924,10 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// to ResultConfiguration.OutputLocation instead of only being stored/echoed.
 	wireAthenaS3(byName["Athena"], byName["S3"])
 
+	// Wire Athena → S3 Tables so the s3tablescatalog/<table-bucket> federated catalog
+	// can query and append to S3 Tables.
+	wireAthenaS3Tables(byName["Athena"], byName["S3tables"])
+
 	// Wire S3 → Lambda so a function deployed from Code.S3Bucket/S3Key
 	// actually starts instead of failing with ErrLambdaUnavailable: S3 code
 	// delivery requires S3 integration.

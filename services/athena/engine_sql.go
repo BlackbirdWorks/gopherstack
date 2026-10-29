@@ -428,7 +428,14 @@ func (x *translator) tableRef(toks []token, i int, out []token) ([]token, int) {
 		return append(out, toks[j:end+1]...), end
 	}
 
-	ref := x.resolve(parts)
+	resolveParts := parts
+
+	if tr, tend := x.travelClause(toks, end); tr != "" {
+		resolveParts = append(append([]string{}, parts...), travelSentinel+tr)
+		end = tend
+	}
+
+	ref := x.resolve(resolveParts)
 	if !ref.found {
 		x.unresolved = append(x.unresolved, orDefault(ref.display, strings.Join(parts, ".")))
 
