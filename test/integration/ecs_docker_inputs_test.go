@@ -61,10 +61,14 @@ func TestIntegration_ECS_DockerEnvironmentFilesAndRegistryAuth(t *testing.T) {
 	hostDir := t.TempDir()
 	require.NoError(t, os.Chmod(hostDir, 0o777))
 
+	volumes := []ecstypes.Volume{{
+		Name: aws.String("shared"), Host: &ecstypes.HostVolumeProperties{SourcePath: aws.String(hostDir)},
+	}}
+
 	register := func(name string, cd ecstypes.ContainerDefinition) string {
 		out, rerr := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 			Family:               aws.String(name + "-" + suffix),
-			Volumes:              []ecstypes.Volume{{Name: aws.String("shared"), Host: &ecstypes.HostVolumeProperties{SourcePath: aws.String(hostDir)}}},
+			Volumes:              volumes,
 			ContainerDefinitions: []ecstypes.ContainerDefinition{cd},
 		})
 		require.NoError(t, rerr)
@@ -111,6 +115,8 @@ func TestIntegration_ECS_DockerEnvironmentFilesAndRegistryAuth(t *testing.T) {
 	const image = "busybox:1.36"
 
 	t.Run("environment_file_applied", func(t *testing.T) {
+		t.Parallel()
+
 		run(register("envfile", ecstypes.ContainerDefinition{
 			Name: aws.String("app"), Image: aws.String(image), Essential: aws.Bool(true),
 			Command: []string{"sh", "-c", `echo "$FROM_FILE $OVERRIDE" > /data/env-out; sleep 300`},
@@ -132,6 +138,8 @@ func TestIntegration_ECS_DockerEnvironmentFilesAndRegistryAuth(t *testing.T) {
 	})
 
 	t.Run("missing_environment_file_fails_task", func(t *testing.T) {
+		t.Parallel()
+
 		arn := run(register("envmissing", ecstypes.ContainerDefinition{
 			Name: aws.String("app"), Image: aws.String(image), Essential: aws.Bool(true),
 			EnvironmentFiles: []ecstypes.EnvironmentFile{{
@@ -143,6 +151,8 @@ func TestIntegration_ECS_DockerEnvironmentFilesAndRegistryAuth(t *testing.T) {
 	})
 
 	t.Run("missing_registry_secret_fails_task", func(t *testing.T) {
+		t.Parallel()
+
 		arn := run(register("regmissing", ecstypes.ContainerDefinition{
 			Name: aws.String("app"), Image: aws.String(image), Essential: aws.Bool(true),
 			RepositoryCredentials: &ecstypes.RepositoryCredentials{
@@ -154,6 +164,8 @@ func TestIntegration_ECS_DockerEnvironmentFilesAndRegistryAuth(t *testing.T) {
 	})
 
 	t.Run("malformed_registry_secret_fails_task", func(t *testing.T) {
+		t.Parallel()
+
 		secret, cerr := sm.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
 			Name: aws.String("regcreds-" + suffix), SecretString: aws.String(`{"user":"x"}`),
 		})
