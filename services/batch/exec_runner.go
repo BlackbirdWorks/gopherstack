@@ -33,6 +33,7 @@ const (
 	reasonCreateFailed = "CannotCreateContainerError"
 	reasonStartFailed  = "CannotStartContainerError"
 	reasonEssentialEnd = "Essential container in task exited"
+	reasonHostLost     = "Host EC2 terminated"
 	reasonTimeout      = "Job attempt duration exceeded timeout"
 )
 
