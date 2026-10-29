@@ -10,6 +10,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
+const (
+	pgPortNum    = 5432
+	mysqlPortNum = 3306
+)
+
 func (e *dockerEngine) resourceKey() string { return e.spec.Project + "/" + e.id }
 
 func (e *dockerEngine) shape() string {
@@ -26,10 +31,10 @@ func (e *dockerEngine) ownerLabels() map[string]string {
 
 func (e *dockerEngine) dbPort() int {
 	if e.kind == kindMySQL {
-		return 3306
+		return mysqlPortNum
 	}
 
-	return 5432
+	return pgPortNum
 }
 
 // adopt takes over the running container a crashed gopherstack left for this instance; false means launch fresh.

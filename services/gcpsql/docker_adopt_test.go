@@ -27,6 +27,8 @@ func resourceContainers(t *testing.T, name string) []string {
 // TestDockerOrphanAdoption crashes a backend (no Close) and restores a second one from its snapshot: the
 // engine container must be adopted, not duplicated, and the data must survive.
 func TestDockerOrphanAdoption(t *testing.T) {
+	t.Parallel()
+
 	const name = "dadopt"
 
 	e := dockerEnv(t)

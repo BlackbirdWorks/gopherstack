@@ -2,6 +2,7 @@ package gcpsql
 
 import (
 	"context"
+	"maps"
 	"os"
 	"sync"
 	"testing"
@@ -98,9 +99,7 @@ func TestAdoptFrom(t *testing.T) {
 			labels := id.Labels()
 			labels[container.LabelPID] = "999999999:1"
 
-			for k, v := range e.ownerLabels() {
-				labels[k] = v
-			}
+			maps.Copy(labels, e.ownerLabels())
 
 			labels[dumpDirLabel] = dumpDir
 
@@ -109,7 +108,8 @@ func TestAdoptFrom(t *testing.T) {
 			}
 			tt.mutate(e, &oc)
 
-			orphans, err := container.Reconcile(t.Context(), orphanLister{all: []container.ManagedContainer{oc}}, id, nil)
+			lister := orphanLister{all: []container.ManagedContainer{oc}}
+			orphans, err := container.Reconcile(t.Context(), lister, id, nil)
 			require.NoError(t, err)
 
 			ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
