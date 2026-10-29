@@ -3029,6 +3029,7 @@ func buildEchoServer(
 	registerEC2IMDSEndpoints(e, services)
 	registerSSOEndpoints(e, services)
 	registerEC2NetworkEndpoints(e, services)
+	registerEKSEndpoints(e, services)
 	registerPricingEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))

@@ -54,13 +54,23 @@ const (
 )
 
 // k3sScript writes the token file and the pre-provisioned server CA, then replaces the shell with the k3s server.
-const k3sScript = `printf '%s,admin,admin,"system:masters"\n' "$` + envAdminAuth + `" > ` + tokenFileName +
+const k3sScriptHead = `printf '%s,admin,admin,"system:masters"\n' "$` + envAdminAuth + `" > ` + tokenFileName +
 	` && umask 077 && mkdir -p ` + k3sTLSDir +
 	` && printf '%s\n' "$` + envCACert + `" > ` + k3sTLSDir + `/server-ca.crt` +
 	` && printf '%s\n' "$` + envCAKey + `" > ` + k3sTLSDir + `/server-ca.key` +
 	` && unset ` + envCAKey + ` && exec /bin/k3s server --tls-san "$` + envHost + `"` +
-	` --disable traefik --disable servicelb --disable metrics-server` +
-	` --kube-apiserver-arg=token-auth-file=` + tokenFileName
+	` --disable traefik`
+
+const k3sScriptTail = ` --disable metrics-server --kube-apiserver-arg=token-auth-file=` + tokenFileName
+
+// k3sScript builds the node command; servicelb stays on only when load-balancer ports are published.
+func k3sScript(servicelb bool) string {
+	if servicelb {
+		return k3sScriptHead + k3sScriptTail
+	}
+
+	return k3sScriptHead + ` --disable servicelb` + k3sScriptTail
+}
 
 // k3sTags are the newest published rancher/k3s tags for Kubernetes 1.29 through 1.36, in minor order.
 func k3sTags() [8]string {
@@ -118,15 +128,18 @@ type ClusterRuntime interface {
 
 // ClusterEngineConfig configures docker-backed EKS clusters.
 type ClusterEngineConfig struct {
-	Runtime      ClusterRuntime
-	Credentials  CredentialResolver
-	Ports        *portalloc.Allocator
-	Logger       *slog.Logger
-	Probe        func(ctx context.Context, addr, token string) ([]byte, error)
-	Host         string
-	Token        string
-	Image        string
-	StartTimeout time.Duration
+	Runtime          ClusterRuntime
+	Credentials      CredentialResolver
+	Ports            *portalloc.Allocator
+	Logger           *slog.Logger
+	Probe            func(ctx context.Context, addr, token string) ([]byte, error)
+	Host             string
+	Token            string
+	Image            string
+	ImageTags        map[string]string
+	LBPorts          []int
+	VolumeMountAllow []string
+	StartTimeout     time.Duration
 }
 
 type liveCluster struct {
@@ -140,6 +153,9 @@ type liveCluster struct {
 	image       string
 	joinToken   string
 	ca          []byte
+	mounts      []string
+	lbPorts     []int
+	lbHost      []int
 	port        int
 	proxyPort   int
 	dead        atomic.Bool
@@ -173,6 +189,18 @@ func (b *InMemoryBackend) EnableClusters(cfg ClusterEngineConfig) error {
 		return ErrDefaultTokenExposed
 	}
 
+	if err := validateK3sImageTags(cfg.ImageTags); err != nil {
+		return err
+	}
+
+	if err := validateMountAllow(cfg.VolumeMountAllow); err != nil {
+		return err
+	}
+
+	if err := validateLBPortList(cfg.LBPorts); err != nil {
+		return err
+	}
+
 	if cfg.StartTimeout <= 0 {
 		cfg.StartTimeout = clusterStartTimeout
 	}
@@ -194,28 +222,25 @@ func (e *clusterEngine) addr(lc *liveCluster) string {
 	return net.JoinHostPort(e.cfg.Host, strconv.Itoa(lc.port))
 }
 
-func (e *clusterEngine) image(version string) string {
-	if e.cfg.Image != "" {
-		return e.cfg.Image
+func (e *clusterEngine) spec(name string, lc *liveCluster, port int, lbHost []int, ca *clusterCA) container.Spec {
+	bind := container.BindHostFor(e.cfg.Host)
+	ports := make([]string, 0, 1+len(lc.lbPorts))
+	ports = append(ports, container.PortSpec(bind, strconv.Itoa(port), strconv.Itoa(k3sAPIPort)))
+
+	for i, p := range lc.lbPorts {
+		ports = append(ports, container.PortSpec(bind, strconv.Itoa(lbHost[i]), strconv.Itoa(p)))
 	}
 
-	img, _ := K3sImage(version)
-
-	return img
-}
-
-func (e *clusterEngine) spec(name string, lc *liveCluster, port int, ca *clusterCA) container.Spec {
 	return container.Spec{
 		Name:       "gopherstack-eks-" + name + "-" + uuid.NewString()[:8],
 		Image:      lc.image,
-		Entrypoint: []string{"/bin/sh", "-c", k3sScript},
+		Entrypoint: []string{"/bin/sh", "-c", k3sScript(len(lc.lbPorts) > 0)},
 		Env: []string{
 			envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host, "K3S_TOKEN=" + lc.joinToken,
 			envCACert + "=" + string(ca.certPEM), envCAKey + "=" + string(ca.keyPEM),
 		},
-		Ports: []string{
-			container.PortSpec(container.BindHostFor(e.cfg.Host), strconv.Itoa(port), strconv.Itoa(k3sAPIPort)),
-		},
+		Ports:      ports,
+		Mounts:     lc.mounts,
 		Tmpfs:      []string{"/run", "/var/run"},
 		Privileged: true,
 	}
@@ -233,11 +258,19 @@ func (e *clusterEngine) acquirePort(name string) (int, error) {
 	return portalloc.AcquireFrom(e.cfg.Ports, "eks-"+name)
 }
 
+func (e *clusterEngine) releaseAll(port int, lbHost []int) {
+	e.releasePort(port)
+
+	for _, p := range lbHost {
+		e.releasePort(p)
+	}
+}
+
 func (e *clusterEngine) releasePort(port int) {
 	portalloc.ReleaseTo(e.cfg.Ports, port)
 }
 
-func (e *clusterEngine) remove(containerID string, port int) {
+func (e *clusterEngine) remove(containerID string, ports ...int) {
 	ctx, cancel := context.WithTimeout(context.Background(), clusterStopTimeout)
 	defer cancel()
 
@@ -245,7 +278,9 @@ func (e *clusterEngine) remove(containerID string, port int) {
 		e.log(ctx).WarnContext(ctx, "eks: cluster container removal failed", "container", containerID, "error", err)
 	}
 
-	e.releasePort(port)
+	for _, p := range ports {
+		e.releasePort(p)
+	}
 }
 
 func (e *clusterEngine) reap(lcs []*liveCluster) {
@@ -268,7 +303,7 @@ func (e *clusterEngine) reap(lcs []*liveCluster) {
 		}
 
 		if lc.containerID != "" {
-			e.wg.Go(func() { e.remove(lc.containerID, lc.port) })
+			e.wg.Go(func() { e.remove(lc.containerID, append([]int{lc.port}, lc.lbHost...)...) })
 		}
 	}
 }
@@ -336,19 +371,27 @@ func (b *InMemoryBackend) closeClusters() {
 }
 
 // launchClusterLocked registers a pending cluster and starts its container in the background.
-func (b *InMemoryBackend) launchClusterLocked(name, version string) {
+func (b *InMemoryBackend) launchClusterLocked(name, version string, kv map[string]string) error {
 	e := b.clusterEng
 	if e == nil {
-		return
+		return nil
+	}
+
+	opts, image, err := e.resolveLaunch(version, kv)
+	if err != nil {
+		return err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	lc := &liveCluster{
-		cancel: cancel, name: name, kick: make(chan struct{}, 1), image: e.image(version), joinToken: randomHex32(),
+		cancel: cancel, name: name, kick: make(chan struct{}, 1), image: image, joinToken: randomHex32(),
+		mounts: opts.mounts, lbPorts: opts.lbPorts,
 	}
 	e.clusters[name] = lc
 
 	e.wg.Go(func() { b.runCluster(ctx, name, version, lc) })
+
+	return nil
 }
 
 func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, lc *liveCluster) {
@@ -361,7 +404,10 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 		return
 	}
 
-	var port int
+	var (
+		port   int
+		lbHost []int
+	)
 
 	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
 		func() (container.Spec, error) {
@@ -371,18 +417,30 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 			}
 
 			port = p
+			lbHost = nil
 
-			return e.spec(name, lc, p, ca), nil
+			for range lc.lbPorts {
+				hp, lerr := e.acquirePort(name)
+				if lerr != nil {
+					e.releaseAll(port, lbHost)
+
+					return container.Spec{}, lerr
+				}
+
+				lbHost = append(lbHost, hp)
+			}
+
+			return e.spec(name, lc, p, lbHost, ca), nil
 		},
-		func() { e.releasePort(port) })
+		func() { e.releaseAll(port, lbHost) })
 	if err != nil {
 		b.failCluster(ctx, name, lc, err)
 
 		return
 	}
 
-	if !b.recordCluster(name, lc, id, port) {
-		e.remove(id, port)
+	if !b.recordCluster(name, lc, id, port, lbHost) {
+		e.remove(id, append([]int{port}, lbHost...)...)
 
 		return
 	}
@@ -420,7 +478,7 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 	e.wg.Go(func() { b.runReconciler(ctx, name, version, lc) })
 }
 
-func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string, port int) bool {
+func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string, port int, lbHost []int) bool {
 	b.mu.Lock("recordCluster")
 	defer b.mu.Unlock()
 
@@ -430,6 +488,7 @@ func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string,
 
 	lc.containerID = id
 	lc.port = port
+	lc.lbHost = lbHost
 
 	return true
 }
@@ -521,6 +580,8 @@ func (e *clusterEngine) awaitReady(ctx context.Context, addr string, ca []byte) 
 
 // applyLiveEndpoint replaces the synthetic endpoint and CA of a ready docker cluster with the real ones.
 func (b *InMemoryBackend) applyLiveEndpoint(cp *Cluster) {
+	b.applyExternalEndpoint(cp)
+
 	if b.clusterEng == nil {
 		return
 	}
@@ -546,7 +607,20 @@ func (b *InMemoryBackend) relaunchClustersLocked() {
 		}
 
 		cl.Status = statusCreating
-		b.launchClusterLocked(cl.Name, cl.Version)
+
+		var kv map[string]string
+		if cl.Tags != nil {
+			kv = cl.Tags.Clone()
+		}
+
+		if err := b.launchClusterLocked(cl.Name, cl.Version, kv); err != nil {
+			cl.Status = statusFailed
+			b.clusterEng.log(context.Background()).Warn("eks: cluster not relaunched",
+				"code", clusterStartCode, "cluster", cl.Name, "error", err)
+
+			continue
+		}
+
 		b.resetEngineResourcesLocked(cl.Name)
 	}
 }
