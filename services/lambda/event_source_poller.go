@@ -115,6 +115,10 @@ type EventSourcePoller struct {
 	lambdaBackend    *InMemoryBackend
 	shardIterators   map[string]string
 	streamPending    map[string][]*streamBatch
+	streamBuffers    map[string]*streamBuffer
+	streamWindows    map[string]*tumblingWindow
+	// clock overrides time.Now for stream batching windows and tumbling windows in tests.
+	clock func() time.Time
 	// sqsBatchBuffers holds partial SQS batches per mapping UUID while the
 	// MaximumBatchingWindow has not yet elapsed. Keyed by ESM UUID.
 	sqsBatchBuffers map[string]*sqsBatchBuffer
@@ -160,6 +164,8 @@ func NewEventSourcePoller(
 		kinesisReader:    kinesisReader,
 		shardIterators:   make(map[string]string),
 		streamPending:    make(map[string][]*streamBatch),
+		streamBuffers:    make(map[string]*streamBuffer),
+		streamWindows:    make(map[string]*tumblingWindow),
 		sqsBatchBuffers:  make(map[string]*sqsBatchBuffer),
 		sqsFleets:        make(map[string]*sqsFleet),
 		kafkaWorkers:     make(map[string]*kafkaWorker),
@@ -428,6 +434,18 @@ func (p *EventSourcePoller) sweepStaleIterators(activeUUIDs map[string]struct{})
 		}
 	}
 
+	for key := range p.streamBuffers {
+		if _, active := activeUUIDs[p.shardKeyMapping(key)]; !active {
+			delete(p.streamBuffers, key)
+		}
+	}
+
+	for key := range p.streamWindows {
+		if _, active := activeUUIDs[p.shardKeyMapping(key)]; !active {
+			delete(p.streamWindows, key)
+		}
+	}
+
 	for uuid := range p.sqsBatchBuffers {
 		if _, active := activeUUIDs[uuid]; !active {
 			delete(p.sqsBatchBuffers, uuid)
@@ -458,6 +476,18 @@ func (p *EventSourcePoller) RemoveMapping(uuid string) {
 	for key := range p.streamPending {
 		if p.shardKeyMapping(key) == uuid {
 			delete(p.streamPending, key)
+		}
+	}
+
+	for key := range p.streamBuffers {
+		if p.shardKeyMapping(key) == uuid {
+			delete(p.streamBuffers, key)
+		}
+	}
+
+	for key := range p.streamWindows {
+		if p.shardKeyMapping(key) == uuid {
+			delete(p.streamWindows, key)
 		}
 	}
 
@@ -556,6 +586,8 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 		p.esmCount(m, esmMetricPolled, len(records))
 
 		if len(records) == 0 {
+			p.settleStreamShard(ctx, m, ref)
+
 			continue
 		}
 
@@ -616,7 +648,9 @@ func (p *EventSourcePoller) invokeLambda(
 			continue
 		}
 
-		events = append(events, streamEvent{arrival: r.ArrivalTime, seq: r.SequenceNumber, raw: raw})
+		events = append(events, streamEvent{
+			arrival: r.ArrivalTime, seq: r.SequenceNumber, key: r.PartitionKey, raw: raw,
+		})
 	}
 
 	p.esmFilteredMetric(m, len(records)-len(events))
@@ -770,11 +804,15 @@ func (p *EventSourcePoller) processDDBShard(
 
 	p.esmCount(m, esmMetricPolled, len(records))
 
+	ref := streamShardRef{shardID: shardID, key: iterKey, ddb: true}
+
 	if len(records) == 0 {
+		p.settleStreamShard(ctx, m, ref)
+
 		return
 	}
 
-	p.invokeLambdaForDDB(ctx, m, streamShardRef{shardID: shardID, key: iterKey, ddb: true}, records)
+	p.invokeLambdaForDDB(ctx, m, ref, records)
 }
 
 // invokeLambdaForDDB formats DynamoDB stream records as a Lambda event and invokes the function.
@@ -838,7 +876,8 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 			arrival = time.Time{}
 		}
 
-		events = append(events, streamEvent{arrival: arrival, seq: r.SequenceNumber, raw: raw})
+		keyJSON, _ := json.Marshal(r.Keys)
+		events = append(events, streamEvent{arrival: arrival, seq: r.SequenceNumber, key: string(keyJSON), raw: raw})
 	}
 
 	p.esmFilteredMetric(m, len(records)-len(events))
@@ -850,15 +889,12 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 	p.deliverStreamEvents(ctx, m, ref, events)
 }
 
-// resumePendingStream retries the shard's pending batches and reports whether the shard is still blocked.
+// resumePendingStream flushes due buffers and retries the shard's pending batches; it reports whether the shard is
+// still blocked.
 func (p *EventSourcePoller) resumePendingStream(ctx context.Context, m *EventSourceMapping, ref streamShardRef) bool {
-	if p.frontStreamBatch(ref.key) == nil {
-		return false
-	}
+	p.flushStreamShard(ctx, m, ref, false)
 
-	p.drainStream(ctx, m, ref)
-
-	return p.frontStreamBatch(ref.key) != nil
+	return p.shardBlocked(ref.key)
 }
 
 // processSQSMapping polls an SQS queue, invokes Lambda with the messages, and
@@ -1142,14 +1178,6 @@ func filterByBatchItemFailures(reportFailures bool, respBody []byte, msgs []*SQS
 	}
 
 	return toDelete
-}
-
-func failedCount(err error, n int) int {
-	if err != nil {
-		return n
-	}
-
-	return 0
 }
 
 // esmFilteredMetric reports FilteredOutEventCount only for mappings that carry filter criteria.

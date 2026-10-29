@@ -330,7 +330,50 @@ func validateCreateESM(input *CreateEventSourceMappingInput) error {
 		return err
 	}
 
+	if err := validateStreamTuning(
+		input.EventSourceARN, input.ParallelizationFactor, input.TumblingWindowInSeconds,
+	); err != nil {
+		return err
+	}
+
 	return validateESMBatch(input.EventSourceARN, input.BatchSize, input.MaximumBatchingWindowInSeconds)
+}
+
+const (
+	esmParallelizationMin = 1
+	esmParallelizationMax = 10
+	esmTumblingWindowMax  = 900
+)
+
+func isStreamSourceARN(sourceARN string) bool {
+	return isDynamoDBStreamARN(sourceARN) || arn.HasService(sourceARN, "kinesis")
+}
+
+// validateStreamTuning enforces ParallelizationFactor 1-10 and TumblingWindowInSeconds 0-900 on Kinesis and
+// DynamoDB Streams sources (CreateEventSourceMapping API reference); zero means unset.
+func validateStreamTuning(sourceARN string, parallelization, tumbling int) error {
+	if parallelization == 0 && tumbling == 0 {
+		return nil
+	}
+
+	if !isStreamSourceARN(sourceARN) {
+		return fmt.Errorf(
+			"%w: ParallelizationFactor and TumblingWindowInSeconds apply to Kinesis and DynamoDB Streams sources only",
+			ErrInvalidParameterValue,
+		)
+	}
+
+	if parallelization != 0 && (parallelization < esmParallelizationMin || parallelization > esmParallelizationMax) {
+		return fmt.Errorf("%w: ParallelizationFactor must be between %d and %d",
+			ErrInvalidParameterValue, esmParallelizationMin, esmParallelizationMax)
+	}
+
+	if tumbling < 0 || tumbling > esmTumblingWindowMax {
+		return fmt.Errorf("%w: TumblingWindowInSeconds must be between 0 and %d",
+			ErrInvalidParameterValue, esmTumblingWindowMax)
+	}
+
+	return nil
 }
 
 // CreateEventSourceMapping creates a new event source mapping.
@@ -377,6 +420,11 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		)
 	}
 
+	parallelization := input.ParallelizationFactor
+	if parallelization == 0 && isStreamSourceARN(input.EventSourceARN) {
+		parallelization = esmParallelizationMin
+	}
+
 	m := &EventSourceMapping{
 		UUID:                                id,
 		EventSourceARN:                      input.EventSourceARN,
@@ -401,7 +449,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		TumblingWindowInSeconds:             input.TumblingWindowInSeconds,
 		MaximumRecordAgeInSeconds:           input.MaximumRecordAgeInSeconds,
 		MaximumRetryAttempts:                input.MaximumRetryAttempts,
-		ParallelizationFactor:               input.ParallelizationFactor,
+		ParallelizationFactor:               parallelization,
 		BisectBatchOnFunctionError:          input.BisectBatchOnFunctionError,
 		FunctionResponseTypes:               input.FunctionResponseTypes,
 		ScalingConfig:                       input.ScalingConfig,
@@ -711,6 +759,22 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 			input.ScalingConfig, input.MetricsConfig, input.ProvisionedPollerConfig,
 		)
 		if validateErr != nil {
+			return
+		}
+
+		validateErr = validateStreamTuning(
+			esm.EventSourceARN,
+			ptrInt32(input.ParallelizationFactor, esm.ParallelizationFactor),
+			ptrInt32(input.TumblingWindowInSeconds, esm.TumblingWindowInSeconds),
+		)
+		if validateErr != nil {
+			return
+		}
+
+		if input.ParallelizationFactor != nil && *input.ParallelizationFactor == 0 {
+			validateErr = fmt.Errorf("%w: ParallelizationFactor must be between %d and %d",
+				ErrInvalidParameterValue, esmParallelizationMin, esmParallelizationMax)
+
 			return
 		}
 

@@ -87,6 +87,7 @@ type invokeOutcome struct {
 	requestID       string
 	functionError   string
 	executedVersion string
+	body            []byte
 	statusCode      int
 }
 
