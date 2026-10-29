@@ -32,8 +32,8 @@ func Test_Crawler_CreateOptions_RoundTrip(t *testing.T) {
 		"Configuration": `{"Version":1.0}`,
 		"TablePrefix":   "raw_",
 		"Targets": map[string]any{
-			"S3Targets":      []map[string]any{{"Path": "s3://bucket/data/"}},
-			"JdbcTargets":    []map[string]any{{"ConnectionName": "conn1", "Path": "db/%"}},
+			"S3Targets":   []map[string]any{{"Path": "s3://bucket/data/"}},
+			"JdbcTargets": []map[string]any{{"ConnectionName": "conn1", "Path": "db/%"}},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

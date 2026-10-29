@@ -276,7 +276,7 @@ func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
 	}
 
 	params[paramClassification] = ddbClassification
-	params[paramTypeOfData] = "table"
+	params[paramTypeOfData] = typeOfDataTable
 	params[crawlerManagedParam] = r.c.Name
 
 	r.upsert(&Table{

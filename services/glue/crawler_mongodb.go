@@ -30,8 +30,6 @@ var (
 	errMongoConnection = errors.New("MongoDB target needs a connection of type MONGODB")
 	errMongoNoURL      = errors.New("connection has no CONNECTION_URL")
 	errMongoPath       = errors.New("MongoDB path must be database/collection")
-
-	mongoSystemDBs = []string{"admin", "local", "config"}
 )
 
 type mongoType struct {
@@ -61,13 +59,17 @@ func (t *mongoType) render() string {
 	}
 }
 
+func isMongoNumeric(k string) bool { return k == avroInt || k == typeBigint || k == avroDouble }
+
 func mergeMongoType(a, b *mongoType) *mongoType {
 	switch {
 	case a == nil:
 		return b
 	case b == nil:
 		return a
-	case a.kind == b.kind && a.kind == mongoKindStruct:
+	case a.kind != b.kind:
+		return mergeMongoScalars(a, b)
+	case a.kind == mongoKindStruct:
 		for _, n := range b.order {
 			if _, ok := a.fields[n]; !ok {
 				a.order = append(a.order, n)
@@ -75,26 +77,23 @@ func mergeMongoType(a, b *mongoType) *mongoType {
 
 			a.fields[n] = mergeMongoType(a.fields[n], b.fields[n])
 		}
-
-		return a
-	case a.kind == b.kind && a.kind == mongoKindArray:
+	case a.kind == mongoKindArray:
 		a.elem = mergeMongoType(a.elem, b.elem)
-
-		return a
-	case a.kind == b.kind:
-		return a
 	}
 
-	numeric := func(k string) bool { return k == avroInt || k == typeBigint || k == avroDouble }
-	if numeric(a.kind) && numeric(b.kind) {
-		if a.kind == avroDouble || b.kind == avroDouble {
-			return &mongoType{kind: avroDouble}
-		}
+	return a
+}
 
-		return &mongoType{kind: typeBigint}
+func mergeMongoScalars(a, b *mongoType) *mongoType {
+	if !isMongoNumeric(a.kind) || !isMongoNumeric(b.kind) {
+		return &mongoType{kind: avroString}
 	}
 
-	return &mongoType{kind: avroString}
+	if a.kind == avroDouble || b.kind == avroDouble {
+		return &mongoType{kind: avroDouble}
+	}
+
+	return &mongoType{kind: typeBigint}
 }
 
 func inferMongoDoc(pairs []bson.E) *mongoType {
@@ -114,25 +113,34 @@ func inferMongoValue(v any) *mongoType {
 	switch x := v.(type) {
 	case nil:
 		return nil
-	case string:
-		return &mongoType{kind: avroString}
+	case bson.D, bson.M, bson.A, bson.ObjectID:
+		return inferMongoComposite(x)
+	default:
+		return &mongoType{kind: mongoScalarKind(v)}
+	}
+}
+
+func mongoScalarKind(v any) string {
+	switch v.(type) {
 	case int32:
-		return &mongoType{kind: avroInt}
+		return avroInt
 	case int, int64:
-		return &mongoType{kind: typeBigint}
+		return typeBigint
 	case float64:
-		return &mongoType{kind: avroDouble}
+		return avroDouble
 	case bool:
-		return &mongoType{kind: avroBoolean}
+		return avroBoolean
 	case bson.DateTime, time.Time, bson.Timestamp:
-		return &mongoType{kind: typeTimestamp}
-	case bson.ObjectID:
-		return &mongoType{
-			kind: mongoKindStruct, order: []string{"oid"},
-			fields: map[string]*mongoType{"oid": {kind: avroString}},
-		}
+		return typeTimestamp
 	case bson.Binary:
-		return &mongoType{kind: typeBinary}
+		return typeBinary
+	default:
+		return avroString
+	}
+}
+
+func inferMongoComposite(v any) *mongoType {
+	switch x := v.(type) {
 	case bson.D:
 		return inferMongoDoc(x)
 	case bson.M:
@@ -157,7 +165,19 @@ func inferMongoValue(v any) *mongoType {
 
 		return arr
 	default:
-		return &mongoType{kind: avroString}
+		return &mongoType{
+			kind: mongoKindStruct, order: []string{"oid"},
+			fields: map[string]*mongoType{"oid": {kind: avroString}},
+		}
+	}
+}
+
+func isMongoSystemDB(name string) bool {
+	switch name {
+	case "admin", "local", "config":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -228,7 +248,7 @@ func (r *crawlRun) crawlMongoDB(t MongoDBTarget) error {
 	dbRe, collRe := mongoPattern(dbPat), mongoPattern(collPat)
 
 	for _, dbName := range dbs {
-		if slices.Contains(mongoSystemDBs, dbName) || !dbRe.MatchString(dbName) {
+		if isMongoSystemDB(dbName) || !dbRe.MatchString(dbName) {
 			continue
 		}
 
@@ -303,8 +323,8 @@ func (r *crawlRun) crawlMongoCollection(ctx context.Context, db *mongo.Database,
 
 	count, _ := coll.EstimatedDocumentCount(ctx)
 	params := map[string]string{
-		paramClassification: mongoClassification, paramTypeOfData: "table", crawlerManagedParam: r.c.Name,
-		"connectionName": t.ConnectionName, "recordCount": strconv.FormatInt(count, 10),
+		paramClassification: mongoClassification, paramTypeOfData: typeOfDataTable, crawlerManagedParam: r.c.Name,
+		paramConnectionName: t.ConnectionName, "recordCount": strconv.FormatInt(count, 10),
 	}
 
 	r.upsert(&Table{
@@ -312,7 +332,7 @@ func (r *crawlRun) crawlMongoCollection(ctx context.Context, db *mongo.Database,
 		DatabaseName: strs.Fold(r.c.DatabaseName), Parameters: params,
 		StorageDescriptor: StorageDescriptor{
 			Columns: cols, Location: db.Name() + "." + name,
-			Parameters: map[string]string{"connectionName": t.ConnectionName, crawlerManagedParam: r.c.Name},
+			Parameters: map[string]string{paramConnectionName: t.ConnectionName, crawlerManagedParam: r.c.Name},
 		},
 	})
 

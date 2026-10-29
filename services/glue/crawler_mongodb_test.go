@@ -1,6 +1,7 @@
 package glue_test
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -18,9 +19,7 @@ func (e *crawlEnv) mongoConnection(name, connType, url string, extra map[string]
 	e.t.Helper()
 
 	props := map[string]string{"CONNECTION_URL": url}
-	for k, v := range extra {
-		props[k] = v
-	}
+	maps.Copy(props, extra)
 
 	_, err := e.client.CreateConnection(e.t.Context(), &gluesdk.CreateConnectionInput{
 		ConnectionInput: &gluetypes.ConnectionInput{
@@ -36,12 +35,18 @@ func TestCrawler_MongoDBTargetFailures(t *testing.T) {
 	const dead = "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=300&connectTimeoutMS=300"
 
 	tests := []struct {
-		name, connType, url, path, want string
 		extra                           map[string]string
+		name, connType, url, path, want string
 		noConn                          bool
 	}{
 		{name: "no connection", noConn: true, path: "db/%", want: "connection not found"},
-		{name: "wrong connection type", connType: "NETWORK", url: dead, path: "db/%", want: "needs a connection of type MONGODB"},
+		{
+			name:     "wrong connection type",
+			connType: "NETWORK",
+			url:      dead,
+			path:     "db/%",
+			want:     "needs a connection of type MONGODB",
+		},
 		{name: "path without collection", connType: "MONGODB", url: dead, path: "db", want: "database/collection"},
 		{name: "unreachable", connType: "MONGODB", url: dead, path: "db/%", want: "MongoDB data store"},
 		{

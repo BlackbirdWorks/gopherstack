@@ -98,10 +98,19 @@ func TestCrawler_DeltaCheckpoint(t *testing.T) {
 			}}}, nil)
 
 			c := env.crawl()
-			require.Equal(t, gluetypes.LastCrawlStatusSucceeded, c.LastCrawl.Status, aws.ToString(c.LastCrawl.ErrorMessage))
+			require.Equal(
+				t,
+				gluetypes.LastCrawlStatusSucceeded,
+				c.LastCrawl.Status,
+				aws.ToString(c.LastCrawl.ErrorMessage),
+			)
 
 			tbl := env.table("events")
-			assert.Equal(t, []string{"id:bigint", "name:string", "tags:array<string>"}, colSpec(tbl.StorageDescriptor.Columns))
+			assert.Equal(
+				t,
+				[]string{"id:bigint", "name:string", "tags:array<string>"},
+				colSpec(tbl.StorageDescriptor.Columns),
+			)
 			assert.Equal(t, []string{"year:int"}, colSpec(tbl.PartitionKeys))
 			assert.Equal(t, tt.wantPart, env.partitionValues("events"))
 		})

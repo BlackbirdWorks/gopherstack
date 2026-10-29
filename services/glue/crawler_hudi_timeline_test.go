@@ -11,7 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const hudiCommitAvroSchema = `{"type":"record","name":"HoodieCommitMetadata","namespace":"org.apache.hudi.avro.model",` +
+const hudiCommitAvroSchema = `{"type":"record","name":"HoodieCommitMetadata",` +
+	`"namespace":"org.apache.hudi.avro.model",` +
 	`"fields":[{"name":"extraMetadata","type":{"type":"map","values":"string"}},` +
 	`{"name":"version","type":"int"}]}`
 
@@ -46,9 +47,15 @@ func TestCrawler_HudiTimelineLayouts(t *testing.T) {
 				t.Helper()
 
 				return map[string]string{
-					"hudi/trips/.hoodie/timeline/20240101000000000_20240101000500000.commit": hudiAvroCommit(t, staleSchema),
-					"hudi/trips/.hoodie/timeline/20240102000000000_20240102000500000.commit": hudiAvroCommit(t, hudiSchema),
-					"hudi/trips/.hoodie/timeline/20240103000000000.commit.requested":         "",
+					"hudi/trips/.hoodie/timeline/20240101000000000_20240101000500000.commit": hudiAvroCommit(
+						t,
+						staleSchema,
+					),
+					"hudi/trips/.hoodie/timeline/20240102000000000_20240102000500000.commit": hudiAvroCommit(
+						t,
+						hudiSchema,
+					),
+					"hudi/trips/.hoodie/timeline/20240103000000000.commit.requested": "",
 				}
 			},
 			wantCols: []string{"uuid:string", "fare:double", "ts:timestamp"},
@@ -60,7 +67,9 @@ func TestCrawler_HudiTimelineLayouts(t *testing.T) {
 
 				return map[string]string{
 					"hudi/trips/.hoodie/timeline/20240102000000000_20240102000500000.commit": `{"extraMetadata":{"schema":` +
-						jsonString(hudiSchema) + `}}`,
+						jsonString(
+							hudiSchema,
+						) + `}}`,
 				}
 			},
 			wantCols: []string{"uuid:string", "fare:double", "ts:timestamp"},
@@ -71,7 +80,10 @@ func TestCrawler_HudiTimelineLayouts(t *testing.T) {
 				t.Helper()
 
 				return map[string]string{
-					"hudi/trips/.hoodie/timeline/20240102000000000_20240102000500000.deltacommit": hudiAvroCommit(t, hudiSchema),
+					"hudi/trips/.hoodie/timeline/20240102000000000_20240102000500000.deltacommit": hudiAvroCommit(
+						t,
+						hudiSchema,
+					),
 				}
 			},
 			wantCols: []string{"uuid:string", "fare:double", "ts:timestamp"},
@@ -93,7 +105,12 @@ func TestCrawler_HudiTimelineLayouts(t *testing.T) {
 			}}}, nil)
 
 			c := env.crawl()
-			require.Equal(t, gluetypes.LastCrawlStatusSucceeded, c.LastCrawl.Status, aws.ToString(c.LastCrawl.ErrorMessage))
+			require.Equal(
+				t,
+				gluetypes.LastCrawlStatusSucceeded,
+				c.LastCrawl.Status,
+				aws.ToString(c.LastCrawl.ErrorMessage),
+			)
 
 			tbl := env.table("trips")
 			assert.Equal(t, tt.wantCols, colSpec(tbl.StorageDescriptor.Columns)[5:])

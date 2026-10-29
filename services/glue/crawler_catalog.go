@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -32,11 +33,25 @@ func validateCrawlerTargets(t CrawlerTarget) error {
 	for _, ct := range t.CatalogTargets {
 		switch {
 		case ct.DatabaseName == "" || len(ct.Tables) == 0:
-			return fmt.Errorf("%w: %w: DatabaseName and at least one table are required", ErrValidation, errCatalogTarget)
+			return fmt.Errorf(
+				"%w: %w: DatabaseName and at least one table are required",
+				ErrValidation,
+				errCatalogTarget,
+			)
 		case ct.EventQueueArn != "" && !isSQSARN(ct.EventQueueArn):
-			return fmt.Errorf("%w: %w: EventQueueArn %q is not an SQS ARN", ErrValidation, errCatalogTarget, ct.EventQueueArn)
+			return fmt.Errorf(
+				"%w: %w: EventQueueArn %q is not an SQS ARN",
+				ErrValidation,
+				errCatalogTarget,
+				ct.EventQueueArn,
+			)
 		case ct.DlqEventQueueArn != "" && !isSQSARN(ct.DlqEventQueueArn):
-			return fmt.Errorf("%w: %w: DlqEventQueueArn %q is not an SQS ARN", ErrValidation, errCatalogTarget, ct.DlqEventQueueArn)
+			return fmt.Errorf(
+				"%w: %w: DlqEventQueueArn %q is not an SQS ARN",
+				ErrValidation,
+				errCatalogTarget,
+				ct.DlqEventQueueArn,
+			)
 		case ct.DlqEventQueueArn != "" && ct.EventQueueArn == "":
 			return fmt.Errorf("%w: %w: DlqEventQueueArn requires EventQueueArn", ErrValidation, errCatalogTarget)
 		}
@@ -216,9 +231,7 @@ func (r *crawlRun) recrawlDynamoDB(cur *Table) error {
 	}
 
 	merged := mapsWith(cur.Parameters, crawlerManagedParam, r.c.Name)
-	for k, v := range params {
-		merged[k] = v
-	}
+	maps.Copy(merged, params)
 
 	desired := cloneTable(cur)
 	desired.StorageDescriptor.Columns = keepColumnMeta(cur.StorageDescriptor.Columns, cols)

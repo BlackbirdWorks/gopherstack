@@ -292,49 +292,7 @@ func (b *InMemoryBackend) UpdateCrawlerWithOptions(
 	c.DatabaseName = dbName
 	c.Targets = targets
 
-	if opts.Description != "" {
-		c.Description = opts.Description
-	}
-
-	if opts.Configuration != "" {
-		c.Configuration = opts.Configuration
-	}
-
-	if opts.TablePrefix != "" {
-		c.TablePrefix = opts.TablePrefix
-	}
-
-	if opts.Classifiers != nil {
-		c.Classifiers = append([]string(nil), opts.Classifiers...)
-	}
-
-	if opts.Schedule != "" {
-		c.Schedule = CrawlerSchedule{ScheduleExpression: opts.Schedule, State: stateScheduled}
-	}
-
-	if opts.CrawlerSecurityConfiguration != "" {
-		c.CrawlerSecurityConfiguration = opts.CrawlerSecurityConfiguration
-	}
-
-	if opts.SchemaChangePolicy != nil {
-		v := *opts.SchemaChangePolicy
-		c.SchemaChangePolicy = &v
-	}
-
-	if opts.RecrawlPolicy != nil {
-		v := *opts.RecrawlPolicy
-		c.RecrawlPolicy = &v
-	}
-
-	if opts.LineageConfiguration != nil {
-		v := *opts.LineageConfiguration
-		c.LineageConfiguration = &v
-	}
-
-	if opts.LakeFormationConfiguration != nil {
-		v := *opts.LakeFormationConfiguration
-		c.LakeFormationConfiguration = &v
-	}
+	applyCrawlerUpdateOptions(c, opts)
 
 	c.LastUpdated = float64(time.Now().Unix())
 
@@ -643,5 +601,51 @@ func (b *InMemoryBackend) setLastCrawlLocked(c *Crawler, status string) {
 		LogGroup:      "/aws-glue/crawlers",
 		LogStream:     c.Name,
 		MessagePrefix: last.CrawlID,
+	}
+}
+
+func applyCrawlerUpdateOptions(c *Crawler, opts CrawlerOptions) {
+	if opts.Description != "" {
+		c.Description = opts.Description
+	}
+
+	if opts.Configuration != "" {
+		c.Configuration = opts.Configuration
+	}
+
+	if opts.TablePrefix != "" {
+		c.TablePrefix = opts.TablePrefix
+	}
+
+	if opts.Classifiers != nil {
+		c.Classifiers = append([]string(nil), opts.Classifiers...)
+	}
+
+	if opts.Schedule != "" {
+		c.Schedule = CrawlerSchedule{ScheduleExpression: opts.Schedule, State: stateScheduled}
+	}
+
+	if opts.CrawlerSecurityConfiguration != "" {
+		c.CrawlerSecurityConfiguration = opts.CrawlerSecurityConfiguration
+	}
+
+	if opts.SchemaChangePolicy != nil {
+		v := *opts.SchemaChangePolicy
+		c.SchemaChangePolicy = &v
+	}
+
+	if opts.RecrawlPolicy != nil {
+		v := *opts.RecrawlPolicy
+		c.RecrawlPolicy = &v
+	}
+
+	if opts.LineageConfiguration != nil {
+		v := *opts.LineageConfiguration
+		c.LineageConfiguration = &v
+	}
+
+	if opts.LakeFormationConfiguration != nil {
+		v := *opts.LakeFormationConfiguration
+		c.LakeFormationConfiguration = &v
 	}
 }

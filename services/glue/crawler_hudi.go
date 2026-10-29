@@ -16,17 +16,17 @@ import (
 )
 
 const (
-	hudiDir          = ".hoodie"
-	hudiProps        = "hoodie.properties"
-	hudiTypeMOR      = "MERGE_ON_READ"
-	hudiInput        = "org.apache.hudi.hadoop.HoodieParquetInputFormat"
-	hudiRealtimeIn   = "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat"
-	hudiMetaPrefix   = "_hoodie_"
-	hudiSchemaProp   = "hoodie.table.create.schema"
-	hudiPartProp     = "hoodie.table.partition.fields"
-	hudiNameProp     = "hoodie.table.name"
-	hudiTypeProp     = "hoodie.table.type"
-	hudiTimelineDir  = ".hoodie/timeline"
+	hudiDir         = ".hoodie"
+	hudiProps       = "hoodie.properties"
+	hudiTypeMOR     = "MERGE_ON_READ"
+	hudiInput       = "org.apache.hudi.hadoop.HoodieParquetInputFormat"
+	hudiRealtimeIn  = "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat"
+	hudiMetaPrefix  = "_hoodie_"
+	hudiSchemaProp  = "hoodie.table.create.schema"
+	hudiPartProp    = "hoodie.table.partition.fields"
+	hudiNameProp    = "hoodie.table.name"
+	hudiTypeProp    = "hoodie.table.type"
+	hudiTimelineDir = ".hoodie/timeline"
 )
 
 var errHudiNoSchema = errors.New("no Hudi schema in hoodie.properties or a completed commit")

@@ -255,8 +255,8 @@ func (r *crawlRun) writeJDBCTables(t JDBCTarget, ep jdbcEndpoint, dbName string,
 	for _, key := range order {
 		tc := tables[key]
 		params := map[string]string{
-			paramClassification: ep.engine, "connectionName": t.ConnectionName,
-			paramTypeOfData: "table", crawlerManagedParam: r.c.Name,
+			paramClassification: ep.engine, paramConnectionName: t.ConnectionName,
+			paramTypeOfData: typeOfDataTable, crawlerManagedParam: r.c.Name,
 		}
 
 		r.upsert(&Table{
@@ -268,7 +268,7 @@ func (r *crawlRun) writeJDBCTables(t JDBCTarget, ep jdbcEndpoint, dbName string,
 			Parameters:   params,
 			StorageDescriptor: StorageDescriptor{
 				Columns: tc.cols, Location: tc.location,
-				Parameters: map[string]string{"connectionName": t.ConnectionName, crawlerManagedParam: r.c.Name},
+				Parameters: map[string]string{paramConnectionName: t.ConnectionName, crawlerManagedParam: r.c.Name},
 			},
 		})
 	}

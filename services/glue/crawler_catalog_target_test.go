@@ -1,7 +1,6 @@
 package glue_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -27,7 +26,9 @@ func (e *crawlEnv) createTable(name, location string, params map[string]string, 
 	require.NoError(e.t, err)
 }
 
-func strCol(n string) gluetypes.Column { return gluetypes.Column{Name: aws.String(n), Type: aws.String("string")} }
+func strCol(n string) gluetypes.Column {
+	return gluetypes.Column{Name: aws.String(n), Type: aws.String("string")}
+}
 
 func catalogTargets(tables ...string) *gluetypes.CrawlerTargets {
 	return &gluetypes.CrawlerTargets{CatalogTargets: []gluetypes.CatalogTarget{{
@@ -54,7 +55,13 @@ func TestCrawler_CatalogTarget(t *testing.T) {
 		{
 			name: "s3 table schema and partitions", objs: salesObjs, tables: []string{"sales"},
 			setup: func(env *crawlEnv) {
-				env.createTable("sales", "s3://lake/sales/", nil, []gluetypes.Column{strCol("old")}, []gluetypes.Column{strCol("year")})
+				env.createTable(
+					"sales",
+					"s3://lake/sales/",
+					nil,
+					[]gluetypes.Column{strCol("old")},
+					[]gluetypes.Column{strCol("year")},
+				)
 			},
 			check: func(t *testing.T, env *crawlEnv) {
 				t.Helper()
@@ -76,7 +83,13 @@ func TestCrawler_CatalogTarget(t *testing.T) {
 				}
 			},
 			setup: func(env *crawlEnv) {
-				env.createTable("sales", "s3://lake/sales/", nil, []gluetypes.Column{strCol("old")}, []gluetypes.Column{strCol("year")})
+				env.createTable(
+					"sales",
+					"s3://lake/sales/",
+					nil,
+					[]gluetypes.Column{strCol("old")},
+					[]gluetypes.Column{strCol("year")},
+				)
 			},
 			check: func(t *testing.T, env *crawlEnv) {
 				t.Helper()
@@ -118,7 +131,11 @@ func TestCrawler_CatalogTarget(t *testing.T) {
 				t.Helper()
 
 				tbl := env.table("events")
-				assert.Equal(t, []string{"id:bigint", "name:string", "tags:array<string>"}, colSpec(tbl.StorageDescriptor.Columns))
+				assert.Equal(
+					t,
+					[]string{"id:bigint", "name:string", "tags:array<string>"},
+					colSpec(tbl.StorageDescriptor.Columns),
+				)
 				assert.Equal(t, []string{"year:int"}, colSpec(tbl.PartitionKeys))
 			},
 		},
@@ -149,7 +166,12 @@ func TestCrawler_CatalogTarget(t *testing.T) {
 			env.create(catalogTargets(tt.tables...), tt.mut)
 
 			c := env.crawl()
-			require.Equal(t, gluetypes.LastCrawlStatusSucceeded, c.LastCrawl.Status, aws.ToString(c.LastCrawl.ErrorMessage))
+			require.Equal(
+				t,
+				gluetypes.LastCrawlStatusSucceeded,
+				c.LastCrawl.Status,
+				aws.ToString(c.LastCrawl.ErrorMessage),
+			)
 			tt.check(t, env)
 		})
 	}
@@ -232,12 +254,17 @@ func TestCrawler_CatalogTargetValidation(t *testing.T) {
 
 			env := newCrawlEnv(t)
 			_, err := env.client.CreateCrawler(t.Context(), &gluesdk.CreateCrawlerInput{
-				Name: aws.String(crawlerName), Role: aws.String(crawlRole), DatabaseName: aws.String("db"), Targets: tt.targets,
+				Name: aws.String(
+					crawlerName,
+				),
+				Role:         aws.String(crawlRole),
+				DatabaseName: aws.String("db"),
+				Targets:      tt.targets,
 			})
 
 			var apiErr smithy.APIError
 
-			require.True(t, errors.As(err, &apiErr), "got %v", err)
+			require.ErrorAs(t, err, &apiErr)
 			assert.Equal(t, "InvalidInputException", apiErr.ErrorCode())
 		})
 	}

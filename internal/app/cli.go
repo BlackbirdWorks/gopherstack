@@ -4835,8 +4835,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// being marked Succeeded unconditionally with no cross-service call at
 	// all (gopherstack-cb9l).
 	wireCodePipelineBackends(byName)
-	wireGlueS3(byName["Glue"], byName["S3"])
-	wireGlueSecrets(byName["Glue"], byName["SecretsManager"])
+	wireGlueBackends(byName)
 }
 
 func wireCodePipelineBackends(byName map[string]service.Registerable) {

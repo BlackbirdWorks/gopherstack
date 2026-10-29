@@ -29,6 +29,8 @@ const (
 
 	paramClassification = "classification"
 	paramTypeOfData     = "typeOfData"
+	typeOfDataTable     = "table"
+	paramConnectionName = "connectionName"
 	typeSmallint        = "smallint"
 	typeTinyint         = "tinyint"
 	typeTimestamp       = "timestamp"
@@ -191,53 +193,32 @@ func configuredMergeNewColumns(cfg string) bool {
 	return doc.CrawlerOutput.Tables.AddOrUpdateBehavior == mergeNewColumns
 }
 
+func crawlEach[T any](targets []T, crawl func(T) error) error {
+	for _, t := range targets {
+		if err := crawl(t); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (r *crawlRun) crawlAllTargets() error {
 	t := r.c.Targets
 
-	for _, s3t := range t.S3Targets {
-		if err := r.crawlS3(s3t); err != nil {
-			return err
-		}
+	steps := []func() error{
+		func() error { return crawlEach(t.S3Targets, r.crawlS3) },
+		func() error { return crawlEach(t.CatalogTargets, r.crawlCatalog) },
+		func() error { return crawlEach(t.DynamoDBTargets, r.crawlDynamoDB) },
+		func() error { return crawlEach(t.DeltaTargets, r.crawlDelta) },
+		func() error { return crawlEach(t.IcebergTargets, r.crawlIceberg) },
+		func() error { return crawlEach(t.HudiTargets, r.crawlHudi) },
+		func() error { return crawlEach(t.JdbcTargets, r.crawlJDBC) },
+		func() error { return crawlEach(t.MongoDBTargets, r.crawlMongoDB) },
 	}
 
-	for _, ct := range t.CatalogTargets {
-		if err := r.crawlCatalog(ct); err != nil {
-			return err
-		}
-	}
-
-	for _, dt := range t.DynamoDBTargets {
-		if err := r.crawlDynamoDB(dt); err != nil {
-			return err
-		}
-	}
-
-	for _, dt := range t.DeltaTargets {
-		if err := r.crawlDelta(dt); err != nil {
-			return err
-		}
-	}
-
-	for _, it := range t.IcebergTargets {
-		if err := r.crawlIceberg(it); err != nil {
-			return err
-		}
-	}
-
-	for _, ht := range t.HudiTargets {
-		if err := r.crawlHudi(ht); err != nil {
-			return err
-		}
-	}
-
-	for _, jt := range t.JdbcTargets {
-		if err := r.crawlJDBC(jt); err != nil {
-			return err
-		}
-	}
-
-	for _, mt := range t.MongoDBTargets {
-		if err := r.crawlMongoDB(mt); err != nil {
+	for _, step := range steps {
+		if err := step(); err != nil {
 			return err
 		}
 	}
