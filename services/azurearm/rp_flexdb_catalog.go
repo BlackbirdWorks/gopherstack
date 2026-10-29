@@ -42,7 +42,18 @@ const (
 	cfgMaxConn                = "max_connections"
 	gpMemPerCore              = 4
 	moMemPerCore              = 8
-	moMem64                   = 432
+	moMem64                   = 512
+	pgMemE64Legacy            = 432
+	pgMemE96DsV6              = 768
+	pgMemE128                 = 1024
+	pgMemE192                 = 1832
+	pgVcores128               = 128
+	pgVcores192               = 192
+	mysqlMaxIopsAll           = 80000
+	mysqlMinConns             = 10
+	mysqlVcores80             = 80
+	mysqlMem80                = 504
+	mysqlMemE64V4             = 504
 	moMem96                   = 672
 	gpMem96                   = 384
 	moVcores64                = 64
@@ -64,8 +75,8 @@ const (
 	mysqlMinStorageGiB        = 20
 	flexMaxVcores             = 96
 	flexVcores20              = 20
-	pgSKUCount                = 90
-	mysqlSKUCount             = 40
+	pgSKUCount                = 190
+	mysqlSKUCount             = 70
 )
 
 type flexSKU struct {
@@ -74,6 +85,8 @@ type flexSKU struct {
 	vcores  int
 	memGiB  int
 	maxConn int
+	connMax int
+	maxIops int
 }
 
 type flexConfigDef struct {
@@ -92,6 +105,9 @@ type flexConfigDef struct {
 // flexFlavor is everything that differs between the PostgreSQL and MySQL flexible server resource providers.
 type flexFlavor struct {
 	loginRE         *regexp.Regexp
+	loginRule       string
+	dnsZoneSuffix   string
+	maxSubnetBits   int
 	dbNameRE        *regexp.Regexp
 	ns              string
 	kind            string
@@ -177,10 +193,18 @@ func pgConnLimit(memGiB int) int {
 	return flexMaxConns
 }
 
+type flexSeries struct {
+	suffix string
+	vcores []int
+	mem    map[int]int
+}
+
+// pgSKUs follows the Compute options table (v3/v4/v5/v6 series) of
+// https://learn.microsoft.com/en-us/azure/postgresql/compute-storage/concepts-compute.
 func pgSKUs() []flexSKU {
 	out := make([]flexSKU, 0, pgSKUCount)
 	add := func(name, tier string, vcores, mem int) {
-		out = append(out, flexSKU{name, tier, vcores, mem, pgConnLimit(mem)})
+		out = append(out, flexSKU{name: name, tier: tier, vcores: vcores, memGiB: mem, maxConn: pgConnLimit(mem)})
 	}
 
 	for _, b := range []struct {
@@ -191,68 +215,105 @@ func pgSKUs() []flexSKU {
 		add("Standard_"+b.n, tierBurstable, b.v, b.m)
 	}
 
-	suffixes := []string{"s_v3", "ds_v4", suffixDS5, suffixADS}
+	std := []int{2, 4, 8, 16, 32, 48, moVcores64}
+	std96 := append(slices.Clone(std), flexMaxVcores)
+	wide := append(slices.Clone(std96), pgVcores128, pgVcores192)
 
-	for _, v := range []int{2, 4, 8, 16, 32, 48, 64} {
-		for _, s := range suffixes {
-			add(fmt.Sprintf("Standard_D%d%s", v, s), tierGeneralPurpose, v, v*gpMemPerCore)
+	for _, s := range []flexSeries{
+		{suffix: "s_v3", vcores: std}, {suffix: "ds_v4", vcores: std}, {suffix: suffixDS5, vcores: std96},
+		{suffix: suffixADS, vcores: std96}, {suffix: "ads_v6", vcores: std96}, {suffix: "ds_v6", vcores: wide},
+	} {
+		for _, v := range s.vcores {
+			add(fmt.Sprintf("Standard_D%d%s", v, s.suffix), tierGeneralPurpose, v, v*gpMemPerCore)
 		}
 	}
 
-	for _, s := range []string{suffixDS5, suffixADS} {
-		add("Standard_D96"+s, tierGeneralPurpose, flexMaxVcores, gpMem96)
-	}
+	e20 := []int{2, 4, 8, 16, flexVcores20, 32, 48, moVcores64}
+	e20x96 := append(slices.Clone(e20), flexMaxVcores)
+	eWide := append(slices.Clone(e20x96), pgVcores128, pgVcores192)
 
-	for _, v := range []int{2, 4, 8, 16, 20, 32, 48, moVcores64} {
-		mem := v * moMemPerCore
-		if v == moVcores64 {
-			mem = moMem64
-		}
-
-		for _, s := range suffixes {
-			if v == flexVcores20 && s == "s_v3" {
-				continue
+	for _, s := range []flexSeries{
+		{suffix: "s_v3", vcores: slices.DeleteFunc(slices.Clone(e20), func(v int) bool { return v == flexVcores20 }),
+			mem: map[int]int{moVcores64: pgMemE64Legacy}},
+		{suffix: "ds_v4", vcores: e20, mem: map[int]int{moVcores64: pgMemE64Legacy}},
+		{suffix: suffixDS5, vcores: e20x96, mem: map[int]int{moVcores64: moMem64, flexMaxVcores: moMem96}},
+		{suffix: suffixADS, vcores: e20x96, mem: map[int]int{moVcores64: moMem64, flexMaxVcores: moMem96}},
+		{suffix: "ads_v6", vcores: e20x96, mem: map[int]int{moVcores64: moMem64, flexMaxVcores: moMem96}},
+		{suffix: "ds_v6", vcores: eWide, mem: map[int]int{
+			moVcores64: moMem64, flexMaxVcores: pgMemE96DsV6, pgVcores128: pgMemE128, pgVcores192: pgMemE192,
+		}},
+	} {
+		for _, v := range s.vcores {
+			mem := v * moMemPerCore
+			if m, ok := s.mem[v]; ok {
+				mem = m
 			}
 
-			add(fmt.Sprintf("Standard_E%d%s", v, s), tierMemoryOptimized, v, mem)
+			add(fmt.Sprintf("Standard_E%d%s", v, s.suffix), tierMemoryOptimized, v, mem)
 		}
-	}
-
-	for _, s := range []string{suffixDS5, suffixADS} {
-		add("Standard_E96"+s, tierMemoryOptimized, flexMaxVcores, moMem96)
 	}
 
 	return out
 }
 
+// mysqlConnByMem is the max_connections {default, maximum} per physical memory (GiB) from
+// https://learn.microsoft.com/en-us/azure/mysql/flexible-server/concepts-server-parameters#max_connections.
+func mysqlConnByMem() map[int][2]int {
+	return map[int][2]int{
+		1: {85, 171}, 2: {171, 341}, 4: {341, 683}, 8: {683, 1365}, 16: {1365, 2731}, 32: {2731, 5461},
+		48: {4097, 8193}, 64: {5461, 10923}, 80: {6827, 13653}, 128: {10923, 21845}, 160: {13653, 27306},
+		192: {16384, 32768}, 256: {21845, 43691}, 384: {32768, 65536}, 504: {43008, 86016}, 512: {43691, 87383},
+		672: {50000, 100000},
+	}
+}
+
+// mysqlSKUs follows the service-tier tables of
+// https://learn.microsoft.com/en-us/azure/mysql/flexible-server/concepts-service-tiers-storage.
 func mysqlSKUs() []flexSKU {
 	out := make([]flexSKU, 0, mysqlSKUCount)
-	add := func(name, tier string, vcores, mem int) {
-		out = append(out, flexSKU{name, tier, vcores, mem, 0})
+	conns := mysqlConnByMem()
+	add := func(name, tier string, vcores, mem, iops int) {
+		c := conns[mem]
+		out = append(out, flexSKU{
+			name: name, tier: tier, vcores: vcores, memGiB: mem, maxConn: c[0], connMax: c[1], maxIops: iops,
+		})
 	}
 
 	for _, b := range []struct {
-		n    string
-		v, m int
-	}{{"B1s", 1, 1}, {"B1ms", 1, 2}, {"B2s", 2, 4}, {"B2ms", 2, 8}, {"B4ms", 4, 16}, {"B8ms", 8, 32},
-		{"B12ms", 12, 48}, {"B16ms", 16, 64}, {"B20ms", 20, 80}} {
-		add("Standard_"+b.n, tierBurstable, b.v, b.m)
+		n       string
+		v, m, i int
+	}{{"B1s", 1, 1, mysqlMaxIopsAll}, {"B1ms", 1, 2, 640}, {"B2s", 2, 4, 1280}, {"B2ms", 2, 8, 1700},
+		{"B4ms", 4, 16, 2400}, {"B8ms", 8, 32, 3100}, {"B12ms", 12, 48, 3800}, {"B16ms", 16, 64, 4300},
+		{"B20ms", 20, 80, 5000}} {
+		add("Standard_"+b.n, tierBurstable, b.v, b.m, b.i)
 	}
 
-	for _, v := range []int{2, 4, 8, 16, 32, 48, moVcores64} {
-		add(fmt.Sprintf("Standard_D%dds_v4", v), tierGeneralPurpose, v, v*gpMemPerCore)
-		add(fmt.Sprintf("Standard_D%d%s", v, suffixADS), tierGeneralPurpose, v, v*gpMemPerCore)
+	for _, g := range []struct{ v, iops int }{
+		{2, 3200}, {4, 6400}, {8, 12800}, {16, 20000}, {32, 20000}, {48, 48000}, {moVcores64, 48000},
+	} {
+		add(fmt.Sprintf("Standard_D%dds_v4", g.v), tierGeneralPurpose, g.v, g.v*gpMemPerCore, g.iops)
+		add(fmt.Sprintf("Standard_D%d%s", g.v, suffixADS), tierGeneralPurpose, g.v, g.v*gpMemPerCore, g.iops)
 	}
 
-	add("Standard_D96"+suffixADS, tierGeneralPurpose, flexMaxVcores, gpMem96)
+	add("Standard_D96"+suffixADS, tierGeneralPurpose, flexMaxVcores, gpMem96, 48000)
 
-	for _, v := range []int{2, 4, 8, 16, flexVcores20, 32, 48, moVcores64} {
-		add(fmt.Sprintf("Standard_E%dds_v4", v), tierMemoryOptimized, v, v*moMemPerCore)
+	for _, e := range []struct{ v, mem, iops int }{
+		{2, 16, 5000}, {4, 32, 10000}, {8, 64, 18000}, {16, 128, 28000}, {flexVcores20, 160, 28000},
+		{32, 256, 38000}, {48, 384, 48000}, {moVcores64, moMem64, 64000},
+	} {
+		v4mem := e.mem
+		if e.v == moVcores64 {
+			v4mem = mysqlMemE64V4
+		}
+
+		add(fmt.Sprintf("Standard_E%dds_v4", e.v), tierMemoryOptimized, e.v, v4mem, e.iops)
+		add(fmt.Sprintf("Standard_E%d%s", e.v, suffixADS), tierMemoryOptimized, e.v, e.mem, e.iops)
+		add(fmt.Sprintf("Standard_E%d%s", e.v, suffixDS5), tierMemoryOptimized, e.v, e.mem, e.iops)
 	}
 
-	for _, v := range []int{2, 4, 8, 16, 32, 48, moVcores64, flexMaxVcores} {
-		add(fmt.Sprintf("Standard_E%d%s", v, suffixADS), tierMemoryOptimized, v, v*moMemPerCore)
-	}
+	add("Standard_E80ids_v4", tierMemoryOptimized, mysqlVcores80, mysqlMem80, 72000)
+	add("Standard_E96"+suffixADS, tierMemoryOptimized, flexMaxVcores, moMem96, mysqlMaxIopsAll)
+	add("Standard_E96"+suffixDS5, tierMemoryOptimized, flexMaxVcores, moMem96, mysqlMaxIopsAll)
 
 	return out
 }
@@ -338,7 +399,7 @@ func mysqlConfigs() []flexConfigDef {
 		{
 			name:     "log_bin_trust_function_creators",
 			dataType: cfgEnum,
-			def:      cfgOff,
+			def:      cfgOn,
 			enum:     []string{cfgOn, cfgOff},
 			desc:     "Whether stored function creators can be trusted not to create stored functions that cause unsafe events.",
 		},
@@ -396,8 +457,9 @@ func newPostgresFlavor() *flexFlavor {
 		minRetention:   pgMinRetentionDays,
 		maxReplicas:    pgMaxReplicas,
 		maxLoginLen:    pgMaxLoginLen,
-		loginRE:        regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`),
-		dbNameRE:       regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_$]{0,62}$`),
+		loginRE:        regexp.MustCompile(`^[A-Za-z0-9]{1,63}$`),
+		loginRule:      "only letters and digits are allowed",
+		dbNameRE:       regexp.MustCompile(`^[a-zA-Z_][\w-]{0,62}$`),
 		reservedLogins: []string{
 			flexLoginAzureSuper,
 			"azure_pg_admin",
@@ -414,6 +476,8 @@ func newPostgresFlavor() *flexFlavor {
 		roleSource:      flexRolePrimary,
 		subnetService:   "Microsoft.DBforPostgreSQL/flexibleServers",
 		hasAuthConfig:   true,
+		dnsZoneSuffix:   "postgres.database.azure.com",
+		maxSubnetBits:   pgMaxSubnetBits,
 		sourceTimeField: "pointInTimeUTC",
 	}
 }
@@ -429,14 +493,16 @@ func newMySQLFlavor() *flexFlavor {
 		defaultVersion: "8.0.21", defaultCharset: flexUTF8MB4, defaultCollate: "utf8mb4_0900_ai_ci",
 		minStorage: mysqlMinStorageGiB, maxStorage: mysqlMaxStorageGiB, defaultStorage: mysqlMinStorageGiB,
 		minRetention: 1, maxReplicas: mysqlMaxReplicas, maxLoginLen: mysqlMaxLoginLen,
-		loginRE:  regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`),
+		loginRE: regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`), loginRule: "only letters, digits and underscores are allowed",
 		dbNameRE: regexp.MustCompile(`^[A-Za-z0-9_$-]{1,64}$`),
 		reservedLogins: []string{
 			flexLoginAzureSuper, flexLoginAdmin, flexLoginAdministrator, flexLoginRoot, flexLoginGuest, flexLoginPublic,
+			"sa",
 		},
 		systemDBs: []string{"information_schema", flexKindMySQL, "performance_schema", "sys"}, skus: mysqlSKUs(),
 		configs: mysqlConfigs(), roleReplica: "Replica", roleSource: "Source",
-		subnetService: "Microsoft.DBforMySQL/flexibleServers", boolStrings: true, sourceTimeField: "restorePointInTime",
+		subnetService: "Microsoft.DBforMySQL/flexibleServers",
+		dnsZoneSuffix: "mysql.database.azure.com", maxSubnetBits: mysqlMaxSubnetBits, boolStrings: true, sourceTimeField: "restorePointInTime",
 	}
 }
 
@@ -462,10 +528,17 @@ func pgStorageTier(gb int) (string, int) {
 const (
 	mysqlBaseIops   = 360
 	mysqlIopsPerGiB = 3
-	mysqlMaxIops    = 20000
 )
 
-func mysqlIops(gb int) int { return min(max(mysqlBaseIops, gb*mysqlIopsPerGiB), mysqlMaxIops) }
+func mysqlIops(gb, skuMax int) int { return min(max(mysqlBaseIops, gb*mysqlIopsPerGiB), skuMax) }
+
+func (f *flexFlavor) storageCap(tier string) int {
+	if f.kind == flexKindMySQL && tier != tierMemoryOptimized {
+		return mysqlMaxStorageStdGiB
+	}
+
+	return f.maxStorage
+}
 
 func (c flexConfigDef) bounds() (float64, float64) {
 	l, h, _ := strings.Cut(c.rng, "..")
@@ -522,16 +595,20 @@ func (c flexConfigDef) allowedValues() string {
 }
 
 const (
-	mysqlMaxStorageGiB = 16384
-	pgMaxStorageGiB    = 32768
-	flexLoginRoot      = "root"
-	flexLoginPublic    = "public"
+	mysqlMaxStorageGiB    = 32768
+	mysqlMaxStorageStdGiB = 16384
+	pgMaxStorageGiB       = 32768
+	flexLoginRoot         = "root"
+	flexLoginPublic       = "public"
 )
 
 const (
-	pgMinRetentionDays = 7
-	pgMaxReplicas      = 5
-	pgMaxLoginLen      = 63
-	mysqlMaxReplicas   = 10
-	mysqlMaxLoginLen   = 32
+	pgMinRetentionDays  = 7
+	pgMaxReplicas       = 5
+	pgMaxSubnetBits     = 28
+	mysqlMaxSubnetBits  = 29
+	pgMinCascadeVersion = 14
+	pgMaxLoginLen       = 63
+	mysqlMaxReplicas    = 10
+	mysqlMaxLoginLen    = 32
 )

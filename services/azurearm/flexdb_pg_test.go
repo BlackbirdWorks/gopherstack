@@ -227,7 +227,7 @@ func TestPGFlexNameConflictAcrossGroups(t *testing.T) {
 		flexAPIPG,
 	)
 	assert.Equal(t, http.StatusConflict, status)
-	assert.Equal(t, "ServerNameAlreadyExists", flexErrCode(body))
+	assert.Equal(t, "Conflict", flexErrCode(body))
 }
 
 func pgPoll[T any](t *testing.T, poller *runtime.Poller[T], err error) T {
@@ -473,7 +473,7 @@ func TestPGFlexStartStopRestart(t *testing.T) {
 		flexAPIPG,
 	)
 	assert.Equal(t, http.StatusConflict, status)
-	assert.Equal(t, "ServerNotReady", flexErrCode(body))
+	assert.Equal(t, "ServerIsNotReady", flexErrCode(body))
 
 	status, _ = s.raw(t, http.MethodPatch, flexServerPath(pgNS, "pg-power"), `{"tags":{"a":"b"}}`, flexAPIPG)
 	assert.Equal(t, http.StatusConflict, status)
@@ -491,7 +491,7 @@ func TestPGFlexStartStopRestart(t *testing.T) {
 	assert.Equal(t, "Ready", state())
 }
 
-func TestPGFlexStopRefusals(t *testing.T) {
+func TestPGFlexStopHAServer(t *testing.T) {
 	t.Parallel()
 
 	s := newFlexStack(t, nil)
@@ -511,8 +511,14 @@ func TestPGFlexStopRefusals(t *testing.T) {
 	_, err = p.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
 
-	_, err = f.NewServersClient().BeginStop(ctx, flexRG, "pg-ha", nil)
-	require.Error(t, err)
+	stop, err := f.NewServersClient().BeginStop(ctx, flexRG, "pg-ha", nil)
+	require.NoError(t, err)
+	_, err = stop.PollUntilDone(ctx, pollFast())
+	require.NoError(t, err)
+
+	got, err := f.NewServersClient().Get(ctx, flexRG, "pg-ha", nil)
+	require.NoError(t, err)
+	assert.Equal(t, armpostgresqlflexibleservers.ServerStateStopped, *got.Properties.State)
 }
 
 func TestPGFlexCheckNameAvailability(t *testing.T) {
@@ -587,11 +593,28 @@ func TestPGFlexCapabilities(t *testing.T) {
 	assert.True(t, skus["Standard_E96ads_v5"])
 }
 
+func (s *flexStack) pgCreateGP(t *testing.T, name string) armpostgresqlflexibleservers.Server {
+	t.Helper()
+
+	srv := pgServer()
+	srv.SKU = &armpostgresqlflexibleservers.SKU{
+		Name: new("Standard_D2ds_v5"), Tier: new(armpostgresqlflexibleservers.SKUTierGeneralPurpose),
+	}
+
+	poller, err := s.pgFactory(t).NewServersClient().BeginCreate(t.Context(), flexRG, name, srv, nil)
+	require.NoError(t, err)
+
+	res, err := poller.PollUntilDone(t.Context(), pollFast())
+	require.NoError(t, err)
+
+	return res.Server
+}
+
 func TestPGFlexReplicasAndRestore(t *testing.T) {
 	t.Parallel()
 
 	s := newFlexStack(t, nil)
-	src := s.pgCreate(t, "pg-primary")
+	src := s.pgCreateGP(t, "pg-primary")
 	f := s.pgFactory(t)
 	ctx := t.Context()
 
@@ -609,7 +632,7 @@ func TestPGFlexReplicasAndRestore(t *testing.T) {
 	replica, err := p.PollUntilDone(ctx, pollFast())
 	require.NoError(t, err)
 	assert.Equal(t, armpostgresqlflexibleservers.ReplicationRoleAsyncReplica, *replica.Properties.ReplicationRole)
-	assert.Equal(t, "Standard_B1ms", *replica.SKU.Name)
+	assert.Equal(t, "Standard_D2ds_v5", *replica.SKU.Name)
 	assert.Equal(t, "pgadmin", *replica.Properties.AdministratorLogin)
 
 	primary, err := f.NewServersClient().Get(ctx, flexRG, "pg-primary", nil)
@@ -630,8 +653,15 @@ func TestPGFlexReplicasAndRestore(t *testing.T) {
 
 	assert.Equal(t, []string{"pg-replica"}, listed)
 
-	_, err = f.NewServersClient().BeginStop(ctx, flexRG, "pg-primary", nil)
-	require.Error(t, err)
+	stop, err := f.NewServersClient().BeginStop(ctx, flexRG, "pg-primary", nil)
+	require.NoError(t, err)
+	_, err = stop.PollUntilDone(ctx, pollFast())
+	require.NoError(t, err)
+
+	start, err := f.NewServersClient().BeginStart(ctx, flexRG, "pg-primary", nil)
+	require.NoError(t, err)
+	_, err = start.PollUntilDone(ctx, pollFast())
+	require.NoError(t, err)
 
 	nested := armpostgresqlflexibleservers.Server{
 		Location: new(flexLoc),
@@ -641,8 +671,25 @@ func TestPGFlexReplicasAndRestore(t *testing.T) {
 		},
 	}
 
-	_, err = f.NewServersClient().BeginCreate(ctx, flexRG, "pg-nested", nested, nil)
+	n, err := f.NewServersClient().BeginCreate(ctx, flexRG, "pg-nested", nested, nil)
+	require.NoError(t, err)
+
+	cascaded, err := n.PollUntilDone(ctx, pollFast())
+	require.NoError(t, err)
+
+	tooDeep := nested
+	tooDeep.Properties = &armpostgresqlflexibleservers.ServerProperties{
+		CreateMode:             new(armpostgresqlflexibleservers.CreateModeReplica),
+		SourceServerResourceID: cascaded.ID,
+	}
+
+	_, err = f.NewServersClient().BeginCreate(ctx, flexRG, "pg-deep", tooDeep, nil)
 	require.Error(t, err)
+
+	dropNested, err := f.NewServersClient().BeginDelete(ctx, flexRG, "pg-nested", nil)
+	require.NoError(t, err)
+	_, err = dropNested.PollUntilDone(ctx, pollFast())
+	require.NoError(t, err)
 
 	del, err := f.NewServersClient().BeginDelete(ctx, flexRG, "pg-primary", nil)
 	require.NoError(t, err)

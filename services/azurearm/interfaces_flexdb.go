@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"net/netip"
 	"strings"
 )
 
@@ -51,4 +52,24 @@ func (p *NetworkProvider) subnetDelegatedTo(subnetID, service string) (bool, boo
 	}
 
 	return true, false
+}
+
+// subnetPrefixBits returns the prefix length of the subnet's address range.
+func (p *NetworkProvider) subnetPrefixBits(subnetID string) (int, bool) {
+	p.mu.RLock("subnetPrefixBits")
+	defer p.mu.RUnlock()
+
+	_, s, ok := p.subnetByID(subnetID)
+	if !ok {
+		return 0, false
+	}
+
+	prefixes := strList(s.Props[netFieldAddrPrefixes])
+	if len(prefixes) == 0 {
+		return 0, false
+	}
+
+	pfx, err := netip.ParsePrefix(prefixes[0])
+
+	return pfx.Bits(), err == nil
 }

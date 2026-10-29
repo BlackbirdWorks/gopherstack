@@ -3,10 +3,24 @@ package azurearm
 import (
 	"context"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
-var flexCharsetRE = regexp.MustCompile(`^[A-Za-z0-9_.@-]{1,64}$`)
+var (
+	flexCharsetRE = regexp.MustCompile(`^[A-Za-z0-9_.@-]{1,64}$`)
+	pgCharsetRE   = regexp.MustCompile(`^[a-zA-Z]+\w*$`)
+	pgCollationRE = regexp.MustCompile(`^[a-zA-Z\-]+([. ]|\w)*$`)
+)
+
+// validCharset applies the DatabaseProperties patterns of the PostgreSQL spec; MySQL declares none.
+func (f *flexFlavor) validCharset(charset, collation string) bool {
+	if f.kind == flexKindPostgres {
+		return pgCharsetRE.MatchString(charset) && pgCollationRE.MatchString(collation)
+	}
+
+	return flexCharsetRE.MatchString(charset) && flexCharsetRE.MatchString(collation)
+}
 
 func (p *FlexDBProvider) writeDatabase(id ResourceID, body map[string]any) (flexResult, error) {
 	props := flexMap(body, fieldProperties)
@@ -30,7 +44,7 @@ func (p *FlexDBProvider) writeDatabase(id ResourceID, body map[string]any) (flex
 		collation = v
 	}
 
-	if !flexCharsetRE.MatchString(charset) || !flexCharsetRE.MatchString(collation) {
+	if !f.validCharset(charset, collation) {
 		return flexResult{}, flexInvalid("The charset or collation is not valid.")
 	}
 
@@ -70,7 +84,7 @@ func (p *FlexDBProvider) storeDatabase(id ResourceID, db flexDatabase) (FlexEngi
 	}
 
 	if p.stateOf(rec) != flexStateReady {
-		return nil, "", false, flexConflict(flexCodeNotReady, "The server is not in the Ready state.")
+		return nil, "", false, p.notReady(rec, "Create or update database")
 	}
 
 	k := strings.ToLower(db.Name)
@@ -140,7 +154,7 @@ func (p *FlexDBProvider) configValue(rec *flexServer, c flexConfigDef) (string, 
 }
 
 func (p *FlexDBProvider) configDefault(rec *flexServer, c flexConfigDef) string {
-	if c.name == cfgMaxConn && p.flavor.kind == flexKindPostgres {
+	if c.name == cfgMaxConn {
 		if v := p.maxConnections(rec); v != "" {
 			return v
 		}
@@ -175,7 +189,7 @@ func (p *FlexDBProvider) configEnvelope(id ResourceID, rec *flexServer, c flexCo
 
 	props := map[string]any{
 		"value": value, "source": source, "defaultValue": def, "dataType": c.dataType,
-		netPropDescription: c.desc, "allowedValues": c.allowedValues(), "isReadOnly": p.flexBool(c.readOnly),
+		netPropDescription: c.desc, "allowedValues": p.allowedValues(rec, c), "isReadOnly": p.flexBool(c.readOnly),
 		"isDynamicConfig":        p.flexBool(!c.static && !c.readOnly),
 		"isConfigPendingRestart": p.flexBool(rec.Pending[c.name]),
 		"documentationLink": "https://learn.microsoft.com/azure/" + map[string]string{
@@ -192,6 +206,25 @@ func (p *FlexDBProvider) configEnvelope(id ResourceID, rec *flexServer, c flexCo
 	}
 
 	return p.childEnvelope(id, flexConfigsType, props)
+}
+
+// mysqlConnRange is the per-SKU max_connections range of the MySQL server parameters page.
+func (p *FlexDBProvider) mysqlConnRange(rec *flexServer, c flexConfigDef) (int, int, bool) {
+	if p.flavor.kind != flexKindMySQL || c.name != cfgMaxConn {
+		return 0, 0, false
+	}
+
+	s, ok := p.flavor.skuByName(rec.SKUName)
+
+	return mysqlMinConns, s.connMax, ok && s.connMax > 0
+}
+
+func (p *FlexDBProvider) allowedValues(rec *flexServer, c flexConfigDef) string {
+	if lo, hi, ok := p.mysqlConnRange(rec, c); ok {
+		return strconv.Itoa(lo) + "-" + strconv.Itoa(hi)
+	}
+
+	return c.allowedValues()
 }
 
 func (p *FlexDBProvider) configBody(id ResourceID, rec *flexServer) (map[string]any, error) {
@@ -237,6 +270,12 @@ func (p *FlexDBProvider) writeConfig(id ResourceID, body map[string]any) (flexRe
 	rec, err := p.server(id)
 	if err != nil {
 		return flexResult{}, err
+	}
+
+	if lo, hi, ok := p.mysqlConnRange(rec, c); ok && !reset {
+		if n, convErr := strconv.Atoi(value); convErr != nil || n < lo || n > hi {
+			return flexResult{}, flexInvalid("The value for '%s' is not valid: allowed values are %d-%d.", c.name, lo, hi)
+		}
 	}
 
 	if rec.Config == nil {
@@ -361,7 +400,7 @@ func (p *FlexDBProvider) mysqlSKUCaps(tier string, v2 bool) []any {
 
 		c := map[string]any{
 			fieldName: s.name, "vCores": s.vcores, "supportedMemoryPerVCoreMB": s.memGiB * flexMemMB / s.vcores,
-			"supportedIops": mysqlMaxIops,
+			"supportedIops": s.maxIops,
 		}
 
 		if v2 {
