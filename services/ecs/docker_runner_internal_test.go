@@ -36,6 +36,7 @@ type fakeDockerClient struct {
 	waitByID               map[string]chan dockertypes.WaitResponse
 	volumes                map[string]bool
 	creates                []createCall
+	pulls                  []pullCall
 	volumesRemoved         []string
 	stopTimeouts           map[string]int
 	stats                  map[string]string
@@ -57,7 +58,19 @@ type fakeDockerClient struct {
 	blockLogsUntilCanceled bool
 }
 
-func (f *fakeDockerClient) ImagePull(_ context.Context, _ string, _ dockerimage.PullOptions) (io.ReadCloser, error) {
+// pullCall records one ImagePull request.
+type pullCall struct {
+	image string
+	auth  string
+}
+
+func (f *fakeDockerClient) ImagePull(
+	_ context.Context, image string, opts dockerimage.PullOptions,
+) (io.ReadCloser, error) {
+	f.mu.Lock()
+	f.pulls = append(f.pulls, pullCall{image: image, auth: opts.RegistryAuth})
+	f.mu.Unlock()
+
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
