@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -126,7 +127,12 @@ func TestDockerCluster_RealK3s(t *testing.T) {
 
 	b, rec := newRealClusterBackend(t)
 
-	_, err := b.CreateCluster("real", "1.32", "", nil, nil, nil)
+	mountDir := t.TempDir()
+
+	_, err := b.CreateCluster("real", "1.32", "", nil, nil, map[string]string{
+		eks.TagVolumeMount: mountDir + ":/mnt/gopherstack-test:ro",
+		eks.TagLBPorts:     "8080",
+	})
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -150,6 +156,19 @@ func TestDockerCluster_RealK3s(t *testing.T) {
 	ids := rec.containerIDs()
 	require.Len(t, ids, 1)
 	require.True(t, dockerHasContainer(t, ids[0]))
+
+	inspect, err := exec.CommandContext(t.Context(), "docker", "inspect", "-f",
+		"{{range .Mounts}}{{.Source}}:{{.Destination}}:{{.RW}} {{end}}", ids[0]).Output()
+	require.NoError(t, err)
+	assert.Contains(t, string(inspect), mountDir+":/mnt/gopherstack-test:false")
+
+	published, err := b.PublishedLBPorts("real")
+	require.NoError(t, err)
+	require.Len(t, published, 1)
+
+	dockerPort, err := exec.CommandContext(t.Context(), "docker", "port", ids[0], "8080/tcp").Output()
+	require.NoError(t, err)
+	assert.Contains(t, string(dockerPort), ":"+strconv.Itoa(published[0].HostPort))
 
 	_, err = b.DeleteCluster("real")
 	require.NoError(t, err)

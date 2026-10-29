@@ -250,13 +250,26 @@ func (b *InMemoryBackend) CreateCluster(
 		version = defaultK8sVersion
 	}
 
+	if b.clusterEng != nil {
+		if _, _, err := b.clusterEng.resolveLaunch(version, kv); err != nil {
+			return nil, err
+		}
+	}
+
 	c := b.newClusterLocked(name, version, roleARN, vpcConfig, networkConfig, kv, opts...)
 	b.clusters.Put(c)
 	b.accessPolicies[name] = make(map[string][]*AccessPolicyAssociation)
 	b.encryptionConfigs[name] = c.EncryptionConfig
 
 	if b.clusterEng != nil {
-		b.launchClusterLocked(name, version)
+		if err := b.launchClusterLocked(name, version, kv); err != nil {
+			b.clusters.Delete(name)
+			delete(b.accessPolicies, name)
+			delete(b.encryptionConfigs, name)
+			c.Tags.Close()
+
+			return nil, err
+		}
 	} else {
 		b.scheduleClusterActivation(name)
 	}
