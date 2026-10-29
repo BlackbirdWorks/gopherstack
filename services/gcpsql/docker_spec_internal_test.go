@@ -17,28 +17,28 @@ func TestPGLaunchSpec(t *testing.T) {
 	rec := &Recovery{At: time.Date(2026, 10, 29, 12, 0, 1, 500_000_000, time.UTC), Volume: "src-pitr"}
 
 	tests := []struct {
-		eng        dockerEngine
+		eng        *dockerEngine
 		name       string
 		wantMounts []string
 		wantEnv    []string
 		wantEntry  bool
 		wantCmd    bool
 	}{
-		{name: "plain without volumes", eng: dockerEngine{}, wantCmd: true},
+		{name: "plain without volumes", eng: &dockerEngine{}, wantCmd: true},
 		{
-			name: "primary with volumes", eng: dockerEngine{volData: "d", volPITR: "p"}, wantEntry: true,
+			name: "primary with volumes", eng: &dockerEngine{volData: "d", volPITR: "p"}, wantEntry: true,
 			wantMounts: []string{"d:" + pgDataDir, "p:" + pitrMount},
 		},
 		{
 			name: "replica", wantEntry: true, wantMounts: []string{"d:" + pgDataDir},
-			eng: dockerEngine{volData: "d", spec: LaunchSpec{
+			eng: &dockerEngine{volData: "d", spec: LaunchSpec{
 				Replica: &ReplicaSource{Host: "h", Port: 5432, Password: "pw"},
 			}},
 			wantEnv: []string{dbrepl.PasswordEnv + "=pw"},
 		},
 		{
 			name: "recovery", wantEntry: true,
-			eng:        dockerEngine{volData: "d", volPITR: "p", spec: LaunchSpec{Recovery: rec}},
+			eng:        &dockerEngine{volData: "d", volPITR: "p", spec: LaunchSpec{Recovery: rec}},
 			wantMounts: []string{"d:" + pgDataDir, "p:" + pitrMount, "src-pitr:" + pitrSrcMount + ":ro"},
 			wantEnv:    []string{recoveryEnv + "=2026-10-29 12:00:01.500000+00"},
 		},
