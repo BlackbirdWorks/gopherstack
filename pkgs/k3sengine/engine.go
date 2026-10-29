@@ -220,6 +220,7 @@ func (e *Engine) spec(n Node, port int, lbHost []int, ca *CA) container.Spec {
 
 	return container.Spec{
 		Name:       "gopherstack-" + e.cfg.Prefix + "-" + n.Name + "-" + uuid.NewString()[:8],
+		Labels:     container.ServiceLabels("k3s-" + e.cfg.Prefix),
 		Image:      n.Image,
 		Entrypoint: []string{"/bin/sh", "-c", Script(len(n.LBPorts) > 0)},
 		Env: []string{

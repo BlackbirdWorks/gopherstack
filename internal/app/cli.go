@@ -14903,6 +14903,8 @@ func setupPersistence(
 	// waiting for the first live request to touch it.
 	service.SeedRegions(defaultRegion)
 
+	reconcileContainers(ctx)
+
 	if restore {
 		m.RestoreAll(ctx)
 	}
@@ -14913,6 +14915,8 @@ func setupPersistence(
 func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager, error) {
 	log := logger.Load(ctx)
 	var store persistence.Store = persistence.NullStore{}
+
+	initContainerIdentity(cli.Persist && !cli.Demo, cli.resolvedDataDir())
 
 	if cli.Persist && !cli.Demo {
 		fs, err := cli.createPersistenceStore()
