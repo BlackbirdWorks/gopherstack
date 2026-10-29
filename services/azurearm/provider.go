@@ -199,7 +199,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	registry.Register(NewMonitorProvider(namespaceMicrosoftOperationalInsights, backend, nil))
 	registry.Register(NewMonitorProvider(namespaceMicrosoftInsights, backend, nil))
 
-	ids := registerLocalProviders(registry, backend, settings)
+	ids := registerLocalProviders(ctx, registry, backend, settings)
 	registerContainerProviders(registry, backend, newACIEngine(ctx, settings), ids)
 	registerContainerService(ctx, registry, backend, ids, settings)
 
@@ -213,6 +213,25 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler := NewHandler(backend, registry, issuer, settings)
 
 	return handler, nil
+}
+
+// registerFlexProviders registers the PostgreSQL and MySQL flexible server providers; with the docker engine each
+// server runs a real container, dialed on first use.
+func registerFlexProviders(ctx *service.AppContext, registry *Registry, network *NetworkProvider, settings Settings) {
+	for _, p := range []*FlexDBProvider{NewPostgresFlexProvider(), NewMySQLFlexProvider()} {
+		p.SetNetwork(network)
+
+		if settings.DBEngine == DBEngineDocker {
+			p.SetEngine(NewDockerFlexEngine(p.flavor.kind, DockerFlexConfig{
+				Runtime: func() (container.Runtime, error) {
+					return container.NewRuntime(container.Config{Logger: ctx.Logger})
+				},
+				Ports: ctx.PortAlloc, Logger: ctx.Logger,
+			}))
+		}
+
+		registry.Register(p)
+	}
 }
 
 func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
@@ -242,7 +261,7 @@ func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
 const aciDisabledReason = "the container engine is disabled (--azure-arm-aci-engine=none); container groups cannot run"
 
 // registerLocalProviders registers the providers that have no data-plane seam to wire up later.
-func registerLocalProviders(registry *Registry, backend *InMemoryBackend, settings Settings) *identityService {
+func registerLocalProviders(ctx *service.AppContext, registry *Registry, backend *InMemoryBackend, settings Settings) *identityService {
 	msi := NewManagedIdentityProvider(settings.TenantID)
 	ids := newIdentityService(msi, settings.TenantID)
 	network := NewNetworkProvider(backend)
@@ -252,6 +271,7 @@ func registerLocalProviders(registry *Registry, backend *InMemoryBackend, settin
 
 	registry.Register(NewRedisProvider(nil))
 	registry.Register(NewSQLProvider(nil))
+	registerFlexProviders(ctx, registry, network, settings)
 	registry.Register(web)
 	registry.Register(network)
 	registry.Register(msi)

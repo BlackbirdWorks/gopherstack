@@ -39,6 +39,12 @@ const (
 	AKSEngineDocker = "docker"
 )
 
+// DBEngineStub keeps flexible servers as ARM state; DBEngineDocker runs each as a real postgres or mysql container.
+const (
+	DBEngineStub   = "stub"
+	DBEngineDocker = "docker"
+)
+
 // DefaultLocation is the default Azure "location" value used when a request
 // doesn't specify one.
 const DefaultLocation = "local"
@@ -123,6 +129,7 @@ type Settings struct {
 	AdvertiseACR          string `json:"advertiseAcr"          env:"AZURE_ARM_ADVERTISE_ACR_ENDPOINT"                                                       name:"advertise-acr"           help:"Override the host:port advertised in container registry loginServer (after the {registry}.azurecr. prefix). Default: derived from the request's Host and --azure-arm-acr-port."`                                           //nolint:lll // config struct tags are intentionally verbose
 	ACIEngine             string `json:"aciEngine"             env:"AZURE_ARM_ACI_ENGINE"                    default:"auto"                                 name:"aci-engine"              help:"Container Instances engine: auto (use the container runtime) or none (groups fail to provision)."                                                                                                      enum:"auto,none"`   //nolint:lll // config struct tags are intentionally verbose
 	AKSEngine             string `json:"aksEngine"             env:"AKS_ENGINE"                              default:"stub"                                 name:"aks-engine"              help:"Kubernetes Service engine: stub (ARM state only) or docker (a real single-node k3s cluster per managed cluster)."                                                                                      enum:"stub,docker"` //nolint:lll // config struct tags are intentionally verbose
+	DBEngine              string `json:"dbEngine"               env:"AZURE_ARM_DB_ENGINE"                              default:"stub"                                 name:"db-engine"               help:"PostgreSQL and MySQL flexible server engine: stub (ARM state only) or docker (a real container per server)."                                                                                 enum:"stub,docker"` //nolint:lll // config struct tags are intentionally verbose
 	Port                  int    `json:"port"                  env:"AZURE_ARM_PORT"                          default:"10006"                                name:"port"                    help:"Fixed TCP port for the dedicated ARM listener; startup fails if it's unavailable (no fallback pool)."`                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	StorageVHostPort      int    `json:"storageVhostPort"      env:"AZURE_ARM_STORAGE_VHOST_PORT"            default:"10010"                                name:"storage-vhost-port"      help:"The shared services/azurestoragevhost listener's port, used to build primaryEndpoints when --azure-arm-advertise-storage-vhost isn't set. Must match --azure-storage-vhost-port."`                                         //nolint:lll // config struct tags are intentionally verbose
 	ServiceBusPort        int    `json:"serviceBusPort"        env:"AZURE_ARM_SERVICEBUS_PORT"               default:"10003"                                name:"servicebus-port"         help:"The services/azureservicebus listener's port, used to build serviceBusEndpoint when --azure-arm-advertise-servicebus isn't set. Must match --azure-servicebus-port."`                                                      //nolint:lll // config struct tags are intentionally verbose
@@ -148,6 +155,7 @@ func DefaultSettings() Settings {
 		Port:             DefaultPort,
 		ACIEngine:        ACIEngineAuto,
 		AKSEngine:        AKSEngineStub,
+		DBEngine:         DBEngineStub,
 		StorageVHostPort: DefaultStorageVHostPort,
 		ServiceBusPort:   DefaultServiceBusPort,
 		KeyVaultPort:     DefaultKeyVaultPort,

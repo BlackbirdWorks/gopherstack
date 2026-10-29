@@ -34,6 +34,8 @@ type armSnapshot struct {
 	ContainerRegistry   *containerRegistrySnapshot `json:"containerRegistry,omitempty"`
 	Redis               *redisSnapshot             `json:"redis,omitempty"`
 	SQL                 *sqlSnapshot               `json:"sql,omitempty"`
+	PostgresFlex        *flexSnapshot              `json:"postgresFlex,omitempty"`
+	MySQLFlex           *flexSnapshot              `json:"mysqlFlex,omitempty"`
 	Web                 *webSnapshot               `json:"web,omitempty"`
 	ContainerInstance   *containerInstanceSnapshot `json:"containerInstance,omitempty"`
 	Network             *networkSnapshot           `json:"network,omitempty"`
@@ -203,6 +205,14 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.SQL = p.snapshot()
 	}
 
+	if p, ok := h.postgresFlexProvider(); ok {
+		st.PostgresFlex = p.snapshot()
+	}
+
+	if p, ok := h.mysqlFlexProvider(); ok {
+		st.MySQLFlex = p.snapshot()
+	}
+
 	if p, ok := h.webProvider(); ok {
 		st.Web = p.snapshot()
 	}
@@ -253,6 +263,14 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.sqlProvider(); ok {
 		p.restore(snap.SQL)
+	}
+
+	if p, ok := h.postgresFlexProvider(); ok {
+		p.restore(snap.PostgresFlex)
+	}
+
+	if p, ok := h.mysqlFlexProvider(); ok {
+		p.restore(snap.MySQLFlex)
 	}
 
 	if p, ok := h.webProvider(); ok {
