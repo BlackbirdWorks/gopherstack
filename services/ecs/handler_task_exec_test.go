@@ -268,6 +268,7 @@ func TestECS_ListTasks_TokenChaining(t *testing.T) {
 	}
 }
 
+// TestECSExec_Basic: with no Session Manager backend wired the agent is unreachable, never a fabricated stream.
 func TestECSExec_Basic(t *testing.T) {
 	t.Parallel()
 
@@ -298,13 +299,8 @@ func TestECSExec_Basic(t *testing.T) {
 		"command":     "/bin/bash",
 		"interactive": true,
 	})
-	require.Equal(t, http.StatusOK, execResp.Code)
-
-	var execOut map[string]any
-	require.NoError(t, json.Unmarshal(execResp.Body.Bytes(), &execOut))
-	session := execOut["session"].(map[string]any)
-	assert.NotEmpty(t, session["sessionId"])
-	assert.Equal(t, true, execOut["interactive"])
+	require.Equal(t, http.StatusBadRequest, execResp.Code)
+	assert.Contains(t, execResp.Body.String(), "TargetNotConnectedException")
 }
 
 func TestECSExec_NonInteractive(t *testing.T) {
@@ -334,11 +330,9 @@ func TestECSExec_NonInteractive(t *testing.T) {
 		"command":     "ls /tmp",
 		"interactive": false,
 	})
-	require.Equal(t, http.StatusOK, execResp.Code)
-
-	var execOut map[string]any
-	require.NoError(t, json.Unmarshal(execResp.Body.Bytes(), &execOut))
-	assert.Equal(t, false, execOut["interactive"])
+	require.Equal(t, http.StatusBadRequest, execResp.Code)
+	assert.Contains(t, execResp.Body.String(), "InvalidParameterException")
+	assert.Contains(t, execResp.Body.String(), "interactive")
 }
 
 func TestTaskProtection_Enable_Disable(t *testing.T) {
@@ -443,7 +437,7 @@ func TestECS_ExecuteCommand(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name: "execute command on running task",
+			name: "agent not connected without a session backend",
 			setup: func(h *ecs.Handler) map[string]any {
 				tdArn := registerTestTaskDef(t, h, "exec-task")
 				rec := doECSRequest(
@@ -464,12 +458,13 @@ func TestECS_ExecuteCommand(t *testing.T) {
 				taskArn := resp["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
 				return map[string]any{
-					"task":      taskArn,
-					"command":   "/bin/sh",
-					"container": "app",
+					"task":        taskArn,
+					"command":     "/bin/sh",
+					"container":   "app",
+					"interactive": true,
 				}
 			},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "missing task",
@@ -893,6 +888,7 @@ func TestExecuteCommand_RequiresFlag(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		wantType   string
 		enableExec bool
 		wantStatus int
 	}{
@@ -900,11 +896,13 @@ func TestExecuteCommand_RequiresFlag(t *testing.T) {
 			name:       "exec disabled — rejected",
 			enableExec: false,
 			wantStatus: http.StatusBadRequest,
+			wantType:   "InvalidParameterException",
 		},
 		{
-			name:       "exec enabled — accepted",
+			name:       "exec enabled — agent unreachable without a session backend",
 			enableExec: true,
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusBadRequest,
+			wantType:   "TargetNotConnectedException",
 		},
 	}
 
@@ -930,10 +928,12 @@ func TestExecuteCommand_RequiresFlag(t *testing.T) {
 			taskArn := runOut["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
 			execResp := doECSRequest(t, h, "ExecuteCommand", map[string]any{
-				"task":    taskArn,
-				"command": "/bin/sh",
+				"task":        taskArn,
+				"command":     "/bin/sh",
+				"interactive": true,
 			})
 			assert.Equal(t, tc.wantStatus, execResp.Code)
+			assert.Contains(t, execResp.Body.String(), tc.wantType)
 		})
 	}
 }

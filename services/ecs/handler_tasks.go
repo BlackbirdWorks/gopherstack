@@ -355,7 +355,7 @@ type executeCommandInput struct {
 	Task        string `json:"task"`
 	Container   string `json:"container,omitempty"`
 	Command     string `json:"command"`
-	Interactive bool   `json:"interactive,omitempty"`
+	Interactive bool   `json:"interactive"`
 }
 
 type executeCommandOutput struct {
@@ -374,16 +374,23 @@ type session struct {
 }
 
 func (h *Handler) handleExecuteCommand(
-	_ context.Context,
+	ctx context.Context,
 	in *executeCommandInput,
 ) (*executeCommandOutput, error) {
-	out, err := h.Backend.ExecuteCommand(
-		in.Cluster,
-		in.Task,
-		in.Container,
-		in.Command,
-		in.Interactive,
+	var (
+		out *ExecuteCommandOutput
+		err error
 	)
+
+	if bk, ok := h.Backend.(interface {
+		ExecuteCommandContext(ctx context.Context, cluster, task, container, command string, interactive bool,
+		) (*ExecuteCommandOutput, error)
+	}); ok {
+		out, err = bk.ExecuteCommandContext(ctx, in.Cluster, in.Task, in.Container, in.Command, in.Interactive)
+	} else {
+		out, err = h.Backend.ExecuteCommand(in.Cluster, in.Task, in.Container, in.Command, in.Interactive)
+	}
+
 	if err != nil {
 		return nil, err
 	}

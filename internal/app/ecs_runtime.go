@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -18,6 +19,7 @@ import (
 var (
 	errECSSTSUnavailable     = errors.New("sts backend unavailable")
 	errECSSecretsUnavailable = errors.New("secrets backend unavailable")
+	errECSSSMUnavailable     = errors.New("ssm backend unavailable")
 )
 
 // ecsSecrets adapts Secrets Manager and SSM to ecs.SecretsResolver, resolved at call time.
@@ -152,6 +154,7 @@ func wireECSRuntime(cli *CLI, byName map[string]service.Registerable) {
 	bk.SetEventPublisher(&ecsEventPublisher{byName: byName})
 	bk.SetRoleCredentialIssuer(&ecsTaskCredentials{byName: byName})
 	bk.SetSecretsResolver(&ecsSecrets{byName: byName})
+	bk.SetExecSessionStarter(&ecsExecSessions{byName: byName})
 
 	if cli != nil && cli.Port != "" {
 		bk.SetEndpointURL(lambdaEndpointURL(cli.Lambda.DockerHost, cli.Port))
@@ -170,4 +173,43 @@ func registerECSTaskEndpoints(e *echo.Echo, services []service.Registerable) {
 		e.GET("/_gopherstack/ecs/metadata/:task/:container", h.ServeTaskMetadata)
 		e.GET("/_gopherstack/ecs/metadata/:task/:container/*", h.ServeTaskMetadata)
 	}
+}
+
+// ecsExecSessions adapts SSM Session Manager data channels to ecs.ExecSessionStarter.
+type ecsExecSessions struct {
+	byName map[string]service.Registerable
+	once   sync.Once
+}
+
+func (a *ecsExecSessions) StartExecSession(
+	ctx context.Context, req ecsbackend.ExecSessionRequest,
+) (ecsbackend.ExecSessionGrant, error) {
+	h, ok := a.byName["SSM"].(*ssmbackend.Handler)
+	if !ok {
+		return ecsbackend.ExecSessionGrant{}, errECSSSMUnavailable
+	}
+
+	bk, ok := h.Backend.(*ssmbackend.InMemoryBackend)
+	if !ok {
+		return ecsbackend.ExecSessionGrant{}, errECSSSMUnavailable
+	}
+
+	a.once.Do(func() {
+		if bk.ShellsEnabled() {
+			return
+		}
+
+		if shells, err := ssmbackend.NewDockerShellOpener(); err == nil {
+			bk.SetShellOpener(shells)
+		}
+	})
+
+	out, err := bk.StartContainerSession(ssmbackend.WithRegion(ctx, req.Region), ssmbackend.ContainerSessionInput{
+		Target: req.Target, ContainerID: req.ContainerID, Command: req.Command, StreamBase: req.StreamBase,
+	})
+	if err != nil {
+		return ecsbackend.ExecSessionGrant{}, err
+	}
+
+	return ecsbackend.ExecSessionGrant{SessionID: out.SessionID, StreamURL: out.StreamURL, TokenValue: out.TokenValue}, nil
 }

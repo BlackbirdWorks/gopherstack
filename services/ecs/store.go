@@ -167,6 +167,8 @@ type InMemoryBackend struct {
 	hooksMu    sync.Mutex
 	// nowFn overrides time.Now for task launch timestamps (tests).
 	nowFn func() time.Time
+	// execSessions opens ECS Exec sessions, guarded by mu.
+	execSessions ExecSessionStarter
 	// launches tracks in-flight launch goroutines, guarded by mu.
 	launches launchTracker
 }

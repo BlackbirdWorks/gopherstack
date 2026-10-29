@@ -21,6 +21,11 @@ type ShellOpener interface {
 	OpenShell(ctx context.Context, containerID string, cols, rows uint) (Shell, error)
 }
 
+// CommandShellOpener runs an arbitrary command in a container with a TTY.
+type CommandShellOpener interface {
+	OpenCommand(ctx context.Context, containerID string, cmd []string, cols, rows uint) (Shell, error)
+}
+
 type streamBaseKey struct{}
 
 const schemeHTTPS = "https"
@@ -31,6 +36,13 @@ func (b *InMemoryBackend) SetShellOpener(o ShellOpener) {
 	defer b.mu.Unlock()
 
 	b.shells = o
+}
+
+// ShellsEnabled reports whether command sessions in containers can be opened.
+func (b *InMemoryBackend) ShellsEnabled() bool {
+	_, ok := b.shellOpener().(CommandShellOpener)
+
+	return ok
 }
 
 func (b *InMemoryBackend) shellOpener() ShellOpener {
