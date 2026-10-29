@@ -109,6 +109,7 @@ import (
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
+	gcpidtkbackend "github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
@@ -595,6 +596,8 @@ type Config struct {
 	GCPContainerOps     *gcpcontainerbackend.Handler
 	OCIQueueOps         *ociqueuebackend.Handler
 	OCINotificationsOps *ocinotificationsbackend.Handler
+	// GCPIdentityToolkitOps is dispatched in-process by the /dashboard/api/v1/gcp/identitytoolkit proxy.
+	GCPIdentityToolkitOps *gcpidtkbackend.Handler
 	// OCIContainerEngineOps is dispatched in-process by the /dashboard/api/v1/oci/containerengine proxy.
 	OCIContainerEngineOps *ocicontainerenginebackend.Handler
 	// OCIMySQLOps, OCILoggingOps and OCIMonitoringOps are dispatched in-process by their proxies.

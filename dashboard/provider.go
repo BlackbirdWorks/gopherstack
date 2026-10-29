@@ -54,6 +54,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
+	"github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcplogging"
 	"github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
@@ -410,6 +411,10 @@ func linkContainerQueueExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetOCIQueueHandler() service.Registerable }); ok {
 		conf.OCIQueueOps, _ = getHandler[*ociqueue.Handler](p.GetOCIQueueHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPIdentityToolkitHandler() service.Registerable }); ok {
+		conf.GCPIdentityToolkitOps, _ = getHandler[*gcpidentitytoolkit.Handler](p.GetGCPIdentityToolkitHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetOCIContainerEngineHandler() service.Registerable }); ok {

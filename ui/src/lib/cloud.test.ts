@@ -241,6 +241,7 @@ describe("new GCP console pages", () => {
       "containerapps",
       "vm",
       "aks",
+      "flexdb",
     ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
@@ -282,5 +283,14 @@ describe("new GCP console pages", () => {
     expect(ociServiceById("mysql")?.portLabel).toBe("ocimysql");
     expect(ociServiceById("logging")?.defaultPort).toBe(8160);
     expect(ociServiceById("monitoring")?.healthName).toBe("OCIMonitoring");
+  });
+
+  it("registers Identity Platform and Flexible Server", () => {
+    expect(gcpServiceById("identitytoolkit")).toMatchObject({
+      portLabel: "gcpidentitytoolkit",
+      defaultPort: 8145,
+      healthName: "GCPIdentityToolkit",
+    });
+    expect(azureServiceById("flexdb")?.portLabel).toBe("azurearm");
   });
 });
