@@ -240,6 +240,8 @@ import (
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
+	ocimonitoring "github.com/blackbirdworks/gopherstack/services/ocimonitoring"
 	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	ociqueuebackend "github.com/blackbirdworks/gopherstack/services/ociqueue"
@@ -706,6 +708,8 @@ type CLI struct {
 	OCICore                       ocicorebackend.Settings           `embed:"" prefix:"oci-core-"`
 	OCIQueue                      ociqueuebackend.Settings          `embed:"" prefix:"oci-queue-"`
 	OCINotifications              ocinotificationsbackend.Settings  `embed:"" prefix:"oci-notifications-"`
+	OCILogging                    ocilogging.Settings               `embed:"" prefix:"oci-logging-"`
+	OCIMonitoring                 ocimonitoring.Settings            `embed:"" prefix:"oci-monitoring-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -2684,6 +2688,8 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIIdentity", "ociidentity", cli.OCIIdentity.Port},
 		{"OCIFunctions", "ocifunctions", cli.OCIFunctions.Port},
 		{"OCICore", "ocicore", cli.OCICore.Port},
+		{"OCILogging", "ocilogging", cli.OCILogging.Port},
+		{"OCIMonitoring", "ocimonitoring", cli.OCIMonitoring.Port},
 		{"OCIQueue", "ociqueue", cli.OCIQueue.Port},
 		{"OCINotifications", "ocinotifications", cli.OCINotifications.Port},
 		{"OCIContainerEngine", "ocicontainerengine", cli.OCIContainerEngine.Port},
@@ -3681,6 +3687,7 @@ func wireCrossServiceDependencies(
 	wireGovernanceIntegrations(byName, services)
 	wireOCIStreamingVault(byName)
 	wireOCIIdentityKeys(byName)
+	wireOCILoggingMonitoring(byName)
 	wireOCIQueueNotifications(byName)
 	wireOCIContainerEngine(byName)
 }
@@ -5167,6 +5174,8 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocistreamingbackend.Provider{},
 		&ociidentitybackend.Provider{},
 		&ocifunctionsbackend.Provider{},
+		&ocilogging.Provider{},
+		&ocimonitoring.Provider{},
 		&ocicorebackend.Provider{},
 		&ociqueuebackend.Provider{},
 		&ocinotificationsbackend.Provider{},

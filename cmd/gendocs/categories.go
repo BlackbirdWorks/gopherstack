@@ -40,6 +40,8 @@ const (
 	slugOCIIdentity     = "ociidentity"
 	slugOCIFunctions    = "ocifunctions"
 	slugOCICore         = "ocicore"
+	slugOCILogging      = "ocilogging"
+	slugOCIMonitoring   = "ocimonitoring"
 	slugOCIQueue        = "ociqueue"
 	slugOCINotify       = "ocinotifications"
 	slugOCIContainerEng = "ocicontainerengine"
@@ -80,7 +82,7 @@ const (
 func ociSlugs() []string {
 	return []string{
 		slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions, slugOCICore,
-		slugOCIQueue, slugOCINotify, slugOCIContainerEng,
+		slugOCIQueue, slugOCINotify, slugOCIContainerEng, slugOCILogging, slugOCIMonitoring,
 	}
 }
 
@@ -295,6 +297,8 @@ func displayNamesB() map[string]string {
 		slugOCIIdentity:     "OCI Identity",
 		slugOCIFunctions:    "OCI Functions",
 		slugOCICore:         "OCI Core Services",
+		slugOCILogging:      "OCI Logging",
+		slugOCIMonitoring:   "OCI Monitoring",
 		slugOCIQueue:        "OCI Queue",
 		slugOCINotify:       "OCI Notifications",
 		slugOCIContainerEng: "OCI Container Engine for Kubernetes",
