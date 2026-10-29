@@ -250,7 +250,10 @@ func TestEnableClusters_RejectsBadOptions(t *testing.T) {
 		cfg  eks.ClusterEngineConfig
 	}{
 		{name: "bad_tag", cfg: eks.ClusterEngineConfig{ImageTags: map[string]string{"1.31": "latest"}}},
-		{name: "tag_minor_mismatch", cfg: eks.ClusterEngineConfig{ImageTags: map[string]string{"1.31": "v1.30.1-k3s1"}}},
+		{
+			name: "tag_minor_mismatch",
+			cfg:  eks.ClusterEngineConfig{ImageTags: map[string]string{"1.31": "v1.30.1-k3s1"}},
+		},
 		{name: "api_port", cfg: eks.ClusterEngineConfig{LBPorts: []int{6443}}},
 		{name: "port_zero", cfg: eks.ClusterEngineConfig{LBPorts: []int{0}}},
 	}
