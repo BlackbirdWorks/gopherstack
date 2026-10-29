@@ -94,6 +94,7 @@ type InMemoryBackend struct {
 	endpointURL      string
 	linkLocal        LinkLocal
 	secrets          SecretsResolver
+	envFiles         EnvFileStore
 	hooksInFlight    map[string]struct{}
 	asgResolver      AutoScalingGroupResolver
 	asgController    AutoScalingGroupController

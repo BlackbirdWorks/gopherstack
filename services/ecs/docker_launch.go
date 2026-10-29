@@ -72,6 +72,7 @@ type launch struct {
 	plan      *volumePlan
 	ids       map[string]string
 	secretEnv map[string][]string
+	fileEnv   map[string][]string
 	needsExit map[string]bool
 	pidMode   string
 	ipcMode   string
@@ -181,7 +182,16 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 		order[pos] = td.ContainerDefinitions[i]
 	}
 
+	if fireErr := checkFirelens(order); fireErr != nil {
+		return fireErr
+	}
+
 	secretEnv, err := r.resolveSecretEnv(ctx, order)
+	if err != nil {
+		return err
+	}
+
+	fileEnv, err := r.resolveFileEnv(ctx, order)
 	if err != nil {
 		return err
 	}
@@ -196,6 +206,7 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 		plan:      plan,
 		ids:       make(map[string]string, len(order)),
 		secretEnv: secretEnv,
+		fileEnv:   fileEnv,
 		needsExit: exitDependencies(order),
 		pidMode:   hostOrNone(td.PidMode),
 		ipcMode:   hostOrNone(td.IpcMode),
@@ -297,6 +308,68 @@ func (r *realDockerRunner) resolveSecretEnv(
 	return out, nil
 }
 
+func (r *realDockerRunner) resolveFileEnv(
+	ctx context.Context,
+	defs []ContainerDefinition,
+) (map[string][]string, error) {
+	out := make(map[string][]string, len(defs))
+
+	r.mu.Lock()
+	lookup := r.envFileLookup
+	r.mu.Unlock()
+
+	for _, cd := range defs {
+		if len(cd.EnvironmentFiles) == 0 {
+			continue
+		}
+
+		if lookup == nil {
+			return nil, envFileLaunchError(cd.EnvironmentFiles[0].Value, errEnvFilesUnavailable)
+		}
+
+		pairs, err := lookup(ctx, cd)
+		if err != nil {
+			return nil, err
+		}
+
+		out[cd.Name] = pairs
+	}
+
+	return out, nil
+}
+
+func (r *realDockerRunner) imageAuth(ctx context.Context, cd ContainerDefinition) (string, error) {
+	if cd.RepositoryCredentials == nil {
+		return "", nil
+	}
+
+	r.mu.Lock()
+	lookup := r.registryAuth
+	r.mu.Unlock()
+
+	if lookup == nil {
+		return "", secretLaunchError(sourceASM, cd.RepositoryCredentials.CredentialsParameter, errSecretsUnavailable)
+	}
+
+	return lookup(ctx, cd)
+}
+
+// SetRegistryAuthResolver wires the lookup that turns a container's repositoryCredentials into pull auth.
+func (r *realDockerRunner) SetRegistryAuthResolver(fn func(ctx context.Context, cd ContainerDefinition) (string, error)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.registryAuth = fn
+}
+
+// SetEnvFileResolver wires the lookup that reads a container's environmentFiles.
+func (r *realDockerRunner) SetEnvFileResolver(fn func(ctx context.Context, cd ContainerDefinition) ([]string, error)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.envFileLookup = fn
+}
+
 // launchContainer pulls, gates, creates and starts one container and wires its watchers.
 func (r *realDockerRunner) launchContainer(ctx context.Context, l *launch, cd ContainerDefinition) error {
 	select {
@@ -307,8 +380,13 @@ func (r *realDockerRunner) launchContainer(ctx context.Context, l *launch, cd Co
 	default:
 	}
 
-	if err := r.pullImage(ctx, cd.Image); err != nil {
+	auth, err := r.imageAuth(ctx, cd)
+	if err != nil {
 		return err
+	}
+
+	if pullErr := r.pullImage(ctx, cd.Image, auth); pullErr != nil {
+		return pullErr
 	}
 
 	if err := r.awaitDependencies(ctx, l, cd); err != nil {
@@ -435,7 +513,8 @@ func (r *realDockerRunner) createContainer(ctx context.Context, l *launch, cd Co
 	portBindings, exposedPorts := buildPortMappings(cd.PortMappings)
 	diverted := r.divertPorts(task, cd.PortMappings, portBindings)
 
-	env := append(r.runtimeEnv(task, cd.Name), buildEnv(cd.Environment)...)
+	env := append(r.runtimeEnv(task, cd.Name), l.fileEnv[cd.Name]...)
+	env = append(env, buildEnv(cd.Environment)...)
 	env = append(env, l.secretEnv[cd.Name]...)
 
 	mounts, err := containerMounts(cd, l.plan)

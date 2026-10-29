@@ -48,6 +48,11 @@ func (b *InMemoryBackend) wireRunnerHooks(runner TaskRunner) {
 	if r, ok := runner.(secretRunner); ok {
 		r.SetSecretResolver(b.resolveSecret)
 	}
+
+	if r, ok := runner.(launchInputRunner); ok {
+		r.SetRegistryAuthResolver(b.resolveRegistryAuth)
+		r.SetEnvFileResolver(b.resolveEnvFiles)
+	}
 }
 
 // updateContainerHealth records a container's runtime health and recomputes the task's.

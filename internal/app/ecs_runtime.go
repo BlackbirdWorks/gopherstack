@@ -3,14 +3,18 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
+	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
@@ -20,6 +24,7 @@ var (
 	errECSSTSUnavailable     = errors.New("sts backend unavailable")
 	errECSSecretsUnavailable = errors.New("secrets backend unavailable")
 	errECSSSMUnavailable     = errors.New("ssm backend unavailable")
+	errECSS3Unavailable      = errors.New("s3 backend unavailable")
 )
 
 // ecsSecrets adapts Secrets Manager and SSM to ecs.SecretsResolver, resolved at call time.
@@ -70,6 +75,32 @@ func (a *ecsSecrets) ParameterValue(ctx context.Context, region, name string) (s
 	}
 
 	return out.Parameter.Value, nil
+}
+
+// ecsEnvFiles adapts S3 to ecs.EnvFileStore, resolved at call time.
+type ecsEnvFiles struct {
+	byName map[string]service.Registerable
+}
+
+func (a *ecsEnvFiles) ObjectBytes(ctx context.Context, bucket, key string) ([]byte, error) {
+	h, ok := a.byName["S3"].(*s3backend.S3Handler)
+	if !ok {
+		return nil, errECSS3Unavailable
+	}
+
+	bk, ok := h.Backend.(*s3backend.InMemoryBackend)
+	if !ok {
+		return nil, errECSS3Unavailable
+	}
+
+	out, err := bk.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+	if err != nil {
+		return nil, err
+	}
+
+	defer out.Body.Close()
+
+	return io.ReadAll(out.Body)
 }
 
 // ecsEventPublisher puts ECS state-change events on the default bus. EventBridge
@@ -154,6 +185,7 @@ func wireECSRuntime(cli *CLI, byName map[string]service.Registerable) {
 	bk.SetEventPublisher(&ecsEventPublisher{byName: byName})
 	bk.SetRoleCredentialIssuer(&ecsTaskCredentials{byName: byName})
 	bk.SetSecretsResolver(&ecsSecrets{byName: byName})
+	bk.SetEnvFileStore(&ecsEnvFiles{byName: byName})
 	bk.SetExecSessionStarter(&ecsExecSessions{byName: byName})
 
 	if cli != nil && cli.Port != "" {

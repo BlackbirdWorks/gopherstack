@@ -129,6 +129,8 @@ type realDockerRunner struct {
 	healthHandler     func(taskArn, containerName, status string)
 	reasonHandler     func(taskArn, containerName, reason string)
 	secretLookup      func(ctx context.Context, valueFrom string) (string, error)
+	registryAuth      func(ctx context.Context, cd ContainerDefinition) (string, error)
+	envFileLookup     func(ctx context.Context, cd ContainerDefinition) ([]string, error)
 	taskEnv           func(task *Task, containerName string) []string
 	attach            func(ctx context.Context, containerID string) error
 	now               func() time.Time
@@ -264,7 +266,11 @@ func (r *realDockerRunner) rollbackContainers(ctx context.Context, containerIDs 
 }
 
 // pullImage pulls a Docker image and drains the response body.
-func (r *realDockerRunner) pullImage(ctx context.Context, image string) error {
+func (r *realDockerRunner) pullImage(ctx context.Context, image, auth string) error {
+	if auth != "" {
+		return r.pullOnce(ctx, image, auth)
+	}
+
 	return registryauth.Pull(ctx, image, r.pullOnce, registryauth.TaggerFrom(r.cli))
 }
 
