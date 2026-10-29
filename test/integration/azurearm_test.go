@@ -28,6 +28,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // armInsecureClient is an *http.Client that trusts azureARMEndpoint's
@@ -264,7 +266,7 @@ func TestIntegration_AzureARM_ServiceBusLifecycleAndCrossServiceWiring(t *testin
 	sbReq, err := http.NewRequestWithContext(t.Context(), http.MethodGet, azureServiceBusEndpoint+"/"+queue, nil)
 	require.NoError(t, err)
 
-	sbResp, err := http.DefaultClient.Do(sbReq)
+	sbResp, err := testclient.New(t).Do(sbReq)
 	require.NoError(t, err)
 
 	defer sbResp.Body.Close()

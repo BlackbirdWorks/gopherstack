@@ -43,6 +43,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	appconfigsvc "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatasvc "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	inspector2svc "github.com/blackbirdworks/gopherstack/services/inspector2"
@@ -1129,7 +1130,7 @@ func registerIoTDataPlaneConnection(ctx context.Context, t *testing.T, clientID 
 	)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err, "registering iotdataplane connection should succeed")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)

@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // iotRequest is a helper that issues an HTTP request to the IoT control-plane.
@@ -37,7 +39,7 @@ func iotRequest(t *testing.T, method, path string, body any) *http.Response {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	return resp

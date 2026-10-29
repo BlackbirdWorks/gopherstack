@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // sesPost sends a form-encoded POST request to the SES endpoint.
@@ -25,7 +27,7 @@ func sesPost(t *testing.T, form url.Values) *http.Response {
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	return resp
