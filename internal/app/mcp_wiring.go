@@ -19,7 +19,7 @@ const mcpPath = "/_gopherstack/mcp"
 // MCPConfig configures the built-in Model Context Protocol server.
 type MCPConfig struct {
 	Token   string `name:"token"   env:"GOPHERSTACK_MCP_TOKEN" help:"Bearer token required by the MCP endpoint. Without it only loopback clients are accepted."` //nolint:lll // config struct tags are intentionally verbose
-	Enabled bool   `name:"enabled" env:"GOPHERSTACK_MCP"       help:"Serve MCP (streamable HTTP) at /_gopherstack/mcp."`                                          //nolint:lll // config struct tags are intentionally verbose
+	Enabled bool   `name:"enabled" env:"GOPHERSTACK_MCP"       help:"Serve MCP (streamable HTTP) at /_gopherstack/mcp."`                                         //nolint:lll // config struct tags are intentionally verbose
 }
 
 // registerMCPEndpoint mounts the MCP endpoint on e; its tools call e in-process.
@@ -67,4 +67,3 @@ func (c *McpCmd) serve(ctx context.Context, client mcpserver.Doer, t mcp.Transpo
 
 	return nil
 }
-

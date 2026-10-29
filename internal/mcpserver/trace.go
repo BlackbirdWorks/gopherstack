@@ -20,14 +20,14 @@ type capturedRequest struct {
 	Duration     time.Duration     `json:"duration_ms"`
 }
 
-var sensitiveQueryKeys = map[string]bool{
-	"x-amz-signature":      true,
-	"x-amz-credential":     true,
-	"x-amz-security-token": true,
-	"signature":            true,
-	"awsaccesskeyid":       true,
-	"token":                true,
-	"sig":                  true,
+func isSensitiveQueryKey(k string) bool {
+	switch strings.ToLower(k) {
+	case "x-amz-signature", "x-amz-credential", "x-amz-security-token",
+		"signature", "awsaccesskeyid", "token", "sig":
+		return true
+	}
+
+	return false
 }
 
 func (r *capturedRequest) trace() Trace {
@@ -76,7 +76,7 @@ func redactQuery(raw string) string {
 	}
 
 	for k := range vals {
-		if sensitiveQueryKeys[strings.ToLower(k)] {
+		if isSensitiveQueryKey(k) {
 			vals.Set(k, redactedValue)
 		}
 	}

@@ -20,18 +20,16 @@ const (
 	redactedValue     = "REDACTED"
 )
 
-func boolPtr(v bool) *bool { return &v }
-
 func readOnly(title string) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{Title: title, ReadOnlyHint: true, OpenWorldHint: boolPtr(false)}
+	return &mcp.ToolAnnotations{Title: title, ReadOnlyHint: true, OpenWorldHint: new(false)}
 }
 
 func destructive(title string) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{Title: title, DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(false)}
+	return &mcp.ToolAnnotations{Title: title, DestructiveHint: new(true), OpenWorldHint: new(false)}
 }
 
 func additive(title string) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{Title: title, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)}
+	return &mcp.ToolAnnotations{Title: title, DestructiveHint: new(false), OpenWorldHint: new(false)}
 }
 
 // HealthInput is the (empty) input of gopherstack_health.
@@ -49,23 +47,23 @@ type HealthOutput struct {
 
 // SnapshotSaveInput names a snapshot to save.
 type SnapshotSaveInput struct {
-	Name     string   `json:"name" jsonschema:"snapshot name (a new version is created if it exists)"`
-	Message  string   `json:"message,omitempty" jsonschema:"optional version message"`
+	Name     string   `json:"name"               jsonschema:"snapshot name (a new version is created if it exists)"`
+	Message  string   `json:"message,omitempty"  jsonschema:"optional version message"`
 	Services []string `json:"services,omitempty" jsonschema:"only save these services (default: all)"`
 }
 
 // SnapshotLoadInput selects a snapshot version to restore.
 type SnapshotLoadInput struct {
-	Name     string   `json:"name" jsonschema:"snapshot name"`
-	Version  string   `json:"version,omitempty" jsonschema:"version number or 'latest' (default latest)"`
+	Name     string   `json:"name"               jsonschema:"snapshot name"`
+	Version  string   `json:"version,omitempty"  jsonschema:"version number or 'latest' (default latest)"`
 	Strategy string   `json:"strategy,omitempty" jsonschema:"overwrite (default) or service-merge"`
 	Services []string `json:"services,omitempty" jsonschema:"only load these services (default: all in the snapshot)"`
-	Merge    bool     `json:"merge,omitempty" jsonschema:"merge into existing state instead of replacing it"`
+	Merge    bool     `json:"merge,omitempty"    jsonschema:"merge into existing state instead of replacing it"`
 }
 
 // SnapshotDeleteInput selects a snapshot (version) to delete.
 type SnapshotDeleteInput struct {
-	Name    string `json:"name" jsonschema:"snapshot name"`
+	Name    string `json:"name"              jsonschema:"snapshot name"`
 	Version string `json:"version,omitempty" jsonschema:"version to delete (default: all versions)"`
 }
 
@@ -87,22 +85,22 @@ type FaultsListInput struct{}
 
 // FaultError is the error a fault rule injects.
 type FaultError struct {
-	Code       string `json:"code" jsonschema:"AWS error code, e.g. ThrottlingException"`
+	Code       string `json:"code"       jsonschema:"AWS error code, e.g. ThrottlingException"`
 	StatusCode int    `json:"statusCode" jsonschema:"HTTP status code, e.g. 429"`
 }
 
 // FaultRule is one chaos fault; omitted match fields match everything.
 type FaultRule struct {
-	Error       *FaultError `json:"error,omitempty" jsonschema:"injected error (default 503 ServiceUnavailable)"`
+	Error       *FaultError `json:"error,omitempty"       jsonschema:"injected error (default 503 ServiceUnavailable)"`
 	Probability *float64    `json:"probability,omitempty" jsonschema:"firing probability 0..1 (default 1)"`
-	Service     string      `json:"service,omitempty" jsonschema:"service name to match, e.g. dynamodb"`
-	Region      string      `json:"region,omitempty" jsonschema:"region to match"`
-	Operation   string      `json:"operation,omitempty" jsonschema:"operation name to match, e.g. PutItem"`
+	Service     string      `json:"service,omitempty"     jsonschema:"service name to match, e.g. dynamodb"`
+	Region      string      `json:"region,omitempty"      jsonschema:"region to match"`
+	Operation   string      `json:"operation,omitempty"   jsonschema:"operation name to match, e.g. PutItem"`
 }
 
 // FaultsSetInput sets chaos fault rules.
 type FaultsSetInput struct {
-	Rules  []FaultRule `json:"rules" jsonschema:"fault rules; evaluated in order, first match wins"`
+	Rules  []FaultRule `json:"rules"            jsonschema:"fault rules; evaluated in order, first match wins"`
 	Append bool        `json:"append,omitempty" jsonschema:"append to existing rules instead of replacing them"`
 }
 
@@ -122,10 +120,10 @@ type StatusOutput struct {
 
 // TracesInput filters recent request traces.
 type TracesInput struct {
-	Service   string `json:"service,omitempty" jsonschema:"only this service, e.g. s3"`
+	Service   string `json:"service,omitempty"   jsonschema:"only this service, e.g. s3"`
 	Operation string `json:"operation,omitempty" jsonschema:"only this operation name, e.g. PutObject (case-insensitive)"`
-	Status    string `json:"status,omitempty" jsonschema:"HTTP status filter: a code like 500, a class like 4xx, or 'failed' (>=400)"`
-	Limit     int    `json:"limit,omitempty" jsonschema:"max traces to return, 1-100 (default 20)"`
+	Status    string `json:"status,omitempty"    jsonschema:"status code like 500, class like 4xx, or 'failed' (>=400)"`
+	Limit     int    `json:"limit,omitempty"     jsonschema:"max traces to return, 1-100 (default 20)"`
 }
 
 // Trace is a redacted summary of one captured request (no headers or bodies).
@@ -150,10 +148,10 @@ type TracesOutput struct {
 
 // IAMDenialsInput filters IAM policy-evaluation denials.
 type IAMDenialsInput struct {
-	Service   string `json:"service,omitempty" jsonschema:"only this service"`
+	Service   string `json:"service,omitempty"   jsonschema:"only this service"`
 	Principal string `json:"principal,omitempty" jsonschema:"only this principal ARN"`
-	Since     string `json:"since,omitempty" jsonschema:"RFC3339 time or a duration such as 5m"`
-	Limit     int    `json:"limit,omitempty" jsonschema:"max events, 1-500 (default 50)"`
+	Since     string `json:"since,omitempty"     jsonschema:"RFC3339 time or a duration such as 5m"`
+	Limit     int    `json:"limit,omitempty"     jsonschema:"max events, 1-500 (default 50)"`
 }
 
 // IAMDenialsOutput lists denied evaluations from the IAM policy stream.
@@ -165,7 +163,11 @@ type IAMDenialsOutput struct {
 // InitHooksInput is the (empty) input of init_hooks_list.
 type InitHooksInput struct{}
 
-func (b *backend) health(ctx context.Context, _ *mcp.CallToolRequest, _ HealthInput) (*mcp.CallToolResult, HealthOutput, error) {
+func (b *backend) health(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	_ HealthInput,
+) (*mcp.CallToolResult, HealthOutput, error) {
 	var out HealthOutput
 	if err := b.call(ctx, http.MethodGet, "/_gopherstack/health", nil, nil, &out); err != nil {
 		return nil, out, err
@@ -174,17 +176,29 @@ func (b *backend) health(ctx context.Context, _ *mcp.CallToolRequest, _ HealthIn
 	return nil, out, nil
 }
 
-func (b *backend) snapshotSave(ctx context.Context, _ *mcp.CallToolRequest, in SnapshotSaveInput) (*mcp.CallToolResult, DataOutput, error) {
+func (b *backend) snapshotSave(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in SnapshotSaveInput,
+) (*mcp.CallToolResult, DataOutput, error) {
 	body := map[string]any{"message": in.Message, "services": in.Services}
 
 	return b.data(ctx, http.MethodPost, "/_gopherstack/pods/"+url.PathEscape(in.Name), nil, body)
 }
 
-func (b *backend) snapshotList(ctx context.Context, _ *mcp.CallToolRequest, _ SnapshotListInput) (*mcp.CallToolResult, DataOutput, error) {
+func (b *backend) snapshotList(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	_ SnapshotListInput,
+) (*mcp.CallToolResult, DataOutput, error) {
 	return b.data(ctx, http.MethodGet, "/_gopherstack/pods", nil, nil)
 }
 
-func (b *backend) snapshotLoad(ctx context.Context, _ *mcp.CallToolRequest, in SnapshotLoadInput) (*mcp.CallToolResult, DataOutput, error) {
+func (b *backend) snapshotLoad(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in SnapshotLoadInput,
+) (*mcp.CallToolResult, DataOutput, error) {
 	q := url.Values{}
 	setIf(q, "version", in.Version)
 	setIf(q, "strategy", in.Strategy)
@@ -197,25 +211,41 @@ func (b *backend) snapshotLoad(ctx context.Context, _ *mcp.CallToolRequest, in S
 	return b.data(ctx, http.MethodPost, "/_gopherstack/pods/"+url.PathEscape(in.Name)+"/load", q, nil)
 }
 
-func (b *backend) snapshotDelete(ctx context.Context, _ *mcp.CallToolRequest, in SnapshotDeleteInput) (*mcp.CallToolResult, DataOutput, error) {
+func (b *backend) snapshotDelete(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in SnapshotDeleteInput,
+) (*mcp.CallToolResult, DataOutput, error) {
 	q := url.Values{}
 	setIf(q, "version", in.Version)
 
 	return b.data(ctx, http.MethodDelete, "/_gopherstack/pods/"+url.PathEscape(in.Name), q, nil)
 }
 
-func (b *backend) reset(ctx context.Context, _ *mcp.CallToolRequest, in ResetInput) (*mcp.CallToolResult, DataOutput, error) {
+func (b *backend) reset(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in ResetInput,
+) (*mcp.CallToolResult, DataOutput, error) {
 	q := url.Values{}
 	setIf(q, "service", in.Service)
 
 	return b.data(ctx, http.MethodPost, "/_gopherstack/reset", q, nil)
 }
 
-func (b *backend) faultsList(ctx context.Context, _ *mcp.CallToolRequest, _ FaultsListInput) (*mcp.CallToolResult, FaultsOutput, error) {
+func (b *backend) faultsList(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	_ FaultsListInput,
+) (*mcp.CallToolResult, FaultsOutput, error) {
 	return b.faults(ctx, http.MethodGet, "/_gopherstack/chaos/faults", nil)
 }
 
-func (b *backend) faultsSet(ctx context.Context, _ *mcp.CallToolRequest, in FaultsSetInput) (*mcp.CallToolResult, FaultsOutput, error) {
+func (b *backend) faultsSet(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in FaultsSetInput,
+) (*mcp.CallToolResult, FaultsOutput, error) {
 	method := http.MethodPost
 	if in.Append {
 		method = http.MethodPatch
@@ -229,7 +259,11 @@ func (b *backend) faultsSet(ctx context.Context, _ *mcp.CallToolRequest, in Faul
 	return b.faults(ctx, method, "/_gopherstack/chaos/faults", rules)
 }
 
-func (b *backend) faultsClear(ctx context.Context, _ *mcp.CallToolRequest, _ FaultsClearInput) (*mcp.CallToolResult, StatusOutput, error) {
+func (b *backend) faultsClear(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	_ FaultsClearInput,
+) (*mcp.CallToolResult, StatusOutput, error) {
 	if err := b.call(ctx, http.MethodPost, "/_gopherstack/chaos/faults/clear", nil, nil, nil); err != nil {
 		return nil, StatusOutput{}, err
 	}
@@ -246,7 +280,11 @@ func (b *backend) faults(ctx context.Context, method, path string, in any) (*mcp
 	return nil, FaultsOutput{Rules: rules}, nil
 }
 
-func (b *backend) traces(ctx context.Context, _ *mcp.CallToolRequest, in TracesInput) (*mcp.CallToolResult, TracesOutput, error) {
+func (b *backend) traces(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in TracesInput,
+) (*mcp.CallToolResult, TracesOutput, error) {
 	limit := clamp(in.Limit, defaultTraceLimit, maxTraceLimit)
 
 	q := url.Values{"n": {strconv.Itoa(traceBufferFetch)}}
@@ -275,7 +313,11 @@ func (b *backend) traces(ctx context.Context, _ *mcp.CallToolRequest, in TracesI
 	return nil, out, nil
 }
 
-func (b *backend) iamDenials(ctx context.Context, _ *mcp.CallToolRequest, in IAMDenialsInput) (*mcp.CallToolResult, IAMDenialsOutput, error) {
+func (b *backend) iamDenials(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in IAMDenialsInput,
+) (*mcp.CallToolResult, IAMDenialsOutput, error) {
 	q := url.Values{"decision": {"deny"}, "n": {strconv.Itoa(clamp(in.Limit, defaultDenyLimit, maxDenyLimit))}}
 	setIf(q, "service", in.Service)
 	setIf(q, "principal", in.Principal)
@@ -293,11 +335,20 @@ func (b *backend) iamDenials(ctx context.Context, _ *mcp.CallToolRequest, in IAM
 	return nil, out, nil
 }
 
-func (b *backend) initHooks(ctx context.Context, _ *mcp.CallToolRequest, _ InitHooksInput) (*mcp.CallToolResult, DataOutput, error) {
+func (b *backend) initHooks(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	_ InitHooksInput,
+) (*mcp.CallToolResult, DataOutput, error) {
 	return b.data(ctx, http.MethodGet, "/_localstack/init", nil, nil)
 }
 
-func (b *backend) data(ctx context.Context, method, path string, q url.Values, in any) (*mcp.CallToolResult, DataOutput, error) {
+func (b *backend) data(
+	ctx context.Context,
+	method, path string,
+	q url.Values,
+	in any,
+) (*mcp.CallToolResult, DataOutput, error) {
 	var out any
 	if err := b.call(ctx, method, path, q, in, &out); err != nil {
 		return nil, DataOutput{}, err
@@ -341,8 +392,9 @@ func addTools(s *mcp.Server, b *backend) {
 		Annotations: additive("Save state snapshot"),
 	}, b.snapshotSave)
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "snapshot_load",
-		Description: "Restore a saved snapshot into the running server. Replaces current state of the loaded services unless merge is set.",
+		Name: "snapshot_load",
+		Description: "Restore a saved snapshot into the running server. " +
+			"Replaces current state of the loaded services unless merge is set.",
 		Annotations: destructive("Load state snapshot"),
 	}, b.snapshotLoad)
 	mcp.AddTool(s, &mcp.Tool{
@@ -351,8 +403,9 @@ func addTools(s *mcp.Server, b *backend) {
 		Annotations: destructive("Delete state snapshot"),
 	}, b.snapshotDelete)
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "reset_state",
-		Description: "Erase in-memory state of every service, or only the named service. Cannot be undone unless a snapshot was saved.",
+		Name: "reset_state",
+		Description: "Erase in-memory state of every service, or only the named service. " +
+			"Cannot be undone unless a snapshot was saved.",
 		Annotations: destructive("Reset state"),
 	}, b.reset)
 	mcp.AddTool(s, &mcp.Tool{
@@ -361,8 +414,9 @@ func addTools(s *mcp.Server, b *backend) {
 		Annotations: readOnly("List chaos faults"),
 	}, b.faultsList)
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "chaos_set_faults",
-		Description: "Replace (default) or append chaos fault rules that make matching AWS requests fail with a chosen error.",
+		Name: "chaos_set_faults",
+		Description: "Replace (default) or append chaos fault rules that make matching AWS requests " +
+			"fail with a chosen error.",
 		Annotations: destructive("Set chaos faults"),
 	}, b.faultsSet)
 	mcp.AddTool(s, &mcp.Tool{
@@ -372,19 +426,21 @@ func addTools(s *mcp.Server, b *backend) {
 	}, b.faultsClear)
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "query_traces",
-		Description: "Query recent request traces (newest first, at most 100 retained) filtered by service, operation and HTTP status. " +
+		Description: "Query recent request traces (newest first, at most 100 retained) " +
+			"filtered by service, operation and HTTP status. " +
 			"Headers and bodies are never returned.",
 		Annotations: readOnly("Query request traces"),
 	}, b.traces)
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "iam_denials",
-		Description: "Query IAM policy-evaluation denials (requires --enforce-iam or --iam-audit), including the deciding policy and a suggested fix.",
+		Name: "iam_denials",
+		Description: "Query IAM policy-evaluation denials (requires --enforce-iam or --iam-audit), " +
+			"including the deciding policy and a suggested fix.",
 		Annotations: readOnly("IAM policy denials"),
 	}, b.iamDenials)
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "init_hooks_list",
-		Description: "List init hook scripts per stage (BOOT, START, READY, SHUTDOWN) with completion state and results. Hooks run at startup only.",
+		Name: "init_hooks_list",
+		Description: "List init hook scripts per stage (BOOT, START, READY, SHUTDOWN) with completion state " +
+			"and results. Hooks run at startup only.",
 		Annotations: readOnly("List init hooks"),
 	}, b.initHooks)
 }
-

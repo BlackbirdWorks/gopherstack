@@ -25,8 +25,8 @@ import (
 
 type mcpStack struct {
 	srv *httptest.Server
-	cfg aws.Config
 	cli *CLI
+	cfg aws.Config
 }
 
 func newMCPStack(t *testing.T, mcpCfg MCPConfig) *mcpStack {
@@ -64,26 +64,13 @@ func newMCPStack(t *testing.T, mcpCfg MCPConfig) *mcpStack {
 	return &mcpStack{srv: srv, cfg: cfg, cli: &cli}
 }
 
-type bearerTransport struct {
-	token string
-}
-
-func (b bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	r = r.Clone(r.Context())
-	if b.token != "" {
-		r.Header.Set("Authorization", "Bearer "+b.token)
-	}
-
-	return http.DefaultTransport.RoundTrip(r)
-}
-
-func (s *mcpStack) httpSession(t *testing.T, token string) *mcp.ClientSession {
+func (s *mcpStack) httpSession(t *testing.T) *mcp.ClientSession {
 	t.Helper()
 
 	c := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
 	cs, err := c.Connect(t.Context(), &mcp.StreamableClientTransport{
 		Endpoint:             s.srv.URL + mcpPath,
-		HTTPClient:           &http.Client{Transport: bearerTransport{token: token}},
+		HTTPClient:           http.DefaultClient,
 		DisableStandaloneSSE: true,
 	}, nil)
 	require.NoError(t, err)
@@ -92,11 +79,22 @@ func (s *mcpStack) httpSession(t *testing.T, token string) *mcp.ClientSession {
 	return cs
 }
 
+func (s *mcpStack) session(t *testing.T, stdio bool) *mcp.ClientSession {
+	t.Helper()
+
+	if stdio {
+		return s.stdioSession(t)
+	}
+
+	return s.httpSession(t)
+}
+
 func (s *mcpStack) stdioSession(t *testing.T) *mcp.ClientSession {
 	t.Helper()
 
 	ct, st := mcp.NewInMemoryTransports()
-	cmd := &McpCmd{PodTarget: PodTarget{Endpoint: s.srv.URL}}
+	cmd := &McpCmd{}
+	cmd.Endpoint = s.srv.URL
 	ctx, cancel := context.WithCancel(t.Context())
 
 	done := make(chan error, 1)
@@ -130,19 +128,21 @@ func callTool(t *testing.T, cs *mcp.ClientSession, name string, args map[string]
 	return out, string(raw)
 }
 
-var mcpExpectedTools = map[string]string{
-	"gopherstack_health": "readOnly",
-	"snapshot_list":      "readOnly",
-	"snapshot_save":      "additive",
-	"snapshot_load":      "destructive",
-	"snapshot_delete":    "destructive",
-	"reset_state":        "destructive",
-	"chaos_list_faults":  "readOnly",
-	"chaos_set_faults":   "destructive",
-	"chaos_clear_faults": "destructive",
-	"query_traces":       "readOnly",
-	"iam_denials":        "readOnly",
-	"init_hooks_list":    "readOnly",
+func mcpExpectedTools() map[string]string {
+	return map[string]string{
+		"gopherstack_health": "readOnly",
+		"snapshot_list":      "readOnly",
+		"snapshot_save":      "additive",
+		"snapshot_load":      "destructive",
+		"snapshot_delete":    "destructive",
+		"reset_state":        "destructive",
+		"chaos_list_faults":  "readOnly",
+		"chaos_set_faults":   "destructive",
+		"chaos_clear_faults": "destructive",
+		"query_traces":       "readOnly",
+		"iam_denials":        "readOnly",
+		"init_hooks_list":    "readOnly",
+	}
 }
 
 func TestMCPToolsList(t *testing.T) {
@@ -151,18 +151,18 @@ func TestMCPToolsList(t *testing.T) {
 	s := newMCPStack(t, MCPConfig{Enabled: true})
 
 	tests := []struct {
-		session func(*testing.T) *mcp.ClientSession
-		name    string
+		name  string
+		stdio bool
 	}{
-		{name: "http", session: func(t *testing.T) *mcp.ClientSession { return s.httpSession(t, "") }},
-		{name: "stdio", session: s.stdioSession},
+		{name: "http"},
+		{name: "stdio", stdio: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cs := tt.session(t)
+			cs := s.session(t, tt.stdio)
 			res, err := cs.ListTools(t.Context(), nil)
 			require.NoError(t, err)
 
@@ -171,9 +171,9 @@ func TestMCPToolsList(t *testing.T) {
 				got[tool.Name] = tool
 			}
 
-			require.Len(t, got, len(mcpExpectedTools))
+			require.Len(t, got, len(mcpExpectedTools()))
 
-			for name, kind := range mcpExpectedTools {
+			for name, kind := range mcpExpectedTools() {
 				tool, ok := got[name]
 				require.True(t, ok, name)
 				assert.NotEmpty(t, tool.Description, name)
@@ -202,11 +202,11 @@ func TestMCPToolsHappyPath(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		session func(*mcpStack, *testing.T) *mcp.ClientSession
-		name    string
+		name  string
+		stdio bool
 	}{
-		{name: "http", session: func(s *mcpStack, t *testing.T) *mcp.ClientSession { return s.httpSession(t, "") }},
-		{name: "stdio", session: func(s *mcpStack, t *testing.T) *mcp.ClientSession { return s.stdioSession(t) }},
+		{name: "http"},
+		{name: "stdio", stdio: true},
 	}
 
 	for _, tt := range tests {
@@ -214,13 +214,14 @@ func TestMCPToolsHappyPath(t *testing.T) {
 			t.Parallel()
 
 			s := newMCPStack(t, MCPConfig{Enabled: true})
-			cs := tt.session(s, t)
+			cs := s.session(t, tt.stdio)
 
 			out, _ := callTool(t, cs, "gopherstack_health", nil)
 			assert.Equal(t, "ok", out["status"])
 			assert.Contains(t, out["services"], "SQS")
 
-			queue, err := sqs.NewFromConfig(s.cfg).CreateQueue(t.Context(), &sqs.CreateQueueInput{QueueName: aws.String("mcp-q")})
+			queue, err := sqs.NewFromConfig(s.cfg).
+				CreateQueue(t.Context(), &sqs.CreateQueueInput{QueueName: aws.String("mcp-q")})
 			require.NoError(t, err)
 			require.NotNil(t, queue.QueueUrl)
 
@@ -247,14 +248,23 @@ func TestMCPToolsHappyPath(t *testing.T) {
 			assert.NotContains(t, raw, "snap1")
 
 			_, _ = callTool(t, cs, "chaos_set_faults", map[string]any{"rules": []map[string]any{
-				{"service": "sqs", "operation": "ListQueues", "error": map[string]any{"code": "Throttling", "statusCode": 429}},
+				{
+					"service":   "sqs",
+					"operation": "ListQueues",
+					"error":     map[string]any{"code": "Throttling", "statusCode": 429},
+				},
 			}})
 			faults, _ := callTool(t, cs, "chaos_list_faults", nil)
 			assert.Len(t, faults["rules"], 1)
 
 			_, _ = sqs.NewFromConfig(s.cfg).ListQueues(t.Context(), &sqs.ListQueuesInput{})
 
-			traces, _ := callTool(t, cs, "query_traces", map[string]any{"service": "sqs", "operation": "ListQueues", "status": "4xx", "limit": 5})
+			traces, _ := callTool(
+				t,
+				cs,
+				"query_traces",
+				map[string]any{"service": "sqs", "operation": "ListQueues", "status": "4xx", "limit": 5},
+			)
 			require.NotEmpty(t, traces["traces"])
 
 			_, _ = callTool(t, cs, "chaos_clear_faults", nil)
@@ -288,7 +298,7 @@ func TestMCPToolErrors(t *testing.T) {
 	t.Parallel()
 
 	s := newMCPStack(t, MCPConfig{Enabled: true})
-	cs := s.httpSession(t, "")
+	cs := s.httpSession(t)
 
 	tests := []struct {
 		args map[string]any
@@ -315,15 +325,20 @@ func TestMCPEndpointMountAndAuth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		cfg        MCPConfig
 		name       string
 		token      string
+		cfg        MCPConfig
 		wantStatus int
 	}{
 		{name: "disabled", cfg: MCPConfig{}, wantStatus: http.StatusNotFound},
 		{name: "loopback_no_token", cfg: MCPConfig{Enabled: true}, wantStatus: http.StatusOK},
 		{name: "token_missing", cfg: MCPConfig{Enabled: true, Token: "s3cret"}, wantStatus: http.StatusUnauthorized},
-		{name: "token_wrong", cfg: MCPConfig{Enabled: true, Token: "s3cret"}, token: "nope", wantStatus: http.StatusUnauthorized},
+		{
+			name:       "token_wrong",
+			cfg:        MCPConfig{Enabled: true, Token: "s3cret"},
+			token:      "nope",
+			wantStatus: http.StatusUnauthorized,
+		},
 		{name: "token_ok", cfg: MCPConfig{Enabled: true, Token: "s3cret"}, token: "s3cret", wantStatus: http.StatusOK},
 	}
 
@@ -332,8 +347,14 @@ func TestMCPEndpointMountAndAuth(t *testing.T) {
 			t.Parallel()
 
 			s := newMCPStack(t, tt.cfg)
-			body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.srv.URL+mcpPath, strings.NewReader(body))
+			body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{` +
+				`"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
+			req, err := http.NewRequestWithContext(
+				t.Context(),
+				http.MethodPost,
+				s.srv.URL+mcpPath,
+				strings.NewReader(body),
+			)
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Accept", "application/json, text/event-stream")
@@ -356,7 +377,7 @@ func TestMCPNeverLeaksSecrets(t *testing.T) {
 	t.Parallel()
 
 	s := newMCPStack(t, MCPConfig{Enabled: true})
-	cs := s.httpSession(t, "")
+	cs := s.httpSession(t)
 	iamc := iam.NewFromConfig(s.cfg)
 
 	_, err := iamc.CreateUser(t.Context(), &iam.CreateUserInput{UserName: aws.String("leaky")})
@@ -368,10 +389,14 @@ func TestMCPNeverLeaksSecrets(t *testing.T) {
 	secret := aws.ToString(key.AccessKey.SecretAccessKey)
 	require.NotEmpty(t, secret)
 
-	presigned := s.srv.URL + "/mcp-bucket/key?X-Amz-Signature=sigvalue123&X-Amz-Credential=credvalue456&X-Amz-Security-Token=tokvalue789"
+	presigned := s.srv.URL + "/mcp-bucket/key?X-Amz-Signature=sigvalue123" +
+		"&X-Amz-Credential=credvalue456&X-Amz-Security-Token=tokvalue789"
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, presigned, http.NoBody)
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIAHEADERKEY/20250101/us-east-1/s3/aws4_request, Signature=headersig")
+	req.Header.Set(
+		"Authorization",
+		"AWS4-HMAC-SHA256 Credential=AKIAHEADERKEY/20250101/us-east-1/s3/aws4_request, Signature=headersig",
+	)
 	req.Header.Set("X-Amz-Security-Token", "headertoken")
 
 	resp, err := http.DefaultClient.Do(req)

@@ -24,9 +24,27 @@ func TestAuth(t *testing.T) {
 		{name: "loopback_v6_no_token", remote: "[::1]:5000", wantStatus: http.StatusOK},
 		{name: "remote_no_token", remote: "10.1.2.3:5000", wantStatus: http.StatusForbidden},
 		{name: "remote_token_missing", token: "tok", remote: "10.1.2.3:5000", wantStatus: http.StatusUnauthorized},
-		{name: "remote_token_wrong", token: "tok", remote: "10.1.2.3:5000", header: "Bearer nope", wantStatus: http.StatusUnauthorized},
-		{name: "remote_token_basic_scheme", token: "tok", remote: "10.1.2.3:5000", header: "Basic tok", wantStatus: http.StatusUnauthorized},
-		{name: "remote_token_ok", token: "tok", remote: "10.1.2.3:5000", header: "Bearer tok", wantStatus: http.StatusOK},
+		{
+			name:       "remote_token_wrong",
+			token:      "tok",
+			remote:     "10.1.2.3:5000",
+			header:     "Bearer x",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "remote_basic_scheme",
+			token:      "tok",
+			remote:     "10.1.2.3:5000",
+			header:     "Basic tok",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "remote_token_ok",
+			token:      "tok",
+			remote:     "10.1.2.3:5000",
+			header:     "Bearer tok",
+			wantStatus: http.StatusOK,
+		},
 		{name: "loopback_token_missing", token: "tok", remote: "127.0.0.1:5000", wantStatus: http.StatusUnauthorized},
 	}
 

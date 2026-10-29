@@ -46,7 +46,11 @@ func Auth(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if token == "" {
 			if !isLoopback(r.RemoteAddr) {
-				http.Error(w, "MCP endpoint is loopback-only; set a token to allow remote clients", http.StatusForbidden)
+				http.Error(
+					w,
+					"MCP endpoint is loopback-only; set a token to allow remote clients",
+					http.StatusForbidden,
+				)
 
 				return
 			}
