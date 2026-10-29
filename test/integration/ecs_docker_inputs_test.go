@@ -77,7 +77,9 @@ func TestIntegration_ECS_DockerEnvironmentFilesAndRegistryAuth(t *testing.T) {
 	}
 
 	run := func(td string) string {
-		out, rerr := client.RunTask(ctx, &ecs.RunTaskInput{Cluster: aws.String(clusterName), TaskDefinition: aws.String(td)})
+		out, rerr := client.RunTask(ctx, &ecs.RunTaskInput{
+			Cluster: aws.String(clusterName), TaskDefinition: aws.String(td),
+		})
 		require.NoError(t, rerr)
 		require.Len(t, out.Tasks, 1)
 
