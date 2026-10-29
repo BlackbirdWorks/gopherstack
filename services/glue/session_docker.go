@@ -218,7 +218,10 @@ func (p *dockerSession) awaitReady(ctx context.Context, timeout time.Duration) e
 
 	for {
 		if data, err := os.ReadFile(filepath.Join(p.dir, "ready.json")); err == nil {
-			var r struct{ Status, Message string }
+			var r struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+			}
 			if json.Unmarshal(data, &r) == nil && r.Status == "ok" {
 				return nil
 			} else if r.Status == "error" {

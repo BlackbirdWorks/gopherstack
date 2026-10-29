@@ -52,15 +52,15 @@ func (e *fakeEngine) StartSession(_ context.Context, _ glue.SessionSpec) (glue.S
 	return p, nil
 }
 
-func (e *fakeEngine) proc(i int) *fakeProc {
+func (e *fakeEngine) proc() *fakeProc {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if i >= len(e.procs) {
+	if len(e.procs) == 0 {
 		return nil
 	}
 
-	return e.procs[i]
+	return e.procs[0]
 }
 
 func (p *fakeProc) Run(ctx context.Context, code string) (glue.StatementResult, error) {
@@ -254,7 +254,7 @@ func TestSessionEngine_OrderingAndState(t *testing.T) {
 	}
 
 	waitStatement(t, b, "s", last, "AVAILABLE")
-	assert.Equal(t, want, eng.proc(0).codes())
+	assert.Equal(t, want, eng.proc().codes())
 }
 
 func TestSessionEngine_Cancel(t *testing.T) {
@@ -275,12 +275,12 @@ func TestSessionEngine_Cancel(t *testing.T) {
 
 	require.NoError(t, b.CancelStatement("s", blocked.Id))
 	waitStatement(t, b, "s", blocked.Id, "CANCELLED")
-	assert.True(t, eng.proc(0).interrupted.Load())
+	assert.True(t, eng.proc().interrupted.Load())
 
 	after, err := b.RunStatement("s", "y = 1")
 	require.NoError(t, err)
 	waitStatement(t, b, "s", after.Id, "AVAILABLE")
-	assert.Equal(t, []string{"block", "y = 1"}, eng.proc(0).codes())
+	assert.Equal(t, []string{"block", "y = 1"}, eng.proc().codes())
 }
 
 func TestSessionEngine_Lifecycle(t *testing.T) {
@@ -343,7 +343,7 @@ func TestSessionEngine_Lifecycle(t *testing.T) {
 			tt.act(t, b, clk)
 			waitSessionStatus(t, b, "s", tt.want)
 
-			p := eng.proc(0)
+			p := eng.proc()
 			if tt.want == "READY" {
 				assert.False(t, p.stopped.Load())
 
@@ -402,7 +402,7 @@ func TestSessionEngine_TeardownStopsContainers(t *testing.T) {
 			waitStatement(t, b, "s0", st.Id, "RUNNING")
 
 			tt.act(b)
-			require.Eventually(t, eng.proc(0).stopped.Load, 5*time.Second, time.Millisecond)
+			require.Eventually(t, eng.proc().stopped.Load, 5*time.Second, time.Millisecond)
 		})
 	}
 }

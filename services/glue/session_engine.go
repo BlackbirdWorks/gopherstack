@@ -188,13 +188,13 @@ func sessionSpecOf(s *Session) SessionSpec {
 
 func minutes(m int32) time.Duration { return time.Duration(m) * time.Minute }
 
-func sessionTimeouts(s *Session) (timeout, idle time.Duration) {
-	timeout = minutes(defaultSessionTimeoutMinutes)
+func sessionTimeouts(s *Session) (time.Duration, time.Duration) {
+	timeout := minutes(defaultSessionTimeoutMinutes)
 	if s.Timeout > 0 {
 		timeout = minutes(s.Timeout)
 	}
 
-	idle = timeout
+	idle := timeout
 	if s.IdleTimeout > 0 {
 		idle = minutes(s.IdleTimeout)
 	}
