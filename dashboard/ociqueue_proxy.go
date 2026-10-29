@@ -46,7 +46,7 @@ func (h *DashboardHandler) registerOCIQueueRoutes() {
 	guard := func(next echo.HandlerFunc) echo.HandlerFunc { return ociGuard(inner != nil, "OCI Queue", next) }
 
 	h.SubRouter.Add(http.MethodGet, ociQueuePrefix+"/compartments", guard(func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]any{"compartments": comps()})
+		return c.JSON(http.StatusOK, map[string]any{ociCompartmentsKey: comps()})
 	}))
 
 	serve := guard(func(c *echo.Context) error {
@@ -113,10 +113,9 @@ func ociQueueServePeek(c *echo.Context, b *ociqueue.InMemoryBackend, id string) 
 		limit = ociQueuePeekMax
 	}
 
-	msgs, err := b.Peek(id, c.QueryParam("dlq") == "true", limit)
+	msgs, err := b.Peek(id, c.QueryParam("dlq") == queryTrue, limit)
 	if err != nil {
-		var ae *ociqueue.APIError
-		if errors.As(err, &ae) {
+		if ae, ok := errors.AsType[*ociqueue.APIError](err); ok {
 			return cloudJSONFail(c, ae.Status, ae.Code, ae.Message)
 		}
 

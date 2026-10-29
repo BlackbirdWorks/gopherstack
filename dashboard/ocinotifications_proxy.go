@@ -39,7 +39,7 @@ func (h *DashboardHandler) registerOCINotificationsRoutes() {
 	guard := func(next echo.HandlerFunc) echo.HandlerFunc { return ociGuard(inner != nil, "OCI Notifications", next) }
 
 	h.SubRouter.Add(http.MethodGet, ociNotifPrefix+"/compartments", guard(func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]any{"compartments": comps()})
+		return c.JSON(http.StatusOK, map[string]any{ociCompartmentsKey: comps()})
 	}))
 
 	serve := guard(func(c *echo.Context) error {
@@ -47,7 +47,12 @@ func (h *DashboardHandler) registerOCINotificationsRoutes() {
 		raw := strings.TrimPrefix(r.URL.EscapedPath(), ociNotifPrefix+"/api")
 
 		if !ociNotifAllowed(r.Method, raw) {
-			return cloudJSONFail(c, http.StatusBadRequest, "InvalidParameter", "unsupported Notifications proxy request")
+			return cloudJSONFail(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameter",
+				"unsupported Notifications proxy request",
+			)
 		}
 
 		target := ociNotifAPIPrefix + raw
@@ -82,16 +87,22 @@ func ociNotifAllowed(method, raw string) bool {
 
 	switch method {
 	case http.MethodGet:
-		switch len(parts) {
-		case 1:
-			return parts[0] == ociNotifTopics || parts[0] == ociNotifSubs || parts[0] == ociNotifDelivered
-		case ociNotifItemSegs:
-			return parts[0] == ociNotifTopics || parts[0] == ociNotifSubs
-		case ociNotifSubSegs:
-			return parts[0] == ociNotifSubs && parts[2] == "confirmation"
-		}
+		return ociNotifReadAllowed(parts)
 	case http.MethodPost:
 		return len(parts) == ociNotifSubSegs && parts[0] == ociNotifSubs && parts[2] == "resendConfirmation"
+	}
+
+	return false
+}
+
+func ociNotifReadAllowed(parts []string) bool {
+	switch len(parts) {
+	case 1:
+		return parts[0] == ociNotifTopics || parts[0] == ociNotifSubs || parts[0] == ociNotifDelivered
+	case ociNotifItemSegs:
+		return parts[0] == ociNotifTopics || parts[0] == ociNotifSubs
+	case ociNotifSubSegs:
+		return parts[0] == ociNotifSubs && parts[2] == "confirmation"
 	}
 
 	return false

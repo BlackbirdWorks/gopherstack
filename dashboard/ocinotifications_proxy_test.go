@@ -19,13 +19,16 @@ const (
 	ociNotifBase = "/dashboard/api/v1/oci/notifications"
 )
 
-func newOCINotificationsDashboard(t *testing.T) (h *dashboard.DashboardHandler, topicID, subID string) {
+func newOCINotificationsDashboard(t *testing.T) (*dashboard.DashboardHandler, string, string) {
 	t.Helper()
 
 	b := ocinotifications.NewInMemoryBackend()
 	b.SetTransition(0)
 
-	topic, err := b.CreateTopic(ocinotifications.CreateTopicIn{Name: "alerts", Compartment: ociNotifComp}, "http://localhost:8157")
+	topic, err := b.CreateTopic(
+		ocinotifications.CreateTopicIn{Name: "alerts", Compartment: ociNotifComp},
+		"http://localhost:8157",
+	)
 	require.NoError(t, err)
 
 	sub, err := b.CreateSubscription(ocinotifications.CreateSubscriptionIn{
@@ -33,7 +36,9 @@ func newOCINotificationsDashboard(t *testing.T) (h *dashboard.DashboardHandler, 
 	}, "http://localhost:8157")
 	require.NoError(t, err)
 
-	return dashboard.NewHandler(dashboard.Config{OCINotificationsOps: ocinotifications.NewHandler(b)}), topic.TopicID, sub.ID
+	return dashboard.NewHandler(
+		dashboard.Config{OCINotificationsOps: ocinotifications.NewHandler(b)},
+	), topic.TopicID, sub.ID
 }
 
 func TestOCINotificationsProxy(t *testing.T) {
@@ -43,10 +48,10 @@ func TestOCINotificationsProxy(t *testing.T) {
 	q := "?compartmentId=" + ociNotifComp
 
 	tests := []struct {
-		name  string
 		steps func(topic, sub string) []gcpStep
+		name  string
 	}{
-		{"read", func(topic, sub string) []gcpStep {
+		{name: "read", steps: func(topic, sub string) []gcpStep {
 			return []gcpStep{
 				{http.MethodGet, ociNotifBase + "/compartments", "", ociNotifComp, 200},
 				{http.MethodGet, api + "/topics" + q, "", `"name":"alerts"`, 200},
@@ -55,21 +60,27 @@ func TestOCINotificationsProxy(t *testing.T) {
 				{http.MethodGet, api + "/subscriptions/" + sub, "", `"lifecycleState":"PENDING"`, 200},
 			}
 		}},
-		{"deliveries", func(topic, sub string) []gcpStep {
+		{name: "deliveries", steps: func(topic, sub string) []gcpStep {
 			return []gcpStep{
 				{http.MethodGet, api + "/deliveries", "", `"kind":"CONFIRMATION"`, 200},
-				{http.MethodGet, api + "/deliveries", "", `"confirmationUrl":"http://localhost:8157/20181201/subscriptions/` + sub, 200},
+				{
+					http.MethodGet,
+					api + "/deliveries",
+					"",
+					`"confirmationUrl":"http://localhost:8157/20181201/subscriptions/` + sub,
+					200,
+				},
 				{http.MethodGet, api + "/deliveries?topicId=" + topic, "", `"topicName":"alerts"`, 200},
 				{http.MethodGet, api + "/deliveries?topicId=ocid1.onstopic.oc1..other", "", "null", 200},
 			}
 		}},
-		{"resend", func(_, sub string) []gcpStep {
+		{name: "resend", steps: func(_, sub string) []gcpStep {
 			return []gcpStep{
 				{http.MethodPost, api + "/subscriptions/" + sub + "/resendConfirmation", "", `"id":"` + sub, 200},
 				{http.MethodGet, api + "/deliveries", "", `"kind":"CONFIRMATION"`, 200},
 			}
 		}},
-		{"rejects", func(topic, sub string) []gcpStep {
+		{name: "rejects", steps: func(topic, sub string) []gcpStep {
 			return []gcpStep{
 				{http.MethodDelete, api + "/topics/" + topic, "", "", http.StatusMethodNotAllowed},
 				{http.MethodPost, api + "/topics/" + topic + "/messages", `{"body":"x"}`, "unsupported", 400},
@@ -96,7 +107,10 @@ func TestOCINotificationsProxy(t *testing.T) {
 
 		h, _, sub := newOCINotificationsDashboard(t)
 		rec := httptest.NewRecorder()
-		require.NoError(t, h.Handler()(echo.NewContext(httptest.NewRequest(http.MethodGet, api+"/deliveries", nil), rec)))
+		require.NoError(
+			t,
+			h.Handler()(echo.NewContext(httptest.NewRequest(http.MethodGet, api+"/deliveries", nil), rec)),
+		)
 
 		_, rest, ok := strings.Cut(rec.Body.String(), `"confirmationUrl":"`)
 		require.True(t, ok)

@@ -15,9 +15,9 @@ const (
 )
 
 var (
-	vmPxPowerActions = []string{"start", "poweroff", "deallocate", "restart"} //nolint:gochecknoglobals // lookup
-	vmPxComputeTypes = []string{vmPxVMs, "disks"}                             //nolint:gochecknoglobals // lookup
-	vmPxNetworkTypes = []string{                                              //nolint:gochecknoglobals // lookup
+	vmPxPowerActions = []string{aciPxStart, "poweroff", "deallocate", aciPxRestart} //nolint:gochecknoglobals // lookup
+	vmPxComputeTypes = []string{vmPxVMs, "disks"}                                   //nolint:gochecknoglobals // lookup
+	vmPxNetworkTypes = []string{                                                    //nolint:gochecknoglobals // lookup
 		"virtualnetworks", "networksecuritygroups", "networkinterfaces", "publicipaddresses",
 	}
 )
@@ -27,7 +27,7 @@ var (
 func (h *DashboardHandler) registerAzureVMRoutes() {
 	h.registerARMProxy(armProxy{
 		name: "Azure Virtual Machines", prefix: azureVMPrefix,
-		queryKeys: []string{"api-version", "statusOnly"},
+		queryKeys: []string{armQueryVersion, "statusOnly"},
 		methods:   []string{http.MethodGet, http.MethodPost},
 		allowed:   vmProxyAllowed,
 	})

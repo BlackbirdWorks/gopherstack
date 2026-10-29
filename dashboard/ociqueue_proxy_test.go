@@ -53,10 +53,10 @@ func TestOCIQueueProxy(t *testing.T) {
 	api := ociQueueBase + "/api"
 
 	tests := []struct {
-		name  string
 		steps func(id string) []gcpStep
+		name  string
 	}{
-		{"read", func(id string) []gcpStep {
+		{name: "read", steps: func(id string) []gcpStep {
 			return []gcpStep{
 				{http.MethodGet, ociQueueBase + "/compartments", "", ociQueueComp, 200},
 				{http.MethodGet, api + "/queues?compartmentId=" + ociQueueComp, "", `"displayName":"jobs"`, 200},
@@ -64,23 +64,35 @@ func TestOCIQueueProxy(t *testing.T) {
 				{http.MethodGet, api + "/queues/" + id + "/stats", "", `"visibleMessages":2`, 200},
 			}
 		}},
-		{"peek", func(id string) []gcpStep {
+		{name: "peek", steps: func(id string) []gcpStep {
 			return []gcpStep{
 				{http.MethodGet, api + "/queues/" + id + "/peek", "", `"content":"first"`, 200},
 				{http.MethodGet, api + "/queues/" + id + "/peek?limit=1", "", `"content":"first"`, 200},
 				{http.MethodGet, api + "/queues/" + id + "/peek?dlq=true", "", `"messages":[]`, 200},
 				{http.MethodGet, api + "/queues/" + id + "/stats", "", `"inFlightMessages":0`, 200},
-				{http.MethodGet, api + "/queues/ocid1.queue.oc1..nope/peek", "", "NotAuthorizedOrNotFound", http.StatusNotFound},
+				{
+					http.MethodGet,
+					api + "/queues/ocid1.queue.oc1..nope/peek",
+					"",
+					"NotAuthorizedOrNotFound",
+					http.StatusNotFound,
+				},
 			}
 		}},
-		{"purge", func(id string) []gcpStep {
+		{name: "purge", steps: func(id string) []gcpStep {
 			return []gcpStep{
-				{http.MethodPost, api + "/queues/" + id + "/actions/purge", `{"purgeType":"NORMAL"}`, "", http.StatusAccepted},
+				{
+					http.MethodPost,
+					api + "/queues/" + id + "/actions/purge",
+					`{"purgeType":"NORMAL"}`,
+					"",
+					http.StatusAccepted,
+				},
 				{http.MethodGet, api + "/queues/" + id + "/stats", "", `"visibleMessages":0`, 200},
 				{http.MethodPost, api + "/queues/" + id + "/actions/purge", `{"purgeType":"x"}`, "purgeType", 400},
 			}
 		}},
-		{"rejects", func(id string) []gcpStep {
+		{name: "rejects", steps: func(id string) []gcpStep {
 			return []gcpStep{
 				{http.MethodDelete, api + "/queues/" + id, "", "", http.StatusMethodNotAllowed},
 				{http.MethodPost, api + "/queues", `{}`, "unsupported", 400},

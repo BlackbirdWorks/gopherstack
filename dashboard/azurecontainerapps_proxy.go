@@ -22,8 +22,8 @@ const (
 )
 
 var (
-	acaPxAppActions = []string{acaPxStart, acaPxStop}               //nolint:gochecknoglobals // lookup table
-	acaPxRevActions = []string{"activate", "deactivate", "restart"} //nolint:gochecknoglobals // lookup table
+	acaPxAppActions = []string{acaPxStart, acaPxStop}                  //nolint:gochecknoglobals // lookup table
+	acaPxRevActions = []string{"activate", "deactivate", aciPxRestart} //nolint:gochecknoglobals // lookup table
 )
 
 // registerAzureContainerAppsRoutes exposes Microsoft.App environments, container apps with their revisions and
@@ -32,7 +32,7 @@ var (
 func (h *DashboardHandler) registerAzureContainerAppsRoutes() {
 	h.registerARMProxy(armProxy{
 		name: "Azure Container Apps", prefix: azureContainerAppsPrefix,
-		queryKeys: []string{"api-version"},
+		queryKeys: []string{armQueryVersion},
 		methods:   []string{http.MethodGet, http.MethodPost},
 		allowed:   acaProxyAllowed,
 	})

@@ -12,17 +12,18 @@ import (
 )
 
 const (
-	armPxMaxBody   = 1 << 20
-	armPxSubList   = 5
-	armPxItem      = 8
-	armPxNSSub     = 3
-	armPxTypeSub   = 4
-	armPxNSRG      = 5
-	armPxTypeRG    = 6
-	armPxSubsSeg   = "subscriptions"
-	armPxRGsSeg    = "resourcegroups"
-	armPxProvSeg   = "providers"
-	armPxSecretsKy = "secrets"
+	armPxMaxBody    = 1 << 20
+	armPxSubList    = 5
+	armPxItem       = 8
+	armPxNSSub      = 3
+	armPxTypeSub    = 4
+	armPxNSRG       = 5
+	armPxTypeRG     = 6
+	armPxSubsSeg    = "subscriptions"
+	armPxRGsSeg     = "resourcegroups"
+	armPxProvSeg    = "providers"
+	armPxSecretsKy  = "secrets"
+	armQueryVersion = "api-version"
 )
 
 var armPxSecretKeys = []string{ //nolint:gochecknoglobals // immutable allowlist
@@ -140,7 +141,6 @@ func armScrub(v any) {
 				armScrub(x)
 			}
 		}
-
 	}
 }
 
@@ -160,7 +160,7 @@ func armDropValues(v any) {
 
 // armScope splits a lower-cased proxied path below /subscriptions/{s} into the resource type and the segments after
 // the resource name. A subscription-level list (/providers/{ns}/{type}) has no rest and name "".
-func armScope(p []string, ns string) (typ, name string, rest []string, ok bool) {
+func armScope(p []string, ns string) (string, string, []string, bool) {
 	if len(p) < armPxSubList || p[0] != armPxSubsSeg {
 		return "", "", nil, false
 	}

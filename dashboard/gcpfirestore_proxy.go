@@ -112,7 +112,7 @@ func (a *gcpFirestoreAPI) collection(ctx context.Context, r gcpRESTCall) (proto.
 	case http.MethodGet:
 		return a.api.ListDocuments(ctx, &firestorepb.ListDocumentsRequest{
 			Parent: parent, CollectionId: id, PageSize: r.pageSize(), PageToken: r.query.Get("pageToken"),
-			OrderBy: r.query.Get("orderBy"), ShowMissing: r.query.Get("showMissing") == "true",
+			OrderBy: r.query.Get("orderBy"), ShowMissing: r.query.Get("showMissing") == queryTrue,
 		})
 	case http.MethodPost:
 		doc := &firestorepb.Document{}

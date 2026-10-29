@@ -45,7 +45,8 @@ type gcpContainerAPI struct {
 
 func (a *gcpContainerAPI) route(_ context.Context, r gcpRESTCall) (proto.Message, error) {
 	n := len(r.segs)
-	if n < gkeColl || n > gkePoolItem || r.segs[0] != gcpRESTProjectsSeg || r.segs[gkeLocationsIdx] != schedLocationsKind {
+	if n < gkeColl || n > gkePoolItem || r.segs[0] != gcpRESTProjectsSeg ||
+		r.segs[gkeLocationsIdx] != schedLocationsKind {
 		return nil, errGCPUnsupported()
 	}
 

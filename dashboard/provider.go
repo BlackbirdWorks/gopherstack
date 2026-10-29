@@ -387,6 +387,19 @@ func linkConsoleExtras(conf *Config, cfg any) {
 		conf.OCICoreOps, _ = getHandler[*ocicore.Handler](p.GetOCICoreHandler())
 	}
 
+	linkContainerQueueExtras(conf, cfg)
+
+	if p, ok := cfg.(interface{ GetOCIFunctionsHandler() service.Registerable }); ok {
+		conf.OCIFunctionsOps, _ = getHandler[*ocifunctions.Handler](p.GetOCIFunctionsHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureMonitorHandler() service.Registerable }); ok {
+		conf.AzureMonitorOps, _ = getHandler[*azuremonitor.Handler](p.GetAzureMonitorHandler())
+	}
+}
+
+// linkContainerQueueExtras links the Kubernetes Engine, Queue and Notifications handlers used by their proxies.
+func linkContainerQueueExtras(conf *Config, cfg any) {
 	if p, ok := cfg.(interface{ GetGCPContainerHandler() service.Registerable }); ok {
 		conf.GCPContainerOps, _ = getHandler[*gcpcontainer.Handler](p.GetGCPContainerHandler())
 	}
@@ -397,13 +410,5 @@ func linkConsoleExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetOCINotificationsHandler() service.Registerable }); ok {
 		conf.OCINotificationsOps, _ = getHandler[*ocinotifications.Handler](p.GetOCINotificationsHandler())
-	}
-
-	if p, ok := cfg.(interface{ GetOCIFunctionsHandler() service.Registerable }); ok {
-		conf.OCIFunctionsOps, _ = getHandler[*ocifunctions.Handler](p.GetOCIFunctionsHandler())
-	}
-
-	if p, ok := cfg.(interface{ GetAzureMonitorHandler() service.Registerable }); ok {
-		conf.AzureMonitorOps, _ = getHandler[*azuremonitor.Handler](p.GetAzureMonitorHandler())
 	}
 }

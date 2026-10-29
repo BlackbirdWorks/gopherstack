@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package dashboard_test
 
 import (
@@ -28,7 +29,11 @@ func newGKEDashboard(t *testing.T) *dashboard.DashboardHandler {
 		Parent: "projects/p/locations/us-central1-a",
 		Cluster: &containerpb.Cluster{
 			Name: "c1", InitialNodeCount: 2,
-			MasterAuth: &containerpb.MasterAuth{Username: "admin", Password: "correct-horse-battery", ClientKey: "private-key"},
+			MasterAuth: &containerpb.MasterAuth{
+				Username:  "admin",
+				Password:  "correct-horse-battery",
+				ClientKey: "private-key",
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -59,8 +64,20 @@ func TestGCPContainerProxy(t *testing.T) {
 			{http.MethodGet, cluster + ":poolSizes", "", `"default-pool":2`, 200},
 		}},
 		{"resize", []gcpStep{
-			{http.MethodPost, cluster + "/nodePools/default-pool:setSize", `{"nodeCount":5000}`, "INVALID_ARGUMENT", 400},
-			{http.MethodPost, cluster + "/nodePools/default-pool:setSize", `{"nodeCount":4}`, "SET_NODE_POOL_SIZE", 200},
+			{
+				http.MethodPost,
+				cluster + "/nodePools/default-pool:setSize",
+				`{"nodeCount":5000}`,
+				"INVALID_ARGUMENT",
+				400,
+			},
+			{
+				http.MethodPost,
+				cluster + "/nodePools/default-pool:setSize",
+				`{"nodeCount":4}`,
+				"SET_NODE_POOL_SIZE",
+				200,
+			},
 			{http.MethodGet, cluster + ":poolSizes", "", `"default-pool":4`, 200},
 		}},
 		{"operations", []gcpStep{

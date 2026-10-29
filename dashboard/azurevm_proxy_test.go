@@ -35,8 +35,11 @@ func newVMDashboard(t *testing.T) *dashboard.DashboardHandler {
 		{"/subscriptions/" + armSub + "/resourceGroups/demo?api-version=2021-04-01", `{"location":"eastus"}`},
 		{vmNet + "/networkSecurityGroups/nsg" + vmNetworkAPI,
 			`{"location":"eastus","properties":{"securityRules":[` + rule + `]}}`},
-		{vmVNet + vmNetworkAPI, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]},` +
-			`"subnets":[{"name":"default","properties":{"addressPrefix":"10.0.0.0/24"}}]}}`},
+		{
+			vmVNet + vmNetworkAPI,
+			`{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]},` +
+				`"subnets":[{"name":"default","properties":{"addressPrefix":"10.0.0.0/24"}}]}}`,
+		},
 		{vmPIP + vmNetworkAPI, `{"location":"eastus","sku":{"name":"Standard"},` +
 			`"properties":{"publicIPAllocationMethod":"Static"}}`},
 		{vmNIC + vmNetworkAPI, `{"location":"eastus","properties":{"ipConfigurations":[{"name":"ipc","properties":{` +
@@ -62,7 +65,13 @@ func TestAzureVMProxy(t *testing.T) {
 		steps []gcpStep
 	}{
 		{"read", []gcpStep{
-			{http.MethodGet, subs + "Compute/virtualMachines" + vmComputeAPI + "&statusOnly=true", "", "PowerState/running", 200},
+			{
+				http.MethodGet,
+				subs + "Compute/virtualMachines" + vmComputeAPI + "&statusOnly=true",
+				"",
+				"PowerState/running",
+				200,
+			},
 			{http.MethodGet, px + vmComputeAPI, "", `"vmSize":"Standard_B2s"`, 200},
 			{http.MethodGet, px + "/instanceView" + vmComputeAPI, "", "PowerState/running", 200},
 			{http.MethodGet, subs + "Compute/disks" + vmComputeAPI, "", `"name":"web-os"`, 200},
@@ -87,7 +96,13 @@ func TestAzureVMProxy(t *testing.T) {
 			{http.MethodPost, px + "/runCommand" + vmComputeAPI, `{}`, "unsupported", 400},
 			{http.MethodPost, px + "/generalize" + vmComputeAPI, "", "unsupported", 400},
 			{http.MethodPost, px + "/capture" + vmComputeAPI, "", "unsupported", 400},
-			{http.MethodPost, subs + "Network/virtualNetworks/vnet/subnets/default" + vmNetworkAPI, "", "unsupported", 400},
+			{
+				http.MethodPost,
+				subs + "Network/virtualNetworks/vnet/subnets/default" + vmNetworkAPI,
+				"",
+				"unsupported",
+				400,
+			},
 			{http.MethodPost, vmProxy + vmNIC + vmNetworkAPI, "", "unsupported", 400},
 			{http.MethodGet, subs + "Storage/storageAccounts" + vmNetworkAPI, "", "unsupported", 400},
 			{http.MethodGet, subs + "Compute/snapshots" + vmComputeAPI, "", "unsupported", 400},
