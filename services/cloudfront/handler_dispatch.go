@@ -912,6 +912,7 @@ var errCodeMapping = []struct {
 	{ErrStreamingDistributionNotDisabled, "StreamingDistributionNotDisabled", http.StatusConflict},
 	{ErrCNAMEAlreadyExists, "CNAMEAlreadyExists", http.StatusConflict},
 	{ErrInconsistentQuantities, "InconsistentQuantities", http.StatusBadRequest},
+	{ErrInvalidLambdaFunctionAssociation, "InvalidLambdaFunctionAssociation", http.StatusBadRequest},
 	{ErrValidation, "InvalidArgument", http.StatusBadRequest},
 }
 

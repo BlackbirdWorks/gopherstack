@@ -84,7 +84,7 @@ func (h *Handler) functionEvent(d *Distribution, v *viewerReq, eventType string,
 			"eventType": eventType, "requestId": v.cfID,
 		},
 		"viewer": map[string]any{"ip": clientIP(v.r)},
-		"request": map[string]any{
+		keyRequest: map[string]any{
 			"method": v.r.Method, "uri": v.path,
 			keyQuerystring: fnValueMap(v.r.URL.Query(), false),
 			"headers":      fnValueMap(v.r.Header, true),
@@ -174,7 +174,7 @@ const xCacheFromFn = "FunctionGeneratedResponse from cloudfront"
 func (h *Handler) applyViewerResponse(d *Distribution, beh *dpBehavior, v *viewerReq, resp originResp) originResp {
 	fn := h.viewerFunction(beh, eventViewerResponse)
 	if fn == nil {
-		return resp
+		return h.applyEdgeViewerResponse(d, beh, v, resp)
 	}
 
 	out, res, ok := h.runFunction(fn, eventViewerResponse, h.functionEvent(d, v, eventViewerResponse, &resp), nil)
