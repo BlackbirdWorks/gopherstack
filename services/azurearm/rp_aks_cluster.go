@@ -484,7 +484,9 @@ func (p *ContainerServiceProvider) setPower(ctx context.Context, id ResourceID, 
 	}
 
 	if stop {
-		p.eng.removeKeys([]string{aksKey(c.ResourceGroup, c.Name)})
+		if err := p.eng.pause(ctx, aksKey(c.ResourceGroup, c.Name)); err != nil {
+			return err
+		}
 	} else if err := p.ensureNode(ctx, c); err != nil {
 		return err
 	}

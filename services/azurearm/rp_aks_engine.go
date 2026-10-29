@@ -20,6 +20,7 @@ const (
 	aksJoinTokenBytes = 16
 	aksCodeStarting   = "ClusterStarting"
 	aksCodeStartFail  = "ClusterStartFailed"
+	aksCodeStopFail   = "ClusterStopFailed"
 )
 
 // AKSEngineConfig configures docker-backed clusters: each running cluster is a single-node k3s container.
@@ -39,6 +40,8 @@ type aksLive struct {
 	addr  string
 	ca    []byte
 	ready bool
+	// stopped marks a node whose container is kept but not running.
+	stopped bool
 }
 
 type aksEngine struct {
@@ -142,8 +145,13 @@ func (e *aksEngine) start(ctx context.Context, key, name, version string, exists
 	}
 
 	e.mu.RLock("start")
-	_, running := e.live[key]
+	cur, running := e.live[key]
+	kept := running && cur.stopped
 	e.mu.RUnlock()
+
+	if kept {
+		return e.resume(ctx, core, key, cur)
+	}
 
 	if running {
 		return nil
@@ -182,6 +190,65 @@ func (e *aksEngine) start(ctx context.Context, key, name, version string, exists
 	if e.live[key] == lv {
 		lv.addr, lv.ca, lv.ready = addr, ca, true
 	}
+
+	return nil
+}
+
+// resume restarts the kept container of a stopped node, keeping its cluster state.
+func (e *aksEngine) resume(ctx context.Context, core *k3sengine.Engine, key string, lv *aksLive) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	stop := context.AfterFunc(e.ctx, cancel)
+	defer stop()
+
+	ca, err := core.Start(ctx, lv.inst.ContainerID, lv.addr, lv.ca)
+	if err != nil {
+		return aksStartErr(err)
+	}
+
+	e.mu.Lock("resume")
+	defer e.mu.Unlock()
+
+	if e.live[key] == lv {
+		lv.ca, lv.ready, lv.stopped = ca, true, false
+	}
+
+	return nil
+}
+
+// pause stops the node's container but keeps it, so start brings the same cluster state back. Runtimes that cannot
+// keep a stopped container fall back to removing it.
+func (e *aksEngine) pause(ctx context.Context, key string) error {
+	e.mu.Lock("pause")
+	lv, ok := e.live[key]
+	core := e.core
+
+	if !ok || lv.inst == nil || core == nil {
+		e.mu.Unlock()
+
+		e.removeKeys([]string{key})
+
+		return nil
+	}
+
+	lv.ready = false
+	e.mu.Unlock()
+
+	err := core.Stop(ctx, lv.inst.ContainerID)
+	if errors.Is(err, k3sengine.ErrStopUnsupported) {
+		e.removeKeys([]string{key})
+
+		return nil
+	}
+
+	if err != nil {
+		return netErr(http.StatusInternalServerError, aksCodeStopFail, "The cluster failed to stop: %v", err)
+	}
+
+	e.mu.Lock("pause")
+	lv.stopped = true
+	e.mu.Unlock()
 
 	return nil
 }

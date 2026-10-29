@@ -132,6 +132,10 @@ type Runtime interface {
 	CreateAndStart(ctx context.Context, spec Spec) (string, error)
 	// StopAndRemove stops and removes a container.
 	StopAndRemove(ctx context.Context, containerID string) error
+	// StopContainer stops a container without removing it, keeping its filesystem and published ports.
+	StopContainer(ctx context.Context, containerID string) error
+	// StartContainer starts a container previously stopped by StopContainer.
+	StartContainer(ctx context.Context, containerID string) error
 	// Exec runs cmd inside a running container and waits for it to finish.
 	// A non-zero exit status is reported in the result, not as an error.
 	Exec(ctx context.Context, containerID string, cmd []string) (ExecResult, error)
