@@ -21,6 +21,24 @@ A per-service flag (`--rds-engine`, ...), its env var (`RDS_ENGINE`, ...) or a n
 
 Resolved modes are not written to persisted config.
 
+## Containers left by a crashed gopherstack
+
+Every container started through `pkgs/container` carries `gopherstack.managed=true`, `gopherstack.owner`,
+`gopherstack.pid` (`pid:starttime` of the launcher) and, with persistence off, `gopherstack.ephemeral=true`.
+Services add `gopherstack.service` and, when they can re-attach, `gopherstack.resource`. The owner is derived from
+the data dir when persistence is on (stable across restarts) and is fresh per run otherwise.
+
+At startup, before services restore:
+
+- Same-owner containers whose launcher process is gone and that have no `gopherstack.resource` are removed.
+- Same-owner, resource-labelled containers are held; a service restoring that resource adopts it (`ClaimOrphan`),
+  and anything unclaimed after 3 minutes is removed.
+- Another owner's containers are removed only when `gopherstack.ephemeral=true` and the recorded process (pid and
+  start time) is dead. Live processes, other owners and unlabelled containers are never touched.
+
+Adopting services: Cloud SQL (gcpsql). RDS and the k3s clusters label the service and are cleaned up at startup, then
+relaunch as before. Services using their own docker client (EC2, ECS, Batch) are not covered.
+
 ## Not covered
 
 Lambda already starts containers on demand and the EC2 docker provider has its own `--ec2-provider` flag; neither

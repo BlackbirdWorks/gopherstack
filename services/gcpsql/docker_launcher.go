@@ -23,6 +23,9 @@ const (
 	mysqlDataDir   = "/var/lib/mysql"
 	volumeLabel    = "gopherstack.gcpsql"
 	staleVolumeAge = 10 * time.Minute
+	dumpDirLabel   = "gopherstack.gcpsql.dumpdir"
+	shapeLabel     = "gopherstack.gcpsql.shape"
+	adoptReadyWait = 30 * time.Second
 	pgPort         = "5432"
 	mysqlPort      = "3306"
 	readyInterval  = 500 * time.Millisecond
@@ -153,14 +156,16 @@ func (e *dockerEngine) boot(ctx context.Context) error {
 		return err
 	}
 
-	id, err := container.CreateAndStartRetry(ctx, e.rt, e.prepare, e.releasePort)
-	if err != nil {
-		return fmt.Errorf("start %s: %w", e.image, err)
+	if !e.adopt(ctx) {
+		id, err := container.CreateAndStartRetry(ctx, e.rt, e.prepare, e.releasePort)
+		if err != nil {
+			return fmt.Errorf("start %s: %w", e.image, err)
+		}
+
+		e.setContainer(id)
 	}
 
-	e.setContainer(id)
-
-	if err = e.waitReady(ctx); err != nil {
+	if err := e.waitReady(ctx); err != nil {
 		return err
 	}
 
@@ -169,7 +174,7 @@ func (e *dockerEngine) boot(ctx context.Context) error {
 	}
 
 	if e.spec.Recovery != nil && e.kind == kindPostgres {
-		if err = e.waitPromoted(ctx); err != nil {
+		if err := e.waitPromoted(ctx); err != nil {
 			return err
 		}
 	}
@@ -239,6 +244,7 @@ func (e *dockerEngine) prepare() (container.Spec, error) {
 
 	spec := container.Spec{
 		Name:        name,
+		Labels:      e.ownerLabels(),
 		Image:       e.image,
 		Mounts:      []string{e.dir + ":" + dumpMount},
 		MemoryBytes: e.spec.MemoryBytes,

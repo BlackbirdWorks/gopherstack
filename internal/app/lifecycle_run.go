@@ -220,9 +220,10 @@ func (c *StartCmd) runContainer(ctx context.Context, d *lifecycleDeps, endpoint,
 
 	env := append([]string{"PORT=" + lifecycleContainerPort}, extra...)
 	spec := container.Spec{
-		Image: c.Image + ":" + c.Tag,
-		Name:  c.name(),
-		Ports: c.publishPorts(),
+		Image:     c.Image + ":" + c.Tag,
+		Name:      c.name(),
+		Ports:     c.publishPorts(),
+		Unmanaged: true,
 	}
 
 	if c.Persist {

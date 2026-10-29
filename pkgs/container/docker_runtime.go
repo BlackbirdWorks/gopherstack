@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"time"
 
 	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
@@ -79,6 +80,11 @@ type NetworkAPIClient interface {
 	NetworkCreate(ctx context.Context, name string) (string, error)
 	NetworkConnect(ctx context.Context, networkID, containerID string) error
 	NetworkRemove(ctx context.Context, networkID string) error
+}
+
+// ListAPIClient is implemented by clients that can list containers by label.
+type ListAPIClient interface {
+	ContainerListByLabel(ctx context.Context, label string) ([]ManagedContainer, error)
 }
 
 // realDockerClient wraps the standard Docker SDK client to satisfy APIClient.
@@ -156,6 +162,37 @@ func (r *realDockerClient) ContainerExecStream(
 	stdout, stderr io.Writer,
 ) (int, error) {
 	return r.c.ContainerExecStream(ctx, containerID, cmd, stdout, stderr)
+}
+
+func (r *realDockerClient) ContainerListByLabel(ctx context.Context, label string) ([]ManagedContainer, error) {
+	items, err := r.c.ContainerList(ctx, dockercontainer.ListOptions{
+		All:     true,
+		Filters: filters.NewArgs(filters.KeyValuePair{Key: "label", Value: label}),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ManagedContainer, 0, len(items))
+
+	for _, it := range items {
+		mc := ManagedContainer{
+			ID: it.ID, Labels: it.Labels, Running: string(it.State) == "running", Ports: map[int]int{},
+		}
+		if len(it.Names) > 0 {
+			mc.Name = strings.TrimPrefix(it.Names[0], "/")
+		}
+
+		for _, p := range it.Ports {
+			if p.PublicPort != 0 {
+				mc.Ports[int(p.PrivatePort)] = int(p.PublicPort)
+			}
+		}
+
+		out = append(out, mc)
+	}
+
+	return out, nil
 }
 
 func (r *realDockerClient) NetworkCreate(ctx context.Context, name string) (string, error) {
@@ -336,6 +373,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		cfg.Entrypoint = spec.Entrypoint
 	}
 
+	cfg.Labels = spec.launchLabels()
 	cfg.WorkingDir = spec.WorkingDir
 	cfg.User = spec.User
 
