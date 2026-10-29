@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
-| Feature families | 12 (12 ok) |
-| Known gaps | 34 |
+| Feature families | 13 (13 ok) |
+| Known gaps | 39 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -23,6 +23,11 @@
 - Multi-account namespace isolation: all ARM-created storage accounts alias one shared Blob/Queue/Table container/queue/table namespace (services/azureblob/azurequeue/azuretable discard the account-name path segment entirely). Two ARM storage accounts see each other's containers. Deferred to M10 per AZURE.md section 10.4's original note; StorageAccounts.RegisterAccount/DeleteAccount (interfaces.go) is the forward-compat seam for that fix.
 - ARM error codes are a small hand-picked table (errors.go's errorDetails), not audited against ARM's full published error-code catalog the way services/sqs's errorDetails table has been over multiple audit passes.
 - management locks, Azure Policy, RBAC/Microsoft.Authorization, ARM template deployments (Microsoft.Resources/deployments), PATCH-merge semantics beyond full-replace, $filter/$expand and nextLink pagination on list operations, cross-subscription/cross-tenant, resource moves, What-If, and LRO polling are all explicitly out of MVP scope per AZURE.md section 10.1/10.3 -- not bugs, deliberate scope boundaries for this milestone.
+- Flexible servers: only the listed operations are modelled. PostgreSQL administrators (Entra), backups, migrations, virtual-network subnet usage, private DNS zone suffix, and MySQL updateConfigurations (batch), maintenances, logFiles, backupAndExport, advanced threat protection, Entra administrators, failover, detachVNet, resetGtid and private endpoint connections answer from the generic store or 404.
+- Flexible servers: replicas and point-in-time/geo restores are state-level (a copy of the source configuration and database list); under the docker engine they are refused with 400 InvalidParameterValue because a new container would start without the source data or the administrator password. Replication is not run.
+- Flexible servers: server parameter changes are stored, validated against a documented subset of parameters and flagged pending-restart, but are not applied to the docker engine; the MySQL max_connections default is the engine default (151) rather than the memory-derived Azure default; PostgreSQL max_connections follows the documented per-SKU table.
+- Flexible servers: firewall rules (including the 0.0.0.0 allow-Azure-services rule) are stored and validated but not enforced - the docker engine listens on loopback only; engines are not relaunched after a gopherstack restart or snapshot restore; the 7-day automatic restart of a stopped server, maintenance windows, HA failover, data encryption and Entra authentication are stored but not acted on.
+- Flexible servers: no Terraform azurerm fixture (azurerm_postgresql_flexible_server, azurerm_mysql_flexible_server) yet; the SDK-driven tests are the only wire proof.
 - AKS: runCommand answers 501 NotImplemented (no pods are scheduled to run commands in); abort, rotateClusterCertificates, resetAADProfile, resetServicePrincipalProfile, maintenanceConfigurations, trustedAccessRoleBindings, snapshots, machines, managedNamespaces and private endpoint connections are not modelled (the generic store keeps what is PUT).
 - AKS: node pools are metadata; no VMs back them and the k3s engine runs one server node regardless of pool counts. stop removes the container, so k3s state is lost across stop/start and across restore.
 - AKS: addon profiles, AAD, auto-upgrade, http proxy, security and storage profiles are stored and returned but not interpreted; the VM catalog and Kubernetes patch versions are representative subsets; the kubeconfig carries a bearer token only (no client certificates).
