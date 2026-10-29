@@ -3922,7 +3922,8 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 
 	// Wire Athena → S3 so a succeeded query execution's result is actually written
 	// to ResultConfiguration.OutputLocation instead of only being stored/echoed.
-	wireAthenaS3(byName["Athena"], byName["S3"])
+	// It also wires the s3tablescatalog/<table-bucket> federated catalog to S3 Tables.
+	wireAthenaStorage(byName)
 
 	// Wire S3 → Lambda so a function deployed from Code.S3Bucket/S3Key
 	// actually starts instead of failing with ErrLambdaUnavailable: S3 code

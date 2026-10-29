@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
 )
 
 const (
@@ -52,7 +53,12 @@ func (b *InMemoryBackend) materializeMetadata(t *Table, bucketID string) (string
 		return "", nil
 	}
 
-	body, err := json.Marshal(buildIcebergTableMetadata(t, time.Now()))
+	doc, err := buildIcebergTableMetadata(t, time.Now())
+	if err != nil {
+		return "", fmt.Errorf("build iceberg metadata: %w", err)
+	}
+
+	body, err := iceberg.EncodeMetadata(doc)
 	if err != nil {
 		return "", fmt.Errorf("encode iceberg metadata: %w", err)
 	}
@@ -157,14 +163,32 @@ func icebergSortOrder(iceberg map[string]any) map[string]any {
 }
 
 // buildIcebergTableMetadata renders the Iceberg v2 table metadata document for a freshly created table.
-func buildIcebergTableMetadata(t *Table, now time.Time) map[string]any {
-	iceberg, _ := t.Metadata[metaKeyIceberg].(map[string]any)
-	schema, lastColumnID := icebergSchema(iceberg)
-	spec, lastPartitionID := icebergPartitionSpec(iceberg)
-	order := icebergSortOrder(iceberg)
+func buildIcebergTableMetadata(t *Table, now time.Time) (*iceberg.TableMetadata, error) {
+	src, _ := t.Metadata[metaKeyIceberg].(map[string]any)
+	schemaMap, _ := icebergSchema(src)
+	specMap, _ := icebergPartitionSpec(src)
+	order := icebergSortOrder(src)
+
+	var schema iceberg.Schema
+
+	var spec iceberg.PartitionSpec
+
+	if err := roundTrip(schemaMap, &schema); err != nil {
+		return nil, err
+	}
+
+	if err := roundTrip(specMap, &spec); err != nil {
+		return nil, err
+	}
+
+	orderJSON, err := json.Marshal(order)
+	if err != nil {
+		return nil, err
+	}
 
 	props := map[string]string{}
-	if p, ok := iceberg["properties"].(map[string]any); ok {
+
+	if p, ok := src["properties"].(map[string]any); ok {
 		for k, v := range p {
 			if s, isStr := v.(string); isStr {
 				props[k] = s
@@ -172,24 +196,17 @@ func buildIcebergTableMetadata(t *Table, now time.Time) map[string]any {
 		}
 	}
 
-	return map[string]any{
-		"format-version":        icebergFormatVersion,
-		"table-uuid":            uuid.NewString(),
-		"location":              t.WarehouseLocation,
-		"last-sequence-number":  0,
-		"last-updated-ms":       now.UnixMilli(),
-		"last-column-id":        lastColumnID,
-		"current-schema-id":     0,
-		"schemas":               []map[string]any{schema},
-		"default-spec-id":       spec["spec-id"],
-		"partition-specs":       []map[string]any{spec},
-		"last-partition-id":     lastPartitionID,
-		"default-sort-order-id": order["order-id"],
-		"sort-orders":           []map[string]any{order},
-		"properties":            maps.Clone(props),
-		"current-snapshot-id":   -1,
-		"snapshots":             []any{},
-		"snapshot-log":          []any{},
-		"metadata-log":          []any{},
+	return iceberg.NewTableMetadata(iceberg.NewParams{
+		Location: t.WarehouseLocation, Schema: schema, Spec: spec, SortOrder: orderJSON,
+		Properties: props, Now: now,
+	}), nil
+}
+
+func roundTrip(in map[string]any, out any) error {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return err
 	}
+
+	return json.Unmarshal(b, out)
 }

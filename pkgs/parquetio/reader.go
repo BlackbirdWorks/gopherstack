@@ -64,6 +64,19 @@ func (f *File) Columns() []string {
 	return out
 }
 
+// ColumnIDs maps each top-level Parquet field id to its column name.
+func (f *File) ColumnIDs() map[int]string {
+	out := map[int]string{}
+
+	for _, fld := range f.pf.Schema().Fields() {
+		if id := fld.ID(); id > 0 {
+			out[id] = fld.Name()
+		}
+	}
+
+	return out
+}
+
 // ScanBytes is the footer plus the compressed size of every column chunk
 // belonging to the named top-level columns (case-insensitive).
 func (f *File) ScanBytes(cols []string) int64 {

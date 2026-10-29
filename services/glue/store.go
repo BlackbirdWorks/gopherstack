@@ -27,6 +27,9 @@ var ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrAlreadyExi
 // awsAwsjson11_deserializeOpErrorDeleteGlossary/DeleteFormType error switches.
 var ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
 
+// ErrTableParameterChanged is returned by SwapTableParameters when the guarded parameter moved.
+var ErrTableParameterChanged = awserr.New("ConcurrentModificationException", awserr.ErrConflict)
+
 // ErrConcurrentRunsExceeded is returned by StartJobRun/StartWorkflowRun when
 // the job/workflow's MaxConcurrentRuns limit is already reached, mirroring
 // AWS's ConcurrentRunsExceededException (confirmed in

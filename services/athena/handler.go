@@ -57,6 +57,7 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		nb := NewInMemoryBackend(region, home.accountID)
 		nb.s3 = home.s3
+		nb.s3tables = home.s3tables
 		nb.limits = home.limits
 
 		if h.glueFor != nil {
