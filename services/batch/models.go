@@ -606,7 +606,9 @@ type Job struct {
 	EksProperties  *EksProperties  `json:"-"`
 	EcsProperties  map[string]any  `json:"-"`
 	// nodeIndex/nodeCount/isMainNode are set only on node jobs derived from a multi-node parent.
-	nodeIndex          *int32
+	nodeIndex *int32
+	// nodeRuns is per-node execution state, indexed by node index; nil unless the executor drives the job.
+	nodeRuns           []nodeRun
 	ContainerOverrides *ContainerOverrides `json:"containerOverrides,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey).
 	region                     string

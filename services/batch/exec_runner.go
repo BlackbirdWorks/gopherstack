@@ -39,6 +39,7 @@ type ContainerSpec struct {
 	Labels         map[string]string
 	Image          string
 	User           string
+	Network        string
 	Command        []string
 	Env            []string
 	MemoryMiB      int64
@@ -49,6 +50,8 @@ type ContainerSpec struct {
 
 // RunHooks lets a ContainerRunner report progress while a container runs.
 type RunHooks struct {
+	// OnAddress reports the container's IPv4 address on ContainerSpec.Network, before OnStarted.
+	OnAddress func(ip string)
 	OnStarted func()
 	OnLog     func(lines []string)
 }
@@ -57,6 +60,11 @@ type RunHooks struct {
 // removes the container and returns ctx.Err() wrapped.
 type ContainerRunner interface {
 	RunContainer(ctx context.Context, spec ContainerSpec, hooks RunHooks) (exitCode int, err error)
+}
+
+// JobNetworker is implemented by runners that can isolate one job's containers on a private network.
+type JobNetworker interface {
+	CreateJobNetwork(ctx context.Context, name string) (remove func(), err error)
 }
 
 // JobLogSink receives job container output. CloudWatch Logs is resolved by the
@@ -94,6 +102,12 @@ type dockerAPI interface {
 	ContainerRemove(ctx context.Context, containerID string, options dockertypes.RemoveOptions) error
 	ContainerLogs(ctx context.Context, containerID string, options dockertypes.LogsOptions) (io.ReadCloser, error)
 	ContainerWait(ctx context.Context, containerID string, options dockertypes.WaitOptions) dockertypes.WaitResult
+}
+
+type networkAPI interface {
+	NetworkCreate(ctx context.Context, name string) (string, error)
+	NetworkRemove(ctx context.Context, networkID string) error
+	ContainerIP(ctx context.Context, containerID string) (string, error)
 }
 
 type closer interface{ Close() error }
@@ -142,6 +156,15 @@ func (r *dockerContainerRunner) RunContainer(
 		return 0, fmt.Errorf("%s: %w", reasonStartFailed, startErr)
 	}
 
+	if hooks.OnAddress != nil && spec.Network != "" {
+		ip, ipErr := r.containerIP(ctx, resp.ID)
+		if ipErr != nil {
+			return 0, fmt.Errorf("%s: %w", reasonStartFailed, ipErr)
+		}
+
+		hooks.OnAddress(ip)
+	}
+
 	if hooks.OnStarted != nil {
 		hooks.OnStarted()
 	}
@@ -156,6 +179,37 @@ func (r *dockerContainerRunner) RunContainer(
 	<-logsDone
 
 	return code, waitErr
+}
+
+var errNoNetworkSupport = errors.New("docker client does not support job networks")
+
+// CreateJobNetwork creates a private bridge network; remove deletes it.
+func (r *dockerContainerRunner) CreateJobNetwork(ctx context.Context, name string) (func(), error) {
+	na, ok := r.cli.(networkAPI)
+	if !ok {
+		return nil, errNoNetworkSupport
+	}
+
+	id, err := na.NetworkCreate(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return func() {
+		rmCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+		defer cancel()
+
+		_ = na.NetworkRemove(rmCtx, id)
+	}, nil
+}
+
+func (r *dockerContainerRunner) containerIP(ctx context.Context, id string) (string, error) {
+	na, ok := r.cli.(networkAPI)
+	if !ok {
+		return "", errNoNetworkSupport
+	}
+
+	return na.ContainerIP(ctx, id)
 }
 
 // pullImage is best-effort: an image present only locally still runs, and a
@@ -248,6 +302,10 @@ func containerConfig(spec ContainerSpec) *dockertypes.Config {
 
 func containerHostConfig(spec ContainerSpec) *dockertypes.HostConfig {
 	hc := &dockertypes.HostConfig{Privileged: spec.Privileged, ReadonlyRootfs: spec.ReadonlyRootFS}
+
+	if spec.Network != "" {
+		hc.NetworkMode = dockertypes.NetworkMode(spec.Network)
+	}
 
 	if spec.MemoryMiB > 0 {
 		hc.Memory = max(spec.MemoryMiB, dockerMinMemoryMiB) * bytesPerMiB

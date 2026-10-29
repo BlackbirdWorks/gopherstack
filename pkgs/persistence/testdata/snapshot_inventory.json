@@ -4605,6 +4605,7 @@
       "Job.isMainNode bool",
       "Job.nodeCount int32",
       "Job.nodeIndex *int32",
+      "Job.nodeRuns []nodeRun",
       "Job.region string",
       "JobAttempt.Container *JobAttemptContainer `json:\"container,omitempty\"`",
       "JobAttempt.StartedAt *int64 `json:\"startedAt,omitempty\"`",
@@ -4782,7 +4783,12 @@
       "backendSnapshot.AccountID string `json:\"accountID\"`",
       "backendSnapshot.JobDefRevisions map[string]map[string]int32 `json:\"jobDefRevisions\"`",
       "backendSnapshot.Region string `json:\"region\"`",
-      "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`"
+      "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
+      "nodeRun.attempts []JobAttempt",
+      "nodeRun.startedAt *int64",
+      "nodeRun.status string",
+      "nodeRun.statusReason string",
+      "nodeRun.stoppedAt *int64"
     ],
     "version": 1
   },
