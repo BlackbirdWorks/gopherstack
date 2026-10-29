@@ -32,7 +32,8 @@ func TestMNPRealDockerChildReachesMain(t *testing.T) {
 
 	mainCmd := "nc -l -p 9000"
 	childCmd := `for i in $(seq 1 60); do ` +
-		`echo "ping-from-child-$AWS_BATCH_JOB_NODE_INDEX" | nc -w 2 "$AWS_BATCH_JOB_MAIN_NODE_PRIVATE_IPV4_ADDRESS" 9000 && exit 0; ` +
+		`echo "ping-from-child-$AWS_BATCH_JOB_NODE_INDEX" | ` +
+		`nc -w 2 "$AWS_BATCH_JOB_MAIN_NODE_PRIVATE_IPV4_ADDRESS" 9000 && exit 0; ` +
 		`sleep 1; done; exit 1`
 
 	np := &batch.NodeProperties{NumNodes: 2, MainNode: 0, NodeRangeProperties: []batch.NodeRangeProperty{

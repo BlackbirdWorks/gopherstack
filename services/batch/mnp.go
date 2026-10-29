@@ -40,10 +40,10 @@ func (r nodeRun) applyTo(n *Job) {
 
 // nodePlan is one node's container for the current attempt.
 type nodePlan struct {
-	spec      ContainerSpec
 	roleArn   string
 	logGroup  string
 	logStream string
+	spec      ContainerSpec
 	index     int32
 }
 
@@ -61,17 +61,8 @@ func validateNodeProperties(defType string, np *NodeProperties) error {
 		return fmt.Errorf("%w: nodeProperties can only be specified for multinode job definitions", ErrValidation)
 	}
 
-	if np.NumNodes < 1 {
-		return fmt.Errorf("%w: nodeProperties.numNodes must be at least 1", ErrValidation)
-	}
-
-	if np.MainNode < 0 || np.MainNode >= np.NumNodes {
-		return fmt.Errorf("%w: nodeProperties.mainNode must be fewer than numNodes", ErrValidation)
-	}
-
-	if n := len(np.NodeRangeProperties); n < 1 || n > maxNodeGroups {
-		return fmt.Errorf("%w: nodeProperties.nodeRangeProperties must have 1 to %d node groups",
-			ErrValidation, maxNodeGroups)
+	if err := validateNodeCounts(np); err != nil {
+		return err
 	}
 
 	covered := make([]bool, np.NumNodes)
@@ -99,6 +90,23 @@ func validateNodeProperties(defType string, np *NodeProperties) error {
 	if slices.Contains(covered, false) {
 		return fmt.Errorf("%w: nodeRangeProperties must account for all nodes (0:%d)",
 			ErrValidation, np.NumNodes-1)
+	}
+
+	return nil
+}
+
+func validateNodeCounts(np *NodeProperties) error {
+	if np.NumNodes < 1 {
+		return fmt.Errorf("%w: nodeProperties.numNodes must be at least 1", ErrValidation)
+	}
+
+	if np.MainNode < 0 || np.MainNode >= np.NumNodes {
+		return fmt.Errorf("%w: nodeProperties.mainNode must be fewer than numNodes", ErrValidation)
+	}
+
+	if n := len(np.NodeRangeProperties); n < 1 || n > maxNodeGroups {
+		return fmt.Errorf("%w: nodeProperties.nodeRangeProperties must have 1 to %d node groups",
+			ErrValidation, maxNodeGroups)
 	}
 
 	return nil
@@ -263,7 +271,7 @@ func (b *InMemoryBackend) runNode(ctx context.Context, nr *nodeRunner, p *nodePl
 		return
 	}
 
-	b.runNodeHooked(ctx, nr, p, func() { b.markNodeStarted(nr.rs, p.index) }, nil)
+	_, _ = b.runNodeHooked(ctx, nr, p, func() { b.markNodeStarted(nr.rs, p.index) }, nil)
 }
 
 // runNodeHooked runs one node container to completion and records its outcome.

@@ -2,6 +2,7 @@ package batch_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -137,7 +138,7 @@ func TestMNPEnvAndMainFirst(t *testing.T) {
 			t.Parallel()
 
 			runner := &fakeRunner{gate: make(chan struct{})}
-			mainStr := string(rune('0' + tt.main))
+			mainStr := strconv.Itoa(int(tt.main))
 			runner.behave = func(_ int, spec batch.ContainerSpec) fakeResult {
 				if nodeIndexOf(spec) == mainStr {
 					return fakeResult{}
@@ -337,7 +338,8 @@ func TestMNPSDKTerminateAndListing(t *testing.T) {
 
 	require.Eventually(t, func() bool { return runner.specCount() == 3 }, 10*time.Second, 5*time.Millisecond)
 	require.Eventually(t, func() bool {
-		return env.describe(t, id).Status == types.JobStatusRunning && env.describe(t, id+"#2").Status == types.JobStatusRunning
+		return env.describe(t, id).Status == types.JobStatusRunning &&
+			env.describe(t, id+"#2").Status == types.JobStatusRunning
 	}, 10*time.Second, 5*time.Millisecond)
 
 	parent := env.describe(t, id)
