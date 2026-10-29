@@ -176,6 +176,7 @@ import (
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	gcpcontainerbackend "github.com/blackbirdworks/gopherstack/services/gcpcontainer"
 	gcpdatastorebackend "github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
@@ -571,6 +572,7 @@ type CLI struct {
 	MWAAEngine                    string                            `                                       name:"mwaa-engine"             env:"MWAA_ENGINE"                         default:"stub"          help:"MWAA engine mode: stub (state only) or docker (real Apache Airflow container per environment)."`                                                                                                             //nolint:lll // config struct tags are intentionally verbose
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	GKEEngine                     string                            `                                       name:"gke-engine"              env:"GKE_ENGINE"                          default:"stub"          help:"GKE engine mode: stub (control plane only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	SageMakerEngine               string                            `                                       name:"sagemaker-engine"        env:"SAGEMAKER_ENGINE"                    default:"stub"          help:"SageMaker engine mode: stub (control plane only; InvokeEndpoint is unavailable) or docker (endpoints and jobs run model, training, processing and transform containers)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
@@ -667,6 +669,7 @@ type CLI struct {
 	GCPDNS                        gcpdnsbackend.Settings            `embed:"" prefix:"gcp-dns-"`
 	GCPDatastore                  gcpdatastorebackend.Settings      `embed:"" prefix:"gcp-datastore-"`
 	GCPCompute                    gcpcomputebackend.Settings        `embed:"" prefix:"gcp-compute-"`
+	GCPContainer                  gcpcontainerbackend.Settings      `embed:"" prefix:"gcp-container-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -832,6 +835,12 @@ func (c *CLI) GetGCPDNSSettings() gcpdnsbackend.Settings { return c.GCPDNS }
 
 // GetGCPComputeSettings returns Compute Engine settings (gcpcompute.ConfigProvider).
 func (c *CLI) GetGCPComputeSettings() gcpcomputebackend.Settings { return c.GCPCompute }
+
+// GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).
+func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings { return c.GCPContainer }
+
+// GetGCPContainerEngine returns the Kubernetes Engine engine mode (gcpcontainer.EngineConfigProvider).
+func (c *CLI) GetGCPContainerEngine() string { return c.engineMode("gke-engine", c.GKEEngine) }
 
 // GetGCPCloudBuildSettings returns Google Cloud Build settings (gcpcloudbuild.ConfigProvider).
 func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return c.GCPCloudBuild }
@@ -2626,6 +2635,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPDNS", "gcpdns", cli.GCPDNS.Port},
 		{"GCPDNSServer", "gcpdns-server", cli.GCPDNS.DNSPort},
 		{"GCPCompute", "gcpcompute", cli.GCPCompute.Port},
+		{"GCPContainer", "gcpcontainer", cli.GCPContainer.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -5146,6 +5156,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpdatastorebackend.Provider{},
 		&gcpdnsbackend.Provider{},
 		&gcpcomputebackend.Provider{},
+		&gcpcontainerbackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},

@@ -248,7 +248,7 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL", "GCPLogging",
 		"GCPMonitoring",
 		"GCPRedis", "AzureRedis", "AzureSQL", "GCPSpanner", "GCPBigtable", "GCPCloudBuild", "GCPEventarc",
-		"GCPWorkflows", "GCPDNS", "GCPCompute", "GCPDatastore",
+		"GCPWorkflows", "GCPDNS", "GCPCompute", "GCPDatastore", "GCPContainer",
 		"AzureContainerRegistry", "AzureFunctions", "GCPArtifactRegistry", "OCIObjectStorage",
 		"OCIVault", "OCIStreaming", "OCIIdentity", "OCIFunctions", "OCICore", "OCIQueue", "OCINotifications",
 	}
