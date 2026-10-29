@@ -53,6 +53,23 @@ func (s *flexStack) myCreate(t *testing.T, name string) armmysqlflexibleservers.
 	return res.Server
 }
 
+func (s *flexStack) myCreateGP(t *testing.T, name string) armmysqlflexibleservers.Server {
+	t.Helper()
+
+	srv := mySrv()
+	srv.SKU = &armmysqlflexibleservers.MySQLServerSKU{
+		Name: new("Standard_D2ds_v4"), Tier: new(armmysqlflexibleservers.ServerSKUTierGeneralPurpose),
+	}
+
+	poller, err := s.myFactory(t).NewServersClient().BeginCreate(t.Context(), flexRG, name, srv, nil)
+	require.NoError(t, err)
+
+	res, err := poller.PollUntilDone(t.Context(), pollFast())
+	require.NoError(t, err)
+
+	return res.Server
+}
+
 func TestMySQLFlexServerCRUD(t *testing.T) {
 	t.Parallel()
 
@@ -366,7 +383,7 @@ func TestMySQLFlexReplicasPowerAndCapabilities(t *testing.T) {
 	t.Parallel()
 
 	s := newFlexStack(t, nil)
-	src := s.myCreate(t, "my-source")
+	src := s.myCreateGP(t, "my-source")
 	f := s.myFactory(t)
 	ctx := t.Context()
 

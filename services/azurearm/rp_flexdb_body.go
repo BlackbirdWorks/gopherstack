@@ -3,6 +3,7 @@ package azurearm
 import (
 	"maps"
 	"net"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,6 +20,14 @@ func (p *FlexDBProvider) role(id ResourceID, rec *flexServer) string {
 	}
 
 	return flexRoleNone
+}
+
+func (p *FlexDBProvider) skuMaxIops(rec *flexServer) int {
+	if s, ok := p.flavor.skuByName(rec.SKUName); ok && s.maxIops > 0 {
+		return s.maxIops
+	}
+
+	return mysqlMaxIopsAll
 }
 
 func (p *FlexDBProvider) maxConnections(rec *flexServer) string {
@@ -131,7 +140,7 @@ func (p *FlexDBProvider) storageBody(rec *flexServer) map[string]any {
 
 	iops := rec.Iops
 	if iops == 0 {
-		iops = mysqlIops(rec.StorageGB)
+		iops = mysqlIops(rec.StorageGB, p.skuMaxIops(rec))
 	}
 
 	return map[string]any{
@@ -266,20 +275,16 @@ func validIPv4(s string) (net.IP, bool) {
 	return ip, ip != nil && !strings.Contains(s, ":")
 }
 
-func flexRuleNameChar(r rune) bool {
-	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-'
-}
-
-const flexMaxRuleName = 128
+var flexRuleNameRE = regexp.MustCompile(`^[a-zA-Z0-9][-_a-zA-Z0-9]{0,79}$`)
 
 func (p *FlexDBProvider) writeFirewall(id ResourceID, body map[string]any) (flexResult, error) {
 	props := flexMap(body, fieldProperties)
 	name := id.LeafName()
 
-	if name == "" || len(name) > flexMaxRuleName ||
-		strings.IndexFunc(name, func(r rune) bool { return !flexRuleNameChar(r) }) >= 0 {
+	if !flexRuleNameRE.MatchString(name) || strings.HasSuffix(name, "-") {
 		return flexResult{}, flexInvalid(
-			"The firewall rule name must be 1 to 128 letters, digits, hyphens or underscores.",
+			"The firewall rule name must be 1 to 80 letters, digits, hyphens or underscores, start with a letter " +
+				"or digit and not end with a hyphen.",
 		)
 	}
 

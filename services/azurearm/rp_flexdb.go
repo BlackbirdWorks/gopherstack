@@ -20,8 +20,9 @@ const (
 	flexStateReady   = "Ready"
 	flexStateStopped = "Stopped"
 	flexCodeInvalid  = "InvalidParameterValue"
-	flexCodeNotReady = "ServerNotReady"
-	flexCodeConflict = "ConflictingOperation"
+	flexCodeNotReady = "ServerIsNotReady"
+	flexCodeBusy     = "SeverBusyWithOtherOperation"
+	flexCodeConflict = "Conflict"
 	flexOpFailedMsg  = "The database engine could not complete the operation."
 )
 

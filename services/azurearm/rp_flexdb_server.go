@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"regexp"
 	"slices"
@@ -58,9 +59,9 @@ func validFlexName(name string) error {
 }
 
 func (f *flexFlavor) validLogin(login string) error {
-	if !f.loginRE.MatchString(login) || strings.HasPrefix(strings.ToLower(login), "pg_") && f.kind == flexKindPostgres {
-		return flexInvalid("The administrator login is not valid: use up to %d letters, digits and underscores, "+
-			"and do not start with pg_.", f.maxLoginLen)
+	if !f.loginRE.MatchString(login) {
+		return flexInvalid("The administrator login is not valid: use up to %d characters; %s.", f.maxLoginLen,
+			f.loginRule)
 	}
 
 	for _, r := range f.reservedLogins {
@@ -122,11 +123,11 @@ func (p *FlexDBProvider) writeServer(id ResourceID, body map[string]any, patch b
 	switch {
 	case exists:
 		if p.opPending(cur.OpID) {
-			return flexResult{}, flexConflict(flexCodeConflict, "Another operation is in progress for this server.")
+			return flexResult{}, p.busy(cur.Name, "Update")
 		}
 
 		if p.stateOf(cur) != flexStateReady {
-			return flexResult{}, flexConflict(flexCodeNotReady, "The server is not in the Ready state.")
+			return flexResult{}, p.notReady(cur, "Update")
 		}
 
 		rec = cloneFlexServer(cur)
@@ -228,7 +229,7 @@ func (p *FlexDBProvider) newServer(id ResourceID, body, props map[string]any) (*
 
 	for _, r := range p.res {
 		if strings.EqualFold(r.Name, name) {
-			return nil, flexConflict("ServerNameAlreadyExists",
+			return nil, flexConflict(flexCodeConflict,
 				"The server name '"+name+"' is already in use; server names must be unique.")
 		}
 	}
@@ -325,8 +326,8 @@ func (p *FlexDBProvider) replicasOf(key string) []*flexServer {
 
 func (p *FlexDBProvider) inheritFrom(rec, src *flexServer, props map[string]any) error {
 	if rec.CreateMode == flexModeReplica {
-		if src.CreateMode == flexModeReplica && src.SourceID != "" {
-			return flexInvalid("A replica cannot be the source of another replica.")
+		if err := p.checkReplicaSource(src); err != nil {
+			return err
 		}
 
 		if len(p.replicasOf(rec.SourceID)) >= p.flavor.maxReplicas {
@@ -409,11 +410,29 @@ func (p *FlexDBProvider) applyServer(rec *flexServer, body, props map[string]any
 		return "", flexInvalid("sku.name and sku.tier are required.")
 	}
 
-	if rec.HAMode != flexHADisabled && rec.SKUTier == tierBurstable {
-		return "", flexInvalid("High availability is not supported on the Burstable compute tier.")
+	if err = p.checkInvariants(rec); err != nil {
+		return "", err
 	}
 
 	return pw, nil
+}
+
+func (p *FlexDBProvider) checkInvariants(rec *flexServer) error {
+	ha := rec.HAMode != flexHADisabled
+
+	switch {
+	case ha && rec.SKUTier == tierBurstable:
+		return flexInvalid("High availability is not supported on the Burstable compute tier.")
+	case ha && p.flavor.kind == flexKindPostgres && rec.CreateMode == flexModeReplica:
+		return flexInvalid("High availability is not supported on a read replica.")
+	case rec.StorageGB > p.flavor.storageCap(rec.SKUTier):
+		return flexInvalid("The %s compute tier supports at most %d GiB of storage.", rec.SKUTier,
+			p.flavor.storageCap(rec.SKUTier))
+	case ha && p.flavor.kind == flexKindMySQL && rec.AutoGrow == flexDisabled:
+		return flexInvalid("Storage autogrow cannot be disabled on a server with high availability.")
+	}
+
+	return nil
 }
 
 func (p *FlexDBProvider) applySKU(rec *flexServer, sku map[string]any) error {
@@ -520,6 +539,15 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 			return flexInvalid("storageSizeGB %d is not valid; allowed: %s.", gb, f.storageRule())
 		}
 
+		if top := f.storageCap(rec.SKUTier); gb > top {
+			return flexInvalid(
+				"storageSizeGB %d exceeds the %d GiB maximum of the %s compute tier.",
+				gb,
+				top,
+				rec.SKUTier,
+			)
+		}
+
 		if exists && gb < rec.StorageGB {
 			return flexInvalid("The storage size cannot be reduced.")
 		}
@@ -538,8 +566,8 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 	rec.Iops = 0
 
 	if iops, ok := flexInt(st, "iops"); ok && f.kind == flexKindMySQL {
-		if iops < mysqlBaseIops || iops > mysqlMaxIops {
-			return flexInvalid("storage.iops must be between %d and %d.", mysqlBaseIops, mysqlMaxIops)
+		if top := p.skuMaxIops(rec); iops < mysqlBaseIops || iops > top {
+			return flexInvalid("storage.iops must be between %d and %d.", mysqlBaseIops, top)
 		}
 
 		rec.Iops = iops
@@ -701,6 +729,10 @@ func (p *FlexDBProvider) checkSubnet(subnet, dns string) error {
 		return flexInvalid("privateDnsZoneArmResourceId is required with virtual network integration.")
 	}
 
+	if !strings.HasSuffix(strings.ToLower(dns), p.flavor.dnsZoneSuffix) {
+		return flexInvalid("The private DNS zone name must end with '%s'.", p.flavor.dnsZoneSuffix)
+	}
+
 	if p.network == nil {
 		return nil
 	}
@@ -712,6 +744,10 @@ func (p *FlexDBProvider) checkSubnet(subnet, dns string) error {
 		return flexInvalid("The subnet '%s' was not found.", rid.Names[len(rid.Names)-1])
 	case !delegated:
 		return flexInvalid("The subnet must be delegated to %s.", p.flavor.subnetService)
+	}
+
+	if bits, ok := p.network.subnetPrefixBits(subnet); ok && bits > p.flavor.maxSubnetBits {
+		return flexInvalid("The delegated subnet must be at least a /%d range.", p.flavor.maxSubnetBits)
 	}
 
 	return nil
@@ -802,7 +838,7 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 	}
 
 	if p.opPending(rec.OpID) {
-		return "", flexConflict(flexCodeConflict, "Another operation is in progress for this server.")
+		return "", p.busy(rec.Name, flexActionName(action))
 	}
 
 	state := p.stateOf(rec)
@@ -841,7 +877,7 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 		}
 	default:
 		if state != flexStateReady {
-			return "", flexConflict(flexCodeNotReady, "The server is not in the Ready state.")
+			return "", p.notReady(rec, "Restart or Stop")
 		}
 
 		next.Transition = "Updating"
@@ -859,11 +895,56 @@ func (p *FlexDBProvider) Action(id ResourceID, action string) (string, error) {
 }
 
 func (p *FlexDBProvider) checkStop(rec *flexServer, key string) error {
-	switch {
-	case rec.HAMode != flexHADisabled:
-		return flexInvalid("A server with high availability enabled cannot be stopped.")
-	case len(p.replicasOf(key)) > 0 || rec.CreateMode == flexModeReplica && rec.SourceID != "":
+	if p.flavor.kind == flexKindMySQL &&
+		(len(p.replicasOf(key)) > 0 || rec.CreateMode == flexModeReplica && rec.SourceID != "") {
 		return flexInvalid("A server that has or is a read replica cannot be stopped.")
+	}
+
+	return nil
+}
+
+func flexActionName(action string) string {
+	switch action {
+	case aksActionStop:
+		return "Stop"
+	case aksActionStart:
+		return "Start"
+	}
+
+	return "Restart"
+}
+
+// busy and notReady use the wording shown for stop and restart in
+// https://learn.microsoft.com/en-us/azure/postgresql/configure-maintain/how-to-stop-server.
+func (p *FlexDBProvider) busy(name, op string) error {
+	return flexConflict(flexCodeBusy, fmt.Sprintf(
+		"Cannot perform '%s' server operation because server '%s' is busy processing other operation.", op, name))
+}
+
+func (p *FlexDBProvider) notReady(rec *flexServer, op string) error {
+	return flexConflict(flexCodeNotReady, fmt.Sprintf(
+		"%s Server can only be performed on Started servers. Server Name = %s, Current Server State = %s",
+		op, rec.Name, p.stateOf(rec)))
+}
+
+// checkReplicaSource applies the documented replica rules: no Burstable source, and a replica as source only on
+// PostgreSQL 14+ and only one level deep.
+func (p *FlexDBProvider) checkReplicaSource(src *flexServer) error {
+	if src.SKUTier == tierBurstable {
+		return flexInvalid("Read replicas are not supported on the Burstable compute tier.")
+	}
+
+	if src.CreateMode != flexModeReplica || src.SourceID == "" {
+		return nil
+	}
+
+	root, ok := p.res[src.SourceID]
+	if p.flavor.kind != flexKindPostgres || (ok && root.CreateMode == flexModeReplica && root.SourceID != "") {
+		return flexInvalid("A replica cannot be the source of another replica.")
+	}
+
+	if v, err := strconv.Atoi(src.Version); err != nil || v < pgMinCascadeVersion {
+		return flexInvalid("Cascading read replicas require PostgreSQL version %d or later.", pgMinCascadeVersion)
 	}
 
 	return nil
