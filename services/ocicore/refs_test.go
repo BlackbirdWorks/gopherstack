@@ -21,16 +21,22 @@ func TestLookupSubnetAndVcn(t *testing.T) {
 	assert.Equal(t, *v.Id, got.VcnID)
 	assert.Equal(t, "10.0.1.0/24", got.CidrBlock)
 
+	subnetKnown := func(id string) bool {
+		_, found := e.backend.LookupSubnet(id)
+
+		return found
+	}
+
 	tests := []struct {
-		name string
 		fn   func() bool
+		name string
 		want bool
 	}{
-		{"known subnet", func() bool { _, ok := e.backend.LookupSubnet(*s.Id); return ok }, true},
-		{"unknown subnet", func() bool { _, ok := e.backend.LookupSubnet("ocid1.subnet.oc1.iad.nope"); return ok }, false},
-		{"vcn is not a subnet", func() bool { _, ok := e.backend.LookupSubnet(*v.Id); return ok }, false},
-		{"known vcn", func() bool { return e.backend.VcnExists(*v.Id) }, true},
-		{"subnet is not a vcn", func() bool { return e.backend.VcnExists(*s.Id) }, false},
+		{func() bool { return subnetKnown(*s.Id) }, "known subnet", true},
+		{func() bool { return subnetKnown("ocid1.subnet.oc1.iad.nope") }, "unknown subnet", false},
+		{func() bool { return subnetKnown(*v.Id) }, "vcn is not a subnet", false},
+		{func() bool { return e.backend.VcnExists(*v.Id) }, "known vcn", true},
+		{func() bool { return e.backend.VcnExists(*s.Id) }, "subnet is not a vcn", false},
 	}
 
 	for _, tt := range tests {
@@ -51,10 +57,10 @@ func TestLookupCatalogue(t *testing.T) {
 	require.NotEmpty(t, imgs)
 
 	tests := []struct {
-		name  string
 		check func(t *testing.T)
+		name  string
 	}{
-		{"flexible shape", func(t *testing.T) {
+		{name: "flexible shape", check: func(t *testing.T) {
 			t.Helper()
 
 			s, ok := oci.LookupShape("VM.Standard.E4.Flex")
@@ -63,24 +69,24 @@ func TestLookupCatalogue(t *testing.T) {
 			assert.Equal(t, "x86_64", s.Arch)
 			assert.InDelta(t, 16, s.DefaultMemPerOcpu, 0)
 		}},
-		{"fixed shape", func(t *testing.T) {
+		{name: "fixed shape", check: func(t *testing.T) {
 			t.Helper()
 
 			s, ok := oci.LookupShape("VM.Standard2.1")
 			require.True(t, ok)
 			assert.False(t, s.Flexible)
 		}},
-		{"unknown shape", func(t *testing.T) {
+		{name: "unknown shape", check: func(t *testing.T) {
 			t.Helper()
 
 			_, ok := oci.LookupShape("VM.Nope")
 			assert.False(t, ok)
 		}},
-		{"shape list", func(t *testing.T) {
+		{name: "shape list", check: func(t *testing.T) {
 			t.Helper()
 			assert.Len(t, oci.CatalogShapes(), 9)
 		}},
-		{"platform image", func(t *testing.T) {
+		{name: "platform image", check: func(t *testing.T) {
 			t.Helper()
 
 			got, ok := e.backend.LookupImage(imgs[0].ID)
@@ -88,7 +94,7 @@ func TestLookupCatalogue(t *testing.T) {
 			assert.Equal(t, imgs[0], got)
 			assert.Equal(t, "Oracle Linux", got.OS)
 		}},
-		{"unknown image", func(t *testing.T) {
+		{name: "unknown image", check: func(t *testing.T) {
 			t.Helper()
 
 			_, ok := e.backend.LookupImage("ocid1.image.oc1.iad.nope")
