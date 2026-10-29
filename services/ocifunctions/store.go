@@ -29,6 +29,7 @@ const (
 type InMemoryBackend struct {
 	mu         *lockmetrics.RWMutex
 	clock      atomic.Pointer[func() time.Time]
+	observer   atomic.Pointer[InvokeObserver]
 	apps       map[string]*Application
 	funcs      map[string]*Function
 	workReqs   map[string]*WorkRequest

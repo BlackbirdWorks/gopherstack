@@ -70,9 +70,9 @@ var dropForward = map[string]bool{
 
 // execPlan is everything needed to run one function, captured under the backend lock.
 type execPlan struct {
-	fnID, fnName, appName, image, sig string
-	env                               []string
-	timeout, detached                 time.Duration
+	fnID, fnName, appID, appName, image, sig string
+	env                                      []string
+	timeout, detached                        time.Duration
 }
 
 // InvokeIn is one invocation request.
@@ -678,7 +678,7 @@ func (b *InMemoryBackend) plan(fnID string) (execPlan, *APIError) {
 	unit := b.exec.timeoutUnit()
 	ref := imageRef(f.Image, f.ImageDigest)
 	p := execPlan{
-		fnID: f.ID, fnName: f.Name, appName: app.Name, image: ref, env: env, sig: execSig(ref, env),
+		fnID: f.ID, fnName: f.Name, appID: app.ID, appName: app.Name, image: ref, env: env, sig: execSig(ref, env),
 		timeout: time.Duration(f.Timeout) * unit,
 	}
 
@@ -706,7 +706,10 @@ func (b *InMemoryBackend) Invoke(ctx context.Context, fnID string, in InvokeIn) 
 		return b.invokeDetached(p, in)
 	}
 
+	start := b.nowUTC()
 	out, aerr := b.exec.run(ctx, p, in)
+	b.observe(p, start, out.CallID, out.Status, aerr)
+
 	if aerr != nil {
 		return InvokeOut{}, aerr
 	}
@@ -733,7 +736,11 @@ func (b *InMemoryBackend) invokeDetached(p execPlan, in InvokeIn) (InvokeOut, er
 
 		p.timeout = p.detached
 
-		if _, aerr := e.run(ctx, p, in); aerr != nil {
+		start := b.nowUTC()
+		res, aerr := e.run(ctx, p, in)
+		b.observe(p, start, res.CallID, res.Status, aerr)
+
+		if aerr != nil {
 			logger.Load(ctx).WarnContext(ctx, "ocifunctions: detached invocation failed",
 				"function", p.fnID, "code", aerr.Code, "message", aerr.Message)
 		}
