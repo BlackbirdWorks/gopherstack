@@ -35,7 +35,11 @@ func acaRuleConcurrency(rules []any) int {
 	for _, e := range rules {
 		r := mapOf(e)
 
-		for _, kind := range []struct{ rule, key string }{{acaScaleHTTP, "concurrentRequests"}, {acaScaleTCP, "concurrentConnections"}} {
+		kinds := []struct{ rule, key string }{
+			{acaScaleHTTP, "concurrentRequests"}, {acaScaleTCP, "concurrentConnections"},
+		}
+
+		for _, kind := range kinds {
 			if md := mapOf(mapOf(r[kind.rule])["metadata"]); md != nil {
 				if n, err := strconv.Atoi(strOf(md, kind.key)); err == nil && n > 0 {
 					return n
