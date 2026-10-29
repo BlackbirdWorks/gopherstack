@@ -25,10 +25,9 @@ type kubeconfigFile struct {
 	Clusters       []struct {
 		Name    string `yaml:"name"`
 		Cluster struct {
-			Server   string `yaml:"server"`
-			CAData   string `yaml:"certificate-authority-data"`
-			CAFile   string `yaml:"certificate-authority"`
-			Insecure bool   `yaml:"insecure-skip-tls-verify"`
+			Server string `yaml:"server"`
+			CAData string `yaml:"certificate-authority-data"`
+			CAFile string `yaml:"certificate-authority"`
 		} `yaml:"cluster"`
 	} `yaml:"clusters"`
 	Contexts []struct {
@@ -41,7 +40,7 @@ type kubeconfigFile struct {
 
 // loadExternalCluster reads the endpoint and CA of kubeContext (or current-context) from a kubeconfig file.
 func loadExternalCluster(kubeconfigPath, kubeContext string) (*externalCluster, error) {
-	raw, err := os.ReadFile(kubeconfigPath)
+	raw, err := os.ReadFile(kubeconfigPath) //nolint:gosec // operator-configured kubeconfig path
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidKubeconfig, err)
 	}
@@ -68,34 +67,33 @@ func loadExternalCluster(kubeconfigPath, kubeContext string) (*externalCluster, 
 	}
 
 	for _, c := range kc.Clusters {
-		if c.Name != clusterName {
-			continue
+		if c.Name == clusterName {
+			return externalFromEntry(kubeconfigPath, clusterName, c.Cluster.Server, c.Cluster.CAData, c.Cluster.CAFile)
 		}
-
-		if c.Cluster.Server == "" {
-			return nil, fmt.Errorf("%w: cluster %q has no server", ErrInvalidKubeconfig, clusterName)
-		}
-
-		ca := c.Cluster.CAData
-
-		if ca == "" && c.Cluster.CAFile != "" {
-			file := c.Cluster.CAFile
-			if !filepath.IsAbs(file) {
-				file = filepath.Join(filepath.Dir(kubeconfigPath), file)
-			}
-
-			pem, rerr := os.ReadFile(file)
-			if rerr != nil {
-				return nil, fmt.Errorf("%w: %w", ErrInvalidKubeconfig, rerr)
-			}
-
-			ca = base64.StdEncoding.EncodeToString(pem)
-		}
-
-		return &externalCluster{endpoint: c.Cluster.Server, ca: ca}, nil
 	}
 
 	return nil, fmt.Errorf("%w: cluster %q not found", ErrInvalidKubeconfig, clusterName)
+}
+
+func externalFromEntry(kubeconfigPath, name, server, caData, caFile string) (*externalCluster, error) {
+	if server == "" {
+		return nil, fmt.Errorf("%w: cluster %q has no server", ErrInvalidKubeconfig, name)
+	}
+
+	if caData != "" || caFile == "" {
+		return &externalCluster{endpoint: server, ca: caData}, nil
+	}
+
+	if !filepath.IsAbs(caFile) {
+		caFile = filepath.Join(filepath.Dir(kubeconfigPath), caFile)
+	}
+
+	pem, err := os.ReadFile(caFile) //nolint:gosec // path comes from the operator's kubeconfig
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidKubeconfig, err)
+	}
+
+	return &externalCluster{endpoint: server, ca: base64.StdEncoding.EncodeToString(pem)}, nil
 }
 
 // EnableExistingCluster fronts the kubeconfig's cluster: DescribeCluster returns its endpoint and CA, no

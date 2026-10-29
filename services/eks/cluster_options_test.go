@@ -109,12 +109,12 @@ func TestParseK3sImageTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		want    map[string]string
 		name    string
 		in      string
-		want    map[string]string
 		wantErr bool
 	}{
-		{name: "empty", in: ""},
+		{name: "empty", in: "", want: map[string]string{}},
 		{name: "one", in: "1.31=v1.31.5-k3s1", want: map[string]string{"1.31": "v1.31.5-k3s1"}},
 		{name: "two", in: "1.31=v1.31.5-k3s1,1.32=v1.32.1-k3s2", want: map[string]string{
 			"1.31": "v1.31.5-k3s1", "1.32": "v1.32.1-k3s2",
@@ -147,12 +147,12 @@ func TestDockerCluster_LaunchOptions(t *testing.T) {
 
 	tests := []struct {
 		tags         map[string]string
-		cfg          eks.ClusterEngineConfig
 		name         string
 		version      string
 		wantImage    string
 		wantMounts   []string
 		wantLBPorts  []int
+		cfg          eks.ClusterEngineConfig
 		wantServLB   bool
 		wantNoVolume bool
 	}{
@@ -187,7 +187,9 @@ func TestDockerCluster_LaunchOptions(t *testing.T) {
 		},
 		{
 			name: "full_image_override", version: "1.31", wantImage: "registry.test/k3s:custom",
-			cfg: eks.ClusterEngineConfig{Image: "registry.test/k3s:custom", ImageTags: map[string]string{"1.31": "v1.31.1-k3s9"}},
+			cfg: eks.ClusterEngineConfig{
+				Image: "registry.test/k3s:custom", ImageTags: map[string]string{"1.31": "v1.31.1-k3s9"},
+			},
 		},
 		{name: "override_allows_unmapped", version: "1.20", wantImage: "registry.test/k3s:custom",
 			cfg: eks.ClusterEngineConfig{Image: "registry.test/k3s:custom"}},

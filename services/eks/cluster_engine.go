@@ -219,7 +219,8 @@ func (e *clusterEngine) addr(lc *liveCluster) string {
 
 func (e *clusterEngine) spec(name string, lc *liveCluster, port int, lbHost []int, ca *clusterCA) container.Spec {
 	bind := container.BindHostFor(e.cfg.Host)
-	ports := []string{container.PortSpec(bind, strconv.Itoa(port), strconv.Itoa(k3sAPIPort))}
+	ports := make([]string, 0, 1+len(lc.lbPorts))
+	ports = append(ports, container.PortSpec(bind, strconv.Itoa(port), strconv.Itoa(k3sAPIPort)))
 
 	for i, p := range lc.lbPorts {
 		ports = append(ports, container.PortSpec(bind, strconv.Itoa(lbHost[i]), strconv.Itoa(p)))

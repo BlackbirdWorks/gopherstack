@@ -137,11 +137,11 @@ func ParseLBPorts(v string) ([]int, error) {
 
 // ParseK3sImageTags parses "1.31=v1.31.5-k3s1,1.32=..." into a minor-to-tag pin map.
 func ParseK3sImageTags(v string) (map[string]string, error) {
-	if strings.TrimSpace(v) == "" {
-		return nil, nil
-	}
-
 	out := make(map[string]string)
+
+	if strings.TrimSpace(v) == "" {
+		return out, nil
+	}
 
 	for item := range strings.SplitSeq(v, ",") {
 		minor, tag, ok := strings.Cut(strings.TrimSpace(item), "=")
