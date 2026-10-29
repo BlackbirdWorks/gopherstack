@@ -648,7 +648,9 @@ func (p *EventSourcePoller) invokeLambda(
 			continue
 		}
 
-		events = append(events, streamEvent{arrival: r.ArrivalTime, seq: r.SequenceNumber, key: r.PartitionKey, raw: raw})
+		events = append(events, streamEvent{
+			arrival: r.ArrivalTime, seq: r.SequenceNumber, key: r.PartitionKey, raw: raw,
+		})
 	}
 
 	p.esmFilteredMetric(m, len(records)-len(events))
@@ -1176,14 +1178,6 @@ func filterByBatchItemFailures(reportFailures bool, respBody []byte, msgs []*SQS
 	}
 
 	return toDelete
-}
-
-func failedCount(err error, n int) int {
-	if err != nil {
-		return n
-	}
-
-	return 0
 }
 
 // esmFilteredMetric reports FilteredOutEventCount only for mappings that carry filter criteria.

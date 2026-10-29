@@ -267,7 +267,7 @@ func TestStreamTumblingWindow(t *testing.T) {
 		final   bool
 	}
 
-	counting := func(h *streamHarness, c streamCall) invokeOutcome {
+	counting := func(_ *streamHarness, c streamCall) invokeOutcome {
 		n := 0
 		if v, ok := c.State["n"].(float64); ok {
 			n = int(v)
@@ -339,7 +339,8 @@ func TestStreamTumblingWindow(t *testing.T) {
 				polls = append(polls, s.recs)
 			}
 
-			h := newStreamHarness(t, &CreateEventSourceMappingInput{TumblingWindowInSeconds: 60}, polls, base, tt.respond)
+			in := &CreateEventSourceMappingInput{TumblingWindowInSeconds: 60}
+			h := newStreamHarness(t, in, polls, base, tt.respond)
 			h.advance(10 * time.Second)
 
 			for _, s := range tt.steps {
@@ -461,9 +462,9 @@ func TestStreamMaximumBatchingWindow(t *testing.T) {
 	tests := []struct {
 		name      string
 		polls     [][]KinesisRecord
+		wantSizes []int
 		batchSize int
 		advance   time.Duration
-		wantSizes []int
 	}{
 		{
 			name:      "partial batch waits for the window",
@@ -570,9 +571,9 @@ func TestStreamTuningUpdateValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		tumble  *int32
 		name    string
 		pf      int32
-		tumble  *int32
 		wantErr bool
 	}{
 		{name: "factor 5", pf: 5},
@@ -677,7 +678,7 @@ func TestStreamDynamoDBParallelizationKeepsItemOrder(t *testing.T) {
 
 		require.NoError(t, json.Unmarshal(payload, &ev))
 
-		var got []string
+		got := make([]string, 0, len(ev.Records))
 		for _, r := range ev.Records {
 			got = append(got, r.Dynamodb.Keys["Id"]["S"]+":"+r.Dynamodb.Seq)
 		}

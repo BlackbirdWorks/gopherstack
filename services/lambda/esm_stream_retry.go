@@ -24,8 +24,8 @@ type streamEvent struct {
 // streamBatch is a batch awaiting a successful invocation.
 type streamBatch struct {
 	win      *tumblingWindow
-	last     invokeOutcome
 	events   []streamEvent
+	last     invokeOutcome
 	attempts int
 	final    bool
 	early    bool
@@ -170,14 +170,6 @@ func (p *EventSourcePoller) stepStreamBatch(
 	}
 
 	return false
-}
-
-func boolErr(failed bool) error {
-	if failed {
-		return errKafkaFunction
-	}
-
-	return nil
 }
 
 func splitExpiredEvents(events []streamEvent, maxAge time.Duration, now time.Time) ([]streamEvent, []streamEvent) {

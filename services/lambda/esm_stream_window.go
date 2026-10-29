@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"hash/fnv"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -67,7 +68,7 @@ func laneIndex(partitionKey string, lanes int) int {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(partitionKey))
 
-	return int(h.Sum32() % uint32(lanes))
+	return int(h.Sum32()&math.MaxInt32) % lanes
 }
 
 // deliverStreamEvents buffers the events and dispatches whatever is due.
