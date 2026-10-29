@@ -29,7 +29,8 @@ func seedDelta(t *testing.T, e *iceEnv) {
 	schema := strings.ReplaceAll(deltaSchema, `"`, `\"`)
 	e.store.objects["lake/dl/_delta_log/00000000000000000000.json"] = deltaCommit(
 		`{"protocol":{"minReaderVersion":1,"minWriterVersion":2}}`,
-		`{"metaData":{"id":"x","format":{"provider":"parquet"},"schemaString":"`+schema+`","partitionColumns":["dt"],"configuration":{}}}`,
+		`{"metaData":{"id":"x","format":{"provider":"parquet"},"schemaString":"`+schema+
+			`","partitionColumns":["dt"],"configuration":{}}}`,
 		`{"add":{"path":"part-0.parquet","partitionValues":{"dt":"2024-01-01"},"size":10,"dataChange":true}}`,
 		`{"add":{"path":"part-1.parquet","partitionValues":{"dt":"2024-01-01"},"size":10,"dataChange":true}}`,
 	)
@@ -56,7 +57,7 @@ func TestDelta_CreateAndSelect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newIceEnv(t, nil, nil)
+			e := newIceEnv(t)
 			seedDelta(t, e)
 			e.mustRun(t, "CREATE EXTERNAL TABLE dl LOCATION 's3://lake/dl/' TBLPROPERTIES ('table_type'='DELTA')")
 
@@ -128,7 +129,7 @@ func TestDelta_Errors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newIceEnv(t, nil, nil)
+			e := newIceEnv(t)
 			if tc.setup != nil {
 				tc.setup(e)
 			}

@@ -34,8 +34,8 @@ var (
 
 func isWriteProp(k string) bool {
 	switch k {
-	case "format", "external_location", "partitioned_by", "field_delimiter",
-		"write_compression", "compression", "parquet_compression", "orc_compression", "is_external":
+	case propFormat, "external_location", "partitioned_by", "field_delimiter",
+		propWriteCompression, "compression", "parquet_compression", "orc_compression", "is_external":
 		return true
 	default:
 		return false
@@ -108,8 +108,8 @@ func (b *InMemoryBackend) planWrite(
 	if w.kind != writeUnload {
 		catalog, db, table := refTarget(w.target, qctx)
 
-		tcat, ok := b.tableCatalogFor(catalog)
-		if !ok {
+		tcat, found := b.tableCatalogFor(catalog)
+		if !found {
 			return nil, stmtOK(), false
 		}
 
@@ -169,7 +169,7 @@ func (p *writePlan) validateProps() statementOutcome {
 		}
 	}
 
-	name := strings.ToUpper(firstProp(props, "format"))
+	name := strings.ToUpper(firstProp(props, propFormat))
 	if name == "" {
 		name = "PARQUET"
 	}
@@ -210,7 +210,7 @@ func (p *writePlan) validateProps() statementOutcome {
 
 func (p *writePlan) validateCompression() statementOutcome {
 	props := p.stmt.props
-	c := strings.ToUpper(orDefault(firstProp(props, "write_compression"),
+	c := strings.ToUpper(orDefault(firstProp(props, propWriteCompression),
 		orDefault(firstProp(props, "compression"), firstProp(props, "parquet_compression"))))
 
 	if out := p.checkCompression(c); out.failed {
@@ -437,7 +437,7 @@ func (p *writePlan) ctasDef(data, parts []outCol) GlueTableDef {
 		Name:          p.table,
 		TableType:     tableTypeExternal,
 		Location:      p.location,
-		Parameters:    map[string]string{"EXTERNAL": "TRUE"},
+		Parameters:    map[string]string{"EXTERNAL": externalTrue},
 		Columns:       outColumns(data),
 		PartitionKeys: outColumns(parts),
 		InputFormat:   textInputFormat,

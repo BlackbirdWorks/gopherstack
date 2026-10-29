@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -99,35 +100,28 @@ func (t *planTable) loadDelta(ctx context.Context, conn *sql.Conn, l *tableLoade
 		return err
 	}
 
+	st, err := newDeltaStorage(l, t.def.Location)
+	if err != nil {
+		return err
+	}
+
 	cols := make([]Column, len(snap.Columns))
 	for i, c := range snap.Columns {
 		cols[i] = Column{Name: c.Name, Type: c.Type}
 	}
 
-	st, _ := newDeltaStorage(l, t.def.Location)
-
 	return fillTable(ctx, conn, t.schema, t.name, cols, func(stmt *sql.Stmt, kinds []colKind) error {
 		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: len(cols)}
 
 		for _, f := range snap.Files {
-			fcs := make([]fileCol, len(cols))
-			for i, c := range snap.Columns {
-				fcs[i] = fileCol{name: c.Name, hive: c.Type, fileName: c.PhysicalName}
-				if snap.ColumnMapping == "id" {
-					fcs[i].id = c.ID
-				}
+			bucket, key := st.bucket, st.prefix+f.Path
 
-				if v, isPart := f.PartitionValues[c.PhysicalName]; isPart || contains(snap.PartitionColumns, c.Name) {
-					if v == nil && !isPart {
-						v = f.PartitionValues[c.Name]
-					}
-
-					fcs[i].constant, fcs[i].fileName, fcs[i].id = v, "", 0
-				}
+			if b, k, abs := splitS3URI(f.Path); abs {
+				bucket, key = b, k
 			}
 
-			if err := l.loadColumnarFile(ctx, st.bucket, st.prefix+f.Path, fcs, nil, sink); err != nil {
-				return err
+			if lerr := l.loadColumnarFile(ctx, bucket, key, deltaFileCols(snap, f), nil, sink); lerr != nil {
+				return lerr
 			}
 		}
 
@@ -135,12 +129,27 @@ func (t *planTable) loadDelta(ctx context.Context, conn *sql.Conn, l *tableLoade
 	})
 }
 
-func contains(list []string, s string) bool {
-	for _, e := range list {
-		if e == s {
-			return true
+// deltaFileCols binds the table columns to one data file; partition columns come from the log.
+func deltaFileCols(snap *deltalog.Snapshot, f deltalog.AddFile) []fileCol {
+	fcs := make([]fileCol, len(snap.Columns))
+
+	for i, c := range snap.Columns {
+		fcs[i] = fileCol{name: c.Name, hive: c.Type, fileName: c.PhysicalName}
+		if snap.ColumnMapping == "id" {
+			fcs[i].id = c.ID
 		}
+
+		if !slices.Contains(snap.PartitionColumns, c.Name) {
+			continue
+		}
+
+		v, ok := f.PartitionValues[c.PhysicalName]
+		if !ok {
+			v = f.PartitionValues[c.Name]
+		}
+
+		fcs[i].constant, fcs[i].fileName, fcs[i].id = v, "", 0
 	}
 
-	return false
+	return fcs
 }

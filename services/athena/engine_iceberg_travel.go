@@ -16,7 +16,7 @@ func (x *translator) travelClause(toks []token, end int) (string, int) {
 	}
 
 	k := nextSig(toks, n)
-	if k < 0 || !(toks[k].isWord("timestamp") || toks[k].isWord("version")) {
+	if k < 0 || (!toks[k].isWord("timestamp") && !toks[k].isWord("version")) {
 		return "", end
 	}
 

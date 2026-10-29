@@ -11,27 +11,37 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
 )
 
-func ptr(s string) *string { return &s }
-
 func TestTransformSpecVectors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		want      any
 		name      string
 		transform string
 		source    string
 		in        string
-		want      any
 	}{
-		{"bucket long 34", "bucket[100]", "long", "34", int32(2017239379 & 0x7fffffff % 100)},
-		{"bucket string", "bucket[100]", "string", "iceberg", int32(1210000089 % 100)},
-		{"truncate int", "truncate[10]", "int", "-1", int32(-10)},
-		{"truncate string", "truncate[3]", "string", "iceberg", "ice"},
-		{"year", "year", "date", "2017-11-16", int32(47)},
-		{"month", "month", "date", "2017-11-16", int32(574)},
-		{"day", "day", "date", "2017-11-16", int32(17486)},
-		{"hour", "hour", "timestamp", "2017-11-16 22:31:08", int32(419686)},
-		{"identity date", "identity", "date", "1970-01-02", int32(1)},
+		{
+			name:      "bucket long 34",
+			transform: "bucket[100]",
+			source:    "long",
+			in:        "34",
+			want:      int32(2017239379 & 0x7fffffff % 100),
+		},
+		{
+			name:      "bucket string",
+			transform: "bucket[100]",
+			source:    "string",
+			in:        "iceberg",
+			want:      int32(1210000089 % 100),
+		},
+		{name: "truncate int", transform: "truncate[10]", source: "int", in: "-1", want: int32(-10)},
+		{name: "truncate string", transform: "truncate[3]", source: "string", in: "iceberg", want: "ice"},
+		{name: "year", transform: "year", source: "date", in: "2017-11-16", want: int32(47)},
+		{name: "month", transform: "month", source: "date", in: "2017-11-16", want: int32(574)},
+		{name: "day", transform: "day", source: "date", in: "2017-11-16", want: int32(17486)},
+		{name: "hour", transform: "hour", source: "timestamp", in: "2017-11-16 22:31:08", want: int32(419686)},
+		{name: "identity date", transform: "identity", source: "date", in: "1970-01-02", want: int32(1)},
 	}
 
 	for _, tc := range tests {
@@ -41,7 +51,7 @@ func TestTransformSpecVectors(t *testing.T) {
 			tr, err := iceberg.ParseTransform(tc.transform)
 			require.NoError(t, err)
 
-			got, err := tr.Apply(tc.source, ptr(tc.in))
+			got, err := tr.Apply(tc.source, new(tc.in))
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
@@ -63,16 +73,24 @@ func TestAppendRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		part map[string]any
 		name string
 		spec iceberg.PartitionSpec
-		part map[string]any
 	}{
-		{"unpartitioned", iceberg.PartitionSpec{SpecID: 0, Fields: []iceberg.PartitionField{}}, map[string]any{}},
-		{"partitioned", iceberg.PartitionSpec{SpecID: 0, Fields: []iceberg.PartitionField{
-			{Name: "category", Transform: "identity", SourceID: 2, FieldID: 1000},
-			{Name: "id_bucket", Transform: "bucket[16]", SourceID: 1, FieldID: 1001},
-			{Name: "ts_day", Transform: "day", SourceID: 3, FieldID: 1002},
-		}}, map[string]any{"category": "a", "id_bucket": int32(3), "ts_day": int32(19000)}},
+		{
+			name: "unpartitioned",
+			spec: iceberg.PartitionSpec{Fields: []iceberg.PartitionField{}},
+			part: map[string]any{},
+		},
+		{
+			name: "partitioned",
+			spec: iceberg.PartitionSpec{Fields: []iceberg.PartitionField{
+				{Name: "category", Transform: "identity", SourceID: 2, FieldID: 1000},
+				{Name: "id_bucket", Transform: "bucket[16]", SourceID: 1, FieldID: 1001},
+				{Name: "ts_day", Transform: "day", SourceID: 3, FieldID: 1002},
+			}},
+			part: map[string]any{"category": "a", "id_bucket": int32(3), "ts_day": int32(19000)},
+		},
 	}
 
 	for _, tc := range tests {
@@ -91,10 +109,17 @@ func TestAppendRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, iceberg.NoSnapshot, parsed.CurrentSnapshotID)
 
-			files := []iceberg.DataFile{{
-				Path: "s3://b/tbl/data/f1.parquet", Format: "PARQUET", Partition: tc.part, RecordCount: 5, FileSize: 100,
-				ValueCounts: map[int]int64{1: 5}, NullCounts: map[int]int64{1: 0},
-			}}
+			files := []iceberg.DataFile{
+				{
+					Path:        "s3://b/tbl/data/f1.parquet",
+					Format:      "PARQUET",
+					Partition:   tc.part,
+					RecordCount: 5,
+					FileSize:    100,
+					ValueCounts: map[int]int64{1: 5},
+					NullCounts:  map[int]int64{1: 0},
+				},
+			}
 
 			plan, err := parsed.PlanAppend("s3://b/tbl/metadata/00000.json", nil, files, now.Add(time.Second))
 			require.NoError(t, err)

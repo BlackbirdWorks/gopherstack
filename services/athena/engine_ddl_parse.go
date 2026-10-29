@@ -283,7 +283,7 @@ func (s *createTableSpec) finish(external bool) {
 	}
 
 	if external {
-		s.def.Parameters["EXTERNAL"] = "TRUE"
+		s.def.Parameters["EXTERNAL"] = externalTrue
 	}
 
 	s.def.TableType = tableTypeExternal

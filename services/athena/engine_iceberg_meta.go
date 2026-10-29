@@ -11,8 +11,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
 )
 
-var icebergMetaTables = []string{"snapshots", "history", "files", "manifests", "refs"}
-
 // icebergMetaSuffix splits "tbl$snapshots" into the table and metadata table names.
 func icebergMetaSuffix(name string) (string, string, bool) {
 	base, meta, ok := strings.Cut(name, "$")
@@ -20,7 +18,7 @@ func icebergMetaSuffix(name string) (string, string, bool) {
 		return name, "", false
 	}
 
-	for _, m := range icebergMetaTables {
+	for _, m := range []string{"snapshots", "history", "files", "manifests", "refs"} {
 		if strings.EqualFold(meta, m) {
 			return base, m, true
 		}
@@ -28,6 +26,8 @@ func icebergMetaSuffix(name string) (string, string, bool) {
 
 	return name, "", false
 }
+
+const colSnapshotID = "snapshot_id"
 
 func tsText(ms int64) string { return time.UnixMilli(ms).UTC().Format(tsMillisLayout) }
 
@@ -90,9 +90,9 @@ func (t *planTable) loadIcebergMetaTable(
 
 func snapshotsTable(m *iceberg.TableMetadata) ([]Column, [][]any) {
 	cols := []Column{
-		{Name: "committed_at", Type: "timestamp"}, {Name: "snapshot_id", Type: "bigint"},
-		{Name: "parent_id", Type: "bigint"}, {Name: "operation", Type: "varchar"},
-		{Name: "manifest_list", Type: "varchar"}, {Name: "summary", Type: "varchar"},
+		{Name: "committed_at", Type: "timestamp"}, {Name: colSnapshotID, Type: typeBigint},
+		{Name: "parent_id", Type: typeBigint}, {Name: "operation", Type: typeVarchar},
+		{Name: "manifest_list", Type: typeVarchar}, {Name: "summary", Type: typeVarchar},
 	}
 	rows := make([][]any, 0, len(m.Snapshots))
 
@@ -108,8 +108,8 @@ func snapshotsTable(m *iceberg.TableMetadata) ([]Column, [][]any) {
 
 func historyTable(m *iceberg.TableMetadata) ([]Column, [][]any) {
 	cols := []Column{
-		{Name: "made_current_at", Type: "timestamp"}, {Name: "snapshot_id", Type: "bigint"},
-		{Name: "parent_id", Type: "bigint"}, {Name: "is_current_ancestor", Type: "boolean"},
+		{Name: "made_current_at", Type: "timestamp"}, {Name: colSnapshotID, Type: typeBigint},
+		{Name: "parent_id", Type: typeBigint}, {Name: "is_current_ancestor", Type: "boolean"},
 	}
 	ancestors := map[int64]bool{}
 
@@ -145,7 +145,7 @@ func historyTable(m *iceberg.TableMetadata) ([]Column, [][]any) {
 
 func refsTable(m *iceberg.TableMetadata) ([]Column, [][]any) {
 	cols := []Column{
-		{Name: "name", Type: "varchar"}, {Name: "type", Type: "varchar"}, {Name: "snapshot_id", Type: "bigint"},
+		{Name: "name", Type: typeVarchar}, {Name: "type", Type: typeVarchar}, {Name: colSnapshotID, Type: typeBigint},
 	}
 	names := make([]string, 0, len(m.Refs))
 
@@ -168,11 +168,11 @@ func (l *tableLoader) manifestsTable(
 	ctx context.Context, snap iceberg.Snapshot, hasSnap bool,
 ) ([]Column, [][]any, error) {
 	cols := []Column{
-		{Name: "path", Type: "varchar"}, {Name: "length", Type: "bigint"},
-		{Name: "partition_spec_id", Type: "integer"}, {Name: "added_snapshot_id", Type: "bigint"},
-		{Name: "added_data_files_count", Type: "integer"}, {Name: "added_rows_count", Type: "bigint"},
-		{Name: "existing_data_files_count", Type: "integer"}, {Name: "existing_rows_count", Type: "bigint"},
-		{Name: "deleted_data_files_count", Type: "integer"}, {Name: "deleted_rows_count", Type: "bigint"},
+		{Name: "path", Type: typeVarchar}, {Name: "length", Type: typeBigint},
+		{Name: "partition_spec_id", Type: typeInteger}, {Name: "added_snapshot_id", Type: typeBigint},
+		{Name: "added_data_files_count", Type: typeInteger}, {Name: "added_rows_count", Type: typeBigint},
+		{Name: "existing_data_files_count", Type: typeInteger}, {Name: "existing_rows_count", Type: typeBigint},
+		{Name: "deleted_data_files_count", Type: typeInteger}, {Name: "deleted_rows_count", Type: typeBigint},
 	}
 
 	if !hasSnap || snap.ManifestList == "" {
@@ -202,10 +202,10 @@ func (l *tableLoader) manifestsTable(
 
 func (l *tableLoader) filesTable(ctx context.Context, snap iceberg.Snapshot, hasSnap bool) ([]Column, [][]any, error) {
 	cols := []Column{
-		{Name: "content", Type: "integer"}, {Name: "file_path", Type: "varchar"},
-		{Name: "file_format", Type: "varchar"}, {Name: "spec_id", Type: "integer"},
-		{Name: "partition", Type: "varchar"}, {Name: "record_count", Type: "bigint"},
-		{Name: "file_size_in_bytes", Type: "bigint"},
+		{Name: "content", Type: typeInteger}, {Name: "file_path", Type: typeVarchar},
+		{Name: "file_format", Type: typeVarchar}, {Name: "spec_id", Type: typeInteger},
+		{Name: "partition", Type: typeVarchar}, {Name: "record_count", Type: typeBigint},
+		{Name: "file_size_in_bytes", Type: typeBigint},
 	}
 
 	if !hasSnap {

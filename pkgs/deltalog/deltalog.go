@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ const (
 	checkpointMarker     = ".checkpoint."
 	parquetSuffix        = ".parquet"
 	maxLogLineBytes      = 64 << 20
+	scanBufBytes         = 64 << 10
 )
 
 var (
@@ -79,8 +81,8 @@ type action struct {
 
 type addAction struct {
 	PartitionValues map[string]*string `json:"partitionValues"`
-	DeletionVector  json.RawMessage    `json:"deletionVector"`
 	Path            string             `json:"path"`
+	DeletionVector  json.RawMessage    `json:"deletionVector"`
 	Size            int64              `json:"size"`
 }
 
@@ -150,7 +152,7 @@ func Load(ctx context.Context, st Storage) (*Snapshot, error) {
 		}
 	}
 
-	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+	slices.Sort(versions)
 
 	for _, v := range versions {
 		if v != s.version+1 {
@@ -280,7 +282,7 @@ func (s *state) applyCheckpoint(body []byte) error {
 
 func (s *state) applyCommit(body []byte) error {
 	sc := bufio.NewScanner(bytes.NewReader(body))
-	sc.Buffer(make([]byte, 0, 1<<16), maxLogLineBytes)
+	sc.Buffer(make([]byte, 0, scanBufBytes), maxLogLineBytes)
 
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
@@ -403,32 +405,15 @@ func parseSchema(s, mode string) ([]Column, error) {
 func hiveType(raw json.RawMessage) (string, error) {
 	var prim string
 	if err := json.Unmarshal(raw, &prim); err == nil {
-		switch {
-		case prim == "long":
-			return "bigint", nil
-		case prim == "integer":
-			return "int", nil
-		case prim == "short":
-			return "smallint", nil
-		case prim == "byte":
-			return "tinyint", nil
-		case prim == "timestamp_ntz":
-			return "timestamp", nil
-		case prim == "string", prim == "float", prim == "double", prim == "boolean", prim == "binary",
-			prim == "date", prim == "timestamp", strings.HasPrefix(prim, "decimal"):
-			return prim, nil
-		default:
-			return "", fmt.Errorf("%w: type %s", ErrUnsupported, prim)
-		}
+		return hivePrimitive(prim)
 	}
 
 	var n struct {
-		Type         string          `json:"type"`
-		ElementType  json.RawMessage `json:"elementType"`
-		KeyType      json.RawMessage `json:"keyType"`
-		ValueType    json.RawMessage `json:"valueType"`
-		Fields       []schemaField   `json:"fields"`
-		ContainsNull bool            `json:"containsNull"`
+		Type        string          `json:"type"`
+		ElementType json.RawMessage `json:"elementType"`
+		KeyType     json.RawMessage `json:"keyType"`
+		ValueType   json.RawMessage `json:"valueType"`
+		Fields      []schemaField   `json:"fields"`
 	}
 
 	if err := json.Unmarshal(raw, &n); err != nil {
@@ -464,5 +449,28 @@ func hiveType(raw json.RawMessage) (string, error) {
 		return "struct<" + strings.Join(parts, ",") + ">", nil
 	default:
 		return "", fmt.Errorf("%w: type %s", ErrUnsupported, n.Type)
+	}
+}
+
+func hivePrimitive(prim string) (string, error) {
+	switch prim {
+	case "long":
+		return "bigint", nil
+	case "integer":
+		return "int", nil
+	case "short":
+		return "smallint", nil
+	case "byte":
+		return "tinyint", nil
+	case "timestamp_ntz":
+		return "timestamp", nil
+	case "string", "float", "double", "boolean", "binary", "date", "timestamp":
+		return prim, nil
+	default:
+		if strings.HasPrefix(prim, "decimal") {
+			return prim, nil
+		}
+
+		return "", fmt.Errorf("%w: type %s", ErrUnsupported, prim)
 	}
 }

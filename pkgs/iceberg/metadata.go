@@ -35,9 +35,9 @@ var (
 
 // Field is one schema field; Type is a primitive name or a nested type object.
 type Field struct {
-	Type     json.RawMessage `json:"type"`
 	Name     string          `json:"name"`
 	Doc      string          `json:"doc,omitempty"`
+	Type     json.RawMessage `json:"type"`
 	ID       int             `json:"id"`
 	Required bool            `json:"required"`
 }
@@ -118,11 +118,13 @@ type TableMetadata struct {
 	DefaultSortOrderID int                `json:"default-sort-order-id"`
 }
 
-var modeledKeys = []string{
-	"format-version", "table-uuid", "location", "last-sequence-number", "last-updated-ms", "last-column-id",
-	"current-schema-id", "schemas", "default-spec-id", "partition-specs", "last-partition-id",
-	"default-sort-order-id", "sort-orders", "properties", "current-snapshot-id", "snapshots",
-	"snapshot-log", "metadata-log", "refs",
+func modeledKeys() []string {
+	return []string{
+		keyFormatVersion, "table-uuid", "location", "last-sequence-number", "last-updated-ms", "last-column-id",
+		"current-schema-id", "schemas", "default-spec-id", "partition-specs", "last-partition-id",
+		"default-sort-order-id", "sort-orders", "properties", "current-snapshot-id", "snapshots",
+		"snapshot-log", "metadata-log", "refs",
+	}
 }
 
 type metadataAlias TableMetadata
@@ -158,7 +160,7 @@ func (m *TableMetadata) UnmarshalJSON(b []byte) error {
 	raw := map[string]json.RawMessage{}
 	_ = json.Unmarshal(b, &raw)
 
-	for _, k := range modeledKeys {
+	for _, k := range modeledKeys() {
 		delete(raw, k)
 	}
 
@@ -169,13 +171,13 @@ func (m *TableMetadata) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON encodes the modeled members over the preserved extras.
-func (m TableMetadata) MarshalJSON() ([]byte, error) {
+func (m *TableMetadata) MarshalJSON() ([]byte, error) {
 	out := maps.Clone(m.extra)
 	if out == nil {
 		out = map[string]json.RawMessage{}
 	}
 
-	typed, err := json.Marshal(metadataAlias(m))
+	typed, err := json.Marshal(metadataAlias(*m))
 	if err != nil {
 		return nil, err
 	}
@@ -305,18 +307,18 @@ func (m *TableMetadata) SnapshotAsOf(t time.Time) (Snapshot, error) {
 
 // NewParams describes a table to create.
 type NewParams struct {
+	Now        time.Time
 	Properties map[string]string
 	Location   string
+	SortOrder  json.RawMessage
 	Schema     Schema
 	Spec       PartitionSpec
-	SortOrder  json.RawMessage
-	Now        time.Time
 }
 
 // NewTableMetadata builds the v2 metadata of a table with no snapshots.
 func NewTableMetadata(p NewParams) *TableMetadata {
 	schema := p.Schema
-	schema.Type = "struct"
+	schema.Type = typeStruct
 	schema.SchemaID = 0
 
 	lastCol := 0

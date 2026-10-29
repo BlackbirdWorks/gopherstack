@@ -25,6 +25,7 @@ type AppendPlan struct {
 }
 
 const (
+	maxInt63        = 0x7fffffffffffffff
 	summaryOp       = "operation"
 	summaryAdded    = "added-data-files"
 	summaryRecords  = "added-records"
@@ -47,7 +48,7 @@ func summaryInt(s map[string]string, k string) int64 {
 func NewSnapshotID() int64 {
 	u := uuid.New()
 
-	return int64(binary.BigEndian.Uint64(u[:8]) & 0x7fffffffffffffff) //nolint:gosec // masked to 63 bits
+	return int64(binary.BigEndian.Uint64(u[:8]) & maxInt63)
 }
 
 // PlanAppend prepares a commit appending files to the table. currentLocation
@@ -91,11 +92,12 @@ func (m *TableMetadata) PlanAppend(
 	}
 
 	manifestLoc := base + uuid.NewString() + "-m0.avro"
-	list := []ManifestFile{{
+	list := make([]ManifestFile, 0, 1+len(prev))
+	list = append(list, ManifestFile{
 		Path: manifestLoc, Length: int64(len(manifestBody)), SpecID: spec.SpecID, Content: ContentData,
 		SequenceNumber: seq, MinSequenceNumber: seq, AddedSnapshotID: snapID,
 		AddedFiles: len(files), AddedRows: rows,
-	}}
+	})
 	list = append(list, prev...)
 
 	listBody, err := EncodeManifestList(snapID, parent, seq, list)

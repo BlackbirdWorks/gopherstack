@@ -83,7 +83,7 @@ func EncodeManifestList(snapshotID int64, parent *int64, seq int64, files []Mani
 	meta := map[string][]byte{
 		"snapshot-id":     []byte(strconv.FormatInt(snapshotID, 10)),
 		"sequence-number": []byte(strconv.FormatInt(seq, 10)),
-		"format-version":  []byte("2"),
+		keyFormatVersion:  []byte("2"),
 	}
 	if parent != nil {
 		meta["parent-snapshot-id"] = []byte(strconv.FormatInt(*parent, 10))
@@ -98,11 +98,11 @@ func EncodeManifestList(snapshotID int64, parent *int64, seq int64, files []Mani
 
 	for _, f := range files {
 		row := map[string]any{
-			"manifest_path": f.Path, "manifest_length": f.Length, "partition_spec_id": int32(f.SpecID),
-			"content": int32(f.Content), "sequence_number": f.SequenceNumber,
+			"manifest_path": f.Path, "manifest_length": f.Length, "partition_spec_id": i32(f.SpecID),
+			keyContent: i32(f.Content), "sequence_number": f.SequenceNumber,
 			"min_sequence_number": f.MinSequenceNumber, "added_snapshot_id": f.AddedSnapshotID,
-			"added_files_count": int32(f.AddedFiles), "existing_files_count": int32(f.ExistingFiles),
-			"deleted_files_count": int32(f.DeletedFiles), "added_rows_count": f.AddedRows,
+			"added_files_count": i32(f.AddedFiles), "existing_files_count": i32(f.ExistingFiles),
+			"deleted_files_count": i32(f.DeletedFiles), "added_rows_count": f.AddedRows,
 			"existing_rows_count": f.ExistingRows, "deleted_rows_count": f.DeletedRows,
 		}
 		if err = enc.Encode(row); err != nil {
@@ -119,7 +119,7 @@ func EncodeManifestList(snapshotID int64, parent *int64, seq int64, files []Mani
 
 // ReadManifestList decodes a manifest list (v1 and v2 column names).
 func ReadManifestList(data []byte) ([]ManifestFile, error) {
-	rows, _, err := readOCF(data)
+	rows, err := readOCF(data)
 	if err != nil {
 		return nil, err
 	}
@@ -162,9 +162,9 @@ func firstInt(r map[string]any, keys ...string) int64 {
 	return 0
 }
 
-// ReadManifest decodes a manifest; the second result is the partition spec id from the file header.
+// ReadManifest decodes a manifest.
 func ReadManifest(data []byte) ([]ManifestEntry, error) {
-	rows, _, err := readOCF(data)
+	rows, err := readOCF(data)
 	if err != nil {
 		return nil, err
 	}
@@ -197,10 +197,10 @@ func ReadManifest(data []byte) ([]ManifestEntry, error) {
 	return out, nil
 }
 
-func readOCF(data []byte) ([]map[string]any, map[string][]byte, error) {
+func readOCF(data []byte) ([]map[string]any, error) {
 	dec, err := ocf.NewDecoder(bytes.NewReader(data))
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
 
 	var rows []map[string]any
@@ -208,17 +208,17 @@ func readOCF(data []byte) ([]map[string]any, map[string][]byte, error) {
 	for dec.HasNext() {
 		var row map[string]any
 		if err = dec.Decode(&row); err != nil {
-			return nil, nil, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
+			return nil, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 		}
 
 		rows = append(rows, row)
 	}
 
 	if err = dec.Error(); err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
 
-	return rows, dec.Metadata(), nil
+	return rows, nil
 }
 
 // unwrap strips the single-key map hamba wraps around a decoded non-null union member.
@@ -226,7 +226,7 @@ func unwrap(v any) any {
 	if m, ok := v.(map[string]any); ok && len(m) == 1 {
 		for k, inner := range m {
 			switch k {
-			case "int", "long", "string", "boolean", "float", "double", "bytes", "array", "map", "record":
+			case typeInt, typeLong, typeString, typeBoolean, typeFloat, typeDouble, "bytes", "array", typeMap, "record":
 				return inner
 			}
 		}
@@ -322,18 +322,29 @@ func avroPartitionField(meta *TableMetadata, pf PartitionField) (map[string]any,
 	}
 
 	return map[string]any{
-		"name": pf.Name, "type": []any{"null", at}, "default": nil, "field-id": pf.FieldID,
+		keyName: pf.Name, keyType: []any{"null", at}, keyDefault: nil, "field-id": pf.FieldID,
 	}, nil
+}
+
+func avroField(name string, typ any, id int) map[string]any {
+	return map[string]any{keyName: name, keyType: typ, "field-id": id}
+}
+
+func avroOptional(name string, typ any, id int) map[string]any {
+	f := avroField(name, []any{"null", typ}, id)
+	f[keyDefault] = nil
+
+	return f
 }
 
 func kvArray(name string, keyID, valID int, valType string) map[string]any {
 	return map[string]any{
-		"type": "array", "logicalType": "map",
+		keyType: "array", "logicalType": typeMap,
 		"items": map[string]any{
-			"type": "record", "name": name,
-			"fields": []any{
-				map[string]any{"name": "key", "type": "int", "field-id": keyID},
-				map[string]any{"name": "value", "type": valType, "field-id": valID},
+			keyType: avroRecord, keyName: name,
+			keyFields: []any{
+				avroField(keyKey, typeInt, keyID),
+				avroField(keyValue, valType, valID),
 			},
 		},
 	}
@@ -351,39 +362,40 @@ func manifestSchema(meta *TableMetadata, spec PartitionSpec) (string, error) {
 		pfields = append(pfields, f)
 	}
 
-	opt := func(t any) []any { return []any{"null", t} }
-
 	dataFile := map[string]any{
-		"type": "record", "name": "r2",
-		"fields": []any{
-			map[string]any{"name": "content", "type": "int", "field-id": 134},
-			map[string]any{"name": "file_path", "type": "string", "field-id": 100},
-			map[string]any{"name": "file_format", "type": "string", "field-id": 101},
-			map[string]any{
-				"name": "partition", "field-id": 102,
-				"type": map[string]any{"type": "record", "name": "r102", "fields": pfields},
-			},
-			map[string]any{"name": "record_count", "type": "long", "field-id": 103},
-			map[string]any{"name": "file_size_in_bytes", "type": "long", "field-id": 104},
-			map[string]any{
-				"name": "value_counts", "type": opt(kvArray("k109_v110", 138, 139, "long")),
-				"default": nil, "field-id": 109,
-			},
-			map[string]any{
-				"name": "null_value_counts", "type": opt(kvArray("k121_v122", 121, 122, "long")),
-				"default": nil, "field-id": 110,
-			},
+		keyType: avroRecord, keyName: "r2",
+		keyFields: []any{
+			avroField(keyContent, typeInt, idContent),
+			avroField("file_path", typeString, idFilePath),
+			avroField("file_format", typeString, idFileFormat),
+			avroField(
+				"partition",
+				map[string]any{keyType: avroRecord, keyName: "r102", keyFields: pfields},
+				idPartition,
+			),
+			avroField("record_count", typeLong, idRecordCount),
+			avroField("file_size_in_bytes", typeLong, idFileSize),
+			avroOptional(
+				"value_counts",
+				kvArray("k119_v120", idValueCountsKey, idValueCountsValue, typeLong),
+				idValueCounts,
+			),
+			avroOptional(
+				"null_value_counts",
+				kvArray("k121_v122", idNullCountsKey, idNullCountsValue, typeLong),
+				idNullCounts,
+			),
 		},
 	}
 
 	schema := map[string]any{
-		"type": "record", "name": "manifest_entry",
-		"fields": []any{
-			map[string]any{"name": "status", "type": "int", "field-id": 0},
-			map[string]any{"name": "snapshot_id", "type": opt("long"), "default": nil, "field-id": 1},
-			map[string]any{"name": "sequence_number", "type": opt("long"), "default": nil, "field-id": 3},
-			map[string]any{"name": "file_sequence_number", "type": opt("long"), "default": nil, "field-id": 4},
-			map[string]any{"name": "data_file", "type": dataFile, "field-id": 2},
+		keyType: avroRecord, keyName: "manifest_entry",
+		keyFields: []any{
+			avroField("status", typeInt, idStatus),
+			avroOptional("snapshot_id", typeLong, idSnapshotID),
+			avroOptional("sequence_number", typeLong, idSequenceNumber),
+			avroOptional("file_sequence_number", typeLong, idFileSequence),
+			avroField("data_file", dataFile, idDataFile),
 		},
 	}
 
@@ -418,8 +430,8 @@ func EncodeManifest(meta *TableMetadata, spec PartitionSpec, content int, entrie
 		"schema-id":         []byte(strconv.Itoa(meta.CurrentSchemaID)),
 		"partition-spec":    specJSON,
 		"partition-spec-id": []byte(strconv.Itoa(spec.SpecID)),
-		"format-version":    []byte("2"),
-		"content":           []byte(contentName),
+		keyFormatVersion:    []byte("2"),
+		keyContent:          []byte(contentName),
 	}))
 	if err != nil {
 		return nil, err
@@ -445,12 +457,12 @@ func entryRow(e ManifestEntry, spec PartitionSpec) map[string]any {
 	}
 
 	df := map[string]any{
-		"content": int32(e.DataFile.Content), "file_path": e.DataFile.Path, "file_format": e.DataFile.Format,
+		keyContent: i32(e.DataFile.Content), "file_path": e.DataFile.Path, "file_format": e.DataFile.Format,
 		"partition": part, "record_count": e.DataFile.RecordCount, "file_size_in_bytes": e.DataFile.FileSize,
 		"value_counts": kvRows(e.DataFile.ValueCounts), "null_value_counts": kvRows(e.DataFile.NullCounts),
 	}
 
-	row := map[string]any{"status": int32(e.Status), "data_file": df}
+	row := map[string]any{"status": i32(e.Status), "data_file": df}
 	row["snapshot_id"] = e.SnapshotID
 	row["sequence_number"] = e.SequenceNumber
 	row["file_sequence_number"] = e.SequenceNumber
@@ -465,8 +477,13 @@ func kvRows(m map[int]int64) any {
 
 	rows := make([]map[string]any, 0, len(m))
 	for k, v := range m {
-		rows = append(rows, map[string]any{"key": int32(k), "value": v}) //nolint:gosec // field ids are small
+		rows = append(rows, map[string]any{keyKey: i32(k), keyValue: v})
 	}
 
 	return rows
+}
+
+// i32 narrows a small count or id for an Avro int; values here are bounded by file and field counts.
+func i32(n int) int32 {
+	return int32(n) //nolint:gosec // counts and ids are far below MaxInt32
 }

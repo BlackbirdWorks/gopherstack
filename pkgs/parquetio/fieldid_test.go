@@ -14,14 +14,21 @@ func TestColumnIDs(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
+		want map[int]string
 		name string
 		cols []parquetio.Column
-		want map[int]string
 	}{
-		{"ids written", []parquetio.Column{{Name: "a", Type: "bigint", FieldID: 7}, {Name: "b", Type: "string", FieldID: 9}},
-			map[int]string{7: "a", 9: "b"}},
-		{"no ids", []parquetio.Column{{Name: "a", Type: "bigint"}}, map[int]string{}},
-		{"mixed", []parquetio.Column{{Name: "a", Type: "bigint"}, {Name: "b", Type: "string", FieldID: 2}}, map[int]string{2: "b"}},
+		{
+			name: "ids written",
+			cols: []parquetio.Column{{Name: "a", Type: "bigint", FieldID: 7}, {Name: "b", Type: "string", FieldID: 9}},
+			want: map[int]string{7: "a", 9: "b"},
+		},
+		{name: "no ids", cols: []parquetio.Column{{Name: "a", Type: "bigint"}}, want: map[int]string{}},
+		{
+			name: "mixed",
+			cols: []parquetio.Column{{Name: "a", Type: "bigint"}, {Name: "b", Type: "string", FieldID: 2}},
+			want: map[int]string{2: "b"},
+		},
 	}
 
 	for _, tc := range cases {

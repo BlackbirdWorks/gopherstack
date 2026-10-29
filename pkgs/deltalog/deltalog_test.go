@@ -88,17 +88,19 @@ func TestLoad(t *testing.T) {
 	meta := `{"metaData":{"schemaString":` + quote(schema) + `,"partitionColumns":[],"configuration":{}}}`
 
 	cases := []struct {
-		name      string
-		files     memStorage
-		wantPaths []string
-		wantVer   int64
-		wantCols  []string
 		wantErr   error
+		files     memStorage
+		name      string
+		wantPaths []string
+		wantCols  []string
+		wantVer   int64
 	}{
 		{
 			name: "commits replay in order",
 			files: memStorage{
-				"_delta_log/00000000000000000000.json": []byte(meta + "\n" + `{"add":{"path":"a.parquet","size":1}}` + "\n"),
+				"_delta_log/00000000000000000000.json": []byte(
+					meta + "\n" + `{"add":{"path":"a.parquet","size":1}}` + "\n",
+				),
 				"_delta_log/00000000000000000001.json": []byte(`{"add":{"path":"b%20c.parquet","size":1}}` + "\n" +
 					`{"remove":{"path":"a.parquet"}}` + "\n"),
 			},

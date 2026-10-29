@@ -38,7 +38,7 @@ func HiveType(raw json.RawMessage) (string, error) {
 	}
 
 	switch n.Type {
-	case "struct":
+	case typeStruct:
 		parts := make([]string, 0, len(n.Fields))
 
 		for _, f := range n.Fields {
@@ -58,7 +58,7 @@ func HiveType(raw json.RawMessage) (string, error) {
 		}
 
 		return "array<" + t + ">", nil
-	case "map":
+	case typeMap:
 		k, err := HiveType(n.Key)
 		if err != nil {
 			return "", err
@@ -77,22 +77,28 @@ func HiveType(raw json.RawMessage) (string, error) {
 
 func hivePrimitive(p string) (string, error) {
 	switch {
-	case p == "boolean", p == "int", p == "float", p == "double", p == "date", p == "string", p == "binary":
+	case p == typeBoolean,
+		p == typeInt,
+		p == typeFloat,
+		p == typeDouble,
+		p == typeDate,
+		p == typeString,
+		p == typeBinary:
 		return p, nil
-	case p == "long":
+	case p == typeLong:
 		return "bigint", nil
-	case p == "time":
-		return "time", nil
-	case p == "timestamp":
-		return "timestamp", nil
-	case p == "timestamptz", p == "timestamp_ns", p == "timestamptz_ns":
+	case p == typeTime:
+		return typeTime, nil
+	case p == typeTimestamp:
+		return typeTimestamp, nil
+	case p == typeTimestamptz, p == "timestamp_ns", p == "timestamptz_ns":
 		return "timestamp with time zone", nil
-	case p == "uuid":
-		return "string", nil
+	case p == typeUUID:
+		return typeString, nil
 	case strings.HasPrefix(p, "decimal("):
 		return strings.ReplaceAll(p, " ", ""), nil
 	case strings.HasPrefix(p, "fixed["):
-		return "binary", nil
+		return typeBinary, nil
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnsupportedType, p)
 	}
@@ -108,37 +114,37 @@ func PrimitiveName(raw json.RawMessage) string {
 	return prim
 }
 
-// IcebergType maps an Athena/Hive column type to an Iceberg primitive type name.
+// FromHive maps an Athena/Hive column type to an Iceberg primitive type name.
 // Nested types are not writable and return ErrUnsupportedType.
-func IcebergType(hive string) (string, error) {
+func FromHive(hive string) (string, error) {
 	t := strings.ToLower(strings.TrimSpace(hive))
 	base, _, _ := strings.Cut(t, "(")
 	base = strings.TrimSpace(base)
 
 	switch base {
-	case "boolean", "float", "double", "date", "binary":
+	case typeBoolean, typeFloat, typeDouble, typeDate, typeBinary:
 		return base, nil
-	case "tinyint", "smallint", "int", "integer":
-		return "int", nil
+	case "tinyint", "smallint", typeInt, "integer":
+		return typeInt, nil
 	case "bigint":
-		return "long", nil
+		return typeLong, nil
 	case "real":
-		return "float", nil
-	case "string", "varchar", "char":
-		return "string", nil
-	case "timestamp":
+		return typeFloat, nil
+	case typeString, "varchar", "char":
+		return typeString, nil
+	case typeTimestamp:
 		if strings.Contains(t, "with time zone") {
-			return "timestamptz", nil
+			return typeTimestamptz, nil
 		}
 
-		return "timestamp", nil
+		return typeTimestamp, nil
 	case "decimal", "numeric":
 		if !strings.Contains(t, "(") {
 			return "decimal(10, 0)", nil
 		}
 
-		args := strings.TrimSuffix(strings.TrimPrefix(t[strings.Index(t, "("):], "("), ")")
-		p, s, _ := strings.Cut(args, ",")
+		_, rest, _ := strings.Cut(t, "(")
+		p, s, _ := strings.Cut(strings.TrimSuffix(rest, ")"), ",")
 
 		pi, err1 := strconv.Atoi(strings.TrimSpace(p))
 		si, err2 := strconv.Atoi(strings.TrimSpace(s))
@@ -165,7 +171,7 @@ func SchemaFromColumns(cols []ColumnSpec) (Schema, error) {
 	fields := make([]Field, 0, len(cols))
 
 	for i, c := range cols {
-		t, err := IcebergType(c.Type)
+		t, err := FromHive(c.Type)
 		if err != nil {
 			return Schema{}, err
 		}
@@ -174,5 +180,5 @@ func SchemaFromColumns(cols []ColumnSpec) (Schema, error) {
 		fields = append(fields, Field{ID: i + 1, Name: c.Name, Type: raw, Doc: c.Comment})
 	}
 
-	return Schema{Type: "struct", Fields: fields}, nil
+	return Schema{Type: typeStruct, Fields: fields}, nil
 }

@@ -1,6 +1,7 @@
 package athena_test
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -13,6 +14,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
+var errNoSuchTable = errors.New("no such table")
+
 type fakeS3Tables struct {
 	tables map[string]*athena.S3TableInfo
 	mu     sync.Mutex
@@ -24,7 +27,7 @@ func (f *fakeS3Tables) GetTableInfo(_, bucket, ns, table string) (*athena.S3Tabl
 
 	info, ok := f.tables[bucket+"/"+ns+"/"+table]
 	if !ok {
-		return nil, fmt.Errorf("table %s not found", table)
+		return nil, fmt.Errorf("%w: %s", errNoSuchTable, table)
 	}
 
 	cp := *info
@@ -49,7 +52,9 @@ func (f *fakeS3Tables) CommitMetadataLocation(_, bucket, ns, table, expected, ne
 func seedS3Table(t *testing.T, e *iceEnv, src *fakeS3Tables) {
 	t.Helper()
 
-	schema, err := iceberg.SchemaFromColumns([]iceberg.ColumnSpec{{Name: "id", Type: "bigint"}, {Name: "name", Type: "string"}})
+	schema, err := iceberg.SchemaFromColumns(
+		[]iceberg.ColumnSpec{{Name: "id", Type: "bigint"}, {Name: "name", Type: "string"}},
+	)
 	require.NoError(t, err)
 
 	const wh = "s3://abc123--table-s3/ns/tbl"
@@ -93,7 +98,7 @@ func TestS3TablesCatalog_QueryAndAppend(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newIceEnv(t, nil, nil)
+			e := newIceEnv(t)
 			src := &fakeS3Tables{tables: map[string]*athena.S3TableInfo{}}
 			e.b.SetS3TablesSource(src)
 			seedS3Table(t, e, src)
@@ -114,7 +119,7 @@ func TestS3TablesCatalog_QueryAndAppend(t *testing.T) {
 func TestS3TablesCatalog_ContextAndErrors(t *testing.T) {
 	t.Parallel()
 
-	e := newIceEnv(t, nil, nil)
+	e := newIceEnv(t)
 	src := &fakeS3Tables{tables: map[string]*athena.S3TableInfo{}}
 	e.b.SetS3TablesSource(src)
 	seedS3Table(t, e, src)

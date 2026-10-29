@@ -63,21 +63,15 @@ type iceEnv struct {
 	cat   *iceCatalog
 }
 
-func newIceEnv(t *testing.T, objects map[string][]byte, defs map[string]*athena.GlueTableDef) *iceEnv {
+func newIceEnv(t *testing.T) *iceEnv {
 	t.Helper()
 
-	if objects == nil {
-		objects = map[string][]byte{}
-	}
-
-	if defs == nil {
-		defs = map[string]*athena.GlueTableDef{}
-	}
-
 	cat := &iceCatalog{engineCatalog: &engineCatalog{
-		fakeGlueSource: newFakeGlueSource(), defs: defs, parts: map[string][]athena.GluePartitionDef{},
+		fakeGlueSource: newFakeGlueSource(),
+		defs:           map[string]*athena.GlueTableDef{},
+		parts:          map[string][]athena.GluePartitionDef{},
 	}}
-	store := &engineS3{objects: objects}
+	store := &engineS3{objects: map[string][]byte{}}
 	clock := &stepClock{t: time.Now().UTC().Truncate(time.Second)}
 
 	b := athena.NewInMemoryBackend("us-east-1", "123456789012")
@@ -155,8 +149,8 @@ func TestIceberg_CreateInsertSelectRoundTrip(t *testing.T) {
 	cases := []struct {
 		name      string
 		partition string
-		wantParts int
 		wantTrans []string
+		wantParts int
 	}{
 		{name: "unpartitioned", partition: "", wantParts: 0},
 		{
@@ -169,7 +163,7 @@ func TestIceberg_CreateInsertSelectRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newIceEnv(t, nil, nil)
+			e := newIceEnv(t)
 
 			e.mustRun(t, "CREATE TABLE events (id bigint, category string, note string) "+tc.partition+
 				" LOCATION 's3://lake/events/' TBLPROPERTIES ('table_type'='ICEBERG')")
@@ -234,7 +228,7 @@ func TestIceberg_CreateInsertSelectRoundTrip(t *testing.T) {
 func TestIceberg_TimeTravelAndMetadataTables(t *testing.T) {
 	t.Parallel()
 
-	e := newIceEnv(t, nil, nil)
+	e := newIceEnv(t)
 	e.mustRun(t, "CREATE TABLE t (id int, v string) LOCATION 's3://lake/t' TBLPROPERTIES ('table_type'='ICEBERG')")
 	e.mustRun(t, "INSERT INTO t VALUES (1, 'a')")
 	e.mustRun(t, "INSERT INTO t VALUES (2, 'b')")
@@ -253,15 +247,18 @@ func TestIceberg_TimeTravelAndMetadataTables(t *testing.T) {
 		want [][]string
 	}{
 		{
-			"version first", fmt.Sprintf("SELECT id FROM t FOR VERSION AS OF %d ORDER BY id", meta.Snapshots[0].SnapshotID),
+			"version first",
+			fmt.Sprintf("SELECT id FROM t FOR VERSION AS OF %d ORDER BY id", meta.Snapshots[0].SnapshotID),
 			[][]string{{"1"}},
 		},
 		{
-			"version second", fmt.Sprintf("SELECT id FROM t FOR VERSION AS OF %d ORDER BY id", meta.Snapshots[1].SnapshotID),
+			"version second",
+			fmt.Sprintf("SELECT id FROM t FOR VERSION AS OF %d ORDER BY id", meta.Snapshots[1].SnapshotID),
 			[][]string{{"1"}, {"2"}},
 		},
 		{
-			"timestamp between", "SELECT id FROM t FOR TIMESTAMP AS OF TIMESTAMP '" + ts(meta.Snapshots[1], 500*time.Millisecond) +
+			"timestamp between",
+			"SELECT id FROM t FOR TIMESTAMP AS OF TIMESTAMP '" + ts(meta.Snapshots[1], 500*time.Millisecond) +
 				" UTC' ORDER BY id",
 			[][]string{{"1"}, {"2"}},
 		},
@@ -275,7 +272,10 @@ func TestIceberg_TimeTravelAndMetadataTables(t *testing.T) {
 		},
 		{
 			"time and version join",
-			fmt.Sprintf("SELECT a.id, b.id FROM t FOR VERSION AS OF %d a, t b WHERE b.id = 3", meta.Snapshots[0].SnapshotID),
+			fmt.Sprintf(
+				"SELECT a.id, b.id FROM t FOR VERSION AS OF %d a, t b WHERE b.id = 3",
+				meta.Snapshots[0].SnapshotID,
+			),
 			[][]string{{"1", "3"}},
 		},
 		{"snapshots", "SELECT count(*), min(operation) FROM \"t$snapshots\"", [][]string{{"3", "append"}}},
@@ -327,12 +327,17 @@ func TestIceberg_ErrorsAndValidation(t *testing.T) {
 			name: "metadata file missing",
 			setup: func(e *iceEnv) {
 				e.cat.defs["shop/gone"] = &athena.GlueTableDef{
-					Name: "gone", Location: "s3://lake/gone/",
-					Columns:    []athena.Column{{Name: "id", Type: "int"}},
-					Parameters: map[string]string{"table_type": "ICEBERG", "metadata_location": "s3://lake/gone/metadata/0.json"},
+					Name:     "gone",
+					Location: "s3://lake/gone/",
+					Columns:  []athena.Column{{Name: "id", Type: "int"}},
+					Parameters: map[string]string{
+						"table_type":        "ICEBERG",
+						"metadata_location": "s3://lake/gone/metadata/0.json",
+					},
 				}
 			},
-			sql: "SELECT * FROM gone", want: "ICEBERG_MISSING_METADATA: Metadata not found in metadata location for table shop.gone",
+			sql:  "SELECT * FROM gone",
+			want: "ICEBERG_MISSING_METADATA: Metadata not found in metadata location for table shop.gone",
 		},
 		{
 			name: "metadata location absent",
@@ -348,8 +353,12 @@ func TestIceberg_ErrorsAndValidation(t *testing.T) {
 			setup: func(e *iceEnv) {
 				e.store.objects["lake/bad/metadata/0.json"] = []byte("{not json")
 				e.cat.defs["shop/bad"] = &athena.GlueTableDef{
-					Name: "bad", Location: "s3://lake/bad/",
-					Parameters: map[string]string{"table_type": "ICEBERG", "metadata_location": "s3://lake/bad/metadata/0.json"},
+					Name:     "bad",
+					Location: "s3://lake/bad/",
+					Parameters: map[string]string{
+						"table_type":        "ICEBERG",
+						"metadata_location": "s3://lake/bad/metadata/0.json",
+					},
 				}
 			},
 			sql: "SELECT * FROM bad", want: "ICEBERG_INVALID_METADATA: Invalid metadata file for table shop.bad",
@@ -370,7 +379,8 @@ func TestIceberg_ErrorsAndValidation(t *testing.T) {
 			want: "NOT_SUPPORTED",
 		},
 		{
-			name: "partition column missing", sql: "CREATE TABLE x (id int) PARTITIONED BY (nope) LOCATION 's3://lake/x/' " +
+			name: "partition column missing",
+			sql: "CREATE TABLE x (id int) PARTITIONED BY (nope) LOCATION 's3://lake/x/' " +
 				"TBLPROPERTIES ('table_type'='ICEBERG')",
 			want: "COLUMN_NOT_FOUND",
 		},
@@ -388,7 +398,7 @@ func TestIceberg_ErrorsAndValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newIceEnv(t, nil, nil)
+			e := newIceEnv(t)
 			if tc.setup != nil {
 				tc.setup(e)
 			}
@@ -428,8 +438,8 @@ func putObj(t *testing.T, store *engineS3, uri string, body []byte) {
 func seedExternalIceberg(t *testing.T, e *iceEnv) {
 	t.Helper()
 
-	str, _ := iceberg.IcebergType("string")
-	lng, _ := iceberg.IcebergType("bigint")
+	str, _ := iceberg.FromHive("string")
+	lng, _ := iceberg.FromHive("bigint")
 	schema := iceberg.Schema{Fields: []iceberg.Field{
 		{ID: 10, Name: "id", Type: []byte(`"` + lng + `"`)},
 		{ID: 20, Name: "label", Type: []byte(`"` + str + `"`)},
@@ -452,28 +462,61 @@ func seedExternalIceberg(t *testing.T, e *iceEnv) {
 		[][]any{{"s3://lake/" + dataKey, int64(1)}})
 
 	snapID, seq := int64(111), int64(1)
-	dataEntry := iceberg.ManifestEntry{Status: iceberg.StatusAdded, SnapshotID: &snapID, SequenceNumber: &seq, DataFile: iceberg.DataFile{
-		Path: "s3://lake/" + dataKey, Format: "PARQUET", Partition: map[string]any{"region": "eu"},
-		RecordCount: 3, FileSize: int64(size),
-	}}
+	dataEntry := iceberg.ManifestEntry{
+		Status:         iceberg.StatusAdded,
+		SnapshotID:     &snapID,
+		SequenceNumber: &seq,
+		DataFile: iceberg.DataFile{
+			Path: "s3://lake/" + dataKey, Format: "PARQUET", Partition: map[string]any{"region": "eu"},
+			RecordCount: 3, FileSize: int64(size),
+		},
+	}
 	delSeq := int64(2)
-	delEntry := iceberg.ManifestEntry{Status: iceberg.StatusAdded, SnapshotID: &snapID, SequenceNumber: &delSeq, DataFile: iceberg.DataFile{
-		Path: "s3://lake/" + delKey, Format: "PARQUET", Partition: map[string]any{"region": "eu"},
-		Content: iceberg.ContentPositionDeletes, RecordCount: 1, FileSize: int64(delSize),
-	}}
+	delEntry := iceberg.ManifestEntry{
+		Status:         iceberg.StatusAdded,
+		SnapshotID:     &snapID,
+		SequenceNumber: &delSeq,
+		DataFile: iceberg.DataFile{
+			Path: "s3://lake/" + delKey, Format: "PARQUET", Partition: map[string]any{"region": "eu"},
+			Content: iceberg.ContentPositionDeletes, RecordCount: 1, FileSize: int64(delSize),
+		},
+	}
 
 	dataManifest, err := iceberg.EncodeManifest(meta, spec, iceberg.ContentData, []iceberg.ManifestEntry{dataEntry})
 	require.NoError(t, err)
 
-	delManifest, err := iceberg.EncodeManifest(meta, spec, iceberg.ContentPositionDeletes, []iceberg.ManifestEntry{delEntry})
+	delManifest, err := iceberg.EncodeManifest(
+		meta,
+		spec,
+		iceberg.ContentPositionDeletes,
+		[]iceberg.ManifestEntry{delEntry},
+	)
 	require.NoError(t, err)
 
 	putObj(t, e.store, "s3://lake/ext/metadata/m-data.avro", dataManifest)
 	putObj(t, e.store, "s3://lake/ext/metadata/m-del.avro", delManifest)
 
 	list, err := iceberg.EncodeManifestList(snapID, nil, 2, []iceberg.ManifestFile{
-		{Path: "s3://lake/ext/metadata/m-data.avro", Length: int64(len(dataManifest)), Content: iceberg.ContentData, SequenceNumber: 1, MinSequenceNumber: 1, AddedSnapshotID: snapID, AddedFiles: 1, AddedRows: 3},
-		{Path: "s3://lake/ext/metadata/m-del.avro", Length: int64(len(delManifest)), Content: 1, SequenceNumber: 2, MinSequenceNumber: 2, AddedSnapshotID: snapID, AddedFiles: 1, AddedRows: 1},
+		{
+			Path:              "s3://lake/ext/metadata/m-data.avro",
+			Length:            int64(len(dataManifest)),
+			Content:           iceberg.ContentData,
+			SequenceNumber:    1,
+			MinSequenceNumber: 1,
+			AddedSnapshotID:   snapID,
+			AddedFiles:        1,
+			AddedRows:         3,
+		},
+		{
+			Path:              "s3://lake/ext/metadata/m-del.avro",
+			Length:            int64(len(delManifest)),
+			Content:           1,
+			SequenceNumber:    2,
+			MinSequenceNumber: 2,
+			AddedSnapshotID:   snapID,
+			AddedFiles:        1,
+			AddedRows:         1,
+		},
 	})
 	require.NoError(t, err)
 	putObj(t, e.store, "s3://lake/ext/metadata/snap-111.avro", list)
@@ -489,8 +532,12 @@ func seedExternalIceberg(t *testing.T, e *iceEnv) {
 	putObj(t, e.store, "s3://lake/ext/metadata/00001.metadata.json", body)
 
 	e.cat.defs["shop/ext"] = &athena.GlueTableDef{
-		Name: "ext", Location: "s3://lake/ext",
-		Parameters: map[string]string{"table_type": "ICEBERG", "metadata_location": "s3://lake/ext/metadata/00001.metadata.json"},
+		Name:     "ext",
+		Location: "s3://lake/ext",
+		Parameters: map[string]string{
+			"table_type":        "ICEBERG",
+			"metadata_location": "s3://lake/ext/metadata/00001.metadata.json",
+		},
 	}
 }
 
@@ -511,7 +558,7 @@ func TestIceberg_ReadsTablesWrittenByOtherEngines(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newIceEnv(t, nil, nil)
+			e := newIceEnv(t)
 			seedExternalIceberg(t, e)
 
 			assert.Equal(t, tc.want, e.mustRun(t, tc.sql))
@@ -522,7 +569,7 @@ func TestIceberg_ReadsTablesWrittenByOtherEngines(t *testing.T) {
 func TestIceberg_InsertRetriesLostCommit(t *testing.T) {
 	t.Parallel()
 
-	e := newIceEnv(t, nil, nil)
+	e := newIceEnv(t)
 	e.mustRun(t, "CREATE TABLE r (id int) LOCATION 's3://lake/r' TBLPROPERTIES ('table_type'='ICEBERG')")
 
 	conflicts := &conflictOnce{iceCatalog: e.cat}

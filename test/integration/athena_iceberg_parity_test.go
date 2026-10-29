@@ -89,22 +89,28 @@ func (l *athenaLake) query(t *testing.T, catalog, sql string) (athenatypes.Query
 	}
 
 	start, err := l.athena.StartQueryExecution(ctx, &athenasdk.StartQueryExecutionInput{
-		QueryString: aws.String(sql), QueryExecutionContext: qctx,
-		ResultConfiguration: &athenatypes.ResultConfiguration{OutputLocation: aws.String("s3://" + l.bucket + "/results/")},
+		QueryString:           aws.String(sql),
+		QueryExecutionContext: qctx,
+		ResultConfiguration: &athenatypes.ResultConfiguration{
+			OutputLocation: aws.String("s3://" + l.bucket + "/results/"),
+		},
 	})
 	require.NoError(t, err)
 
 	var status *athenatypes.QueryExecutionStatus
 
 	require.Eventually(t, func() bool {
-		got, gerr := l.athena.GetQueryExecution(ctx, &athenasdk.GetQueryExecutionInput{QueryExecutionId: start.QueryExecutionId})
+		got, gerr := l.athena.GetQueryExecution(ctx, &athenasdk.GetQueryExecutionInput{
+			QueryExecutionId: start.QueryExecutionId,
+		})
 		if gerr != nil || got.QueryExecution == nil {
 			return false
 		}
 
 		status = got.QueryExecution.Status
 
-		return status.State != athenatypes.QueryExecutionStateQueued && status.State != athenatypes.QueryExecutionStateRunning
+		return status.State != athenatypes.QueryExecutionStateQueued &&
+			status.State != athenatypes.QueryExecutionStateRunning
 	}, 30*time.Second, 50*time.Millisecond, sql)
 
 	reason := aws.ToString(status.StateChangeReason)
@@ -158,11 +164,22 @@ func TestIntegration_AthenaIceberg_CreateInsertSelectTimeTravel(t *testing.T) {
 	assert.Equal(t, "ICEBERG", tbl.Table.Parameters["table_type"])
 	require.NotEmpty(t, tbl.Table.Parameters["metadata_location"])
 
-	l.must(t, "", "INSERT INTO events VALUES (1, 'a', TIMESTAMP '2024-01-01 10:00:00'), (2, 'b', TIMESTAMP '2024-01-02 11:30:00')")
+	l.must(
+		t,
+		"",
+		"INSERT INTO events VALUES (1, 'a', TIMESTAMP '2024-01-01 10:00:00'), (2, 'b', TIMESTAMP '2024-01-02 11:30:00')",
+	)
 	l.must(t, "", "INSERT INTO events VALUES (3, 'a', TIMESTAMP '2024-01-03 12:00:00')")
 
-	assert.Equal(t, [][]string{{"1", "a", "2024-01-01 10:00:00.000"}, {"2", "b", "2024-01-02 11:30:00.000"}, {"3", "a", "2024-01-03 12:00:00.000"}},
-		l.must(t, "", "SELECT id, category, ts FROM events ORDER BY id"))
+	assert.Equal(
+		t,
+		[][]string{
+			{"1", "a", "2024-01-01 10:00:00.000"},
+			{"2", "b", "2024-01-02 11:30:00.000"},
+			{"3", "a", "2024-01-03 12:00:00.000"},
+		},
+		l.must(t, "", "SELECT id, category, ts FROM events ORDER BY id"),
+	)
 
 	tbl, err = l.glue.GetTable(ctx, &gluesdk.GetTableInput{DatabaseName: aws.String(l.db), Name: aws.String("events")})
 	require.NoError(t, err)
@@ -189,7 +206,10 @@ func TestIntegration_AthenaIceberg_CreateInsertSelectTimeTravel(t *testing.T) {
 		DatabaseName: aws.String(l.db),
 		TableInput: &gluetypes.TableInput{
 			Name: aws.String("events"), TableType: tbl.Table.TableType, StorageDescriptor: tbl.Table.StorageDescriptor,
-			Parameters: map[string]string{"table_type": "ICEBERG", "metadata_location": "s3://" + l.bucket + "/events/metadata/missing.json"},
+			Parameters: map[string]string{
+				"table_type":        "ICEBERG",
+				"metadata_location": "s3://" + l.bucket + "/events/metadata/missing.json",
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -217,7 +237,10 @@ func TestIntegration_AthenaS3TablesCatalog_QueryAndAppend(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = tables.CreateTable(ctx, &s3tablessdk.CreateTableInput{
-		TableBucketARN: tb.Arn, Namespace: aws.String("sales"), Name: aws.String("orders"), Format: s3tablestypes.OpenTableFormatIceberg,
+		TableBucketARN: tb.Arn,
+		Namespace:      aws.String("sales"),
+		Name:           aws.String("orders"),
+		Format:         s3tablestypes.OpenTableFormatIceberg,
 		Metadata: &s3tablestypes.TableMetadataMemberIceberg{Value: s3tablestypes.IcebergMetadata{
 			Schema: &s3tablestypes.IcebergSchema{Fields: []s3tablestypes.SchemaField{
 				{Name: aws.String("id"), Type: aws.String("long"), Required: false},
@@ -236,7 +259,11 @@ func TestIntegration_AthenaS3TablesCatalog_QueryAndAppend(t *testing.T) {
 
 	assert.Empty(t, l.must(t, cat, `SELECT * FROM "`+cat+`"."sales"."orders"`))
 	l.must(t, cat, `INSERT INTO "`+cat+`"."sales"."orders" VALUES (1, 'pen'), (2, 'ink')`)
-	assert.Equal(t, [][]string{{"1", "pen"}, {"2", "ink"}}, l.must(t, cat, `SELECT id, item FROM sales.orders ORDER BY id`))
+	assert.Equal(
+		t,
+		[][]string{{"1", "pen"}, {"2", "ink"}},
+		l.must(t, cat, `SELECT id, item FROM sales.orders ORDER BY id`),
+	)
 
 	after, err := tables.GetTableMetadataLocation(ctx, &s3tablessdk.GetTableMetadataLocationInput{
 		TableBucketARN: tb.Arn, Namespace: aws.String("sales"), Name: aws.String("orders"),
@@ -270,13 +297,17 @@ func TestIntegration_AthenaDelta_ReadsTransactionLog(t *testing.T) {
 		`{\"name\":\"name\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}`
 	l.put(t, "dl/_delta_log/00000000000000000000.json", []byte(strings.Join([]string{
 		`{"protocol":{"minReaderVersion":1,"minWriterVersion":2}}`,
-		`{"metaData":{"id":"t","format":{"provider":"parquet"},"schemaString":"` + schema + `","partitionColumns":[],"configuration":{}}}`,
+		`{"metaData":{"id":"t","format":{"provider":"parquet"},"schemaString":"` + schema +
+			`","partitionColumns":[],"configuration":{}}}`,
 		`{"add":{"path":"part-0.parquet","partitionValues":{},"size":1,"dataChange":true}}`,
 	}, "\n")+"\n"))
 
 	l.must(t, "", "CREATE EXTERNAL TABLE people LOCATION 's3://"+l.bucket+"/dl/' TBLPROPERTIES ('table_type'='DELTA')")
 
-	tbl, err := l.glue.GetTable(t.Context(), &gluesdk.GetTableInput{DatabaseName: aws.String(l.db), Name: aws.String("people")})
+	tbl, err := l.glue.GetTable(
+		t.Context(),
+		&gluesdk.GetTableInput{DatabaseName: aws.String(l.db), Name: aws.String("people")},
+	)
 	require.NoError(t, err)
 	assert.Len(t, tbl.Table.StorageDescriptor.Columns, 2)
 

@@ -15,6 +15,12 @@ type athenaS3TablesAdapter struct {
 	handler *s3tablesbackend.Handler
 }
 
+// wireAthenaStorage connects Athena to S3 (result objects, table data) and to S3 Tables.
+func wireAthenaStorage(byName map[string]service.Registerable) {
+	wireAthenaS3(byName["Athena"], byName["S3"])
+	wireAthenaS3Tables(byName["Athena"], byName["S3tables"])
+}
+
 // wireAthenaS3Tables lets Athena query and append to S3 Tables through the federated catalog.
 func wireAthenaS3Tables(athenaReg, s3tablesReg service.Registerable) {
 	athenaH, ok := athenaReg.(*athenabackend.Handler)
@@ -35,7 +41,9 @@ func wireAthenaS3Tables(athenaReg, s3tablesReg service.Registerable) {
 	athenaBk.SetS3TablesSource(&athenaS3TablesAdapter{handler: tablesH})
 }
 
-func (a *athenaS3TablesAdapter) GetTableInfo(region, bucket, namespace, table string) (*athenabackend.S3TableInfo, error) {
+func (a *athenaS3TablesAdapter) GetTableInfo(
+	region, bucket, namespace, table string,
+) (*athenabackend.S3TableInfo, error) {
 	bk := a.handler.BackendFor(region)
 
 	t, err := bk.GetTable(bk.TableBucketARN(bucket), []string{namespace}, table)

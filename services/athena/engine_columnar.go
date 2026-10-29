@@ -22,6 +22,7 @@ const (
 	paramTableType   = "table_type"
 	paramMetadataLoc = "metadata_location"
 	paramPrevMetaLoc = "previous_metadata_location"
+	externalTrue     = "TRUE"
 )
 
 var errMissingObject = errors.New("object not found")
@@ -33,10 +34,10 @@ func tableTypeOf(def *GlueTableDef) string {
 // fileCol maps one table column onto a data file: the Parquet column to read
 // (matched by field id first, then name) or a constant for columns the file lacks.
 type fileCol struct {
+	constant *string
 	name     string
 	hive     string
 	fileName string
-	constant *string
 	id       int
 }
 
@@ -66,6 +67,7 @@ func fillTable(
 		return err
 	}
 
+	//nolint:gosec // target is built from quoteIdent-quoted names
 	stmt, err := tx.PrepareContext(ctx, "INSERT INTO "+target+" VALUES ("+strings.Join(marks, ",")+")")
 	if err != nil {
 		_ = tx.Rollback()
@@ -126,8 +128,14 @@ func (l *tableLoader) readURI(ctx context.Context, uri string) ([]byte, error) {
 	return l.readObject(ctx, bucket, key)
 }
 
+// boundCol is a table column bound to a Parquet column of one file.
+type boundCol struct {
+	file string
+	pos  int
+}
+
 // resolveFileCols binds each table column to the file's Parquet column.
-func resolveFileCols(pf *parquetio.File, cols []fileCol) (names []string, pos []int) {
+func resolveFileCols(pf *parquetio.File, cols []fileCol) []boundCol {
 	ids := pf.ColumnIDs()
 	have := map[string]string{}
 
@@ -135,23 +143,25 @@ func resolveFileCols(pf *parquetio.File, cols []fileCol) (names []string, pos []
 		have[strings.ToLower(c)] = c
 	}
 
+	var out []boundCol
+
 	for i, c := range cols {
 		if c.fileName == "" && c.id <= 0 {
 			continue
 		}
 
 		if n, ok := ids[c.id]; ok && c.id > 0 {
-			names, pos = append(names, n), append(pos, i)
+			out = append(out, boundCol{file: n, pos: i})
 
 			continue
 		}
 
 		if n, ok := have[strings.ToLower(orDefault(c.fileName, c.name))]; ok {
-			names, pos = append(names, n), append(pos, i)
+			out = append(out, boundCol{file: n, pos: i})
 		}
 	}
 
-	return names, pos
+	return out
 }
 
 // loadColumnarFile streams one Parquet data file into sink. skip rows are
@@ -169,24 +179,25 @@ func (l *tableLoader) loadColumnarFile(
 		return fmt.Errorf("HIVE_CANNOT_OPEN_SPLIT: Error opening split s3://%s/%s: %w", bucket, key, err)
 	}
 
-	names, pos := resolveFileCols(pf, cols)
-	wanted := names[:0:0]
-	wantedPos := pos[:0:0]
+	var wanted []boundCol
 
-	for i, n := range names {
-		if l.want.has(cols[pos[i]].name) {
-			wanted, wantedPos = append(wanted, n), append(wantedPos, pos[i])
+	names := []string{}
+
+	for _, b := range resolveFileCols(pf, cols) {
+		if l.want.has(cols[b.pos].name) {
+			wanted = append(wanted, b)
+			names = append(names, b.file)
 		}
 	}
 
-	l.scanned += pf.ScanBytes(wanted)
+	l.scanned += pf.ScanBytes(names)
 	if l.scanned > l.limits.MaxScanBytes {
 		return fmt.Errorf("%w: more than %d bytes", errScanLimit, l.limits.MaxScanBytes)
 	}
 
 	var row int64
 
-	err = pf.ForEach(wanted, func(vals []any) error {
+	err = pf.ForEach(names, func(vals []any) error {
 		cur := row
 		row++
 
@@ -194,32 +205,35 @@ func (l *tableLoader) loadColumnarFile(
 			return nil
 		}
 
-		rec := make([]string, len(cols))
-		nulls := make([]bool, len(cols))
-
-		for i := range nulls {
-			nulls[i] = true
-		}
-
-		for i, c := range cols {
-			if c.constant != nil && l.want.has(c.name) {
-				rec[i], nulls[i] = *c.constant, false
-			}
-		}
-
-		for j, v := range vals {
-			if v != nil {
-				rec[wantedPos[j]], nulls[wantedPos[j]] = parquetCell(v), false
-			}
-		}
+		rec, nulls := l.fileRow(cols, wanted, vals)
 
 		return l.insertJSON(ctx, sink, rec, nulls)
 	})
-
-	switch {
-	case errors.Is(err, parquetio.ErrBadFile):
+	if errors.Is(err, parquetio.ErrBadFile) {
 		return fmt.Errorf("HIVE_CURSOR_ERROR: s3://%s/%s: %w", bucket, key, err)
-	default:
-		return err
 	}
+
+	return err
+}
+
+// fileRow assembles one table row: constants first, then the values read from the file.
+func (l *tableLoader) fileRow(cols []fileCol, wanted []boundCol, vals []any) ([]string, []bool) {
+	rec := make([]string, len(cols))
+	nulls := make([]bool, len(cols))
+
+	for i, c := range cols {
+		if c.constant != nil && l.want.has(c.name) {
+			rec[i] = *c.constant
+		} else {
+			nulls[i] = true
+		}
+	}
+
+	for j, v := range vals {
+		if v != nil {
+			rec[wanted[j].pos], nulls[wanted[j].pos] = parquetCell(v), false
+		}
+	}
+
+	return rec, nulls
 }

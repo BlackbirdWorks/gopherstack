@@ -38,8 +38,8 @@ func (p *writePlan) precheckIcebergInsert(ctx context.Context, def *GlueTableDef
 }
 
 func writeHiveType(t string) string {
-	if strings.HasPrefix(t, "timestamp") {
-		return "timestamp"
+	if strings.HasPrefix(t, typeTimestamp) {
+		return typeTimestamp
 	}
 
 	return t
@@ -230,51 +230,45 @@ func (p *writePlan) putObjectAt(ctx context.Context, uri string, body []byte) st
 	return stmtOK()
 }
 
+// currentManifests lists the manifests of the table's current snapshot.
+func (l *tableLoader) currentManifests(ctx context.Context, tbl *icebergTable) ([]iceberg.ManifestFile, error) {
+	snap, ok := tbl.meta.CurrentSnapshot()
+	if !ok || snap.ManifestList == "" {
+		return nil, nil
+	}
+
+	raw, err := l.readURI(ctx, snap.ManifestList)
+	if err != nil {
+		return nil, icebergFailf("ICEBERG_MISSING_METADATA", "Manifest list not found: %s", snap.ManifestList)
+	}
+
+	list, err := iceberg.ReadManifestList(raw)
+	if err != nil {
+		return nil, icebergFailf("ICEBERG_INVALID_METADATA", "Invalid manifest list: %v", err)
+	}
+
+	return list, nil
+}
+
 // commitIcebergAppend writes the manifest, manifest list and metadata, then
 // swaps the catalog pointer; a lost race re-plans the append on the new head.
 func (p *writePlan) commitIcebergAppend(ctx context.Context, files []iceberg.DataFile) statementOutcome {
 	l := &tableLoader{get: p.get, list: p.list, limits: defaultEngineLimits()}
-	committer, _ := p.cat.(tableCommitter)
 	tbl := p.ice
 
-	for attempt := 0; attempt < maxCommitAttempts; attempt++ {
-		var prev []iceberg.ManifestFile
-
-		if snap, ok := tbl.meta.CurrentSnapshot(); ok && snap.ManifestList != "" {
-			raw, err := l.readURI(ctx, snap.ManifestList)
-			if err != nil {
-				return engineFailure(icebergFailf("ICEBERG_MISSING_METADATA", "Manifest list not found: %s", snap.ManifestList))
-			}
-
-			if prev, err = iceberg.ReadManifestList(raw); err != nil {
-				return engineFailure(icebergFailf("ICEBERG_INVALID_METADATA", "Invalid manifest list: %v", err))
-			}
+	for range maxCommitAttempts {
+		conflict, out := p.tryCommit(ctx, l, tbl, files)
+		if !conflict {
+			return out
 		}
 
-		plan, err := tbl.meta.PlanAppend(tbl.location, prev, files, p.now().UTC())
+		def, err := p.cat.GetTableDef(p.db, p.table)
 		if err != nil {
-			return engineFailure(icebergFailf("ICEBERG_COMMIT_ERROR", "Cannot plan Iceberg update: %v", err))
-		}
-
-		for _, o := range plan.Objects {
-			if out := p.putObjectAt(ctx, o.Location, o.Body); out.failed {
-				return out
-			}
-		}
-
-		err = committer.CommitTableMetadata(p.db, p.table, tbl.location, plan.MetadataLocation)
-		if err == nil {
-			return stmtOK()
-		}
-
-		if !errors.Is(err, ErrCatalogCommitConflict) {
-			return stmtFail(athenaErrTypeSyntax, "ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: %s: %s",
-				p.display(), err)
-		}
-
-		def, gerr := p.cat.GetTableDef(p.db, p.table)
-		if gerr != nil {
-			return stmtFail(athenaErrTypeEntityMiss, "TABLE_NOT_FOUND: line 1:1: Table '%s' does not exist", p.display())
+			return stmtFail(
+				athenaErrTypeEntityMiss,
+				"TABLE_NOT_FOUND: line 1:1: Table '%s' does not exist",
+				p.display(),
+			)
 		}
 
 		if tbl, err = l.openIceberg(ctx, def, p.db+"."+p.table); err != nil {
@@ -284,4 +278,37 @@ func (p *writePlan) commitIcebergAppend(ctx context.Context, files []iceberg.Dat
 
 	return stmtFail(athenaErrTypeSyntax,
 		"ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: %s (concurrent modification)", p.display())
+}
+
+// tryCommit makes one commit attempt; conflict=true means the catalog pointer moved.
+func (p *writePlan) tryCommit(
+	ctx context.Context, l *tableLoader, tbl *icebergTable, files []iceberg.DataFile,
+) (bool, statementOutcome) {
+	prev, err := l.currentManifests(ctx, tbl)
+	if err != nil {
+		return false, engineFailure(err)
+	}
+
+	plan, err := tbl.meta.PlanAppend(tbl.location, prev, files, p.now().UTC())
+	if err != nil {
+		return false, engineFailure(icebergFailf("ICEBERG_COMMIT_ERROR", "Cannot plan Iceberg update: %v", err))
+	}
+
+	for _, o := range plan.Objects {
+		if out := p.putObjectAt(ctx, o.Location, o.Body); out.failed {
+			return false, out
+		}
+	}
+
+	committer, _ := p.cat.(tableCommitter)
+
+	switch err = committer.CommitTableMetadata(p.db, p.table, tbl.location, plan.MetadataLocation); {
+	case err == nil:
+		return false, stmtOK()
+	case errors.Is(err, ErrCatalogCommitConflict):
+		return true, stmtOK()
+	default:
+		return false, stmtFail(athenaErrTypeSyntax,
+			"ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: %s: %s", p.display(), err)
+	}
 }

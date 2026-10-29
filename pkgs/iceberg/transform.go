@@ -35,7 +35,7 @@ func ParseTransform(s string) (Transform, error) {
 	name, arg, hasArg := strings.Cut(strings.ToLower(strings.TrimSpace(s)), "[")
 	if !hasArg {
 		switch name {
-		case "identity", "year", "month", "day", "hour", "void":
+		case "identity", transformYear, transformMonth, transformDay, transformHour, "void":
 			return Transform{Name: name}, nil
 		}
 
@@ -62,8 +62,8 @@ func (t Transform) String() string {
 // ResultType is the Iceberg type of the transform's output for a source type.
 func (t Transform) ResultType(source string) string {
 	switch t.Name {
-	case "year", "month", "day", "hour", "bucket":
-		return "int"
+	case transformYear, transformMonth, transformDay, transformHour, transformBucket:
+		return typeInt
 	default:
 		return source
 	}
@@ -79,9 +79,9 @@ func (t Transform) Apply(source string, raw *string) (any, error) {
 	switch t.Name {
 	case "identity":
 		return identityValue(source, *raw)
-	case "year", "month", "day", "hour":
+	case transformYear, transformMonth, transformDay, transformHour:
 		return t.temporal(source, *raw)
-	case "bucket":
+	case transformBucket:
 		return t.bucket(source, *raw)
 	default:
 		return t.truncate(source, *raw)
@@ -105,29 +105,29 @@ func parseInstant(source, raw string) (time.Time, error) {
 
 func identityValue(source, raw string) (any, error) {
 	switch source {
-	case "boolean":
+	case typeBoolean:
 		return strings.EqualFold(raw, "true"), nil
-	case "int":
+	case typeInt:
 		n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 32)
 
-		return int32(n), err
-	case "long":
+		return narrow(n), err
+	case typeLong:
 		return strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-	case "float":
+	case typeFloat:
 		f, err := strconv.ParseFloat(strings.TrimSpace(raw), 32)
 
 		return float32(f), err
-	case "double":
+	case typeDouble:
 		return strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	case "date":
+	case typeDate:
 		d, err := parseInstant(source, raw)
 
-		return int32(d.Unix() / secondsPerDay), err
-	case "timestamp", "timestamptz":
+		return narrow(d.Unix() / secondsPerDay), err
+	case typeTimestamp, typeTimestamptz:
 		d, err := parseInstant(source, raw)
 
 		return d.UnixMicro(), err
-	case "string", "uuid":
+	case typeString, typeUUID:
 		return raw, nil
 	default:
 		return nil, fmt.Errorf("%w: identity partition on %s", ErrUnsupportedType, source)
@@ -139,7 +139,7 @@ func (t Transform) temporal(source, raw string) (any, error) {
 		return nil, fmt.Errorf("%w: %s partition on %s", ErrUnsupportedType, t.Name, source)
 	}
 
-	if t.Name == "hour" && source == "date" {
+	if t.Name == transformHour && source == "date" {
 		return nil, fmt.Errorf("%w: hour partition on date", ErrUnsupportedType)
 	}
 
@@ -149,14 +149,14 @@ func (t Transform) temporal(source, raw string) (any, error) {
 	}
 
 	switch t.Name {
-	case "year":
-		return int32(d.Year() - epochYear), nil
-	case "month":
-		return int32((d.Year()-epochYear)*12 + int(d.Month()) - 1), nil
-	case "day":
-		return int32(floorDiv(d.Unix(), secondsPerDay)), nil
+	case transformYear:
+		return narrow(int64(d.Year() - epochYear)), nil
+	case transformMonth:
+		return narrow(int64((d.Year()-epochYear)*12 + int(d.Month()) - 1)), nil
+	case transformDay:
+		return narrow(floorDiv(d.Unix(), secondsPerDay)), nil
 	default:
-		return int32(floorDiv(d.UnixMicro(), microsPerHour)), nil
+		return narrow(floorDiv(d.UnixMicro(), microsPerHour)), nil
 	}
 }
 
@@ -173,7 +173,7 @@ func (t Transform) bucket(source, raw string) (any, error) {
 	var in []byte
 
 	switch source {
-	case "int", "long", "date", "timestamp", "timestamptz":
+	case typeInt, typeLong, typeDate, typeTimestamp, typeTimestamptz:
 		v, err := identityValue(source, raw)
 		if err != nil {
 			return nil, err
@@ -189,20 +189,22 @@ func (t Transform) bucket(source, raw string) (any, error) {
 		}
 
 		in = binary.LittleEndian.AppendUint64(nil, uint64(n))
-	case "string", "uuid":
+	case typeString, typeUUID:
 		in = []byte(raw)
-	case "binary":
+	case typeBinary:
 		in = []byte(raw)
 	default:
 		return nil, fmt.Errorf("%w: bucket partition on %s", ErrUnsupportedType, source)
 	}
 
-	return int32((murmur3(in) & maxInt32Bucket) % uint32(t.Width)), nil //nolint:gosec // width is validated positive
+	width := uint32(t.Width) //nolint:gosec // ParseTransform guarantees a positive int width
+
+	return narrow(int64((murmur3(in) & maxInt32Bucket) % width)), nil
 }
 
 func (t Transform) truncate(source, raw string) (any, error) {
 	switch source {
-	case "int", "long":
+	case typeInt, typeLong:
 		v, err := identityValue(source, raw)
 		if err != nil {
 			return nil, err
@@ -213,13 +215,13 @@ func (t Transform) truncate(source, raw string) (any, error) {
 		if x, ok := v.(int32); ok {
 			n := int64(x)
 
-			return int32(n - ((n%w)+w)%w), nil
+			return narrow(n - ((n%w)+w)%w), nil
 		}
 
 		n, _ := v.(int64)
 
 		return n - ((n%w)+w)%w, nil
-	case "string":
+	case typeString:
 		if utf8.RuneCountInString(raw) <= t.Width {
 			return raw, nil
 		}
@@ -232,6 +234,7 @@ func (t Transform) truncate(source, raw string) (any, error) {
 	}
 }
 
+//nolint:mnd // MurmurHash3 x86_32 mixing constants
 func murmur3(data []byte) uint32 {
 	var h uint32
 
@@ -251,9 +254,11 @@ func murmur3(data []byte) uint32 {
 	switch len(data) & 3 {
 	case 3:
 		k ^= uint32(data[n+2]) << 16
+
 		fallthrough
 	case 2:
 		k ^= uint32(data[n+1]) << 8
+
 		fallthrough
 	case 1:
 		k ^= uint32(data[n])
@@ -276,19 +281,24 @@ func murmur3(data []byte) uint32 {
 // AvroTypeOf is the Avro primitive a value of the given Iceberg primitive is stored as in a manifest.
 func AvroTypeOf(icebergType string) (string, error) {
 	switch icebergType {
-	case "boolean":
-		return "boolean", nil
-	case "int", "date":
-		return "int", nil
-	case "long", "time", "timestamp", "timestamptz":
-		return "long", nil
-	case "float":
-		return "float", nil
-	case "double":
-		return "double", nil
-	case "string", "uuid":
-		return "string", nil
+	case typeBoolean:
+		return typeBoolean, nil
+	case typeInt, typeDate:
+		return typeInt, nil
+	case typeLong, typeTime, typeTimestamp, typeTimestamptz:
+		return typeLong, nil
+	case typeFloat:
+		return typeFloat, nil
+	case typeDouble:
+		return typeDouble, nil
+	case typeString, typeUUID:
+		return typeString, nil
 	default:
 		return "", fmt.Errorf("%w: partition value of type %s", ErrUnsupportedType, icebergType)
 	}
+}
+
+// narrow converts a transform result that is bounded by calendar or width arithmetic to an Avro int.
+func narrow(n int64) int32 {
+	return int32(n) //nolint:gosec // years, days, hours and truncated ints fit 32 bits
 }

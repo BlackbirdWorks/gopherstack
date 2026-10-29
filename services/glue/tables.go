@@ -280,7 +280,9 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 
 // SwapTableParameters applies set to the table's parameters only if guardKey still holds guardValue
 // (optimistic locking for catalog-committed Iceberg metadata).
-func (b *InMemoryBackend) SwapTableParameters(dbName, tableName, guardKey, guardValue string, set map[string]string) error {
+func (b *InMemoryBackend) SwapTableParameters(
+	dbName, tableName, guardKey, guardValue string, set map[string]string,
+) error {
 	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
 	b.mu.Lock("SwapTableParameters")
 	defer b.mu.Unlock()

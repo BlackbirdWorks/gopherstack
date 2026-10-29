@@ -16,16 +16,24 @@ const (
 	millisPerSecondInt   = 1000
 )
 
+const (
+	fnTruncate           = "truncate"
+	propFormat           = "format"
+	propWriteCompression = "write_compression"
+)
+
 // icebergTableProps maps the TBLPROPERTIES Athena accepts for Iceberg tables to Iceberg table properties.
-var icebergTableProps = map[string]string{
-	"format":                                 "write.format.default",
-	"write_compression":                      propParquetCodec,
-	"optimize_rewrite_data_file_threshold":   "optimize_rewrite_data_file_threshold",
-	"optimize_rewrite_delete_file_threshold": "optimize_rewrite_delete_file_threshold",
-	"vacuum_min_snapshots_to_keep":           "history.expire.min-snapshots-to-keep",
-	"vacuum_max_snapshot_age_seconds":        "history.expire.max-snapshot-age-ms",
-	"vacuum_max_metadata_files_to_keep":      "write.metadata.previous-versions-max",
-	"write_data_path_enabled":                "write.data.path.enabled",
+func icebergTableProps() map[string]string {
+	return map[string]string{
+		propFormat:                               "write.format.default",
+		propWriteCompression:                     propParquetCodec,
+		"optimize_rewrite_data_file_threshold":   "optimize_rewrite_data_file_threshold",
+		"optimize_rewrite_delete_file_threshold": "optimize_rewrite_delete_file_threshold",
+		"vacuum_min_snapshots_to_keep":           "history.expire.min-snapshots-to-keep",
+		"vacuum_max_snapshot_age_seconds":        "history.expire.max-snapshot-age-ms",
+		"vacuum_max_metadata_files_to_keep":      "write.metadata.previous-versions-max",
+		"write_data_path_enabled":                "write.data.path.enabled",
+	}
 }
 
 func (b *InMemoryBackend) ddlDeps() (S3Getter, S3Lister, S3Storer, bool) {
@@ -46,19 +54,23 @@ func icebergProps(raw map[string]string) (map[string]string, error) {
 			continue
 		}
 
-		target, ok := icebergTableProps[lk]
+		target, ok := icebergTableProps()[lk]
 		if !ok {
-			return nil, fmt.Errorf("Unsupported table property key: %s", k) //nolint:err113,staticcheck // Athena's message
+			return nil, &syntaxError{"Unsupported table property key: " + k}
 		}
 
 		switch lk {
-		case "format":
+		case propFormat:
 			if !strings.EqualFold(v, "parquet") {
-				return nil, fmt.Errorf("%w: Iceberg format %s; the embedded engine writes PARQUET", errUnsupportedFormat, v)
+				return nil, fmt.Errorf(
+					"%w: Iceberg format %s; the embedded engine writes PARQUET",
+					errUnsupportedFormat,
+					v,
+				)
 			}
 
 			v = strings.ToLower(v)
-		case "write_compression":
+		case propWriteCompression:
 			v = strings.ToLower(v)
 		case "vacuum_max_snapshot_age_seconds":
 			secs, err := strconv.ParseInt(v, 10, 64)
@@ -188,7 +200,47 @@ func fieldByName(schema iceberg.Schema, name string) (iceberg.Field, error) {
 		}
 	}
 
-	return iceberg.Field{}, &syntaxError{fmt.Sprintf("COLUMN_NOT_FOUND: line 1:1: Partition column '%s' not found in table", name)}
+	return iceberg.Field{}, &syntaxError{
+		fmt.Sprintf("COLUMN_NOT_FOUND: line 1:1: Partition column '%s' not found in table", name),
+	}
+}
+
+type transformCall struct {
+	fn    string
+	width string
+	col   string
+}
+
+func ddlSyntax(msg string) error { return &syntaxError{"SYNTAX_ERROR: line 1:1: " + msg} }
+
+// parseTransformCall reads fn(col) or fn(width, col).
+func parseTransformCall(sig []token) (transformCall, error) {
+	if len(sig) < argsThree || !sig[1].isPunct("(") || !sig[len(sig)-1].isPunct(")") {
+		return transformCall{}, ddlSyntax("invalid partition transform")
+	}
+
+	c := transformCall{fn: strings.ToLower(sig[0].text)}
+	args := splitCommas(sig[2 : len(sig)-1])
+	colArg := 0
+
+	if c.fn == "bucket" || c.fn == fnTruncate {
+		if len(args) != argsTwo {
+			return c, ddlSyntax(c.fn + " takes a width and a column")
+		}
+
+		c.width, colArg = strings.TrimSpace(joinTokens(args[0])), 1
+	} else if len(args) != 1 {
+		return c, ddlSyntax(c.fn + " takes one column")
+	}
+
+	colToks := significant(args[colArg])
+	if len(colToks) != 1 {
+		return c, ddlSyntax("invalid partition column")
+	}
+
+	c.col = colToks[0].ident()
+
+	return c, nil
 }
 
 func partitionField(schema iceberg.Schema, sig []token) (iceberg.PartitionField, error) {
@@ -198,50 +250,31 @@ func partitionField(schema iceberg.Schema, sig []token) (iceberg.PartitionField,
 		return iceberg.PartitionField{Name: f.Name, Transform: "identity", SourceID: f.ID}, err
 	}
 
-	if len(sig) < argsThree || !sig[1].isPunct("(") || !sig[len(sig)-1].isPunct(")") {
-		return iceberg.PartitionField{}, &syntaxError{"SYNTAX_ERROR: line 1:1: invalid partition transform"}
-	}
-
-	fn := strings.ToLower(sig[0].text)
-	args := splitCommas(sig[2 : len(sig)-1])
-
-	var width, colArg = "", 0
-
-	if fn == "bucket" || fn == "truncate" {
-		if len(args) != argsTwo {
-			return iceberg.PartitionField{}, &syntaxError{"SYNTAX_ERROR: line 1:1: " + fn + " takes a width and a column"}
-		}
-
-		width, colArg = strings.TrimSpace(joinTokens(args[0])), 1
-	} else if len(args) != 1 {
-		return iceberg.PartitionField{}, &syntaxError{"SYNTAX_ERROR: line 1:1: " + fn + " takes one column"}
-	}
-
-	colToks := significant(args[colArg])
-	if len(colToks) != 1 {
-		return iceberg.PartitionField{}, &syntaxError{"SYNTAX_ERROR: line 1:1: invalid partition column"}
-	}
-
-	f, err := fieldByName(schema, colToks[0].ident())
+	c, err := parseTransformCall(sig)
 	if err != nil {
 		return iceberg.PartitionField{}, err
 	}
 
-	transform, suffix := fn, "_"+fn
+	f, err := fieldByName(schema, c.col)
+	if err != nil {
+		return iceberg.PartitionField{}, err
+	}
 
-	switch fn {
-	case "bucket", "truncate":
-		transform = fn + "[" + width + "]"
-		if fn == "truncate" {
+	transform, suffix := c.fn, "_"+c.fn
+
+	switch c.fn {
+	case "bucket", fnTruncate:
+		transform = c.fn + "[" + c.width + "]"
+		if c.fn == fnTruncate {
 			suffix = "_trunc"
 		}
 	case "year", "month", "day", "hour":
 	default:
-		return iceberg.PartitionField{}, &syntaxError{"SYNTAX_ERROR: line 1:1: unknown partition transform '" + fn + "'"}
+		return iceberg.PartitionField{}, ddlSyntax("unknown partition transform '" + c.fn + "'")
 	}
 
 	if _, perr := iceberg.ParseTransform(transform); perr != nil {
-		return iceberg.PartitionField{}, &syntaxError{"SYNTAX_ERROR: line 1:1: invalid partition transform '" + transform + "'"}
+		return iceberg.PartitionField{}, ddlSyntax("invalid partition transform '" + transform + "'")
 	}
 
 	return iceberg.PartitionField{Name: f.Name + suffix, Transform: transform, SourceID: f.ID}, nil
@@ -291,7 +324,7 @@ func (b *InMemoryBackend) createDeltaTable(
 		}
 	}
 
-	def.Parameters = map[string]string{paramTableType: tableTypeDelta, "EXTERNAL": "TRUE"}
+	def.Parameters = map[string]string{paramTableType: tableTypeDelta, "EXTERNAL": externalTrue}
 	def.SerdeLibrary, def.InputFormat, def.OutputFormat = parquetSerde, parquetInputFmt, parquetOutFmt
 
 	switch err = cat.CreateTableDef(db, def); {

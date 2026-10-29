@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	travelTimestamp = "ts"
-	travelVersion   = "ver"
-	tsMillisLayout  = "2006-01-02 15:04:05.000"
+	secondsPerDayInt = 86400
+	travelTimestamp  = "ts"
+	travelVersion    = "ver"
+	tsMillisLayout   = "2006-01-02 15:04:05.000"
 )
 
 // travelSpec is a FOR TIMESTAMP/VERSION AS OF clause on a table reference.
@@ -32,15 +33,27 @@ type icebergTable struct {
 	display  string
 }
 
+// icebergError is a failure surfaced with an Athena error name prefix (ICEBERG_MISSING_METADATA: ...).
+type icebergError struct{ msg string }
+
+func (e *icebergError) Error() string { return e.msg }
+
 func icebergFailf(code, format string, args ...any) error {
-	return fmt.Errorf("%s: %s", code, fmt.Sprintf(format, args...))
+	return &icebergError{msg: code + ": " + fmt.Sprintf(format, args...)}
 }
+
+var errBadTimestamp = errors.New("unparseable timestamp")
 
 // openIceberg reads the table's current metadata.json named by the catalog.
 func (l *tableLoader) openIceberg(ctx context.Context, def *GlueTableDef, display string) (*icebergTable, error) {
 	loc := lowerParam(def.Parameters, paramMetadataLoc)
 	if loc == "" {
-		return nil, icebergFailf("ICEBERG_INVALID_METADATA", "Table is missing [%s] property: %s", paramMetadataLoc, display)
+		return nil, icebergFailf(
+			"ICEBERG_INVALID_METADATA",
+			"Table is missing [%s] property: %s",
+			paramMetadataLoc,
+			display,
+		)
 	}
 
 	data, err := l.readURI(ctx, loc)
@@ -67,7 +80,11 @@ func (t *icebergTable) pickSnapshot(tr travelSpec) (iceberg.Snapshot, bool, erro
 	case travelVersion:
 		id, err := strconv.ParseInt(strings.TrimSpace(tr.value), 10, 64)
 		if err != nil {
-			return iceberg.Snapshot{}, false, icebergFailf("INVALID_ARGUMENTS", "Invalid Iceberg snapshot ID: %s", tr.value)
+			return iceberg.Snapshot{}, false, icebergFailf(
+				"INVALID_ARGUMENTS",
+				"Invalid Iceberg snapshot ID: %s",
+				tr.value,
+			)
 		}
 
 		s, ok := t.meta.SnapshotByID(id)
@@ -108,14 +125,14 @@ func parseTravelTime(s string) (time.Time, error) {
 	}
 
 	for _, layout := range []string{
-		"2006-01-02 15:04:05.999999999", "2006-01-02T15:04:05.999999999", time.RFC3339Nano, "2006-01-02",
+		"2006-01-02 15:04:05.999999999", time.RFC3339Nano, dateLayout,
 	} {
 		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
 			return t, nil
 		}
 	}
 
-	return time.Time{}, fmt.Errorf("unparseable timestamp %q", s)
+	return time.Time{}, fmt.Errorf("%w %q", errBadTimestamp, s)
 }
 
 func (t *icebergTable) schemaFor(s iceberg.Snapshot, hasSnap bool) iceberg.Schema {
@@ -221,7 +238,12 @@ func (l *tableLoader) positionDeletes(ctx context.Context, files []fileEntry) (m
 
 		pf, err := parquetio.Open(data)
 		if err != nil {
-			return nil, icebergFailf("ICEBERG_CANNOT_OPEN_SPLIT", "Cannot open delete file %s: %v", d.entry.DataFile.Path, err)
+			return nil, icebergFailf(
+				"ICEBERG_CANNOT_OPEN_SPLIT",
+				"Cannot open delete file %s: %v",
+				d.entry.DataFile.Path,
+				err,
+			)
 		}
 
 		perFile := map[string]map[int64]bool{}
@@ -239,7 +261,12 @@ func (l *tableLoader) positionDeletes(ctx context.Context, files []fileEntry) (m
 			return nil
 		})
 		if err != nil {
-			return nil, icebergFailf("ICEBERG_CURSOR_ERROR", "Cannot read delete file %s: %v", d.entry.DataFile.Path, err)
+			return nil, icebergFailf(
+				"ICEBERG_CURSOR_ERROR",
+				"Cannot read delete file %s: %v",
+				d.entry.DataFile.Path,
+				err,
+			)
 		}
 
 		for p, set := range perFile {
@@ -315,8 +342,8 @@ func (t *planTable) loadIceberg(ctx context.Context, conn *sql.Conn, l *tableLoa
 		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: len(cols)}
 
 		for _, f := range files.data {
-			if err := l.loadIcebergDataFile(ctx, tbl, schema, cols, f, dels, sink); err != nil {
-				return err
+			if lerr := l.loadIcebergDataFile(ctx, tbl, schema, cols, f, dels, sink); lerr != nil {
+				return lerr
 			}
 		}
 
@@ -364,10 +391,10 @@ func partitionText(icebergType string, v any) string {
 	switch n := v.(type) {
 	case int32, int:
 		if icebergType == "date" {
-			return time.Unix(int64(toInt64(n))*86400, 0).UTC().Format("2006-01-02")
+			return time.Unix(toInt64(n)*secondsPerDayInt, 0).UTC().Format(dateLayout)
 		}
 	case int64:
-		if icebergType == "timestamp" || icebergType == "timestamptz" {
+		if icebergType == typeTimestamp || icebergType == "timestamptz" {
 			return time.UnixMicro(n).UTC().Format(tsMillisLayout)
 		}
 	}

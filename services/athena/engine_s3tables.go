@@ -12,7 +12,9 @@ const s3TablesCatalogPrefix = "s3tablescatalog/"
 // metadata location moved since it was read.
 var ErrCatalogCommitConflict = errors.New("catalog commit conflict")
 
-var errS3TablesDDL = errors.New("NOT_SUPPORTED: schema changes in S3 Tables catalogs are not supported; use the S3 Tables API")
+var errS3TablesDDL = errors.New(
+	"NOT_SUPPORTED: schema changes in S3 Tables catalogs are not supported; use the S3 Tables API",
+)
 
 // S3TableInfo is an S3 Tables table as the SQL engine sees it.
 type S3TableInfo struct {
@@ -36,7 +38,8 @@ type tableCommitter interface {
 func (b *InMemoryBackend) SetS3TablesSource(src S3TablesSource) { b.s3tables = src }
 
 func s3TablesBucket(catalog string) (string, bool) {
-	if len(catalog) <= len(s3TablesCatalogPrefix) || !strings.EqualFold(catalog[:len(s3TablesCatalogPrefix)], s3TablesCatalogPrefix) {
+	if len(catalog) <= len(s3TablesCatalogPrefix) ||
+		!strings.EqualFold(catalog[:len(s3TablesCatalogPrefix)], s3TablesCatalogPrefix) {
 		return "", false
 	}
 
