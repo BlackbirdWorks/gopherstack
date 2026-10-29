@@ -236,6 +236,7 @@ import (
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
+	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
@@ -628,6 +629,7 @@ type CLI struct {
 	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
 	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
+	OCIContainerEngine            ocioke.Settings                   `embed:"" prefix:"oci-oke-"`
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
@@ -909,6 +911,16 @@ func (c *CLI) GetOCIStreamingSettings() ocistreamingbackend.Settings {
 // GetOCIQueueSettings returns OCI Queue settings (ociqueue.ConfigProvider).
 func (c *CLI) GetOCIQueueSettings() ociqueuebackend.Settings {
 	return c.OCIQueue
+}
+
+// GetOCIContainerEngineSettings returns OKE settings (ocicontainerengine.ConfigProvider).
+func (c *CLI) GetOCIContainerEngineSettings() ocioke.Settings {
+	return c.OCIContainerEngine
+}
+
+// GetOCIContainerEngineEngine returns the OKE engine mode (ocicontainerengine.EngineConfigProvider).
+func (c *CLI) GetOCIContainerEngineEngine() string {
+	return c.engineMode("oci-oke-engine", c.OCIContainerEngine.Engine)
 }
 
 // GetOCINotificationsSettings returns OCI Notifications settings (ocinotifications.ConfigProvider).
@@ -2673,6 +2685,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCICore", "ocicore", cli.OCICore.Port},
 		{"OCIQueue", "ociqueue", cli.OCIQueue.Port},
 		{"OCINotifications", "ocinotifications", cli.OCINotifications.Port},
+		{"OCIContainerEngine", "ocicontainerengine", cli.OCIContainerEngine.Port},
 	}
 }
 
@@ -3667,6 +3680,7 @@ func wireCrossServiceDependencies(
 	wireOCIStreamingVault(byName)
 	wireOCIIdentityKeys(byName)
 	wireOCIQueueNotifications(byName)
+	wireOCIContainerEngine(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -3734,6 +3748,11 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCINotifications"].(*ocinotificationsbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIContainerEngine"].(*ocioke.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
 	}
 }
 
@@ -5149,6 +5168,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocicorebackend.Provider{},
 		&ociqueuebackend.Provider{},
 		&ocinotificationsbackend.Provider{},
+		&ocioke.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
