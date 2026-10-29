@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	mobycontainer "github.com/moby/moby/api/types/container"
 	mobynetwork "github.com/moby/moby/api/types/network"
@@ -183,14 +184,14 @@ func appendCap(list []string, val string) ([]string, error) {
 }
 
 func parseMemory(val string) (int64, error) {
-	v := strings.ToLower(val)
-	mult := int64(1)
+	v, mult := strings.ToLower(val), int64(1)
 
-	for suffix, m := range map[string]int64{
-		"b": 1, "k": bytesPerKiB, "m": bytesPerKiB * bytesPerKiB, "g": bytesPerKiB * bytesPerKiB * bytesPerKiB,
-	} {
-		if strings.HasSuffix(v, suffix) {
-			v, mult = strings.TrimSuffix(v, suffix), m
+	for _, u := range []struct {
+		suffix string
+		mult   int64
+	}{{"b", 1}, {"k", bytesPerKiB}, {"m", bytesPerKiB * bytesPerKiB}, {"g", bytesPerKiB * bytesPerKiB * bytesPerKiB}} {
+		if trimmed, ok := strings.CutSuffix(v, u.suffix); ok {
+			v, mult = trimmed, u.mult
 
 			break
 		}
@@ -268,56 +269,68 @@ func parsePortNumber(s string) (int, error) {
 // sshContainerPort is the in-container sshd port.
 const sshContainerPort = 22
 
+// wordSplitter accumulates shell-like words: whitespace separates, quotes group, backslash escapes.
+type wordSplitter struct {
+	words   []string
+	cur     strings.Builder
+	quote   rune
+	inWord  bool
+	escaped bool
+}
+
+func (w *wordSplitter) feed(r rune) {
+	switch {
+	case w.escaped:
+		w.cur.WriteRune(r)
+
+		w.escaped = false
+	case r == '\\' && w.quote != '\'':
+		w.escaped, w.inWord = true, true
+	case w.quote != 0:
+		if r == w.quote {
+			w.quote = 0
+		} else {
+			w.cur.WriteRune(r)
+		}
+	case r == '\'' || r == '"':
+		w.quote, w.inWord = r, true
+	case unicode.IsSpace(r):
+		w.flush()
+	default:
+		w.cur.WriteRune(r)
+
+		w.inWord = true
+	}
+}
+
+func (w *wordSplitter) flush() {
+	if w.inWord {
+		w.words = append(w.words, w.cur.String())
+		w.cur.Reset()
+
+		w.inWord = false
+	}
+}
+
 // splitFlagWords tokenises s on whitespace, honouring single and double quotes and backslash escapes.
 func splitFlagWords(s string) ([]string, error) {
-	var (
-		words   []string
-		cur     strings.Builder
-		quote   rune
-		inWord  bool
-		escaped bool
-	)
+	var w wordSplitter
 
 	for _, r := range s {
-		switch {
-		case escaped:
-			cur.WriteRune(r)
-
-			escaped = false
-		case r == '\\' && quote != '\'':
-			escaped, inWord = true, true
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			} else {
-				cur.WriteRune(r)
-			}
-		case r == '\'' || r == '"':
-			quote, inWord = r, true
-		case r == ' ' || r == '\t' || r == '\n':
-			if inWord {
-				words, cur, inWord = append(words, cur.String()), strings.Builder{}, false
-			}
-		default:
-			cur.WriteRune(r)
-
-			inWord = true
-		}
+		w.feed(r)
 	}
 
-	if quote != 0 || escaped {
+	if w.quote != 0 || w.escaped {
 		return nil, flagErr("unterminated quote or escape in %q", s)
 	}
 
-	if inWord {
-		words = append(words, cur.String())
-	}
+	w.flush()
 
-	return words, nil
+	return w.words, nil
 }
 
 // apply layers the flags onto a container's host config, environment and exposed ports.
-func (f dockerFlags) apply(hc *mobycontainer.HostConfig, env []string, exposed mobynetwork.PortSet) []string {
+func (f *dockerFlags) apply(hc *mobycontainer.HostConfig, env []string, exposed mobynetwork.PortSet) []string {
 	hc.Privileged = hc.Privileged || f.privileged
 	hc.Binds = append(hc.Binds, f.binds...)
 	hc.CapAdd = append(hc.CapAdd, f.capAdd...)

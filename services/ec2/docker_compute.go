@@ -12,6 +12,7 @@ import (
 	"time"
 
 	mobycontainer "github.com/moby/moby/api/types/container"
+	mobymount "github.com/moby/moby/api/types/mount"
 	mobynetwork "github.com/moby/moby/api/types/network"
 	mobyclient "github.com/moby/moby/client"
 
@@ -41,13 +42,13 @@ type DockerComputeConfig struct {
 	Image     string            `json:"image,omitempty"`
 	Network   string            `json:"network,omitempty"`
 	SSHHostIP string            `json:"sshHostIP,omitempty"`
+	// Flags is a restricted docker-run style option string (see parseDockerFlags) applied to every container.
+	Flags string `json:"flags,omitempty"`
 	// Region is used to render the public DNS name suffix
 	// (e.g. us-east-1 → "compute-1.amazonaws.com").
 	Region     string `json:"region,omitempty"`
 	SSHPortMin int    `json:"sshPortMin,omitempty"`
 	SSHPortMax int    `json:"sshPortMax,omitempty"`
-	// Flags is a restricted docker-run style option string (see parseDockerFlags) applied to every container.
-	Flags string `json:"flags,omitempty"`
 	// EBSVolumes maps EBS volumes to Docker named volumes mounted under /mnt/ebs.
 	EBSVolumes bool `json:"ebsVolumes,omitempty"`
 }
@@ -219,18 +220,9 @@ func mustParsePort(s string) mobynetwork.Port {
 
 // Launch implements Compute.
 func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchResult, error) {
-	image := d.cfg.Image
-	if req.DockerImage != "" {
-		image = req.DockerImage
-	}
-
-	if err := d.ensureImage(ctx, image); err != nil {
-		return LaunchResult{}, err
-	}
-
-	mounts, mountErr := d.launchMounts(ctx, req)
-	if mountErr != nil {
-		return LaunchResult{}, mountErr
+	image, mounts, prepErr := d.prepareLaunch(ctx, req)
+	if prepErr != nil {
+		return LaunchResult{}, prepErr
 	}
 
 	hostPort, err := d.reserveSSHPort()
@@ -332,6 +324,25 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		NetworkNote:     vn.note,
 		PublishedPorts:  got.published,
 	}, nil
+}
+
+// prepareLaunch resolves the image the instance runs, makes it available locally and creates its EBS volumes.
+func (d *DockerCompute) prepareLaunch(ctx context.Context, req LaunchRequest) (string, []mobymount.Mount, error) {
+	image := d.cfg.Image
+	if req.DockerImage != "" {
+		image = req.DockerImage
+	}
+
+	if err := d.ensureImage(ctx, image); err != nil {
+		return "", nil, err
+	}
+
+	mounts, err := d.launchMounts(ctx, req)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return image, mounts, nil
 }
 
 // syntheticPublicDNS renders an AWS-style public hostname for an instance,

@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"maps"
 	"net/url"
 	"testing"
 
@@ -37,9 +38,7 @@ func newDockerHandler(t *testing.T, cfg DockerComputeConfig) (*Handler, *InMemor
 
 func runVals(imageID string, extra url.Values) url.Values {
 	v := url.Values{"ImageId": {imageID}, "InstanceType": {"t3.micro"}, "MinCount": {"1"}, "MaxCount": {"1"}}
-	for k, vs := range extra {
-		v[k] = vs
-	}
+	maps.Copy(v, extra)
 
 	return v
 }
@@ -79,29 +78,25 @@ func TestRunInstancesChoosesImagePerAMI(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(t *testing.T, h *Handler, api *richDockerAPI) string
-		name       string
-		wantImage  string
-		wantErr    error
-		wantCreate bool
+		wantErr   error
+		setup     func(t *testing.T, h *Handler, api *richDockerAPI) string
+		name      string
+		wantImage string
 	}{
 		{
-			name:       "seeded_al2023",
-			setup:      func(*testing.T, *Handler, *richDockerAPI) string { return amiAL2023 },
-			wantImage:  "amazonlinux:2023",
-			wantCreate: true,
+			name:      "seeded_al2023",
+			setup:     func(*testing.T, *Handler, *richDockerAPI) string { return amiAL2023 },
+			wantImage: "amazonlinux:2023",
 		},
 		{
-			name:       "seeded_ubuntu",
-			setup:      func(*testing.T, *Handler, *richDockerAPI) string { return amiUbuntu24 },
-			wantImage:  "ubuntu:24.04",
-			wantCreate: true,
+			name:      "seeded_ubuntu",
+			setup:     func(*testing.T, *Handler, *richDockerAPI) string { return amiUbuntu24 },
+			wantImage: "ubuntu:24.04",
 		},
 		{
-			name:       "windows_falls_back_to_configured_default",
-			setup:      func(*testing.T, *Handler, *richDockerAPI) string { return amiWindows },
-			wantImage:  "alpine:3.20",
-			wantCreate: true,
+			name:      "windows_falls_back_to_configured_default",
+			setup:     func(*testing.T, *Handler, *richDockerAPI) string { return amiWindows },
+			wantImage: "alpine:3.20",
 		},
 		{
 			name: "register_image_docker_location",
@@ -115,8 +110,7 @@ func TestRunInstancesChoosesImagePerAMI(t *testing.T) {
 
 				return resp.(*registerImageResponse).ImageID
 			},
-			wantImage:  "busybox:1.36",
-			wantCreate: true,
+			wantImage: "busybox:1.36",
 		},
 		{
 			name: "register_image_without_binding_uses_default",
@@ -128,8 +122,7 @@ func TestRunInstancesChoosesImagePerAMI(t *testing.T) {
 
 				return resp.(*registerImageResponse).ImageID
 			},
-			wantImage:  "alpine:3.20",
-			wantCreate: true,
+			wantImage: "alpine:3.20",
 		},
 		{
 			name: "copy_image_inherits_binding",
@@ -141,8 +134,7 @@ func TestRunInstancesChoosesImagePerAMI(t *testing.T) {
 
 				return resp.(*copyImageResponse).ImageID
 			},
-			wantImage:  "ubuntu:22.04",
-			wantCreate: true,
+			wantImage: "ubuntu:22.04",
 		},
 		{
 			name:    "unknown_ami",
@@ -156,8 +148,7 @@ func TestRunInstancesChoosesImagePerAMI(t *testing.T) {
 
 				return amiDiscover
 			},
-			wantImage:  "gopherstack-ec2/web:" + amiDiscover,
-			wantCreate: true,
+			wantImage: "gopherstack-ec2/web:" + amiDiscover,
 		},
 	}
 
@@ -205,7 +196,13 @@ func TestDiscoveredImagesAppearInDescribeImages(t *testing.T) {
 		wantID   string
 		wantSeen bool
 	}{
-		{name: "convention", tag: "gopherstack-ec2/web:" + amiDiscover, wantName: "web", wantID: amiDiscover, wantSeen: true},
+		{
+			name:     "convention",
+			tag:      "gopherstack-ec2/web:" + amiDiscover,
+			wantName: "web",
+			wantID:   amiDiscover,
+			wantSeen: true,
+		},
 		{
 			name: "nested_name", tag: "gopherstack-ec2/team/db:ami-0fedcba987654321a",
 			wantName: "team/db", wantID: "ami-0fedcba987654321a", wantSeen: true,
@@ -299,7 +296,12 @@ func TestParseLocalImageTag(t *testing.T) {
 		wantID   string
 		wantOK   bool
 	}{
-		{tag: "gopherstack-ec2/web:ami-0123456789abcdef0", wantName: "web", wantID: "ami-0123456789abcdef0", wantOK: true},
+		{
+			tag:      "gopherstack-ec2/web:ami-0123456789abcdef0",
+			wantName: "web",
+			wantID:   "ami-0123456789abcdef0",
+			wantOK:   true,
+		},
 		{tag: "gopherstack-ec2/web", wantOK: false},
 		{tag: "gopherstack-ec2/:ami-0123456789abcdef0", wantOK: false},
 		{tag: "gopherstack-ec2/web:ami-XYZ", wantOK: false},

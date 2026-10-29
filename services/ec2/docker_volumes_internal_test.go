@@ -123,24 +123,32 @@ func TestDockerVolumesRemovedWithEBSVolume(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		act  func(t *testing.T, h *Handler, b *InMemoryBackend, deleteOnTerm, keep *Volume)
-		name string
+		act             func(t *testing.T, h *Handler, b *InMemoryBackend, keep *Volume)
+		name            string
+		wantKeepRemoved bool
 	}{
 		{
 			name: "terminate_honours_delete_on_termination",
-			act: func(t *testing.T, h *Handler, b *InMemoryBackend, _, _ *Volume) {
+			act: func(t *testing.T, h *Handler, b *InMemoryBackend, _ *Volume) {
 				t.Helper()
 
-				_, err := h.handleTerminateInstances(url.Values{"InstanceId.1": {b.DescribeInstances(nil, "")[0].ID}}, "r")
+				_, err := h.handleTerminateInstances(
+					url.Values{"InstanceId.1": {b.DescribeInstances(nil, "")[0].ID}},
+					"r",
+				)
 				require.NoError(t, err)
 			},
 		},
 		{
-			name: "delete_volume",
-			act: func(t *testing.T, h *Handler, b *InMemoryBackend, deleteOnTerm, keep *Volume) {
+			name:            "delete_volume",
+			wantKeepRemoved: true,
+			act: func(t *testing.T, h *Handler, b *InMemoryBackend, keep *Volume) {
 				t.Helper()
 
-				_, err := h.handleTerminateInstances(url.Values{"InstanceId.1": {b.DescribeInstances(nil, "")[0].ID}}, "r")
+				_, err := h.handleTerminateInstances(
+					url.Values{"InstanceId.1": {b.DescribeInstances(nil, "")[0].ID}},
+					"r",
+				)
 				require.NoError(t, err)
 
 				_, err = h.handleDeleteVolume(url.Values{"VolumeId": {keep.ID}}, "r")
@@ -162,14 +170,14 @@ func TestDockerVolumesRemovedWithEBSVolume(t *testing.T) {
 			require.Contains(t, api.volumes, "gopherstack-ebs-"+dot.ID)
 			require.Contains(t, api.volumes, "gopherstack-ebs-"+keep.ID)
 
-			tt.act(t, h, b, dot, keep)
+			tt.act(t, h, b, keep)
 
 			assert.NotContains(t, api.volumes, "gopherstack-ebs-"+dot.ID, "DeleteOnTermination volume is removed")
 
-			if tt.name == "terminate_honours_delete_on_termination" {
-				assert.Contains(t, api.volumes, "gopherstack-ebs-"+keep.ID, "retained EBS volume keeps its data")
-			} else {
+			if tt.wantKeepRemoved {
 				assert.NotContains(t, api.volumes, "gopherstack-ebs-"+keep.ID, "DeleteVolume removes the docker volume")
+			} else {
+				assert.Contains(t, api.volumes, "gopherstack-ebs-"+keep.ID, "retained EBS volume keeps its data")
 			}
 		})
 	}
@@ -205,7 +213,10 @@ func TestRuntimeAttachDetachMovesDataBetweenInstances(t *testing.T) {
 	attach := func(inst string) {
 		t.Helper()
 
-		_, aerr := h.handleAttachVolume(url.Values{"VolumeId": {vol.ID}, "InstanceId": {inst}, "Device": {"/dev/sdf"}}, "r")
+		_, aerr := h.handleAttachVolume(
+			url.Values{"VolumeId": {vol.ID}, "InstanceId": {inst}, "Device": {"/dev/sdf"}},
+			"r",
+		)
 		require.NoError(t, aerr)
 	}
 	detach := func() {
@@ -247,7 +258,10 @@ func TestTerminateSyncsRuntimeAttachedVolumeBack(t *testing.T) {
 	vol, err := b.CreateVolume("us-east-1a", "gp3", 1, "")
 	require.NoError(t, err)
 
-	_, err = h.handleAttachVolume(url.Values{"VolumeId": {vol.ID}, "InstanceId": {inst.ID}, "Device": {"/dev/sdh"}}, "r")
+	_, err = h.handleAttachVolume(
+		url.Values{"VolumeId": {vol.ID}, "InstanceId": {inst.ID}, "Device": {"/dev/sdh"}},
+		"r",
+	)
 	require.NoError(t, err)
 
 	api.writeFile(richProvider, "/mnt/ebs/sdh/db.dat", []byte("rows"))
@@ -273,7 +287,10 @@ func TestDetachFailureKeepsVolumeAttached(t *testing.T) {
 	vol, err := b.CreateVolume("us-east-1a", "gp3", 1, "")
 	require.NoError(t, err)
 
-	_, err = h.handleAttachVolume(url.Values{"VolumeId": {vol.ID}, "InstanceId": {inst.ID}, "Device": {"/dev/sdf"}}, "r")
+	_, err = h.handleAttachVolume(
+		url.Values{"VolumeId": {vol.ID}, "InstanceId": {inst.ID}, "Device": {"/dev/sdf"}},
+		"r",
+	)
 	require.NoError(t, err)
 
 	api.copyFromErr = errFakeBoom

@@ -335,7 +335,7 @@ func (d *DockerCompute) withVolumeHelper(
 	}
 
 	created, err := d.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
-		Config: &mobycontainer.Config{Image: image, Cmd: []string{"true"}},
+		Config: &mobycontainer.Config{Image: image, Cmd: []string{ec2BooleanTrue}},
 		HostConfig: &mobycontainer.HostConfig{Mounts: []mobymount.Mount{{
 			Type: mobymount.TypeVolume, Source: ebsVolumeName(volumeID), Target: ebsHelperDir,
 		}}},
@@ -345,7 +345,10 @@ func (d *DockerCompute) withVolumeHelper(
 	}
 
 	defer func() {
-		_, _ = d.api.ContainerRemove(context.WithoutCancel(ctx), created.ID, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		_, _ = d.api.ContainerRemove(
+			context.WithoutCancel(ctx), created.ID,
+			mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+		)
 	}()
 
 	return fn(created.ID)
@@ -354,7 +357,11 @@ func (d *DockerCompute) withVolumeHelper(
 func (d *DockerCompute) copyVolumeIn(
 	ctx context.Context, va volumeAPI, helperID, providerID, path string,
 ) error {
-	from, err := va.CopyFromContainer(ctx, helperID, mobyclient.CopyFromContainerOptions{SourcePath: ebsHelperDir + "/."})
+	from, err := va.CopyFromContainer(
+		ctx,
+		helperID,
+		mobyclient.CopyFromContainerOptions{SourcePath: ebsHelperDir + "/."},
+	)
 	if err != nil {
 		return fmt.Errorf("read docker volume: %w", err)
 	}
@@ -408,7 +415,7 @@ func retarUnder(r io.Reader, w io.Writer, prefix string) error {
 			return err
 		}
 
-		if _, err = io.Copy(tw, tr); err != nil {
+		if _, err = io.CopyN(tw, tr, hdr.Size); err != nil {
 			return err
 		}
 	}
@@ -436,7 +443,8 @@ func (d *DockerCompute) clearPath(ctx context.Context, providerID, path string) 
 	}
 
 	for range ebsExecPolls {
-		if res, inspectErr := va.ExecInspect(ctx, ex.ID, mobyclient.ExecInspectOptions{}); inspectErr != nil || !res.Running {
+		if res, inspectErr := va.ExecInspect(ctx, ex.ID, mobyclient.ExecInspectOptions{}); inspectErr != nil ||
+			!res.Running {
 			return
 		}
 

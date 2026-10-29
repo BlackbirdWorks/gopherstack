@@ -1,7 +1,6 @@
 package ec2
 
 import (
-	"errors"
 	"net/http/httptest"
 	"testing"
 
@@ -39,54 +38,57 @@ func newInternalSDKClient(t *testing.T, h *Handler) *ec2sdk.Client {
 	return ec2sdk.NewFromConfig(cfg, func(o *ec2sdk.Options) { o.BaseEndpoint = aws.String(srv.URL) })
 }
 
-func TestSDKDockerAMIBinding(t *testing.T) {
+func TestSDKDockerUnknownAMI(t *testing.T) {
+	t.Parallel()
+
+	h, _, api := newDockerHandler(t, DockerComputeConfig{})
+	client := newInternalSDKClient(t, h)
+
+	_, err := client.RunInstances(t.Context(), &ec2sdk.RunInstancesInput{
+		ImageId: aws.String("ami-00000000deadbeef0"), MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
+	})
+
+	var apiErr smithy.APIError
+
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidAMIID.NotFound", apiErr.ErrorCode())
+	assert.Empty(t, api.created)
+}
+
+func TestSDKDockerLocalImageIsAMI(t *testing.T) {
 	t.Parallel()
 
 	h, _, api := newDockerHandler(t, DockerComputeConfig{Image: "alpine:3.20"})
 	client := newInternalSDKClient(t, h)
 	ctx := t.Context()
 
-	t.Run("unknown_ami_not_found", func(t *testing.T) {
-		_, err := client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
-			ImageId: aws.String("ami-00000000deadbeef0"), MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
-		})
-
-		var apiErr smithy.APIError
-		require.True(t, errors.As(err, &apiErr))
-		assert.Equal(t, "InvalidAMIID.NotFound", apiErr.ErrorCode())
-	})
-
 	api.images["gopherstack-ec2/web:"+amiDiscover] = "x"
 
-	t.Run("locally_tagged_image_is_an_ami", func(t *testing.T) {
-		out, err := client.DescribeImages(ctx, &ec2sdk.DescribeImagesInput{Owners: []string{"self"}})
-		require.NoError(t, err)
-		require.Len(t, out.Images, 1)
-		assert.Equal(t, amiDiscover, aws.ToString(out.Images[0].ImageId))
-		assert.Equal(t, "web", aws.ToString(out.Images[0].Name))
+	out, err := client.DescribeImages(ctx, &ec2sdk.DescribeImagesInput{Owners: []string{"self"}})
+	require.NoError(t, err)
+	require.Len(t, out.Images, 1)
+	assert.Equal(t, amiDiscover, aws.ToString(out.Images[0].ImageId))
+	assert.Equal(t, "web", aws.ToString(out.Images[0].Name))
 
-		run, err := client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
-			ImageId: aws.String(amiDiscover), MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
-		})
-		require.NoError(t, err)
-		require.Len(t, api.created, 1)
-		assert.Equal(t, "gopherstack-ec2/web:"+amiDiscover, api.created[0].Config.Image)
-
-		t.Run("create_image_commits", func(t *testing.T) {
-			img, imgErr := client.CreateImage(ctx, &ec2sdk.CreateImageInput{
-				InstanceId: run.Instances[0].InstanceId, Name: aws.String("snap one"),
-			})
-			require.NoError(t, imgErr)
-			require.Len(t, api.commits, 1)
-			assert.Equal(t, "gopherstack-ec2/snap-one:"+aws.ToString(img.ImageId), api.commits[0].Reference)
-
-			_, runErr := client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
-				ImageId: img.ImageId, MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
-			})
-			require.NoError(t, runErr)
-			assert.Equal(t, api.commits[0].Reference, api.created[1].Config.Image)
-		})
+	run, err := client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
+		ImageId: aws.String(amiDiscover), MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
 	})
+	require.NoError(t, err)
+	require.Len(t, api.created, 1)
+	assert.Equal(t, "gopherstack-ec2/web:"+amiDiscover, api.created[0].Config.Image)
+
+	img, err := client.CreateImage(ctx, &ec2sdk.CreateImageInput{
+		InstanceId: run.Instances[0].InstanceId, Name: aws.String("snap one"),
+	})
+	require.NoError(t, err)
+	require.Len(t, api.commits, 1)
+	assert.Equal(t, "gopherstack-ec2/snap-one:"+aws.ToString(img.ImageId), api.commits[0].Reference)
+
+	_, err = client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
+		ImageId: img.ImageId, MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, api.commits[0].Reference, api.created[1].Config.Image)
 }
 
 func TestSDKDockerEBSVolumes(t *testing.T) {

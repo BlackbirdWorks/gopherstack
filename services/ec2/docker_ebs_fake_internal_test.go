@@ -20,20 +20,20 @@ const fakeVolPrefix = "vol:"
 
 // richDockerAPI adds image, volume and copy support, backed by an in-memory filesystem, to fakeDockerAPI.
 type richDockerAPI struct {
-	*fakeDockerAPI
-	files       map[string]map[string][]byte
-	helperVol   map[string]string
-	mountedVol  map[string]map[string]string
-	volumes     map[string]mobyvolume.Volume
-	images      map[string]string
-	commits     []mobyclient.ContainerCommitOptions
-	execs       [][]string
-	removedVol  []string
 	commitErr   error
 	copyFromErr error
-	helperSeq   int
-	running     bool
-	rmu         sync.Mutex
+	mountedVol  map[string]map[string]string
+	*fakeDockerAPI
+	volumes    map[string]mobyvolume.Volume
+	images     map[string]string
+	helperVol  map[string]string
+	files      map[string]map[string][]byte
+	commits    []mobyclient.ContainerCommitOptions
+	execs      [][]string
+	removedVol []string
+	helperSeq  int
+	rmu        sync.Mutex
+	running    bool
 }
 
 func newRichDockerAPI(base *fakeDockerAPI) *richDockerAPI {
@@ -62,8 +62,8 @@ func (r *richDockerAPI) resolve(id, path string) (string, string) {
 	}
 
 	for target, vol := range r.mountedVol[id] {
-		if strings.HasPrefix(path, target) {
-			return fakeVolPrefix + vol, strings.TrimPrefix(path, target)
+		if rest, ok := strings.CutPrefix(path, target); ok {
+			return fakeVolPrefix + vol, rest
 		}
 	}
 
@@ -82,7 +82,7 @@ func (r *richDockerAPI) ContainerCreate(
 			mounts[m.Target] = strings.TrimPrefix(m.Source, ebsVolumePrefix)
 		}
 
-		if slices.Equal(opts.Config.Cmd, []string{"true"}) {
+		if slices.Equal(opts.Config.Cmd, []string{ec2BooleanTrue}) {
 			r.helperSeq++
 			id := "helper-" + strconv.Itoa(r.helperSeq)
 			r.helperVol[id] = strings.TrimPrefix(opts.HostConfig.Mounts[0].Source, ebsVolumePrefix)
@@ -249,7 +249,10 @@ func (r *richDockerAPI) CopyToContainer(
 		}
 
 		data, _ := io.ReadAll(tr)
-		store, rel := r.resolve(id, strings.TrimSuffix(opts.DestinationPath, "/")+"/"+strings.TrimPrefix(hdr.Name, "./"))
+		store, rel := r.resolve(
+			id,
+			strings.TrimSuffix(opts.DestinationPath, "/")+"/"+strings.TrimPrefix(hdr.Name, "./"),
+		)
 		r.writeFile(store, rel, data)
 	}
 }

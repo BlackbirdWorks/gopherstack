@@ -18,11 +18,16 @@ func TestParseDockerFlags(t *testing.T) {
 		in      string
 		wantErr string
 	}{
-		{name: "empty", in: "", check: func(t *testing.T, f dockerFlags) { assert.Equal(t, dockerFlags{}, f) }},
+		{name: "empty", in: "", check: func(t *testing.T, f dockerFlags) {
+			t.Helper()
+			t.Helper()
+			assert.Equal(t, dockerFlags{}, f)
+		}},
 		{
 			name: "privileged_env_volume",
 			in:   `--privileged -e A=1 --env=B=two -v /host:/ctr:ro --volume vol:/data`,
 			check: func(t *testing.T, f dockerFlags) {
+				t.Helper()
 				assert.True(t, f.privileged)
 				assert.Equal(t, []string{"A=1", "B=two"}, f.env)
 				assert.Equal(t, []string{"/host:/ctr:ro", "vol:/data"}, f.binds)
@@ -32,6 +37,7 @@ func TestParseDockerFlags(t *testing.T) {
 			name: "caps_resources_network",
 			in:   `--cap-add net_admin --cap-drop=MKNOD -m 512m --cpus 1.5 --network=mynet`,
 			check: func(t *testing.T, f dockerFlags) {
+				t.Helper()
 				assert.Equal(t, []string{"NET_ADMIN"}, f.capAdd)
 				assert.Equal(t, []string{"MKNOD"}, f.capDrop)
 				assert.Equal(t, int64(512*1024*1024), f.memory)
@@ -43,6 +49,7 @@ func TestParseDockerFlags(t *testing.T) {
 			name: "publish_forms",
 			in:   `-p 8080:80 -p 127.0.0.1:9000:9000/udp`,
 			check: func(t *testing.T, f dockerFlags) {
+				t.Helper()
 				assert.Equal(t, []publishFlag{
 					{hostPort: 8080, containerPort: 80, proto: "tcp"},
 					{hostIP: "127.0.0.1", hostPort: 9000, containerPort: 9000, proto: "udp"},
@@ -53,6 +60,7 @@ func TestParseDockerFlags(t *testing.T) {
 			name: "quoted_value",
 			in:   `-e "GREETING=hello world" -e 'X=y'`,
 			check: func(t *testing.T, f dockerFlags) {
+				t.Helper()
 				assert.Equal(t, []string{"GREETING=hello world", "X=y"}, f.env)
 			},
 		},
