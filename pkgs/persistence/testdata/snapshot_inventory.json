@@ -10812,6 +10812,7 @@
       "AMIStub.BlockDeviceMappings []ImageBlockDeviceMapping `json:\"blockDeviceMappings,omitempty\"`",
       "AMIStub.CreationTime time.Time `json:\"creationTime,omitzero\"`",
       "AMIStub.Description string `json:\"description,omitempty\"`",
+      "AMIStub.DockerImage string `json:\"dockerImage,omitempty\"`",
       "AMIStub.EnaSupport bool `json:\"enaSupport,omitempty\"`",
       "AMIStub.EnaSupportSet bool `json:\"enaSupportSet,omitempty\"`",
       "AMIStub.ImageID string `json:\"imageID,omitempty\"`",

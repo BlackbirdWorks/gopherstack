@@ -435,6 +435,12 @@ func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error
 		return nil, err
 	}
 
+	if err = h.bindRegisteredImage(img.ImageID, vals.Get("ImageLocation")); err != nil {
+		_ = h.Backend.DeregisterImage(img.ImageID)
+
+		return nil, err
+	}
+
 	virtType := vals.Get("VirtualizationType")
 	if virtType == "" {
 		virtType = "paravirtual" // api_op_RegisterImage.go: "Default: paravirtual"
@@ -1482,6 +1488,8 @@ func (h *Handler) toAMIItem(a *AMIStub, deprecation map[string]string, state str
 }
 
 func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
+	h.refreshDockerImages(h.svcCtx)
+
 	amis := h.Backend.DescribeImages()
 	requested := collectRequestedImageIDs(vals)
 
