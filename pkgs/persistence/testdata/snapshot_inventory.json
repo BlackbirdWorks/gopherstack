@@ -4692,7 +4692,6 @@
       "Job.StoppedAt *int64 `json:\"stoppedAt,omitempty\"`",
       "Job.Tags map[string]string `json:\"tags\"`",
       "Job.Timeout *JobTimeout `json:\"timeout,omitempty\"`",
-      "Job.attemptCount int32",
       "Job.isMainNode bool",
       "Job.nodeCount int32",
       "Job.nodeIndex *int32",
