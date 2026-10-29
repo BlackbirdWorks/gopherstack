@@ -1,7 +1,9 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -35,6 +37,7 @@ var armPxSecretKeys = []string{ //nolint:gochecknoglobals // immutable allowlist
 // reach. Everything else answers 400, so the proxy never forwards arbitrary ARM calls.
 type armProxy struct {
 	allowed   func(method string, p []string) bool
+	body      func(method string, p []string, in []byte) ([]byte, bool)
 	name      string
 	prefix    string
 	queryKeys []string
@@ -75,6 +78,15 @@ func (h *DashboardHandler) registerARMProxy(px armProxy) {
 		fwd.RequestURI = ""
 		fwd.Body = http.MaxBytesReader(c.Response(), r.Body, armPxMaxBody)
 
+		if px.body != nil && !armRewriteBody(fwd, px.body, armPath) {
+			return azureACIFail(
+				c,
+				http.StatusBadRequest,
+				"InvalidRequestContent",
+				"invalid "+px.name+" proxy request body",
+			)
+		}
+
 		rec := httptest.NewRecorder()
 		inner.ServeHTTP(rec, fwd)
 
@@ -84,6 +96,25 @@ func (h *DashboardHandler) registerARMProxy(px armProxy) {
 	for _, m := range px.methods {
 		h.SubRouter.Add(m, px.prefix+"/*", serve)
 	}
+}
+
+// armRewriteBody replaces the forwarded body with one rebuilt by rebuild from the caller's JSON.
+func armRewriteBody(fwd *http.Request, rebuild func(string, []string, []byte) ([]byte, bool), armPath string) bool {
+	in, err := io.ReadAll(fwd.Body)
+	if err != nil {
+		return false
+	}
+
+	out, ok := rebuild(fwd.Method, strings.Split(strings.ToLower(strings.TrimPrefix(armPath, "/")), "/"), in)
+	if !ok {
+		return false
+	}
+
+	fwd.Body, fwd.ContentLength = io.NopCloser(bytes.NewReader(out)), int64(len(out))
+	fwd.Header = fwd.Header.Clone()
+	fwd.Header.Set("Content-Type", "application/json")
+
+	return true
 }
 
 // armProxyPath validates the proxied ARM path segments and the allowlist.

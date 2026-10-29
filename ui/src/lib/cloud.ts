@@ -170,6 +170,15 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azurearm",
     defaultPort: 10006,
   },
+  {
+    id: "flexdb",
+    label: "Flexible Server",
+    description:
+      "Azure Database for PostgreSQL and MySQL flexible servers (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
 ];
 
 export type GcpService = {
@@ -383,6 +392,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     healthName: "GCPContainer",
     portLabel: "gcpcontainer",
     defaultPort: 8144,
+  },
+  {
+    id: "identitytoolkit",
+    label: "Identity Platform",
+    description: "Google Cloud Identity Platform users, tenants and sign-in providers",
+    healthName: "GCPIdentityToolkit",
+    portLabel: "gcpidentitytoolkit",
+    defaultPort: 8145,
   },
 ];
 

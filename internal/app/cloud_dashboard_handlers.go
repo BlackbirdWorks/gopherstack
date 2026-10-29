@@ -148,3 +148,8 @@ func (c *CLI) GetOCILoggingHandler() service.Registerable { return c.ociLoggingH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOCIMonitoringHandler() service.Registerable { return c.ociMonitoringHandler }
+
+// GetGCPIdentityToolkitHandler returns the GCPIdentityToolkit handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPIdentityToolkitHandler() service.Registerable { return c.gcpIdentityToolkitHandler }
