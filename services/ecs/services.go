@@ -446,7 +446,7 @@ func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service 
 			case statusRunning:
 				running++
 				liveTasks = append(liveTasks, t)
-			case statusPending, statusProvisioning:
+			case statusPending, statusProvisioning, statusActivating:
 				pending++
 				liveTasks = append(liveTasks, t)
 			}
@@ -775,7 +775,7 @@ func (b *InMemoryBackend) runningTasksByGroupLocked(clusterName string) map[stri
 	counts := make(map[string]int)
 
 	for _, t := range b.tasksByCluster.Get(clusterName) {
-		if t.LastStatus == statusRunning {
+		if t.LastStatus == statusRunning || isLaunchingStatus(t.LastStatus) {
 			counts[t.Group]++
 		}
 	}

@@ -108,6 +108,8 @@ type Session struct {
 	DocumentName       string              `json:"DocumentName,omitempty"`
 	AccessType         string              `json:"AccessType,omitempty"`
 	MaxSessionDuration string              `json:"MaxSessionDuration,omitempty"`
+	ContainerID        string              `json:"ContainerId,omitempty"`
+	ExecCommand        string              `json:"ExecCommand,omitempty"`
 	StartDate          float64             `json:"StartDate"`
 	EndDate            float64             `json:"EndDate,omitempty"`
 }

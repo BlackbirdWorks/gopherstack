@@ -120,6 +120,7 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	b.events = home.events
 	b.credIssuer = home.credIssuer
 	b.endpointURL = home.endpointURL
+	b.execSessions = home.execSessions
 	b.linkLocal = home.linkLocal
 	b.secrets = home.secrets
 	b.metrics.Set(home.metrics.Emitter())
