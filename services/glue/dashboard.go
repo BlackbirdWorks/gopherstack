@@ -88,7 +88,7 @@ func (b *InMemoryBackend) GetDashboardURL(resourceID, resourceType, requestOrigi
 // URL/token are deterministic mock values (same modeling choice as
 // GetDashboardURL above), but the existence and state checks are real.
 func (b *InMemoryBackend) GetSessionEndpoint(sessionID string) (*SessionEndpoint, error) {
-	b.advanceStates(time.Now())
+	b.advanceStates(b.clockNow())
 
 	b.mu.RLock("GetSessionEndpoint")
 	defer b.mu.RUnlock()
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) GetSessionEndpoint(sessionID string) (*SessionEndpoint
 		return nil, fmt.Errorf("session %q not found: %w", sessionID, ErrNotFound)
 	}
 
-	if s.Status == stateStopped || s.Status == stateStopping {
+	if s.Status == stateStopped || s.Status == stateStopping || s.Status == statusTimeout || s.Status == statusFailed {
 		return nil, fmt.Errorf(
 			"%w: session %q is not in a usable state (status=%s)", ErrIllegalSessionState, sessionID, s.Status,
 		)

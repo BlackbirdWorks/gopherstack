@@ -36,6 +36,8 @@ func TestSession(t *testing.T) {
 		t.Errorf("GetSession ID mismatch: %v", sess2)
 	}
 
+	waitHandlerSessionReady(t, h, "sess-1")
+
 	// RunStatement
 	out3 := dispatchNewOp(t, h, "RunStatement", map[string]any{
 		"SessionId": "sess-1",

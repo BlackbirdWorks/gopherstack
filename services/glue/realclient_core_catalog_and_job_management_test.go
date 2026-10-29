@@ -662,6 +662,8 @@ func testSessionsRealClient(t *testing.T) {
 	require.NotNil(t, ep.SparkConnect)
 	assert.NotEmpty(t, aws.ToString(ep.SparkConnect.Url))
 
+	waitClientSessionReady(t, client, "sess1")
+
 	run, err := client.RunStatement(ctx, &gluesdk.RunStatementInput{
 		SessionId: aws.String("sess1"), Code: aws.String("print(1)"),
 	})

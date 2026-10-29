@@ -1107,6 +1107,7 @@ type Session struct {
 	DefaultArguments      map[string]string `json:"DefaultArguments,omitempty"`
 	Command               SessionCommand    `json:"Command,omitzero"`
 	Status                string            `json:"Status"`
+	ErrorMessage          string            `json:"ErrorMessage,omitempty"`
 	GlueVersion           string            `json:"GlueVersion,omitempty"`
 	WorkerType            string            `json:"WorkerType,omitempty"`
 	SecurityConfiguration string            `json:"SecurityConfiguration,omitempty"`
@@ -1115,6 +1116,7 @@ type Session struct {
 	Description           string            `json:"Description,omitempty"`
 	Connections           ConnectionsList   `json:"Connections,omitzero"`
 	CreatedOn             float64           `json:"CreatedOn,omitempty"`
+	CompletedOn           float64           `json:"CompletedOn,omitempty"`
 	MaxCapacity           float64           `json:"MaxCapacity,omitempty"`
 	NumberOfWorkers       int32             `json:"NumberOfWorkers,omitempty"`
 	Timeout               int32             `json:"Timeout,omitempty"`

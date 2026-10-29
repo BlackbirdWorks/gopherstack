@@ -609,6 +609,7 @@ type CLI struct {
 	AzureEventGrid                azureeventgridbackend.Settings    `embed:"" prefix:"azure-eventgrid-"`
 	AzureMonitor                  azuremonitorbackend.Settings      `embed:"" prefix:"azure-monitor-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
+	Glue                          gluebackend.Settings              `embed:"" prefix:"glue-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	AzureAppConfig                azureappconfigbackend.Settings    `embed:"" prefix:"azure-appconfig-"`
@@ -1378,6 +1379,14 @@ func (c *CLI) GetCloudWatchLogsSettings() cwlogsbackend.Settings {
 func (c *CLI) GetCodeBuildSettings() codebuildbackend.Settings {
 	st := c.CodeBuild
 	st.Engine = c.engineMode("codebuild-engine", st.Engine)
+
+	return st
+}
+
+// GetGlueSettings returns Glue settings (glue.ConfigProvider).
+func (c *CLI) GetGlueSettings() gluebackend.Settings {
+	st := c.Glue
+	st.Engine = c.engineMode("glue-engine", st.Engine)
 
 	return st
 }

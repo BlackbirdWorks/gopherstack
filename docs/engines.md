@@ -1,7 +1,7 @@
 # Engine modes
 
 Container-backed services (RDS/Aurora, MSK, Amazon MQ, OpenSearch, Elasticsearch, DocumentDB, Neptune,
-Redshift, EKS, ElastiCache, MemoryDB, CodeBuild, Timestream for InfluxDB, ECS tasks) default to in-memory
+Redshift, EKS, ElastiCache, MemoryDB, CodeBuild, Glue interactive sessions, Timestream for InfluxDB, ECS tasks) default to in-memory
 stubs. `--engines` (env `GOPHERSTACK_ENGINES`) switches them all at once:
 
 | Value | Behaviour |

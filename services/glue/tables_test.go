@@ -2,6 +2,7 @@ package glue_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,6 +105,7 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 				require.Empty(t, errs)
 				_, err = b.CreateSession("session", "role", glue.SessionCommand{}, glue.Session{})
 				require.NoError(t, err)
+				glue.AdvanceStatesForTest(b, time.Now().Add(time.Minute))
 				_, err = b.RunStatement("session", "select 1")
 				require.NoError(t, err)
 				require.NoError(

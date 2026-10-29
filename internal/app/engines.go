@@ -72,6 +72,7 @@ func engineEntries() []engineEntry {
 		},
 		{func(c *CLI) *string { return &c.SageMakerEngine }, "sagemaker-engine", "SAGEMAKER_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.CodeBuild.Engine }, "codebuild-engine", "CODEBUILD_ENGINE", enginesStub},
+		{func(c *CLI) *string { return &c.Glue.Engine }, "glue-engine", "GLUE_ENGINE", enginesStub},
 	}
 }
 
