@@ -113,7 +113,7 @@ func (e *dockerEngine) dumpMySQL(ctx context.Context, dbs []string) ([]byte, err
 
 	cmd := append([]string{
 		cmdEnv, "MYSQL_PWD=" + e.pass(), mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
-		argAddDrop, "-r", dumpMount + "/dump.sql", argDatabases,
+		argAddDrop, "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", argDatabases,
 	}, dbs...)
 
 	if err := e.run(ctx, cmd); err != nil {
