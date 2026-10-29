@@ -70,7 +70,9 @@ func startCypherFront(
 
 	if innerAddr == "" {
 		f.gremlinQueries = newQueryTracker()
-		f.gremlin = gremlin.NewServer(f.ctx, graph, gremlin.Options{Track: f.gremlinQueries.begin, Authorize: gremlinAuthorizer})
+		f.gremlin = gremlin.NewServer(f.ctx, graph, gremlin.Options{
+			Track: f.gremlinQueries.begin, Authorize: gremlinAuthorizer,
+		})
 	} else {
 		f.proxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: innerAddr})
 		f.proxy.Transport = f.tr

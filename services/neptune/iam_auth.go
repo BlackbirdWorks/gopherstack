@@ -145,7 +145,7 @@ func (c *iamCaller) allows(action, language string) bool {
 
 	cc := iam.ConditionContext{
 		PrincipalARN: c.pr.arn, PrincipalAccount: c.pr.account, RequestedRegion: c.region,
-		SourceIP: c.sourceIP, SecureTransport: "true",
+		SourceIP: c.sourceIP, SecureTransport: formTrue,
 		Extra: map[string]string{condQueryLang: language},
 	}
 

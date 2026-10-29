@@ -10,7 +10,8 @@ type Access struct {
 	Delete bool
 }
 
-var writeStepRE = regexp.MustCompile(`\b(addV|addE|mergeV|mergeE|property|drop)\s*\(`) //nolint:gochecknoglobals // compiled once
+//nolint:gochecknoglobals // compiled once
+var writeStepRE = regexp.MustCompile(`\b(addV|addE|mergeV|mergeE|property|drop)\s*\(`)
 
 // ScriptAccess scans a script for steps that can write or delete; it over-approximates, never under.
 func ScriptAccess(script string) Access {
@@ -40,13 +41,13 @@ func (a *Access) merge(o Access) {
 }
 
 func stepNameAccess(name string) Access {
-	switch name {
-	case "addV", "addE", "mergeV", "mergeE":
+	switch {
+	case isCreateStep(name):
 		return Access{Write: true}
-	case "property":
-		return Access{Write: true, Delete: true}
-	case "drop":
+	case name == "drop":
 		return Access{Delete: true}
+	case mutatingStep(name):
+		return Access{Write: true, Delete: true} // property
 	}
 
 	return Access{}
