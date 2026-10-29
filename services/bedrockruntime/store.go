@@ -3,6 +3,7 @@ package bedrockruntime
 import (
 	"context"
 	"maps"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -20,6 +21,7 @@ type InMemoryBackend struct {
 	tokenIndex         map[string]string
 	accountID          string
 	region             string
+	llm                atomic.Pointer[ollamaBackend]
 	invocations        invocationRing
 	asyncInvokeCounter int
 }

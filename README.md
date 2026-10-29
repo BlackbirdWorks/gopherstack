@@ -361,6 +361,9 @@ configuration](#lambda-configuration) below. A few more exist:
 | *(none)* | `CONTAINER_HOST` | *(empty)* | Generic container endpoint override (e.g. a Podman socket URL). Takes precedence over runtime auto-detection. |
 | `--ecs-runtime` | `GOPHERSTACK_ECS_RUNTIME` | *(unset = no-op)* | Set to `docker` to run ECS tasks as real containers; also driven by `--engines`. Unset or any other value is a no-op runner. |
 | *(none)* | `GOPHERSTACK_ENABLE_LOCAL_REGISTRY` | `false` (set to `1` to enable) | Run a real embedded Docker Registry v2 backend for ECR instead of the in-memory stub. |
+| *(none)* | `GOPHERSTACK_BEDROCK_BACKEND` | `mock` | Bedrock Runtime inference: `mock` returns deterministic placeholder output (not a model); `ollama` forwards Converse/InvokeModel to a local Ollama. |
+| *(none)* | `GOPHERSTACK_BEDROCK_OLLAMA_URL` | `http://localhost:11434` | Ollama base URL for the `ollama` Bedrock backend. |
+| *(none)* | `GOPHERSTACK_BEDROCK_MODEL_MAP` | *(empty)* | Comma list of `bedrock-id-glob=ollama-model` rules, e.g. `anthropic.claude-*=llama3.2,amazon.titan-embed-*=nomic-embed-text`; unmapped models return ResourceNotFoundException. |
 
 #### Per-service tuning (janitor intervals & TTLs)
 
@@ -864,7 +867,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Bedrock](services/bedrock/README.md) | A | 80 | 1 gap; 3 structural gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 2 gaps; 3 structural gaps; 2 deferred |
-| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 3 gaps; 5 structural gaps |
+| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 4 gaps; 5 structural gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 1 gap; 1 structural gap; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 1 gap |
 | [Personalize](services/personalize/README.md) | A | 74 | clean |

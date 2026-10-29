@@ -144,6 +144,10 @@ func (h *Handler) handleConverse(
 		return err
 	}
 
+	if o := h.Backend.llm.Load(); o != nil {
+		return h.handleOllamaConverse(c, o, modelID, body, &req)
+	}
+
 	resp := buildConverseResponse(&req)
 	echoConverseConfig(resp, &req)
 
@@ -178,6 +182,10 @@ func (h *Handler) handleConverseStream(
 
 	if written, err := h.converseGuardrailMissing(c, req.GuardrailConfig); written {
 		return err
+	}
+
+	if o := h.Backend.llm.Load(); o != nil {
+		return h.handleOllamaConverseStream(c, o, modelID, body, &req)
 	}
 
 	inputTokens := estimateTokensFromMessages(req.Messages, req.System)

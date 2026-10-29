@@ -61,10 +61,11 @@ gaps: []
 items_still_open:
   - "chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: needs a per-service extension point in shared pkgs/chaos, outside this service (bd: gopherstack-ayfw)."
   - "AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed; the StartAsyncInvoke/GetAsyncInvoke docs name no condition that produces Failed."
+  - "Ollama backend (GOPHERSTACK_BEDROCK_BACKEND=ollama): stopReason stop_sequence is never reported (Ollama says done_reason=stop for stop-sequence hits), toolChoice is accepted but not enforced (no Ollama equivalent), Converse documents are limited to txt/md/csv/html, InvokeModel families are Anthropic Claude (messages and legacy prompt), Titan text/embed-text, Nova text, Llama, Mistral, Cohere Embed (float) and Command R; other families (AI21, Stability, Titan image/multimodal, Cohere Command text) return ValidationException; InvokeModelWithBidirectionalStream and CountTokens stay mock/estimated."
   - "Converse guardrailConfig accepts an identifier without a version: GuardrailConfiguration marks both members optional (patterns allow empty) and no doc says a version is required (InvokeModel's header rule is documented; patterns and trace/streamProcessingMode enums are enforced)."
 structural_gaps:
-  - "No real inference or classifier: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply, InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones."
-  - "No model behind Converse/ConverseStream/InvokeModel: InvokeModel.Body is never interpreted; AdditionalModelRequestFields, AdditionalModelResponseFieldPaths, OutputConfig, PromptVariables and RequestMetadata (invocation-log filtering) are accepted but cannot change a canned reply."
+  - "Default (GOPHERSTACK_BEDROCK_BACKEND=mock) inference is deterministic placeholder output, not a model: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply (real completions are opt-in via the ollama backend), InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones."
+  - "No model behind the default mock Converse/ConverseStream/InvokeModel: InvokeModel.Body is never interpreted; AdditionalModelRequestFields, AdditionalModelResponseFieldPaths, OutputConfig, PromptVariables and RequestMetadata (invocation-log filtering) are accepted but cannot change a canned reply."
   - "InvokeModel/InvokeModelWithResponseStream Trace is enum-validated but no guardrail trace is produced without a classifier."
   - "ApplyGuardrail.OutputScope FULL has no extra output to add: only word-policy assessments exist, and the SDK says FULL does not apply to word filters."
   - "Converse/InvokeModel serviceTier and performanceConfig latency are echoed from the request: no tiers or latency-optimized hosting exist to negotiate."
@@ -467,3 +468,19 @@ bedrockruntime is region-isolated: async invocations and the invocation history 
 ## 2026-10-05 (gopherstack-uox6 pass 12, value semantics)
 
 Recorded, unchanged: ListAsyncInvokes sorts ascending by SubmitTime when SortOrder is omitted; the AWS API docs say the default is Descending but the SDK comment (api_op_ListAsyncInvokes.go:42) states no default, so it is not modeled.
+
+## 2026-10-29 opt-in Ollama inference backend
+
+`GOPHERSTACK_BEDROCK_BACKEND=ollama` (default `mock`) routes Converse, ConverseStream, InvokeModel and
+InvokeModelWithResponseStream to a local Ollama (`GOPHERSTACK_BEDROCK_OLLAMA_URL`, default
+`http://localhost:11434`). `GOPHERSTACK_BEDROCK_MODEL_MAP` is a comma list of `bedrock-id-glob=ollama-model`
+rules (first match wins; geo inference-profile prefixes and ARNs are matched by their resource id). Unmapped
+model -> ResourceNotFoundException; Ollama unreachable -> ServiceUnavailableException (503); Ollama 404
+(model not pulled) -> ModelNotReadyException (429); Ollama 400 -> ValidationException; other upstream
+failures -> ModelErrorException (424). Converse maps text/image/document/toolUse/toolResult, system,
+inferenceConfig and toolConfig to `/api/chat` and back (usage from prompt_eval_count/eval_count, tool calls
+-> toolUse blocks, stopReason tool_use/max_tokens/end_turn). Streams are forwarded as the Ollama NDJSON
+arrives. InvokeModel bodies are translated per family (see the Ollama open item). Wire evidence: Ollama
+docs/api.md; Bedrock user guide model-parameters pages (Claude messages, Titan text/embed, Llama, Mistral,
+Cohere Embed v3/Command R); InvokeModel API reference error list; SDK `schemas.go` member names.
+Titan completionReason is `FINISH` (the value real Titan returns), not the `FINISHED` the guide prints.

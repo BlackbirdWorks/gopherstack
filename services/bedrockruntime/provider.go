@@ -34,6 +34,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackendWithContext(svcCtx, accountID, region)
+	if err := backend.SetLLM(LLMConfigFromEnv()); err != nil {
+		return nil, err
+	}
+
 	wireGuardrailLookup(ctx, backend)
 	handler := NewHandler(backend)
 	handler.EnableRegions()

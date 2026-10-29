@@ -171,6 +171,10 @@ func (h *Handler) handleInvokeModel(
 		return err
 	}
 
+	if o := h.Backend.llm.Load(); o != nil {
+		return h.handleOllamaInvoke(c, o, modelID, body)
+	}
+
 	resp := mockInvokeModelResponse(modelID)
 
 	out, err := json.Marshal(resp)
@@ -222,6 +226,10 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 
 	if written, err := h.invokeGuardrailMissing(c); written {
 		return err
+	}
+
+	if o := h.Backend.llm.Load(); o != nil {
+		return h.handleOllamaInvokeStream(c, o, modelID, body)
 	}
 
 	resp := mockInvokeModelResponse(modelID)
