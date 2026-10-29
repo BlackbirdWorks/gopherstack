@@ -599,8 +599,8 @@ func TestDockerCluster_VolumeMountAllowlist(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		mount   func(t *testing.T, allowed, outside string) string
+		name    string
 		allow   bool
 		wantErr bool
 	}{

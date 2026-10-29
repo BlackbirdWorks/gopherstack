@@ -259,8 +259,8 @@ func (e *clusterEngine) checkMountsAllowed(mounts []string) error {
 	for _, m := range mounts {
 		host, _, _ := strings.Cut(m, ":")
 
-		real, err := filepath.EvalSymlinks(filepath.Clean(host))
-		if err != nil || !e.allowedHost(real) {
+		resolved, err := filepath.EvalSymlinks(filepath.Clean(host))
+		if err != nil || !e.allowedHost(resolved) {
 			return fmt.Errorf("%w: host path %q is not inside EKS_VOLUME_MOUNT_ALLOW", ErrValidation, host)
 		}
 	}
@@ -268,9 +268,9 @@ func (e *clusterEngine) checkMountsAllowed(mounts []string) error {
 	return nil
 }
 
-func (e *clusterEngine) allowedHost(real string) bool {
+func (e *clusterEngine) allowedHost(resolved string) bool {
 	for _, a := range e.cfg.VolumeMountAllow {
-		if ra, err := filepath.EvalSymlinks(filepath.Clean(a)); err == nil && insidePrefix(real, ra) {
+		if ra, err := filepath.EvalSymlinks(filepath.Clean(a)); err == nil && insidePrefix(resolved, ra) {
 			return true
 		}
 	}
