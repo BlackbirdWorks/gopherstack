@@ -123,6 +123,12 @@ func (b *InMemoryBackend) snapshotCrawlLocked(c *Crawler) *crawlRun {
 		}
 	}
 
+	for _, mt := range c.Targets.MongoDBTargets {
+		if conn, ok := b.connections.Get(mt.ConnectionName); ok {
+			r.conns[mt.ConnectionName] = cloneConnection(conn)
+		}
+	}
+
 	for _, t := range b.tables.All() {
 		if strs.Equal(t.DatabaseName, c.DatabaseName) {
 			r.tables.Put(cloneTable(t))
@@ -226,6 +232,12 @@ func (r *crawlRun) crawlAllTargets() error {
 
 	for _, jt := range t.JdbcTargets {
 		if err := r.crawlJDBC(jt); err != nil {
+			return err
+		}
+	}
+
+	for _, mt := range t.MongoDBTargets {
+		if err := r.crawlMongoDB(mt); err != nil {
 			return err
 		}
 	}

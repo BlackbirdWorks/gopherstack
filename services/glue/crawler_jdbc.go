@@ -136,7 +136,7 @@ func (r *crawlRun) crawlJDBC(t JDBCTarget) error {
 	defer cancel()
 
 	if ep.secretID != "" {
-		if ep.user, ep.password, err = r.resolveJDBCSecret(ctx, ep.secretID); err != nil {
+		if ep.user, ep.password, err = r.resolveSecretCredentials(ctx, ep.secretID); err != nil {
 			return err
 		}
 	}
@@ -342,7 +342,7 @@ func mysqlHiveType(c jdbcColumn) string {
 	}
 }
 
-func (r *crawlRun) resolveJDBCSecret(ctx context.Context, secretID string) (string, string, error) {
+func (r *crawlRun) resolveSecretCredentials(ctx context.Context, secretID string) (string, string, error) {
 	if r.secrets == nil {
 		return "", "", fmt.Errorf("%w %q: Secrets Manager is not available", errJDBCSecret, secretID)
 	}
