@@ -3,6 +3,7 @@ package ocinosql
 import (
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -94,6 +95,10 @@ func (b *InMemoryBackend) CreateIndex(ref string, in createIndexIn) (string, err
 
 	if aerr = validIdent("index", in.Name); aerr != nil {
 		return "", aerr
+	}
+
+	if len(t.Indexes) >= maxIndexes {
+		return "", errLimit("a table can have at most " + strconv.Itoa(maxIndexes) + " indexes")
 	}
 
 	keys, aerr := buildIndexKeys(t, in.Keys)

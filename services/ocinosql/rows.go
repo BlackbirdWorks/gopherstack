@@ -284,6 +284,10 @@ func (b *InMemoryBackend) UpdateRow(ref, ifMatch string, in updateRowIn) (Update
 		return UpdateRowResult{}, aerr
 	}
 
+	if aerr = checkRowSize(t.PrimaryKey, row); aerr != nil {
+		return UpdateRowResult{}, aerr
+	}
+
 	existing := t.live(key, now)
 	if refused(in.Option, ifMatch, existing) {
 		return b.refusedPut(t, existing, in, now), nil

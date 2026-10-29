@@ -12,7 +12,8 @@ import (
 const (
 	hoursPerDay = 24
 	maxNameLen  = 256
-	maxColumns  = 1024
+	maxFieldLen = 64
+	maxColumns  = 50
 )
 
 var identRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
@@ -55,9 +56,14 @@ type alterSpec struct {
 }
 
 func validIdent(kind, name string) *APIError {
-	if len(name) > maxNameLen || !identRe.MatchString(name) {
+	limit := maxFieldLen
+	if kind == "table" {
+		limit = maxNameLen
+	}
+
+	if len(name) > limit || !identRe.MatchString(name) {
 		return errParam(kind + " name '" + name + "' is invalid: it must start with a letter and contain only " +
-			"letters, digits and underscores")
+			"letters, digits and underscores, at most " + strconv.Itoa(limit) + " characters")
 	}
 
 	return nil
@@ -518,8 +524,12 @@ func validateSchema(s *createSpec) *APIError {
 		return e
 	}
 
-	if len(s.cols) == 0 || len(s.cols) > maxColumns {
-		return errParam("a table needs between 1 and " + strconv.Itoa(maxColumns) + " columns")
+	if len(s.cols) == 0 {
+		return errParam("a table needs at least one column")
+	}
+
+	if len(s.cols) > maxColumns {
+		return errLimit("a table can have at most " + strconv.Itoa(maxColumns) + " columns")
 	}
 
 	byName := map[string]*dtype{}

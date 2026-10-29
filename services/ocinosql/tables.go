@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,7 +14,8 @@ import (
 
 // Emulator limit constants; Oracle documents the per-table maximums as service limits.
 const (
-	maxUnits        = 40000
+	maxReadUnits    = 40000
+	maxWriteUnits   = 20000
 	maxStorageGB    = 5000
 	reclaimReadWrit = 50
 	reclaimStorage  = 25
@@ -79,9 +81,11 @@ func buildLimits(in *limitsIn, autoReclaim bool) (Limits, *APIError) {
 	for _, u := range []struct {
 		v    *int
 		name string
-	}{{in.MaxReadUnits, "maxReadUnits"}, {in.MaxWriteUnits, "maxWriteUnits"}} {
-		if u.v == nil || *u.v < 1 || *u.v > maxUnits {
-			return Limits{}, errParam(u.name + " must be between 1 and 40000 for PROVISIONED capacity")
+		max  int
+	}{{in.MaxReadUnits, "maxReadUnits", maxReadUnits}, {in.MaxWriteUnits, "maxWriteUnits", maxWriteUnits}} {
+		if u.v == nil || *u.v < 1 || *u.v > u.max {
+			return Limits{}, errParam(u.name + " must be between 1 and " + strconv.Itoa(u.max) +
+				" for PROVISIONED capacity")
 		}
 	}
 

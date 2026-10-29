@@ -92,6 +92,10 @@ func (b *InMemoryBackend) planFor(in queryIn, prepared bool) (*plan, *APIError) 
 		return nil, aerr
 	}
 
+	if len(sql) > maxQueryLen {
+		return nil, errLimit("the query string exceeds " + strconv.Itoa(maxQueryLen) + " bytes")
+	}
+
 	st, aerr := selectOrReject(sql)
 	if aerr != nil {
 		return nil, aerr

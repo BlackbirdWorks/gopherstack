@@ -34,6 +34,8 @@ func errParam(msg string) *APIError { return newErr(http.StatusBadRequest, "Inva
 
 func errMissing(msg string) *APIError { return newErr(http.StatusBadRequest, "MissingParameter", msg) }
 
+func errLimit(msg string) *APIError { return newErr(http.StatusBadRequest, "LimitExceeded", msg) }
+
 func errState(msg string) *APIError { return newErr(http.StatusConflict, "IncorrectState", msg) }
 
 func errEtag() *APIError {

@@ -99,6 +99,10 @@ func (b *InMemoryBackend) canDrop(t *Table, col string) *APIError {
 }
 
 func checkAddColumn(cols []Column, c Column) *APIError {
+	if len(cols) >= maxColumns {
+		return errLimit("a table can have at most " + strconv.Itoa(maxColumns) + " columns")
+	}
+
 	if indexOfColumn(cols, c.Name) >= 0 {
 		return errParam("cannot add column '" + c.Name + "': it already exists")
 	}
