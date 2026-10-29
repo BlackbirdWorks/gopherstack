@@ -33,21 +33,56 @@ func (e *dockerEngine) run(ctx context.Context, cmd []string) error {
 }
 
 func (e *dockerEngine) runOut(ctx context.Context, cmd []string) (string, error) {
+	name := cmdLabel(cmd)
+
 	res, err := e.rt.Exec(ctx, e.container(), cmd)
 	if err != nil {
-		return "", fmt.Errorf("exec %s: %w", cmd[0], err)
+		return "", fmt.Errorf("exec %s: %w", name, errors.New(e.scrub(err.Error())))
 	}
 
 	if res.ExitCode != 0 {
-		msg := strings.TrimSpace(res.Stderr + res.Stdout)
+		msg := e.scrub(strings.TrimSpace(res.Stderr + res.Stdout))
 		if len(msg) > stderrLimit {
 			msg = msg[:stderrLimit]
 		}
 
-		return "", fmt.Errorf("%w: %s exited %d: %s", errExec, cmd[0], res.ExitCode, msg)
+		return "", fmt.Errorf("%w: %s exited %d: %s", errExec, name, res.ExitCode, msg)
 	}
 
 	return res.Stdout, nil
+}
+
+// cmdLabel maps argv to a fixed label so credentials in argv never reach errors or logs.
+func cmdLabel(cmd []string) string {
+	for _, a := range cmd {
+		switch a {
+		case mysqldumpBin:
+			return mysqldumpBin
+		case mysqlClient:
+			return mysqlClient
+		case "psql":
+			return "psql"
+		case "pg_dump":
+			return "pg_dump"
+		}
+	}
+
+	return "command"
+}
+
+// scrub redacts the engine's credentials from command output.
+func (e *dockerEngine) scrub(msg string) string {
+	e.mu.RLock("scrub")
+	secrets := []string{e.password, e.replPass}
+	e.mu.RUnlock()
+
+	for _, sec := range secrets {
+		if sec != "" {
+			msg = strings.ReplaceAll(msg, sec, "***")
+		}
+	}
+
+	return msg
 }
 
 func (e *dockerEngine) readDump(name string) ([]byte, error) {
