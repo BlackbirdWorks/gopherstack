@@ -48,7 +48,7 @@ func (h *DashboardHandler) registerOCICoreRoutes() {
 	}
 
 	h.SubRouter.Add(http.MethodGet, ociCorePrefix+"/compartments", guard(func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]any{"compartments": comps()})
+		return c.JSON(http.StatusOK, map[string]any{ociCompartmentsKey: comps()})
 	}))
 
 	serve := guard(func(c *echo.Context) error {

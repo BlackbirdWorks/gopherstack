@@ -145,6 +145,23 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azurearm",
     defaultPort: 10006,
   },
+  {
+    id: "containerapps",
+    label: "Container Apps",
+    description:
+      "Azure Container Apps environments, apps, revisions and jobs (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
+    id: "vm",
+    label: "Virtual Machines",
+    description: "Azure virtual machines, disks and networking (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
 ];
 
 export type GcpService = {
@@ -351,6 +368,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     portLabel: "gcpdatastore",
     defaultPort: 8143,
   },
+  {
+    id: "container",
+    label: "Kubernetes Engine",
+    description: "Google Kubernetes Engine clusters and node pools",
+    healthName: "GCPContainer",
+    portLabel: "gcpcontainer",
+    defaultPort: 8144,
+  },
 ];
 
 export type OciService = {
@@ -412,6 +437,22 @@ export const OCI_SERVICES: readonly OciService[] = [
     healthName: "OCICore",
     portLabel: "ocicore",
     defaultPort: 8155,
+  },
+  {
+    id: "queue",
+    label: "Queue",
+    description: "Oracle Cloud Queue",
+    healthName: "OCIQueue",
+    portLabel: "ociqueue",
+    defaultPort: 8156,
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    description: "Oracle Cloud Notifications topics and subscriptions",
+    healthName: "OCINotifications",
+    portLabel: "ocinotifications",
+    defaultPort: 8157,
   },
 ];
 

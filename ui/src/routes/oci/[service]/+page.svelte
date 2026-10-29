@@ -5,7 +5,9 @@
 	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
+	import NotificationsDashboard from '#lib/components/oci/NotificationsDashboard.svelte';
 	import ObjectStorageDashboard from '#lib/components/oci/ObjectStorageDashboard.svelte';
+	import QueueDashboard from '#lib/components/oci/QueueDashboard.svelte';
 	import StreamingDashboard from '#lib/components/oci/StreamingDashboard.svelte';
 	import VaultDashboard from '#lib/components/oci/VaultDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedOciServices } from '#lib/cloud.svelte.ts';
@@ -32,6 +34,10 @@
 	<FunctionsDashboard />
 {:else if service?.id === 'core'}
 	<CoreDashboard />
+{:else if service?.id === 'queue'}
+	<QueueDashboard />
+{:else if service?.id === 'notifications'}
+	<NotificationsDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}

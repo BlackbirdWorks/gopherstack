@@ -109,6 +109,21 @@ func (c *CLI) GetOCIFunctionsHandler() service.Registerable { return c.ociFuncti
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOCICoreHandler() service.Registerable { return c.ociCoreHandler }
 
+// GetGCPContainerHandler returns the GCPContainer handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPContainerHandler() service.Registerable { return c.gcpContainerHandler }
+
+// GetOCIQueueHandler returns the OCIQueue handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIQueueHandler() service.Registerable { return c.ociQueueHandler }
+
+// GetOCINotificationsHandler returns the OCINotifications handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCINotificationsHandler() service.Registerable { return c.ociNotificationsHandler }
+
 // GetAzureMonitorHandler returns the AzureMonitor handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface

@@ -21,9 +21,10 @@ const (
 	ociKeyRules   = "rules"
 	ociMimeOctet  = "application/octet-stream"
 
-	ociProxyPrefix  = "/dashboard/api/v1/oci"
-	ociListLimit    = 1000
-	ociMaxListPages = 100
+	ociProxyPrefix     = "/dashboard/api/v1/oci"
+	ociCompartmentsKey = "compartments"
+	ociListLimit       = 1000
+	ociMaxListPages    = 100
 )
 
 // ociAPIError extracts the HTTP status, code and message of any OCI service error.

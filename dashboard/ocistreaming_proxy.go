@@ -186,6 +186,6 @@ func (a *ociStreamingAPI) messages(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"messages": items, "base": window.Base, "end": window.End, "start": start,
+		"messages": items, "base": window.Base, "end": window.End, aciPxStart: start,
 	})
 }

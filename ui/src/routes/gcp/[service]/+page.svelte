@@ -25,6 +25,7 @@
 	import DnsDashboard from '#lib/components/gcp/DnsDashboard.svelte';
 	import ComputeDashboard from '#lib/components/gcp/ComputeDashboard.svelte';
 	import DatastoreDashboard from '#lib/components/gcp/DatastoreDashboard.svelte';
+	import KubernetesDashboard from '#lib/components/gcp/KubernetesDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedGcpServices } from '#lib/cloud.svelte.ts';
 
@@ -86,6 +87,8 @@
 	<ComputeDashboard />
 {:else if service?.id === 'datastore'}
 	<DatastoreDashboard />
+{:else if service?.id === 'container'}
+	<KubernetesDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}

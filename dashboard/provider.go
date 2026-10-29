@@ -47,6 +47,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	"github.com/blackbirdworks/gopherstack/services/gcpcontainer"
 	"github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	"github.com/blackbirdworks/gopherstack/services/gcpdns"
 	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
@@ -73,7 +74,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
+	"github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	"github.com/blackbirdworks/gopherstack/services/ociqueue"
 	"github.com/blackbirdworks/gopherstack/services/ocistreaming"
 	"github.com/blackbirdworks/gopherstack/services/ocivault"
 	"github.com/blackbirdworks/gopherstack/services/route53"
@@ -384,11 +387,28 @@ func linkConsoleExtras(conf *Config, cfg any) {
 		conf.OCICoreOps, _ = getHandler[*ocicore.Handler](p.GetOCICoreHandler())
 	}
 
+	linkContainerQueueExtras(conf, cfg)
+
 	if p, ok := cfg.(interface{ GetOCIFunctionsHandler() service.Registerable }); ok {
 		conf.OCIFunctionsOps, _ = getHandler[*ocifunctions.Handler](p.GetOCIFunctionsHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetAzureMonitorHandler() service.Registerable }); ok {
 		conf.AzureMonitorOps, _ = getHandler[*azuremonitor.Handler](p.GetAzureMonitorHandler())
+	}
+}
+
+// linkContainerQueueExtras links the Kubernetes Engine, Queue and Notifications handlers used by their proxies.
+func linkContainerQueueExtras(conf *Config, cfg any) {
+	if p, ok := cfg.(interface{ GetGCPContainerHandler() service.Registerable }); ok {
+		conf.GCPContainerOps, _ = getHandler[*gcpcontainer.Handler](p.GetGCPContainerHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIQueueHandler() service.Registerable }); ok {
+		conf.OCIQueueOps, _ = getHandler[*ociqueue.Handler](p.GetOCIQueueHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCINotificationsHandler() service.Registerable }); ok {
+		conf.OCINotificationsOps, _ = getHandler[*ocinotifications.Handler](p.GetOCINotificationsHandler())
 	}
 }
