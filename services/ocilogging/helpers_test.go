@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 
 	oci "github.com/blackbirdworks/gopherstack/services/ocilogging"
 )
@@ -250,7 +251,7 @@ func rawDo(t *testing.T, method, url, body string) (int, string) {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()
