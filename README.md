@@ -981,6 +981,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Logging](services/ocilogging/README.md) | B | 26 | 8 gaps |
 | [OCI Monitoring](services/ocimonitoring/README.md) | B | 11 | 9 gaps |
 | [OCI MySQL HeatWave Database Service](services/ocimysql/README.md) | B | 32 | 10 gaps |
+| [OCI NoSQL Database Cloud Service](services/ocinosql/README.md) | B | 21 | 8 gaps |
 | [OCI Notifications](services/ocinotifications/README.md) | B | 16 | 7 gaps |
 | [OCI Object Storage](services/ociobjectstorage/README.md) | B | 45 | 11 gaps |
 | [OCI Queue](services/ociqueue/README.md) | B | 19 | 9 gaps |
