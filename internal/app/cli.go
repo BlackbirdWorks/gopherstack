@@ -4836,6 +4836,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// all (gopherstack-cb9l).
 	wireCodePipelineBackends(byName)
 	wireGlueS3(byName["Glue"], byName["S3"])
+	wireGlueSecrets(byName["Glue"], byName["SecretsManager"])
 }
 
 func wireCodePipelineBackends(byName map[string]service.Registerable) {

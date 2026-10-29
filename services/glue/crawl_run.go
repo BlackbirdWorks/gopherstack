@@ -48,6 +48,7 @@ type crawlStats struct {
 type crawlRun struct {
 	s3             CrawlerS3
 	ddb            CrawlerDynamoDB
+	secrets        CrawlerSecrets
 	b              *InMemoryBackend
 	c              *Crawler
 	conns          map[string]*Connection
@@ -97,7 +98,7 @@ func newCrawlRun(c *Crawler) *crawlRun {
 // its I/O can run unlocked. b.mu must be held.
 func (b *InMemoryBackend) snapshotCrawlLocked(c *Crawler) *crawlRun {
 	r := newCrawlRun(cloneCrawler(c))
-	r.s3, r.ddb = b.crawlerS3, b.crawlerDDB
+	r.s3, r.ddb, r.secrets = b.crawlerS3, b.crawlerDDB, b.crawlerSecrets
 	r.accountID, r.region = b.accountID, b.region
 	r.conns = map[string]*Connection{}
 	r.tables = tableOverlay{}
