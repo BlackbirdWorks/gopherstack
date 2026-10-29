@@ -219,6 +219,19 @@ func (p *FlexDBProvider) mysqlConnRange(rec *flexServer, c flexConfigDef) (int, 
 	return mysqlMinConns, s.connMax, ok && s.connMax > 0
 }
 
+func (p *FlexDBProvider) checkConnRange(rec *flexServer, c flexConfigDef, value string, reset bool) error {
+	lo, hi, ok := p.mysqlConnRange(rec, c)
+	if !ok || reset {
+		return nil
+	}
+
+	if n, err := strconv.Atoi(value); err != nil || n < lo || n > hi {
+		return flexInvalid("The value for '%s' is not valid: allowed values are %d-%d.", c.name, lo, hi)
+	}
+
+	return nil
+}
+
 func (p *FlexDBProvider) allowedValues(rec *flexServer, c flexConfigDef) string {
 	if lo, hi, ok := p.mysqlConnRange(rec, c); ok {
 		return strconv.Itoa(lo) + "-" + strconv.Itoa(hi)
@@ -272,10 +285,8 @@ func (p *FlexDBProvider) writeConfig(id ResourceID, body map[string]any) (flexRe
 		return flexResult{}, err
 	}
 
-	if lo, hi, ok := p.mysqlConnRange(rec, c); ok && !reset {
-		if n, convErr := strconv.Atoi(value); convErr != nil || n < lo || n > hi {
-			return flexResult{}, flexInvalid("The value for '%s' is not valid: allowed values are %d-%d.", c.name, lo, hi)
-		}
+	if err = p.checkConnRange(rec, c, value, reset); err != nil {
+		return flexResult{}, err
 	}
 
 	if rec.Config == nil {

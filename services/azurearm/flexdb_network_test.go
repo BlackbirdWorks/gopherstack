@@ -37,9 +37,21 @@ func flexVNetFixture(t *testing.T, s *flexStack) string {
 			"10.0.3.0/24",
 			"",
 		) + "," +
-		subnet("pgsmall", "10.0.4.0/29", "Microsoft.DBforPostgreSQL/flexibleServers") + "," +
-		subnet("pg28", "10.0.7.0/28", "Microsoft.DBforPostgreSQL/flexibleServers") + "," +
-		subnet("mysmall", "10.0.5.0/29", "Microsoft.DBforMySQL/flexibleServers") + `]}}`
+		subnet(
+			"pgsmall",
+			"10.0.4.0/29",
+			"Microsoft.DBforPostgreSQL/flexibleServers",
+		) + "," +
+		subnet(
+			"pg28",
+			"10.0.7.0/28",
+			"Microsoft.DBforPostgreSQL/flexibleServers",
+		) + "," +
+		subnet(
+			"mysmall",
+			"10.0.5.0/29",
+			"Microsoft.DBforMySQL/flexibleServers",
+		) + `]}}`
 
 	status, resp := s.raw(t, http.MethodPut, vnet, body, "2023-09-01")
 	require.Less(t, status, http.StatusMultipleChoices, resp)
@@ -98,14 +110,26 @@ func TestFlexPrivateAccessValidation(t *testing.T) {
 			flexAPIPG, http.StatusBadRequest},
 		{"mysql delegated", myNS, "mypriv", flexPrivateBody(vnet, "mysub", "privateDnsZoneResourceId", myZone, ""),
 			flexAPIMy, http.StatusCreated},
-		{"pg /29 too small", pgNS, "pgsmall", flexPrivateBody(vnet, "pgsmall", "privateDnsZoneArmResourceId", pgZone, ""),
-			flexAPIPG, http.StatusBadRequest},
+		{
+			"pg /29 too small",
+			pgNS,
+			"pgsmall",
+			flexPrivateBody(vnet, "pgsmall", "privateDnsZoneArmResourceId", pgZone, ""),
+			flexAPIPG,
+			http.StatusBadRequest,
+		},
 		{"pg /28 ok", pgNS, "pg28", flexPrivateBody(vnet, "pg28", "privateDnsZoneArmResourceId", pgZone, ""),
 			flexAPIPG, http.StatusCreated},
 		{"mysql /29 ok", myNS, "mysmall", flexPrivateBody(vnet, "mysmall", "privateDnsZoneResourceId", myZone, ""),
 			flexAPIMy, http.StatusCreated},
 		{"pg wrong zone suffix", pgNS, "pgbadzone",
-			flexPrivateBody(vnet, "pgsub", "privateDnsZoneArmResourceId", myZone, ""), flexAPIPG, http.StatusBadRequest},
+			flexPrivateBody(
+				vnet,
+				"pgsub",
+				"privateDnsZoneArmResourceId",
+				myZone,
+				"",
+			), flexAPIPG, http.StatusBadRequest},
 		{"mysql wrong zone suffix", myNS, "mybadzone",
 			flexPrivateBody(vnet, "mysub", "privateDnsZoneResourceId", pgZone, ""), flexAPIMy, http.StatusBadRequest},
 	}

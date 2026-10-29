@@ -410,23 +410,29 @@ func (p *FlexDBProvider) applyServer(rec *flexServer, body, props map[string]any
 		return "", flexInvalid("sku.name and sku.tier are required.")
 	}
 
-	if rec.HAMode != flexHADisabled && rec.SKUTier == tierBurstable {
-		return "", flexInvalid("High availability is not supported on the Burstable compute tier.")
-	}
-
-	if p.flavor.kind == flexKindPostgres && rec.CreateMode == flexModeReplica && rec.HAMode != flexHADisabled {
-		return "", flexInvalid("High availability is not supported on a read replica.")
-	}
-
-	if top := p.flavor.storageCap(rec.SKUTier); rec.StorageGB > top {
-		return "", flexInvalid("The %s compute tier supports at most %d GiB of storage.", rec.SKUTier, top)
-	}
-
-	if p.flavor.kind == flexKindMySQL && rec.HAMode != flexHADisabled && rec.AutoGrow == flexDisabled {
-		return "", flexInvalid("Storage autogrow cannot be disabled on a server with high availability.")
+	if err = p.checkInvariants(rec); err != nil {
+		return "", err
 	}
 
 	return pw, nil
+}
+
+func (p *FlexDBProvider) checkInvariants(rec *flexServer) error {
+	ha := rec.HAMode != flexHADisabled
+
+	switch {
+	case ha && rec.SKUTier == tierBurstable:
+		return flexInvalid("High availability is not supported on the Burstable compute tier.")
+	case ha && p.flavor.kind == flexKindPostgres && rec.CreateMode == flexModeReplica:
+		return flexInvalid("High availability is not supported on a read replica.")
+	case rec.StorageGB > p.flavor.storageCap(rec.SKUTier):
+		return flexInvalid("The %s compute tier supports at most %d GiB of storage.", rec.SKUTier,
+			p.flavor.storageCap(rec.SKUTier))
+	case ha && p.flavor.kind == flexKindMySQL && rec.AutoGrow == flexDisabled:
+		return flexInvalid("Storage autogrow cannot be disabled on a server with high availability.")
+	}
+
+	return nil
 }
 
 func (p *FlexDBProvider) applySKU(rec *flexServer, sku map[string]any) error {
@@ -534,7 +540,12 @@ func (p *FlexDBProvider) applyStorage(rec *flexServer, props map[string]any, exi
 		}
 
 		if top := f.storageCap(rec.SKUTier); gb > top {
-			return flexInvalid("storageSizeGB %d exceeds the %d GiB maximum of the %s compute tier.", gb, top, rec.SKUTier)
+			return flexInvalid(
+				"storageSizeGB %d exceeds the %d GiB maximum of the %s compute tier.",
+				gb,
+				top,
+				rec.SKUTier,
+			)
 		}
 
 		if exists && gb < rec.StorageGB {

@@ -50,6 +50,8 @@ const (
 	pgVcores128               = 128
 	pgVcores192               = 192
 	mysqlMaxIopsAll           = 80000
+	mysqlIops48k              = 48000
+	mysqlIops72k              = 72000
 	mysqlMinConns             = 10
 	mysqlVcores80             = 80
 	mysqlMem80                = 504
@@ -104,13 +106,13 @@ type flexConfigDef struct {
 
 // flexFlavor is everything that differs between the PostgreSQL and MySQL flexible server resource providers.
 type flexFlavor struct {
-	loginRE         *regexp.Regexp
-	loginRule       string
-	dnsZoneSuffix   string
-	maxSubnetBits   int
 	dbNameRE        *regexp.Regexp
-	ns              string
+	loginRE         *regexp.Regexp
+	sourceTimeField string
 	kind            string
+	dnsZoneSuffix   string
+	ns              string
+	loginRule       string
 	hostSuffix      string
 	defaultVersion  string
 	defaultCharset  string
@@ -118,18 +120,18 @@ type flexFlavor struct {
 	roleReplica     string
 	roleSource      string
 	subnetService   string
-	sourceTimeField string
-	versions        []string
+	apiVersions     []string
 	storageSizes    []int
+	versions        []string
 	reservedLogins  []string
 	systemDBs       []string
 	skus            []flexSKU
 	configs         []flexConfigDef
-	apiVersions     []string
+	maxReplicas     int
 	maxStorage      int
 	defaultStorage  int
 	minRetention    int
-	maxReplicas     int
+	maxSubnetBits   int
 	maxLoginLen     int
 	minStorage      int
 	boolStrings     bool
@@ -194,9 +196,9 @@ func pgConnLimit(memGiB int) int {
 }
 
 type flexSeries struct {
+	mem    map[int]int
 	suffix string
 	vcores []int
-	mem    map[int]int
 }
 
 // pgSKUs follows the Compute options table (v3/v4/v5/v6 series) of
@@ -295,7 +297,7 @@ func mysqlSKUs() []flexSKU {
 		add(fmt.Sprintf("Standard_D%d%s", g.v, suffixADS), tierGeneralPurpose, g.v, g.v*gpMemPerCore, g.iops)
 	}
 
-	add("Standard_D96"+suffixADS, tierGeneralPurpose, flexMaxVcores, gpMem96, 48000)
+	add("Standard_D96"+suffixADS, tierGeneralPurpose, flexMaxVcores, gpMem96, mysqlIops48k)
 
 	for _, e := range []struct{ v, mem, iops int }{
 		{2, 16, 5000}, {4, 32, 10000}, {8, 64, 18000}, {16, 128, 28000}, {flexVcores20, 160, 28000},
@@ -311,7 +313,7 @@ func mysqlSKUs() []flexSKU {
 		add(fmt.Sprintf("Standard_E%d%s", e.v, suffixDS5), tierMemoryOptimized, e.v, e.mem, e.iops)
 	}
 
-	add("Standard_E80ids_v4", tierMemoryOptimized, mysqlVcores80, mysqlMem80, 72000)
+	add("Standard_E80ids_v4", tierMemoryOptimized, mysqlVcores80, mysqlMem80, mysqlIops72k)
 	add("Standard_E96"+suffixADS, tierMemoryOptimized, flexMaxVcores, moMem96, mysqlMaxIopsAll)
 	add("Standard_E96"+suffixDS5, tierMemoryOptimized, flexMaxVcores, moMem96, mysqlMaxIopsAll)
 
@@ -493,7 +495,9 @@ func newMySQLFlavor() *flexFlavor {
 		defaultVersion: "8.0.21", defaultCharset: flexUTF8MB4, defaultCollate: "utf8mb4_0900_ai_ci",
 		minStorage: mysqlMinStorageGiB, maxStorage: mysqlMaxStorageGiB, defaultStorage: mysqlMinStorageGiB,
 		minRetention: 1, maxReplicas: mysqlMaxReplicas, maxLoginLen: mysqlMaxLoginLen,
-		loginRE: regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`), loginRule: "only letters, digits and underscores are allowed",
+		loginRE: regexp.MustCompile(
+			`^[A-Za-z0-9_]{1,32}$`,
+		), loginRule: "only letters, digits and underscores are allowed",
 		dbNameRE: regexp.MustCompile(`^[A-Za-z0-9_$-]{1,64}$`),
 		reservedLogins: []string{
 			flexLoginAzureSuper, flexLoginAdmin, flexLoginAdministrator, flexLoginRoot, flexLoginGuest, flexLoginPublic,
@@ -502,7 +506,8 @@ func newMySQLFlavor() *flexFlavor {
 		systemDBs: []string{"information_schema", flexKindMySQL, "performance_schema", "sys"}, skus: mysqlSKUs(),
 		configs: mysqlConfigs(), roleReplica: "Replica", roleSource: "Source",
 		subnetService: "Microsoft.DBforMySQL/flexibleServers",
-		dnsZoneSuffix: "mysql.database.azure.com", maxSubnetBits: mysqlMaxSubnetBits, boolStrings: true, sourceTimeField: "restorePointInTime",
+		dnsZoneSuffix: "mysql.database.azure.com", maxSubnetBits: mysqlMaxSubnetBits, boolStrings: true,
+		sourceTimeField: "restorePointInTime",
 	}
 }
 
