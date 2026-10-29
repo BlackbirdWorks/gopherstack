@@ -37,6 +37,11 @@ const (
 // ErrRuntimeUnavailable is returned when no container runtime is configured.
 var ErrRuntimeUnavailable = errors.New("pgengine: container runtime unavailable")
 
+var errOp = errors.New("pgengine: operation failed")
+
+// opErr names a failed operation without echoing driver text, which may quote credentials.
+func opErr(label string) error { return fmt.Errorf("%w: %s", errOp, label) }
+
 // Runtime is the slice of the container runtime the engine uses.
 type Runtime interface {
 	CreateAndStart(ctx context.Context, spec container.Spec) (string, error)
@@ -211,7 +216,7 @@ func (s *Server) connect(ctx context.Context, db string) (*pgx.Conn, error) {
 
 	cfg, err := pgx.ParseConfig("postgres://" + Superuser + "@" + net.JoinHostPort(h, strconv.Itoa(p)) + "/postgres")
 	if err != nil {
-		return nil, errors.New("pgengine: connection config")
+		return nil, opErr("connection config")
 	}
 
 	cfg.Password, cfg.ConnectTimeout = s.spec.Password, connectLimit
@@ -257,7 +262,7 @@ func (s *Server) Exec(ctx context.Context, db, stmt string) error {
 	defer conn.Close(ctx)
 
 	if _, err = conn.Exec(ctx, stmt); err != nil {
-		return errors.New("pgengine: statement failed")
+		return opErr("statement failed")
 	}
 
 	return nil
@@ -278,8 +283,9 @@ func (s *Server) EnsureAdmin(ctx context.Context, user, password string) error {
 	defer conn.Close(ctx)
 
 	var exists bool
-	if err = conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", user).Scan(&exists); err != nil {
-		return errors.New("pgengine: role lookup failed")
+	const roleQuery = "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)"
+	if err = conn.QueryRow(ctx, roleQuery, user).Scan(&exists); err != nil {
+		return opErr("role lookup failed")
 	}
 
 	verb := "CREATE"
@@ -289,7 +295,7 @@ func (s *Server) EnsureAdmin(ctx context.Context, user, password string) error {
 
 	stmt := verb + " ROLE " + Ident(user) + " WITH LOGIN CREATEDB CREATEROLE PASSWORD " + Literal(password)
 	if _, err = conn.Exec(ctx, stmt); err != nil {
-		return errors.New("pgengine: admin role update failed")
+		return opErr("admin role update failed")
 	}
 
 	return nil
@@ -304,8 +310,9 @@ func (s *Server) CreateDatabase(ctx context.Context, name, owner, charset, colla
 	defer conn.Close(ctx)
 
 	var exists bool
-	if err = conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", name).Scan(&exists); err != nil {
-		return errors.New("pgengine: database lookup failed")
+	const dbQuery = "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)"
+	if err = conn.QueryRow(ctx, dbQuery, name).Scan(&exists); err != nil {
+		return opErr("database lookup failed")
 	}
 
 	if exists {
@@ -326,7 +333,7 @@ func (s *Server) CreateDatabase(ctx context.Context, name, owner, charset, colla
 	}
 
 	if _, err = conn.Exec(ctx, stmt); err != nil {
-		return errors.New("pgengine: create database failed")
+		return opErr("create database failed")
 	}
 
 	return nil
@@ -347,7 +354,7 @@ func (s *Server) Databases(ctx context.Context) ([]string, error) {
 
 	rows, err := conn.Query(ctx, "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname")
 	if err != nil {
-		return nil, errors.New("pgengine: database list failed")
+		return nil, opErr("database list failed")
 	}
 	defer rows.Close()
 
@@ -356,7 +363,7 @@ func (s *Server) Databases(ctx context.Context) ([]string, error) {
 	for rows.Next() {
 		var n string
 		if err = rows.Scan(&n); err != nil {
-			return nil, errors.New("pgengine: database list failed")
+			return nil, opErr("database list failed")
 		}
 
 		out = append(out, n)
