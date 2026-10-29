@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-//go:embed session_repl_py.txt
+//go:embed session_repl.pyrepl
 var sessionReplScript []byte
 
 const (
