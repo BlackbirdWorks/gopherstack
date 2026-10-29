@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -11,14 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+var errBoom = errors.New("boom")
+
 type echoRuntime struct {
+	err error
 	removeRecorder
 	res container.ExecResult
-	err error
 }
 
 func (r *echoRuntime) Exec(context.Context, string, []string) (container.ExecResult, error) {
@@ -37,9 +40,12 @@ func TestRunOutNeverLeaksPassword(t *testing.T) {
 		rt   *echoRuntime
 		name string
 	}{
-		{name: "stderr echoes root", rt: &echoRuntime{res: container.ExecResult{ExitCode: 1, Stderr: "near '" + rootPW + "'"}}},
+		{
+			name: "stderr echoes root",
+			rt:   &echoRuntime{res: container.ExecResult{ExitCode: 1, Stderr: "near '" + rootPW + "'"}},
+		},
 		{name: "stdout echoes repl", rt: &echoRuntime{res: container.ExecResult{ExitCode: 1, Stdout: replPW}}},
-		{name: "exec error echoes root", rt: &echoRuntime{err: errors.New("create exec env MYSQL_PWD=" + rootPW)}},
+		{name: "exec error echoes root", rt: &echoRuntime{err: fmt.Errorf("%w: create exec env MYSQL_PWD=%s", errBoom, rootPW)}},
 	}
 
 	for _, tt := range tests {

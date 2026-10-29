@@ -16,6 +16,8 @@ const (
 	connectLine  = `\connect `
 	dumpFileMode = 0o600
 	mysqlClient  = "mysql"
+	psqlBin      = "psql"
+	pgDumpBin    = "pg_dump"
 	cmdEnv       = "env"
 	mysqldumpBin = "mysqldump"
 	argRoutines  = "--routines"
@@ -37,7 +39,7 @@ func (e *dockerEngine) runOut(ctx context.Context, cmd []string) (string, error)
 
 	res, err := e.rt.Exec(ctx, e.container(), cmd)
 	if err != nil {
-		return "", fmt.Errorf("exec %s: %w", name, errors.New(e.scrub(err.Error())))
+		return "", fmt.Errorf("%w: exec %s: %s", errExec, name, e.scrub(err.Error()))
 	}
 
 	if res.ExitCode != 0 {
@@ -60,10 +62,10 @@ func cmdLabel(cmd []string) string {
 			return mysqldumpBin
 		case mysqlClient:
 			return mysqlClient
-		case "psql":
-			return "psql"
-		case "pg_dump":
-			return "pg_dump"
+		case psqlBin:
+			return psqlBin
+		case pgDumpBin:
+			return pgDumpBin
 		}
 	}
 
@@ -112,7 +114,7 @@ func (e *dockerEngine) Dump(ctx context.Context, dbs []string, opts DumpOptions)
 	for i, db := range dbs {
 		name := "dump" + strconv.Itoa(i) + ".sql"
 
-		cmd := []string{"pg_dump", "-U", pgAdminUser, "-d", db, "--clean", "--if-exists", "-f", dumpMount + "/" + name}
+		cmd := []string{pgDumpBin, "-U", pgAdminUser, "-d", db, "--clean", "--if-exists", "-f", dumpMount + "/" + name}
 		if opts.Portable {
 			cmd = append(cmd, "--no-owner", "--no-privileges")
 		}
@@ -191,7 +193,7 @@ func (e *dockerEngine) restoreFile(ctx context.Context, db string, data []byte) 
 	file := dumpMount + "/in.sql"
 
 	if e.kind == kindPostgres {
-		return e.run(ctx, []string{"psql", "-U", pgAdminUser, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", file})
+		return e.run(ctx, []string{psqlBin, "-U", pgAdminUser, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", file})
 	}
 
 	cmd := []string{cmdEnv, "MYSQL_PWD=" + e.pass(), mysqlClient, "-u" + mysqlAdminUser}
