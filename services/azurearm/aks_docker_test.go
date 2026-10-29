@@ -1,10 +1,10 @@
 package azurearm_test
 
 import (
-	"io"
-	"net/http"
 	"crypto/tls"
 	"crypto/x509"
+	"io"
+	"net/http"
 	"os/exec"
 	"strings"
 	"sync"

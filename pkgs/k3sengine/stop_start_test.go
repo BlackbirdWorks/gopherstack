@@ -42,10 +42,10 @@ func TestEngineStopStart(t *testing.T) {
 
 	tests := []struct {
 		startErr  error
-		name      string
-		stoppable bool
 		wantErr   error
+		name      string
 		wantCalls []string
+		stoppable bool
 	}{
 		{name: "kept and restarted", stoppable: true, wantCalls: []string{"stop:c1", "start:c1"}},
 		{name: "start failure", stoppable: true, startErr: errBoom, wantErr: errBoom,
