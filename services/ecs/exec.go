@@ -102,7 +102,7 @@ func (b *InMemoryBackend) ExecuteCommandContext(
 	}
 
 	out.Interactive = true
-	out.Session = Session{SessionID: grant.SessionID, StreamURL: grant.StreamURL, TokenValue: grant.TokenValue}
+	out.Session = Session(grant)
 
 	return out, nil
 }

@@ -18,9 +18,9 @@ import (
 type commandOpener struct {
 	fakeOpener
 
-	mu        sync.Mutex
 	container string
 	cmd       []string
+	mu        sync.Mutex
 }
 
 func (o *commandOpener) OpenCommand(_ context.Context, id string, cmd []string, _, _ uint) (ssm.Shell, error) {

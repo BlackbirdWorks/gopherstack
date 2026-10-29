@@ -72,6 +72,8 @@ type svcRef struct {
 // keep new fields grouped with their kind rather than by logical concern.
 type InMemoryBackend struct {
 	runner TaskRunner
+	// execSessions opens ECS Exec sessions, guarded by mu.
+	execSessions ExecSessionStarter
 	// sgEnforcer, when set, fronts awsvpc tasks' published ports with a security-group check.
 	sgEnforcer atomic.Pointer[sgfilter.Enforcer]
 	// cwLogs, when set (see SetCWLogsBackend), makes an awslogs-driver
@@ -151,8 +153,12 @@ type InMemoryBackend struct {
 	// are intentionally never populated.
 	serviceRevisions      map[string][]*ServiceRevision
 	serviceRevisionsByArn map[string]*ServiceRevision
-	region                string
-	accountID             string
+	// nowFn overrides time.Now for task launch timestamps (tests).
+	nowFn func() time.Time
+	// launches tracks in-flight launch goroutines, guarded by mu.
+	launches  launchTracker
+	region    string
+	accountID string
 	// clusterDeleteHooks are invoked (outside the backend lock) with each cluster
 	// key removed by DeleteCluster or Purge, so external components such as the
 	// Reconciler can release per-cluster resources and avoid unbounded growth.
@@ -165,12 +171,6 @@ type InMemoryBackend struct {
 	// lifecycle (PROVISIONING→PENDING→RUNNING). Zero finalizes immediately.
 	startDelay time.Duration
 	hooksMu    sync.Mutex
-	// nowFn overrides time.Now for task launch timestamps (tests).
-	nowFn func() time.Time
-	// execSessions opens ECS Exec sessions, guarded by mu.
-	execSessions ExecSessionStarter
-	// launches tracks in-flight launch goroutines, guarded by mu.
-	launches launchTracker
 }
 
 // TaskRunner is the interface for launching container tasks.

@@ -62,7 +62,7 @@ func TestEmitUtilizationMetrics(t *testing.T) {
 
 			s := newFargateServiceWithLB(t, b, "svc-usage")
 			require.NoError(t, b.StartTaskForService(s.cluster, s.service, s.tdArn))
-	b.awaitLaunches()
+			b.awaitLaunches()
 
 			b.emitUtilizationMetrics(t.Context())
 

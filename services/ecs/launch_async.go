@@ -145,7 +145,9 @@ func (b *InMemoryBackend) Close() {
 
 // stepLaunch moves a launching task from one status to the next. It reports false when the task was stopped,
 // reset away or its launch cancelled in the meantime.
-func (b *InMemoryBackend) stepLaunch(ctx context.Context, task *Task, from, to string, mutate func(now time.Time)) bool {
+func (b *InMemoryBackend) stepLaunch(
+	ctx context.Context, task *Task, from, to string, mutate func(now time.Time),
+) bool {
 	b.mu.Lock("stepLaunch")
 	defer b.mu.Unlock()
 
@@ -247,7 +249,8 @@ func (b *InMemoryBackend) completeLaunch(ctx context.Context, w taskWork, cluste
 
 	if superseded && runErr == nil && b.runner != nil {
 		if err := b.runner.StopTask(task); err != nil {
-			logger.Load(ctx).Warn("failed to clean up superseded task launch", "task", task.TaskArn, "error", err)
+			logger.Load(ctx).WarnContext(ctx, "failed to clean up superseded task launch",
+				"task", task.TaskArn, "error", err)
 		}
 	}
 }

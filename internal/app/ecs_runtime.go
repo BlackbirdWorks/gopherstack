@@ -211,5 +211,7 @@ func (a *ecsExecSessions) StartExecSession(
 		return ecsbackend.ExecSessionGrant{}, err
 	}
 
-	return ecsbackend.ExecSessionGrant{SessionID: out.SessionID, StreamURL: out.StreamURL, TokenValue: out.TokenValue}, nil
+	return ecsbackend.ExecSessionGrant{
+		SessionID: out.SessionID, StreamURL: out.StreamURL, TokenValue: out.TokenValue,
+	}, nil
 }

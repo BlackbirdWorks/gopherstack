@@ -31,7 +31,9 @@ func (r *recordingStarter) StartExecSession(_ context.Context, req ExecSessionRe
 		return ExecSessionGrant{}, r.err
 	}
 
-	return ExecSessionGrant{SessionID: "ecs-execute-command-1", StreamURL: req.StreamBase + "/s", TokenValue: "tok"}, nil
+	return ExecSessionGrant{
+		SessionID: "ecs-execute-command-1", StreamURL: req.StreamBase + "/s", TokenValue: "tok",
+	}, nil
 }
 
 func TestExecuteCommand(t *testing.T) {
