@@ -91,9 +91,10 @@ func (e *dockerEngine) psql(ctx context.Context, sqlText string) (string, error)
 }
 
 func (e *dockerEngine) mysqlCmd(ctx context.Context, stmt string) (string, error) {
-	return e.runOut(
+	return e.runOutEnv(
 		ctx,
-		[]string{cmdEnv, rootUserKey + e.pass(), mysqlClient, "-u" + mysqlAdminUser, "-N", "-B", "-e", stmt},
+		[]string{mysqlClient, "-u" + mysqlAdminUser, "-N", "-B", "-e", stmt},
+		e.mysqlEnv(),
 	)
 }
 
@@ -237,12 +238,12 @@ func (e *dockerEngine) ReplicaSeed(ctx context.Context, dbs []string) ([]byte, e
 	}
 
 	cmd := append([]string{
-		cmdEnv, rootUserKey + e.pass(), mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, "--skip-dump-date",
+		mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, "--skip-dump-date",
 		argRoutines, "--events", "--triggers", "--set-gtid-purged=ON", argAddDrop,
 		"-r", dumpMount + "/seed.sql", argDatabases,
 	}, dbs...)
 
-	if err := e.run(ctx, cmd); err != nil {
+	if _, err := e.runOutEnv(ctx, cmd, e.mysqlEnv()); err != nil {
 		return nil, err
 	}
 

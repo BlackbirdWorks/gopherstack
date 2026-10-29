@@ -21,9 +21,9 @@ func (e *dbEngine) mysqlExec(ctx context.Context, in unitInfo, stmt string) erro
 	}
 
 	client, _ := mysqlClients(in.login.Kind)
-	_, err := e.run(ctx, x, in.containerID, []string{
-		cmdEnv, "MYSQL_PWD=" + in.login.Password, client, "-u" + mysqlRootUser, "-e", stmt,
-	})
+	_, err := e.runEnv(ctx, x, in.containerID, []string{
+		client, "-u" + mysqlRootUser, "-e", stmt,
+	}, mysqlPwdEnv(in.login.Password))
 
 	return err
 }
@@ -157,10 +157,10 @@ func (e *dbEngine) promoteEngine(ctx context.Context, in unitInfo) error {
 			return err
 		}
 
-		out, err := e.run(ctx, x, in.containerID, []string{
-			cmdEnv, "PGPASSWORD=" + l.Password, "psql", "-tA", "-U", l.User, "-d", db,
+		out, err := e.runEnv(ctx, x, in.containerID, []string{
+			"psql", "-tA", "-U", l.User, "-d", db,
 			"-c", "SELECT pg_promote(true, 60)",
-		})
+		}, pgPwdEnv(l.Password))
 		if err != nil {
 			return err
 		}

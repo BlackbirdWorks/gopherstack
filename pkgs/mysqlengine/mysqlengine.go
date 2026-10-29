@@ -384,8 +384,10 @@ func (s *Server) Start(ctx context.Context) error {
 	return s.waitReady(ctx)
 }
 
-func (s *Server) run(ctx context.Context, op string, cmd []string) error {
-	res, err := s.e.cfg.Runtime.Exec(ctx, s.container(), cmd)
+func (s *Server) pwdEnv() []string { return []string{"MYSQL_PWD=" + s.spec.RootPassword} }
+
+func (s *Server) run(ctx context.Context, op string, cmd, env []string) error {
+	res, err := container.ExecWithEnv(ctx, s.e.cfg.Runtime, s.container(), cmd, env)
 	if err != nil {
 		return fmt.Errorf("exec %s: %w", op, err)
 	}
@@ -440,11 +442,11 @@ func (s *Server) Dump(ctx context.Context) ([]byte, error) {
 	defer os.Remove(path)
 
 	cmd := append([]string{
-		"env", "MYSQL_PWD=" + s.spec.RootPassword, "mysqldump", "-u" + RootUser, "--single-transaction", "--routines",
+		"mysqldump", "-u" + RootUser, "--single-transaction", "--routines",
 		"--add-drop-database", "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", "--databases",
 	}, dbs...)
 
-	if err = s.run(ctx, "mysqldump", cmd); err != nil {
+	if err = s.run(ctx, "mysqldump", cmd, s.pwdEnv()); err != nil {
 		return nil, err
 	}
 
@@ -470,8 +472,8 @@ func (s *Server) Restore(ctx context.Context, data []byte) error {
 	}
 
 	return s.run(ctx, mysqlBin, []string{
-		"env", "MYSQL_PWD=" + s.spec.RootPassword, mysqlBin, "-u" + RootUser, "-e", "source " + dumpMount + "/in.sql",
-	})
+		mysqlBin, "-u" + RootUser, "-e", "source " + dumpMount + "/in.sql",
+	}, s.pwdEnv())
 }
 
 // Close removes the container and releases its port; purge also deletes the data volume.

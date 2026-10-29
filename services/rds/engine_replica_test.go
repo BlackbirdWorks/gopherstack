@@ -71,6 +71,16 @@ func (s *streamFakeRuntime) Exec(ctx context.Context, id string, cmd []string) (
 	return s.fakeEngineRuntime.Exec(ctx, id, cmd)
 }
 
+func (s *streamFakeRuntime) ExecEnv(
+	ctx context.Context, id string, cmd, env []string,
+) (container.ExecResult, error) {
+	s.mu.Lock()
+	s.envs = append(s.envs, slices.Clone(env))
+	s.mu.Unlock()
+
+	return s.Exec(ctx, id, cmd)
+}
+
 func (s *streamFakeRuntime) netState() ([]string, []string, []string) {
 	s.netMu.Lock()
 	defer s.netMu.Unlock()

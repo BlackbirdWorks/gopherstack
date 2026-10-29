@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
 
 const (
@@ -18,7 +20,6 @@ const (
 	mysqlClient  = "mysql"
 	psqlBin      = "psql"
 	pgDumpBin    = "pg_dump"
-	cmdEnv       = "env"
 	mysqldumpBin = "mysqldump"
 	argRoutines  = "--routines"
 	argAddDrop   = "--add-drop-database"
@@ -35,9 +36,16 @@ func (e *dockerEngine) run(ctx context.Context, cmd []string) error {
 }
 
 func (e *dockerEngine) runOut(ctx context.Context, cmd []string) (string, error) {
+	return e.runOutEnv(ctx, cmd, nil)
+}
+
+// mysqlEnv carries the admin password in the exec environment, never argv.
+func (e *dockerEngine) mysqlEnv() []string { return []string{rootUserKey + e.pass()} }
+
+func (e *dockerEngine) runOutEnv(ctx context.Context, cmd, env []string) (string, error) {
 	name := cmdLabel(cmd)
 
-	res, err := e.rt.Exec(ctx, e.container(), cmd)
+	res, err := container.ExecWithEnv(ctx, e.rt, e.container(), cmd, env)
 	if err != nil {
 		return "", fmt.Errorf("%w: exec %s: %s", errExec, name, e.scrub(err.Error()))
 	}
@@ -149,11 +157,11 @@ func (e *dockerEngine) dumpMySQL(ctx context.Context, dbs []string) ([]byte, err
 	}
 
 	cmd := append([]string{
-		cmdEnv, "MYSQL_PWD=" + e.pass(), mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
+		mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
 		argAddDrop, "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", argDatabases,
 	}, dbs...)
 
-	if err := e.run(ctx, cmd); err != nil {
+	if _, err := e.runOutEnv(ctx, cmd, e.mysqlEnv()); err != nil {
 		return nil, err
 	}
 
@@ -196,12 +204,14 @@ func (e *dockerEngine) restoreFile(ctx context.Context, db string, data []byte) 
 		return e.run(ctx, []string{psqlBin, "-U", pgAdminUser, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", file})
 	}
 
-	cmd := []string{cmdEnv, "MYSQL_PWD=" + e.pass(), mysqlClient, "-u" + mysqlAdminUser}
+	cmd := []string{mysqlClient, "-u" + mysqlAdminUser}
 	if db != "" {
 		cmd = append(cmd, "--database="+db)
 	}
 
-	return e.run(ctx, append(cmd, "-e", "source "+file))
+	_, err := e.runOutEnv(ctx, append(cmd, "-e", "source "+file), e.mysqlEnv())
+
+	return err
 }
 
 type dumpSegment struct {

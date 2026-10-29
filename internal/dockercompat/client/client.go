@@ -356,9 +356,18 @@ func (c *Client) ContainerExec(
 	containerID string,
 	cmd []string,
 ) ([]byte, []byte, int, error) {
+	return c.ContainerExecEnv(ctx, containerID, cmd, nil)
+}
+
+// ContainerExecEnv is ContainerExec with extra environment entries (KEY=VALUE) set on the exec process.
+func (c *Client) ContainerExecEnv(
+	ctx context.Context,
+	containerID string,
+	cmd, env []string,
+) ([]byte, []byte, int, error) {
 	var stdout, stderr bytes.Buffer
 
-	code, err := c.ContainerExecStream(ctx, containerID, cmd, &stdout, &stderr)
+	code, err := c.execStream(ctx, containerID, cmd, env, &stdout, &stderr)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -373,10 +382,20 @@ func (c *Client) ContainerExecStream(
 	cmd []string,
 	stdout, stderr io.Writer,
 ) (int, error) {
+	return c.execStream(ctx, containerID, cmd, nil, stdout, stderr)
+}
+
+func (c *Client) execStream(
+	ctx context.Context,
+	containerID string,
+	cmd, env []string,
+	stdout, stderr io.Writer,
+) (int, error) {
 	created, err := c.inner.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmd,
+		Env:          env,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("exec create: %w", err)

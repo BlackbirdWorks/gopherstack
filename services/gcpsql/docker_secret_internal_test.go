@@ -19,8 +19,10 @@ import (
 var errBoom = errors.New("boom")
 
 type echoRuntime struct {
-	err error
-	res container.ExecResult
+	err    error
+	gotCmd []string
+	gotEnv []string
+	res    container.ExecResult
 }
 
 func (*echoRuntime) CreateAndStart(context.Context, container.Spec) (string, error) { return "", nil }
@@ -28,8 +30,36 @@ func (*echoRuntime) StopContainer(context.Context, string) error                
 func (*echoRuntime) StartContainer(context.Context, string) error                   { return nil }
 func (*echoRuntime) StopAndRemove(context.Context, string) error                    { return nil }
 
-func (r *echoRuntime) Exec(context.Context, string, []string) (container.ExecResult, error) {
+func (r *echoRuntime) Exec(_ context.Context, _ string, cmd []string) (container.ExecResult, error) {
+	r.gotCmd = cmd
+
 	return r.res, r.err
+}
+
+func (r *echoRuntime) ExecEnv(ctx context.Context, id string, cmd, env []string) (container.ExecResult, error) {
+	r.gotEnv = env
+
+	return r.Exec(ctx, id, cmd)
+}
+
+func TestMySQLPasswordGoesInEnvNotArgv(t *testing.T) {
+	t.Parallel()
+
+	const pw = "s3cret-root-pw"
+
+	rt := &echoRuntime{}
+	e := &dockerEngine{
+		rt: rt, mu: lockmetrics.New("gcpsql-test"), password: pw, kind: kindMySQL, attached: true, ctrID: "c1", id: "inst",
+	}
+
+	_, err := e.mysqlCmd(context.Background(), "SELECT 1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{rootUserKey + pw}, rt.gotEnv)
+	assert.Equal(t, mysqlClient, rt.gotCmd[0])
+
+	for _, a := range rt.gotCmd {
+		assert.NotContains(t, a, pw)
+	}
 }
 
 func TestRunOutNeverLeaksPassword(t *testing.T) {

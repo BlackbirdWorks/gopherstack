@@ -92,6 +92,31 @@ type ExecResult struct {
 	ExitCode int
 }
 
+// Execer runs a command in a container.
+type Execer interface {
+	Exec(ctx context.Context, containerID string, cmd []string) (ExecResult, error)
+}
+
+// EnvExecer is implemented by runtimes that can set environment variables on an exec process.
+type EnvExecer interface {
+	ExecEnv(ctx context.Context, containerID string, cmd, env []string) (ExecResult, error)
+}
+
+// ExecWithEnv runs cmd with env (KEY=VALUE entries) set on the process, keeping secrets out of argv.
+// It never falls back to argv: a runtime without EnvExecer yields ErrExecUnsupported.
+func ExecWithEnv(ctx context.Context, x Execer, containerID string, cmd, env []string) (ExecResult, error) {
+	if len(env) == 0 {
+		return x.Exec(ctx, containerID, cmd)
+	}
+
+	ex, ok := x.(EnvExecer)
+	if !ok {
+		return ExecResult{}, ErrExecUnsupported
+	}
+
+	return ex.ExecEnv(ctx, containerID, cmd, env)
+}
+
 // StreamExecer is implemented by runtimes that can stream a command's output while it runs.
 type StreamExecer interface {
 	// ExecStream runs cmd, writing combined stdout and stderr to out as produced; it returns the exit status.

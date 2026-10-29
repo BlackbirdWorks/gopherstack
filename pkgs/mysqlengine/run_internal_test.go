@@ -14,8 +14,10 @@ import (
 var errDockerDown = errors.New("docker down")
 
 type execRuntime struct {
-	err error
-	res container.ExecResult
+	err    error
+	gotCmd []string
+	gotEnv []string
+	res    container.ExecResult
 }
 
 func (*execRuntime) CreateAndStart(context.Context, container.Spec) (string, error) { return "", nil }
@@ -23,8 +25,33 @@ func (*execRuntime) StopAndRemove(context.Context, string) error                
 func (*execRuntime) StopContainer(context.Context, string) error                    { return nil }
 func (*execRuntime) StartContainer(context.Context, string) error                   { return nil }
 
-func (r *execRuntime) Exec(context.Context, string, []string) (container.ExecResult, error) {
+func (r *execRuntime) Exec(_ context.Context, _ string, cmd []string) (container.ExecResult, error) {
+	r.gotCmd = cmd
+
 	return r.res, r.err
+}
+
+func (r *execRuntime) ExecEnv(ctx context.Context, id string, cmd, env []string) (container.ExecResult, error) {
+	r.gotEnv = env
+
+	return r.Exec(ctx, id, cmd)
+}
+
+func TestPasswordGoesInEnvNotArgv(t *testing.T) {
+	t.Parallel()
+
+	const secret = "s3cr3t-root-pw"
+
+	rt := &execRuntime{}
+	s := &Server{e: &Engine{cfg: Config{Runtime: rt}}, spec: Spec{RootPassword: secret}, dir: t.TempDir()}
+
+	require.NoError(t, s.Restore(t.Context(), []byte("select 1")))
+	assert.Equal(t, []string{"MYSQL_PWD=" + secret}, rt.gotEnv)
+	assert.NotEmpty(t, rt.gotCmd)
+
+	for _, a := range rt.gotCmd {
+		assert.NotContains(t, a, secret)
+	}
 }
 
 func TestRestoreErrorOmitsPassword(t *testing.T) {

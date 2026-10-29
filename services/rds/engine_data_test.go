@@ -16,6 +16,16 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
+func (f *fakeEngineRuntime) ExecEnv(
+	ctx context.Context, id string, cmd, env []string,
+) (container.ExecResult, error) {
+	f.mu.Lock()
+	f.envs = append(f.envs, slices.Clone(env))
+	f.mu.Unlock()
+
+	return f.Exec(ctx, id, cmd)
+}
+
 func (f *fakeEngineRuntime) Exec(_ context.Context, id string, cmd []string) (container.ExecResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -143,6 +153,39 @@ func TestEngineSnapshotRestoreCarriesData(t *testing.T) {
 			assert.Equal(t, tt.dump, f.rt.secondLoaded())
 			assert.Subset(t, f.rt.spec(1).Env, []string{tt.wantPass})
 			assert.Equal(t, 2, f.rt.containers())
+		})
+	}
+}
+
+func TestEngineExecPasswordInEnvNotArgv(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range dataCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newEngineFixture(t, engineWait)
+			f.readySource(t, tt.engine)
+
+			_, err := f.b.CreateDBSnapshot("snap1", "src")
+			require.NoError(t, err)
+
+			wantEnv := "MYSQL_PWD=pw"
+			if tt.engine == "postgres" {
+				wantEnv = "PGPASSWORD=pw"
+			}
+
+			f.rt.mu.Lock()
+			defer f.rt.mu.Unlock()
+
+			assert.Contains(t, f.rt.envs, []string{wantEnv})
+
+			for _, cmd := range f.rt.execs {
+				for _, a := range cmd {
+					assert.NotContains(t, a, "MYSQL_PWD")
+					assert.NotContains(t, a, "PGPASSWORD")
+				}
+			}
 		})
 	}
 }
