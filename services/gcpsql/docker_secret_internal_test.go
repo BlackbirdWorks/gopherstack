@@ -20,9 +20,13 @@ var errBoom = errors.New("boom")
 
 type echoRuntime struct {
 	err error
-	removeRecorder
 	res container.ExecResult
 }
+
+func (*echoRuntime) CreateAndStart(context.Context, container.Spec) (string, error) { return "", nil }
+func (*echoRuntime) StopContainer(context.Context, string) error                    { return nil }
+func (*echoRuntime) StartContainer(context.Context, string) error                   { return nil }
+func (*echoRuntime) StopAndRemove(context.Context, string) error                    { return nil }
 
 func (r *echoRuntime) Exec(context.Context, string, []string) (container.ExecResult, error) {
 	return r.res, r.err
@@ -45,7 +49,10 @@ func TestRunOutNeverLeaksPassword(t *testing.T) {
 			rt:   &echoRuntime{res: container.ExecResult{ExitCode: 1, Stderr: "near '" + rootPW + "'"}},
 		},
 		{name: "stdout echoes repl", rt: &echoRuntime{res: container.ExecResult{ExitCode: 1, Stdout: replPW}}},
-		{name: "exec error echoes root", rt: &echoRuntime{err: fmt.Errorf("%w: create exec env MYSQL_PWD=%s", errBoom, rootPW)}},
+		{
+			name: "exec error echoes root",
+			rt:   &echoRuntime{err: fmt.Errorf("%w: create exec env MYSQL_PWD=%s", errBoom, rootPW)},
+		},
 	}
 
 	for _, tt := range tests {
