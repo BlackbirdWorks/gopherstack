@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -21,6 +22,8 @@ const (
 	ociOKEClusters  = "clusters"
 	ociOKEPools     = "nodePools"
 	ociOKEWorkReqs  = "workRequests"
+	ociOKEWRLogs    = "logs"
+	ociOKEWRErrors  = "errors"
 )
 
 // registerOCIContainerEngineRoutes serves the Container Engine page by dispatching in-process to the emulator's
@@ -38,7 +41,9 @@ func (h *DashboardHandler) registerOCIContainerEngineRoutes() {
 		comps = ops.Backend.Compartments
 	}
 
-	guard := func(next echo.HandlerFunc) echo.HandlerFunc { return ociGuard(inner != nil, "OCI Container Engine", next) }
+	guard := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return ociGuard(inner != nil, "OCI Container Engine", next)
+	}
 
 	h.SubRouter.Add(http.MethodGet, ociOKEPrefix+"/compartments", guard(func(c *echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]any{ociCompartmentsKey: comps()})
@@ -49,7 +54,12 @@ func (h *DashboardHandler) registerOCIContainerEngineRoutes() {
 		raw := strings.TrimPrefix(r.URL.EscapedPath(), ociOKEPrefix+"/api")
 
 		if !ociOKEAllowed(r.Method, raw) {
-			return cloudJSONFail(c, http.StatusBadRequest, "InvalidParameter", "unsupported Container Engine proxy request")
+			return cloudJSONFail(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameter",
+				"unsupported Container Engine proxy request",
+			)
 		}
 
 		fwd := r.Clone(r.Context())
@@ -91,16 +101,22 @@ func ociOKEAllowed(method, raw string) bool {
 
 	switch method {
 	case http.MethodGet:
-		switch len(parts) {
-		case 1, ociOKEItemSegs:
-			return parts[0] == ociOKEClusters || parts[0] == ociOKEPools || parts[0] == ociOKEWorkReqs
-		case ociOKEChildSegs:
-			return parts[0] == ociOKEWorkReqs && (parts[2] == "logs" || parts[2] == "errors")
-		}
+		return ociOKEAllowedRead(parts)
 	case http.MethodDelete:
 		return len(parts) == ociOKEItemSegs && parts[0] == ociOKEClusters
 	case http.MethodPut:
 		return len(parts) == ociOKEItemSegs && parts[0] == ociOKEPools
+	}
+
+	return false
+}
+
+func ociOKEAllowedRead(parts []string) bool {
+	switch len(parts) {
+	case 1, ociOKEItemSegs:
+		return slices.Contains([]string{ociOKEClusters, ociOKEPools, ociOKEWorkReqs}, parts[0])
+	case ociOKEChildSegs:
+		return parts[0] == ociOKEWorkReqs && slices.Contains([]string{ociOKEWRLogs, ociOKEWRErrors}, parts[2])
 	}
 
 	return false

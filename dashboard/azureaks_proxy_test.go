@@ -66,20 +66,28 @@ func TestAzureAKSProxy(t *testing.T) {
 			{http.MethodDelete, px + aksAPI, "", "", http.StatusAccepted},
 			{http.MethodGet, px + aksAPI, "", "ResourceNotFound", 404},
 		}},
-		{"rejects", []gcpStep{
-			{http.MethodPost, px + "/listClusterAdminCredential" + aksAPI, "", "unsupported", 400},
-			{http.MethodPost, px + "/listClusterUserCredential" + aksAPI, "", "unsupported", 400},
-			{http.MethodPost, px + "/runCommand" + aksAPI, `{}`, "unsupported", 400},
-			{http.MethodPost, px + "/agentPools/system/upgradeNodeImageVersion" + aksAPI, "", "unsupported", 400},
-			{http.MethodDelete, px + "/agentPools/system" + aksAPI, "", "unsupported", 400},
-			{http.MethodPut, px + aksAPI, `{}`, "unsupported", 400},
-			{http.MethodPut, list + aksAPI, `{}`, "unsupported", 400},
-			{http.MethodDelete, list + aksAPI, "", "unsupported", 400},
-			{http.MethodGet, px + "/accessProfiles/clusterAdmin" + aksAPI, "", "unsupported", 400},
-			{http.MethodGet, px + "/agentPools/../x" + aksAPI, "", "unsupported", 400},
-			{http.MethodGet, aksProxy + "/subscriptions/" + armSub + "/providers/Microsoft.Compute/virtualMachines" + aksAPI,
-				"", "unsupported", 400},
-		}},
+		{
+			"rejects",
+			[]gcpStep{
+				{http.MethodPost, px + "/listClusterAdminCredential" + aksAPI, "", "unsupported", 400},
+				{http.MethodPost, px + "/listClusterUserCredential" + aksAPI, "", "unsupported", 400},
+				{http.MethodPost, px + "/runCommand" + aksAPI, `{}`, "unsupported", 400},
+				{http.MethodPost, px + "/agentPools/system/upgradeNodeImageVersion" + aksAPI, "", "unsupported", 400},
+				{http.MethodDelete, px + "/agentPools/system" + aksAPI, "", "unsupported", 400},
+				{http.MethodPut, px + aksAPI, `{}`, "unsupported", 400},
+				{http.MethodPut, list + aksAPI, `{}`, "unsupported", 400},
+				{http.MethodDelete, list + aksAPI, "", "unsupported", 400},
+				{http.MethodGet, px + "/accessProfiles/clusterAdmin" + aksAPI, "", "unsupported", 400},
+				{http.MethodGet, px + "/agentPools/../x" + aksAPI, "", "unsupported", 400},
+				{
+					http.MethodGet,
+					aksProxy + "/subscriptions/" + armSub + "/providers/Microsoft.Compute/virtualMachines" + aksAPI,
+					"",
+					"unsupported",
+					400,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -95,15 +95,26 @@ func TestOCIContainerEngineProxy(t *testing.T) {
 		}},
 		{name: "scale", steps: func(_, pool string) []gcpStep {
 			return []gcpStep{
-				{http.MethodPut, api + "/nodePools/" + pool, `{"nodeConfigDetails":{"size":4}}`, "", http.StatusAccepted},
+				{
+					http.MethodPut,
+					api + "/nodePools/" + pool,
+					`{"nodeConfigDetails":{"size":4}}`,
+					"",
+					http.StatusAccepted,
+				},
 				{http.MethodGet, api + "/nodePools/" + pool, "", `"size":4`, 200},
 				{http.MethodPut, api + "/nodePools/" + pool, `{"nodeConfigDetails":{"size":99999}}`, "size", 400},
 			}
 		}},
 		{name: "scale forwards only the size", steps: func(_, pool string) []gcpStep {
 			return []gcpStep{
-				{http.MethodPut, api + "/nodePools/" + pool,
-					`{"name":"renamed","nodeShape":"VM.Standard2.1","nodeConfigDetails":{"size":3}}`, "", http.StatusAccepted},
+				{
+					http.MethodPut,
+					api + "/nodePools/" + pool,
+					`{"name":"renamed","nodeShape":"VM.Standard2.1","nodeConfigDetails":{"size":3}}`,
+					"",
+					http.StatusAccepted,
+				},
 				{http.MethodGet, api + "/nodePools/" + pool, "", `"name":"workers"`, 200},
 				{http.MethodPut, api + "/nodePools/" + pool, `{"name":"renamed"}`, "nodeConfigDetails.size", 400},
 				{http.MethodPut, api + "/nodePools/" + pool, `not json`, "nodeConfigDetails.size", 400},
@@ -121,7 +132,13 @@ func TestOCIContainerEngineProxy(t *testing.T) {
 				{http.MethodPut, api + "/clusters/" + cluster, `{}`, "unsupported", 400},
 				{http.MethodDelete, api + "/nodePools/" + pool, "", "unsupported", 400},
 				{http.MethodDelete, api + "/nodePools/" + pool + "/node/n1", "", "unsupported", 400},
-				{http.MethodPost, api + "/clusters/" + cluster + "/kubeconfig/content", `{}`, "", http.StatusMethodNotAllowed},
+				{
+					http.MethodPost,
+					api + "/clusters/" + cluster + "/kubeconfig/content",
+					`{}`,
+					"",
+					http.StatusMethodNotAllowed,
+				},
 				{http.MethodGet, api + "/clusters/" + cluster + "/kubeconfig/content", "", "unsupported", 400},
 				{http.MethodGet, api + "/clusterOptions/all", "", "unsupported", 400},
 				{http.MethodGet, api + "/clusters/%2e%2e", "", "unsupported", 400},
