@@ -33,6 +33,8 @@ var (
 	ErrStageNotFound = awserr.New("StageNotFoundException", awserr.ErrNotFound)
 	// ErrInvalidStructure is returned for structural pipeline validation errors.
 	ErrInvalidStructure = awserr.New("InvalidStructureException", awserr.ErrInvalidParameter)
+	// ErrInvalidActionDeclaration is returned for an invalid action declaration.
+	ErrInvalidActionDeclaration = awserr.New("InvalidActionDeclarationException", awserr.ErrInvalidParameter)
 	// ErrExecutionNotFound is returned when a requested pipeline execution ID does not exist.
 	ErrExecutionNotFound = awserr.New("PipelineExecutionNotFoundException", awserr.ErrNotFound)
 	// ErrVersionNotFound is returned when a requested pipeline version does not exist.

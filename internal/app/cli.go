@@ -4755,6 +4755,7 @@ func wireCodePipelineBackends(byName map[string]service.Registerable) {
 	wireCodePipelineLambda(byName["CodePipeline"], byName["Lambda"])
 	wireCodePipelineCodeDeploy(byName["CodePipeline"], byName["CodeDeploy"])
 	wireCodePipelineS3(byName["CodePipeline"], byName["S3"])
+	wireCodePipelineActionBackends(byName)
 }
 
 // wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
@@ -4898,6 +4899,7 @@ func registerCloudFormationAndDashboard(
 	wireLightsailCloudFormation(byName["Lightsail"], cfnSvc)
 	wireServiceCatalogEngine(byName["ServiceCatalog"], cfnSvc)
 	wireGlobalAcceleratorCloudFormation(byName["GlobalAccelerator"], cfnSvc)
+	wireCodePipelineCloudFormation(byName["CodePipeline"], cfnSvc)
 
 	// Wire CloudFormation -> Organizations so SERVICE_MANAGED StackSets can
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU
