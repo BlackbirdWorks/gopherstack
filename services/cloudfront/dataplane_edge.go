@@ -27,15 +27,16 @@ const (
 	xCacheEdgeExecution  = "LambdaExecutionError from cloudfront"
 	xCacheEdgeLimit      = "LambdaLimitExceeded from cloudfront"
 
-	bodyActionReplace = "replace"
-	encodingBase64    = "base64"
-	encodingText      = "text"
-	keyHeaders        = "headers"
-	keyBody           = "body"
-	keyContentLength  = "content-length"
-	keyConfig         = "config"
-	keyRequest        = "request"
-	keyCustom         = "custom"
+	bodyActionReplace   = "replace"
+	encodingBase64      = "base64"
+	encodingText        = "text"
+	keyHeaders          = "headers"
+	keyBody             = "body"
+	keyContentLength    = "content-length"
+	keyTransferEncoding = "transfer-encoding"
+	keyConfig           = "config"
+	keyRequest          = "request"
+	keyCustom           = "custom"
 )
 
 type edgeError struct {
@@ -103,16 +104,16 @@ func edgeDisallowed(name string) bool {
 func edgeReadOnly(eventType string) []string {
 	switch eventType {
 	case eventViewerRequest:
-		return []string{"cdn-loop", keyContentLength, "host", "transfer-encoding", "via"}
+		return []string{"cdn-loop", keyContentLength, "host", keyTransferEncoding, "via"}
 	case eventOriginRequest:
 		return []string{
 			"accept-encoding", "cdn-loop", keyContentLength, "if-modified-since", "if-none-match", "if-range",
-			"if-unmodified-since", "transfer-encoding", "via",
+			"if-unmodified-since", keyTransferEncoding, "via",
 		}
 	case eventOriginResponse:
-		return []string{"transfer-encoding", "via"}
+		return []string{keyTransferEncoding, "via"}
 	default:
-		return []string{"warning", "via", keyContentLength, "content-encoding", "transfer-encoding"}
+		return []string{"warning", "via", keyContentLength, "content-encoding", keyTransferEncoding}
 	}
 }
 
