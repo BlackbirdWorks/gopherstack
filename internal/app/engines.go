@@ -62,6 +62,7 @@ func engineEntries() []engineEntry {
 		{func(c *CLI) *string { return &c.MQEngine }, "mq-engine", "MQ_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.EKSEngine }, "eks-engine", "EKS_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.GKEEngine }, "gke-engine", "GKE_ENGINE", enginesStub},
+		{func(c *CLI) *string { return &c.OKEEngine }, "oke-engine", "OKE_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.RDSEngine }, "rds-engine", "RDS_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.DocDBEngine }, "docdb-engine", "DOCDB_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.RedshiftEngine }, "redshift-engine", "REDSHIFT_ENGINE", enginesStub},

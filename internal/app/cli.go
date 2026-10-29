@@ -236,6 +236,7 @@ import (
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
+	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
@@ -573,6 +574,7 @@ type CLI struct {
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	GKEEngine                     string                            `                                       name:"gke-engine"              env:"GKE_ENGINE"                          default:"stub"          help:"GKE engine mode: stub (control plane only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	OKEEngine                     string                            `                                       name:"oke-engine"              env:"OKE_ENGINE"                          default:"stub"          help:"OKE engine mode: stub (control plane only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	SageMakerEngine               string                            `                                       name:"sagemaker-engine"        env:"SAGEMAKER_ENGINE"                    default:"stub"          help:"SageMaker engine mode: stub (control plane only; InvokeEndpoint is unavailable) or docker (endpoints and jobs run model, training, processing and transform containers)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
@@ -700,6 +702,7 @@ type CLI struct {
 	OCICore                       ocicorebackend.Settings           `embed:"" prefix:"oci-core-"`
 	OCIQueue                      ociqueuebackend.Settings          `embed:"" prefix:"oci-queue-"`
 	OCINotifications              ocinotificationsbackend.Settings  `embed:"" prefix:"oci-notifications-"`
+	OCIContainerEngine            ocioke.Settings                   `embed:"" prefix:"oci-container-engine-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -907,6 +910,14 @@ func (c *CLI) GetOCIStreamingSettings() ocistreamingbackend.Settings {
 func (c *CLI) GetOCIQueueSettings() ociqueuebackend.Settings {
 	return c.OCIQueue
 }
+
+// GetOCIContainerEngineSettings returns OKE settings (ocicontainerengine.ConfigProvider).
+func (c *CLI) GetOCIContainerEngineSettings() ocioke.Settings {
+	return c.OCIContainerEngine
+}
+
+// GetOCIContainerEngineEngine returns the OKE engine mode (ocicontainerengine.EngineConfigProvider).
+func (c *CLI) GetOCIContainerEngineEngine() string { return c.engineMode("oke-engine", c.OKEEngine) }
 
 // GetOCINotificationsSettings returns OCI Notifications settings (ocinotifications.ConfigProvider).
 func (c *CLI) GetOCINotificationsSettings() ocinotificationsbackend.Settings {
@@ -2670,6 +2681,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCICore", "ocicore", cli.OCICore.Port},
 		{"OCIQueue", "ociqueue", cli.OCIQueue.Port},
 		{"OCINotifications", "ocinotifications", cli.OCINotifications.Port},
+		{"OCIContainerEngine", "ocicontainerengine", cli.OCIContainerEngine.Port},
 	}
 }
 
@@ -3661,6 +3673,7 @@ func wireCrossServiceDependencies(
 	wireOCIStreamingVault(byName)
 	wireOCIIdentityKeys(byName)
 	wireOCIQueueNotifications(byName)
+	wireOCIContainerEngine(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -3728,6 +3741,11 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 
 	if h, found := byName["OCINotifications"].(*ocinotificationsbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIContainerEngine"].(*ocioke.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
 	}
 }
 
@@ -5143,6 +5161,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocicorebackend.Provider{},
 		&ociqueuebackend.Provider{},
 		&ocinotificationsbackend.Provider{},
+		&ocioke.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
