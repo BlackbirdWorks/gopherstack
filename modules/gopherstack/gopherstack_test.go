@@ -10,6 +10,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 
 	gopherstackmodule "github.com/blackbirdworks/gopherstack/modules/gopherstack"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // TestRun verifies that a Gopherstack container starts, exposes a valid
@@ -50,7 +51,7 @@ func TestRun(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEmpty(t, url, "expected non-empty base URL")
 
-			resp, err := http.Get(url + "/_gopherstack/health")
+			resp, err := testclient.New(t).Get(url + "/_gopherstack/health")
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

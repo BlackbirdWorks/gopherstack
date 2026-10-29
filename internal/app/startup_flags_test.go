@@ -23,6 +23,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func startupFlagsServer(t *testing.T, cli CLI) (*httptest.Server, aws.Config) {
@@ -263,7 +264,7 @@ func TestCORSMiddleware(t *testing.T) {
 				req.Header.Set("Access-Control-Request-Method", tt.reqMethod)
 			}
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

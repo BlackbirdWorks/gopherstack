@@ -2,7 +2,6 @@ package app
 
 import (
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func newEnforcedIAMServer(t *testing.T) *httptest.Server {
@@ -105,7 +105,7 @@ func TestIAMPolicyStreamEndToEnd(t *testing.T) {
 	_, err = s3c.GetObject(t.Context(), &s3.GetObjectInput{Bucket: aws.String("b"), Key: aws.String("k")})
 	require.Error(t, err)
 
-	resp, err := http.Get(srv.URL + iamPolicyStreamPath + "?principal=arn:aws:iam::000000000000:user/alice")
+	resp, err := testclient.New(t).Get(srv.URL + iamPolicyStreamPath + "?principal=arn:aws:iam::000000000000:user/alice")
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

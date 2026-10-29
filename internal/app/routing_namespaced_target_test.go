@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestNamespacedTargetRouting(t *testing.T) {
@@ -49,7 +51,7 @@ func TestNamespacedTargetRouting(t *testing.T) {
 				"AWS4-HMAC-SHA256 Credential=test/20261001/us-east-1/"+tt.sigName+"/aws4_request, SignedHeaders=host, Signature=x",
 			)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

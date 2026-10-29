@@ -24,6 +24,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svctags "github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
@@ -119,7 +120,7 @@ func waitForServerReady(t *testing.T, port int) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
+		resp, err := testclient.New(t).Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 		if err != nil {
 			return false
 		}
@@ -3073,7 +3074,7 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	}()
 
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
+		resp, err := testclient.New(t).Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 		if err != nil {
 			return false
 		}
@@ -3082,7 +3083,7 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 		return resp.StatusCode == http.StatusOK
 	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
 
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
+	resp, err := testclient.New(t).Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
