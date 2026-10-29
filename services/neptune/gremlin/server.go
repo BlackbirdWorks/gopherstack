@@ -343,27 +343,26 @@ func writeResult(conn *websocket.Conn, msg *message, out []any, err error) error
 }
 
 func writeFrame(conn *websocket.Conn, msg *message, code int, text string, data []any, hasData bool) error {
-	var (
-		payload []byte
-		mt      = websocket.TextMessage
-	)
-
-	if msg.codec == codecBinary {
-		mt = websocket.BinaryMessage
-		w := &bbWriter{}
-		payload = w.response(msg.id, code, text, data, hasData)
-	} else {
-		var err error
-
-		payload, err = graphsonWriter{v2: msg.codec == codecV2}.response(msg.id, code, text, data, hasData)
-		if err != nil {
-			payload, _ = graphsonWriter{}.response(msg.id, StatusSerializationErr, err.Error(), nil, false)
-		}
-	}
+	mt, payload := encodeFrame(msg, code, text, data, hasData)
 
 	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 
 	return conn.WriteMessage(mt, payload)
+}
+
+func encodeFrame(msg *message, code int, text string, data []any, hasData bool) (int, []byte) {
+	if msg.codec == codecBinary {
+		w := &bbWriter{}
+
+		return websocket.BinaryMessage, w.response(msg.id, code, text, data, hasData)
+	}
+
+	payload, err := graphsonWriter{v2: msg.codec == codecV2}.response(msg.id, code, text, data, hasData)
+	if err != nil {
+		payload, _ = graphsonWriter{}.response(msg.id, StatusSerializationErr, err.Error(), nil, false)
+	}
+
+	return websocket.TextMessage, payload
 }
 
 type httpRequest struct {

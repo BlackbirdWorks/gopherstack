@@ -39,6 +39,7 @@ const (
 type cypherFront struct {
 	srv            *http.Server
 	proxy          *httputil.ReverseProxy
+	upstream       string
 	tr             *http.Transport
 	graph          *opencypher.Graph
 	queries        *queryTracker
@@ -74,6 +75,7 @@ func startCypherFront(
 			Track: f.gremlinQueries.begin, Authorize: gremlinAuthorizer,
 		})
 	} else {
+		f.upstream = innerAddr
 		f.proxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: innerAddr})
 		f.proxy.Transport = f.tr
 	}
@@ -137,6 +139,12 @@ func (f *cypherFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !authorizeProxied(w, r) {
+		return
+	}
+
+	if enforcesFrames(r) {
+		f.proxyGremlinWS(w, r)
+
 		return
 	}
 

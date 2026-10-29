@@ -411,8 +411,8 @@ func authorizeStatus(w http.ResponseWriter, r *http.Request) bool {
 	return authorizeActions(w, r, language, actionStatus)
 }
 
-// authorizeProxied vets a request forwarded to the Gremlin Server container. WebSocket frames are opaque to the
-// proxy, so a handshake needs read access only; HTTP queries are classified from their gremlin field.
+// authorizeProxied vets a request forwarded to the Gremlin Server container. A WebSocket handshake needs read access
+// here and its frames are authorized individually by proxyGremlinWS; HTTP queries are classified from their gremlin field.
 func authorizeProxied(w http.ResponseWriter, r *http.Request) bool {
 	if callerFrom(r.Context()) == nil {
 		return true
