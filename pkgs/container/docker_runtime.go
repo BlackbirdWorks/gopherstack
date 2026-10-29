@@ -65,6 +65,15 @@ type ExecAPIClient interface {
 	) (stdout, stderr []byte, exitCode int, err error)
 }
 
+// ExecEnvAPIClient is implemented by clients that can run a command with extra environment variables.
+type ExecEnvAPIClient interface {
+	ContainerExecEnv(
+		ctx context.Context,
+		containerID string,
+		cmd, env []string,
+	) (stdout, stderr []byte, exitCode int, err error)
+}
+
 // ExecStreamAPIClient is implemented by clients that can stream a command's output while it runs.
 type ExecStreamAPIClient interface {
 	ContainerExecStream(
@@ -153,6 +162,14 @@ func (r *realDockerClient) ContainerExec(
 	cmd []string,
 ) ([]byte, []byte, int, error) {
 	return r.c.ContainerExec(ctx, containerID, cmd)
+}
+
+func (r *realDockerClient) ContainerExecEnv(
+	ctx context.Context,
+	containerID string,
+	cmd, env []string,
+) ([]byte, []byte, int, error) {
+	return r.c.ContainerExecEnv(ctx, containerID, cmd, env)
 }
 
 func (r *realDockerClient) ContainerExecStream(
@@ -592,6 +609,21 @@ func (r *DockerRuntime) Exec(ctx context.Context, containerID string, cmd []stri
 	}
 
 	stdout, stderr, code, err := api.ContainerExec(ctx, containerID, cmd)
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("container exec %q: %w", containerID, err)
+	}
+
+	return ExecResult{Stdout: string(stdout), Stderr: string(stderr), ExitCode: code}, nil
+}
+
+// ExecEnv runs cmd like Exec with env (KEY=VALUE entries) set on the process instead of in its argv.
+func (r *DockerRuntime) ExecEnv(ctx context.Context, containerID string, cmd, env []string) (ExecResult, error) {
+	api, ok := r.docker.(ExecEnvAPIClient)
+	if !ok {
+		return ExecResult{}, ErrExecUnsupported
+	}
+
+	stdout, stderr, code, err := api.ContainerExecEnv(ctx, containerID, cmd, env)
 	if err != nil {
 		return ExecResult{}, fmt.Errorf("container exec %q: %w", containerID, err)
 	}

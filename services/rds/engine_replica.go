@@ -266,9 +266,9 @@ func (e *dbEngine) prepareSource(ctx context.Context, in unitInfo, pass string) 
 		client, _ := mysqlClients(l.Kind)
 		stmt := dbrepl.MySQLReplicaUserSQL(replUser, pass)
 
-		_, err := e.run(ctx, x, in.containerID, []string{
-			cmdEnv, "MYSQL_PWD=" + l.Password, client, "-u" + mysqlRootUser, "-e", stmt,
-		})
+		_, err := e.runEnv(ctx, x, in.containerID, []string{
+			client, "-u" + mysqlRootUser, "-e", stmt,
+		}, mysqlPwdEnv(l.Password))
 
 		return err
 	}
@@ -279,8 +279,7 @@ func (e *dbEngine) prepareSource(ctx context.Context, in unitInfo, pass string) 
 	}
 
 	psql := func(sqlText string) []string {
-		return []string{cmdEnv, "PGPASSWORD=" + l.Password, "psql", "-q", "-v", "ON_ERROR_STOP=1",
-			"-U", l.User, "-d", db, "-c", sqlText}
+		return []string{"psql", "-q", "-v", "ON_ERROR_STOP=1", "-U", l.User, "-d", db, "-c", sqlText}
 	}
 
 	role := dbrepl.PGReplicaRoleSQL(replUser, pass)
@@ -288,7 +287,7 @@ func (e *dbEngine) prepareSource(ctx context.Context, in unitInfo, pass string) 
 	for _, cmd := range [][]string{
 		psql(role), {"sh", "-c", dbrepl.PGHBAScript(replUser), "pg-hba"}, psql("SELECT pg_reload_conf()"),
 	} {
-		if _, err = e.run(ctx, x, in.containerID, cmd); err != nil {
+		if _, err = e.runEnv(ctx, x, in.containerID, cmd, pgPwdEnv(l.Password)); err != nil {
 			return err
 		}
 	}

@@ -150,12 +150,14 @@ func (e *dockerEngine) mysqlBase(ctx context.Context, dbs []string) error {
 	}
 
 	cmd := append([]string{
-		cmdEnv, rootUserKey + e.pass(), mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
+		mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
 		"--events", "--triggers", "--skip-dump-date", argAddDrop, "--source-data=2", "--flush-logs",
 		"--set-gtid-purged=OFF", "-r", mysqlBaseFile, argDatabases,
 	}, dbs...)
 
-	return e.run(ctx, cmd)
+	_, err := e.runOutEnv(ctx, cmd, e.mysqlEnv())
+
+	return err
 }
 
 // DisablePITR implements Recoverer.

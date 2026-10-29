@@ -238,8 +238,6 @@ func (b *InMemoryBackend) failHostLostLocked(job *Job, now int64) bool {
 	o := attemptOutcome{statusReason: reasonHostLost}
 
 	b.closeAttemptLocked(job, &runState{}, o, now)
-	// attemptCount is not persisted; the attempt history is.
-	job.attemptCount = max(job.attemptCount+1, int32(len(job.Attempts))) //nolint:gosec // attempts <= 10
 
 	if b.shouldRetryLocked(job, o) {
 		job.Status = jobStatusRunnable
@@ -342,7 +340,7 @@ func (b *InMemoryBackend) newRunStateLocked(
 		jobID:      job.JobID,
 		queueName:  jq.JobQueueName,
 		jobRoleArn: detail.JobRoleArn,
-		attempt:    job.attemptCount + 1,
+		attempt:    attemptsMade(job) + 1,
 		timeout:    time.Duration(b.effectiveTimeoutSeconds(job)) * time.Second,
 	}
 
@@ -491,7 +489,6 @@ func (b *InMemoryBackend) finishAttempt(rs *runState, code int, runErr error) {
 	outcome := classifyOutcome(rs, code, runErr)
 
 	b.closeAttemptLocked(job, rs, outcome, now)
-	job.attemptCount++
 
 	switch {
 	case outcome.success:
@@ -559,7 +556,7 @@ func (b *InMemoryBackend) effectiveRetryStrategy(job *Job) *RetryStrategy {
 // shouldRetryLocked applies attempts and evaluateOnExit: the first matching
 // rule decides, and with no match the job is retried.
 func (b *InMemoryBackend) shouldRetryLocked(job *Job, o attemptOutcome) bool {
-	if job.attemptCount >= b.effectiveRetryAttempts(job) {
+	if attemptsMade(job) >= b.effectiveRetryAttempts(job) {
 		return false
 	}
 

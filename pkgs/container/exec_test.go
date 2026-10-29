@@ -70,3 +70,49 @@ func TestDockerRuntime_Exec(t *testing.T) {
 		})
 	}
 }
+
+type execEnvAPI struct {
+	gotEnv []string
+	execAPI
+}
+
+func (e *execEnvAPI) ContainerExecEnv(
+	_ context.Context, id string, cmd, env []string,
+) ([]byte, []byte, int, error) {
+	e.gotID, e.gotCmd, e.gotEnv = id, cmd, env
+
+	return []byte("out"), nil, 0, nil
+}
+
+type plainExecer struct{}
+
+func (plainExecer) Exec(context.Context, string, []string) (container.ExecResult, error) {
+	return container.ExecResult{Stdout: "plain"}, nil
+}
+
+func TestDockerRuntime_ExecEnv(t *testing.T) {
+	t.Parallel()
+
+	api := &execEnvAPI{}
+	rt := newRuntime(api)
+
+	got, err := rt.ExecEnv(t.Context(), "ctr-1", []string{"mysql"}, []string{"MYSQL_PWD=pw"})
+	require.NoError(t, err)
+	assert.Equal(t, "out", got.Stdout)
+	assert.Equal(t, []string{"mysql"}, api.gotCmd)
+	assert.Equal(t, []string{"MYSQL_PWD=pw"}, api.gotEnv)
+
+	_, err = newRuntime(&mockAPI{}).ExecEnv(t.Context(), "ctr-1", nil, []string{"A=b"})
+	require.ErrorIs(t, err, container.ErrExecUnsupported)
+}
+
+func TestExecWithEnv(t *testing.T) {
+	t.Parallel()
+
+	got, err := container.ExecWithEnv(t.Context(), plainExecer{}, "c", []string{"x"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "plain", got.Stdout)
+
+	_, err = container.ExecWithEnv(t.Context(), plainExecer{}, "c", []string{"x"}, []string{"A=b"})
+	require.ErrorIs(t, err, container.ErrExecUnsupported)
+}
