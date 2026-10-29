@@ -34,6 +34,8 @@ var (
 	ErrDefaultTokenExposed = errors.New("a cluster token must be set when the cluster host is not loopback")
 	// ErrSuperseded is returned by Launch when the caller's record callback declined the new container.
 	ErrSuperseded = errors.New("cluster was superseded while starting")
+	// ErrStopUnsupported is returned by Stop and Start when the runtime cannot keep a stopped container.
+	ErrStopUnsupported = errors.New("container runtime cannot stop and restart a container in place")
 
 	tokenPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 	hostPattern  = regexp.MustCompile(`^[A-Za-z0-9.:-]+$`)
@@ -43,6 +45,12 @@ var (
 type Runtime interface {
 	CreateAndStart(ctx context.Context, spec container.Spec) (string, error)
 	StopAndRemove(ctx context.Context, containerID string) error
+}
+
+// Stoppable is implemented by runtimes that can stop a container and start it again with its data and ports.
+type Stoppable interface {
+	StopContainer(ctx context.Context, containerID string) error
+	StartContainer(ctx context.Context, containerID string) error
 }
 
 // Config configures an Engine. Prefix names containers and port labels ("eks", "gke").
@@ -151,6 +159,30 @@ func (e *Engine) Remove(containerID string, ports ...int) {
 	for _, p := range ports {
 		e.ReleasePort(p)
 	}
+}
+
+// Stop stops the container but keeps it, so its filesystem (the cluster state) and published ports survive.
+func (e *Engine) Stop(ctx context.Context, containerID string) error {
+	rt, ok := e.cfg.Runtime.(Stoppable)
+	if !ok {
+		return ErrStopUnsupported
+	}
+
+	return rt.StopContainer(ctx, containerID)
+}
+
+// Start restarts a container kept by Stop and waits for its API server on addr; it returns the serving CA.
+func (e *Engine) Start(ctx context.Context, containerID, addr string, ca []byte) ([]byte, error) {
+	rt, ok := e.cfg.Runtime.(Stoppable)
+	if !ok {
+		return nil, ErrStopUnsupported
+	}
+
+	if err := rt.StartContainer(ctx, containerID); err != nil {
+		return nil, fmt.Errorf("start cluster container: %w", err)
+	}
+
+	return e.AwaitReady(ctx, addr, ca)
 }
 
 // Close closes the runtime when it supports it.

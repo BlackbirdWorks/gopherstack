@@ -1,6 +1,8 @@
 package azurearm_test
 
 import (
+	"io"
+	"net/http"
 	"crypto/tls"
 	"crypto/x509"
 	"os/exec"
@@ -52,6 +54,38 @@ func aksDockerHas(t *testing.T, id string) bool {
 	require.NoError(t, err)
 
 	return strings.TrimSpace(string(out)) != ""
+}
+
+func aksDockerRunning(t *testing.T, id string) bool {
+	t.Helper()
+
+	out, err := exec.CommandContext(t.Context(), "docker", "inspect", "-f", "{{.State.Running}}", id).Output()
+	require.NoError(t, err)
+
+	return strings.TrimSpace(string(out)) == "true"
+}
+
+func aksKubeDo(t *testing.T, tlsCfg *tls.Config, server, token, method, path, body string) string {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), method, "https://"+server+path, strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	tr := &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true}
+	defer tr.CloseIdleConnections()
+
+	resp, err := (&http.Client{Transport: tr}).Do(req)
+	require.NoError(t, err)
+
+	defer func() { _ = resp.Body.Close() }()
+
+	out, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Less(t, resp.StatusCode, http.StatusMultipleChoices, string(out))
+
+	return string(out)
 }
 
 // TestAKSDockerRealK3s starts a real k3s container and talks to its API server with the CA and token from the
@@ -110,12 +144,16 @@ func TestAKSDockerRealK3s(t *testing.T) {
 	_, err = k3sengine.HTTPGet(t.Context(), server, "/api/v1/namespaces", "wrong-token", tlsCfg)
 	require.Error(t, err)
 
+	cm := `{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"survives"},"data":{"k":"v"}}`
+	aksKubeDo(t, tlsCfg, server, doc.Users[0].User.Token, http.MethodPost, "/api/v1/namespaces/default/configmaps", cm)
+
 	stop, err := s.factory.NewManagedClustersClient().BeginStop(t.Context(), aksRG, "real", nil)
 	require.NoError(t, err)
 
 	_, err = stop.PollUntilDone(t.Context(), pollFast())
 	require.NoError(t, err)
-	assert.False(t, aksDockerHas(t, ids[0]), "stop must remove the container")
+	assert.True(t, aksDockerHas(t, ids[0]), "stop must keep the container")
+	assert.False(t, aksDockerRunning(t, ids[0]), "stop must stop the container")
 
 	start, err := s.factory.NewManagedClustersClient().BeginStart(t.Context(), aksRG, "real", nil)
 	require.NoError(t, err)
@@ -123,14 +161,17 @@ func TestAKSDockerRealK3s(t *testing.T) {
 	_, err = start.PollUntilDone(t.Context(), pollFast())
 	require.NoError(t, err)
 
-	ids = rec.containerIDs()
-	require.Len(t, ids, 2)
-	require.True(t, aksDockerHas(t, ids[1]))
+	assert.Equal(t, ids, rec.containerIDs(), "start must reuse the stopped container")
+	assert.True(t, aksDockerRunning(t, ids[0]))
+
+	got := aksKubeDo(t, tlsCfg, server, doc.Users[0].User.Token, http.MethodGet,
+		"/api/v1/namespaces/default/configmaps/survives", "")
+	assert.Contains(t, got, `"k":"v"`, "cluster state must survive stop/start")
 
 	del, err := s.factory.NewManagedClustersClient().BeginDelete(t.Context(), aksRG, "real", nil)
 	require.NoError(t, err)
 
 	_, err = del.PollUntilDone(t.Context(), pollFast())
 	require.NoError(t, err)
-	assert.False(t, aksDockerHas(t, ids[1]))
+	assert.False(t, aksDockerHas(t, ids[0]))
 }
