@@ -192,6 +192,8 @@ func namespaceAPIVersions(ns string) []string {
 		return computeAPIVersions()
 	case namespaceMicrosoftApp:
 		return acaAPIVersions()
+	case namespaceMicrosoftContainerService:
+		return aksAPIVersions()
 	}
 
 	return networkAPIVersions()
