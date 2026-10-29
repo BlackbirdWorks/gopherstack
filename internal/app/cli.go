@@ -13930,7 +13930,9 @@ func wireAzureARMResourceProviders(armReg, sbReg, kvReg, cosmosReg, ehReg servic
 	wireAzureARMEventHubs(armReg, ehReg)
 
 	if kvH, kvOk := kvReg.(*azurekeyvaultbackend.Handler); kvOk {
-		armH.Registry.SetKeyVaults(&azureKeyVaultsAdapter{backend: kvH.Backend})
+		kvAdapter := &azureKeyVaultsAdapter{backend: kvH.Backend}
+		armH.Registry.SetKeyVaults(kvAdapter)
+		armH.Registry.SetKeyVaultSecrets(kvAdapter)
 	}
 
 	if cosmosH, cosmosOk := cosmosReg.(*cosmosdbbackend.Handler); cosmosOk {

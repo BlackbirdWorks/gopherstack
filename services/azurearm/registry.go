@@ -202,6 +202,19 @@ func (r *Registry) SetACIFileShares(s ACIFileShares) {
 	}
 }
 
+// SetKeyVaultSecrets gives the registered Microsoft.App provider (if any) the Key Vault reader that resolves
+// keyVaultUrl secrets.
+func (r *Registry) SetKeyVaultSecrets(v KeyVaultSecrets) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftApp)
+	if !ok {
+		return
+	}
+
+	if cp, cpOk := p.(*ContainerAppsProvider); cpOk {
+		cp.SetKeyVaultSecrets(v)
+	}
+}
+
 // CloseAll stops the workloads of every provider that runs any.
 func (r *Registry) CloseAll() {
 	for _, p := range r.providers {

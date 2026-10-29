@@ -60,6 +60,7 @@ type aciMountWire struct {
 type aciContainerPropsWire struct {
 	Image                string            `json:"image"`
 	Command              []string          `json:"command,omitempty"`
+	Args                 []string          `json:"-"`
 	EnvironmentVariables []aciEnvWire      `json:"environmentVariables,omitempty"`
 	Resources            *aciResourcesWire `json:"resources,omitempty"`
 	Ports                []aciPortWire     `json:"ports,omitempty"`

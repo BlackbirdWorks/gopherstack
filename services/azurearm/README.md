@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
-| Feature families | 10 (10 ok) |
-| Known gaps | 26 |
+| Feature families | 11 (11 ok) |
+| Known gaps | 31 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -23,6 +23,11 @@
 - Multi-account namespace isolation: all ARM-created storage accounts alias one shared Blob/Queue/Table container/queue/table namespace (services/azureblob/azurequeue/azuretable discard the account-name path segment entirely). Two ARM storage accounts see each other's containers. Deferred to M10 per AZURE.md section 10.4's original note; StorageAccounts.RegisterAccount/DeleteAccount (interfaces.go) is the forward-compat seam for that fix.
 - ARM error codes are a small hand-picked table (errors.go's errorDetails), not audited against ARM's full published error-code catalog the way services/sqs's errorDetails table has been over multiple audit passes.
 - management locks, Azure Policy, RBAC/Microsoft.Authorization, ARM template deployments (Microsoft.Resources/deployments), PATCH-merge semantics beyond full-replace, $filter/$expand and nextLink pagination on list operations, cross-subscription/cross-tenant, resource moves, What-If, and LRO polling are all explicitly out of MVP scope per AZURE.md section 10.1/10.3 -- not bugs, deliberate scope boundaries for this milestone.
+- Container Apps: init containers, subPath mounts, NfsAzureFile volumes, additional TCP ports, exposedPort/TCP transport routing, session affinity, CORS, ipSecurityRestrictions enforcement, custom domains, Dapr runtime, probes and managed-identity registry pulls are stored but not run or enforced.
+- Container Apps: KEDA scale rules other than the http/tcp concurrency settings (queue, custom) are stored but never scale replicas; scale-out is driven by in-flight requests through the ingress.
+- Container Apps jobs: Schedule and Event triggers are stored and validated but never fire (only start runs an execution); replicaRetryLimit and replicaTimeout are not enforced.
+- Container Apps: restored revisions have no replicas until their first request (or a restart), even with minReplicas above 0.
+- Container Apps: getAuthtoken, listCustomHostNameAnalysis, diagnostics, authConfigs, daprComponents, certificates, sourcecontrols, javaComponents and sessionPools are not modelled (the generic store keeps what is PUT); the operation status URL is locations/{loc}/operations/{id} rather than the service's containerappOperationStatuses path.
 - Container Instances: interactive exec and attach need a websocket terminal session; both answer 501 NotImplemented.
 - Container Instances: not supported and rejected with 400 InvalidRequestContent: Windows containers, gitRepo volumes, GPUs, liveness/readiness probes, init containers, zones, subnet and DNS configuration, diagnostics, confidential/dedicated SKUs, spot priority, encryption, extensions, UDP ports.
 - Container Instances: azureFile volumes are copied from the Azure Files share when the containers start and written back when a container exits and when the group stops or is deleted, not synchronized live; the storage account key is accepted without being checked.

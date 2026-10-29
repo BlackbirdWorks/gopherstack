@@ -338,6 +338,8 @@ func (e *ACIEngine) containerSpec(run *aciRun, cfg aciConfig, c aciContainerWire
 		spec.Entrypoint = p.Command
 	}
 
+	spec.Cmd = p.Args
+
 	for _, ev := range p.EnvironmentVariables {
 		v := ""
 		if ev.Value != nil {
@@ -661,6 +663,35 @@ func (e *ACIEngine) RemoveAll() {
 	e.mu.Unlock()
 
 	for _, r := range runs {
+		e.teardown(r)
+	}
+}
+
+// RemovePrefixed stops and forgets every group whose key starts with prefix.
+func (e *ACIEngine) RemovePrefixed(prefix string) {
+	e.removeWhere(func(k string) bool { return strings.HasPrefix(k, prefix) })
+}
+
+// RemoveUnprefixed stops and forgets every group whose key does not start with prefix.
+func (e *ACIEngine) RemoveUnprefixed(prefix string) {
+	e.removeWhere(func(k string) bool { return !strings.HasPrefix(k, prefix) })
+}
+
+func (e *ACIEngine) removeWhere(match func(key string) bool) {
+	e.mu.Lock("removeWhere")
+
+	var doomed []*aciRun
+
+	for k, r := range e.runs {
+		if match(k) {
+			doomed = append(doomed, r)
+
+			delete(e.runs, k)
+		}
+	}
+	e.mu.Unlock()
+
+	for _, r := range doomed {
 		e.teardown(r)
 	}
 }
