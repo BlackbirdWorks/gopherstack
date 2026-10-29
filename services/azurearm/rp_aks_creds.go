@@ -2,8 +2,9 @@ package azurearm
 
 import (
 	"encoding/base64"
-	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -16,25 +17,25 @@ const (
 
 type aksServing struct {
 	server string
-	ca     []byte
 	token  string
+	ca     []byte
 }
 
 // servingFor is where a cluster's API server answers: the container when the engine runs it, else the cluster's
 // emulated endpoint with its generated CA and token.
 func (p *ContainerServiceProvider) servingFor(c *storedAKSCluster) (aksServing, error) {
 	if p.eng.enabled() && !c.Stopped {
-		addr, ca, token, ready := p.eng.access(aksKey(c.ResourceGroup, c.Name))
+		sv, ready := p.eng.access(aksKey(c.ResourceGroup, c.Name))
 		if !ready {
 			return aksServing{}, netErr(http.StatusConflict, aksCodeStarting,
 				"The API server of managed cluster '%s' is still starting.", c.Name)
 		}
 
-		return aksServing{server: "https://" + addr, ca: ca, token: token}, nil
+		return sv, nil
 	}
 
 	return aksServing{
-		server: fmt.Sprintf("https://%s:%d", c.Fqdn, aksAPIPort), ca: []byte(c.CACert), token: c.Token,
+		server: "https://" + net.JoinHostPort(c.Fqdn, strconv.Itoa(aksAPIPort)), ca: []byte(c.CACert), token: c.Token,
 	}, nil
 }
 
@@ -94,7 +95,7 @@ func (p *ContainerServiceProvider) upgradeProfile(id ResourceID) (map[string]any
 	}
 
 	return map[string]any{
-		"id": c.armID() + "/upgradeprofiles/default", fieldName: "default",
+		"id": c.armID() + "/upgradeprofiles/default", fieldName: aksDefaultName,
 		fieldType: namespaceMicrosoftContainerService + "/" + aksClusterType + "/upgradeprofiles",
 		fieldProperties: map[string]any{
 			"controlPlaneProfile": aksPoolUpgrade("", c.Current, aksOSLinux), aksFieldPools: pools,
@@ -108,7 +109,7 @@ func aksPoolUpgrade(name, current, osType string) map[string]any {
 	}
 
 	out := map[string]any{
-		"kubernetesVersion": current, aksFieldOSType: osType, "upgrades": aksPoolUpgradeTargets(current),
+		aksFieldK8sVersion: current, aksFieldOSType: osType, "upgrades": aksPoolUpgradeTargets(current),
 	}
 	if name != "" {
 		out[fieldName] = name
@@ -118,8 +119,10 @@ func aksPoolUpgrade(name, current, osType string) map[string]any {
 }
 
 func aksPoolUpgradeTargets(current string) []any {
-	out := []any{}
-	for _, u := range aksUpgradesFrom(current) {
+	ups := aksUpgradesFrom(current)
+	out := make([]any, 0, len(ups))
+
+	for _, u := range ups {
 		out = append(out, u)
 	}
 
@@ -145,7 +148,7 @@ func (p *ContainerServiceProvider) poolUpgradeProfile(id ResourceID) (map[string
 	props["latestNodeImageVersion"] = aksNodeImage(pool.Props)
 
 	return map[string]any{
-		"id": c.armID() + "/agentPools/" + pool.Name + "/upgradeProfiles/default", fieldName: "default",
+		"id": c.armID() + "/agentPools/" + pool.Name + "/upgradeProfiles/default", fieldName: aksDefaultName,
 		fieldType:       namespaceMicrosoftContainerService + "/" + aksClusterType + "/agentPools/upgradeProfiles",
 		fieldProperties: props,
 	}, nil
@@ -175,7 +178,7 @@ func (p *ContainerServiceProvider) availablePoolVersions(id ResourceID) (map[str
 	}
 
 	return map[string]any{
-		"id": c.armID() + "/availableAgentPoolVersions", fieldName: "default",
+		"id": c.armID() + "/availableAgentPoolVersions", fieldName: aksDefaultName,
 		fieldType:       namespaceMicrosoftContainerService + "/" + aksClusterType + "/availableAgentPoolVersions",
 		fieldProperties: map[string]any{"agentPoolVersions": versions},
 	}, nil

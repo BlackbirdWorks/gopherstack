@@ -22,10 +22,22 @@ const (
 	aksCodeNotFound                    = "ResourceNotFound"
 	aksFieldNodeRG                     = "nodeResourceGroup"
 	aksFieldPools                      = "agentPoolProfiles"
+	aksFieldETag                       = "eTag"
+	aksFieldCode                       = "code"
+	aksFieldSKU                        = "sku"
+	aksFieldK8sVersion                 = "kubernetesVersion"
+	aksFieldSvcCidr                    = "serviceCidr"
+	aksFieldTier                       = "tier"
+	aksFieldPodCidr                    = "podCidr"
+	aksDefaultName                     = "default"
+	aksPowerRunning                    = "Running"
+	aksPowerStopped                    = "Stopped"
+	aksTierPremium                     = "Premium"
+	aksTierStandard                    = "Standard"
 )
 
 func aksAPIVersions() []string {
-	return []string{"2024-05-01", "2024-09-01", "2025-01-01", "2025-05-01", "2025-10-01", "2026-08-01"}
+	return []string{"2024-09-01", "2025-01-01", "2025-05-01", "2025-10-01", "2026-08-01"}
 }
 
 type aksKind int
@@ -68,20 +80,20 @@ type storedAKSCluster struct {
 	Tags          map[string]string         `json:"tags,omitempty"`
 	Props         map[string]any            `json:"props"`
 	Pools         map[string]*storedAKSPool `json:"pools"`
-	Identity      resourceIdentity          `json:"identity"`
-	Sub           string                    `json:"sub"`
+	Fqdn          string                    `json:"fqdn"`
+	SkuTier       string                    `json:"skuTier"`
 	Name          string                    `json:"name"`
 	ResourceGroup string                    `json:"resourceGroup"`
 	Location      string                    `json:"location"`
 	Kind          string                    `json:"kind,omitempty"`
 	SkuName       string                    `json:"skuName"`
-	SkuTier       string                    `json:"skuTier"`
+	Sub           string                    `json:"sub"`
 	Requested     string                    `json:"requested"`
 	Current       string                    `json:"current"`
-	Fqdn          string                    `json:"fqdn"`
+	CACert        string                    `json:"caCert"`
 	NodeRG        string                    `json:"nodeRG"`
 	Token         string                    `json:"token"`
-	CACert        string                    `json:"caCert"`
+	Identity      resourceIdentity          `json:"identity"`
 	NextSeq       int                       `json:"nextSeq"`
 	Stopped       bool                      `json:"stopped,omitempty"`
 }
@@ -173,7 +185,11 @@ func (p *ContainerServiceProvider) ListKeys(context.Context, ResourceID) (map[st
 }
 
 // Put implements ResourceProvider.
-func (p *ContainerServiceProvider) Put(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
+func (p *ContainerServiceProvider) Put(
+	ctx context.Context,
+	id ResourceID,
+	body map[string]any,
+) (map[string]any, error) {
 	t := aksTargetOf(id)
 
 	switch {

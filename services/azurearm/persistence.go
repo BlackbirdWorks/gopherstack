@@ -211,25 +211,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.ContainerInstance = p.snapshot()
 	}
 
-	if p, ok := h.networkProvider(); ok {
-		st.Network = p.snapshot()
-	}
-
-	if p, ok := h.managedIdentityProvider(); ok {
-		st.ManagedIdentity = p.snapshot()
-	}
-
-	if p, ok := h.computeProvider(); ok {
-		st.Compute = p.snapshot()
-	}
-
-	if p, ok := h.containerAppsProvider(); ok {
-		st.ContainerApps = p.snapshot()
-	}
-
-	if p, ok := h.containerServiceProvider(); ok {
-		st.ContainerService = p.snapshot()
-	}
+	h.snapshotInfra(&st)
 
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
@@ -306,5 +288,28 @@ func (h *Handler) restoreInfra(snap armSnapshot) {
 
 	if p, ok := h.containerServiceProvider(); ok {
 		p.restore(snap.ContainerService)
+	}
+}
+
+// snapshotInfra adds the network, identity, compute, container apps and container service providers.
+func (h *Handler) snapshotInfra(st *armSnapshot) {
+	if p, ok := h.networkProvider(); ok {
+		st.Network = p.snapshot()
+	}
+
+	if p, ok := h.managedIdentityProvider(); ok {
+		st.ManagedIdentity = p.snapshot()
+	}
+
+	if p, ok := h.computeProvider(); ok {
+		st.Compute = p.snapshot()
+	}
+
+	if p, ok := h.containerAppsProvider(); ok {
+		st.ContainerApps = p.snapshot()
+	}
+
+	if p, ok := h.containerServiceProvider(); ok {
+		st.ContainerService = p.snapshot()
 	}
 }

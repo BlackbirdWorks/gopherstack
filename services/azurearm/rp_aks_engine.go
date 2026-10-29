@@ -259,16 +259,16 @@ func (e *aksEngine) shutdown() {
 }
 
 // access returns the live API server of a cluster: its address, serving CA and admin token.
-func (e *aksEngine) access(key string) (addr string, ca []byte, token string, ready bool) {
+func (e *aksEngine) access(key string) (aksServing, bool) {
 	e.mu.RLock("access")
 	defer e.mu.RUnlock()
 
 	lv, ok := e.live[key]
 	if !ok || !lv.ready || e.core == nil {
-		return "", nil, "", false
+		return aksServing{}, false
 	}
 
-	return lv.addr, lv.ca, e.core.Token(), true
+	return aksServing{server: "https://" + lv.addr, ca: lv.ca, token: e.core.Token()}, true
 }
 
 func (p *ContainerServiceProvider) ensureNode(ctx context.Context, c *storedAKSCluster) error {

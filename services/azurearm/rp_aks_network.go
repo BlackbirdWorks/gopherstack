@@ -50,13 +50,13 @@ func aksCheckNetwork(in map[string]any) (map[string]any, error) {
 
 	overlay := strings.EqualFold(strOf(np, "networkPluginMode"), aksModeOverlay)
 	if plugin == aksPluginKubenet || overlay {
-		aksDefault(np, "podCidr", aksDefaultPod)
-	} else if strOf(np, "podCidr") != "" {
+		aksDefault(np, aksFieldPodCidr, aksDefaultPod)
+	} else if strOf(np, aksFieldPodCidr) != "" {
 		return nil, aksBad("networkProfile.podCidr can only be set with the kubenet plugin or Azure CNI overlay.")
 	}
 
 	if plugin != aksPluginNone {
-		aksDefault(np, "serviceCidr", aksDefaultSvc)
+		aksDefault(np, aksFieldSvcCidr, aksDefaultSvc)
 		aksDefault(np, "dnsServiceIP", aksDefaultDNS)
 	}
 
@@ -78,11 +78,11 @@ func aksDefault(m map[string]any, k, v string) {
 }
 
 func aksFillLists(np map[string]any) {
-	if s := strOf(np, "serviceCidr"); s != "" {
+	if s := strOf(np, aksFieldSvcCidr); s != "" {
 		np["serviceCidrs"] = []any{s}
 	}
 
-	if s := strOf(np, "podCidr"); s != "" {
+	if s := strOf(np, aksFieldPodCidr); s != "" {
 		np["podCidrs"] = []any{s}
 	}
 
@@ -111,21 +111,27 @@ func aksCheckPluginModes(np map[string]any, plugin string) error {
 		return aksBad("networkProfile.networkDataplane cilium requires networkPlugin azure.")
 	}
 
+	return aksCheckPolicy(np, plugin, dp)
+}
+
+func aksCheckPolicy(np map[string]any, plugin, dataplane string) error {
 	pol := strings.ToLower(strOf(np, "networkPolicy"))
 
 	switch {
-	case pol == "" || pol == "none":
+	case pol == "" || pol == aksPluginNone:
+		return nil
 	case plugin == aksPluginNone:
 		return aksBad("networkProfile.networkPolicy cannot be set with networkPlugin none.")
 	case pol == aksPolicyCalico:
+		return nil
 	case pol == aksPolicyAzure && plugin == aksPluginAzure:
-	case pol == aksPolicyCilium && plugin == aksPluginAzure && dp == aksDataplaneCil:
-	default:
-		return aksBad("networkProfile.networkPolicy '%s' is not supported with networkPlugin %s and dataplane '%s'.",
-			strOf(np, "networkPolicy"), plugin, dp)
+		return nil
+	case pol == aksPolicyCilium && plugin == aksPluginAzure && dataplane == aksDataplaneCil:
+		return nil
 	}
 
-	return nil
+	return aksBad("networkProfile.networkPolicy '%s' is not supported with networkPlugin %s and dataplane '%s'.",
+		strOf(np, "networkPolicy"), plugin, dataplane)
 }
 
 func aksParseCIDR(field, v string) (netip.Prefix, error) {
@@ -140,8 +146,8 @@ func aksParseCIDR(field, v string) (netip.Prefix, error) {
 func aksCheckCIDRs(np map[string]any) error {
 	var svc, pod netip.Prefix
 
-	if v := strOf(np, "serviceCidr"); v != "" {
-		p, err := aksParseCIDR("serviceCidr", v)
+	if v := strOf(np, aksFieldSvcCidr); v != "" {
+		p, err := aksParseCIDR(aksFieldSvcCidr, v)
 		if err != nil {
 			return err
 		}
@@ -153,8 +159,8 @@ func aksCheckCIDRs(np map[string]any) error {
 		svc = p
 	}
 
-	if v := strOf(np, "podCidr"); v != "" {
-		p, err := aksParseCIDR("podCidr", v)
+	if v := strOf(np, aksFieldPodCidr); v != "" {
+		p, err := aksParseCIDR(aksFieldPodCidr, v)
 		if err != nil {
 			return err
 		}
@@ -242,10 +248,13 @@ func (p *ContainerServiceProvider) aksSubnetRef(field, subnetID string) ([]netip
 // aksCheckSubnetOverlap rejects service and pod ranges that overlap the node subnets (Learn: concepts-network-ip-
 // address-planning).
 func aksCheckSubnetOverlap(np map[string]any, subnets map[string][]netip.Prefix) error {
-	ranges := map[string]string{"serviceCidr": strOf(np, "serviceCidr"), "podCidr": strOf(np, "podCidr")}
+	ranges := map[string]string{
+		aksFieldSvcCidr: strOf(np, aksFieldSvcCidr),
+		aksFieldPodCidr: strOf(np, aksFieldPodCidr),
+	}
 
 	for _, id := range sortedKeys(subnets) {
-		for _, name := range []string{"serviceCidr", "podCidr"} {
+		for _, name := range []string{aksFieldSvcCidr, aksFieldPodCidr} {
 			cidr, err := netip.ParsePrefix(ranges[name])
 			if err != nil {
 				continue

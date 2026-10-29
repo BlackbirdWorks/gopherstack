@@ -9,6 +9,7 @@ import (
 
 const (
 	aksNsIdx             = 5
+	aksProfOffset        = 2
 	aksTypeIdx           = 6
 	aksClusterActSegs    = 9
 	aksClusterProfSegs   = 10
@@ -27,11 +28,11 @@ const (
 	aksCodeNotSupported  = "NotImplemented"
 )
 
-func isAKSScope(segs []string, typ string, n int) bool {
+func isAKSScope(segs []string, n int) bool {
 	return len(segs) == n && isSubscriptionScoped(segs) &&
 		segAt(segs, providersOrResourceGroupsIdx, resourceGroupsSegment) &&
 		segAt(segs, providerNamespaceActionIdx, providersSegment) &&
-		segAt(segs, aksNsIdx, namespaceMicrosoftContainerService) && segAt(segs, aksTypeIdx, typ)
+		segAt(segs, aksNsIdx, namespaceMicrosoftContainerService) && segAt(segs, aksTypeIdx, aksClusterType)
 }
 
 func aksLast(segs []string) string { return strings.ToLower(segs[len(segs)-1]) }
@@ -65,7 +66,7 @@ var containerServiceRoutes = []armRoute{
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
-			if r.Method != http.MethodPost || !isAKSScope(segs, aksClusterType, aksClusterActSegs) {
+			if r.Method != http.MethodPost || !isAKSScope(segs, aksClusterActSegs) {
 				return false
 			}
 
@@ -81,7 +82,7 @@ var containerServiceRoutes = []armRoute{
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
-			return r.Method == http.MethodPost && isAKSScope(segs, aksClusterType, aksPoolActSegs) &&
+			return r.Method == http.MethodPost && isAKSScope(segs, aksPoolActSegs) &&
 				segAt(segs, aksPoolSegIdx, aksPoolType) && aksLast(segs) == aksActionUpgradeNode
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAKSUpgradeNode(c, segs) },
@@ -92,11 +93,11 @@ var containerServiceRoutes = []armRoute{
 				return false
 			}
 
-			return (isAKSScope(segs, aksClusterType, aksClusterProfSegs) && aksLast(segs) == "default" &&
-				segAt(segs, aksClusterProfSegs-2, "upgradeProfiles")) ||
-				(isAKSScope(segs, aksClusterType, aksClusterActSegs) && aksLast(segs) == "availableagentpoolversions") ||
-				(isAKSScope(segs, aksClusterType, aksPoolProfSegs) && aksLast(segs) == "default" &&
-					segAt(segs, aksPoolSegIdx, aksPoolType) && segAt(segs, aksPoolProfSegs-2, "upgradeProfiles"))
+			return (isAKSScope(segs, aksClusterProfSegs) && aksLast(segs) == aksDefaultName &&
+				segAt(segs, aksClusterProfSegs-aksProfOffset, "upgradeProfiles")) ||
+				(isAKSScope(segs, aksClusterActSegs) && aksLast(segs) == "availableagentpoolversions") ||
+				(isAKSScope(segs, aksPoolProfSegs) && aksLast(segs) == aksDefaultName &&
+					segAt(segs, aksPoolSegIdx, aksPoolType) && segAt(segs, aksPoolProfSegs-aksProfOffset, "upgradeProfiles"))
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAKSProfile(c, segs) },
 	},

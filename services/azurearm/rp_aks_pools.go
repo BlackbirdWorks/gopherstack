@@ -1,6 +1,7 @@
 package azurearm
 
 import (
+	"net/http"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -38,6 +39,7 @@ const (
 	aksImageWindows    = "AKSWindows-2022-containerd-20348."
 	aksLatestImageTag  = "202610.12.0"
 	aksCodeNotAllowed  = "OperationNotAllowed"
+	aksDefaultOSDiskGB = 128
 )
 
 var aksPoolNameRe = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
@@ -58,14 +60,14 @@ type storedAKSPool struct {
 func aksImmutablePool() []string {
 	return []string{
 		aksFieldVMSize, aksFieldOSType, "osSKU", "osDiskSizeGB", "osDiskType", aksFieldSubnet, aksFieldPodSubnet,
-		"maxPods", "availabilityZones", "enableNodePublicIP", aksFieldPriority, "scaleSetEvictionPolicy", "type",
+		"maxPods", "availabilityZones", "enableNodePublicIP", aksFieldPriority, "scaleSetEvictionPolicy", fieldType,
 	}
 }
 
 func aksPoolReadOnly() []string {
 	return []string{
-		"provisioningState", "powerState", "currentOrchestratorVersion", "nodeImageVersion", "name",
-		"eTag",
+		fieldProvisioningState, "powerState", "currentOrchestratorVersion", "nodeImageVersion", fieldName,
+		aksFieldETag,
 	}
 }
 
@@ -156,7 +158,13 @@ func aksKeepImmutable(pool, key string, next, old map[string]any) error {
 	}
 
 	if !aksEqualValue(nv, old[key]) {
-		return netErr(400, aksCodeNotAllowed, "Changing property '%s' of node pool '%s' is not allowed.", key, pool)
+		return netErr(
+			http.StatusBadRequest,
+			aksCodeNotAllowed,
+			"Changing property '%s' of node pool '%s' is not allowed.",
+			key,
+			pool,
+		)
 	}
 
 	return nil
@@ -188,45 +196,59 @@ func aksCheckPoolName(name string, props map[string]any) error {
 }
 
 func aksCheckPoolShape(name string, props map[string]any, cc aksClusterCtx) error {
+	mode, err := aksCheckPoolKind(name, props)
+	if err != nil {
+		return err
+	}
+
+	if err = aksCheckPoolType(name, props); err != nil {
+		return err
+	}
+
+	if err = aksCheckVMSize(name, mode, strOf(props, aksFieldVMSize)); err != nil {
+		return err
+	}
+
+	if err = aksCheckCounts(name, mode, props); err != nil {
+		return err
+	}
+
+	return aksCheckPodsAndZones(name, mode, props, cc)
+}
+
+func aksCheckPoolKind(name string, props map[string]any) (string, error) {
 	mode := strOf(props, aksFieldMode)
 	if mode != aksModeSystem && mode != aksModeUser {
-		return aksBad("Node pool '%s' mode must be explicitly set to System or User.", name)
+		return "", aksBad("Node pool '%s' mode must be explicitly set to System or User.", name)
 	}
 
 	osType, ok := aksCanon(strOf(props, aksFieldOSType), aksOSLinux, aksOSWindows)
 	if !ok {
-		return aksBad("Node pool '%s' osType '%s' must be Linux or Windows.", name, strOf(props, aksFieldOSType))
+		return "", aksBad("Node pool '%s' osType '%s' must be Linux or Windows.", name, strOf(props, aksFieldOSType))
 	}
 
 	props[aksFieldOSType] = osType
 
 	prio, ok := aksCanon(strOf(props, aksFieldPriority), aksPriorityRegular, aksPrioritySpot)
 	if !ok {
-		return aksBad("Node pool '%s' scaleSetPriority must be Regular or Spot.", name)
+		return "", aksBad("Node pool '%s' scaleSetPriority must be Regular or Spot.", name)
 	}
 
 	if mode == aksModeSystem && (osType == aksOSWindows || prio == aksPrioritySpot) {
-		return aksBad("Node pool '%s': system node pools must use Linux and cannot be Spot.", name)
+		return "", aksBad("Node pool '%s': system node pools must use Linux and cannot be Spot.", name)
 	}
 
-	if t := strOf(props, "type"); t != "" {
-		if c, found := aksCanon(t, "VirtualMachineScaleSets", "AvailabilitySet", "VirtualMachines"); found {
-			props["type"] = c
-		} else {
+	return mode, nil
+}
+
+func aksCheckPoolType(name string, props map[string]any) error {
+	if t := strOf(props, fieldType); t != "" {
+		c, found := aksCanon(t, "VirtualMachineScaleSets", "AvailabilitySet", "VirtualMachines")
+		if !found {
 			return aksBad("Node pool '%s' type '%s' is not supported.", name, t)
 		}
-	}
 
-	if err := aksCheckVMSize(name, mode, strOf(props, aksFieldVMSize)); err != nil {
-		return err
-	}
-
-	if err := aksCheckCounts(name, mode, props); err != nil {
-		return err
-	}
-
-	if err := aksCheckPodsAndZones(name, mode, props, cc); err != nil {
-		return err
+		props[fieldType] = c
 	}
 
 	if gb, set := acaNum(props, "osDiskSizeGB"); set && (gb < 0 || gb > aksMaxOSDiskGB) {
@@ -278,27 +300,35 @@ func aksCheckCounts(pool, mode string, props map[string]any) error {
 		floor = 1
 	}
 
+	if acaBool(props, aksFieldAutoscale) {
+		return aksCheckAutoscale(pool, mode, floor, props)
+	}
+
+	_, hasMin := acaNum(props, aksFieldMin)
+	_, hasMax := acaNum(props, aksFieldMax)
+
+	if hasMin || hasMax {
+		return aksBad("Node pool '%s': minCount and maxCount can only be set when enableAutoScaling is true.", pool)
+	}
+
+	count, hasCount := acaNum(props, aksFieldCount)
+	if !hasCount {
+		count = 1
+		props[aksFieldCount] = 1
+	}
+
+	if int(count) < floor || int(count) > aksMaxCount {
+		return aksBad("Node pool '%s' count must be between %d and %d for a %s pool.",
+			pool, floor, aksMaxCount, strings.ToLower(mode))
+	}
+
+	return nil
+}
+
+func aksCheckAutoscale(pool, mode string, floor int, props map[string]any) error {
 	count, hasCount := acaNum(props, aksFieldCount)
 	minC, hasMin := acaNum(props, aksFieldMin)
 	maxC, hasMax := acaNum(props, aksFieldMax)
-
-	if !acaBool(props, aksFieldAutoscale) {
-		if hasMin || hasMax {
-			return aksBad("Node pool '%s': minCount and maxCount can only be set when enableAutoScaling is true.", pool)
-		}
-
-		if !hasCount {
-			count = 1
-			props[aksFieldCount] = 1
-		}
-
-		if int(count) < floor || int(count) > aksMaxCount {
-			return aksBad("Node pool '%s' count must be between %d and %d for a %s pool.",
-				pool, floor, aksMaxCount, strings.ToLower(mode))
-		}
-
-		return nil
-	}
 
 	if !hasMin || !hasMax || int(minC) < floor || int(maxC) > aksMaxCount || minC > maxC {
 		return aksBad("Node pool '%s': with autoscaling, minCount and maxCount are required, minCount (at least %d "+
@@ -380,7 +410,7 @@ func aksResolvePoolVersion(rec, prev *storedAKSPool, cc aksClusterCtx) error {
 		nf, _ := parseAKSVersion(cur)
 
 		if nf.minor < pf.minor || (nf.minor == pf.minor && nf.patch < pf.patch) {
-			return netErr(400, aksCodeInvalidUpgrade,
+			return netErr(http.StatusBadRequest, aksCodeInvalidUpgrade,
 				"Downgrading node pool Kubernetes version from %s to %s is not allowed.", prev.Current, cur)
 		}
 	}
@@ -440,7 +470,7 @@ func (p *ContainerServiceProvider) aksCheckPoolSet(pools map[string]*storedAKSPo
 	}
 
 	if !system {
-		return netErr(400, aksCodeNotAllowed, "There has to be at least one system agent pool.")
+		return netErr(http.StatusBadRequest, aksCodeNotAllowed, "There has to be at least one system agent pool.")
 	}
 
 	return aksCheckSubnetOverlap(np, subnets)
@@ -469,21 +499,21 @@ func aksSortedPools(pools map[string]*storedAKSPool) []*storedAKSPool {
 func (s *storedAKSPool) profile(stopped bool) map[string]any {
 	props := acaClone(s.Props)
 
-	props["provisioningState"] = provisioningStateSucceeded
+	props[fieldProvisioningState] = provisioningStateSucceeded
 	props["currentOrchestratorVersion"] = s.Current
 	props[aksFieldOrchVer] = s.Current
 	props["nodeImageVersion"] = s.NodeImage
 
-	power := "Running"
+	power := aksPowerRunning
 	if stopped {
-		power = "Stopped"
+		power = aksPowerStopped
 	}
 
-	props["powerState"] = map[string]any{"code": power}
+	props["powerState"] = map[string]any{aksFieldCode: power}
 
 	for k, v := range map[string]any{
-		aksFieldOSType: aksOSLinux, "type": "VirtualMachineScaleSets", "osDiskType": "Managed",
-		"osDiskSizeGB": 128, aksFieldPriority: aksPriorityRegular,
+		aksFieldOSType: aksOSLinux, fieldType: "VirtualMachineScaleSets", "osDiskType": "Managed",
+		"osDiskSizeGB": aksDefaultOSDiskGB, aksFieldPriority: aksPriorityRegular,
 	} {
 		if _, has := props[k]; !has {
 			props[k] = v

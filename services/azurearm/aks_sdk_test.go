@@ -103,7 +103,12 @@ func (s *aksStack) raw(t *testing.T, method, path, body, apiVersion string) *htt
 	return resp
 }
 
-func aksPool(name string, mode armcontainerservice.AgentPoolMode, size string, count int32) *armcontainerservice.ManagedClusterAgentPoolProfile {
+func aksPool(
+	name string,
+	mode armcontainerservice.AgentPoolMode,
+	size string,
+	count int32,
+) *armcontainerservice.ManagedClusterAgentPoolProfile {
 	return &armcontainerservice.ManagedClusterAgentPoolProfile{
 		Name: new(name), Mode: &mode, VMSize: new(size), Count: new(count),
 		OSType: new(armcontainerservice.OSTypeLinux),
@@ -114,7 +119,9 @@ func aksCluster(name string) armcontainerservice.ManagedCluster {
 	return armcontainerservice.ManagedCluster{
 		Location: new(aksLoc),
 		Tags:     map[string]*string{"env": new("test")},
-		Identity: &armcontainerservice.ManagedClusterIdentity{Type: new(armcontainerservice.ResourceIdentityTypeSystemAssigned)},
+		Identity: &armcontainerservice.ManagedClusterIdentity{
+			Type: new(armcontainerservice.ResourceIdentityTypeSystemAssigned),
+		},
 		Properties: &armcontainerservice.ManagedClusterProperties{
 			DNSPrefix:         new(name),
 			KubernetesVersion: new("1.36"),
@@ -184,10 +191,10 @@ func (s *aksStack) putPool(
 	return res.AgentPool, nil
 }
 
-func (s *aksStack) deletePool(t *testing.T, cluster, pool string) error {
+func (s *aksStack) deletePool(t *testing.T, pool string) error {
 	t.Helper()
 
-	poller, err := s.factory.NewAgentPoolsClient().BeginDelete(t.Context(), aksRG, cluster, pool, nil)
+	poller, err := s.factory.NewAgentPoolsClient().BeginDelete(t.Context(), aksRG, "pools", pool, nil)
 	if err != nil {
 		return err
 	}
@@ -251,7 +258,13 @@ func TestAKSClusterLifecycle(t *testing.T) {
 	all := c.NewListPager(nil)
 	require.True(t, all.More())
 
-	nodeRG := s.raw(t, http.MethodGet, "/subscriptions/"+aciSub+"/resourcegroups/MC_rg-aks_life_westus2", "", "2021-04-01")
+	nodeRG := s.raw(
+		t,
+		http.MethodGet,
+		"/subscriptions/"+aciSub+"/resourcegroups/MC_rg-aks_life_westus2",
+		"",
+		"2021-04-01",
+	)
 	assert.Equal(t, http.StatusOK, nodeRG.StatusCode)
 
 	del, err := c.BeginDelete(t.Context(), aksRG, "life", nil)
@@ -263,7 +276,13 @@ func TestAKSClusterLifecycle(t *testing.T) {
 	_, err = c.Get(t.Context(), aksRG, "life", nil)
 	assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
 
-	nodeRG = s.raw(t, http.MethodGet, "/subscriptions/"+aciSub+"/resourcegroups/MC_rg-aks_life_westus2", "", "2021-04-01")
+	nodeRG = s.raw(
+		t,
+		http.MethodGet,
+		"/subscriptions/"+aciSub+"/resourcegroups/MC_rg-aks_life_westus2",
+		"",
+		"2021-04-01",
+	)
 	assert.Equal(t, http.StatusNotFound, nodeRG.StatusCode)
 }
 
@@ -402,7 +421,11 @@ func TestAKSUpgradeRules(t *testing.T) {
 			t.Parallel()
 
 			s := newAKSStack(t)
-			s.mustPut(t, "up", func(m *armcontainerservice.ManagedCluster) { m.Properties.KubernetesVersion = new(tt.from) })
+			s.mustPut(
+				t,
+				"up",
+				func(m *armcontainerservice.ManagedCluster) { m.Properties.KubernetesVersion = new(tt.from) },
+			)
 
 			next, err := s.put(t, "up", func(m *armcontainerservice.ManagedCluster) {
 				m.Properties.KubernetesVersion = new(tt.to)
@@ -415,8 +438,18 @@ func TestAKSUpgradeRules(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.True(t, strings.HasPrefix(*next.Properties.CurrentKubernetesVersion, strings.Join(strings.Split(tt.to, ".")[:2], ".")))
-			assert.Equal(t, next.Properties.CurrentKubernetesVersion, next.Properties.AgentPoolProfiles[0].CurrentOrchestratorVersion)
+			assert.True(
+				t,
+				strings.HasPrefix(
+					*next.Properties.CurrentKubernetesVersion,
+					strings.Join(strings.Split(tt.to, ".")[:2], "."),
+				),
+			)
+			assert.Equal(
+				t,
+				next.Properties.CurrentKubernetesVersion,
+				next.Properties.AgentPoolProfiles[0].CurrentOrchestratorVersion,
+			)
 		})
 	}
 }
@@ -430,7 +463,7 @@ func TestAKSUpgradeProfiles(t *testing.T) {
 	up, err := s.factory.NewManagedClustersClient().GetUpgradeProfile(t.Context(), aksRG, "prof", nil)
 	require.NoError(t, err)
 
-	var targets []string
+	targets := make([]string, 0, len(up.Properties.ControlPlaneProfile.Upgrades))
 	for _, u := range up.Properties.ControlPlaneProfile.Upgrades {
 		targets = append(targets, *u.KubernetesVersion)
 	}
@@ -622,11 +655,11 @@ func TestAKSAgentPools(t *testing.T) {
 	_, err = up.PollUntilDone(t.Context(), pollFast())
 	require.NoError(t, err)
 
-	require.NoError(t, s.deletePool(t, "pools", "user1"))
+	require.NoError(t, s.deletePool(t, "user1"))
 	_, err = s.factory.NewAgentPoolsClient().Get(t.Context(), aksRG, "pools", "user1", nil)
 	assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
 
-	assert.Equal(t, "OperationNotAllowed", sdkErrCode(s.deletePool(t, "pools", "sys")))
+	assert.Equal(t, "OperationNotAllowed", sdkErrCode(s.deletePool(t, "sys")))
 
 	_, err = s.putPool(t, "pools", aksPool("sys", armcontainerservice.AgentPoolModeUser, "Standard_D4s_v5", 2))
 	assert.Equal(t, "OperationNotAllowed", sdkErrCode(err))
@@ -634,8 +667,8 @@ func TestAKSAgentPools(t *testing.T) {
 	second := aksPool("sys2", armcontainerservice.AgentPoolModeSystem, "Standard_D4s_v5", 2)
 	_, err = s.putPool(t, "pools", second)
 	require.NoError(t, err)
-	require.NoError(t, s.deletePool(t, "pools", "sys"))
-	assert.Equal(t, "OperationNotAllowed", sdkErrCode(s.deletePool(t, "pools", "sys2")))
+	require.NoError(t, s.deletePool(t, "sys"))
+	assert.Equal(t, "OperationNotAllowed", sdkErrCode(s.deletePool(t, "sys2")))
 
 	_, err = s.putPool(t, "nocluster", user)
 	assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
@@ -647,11 +680,11 @@ func TestAKSPoolValidation(t *testing.T) {
 	s := newAKSStack(t)
 	s.mustPut(t, "pv", nil)
 
-	mk := func(name string, mode armcontainerservice.AgentPoolMode, size string, count int32) *armcontainerservice.ManagedClusterAgentPoolProfile {
-		return aksPool(name, mode, size, count)
-	}
+	mk := aksPool
 
-	scale := func(p *armcontainerservice.ManagedClusterAgentPoolProfile, minC, maxC int32) *armcontainerservice.ManagedClusterAgentPoolProfile {
+	type poolProfile = armcontainerservice.ManagedClusterAgentPoolProfile
+
+	scale := func(p *poolProfile, minC, maxC int32) *poolProfile {
 		p.EnableAutoScaling, p.MinCount, p.MaxCount = new(true), new(minC), new(maxC)
 
 		return p
@@ -663,8 +696,16 @@ func TestAKSPoolValidation(t *testing.T) {
 		ok   bool
 	}{
 		{name: "validuser", ok: true, pool: mk("a1", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 1)},
-		{name: "autoscale", ok: true, pool: scale(mk("a2", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 2), 1, 5)},
-		{name: "autoscalezero", ok: true, pool: scale(mk("a3", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 0), 0, 5)},
+		{
+			name: "autoscale",
+			ok:   true,
+			pool: scale(mk("a2", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 2), 1, 5),
+		},
+		{
+			name: "autoscalezero",
+			ok:   true,
+			pool: scale(mk("a3", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 0), 0, 5),
+		},
 		{name: "unknownsize", pool: mk("b1", armcontainerservice.AgentPoolModeUser, "Standard_Nope", 1)},
 		{name: "nosize", pool: mk("b2", armcontainerservice.AgentPoolModeUser, "", 1)},
 		{name: "bseriessystem", pool: mk("b3", armcontainerservice.AgentPoolModeSystem, "Standard_B4ms", 2)},
@@ -673,7 +714,10 @@ func TestAKSPoolValidation(t *testing.T) {
 		{name: "toomany", pool: mk("b6", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 1001)},
 		{name: "minmax", pool: scale(mk("b7", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 2), 5, 1)},
 		{name: "outofrange", pool: scale(mk("b8", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 9), 1, 5)},
-		{name: "systemmin0", pool: scale(mk("b9", armcontainerservice.AgentPoolModeSystem, "Standard_D4s_v5", 1), 0, 3)},
+		{
+			name: "systemmin0",
+			pool: scale(mk("b9", armcontainerservice.AgentPoolModeSystem, "Standard_D4s_v5", 1), 0, 3),
+		},
 		{name: "minwithoutscale", pool: func() *armcontainerservice.ManagedClusterAgentPoolProfile {
 			p := mk("c1", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 1)
 			p.MinCount = new(int32(1))
@@ -711,7 +755,6 @@ func TestAKSPoolValidation(t *testing.T) {
 			assert.Equal(t, "InvalidParameter", sdkErrCode(err))
 		})
 	}
-
 }
 
 func TestAKSPoolImmutableAndSkew(t *testing.T) {
@@ -792,7 +835,8 @@ func TestAKSStartStop(t *testing.T) {
 }
 
 type kubeconfigDoc struct {
-	Clusters []struct {
+	CurrentContext string `yaml:"current-context"`
+	Clusters       []struct {
 		Cluster struct {
 			CA     string `yaml:"certificate-authority-data"`
 			Server string `yaml:"server"`
@@ -805,7 +849,6 @@ type kubeconfigDoc struct {
 		} `yaml:"user"`
 		Name string `yaml:"name"`
 	} `yaml:"users"`
-	CurrentContext string `yaml:"current-context"`
 }
 
 func parseKubeconfig(t *testing.T, res armcontainerservice.CredentialResults) (kubeconfigDoc, []byte) {
@@ -929,7 +972,13 @@ func TestAKSResourceGroupCascade(t *testing.T) {
 	del := s.raw(t, http.MethodDelete, "/subscriptions/"+aciSub+"/resourcegroups/"+aksRG, "", "2021-04-01")
 	require.Equal(t, http.StatusOK, del.StatusCode)
 
-	nodeRG := s.raw(t, http.MethodGet, "/subscriptions/"+aciSub+"/resourcegroups/MC_rg-aks_casc_westus2", "", "2021-04-01")
+	nodeRG := s.raw(
+		t,
+		http.MethodGet,
+		"/subscriptions/"+aciSub+"/resourcegroups/MC_rg-aks_casc_westus2",
+		"",
+		"2021-04-01",
+	)
 	assert.Equal(t, http.StatusNotFound, nodeRG.StatusCode)
 
 	pager := s.factory.NewManagedClustersClient().NewListPager(nil)
@@ -991,7 +1040,7 @@ func TestAKSSubnetReferences(t *testing.T) {
 	vnet := `{"location":"westus2","properties":{"addressSpace":{"addressPrefixes":["10.1.0.0/16"]},` +
 		`"subnets":[{"name":"nodes","properties":{"addressPrefix":"10.1.0.0/24"}}]}}`
 	resp := s.raw(t, http.MethodPut, "/subscriptions/"+aciSub+"/resourceGroups/"+aksRG+
-		"/providers/Microsoft.Network/virtualNetworks/vn", vnet, "2024-05-01")
+		"/providers/Microsoft.Network/virtualNetworks/vn", vnet, "2024-07-01")
 	require.Less(t, resp.StatusCode, 300)
 
 	subnet := func(name string) string {
@@ -1012,7 +1061,8 @@ func TestAKSSubnetReferences(t *testing.T) {
 		}},
 		{name: "unknownvnet", ok: true, mod: func(m *armcontainerservice.ManagedCluster) {
 			m.Properties.AgentPoolProfiles[0].VnetSubnetID = new(
-				"/subscriptions/" + aciSub + "/resourceGroups/elsewhere/providers/Microsoft.Network/virtualNetworks/x/subnets/y")
+				"/subscriptions/" + aciSub + "/resourceGroups/elsewhere/providers/Microsoft.Network/virtualNetworks/x/subnets/y",
+			)
 		}},
 		{name: "notasubnet", mod: func(m *armcontainerservice.ManagedCluster) {
 			m.Properties.AgentPoolProfiles[0].VnetSubnetID = new("subnet")
@@ -1030,7 +1080,8 @@ func TestAKSSubnetReferences(t *testing.T) {
 			m.Properties.AgentPoolProfiles[0].VnetSubnetID = new(subnet("nodes"))
 			other := aksPool("other", armcontainerservice.AgentPoolModeUser, "Standard_D2s_v5", 1)
 			other.VnetSubnetID = new(
-				"/subscriptions/" + aciSub + "/resourceGroups/elsewhere/providers/Microsoft.Network/virtualNetworks/x/subnets/y")
+				"/subscriptions/" + aciSub + "/resourceGroups/elsewhere/providers/Microsoft.Network/virtualNetworks/x/subnets/y",
+			)
 			m.Properties.AgentPoolProfiles = append(m.Properties.AgentPoolProfiles, other)
 		}},
 	}

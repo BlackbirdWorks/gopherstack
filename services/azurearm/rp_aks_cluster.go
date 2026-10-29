@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"maps"
 	"net/http"
 	"regexp"
 	"slices"
@@ -29,8 +30,8 @@ var (
 
 func aksClusterReadOnly() []string {
 	return []string{
-		"provisioningState", "powerState", "fqdn", "privateFQDN", "azurePortalFQDN", "currentKubernetesVersion",
-		"maxAgentPools", "eTag",
+		fieldProvisioningState, "powerState", "fqdn", "privateFQDN", "azurePortalFQDN", "currentKubernetesVersion",
+		"maxAgentPools", aksFieldETag,
 	}
 }
 
@@ -227,7 +228,7 @@ func (p *ContainerServiceProvider) fillCluster(
 	}
 
 	delete(props, aksFieldPools)
-	delete(props, "kubernetesVersion")
+	delete(props, aksFieldK8sVersion)
 	delete(props, aksFieldNodeRG)
 	rec.Props = props
 
@@ -250,7 +251,7 @@ func aksCheckIdentity(rec *storedAKSCluster, props map[string]any) error {
 }
 
 func aksCheckSKU(rec *storedAKSCluster, body map[string]any) error {
-	sku := mapOf(body["sku"])
+	sku := mapOf(body[aksFieldSKU])
 	rec.SkuName, rec.SkuTier = aksDefaultSkuName, aksDefaultTier
 
 	if n := strOf(sku, fieldName); n != "" {
@@ -262,8 +263,8 @@ func aksCheckSKU(rec *storedAKSCluster, body map[string]any) error {
 		rec.SkuName = c
 	}
 
-	if t := strOf(sku, "tier"); t != "" {
-		c, ok := canonicalIn([]string{aksDefaultTier, "Standard", "Premium"}, t)
+	if t := strOf(sku, aksFieldTier); t != "" {
+		c, ok := canonicalIn([]string{aksDefaultTier, aksTierStandard, aksTierPremium}, t)
 		if !ok {
 			return aksBad("sku.tier '%s' must be Free, Standard or Premium.", t)
 		}
@@ -312,7 +313,7 @@ func aksCheckNaming(rec, prev *storedAKSCluster, props map[string]any) error {
 }
 
 func aksCheckVersion(rec, prev *storedAKSCluster, props map[string]any) error {
-	req := strOf(props, "kubernetesVersion")
+	req := strOf(props, aksFieldK8sVersion)
 	if req == "" && prev != nil {
 		req = prev.Requested
 	}
@@ -350,7 +351,7 @@ func aksNetworkFor(rec, prev *storedAKSCluster, props map[string]any) (map[strin
 	if prev != nil {
 		old := mapOf(prev.Props["networkProfile"])
 
-		for _, k := range []string{aksNetPluginKey, "networkPluginMode", "podCidr", "serviceCidr", "dnsServiceIP"} {
+		for _, k := range []string{aksNetPluginKey, "networkPluginMode", aksFieldPodCidr, aksFieldSvcCidr, "dnsServiceIP"} {
 			if !strings.EqualFold(strOf(np, k), strOf(old, k)) {
 				return nil, aksImmutableErr(rec.Name, "networkProfile."+k)
 			}
@@ -506,9 +507,9 @@ func (p *ContainerServiceProvider) clusterBody(c *storedAKSCluster) map[string]a
 		pools = append(pools, prof)
 	}
 
-	power := "Running"
+	power := aksPowerRunning
 	if c.Stopped {
-		power = "Stopped"
+		power = aksPowerStopped
 	}
 
 	if sp := mapOf(props["servicePrincipalProfile"]); sp != nil {
@@ -520,10 +521,10 @@ func (p *ContainerServiceProvider) clusterBody(c *storedAKSCluster) map[string]a
 	}
 
 	props[aksFieldPools] = pools
-	props["kubernetesVersion"] = c.Requested
+	props[aksFieldK8sVersion] = c.Requested
 	props["currentKubernetesVersion"] = c.Current
 	props[fieldProvisioningState] = provisioningStateSucceeded
-	props["powerState"] = map[string]any{"code": power}
+	props["powerState"] = map[string]any{aksFieldCode: power}
 	props[aksFieldNodeRG] = c.NodeRG
 	props["maxAgentPools"] = aksMaxAgentPools
 	props["azurePortalFQDN"] = strings.Replace(c.Fqdn, ".hcp.", ".portal.hcp.", 1)
@@ -541,8 +542,8 @@ func (p *ContainerServiceProvider) clusterBody(c *storedAKSCluster) map[string]a
 	out := map[string]any{
 		"id": c.armID(), fieldName: c.Name, fieldType: namespaceMicrosoftContainerService + "/" + aksClusterType,
 		fieldLocation: c.Location, fieldTags: tagsOrEmpty(c.Tags), fieldProperties: props,
-		"sku":              map[string]any{fieldName: c.SkuName, "tier": c.SkuTier},
-		"eTag":             aksEtag(c.Modified),
+		aksFieldSKU:        map[string]any{fieldName: c.SkuName, aksFieldTier: c.SkuTier},
+		aksFieldETag:       aksEtag(c.Modified),
 		acaFieldSystemData: acaSystemData(c.Created, c.Modified),
 	}
 
@@ -591,9 +592,7 @@ func (p *ContainerServiceProvider) putPool(id ResourceID, body map[string]any) (
 	}
 
 	next := make(map[string]*storedAKSPool, len(c.Pools)+1)
-	for k, v := range c.Pools {
-		next[k] = v
-	}
+	maps.Copy(next, c.Pools)
 
 	next[key] = pool
 

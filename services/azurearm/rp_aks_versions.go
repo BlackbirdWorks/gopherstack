@@ -106,7 +106,7 @@ func resolveAKSVersion(req string) (string, error) {
 }
 
 func aksVersionErr(req string) error {
-	return netErr(400, aksCodeVersionUnsupported,
+	return netErr(http.StatusBadRequest, aksCodeVersionUnsupported,
 		"Version %s is not supported in this region. Please use `az aks get-versions` command to get the supported "+
 			"version list in this region.", req)
 }
@@ -123,10 +123,10 @@ func aksUpgradeAllowed(from, to string) error {
 
 	switch {
 	case t.minor < f.minor, t.minor == f.minor && t.patch < f.patch:
-		return netErr(400, aksCodeInvalidUpgrade,
+		return netErr(http.StatusBadRequest, aksCodeInvalidUpgrade,
 			"Downgrading Kubernetes version from %s to %s is not allowed.", from, to)
 	case t.minor > f.minor+1:
-		return netErr(400, aksCodeInvalidUpgrade,
+		return netErr(http.StatusBadRequest, aksCodeInvalidUpgrade,
 			"Upgrading Kubernetes version from %s to %s is not allowed: minor versions cannot be skipped, upgrade "+
 				"one minor version at a time.", from, to)
 	}
@@ -152,7 +152,7 @@ func aksUpgradesFrom(current string) []map[string]any {
 				continue
 			}
 
-			out = append(out, map[string]any{"kubernetesVersion": p, "isPreview": m.isPreview})
+			out = append(out, map[string]any{aksFieldK8sVersion: p, "isPreview": m.isPreview})
 		}
 	}
 
@@ -165,12 +165,12 @@ func aksPoolSkewOK(pool, controlPlane string) error {
 	c, _ := parseAKSVersion(controlPlane)
 
 	if p.minor > c.minor || (p.minor == c.minor && p.patch > c.patch) {
-		return netErr(400, aksCodeInvalidUpgrade,
+		return netErr(http.StatusBadRequest, aksCodeInvalidUpgrade,
 			"Node pool version %s cannot be newer than the control plane version %s.", pool, controlPlane)
 	}
 
 	if c.minor-p.minor > aksMaxPoolSkew {
-		return netErr(400, aksCodeInvalidUpgrade,
+		return netErr(http.StatusBadRequest, aksCodeInvalidUpgrade,
 			"Node pool version %s is more than %d minor versions behind the control plane version %s.",
 			pool, aksMaxPoolSkew, controlPlane)
 	}
@@ -209,7 +209,7 @@ func aksKubernetesVersionsBody() map[string]any {
 func upgradeNames(ups []map[string]any) []any {
 	out := make([]any, 0, len(ups))
 	for _, u := range ups {
-		out = append(out, u["kubernetesVersion"])
+		out = append(out, u[aksFieldK8sVersion])
 	}
 
 	return out

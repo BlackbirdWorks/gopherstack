@@ -124,7 +124,11 @@ func TestAKSEngineLifecycle(t *testing.T) {
 
 	doc, ca, err := s.userKubeconfig(t, "eng")
 	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(doc.Clusters[0].Cluster.Server, "https://127.0.0.1:"), doc.Clusters[0].Cluster.Server)
+	assert.True(
+		t,
+		strings.HasPrefix(doc.Clusters[0].Cluster.Server, "https://127.0.0.1:"),
+		doc.Clusters[0].Cluster.Server,
+	)
 	assert.Equal(t, aksTestCA, string(ca))
 	assert.Equal(t, aksTestToken, doc.Users[0].User.Token)
 	assert.Regexp(t, `^eng-[0-9a-f]{8}\.hcp\.`, *mc.Properties.Fqdn)
@@ -177,7 +181,13 @@ func TestAKSEngineStartFailure(t *testing.T) {
 	_, err = s.factory.NewManagedClustersClient().Get(t.Context(), aksRG, "bad", nil)
 	assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
 
-	nodeRG := s.raw(t, http.MethodGet, "/subscriptions/"+aciSub+"/resourcegroups/MC_rg-aks_bad_westus2", "", "2021-04-01")
+	nodeRG := s.raw(
+		t,
+		http.MethodGet,
+		"/subscriptions/"+aciSub+"/resourcegroups/MC_rg-aks_bad_westus2",
+		"",
+		"2021-04-01",
+	)
 	assert.Equal(t, http.StatusNotFound, nodeRG.StatusCode)
 }
 
