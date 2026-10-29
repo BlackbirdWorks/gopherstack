@@ -463,7 +463,12 @@ func TestExistingCluster_Load(t *testing.T) {
 			wantEndpoint: "https://primary.example:6443", wantCA: "Q0E="},
 		{name: "explicit_context", kubeContext: "other", body: kubeconfigFixture("https://p:1", "Q0E=", ""),
 			wantEndpoint: "https://other.example:6443"},
-		{name: "unknown_context", kubeContext: "nope", body: kubeconfigFixture("https://p:1", "Q0E=", ""), wantErr: true},
+		{
+			name:        "unknown_context",
+			kubeContext: "nope",
+			body:        kubeconfigFixture("https://p:1", "Q0E=", ""),
+			wantErr:     true,
+		},
 		{name: "not_yaml", body: ":\n- [", wantErr: true},
 		{name: "missing_ca_file", body: kubeconfigFixture("https://p:1", "", "missing.crt"), wantErr: true},
 		{name: "relative_ca_file", body: kubeconfigFixture("https://p:1", "", "ca.crt"),
