@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
@@ -31,13 +30,13 @@ func (f *fakeLister) StopAndRemove(_ context.Context, id string) error {
 
 const deadPID = "999999999:1"
 
-func mc(id string, running bool, kv ...string) container.ManagedContainer {
+func mc(running bool, kv ...string) container.ManagedContainer {
 	l := map[string]string{container.LabelManaged: "true"}
 	for i := 0; i+1 < len(kv); i += 2 {
 		l[kv[i]] = kv[i+1]
 	}
 
-	return container.ManagedContainer{ID: id, Running: running, Labels: l}
+	return container.ManagedContainer{ID: "c1", Running: running, Labels: l}
 }
 
 func TestReconcile(t *testing.T) {
@@ -55,29 +54,33 @@ func TestReconcile(t *testing.T) {
 	}{
 		{
 			name: "adopts same owner resource",
-			all: []container.ManagedContainer{mc("c1", true, container.LabelOwner, "dir-me",
+			all: []container.ManagedContainer{mc(true, container.LabelOwner, "dir-me",
 				container.LabelPID, deadPID, container.LabelService, "gcpsql", container.LabelResource, "p/i")},
 			wantClaim: "c1",
 		},
 		{
 			name: "unclaimed same owner swept",
-			all: []container.ManagedContainer{mc("c1", true, container.LabelOwner, "dir-me",
+			all: []container.ManagedContainer{mc(true, container.LabelOwner, "dir-me",
 				container.LabelPID, deadPID, container.LabelService, "gcpsql", container.LabelResource, "p/other")},
 			wantSwept: []string{"c1"},
 		},
 		{
-			name:        "same owner without resource removed",
-			all:         []container.ManagedContainer{mc("c1", true, container.LabelOwner, "dir-me", container.LabelPID, deadPID)},
+			name: "same owner without resource removed",
+			all: []container.ManagedContainer{
+				mc(true, container.LabelOwner, "dir-me", container.LabelPID, deadPID),
+			},
 			wantRemoved: []string{"c1"},
 		},
 		{
 			name: "same owner live other process untouched",
-			all: []container.ManagedContainer{mc("c1", true, container.LabelOwner, "dir-me",
+			all: []container.ManagedContainer{mc(true, container.LabelOwner, "dir-me",
 				container.LabelPID, parent, container.LabelService, "gcpsql", container.LabelResource, "p/i")},
 		},
 		{
 			name: "foreign owner untouched",
-			all:  []container.ManagedContainer{mc("c1", true, container.LabelOwner, "dir-other", container.LabelPID, deadPID)},
+			all: []container.ManagedContainer{
+				mc(true, container.LabelOwner, "dir-other", container.LabelPID, deadPID),
+			},
 		},
 		{
 			name: "unlabelled untouched",
@@ -85,18 +88,18 @@ func TestReconcile(t *testing.T) {
 		},
 		{
 			name: "dead ephemeral removed",
-			all: []container.ManagedContainer{mc("c1", true, container.LabelOwner, "run-old",
+			all: []container.ManagedContainer{mc(true, container.LabelOwner, "run-old",
 				container.LabelEphemeral, "true", container.LabelPID, deadPID)},
 			wantRemoved: []string{"c1"},
 		},
 		{
 			name: "live ephemeral untouched",
-			all: []container.ManagedContainer{mc("c1", true, container.LabelOwner, "run-old",
+			all: []container.ManagedContainer{mc(true, container.LabelOwner, "run-old",
 				container.LabelEphemeral, "true", container.LabelPID, parent)},
 		},
 		{
 			name: "stopped same owner swept not claimed",
-			all: []container.ManagedContainer{mc("c1", false, container.LabelOwner, "dir-me",
+			all: []container.ManagedContainer{mc(false, container.LabelOwner, "dir-me",
 				container.LabelPID, deadPID, container.LabelService, "gcpsql", container.LabelResource, "p/i")},
 			wantSwept: []string{"c1"},
 		},
@@ -177,9 +180,9 @@ func TestCreateAndStartLabels(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		spec      container.Spec
 		wantKeys  []string
 		name      string
+		spec      container.Spec
 		unmanaged bool
 	}{
 		{
@@ -202,7 +205,7 @@ func TestCreateAndStartLabels(t *testing.T) {
 			_, err := newRuntime(api).CreateAndStart(t.Context(), tt.spec)
 			require.NoError(t, err)
 
-			var cfg *dockercontainer.Config = api.lastCfg
+			cfg := api.lastCfg
 			if tt.unmanaged {
 				assert.NotContains(t, cfg.Labels, container.LabelManaged)
 

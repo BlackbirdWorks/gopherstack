@@ -54,7 +54,7 @@ func Reconcile(ctx context.Context, rt ManagedLister, id Identity, log *slog.Log
 	o := &Orphans{rt: rt, log: log, mu: lockmetrics.New("container.orphans"), held: map[orphanKey][]ManagedContainer{}}
 
 	for _, c := range all {
-		if c.Labels[LabelManaged] != "true" {
+		if c.Labels[LabelManaged] != labelTrue {
 			continue
 		}
 
@@ -75,7 +75,7 @@ func Reconcile(ctx context.Context, rt ManagedLister, id Identity, log *slog.Log
 
 			k := orphanKey{c.Labels[LabelService], c.Labels[LabelResource]}
 			o.held[k] = append(o.held[k], c)
-		case c.Labels[LabelEphemeral] == "true" && !processAlive(pidLabel):
+		case c.Labels[LabelEphemeral] == labelTrue && !processAlive(pidLabel):
 			o.remove(ctx, c)
 		}
 	}

@@ -67,9 +67,7 @@ type Spec struct {
 	// OCIRuntime selects the daemon-registered OCI runtime (e.g. runsc); empty uses the daemon default.
 	OCIRuntime string
 	// Labels are extra container labels; see ResourceLabels. Identity labels are added by the runtime.
-	Labels map[string]string
-	// Unmanaged skips the identity labels, for containers that must outlive this gopherstack (e.g. `start`).
-	Unmanaged  bool
+	Labels     map[string]string
 	Env        []string
 	Mounts     []string
 	Cmd        []string
@@ -77,6 +75,8 @@ type Spec struct {
 	Ports      []string
 	Tmpfs      []string
 	Privileged bool
+	// Unmanaged skips the identity labels, for containers that must outlive this gopherstack (e.g. `start`).
+	Unmanaged bool
 	// MemoryBytes caps container memory; zero is unlimited.
 	MemoryBytes int64
 	// NanoCPUs caps CPU in billionths of a CPU; zero is unlimited.
@@ -177,7 +177,7 @@ func (s Spec) launchLabels() map[string]string {
 
 	out := CurrentIdentity().Labels()
 	maps.Copy(out, s.Labels)
-	out[LabelManaged] = "true"
+	out[LabelManaged] = labelTrue
 
 	return out
 }

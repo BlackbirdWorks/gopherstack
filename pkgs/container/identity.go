@@ -11,6 +11,8 @@ import (
 )
 
 // Labels stamped on every container gopherstack starts.
+const labelTrue = "true"
+
 const (
 	// LabelManaged marks a container as started by gopherstack.
 	LabelManaged = "gopherstack.managed"
@@ -78,8 +80,10 @@ func newIdentity(owner string, ephemeral bool) Identity {
 	return Identity{Owner: owner, PID: pid, Start: start, Ephemeral: ephemeral}
 }
 
+const randomBytes = 8
+
 func randomHex() string {
-	b := make([]byte, 8)
+	b := make([]byte, randomBytes)
 	_, _ = rand.Read(b)
 
 	return hex.EncodeToString(b)
@@ -88,12 +92,12 @@ func randomHex() string {
 // Labels are the identity labels stamped on every managed container.
 func (i Identity) Labels() map[string]string {
 	l := map[string]string{
-		LabelManaged: "true",
+		LabelManaged: labelTrue,
 		LabelOwner:   i.Owner,
 		LabelPID:     strconv.Itoa(i.PID) + ":" + i.Start,
 	}
 	if i.Ephemeral {
-		l[LabelEphemeral] = "true"
+		l[LabelEphemeral] = labelTrue
 	}
 
 	return l
