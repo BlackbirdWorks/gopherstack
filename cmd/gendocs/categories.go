@@ -70,6 +70,7 @@ const (
 	slugGCPCloudBuild   = "gcpcloudbuild"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
+	slugGCPIdentity     = "gcpidentitytoolkit"
 )
 
 // categoryGroups is the curated slug -> category assignment for every
@@ -180,6 +181,7 @@ func categoryGroups() []categoryGroup {
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
 			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows, slugGCPDNS,
 			slugGCPCompute, slugGCPDatastore, slugGCPContainer,
+			slugGCPIdentity,
 		}},
 		{"OCI", ociSlugs()},
 		{"Other", []string{
@@ -328,6 +330,7 @@ func displayNamesB() map[string]string {
 		slugGCPCloudBuild:   "Cloud Build",
 		slugGCPFirestore:    "Google Cloud Firestore",
 		slugGCPIAM:          "Cloud IAM",
+		slugGCPIdentity:     "Identity Platform",
 		"databrew":          "Glue DataBrew",
 		"datasync":          "DataSync",
 		"dax":               "DAX",
