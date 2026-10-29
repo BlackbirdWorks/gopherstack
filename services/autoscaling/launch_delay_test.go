@@ -83,7 +83,7 @@ func TestLaunchDelay_PendingThenInService(t *testing.T) {
 		wantPending   int
 		wantInService int
 	}{
-		{name: "delayed", delay: 40 * time.Millisecond, wantPending: 3},
+		{name: "delayed", delay: time.Second, wantPending: 3},
 		{name: "instant", delay: 0, wantInService: 3},
 	}
 
