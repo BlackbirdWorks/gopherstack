@@ -150,7 +150,7 @@ func (e *dockerEngine) mysqlBase(ctx context.Context, dbs []string) error {
 	}
 
 	cmd := append([]string{
-		cmdEnv, rootUserKey + e.pass(), "mysqldump", "-u" + mysqlAdminUser, argSingleTx, argRoutines,
+		cmdEnv, rootUserKey + e.pass(), mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
 		"--events", "--triggers", "--skip-dump-date", argAddDrop, "--source-data=2", "--flush-logs",
 		"--set-gtid-purged=OFF", "-r", mysqlBaseFile, argDatabases,
 	}, dbs...)

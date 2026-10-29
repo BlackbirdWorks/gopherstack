@@ -245,7 +245,7 @@ func (e *dockerEngine) ReplicaSeed(ctx context.Context, dbs []string) ([]byte, e
 	}
 
 	cmd := append([]string{
-		cmdEnv, rootUserKey + e.pass(), "mysqldump", "-u" + mysqlAdminUser, argSingleTx, "--skip-dump-date",
+		cmdEnv, rootUserKey + e.pass(), mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, "--skip-dump-date",
 		argRoutines, "--events", "--triggers", "--set-gtid-purged=ON", argAddDrop,
 		"-r", dumpMount + "/seed.sql", argDatabases,
 	}, dbs...)

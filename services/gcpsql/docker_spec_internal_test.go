@@ -80,7 +80,8 @@ func binlogEvent(ts uint32, typ byte, size uint32) []byte {
 func TestBinlogCutoff(t *testing.T) {
 	t.Parallel()
 
-	log := []byte{0xfe, 'b', 'i', 'n'}
+	log := make([]byte, 0, 256)
+	log = append(log, 0xfe, 'b', 'i', 'n')
 	log = append(log, binlogEvent(100, 15, 40)...)
 
 	first := uint64(len(log))

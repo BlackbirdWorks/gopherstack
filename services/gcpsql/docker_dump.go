@@ -17,6 +17,7 @@ const (
 	dumpFileMode = 0o600
 	mysqlClient  = "mysql"
 	cmdEnv       = "env"
+	mysqldumpBin = "mysqldump"
 	argRoutines  = "--routines"
 	argAddDrop   = "--add-drop-database"
 	argDatabases = "--databases"
@@ -111,7 +112,7 @@ func (e *dockerEngine) dumpMySQL(ctx context.Context, dbs []string) ([]byte, err
 	}
 
 	cmd := append([]string{
-		cmdEnv, "MYSQL_PWD=" + e.pass(), "mysqldump", "-u" + mysqlAdminUser, argSingleTx, argRoutines,
+		cmdEnv, "MYSQL_PWD=" + e.pass(), mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
 		argAddDrop, "-r", dumpMount + "/dump.sql", argDatabases,
 	}, dbs...)
 
