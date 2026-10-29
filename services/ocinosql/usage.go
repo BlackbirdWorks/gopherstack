@@ -34,7 +34,10 @@ func parseTime(s, what string) (time.Time, *APIError) {
 }
 
 // ListTableUsage reports per-minute consumption recorded for a table.
-func (b *InMemoryBackend) ListTableUsage(ref, compartment, start, end string, o ListOpts) (page.Page[UsageWire], error) {
+func (b *InMemoryBackend) ListTableUsage(
+	ref, compartment, start, end string,
+	o ListOpts,
+) (page.Page[UsageWire], error) {
 	b.mu.RLock("ListTableUsage")
 	defer b.mu.RUnlock()
 

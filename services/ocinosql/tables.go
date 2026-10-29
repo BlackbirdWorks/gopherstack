@@ -28,19 +28,19 @@ type limitsIn struct {
 }
 
 type createTableIn struct {
+	Tags
 	TableLimits   *limitsIn `json:"tableLimits"`
 	AutoReclaim   *bool     `json:"isAutoReclaimable"`
 	Name          string    `json:"name"`
 	CompartmentID string    `json:"compartmentId"`
 	DDL           string    `json:"ddlStatement"`
-	Tags
 }
 
 type updateTableIn struct {
+	Tags
 	TableLimits   *limitsIn `json:"tableLimits"`
 	CompartmentID string    `json:"compartmentId"`
 	DDL           string    `json:"ddlStatement"`
-	Tags
 }
 
 type changeCompartmentIn struct {
@@ -305,10 +305,10 @@ func (b *InMemoryBackend) ChangeTableCompartment(ref, ifMatch string, in changeC
 // Table wire types.
 
 type limitsWire struct {
+	CapacityMode    string `json:"capacityMode"`
 	MaxReadUnits    int    `json:"maxReadUnits"`
 	MaxWriteUnits   int    `json:"maxWriteUnits"`
 	MaxStorageInGBs int    `json:"maxStorageInGBs"`
-	CapacityMode    string `json:"capacityMode"`
 }
 
 type columnWire struct {
@@ -375,7 +375,11 @@ func schemaView2(t *Table) *schemaWire {
 
 	out := &schemaWire{Columns: cols, PrimaryKey: t.PrimaryKey, ShardKey: t.ShardKey, TTL: t.TTLHours / hoursPerDay}
 	if t.Identity != nil {
-		out.Identity = &identityWire{ColumnName: t.Identity.Column, IsAlways: t.Identity.Always, IsNull: t.Identity.OnNull}
+		out.Identity = &identityWire{
+			ColumnName: t.Identity.Column,
+			IsAlways:   t.Identity.Always,
+			IsNull:     t.Identity.OnNull,
+		}
 	}
 
 	return out
@@ -415,8 +419,33 @@ type TableList struct {
 	OnDemandCapacityTables int         `json:"onDemandCapacityTables"`
 }
 
+func (l *TableList) count(t *Table) {
+	if t.State == stateDeleted {
+		return
+	}
+
+	if t.AutoReclaim {
+		l.AutoReclaimableTables++
+	}
+
+	if t.Limits.Mode == modeOnDemand {
+		l.OnDemandCapacityTables++
+	}
+}
+
+func tableMatches(t *Table, name, state string) bool {
+	if name != "" && !strs.Equal(t.Name, name) {
+		return false
+	}
+
+	return state == "" || state == filterAll || t.State == state
+}
+
 // ListTables lists tables of a compartment.
-func (b *InMemoryBackend) ListTables(compartment, name, state string, o ListOpts) (page.Page[TableWire], TableList, error) {
+func (b *InMemoryBackend) ListTables(
+	compartment, name, state string,
+	o ListOpts,
+) (page.Page[TableWire], TableList, error) {
 	if compartment == "" {
 		return page.Page[TableWire]{}, TableList{}, errMissing("compartmentId is required")
 	}
@@ -430,25 +459,15 @@ func (b *InMemoryBackend) ListTables(compartment, name, state string, o ListOpts
 	)
 
 	for _, t := range b.tables {
-		if t.CompartmentID != compartment || (t.State == stateDeleted && state != "ALL" && state != stateDeleted) {
+		if t.CompartmentID != compartment || (t.State == stateDeleted && state != filterAll && state != stateDeleted) {
 			continue
 		}
 
-		if t.State != stateDeleted {
-			if t.AutoReclaim {
-				stats.AutoReclaimableTables++
-			}
+		stats.count(t)
 
-			if t.Limits.Mode == modeOnDemand {
-				stats.OnDemandCapacityTables++
-			}
+		if tableMatches(t, name, state) {
+			all = append(all, t)
 		}
-
-		if (name != "" && !strs.Equal(t.Name, name)) || (state != "" && state != "ALL" && t.State != state) {
-			continue
-		}
-
-		all = append(all, t)
 	}
 
 	pg := paginate(all, o, func(t *Table) string { return t.Name },
@@ -505,7 +524,7 @@ func (h *Handler) updateTable(q *req) error {
 
 func (h *Handler) deleteTable(q *req) error {
 	wr, err := h.Backend.DeleteTable(q.param("tableNameOrId"), q.query("compartmentId"), q.ifMatch(),
-		q.query("isIfExists") == "true")
+		q.flag("isIfExists"))
 	if err == nil && wr == "" {
 		q.w.WriteHeader(http.StatusNoContent)
 

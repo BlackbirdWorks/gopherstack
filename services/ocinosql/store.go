@@ -218,10 +218,3 @@ func purgeExpired(t *Table, now time.Time) {
 		}
 	}
 }
-
-func (b *InMemoryBackend) settleAll() {
-	now := b.nowUTC()
-	for _, t := range b.tables {
-		settle(t, now)
-	}
-}

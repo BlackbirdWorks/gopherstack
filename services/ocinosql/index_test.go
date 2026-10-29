@@ -14,9 +14,7 @@ func (e *env) createIndex(t *testing.T, table, name string, keys ...nosql.IndexK
 
 	resp, err := e.client.CreateIndex(t.Context(), nosql.CreateIndexRequest{
 		TableNameOrId: new(table),
-		CreateIndexDetails: nosql.CreateIndexDetails{
-			Name: new(name), Keys: keys, CompartmentId: new(testCompartment),
-		},
+		Name:          new(name), Keys: keys, CompartmentId: new(testCompartment),
 	})
 	require.NoError(t, err)
 
@@ -31,9 +29,8 @@ func TestIndexLifecycleAndOrdering(t *testing.T) {
 
 	orderQ := "SELECT id FROM users ORDER BY age"
 
-	_, err := e.client.Query(t.Context(), nosql.QueryRequest{QueryDetails: nosql.QueryDetails{
-		CompartmentId: new(testCompartment), Statement: new(orderQ),
-	}})
+	_, err := e.client.Query(t.Context(), nosql.QueryRequest{
+		CompartmentId: new(testCompartment), Statement: new(orderQ)})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "no index yet")
 
 	created := e.createIndex(t, "users", "idx_age", nosql.IndexKey{ColumnName: new("age")})
@@ -48,9 +45,8 @@ func TestIndexLifecycleAndOrdering(t *testing.T) {
 	assert.Equal(t, nosql.IndexLifecycleStateCreating, got.LifecycleState)
 	assert.Equal(t, "users", *got.TableName)
 
-	_, err = e.client.Query(t.Context(), nosql.QueryRequest{QueryDetails: nosql.QueryDetails{
-		CompartmentId: new(testCompartment), Statement: new(orderQ),
-	}})
+	_, err = e.client.Query(t.Context(), nosql.QueryRequest{
+		CompartmentId: new(testCompartment), Statement: new(orderQ)})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "index still CREATING")
 
 	e.settle()
@@ -66,9 +62,8 @@ func TestIndexLifecycleAndOrdering(t *testing.T) {
 	byScore := e.query(t, "SELECT id FROM users ORDER BY info.score DESC LIMIT 3", 0, nil)
 	assert.Equal(t, []int{2, 5, 1}, ids(byScore.Items))
 
-	_, err = e.client.Query(t.Context(), nosql.QueryRequest{QueryDetails: nosql.QueryDetails{
-		CompartmentId: new(testCompartment), Statement: new("SELECT id FROM users ORDER BY age ASC, id DESC"),
-	}})
+	_, err = e.client.Query(t.Context(), nosql.QueryRequest{
+		CompartmentId: new(testCompartment), Statement: new("SELECT id FROM users ORDER BY age ASC, id DESC")})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "mixed directions")
 
 	list, err := e.client.ListIndexes(t.Context(), nosql.ListIndexesRequest{
@@ -101,9 +96,8 @@ func TestIndexLifecycleAndOrdering(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
-	_, err = e.client.Query(t.Context(), nosql.QueryRequest{QueryDetails: nosql.QueryDetails{
-		CompartmentId: new(testCompartment), Statement: new(orderQ),
-	}})
+	_, err = e.client.Query(t.Context(), nosql.QueryRequest{
+		CompartmentId: new(testCompartment), Statement: new(orderQ)})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "index dropped")
 }
 
@@ -111,7 +105,11 @@ func TestIndexErrors(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{})
-	e.mkTable(t, "t", "CREATE TABLE t (id INTEGER, name STRING, j JSON, arr ARRAY(STRING), bin BINARY, PRIMARY KEY(id))")
+	e.mkTable(
+		t,
+		"t",
+		"CREATE TABLE t (id INTEGER, name STRING, j JSON, arr ARRAY(STRING), bin BINARY, PRIMARY KEY(id))",
+	)
 	e.createIndex(t, "t", "idx_name", nosql.IndexKey{ColumnName: new("name")})
 	e.settle()
 
@@ -125,11 +123,26 @@ func TestIndexErrors(t *testing.T) {
 		{name: "no keys", idx: "i1", keys: []nosql.IndexKey{}, status: 400},
 		{name: "unknown column", idx: "i2", keys: []nosql.IndexKey{{ColumnName: new("zzz")}}, status: 400},
 		{name: "json without path", idx: "i3", keys: []nosql.IndexKey{{ColumnName: new("j")}}, status: 400},
-		{name: "json bad type", idx: "i4", keys: []nosql.IndexKey{{ColumnName: new("j"), JsonPath: new("a"), JsonFieldType: new("blob")}}, status: 400},
-		{name: "path on plain column", idx: "i5", keys: []nosql.IndexKey{{ColumnName: new("name"), JsonPath: new("a"), JsonFieldType: new("string")}}, status: 400},
+		{
+			name:   "json bad type",
+			idx:    "i4",
+			keys:   []nosql.IndexKey{{ColumnName: new("j"), JsonPath: new("a"), JsonFieldType: new("blob")}},
+			status: 400,
+		},
+		{
+			name:   "path on plain column",
+			idx:    "i5",
+			keys:   []nosql.IndexKey{{ColumnName: new("name"), JsonPath: new("a"), JsonFieldType: new("string")}},
+			status: 400,
+		},
 		{name: "array column", idx: "i6", keys: []nosql.IndexKey{{ColumnName: new("arr")}}, status: 400},
 		{name: "binary column", idx: "i7", keys: []nosql.IndexKey{{ColumnName: new("bin")}}, status: 400},
-		{name: "repeated key", idx: "i8", keys: []nosql.IndexKey{{ColumnName: new("name")}, {ColumnName: new("NAME")}}, status: 400},
+		{
+			name:   "repeated key",
+			idx:    "i8",
+			keys:   []nosql.IndexKey{{ColumnName: new("name")}, {ColumnName: new("NAME")}},
+			status: 400,
+		},
 		{name: "bad index name", idx: "9x", keys: []nosql.IndexKey{{ColumnName: new("name")}}, status: 400},
 	}
 
@@ -139,9 +152,7 @@ func TestIndexErrors(t *testing.T) {
 
 			_, err := e.client.CreateIndex(t.Context(), nosql.CreateIndexRequest{
 				TableNameOrId: new("t"),
-				CreateIndexDetails: nosql.CreateIndexDetails{
-					Name: new(tt.idx), Keys: tt.keys, CompartmentId: new(testCompartment),
-				},
+				Name:          new(tt.idx), Keys: tt.keys, CompartmentId: new(testCompartment),
 			})
 			assert.Equal(t, tt.status, svcErr(t, err).GetHTTPStatusCode())
 		})
@@ -149,19 +160,15 @@ func TestIndexErrors(t *testing.T) {
 
 	resp, err := e.client.CreateIndex(t.Context(), nosql.CreateIndexRequest{
 		TableNameOrId: new("t"),
-		CreateIndexDetails: nosql.CreateIndexDetails{
-			Name: new("idx_name"), Keys: []nosql.IndexKey{{ColumnName: new("name")}},
-			CompartmentId: new(testCompartment), IsIfNotExists: new(true),
-		},
+		Name:          new("idx_name"), Keys: []nosql.IndexKey{{ColumnName: new("name")}},
+		CompartmentId: new(testCompartment), IsIfNotExists: new(true),
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, resp.OpcWorkRequestId)
 
 	_, err = e.client.UpdateTable(t.Context(), nosql.UpdateTableRequest{
 		TableNameOrId: new("t"),
-		UpdateTableDetails: nosql.UpdateTableDetails{
-			CompartmentId: new(testCompartment), DdlStatement: new("ALTER TABLE t (DROP name)"),
-		},
+		CompartmentId: new(testCompartment), DdlStatement: new("ALTER TABLE t (DROP name)"),
 	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "indexed column cannot be dropped")
 
@@ -176,6 +183,9 @@ func TestIndexErrors(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, noop.OpcWorkRequestId)
 
-	_, err = e.client.ListIndexes(t.Context(), nosql.ListIndexesRequest{TableNameOrId: new("nope"), CompartmentId: new(testCompartment)})
+	_, err = e.client.ListIndexes(
+		t.Context(),
+		nosql.ListIndexesRequest{TableNameOrId: new("nope"), CompartmentId: new(testCompartment)},
+	)
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }

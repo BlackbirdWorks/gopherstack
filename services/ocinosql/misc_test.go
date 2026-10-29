@@ -33,25 +33,38 @@ func TestWorkRequests(t *testing.T) {
 	assert.InDelta(t, 100, *wr.PercentComplete, 0)
 	assert.NotNil(t, wr.TimeFinished)
 
-	logs, err := e.client.ListWorkRequestLogs(t.Context(), nosql.ListWorkRequestLogsRequest{WorkRequestId: created.OpcWorkRequestId})
+	logs, err := e.client.ListWorkRequestLogs(
+		t.Context(),
+		nosql.ListWorkRequestLogsRequest{WorkRequestId: created.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	assert.Len(t, logs.Items, 2)
 
-	errs, err := e.client.ListWorkRequestErrors(t.Context(), nosql.ListWorkRequestErrorsRequest{WorkRequestId: created.OpcWorkRequestId})
+	errs, err := e.client.ListWorkRequestErrors(
+		t.Context(),
+		nosql.ListWorkRequestErrorsRequest{WorkRequestId: created.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, errs.Items)
 
-	list, err := e.client.ListWorkRequests(t.Context(), nosql.ListWorkRequestsRequest{CompartmentId: new(testCompartment)})
+	list, err := e.client.ListWorkRequests(
+		t.Context(),
+		nosql.ListWorkRequestsRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	assert.Len(t, list.Items, 1)
 
-	other, err := e.client.ListWorkRequests(t.Context(), nosql.ListWorkRequestsRequest{CompartmentId: new(otherCompart)})
+	other, err := e.client.ListWorkRequests(
+		t.Context(),
+		nosql.ListWorkRequestsRequest{CompartmentId: new(otherCompart)},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, other.Items)
 
 	for _, fn := range []func() error{
 		func() error {
-			_, gerr := e.client.GetWorkRequest(t.Context(), nosql.GetWorkRequestRequest{WorkRequestId: new("ocid1.nosqlworkrequest.oc1..x")})
+			_, gerr := e.client.GetWorkRequest(t.Context(),
+				nosql.GetWorkRequestRequest{WorkRequestId: new("ocid1.nosqlworkrequest.oc1..x")})
 
 			return gerr
 		},
@@ -61,7 +74,8 @@ func TestWorkRequests(t *testing.T) {
 			return gerr
 		},
 		func() error {
-			_, gerr := e.client.ListWorkRequestErrors(t.Context(), nosql.ListWorkRequestErrorsRequest{WorkRequestId: new("nope")})
+			_, gerr := e.client.ListWorkRequestErrors(t.Context(),
+				nosql.ListWorkRequestErrorsRequest{WorkRequestId: new("nope")})
 
 			return gerr
 		},
@@ -85,11 +99,37 @@ func TestErrorShapes(t *testing.T) {
 	}{
 		{name: "no route", method: http.MethodGet, path: "/20190828/nothing", status: 404, code: "NotFound"},
 		{name: "wrong method", method: http.MethodPatch, path: "/20190828/tables", status: 404, code: "NotFound"},
-		{name: "bad json", method: http.MethodPost, path: "/20190828/tables", body: "{not json", status: 400, code: "CannotParseRequest"},
+		{
+			name:   "bad json",
+			method: http.MethodPost,
+			path:   "/20190828/tables",
+			body:   "{not json",
+			status: 400,
+			code:   "CannotParseRequest",
+		},
 		{name: "empty body", method: http.MethodPost, path: "/20190828/tables", status: 400, code: "MissingParameter"},
-		{name: "list needs compartment", method: http.MethodGet, path: "/20190828/tables", status: 400, code: "MissingParameter"},
-		{name: "missing table", method: http.MethodGet, path: "/20190828/tables/ocid1.nosqltable.oc1..nope", status: 404, code: "NotAuthorizedOrNotFound"},
-		{name: "row table missing", method: http.MethodPut, path: "/20190828/tables/x/rows", body: `{"compartmentId":"c"}`, status: 404, code: "NotAuthorizedOrNotFound"},
+		{
+			name:   "list needs compartment",
+			method: http.MethodGet,
+			path:   "/20190828/tables",
+			status: 400,
+			code:   "MissingParameter",
+		},
+		{
+			name:   "missing table",
+			method: http.MethodGet,
+			path:   "/20190828/tables/ocid1.nosqltable.oc1..nope",
+			status: 404,
+			code:   "NotAuthorizedOrNotFound",
+		},
+		{
+			name:   "row table missing",
+			method: http.MethodPut,
+			path:   "/20190828/tables/x/rows",
+			body:   `{"compartmentId":"c"}`,
+			status: 404,
+			code:   "NotAuthorizedOrNotFound",
+		},
 	}
 
 	for _, tt := range tests {
@@ -99,13 +139,18 @@ func TestErrorShapes(t *testing.T) {
 			status, body, hdr := rawDo(t, tt.method, e.base+tt.path, tt.body)
 			assert.Equal(t, tt.status, status)
 			assert.Contains(t, body, `"code":"`+tt.code+`"`)
-			assert.NotEmpty(t, hdr.Get("opc-request-id"))
+			assert.NotEmpty(t, hdr.Get("Opc-Request-Id"))
 		})
 	}
 
 	e.mkTable(t, "t", usersDDL("t"))
 
-	status, body, _ := rawDo(t, http.MethodPut, e.base+"/20190828/tables/t/rows", `{"compartmentId":"`+testCompartment+`"}`)
+	status, body, _ := rawDo(
+		t,
+		http.MethodPut,
+		e.base+"/20190828/tables/t/rows",
+		`{"compartmentId":"`+testCompartment+`"}`,
+	)
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Contains(t, body, "MissingParameter")
 }
@@ -123,7 +168,14 @@ func TestAuthEnforced(t *testing.T) {
 	require.NoError(t, err, "registered key is accepted")
 
 	stranger := newKeyPair(t)
-	prov := common.NewRawConfigurationProvider(testTenancy, testUser, ocinosql.Region, stranger.fprint, stranger.privPEM, nil)
+	prov := common.NewRawConfigurationProvider(
+		testTenancy,
+		testUser,
+		ocinosql.Region,
+		stranger.fprint,
+		stranger.privPEM,
+		nil,
+	)
 	c, err := nosql.NewNosqlClientWithConfigurationProvider(prov)
 	require.NoError(t, err)
 
@@ -177,7 +229,11 @@ func TestSnapshotRestore(t *testing.T) {
 
 	seedUsers(t, e)
 	e.createIndex(t, "users", "idx_age", nosql.IndexKey{ColumnName: new("age")})
-	e.mkTable(t, "ids", "CREATE TABLE ids (id INTEGER GENERATED ALWAYS AS IDENTITY, v STRING, PRIMARY KEY(id)) USING TTL 2 DAYS")
+	e.mkTable(
+		t,
+		"ids",
+		"CREATE TABLE ids (id INTEGER GENERATED ALWAYS AS IDENTITY, v STRING, PRIMARY KEY(id)) USING TTL 2 DAYS",
+	)
 	e.put(t, "ids", map[string]any{"v": "a"})
 	e.settle()
 
@@ -199,7 +255,10 @@ func TestSnapshotRestore(t *testing.T) {
 	assert.Equal(t, "2", *next.GeneratedValue, "identity counter survives")
 	assert.Equal(t, 2, *restored.getTable(t, "ids").Schema.Ttl)
 
-	list, err := restored.client.ListWorkRequests(ctx, nosql.ListWorkRequestsRequest{CompartmentId: new(testCompartment)})
+	list, err := restored.client.ListWorkRequests(
+		ctx,
+		nosql.ListWorkRequestsRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, list.Items)
 
@@ -237,9 +296,14 @@ func TestCompartmentChecker(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	e.backend.SetCompartmentChecker(func(id string) bool { return id == testCompartment })
 
-	_, err := e.client.CreateTable(t.Context(), nosql.CreateTableRequest{CreateTableDetails: nosql.CreateTableDetails{
-		Name: new("t"), CompartmentId: new(otherCompart), DdlStatement: new(usersDDL("t")), TableLimits: provisioned(5, 5, 5),
-	}})
+	_, err := e.client.CreateTable(t.Context(), nosql.CreateTableRequest{
+		Name: new(
+			"t",
+		),
+		CompartmentId: new(otherCompart),
+		DdlStatement:  new(usersDDL("t")),
+		TableLimits:   provisioned(5, 5, 5),
+	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 	e.createTable(t, "t", usersDDL("t"), nil)

@@ -112,22 +112,116 @@ func TestCreateTableErrors(t *testing.T) {
 		{name: "name mismatch", tbl: "other", ddl: usersDDL("x0"), status: 400, code: "InvalidParameter"},
 		{name: "not create", tbl: "x1", ddl: "SELECT * FROM x1", status: 400, code: "InvalidParameter"},
 		{name: "no primary key", tbl: "x2", ddl: "CREATE TABLE x2 (a INTEGER)", status: 400, code: "InvalidParameter"},
-		{name: "pk column missing", tbl: "x3", ddl: "CREATE TABLE x3 (a INTEGER, PRIMARY KEY(b))", status: 400, code: "InvalidParameter"},
-		{name: "pk bad type", tbl: "x4", ddl: "CREATE TABLE x4 (a JSON, PRIMARY KEY(a))", status: 400, code: "InvalidParameter"},
-		{name: "duplicate column", tbl: "x5", ddl: "CREATE TABLE x5 (a INTEGER, a STRING, PRIMARY KEY(a))", status: 400, code: "InvalidParameter"},
-		{name: "unknown type", tbl: "x6", ddl: "CREATE TABLE x6 (a INTEGER, b BLOB, PRIMARY KEY(a))", status: 400, code: "InvalidParameter"},
-		{name: "shard not prefix", tbl: "x7", ddl: "CREATE TABLE x7 (a INTEGER, b INTEGER, PRIMARY KEY(a, SHARD(b)))", status: 400, code: "InvalidParameter"},
-		{name: "child table", tbl: "x8", ddl: "CREATE TABLE x8.child (a INTEGER, PRIMARY KEY(a))", status: 400, code: "InvalidParameter"},
-		{name: "bad default", tbl: "x9", ddl: "CREATE TABLE x9 (a INTEGER, b INTEGER DEFAULT 'z', PRIMARY KEY(a))", status: 400, code: "InvalidParameter"},
-		{name: "trailing junk", tbl: "y1", ddl: "CREATE TABLE y1 (a INTEGER, PRIMARY KEY(a)) FOO", status: 400, code: "InvalidParameter"},
-		{name: "bad ttl unit", tbl: "y2", ddl: "CREATE TABLE y2 (a INTEGER, PRIMARY KEY(a)) USING TTL 1 WEEKS", status: 400, code: "InvalidParameter"},
-		{name: "read units zero", tbl: "y3", ddl: "CREATE TABLE y3 (a INTEGER, PRIMARY KEY(a))", limits: provisioned(0, 10, 1), status: 400, code: "InvalidParameter"},
-		{name: "write units too big", tbl: "y4", ddl: "CREATE TABLE y4 (a INTEGER, PRIMARY KEY(a))", limits: provisioned(10, 40001, 1), status: 400, code: "InvalidParameter"},
-		{name: "storage too big", tbl: "y5", ddl: "CREATE TABLE y5 (a INTEGER, PRIMARY KEY(a))", limits: provisioned(10, 10, 5001), status: 400, code: "InvalidParameter"},
-		{name: "storage zero", tbl: "y6", ddl: "CREATE TABLE y6 (a INTEGER, PRIMARY KEY(a))", limits: provisioned(10, 10, 0), status: 400, code: "InvalidParameter"},
-		{name: "bad capacity mode", tbl: "y7", ddl: "CREATE TABLE y7 (a INTEGER, PRIMARY KEY(a))", status: 400, code: "InvalidParameter",
-			limits: &nosql.TableLimits{MaxStorageInGBs: new(1), CapacityMode: "BURST"}},
-		{name: "bad table name", tbl: "1bad", ddl: "CREATE TABLE 1bad (a INTEGER, PRIMARY KEY(a))", status: 400, code: "InvalidParameter"},
+		{
+			name:   "pk column missing",
+			tbl:    "x3",
+			ddl:    "CREATE TABLE x3 (a INTEGER, PRIMARY KEY(b))",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "pk bad type",
+			tbl:    "x4",
+			ddl:    "CREATE TABLE x4 (a JSON, PRIMARY KEY(a))",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "duplicate column",
+			tbl:    "x5",
+			ddl:    "CREATE TABLE x5 (a INTEGER, a STRING, PRIMARY KEY(a))",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "unknown type",
+			tbl:    "x6",
+			ddl:    "CREATE TABLE x6 (a INTEGER, b BLOB, PRIMARY KEY(a))",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "shard not prefix",
+			tbl:    "x7",
+			ddl:    "CREATE TABLE x7 (a INTEGER, b INTEGER, PRIMARY KEY(a, SHARD(b)))",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "child table",
+			tbl:    "x8",
+			ddl:    "CREATE TABLE x8.child (a INTEGER, PRIMARY KEY(a))",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "bad default",
+			tbl:    "x9",
+			ddl:    "CREATE TABLE x9 (a INTEGER, b INTEGER DEFAULT 'z', PRIMARY KEY(a))",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "trailing junk",
+			tbl:    "y1",
+			ddl:    "CREATE TABLE y1 (a INTEGER, PRIMARY KEY(a)) FOO",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "bad ttl unit",
+			tbl:    "y2",
+			ddl:    "CREATE TABLE y2 (a INTEGER, PRIMARY KEY(a)) USING TTL 1 WEEKS",
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "read units zero",
+			tbl:    "y3",
+			ddl:    "CREATE TABLE y3 (a INTEGER, PRIMARY KEY(a))",
+			limits: provisioned(0, 10, 1),
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "write units too big",
+			tbl:    "y4",
+			ddl:    "CREATE TABLE y4 (a INTEGER, PRIMARY KEY(a))",
+			limits: provisioned(10, 40001, 1),
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "storage too big",
+			tbl:    "y5",
+			ddl:    "CREATE TABLE y5 (a INTEGER, PRIMARY KEY(a))",
+			limits: provisioned(10, 10, 5001),
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "storage zero",
+			tbl:    "y6",
+			ddl:    "CREATE TABLE y6 (a INTEGER, PRIMARY KEY(a))",
+			limits: provisioned(10, 10, 0),
+			status: 400,
+			code:   "InvalidParameter",
+		},
+		{
+			name:   "bad capacity mode",
+			tbl:    "y7",
+			ddl:    "CREATE TABLE y7 (a INTEGER, PRIMARY KEY(a))",
+			status: 400,
+			code:   "InvalidParameter",
+			limits: &nosql.TableLimits{MaxStorageInGBs: new(1), CapacityMode: "BURST"},
+		},
+		{
+			name:   "bad table name",
+			tbl:    "1bad",
+			ddl:    "CREATE TABLE 1bad (a INTEGER, PRIMARY KEY(a))",
+			status: 400,
+			code:   "InvalidParameter",
+		},
 	}
 
 	for _, tt := range tests {
@@ -140,9 +234,7 @@ func TestCreateTableErrors(t *testing.T) {
 			}
 
 			_, err := e.client.CreateTable(t.Context(), nosql.CreateTableRequest{
-				CreateTableDetails: nosql.CreateTableDetails{
-					Name: new(tt.tbl), CompartmentId: new(testCompartment), DdlStatement: new(tt.ddl), TableLimits: limits,
-				},
+				Name: new(tt.tbl), CompartmentId: new(testCompartment), DdlStatement: new(tt.ddl), TableLimits: limits,
 			})
 			se := svcErr(t, err)
 			assert.Equal(t, tt.status, se.GetHTTPStatusCode())
@@ -157,16 +249,14 @@ func TestTableLimits(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	ctx := t.Context()
 
-	_, err := e.client.CreateTable(ctx, nosql.CreateTableRequest{CreateTableDetails: nosql.CreateTableDetails{
+	_, err := e.client.CreateTable(ctx, nosql.CreateTableRequest{
 		Name: new("nolimits"), CompartmentId: new(testCompartment),
-		DdlStatement: new("CREATE TABLE nolimits (a INTEGER, PRIMARY KEY(a))"),
-	}})
+		DdlStatement: new("CREATE TABLE nolimits (a INTEGER, PRIMARY KEY(a))")})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "limits required")
 
-	_, err = e.client.CreateTable(ctx, nosql.CreateTableRequest{CreateTableDetails: nosql.CreateTableDetails{
+	_, err = e.client.CreateTable(ctx, nosql.CreateTableRequest{
 		Name: new("reclaim"), CompartmentId: new(testCompartment), IsAutoReclaimable: new(true),
-		DdlStatement: new("CREATE TABLE reclaim (a INTEGER, PRIMARY KEY(a))"),
-	}})
+		DdlStatement: new("CREATE TABLE reclaim (a INTEGER, PRIMARY KEY(a))")})
 	require.NoError(t, err)
 
 	e.createTable(t, "ondemand", "CREATE TABLE ondemand (a INTEGER, PRIMARY KEY(a))",
@@ -195,17 +285,15 @@ func TestTableLimits(t *testing.T) {
 	for _, tt := range tests {
 		resp, uerr := e.client.UpdateTable(ctx, nosql.UpdateTableRequest{
 			TableNameOrId: new("ondemand"),
-			UpdateTableDetails: nosql.UpdateTableDetails{
-				CompartmentId: new(testCompartment), TableLimits: tt.limits,
-			},
+			CompartmentId: new(testCompartment), TableLimits: tt.limits,
 		})
 		if tt.status == http.StatusAccepted {
 			require.NoError(t, uerr, tt.name)
 			assert.Equal(t, nosql.TableLifecycleStateUpdating, e.getTable(t, "ondemand").LifecycleState)
 
 			_, err = e.client.UpdateTable(ctx, nosql.UpdateTableRequest{
-				TableNameOrId:      new("ondemand"),
-				UpdateTableDetails: nosql.UpdateTableDetails{CompartmentId: new(testCompartment), TableLimits: tt.limits},
+				TableNameOrId: new("ondemand"),
+				CompartmentId: new(testCompartment), TableLimits: tt.limits,
 			})
 			assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "UPDATING blocks further updates")
 
@@ -232,10 +320,15 @@ func TestAlterTable(t *testing.T) {
 		ddl    string
 		status int
 	}{
-		{name: "add column", ddl: "ALTER TABLE t (ADD nick STRING)", status: 202, check: func(t *testing.T, tbl nosql.Table) {
-			t.Helper()
-			assert.Len(t, tbl.Schema.Columns, 6)
-		}},
+		{
+			name:   "add column",
+			ddl:    "ALTER TABLE t (ADD nick STRING)",
+			status: 202,
+			check: func(t *testing.T, tbl nosql.Table) {
+				t.Helper()
+				assert.Len(t, tbl.Schema.Columns, 6)
+			},
+		},
 		{name: "add with default", ddl: "ALTER TABLE t (ADD score INTEGER NOT NULL DEFAULT 7)", status: 202,
 			check: func(t *testing.T, tbl nosql.Table) {
 				t.Helper()
@@ -249,10 +342,15 @@ func TestAlterTable(t *testing.T) {
 			t.Helper()
 			assert.Equal(t, 3, *tbl.Schema.Ttl)
 		}},
-		{name: "ttl hours", ddl: "ALTER TABLE t USING TTL 48 HOURS", status: 202, check: func(t *testing.T, tbl nosql.Table) {
-			t.Helper()
-			assert.Equal(t, 2, *tbl.Schema.Ttl)
-		}},
+		{
+			name:   "ttl hours",
+			ddl:    "ALTER TABLE t USING TTL 48 HOURS",
+			status: 202,
+			check: func(t *testing.T, tbl nosql.Table) {
+				t.Helper()
+				assert.Equal(t, 2, *tbl.Schema.Ttl)
+			},
+		},
 		{name: "add existing", ddl: "ALTER TABLE t (ADD age INTEGER)", status: 400},
 		{name: "drop missing", ddl: "ALTER TABLE t (DROP nothing)", status: 400},
 		{name: "drop key", ddl: "ALTER TABLE t (DROP id)", status: 400},
@@ -273,9 +371,7 @@ func TestAlterTable(t *testing.T) {
 
 			resp, err := e.client.UpdateTable(t.Context(), nosql.UpdateTableRequest{
 				TableNameOrId: new("t"),
-				UpdateTableDetails: nosql.UpdateTableDetails{
-					CompartmentId: new(testCompartment), DdlStatement: new(tt.ddl),
-				},
+				CompartmentId: new(testCompartment), DdlStatement: new(tt.ddl),
 			})
 			if tt.status != http.StatusAccepted {
 				assert.Equal(t, tt.status, svcErr(t, err).GetHTTPStatusCode())
@@ -285,7 +381,11 @@ func TestAlterTable(t *testing.T) {
 
 			require.NoError(t, err)
 			e.settle()
-			assert.Equal(t, nosql.WorkRequestOperationTypeUpdateTable, e.workRequest(t, resp.OpcWorkRequestId).OperationType)
+			assert.Equal(
+				t,
+				nosql.WorkRequestOperationTypeUpdateTable,
+				e.workRequest(t, resp.OpcWorkRequestId).OperationType,
+			)
 			tt.check(t, e.getTable(t, "t"))
 		})
 	}
@@ -301,9 +401,7 @@ func TestAlterBackfillAndDrop(t *testing.T) {
 	alter := func(ddl string) {
 		_, err := e.client.UpdateTable(t.Context(), nosql.UpdateTableRequest{
 			TableNameOrId: new("t"),
-			UpdateTableDetails: nosql.UpdateTableDetails{
-				CompartmentId: new(testCompartment), DdlStatement: new(ddl),
-			},
+			CompartmentId: new(testCompartment), DdlStatement: new(ddl),
 		})
 		require.NoError(t, err)
 		e.settle()
@@ -331,9 +429,7 @@ func TestIfMatchAndIfExists(t *testing.T) {
 
 	_, err := e.client.UpdateTable(t.Context(), nosql.UpdateTableRequest{
 		TableNameOrId: new("t"), IfMatch: new("stale"),
-		UpdateTableDetails: nosql.UpdateTableDetails{
-			CompartmentId: new(testCompartment), FreeformTags: map[string]string{"a": "b"},
-		},
+		CompartmentId: new(testCompartment), FreeformTags: map[string]string{"a": "b"},
 	})
 	assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 
@@ -357,15 +453,21 @@ func TestIfMatchAndIfExists(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "a table name needs a compartment")
 
 	tbl := e.getTable(t, "t")
-	_, err = e.client.GetTable(t.Context(), nosql.GetTableRequest{TableNameOrId: tbl.Id, CompartmentId: new(otherCompart)})
-	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "compartment must match the OCID's table")
+	_, err = e.client.GetTable(
+		t.Context(),
+		nosql.GetTableRequest{TableNameOrId: tbl.Id, CompartmentId: new(otherCompart)},
+	)
+	assert.Equal(
+		t,
+		http.StatusBadRequest,
+		svcErr(t, err).GetHTTPStatusCode(),
+		"compartment must match the OCID's table",
+	)
 
 	_, err = e.client.UpdateTable(t.Context(), nosql.UpdateTableRequest{
 		TableNameOrId: new("t"),
-		UpdateTableDetails: nosql.UpdateTableDetails{
-			CompartmentId: new(testCompartment), DdlStatement: new("ALTER TABLE t USING TTL 1 DAYS"),
-			TableLimits: provisioned(5, 5, 5),
-		},
+		CompartmentId: new(testCompartment), DdlStatement: new("ALTER TABLE t USING TTL 1 DAYS"),
+		TableLimits: provisioned(5, 5, 5),
 	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "ddl and limits are exclusive")
 }
@@ -386,10 +488,8 @@ func TestChangeTableCompartment(t *testing.T) {
 
 	for _, tt := range tests {
 		resp, err := e.client.ChangeTableCompartment(t.Context(), nosql.ChangeTableCompartmentRequest{
-			TableNameOrId: new(id),
-			ChangeTableCompartmentDetails: nosql.ChangeTableCompartmentDetails{
-				ToCompartmentId: new(tt.to), FromCompartmentId: new(testCompartment),
-			},
+			TableNameOrId:   new(id),
+			ToCompartmentId: new(tt.to), FromCompartmentId: new(testCompartment),
 		})
 		require.NoError(t, err, tt.name)
 		assert.NotNil(t, resp.OpcWorkRequestId)
@@ -406,10 +506,8 @@ func TestChangeTableCompartment(t *testing.T) {
 	e.mkTable(t, "t", usersDDL("t"))
 
 	_, err = e.client.ChangeTableCompartment(t.Context(), nosql.ChangeTableCompartmentRequest{
-		TableNameOrId: new(id),
-		ChangeTableCompartmentDetails: nosql.ChangeTableCompartmentDetails{
-			ToCompartmentId: new(testCompartment),
-		},
+		TableNameOrId:   new(id),
+		ToCompartmentId: new(testCompartment),
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "name already used there")
 }
@@ -449,7 +547,10 @@ func TestListTablesPaging(t *testing.T) {
 
 	assert.Equal(t, []string{"a_t", "b_t", "c_t"}, names)
 
-	one, err := e.client.ListTables(t.Context(), nosql.ListTablesRequest{CompartmentId: new(testCompartment), Name: new("B_T")})
+	one, err := e.client.ListTables(
+		t.Context(),
+		nosql.ListTablesRequest{CompartmentId: new(testCompartment), Name: new("B_T")},
+	)
 	require.NoError(t, err)
 	assert.Len(t, one.Items, 1)
 }
@@ -460,10 +561,9 @@ func TestIfNotExistsDDL(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	e.mkTable(t, "t", usersDDL("t"))
 
-	resp, err := e.client.CreateTable(t.Context(), nosql.CreateTableRequest{CreateTableDetails: nosql.CreateTableDetails{
+	resp, err := e.client.CreateTable(t.Context(), nosql.CreateTableRequest{
 		Name: new("t"), CompartmentId: new(testCompartment), TableLimits: provisioned(5, 5, 5),
-		DdlStatement: new("CREATE TABLE IF NOT EXISTS t (id INTEGER, PRIMARY KEY(id))"),
-	}})
+		DdlStatement: new("CREATE TABLE IF NOT EXISTS t (id INTEGER, PRIMARY KEY(id))")})
 	require.NoError(t, err)
 	assert.Equal(t, nosql.WorkRequestStatusSucceeded, e.workRequest(t, resp.OpcWorkRequestId).Status)
 	assert.Len(t, e.getTable(t, "t").Schema.Columns, 5, "existing table is untouched")

@@ -15,7 +15,6 @@ const (
 	maxColumns  = 1024
 )
 
-//nolint:gochecknoglobals // immutable pattern
 var identRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 // Column is one table column.
@@ -226,7 +225,7 @@ func (p *parser) identList() ([]string, *APIError) {
 
 func (p *parser) parseTTL() (*int, *APIError) {
 	if !p.acceptKw("USING") {
-		return nil, nil //nolint:nilnil // absent clause
+		return nil, nil
 	}
 
 	if e := p.expectKw("TTL"); e != nil {
@@ -295,7 +294,7 @@ func (p *parser) parseColumnOption(col *Column, t *dtype, id *Identity) (bool, *
 	case p.acceptKw("NOT"):
 		col.NotNull = true
 
-		return false, id, p.expectKw("NULL")
+		return false, id, p.expectKw(kwNull)
 	case p.acceptKw("DEFAULT"):
 		lit, e := p.defaultLiteral()
 		col.Default = lit
@@ -322,9 +321,9 @@ func (p *parser) defaultLiteral() (json.RawMessage, *APIError) {
 		b, _ := json.Marshal(t.text)
 
 		return b, nil
-	case t.up == "TRUE" || t.up == "FALSE":
+	case t.up == kwTrue || t.up == kwFalse:
 		return json.RawMessage(strings.ToLower(t.text)), nil
-	case t.up == "NULL":
+	case t.up == kwNull:
 		return json.RawMessage("null"), nil
 	case t.text == "-" && p.peek().kind == tkNumber:
 		return json.RawMessage("-" + p.next().text), nil
@@ -349,7 +348,7 @@ func (p *parser) parseGenerated(col *Column, t *dtype, id *Identity) (bool, *Ide
 
 	onNull := false
 	if !always && p.acceptKw("ON") {
-		if e := p.expectKw("NULL"); e != nil {
+		if e := p.expectKw(kwNull); e != nil {
 			return false, id, e
 		}
 

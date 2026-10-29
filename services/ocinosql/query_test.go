@@ -181,10 +181,9 @@ func TestQueryVariablesAndPrepared(t *testing.T) {
 					statement = *prep.Statement
 				}
 
-				resp, qerr := e.client.Query(t.Context(), nosql.QueryRequest{QueryDetails: nosql.QueryDetails{
+				resp, qerr := e.client.Query(t.Context(), nosql.QueryRequest{
 					CompartmentId: new(testCompartment), Statement: new(statement), IsPrepared: new(prepared),
-					Variables: tt.vars,
-				}})
+					Variables: tt.vars})
 				if tt.fail {
 					assert.Equal(t, http.StatusBadRequest, svcErr(t, qerr).GetHTTPStatusCode())
 
@@ -197,9 +196,8 @@ func TestQueryVariablesAndPrepared(t *testing.T) {
 		})
 	}
 
-	_, err = e.client.Query(t.Context(), nosql.QueryRequest{QueryDetails: nosql.QueryDetails{
-		CompartmentId: new(testCompartment), Statement: new("SELECT id FROM users"), IsPrepared: new(true),
-	}})
+	_, err = e.client.Query(t.Context(), nosql.QueryRequest{
+		CompartmentId: new(testCompartment), Statement: new("SELECT id FROM users"), IsPrepared: new(true)})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "raw SQL is not a prepared statement")
 }
 
@@ -242,9 +240,8 @@ func TestQueryUnsupported(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := e.client.Query(t.Context(), nosql.QueryRequest{QueryDetails: nosql.QueryDetails{
-				CompartmentId: new(testCompartment), Statement: new(tt.sql),
-			}})
+			_, err := e.client.Query(t.Context(), nosql.QueryRequest{
+				CompartmentId: new(testCompartment), Statement: new(tt.sql)})
 			se := svcErr(t, err)
 			assert.Equal(t, tt.status, se.GetHTTPStatusCode(), se.GetMessage())
 
@@ -270,16 +267,39 @@ func TestSummarizeStatement(t *testing.T) {
 		ifNotExist bool
 		syntaxErr  bool
 	}{
-		{name: "select", sql: "SELECT * FROM users WHERE id = 1", op: nosql.StatementSummaryOperationSelect, table: "users"},
+		{
+			name:  "select",
+			sql:   "SELECT * FROM users WHERE id = 1",
+			op:    nosql.StatementSummaryOperationSelect,
+			table: "users",
+		},
 		{name: "bad select", sql: "SELECT FROM", op: nosql.StatementSummaryOperationSelect, syntaxErr: true},
 		{name: "create table", sql: "CREATE TABLE IF NOT EXISTS t (a INTEGER, PRIMARY KEY(a))",
 			op: nosql.StatementSummaryOperationCreateTable, table: "t", ifNotExist: true},
-		{name: "bad create", sql: "CREATE TABLE t (a INTEGER)", op: nosql.StatementSummaryOperationCreateTable, table: "t", syntaxErr: true},
+		{
+			name:      "bad create",
+			sql:       "CREATE TABLE t (a INTEGER)",
+			op:        nosql.StatementSummaryOperationCreateTable,
+			table:     "t",
+			syntaxErr: true,
+		},
 		{name: "alter", sql: "ALTER TABLE t (ADD b STRING)", op: nosql.StatementSummaryOperationAlterTable, table: "t"},
-		{name: "drop table", sql: "DROP TABLE IF EXISTS t", op: nosql.StatementSummaryOperationDropTable, table: "t", ifExists: true},
+		{
+			name:     "drop table",
+			sql:      "DROP TABLE IF EXISTS t",
+			op:       nosql.StatementSummaryOperationDropTable,
+			table:    "t",
+			ifExists: true,
+		},
 		{name: "create index", sql: "CREATE INDEX IF NOT EXISTS i1 ON t(a)",
 			op: nosql.StatementSummaryOperationCreateIndex, table: "t", index: "i1", ifNotExist: true},
-		{name: "drop index", sql: "DROP INDEX i1 ON t", op: nosql.StatementSummaryOperationDropIndex, table: "t", index: "i1"},
+		{
+			name:  "drop index",
+			sql:   "DROP INDEX i1 ON t",
+			op:    nosql.StatementSummaryOperationDropIndex,
+			table: "t",
+			index: "i1",
+		},
 		{name: "insert", sql: "INSERT INTO t VALUES (1)", op: nosql.StatementSummaryOperationInsert, table: "t"},
 		{name: "update", sql: "UPDATE t SET a = 1", op: nosql.StatementSummaryOperationUpdate, table: "t"},
 		{name: "delete", sql: "DELETE FROM t", op: nosql.StatementSummaryOperationDelete, table: "t"},

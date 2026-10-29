@@ -5,6 +5,8 @@ import (
 	"unicode"
 )
 
+const twoRunes = 2
+
 type tokKind int
 
 const (
@@ -29,64 +31,89 @@ func lex(s string) ([]tok, *APIError) {
 	rs := []rune(s)
 
 	for i := 0; i < len(rs); {
-		c := rs[i]
-
-		switch {
-		case unicode.IsSpace(c):
-			i++
-		case c == '\'':
-			text, n, ok := lexString(rs, i)
-			if !ok {
-				return nil, errParam("syntax error: unterminated string literal")
-			}
-
-			out = append(out, tok{kind: tkString, text: text})
-			i = n
-		case c == '"':
-			end := indexRune(rs, i+1, '"')
-			if end < 0 {
-				return nil, errParam("syntax error: unterminated quoted identifier")
-			}
-
-			t := string(rs[i+1 : end])
-			out = append(out, tok{kind: tkIdent, text: t, up: strings.ToUpper(t)})
-			i = end + 1
-		case unicode.IsDigit(c):
-			j := i
-			for j < len(rs) && (unicode.IsDigit(rs[j]) || rs[j] == '.' || rs[j] == 'e' || rs[j] == 'E' ||
-				((rs[j] == '-' || rs[j] == '+') && (rs[j-1] == 'e' || rs[j-1] == 'E'))) {
-				j++
-			}
-
-			out = append(out, tok{kind: tkNumber, text: string(rs[i:j])})
-			i = j
-		case c == '$' || c == '_' || unicode.IsLetter(c):
-			j := i + 1
-			for j < len(rs) && (unicode.IsLetter(rs[j]) || unicode.IsDigit(rs[j]) || rs[j] == '_') {
-				j++
-			}
-
-			t := string(rs[i:j])
-
-			kind := tkIdent
-			if c == '$' {
-				kind = tkVar
-			}
-
-			out = append(out, tok{kind: kind, text: t, up: strings.ToUpper(t)})
-			i = j
-		default:
-			t, n, ok := lexPunct(rs, i)
-			if !ok {
-				return nil, errParam("syntax error: unexpected character '" + string(c) + "'")
-			}
-
-			out = append(out, tok{kind: tkPunct, text: t, up: t})
-			i = n
+		t, n, err := lexOne(rs, i)
+		if err != nil {
+			return nil, err
 		}
+
+		if t != nil {
+			out = append(out, *t)
+		}
+
+		i = n
 	}
 
 	return append(out, tok{kind: tkEOF}), nil
+}
+
+func lexOne(rs []rune, i int) (*tok, int, *APIError) {
+	c := rs[i]
+
+	switch {
+	case unicode.IsSpace(c):
+		return nil, i + 1, nil
+	case c == '\'':
+		text, n, ok := lexString(rs, i)
+		if !ok {
+			return nil, 0, errParam("syntax error: unterminated string literal")
+		}
+
+		return &tok{kind: tkString, text: text}, n, nil
+	case c == '"':
+		end := indexRune(rs, i+1, '"')
+		if end < 0 {
+			return nil, 0, errParam("syntax error: unterminated quoted identifier")
+		}
+
+		t := string(rs[i+1 : end])
+
+		return &tok{kind: tkIdent, text: t, up: strings.ToUpper(t)}, end + 1, nil
+	case unicode.IsDigit(c):
+		j := lexNumberEnd(rs, i)
+
+		return &tok{kind: tkNumber, text: string(rs[i:j])}, j, nil
+	case c == '$' || c == '_' || unicode.IsLetter(c):
+		return lexWord(rs, i)
+	}
+
+	t, n, ok := lexPunct(rs, i)
+	if !ok {
+		return nil, 0, errParam("syntax error: unexpected character '" + string(c) + "'")
+	}
+
+	return &tok{kind: tkPunct, text: t, up: t}, n, nil
+}
+
+func lexWord(rs []rune, i int) (*tok, int, *APIError) {
+	j := i + 1
+	for j < len(rs) && (unicode.IsLetter(rs[j]) || unicode.IsDigit(rs[j]) || rs[j] == '_') {
+		j++
+	}
+
+	t := string(rs[i:j])
+
+	kind := tkIdent
+	if rs[i] == '$' {
+		kind = tkVar
+	}
+
+	return &tok{kind: kind, text: t, up: strings.ToUpper(t)}, j, nil
+}
+
+func lexNumberEnd(rs []rune, i int) int {
+	j := i
+	for j < len(rs) {
+		c := rs[j]
+		signAfterExp := (c == '-' || c == '+') && (rs[j-1] == 'e' || rs[j-1] == 'E')
+
+		if !unicode.IsDigit(c) && c != '.' && c != 'e' && c != 'E' && !signAfterExp {
+			break
+		}
+
+		j++
+	}
+
+	return j
 }
 
 func indexRune(rs []rune, from int, r rune) int {
@@ -125,10 +152,10 @@ func lexString(rs []rune, start int) (string, int, bool) {
 
 func lexPunct(rs []rune, i int) (string, int, bool) {
 	if i+1 < len(rs) {
-		two := string(rs[i : i+2])
+		two := string(rs[i : i+twoRunes])
 		switch two {
 		case "<=", ">=", "<>", "!=":
-			return two, i + 2, true
+			return two, i + twoRunes, true
 		}
 	}
 

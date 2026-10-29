@@ -48,7 +48,12 @@ func TestRowPutGetDelete(t *testing.T) {
 	assert.Equal(t, map[string]any{"a": "s", "b": float64(2)}, got.Value["r"])
 	assert.Positive(t, *got.Usage.ReadUnitsConsumed)
 
-	raw, body, _ := rawDo(t, http.MethodGet, e.base+"/20190828/tables/rich/rows?compartmentId="+testCompartment+"&key=id:7", "")
+	raw, body, _ := rawDo(
+		t,
+		http.MethodGet,
+		e.base+"/20190828/tables/rich/rows?compartmentId="+testCompartment+"&key=id:7",
+		"",
+	)
 	require.Equal(t, http.StatusOK, raw)
 	assert.Contains(t, body, `"big":9007199254740993`, "long values keep full precision")
 
@@ -56,7 +61,12 @@ func TestRowPutGetDelete(t *testing.T) {
 	assert.Nil(t, absent.Value)
 
 	del, err := e.client.DeleteRow(t.Context(), nosql.DeleteRowRequest{
-		TableNameOrId: new("rich"), CompartmentId: new(testCompartment), Key: []string{"id:7"}, IsGetReturnRow: new(true),
+		TableNameOrId: new(
+			"rich",
+		),
+		CompartmentId:  new(testCompartment),
+		Key:            []string{"id:7"},
+		IsGetReturnRow: new(true),
 	})
 	require.NoError(t, err)
 	assert.True(t, *del.IsSuccess)
@@ -84,7 +94,13 @@ func TestRowPutOptions(t *testing.T) {
 	}{
 		{name: "absent on missing", option: nosql.UpdateRowDetailsOptionAbsent, wantApplied: true},
 		{name: "absent on existing", option: nosql.UpdateRowDetailsOptionAbsent, existing: true},
-		{name: "absent on existing returns row", option: nosql.UpdateRowDetailsOptionAbsent, existing: true, returnRow: true, wantExisting: true},
+		{
+			name:         "absent on existing returns row",
+			option:       nosql.UpdateRowDetailsOptionAbsent,
+			existing:     true,
+			returnRow:    true,
+			wantExisting: true,
+		},
 		{name: "present on missing", option: nosql.UpdateRowDetailsOptionPresent},
 		{name: "present on existing", option: nosql.UpdateRowDetailsOptionPresent, existing: true, wantApplied: true},
 		{name: "no option overwrites", existing: true, wantApplied: true},
@@ -103,10 +119,8 @@ func TestRowPutOptions(t *testing.T) {
 
 			resp, err := e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
 				TableNameOrId: new("t"),
-				UpdateRowDetails: nosql.UpdateRowDetails{
-					Value: map[string]any{"id": 1, "name": "new"}, CompartmentId: new(testCompartment),
-					Option: tt.option, IsGetReturnRow: new(tt.returnRow),
-				},
+				Value:         map[string]any{"id": 1, "name": "new"}, CompartmentId: new(testCompartment),
+				Option: tt.option, IsGetReturnRow: new(tt.returnRow),
 			})
 			require.NoError(t, err)
 
@@ -140,14 +154,14 @@ func TestRowVersionMatch(t *testing.T) {
 
 	stale, err := e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
 		TableNameOrId: new("t"), IfMatch: new("bogus"),
-		UpdateRowDetails: nosql.UpdateRowDetails{Value: map[string]any{"id": 1, "name": "b"}, CompartmentId: new(testCompartment)},
+		Value: map[string]any{"id": 1, "name": "b"}, CompartmentId: new(testCompartment),
 	})
 	require.NoError(t, err)
 	assert.Nil(t, stale.Version)
 
 	ok, err := e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
 		TableNameOrId: new("t"), IfMatch: v1.Version,
-		UpdateRowDetails: nosql.UpdateRowDetails{Value: map[string]any{"id": 1, "name": "b"}, CompartmentId: new(testCompartment)},
+		Value: map[string]any{"id": 1, "name": "b"}, CompartmentId: new(testCompartment),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, ok.Version)
@@ -198,9 +212,7 @@ func TestRowValidation(t *testing.T) {
 
 			_, err := e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
 				TableNameOrId: new("t"),
-				UpdateRowDetails: nosql.UpdateRowDetails{
-					Value: tt.value, CompartmentId: new(testCompartment), IsExactMatch: new(tt.exact),
-				},
+				Value:         tt.value, CompartmentId: new(testCompartment), IsExactMatch: new(tt.exact),
 			})
 			if tt.ok {
 				require.NoError(t, err)
@@ -213,14 +225,17 @@ func TestRowValidation(t *testing.T) {
 			assert.Equal(t, "InvalidParameter", se.GetCode())
 		})
 	}
-
 }
 
 func TestRowColumnDefault(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{})
-	e.mkTable(t, "t", "CREATE TABLE t (id INTEGER, req STRING NOT NULL DEFAULT 'x', n INTEGER DEFAULT 4, PRIMARY KEY(id))")
+	e.mkTable(
+		t,
+		"t",
+		"CREATE TABLE t (id INTEGER, req STRING NOT NULL DEFAULT 'x', n INTEGER DEFAULT 4, PRIMARY KEY(id))",
+	)
 	e.put(t, "t", map[string]any{"id": 1})
 
 	got := e.getRow(t, "t", "id:1")
@@ -271,9 +286,9 @@ func TestRowTTL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		ttl      *int
 		useTable *bool
+		name     string
 		want     time.Duration
 	}{
 		{name: "table default", want: 48 * time.Hour},
@@ -293,10 +308,8 @@ func TestRowTTL(t *testing.T) {
 
 			_, err := e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
 				TableNameOrId: new("t"),
-				UpdateRowDetails: nosql.UpdateRowDetails{
-					Value: map[string]any{"id": 1}, CompartmentId: new(testCompartment),
-					Ttl: tt.ttl, IsTtlUseTableDefault: tt.useTable,
-				},
+				Value:         map[string]any{"id": 1}, CompartmentId: new(testCompartment),
+				Ttl: tt.ttl, IsTtlUseTableDefault: tt.useTable,
 			})
 			require.NoError(t, err)
 
@@ -326,9 +339,7 @@ func TestRowTTL(t *testing.T) {
 
 	_, err := e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
 		TableNameOrId: new("t"),
-		UpdateRowDetails: nosql.UpdateRowDetails{
-			Value: map[string]any{"id": 1}, CompartmentId: new(testCompartment), Ttl: new(-1),
-		},
+		Value:         map[string]any{"id": 1}, CompartmentId: new(testCompartment), Ttl: new(-1),
 	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 }
@@ -364,10 +375,15 @@ func TestIdentityAndUUID(t *testing.T) {
 	assert.Len(t, got.Value["u"], 36)
 
 	_, err := e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
-		TableNameOrId:    new("ids"),
-		UpdateRowDetails: nosql.UpdateRowDetails{Value: map[string]any{"id": 1, "v": "c"}, CompartmentId: new(testCompartment)},
+		TableNameOrId: new("ids"),
+		Value:         map[string]any{"id": 1, "v": "c"}, CompartmentId: new(testCompartment),
 	})
-	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "ALWAYS identity rejects explicit values")
+	assert.Equal(
+		t,
+		http.StatusBadRequest,
+		svcErr(t, err).GetHTTPStatusCode(),
+		"ALWAYS identity rejects explicit values",
+	)
 
 	tbl := e.getTable(t, "ids")
 	assert.True(t, *tbl.Schema.Identity.IsAlways)
@@ -380,9 +396,7 @@ func TestIdentityAndUUID(t *testing.T) {
 
 	_, err = e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
 		TableNameOrId: new("ids"),
-		UpdateRowDetails: nosql.UpdateRowDetails{
-			Value: map[string]any{"u": "not-a-uuid", "v": "d"}, CompartmentId: new(testCompartment),
-		},
+		Value:         map[string]any{"u": "not-a-uuid", "v": "d"}, CompartmentId: new(testCompartment),
 	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), "invalid UUID is refused")
 }

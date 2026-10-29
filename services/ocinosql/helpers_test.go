@@ -186,9 +186,7 @@ func (e *env) createTable(t *testing.T, name, ddl string, limits *nosql.TableLim
 	}
 
 	resp, err := e.client.CreateTable(t.Context(), nosql.CreateTableRequest{
-		CreateTableDetails: nosql.CreateTableDetails{
-			Name: new(name), CompartmentId: new(testCompartment), DdlStatement: new(ddl), TableLimits: limits,
-		},
+		Name: new(name), CompartmentId: new(testCompartment), DdlStatement: new(ddl), TableLimits: limits,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, resp.OpcWorkRequestId)
@@ -225,9 +223,7 @@ func (e *env) put(t *testing.T, table string, value map[string]any) nosql.Update
 
 	resp, err := e.client.UpdateRow(t.Context(), nosql.UpdateRowRequest{
 		TableNameOrId: new(table),
-		UpdateRowDetails: nosql.UpdateRowDetails{
-			Value: value, CompartmentId: new(testCompartment),
-		},
+		Value:         value, CompartmentId: new(testCompartment),
 	})
 	require.NoError(t, err)
 
@@ -238,8 +234,8 @@ func (e *env) query(t *testing.T, stmt string, limit int, page *string) nosql.Qu
 	t.Helper()
 
 	req := nosql.QueryRequest{
-		QueryDetails: nosql.QueryDetails{CompartmentId: new(testCompartment), Statement: new(stmt)},
-		Page:         page,
+		CompartmentId: new(testCompartment), Statement: new(stmt),
+		Page: page,
 	}
 	if limit > 0 {
 		req.Limit = new(limit)

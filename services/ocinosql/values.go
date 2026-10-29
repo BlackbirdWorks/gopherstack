@@ -40,6 +40,11 @@ func (sv *schemaView) lookup(name string) (int, bool) {
 	return i, ok
 }
 
+const (
+	decimalBase  = 10
+	bigFloatPrec = 128
+)
+
 func decodeJSON(raw []byte) (any, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -71,7 +76,7 @@ func coerceInt(v any, lo, hi int64, kind string) (any, string) {
 
 	i, err := strconv.ParseInt(n.String(), 10, 64)
 	if err != nil {
-		f, _, ferr := big.ParseFloat(n.String(), 10, 128, big.ToNearestEven)
+		f, _, ferr := big.ParseFloat(n.String(), decimalBase, bigFloatPrec, big.ToNearestEven)
 		if ferr != nil || !f.IsInt() {
 			return nil, "is not a valid " + kind
 		}
@@ -134,6 +139,15 @@ func coerce(t *dtype, v any) (any, string) {
 		return coerceInt(v, math.MinInt64, math.MaxInt64, kLong)
 	case kFloat, kDouble:
 		return coerceFloat(t.kind, v)
+	case kString, kBoolean, kNumber, kBinary, kTimestamp, kEnum:
+		return coerceScalar(t, v)
+	}
+
+	return coerceComposite(t, v)
+}
+
+func coerceScalar(t *dtype, v any) (any, string) {
+	switch t.kind {
 	case kNumber:
 		n, ok := v.(json.Number)
 		if _, rok := new(big.Rat).SetString(n.String()); !ok || !rok {
@@ -145,21 +159,15 @@ func coerce(t *dtype, v any) (any, string) {
 		if _, ok := v.(string); !ok {
 			return nil, "is not a valid STRING"
 		}
-
-		return v, ""
 	case kBoolean:
 		if _, ok := v.(bool); !ok {
 			return nil, "is not a valid BOOLEAN"
 		}
-
-		return v, ""
 	case kBinary:
 		s, ok := v.(string)
 		if _, err := base64.StdEncoding.DecodeString(s); !ok || err != nil {
 			return nil, "is not a valid base64-encoded BINARY"
 		}
-
-		return v, ""
 	case kTimestamp:
 		ts, ok := parseTimestamp(v)
 		if !ok {
@@ -172,11 +180,9 @@ func coerce(t *dtype, v any) (any, string) {
 		if !strs.ContainsFold(t.enum, s) {
 			return nil, "is not one of the ENUM values"
 		}
-
-		return s, ""
 	}
 
-	return coerceComposite(t, v)
+	return v, ""
 }
 
 func coerceComposite(t *dtype, v any) (any, string) {

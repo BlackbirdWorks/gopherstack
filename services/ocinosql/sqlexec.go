@@ -294,7 +294,7 @@ func (pl *plan) truth(e expr, row map[string]any) bool {
 
 func (pl *plan) evalBin(x *binExpr, row map[string]any) bool {
 	switch x.op {
-	case "AND":
+	case kwAnd:
 		return pl.truth(x.l, row) && pl.truth(x.r, row)
 	case "OR":
 		return pl.truth(x.l, row) || pl.truth(x.r, row)
@@ -408,7 +408,9 @@ func (pl *plan) project(es []entry) []map[string]any {
 }
 
 // run scans the table, filters, orders and slices the rows; scanned is the number of bytes read.
-func (pl *plan) run(now func() time.Time) (rows []map[string]any, scanned int) {
+func (pl *plan) run(now func() time.Time) ([]map[string]any, int) {
+	scanned := 0
+
 	var es []entry
 
 	for k, r := range pl.table.Rows {

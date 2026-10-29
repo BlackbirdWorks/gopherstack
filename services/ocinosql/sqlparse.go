@@ -12,7 +12,7 @@ type step struct {
 	isIdx bool
 }
 
-type expr interface{}
+type expr any
 
 type (
 	binExpr struct {
@@ -59,7 +59,7 @@ type selectStmt struct {
 
 var unsupportedKw = map[string]bool{ //nolint:gochecknoglobals // immutable lookup
 	"GROUP": true, "JOIN": true, "HAVING": true, "UNION": true, "LEFT": true, "INNER": true, "DISTINCT": true,
-	"LIKE": true, "EXISTS": true, "SELECT": true,
+	"LIKE": true, "EXISTS": true, sqlSelect: true,
 }
 
 func (p *parser) unsupported(what string) *APIError {
@@ -80,7 +80,7 @@ func parseSelect(sql string) (*selectStmt, *APIError) {
 		}
 	}
 
-	if e := p.expectKw("SELECT"); e != nil {
+	if e := p.expectKw(sqlSelect); e != nil {
 		return nil, e
 	}
 
@@ -127,8 +127,8 @@ func (p *parser) parseDeclare(st *selectStmt) *APIError {
 }
 
 func (p *parser) parseSelectList(st *selectStmt) *APIError {
-	if p.unsupportedHere() != nil {
-		return p.unsupportedHere()
+	if e := p.unsupportedHere(); e != nil {
+		return e
 	}
 
 	if p.acceptPunct("*") {
@@ -138,28 +138,8 @@ func (p *parser) parseSelectList(st *selectStmt) *APIError {
 	}
 
 	for {
-		if p.isKw("COUNT") {
-			p.pos++
-
-			if e := firstErr(p.expectPunct("("), p.expectPunct("*"), p.expectPunct(")")); e != nil {
-				return e
-			}
-
-			st.count = true
-		} else {
-			steps, e := p.parsePath()
-			if e != nil {
-				return e
-			}
-
-			it := selItem{path: steps}
-			if p.acceptKw("AS") {
-				if it.alias, e = p.ident("an alias"); e != nil {
-					return e
-				}
-			}
-
-			st.items = append(st.items, it)
+		if e := p.parseSelectItem(st); e != nil {
+			return e
 		}
 
 		if !p.acceptPunct(",") {
@@ -174,8 +154,34 @@ func (p *parser) parseSelectList(st *selectStmt) *APIError {
 	return nil
 }
 
+func (p *parser) parseSelectItem(st *selectStmt) *APIError {
+	if p.isKw("COUNT") && p.toks[p.pos+1].text == "(" {
+		p.pos++
+
+		st.count = true
+
+		return firstErr(p.expectPunct("("), p.expectPunct("*"), p.expectPunct(")"))
+	}
+
+	steps, e := p.parsePath()
+	if e != nil {
+		return e
+	}
+
+	it := selItem{path: steps}
+	if p.acceptKw("AS") {
+		if it.alias, e = p.ident("an alias"); e != nil {
+			return e
+		}
+	}
+
+	st.items = append(st.items, it)
+
+	return nil
+}
+
 func (p *parser) unsupportedHere() *APIError {
-	if t := p.peek(); t.kind == tkIdent && (t.up == "DISTINCT" || t.up == "SELECT") {
+	if t := p.peek(); t.kind == tkIdent && (t.up == "DISTINCT" || t.up == sqlSelect) {
 		return p.unsupported(t.up)
 	}
 
@@ -226,28 +232,8 @@ func isClauseKw(up string) bool {
 
 func (p *parser) parseOrderLimit(st *selectStmt) *APIError {
 	if p.acceptKw("ORDER") {
-		if e := p.expectKw("BY"); e != nil {
+		if e := p.parseOrderBy(st); e != nil {
 			return e
-		}
-
-		for {
-			steps, e := p.parsePath()
-			if e != nil {
-				return e
-			}
-
-			it := orderItem{path: steps}
-			if p.acceptKw("DESC") {
-				it.desc = true
-			} else {
-				p.acceptKw("ASC")
-			}
-
-			st.order = append(st.order, it)
-
-			if !p.acceptPunct(",") {
-				break
-			}
 		}
 	}
 
@@ -268,6 +254,32 @@ func (p *parser) parseOrderLimit(st *selectStmt) *APIError {
 
 			st.offset = &n
 		default:
+			return nil
+		}
+	}
+}
+
+func (p *parser) parseOrderBy(st *selectStmt) *APIError {
+	if e := p.expectKw("BY"); e != nil {
+		return e
+	}
+
+	for {
+		steps, e := p.parsePath()
+		if e != nil {
+			return e
+		}
+
+		it := orderItem{path: steps}
+		if p.acceptKw("DESC") {
+			it.desc = true
+		} else {
+			p.acceptKw("ASC")
+		}
+
+		st.order = append(st.order, it)
+
+		if !p.acceptPunct(",") {
 			return nil
 		}
 	}
@@ -344,13 +356,13 @@ func (p *parser) parseAnd() (expr, *APIError) {
 		return nil, e
 	}
 
-	for p.acceptKw("AND") {
+	for p.acceptKw(kwAnd) {
 		r, e2 := p.parseNot()
 		if e2 != nil {
 			return nil, e2
 		}
 
-		l = &binExpr{op: "AND", l: l, r: r}
+		l = &binExpr{op: kwAnd, l: l, r: r}
 	}
 
 	return l, nil
@@ -369,6 +381,9 @@ func (p *parser) parseNot() (expr, *APIError) {
 	return p.parseCompare()
 }
 
+//nolint:gochecknoglobals // immutable lookup
+var cmpOps = map[string]string{"=": "=", "<": "<", "<=": "<=", ">": ">", ">=": ">=", "<>": "!=", "!=": "!="}
+
 func (p *parser) parseCompare() (expr, *APIError) {
 	l, e := p.parseOperand()
 	if e != nil {
@@ -377,9 +392,7 @@ func (p *parser) parseCompare() (expr, *APIError) {
 
 	t := p.peek()
 
-	switch {
-	case t.kind == tkPunct && (t.text == "=" || t.text == "<" || t.text == "<=" || t.text == ">" ||
-		t.text == ">=" || t.text == "<>" || t.text == "!="):
+	if op, ok := cmpOps[t.text]; ok && t.kind == tkPunct {
 		p.pos++
 
 		r, e2 := p.parseOperand()
@@ -387,18 +400,20 @@ func (p *parser) parseCompare() (expr, *APIError) {
 			return nil, e2
 		}
 
-		op := t.text
-		if op == "<>" {
-			op = "!="
-		}
-
 		return &binExpr{op: op, l: l, r: r}, nil
-	case t.kind == tkIdent && t.up == "IS":
+	}
+
+	if t.kind != tkIdent {
+		return l, nil
+	}
+
+	switch t.up {
+	case "IS":
 		p.pos++
 		not := p.acceptKw("NOT")
 
-		return &nullExpr{e: l, not: not}, p.expectKw("NULL")
-	case t.kind == tkIdent && (t.up == "IN" || t.up == "NOT" || t.up == "BETWEEN"):
+		return &nullExpr{e: l, not: not}, p.expectKw(kwNull)
+	case "IN", "NOT", "BETWEEN":
 		return p.parseInBetween(l)
 	}
 
@@ -414,7 +429,7 @@ func (p *parser) parseInBetween(l expr) (expr, *APIError) {
 			return nil, e
 		}
 
-		if e = p.expectKw("AND"); e != nil {
+		if e = p.expectKw(kwAnd); e != nil {
 			return nil, e
 		}
 
@@ -423,7 +438,7 @@ func (p *parser) parseInBetween(l expr) (expr, *APIError) {
 			return nil, e
 		}
 
-		var out expr = &binExpr{op: "AND", l: &binExpr{op: ">=", l: l, r: lo}, r: &binExpr{op: "<=", l: l, r: hi}}
+		var out expr = &binExpr{op: kwAnd, l: &binExpr{op: ">=", l: l, r: lo}, r: &binExpr{op: "<=", l: l, r: hi}}
 		if not {
 			out = &notExpr{e: out}
 		}
@@ -479,27 +494,7 @@ func (p *parser) parseOperand() (expr, *APIError) {
 		}
 
 		return &litExpr{v: json.Number("-" + n.text)}, nil
-	case t.kind == tkNumber:
-		p.pos++
-
-		return &litExpr{v: json.Number(t.text)}, nil
-	case t.kind == tkString:
-		p.pos++
-
-		return &litExpr{v: t.text}, nil
-	case t.kind == tkVar:
-		p.pos++
-
-		return &varExpr{name: t.text}, nil
-	case t.kind == tkIdent && (t.up == "TRUE" || t.up == "FALSE"):
-		p.pos++
-
-		return &litExpr{v: t.up == "TRUE"}, nil
-	case t.kind == tkIdent && t.up == "NULL":
-		p.pos++
-
-		return &litExpr{v: nil}, nil
-	case t.kind == tkIdent:
+	case t.kind == tkIdent && !isLiteralKw(t.up):
 		steps, err := p.parsePath()
 		if err != nil {
 			return nil, err
@@ -508,7 +503,33 @@ func (p *parser) parseOperand() (expr, *APIError) {
 		return &pathExpr{steps: steps}, nil
 	}
 
-	return nil, p.fail("an expression")
+	lit, ok := literalOf(t)
+	if !ok {
+		return nil, p.fail("an expression")
+	}
+
+	p.pos++
+
+	return lit, nil
+}
+
+func isLiteralKw(up string) bool { return up == kwTrue || up == kwFalse || up == kwNull }
+
+func literalOf(t tok) (expr, bool) {
+	switch {
+	case t.kind == tkNumber:
+		return &litExpr{v: json.Number(t.text)}, true
+	case t.kind == tkString:
+		return &litExpr{v: t.text}, true
+	case t.kind == tkVar:
+		return &varExpr{name: t.text}, true
+	case t.kind == tkIdent && (t.up == kwTrue || t.up == kwFalse):
+		return &litExpr{v: t.up == kwTrue}, true
+	case t.kind == tkIdent && t.up == kwNull:
+		return &litExpr{v: nil}, true
+	}
+
+	return nil, false
 }
 
 // stmtKind classifies the leading keywords of a statement for SummarizeStatement.
@@ -534,7 +555,7 @@ func summarize(sql string) stmtSummary {
 	first := p.next().up
 
 	switch first {
-	case "SELECT":
+	case sqlSelect:
 		return summarizeSelect(sql)
 	case "CREATE":
 		return summarizeCreate(p, sql)
@@ -550,25 +571,25 @@ func summarize(sql string) stmtSummary {
 		return s
 	case "DROP":
 		return summarizeDrop(p)
-	case "INSERT":
+	case sqlInsert:
 		p.acceptKw("INTO")
 
-		return stmtSummary{operation: "INSERT", table: p.next().text}
+		return stmtSummary{operation: sqlInsert, table: p.next().text}
 	case "UPSERT":
-		return stmtSummary{operation: "INSERT", table: p.next().text}
-	case "UPDATE":
-		return stmtSummary{operation: "UPDATE", table: p.next().text}
-	case "DELETE":
+		return stmtSummary{operation: sqlInsert, table: p.next().text}
+	case sqlUpdate:
+		return stmtSummary{operation: sqlUpdate, table: p.next().text}
+	case sqlDelete:
 		p.acceptKw("FROM")
 
-		return stmtSummary{operation: "DELETE", table: p.next().text}
+		return stmtSummary{operation: sqlDelete, table: p.next().text}
 	}
 
 	return stmtSummary{syntaxError: "syntax error: unrecognized statement '" + strings.TrimSpace(first) + "'"}
 }
 
 func summarizeSelect(sql string) stmtSummary {
-	s := stmtSummary{operation: "SELECT"}
+	s := stmtSummary{operation: sqlSelect}
 
 	st, e := parseSelect(sql)
 	if e != nil {

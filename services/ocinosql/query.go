@@ -37,10 +37,10 @@ type PreparedStatement struct {
 
 // StatementSummary is the SummarizeStatement response body.
 type StatementSummary struct {
+	SyntaxError   *string `json:"syntaxError,omitempty"`
 	Operation     string  `json:"operation,omitempty"`
 	TableName     string  `json:"tableName,omitempty"`
 	IndexName     string  `json:"indexName,omitempty"`
-	SyntaxError   *string `json:"syntaxError,omitempty"`
 	IsIfExists    bool    `json:"isIfExists"`
 	IsIfNotExists bool    `json:"isIfNotExists"`
 }
@@ -71,7 +71,7 @@ func selectOrReject(sql string) (*selectStmt, *APIError) {
 	}
 
 	switch summarize(sql).operation {
-	case "INSERT", "UPDATE", "DELETE":
+	case sqlInsert, sqlUpdate, sqlDelete:
 		return nil, errParam("DML statements are not supported by Query; use UpdateRow and DeleteRow")
 	case "CREATE_TABLE", "ALTER_TABLE", "DROP_TABLE":
 		return nil, errParam("table DDL is not accepted by Query; use CreateTable, UpdateTable and DeleteTable")
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) Query(in queryIn, limit int, token string) (page.Page[
 		return page.Page[map[string]any]{}, usageWire{}, errParam("page token is invalid")
 	}
 
-	if in.Consistency != "" && in.Consistency != "EVENTUAL" && in.Consistency != "ABSOLUTE" {
+	if in.Consistency != "" && in.Consistency != consEventual && in.Consistency != consAbsolute {
 		return page.Page[map[string]any]{}, usageWire{}, errParam("consistency must be EVENTUAL or ABSOLUTE")
 	}
 
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) Query(in queryIn, limit int, token string) (page.Page[
 	rows, scanned := pl.run(b.nowUTC)
 	units := unitsFor(scanned)
 
-	if in.Consistency == "ABSOLUTE" {
+	if in.Consistency == consAbsolute {
 		units *= 2
 	}
 
@@ -204,7 +204,12 @@ func (pl *plan) describe() map[string]any {
 		access = "INDEX_SCAN"
 	}
 
-	d := map[string]any{"table": pl.table.Name, "access": access, "filtered": pl.stmt.where != nil, "count": pl.stmt.count}
+	d := map[string]any{
+		"table":    pl.table.Name,
+		"access":   access,
+		"filtered": pl.stmt.where != nil,
+		"count":    pl.stmt.count,
+	}
 	if pl.stmt.limit != nil {
 		d["limit"] = *pl.stmt.limit
 	}
@@ -258,7 +263,7 @@ func (h *Handler) query(q *req) error {
 
 func (h *Handler) prepareStatement(q *req) error {
 	res, err := h.Backend.PrepareStatement(q.query("compartmentId"), q.query("statement"),
-		q.query("isGetQueryPlan") == "true")
+		q.flag("isGetQueryPlan"))
 
 	return reply(q, res, "", err)
 }

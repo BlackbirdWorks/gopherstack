@@ -77,15 +77,14 @@ type Usage struct {
 type Table struct {
 	TimeCreated   time.Time         `json:"timeCreated"`
 	TimeUpdated   time.Time         `json:"timeUpdated"`
+	Tags          Tags              `json:"tags"`
 	TransitionAt  *time.Time        `json:"transitionAt,omitempty"`
 	Rows          map[string]*Row   `json:"rows,omitempty"`
 	Indexes       map[string]*Index `json:"indexes,omitempty"`
 	Usage         map[int64]*Usage  `json:"usage,omitempty"`
 	Identity      *Identity         `json:"identity,omitempty"`
-	Tags          Tags              `json:"tags"`
-	Limits        Limits            `json:"limits"`
-	ID            string            `json:"id"`
 	CompartmentID string            `json:"compartmentId"`
+	ID            string            `json:"id"`
 	Name          string            `json:"name"`
 	State         string            `json:"state"`
 	DDL           string            `json:"ddl"`
@@ -93,9 +92,10 @@ type Table struct {
 	Columns       []Column          `json:"columns"`
 	PrimaryKey    []string          `json:"primaryKey"`
 	ShardKey      []string          `json:"shardKey"`
+	Limits        Limits            `json:"limits"`
 	TTLHours      int               `json:"ttlHours"`
-	AutoReclaim   bool              `json:"autoReclaimable,omitempty"`
 	RowSeq        int64             `json:"rowSeq"`
+	AutoReclaim   bool              `json:"autoReclaimable,omitempty"`
 }
 
 // WorkRequest records an asynchronous admin operation.

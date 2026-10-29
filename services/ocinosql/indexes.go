@@ -208,7 +208,7 @@ func (b *InMemoryBackend) ListIndexes(ref, compartment, name, state string, o Li
 	var all []*Index
 
 	for _, ix := range t.Indexes {
-		if (name != "" && !strs.Equal(ix.Name, name)) || (state != "" && state != "ALL" && ix.State != state) {
+		if (name != "" && !strs.Equal(ix.Name, name)) || (state != "" && state != filterAll && ix.State != state) {
 			continue
 		}
 
@@ -239,7 +239,7 @@ func (h *Handler) createIndex(q *req) error {
 
 func (h *Handler) deleteIndex(q *req) error {
 	wr, err := h.Backend.DeleteIndex(q.param("tableNameOrId"), q.param("indexName"), q.query("compartmentId"),
-		q.query("isIfExists") == "true")
+		q.flag("isIfExists"))
 	if err == nil && wr == "" {
 		q.w.WriteHeader(http.StatusNoContent)
 

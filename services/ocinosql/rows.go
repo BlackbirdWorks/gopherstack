@@ -37,8 +37,8 @@ type usageWire struct {
 type UpdateRowResult struct {
 	Version         *string         `json:"version"`
 	ExistingVersion *string         `json:"existingVersion,omitempty"`
-	ExistingValue   json.RawMessage `json:"existingValue,omitempty"`
 	GeneratedValue  *string         `json:"generatedValue,omitempty"`
+	ExistingValue   json.RawMessage `json:"existingValue,omitempty"`
 	Usage           usageWire       `json:"usage"`
 }
 
@@ -94,7 +94,9 @@ func (b *InMemoryBackend) rowTable(ref, compartment string) (*Table, *APIError) 
 	}
 
 	if t.State != stateActive && t.State != stateUpdating {
-		return nil, errState("Table " + t.Name + " is in state " + t.State + "; rows are only available in ACTIVE or UPDATING")
+		return nil, errState(
+			"Table " + t.Name + " is in state " + t.State + "; rows are only available in ACTIVE or UPDATING",
+		)
 	}
 
 	return t, nil
@@ -222,7 +224,7 @@ func (t *Table) fillDefaults(sv *schemaView, out map[string]any, given map[strin
 func (t *Table) rowExpiry(in updateRowIn, now time.Time) (*time.Time, *APIError) {
 	hours := t.TTLHours
 
-	if in.TTL != nil && !(in.IsTTLUseDefault != nil && *in.IsTTLUseDefault) {
+	if in.TTL != nil && (in.IsTTLUseDefault == nil || !*in.IsTTLUseDefault) {
 		if *in.TTL < 0 {
 			return nil, errParam("ttl must not be negative")
 		}
@@ -231,7 +233,7 @@ func (t *Table) rowExpiry(in updateRowIn, now time.Time) (*time.Time, *APIError)
 	}
 
 	if hours == 0 {
-		return nil, nil //nolint:nilnil // no expiry
+		return nil, nil
 	}
 
 	at := now.Add(time.Duration(hours) * time.Hour)
@@ -292,7 +294,11 @@ func (b *InMemoryBackend) UpdateRow(ref, ifMatch string, in updateRowIn) (Update
 	w := unitsFor(len(raw))
 	t.record(now, 0, w)
 
-	return UpdateRowResult{Version: ptrIf(t.Rows[key].Version), GeneratedValue: gen, Usage: usageWire{WriteUnitsConsumed: w}}, nil
+	return UpdateRowResult{
+		Version:        ptrIf(t.Rows[key].Version),
+		GeneratedValue: gen,
+		Usage:          usageWire{WriteUnitsConsumed: w},
+	}, nil
 }
 
 func refused(option, ifMatch string, existing *Row) bool {
@@ -364,7 +370,7 @@ func (b *InMemoryBackend) GetRow(ref, compartment string, key []string, consiste
 		return RowResult{}, "", aerr
 	}
 
-	if consistency != "" && consistency != "EVENTUAL" && consistency != "ABSOLUTE" {
+	if consistency != "" && consistency != consEventual && consistency != consAbsolute {
 		return RowResult{}, "", errParam("consistency must be EVENTUAL or ABSOLUTE")
 	}
 
@@ -383,7 +389,7 @@ func (b *InMemoryBackend) GetRow(ref, compartment string, key []string, consiste
 	}
 
 	units := unitsFor(size)
-	if consistency == "ABSOLUTE" {
+	if consistency == consAbsolute {
 		units *= 2
 	}
 
@@ -393,11 +399,20 @@ func (b *InMemoryBackend) GetRow(ref, compartment string, key []string, consiste
 		return RowResult{Usage: usageWire{ReadUnitsConsumed: units}}, "", nil
 	}
 
-	return RowResult{Value: r.Value, TimeOfExpiration: r.Expire, Usage: usageWire{ReadUnitsConsumed: units}}, r.Version, nil
+	return RowResult{
+		Value:            r.Value,
+		TimeOfExpiration: r.Expire,
+		Usage:            usageWire{ReadUnitsConsumed: units},
+	}, r.Version, nil
 }
 
 // DeleteRow removes one row by primary key.
-func (b *InMemoryBackend) DeleteRow(ref, compartment string, key []string, ifMatch string, returnRow bool) (DeleteRowResult, error) {
+func (b *InMemoryBackend) DeleteRow(
+	ref, compartment string,
+	key []string,
+	ifMatch string,
+	returnRow bool,
+) (DeleteRowResult, error) {
 	b.mu.Lock("DeleteRow")
 	defer b.mu.Unlock()
 
@@ -454,7 +469,7 @@ func (h *Handler) getRow(q *req) error {
 
 func (h *Handler) deleteRow(q *req) error {
 	res, err := h.Backend.DeleteRow(q.param("tableNameOrId"), q.query("compartmentId"), q.r.URL.Query()["key"],
-		q.ifMatch(), q.query("isGetReturnRow") == "true")
+		q.ifMatch(), q.flag("isGetReturnRow"))
 
 	return reply(q, res, "", err)
 }
