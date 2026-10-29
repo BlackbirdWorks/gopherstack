@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -116,7 +117,12 @@ func (h *Handler) outboundRequest(
 	}
 
 	target := scheme + "://" + host + strings.TrimSuffix(o.Path, "/") + rawPath
-	if q := forwardedQuery(v.r.URL.RawQuery, pol); q != "" {
+	q := forwardedQuery(v.r.URL.RawQuery, pol)
+	if v.edge != nil && v.edge.query != nil {
+		q = *v.edge.query
+	}
+
+	if q != "" {
 		target += "?" + q
 	}
 
@@ -172,6 +178,30 @@ func setOutboundHeaders(req *http.Request, o *dpOrigin, pol *dpPolicy, v *viewer
 	for _, hp := range o.Headers {
 		if hp.Name != "" {
 			req.Header.Set(hp.Name, hp.Value)
+		}
+	}
+
+	applyEdgeHeaders(req, v.edge)
+}
+
+// applyEdgeHeaders makes the origin request carry exactly the headers an origin-request function returned.
+func applyEdgeHeaders(req *http.Request, e *edgeOverride) {
+	if e == nil || e.header == nil {
+		return
+	}
+
+	for name := range req.Header {
+		if _, kept := e.header[name]; !kept && !edgeDisallowed(name) {
+			delete(req.Header, name)
+		}
+	}
+
+	for name, vals := range e.header {
+		switch {
+		case strings.EqualFold(name, "Host"):
+			req.Host = vals[0]
+		case !edgeDisallowed(name) && !isHopByHop(name) && !strings.EqualFold(name, "Content-Length"):
+			req.Header[name] = slices.Clone(vals)
 		}
 	}
 }

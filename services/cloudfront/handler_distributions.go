@@ -198,6 +198,10 @@ func (h *Handler) handleCreateDistribution(c *echo.Context) error {
 		return h.handleError(c, qErr)
 	}
 
+	if eErr := h.validateEdgeAssociations(body); eErr != nil {
+		return h.handleError(c, eErr)
+	}
+
 	var cfg distributionConfigMinimal
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		return xmlResp(
@@ -253,6 +257,10 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 
 	if qErr := validateQuantities(body); qErr != nil {
 		return h.handleError(c, qErr)
+	}
+
+	if eErr := h.validateEdgeAssociations(body); eErr != nil {
+		return h.handleError(c, eErr)
 	}
 
 	var cfg distributionConfigMinimal
@@ -665,6 +673,10 @@ func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {
 	rawConfig := backfillOriginGroups(
 		[]byte("<DistributionConfig>" + req.DistributionConfig.Inner + "</DistributionConfig>"),
 	)
+
+	if eErr := h.validateEdgeAssociations(rawConfig); eErr != nil {
+		return h.handleError(c, eErr)
+	}
 
 	var cfg distributionConfigMinimal
 	if xmlErr := xml.Unmarshal(rawConfig, &cfg); xmlErr != nil {

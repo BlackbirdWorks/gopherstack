@@ -174,7 +174,7 @@ const xCacheFromFn = "FunctionGeneratedResponse from cloudfront"
 func (h *Handler) applyViewerResponse(d *Distribution, beh *dpBehavior, v *viewerReq, resp originResp) originResp {
 	fn := h.viewerFunction(beh, eventViewerResponse)
 	if fn == nil {
-		return resp
+		return h.applyEdgeViewerResponse(d, beh, v, resp)
 	}
 
 	out, res, ok := h.runFunction(fn, eventViewerResponse, h.functionEvent(d, v, eventViewerResponse, &resp), nil)

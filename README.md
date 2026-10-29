@@ -733,7 +733,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ARC Zonal Shift](services/arczonalshift/README.md) | A | 15 | 1 structural gap |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 1 structural gap |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 structural gaps; 1 deferred |
-| [CloudFront](services/cloudfront/README.md) | A | 60 | 3 gaps; 4 structural gaps; 4 deferred |
+| [CloudFront](services/cloudfront/README.md) | A | 60 | 4 gaps; 4 structural gaps; 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 1 gap; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 2 gaps; 2 structural gaps; 2 deferred |
