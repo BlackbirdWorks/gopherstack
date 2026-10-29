@@ -238,6 +238,8 @@ describe("new GCP console pages", () => {
       "arm",
       "aci",
       "appservice",
+      "containerapps",
+      "vm",
     ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
@@ -252,5 +254,18 @@ describe("new GCP console pages", () => {
     expect(azureServiceById("appservice")?.portLabel).toBe("azurearm");
     expect(gcpServiceById("datastore")?.portLabel).toBe("gcpdatastore");
     expect(ociServiceById("core")?.portLabel).toBe("ocicore");
+  });
+
+  it("registers Kubernetes Engine, Container Apps, Virtual Machines, Queue and Notifications", () => {
+    expect(availableGcpServices(["GCPContainer"]).map((s) => s.id)).toEqual(["container"]);
+    expect(availableOciServices(["OCIQueue", "OCINotifications"]).map((s) => s.id)).toEqual([
+      "queue",
+      "notifications",
+    ]);
+    expect(azureServiceById("containerapps")?.portLabel).toBe("azurearm");
+    expect(azureServiceById("vm")?.portLabel).toBe("azurearm");
+    expect(gcpServiceById("container")?.portLabel).toBe("gcpcontainer");
+    expect(ociServiceById("queue")?.portLabel).toBe("ociqueue");
+    expect(ociServiceById("notifications")?.portLabel).toBe("ocinotifications");
   });
 });

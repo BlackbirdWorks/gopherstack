@@ -231,4 +231,9 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerGCPComputeRoutes()
 	h.registerAzureACIRoutes()
 	h.registerAzureAppServiceRoutes()
+	h.registerGCPContainerRoutes()
+	h.registerOCIQueueRoutes()
+	h.registerOCINotificationsRoutes()
+	h.registerAzureContainerAppsRoutes()
+	h.registerAzureVMRoutes()
 }

@@ -102,6 +102,7 @@ import (
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	gcpcontainerbackend "github.com/blackbirdworks/gopherstack/services/gcpcontainer"
 	gcpdatastorebackend "github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
@@ -146,7 +147,9 @@ import (
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	ociqueuebackend "github.com/blackbirdworks/gopherstack/services/ociqueue"
 	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
 	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -584,6 +587,10 @@ type Config struct {
 	AzureMonitorOps *azuremonitorbackend.Handler
 	// OCICoreOps is dispatched in-process by the /dashboard/api/v1/oci/core proxy.
 	OCICoreOps *ocicorebackend.Handler
+	// GCPContainerOps, OCIQueueOps and OCINotificationsOps are called in-process by their proxies.
+	GCPContainerOps     *gcpcontainerbackend.Handler
+	OCIQueueOps         *ociqueuebackend.Handler
+	OCINotificationsOps *ocinotificationsbackend.Handler
 	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
 	AzureFileOps *azurefilebackend.Handler
 	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.
