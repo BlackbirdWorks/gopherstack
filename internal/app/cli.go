@@ -183,6 +183,7 @@ import (
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
+	gcpidtkbackend "github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
@@ -626,6 +627,7 @@ type CLI struct {
 	AzureMonitor                  azuremonitorbackend.Settings      `embed:"" prefix:"azure-monitor-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	Glue                          gluebackend.Settings              `embed:"" prefix:"glue-"`
+	GCPIdentityToolkit            gcpidtkbackend.Settings           `embed:"" prefix:"gcp-identitytoolkit-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
 	AzureAppConfig                azureappconfigbackend.Settings    `embed:"" prefix:"azure-appconfig-"`
@@ -851,6 +853,11 @@ func (c *CLI) GetGCPDNSSettings() gcpdnsbackend.Settings { return c.GCPDNS }
 
 // GetGCPComputeSettings returns Compute Engine settings (gcpcompute.ConfigProvider).
 func (c *CLI) GetGCPComputeSettings() gcpcomputebackend.Settings { return c.GCPCompute }
+
+// GetGCPIdentityToolkitSettings returns Identity Platform settings (gcpidentitytoolkit.ConfigProvider).
+func (c *CLI) GetGCPIdentityToolkitSettings() gcpidtkbackend.Settings {
+	return c.GCPIdentityToolkit
+}
 
 // GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).
 func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings { return c.GCPContainer }
@@ -2673,6 +2680,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPDNSServer", "gcpdns-server", cli.GCPDNS.DNSPort},
 		{"GCPCompute", "gcpcompute", cli.GCPCompute.Port},
 		{"GCPContainer", "gcpcontainer", cli.GCPContainer.Port},
+		{"GCPIdentityToolkit", "gcpidentitytoolkit", cli.GCPIdentityToolkit.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -5223,6 +5231,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpdnsbackend.Provider{},
 		&gcpcomputebackend.Provider{},
 		&gcpcontainerbackend.Provider{},
+		&gcpidtkbackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
