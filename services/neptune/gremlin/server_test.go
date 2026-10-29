@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/neptune/gremlin"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
@@ -311,7 +312,7 @@ func TestHTTPEndpoint(t *testing.T) {
 				req.Header.Set("Accept", tt.accept)
 			}
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer func() { _ = resp.Body.Close() }()

@@ -10,6 +10,8 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestLocalStackChaosAPIInjectsFaultsIntoSDKCalls(t *testing.T) {
@@ -25,7 +27,7 @@ func TestLocalStackChaosAPIInjectsFaultsIntoSDKCalls(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := testclient.New(t).Do(req)
 		require.NoError(t, err)
 		require.NoError(t, resp.Body.Close())
 		require.Equal(t, http.StatusOK, resp.StatusCode)

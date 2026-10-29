@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestViewsAndDDL(t *testing.T) {
@@ -279,7 +281,7 @@ func TestRoutingAndErrors(t *testing.T) {
 			req, err := http.NewRequestWithContext(t.Context(), tt.method, env.url+tt.path, nil)
 			require.NoError(t, err)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

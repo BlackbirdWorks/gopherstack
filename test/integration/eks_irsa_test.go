@@ -21,6 +21,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 type irsaToken struct {
@@ -34,7 +36,7 @@ func mintIRSAToken(t *testing.T, cluster string, body map[string]any) irsaToken 
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
 
-	resp, err := http.Post(endpoint+"/_gopherstack/eks/"+cluster+"/serviceaccount-token",
+	resp, err := testclient.New(t).Post(endpoint+"/_gopherstack/eks/"+cluster+"/serviceaccount-token",
 		"application/json", bytes.NewReader(raw))
 	require.NoError(t, err)
 
@@ -91,7 +93,8 @@ func TestIntegration_EKS_IRSA(t *testing.T) {
 	host := strings.TrimPrefix(issuer, "https://")
 	id := issuer[strings.LastIndex(issuer, "/")+1:]
 
-	disc, err := http.Get(endpoint + "/_gopherstack/eks/oidc/id/" + id + "/.well-known/openid-configuration")
+	disc, err := testclient.New(t).
+		Get(endpoint + "/_gopherstack/eks/oidc/id/" + id + "/.well-known/openid-configuration")
 	require.NoError(t, err)
 
 	defer disc.Body.Close()

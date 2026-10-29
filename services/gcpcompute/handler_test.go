@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
 )
 
@@ -95,7 +96,8 @@ func TestStartWorkerServesAndConflicts(t *testing.T) {
 	t.Cleanup(func() { first.Shutdown(t.Context()) })
 	require.NotEmpty(t, first.Addr())
 
-	resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(first.Port) + "/compute/v1/projects/p/global/networks")
+	resp, err := testclient.New(t).
+		Get("http://127.0.0.1:" + strconv.Itoa(first.Port) + "/compute/v1/projects/p/global/networks")
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusOK, resp.StatusCode)

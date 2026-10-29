@@ -25,6 +25,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func devEndpointsServer(t *testing.T) (*httptest.Server, aws.Config) {
@@ -67,7 +68,7 @@ func devDo(t *testing.T, method, url, accept string) (int, []byte) {
 		req.Header.Set("Accept", accept)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

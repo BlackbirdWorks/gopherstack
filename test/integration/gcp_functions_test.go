@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func newFunctionsClient(t *testing.T) *functions.FunctionClient {
@@ -57,7 +59,7 @@ func uploadFunctionSource(
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, u.String(), bytes.NewReader(nodeSourceZip(t)))
 	require.NoError(t, err)
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 	_ = res.Body.Close()
 	require.Equal(t, http.StatusOK, res.StatusCode)

@@ -19,6 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 const (
@@ -94,7 +96,7 @@ func sbDataPlaneRequest(t *testing.T, method, path string, body []byte) *http.Re
 	req, err := http.NewRequestWithContext(t.Context(), method, serviceBusDataPlaneEndpoint()+path, bodyReader)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = resp.Body.Close() })

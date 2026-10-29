@@ -12,6 +12,8 @@ import (
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 const testSchema = `type Query {
@@ -265,7 +267,7 @@ func executeGraphQL(
 		req.Header.Set("X-Api-Key", apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

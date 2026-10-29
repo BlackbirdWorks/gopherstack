@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
@@ -206,7 +207,7 @@ func rawIMDSGet(t *testing.T, url string) int {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()
@@ -261,7 +262,7 @@ func TestEC2IMDSTerminateClosesListener(t *testing.T) {
 		req, rErr := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 		require.NoError(t, rErr)
 
-		resp, dErr := http.DefaultClient.Do(req)
+		resp, dErr := testclient.New(t).Do(req)
 		if dErr != nil {
 			return true
 		}

@@ -224,7 +224,7 @@ func doLambdaRequest(
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	return http.DefaultClient.Do(req) //nolint:wrapcheck // test helper
+	return noKeepAliveClient().Do(req) //nolint:wrapcheck // test helper
 }
 
 // buildEchoLambdaImage builds the gopherstack-lambda-echo-test image from an in-memory build

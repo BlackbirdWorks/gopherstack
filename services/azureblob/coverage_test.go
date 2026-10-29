@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
 )
 
@@ -221,7 +222,7 @@ func TestStartWorker_BindsAndServes(t *testing.T) {
 			return false
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := testclient.New(t).Do(req)
 		if err != nil {
 			return false
 		}

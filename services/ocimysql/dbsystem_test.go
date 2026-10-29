@@ -9,6 +9,8 @@ import (
 	my "github.com/oracle/oci-go-sdk/v65/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestDbSystemLifecycle(t *testing.T) {
@@ -845,7 +847,7 @@ func TestRequestIDsAndAuth(t *testing.T) {
 
 	e := newEnv(t, envOpts{register: true, enforce: true})
 
-	resp, err := http.Get(e.base + "/20190415/shapes?compartmentId=" + testCompartment)
+	resp, err := testclient.New(t).Get(e.base + "/20190415/shapes?compartmentId=" + testCompartment)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

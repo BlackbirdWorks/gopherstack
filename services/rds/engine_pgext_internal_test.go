@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestPgExtImages(t *testing.T) {
@@ -158,7 +159,7 @@ func TestCalloutServer(t *testing.T) {
 			req.Header.Set(calloutAuthHeader, tt.token)
 			req.Header.Set("X-Amz-Invocation-Type", "Event")
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			body, _ := io.ReadAll(resp.Body)

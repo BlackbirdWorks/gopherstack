@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 type pool struct{ released []int }
@@ -76,7 +79,7 @@ func TestWaitReadyAndProxy(t *testing.T) {
 	port := srv.Listener.Addr().(*net.TCPAddr).Port
 	require.NoError(t, gcpserve.WaitReady(t.Context(), port))
 
-	front := httptest.NewServer(gcpserve.Proxy(port, http.DefaultTransport))
+	front := httptest.NewServer(gcpserve.Proxy(port, httpclient.NewTransport()))
 	t.Cleanup(front.Close)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, front.URL, nil)
@@ -84,7 +87,7 @@ func TestWaitReadyAndProxy(t *testing.T) {
 
 	req.Host = "fn.localhost"
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

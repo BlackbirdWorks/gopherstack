@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -24,11 +25,12 @@ import (
 // response, then replays them so the real SDK deserializer still sees the
 // full body.
 type recorderStatusCaptureTransport struct {
+	rt   http.RoundTripper
 	body []byte
 }
 
 func (c *recorderStatusCaptureTransport) Do(req *http.Request) (*http.Response, error) {
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	resp, err := c.rt.RoundTrip(req)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +73,7 @@ func newCapturingWireTestAWSConfigClient(
 	)
 	require.NoError(t, err)
 
-	capture := &recorderStatusCaptureTransport{}
+	capture := &recorderStatusCaptureTransport{rt: testclient.New(t).Transport}
 
 	client := configservicesdk.NewFromConfig(cfg, func(o *configservicesdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)

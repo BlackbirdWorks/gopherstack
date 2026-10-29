@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
+
 	container "cloud.google.com/go/container/apiv1"
 	"cloud.google.com/go/container/apiv1/containerpb"
 	"github.com/googleapis/gax-go/v2/apierror"
@@ -84,7 +86,7 @@ func newEnvWith(t *testing.T, b *gcpcontainer.InMemoryBackend) *env {
 			"http://"+h.Addr(),
 		),
 		option.WithoutAuthentication(),
-		option.WithHTTPClient(http.DefaultClient),
+		option.WithHTTPClient(testclient.New(t)),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rc.Close() })

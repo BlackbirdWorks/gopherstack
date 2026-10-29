@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 type mcpStack struct {
@@ -70,7 +71,7 @@ func (s *mcpStack) httpSession(t *testing.T) *mcp.ClientSession {
 	c := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
 	cs, err := c.Connect(t.Context(), &mcp.StreamableClientTransport{
 		Endpoint:             s.srv.URL + mcpPath,
-		HTTPClient:           http.DefaultClient,
+		HTTPClient:           testclient.New(t),
 		DisableStandaloneSSE: true,
 	}, nil)
 	require.NoError(t, err)
@@ -98,7 +99,7 @@ func (s *mcpStack) stdioSession(t *testing.T) *mcp.ClientSession {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	done := make(chan error, 1)
-	go func() { done <- cmd.serve(ctx, http.DefaultClient, st) }()
+	go func() { done <- cmd.serve(ctx, testclient.New(t), st) }()
 
 	t.Cleanup(func() {
 		cancel()
@@ -363,7 +364,7 @@ func TestMCPEndpointMountAndAuth(t *testing.T) {
 				req.Header.Set("Authorization", "Bearer "+tt.token)
 			}
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()
@@ -399,7 +400,7 @@ func TestMCPNeverLeaksSecrets(t *testing.T) {
 	)
 	req.Header.Set("X-Amz-Security-Token", "headertoken")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 
