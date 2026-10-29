@@ -49,7 +49,13 @@ func TestMySQLPasswordGoesInEnvNotArgv(t *testing.T) {
 
 	rt := &echoRuntime{}
 	e := &dockerEngine{
-		rt: rt, mu: lockmetrics.New("gcpsql-test"), password: pw, kind: kindMySQL, attached: true, ctrID: "c1", id: "inst",
+		rt:       rt,
+		mu:       lockmetrics.New("gcpsql-test"),
+		password: pw,
+		kind:     kindMySQL,
+		attached: true,
+		ctrID:    "c1",
+		id:       "inst",
 	}
 
 	_, err := e.mysqlCmd(context.Background(), "SELECT 1")
