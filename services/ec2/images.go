@@ -34,6 +34,7 @@ type AMIStub struct {
 	ImdsSupport         string                    `json:"imdsSupport,omitempty"`
 	SourceImageID       string                    `json:"sourceImageID,omitempty"`
 	SriovNetSupport     string                    `json:"sriovNetSupport,omitempty"`
+	DockerImage         string                    `json:"dockerImage,omitempty"`
 	ProductCodes        []string                  `json:"productCodes,omitempty"`
 	EnaSupport          bool                      `json:"enaSupport,omitempty"`
 	EnaSupportSet       bool                      `json:"enaSupportSet,omitempty"`
@@ -899,6 +900,7 @@ func (b *InMemoryBackend) CopyImageEncrypted(
 		SourceImageID:  src.ImageID,
 		OwnerID:        b.AccountID,
 		CreationTime:   time.Now().UTC(),
+		DockerImage:    dockerRefOf(src),
 	}
 	newImage.BlockDeviceMappings = b.copyImageMappingsLocked(src.BlockDeviceMappings, encrypted, kmsKeyID, remoteSnaps)
 	b.images.Put(newImage)

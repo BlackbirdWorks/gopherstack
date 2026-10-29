@@ -123,5 +123,47 @@ The provider is configured via environment variables / CLI flags:
 | `--ec2-docker-ssh-host-ip`   | `EC2_DOCKER_SSH_HOST_IP`   | `127.0.0.1`    | Host IP that mapped sshd ports bind to (use `0.0.0.0` to expose externally).         |
 | `--ec2-docker-ssh-port-min`  | `EC2_DOCKER_SSH_PORT_MIN`  | `0`            | Lower bound of the host TCP port range used to map sshd (`0` = let Docker pick).     |
 | `--ec2-docker-ssh-port-max`  | `EC2_DOCKER_SSH_PORT_MAX`  | `0`            | Upper bound of the host TCP port range used to map sshd.                             |
+| `--ec2-docker-flags`         | `GOPHERSTACK_EC2_DOCKER_FLAGS` | _(empty)_  | Extra docker-run options (see below).                                                |
+| `--ec2-docker-ebs-volumes`   | `GOPHERSTACK_EC2_DOCKER_EBS_VOLUMES` | `false` | Back EBS volumes with Docker named volumes (see below).                          |
 | `--dns-addr`                 | `DNS_ADDR`                 | _(empty)_      | Bind address for the embedded DNS server (e.g. `:10053`). Empty = disabled.          |
 | `--dns-resolve-ip`           | `DNS_RESOLVE_IP`           | `127.0.0.1`    | IP address synthetic hostnames resolve to.                                           |
+
+## AMIs and Docker images
+
+With the docker provider, `RunInstances` starts the Docker image bound to the requested AMI. An AMI id that
+does not exist fails with `InvalidAMIID.NotFound`.
+
+- **Seeded public AMIs** map to a default image by name: Amazon Linux 2023 to `amazonlinux:2023`, Amazon Linux 2
+  (and EKS/ECS-optimized AL2) to `amazonlinux:2`, Amazon Linux 1 to `amazonlinux:1`, Ubuntu 20.04 / 22.04 / 24.04 to
+  `ubuntu:20.04` / `ubuntu:22.04` / `ubuntu:24.04`. Windows and Bottlerocket have no Linux container equivalent and
+  use `--ec2-docker-image`.
+- **CreateImage** from a running docker-backed instance runs `docker commit` and tags the result
+  `gopherstack-ec2/<name>:<ami-id>`; instances launched from that AMI start from the snapshot.
+- **Local images as AMIs**: any local image tagged `gopherstack-ec2/<name>:<ami-id>` (`<ami-id>` is `ami-` plus at
+  least 8 hex digits) is registered as a self-owned AMI named `<name>` on the next `DescribeImages` or `RunInstances`.
+  Tag one yourself with `docker tag myimage gopherstack-ec2/web:ami-0123456789abcdef0`. Images in this namespace are
+  never pulled.
+- **RegisterImage** with `ImageLocation=docker://<reference>` binds the new AMI to that image; `CopyImage` copies the
+  binding. An AMI with no binding runs `--ec2-docker-image`.
+
+## Extra docker flags
+
+`--ec2-docker-flags` (`GOPHERSTACK_EC2_DOCKER_FLAGS`) takes a quoted, docker-run style string, for example
+`--privileged -e MODE=test -v /srv/data:/data:ro --cap-add NET_ADMIN -m 512m --cpus 1.5 -p 8080:80`. It is parsed
+into Docker API fields and never passed to a shell. Supported: `--privileged`, `-e/--env K=V`, `-v/--volume
+src:dst[:ro|rw]`, `--cap-add`, `--cap-drop`, `-m/--memory N[b|k|m|g]`, `--cpus N`, `--network/--net NAME`,
+`-p/--publish [hostIP:]hostPort:containerPort[/tcp|udp]` (container port 22/tcp is reserved for sshd). Any other
+flag stops startup with an error. `--network` is used only when `--ec2-docker-network` is empty.
+
+## EBS volumes
+
+With `--ec2-docker-ebs-volumes`, each EBS volume gets one Docker named volume `gopherstack-ebs-<vol-id>`, labelled
+with its volume id and owner, mounted at `/mnt/ebs/<device name without /dev/>` (`/dev/sdf` is `/mnt/ebs/sdf`).
+
+- `BlockDeviceMappings` at launch are real mounts created with the container. The root device is the container
+  filesystem and has no Docker volume.
+- `AttachVolume` on a running instance copies the volume contents into the container at that path; `DetachVolume`
+  (and termination) copies them back and removes the path. Docker cannot add a mount to a live container, so data
+  written to a runtime-attached volume reaches the Docker volume at detach or terminate, not continuously.
+- `DeleteVolume`, and `DeleteOnTermination` at termination, remove the Docker volume. A retained volume keeps its data
+  and can be attached to another instance.

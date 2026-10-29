@@ -75,6 +75,11 @@ func (h *Handler) launchOnCompute(
 
 		req.Admit = admitFactory(cb, inst.ID)
 
+		req.DockerImage = dockerImageOf(h.Backend, inst.ImageID)
+		if vb, ok := cb.(volumeBackend); ok {
+			req.Volumes = vb.LaunchVolumeSpecs(inst.ID)
+		}
+
 		res, err := c.Launch(ctx, req)
 		if err != nil {
 			h.imds.forget(inst.ID)
@@ -96,6 +101,17 @@ func (h *Handler) launchOnCompute(
 		publishComputeMetadata(ctx, cb, inst)
 		publishNetworkMetadata(ctx, cb, inst.ID, res)
 	}
+}
+
+func dockerImageOf(b Backend, imageID string) string {
+	ib, ok := b.(imageBindingBackend)
+	if !ok {
+		return ""
+	}
+
+	ref, _ := ib.DockerImageFor(imageID)
+
+	return ref
 }
 
 // networkContextBackend supplies the VPC addressing and security-group ports of an instance.

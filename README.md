@@ -341,6 +341,8 @@ A single switch picks the default for every container-backed engine (RDS/Aurora,
 | `--ec2-docker-ssh-host-ip` | `EC2_DOCKER_SSH_HOST_IP` | `127.0.0.1` | Host IP that mapped EC2-docker SSH ports bind to. |
 | `--ec2-docker-ssh-port-min` | `EC2_DOCKER_SSH_PORT_MIN` | `0` | Lower bound of the host port range for EC2-docker SSH mapping (`0` = let Docker pick). |
 | `--ec2-docker-ssh-port-max` | `EC2_DOCKER_SSH_PORT_MAX` | `0` | Upper bound of that host port range. |
+| `--ec2-docker-flags` | `GOPHERSTACK_EC2_DOCKER_FLAGS` | *(empty)* | Extra docker-run options for every EC2-docker container: `--privileged`, `-e K=V`, `-v src:dst[:ro]`, `--cap-add/--cap-drop X`, `-m/--memory N`, `--cpus N`, `--network NAME`, `-p [ip:]host:ctr[/proto]`. Anything else fails startup. |
+| `--ec2-docker-ebs-volumes` | `GOPHERSTACK_EC2_DOCKER_EBS_VOLUMES` | `false` | Map EBS volumes to Docker named volumes mounted at `/mnt/ebs/<device>` (see [`examples/ec2-docker`](examples/ec2-docker)). |
 
 #### Lambda & containers
 
@@ -677,7 +679,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | clean |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 1 gap; 2 structural gaps |
 | [Batch](services/batch/README.md) | A | 48 | 3 structural gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 2 gaps; 18 structural gaps; 5 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 4 gaps; 18 structural gaps; 5 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 4 structural gaps |
 | [Lambda](services/lambda/README.md) | A | — | 11 families; 1 gap; 10 structural gaps |
 

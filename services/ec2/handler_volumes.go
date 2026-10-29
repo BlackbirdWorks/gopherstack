@@ -925,6 +925,8 @@ func (h *Handler) handleDeleteVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	h.reapComputeVolumes(h.svcCtx)
+
 	return &deleteVolumeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -955,6 +957,12 @@ func (h *Handler) handleAttachVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	if err = h.attachVolumeOnCompute(h.svcCtx, volumeID); err != nil {
+		_, _ = h.Backend.DetachVolume(volumeID, true)
+
+		return nil, err
+	}
+
 	return &attachVolumeResponse{
 		Xmlns:        ec2XMLNS,
 		RequestID:    reqID,
@@ -975,6 +983,10 @@ func (h *Handler) handleDetachVolume(vals url.Values, reqID string) (any, error)
 
 	forceStr := vals.Get("Force")
 	force, _ := strconv.ParseBool(forceStr)
+
+	if err := h.detachVolumeOnCompute(h.svcCtx, volumeID); err != nil {
+		return nil, err
+	}
 
 	att, err := h.Backend.DetachVolume(volumeID, force)
 	if err != nil {

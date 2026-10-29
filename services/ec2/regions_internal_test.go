@@ -29,7 +29,7 @@ func runInstance(t *testing.T, h *Handler) *Instance {
 	t.Helper()
 
 	_, err := h.handleRunInstances(map[string][]string{
-		"ImageId":      {"ami-1"},
+		"ImageId":      {amiAL2},
 		"InstanceType": {"t3.micro"},
 		"MinCount":     {"1"},
 	}, "req")
