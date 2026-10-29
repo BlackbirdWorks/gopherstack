@@ -69,7 +69,10 @@ type Instance struct {
 	MaintenanceVersion         string         `json:"maintenanceVersion,omitempty"`
 	SQLNetworkArchitecture     string         `json:"sqlNetworkArchitecture,omitempty"`
 	GopherstackEndpoint        string         `json:"gopherstackEndpoint,omitempty"`
+	MasterInstanceName         string         `json:"masterInstanceName,omitempty"`
+	ReplicaConfiguration       map[string]any `json:"replicaConfiguration,omitempty"`
 	IPAddresses                []IPMapping    `json:"ipAddresses,omitempty"`
+	ReplicaNames               []string       `json:"replicaNames,omitempty"`
 }
 
 // OperationError is one error of a failed operation.
