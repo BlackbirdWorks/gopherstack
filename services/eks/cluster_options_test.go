@@ -325,7 +325,9 @@ func TestSDK_CreateClusterOptionErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := dockerClusterBackend(t, &fakeClusterRuntime{}, eks.ClusterEngineConfig{Probe: newGatedClusterProbe().probe})
+			b := dockerClusterBackend(t, &fakeClusterRuntime{}, eks.ClusterEngineConfig{
+				Probe: newGatedClusterProbe().probe,
+			})
 			client := newTestEKSClient(t, eks.NewHandler(b))
 
 			_, err := client.CreateCluster(t.Context(), &ekssdk.CreateClusterInput{
