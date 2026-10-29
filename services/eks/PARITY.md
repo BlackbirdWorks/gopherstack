@@ -119,7 +119,7 @@ leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/add
 
 Default `stub` is unchanged. In `docker` mode CreateCluster starts one privileged
 `rancher/k3s` container (tag mapped from `version`, 1.29-1.36; unmapped versions
-fall back to the 1.32 image; `EKS_K3S_IMAGE` overrides) with the API port published on a
+are rejected, see 2026-10-29; `EKS_K3S_IMAGE` overrides) with the API port published on a
 free host port, mirroring LocalStack's k3s-backed EKS
 (docs.localstack.cloud/aws/services/eks/). CREATING becomes ACTIVE only once
 `/cacerts` and an authenticated `/readyz` succeed, otherwise FAILED.
@@ -1366,3 +1366,38 @@ FIXED: DescribeAddonVersions and DescribeClusterVersions honour maxResults (1-10
 - Token minting (emulator extension, not an AWS API): `POST /_gopherstack/eks/<cluster>/serviceaccount-token` with JSON `{namespace, name, audience | audiences, ttlSeconds, podName}`; defaults `sts.amazonaws.com`, 3600s. Returns `{token, issuer, expirationTimestamp}`. Claims: `iss`, `sub=system:serviceaccount:<ns>:<name>`, `aud`, `exp`, `iat`, `nbf`, `jti`, `kubernetes.io{namespace,serviceaccount{name,uid},pod{name,uid}}`.
 - STS `AssumeRoleWithWebIdentity` verifies these tokens against the issuer's keys (see `services/sts/PARITY.md`). Wired by `wireEKSIRSAToSTS` in `internal/app/eks_irsa.go`.
 - Tests: `irsa_test.go` (`TestMintServiceAccountToken`, `TestOIDCIssuerKeys`, `TestOIDCKeysSurviveRestore`, `TestOIDCEndpoints`, `TestOIDCRouteMatcher`) and `test/integration/eks_irsa_test.go` (SDK, `stscreds.WebIdentityRoleProvider`).
+
+### 2026-10-29: engine knobs (gopherstack-49qct.74)
+
+Docker-engine settings (env vars; all invalid values are rejected, never silently ignored):
+
+- `EKS_K3S_IMAGE`: full image for every cluster (any Kubernetes version accepted).
+- `EKS_K3S_IMAGE_TAGS`: `1.31=v1.31.5-k3s1,1.32=...` pins the `rancher/k3s` tag per Kubernetes minor; each tag must be
+  `v1.<minor>.x-k3sN` for its own minor. Precedence: `EKS_K3S_IMAGE`, then the pin, then the built-in 1.29-1.36 tags.
+  A version with none of these (e.g. 1.20, valid in the stub engine) now fails CreateCluster with
+  `InvalidParameterException` instead of silently running the 1.32 image.
+- `EKS_LB_PORTS`: default container ports to publish (`8080,8443`); 1-65535, not 6443, at most 16.
+- `EKS_KUBECONFIG` + `EKS_KUBECONFIG_CONTEXT` (default: current-context): existing-cluster provider. No k3s or docker runtime
+  is used; once ACTIVE, DescribeCluster returns that cluster's `server` and CA (`certificate-authority-data`, or the
+  `certificate-authority` file read and base64-encoded; relative paths resolve against the kubeconfig's directory).
+  Every emulated cluster fronts the same external cluster (no per-name namespacing: nothing isolates them), nodegroups/
+  add-ons stay metadata-only, the IAM token proxy is not in front, and DeleteCluster never touches the external cluster.
+  Credentials come from the user's own kubeconfig, not `aws eks get-token`.
+
+Cluster tags (read at CreateCluster and on Restore; later TagResource edits do not reconfigure a running node; ignored by
+the stub engine; an invalid value fails CreateCluster with `InvalidParameterException`):
+
+- `gopherstack:volume-mount` = `host:container[:ro|rw],...`: bind mounts into the k3s server container. Paths must be
+  absolute without `..`; container path unique and not `/`; at most 16. Host mounts are off by default: with `EKS_VOLUME_MOUNT_ALLOW` empty the tag fails with
+  `InvalidParameterException` ("host volume mounts are disabled; set EKS_VOLUME_MOUNT_ALLOW"). `EKS_VOLUME_MOUNT_ALLOW` is a
+  comma list of absolute host path prefixes (not `/`, no `..`); every mount's host path must exist and, after
+  `filepath.Clean` + `EvalSymlinks`, lie inside an allowed prefix (also symlink-resolved), so symlink escapes and
+  sibling-prefix paths are rejected.
+- `gopherstack:lb-ports` = `8080,8443`: replaces the `EKS_LB_PORTS` default for the cluster. Each port is published on a
+  free host port (same bind host as the API port); k3s servicelb is enabled for such clusters (Traefik stays off), so a
+  `type: LoadBalancer` Service on that port is reachable on the host. Published ports are not an AWS field, so they are
+  served at `GET /_gopherstack/eks/clusters/<name>/ports[?region=]` (`{clusterName, ports:[{host, containerPort, hostPort}]}`).
+
+Proof: `TestParse*`, `TestDockerCluster_LaunchOptions`, `TestDockerCluster_CreateRejectsInvalidOptions`,
+`TestSDK_CreateClusterOptionErrors`, `TestExistingCluster_*` (eks SDK client -> DescribeCluster -> HTTPS call against a
+fixture cluster), and the real-k3s `TestDockerCluster_RealK3s` (docker inspect mount, `docker port`).
