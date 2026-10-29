@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	opEval           = "eval"
+	opBytecode       = "bytecode"
 	maxFrameBytes    = 4 << 20
 	maxScriptBytes   = 1 << 20
 	defaultBatchSize = 64
@@ -187,9 +189,9 @@ func (s *Server) handleFrame(ctx context.Context, conn *websocket.Conn, mt int, 
 
 func (s *Server) execute(ctx context.Context, msg *message) ([]any, error) {
 	switch msg.op {
-	case "eval":
+	case opEval:
 		return s.evalMessage(ctx, msg)
-	case "bytecode":
+	case opBytecode:
 		return s.bytecodeMessage(ctx, msg)
 	case "close":
 		return nil, nil
@@ -343,27 +345,26 @@ func writeResult(conn *websocket.Conn, msg *message, out []any, err error) error
 }
 
 func writeFrame(conn *websocket.Conn, msg *message, code int, text string, data []any, hasData bool) error {
-	var (
-		payload []byte
-		mt      = websocket.TextMessage
-	)
-
-	if msg.codec == codecBinary {
-		mt = websocket.BinaryMessage
-		w := &bbWriter{}
-		payload = w.response(msg.id, code, text, data, hasData)
-	} else {
-		var err error
-
-		payload, err = graphsonWriter{v2: msg.codec == codecV2}.response(msg.id, code, text, data, hasData)
-		if err != nil {
-			payload, _ = graphsonWriter{}.response(msg.id, StatusSerializationErr, err.Error(), nil, false)
-		}
-	}
+	mt, payload := encodeFrame(msg, code, text, data, hasData)
 
 	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 
 	return conn.WriteMessage(mt, payload)
+}
+
+func encodeFrame(msg *message, code int, text string, data []any, hasData bool) (int, []byte) {
+	if msg.codec == codecBinary {
+		w := &bbWriter{}
+
+		return websocket.BinaryMessage, w.response(msg.id, code, text, data, hasData)
+	}
+
+	payload, err := graphsonWriter{v2: msg.codec == codecV2}.response(msg.id, code, text, data, hasData)
+	if err != nil {
+		payload, _ = graphsonWriter{}.response(msg.id, StatusSerializationErr, err.Error(), nil, false)
+	}
+
+	return websocket.TextMessage, payload
 }
 
 type httpRequest struct {
@@ -380,7 +381,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := uuid.NewString()
-	msg := &message{id: id, op: "eval", args: map[string]any{"gremlin": req.Gremlin}}
+	msg := &message{id: id, op: opEval, args: map[string]any{"gremlin": req.Gremlin}}
 
 	if req.Bindings != nil {
 		b := NewMap()

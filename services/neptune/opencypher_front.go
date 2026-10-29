@@ -37,6 +37,7 @@ const (
 // cypherFront serves a cluster's Neptune port: /openCypher, Bolt and (with no upstream) /gremlin are answered
 // in-process over one graph; with an upstream, /gremlin is proxied to the Gremlin Server container instead.
 type cypherFront struct {
+	ctx            context.Context
 	srv            *http.Server
 	proxy          *httputil.ReverseProxy
 	tr             *http.Transport
@@ -45,8 +46,8 @@ type cypherFront struct {
 	gremlin        *gremlin.Server
 	gremlinQueries *queryTracker
 	auth           func() clusterAuth
-	ctx            context.Context //nolint:containedctx // lifetime of the listener
 	cancel         context.CancelFunc
+	upstream       string
 	up             atomic.Bool
 }
 
@@ -74,6 +75,7 @@ func startCypherFront(
 			Track: f.gremlinQueries.begin, Authorize: gremlinAuthorizer,
 		})
 	} else {
+		f.upstream = innerAddr
 		f.proxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: innerAddr})
 		f.proxy.Transport = f.tr
 	}
@@ -137,6 +139,12 @@ func (f *cypherFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !authorizeProxied(w, r) {
+		return
+	}
+
+	if enforcesFrames(r) {
+		f.proxyGremlinWS(w, r)
+
 		return
 	}
 
