@@ -652,7 +652,7 @@ func TestExecDependsOn(t *testing.T) {
 			second := e.submit(t, submitOpts{deps: []batch.JobDependency{{JobID: first.JobID}}})
 
 			e.waitStatus(t, first.JobID, "RUNNING")
-			assert.Equal(t, "PENDING", e.describe(t, second.JobID).Status)
+			e.waitStatus(t, second.JobID, "PENDING")
 			assert.Equal(t, int32(1), runner.calls.Load())
 
 			runner.gate <- struct{}{}
