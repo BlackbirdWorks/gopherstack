@@ -81,16 +81,22 @@ func upgradesFrom(v string) []string {
 func poolVersionOK(pool, cluster string) *APIError {
 	pv, ok := parseVersion(pool)
 	if !ok {
-		return errParam("kubernetesVersion " + pool + " is not a valid Kubernetes version (expected vMAJOR.MINOR.PATCH)")
+		return errParam(
+			"kubernetesVersion " + pool + " is not a valid Kubernetes version (expected vMAJOR.MINOR.PATCH)",
+		)
 	}
 
 	cv, _ := parseVersion(cluster)
 
 	switch {
 	case pv.minor > cv.minor || (pv.minor == cv.minor && pv.patch > cv.patch):
-		return errParam("The node pool Kubernetes version " + pool + " cannot be newer than the cluster version " + cluster)
+		return errParam(
+			"The node pool Kubernetes version " + pool + " cannot be newer than the cluster version " + cluster,
+		)
 	case cv.minor-pv.minor > maxMinorSkew:
-		return errParam("The node pool Kubernetes version " + pool + " is more than three minor versions behind the cluster")
+		return errParam(
+			"The node pool Kubernetes version " + pool + " is more than three minor versions behind the cluster",
+		)
 	}
 
 	return nil

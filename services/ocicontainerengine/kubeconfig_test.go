@@ -8,14 +8,16 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/oracle/oci-go-sdk/v65/containerengine"
+	ke "github.com/oracle/oci-go-sdk/v65/containerengine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
 type kubeconfig struct {
-	Clusters []struct {
+	Kind           string `yaml:"kind"`
+	CurrentContext string `yaml:"current-context"`
+	Clusters       []struct {
 		Name    string `yaml:"name"`
 		Cluster struct {
 			Server string `yaml:"server"`
@@ -35,11 +37,9 @@ type kubeconfig struct {
 			User    string `yaml:"user"`
 		} `yaml:"context"`
 	} `yaml:"contexts"`
-	Kind           string `yaml:"kind"`
-	CurrentContext string `yaml:"current-context"`
 }
 
-func readKubeconfig(t *testing.T, resp containerengine.CreateKubeconfigResponse) kubeconfig {
+func readKubeconfig(t *testing.T, resp ke.CreateKubeconfigResponse) kubeconfig {
 	t.Helper()
 
 	defer resp.Content.Close()
@@ -58,34 +58,74 @@ func TestCreateKubeconfig(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	native := e.mkCluster(t, "kc-native", nil)
-	private := e.mkCluster(t, "kc-private", func(d *containerengine.CreateClusterDetails) { d.EndpointConfig.IsPublicIpEnabled = new(false) })
-	legacy := e.mkCluster(t, "kc-legacy", func(d *containerengine.CreateClusterDetails) { d.EndpointConfig = nil })
+	private := e.mkCluster(
+		t,
+		"kc-private",
+		func(d *ke.CreateClusterDetails) { d.EndpointConfig.IsPublicIpEnabled = new(false) },
+	)
+	legacy := e.mkCluster(t, "kc-legacy", func(d *ke.CreateClusterDetails) { d.EndpointConfig = nil })
 
 	tests := []struct {
 		name       string
-		cluster    containerengine.Cluster
-		endpoint   containerengine.CreateClusterKubeconfigContentDetailsEndpointEnum
+		cluster    ke.Cluster
+		endpoint   ke.CreateClusterKubeconfigContentDetailsEndpointEnum
 		wantServer string
 		wantErr    int
 	}{
 		{"default prefers public", native, "", "https://" + *native.Endpoints.PublicEndpoint, 0},
-		{"public", native, containerengine.CreateClusterKubeconfigContentDetailsEndpointPublicEndpoint, "https://" + *native.Endpoints.PublicEndpoint, 0},
-		{"private", native, containerengine.CreateClusterKubeconfigContentDetailsEndpointPrivateEndpoint, "https://" + *native.Endpoints.PrivateEndpoint, 0},
+		{
+			"public",
+			native,
+			ke.CreateClusterKubeconfigContentDetailsEndpointPublicEndpoint,
+			"https://" + *native.Endpoints.PublicEndpoint,
+			0,
+		},
+		{
+			"private",
+			native,
+			ke.CreateClusterKubeconfigContentDetailsEndpointPrivateEndpoint,
+			"https://" + *native.Endpoints.PrivateEndpoint,
+			0,
+		},
 		{"default private only", private, "", "https://" + *private.Endpoints.PrivateEndpoint, 0},
-		{"no public endpoint", private, containerengine.CreateClusterKubeconfigContentDetailsEndpointPublicEndpoint, "", http.StatusBadRequest},
-		{"legacy", legacy, containerengine.CreateClusterKubeconfigContentDetailsEndpointLegacyKubernetes, "https://" + *legacy.Endpoints.Kubernetes, 0},
+		{
+			"no public endpoint",
+			private,
+			ke.CreateClusterKubeconfigContentDetailsEndpointPublicEndpoint,
+			"",
+			http.StatusBadRequest,
+		},
+		{
+			"legacy",
+			legacy,
+			ke.CreateClusterKubeconfigContentDetailsEndpointLegacyKubernetes,
+			"https://" + *legacy.Endpoints.Kubernetes,
+			0,
+		},
 		{"legacy default", legacy, "", "https://" + *legacy.Endpoints.Kubernetes, 0},
-		{"native has no legacy", native, containerengine.CreateClusterKubeconfigContentDetailsEndpointLegacyKubernetes, "", http.StatusBadRequest},
-		{"no vcn hostname", native, containerengine.CreateClusterKubeconfigContentDetailsEndpointVcnHostname, "", http.StatusBadRequest},
+		{
+			"native has no legacy",
+			native,
+			ke.CreateClusterKubeconfigContentDetailsEndpointLegacyKubernetes,
+			"",
+			http.StatusBadRequest,
+		},
+		{
+			"no vcn hostname",
+			native,
+			ke.CreateClusterKubeconfigContentDetailsEndpointVcnHostname,
+			"",
+			http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			resp, err := e.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{
-				ClusterId:                             tt.cluster.Id,
-				CreateClusterKubeconfigContentDetails: containerengine.CreateClusterKubeconfigContentDetails{Endpoint: tt.endpoint},
+			resp, err := e.ce.CreateKubeconfig(t.Context(), ke.CreateKubeconfigRequest{
+				ClusterId: tt.cluster.Id,
+				Endpoint:  tt.endpoint,
 			})
 			if tt.wantErr != 0 {
 				assert.Equal(t, tt.wantErr, svcErr(t, err).GetHTTPStatusCode())
@@ -125,36 +165,38 @@ func TestKubeconfigStableAndValidated(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	c := e.mkCluster(t, "kc-stable", nil)
 
-	first, err := e.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{ClusterId: c.Id})
+	first, err := e.ce.CreateKubeconfig(t.Context(), ke.CreateKubeconfigRequest{ClusterId: c.Id})
 	require.NoError(t, err)
 
-	second, err := e.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{
-		ClusterId: c.Id, CreateClusterKubeconfigContentDetails: containerengine.CreateClusterKubeconfigContentDetails{
-			TokenVersion: new("2.0.0"), Expiration: new(600),
-		},
+	second, err := e.ce.CreateKubeconfig(t.Context(), ke.CreateKubeconfigRequest{
+		ClusterId:    c.Id,
+		TokenVersion: new("2.0.0"), Expiration: new(600),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, readKubeconfig(t, first), readKubeconfig(t, second), "CA and token are stable per cluster")
 
 	tests := []struct {
 		name string
-		in   containerengine.CreateClusterKubeconfigContentDetails
+		in   ke.CreateClusterKubeconfigContentDetails
 	}{
-		{"bad token version", containerengine.CreateClusterKubeconfigContentDetails{TokenVersion: new("1.0.0")}},
-		{"bad expiration", containerengine.CreateClusterKubeconfigContentDetails{Expiration: new(0)}},
+		{"bad token version", ke.CreateClusterKubeconfigContentDetails{TokenVersion: new("1.0.0")}},
+		{"bad expiration", ke.CreateClusterKubeconfigContentDetails{Expiration: new(0)}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := e.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{
+			_, rerr := e.ce.CreateKubeconfig(t.Context(), ke.CreateKubeconfigRequest{
 				ClusterId: c.Id, CreateClusterKubeconfigContentDetails: tt.in,
 			})
-			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, rerr).GetHTTPStatusCode())
 		})
 	}
 
-	_, err = e.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{ClusterId: new("ocid1.cluster.oc1.iad.nope")})
+	_, err = e.ce.CreateKubeconfig(
+		t.Context(),
+		ke.CreateKubeconfigRequest{ClusterId: new("ocid1.cluster.oc1.iad.nope")},
+	)
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }

@@ -1,6 +1,7 @@
 package ocicontainerengine
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"math"
 	"net/netip"
@@ -140,7 +141,11 @@ func nodePoolView(np *NodePool, summary bool) NodePoolWire {
 
 	if np.NodeSource != nil {
 		w.NodeImageID = np.NodeSource.ImageID
-		w.NodeSource = &nodeSourceOption{SourceType: "IMAGE", SourceName: np.ImageName, ImageID: np.NodeSource.ImageID}
+		w.NodeSource = &nodeSourceOption{
+			SourceType: sourceImage,
+			SourceName: np.ImageName,
+			ImageID:    np.NodeSource.ImageID,
+		}
 	}
 
 	if np.NodeConfig != nil {
@@ -205,13 +210,20 @@ func (b *InMemoryBackend) checkShape(name string, cfg *ShapeConfig) (ShapeInfo, 
 		return sh, nil, nil
 	}
 
+	resolved, aerr := flexConfig(sh, cfg)
+
+	return sh, resolved, aerr
+}
+
+// flexConfig validates a flexible shape's ocpus and memory and fills the default memory.
+func flexConfig(sh ShapeInfo, cfg *ShapeConfig) (*ShapeConfig, *APIError) {
 	if cfg == nil || cfg.Ocpus == nil {
-		return sh, nil, errMissing("nodeShapeConfig.ocpus is required for the flexible shape " + name)
+		return nil, errMissing("nodeShapeConfig.ocpus is required for the flexible shape " + sh.Name)
 	}
 
 	o := *cfg.Ocpus
 	if o < sh.MinOcpus || o > sh.MaxOcpus || o != math.Trunc(o) {
-		return sh, nil, errParam("nodeShapeConfig.ocpus must be a whole number between " +
+		return nil, errParam("nodeShapeConfig.ocpus must be a whole number between " +
 			strconv.FormatFloat(sh.MinOcpus, 'f', -1, 64) + " and " + strconv.FormatFloat(sh.MaxOcpus, 'f', -1, 64))
 	}
 
@@ -221,24 +233,46 @@ func (b *InMemoryBackend) checkShape(name string, cfg *ShapeConfig) (ShapeInfo, 
 	}
 
 	if mem < max(1, o) || mem > min(sh.MaxMemoryGBs, o*maxMemPerOcpu) {
-		return sh, nil, errParam("nodeShapeConfig.memoryInGBs is outside the range allowed for " + name)
+		return nil, errParam("nodeShapeConfig.memoryInGBs is outside the range allowed for " + sh.Name)
 	}
 
-	return sh, &ShapeConfig{Ocpus: &o, MemoryInGBs: &mem}, nil
+	return &ShapeConfig{Ocpus: &o, MemoryInGBs: &mem}, nil
 }
 
 // checkSource resolves the node image and verifies it runs on the shape's architecture.
 func (b *InMemoryBackend) checkSource(src *NodeSource, name *string, sh ShapeInfo) (*NodeSource, string, *APIError) {
-	var out NodeSource
+	out, aerr := b.resolveSource(src, name)
+	if aerr != nil {
+		return nil, "", aerr
+	}
 
+	if out.BootVolumeGBs != nil && *out.BootVolumeGBs < 1 {
+		return nil, "", errParam("nodeSourceDetails.bootVolumeSizeInGBs must be positive")
+	}
+
+	if !strings.HasPrefix(out.ImageID, "ocid1.image.") {
+		return nil, "", errParam("nodeSourceDetails.imageId must be the OCID of an image")
+	}
+
+	imgName, aerr := b.verifyImage(out.ImageID, sh)
+	if aerr != nil {
+		return nil, "", aerr
+	}
+
+	return &out, imgName, nil
+}
+
+func (b *InMemoryBackend) resolveSource(src *NodeSource, name *string) (NodeSource, *APIError) {
 	switch {
 	case src != nil:
-		out = *src
-		if out.SourceType != "" && out.SourceType != "IMAGE" {
-			return nil, "", errParam("nodeSourceDetails.sourceType must be IMAGE")
+		if src.SourceType != "" && src.SourceType != sourceImage {
+			return NodeSource{}, errParam("nodeSourceDetails.sourceType must be IMAGE")
 		}
 
-		out.SourceType = "IMAGE"
+		out := *src
+		out.SourceType = sourceImage
+
+		return out, nil
 	case name != nil && *name != "":
 		id := ""
 
@@ -250,39 +284,34 @@ func (b *InMemoryBackend) checkSource(src *NodeSource, name *string, sh ShapeInf
 			}
 
 			if id == "" {
-				return nil, "", errParam("nodeImageName " + *name + " does not match a known image")
+				return NodeSource{}, errParam("nodeImageName " + *name + " does not match a known image")
 			}
 		}
 
-		out = NodeSource{SourceType: "IMAGE", ImageID: id}
-	default:
-		return nil, "", errMissing("nodeSourceDetails is required")
+		return NodeSource{SourceType: sourceImage, ImageID: id}, nil
 	}
 
-	if out.BootVolumeGBs != nil && *out.BootVolumeGBs < 1 {
-		return nil, "", errParam("nodeSourceDetails.bootVolumeSizeInGBs must be positive")
+	return NodeSource{}, errMissing("nodeSourceDetails is required")
+}
+
+// verifyImage checks the image exists in OCI Core and matches the shape architecture; it returns the image name.
+func (b *InMemoryBackend) verifyImage(id string, sh ShapeInfo) (string, *APIError) {
+	if b.net == nil {
+		return "", nil
 	}
 
-	if !strings.HasPrefix(out.ImageID, "ocid1.image.") {
-		return nil, "", errParam("nodeSourceDetails.imageId must be the OCID of an image")
+	img, ok := b.net.Image(id)
+	if !ok {
+		return "", errParam("nodeSourceDetails.imageId " + id + " does not reference an existing image")
 	}
 
-	imgName := ""
-
-	if b.net != nil {
-		img, ok := b.net.Image(out.ImageID)
-		if !ok {
-			return nil, "", errParam("nodeSourceDetails.imageId " + out.ImageID + " does not reference an existing image")
-		}
-
-		if sh.Arch != "" && img.Arch != sh.Arch {
-			return nil, "", errParam("image " + img.Name + " (" + img.Arch + ") cannot run on shape " + sh.Name + " (" + sh.Arch + ")")
-		}
-
-		imgName = img.Name
+	if sh.Arch != "" && img.Arch != sh.Arch {
+		return "", errParam(
+			"image " + img.Name + " (" + img.Arch + ") cannot run on shape " + sh.Name + " (" + sh.Arch + ")",
+		)
 	}
 
-	return &out, imgName, nil
+	return img.Name, nil
 }
 
 func (b *InMemoryBackend) checkPlacements(ps []Placement, vcnID string) *APIError {
@@ -292,7 +321,9 @@ func (b *InMemoryBackend) checkPlacements(ps []Placement, vcnID string) *APIErro
 
 	for _, p := range ps {
 		if !adRe.MatchString(p.AvailabilityDom) {
-			return errParam("placementConfigs.availabilityDomain " + p.AvailabilityDom + " is not a valid availability domain")
+			return errParam(
+				"placementConfigs.availabilityDomain " + p.AvailabilityDom + " is not a valid availability domain",
+			)
 		}
 
 		sub, aerr := b.checkSubnet("placementConfigs.subnetId", p.SubnetID, vcnID)
@@ -367,7 +398,9 @@ func (b *InMemoryBackend) applyPodNet(out *NodeConfig, in *PodNet, c *Cluster) (
 		}
 
 		if clusterCNI == cniNative && len(out.PodNet.PodSubnetIDs) == 0 {
-			return nil, errMissing("nodeConfigDetails.nodePoolPodNetworkOptionDetails.podSubnetIds is required for " + cniNative)
+			return nil, errMissing(
+				"nodeConfigDetails.nodePoolPodNetworkOptionDetails.podSubnetIds is required for " + cniNative,
+			)
 		}
 
 		return out, nil
@@ -610,10 +643,29 @@ func (b *InMemoryBackend) newNode(np *NodePool, c *Cluster, s slot) *Node {
 	}
 
 	return &Node{
-		ID: id, Name: "oke-c" + ocidTail(c.ID, 11) + "-n" + ocidTail(np.ID, 11) + "-s" + ocidTail(s.subnet, 11) +
-			"-" + ocidTail(id, 5),
-		Version: np.Version, AD: s.ad, SubnetID: s.subnet, FaultDomain: fd, PrivateIP: b.allocIP(s.subnet),
-		State: stateCreating, TransitionAt: np.TransitionAt, Tags: np.Tags,
+		ID: id,
+		Name: "oke-c" + ocidTail(
+			c.ID,
+			longTail,
+		) + "-n" + ocidTail(
+			np.ID,
+			longTail,
+		) + "-s" + ocidTail(
+			s.subnet,
+			longTail,
+		) +
+			"-" + ocidTail(
+			id,
+			shortTail,
+		),
+		Version:      np.Version,
+		AD:           s.ad,
+		SubnetID:     s.subnet,
+		FaultDomain:  fd,
+		PrivateIP:    b.allocIP(s.subnet),
+		State:        stateCreating,
+		TransitionAt: np.TransitionAt,
+		Tags:         np.Tags,
 	}
 }
 
@@ -642,12 +694,13 @@ func (b *InMemoryBackend) allocIP(subnetID string) string {
 	}
 
 	a4 := p.Masked().Addr().As4()
-	base := uint32(a4[0])<<24 | uint32(a4[1])<<16 | uint32(a4[2])<<8 | uint32(a4[3])
+	base := binary.BigEndian.Uint32(a4[:])
 	last := base | (^uint32(0) >> p.Bits())
 
 	for ip := last - 1; ip > base+privateEndpointOffset*2; ip-- {
-		s := netip.AddrFrom4([4]byte{byte(ip >> 24), byte(ip >> 16), byte(ip >> 8), byte(ip)}).String()
-		if !used[s] {
+		binary.BigEndian.PutUint32(a4[:], ip)
+
+		if s := netip.AddrFrom4(a4).String(); !used[s] {
 			return s
 		}
 	}
@@ -718,8 +771,13 @@ func (b *InMemoryBackend) ListNodePools(in PoolListIn) (page.Page[NodePoolWire],
 		all = append(all, np)
 	}
 
-	pg := paginate(all, in.ListOpts, func(n *NodePool) string { return n.ID }, func(n *NodePool) string { return n.Name },
-		func(n *NodePool) (time.Time, int64) { return n.TimeCreated, n.Seq })
+	pg := paginate(
+		all,
+		in.ListOpts,
+		func(n *NodePool) string { return n.ID },
+		func(n *NodePool) string { return n.Name },
+		func(n *NodePool) (time.Time, int64) { return n.TimeCreated, n.Seq },
+	)
 
 	out := make([]NodePoolWire, 0, len(pg.Data))
 	for _, np := range pg.Data {

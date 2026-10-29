@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/containerengine"
+	ke "github.com/oracle/oci-go-sdk/v65/containerengine"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
@@ -52,15 +52,18 @@ const (
 
 type fakeNet struct{}
 
-var (
-	fakeSubnets = map[string]oke.SubnetInfo{
+func fakeSubnets() map[string]oke.SubnetInfo {
+	return map[string]oke.SubnetInfo{
 		subAD1:      {ID: subAD1, VcnID: vcnA, AvailabilityDomain: ad1, CIDR: "10.0.1.0/24"},
 		subAD2:      {ID: subAD2, VcnID: vcnA, AvailabilityDomain: ad2, CIDR: "10.0.2.0/24"},
 		subRegional: {ID: subRegional, VcnID: vcnA, CIDR: "10.0.3.0/24"},
 		subLB:       {ID: subLB, VcnID: vcnA, CIDR: "10.0.4.0/24"},
 		subOther:    {ID: subOther, VcnID: vcnB, CIDR: "10.1.0.0/24"},
 	}
-	fakeShapes = []oke.ShapeInfo{
+}
+
+func fakeShapes() []oke.ShapeInfo {
+	return []oke.ShapeInfo{
 		{
 			Name: shapeFlex, Arch: "x86_64", Flexible: true, MinOcpus: 1, MaxOcpus: 64, MaxMemoryGBs: 1024,
 			DefaultMemPerOcpu: 16,
@@ -71,20 +74,34 @@ var (
 			DefaultMemPerOcpu: 6,
 		},
 	}
-	fakeImages = []oke.ImageInfo{
-		{ID: imgOL8, Name: "Oracle-Linux-8.10-2024.09.30-0", OS: "Oracle Linux", OSVersion: "8", Arch: "x86_64"},
-		{ID: imgOL8Arm, Name: "Oracle-Linux-8.10-aarch64-2024.09.30-0", OS: "Oracle Linux", OSVersion: "8", Arch: "aarch64"},
-		{ID: imgUbuntu, Name: "Canonical-Ubuntu-22.04-2024.09.30-0", OS: "Canonical Ubuntu", OSVersion: "22.04", Arch: "x86_64"},
-	}
-)
+}
 
-func (fakeNet) Subnet(id string) (oke.SubnetInfo, bool) { s, ok := fakeSubnets[id]; return s, ok }
-func (fakeNet) VCNExists(id string) bool                { return id == vcnA || id == vcnB }
-func (fakeNet) Shapes() []oke.ShapeInfo                 { return fakeShapes }
-func (fakeNet) Images() []oke.ImageInfo                 { return fakeImages }
+func fakeImages() []oke.ImageInfo {
+	return []oke.ImageInfo{
+		{ID: imgOL8, Name: "Oracle-Linux-8.10-2024.09.30-0", OS: "Oracle Linux", OSVersion: "8", Arch: "x86_64"},
+		{
+			ID: imgOL8Arm, Name: "Oracle-Linux-8.10-aarch64-2024.09.30-0", OS: "Oracle Linux", OSVersion: "8",
+			Arch: "aarch64",
+		},
+		{
+			ID: imgUbuntu, Name: "Canonical-Ubuntu-22.04-2024.09.30-0", OS: "Canonical Ubuntu", OSVersion: "22.04",
+			Arch: "x86_64",
+		},
+	}
+}
+
+func (fakeNet) Subnet(id string) (oke.SubnetInfo, bool) {
+	s, ok := fakeSubnets()[id]
+
+	return s, ok
+}
+
+func (fakeNet) VCNExists(id string) bool { return id == vcnA || id == vcnB }
+func (fakeNet) Shapes() []oke.ShapeInfo  { return fakeShapes() }
+func (fakeNet) Images() []oke.ImageInfo  { return fakeImages() }
 
 func (fakeNet) Shape(name string) (oke.ShapeInfo, bool) {
-	for _, s := range fakeShapes {
+	for _, s := range fakeShapes() {
 		if s.Name == name {
 			return s, true
 		}
@@ -94,7 +111,7 @@ func (fakeNet) Shape(name string) (oke.ShapeInfo, bool) {
 }
 
 func (fakeNet) Image(id string) (oke.ImageInfo, bool) {
-	for _, i := range fakeImages {
+	for _, i := range fakeImages() {
 		if i.ID == id {
 			return i, true
 		}
@@ -146,15 +163,15 @@ type env struct {
 	clock   *fakeClock
 	prov    common.ConfigurationProvider
 	kp      keyPair
-	ce      containerengine.ContainerEngineClient
+	ce      ke.ContainerEngineClient
 	base    string
 }
 
 type envOpts struct {
+	engine   func(*oke.InMemoryBackend)
 	enforce  bool
 	register bool
 	noNet    bool
-	engine   func(*oke.InMemoryBackend)
 }
 
 func freePort(t *testing.T) int {
@@ -218,7 +235,7 @@ func newEnv(t *testing.T, opts envOpts) *env {
 
 	var err error
 
-	e.ce, err = containerengine.NewContainerEngineClientWithConfigurationProvider(e.prov)
+	e.ce, err = ke.NewContainerEngineClientWithConfigurationProvider(e.prov)
 	require.NoError(t, err)
 
 	e.ce.Host = e.base
@@ -258,17 +275,21 @@ func rawDo(t *testing.T, method, url, body string) (int, string) {
 	return resp.StatusCode, string(out)
 }
 
-func clusterDetails(name string) containerengine.CreateClusterDetails {
-	return containerengine.CreateClusterDetails{
+func clusterDetails(name string) ke.CreateClusterDetails {
+	return ke.CreateClusterDetails{
 		Name: new(name), CompartmentId: new(testCompartment), VcnId: new(vcnA), KubernetesVersion: new(testVersion),
-		EndpointConfig: &containerengine.CreateClusterEndpointConfigDetails{
+		EndpointConfig: &ke.CreateClusterEndpointConfigDetails{
 			SubnetId: new(subRegional), IsPublicIpEnabled: new(true),
 		},
 	}
 }
 
 // mkCluster creates a cluster and settles it to ACTIVE.
-func (e *env) mkCluster(t *testing.T, name string, mod func(*containerengine.CreateClusterDetails)) containerengine.Cluster {
+func (e *env) mkCluster(
+	t *testing.T,
+	name string,
+	mod func(*ke.CreateClusterDetails),
+) ke.Cluster {
 	t.Helper()
 
 	d := clusterDetails(name)
@@ -276,30 +297,30 @@ func (e *env) mkCluster(t *testing.T, name string, mod func(*containerengine.Cre
 		mod(&d)
 	}
 
-	resp, err := e.ce.CreateCluster(t.Context(), containerengine.CreateClusterRequest{CreateClusterDetails: d})
+	resp, err := e.ce.CreateCluster(t.Context(), ke.CreateClusterRequest{CreateClusterDetails: d})
 	require.NoError(t, err)
 	require.NotNil(t, resp.OpcWorkRequestId)
 	e.settle()
 
-	list, err := e.ce.ListClusters(t.Context(), containerengine.ListClustersRequest{
+	list, err := e.ce.ListClusters(t.Context(), ke.ListClustersRequest{
 		CompartmentId: new(testCompartment), Name: new(name),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, list.Items)
 
-	got, err := e.ce.GetCluster(t.Context(), containerengine.GetClusterRequest{ClusterId: list.Items[0].Id})
+	got, err := e.ce.GetCluster(t.Context(), ke.GetClusterRequest{ClusterId: list.Items[0].Id})
 	require.NoError(t, err)
 
 	return got.Cluster
 }
 
-func poolDetails(clusterID *string, name string) containerengine.CreateNodePoolDetails {
-	return containerengine.CreateNodePoolDetails{
+func poolDetails(clusterID *string, name string) ke.CreateNodePoolDetails {
+	return ke.CreateNodePoolDetails{
 		CompartmentId: new(testCompartment), ClusterId: clusterID, Name: new(name), NodeShape: new(shapeFixed),
-		NodeSourceDetails: containerengine.NodeSourceViaImageDetails{ImageId: new(imgOL8)},
-		NodeConfigDetails: &containerengine.CreateNodePoolNodeConfigDetails{
+		NodeSourceDetails: ke.NodeSourceViaImageDetails{ImageId: new(imgOL8)},
+		NodeConfigDetails: &ke.CreateNodePoolNodeConfigDetails{
 			Size: new(3),
-			PlacementConfigs: []containerengine.NodePoolPlacementConfigDetails{
+			PlacementConfigs: []ke.NodePoolPlacementConfigDetails{
 				{AvailabilityDomain: new(ad1), SubnetId: new(subAD1)},
 				{AvailabilityDomain: new(ad2), SubnetId: new(subAD2)},
 			},
@@ -307,7 +328,12 @@ func poolDetails(clusterID *string, name string) containerengine.CreateNodePoolD
 	}
 }
 
-func (e *env) mkPool(t *testing.T, clusterID *string, name string, mod func(*containerengine.CreateNodePoolDetails)) containerengine.NodePool {
+func (e *env) mkPool(
+	t *testing.T,
+	clusterID *string,
+	name string,
+	mod func(*ke.CreateNodePoolDetails),
+) ke.NodePool {
 	t.Helper()
 
 	d := poolDetails(clusterID, name)
@@ -315,18 +341,18 @@ func (e *env) mkPool(t *testing.T, clusterID *string, name string, mod func(*con
 		mod(&d)
 	}
 
-	resp, err := e.ce.CreateNodePool(t.Context(), containerengine.CreateNodePoolRequest{CreateNodePoolDetails: d})
+	resp, err := e.ce.CreateNodePool(t.Context(), ke.CreateNodePoolRequest{CreateNodePoolDetails: d})
 	require.NoError(t, err)
 	require.NotNil(t, resp.OpcWorkRequestId)
 	e.settle()
 
-	list, err := e.ce.ListNodePools(t.Context(), containerengine.ListNodePoolsRequest{
+	list, err := e.ce.ListNodePools(t.Context(), ke.ListNodePoolsRequest{
 		CompartmentId: new(testCompartment), ClusterId: clusterID, Name: new(name),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, list.Items)
 
-	got, err := e.ce.GetNodePool(t.Context(), containerengine.GetNodePoolRequest{NodePoolId: list.Items[0].Id})
+	got, err := e.ce.GetNodePool(t.Context(), ke.GetNodePoolRequest{NodePoolId: list.Items[0].Id})
 	require.NoError(t, err)
 
 	return got.NodePool

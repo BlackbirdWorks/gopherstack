@@ -85,7 +85,7 @@ func (b *InMemoryBackend) CreateKubeconfig(id string, in KubeconfigIn) ([]byte, 
 }
 
 func renderKubeconfig(c *Cluster, server string) []byte {
-	tail := ocidTail(c.ID, 11)
+	tail := ocidTail(c.ID, longTail)
 	ca := base64.StdEncoding.EncodeToString([]byte(c.CAPEM))
 
 	var sb strings.Builder

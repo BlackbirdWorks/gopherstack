@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/oracle/oci-go-sdk/v65/containerengine"
+	ke "github.com/oracle/oci-go-sdk/v65/containerengine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +27,7 @@ func TestGetClusterOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			resp, err := e.ce.GetClusterOptions(t.Context(), containerengine.GetClusterOptionsRequest{
+			resp, err := e.ce.GetClusterOptions(t.Context(), ke.GetClusterOptionsRequest{
 				ClusterOptionId: new("all"), ShouldListAllPatchVersions: tt.all,
 			})
 			require.NoError(t, err)
@@ -36,7 +36,10 @@ func TestGetClusterOptions(t *testing.T) {
 		})
 	}
 
-	_, err := e.ce.GetClusterOptions(t.Context(), containerengine.GetClusterOptionsRequest{ClusterOptionId: new("nope")})
+	_, err := e.ce.GetClusterOptions(
+		t.Context(),
+		ke.GetClusterOptionsRequest{ClusterOptionId: new("nope")},
+	)
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
 
@@ -48,39 +51,53 @@ func TestGetNodePoolOptions(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		req        containerengine.GetNodePoolOptionsRequest
+		req        ke.GetNodePoolOptionsRequest
 		wantShapes []string
 		wantImages []string
 		wantVers   []string
 	}{
 		{
-			"all", containerengine.GetNodePoolOptionsRequest{NodePoolOptionId: new("all")},
-			[]string{shapeFlex, shapeFixed, shapeArm}, []string{fakeImages[0].Name, fakeImages[1].Name},
+			"all", ke.GetNodePoolOptionsRequest{NodePoolOptionId: new("all")},
+			[]string{shapeFlex, shapeFixed, shapeArm}, []string{fakeImages()[0].Name, fakeImages()[1].Name},
 			[]string{"v1.34.10", "v1.35.2", "v1.36.4"},
 		},
 		{
-			"arm only", containerengine.GetNodePoolOptionsRequest{
-				NodePoolOptionId: new("all"), NodePoolOsArch: containerengine.GetNodePoolOptionsNodePoolOsArchAarch64},
-			[]string{shapeArm}, []string{fakeImages[1].Name}, []string{"v1.34.10", "v1.35.2", "v1.36.4"},
+			"arm only", ke.GetNodePoolOptionsRequest{
+				NodePoolOptionId: new("all"), NodePoolOsArch: ke.GetNodePoolOptionsNodePoolOsArchAarch64},
+			[]string{shapeArm}, []string{fakeImages()[1].Name}, []string{"v1.34.10", "v1.35.2", "v1.36.4"},
 		},
 		{
-			"ubuntu", containerengine.GetNodePoolOptionsRequest{
-				NodePoolOptionId: new("all"), NodePoolOsType: containerengine.GetNodePoolOptionsNodePoolOsTypeUbuntu},
-			[]string{shapeFlex, shapeFixed, shapeArm}, []string{fakeImages[2].Name}, []string{"v1.34.10", "v1.35.2", "v1.36.4"},
+			"ubuntu",
+			ke.GetNodePoolOptionsRequest{
+				NodePoolOptionId: new("all"), NodePoolOsType: ke.GetNodePoolOptionsNodePoolOsTypeUbuntu},
+			[]string{
+				shapeFlex,
+				shapeFixed,
+				shapeArm,
+			},
+			[]string{fakeImages()[2].Name},
+			[]string{"v1.34.10", "v1.35.2", "v1.36.4"},
 		},
 		{
-			"ol7 has none", containerengine.GetNodePoolOptionsRequest{
-				NodePoolOptionId: new("all"), NodePoolOsType: containerengine.GetNodePoolOptionsNodePoolOsTypeOl7},
+			"ol7 has none", ke.GetNodePoolOptionsRequest{
+				NodePoolOptionId: new("all"), NodePoolOsType: ke.GetNodePoolOptionsNodePoolOsTypeOl7},
 			[]string{shapeFlex, shapeFixed, shapeArm}, []string{}, []string{"v1.34.10", "v1.35.2", "v1.36.4"},
 		},
 		{
-			"for cluster", containerengine.GetNodePoolOptionsRequest{NodePoolOptionId: c.Id},
-			[]string{shapeFlex, shapeFixed, shapeArm}, []string{fakeImages[0].Name, fakeImages[1].Name},
+			"for cluster", ke.GetNodePoolOptionsRequest{NodePoolOptionId: c.Id},
+			[]string{shapeFlex, shapeFixed, shapeArm}, []string{fakeImages()[0].Name, fakeImages()[1].Name},
 			[]string{"v1.34.1", "v1.34.2"},
 		},
 		{
-			"version filter", containerengine.GetNodePoolOptionsRequest{NodePoolOptionId: new("all"), NodePoolK8sVersion: new("v1.35.2")},
-			[]string{shapeFlex, shapeFixed, shapeArm}, []string{fakeImages[0].Name, fakeImages[1].Name}, []string{"v1.35.2"},
+			"version filter",
+			ke.GetNodePoolOptionsRequest{NodePoolOptionId: new("all"), NodePoolK8sVersion: new("v1.35.2")},
+			[]string{
+				shapeFlex,
+				shapeFixed,
+				shapeArm,
+			},
+			[]string{fakeImages()[0].Name, fakeImages()[1].Name},
+			[]string{"v1.35.2"},
 		},
 	}
 
@@ -97,14 +114,20 @@ func TestGetNodePoolOptions(t *testing.T) {
 		})
 	}
 
-	resp, err := e.ce.GetNodePoolOptions(t.Context(), containerengine.GetNodePoolOptionsRequest{NodePoolOptionId: new("all")})
+	resp, err := e.ce.GetNodePoolOptions(
+		t.Context(),
+		ke.GetNodePoolOptionsRequest{NodePoolOptionId: new("all")},
+	)
 	require.NoError(t, err)
 
-	src, ok := resp.Sources[0].(containerengine.NodeSourceViaImageOption)
+	src, ok := resp.Sources[0].(ke.NodeSourceViaImageOption)
 	require.True(t, ok)
 	assert.Equal(t, imgOL8, *src.ImageId)
 
-	_, err = e.ce.GetNodePoolOptions(t.Context(), containerengine.GetNodePoolOptionsRequest{NodePoolOptionId: new("ocid1.cluster.oc1.iad.nope")})
+	_, err = e.ce.GetNodePoolOptions(
+		t.Context(),
+		ke.GetNodePoolOptionsRequest{NodePoolOptionId: new("ocid1.cluster.oc1.iad.nope")},
+	)
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
 
@@ -113,7 +136,10 @@ func TestNodePoolOptionsStandalone(t *testing.T) {
 
 	e := newEnv(t, envOpts{noNet: true})
 
-	resp, err := e.ce.GetNodePoolOptions(t.Context(), containerengine.GetNodePoolOptionsRequest{NodePoolOptionId: new("all")})
+	resp, err := e.ce.GetNodePoolOptions(
+		t.Context(),
+		ke.GetNodePoolOptionsRequest{NodePoolOptionId: new("all")},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, resp.Shapes)
 	assert.NotEmpty(t, resp.KubernetesVersions)

@@ -22,6 +22,10 @@ const (
 	regionKey        = "iad"
 	defaultListLimit = 100
 	ocidTailLen      = 52
+	shortTail        = 5
+	longTail         = 11
+	sourceImage      = "IMAGE"
+	osOracleLinux    = "Oracle Linux"
 
 	defaultTransition = 2 * time.Second
 	maxName           = 255
@@ -173,13 +177,6 @@ func (b *InMemoryBackend) nextSeq() int64 {
 	return b.seq
 }
 
-func (b *InMemoryBackend) network() Network {
-	b.mu.RLock("network")
-	defer b.mu.RUnlock()
-
-	return b.net
-}
-
 func newEtag() string { return uuid.NewString() }
 
 func newOCID(kind string) string {
@@ -277,8 +274,6 @@ func paginate[T any](
 
 	return page.New(items, o.Page, o.Limit, defaultListLimit)
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func def[T comparable](v, d T) T {
 	var zero T

@@ -163,7 +163,7 @@ func validCIDR(field, v string) (netip.Prefix, *APIError) {
 	return p, nil
 }
 
-func (b *InMemoryBackend) checkPodNets(nets []PodNet, typ string) ([]PodNet, *APIError) {
+func (b *InMemoryBackend) checkPodNets(nets []PodNet) ([]PodNet, *APIError) {
 	if len(nets) == 0 {
 		return []PodNet{{CniType: cniFlannel}}, nil
 	}
@@ -183,8 +183,8 @@ func (b *InMemoryBackend) checkPodNets(nets []PodNet, typ string) ([]PodNet, *AP
 func (b *InMemoryBackend) checkOptions(in *ClusterOptions, vcnID string) (ClusterOptions, *APIError) {
 	out := ClusterOptions{
 		K8sNetwork:        &NetworkConfig{PodsCidr: defaultPodsCIDR, ServicesCidr: defaultSvcCIDR},
-		AddOns:            &AddOns{IsKubernetesDashboardEnabled: ptr(false), IsTillerEnabled: ptr(false)},
-		Admission:         &Admission{IsPodSecurityPolicyEnabled: ptr(false)},
+		AddOns:            &AddOns{IsKubernetesDashboardEnabled: new(false), IsTillerEnabled: new(false)},
+		Admission:         &Admission{IsPodSecurityPolicyEnabled: new(false)},
 		ServiceLbSubnetID: []string{},
 	}
 
@@ -213,8 +213,8 @@ func (b *InMemoryBackend) checkOptions(in *ClusterOptions, vcnID string) (Cluste
 
 	if in.AddOns != nil {
 		out.AddOns = &AddOns{
-			IsKubernetesDashboardEnabled: def(in.AddOns.IsKubernetesDashboardEnabled, ptr(false)),
-			IsTillerEnabled:              def(in.AddOns.IsTillerEnabled, ptr(false)),
+			IsKubernetesDashboardEnabled: def(in.AddOns.IsKubernetesDashboardEnabled, new(false)),
+			IsTillerEnabled:              def(in.AddOns.IsTillerEnabled, new(false)),
 		}
 	}
 
@@ -252,7 +252,7 @@ func mergeNetwork(out *ClusterOptions, in *NetworkConfig) *APIError {
 // applyUpdatable copies the option blocks UpdateCluster may change.
 func applyUpdatable(out, in *ClusterOptions) {
 	if in.Admission != nil {
-		out.Admission = &Admission{IsPodSecurityPolicyEnabled: def(in.Admission.IsPodSecurityPolicyEnabled, ptr(false))}
+		out.Admission = &Admission{IsPodSecurityPolicyEnabled: def(in.Admission.IsPodSecurityPolicyEnabled, new(false))}
 	}
 
 	if in.PersistentVolume != nil {
@@ -278,7 +278,7 @@ func (b *InMemoryBackend) checkEndpointConfig(ec *EndpointConfig, vcnID string) 
 
 func (b *InMemoryBackend) checkImagePolicy(in *ImagePolicy) (ImagePolicy, *APIError) {
 	if in == nil {
-		return ImagePolicy{IsPolicyEnabled: ptr(false), KeyDetails: []KeyDetail{}}, nil
+		return ImagePolicy{IsPolicyEnabled: new(false), KeyDetails: []KeyDetail{}}, nil
 	}
 
 	for _, k := range in.KeyDetails {
@@ -287,7 +287,7 @@ func (b *InMemoryBackend) checkImagePolicy(in *ImagePolicy) (ImagePolicy, *APIEr
 		}
 	}
 
-	out := ImagePolicy{IsPolicyEnabled: def(in.IsPolicyEnabled, ptr(false)), KeyDetails: slices.Clone(in.KeyDetails)}
+	out := ImagePolicy{IsPolicyEnabled: def(in.IsPolicyEnabled, new(false)), KeyDetails: slices.Clone(in.KeyDetails)}
 	if out.KeyDetails == nil {
 		out.KeyDetails = []KeyDetail{}
 	}
@@ -355,7 +355,7 @@ func newToken() string {
 }
 
 func (b *InMemoryBackend) newIdentity(c *Cluster) *APIError {
-	ca, err := k3sengine.NewCA("gopherstack-oke-" + ocidTail(c.ID, 11) + "-ca")
+	ca, err := k3sengine.NewCA("gopherstack-oke-" + ocidTail(c.ID, longTail) + "-ca")
 	if err != nil {
 		return newErr(http.StatusInternalServerError, "InternalServerError", "Failed to generate the cluster CA")
 	}
@@ -437,7 +437,7 @@ func (b *InMemoryBackend) buildCluster(in CreateClusterIn) (*Cluster, SubnetInfo
 		return nil, sub, aerr
 	}
 
-	nets, aerr := b.checkPodNets(in.PodNetworks, in.Type)
+	nets, aerr := b.checkPodNets(in.PodNetworks)
 	if aerr != nil {
 		return nil, sub, aerr
 	}
@@ -547,7 +547,7 @@ func (b *InMemoryBackend) mutableCluster(id, ifMatch string) (*Cluster, *APIErro
 		return nil, aerr
 	}
 
-	if c.State != stateActive && !(c.State == stateFailed) {
+	if c.State != stateActive && c.State != stateFailed {
 		return nil, errState("Cluster " + id + " is in state " + c.State + "; the operation requires ACTIVE")
 	}
 
@@ -614,15 +614,23 @@ func (b *InMemoryBackend) checkClusterUpdate(c *Cluster, in UpdateClusterIn) *AP
 		}
 	}
 
+	return firstErr(checkTypeChange(c.Type, in.Type), checkUpgrade(c.Version, in.Version))
+}
+
+func checkTypeChange(cur, want string) *APIError {
 	switch {
-	case in.Type != "" && in.Type != typeBasic && in.Type != typeEnhanced:
+	case want != "" && want != typeBasic && want != typeEnhanced:
 		return errParam("type must be " + typeBasic + " or " + typeEnhanced)
-	case in.Type == typeBasic && c.Type == typeEnhanced:
+	case want == typeBasic && cur == typeEnhanced:
 		return errParam("An ENHANCED_CLUSTER cannot be changed to a BASIC_CLUSTER")
 	}
 
-	if in.Version != nil && *in.Version != c.Version && !slices.Contains(upgradesFrom(c.Version), *in.Version) {
-		return errParam("kubernetesVersion " + *in.Version + " is not an available upgrade of " + c.Version)
+	return nil
+}
+
+func checkUpgrade(cur string, want *string) *APIError {
+	if want != nil && *want != cur && !slices.Contains(upgradesFrom(cur), *want) {
+		return errParam("kubernetesVersion " + *want + " is not an available upgrade of " + cur)
 	}
 
 	return nil
@@ -682,12 +690,10 @@ func (b *InMemoryBackend) MigrateToNativeVcn(id, ifMatch string, in MigrateIn) (
 	}
 
 	sub, _ := b.checkEndpointConfig(in.EndpointConfig, c.VcnID)
-	days := 0
+	days := maxDecommission
 
 	if in.Decommission != nil {
 		days, _ = strconv.Atoi(durationDaysRe.FindStringSubmatch(*in.Decommission)[1])
-	} else {
-		days = maxDecommission
 	}
 
 	c.VcnID, c.EndpointConfig = def(c.VcnID, sub.VcnID), in.EndpointConfig
@@ -753,7 +759,10 @@ func (b *InMemoryBackend) MigrateStatus(id string) (MigrateStatusWire, error) {
 		return MigrateStatusWire{}, aerr
 	}
 
-	return MigrateStatusWire{State: def(c.MigrateState, "NOT_STARTED"), TimeDecommissionScheduled: c.MigrateScheduled}, nil
+	return MigrateStatusWire{
+		State:                     def(c.MigrateState, "NOT_STARTED"),
+		TimeDecommissionScheduled: c.MigrateScheduled,
+	}, nil
 }
 
 func (h *Handler) createCluster(q *req) error {

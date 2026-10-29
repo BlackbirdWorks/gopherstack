@@ -156,7 +156,7 @@ func (b *InMemoryBackend) launchLocked(c *Cluster, wrID string) {
 func (b *InMemoryBackend) runEngine(ctx context.Context, id string, lc *liveCluster, image, wrID string) {
 	e := b.engine
 
-	inst, err := e.core.Launch(ctx, k3sengine.Node{Name: ocidTail(id, 11), Image: image, JoinToken: joinToken()},
+	inst, err := e.core.Launch(ctx, k3sengine.Node{Name: ocidTail(id, longTail), Image: image, JoinToken: joinToken()},
 		func(i *k3sengine.Instance) bool { return b.recordLive(id, lc, i) })
 	if err != nil {
 		if !errors.Is(err, k3sengine.ErrSuperseded) {

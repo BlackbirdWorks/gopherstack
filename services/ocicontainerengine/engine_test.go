@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/containerengine"
+	ke "github.com/oracle/oci-go-sdk/v65/containerengine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -110,22 +110,28 @@ func newEngineEnv(t *testing.T, mod func(cfg *oke.EngineConfig, rt *fakeRuntime)
 	}
 }
 
-func (e *engineEnv) cluster(t *testing.T, id *string) containerengine.GetClusterResponse {
+func (e *engineEnv) cluster(t *testing.T, id *string) ke.GetClusterResponse {
 	t.Helper()
 
-	got, err := e.ce.GetCluster(t.Context(), containerengine.GetClusterRequest{ClusterId: id})
+	got, err := e.ce.GetCluster(t.Context(), ke.GetClusterRequest{ClusterId: id})
 	require.NoError(t, err)
 
 	return got
 }
 
-func (e *engineEnv) create(t *testing.T, name string) (clusterID, wrID *string) {
+func (e *engineEnv) create(t *testing.T, name string) (*string, *string) {
 	t.Helper()
 
-	resp, err := e.ce.CreateCluster(t.Context(), containerengine.CreateClusterRequest{CreateClusterDetails: clusterDetails(name)})
+	resp, err := e.ce.CreateCluster(
+		t.Context(),
+		ke.CreateClusterRequest{CreateClusterDetails: clusterDetails(name)},
+	)
 	require.NoError(t, err)
 
-	list, err := e.ce.ListClusters(t.Context(), containerengine.ListClustersRequest{CompartmentId: new(testCompartment), Name: new(name)})
+	list, err := e.ce.ListClusters(
+		t.Context(),
+		ke.ListClustersRequest{CompartmentId: new(testCompartment), Name: new(name)},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 
@@ -147,17 +153,17 @@ func TestEngineClusterLifecycle(t *testing.T) {
 	assert.Contains(t, spec.Name, "gopherstack-oke-")
 
 	e.settle()
-	assert.Equal(t, containerengine.ClusterLifecycleStateCreating, e.cluster(t, id).LifecycleState,
+	assert.Equal(t, ke.ClusterLifecycleStateCreating, e.cluster(t, id).LifecycleState,
 		"the cluster turns ACTIVE when the API server answers, not on the clock")
 
-	wr, err := e.ce.GetWorkRequest(t.Context(), containerengine.GetWorkRequestRequest{WorkRequestId: wrID})
+	wr, err := e.ce.GetWorkRequest(t.Context(), ke.GetWorkRequestRequest{WorkRequestId: wrID})
 	require.NoError(t, err)
-	assert.Equal(t, containerengine.WorkRequestStatusInProgress, wr.Status)
+	assert.Equal(t, ke.WorkRequestStatusInProgress, wr.Status)
 
 	close(e.gate.open)
 
 	require.Eventually(t, func() bool {
-		return e.cluster(t, id).LifecycleState == containerengine.ClusterLifecycleStateActive
+		return e.cluster(t, id).LifecycleState == ke.ClusterLifecycleStateActive
 	}, engineMax, engineGap)
 
 	c := e.cluster(t, id).Cluster
@@ -165,11 +171,11 @@ func TestEngineClusterLifecycle(t *testing.T) {
 	assert.Equal(t, *c.Endpoints.PrivateEndpoint, *c.Endpoints.PublicEndpoint)
 	assert.Equal(t, testToken, e.backend.EngineToken())
 
-	wr, err = e.ce.GetWorkRequest(t.Context(), containerengine.GetWorkRequestRequest{WorkRequestId: wrID})
+	wr, err = e.ce.GetWorkRequest(t.Context(), ke.GetWorkRequestRequest{WorkRequestId: wrID})
 	require.NoError(t, err)
-	assert.Equal(t, containerengine.WorkRequestStatusSucceeded, wr.Status)
+	assert.Equal(t, ke.WorkRequestStatusSucceeded, wr.Status)
 
-	kc, err := e.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{ClusterId: id})
+	kc, err := e.ce.CreateKubeconfig(t.Context(), ke.CreateKubeconfigRequest{ClusterId: id})
 	require.NoError(t, err)
 
 	cfg := readKubeconfig(t, kc)
@@ -177,7 +183,7 @@ func TestEngineClusterLifecycle(t *testing.T) {
 	assert.Equal(t, testToken, cfg.Users[0].User.Token)
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(testCA)), cfg.Clusters[0].Cluster.CA)
 
-	_, err = e.ce.DeleteCluster(t.Context(), containerengine.DeleteClusterRequest{ClusterId: id})
+	_, err = e.ce.DeleteCluster(t.Context(), ke.DeleteClusterRequest{ClusterId: id})
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return len(e.rt.removedIDs()) == 1 }, engineMax, engineGap)
@@ -213,22 +219,25 @@ func TestEngineStartFailures(t *testing.T) {
 			id, wrID := e.create(t, "bad")
 
 			require.Eventually(t, func() bool {
-				return e.cluster(t, id).LifecycleState == containerengine.ClusterLifecycleStateFailed
+				return e.cluster(t, id).LifecycleState == ke.ClusterLifecycleStateFailed
 			}, engineMax, engineGap)
 
 			c := e.cluster(t, id)
 			assert.Contains(t, *c.LifecycleDetails, tt.want)
 
-			wr, err := e.ce.GetWorkRequest(t.Context(), containerengine.GetWorkRequestRequest{WorkRequestId: wrID})
+			wr, err := e.ce.GetWorkRequest(t.Context(), ke.GetWorkRequestRequest{WorkRequestId: wrID})
 			require.NoError(t, err)
-			assert.Equal(t, containerengine.WorkRequestStatusFailed, wr.Status)
+			assert.Equal(t, ke.WorkRequestStatusFailed, wr.Status)
 
-			errs, err := e.ce.ListWorkRequestErrors(t.Context(), containerengine.ListWorkRequestErrorsRequest{CompartmentId: new(testCompartment), WorkRequestId: wrID})
+			errs, err := e.ce.ListWorkRequestErrors(
+				t.Context(),
+				ke.ListWorkRequestErrorsRequest{CompartmentId: new(testCompartment), WorkRequestId: wrID},
+			)
 			require.NoError(t, err)
 			require.Len(t, errs.Items, 1)
 			assert.Contains(t, *errs.Items[0].Message, tt.want)
 
-			_, err = e.ce.DeleteCluster(t.Context(), containerengine.DeleteClusterRequest{ClusterId: id})
+			_, err = e.ce.DeleteCluster(t.Context(), ke.DeleteClusterRequest{ClusterId: id})
 			require.NoError(t, err, "FAILED clusters can be deleted")
 		})
 	}
@@ -243,7 +252,7 @@ func TestEngineRestoreRelaunches(t *testing.T) {
 	id, _ := e.create(t, "again")
 
 	require.Eventually(t, func() bool {
-		return e.cluster(t, id).LifecycleState == containerengine.ClusterLifecycleStateActive
+		return e.cluster(t, id).LifecycleState == ke.ClusterLifecycleStateActive
 	}, engineMax, engineGap)
 
 	snap := e.backend.Snapshot(t.Context())
@@ -253,7 +262,7 @@ func TestEngineRestoreRelaunches(t *testing.T) {
 	require.Eventually(t, func() bool {
 		c := e.cluster(t, id)
 
-		return c.LifecycleState == containerengine.ClusterLifecycleStateActive && len(e.rt.removedIDs()) == 1
+		return c.LifecycleState == ke.ClusterLifecycleStateActive && len(e.rt.removedIDs()) == 1
 	}, engineMax, engineGap)
 }
 
@@ -265,9 +274,17 @@ func TestEngineConfigValidation(t *testing.T) {
 		name string
 		cfg  oke.EngineConfig
 	}{
-		{name: "bad host", cfg: oke.EngineConfig{Host: "bad host!", Token: testToken}, want: k3sengine.ErrInvalidConfig},
+		{
+			name: "bad host",
+			cfg:  oke.EngineConfig{Host: "bad host!", Token: testToken},
+			want: k3sengine.ErrInvalidConfig,
+		},
 		{name: "short token", cfg: oke.EngineConfig{Token: "short"}, want: k3sengine.ErrInvalidConfig},
-		{name: "default token off host", cfg: oke.EngineConfig{Host: "10.1.2.3"}, want: k3sengine.ErrDefaultTokenExposed},
+		{
+			name: "default token off host",
+			cfg:  oke.EngineConfig{Host: "10.1.2.3"},
+			want: k3sengine.ErrDefaultTokenExposed,
+		},
 		{name: "explicit token off host", cfg: oke.EngineConfig{Host: "10.1.2.3", Token: testToken}},
 		{name: "loopback default token"},
 	}

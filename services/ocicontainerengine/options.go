@@ -66,12 +66,12 @@ func osMatches(want string, img ImageInfo) bool {
 	case "UBUNTU":
 		return img.OS == "Canonical Ubuntu"
 	case "OL7":
-		return img.OS == "Oracle Linux" && img.OSVersion == "7"
+		return img.OS == osOracleLinux && img.OSVersion == "7"
 	case "OL8":
-		return img.OS == "Oracle Linux" && img.OSVersion == "8"
+		return img.OS == osOracleLinux && img.OSVersion == "8"
 	}
 
-	return img.OS == "Oracle Linux"
+	return img.OS == osOracleLinux
 }
 
 // GetNodePoolOptions returns the shapes, images and versions a node pool can use.
@@ -116,7 +116,10 @@ func (b *InMemoryBackend) GetNodePoolOptions(in NodePoolOptionsIn) (NodePoolOpti
 		}
 
 		out.Images = append(out.Images, img.Name)
-		out.Sources = append(out.Sources, nodeSourceOption{SourceType: "IMAGE", SourceName: img.Name, ImageID: img.ID})
+		out.Sources = append(
+			out.Sources,
+			nodeSourceOption{SourceType: sourceImage, SourceName: img.Name, ImageID: img.ID},
+		)
 	}
 
 	return out, nil

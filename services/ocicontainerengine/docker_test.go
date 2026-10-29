@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/containerengine"
+	ke "github.com/oracle/oci-go-sdk/v65/containerengine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -113,7 +113,10 @@ func TestDockerClusterRealK3s(t *testing.T) {
 
 	image, _ := k3sengine.Image("1.34", "1.34")
 
-	probe, err := rt.CreateAndStart(t.Context(), container.Spec{Image: image, Entrypoint: []string{"/bin/true"}, Privileged: true})
+	probe, err := rt.CreateAndStart(
+		t.Context(),
+		container.Spec{Image: image, Entrypoint: []string{"/bin/true"}, Privileged: true},
+	)
 	if err != nil {
 		t.Skipf("privileged containers unavailable: %v", err)
 	}
@@ -125,29 +128,39 @@ func TestDockerClusterRealK3s(t *testing.T) {
 		require.NoError(t, b.EnableEngine(oke.EngineConfig{Runtime: rec, StartTimeout: k3sStartWait}))
 	}})
 
-	_, err = e.ce.CreateCluster(t.Context(), containerengine.CreateClusterRequest{CreateClusterDetails: clusterDetails("real")})
+	_, err = e.ce.CreateCluster(
+		t.Context(),
+		ke.CreateClusterRequest{CreateClusterDetails: clusterDetails("real")},
+	)
 	require.NoError(t, err)
 
-	list, err := e.ce.ListClusters(t.Context(), containerengine.ListClustersRequest{CompartmentId: new(testCompartment)})
+	list, err := e.ce.ListClusters(
+		t.Context(),
+		ke.ListClustersRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 
 	id := list.Items[0].Id
 
 	require.Eventually(t, func() bool {
-		c, gerr := e.ce.GetCluster(t.Context(), containerengine.GetClusterRequest{ClusterId: id})
+		c, gerr := e.ce.GetCluster(t.Context(), ke.GetClusterRequest{ClusterId: id})
 		require.NoError(t, gerr)
-		require.NotEqual(t, containerengine.ClusterLifecycleStateFailed, c.LifecycleState, c.LifecycleDetails)
+		require.NotEqual(t, ke.ClusterLifecycleStateFailed, c.LifecycleState, c.LifecycleDetails)
 
-		return c.LifecycleState == containerengine.ClusterLifecycleStateActive
+		return c.LifecycleState == ke.ClusterLifecycleStateActive
 	}, k3sStartWait, time.Second)
 
-	resp, err := e.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{ClusterId: id})
+	resp, err := e.ce.CreateKubeconfig(t.Context(), ke.CreateKubeconfigRequest{ClusterId: id})
 	require.NoError(t, err)
 
 	kc := readKubeconfig(t, resp)
 	require.Len(t, kc.Clusters, 1)
-	require.True(t, strings.HasPrefix(kc.Clusters[0].Cluster.Server, "https://127.0.0.1:"), kc.Clusters[0].Cluster.Server)
+	require.True(
+		t,
+		strings.HasPrefix(kc.Clusters[0].Cluster.Server, "https://127.0.0.1:"),
+		kc.Clusters[0].Cluster.Server,
+	)
 
 	token := kc.Users[0].User.Token
 	assert.Equal(t, e.backend.EngineToken(), token)
@@ -163,7 +176,7 @@ func TestDockerClusterRealK3s(t *testing.T) {
 	require.Len(t, ids, 1)
 	require.True(t, dockerHasContainer(t, ids[0]))
 
-	_, err = e.ce.DeleteCluster(t.Context(), containerengine.DeleteClusterRequest{ClusterId: id})
+	_, err = e.ce.DeleteCluster(t.Context(), ke.DeleteClusterRequest{ClusterId: id})
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return !dockerHasContainer(t, ids[0]) }, 2*time.Minute, time.Second)

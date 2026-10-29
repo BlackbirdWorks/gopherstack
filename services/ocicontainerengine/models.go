@@ -113,32 +113,32 @@ type PodNet struct {
 // Cluster is a stored OKE cluster.
 type Cluster struct {
 	TimeCreated      time.Time       `json:"timeCreated"`
+	Tags             Tags            `json:"tags"`
 	TimeUpdated      *time.Time      `json:"timeUpdated,omitempty"`
 	TimeDeleted      *time.Time      `json:"timeDeleted,omitempty"`
 	TransitionAt     *time.Time      `json:"transitionAt,omitempty"`
 	MigrateScheduled *time.Time      `json:"migrateScheduled,omitempty"`
 	EndpointConfig   *EndpointConfig `json:"endpointConfig,omitempty"`
-	Tags             Tags            `json:"tags"`
 	Endpoints        Endpoints       `json:"endpoints"`
-	Options          ClusterOptions  `json:"options"`
-	ImagePolicy      ImagePolicy     `json:"imagePolicy"`
-	PodNetworks      []PodNet        `json:"podNetworks"`
+	VcnID            string          `json:"vcnId,omitempty"`
+	Type             string          `json:"type"`
+	DeletedByWR      string          `json:"deletedByWr,omitempty"`
 	ID               string          `json:"id"`
 	Name             string          `json:"name"`
 	CompartmentID    string          `json:"compartmentId"`
-	VcnID            string          `json:"vcnId,omitempty"`
+	UpdatedByWR      string          `json:"updatedByWr,omitempty"`
 	Version          string          `json:"version"`
 	KmsKeyID         string          `json:"kmsKeyId,omitempty"`
-	Type             string          `json:"type"`
+	CreatedByWR      string          `json:"createdByWr"`
 	State            string          `json:"state"`
 	Details          string          `json:"details,omitempty"`
 	Etag             string          `json:"etag"`
 	CAPEM            string          `json:"caPem"`
 	Token            string          `json:"token"`
 	MigrateState     string          `json:"migrateState,omitempty"`
-	CreatedByWR      string          `json:"createdByWr"`
-	UpdatedByWR      string          `json:"updatedByWr,omitempty"`
-	DeletedByWR      string          `json:"deletedByWr,omitempty"`
+	Options          ClusterOptions  `json:"options"`
+	ImagePolicy      ImagePolicy     `json:"imagePolicy"`
+	PodNetworks      []PodNet        `json:"podNetworks"`
 	Seq              int64           `json:"seq"`
 }
 

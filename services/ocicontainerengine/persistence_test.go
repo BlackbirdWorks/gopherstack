@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/oracle/oci-go-sdk/v65/containerengine"
+	ke "github.com/oracle/oci-go-sdk/v65/containerengine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,7 +18,7 @@ func TestSnapshotRestore(t *testing.T) {
 	c := e.mkCluster(t, "persist", nil)
 	np := e.mkPool(t, c.Id, "pool", nil)
 
-	kc, err := e.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{ClusterId: c.Id})
+	kc, err := e.ce.CreateKubeconfig(t.Context(), ke.CreateKubeconfigRequest{ClusterId: c.Id})
 	require.NoError(t, err)
 
 	want := readKubeconfig(t, kc)
@@ -30,27 +30,30 @@ func TestSnapshotRestore(t *testing.T) {
 	require.NoError(t, restored.backend.Restore(t.Context(), snap))
 	restored.clock.ns.Store(e.clock.ns.Load())
 
-	gotC, err := restored.ce.GetCluster(t.Context(), containerengine.GetClusterRequest{ClusterId: c.Id})
+	gotC, err := restored.ce.GetCluster(t.Context(), ke.GetClusterRequest{ClusterId: c.Id})
 	require.NoError(t, err)
 	assert.Equal(t, "persist", *gotC.Name)
-	assert.Equal(t, containerengine.ClusterLifecycleStateActive, gotC.LifecycleState)
+	assert.Equal(t, ke.ClusterLifecycleStateActive, gotC.LifecycleState)
 	assert.Equal(t, *c.Endpoints.PrivateEndpoint, *gotC.Endpoints.PrivateEndpoint)
 
-	gotP, err := restored.ce.GetNodePool(t.Context(), containerengine.GetNodePoolRequest{NodePoolId: np.Id})
+	gotP, err := restored.ce.GetNodePool(t.Context(), ke.GetNodePoolRequest{NodePoolId: np.Id})
 	require.NoError(t, err)
 	assert.Len(t, gotP.Nodes, 3)
 
-	wr, err := restored.ce.GetWorkRequest(t.Context(), containerengine.GetWorkRequestRequest{WorkRequestId: c.Metadata.CreatedByWorkRequestId})
+	wr, err := restored.ce.GetWorkRequest(
+		t.Context(),
+		ke.GetWorkRequestRequest{WorkRequestId: c.Metadata.CreatedByWorkRequestId},
+	)
 	require.NoError(t, err)
-	assert.Equal(t, containerengine.WorkRequestStatusSucceeded, wr.Status)
+	assert.Equal(t, ke.WorkRequestStatusSucceeded, wr.Status)
 
-	again, err := restored.ce.CreateKubeconfig(t.Context(), containerengine.CreateKubeconfigRequest{ClusterId: c.Id})
+	again, err := restored.ce.CreateKubeconfig(t.Context(), ke.CreateKubeconfigRequest{ClusterId: c.Id})
 	require.NoError(t, err)
 	assert.Equal(t, want, readKubeconfig(t, again), "CA and token survive a restore")
 
 	restored.backend.Reset()
 
-	_, err = restored.ce.GetCluster(t.Context(), containerengine.GetClusterRequest{ClusterId: c.Id})
+	_, err = restored.ce.GetCluster(t.Context(), ke.GetClusterRequest{ClusterId: c.Id})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
 
@@ -103,17 +106,52 @@ func TestErrorEnvelope(t *testing.T) {
 		code   string
 		status int
 	}{
-		{"missing cluster", http.MethodGet, "/20180222/clusters/ocid1.cluster.oc1.iad.nope", "", "NotAuthorizedOrNotFound", 404},
+		{
+			"missing cluster",
+			http.MethodGet,
+			"/20180222/clusters/ocid1.cluster.oc1.iad.nope",
+			"",
+			"NotAuthorizedOrNotFound",
+			404,
+		},
 		{"bad json", http.MethodPost, "/20180222/clusters", "{", "CannotParseRequest", 400},
 		{"no body", http.MethodPost, "/20180222/clusters", "", "MissingParameter", 400},
-		{"no compartment", http.MethodPost, "/20180222/clusters", `{"name":"x","kubernetesVersion":"v1.34.2"}`, "MissingParameter", 400},
+		{
+			"no compartment",
+			http.MethodPost,
+			"/20180222/clusters",
+			`{"name":"x","kubernetesVersion":"v1.34.2"}`,
+			"MissingParameter",
+			400,
+		},
 		{"list needs compartment", http.MethodGet, "/20180222/clusters", "", "MissingParameter", 400},
 		{"bad sort", http.MethodGet, "/20180222/clusters?compartmentId=c&sortBy=BOGUS", "", "InvalidParameter", 400},
-		{"bad sort order", http.MethodGet, "/20180222/nodePools?compartmentId=c&sortOrder=UP", "", "InvalidParameter", 400},
+		{
+			"bad sort order",
+			http.MethodGet,
+			"/20180222/nodePools?compartmentId=c&sortOrder=UP",
+			"",
+			"InvalidParameter",
+			400,
+		},
 		{"unknown route", http.MethodGet, "/20180222/nothing", "", "NotFound", 404},
 		{"missing work request", http.MethodGet, "/20180222/workRequests/nope", "", "NotAuthorizedOrNotFound", 404},
-		{"missing work request errors", http.MethodGet, "/20180222/workRequests/nope/errors", "", "NotAuthorizedOrNotFound", 404},
-		{"missing work request logs", http.MethodGet, "/20180222/workRequests/nope/logs", "", "NotAuthorizedOrNotFound", 404},
+		{
+			"missing work request errors",
+			http.MethodGet,
+			"/20180222/workRequests/nope/errors",
+			"",
+			"NotAuthorizedOrNotFound",
+			404,
+		},
+		{
+			"missing work request logs",
+			http.MethodGet,
+			"/20180222/workRequests/nope/logs",
+			"",
+			"NotAuthorizedOrNotFound",
+			404,
+		},
 	}
 
 	for _, tt := range tests {
@@ -132,15 +170,15 @@ func TestAuth(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		opts     envOpts
-		raw      bool
+		name     string
 		wantCode int
+		raw      bool
 	}{
-		{"signed with registered key", envOpts{enforce: true, register: true}, false, http.StatusOK},
-		{"unregistered key rejected", envOpts{enforce: true}, false, http.StatusUnauthorized},
-		{"unsigned rejected", envOpts{enforce: true, register: true}, true, http.StatusUnauthorized},
-		{"unsigned accepted when not enforcing", envOpts{}, true, http.StatusBadRequest},
+		{envOpts{enforce: true, register: true}, "signed with registered key", http.StatusOK, false},
+		{envOpts{enforce: true}, "unregistered key rejected", http.StatusUnauthorized, false},
+		{envOpts{enforce: true, register: true}, "unsigned rejected", http.StatusUnauthorized, true},
+		{envOpts{}, "unsigned accepted when not enforcing", http.StatusBadRequest, true},
 	}
 
 	for _, tt := range tests {
@@ -156,7 +194,10 @@ func TestAuth(t *testing.T) {
 				return
 			}
 
-			_, err := e.ce.ListClusters(t.Context(), containerengine.ListClustersRequest{CompartmentId: new(testCompartment)})
+			_, err := e.ce.ListClusters(
+				t.Context(),
+				ke.ListClustersRequest{CompartmentId: new(testCompartment)},
+			)
 			if tt.wantCode == http.StatusOK {
 				require.NoError(t, err)
 
@@ -187,21 +228,42 @@ func TestWorkRequestSurface(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	ctx := t.Context()
 
-	created, err := e.ce.CreateCluster(ctx, containerengine.CreateClusterRequest{CreateClusterDetails: clusterDetails("wr")})
+	created, err := e.ce.CreateCluster(
+		ctx,
+		ke.CreateClusterRequest{CreateClusterDetails: clusterDetails("wr")},
+	)
 	require.NoError(t, err)
 
-	logs, err := e.ce.ListWorkRequestLogs(ctx, containerengine.ListWorkRequestLogsRequest{CompartmentId: new(testCompartment), WorkRequestId: created.OpcWorkRequestId})
+	logs, err := e.ce.ListWorkRequestLogs(
+		ctx,
+		ke.ListWorkRequestLogsRequest{
+			CompartmentId: new(testCompartment),
+			WorkRequestId: created.OpcWorkRequestId,
+		},
+	)
 	require.NoError(t, err)
 	assert.Len(t, logs.Items, 1)
 
 	e.settle()
 
-	logs, err = e.ce.ListWorkRequestLogs(ctx, containerengine.ListWorkRequestLogsRequest{CompartmentId: new(testCompartment), WorkRequestId: created.OpcWorkRequestId})
+	logs, err = e.ce.ListWorkRequestLogs(
+		ctx,
+		ke.ListWorkRequestLogsRequest{
+			CompartmentId: new(testCompartment),
+			WorkRequestId: created.OpcWorkRequestId,
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, logs.Items, 2)
 	assert.Contains(t, *logs.Items[1].Message, "CLUSTER_CREATE succeeded")
 
-	errs, err := e.ce.ListWorkRequestErrors(ctx, containerengine.ListWorkRequestErrorsRequest{CompartmentId: new(testCompartment), WorkRequestId: created.OpcWorkRequestId})
+	errs, err := e.ce.ListWorkRequestErrors(
+		ctx,
+		ke.ListWorkRequestErrorsRequest{
+			CompartmentId: new(testCompartment),
+			WorkRequestId: created.OpcWorkRequestId,
+		},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, errs.Items)
 
@@ -219,10 +281,10 @@ func TestWorkRequestSurface(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			resp, err := e.ce.ListWorkRequests(ctx, containerengine.ListWorkRequestsRequest{
+			resp, rerr := e.ce.ListWorkRequests(ctx, ke.ListWorkRequestsRequest{
 				CompartmentId: new(testCompartment), Status: tt.status,
 			})
-			require.NoError(t, err)
+			require.NoError(t, rerr)
 			assert.Len(t, resp.Items, tt.want)
 		})
 	}
