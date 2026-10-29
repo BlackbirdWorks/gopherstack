@@ -10,7 +10,6 @@ type Access struct {
 	Delete bool
 }
 
-//nolint:gochecknoglobals // compiled once
 var writeStepRE = regexp.MustCompile(`\b(addV|addE|mergeV|mergeE|property|drop)\s*\(`)
 
 // ScriptAccess scans a script for steps that can write or delete; it over-approximates, never under.
