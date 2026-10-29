@@ -673,3 +673,68 @@ func TestRealListener_DisabledByDefault(t *testing.T) {
 	assert.False(t, bound)
 	assert.Empty(t, be.ListenerEndpoints())
 }
+
+func TestRealListener_DeleteDuringConnectionStorm(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		proto elbv2types.ProtocolEnum
+	}{
+		{name: "tcp", proto: elbv2types.ProtocolEnumTcp},
+		{name: "udp", proto: elbv2types.ProtocolEnumUdp},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newRealFixture(t)
+			lb := f.lb(t, "nlb-storm", elbv2types.LoadBalancerTypeEnumNetwork)
+			target := tcpEcho(t, nil)
+
+			tgProto := elbv2types.ProtocolEnumTcp
+			if tt.proto == elbv2types.ProtocolEnumUdp {
+				pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = pc.Close() })
+
+				target, tgProto = pc.LocalAddr().String(), elbv2types.ProtocolEnumUdp
+			}
+
+			tg := f.tg(t, "tg-storm", tgProto, target)
+			l := f.listener(t, lb, tt.proto, 9100, tg, listenerOpts{})
+			addr := f.addr(t, l)
+			network := "tcp"
+
+			if tt.proto == elbv2types.ProtocolEnumUdp {
+				network = "udp"
+			}
+
+			var wg sync.WaitGroup
+
+			for range 8 {
+				wg.Go(func() {
+					for range 2000 {
+						c, err := net.Dial(network, addr)
+						if err != nil {
+							return
+						}
+
+						_, _ = c.Write([]byte("x"))
+						_ = c.Close()
+					}
+				})
+			}
+
+			_, err := f.client.DeleteListener(t.Context(), &elbv2sdk.DeleteListenerInput{ListenerArn: aws.String(l)})
+			require.NoError(t, err)
+
+			if network == "tcp" {
+				unreachable(t, addr)
+			}
+
+			wg.Wait()
+		})
+	}
+}
