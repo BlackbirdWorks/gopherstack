@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -430,7 +431,7 @@ func (r *realDockerRunner) launchContainer(ctx context.Context, l *launch, cd Co
 	if cwLogs := r.cwLogsBackend(); cwLogs != nil {
 		if group, stream, ok := awslogsContainerTarget(cd, taskID, containerID); ok {
 			_ = cwLogs.EnsureLogGroupAndStream(group, stream)
-			r.forwardContainerLogs(cwLogs, containerID, group, stream)
+			r.forwardContainerLogs(cwLogs, containerID, group, stream, "")
 		}
 	}
 
@@ -546,6 +547,8 @@ func (r *realDockerRunner) createContainer(ctx context.Context, l *launch, cd Co
 
 		return "", &taskLaunchError{Reason: "Task failed to start: " + err.Error(), Err: err}
 	}
+
+	maps.Copy(cfg.Labels, managedLabels(l, cd, len(diverted) > 0))
 
 	resp, err := r.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, "")
 	if err != nil {

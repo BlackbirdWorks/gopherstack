@@ -242,6 +242,7 @@ import (
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
 	ocimonitoring "github.com/blackbirdworks/gopherstack/services/ocimonitoring"
+	ocimysqlbackend "github.com/blackbirdworks/gopherstack/services/ocimysql"
 	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	ociqueuebackend "github.com/blackbirdworks/gopherstack/services/ociqueue"
@@ -633,6 +634,7 @@ type CLI struct {
 	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
 	OCIContainerEngine            ocioke.Settings                   `embed:"" prefix:"oci-oke-"`
+	OCIMySQL                      ocimysqlbackend.Settings          `embed:"" prefix:"oci-mysql-"`
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
@@ -926,6 +928,16 @@ func (c *CLI) GetOCIContainerEngineSettings() ocioke.Settings {
 // GetOCIContainerEngineEngine returns the OKE engine mode (ocicontainerengine.EngineConfigProvider).
 func (c *CLI) GetOCIContainerEngineEngine() string {
 	return c.engineMode("oci-oke-engine", c.OCIContainerEngine.Engine)
+}
+
+// GetOCIMySQLSettings returns OCI MySQL settings (ocimysql.ConfigProvider).
+func (c *CLI) GetOCIMySQLSettings() ocimysqlbackend.Settings {
+	return c.OCIMySQL
+}
+
+// GetOCIMySQLEngine returns the OCI MySQL engine mode (ocimysql.EngineConfigProvider).
+func (c *CLI) GetOCIMySQLEngine() string {
+	return c.engineMode("oci-mysql-engine", c.OCIMySQL.Engine)
 }
 
 // GetOCINotificationsSettings returns OCI Notifications settings (ocinotifications.ConfigProvider).
@@ -2693,6 +2705,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIQueue", "ociqueue", cli.OCIQueue.Port},
 		{"OCINotifications", "ocinotifications", cli.OCINotifications.Port},
 		{"OCIContainerEngine", "ocicontainerengine", cli.OCIContainerEngine.Port},
+		{"OCIMySQL", "ocimysql", cli.OCIMySQL.Port},
 	}
 }
 
@@ -3690,6 +3703,7 @@ func wireCrossServiceDependencies(
 	wireOCILoggingMonitoring(byName)
 	wireOCIQueueNotifications(byName)
 	wireOCIContainerEngine(byName)
+	wireOCIMySQL(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -3760,6 +3774,11 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 	}
 
 	if h, found := byName["OCIContainerEngine"].(*ocioke.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+	}
+
+	if h, found := byName["OCIMySQL"].(*ocimysqlbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
 	}
@@ -5180,6 +5199,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ociqueuebackend.Provider{},
 		&ocinotificationsbackend.Provider{},
 		&ocioke.Provider{},
+		&ocimysqlbackend.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},

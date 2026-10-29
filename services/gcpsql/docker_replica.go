@@ -86,7 +86,7 @@ func (e *dockerEngine) pgLaunch(s *container.Spec) {
 func (e *dockerEngine) psql(ctx context.Context, sqlText string) (string, error) {
 	return e.runOut(
 		ctx,
-		[]string{"psql", "-tA", "-q", "-v", "ON_ERROR_STOP=1", "-U", pgAdminUser, "-d", pgAdminUser, "-c", sqlText},
+		[]string{psqlBin, "-tA", "-q", "-v", "ON_ERROR_STOP=1", "-U", pgAdminUser, "-d", pgAdminUser, "-c", sqlText},
 	)
 }
 

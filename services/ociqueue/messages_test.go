@@ -495,3 +495,43 @@ func TestDeleteQueueReleasesPollers(t *testing.T) {
 
 	assert.Equal(t, http.StatusConflict, svcErr(t, <-errc).GetHTTPStatusCode())
 }
+
+func TestBackendPeekLimitBounds(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	q := e.mkQueue(t, "peeklimit", nil)
+	c := e.data(t, q)
+
+	for range 3 {
+		put(t, c, q, "", "m")
+	}
+
+	tests := []struct {
+		name    string
+		limit   int
+		want    int
+		wantErr bool
+	}{
+		{name: "within", limit: 2, want: 2},
+		{name: "max", limit: 20, want: 3},
+		{name: "zero", limit: 0, wantErr: true},
+		{name: "over", limit: 1 << 30, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := e.backend.Peek(*q.Id, false, tt.limit)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, got, tt.want)
+		})
+	}
+}

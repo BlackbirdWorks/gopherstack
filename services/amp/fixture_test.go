@@ -2,6 +2,7 @@ package amp_test
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/services/amp"
 )
@@ -31,6 +33,7 @@ type fixture struct {
 	client  *ampsdk.Client
 	backend *amp.InMemoryBackend
 	clock   *fakeClock
+	http    *http.Client
 	url     string
 }
 
@@ -57,7 +60,10 @@ func newFixtureFromBackend(t *testing.T, backend *amp.InMemoryBackend, clock *fa
 
 	client := ampsdk.NewFromConfig(cfg, func(o *ampsdk.Options) { o.BaseEndpoint = aws.String(url) })
 
-	return &fixture{client: client, backend: backend, clock: clock, url: url}
+	hc := httpclient.New(30 * time.Second)
+	t.Cleanup(hc.CloseIdleConnections)
+
+	return &fixture{client: client, backend: backend, clock: clock, http: hc, url: url}
 }
 
 func (f *fixture) settle() { f.clock.advance(time.Minute) }

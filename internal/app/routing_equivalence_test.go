@@ -251,7 +251,7 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 		"GCPWorkflows", "GCPDNS", "GCPCompute", "GCPDatastore", "GCPContainer",
 		"AzureContainerRegistry", "AzureFunctions", "GCPArtifactRegistry", "OCIObjectStorage",
 		"OCIVault", "OCIStreaming", "OCIIdentity", "OCIFunctions", "OCICore", "OCIQueue", "OCINotifications",
-		"OCIContainerEngine", "OCILogging", "OCIMonitoring",
+		"OCIContainerEngine", "OCIMySQL", "OCILogging", "OCIMonitoring",
 	}
 
 	for _, e := range entries {

@@ -17,6 +17,7 @@ import (
 	mobyclient "github.com/moby/moby/client"
 
 	"github.com/blackbirdworks/gopherstack/internal/linklocal"
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
@@ -103,8 +104,10 @@ type DockerCompute struct {
 	dialer sgfilter.Dialer
 	// mounts tracks the EBS volumes each container holds; shared across region views.
 	mounts *mountRegistry
-	cfg    DockerComputeConfig
-	flags  dockerFlags
+	// claim hands out surviving containers of an earlier run; nil means container.ClaimOrphan.
+	claim func(service, resource string) (container.ManagedContainer, bool)
+	cfg   DockerComputeConfig
+	flags dockerFlags
 }
 
 // sshPortPool is shared by every region's view of one Docker daemon so two
@@ -564,6 +567,7 @@ func (d *DockerCompute) buildLabels(req LaunchRequest) map[string]string {
 	}
 
 	maps.Copy(labels, d.cfg.Labels)
+	maps.Copy(labels, managedInstanceLabels(req))
 
 	return labels
 }

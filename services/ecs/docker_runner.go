@@ -124,6 +124,7 @@ type realDockerRunner struct {
 	stopTimeouts      map[string]int
 	launching         map[string]*launchState
 	cli               dockerClient
+	claim             claimFunc
 	cwLogs            CWLogsBackend
 	completionHandler func(taskArn, containerName string, exitCode int)
 	healthHandler     func(taskArn, containerName, status string)
@@ -354,7 +355,7 @@ func (r *realDockerRunner) ContainerIDs(taskArn string) []string {
 // for the container to exit. The goroutine ends -- and releases its map
 // entry and logWG slot -- when the log stream reaches EOF (container exit or
 // removal, in production) or cancelLogForwarding(containerID) is called.
-func (r *realDockerRunner) forwardContainerLogs(cwLogs CWLogsBackend, containerID, group, stream string) {
+func (r *realDockerRunner) forwardContainerLogs(cwLogs CWLogsBackend, containerID, group, stream, since string) {
 	ctx, cancel := context.WithCancel(r.svcCtx)
 
 	r.mu.Lock()
@@ -373,6 +374,7 @@ func (r *realDockerRunner) forwardContainerLogs(cwLogs CWLogsBackend, containerI
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true,
+			Since:      since,
 		})
 		if err != nil {
 			return
