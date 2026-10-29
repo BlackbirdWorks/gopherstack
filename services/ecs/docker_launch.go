@@ -338,6 +338,15 @@ func (r *realDockerRunner) resolveFileEnv(
 	return out, nil
 }
 
+func (r *realDockerRunner) pullContainerImage(ctx context.Context, cd ContainerDefinition) error {
+	auth, err := r.imageAuth(ctx, cd)
+	if err != nil {
+		return err
+	}
+
+	return r.pullImage(ctx, cd.Image, auth)
+}
+
 func (r *realDockerRunner) imageAuth(ctx context.Context, cd ContainerDefinition) (string, error) {
 	if cd.RepositoryCredentials == nil {
 		return "", nil
@@ -355,7 +364,9 @@ func (r *realDockerRunner) imageAuth(ctx context.Context, cd ContainerDefinition
 }
 
 // SetRegistryAuthResolver wires the lookup that turns a container's repositoryCredentials into pull auth.
-func (r *realDockerRunner) SetRegistryAuthResolver(fn func(ctx context.Context, cd ContainerDefinition) (string, error)) {
+func (r *realDockerRunner) SetRegistryAuthResolver(
+	fn func(ctx context.Context, cd ContainerDefinition) (string, error),
+) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -380,13 +391,8 @@ func (r *realDockerRunner) launchContainer(ctx context.Context, l *launch, cd Co
 	default:
 	}
 
-	auth, err := r.imageAuth(ctx, cd)
-	if err != nil {
+	if err := r.pullContainerImage(ctx, cd); err != nil {
 		return err
-	}
-
-	if pullErr := r.pullImage(ctx, cd.Image, auth); pullErr != nil {
-		return pullErr
 	}
 
 	if err := r.awaitDependencies(ctx, l, cd); err != nil {

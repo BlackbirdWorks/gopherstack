@@ -18,7 +18,8 @@ const (
 )
 
 var (
-	errRegistryCredentials = errors.New("repository credentials secret must be a JSON object with username and password")
+	errRegistryCredentials = errors.New(
+		"repository credentials secret must be a JSON object with username and password")
 	errEnvFileReference    = errors.New("invalid environment file reference")
 	errEnvFilesUnavailable = errors.New("s3 backend is not wired")
 	errFirelensUnsupported = errors.New("firelens log routing is not supported by the Docker runtime")

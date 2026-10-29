@@ -128,7 +128,9 @@ func TestIntegration_ECS_DockerEnvironmentFilesAndRegistryAuth(t *testing.T) {
 			EnvironmentFiles: []ecstypes.EnvironmentFile{{
 				Type: ecstypes.EnvironmentFileTypeS3, Value: aws.String("arn:aws:s3:::" + bucket + "/app.env"),
 			}},
-			MountPoints: []ecstypes.MountPoint{{SourceVolume: aws.String("shared"), ContainerPath: aws.String("/data")}},
+			MountPoints: []ecstypes.MountPoint{
+				{SourceVolume: aws.String("shared"), ContainerPath: aws.String("/data")},
+			},
 			StopTimeout: aws.Int32(2),
 		}))
 

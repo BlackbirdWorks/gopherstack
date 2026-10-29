@@ -149,9 +149,9 @@ func TestEnvironmentFiles(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		wantReason string
 		files      []EnvironmentFile
 		wantEnv    []string
-		wantReason string
 	}{
 		{
 			name:  "ordered_first_wins_environment_last",
@@ -227,8 +227,8 @@ func TestFirelensFailsDocumented(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		cd   ContainerDefinition
 		name string
+		cd   ContainerDefinition
 	}{
 		{
 			name: "router_container",

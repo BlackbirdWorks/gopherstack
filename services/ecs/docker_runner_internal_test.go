@@ -64,7 +64,9 @@ type pullCall struct {
 	auth  string
 }
 
-func (f *fakeDockerClient) ImagePull(_ context.Context, image string, opts dockerimage.PullOptions) (io.ReadCloser, error) {
+func (f *fakeDockerClient) ImagePull(
+	_ context.Context, image string, opts dockerimage.PullOptions,
+) (io.ReadCloser, error) {
 	f.mu.Lock()
 	f.pulls = append(f.pulls, pullCall{image: image, auth: opts.RegistryAuth})
 	f.mu.Unlock()
