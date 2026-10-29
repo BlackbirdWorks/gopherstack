@@ -1,30 +1,19 @@
 package glue
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
-	"path"
-	"regexp"
-	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/deltalog"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
-	deltaInteger       = "integer"
-	deltaShort         = "short"
-	deltaByte          = "byte"
-	deltaTimestampNTZ  = "timestamp_ntz"
-	deltaLogDir        = "_delta_log"
 	symlinkDir         = "_symlink_format_manifest"
 	symlinkInputFormat = "org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat"
 	textOutputFormat   = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
@@ -33,18 +22,7 @@ const (
 	hiveNullPartition  = "__HIVE_DEFAULT_PARTITION__"
 )
 
-var (
-	errDeltaNoLog      = errors.New("no Delta commits found")
-	errDeltaNoMetadata = errors.New("delta log carries no metaData action in its JSON commits")
-	errDeltaCheckpoint = errors.New("delta log starts at a checkpoint; manifest generation needs commit 0")
-
-	deltaCommitRe = regexp.MustCompile(`^(\d{20})\.json$`)
-)
-
-type deltaMeta struct {
-	schema     string
-	partitions []string
-}
+var errDeltaNoLog = errors.New("no Delta commits found")
 
 type deltaFile struct {
 	values map[string]string
@@ -52,75 +30,59 @@ type deltaFile struct {
 }
 
 type deltaState struct {
-	files    map[string]deltaFile
-	meta     deltaMeta
-	hasMeta  bool
-	firstVer int64
+	files []deltaFile
+	cols  []Column
+	parts []string
 }
 
-func replayDeltaLog(commits map[int64][]byte) (*deltaState, error) {
-	if len(commits) == 0 {
-		return nil, errDeltaNoLog
+type deltaS3 struct {
+	r      *crawlRun
+	bucket string
+	base   string
+}
+
+func (d deltaS3) List(ctx context.Context, prefix string) ([]string, error) {
+	keys, err := d.r.listKeys(ctx, d.bucket, d.base+prefix)
+	if err != nil {
+		return nil, err
 	}
 
-	vers := make([]int64, 0, len(commits))
-	for v := range commits {
-		vers = append(vers, v)
+	for i, k := range keys {
+		keys[i] = strings.TrimPrefix(k, d.base)
 	}
 
-	slices.Sort(vers)
+	return keys, nil
+}
 
-	st := &deltaState{files: map[string]deltaFile{}, firstVer: vers[0]}
+func (d deltaS3) Get(ctx context.Context, key string) ([]byte, error) {
+	return d.r.readObject(ctx, d.bucket, d.base+key)
+}
 
-	for _, v := range vers {
-		sc := bufio.NewScanner(bytes.NewReader(commits[v]))
-		sc.Buffer(make([]byte, 0, lakeScanBuf), lakeMetaLimit)
+func (r *crawlRun) loadDeltaLog(ctx context.Context, bucket, prefix string) (*deltaState, error) {
+	base := ""
+	if prefix != "" {
+		base = strings.TrimSuffix(prefix, "/") + "/"
+	}
 
-		for sc.Scan() {
-			if err := st.apply(sc.Bytes()); err != nil {
-				return nil, fmt.Errorf("commit %020d: %w", v, err)
-			}
+	snap, err := deltalog.Load(ctx, deltaS3{r: r, bucket: bucket, base: base})
+	if err != nil {
+		if errors.Is(err, deltalog.ErrNotDeltaTable) {
+			return nil, errDeltaNoLog
 		}
+
+		return nil, err
 	}
 
-	if !st.hasMeta {
-		return nil, errDeltaNoMetadata
+	st := &deltaState{parts: snap.PartitionColumns}
+
+	for _, c := range snap.Columns {
+		st.cols = append(st.cols, Column{Name: c.Name, Type: c.Type})
 	}
 
-	return st, nil
-}
+	for _, f := range snap.Files {
+		vals := make(map[string]string, len(f.PartitionValues))
 
-func (st *deltaState) apply(line []byte) error {
-	if len(bytes.TrimSpace(line)) == 0 {
-		return nil
-	}
-
-	var act struct {
-		MetaData *struct {
-			SchemaString     string   `json:"schemaString"`
-			PartitionColumns []string `json:"partitionColumns"`
-		} `json:"metaData"`
-		Add *struct {
-			PartitionValues map[string]*string `json:"partitionValues"`
-			Path            string             `json:"path"`
-		} `json:"add"`
-		Remove *struct {
-			Path string `json:"path"`
-		} `json:"remove"`
-	}
-
-	if err := json.Unmarshal(line, &act); err != nil {
-		return err
-	}
-
-	switch {
-	case act.MetaData != nil:
-		st.meta = deltaMeta{schema: act.MetaData.SchemaString, partitions: act.MetaData.PartitionColumns}
-		st.hasMeta = true
-	case act.Add != nil:
-		vals := map[string]string{}
-
-		for k, v := range act.Add.PartitionValues {
+		for k, v := range f.PartitionValues {
 			if v == nil {
 				vals[k] = hiveNullPartition
 			} else {
@@ -128,82 +90,10 @@ func (st *deltaState) apply(line []byte) error {
 			}
 		}
 
-		st.files[act.Add.Path] = deltaFile{path: act.Add.Path, values: vals}
-	case act.Remove != nil:
-		delete(st.files, act.Remove.Path)
+		st.files = append(st.files, deltaFile{path: f.Path, values: vals})
 	}
 
-	return nil
-}
-
-func deltaColumns(schemaString string) ([]Column, error) {
-	var schema struct {
-		Fields []struct {
-			Type any    `json:"type"`
-			Name string `json:"name"`
-		} `json:"fields"`
-	}
-
-	if err := json.Unmarshal([]byte(schemaString), &schema); err != nil {
-		return nil, fmt.Errorf("parse Delta schemaString: %w", err)
-	}
-
-	cols := make([]Column, len(schema.Fields))
-	for i, f := range schema.Fields {
-		cols[i] = Column{Name: f.Name, Type: deltaType(f.Type)}
-	}
-
-	return cols, nil
-}
-
-func deltaType(t any) string {
-	switch v := t.(type) {
-	case string:
-		return deltaPrimitive(v)
-	case map[string]any:
-		switch v["type"] {
-		case "struct":
-			fields, _ := v["fields"].([]any)
-			parts := make([]string, 0, len(fields))
-
-			for _, f := range fields {
-				fm, _ := f.(map[string]any)
-				name, _ := fm["name"].(string)
-				parts = append(parts, name+":"+deltaType(fm["type"]))
-			}
-
-			return "struct<" + strings.Join(parts, ",") + ">"
-		case "array":
-			return "array<" + deltaType(v["elementType"]) + ">"
-		case avroMap:
-			return "map<" + deltaType(v["keyType"]) + "," + deltaType(v["valueType"]) + ">"
-		}
-	}
-
-	return avroString
-}
-
-func deltaPrimitive(t string) string {
-	switch t {
-	case avroLong:
-		return typeBigint
-	case deltaInteger:
-		return avroInt
-	case deltaShort:
-		return typeSmallint
-	case deltaByte:
-		return typeTinyint
-	case deltaTimestampNTZ:
-		return typeTimestamp
-	case avroString, avroFloat, avroDouble, avroBoolean, typeBinary, typeDate, typeTimestamp:
-		return t
-	default:
-		if strings.HasPrefix(t, "decimal") {
-			return t
-		}
-
-		return avroString
-	}
+	return st, nil
 }
 
 func (r *crawlRun) crawlDelta(t DeltaTarget) error {
@@ -222,35 +112,6 @@ func (r *crawlRun) crawlDelta(t DeltaTarget) error {
 	return nil
 }
 
-func (r *crawlRun) loadDeltaLog(ctx context.Context, bucket, prefix string) (*deltaState, error) {
-	keys, err := r.listKeys(ctx, bucket, joinKey(prefix, deltaLogDir))
-	if err != nil {
-		return nil, err
-	}
-
-	commits := map[int64][]byte{}
-
-	for _, k := range keys {
-		_, file := splitKey(k)
-
-		m := deltaCommitRe.FindStringSubmatch(file)
-		if m == nil || path.Dir(k) != joinKey(prefix, deltaLogDir) {
-			continue
-		}
-
-		ver, _ := strconv.ParseInt(m[1], 10, 64)
-
-		body, rerr := r.readObject(ctx, bucket, k)
-		if rerr != nil {
-			return nil, rerr
-		}
-
-		commits[ver] = body
-	}
-
-	return replayDeltaLog(commits)
-}
-
 func (r *crawlRun) crawlDeltaTable(ctx context.Context, t DeltaTarget, p string) error {
 	bucket, prefix, ok := splitCrawlS3URI(p)
 	if !ok {
@@ -262,12 +123,7 @@ func (r *crawlRun) crawlDeltaTable(ctx context.Context, t DeltaTarget, p string)
 		return err
 	}
 
-	cols, err := deltaColumns(st.meta.schema)
-	if err != nil {
-		return err
-	}
-
-	cols, pkeys := moveToPartitionKeys(cols, st.meta.partitions)
+	cols, pkeys := moveToPartitionKeys(st.cols, st.parts)
 	root := "s3://" + bucket + "/" + prefix + "/"
 	name := crawlTableName(r.c.TablePrefix, lastPathSegment(prefix))
 	params := map[string]string{paramClassification: classificationParq, crawlerManagedParam: r.c.Name}
@@ -295,10 +151,6 @@ func (r *crawlRun) crawlDeltaTable(ctx context.Context, t DeltaTarget, p string)
 	}
 
 	if t.WriteManifest {
-		if st.firstVer != 0 {
-			return errDeltaCheckpoint
-		}
-
 		if err = r.writeDeltaManifests(ctx, bucket, prefix, st, pkeys); err != nil {
 			return err
 		}

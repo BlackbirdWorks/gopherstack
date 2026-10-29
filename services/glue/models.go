@@ -271,8 +271,11 @@ type JDBCTarget struct {
 // CatalogTarget synchronizes an existing Data Catalog database/tables as a
 // crawler target, mirroring aws-sdk-go-v2/service/glue/types.CatalogTarget.
 type CatalogTarget struct {
-	DatabaseName string   `json:"DatabaseName,omitempty"`
-	Tables       []string `json:"Tables,omitempty"`
+	DatabaseName     string   `json:"DatabaseName,omitempty"`
+	ConnectionName   string   `json:"ConnectionName,omitempty"`
+	EventQueueArn    string   `json:"EventQueueArn,omitempty"`
+	DlqEventQueueArn string   `json:"DlqEventQueueArn,omitempty"`
+	Tables           []string `json:"Tables,omitempty"`
 }
 
 // Crawler represents a Glue crawler.

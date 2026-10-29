@@ -211,6 +211,7 @@ type InMemoryBackend struct {
 	ramShareCreator ResourceShareCreator
 	crawlerS3       CrawlerS3
 	crawlerDDB      CrawlerDynamoDB
+	crawlerSecrets  CrawlerSecrets
 
 	// engine-backed interactive sessions; liveSessions is never persisted
 	sessionEngine SessionEngine

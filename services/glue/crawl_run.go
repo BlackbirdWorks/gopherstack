@@ -29,6 +29,8 @@ const (
 
 	paramClassification = "classification"
 	paramTypeOfData     = "typeOfData"
+	typeOfDataTable     = "table"
+	paramConnectionName = "connectionName"
 	typeSmallint        = "smallint"
 	typeTinyint         = "tinyint"
 	typeTimestamp       = "timestamp"
@@ -48,6 +50,7 @@ type crawlStats struct {
 type crawlRun struct {
 	s3             CrawlerS3
 	ddb            CrawlerDynamoDB
+	secrets        CrawlerSecrets
 	b              *InMemoryBackend
 	c              *Crawler
 	conns          map[string]*Connection
@@ -58,6 +61,7 @@ type crawlRun struct {
 	ops            []func(*crawlRun)
 	stats          crawlStats
 	logOnlyUpdates bool
+	catalogMode    bool
 	mergeColumns   bool
 	newFoldersOnly bool
 }
@@ -89,6 +93,7 @@ func newCrawlRun(c *Crawler) *crawlRun {
 	}
 
 	r.mergeColumns = configuredMergeNewColumns(c.Configuration)
+	r.catalogMode = len(c.Targets.CatalogTargets) > 0
 
 	return r
 }
@@ -97,14 +102,32 @@ func newCrawlRun(c *Crawler) *crawlRun {
 // its I/O can run unlocked. b.mu must be held.
 func (b *InMemoryBackend) snapshotCrawlLocked(c *Crawler) *crawlRun {
 	r := newCrawlRun(cloneCrawler(c))
-	r.s3, r.ddb = b.crawlerS3, b.crawlerDDB
+	r.s3, r.ddb, r.secrets = b.crawlerS3, b.crawlerDDB, b.crawlerSecrets
 	r.accountID, r.region = b.accountID, b.region
 	r.conns = map[string]*Connection{}
 	r.tables = tableOverlay{}
 
+	for _, ct := range c.Targets.CatalogTargets {
+		if conn, ok := b.connections.Get(ct.ConnectionName); ok && ct.ConnectionName != "" {
+			r.conns[ct.ConnectionName] = cloneConnection(conn)
+		}
+
+		for _, name := range ct.Tables {
+			if t, ok := b.tables.Get(tableKey(ct.DatabaseName, name)); ok {
+				r.tables.Put(cloneTable(t))
+			}
+		}
+	}
+
 	for _, jt := range c.Targets.JdbcTargets {
 		if conn, ok := b.connections.Get(jt.ConnectionName); ok {
 			r.conns[jt.ConnectionName] = cloneConnection(conn)
+		}
+	}
+
+	for _, mt := range c.Targets.MongoDBTargets {
+		if conn, ok := b.connections.Get(mt.ConnectionName); ok {
+			r.conns[mt.ConnectionName] = cloneConnection(conn)
 		}
 	}
 
@@ -170,41 +193,32 @@ func configuredMergeNewColumns(cfg string) bool {
 	return doc.CrawlerOutput.Tables.AddOrUpdateBehavior == mergeNewColumns
 }
 
+func crawlEach[T any](targets []T, crawl func(T) error) error {
+	for _, t := range targets {
+		if err := crawl(t); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (r *crawlRun) crawlAllTargets() error {
 	t := r.c.Targets
 
-	for _, s3t := range t.S3Targets {
-		if err := r.crawlS3(s3t); err != nil {
-			return err
-		}
+	steps := []func() error{
+		func() error { return crawlEach(t.S3Targets, r.crawlS3) },
+		func() error { return crawlEach(t.CatalogTargets, r.crawlCatalog) },
+		func() error { return crawlEach(t.DynamoDBTargets, r.crawlDynamoDB) },
+		func() error { return crawlEach(t.DeltaTargets, r.crawlDelta) },
+		func() error { return crawlEach(t.IcebergTargets, r.crawlIceberg) },
+		func() error { return crawlEach(t.HudiTargets, r.crawlHudi) },
+		func() error { return crawlEach(t.JdbcTargets, r.crawlJDBC) },
+		func() error { return crawlEach(t.MongoDBTargets, r.crawlMongoDB) },
 	}
 
-	for _, dt := range t.DynamoDBTargets {
-		if err := r.crawlDynamoDB(dt); err != nil {
-			return err
-		}
-	}
-
-	for _, dt := range t.DeltaTargets {
-		if err := r.crawlDelta(dt); err != nil {
-			return err
-		}
-	}
-
-	for _, it := range t.IcebergTargets {
-		if err := r.crawlIceberg(it); err != nil {
-			return err
-		}
-	}
-
-	for _, ht := range t.HudiTargets {
-		if err := r.crawlHudi(ht); err != nil {
-			return err
-		}
-	}
-
-	for _, jt := range t.JdbcTargets {
-		if err := r.crawlJDBC(jt); err != nil {
+	for _, step := range steps {
+		if err := step(); err != nil {
 			return err
 		}
 	}
@@ -244,7 +258,7 @@ func (r *crawlRun) upsertCore(st tableStore, version func(*Table), desired *Tabl
 		r.stats.added++
 
 		return desired
-	case cur.Parameters[crawlerManagedParam] != r.c.Name:
+	case !r.catalogMode && cur.Parameters[crawlerManagedParam] != r.c.Name:
 		return nil
 	}
 
@@ -304,7 +318,7 @@ func (r *crawlRun) sweepGoneTables() {
 		behavior = r.c.SchemaChangePolicy.DeleteBehavior
 	}
 
-	if behavior == deleteBehaviorLog {
+	if behavior == deleteBehaviorLog || r.catalogMode {
 		return
 	}
 
