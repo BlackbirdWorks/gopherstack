@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	dockerimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 )
 
@@ -31,6 +33,7 @@ const (
 	reasonCreateFailed = "CannotCreateContainerError"
 	reasonStartFailed  = "CannotStartContainerError"
 	reasonEssentialEnd = "Essential container in task exited"
+	reasonHostLost     = "Host EC2 terminated"
 	reasonTimeout      = "Job attempt duration exceeded timeout"
 )
 
@@ -290,13 +293,22 @@ func (r *dockerContainerRunner) removeContainer(id string) {
 
 var errContainerWait = errors.New("container wait failed")
 
+// containerLabels stamps the gopherstack identity without a resource key: a job lost to a crash fails, so its
+// container is removed at the next startup instead of being held for adoption.
+func containerLabels(spec ContainerSpec) map[string]string {
+	l := container.ManagedLabels("batch", "")
+	maps.Copy(l, spec.Labels)
+
+	return l
+}
+
 func containerConfig(spec ContainerSpec) *dockertypes.Config {
 	return &dockertypes.Config{
 		Image:  spec.Image,
 		User:   spec.User,
 		Cmd:    spec.Command,
 		Env:    spec.Env,
-		Labels: spec.Labels,
+		Labels: containerLabels(spec),
 	}
 }
 

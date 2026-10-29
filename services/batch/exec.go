@@ -213,22 +213,47 @@ func (b *InMemoryBackend) collectCandidateLocked(
 ) []dispatchCandidate {
 	switch job.Status {
 	case jobStatusSubmitted, jobStatusPending, jobStatusRunnable:
-		var prio int32
-
-		if jq, ok := b.lookupJQByNameOrARN(job.region, job.JobQueue); ok {
-			prio = jq.Priority
-		}
-
-		return append(cands, dispatchCandidate{job: job, priority: prio})
+		return append(cands, dispatchCandidate{job: job, priority: b.queuePriorityLocked(job)})
 	case jobStatusStarting, jobStatusRunning:
-		if _, active := b.exec.running[regionKey(job.region, job.JobID)]; !active {
-			job.Status = jobStatusFailed
-			job.StatusReason = "Container execution was interrupted"
-			job.StoppedAt = &now
+		if _, active := b.exec.running[regionKey(job.region, job.JobID)]; !active && b.failHostLostLocked(job, now) {
+			return append(cands, dispatchCandidate{job: job, priority: b.queuePriorityLocked(job)})
 		}
 	}
 
 	return cands
+}
+
+func (b *InMemoryBackend) queuePriorityLocked(job *Job) int32 {
+	if jq, ok := b.lookupJQByNameOrARN(job.region, job.JobQueue); ok {
+		return jq.Priority
+	}
+
+	return 0
+}
+
+// failHostLostLocked closes the attempt of a job whose container is gone
+// (host lost, e.g. across a restart) and reports whether it was requeued.
+// A host-loss attempt has no exit code or container reason.
+func (b *InMemoryBackend) failHostLostLocked(job *Job, now int64) bool {
+	o := attemptOutcome{statusReason: reasonHostLost}
+
+	b.closeAttemptLocked(job, &runState{}, o, now)
+	// attemptCount is not persisted; the attempt history is.
+	job.attemptCount = max(job.attemptCount+1, int32(len(job.Attempts))) //nolint:gosec // attempts <= 10
+
+	if b.shouldRetryLocked(job, o) {
+		job.Status = jobStatusRunnable
+		job.StatusReason = ""
+		job.StartedAt = nil
+
+		return true
+	}
+
+	job.Status = jobStatusFailed
+	job.StatusReason = reasonHostLost
+	job.StoppedAt = &now
+
+	return false
 }
 
 func (b *InMemoryBackend) advanceCandidateLocked(job *Job, now int64) {
