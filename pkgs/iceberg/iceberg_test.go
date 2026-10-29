@@ -212,3 +212,34 @@ func TestHiveType(t *testing.T) {
 		})
 	}
 }
+
+func TestParseTransformWidthBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		in      string
+		wantErr bool
+	}{
+		{name: "max int32", in: "bucket[2147483647]"},
+		{name: "over int32", in: "bucket[2147483648]", wantErr: true},
+		{name: "huge", in: "truncate[99999999999999999999]", wantErr: true},
+		{name: "zero", in: "bucket[0]", wantErr: true},
+		{name: "negative", in: "bucket[-1]", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := iceberg.ParseTransform(tc.in)
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

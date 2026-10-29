@@ -3,6 +3,7 @@ package iceberg
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -42,12 +43,12 @@ func ParseTransform(s string) (Transform, error) {
 		return Transform{}, fmt.Errorf("%w: transform %q", ErrUnsupportedType, s)
 	}
 
-	n, err := strconv.Atoi(strings.TrimSuffix(arg, "]"))
-	if err != nil || n <= 0 || (name != "bucket" && name != "truncate") {
+	n64, err := strconv.ParseInt(strings.TrimSuffix(arg, "]"), 10, 32)
+	if err != nil || n64 <= 0 || (name != "bucket" && name != "truncate") {
 		return Transform{}, fmt.Errorf("%w: transform %q", ErrUnsupportedType, s)
 	}
 
-	return Transform{Name: name, Width: n}, nil
+	return Transform{Name: name, Width: int(n64)}, nil
 }
 
 // String renders the transform as it appears in a partition spec.
@@ -197,7 +198,11 @@ func (t Transform) bucket(source, raw string) (any, error) {
 		return nil, fmt.Errorf("%w: bucket partition on %s", ErrUnsupportedType, source)
 	}
 
-	width := uint32(t.Width) //nolint:gosec // ParseTransform guarantees a positive int width
+	if t.Width <= 0 || t.Width > math.MaxInt32 {
+		return nil, fmt.Errorf("%w: bucket width %d", ErrUnsupportedType, t.Width)
+	}
+
+	width := uint32(t.Width)
 
 	return narrow(int64((murmur3(in) & maxInt32Bucket) % width)), nil
 }
