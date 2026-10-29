@@ -1,3 +1,4 @@
+//nolint:staticcheck // legacy request and operation fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
@@ -171,7 +172,7 @@ func (b *InMemoryBackend) ListOperations(
 		}
 	}
 
-	slices.SortFunc(resp.Operations, func(a, c *containerpb.Operation) int {
+	slices.SortFunc(resp.GetOperations(), func(a, c *containerpb.Operation) int {
 		if d := strings.Compare(a.GetStartTime(), c.GetStartTime()); d != 0 {
 			return d
 		}

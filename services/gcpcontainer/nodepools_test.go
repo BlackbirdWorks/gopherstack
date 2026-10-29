@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -21,9 +22,13 @@ func TestNodePoolLifecycle(t *testing.T) {
 		NodePool: &containerpb.NodePool{
 			Name: "workers", InitialNodeCount: 3,
 			Config: &containerpb.NodeConfig{
-				MachineType: "e2-standard-4", Labels: map[string]string{"role": "worker"},
-				Taints: []*containerpb.NodeTaint{{Key: "dedicated", Value: "gpu", Effect: containerpb.NodeTaint_NO_SCHEDULE}},
-				Tags:   []string{"web"}, Spot: true,
+				MachineType: "e2-standard-4",
+				Labels:      map[string]string{"role": "worker"},
+				Taints: []*containerpb.NodeTaint{
+					{Key: "dedicated", Value: "gpu", Effect: containerpb.NodeTaint_NO_SCHEDULE},
+				},
+				Tags: []string{"web"},
+				Spot: true,
 			},
 		},
 	})
@@ -60,7 +65,10 @@ func TestNodePoolLifecycle(t *testing.T) {
 	})
 	assertCode(t, codes.AlreadyExists, err, poolPath(zone, "np", "workers"))
 
-	del, err := e.gc.DeleteNodePool(t.Context(), &containerpb.DeleteNodePoolRequest{Name: poolPath(zone, "np", "workers")})
+	del, err := e.gc.DeleteNodePool(
+		t.Context(),
+		&containerpb.DeleteNodePoolRequest{Name: poolPath(zone, "np", "workers")},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, containerpb.Operation_DELETE_NODE_POOL, del.GetOperationType())
 	assert.Equal(t, containerpb.NodePool_STOPPING, e.getPool(t, zone, "np", "workers").GetStatus())
@@ -70,7 +78,10 @@ func TestNodePoolLifecycle(t *testing.T) {
 	_, err = e.gc.GetNodePool(t.Context(), &containerpb.GetNodePoolRequest{Name: poolPath(zone, "np", "workers")})
 	assertCode(t, codes.NotFound, err, "")
 
-	list, err = e.gc.ListNodePools(t.Context(), &containerpb.ListNodePoolsRequest{ProjectId: project, Zone: zone, ClusterId: "np"})
+	list, err = e.gc.ListNodePools(
+		t.Context(),
+		&containerpb.ListNodePoolsRequest{ProjectId: project, Zone: zone, ClusterId: "np"},
+	)
 	require.NoError(t, err)
 	assert.Len(t, list.GetNodePools(), 2)
 
@@ -104,12 +115,22 @@ func TestNodePoolValidation(t *testing.T) {
 			"version skew", "at most 2 minor",
 		},
 		{
-			&containerpb.NodePool{Name: "p", InitialNodeCount: 1, Autoscaling: &containerpb.NodePoolAutoscaling{Enabled: true, MinNodeCount: 3, MaxNodeCount: 1}},
-			"min above max", "Maximum node count must not be less",
+			&containerpb.NodePool{
+				Name:             "p",
+				InitialNodeCount: 1,
+				Autoscaling:      &containerpb.NodePoolAutoscaling{Enabled: true, MinNodeCount: 3, MaxNodeCount: 1},
+			},
+			"min above max",
+			"Maximum node count must not be less",
 		},
 		{
-			&containerpb.NodePool{Name: "p", InitialNodeCount: 1, MaxPodsConstraint: &containerpb.MaxPodsConstraint{MaxPodsPerNode: 4}},
-			"too few pods", "Max pods per node",
+			&containerpb.NodePool{
+				Name:              "p",
+				InitialNodeCount:  1,
+				MaxPodsConstraint: &containerpb.MaxPodsConstraint{MaxPodsPerNode: 4},
+			},
+			"too few pods",
+			"Max pods per node",
 		},
 		{
 			&containerpb.NodePool{Name: "p", InitialNodeCount: 1, Config: &containerpb.NodeConfig{
@@ -117,8 +138,13 @@ func TestNodePoolValidation(t *testing.T) {
 			}}, "taint without effect", "must have an effect",
 		},
 		{
-			&containerpb.NodePool{Name: "p", InitialNodeCount: 1, Config: &containerpb.NodeConfig{ImageType: "WINDOZE"}},
-			"image type", "not supported",
+			&containerpb.NodePool{
+				Name:             "p",
+				InitialNodeCount: 1,
+				Config:           &containerpb.NodeConfig{ImageType: "WINDOZE"},
+			},
+			"image type",
+			"not supported",
 		},
 		{
 			&containerpb.NodePool{Name: "p", InitialNodeCount: 1, Config: &containerpb.NodeConfig{DiskType: "tape"}},
@@ -131,7 +157,11 @@ func TestNodePoolValidation(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.ready(t, zone, &containerpb.Cluster{Name: "v", InitialNodeCount: 1, InitialClusterVersion: "1.34.2-gke.1008000"})
+			e.ready(
+				t,
+				zone,
+				&containerpb.Cluster{Name: "v", InitialNodeCount: 1, InitialClusterVersion: "1.34.2-gke.1008000"},
+			)
 
 			_, err := e.gc.CreateNodePool(t.Context(), &containerpb.CreateNodePoolRequest{
 				Parent: clusterPath(zone, "v"), NodePool: tt.pool,
@@ -145,7 +175,11 @@ func TestSetNodePoolSizeAndAutoscaling(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	e.ready(t, region, &containerpb.Cluster{Name: "sz", NodePools: []*containerpb.NodePool{{Name: "p", InitialNodeCount: 1}}})
+	e.ready(
+		t,
+		region,
+		&containerpb.Cluster{Name: "sz", NodePools: []*containerpb.NodePool{{Name: "p", InitialNodeCount: 1}}},
+	)
 	pool := poolPath(region, "sz", "p")
 
 	op, err := e.gc.SetNodePoolSize(t.Context(), &containerpb.SetNodePoolSizeRequest{Name: pool, NodeCount: 4})
@@ -171,7 +205,10 @@ func TestSetNodePoolSizeAndAutoscaling(t *testing.T) {
 		{Enabled: true, MaxNodeCount: 3, TotalMaxNodeCount: 6},
 	}
 	for _, a := range bad {
-		_, err = e.gc.SetNodePoolAutoscaling(t.Context(), &containerpb.SetNodePoolAutoscalingRequest{Name: pool, Autoscaling: a})
+		_, err = e.gc.SetNodePoolAutoscaling(
+			t.Context(),
+			&containerpb.SetNodePoolAutoscalingRequest{Name: pool, Autoscaling: a},
+		)
 		assertCode(t, codes.InvalidArgument, err, "")
 	}
 
@@ -187,7 +224,12 @@ func TestSetNodePoolSizeAndAutoscaling(t *testing.T) {
 	p := e.getPool(t, region, "sz", "p")
 	assert.True(t, p.GetAutoscaling().GetEnabled())
 	assert.Equal(t, int32(9), p.GetAutoscaling().GetMaxNodeCount())
-	assert.Equal(t, int32(15), e.getCluster(t, region, "sz").GetCurrentNodeCount(), "size clamps up to the autoscaler minimum in every zone")
+	assert.Equal(
+		t,
+		int32(15),
+		e.getCluster(t, region, "sz").GetCurrentNodeCount(),
+		"size clamps up to the autoscaler minimum in every zone",
+	)
 
 	_, err = e.gc.SetNodePoolSize(t.Context(), &containerpb.SetNodePoolSizeRequest{Name: pool, NodeCount: 2})
 	assertCode(t, codes.FailedPrecondition, err, "autoscaling enabled")
@@ -195,8 +237,12 @@ func TestSetNodePoolSizeAndAutoscaling(t *testing.T) {
 	_, err = e.gc.UpdateCluster(t.Context(), &containerpb.UpdateClusterRequest{
 		Name: clusterPath(region, "sz"),
 		Update: &containerpb.ClusterUpdate{
-			DesiredNodePoolId:          "p",
-			DesiredNodePoolAutoscaling: &containerpb.NodePoolAutoscaling{Enabled: true, MinNodeCount: 1, MaxNodeCount: 2},
+			DesiredNodePoolId: "p",
+			DesiredNodePoolAutoscaling: &containerpb.NodePoolAutoscaling{
+				Enabled:      true,
+				MinNodeCount: 1,
+				MaxNodeCount: 2,
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -208,18 +254,23 @@ func TestSetNodePoolManagement(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		channel    containerpb.ReleaseChannel_Channel
 		mgmt       *containerpb.NodeManagement
+		name       string
 		wantMsg    string
+		channel    containerpb.ReleaseChannel_Channel
 		want       codes.Code
 		wantRepair bool
 	}{
 		{name: "no channel", mgmt: &containerpb.NodeManagement{AutoRepair: true}, wantRepair: true},
 		{name: "off", mgmt: &containerpb.NodeManagement{}},
 		{
-			name: "channel needs upgrade", channel: containerpb.ReleaseChannel_REGULAR,
-			mgmt: &containerpb.NodeManagement{AutoRepair: true}, want: codes.InvalidArgument, wantMsg: "release channel",
+			name:    "channel needs upgrade",
+			channel: containerpb.ReleaseChannel_REGULAR,
+			mgmt: &containerpb.NodeManagement{
+				AutoRepair: true,
+			},
+			want:    codes.InvalidArgument,
+			wantMsg: "release channel",
 		},
 		{
 			name: "channel ok", channel: containerpb.ReleaseChannel_REGULAR, wantRepair: true,
@@ -267,7 +318,10 @@ func TestNodeUpgradeAndRollback(t *testing.T) {
 	_, err := e.gc.RollbackNodePoolUpgrade(t.Context(), &containerpb.RollbackNodePoolUpgradeRequest{Name: pool})
 	assertCode(t, codes.FailedPrecondition, err, "no upgrade to roll back")
 
-	_, err = e.gc.UpdateNodePool(t.Context(), &containerpb.UpdateNodePoolRequest{Name: pool, NodeVersion: "1.35.0-gke.1233000"})
+	_, err = e.gc.UpdateNodePool(
+		t.Context(),
+		&containerpb.UpdateNodePoolRequest{Name: pool, NodeVersion: "1.35.0-gke.1233000"},
+	)
 	assertCode(t, codes.InvalidArgument, err, "at most 2 minor")
 
 	_, err = e.gc.UpdateCluster(t.Context(), &containerpb.UpdateClusterRequest{
@@ -285,7 +339,10 @@ func TestNodeUpgradeAndRollback(t *testing.T) {
 	assert.Equal(t, "1.35.1-gke.1000000", e.getPool(t, zone, "up", "default-pool").GetVersion())
 	assert.Equal(t, "1.35.1-gke.1000000", e.getCluster(t, zone, "up").GetCurrentNodeVersion())
 
-	_, err = e.gc.UpdateNodePool(t.Context(), &containerpb.UpdateNodePoolRequest{Name: pool, NodeVersion: "1.34.2-gke.1008000"})
+	_, err = e.gc.UpdateNodePool(
+		t.Context(),
+		&containerpb.UpdateNodePoolRequest{Name: pool, NodeVersion: "1.34.2-gke.1008000"},
+	)
 	assertCode(t, codes.InvalidArgument, err, "older than")
 
 	rb, err := e.gc.RollbackNodePoolUpgrade(t.Context(), &containerpb.RollbackNodePoolUpgradeRequest{Name: pool})
@@ -318,8 +375,10 @@ func TestUpdateNodePool(t *testing.T) {
 		{
 			name: "labels taints tags", req: &containerpb.UpdateNodePoolRequest{
 				Labels: &containerpb.NodeLabels{Labels: map[string]string{"a": "b"}},
-				Taints: &containerpb.NodeTaints{Taints: []*containerpb.NodeTaint{{Key: "k", Value: "v", Effect: containerpb.NodeTaint_NO_EXECUTE}}},
-				Tags:   &containerpb.NetworkTags{Tags: []string{"t1", "t2"}},
+				Taints: &containerpb.NodeTaints{
+					Taints: []*containerpb.NodeTaint{{Key: "k", Value: "v", Effect: containerpb.NodeTaint_NO_EXECUTE}},
+				},
+				Tags: &containerpb.NetworkTags{Tags: []string{"t1", "t2"}},
 			},
 			check: func(t *testing.T, p *containerpb.NodePool) {
 				t.Helper()
@@ -329,7 +388,8 @@ func TestUpdateNodePool(t *testing.T) {
 			},
 		},
 		{
-			name: "machine type and disk", req: &containerpb.UpdateNodePoolRequest{MachineType: "n2-standard-8", DiskSizeGb: 200, DiskType: "pd-ssd"},
+			name: "machine type and disk",
+			req:  &containerpb.UpdateNodePoolRequest{MachineType: "n2-standard-8", DiskSizeGb: 200, DiskType: "pd-ssd"},
 			check: func(t *testing.T, p *containerpb.NodePool) {
 				t.Helper()
 				assert.Equal(t, "n2-standard-8", p.GetConfig().GetMachineType())
@@ -355,11 +415,38 @@ func TestUpdateNodePool(t *testing.T) {
 				assert.Equal(t, "UBUNTU_CONTAINERD", p.GetConfig().GetImageType())
 			},
 		},
-		{name: "bad image type", req: &containerpb.UpdateNodePoolRequest{ImageType: "x"}, want: codes.InvalidArgument, wantMsg: "not supported"},
-		{name: "bad machine type", req: &containerpb.UpdateNodePoolRequest{MachineType: "Not A Type"}, want: codes.InvalidArgument, wantMsg: "machine type"},
-		{name: "bad label", req: &containerpb.UpdateNodePoolRequest{Labels: &containerpb.NodeLabels{Labels: map[string]string{"-x": "y"}}}, want: codes.InvalidArgument, wantMsg: "label"},
-		{name: "unsupported", req: &containerpb.UpdateNodePoolRequest{Image: "custom"}, want: codes.InvalidArgument, wantMsg: "not supported by the emulator"},
-		{name: "stale etag", req: &containerpb.UpdateNodePoolRequest{Etag: "stale", MachineType: "n2-standard-2"}, want: codes.FailedPrecondition, wantMsg: "etag"},
+		{
+			name:    "bad image type",
+			req:     &containerpb.UpdateNodePoolRequest{ImageType: "x"},
+			want:    codes.InvalidArgument,
+			wantMsg: "not supported",
+		},
+		{
+			name:    "bad machine type",
+			req:     &containerpb.UpdateNodePoolRequest{MachineType: "Not A Type"},
+			want:    codes.InvalidArgument,
+			wantMsg: "machine type",
+		},
+		{
+			name: "bad label",
+			req: &containerpb.UpdateNodePoolRequest{
+				Labels: &containerpb.NodeLabels{Labels: map[string]string{"-x": "y"}},
+			},
+			want:    codes.InvalidArgument,
+			wantMsg: "label",
+		},
+		{
+			name:    "unsupported",
+			req:     &containerpb.UpdateNodePoolRequest{Image: "custom"},
+			want:    codes.InvalidArgument,
+			wantMsg: "not supported by the emulator",
+		},
+		{
+			name:    "stale etag",
+			req:     &containerpb.UpdateNodePoolRequest{Etag: "stale", MachineType: "n2-standard-2"},
+			want:    codes.FailedPrecondition,
+			wantMsg: "etag",
+		},
 		{name: "empty", req: &containerpb.UpdateNodePoolRequest{}, want: codes.InvalidArgument, wantMsg: "No update"},
 	}
 

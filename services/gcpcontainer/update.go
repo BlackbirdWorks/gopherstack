@@ -1,3 +1,4 @@
+//nolint:staticcheck // legacy cluster fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
@@ -15,8 +16,8 @@ type updatePlan struct {
 	poolID          string
 	nodeVersion     string
 	imageType       string
-	locations       []string
 	masterVersion   string
+	locations       []string
 	hasNodeVersion  bool
 	hasMaster       bool
 	hasAutoscaling  bool
@@ -97,8 +98,11 @@ func collectUpdate(c *clusterRec, tmp *containerpb.Cluster, u *containerpb.Clust
 	return p, err
 }
 
-func (p *updatePlan) take(c *clusterRec, tmp *containerpb.Cluster, fd protoreflect.FieldDescriptor, v protoreflect.Value) error {
-	switch name := string(fd.Name()); name {
+const fieldEtag = "etag"
+
+// takePlan records the fields that act on node pools, versions and locations; it reports whether name was one.
+func (p *updatePlan) takePlan(name string, v protoreflect.Value) bool {
+	switch name {
 	case "desired_node_pool_id":
 		p.poolID = v.String()
 	case "desired_node_version":
@@ -108,27 +112,69 @@ func (p *updatePlan) take(c *clusterRec, tmp *containerpb.Cluster, fd protorefle
 	case "desired_image_type":
 		p.imageType, p.hasImage = v.String(), true
 	case "desired_node_pool_autoscaling":
-		p.nodeAutoscaling, p.hasAutoscaling = proto.Clone(v.Message().Interface()).(*containerpb.NodePoolAutoscaling), true
+		p.nodeAutoscaling, p.hasAutoscaling = msgOf[*containerpb.NodePoolAutoscaling](v), true
 	case "desired_locations":
 		p.hasLocations = true
 
 		for i := range v.List().Len() {
 			p.locations = append(p.locations, v.List().Get(i).String())
 		}
-	case "etag":
+	default:
+		return false
+	}
+
+	return true
+}
+
+// msgOf returns a copy of the message held by v.
+func msgOf[T proto.Message](v protoreflect.Value) T {
+	out, _ := proto.Clone(v.Message().Interface()).(T)
+
+	return out
+}
+
+func (p *updatePlan) take(
+	c *clusterRec,
+	tmp *containerpb.Cluster,
+	fd protoreflect.FieldDescriptor,
+	v protoreflect.Value,
+) error {
+	name := string(fd.Name())
+	if p.takePlan(name, v) {
+		return nil
+	}
+
+	switch name {
+	case fieldEtag:
 		if v.String() != etagOf(c.Cluster) {
-			return errPrecondition(tmp.GetSelfLink(), "The etag %q does not match the cluster's current etag.", v.String())
+			return errPrecondition(
+				tmp.GetSelfLink(),
+				"The etag %q does not match the cluster's current etag.",
+				v.String(),
+			)
 		}
 	case "desired_logging_service":
-		return setService(&tmp.LoggingService, v.String(), "logging.googleapis.com/kubernetes", "logging.googleapis.com", "none")
+		return setService(
+			&tmp.LoggingService,
+			v.String(),
+			"logging.googleapis.com/kubernetes",
+			"logging.googleapis.com",
+			"none",
+		)
 	case "desired_monitoring_service":
-		return setService(&tmp.MonitoringService, v.String(), "monitoring.googleapis.com/kubernetes", "monitoring.googleapis.com", "none")
+		return setService(
+			&tmp.MonitoringService,
+			v.String(),
+			"monitoring.googleapis.com/kubernetes",
+			"monitoring.googleapis.com",
+			"none",
+		)
 	case "desired_addons_config":
-		return mergeAddons(tmp, proto.Clone(v.Message().Interface()).(*containerpb.AddonsConfig))
+		return mergeAddons(tmp, msgOf[*containerpb.AddonsConfig](v))
 	case "desired_cluster_autoscaling":
-		return setClusterAutoscaling(tmp, proto.Clone(v.Message().Interface()).(*containerpb.ClusterAutoscaling))
+		return setClusterAutoscaling(tmp, msgOf[*containerpb.ClusterAutoscaling](v))
 	case "desired_master_authorized_networks_config":
-		return setAuthNets(tmp, proto.Clone(v.Message().Interface()).(*containerpb.MasterAuthorizedNetworksConfig))
+		return setAuthNets(tmp, msgOf[*containerpb.MasterAuthorizedNetworksConfig](v))
 	case "desired_enable_private_endpoint", "desired_default_enable_private_nodes":
 		return setPrivate(tmp, name, v.Bool())
 	default:
@@ -151,7 +197,11 @@ func setService(dst *string, v string, allowed ...string) error {
 func setClusterAutoscaling(cl *containerpb.Cluster, a *containerpb.ClusterAutoscaling) error {
 	for _, rl := range a.GetResourceLimits() {
 		if rl.GetResourceType() == "" || rl.GetMaximum() < rl.GetMinimum() || rl.GetMinimum() < 0 {
-			return errInvalid("desired_cluster_autoscaling.resource_limits", "Invalid resource limit for %q.", rl.GetResourceType())
+			return errInvalid(
+				"desired_cluster_autoscaling.resource_limits",
+				"Invalid resource limit for %q.",
+				rl.GetResourceType(),
+			)
 		}
 	}
 
@@ -199,7 +249,7 @@ func setGeneric(cl *containerpb.Cluster, fd protoreflect.FieldDescriptor, v prot
 
 	dst := cl.ProtoReflect()
 	if !fieldAccepts(dst, target, fd) {
-		dst = cl.NetworkConfig.ProtoReflect()
+		dst = cl.GetNetworkConfig().ProtoReflect()
 	}
 
 	set(dst, target, fd, v)
@@ -208,9 +258,9 @@ func setGeneric(cl *containerpb.Cluster, fd protoreflect.FieldDescriptor, v prot
 }
 
 func netConfig(cl *containerpb.Cluster) *containerpb.NetworkConfig {
-	cl.NetworkConfig = firstPtr(cl.NetworkConfig, &containerpb.NetworkConfig{})
+	cl.NetworkConfig = firstPtr(cl.GetNetworkConfig(), &containerpb.NetworkConfig{})
 
-	return cl.NetworkConfig
+	return cl.GetNetworkConfig()
 }
 
 func setNetworkFlag(cl *containerpb.Cluster, name string, v protoreflect.Value) error {
@@ -255,7 +305,11 @@ func set(m protoreflect.Message, name string, src protoreflect.FieldDescriptor, 
 }
 
 // applyPlan applies the node-pool and version parts of an update and reports the operation type.
-func (b *InMemoryBackend) applyPlan(c *clusterRec, tmp *containerpb.Cluster, p *updatePlan) (containerpb.Operation_Type, error) {
+func (b *InMemoryBackend) applyPlan(
+	c *clusterRec,
+	tmp *containerpb.Cluster,
+	p *updatePlan,
+) (containerpb.Operation_Type, error) {
 	typ := containerpb.Operation_UPDATE_CLUSTER
 
 	if p.hasLocations {
@@ -305,7 +359,7 @@ func (c *clusterRec) targetPools(id string) ([]*poolRec, error) {
 	return []*poolRec{pr}, nil
 }
 
-func (b *InMemoryBackend) applyPoolUpdate(c *clusterRec, cl *containerpb.Cluster, pr *poolRec, p *updatePlan) error {
+func (b *InMemoryBackend) applyPoolUpdate(_ *clusterRec, cl *containerpb.Cluster, pr *poolRec, p *updatePlan) error {
 	if cl.GetAutopilot().GetEnabled() {
 		return errPrecondition(cl.GetSelfLink(), "Node pools of Autopilot clusters are managed by Google.")
 	}
@@ -338,7 +392,12 @@ func upgradeNodes(pr *poolRec, want, master string) error {
 	}
 
 	if compareVersions(v, pr.Pool.GetVersion()) < 0 {
-		return errInvalid("node_version", "Node version %s is older than the current version %s.", v, pr.Pool.GetVersion())
+		return errInvalid(
+			"node_version",
+			"Node version %s is older than the current version %s.",
+			v,
+			pr.Pool.GetVersion(),
+		)
 	}
 
 	if v != pr.Pool.GetVersion() {

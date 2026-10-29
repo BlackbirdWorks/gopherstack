@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -51,7 +52,10 @@ func TestRESTClusterAndNodePoolLifecycle(t *testing.T) {
 	assert.Equal(t, containerpb.Operation_CREATE_NODE_POOL, pop.GetOperationType())
 	e.settle()
 
-	sz, err := e.rc.SetNodePoolSize(t.Context(), &containerpb.SetNodePoolSizeRequest{Name: poolPath(zone, "rest", "extra"), NodeCount: 4})
+	sz, err := e.rc.SetNodePoolSize(
+		t.Context(),
+		&containerpb.SetNodePoolSizeRequest{Name: poolPath(zone, "rest", "extra"), NodeCount: 4},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, containerpb.Operation_SET_NODE_POOL_SIZE, sz.GetOperationType())
 	e.settle()
@@ -61,7 +65,12 @@ func TestRESTClusterAndNodePoolLifecycle(t *testing.T) {
 	assert.Len(t, list.GetNodePools(), 2)
 
 	lb, err := e.rc.SetLabels(t.Context(), &containerpb.SetLabelsRequest{
-		Name: clusterPath(zone, "rest"), ResourceLabels: map[string]string{"x": "y"}, LabelFingerprint: got.GetLabelFingerprint(),
+		Name: clusterPath(
+			zone,
+			"rest",
+		),
+		ResourceLabels:   map[string]string{"x": "y"},
+		LabelFingerprint: got.GetLabelFingerprint(),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, containerpb.Operation_SET_LABELS, lb.GetOperationType())

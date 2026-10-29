@@ -1,9 +1,11 @@
+//nolint:staticcheck // legacy request and cluster fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"slices"
 
 	"cloud.google.com/go/container/apiv1/containerpb"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -61,9 +63,14 @@ func (b *InMemoryBackend) mutateCluster(
 
 // SetLabels replaces the cluster's resource labels.
 func (b *InMemoryBackend) SetLabels(req *containerpb.SetLabelsRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
-	return b.mutateCluster(t, containerpb.Operation_SET_LABELS, func(c *clusterRec, cl *containerpb.Cluster) error {
+	return b.mutateCluster(t, containerpb.Operation_SET_LABELS, func(_ *clusterRec, cl *containerpb.Cluster) error {
 		if req.GetLabelFingerprint() == "" {
 			return errInvalid("label_fingerprint", "Label fingerprint must be specified.")
 		}
@@ -73,11 +80,15 @@ func (b *InMemoryBackend) SetLabels(req *containerpb.SetLabelsRequest) (*contain
 		}
 
 		if req.GetLabelFingerprint() != cl.GetLabelFingerprint() {
-			return errPrecondition(cl.GetSelfLink(), "Label fingerprint %q is stale; the cluster's labels have changed.", req.GetLabelFingerprint())
+			return errPrecondition(
+				cl.GetSelfLink(),
+				"Label fingerprint %q is stale; the cluster's labels have changed.",
+				req.GetLabelFingerprint(),
+			)
 		}
 
 		cl.ResourceLabels = req.GetResourceLabels()
-		cl.LabelFingerprint = fingerprint(cl.ResourceLabels)
+		cl.LabelFingerprint = fingerprint(cl.GetResourceLabels())
 
 		return nil
 	})
@@ -92,42 +103,64 @@ func randomPassword() string {
 
 // SetMasterAuth changes the cluster's basic-auth username or password.
 func (b *InMemoryBackend) SetMasterAuth(req *containerpb.SetMasterAuthRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
-	return b.mutateCluster(t, containerpb.Operation_SET_MASTER_AUTH, func(c *clusterRec, cl *containerpb.Cluster) error {
-		cl.MasterAuth = firstPtr(cl.MasterAuth, &containerpb.MasterAuth{})
-		ma := cl.MasterAuth
+	return b.mutateCluster(
+		t,
+		containerpb.Operation_SET_MASTER_AUTH,
+		func(_ *clusterRec, cl *containerpb.Cluster) error {
+			cl.MasterAuth = firstPtr(cl.GetMasterAuth(), &containerpb.MasterAuth{})
+			ma := cl.GetMasterAuth()
 
-		switch req.GetAction() {
-		case containerpb.SetMasterAuthRequest_SET_PASSWORD:
-			if err := validPassword(req.GetUpdate().GetPassword()); err != nil {
-				return err
+			switch req.GetAction() {
+			case containerpb.SetMasterAuthRequest_SET_PASSWORD:
+				if err := validPassword(
+					req.GetUpdate().GetPassword(),
+				); err != nil {
+					return err
+				}
+
+				ma.Password = req.GetUpdate().
+					GetPassword()
+					//nolint:staticcheck // deprecated field kept for wire compatibility
+				ma.Username = firstNonEmpty(ma.GetUsername(), req.GetUpdate().GetUsername(), defaultAdminUser)
+			case containerpb.SetMasterAuthRequest_GENERATE_PASSWORD:
+				ma.Password = randomPassword()
+				ma.Username = firstNonEmpty(ma.GetUsername(), defaultAdminUser)
+			case containerpb.SetMasterAuthRequest_SET_USERNAME:
+				if req.GetUpdate().
+					GetUsername() ==
+					"" {
+					return errInvalid("update.username", "Username must be specified.")
+				}
+
+				ma.Username = req.GetUpdate().
+					GetUsername()
+				//nolint:staticcheck // deprecated field kept for wire compatibility
+			case containerpb.SetMasterAuthRequest_UNKNOWN:
+				return errInvalid("action", "Action must be one of SET_PASSWORD, GENERATE_PASSWORD or SET_USERNAME.")
 			}
 
-			ma.Password = req.GetUpdate().GetPassword()
-			ma.Username = firstNonEmpty(ma.Username, req.GetUpdate().GetUsername(), defaultAdminUser)
-		case containerpb.SetMasterAuthRequest_GENERATE_PASSWORD:
-			ma.Password = randomPassword()
-			ma.Username = firstNonEmpty(ma.Username, defaultAdminUser)
-		case containerpb.SetMasterAuthRequest_SET_USERNAME:
-			if req.GetUpdate().GetUsername() == "" {
-				return errInvalid("update.username", "Username must be specified.")
-			}
-
-			ma.Username = req.GetUpdate().GetUsername()
-		case containerpb.SetMasterAuthRequest_UNKNOWN:
-			return errInvalid("action", "Action must be one of SET_PASSWORD, GENERATE_PASSWORD or SET_USERNAME.")
-		}
-
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 // SetLegacyAbac enables or disables legacy ABAC authorization.
 func (b *InMemoryBackend) SetLegacyAbac(req *containerpb.SetLegacyAbacRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
-	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(c *clusterRec, cl *containerpb.Cluster) error {
+	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(_ *clusterRec, cl *containerpb.Cluster) error {
 		if req.GetEnabled() && cl.GetAutopilot().GetEnabled() {
 			return errInvalid("enabled", "Legacy ABAC cannot be enabled on Autopilot clusters.")
 		}
@@ -140,67 +173,100 @@ func (b *InMemoryBackend) SetLegacyAbac(req *containerpb.SetLegacyAbacRequest) (
 
 // SetNetworkPolicy enables or disables Calico network policy enforcement.
 func (b *InMemoryBackend) SetNetworkPolicy(req *containerpb.SetNetworkPolicyRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
-	return b.mutateCluster(t, containerpb.Operation_SET_NETWORK_POLICY, func(c *clusterRec, cl *containerpb.Cluster) error {
-		np := req.GetNetworkPolicy()
-		if np == nil {
-			return errInvalid("network_policy", "Network policy must be specified.")
-		}
-
-		if np.GetEnabled() {
-			switch {
-			case cl.GetAutopilot().GetEnabled():
-				return errInvalid("network_policy", "Network policy cannot be enabled on Autopilot clusters.")
-			case np.GetProvider() != containerpb.NetworkPolicy_CALICO:
-				return errInvalid("network_policy.provider", "Network policy provider must be CALICO.")
-			case cl.GetAddonsConfig().GetNetworkPolicyConfig().GetDisabled():
-				return errPrecondition(cl.GetSelfLink(), "The network policy addon must be enabled before network policy is enabled.")
+	return b.mutateCluster(
+		t,
+		containerpb.Operation_SET_NETWORK_POLICY,
+		func(_ *clusterRec, cl *containerpb.Cluster) error {
+			np := req.GetNetworkPolicy()
+			if np == nil {
+				return errInvalid("network_policy", "Network policy must be specified.")
 			}
-		}
 
-		cl.NetworkPolicy = clone(np)
+			if np.GetEnabled() {
+				switch {
+				case cl.GetAutopilot().GetEnabled():
+					return errInvalid("network_policy", "Network policy cannot be enabled on Autopilot clusters.")
+				case np.GetProvider() != containerpb.NetworkPolicy_CALICO:
+					return errInvalid("network_policy.provider", "Network policy provider must be CALICO.")
+				case cl.GetAddonsConfig().GetNetworkPolicyConfig().GetDisabled():
+					return errPrecondition(
+						cl.GetSelfLink(),
+						"The network policy addon must be enabled before network policy is enabled.",
+					)
+				}
+			}
 
-		return nil
-	})
+			cl.NetworkPolicy = clone(np)
+
+			return nil
+		},
+	)
 }
 
 // SetMaintenancePolicy replaces the cluster's maintenance policy.
-func (b *InMemoryBackend) SetMaintenancePolicy(req *containerpb.SetMaintenancePolicyRequest) (*containerpb.Operation, error) {
+func (b *InMemoryBackend) SetMaintenancePolicy(
+	req *containerpb.SetMaintenancePolicyRequest,
+) (*containerpb.Operation, error) {
 	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
 
-	return b.mutateCluster(t, containerpb.Operation_SET_MAINTENANCE_POLICY, func(c *clusterRec, cl *containerpb.Cluster) error {
-		mp := req.GetMaintenancePolicy()
-		if mp == nil {
-			return errInvalid("maintenance_policy", "Maintenance policy must be specified.")
-		}
+	return b.mutateCluster(
+		t,
+		containerpb.Operation_SET_MAINTENANCE_POLICY,
+		func(_ *clusterRec, cl *containerpb.Cluster) error {
+			mp := req.GetMaintenancePolicy()
+			if mp == nil {
+				return errInvalid("maintenance_policy", "Maintenance policy must be specified.")
+			}
 
-		if mp.GetResourceVersion() == "" {
-			return errInvalid("maintenance_policy.resource_version", "Resource version must be specified; read it from the cluster.")
-		}
+			if mp.GetResourceVersion() == "" {
+				return errInvalid(
+					"maintenance_policy.resource_version",
+					"Resource version must be specified; read it from the cluster.",
+				)
+			}
 
-		if mp.GetResourceVersion() != cl.GetMaintenancePolicy().GetResourceVersion() {
-			return errPrecondition(cl.GetSelfLink(), "The maintenance policy resource version %q is stale.", mp.GetResourceVersion())
-		}
+			if mp.GetResourceVersion() != cl.GetMaintenancePolicy().GetResourceVersion() {
+				return errPrecondition(
+					cl.GetSelfLink(),
+					"The maintenance policy resource version %q is stale.",
+					mp.GetResourceVersion(),
+				)
+			}
 
-		if err := validMaintenance(mp); err != nil {
-			return err
-		}
+			if err := validMaintenance(mp); err != nil {
+				return err
+			}
 
-		cl.MaintenancePolicy = withPolicyVersion(clone(mp))
+			cl.MaintenancePolicy = withPolicyVersion(clone(mp))
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 // StartIPRotation begins an IP (and optionally credential) rotation.
 func (b *InMemoryBackend) StartIPRotation(req *containerpb.StartIPRotationRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
 	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(c *clusterRec, cl *containerpb.Cluster) error {
 		switch {
 		case b.engine != nil:
-			return errPrecondition(cl.GetSelfLink(), "IP rotation is not supported by clusters backed by the docker engine.")
+			return errPrecondition(
+				cl.GetSelfLink(),
+				"IP rotation is not supported by clusters backed by the docker engine.",
+			)
 		case c.Rotation != nil:
 			return errPrecondition(cl.GetSelfLink(), "IP rotation is already in progress.")
 		}
@@ -225,8 +291,15 @@ func (b *InMemoryBackend) StartIPRotation(req *containerpb.StartIPRotationReques
 }
 
 // CompleteIPRotation finishes a rotation started by StartIPRotation.
-func (b *InMemoryBackend) CompleteIPRotation(req *containerpb.CompleteIPRotationRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+func (b *InMemoryBackend) CompleteIPRotation(
+	req *containerpb.CompleteIPRotationRequest,
+) (*containerpb.Operation, error) {
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
 	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(c *clusterRec, cl *containerpb.Cluster) error {
 		if c.Rotation == nil {
@@ -240,10 +313,8 @@ func (b *InMemoryBackend) CompleteIPRotation(req *containerpb.CompleteIPRotation
 }
 
 func validService(v string, allowed ...string) error {
-	for _, a := range allowed {
-		if v == a {
-			return nil
-		}
+	if slices.Contains(allowed, v) {
+		return nil
 	}
 
 	return errInvalid("service", "Invalid service %q; want one of %v.", v, allowed)
@@ -251,10 +322,20 @@ func validService(v string, allowed ...string) error {
 
 // SetLoggingService selects the logging backend.
 func (b *InMemoryBackend) SetLoggingService(req *containerpb.SetLoggingServiceRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
-	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(c *clusterRec, cl *containerpb.Cluster) error {
-		if err := validService(req.GetLoggingService(), "logging.googleapis.com/kubernetes", "logging.googleapis.com", "none"); err != nil {
+	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(_ *clusterRec, cl *containerpb.Cluster) error {
+		if err := validService(
+			req.GetLoggingService(),
+			"logging.googleapis.com/kubernetes",
+			"logging.googleapis.com",
+			"none",
+		); err != nil {
 			return err
 		}
 
@@ -265,11 +346,23 @@ func (b *InMemoryBackend) SetLoggingService(req *containerpb.SetLoggingServiceRe
 }
 
 // SetMonitoringService selects the monitoring backend.
-func (b *InMemoryBackend) SetMonitoringService(req *containerpb.SetMonitoringServiceRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+func (b *InMemoryBackend) SetMonitoringService(
+	req *containerpb.SetMonitoringServiceRequest,
+) (*containerpb.Operation, error) {
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
-	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(c *clusterRec, cl *containerpb.Cluster) error {
-		if err := validService(req.GetMonitoringService(), "monitoring.googleapis.com/kubernetes", "monitoring.googleapis.com", "none"); err != nil {
+	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(_ *clusterRec, cl *containerpb.Cluster) error {
+		if err := validService(
+			req.GetMonitoringService(),
+			"monitoring.googleapis.com/kubernetes",
+			"monitoring.googleapis.com",
+			"none",
+		); err != nil {
 			return err
 		}
 
@@ -293,7 +386,10 @@ func mergeAddons(cl *containerpb.Cluster, in *containerpb.AddonsConfig) error {
 	})
 
 	if merged.GetNetworkPolicyConfig().GetDisabled() && cl.GetNetworkPolicy().GetEnabled() {
-		return errPrecondition(cl.GetSelfLink(), "The network policy addon cannot be disabled while network policy is enabled.")
+		return errPrecondition(
+			cl.GetSelfLink(),
+			"The network policy addon cannot be disabled while network policy is enabled.",
+		)
 	}
 
 	cl.AddonsConfig = merged
@@ -303,16 +399,26 @@ func mergeAddons(cl *containerpb.Cluster, in *containerpb.AddonsConfig) error {
 
 // SetAddonsConfig replaces each addon section named in the request into the cluster.
 func (b *InMemoryBackend) SetAddonsConfig(req *containerpb.SetAddonsConfigRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
-	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(c *clusterRec, cl *containerpb.Cluster) error {
+	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(_ *clusterRec, cl *containerpb.Cluster) error {
 		return mergeAddons(cl, req.GetAddonsConfig())
 	})
 }
 
 // SetLocations changes the zones the cluster's nodes run in.
 func (b *InMemoryBackend) SetLocations(req *containerpb.SetLocationsRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
 	return b.mutateCluster(t, containerpb.Operation_UPDATE_CLUSTER, func(c *clusterRec, cl *containerpb.Cluster) error {
 		return b.setLocations(c, cl, req.GetLocations())
@@ -359,9 +465,14 @@ func equalStrings(a, b []string) bool {
 
 // UpdateMaster upgrades the cluster's control plane.
 func (b *InMemoryBackend) UpdateMaster(req *containerpb.UpdateMasterRequest) (*containerpb.Operation, error) {
-	t := clusterTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId()}
+	t := clusterTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	}
 
-	return b.mutateCluster(t, containerpb.Operation_UPGRADE_MASTER, func(c *clusterRec, cl *containerpb.Cluster) error {
+	return b.mutateCluster(t, containerpb.Operation_UPGRADE_MASTER, func(_ *clusterRec, cl *containerpb.Cluster) error {
 		return upgradeMaster(cl, req.GetMasterVersion())
 	})
 }
@@ -377,7 +488,12 @@ func upgradeMaster(cl *containerpb.Cluster, want string) error {
 	}
 
 	if compareVersions(v, cl.GetCurrentMasterVersion()) < 0 {
-		return errInvalid("master_version", "Master version %s is older than the current version %s; downgrades are not supported.", v, cl.GetCurrentMasterVersion())
+		return errInvalid(
+			"master_version",
+			"Master version %s is older than the current version %s; downgrades are not supported.",
+			v,
+			cl.GetCurrentMasterVersion(),
+		)
 	}
 
 	cl.CurrentMasterVersion = v

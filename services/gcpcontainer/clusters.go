@@ -1,3 +1,4 @@
+//nolint:staticcheck // legacy request and cluster fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
@@ -26,8 +27,8 @@ type clusterPlan struct {
 	in        *containerpb.Cluster
 	ref       ref
 	version   string
-	channel   containerpb.ReleaseChannel_Channel
 	zones     []string
+	channel   containerpb.ReleaseChannel_Channel
 	autopilot bool
 }
 
@@ -106,8 +107,13 @@ func checkAutopilotInput(in *containerpb.Cluster, location string) error {
 	switch {
 	case !isRegion(location):
 		return errInvalid("parent", "Autopilot clusters must be regional; %q is a zone.", location)
-	case len(in.GetNodePools()) > 0, in.GetInitialNodeCount() != 0, in.GetNodeConfig() != nil:
-		return errInvalid("cluster.node_pools", "Autopilot clusters manage their own nodes; node pools and node configuration cannot be specified.")
+	case len(in.GetNodePools()) > 0,
+		in.GetInitialNodeCount() != 0,
+		in.GetNodeConfig() != nil:
+		return errInvalid(
+			"cluster.node_pools",
+			"Autopilot clusters manage their own nodes; node pools and node configuration cannot be specified.",
+		)
 	case in.GetLegacyAbac().GetEnabled():
 		return errInvalid("cluster.legacy_abac", "Legacy ABAC cannot be enabled on Autopilot clusters.")
 	case in.GetNetworkPolicy().GetEnabled():
@@ -125,8 +131,8 @@ type netSpec struct {
 }
 
 func shortName(s string) string {
-	if i := strings.LastIndex(s, "/"); i >= 0 {
-		return s[i+1:]
+	if _, after, ok := strings.CutLast(s, "/"); ok {
+		return after
 	}
 
 	return s
@@ -158,7 +164,12 @@ func (b *InMemoryBackend) resolveNet(project, region string, in *containerpb.Clu
 
 		if n.subnetwork != "" && !(n.network == defaultNetwork && n.subnetwork == defaultNetwork) &&
 			!b.compute.SubnetworkExists(subProject, region, n.subnetwork) {
-			return n, errInvalid("cluster.subnetwork", "Subnetwork %q does not exist in region %s.", n.subnetwork, region)
+			return n, errInvalid(
+				"cluster.subnetwork",
+				"Subnetwork %q does not exist in region %s.",
+				n.subnetwork,
+				region,
+			)
 		}
 	}
 
@@ -174,7 +185,11 @@ func (b *InMemoryBackend) resolveNet(project, region string, in *containerpb.Clu
 
 // CreateCluster creates a cluster and its node pools and returns the CREATE_CLUSTER operation.
 func (b *InMemoryBackend) CreateCluster(req *containerpb.CreateClusterRequest) (*containerpb.Operation, error) {
-	project, location, err := resolveLocation(req.GetParent(), req.GetProjectId(), req.GetZone())
+	project, location, err := resolveLocation(
+		req.GetParent(),
+		req.GetProjectId(),
+		req.GetZone(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +214,14 @@ func (b *InMemoryBackend) CreateCluster(req *containerpb.CreateClusterRequest) (
 	}
 
 	manual := b.engine != nil
-	o := b.newOpLocked(plan.ref, containerpb.Operation_CREATE_CLUSTER, kindCreate, rec.Cluster.GetSelfLink(), b.timing.Create, manual)
+	o := b.newOpLocked(
+		plan.ref,
+		containerpb.Operation_CREATE_CLUSTER,
+		kindCreate,
+		rec.Cluster.GetSelfLink(),
+		b.timing.Create,
+		manual,
+	)
 	b.clusters[plan.ref.clusterKey()] = rec
 
 	if manual {
@@ -255,20 +277,23 @@ func (b *InMemoryBackend) baseCluster(p *clusterPlan, n netSpec, r ranges) *cont
 	cl.InitialClusterVersion, cl.CurrentMasterVersion, cl.CurrentNodeVersion = p.version, p.version, p.version
 	cl.Locations = p.zones
 	cl.Network, cl.Subnetwork = n.network, n.subnetwork
-	cl.LoggingService = firstNonEmpty(cl.LoggingService, loggingService)
-	cl.MonitoringService = firstNonEmpty(cl.MonitoringService, monitoringService)
+	cl.LoggingService = firstNonEmpty(cl.GetLoggingService(), loggingService)
+	cl.MonitoringService = firstNonEmpty(cl.GetMonitoringService(), monitoringService)
 	cl.ClusterIpv4Cidr, cl.ServicesIpv4Cidr = r.pod.String(), r.services.String()
 	cl.NodeIpv4CidrSize = nodeCIDRSize
-	cl.LabelFingerprint = fingerprint(cl.ResourceLabels)
-	cl.LegacyAbac = firstPtr(cl.LegacyAbac, &containerpb.LegacyAbac{})
-	cl.ShieldedNodes = firstPtr(cl.ShieldedNodes, &containerpb.ShieldedNodes{Enabled: true})
-	cl.DefaultMaxPodsConstraint = firstPtr(cl.DefaultMaxPodsConstraint, &containerpb.MaxPodsConstraint{MaxPodsPerNode: defaultPodsMax})
-	cl.AddonsConfig = withAddonDefaults(cl.AddonsConfig)
-	cl.LoggingConfig = firstPtr(cl.LoggingConfig, defaultLoggingConfig())
-	cl.MonitoringConfig = firstPtr(cl.MonitoringConfig, defaultMonitoringConfig())
-	cl.MaintenancePolicy = withPolicyVersion(cl.MaintenancePolicy)
-	cl.NetworkConfig = withNetworkConfig(cl.NetworkConfig, n, p.autopilot)
-	cl.IpAllocationPolicy = withIPPolicy(cl.IpAllocationPolicy, n, r)
+	cl.LabelFingerprint = fingerprint(cl.GetResourceLabels())
+	cl.LegacyAbac = firstPtr(cl.GetLegacyAbac(), &containerpb.LegacyAbac{})
+	cl.ShieldedNodes = firstPtr(cl.GetShieldedNodes(), &containerpb.ShieldedNodes{Enabled: true})
+	cl.DefaultMaxPodsConstraint = firstPtr(
+		cl.GetDefaultMaxPodsConstraint(),
+		&containerpb.MaxPodsConstraint{MaxPodsPerNode: defaultPodsMax},
+	)
+	cl.AddonsConfig = withAddonDefaults(cl.GetAddonsConfig())
+	cl.LoggingConfig = firstPtr(cl.GetLoggingConfig(), defaultLoggingConfig())
+	cl.MonitoringConfig = firstPtr(cl.GetMonitoringConfig(), defaultMonitoringConfig())
+	cl.MaintenancePolicy = withPolicyVersion(cl.GetMaintenancePolicy())
+	cl.NetworkConfig = withNetworkConfig(cl.GetNetworkConfig(), n, p.autopilot)
+	cl.IpAllocationPolicy = withIPPolicy(cl.GetIpAllocationPolicy(), n, r)
 
 	if p.channel != containerpb.ReleaseChannel_UNSPECIFIED {
 		cl.ReleaseChannel = &containerpb.ReleaseChannel{Channel: p.channel}
@@ -276,8 +301,11 @@ func (b *InMemoryBackend) baseCluster(p *clusterPlan, n netSpec, r ranges) *cont
 
 	if p.autopilot {
 		cl.Autopilot = &containerpb.Autopilot{Enabled: true}
-		cl.VerticalPodAutoscaling = firstPtr(cl.VerticalPodAutoscaling, &containerpb.VerticalPodAutoscaling{Enabled: true})
-		cl.WorkloadIdentityConfig = firstPtr(cl.WorkloadIdentityConfig,
+		cl.VerticalPodAutoscaling = firstPtr(
+			cl.GetVerticalPodAutoscaling(),
+			&containerpb.VerticalPodAutoscaling{Enabled: true},
+		)
+		cl.WorkloadIdentityConfig = firstPtr(cl.GetWorkloadIdentityConfig(),
 			&containerpb.WorkloadIdentityConfig{WorkloadPool: p.ref.project + ".svc.id.goog"})
 	}
 
@@ -294,9 +322,9 @@ func firstPtr[T any](cur, def *T) *T {
 
 func withAddonDefaults(a *containerpb.AddonsConfig) *containerpb.AddonsConfig {
 	a = firstPtr(a, &containerpb.AddonsConfig{})
-	a.HttpLoadBalancing = firstPtr(a.HttpLoadBalancing, &containerpb.HttpLoadBalancing{})
-	a.HorizontalPodAutoscaling = firstPtr(a.HorizontalPodAutoscaling, &containerpb.HorizontalPodAutoscaling{})
-	a.NetworkPolicyConfig = firstPtr(a.NetworkPolicyConfig, &containerpb.NetworkPolicyConfig{Disabled: true})
+	a.HttpLoadBalancing = firstPtr(a.GetHttpLoadBalancing(), &containerpb.HttpLoadBalancing{})
+	a.HorizontalPodAutoscaling = firstPtr(a.GetHorizontalPodAutoscaling(), &containerpb.HorizontalPodAutoscaling{})
+	a.NetworkPolicyConfig = firstPtr(a.GetNetworkPolicyConfig(), &containerpb.NetworkPolicyConfig{Disabled: true})
 
 	return a
 }
@@ -331,7 +359,7 @@ func withNetworkConfig(nc *containerpb.NetworkConfig, n netSpec, autopilot bool)
 	nc = firstPtr(nc, &containerpb.NetworkConfig{})
 	nc.Network, nc.Subnetwork = n.netPath, n.subPath
 
-	if nc.DatapathProvider == containerpb.DatapathProvider_DATAPATH_PROVIDER_UNSPECIFIED {
+	if nc.GetDatapathProvider() == containerpb.DatapathProvider_DATAPATH_PROVIDER_UNSPECIFIED {
 		nc.DatapathProvider = containerpb.DatapathProvider_LEGACY_DATAPATH
 		if autopilot {
 			nc.DatapathProvider = containerpb.DatapathProvider_ADVANCED_DATAPATH
@@ -343,16 +371,16 @@ func withNetworkConfig(nc *containerpb.NetworkConfig, n netSpec, autopilot bool)
 
 func withIPPolicy(ip *containerpb.IPAllocationPolicy, n netSpec, r ranges) *containerpb.IPAllocationPolicy {
 	ip = firstPtr(ip, &containerpb.IPAllocationPolicy{UseIpAliases: true})
-	if ip.UseRoutes {
+	if ip.GetUseRoutes() {
 		return ip
 	}
 
 	ip.UseIpAliases = true
-	ip.SubnetworkName = firstNonEmpty(ip.SubnetworkName, n.subnetwork)
+	ip.SubnetworkName = firstNonEmpty(ip.GetSubnetworkName(), n.subnetwork)
 	ip.ClusterIpv4Cidr, ip.ServicesIpv4Cidr = r.pod.String(), r.services.String()
 	ip.ClusterIpv4CidrBlock, ip.ServicesIpv4CidrBlock = r.pod.String(), r.services.String()
 
-	if ip.StackType == containerpb.StackType_STACK_TYPE_UNSPECIFIED {
+	if ip.GetStackType() == containerpb.StackType_STACK_TYPE_UNSPECIFIED {
 		ip.StackType = containerpb.StackType_IPV4
 	}
 
@@ -361,7 +389,9 @@ func withIPPolicy(ip *containerpb.IPAllocationPolicy, n netSpec, r ranges) *cont
 
 // applyAccessInput validates the master-access settings of a create request.
 func (b *InMemoryBackend) applyAccessInput(cl, in *containerpb.Cluster) error {
-	if err := validMasterAuthNets(in.GetMasterAuthorizedNetworksConfig()); err != nil {
+	if err := validMasterAuthNets(
+		in.GetMasterAuthorizedNetworksConfig(),
+	); err != nil {
 		return err
 	}
 
@@ -369,7 +399,8 @@ func (b *InMemoryBackend) applyAccessInput(cl, in *containerpb.Cluster) error {
 		return err
 	}
 
-	if pw := in.GetMasterAuth().GetPassword(); pw != "" {
+	if pw := in.GetMasterAuth().
+		GetPassword(); pw != "" {
 		if err := validPassword(pw); err != nil {
 			return err
 		}
@@ -394,16 +425,29 @@ func (b *InMemoryBackend) applyPrivate(cl, in *containerpb.Cluster) error {
 		return nil
 	}
 
-	blk, err := parseCIDR("cluster.private_cluster_config.master_ipv4_cidr_block", pc.GetMasterIpv4CidrBlock(), masterPrefix, masterPrefix)
+	blk, err := parseCIDR(
+		"cluster.private_cluster_config.master_ipv4_cidr_block",
+		pc.GetMasterIpv4CidrBlock(),
+		masterPrefix,
+		masterPrefix,
+	)
 	if err != nil {
 		return err
 	}
 
 	if pod, perr := netip.ParsePrefix(cl.GetClusterIpv4Cidr()); perr == nil && pod.Overlaps(blk) {
-		return errInvalid("cluster.private_cluster_config.master_ipv4_cidr_block", "The master range %s overlaps the pod range %s.", blk, pod)
+		return errInvalid(
+			"cluster.private_cluster_config.master_ipv4_cidr_block",
+			"The master range %s overlaps the pod range %s.",
+			blk,
+			pod,
+		)
 	}
 
-	cl.PrivateClusterConfig.PrivateEndpoint = u32ToAddr(addrToU32(blk.Addr()) + privateEndpointIP).String()
+	cl.PrivateClusterConfig.PrivateEndpoint = u32ToAddr(
+		addrToU32(blk.Addr()) + privateEndpointIP,
+	).String()
+	//nolint:staticcheck // deprecated field kept for wire compatibility
 
 	return nil
 }
@@ -411,7 +455,12 @@ func (b *InMemoryBackend) applyPrivate(cl, in *containerpb.Cluster) error {
 // addInitialPools creates the legacy default pool, the requested pools, or the Autopilot-managed pool.
 func (b *InMemoryBackend) addInitialPools(rec *clusterRec, p *clusterPlan) error {
 	in := p.in
-	pc := poolCtx{ref: p.ref, version: p.version, zones: p.zones, autoUpdate: p.channel != containerpb.ReleaseChannel_UNSPECIFIED}
+	pc := poolCtx{
+		ref:        p.ref,
+		version:    p.version,
+		zones:      p.zones,
+		autoUpdate: p.channel != containerpb.ReleaseChannel_UNSPECIFIED,
+	}
 
 	if p.autopilot {
 		rec.Pools = []*poolRec{autopilotPool(pc)}
@@ -422,11 +471,22 @@ func (b *InMemoryBackend) addInitialPools(rec *clusterRec, p *clusterPlan) error
 	pools := in.GetNodePools()
 	if len(pools) == 0 {
 		if in.GetInitialNodeCount() == 0 {
-			return errInvalid("cluster.initial_node_count", "Either node_pools or initial_node_count must be specified.")
+			return errInvalid(
+				"cluster.initial_node_count",
+				"Either node_pools or initial_node_count must be specified.",
+			)
 		}
 
-		pools = []*containerpb.NodePool{{Name: defaultPoolName, Config: in.GetNodeConfig(), InitialNodeCount: in.GetInitialNodeCount()}}
-		rec.Cluster.NodeConfig = withNodeDefaults(in.GetNodeConfig())
+		pools = []*containerpb.NodePool{
+			{
+				Name:             defaultPoolName,
+				Config:           in.GetNodeConfig(),
+				InitialNodeCount: in.GetInitialNodeCount(),
+			},
+		}
+		rec.Cluster.NodeConfig = withNodeDefaults(
+			in.GetNodeConfig(),
+		)
 	}
 
 	seen := map[string]bool{}
@@ -471,9 +531,12 @@ func (b *InMemoryBackend) stubIdentity(cl *containerpb.Cluster, name string) err
 
 	b.seq++
 	cl.Endpoint = documentationAddr(b.seq)
-	cl.MasterAuth = firstPtr(cl.MasterAuth, &containerpb.MasterAuth{})
+	cl.MasterAuth = firstPtr(cl.GetMasterAuth(), &containerpb.MasterAuth{})
 	cl.MasterAuth.ClusterCaCertificate = base64.StdEncoding.EncodeToString(ca.CertPEM)
-	cl.MasterAuth.ClientCertificateConfig = firstPtr(cl.MasterAuth.ClientCertificateConfig, &containerpb.ClientCertificateConfig{})
+	cl.MasterAuth.ClientCertificateConfig = firstPtr(
+		cl.GetMasterAuth().GetClientCertificateConfig(),
+		&containerpb.ClientCertificateConfig{},
+	)
 
 	return nil
 }
@@ -490,7 +553,12 @@ func documentationAddr(n uint64) string {
 
 // GetCluster returns one cluster.
 func (b *InMemoryBackend) GetCluster(req *containerpb.GetClusterRequest) (*containerpb.Cluster, error) {
-	r, err := resolveCluster(req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId())
+	r, err := resolveCluster(
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -516,8 +584,14 @@ func (b *InMemoryBackend) liveClusterLocked(r ref) (*clusterRec, error) {
 }
 
 // ListClusters lists the clusters of a location, or of every location for "-".
-func (b *InMemoryBackend) ListClusters(req *containerpb.ListClustersRequest) (*containerpb.ListClustersResponse, error) {
-	project, location, err := resolveLocation(req.GetParent(), req.GetProjectId(), req.GetZone())
+func (b *InMemoryBackend) ListClusters(
+	req *containerpb.ListClustersRequest,
+) (*containerpb.ListClustersResponse, error) {
+	project, location, err := resolveLocation(
+		req.GetParent(),
+		req.GetProjectId(),
+		req.GetZone(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -543,7 +617,7 @@ func (b *InMemoryBackend) ListClusters(req *containerpb.ListClustersRequest) (*c
 		resp.Clusters = append(resp.Clusters, b.clusterViewLocked(c))
 	}
 
-	slices.SortFunc(resp.Clusters, func(a, c *containerpb.Cluster) int {
+	slices.SortFunc(resp.GetClusters(), func(a, c *containerpb.Cluster) int {
 		return strings.Compare(a.GetSelfLink(), c.GetSelfLink())
 	})
 
@@ -552,7 +626,12 @@ func (b *InMemoryBackend) ListClusters(req *containerpb.ListClustersRequest) (*c
 
 // DeleteCluster starts deletion and returns the DELETE_CLUSTER operation.
 func (b *InMemoryBackend) DeleteCluster(req *containerpb.DeleteClusterRequest) (*containerpb.Operation, error) {
-	r, err := resolveCluster(req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId())
+	r, err := resolveCluster(
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +654,14 @@ func (b *InMemoryBackend) DeleteCluster(req *containerpb.DeleteClusterRequest) (
 		b.finishOpLocked(o, "")
 	}
 
-	o := b.newOpLocked(r, containerpb.Operation_DELETE_CLUSTER, kindDelete, c.Cluster.GetSelfLink(), b.timing.Delete, false)
+	o := b.newOpLocked(
+		r,
+		containerpb.Operation_DELETE_CLUSTER,
+		kindDelete,
+		c.Cluster.GetSelfLink(),
+		b.timing.Delete,
+		false,
+	)
 	c.DeleteOp = o.Op.GetName()
 	b.reapLocked(r.clusterKey())
 

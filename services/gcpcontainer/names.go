@@ -71,7 +71,11 @@ func resolveLocation(parent, project, zone string) (string, string, error) {
 	if parent != "" {
 		ids, ok := parseRes(parent, kindProjects, kindLocations)
 		if !ok {
-			return "", "", errInvalid("parent", "Invalid parent %q: want projects/{project}/locations/{location}.", parent)
+			return "", "", errInvalid(
+				"parent",
+				"Invalid parent %q: want projects/{project}/locations/{location}.",
+				parent,
+			)
 		}
 
 		return ids[0], ids[1], nil
@@ -92,7 +96,11 @@ func resolveCluster(name, project, zone, cluster string) (ref, error) {
 	if name != "" {
 		ids, ok := parseRes(name, kindProjects, kindLocations, kindClusters)
 		if !ok {
-			return ref{}, errInvalid("name", "Invalid cluster name %q: want projects/{project}/locations/{location}/clusters/{cluster}.", name)
+			return ref{}, errInvalid(
+				"name",
+				"Invalid cluster name %q: want projects/{project}/locations/{location}/clusters/{cluster}.",
+				name,
+			)
 		}
 
 		return ref{project: ids[0], location: ids[1], cluster: ids[2]}, nil
@@ -114,8 +122,11 @@ func resolvePool(name, project, zone, cluster, pool string) (ref, error) {
 	if name != "" {
 		ids, ok := parseRes(name, kindProjects, kindLocations, kindClusters, kindNodePools)
 		if !ok {
-			return ref{}, errInvalid("name",
-				"Invalid node pool name %q: want projects/{project}/locations/{location}/clusters/{cluster}/nodePools/{nodePool}.", name)
+			return ref{}, errInvalid(
+				"name",
+				"Invalid node pool name %q: want projects/{project}/locations/{location}/clusters/{cluster}/nodePools/{nodePool}.",
+				name,
+			)
 		}
 
 		return ref{project: ids[0], location: ids[1], cluster: ids[2], pool: ids[3]}, nil
@@ -139,7 +150,11 @@ func resolveOperation(name, project, zone, op string) (ref, string, error) {
 	if name != "" {
 		ids, ok := parseRes(name, kindProjects, kindLocations, kindOps)
 		if !ok {
-			return ref{}, "", errInvalid("name", "Invalid operation name %q: want projects/{project}/locations/{location}/operations/{operation}.", name)
+			return ref{}, "", errInvalid(
+				"name",
+				"Invalid operation name %q: want projects/{project}/locations/{location}/operations/{operation}.",
+				name,
+			)
 		}
 
 		return ref{project: ids[0], location: ids[1]}, ids[2], nil
@@ -163,9 +178,14 @@ func validName(field, name string) error {
 	}
 
 	if len(name) > maxNameLen || !nameRE.MatchString(name) {
-		return errInvalid(field,
-			"Invalid value for field %q: %q must be 1-%d characters of lowercase letters, digits and hyphens, starting with a letter and not ending with a hyphen.",
-			field, name, maxNameLen)
+		return errInvalid(
+			field,
+			"Invalid value for field %q: %q must be 1-%d lowercase letters, digits or hyphens, "+
+				"start with a letter and not end with a hyphen.",
+			field,
+			name,
+			maxNameLen,
+		)
 	}
 
 	return nil
@@ -196,12 +216,7 @@ func isZone(l string) bool {
 }
 
 func cutLast(s, sep string) (string, string, bool) {
-	i := strings.LastIndex(s, sep)
-	if i < 0 {
-		return s, "", false
-	}
-
-	return s[:i], s[i+len(sep):], true
+	return strings.CutLast(s, sep)
 }
 
 func validLocation(l string) bool { return isRegion(l) || isZone(l) }

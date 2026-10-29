@@ -36,9 +36,11 @@ var (
 	labelKeyRE   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 	labelValueRE = regexp.MustCompile(`^[a-z0-9_-]{0,63}$`)
 	machineRE    = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)+$`)
-	k8sLabelRE   = regexp.MustCompile(`^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$`)
-	k8sValueRE   = regexp.MustCompile(`^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$`)
-	clockRE      = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+	k8sLabelRE   = regexp.MustCompile(
+		`^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$`,
+	)
+	k8sValueRE = regexp.MustCompile(`^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$`)
+	clockRE    = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 )
 
 func validLabels(field string, labels map[string]string) error {
@@ -48,11 +50,21 @@ func validLabels(field string, labels map[string]string) error {
 
 	for k, v := range labels {
 		if !labelKeyRE.MatchString(k) {
-			return errInvalid(field, "Invalid label key %q: must start with a lowercase letter and use at most 63 lowercase letters, digits, underscores or hyphens.", k)
+			return errInvalid(
+				field,
+				"Invalid label key %q: start with a lowercase letter, then at most 62 lowercase letters, "+
+					"digits, underscores or hyphens.",
+				k,
+			)
 		}
 
 		if !labelValueRE.MatchString(v) {
-			return errInvalid(field, "Invalid value %q for label %q: use at most 63 lowercase letters, digits, underscores or hyphens.", v, k)
+			return errInvalid(
+				field,
+				"Invalid value %q for label %q: use at most 63 lowercase letters, digits, underscores or hyphens.",
+				v,
+				k,
+			)
 		}
 	}
 
@@ -90,7 +102,13 @@ func parseCIDR(field, s string, minBits, maxBits int) (netip.Prefix, error) {
 	}
 
 	if p.Bits() < minBits || p.Bits() > maxBits {
-		return netip.Prefix{}, errInvalid(field, "CIDR block %q must have a prefix length between /%d and /%d.", s, minBits, maxBits)
+		return netip.Prefix{}, errInvalid(
+			field,
+			"CIDR block %q must have a prefix length between /%d and /%d.",
+			s,
+			minBits,
+			maxBits,
+		)
 	}
 
 	return p, nil
@@ -117,8 +135,8 @@ func validMachineType(c Compute, mt string) error {
 }
 
 func validDiskType(t string) bool {
-	switch {
-	case t == "pd-standard", t == "pd-balanced", t == "pd-ssd":
+	switch t {
+	case "pd-standard", "pd-balanced", "pd-ssd":
 		return true
 	default:
 		return strings.HasPrefix(t, "hyperdisk-")
@@ -140,27 +158,35 @@ func validAutoscaling(a *containerpb.NodePoolAutoscaling) error {
 		return nil
 	}
 
+	perZone := a.GetMinNodeCount() != 0 || a.GetMaxNodeCount() != 0
+	total := a.GetTotalMinNodeCount() != 0 || a.GetTotalMaxNodeCount() != 0
+
 	if !a.GetEnabled() {
-		if a.GetMinNodeCount() != 0 || a.GetMaxNodeCount() != 0 || a.GetTotalMinNodeCount() != 0 || a.GetTotalMaxNodeCount() != 0 {
+		if perZone || total {
 			return errInvalid("autoscaling", "Autoscaling limits can only be set when autoscaling is enabled.")
 		}
 
 		return nil
 	}
 
-	perZone := a.GetMinNodeCount() != 0 || a.GetMaxNodeCount() != 0
-	total := a.GetTotalMinNodeCount() != 0 || a.GetTotalMaxNodeCount() != 0
+	if perZone && total {
+		return errInvalid("autoscaling", "Per-zone and total node limits cannot both be set.")
+	}
+
+	return validAutoscalingLimits(a, perZone || total)
+}
+
+func validAutoscalingLimits(a *containerpb.NodePoolAutoscaling, limited bool) error {
+	top := max(a.GetMaxNodeCount(), a.GetTotalMaxNodeCount())
 
 	switch {
-	case perZone && total:
-		return errInvalid("autoscaling", "Per-zone and total node limits cannot both be set.")
 	case a.GetMinNodeCount() < 0 || a.GetTotalMinNodeCount() < 0:
 		return errInvalid("autoscaling", "Minimum node count must not be negative.")
-	case !perZone && !total, max(a.GetMaxNodeCount(), a.GetTotalMaxNodeCount()) < 1:
+	case !limited || top < 1:
 		return errInvalid("autoscaling", "Maximum node count must be greater than 0.")
 	case a.GetMaxNodeCount() < a.GetMinNodeCount() || a.GetTotalMaxNodeCount() < a.GetTotalMinNodeCount():
 		return errInvalid("autoscaling", "Maximum node count must not be less than the minimum node count.")
-	case max(a.GetMaxNodeCount(), a.GetTotalMaxNodeCount()) > maxNodeCount:
+	case top > maxNodeCount:
 		return errInvalid("autoscaling", "Maximum node count must not exceed %d.", maxNodeCount)
 	}
 
@@ -203,22 +229,23 @@ func validNodeConfig(c Compute, nc *containerpb.NodeConfig) error {
 	return validTaints(nc.GetTaints())
 }
 
+// podPrefixes maps the largest max-pods-per-node a per-node pod range of that size can serve.
+var podPrefixes = []struct { //nolint:gochecknoglobals // immutable catalog
+	maxPods int64
+	prefix  int32
+}{{8, 28}, {16, 27}, {32, 26}, {64, 25}, {128, 24}}
+
+const widePodPrefix = 23
+
 // podPrefix maps max pods per node to the per-node pod range size.
 func podPrefix(maxPods int64) int32 {
-	switch {
-	case maxPods <= 8:
-		return 28
-	case maxPods <= 16:
-		return 27
-	case maxPods <= 32:
-		return 26
-	case maxPods <= 64:
-		return 25
-	case maxPods <= 128:
-		return 24
-	default:
-		return 23
+	for _, p := range podPrefixes {
+		if maxPods <= p.maxPods {
+			return p.prefix
+		}
 	}
+
+	return widePodPrefix
 }
 
 func validMaxPods(field string, c *containerpb.MaxPodsConstraint) error {
@@ -272,7 +299,10 @@ func validRecurring(r *containerpb.RecurringTimeWindow) error {
 	}
 
 	if r.GetRecurrence() == "" || !strings.Contains(r.GetRecurrence(), "FREQ=") {
-		return errInvalid("maintenance_policy.window.recurring_window.recurrence", "Recurrence must be an RFC 5545 RRULE.")
+		return errInvalid(
+			"maintenance_policy.window.recurring_window.recurrence",
+			"Recurrence must be an RFC 5545 RRULE.",
+		)
 	}
 
 	return nil
@@ -280,13 +310,21 @@ func validRecurring(r *containerpb.RecurringTimeWindow) error {
 
 func validMasterAuthNets(m *containerpb.MasterAuthorizedNetworksConfig) error {
 	if len(m.GetCidrBlocks()) > maxAuthNets {
-		return errInvalid("master_authorized_networks_config", "At most %d authorized networks are allowed.", maxAuthNets)
+		return errInvalid(
+			"master_authorized_networks_config",
+			"At most %d authorized networks are allowed.",
+			maxAuthNets,
+		)
 	}
 
 	for _, blk := range m.GetCidrBlocks() {
 		p, err := netip.ParsePrefix(blk.GetCidrBlock())
 		if err != nil || !p.Addr().Is4() {
-			return errInvalid("master_authorized_networks_config.cidr_blocks", "Invalid CIDR block %q.", blk.GetCidrBlock())
+			return errInvalid(
+				"master_authorized_networks_config.cidr_blocks",
+				"Invalid CIDR block %q.",
+				blk.GetCidrBlock(),
+			)
 		}
 	}
 

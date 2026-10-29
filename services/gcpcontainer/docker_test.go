@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -66,7 +67,10 @@ func kubeGet(t *testing.T, endpoint, caB64, token, path string) (int, string) {
 	pool := x509.NewCertPool()
 	require.True(t, pool.AppendCertsFromPEM(pemBytes), "masterAuth.clusterCaCertificate must be base64 PEM")
 
-	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, DisableKeepAlives: true}
+	tr := &http.Transport{
+		TLSClientConfig:   &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+		DisableKeepAlives: true,
+	}
 	defer tr.CloseIdleConnections()
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+endpoint+path, nil)
@@ -105,7 +109,10 @@ func TestDockerClusterRealK3s(t *testing.T) {
 
 	image, _ := k3sengine.Image("1.34", "1.34")
 
-	probe, err := rt.CreateAndStart(t.Context(), container.Spec{Image: image, Entrypoint: []string{"/bin/true"}, Privileged: true})
+	probe, err := rt.CreateAndStart(
+		t.Context(),
+		container.Spec{Image: image, Entrypoint: []string{"/bin/true"}, Privileged: true},
+	)
 	if err != nil {
 		t.Skipf("privileged containers unavailable: %v", err)
 	}
@@ -123,18 +130,30 @@ func TestDockerClusterRealK3s(t *testing.T) {
 		c := e.getCluster(t, zone, "real")
 		require.NotEqual(t, containerpb.Cluster_ERROR, c.GetStatus(), c.GetStatusMessage())
 
-		return e.getOp(t, zone, op).GetStatus() == containerpb.Operation_DONE
+		return e.getOp(t, op).GetStatus() == containerpb.Operation_DONE
 	}, k3sStartWait, time.Second)
 
 	c := e.getCluster(t, zone, "real")
 	require.Equal(t, containerpb.Cluster_RUNNING, c.GetStatus())
 	require.True(t, strings.HasPrefix(c.GetEndpoint(), "127.0.0.1:"), c.GetEndpoint())
 
-	code, body := kubeGet(t, c.GetEndpoint(), c.GetMasterAuth().GetClusterCaCertificate(), b.EngineToken(), "/api/v1/namespaces")
+	code, body := kubeGet(
+		t,
+		c.GetEndpoint(),
+		c.GetMasterAuth().GetClusterCaCertificate(),
+		b.EngineToken(),
+		"/api/v1/namespaces",
+	)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Contains(t, body, "kube-system")
 
-	code, _ = kubeGet(t, c.GetEndpoint(), c.GetMasterAuth().GetClusterCaCertificate(), "wrong-token", "/api/v1/namespaces")
+	code, _ = kubeGet(
+		t,
+		c.GetEndpoint(),
+		c.GetMasterAuth().GetClusterCaCertificate(),
+		"wrong-token",
+		"/api/v1/namespaces",
+	)
 	assert.Equal(t, http.StatusUnauthorized, code)
 
 	ids := rec.containerIDs()

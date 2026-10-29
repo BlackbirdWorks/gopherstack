@@ -1,3 +1,4 @@
+//nolint:staticcheck // legacy cluster fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
@@ -11,6 +12,11 @@ import (
 )
 
 const (
+	v1343  = "1.34.3-gke.1051000"
+	v1337  = "1.33.7-gke.1044000"
+	v13211 = "1.32.11-gke.1090000"
+
+	versionParts     = 3
 	latestVersion    = "latest"
 	maxNodeSkew      = 2
 	defaultImageType = "COS_CONTAINERD"
@@ -29,19 +35,19 @@ func channels() []channelSpec {
 	return []channelSpec{
 		{
 			channel: containerpb.ReleaseChannel_RAPID, def: "1.35.0-gke.1233000", target: "1.35.1-gke.1000000",
-			versions: []string{"1.35.1-gke.1000000", "1.35.0-gke.1233000", "1.34.3-gke.1051000"},
+			versions: []string{"1.35.1-gke.1000000", "1.35.0-gke.1233000", v1343},
 		},
 		{
-			channel: containerpb.ReleaseChannel_REGULAR, def: "1.34.2-gke.1008000", target: "1.34.3-gke.1051000",
-			versions: []string{"1.34.3-gke.1051000", "1.34.2-gke.1008000", "1.33.7-gke.1044000"},
+			channel: containerpb.ReleaseChannel_REGULAR, def: "1.34.2-gke.1008000", target: v1343,
+			versions: []string{v1343, "1.34.2-gke.1008000", v1337},
 		},
 		{
-			channel: containerpb.ReleaseChannel_STABLE, def: "1.33.6-gke.1021000", target: "1.33.7-gke.1044000",
-			versions: []string{"1.33.7-gke.1044000", "1.33.6-gke.1021000", "1.32.11-gke.1090000"},
+			channel: containerpb.ReleaseChannel_STABLE, def: "1.33.6-gke.1021000", target: v1337,
+			versions: []string{v1337, "1.33.6-gke.1021000", v13211},
 		},
 		{
-			channel: containerpb.ReleaseChannel_EXTENDED, def: "1.32.10-gke.1049000", target: "1.32.11-gke.1090000",
-			versions: []string{"1.32.11-gke.1090000", "1.32.10-gke.1049000", "1.31.14-gke.1084000"},
+			channel: containerpb.ReleaseChannel_EXTENDED, def: "1.32.10-gke.1049000", target: v13211,
+			versions: []string{v13211, "1.32.10-gke.1049000", "1.31.14-gke.1084000"},
 		},
 	}
 }
@@ -68,7 +74,7 @@ func versionKey(v string) [4]int {
 
 	core, build, _ := strings.Cut(v, "-gke.")
 	for i, p := range strings.Split(core, ".") {
-		if i < 3 {
+		if i < versionParts {
 			k[i], _ = strconv.Atoi(p)
 		}
 	}
@@ -171,8 +177,13 @@ func minor(v string) int { return versionKey(v)[1] }
 
 func checkSkew(node, master string) error {
 	if d := minor(master) - minor(node); d < 0 || d > maxNodeSkew {
-		return errInvalid("version", "Node version %s must be the master version %s or at most %d minor versions older.",
-			node, master, maxNodeSkew)
+		return errInvalid(
+			"version",
+			"Node version %s must be the master version %s or at most %d minor versions older.",
+			node,
+			master,
+			maxNodeSkew,
+		)
 	}
 
 	return nil
@@ -194,7 +205,7 @@ func serverConfig() *containerpb.ServerConfig {
 		})
 	}
 
-	slices.SortFunc(cfg.Channels, func(a, b *containerpb.ServerConfig_ReleaseChannelConfig) int {
+	slices.SortFunc(cfg.GetChannels(), func(a, b *containerpb.ServerConfig_ReleaseChannelConfig) int {
 		return cmp.Compare(a.GetChannel(), b.GetChannel())
 	})
 

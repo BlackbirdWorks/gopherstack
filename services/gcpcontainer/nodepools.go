@@ -1,3 +1,4 @@
+//nolint:staticcheck // legacy request and operation fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
@@ -79,7 +80,11 @@ func resolveClusterParent(parent, project, zone, cluster string) (ref, error) {
 
 	ids, ok := parseRes(parent, kindProjects, kindLocations, kindClusters)
 	if !ok {
-		return ref{}, errInvalid("parent", "Invalid parent %q: want projects/{project}/locations/{location}/clusters/{cluster}.", parent)
+		return ref{}, errInvalid(
+			"parent",
+			"Invalid parent %q: want projects/{project}/locations/{location}/clusters/{cluster}.",
+			parent,
+		)
 	}
 
 	return ref{project: ids[0], location: ids[1], cluster: ids[2]}, nil
@@ -87,7 +92,12 @@ func resolveClusterParent(parent, project, zone, cluster string) (ref, error) {
 
 // CreateNodePool adds a node pool to a cluster.
 func (b *InMemoryBackend) CreateNodePool(req *containerpb.CreateNodePoolRequest) (*containerpb.Operation, error) {
-	r, err := resolveClusterParent(req.GetParent(), req.GetProjectId(), req.GetZone(), req.GetClusterId())
+	r, err := resolveClusterParent(
+		req.GetParent(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +121,12 @@ func (b *InMemoryBackend) CreateNodePool(req *containerpb.CreateNodePoolRequest)
 	}
 
 	pc := poolCtx{
-		ref: r, version: c.Cluster.GetCurrentMasterVersion(), zones: c.Cluster.GetLocations(),
-		autoUpdate: c.Cluster.GetReleaseChannel().GetChannel() != containerpb.ReleaseChannel_UNSPECIFIED,
+		ref:     r,
+		version: c.Cluster.GetCurrentMasterVersion(),
+		zones:   c.Cluster.GetLocations(),
+		autoUpdate: c.Cluster.GetReleaseChannel().
+			GetChannel() !=
+			containerpb.ReleaseChannel_UNSPECIFIED,
 	}
 
 	pr, err := b.buildPoolLocked(pc, req.GetNodePool())
@@ -137,7 +151,13 @@ func (b *InMemoryBackend) CreateNodePool(req *containerpb.CreateNodePoolRequest)
 
 // GetNodePool returns one node pool.
 func (b *InMemoryBackend) GetNodePool(req *containerpb.GetNodePoolRequest) (*containerpb.NodePool, error) {
-	r, err := resolvePool(req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId(), req.GetNodePoolId())
+	r, err := resolvePool(
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+		req.GetNodePoolId(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -159,8 +179,15 @@ func (b *InMemoryBackend) GetNodePool(req *containerpb.GetNodePoolRequest) (*con
 }
 
 // ListNodePools lists a cluster's node pools.
-func (b *InMemoryBackend) ListNodePools(req *containerpb.ListNodePoolsRequest) (*containerpb.ListNodePoolsResponse, error) {
-	r, err := resolveClusterParent(req.GetParent(), req.GetProjectId(), req.GetZone(), req.GetClusterId())
+func (b *InMemoryBackend) ListNodePools(
+	req *containerpb.ListNodePoolsRequest,
+) (*containerpb.ListNodePoolsResponse, error) {
+	r, err := resolveClusterParent(
+		req.GetParent(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -186,30 +213,54 @@ func (b *InMemoryBackend) ListNodePools(req *containerpb.ListNodePoolsRequest) (
 
 // DeleteNodePool starts deletion of a node pool.
 func (b *InMemoryBackend) DeleteNodePool(req *containerpb.DeleteNodePoolRequest) (*containerpb.Operation, error) {
-	t := poolTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId(), req.GetNodePoolId()}
+	t := poolTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+		req.GetNodePoolId(),
+	}
 
-	return b.mutatePool(t, containerpb.Operation_DELETE_NODE_POOL, func(c *clusterRec, cl *containerpb.Cluster, pr *poolRec) error {
-		return nil
-	})
+	return b.mutatePool(
+		t,
+		containerpb.Operation_DELETE_NODE_POOL,
+		func(_ *clusterRec, _ *containerpb.Cluster, _ *poolRec) error {
+			return nil
+		},
+	)
 }
 
 // SetNodePoolSize resizes a node pool.
 func (b *InMemoryBackend) SetNodePoolSize(req *containerpb.SetNodePoolSizeRequest) (*containerpb.Operation, error) {
-	t := poolTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId(), req.GetNodePoolId()}
+	t := poolTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+		req.GetNodePoolId(),
+	}
 
-	return b.mutatePool(t, containerpb.Operation_SET_NODE_POOL_SIZE, func(c *clusterRec, cl *containerpb.Cluster, pr *poolRec) error {
-		if n := req.GetNodeCount(); n < 0 || n > maxNodeCount {
-			return errInvalid("node_count", "Node count must be between 0 and %d.", maxNodeCount)
-		}
+	return b.mutatePool(
+		t,
+		containerpb.Operation_SET_NODE_POOL_SIZE,
+		func(_ *clusterRec, _ *containerpb.Cluster, pr *poolRec) error {
+			if n := req.GetNodeCount(); n < 0 || n > maxNodeCount {
+				return errInvalid("node_count", "Node count must be between 0 and %d.", maxNodeCount)
+			}
 
-		if pr.Pool.GetAutoscaling().GetEnabled() {
-			return errPrecondition(pr.Pool.GetSelfLink(), "Node pool %s has autoscaling enabled; disable it before resizing.", pr.Pool.GetName())
-		}
+			if pr.Pool.GetAutoscaling().GetEnabled() {
+				return errPrecondition(
+					pr.Pool.GetSelfLink(),
+					"Node pool %s has autoscaling enabled; disable it before resizing.",
+					pr.Pool.GetName(),
+				)
+			}
 
-		pr.Size = req.GetNodeCount()
+			pr.Size = req.GetNodeCount()
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func setPoolAutoscaling(pr *poolRec, a *containerpb.NodePoolAutoscaling) error {
@@ -238,53 +289,99 @@ func setPoolAutoscaling(pr *poolRec, a *containerpb.NodePoolAutoscaling) error {
 }
 
 // SetNodePoolAutoscaling configures a node pool's autoscaler.
-func (b *InMemoryBackend) SetNodePoolAutoscaling(req *containerpb.SetNodePoolAutoscalingRequest) (*containerpb.Operation, error) {
-	t := poolTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId(), req.GetNodePoolId()}
+func (b *InMemoryBackend) SetNodePoolAutoscaling(
+	req *containerpb.SetNodePoolAutoscalingRequest,
+) (*containerpb.Operation, error) {
+	t := poolTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+		req.GetNodePoolId(),
+	}
 
-	return b.mutatePool(t, containerpb.Operation_UPDATE_CLUSTER, func(c *clusterRec, cl *containerpb.Cluster, pr *poolRec) error {
-		return setPoolAutoscaling(pr, req.GetAutoscaling())
-	})
+	return b.mutatePool(
+		t,
+		containerpb.Operation_UPDATE_CLUSTER,
+		func(_ *clusterRec, _ *containerpb.Cluster, pr *poolRec) error {
+			return setPoolAutoscaling(pr, req.GetAutoscaling())
+		},
+	)
 }
 
 // SetNodePoolManagement sets auto-upgrade and auto-repair.
-func (b *InMemoryBackend) SetNodePoolManagement(req *containerpb.SetNodePoolManagementRequest) (*containerpb.Operation, error) {
-	t := poolTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId(), req.GetNodePoolId()}
+func (b *InMemoryBackend) SetNodePoolManagement(
+	req *containerpb.SetNodePoolManagementRequest,
+) (*containerpb.Operation, error) {
+	t := poolTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+		req.GetNodePoolId(),
+	}
 
-	return b.mutatePool(t, containerpb.Operation_SET_NODE_POOL_MANAGEMENT, func(c *clusterRec, cl *containerpb.Cluster, pr *poolRec) error {
-		m := req.GetManagement()
-		if m == nil {
-			return errInvalid("management", "Management must be specified.")
-		}
+	return b.mutatePool(
+		t,
+		containerpb.Operation_SET_NODE_POOL_MANAGEMENT,
+		func(_ *clusterRec, cl *containerpb.Cluster, pr *poolRec) error {
+			m := req.GetManagement()
+			if m == nil {
+				return errInvalid("management", "Management must be specified.")
+			}
 
-		if !m.GetAutoUpgrade() && cl.GetReleaseChannel().GetChannel() != containerpb.ReleaseChannel_UNSPECIFIED {
-			return errInvalid("management.auto_upgrade", "Auto-upgrade cannot be disabled for node pools of a cluster on a release channel.")
-		}
+			if !m.GetAutoUpgrade() &&
+				cl.GetReleaseChannel().
+					GetChannel() !=
+					containerpb.ReleaseChannel_UNSPECIFIED {
+				return errInvalid(
+					"management.auto_upgrade",
+					"Auto-upgrade cannot be disabled for node pools of a cluster on a release channel.",
+				)
+			}
 
-		pr.Pool.Management = clone(m)
+			pr.Pool.Management = clone(m)
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 // RollbackNodePoolUpgrade restores the version a node pool had before its last upgrade.
-func (b *InMemoryBackend) RollbackNodePoolUpgrade(req *containerpb.RollbackNodePoolUpgradeRequest) (*containerpb.Operation, error) {
-	t := poolTarget{req.GetName(), req.GetProjectId(), req.GetZone(), req.GetClusterId(), req.GetNodePoolId()}
+func (b *InMemoryBackend) RollbackNodePoolUpgrade(
+	req *containerpb.RollbackNodePoolUpgradeRequest,
+) (*containerpb.Operation, error) {
+	t := poolTarget{
+		req.GetName(),
+		req.GetProjectId(),
+		req.GetZone(),
+		req.GetClusterId(),
+		req.GetNodePoolId(),
+	}
 
-	return b.mutatePool(t, containerpb.Operation_UPGRADE_NODES, func(c *clusterRec, cl *containerpb.Cluster, pr *poolRec) error {
-		if pr.PrevVersion == "" {
-			return errPrecondition(pr.Pool.GetSelfLink(), "Node pool %s has no upgrade to roll back.", pr.Pool.GetName())
-		}
+	return b.mutatePool(
+		t,
+		containerpb.Operation_UPGRADE_NODES,
+		func(_ *clusterRec, _ *containerpb.Cluster, pr *poolRec) error {
+			if pr.PrevVersion == "" {
+				return errPrecondition(
+					pr.Pool.GetSelfLink(),
+					"Node pool %s has no upgrade to roll back.",
+					pr.Pool.GetName(),
+				)
+			}
 
-		pr.Pool.Version, pr.PrevVersion = pr.PrevVersion, ""
+			pr.Pool.Version, pr.PrevVersion = pr.PrevVersion, ""
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 // poolFields are the UpdateNodePoolRequest fields handled explicitly; every other populated field must map onto a
 // NodeConfig field of the same name and type.
 var poolFields = map[string]bool{ //nolint:gochecknoglobals // immutable catalog
-	"project_id": true, "zone": true, "cluster_id": true, "node_pool_id": true, "name": true, "etag": true,
+	"project_id": true, "zone": true, "cluster_id": true, "node_pool_id": true, "name": true, fieldEtag: true,
 	"node_version": true, "image_type": true, "locations": true, "tags": true, "taints": true, "labels": true,
 	"resource_labels": true, "upgrade_settings": true, "machine_type": true, "disk_type": true, "disk_size_gb": true,
 	"node_network_config": true,
@@ -292,7 +389,7 @@ var poolFields = map[string]bool{ //nolint:gochecknoglobals // immutable catalog
 
 // targetFields identify the node pool or guard the request; they change nothing.
 var targetFields = map[string]bool{ //nolint:gochecknoglobals // immutable catalog
-	"project_id": true, "zone": true, "cluster_id": true, "node_pool_id": true, "name": true, "etag": true,
+	"project_id": true, "zone": true, "cluster_id": true, "node_pool_id": true, "name": true, fieldEtag: true,
 }
 
 // UpdateNodePool changes node pool settings.
@@ -317,7 +414,12 @@ func (b *InMemoryBackend) UpdateNodePool(req *containerpb.UpdateNodePoolRequest)
 	})
 }
 
-func (b *InMemoryBackend) applyPoolRequest(c *clusterRec, cl *containerpb.Cluster, pr *poolRec, req *containerpb.UpdateNodePoolRequest) error {
+func (b *InMemoryBackend) applyPoolRequest(
+	c *clusterRec,
+	cl *containerpb.Cluster,
+	pr *poolRec,
+	req *containerpb.UpdateNodePoolRequest,
+) error {
 	changes := 0
 
 	req.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
@@ -332,7 +434,7 @@ func (b *InMemoryBackend) applyPoolRequest(c *clusterRec, cl *containerpb.Cluste
 		return errInvalid("update", "No update was specified.")
 	}
 
-	if err := applyPoolConfig(pr.Pool.Config, req); err != nil {
+	if err := applyPoolConfig(pr.Pool.GetConfig(), req); err != nil {
 		return err
 	}
 
@@ -360,7 +462,7 @@ func (b *InMemoryBackend) applyPoolRequest(c *clusterRec, cl *containerpb.Cluste
 		pr.Pool.NetworkConfig = clone(nn)
 	}
 
-	return applyGenericPool(pr.Pool.Config, req)
+	return applyGenericPool(pr.Pool.GetConfig(), req)
 }
 
 func applyPoolConfig(nc *containerpb.NodeConfig, req *containerpb.UpdateNodePoolRequest) error {
@@ -372,8 +474,8 @@ func applyPoolConfig(nc *containerpb.NodeConfig, req *containerpb.UpdateNodePool
 		nc.ImageType = t
 	}
 
-	nc.MachineType = firstNonEmpty(req.GetMachineType(), nc.MachineType)
-	nc.DiskType = firstNonEmpty(req.GetDiskType(), nc.DiskType)
+	nc.MachineType = firstNonEmpty(req.GetMachineType(), nc.GetMachineType())
+	nc.DiskType = firstNonEmpty(req.GetDiskType(), nc.GetDiskType())
 
 	if d := req.GetDiskSizeGb(); d != 0 {
 		nc.DiskSizeGb = int32(d) //nolint:gosec // range-checked by validNodeConfig afterwards

@@ -1,6 +1,8 @@
+//nolint:staticcheck // legacy cluster fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
+	"encoding/binary"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -11,7 +13,6 @@ import (
 const (
 	defaultPodBits = 14
 	defaultSvcBits = 20
-	octetBits      = 8
 	ipv4Bits       = 32
 )
 
@@ -25,11 +26,15 @@ type ranges struct {
 func addrToU32(a netip.Addr) uint32 {
 	b := a.As4()
 
-	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+	return binary.BigEndian.Uint32(b[:])
 }
 
 func u32ToAddr(n uint32) netip.Addr {
-	return netip.AddrFrom4([4]byte{byte(n >> 24), byte(n >> 16), byte(n >> octetBits), byte(n)}) //nolint:gosec // truncation is the point
+	var b [4]byte
+
+	binary.BigEndian.PutUint32(b[:], n)
+
+	return netip.AddrFrom4(b)
 }
 
 // allocBlock returns the first bits-sized block in [from, to) that overlaps none of used.
@@ -69,7 +74,9 @@ func (b *InMemoryBackend) usedRangesLocked(project string) []netip.Prefix {
 
 		ip := c.Cluster.GetIpAllocationPolicy()
 
-		for _, s := range []string{ip.GetClusterIpv4CidrBlock(), ip.GetServicesIpv4CidrBlock(), c.Cluster.GetClusterIpv4Cidr()} {
+		blocks := []string{ip.GetClusterIpv4CidrBlock(), ip.GetServicesIpv4CidrBlock(), c.Cluster.GetClusterIpv4Cidr()}
+
+		for _, s := range blocks {
 			if p, err := netip.ParsePrefix(s); err == nil {
 				out = append(out, p)
 			}
@@ -109,18 +116,41 @@ func (b *InMemoryBackend) chooseRanges(project, region, subnet string, in *conta
 
 	used := b.usedRangesLocked(project)
 
-	if r.pod, err = pickRange(pod, defaultPodBits, minPodPrefix, maxPodPrefix, "10.0.0.0", "10.128.0.0", used, "cluster_ipv4_cidr_block"); err != nil {
+	if r.pod, err = pickRange(
+		pod,
+		defaultPodBits,
+		minPodPrefix,
+		maxPodPrefix,
+		"10.0.0.0",
+		"10.128.0.0",
+		used,
+		"cluster_ipv4_cidr_block",
+	); err != nil {
 		return r, err
 	}
 
 	used = append(used, r.pod)
 
-	if r.services, err = pickRange(svc, defaultSvcBits, minSvcPrefix, maxSvcPrefix, "34.118.224.0", "34.120.0.0", used, "services_ipv4_cidr_block"); err != nil {
+	if r.services, err = pickRange(
+		svc,
+		defaultSvcBits,
+		minSvcPrefix,
+		maxSvcPrefix,
+		"34.118.224.0",
+		"34.120.0.0",
+		used,
+		"services_ipv4_cidr_block",
+	); err != nil {
 		return r, err
 	}
 
 	if r.pod.Overlaps(r.services) {
-		return r, errInvalid("ip_allocation_policy", "The pod range %s overlaps the services range %s.", r.pod, r.services)
+		return r, errInvalid(
+			"ip_allocation_policy",
+			"The pod range %s overlaps the services range %s.",
+			r.pod,
+			r.services,
+		)
 	}
 
 	return r, nil
@@ -149,7 +179,13 @@ func (b *InMemoryBackend) secondary(project, region, subnet, rangeName, explicit
 	return cidr, nil
 }
 
-func pickRange(want string, defBits, minBits, maxBits int, from, to string, used []netip.Prefix, field string) (netip.Prefix, error) {
+func pickRange(
+	want string,
+	defBits, minBits, maxBits int,
+	from, to string,
+	used []netip.Prefix,
+	field string,
+) (netip.Prefix, error) {
 	bits := defBits
 
 	if n, ok := wantBits(want); ok {

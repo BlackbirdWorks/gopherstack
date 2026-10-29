@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -15,17 +16,29 @@ func TestSetLabels(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		labels  map[string]string
+		name    string
+		wantMsg string
+		want    codes.Code
 		stale   bool
 		noFP    bool
-		want    codes.Code
-		wantMsg string
 	}{
 		{name: "ok", labels: map[string]string{"team": "a"}},
 		{name: "clear", labels: map[string]string{}},
-		{name: "stale fingerprint", labels: map[string]string{"x": "y"}, stale: true, want: codes.FailedPrecondition, wantMsg: "stale"},
-		{name: "missing fingerprint", labels: map[string]string{"x": "y"}, noFP: true, want: codes.InvalidArgument, wantMsg: "fingerprint"},
+		{
+			name:    "stale fingerprint",
+			labels:  map[string]string{"x": "y"},
+			stale:   true,
+			want:    codes.FailedPrecondition,
+			wantMsg: "stale",
+		},
+		{
+			name:    "missing fingerprint",
+			labels:  map[string]string{"x": "y"},
+			noFP:    true,
+			want:    codes.InvalidArgument,
+			wantMsg: "fingerprint",
+		},
 		{name: "bad key", labels: map[string]string{"Bad": "y"}, want: codes.InvalidArgument, wantMsg: "label key"},
 		{name: "bad value", labels: map[string]string{"k": "UPPER"}, want: codes.InvalidArgument, wantMsg: "label"},
 	}
@@ -35,7 +48,11 @@ func TestSetLabels(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			before := e.ready(t, zone, &containerpb.Cluster{Name: "l", InitialNodeCount: 1, ResourceLabels: map[string]string{"a": "b"}})
+			before := e.ready(
+				t,
+				zone,
+				&containerpb.Cluster{Name: "l", InitialNodeCount: 1, ResourceLabels: map[string]string{"a": "b"}},
+			)
 
 			fp := before.GetLabelFingerprint()
 
@@ -112,7 +129,12 @@ func TestSetMasterAuth(t *testing.T) {
 			name: "empty username", action: containerpb.SetMasterAuthRequest_SET_USERNAME,
 			want: codes.InvalidArgument, wantMsg: "Username",
 		},
-		{name: "unknown action", action: containerpb.SetMasterAuthRequest_UNKNOWN, want: codes.InvalidArgument, wantMsg: "Action"},
+		{
+			name:    "unknown action",
+			action:  containerpb.SetMasterAuthRequest_UNKNOWN,
+			want:    codes.InvalidArgument,
+			wantMsg: "Action",
+		},
 	}
 
 	for _, tt := range tests {
@@ -153,12 +175,14 @@ func TestLegacyAbacAndNetworkPolicy(t *testing.T) {
 	assert.True(t, e.getCluster(t, zone, "n").GetLegacyAbac().GetEnabled())
 
 	_, err = e.gc.SetNetworkPolicy(t.Context(), &containerpb.SetNetworkPolicyRequest{
-		Name: name, NetworkPolicy: &containerpb.NetworkPolicy{Enabled: true, Provider: containerpb.NetworkPolicy_CALICO},
+		Name:          name,
+		NetworkPolicy: &containerpb.NetworkPolicy{Enabled: true, Provider: containerpb.NetworkPolicy_CALICO},
 	})
 	assertCode(t, codes.FailedPrecondition, err, "addon must be enabled")
 
 	_, err = e.gc.SetAddonsConfig(t.Context(), &containerpb.SetAddonsConfigRequest{
-		Name: name, AddonsConfig: &containerpb.AddonsConfig{NetworkPolicyConfig: &containerpb.NetworkPolicyConfig{Disabled: false}},
+		Name:         name,
+		AddonsConfig: &containerpb.AddonsConfig{NetworkPolicyConfig: &containerpb.NetworkPolicyConfig{Disabled: false}},
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -172,7 +196,8 @@ func TestLegacyAbacAndNetworkPolicy(t *testing.T) {
 	assertCode(t, codes.InvalidArgument, err, "must be specified")
 
 	op, err := e.gc.SetNetworkPolicy(t.Context(), &containerpb.SetNetworkPolicyRequest{
-		Name: name, NetworkPolicy: &containerpb.NetworkPolicy{Enabled: true, Provider: containerpb.NetworkPolicy_CALICO},
+		Name:          name,
+		NetworkPolicy: &containerpb.NetworkPolicy{Enabled: true, Provider: containerpb.NetworkPolicy_CALICO},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, containerpb.Operation_SET_NETWORK_POLICY, op.GetOperationType())
@@ -180,7 +205,8 @@ func TestLegacyAbacAndNetworkPolicy(t *testing.T) {
 	assert.True(t, e.getCluster(t, zone, "n").GetNetworkPolicy().GetEnabled())
 
 	_, err = e.gc.SetAddonsConfig(t.Context(), &containerpb.SetAddonsConfigRequest{
-		Name: name, AddonsConfig: &containerpb.AddonsConfig{NetworkPolicyConfig: &containerpb.NetworkPolicyConfig{Disabled: true}},
+		Name:         name,
+		AddonsConfig: &containerpb.AddonsConfig{NetworkPolicyConfig: &containerpb.NetworkPolicyConfig{Disabled: true}},
 	})
 	assertCode(t, codes.FailedPrecondition, err, "cannot be disabled")
 
@@ -194,7 +220,10 @@ func TestSetMaintenancePolicy(t *testing.T) {
 	start := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
 	recurring := &containerpb.MaintenanceWindow{Policy: &containerpb.MaintenanceWindow_RecurringWindow{
 		RecurringWindow: &containerpb.RecurringTimeWindow{
-			Window:     &containerpb.TimeWindow{StartTime: timestamppb.New(start), EndTime: timestamppb.New(start.Add(4 * time.Hour))},
+			Window: &containerpb.TimeWindow{
+				StartTime: timestamppb.New(start),
+				EndTime:   timestamppb.New(start.Add(4 * time.Hour)),
+			},
 			Recurrence: "FREQ=WEEKLY;BYDAY=SA",
 		},
 	}}
@@ -207,25 +236,38 @@ func TestSetMaintenancePolicy(t *testing.T) {
 		want    codes.Code
 	}{
 		{
-			name: "daily", window: &containerpb.MaintenanceWindow{Policy: &containerpb.MaintenanceWindow_DailyMaintenanceWindow{
+			name: "daily",
+			window: &containerpb.MaintenanceWindow{Policy: &containerpb.MaintenanceWindow_DailyMaintenanceWindow{
 				DailyMaintenanceWindow: &containerpb.DailyMaintenanceWindow{StartTime: "03:00"},
 			}},
 		},
 		{name: "recurring", window: recurring},
 		{
-			name: "bad daily", window: &containerpb.MaintenanceWindow{Policy: &containerpb.MaintenanceWindow_DailyMaintenanceWindow{
+			name: "bad daily",
+			window: &containerpb.MaintenanceWindow{Policy: &containerpb.MaintenanceWindow_DailyMaintenanceWindow{
 				DailyMaintenanceWindow: &containerpb.DailyMaintenanceWindow{StartTime: "25:99"},
-			}}, want: codes.InvalidArgument, wantMsg: "HH:MM",
+			}},
+			want:    codes.InvalidArgument,
+			wantMsg: "HH:MM",
 		},
 		{
 			name: "recurring without rule", want: codes.InvalidArgument, wantMsg: "RRULE",
 			window: &containerpb.MaintenanceWindow{Policy: &containerpb.MaintenanceWindow_RecurringWindow{
 				RecurringWindow: &containerpb.RecurringTimeWindow{
-					Window: &containerpb.TimeWindow{StartTime: timestamppb.New(start), EndTime: timestamppb.New(start.Add(time.Hour))},
+					Window: &containerpb.TimeWindow{
+						StartTime: timestamppb.New(start),
+						EndTime:   timestamppb.New(start.Add(time.Hour)),
+					},
 				},
 			}},
 		},
-		{name: "stale version", window: recurring, version: "deadbeef", want: codes.FailedPrecondition, wantMsg: "stale"},
+		{
+			name:    "stale version",
+			window:  recurring,
+			version: "deadbeef",
+			want:    codes.FailedPrecondition,
+			wantMsg: "stale",
+		},
 	}
 
 	for _, tt := range tests {
@@ -241,7 +283,11 @@ func TestSetMaintenancePolicy(t *testing.T) {
 			}
 
 			op, err := e.gc.SetMaintenancePolicy(t.Context(), &containerpb.SetMaintenancePolicyRequest{
-				Name: clusterPath(zone, "mw"), MaintenancePolicy: &containerpb.MaintenancePolicy{Window: tt.window, ResourceVersion: rv},
+				Name: clusterPath(
+					zone,
+					"mw",
+				),
+				MaintenancePolicy: &containerpb.MaintenancePolicy{Window: tt.window, ResourceVersion: rv},
 			})
 			if tt.want != codes.OK {
 				assertCode(t, tt.want, err, tt.wantMsg)
@@ -294,13 +340,20 @@ func TestIPRotation(t *testing.T) {
 			_, err := e.gc.CompleteIPRotation(t.Context(), &containerpb.CompleteIPRotationRequest{Name: name})
 			assertCode(t, codes.FailedPrecondition, err, "not in progress")
 
-			_, err = e.gc.StartIPRotation(t.Context(), &containerpb.StartIPRotationRequest{Name: name, RotateCredentials: tt.credentials})
+			_, err = e.gc.StartIPRotation(
+				t.Context(),
+				&containerpb.StartIPRotationRequest{Name: name, RotateCredentials: tt.credentials},
+			)
 			require.NoError(t, err)
 			e.settle()
 
 			mid := e.getCluster(t, zone, "rot")
 			assert.NotEqual(t, before.GetEndpoint(), mid.GetEndpoint())
-			assert.Equal(t, tt.credentials, before.GetMasterAuth().GetClusterCaCertificate() != mid.GetMasterAuth().GetClusterCaCertificate())
+			assert.Equal(
+				t,
+				tt.credentials,
+				before.GetMasterAuth().GetClusterCaCertificate() != mid.GetMasterAuth().GetClusterCaCertificate(),
+			)
 
 			_, err = e.gc.StartIPRotation(t.Context(), &containerpb.StartIPRotationRequest{Name: name})
 			assertCode(t, codes.FailedPrecondition, err, "already in progress")
@@ -321,17 +374,30 @@ func TestLoggingMonitoringLocations(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	e.ready(t, region, &containerpb.Cluster{Name: "svc", NodePools: []*containerpb.NodePool{{Name: "p", InitialNodeCount: 1}}})
+	e.ready(
+		t,
+		region,
+		&containerpb.Cluster{Name: "svc", NodePools: []*containerpb.NodePool{{Name: "p", InitialNodeCount: 1}}},
+	)
 	name := clusterPath(region, "svc")
 
-	_, err := e.gc.SetLoggingService(t.Context(), &containerpb.SetLoggingServiceRequest{Name: name, LoggingService: "bogus"})
+	_, err := e.gc.SetLoggingService(
+		t.Context(),
+		&containerpb.SetLoggingServiceRequest{Name: name, LoggingService: "bogus"},
+	)
 	assertCode(t, codes.InvalidArgument, err, "Invalid service")
 
-	_, err = e.gc.SetLoggingService(t.Context(), &containerpb.SetLoggingServiceRequest{Name: name, LoggingService: "none"})
+	_, err = e.gc.SetLoggingService(
+		t.Context(),
+		&containerpb.SetLoggingServiceRequest{Name: name, LoggingService: "none"},
+	)
 	require.NoError(t, err)
 	e.settle()
 
-	_, err = e.gc.SetMonitoringService(t.Context(), &containerpb.SetMonitoringServiceRequest{Name: name, MonitoringService: "monitoring.googleapis.com"})
+	_, err = e.gc.SetMonitoringService(
+		t.Context(),
+		&containerpb.SetMonitoringServiceRequest{Name: name, MonitoringService: "monitoring.googleapis.com"},
+	)
 	require.NoError(t, err)
 	e.settle()
 
@@ -339,13 +405,19 @@ func TestLoggingMonitoringLocations(t *testing.T) {
 	assert.Equal(t, "none", got.GetLoggingService())
 	assert.Equal(t, "monitoring.googleapis.com", got.GetMonitoringService())
 
-	_, err = e.gc.SetLocations(t.Context(), &containerpb.SetLocationsRequest{Name: name, Locations: []string{"europe-west1-b"}})
+	_, err = e.gc.SetLocations(
+		t.Context(),
+		&containerpb.SetLocationsRequest{Name: name, Locations: []string{"europe-west1-b"}},
+	)
 	assertCode(t, codes.InvalidArgument, err, "not a zone of")
 
 	_, err = e.gc.SetLocations(t.Context(), &containerpb.SetLocationsRequest{Name: name})
 	assertCode(t, codes.InvalidArgument, err, "At least one")
 
-	_, err = e.gc.SetLocations(t.Context(), &containerpb.SetLocationsRequest{Name: name, Locations: []string{"us-central1-b", "us-central1-f"}})
+	_, err = e.gc.SetLocations(
+		t.Context(),
+		&containerpb.SetLocationsRequest{Name: name, Locations: []string{"us-central1-b", "us-central1-f"}},
+	)
 	require.NoError(t, err)
 	e.settle()
 
@@ -381,7 +453,11 @@ func TestUpdateCluster(t *testing.T) {
 			}},
 			check: func(t *testing.T, c *containerpb.Cluster) {
 				t.Helper()
-				assert.Equal(t, containerpb.BinaryAuthorization_PROJECT_SINGLETON_POLICY_ENFORCE, c.GetBinaryAuthorization().GetEvaluationMode())
+				assert.Equal(
+					t,
+					containerpb.BinaryAuthorization_PROJECT_SINGLETON_POLICY_ENFORCE,
+					c.GetBinaryAuthorization().GetEvaluationMode(),
+				)
 			},
 		},
 		{
@@ -389,40 +465,64 @@ func TestUpdateCluster(t *testing.T) {
 			update: &containerpb.ClusterUpdate{DesiredDatapathProvider: containerpb.DatapathProvider_ADVANCED_DATAPATH},
 			check: func(t *testing.T, c *containerpb.Cluster) {
 				t.Helper()
-				assert.Equal(t, containerpb.DatapathProvider_ADVANCED_DATAPATH, c.GetNetworkConfig().GetDatapathProvider())
+				assert.Equal(
+					t,
+					containerpb.DatapathProvider_ADVANCED_DATAPATH,
+					c.GetNetworkConfig().GetDatapathProvider(),
+				)
 			},
 		},
 		{
-			name: "intra node visibility", wantOp: containerpb.Operation_UPDATE_CLUSTER,
-			update: &containerpb.ClusterUpdate{DesiredIntraNodeVisibilityConfig: &containerpb.IntraNodeVisibilityConfig{Enabled: true}},
+			name:   "intra node visibility",
+			wantOp: containerpb.Operation_UPDATE_CLUSTER,
+			update: &containerpb.ClusterUpdate{
+				DesiredIntraNodeVisibilityConfig: &containerpb.IntraNodeVisibilityConfig{Enabled: true},
+			},
 			check: func(t *testing.T, c *containerpb.Cluster) {
 				t.Helper()
 				assert.True(t, c.GetNetworkConfig().GetEnableIntraNodeVisibility())
 			},
 		},
 		{
-			name: "release channel", wantOp: containerpb.Operation_UPDATE_CLUSTER,
-			update: &containerpb.ClusterUpdate{DesiredReleaseChannel: &containerpb.ReleaseChannel{Channel: containerpb.ReleaseChannel_RAPID}},
+			name:   "release channel",
+			wantOp: containerpb.Operation_UPDATE_CLUSTER,
+			update: &containerpb.ClusterUpdate{
+				DesiredReleaseChannel: &containerpb.ReleaseChannel{Channel: containerpb.ReleaseChannel_RAPID},
+			},
 			check: func(t *testing.T, c *containerpb.Cluster) {
 				t.Helper()
 				assert.Equal(t, containerpb.ReleaseChannel_RAPID, c.GetReleaseChannel().GetChannel())
 			},
 		},
 		{
-			name: "authorized networks", wantOp: containerpb.Operation_UPDATE_CLUSTER,
-			update: &containerpb.ClusterUpdate{DesiredMasterAuthorizedNetworksConfig: &containerpb.MasterAuthorizedNetworksConfig{
-				Enabled: true, CidrBlocks: []*containerpb.MasterAuthorizedNetworksConfig_CidrBlock{{DisplayName: "o", CidrBlock: "203.0.113.0/24"}},
-			}},
+			name:   "authorized networks",
+			wantOp: containerpb.Operation_UPDATE_CLUSTER,
+			update: &containerpb.ClusterUpdate{
+				DesiredMasterAuthorizedNetworksConfig: &containerpb.MasterAuthorizedNetworksConfig{
+					Enabled: true,
+					CidrBlocks: []*containerpb.MasterAuthorizedNetworksConfig_CidrBlock{
+						{DisplayName: "o", CidrBlock: "203.0.113.0/24"},
+					},
+				},
+			},
 			check: func(t *testing.T, c *containerpb.Cluster) {
 				t.Helper()
-				assert.Equal(t, "203.0.113.0/24", c.GetMasterAuthorizedNetworksConfig().GetCidrBlocks()[0].GetCidrBlock())
+				assert.Equal(
+					t,
+					"203.0.113.0/24",
+					c.GetMasterAuthorizedNetworksConfig().GetCidrBlocks()[0].GetCidrBlock(),
+				)
 			},
 		},
 		{
-			name: "bad authorized network", want: codes.InvalidArgument, wantMsg: "Invalid CIDR",
-			update: &containerpb.ClusterUpdate{DesiredMasterAuthorizedNetworksConfig: &containerpb.MasterAuthorizedNetworksConfig{
-				CidrBlocks: []*containerpb.MasterAuthorizedNetworksConfig_CidrBlock{{CidrBlock: "nope"}},
-			}},
+			name:    "bad authorized network",
+			want:    codes.InvalidArgument,
+			wantMsg: "Invalid CIDR",
+			update: &containerpb.ClusterUpdate{
+				DesiredMasterAuthorizedNetworksConfig: &containerpb.MasterAuthorizedNetworksConfig{
+					CidrBlocks: []*containerpb.MasterAuthorizedNetworksConfig_CidrBlock{{CidrBlock: "nope"}},
+				},
+			},
 		},
 		{
 			name: "master upgrade", wantOp: containerpb.Operation_UPGRADE_MASTER,
@@ -430,7 +530,7 @@ func TestUpdateCluster(t *testing.T) {
 			check: func(t *testing.T, c *containerpb.Cluster) {
 				t.Helper()
 				assert.Equal(t, "1.35.1-gke.1000000", c.GetCurrentMasterVersion())
-				assert.Equal(t, c.GetInitialClusterVersion() != c.GetCurrentMasterVersion(), true)
+				assert.NotEqual(t, c.GetInitialClusterVersion(), c.GetCurrentMasterVersion())
 			},
 		},
 		{
@@ -442,8 +542,13 @@ func TestUpdateCluster(t *testing.T) {
 			update: &containerpb.ClusterUpdate{DesiredMasterVersion: "0.1"},
 		},
 		{
-			name: "unsupported field", want: codes.InvalidArgument, wantMsg: "not supported by the emulator",
-			update: &containerpb.ClusterUpdate{DesiredGcfsConfig: &containerpb.GcfsConfig{Enabled: true}, DesiredImage: "x"},
+			name:    "unsupported field",
+			want:    codes.InvalidArgument,
+			wantMsg: "not supported by the emulator",
+			update: &containerpb.ClusterUpdate{
+				DesiredGcfsConfig: &containerpb.GcfsConfig{Enabled: true},
+				DesiredImage:      "x",
+			},
 		},
 		{name: "empty", update: &containerpb.ClusterUpdate{}, want: codes.InvalidArgument, wantMsg: "No update"},
 		{
@@ -461,9 +566,16 @@ func TestUpdateCluster(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.ready(t, zone, &containerpb.Cluster{Name: "u", InitialNodeCount: 1, InitialClusterVersion: "1.34.2-gke.1008000"})
+			e.ready(
+				t,
+				zone,
+				&containerpb.Cluster{Name: "u", InitialNodeCount: 1, InitialClusterVersion: "1.34.2-gke.1008000"},
+			)
 
-			op, err := e.gc.UpdateCluster(t.Context(), &containerpb.UpdateClusterRequest{Name: clusterPath(zone, "u"), Update: tt.update})
+			op, err := e.gc.UpdateCluster(
+				t.Context(),
+				&containerpb.UpdateClusterRequest{Name: clusterPath(zone, "u"), Update: tt.update},
+			)
 			if tt.want != codes.OK {
 				assertCode(t, tt.want, err, tt.wantMsg)
 
@@ -488,7 +600,11 @@ func TestUpdateClusterCurrentEtag(t *testing.T) {
 	c := e.ready(t, zone, stdCluster("et"))
 
 	_, err := e.gc.UpdateCluster(t.Context(), &containerpb.UpdateClusterRequest{
-		Name: clusterPath(zone, "et"), Update: &containerpb.ClusterUpdate{Etag: c.GetEtag(), DesiredMonitoringService: "none"},
+		Name: clusterPath(
+			zone,
+			"et",
+		),
+		Update: &containerpb.ClusterUpdate{Etag: c.GetEtag(), DesiredMonitoringService: "none"},
 	})
 	require.NoError(t, err)
 	e.settle()

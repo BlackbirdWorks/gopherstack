@@ -1,3 +1,4 @@
+//nolint:staticcheck // legacy cluster fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
@@ -9,7 +10,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const etagBytes = 8
+const (
+	etagBytes = 8
+	maxZones  = 16
+)
 
 func etagOf(m proto.Message) string {
 	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(m)
@@ -97,7 +101,8 @@ func (b *InMemoryBackend) clusterViewLocked(c *clusterRec) *containerpb.Cluster 
 	for _, p := range c.Pools {
 		v.NodePools = append(v.NodePools, poolView(p, b.poolStatusLocked(c, p, active)))
 		v.InstanceGroupUrls = append(v.InstanceGroupUrls, p.Pool.GetInstanceGroupUrls()...)
-		v.CurrentNodeCount += p.Size * int32(max(len(p.Pool.GetLocations()), 1)) //nolint:gosec // bounded by quota checks
+		zones := min(max(len(p.Pool.GetLocations()), 1), maxZones)
+		v.CurrentNodeCount += p.Size * int32(zones)
 
 		if oldest == "" || compareVersions(p.Pool.GetVersion(), oldest) < 0 {
 			oldest = p.Pool.GetVersion()
@@ -108,7 +113,7 @@ func (b *InMemoryBackend) clusterViewLocked(c *clusterRec) *containerpb.Cluster 
 		v.CurrentNodeVersion = oldest
 	}
 
-	slices.Sort(v.InstanceGroupUrls)
+	slices.Sort(v.GetInstanceGroupUrls())
 
 	return v
 }

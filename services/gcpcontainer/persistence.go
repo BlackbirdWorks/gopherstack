@@ -18,9 +18,9 @@ import (
 const snapshotVersion = 1
 
 type poolSnap struct {
-	Pool        json.RawMessage `json:"pool"`
 	PrevVersion string          `json:"prevVersion"`
 	DeleteOp    string          `json:"deleteOp"`
+	Pool        json.RawMessage `json:"pool"`
 	Size        int32           `json:"size"`
 }
 
@@ -35,12 +35,12 @@ type clusterSnap struct {
 
 type opSnap struct {
 	EndAt    time.Time       `json:"endAt"`
-	Op       json.RawMessage `json:"op"`
 	Project  string          `json:"project"`
 	Location string          `json:"location"`
 	Cluster  string          `json:"cluster"`
 	Pool     string          `json:"pool"`
 	Failure  string          `json:"failure"`
+	Op       json.RawMessage `json:"op"`
 	Kind     opKind          `json:"kind"`
 	Manual   bool            `json:"manual"`
 	Finished bool            `json:"finished"`
@@ -78,7 +78,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	for k, c := range b.clusters {
 		cs := clusterSnap{
-			Project: c.Project, Cluster: marshalPB(c.Cluster), Rotation: c.Rotation, Failure: c.Failure, DeleteOp: c.DeleteOp,
+			Project:  c.Project,
+			Cluster:  marshalPB(c.Cluster),
+			Rotation: c.Rotation,
+			Failure:  c.Failure,
+			DeleteOp: c.DeleteOp,
 		}
 
 		for _, p := range c.Pools {
@@ -119,7 +123,10 @@ func restoreClusters(in map[string]clusterSnap) (map[string]*clusterRec, error) 
 				return nil, fmt.Errorf("cluster %q node pool: %w", k, err)
 			}
 
-			rec.Pools = append(rec.Pools, &poolRec{Pool: np, PrevVersion: ps.PrevVersion, DeleteOp: ps.DeleteOp, Size: ps.Size})
+			rec.Pools = append(
+				rec.Pools,
+				&poolRec{Pool: np, PrevVersion: ps.PrevVersion, DeleteOp: ps.DeleteOp, Size: ps.Size},
+			)
 		}
 
 		out[k] = rec

@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -50,7 +51,7 @@ func TestGetServerConfig(t *testing.T) {
 
 			require.Len(t, cfg.GetChannels(), 4)
 
-			seen := map[containerpb.ReleaseChannel_Channel]bool{}
+			seen := make(map[containerpb.ReleaseChannel_Channel]bool)
 
 			for _, ch := range cfg.GetChannels() {
 				seen[ch.GetChannel()] = true

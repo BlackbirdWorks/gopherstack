@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -44,7 +45,11 @@ func computeEnv(t *testing.T) *env {
 
 	_, err = subs.Insert(t.Context(), &computepb.InsertSubnetworkRequest{
 		Project: project, Region: region, SubnetworkResource: &computepb.Subnetwork{
-			Name: new("sub"), Network: new("projects/" + project + "/global/networks/vpc"), IpCidrRange: new("10.10.0.0/20"),
+			Name: new(
+				"sub",
+			),
+			Network:     new("projects/" + project + "/global/networks/vpc"),
+			IpCidrRange: new("10.10.0.0/20"),
 			SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
 				{RangeName: new("pods"), IpCidrRange: new("172.20.0.0/16")},
 				{RangeName: new("svcs"), IpCidrRange: new("172.21.0.0/24")},
@@ -69,7 +74,8 @@ func TestClusterNetworkValidationAgainstCompute(t *testing.T) {
 		want    string
 	}{
 		{
-			name: "default network needs no compute network", cluster: &containerpb.Cluster{Name: "d", InitialNodeCount: 1},
+			name:    "default network needs no compute network",
+			cluster: &containerpb.Cluster{Name: "d", InitialNodeCount: 1},
 			check: func(t *testing.T, c *containerpb.Cluster) {
 				t.Helper()
 				assert.Equal(t, "default", c.GetNetwork())
@@ -82,7 +88,11 @@ func TestClusterNetworkValidationAgainstCompute(t *testing.T) {
 			check: func(t *testing.T, c *containerpb.Cluster) {
 				t.Helper()
 				assert.Equal(t, "projects/"+project+"/global/networks/vpc", c.GetNetworkConfig().GetNetwork())
-				assert.Equal(t, "projects/"+project+"/regions/"+region+"/subnetworks/sub", c.GetNetworkConfig().GetSubnetwork())
+				assert.Equal(
+					t,
+					"projects/"+project+"/regions/"+region+"/subnetworks/sub",
+					c.GetNetworkConfig().GetSubnetwork(),
+				)
 			},
 		},
 		{
@@ -127,8 +137,13 @@ func TestClusterNetworkValidationAgainstCompute(t *testing.T) {
 			},
 		},
 		{
-			name: "unknown machine type", want: "does not exist",
-			cluster: &containerpb.Cluster{Name: "n", InitialNodeCount: 1, NodeConfig: &containerpb.NodeConfig{MachineType: "z9-huge"}},
+			name: "unknown machine type",
+			want: "does not exist",
+			cluster: &containerpb.Cluster{
+				Name:             "n",
+				InitialNodeCount: 1,
+				NodeConfig:       &containerpb.NodeConfig{MachineType: "z9-huge"},
+			},
 		},
 		{
 			name: "custom machine type", cluster: &containerpb.Cluster{
@@ -147,7 +162,10 @@ func TestClusterNetworkValidationAgainstCompute(t *testing.T) {
 
 			e := computeEnv(t)
 
-			_, err := e.gc.CreateCluster(t.Context(), &containerpb.CreateClusterRequest{Parent: zoneLoc, Cluster: tt.cluster})
+			_, err := e.gc.CreateCluster(
+				t.Context(),
+				&containerpb.CreateClusterRequest{Parent: zoneLoc, Cluster: tt.cluster},
+			)
 			if tt.want != "" {
 				assertCode(t, codes.InvalidArgument, err, tt.want)
 

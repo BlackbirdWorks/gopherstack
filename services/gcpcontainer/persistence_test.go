@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -34,10 +35,16 @@ func TestSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	src.settle()
 
-	_, err = src.gc.StartIPRotation(t.Context(), &containerpb.StartIPRotationRequest{Name: clusterPath(zone, "keep"), RotateCredentials: true})
+	_, err = src.gc.StartIPRotation(
+		t.Context(),
+		&containerpb.StartIPRotationRequest{Name: clusterPath(zone, "keep"), RotateCredentials: true},
+	)
 	require.NoError(t, err)
 
-	inflight, err := src.gc.DeleteCluster(t.Context(), &containerpb.DeleteClusterRequest{Name: clusterPath(region, "ap")})
+	inflight, err := src.gc.DeleteCluster(
+		t.Context(),
+		&containerpb.DeleteClusterRequest{Name: clusterPath(region, "ap")},
+	)
 	require.NoError(t, err)
 
 	data := src.h.Snapshot(t.Context())
@@ -52,7 +59,10 @@ func TestSnapshotRestore(t *testing.T) {
 	assert.True(t, proto.Equal(want, got), "cluster survives a restore")
 	assert.Equal(t, containerpb.Cluster_RECONCILING, got.GetStatus(), "in-flight operations stay in flight")
 
-	ops, err := dst.gc.GetOperation(t.Context(), &containerpb.GetOperationRequest{Name: regionLc + "/operations/" + inflight.GetName()})
+	ops, err := dst.gc.GetOperation(
+		t.Context(),
+		&containerpb.GetOperationRequest{Name: regionLc + "/operations/" + inflight.GetName()},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, containerpb.Operation_DELETE_CLUSTER, ops.GetOperationType())
 
@@ -61,7 +71,10 @@ func TestSnapshotRestore(t *testing.T) {
 	dst.settle()
 	assert.Equal(t, containerpb.Cluster_RUNNING, dst.getCluster(t, zone, "keep").GetStatus())
 
-	_, err = dst.gc.CompleteIPRotation(t.Context(), &containerpb.CompleteIPRotationRequest{Name: clusterPath(zone, "keep")})
+	_, err = dst.gc.CompleteIPRotation(
+		t.Context(),
+		&containerpb.CompleteIPRotationRequest{Name: clusterPath(zone, "keep")},
+	)
 	require.NoError(t, err, "rotation state is restored")
 
 	_, err = dst.gc.RollbackNodePoolUpgrade(t.Context(), &containerpb.RollbackNodePoolUpgradeRequest{

@@ -107,20 +107,23 @@ func TestNormalizeAccess(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr   error
 		name      string
 		host      string
 		token     string
 		wantHost  string
 		wantToken string
-		wantErr   error
 	}{
-		{"defaults", "", "", "127.0.0.1", k3sengine.DefaultToken, nil},
-		{"explicit", "k3s.test", token, "k3s.test", token, nil},
-		{"bad host", "bad host", token, "", "", k3sengine.ErrInvalidConfig},
-		{"short token", "", "short", "", "", k3sengine.ErrInvalidConfig},
-		{"bad token chars", "", "a token with spaces!!", "", "", k3sengine.ErrInvalidConfig},
-		{"public default token", "192.0.2.10", "", "", "", k3sengine.ErrDefaultTokenExposed},
-		{"public explicit token", "192.0.2.10", token, "192.0.2.10", token, nil},
+		{name: "defaults", wantHost: "127.0.0.1", wantToken: k3sengine.DefaultToken},
+		{name: "explicit", host: "k3s.test", token: token, wantHost: "k3s.test", wantToken: token},
+		{name: "bad host", host: "bad host", token: token, wantErr: k3sengine.ErrInvalidConfig},
+		{name: "short token", token: "short", wantErr: k3sengine.ErrInvalidConfig},
+		{name: "bad token chars", token: "a token with spaces!!", wantErr: k3sengine.ErrInvalidConfig},
+		{name: "public default token", host: "192.0.2.10", wantErr: k3sengine.ErrDefaultTokenExposed},
+		{
+			name: "public explicit token", host: "192.0.2.10", token: token,
+			wantHost: "192.0.2.10", wantToken: token,
+		},
 	}
 
 	for _, tt := range tests {
@@ -213,21 +216,39 @@ func TestLaunch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		node         k3sengine.Node
-		decline      bool
 		failErr      error
 		wantErr      error
+		name         string
+		node         k3sengine.Node
 		wantRemoved  int
 		wantPortSpec int
+		decline      bool
 	}{
 		{name: "single node", node: k3sengine.Node{Name: "c1", Image: "img", JoinToken: "jt"}, wantPortSpec: 1},
 		{
-			name: "with load balancer ports", wantPortSpec: 3,
-			node: k3sengine.Node{Name: "c2", Image: "img", JoinToken: "jt", LBPorts: []int{8080, 8443}, Mounts: []string{"/a:/b:ro"}},
+			name:         "with load balancer ports",
+			wantPortSpec: 3,
+			node: k3sengine.Node{
+				Name:      "c2",
+				Image:     "img",
+				JoinToken: "jt",
+				LBPorts:   []int{8080, 8443},
+				Mounts:    []string{"/a:/b:ro"},
+			},
 		},
-		{name: "declined by caller", node: k3sengine.Node{Name: "c3", Image: "img"}, decline: true, wantErr: k3sengine.ErrSuperseded, wantRemoved: 1},
-		{name: "runtime failure", node: k3sengine.Node{Name: "c4", Image: "img"}, failErr: errors.New("boom"), wantErr: nil},
+		{
+			name:        "declined by caller",
+			node:        k3sengine.Node{Name: "c3", Image: "img"},
+			decline:     true,
+			wantErr:     k3sengine.ErrSuperseded,
+			wantRemoved: 1,
+		},
+		{
+			name:    "runtime failure",
+			node:    k3sengine.Node{Name: "c4", Image: "img"},
+			failErr: errBoom,
+			wantErr: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -281,25 +302,28 @@ func TestLaunch(t *testing.T) {
 	}
 }
 
+var (
+	errBoom   = errors.New("boom")
+	errNotYet = errors.New("not yet")
+)
+
 func TestAwaitReady(t *testing.T) {
 	t.Parallel()
 
-	errNo := errors.New("not yet")
-
 	tests := []struct {
-		name    string
-		probe   func(ctx context.Context, addr, token string) ([]byte, error)
-		timeout time.Duration
 		wantErr error
+		probe   func(ctx context.Context, addr, token string) ([]byte, error)
+		name    string
 		wantCA  string
+		timeout time.Duration
 	}{
 		{
 			name: "ready", timeout: time.Minute, wantCA: "served-ca",
 			probe: func(context.Context, string, string) ([]byte, error) { return []byte("served-ca"), nil },
 		},
 		{
-			name: "never ready", timeout: 20 * time.Millisecond, wantErr: errNo,
-			probe: func(context.Context, string, string) ([]byte, error) { return nil, errNo },
+			name: "never ready", timeout: 20 * time.Millisecond, wantErr: errNotYet,
+			probe: func(context.Context, string, string) ([]byte, error) { return nil, errNotYet },
 		},
 	}
 
@@ -307,7 +331,11 @@ func TestAwaitReady(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			e, _ := newEngine(t, &runtime{}, func(c *k3sengine.Config) { c.Probe, c.StartTimeout = tt.probe, tt.timeout })
+			e, _ := newEngine(
+				t,
+				&runtime{},
+				func(c *k3sengine.Config) { c.Probe, c.StartTimeout = tt.probe, tt.timeout },
+			)
 
 			got, err := e.AwaitReady(t.Context(), "127.0.0.1:1", []byte("ca"))
 			if tt.wantErr != nil {
@@ -362,18 +390,24 @@ func TestProbeAgainstTLSServer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := k3sengine.Probe(t.Context(), addr, tt.token, tt.ca)
+			perr := k3sengine.Probe(t.Context(), addr, tt.token, tt.ca)
 			if tt.wantErr {
-				require.Error(t, err)
+				require.Error(t, perr)
 
 				return
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, perr)
 		})
 	}
 
-	_, err = k3sengine.HTTPGet(t.Context(), addr, "/other", token, &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}) //nolint:gosec // test server
+	_, err = k3sengine.HTTPGet(
+		t.Context(),
+		addr,
+		"/other",
+		token,
+		&tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true},
+	)
 	require.ErrorIs(t, err, k3sengine.ErrNotReady)
 }
 

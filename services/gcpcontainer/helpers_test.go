@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -77,8 +78,14 @@ func newEnvWith(t *testing.T, b *gcpcontainer.InMemoryBackend) *env {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = gc.Close() })
 
-	rc, err := container.NewClusterManagerRESTClient(t.Context(),
-		option.WithEndpoint("http://"+h.Addr()), option.WithoutAuthentication(), option.WithHTTPClient(http.DefaultClient))
+	rc, err := container.NewClusterManagerRESTClient(
+		t.Context(),
+		option.WithEndpoint(
+			"http://"+h.Addr(),
+		),
+		option.WithoutAuthentication(),
+		option.WithHTTPClient(http.DefaultClient),
+	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rc.Close() })
 
@@ -147,11 +154,11 @@ func (e *env) getPool(t *testing.T, loc, cluster, pool string) *containerpb.Node
 	return got
 }
 
-func (e *env) getOp(t *testing.T, loc string, op *containerpb.Operation) *containerpb.Operation {
+func (e *env) getOp(t *testing.T, op *containerpb.Operation) *containerpb.Operation {
 	t.Helper()
 
 	got, err := e.gc.GetOperation(t.Context(), &containerpb.GetOperationRequest{
-		Name: "projects/" + project + "/locations/" + loc + "/operations/" + op.GetName(),
+		Name: zoneLoc + "/operations/" + op.GetName(),
 	})
 	require.NoError(t, err)
 
@@ -164,8 +171,7 @@ func code(err error) codes.Code {
 		return codes.OK
 	}
 
-	var ae *apierror.APIError
-	if errors.As(err, &ae) {
+	if ae, ok := errors.AsType[*apierror.APIError](err); ok {
 		switch ae.HTTPCode() {
 		case http.StatusNotFound:
 			return codes.NotFound

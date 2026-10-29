@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -114,7 +115,13 @@ func newEngineEnv(t *testing.T, mod func(cfg *gcpcontainer.EngineConfig, rt *fak
 	require.NoError(t, err)
 
 	rt, g := &fakeRuntime{}, newGate()
-	cfg := gcpcontainer.EngineConfig{Runtime: rt, Ports: ports, Probe: g.probe, Token: testToken, StartTimeout: engineMax}
+	cfg := gcpcontainer.EngineConfig{
+		Runtime:      rt,
+		Ports:        ports,
+		Probe:        g.probe,
+		Token:        testToken,
+		StartTimeout: engineMax,
+	}
 
 	if mod != nil {
 		mod(&cfg, rt)
@@ -132,7 +139,7 @@ func (e *engineEnv) opDone(t *testing.T, op *containerpb.Operation) *containerpb
 	var got *containerpb.Operation
 
 	require.Eventually(t, func() bool {
-		got = e.getOp(t, zone, op)
+		got = e.getOp(t, op)
 
 		return got.GetStatus() == containerpb.Operation_DONE
 	}, engineMax, engineGap)
@@ -144,7 +151,11 @@ func TestEngineClusterLifecycle(t *testing.T) {
 	t.Parallel()
 
 	e := newEngineEnv(t, nil)
-	op := e.create(t, zone, &containerpb.Cluster{Name: "real", InitialNodeCount: 1, InitialClusterVersion: "1.34.2-gke.1008000"})
+	op := e.create(
+		t,
+		zone,
+		&containerpb.Cluster{Name: "real", InitialNodeCount: 1, InitialClusterVersion: "1.34.2-gke.1008000"},
+	)
 
 	require.Eventually(t, func() bool { return len(e.rt.created()) == 1 }, engineMax, engineGap)
 
@@ -156,7 +167,12 @@ func TestEngineClusterLifecycle(t *testing.T) {
 	require.Len(t, spec.Ports, 1)
 
 	e.settle()
-	assert.Equal(t, containerpb.Operation_RUNNING, e.getOp(t, zone, op).GetStatus(), "the operation ends when the API server answers, not on the clock")
+	assert.Equal(
+		t,
+		containerpb.Operation_RUNNING,
+		e.getOp(t, op).GetStatus(),
+		"the operation ends when the API server answers, not on the clock",
+	)
 	assert.Equal(t, containerpb.Cluster_PROVISIONING, e.getCluster(t, zone, "real").GetStatus())
 
 	e.gate.release()
@@ -205,7 +221,7 @@ func TestEngineDeleteWhileProvisioning(t *testing.T) {
 
 	_, err := e.gc.DeleteCluster(t.Context(), &containerpb.DeleteClusterRequest{Name: clusterPath(zone, "early")})
 	require.NoError(t, err)
-	assert.Equal(t, containerpb.Operation_DONE, e.getOp(t, zone, create).GetStatus(), "the pending create is aborted")
+	assert.Equal(t, containerpb.Operation_DONE, e.getOp(t, create).GetStatus(), "the pending create is aborted")
 
 	require.Eventually(t, func() bool { return len(e.rt.removedIDs()) == 1 }, engineMax, engineGap)
 }
@@ -269,16 +285,28 @@ func TestEngineConfigValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		want error
 		name string
 		cfg  gcpcontainer.EngineConfig
-		want error
 	}{
-		{"bad host", gcpcontainer.EngineConfig{Host: "bad host!", Token: testToken}, k3sengine.ErrInvalidConfig},
-		{"short token", gcpcontainer.EngineConfig{Token: "short"}, k3sengine.ErrInvalidConfig},
-		{"token charset", gcpcontainer.EngineConfig{Token: "has spaces in it......"}, k3sengine.ErrInvalidConfig},
-		{"default token off host", gcpcontainer.EngineConfig{Host: "10.1.2.3"}, k3sengine.ErrDefaultTokenExposed},
-		{"explicit token off host", gcpcontainer.EngineConfig{Host: "10.1.2.3", Token: testToken}, nil},
-		{"loopback default token", gcpcontainer.EngineConfig{}, nil},
+		{
+			name: "bad host",
+			cfg:  gcpcontainer.EngineConfig{Host: "bad host!", Token: testToken},
+			want: k3sengine.ErrInvalidConfig,
+		},
+		{name: "short token", cfg: gcpcontainer.EngineConfig{Token: "short"}, want: k3sengine.ErrInvalidConfig},
+		{
+			name: "token charset",
+			cfg:  gcpcontainer.EngineConfig{Token: "has spaces in it......"},
+			want: k3sengine.ErrInvalidConfig,
+		},
+		{
+			name: "default token off host",
+			cfg:  gcpcontainer.EngineConfig{Host: "10.1.2.3"},
+			want: k3sengine.ErrDefaultTokenExposed,
+		},
+		{name: "explicit token off host", cfg: gcpcontainer.EngineConfig{Host: "10.1.2.3", Token: testToken}},
+		{name: "loopback default token"},
 	}
 
 	for _, tt := range tests {
@@ -304,7 +332,10 @@ func TestEngineConfigValidation(t *testing.T) {
 func TestEngineImageOverride(t *testing.T) {
 	t.Parallel()
 
-	e := newEngineEnv(t, func(cfg *gcpcontainer.EngineConfig, _ *fakeRuntime) { cfg.Image = "registry.test/k3s:custom" })
+	e := newEngineEnv(
+		t,
+		func(cfg *gcpcontainer.EngineConfig, _ *fakeRuntime) { cfg.Image = "registry.test/k3s:custom" },
+	)
 	e.create(t, zone, stdCluster("img"))
 
 	require.Eventually(t, func() bool { return len(e.rt.created()) == 1 }, engineMax, engineGap)

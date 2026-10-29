@@ -1,3 +1,4 @@
+//nolint:staticcheck // the API still serves fields the proto marks deprecated
 package gcpcontainer_test
 
 import (
@@ -88,14 +89,14 @@ func TestClusterLifecycle(t *testing.T) {
 	assert.Equal(t, int32(24), np.GetPodIpv4CidrSize())
 	assert.Equal(t, np.GetInstanceGroupUrls(), c.GetInstanceGroupUrls())
 
-	assert.Equal(t, containerpb.Operation_RUNNING, e.getOp(t, zone, op).GetStatus())
+	assert.Equal(t, containerpb.Operation_RUNNING, e.getOp(t, op).GetStatus())
 
 	e.clock.Advance(599 * time.Millisecond)
 	assert.Equal(t, containerpb.Cluster_PROVISIONING, e.getCluster(t, zone, "dev").GetStatus())
 
 	e.clock.Advance(time.Millisecond)
 
-	done := e.getOp(t, zone, op)
+	done := e.getOp(t, op)
 	assert.Equal(t, containerpb.Operation_DONE, done.GetStatus())
 	assert.Equal(t, "2026-10-26T12:00:00.6Z", done.GetEndTime())
 	assert.Nil(t, done.GetError())
@@ -104,7 +105,10 @@ func TestClusterLifecycle(t *testing.T) {
 	assert.Equal(t, containerpb.Cluster_RUNNING, c.GetStatus())
 	assert.Equal(t, containerpb.NodePool_RUNNING, c.GetNodePools()[0].GetStatus())
 
-	list, err := e.gc.ListClusters(t.Context(), &containerpb.ListClustersRequest{Parent: "projects/" + project + "/locations/-"})
+	list, err := e.gc.ListClusters(
+		t.Context(),
+		&containerpb.ListClustersRequest{Parent: "projects/" + project + "/locations/-"},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.GetClusters(), 1)
 
@@ -152,8 +156,18 @@ func TestCreateClusterValidation(t *testing.T) {
 		{&containerpb.Cluster{Name: "Bad_Name", InitialNodeCount: 1}, "bad name", zone, "Bad_Name"},
 		{&containerpb.Cluster{InitialNodeCount: 1}, "no name", zone, "must be specified"},
 		{&containerpb.Cluster{Name: "a"}, "no pools", zone, "node_pools or initial_node_count"},
-		{&containerpb.Cluster{Name: "a", InitialNodeCount: 1}, "bad location", "mars-central1-a", "not a valid zone or region"},
-		{&containerpb.Cluster{Name: "a", InitialNodeCount: 1, InitialClusterVersion: "9.9"}, "bad version", zone, "unsupported"},
+		{
+			&containerpb.Cluster{Name: "a", InitialNodeCount: 1},
+			"bad location",
+			"mars-central1-a",
+			"not a valid zone or region",
+		},
+		{
+			&containerpb.Cluster{Name: "a", InitialNodeCount: 1, InitialClusterVersion: "9.9"},
+			"bad version",
+			zone,
+			"unsupported",
+		},
 		{
 			&containerpb.Cluster{
 				Name: "a", InitialNodeCount: 1, InitialClusterVersion: "1.35.1",
@@ -184,12 +198,24 @@ func TestCreateClusterValidation(t *testing.T) {
 			"disk too small", zone, "Disk size",
 		},
 		{
-			&containerpb.Cluster{Name: "a", InitialNodeCount: 1, NodeConfig: &containerpb.NodeConfig{Spot: true, Preemptible: true}},
-			"spot and preemptible", zone, "cannot both be set",
+			&containerpb.Cluster{
+				Name:             "a",
+				InitialNodeCount: 1,
+				NodeConfig:       &containerpb.NodeConfig{Spot: true, Preemptible: true},
+			},
+			"spot and preemptible",
+			zone,
+			"cannot both be set",
 		},
 		{
-			&containerpb.Cluster{Name: "a", InitialNodeCount: 1, NodeConfig: &containerpb.NodeConfig{MachineType: "Bad Type"}},
-			"bad machine type", zone, "Invalid machine type",
+			&containerpb.Cluster{
+				Name:             "a",
+				InitialNodeCount: 1,
+				NodeConfig:       &containerpb.NodeConfig{MachineType: "Bad Type"},
+			},
+			"bad machine type",
+			zone,
+			"Invalid machine type",
 		},
 		{
 			&containerpb.Cluster{Name: "a", NodePools: []*containerpb.NodePool{
@@ -201,8 +227,14 @@ func TestCreateClusterValidation(t *testing.T) {
 			"foreign zone", zone, "not a zone of",
 		},
 		{
-			&containerpb.Cluster{Name: "a", InitialNodeCount: 1, PrivateClusterConfig: &containerpb.PrivateClusterConfig{EnablePrivateNodes: true}},
-			"private without master range", zone, "master_ipv4_cidr_block",
+			&containerpb.Cluster{
+				Name:                 "a",
+				InitialNodeCount:     1,
+				PrivateClusterConfig: &containerpb.PrivateClusterConfig{EnablePrivateNodes: true},
+			},
+			"private without master range",
+			zone,
+			"master_ipv4_cidr_block",
 		},
 		{
 			&containerpb.Cluster{Name: "a", Autopilot: &containerpb.Autopilot{Enabled: true}},
@@ -238,7 +270,10 @@ func TestClusterNotFoundAndExists(t *testing.T) {
 	e := newEnv(t)
 	e.ready(t, zone, stdCluster("dup"))
 
-	_, err := e.gc.CreateCluster(t.Context(), &containerpb.CreateClusterRequest{Parent: zoneLoc, Cluster: stdCluster("dup")})
+	_, err := e.gc.CreateCluster(
+		t.Context(),
+		&containerpb.CreateClusterRequest{Parent: zoneLoc, Cluster: stdCluster("dup")},
+	)
 	assertCode(t, codes.AlreadyExists, err, "Already exists: "+clusterPath(zone, "dup"))
 	assert.True(t, hasDetail[*errdetails.ResourceInfo](err))
 
@@ -263,7 +298,10 @@ func TestClusterNotFoundAndExists(t *testing.T) {
 	_, err = e.gc.GetOperation(t.Context(), &containerpb.GetOperationRequest{Name: zoneLoc + "/operations/nope"})
 	assertCode(t, codes.NotFound, err, "")
 
-	_, err = e.gc.ListClusters(t.Context(), &containerpb.ListClustersRequest{Parent: "projects/" + project + "/locations/mars-1"})
+	_, err = e.gc.ListClusters(
+		t.Context(),
+		&containerpb.ListClustersRequest{Parent: "projects/" + project + "/locations/mars-1"},
+	)
 	assertCode(t, codes.NotFound, err, "")
 }
 
@@ -278,7 +316,10 @@ func TestLegacyRequestFields(t *testing.T) {
 	require.NoError(t, err)
 	e.settle()
 
-	got, err := e.gc.GetCluster(t.Context(), &containerpb.GetClusterRequest{ProjectId: project, Zone: zone, ClusterId: "legacy"})
+	got, err := e.gc.GetCluster(
+		t.Context(),
+		&containerpb.GetClusterRequest{ProjectId: project, Zone: zone, ClusterId: "legacy"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, containerpb.Cluster_RUNNING, got.GetStatus())
 
@@ -289,7 +330,10 @@ func TestLegacyRequestFields(t *testing.T) {
 	_, err = e.gc.GetCluster(t.Context(), &containerpb.GetClusterRequest{ProjectId: project, Zone: zone})
 	assertCode(t, codes.InvalidArgument, err, "Cluster ID")
 
-	_, err = e.gc.DeleteCluster(t.Context(), &containerpb.DeleteClusterRequest{ProjectId: project, Zone: zone, ClusterId: "legacy"})
+	_, err = e.gc.DeleteCluster(
+		t.Context(),
+		&containerpb.DeleteClusterRequest{ProjectId: project, Zone: zone, ClusterId: "legacy"},
+	)
 	require.NoError(t, err)
 }
 
@@ -332,10 +376,16 @@ func TestAutopilotCluster(t *testing.T) {
 	})
 	assertCode(t, codes.FailedPrecondition, err, "Autopilot")
 
-	_, err = e.gc.DeleteNodePool(t.Context(), &containerpb.DeleteNodePoolRequest{Name: poolPath(region, "ap", "default-pool")})
+	_, err = e.gc.DeleteNodePool(
+		t.Context(),
+		&containerpb.DeleteNodePoolRequest{Name: poolPath(region, "ap", "default-pool")},
+	)
 	assertCode(t, codes.FailedPrecondition, err, "managed by Google")
 
-	_, err = e.gc.SetLegacyAbac(t.Context(), &containerpb.SetLegacyAbacRequest{Name: clusterPath(region, "ap"), Enabled: true})
+	_, err = e.gc.SetLegacyAbac(
+		t.Context(),
+		&containerpb.SetLegacyAbacRequest{Name: clusterPath(region, "ap"), Enabled: true},
+	)
 	assertCode(t, codes.InvalidArgument, err, "Autopilot")
 }
 
@@ -417,7 +467,7 @@ func TestDeleteWhileProvisioningAbortsCreate(t *testing.T) {
 	_, err := e.gc.DeleteCluster(t.Context(), &containerpb.DeleteClusterRequest{Name: clusterPath(zone, "abort")})
 	require.NoError(t, err)
 
-	assert.Equal(t, containerpb.Operation_DONE, e.getOp(t, zone, create).GetStatus())
+	assert.Equal(t, containerpb.Operation_DONE, e.getOp(t, create).GetStatus())
 	assert.Equal(t, containerpb.Cluster_STOPPING, e.getCluster(t, zone, "abort").GetStatus())
 
 	e.settle()

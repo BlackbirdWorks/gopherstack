@@ -1,3 +1,4 @@
+//nolint:staticcheck // legacy cluster fields are deprecated in the proto but still served
 package gcpcontainer
 
 import (
@@ -34,27 +35,27 @@ func withNodeDefaults(in *containerpb.NodeConfig) *containerpb.NodeConfig {
 		nc = &containerpb.NodeConfig{}
 	}
 
-	if nc.MachineType == "" {
+	if nc.GetMachineType() == "" {
 		nc.MachineType = defaultMachineType
 	}
 
-	if nc.DiskSizeGb == 0 {
+	if nc.GetDiskSizeGb() == 0 {
 		nc.DiskSizeGb = defaultDiskGb
 	}
 
-	if nc.DiskType == "" {
+	if nc.GetDiskType() == "" {
 		nc.DiskType = defaultDiskType
 	}
 
-	if nc.ImageType == "" {
+	if nc.GetImageType() == "" {
 		nc.ImageType = defaultImageType
 	}
 
-	if len(nc.OauthScopes) == 0 {
+	if len(nc.GetOauthScopes()) == 0 {
 		nc.OauthScopes = defaultScopes()
 	}
 
-	if nc.ServiceAccount == "" {
+	if nc.GetServiceAccount() == "" {
 		nc.ServiceAccount = "default"
 	}
 
@@ -62,7 +63,7 @@ func withNodeDefaults(in *containerpb.NodeConfig) *containerpb.NodeConfig {
 		nc.Metadata = map[string]string{"disable-legacy-endpoints": "true"}
 	}
 
-	if nc.ShieldedInstanceConfig == nil {
+	if nc.GetShieldedInstanceConfig() == nil {
 		nc.ShieldedInstanceConfig = &containerpb.ShieldedInstanceConfig{EnableIntegrityMonitoring: true}
 	}
 
@@ -91,7 +92,6 @@ type poolCtx struct {
 	ref        ref
 	version    string
 	zones      []string
-	autopilot  bool
 	autoUpdate bool
 }
 
@@ -129,7 +129,7 @@ func (b *InMemoryBackend) buildPoolLocked(pc poolCtx, in *containerpb.NodePool) 
 	p.Conditions = nil
 	p.StatusMessage = ""
 
-	if p.Management == nil {
+	if p.GetManagement() == nil {
 		p.Management = &containerpb.NodeManagement{AutoUpgrade: true, AutoRepair: true}
 	}
 
@@ -137,20 +137,20 @@ func (b *InMemoryBackend) buildPoolLocked(pc poolCtx, in *containerpb.NodePool) 
 		p.Management.AutoUpgrade = true
 	}
 
-	if p.MaxPodsConstraint == nil {
+	if p.GetMaxPodsConstraint() == nil {
 		p.MaxPodsConstraint = &containerpb.MaxPodsConstraint{MaxPodsPerNode: defaultPodsMax}
 	}
 
 	p.PodIpv4CidrSize = podPrefix(p.GetMaxPodsConstraint().GetMaxPodsPerNode())
 
-	if p.UpgradeSettings == nil {
+	if p.GetUpgradeSettings() == nil {
 		strategy := containerpb.NodePoolUpdateStrategy_SURGE
 		p.UpgradeSettings = &containerpb.NodePool_UpgradeSettings{
 			MaxSurge: defaultMaxSurge, Strategy: &strategy,
 		}
 	}
 
-	if p.Autoscaling == nil {
+	if p.GetAutoscaling() == nil {
 		p.Autoscaling = &containerpb.NodePoolAutoscaling{}
 	}
 
@@ -184,7 +184,12 @@ func poolZones(want, clusterZones []string) ([]string, error) {
 
 	for _, z := range want {
 		if !slices.Contains(clusterZones, z) {
-			return nil, errInvalid("node_pool.locations", "Node pool location %q is not one of the cluster locations %v.", z, clusterZones)
+			return nil, errInvalid(
+				"node_pool.locations",
+				"Node pool location %q is not one of the cluster locations %v.",
+				z,
+				clusterZones,
+			)
 		}
 	}
 

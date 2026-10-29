@@ -571,6 +571,7 @@ type CLI struct {
 	MWAAEngine                    string                            `                                       name:"mwaa-engine"             env:"MWAA_ENGINE"                         default:"stub"          help:"MWAA engine mode: stub (state only) or docker (real Apache Airflow container per environment)."`                                                                                                             //nolint:lll // config struct tags are intentionally verbose
 	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	GKEEngine                     string                            `                                       name:"gke-engine"              env:"GKE_ENGINE"                          default:"stub"          help:"GKE engine mode: stub (control plane only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	SageMakerEngine               string                            `                                       name:"sagemaker-engine"        env:"SAGEMAKER_ENGINE"                    default:"stub"          help:"SageMaker engine mode: stub (control plane only; InvokeEndpoint is unavailable) or docker (endpoints and jobs run model, training, processing and transform containers)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
@@ -834,14 +835,11 @@ func (c *CLI) GetGCPDNSSettings() gcpdnsbackend.Settings { return c.GCPDNS }
 // GetGCPComputeSettings returns Compute Engine settings (gcpcompute.ConfigProvider).
 func (c *CLI) GetGCPComputeSettings() gcpcomputebackend.Settings { return c.GCPCompute }
 
-// GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider); the engine mode
-// follows --engines unless gcp-container-engine is set.
-func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings {
-	s := c.GCPContainer
-	s.Engine = c.engineMode("gcp-container-engine", s.Engine)
+// GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).
+func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings { return c.GCPContainer }
 
-	return s
-}
+// GetGCPContainerEngine returns the Kubernetes Engine engine mode (gcpcontainer.EngineConfigProvider).
+func (c *CLI) GetGCPContainerEngine() string { return c.engineMode("gke-engine", c.GKEEngine) }
 
 // GetGCPCloudBuildSettings returns Google Cloud Build settings (gcpcloudbuild.ConfigProvider).
 func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return c.GCPCloudBuild }
