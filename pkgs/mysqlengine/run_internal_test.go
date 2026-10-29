@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
 
+var errDockerDown = errors.New("docker down")
+
 type execRuntime struct {
 	err error
 	res container.ExecResult
@@ -34,7 +36,7 @@ func TestRestoreErrorOmitsPassword(t *testing.T) {
 		rt   *execRuntime
 		name string
 	}{
-		{name: "exec error", rt: &execRuntime{err: errors.New("docker down")}},
+		{name: "exec error", rt: &execRuntime{err: errDockerDown}},
 		{name: "nonzero exit", rt: &execRuntime{res: container.ExecResult{ExitCode: 1, Stderr: "access denied"}}},
 	}
 
