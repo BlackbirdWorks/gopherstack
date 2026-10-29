@@ -59,6 +59,7 @@ type crawlRun struct {
 	ops            []func(*crawlRun)
 	stats          crawlStats
 	logOnlyUpdates bool
+	catalogMode    bool
 	mergeColumns   bool
 	newFoldersOnly bool
 }
@@ -90,6 +91,7 @@ func newCrawlRun(c *Crawler) *crawlRun {
 	}
 
 	r.mergeColumns = configuredMergeNewColumns(c.Configuration)
+	r.catalogMode = len(c.Targets.CatalogTargets) > 0
 
 	return r
 }
@@ -102,6 +104,18 @@ func (b *InMemoryBackend) snapshotCrawlLocked(c *Crawler) *crawlRun {
 	r.accountID, r.region = b.accountID, b.region
 	r.conns = map[string]*Connection{}
 	r.tables = tableOverlay{}
+
+	for _, ct := range c.Targets.CatalogTargets {
+		if conn, ok := b.connections.Get(ct.ConnectionName); ok && ct.ConnectionName != "" {
+			r.conns[ct.ConnectionName] = cloneConnection(conn)
+		}
+
+		for _, name := range ct.Tables {
+			if t, ok := b.tables.Get(tableKey(ct.DatabaseName, name)); ok {
+				r.tables.Put(cloneTable(t))
+			}
+		}
+	}
 
 	for _, jt := range c.Targets.JdbcTargets {
 		if conn, ok := b.connections.Get(jt.ConnectionName); ok {
@@ -180,6 +194,12 @@ func (r *crawlRun) crawlAllTargets() error {
 		}
 	}
 
+	for _, ct := range t.CatalogTargets {
+		if err := r.crawlCatalog(ct); err != nil {
+			return err
+		}
+	}
+
 	for _, dt := range t.DynamoDBTargets {
 		if err := r.crawlDynamoDB(dt); err != nil {
 			return err
@@ -245,7 +265,7 @@ func (r *crawlRun) upsertCore(st tableStore, version func(*Table), desired *Tabl
 		r.stats.added++
 
 		return desired
-	case cur.Parameters[crawlerManagedParam] != r.c.Name:
+	case !r.catalogMode && cur.Parameters[crawlerManagedParam] != r.c.Name:
 		return nil
 	}
 
@@ -305,7 +325,7 @@ func (r *crawlRun) sweepGoneTables() {
 		behavior = r.c.SchemaChangePolicy.DeleteBehavior
 	}
 
-	if behavior == deleteBehaviorLog {
+	if behavior == deleteBehaviorLog || r.catalogMode {
 		return
 	}
 

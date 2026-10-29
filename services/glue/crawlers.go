@@ -157,6 +157,10 @@ func (b *InMemoryBackend) CreateCrawlerWithOptions(
 		return nil, err
 	}
 
+	if err := validateCrawlerTargets(targets); err != nil {
+		return nil, err
+	}
+
 	if dbName != "" {
 		if !b.databases.Has(strs.Fold(dbName)) {
 			return nil, ErrNotFound
@@ -272,6 +276,10 @@ func (b *InMemoryBackend) UpdateCrawlerWithOptions(
 	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return ErrNotFound
+	}
+
+	if err := validateCrawlerTargets(targets); err != nil {
+		return err
 	}
 
 	// AWS rejects UpdateCrawler while the crawler is actively running, same as
