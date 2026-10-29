@@ -149,7 +149,7 @@ func (b *InMemoryBackend) reconcileSessionsLocked(now time.Time) {
 
 	for id, readyAt := range b.sessionReadyAt {
 		if now.After(readyAt) {
-			if s, ok := b.sessions.Get(id); ok && s.Status == "PROVISIONING" {
+			if s, ok := b.sessions.Get(id); ok && s.Status == statusProvisioning {
 				s.Status = stateReady
 			}
 

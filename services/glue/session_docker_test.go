@@ -36,7 +36,9 @@ func TestDockerSessionEngine_PersistentREPL(t *testing.T) {
 	}))
 	t.Cleanup(b.StopReconciler)
 
-	_, err = b.CreateSession("dk", "arn:aws:iam::123456789012:role/r", glue.SessionCommand{Name: "python"}, glue.Session{})
+	_, err = b.CreateSession(
+		"dk", "arn:aws:iam::123456789012:role/r", glue.SessionCommand{Name: "python"}, glue.Session{},
+	)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {

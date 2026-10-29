@@ -48,7 +48,7 @@ func (b *InMemoryBackend) CreateSession(
 		SessionID:        id,
 		Role:             role,
 		Command:          cmd,
-		Status:           "PROVISIONING",
+		Status:           statusProvisioning,
 		CreatedOn:        float64(now.Unix()),
 		Timeout:          opts.Timeout,
 		IdleTimeout:      opts.IdleTimeout,
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) RunStatement(sessionID, code string) (*Statement, erro
 	case b.sessionEngine == nil:
 		failStatement(st, "EngineNotEnabled", engineDisabledMessage, now)
 	case ls == nil:
-		s.Status = "FAILED"
+		s.Status = statusFailed
 		s.ErrorMessage = "session interpreter is no longer running (lost across a restart)"
 
 		return nil, fmt.Errorf("%w: session %q interpreter is gone", ErrIllegalSessionState, sessionID)

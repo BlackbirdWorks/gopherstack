@@ -24,8 +24,8 @@ var errFakeStart = errors.New("fake start failure")
 // "boom" fails, "block" waits for an interrupt.
 type fakeEngine struct {
 	startErr error
-	mu       sync.Mutex
 	procs    []*fakeProc
+	mu       sync.Mutex
 }
 
 type fakeProc struct {
@@ -289,8 +289,8 @@ func TestSessionEngine_Lifecycle(t *testing.T) {
 	tests := []struct {
 		act  func(t *testing.T, b *glue.InMemoryBackend, clk *fakeClock)
 		name string
-		opts glue.Session
 		want string
+		opts glue.Session
 	}{
 		{
 			name: "idle timeout",
@@ -495,7 +495,9 @@ func TestSessionEngine_SDK(t *testing.T) {
 	var last int32
 
 	for _, code := range []string{"x = 7", "x"} {
-		run, rErr := client.RunStatement(ctx, &gluesdk.RunStatementInput{SessionId: aws.String("s"), Code: aws.String(code)})
+		run, rErr := client.RunStatement(ctx, &gluesdk.RunStatementInput{
+			SessionId: aws.String("s"), Code: aws.String(code),
+		})
 		require.NoError(t, rErr)
 		last = run.Id
 	}

@@ -58,6 +58,8 @@ func enableDockerEngine(ctx *service.AppContext, backend *InMemoryBackend, setti
 	}))
 }
 
+var errLivenessProbe = errors.New("liveness probe failed")
+
 // NewContainerSessionRuntime adapts a container runtime for NewDockerSessionEngine.
 func NewContainerSessionRuntime(rt container.Runtime) SessionRuntime {
 	return containerSessionRuntime{rt: rt}
@@ -91,7 +93,7 @@ func (c containerSessionRuntime) Alive(ctx context.Context, id string) error {
 	}
 
 	if res.ExitCode != 0 {
-		return fmt.Errorf("liveness probe exited %d", res.ExitCode)
+		return fmt.Errorf("%w: exit %d", errLivenessProbe, res.ExitCode)
 	}
 
 	return nil

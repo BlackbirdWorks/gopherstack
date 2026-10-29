@@ -66,6 +66,12 @@ type StatementOutput struct {
 }
 
 const (
+	statusProvisioning = "PROVISIONING"
+	statusFailed       = "FAILED"
+	statusTimeout      = "TIMEOUT"
+)
+
+const (
 	stmtWaiting    = "WAITING"
 	stmtRunning    = "RUNNING"
 	stmtAvailable  = "AVAILABLE"
@@ -270,7 +276,7 @@ func (b *InMemoryBackend) failSession(ls *liveSession, id string, cause error) {
 		return
 	}
 
-	s.Status = "FAILED"
+	s.Status = statusFailed
 	s.ErrorMessage = fmt.Sprintf("session interpreter failed to start: %v", cause)
 }
 
@@ -293,7 +299,7 @@ func (b *InMemoryBackend) markSessionReady(ls *liveSession, id string, proc Sess
 	ls.proc = proc
 	ls.lastActivity = b.nowLocked()
 
-	if s, ok := b.sessions.Get(id); ok && s.Status == "PROVISIONING" {
+	if s, ok := b.sessions.Get(id); ok && s.Status == statusProvisioning {
 		s.Status = stateReady
 	}
 
@@ -419,7 +425,7 @@ func (b *InMemoryBackend) expireSessionsLocked(now time.Time) {
 	for id, ls := range b.liveSessions {
 		if b.sessionExpiredLocked(id, ls, now) {
 			if s, ok := b.sessions.Get(id); ok {
-				s.Status = "TIMEOUT"
+				s.Status = statusTimeout
 				s.CompletedOn = float64(now.Unix())
 			}
 
@@ -472,7 +478,7 @@ func (b *InMemoryBackend) sessionExpiryDueLocked(now time.Time) bool {
 func parseSparkConf(v string) []string {
 	var out []string
 
-	for _, part := range strings.Split(v, "--conf") {
+	for part := range strings.SplitSeq(v, "--conf") {
 		if p := strings.TrimSpace(part); p != "" {
 			out = append(out, p)
 		}

@@ -209,6 +209,12 @@ type InMemoryBackend struct {
 	crawlerS3       CrawlerS3
 	crawlerDDB      CrawlerDynamoDB
 
+	// engine-backed interactive sessions; liveSessions is never persisted
+	sessionEngine SessionEngine
+	liveSessions  map[string]*liveSession
+	clockFn       func() time.Time
+	sessIdle      chan struct{}
+
 	// lifecycle reconciler timers
 	jobRunReadyAt      map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
 	jobRunDoneAt       map[string]map[string]time.Time // jobName → runID → doneAt for RUNNING→SUCCEEDED
@@ -218,13 +224,6 @@ type InMemoryBackend struct {
 	integrationReadyAt map[string]time.Time            // integrationName → readyAt for CREATING→ACTIVE
 	sessionReadyAt     map[string]time.Time            // sessionID → readyAt for PROVISIONING→READY
 	sessionStopAt      map[string]time.Time            // sessionID → stopAt for STOPPING→STOPPED
-
-	// engine-backed interactive sessions; liveSessions is never persisted
-	sessionEngine SessionEngine
-	liveSessions  map[string]*liveSession
-	clockFn       func() time.Time
-	sessIdle      chan struct{}
-	sessWorkers   int
 
 	// connection-type registry (custom types registered via RegisterConnectionType).
 	customConnectionTypes *store.Table[ConnectionTypeInfo]
@@ -277,6 +276,7 @@ type InMemoryBackend struct {
 	reconcileMu       sync.Mutex
 	reconcileInterval time.Duration
 	reconcileOn       bool
+	sessWorkers       int
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.

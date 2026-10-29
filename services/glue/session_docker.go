@@ -331,7 +331,8 @@ func (p *dockerSession) checkAlive(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", errReplDied, err)
 	}
 
-	if fi, err := os.Stat(filepath.Join(p.dir, "heartbeat")); err == nil && time.Since(fi.ModTime()) > replHeartbeatStale {
+	fi, err := os.Stat(filepath.Join(p.dir, "heartbeat"))
+	if err == nil && time.Since(fi.ModTime()) > replHeartbeatStale {
 		return errReplHung
 	}
 

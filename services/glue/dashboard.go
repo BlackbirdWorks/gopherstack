@@ -98,7 +98,7 @@ func (b *InMemoryBackend) GetSessionEndpoint(sessionID string) (*SessionEndpoint
 		return nil, fmt.Errorf("session %q not found: %w", sessionID, ErrNotFound)
 	}
 
-	if s.Status == stateStopped || s.Status == stateStopping || s.Status == "TIMEOUT" || s.Status == "FAILED" {
+	if s.Status == stateStopped || s.Status == stateStopping || s.Status == statusTimeout || s.Status == statusFailed {
 		return nil, fmt.Errorf(
 			"%w: session %q is not in a usable state (status=%s)", ErrIllegalSessionState, sessionID, s.Status,
 		)
