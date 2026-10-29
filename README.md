@@ -975,6 +975,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [OCI API Gateway](services/ociapigateway/README.md) | B | 22 | 10 gaps |
 | [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 20 | 9 gaps |
 | [OCI Core Services](services/ocicore/README.md) | B | 135 | 11 gaps |
 | [OCI Functions](services/ocifunctions/README.md) | B | 16 | 9 gaps |
