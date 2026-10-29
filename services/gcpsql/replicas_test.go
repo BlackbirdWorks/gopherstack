@@ -128,11 +128,13 @@ func TestReplicaCreateErrors(t *testing.T) {
 			want: http.StatusNotFound,
 		},
 		{
-			name: "mysql without binlog", in: sqladmin.DatabaseInstance{MasterInstanceName: "my", DatabaseVersion: "MYSQL_8_0"},
+			name: "mysql without binlog",
+			in:   sqladmin.DatabaseInstance{MasterInstanceName: "my", DatabaseVersion: "MYSQL_8_0"},
 			want: http.StatusBadRequest, wantMsg: "Binary logging",
 		},
 		{
-			name: "version mismatch", in: sqladmin.DatabaseInstance{MasterInstanceName: "pg", DatabaseVersion: "POSTGRES_15"},
+			name: "version mismatch",
+			in:   sqladmin.DatabaseInstance{MasterInstanceName: "pg", DatabaseVersion: "POSTGRES_15"},
 			want: http.StatusBadRequest, wantMsg: "must match",
 		},
 		{
@@ -144,7 +146,8 @@ func TestReplicaCreateErrors(t *testing.T) {
 			want: http.StatusBadRequest, wantMsg: "Replicas of replicas",
 		},
 		{
-			name: "wrong instance type", in: sqladmin.DatabaseInstance{MasterInstanceName: "pg", InstanceType: "CLOUD_SQL_INSTANCE"},
+			name: "wrong instance type",
+			in:   sqladmin.DatabaseInstance{MasterInstanceName: "pg", InstanceType: "CLOUD_SQL_INSTANCE"},
 			want: http.StatusBadRequest, wantMsg: "instanceType",
 		},
 		{name: "replica type without primary", in: sqladmin.DatabaseInstance{InstanceType: "READ_REPLICA_INSTANCE"},
