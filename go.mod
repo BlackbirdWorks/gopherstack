@@ -28,6 +28,7 @@ require (
 	cloud.google.com/go/storage v1.69.0
 	cloud.google.com/go/workflows v1.21.0
 	connectrpc.com/connect v1.21.0
+	firebase.google.com/go/v4 v4.22.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
 	github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig/v2 v2.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0
@@ -337,7 +338,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
-	firebase.google.com/go/v4 v4.22.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.2.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/storage/internal v0.1.0 // indirect
