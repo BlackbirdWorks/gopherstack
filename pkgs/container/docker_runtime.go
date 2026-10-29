@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
@@ -167,6 +168,18 @@ func (r *realDockerClient) NetworkConnect(ctx context.Context, networkID, contai
 
 func (r *realDockerClient) NetworkRemove(ctx context.Context, networkID string) error {
 	return r.c.NetworkRemove(ctx, networkID)
+}
+
+func (r *realDockerClient) VolumeCreate(ctx context.Context, name string, labels map[string]string) error {
+	return r.c.VolumeCreate(ctx, name, labels)
+}
+
+func (r *realDockerClient) VolumeRemove(ctx context.Context, name string) error {
+	return r.c.VolumeRemove(ctx, name)
+}
+
+func (r *realDockerClient) VolumeListUnused(ctx context.Context, label string) (map[string]time.Time, error) {
+	return r.c.VolumeListUnused(ctx, label)
 }
 
 func (r *realDockerClient) Ping(ctx context.Context) (any, error) {
@@ -473,6 +486,64 @@ func (r *DockerRuntime) RemoveNetwork(ctx context.Context, networkID string) err
 	}
 
 	return api.NetworkRemove(ctx, networkID)
+}
+
+// VolumeAPIClient is implemented by clients that can manage named volumes.
+type VolumeAPIClient interface {
+	VolumeCreate(ctx context.Context, name string, labels map[string]string) error
+	VolumeRemove(ctx context.Context, name string) error
+	VolumeListUnused(ctx context.Context, label string) (map[string]time.Time, error)
+}
+
+// CreateVolume creates a labelled named volume; an existing one is reused.
+func (r *DockerRuntime) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
+	api, ok := r.docker.(VolumeAPIClient)
+	if !ok {
+		return ErrVolumeUnsupported
+	}
+
+	return api.VolumeCreate(ctx, name, labels)
+}
+
+// RemoveVolume force-removes a named volume; a missing volume is not an error.
+func (r *DockerRuntime) RemoveVolume(ctx context.Context, name string) error {
+	api, ok := r.docker.(VolumeAPIClient)
+	if !ok {
+		return ErrVolumeUnsupported
+	}
+
+	return api.VolumeRemove(ctx, name)
+}
+
+// ListUnusedVolumes lists the volumes carrying label that no container references and that are older than
+// olderThan, so a volume a concurrent launch has just created is left alone.
+func (r *DockerRuntime) ListUnusedVolumes(
+	ctx context.Context,
+	label string,
+	olderThan time.Duration,
+) ([]string, error) {
+	api, ok := r.docker.(VolumeAPIClient)
+	if !ok {
+		return nil, ErrVolumeUnsupported
+	}
+
+	all, err := api.VolumeListUnused(ctx, label)
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := time.Now().Add(-olderThan)
+	out := make([]string, 0, len(all))
+
+	for name, created := range all {
+		if created.Before(cutoff) {
+			out = append(out, name)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out, nil
 }
 
 // Exec runs cmd inside a running container and waits for it to finish.

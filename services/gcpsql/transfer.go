@@ -215,7 +215,7 @@ func (b *InMemoryBackend) ImportInstance(
 	b.mu.Lock("ImportInstance")
 	defer b.mu.Unlock()
 
-	rec, err := b.opRec(project, instance)
+	rec, err := b.writableRec(project, instance)
 	if err != nil {
 		return nil, err
 	}

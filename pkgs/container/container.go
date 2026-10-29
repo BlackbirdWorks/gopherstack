@@ -106,6 +106,20 @@ type NetworkRuntime interface {
 	RemoveNetwork(ctx context.Context, networkID string) error
 }
 
+// ErrVolumeUnsupported is returned when the underlying client cannot manage volumes.
+var ErrVolumeUnsupported = errors.New("container volumes are not supported by this runtime client")
+
+// VolumeRuntime is implemented by runtimes that can manage named volumes.
+type VolumeRuntime interface {
+	// CreateVolume creates a labelled named volume; an existing one is reused.
+	CreateVolume(ctx context.Context, name string, labels map[string]string) error
+	// RemoveVolume deletes the volume; a missing one is not an error.
+	RemoveVolume(ctx context.Context, name string) error
+	// ListUnusedVolumes lists the volumes carrying label (key or key=value) that no container references and that
+	// are older than olderThan.
+	ListUnusedVolumes(ctx context.Context, label string, olderThan time.Duration) ([]string, error)
+}
+
 // PooledContainer tracks a container managed by the warm pool.
 type PooledContainer struct {
 	// LastUsed is the timestamp of the last time this container was used.

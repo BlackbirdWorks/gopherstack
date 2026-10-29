@@ -140,6 +140,10 @@ func (b *InMemoryBackend) runTask(ctx context.Context, rec *instRec, t task) {
 	b.mu.Lock("runTask")
 	op.Status, op.EndTime = opDone, stamp(b.now())
 
+	if err == nil && len(rec.Inst.ReplicaNames) > 0 {
+		b.syncReplicasLocked(rec)
+	}
+
 	if err != nil {
 		op.Error = opError(err)
 		logger.Load(ctx).WarnContext(ctx, "gcpsql: operation failed", "operation", op.OperationType,

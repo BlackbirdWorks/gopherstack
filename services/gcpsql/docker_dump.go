@@ -16,14 +16,26 @@ const (
 	connectLine  = `\connect `
 	dumpFileMode = 0o600
 	mysqlClient  = "mysql"
+	cmdEnv       = "env"
+	mysqldumpBin = "mysqldump"
+	argRoutines  = "--routines"
+	argAddDrop   = "--add-drop-database"
+	argDatabases = "--databases"
+	argSingleTx  = "--single-transaction"
 )
 
 var errExec = errors.New("command failed")
 
 func (e *dockerEngine) run(ctx context.Context, cmd []string) error {
+	_, err := e.runOut(ctx, cmd)
+
+	return err
+}
+
+func (e *dockerEngine) runOut(ctx context.Context, cmd []string) (string, error) {
 	res, err := e.rt.Exec(ctx, e.container(), cmd)
 	if err != nil {
-		return fmt.Errorf("exec %s: %w", cmd[0], err)
+		return "", fmt.Errorf("exec %s: %w", cmd[0], err)
 	}
 
 	if res.ExitCode != 0 {
@@ -32,10 +44,10 @@ func (e *dockerEngine) run(ctx context.Context, cmd []string) error {
 			msg = msg[:stderrLimit]
 		}
 
-		return fmt.Errorf("%w: %s exited %d: %s", errExec, cmd[0], res.ExitCode, msg)
+		return "", fmt.Errorf("%w: %s exited %d: %s", errExec, cmd[0], res.ExitCode, msg)
 	}
 
-	return nil
+	return res.Stdout, nil
 }
 
 func (e *dockerEngine) readDump(name string) ([]byte, error) {
@@ -100,8 +112,8 @@ func (e *dockerEngine) dumpMySQL(ctx context.Context, dbs []string) ([]byte, err
 	}
 
 	cmd := append([]string{
-		"env", "MYSQL_PWD=" + e.pass(), "mysqldump", "-u" + mysqlAdminUser, "--single-transaction", "--routines",
-		"--add-drop-database", "-r", dumpMount + "/dump.sql", "--databases",
+		cmdEnv, "MYSQL_PWD=" + e.pass(), mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
+		argAddDrop, "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", argDatabases,
 	}, dbs...)
 
 	if err := e.run(ctx, cmd); err != nil {
@@ -147,7 +159,7 @@ func (e *dockerEngine) restoreFile(ctx context.Context, db string, data []byte) 
 		return e.run(ctx, []string{"psql", "-U", pgAdminUser, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", file})
 	}
 
-	cmd := []string{"env", "MYSQL_PWD=" + e.pass(), mysqlClient, "-u" + mysqlAdminUser}
+	cmd := []string{cmdEnv, "MYSQL_PWD=" + e.pass(), mysqlClient, "-u" + mysqlAdminUser}
 	if db != "" {
 		cmd = append(cmd, "--database="+db)
 	}

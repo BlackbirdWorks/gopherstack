@@ -533,6 +533,34 @@ func (c *Client) ContainerInspect(
 	return res.Container, nil
 }
 
+// VolumeCreate creates a named Docker volume with labels; an existing volume of that name is reused.
+func (c *Client) VolumeCreate(ctx context.Context, name string, labels map[string]string) error {
+	if _, err := c.inner.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{Name: name, Labels: labels}); err != nil {
+		return fmt.Errorf("volume create: %w", err)
+	}
+
+	return nil
+}
+
+// VolumeListUnused maps the names of volumes carrying label that no container references to their creation time.
+func (c *Client) VolumeListUnused(ctx context.Context, label string) (map[string]time.Time, error) {
+	res, err := c.inner.VolumeList(ctx, mobyclient.VolumeListOptions{
+		Filters: make(mobyclient.Filters).Add("label", label).Add("dangling", "true"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("volume list: %w", err)
+	}
+
+	out := make(map[string]time.Time, len(res.Items))
+
+	for _, v := range res.Items {
+		created, _ := time.Parse(time.RFC3339Nano, v.CreatedAt)
+		out[v.Name] = created
+	}
+
+	return out, nil
+}
+
 // VolumeExists reports whether a Docker volume named name exists.
 func (c *Client) VolumeExists(ctx context.Context, name string) (bool, error) {
 	_, err := c.inner.VolumeInspect(ctx, name, mobyclient.VolumeInspectOptions{})

@@ -34,18 +34,23 @@ type task struct {
 }
 
 type instRec struct {
-	eng          Engine
-	Databases    map[string]*Database  `json:"databases"`
-	Users        map[string]*userRec   `json:"users"`
-	Backups      map[string]*backupRec `json:"backups"`
-	Certs        map[string]*certRec   `json:"certs"`
-	Inst         Instance              `json:"inst"`
-	RootPassword string                `json:"rootPassword"`
-	CACert       string                `json:"caCert"`
-	CAKey        string                `json:"caKey"`
-	queue        []task
-	draining     bool
-	gone         bool
+	eng           Engine
+	recovery      *Recovery
+	Databases     map[string]*Database  `json:"databases"`
+	Backups       map[string]*backupRec `json:"backups"`
+	Certs         map[string]*certRec   `json:"certs"`
+	Users         map[string]*userRec   `json:"users"`
+	RootPassword  string                `json:"rootPassword"`
+	CACert        string                `json:"caCert"`
+	PitrBase      string                `json:"pitrBase,omitempty"`
+	CAKey         string                `json:"caKey"`
+	Inst          Instance              `json:"inst"`
+	queue         []task
+	ServerID      uint32 `json:"serverID,omitempty"`
+	fresh         bool
+	ReplicaPaused bool `json:"replicaPaused,omitempty"`
+	draining      bool
+	gone          bool
 }
 
 // InMemoryBackend holds all Cloud SQL state under one lock.
@@ -61,6 +66,7 @@ type InMemoryBackend struct {
 	ops       map[string]*Operation
 	startup   time.Duration
 	seq       int64
+	swept     bool
 }
 
 // NewInMemoryBackend creates an empty backend without a database launcher (state-only instances).
@@ -154,6 +160,14 @@ func (b *InMemoryBackend) shutdown(renew bool) {
 
 	for _, e := range engines {
 		e.Close(context.Background())
+	}
+
+	if renew {
+		for _, e := range engines {
+			if vr, ok := e.(VolumeRemover); ok {
+				vr.RemoveVolumes(context.Background())
+			}
+		}
 	}
 
 	if !renew && closer != nil {

@@ -70,7 +70,8 @@ func (e *dockerEngine) bootstrap(ctx context.Context) error {
 		return nil
 	}
 
-	if err := e.exec(ctx, pgAdminUser, "CREATE ROLE "+pgSuperRole+" NOLOGIN CREATEDB CREATEROLE"); err != nil {
+	if err := e.exec(ctx, pgAdminUser, "DO $$ BEGIN CREATE ROLE "+pgSuperRole+
+		" NOLOGIN CREATEDB CREATEROLE; EXCEPTION WHEN duplicate_object THEN NULL; END $$"); err != nil {
 		return err
 	}
 

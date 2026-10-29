@@ -27,6 +27,26 @@ func (h *Handler) registerInstanceOps() {
 		return h.reply(c, v, err)
 	}
 	h.ops[opCloneInstance] = h.cloneInstance
+	h.ops[opPromoteReplica] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.PromoteReplica(rt.project, rt.instance)
+
+		return h.reply(c, v, err)
+	}
+	h.ops[opStartReplica] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.SetReplicaRunning(rt.project, rt.instance, true)
+
+		return h.reply(c, v, err)
+	}
+	h.ops[opStopReplica] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.SetReplicaRunning(rt.project, rt.instance, false)
+
+		return h.reply(c, v, err)
+	}
+	h.ops[opLatestRecovery] = func(c *echo.Context, rt route) error {
+		v, err := h.Backend.LatestRecoveryTime(rt.project, rt.instance)
+
+		return h.reply(c, v, err)
+	}
 	h.ops[opExportInstance] = h.exportInstance
 	h.ops[opImportInstance] = h.importInstance
 	h.ops[opRestoreBackup] = h.restoreBackup
