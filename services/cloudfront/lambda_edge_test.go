@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,6 +24,8 @@ const (
 	edgeAccount = "123456789012"
 	edgeARNBase = "arn:aws:lambda:us-east-1:" + edgeAccount + ":function:"
 )
+
+var errFakeEdge = errors.New("fake edge failure")
 
 type edgeFn func(cf map[string]any) (any, string, error)
 
@@ -46,11 +49,11 @@ func (f *fakeEdge) InvokeEdge(_ context.Context, name, version string, payload [
 	}
 
 	if err := json.Unmarshal(payload, &in); err != nil || len(in.Records) != 1 {
-		return nil, "", errors.New("bad event")
+		return nil, "", fmt.Errorf("%w: bad event", errFakeEdge)
 	}
 
 	if version != "1" {
-		return nil, "", errors.New("unexpected version " + version)
+		return nil, "", fmt.Errorf("%w: unexpected version %s", errFakeEdge, version)
 	}
 
 	var snapshot struct {
@@ -119,8 +122,8 @@ func edgeAssoc(name string, event types.EventType, includeBody bool) types.Lambd
 	}
 }
 
-func edgeBehavior(origin, cachePolicy string, assocs ...types.LambdaFunctionAssociation) types.DefaultCacheBehavior {
-	def := behavior(origin, cachePolicy)
+func edgeBehavior(cachePolicy string, assocs ...types.LambdaFunctionAssociation) types.DefaultCacheBehavior {
+	def := behavior("api", cachePolicy)
 	def.AllowedMethods = allowed(types.MethodGet, types.MethodHead, types.MethodOptions, types.MethodPut,
 		types.MethodPost, types.MethodPatch, types.MethodDelete)
 	def.LambdaFunctionAssociations = &types.LambdaFunctionAssociations{
@@ -139,17 +142,17 @@ func TestLambdaEdge_DataPlane(t *testing.T) {
 	tests := []struct {
 		fn         edgeFn
 		wantHeader [2]string
-		name       string
-		event      types.EventType
+		wantOrigin [2]string
+		wantBody   string
 		method     string
 		reqBody    string
-		wantBody   string
+		event      types.EventType
 		wantXCache string
-		wantOrigin [2]string
+		name       string
 		wantURI    string
-		includeBod bool
 		wantStatus int
 		wantHits   int32
+		includeBod bool
 	}{
 		{
 			name: "viewer_request_rewrites_uri_and_query", event: types.EventTypeViewerRequest,
@@ -367,7 +370,7 @@ func TestLambdaEdge_DataPlane(t *testing.T) {
 		},
 		{
 			name: "invoke_error", event: types.EventTypeOriginRequest,
-			fn:         func(map[string]any) (any, string, error) { return nil, "", errors.New("boom") },
+			fn:         func(map[string]any) (any, string, error) { return nil, "", errFakeEdge },
 			wantStatus: http.StatusServiceUnavailable, wantXCache: "LambdaExecutionError from cloudfront",
 		},
 		{
@@ -391,7 +394,7 @@ func TestLambdaEdge_DataPlane(t *testing.T) {
 				_, _ = w.Write([]byte(r.RequestURI))
 			})
 
-			def := edgeBehavior("api", f.cachePolicyQuery(t, 0, 0, types.CachePolicyQueryStringBehaviorAll),
+			def := edgeBehavior(f.cachePolicyQuery(t, 0, 0, types.CachePolicyQueryStringBehaviorAll),
 				edgeAssoc("fn", tt.event, tt.includeBod))
 			d := f.dist(t, distSpec{origins: []types.Origin{customOrigin("api", origin.hostPort())}, def: def})
 
@@ -428,16 +431,41 @@ func TestLambdaEdge_IncludeBody(t *testing.T) {
 	tests := []struct {
 		name        string
 		event       types.EventType
+		wantAtOrig  string
 		includeBody bool
 		replace     bool
-		wantAtOrig  string
 		wantEvBody  bool
 	}{
-		{name: "viewer_read_only", event: types.EventTypeViewerRequest, includeBody: true, wantAtOrig: "payload", wantEvBody: true},
-		{name: "viewer_replace", event: types.EventTypeViewerRequest, includeBody: true, replace: true, wantAtOrig: "swapped", wantEvBody: true},
-		{name: "origin_replace", event: types.EventTypeOriginRequest, includeBody: true, replace: true, wantAtOrig: "swapped", wantEvBody: true},
+		{
+			name:        "viewer_read_only",
+			event:       types.EventTypeViewerRequest,
+			includeBody: true,
+			wantAtOrig:  "payload",
+			wantEvBody:  true,
+		},
+		{
+			name:        "viewer_replace",
+			event:       types.EventTypeViewerRequest,
+			includeBody: true,
+			replace:     true,
+			wantAtOrig:  "swapped",
+			wantEvBody:  true,
+		},
+		{
+			name:        "origin_replace",
+			event:       types.EventTypeOriginRequest,
+			includeBody: true,
+			replace:     true,
+			wantAtOrig:  "swapped",
+			wantEvBody:  true,
+		},
 		{name: "not_requested", event: types.EventTypeViewerRequest, wantAtOrig: "payload"},
-		{name: "replace_ignored_without_include", event: types.EventTypeOriginRequest, replace: true, wantAtOrig: "payload"},
+		{
+			name:       "replace_ignored_without_include",
+			event:      types.EventTypeOriginRequest,
+			replace:    true,
+			wantAtOrig: "payload",
+		},
 	}
 
 	for _, tt := range tests {
@@ -458,15 +486,15 @@ func TestLambdaEdge_IncludeBody(t *testing.T) {
 			f.h.SetLambdaEdge(func() cloudfront.LambdaEdge { return edge })
 
 			origin := newOriginServer(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-			def := edgeBehavior("api", f.cachePolicy(t, 0), edgeAssoc("fn", tt.event, tt.includeBody))
+			def := edgeBehavior(f.cachePolicy(t, 0), edgeAssoc("fn", tt.event, tt.includeBody))
 			d := f.dist(t, distSpec{origins: []types.Origin{customOrigin("api", origin.hostPort())}, def: def})
 
 			got := f.do(t, http.MethodPost, f.base+"/submit", d.domain, strings.NewReader("payload"), nil)
 			require.Equal(t, http.StatusOK, got.status, got.body)
 			assert.Equal(t, tt.wantAtOrig, origin.last(t).body)
 
-			body, has := sub(sub(edge.lastEvent(t, "fn"), "request"), "body"), false
-			has = body != nil
+			body := sub(sub(edge.lastEvent(t, "fn"), "request"), "body")
+			has := body != nil
 
 			require.Equal(t, tt.wantEvBody, has)
 
@@ -511,7 +539,7 @@ func TestLambdaEdge_EventShape(t *testing.T) {
 				w.Header().Set("X-Origin", "yes")
 				_, _ = w.Write([]byte("ok"))
 			})
-			def := edgeBehavior("api", f.cachePolicyQuery(t, 0, 0, types.CachePolicyQueryStringBehaviorAll),
+			def := edgeBehavior(f.cachePolicyQuery(t, 0, 0, types.CachePolicyQueryStringBehaviorAll),
 				edgeAssoc(tt.fn, tt.event, false))
 			d := f.dist(t, distSpec{origins: []types.Origin{customOrigin("api", origin.hostPort())}, def: def})
 
@@ -563,9 +591,17 @@ func TestLambdaEdge_CacheSkipsOriginEvents(t *testing.T) {
 	f.h.SetLambdaEdge(func() cloudfront.LambdaEdge { return edge })
 
 	origin := newOriginServer(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("body")) })
-	def := edgeBehavior("api", f.cachePolicy(t, 60),
-		edgeAssoc("vreq", types.EventTypeViewerRequest, false), edgeAssoc("oreq", types.EventTypeOriginRequest, false),
-		edgeAssoc("oresp", types.EventTypeOriginResponse, false), edgeAssoc("vresp", types.EventTypeViewerResponse, false))
+	def := edgeBehavior(
+		f.cachePolicy(t, 60),
+		edgeAssoc("vreq", types.EventTypeViewerRequest, false),
+		edgeAssoc("oreq", types.EventTypeOriginRequest, false),
+		edgeAssoc(
+			"oresp",
+			types.EventTypeOriginResponse,
+			false,
+		),
+		edgeAssoc("vresp", types.EventTypeViewerResponse, false),
+	)
 	d := f.dist(t, distSpec{origins: []types.Origin{customOrigin("api", origin.hostPort())}, def: def})
 
 	first := f.viewer(t, d, http.MethodGet, "/cached", nil)
@@ -590,7 +626,7 @@ func TestLambdaEdge_OriginRequestGeneratedResponseIsCached(t *testing.T) {
 	f.h.SetLambdaEdge(func() cloudfront.LambdaEdge { return edge })
 
 	origin := newOriginServer(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("origin")) })
-	def := edgeBehavior("api", f.cachePolicy(t, 60), edgeAssoc("oreq", types.EventTypeOriginRequest, false))
+	def := edgeBehavior(f.cachePolicy(t, 60), edgeAssoc("oreq", types.EventTypeOriginRequest, false))
 	d := f.dist(t, distSpec{origins: []types.Origin{customOrigin("api", origin.hostPort())}, def: def})
 
 	first := f.viewer(t, d, http.MethodGet, "/g", nil)
@@ -621,7 +657,7 @@ func TestLambdaEdge_OriginRequestSwitchesOrigin(t *testing.T) {
 	f.h.SetLambdaEdge(func() cloudfront.LambdaEdge { return edge })
 
 	first := newOriginServer(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("first")) })
-	def := edgeBehavior("api", f.cachePolicy(t, 0), edgeAssoc("oreq", types.EventTypeOriginRequest, false))
+	def := edgeBehavior(f.cachePolicy(t, 0), edgeAssoc("oreq", types.EventTypeOriginRequest, false))
 	d := f.dist(t, distSpec{origins: []types.Origin{customOrigin("api", first.hostPort())}, def: def})
 
 	got := f.viewer(t, d, http.MethodGet, "/x", nil)
@@ -643,9 +679,9 @@ func TestLambdaEdge_Associations(t *testing.T) {
 		name      string
 		arn       string
 		event     types.EventType
+		cfFn      types.EventType
 		body      bool
 		dup       bool
-		cfFn      types.EventType
 		absent    bool
 		update    bool
 		wantError bool
@@ -656,7 +692,13 @@ func TestLambdaEdge_Associations(t *testing.T) {
 		{name: "latest", arn: edgeARNBase + "fn:$LATEST", event: types.EventTypeViewerRequest, wantError: true},
 		{name: "alias", arn: edgeARNBase + "fn:prod", event: types.EventTypeViewerRequest, wantError: true},
 		{name: "unqualified", arn: edgeARNBase + "fn", event: types.EventTypeViewerRequest, wantError: true},
-		{name: "latest_on_update", arn: edgeARNBase + "fn:$LATEST", event: types.EventTypeViewerRequest, update: true, wantError: true},
+		{
+			name:      "latest_on_update",
+			arn:       edgeARNBase + "fn:$LATEST",
+			event:     types.EventTypeViewerRequest,
+			update:    true,
+			wantError: true,
+		},
 		{
 			name: "wrong_region", arn: "arn:aws:lambda:eu-west-1:" + edgeAccount + ":function:fn:1",
 			event: types.EventTypeViewerRequest, wantError: true,
@@ -667,8 +709,20 @@ func TestLambdaEdge_Associations(t *testing.T) {
 		},
 		{name: "not_an_arn", arn: "fn:1", event: types.EventTypeViewerRequest, wantError: true},
 		{name: "bad_event", arn: validARN, event: types.EventType("sometimes"), wantError: true},
-		{name: "body_on_viewer_response", arn: validARN, event: types.EventTypeViewerResponse, body: true, wantError: true},
-		{name: "body_on_origin_response", arn: validARN, event: types.EventTypeOriginResponse, body: true, wantError: true},
+		{
+			name:      "body_on_viewer_response",
+			arn:       validARN,
+			event:     types.EventTypeViewerResponse,
+			body:      true,
+			wantError: true,
+		},
+		{
+			name:      "body_on_origin_response",
+			arn:       validARN,
+			event:     types.EventTypeOriginResponse,
+			body:      true,
+			wantError: true,
+		},
 		{name: "duplicate_event", arn: validARN, event: types.EventTypeViewerRequest, dup: true, wantError: true},
 		{name: "version_missing", arn: validARN, event: types.EventTypeViewerRequest, absent: true, wantError: true},
 		{
@@ -721,7 +775,9 @@ func TestLambdaEdge_Associations(t *testing.T) {
 
 			if tt.update {
 				base := f.dist(t, distSpec{
-					origins: []types.Origin{customOrigin("api", origin.hostPort())}, def: behavior("api", f.cachePolicy(t, 0)),
+					origins: []types.Origin{
+						customOrigin("api", origin.hostPort()),
+					}, def: behavior("api", f.cachePolicy(t, 0)),
 				})
 				err = updateWithBehavior(t, f.cf, base.id, def)
 			} else {
@@ -748,10 +804,13 @@ func createWithBehavior(t *testing.T, f *dpFixture, origin *originServer, def ty
 
 	_, err := f.cf.CreateDistribution(t.Context(), &cfsdk.CreateDistributionInput{
 		DistributionConfig: &types.DistributionConfig{
-			CallerReference:      aws.String("assoc-" + strings.Repeat("r", f.callID)),
-			Comment:              aws.String("c"),
-			Enabled:              aws.Bool(true),
-			Origins:              &types.Origins{Quantity: aws.Int32(1), Items: []types.Origin{customOrigin("api", origin.hostPort())}},
+			CallerReference: aws.String("assoc-" + strings.Repeat("r", f.callID)),
+			Comment:         aws.String("c"),
+			Enabled:         aws.Bool(true),
+			Origins: &types.Origins{
+				Quantity: aws.Int32(1),
+				Items:    []types.Origin{customOrigin("api", origin.hostPort())},
+			},
 			DefaultCacheBehavior: &def,
 		},
 	})

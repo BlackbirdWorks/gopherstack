@@ -31,7 +31,7 @@ func (h *Handler) applyEdgeViewerRequest(w http.ResponseWriter, d *Distribution,
 		return false
 	}
 
-	_, maxBody, _ := edgeLimits(eventViewerRequest)
+	maxBody := edgeLimits(eventViewerRequest).maxBody
 	in := edgeVisible(v.r.Header, v.r.Host)
 	req := edgeRequestObject(v, in, v.r.URL.RawQuery, v.path)
 
@@ -39,7 +39,7 @@ func (h *Handler) applyEdgeViewerRequest(w http.ResponseWriter, d *Distribution,
 		req[keyBody] = edgeBodyObject(v.body, maxBody)
 	}
 
-	cf := map[string]any{"config": h.edgeConfig(d, v, eventViewerRequest), "request": req}
+	cf := map[string]any{keyConfig: h.edgeConfig(d, v, eventViewerRequest), keyRequest: req}
 
 	out, ferr := h.edgeInvoke(v.r.Context(), a, eventViewerRequest, cf)
 	if ferr != nil {
@@ -123,7 +123,7 @@ func edgeOriginObject(o *dpOrigin, viewerScheme string) map[string]any {
 		}
 	}
 
-	return map[string]any{"custom": map[string]any{
+	return map[string]any{keyCustom: map[string]any{
 		"customHeaders": hdrs, "domainName": o.Domain, "path": o.Path, "port": port, "protocol": proto,
 		"keepaliveTimeout":          max(o.Custom.KeepAlive, edgeDefaultKeepAlive),
 		"readTimeout":               max(o.Custom.ReadTimeout, edgeDefaultReadTimeout),
@@ -144,7 +144,7 @@ func parseEdgeOrigin(raw any) (*originParams, *edgeError) {
 		return nil, edgeValidation("The Lambda function returned an origin that is not an object.")
 	}
 
-	custom, hasCustom := m["custom"].(map[string]any)
+	custom, hasCustom := m[keyCustom].(map[string]any)
 	s3o, hasS3 := m["s3"].(map[string]any)
 
 	if hasCustom == hasS3 {
@@ -188,7 +188,13 @@ func parseEdgeOrigin(raw any) (*originParams, *edgeError) {
 
 // originPhase runs the origin-request function, the origin fetch and the origin-response function.
 func (h *Handler) originPhase(
-	ctx context.Context, d *Distribution, cfg *dpDistConfig, beh *dpBehavior, pol *dpPolicy, v *viewerReq, reqPath string,
+	ctx context.Context,
+	d *Distribution,
+	cfg *dpDistConfig,
+	beh *dpBehavior,
+	pol *dpPolicy,
+	v *viewerReq,
+	reqPath string,
 ) originResp {
 	pv, path, gen, ferr := h.applyEdgeOriginRequest(ctx, d, cfg, beh, pol, v, reqPath)
 	if ferr != nil {
@@ -205,7 +211,13 @@ func (h *Handler) originPhase(
 }
 
 func (h *Handler) applyEdgeOriginRequest(
-	ctx context.Context, d *Distribution, cfg *dpDistConfig, beh *dpBehavior, pol *dpPolicy, v *viewerReq, reqPath string,
+	ctx context.Context,
+	d *Distribution,
+	cfg *dpDistConfig,
+	beh *dpBehavior,
+	pol *dpPolicy,
+	v *viewerReq,
+	reqPath string,
 ) (*viewerReq, string, *originResp, *edgeError) {
 	a := h.edgeAssoc(beh, eventOriginRequest)
 	plan := cfg.plan(beh.TargetOriginID, v.origin)
@@ -221,7 +233,7 @@ func (h *Handler) applyEdgeOriginRequest(
 		return v, reqPath, nil, nil
 	}
 
-	_, maxBody, _ := edgeLimits(eventOriginRequest)
+	maxBody := edgeLimits(eventOriginRequest).maxBody
 	query := forwardedQuery(v.r.URL.RawQuery, pol)
 	in := edgeVisible(outReq.Header, outReq.Host)
 	req := edgeRequestObject(v, in, query, reqPath)
@@ -231,7 +243,7 @@ func (h *Handler) applyEdgeOriginRequest(
 		req[keyBody] = edgeBodyObject(v.body, maxBody)
 	}
 
-	cf := map[string]any{"config": h.edgeConfig(d, v, eventOriginRequest), "request": req}
+	cf := map[string]any{keyConfig: h.edgeConfig(d, v, eventOriginRequest), keyRequest: req}
 
 	out, ferr := h.edgeInvoke(ctx, a, eventOriginRequest, cf)
 	if ferr != nil {
@@ -285,8 +297,8 @@ func (h *Handler) edgeResponseEvent(
 
 	in := edgeVisible(resp.header, "")
 	cf := map[string]any{
-		"config":  h.edgeConfig(d, v, eventType),
-		"request": req,
+		keyConfig:  h.edgeConfig(d, v, eventType),
+		keyRequest: req,
 		"response": map[string]any{
 			"status": strconv.Itoa(resp.status), "statusDescription": http.StatusText(resp.status),
 			keyHeaders: edgeHeaderMap(in),

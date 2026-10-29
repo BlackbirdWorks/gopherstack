@@ -84,7 +84,7 @@ func (h *Handler) functionEvent(d *Distribution, v *viewerReq, eventType string,
 			"eventType": eventType, "requestId": v.cfID,
 		},
 		"viewer": map[string]any{"ip": clientIP(v.r)},
-		"request": map[string]any{
+		keyRequest: map[string]any{
 			"method": v.r.Method, "uri": v.path,
 			keyQuerystring: fnValueMap(v.r.URL.Query(), false),
 			"headers":      fnValueMap(v.r.Header, true),

@@ -31,7 +31,13 @@ func TestInvokePublishedVersionKeepsCode(t *testing.T) {
 			pa, err := portalloc.New(19700+i*20, 19710+i*20)
 			require.NoError(t, err)
 
-			bk := lambda.NewInMemoryBackend(newMockDockerClient(), pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
+			bk := lambda.NewInMemoryBackend(
+				newMockDockerClient(),
+				pa,
+				lambda.DefaultSettings(),
+				"000000000000",
+				"us-east-1",
+			)
 			closeBackend(t, bk)
 
 			require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{

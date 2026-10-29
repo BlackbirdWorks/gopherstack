@@ -94,16 +94,14 @@ func isEdgeEvent(e string) bool {
 
 func (h *Handler) validateEdgeAssociations(raw []byte) error {
 	cfg, err := parseDistConfig(raw)
-	if err != nil {
-		return nil
-	}
+	if err == nil {
+		edge := h.lambdaEdge()
+		behaviors := append([]dpBehavior{cfg.Default}, cfg.Behaviors...)
 
-	edge := h.lambdaEdge()
-	behaviors := append([]dpBehavior{cfg.Default}, cfg.Behaviors...)
-
-	for i := range behaviors {
-		if vErr := validateBehaviorEdge(&behaviors[i], edge, h.Backend.accountID); vErr != nil {
-			return vErr
+		for i := range behaviors {
+			if vErr := validateBehaviorEdge(&behaviors[i], edge, h.Backend.accountID); vErr != nil {
+				return vErr
+			}
 		}
 	}
 

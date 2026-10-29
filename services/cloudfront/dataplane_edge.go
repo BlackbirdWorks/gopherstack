@@ -32,6 +32,10 @@ const (
 	encodingText      = "text"
 	keyHeaders        = "headers"
 	keyBody           = "body"
+	keyContentLength  = "content-length"
+	keyConfig         = "config"
+	keyRequest        = "request"
+	keyCustom         = "custom"
 )
 
 type edgeError struct {
@@ -56,12 +60,18 @@ type edgeOverride struct {
 	query  *string
 }
 
-func edgeLimits(eventType string) (timeout time.Duration, maxBody, maxB64 int) {
+type edgeLimit struct {
+	timeout time.Duration
+	maxBody int
+	maxB64  int
+}
+
+func edgeLimits(eventType string) edgeLimit {
 	if eventType == eventViewerRequest || eventType == eventViewerResponse {
-		return viewerEdgeTimeout, viewerEdgeMaxBody, viewerEdgeMaxB64
+		return edgeLimit{viewerEdgeTimeout, viewerEdgeMaxBody, viewerEdgeMaxB64}
 	}
 
-	return originEdgeTimeout, originEdgeMaxBody, originEdgeMaxB64
+	return edgeLimit{originEdgeTimeout, originEdgeMaxBody, originEdgeMaxB64}
 }
 
 func (h *Handler) edgeAssoc(beh *dpBehavior, eventType string) *dpEdgeAssoc {
@@ -93,16 +103,16 @@ func edgeDisallowed(name string) bool {
 func edgeReadOnly(eventType string) []string {
 	switch eventType {
 	case eventViewerRequest:
-		return []string{"cdn-loop", "content-length", "host", "transfer-encoding", "via"}
+		return []string{"cdn-loop", keyContentLength, "host", "transfer-encoding", "via"}
 	case eventOriginRequest:
 		return []string{
-			"accept-encoding", "cdn-loop", "content-length", "if-modified-since", "if-none-match", "if-range",
+			"accept-encoding", "cdn-loop", keyContentLength, "if-modified-since", "if-none-match", "if-range",
 			"if-unmodified-since", "transfer-encoding", "via",
 		}
 	case eventOriginResponse:
 		return []string{"transfer-encoding", "via"}
 	default:
-		return []string{"warning", "via", "content-length", "content-encoding", "transfer-encoding"}
+		return []string{"warning", "via", keyContentLength, "content-encoding", "transfer-encoding"}
 	}
 }
 
@@ -168,7 +178,7 @@ func parseEdgeHeaders(raw any) (http.Header, *edgeError) {
 				key = k
 			}
 
-			out.Add(http.CanonicalHeaderKey(key), val)
+			out.Add(key, val)
 		}
 	}
 
@@ -220,8 +230,7 @@ func edgeBodyObject(body []byte, maxBody int) map[string]any {
 func (h *Handler) edgeInvoke(
 	ctx context.Context, a *dpEdgeAssoc, eventType string, cf map[string]any,
 ) (map[string]any, *edgeError) {
-	timeout, _, _ := edgeLimits(eventType)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, edgeLimits(eventType).timeout)
 
 	defer cancel()
 
@@ -254,7 +263,9 @@ func (h *Handler) edgeInvoke(
 
 	var out map[string]any
 	if json.Unmarshal(res, &out) != nil || out == nil {
-		return nil, edgeValidation("The Lambda function returned a value that is not a valid request or response object.")
+		return nil, edgeValidation(
+			"The Lambda function returned a value that is not a valid request or response object.",
+		)
 	}
 
 	return out, nil
@@ -311,7 +322,8 @@ func parseEdgeStatus(out map[string]any) (int, *edgeError) {
 }
 
 func parseEdgeResponse(out map[string]any, eventType string, in http.Header) (originResp, *edgeError) {
-	_, maxBody, maxB64 := edgeLimits(eventType)
+	lim := edgeLimits(eventType)
+	maxBody, maxB64 := lim.maxBody, lim.maxB64
 
 	status, serr := parseEdgeStatus(out)
 	if serr != nil {
@@ -387,7 +399,8 @@ type edgeReqResult struct {
 func parseEdgeRequest(
 	out map[string]any, in http.Header, eventType string, includeBody bool, curURI, curQuery string,
 ) (*edgeReqResult, *edgeError) {
-	_, maxBody, maxB64 := edgeLimits(eventType)
+	lim := edgeLimits(eventType)
+	maxBody, maxB64 := lim.maxBody, lim.maxB64
 	res := &edgeReqResult{uri: curURI, query: curQuery}
 
 	if s, ok := out["uri"].(string); ok {
