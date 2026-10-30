@@ -143,8 +143,6 @@ func (p *APIMProvider) Do(req apimReq) (apimResp, error) {
 		return apimResp{}, apimNotFound("API Management service")
 	}
 
-	s.now = p.now
-
 	if req.Method != http.MethodGet && req.Method != http.MethodHead && s.state(p.now()) != provisioningStateSucceeded {
 		return apimResp{}, apimBusy()
 	}
