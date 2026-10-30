@@ -408,7 +408,9 @@ func TestRoutingIndexLeadingSlashes(t *testing.T) {
 		scan := scanSelect(entries, echo.NewContext(rc.request(t), httptest.NewRecorder()))
 		got := entryName(router.Lookup(echo.NewContext(rc.request(t), httptest.NewRecorder())))
 
-		if got != scan && (slices.Contains(trimmed, scan) || slices.Contains(trimmed, got)) && len(diffs) < routingMaxDiffs {
+		involved := slices.Contains(trimmed, scan) || slices.Contains(trimmed, got)
+
+		if got != scan && involved && len(diffs) < routingMaxDiffs {
 			diffs = append(diffs, rc.method+" "+rc.host+rc.uri+": got "+got+" want "+scan)
 		}
 	}

@@ -216,19 +216,23 @@ func (c *collector) addAppStream(rows []row) {
 	}
 }
 
-// lookalikeBuckets are bucket names that collide with other services' first path segments.
-var lookalikeBuckets = []string{
-	"tags", "2015-03-31", "restapis", "functions", "model", "things", "policies", "proxy", "api", "_admin",
-	"apikeys", "domainnames", "usageplans", "clientcertificates", "vpclinks", "sdktypes", "rules", "cluster",
-	"controlpanel", "routingcontrol", "safetyrule", "zonalshifts", "cells", "identities", "invocations", "mcp",
-	"memories", "runtimes", "target-policies", "layers", "event-source-mappings", "2018-10-31", "2020-04-22",
+const noteS3Lookalike = "special:s3lookalike"
+
+// lookalikeBuckets returns bucket names that collide with other services' first path segments.
+func lookalikeBuckets() []string {
+	return []string{
+		"tags", "2015-03-31", "restapis", "functions", "model", "things", "policies", "proxy", "api", "_admin",
+		"apikeys", "domainnames", "usageplans", "clientcertificates", "vpclinks", "sdktypes", "rules", "cluster",
+		"controlpanel", "routingcontrol", "safetyrule", "zonalshifts", "cells", "identities", "invocations", "mcp",
+		"memories", "runtimes", "target-policies", "layers", "event-source-mappings", "2018-10-31", "2020-04-22",
+	}
 }
 
 // addS3Lookalikes adds S3 object requests whose bucket name equals another service's path prefix.
 func (c *collector) addS3Lookalikes() {
 	names := map[string]bool{}
 
-	for _, b := range lookalikeBuckets {
+	for _, b := range lookalikeBuckets() {
 		names[b] = true
 	}
 
@@ -249,9 +253,9 @@ func (c *collector) addS3Lookalikes() {
 
 	for _, b := range sorted {
 		obj := "/" + b + "/key.txt"
-		c.add(row{methodGet, host, obj, "s3", "", "", "", "", "special:s3lookalike"})
-		c.add(row{"PUT", host, obj, "s3", "application/octet-stream", "", "body", "", "special:s3lookalike"})
-		c.add(row{methodGet, host, obj, "", "", "", "", fmt.Sprintf(uaFmt, "s3"), "special:s3lookalike"})
-		c.add(row{"HEAD", host, "/" + b, "s3", "", "", "", "", "special:s3lookalike"})
+		c.add(row{methodGet, host, obj, "s3", "", "", "", "", noteS3Lookalike})
+		c.add(row{"PUT", host, obj, "s3", "application/octet-stream", "", "body", "", noteS3Lookalike})
+		c.add(row{methodGet, host, obj, "", "", "", "", fmt.Sprintf(uaFmt, "s3"), noteS3Lookalike})
+		c.add(row{"HEAD", host, "/" + b, "s3", "", "", "", "", noteS3Lookalike})
 	}
 }
