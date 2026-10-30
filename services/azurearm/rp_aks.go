@@ -46,6 +46,8 @@ const (
 	aksKindOther aksKind = iota
 	aksKindCluster
 	aksKindPool
+	aksKindMaint
+	aksKindBinding
 )
 
 type aksTarget struct {
@@ -67,6 +69,10 @@ func aksTargetOf(id ResourceID) aksTarget {
 		t.kind = aksKindCluster
 	case acaTypesAre(types, aksClusterType, aksPoolType):
 		t.kind = aksKindPool
+	case acaTypesAre(types, aksClusterType, aksMaintType):
+		t.kind = aksKindMaint
+	case acaTypesAre(types, aksClusterType, aksBindingType):
+		t.kind = aksKindBinding
 	}
 
 	return t
@@ -75,27 +81,31 @@ func aksTargetOf(id ResourceID) aksTarget {
 func aksKey(rg, name string) string { return strings.ToLower(rg) + "/" + strings.ToLower(name) }
 
 type storedAKSCluster struct {
-	Created       time.Time                 `json:"created"`
-	Modified      time.Time                 `json:"modified"`
-	Tags          map[string]string         `json:"tags,omitempty"`
-	Props         map[string]any            `json:"props"`
-	Pools         map[string]*storedAKSPool `json:"pools"`
-	Fqdn          string                    `json:"fqdn"`
-	SkuTier       string                    `json:"skuTier"`
-	Name          string                    `json:"name"`
-	ResourceGroup string                    `json:"resourceGroup"`
-	Location      string                    `json:"location"`
-	Kind          string                    `json:"kind,omitempty"`
-	SkuName       string                    `json:"skuName"`
-	Sub           string                    `json:"sub"`
-	Requested     string                    `json:"requested"`
-	Current       string                    `json:"current"`
-	CACert        string                    `json:"caCert"`
-	NodeRG        string                    `json:"nodeRG"`
-	Token         string                    `json:"token"`
-	Identity      resourceIdentity          `json:"identity"`
-	NextSeq       int                       `json:"nextSeq"`
-	Stopped       bool                      `json:"stopped,omitempty"`
+	Created       time.Time                    `json:"created"`
+	Modified      time.Time                    `json:"modified"`
+	Tags          map[string]string            `json:"tags,omitempty"`
+	Props         map[string]any               `json:"props"`
+	Pools         map[string]*storedAKSPool    `json:"pools"`
+	Commands      map[string]*storedAKSCommand `json:"commands,omitempty"`
+	Bindings      map[string]*storedAKSBinding `json:"bindings,omitempty"`
+	Maint         map[string]*storedAKSMaint   `json:"maint,omitempty"`
+	Sub           string                       `json:"sub"`
+	Token         string                       `json:"token"`
+	Kind          string                       `json:"kind,omitempty"`
+	SkuName       string                       `json:"skuName"`
+	ResourceGroup string                       `json:"resourceGroup"`
+	Requested     string                       `json:"requested"`
+	Current       string                       `json:"current"`
+	CACert        string                       `json:"caCert"`
+	NodeRG        string                       `json:"nodeRG"`
+	Location      string                       `json:"location"`
+	Fqdn          string                       `json:"fqdn"`
+	SkuTier       string                       `json:"skuTier"`
+	Name          string                       `json:"name"`
+	ProvState     string                       `json:"provState,omitempty"`
+	Identity      resourceIdentity             `json:"identity"`
+	NextSeq       int                          `json:"nextSeq"`
+	Stopped       bool                         `json:"stopped,omitempty"`
 }
 
 func (c *storedAKSCluster) armID() string {
@@ -144,6 +154,7 @@ type ContainerServiceProvider struct {
 	mu       *lockmetrics.RWMutex
 	opMu     *lockmetrics.RWMutex
 	clusters map[string]*storedAKSCluster
+	ops      map[string]*aksOp
 	cascade  func(ctx context.Context, resourceGroup string)
 	eng      *aksEngine
 	wg       sync.WaitGroup
@@ -156,7 +167,7 @@ func NewContainerServiceProvider(
 	return &ContainerServiceProvider{
 		now: time.Now, backend: backend, net: network, ids: ids,
 		mu: lockmetrics.New("azurearm.containerservice"), opMu: lockmetrics.New("azurearm.containerservice.ops"),
-		clusters: map[string]*storedAKSCluster{}, eng: newAKSEngine(),
+		clusters: map[string]*storedAKSCluster{}, ops: map[string]*aksOp{}, eng: newAKSEngine(),
 	}
 }
 
@@ -199,6 +210,10 @@ func (p *ContainerServiceProvider) Put(
 		return p.putCluster(ctx, id, body)
 	case t.kind == aksKindPool:
 		return p.putPool(id, body)
+	case t.kind == aksKindMaint:
+		return p.putMaint(id, body)
+	case t.kind == aksKindBinding:
+		return p.putBinding(id, body)
 	}
 
 	out, _, err := p.backend.putGenericResource(id, body)
@@ -216,6 +231,14 @@ func (p *ContainerServiceProvider) Get(_ context.Context, id ResourceID) (map[st
 
 	if t.listing {
 		return nil, ErrResourceNotFound
+	}
+
+	switch t.kind {
+	case aksKindMaint:
+		return p.getMaint(id)
+	case aksKindBinding:
+		return p.getBinding(id)
+	case aksKindOther, aksKindCluster, aksKindPool:
 	}
 
 	p.mu.RLock("Get")
@@ -249,6 +272,10 @@ func (p *ContainerServiceProvider) Delete(ctx context.Context, id ResourceID) er
 		return p.deleteCluster(ctx, id, t.names[0])
 	case t.kind == aksKindPool:
 		return p.deletePool(id, t)
+	case t.kind == aksKindMaint:
+		return p.deleteMaint(id)
+	case t.kind == aksKindBinding:
+		return p.deleteBinding(id)
 	}
 
 	return p.backend.deleteGenericResource(id)
@@ -260,6 +287,14 @@ func (p *ContainerServiceProvider) List(_ context.Context, id ResourceID) ([]map
 
 	if t.kind == aksKindOther {
 		return p.backend.listGenericResources(id), nil
+	}
+
+	switch t.kind {
+	case aksKindMaint:
+		return p.listMaint(id)
+	case aksKindBinding:
+		return p.listBindings(id)
+	case aksKindOther, aksKindCluster, aksKindPool:
 	}
 
 	p.mu.RLock("List")
@@ -300,6 +335,7 @@ func (p *ContainerServiceProvider) Reset() {
 	p.mu.Unlock()
 
 	p.eng.removeAll()
+	p.eng.sweepVolumes(nil)
 }
 
 // DeleteResourcesInGroup implements ResourceProvider; clusters of the group go with their node resource groups, and a
@@ -326,7 +362,7 @@ func (p *ContainerServiceProvider) DeleteResourcesInGroup(ctx context.Context, r
 	cascade := p.cascade
 	p.mu.Unlock()
 
-	p.eng.removeKeys(keys)
+	p.eng.purge(keys)
 	p.opMu.Unlock()
 
 	for _, rg := range nodeGroups {
@@ -374,7 +410,7 @@ func (p *ContainerServiceProvider) etagOf(id ResourceID) (string, bool) {
 		if pool, found := c.Pools[strings.ToLower(t.names[1])]; found {
 			return aksEtag(pool.Modified), true
 		}
-	case aksKindOther:
+	case aksKindOther, aksKindMaint, aksKindBinding:
 	}
 
 	return "", false

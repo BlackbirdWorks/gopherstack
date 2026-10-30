@@ -25,13 +25,96 @@ const (
 
 var errAKSRuntimeDown = errors.New("runtime down")
 
+type aksExecCall struct {
+	id  string
+	cmd []string
+	env []string
+}
+
 type aksFakeRuntime struct {
 	failErr error
+	// execFn answers non-CA reads; nil answers exit 0 with no output.
+	execFn  func(ctx context.Context, call aksExecCall) (container.ExecResult, error)
+	gate    chan struct{}
+	entered chan struct{}
 	specs   []container.Spec
 	removed []string
 	stopped []string
 	started []string
+	execs   []aksExecCall
+	volumes []string
+	volGone []string
 	mu      sync.Mutex
+}
+
+func (f *aksFakeRuntime) CreateVolume(_ context.Context, name string, _ map[string]string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.volumes = append(f.volumes, name)
+
+	return nil
+}
+
+func (f *aksFakeRuntime) RemoveVolume(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.volGone = append(f.volGone, name)
+
+	return nil
+}
+
+func (f *aksFakeRuntime) ListUnusedVolumes(context.Context, string, time.Duration) ([]string, error) {
+	return nil, nil
+}
+
+func (f *aksFakeRuntime) Exec(ctx context.Context, id string, cmd []string) (container.ExecResult, error) {
+	return f.ExecEnv(ctx, id, cmd, nil)
+}
+
+func (f *aksFakeRuntime) ExecEnv(ctx context.Context, id string, cmd, env []string) (container.ExecResult, error) {
+	if len(cmd) > 0 && cmd[0] == "cat" {
+		return container.ExecResult{Stdout: aksTestCA}, nil
+	}
+
+	call := aksExecCall{id: id, cmd: cmd, env: env}
+
+	f.mu.Lock()
+	f.execs = append(f.execs, call)
+	fn := f.execFn
+	f.mu.Unlock()
+
+	if fn == nil {
+		return container.ExecResult{}, nil
+	}
+
+	return fn(ctx, call)
+}
+
+func (f *aksFakeRuntime) execCalls() []aksExecCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]aksExecCall(nil), f.execs...)
+}
+
+func (f *aksFakeRuntime) volumeNames() ([]string, []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.volumes...), append([]string(nil), f.volGone...)
+}
+
+// blockStart makes CreateAndStart wait until its context is cancelled; entered is closed once it is waiting.
+func (f *aksFakeRuntime) blockStart() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.entered = make(chan struct{})
+	f.gate = make(chan struct{})
+
+	return f.entered
 }
 
 func (f *aksFakeRuntime) StopContainer(_ context.Context, id string) error {
@@ -66,8 +149,24 @@ func (f *aksFakeRuntime) startedIDs() []string {
 	return append([]string(nil), f.started...)
 }
 
-func (f *aksFakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
+func (f *aksFakeRuntime) CreateAndStart(ctx context.Context, spec container.Spec) (string, error) {
 	f.mu.Lock()
+
+	if gate := f.gate; gate != nil {
+		entered := f.entered
+		f.gate, f.entered = nil, nil
+		f.mu.Unlock()
+		close(entered)
+
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-gate:
+		}
+
+		f.mu.Lock()
+	}
+
 	defer f.mu.Unlock()
 
 	if f.failErr != nil {
