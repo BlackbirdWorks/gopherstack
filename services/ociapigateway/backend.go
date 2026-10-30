@@ -164,7 +164,7 @@ func (b *InMemoryBackend) httpBackend(
 	copyRequestHeaders(out.Header, rv.header)
 	out.Header.Set("X-Forwarded-For", clientKey(r))
 
-	resp, err := b.client.Do(out) //nolint:gosec // G704: dials loopback only unless external backends are enabled
+	resp, err := b.client.Do(out) //nolint:gosec,bodyclose // G704 loopback-only by default; body closed by cancelBody
 	if err != nil {
 		cancel()
 

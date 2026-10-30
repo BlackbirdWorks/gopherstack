@@ -220,7 +220,7 @@ func TestJWTVerifyClaims(t *testing.T) {
 	e.mkDeployment(t, *gw.Id, "/c", authSpec(
 		`{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+`]}`,
 		`"isAnonymousAccessAllowed":true,"verifyClaims":[{"key":"tier","values":["gold","silver"]},`+
-		`{"key":"dept","isRequired":false,"values":["eng"]}],`,
+			`{"key":"dept","isRequired":false,"values":["eng"]}],`,
 	))
 	now := e.clock.Now()
 
