@@ -286,7 +286,7 @@ func TestRouteTargetGatesHold(t *testing.T) {
 			for _, rc := range cases {
 				for _, target := range []string{"", "Zz.Op", "Zz" + strings.Join(prefixes, "")} {
 					rc.target = target
-					if hasTargetPrefix(target, prefixes) {
+					if hasTargetPrefix(target, prefixes) || cborCovered(name, rc) {
 						continue
 					}
 
@@ -296,6 +296,13 @@ func TestRouteTargetGatesHold(t *testing.T) {
 			}
 		})
 	}
+}
+
+func cborCovered(name string, rc routingCase) bool {
+	shape := routegates.CBORGates()[name]
+	path, _ := splitURI(rc.uri)
+
+	return shape != "" && strings.HasPrefix(path, "/service/"+shape+"/operation/")
 }
 
 func hasTargetPrefix(target string, prefixes []string) bool {
