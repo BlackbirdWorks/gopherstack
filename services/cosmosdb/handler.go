@@ -82,28 +82,29 @@ const defaultRequestCharge = "1"
 // Handler is the Echo HTTP handler for Azure Cosmos DB (Core/SQL API)
 // operations.
 type Handler struct {
-	workerCtx         context.Context
-	Backend           StorageBackend
-	janitor           *worker.Group
-	keysMu            *lockmetrics.RWMutex
-	extraKeys         map[string]struct{}
-	srv               *http.Server
-	srvMu             *lockmetrics.RWMutex
-	clock             func() time.Time
-	meter             *ruMeter
-	TableBackend      *odatatable.InMemoryBackend
-	tlsCert           *tls.Certificate
-	regionSrvs        map[string]*regionListener
-	MasterKey         string
-	certPEM           []byte
-	TLSHosts          []string
-	RegionPortBase    int
-	Port              int
-	SweepInterval     time.Duration
-	ValidateAuth      bool
-	TLS               bool
-	EnforceThroughput bool
-	BurstCapacity     bool
+	workerCtx               context.Context
+	Backend                 StorageBackend
+	janitor                 *worker.Group
+	keysMu                  *lockmetrics.RWMutex
+	extraKeys               map[string]struct{}
+	srv                     *http.Server
+	srvMu                   *lockmetrics.RWMutex
+	clock                   func() time.Time
+	meter                   *ruMeter
+	TableBackend            *odatatable.InMemoryBackend
+	tlsCert                 *tls.Certificate
+	regionSrvs              map[string]*regionListener
+	MasterKey               string
+	certPEM                 []byte
+	TLSHosts                []string
+	RegionPortBase          int
+	Port                    int
+	ResourceTokenMaxSeconds int
+	SweepInterval           time.Duration
+	ValidateAuth            bool
+	TLS                     bool
+	EnforceThroughput       bool
+	BurstCapacity           bool
 }
 
 // defaultSweepInterval is the TTL janitor period; reads already hide expired documents.

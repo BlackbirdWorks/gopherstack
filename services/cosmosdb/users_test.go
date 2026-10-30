@@ -337,6 +337,38 @@ func TestPermission_ExpiryHeaderValidation(t *testing.T) {
 	}
 }
 
+func TestPermission_ExpiryMaxSetting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, value, wantMsg string
+		max, want            int
+	}{
+		{"default accepts 86400", "86400", "", 0, 201},
+		{"default rejects 86401", "86401", "between 600 and 86400", 0, 400},
+		{"configured accepts its max", "18000", "", 18000, 201},
+		{"configured rejects above max", "18001", "between 600 and 18000", 18000, 400},
+		{"configured rejects 86400", "86400", "between 600 and 18000", 18000, 400},
+		{"configured keeps minimum", "599", "between 600 and 18000", 18000, 400},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newUserEnv(t)
+			e.h.ResourceTokenMaxSeconds = tc.max
+			e.seed(t)
+
+			rec := e.admin(t, http.MethodPost, "/dbs/d/users/u/permissions",
+				`{"id":"p","permissionMode":"Read","resource":"dbs/d/colls/c1"}`,
+				map[string]string{"X-Ms-Documentdb-Expiry-Seconds": tc.value})
+			require.Equal(t, tc.want, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tc.wantMsg)
+		})
+	}
+}
+
 func TestResourceToken_Rejected(t *testing.T) {
 	t.Parallel()
 

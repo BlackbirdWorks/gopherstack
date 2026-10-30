@@ -26,6 +26,9 @@ const (
 	defaultTokenExpirySeconds = 3600
 	minTokenExpirySeconds     = 600
 	maxTokenExpirySeconds     = 86400
+	// MinResourceTokenMaxSeconds and MaxResourceTokenMaxSeconds bound Settings.ResourceTokenMaxSeconds.
+	MinResourceTokenMaxSeconds = minTokenExpirySeconds
+	MaxResourceTokenMaxSeconds = maxTokenExpirySeconds
 )
 
 var (
@@ -33,9 +36,21 @@ var (
 	ErrInsufficientPermissions = errors.New("cosmosdb: resource token does not grant this operation")
 	// ErrTokenExpired is returned when a resource token is used outside its validity window.
 	ErrTokenExpired = errors.New("cosmosdb: resource token is not valid at the current time")
-	// ErrInvalidTokenExpiry is returned for an x-ms-documentdb-expiry-seconds outside 600..86400.
-	ErrInvalidTokenExpiry = errors.New("cosmosdb: x-ms-documentdb-expiry-seconds must be between 600 and 86400")
+	// ErrInvalidTokenExpiry is returned for an x-ms-documentdb-expiry-seconds outside 600..the configured maximum.
+	ErrInvalidTokenExpiry = errors.New("cosmosdb: invalid x-ms-documentdb-expiry-seconds")
 )
+
+// ErrInvalidResourceTokenMax is returned when --cosmosdb-resource-token-max-seconds is outside 600..86400.
+var ErrInvalidResourceTokenMax = errors.New("cosmosdb: resource-token-max-seconds must be between 600 and 86400")
+
+type tokenExpiryError struct{ maxSeconds int }
+
+func (e *tokenExpiryError) Error() string {
+	return fmt.Sprintf("cosmosdb: x-ms-documentdb-expiry-seconds must be between %d and %d",
+		minTokenExpirySeconds, e.maxSeconds)
+}
+
+func (e *tokenExpiryError) Is(target error) bool { return target == ErrInvalidTokenExpiry }
 
 // tokenClaims is the signed payload of a resource token. It names the permission; scope is read from the live
 // permission on every request, so deleting or narrowing a permission takes effect immediately.
@@ -119,15 +134,20 @@ func parseResourceToken(masterKey, sig string) (tokenClaims, bool) {
 }
 
 // tokenExpiry reads x-ms-documentdb-expiry-seconds; absent means the one-hour default.
-func tokenExpiry(r *http.Request) (time.Duration, error) {
+func (h *Handler) tokenExpiry(r *http.Request) (time.Duration, error) {
 	raw := r.Header.Get(headerExpirySeconds)
 	if raw == "" {
 		return defaultTokenExpirySeconds * time.Second, nil
 	}
 
+	maxSeconds := h.ResourceTokenMaxSeconds
+	if maxSeconds == 0 {
+		maxSeconds = maxTokenExpirySeconds
+	}
+
 	n, err := strconv.Atoi(raw)
-	if err != nil || n < minTokenExpirySeconds || n > maxTokenExpirySeconds {
-		return 0, ErrInvalidTokenExpiry
+	if err != nil || n < minTokenExpirySeconds || n > maxSeconds {
+		return 0, &tokenExpiryError{maxSeconds: maxSeconds}
 	}
 
 	return time.Duration(n) * time.Second, nil
