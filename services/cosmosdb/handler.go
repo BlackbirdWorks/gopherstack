@@ -98,6 +98,8 @@ type Handler struct {
 	certPEM           []byte
 	TLSHosts          []string
 	RegionPortBase    int
+	// ResourceTokenMaxSeconds caps x-ms-documentdb-expiry-seconds; 0 means 86400.
+	ResourceTokenMaxSeconds int
 	Port              int
 	SweepInterval     time.Duration
 	ValidateAuth      bool
