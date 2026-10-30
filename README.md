@@ -727,7 +727,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DAX](services/dax/README.md) | A | 21 | 1 structural gap; 1 deferred |
 | [DocumentDB](services/docdb/README.md) | A | 55 | 2 gaps; 5 structural gaps; 1 deferred |
-| [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 1 gap; 3 structural gaps; 2 deferred |
+| [DynamoDB](services/dynamodb/README.md) | A | — | 15 families; 2 gaps; 3 structural gaps; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 2 gaps; 4 structural gaps; 1 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 2 structural gaps; 3 deferred |

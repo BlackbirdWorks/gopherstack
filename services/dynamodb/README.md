@@ -8,13 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 15 (15 ok) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Transaction conflicts (2026-10-30): a plain PutItem/UpdateItem/DeleteItem/BatchWriteItem is never registered in flight, so a TransactGetItems overlapping one (documented conflict) only fires through the dynamodb:transaction-conflict chaos effect, not organically; ExecuteTransaction registers each statement's item as it runs (not up front) and its SELECT-only form is not conflict-checked; BatchWriteItem reports conflicting writes as UnprocessedItems by inference (its API reference lists no TransactionConflictException).
 - Vector indexes are modeled (CreateTable/UpdateTable/DescribeTable/Restore*Override/SearchVectors with real COSINE/EUCLIDEAN/DOT_PRODUCT scoring, HASH/INLINE_FILTER schema); VectorCapacity (VectorSearchRequestBytes/VectorWriteRequestBytes) and the per-write VectorIndexes capacity members are not emitted: the pinned SDK doc strings give no byte-accounting formula (re-checked 2026-10-07).
 
 ### Structural gaps
