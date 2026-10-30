@@ -74,9 +74,10 @@ func TestRoutePathGatesHold(t *testing.T) {
 
 	byName := holdEntries(t)
 
-	var gates []holdGate
+	pathGates := routegates.PathGates()
+	gates := make([]holdGate, 0, len(pathGates))
 
-	for name, prefixes := range routegates.PathGates() {
+	for name, prefixes := range pathGates {
 		require.NotNil(t, byName[name], "gate names an unregistered service")
 
 		gates = append(
@@ -99,12 +100,12 @@ func TestRouteTargetGatesHold(t *testing.T) {
 
 	byName := holdEntries(t)
 
-	var (
-		gates []holdGate
-		all   []string
-	)
+	targetGates := routegates.TargetGates()
+	gates := make([]holdGate, 0, len(targetGates))
 
-	for name, prefixes := range routegates.TargetGates() {
+	var all []string
+
+	for name, prefixes := range targetGates {
 		require.NotNil(t, byName[name], "gate names an unregistered service")
 
 		all = append(all, prefixes...)
@@ -136,7 +137,7 @@ func TestRouteAltGatesHold(t *testing.T) {
 	byName := holdEntries(t)
 	altGates := routegates.AltGates()
 
-	var gates []holdGate
+	gates := make([]holdGate, 0, len(altGates))
 
 	for name, gate := range altGates {
 		require.NotNil(t, byName[name], "gate names an unregistered service")
