@@ -151,7 +151,11 @@ func (b *InMemoryBackend) autoBackups() {
 		}
 
 		window := time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), 0, 0, time.UTC)
-		if now.Before(window) || !s.LastAutoBackup.Before(window) {
+		if window.After(now) {
+			window = window.AddDate(0, 0, -1)
+		}
+
+		if !s.LastAutoBackup.Before(window) {
 			continue
 		}
 

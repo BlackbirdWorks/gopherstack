@@ -209,45 +209,61 @@ func TestRestoreFromBackup(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "a DELETING backup is not restorable")
 }
 
+var autoBackupStarts = []struct {
+	name  string
+	start time.Time
+}{
+	{"0010", time.Date(2026, 3, 10, 0, 10, 0, 0, time.UTC)},
+	{"1200", time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)},
+	{"2242", time.Date(2026, 3, 10, 22, 42, 0, 0, time.UTC)},
+	{"2359", time.Date(2026, 3, 10, 23, 59, 0, 0, time.UTC)},
+}
+
 func TestAutomaticBackupsAndRetention(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, envOpts{})
-	ctx := t.Context()
+	for _, tt := range autoBackupStarts {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	window := e.clock.Now().Add(time.Hour).Format("15:04")
-	db := e.mkDB(t, "auto", func(d *my.CreateDbSystemDetails) {
-		d.BackupPolicy = &my.CreateBackupPolicyDetails{WindowStartTime: &window, RetentionInDays: new(2)}
-	})
+			e := newEnv(t, envOpts{start: tt.start})
+			ctx := t.Context()
 
-	e.backend.Sweep()
+			window := e.clock.Now().Add(time.Hour).Format("15:04")
+			db := e.mkDB(t, "auto", func(d *my.CreateDbSystemDetails) {
+				d.BackupPolicy = &my.CreateBackupPolicyDetails{WindowStartTime: &window, RetentionInDays: new(2)}
+			})
 
-	lst, err := e.bk.ListBackups(ctx, my.ListBackupsRequest{CompartmentId: new(testCompartment)})
-	require.NoError(t, err)
-	assert.Empty(t, lst.Items, "the window has not opened yet")
+			e.backend.Sweep()
 
-	e.clock.Advance(2 * time.Hour)
-	e.backend.Sweep()
-	e.backend.Sweep()
-	e.settle()
+			lst, err := e.bk.ListBackups(ctx, my.ListBackupsRequest{CompartmentId: new(testCompartment)})
+			require.NoError(t, err)
+			assert.Empty(t, lst.Items, "the window has not opened yet")
 
-	lst, err = e.bk.ListBackups(
-		ctx,
-		my.ListBackupsRequest{CompartmentId: new(testCompartment), CreationType: my.BackupCreationTypeAutomatic},
-	)
-	require.NoError(t, err)
-	require.Len(t, lst.Items, 1, "one automatic backup per window")
-	assert.Equal(t, db.Id, lst.Items[0].DbSystemId)
-	assert.Equal(t, 2, *lst.Items[0].RetentionInDays)
+			e.clock.Advance(2 * time.Hour)
+			e.backend.Sweep()
+			e.backend.Sweep()
+			e.settle()
 
-	e.clock.Advance(3 * 24 * time.Hour)
-	e.backend.Sweep()
+			lst, err = e.bk.ListBackups(
+				ctx,
+				my.ListBackupsRequest{CompartmentId: new(testCompartment), CreationType: my.BackupCreationTypeAutomatic},
+			)
+			require.NoError(t, err)
+			require.Len(t, lst.Items, 1, "one automatic backup per window")
+			assert.Equal(t, db.Id, lst.Items[0].DbSystemId)
+			assert.Equal(t, 2, *lst.Items[0].RetentionInDays)
 
-	lst, err = e.bk.ListBackups(ctx, my.ListBackupsRequest{
-		CompartmentId: new(testCompartment), LifecycleState: my.BackupLifecycleStateDeleted,
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, lst.Items, "backups past their retention are deleted")
+			e.clock.Advance(3 * 24 * time.Hour)
+			e.backend.Sweep()
+
+			lst, err = e.bk.ListBackups(ctx, my.ListBackupsRequest{
+				CompartmentId: new(testCompartment), LifecycleState: my.BackupLifecycleStateDeleted,
+			})
+			require.NoError(t, err)
+			assert.NotEmpty(t, lst.Items, "backups past their retention are deleted")
+		})
+	}
 }
 
 func TestDeletionPolicyBackupRetention(t *testing.T) {
@@ -263,28 +279,30 @@ func TestDeletionPolicyBackupRetention(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		for _, st := range autoBackupStarts {
+			t.Run(tt.name+" "+st.name, func(t *testing.T) {
+				t.Parallel()
 
-			e := newEnv(t, envOpts{})
-			window := e.clock.Now().Add(time.Hour).Format("15:04")
-			db := e.mkDB(t, "pol", func(d *my.CreateDbSystemDetails) {
-				d.BackupPolicy = &my.CreateBackupPolicyDetails{WindowStartTime: &window}
-				d.DeletionPolicy = &my.CreateDeletionPolicyDetails{AutomaticBackupRetention: tt.retain}
+				e := newEnv(t, envOpts{start: st.start})
+				window := e.clock.Now().Add(time.Hour).Format("15:04")
+				db := e.mkDB(t, "pol", func(d *my.CreateDbSystemDetails) {
+					d.BackupPolicy = &my.CreateBackupPolicyDetails{WindowStartTime: &window}
+					d.DeletionPolicy = &my.CreateDeletionPolicyDetails{AutomaticBackupRetention: tt.retain}
+				})
+				e.mkBackup(t, db.Id, "manual")
+
+				e.clock.Advance(2 * time.Hour)
+				e.backend.Sweep()
+				e.settle()
+
+				_, err := e.db.DeleteDbSystem(t.Context(), my.DeleteDbSystemRequest{DbSystemId: db.Id})
+				require.NoError(t, err)
+
+				lst, err := e.bk.ListBackups(t.Context(), my.ListBackupsRequest{CompartmentId: new(testCompartment)})
+				require.NoError(t, err)
+				assert.Len(t, lst.Items, tt.wantLive)
 			})
-			e.mkBackup(t, db.Id, "manual")
-
-			e.clock.Advance(2 * time.Hour)
-			e.backend.Sweep()
-			e.settle()
-
-			_, err := e.db.DeleteDbSystem(t.Context(), my.DeleteDbSystemRequest{DbSystemId: db.Id})
-			require.NoError(t, err)
-
-			lst, err := e.bk.ListBackups(t.Context(), my.ListBackupsRequest{CompartmentId: new(testCompartment)})
-			require.NoError(t, err)
-			assert.Len(t, lst.Items, tt.wantLive)
-		})
+		}
 	}
 }
 

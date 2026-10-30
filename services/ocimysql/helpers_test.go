@@ -86,9 +86,13 @@ func newKeyPair(t *testing.T) keyPair {
 
 type fakeClock struct{ ns atomic.Int64 }
 
-func newFakeClock() *fakeClock {
+func newFakeClock(start time.Time) *fakeClock {
 	c := &fakeClock{}
-	c.ns.Store(time.Now().UTC().Truncate(time.Second).UnixNano())
+	if start.IsZero() {
+		start = time.Now()
+	}
+
+	c.ns.Store(start.UTC().Truncate(time.Second).UnixNano())
 
 	return c
 }
@@ -113,6 +117,7 @@ type env struct {
 }
 
 type envOpts struct {
+	start    time.Time
 	launcher *fakeLauncher
 	enforce  bool
 	register bool
@@ -137,7 +142,7 @@ func newEnv(t *testing.T, opts envOpts) *env {
 	t.Helper()
 
 	be := ocimysql.NewInMemoryBackend()
-	clock := newFakeClock()
+	clock := newFakeClock(opts.start)
 	be.SetClock(clock.Now)
 
 	if !opts.noNet {
