@@ -12267,7 +12267,7 @@ func wireTaggingAWSConfig(bk resourcegroupstaggingapibackend.StorageBackend, reg
 	wireRegionalTagging(bk, regionalTagSpec[*awsconfigbackend.InMemoryBackend]{
 		arnService:     "config",
 		resourceTypeOf: arnResourceType("config"),
-		backendFor: h.BackendFor,
+		backendFor:     h.BackendFor,
 		backendForCtx: func(ctx context.Context, region string) *awsconfigbackend.InMemoryBackend {
 			return h.BackendForAccount(awsmeta.Account(ctx), region)
 		},
