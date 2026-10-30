@@ -209,7 +209,8 @@ func TestHandshakeTransitionErrors(t *testing.T) {
 			wantCode: "HandshakeAlreadyInStateException",
 		},
 		{
-			name: "decline after accept", firstOp: "accept", firstBy: "invitee", secondOp: "decline", secondBy: "invitee",
+			name: "decline after accept", firstOp: "accept", firstBy: "invitee",
+			secondOp: "decline", secondBy: "invitee",
 			wantCode: "InvalidHandshakeTransitionException",
 		},
 		{
