@@ -53,6 +53,10 @@ func (db *InMemoryDB) putItemOp(
 		return nil, err
 	}
 
+	if conflictErr := db.checkSingleWrite(ctx, opPutItem, tableName, table, input.Item); conflictErr != nil {
+		return nil, conflictErr
+	}
+
 	wire := putWire{item: wireItem, eav: wireEAV}
 	out, globalTableName, region, putErr := db.putItemLocked(ctx, tableName, table, input, wire, itemSize)
 	if putErr != nil {
@@ -604,6 +608,10 @@ func (db *InMemoryDB) deleteItemOp(
 		return nil, err
 	}
 
+	if conflictErr := db.checkSingleWrite(ctx, opDeleteItem, tableName, table, input.Key); conflictErr != nil {
+		return nil, conflictErr
+	}
+
 	wireKey := models.FromSDKItem(input.Key)
 
 	out, globalTableName, region, oldItem, delErr := db.deleteItemLocked(ctx, tableName, table, input, wireKey, wireEAV)
@@ -850,6 +858,10 @@ func (db *InMemoryDB) updateItemOp(
 
 	if err = validateUpdateDoesNotModifyKeys(updateExpr, input.ExpressionAttributeNames, table.KeySchema); err != nil {
 		return nil, err
+	}
+
+	if conflictErr := db.checkSingleWrite(ctx, opUpdateItem, tableName, table, input.Key); conflictErr != nil {
+		return nil, conflictErr
 	}
 
 	wireKey := models.FromSDKItem(input.Key)

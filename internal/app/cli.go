@@ -13084,6 +13084,7 @@ func setupChaosAndRegistry(
 	faultStore := cli.faultStore
 	chaosGroup := e.Group("/_gopherstack/chaos")
 	wireFISFaultStore(cli.fisHandler, faultStore)
+	wireDynamoDBFaultStore(services, faultStore)
 
 	registry, err := setupRegistry(
 		e,
