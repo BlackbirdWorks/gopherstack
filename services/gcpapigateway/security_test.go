@@ -58,7 +58,9 @@ func TestAPIKeySecurity(t *testing.T) {
 			assert.Equal(t, tt.want, got.status, got.raw)
 
 			if tt.want == http.StatusUnauthorized {
-				assert.Contains(t, got.raw, "UNAUTHENTICATED")
+				assert.EqualValues(t, "UNAUTHENTICATED: Method doesn't allow unregistered callers (callers without "+
+					"established identity). Please use API Key or other form of API consumer identity to call this API.",
+					got.body["message"])
 			}
 		})
 	}
@@ -222,6 +224,23 @@ func TestJWTSecurity(t *testing.T) {
 			want:  401,
 			msg:   "Jwt verification fails",
 			build: func(*testing.T, *signer, string) (map[string]string, string) { return bearer("not.a.jwt"), "/hello" },
+		},
+		{
+			name: "token without dots", want: 401,
+			msg: "Jwt is not in the form of Header.Payload.Signature with two dots and 3 sections",
+			build: func(*testing.T, *signer, string) (map[string]string, string) {
+				return bearer("garbage"), "/hello"
+			},
+		},
+		{
+			name: "not yet valid", aud: "x", want: 401, msg: "Jwt not yet valid",
+			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
+				return bearer(
+					s.rsaToken(t, good(jwt.MapClaims{"aud": "x", "nbf": now.Add(time.Hour).Unix()})),
+				), "/hello"
+			},
 		},
 		{
 			name: "expired", aud: "x", want: 401, msg: "Jwt is expired",
@@ -415,6 +434,28 @@ func TestJWKSFetchRefusedOutsideLoopback(t *testing.T) {
 
 	got := e.call(t, gw, http.MethodGet, "/hello", bearer(tok))
 	assert.Equal(t, http.StatusUnauthorized, got.status, "a JWKS URI outside loopback cannot be fetched")
+	assert.EqualValues(t, "Jwks remote fetch is failed", got.body["message"])
+}
+
+func TestJWKSWithoutUsableKeys(t *testing.T) {
+	t.Parallel()
+
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+	}))
+	t.Cleanup(empty.Close)
+
+	be := echoBackend(t)
+	e := newEnv(t)
+	gw := e.deploy(t, opSpec(be.URL, jwtSpec(empty.URL, "aud-1"), "  /hello:\n"+op("get", "")))
+
+	tok := (&signer{rsa: sharedRSA()}).rsaToken(t, jwt.MapClaims{
+		"iss": issuer, "aud": "aud-1", "exp": e.clock.Now().Add(time.Hour).Unix(),
+	})
+
+	got := e.call(t, gw, http.MethodGet, "/hello", bearer(tok))
+	assert.Equal(t, http.StatusUnauthorized, got.status)
+	assert.EqualValues(t, "Jwks doesn't have any valid public key", got.body["message"])
 }
 
 func TestQuotaPerMinute(t *testing.T) {
@@ -443,7 +484,7 @@ func TestQuotaPerMinute(t *testing.T) {
 	assert.Equal(t, []int{200, 200, 429, 429}, statuses(4, "/read"), "cost 2 against 5 per minute")
 
 	denied := e.call(t, gw, http.MethodGet, "/read", nil)
-	assert.Contains(t, denied.raw, "Quota exceeded for quota metric 'reads'")
+	assert.Contains(t, denied.raw, "RESOURCE_EXHAUSTED: Quota exceeded for quota metric 'reads'")
 	assert.Equal(t, []int{200, 200, 200}, statuses(3, "/free"), "operations without a cost are not limited")
 
 	e.clock.Advance(time.Minute)
