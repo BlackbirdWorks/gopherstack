@@ -71,15 +71,20 @@ func TestRoutingAndPathTranslation(t *testing.T) {
 			wantMsg: "The current request is not defined by this API.",
 		},
 		{
-			name: "undefined method", root: "BE", paths: "  /hello:\n" + op("get", ""),
-			method: "POST", target: "/hello", wantCode: 405,
-			wantMsg: `The current request is matched to the defined url template "/hello" but its http method is not allowed`,
+			name:     "undefined method",
+			root:     "BE",
+			paths:    "  /hello:\n" + op("get", ""),
+			method:   "POST",
+			target:   "/hello",
+			wantCode: 405,
+			wantMsg:  `The current request is matched to the defined url template "/hello" but its http method is not allowed`,
 		},
 		{
 			name: "undefined method keeps the base path in the template", root: "BE", top: "basePath: /v1\n",
 			paths:  "  /items/{id}:\n" + op("get", ""),
 			method: "DELETE", target: "/v1/items/3", wantCode: 405,
-			wantMsg: `The current request is matched to the defined url template "/v1/items/{id}" but its http method is not allowed`,
+			wantMsg: `The current request is matched to the defined url template "/v1/items/{id}" ` +
+				`but its http method is not allowed`,
 		},
 		{
 			name: "base path mismatch", root: "BE", top: "basePath: /v1\n", paths: "  /hello:\n" + op("get", ""),

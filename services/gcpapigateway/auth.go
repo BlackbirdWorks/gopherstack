@@ -98,12 +98,12 @@ func (b *InMemoryBackend) fetchKeys(ctx context.Context, uri string) (map[string
 	ctx, cancel := context.WithTimeout(ctx, jwksFetchLimit)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil) //nolint:gosec // G704 guarded dialer
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := b.client.Do(req) //nolint:gosec // G704 loopback-only by default; guarded dialer
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -348,14 +348,8 @@ func claimAudiences(v any) []string {
 //nolint:gochecknoglobals // immutable allow-list
 var allowedAlgs = []string{"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"}
 
-// verifyJWT checks token against the JWT definitions of one security requirement.
-func (b *InMemoryBackend) verifyJWT(
-	ctx context.Context, defs []*secDef, managed, token string,
-) (jwt.MapClaims, *authError) {
-	if token == "" {
-		return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt is missing"}
-	}
-
+// issuerDef picks the definition matching the token's issuer; a definition without an issuer matches any.
+func issuerDef(defs []*secDef, token string) (*secDef, *authError) {
 	unverified := jwt.MapClaims{}
 	if _, _, err := jwt.NewParser().ParseUnverified(token, unverified); err != nil {
 		msg := msgJWTFails
@@ -372,11 +366,26 @@ func (b *InMemoryBackend) verifyJWT(
 	if idx < 0 {
 		idx = slices.IndexFunc(defs, func(d *secDef) bool { return d.Issuer == "" })
 	}
+
 	if idx < 0 {
 		return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt issuer is not configured"}
 	}
 
-	def := defs[idx]
+	return defs[idx], nil
+}
+
+// verifyJWT checks token against the JWT definitions of one security requirement.
+func (b *InMemoryBackend) verifyJWT(
+	ctx context.Context, defs []*secDef, managed, token string,
+) (jwt.MapClaims, *authError) {
+	if token == "" {
+		return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt is missing"}
+	}
+
+	def, aerr := issuerDef(defs, token)
+	if aerr != nil {
+		return nil, aerr
+	}
 
 	keys, err := b.fetchKeys(ctx, def.JWKSURI)
 	if err != nil {

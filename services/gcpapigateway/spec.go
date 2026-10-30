@@ -87,9 +87,9 @@ type compiler struct {
 	defs    map[string]*secDef
 	metrics map[string]bool
 	limits  map[string]quotaLimit
+	rootQ   map[string]int64
 	diags   []diagnostic
 	rootSec [][]string
-	rootQ   map[string]int64
 	v3      bool
 }
 

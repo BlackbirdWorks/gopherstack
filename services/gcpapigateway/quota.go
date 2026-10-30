@@ -17,7 +17,7 @@ type quotaDenial struct {
 
 // consume charges a request's metric costs against the per-minute project limits, all or nothing. missing reports
 // a cost metric the API's latest config no longer declares.
-func (b *InMemoryBackend) consume(sv *served, rt *route) (denial *quotaDenial, missing bool) {
+func (b *InMemoryBackend) consume(sv *served, rt *route) (*quotaDenial, bool) {
 	if len(rt.Costs) == 0 {
 		return nil, false
 	}

@@ -237,7 +237,9 @@ func TestJWTSecurity(t *testing.T) {
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
 				t.Helper()
 
-				return bearer(s.rsaToken(t, good(jwt.MapClaims{"aud": "x", "nbf": now.Add(time.Hour).Unix()}))), "/hello"
+				return bearer(
+					s.rsaToken(t, good(jwt.MapClaims{"aud": "x", "nbf": now.Add(time.Hour).Unix()})),
+				), "/hello"
 			},
 		},
 		{

@@ -35,11 +35,11 @@ var hopHeaders = map[string]bool{
 // served is a gateway resolved for one data-plane request.
 type served struct {
 	spec    *compiledSpec
+	metrics map[string]bool
+	limits  map[string]quotaLimit
 	project string
 	managed string
 	path    string
-	metrics map[string]bool
-	limits  map[string]quotaLimit
 }
 
 // MatchesDataPlane reports whether a request addresses a gateway, by default hostname or by path prefix.
@@ -116,7 +116,9 @@ func (b *InMemoryBackend) resolve(r *http.Request) (*served, *authError) {
 		managed = api.pb.GetManagedService()
 	}
 
-	sv := &served{spec: c.spec, project: project, managed: managed, path: p, metrics: c.spec.Metrics, limits: c.spec.Limits}
+	sv := &served{
+		spec: c.spec, project: project, managed: managed, path: p, metrics: c.spec.Metrics, limits: c.spec.Limits,
+	}
 	if latest := b.latestSpecLocked(apiOfConfig(c.pb.GetName())); latest != nil {
 		sv.metrics, sv.limits = latest.Metrics, latest.Limits
 	}

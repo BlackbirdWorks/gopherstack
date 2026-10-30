@@ -74,7 +74,11 @@ func TestOpenAPI3Grammar(t *testing.T) {
 		},
 		{
 			name: "quota refers to undefined metric",
-			doc:  spec3(mgmt3(be, ""), "x-google-quota:\n  ghosts: 1\n", "  /hello:\n"+op("get", "      x-google-backend: be\n")),
+			doc: spec3(
+				mgmt3(be, ""),
+				"x-google-quota:\n  ghosts: 1\n",
+				"  /hello:\n"+op("get", "      x-google-backend: be\n"),
+			),
 			want: "undefined metric",
 		},
 		{
@@ -85,15 +89,23 @@ func TestOpenAPI3Grammar(t *testing.T) {
 		},
 		{
 			name: "issuer scheme without x-google-auth",
-			doc: spec3(mgmt3(be, ""), "x-google-backend: be\ncomponents:\n  securitySchemes:\n    j:\n      type: oauth2\n"+
-				"      x-google-issuer: iss\nsecurity:\n  - j: []\n", hello),
+			doc: spec3(
+				mgmt3(be, ""),
+				"x-google-backend: be\ncomponents:\n  securitySchemes:\n    j:\n      type: oauth2\n"+
+					"      x-google-issuer: iss\nsecurity:\n  - j: []\n",
+				hello,
+			),
 			want: "unsupported",
 		},
 		{
 			name: "jwt location needs one of header and query",
-			doc: spec3(mgmt3(be, ""), "x-google-backend: be\ncomponents:\n  securitySchemes:\n    j:\n      type: oauth2\n"+
-				"      x-google-auth:\n        issuer: iss\n        jwksUri: https://k.example/jwks\n"+
-				"        jwtLocations:\n          - valuePrefix: p\n", hello),
+			doc: spec3(
+				mgmt3(be, ""),
+				"x-google-backend: be\ncomponents:\n  securitySchemes:\n    j:\n      type: oauth2\n"+
+					"      x-google-auth:\n        issuer: iss\n        jwksUri: https://k.example/jwks\n"+
+					"        jwtLocations:\n          - valuePrefix: p\n",
+				hello,
+			),
 			want: "Exactly one of header and query",
 		},
 	}
@@ -131,7 +143,7 @@ func TestOpenAPI3DataPlane(t *testing.T) {
 
 	e := newEnv(t)
 	gw := e.deploy(t, spec3(
-		"x-google-api-management:\n  backends:\n    be:\n      address: "+be.URL+"/fn\n      pathTranslation: CONSTANT_ADDRESS\n",
+		mgmt3(be.URL+"/fn", "      pathTranslation: CONSTANT_ADDRESS\n"),
 		"x-google-backend: be\n", hello))
 
 	got := e.call(t, gw, http.MethodGet, "/hello/world", nil)
@@ -151,7 +163,12 @@ func TestOpenAPI3JWTLocations(t *testing.T) {
 	}{
 		{name: "custom header with prefix", hdr: map[string]string{"X-Token": "tk "}, path: "/hello", want: 200},
 		{name: "custom query", path: "/hello?jwt=", want: 200},
-		{name: "default bearer is replaced", hdr: map[string]string{"Authorization": "Bearer "}, path: "/hello", want: 401},
+		{
+			name: "default bearer is replaced",
+			hdr:  map[string]string{"Authorization": "Bearer "},
+			path: "/hello",
+			want: 401,
+		},
 		{name: "wrong prefix", hdr: map[string]string{"X-Token": "other "}, path: "/hello", want: 401},
 	}
 
@@ -218,7 +235,8 @@ func TestOpenAPI3Quota(t *testing.T) {
 	assert.Equal(t, []int{200, 429}, codes("/dear", 2), "an operation cost replaces the top-level one")
 }
 
-const quota2 = "x-google-management:\n  metrics:\n    - name: reads\n      displayName: Reads\n      valueType: INT64\n" +
+const quota2 = "x-google-management:\n  metrics:\n    - name: reads\n      displayName: Reads\n" +
+	"      valueType: INT64\n" +
 	"      metricKind: DELTA\n  quota:\n    limits:\n      - name: reads-limit\n        metric: reads\n" +
 	"        unit: \"1/min/{project}\"\n        values:\n          STANDARD: %d\n"
 
