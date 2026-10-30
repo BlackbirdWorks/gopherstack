@@ -26,7 +26,7 @@ func (b *InMemoryBackend) nextEtag() []byte {
 func (b *InMemoryBackend) policySlot(resource string) (**iampb.Policy, error) {
 	switch {
 	case strings.Contains(resource, "/"+kindConfigs+"/"):
-		if _, _, _, err := parseConfigName(resource); err != nil {
+		if _, err := parseConfigName(resource); err != nil {
 			return nil, err
 		}
 
@@ -37,7 +37,7 @@ func (b *InMemoryBackend) policySlot(resource string) (**iampb.Policy, error) {
 
 		return &rec.policy, nil
 	case strings.Contains(resource, "/"+kindGateways+"/"):
-		if _, _, _, err := parseChild(resource, kindGateways); err != nil {
+		if _, _, _, err := parseGatewayName(resource); err != nil {
 			return nil, err
 		}
 

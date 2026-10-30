@@ -55,12 +55,13 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, full.GetOpenapiDocuments(), 1)
 
-	pol, err := iampb.NewIAMPolicyClient(dst.conn).GetIamPolicy(t.Context(), &iampb.GetIamPolicyRequest{Resource: gw.GetName()})
+	pol, err := iampb.NewIAMPolicyClient(dst.conn).
+		GetIamPolicy(t.Context(), &iampb.GetIamPolicyRequest{Resource: gw.GetName()})
 	require.NoError(t, err)
 	require.Len(t, pol.GetBindings(), 1)
 
-	reply := dst.call(t, gotGW, http.MethodGet, "/hello", nil)
-	assert.Equal(t, http.StatusOK, reply.status, "the restored config routes again")
+	served := dst.call(t, gotGW, http.MethodGet, "/hello", nil)
+	assert.Equal(t, http.StatusOK, served.status, "the restored config routes again")
 
 	op, err := dst.client.LROClient.GetOperation(t.Context(), &longrunningpb.GetOperationRequest{Name: pending.Name()})
 	require.NoError(t, err)

@@ -62,8 +62,8 @@ func validateConfigInput(src *apigatewaypb.ApiConfig) error {
 	return nil
 }
 
-// CreateApiConfig creates an API config; an invalid OpenAPI document leaves it FAILED with the operation failed.
-func (b *InMemoryBackend) CreateApiConfig(in *apigatewaypb.CreateApiConfigRequest) (*longrunningpb.Operation, error) {
+// CreateAPIConfig creates an API config; an invalid OpenAPI document leaves it FAILED with the operation failed.
+func (b *InMemoryBackend) CreateAPIConfig(in *apigatewaypb.CreateApiConfigRequest) (*longrunningpb.Operation, error) {
 	project, api, err := parseAPIName(in.GetParent())
 	if err != nil {
 		return nil, err
@@ -127,9 +127,9 @@ func (b *InMemoryBackend) CreateApiConfig(in *apigatewaypb.CreateApiConfigReques
 	return b.finishLocked(s)
 }
 
-// GetApiConfig returns one API config; the full view includes the OpenAPI documents.
-func (b *InMemoryBackend) GetApiConfig(in *apigatewaypb.GetApiConfigRequest) (*apigatewaypb.ApiConfig, error) {
-	if _, _, _, err := parseConfigName(in.GetName()); err != nil {
+// GetAPIConfig returns one API config; the full view includes the OpenAPI documents.
+func (b *InMemoryBackend) GetAPIConfig(in *apigatewaypb.GetApiConfigRequest) (*apigatewaypb.ApiConfig, error) {
+	if _, err := parseConfigName(in.GetName()); err != nil {
 		return nil, err
 	}
 
@@ -144,8 +144,8 @@ func (b *InMemoryBackend) GetApiConfig(in *apigatewaypb.GetApiConfigRequest) (*a
 	return b.configViewLocked(r, in.GetView() == apigatewaypb.GetApiConfigRequest_FULL), nil
 }
 
-// ListApiConfigs lists the configs of an API.
-func (b *InMemoryBackend) ListApiConfigs(in *apigatewaypb.ListApiConfigsRequest) (
+// ListAPIConfigs lists the configs of an API.
+func (b *InMemoryBackend) ListAPIConfigs(in *apigatewaypb.ListApiConfigsRequest) (
 	*apigatewaypb.ListApiConfigsResponse, error,
 ) {
 	if _, _, err := parseAPIName(in.GetParent()); err != nil {
@@ -184,11 +184,11 @@ func (b *InMemoryBackend) ListApiConfigs(in *apigatewaypb.ListApiConfigsRequest)
 	return &apigatewaypb.ListApiConfigsResponse{ApiConfigs: pg.Data, NextPageToken: pg.Next}, nil
 }
 
-// UpdateApiConfig updates the display name and labels of an API config.
-func (b *InMemoryBackend) UpdateApiConfig(in *apigatewaypb.UpdateApiConfigRequest) (*longrunningpb.Operation, error) {
+// UpdateAPIConfig updates the display name and labels of an API config.
+func (b *InMemoryBackend) UpdateAPIConfig(in *apigatewaypb.UpdateApiConfigRequest) (*longrunningpb.Operation, error) {
 	src := in.GetApiConfig()
 
-	project, _, _, err := parseConfigName(src.GetName())
+	project, err := parseConfigName(src.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (b *InMemoryBackend) UpdateApiConfig(in *apigatewaypb.UpdateApiConfigReques
 		switch p {
 		case maskAll:
 			next.DisplayName, next.Labels = src.GetDisplayName(), src.GetLabels()
-		case maskDisplay, "displayName":
+		case maskDisplay, maskDisplayCamel:
 			next.DisplayName = src.GetDisplayName()
 		case maskLabels:
 			next.Labels = src.GetLabels()
@@ -236,9 +236,9 @@ func (b *InMemoryBackend) UpdateApiConfig(in *apigatewaypb.UpdateApiConfigReques
 	})
 }
 
-// DeleteApiConfig deletes an API config that no gateway serves.
-func (b *InMemoryBackend) DeleteApiConfig(in *apigatewaypb.DeleteApiConfigRequest) (*longrunningpb.Operation, error) {
-	project, _, _, err := parseConfigName(in.GetName())
+// DeleteAPIConfig deletes an API config that no gateway serves.
+func (b *InMemoryBackend) DeleteAPIConfig(in *apigatewaypb.DeleteApiConfigRequest) (*longrunningpb.Operation, error) {
+	project, err := parseConfigName(in.GetName())
 	if err != nil {
 		return nil, err
 	}

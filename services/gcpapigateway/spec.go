@@ -75,14 +75,13 @@ type compiledSpec struct {
 }
 
 type compiler struct {
-	doc       map[string]any
-	diags     []diagnostic
-	defs      map[string]*secDef
-	metrics   map[string]bool
-	limits    map[string]quotaLimit
-	v3        bool
-	rootSec   [][]string
-	rootHasSe bool
+	doc     map[string]any
+	defs    map[string]*secDef
+	metrics map[string]bool
+	limits  map[string]quotaLimit
+	diags   []diagnostic
+	rootSec [][]string
+	v3      bool
 }
 
 func asMap(v any) map[string]any {
@@ -142,7 +141,7 @@ func first(m map[string]any, keys ...string) (any, bool) {
 	return nil, false
 }
 
-func (c *compiler) fail(loc, format string, a ...any) {
+func (c *compiler) failf(loc, format string, a ...any) {
 	c.diags = append(c.diags, diagnostic{Location: loc, Message: fmt.Sprintf(format, a...)})
 }
 
@@ -180,7 +179,7 @@ func (c *compiler) version() bool {
 			return true
 		}
 
-		c.fail("swagger", "Unsupported Swagger version %v: use \"2.0\".", s)
+		c.failf("swagger", "Unsupported Swagger version %v: use \"2.0\".", s)
 
 		return false
 	}
@@ -191,7 +190,7 @@ func (c *compiler) version() bool {
 		return true
 	}
 
-	c.fail("", "Unsupported document: expected an OpenAPI 2.0 (swagger: \"2.0\") or 3.x (openapi: 3.0.x or 3.1.x) "+
+	c.failf("", "Unsupported document: expected an OpenAPI 2.0 (swagger: \"2.0\") or 3.x (openapi: 3.0.x or 3.1.x) "+
 		"specification.")
 
 	return false
@@ -212,7 +211,7 @@ func (c *compiler) basePath() string {
 	}
 
 	if base != "" && !strings.HasPrefix(base, "/") {
-		c.fail("basePath", "basePath %q must start with '/'.", base)
+		c.failf("basePath", "basePath %q must start with '/'.", base)
 	}
 
 	return strings.TrimRight(base, "/")
@@ -236,18 +235,18 @@ func (c *compiler) securityDefs() {
 		case str(m, "type") == "apiKey":
 			d.Kind, d.KeyName, d.KeyIn = kindAPIKey, str(m, "name"), str(m, keyIn)
 			if d.KeyName == "" || (d.KeyIn != inQuery && d.KeyIn != inHeader) {
-				c.fail(loc, "apiKey security definition %q needs a name and 'in' of query or header.", name)
+				c.failf(loc, "apiKey security definition %q needs a name and 'in' of query or header.", name)
 			}
 		case str(m, "x-google-issuer") != "":
 			d.Kind, d.Issuer, d.JWKSURI = kindJWT, str(m, "x-google-issuer"), str(m, "x-google-jwks_uri")
 			d.Audiences = audiences(m["x-google-audiences"])
 
-			if u, err := url.Parse(d.JWKSURI); d.JWKSURI == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-				c.fail(loc, "x-google-jwks_uri is required and must be an http or https URL.")
+			if !httpURL(d.JWKSURI) {
+				c.failf(loc, "x-google-jwks_uri is required and must be an http or https URL.")
 			}
 
 			if prev, dup := issuers[d.Issuer]; dup {
-				c.fail(loc, "x-google-issuer %q is already used by security definition %q.", d.Issuer, prev)
+				c.failf(loc, "x-google-issuer %q is already used by security definition %q.", d.Issuer, prev)
 			}
 
 			issuers[d.Issuer] = name
@@ -255,12 +254,18 @@ func (c *compiler) securityDefs() {
 	}
 }
 
+func httpURL(s string) bool {
+	u, err := url.Parse(s)
+
+	return s != "" && err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
 func audiences(v any) []string {
 	switch t := v.(type) {
 	case string:
 		var out []string
 
-		for _, a := range strings.Split(t, ",") {
+		for a := range strings.SplitSeq(t, ",") {
 			if a = strings.TrimSpace(a); a != "" {
 				out = append(out, a)
 			}
@@ -305,13 +310,13 @@ func (c *compiler) management() {
 
 		switch {
 		case name == "":
-			c.fail(loc, "Metric name is required.")
+			c.failf(loc, "Metric name is required.")
 		case len(str(em, "displayName")) > maxMetricName:
-			c.fail(loc, "Metric displayName must be at most %d characters.", maxMetricName)
+			c.failf(loc, "Metric displayName must be at most %d characters.", maxMetricName)
 		case str(em, "valueType") != "INT64":
-			c.fail(loc, "Metric %q: valueType must be INT64.", name)
+			c.failf(loc, "Metric %q: valueType must be INT64.", name)
 		case str(em, "metricKind") != "DELTA":
-			c.fail(loc, "Metric %q: metricKind must be DELTA.", name)
+			c.failf(loc, "Metric %q: metricKind must be DELTA.", name)
 		default:
 			c.metrics[name] = true
 		}
@@ -328,22 +333,22 @@ func (c *compiler) limit(loc string, m map[string]any) {
 
 	switch {
 	case name == "" || metric == "":
-		c.fail(loc, "Quota limits need a name and a metric.")
+		c.failf(loc, "Quota limits need a name and a metric.")
 
 		return
 	case !c.metrics[metric]:
-		c.fail(loc, "Quota limit %q refers to undefined metric %q.", name, metric)
+		c.failf(loc, "Quota limit %q refers to undefined metric %q.", name, metric)
 
 		return
 	case str(m, "unit") != quotaUnit:
-		c.fail(loc, "Quota limit %q: only the unit %q is supported.", name, quotaUnit)
+		c.failf(loc, "Quota limit %q: only the unit %q is supported.", name, quotaUnit)
 
 		return
 	}
 
 	n, ok := num(asMap(m["values"])["STANDARD"])
 	if !ok || n < 0 || n != float64(int64(n)) {
-		c.fail(loc, "Quota limit %q: values.STANDARD must be a non-negative integer.", name)
+		c.failf(loc, "Quota limit %q: values.STANDARD must be a non-negative integer.", name)
 
 		return
 	}
@@ -353,14 +358,15 @@ func (c *compiler) limit(loc string, m map[string]any) {
 
 func (c *compiler) rootSecurity() {
 	if sec, ok := c.doc["security"]; ok {
-		c.rootSec, c.rootHasSe = c.requirements("security", sec), true
+		c.rootSec = c.requirements("security", sec)
 	}
 }
 
 func (c *compiler) requirements(loc string, v any) [][]string {
-	out := [][]string{}
+	list := asList(v)
+	out := make([][]string, 0, len(list))
 
-	for _, e := range asList(v) {
+	for _, e := range list {
 		req := []string{}
 
 		for _, name := range sortedKeys(asMap(e)) {
@@ -368,9 +374,13 @@ func (c *compiler) requirements(loc string, v any) [][]string {
 
 			switch {
 			case !ok:
-				c.fail(loc, "Security requirement %q is not defined in the security definitions.", name)
+				c.failf(loc, "Security requirement %q is not defined in the security definitions.", name)
 			case d.Kind == kindOther:
-				c.fail(loc, "Security definition %q is unsupported: use an apiKey or an x-google-issuer definition.", name)
+				c.failf(
+					loc,
+					"Security definition %q is unsupported: use an apiKey or an x-google-issuer definition.",
+					name,
+				)
 			default:
 				req = append(req, name)
 			}
@@ -398,28 +408,27 @@ func (c *compiler) backend(loc string, v any, defTranslation string) *backendCfg
 	if name, ok := v.(string); ok && c.v3 {
 		m = asMap(asMap(asMap(c.doc["x-google-api-management"])["backends"])[name])
 		if m == nil {
-			c.fail(loc, "Backend %q is not defined in x-google-api-management.backends.", name)
+			c.failf(loc, "Backend %q is not defined in x-google-api-management.backends.", name)
 
 			return nil
 		}
 	}
 
 	if m == nil {
-		c.fail(loc, "x-google-backend must be an object.")
+		c.failf(loc, "x-google-backend must be an object.")
 
 		return nil
 	}
 
 	b := &backendCfg{Address: str(m, "address"), Translation: defTranslation, Deadline: defaultDeadline}
 
-	if u, err := url.Parse(b.Address); b.Address == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") ||
-		u.Host == "" {
-		c.fail(loc, "x-google-backend.address is required and must be an http or https URL.")
+	if !httpURL(b.Address) {
+		c.failf(loc, "x-google-backend.address is required and must be an http or https URL.")
 	}
 
 	if t := str(m, "path_translation", "pathTranslation"); t != "" {
 		if t != translateAppend && t != translateConstant {
-			c.fail(loc, "Unsupported path_translation %q: use %s or %s.", t, translateAppend, translateConstant)
+			c.failf(loc, "Unsupported path_translation %q: use %s or %s.", t, translateAppend, translateConstant)
 		}
 
 		b.Translation = t
@@ -434,28 +443,28 @@ func (c *compiler) backendLimits(loc string, m map[string]any, b *backendCfg) {
 	if d, ok := m["deadline"]; ok {
 		n, isNum := num(d)
 		if !isNum || n < 0 || n > maxDeadlineSec {
-			c.fail(loc, "x-google-backend.deadline must be between 0 and %d seconds.", maxDeadlineSec)
+			c.failf(loc, "x-google-backend.deadline must be between 0 and %d seconds.", maxDeadlineSec)
 		} else if n > 0 {
 			b.Deadline = time.Duration(n * float64(time.Second))
 		}
 	}
 
 	if p := str(m, "protocol"); p != "" && p != "http/1.1" && p != "h2" {
-		c.fail(loc, "Unsupported x-google-backend.protocol %q: use http/1.1 or h2.", p)
+		c.failf(loc, "Unsupported x-google-backend.protocol %q: use http/1.1 or h2.", p)
 	}
 
 	disable, _ := first(m, "disable_auth", "disableAuth")
 	b.DisableAuth, _ = disable.(bool)
 
 	if _, aud := first(m, "jwt_audience", "jwtAudience"); aud && b.DisableAuth {
-		c.fail(loc, "Only one of jwt_audience and disable_auth may be set.")
+		c.failf(loc, "Only one of jwt_audience and disable_auth may be set.")
 	}
 }
 
 func (c *compiler) paths(root *backendCfg) []*route {
 	paths := asMap(c.doc["paths"])
 	if len(paths) == 0 {
-		c.fail("paths", "The document defines no paths.")
+		c.failf("paths", "The document defines no paths.")
 
 		return nil
 	}
@@ -481,7 +490,7 @@ func (c *compiler) paths(root *backendCfg) []*route {
 			if ok {
 				key := r.Method + " " + normalised(segs)
 				if prev, dup := seen[key]; dup {
-					c.fail(loc, "Path %q is ambiguous with %q.", p, prev)
+					c.failf(loc, "Path %q is ambiguous with %q.", p, prev)
 				}
 
 				seen[key] = p
@@ -492,7 +501,7 @@ func (c *compiler) paths(root *backendCfg) []*route {
 	}
 
 	if len(routes) == 0 {
-		c.fail("paths", "The document defines no operations.")
+		c.failf("paths", "The document defines no operations.")
 	}
 
 	return routes
@@ -502,13 +511,13 @@ func (c *compiler) operation(loc string, op map[string]any, root *backendCfg) *r
 	r := &route{Backend: root}
 
 	if _, ok := op[keyResponses]; !ok {
-		c.fail(loc, "Operation is missing the required 'responses' field.")
+		c.failf(loc, "Operation is missing the required 'responses' field.")
 	}
 
 	if bv, ok := op[keyBackend]; ok {
 		r.Backend = c.backend(loc+"."+keyBackend, bv, translateConstant)
 	} else if root == nil {
-		c.fail(loc, "Operation has no x-google-backend and the document defines none at the top level.")
+		c.failf(loc, "Operation has no x-google-backend and the document defines none at the top level.")
 	}
 
 	r.Security = c.rootSec
@@ -525,9 +534,9 @@ func (c *compiler) operation(loc string, op map[string]any, root *backendCfg) *r
 
 			switch {
 			case !c.metrics[metric]:
-				c.fail(loc+".x-google-quota", "metricCosts refers to undefined metric %q.", metric)
+				c.failf(loc+".x-google-quota", "metricCosts refers to undefined metric %q.", metric)
 			case !isNum || n < 0 || n != float64(int64(n)):
-				c.fail(loc+".x-google-quota", "metricCosts[%q] must be a non-negative integer.", metric)
+				c.failf(loc+".x-google-quota", "metricCosts[%q] must be a non-negative integer.", metric)
 			default:
 				r.Costs[metric] = int64(n)
 			}
@@ -539,19 +548,19 @@ func (c *compiler) operation(loc string, op map[string]any, root *backendCfg) *r
 
 func (c *compiler) template(p string) ([]seg, bool) {
 	if !strings.HasPrefix(p, "/") {
-		c.fail("paths."+p, "Path %q must start with '/'.", p)
+		c.failf("paths."+p, "Path %q must start with '/'.", p)
 
 		return nil, false
 	}
 
 	var segs []seg
 
-	for _, s := range strings.Split(strings.Trim(p, "/"), "/") {
+	for s := range strings.SplitSeq(strings.Trim(p, "/"), "/") {
 		switch {
 		case strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") && !strings.ContainsAny(s[1:len(s)-1], "{}=*"):
 			segs = append(segs, seg{param: s[1 : len(s)-1]})
 		case strings.ContainsAny(s, "{}"):
-			c.fail("paths."+p, "Path %q: a template variable must fill a whole segment as {name}.", p)
+			c.failf("paths."+p, "Path %q: a template variable must fill a whole segment as {name}.", p)
 
 			return nil, false
 		default:
@@ -592,8 +601,8 @@ func (s *compiledSpec) match(method, p string) (*route, map[string]string) {
 	)
 
 	for _, r := range s.Routes {
-		vars, lits, ok := r.fit(parts)
-		if !ok {
+		vars, lits, fits := r.fit(parts)
+		if !fits {
 			continue
 		}
 

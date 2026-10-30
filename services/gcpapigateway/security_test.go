@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -33,16 +34,16 @@ func TestAPIKeySecurity(t *testing.T) {
 	paths := "  /locked:\n" + op("get", "      security:\n        - api_key: []\n") + "  /open:\n" + op("get", "")
 
 	tests := []struct {
+		hdr    map[string]string
 		name   string
 		target string
-		hdr    map[string]string
 		want   int
 	}{
-		{"missing key", "/locked", nil, http.StatusUnauthorized},
-		{"empty key", "/locked?key=", nil, http.StatusUnauthorized},
-		{"query key", "/locked?key=abc", nil, http.StatusOK},
-		{"header key", "/locked", map[string]string{"x-api-key": "abc"}, http.StatusOK},
-		{"unsecured path", "/open", nil, http.StatusOK},
+		{name: "missing key", target: "/locked", want: http.StatusUnauthorized},
+		{name: "empty key", target: "/locked?key=", want: http.StatusUnauthorized},
+		{name: "query key", target: "/locked?key=abc", want: http.StatusOK},
+		{name: "header key", target: "/locked", hdr: map[string]string{"x-api-key": "abc"}, want: http.StatusOK},
+		{name: "unsecured path", target: "/open", want: http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -102,11 +103,20 @@ func newSigner(t *testing.T) *signer {
 	ec, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 
+	point, err := ec.PublicKey.Bytes()
+	require.NoError(t, err)
+
 	s := &signer{rsa: sharedRSA(), ec: ec}
 	s.jwks = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{
 			{"kty": "RSA", "kid": "rsa-1", "n": b64u(s.rsa.N), "e": b64u(big.NewInt(int64(s.rsa.E)))},
-			{"kty": "EC", "kid": "ec-1", "crv": "P-256", "x": b64u(ec.X), "y": b64u(ec.Y)},
+			{
+				"kty": "EC",
+				"kid": "ec-1",
+				"crv": "P-256",
+				"x":   base64.RawURLEncoding.EncodeToString(point[1:33]),
+				"y":   base64.RawURLEncoding.EncodeToString(point[33:]),
+			},
 		}})
 	}))
 	t.Cleanup(s.jwks.Close)
@@ -151,9 +161,7 @@ func TestJWTSecurity(t *testing.T) {
 			"iss": issuer, "sub": "user-1", "aud": "https://AUD", "exp": now.Add(time.Hour).Unix(),
 			"iat": now.Unix(), "email": "u@example.com",
 		}
-		for k, v := range extra {
-			c[k] = v
-		}
+		maps.Copy(c, extra)
 
 		return c
 	}
@@ -162,19 +170,29 @@ func TestJWTSecurity(t *testing.T) {
 		build func(*testing.T, *signer, string) (hdr map[string]string, target string)
 		name  string
 		aud   string
-		want  int
 		msg   string
+		want  int
 	}{
 		{
 			name: "valid rs256", aud: "my-audience", want: 200,
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
 				return bearer(s.rsaToken(t, good(jwt.MapClaims{"aud": "my-audience"}))), "/hello"
 			},
 		},
 		{
 			name: "valid es256 with audience list", aud: "a1, a2", want: 200,
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
-				tok := s.token(t, jwt.SigningMethodES256, "ec-1", s.ec, good(jwt.MapClaims{"aud": []string{"zzz", "a2"}}))
+				t.Helper()
+
+				tok := s.token(
+					t,
+					jwt.SigningMethodES256,
+					"ec-1",
+					s.ec,
+					good(jwt.MapClaims{"aud": []string{"zzz", "a2"}}),
+				)
 
 				return bearer(tok), "/hello"
 			},
@@ -182,12 +200,16 @@ func TestJWTSecurity(t *testing.T) {
 		{
 			name: "default audience is the managed service", want: 200,
 			build: func(t *testing.T, s *signer, managed string) (map[string]string, string) {
+				t.Helper()
+
 				return bearer(s.rsaToken(t, good(jwt.MapClaims{"aud": "https://" + managed}))), "/hello"
 			},
 		},
 		{
 			name: "access_token query parameter", want: 200,
 			build: func(t *testing.T, s *signer, managed string) (map[string]string, string) {
+				t.Helper()
+
 				return nil, "/hello?access_token=" + s.rsaToken(t, good(jwt.MapClaims{"aud": "https://" + managed}))
 			},
 		},
@@ -202,12 +224,18 @@ func TestJWTSecurity(t *testing.T) {
 		{
 			name: "expired", aud: "x", want: 401, msg: "Jwt is expired",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
-				return bearer(s.rsaToken(t, good(jwt.MapClaims{"aud": "x", "exp": now.Add(-time.Hour).Unix()}))), "/hello"
+				t.Helper()
+
+				return bearer(
+					s.rsaToken(t, good(jwt.MapClaims{"aud": "x", "exp": now.Add(-time.Hour).Unix()})),
+				), "/hello"
 			},
 		},
 		{
 			name: "no exp", aud: "x", want: 401, msg: "Jwt verification fails",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
 				c := good(jwt.MapClaims{"aud": "x"})
 				delete(c, "exp")
 
@@ -217,18 +245,24 @@ func TestJWTSecurity(t *testing.T) {
 		{
 			name: "unknown issuer", aud: "x", want: 401, msg: "issuer is not configured",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
 				return bearer(s.rsaToken(t, good(jwt.MapClaims{"aud": "x", "iss": otherIs}))), "/hello"
 			},
 		},
 		{
 			name: "audience mismatch", aud: "mine", want: 403, msg: "Audiences in Jwt are not allowed",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
 				return bearer(s.rsaToken(t, good(jwt.MapClaims{"aud": "theirs"}))), "/hello"
 			},
 		},
 		{
 			name: "unknown kid", aud: "x", want: 401, msg: "Jwt verification fails",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
 				tok := s.token(t, jwt.SigningMethodRS256, "other", s.rsa, good(jwt.MapClaims{"aud": "x"}))
 
 				return bearer(tok), "/hello"
@@ -237,15 +271,21 @@ func TestJWTSecurity(t *testing.T) {
 		{
 			name: "signed with another key", aud: "x", want: 401, msg: "Jwt verification fails",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
 				other, err := rsa.GenerateKey(rand.Reader, 2048)
 				require.NoError(t, err)
 
-				return bearer(s.token(t, jwt.SigningMethodRS256, "rsa-1", other, good(jwt.MapClaims{"aud": "x"}))), "/hello"
+				return bearer(
+					s.token(t, jwt.SigningMethodRS256, "rsa-1", other, good(jwt.MapClaims{"aud": "x"})),
+				), "/hello"
 			},
 		},
 		{
 			name: "hs256 forged with the public key", aud: "x", want: 401, msg: "Jwt verification fails",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
 				tok := s.token(t, jwt.SigningMethodHS256, "rsa-1", s.rsa.N.Bytes(), good(jwt.MapClaims{"aud": "x"}))
 
 				return bearer(tok), "/hello"
@@ -254,7 +294,15 @@ func TestJWTSecurity(t *testing.T) {
 		{
 			name: "alg none", aud: "x", want: 401, msg: "Jwt verification fails",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
-				tok := s.token(t, jwt.SigningMethodNone, "rsa-1", jwt.UnsafeAllowNoneSignatureType, good(jwt.MapClaims{"aud": "x"}))
+				t.Helper()
+
+				tok := s.token(
+					t,
+					jwt.SigningMethodNone,
+					"rsa-1",
+					jwt.UnsafeAllowNoneSignatureType,
+					good(jwt.MapClaims{"aud": "x"}),
+				)
 
 				return bearer(tok), "/hello"
 			},
@@ -262,6 +310,8 @@ func TestJWTSecurity(t *testing.T) {
 		{
 			name: "es256 header with rsa key id", aud: "x", want: 401, msg: "Jwt verification fails",
 			build: func(t *testing.T, s *signer, _ string) (map[string]string, string) {
+				t.Helper()
+
 				tok := s.token(t, jwt.SigningMethodES256, "rsa-1", s.ec, good(jwt.MapClaims{"aud": "x"}))
 
 				return bearer(tok), "/hello"
@@ -281,7 +331,7 @@ func TestJWTSecurity(t *testing.T) {
 			e.createAPI(t, apiID)
 
 			managed := e.managedService(t)
-			cfg := e.createConfig(t, apiID, "cfg-1", opSpec(be.URL, jwtSpec(s.jwks.URL, tt.aud), "  /hello:\n"+op("get", "")))
+			cfg := e.createConfig(t, "cfg-1", opSpec(be.URL, jwtSpec(s.jwks.URL, tt.aud), "  /hello:\n"+op("get", "")))
 			gw := e.createGateway(t, "my-gw", cfg.GetName())
 
 			hdr, target := tt.build(t, s, managed)

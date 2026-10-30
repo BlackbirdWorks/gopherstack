@@ -12,12 +12,13 @@ const (
 	kindGateways   = "gateways"
 	kindOperations = "operations"
 
-	globalLocation = "global"
-	maxLabels      = 64
-	maskDisplay    = "display_name"
-	maskLabels     = "labels"
-	maskAPIConfig  = "api_config"
-	maskAll        = "*"
+	globalLocation   = "global"
+	maxLabels        = 64
+	maskDisplay      = "display_name"
+	maskDisplayCamel = "displayName"
+	maskLabels       = "labels"
+	maskAPIConfig    = "api_config"
+	maskAll          = "*"
 )
 
 var (
@@ -63,26 +64,26 @@ func parseParent(name string) (string, string, error) {
 	return ids[0], ids[1], nil
 }
 
-// parseChild returns the project, location and id of "projects/{p}/locations/{l}/{kind}/{id}".
-func parseChild(name, kind string) (string, string, string, error) {
-	ids, ok := parseRes(name, "projects", "locations", kind)
+// parseGatewayName returns the project, location and id of "projects/{p}/locations/{l}/gateways/{id}".
+func parseGatewayName(name string) (string, string, string, error) {
+	ids, ok := parseRes(name, "projects", "locations", kindGateways)
 	if !ok {
 		return "", "", "", errInvalid(
-			"Invalid name %q: want projects/{project}/locations/{location}/%s/{id}.", name, kind)
+			"Invalid name %q: want projects/{project}/locations/{location}/gateways/{id}.", name)
 	}
 
 	return ids[0], ids[1], ids[2], nil
 }
 
-// parseConfigName returns the project, api and config id of an API config name.
-func parseConfigName(name string) (string, string, string, error) {
+// parseConfigName returns the project of an API config name.
+func parseConfigName(name string) (string, error) {
 	ids, ok := parseRes(name, "projects", "locations", kindApis, kindConfigs)
 	if !ok || ids[1] != globalLocation {
-		return "", "", "", errInvalid(
+		return "", errInvalid(
 			"Invalid name %q: want projects/{project}/locations/global/apis/{api}/configs/{config}.", name)
 	}
 
-	return ids[0], ids[2], ids[3], nil
+	return ids[0], nil
 }
 
 func parseAPIName(name string) (string, string, error) {

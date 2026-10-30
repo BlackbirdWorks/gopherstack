@@ -36,7 +36,11 @@ func TestAPICRUD(t *testing.T) {
 	assert.Equal(t, api.GetManagedService(), got.GetManagedService())
 
 	op, err := e.client.UpdateApi(t.Context(), &apigatewaypb.UpdateApiRequest{
-		Api:        &apigatewaypb.Api{Name: api.GetName(), DisplayName: "renamed", Labels: map[string]string{"env": "dev"}},
+		Api: &apigatewaypb.Api{
+			Name:        api.GetName(),
+			DisplayName: "renamed",
+			Labels:      map[string]string{"env": "dev"},
+		},
 		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"display_name", "labels"}},
 	})
 	require.NoError(t, err)
@@ -81,7 +85,11 @@ func TestAPIErrors(t *testing.T) {
 	}{
 		{&apigatewaypb.CreateApiRequest{Parent: parent, ApiId: "Bad_ID"}, "bad id", codes.InvalidArgument},
 		{&apigatewaypb.CreateApiRequest{Parent: parent}, "missing id", codes.InvalidArgument},
-		{&apigatewaypb.CreateApiRequest{Parent: "projects/p/locations/us-central1", ApiId: "x"}, "not global", codes.InvalidArgument},
+		{
+			&apigatewaypb.CreateApiRequest{Parent: "projects/p/locations/us-central1", ApiId: "x"},
+			"not global",
+			codes.InvalidArgument,
+		},
 		{&apigatewaypb.CreateApiRequest{Parent: "nope", ApiId: "x"}, "bad parent", codes.InvalidArgument},
 		{&apigatewaypb.CreateApiRequest{Parent: parent, ApiId: "dup"}, "duplicate", codes.AlreadyExists},
 		{&apigatewaypb.CreateApiRequest{
@@ -108,7 +116,7 @@ func TestConfigLifecycle(t *testing.T) {
 	e := newEnv(t)
 	e.createAPI(t, apiID)
 
-	cfg := e.createConfig(t, apiID, "cfg-1", helloSpec("https://backend.example"))
+	cfg := e.createConfig(t, "cfg-1", helloSpec("https://backend.example"))
 	assert.Equal(t, apigatewaypb.ApiConfig_ACTIVE, cfg.GetState())
 	assert.Equal(t, parent+"/apis/"+apiID+"/configs/cfg-1", cfg.GetName())
 	assert.NotEmpty(t, cfg.GetServiceConfigId())
@@ -170,15 +178,28 @@ func TestConfigInputErrors(t *testing.T) {
 		name string
 		want codes.Code
 	}{
-		{func(r *apigatewaypb.CreateApiConfigRequest) { r.ApiConfig.OpenapiDocuments = nil }, "no document", codes.InvalidArgument},
+		{
+			func(r *apigatewaypb.CreateApiConfigRequest) { r.ApiConfig.OpenapiDocuments = nil },
+			"no document",
+			codes.InvalidArgument,
+		},
 		{func(r *apigatewaypb.CreateApiConfigRequest) {
-			r.ApiConfig.OpenapiDocuments = append(r.ApiConfig.OpenapiDocuments, r.ApiConfig.OpenapiDocuments[0])
+			docs := r.GetApiConfig().GetOpenapiDocuments()
+			r.ApiConfig.OpenapiDocuments = append(docs, docs[0])
 		}, "two documents", codes.InvalidArgument},
-		{func(r *apigatewaypb.CreateApiConfigRequest) { r.ApiConfig.GatewayServiceAccount = "nope" }, "bad service account", codes.InvalidArgument},
+		{
+			func(r *apigatewaypb.CreateApiConfigRequest) { r.ApiConfig.GatewayServiceAccount = "nope" },
+			"bad service account",
+			codes.InvalidArgument,
+		},
 		{func(r *apigatewaypb.CreateApiConfigRequest) {
 			r.ApiConfig.GrpcServices = []*apigatewaypb.ApiConfig_GrpcServiceDefinition{{}}
 		}, "grpc", codes.InvalidArgument},
-		{func(r *apigatewaypb.CreateApiConfigRequest) { r.Parent = parent + "/apis/ghost" }, "missing api", codes.NotFound},
+		{
+			func(r *apigatewaypb.CreateApiConfigRequest) { r.Parent = parent + "/apis/ghost" },
+			"missing api",
+			codes.NotFound,
+		},
 		{func(r *apigatewaypb.CreateApiConfigRequest) { r.ApiConfigId = "" }, "no id", codes.InvalidArgument},
 	}
 
@@ -211,14 +232,37 @@ func TestConfigInputErrors(t *testing.T) {
 
 		cfg, err := op.Wait(t.Context())
 		require.NoError(t, err)
-		assert.Equal(t, req.ApiConfig.GatewayServiceAccount, cfg.GetGatewayServiceAccount())
+		assert.Equal(t, req.GetApiConfig().GetGatewayServiceAccount(), cfg.GetGatewayServiceAccount())
 	})
+}
+
+const (
+	backendAddr = "https://backend.example"
+	getA        = "  /a:\n    get:\n" + okResponses
+	metricM     = "x-google-management:\n  metrics:\n    - name: m\n      valueType: INT64\n"
+)
+
+func jwtDef(name, issuerURL, jwks string) string {
+	d := "  " + name + ":\n    type: oauth2\n    x-google-issuer: " + issuerURL + "\n"
+	if jwks != "" {
+		d += "    x-google-jwks_uri: " + jwks + "\n"
+	}
+
+	return d
+}
+
+func quotaLimit(unit string) string {
+	return "  quota:\n    limits:\n      - name: l\n        metric: m\n        unit: \"" + unit +
+		"\"\n        values:\n          STANDARD: 1\n"
 }
 
 func TestOpenAPIValidation(t *testing.T) {
 	t.Parallel()
 
-	const be = "https://backend.example"
+	const (
+		secHdr = "securityDefinitions:\n"
+		keyDef = "  api_key:\n    type: apiKey\n    in: query\n"
+	)
 
 	tests := []struct {
 		name string
@@ -228,22 +272,50 @@ func TestOpenAPIValidation(t *testing.T) {
 		{"not yaml", "{{{", "not valid YAML"},
 		{"wrong version", "swagger: \"1.2\"\npaths: {}\n", "Unsupported Swagger version"},
 		{"no version", "paths: {}\n", "Unsupported document"},
-		{"no paths", opSpec(be, "", "  {}\n"), "no paths"},
-		{"no backend", opSpec("", "", "  /a:\n    get:\n"+okResponses), "no x-google-backend"},
-		{"backend no scheme", opSpec("backend.example", "", "  /a:\n    get:\n"+okResponses), "http or https"},
-		{"bad translation", opSpec(be+"\n  path_translation: SIDEWAYS", "", "  /a:\n    get:\n"+okResponses), "path_translation"},
-		{"deadline too big", opSpec(be+"\n  deadline: 9999", "", "  /a:\n    get:\n"+okResponses), "deadline"},
-		{"audience and disable auth", opSpec(be+"\n  jwt_audience: x\n  disable_auth: true", "", "  /a:\n    get:\n"+okResponses), "Only one of"},
-		{"missing responses", opSpec(be, "", "  /a:\n    get: {}\n"), "responses"},
-		{"undefined security", opSpec(be, "", "  /a:\n    get:\n      security:\n        - nope: []\n"+okResponses), "not defined"},
-		{"jwt without jwks", opSpec(be, "securityDefinitions:\n  j:\n    type: oauth2\n    x-google-issuer: i\n", "  /a:\n    get:\n"+okResponses), "x-google-jwks_uri"},
-		{"duplicate issuer", opSpec(be, "securityDefinitions:\n  a:\n    type: oauth2\n    x-google-issuer: i\n    x-google-jwks_uri: https://x/k\n  b:\n    type: oauth2\n    x-google-issuer: i\n    x-google-jwks_uri: https://x/k\n", "  /a:\n    get:\n"+okResponses), "already used"},
-		{"api key without name", opSpec(be, "securityDefinitions:\n  api_key:\n    type: apiKey\n    in: query\n", "  /a:\n    get:\n"+okResponses), "needs a name"},
-		{"ambiguous templates", opSpec(be, "", "  /a/{x}:\n    get:\n"+okResponses+"  /a/{y}:\n    get:\n"+okResponses), "ambiguous"},
-		{"partial template", opSpec(be, "", "  /a/pre{x}:\n    get:\n"+okResponses), "whole segment"},
-		{"quota undefined metric", opSpec(be, "", "  /a:\n    get:\n      x-google-quota:\n        metricCosts:\n          m: 1\n"+okResponses), "undefined metric"},
-		{"quota bad unit", opSpec(be, "x-google-management:\n  metrics:\n    - name: m\n      valueType: INT64\n      metricKind: DELTA\n  quota:\n    limits:\n      - name: l\n        metric: m\n        unit: \"1/s/{project}\"\n        values:\n          STANDARD: 1\n", "  /a:\n    get:\n"+okResponses), "unit"},
-		{"metric kind", opSpec(be, "x-google-management:\n  metrics:\n    - name: m\n      valueType: INT64\n      metricKind: GAUGE\n", "  /a:\n    get:\n"+okResponses), "DELTA"},
+		{"no paths", opSpec(backendAddr, "", "  {}\n"), "no paths"},
+		{"no backend", opSpec("", "", getA), "no x-google-backend"},
+		{"backend no scheme", opSpec("backend.example", "", getA), "http or https"},
+		{"bad translation", opSpec(backendAddr+"\n  path_translation: SIDEWAYS", "", getA), "path_translation"},
+		{"deadline too big", opSpec(backendAddr+"\n  deadline: 9999", "", getA), "deadline"},
+		{
+			"audience and disable auth",
+			opSpec(backendAddr+"\n  jwt_audience: x\n  disable_auth: true", "", getA),
+			"Only one of",
+		},
+		{"missing responses", opSpec(backendAddr, "", "  /a:\n    get: {}\n"), "responses"},
+		{
+			"undefined security",
+			opSpec(backendAddr, "", "  /a:\n    get:\n      security:\n        - nope: []\n"+okResponses),
+			"not defined",
+		},
+		{"jwt without jwks", opSpec(backendAddr, secHdr+jwtDef("j", "i", ""), getA), "x-google-jwks_uri"},
+		{
+			"duplicate issuer",
+			opSpec(backendAddr, secHdr+jwtDef("a", "i", "https://x/k")+jwtDef("b", "i", "https://x/k"), getA),
+			"already used",
+		},
+		{"api key without name", opSpec(backendAddr, secHdr+keyDef, getA), "needs a name"},
+		{
+			"ambiguous templates",
+			opSpec(backendAddr, "", "  /a/{x}:\n    get:\n"+okResponses+"  /a/{y}:\n    get:\n"+okResponses),
+			"ambiguous",
+		},
+		{"partial template", opSpec(backendAddr, "", "  /a/pre{x}:\n    get:\n"+okResponses), "whole segment"},
+		{
+			"quota undefined metric",
+			opSpec(
+				backendAddr,
+				"",
+				"  /a:\n    get:\n      x-google-quota:\n        metricCosts:\n          m: 1\n"+okResponses,
+			),
+			"undefined metric",
+		},
+		{
+			"quota bad unit",
+			opSpec(backendAddr, metricM+"      metricKind: DELTA\n"+quotaLimit("1/s/{project}"), getA),
+			"unit",
+		},
+		{"metric kind", opSpec(backendAddr, metricM+"      metricKind: GAUGE\n", getA), "DELTA"},
 	}
 
 	for _, tt := range tests {
@@ -271,9 +343,7 @@ func TestOpenAPIValidation(t *testing.T) {
 			require.NoError(t, gerr)
 			assert.Equal(t, apigatewaypb.ApiConfig_FAILED, cfg.GetState())
 
-			_, gerr = e.client.CreateGateway(t.Context(), &apigatewaypb.CreateGatewayRequest{
-				Parent: gwParen, GatewayId: "gw", Gateway: &apigatewaypb.Gateway{ApiConfig: cfg.GetName()},
-			})
+			_, gerr = e.client.CreateGateway(t.Context(), gatewayRequest("gw", gwParen, cfg.GetName()))
 			assert.Equal(t, codes.FailedPrecondition, status.Code(gerr), "a failed config cannot be served")
 		})
 	}
@@ -288,7 +358,7 @@ func TestOpenAPI3Accepted(t *testing.T) {
 	e := newEnv(t)
 	e.createAPI(t, apiID)
 
-	cfg := e.createConfig(t, apiID, "v3", doc)
+	cfg := e.createConfig(t, "v3", doc)
 	assert.Equal(t, apigatewaypb.ApiConfig_ACTIVE, cfg.GetState())
 }
 
@@ -298,8 +368,8 @@ func TestGatewayLifecycle(t *testing.T) {
 	e := newEnv(t)
 	e.createAPI(t, apiID)
 
-	cfg := e.createConfig(t, apiID, "cfg-1", helloSpec("https://b.example"))
-	cfg2 := e.createConfig(t, apiID, "cfg-2", helloSpec("https://b.example"))
+	cfg := e.createConfig(t, "cfg-1", helloSpec("https://b.example"))
+	cfg2 := e.createConfig(t, "cfg-2", helloSpec("https://b.example"))
 	gw := e.createGateway(t, "my-gw", cfg.GetName())
 
 	assert.Equal(t, gwParen+"/gateways/my-gw", gw.GetName())
@@ -317,7 +387,10 @@ func TestGatewayLifecycle(t *testing.T) {
 	assert.Equal(t, cfg2.GetName(), upd.GetApiConfig())
 	assert.Equal(t, gw.GetDefaultHostname(), upd.GetDefaultHostname())
 
-	it := e.client.ListGateways(t.Context(), &apigatewaypb.ListGatewaysRequest{Parent: "projects/" + project + "/locations/-"})
+	it := e.client.ListGateways(
+		t.Context(),
+		&apigatewaypb.ListGatewaysRequest{Parent: "projects/" + project + "/locations/-"},
+	)
 	g, err := it.Next()
 	require.NoError(t, err)
 	assert.Equal(t, gw.GetName(), g.GetName())
@@ -327,11 +400,11 @@ func TestGatewayLifecycle(t *testing.T) {
 		name string
 		want codes.Code
 	}{
-		{&apigatewaypb.CreateGatewayRequest{Parent: parent, GatewayId: "x", Gateway: &apigatewaypb.Gateway{ApiConfig: cfg.GetName()}}, "global location", codes.InvalidArgument},
-		{&apigatewaypb.CreateGatewayRequest{Parent: gwParen, GatewayId: "x", Gateway: &apigatewaypb.Gateway{}}, "no config", codes.InvalidArgument},
-		{&apigatewaypb.CreateGatewayRequest{Parent: gwParen, GatewayId: "x", Gateway: &apigatewaypb.Gateway{ApiConfig: parent + "/apis/a/configs/ghost"}}, "missing config", codes.NotFound},
-		{&apigatewaypb.CreateGatewayRequest{Parent: gwParen, GatewayId: "my-gw", Gateway: &apigatewaypb.Gateway{ApiConfig: cfg.GetName()}}, "duplicate", codes.AlreadyExists},
-		{&apigatewaypb.CreateGatewayRequest{Parent: gwParen, GatewayId: "X", Gateway: &apigatewaypb.Gateway{ApiConfig: cfg.GetName()}}, "bad id", codes.InvalidArgument},
+		{gatewayRequest("x", parent, cfg.GetName()), "global location", codes.InvalidArgument},
+		{gatewayRequest("x", gwParen, ""), "no config", codes.InvalidArgument},
+		{gatewayRequest("x", gwParen, parent+"/apis/a/configs/ghost"), "missing config", codes.NotFound},
+		{gatewayRequest("my-gw", gwParen, cfg.GetName()), "duplicate", codes.AlreadyExists},
+		{gatewayRequest("X", gwParen, cfg.GetName()), "bad id", codes.InvalidArgument},
 	}
 
 	for _, tt := range tests {
@@ -406,10 +479,14 @@ func TestOperationsAPI(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, opName, list.GetName())
 
-	_, err = lro.WaitOperation(t.Context(), &longrunningpb.WaitOperationRequest{Name: "projects/p/locations/global/operations/ghost"})
+	_, err = lro.WaitOperation(
+		t.Context(),
+		&longrunningpb.WaitOperationRequest{Name: "projects/p/locations/global/operations/ghost"},
+	)
 	assert.Equal(t, codes.NotFound, status.Code(err))
 
-	assert.Equal(t, codes.FailedPrecondition, status.Code(lro.DeleteOperation(t.Context(), &longrunningpb.DeleteOperationRequest{Name: opName})), "running operation")
+	running := lro.DeleteOperation(t.Context(), &longrunningpb.DeleteOperationRequest{Name: opName})
+	assert.Equal(t, codes.FailedPrecondition, status.Code(running), "running operation")
 
 	require.NoError(t, lro.CancelOperation(t.Context(), &longrunningpb.CancelOperationRequest{Name: opName}))
 
@@ -422,7 +499,11 @@ func TestOperationsAPI(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err), "cancelled create is rolled back")
 
 	require.NoError(t, lro.DeleteOperation(t.Context(), &longrunningpb.DeleteOperationRequest{Name: opName}))
-	assert.Equal(t, codes.NotFound, status.Code(lro.DeleteOperation(t.Context(), &longrunningpb.DeleteOperationRequest{Name: opName})))
+	assert.Equal(
+		t,
+		codes.NotFound,
+		status.Code(lro.DeleteOperation(t.Context(), &longrunningpb.DeleteOperationRequest{Name: opName})),
+	)
 }
 
 func TestIAMAndLocations(t *testing.T) {
@@ -463,7 +544,7 @@ func TestIAMAndLocations(t *testing.T) {
 	}
 
 	_, err := iam.GetIamPolicy(t.Context(), &iampb.GetIamPolicyRequest{Resource: apiName + "x"})
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	locs, err := loc.ListLocations(t.Context(), &location.ListLocationsRequest{Name: "projects/" + project})
 	require.NoError(t, err)

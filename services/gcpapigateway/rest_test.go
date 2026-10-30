@@ -15,7 +15,9 @@ func TestRESTFlow(t *testing.T) {
 	const (
 		apiPath = "/v1/projects/test-project/locations/global/apis/rest-api"
 		gwPath  = "/v1/projects/test-project/locations/us-central1/gateways/rest-gw"
-		spec    = "c3dhZ2dlcjogIjIuMCIKaW5mbzoKICB0aXRsZTogdAogIHZlcnNpb246ICIxIgp4LWdvb2dsZS1iYWNrZW5kOgogIGFkZHJlc3M6IGh0dHBzOi8vYi5leGFtcGxlCnBhdGhzOgogIC9oZWxsbzoKICAgIGdldDoKICAgICAgcmVzcG9uc2VzOgogICAgICAgICIyMDAiOgogICAgICAgICAgZGVzY3JpcHRpb246IG9rCg=="
+		spec    = "c3dhZ2dlcjogIjIuMCIKaW5mbzoKICB0aXRsZTogdAogIHZlcnNpb246ICIxIgp4LWdvb2dsZS1iYWNrZW5kOgogIG" +
+			"FkZHJlc3M6IGh0dHBzOi8vYi5leGFtcGxlCnBhdGhzOgogIC9oZWxsbzoKICAgIGdldDoKICAgICAgcmVzcG9uc2Vz" +
+			"OgogICAgICAgICIyMDAiOgogICAgICAgICAgZGVzY3JpcHRpb246IG9rCg=="
 	)
 
 	resttest.Run(t, e.handler.Addr(), []resttest.Step{
@@ -35,8 +37,8 @@ func TestRESTFlow(t *testing.T) {
 		},
 		{
 			Name: "create gateway", Method: http.MethodPost,
-			Path: "/v1/projects/test-project/locations/us-central1/gateways?gatewayId=rest-gw",
-			Body: `{"apiConfig":"projects/test-project/locations/global/apis/rest-api/configs/rest-cfg"}`,
+			Path:   "/v1/projects/test-project/locations/us-central1/gateways?gatewayId=rest-gw",
+			Body:   `{"apiConfig":"projects/test-project/locations/global/apis/rest-api/configs/rest-cfg"}`,
 			Status: 200, Contains: []string{`"done":true`, `.uc.gateway.dev`},
 		},
 		{

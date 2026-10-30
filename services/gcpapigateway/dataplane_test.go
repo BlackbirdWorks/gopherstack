@@ -189,11 +189,14 @@ func TestExternalBackendRefusedByDefault(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		allow     bool
 		wantCodes []int
+		allow     bool
 	}{
-		{"refused by default", false, []int{http.StatusBadGateway}},
-		{"opt in dials out", true, []int{http.StatusServiceUnavailable, http.StatusGatewayTimeout}},
+		{name: "refused by default", allow: false, wantCodes: []int{http.StatusBadGateway}},
+		{
+			name: "opt in dials out", allow: true,
+			wantCodes: []int{http.StatusServiceUnavailable, http.StatusGatewayTimeout},
+		},
 	}
 
 	for _, tt := range tests {

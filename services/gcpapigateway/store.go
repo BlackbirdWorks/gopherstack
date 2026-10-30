@@ -22,6 +22,8 @@ const (
 	stateUpdating int32 = 5
 )
 
+const defaultCreate = 2 * time.Second
+
 // Timing controls how long create, update and delete operations take on the backend clock.
 type Timing struct {
 	Create time.Duration
@@ -31,7 +33,7 @@ type Timing struct {
 
 // DefaultTiming returns the operation durations used unless a test overrides them.
 func DefaultTiming() Timing {
-	return Timing{Create: 2 * time.Second, Update: time.Second, Delete: time.Second}
+	return Timing{Create: defaultCreate, Update: time.Second, Delete: time.Second}
 }
 
 // life tracks the transient state of a resource on the backend clock.

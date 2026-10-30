@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -105,14 +106,20 @@ func (b *InMemoryBackend) resolve(r *http.Request) (*served, *authError) {
 		return nil, &authError{status: http.StatusServiceUnavailable, msg: "Gateway API config is not available."}
 	}
 
-	project, _, _, _ := parseChild(g.pb.GetName(), kindGateways)
+	project, _, _, _ := parseGatewayName(g.pb.GetName())
 	managed := ""
 
-	if api, found := b.apis[strings.SplitN(c.pb.GetName(), "/"+kindConfigs+"/", 2)[0]]; found {
+	if api, found := b.apis[apiOfConfig(c.pb.GetName())]; found {
 		managed = api.pb.GetManagedService()
 	}
 
 	return &served{spec: c.spec, project: project, managed: managed, path: p}, nil
+}
+
+func apiOfConfig(config string) string {
+	api, _, _ := strings.Cut(config, "/"+kindConfigs+"/")
+
+	return api
 }
 
 func writeErr(w http.ResponseWriter, status int, msg string) {
@@ -164,9 +171,7 @@ func backendURL(be *backendCfg, reqPath, rawQuery string, vars map[string]string
 	}
 
 	q := url.Values{}
-	for k, vs := range u.Query() {
-		q[k] = vs
-	}
+	maps.Copy(q, u.Query())
 
 	if be.Translation == translateAppend {
 		u.Path = strings.TrimRight(u.Path, "/") + reqPath
@@ -248,7 +253,7 @@ func (b *InMemoryBackend) forward(
 
 	resp, err := b.client.Do(out) //nolint:gosec // G704 loopback-only by default; guarded dialer
 	if err != nil {
-		writeBackendErr(w, ctx, err)
+		writeBackendErr(ctx, w, err)
 
 		return
 	}
@@ -275,7 +280,7 @@ func copyHeaders(dst, src http.Header) {
 	}
 }
 
-func writeBackendErr(w http.ResponseWriter, ctx context.Context, err error) {
+func writeBackendErr(ctx context.Context, w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		writeErr(w, http.StatusGatewayTimeout, "upstream request timeout")
@@ -285,4 +290,3 @@ func writeBackendErr(w http.ResponseWriter, ctx context.Context, err error) {
 		writeErr(w, http.StatusServiceUnavailable, "upstream connect error or disconnect/reset before headers")
 	}
 }
-

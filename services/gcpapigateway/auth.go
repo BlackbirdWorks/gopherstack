@@ -29,6 +29,7 @@ const (
 	jwksFetchLimit = 10 * time.Second
 	jwksTTL        = 5 * time.Minute
 	bearerPrefix   = "Bearer "
+	msgJWTFails    = "Jwt verification fails"
 )
 
 var (
@@ -92,7 +93,7 @@ func (b *InMemoryBackend) fetchKeys(ctx context.Context, uri string) (map[string
 	ctx, cancel := context.WithTimeout(ctx, jwksFetchLimit)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil) //nolint:gosec // G704 guarded dialer
 	if err != nil {
 		return nil, err
 	}
@@ -178,49 +179,63 @@ func b64(s string) (*big.Int, error) {
 func (k jwk) public() (crypto.PublicKey, error) {
 	switch k.Kty {
 	case "RSA":
-		n, err := b64(k.N)
-		if err != nil {
-			return nil, err
-		}
-
-		e, err := b64(k.E)
-		if err != nil || !e.IsInt64() || e.Int64() < 3 || e.Int64() > 1<<31-1 {
-			return nil, errKeyFormat
-		}
-
-		return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
+		return k.rsaKey()
 	case "EC":
-		var curve elliptic.Curve
-
-		switch k.Crv {
-		case "P-256":
-			curve = elliptic.P256()
-		case "P-384":
-			curve = elliptic.P384()
-		case "P-521":
-			curve = elliptic.P521()
-		default:
-			return nil, errKeyFormat
-		}
-
-		x, err := b64(k.X)
-		if err != nil {
-			return nil, err
-		}
-
-		y, err := b64(k.Y)
-		if err != nil {
-			return nil, err
-		}
-
-		if !curve.IsOnCurve(x, y) { //nolint:staticcheck // validating an untrusted public point
-			return nil, errKeyFormat
-		}
-
-		return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
+		return k.ecKey()
 	default:
 		return nil, errKeyFormat
 	}
+}
+
+func (k jwk) rsaKey() (crypto.PublicKey, error) {
+	n, err := b64(k.N)
+	if err != nil {
+		return nil, err
+	}
+
+	e, err := b64(k.E)
+	if err != nil || !e.IsInt64() || e.Int64() < 3 || e.Int64() > 1<<31-1 {
+		return nil, errKeyFormat
+	}
+
+	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
+}
+
+func (k jwk) ecKey() (crypto.PublicKey, error) {
+	var curve elliptic.Curve
+
+	switch k.Crv {
+	case "P-256":
+		curve = elliptic.P256()
+	case "P-384":
+		curve = elliptic.P384()
+	case "P-521":
+		curve = elliptic.P521()
+	default:
+		return nil, errKeyFormat
+	}
+
+	x, err := b64(k.X)
+	if err != nil {
+		return nil, err
+	}
+
+	y, err := b64(k.Y)
+	if err != nil {
+		return nil, err
+	}
+
+	size := (curve.Params().BitSize + 7) / 8 //nolint:mnd // bits to bytes
+	if x.BitLen() > size*8 || y.BitLen() > size*8 {
+		return nil, errKeyFormat
+	}
+
+	point := make([]byte, 1+2*size)
+	point[0] = 4 //nolint:mnd // uncompressed point marker
+	x.FillBytes(point[1 : 1+size])
+	y.FillBytes(point[1+size:])
+
+	return ecdsa.ParseUncompressedPublicKey(curve, point)
 }
 
 func checkKeyAlg(k crypto.PublicKey, t *jwt.Token) (crypto.PublicKey, error) {
@@ -251,7 +266,7 @@ func tokenOf(r *http.Request) string {
 func apiKeyOf(r *http.Request, d *secDef) string {
 	q := r.URL.Query()
 
-	candidates := []string{q.Get("key"), r.Header.Get("x-api-key")}
+	candidates := []string{q.Get("key"), r.Header.Get("X-Api-Key")}
 	if d.KeyIn == inQuery {
 		candidates = append([]string{q.Get(d.KeyName)}, candidates...)
 	} else {
@@ -299,7 +314,7 @@ func (b *InMemoryBackend) verifyJWT(
 
 	unverified := jwt.MapClaims{}
 	if _, _, err := jwt.NewParser().ParseUnverified(token, unverified); err != nil {
-		return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt verification fails"}
+		return nil, &authError{status: http.StatusUnauthorized, msg: msgJWTFails}
 	}
 
 	iss, _ := unverified["iss"].(string)
@@ -313,7 +328,7 @@ func (b *InMemoryBackend) verifyJWT(
 
 	keys, err := b.fetchKeys(ctx, def.JWKSURI)
 	if err != nil {
-		return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt verification fails"}
+		return nil, &authError{status: http.StatusUnauthorized, msg: msgJWTFails}
 	}
 
 	claims := jwt.MapClaims{}
@@ -341,7 +356,7 @@ func (b *InMemoryBackend) verifyJWT(
 			return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt is expired"}
 		}
 
-		return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt verification fails"}
+		return nil, &authError{status: http.StatusUnauthorized, msg: msgJWTFails}
 	}
 
 	want := def.Audiences

@@ -36,8 +36,8 @@ func (b *InMemoryBackend) liveAPILocked(name string) (*apiRec, bool) {
 	return r, true
 }
 
-// CreateApi creates an API in the global location.
-func (b *InMemoryBackend) CreateApi(in *apigatewaypb.CreateApiRequest) (*longrunningpb.Operation, error) {
+// CreateAPI creates an API in the global location.
+func (b *InMemoryBackend) CreateAPI(in *apigatewaypb.CreateApiRequest) (*longrunningpb.Operation, error) {
 	project, location, err := parseParent(in.GetParent())
 	if err != nil {
 		return nil, err
@@ -94,8 +94,8 @@ func (b *InMemoryBackend) finishLocked(s opSpec) (*longrunningpb.Operation, erro
 	return b.opViewLocked(o), nil
 }
 
-// GetApi returns one API.
-func (b *InMemoryBackend) GetApi(name string) (*apigatewaypb.Api, error) {
+// GetAPI returns one API.
+func (b *InMemoryBackend) GetAPI(name string) (*apigatewaypb.Api, error) {
 	if _, _, err := parseAPIName(name); err != nil {
 		return nil, err
 	}
@@ -148,8 +148,8 @@ func (b *InMemoryBackend) ListApis(in *apigatewaypb.ListApisRequest) (*apigatewa
 	return &apigatewaypb.ListApisResponse{Apis: pg.Data, NextPageToken: pg.Next}, nil
 }
 
-// UpdateApi updates the display name and labels of an API.
-func (b *InMemoryBackend) UpdateApi(in *apigatewaypb.UpdateApiRequest) (*longrunningpb.Operation, error) {
+// UpdateAPI updates the display name and labels of an API.
+func (b *InMemoryBackend) UpdateAPI(in *apigatewaypb.UpdateApiRequest) (*longrunningpb.Operation, error) {
 	src := in.GetApi()
 
 	project, _, err := parseAPIName(src.GetName())
@@ -177,7 +177,7 @@ func (b *InMemoryBackend) UpdateApi(in *apigatewaypb.UpdateApiRequest) (*longrun
 		switch p {
 		case maskAll:
 			next.DisplayName, next.Labels = src.GetDisplayName(), src.GetLabels()
-		case maskDisplay, "displayName":
+		case maskDisplay, maskDisplayCamel:
 			next.DisplayName = src.GetDisplayName()
 		case maskLabels:
 			next.Labels = src.GetLabels()
@@ -200,8 +200,8 @@ func (b *InMemoryBackend) UpdateApi(in *apigatewaypb.UpdateApiRequest) (*longrun
 	})
 }
 
-// DeleteApi deletes an API that has no API configs left.
-func (b *InMemoryBackend) DeleteApi(in *apigatewaypb.DeleteApiRequest) (*longrunningpb.Operation, error) {
+// DeleteAPI deletes an API that has no API configs left.
+func (b *InMemoryBackend) DeleteAPI(in *apigatewaypb.DeleteApiRequest) (*longrunningpb.Operation, error) {
 	project, _, err := parseAPIName(in.GetName())
 	if err != nil {
 		return nil, err

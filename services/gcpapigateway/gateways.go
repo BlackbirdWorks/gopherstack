@@ -41,7 +41,7 @@ func (b *InMemoryBackend) gatewayViewLocked(r *gatewayRec) *apigatewaypb.Gateway
 
 // usableConfigLocked checks that a gateway can serve the config.
 func (b *InMemoryBackend) usableConfigLocked(name string) error {
-	if _, _, _, err := parseConfigName(name); err != nil {
+	if _, err := parseConfigName(name); err != nil {
 		return errInvalid("Invalid api_config %q: %v", name, err)
 	}
 
@@ -116,7 +116,7 @@ func (b *InMemoryBackend) CreateGateway(in *apigatewaypb.CreateGatewayRequest) (
 
 // GetGateway returns one gateway.
 func (b *InMemoryBackend) GetGateway(name string) (*apigatewaypb.Gateway, error) {
-	if _, _, _, err := parseChild(name, kindGateways); err != nil {
+	if _, _, _, err := parseGatewayName(name); err != nil {
 		return nil, err
 	}
 
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) ListGateways(in *apigatewaypb.ListGatewaysRequest) (
 	var all []*apigatewaypb.Gateway
 
 	for _, r := range b.gateways {
-		p, l, _, _ := parseChild(r.pb.GetName(), kindGateways)
+		p, l, _, _ := parseGatewayName(r.pb.GetName())
 		if p == project && (location == "-" || l == location) && !r.life.gone(b.now()) {
 			all = append(all, b.gatewayViewLocked(r))
 		}
@@ -171,7 +171,7 @@ func (b *InMemoryBackend) ListGateways(in *apigatewaypb.ListGatewaysRequest) (
 func (b *InMemoryBackend) UpdateGateway(in *apigatewaypb.UpdateGatewayRequest) (*longrunningpb.Operation, error) {
 	src := in.GetGateway()
 
-	project, region, _, err := parseChild(src.GetName(), kindGateways)
+	project, region, _, err := parseGatewayName(src.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) UpdateGateway(in *apigatewaypb.UpdateGatewayRequest) (
 			if src.GetApiConfig() != "" {
 				next.ApiConfig = src.GetApiConfig()
 			}
-		case maskDisplay, "displayName":
+		case maskDisplay, maskDisplayCamel:
 			next.DisplayName = src.GetDisplayName()
 		case maskLabels:
 			next.Labels = src.GetLabels()
@@ -232,7 +232,7 @@ func (b *InMemoryBackend) UpdateGateway(in *apigatewaypb.UpdateGatewayRequest) (
 
 // DeleteGateway deletes a gateway.
 func (b *InMemoryBackend) DeleteGateway(in *apigatewaypb.DeleteGatewayRequest) (*longrunningpb.Operation, error) {
-	project, region, _, err := parseChild(in.GetName(), kindGateways)
+	project, region, _, err := parseGatewayName(in.GetName())
 	if err != nil {
 		return nil, err
 	}

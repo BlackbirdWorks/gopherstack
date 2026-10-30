@@ -98,10 +98,10 @@ func configRequest(api, id, doc string) *apigatewaypb.CreateApiConfigRequest {
 	}
 }
 
-func (e *env) createConfig(t *testing.T, api, id, doc string) *apigatewaypb.ApiConfig {
+func (e *env) createConfig(t *testing.T, id, doc string) *apigatewaypb.ApiConfig {
 	t.Helper()
 
-	op, err := e.client.CreateApiConfig(t.Context(), configRequest(api, id, doc))
+	op, err := e.client.CreateApiConfig(t.Context(), configRequest(apiID, id, doc))
 	require.NoError(t, err)
 
 	cfg, err := op.Wait(t.Context())
@@ -130,7 +130,7 @@ func (e *env) deploy(t *testing.T, doc string) *apigatewaypb.Gateway {
 
 	e.createAPI(t, apiID)
 
-	cfg := e.createConfig(t, apiID, "cfg-1", doc)
+	cfg := e.createConfig(t, "cfg-1", doc)
 
 	return e.createGateway(t, "my-gw", cfg.GetName())
 }
@@ -229,4 +229,10 @@ func (e *env) managedService(t *testing.T) string {
 	require.NoError(t, err)
 
 	return api.GetManagedService()
+}
+
+func gatewayRequest(id, parentName, cfg string) *apigatewaypb.CreateGatewayRequest {
+	return &apigatewaypb.CreateGatewayRequest{
+		Parent: parentName, GatewayId: id, Gateway: &apigatewaypb.Gateway{ApiConfig: cfg},
+	}
 }
