@@ -370,6 +370,7 @@ func errorProbeUnreachable() map[string]string {
 		"GCPCompute":              "non-AWS",
 		"GCPContainer":            "non-AWS",
 		"GCPIdentityToolkit":      "non-AWS",
+		"GCPAPIGateway":           "non-AWS",
 		"GCPCloudBuild":           "non-AWS",
 		"AzureRedis":              "non-AWS",
 		"AzureSQL":                "non-AWS",

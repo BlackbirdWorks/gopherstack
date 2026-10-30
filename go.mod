@@ -3,6 +3,7 @@ module github.com/blackbirdworks/gopherstack
 go 1.27.3
 
 require (
+	cloud.google.com/go/apigateway v1.17.0
 	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/bigquery v1.85.0
 	cloud.google.com/go/bigtable v1.58.0

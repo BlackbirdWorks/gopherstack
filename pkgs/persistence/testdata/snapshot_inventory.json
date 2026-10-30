@@ -15761,6 +15761,36 @@
     ],
     "version": 2
   },
+  "gcpapigateway": {
+    "fields": [
+      "backendSnapshot.Apis map[string]recSnap `json:\"apis\"`",
+      "backendSnapshot.Configs map[string]recSnap `json:\"configs\"`",
+      "backendSnapshot.Gateways map[string]recSnap `json:\"gateways\"`",
+      "backendSnapshot.Ops map[string]*opRec `json:\"operations\"`",
+      "backendSnapshot.Seq uint64 `json:\"seq\"`",
+      "diagnostic.Location string `json:\"location\"`",
+      "diagnostic.Message string `json:\"message\"`",
+      "life.DeleteAt time.Time `json:\"deleteAt\"`",
+      "life.DeleteOp string `json:\"deleteOp,omitempty\"`",
+      "life.Transient int32 `json:\"transient\"`",
+      "life.Until time.Time `json:\"until\"`",
+      "opRec.CancelRequested bool `json:\"cancelRequested,omitempty\"`",
+      "opRec.CancelledAt time.Time `json:\"cancelledAt\"`",
+      "opRec.Created time.Time `json:\"created\"`",
+      "opRec.Diags []diagnostic `json:\"diagnostics,omitempty\"`",
+      "opRec.EndAt time.Time `json:\"endAt\"`",
+      "opRec.FailCode int32 `json:\"failCode,omitempty\"`",
+      "opRec.FailMsg string `json:\"failMsg,omitempty\"`",
+      "opRec.Name string `json:\"name\"`",
+      "opRec.Resp []byte `json:\"resp,omitempty\"`",
+      "opRec.Target string `json:\"target\"`",
+      "opRec.Verb string `json:\"verb\"`",
+      "recSnap.Life life `json:\"life\"`",
+      "recSnap.Policy json.RawMessage `json:\"policy,omitempty\"`",
+      "recSnap.Resource json.RawMessage `json:\"resource\"`"
+    ],
+    "version": 1
+  },
   "gcpartifactregistry": {
     "fields": [
       "backendSnapshot.GenericFiles map[string]*genFile `json:\"genericFiles,omitempty\"`",

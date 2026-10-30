@@ -64,6 +64,7 @@ GCP_PORTS = {
     "datastore": 8143,
     "container": 8144,
     "identitytoolkit": 8145,
+    "apigateway": 8146,
     "bigquery": 9050,
 }
 
