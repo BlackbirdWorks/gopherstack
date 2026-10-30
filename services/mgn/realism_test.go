@@ -2,6 +2,7 @@ package mgn_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,38 +29,42 @@ func TestTransitionDelay_Export(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, client := newTestHandlerAndClient(t)
-			h.Backend.SetTransitionDelay(tt.delay)
-			ctx := t.Context()
+			synctest.Test(t, func(t *testing.T) {
+				h, client := newInMemoryHandlerAndClient(t)
+				h.Backend.SetTransitionDelay(tt.delay)
+				ctx := t.Context()
 
-			_, err := client.InitializeService(ctx, &mgnsdk.InitializeServiceInput{})
-			require.NoError(t, err)
+				_, err := client.InitializeService(ctx, &mgnsdk.InitializeServiceInput{})
+				require.NoError(t, err)
 
-			started, err := client.StartExport(ctx, &mgnsdk.StartExportInput{
-				S3Bucket: aws.String("my-bucket"), S3Key: aws.String("export.json"),
-			})
-			require.NoError(t, err)
-
-			status := func() mgntypes.ExportStatus {
-				out, lErr := client.ListExports(ctx, &mgnsdk.ListExportsInput{
-					Filters: &mgntypes.ListExportsRequestFilters{
-						ExportIDs: []string{aws.ToString(started.ExportTask.ExportID)},
-					},
+				started, err := client.StartExport(ctx, &mgnsdk.StartExportInput{
+					S3Bucket: aws.String("my-bucket"), S3Key: aws.String("export.json"),
 				})
-				require.NoError(t, lErr)
-				require.Len(t, out.Items, 1)
+				require.NoError(t, err)
 
-				return out.Items[0].Status
-			}
+				status := func() mgntypes.ExportStatus {
+					out, lErr := client.ListExports(ctx, &mgnsdk.ListExportsInput{
+						Filters: &mgntypes.ListExportsRequestFilters{
+							ExportIDs: []string{aws.ToString(started.ExportTask.ExportID)},
+						},
+					})
+					require.NoError(t, lErr)
+					require.Len(t, out.Items, 1)
 
-			if tt.wantStays {
-				assert.NotEqual(t, mgntypes.ExportStatusSucceeded, status())
+					return out.Items[0].Status
+				}
 
-				return
-			}
+				if tt.wantStays {
+					assert.NotEqual(t, mgntypes.ExportStatusSucceeded, status())
 
-			require.Eventually(t, func() bool { return status() == mgntypes.ExportStatusSucceeded },
-				defaultAsyncWait, defaultAsyncPoll)
+					return
+				}
+
+				time.Sleep(10 * tt.delay)
+				synctest.Wait()
+
+				assert.Equal(t, mgntypes.ExportStatusSucceeded, status())
+			})
 		})
 	}
 }
