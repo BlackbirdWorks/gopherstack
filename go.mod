@@ -276,6 +276,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/workspaces v1.81.4
 	github.com/aws/aws-sdk-go-v2/service/xray v1.45.3
 	github.com/aws/smithy-go v1.28.5
+	github.com/blevesearch/snowballstem v0.9.0
 	github.com/cedar-policy/cedar-go v1.8.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/distribution/distribution/v3 v3.1.2

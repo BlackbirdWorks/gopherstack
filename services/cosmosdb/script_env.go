@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/dop251/goja"
@@ -18,14 +19,15 @@ const (
 // scriptEnv is the server-side API surface (getContext) a stored procedure or trigger runs against: one
 // transaction, one partition.
 type scriptEnv struct {
-	vm      *goja.Runtime
-	tx      *containerTx
-	reqObj  goja.Value
-	respObj goja.Value
-	scope   string
-	logs    []string
-	reqSet  bool
-	respSet bool
+	reqObj    goja.Value
+	respObj   goja.Value
+	vm        *goja.Runtime
+	tx        *containerTx
+	cbOptions map[string]any
+	scope     string
+	logs      []string
+	reqSet    bool
+	respSet   bool
 }
 
 func newScriptEnv(vm *goja.Runtime, tx *containerTx, scope string) *scriptEnv {
@@ -140,7 +142,14 @@ func (e *scriptEnv) invoke(cb goja.Callable, res any, err error) {
 		resVal = toJS(e.vm, res)
 	}
 
-	if _, callErr := cb(goja.Undefined(), errVal, resVal, e.vm.NewObject()); callErr != nil {
+	opts := e.vm.NewObject()
+	for k, v := range e.cbOptions {
+		_ = opts.Set(k, v)
+	}
+
+	e.cbOptions = nil
+
+	if _, callErr := cb(goja.Undefined(), errVal, resVal, opts); callErr != nil {
 		panic(callErr)
 	}
 }
@@ -275,12 +284,84 @@ func (e *scriptEnv) queryDocuments(args []goja.Value) (any, error) {
 		return nil, err
 	}
 
+	opts := feedOptions(argAt(args, queryOptionsArg))
+
+	stmt, err := e.tx.b.parseCached(query)
+	if err != nil {
+		return nil, err
+	}
+
+	scan := QueryOptions{AllowScan: opts.enableScan}
+	if idxErr := checkQueryIndexing(stmt, e.tx.c.IndexingPolicy, scan, e.tx.b.computedExprs(e.tx.c)); idxErr != nil {
+		return nil, idxErr
+	}
+
 	res, err := e.tx.b.queryLocked(e.tx.c, e.tx.dbID, e.tx.collID, query, params, e.scope)
 	if err != nil {
 		return nil, err
 	}
 
-	return res.Rows, nil
+	return e.page(res.Rows, opts)
+}
+
+// Server-side FeedOptions (azure-cosmosdb-js-server, Collection.queryDocuments): pageSize defaults to 100,
+// continuation resumes an enumeration, enableScan lets a query the indexing policy cannot serve run anyway.
+const (
+	queryOptionsArg     = 2
+	defaultScriptPage   = 100
+	continuationOptions = "continuation"
+)
+
+type scriptFeedOptions struct {
+	continuation string
+	pageSize     int
+	enableScan   bool
+}
+
+func feedOptions(v goja.Value) scriptFeedOptions {
+	out := scriptFeedOptions{pageSize: defaultScriptPage}
+
+	obj, ok := v.(*goja.Object)
+	if !ok {
+		return out
+	}
+
+	if n := obj.Get("pageSize"); n != nil && !goja.IsUndefined(n) && n.ToInteger() > 0 {
+		out.pageSize = int(n.ToInteger())
+	}
+
+	if c := obj.Get(continuationOptions); c != nil && !goja.IsUndefined(c) && !goja.IsNull(c) {
+		out.continuation = c.String()
+	}
+
+	if s := obj.Get("enableScan"); s != nil && !goja.IsUndefined(s) {
+		out.enableScan = s.ToBoolean()
+	}
+
+	return out
+}
+
+// page returns one page of rows and records the continuation the callback receives in its options argument.
+func (e *scriptEnv) page(rows []any, opts scriptFeedOptions) ([]any, error) {
+	start := 0
+
+	if opts.continuation != "" {
+		n, err := strconv.Atoi(opts.continuation)
+		if err != nil || n < 0 || n > len(rows) {
+			return nil, fmt.Errorf("%w: invalid continuation token", ErrInvalidDocument)
+		}
+
+		start = n
+	}
+
+	end := min(start+opts.pageSize, len(rows))
+	e.cbOptions = nil
+
+	if end < len(rows) {
+		e.cbOptions = map[string]any{continuationOptions: strconv.Itoa(end)}
+	}
+
+	return rows[start:end], nil
 }
 
 // queryArg accepts a query string or a {query, parameters} object.

@@ -48,7 +48,8 @@ type ThroughputSpec struct {
 
 // storedOffer is the persisted throughput offer of a database (shared) or container (dedicated).
 type storedOffer struct {
-	Modified time.Time `json:"Modified"`
+	Modified    time.Time `json:"Modified"`
+	HighestSeen int       `json:"HighestSeen,omitempty"`
 	ThroughputSpec
 }
 
@@ -58,6 +59,8 @@ type ThroughputInfo struct {
 	OfferRID     string
 	ResourceRID  string
 	ResourceLink string
+	Pending      bool
+	Minimum      int
 	ThroughputSpec
 }
 
@@ -68,6 +71,15 @@ func (s ThroughputSpec) MinimumThroughput() int {
 	}
 
 	return manualThroughputMin
+}
+
+// level is the RU/s the spec provisions: the manual value, or the autoscale maximum.
+func (s ThroughputSpec) level() int {
+	if s.AutoscaleMax > 0 {
+		return s.AutoscaleMax
+	}
+
+	return s.Manual
 }
 
 // Validate checks the spec against the documented limits.
@@ -132,6 +144,8 @@ func offerRIDFor(resourceRID string) string {
 // offerTarget addresses the offer slot of one database or container.
 type offerTarget struct {
 	slot *(*storedOffer)
+	db   *storedDatabase
+	coll *storedContainer
 	kind string
 	rid  string
 	link string
@@ -142,7 +156,7 @@ func (b *InMemoryBackend) databaseTarget(d *storedDatabase) offerTarget {
 	rid := fakeRID("dbs/" + d.ID)
 
 	return offerTarget{
-		slot: &d.Offer, kind: targetKindDatabase, rid: rid, link: dbsSegment + "/" + rid + "/", key: d.ID,
+		slot: &d.Offer, db: d, kind: targetKindDatabase, rid: rid, link: dbsSegment + "/" + rid + "/", key: d.ID,
 	}
 }
 
@@ -151,7 +165,7 @@ func (b *InMemoryBackend) containerTarget(d *storedDatabase, c *storedContainer)
 	rid := fakeRID("dbs/" + d.ID + "/colls/" + c.ID)
 
 	return offerTarget{
-		slot: &c.Offer, kind: targetKindContainer, rid: rid,
+		slot: &c.Offer, db: d, coll: c, kind: targetKindContainer, rid: rid,
 		link: dbsSegment + "/" + dbRID + "/" + collsSegment + "/" + rid + "/",
 		key:  d.ID + budgetKeySeparator + c.ID,
 	}
@@ -193,13 +207,28 @@ func (b *InMemoryBackend) allTargets() []offerTarget {
 	return out
 }
 
-func (t offerTarget) info() ThroughputInfo {
+func (b *InMemoryBackend) info(t offerTarget) ThroughputInfo {
 	o := *t.slot
 
 	return ThroughputInfo{
 		Modified: o.Modified, OfferRID: offerRIDFor(t.rid), ResourceRID: t.rid, ResourceLink: t.link,
-		ThroughputSpec: o.ThroughputSpec,
+		ThroughputSpec: o.ThroughputSpec, Pending: t.pending(), Minimum: b.headerMinimum(t, o.ThroughputSpec),
 	}
+}
+
+// pending reports whether a scale-up of the offer is still waiting on partition splits.
+func (t offerTarget) pending() bool {
+	if t.coll != nil {
+		return t.coll.PKLayout != nil && t.coll.PKLayout.pending()
+	}
+
+	for _, c := range t.db.Containers {
+		if c.Offer == nil && c.PKLayout != nil && c.PKLayout.pending() {
+			return true
+		}
+	}
+
+	return false
 }
 
 // SetServerless marks the account serverless: throughput cannot be provisioned and every container is capped.
@@ -245,7 +274,7 @@ func (b *InMemoryBackend) GetThroughput(db, container string) (ThroughputInfo, e
 		return ThroughputInfo{}, ErrThroughputNotFound
 	}
 
-	return t.info(), nil
+	return b.info(t), nil
 }
 
 // SetThroughput creates or replaces the offer of a database (container == "") or container.
@@ -266,10 +295,24 @@ func (b *InMemoryBackend) storeOffer(t offerTarget, spec ThroughputSpec) (Throug
 		return ThroughputInfo{}, err
 	}
 
-	*t.slot = &storedOffer{ThroughputSpec: spec, Modified: b.now()}
+	if minimum := b.minimumFor(t, spec); spec.level() < minimum {
+		return ThroughputInfo{}, fmt.Errorf("%w: the requested throughput %d is below the minimum of %d RU/s "+
+			"currently required by the resource", ErrInvalidThroughput, spec.level(), minimum)
+	}
+
+	b.eachGoverned(t, b.prepareLayout)
+
+	highest := spec.level()
+	if *t.slot != nil && (*t.slot).HighestSeen > highest {
+		highest = (*t.slot).HighestSeen
+	}
+
+	*t.slot = &storedOffer{ThroughputSpec: spec, Modified: b.now(), HighestSeen: highest}
 	b.budgetEpoch++
 
-	return t.info(), nil
+	b.eachGoverned(t, b.syncLayout)
+
+	return b.info(t), nil
 }
 
 // ListThroughputs returns every provisioned offer.
@@ -281,7 +324,7 @@ func (b *InMemoryBackend) ListThroughputs() []ThroughputInfo {
 
 	for _, t := range b.allTargets() {
 		if *t.slot != nil {
-			out = append(out, t.info())
+			out = append(out, b.info(t))
 		}
 	}
 
@@ -309,7 +352,7 @@ func (b *InMemoryBackend) GetThroughputByRID(offerRID string) (ThroughputInfo, e
 		return ThroughputInfo{}, err
 	}
 
-	return t.info(), nil
+	return b.info(t), nil
 }
 
 // ReplaceThroughputByRID replaces the offer with the given offer rid.
@@ -329,20 +372,35 @@ func (b *InMemoryBackend) ReplaceThroughputByRID(offerRID string, spec Throughpu
 // offer, the total rate (0 = unlimited), the physical partition count and an epoch that changes whenever an offer
 // is set, so callers can reset their meters.
 type RUBudget struct {
-	Key        string
-	Rate       float64
-	Epoch      int64
-	Partitions int
+	Key    string
+	Ranges []pkSpan
+	Rate   float64
+	Epoch  int64
 }
+
+// Partitions is the number of physical partitions.
+func (r RUBudget) Partitions() int { return max(1, len(r.Ranges)) }
 
 // ThroughputBudget reports the RU/s budget governing container coll of db.
 func (b *InMemoryBackend) ThroughputBudget(db, coll string) RUBudget {
+	b.settleDue()
+
 	b.mu.RLock("ThroughputBudget")
 	defer b.mu.RUnlock()
 
-	bud := RUBudget{Partitions: 1}
+	var bud RUBudget
+
 	if d, ok := b.databases[db]; ok {
 		bud = b.budgetOf(d, coll)
+
+		if c, found := d.Containers[coll]; found {
+			l := b.layoutView(d, c)
+			bud.Ranges = l.Spans
+
+			if l.pending() {
+				bud.Rate = min(bud.Rate, float64(len(l.Spans))*partitionMaxRUs)
+			}
+		}
 	}
 
 	bud.Epoch = b.budgetEpoch
@@ -357,16 +415,16 @@ func (b *InMemoryBackend) budgetOf(d *storedDatabase, coll string) RUBudget {
 
 	switch {
 	case b.serverless:
-		return RUBudget{Key: d.ID + budgetKeySeparator + coll, Rate: serverlessBurstRUs, Partitions: 1}
+		return RUBudget{Key: d.ID + budgetKeySeparator + coll, Rate: serverlessBurstRUs}
 	case d.Offer != nil:
 		return offerBudget(d.ID, d.Offer)
 	}
 
-	return RUBudget{Partitions: 1}
+	return RUBudget{}
 }
 
 func offerBudget(key string, o *storedOffer) RUBudget {
-	return RUBudget{Key: key, Rate: o.rate(), Partitions: partitionsForRU(int(o.rate()))}
+	return RUBudget{Key: key, Rate: o.rate()}
 }
 
 // rate is the enforcement ceiling: autoscale scales instantly within [10% of max, max], so a request can always
@@ -388,6 +446,98 @@ type ThroughputBackend interface {
 	GetThroughputByRID(offerRID string) (ThroughputInfo, error)
 	ReplaceThroughputByRID(offerRID string, spec ThroughputSpec) (ThroughputInfo, error)
 	ThroughputBudget(db, coll string) RUBudget
+	RangeShares(db, coll string) []float64
 }
 
 var _ ThroughputBackend = (*InMemoryBackend)(nil)
+
+// eachGoverned applies fn to every container whose layout the offer target governs; the lock must be held.
+func (b *InMemoryBackend) eachGoverned(t offerTarget, fn func(*storedDatabase, *storedContainer)) {
+	if t.coll != nil {
+		fn(t.db, t.coll)
+
+		return
+	}
+
+	for _, c := range t.db.Containers {
+		if c.Offer == nil {
+			fn(t.db, c)
+		}
+	}
+}
+
+// Minimum throughput terms (Learn, "Service quotas and default limits", Minimum throughput limits).
+const (
+	bytesPerGB             = 1 << 30
+	sharedContainersFree   = 25
+	manualPerGBRU          = 1
+	autoscalePerGBRU       = 10
+	manualHighestDivisor   = 100
+	autoscaleHighestDiv    = 10
+	manualPerExtraContainr = 100
+	autoMinRoundUp         = 1000
+)
+
+func ceilDiv(a, b int) int { return (a + b - 1) / b }
+
+// storageGB is the stored data of the target, rounded up to whole gigabytes; the lock must be held.
+func (b *InMemoryBackend) storageGB(t offerTarget) int {
+	var total int64
+
+	count := func(c *storedContainer) {
+		for _, d := range c.Documents {
+			total += docBytes(d)
+		}
+	}
+
+	if t.coll != nil {
+		count(t.coll)
+	} else {
+		for _, c := range t.db.Containers {
+			if c.Offer == nil {
+				count(c)
+			}
+		}
+	}
+
+	return int(ceilDiv64(total, bytesPerGB))
+}
+
+func ceilDiv64(a, b int64) int64 { return (a + b - 1) / b }
+
+// minimumFor is the lowest throughput the resource can be set to now: the larger of the flat floor, one RU/s (ten
+// for autoscale) per stored GB, a hundredth (a tenth) of the highest throughput ever provisioned and, for a shared
+// database, the per-container term past 25 containers.
+func (b *InMemoryBackend) minimumFor(t offerTarget, spec ThroughputSpec) int {
+	highest := 0
+	if *t.slot != nil {
+		highest = (*t.slot).HighestSeen
+	}
+
+	gb := b.storageGB(t)
+
+	extra := 0
+	if t.coll == nil {
+		extra = max(len(t.db.Containers)-sharedContainersFree, 0)
+	}
+
+	if spec.AutoscaleMax > 0 {
+		floor := max(autoscaleMaxMin, gb*autoscalePerGBRU, ceilDiv(highest, autoscaleHighestDiv),
+			autoscaleMaxMin+extra*autoscaleMaxMin)
+
+		return ceilDiv(floor, autoMinRoundUp) * autoMinRoundUp
+	}
+
+	return max(manualThroughputMin, gb*manualPerGBRU, ceilDiv(highest, manualHighestDivisor),
+		manualThroughputMin+extra*manualPerExtraContainr)
+}
+
+// headerMinimum is x-ms-cosmos-min-throughput: the lowest manual throughput now allowed, or the floor an
+// autoscale resource scales down to (a tenth of its maximum).
+func (b *InMemoryBackend) headerMinimum(t offerTarget, spec ThroughputSpec) int {
+	if spec.AutoscaleMax > 0 {
+		return spec.MinimumThroughput()
+	}
+
+	return b.minimumFor(t, spec)
+}

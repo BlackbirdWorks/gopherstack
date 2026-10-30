@@ -28,6 +28,7 @@ type fakeCosmos struct {
 	accepted   map[string]bool
 	tps        map[string]azurearm.CosmosThroughput
 	regions    []azurearm.CosmosRegion
+	policies   azurearm.CosmosAccountPolicies
 	rid        int
 	port       int
 	mu         sync.Mutex

@@ -97,6 +97,18 @@ var (
 	ErrScriptTimeout        = errors.New("cosmosdb: script execution timed out")
 	ErrInvalidTrigger       = errors.New("cosmosdb: trigger not usable for this operation")
 	ErrInvalidPKRange       = errors.New("cosmosdb: unknown partition key range")
+	ErrPKRangeGone          = errors.New("cosmosdb: partition key range was split")
 	// ErrChangeFeedStart is returned when an all-versions-and-deletes read names no start.
-	ErrChangeFeedStart = errors.New("cosmosdb: all versions and deletes change feed cannot start from the beginning")
+	ErrChangeFeedStart = errors.New(
+		"cosmosdb: all versions and deletes change feed starts from now or from a continuation, not from the beginning " +
+			"or a point in time",
+	)
+	// ErrChangeFeedBackup is returned for an all-versions-and-deletes read on an account without continuous backup.
+	ErrChangeFeedBackup = errors.New(
+		"cosmosdb: all versions and deletes change feed requires continuous backup on the account",
+	)
+	// ErrChangeFeedRetention is returned when the start position is older than the continuous backup window.
+	ErrChangeFeedRetention = errors.New(
+		"cosmosdb: the change feed position is outside the continuous backup retention window",
+	)
 )

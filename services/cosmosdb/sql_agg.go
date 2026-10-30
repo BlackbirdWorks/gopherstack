@@ -12,6 +12,8 @@ const (
 	aggAvg   = "AVG"
 	aggMin   = "MIN"
 	aggMax   = "MAX"
+	// aggCountIf counts the rows for which its argument is true (the full-text search page uses it for facets).
+	aggCountIf = "COUNTIF"
 )
 
 // aggAcc folds one aggregate (COUNT/SUM/AVG/MIN/MAX) over a group's values.
@@ -34,6 +36,10 @@ func (a *aggAcc) add(v any) {
 	switch a.name {
 	case aggCount:
 		a.count++
+	case aggCountIf:
+		if b, ok := v.(bool); ok && b {
+			a.count++
+		}
 	case aggSum, aggAvg:
 		n, ok := toNumber(v)
 		if !ok {
@@ -86,7 +92,7 @@ func (a *aggAcc) addExtreme(v any) {
 
 func (a *aggAcc) result() any {
 	switch a.name {
-	case aggCount:
+	case aggCount, aggCountIf:
 		return intValue(a.count)
 	case aggSum:
 		switch {

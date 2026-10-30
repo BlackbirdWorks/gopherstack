@@ -16,10 +16,12 @@ const (
 	headerRetryAfterMS = "X-Ms-Retry-After-Ms"
 	headerSubStatus    = "X-Ms-Substatus"
 	subStatusThrottled = "3200"
-	burstCeilingRUs    = 3000.0
-	burstWindowSeconds = 300.0
-	msPerSecond        = 1000.0
-	throttledMessage   = "Request rate is large. More Request Units may be needed, so no changes were made. " +
+	// subStatusPKRangeGone is Microsoft.Azure.Cosmos SubStatusCodes.PartitionKeyRangeGone.
+	subStatusPKRangeGone = "1002"
+	burstCeilingRUs      = 3000.0
+	burstWindowSeconds   = 300.0
+	msPerSecond          = 1000.0
+	throttledMessage     = "Request rate is large. More Request Units may be needed, so no changes were made. " +
 		"Please retry after %d ms."
 )
 
@@ -36,9 +38,10 @@ type ruBucket struct {
 
 // meterSlot addresses the bucket of one physical partition.
 type meterSlot struct {
-	key   string
-	rate  float64
-	burst bool
+	key    string
+	rate   float64
+	weight float64
+	burst  bool
 }
 
 // ruMeter meters request units per physical partition on an injected clock.
@@ -136,15 +139,24 @@ func (m *ruMeter) admit(epoch int64, now time.Time, slots []meterSlot) time.Dura
 	return wait
 }
 
-// charge splits ru evenly across the partitions the request touched.
+// charge splits ru across the partitions the request touched, by the work each did.
 func (m *ruMeter) charge(epoch int64, now time.Time, slots []meterSlot, ru float64) {
 	m.mu.Lock("charge")
 	defer m.mu.Unlock()
 
 	m.sync(epoch)
 
-	share := ru / float64(len(slots))
+	var total float64
 	for _, s := range slots {
+		total += s.weight
+	}
+
+	for _, s := range slots {
+		share := ru / float64(len(slots))
+		if total > 0 {
+			share = ru * s.weight / total
+		}
+
 		m.bucket(s, now).spend(share, s.burst)
 	}
 }
@@ -156,6 +168,34 @@ func isMetered(kind resourceKind) bool {
 	}
 
 	return kind == resourceDocuments || kind == resourceDocumentItem
+}
+
+// metadataRUs is the throughput an account has for metadata operations; it cannot be raised (Learn, "Service
+// quotas and default limits": maximum throughput supported by an account for metadata operations, 240 RU/s).
+const metadataRUs = 240.0
+
+// isMetadata reports whether a resource kind is served from the account's metadata partition: databases,
+// containers, offers, users, permissions, scripts and the partition key ranges.
+func isMetadata(kind resourceKind) bool {
+	return kind != resourceInvalid && kind != resourceAccountRoot && !isMetered(kind)
+}
+
+// serveMetadata runs next unless the metadata partition is overdrawn, then charges what the response reports.
+func (h *Handler) serveMetadata(c *echo.Context, next func() error) error {
+	var epoch int64
+	if tb, ok := h.Backend.(ThroughputBackend); ok {
+		epoch = tb.ThroughputBudget("", "").Epoch
+	}
+
+	slots := []meterSlot{{key: "#metadata", rate: metadataRUs, weight: 1}}
+	if wait := h.meter.admit(epoch, h.now(), slots); wait > 0 {
+		return h.writeThrottled(c, wait)
+	}
+
+	err := next()
+	h.meter.charge(epoch, h.now(), slots, chargeOf(c))
+
+	return err
 }
 
 func chargeOf(c *echo.Context) float64 {
@@ -185,6 +225,15 @@ func (h *Handler) serveMetered(c *echo.Context, dbID, collID string, next func()
 	}
 
 	err := next()
+
+	if len(slots) > 1 {
+		if shares := tb.RangeShares(dbID, collID); len(shares) == len(slots) {
+			for i := range slots {
+				slots[i].weight = shares[i]
+			}
+		}
+	}
+
 	h.meter.charge(bud.Epoch, h.now(), slots, chargeOf(c))
 
 	return err

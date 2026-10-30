@@ -604,8 +604,16 @@ func TestContainer_ConflictResolutionPolicy(t *testing.T) {
 	custom := s.do(http.MethodPut, "/dbs/d/colls/lww", nil,
 		`{"id":"lww","partitionKey":{"paths":["/pk"],"kind":"Hash"},`+
 			`"conflictResolutionPolicy":{"mode":"Custom","conflictResolutionProcedure":"dbs/d/colls/lww/sprocs/resolve"}}`)
-	require.Equal(t, http.StatusOK, custom.status)
-	assert.Equal(t, "Custom", custom.object(t)["conflictResolutionPolicy"].(map[string]any)["mode"])
+	assert.Equal(t, http.StatusBadRequest, custom.status, "the policy can only be set when the container is created")
+
+	same := s.do(http.MethodPut, "/dbs/d/colls/lww", nil,
+		`{"id":"lww","partitionKey":{"paths":["/pk"],"kind":"Hash"},`+
+			`"conflictResolutionPolicy":{"mode":"LastWriterWins","conflictResolutionPath":"/v"}}`)
+	assert.Equal(t, http.StatusOK, same.status, "replacing with the same policy is allowed")
+
+	bad := s.do(http.MethodPost, "/dbs/d/colls", nil,
+		`{"id":"bad","partitionKey":{"paths":["/pk"],"kind":"Hash"},"conflictResolutionPolicy":{"mode":"Newest"}}`)
+	assert.Equal(t, http.StatusBadRequest, bad.status)
 }
 
 func TestPersistence_ScriptsAndChangeFeedSurviveRestore(t *testing.T) {

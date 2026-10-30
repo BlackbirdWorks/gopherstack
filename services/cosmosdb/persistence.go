@@ -62,6 +62,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	defer b.notifyRegions()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
@@ -92,11 +94,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.databases = snap.Databases
+	b.recomputeNextDue()
 	b.regions = AccountRegions{}
 
 	if snap.Regions != nil {
 		b.regions = snap.Regions.normalized()
 	}
+
+	b.reconcileRepl()
 
 	return nil
 }

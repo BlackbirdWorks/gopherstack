@@ -1,7 +1,6 @@
 package cosmosdb
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 )
@@ -119,4 +118,4 @@ func RangeIndex(pkJSON string, n int) int { return rangeIndex(pkJSON, n) }
 func RangeBounds(i, n int) (string, string) { return rangeBound(i, n), rangeBound(i+1, n) }
 
 // EPKHex exposes the hex hash of a canonical partition key.
-func EPKHex(pkJSON string) string { return fmt.Sprintf("%016X", epkHash(pkJSON)) }
+func EPKHex(pkJSON string) string { return epkHash(pkJSON).String() }

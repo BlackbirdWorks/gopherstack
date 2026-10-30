@@ -60,14 +60,22 @@ func (h *Handler) accountPropertiesBody(r *http.Request) map[string]any {
 		scheme = "https"
 	}
 
-	endpoint := scheme + "://" + r.Host + "/"
-
 	regions := h.accountRegions()
-	readable := locationEntries(regions.Regions, endpoint)
+	readable := h.locationEntries(regions.Regions, scheme, r.Host)
 	writable := readable[:1]
 
 	if regions.MultiWrite {
 		writable = readable
+	} else if _, i, ok := regions.find(regions.home()); ok {
+		writable = readable[i : i+1]
+	}
+
+	pol := regions.consistency()
+	policy := map[string]any{"defaultConsistencyLevel": pol.Level}
+
+	if pol.Level == ConsistencyBoundedStaleness {
+		policy["maxStalenessPrefix"] = pol.MaxStalenessPrefix
+		policy["maxIntervalInSeconds"] = pol.MaxIntervalInSeconds
 	}
 
 	return map[string]any{
@@ -80,6 +88,6 @@ func (h *Handler) accountPropertiesBody(r *http.Request) map[string]any {
 		"writableLocations":            writable,
 		"readableLocations":            readable,
 		"enableMultipleWriteLocations": regions.MultiWrite,
-		"userConsistencyPolicy":        map[string]any{"defaultConsistencyLevel": "Session"},
+		"userConsistencyPolicy":        policy,
 	}
 }

@@ -224,6 +224,22 @@ type CosmosResources interface {
 	SetRegions(regions []CosmosRegion, multiWrite bool)
 }
 
+// CosmosAccountPolicies are the account settings the data plane honours: the default consistency level (with its
+// bounded-staleness limits), service-managed failover, and the backup mode ("Periodic", "Continuous7Days" or
+// "Continuous30Days"). A data plane that models them implements CosmosPolicyResources.
+type CosmosAccountPolicies struct {
+	Consistency        string
+	Backup             string
+	MaxStalenessPrefix int64
+	MaxIntervalSeconds int
+	AutomaticFailover  bool
+}
+
+// CosmosPolicyResources is the optional seam for CosmosAccountPolicies.
+type CosmosPolicyResources interface {
+	SetAccountPolicies(CosmosAccountPolicies)
+}
+
 // CosmosRegion is one account location and its failover priority.
 type CosmosRegion struct {
 	Name     string
