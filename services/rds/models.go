@@ -221,6 +221,9 @@ type DBSnapshot struct {
 	PercentProgress      int       `json:"percentProgress"`
 	StorageEncrypted     bool      `json:"storageEncrypted"`
 	CopyTagsToSnapshot   bool      `json:"copyTagsToSnapshot,omitempty"`
+	// OwnerAccountID is the creating caller's account; empty means unowned
+	// (visible to every caller).
+	OwnerAccountID string `json:"ownerAccountID,omitempty"`
 }
 
 // DBSubnetGroup represents an RDS DB subnet group.
@@ -386,6 +389,7 @@ type DBClusterSnapshot struct {
 	IAMDatabaseAuthEnabled      bool      `json:"iamDatabaseAuthenticationEnabled,omitempty"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 	CopyTagsToSnapshot          bool      `json:"copyTagsToSnapshot,omitempty"`
+	OwnerAccountID              string    `json:"ownerAccountID,omitempty"`
 }
 
 // DBClusterEndpoint represents a custom endpoint for an RDS cluster.
@@ -743,6 +747,7 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
+	CallerAccount                string
 	RestoreTime                  time.Time
 	PinnedDbiResourceID          string
 	SourceDBClusterIdentifier    string
@@ -803,6 +808,7 @@ type DBInstanceOptions struct {
 
 // CopyDBSnapshotOptions holds optional fields for CopyDBSnapshot.
 type CopyDBSnapshotOptions struct {
+	CallerAccount string
 	KmsKeyID     string
 	SourceRegion string
 	CopyTags     bool
@@ -810,6 +816,7 @@ type CopyDBSnapshotOptions struct {
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
+	CallerAccount                string
 	RestoreTime                  time.Time
 	ServerlessV2Scaling          *ServerlessV2ScalingConfiguration
 	NetworkType                  string

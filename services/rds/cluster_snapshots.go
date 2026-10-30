@@ -10,6 +10,11 @@ import (
 
 // CreateDBClusterSnapshot creates a snapshot of the given cluster.
 func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) (*DBClusterSnapshot, error) {
+	return b.CreateDBClusterSnapshotAs("", snapshotID, clusterID)
+}
+
+// CreateDBClusterSnapshotAs is CreateDBClusterSnapshot owned by caller's account.
+func (b *InMemoryBackend) CreateDBClusterSnapshotAs(caller, snapshotID, clusterID string) (*DBClusterSnapshot, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -31,6 +36,8 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 	snap := b.newManualClusterSnapshotLocked(snapshotID, cluster)
+	snap.OwnerAccountID = caller
+	snap.DBClusterSnapshotArn = b.ownedSnapshotARN(caller, "cluster-snapshot", snapshotID)
 	b.clusterSnapshots.Put(snap)
 	b.storeSnapDataLocked(snapKindCluster, snapshotID, data)
 	cp := *snap
@@ -69,12 +76,20 @@ func (b *InMemoryBackend) newManualClusterSnapshotLocked(snapshotID string, clus
 // DescribeDBClusterSnapshots returns cluster snapshots.
 // If clusterID is non-empty, only snapshots whose DBClusterIdentifier matches are returned.
 func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID string) ([]DBClusterSnapshot, error) {
+	return b.DescribeDBClusterSnapshotsAs(SnapshotQuery{SnapshotID: snapshotID, ParentID: clusterID})
+}
+
+// DescribeDBClusterSnapshotsAs is DescribeDBClusterSnapshots from the caller's point of view.
+func (b *InMemoryBackend) DescribeDBClusterSnapshotsAs(q SnapshotQuery) ([]DBClusterSnapshot, error) {
 	b.mu.RLock("DescribeDBClusterSnapshots")
 	defer b.mu.RUnlock()
-	if snapshotID != "" {
-		snap, exists := b.clusterSnapshots.Get(normalizeID(snapshotID))
-		if !exists {
-			return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+	if q.SnapshotID != "" {
+		id, byARN := snapshotRef(q.SnapshotID)
+		snap, exists := b.clusterSnapshots.Get(normalizeID(id))
+		if !exists || !b.snapshotReachableLocked(
+			q.CallerAccount, snap.OwnerAccountID, snapKindCluster, snap.DBClusterSnapshotIdentifier, byARN,
+		) {
+			return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, q.SnapshotID)
 		}
 		cp := *snap
 
@@ -82,7 +97,12 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID strin
 	}
 	result := make([]DBClusterSnapshot, 0, b.clusterSnapshots.Len())
 	for _, snap := range b.clusterSnapshots.All() {
-		if clusterID != "" && !idEqual(snap.DBClusterIdentifier, clusterID) {
+		if q.ParentID != "" && !idEqual(snap.DBClusterIdentifier, q.ParentID) {
+			continue
+		}
+		if !b.snapshotListedLocked(
+			q, snapKindCluster, snap.DBClusterSnapshotIdentifier, snap.OwnerAccountID, snap.SnapshotType,
+		) {
 			continue
 		}
 		result = append(result, *snap)
@@ -166,13 +186,18 @@ func matchesAllDBClusterSnapshotFilters(s DBClusterSnapshot, filters map[string]
 
 // DeleteDBClusterSnapshot removes the given cluster snapshot.
 func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error) {
+	return b.DeleteDBClusterSnapshotAs("", snapshotID)
+}
+
+// DeleteDBClusterSnapshotAs deletes a cluster snapshot the caller owns.
+func (b *InMemoryBackend) DeleteDBClusterSnapshotAs(caller, snapshotID string) (*DBClusterSnapshot, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
 	b.mu.Lock("DeleteDBClusterSnapshot")
 	defer b.mu.Unlock()
 	snap, exists := b.clusterSnapshots.Get(normalizeID(snapshotID))
-	if !exists {
+	if !exists || !ownsSnapshot(caller, snap.OwnerAccountID) {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 	}
 	cp := *snap
@@ -180,7 +205,7 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	b.dropSnapDataLocked(snapKindCluster, snapshotID)
 	// Use snap.DBClusterSnapshotIdentifier (the stored, creation-time casing)
 	// rather than the raw snapshotID argument -- see normalizeID.
-	delete(b.tags, b.rdsARN("cluster-snapshot", snap.DBClusterSnapshotIdentifier))
+	delete(b.tags, cmp.Or(snap.DBClusterSnapshotArn, b.rdsARN("cluster-snapshot", snap.DBClusterSnapshotIdentifier)))
 
 	return &cp, nil
 }
@@ -193,12 +218,19 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 func (b *InMemoryBackend) CopyDBClusterSnapshot(
 	sourceSnapshotID, targetSnapshotID string, copyTags bool,
 ) (*DBClusterSnapshot, error) {
-	return b.CopyDBClusterSnapshotWithKMS(sourceSnapshotID, targetSnapshotID, copyTags, "")
+	return b.CopyDBClusterSnapshotAs("", sourceSnapshotID, targetSnapshotID, copyTags, "")
 }
 
 // CopyDBClusterSnapshotWithKMS is CopyDBClusterSnapshot plus KmsKeyId, which re-encrypts the copy.
 func (b *InMemoryBackend) CopyDBClusterSnapshotWithKMS(
 	sourceSnapshotID, targetSnapshotID string, copyTags bool, kmsKeyID string,
+) (*DBClusterSnapshot, error) {
+	return b.CopyDBClusterSnapshotAs("", sourceSnapshotID, targetSnapshotID, copyTags, kmsKeyID)
+}
+
+// CopyDBClusterSnapshotAs copies a snapshot reachable by caller into caller's account.
+func (b *InMemoryBackend) CopyDBClusterSnapshotAs(
+	caller, sourceSnapshotID, targetSnapshotID string, copyTags bool, kmsKeyID string,
 ) (*DBClusterSnapshot, error) {
 	if sourceSnapshotID == "" {
 		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
@@ -211,8 +243,11 @@ func (b *InMemoryBackend) CopyDBClusterSnapshotWithKMS(
 	// SourceDBClusterSnapshotIdentifier accepts either a bare identifier or a
 	// full ARN (real AWS docs: required when copying an encrypted snapshot);
 	// previously only a bare identifier resolved, so the ARN form always 404ed.
-	source, srcExists := b.clusterSnapshots.Get(normalizeID(rdsIDFromARN(sourceSnapshotID)))
-	if !srcExists {
+	srcID, byARN := snapshotRef(sourceSnapshotID)
+	source, srcExists := b.clusterSnapshots.Get(normalizeID(srcID))
+	if !srcExists || !b.snapshotReachableLocked(
+		caller, source.OwnerAccountID, snapKindCluster, source.DBClusterSnapshotIdentifier, byARN,
+	) {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
 	}
 	if _, dstExists := b.clusterSnapshots.Get(normalizeID(targetSnapshotID)); dstExists {
@@ -222,11 +257,12 @@ func (b *InMemoryBackend) CopyDBClusterSnapshotWithKMS(
 			targetSnapshotID,
 		)
 	}
-	targetArn := b.rdsARN("cluster-snapshot", targetSnapshotID)
+	targetArn := b.ownedSnapshotARN(caller, "cluster-snapshot", targetSnapshotID)
 	snap := &DBClusterSnapshot{
 		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: targetSnapshotID,
 		DBClusterSnapshotArn:        targetArn,
+		OwnerAccountID:              caller,
 		DBClusterIdentifier:         source.DBClusterIdentifier,
 		DBClusterResourceID:         source.DBClusterResourceID,
 		Engine:                      source.Engine,
@@ -265,10 +301,17 @@ func (b *InMemoryBackend) CopyDBClusterSnapshotWithKMS(
 func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributes(
 	snapshotID string,
 ) (*DBClusterSnapshotAttributesResult, error) {
+	return b.DescribeDBClusterSnapshotAttributesAs("", snapshotID)
+}
+
+// DescribeDBClusterSnapshotAttributesAs describes the attributes of a cluster snapshot the caller owns.
+func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributesAs(
+	caller, snapshotID string,
+) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.RLock("DescribeDBClusterSnapshotAttributes")
 	defer b.mu.RUnlock()
 	snap, ok := b.clusterSnapshots.Get(normalizeID(snapshotID))
-	if !ok {
+	if !ok || !ownsSnapshot(caller, snap.OwnerAccountID) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterSnapshotNotFound, snapshotID)
 	}
 	if stored, storedOK := b.clusterSnapshotAttributes.Get(normalizeID(snapshotID)); storedOK {
@@ -300,9 +343,17 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 	snapshotID, attributeName string,
 	valuesToAdd, valuesToRemove []string,
 ) (*DBClusterSnapshotAttributesResult, error) {
+	return b.ModifyDBClusterSnapshotAttributeAs("", snapshotID, attributeName, valuesToAdd, valuesToRemove)
+}
+
+// ModifyDBClusterSnapshotAttributeAs modifies the attributes of a cluster snapshot the caller owns.
+func (b *InMemoryBackend) ModifyDBClusterSnapshotAttributeAs(
+	caller, snapshotID, attributeName string,
+	valuesToAdd, valuesToRemove []string,
+) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.Lock("ModifyDBClusterSnapshotAttribute")
 	defer b.mu.Unlock()
-	if _, ok := b.clusterSnapshots.Get(normalizeID(snapshotID)); !ok {
+	if snap, ok := b.clusterSnapshots.Get(normalizeID(snapshotID)); !ok || !ownsSnapshot(caller, snap.OwnerAccountID) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterSnapshotNotFound, snapshotID)
 	}
 	result, ok := b.clusterSnapshotAttributes.Get(normalizeID(snapshotID))
