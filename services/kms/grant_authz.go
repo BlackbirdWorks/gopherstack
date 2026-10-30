@@ -107,10 +107,10 @@ func (b *InMemoryBackend) authorizeKeyAction(ctx context.Context, region, keyID,
 }
 
 type policyStatement struct {
-	Principal any `json:"Principal"`
-	Action    any `json:"Action"`
-	Condition any `json:"Condition"`
-	Effect    string
+	Principal any    `json:"Principal"`
+	Action    any    `json:"Action"`
+	Condition any    `json:"Condition"`
+	Effect    string `json:"Effect"`
 }
 
 func stringList(v any) []string {

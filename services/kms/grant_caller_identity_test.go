@@ -98,13 +98,13 @@ func requireAccessDenied(t *testing.T, err error) {
 	assert.Contains(t, err.Error(), "AccessDeniedException")
 }
 
-func (s *grantStack) newKeyAndGrant(t *testing.T, ops []types.GrantOperation) (keyID, grantID, token string) {
+func (s *grantStack) newKeyAndGrant(t *testing.T, ops []types.GrantOperation) (string, string, string) {
 	t.Helper()
 
 	k, err := s.clients["owner"].CreateKey(t.Context(), &kmssdk.CreateKeyInput{})
 	require.NoError(t, err)
 
-	keyID = aws.ToString(k.KeyMetadata.KeyId)
+	keyID := aws.ToString(k.KeyMetadata.KeyId)
 	g, err := s.clients["owner"].CreateGrant(t.Context(), &kmssdk.CreateGrantInput{
 		KeyId: aws.String(keyID), GranteePrincipal: aws.String(grantRoleARN),
 		RetiringPrincipal: aws.String(grantRetirerARN), Operations: ops,
@@ -157,7 +157,10 @@ func TestGrantRetireCallerIdentity(t *testing.T) {
 			if tt.denied {
 				requireAccessDenied(t, err)
 
-				list, lerr := s.clients["owner"].ListGrants(t.Context(), &kmssdk.ListGrantsInput{KeyId: aws.String(keyID)})
+				list, lerr := s.clients["owner"].ListGrants(
+					t.Context(),
+					&kmssdk.ListGrantsInput{KeyId: aws.String(keyID)},
+				)
 				require.NoError(t, lerr)
 				assert.Len(t, list.Grants, 1)
 
