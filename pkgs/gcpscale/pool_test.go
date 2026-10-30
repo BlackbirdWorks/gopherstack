@@ -275,3 +275,67 @@ func TestPool_CancelledWhileQueued(t *testing.T) {
 	_, _, err = p.Acquire(ctx)
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+func TestPool_DrainKeepsPoolOpen(t *testing.T) {
+	t.Parallel()
+
+	f := &fixture{}
+	p := f.pool(gcpscale.Limits{}, &clock{})
+
+	require.NoError(t, p.Ensure(t.Context(), 2))
+	p.Drain()
+	assert.Equal(t, int32(2), f.stopped.Load())
+	assert.Zero(t, p.Live())
+
+	_, release, err := p.Acquire(t.Context())
+	require.NoError(t, err)
+	release()
+	assert.Equal(t, 1, p.Live(), "a request after a drain starts a fresh instance")
+	p.Close()
+}
+
+func TestPool_RemoveStopsMatchingInstance(t *testing.T) {
+	t.Parallel()
+
+	f := &fixture{}
+	p := f.pool(gcpscale.Limits{}, &clock{})
+
+	require.NoError(t, p.Ensure(t.Context(), 2))
+	assert.True(t, p.Remove(func(v int) bool { return v == 1 }))
+	assert.False(t, p.Remove(func(v int) bool { return v == 1 }), "already removed")
+	assert.Equal(t, int32(1), f.stopped.Load())
+	assert.Equal(t, 1, p.Live())
+	p.Close()
+}
+
+func TestPool_RetiredWhileStarting(t *testing.T) {
+	t.Parallel()
+
+	var stopped atomic.Int32
+
+	entered := make(chan struct{})
+	p := gcpscale.New("test", gcpscale.Config[int]{
+		Start: func(ctx context.Context) (int, error) {
+			close(entered)
+			<-ctx.Done()
+
+			return 1, nil
+		},
+		Stop:   func(int) { stopped.Add(1) },
+		Limits: func() gcpscale.Limits { return gcpscale.Limits{} },
+	})
+
+	errc := make(chan error, 1)
+
+	go func() {
+		_, _, err := p.Acquire(t.Context())
+		errc <- err
+	}()
+
+	<-entered
+	p.Drain()
+
+	require.ErrorIs(t, <-errc, gcpscale.ErrRetired)
+	p.Close()
+	assert.Equal(t, int32(1), stopped.Load(), "an instance that finished starting after the drain is stopped")
+}
