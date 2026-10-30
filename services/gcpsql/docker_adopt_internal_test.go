@@ -92,7 +92,7 @@ func TestAdoptFrom(t *testing.T) {
 			dumpDir := t.TempDir()
 			e := &dockerEngine{
 				rt: rec, mu: lockmetrics.New("t"), id: "i", image: "postgres:16", dir: orig,
-				spec: LaunchSpec{Project: "p"}, kind: kindPostgres,
+				spec: LaunchSpec{Project: "p"},
 			}
 
 			id := container.CurrentIdentity()

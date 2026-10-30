@@ -55,5 +55,4 @@ items_still_open:
   - "Under the docker engine the endpoint is 127.0.0.1 with a random published port; portX (X protocol) is not published and the configured port/portX only apply to the state-only endpoint."
   - "Shape and version catalogues are representative (documented shape names; 8.0.39-8.0.42, 8.4.3-8.4.6, 9.1.0-9.4.0), the free-shape HA rule, the 1 to 35 day automatic and 1 to 365 day manual retention ranges, the 50 to 131072 GB storage range and the reserved administrator names come from the Oracle documentation and SDK comments on 2026-10-29; default ordering, DELETED visibility in lists and the exact 400 versus 404 for dangling references are unverified."
   - "opc-retry-token idempotency, service limits, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified."
-  - "services/gcpsql still carries its own MySQL container plumbing; moving it onto pkgs/mysqlengine is not done."
 ---

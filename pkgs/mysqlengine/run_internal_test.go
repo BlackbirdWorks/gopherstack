@@ -1,8 +1,10 @@
 package mysqlengine
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -78,6 +80,66 @@ func TestRestoreErrorOmitsPassword(t *testing.T) {
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), secret)
 			assert.Contains(t, err.Error(), mysqlBin)
+		})
+	}
+}
+
+func TestStatementPasswordGoesInEnvNotArgv(t *testing.T) {
+	t.Parallel()
+
+	const secret = "s3cr3t-root-pw"
+
+	rt := &execRuntime{}
+	s := &Server{e: &Engine{cfg: Config{Runtime: rt}}, spec: Spec{RootPassword: secret}, ctrID: "c1"}
+
+	_, err := s.Statement(t.Context(), "SELECT 1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"MYSQL_PWD=" + secret}, rt.gotEnv)
+	assert.Equal(t, mysqlBin, rt.gotCmd[0])
+
+	for _, a := range rt.gotCmd {
+		assert.NotContains(t, a, secret)
+	}
+}
+
+func TestStatementNeverLeaksSecrets(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rootPW = "s3cr3t-root-pw"
+		replPW = "s3cr3t-repl-pw"
+	)
+
+	tests := []struct {
+		rt   *execRuntime
+		name string
+	}{
+		{name: "stderr echoes root", rt: &execRuntime{res: container.ExecResult{ExitCode: 1, Stderr: "near '" + rootPW + "'"}}},
+		{name: "stdout echoes repl", rt: &execRuntime{res: container.ExecResult{ExitCode: 1, Stdout: replPW}}},
+		{name: "exec error echoes root", rt: &execRuntime{err: errors.New("create exec env MYSQL_PWD=" + rootPW)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+
+			log := slog.New(slog.NewTextHandler(&buf, nil))
+			s := &Server{
+				e:    &Engine{cfg: Config{Runtime: tt.rt, Logger: log}},
+				spec: Spec{RootPassword: rootPW, ID: "i"}, replPass: replPW, ctrID: "c1", attached: true,
+			}
+
+			_, err := s.Statement(t.Context(), superRO)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), rootPW)
+			assert.NotContains(t, err.Error(), replPW)
+
+			s.reguard(t.Context())
+			assert.NotContains(t, buf.String(), rootPW)
+			assert.NotContains(t, buf.String(), replPW)
+			assert.Contains(t, buf.String(), "read-only guard failed")
 		})
 	}
 }

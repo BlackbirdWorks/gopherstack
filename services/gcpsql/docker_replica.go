@@ -17,7 +17,6 @@ const (
 	pitrMount    = "/gopherstack-pitr"
 	pitrSrcMount = "/gopherstack-pitr-src"
 	recoveryEnv  = "GS_RECOVERY_AT"
-	rootUserKey  = "MYSQL_PWD="
 
 	pgWrapper = `set -e
 if [ -d ` + pitrMount + ` ]; then
@@ -42,13 +41,6 @@ type sourceNet struct {
 	id        string
 	name      string
 	connected atomic.Bool
-}
-
-func mysqlServerFlags(serverID uint32) []string {
-	return []string{
-		"--server-id=" + strconv.FormatUint(uint64(max(serverID, 1)), 10),
-		"--gtid-mode=ON", "--enforce-gtid-consistency=ON",
-	}
 }
 
 // pgLaunch fills the PostgreSQL part of the container spec: replication-ready flags, the data volume and, for
@@ -90,14 +82,6 @@ func (e *dockerEngine) psql(ctx context.Context, sqlText string) (string, error)
 	)
 }
 
-func (e *dockerEngine) mysqlCmd(ctx context.Context, stmt string) (string, error) {
-	return e.runOutEnv(
-		ctx,
-		[]string{mysqlClient, "-u" + mysqlAdminUser, "-N", "-B", "-e", stmt},
-		e.mysqlEnv(),
-	)
-}
-
 // netSource is the source whose replication network this engine joins: its primary, or the engine it recovers from.
 func (e *dockerEngine) netSource() *ReplicaSource {
 	if e.spec.Replica != nil {
@@ -130,15 +114,8 @@ func (e *dockerEngine) ReplicationSource(ctx context.Context) (ReplicaSource, er
 	}
 
 	pass := e.replicaPass()
-	port := pgPort
 
-	if e.kind == kindMySQL {
-		port = mysqlPort
-
-		if _, err := e.mysqlCmd(ctx, dbrepl.MySQLReplicaUserSQL(replUser, pass)); err != nil {
-			return ReplicaSource{}, err
-		}
-	} else if err := e.preparePGSource(ctx, pass); err != nil {
+	if err := e.preparePGSource(ctx, pass); err != nil {
 		return ReplicaSource{}, err
 	}
 
@@ -147,9 +124,7 @@ func (e *dockerEngine) ReplicationSource(ctx context.Context) (ReplicaSource, er
 		return ReplicaSource{}, err
 	}
 
-	p, _ := strconv.Atoi(port)
-
-	return ReplicaSource{Network: n.name, NetworkID: n.id, Host: e.containerName(), Port: p, Password: pass}, nil
+	return ReplicaSource{Network: n.name, NetworkID: n.id, Host: e.containerName(), Port: pgPortNum, Password: pass}, nil
 }
 
 func (e *dockerEngine) containerName() string {
@@ -217,98 +192,20 @@ func (e *dockerEngine) releaseNetwork(ctx context.Context) {
 	}
 }
 
-// ReplicaSeed implements Replicator.
-func (e *dockerEngine) ReplicaSeed(ctx context.Context, dbs []string) ([]byte, error) {
-	if e.kind == kindPostgres {
-		return nil, nil
-	}
+// Persistent reports whether the engine keeps its data in a volume that survives the container.
+func (e *dockerEngine) Persistent() bool { return e.volData != "" }
 
-	if len(dbs) == 0 {
-		out, err := e.mysqlCmd(ctx, "SELECT @@GLOBAL.gtid_executed")
-		if err != nil {
-			return nil, err
-		}
-
-		gtid := strings.ReplaceAll(strings.Join(strings.Fields(out), ""), `\n`, "")
-		if gtid == "" || gtid == "NULL" {
-			return nil, nil
-		}
-
-		return []byte("SET @@GLOBAL.GTID_PURGED='" + gtid + "';\n"), nil
-	}
-
-	cmd := append([]string{
-		mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, "--skip-dump-date",
-		argRoutines, "--events", "--triggers", "--set-gtid-purged=ON", argAddDrop,
-		"-r", dumpMount + "/seed.sql", argDatabases,
-	}, dbs...)
-
-	if _, err := e.runOutEnv(ctx, cmd, e.mysqlEnv()); err != nil {
-		return nil, err
-	}
-
-	return e.readDump("seed.sql")
-}
-
-func (e *dockerEngine) mysqlResetStmt() string {
-	if strings.HasSuffix(e.image, ":8.4") {
-		return "RESET BINARY LOGS AND GTIDS"
-	}
-
-	return "RESET MASTER"
-}
+// ReplicaSeed implements Replicator; PostgreSQL replicas copy the data themselves.
+func (*dockerEngine) ReplicaSeed(context.Context, []string) ([]byte, error) { return nil, nil }
 
 // AttachReplica implements Replicator; PostgreSQL replicas already stream from pg_basebackup's recovery config.
-func (e *dockerEngine) AttachReplica(ctx context.Context, src ReplicaSource, seed []byte) error {
+func (e *dockerEngine) AttachReplica(ctx context.Context, src ReplicaSource, _ []byte) error {
 	e.mu.Lock("AttachReplica")
 	e.spec.Replica, e.netID = &src, src.NetworkID
 	e.mu.Unlock()
 
-	if e.kind == kindPostgres {
-		return e.repointPG(ctx, src)
-	}
-
-	change := dbrepl.MySQLChangeSourceSQL(src.Host, src.Port, replUser, src.Password)
-
-	if out, err := e.mysqlCmd(ctx, "SHOW REPLICA STATUS"); err == nil && strings.TrimSpace(out) != "" {
-		_, err = e.mysqlCmd(ctx, "STOP REPLICA; "+change)
-
-		return e.guardReplica(ctx, err)
-	}
-
-	if _, err := e.mysqlCmd(ctx, e.mysqlResetStmt()); err != nil {
-		return err
-	}
-
-	if len(seed) > 0 {
-		if err := e.restoreFile(ctx, "", seed); err != nil {
-			return err
-		}
-	}
-
-	_, err := e.mysqlCmd(ctx, change)
-
-	return e.guardReplica(ctx, err)
+	return e.repointPG(ctx, src)
 }
-
-func (e *dockerEngine) guardReplica(ctx context.Context, prev error) error {
-	if prev != nil {
-		return prev
-	}
-
-	if _, err := e.mysqlCmd(ctx, "SET GLOBAL super_read_only=ON"); err != nil {
-		return err
-	}
-
-	e.mu.Lock("guardReplica")
-	e.attached = true
-	e.mu.Unlock()
-
-	return nil
-}
-
-// Persistent reports whether the engine keeps its data in a volume that survives the container.
-func (e *dockerEngine) Persistent() bool { return e.volData != "" }
 
 func (e *dockerEngine) conninfo(src ReplicaSource) string {
 	return fmt.Sprintf("host=%s port=%d user=%s password=%s", src.Host, src.Port, replUser, src.Password)
@@ -327,18 +224,13 @@ func (e *dockerEngine) repointPG(ctx context.Context, src ReplicaSource) error {
 
 // Promote implements Replicator.
 func (e *dockerEngine) Promote(ctx context.Context) error {
-	if e.kind == kindPostgres {
-		out, err := e.psql(ctx, "SELECT pg_promote(true, 60)")
-		if err != nil {
-			return err
-		}
-
-		if strings.TrimSpace(out) != "t" {
-			return fmt.Errorf("%w: pg_promote did not complete", errExec)
-		}
-	} else if _, err := e.mysqlCmd(ctx,
-		"STOP REPLICA; RESET REPLICA ALL; SET GLOBAL super_read_only=OFF; SET GLOBAL read_only=OFF"); err != nil {
+	out, err := e.psql(ctx, "SELECT pg_promote(true, 60)")
+	if err != nil {
 		return err
+	}
+
+	if strings.TrimSpace(out) != "t" {
+		return fmt.Errorf("%w: pg_promote did not complete", errExec)
 	}
 
 	e.mu.Lock("Promote")
@@ -350,17 +242,6 @@ func (e *dockerEngine) Promote(ctx context.Context) error {
 
 // SetReplication implements Replicator.
 func (e *dockerEngine) SetReplication(ctx context.Context, on bool) error {
-	if e.kind == kindMySQL {
-		stmt := "STOP REPLICA"
-		if on {
-			stmt = "START REPLICA"
-		}
-
-		_, err := e.mysqlCmd(ctx, stmt)
-
-		return err
-	}
-
 	e.mu.RLock("SetReplication")
 	src := e.spec.Replica
 	e.mu.RUnlock()
@@ -391,20 +272,7 @@ func (e *dockerEngine) ReplicationStatus(ctx context.Context) (dbrepl.Status, er
 	}
 	defer db.Close()
 
-	return dbrepl.QueryStatus(ctx, db, e.kind == kindPostgres)
-}
-
-// reguard re-applies the read-only guard a MySQL replica loses on container restart.
-func (e *dockerEngine) reguard(ctx context.Context) {
-	e.mu.RLock("reguard")
-	replica := e.attached && !e.promoted && e.kind == kindMySQL
-	e.mu.RUnlock()
-
-	if replica {
-		if _, err := e.mysqlCmd(ctx, "SET GLOBAL super_read_only=ON"); err != nil {
-			logger.Load(ctx).WarnContext(ctx, "gcpsql: replica read-only guard failed", "instance", e.id, "error", err)
-		}
-	}
+	return dbrepl.QueryStatus(ctx, db, true)
 }
 
 // Purge implements Purger: it closes the engine and deletes its persistent volumes.
