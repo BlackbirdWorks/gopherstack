@@ -341,18 +341,15 @@ func TestPermission_ExpiryMaxSetting(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		max     int
-		value   string
-		want    int
-		wantMsg string
+		name, value, wantMsg string
+		max, want            int
 	}{
-		{"default accepts 86400", 0, "86400", 201, ""},
-		{"default rejects 86401", 0, "86401", 400, "between 600 and 86400"},
-		{"configured accepts its max", 18000, "18000", 201, ""},
-		{"configured rejects above max", 18000, "18001", 400, "between 600 and 18000"},
-		{"configured rejects 86400", 18000, "86400", 400, "between 600 and 18000"},
-		{"configured keeps minimum", 18000, "599", 400, "between 600 and 18000"},
+		{"default accepts 86400", "86400", "", 0, 201},
+		{"default rejects 86401", "86401", "between 600 and 86400", 0, 400},
+		{"configured accepts its max", "18000", "", 18000, 201},
+		{"configured rejects above max", "18001", "between 600 and 18000", 18000, 400},
+		{"configured rejects 86400", "86400", "between 600 and 18000", 18000, 400},
+		{"configured keeps minimum", "599", "between 600 and 18000", 18000, 400},
 	}
 
 	for _, tc := range tests {

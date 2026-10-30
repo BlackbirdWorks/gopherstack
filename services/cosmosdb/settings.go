@@ -53,5 +53,8 @@ type Settings struct {
 // DefaultSettings returns the default Settings. Used when no ConfigProvider
 // is available at init time (e.g. tests constructing a Provider directly).
 func DefaultSettings() Settings {
-	return Settings{Port: DefaultPort, MasterKey: DefaultMasterKey, ValidateAuth: false, ResourceTokenMaxSeconds: maxTokenExpirySeconds}
+	return Settings{
+		Port: DefaultPort, MasterKey: DefaultMasterKey, ValidateAuth: false,
+		ResourceTokenMaxSeconds: maxTokenExpirySeconds,
+	}
 }

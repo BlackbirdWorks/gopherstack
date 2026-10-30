@@ -62,7 +62,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetCosmosDBSettings()
 	}
 
-	if m := settings.ResourceTokenMaxSeconds; m != 0 && (m < MinResourceTokenMaxSeconds || m > MaxResourceTokenMaxSeconds) {
+	m := settings.ResourceTokenMaxSeconds
+	if m != 0 && (m < MinResourceTokenMaxSeconds || m > MaxResourceTokenMaxSeconds) {
 		return nil, fmt.Errorf("%w: got %d", ErrInvalidResourceTokenMax, m)
 	}
 
