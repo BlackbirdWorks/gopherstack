@@ -509,7 +509,8 @@ func buildStatus(
 	r := statusReport{
 		Running: true, Endpoint: endpoint, Version: h.Version, UptimeSecs: h.UptimeSecs,
 		Uptime: (time.Duration(h.UptimeSecs) * time.Second).String(), Managed: st,
-		Clouds: map[string][]serviceState{}, Goroutines: h.Goroutines, HeapAllocB: h.HeapAllocB, EnabledCount: len(h.Services), DisabledCount: len(h.Disabled),
+		Clouds: map[string][]serviceState{}, Goroutines: h.Goroutines, HeapAllocB: h.HeapAllocB,
+		EnabledCount: len(h.Services), DisabledCount: len(h.Disabled),
 	}
 
 	port := endpointPort(endpoint)

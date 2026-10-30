@@ -172,9 +172,9 @@ func TestLifecycleStartValidate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		cmd  StartCmd
 		want error
 		name string
+		cmd  StartCmd
 	}{
 		{name: "host foreground", cmd: StartCmd{Host: true, Foreground: true}, want: errLifecycleHostOnly},
 		{name: "host socket", cmd: StartCmd{Host: true, DockerSocket: true}, want: errLifecycleHostOnly},
@@ -202,10 +202,10 @@ func TestLifecycleDockerSocketMount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		cmd       StartCmd
 		name      string
 		dockerEnv string
 		wantMount string
+		cmd       StartCmd
 		noSocket  bool
 	}{
 		{name: "default off", noSocket: true},
