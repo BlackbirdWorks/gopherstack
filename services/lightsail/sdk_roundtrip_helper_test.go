@@ -1,17 +1,16 @@
 package lightsail_test
 
 import (
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	lightsailsdk "github.com/aws/aws-sdk-go-v2/service/lightsail"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/lightsail"
 )
@@ -52,20 +51,11 @@ func newRoundTripClient(t *testing.T, h *lightsail.Handler) *lightsailsdk.Client
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
-
-	cfg, err := awscfg.LoadDefaultConfig(
-		t.Context(),
-		awscfg.WithRegion(rtTestRegion),
-		awscfg.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	require.NoError(t, err)
-
-	return lightsailsdk.NewFromConfig(cfg, func(o *lightsailsdk.Options) {
-		o.BaseEndpoint = aws.String(srv.URL)
+	return lightsailsdk.NewFromConfig(aws.Config{
+		Region:       rtTestRegion,
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.HandlerClient(e),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
 	})
 }
 

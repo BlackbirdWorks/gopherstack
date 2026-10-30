@@ -2,6 +2,7 @@ package fsx_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -274,29 +275,32 @@ func TestLifecycleDelay_CreatingThenAvailable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b, client := newRealismClient(t)
-			b.SetLifecycleDelay(tt.delay)
+			synctest.Test(t, func(t *testing.T) {
 
-			fs := createTestLustreFS(t, client)
-			assert.Equal(t, tt.wantFirst, fs.FileSystem.Lifecycle)
+				b, client := newRealismClient(t)
+				b.SetLifecycleDelay(tt.delay)
 
-			bk, err := client.CreateBackup(
-				t.Context(),
-				&fsxsdk.CreateBackupInput{FileSystemId: fs.FileSystem.FileSystemId},
-			)
-			require.NoError(t, err)
+				fs := createTestLustreFS(t, client)
+				assert.Equal(t, tt.wantFirst, fs.FileSystem.Lifecycle)
 
-			want := types.BackupLifecycle(tt.wantFirst)
-			assert.Equal(t, want, bk.Backup.Lifecycle)
+				bk, err := client.CreateBackup(
+					t.Context(),
+					&fsxsdk.CreateBackupInput{FileSystemId: fs.FileSystem.FileSystemId},
+				)
+				require.NoError(t, err)
 
-			require.Eventually(t, func() bool {
-				out, descErr := client.DescribeFileSystems(t.Context(), &fsxsdk.DescribeFileSystemsInput{
-					FileSystemIds: []string{aws.ToString(fs.FileSystem.FileSystemId)},
-				})
+				want := types.BackupLifecycle(tt.wantFirst)
+				assert.Equal(t, want, bk.Backup.Lifecycle)
 
-				return descErr == nil && len(out.FileSystems) == 1 &&
-					out.FileSystems[0].Lifecycle == types.FileSystemLifecycleAvailable
-			}, 5*time.Second, 20*time.Millisecond)
+				require.Eventually(t, func() bool {
+					out, descErr := client.DescribeFileSystems(t.Context(), &fsxsdk.DescribeFileSystemsInput{
+						FileSystemIds: []string{aws.ToString(fs.FileSystem.FileSystemId)},
+					})
+
+					return descErr == nil && len(out.FileSystems) == 1 &&
+						out.FileSystems[0].Lifecycle == types.FileSystemLifecycleAvailable
+				}, 5*time.Second, 20*time.Millisecond)
+			})
 		})
 	}
 }
