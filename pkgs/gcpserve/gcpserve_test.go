@@ -144,8 +144,15 @@ func TestWaitReadyRequiresHTTP(t *testing.T) {
 				}()
 			}
 
-			ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
-			defer cancel()
+			// Only the failing case needs a deadline; the success case must not race one.
+			ctx := t.Context()
+
+			if tt.wantErr {
+				var cancel context.CancelFunc
+
+				ctx, cancel = context.WithTimeout(ctx, 300*time.Millisecond)
+				defer cancel()
+			}
 
 			err = gcpserve.WaitReady(ctx, l.Addr().(*net.TCPAddr).Port)
 			if tt.wantErr {
