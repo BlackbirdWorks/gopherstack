@@ -209,20 +209,24 @@ func TestRestoreFromBackup(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "a DELETING backup is not restorable")
 }
 
-var autoBackupStarts = []struct {
-	name  string
+type autoBackupStart struct {
 	start time.Time
-}{
-	{"0010", time.Date(2026, 3, 10, 0, 10, 0, 0, time.UTC)},
-	{"1200", time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)},
-	{"2242", time.Date(2026, 3, 10, 22, 42, 0, 0, time.UTC)},
-	{"2359", time.Date(2026, 3, 10, 23, 59, 0, 0, time.UTC)},
+	name  string
+}
+
+func autoBackupStarts() []autoBackupStart {
+	return []autoBackupStart{
+		{name: "0010", start: time.Date(2026, 3, 10, 0, 10, 0, 0, time.UTC)},
+		{name: "1200", start: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)},
+		{name: "2242", start: time.Date(2026, 3, 10, 22, 42, 0, 0, time.UTC)},
+		{name: "2359", start: time.Date(2026, 3, 10, 23, 59, 0, 0, time.UTC)},
+	}
 }
 
 func TestAutomaticBackupsAndRetention(t *testing.T) {
 	t.Parallel()
 
-	for _, tt := range autoBackupStarts {
+	for _, tt := range autoBackupStarts() {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -245,10 +249,9 @@ func TestAutomaticBackupsAndRetention(t *testing.T) {
 			e.backend.Sweep()
 			e.settle()
 
-			lst, err = e.bk.ListBackups(
-				ctx,
-				my.ListBackupsRequest{CompartmentId: new(testCompartment), CreationType: my.BackupCreationTypeAutomatic},
-			)
+			lst, err = e.bk.ListBackups(ctx, my.ListBackupsRequest{
+				CompartmentId: new(testCompartment), CreationType: my.BackupCreationTypeAutomatic,
+			})
 			require.NoError(t, err)
 			require.Len(t, lst.Items, 1, "one automatic backup per window")
 			assert.Equal(t, db.Id, lst.Items[0].DbSystemId)
@@ -279,7 +282,7 @@ func TestDeletionPolicyBackupRetention(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		for _, st := range autoBackupStarts {
+		for _, st := range autoBackupStarts() {
 			t.Run(tt.name+" "+st.name, func(t *testing.T) {
 				t.Parallel()
 
