@@ -37,7 +37,9 @@ func gwCert(t *testing.T) (string, string) {
 
 	tpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "api.example.test"},
-		DNSNames: []string{"api.example.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		DNSNames: []string{
+			"api.example.test",
+		}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &k.PublicKey, k)
@@ -194,7 +196,12 @@ func TestOCIAPIGatewayProxy(t *testing.T) {
 			{"path with query", id, `{"method":"GET","path":"/v1/hello?a=b"}`, 400},
 			{"fragment", id, `{"method":"GET","path":"/v1/hello","query":"a=b#x"}`, 400},
 			{"gateway id traversal", "%2e%2e", `{"method":"GET","path":"/v1/hello"}`, 400},
-			{"oversize body", id, `{"method":"POST","path":"/v1/hello","body":"` + strings.Repeat("a", 70000) + `"}`, 400},
+			{
+				"oversize body",
+				id,
+				`{"method":"POST","path":"/v1/hello","body":"` + strings.Repeat("a", 70000) + `"}`,
+				400,
+			},
 			{"not json", id, `nope`, 400},
 		}
 

@@ -17,6 +17,8 @@ const (
 	ociNoSQLItemSegs  = 2
 	ociNoSQLSubSegs   = 3
 	ociNoSQLMaxUnits  = 1 << 20
+	ociKeyCompartment = "compartmentId"
+	ociKeyName        = "name"
 )
 
 // registerOCINoSQLRoutes serves the NoSQL page by dispatching in-process to the emulator's handler without request
@@ -132,7 +134,7 @@ func ociNoSQLCreateBody(c *echo.Context) ([]byte, bool) {
 	}
 
 	b, err := json.Marshal(map[string]any{
-		"compartmentId": in.CompartmentID, "name": in.Name, "ddlStatement": in.DDL, "tableLimits": limits,
+		ociKeyCompartment: in.CompartmentID, ociKeyName: in.Name, "ddlStatement": in.DDL, "tableLimits": limits,
 	})
 
 	return b, err == nil
@@ -153,7 +155,7 @@ func ociNoSQLRowBody(c *echo.Context) ([]byte, bool) {
 		return nil, false
 	}
 
-	out := map[string]any{"compartmentId": in.CompartmentID, "value": in.Value}
+	out := map[string]any{ociKeyCompartment: in.CompartmentID, "value": in.Value}
 	if in.Option != "" {
 		out["option"] = in.Option
 	}
@@ -175,7 +177,7 @@ func ociNoSQLQueryBody(c *echo.Context) ([]byte, bool) {
 		return nil, false
 	}
 
-	out := map[string]any{"compartmentId": in.CompartmentID, "statement": in.Statement}
+	out := map[string]any{ociKeyCompartment: in.CompartmentID, "statement": in.Statement}
 	if in.Consistency == "EVENTUAL" || in.Consistency == "ABSOLUTE" {
 		out["consistency"] = in.Consistency
 	}

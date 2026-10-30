@@ -23,6 +23,10 @@ const (
 	ociAPIGWMaxHeaders  = 32
 	ociAPIGWMaxPath     = 2048
 	ociAPIGWActiveState = "ACTIVE"
+	ociAPIGWMaxTryJSON  = 2 * ociAPIGWMaxReqBody
+	ociAPIGWGateways    = "gateways"
+	ociAPIGWDeployments = "deployments"
+	ociAPIGWCerts       = "certificates"
 )
 
 // registerOCIAPIGatewayRoutes serves the API Gateway page by dispatching in-process to the emulator's handler without
@@ -57,7 +61,7 @@ func (h *DashboardHandler) registerOCIAPIGatewayRoutes() {
 			return ociInvalid(c, "unsupported API Gateway proxy request")
 		}
 
-		if r.Method == http.MethodPost && len(parts) == ociAPIGWInvokeSegs && parts[0] == "gateways" &&
+		if r.Method == http.MethodPost && len(parts) == ociAPIGWInvokeSegs && parts[0] == ociAPIGWGateways &&
 			parts[2] == "invoke" {
 			return ociAPIGWTryIt(c, inner, ops.Backend.GatewayState, parts[1])
 		}
@@ -76,9 +80,9 @@ func (h *DashboardHandler) registerOCIAPIGatewayRoutes() {
 func ociAPIGWReadable(parts []string) bool {
 	switch len(parts) {
 	case 1:
-		return slices.Contains([]string{"gateways", "deployments", "certificates"}, parts[0])
+		return slices.Contains([]string{ociAPIGWGateways, ociAPIGWDeployments, ociAPIGWCerts}, parts[0])
 	case ociAPIGWItemSegs:
-		return slices.Contains([]string{"gateways", "deployments"}, parts[0])
+		return slices.Contains([]string{ociAPIGWGateways, ociAPIGWDeployments}, parts[0])
 	}
 
 	return false
@@ -106,14 +110,16 @@ var ociAPIGWHopByHop = []string{ //nolint:gochecknoglobals // immutable header d
 
 func ociAPIGWTryIt(c *echo.Context, inner *echo.Echo, state func(string) (string, bool), gatewayID string) error {
 	var in ociAPIGWTryIn
-	if !ociDecodeBodyN(c, &in, 2*ociAPIGWMaxReqBody) {
+	if !ociDecodeBodyN(c, &in, ociAPIGWMaxTryJSON) {
 		return ociInvalid(c, "invalid API Gateway try-it request")
 	}
 
 	rel, ok := ociAPIGWTryPath(in)
 	if !ok || !slices.Contains(
-		[]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
-			http.MethodHead, http.MethodOptions}, in.Method,
+		[]string{
+			http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
+			http.MethodHead, http.MethodOptions,
+		}, in.Method,
 	) || len(in.Headers) > ociAPIGWMaxHeaders || len(in.Body) > ociAPIGWMaxReqBody {
 		return ociInvalid(c, "invalid API Gateway try-it request")
 	}
