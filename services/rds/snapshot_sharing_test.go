@@ -206,7 +206,8 @@ func TestSharedDBSnapshotAccess(t *testing.T) {
 		{name: "restore shared", op: "restore", caller: shareGuest, snapshot: snapshotARN(shareOwner, "snap-shared")},
 		{name: "restore public", op: "restore", caller: shareOther, snapshot: snapshotARN(shareOwner, "snap-public")},
 		{
-			name: "restore private", op: "restore", caller: shareGuest, snapshot: snapshotARN(shareOwner, "snap-private"),
+			name: "restore private", op: "restore", caller: shareGuest,
+			snapshot: snapshotARN(shareOwner, "snap-private"),
 			wantCode: "DBSnapshotNotFound",
 		},
 		{
@@ -393,7 +394,8 @@ func TestSharedDBClusterSnapshots(t *testing.T) {
 			wantCode: "DBClusterSnapshotNotFound",
 		},
 		{
-			name: "restore by name", caller: shareGuest, snapshot: "csnap-shared", wantCode: "DBClusterSnapshotNotFound",
+			name: "restore by name", caller: shareGuest, snapshot: "csnap-shared",
+			wantCode: "DBClusterSnapshotNotFound",
 		},
 		{
 			name: "restore third party", caller: shareOther, snapshot: clusterSnapshotARN(shareOwner, "csnap-shared"),
