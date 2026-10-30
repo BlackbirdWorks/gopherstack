@@ -56,8 +56,8 @@ func (e *ACIEngine) SetProbeHooks(
 func defaultACIHTTPProbe(ctx context.Context, p ACIHTTPProbe) (int, error) {
 	tr := httpclient.NewTransport()
 	tr.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true,
-	} //nolint:gosec // probes ignore certificates, like kubelet
+		InsecureSkipVerify: true, //nolint:gosec // probes ignore certificates, like kubelet
+	}
 
 	client := &http.Client{Transport: tr, Timeout: p.Timeout}
 	defer tr.CloseIdleConnections()

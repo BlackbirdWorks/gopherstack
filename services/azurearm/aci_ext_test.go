@@ -259,7 +259,8 @@ func TestACISDK_SubnetDelegation(t *testing.T) {
 	s.putRaw(
 		t,
 		vnet+"/subnets/aci?api-version=2024-05-01",
-		`{"properties":{"addressPrefix":"10.0.2.0/24","delegations":[{"name":"d","properties":{"serviceName":"Microsoft.ContainerInstance/containerGroups"}}]}}`,
+		`{"properties":{"addressPrefix":"10.0.2.0/24","delegations":[`+
+			`{"name":"d","properties":{"serviceName":"Microsoft.ContainerInstance/containerGroups"}}]}}`,
 	)
 
 	private := &armcontainerinstance.IPAddress{
@@ -600,9 +601,10 @@ func TestACISDK_LivenessProbe(t *testing.T) {
 				assert.Zero(t, restarts(), "restartPolicy supersedes liveness restarts")
 			}
 
-			names := make([]string, 0)
+			events := s.get(t, "rg", "live").Properties.Containers[0].Properties.InstanceView.Events
+			names := make([]string, 0, len(events))
 
-			for _, e := range s.get(t, "rg", "live").Properties.Containers[0].Properties.InstanceView.Events {
+			for _, e := range events {
 				names = append(names, *e.Name)
 			}
 

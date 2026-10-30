@@ -86,10 +86,10 @@ type ACIView struct {
 }
 
 type aciConfig struct {
-	Props    aciPropsWire
 	Provider *ContainerInstanceProvider
 	Key      string
 	Name     string
+	Props    aciPropsWire
 }
 
 type aciCont struct {

@@ -85,9 +85,10 @@ func TestACIDocker_LivenessProbeRestartsContainer(t *testing.T) {
 		return *iv.RestartCount >= 1
 	}, dockerWait, 200*time.Millisecond)
 
-	names := make([]string, 0)
+	events := s.get(t, "rg", "live").Properties.Containers[0].Properties.InstanceView.Events
+	names := make([]string, 0, len(events))
 
-	for _, e := range s.get(t, "rg", "live").Properties.Containers[0].Properties.InstanceView.Events {
+	for _, e := range events {
 		names = append(names, *e.Name)
 	}
 
@@ -169,7 +170,6 @@ func dockerRun(t *testing.T, args ...string) string {
 
 	out, err := exec.CommandContext(t.Context(), "docker", args...).
 		CombinedOutput()
-		//nolint:gosec // test helper, fixed binary
 	require.NoError(t, err, string(out))
 
 	return strings.TrimSpace(string(out))
@@ -234,5 +234,4 @@ chmod -R a+rwX /repos`
 	require.NoError(t, err)
 	assert.Contains(t, *logs.Content, "v1-content")
 	assert.NotContains(t, *logs.Content, "b.txt", "revision v1 predates b.txt")
-
 }
