@@ -20,8 +20,7 @@ func (e *lifecycleExitError) Error() string {
 
 // lifecycleExitCode reports the exit status requested by err, if any.
 func lifecycleExitCode(err error) (int, bool) {
-	var ee *lifecycleExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*lifecycleExitError](err); ok {
 		return ee.Code, true
 	}
 
@@ -91,7 +90,7 @@ func (d *lifecycleDeps) attach(
 	select {
 	case res = <-exited:
 	case <-ctx.Done():
-		stopCtx, cancel := context.WithTimeout(bg, lifecycleStopTimeout*2)
+		stopCtx, cancel := context.WithTimeout(bg, lifecycleStopGrace)
 		defer cancel()
 
 		if err := rt.StopAndRemove(stopCtx, id); err != nil && !notFoundErr(err) {

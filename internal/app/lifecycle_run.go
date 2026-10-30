@@ -252,7 +252,8 @@ func (c *StartCmd) runContainer(ctx context.Context, d *lifecycleDeps, endpoint,
 		sock := c.dockerSocketPath(d.Getenv)
 		spec.Mounts = append(spec.Mounts, sock+":"+lifecycleSocketInside)
 		env = append(env, "DOCKER_HOST=unix://"+lifecycleSocketInside)
-		fmt.Fprintf(d.Err, "warning: mounting %s gives the server root-equivalent control of the host Docker daemon\n", sock)
+		fmt.Fprintf(d.Err, "warning: mounting %s gives the server root-equivalent control of the host Docker daemon\n",
+			sock)
 	}
 
 	spec.Env = env
@@ -452,6 +453,7 @@ type serviceState struct {
 }
 
 const (
+	bytesPerMiB       = 1 << 20
 	healthHealthy     = "healthy"
 	healthUnavailable = "unavailable"
 	healthDisabled    = "disabled"
@@ -467,7 +469,7 @@ func endpointPort(endpoint string) string {
 		return p
 	}
 
-	if u.Scheme == "https" {
+	if u.Scheme == lifecycleSchemeHTTPS {
 		return "443"
 	}
 
@@ -501,7 +503,9 @@ func cloudOf(name string) string {
 	}
 }
 
-func buildStatus(endpoint string, h healthResponse, st *lifecycleState, svcHealth map[string]string) statusReport {
+func buildStatus(
+	endpoint string, h healthResponse, st *lifecycleState, svcHealth map[string]string,
+) statusReport {
 	r := statusReport{
 		Running: true, Endpoint: endpoint, Version: h.Version, UptimeSecs: h.UptimeSecs,
 		Uptime: (time.Duration(h.UptimeSecs) * time.Second).String(), Managed: st,
@@ -519,7 +523,7 @@ func buildStatus(endpoint string, h healthResponse, st *lifecycleState, svcHealt
 				ss.Port = port
 				ss.Health = healthHealthy
 
-				if svcHealth != nil && svcHealth[strings.ToLower(n)] != "available" {
+				if svcHealth != nil && svcHealth[strings.ToLower(n)] != localstackAvailable {
 					ss.Health = healthUnavailable
 				}
 			}
@@ -593,8 +597,9 @@ func (r statusReport) print(w io.Writer) {
 		}
 	}
 
-	fmt.Fprintf(w, "Memory:   %.1f MiB heap, %d goroutines\n", float64(r.HeapAllocB)/(1<<20), r.Goroutines)
-	fmt.Fprintf(w, "Services: %d enabled, %d disabled (all served in-process: one port, one uptime)\n\n", r.EnabledCount, r.DisabledCount)
+	fmt.Fprintf(w, "Memory:   %.1f MiB heap, %d goroutines\n", float64(r.HeapAllocB)/bytesPerMiB, r.Goroutines)
+	fmt.Fprintf(w, "Services: %d enabled, %d disabled (one process: shared port and uptime)\n\n",
+		r.EnabledCount, r.DisabledCount)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0) //nolint:mnd // tabwriter padding
 	fmt.Fprintln(tw, "CLOUD\tSERVICE\tSTATE\tPORT\tHEALTH")

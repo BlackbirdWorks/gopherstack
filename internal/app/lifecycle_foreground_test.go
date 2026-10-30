@@ -23,11 +23,11 @@ var errKillFake = errors.New("no console")
 
 // fgRuntime fakes a runtime whose container stays up until exited or stopped.
 type fgRuntime struct {
+	ready *atomic.Bool
+	exit  chan int
 	fakeLifecycleRuntime
-	ready    *atomic.Bool
-	exit     chan int
-	stopCode int
 	stopOnce sync.Once
+	stopCode int
 }
 
 func newFGRuntime() *fgRuntime {
@@ -122,7 +122,7 @@ func TestLifecycleForeground(t *testing.T) {
 			}
 
 			cmd := StartCmd{
-				LifecycleTarget: LifecycleTarget{StateDir: dir}, Tag: "latest", Bind: "127.0.0.1", Port: port,
+				StateDir: dir, Tag: "latest", Bind: "127.0.0.1", Port: port,
 				Timeout: lifecycleReadyTimeout, Foreground: true,
 			}
 
@@ -160,7 +160,7 @@ func TestLifecycleForegroundNeedsWaiter(t *testing.T) {
 	rt := &fakeLifecycleRuntime{}
 	d, _, dir := testLifecycleDeps(t, rt)
 	cmd := StartCmd{
-		LifecycleTarget: LifecycleTarget{StateDir: dir}, Tag: "latest", Bind: "127.0.0.1", Port: "1",
+		StateDir: dir, Tag: "latest", Bind: "127.0.0.1", Port: "1",
 		Timeout: lifecycleReadyTimeout, Foreground: true,
 	}
 
@@ -172,9 +172,9 @@ func TestLifecycleStartValidate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		cmd  StartCmd
 		want error
+		name string
 	}{
 		{name: "host foreground", cmd: StartCmd{Host: true, Foreground: true}, want: errLifecycleHostOnly},
 		{name: "host socket", cmd: StartCmd{Host: true, DockerSocket: true}, want: errLifecycleHostOnly},
@@ -202,9 +202,9 @@ func TestLifecycleDockerSocketMount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		cmd       StartCmd
 		name      string
 		dockerEnv string
-		cmd       StartCmd
 		wantMount string
 		noSocket  bool
 	}{
@@ -272,17 +272,26 @@ type fakeKiller struct {
 	calls    []string
 }
 
-func (f *fakeKiller) CtrlBreak(int) error { f.calls = append(f.calls, "break"); return f.breakErr }
-func (f *fakeKiller) Kill(int) error      { f.calls = append(f.calls, "kill"); return nil }
+func (f *fakeKiller) CtrlBreak(int) error {
+	f.calls = append(f.calls, "break")
+
+	return f.breakErr
+}
+
+func (f *fakeKiller) Kill(int) error {
+	f.calls = append(f.calls, "kill")
+
+	return nil
+}
 
 func TestTerminateWith(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		breakErr error
-		force    bool
+		name     string
 		want     []string
+		force    bool
 	}{
 		{name: "graceful", want: []string{"break"}},
 		{name: "graceful falls back to kill", breakErr: errKillFake, want: []string{"break", "kill"}},
@@ -322,7 +331,7 @@ func TestLifecycleStatusServiceHealth(t *testing.T) {
 	require.NoError(t, err)
 
 	d, out, dir := testLifecycleDeps(t, nil)
-	cmd := StatusCmd{LifecycleTarget: LifecycleTarget{StateDir: dir}, Endpoint: srv.URL, JSON: true}
+	cmd := StatusCmd{StateDir: dir, Endpoint: srv.URL, JSON: true}
 	require.NoError(t, cmd.run(t.Context(), d))
 
 	var rep statusReport
