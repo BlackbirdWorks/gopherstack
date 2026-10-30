@@ -17,14 +17,8 @@ const (
 	stderrLimit  = 512
 	connectLine  = `\connect `
 	dumpFileMode = 0o600
-	mysqlClient  = "mysql"
 	psqlBin      = "psql"
 	pgDumpBin    = "pg_dump"
-	mysqldumpBin = "mysqldump"
-	argRoutines  = "--routines"
-	argAddDrop   = "--add-drop-database"
-	argDatabases = "--databases"
-	argSingleTx  = "--single-transaction"
 )
 
 var errExec = errors.New("command failed")
@@ -38,9 +32,6 @@ func (e *dockerEngine) run(ctx context.Context, cmd []string) error {
 func (e *dockerEngine) runOut(ctx context.Context, cmd []string) (string, error) {
 	return e.runOutEnv(ctx, cmd, nil)
 }
-
-// mysqlEnv carries the admin password in the exec environment, never argv.
-func (e *dockerEngine) mysqlEnv() []string { return []string{rootUserKey + e.pass()} }
 
 func (e *dockerEngine) runOutEnv(ctx context.Context, cmd, env []string) (string, error) {
 	name := cmdLabel(cmd)
@@ -66,10 +57,6 @@ func (e *dockerEngine) runOutEnv(ctx context.Context, cmd, env []string) (string
 func cmdLabel(cmd []string) string {
 	for _, a := range cmd {
 		switch a {
-		case mysqldumpBin:
-			return mysqldumpBin
-		case mysqlClient:
-			return mysqlClient
 		case psqlBin:
 			return psqlBin
 		case pgDumpBin:
@@ -113,10 +100,6 @@ func (e *dockerEngine) readDump(name string) ([]byte, error) {
 
 // Dump implements Engine.
 func (e *dockerEngine) Dump(ctx context.Context, dbs []string, opts DumpOptions) ([]byte, error) {
-	if e.kind == kindMySQL {
-		return e.dumpMySQL(ctx, dbs)
-	}
-
 	var out bytes.Buffer
 
 	for i, db := range dbs {
@@ -151,29 +134,8 @@ func (e *dockerEngine) Dump(ctx context.Context, dbs []string, opts DumpOptions)
 	return out.Bytes(), nil
 }
 
-func (e *dockerEngine) dumpMySQL(ctx context.Context, dbs []string) ([]byte, error) {
-	if len(dbs) == 0 {
-		return nil, nil
-	}
-
-	cmd := append([]string{
-		mysqldumpBin, "-u" + mysqlAdminUser, argSingleTx, argRoutines,
-		argAddDrop, "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", argDatabases,
-	}, dbs...)
-
-	if _, err := e.runOutEnv(ctx, cmd, e.mysqlEnv()); err != nil {
-		return nil, err
-	}
-
-	return e.readDump("dump.sql")
-}
-
 // Restore implements Engine.
 func (e *dockerEngine) Restore(ctx context.Context, db string, data []byte) error {
-	if e.kind == kindMySQL {
-		return e.restoreFile(ctx, db, data)
-	}
-
 	for _, seg := range splitDump(db, data) {
 		if seg.db != pgAdminUser {
 			if err := e.CreateDatabase(ctx, seg.db, "", ""); err != nil &&
@@ -200,18 +162,7 @@ func (e *dockerEngine) restoreFile(ctx context.Context, db string, data []byte) 
 
 	file := dumpMount + "/in.sql"
 
-	if e.kind == kindPostgres {
-		return e.run(ctx, []string{psqlBin, "-U", pgAdminUser, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", file})
-	}
-
-	cmd := []string{mysqlClient, "-u" + mysqlAdminUser}
-	if db != "" {
-		cmd = append(cmd, "--database="+db)
-	}
-
-	_, err := e.runOutEnv(ctx, append(cmd, "-e", "source "+file), e.mysqlEnv())
-
-	return err
+	return e.run(ctx, []string{psqlBin, "-U", pgAdminUser, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", file})
 }
 
 type dumpSegment struct {

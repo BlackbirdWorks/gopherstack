@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -14,20 +13,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 const (
 	dumpMount      = "/gopherstack-dump"
 	pgDataDir      = "/var/lib/postgresql/data"
-	mysqlDataDir   = "/var/lib/mysql"
 	volumeLabel    = "gopherstack.gcpsql"
 	staleVolumeAge = 10 * time.Minute
 	dumpDirLabel   = "gopherstack.gcpsql.dumpdir"
 	shapeLabel     = "gopherstack.gcpsql.shape"
 	adoptReadyWait = 30 * time.Second
 	pgPort         = "5432"
-	mysqlPort      = "3306"
 	readyInterval  = 500 * time.Millisecond
 	teardownLimit  = 30 * time.Second
 	maxDumpBytes   = 256 << 20
@@ -44,11 +42,12 @@ type containerRuntime interface {
 type dockerLauncher struct {
 	lr      *gcpserve.LazyRuntime
 	pool    *portalloc.Allocator
+	log     *slog.Logger
 	startup time.Duration
 }
 
 func newDockerLauncher(log *slog.Logger, pool *portalloc.Allocator, startup time.Duration) *dockerLauncher {
-	return &dockerLauncher{lr: gcpserve.NewLazyRuntime(log, "gcpsql.runtime"), pool: pool, startup: startup}
+	return &dockerLauncher{lr: gcpserve.NewLazyRuntime(log, "gcpsql.runtime"), pool: pool, log: log, startup: startup}
 }
 
 // Close releases the runtime client.
@@ -71,13 +70,17 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Engine, e
 		return nil, err
 	}
 
+	if kind == kindMySQL {
+		return l.launchMySQL(ctx, r, rt, spec, image)
+	}
+
 	dir, err := os.MkdirTemp("", "gopherstack-gcpsql-")
 	if err != nil {
 		return nil, fmt.Errorf("dump dir: %w", err)
 	}
 
 	e := &dockerEngine{
-		rt: rt, pool: l.pool, kind: kind, image: image, id: spec.ID, password: spec.Password, dir: dir,
+		rt: rt, pool: l.pool, image: image, id: spec.ID, password: spec.Password, dir: dir,
 		mu: lockmetrics.New("gcpsql.engine"), spec: spec,
 	}
 
@@ -85,7 +88,7 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Engine, e
 		e.vols = vr
 		e.volData = volumeName("data", spec.Project, spec.ID)
 
-		if kind == kindPostgres && spec.Replica == nil {
+		if spec.Replica == nil {
 			e.volPITR = volumeName("pitr", spec.Project, spec.ID)
 		}
 	}
@@ -100,6 +103,30 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Engine, e
 	}
 
 	return e, nil
+}
+
+func (l *dockerLauncher) launchMySQL(
+	ctx context.Context, r any, rt containerRuntime, spec LaunchSpec, image string,
+) (Engine, error) {
+	var vr container.VolumeRuntime
+	if v, ok := r.(container.VolumeRuntime); ok {
+		vr = v
+	}
+
+	eng, err := mysqlengine.New(mysqlengine.Config{
+		Runtime: rt, Volumes: vr, Ports: l.pool, Logger: l.log, Prefix: "gopherstack-gcpsql",
+		Service: "gcpsql", ReplUser: replUser, StartTimeout: l.startup,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRuntimeUnavailable, err)
+	}
+
+	srv, err := eng.Launch(ctx, mysqlSpec(spec, image))
+	if err != nil {
+		return nil, err //nolint:wrapcheck // launch errors carry the image
+	}
+
+	return &mysqlEngine{srv: srv}, nil
 }
 
 // SweepVolumes deletes the unused persistent volumes of instances not in keep, left by an earlier run.
@@ -146,9 +173,7 @@ type dockerEngine struct {
 	netID    string
 	spec     LaunchSpec
 	port     int
-	kind     dbKind
 	promoted bool
-	attached bool
 }
 
 func (e *dockerEngine) boot(ctx context.Context) error {
@@ -173,7 +198,7 @@ func (e *dockerEngine) boot(ctx context.Context) error {
 		return nil
 	}
 
-	if e.spec.Recovery != nil && e.kind == kindPostgres {
+	if e.spec.Recovery != nil {
 		if err := e.waitPromoted(ctx); err != nil {
 			return err
 		}
@@ -259,22 +284,10 @@ func (e *dockerEngine) prepare() (container.Spec, error) {
 		e.mu.Unlock()
 	}
 
-	cport := pgPort
+	spec.Env = []string{"POSTGRES_USER=" + pgAdminUser, "POSTGRES_PASSWORD=" + e.pass()}
+	e.pgLaunch(&spec)
 
-	if e.kind == kindMySQL {
-		cport = mysqlPort
-		spec.Env = []string{"MYSQL_ROOT_PASSWORD=" + e.pass()}
-		spec.Cmd = mysqlServerFlags(e.spec.ServerID)
-
-		if e.volData != "" {
-			spec.Mounts = append(spec.Mounts, e.volData+":"+mysqlDataDir)
-		}
-	} else {
-		spec.Env = []string{"POSTGRES_USER=" + pgAdminUser, "POSTGRES_PASSWORD=" + e.pass()}
-		e.pgLaunch(&spec)
-	}
-
-	spec.Ports = []string{container.PortSpec(container.LoopbackHost, strconv.Itoa(port), cport)}
+	spec.Ports = []string{container.PortSpec(container.LoopbackHost, strconv.Itoa(port), pgPort)}
 
 	return spec, nil
 }
@@ -307,12 +320,6 @@ func (e *dockerEngine) Endpoint() (string, int) {
 	return container.LoopbackHost, e.port
 }
 
-func (e *dockerEngine) addr() string {
-	h, p := e.Endpoint()
-
-	return net.JoinHostPort(h, strconv.Itoa(p))
-}
-
 func (e *dockerEngine) waitReady(ctx context.Context) error {
 	tick := time.NewTicker(readyInterval)
 	defer tick.Stop()
@@ -343,13 +350,7 @@ func (e *dockerEngine) ping(ctx context.Context) error {
 	return db.PingContext(pctx)
 }
 
-func (e *dockerEngine) adminDB() string {
-	if e.kind == kindPostgres {
-		return pgAdminUser
-	}
-
-	return ""
-}
+func (e *dockerEngine) adminDB() string { return pgAdminUser }
 
 // Stop implements Engine.
 func (e *dockerEngine) Stop(ctx context.Context) error {
@@ -362,13 +363,7 @@ func (e *dockerEngine) Start(ctx context.Context) error {
 		return err //nolint:wrapcheck // runtime errors already carry the container id
 	}
 
-	if err := e.waitReady(ctx); err != nil {
-		return err
-	}
-
-	e.reguard(ctx)
-
-	return nil
+	return e.waitReady(ctx)
 }
 
 // Close implements Engine; it removes the container, its port and the dump directory.
