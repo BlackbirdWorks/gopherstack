@@ -100,9 +100,9 @@ func (p *ContainerServiceProvider) abortLatest(ctx context.Context, id ResourceI
 	return nil
 }
 
-// rotateCertificates implements rotateClusterCertificates. With the engine the node's generated certificates are
-// dropped and reissued under the same CA; otherwise the emulated CA and token are replaced, so kubeconfigs fetched
-// before no longer match.
+// rotateCertificates implements rotateClusterCertificates. With the engine the node's cluster CAs are replaced
+// (k3s certificate rotate-ca) and everything reissued under them; otherwise the emulated CA and token are
+// replaced, so kubeconfigs fetched before no longer match.
 func (p *ContainerServiceProvider) rotateCertificates(ctx context.Context, id ResourceID) error {
 	p.opMu.Lock("rotateCertificates")
 	defer p.opMu.Unlock()
@@ -145,7 +145,7 @@ func (p *ContainerServiceProvider) rotateCertificates(ctx context.Context, id Re
 	return nil
 }
 
-// rotate drops the live node's certificates; the node comes back with new ones.
+// rotate replaces the live node's cluster CAs; the node comes back serving the new one.
 func (e *aksEngine) rotate(ctx context.Context, key string) error {
 	e.mu.Lock("rotate")
 	lv, ok := e.live[key]
@@ -159,10 +159,10 @@ func (e *aksEngine) rotate(ctx context.Context, key string) error {
 	}
 
 	lv.ready = false
-	id, addr, ca := lv.inst.ContainerID, lv.addr, lv.ca
+	id, addr := lv.inst.ContainerID, lv.addr
 	e.mu.Unlock()
 
-	got, err := core.RotateCertificates(ctx, id, addr, ca)
+	got, err := core.RotateCertificates(ctx, id, addr)
 
 	e.mu.Lock("rotate")
 	defer e.mu.Unlock()

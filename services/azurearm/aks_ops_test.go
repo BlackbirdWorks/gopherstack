@@ -174,7 +174,7 @@ func TestAKSRunCommandWithoutEngine(t *testing.T) {
 			got := failedResult(t, err)
 			assert.Regexp(t, `^[0-9a-f]{32}$`, *got.ID)
 			assert.Equal(t, "failed", *got.Properties.ProvisioningState)
-			assert.Contains(t, *got.Properties.Reason, "Unschedulable")
+			assert.Equal(t, aksWantNotStarted(*got.ID), *got.Properties.Reason)
 			assert.Nil(t, got.Properties.ExitCode)
 		})
 	}
@@ -216,7 +216,7 @@ func TestAKSRunCommandEngine(t *testing.T) {
 		{
 			name: "exec unsupported", execErr: container.ErrExecUnsupported, wantState: "failed",
 			req:        armcontainerservice.RunCommandRequest{Command: new("ls")},
-			wantReason: "Unschedulable: the container runtime cannot run commands in the cluster node.",
+			wantReason: "x",
 		},
 	}
 
@@ -239,7 +239,7 @@ func TestAKSRunCommandEngine(t *testing.T) {
 			assert.Equal(t, tt.wantState, *got.Properties.ProvisioningState)
 
 			if tt.wantReason != "" {
-				assert.Equal(t, tt.wantReason, *got.Properties.Reason)
+				assert.Equal(t, aksWantNotStarted(*got.ID), *got.Properties.Reason)
 
 				return
 			}
@@ -410,7 +410,7 @@ func TestAKSRotateCertificates(t *testing.T) {
 		assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
 	})
 
-	t.Run("engine drops certificates and restarts the node", func(t *testing.T) {
+	t.Run("engine rotates the cluster CAs and restarts the node", func(t *testing.T) {
 		t.Parallel()
 
 		s, rt := newAKSEngineStack(t)
@@ -425,7 +425,9 @@ func TestAKSRotateCertificates(t *testing.T) {
 
 		calls := rt.execCalls()
 		require.Len(t, calls, 1)
-		assert.Equal(t, []string{"/bin/k3s", "certificate", "rotate"}, calls[0].cmd)
+		require.Len(t, calls[0].cmd, 3)
+		assert.Contains(t, calls[0].cmd[2], "/bin/k3s certificate rotate-ca --path=")
+		assert.Len(t, calls[0].env, 10)
 		assert.Len(t, rt.stoppedIDs(), 1)
 		assert.Len(t, rt.startedIDs(), 1)
 
@@ -1137,4 +1139,10 @@ func aksEnvOf(spec container.Spec, key string) string {
 	}
 
 	return ""
+}
+
+func aksWantNotStarted(id string) string {
+	return "(KubernetesPerformanceError) Failed to run command due to cluster perf issue, container command-" + id +
+		" in aks-command namespace did not start within 30s on your cluster, retry may helps. If issue persist, " +
+		"you may need to tune your cluster with better performance (larger node/paid tier)."
 }

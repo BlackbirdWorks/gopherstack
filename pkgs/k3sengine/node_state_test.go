@@ -21,6 +21,7 @@ type stateRuntime struct {
 	removed  []string
 	unused   []string
 	execCmds [][]string
+	execEnvs [][]string
 	vmu      sync.Mutex
 }
 
@@ -49,6 +50,16 @@ func (r *stateRuntime) ListUnusedVolumes(context.Context, string, time.Duration)
 func (r *stateRuntime) Exec(_ context.Context, _ string, cmd []string) (container.ExecResult, error) {
 	r.vmu.Lock()
 	r.execCmds = append(r.execCmds, cmd)
+	fn := r.execFn
+	r.vmu.Unlock()
+
+	return fn(cmd)
+}
+
+func (r *stateRuntime) ExecEnv(_ context.Context, _ string, cmd, env []string) (container.ExecResult, error) {
+	r.vmu.Lock()
+	r.execCmds = append(r.execCmds, cmd)
+	r.execEnvs = append(r.execEnvs, env)
 	fn := r.execFn
 	r.vmu.Unlock()
 
@@ -268,8 +279,13 @@ func TestRotateCertificates(t *testing.T) {
 				c.Probe = func(context.Context, string, string) ([]byte, error) { return []byte("served-ca"), nil }
 			})
 
-			ca, err := e.RotateCertificates(t.Context(), "c1", "127.0.0.1:1", []byte("ca"))
-			assert.Equal(t, []string{"/bin/k3s", "certificate", "rotate"}, sr.execCmds[0])
+			ca, err := e.RotateCertificates(t.Context(), "c1", "127.0.0.1:1")
+			require.Len(t, sr.execCmds[0], 3)
+			assert.Equal(t, "/bin/sh", sr.execCmds[0][0])
+			assert.Contains(t, sr.execCmds[0][2], "/bin/k3s certificate rotate-ca --path=")
+			assert.NotContains(t, sr.execCmds[0][2], "PRIVATE KEY", "key material must stay out of argv")
+			require.Len(t, sr.execEnvs, 1)
+			assert.Len(t, sr.execEnvs[0], 10, "a cert and key for each of the five CAs travel in the environment")
 			assert.Equal(t, tt.wantCalls, sr.calls)
 
 			if tt.wantErr != nil {
