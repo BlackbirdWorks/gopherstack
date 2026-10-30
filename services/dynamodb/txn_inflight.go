@@ -427,7 +427,7 @@ func (db *InMemoryDB) filterBatchConflicts(
 	region, tableName string,
 	table *Table,
 	requests []types.WriteRequest,
-) (kept, conflicted []types.WriteRequest) {
+) ([]types.WriteRequest, []types.WriteRequest) {
 	targets := make([]txnTarget, len(requests))
 	valid := make([]bool, len(requests))
 
@@ -443,6 +443,8 @@ func (db *InMemoryDB) filterBatchConflicts(
 
 		targets[i], valid[i] = newTxnTarget(region, tableName, table, attrs)
 	}
+
+	var kept, conflicted []types.WriteRequest
 
 	db.mu.Lock("txn.checkBatch")
 	defer db.mu.Unlock()

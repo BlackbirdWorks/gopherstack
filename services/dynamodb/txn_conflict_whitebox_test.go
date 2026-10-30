@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,23 +40,23 @@ func (r *conflictMetrics) EmitMetric(p cwmetric.Point) error {
 		r.counts = map[string]int{}
 	}
 
-	key := p.Name
+	table := ""
 	for _, d := range p.Dimensions {
 		if d.Name == "TableName" {
-			key += "/" + d.Value
+			table = d.Value
 		}
 	}
 
-	r.counts[key]++
+	r.counts[p.Name+"/"+table]++
 
 	return nil
 }
 
-func (r *conflictMetrics) count(key string) int {
+func (r *conflictMetrics) conflicts() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.counts[key]
+	return r.counts["TransactionConflict/tbl"]
 }
 
 type countingTransport struct {
@@ -76,8 +77,6 @@ type conflictFixture struct {
 	requests *atomic.Int64
 	tb       testing.TB
 }
-
-func (f *conflictFixture) t() testing.TB { return f.tb }
 
 func s(v string) types.AttributeValue { return &types.AttributeValueMemberS{Value: v} }
 
@@ -169,8 +168,8 @@ func (f *conflictFixture) twi(items ...types.TransactWriteItem) *sdk.TransactWri
 	return &sdk.TransactWriteItemsInput{TransactItems: items}
 }
 
-func putAction(table, pk, v string) types.TransactWriteItem {
-	return types.TransactWriteItem{Put: &types.Put{TableName: aws.String(table), Item: item(pk, v)}}
+func putAction(pk, v string) types.TransactWriteItem {
+	return types.TransactWriteItem{Put: &types.Put{TableName: aws.String("tbl"), Item: item(pk, v)}}
 }
 
 func tgi(pks ...string) *sdk.TransactGetItemsInput {
@@ -208,18 +207,20 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "put on held item is rejected",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.PutItem(
 					t.Context(),
 					&sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "x")},
 				)
 				var conflict *types.TransactionConflictException
 				require.ErrorAs(t, err, &conflict)
-				assert.Equal(t, 1, f.metrics.count("TransactionConflict/tbl"))
+				assert.Equal(t, 1, f.metrics.conflicts())
 			},
 		},
 		{
 			name: "update on held item is rejected",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.UpdateItem(t.Context(), &sdk.UpdateItemInput{
 					TableName:                 aws.String("tbl"),
 					Key:                       key("a"),
@@ -233,6 +234,7 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "delete on held item is rejected",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.DeleteItem(
 					t.Context(),
 					&sdk.DeleteItemInput{TableName: aws.String("tbl"), Key: key("a")},
@@ -244,17 +246,19 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "put on another item succeeds",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.PutItem(
 					t.Context(),
 					&sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("b", "x")},
 				)
 				require.NoError(t, err)
-				assert.Equal(t, 0, f.metrics.count("TransactionConflict/tbl"))
+				assert.Equal(t, 0, f.metrics.conflicts())
 			},
 		},
 		{
 			name: "same key in another table succeeds",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.PutItem(
 					t.Context(),
 					&sdk.PutItemInput{TableName: aws.String("other"), Item: item("a", "x")},
@@ -265,13 +269,14 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "overlapping write transaction is canceled per item",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.TransactWriteItems(
 					t.Context(),
-					f.twi(putAction("tbl", "b", "x"), putAction("tbl", "a", "x")),
+					f.twi(putAction("b", "x"), putAction("a", "x")),
 				)
 				assert.Equal(t, []string{"None", "TransactionConflict"}, reasonCodes(t, err))
 				assert.Contains(t, err.Error(), "[None, TransactionConflict]")
-				assert.Equal(t, 1, f.metrics.count("TransactionConflict/tbl"))
+				assert.Equal(t, 1, f.metrics.conflicts())
 
 				got, getErr := f.client.GetItem(
 					t.Context(),
@@ -289,13 +294,15 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "disjoint write transaction succeeds",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("tbl", "b", "x")))
+				t.Helper()
+				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("b", "x")))
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "transact get is canceled",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.TransactGetItems(t.Context(), tgi("a", "b"))
 				assert.Equal(t, []string{"TransactionConflict", "None"}, reasonCodes(t, err))
 			},
@@ -303,6 +310,7 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "batch write returns the conflicting write as unprocessed",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				out, err := f.client.BatchWriteItem(t.Context(), &sdk.BatchWriteItemInput{
 					RequestItems: map[string][]types.WriteRequest{"tbl": {
 						{PutRequest: &types.PutRequest{Item: item("a", "x")}},
@@ -323,12 +331,13 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 				)
 				require.NoError(t, getErr)
 				assert.Equal(t, "x", got.Item["v"].(*types.AttributeValueMemberS).Value)
-				assert.Equal(t, 1, f.metrics.count("TransactionConflict/tbl"))
+				assert.Equal(t, 1, f.metrics.conflicts())
 			},
 		},
 		{
 			name: "get item reads committed state and is not blocked",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				got, err := f.client.GetItem(
 					t.Context(),
 					&sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("a"), ConsistentRead: aws.Bool(true)},
@@ -340,6 +349,7 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "execute transaction statement is canceled",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.ExecuteTransaction(t.Context(), &sdk.ExecuteTransactionInput{
 					TransactStatements: []types.ParameterizedStatement{{
 						Statement: aws.String(`UPDATE "tbl" SET v = 'x' WHERE pk = 'a'`),
@@ -351,6 +361,7 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "execute statement is rejected like update item",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.ExecuteStatement(t.Context(), &sdk.ExecuteStatementInput{
 					Statement: aws.String(`UPDATE "tbl" SET v = 'x' WHERE pk = 'a'`),
 				})
@@ -372,7 +383,7 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 			go func() {
 				_, err := f.client.TransactWriteItems(
 					t.Context(),
-					f.twi(putAction("tbl", "a", "held"), putAction("tbl", "c", "held")),
+					f.twi(putAction("a", "held"), putAction("c", "held")),
 				)
 				done <- err
 			}()
@@ -409,13 +420,15 @@ func TestTransactionConflict_InFlightRead(t *testing.T) {
 		{
 			name: "write transaction is canceled",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("tbl", "a", "x")))
+				t.Helper()
+				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("a", "x")))
 				assert.Equal(t, []string{"TransactionConflict"}, reasonCodes(t, err))
 			},
 		},
 		{
 			name: "single put is not blocked",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.PutItem(
 					t.Context(),
 					&sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "x")},
@@ -426,6 +439,7 @@ func TestTransactionConflict_InFlightRead(t *testing.T) {
 		{
 			name: "another read transaction is not blocked",
 			probe: func(t *testing.T, f *conflictFixture) {
+				t.Helper()
 				_, err := f.client.TransactGetItems(t.Context(), tgi("a"))
 				require.NoError(t, err)
 			},
@@ -433,7 +447,8 @@ func TestTransactionConflict_InFlightRead(t *testing.T) {
 		{
 			name: "write transaction on another item succeeds",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("tbl", "c", "x")))
+				t.Helper()
+				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("c", "x")))
 				require.NoError(t, err)
 			},
 		},
@@ -499,7 +514,7 @@ func TestTransactionConflict_TokenInProgress(t *testing.T) {
 
 	f := newConflictFixture(t, noRetry)
 	g := f.hold(opTransactWriteItems, 0)
-	in := f.twi(putAction("tbl", "a", "held"))
+	in := f.twi(putAction("a", "held"))
 	in.ClientRequestToken = aws.String("token-1")
 
 	done := make(chan error, 1)
@@ -562,7 +577,7 @@ func TestTransactionConflict_SDKRetryBehaviour(t *testing.T) {
 		{
 			name: "TransactionInProgressException is retried",
 			probe: func(f *conflictFixture) error {
-				in := f.twi(putAction("tbl", "a", "x"))
+				in := f.twi(putAction("a", "x"))
 				in.ClientRequestToken = aws.String("tok")
 				_, err := f.client.TransactWriteItems(f.tb.Context(), in)
 
@@ -579,7 +594,7 @@ func TestTransactionConflict_SDKRetryBehaviour(t *testing.T) {
 			f := newConflictFixture(t, retrying)
 			g := f.hold(opTransactWriteItems, 0)
 
-			in := f.twi(putAction("tbl", "a", "held"))
+			in := f.twi(putAction("a", "held"))
 			in.ClientRequestToken = aws.String("tok")
 
 			done := make(chan error, 1)
@@ -606,7 +621,7 @@ func TestTransactionConflict_DefaultIsUnchanged(t *testing.T) {
 
 	f := newConflictFixture(t, noRetry)
 
-	_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("tbl", "a", "1"), putAction("tbl", "b", "1")))
+	_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("a", "1"), putAction("b", "1")))
 	require.NoError(t, err)
 
 	_, err = f.client.PutItem(t.Context(), &sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "2")})
@@ -615,7 +630,7 @@ func TestTransactionConflict_DefaultIsUnchanged(t *testing.T) {
 	_, err = f.client.TransactGetItems(t.Context(), tgi("a", "b"))
 	require.NoError(t, err)
 
-	assert.Zero(t, f.metrics.count("TransactionConflict/tbl"))
+	assert.Zero(t, f.metrics.conflicts())
 }
 
 func effectRule(op string, target *chaos.EffectTarget, p float64, holdOps, holdMs int) chaos.FaultRule {
@@ -645,6 +660,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "table target conflicts every write to the table only",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				fs.SetRules([]chaos.FaultRule{effectRule("", &chaos.EffectTarget{Table: "tbl"}, 1, 0, 0)})
 
 				var conflict *types.TransactionConflictException
@@ -659,6 +675,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "key target conflicts only that item",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				fs.SetRules(
 					[]chaos.FaultRule{
 						effectRule(
@@ -679,6 +696,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "operation scoping leaves other operations alone",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				fs.SetRules([]chaos.FaultRule{effectRule("DeleteItem", &chaos.EffectTarget{Table: "tbl"}, 1, 0, 0)})
 
 				require.NoError(t, put(f, "tbl", "a"))
@@ -694,6 +712,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "probability zero never conflicts",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				fs.SetRules([]chaos.FaultRule{effectRule("", &chaos.EffectTarget{Table: "tbl"}, 0, 0, 0)})
 
 				require.NoError(t, put(f, "tbl", "a"))
@@ -702,6 +721,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "write transaction is canceled for targeted entries",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				fs.SetRules(
 					[]chaos.FaultRule{
 						effectRule(
@@ -716,7 +736,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 
 				_, err := f.client.TransactWriteItems(
 					t.Context(),
-					f.twi(putAction("tbl", "a", "x"), putAction("tbl", "b", "x")),
+					f.twi(putAction("a", "x"), putAction("b", "x")),
 				)
 				assert.Equal(t, []string{"None", "TransactionConflict"}, reasonCodes(t, err))
 			},
@@ -724,6 +744,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "transact get is canceled",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				fs.SetRules(
 					[]chaos.FaultRule{effectRule("TransactGetItems", &chaos.EffectTarget{Table: "tbl"}, 1, 0, 0)},
 				)
@@ -735,6 +756,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "batch write returns targeted writes as unprocessed",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				fs.SetRules(
 					[]chaos.FaultRule{
 						effectRule(
@@ -760,6 +782,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "holdOps keeps the item in flight after the rule stops firing",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				target := &chaos.EffectTarget{Table: "tbl"}
 				fs.SetRules([]chaos.FaultRule{effectRule("", target, 1, 2, 0)})
 
@@ -775,6 +798,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "holdMs keeps the item in flight until the injected clock passes the window",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				now := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
 				f.db.clock = func() time.Time { return now }
 
@@ -795,6 +819,7 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "clearing the rules restores default behaviour",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
+				t.Helper()
 				fs.SetRules([]chaos.FaultRule{effectRule("", &chaos.EffectTarget{Table: "tbl"}, 1, 0, 0)})
 
 				var conflict *types.TransactionConflictException
@@ -838,15 +863,18 @@ func TestTransactionConflict_ConcurrentWritersStayAtomic(t *testing.T) {
 			v := string(rune('A' + i))
 			_, err := f.client.TransactWriteItems(
 				t.Context(),
-				f.twi(putAction("tbl", "a", v), putAction("tbl", "b", v)),
+				f.twi(putAction("a", v), putAction("b", v)),
 			)
 
 			var cancelErr *types.TransactionCanceledException
 
-			switch {
-			case err == nil:
+			if err == nil {
 				succeeded.Add(1)
-			case assert.ErrorAs(t, err, &cancelErr):
+
+				return
+			}
+
+			if errors.As(err, &cancelErr) {
 				canceled.Add(1)
 			}
 		})
