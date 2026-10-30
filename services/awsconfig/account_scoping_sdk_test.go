@@ -215,13 +215,15 @@ func TestAccountScoping_OtherResources(t *testing.T) {
 		require.NoError(t, rulesErr)
 		assert.Empty(t, rules.ConfigRules)
 
-		cmp, cmpErr := other.DescribeComplianceByConfigRule(ctx, &configservicesdk.DescribeComplianceByConfigRuleInput{})
+		cmp, cmpErr := other.DescribeComplianceByConfigRule(
+			ctx, &configservicesdk.DescribeComplianceByConfigRuleInput{},
+		)
 		require.NoError(t, cmpErr)
 		assert.Empty(t, cmp.ComplianceByConfigRules)
 
-		det, detErr := other.GetComplianceDetailsByConfigRule(ctx, &configservicesdk.GetComplianceDetailsByConfigRuleInput{
-			ConfigRuleName: aws.String("rule"),
-		})
+		det, detErr := other.GetComplianceDetailsByConfigRule(
+			ctx, &configservicesdk.GetComplianceDetailsByConfigRuleInput{ConfigRuleName: aws.String("rule")},
+		)
 		if detErr == nil {
 			assert.Empty(t, det.EvaluationResults)
 		}
