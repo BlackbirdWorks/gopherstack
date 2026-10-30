@@ -17,9 +17,9 @@ func TestStart(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		holdFirst   bool
-		minPickups  int
+		name       string
+		holdFirst  bool
+		minPickups int
 	}{
 		{name: "free_port", minPickups: 1},
 		{name: "first_tcp_port_taken", holdFirst: true, minPickups: 2},

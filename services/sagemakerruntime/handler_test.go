@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 )
@@ -87,6 +88,7 @@ func newTestSDKClient(t *testing.T, h *sagemakerruntime.Handler) *sagemakerrunti
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),
 		awscfg.WithRegion("us-east-1"),
+		awscfg.WithHTTPClient(sdktest.PlainBodyHTTPClient()),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 	)
 	require.NoError(t, err)
