@@ -60,12 +60,19 @@ func TestRESTFlow(t *testing.T) {
 			Status: 200, Contains: []string{`user:a@example.com`},
 		},
 		{
-			Name: "test iam", Method: http.MethodPost, Path: gwPath + ":testIamPermissions",
-			Body: `{"permissions":["apigateway.gateways.get"]}`, Status: 200, Contains: []string{`apigateway.gateways.get`},
+			Name:     "test iam",
+			Method:   http.MethodPost,
+			Path:     gwPath + ":testIamPermissions",
+			Body:     `{"permissions":["apigateway.gateways.get"]}`,
+			Status:   200,
+			Contains: []string{`apigateway.gateways.get`},
 		},
 		{
-			Name: "list operations", Method: http.MethodGet, Path: "/v1/projects/test-project/locations/global/operations",
-			Status: 200, Contains: []string{`"operations"`, `operation-`},
+			Name:     "list operations",
+			Method:   http.MethodGet,
+			Path:     "/v1/projects/test-project/locations/global/operations",
+			Status:   200,
+			Contains: []string{`"operations"`, `operation-`},
 		},
 		{
 			Name: "list locations", Method: http.MethodGet, Path: "/v1/projects/test-project/locations",

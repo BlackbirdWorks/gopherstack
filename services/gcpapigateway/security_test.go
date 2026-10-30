@@ -218,7 +218,8 @@ func TestJWTSecurity(t *testing.T) {
 			build: func(*testing.T, *signer, string) (map[string]string, string) { return nil, "/hello" },
 		},
 		{
-			name: "garbage token", want: 401,
+			name:  "garbage token",
+			want:  401,
 			msg:   "Jwt verification fails",
 			build: func(*testing.T, *signer, string) (map[string]string, string) { return bearer("not.a.jwt"), "/hello" },
 		},
@@ -357,7 +358,11 @@ func TestJWTUserinfoForwarded(t *testing.T) {
 	gw := e.deploy(t, opSpec(be.URL, jwtSpec(s.jwks.URL, "aud-1"), "  /hello:\n"+op("get", "")))
 
 	tok := s.rsaToken(t, jwt.MapClaims{
-		"iss": issuer, "sub": "user-1", "aud": "aud-1", "exp": e.clock.Now().Add(time.Hour).Unix(), "email": "u@example.com",
+		"iss":   issuer,
+		"sub":   "user-1",
+		"aud":   "aud-1",
+		"exp":   e.clock.Now().Add(time.Hour).Unix(),
+		"email": "u@example.com",
 	})
 
 	got := e.call(t, gw, http.MethodGet, "/hello", map[string]string{
