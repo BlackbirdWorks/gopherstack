@@ -146,9 +146,9 @@ func (s *Server) ReplicaSeed(ctx context.Context, dbs []string) ([]byte, error) 
 	}
 
 	cmd := append([]string{
-		mysqldumpBin, "-u" + RootUser, "--single-transaction", "--skip-dump-date",
-		"--routines", "--events", "--triggers", "--set-gtid-purged=ON", "--add-drop-database",
-		"-r", dumpMount + "/seed.sql", "--databases",
+		mysqldumpBin, "-u" + RootUser, argSingleTx, "--skip-dump-date",
+		argRoutines, "--events", "--triggers", "--set-gtid-purged=ON", argAddDrop,
+		"-r", dumpMount + "/seed.sql", argDatabases,
 	}, dbs...)
 
 	if _, err := s.RunAuth(ctx, cmd); err != nil {

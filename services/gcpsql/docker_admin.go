@@ -34,14 +34,14 @@ func (e *dockerEngine) open(db string) (*sql.DB, error) {
 	return stdlib.OpenDB(*cfg), nil
 }
 
-func (e *dockerEngine) exec(ctx context.Context, db, stmt string, args ...any) error {
+func (e *dockerEngine) exec(ctx context.Context, db, stmt string) error {
 	conn, err := e.open(db)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	if _, err = conn.ExecContext(ctx, stmt, args...); err != nil {
+	if _, err = conn.ExecContext(ctx, stmt); err != nil {
 		return fmt.Errorf("sql: %w", err)
 	}
 
@@ -114,7 +114,7 @@ func (e *dockerEngine) quoteLiteral(ctx context.Context, q rowQuerier, s string)
 func (e *dockerEngine) adminConn() (*sql.DB, error) { return e.open(e.adminDB()) }
 
 // CreateDatabase implements Engine.
-func (e *dockerEngine) CreateDatabase(ctx context.Context, name, charset, collation string) error {
+func (e *dockerEngine) CreateDatabase(ctx context.Context, name, _, _ string) error {
 	conn, err := e.adminConn()
 	if err != nil {
 		return err
@@ -218,7 +218,7 @@ func (e *dockerEngine) upsertPGUser(ctx context.Context, u UserSpec) error {
 }
 
 // DropUser implements Engine.
-func (e *dockerEngine) DropUser(ctx context.Context, name, host string) error {
+func (e *dockerEngine) DropUser(ctx context.Context, name, _ string) error {
 	conn, err := e.open(pgAdminUser)
 	if err != nil {
 		return err

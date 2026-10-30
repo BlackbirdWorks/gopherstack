@@ -124,7 +124,13 @@ func (e *dockerEngine) ReplicationSource(ctx context.Context) (ReplicaSource, er
 		return ReplicaSource{}, err
 	}
 
-	return ReplicaSource{Network: n.name, NetworkID: n.id, Host: e.containerName(), Port: pgPortNum, Password: pass}, nil
+	return ReplicaSource{
+		Network:   n.name,
+		NetworkID: n.id,
+		Host:      e.containerName(),
+		Port:      pgPortNum,
+		Password:  pass,
+	}, nil
 }
 
 func (e *dockerEngine) containerName() string {

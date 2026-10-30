@@ -40,6 +40,11 @@ const (
 	volumeLabel    = "gopherstack.mysqlengine"
 	mysqlBin       = "mysql"
 	defaultStart   = 3 * time.Minute
+
+	argRoutines  = "--routines"
+	argAddDrop   = "--add-drop-database"
+	argDatabases = "--databases"
+	argSingleTx  = "--single-transaction"
 )
 
 var (
@@ -106,31 +111,31 @@ func New(cfg Config) (*Engine, error) {
 
 // Spec describes one server.
 type Spec struct {
+	VolumeLabels map[string]string
+	// Labels are added to the container. Resource, when set, labels the container as owned by that key so a
+	// restarted gopherstack can find it; Adopt then lets Launch take over such an orphan of an earlier run.
+	Labels map[string]string
 	// ID names the container and, unless Volume is set, the data volume.
 	ID string
 	// Image is the container image, e.g. mysql:8.4.
 	Image string
 	// RootPassword is applied on first initialisation and must match an existing volume.
 	RootPassword string
-	// Persist keeps data in a named volume; Fresh discards an existing one first.
-	Persist bool
-	Fresh   bool
 	// Volume overrides the data volume name; VolumeLabels are added to the volume's labels.
-	Volume       string
-	VolumeLabels map[string]string
-	// Labels are added to the container. Resource, when set, labels the container as owned by that key so a
-	// restarted gopherstack can find it; Adopt then lets Launch take over such an orphan of an earlier run.
-	Labels   map[string]string
+	Volume   string
 	Resource string
-	Adopt    bool
-	// ServerID, when non-zero, starts the server replication-ready (GTID mode).
-	ServerID uint32
-	// MemoryBytes and NanoCPUs limit the container.
-	MemoryBytes int64
-	NanoCPUs    int64
 	// Network and NetworkID place the container on an existing replication network.
 	Network   string
 	NetworkID string
+	// MemoryBytes and NanoCPUs limit the container.
+	MemoryBytes int64
+	NanoCPUs    int64
+	// ServerID, when non-zero, starts the server replication-ready (GTID mode).
+	ServerID uint32
+	// Persist keeps data in a named volume; Fresh discards an existing one first.
+	Persist bool
+	Fresh   bool
+	Adopt   bool
 }
 
 // VolumeName is the data volume of server id.
@@ -195,17 +200,18 @@ func (e *Engine) RemoveVolume(ctx context.Context, id string) {
 // Server is one running MySQL container.
 type Server struct {
 	e      *Engine
+	net    *sourceNet
 	dir    string
 	volume string
 	ctrID  string
-	net    *sourceNet
-	spec   Spec
 	ctrNm  string
 	netID  string
-	port   int
-	mu     sync.Mutex
 
 	replPass string
+	spec     Spec
+	port     int
+	mu       sync.Mutex
+
 	promoted bool
 	attached bool
 }
@@ -636,8 +642,8 @@ func (s *Server) DumpDatabases(ctx context.Context, dbs []string) ([]byte, error
 	defer os.Remove(path)
 
 	cmd := append([]string{
-		"mysqldump", "-u" + RootUser, "--single-transaction", "--routines",
-		"--add-drop-database", "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", "--databases",
+		mysqldumpBin, "-u" + RootUser, argSingleTx, argRoutines,
+		argAddDrop, "--set-gtid-purged=OFF", "-r", dumpMount + "/dump.sql", argDatabases,
 	}, dbs...)
 
 	if err := s.run(ctx, "mysqldump", cmd, s.pwdEnv()); err != nil {

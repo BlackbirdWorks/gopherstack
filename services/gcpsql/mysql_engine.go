@@ -65,8 +65,8 @@ func (e *mysqlEngine) Start(ctx context.Context) error { return e.srv.Start(ctx)
 func (e *mysqlEngine) Close(ctx context.Context)       { e.srv.Close(ctx, false) }
 func (e *mysqlEngine) Persistent() bool                { return e.srv.Persistent() }
 func (e *mysqlEngine) Purge(ctx context.Context)       { e.srv.Close(ctx, true) }
-func (e *mysqlEngine) exec(ctx context.Context, db, stmt string, args ...any) error {
-	conn, err := e.srv.DB(db)
+func (e *mysqlEngine) exec(ctx context.Context, stmt string, args ...any) error {
+	conn, err := e.srv.DB("")
 	if err != nil {
 		return err //nolint:wrapcheck // already wrapped by the engine
 	}
@@ -114,7 +114,7 @@ func (e *mysqlEngine) CreateDatabase(ctx context.Context, name, charset, collati
 		args = append(args, collation)
 	}
 
-	return e.exec(ctx, "", stmt, args...)
+	return e.exec(ctx, stmt, args...)
 }
 
 // DropDatabase implements Engine.
@@ -130,7 +130,7 @@ func (e *mysqlEngine) DropDatabase(ctx context.Context, name string) error {
 		return err
 	}
 
-	return e.exec(ctx, "", "DROP DATABASE "+ident)
+	return e.exec(ctx, "DROP DATABASE "+ident)
 }
 
 // ListDatabases implements Engine.
@@ -181,12 +181,12 @@ func (e *mysqlEngine) UpsertUser(ctx context.Context, u UserSpec) error {
 
 // DropUser implements Engine.
 func (e *mysqlEngine) DropUser(ctx context.Context, name, host string) error {
-	return e.exec(ctx, "", "DROP USER ?@?", name, host)
+	return e.exec(ctx, "DROP USER ?@?", name, host)
 }
 
 // Restart implements Engine.
 func (e *mysqlEngine) Restart(ctx context.Context, flags []Flag) error {
-	_ = e.exec(ctx, "", "RESET PERSIST")
+	_ = e.exec(ctx, "RESET PERSIST")
 
 	for _, f := range flags {
 		if !flagNameRe.MatchString(f.Name) {
@@ -218,7 +218,7 @@ func (e *mysqlEngine) setFlag(ctx context.Context, f Flag) error {
 		return err
 	}
 
-	return e.exec(ctx, "", "SET PERSIST_ONLY "+name+" = ?", mysqlFlagArg(f.Value))
+	return e.exec(ctx, "SET PERSIST_ONLY "+name+" = ?", mysqlFlagArg(f.Value))
 }
 
 // Dump implements Engine.

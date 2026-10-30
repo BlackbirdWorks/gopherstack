@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -114,9 +115,15 @@ func TestStatementNeverLeaksSecrets(t *testing.T) {
 		rt   *execRuntime
 		name string
 	}{
-		{name: "stderr echoes root", rt: &execRuntime{res: container.ExecResult{ExitCode: 1, Stderr: "near '" + rootPW + "'"}}},
+		{
+			name: "stderr echoes root",
+			rt:   &execRuntime{res: container.ExecResult{ExitCode: 1, Stderr: "near '" + rootPW + "'"}},
+		},
 		{name: "stdout echoes repl", rt: &execRuntime{res: container.ExecResult{ExitCode: 1, Stdout: replPW}}},
-		{name: "exec error echoes root", rt: &execRuntime{err: errors.New("create exec env MYSQL_PWD=" + rootPW)}},
+		{
+			name: "exec error echoes root",
+			rt:   &execRuntime{err: fmt.Errorf("%w: create exec env MYSQL_PWD=%s", errDockerDown, rootPW)},
+		},
 	}
 
 	for _, tt := range tests {

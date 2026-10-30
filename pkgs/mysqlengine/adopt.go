@@ -2,6 +2,7 @@ package mysqlengine
 
 import (
 	"context"
+	"maps"
 	"os"
 	"strconv"
 	"time"
@@ -28,9 +29,7 @@ func (s *Server) ownerLabels() map[string]string {
 		l[s.e.shapeLabel()] = s.shape()
 	}
 
-	for k, v := range s.spec.Labels {
-		l[k] = v
-	}
+	maps.Copy(l, s.spec.Labels)
 
 	return l
 }

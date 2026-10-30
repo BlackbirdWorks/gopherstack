@@ -89,9 +89,9 @@ func (s *Server) writeBase(ctx context.Context, dbs []string) error {
 	}
 
 	cmd := append([]string{
-		mysqldumpBin, "-u" + RootUser, "--single-transaction", "--routines",
-		"--events", "--triggers", "--skip-dump-date", "--add-drop-database", "--source-data=2", "--flush-logs",
-		"--set-gtid-purged=OFF", "-r", baseFile, "--databases",
+		mysqldumpBin, "-u" + RootUser, argSingleTx, argRoutines,
+		"--events", "--triggers", "--skip-dump-date", argAddDrop, "--source-data=2", "--flush-logs",
+		"--set-gtid-purged=OFF", "-r", baseFile, argDatabases,
 	}, dbs...)
 
 	_, err := s.RunAuth(ctx, cmd)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -319,12 +318,6 @@ func (e *dockerEngine) Endpoint() (string, int) {
 	defer e.mu.RUnlock()
 
 	return container.LoopbackHost, e.port
-}
-
-func (e *dockerEngine) addr() string {
-	h, p := e.Endpoint()
-
-	return net.JoinHostPort(h, strconv.Itoa(p))
 }
 
 func (e *dockerEngine) waitReady(ctx context.Context) error {
