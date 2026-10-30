@@ -866,15 +866,13 @@ func TestTransactionConflict_ConcurrentWritersStayAtomic(t *testing.T) {
 				f.twi(putAction("a", v), putAction("b", v)),
 			)
 
-			var cancelErr *types.TransactionCanceledException
-
 			if err == nil {
 				succeeded.Add(1)
 
 				return
 			}
 
-			if errors.As(err, &cancelErr) {
+			if _, ok := errors.AsType[*types.TransactionCanceledException](err); ok {
 				canceled.Add(1)
 			}
 		})

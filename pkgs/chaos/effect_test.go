@@ -43,7 +43,8 @@ func TestFaultRule_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{name: "key without table", rule: chaos.FaultRule{
-			Effect: chaos.EffectDynamoDBTransactionConflict, Target: &chaos.EffectTarget{Key: map[string]string{"pk": "a"}},
+			Effect: chaos.EffectDynamoDBTransactionConflict,
+			Target: &chaos.EffectTarget{Key: map[string]string{"pk": "a"}},
 		}, wantErr: true},
 	}
 
