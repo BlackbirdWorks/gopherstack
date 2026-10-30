@@ -22,6 +22,14 @@ func TestAltGateAdmits(t *testing.T) {
 		Scope:       []string{"svc"},
 	}
 
+	signedFor := func(svc string) map[string]string {
+		return map[string]string{
+			"Authorization": "AWS4-HMAC-SHA256 Credential=k/20260101/us-east-1/" + svc +
+				"/aws4_request, SignedHeaders=host, Signature=x",
+		}
+	}
+	form := map[string]string{"Content-Type": "Application/X-WWW-Form-Urlencoded"}
+
 	tests := []struct {
 		headers map[string]string
 		name    string
@@ -40,13 +48,16 @@ func TestAltGateAdmits(t *testing.T) {
 		{name: "ua_fold", uri: "/", headers: map[string]string{"User-Agent": "x MediaStoreData"}, want: true},
 		{name: "ua_non_ascii", uri: "/", headers: map[string]string{"User-Agent": "xİy"}, want: true},
 		{name: "amz_ua", uri: "/", headers: map[string]string{"X-Amz-User-Agent": "js mediastore-data"}, want: true},
-		{name: "ctype", uri: "/", headers: map[string]string{"Content-Type": "Application/X-WWW-Form-Urlencoded"}, want: true},
+		{name: "ctype", uri: "/", headers: form, want: true},
 		{name: "ctype_json", uri: "/", headers: map[string]string{"Content-Type": "application/json"}},
 		{name: "query", uri: "/?Action=Foo", want: true},
 		{name: "query_other", uri: "/?x=1"},
-		{name: "scope_header", uri: "/", headers: map[string]string{"Authorization": "AWS4-HMAC-SHA256 Credential=k/20260101/us-east-1/svc/aws4_request, SignedHeaders=host, Signature=x"}, want: true},
-		{name: "scope_other", uri: "/", headers: map[string]string{"Authorization": "AWS4-HMAC-SHA256 Credential=k/20260101/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=x"}},
-		{name: "scope_presigned", uri: "/?X-Amz-Credential=k%2F20260101%2Fus-east-1%2Fsvc%2Faws4_request", want: true},
+		{name: "scope_header", uri: "/", headers: signedFor("svc"), want: true},
+		{name: "scope_other", uri: "/", headers: signedFor("s3")},
+		{
+			name: "scope_presigned", want: true,
+			uri: "/?X-Amz-Credential=k%2F20260101%2Fus-east-1%2Fsvc%2Faws4_request",
+		},
 	}
 
 	for _, tt := range tests {

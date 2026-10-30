@@ -18,6 +18,7 @@ import (
 const (
 	altLambdaHost  = "abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws"
 	altShortStride = 4
+	altFormCT      = "application/x-www-form-urlencoded"
 	altMaxASCII    = 0x7f
 )
 
@@ -25,7 +26,8 @@ const (
 func altAdmits(g service.AltGate, req *http.Request, rc routingCase) bool {
 	path := req.URL.Path
 	collapsed := "/" + strings.TrimLeft(path, "/")
-	lowerUA := strings.ToLower(req.Header.Get("User-Agent")) + "\x00" + strings.ToLower(req.Header.Get("X-Amz-User-Agent"))
+	lowerUA := strings.ToLower(req.Header.Get("User-Agent")) + "\x00" +
+		strings.ToLower(req.Header.Get("X-Amz-User-Agent"))
 	nonASCII := strings.ContainsFunc(req.Host+lowerUA, func(r rune) bool { return r > altMaxASCII })
 	svc := httputils.ExtractServiceFromRequest(req)
 
@@ -89,15 +91,23 @@ func altVariants(rc routingCase, g service.AltGate) []routingCase {
 		mut(func(v *routingCase) { v.headers = ua })
 	}
 
-	for _, ct := range []string{"", "application/x-www-form-urlencoded", "APPLICATION/X-WWW-FORM-URLENCODED; charset=utf-8"} {
-		mut(func(v *routingCase) { v.ctype = ct })
-		mut(func(v *routingCase) { v.ctype, v.method = ct, "POST" })
-		mut(func(v *routingCase) { v.ctype, v.method, v.body = ct, "POST", "Action=ListQueues&Version=2012-11-05" })
-		mut(func(v *routingCase) { v.ctype, v.method, v.body = ct, "POST", "Action=GetCallerIdentity&Version=2011-06-15" })
-		mut(func(v *routingCase) { v.ctype, v.method, v.body = ct, "POST", "Action=ListTopics&Version=2010-03-31" })
+	formBodies := []string{
+		"Action=ListQueues&Version=2012-11-05", "Action=GetCallerIdentity&Version=2011-06-15",
+		"Action=ListTopics&Version=2010-03-31",
 	}
 
-	for _, q := range []string{"?Action=ConfirmSubscription&TopicArn=x", "?Act%69on=ConfirmSubscription&TopicArn=x", "?x=1"} {
+	for _, ct := range []string{"", altFormCT, "APPLICATION/X-WWW-FORM-URLENCODED; charset=utf-8"} {
+		mut(func(v *routingCase) { v.ctype = ct })
+		mut(func(v *routingCase) { v.ctype, v.method = ct, "POST" })
+
+		for _, body := range formBodies {
+			mut(func(v *routingCase) { v.ctype, v.method, v.body = ct, "POST", body })
+		}
+	}
+
+	for _, q := range []string{
+		"?Action=ConfirmSubscription&TopicArn=x", "?Act%69on=ConfirmSubscription&TopicArn=x", "?x=1",
+	} {
 		path, _ := splitURI(rc.uri)
 
 		mut(func(v *routingCase) { v.method, v.uri = "GET", path+q })
@@ -143,9 +153,7 @@ func TestRouteAltGatesHold(t *testing.T) {
 			require.NotNil(t, entry, "gate names an unregistered service")
 
 			for _, rc := range cases {
-				all := []routingCase{rc}
-				all = append(all, altVariants(rc, gate)...)
-				all = append(all, pathVariants(rc)...)
+				all := slices.Concat([]routingCase{rc}, altVariants(rc, gate), pathVariants(rc))
 
 				for _, v := range all {
 					req := v.request(t)

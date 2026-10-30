@@ -3,6 +3,7 @@ package service
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -44,10 +45,8 @@ func (g *AltGate) valid() bool {
 	for _, l := range lists {
 		n += len(l)
 
-		for _, s := range l {
-			if s == "" {
-				return false
-			}
+		if slices.Contains(l, "") {
+			return false
 		}
 	}
 
@@ -117,15 +116,7 @@ func (g *AltGate) admits(q *lookupCtx) bool {
 		return false
 	}
 
-	svc := q.scopeService()
-
-	for _, s := range g.Scope {
-		if svc == s {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(g.Scope, q.scopeService())
 }
 
 // headerFirst is Header.Get for an already-canonical key, minus the key canonicalisation.
@@ -152,23 +143,11 @@ func hasAnyContains(u *url.URL, subs []string) bool {
 		return false
 	}
 
-	for _, x := range subs {
-		if strings.Contains(u.RawQuery, x) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(subs, func(x string) bool { return strings.Contains(u.RawQuery, x) })
 }
 
 func hasAnySuffix(s string, suffixes []string) bool {
-	for _, x := range suffixes {
-		if strings.HasSuffix(s, x) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(suffixes, func(x string) bool { return strings.HasSuffix(s, x) })
 }
 
 // containsAnyFold reports whether s may contain any lowercase-ASCII sub, ignoring case.
@@ -184,13 +163,7 @@ func containsAnyFold(s string, subs []string) bool {
 		}
 	}
 
-	for _, sub := range subs {
-		if containsFoldASCII(s, sub) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(subs, func(sub string) bool { return containsFoldASCII(s, sub) })
 }
 
 func containsFoldASCII(s, sub string) bool {

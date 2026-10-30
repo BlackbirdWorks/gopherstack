@@ -21895,3 +21895,9 @@ GET	localhost:4566	/?x=1		application/x-amz-json-1.1		{}		S3	S3
 GET	localhost:4566	/bucket/key?x=1	s3	application/x-amz-json-1.1		{}		S3	S3
 GET	localhost:4566	/?X-Amz-Credential=a%2Fb		application/x-amz-json-1.1		{}		S3	S3
 GET	localhost:4566	/bucket/key?X-Amz-Credential=a%2Fb	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonMemoryDB.DescribeClusters	{}		MemoryDB	MemoryDB
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	ToggleCustomerAPI.GetRoutingControlState	{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSLambda.ListFunctions	{}		Lambda	Lambda
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSCognitoIdentityProviderService.InitiateAuth	{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSLambda20150331.ListFunctions	{}		Lambda	Lambda
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonMemoryDB	{}		S3	S3
