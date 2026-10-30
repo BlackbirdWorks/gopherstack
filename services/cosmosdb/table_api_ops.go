@@ -86,23 +86,34 @@ func (h *Handler) getEntity(c *echo.Context, table, partitionKey, rowKey string)
 func (h *Handler) queryEntities(c *echo.Context, table string) error {
 	r := c.Request()
 
-	feed, failure := h.entityFeed(table, r.URL.Query(), r.Header.Get("Accept"), r.Host)
+	feed, next, failure := h.entityFeed(table, r.URL.Query(), r.Header.Get("Accept"), r.Host)
 	if failure != nil {
 		return h.writeTableError(c, failure.Status, failure.Code, failure.Message)
+	}
+
+	for _, kv := range next {
+		c.Response().Header().Set(kv[0], kv[1])
 	}
 
 	return h.writeTableJSON(c, http.StatusOK, feed)
 }
 
-// entityFeed answers an entity-collection query (the $top, $filter and $select of q) as the OData feed body.
+// Table service continuation headers and query parameters (Query Entities, "Response headers").
+const (
+	headerNextPartitionKey = "x-ms-continuation-NextPartitionKey"
+	headerNextRowKey       = "x-ms-continuation-NextRowKey"
+)
+
+// entityFeed answers an entity-collection query (the $top, $filter and $select of q) as one page of the OData feed
+// body, with the continuation headers when more entities match. A page holds at most 1,000 entities.
 func (h *Handler) entityFeed(
 	table string, q url.Values, accept, host string,
-) (map[string]any, *odatatable.BatchFailure) {
+) (map[string]any, [][2]string, *odatatable.BatchFailure) {
 	top, topErr := odatatable.ParseTop(q.Get("$top"))
 	if topErr != nil {
 		f := odatatable.NewBatchFailure(http.StatusBadRequest, "InvalidInput", "The value for $top is invalid.")
 
-		return nil, &f
+		return nil, nil, &f
 	}
 
 	var filter odatatable.Node
@@ -112,28 +123,33 @@ func (h *Handler) entityFeed(
 		if parseErr != nil {
 			f := odatatable.NewBatchFailure(http.StatusBadRequest, "InvalidInput", "The specified $filter is invalid.")
 
-			return nil, &f
+			return nil, nil, &f
 		}
 
 		filter = node
 	}
 
-	infos, err := h.TableBackend.QueryEntities(table, filter, top)
+	page, err := h.TableBackend.QueryEntitiesPage(table, filter, top, q.Get("NextPartitionKey"), q.Get("NextRowKey"))
 	if err != nil {
 		f := odatatable.BatchFailureFor(odatatable.ErrTableNotFound)
 
-		return nil, &f
+		return nil, nil, &f
 	}
 
 	level := tableODataLevelFromAccept(accept)
 	selectParam := q.Get("$select")
 
-	values := make([]map[string]any, 0, len(infos))
-	for _, info := range infos {
+	values := make([]map[string]any, 0, len(page.Entities))
+	for _, info := range page.Entities {
 		values = append(values, h.encodeTableEntity(info, table, level, selectParam, host))
 	}
 
-	return map[string]any{"value": values}, nil
+	var next [][2]string
+	if page.HasMore {
+		next = [][2]string{{headerNextPartitionKey, page.NextPartitionKey}, {headerNextRowKey, page.NextRowKey}}
+	}
+
+	return map[string]any{"value": values}, next, nil
 }
 
 func (h *Handler) replaceEntity(c *echo.Context, table, partitionKey, rowKey string) error {

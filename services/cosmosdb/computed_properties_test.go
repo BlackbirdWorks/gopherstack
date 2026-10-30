@@ -46,7 +46,7 @@ func TestComputedProperties_IndexSelection(t *testing.T) {
 		defaultPolicy = ""
 		indexed       = `{"indexingMode":"consistent",` +
 			`"includedPaths":[{"path":"/*"},{"path":"/cp_lower/?"}],"excludedPaths":[]}`
-		composite     = `{"indexingMode":"consistent","includedPaths":[{"path":"/*"}],"excludedPaths":[],` +
+		composite = `{"indexingMode":"consistent","includedPaths":[{"path":"/*"}],"excludedPaths":[],` +
 			`"compositeIndexes":[[{"path":"/cp_lower","order":"ascending"},{"path":"/name","order":"ascending"}]]}`
 	)
 
