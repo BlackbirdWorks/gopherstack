@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -366,30 +365,65 @@ func (s *Server) EnsureAdmin(ctx context.Context, user, password string) error {
 	return s.exec(ctx, "GRANT ALL PRIVILEGES ON *.* TO ?@'%' WITH GRANT OPTION", user)
 }
 
-var (
-	// ErrInvalidIdentifier reports a database name, charset or collation outside the allowed character set.
-	ErrInvalidIdentifier = errors.New("mysqlengine: invalid identifier")
-
-	dbNameRE  = regexp.MustCompile(`^[A-Za-z0-9_$-]{1,64}$`)
-	charsetRE = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
+const (
+	identMaxLen  = 64
+	charsetChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+	dbNameChars  = charsetChars + "$-"
 )
 
-// CreateDatabaseSQL builds CREATE DATABASE after validating every part against a strict allow-list.
-func CreateDatabaseSQL(name, charset, collation string) (string, error) {
-	if !dbNameRE.MatchString(name) || !charsetRE.MatchString(charset) || !charsetRE.MatchString(collation) {
+// ErrInvalidIdentifier reports a database name, charset or collation outside the allowed character set.
+var ErrInvalidIdentifier = errors.New("mysqlengine: invalid identifier")
+
+// rebuildIdent copies s byte by byte from the constant alphabet, so the result shares no data with the input.
+func rebuildIdent(s, alphabet string) (string, error) {
+	if s == "" || len(s) > identMaxLen {
 		return "", ErrInvalidIdentifier
 	}
 
-	return "CREATE DATABASE IF NOT EXISTS `" + name + "` CHARACTER SET " + charset + " COLLATE " + collation, nil
+	var b strings.Builder
+
+	b.Grow(len(s))
+
+	for i := range len(s) {
+		idx := strings.IndexByte(alphabet, s[i])
+		if idx < 0 {
+			return "", ErrInvalidIdentifier
+		}
+
+		b.WriteByte(alphabet[idx])
+	}
+
+	return b.String(), nil
 }
 
-// DropDatabaseSQL builds DROP DATABASE after validating the name against a strict allow-list.
-func DropDatabaseSQL(name string) (string, error) {
-	if !dbNameRE.MatchString(name) {
-		return "", ErrInvalidIdentifier
+// CreateDatabaseSQL builds CREATE DATABASE from identifiers rebuilt out of a fixed alphabet.
+func CreateDatabaseSQL(name, charset, collation string) (string, error) {
+	n, err := rebuildIdent(name, dbNameChars)
+	if err != nil {
+		return "", err
 	}
 
-	return "DROP DATABASE IF EXISTS `" + name + "`", nil
+	cs, err := rebuildIdent(charset, charsetChars)
+	if err != nil {
+		return "", err
+	}
+
+	co, err := rebuildIdent(collation, charsetChars)
+	if err != nil {
+		return "", err
+	}
+
+	return "CREATE DATABASE IF NOT EXISTS `" + n + "` CHARACTER SET " + cs + " COLLATE " + co, nil
+}
+
+// DropDatabaseSQL builds DROP DATABASE from a name rebuilt out of a fixed alphabet.
+func DropDatabaseSQL(name string) (string, error) {
+	n, err := rebuildIdent(name, dbNameChars)
+	if err != nil {
+		return "", err
+	}
+
+	return "DROP DATABASE IF EXISTS `" + n + "`", nil
 }
 
 // CreateDatabase creates a database with the given charset and collation.
