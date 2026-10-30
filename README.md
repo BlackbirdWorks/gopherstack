@@ -695,7 +695,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | clean |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 1 gap; 2 structural gaps |
 | [Batch](services/batch/README.md) | A | 48 | 3 structural gaps |
-| [EC2](services/ec2/README.md) | A | — | 22 families; 4 gaps; 18 structural gaps; 5 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 5 gaps; 18 structural gaps; 5 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 4 structural gaps |
 | [Lambda](services/lambda/README.md) | A | — | 11 families; 1 gap; 11 structural gaps |
 
@@ -734,7 +734,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 6 gaps; 2 structural gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 52 | 6 gaps; 7 structural gaps |
+| [RDS](services/rds/README.md) | A | 52 | 7 gaps; 7 structural gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 7 | 4 structural gaps |
 | [Redshift](services/redshift/README.md) | A | 9 | 5 gaps; 5 structural gaps |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 4 structural gaps; 1 deferred |
@@ -810,7 +810,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Detective](services/detective/README.md) | A | 29 | 4 structural gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 66 | 1 gap; 3 structural gaps |
 | [Inspector](services/inspector2/README.md) | A | 13 | 4 structural gaps; 1 deferred |
-| [KMS](services/kms/README.md) | A | 54 | 1 gap; 1 structural gap; 1 deferred |
+| [KMS](services/kms/README.md) | A | 54 | 2 gaps; 1 structural gap; 1 deferred |
 | [Macie](services/macie2/README.md) | A | 81 | clean |
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 1 structural gap; 2 deferred |
 | [Security Hub](services/securityhub/README.md) | A | 120 | 4 gaps; 4 structural gaps |

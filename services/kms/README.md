@@ -9,13 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 54 (54 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | fixed |
 
 ### Known gaps
 
+- Grant-authorized use by identity: operations presented with a grant token do not check that the caller is the GranteePrincipal, and key-policy/IAM evaluation lives in the iam EnforcementMiddleware, which does not consult grants (gopherstack-tnqy.6).
 - RotateKeyOnDemand on an EXTERNAL key with nothing pending, and a second NEW_KEY_MATERIAL import while one is pending, return KMSInvalidStateException: API_RotateKeyOnDemand.html requires the material to be PENDING_ROTATION and lists KMSInvalidStateException among its errors, but names no error for these two cases (re-checked 2026-10-07).
 
 ### Structural gaps
