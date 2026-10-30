@@ -46,8 +46,8 @@ type svcRec struct {
 
 type revRec struct {
 	pb       *runpb.Revision
-	startErr string
 	pool     *gcpscale.Pool[*inst]
+	startErr string
 	seq      int
 }
 
