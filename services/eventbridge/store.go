@@ -315,6 +315,7 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	settings Settings
 	ctx     context.Context
 	metrics cwmetric.Sink
 	mu      *lockmetrics.RWMutex

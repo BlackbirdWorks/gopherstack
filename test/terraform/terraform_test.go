@@ -1984,8 +1984,7 @@ func TestTerraform_EventBridge(t *testing.T) {
 
 				// Verify rule.
 				out, err := client.DescribeRule(ctx, &ebsvc.DescribeRuleInput{
-					Name:         aws.String(vars["RuleName"].(string)),
-					EventBusName: aws.String(vars["BusName"].(string)),
+					Name: aws.String(vars["RuleName"].(string)),
 				})
 				require.NoError(t, err, "DescribeRule should succeed after terraform apply")
 				assert.Equal(t, vars["RuleName"].(string), aws.ToString(out.Name))

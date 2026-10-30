@@ -117,6 +117,10 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 
 	busKey := ebBusKey(busName)
 
+	if input.ScheduleExpression != "" && busKey != defaultEventBusName && !b.settings.AllowScheduleOnCustomBus {
+		return nil, awsErrorf(ErrInvalidParameter, "ScheduleExpression is supported only on the default event bus.")
+	}
+
 	b.mu.Lock("PutRule")
 	defer b.mu.Unlock()
 
