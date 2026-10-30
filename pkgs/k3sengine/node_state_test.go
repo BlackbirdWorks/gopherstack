@@ -72,7 +72,8 @@ func TestScriptKeepsExistingCA(t *testing.T) {
 	for _, lb := range []bool{false, true} {
 		s := k3sengine.Script(lb)
 		assert.Contains(t, s, "[ -s /var/lib/rancher/k3s/server/tls/server-ca.crt ]", "a CA already on the volume wins")
-		assert.Contains(t, s, "rm -f /var/lib/rancher/k3s/server/tls/.gopherstack-rotated /var/lib/rancher/k3s/server/tls/dynamic-cert.json",
+		assert.Contains(t, s,
+			"rm -f /var/lib/rancher/k3s/server/tls/.gopherstack-rotated /var/lib/rancher/k3s/server/tls/dynamic-cert.json",
 			"a rotated node starts without its cached serving certificate")
 		assert.Contains(t, s, `${GOPHERSTACK_NODE_NAME:+ --node-name "$GOPHERSTACK_NODE_NAME"}`)
 	}
