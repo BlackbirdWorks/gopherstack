@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	assdk "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	"github.com/labstack/echo/v5"
@@ -19,25 +18,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/autoscaling"
 )
-
-func newClientWithBackend(t *testing.T) (*assdk.Client, *autoscaling.InMemoryBackend) {
-	t.Helper()
-
-	backend := autoscaling.NewInMemoryBackend()
-	e := echo.New()
-	registry := service.NewRegistry()
-	require.NoError(t, registry.Register(autoscaling.NewHandler(backend)))
-	e.Use(service.NewServiceRouter(registry).RouteHandler())
-
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
-
-	cfg, err := awscfg.LoadDefaultConfig(t.Context(), awscfg.WithRegion("us-east-1"),
-		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")))
-	require.NoError(t, err)
-
-	return assdk.NewFromConfig(cfg, func(o *assdk.Options) { o.BaseEndpoint = aws.String(srv.URL) }), backend
-}
 
 type handlerTransport struct{ h http.Handler }
 
