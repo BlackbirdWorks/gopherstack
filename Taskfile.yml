@@ -280,6 +280,12 @@ tasks:
     cmds:
       - bash scripts/lint-changed.sh
 
+  lint-changed-test:
+    desc: Repro test for scripts/lint-changed.sh (findings printed, tool failures flagged)
+    silent: true
+    cmds:
+      - bash scripts/lint_changed_test.sh
+
   lint-wip:
     desc: Fast lint and vet only packages touched in working tree and HEAD commit
     silent: true
