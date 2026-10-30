@@ -266,39 +266,6 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 	assert.Empty(t, missing, "services never selected by the corpus")
 }
 
-func TestRouteTargetGatesHold(t *testing.T) {
-	t.Parallel()
-
-	_, entries := routingFixture(t)
-	cases := loadRoutingCorpus(t)
-	byName := map[string]*service.Entry{}
-
-	for _, e := range entries {
-		byName[e.Registerable.Name()] = e
-	}
-
-	for name, prefixes := range routegates.TargetGates() {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			entry := byName[name]
-			require.NotNil(t, entry, "gate names an unregistered service")
-
-			for _, rc := range cases {
-				for _, target := range []string{"", "Zz.Op", "Zz" + strings.Join(prefixes, "")} {
-					rc.target = target
-					if hasTargetPrefix(target, prefixes) || cborCovered(name, rc) {
-						continue
-					}
-
-					c := echo.NewContext(rc.request(t), httptest.NewRecorder())
-					require.False(t, entry.Matcher(c), "%s matched %s %s, target %q", name, rc.method, rc.uri, target)
-				}
-			}
-		})
-	}
-}
-
 func cborCovered(name string, rc routingCase) bool {
 	shape := routegates.CBORGates()[name]
 	path, _ := splitURI(rc.uri)

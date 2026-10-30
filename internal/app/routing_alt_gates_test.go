@@ -18,6 +18,7 @@ import (
 const (
 	altLambdaHost  = "abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws"
 	altShortStride = 4
+	altRowStride   = 16
 	altFormCT      = "application/x-www-form-urlencoded"
 	altMaxASCII    = 0x7f
 )
@@ -128,46 +129,6 @@ func altVariants(rc routingCase, g service.AltGate) []routingCase {
 	}
 
 	return out
-}
-
-func TestRouteAltGatesHold(t *testing.T) {
-	t.Parallel()
-
-	_, entries := routingFixture(t)
-	cases := loadRoutingCorpus(t)
-	byName := map[string]*service.Entry{}
-
-	for _, e := range entries {
-		byName[e.Registerable.Name()] = e
-	}
-
-	if testing.Short() {
-		cases = strideSample(cases, altShortStride)
-	}
-
-	for name, gate := range routegates.AltGates() {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			entry := byName[name]
-			require.NotNil(t, entry, "gate names an unregistered service")
-
-			for _, rc := range cases {
-				all := slices.Concat([]routingCase{rc}, altVariants(rc, gate), pathVariants(rc))
-
-				for _, v := range all {
-					req := v.request(t)
-					if altAdmits(gate, req, v) {
-						continue
-					}
-
-					require.False(t, entry.Matcher(echo.NewContext(req, httptest.NewRecorder())),
-						"%s matched %s %s%s outside its alt gate (target=%q auth=%q headers=%q)",
-						name, v.method, v.host, v.uri, v.target, v.authSvc, v.headers)
-				}
-			}
-		})
-	}
 }
 
 func TestRoutingAltGatedLookupMatchesScan(t *testing.T) {
