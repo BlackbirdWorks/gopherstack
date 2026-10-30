@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -673,42 +674,46 @@ func TestDeleteFileSystem_RejectedWhenMountTargetsExist(t *testing.T) {
 func TestFileSystem_CreatingToAvailableLifecycle(t *testing.T) {
 	t.Parallel()
 
-	b := efs.NewInMemoryBackend("123456789012", "us-east-1")
-	efs.SetFSActivationDelay(b, 80*time.Millisecond)
-	h := efs.NewHandler(b)
+	synctest.Test(t, func(t *testing.T) {
+		b := efs.NewInMemoryBackend("123456789012", "us-east-1")
+		efs.SetFSActivationDelay(b, 80*time.Millisecond)
+		h := efs.NewHandler(b)
 
-	rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
-		"CreationToken": "parity-lifecycle-token",
+		rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+			"CreationToken": "parity-lifecycle-token",
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+		assert.Equal(t, "creating", out["LifeCycleState"],
+			"newly created FS should be in 'creating' state immediately after CreateFileSystem")
+
+		fsID := out["FileSystemId"].(string)
+
+		state := func() string {
+			descRec := doREST(t, h, http.MethodGet, "/2015-02-01/file-systems?FileSystemId="+fsID, nil)
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			var descOut struct {
+				FileSystems []struct {
+					LifeCycleState string `json:"LifeCycleState"`
+				} `json:"FileSystems"`
+			}
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NotEmpty(t, descOut.FileSystems)
+
+			return descOut.FileSystems[0].LifeCycleState
+		}
+
+		assert.Equal(t, "creating", state())
+
+		time.Sleep(80 * time.Millisecond)
+		synctest.Wait()
+
+		assert.Equal(t, "available", state())
 	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-
-	assert.Equal(t, "creating", out["LifeCycleState"],
-		"newly created FS should be in 'creating' state immediately after CreateFileSystem")
-
-	fsID := out["FileSystemId"].(string)
-
-	require.Eventually(t, func() bool {
-		descRec := doREST(t, h, http.MethodGet,
-			"/2015-02-01/file-systems?FileSystemId="+fsID, nil)
-		if descRec.Code != http.StatusOK {
-			return false
-		}
-
-		var descOut struct {
-			FileSystems []struct {
-				LifeCycleState string `json:"LifeCycleState"`
-			} `json:"FileSystems"`
-		}
-		if err := json.Unmarshal(descRec.Body.Bytes(), &descOut); err != nil || len(descOut.FileSystems) == 0 {
-			return false
-		}
-
-		return descOut.FileSystems[0].LifeCycleState == "available"
-	}, 500*time.Millisecond, 20*time.Millisecond,
-		"FS should transition to 'available' within 500ms")
 }
 
 // TestCreateFileSystem_CreationTokenIdempotency verifies identical params return 409

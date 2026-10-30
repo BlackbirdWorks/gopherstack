@@ -2,6 +2,7 @@ package codestarconnections_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -118,28 +119,33 @@ func TestSDK_StatusLifecycle(t *testing.T) {
 func TestSDK_StatusCompletes(t *testing.T) {
 	t.Parallel()
 
-	client, b := newCSCFixture(t)
-	b.SetConnectionHandshakeDelay(20 * time.Millisecond)
-	b.SetHostSetupDelay(20 * time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		client, b := newCSCFixture(t)
+		b.SetConnectionHandshakeDelay(20 * time.Millisecond)
+		b.SetHostSetupDelay(20 * time.Millisecond)
 
-	conn, err := client.CreateConnection(t.Context(), &cscsdk.CreateConnectionInput{
-		ConnectionName: aws.String("c"), ProviderType: csctypes.ProviderTypeGithub,
+		conn, err := client.CreateConnection(t.Context(), &cscsdk.CreateConnectionInput{
+			ConnectionName: aws.String("c"), ProviderType: csctypes.ProviderTypeGithub,
+		})
+		require.NoError(t, err)
+
+		host, err := client.CreateHost(t.Context(), &cscsdk.CreateHostInput{
+			Name:             aws.String("h"),
+			ProviderType:     csctypes.ProviderTypeGithubEnterpriseServer,
+			ProviderEndpoint: aws.String("https://ghe.example.com"),
+		})
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			got, getErr := client.GetConnection(
+				t.Context(),
+				&cscsdk.GetConnectionInput{ConnectionArn: conn.ConnectionArn},
+			)
+			gotHost, hostErr := client.GetHost(t.Context(), &cscsdk.GetHostInput{HostArn: host.HostArn})
+
+			return getErr == nil && hostErr == nil &&
+				got.Connection.ConnectionStatus == csctypes.ConnectionStatusAvailable &&
+				aws.ToString(gotHost.Status) == "AVAILABLE"
+		}, 5*time.Second, 10*time.Millisecond)
 	})
-	require.NoError(t, err)
-
-	host, err := client.CreateHost(t.Context(), &cscsdk.CreateHostInput{
-		Name:             aws.String("h"),
-		ProviderType:     csctypes.ProviderTypeGithubEnterpriseServer,
-		ProviderEndpoint: aws.String("https://ghe.example.com"),
-	})
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		got, getErr := client.GetConnection(t.Context(), &cscsdk.GetConnectionInput{ConnectionArn: conn.ConnectionArn})
-		gotHost, hostErr := client.GetHost(t.Context(), &cscsdk.GetHostInput{HostArn: host.HostArn})
-
-		return getErr == nil && hostErr == nil &&
-			got.Connection.ConnectionStatus == csctypes.ConnectionStatusAvailable &&
-			aws.ToString(gotHost.Status) == "AVAILABLE"
-	}, 5*time.Second, 10*time.Millisecond)
 }

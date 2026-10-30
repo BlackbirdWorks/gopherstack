@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/resiliencehub"
 )
@@ -76,6 +77,25 @@ func newTestHandlerAndClient(t *testing.T) (*resiliencehub.Handler, *resilienceh
 
 	h := resiliencehub.NewHandler(backend)
 	client := newRoundTripClient(t, h)
+
+	return h, client
+}
+
+// newInMemoryHandlerAndClient is newTestHandlerAndClient over an in-process transport so it can
+// run inside a testing/synctest bubble.
+func newInMemoryHandlerAndClient(t *testing.T) (*resiliencehub.Handler, *resiliencehubsdk.Client) {
+	t.Helper()
+
+	backend := resiliencehub.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
+	t.Cleanup(backend.Close)
+
+	h := resiliencehub.NewHandler(backend)
+	client := resiliencehubsdk.NewFromConfig(aws.Config{
+		Region:       rtTestRegion,
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.ServeInMemory(t, h),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
+	})
 
 	return h, client
 }

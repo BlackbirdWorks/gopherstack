@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -167,95 +168,101 @@ func TestRequestRealism_ListPaging(t *testing.T) {
 func TestRequestRealism_TrainingSecondaryStatusProgression(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	h.Backend.SetLifecycleDelay(20 * time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		h.Backend.SetLifecycleDelay(20 * time.Millisecond)
 
-	rec := doSageMakerRequest(t, h, "CreateTrainingJob", trainingBody("progress", nil))
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		rec := doSageMakerRequest(t, h, "CreateTrainingJob", trainingBody("progress", nil))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	var got struct {
-		TrainingJobStatus          string `json:"TrainingJobStatus"`
-		SecondaryStatus            string `json:"SecondaryStatus"`
-		SecondaryStatusTransitions []struct {
-			EndTime *float64 `json:"EndTime"`
-			Status  string   `json:"Status"`
-		} `json:"SecondaryStatusTransitions"`
-	}
+		var got struct {
+			TrainingJobStatus          string `json:"TrainingJobStatus"`
+			SecondaryStatus            string `json:"SecondaryStatus"`
+			SecondaryStatusTransitions []struct {
+				EndTime *float64 `json:"EndTime"`
+				Status  string   `json:"Status"`
+			} `json:"SecondaryStatusTransitions"`
+		}
 
-	require.Eventually(t, func() bool {
-		r := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{"TrainingJobName": "progress"})
-		got.SecondaryStatusTransitions = nil
+		require.Eventually(t, func() bool {
+			r := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{"TrainingJobName": "progress"})
+			got.SecondaryStatusTransitions = nil
 
-		return json.Unmarshal(r.Body.Bytes(), &got) == nil && got.TrainingJobStatus == "Completed"
-	}, 5*time.Second, 5*time.Millisecond)
+			return json.Unmarshal(r.Body.Bytes(), &got) == nil && got.TrainingJobStatus == "Completed"
+		}, 5*time.Second, 5*time.Millisecond)
 
-	statuses := make([]string, 0, len(got.SecondaryStatusTransitions))
-	for _, tr := range got.SecondaryStatusTransitions {
-		statuses = append(statuses, tr.Status)
-		assert.NotNil(t, tr.EndTime, tr.Status)
-	}
+		statuses := make([]string, 0, len(got.SecondaryStatusTransitions))
+		for _, tr := range got.SecondaryStatusTransitions {
+			statuses = append(statuses, tr.Status)
+			assert.NotNil(t, tr.EndTime, tr.Status)
+		}
 
-	assert.Equal(t, []string{"Starting", "Downloading", "Training", "Uploading", "Completed"}, statuses)
-	assert.Equal(t, "Completed", got.SecondaryStatus)
+		assert.Equal(t, []string{"Starting", "Downloading", "Training", "Uploading", "Completed"}, statuses)
+		assert.Equal(t, "Completed", got.SecondaryStatus)
+	})
 }
 
 func TestRequestRealism_StopCompletedTrainingJobIsNoop(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	h.Backend.SetLifecycleDelay(time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		h.Backend.SetLifecycleDelay(time.Millisecond)
 
-	require.Equal(t, http.StatusOK, doSageMakerRequest(t, h, "CreateTrainingJob", trainingBody("done", nil)).Code)
+		require.Equal(t, http.StatusOK, doSageMakerRequest(t, h, "CreateTrainingJob", trainingBody("done", nil)).Code)
 
-	require.Eventually(t, func() bool {
+		require.Eventually(t, func() bool {
+			var out struct {
+				TrainingJobStatus string `json:"TrainingJobStatus"`
+			}
+			r := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{"TrainingJobName": "done"})
+
+			return json.Unmarshal(r.Body.Bytes(), &out) == nil && out.TrainingJobStatus == "Completed"
+		}, 5*time.Second, 5*time.Millisecond)
+
+		require.Equal(t, http.StatusOK,
+			doSageMakerRequest(t, h, "StopTrainingJob", map[string]any{"TrainingJobName": "done"}).Code)
+
 		var out struct {
 			TrainingJobStatus string `json:"TrainingJobStatus"`
 		}
 		r := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{"TrainingJobName": "done"})
-
-		return json.Unmarshal(r.Body.Bytes(), &out) == nil && out.TrainingJobStatus == "Completed"
-	}, 5*time.Second, 5*time.Millisecond)
-
-	require.Equal(t, http.StatusOK,
-		doSageMakerRequest(t, h, "StopTrainingJob", map[string]any{"TrainingJobName": "done"}).Code)
-
-	var out struct {
-		TrainingJobStatus string `json:"TrainingJobStatus"`
-	}
-	r := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{"TrainingJobName": "done"})
-	require.NoError(t, json.Unmarshal(r.Body.Bytes(), &out))
-	assert.Equal(t, "Completed", out.TrainingJobStatus)
+		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &out))
+		assert.Equal(t, "Completed", out.TrainingJobStatus)
+	})
 }
 
 func TestRequestRealism_StopFinishedProcessingJobKeepsStatus(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	h.Backend.SetLifecycleDelay(time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		h.Backend.SetLifecycleDelay(time.Millisecond)
 
-	create := map[string]any{
-		"ProcessingJobName": "pj",
-		"RoleArn":           realismRole,
-		"AppSpecification":  map[string]any{"ImageUri": "img"},
-		"ProcessingResources": map[string]any{"ClusterConfig": map[string]any{
-			"InstanceCount": 1, "InstanceType": "ml.m5.large", "VolumeSizeInGB": 1,
-		}},
-	}
-	require.Equal(t, http.StatusOK, doSageMakerRequest(t, h, "CreateProcessingJob", create).Code)
-
-	status := func() string {
-		var out struct {
-			ProcessingJobStatus string `json:"ProcessingJobStatus"`
+		create := map[string]any{
+			"ProcessingJobName": "pj",
+			"RoleArn":           realismRole,
+			"AppSpecification":  map[string]any{"ImageUri": "img"},
+			"ProcessingResources": map[string]any{"ClusterConfig": map[string]any{
+				"InstanceCount": 1, "InstanceType": "ml.m5.large", "VolumeSizeInGB": 1,
+			}},
 		}
-		r := doSageMakerRequest(t, h, "DescribeProcessingJob", map[string]any{"ProcessingJobName": "pj"})
-		_ = json.Unmarshal(r.Body.Bytes(), &out)
+		require.Equal(t, http.StatusOK, doSageMakerRequest(t, h, "CreateProcessingJob", create).Code)
 
-		return out.ProcessingJobStatus
-	}
+		status := func() string {
+			var out struct {
+				ProcessingJobStatus string `json:"ProcessingJobStatus"`
+			}
+			r := doSageMakerRequest(t, h, "DescribeProcessingJob", map[string]any{"ProcessingJobName": "pj"})
+			_ = json.Unmarshal(r.Body.Bytes(), &out)
 
-	require.Eventually(t, func() bool { return status() == "Completed" }, 5*time.Second, 5*time.Millisecond)
-	require.Equal(t, http.StatusOK,
-		doSageMakerRequest(t, h, "StopProcessingJob", map[string]any{"ProcessingJobName": "pj"}).Code)
+			return out.ProcessingJobStatus
+		}
 
-	assert.Equal(t, "Completed", status())
+		require.Eventually(t, func() bool { return status() == "Completed" }, 5*time.Second, 5*time.Millisecond)
+		require.Equal(t, http.StatusOK,
+			doSageMakerRequest(t, h, "StopProcessingJob", map[string]any{"ProcessingJobName": "pj"}).Code)
+
+		assert.Equal(t, "Completed", status())
+	})
 }

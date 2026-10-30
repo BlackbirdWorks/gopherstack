@@ -2,6 +2,7 @@ package lightsail_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -45,43 +46,47 @@ func instanceStateName(t *testing.T, c *lightsailsdk.Client, name string) string
 func TestInstanceStopStartTransitions(t *testing.T) {
 	t.Parallel()
 
-	c := newDelayedClient(t, time.Hour)
-	createInstance(t, c, "web-1")
-	assert.Equal(t, "pending", instanceStateName(t, c, "web-1"))
+	synctest.Test(t, func(t *testing.T) {
+		c := newDelayedClient(t, time.Hour)
+		createInstance(t, c, "web-1")
+		assert.Equal(t, "pending", instanceStateName(t, c, "web-1"))
 
-	_, err := c.StopInstance(t.Context(), &lightsailsdk.StopInstanceInput{InstanceName: aws.String("web-1")})
+		_, err := c.StopInstance(t.Context(), &lightsailsdk.StopInstanceInput{InstanceName: aws.String("web-1")})
 
-	var apiErr smithy.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "InvalidInputException", apiErr.ErrorCode())
+		var apiErr smithy.APIError
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, "InvalidInputException", apiErr.ErrorCode())
 
-	fast := newDelayedClient(t, time.Millisecond)
-	createInstance(t, fast, "web-2")
-	require.Eventually(t, func() bool { return instanceStateName(t, fast, "web-2") == "running" },
-		defaultAsyncWait, defaultAsyncPoll)
+		fast := newDelayedClient(t, time.Millisecond)
+		createInstance(t, fast, "web-2")
+		require.Eventually(t, func() bool { return instanceStateName(t, fast, "web-2") == "running" },
+			defaultAsyncWait, defaultAsyncPoll)
 
-	_, err = fast.StartInstance(t.Context(), &lightsailsdk.StartInstanceInput{InstanceName: aws.String("web-2")})
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "InvalidInputException", apiErr.ErrorCode())
+		_, err = fast.StartInstance(t.Context(), &lightsailsdk.StartInstanceInput{InstanceName: aws.String("web-2")})
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, "InvalidInputException", apiErr.ErrorCode())
+	})
 }
 
 func TestStopShowsStoppingFirst(t *testing.T) {
 	t.Parallel()
 
-	backend := lightsail.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
-	t.Cleanup(backend.Close)
-	backend.SetTransitionDelay(time.Millisecond)
-	c := newRoundTripClient(t, lightsail.NewHandler(backend))
+	synctest.Test(t, func(t *testing.T) {
+		backend := lightsail.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
+		t.Cleanup(backend.Close)
+		backend.SetTransitionDelay(time.Millisecond)
+		c := newRoundTripClient(t, lightsail.NewHandler(backend))
 
-	createInstance(t, c, "web-3")
-	require.Eventually(t, func() bool { return instanceStateName(t, c, "web-3") == "running" },
-		defaultAsyncWait, defaultAsyncPoll)
+		createInstance(t, c, "web-3")
+		require.Eventually(t, func() bool { return instanceStateName(t, c, "web-3") == "running" },
+			defaultAsyncWait, defaultAsyncPoll)
 
-	backend.SetTransitionDelay(time.Hour)
+		backend.SetTransitionDelay(time.Hour)
 
-	_, err := c.StopInstance(t.Context(), &lightsailsdk.StopInstanceInput{InstanceName: aws.String("web-3")})
-	require.NoError(t, err)
-	assert.Equal(t, "stopping", instanceStateName(t, c, "web-3"))
+		_, err := c.StopInstance(t.Context(), &lightsailsdk.StopInstanceInput{InstanceName: aws.String("web-3")})
+		require.NoError(t, err)
+		assert.Equal(t, "stopping", instanceStateName(t, c, "web-3"))
+	})
 }
 
 func TestCreateInstances_Validation(t *testing.T) {

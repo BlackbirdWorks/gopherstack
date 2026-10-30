@@ -2,16 +2,15 @@ package cloudformation_test
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	cfnsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
@@ -59,23 +58,16 @@ func newTestClientForBackend(t *testing.T, backend *cloudformation.InMemoryBacke
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.ServeHTTP(w, r)
 		backend.WaitForStackSetOperations()
-	}))
-	t.Cleanup(srv.Close)
+	})
 
-	cfg, err := awscfg.LoadDefaultConfig(
-		t.Context(),
-		awscfg.WithRegion(rtTestRegion),
-		awscfg.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	require.NoError(t, err)
-
-	client := cfnsdk.NewFromConfig(cfg, func(o *cfnsdk.Options) {
-		o.BaseEndpoint = aws.String(srv.URL)
+	client := cfnsdk.NewFromConfig(aws.Config{
+		Region:       rtTestRegion,
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.HandlerClient(wrapped),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
 	})
 
 	return client

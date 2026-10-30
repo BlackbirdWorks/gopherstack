@@ -3,6 +3,7 @@ package resourcegroups_test
 import (
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -277,25 +278,27 @@ func TestSDK_ConfigurationStatusLifecycle(t *testing.T) {
 func TestSDK_ConfigurationStatusCompletes(t *testing.T) {
 	t.Parallel()
 
-	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetLifecycleDelay(20 * time.Millisecond)
-	c := newTestResourceGroupsClient(t, resourcegroups.NewHandler(b))
+	synctest.Test(t, func(t *testing.T) {
+		b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+		b.SetLifecycleDelay(20 * time.Millisecond)
+		c := newTestResourceGroupsClient(t, resourcegroups.NewHandler(b))
 
-	_, err := c.CreateGroup(t.Context(), &resourcegroupssdk.CreateGroupInput{
-		Name: aws.String("cfg"),
-		Configuration: []types.GroupConfigurationItem{{
-			Type: aws.String("AWS::ResourceGroups::Generic"),
-		}},
-	})
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		got, getErr := c.GetGroupConfiguration(t.Context(), &resourcegroupssdk.GetGroupConfigurationInput{
-			Group: aws.String("cfg"),
+		_, err := c.CreateGroup(t.Context(), &resourcegroupssdk.CreateGroupInput{
+			Name: aws.String("cfg"),
+			Configuration: []types.GroupConfigurationItem{{
+				Type: aws.String("AWS::ResourceGroups::Generic"),
+			}},
 		})
+		require.NoError(t, err)
 
-		return getErr == nil && got.GroupConfiguration.Status == types.GroupConfigurationStatusUpdateComplete
-	}, 5*time.Second, 10*time.Millisecond)
+		require.Eventually(t, func() bool {
+			got, getErr := c.GetGroupConfiguration(t.Context(), &resourcegroupssdk.GetGroupConfigurationInput{
+				Group: aws.String("cfg"),
+			})
+
+			return getErr == nil && got.GroupConfiguration.Status == types.GroupConfigurationStatusUpdateComplete
+		}, 5*time.Second, 10*time.Millisecond)
+	})
 }
 
 func TestSDK_AccountSettingsInProgress(t *testing.T) {

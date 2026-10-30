@@ -3,6 +3,7 @@ package eks_test
 import (
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -40,93 +41,97 @@ func waitClusterStatus(t *testing.T, c *ekssdk.Client, name string, want ekstype
 func TestClusterUpdate_UpdatingThenActive(t *testing.T) {
 	t.Parallel()
 
-	c := newLifecycleClient(t, lifecycleTestDelay)
-	createTestCluster(t, c, "upd")
-	waitClusterStatus(t, c, "upd", ekstypes.ClusterStatusActive)
+	synctest.Test(t, func(t *testing.T) {
+		c := newLifecycleClient(t, lifecycleTestDelay)
+		createTestCluster(t, c, "upd")
+		waitClusterStatus(t, c, "upd", ekstypes.ClusterStatusActive)
 
-	out, err := c.UpdateClusterVersion(t.Context(), &ekssdk.UpdateClusterVersionInput{
-		Name: aws.String("upd"), Version: aws.String("1.33"),
+		out, err := c.UpdateClusterVersion(t.Context(), &ekssdk.UpdateClusterVersionInput{
+			Name: aws.String("upd"), Version: aws.String("1.33"),
+		})
+		require.NoError(t, err)
+		assert.NoError(t, uuid.Validate(aws.ToString(out.Update.Id)), "update ids are UUIDs")
+		assert.Equal(t, ekstypes.UpdateStatusInProgress, out.Update.Status)
+
+		desc, err := c.DescribeCluster(t.Context(), &ekssdk.DescribeClusterInput{Name: aws.String("upd")})
+		require.NoError(t, err)
+		assert.Equal(t, ekstypes.ClusterStatusUpdating, desc.Cluster.Status)
+		assert.Equal(t, "1.32", aws.ToString(desc.Cluster.Version), "version flips only when the update completes")
+
+		waitClusterStatus(t, c, "upd", ekstypes.ClusterStatusActive)
+
+		desc, err = c.DescribeCluster(t.Context(), &ekssdk.DescribeClusterInput{Name: aws.String("upd")})
+		require.NoError(t, err)
+		assert.Equal(t, "1.33", aws.ToString(desc.Cluster.Version))
+
+		upd, err := c.DescribeUpdate(t.Context(), &ekssdk.DescribeUpdateInput{
+			Name: aws.String("upd"), UpdateId: out.Update.Id,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, ekstypes.UpdateStatusSuccessful, upd.Update.Status)
 	})
-	require.NoError(t, err)
-	assert.NoError(t, uuid.Validate(aws.ToString(out.Update.Id)), "update ids are UUIDs")
-	assert.Equal(t, ekstypes.UpdateStatusInProgress, out.Update.Status)
-
-	desc, err := c.DescribeCluster(t.Context(), &ekssdk.DescribeClusterInput{Name: aws.String("upd")})
-	require.NoError(t, err)
-	assert.Equal(t, ekstypes.ClusterStatusUpdating, desc.Cluster.Status)
-	assert.Equal(t, "1.32", aws.ToString(desc.Cluster.Version), "version flips only when the update completes")
-
-	waitClusterStatus(t, c, "upd", ekstypes.ClusterStatusActive)
-
-	desc, err = c.DescribeCluster(t.Context(), &ekssdk.DescribeClusterInput{Name: aws.String("upd")})
-	require.NoError(t, err)
-	assert.Equal(t, "1.33", aws.ToString(desc.Cluster.Version))
-
-	upd, err := c.DescribeUpdate(t.Context(), &ekssdk.DescribeUpdateInput{
-		Name: aws.String("upd"), UpdateId: out.Update.Id,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, ekstypes.UpdateStatusSuccessful, upd.Update.Status)
 }
 
 func TestDeletes_DwellInDeletingWhenDelayed(t *testing.T) {
 	t.Parallel()
 
-	c := newLifecycleClient(t, lifecycleTestDelay)
-	createTestCluster(t, c, "del")
-	waitClusterStatus(t, c, "del", ekstypes.ClusterStatusActive)
+	synctest.Test(t, func(t *testing.T) {
+		c := newLifecycleClient(t, lifecycleTestDelay)
+		createTestCluster(t, c, "del")
+		waitClusterStatus(t, c, "del", ekstypes.ClusterStatusActive)
 
-	_, err := c.CreateNodegroup(t.Context(), &ekssdk.CreateNodegroupInput{
-		ClusterName: aws.String("del"), NodegroupName: aws.String("ng"),
-		NodeRole: aws.String("arn:aws:iam::123456789012:role/ng"), Subnets: []string{"subnet-abc123"},
-	})
-	require.NoError(t, err)
+		_, err := c.CreateNodegroup(t.Context(), &ekssdk.CreateNodegroupInput{
+			ClusterName: aws.String("del"), NodegroupName: aws.String("ng"),
+			NodeRole: aws.String("arn:aws:iam::123456789012:role/ng"), Subnets: []string{"subnet-abc123"},
+		})
+		require.NoError(t, err)
 
-	require.Eventually(t, func() bool {
-		out, descErr := c.DescribeNodegroup(t.Context(), &ekssdk.DescribeNodegroupInput{
+		require.Eventually(t, func() bool {
+			out, descErr := c.DescribeNodegroup(t.Context(), &ekssdk.DescribeNodegroupInput{
+				ClusterName: aws.String("del"), NodegroupName: aws.String("ng"),
+			})
+
+			return descErr == nil && out.Nodegroup.Status == ekstypes.NodegroupStatusActive
+		}, 5*time.Second, 5*time.Millisecond)
+
+		delNG, err := c.DeleteNodegroup(t.Context(), &ekssdk.DeleteNodegroupInput{
 			ClusterName: aws.String("del"), NodegroupName: aws.String("ng"),
 		})
+		require.NoError(t, err)
+		assert.Equal(t, ekstypes.NodegroupStatusDeleting, delNG.Nodegroup.Status)
 
-		return descErr == nil && out.Nodegroup.Status == ekstypes.NodegroupStatusActive
-	}, 5*time.Second, 5*time.Millisecond)
-
-	delNG, err := c.DeleteNodegroup(t.Context(), &ekssdk.DeleteNodegroupInput{
-		ClusterName: aws.String("del"), NodegroupName: aws.String("ng"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, ekstypes.NodegroupStatusDeleting, delNG.Nodegroup.Status)
-
-	desc, err := c.DescribeNodegroup(t.Context(), &ekssdk.DescribeNodegroupInput{
-		ClusterName: aws.String("del"), NodegroupName: aws.String("ng"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, ekstypes.NodegroupStatusDeleting, desc.Nodegroup.Status)
-
-	_, err = c.DeleteCluster(t.Context(), &ekssdk.DeleteClusterInput{Name: aws.String("del")})
-	var inUse *ekstypes.ResourceInUseException
-	require.ErrorAs(t, err, &inUse, "cluster with a deleting nodegroup is still in use")
-
-	require.Eventually(t, func() bool {
-		_, descErr := c.DescribeNodegroup(t.Context(), &ekssdk.DescribeNodegroupInput{
+		desc, err := c.DescribeNodegroup(t.Context(), &ekssdk.DescribeNodegroupInput{
 			ClusterName: aws.String("del"), NodegroupName: aws.String("ng"),
 		})
-		var nf *ekstypes.ResourceNotFoundException
+		require.NoError(t, err)
+		assert.Equal(t, ekstypes.NodegroupStatusDeleting, desc.Nodegroup.Status)
 
-		return errors.As(descErr, &nf)
-	}, 5*time.Second, 5*time.Millisecond)
+		_, err = c.DeleteCluster(t.Context(), &ekssdk.DeleteClusterInput{Name: aws.String("del")})
+		var inUse *ekstypes.ResourceInUseException
+		require.ErrorAs(t, err, &inUse, "cluster with a deleting nodegroup is still in use")
 
-	delCluster, err := c.DeleteCluster(t.Context(), &ekssdk.DeleteClusterInput{Name: aws.String("del")})
-	require.NoError(t, err)
-	assert.Equal(t, ekstypes.ClusterStatusDeleting, delCluster.Cluster.Status)
+		require.Eventually(t, func() bool {
+			_, descErr := c.DescribeNodegroup(t.Context(), &ekssdk.DescribeNodegroupInput{
+				ClusterName: aws.String("del"), NodegroupName: aws.String("ng"),
+			})
+			var nf *ekstypes.ResourceNotFoundException
 
-	waitClusterStatus(t, c, "del", ekstypes.ClusterStatusDeleting)
+			return errors.As(descErr, &nf)
+		}, 5*time.Second, 5*time.Millisecond)
 
-	require.Eventually(t, func() bool {
-		_, descErr := c.DescribeCluster(t.Context(), &ekssdk.DescribeClusterInput{Name: aws.String("del")})
-		var nf *ekstypes.ResourceNotFoundException
+		delCluster, err := c.DeleteCluster(t.Context(), &ekssdk.DeleteClusterInput{Name: aws.String("del")})
+		require.NoError(t, err)
+		assert.Equal(t, ekstypes.ClusterStatusDeleting, delCluster.Cluster.Status)
 
-		return errors.As(descErr, &nf)
-	}, 5*time.Second, 5*time.Millisecond)
+		waitClusterStatus(t, c, "del", ekstypes.ClusterStatusDeleting)
+
+		require.Eventually(t, func() bool {
+			_, descErr := c.DescribeCluster(t.Context(), &ekssdk.DescribeClusterInput{Name: aws.String("del")})
+			var nf *ekstypes.ResourceNotFoundException
+
+			return errors.As(descErr, &nf)
+		}, 5*time.Second, 5*time.Millisecond)
+	})
 }
 
 func TestCreateValidation(t *testing.T) {

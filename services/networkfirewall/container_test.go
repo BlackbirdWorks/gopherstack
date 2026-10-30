@@ -2,6 +2,7 @@ package networkfirewall_test
 
 import (
 	"testing"
+	"testing/synctest"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk "github.com/aws/aws-sdk-go-v2/service/networkfirewall"
@@ -125,7 +126,10 @@ func TestContainerAssociations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t, newFixture(t))
+
+			synctest.Test(t, func(t *testing.T) {
+				tt.run(t, newFixture(t))
+			})
 		})
 	}
 }
