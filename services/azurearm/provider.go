@@ -277,6 +277,10 @@ func registerLocalProviders(
 	registry.Register(NewRedisProvider(nil))
 	registry.Register(NewSQLProvider(nil))
 	registerFlexProviders(ctx, registry, network, settings)
+
+	apim := NewAPIMProvider()
+	apim.SetAllowExternal(settings.APIMAllowExternal)
+	registry.Register(apim)
 	registry.Register(web)
 	registry.Register(network)
 	registry.Register(msi)

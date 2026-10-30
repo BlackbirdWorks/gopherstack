@@ -136,6 +136,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
+		if ap, ok := h.apimProvider(); ok && ap.ServeGateway(c.Response(), r) {
+			return nil
+		}
+
 		host := hostFromHostHeader(r.Host)
 		ctx := WithRequestHost(r.Context(), host)
 		c.SetRequest(r.WithContext(ctx))
@@ -439,7 +443,7 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes, eventGridRoutes, appConfigRoutes, containerRegistryRoutes,
 		monitorRoutes, redisRoutes, sqlRoutes, flexRoutes, containerInstanceRoutes, containerAppsRoutes,
 		containerServiceRoutes, networkRoutes, managedIdentityRoutes, computeRoutes, webRoutes,
-		storageFileServiceRoutes, armResourceRoutes,
+		storageFileServiceRoutes, apimRoutes, armResourceRoutes,
 	} {
 		if handled, err := matchRoutes(table, h, c, segs); handled {
 			return err
