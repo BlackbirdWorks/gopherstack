@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -34,6 +35,8 @@ var hopHeaders = map[string]bool{
 // served is a gateway resolved for one data-plane request.
 type served struct {
 	spec    *compiledSpec
+	metrics map[string]bool
+	limits  map[string]quotaLimit
 	project string
 	managed string
 	path    string
@@ -113,7 +116,35 @@ func (b *InMemoryBackend) resolve(r *http.Request) (*served, *authError) {
 		managed = api.pb.GetManagedService()
 	}
 
-	return &served{spec: c.spec, project: project, managed: managed, path: p}, nil
+	sv := &served{
+		spec: c.spec, project: project, managed: managed, path: p, metrics: c.spec.Metrics, limits: c.spec.Limits,
+	}
+	if latest := b.latestSpecLocked(apiOfConfig(c.pb.GetName())); latest != nil {
+		sv.metrics, sv.limits = latest.Metrics, latest.Limits
+	}
+
+	return sv, nil
+}
+
+// latestSpecLocked returns the spec of the API's newest usable config: metrics and quota apply to the whole API,
+// and the most recently declared definition governs.
+func (b *InMemoryBackend) latestSpecLocked(api string) *compiledSpec {
+	var (
+		best *compiledSpec
+		at   time.Time
+	)
+
+	for name, c := range b.configs {
+		if c.spec == nil || apiOfConfig(name) != api || c.life.gone(b.now()) || c.life.deleting() {
+			continue
+		}
+
+		if t := c.pb.GetCreateTime().AsTime(); best == nil || t.After(at) {
+			best, at = c.spec, t
+		}
+	}
+
+	return best
 }
 
 func apiOfConfig(config string) string {
@@ -139,9 +170,17 @@ func (b *InMemoryBackend) serveGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rt, vars := sv.spec.match(r.Method, sv.path)
+	rt, vars, other := sv.spec.match(r.Method, sv.path)
 	if rt == nil {
-		writeErr(w, http.StatusNotFound, "Method does not exist.")
+		if other != "" {
+			writeErr(w, http.StatusMethodNotAllowed, fmt.Sprintf(
+				"The current request is matched to the defined url template \"%s\" but its http method is not allowed",
+				other))
+
+			return
+		}
+
+		writeErr(w, http.StatusNotFound, "The current request is not defined by this API.")
 
 		return
 	}
@@ -153,9 +192,16 @@ func (b *InMemoryBackend) serveGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if d := b.consume(sv.project, sv.spec, rt); d != nil {
+	d, missing := b.consume(sv, rt)
+	if missing {
+		writeErr(w, http.StatusInternalServerError, "Failed to call Service Control Quota.")
+
+		return
+	}
+
+	if d != nil {
 		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf(
-			"RESOURCE_EXHAUSTED:Quota exceeded for quota metric '%s' and limit '%s' of service '%s' for consumer "+
+			"RESOURCE_EXHAUSTED: Quota exceeded for quota metric '%s' and limit '%s' of service '%s' for consumer "+
 				"'project:%s'.", d.metric, d.limit, sv.managed, sv.project))
 
 		return

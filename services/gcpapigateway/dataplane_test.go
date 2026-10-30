@@ -25,6 +25,7 @@ func TestRoutingAndPathTranslation(t *testing.T) {
 		target    string
 		wantPath  string
 		wantQuery string
+		wantMsg   string
 		wantCode  int
 	}{
 		{
@@ -67,14 +68,28 @@ func TestRoutingAndPathTranslation(t *testing.T) {
 		{
 			name: "undefined path", root: "BE", paths: "  /hello:\n" + op("get", ""),
 			method: "GET", target: "/nope", wantCode: 404,
+			wantMsg: "The current request is not defined by this API.",
 		},
 		{
-			name: "undefined method", root: "BE", paths: "  /hello:\n" + op("get", ""),
-			method: "POST", target: "/hello", wantCode: 404,
+			name:     "undefined method",
+			root:     "BE",
+			paths:    "  /hello:\n" + op("get", ""),
+			method:   "POST",
+			target:   "/hello",
+			wantCode: 405,
+			wantMsg:  `The current request is matched to the defined url template "/hello" but its http method is not allowed`,
+		},
+		{
+			name: "undefined method keeps the base path in the template", root: "BE", top: "basePath: /v1\n",
+			paths:  "  /items/{id}:\n" + op("get", ""),
+			method: "DELETE", target: "/v1/items/3", wantCode: 405,
+			wantMsg: `The current request is matched to the defined url template "/v1/items/{id}" ` +
+				`but its http method is not allowed`,
 		},
 		{
 			name: "base path mismatch", root: "BE", top: "basePath: /v1\n", paths: "  /hello:\n" + op("get", ""),
 			method: "GET", target: "/hello", wantCode: 404,
+			wantMsg: "The current request is not defined by this API.",
 		},
 	}
 
@@ -91,7 +106,7 @@ func TestRoutingAndPathTranslation(t *testing.T) {
 
 			if tt.wantCode != http.StatusOK {
 				assert.EqualValues(t, tt.wantCode, got.body["code"])
-				assert.NotEmpty(t, got.body["message"])
+				assert.Equal(t, tt.wantMsg, got.body["message"])
 
 				return
 			}
