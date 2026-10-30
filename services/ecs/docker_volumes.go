@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 )
 
@@ -20,7 +21,13 @@ var (
 
 // volumeSpec is a task-level volume resolved to its Docker mount source.
 type volumeSpec struct {
-	mount mount.Mount
+	user   string
+	groups []string
+	mount  mount.Mount
+}
+
+func bindMount(src string) mount.Mount {
+	return mount.Mount{Type: mount.TypeBind, Source: src}
 }
 
 // volumePlan holds a task's resolved volumes and the Docker volumes to delete when the task ends.
@@ -41,7 +48,12 @@ func (r *realDockerRunner) resolveVolumes(ctx context.Context, task *Task, td *T
 	for _, v := range td.Volumes {
 		switch {
 		case v.EFSVolumeConfiguration != nil:
-			return nil, fmt.Errorf("%w: volume %q uses efsVolumeConfiguration", errUnsupportedVolume, v.Name)
+			spec, err := r.efsVolumeSpec(task, v)
+			if err != nil {
+				return nil, err
+			}
+
+			plan.specs[v.Name] = spec
 		case v.ConfiguredAtLaunch:
 			return nil, fmt.Errorf("%w: volume %q is configuredAtLaunch", errUnsupportedVolume, v.Name)
 		case v.DockerVolumeConfig != nil:
@@ -65,6 +77,26 @@ func (r *realDockerRunner) resolveVolumes(ctx context.Context, task *Task, td *T
 	}
 
 	return plan, nil
+}
+
+func (r *realDockerRunner) efsVolumeSpec(task *Task, v Volume) (volumeSpec, error) {
+	r.mu.Lock()
+	resolve := r.efsLookup
+	r.mu.Unlock()
+
+	if resolve == nil {
+		return volumeSpec{}, &taskLaunchError{
+			Reason: fmt.Sprintf("%s: volume %q: %v", efsInitFailure, v.Name, errEFSUnavailable),
+			Err:    errEFSUnavailable,
+		}
+	}
+
+	m, err := resolve(regionOfARN(task.TaskArn, ""), v.EFSVolumeConfiguration)
+	if err != nil {
+		return volumeSpec{}, &taskLaunchError{Reason: fmt.Sprintf("volume %q: %v", v.Name, err), Err: err}
+	}
+
+	return efsSpec(m), nil
 }
 
 func (r *realDockerRunner) dockerVolumeSpec(
@@ -130,4 +162,20 @@ func containerMounts(cd ContainerDefinition, plan *volumePlan) ([]mount.Mount, e
 	}
 
 	return out, nil
+}
+
+// applyVolumeIdentity runs a container as an EFS access point's POSIX user unless the definition sets a user.
+func applyVolumeIdentity(cfg *dockertypes.Config, hc *dockertypes.HostConfig, cd ContainerDefinition, plan *volumePlan) {
+	if cd.User != "" {
+		return
+	}
+
+	for _, mp := range cd.MountPoints {
+		if spec := plan.specs[mp.SourceVolume]; spec.user != "" {
+			cfg.User = spec.user
+			hc.GroupAdd = append(hc.GroupAdd, spec.groups...)
+
+			return
+		}
+	}
 }

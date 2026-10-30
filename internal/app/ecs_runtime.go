@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
@@ -185,6 +186,7 @@ func wireECSRuntime(cli *CLI, byName map[string]service.Registerable) {
 	bk.SetEventPublisher(&ecsEventPublisher{byName: byName})
 	bk.SetRoleCredentialIssuer(&ecsTaskCredentials{byName: byName})
 	bk.SetSecretsResolver(&ecsSecrets{byName: byName})
+	bk.SetEFSResolver(&ecsEFS{byName: byName})
 	bk.SetEnvFileStore(&ecsEnvFiles{byName: byName})
 	bk.SetExecSessionStarter(&ecsExecSessions{byName: byName})
 
@@ -245,5 +247,32 @@ func (a *ecsExecSessions) StartExecSession(
 
 	return ecsbackend.ExecSessionGrant{
 		SessionID: out.SessionID, StreamURL: out.StreamURL, TokenValue: out.TokenValue,
+	}, nil
+}
+
+// ecsEFS adapts EFS to ecs.EFSResolver; the EFS backend is resolved at call time.
+type ecsEFS struct {
+	byName map[string]service.Registerable
+}
+
+func (a *ecsEFS) ResolveVolume(
+	_ context.Context, region, fsID, accessPointID, rootDirectory string,
+) (ecsbackend.EFSVolumeMount, error) {
+	h, ok := a.byName["EFS"].(*efsbackend.Handler)
+	if !ok {
+		return ecsbackend.EFSVolumeMount{}, errLambdaEFSUnavailable
+	}
+
+	if region == "" {
+		region = h.Backend.Region()
+	}
+
+	m, err := h.Backend.ResolveVolumeMount(region, fsID, accessPointID, rootDirectory)
+	if err != nil {
+		return ecsbackend.EFSVolumeMount{}, err
+	}
+
+	return ecsbackend.EFSVolumeMount{
+		HostDir: m.HostDir, UID: m.UID, GID: m.GID, SecondaryGIDs: m.SecondaryGIDs, HasPosixUser: m.HasPosixUser,
 	}, nil
 }

@@ -49,6 +49,10 @@ func (b *InMemoryBackend) wireRunnerHooks(runner TaskRunner) {
 		r.SetSecretResolver(b.resolveSecret)
 	}
 
+	if r, ok := runner.(efsVolumeRunner); ok {
+		r.SetEFSVolumeResolver(b.resolveEFSVolume)
+	}
+
 	if r, ok := runner.(launchInputRunner); ok {
 		r.SetRegistryAuthResolver(b.resolveRegistryAuth)
 		r.SetEnvFileResolver(b.resolveEnvFiles)
