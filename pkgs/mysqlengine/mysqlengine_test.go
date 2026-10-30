@@ -3,6 +3,7 @@ package mysqlengine_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,4 +80,47 @@ func TestLaunchFailureReleasesPorts(t *testing.T) {
 	assert.Contains(t, rt.created[0].Env, "MYSQL_ROOT_PASSWORD=pw")
 	assert.Equal(t, "mysql:8.4", rt.created[0].Image)
 	assert.Empty(t, alloc.Allocated(), "a failed launch gives its ports back")
+}
+
+func TestDatabaseSQL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, db, charset, collation string
+		want                         string
+		bad                          bool
+	}{
+		{name: "ok", db: "app_1", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci",
+			want: "CREATE DATABASE IF NOT EXISTS `app_1` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"},
+		{name: "backtick name", db: "a`; DROP DATABASE x; --", charset: "utf8mb4", collation: "utf8mb4_bin", bad: true},
+		{name: "empty name", db: "", charset: "utf8mb4", collation: "utf8mb4_bin", bad: true},
+		{name: "long name", db: strings.Repeat("a", 65), charset: "utf8mb4", collation: "utf8mb4_bin", bad: true},
+		{name: "charset injection", db: "a", charset: "utf8; DROP DATABASE x", collation: "utf8mb4_bin", bad: true},
+		{name: "collation injection", db: "a", charset: "utf8mb4", collation: "x; DROP DATABASE y", bad: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := mysqlengine.CreateDatabaseSQL(tt.db, tt.charset, tt.collation)
+			if tt.bad {
+				require.ErrorIs(t, err, mysqlengine.ErrInvalidIdentifier)
+
+				if tt.db != "a" {
+					_, err = mysqlengine.DropDatabaseSQL(tt.db)
+					require.ErrorIs(t, err, mysqlengine.ErrInvalidIdentifier)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+
+			drop, err := mysqlengine.DropDatabaseSQL(tt.db)
+			require.NoError(t, err)
+			assert.Equal(t, "DROP DATABASE IF EXISTS `"+tt.db+"`", drop)
+		})
+	}
 }

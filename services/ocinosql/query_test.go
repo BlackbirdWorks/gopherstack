@@ -234,6 +234,8 @@ func TestQueryUnsupported(t *testing.T) {
 		{name: "order by non key", sql: "SELECT id FROM users ORDER BY age", status: 400},
 		{name: "undeclared variable", sql: "SELECT id FROM users WHERE id = $x", status: 400},
 		{name: "negative limit", sql: "SELECT id FROM users LIMIT -1", status: 400},
+		{name: "huge limit", sql: "SELECT id FROM users LIMIT 9223372036854775807", status: 400},
+		{name: "huge offset", sql: "SELECT id FROM users OFFSET 4294967296", status: 400},
 	}
 
 	for _, tt := range tests {
