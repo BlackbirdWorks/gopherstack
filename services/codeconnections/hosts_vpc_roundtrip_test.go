@@ -1,11 +1,9 @@
 package codeconnections_test
 
 import (
-	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	codeconnectionssdk "github.com/aws/aws-sdk-go-v2/service/codeconnections"
 	codeconnectionstypes "github.com/aws/aws-sdk-go-v2/service/codeconnections/types"
@@ -13,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/codeconnections"
 )
@@ -32,20 +31,11 @@ func newTestCodeConnectionsClient(t *testing.T, h *codeconnections.Handler) *cod
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
-
-	cfg, err := awscfg.LoadDefaultConfig(
-		t.Context(),
-		awscfg.WithRegion(vpcRoundTripRegion),
-		awscfg.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	require.NoError(t, err)
-
-	return codeconnectionssdk.NewFromConfig(cfg, func(o *codeconnectionssdk.Options) {
-		o.BaseEndpoint = aws.String(srv.URL)
+	return codeconnectionssdk.NewFromConfig(aws.Config{
+		Region:       vpcRoundTripRegion,
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.HandlerClient(e),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
 	})
 }
 
