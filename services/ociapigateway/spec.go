@@ -196,7 +196,7 @@ type authzDoc struct {
 }
 
 type routeRequestPolicies struct {
-	Authorization *authzDoc `json:"authorization"`
+	Authorization       *authzDoc       `json:"authorization"`
 	Cors                *corsDoc        `json:"cors"`
 	HeaderTransform     *transformDoc   `json:"headerTransformations"`
 	QueryTransform      *transformDoc   `json:"queryParameterTransformations"`

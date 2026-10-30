@@ -256,7 +256,8 @@ func TestDeploymentValidation(t *testing.T) {
 			"jwt without keys",
 			mk(
 				"/v1",
-				`{"requestPolicies":{"authentication":{"type":"JWT_AUTHENTICATION","issuers":["i"],"audiences":["a"]}},"routes":[]}`,
+				`{"requestPolicies":{"authentication":{"type":"JWT_AUTHENTICATION",` +
+					`"issuers":["i"],"audiences":["a"]}},"routes":[]}`,
 			),
 			400,
 		},
@@ -264,7 +265,8 @@ func TestDeploymentValidation(t *testing.T) {
 			"remote discovery unsupported",
 			mk(
 				"/v1",
-				`{"requestPolicies":{"authentication":{"type":"TOKEN_AUTHENTICATION","tokenHeader":"Authorization","tokenAuthScheme":"Bearer","validationPolicy":{"type":"REMOTE_DISCOVERY"}}},"routes":[]}`,
+				`{"requestPolicies":{"authentication":{"type":"TOKEN_AUTHENTICATION","tokenHeader":"Authorization",` +
+					`"tokenAuthScheme":"Bearer","validationPolicy":{"type":"REMOTE_DISCOVERY"}}},"routes":[]}`,
 			),
 			400,
 		},

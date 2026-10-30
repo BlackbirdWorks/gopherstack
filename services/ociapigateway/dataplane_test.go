@@ -17,7 +17,8 @@ import (
 )
 
 func stock(path, methods, body string) string {
-	return `{"path":"` + path + `","methods":[` + methods + `],"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"` + body + `"}}`
+	return `{"path":"` + path + `","methods":[` + methods + `],` +
+		`"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"` + body + `"}}`
 }
 
 func TestRoutePrecedence(t *testing.T) {
@@ -156,9 +157,11 @@ func TestHTTPBackend(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	gw := e.mkGateway(t, "http")
 	e.mkDeployment(t, *gw.Id, "/p", `{"routes":[
-		{"path":"/svc/{rest*}","methods":["ANY"],"backend":{"type":"HTTP_BACKEND","url":"`+backend.URL+`/base/${request.path[rest]}"}},
+		{"path":"/svc/{rest*}","methods":["ANY"],
+		 "backend":{"type":"HTTP_BACKEND","url":"`+backend.URL+`/base/${request.path[rest]}"}},
 		{"path":"/redir","methods":["GET"],"backend":{"type":"HTTP_BACKEND","url":"`+backend.URL+`/redir"}},
-		{"path":"/slow","methods":["GET"],"backend":{"type":"HTTP_BACKEND","url":"http://192.0.2.10:9/x","isSslVerifyDisabled":true}}]}`)
+		{"path":"/slow","methods":["GET"],
+		 "backend":{"type":"HTTP_BACKEND","url":"http://192.0.2.10:9/x","isSslVerifyDisabled":true}}]}`)
 
 	r := e.call(t, *gw.Id, http.MethodPost, "/p/svc/a/b?x=1&y=two", map[string]string{"X-Client": "c1"}, "payload")
 	assert.Equal(t, http.StatusTeapot, r.status)
@@ -213,7 +216,8 @@ func TestFunctionsBackend(t *testing.T) {
 	gw := e.mkGateway(t, "fn")
 	e.mkDeployment(t, *gw.Id, "/f", `{"routes":[
 		{"path":"/run","methods":["POST"],"backend":{"type":"ORACLE_FUNCTIONS_BACKEND","functionId":"`+testFunction+`"}},
-		{"path":"/bad","methods":["POST"],"backend":{"type":"ORACLE_FUNCTIONS_BACKEND","functionId":"ocid1.fnfunc.oc1.iad.broken"}}]}`)
+		{"path":"/bad","methods":["POST"],
+		 "backend":{"type":"ORACLE_FUNCTIONS_BACKEND","functionId":"ocid1.fnfunc.oc1.iad.broken"}}]}`)
 
 	r := e.call(t, *gw.Id, http.MethodPost, "/f/run", nil, "ping")
 	assert.Equal(t, 201, r.status)
@@ -396,10 +400,14 @@ func TestDynamicRouting(t *testing.T) {
 	e.mkDeployment(t, *gw.Id, "/d", `{"routes":[{"path":"/x","methods":["GET"],"backend":{
 		"type":"DYNAMIC_ROUTING_BACKEND","selectionSource":{"type":"SINGLE","selector":"request.headers[X-Tier]"},
 		"routingBackends":[
-			{"key":{"type":"ANY_OF","name":"gold","values":["gold","platinum"]},"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"gold"}},
-			{"key":{"type":"WILDCARD","name":"beta","expression":"beta-*"},"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"beta"}},
-			{"key":{"type":"WILDCARD","name":"any","expression":"+"},"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"nonempty"}},
-			{"key":{"type":"ANY_OF","name":"default","isDefault":true},"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"default"}}]}}]}`)
+			{"key":{"type":"ANY_OF","name":"gold","values":["gold","platinum"]},
+			 "backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"gold"}},
+			{"key":{"type":"WILDCARD","name":"beta","expression":"beta-*"},
+			 "backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"beta"}},
+			{"key":{"type":"WILDCARD","name":"any","expression":"+"},
+			 "backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"nonempty"}},
+			{"key":{"type":"ANY_OF","name":"default","isDefault":true},
+			 "backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"default"}}]}}]}`)
 
 	tests := []struct {
 		name, tier, want string

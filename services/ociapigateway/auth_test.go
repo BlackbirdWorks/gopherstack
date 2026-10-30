@@ -39,7 +39,8 @@ func jwkOf(k *rsa.PrivateKey, kid string) string {
 	n := base64.RawURLEncoding.EncodeToString(k.N.Bytes())
 	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(k.E)).Bytes())
 
-	return `{"format":"JSON_WEB_KEY","kid":"` + kid + `","kty":"RSA","alg":"RS256","use":"sig","n":"` + n + `","e":"` + e + `"}`
+	return `{"format":"JSON_WEB_KEY","kid":"` + kid + `","kty":"RSA","alg":"RS256","use":"sig",` +
+		`"n":"` + n + `","e":"` + e + `"}`
 }
 
 func pemOf(t *testing.T, k *rsa.PrivateKey, kid string) string {
@@ -191,7 +192,8 @@ func TestJWTRequiredWhenAnonymousDisallowed(t *testing.T) {
 		*gw.Id,
 		"/j",
 		`{"requestPolicies":{"authentication":{"type":"JWT_AUTHENTICATION","issuers":["`+jwtIssuer+
-			`"],"audiences":["`+jwtAudience+`"],"tokenQueryParam":"access_token","publicKeys":{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+
+			`"],"audiences":["`+jwtAudience+`"],"tokenQueryParam":"access_token",`+
+			`"publicKeys":{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+
 			`]}}},"routes":[`+stock("/x", `"GET"`, "ok")+`]}`,
 	)
 
@@ -217,7 +219,8 @@ func TestJWTVerifyClaims(t *testing.T) {
 	gw := e.mkGateway(t, "claims")
 	e.mkDeployment(t, *gw.Id, "/c", authSpec(
 		`{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+`]}`,
-		`"isAnonymousAccessAllowed":true,"verifyClaims":[{"key":"tier","values":["gold","silver"]},{"key":"dept","isRequired":false,"values":["eng"]}],`,
+		`"isAnonymousAccessAllowed":true,"verifyClaims":[{"key":"tier","values":["gold","silver"]},`+
+		`{"key":"dept","isRequired":false,"values":["eng"]}],`,
 	))
 	now := e.clock.Now()
 
@@ -403,7 +406,8 @@ func TestCustomAuthenticator(t *testing.T) {
 		*gw.Id,
 		"/b",
 		`{"requestPolicies":{"authentication":{"type":"CUSTOM_AUTHENTICATION","functionId":"`+testFunction+
-			`","tokenHeader":"X-Auth","parameters":{"key":"request.headers[X-Key]"}}},"routes":[`+stock("/x", `"GET"`, "ok")+`]}`,
+			`","tokenHeader":"X-Auth","parameters":{"key":"request.headers[X-Key]"}}},`+
+			`"routes":[`+stock("/x", `"GET"`, "ok")+`]}`,
 	)
 
 	assert.Equal(

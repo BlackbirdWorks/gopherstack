@@ -32,9 +32,9 @@ const (
 )
 
 var (
-	errNoKey     = errors.New("no matching signing key")
-	errClaim     = errors.New("claim validation failed")
-	errKeyFormat = errors.New("unsupported key")
+	errNoKey      = errors.New("no matching signing key")
+	errClaim      = errors.New("claim validation failed")
+	errKeyFormat  = errors.New("unsupported key")
 	errJWKSStatus = errors.New("jwks endpoint answered")
 )
 

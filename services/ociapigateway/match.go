@@ -160,7 +160,8 @@ func checkDuplicateRoutes(routes []*compiledRoute) *APIError {
 }
 
 // sortRoutes orders routes most specific first: at the first segment where two routes differ, a literal
-// beats a parameter, which beats a wildcard; at a shared prefix the shorter (exact) template wins over a trailing wildcard.
+// beats a parameter, which beats a wildcard; at a shared prefix the shorter (exact) template wins
+// over a trailing wildcard.
 func sortRoutes(routes []*compiledRoute) {
 	slices.SortStableFunc(routes, func(a, b *compiledRoute) int {
 		for i := 0; i < len(a.segs) && i < len(b.segs); i++ {

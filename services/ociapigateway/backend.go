@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	errBackendURL = errors.New("invalid backend url")
+	errBackendURL  = errors.New("invalid backend url")
 	errNoFunctions = errors.New("OCI Functions is not available")
 )
 
@@ -164,13 +164,18 @@ func (b *InMemoryBackend) httpBackend(
 	copyRequestHeaders(out.Header, rv.header)
 	out.Header.Set("X-Forwarded-For", clientKey(r))
 
-	resp, err := b.client.Do(out) //nolint:gosec // G704: the client dials only loopback unless external backends are enabled
+	resp, err := b.client.Do(out) //nolint:gosec // G704: dials loopback only unless external backends are enabled
 	if err != nil {
 		cancel()
 
 		return backendResponse{err: err}
 	}
 
+	return wrapResponse(resp, cancel)
+}
+
+// wrapResponse hands the body to the caller; cancelBody.Close closes it and cancels the request context.
+func wrapResponse(resp *http.Response, cancel context.CancelFunc) backendResponse {
 	h := http.Header{}
 
 	for k, vs := range resp.Header {
@@ -179,7 +184,11 @@ func (b *InMemoryBackend) httpBackend(
 		}
 	}
 
-	return backendResponse{status: resp.StatusCode, header: h, body: &cancelBody{ReadCloser: resp.Body, cancel: cancel}}
+	return backendResponse{
+		status: resp.StatusCode,
+		header: h,
+		body:   &cancelBody{ReadCloser: resp.Body, cancel: cancel},
+	}
 }
 
 func appendQuery(u *url.URL, q string) {
@@ -273,7 +282,8 @@ func containsStr(list []string, s string) bool {
 	return slices.Contains(list, s)
 }
 
-// wildcardMatch matches a selection key with one '*' (zero or more characters) or '+' (one or more) at its start or end.
+// wildcardMatch matches a key with one '*' (zero or more characters) or '+' (one or more)
+// at its start or end.
 func wildcardMatch(expr, val string) bool {
 	switch {
 	case strings.HasPrefix(expr, "*"):

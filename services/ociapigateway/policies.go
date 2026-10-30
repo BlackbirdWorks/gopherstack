@@ -103,23 +103,37 @@ func transformHeaders(h http.Header, t *transformDoc, rv *reqView) {
 	}
 
 	if t.RenameHeaders != nil {
-		for _, it := range t.RenameHeaders.Items {
-			from := http.CanonicalHeaderKey(it.From)
-			if vs, ok := h[from]; ok {
-				delete(h, from)
-				h[http.CanonicalHeaderKey(it.To)] = vs
-			}
-		}
+		renameKeys(h, t.RenameHeaders.Items, http.CanonicalHeaderKey)
 	}
 
 	if t.SetHeaders != nil {
-		for _, it := range t.SetHeaders.Items {
-			key := http.CanonicalHeaderKey(it.Name)
-			if prepareSet(h, key, it.IfExists) {
-				for _, v := range it.Values {
-					h.Add(key, rv.interpolate(v, nil))
-				}
-			}
+		setValues(h, t.SetHeaders.Items, http.CanonicalHeaderKey, rv, h.Add)
+	}
+}
+
+// renameKeys moves values from each item's From key to its To key.
+func renameKeys(m map[string][]string, items []renameItem, norm func(string) string) {
+	for _, it := range items {
+		from := norm(it.From)
+		if vs, ok := m[from]; ok {
+			delete(m, from)
+			m[norm(it.To)] = vs
+		}
+	}
+}
+
+// setValues applies set items honouring ifExists; add appends one value to a key.
+func setValues(
+	m map[string][]string, items []setItem, norm func(string) string, rv *reqView, add func(k, v string),
+) {
+	for _, it := range items {
+		key := norm(it.Name)
+		if !prepareSet(m, key, it.IfExists) {
+			continue
+		}
+
+		for _, v := range it.Values {
+			add(key, rv.interpolate(v, nil))
 		}
 	}
 }
@@ -160,21 +174,12 @@ func transformQuery(q url.Values, t *transformDoc, rv *reqView) {
 	}
 
 	if t.RenameQuery != nil {
-		for _, it := range t.RenameQuery.Items {
-			if vs, ok := q[it.From]; ok {
-				delete(q, it.From)
-				q[it.To] = vs
-			}
-		}
+		renameKeys(q, t.RenameQuery.Items, identity)
 	}
 
 	if t.SetQuery != nil {
-		for _, it := range t.SetQuery.Items {
-			if prepareSet(q, it.Name, it.IfExists) {
-				for _, v := range it.Values {
-					q.Add(it.Name, rv.interpolate(v, nil))
-				}
-			}
-		}
+		setValues(q, t.SetQuery.Items, identity, rv, q.Add)
 	}
 }
+
+func identity(s string) string { return s }
