@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/run/apiv2/runpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 )
 
@@ -62,9 +63,9 @@ func (b *InMemoryBackend) serveIngress(w http.ResponseWriter, r *http.Request) {
 		code := http.StatusBadGateway
 
 		switch {
-		case errors.Is(err, errNoRuntime), errors.Is(err, errRevisionGone), errors.Is(err, errRetired):
+		case errors.Is(err, errNoRuntime), errors.Is(err, errRevisionGone), errors.Is(err, gcpscale.ErrRetired):
 			code = http.StatusServiceUnavailable
-		case errors.Is(err, errQueueTimeout):
+		case errors.Is(err, gcpscale.ErrSaturated):
 			code = http.StatusTooManyRequests
 		}
 
