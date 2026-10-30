@@ -3,6 +3,7 @@ package batch_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,8 +30,8 @@ func TestExecHostLossAfterRestore(t *testing.T) {
 		{
 			name:         "attempts requeue",
 			retry:        &batch.RetryStrategy{Attempts: 3},
-			wantStatus:   "RUNNABLE",
-			wantAttempts: 1,
+			wantStatus:   "RUNNING",
+			wantAttempts: 2,
 		},
 		{
 			name: "exit on host status reason",
@@ -47,8 +48,8 @@ func TestExecHostLossAfterRestore(t *testing.T) {
 				{Action: "RETRY", OnStatusReason: "Host EC2*"},
 				{Action: "EXIT", OnReason: "*"},
 			}},
-			wantStatus:   "RUNNABLE",
-			wantAttempts: 1,
+			wantStatus:   "RUNNING",
+			wantAttempts: 2,
 		},
 		{
 			name:         "attempts exhausted",
@@ -72,16 +73,26 @@ func TestExecHostLossAfterRestore(t *testing.T) {
 
 			b2 := batch.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b2.Restore(context.Background(), snap))
-			r2 := &fakeRunner{}
+			r2 := &fakeRunner{behave: func(int, batch.ContainerSpec) fakeResult { return fakeResult{block: true} }}
 			b2.SetContainerRunner(r2)
 			b2.SetJobLogSink(&fakeSink{})
 			b2.SetExecutionEndpoint("http://host.docker.internal:4566")
 			t.Cleanup(b2.StopExecution)
 			b2.DispatchJobs()
 
-			got := b2.DescribeJobs(context.Background(), []string{job.JobID})
-			require.Len(t, got, 1)
-			j := got[0]
+			describe := func() *batch.Job {
+				got := b2.DescribeJobs(context.Background(), []string{job.JobID})
+				require.Len(t, got, 1)
+
+				return got[0]
+			}
+
+			if tt.wantStatus == "RUNNING" {
+				require.Eventually(t, func() bool { return describe().Status == "RUNNING" },
+					10*time.Second, time.Millisecond)
+			}
+
+			j := describe()
 
 			assert.Equal(t, tt.wantReason, j.StatusReason)
 			require.Len(t, j.Attempts, tt.wantAttempts)
@@ -100,7 +111,8 @@ func TestExecHostLossAfterRestore(t *testing.T) {
 				return
 			}
 
-			assert.Contains(t, []string{"RUNNABLE", "STARTING", "RUNNING"}, j.Status)
+			assert.Equal(t, "RUNNING", j.Status)
+			assert.Nil(t, j.Attempts[1].StoppedAt)
 		})
 	}
 }
