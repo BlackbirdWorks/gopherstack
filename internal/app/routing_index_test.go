@@ -224,6 +224,7 @@ func TestRoutePathGatesHold(t *testing.T) {
 
 			covered := func(rc routingCase) bool {
 				path, _ := splitURI(rc.uri)
+				path = "/" + strings.TrimLeft(path, "/")
 
 				return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(path, p) })
 			}
@@ -368,6 +369,24 @@ func TestRoutingRPCv2CBORGates(t *testing.T) {
 	}
 }
 
+func gatePrefixCases(rc routingCase, prefixes []string) []routingCase {
+	out := make([]routingCase, 0, 9*len(prefixes))
+
+	for _, p := range prefixes {
+		rest := strings.TrimLeft(p, "/")
+
+		for _, lead := range []string{"/", "//", "///"} {
+			for _, tail := range []string{"", "/x", "x"} {
+				v := rc
+				v.uri = lead + rest + tail
+				out = append(out, v)
+			}
+		}
+	}
+
+	return out
+}
+
 func TestRoutingIndexLeadingSlashes(t *testing.T) {
 	t.Parallel()
 
@@ -389,28 +408,24 @@ func TestRoutingIndexLeadingSlashes(t *testing.T) {
 		}
 	}
 
+	for _, prefixes := range routegates.PathGates() {
+		for _, method := range []string{"GET", "POST", "PUT", "DELETE"} {
+			base := routingCase{method: method, host: "localhost:4566"}
+			cases = append(cases, gatePrefixCases(base, prefixes)...)
+		}
+	}
+
 	if testing.Short() {
 		cases = strideSample(cases, indexShortStride)
 	}
 
 	var diffs []string
 
-	trimmed := []string{
-		"ARCZonalShift", "BedrockAgentCore", "Route53RecoveryControlConfig", "Route53RecoveryReadiness",
-		"MGN", "OAM", "ResilienceHub",
-	}
-
-	for _, name := range trimmed {
-		assert.Contains(t, routegates.PathGates()[name], "//", "%s trims leading slashes before matching", name)
-	}
-
 	for _, rc := range cases {
 		scan := scanSelect(entries, echo.NewContext(rc.request(t), httptest.NewRecorder()))
 		got := entryName(router.Lookup(echo.NewContext(rc.request(t), httptest.NewRecorder())))
 
-		involved := slices.Contains(trimmed, scan) || slices.Contains(trimmed, got)
-
-		if got != scan && involved && len(diffs) < routingMaxDiffs {
+		if got != scan && len(diffs) < routingMaxDiffs {
 			diffs = append(diffs, rc.method+" "+rc.host+rc.uri+": got "+got+" want "+scan)
 		}
 	}
