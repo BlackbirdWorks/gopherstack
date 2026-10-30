@@ -29,6 +29,8 @@ type fakeACIRuntime struct {
 	boxes   map[string]*fakeBox
 	scripts map[string][]int
 	onStart func(spec container.Spec)
+	execFn  func(spec container.Spec, cmd []string) int
+	logs    map[string]string
 	creds   map[string]*azurearm.ACICredential
 	specs   []container.Spec
 	pulls   []string
@@ -38,7 +40,7 @@ type fakeACIRuntime struct {
 
 func newFakeACIRuntime() *fakeACIRuntime {
 	return &fakeACIRuntime{
-		boxes: map[string]*fakeBox{}, scripts: map[string][]int{}, creds: map[string]*azurearm.ACICredential{},
+		boxes: map[string]*fakeBox{}, scripts: map[string][]int{}, logs: map[string]string{}, creds: map[string]*azurearm.ACICredential{},
 	}
 }
 
@@ -107,12 +109,37 @@ func (f *fakeACIRuntime) Logs(_ context.Context, id, tail string) (string, error
 		return "", errFakeBox
 	}
 
+	f.mu.Lock()
+	override, ok := f.logs[b.spec.Image]
+	f.mu.Unlock()
+
+	if ok {
+		return override, nil
+	}
+
 	lines := []string{"starting " + b.spec.Image, "line two", "line three"}
 	if tail == "1" {
 		lines = lines[2:]
 	}
 
 	return strings.Join(lines, "\n") + "\n", nil
+}
+
+func (f *fakeACIRuntime) Exec(_ context.Context, id string, cmd []string) (int, error) {
+	f.mu.Lock()
+	b := f.boxes[id]
+	fn := f.execFn
+	f.mu.Unlock()
+
+	if b == nil || b.removed {
+		return 0, errFakeBox
+	}
+
+	if fn == nil {
+		return 0, nil
+	}
+
+	return fn(b.spec, cmd), nil
 }
 
 func (f *fakeACIRuntime) Remove(_ context.Context, id string) error {
@@ -156,7 +183,10 @@ func (f *fakeACIRuntime) credFor(ref string) *azurearm.ACICredential {
 	return f.creds[ref]
 }
 
-var _ azurearm.ACIRuntime = (*fakeACIRuntime)(nil)
+var (
+	_ azurearm.ACIRuntime     = (*fakeACIRuntime)(nil)
+	_ azurearm.ACIExecRuntime = (*fakeACIRuntime)(nil)
+)
 
 type fakeShares struct {
 	trees map[string]azurearm.ACIShareTree

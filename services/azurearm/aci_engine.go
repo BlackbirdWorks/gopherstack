@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,7 @@ const (
 var (
 	ErrACIGroupNotFound     = errors.New("azurearm: container group not found")
 	ErrACIContainerNotFound = errors.New("azurearm: container not found in the group")
+	errACIInitFailed        = errors.New("exited unsuccessfully")
 	ErrACINotRunning        = errors.New("azurearm: container has no logs: never started, or the group is stopped")
 )
 
@@ -80,6 +82,7 @@ type ACIView struct {
 	Failure    string
 	Events     []ACIEvent
 	Containers []ACIContainerView
+	Inits      []ACIContainerView
 }
 
 type aciConfig struct {
@@ -98,6 +101,8 @@ type aciCont struct {
 	id       string
 	events   []ACIEvent
 	restarts int
+	notReady bool
+	killed   bool
 }
 
 type shareMount struct {
@@ -113,8 +118,15 @@ type aciRun struct {
 	rt        ACIRuntime
 	hostPorts map[int]int
 	scratch   map[string]string
+	resolv    string
 	failure   string
+	backPorts map[int]int
 	conts     []*aciCont
+	inits     []*aciCont
+	initRetry chan struct{}
+	retryOnce sync.Once
+	gateConns []net.Conn
+	owned     []int
 	events    []ACIEvent
 	shares    []shareMount
 	allDirs   []string
@@ -134,6 +146,8 @@ type ACIEngine struct {
 	mu       *lockmetrics.RWMutex
 	runs     map[string]*aciRun
 	onClose  func()
+	pause    func(ctx context.Context, d time.Duration) bool
+	httpProbe func(ctx context.Context, p ACIHTTPProbe) (int, error)
 	disabled string
 	nonce    string
 	startup  time.Duration
@@ -144,11 +158,14 @@ type ACIEngine struct {
 func NewACIEngine(runtime func() (ACIRuntime, error), disabledReason string) *ACIEngine {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &ACIEngine{
+	e := &ACIEngine{
 		ctx: ctx, cancel: cancel, runtime: runtime, disabled: disabledReason, now: time.Now,
 		mu: lockmetrics.New("azurearm.aci"), runs: map[string]*aciRun{}, startup: aciDefaultStartup,
-		backoff: defaultACIBackoff, nonce: awsid.NewN("", aciNonceLen) + "-",
+		backoff: defaultACIBackoff, nonce: awsid.NewN("", aciNonceLen) + "-", httpProbe: defaultACIHTTPProbe,
 	}
+	e.pause = e.sleep
+
+	return e
 }
 
 func defaultACIBackoff(restarts int) time.Duration {
@@ -246,13 +263,21 @@ func (e *ACIEngine) resolveRuntime() (ACIRuntime, string) {
 func (e *ACIEngine) Deploy(cfg aciConfig) {
 	e.Remove(cfg.Key)
 
-	run := &aciRun{hostPorts: map[int]int{}, scratch: map[string]string{}}
+	run := &aciRun{
+		hostPorts: map[int]int{}, backPorts: map[int]int{}, scratch: map[string]string{},
+		initRetry: make(chan struct{}),
+	}
 	run.ctx, run.cancel = context.WithCancel(e.ctx)
 
 	for _, c := range cfg.Props.Containers {
 		run.conts = append(run.conts, &aciCont{
 			name: c.Name, ready: make(chan struct{}), cur: ACIState{State: aciStateWaiting},
+			notReady: c.Properties.ReadinessProbe != nil,
 		})
+	}
+
+	for _, ic := range cfg.Props.InitContainers {
+		run.inits = append(run.inits, &aciCont{name: ic.Name, cur: ACIState{State: aciStateWaiting}})
 	}
 
 	e.mu.Lock("Deploy")
@@ -271,8 +296,10 @@ func (e *ACIEngine) Deploy(cfg aciConfig) {
 		return
 	}
 
-	for i, c := range run.conts {
-		run.wg.Go(func() { e.supervise(run, cfg, i, c) })
+	if len(run.inits) > 0 {
+		run.wg.Go(func() { e.initThenApps(run, cfg) })
+	} else {
+		e.startApps(run, cfg)
 	}
 
 	e.awaitStart(run)
@@ -300,6 +327,8 @@ func (e *ACIEngine) awaitStart(run *aciRun) {
 	for _, c := range run.conts {
 		select {
 		case <-c.ready:
+		case <-run.initRetry:
+			return
 		case <-timer.C:
 			e.fail(run, fmt.Sprintf("containers did not start within %s", limit))
 
@@ -365,16 +394,37 @@ func (e *ACIEngine) containerSpec(run *aciRun, cfg aciConfig, c aciContainerWire
 		spec.Mounts = append(spec.Mounts, bind)
 	}
 
-	for _, pt := range p.Ports {
-		if hp, ok := run.hostPorts[pt.Port]; ok {
+	for _, port := range publishedPorts(p) {
+		if hp, ok := run.backPorts[port]; ok {
 			spec.Ports = append(
 				spec.Ports,
-				container.PortSpec(container.LoopbackHost, strconv.Itoa(hp), strconv.Itoa(pt.Port)),
+				container.PortSpec(container.LoopbackHost, strconv.Itoa(hp), strconv.Itoa(port)),
 			)
 		}
 	}
 
+	if run.resolv != "" {
+		spec.Mounts = append(spec.Mounts, run.resolv+":/etc/resolv.conf:ro")
+	}
+
 	return spec
+}
+
+// publishedPorts lists a container's declared ports plus its HTTP probe ports, once each.
+func publishedPorts(p aciContainerPropsWire) []int {
+	var out []int
+
+	for _, pt := range p.Ports {
+		out = append(out, pt.Port)
+	}
+
+	for _, pr := range []*aciProbeWire{p.LivenessProbe, p.ReadinessProbe} {
+		if pr != nil && pr.HTTPGet != nil && !slices.Contains(out, pr.HTTPGet.Port) {
+			out = append(out, pr.HTTPGet.Port)
+		}
+	}
+
+	return out
 }
 
 func limitsOf(r *aciResourcesWire) *aciResourceWire {
@@ -396,8 +446,7 @@ func (r *aciRun) readOnlyVolume(cfg aciConfig, name string) bool {
 }
 
 // launch pulls the image if needed and starts one container; it returns the container ID.
-func (e *ACIEngine) launch(run *aciRun, cfg aciConfig, idx int, c *aciCont) (string, error) {
-	wire := cfg.Props.Containers[idx]
+func (e *ACIEngine) launch(run *aciRun, cfg aciConfig, wire aciContainerWire, c *aciCont) (string, error) {
 	image := wire.Properties.Image
 
 	e.mu.Lock("launch")
@@ -453,18 +502,28 @@ func restartWanted(policy string, exit int) bool {
 	return false
 }
 
+// startApps launches the app containers' supervisors.
+func (e *ACIEngine) startApps(run *aciRun, cfg aciConfig) {
+	for i, c := range run.conts {
+		wire := cfg.Props.Containers[i]
+
+		run.wg.Go(func() { e.supervise(run, cfg, wire, c) })
+	}
+}
+
 // supervise runs one container and applies the group's restart policy until it ends or the group is torn down.
-func (e *ACIEngine) supervise(run *aciRun, cfg aciConfig, idx int, c *aciCont) {
+func (e *ACIEngine) supervise(run *aciRun, cfg aciConfig, wire aciContainerWire, c *aciCont) {
 	first := true
 
 	for {
-		id, err := e.launch(run, cfg, idx, c)
+		id, err := e.launch(run, cfg, wire, c)
 
 		e.mu.Lock("supervise")
 		if err == nil {
 			c.id = id
 			now := e.now().UTC()
 			c.cur = ACIState{State: aciStateRunning, StartTime: &now}
+			c.notReady = wire.Properties.ReadinessProbe != nil
 		} else {
 			c.cur = ACIState{State: aciStateWaiting, Detail: err.Error()}
 			e.record(&c.events, aciEventWarning, aciStateFailed, err.Error())
@@ -482,23 +541,57 @@ func (e *ACIEngine) supervise(run *aciRun, cfg aciConfig, idx int, c *aciCont) {
 			return
 		}
 
-		code, werr := run.rt.Wait(run.ctx, id)
-		if werr != nil {
-			e.noteWaitFailure(run, c, werr)
-
+		code, killed, ok := e.runInstance(run, cfg, wire, c, id)
+		if !ok {
 			return
 		}
 
-		if !e.afterExit(run, cfg, c, code) {
+		if !e.afterExit(run, cfg, c, code, killed) {
 			return
 		}
 
-		e.removeContainer(run, c, id)
+		if !killed {
+			e.removeContainer(run, c, id)
+		}
 
 		if !e.sleep(run.ctx, e.backoffFor(c)) {
 			return
 		}
 	}
+}
+
+// runInstance waits for the container to exit while its probes run; killed reports a liveness kill.
+func (e *ACIEngine) runInstance(
+	run *aciRun, cfg aciConfig, wire aciContainerWire, c *aciCont, id string,
+) (int, bool, bool) {
+	ictx, cancel := context.WithCancel(run.ctx)
+	defer cancel()
+
+	e.startProbes(ictx, run, cfg, wire, c, id)
+
+	code, err := run.rt.Wait(run.ctx, id)
+
+	e.mu.Lock("runInstance")
+	killed := c.killed
+	c.killed = false
+
+	if killed {
+		c.id = ""
+	}
+	c.notReady = wire.Properties.ReadinessProbe != nil
+	e.mu.Unlock()
+
+	if err != nil && killed {
+		return aciKilledExit, true, true
+	}
+
+	if err != nil {
+		e.noteWaitFailure(run, c, err)
+
+		return 0, false, false
+	}
+
+	return code, killed, true
 }
 
 func (e *ACIEngine) noteWaitFailure(run *aciRun, c *aciCont, err error) {
@@ -515,7 +608,7 @@ func (e *ACIEngine) noteWaitFailure(run *aciRun, c *aciCont, err error) {
 }
 
 // afterExit records the exit and reports whether the container should be restarted.
-func (e *ACIEngine) afterExit(run *aciRun, cfg aciConfig, c *aciCont, code int) bool {
+func (e *ACIEngine) afterExit(run *aciRun, cfg aciConfig, c *aciCont, code int, killed bool) bool {
 	now := e.now().UTC()
 
 	e.mu.Lock("afterExit")
@@ -528,7 +621,8 @@ func (e *ACIEngine) afterExit(run *aciRun, cfg aciConfig, c *aciCont, code int) 
 	}
 
 	c.cur = prev
-	restart := run.ctx.Err() == nil && restartWanted(cfg.Props.RestartPolicy, code)
+	restart := run.ctx.Err() == nil && (restartWanted(cfg.Props.RestartPolicy, code) ||
+		killed && cfg.Props.RestartPolicy != aciRestartNever)
 
 	if restart {
 		c.restarts++
@@ -588,8 +682,9 @@ func (e *ACIEngine) teardown(run *aciRun) {
 	run.wg.Wait()
 
 	e.mu.Lock("teardown")
-	ids := make([]*aciCont, 0, len(run.conts))
+	ids := make([]*aciCont, 0, len(run.conts)+len(run.inits))
 	ids = append(ids, run.conts...)
+	ids = append(ids, run.inits...)
 	e.mu.Unlock()
 
 	for _, c := range ids {
@@ -608,7 +703,7 @@ func (e *ACIEngine) teardown(run *aciRun) {
 	e.mu.Lock("teardown")
 	now := e.now().UTC()
 
-	for _, c := range run.conts {
+	for _, c := range slices.Concat(run.conts, run.inits) {
 		if c.cur.State != aciStateTerminated {
 			c.cur = ACIState{State: aciStateTerminated, FinishTime: &now, Detail: "Stopped"}
 		}
@@ -720,7 +815,7 @@ func (e *ACIEngine) Logs(ctx context.Context, key, name string, tail int) (strin
 	if run != nil {
 		rt = run.rt
 
-		for _, c := range run.conts {
+		for _, c := range slices.Concat(run.conts, run.inits) {
 			if strings.EqualFold(c.name, name) {
 				id, ok = c.id, true
 			}
@@ -763,16 +858,24 @@ func (e *ACIEngine) View(key string) (ACIView, bool) {
 	maps.Copy(v.HostPorts, run.hostPorts)
 
 	for _, c := range run.conts {
-		cv := ACIContainerView{Name: c.name, Restarts: c.restarts, Cur: c.cur, Events: slices.Clone(c.events)}
-		if c.prev != nil {
-			p := *c.prev
-			cv.Prev = &p
-		}
+		v.Containers = append(v.Containers, viewOf(c))
+	}
 
-		v.Containers = append(v.Containers, cv)
+	for _, c := range run.inits {
+		v.Inits = append(v.Inits, viewOf(c))
 	}
 
 	return v, true
+}
+
+func viewOf(c *aciCont) ACIContainerView {
+	cv := ACIContainerView{Name: c.name, Restarts: c.restarts, Cur: c.cur, Events: slices.Clone(c.events)}
+	if c.prev != nil {
+		p := *c.prev
+		cv.Prev = &p
+	}
+
+	return cv
 }
 
 func groupState(run *aciRun) string {

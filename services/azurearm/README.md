@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
 | Feature families | 16 (16 ok) |
-| Known gaps | 57 |
+| Known gaps | 58 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -46,7 +46,8 @@
 - Container Apps: restored revisions have no replicas until their first request (or a restart), even with minReplicas above 0.
 - Container Apps: getAuthtoken, listCustomHostNameAnalysis, diagnostics, authConfigs, daprComponents, certificates, sourcecontrols, javaComponents and sessionPools are not modelled (the generic store keeps what is PUT); the operation status URL is locations/{loc}/operations/{id} rather than the service's containerappOperationStatuses path.
 - Container Instances: interactive exec and attach need a websocket terminal session; both answer 501 NotImplemented.
-- Container Instances: not supported and rejected with 400 InvalidRequestContent: Windows containers, gitRepo volumes, GPUs, liveness/readiness probes, init containers, zones, subnet and DNS configuration, diagnostics, confidential/dedicated SKUs, spot priority, encryption, extensions, UDP ports.
+- Container Instances: not supported and rejected with 400 InvalidRequestContent: Windows containers (no Windows container runtime), GPUs (the ACI GPU preview is retired as of 2025-07-14 per Learn resource-and-quota-limits), confidential/dedicated SKUs, spot priority, encryption, extensions, UDP ports, init container securityContext.
+- Container Instances (unverified, no primary source found): the single-zone rule and the 1/2/3 zone values come from the ARM schema and memory of the zones article, which Learn no longer serves at the URL tried; dnsConfig requirements (at most 3 nameservers, no subnet needed) and the 400 text for subnet and probe validation are not confirmed; a group with zones accepts any location; init container restarts under Always/OnFailure retry forever instead of the platform's documented limits; Private addresses are still 127.0.0.1 and a delegated subnet is not reserved or checked for address space; diagnostics are stored but no logs are sent to Log Analytics; readiness gating drops connections rather than leaving them hanging; HTTP probes only reach loopback-published ports.
 - Container Instances: azureFile volumes are copied from the Azure Files share when the containers start and written back when a container exits and when the group stops or is deleted, not synchronized live; the storage account key is accepted without being checked.
 - Container Instances: the group address is 127.0.0.1 and ports are published on pool-assigned host ports (reported in a PortPublished event), not on the declared port numbers; Private addresses behave the same.
 - Container Instances: restarting a failed container under Never is not done (the platform may restart it); the restart back-off starts at 10s and caps at 5 minutes. Resource requests are validated but only limits are enforced, and per-group CPU/memory maxima are not checked.

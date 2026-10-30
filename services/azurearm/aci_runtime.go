@@ -15,6 +15,7 @@ import (
 var (
 	errACINoExitStatus = errors.New("the container runtime cannot report exit status")
 	errACINoLogs       = errors.New("the container runtime cannot read logs")
+	errACINoExec       = errors.New("the container runtime cannot run commands in a container")
 	errACINoCredPull   = errors.New("the container runtime cannot pull with registry credentials")
 )
 
@@ -119,4 +120,19 @@ func credentialFor(ref string, creds []aciCredWire) *ACICredential {
 	}
 
 	return nil
+}
+
+// Exec runs cmd in the container and returns its exit code; probes use it.
+func (d dockerACIRuntime) Exec(ctx context.Context, id string, cmd []string) (int, error) {
+	x, ok := d.r.(container.Execer)
+	if !ok {
+		return 0, errACINoExec
+	}
+
+	res, err := x.Exec(ctx, id, cmd)
+	if err != nil {
+		return 0, fmt.Errorf("exec in container: %w", err)
+	}
+
+	return res.ExitCode, nil
 }

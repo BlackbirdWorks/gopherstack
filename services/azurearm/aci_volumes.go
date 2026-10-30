@@ -68,21 +68,134 @@ func (e *ACIEngine) prepare(run *aciRun, cfg aciConfig) string {
 		}
 	}
 
-	if cfg.Props.IPAddress == nil {
+	if reason := e.prepareDNS(run, cfg); reason != "" {
+		return reason
+	}
+
+	return e.preparePorts(run, cfg, pool)
+}
+
+func (e *ACIEngine) prepareDNS(run *aciRun, cfg aciConfig) string {
+	d := cfg.Props.DNSConfig
+	if d == nil {
 		return ""
 	}
 
-	for _, pt := range cfg.Props.IPAddress.Ports {
-		hp, err := gcpserve.AcquirePort(run.ctx, pool, "azurearm-aci")
-		if err != nil {
-			return fmt.Sprintf("allocate host port for %d: %v", pt.Port, err)
-		}
+	dir, err := mkACIScratch()
+	if err != nil {
+		return err.Error()
+	}
 
-		e.mu.Lock("prepare")
-		run.hostPorts[pt.Port] = hp
-		e.record(&run.events, aciEventNormal, "PortPublished",
-			fmt.Sprintf("port %d/TCP is published on 127.0.0.1:%d", pt.Port, hp))
-		e.mu.Unlock()
+	path := filepath.Join(dir, "resolv.conf")
+
+	e.mu.Lock("prepareDNS")
+	run.allDirs = append(run.allDirs, dir)
+	run.resolv = path
+	e.mu.Unlock()
+
+	if err = os.WriteFile(path, []byte(resolvConf(d)), aciFilePerm); err != nil {
+		return fmt.Sprintf("write resolv.conf: %v", err)
+	}
+
+	return ""
+}
+
+func resolvConf(d *aciDNSWire) string {
+	var b strings.Builder
+
+	for _, ns := range d.NameServers {
+		b.WriteString("nameserver " + ns + "\n")
+	}
+
+	if d.SearchDomains != "" {
+		b.WriteString("search " + d.SearchDomains + "\n")
+	}
+
+	if d.Options != "" {
+		b.WriteString("options " + d.Options + "\n")
+	}
+
+	return b.String()
+}
+
+func hasReadinessProbe(cfg aciConfig) bool {
+	for _, c := range cfg.Props.Containers {
+		if c.Properties.ReadinessProbe != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (e *ACIEngine) acquire(run *aciRun, pool ACIPortPool) (int, error) {
+	hp, err := gcpserve.AcquirePort(run.ctx, pool, "azurearm-aci")
+	if err != nil {
+		return 0, err //nolint:wrapcheck // callers add the port context
+	}
+
+	e.mu.Lock("acquire")
+	run.owned = append(run.owned, hp)
+	e.mu.Unlock()
+
+	return hp, nil
+}
+
+// preparePorts publishes the group address ports, fronts them with a readiness gate when a container has a
+// readiness probe, and publishes the HTTP probe ports; it returns a failure reason or "".
+func (e *ACIEngine) preparePorts(run *aciRun, cfg aciConfig, pool ACIPortPool) string {
+	gate := cfg.Props.IPAddress != nil && hasReadinessProbe(cfg)
+
+	if ip := cfg.Props.IPAddress; ip != nil {
+		for _, pt := range ip.Ports {
+			front, err := e.acquire(run, pool)
+			if err != nil {
+				return fmt.Sprintf("allocate host port for %d: %v", pt.Port, err)
+			}
+
+			back := front
+
+			if gate {
+				if back, err = e.acquire(run, pool); err == nil {
+					err = e.startGate(run, front, back)
+				}
+
+				if err != nil {
+					return fmt.Sprintf("readiness gate for port %d: %v", pt.Port, err)
+				}
+			}
+
+			e.mu.Lock("preparePorts")
+			run.hostPorts[pt.Port], run.backPorts[pt.Port] = front, back
+			e.record(&run.events, aciEventNormal, "PortPublished",
+				fmt.Sprintf("port %d/TCP is published on 127.0.0.1:%d", pt.Port, front))
+			e.mu.Unlock()
+		}
+	}
+
+	return e.prepareProbePorts(run, cfg, pool)
+}
+
+func (e *ACIEngine) prepareProbePorts(run *aciRun, cfg aciConfig, pool ACIPortPool) string {
+	for _, c := range cfg.Props.Containers {
+		for _, port := range publishedPorts(c.Properties) {
+			e.mu.RLock("prepareProbePorts")
+			_, have := run.backPorts[port]
+			e.mu.RUnlock()
+
+			if have {
+				continue
+			}
+
+			hp, err := e.acquire(run, pool)
+			if err != nil {
+				return fmt.Sprintf("allocate host port for probe port %d: %v", port, err)
+			}
+
+			e.mu.Lock("prepareProbePorts")
+			run.backPorts[port] = hp
+			e.mu.Unlock()
+		}
 	}
 
 	return ""
@@ -99,6 +212,8 @@ func (e *ACIEngine) fillVolume(run *aciRun, v aciVolumeWire, dir string, shares 
 		}
 	case v.AzureFile != nil:
 		return e.fillAzureFile(run, v, dir, shares)
+	case v.GitRepo != nil:
+		return e.fillGitRepo(run, v, dir)
 	}
 
 	return ""
@@ -209,8 +324,8 @@ func readACITree(root string) (ACIShareTree, error) {
 // releaseResources removes volume directories and returns host ports; safe to call twice.
 func (e *ACIEngine) releaseResources(run *aciRun) {
 	e.mu.Lock("releaseResources")
-	dirs, ports, pool := run.allDirs, run.hostPorts, e.ports
-	run.allDirs, run.hostPorts, run.shares = nil, map[int]int{}, nil
+	dirs, ports, pool := run.allDirs, run.owned, e.ports
+	run.allDirs, run.hostPorts, run.backPorts, run.owned, run.shares = nil, map[int]int{}, map[int]int{}, nil, nil
 	e.mu.Unlock()
 
 	for _, d := range dirs {

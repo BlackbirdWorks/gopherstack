@@ -65,6 +65,8 @@ type aciContainerPropsWire struct {
 	Resources            *aciResourcesWire `json:"resources,omitempty"`
 	Ports                []aciPortWire     `json:"ports,omitempty"`
 	VolumeMounts         []aciMountWire    `json:"volumeMounts,omitempty"`
+	LivenessProbe        *aciProbeWire     `json:"livenessProbe,omitempty"`
+	ReadinessProbe       *aciProbeWire     `json:"readinessProbe,omitempty"`
 	InstanceView         json.RawMessage   `json:"instanceView,omitempty"`
 }
 
@@ -98,7 +100,7 @@ type aciVolumeWire struct {
 	EmptyDir  *json.RawMessage  `json:"emptyDir,omitempty"`
 	Secret    map[string]string `json:"secret,omitempty"`
 	AzureFile *aciAzureFileWire `json:"azureFile,omitempty"`
-	GitRepo   *json.RawMessage  `json:"gitRepo,omitempty"`
+	GitRepo   *aciGitRepoWire   `json:"gitRepo,omitempty"`
 	Name      string            `json:"name"`
 }
 
@@ -114,6 +116,10 @@ type aciPropsWire struct {
 	Containers               []aciContainerWire `json:"containers"`
 	ImageRegistryCredentials []aciCredWire      `json:"imageRegistryCredentials,omitempty"`
 	Volumes                  []aciVolumeWire    `json:"volumes,omitempty"`
+	InitContainers           []aciInitWire      `json:"initContainers,omitempty"`
+	SubnetIDs                []aciSubnetWire    `json:"subnetIds,omitempty"`
+	DNSConfig                *aciDNSWire        `json:"dnsConfig,omitempty"`
+	Diagnostics              *aciDiagnosticsWire `json:"diagnostics,omitempty"`
 }
 
 func aciUnsupported(what string) error {
@@ -163,6 +169,10 @@ func (p *aciPropsWire) normalize() error {
 		return err
 	}
 
+	if len(p.Containers) > aciMaxContainers {
+		return aciBad("a container group supports at most %d containers", aciMaxContainers)
+	}
+
 	names := map[string]bool{}
 	ports := map[int]bool{}
 
@@ -172,7 +182,19 @@ func (p *aciPropsWire) normalize() error {
 		}
 	}
 
+	if err = p.normalizeInit(vols, names); err != nil {
+		return err
+	}
+
 	if err = p.normalizeIP(ports); err != nil {
+		return err
+	}
+
+	if err = p.normalizeNetwork(); err != nil {
+		return err
+	}
+
+	if err = p.normalizeDiagnostics(); err != nil {
 		return err
 	}
 
@@ -246,9 +268,9 @@ func (v *aciVolumeWire) validate() error {
 
 	switch {
 	case kinds != 1:
-		return aciBad("volume %q must define exactly one of emptyDir, secret, azureFile", v.Name)
+		return aciBad("volume %q must define exactly one of emptyDir, secret, azureFile, gitRepo", v.Name)
 	case v.GitRepo != nil:
-		return aciUnsupported("gitRepo volumes")
+		return v.GitRepo.validate(v.Name)
 	case v.AzureFile != nil && (v.AzureFile.ShareName == "" || v.AzureFile.StorageAccountName == "" ||
 		v.AzureFile.StorageAccountKey == ""):
 		return aciBad("azureFile volume %q needs shareName, storageAccountName and storageAccountKey", v.Name)
@@ -293,7 +315,7 @@ func (c *aciContainerWire) normalize(vols, names map[string]bool, ports map[int]
 
 	c.Properties.InstanceView = nil
 
-	return nil
+	return c.normalizeProbes()
 }
 
 func (c *aciContainerWire) validateRuntime(vols map[string]bool) error {
@@ -306,20 +328,7 @@ func (c *aciContainerWire) validateRuntime(vols map[string]bool) error {
 		return aciBad("container %q needs resources.requests.cpu and memoryInGB", c.Name)
 	}
 
-	for _, e := range c.Properties.EnvironmentVariables {
-		if e.Name == "" || (e.Value == nil) == (e.SecureValue == nil) {
-			return aciBad("container %q environment variables need a name and exactly one of value or secureValue",
-				c.Name)
-		}
-	}
-
-	for _, m := range c.Properties.VolumeMounts {
-		if !vols[strings.ToLower(m.Name)] || !strings.HasPrefix(m.MountPath, "/") {
-			return aciBad("container %q has a volume mount for an unknown volume or a relative mountPath", c.Name)
-		}
-	}
-
-	return nil
+	return validateEnvMounts(c.Name, c.Properties.EnvironmentVariables, c.Properties.VolumeMounts, vols)
 }
 
 func normalizePort(pt *aciPortWire) error {

@@ -658,14 +658,6 @@ func TestACISDK_Validation(t *testing.T) {
 			"requests",
 		},
 		{func(g *armcontainerinstance.ContainerGroup) {
-			g.Properties.Volumes = []*armcontainerinstance.Volume{
-				{Name: new("g"), GitRepo: &armcontainerinstance.GitRepoVolume{Repository: new("https://x/y.git")}},
-			}
-		}, "gitrepo", "gitRepo"},
-		{func(g *armcontainerinstance.ContainerGroup) {
-			g.Properties.Containers[0].Properties.LivenessProbe = &armcontainerinstance.ContainerProbe{}
-		}, "probe", "livenessProbe"},
-		{func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.IPAddress = &armcontainerinstance.IPAddress{
 				Type:  new(armcontainerinstance.ContainerGroupIPAddressTypePublic),
 				Ports: []*armcontainerinstance.Port{{Port: new(int32(80))}},

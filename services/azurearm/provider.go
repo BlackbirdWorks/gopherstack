@@ -300,6 +300,8 @@ func registerContainerProviders(registry *Registry, backend *InMemoryBackend, en
 		network, _ = np.(*NetworkProvider)
 	}
 
+	aci.net = network
+
 	registry.Register(NewContainerAppsProvider(engine, backend, network, ids))
 }
 
