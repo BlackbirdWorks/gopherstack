@@ -104,6 +104,12 @@ Profile findings (cpu, alloc_space, alloc_objects, server side of the SDK round 
   matchers run first (DynamoDB is target-gated and runs 1). Each matcher is 100-200 ns;
   there is no cheap hot spot, only gating each matcher with its own prefix gate
   (`internal/routegates/path_gates.txt`), which needs a per-service proof.
+- OR-alternative gates (`routegates.AltGates`, `service.AltGate`: target, path prefix/suffix, host,
+  user-agent, content-type, query, SigV4 scope) cut S3 object lookups from 38 to 23 matchers;
+  path-bucketed prefix lists cut per-candidate gate checks. `BenchmarkRouterLookupS3Object`
+  (min over runs): Lookup about 2.3-2.9 us to 1.56 us; `ServerPath/s3_getobject` 24.2 to 21.7 us
+  (-10%, median -13%, p=0.017), `s3_putobject` 37.7 to 35.5 us. Still ungated: APIGateway
+  (custom-domain state), OpenSearch (endpoint strategy), query-protocol services.
 - `scan_filter_10k` is memory-latency bound in `expr.Evaluator` small-map lookups
   (`item[attr]`, then `{"N": ...}` unwrap); no allocation to remove.
 - `list_prefix_*`, `batchget_100`, `delete_objects_1000`: server frames are under 10% of CPU;

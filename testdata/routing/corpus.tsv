@@ -20224,3 +20224,1680 @@ DELETE	localhost:4566	//applications/xarn	app-integrations				User-Agent:aws-sdk
 DELETE	localhost:4566	///applications/xarn	app-integrations				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/appintegrations#1.0.0	AppIntegrations	AppIntegrations
 DELETE	localhost:4566	//dataIntegrations/xdatain	app-integrations				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/appintegrations#1.0.0	AppIntegrations	AppIntegrations
 DELETE	localhost:4566	///dataIntegrations/xdatain	app-integrations				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/appintegrations#1.0.0	AppIntegrations	AppIntegrations
+POST	localhost:4566	/sendPhoneNumberVerification	account				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/account#1.0.0	Account	Account
+POST	localhost:4566	/verifyPhoneNumber	account				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/account#1.0.0	Account	Account
+POST	localhost:4566	/workspaces/xworksp/alertmanager/definition						Grafana	Grafana
+POST	localhost:4566	/workspaces/xworksp/anomalydetectors						Grafana	Grafana
+POST	localhost:4566	/workspaces/xworksp/logging						Grafana	Grafana
+POST	localhost:4566	/workspaces/xworksp/logging/query						Grafana	Grafana
+POST	localhost:4566	/workspaces/xworksp/rulegroupsnamespaces						Grafana	Grafana
+POST	localhost:4566	/scrapers						S3	S3
+DELETE	localhost:4566	/workspaces/xworksp/alertmanager/definition						Grafana	Grafana
+DELETE	localhost:4566	/workspaces/xworksp/anomalydetectors/xanomal						Grafana	Grafana
+DELETE	localhost:4566	/workspaces/xworksp/logging						Grafana	Grafana
+DELETE	localhost:4566	/workspaces/xworksp/logging/query						Grafana	Grafana
+DELETE	localhost:4566	/workspaces/xworksp/policy						Grafana	Grafana
+POST	localhost:4566	/dataIntegrations						S3	S3
+POST	localhost:4566	/dataIntegrations/xdatain/associations						S3	S3
+POST	localhost:4566	/eventIntegrations						S3	S3
+DELETE	localhost:4566	/applications/xarn						AppConfig	AppConfig
+DELETE	localhost:4566	/dataIntegrations/xdatain						S3	S3
+DELETE	localhost:4566	/eventIntegrations/xname						S3	S3
+GET	localhost:4566	/applications/xarn						AppConfig	AppConfig
+GET	localhost:4566	/dataIntegrations/xidenti						S3	S3
+GET	localhost:4566	/eventIntegrations/xname						S3	S3
+GET	localhost:4566	/applications/xapplic/associations						AppConfig	AppConfig
+POST	localhost:4566	/v1/canceljobs	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/canceljobs	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	S3	S3
+POST	batch.us-east-1.amazonaws.com	/v1/canceljobs	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/canceljobs?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbatch%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/canceljobs						Batch	Batch
+POST	localhost:4566	/v1/terminatejobs	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/v1/terminateservicejobs	batch				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/batch#1.0.0	Batch	Batch
+POST	localhost:4566	/knowledgebases/xknowle/vpcconfigurations/	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagent#1.0.0	BedrockAgent	BedrockAgent
+DELETE	localhost:4566	/knowledgebases/xknowle/vpcconfigurations/xvpccon	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagent#1.0.0	BedrockAgent	BedrockAgent
+GET	localhost:4566	/knowledgebases/xknowle/vpcconfigurations/xvpccon	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagent#1.0.0	BedrockAgent	BedrockAgent
+GET	localhost:4566	/knowledgebases/xknowle/vpcconfigurations/	bedrock				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagent#1.0.0	BedrockAgent	BedrockAgent
+POST	localhost:4566	/memories/xmemory/memoryRecords/batchCreate						S3	S3
+POST	localhost:4566	/memories/xmemory/memoryRecords/batchDelete						S3	S3
+POST	localhost:4566	/memories/xmemory/memoryRecords/batchUpdate						S3	S3
+POST	localhost:4566	/identities/CompleteResourceTokenAuth	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/identities/CompleteResourceTokenAuth	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	bedrock-agentcore.us-east-1.amazonaws.com	/identities/CompleteResourceTokenAuth	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/identities/CompleteResourceTokenAuth?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fbedrock-agentcore%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/identities/CompleteResourceTokenAuth						S3	S3
+POST	localhost:4566	/ab-tests	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/ab-tests						S3	S3
+POST	localhost:4566	/memories/xmemory/events						S3	S3
+POST	localhost:4566	/payments/createPaymentInstrument	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/payments/createPaymentInstrument						S3	S3
+POST	localhost:4566	/payments/createPaymentSession	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/payments/createPaymentSession						S3	S3
+DELETE	localhost:4566	/ab-tests/xabtest	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+DELETE	localhost:4566	/ab-tests/xabtest						S3	S3
+DELETE	localhost:4566	/evaluations/batch-evaluate/xbatche	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+DELETE	localhost:4566	/evaluations/batch-evaluate/xbatche						S3	S3
+DELETE	localhost:4566	/capacity-providers/xcapaci/sessions/xsessio	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+DELETE	localhost:4566	/capacity-providers/xcapaci/sessions/xsessio						S3	S3
+DELETE	localhost:4566	/memories/xmemory/actor/xactori/sessions/xsessio/events/xeventi						S3	S3
+POST	localhost:4566	/payments/deletePaymentInstrument	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/payments/deletePaymentSession	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+DELETE	localhost:4566	/recommendations/xrecomm	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/evaluations/evaluate/xevalua	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+GET	localhost:4566	/ab-tests/xabtest	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+GET	localhost:4566	/evaluations/batch-evaluate/xbatche	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/payments/getPaymentInstrument	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/payments/getPaymentInstrumentBalance	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/payments/getPaymentSession	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+GET	localhost:4566	/recommendations/xrecomm	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/identities/payment/token	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/memories/xmemory/ingest	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/runtimes/xagentr/commands	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/browsers/xbrowse/sessions/invoke	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/harnesses/invoke	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	BedrockAgentCoreControl	BedrockAgentCoreControl
+GET	localhost:4566	/ab-tests	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+GET	localhost:4566	/evaluations/batch-evaluate	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/memories/xmemory/extractionJobs	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/payments/listPaymentInstruments	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/payments/listPaymentSessions	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+GET	localhost:4566	/recommendations	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	Personalize	Personalize
+POST	localhost:4566	/payments/processPayment	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+PUT	localhost:4566	/browser-profiles/xprofil/save	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/registry-records/search	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/evaluations/batch-evaluate	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/memories/xmemory/extractionJobs/start	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/recommendations	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	Personalize	Personalize
+POST	localhost:4566	/evaluations/batch-evaluate/xbatche/stop	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+PUT	localhost:4566	/ab-tests/xabtest	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+PUT	localhost:4566	/browsers/xbrowse/sessions/streams/update	bedrock-agentcore				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/bedrockagentcore#1.0.0	S3	S3
+POST	localhost:4566	/datasets/xdatase/examples/add						IoTAnalytics	IoTAnalytics
+PUT	localhost:4566	/gateways/xgatewa/rate-limits/batch						S3	S3
+PUT	localhost:4566	/runtimes/						S3	S3
+PUT	localhost:4566	/runtimes/xagentr/runtime-endpoints/						S3	S3
+POST	localhost:4566	/identities/CreateApiKeyCredentialProvider						S3	S3
+PUT	localhost:4566	/browsers						S3	S3
+PUT	localhost:4566	/browser-profiles						S3	S3
+PUT	localhost:4566	/capacity-providers						S3	S3
+PUT	localhost:4566	/code-interpreters						S3	S3
+POST	localhost:4566	/configuration-bundles/create						S3	S3
+POST	localhost:4566	/identities/CreateConsentPortal						S3	S3
+GET	localhost:4566	/memberships/xmember/analysislogexports/xanalys	cleanrooms				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cleanrooms#1.0.0	CleanRooms	CleanRooms
+GET	localhost:4566	/memberships/xmember/analysislogexports	cleanrooms				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cleanrooms#1.0.0	CleanRooms	CleanRooms
+POST	localhost:4566	/memberships/xmember/analysislogexports	cleanrooms				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cleanrooms#1.0.0	CleanRooms	CleanRooms
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/CreateResourceMetricsConfiguration	monitoring	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudwatch#1.0.0	CloudWatch	CloudWatch
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/CreateResourceMetricsConfiguration	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudwatch#1.0.0	CloudWatch	CloudWatch
+POST	monitoring.us-east-1.amazonaws.com	/service/GraniteServiceVersion20100801/operation/CreateResourceMetricsConfiguration	monitoring	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudwatch#1.0.0	CloudWatch	CloudWatch
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/CreateResourceMetricsConfiguration?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmonitoring%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudwatch#1.0.0	CloudWatch	CloudWatch
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/CreateResourceMetricsConfiguration		application/cbor			Smithy-Protocol:rpc-v2-cbor	CloudWatch	CloudWatch
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/DeleteResourceMetricsConfiguration	monitoring	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudwatch#1.0.0	CloudWatch	CloudWatch
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/DeleteResourceMetricsConfiguration		application/cbor			Smithy-Protocol:rpc-v2-cbor	CloudWatch	CloudWatch
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/GetResourceMetricsConfiguration	monitoring	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudwatch#1.0.0	CloudWatch	CloudWatch
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/UpdateOTelEnrichment	monitoring	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudwatch#1.0.0	CloudWatch	CloudWatch
+POST	localhost:4566	/service/GraniteServiceVersion20100801/operation/UpdateResourceMetricsConfiguration	monitoring	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cloudwatch#1.0.0	CloudWatch	CloudWatch
+POST	localhost:4566	/	codecommit	application/x-amz-json-1.1	CodeCommit_20150413.GetBlobDifferences	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codecommit#1.0.0	CodeCommit	CodeCommit
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateConnection	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateConnection	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	codeconnections.us-east-1.amazonaws.com	/service/CodeConnections_20231201/operation/CreateConnection	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateConnection?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcodeconnections%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateConnection		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateHost	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateHost	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	codeconnections.us-east-1.amazonaws.com	/service/CodeConnections_20231201/operation/CreateHost	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateHost?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcodeconnections%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateHost		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateRepositoryLink	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateRepositoryLink	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	codeconnections.us-east-1.amazonaws.com	/service/CodeConnections_20231201/operation/CreateRepositoryLink	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateRepositoryLink?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcodeconnections%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateRepositoryLink		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateSyncConfiguration	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateSyncConfiguration	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	codeconnections.us-east-1.amazonaws.com	/service/CodeConnections_20231201/operation/CreateSyncConfiguration	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateSyncConfiguration?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcodeconnections%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/CreateSyncConfiguration		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/DeleteConnection	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/DeleteConnection		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/DeleteHost	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/DeleteHost		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/DeleteRepositoryLink	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/DeleteRepositoryLink		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/DeleteSyncConfiguration	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/DeleteSyncConfiguration		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetConnection	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetConnection		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetHost	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetHost		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetRepositoryLink	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetRepositoryLink		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetRepositorySyncStatus	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetRepositorySyncStatus		application/cbor			Smithy-Protocol:rpc-v2-cbor	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetResourceSyncStatus	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetSyncBlockerSummary	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/GetSyncConfiguration	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/ListConnections	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/ListHosts	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/ListRepositoryLinks	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/ListRepositorySyncDefinitions	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/ListSyncConfigurations	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/ListTagsForResource	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/TagResource	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/UntagResource	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/UpdateHost	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/UpdateRepositoryLink	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/UpdateSyncBlocker	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/service/CodeConnections_20231201/operation/UpdateSyncConfiguration	codeconnections	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/codeconnections#1.0.0	CodeConnections	CodeConnections
+POST	localhost:4566	/associations						SecurityHub	SecurityHub
+POST	localhost:4566	/codereviews						S3	S3
+GET	localhost:4566	/codereviews/xcodere						S3	S3
+GET	localhost:4566	/feedback/xcodere						S3	S3
+GET	localhost:4566	/associations/xassoci						SecurityHub	SecurityHub
+DELETE	localhost:4566	/associations/xassoci						SecurityHub	SecurityHub
+GET	localhost:4566	/codereviews						S3	S3
+GET	localhost:4566	/feedback/xcodere/RecommendationFeedback						S3	S3
+GET	localhost:4566	/codereviews/xcodere/Recommendations						S3	S3
+GET	localhost:4566	/associations						SecurityHub	SecurityHub
+PUT	localhost:4566	/feedback						S3	S3
+POST	localhost:4566	/	cognito-idp	application/x-amz-json-1.1	AWSCognitoIdentityProviderService.AdminDeleteSoftwareToken	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cognitoidentityprovider#1.0.0	CognitoIDP	CognitoIDP
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSCognitoIdentityProviderService.AdminDeleteSoftwareToken	{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/	cognito-idp	application/x-amz-json-1.1	AWSCognitoIdentityProviderService.DescribeTermsByClient	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cognitoidentityprovider#1.0.0	CognitoIDP	CognitoIDP
+POST	localhost:4566	/	cognito-idp	application/x-amz-json-1.1	AWSCognitoIdentityProviderService.GetClientToken	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/cognitoidentityprovider#1.0.0	CognitoIDP	CognitoIDP
+POST	localhost:4566	/evaluation-forms/xinstan/xevalua/activate						S3	S3
+PUT	localhost:4566	/analytics-data/instance/xinstan/association						S3	S3
+PUT	localhost:4566	/instance/xinstan/approved-origin						S3	S3
+PUT	localhost:4566	/instance/xinstan/bot						S3	S3
+POST	localhost:4566	/contacts/xinstan/xcontac/associate-user						S3	S3
+PUT	localhost:4566	/default-vocabulary/xinstan/xlangua						S3	S3
+POST	localhost:4566	/email-addresses/xinstan/xemaila/associate-alias						S3	S3
+PUT	localhost:4566	/flow-associations/xinstan						S3	S3
+POST	localhost:4566	/hours-of-operations/xinstan/xhourso/associate-hours						S3	S3
+PUT	localhost:4566	/instance/xinstan/storage-config						S3	S3
+PUT	localhost:4566	/instance/xinstan/lambda-function						S3	S3
+PUT	localhost:4566	/instance/xinstan/lex-bot						S3	S3
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.AssociateConnectionsToResiliencyGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/		application/x-amz-json-1.1	OvertureService.AssociateConnectionsToResiliencyGroup	{}		DirectConnect	DirectConnect
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.CreateResiliencyGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.DeleteResiliencyGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.DisassociateConnectionsFromResiliencyGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.GetResiliencyGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.ListResiliencyGroupAssociations	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.ListResiliencyGroups	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.UpdateConnectionsBillingMode	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/	directconnect	application/x-amz-json-1.1	OvertureService.UpdateResiliencyGroup	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/directconnect#1.0.0	DirectConnect	DirectConnect
+POST	localhost:4566	/	ec2	application/x-www-form-urlencoded		Action=CreateCapacityReservationDateChangeQuote&Version=2016-11-15	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ec2#1.0.0	EC2	EC2
+POST	localhost:4566	/	ec2	application/x-www-form-urlencoded		Action=DeleteClientVpnEndpointAuthorizationPolicy&Version=2016-11-15	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ec2#1.0.0	EC2	EC2
+POST	localhost:4566	/	ec2	application/x-www-form-urlencoded		Action=DescribeCapacityReservationDateChangeQuotes&Version=2016-11-15	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ec2#1.0.0	EC2	EC2
+POST	localhost:4566	/	ec2	application/x-www-form-urlencoded		Action=GetClientVpnEndpointAuthorizationPolicy&Version=2016-11-15	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ec2#1.0.0	EC2	EC2
+POST	localhost:4566	/	ec2	application/x-www-form-urlencoded		Action=ModifyClientVpnEndpointAuthorizationPolicy&Version=2016-11-15	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/ec2#1.0.0	EC2	EC2
+POST	localhost:4566	/clusters/xcluste/assume-role-for-pod-identity	eks-auth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/eksauth#1.0.0	EKS	EKS
+POST	localhost:4566	/clusters/xcluste/assume-role-for-pod-identity	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/eksauth#1.0.0	EKS	EKS
+POST	eks-auth.us-east-1.amazonaws.com	/clusters/xcluste/assume-role-for-pod-identity	eks-auth				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/eksauth#1.0.0	EKS	EKS
+POST	localhost:4566	/clusters/xcluste/assume-role-for-pod-identity?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Feks-auth%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/eksauth#1.0.0	EKS	EKS
+POST	localhost:4566	/clusters/xcluste/assume-role-for-pod-identity						EKS	EKS
+POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetSystemLogsForJobRun	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
+POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.GetSystemLogsForSession	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
+POST	localhost:4566	/	glue	application/x-amz-json-1.1	AWSGlue.ListIntegrationTableProperties	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/glue#1.0.0	Glue	Glue
+POST	localhost:4566	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	localhost:4566	/custom-detection-rule/association	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	guardduty.us-east-1.amazonaws.com	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	localhost:4566	/custom-detection-rule/association?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fguardduty%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	localhost:4566	/custom-detection-rule/association						S3	S3
+POST	localhost:4566	/custom-detection-rule/org-configuration	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	localhost:4566	/custom-detection-rule/org-configuration						S3	S3
+DELETE	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+DELETE	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+GET	localhost:4566	/custom-detection-rule/rule/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+GET	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+GET	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+GET	localhost:4566	/custom-detection-rule/association	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+GET	localhost:4566	/custom-detection-rule/org-configuration	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	localhost:4566	/custom-detection-rule/rule	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+PUT	localhost:4566	/custom-detection-rule/rule/xruleid/association/xassoci	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+PUT	localhost:4566	/custom-detection-rule/org-configuration/xruleid	guardduty				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/guardduty#1.0.0	S3	S3
+POST	localhost:4566	/	identitystore	application/x-amz-json-1.1	AWSIdentityStore.DescribeIdentityStore	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/identitystore#1.0.0	IdentityStore	IdentityStore
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSIdentityStore.DescribeIdentityStore	{}		IdentityStore	IdentityStore
+POST	localhost:4566	/	identitystore	application/x-amz-json-1.1	AWSIdentityStore.ListIdentityStores	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/identitystore#1.0.0	IdentityStore	IdentityStore
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSIdentityStore.ListIdentityStores	{}		IdentityStore	IdentityStore
+POST	localhost:4566	/	identitystore	application/x-amz-json-1.1	AWSIdentityStore.UpdateIdentityStore	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/identitystore#1.0.0	IdentityStore	IdentityStore
+GET	localhost:4566	/things/xthingn/jobs/xjobid	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+GET	localhost:4566	/things/xthingn/jobs/xjobid	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+GET	iot-jobs-data.us-east-1.amazonaws.com	/things/xthingn/jobs/xjobid	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+GET	localhost:4566	/things/xthingn/jobs/xjobid?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fiot-jobs-data%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+GET	localhost:4566	/things/xthingn/jobs/xjobid						IoT	IoT
+GET	localhost:4566	/things/xthingn/jobs	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+GET	localhost:4566	/things/xthingn/jobs	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+GET	iot-jobs-data.us-east-1.amazonaws.com	/things/xthingn/jobs	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+GET	localhost:4566	/things/xthingn/jobs?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fiot-jobs-data%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+GET	localhost:4566	/things/xthingn/jobs						IoT	IoT
+POST	localhost:4566	/command-executions	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+POST	localhost:4566	/command-executions	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+POST	iot-jobs-data.us-east-1.amazonaws.com	/command-executions	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+POST	localhost:4566	/command-executions?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fiot-jobs-data%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+POST	localhost:4566	/command-executions						IoT	IoT
+PUT	localhost:4566	/things/xthingn/jobs/$next	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+PUT	localhost:4566	/things/xthingn/jobs/$next	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+PUT	iot-jobs-data.us-east-1.amazonaws.com	/things/xthingn/jobs/$next	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+PUT	localhost:4566	/things/xthingn/jobs/$next?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fiot-jobs-data%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+PUT	localhost:4566	/things/xthingn/jobs/$next						IoT	IoT
+POST	localhost:4566	/things/xthingn/jobs/xjobid	iot-jobs-data				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/iotjobsdataplane#1.0.0	IoT	IoT
+POST	localhost:4566	/things/xthingn/jobs/xjobid						IoT	IoT
+POST	localhost:4566	/	kinesis	application/x-amz-json-1.1	Kinesis_20131202.UpdateStreamRecordDistributionStrategy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/kinesis#1.0.0	Kinesis	Kinesis
+POST	localhost:4566	/	lightsail	application/x-amz-json-1.1	Lightsail_20161128.GetProfile	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lightsail#1.0.0	Lightsail	Lightsail
+POST	localhost:4566	/CreateLink						S3	S3
+POST	localhost:4566	/CreateSink						S3	S3
+POST	localhost:4566	/DeleteLink						S3	S3
+POST	localhost:4566	/DeleteSink						S3	S3
+POST	localhost:4566	/GetLink						S3	S3
+POST	localhost:4566	/GetSink						S3	S3
+POST	localhost:4566	/GetSinkPolicy						S3	S3
+POST	localhost:4566	/ListAttachedLinks						S3	S3
+POST	localhost:4566	/ListLinks						S3	S3
+POST	localhost:4566	/ListSinks						S3	S3
+POST	localhost:4566	/PutSinkPolicy						S3	S3
+POST	localhost:4566	/outposts/xoutpos/privateConnectivity	outposts				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/outposts#1.0.0	Outposts	Outposts
+POST	localhost:4566	/outposts/xoutpos/privateConnectivity						S3	S3
+GET	localhost:4566	/outposts/xoutpos/privateConnectivity	outposts				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/outposts#1.0.0	Outposts	Outposts
+POST	localhost:4566	/AssociateDefaultView						S3	S3
+POST	localhost:4566	/BatchGetView						S3	S3
+POST	localhost:4566	/CreateIndex						S3	S3
+POST	localhost:4566	/CreateResourceExplorerSetup						S3	S3
+POST	localhost:4566	/CreateView						S3	S3
+POST	localhost:4566	/DeleteIndex						S3	S3
+POST	localhost:4566	/DeleteResourceExplorerSetup						S3	S3
+POST	localhost:4566	/DeleteView						S3	S3
+POST	localhost:4566	/DisassociateDefaultView						S3	S3
+POST	localhost:4566	/GetAccountLevelServiceConfiguration						S3	S3
+POST	localhost:4566	/GetDefaultView						S3	S3
+POST	localhost:4566	/GetIndex						S3	S3
+POST	localhost:4566	/rummetrics/xappmon/metrics						S3	S3
+DELETE	localhost:4566	/rummetrics/xappmon/metrics						S3	S3
+GET	localhost:4566	/rummetrics/xappmon/metrics						S3	S3
+POST	localhost:4566	/appmonitor						S3	S3
+DELETE	localhost:4566	/appmonitor/xname						S3	S3
+DELETE	localhost:4566	/appmonitor/xname/policy						S3	S3
+DELETE	localhost:4566	/rummetrics/xappmon/metricsdestination						S3	S3
+GET	localhost:4566	/appmonitor/xname						S3	S3
+POST	localhost:4566	/appmonitor/xname/data						S3	S3
+GET	localhost:4566	/appmonitor/xname/policy						S3	S3
+POST	localhost:4566	/appmonitors						S3	S3
+GET	localhost:4566	/rummetrics/xappmon/metricsdestination						S3	S3
+PUT	localhost:4566	/access-points						S3	S3
+PUT	localhost:4566	/file-systems						S3	S3
+PUT	localhost:4566	/mount-targets						S3	S3
+DELETE	localhost:4566	/access-points/xaccess						S3	S3
+DELETE	localhost:4566	/file-systems/xfilesy						S3	S3
+DELETE	localhost:4566	/file-systems/xfilesy/policy						S3	S3
+DELETE	localhost:4566	/mount-targets/xmountt						S3	S3
+GET	localhost:4566	/access-points/xaccess						S3	S3
+GET	localhost:4566	/file-systems/xfilesy						S3	S3
+GET	localhost:4566	/file-systems/xfilesy/policy						S3	S3
+GET	localhost:4566	/mount-targets/xmountt						S3	S3
+GET	localhost:4566	/file-systems/xfilesy/synchronization-configuration						S3	S3
+POST	localhost:4566	/CreateIndex						S3	S3
+POST	localhost:4566	/CreateVectorBucket						S3	S3
+POST	localhost:4566	/DeleteIndex						S3	S3
+POST	localhost:4566	/DeleteVectorBucket						S3	S3
+POST	localhost:4566	/DeleteVectorBucketPolicy						S3	S3
+POST	localhost:4566	/DeleteVectors						S3	S3
+POST	localhost:4566	/GetIndex						S3	S3
+POST	localhost:4566	/GetVectorBucket						S3	S3
+POST	localhost:4566	/GetVectorBucketPolicy						S3	S3
+POST	localhost:4566	/GetVectors						S3	S3
+POST	localhost:4566	/ListIndexes						S3	S3
+POST	localhost:4566	/	sagemaker	application/x-amz-json-1.1	SageMaker.AttachClusterNodeNetworkInterface	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sagemaker#1.0.0	SageMaker	SageMaker
+POST	localhost:4566	/		application/x-amz-json-1.1	SageMaker.AttachClusterNodeNetworkInterface	{}		SageMaker	SageMaker
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	SageMaker.AttachClusterNodeNetworkInterface	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sagemaker#1.0.0	SageMaker	SageMaker
+POST	sagemaker.us-east-1.amazonaws.com	/	sagemaker	application/x-amz-json-1.1	SageMaker.AttachClusterNodeNetworkInterface	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sagemaker#1.0.0	SageMaker	SageMaker
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsagemaker%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	SageMaker.AttachClusterNodeNetworkInterface	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sagemaker#1.0.0	SageMaker	SageMaker
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.BatchGetSecretValue	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.BatchGetSecretValue	{}		S3	S3
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	Secretsmanager.BatchGetSecretValue	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	secretsmanager.us-east-1.amazonaws.com	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.BatchGetSecretValue	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecretsmanager%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	Secretsmanager.BatchGetSecretValue	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.CancelRotateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.CancelRotateSecret	{}		S3	S3
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	Secretsmanager.CancelRotateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	secretsmanager.us-east-1.amazonaws.com	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.CancelRotateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecretsmanager%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	Secretsmanager.CancelRotateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.CreateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.CreateSecret	{}		S3	S3
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	Secretsmanager.CreateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	secretsmanager.us-east-1.amazonaws.com	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.CreateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecretsmanager%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	Secretsmanager.CreateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.DeleteResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.DeleteResourcePolicy	{}		S3	S3
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	Secretsmanager.DeleteResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	secretsmanager.us-east-1.amazonaws.com	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.DeleteResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsecretsmanager%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	Secretsmanager.DeleteResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.DeleteSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.DeleteSecret	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.DescribeSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.DescribeSecret	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.GetRandomPassword	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.GetRandomPassword	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.GetResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.GetResourcePolicy	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.GetSecretValue	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.GetSecretValue	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.ListSecrets	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.ListSecrets	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.ListSecretVersionIds	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.ListSecretVersionIds	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.PutResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.PutResourcePolicy	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.PutSecretValue	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.PutSecretValue	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.RemoveRegionsFromReplication	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.RemoveRegionsFromReplication	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.ReplicateSecretToRegions	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.ReplicateSecretToRegions	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.RestoreSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.RestoreSecret	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.RotateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.RotateSecret	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.StopReplicationToReplica	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.StopReplicationToReplica	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.TagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.TagResource	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.UntagResource	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	Secretsmanager.UntagResource	{}		S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.UpdateSecret	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.UpdateSecretVersionStage	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/	secretsmanager	application/x-amz-json-1.1	Secretsmanager.ValidateResourcePolicy	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/secretsmanager#1.0.0	S3	S3
+POST	localhost:4566	/exportjobsv2/xexport/cancel	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+GET	localhost:4566	/exportjobsv2/xexport	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/GetRemediationsV2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	S3	S3
+GET	localhost:4566	/exportjobsv2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/ListExposuresByRemediationV2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	S3	S3
+POST	localhost:4566	/freetrial/statusv2/list	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	S3	S3
+POST	localhost:4566	/exportjobsv2	securityhub				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/securityhub#1.0.0	SecurityHub	SecurityHub
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.AcceptPortfolioShare	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.AssociateBudgetWithResource	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.AssociatePrincipalWithPortfolio	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.AssociateProductWithPortfolio	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.AssociateServiceActionWithProvisioningArtifact	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.AssociateTagOptionWithResource	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.BatchAssociateServiceActionWithProvisioningArtifact	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.BatchDisassociateServiceActionFromProvisioningArtifact	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CopyProduct	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CreateConstraint	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CreatePortfolio	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CreatePortfolioShare	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CreateProduct	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CreateProvisionedProductPlan	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CreateProvisioningArtifact	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CreateServiceAction	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.CreateTagOption	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.DeleteConstraint	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.DeletePortfolio	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/		application/x-amz-json-1.1	AWS242ServiceCatalogService.DeletePortfolioShare	{}		ServiceCatalog	ServiceCatalog
+POST	localhost:4566	/v2/email/identity/certificates	ses				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	localhost:4566	/v2/email/identity/certificates	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	ses.us-east-1.amazonaws.com	/v2/email/identity/certificates	ses				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	localhost:4566	/v2/email/identity/certificates?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fses%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	localhost:4566	/v2/email/identity/certificates						SESv2	SESv2
+POST	localhost:4566	/v2/email/identity/certificates/delete	ses				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	localhost:4566	/v2/email/list-configuration-sets	ses				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	localhost:4566	/v2/email/list-identities	ses				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	localhost:4566	/v2/email/identity/certificates/list	ses				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	localhost:4566	/v2/email/update-configuration-sets	ses				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/sesv2#1.0.0	SESv2	SESv2
+POST	localhost:4566	/	support	application/x-amz-json-1.1	AWSSupport_20130415.CompleteAttachmentUpload	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/support#1.0.0	Support	Support
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSSupport_20130415.CompleteAttachmentUpload	{}		Support	Support
+POST	localhost:4566	/	execute-api	application/x-amz-json-1.1	AWSSupport_20130415.CompleteAttachmentUpload	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/support#1.0.0	Support	Support
+POST	support.us-east-1.amazonaws.com	/	support	application/x-amz-json-1.1	AWSSupport_20130415.CompleteAttachmentUpload	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/support#1.0.0	Support	Support
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fsupport%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1	AWSSupport_20130415.CompleteAttachmentUpload	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/support#1.0.0	Support	Support
+POST	localhost:4566	/	support	application/x-amz-json-1.1	AWSSupport_20130415.DescribeAttachmentUploadStatus	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/support#1.0.0	Support	Support
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSSupport_20130415.DescribeAttachmentUploadStatus	{}		Support	Support
+POST	localhost:4566	/	support	application/x-amz-json-1.1	AWSSupport_20130415.GetAttachmentDownloadLink	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/support#1.0.0	Support	Support
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSSupport_20130415.GetAttachmentDownloadLink	{}		Support	Support
+POST	localhost:4566	/	support	application/x-amz-json-1.1	AWSSupport_20130415.GetAttachmentUploadLinks	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/support#1.0.0	Support	Support
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSSupport_20130415.GetAttachmentUploadLinks	{}		Support	Support
+POST	localhost:4566	/	transcribe	application/x-amz-json-1.1	Transcribe.UpdateLanguageModel	{}	User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/transcribe#1.0.0	Transcribe	Transcribe
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/CreateParallelData	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/CreateParallelData	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	translate.us-east-1.amazonaws.com	/service/AWSShineFrontendService_20170701/operation/CreateParallelData	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/CreateParallelData?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftranslate%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/CreateParallelData		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DeleteParallelData	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DeleteParallelData	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	translate.us-east-1.amazonaws.com	/service/AWSShineFrontendService_20170701/operation/DeleteParallelData	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DeleteParallelData?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftranslate%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DeleteParallelData		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DeleteTerminology	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DeleteTerminology	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	translate.us-east-1.amazonaws.com	/service/AWSShineFrontendService_20170701/operation/DeleteTerminology	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DeleteTerminology?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftranslate%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DeleteTerminology		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DescribeTextTranslationJob	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DescribeTextTranslationJob	execute-api	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	translate.us-east-1.amazonaws.com	/service/AWSShineFrontendService_20170701/operation/DescribeTextTranslationJob	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DescribeTextTranslationJob?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Ftranslate%2Faws4_request&X-Amz-Signature=00		application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/DescribeTextTranslationJob		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/GetParallelData	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/GetParallelData		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/GetTerminology	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/GetTerminology		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ImportTerminology	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ImportTerminology		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListLanguages	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListLanguages		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListParallelData	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListParallelData		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListTagsForResource	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListTagsForResource		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListTerminologies	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListTerminologies		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListTextTranslationJobs	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/ListTextTranslationJobs		application/cbor			Smithy-Protocol:rpc-v2-cbor	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/StartTextTranslationJob	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/StopTextTranslationJob	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/TagResource	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/TranslateDocument	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/TranslateText	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/UntagResource	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+POST	localhost:4566	/service/AWSShineFrontendService_20170701/operation/UpdateParallelData	translate	application/cbor			Smithy-Protocol:rpc-v2-cbor;User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/translate#1.0.0	Translate	Translate
+GET	localhost:4566	/A/key.txt	s3					S3	S3
+PUT	localhost:4566	/A/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/A/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/A	s3					S3	S3
+GET	localhost:4566	/C/key.txt	s3					S3	S3
+PUT	localhost:4566	/C/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/C/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/C	s3					S3	S3
+GET	localhost:4566	/Create/key.txt	s3					S3	S3
+PUT	localhost:4566	/Create/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/Create/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/Create	s3					S3	S3
+GET	localhost:4566	/D/key.txt	s3					S3	S3
+PUT	localhost:4566	/D/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/D/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/D	s3					S3	S3
+GET	localhost:4566	/Delete/key.txt	s3					S3	S3
+PUT	localhost:4566	/Delete/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/Delete/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/Delete	s3					S3	S3
+GET	localhost:4566	/F/key.txt	s3					S3	S3
+PUT	localhost:4566	/F/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/F/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/F	s3					S3	S3
+GET	localhost:4566	/G/key.txt	s3					S3	S3
+PUT	localhost:4566	/G/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/G/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/G	s3					S3	S3
+GET	localhost:4566	/Get/key.txt	s3					S3	S3
+PUT	localhost:4566	/Get/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/Get/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/Get	s3					S3	S3
+GET	localhost:4566	/I/key.txt	s3					S3	S3
+PUT	localhost:4566	/I/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/I/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/I	s3					S3	S3
+GET	localhost:4566	/L/key.txt	s3					S3	S3
+PUT	localhost:4566	/L/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/L/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/L	s3					S3	S3
+GET	localhost:4566	/List/key.txt	s3					S3	S3
+PUT	localhost:4566	/List/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/List/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/List	s3					S3	S3
+GET	localhost:4566	/M/key.txt	s3					S3	S3
+PUT	localhost:4566	/M/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/M/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/M	s3					S3	S3
+GET	localhost:4566	/P/key.txt	s3					S3	S3
+PUT	localhost:4566	/P/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/P/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/P	s3					S3	S3
+GET	localhost:4566	/Put/key.txt	s3					S3	S3
+PUT	localhost:4566	/Put/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/Put/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/Put	s3					S3	S3
+GET	localhost:4566	/R/key.txt	s3					S3	S3
+PUT	localhost:4566	/R/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/R/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/R	s3					S3	S3
+GET	localhost:4566	/S/key.txt	s3					S3	S3
+PUT	localhost:4566	/S/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/S/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/S	s3					S3	S3
+GET	localhost:4566	/T/key.txt	s3					S3	S3
+PUT	localhost:4566	/T/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/T/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/T	s3					S3	S3
+GET	localhost:4566	/U/key.txt	s3					S3	S3
+PUT	localhost:4566	/U/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/U/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/U	s3					S3	S3
+GET	localhost:4566	/Update/key.txt	s3					S3	S3
+PUT	localhost:4566	/Update/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/Update/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/Update	s3					S3	S3
+GET	localhost:4566	/accept-/key.txt	s3					S3	S3
+PUT	localhost:4566	/accept-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/accept-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/accept-	s3					S3	S3
+GET	localhost:4566	/accept-certificate-transfer/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/accept-certificate-transfer/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/accept-certificate-transfer/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/accept-certificate-transfer	s3					S3	S3
+GET	localhost:4566	/active-violations/key.txt	s3					S3	S3
+PUT	localhost:4566	/active-violations/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/active-violations/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/active-violations	s3					IoT	IoT
+GET	localhost:4566	/add-/key.txt	s3					S3	S3
+PUT	localhost:4566	/add-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/add-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/add-	s3					S3	S3
+GET	localhost:4566	/attached-policies/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/attached-policies/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/attached-policies/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/attached-policies	s3					IoT	IoT
+GET	localhost:4566	/authorizer/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/authorizer/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/authorizer/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/authorizer	s3					S3	S3
+GET	localhost:4566	/autoshift/key.txt	s3					S3	S3
+PUT	localhost:4566	/autoshift/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/autoshift/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/autoshift	s3					S3	S3
+GET	localhost:4566	/batch-/key.txt	s3					S3	S3
+PUT	localhost:4566	/batch-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/batch-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/batch-	s3					S3	S3
+GET	localhost:4566	/billing-groups/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/billing-groups/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/billing-groups/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/billing-groups	s3					IoT	IoT
+GET	localhost:4566	/cacertificate/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/cacertificate/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/cacertificate/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/cacertificate	s3					IoT	IoT
+GET	localhost:4566	/cancel-certificate-transfer/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/cancel-certificate-transfer/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/cancel-certificate-transfer/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/cancel-certificate-transfer	s3					S3	S3
+GET	localhost:4566	/cellreadiness/key.txt	s3					S3	S3
+PUT	localhost:4566	/cellreadiness/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/cellreadiness/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/cellreadiness	s3					S3	S3
+GET	localhost:4566	/certificate/key.txt	s3					S3	S3
+PUT	localhost:4566	/certificate/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/certificate/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/certificate	s3					S3	S3
+GET	localhost:4566	/command-executions/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/command-executions/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/command-executions/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/command-executions	s3					IoT	IoT
+GET	localhost:4566	/commands/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/commands/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/commands/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/commands	s3					IoT	IoT
+GET	localhost:4566	/confirmdestination/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/confirmdestination/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/confirmdestination/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/confirmdestination	s3					S3	S3
+GET	localhost:4566	/create-/key.txt	s3					S3	S3
+PUT	localhost:4566	/create-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/create-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/create-	s3					S3	S3
+GET	localhost:4566	/crossaccountauthorizations/key.txt	s3					S3	S3
+PUT	localhost:4566	/crossaccountauthorizations/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/crossaccountauthorizations/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/crossaccountauthorizations	s3					S3	S3
+GET	localhost:4566	/custom-metric/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/custom-metric/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/custom-metric/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/custom-metric	s3					S3	S3
+GET	localhost:4566	/default-authorizer/key.txt	s3					S3	S3
+PUT	localhost:4566	/default-authorizer/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/default-authorizer/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/default-authorizer	s3					IoT	IoT
+GET	localhost:4566	/delete-/key.txt	s3					S3	S3
+PUT	localhost:4566	/delete-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/delete-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/delete-	s3					S3	S3
+GET	localhost:4566	/describe-/key.txt	s3					S3	S3
+PUT	localhost:4566	/describe-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/describe-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/describe-	s3					S3	S3
+GET	localhost:4566	/detect/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/detect/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/detect/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/detect	s3					S3	S3
+GET	localhost:4566	/dimensions/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/dimensions/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/dimensions/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/dimensions	s3					IoT	IoT
+GET	localhost:4566	/domainConfigurations/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/domainConfigurations/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/domainConfigurations/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/domainConfigurations	s3					IoT	IoT
+GET	localhost:4566	/dynamic-thing-groups/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/dynamic-thing-groups/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/dynamic-thing-groups/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/dynamic-thing-groups	s3					S3	S3
+GET	localhost:4566	/effective-policies/key.txt	s3					S3	S3
+PUT	localhost:4566	/effective-policies/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/effective-policies/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/effective-policies	s3					IoT	IoT
+GET	localhost:4566	/encryption-configuration/key.txt	s3					S3	S3
+PUT	localhost:4566	/encryption-configuration/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/encryption-configuration/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/encryption-configuration	s3					IoT	IoT
+GET	localhost:4566	/endpoint/key.txt	s3					S3	S3
+PUT	localhost:4566	/endpoint/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/endpoint/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/endpoint	s3					IoT	IoT
+GET	localhost:4566	/fleet-metric/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/fleet-metric/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/fleet-metric/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/fleet-metric	s3					S3	S3
+GET	localhost:4566	/import-/key.txt	s3					S3	S3
+PUT	localhost:4566	/import-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/import-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/import-	s3					S3	S3
+GET	localhost:4566	/indices/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/indices/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/indices/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/indices	s3					IoT	IoT
+GET	localhost:4566	/job-templates/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/job-templates/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/job-templates/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/job-templates	s3					IoT	IoT
+GET	localhost:4566	/keys-and-certificate/key.txt	s3					S3	S3
+PUT	localhost:4566	/keys-and-certificate/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/keys-and-certificate/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/keys-and-certificate	s3					IoT	IoT
+GET	localhost:4566	/list-/key.txt	s3					S3	S3
+PUT	localhost:4566	/list-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/list-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/list-	s3					S3	S3
+GET	localhost:4566	/loggingOptions/key.txt	s3					S3	S3
+PUT	localhost:4566	/loggingOptions/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/loggingOptions/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/loggingOptions	s3					IoT	IoT
+GET	localhost:4566	/managed-job-templates/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/managed-job-templates/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/managed-job-templates/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/managed-job-templates	s3					IoT	IoT
+GET	localhost:4566	/managedresources/key.txt	s3					S3	S3
+PUT	localhost:4566	/managedresources/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/managedresources/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/managedresources	s3					S3	S3
+GET	localhost:4566	/metric-values/key.txt	s3					S3	S3
+PUT	localhost:4566	/metric-values/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/metric-values/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/metric-values	s3					IoT	IoT
+GET	localhost:4566	/mitigationactions/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/mitigationactions/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/mitigationactions/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/mitigationactions	s3					S3	S3
+GET	localhost:4566	/network-migration/key.txt	s3					S3	S3
+PUT	localhost:4566	/network-migration/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/network-migration/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/network-migration	s3					S3	S3
+GET	localhost:4566	/otaUpdates/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/otaUpdates/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/otaUpdates/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/otaUpdates	s3					IoT	IoT
+GET	localhost:4566	/package-configuration/key.txt	s3					S3	S3
+PUT	localhost:4566	/package-configuration/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/package-configuration/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/package-configuration	s3					IoT	IoT
+GET	localhost:4566	/packages/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/packages/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/packages/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/packages	s3					IoT	IoT
+GET	localhost:4566	/policy-principals/key.txt	s3					S3	S3
+PUT	localhost:4566	/policy-principals/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/policy-principals/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/policy-principals	s3					IoT	IoT
+GET	localhost:4566	/policy-targets/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/policy-targets/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/policy-targets/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/policy-targets	s3					S3	S3
+GET	localhost:4566	/practiceruns/key.txt	s3					S3	S3
+PUT	localhost:4566	/practiceruns/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/practiceruns/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/practiceruns	s3					S3	S3
+GET	localhost:4566	/principal-policies/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/principal-policies/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/principal-policies/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/principal-policies	s3					IoT	IoT
+GET	localhost:4566	/principal-things/key.txt	s3					S3	S3
+PUT	localhost:4566	/principal-things/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/principal-things/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/principal-things	s3					IoT	IoT
+GET	localhost:4566	/provisioning-templates/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/provisioning-templates/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/provisioning-templates/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/provisioning-templates	s3					IoT	IoT
+GET	localhost:4566	/publish-/key.txt	s3					S3	S3
+PUT	localhost:4566	/publish-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/publish-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/publish-	s3					S3	S3
+GET	localhost:4566	/put-/key.txt	s3					S3	S3
+PUT	localhost:4566	/put-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/put-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/put-	s3					S3	S3
+GET	localhost:4566	/readinesschecks/key.txt	s3					S3	S3
+PUT	localhost:4566	/readinesschecks/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/readinesschecks/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/readinesschecks	s3					S3	S3
+GET	localhost:4566	/recoverygroup/key.txt	s3					S3	S3
+PUT	localhost:4566	/recoverygroup/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/recoverygroup/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/recoverygroup	s3					S3	S3
+GET	localhost:4566	/registrationcode/key.txt	s3					S3	S3
+PUT	localhost:4566	/registrationcode/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/registrationcode/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/registrationcode	s3					IoT	IoT
+GET	localhost:4566	/reject-/key.txt	s3					S3	S3
+PUT	localhost:4566	/reject-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/reject-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/reject-	s3					S3	S3
+GET	localhost:4566	/reject-certificate-transfer/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/reject-certificate-transfer/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/reject-certificate-transfer/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/reject-certificate-transfer	s3					S3	S3
+GET	localhost:4566	/remove-/key.txt	s3					S3	S3
+PUT	localhost:4566	/remove-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/remove-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/remove-	s3					S3	S3
+GET	localhost:4566	/resolve-/key.txt	s3					S3	S3
+PUT	localhost:4566	/resolve-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/resolve-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/resolve-	s3					S3	S3
+GET	localhost:4566	/resourcePolicy/key.txt	s3					S3	S3
+PUT	localhost:4566	/resourcePolicy/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/resourcePolicy/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/resourcePolicy	s3					S3	S3
+GET	localhost:4566	/resourcesets/key.txt	s3					S3	S3
+PUT	localhost:4566	/resourcesets/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/resourcesets/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/resourcesets	s3					S3	S3
+GET	localhost:4566	/role-aliases/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/role-aliases/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/role-aliases/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/role-aliases	s3					IoT	IoT
+GET	localhost:4566	/rule-destinations/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/rule-destinations/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/rule-destinations/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/rule-destinations	s3					IoT	IoT
+GET	localhost:4566	/security-profile/key.txt	s3					S3	S3
+PUT	localhost:4566	/security-profile/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/security-profile/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/security-profile	s3					S3	S3
+GET	localhost:4566	/start-/key.txt	s3					S3	S3
+PUT	localhost:4566	/start-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/start-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/start-	s3					S3	S3
+GET	localhost:4566	/streams/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/streams/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/streams/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/streams	s3					IoT	IoT
+GET	localhost:4566	/test-authorization/key.txt	s3					S3	S3
+PUT	localhost:4566	/test-authorization/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/test-authorization/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/test-authorization	s3					IoT	IoT
+GET	localhost:4566	/thing-groups/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/thing-groups/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/thing-groups/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/thing-groups	s3					IoT	IoT
+GET	localhost:4566	/thing-registration-tasks/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/thing-registration-tasks/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/thing-registration-tasks/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/thing-registration-tasks	s3					IoT	IoT
+GET	localhost:4566	/thing-types/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/thing-types/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/thing-types/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/thing-types	s3					IoT	IoT
+GET	localhost:4566	/transfer-certificate/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/transfer-certificate/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/transfer-certificate/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/transfer-certificate	s3					S3	S3
+GET	localhost:4566	/update-/key.txt	s3					S3	S3
+PUT	localhost:4566	/update-/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/update-/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/update-	s3					S3	S3
+GET	localhost:4566	/v2Logging/key.txt	s3					S3	S3
+PUT	localhost:4566	/v2Logging/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/v2Logging/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/v2Logging	s3					S3	S3
+GET	localhost:4566	/violation-events/key.txt	s3					S3	S3
+PUT	localhost:4566	/violation-events/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/violation-events/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/violation-events	s3					IoT	IoT
+GET	localhost:4566	/violations/key.txt	s3					IoT	IoT
+PUT	localhost:4566	/violations/key.txt	s3	application/octet-stream		body		IoT	IoT
+GET	localhost:4566	/violations/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	IoT	IoT
+HEAD	localhost:4566	/violations	s3					S3	S3
+GET	localhost:4566	/	memorydb	application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+GET	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmemorydb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	memorydb	application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmemorydb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+GET	localhost:4566	/x	memorydb	application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+GET	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmemorydb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+GET	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcognito-idp%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcognito-idp%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcognito-idp%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/	lambda	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	lambda	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x	lambda	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2F%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2F%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2F%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/	memorydb	application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmemorydb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	memorydb	application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmemorydb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+POST	localhost:4566	/x	memorydb	application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+POST	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmemorydb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
+POST	localhost:4566	/	route53-recovery-cluster	application/x-amz-json-1.1		{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	route53-recovery-cluster	application/x-amz-json-1.1		{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/x	route53-recovery-cluster	application/x-amz-json-1.1		{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcognito-idp%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcognito-idp%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/x	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcognito-idp%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/	lambda	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	lambda	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/x	lambda	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/x	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2F%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2F%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/x		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2F%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AmazonMemoryDB.DescribeClusters	{}		MemoryDB	MemoryDB
+POST	localhost:4566	/		application/x-amz-json-1.1	ToggleCustomerAPI.GetRoutingControlState	{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	ToggleCustomerAPI.GetRoutingControlState	{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSLambda.ListFunctions	{}		Lambda	Lambda
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AWSLambda.ListFunctions	{}		Lambda	Lambda
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSCognitoIdentityProviderService.InitiateAuth	{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AWSCognitoIdentityProviderService.InitiateAuth	{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSLambda20150331.ListFunctions	{}		Lambda	Lambda
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AWSLambda20150331.ListFunctions	{}		Lambda	Lambda
+POST	localhost:4566	/		application/x-amz-json-1.1	AmazonMemoryDB	{}		S3	S3
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AmazonMemoryDB	{}		S3	S3
+GET	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+GET	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2/1.41.0 api/mediastoredata#1.0.0	MediaStoreData	MediaStoreData
+GET	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+GET	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:x MEDIASTORE-DATA y	MediaStoreData	MediaStoreData
+GET	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+GET	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+PUT	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+PUT	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+DELETE	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+DELETE	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+HEAD	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+HEAD	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+GET	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+GET	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+PUT	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+PUT	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+DELETE	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+DELETE	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+HEAD	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+HEAD	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+GET	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+GET	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+PUT	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+PUT	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+DELETE	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+DELETE	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+HEAD	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+HEAD	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:aws-sdk-go-v2 api/mediastore#1	S3	S3
+GET	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+GET	localhost:4566	/		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 mediastore-data	MediaStoreData	MediaStoreData
+GET	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	X-Amz-User-Agent:aws-sdk-js/3.0 MediaStoreData	MediaStoreData	MediaStoreData
+GET	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+GET	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+GET	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/obj		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+GET	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+PUT	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+DELETE	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1	mediastore	application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+HEAD	localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}	User-Agent:İmediastoredata	MediaStoreData	MediaStoreData
+GET	localhost:4566	/oauth2/token		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/oauth2/token	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/oauth2/token		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/oauth2/token		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/oauth2/token	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/oauth2/token		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/oauth2/token		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/oauth2/token	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/oauth2/token		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/oauth2/authorize?client_id=c		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/oauth2/authorize?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/oauth2/authorize?client_id=c		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/oauth2/authorize?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/oauth2/authorize?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/oauth2/authorize?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/oauth2/authorize?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/oauth2/authorize?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/oauth2/authorize?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/oauth2/userInfo		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/oauth2/userInfo	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/oauth2/userInfo		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/oauth2/userInfo		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/oauth2/userInfo	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/oauth2/userInfo		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/oauth2/userInfo		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/oauth2/userInfo	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/oauth2/userInfo		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/oauth2/revoke		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/oauth2/revoke	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/oauth2/revoke		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/oauth2/revoke		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/oauth2/revoke	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/oauth2/revoke		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/oauth2/revoke		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/oauth2/revoke	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/oauth2/revoke		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/oauth2/idpresponse		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/oauth2/idpresponse	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/oauth2/idpresponse		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/oauth2/idpresponse		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/oauth2/idpresponse	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/oauth2/idpresponse		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/oauth2/idpresponse		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/oauth2/idpresponse	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/oauth2/idpresponse		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/login?client_id=c		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/login?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/login?client_id=c		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/login?client_id=c		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/login?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/login?client_id=c		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/login?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/login?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/login?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/logout?client_id=c		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/logout?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/logout?client_id=c		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/logout?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/logout?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/logout?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/logout?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/logout?client_id=c	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/logout?client_id=c		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/saml2/idpresponse		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/saml2/idpresponse	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/saml2/idpresponse		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/saml2/idpresponse		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/saml2/idpresponse	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/saml2/idpresponse		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/saml2/idpresponse		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/saml2/idpresponse	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/saml2/idpresponse		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/saml2/logout		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/saml2/logout	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/saml2/logout		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/saml2/logout		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/saml2/logout	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/saml2/logout		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/saml2/logout		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/saml2/logout	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/saml2/logout		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/saml2/metadata		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/saml2/metadata	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/saml2/metadata		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/saml2/metadata		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/saml2/metadata	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/saml2/metadata		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/saml2/metadata		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/saml2/metadata	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/saml2/metadata		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/us-east-1_abc/saml2/metadata		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/us-east-1_abc/saml2/metadata	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/us-east-1_abc/saml2/metadata		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/us-east-1_abc/saml2/metadata		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/us-east-1_abc/saml2/metadata	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/us-east-1_abc/saml2/metadata		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/us-east-1_abc/saml2/metadata		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/us-east-1_abc/saml2/metadata	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/us-east-1_abc/saml2/metadata		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/us-east-1_abc/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/us-east-1_abc/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	auth.localhost:4566	/us-east-1_abc/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/us-east-1_abc/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/us-east-1_abc/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	auth.localhost:4566	/us-east-1_abc/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/us-east-1_abc/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/us-east-1_abc/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	auth.localhost:4566	/us-east-1_abc/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/us-east-1_abc/.well-known/openid-configuration		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/us-east-1_abc/.well-known/openid-configuration	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/us-east-1_abc/.well-known/openid-configuration		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/us-east-1_abc/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/us-east-1_abc/.well-known/openid-configuration	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/us-east-1_abc/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/us-east-1_abc/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/us-east-1_abc/.well-known/openid-configuration	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/us-east-1_abc/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	auth.localhost:4566	/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	auth.localhost:4566	/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	auth.localhost:4566	/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/.well-known/openid-configuration	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/.well-known/openid-configuration	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	/.well-known/openid-configuration	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	/.well-known/openid-configuration		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	//oauth2/token		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	//oauth2/token	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+GET	auth.localhost:4566	//oauth2/token		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	//oauth2/token		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	//oauth2/token	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+POST	auth.localhost:4566	//oauth2/token		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	//oauth2/token		application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	localhost:4566	//oauth2/token	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
+OPTIONS	auth.localhost:4566	//oauth2/token		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/a/b/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	localhost:4566	/a/b/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	auth.localhost:4566	/a/b/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/a/b/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/a/b/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+POST	auth.localhost:4566	/a/b/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/a/b/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	localhost:4566	/a/b/.well-known/jwks.json	cognito-idp	application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+OPTIONS	auth.localhost:4566	/a/b/.well-known/jwks.json		application/x-amz-json-1.1		{}		CognitoIDP	CognitoIDP
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws	/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws	/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws	/a/b?x=1		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws	/a/b?x=1	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws	/2015-03-31/functions/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws	/2015-03-31/functions/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.eu-west-1.localhost:4566	/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.eu-west-1.localhost:4566	/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.eu-west-1.localhost:4566	/a/b?x=1		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.eu-west-1.localhost:4566	/a/b?x=1	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.eu-west-1.localhost:4566	/2015-03-31/functions/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.eu-west-1.localhost:4566	/2015-03-31/functions/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	ABCDEF0123456789ABCDEF0123456789.LAMBDA-URL.us-east-1.ON.AWS	/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	ABCDEF0123456789ABCDEF0123456789.LAMBDA-URL.us-east-1.ON.AWS	/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	ABCDEF0123456789ABCDEF0123456789.LAMBDA-URL.us-east-1.ON.AWS	/a/b?x=1		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	ABCDEF0123456789ABCDEF0123456789.LAMBDA-URL.us-east-1.ON.AWS	/a/b?x=1	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	ABCDEF0123456789ABCDEF0123456789.LAMBDA-URL.us-east-1.ON.AWS	/2015-03-31/functions/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	ABCDEF0123456789ABCDEF0123456789.LAMBDA-URL.us-east-1.ON.AWS	/2015-03-31/functions/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws:443	/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws:443	/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws:443	/a/b?x=1		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws:443	/a/b?x=1	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws:443	/2015-03-31/functions/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws:443	/2015-03-31/functions/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.example.com	/		application/x-amz-json-1.1		{}		S3	S3
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.example.com	/	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.example.com	/a/b?x=1		application/x-amz-json-1.1		{}		S3	S3
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.example.com	/a/b?x=1	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.example.com	/2015-03-31/functions/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	abcdef0123456789abcdef0123456789.lambda-url.us-east-1.example.com	/2015-03-31/functions/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	lambda-url.us-east-1.on.aws	/		application/x-amz-json-1.1		{}		S3	S3
+POST	lambda-url.us-east-1.on.aws	/	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	lambda-url.us-east-1.on.aws	/a/b?x=1		application/x-amz-json-1.1		{}		S3	S3
+POST	lambda-url.us-east-1.on.aws	/a/b?x=1	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	lambda-url.us-east-1.on.aws	/2015-03-31/functions/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	lambda-url.us-east-1.on.aws	/2015-03-31/functions/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	x.lambda-url..on.aws	/		application/x-amz-json-1.1		{}		S3	S3
+POST	x.lambda-url..on.aws	/	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	x.lambda-url..on.aws	/a/b?x=1		application/x-amz-json-1.1		{}		S3	S3
+POST	x.lambda-url..on.aws	/a/b?x=1	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	x.lambda-url..on.aws	/2015-03-31/functions/		application/x-amz-json-1.1		{}		Lambda	Lambda
+POST	x.lambda-url..on.aws	/2015-03-31/functions/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2015-03-31/functions/		application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2015-03-31/functions/	lambda	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2015-03-31/functions/	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2016-08-19/account-settings		application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2016-08-19/account-settings	lambda	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2016-08-19/account-settings	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2025-12-01/durable-executions		application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2025-12-01/durable-executions	lambda	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2025-12-01/durable-executions	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2026-07-09/resource-policy/arn		application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2026-07-09/resource-policy/arn	lambda	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2026-07-09/resource-policy/arn	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2020-04-22/code-signing-configs		application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2020-04-22/code-signing-configs	lambda	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2020-04-22/code-signing-configs	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2018-10-31/layers		application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2018-10-31/layers	lambda	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2018-10-31/layers	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2017-03-31/tags/arn		application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2017-03-31/tags/arn	lambda	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2017-03-31/tags/arn	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2099-01-01/functions		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/2099-01-01/functions	lambda	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/2099-01-01/functions	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/2015-03-31/event-source-mappings		application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2015-03-31/event-source-mappings	lambda	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/2015-03-31/event-source-mappings	s3	application/x-amz-json-1.1		{}		Lambda	Lambda
+GET	localhost:4566	/exportjobsv2/key.txt	s3					S3	S3
+PUT	localhost:4566	/exportjobsv2/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/exportjobsv2/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	SecurityHub	SecurityHub
+HEAD	localhost:4566	/exportjobsv2	s3					S3	S3
+GET	localhost:4566	/sendPhoneNumberVerification/key.txt	s3					S3	S3
+PUT	localhost:4566	/sendPhoneNumberVerification/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/sendPhoneNumberVerification/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/sendPhoneNumberVerification	s3					S3	S3
+GET	localhost:4566	/verifyPhoneNumber/key.txt	s3					S3	S3
+PUT	localhost:4566	/verifyPhoneNumber/key.txt	s3	application/octet-stream		body		S3	S3
+GET	localhost:4566	/verifyPhoneNumber/key.txt					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/s3#1.0.0	S3	S3
+HEAD	localhost:4566	/verifyPhoneNumber	s3					S3	S3
+POST	localhost:4566	/		application/x-amz-json-1.1	AmazonEventBridge.ListRules	{}		EventBridge	EventBridge
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AmazonEventBridge.ListRules	{}		EventBridge	EventBridge
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonEventBridge.ListRules	{}		EventBridge	EventBridge
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSEvents.ListRules	{}		EventBridge	EventBridge
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AWSEvents.ListRules	{}		EventBridge	EventBridge
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSEvents.ListRules	{}		EventBridge	EventBridge
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSSchemas.ListRegistries	{}		EventBridge	EventBridge
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AWSSchemas.ListRegistries	{}		EventBridge	EventBridge
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSSchemas.ListRegistries	{}		EventBridge	EventBridge
+POST	localhost:4566	/		application/x-amz-json-1.1	ResourceGroups.ListGroups	{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	ResourceGroups.ListGroups	{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	ResourceGroups.ListGroups	{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/		application/x-amz-json-1.1	AmazonPersonalize.ListDatasets	{}		Personalize	Personalize
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AmazonPersonalize.ListDatasets	{}		Personalize	Personalize
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonPersonalize.ListDatasets	{}		Personalize	Personalize
+POST	localhost:4566	/		application/x-amz-json-1.1	AmazonPersonalizeRuntime.GetRecommendations	{}		Personalize	Personalize
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AmazonPersonalizeRuntime.GetRecommendations	{}		Personalize	Personalize
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonPersonalizeRuntime.GetRecommendations	{}		Personalize	Personalize
+POST	localhost:4566	/		application/x-amz-json-1.1	AmazonSSM.ListDocuments	{}		SSM	SSM
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AmazonSSM.ListDocuments	{}		SSM	SSM
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonSSM.ListDocuments	{}		SSM	SSM
+POST	localhost:4566	/		application/x-amz-json-1.1	EC2WindowsMessageDeliveryService.Poll	{}		SSM	SSM
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	EC2WindowsMessageDeliveryService.Poll	{}		SSM	SSM
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	EC2WindowsMessageDeliveryService.Poll	{}		SSM	SSM
+POST	localhost:4566	/		application/x-amz-json-1.1	AmazonEC2ContainerRegistry_V20150921.DescribeRepositories	{}		ECR	ECR
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AmazonEC2ContainerRegistry_V20150921.DescribeRepositories	{}		ECR	ECR
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonEC2ContainerRegistry_V20150921.DescribeRepositories	{}		ECR	ECR
+POST	localhost:4566	/		application/x-amz-json-1.1	AWSScheduler.ListSchedules	{}		Scheduler	Scheduler
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AWSScheduler.ListSchedules	{}		Scheduler	Scheduler
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSScheduler.ListSchedules	{}		Scheduler	Scheduler
+POST	localhost:4566	/		application/x-amz-json-1.1	AmazonSQS.ListQueues	{}		SQS	SQS
+POST	localhost:4566	/	s3	application/x-amz-json-1.1	AmazonSQS.ListQueues	{}		SQS	SQS
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonSQS.ListQueues	{}		S3	S3
+GET	localhost:4566	/v1/registries		application/x-amz-json-1.1		{}		EventBridge	EventBridge
+GET	localhost:4566	/v1/registries	s3	application/x-amz-json-1.1		{}		EventBridge	EventBridge
+POST	localhost:4566	/v1/registries		application/x-amz-json-1.1		{}		Batch	Batch
+POST	localhost:4566	/v1/registries	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v1/registries		application/x-amz-json-1.1		{}		Batch	Batch
+PUT	localhost:4566	/v1/registries	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v1/registries		application/x-amz-json-1.1		{}		Batch	Batch
+DELETE	localhost:4566	/v1/registries	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v1/discover		application/x-amz-json-1.1		{}		Batch	Batch
+GET	localhost:4566	/v1/discover	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v1/discover		application/x-amz-json-1.1		{}		EventBridge	EventBridge
+POST	localhost:4566	/v1/discover	s3	application/x-amz-json-1.1		{}		EventBridge	EventBridge
+PUT	localhost:4566	/v1/discover		application/x-amz-json-1.1		{}		Batch	Batch
+PUT	localhost:4566	/v1/discover	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v1/discover		application/x-amz-json-1.1		{}		Batch	Batch
+DELETE	localhost:4566	/v1/discover	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	//v1/policy		application/x-amz-json-1.1		{}		EventBridge	EventBridge
+GET	localhost:4566	//v1/policy	s3	application/x-amz-json-1.1		{}		EventBridge	EventBridge
+POST	localhost:4566	//v1/policy		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	//v1/policy	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	//v1/policy		application/x-amz-json-1.1		{}		EventBridge	EventBridge
+PUT	localhost:4566	//v1/policy	s3	application/x-amz-json-1.1		{}		EventBridge	EventBridge
+DELETE	localhost:4566	//v1/policy		application/x-amz-json-1.1		{}		EventBridge	EventBridge
+DELETE	localhost:4566	//v1/policy	s3	application/x-amz-json-1.1		{}		EventBridge	EventBridge
+GET	localhost:4566	/v1/discoverers/id/d1/start		application/x-amz-json-1.1		{}		Batch	Batch
+GET	localhost:4566	/v1/discoverers/id/d1/start	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v1/discoverers/id/d1/start		application/x-amz-json-1.1		{}		EventBridge	EventBridge
+POST	localhost:4566	/v1/discoverers/id/d1/start	s3	application/x-amz-json-1.1		{}		EventBridge	EventBridge
+PUT	localhost:4566	/v1/discoverers/id/d1/start		application/x-amz-json-1.1		{}		Batch	Batch
+PUT	localhost:4566	/v1/discoverers/id/d1/start	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v1/discoverers/id/d1/start		application/x-amz-json-1.1		{}		Batch	Batch
+DELETE	localhost:4566	/v1/discoverers/id/d1/start	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v1/registries/name/r/schemas		application/x-amz-json-1.1		{}		EventBridge	EventBridge
+GET	localhost:4566	/v1/registries/name/r/schemas	s3	application/x-amz-json-1.1		{}		EventBridge	EventBridge
+POST	localhost:4566	/v1/registries/name/r/schemas		application/x-amz-json-1.1		{}		Batch	Batch
+POST	localhost:4566	/v1/registries/name/r/schemas	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v1/registries/name/r/schemas		application/x-amz-json-1.1		{}		Batch	Batch
+PUT	localhost:4566	/v1/registries/name/r/schemas	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v1/registries/name/r/schemas		application/x-amz-json-1.1		{}		Batch	Batch
+DELETE	localhost:4566	/v1/registries/name/r/schemas	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/groups		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/groups	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/groups		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/groups	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/groups		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/groups	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/groups		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/groups	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/get-group		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/get-group	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/get-group		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/get-group	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/get-group		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/get-group	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/get-group		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/get-group	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/update-group-query		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/update-group-query	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/update-group-query		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/update-group-query	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/update-group-query		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/update-group-query	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/update-group-query		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/update-group-query	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/list-group-resources		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/list-group-resources	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/list-group-resources		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/list-group-resources	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/list-group-resources		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/list-group-resources	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/list-group-resources		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/list-group-resources	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/resources/search		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/resources/search	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/resources/search		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/resources/search	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/resources/search		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/resources/search	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/resources/search		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/resources/search	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/resources/arn:aws:resource-groups:us-east-1:000000000000:group%2Fg/tags		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/resources/arn:aws:resource-groups:us-east-1:000000000000:group%2Fg/tags	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/resources/arn:aws:resource-groups:us-east-1:000000000000:group%2Fg/tags		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/resources/arn:aws:resource-groups:us-east-1:000000000000:group%2Fg/tags	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/resources/arn:aws:resource-groups:us-east-1:000000000000:group%2Fg/tags		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/resources/arn:aws:resource-groups:us-east-1:000000000000:group%2Fg/tags	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/resources/arn:aws:resource-groups:us-east-1:000000000000:group%2Fg/tags		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/resources/arn:aws:resource-groups:us-east-1:000000000000:group%2Fg/tags	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/ungroup-resources		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/ungroup-resources	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/ungroup-resources		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+POST	localhost:4566	/ungroup-resources	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/ungroup-resources		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+PUT	localhost:4566	/ungroup-resources	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/ungroup-resources		application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+DELETE	localhost:4566	/ungroup-resources	s3	application/x-amz-json-1.1		{}		ResourceGroups	ResourceGroups
+GET	localhost:4566	/recommendations		application/x-amz-json-1.1		{}		Personalize	Personalize
+GET	localhost:4566	/recommendations	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+POST	localhost:4566	/recommendations		application/x-amz-json-1.1		{}		Personalize	Personalize
+POST	localhost:4566	/recommendations	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+PUT	localhost:4566	/recommendations		application/x-amz-json-1.1		{}		Personalize	Personalize
+PUT	localhost:4566	/recommendations	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+DELETE	localhost:4566	/recommendations		application/x-amz-json-1.1		{}		Personalize	Personalize
+DELETE	localhost:4566	/recommendations	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+GET	localhost:4566	/personalize-ranking		application/x-amz-json-1.1		{}		Personalize	Personalize
+GET	localhost:4566	/personalize-ranking	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+POST	localhost:4566	/personalize-ranking		application/x-amz-json-1.1		{}		Personalize	Personalize
+POST	localhost:4566	/personalize-ranking	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+PUT	localhost:4566	/personalize-ranking		application/x-amz-json-1.1		{}		Personalize	Personalize
+PUT	localhost:4566	/personalize-ranking	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+DELETE	localhost:4566	/personalize-ranking		application/x-amz-json-1.1		{}		Personalize	Personalize
+DELETE	localhost:4566	/personalize-ranking	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+GET	localhost:4566	/action-recommendations		application/x-amz-json-1.1		{}		Personalize	Personalize
+GET	localhost:4566	/action-recommendations	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+POST	localhost:4566	/action-recommendations		application/x-amz-json-1.1		{}		Personalize	Personalize
+POST	localhost:4566	/action-recommendations	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+PUT	localhost:4566	/action-recommendations		application/x-amz-json-1.1		{}		Personalize	Personalize
+PUT	localhost:4566	/action-recommendations	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+DELETE	localhost:4566	/action-recommendations		application/x-amz-json-1.1		{}		Personalize	Personalize
+DELETE	localhost:4566	/action-recommendations	s3	application/x-amz-json-1.1		{}		Personalize	Personalize
+GET	localhost:4566	/ssmmessages/v1/data-channel/x		application/x-amz-json-1.1		{}		SSM	SSM
+GET	localhost:4566	/ssmmessages/v1/data-channel/x	s3	application/x-amz-json-1.1		{}		SSM	SSM
+POST	localhost:4566	/ssmmessages/v1/data-channel/x		application/x-amz-json-1.1		{}		SSM	SSM
+POST	localhost:4566	/ssmmessages/v1/data-channel/x	s3	application/x-amz-json-1.1		{}		SSM	SSM
+PUT	localhost:4566	/ssmmessages/v1/data-channel/x		application/x-amz-json-1.1		{}		SSM	SSM
+PUT	localhost:4566	/ssmmessages/v1/data-channel/x	s3	application/x-amz-json-1.1		{}		SSM	SSM
+DELETE	localhost:4566	/ssmmessages/v1/data-channel/x		application/x-amz-json-1.1		{}		SSM	SSM
+DELETE	localhost:4566	/ssmmessages/v1/data-channel/x	s3	application/x-amz-json-1.1		{}		SSM	SSM
+GET	localhost:4566	/v2/		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/		application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/		application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2		application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2		application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/_catalog		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/_catalog	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/_catalog		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/_catalog	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/_catalog		application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/_catalog	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/_catalog		application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/_catalog	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/repo/manifests/latest		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/repo/manifests/latest	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/repo/manifests/latest		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/repo/manifests/latest	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/repo/manifests/latest		application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/repo/manifests/latest	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/repo/manifests/latest		application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/repo/manifests/latest	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/repo/blobs/sha256:x		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/repo/blobs/sha256:x	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/repo/blobs/sha256:x		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/repo/blobs/sha256:x	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/repo/blobs/sha256:x		application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/repo/blobs/sha256:x	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/repo/blobs/sha256:x		application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/repo/blobs/sha256:x	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/repo/tags/list		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/v2/repo/tags/list	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/repo/tags/list		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/v2/repo/tags/list	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/repo/tags/list		application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/v2/repo/tags/list	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/repo/tags/list		application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/v2/repo/tags/list	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/schedules		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+GET	localhost:4566	/schedules	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/schedules		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+POST	localhost:4566	/schedules	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/schedules		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+PUT	localhost:4566	/schedules	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/schedules		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+DELETE	localhost:4566	/schedules	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/schedules/x		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+GET	localhost:4566	/schedules/x	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/schedules/x		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+POST	localhost:4566	/schedules/x	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/schedules/x		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+PUT	localhost:4566	/schedules/x	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/schedules/x		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+DELETE	localhost:4566	/schedules/x	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/schedule-groups/g		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+GET	localhost:4566	/schedule-groups/g	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/schedule-groups/g		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+POST	localhost:4566	/schedule-groups/g	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/schedule-groups/g		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+PUT	localhost:4566	/schedule-groups/g	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/schedule-groups/g		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+DELETE	localhost:4566	/schedule-groups/g	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/tags/arn:aws:scheduler:us-east-1:000000000000:schedule%2Fx		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+GET	localhost:4566	/tags/arn:aws:scheduler:us-east-1:000000000000:schedule%2Fx	s3	application/x-amz-json-1.1		{}		Scheduler	Scheduler
+POST	localhost:4566	/tags/arn:aws:scheduler:us-east-1:000000000000:schedule%2Fx		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+POST	localhost:4566	/tags/arn:aws:scheduler:us-east-1:000000000000:schedule%2Fx	s3	application/x-amz-json-1.1		{}		Scheduler	Scheduler
+PUT	localhost:4566	/tags/arn:aws:scheduler:us-east-1:000000000000:schedule%2Fx		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+PUT	localhost:4566	/tags/arn:aws:scheduler:us-east-1:000000000000:schedule%2Fx	s3	application/x-amz-json-1.1		{}		Scheduler	Scheduler
+DELETE	localhost:4566	/tags/arn:aws:scheduler:us-east-1:000000000000:schedule%2Fx		application/x-amz-json-1.1		{}		Scheduler	Scheduler
+DELETE	localhost:4566	/tags/arn:aws:scheduler:us-east-1:000000000000:schedule%2Fx	s3	application/x-amz-json-1.1		{}		Scheduler	Scheduler
+GET	localhost:4566	/tags/arn:aws:sns:us-east-1:000000000000:t		application/x-amz-json-1.1		{}		DSQL	DSQL
+GET	localhost:4566	/tags/arn:aws:sns:us-east-1:000000000000:t	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/tags/arn:aws:sns:us-east-1:000000000000:t		application/x-amz-json-1.1		{}		DSQL	DSQL
+POST	localhost:4566	/tags/arn:aws:sns:us-east-1:000000000000:t	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/tags/arn:aws:sns:us-east-1:000000000000:t		application/x-amz-json-1.1		{}		DSQL	DSQL
+PUT	localhost:4566	/tags/arn:aws:sns:us-east-1:000000000000:t	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/tags/arn:aws:sns:us-east-1:000000000000:t		application/x-amz-json-1.1		{}		DSQL	DSQL
+DELETE	localhost:4566	/tags/arn:aws:sns:us-east-1:000000000000:t	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/SimpleNotificationService-abc.pem		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/SimpleNotificationService-abc.pem	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/SimpleNotificationService-abc.pem		application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/SimpleNotificationService-abc.pem	s3	application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/SimpleNotificationService-abc.pem		application/x-amz-json-1.1		{}		S3	S3
+PUT	localhost:4566	/SimpleNotificationService-abc.pem	s3	application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/SimpleNotificationService-abc.pem		application/x-amz-json-1.1		{}		S3	S3
+DELETE	localhost:4566	/SimpleNotificationService-abc.pem	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/	sts	application/x-www-form-urlencoded		Action=ListQueues&Version=2012-11-05		SQS	SQS
+POST	localhost:4566	/	sns	application/x-www-form-urlencoded		Action=ListQueues&Version=2012-11-05		SQS	SQS
+POST	localhost:4566	/	sqs	application/x-www-form-urlencoded		Action=ListQueues&Version=2012-11-05		SQS	SQS
+POST	localhost:4566	/		application/x-www-form-urlencoded		Action=ListQueues&Version=2012-11-05		SQS	SQS
+POST	localhost:4566	/	sts	APPLICATION/X-WWW-FORM-URLENCODED		Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sns	APPLICATION/X-WWW-FORM-URLENCODED		Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sqs	APPLICATION/X-WWW-FORM-URLENCODED		Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/		APPLICATION/X-WWW-FORM-URLENCODED		Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sts	application/json		Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sns	application/json		Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sqs	application/json		Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/		application/json		Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sts			Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sns			Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sqs			Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/				Action=ListQueues&Version=2012-11-05		S3	S3
+POST	localhost:4566	/	sts	application/x-www-form-urlencoded		Action=GetCallerIdentity&Version=2011-06-15		STS	STS
+POST	localhost:4566	/	sns	application/x-www-form-urlencoded		Action=GetCallerIdentity&Version=2011-06-15		STS	STS
+POST	localhost:4566	/	sqs	application/x-www-form-urlencoded		Action=GetCallerIdentity&Version=2011-06-15		STS	STS
+POST	localhost:4566	/	sts	APPLICATION/X-WWW-FORM-URLENCODED		Action=GetCallerIdentity&Version=2011-06-15		STS	STS
+POST	localhost:4566	/	sns	APPLICATION/X-WWW-FORM-URLENCODED		Action=GetCallerIdentity&Version=2011-06-15		STS	STS
+POST	localhost:4566	/	sqs	APPLICATION/X-WWW-FORM-URLENCODED		Action=GetCallerIdentity&Version=2011-06-15		STS	STS
+POST	localhost:4566	/		APPLICATION/X-WWW-FORM-URLENCODED		Action=GetCallerIdentity&Version=2011-06-15		STS	STS
+POST	localhost:4566	/	sts	application/json		Action=GetCallerIdentity&Version=2011-06-15		S3	S3
+POST	localhost:4566	/	sns	application/json		Action=GetCallerIdentity&Version=2011-06-15		S3	S3
+POST	localhost:4566	/	sqs	application/json		Action=GetCallerIdentity&Version=2011-06-15		S3	S3
+POST	localhost:4566	/		application/json		Action=GetCallerIdentity&Version=2011-06-15		S3	S3
+POST	localhost:4566	/	sts			Action=GetCallerIdentity&Version=2011-06-15		S3	S3
+POST	localhost:4566	/	sns			Action=GetCallerIdentity&Version=2011-06-15		S3	S3
+POST	localhost:4566	/	sqs			Action=GetCallerIdentity&Version=2011-06-15		S3	S3
+POST	localhost:4566	/				Action=GetCallerIdentity&Version=2011-06-15		S3	S3
+POST	localhost:4566	/	sts	application/x-www-form-urlencoded		Action=ListTopics&Version=2010-03-31		SNS	SNS
+POST	localhost:4566	/	sns	application/x-www-form-urlencoded		Action=ListTopics&Version=2010-03-31		SNS	SNS
+POST	localhost:4566	/	sqs	application/x-www-form-urlencoded		Action=ListTopics&Version=2010-03-31		SNS	SNS
+POST	localhost:4566	/		application/x-www-form-urlencoded		Action=ListTopics&Version=2010-03-31		SNS	SNS
+POST	localhost:4566	/	sts	APPLICATION/X-WWW-FORM-URLENCODED		Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sns	APPLICATION/X-WWW-FORM-URLENCODED		Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sqs	APPLICATION/X-WWW-FORM-URLENCODED		Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/		APPLICATION/X-WWW-FORM-URLENCODED		Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sts	application/json		Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sns	application/json		Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sqs	application/json		Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/		application/json		Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sts			Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sns			Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sqs			Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/				Action=ListTopics&Version=2010-03-31		S3	S3
+POST	localhost:4566	/	sts	application/x-www-form-urlencoded		Action=Bogus		S3	S3
+POST	localhost:4566	/	sns	application/x-www-form-urlencoded		Action=Bogus		S3	S3
+POST	localhost:4566	/	sqs	application/x-www-form-urlencoded		Action=Bogus		S3	S3
+POST	localhost:4566	/	sts	APPLICATION/X-WWW-FORM-URLENCODED		Action=Bogus		S3	S3
+POST	localhost:4566	/	sns	APPLICATION/X-WWW-FORM-URLENCODED		Action=Bogus		S3	S3
+POST	localhost:4566	/	sqs	APPLICATION/X-WWW-FORM-URLENCODED		Action=Bogus		S3	S3
+POST	localhost:4566	/		APPLICATION/X-WWW-FORM-URLENCODED		Action=Bogus		S3	S3
+POST	localhost:4566	/	sts	application/json		Action=Bogus		S3	S3
+POST	localhost:4566	/	sns	application/json		Action=Bogus		S3	S3
+POST	localhost:4566	/	sqs	application/json		Action=Bogus		S3	S3
+POST	localhost:4566	/		application/json		Action=Bogus		S3	S3
+POST	localhost:4566	/	sts			Action=Bogus		S3	S3
+POST	localhost:4566	/	sns			Action=Bogus		S3	S3
+POST	localhost:4566	/	sqs			Action=Bogus		S3	S3
+POST	localhost:4566	/				Action=Bogus		S3	S3
+POST	localhost:4566	/	sts	application/x-www-form-urlencoded				S3	S3
+POST	localhost:4566	/	sns	application/x-www-form-urlencoded				S3	S3
+POST	localhost:4566	/	sqs	application/x-www-form-urlencoded				S3	S3
+POST	localhost:4566	/	sts	APPLICATION/X-WWW-FORM-URLENCODED				S3	S3
+POST	localhost:4566	/	sns	APPLICATION/X-WWW-FORM-URLENCODED				S3	S3
+POST	localhost:4566	/	sqs	APPLICATION/X-WWW-FORM-URLENCODED				S3	S3
+POST	localhost:4566	/		APPLICATION/X-WWW-FORM-URLENCODED				S3	S3
+POST	localhost:4566	/	sts	application/json				S3	S3
+POST	localhost:4566	/	sns	application/json				S3	S3
+POST	localhost:4566	/	sqs	application/json				S3	S3
+POST	localhost:4566	/		application/json				S3	S3
+POST	localhost:4566	/	sns					S3	S3
+POST	localhost:4566	/	sqs					S3	S3
+GET	localhost:4566	/?Action=ConfirmSubscription&TopicArn=arn%3Aaws%3Asns%3Aus-east-1%3A000000000000%3At&Token=x		application/x-amz-json-1.1		{}		SNS	SNS
+GET	localhost:4566	/bucket/key?Action=ConfirmSubscription&TopicArn=arn%3Aaws%3Asns%3Aus-east-1%3A000000000000%3At&Token=x	s3	application/x-amz-json-1.1		{}		SNS	SNS
+GET	localhost:4566	/?Act%69on=ConfirmSubscription&TopicArn=x		application/x-amz-json-1.1		{}		SNS	SNS
+GET	localhost:4566	/bucket/key?Act%69on=ConfirmSubscription&TopicArn=x	s3	application/x-amz-json-1.1		{}		SNS	SNS
+GET	localhost:4566	/?Action=ListTopics		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/bucket/key?Action=ListTopics	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/?x=1		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/bucket/key?x=1	s3	application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/?X-Amz-Credential=a%2Fb		application/x-amz-json-1.1		{}		S3	S3
+GET	localhost:4566	/bucket/key?X-Amz-Credential=a%2Fb	s3	application/x-amz-json-1.1		{}		S3	S3
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonMemoryDB.DescribeClusters	{}		MemoryDB	MemoryDB
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	ToggleCustomerAPI.GetRoutingControlState	{}		Route53RecoveryCluster	Route53RecoveryCluster
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSLambda.ListFunctions	{}		Lambda	Lambda
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSCognitoIdentityProviderService.InitiateAuth	{}		CognitoIDP	CognitoIDP
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSLambda20150331.ListFunctions	{}		Lambda	Lambda
+POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonMemoryDB	{}		S3	S3

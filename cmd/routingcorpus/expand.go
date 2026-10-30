@@ -68,6 +68,7 @@ func expandRows(sdk []row) []row {
 	c.addSpecials()
 	c.addAppStream(groups["appstream"])
 	c.addS3Lookalikes()
+	c.addAltGateRows()
 
 	return c.out
 }
@@ -145,30 +146,54 @@ func (c *collector) addS3Hosts(rows []row) {
 
 func (c *collector) addSpecials() {
 	specials := [][3]string{
-		{methodGet, host, "/"}, {methodGet, host, "/health"}, {methodGet, host, "/_localstack/health"},
-		{methodGet, host, "/_localstack/info"}, {methodGet, host, "/_gopherstack/health"},
+		{methodGet, host, "/"},
+		{methodGet, host, "/health"},
+		{methodGet, host, "/_localstack/health"},
+		{methodGet, host, "/_localstack/info"},
+		{methodGet, host, "/_gopherstack/health"},
 		{
 			methodGet,
 			host,
 			"/_gopherstack/chaos/faults",
-		}, {methodGet, host, "/dashboard"}, {methodGet, host, "/dashboard/"},
-		{methodGet, host, "/dashboard/s3"}, {methodGet, host, "/dashboard/api/v1/x"}, {methodGet, host, "/metrics"},
-		{methodGet, host, "/favicon.ico"}, {methodGet, host, "/robots.txt"}, {methodGet, host, "/nonexistent/path"},
-		{methodGet, host, "/mybucket"}, {methodGet, host, keyPath}, {"PUT", host, "/mybucket"},
-		{"HEAD", host, keyPath}, {"OPTIONS", host, keyPath}, {"OPTIONS", host, "/"},
-		{methodPost, host, "/"}, {methodGet, host, "/_aws/ses"}, {methodGet, host, "/_aws/sqs/messages"},
-		{"DELETE", host, "/_aws/ses"}, {methodGet, host, "/_aws/cloudwatch/metrics/raw"},
+		},
+		{methodGet, host, "/dashboard"},
+		{methodGet, host, "/dashboard/"},
+		{methodGet, host, "/dashboard/s3"},
+		{methodGet, host, "/dashboard/api/v1/x"},
+		{methodGet, host, "/metrics"},
+		{methodGet, host, "/favicon.ico"},
+		{methodGet, host, "/robots.txt"},
+		{methodGet, host, "/nonexistent/path"},
+		{methodGet, host, "/mybucket"},
+		{methodGet, host, keyPath},
+		{methodPut, host, "/mybucket"},
+		{methodHead, host, keyPath},
+		{methodOptions, host, keyPath},
+		{methodOptions, host, "/"},
+		{methodPost, host, "/"},
+		{methodGet, host, "/_aws/ses"},
+		{methodGet, host, "/_aws/sqs/messages"},
+		{methodDelete, host, "/_aws/ses"},
+		{methodGet, host, "/_aws/cloudwatch/metrics/raw"},
 		{methodPost, host, "/_localstack/state/reset"},
 		{methodGet, host, "/_aws/sqs/messages/us-east-1/000000000000/q"},
-		{methodGet, host, "/swagger"}, {methodGet, host, "/tags/arn%3Aaws%3Aservice%3Aus-east-1%3A000000000000%3Ax"},
-		{methodGet, host, "/resourcepolicy/x"}, {methodGet, host, "/flows"}, {methodGet, host, "/agents"},
-		{methodGet, host, "/prompts"}, {methodGet, host, "/2015-03-31/functions/"}, {methodGet, host, "/restapis"},
+		{methodGet, host, "/swagger"},
+		{methodGet, host, "/tags/arn%3Aaws%3Aservice%3Aus-east-1%3A000000000000%3Ax"},
+		{methodGet, host, "/resourcepolicy/x"},
+		{methodGet, host, "/flows"},
+		{methodGet, host, "/agents"},
+		{methodGet, host, "/prompts"},
+		{methodGet, host, lambdaFunctionsPath},
+		{methodGet, host, "/restapis"},
 		{
 			methodGet,
 			host,
 			"/v2/apis",
-		}, {methodGet, host, "/2013-04-01/hostedzone"}, {methodGet, "s3.localhost:4566", "/"},
-		{methodGet, "s3.us-east-1.amazonaws.com", "/"}, {methodGet, "mybucket.s3.amazonaws.com", "/key"},
+		},
+		{methodGet, host, "/2013-04-01/hostedzone"},
+		{methodGet, "s3.localhost:4566", "/"},
+		{methodGet, "s3.us-east-1.amazonaws.com", "/"},
+		{methodGet, "mybucket.s3.amazonaws.com", "/key"},
 		{methodGet, host, "/mybucket?versioning"},
 	}
 
@@ -254,8 +279,8 @@ func (c *collector) addS3Lookalikes() {
 	for _, b := range sorted {
 		obj := "/" + b + "/key.txt"
 		c.add(row{methodGet, host, obj, "s3", "", "", "", "", noteS3Lookalike})
-		c.add(row{"PUT", host, obj, "s3", "application/octet-stream", "", "body", "", noteS3Lookalike})
+		c.add(row{methodPut, host, obj, "s3", "application/octet-stream", "", "body", "", noteS3Lookalike})
 		c.add(row{methodGet, host, obj, "", "", "", "", fmt.Sprintf(uaFmt, "s3"), noteS3Lookalike})
-		c.add(row{"HEAD", host, "/" + b, "s3", "", "", "", "", noteS3Lookalike})
+		c.add(row{methodHead, host, "/" + b, "s3", "", "", "", "", noteS3Lookalike})
 	}
 }

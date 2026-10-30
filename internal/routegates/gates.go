@@ -3,6 +3,8 @@ package routegates
 import (
 	_ "embed" // pathGatesData
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // namespaced returns prefix plus the form botocore clients send, which prepends "com.amazonaws.<ns>".
@@ -121,4 +123,54 @@ func PathGates() map[string][]string {
 	}
 
 	return gates
+}
+
+const formContentType = "application/x-www-form-urlencoded"
+
+// AltGates maps services whose matchers accept via several independent signals to their
+// OR-gate; TestRouteAltGatesHold proves each matcher returns false whenever its gate rejects.
+func AltGates() map[string]service.AltGate {
+	return map[string]service.AltGate{
+		"MemoryDB": {Target: []string{"AmazonMemoryDB."}, Scope: []string{"memorydb"}},
+		"Route53RecoveryCluster": {
+			Target: []string{"ToggleCustomerAPI."}, Scope: []string{"route53-recovery-cluster"},
+		},
+		"MediaStoreData": {UserAgent: []string{"mediastore"}},
+		"CognitoIDP": {
+			Target: []string{"AWSCognitoIdentityProviderService."},
+			Path:   []string{"/oauth2/", "/login", "/logout", "/saml2/", "/.well-known/"},
+			PathSuffix: []string{
+				"/.well-known/jwks.json", "/.well-known/openid-configuration", "/saml2/metadata",
+			},
+		},
+		"Lambda": {Target: []string{"AWSLambda"}, Path: []string{"/20"}, Host: []string{".lambda-url."}},
+		"EventBridge": {
+			Target: []string{"AmazonEventBridge.", "AWSEvents.", "AWSSchemas."}, Path: []string{"/v1"},
+		},
+		"ResourceGroups": {
+			Target: []string{"ResourceGroups."},
+			Path: []string{
+				"/groups", "/get-", "/delete-group", "/update-", "/cancel-tag-sync-task", "/group-resources",
+				"/list-g", "/list-tag-sync-tasks", "/put-group-configuration", "/resources/", "/start-tag-sync-task",
+				"/ungroup-resources",
+			},
+		},
+		"Personalize": {
+			Target: []string{"AmazonPersonalize"},
+			Path:   []string{"/recommendations", "/personalize-ranking", "/action-recommendations"},
+		},
+		"SSM": {
+			Target: []string{"AmazonSSM", "EC2WindowsMessageDeliveryService."}, Path: []string{"/ssmmessages/"},
+		},
+		"ECR": {Target: []string{"AmazonEC2ContainerRegistry_V20150921."}, Path: []string{"/v2"}},
+		"Scheduler": {
+			Target: []string{"AWSScheduler."}, Path: []string{"/schedules", "/schedule-groups", "/tags/"},
+		},
+		"STS": {ContentType: []string{formContentType}},
+		"SQS": {Target: []string{"AmazonSQS."}, ContentType: []string{formContentType}},
+		"SNS": {
+			ContentType: []string{formContentType}, PathSuffix: []string{"SimpleNotificationService.pem"},
+			Query: []string{"Action=", "%"},
+		},
+	}
 }

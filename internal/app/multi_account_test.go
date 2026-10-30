@@ -91,6 +91,7 @@ func newMultiAccountStackWith(t *testing.T, enforce bool) *multiAccountStack {
 			WithTargetGates(routegates.TargetGates()).
 			WithCBORGates(routegates.CBORGates()).
 			WithPathGates(routegates.PathGates()).
+			WithAltGates(routegates.AltGates()).
 			RouteHandler(),
 	)
 

@@ -522,6 +522,9 @@ linters:
       # router_index_test.go checks the unexported index against the unexported linear scan.
       - path: 'pkgs/service/router_index_test.go'
         linters: [ testpackage ]
+      # router_alt_gate_test.go checks the unexported AltGate.admits against a lookup context.
+      - path: 'pkgs/service/router_alt_gate_test.go'
+        linters: [ testpackage ]
       # routing_test.go white-box tests unexported routing helpers and the
       # injectable RNG field, so it must live in the same package.
       - path: 'route53/routing_test.go'

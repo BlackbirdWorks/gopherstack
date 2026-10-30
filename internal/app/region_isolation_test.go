@@ -64,7 +64,8 @@ func newRegionServer(t *testing.T) string {
 	router := service.NewServiceRouter(registry).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 	e.Use(router.RouteHandler())
 
 	srv := httptest.NewServer(e)
