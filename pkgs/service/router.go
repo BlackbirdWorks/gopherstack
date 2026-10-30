@@ -125,7 +125,8 @@ func (r *Router) RouteHandler() echo.MiddlewareFunc {
 // Only services whose gate keys fit the request are tried, in priority order.
 func (r *Router) Lookup(c *echo.Context) *Entry {
 	target := extractTargetHeader(c)
-	path := extractPath(c)
+	rawPath := extractPath(c)
+	path := gatePath(rawPath)
 
 	var pathBucket, targetBucket []int
 
@@ -137,7 +138,7 @@ func (r *Router) Lookup(c *echo.Context) *Entry {
 		targetBucket = r.idx.byTarget[target[0]]
 	}
 
-	cborName := rpcv2CBORServiceName(path)
+	cborName := rpcv2CBORServiceName(rawPath)
 	if cb := r.idx.byCBOR[cborName]; cborName != "" && len(cb) > 0 {
 		targetBucket = mergeAscending(targetBucket, cb)
 	}
@@ -174,6 +175,21 @@ func (r *Router) lookupLinear(c *echo.Context) *Entry {
 	}
 
 	return nil
+}
+
+// gatePath collapses leading slashes to one: some matchers trim them before matching,
+// and a gate only has to admit what its matcher can claim.
+func gatePath(p string) string {
+	if len(p) < 2 || p[0] != '/' || p[1] != '/' {
+		return p
+	}
+
+	k := 2
+	for k < len(p) && p[k] == '/' {
+		k++
+	}
+
+	return p[k-1:]
 }
 
 func hasAnyPrefix(s string, prefixes []string) bool {
