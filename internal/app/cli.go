@@ -2575,6 +2575,10 @@ func Run() {
 	cancel() // release signal-handler goroutine resources
 
 	if err != nil {
+		if code, ok := lifecycleExitCode(err); ok {
+			os.Exit(code)
+		}
+
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
