@@ -249,6 +249,21 @@ type apimLimits struct {
 }
 
 const (
+	apimMaxOps          = 75000
+	limOpsLow           = 3000
+	limOpsBasic         = 10000
+	limOpsStd           = 50000
+	limNamedLow         = 5000
+	limNamedStd         = 10000
+	limNamedPrem        = 18000
+	limProdLow          = 100
+	limProdBasic        = 200
+	limProdStd          = 500
+	limProdPrem         = 2000
+	limSubsDev          = 10000
+	limSubsBasic        = 15000
+	limSubsStd          = 25000
+	limSubsPrem         = 75000
 	apimKiB             = 1024
 	apimPolicyBytes     = 512 * apimKiB
 	apimPolicyBytesCons = 16 * apimKiB
@@ -257,16 +272,28 @@ const (
 func apimLimitsFor(sku string) apimLimits {
 	switch sku {
 	case apimSKUConsumption:
-		return apimLimits{ops: 3000, named: 5000, products: 100, policyBytes: apimPolicyBytesCons}
+		return apimLimits{ops: limOpsLow, named: limNamedLow, products: limProdLow, policyBytes: apimPolicyBytesCons}
 	case "Developer":
-		return apimLimits{ops: 3000, named: 5000, products: 100, subs: 10000, policyBytes: apimPolicyBytes}
-	case "Basic":
-		return apimLimits{ops: 10000, named: 5000, products: 200, subs: 15000, policyBytes: apimPolicyBytes}
+		return apimLimits{
+			ops: limOpsLow, named: limNamedLow, products: limProdLow, subs: limSubsDev, policyBytes: apimPolicyBytes,
+		}
+	case skuBasic:
+		return apimLimits{
+			ops:         limOpsBasic,
+			named:       limNamedLow,
+			products:    limProdBasic,
+			subs:        limSubsBasic,
+			policyBytes: apimPolicyBytes,
+		}
 	case skuTierStandard:
-		return apimLimits{ops: 50000, named: 10000, products: 500, subs: 25000, policyBytes: apimPolicyBytes}
+		return apimLimits{
+			ops: limOpsStd, named: limNamedStd, products: limProdStd, subs: limSubsStd, policyBytes: apimPolicyBytes,
+		}
 	}
 
-	return apimLimits{ops: 75000, named: 18000, products: 2000, subs: 75000, policyBytes: apimPolicyBytes}
+	return apimLimits{
+		ops: apimMaxOps, named: limNamedPrem, products: limProdPrem, subs: limSubsPrem, policyBytes: apimPolicyBytes,
+	}
 }
 
 func apimOverLimit(have, limit int, what string) error {
@@ -419,11 +446,15 @@ func newAPIMService(sub, rg, name string, now time.Time) *apimService {
 
 func gatewayHost(name string) string { return name + apimGatewaySuffix }
 
-func (s *apimService) body(now time.Time) map[string]any { return s.bodyAs(now, "") }
+func (s *apimService) body(now time.Time) map[string]any {
+	return s.bodyAs(now, "")
+}
 
 // createdBody is the 201 answer of the PUT that created the service: provisioningState Created heading for
 // Activating.
-func (s *apimService) createdBody(now time.Time) map[string]any { return s.bodyAs(now, apimStateCreated) }
+func (s *apimService) createdBody(now time.Time) map[string]any {
+	return s.bodyAs(now, apimStateCreated)
+}
 
 func (s *apimService) regionalURL() string {
 	slug := strings.ToLower(strings.ReplaceAll(s.Location, " ", ""))

@@ -397,33 +397,13 @@ func validateSemantics(s *apimService, n *polNode) error {
 
 		return posInt(n, apimCRenewalPeriod, 1, apimMaxRenewalSecs)
 	case apimCCheckHeader:
-		if err := posInt(n, apimCFailedCheckHttpcode, apimMinStatus, apimMaxStatus); err != nil {
-			return err
-		}
-
-		if v := n.Attrs["ignore-case"]; v != cmpTrue && v != apimCFalse {
-			return polErr(n, "The attribute 'ignore-case' must be true or false.")
-		}
+		return validateCheckHeader(n)
 	case apimCSetStatus:
 		return posInt(n, aksFieldCode, apimMinStatus, apimMaxStatus)
 	case apimCMockResponse:
 		return posInt(n, apimCStatusCodeX, apimMinStatus, apimMaxStatus)
 	case apimCForwardRequest:
-		if v := n.Attrs["follow-redirects"]; v != "" && v != apimCFalse {
-			return polErr(n, "Following redirects is not supported; only follow-redirects=\"false\" is accepted.")
-		}
-
-		if _, both := n.Attrs[apimCTimeout]; both {
-			if _, ms := n.Attrs["timeout-ms"]; ms {
-				return polErr(n, "Specify either timeout or timeout-ms, not both.")
-			}
-		}
-
-		if err := posInt(n, "timeout-ms", 0, math.MaxInt32); err != nil {
-			return err
-		}
-
-		return posInt(n, apimCTimeout, 0, apimMaxTimeoutSecs)
+		return validateForward(n)
 	case apimCCors:
 		return validateCORS(n)
 	case apimCSetBackendService:
@@ -431,6 +411,35 @@ func validateSemantics(s *apimService, n *polNode) error {
 	}
 
 	return nil
+}
+
+func validateCheckHeader(n *polNode) error {
+	if err := posInt(n, apimCFailedCheckHttpcode, apimMinStatus, apimMaxStatus); err != nil {
+		return err
+	}
+
+	if v := n.Attrs["ignore-case"]; v != cmpTrue && v != apimCFalse {
+		return polErr(n, "The attribute 'ignore-case' must be true or false.")
+	}
+
+	return nil
+}
+
+func validateForward(n *polNode) error {
+	if v := n.Attrs["follow-redirects"]; v != "" && v != apimCFalse {
+		return polErr(n, "Following redirects is not supported; only follow-redirects=\"false\" is accepted.")
+	}
+
+	_, secs := n.Attrs[apimCTimeout]
+	if _, ms := n.Attrs["timeout-ms"]; secs && ms {
+		return polErr(n, "Specify either timeout or timeout-ms, not both.")
+	}
+
+	if err := posInt(n, "timeout-ms", 0, math.MaxInt32); err != nil {
+		return err
+	}
+
+	return posInt(n, apimCTimeout, 0, apimMaxTimeoutSecs)
 }
 
 func validateSetValue(n *polNode) error {

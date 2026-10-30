@@ -49,7 +49,9 @@ type apimKind struct {
 	typ   string
 }
 
-func apimIDCapped(typ string) bool { return typ == "backends" || typ == "apis/operations" }
+func apimIDCapped(typ string) bool {
+	return typ == apimCBackends || typ == "apis/operations"
+}
 
 func entKey(parent, id string) string {
 	if parent == "" {
@@ -104,7 +106,7 @@ func namedKind() apimKind {
 
 func backendKind() apimKind {
 	return apimKind{
-		typ: "backends", norm: normBackend, view: viewBackend,
+		typ: apimCBackends, norm: normBackend, view: viewBackend,
 		store: func(s *apimService) map[string]*apimEntity { return s.Backends },
 	}
 }
@@ -199,7 +201,7 @@ func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 		return p.collection(s, req, subKind(), "", 0)
 	case "namedvalues":
 		return p.collection(s, req, namedKind(), "", 0)
-	case "backends":
+	case apimCBackends:
 		return p.collection(s, req, backendKind(), "", 0)
 	}
 

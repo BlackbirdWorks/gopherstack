@@ -134,6 +134,8 @@ func decodeEcho(t *testing.T, body string) echoReply {
 	return r
 }
 
+const noOperation = "Unable to match incoming request to an operation."
+
 func TestAPIMGateway_SubscriptionKey(t *testing.T) {
 	t.Parallel()
 
@@ -167,9 +169,9 @@ func TestAPIMGateway_SubscriptionKey(t *testing.T) {
 			wantStatus: 401,
 			wantMsg:    "Access denied due to invalid subscription key",
 		},
-		{name: "unknown api", method: "GET", path: "/nothing/items/7", wantStatus: 404, wantMsg: "Unable to match incoming request to an operation."},
-		{name: "unknown operation", method: "GET", path: "/echo/other", wantStatus: 404, wantMsg: "Unable to match incoming request to an operation."},
-		{name: "wrong method", method: "DELETE", path: "/echo/items/7", wantStatus: 404, wantMsg: "Unable to match incoming request to an operation."},
+		{name: "unknown api", method: "GET", path: "/nothing/items/7", wantStatus: 404, wantMsg: noOperation},
+		{name: "unknown operation", method: "GET", path: "/echo/other", wantStatus: 404, wantMsg: noOperation},
+		{name: "wrong method", method: "DELETE", path: "/echo/items/7", wantStatus: 404, wantMsg: noOperation},
 		{name: "post item", method: "POST", path: "/echo/items", wantStatus: 200, wantFwd: true},
 		{name: "case insensitive path", method: "GET", path: "/ECHO/Items/9", wantStatus: 200, wantFwd: true},
 	}

@@ -280,8 +280,8 @@ func TestAPIMEntities_SecretActionsCarryETag(t *testing.T) {
 	require.Equal(t, http.StatusCreated, status, body)
 
 	for _, path := range []string{"/namedValues/n/listValue", "/subscriptions/s/listSecrets"} {
-		status, body, hdr := s.raw(t, http.MethodPost, s.armPath(path), "", nil)
-		assert.Equal(t, http.StatusOK, status, body)
+		code, out, hdr := s.raw(t, http.MethodPost, s.armPath(path), "", nil)
+		assert.Equal(t, http.StatusOK, code, out)
 		assert.NotEmpty(t, hdr.Get("ETag"), path)
 	}
 }
@@ -485,25 +485,37 @@ func TestAPIMPolicy_ReferenceRules(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "rate-limit at service scope", scope: "", doc: policyDoc(`<rate-limit calls="1" renewal-period="1" />`, "", ""),
+			name: "rate-limit at service scope", scope: "",
+			doc:     policyDoc(`<rate-limit calls="1" renewal-period="1" />`, "", ""),
 			wantErr: "product, API and operation",
 		},
-		{name: "rate-limit at api scope", scope: "/apis/echo", doc: policyDoc(`<rate-limit calls="1" renewal-period="1" />`, "", "")},
+		{
+			name: "rate-limit at api scope", scope: "/apis/echo",
+			doc: policyDoc(`<rate-limit calls="1" renewal-period="1" />`, "", ""),
+		},
 		{
 			name: "check-header without message", scope: "/apis/echo",
-			doc:     policyDoc(`<check-header name="h" failed-check-httpcode="401" ignore-case="true"><value>v</value></check-header>`, "", ""),
+			doc: policyDoc(
+				`<check-header name="h" failed-check-httpcode="401" ignore-case="true"><value>v</value></check-header>`,
+				"", ""),
 			wantErr: "'failed-check-error-message' is required",
 		},
 		{
 			name: "check-header without ignore-case", scope: "/apis/echo",
-			doc:     policyDoc(`<check-header name="h" failed-check-httpcode="401" failed-check-error-message="m"><value>v</value></check-header>`, "", ""),
+			doc: policyDoc(
+				`<check-header name="h" failed-check-httpcode="401" failed-check-error-message="m"><value>v</value></check-header>`,
+				"",
+				"",
+			),
 			wantErr: "'ignore-case' is required",
 		},
 		{
 			name: "check-header without values", scope: "/apis/echo",
 			doc: policyDoc(
 				`<check-header name="h" failed-check-httpcode="401" failed-check-error-message="m" ignore-case="false" />`,
-				"", ""),
+				"",
+				"",
+			),
 		},
 		{
 			name: "set-status without reason", scope: "/apis/echo",
@@ -527,7 +539,10 @@ func TestAPIMPolicy_ReferenceRules(t *testing.T) {
 			doc:     policyDoc("", `<forward-request timeout="1" timeout-ms="1" />`, ""),
 			wantErr: "either timeout or timeout-ms",
 		},
-		{name: "mock-response in outbound", scope: "/apis/echo", doc: policyDoc("", "", `<mock-response status-code="200" />`)},
+		{
+			name: "mock-response in outbound", scope: "/apis/echo",
+			doc: policyDoc("", "", `<mock-response status-code="200" />`),
+		},
 		{
 			name: "statement in on-error", scope: "/apis/echo",
 			doc: "<policies><inbound><base /></inbound><backend><base /></backend><outbound><base /></outbound>" +

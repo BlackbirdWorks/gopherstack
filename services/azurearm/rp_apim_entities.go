@@ -21,7 +21,6 @@ const (
 	apimMaxPath       = 400
 	apimMaxOpMethod   = 20
 	apimMaxOpTemplate = 1000
-	apimMaxOps        = 75000
 	apimMaxKeyLen     = 256
 	apimKeyBytes      = 16
 	apimHeaderSub     = "Ocp-Apim-Subscription-Key"
