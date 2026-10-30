@@ -298,6 +298,15 @@ describe("new GCP console pages", () => {
     });
   });
 
+  it("registers Events", () => {
+    expect(availableOciServices(["OCIEvents"]).map((s) => s.id)).toEqual(["events"]);
+    expect(ociServiceById("events")).toMatchObject({
+      portLabel: "ocievents",
+      defaultPort: 8164,
+      healthName: "OCIEvents",
+    });
+  });
+
   it("registers Identity Platform and Flexible Server", () => {
     expect(gcpServiceById("identitytoolkit")).toMatchObject({
       portLabel: "gcpidentitytoolkit",
