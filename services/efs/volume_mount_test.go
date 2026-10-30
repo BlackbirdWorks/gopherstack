@@ -15,15 +15,15 @@ func TestResolveVolumeMount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		root       string
-		useAP      bool
-		apOtherFS  bool
-		unknownFS  bool
-		unknownAP  bool
-		wantSub    string
-		wantErr    error
-		wantPosix  bool
+		wantErr   error
+		name      string
+		root      string
+		wantSub   string
+		useAP     bool
+		apOtherFS bool
+		unknownFS bool
+		unknownAP bool
+		wantPosix bool
 	}{
 		{name: "fs_root", wantSub: ""},
 		{name: "fs_subdir", root: "/data/x", wantSub: "data/x"},

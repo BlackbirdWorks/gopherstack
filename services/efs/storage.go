@@ -248,7 +248,9 @@ var ErrAccessPointFileSystemMismatch = errors.New("access point does not belong 
 // ResolveVolumeMount returns the host directory for an ECS efsVolumeConfiguration: the access point's root
 // directory when accessPointID is set (rootDirectory must then be omitted or "/"), else rootDirectory
 // under the file system.
-func (b *InMemoryBackend) ResolveVolumeMount(region, fsID, accessPointID, rootDirectory string) (AccessPointMount, error) {
+func (b *InMemoryBackend) ResolveVolumeMount(
+	region, fsID, accessPointID, rootDirectory string,
+) (AccessPointMount, error) {
 	if accessPointID == "" {
 		return b.resolveFileSystemRoot(region, fsID, rootDirectory)
 	}

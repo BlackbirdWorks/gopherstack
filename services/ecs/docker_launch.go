@@ -379,7 +379,9 @@ func (r *realDockerRunner) SetRegistryAuthResolver(
 }
 
 // SetEFSVolumeResolver wires the lookup that resolves efsVolumeConfiguration volumes to host directories.
-func (r *realDockerRunner) SetEFSVolumeResolver(fn func(region string, cfg *EFSVolumeConfiguration) (EFSVolumeMount, error)) {
+func (r *realDockerRunner) SetEFSVolumeResolver(
+	fn func(region string, cfg *EFSVolumeConfiguration) (EFSVolumeMount, error),
+) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

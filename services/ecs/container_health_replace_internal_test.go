@@ -21,7 +21,13 @@ func TestStopUnhealthyServiceTasks(t *testing.T) {
 	}{
 		{name: "unhealthy_no_grace", health: healthECSUnhealthy, wantStopped: true},
 		{name: "unhealthy_inside_grace", health: healthECSUnhealthy, grace: 60, elapsed: 30 * time.Second},
-		{name: "unhealthy_after_grace", health: healthECSUnhealthy, grace: 60, elapsed: 61 * time.Second, wantStopped: true},
+		{
+			name:        "unhealthy_after_grace",
+			health:      healthECSUnhealthy,
+			grace:       60,
+			elapsed:     61 * time.Second,
+			wantStopped: true,
+		},
 		{name: "healthy", health: healthECSHealthy},
 		{name: "standalone_not_replaced", health: healthECSUnhealthy, standalone: true},
 	}
@@ -39,7 +45,8 @@ func TestStopUnhealthyServiceTasks(t *testing.T) {
 			require.NoError(t, err)
 
 			td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
-				Family: "hc", ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: "nginx", Essential: true}},
+				Family:               "hc",
+				ContainerDefinitions: []ContainerDefinition{{Name: "app", Image: "nginx", Essential: true}},
 			})
 			require.NoError(t, err)
 

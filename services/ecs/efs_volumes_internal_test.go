@@ -14,9 +14,9 @@ var errTestNoAccessPoint = errors.New("AccessPointNotFound")
 
 type fakeEFS struct {
 	err  error
-	mnt  EFSVolumeMount
 	got  EFSVolumeConfiguration
 	reg  string
+	mnt  EFSVolumeMount
 	call int
 }
 
@@ -35,18 +35,24 @@ func (f *fakeEFS) ResolveVolume(
 func TestRunTask_EFSVolume(t *testing.T) {
 	t.Parallel()
 
-	posix := EFSVolumeMount{HostDir: "/efs/fs-1/ap", UID: 1234, GID: 5678, SecondaryGIDs: []int64{4321}, HasPosixUser: true}
+	posix := EFSVolumeMount{
+		HostDir:       "/efs/fs-1/ap",
+		UID:           1234,
+		GID:           5678,
+		SecondaryGIDs: []int64{4321},
+		HasPosixUser:  true,
+	}
 
 	tests := []struct {
-		name       string
 		efs        *fakeEFS
-		noResolver bool
-		user       string
 		cfg        *EFSVolumeConfiguration
+		name       string
+		user       string
 		wantUser   string
-		wantGroups []string
 		wantReason string
 		wantMount  string
+		wantGroups []string
+		noResolver bool
 	}{
 		{
 			name: "access_point_posix_user",

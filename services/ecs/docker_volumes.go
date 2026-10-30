@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	"github.com/moby/moby/api/types/mount"
+
+	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 )
 
 const (
@@ -21,9 +22,9 @@ var (
 
 // volumeSpec is a task-level volume resolved to its Docker mount source.
 type volumeSpec struct {
+	mount  mount.Mount
 	user   string
 	groups []string
-	mount  mount.Mount
 }
 
 func bindMount(src string) mount.Mount {
@@ -165,7 +166,12 @@ func containerMounts(cd ContainerDefinition, plan *volumePlan) ([]mount.Mount, e
 }
 
 // applyVolumeIdentity runs a container as an EFS access point's POSIX user unless the definition sets a user.
-func applyVolumeIdentity(cfg *dockertypes.Config, hc *dockertypes.HostConfig, cd ContainerDefinition, plan *volumePlan) {
+func applyVolumeIdentity(
+	cfg *dockertypes.Config,
+	hc *dockertypes.HostConfig,
+	cd ContainerDefinition,
+	plan *volumePlan,
+) {
 	if cd.User != "" {
 		return
 	}

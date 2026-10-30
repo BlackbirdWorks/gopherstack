@@ -41,14 +41,14 @@ func TestECSEFSResolverWiring(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m, err := (&ecsEFS{byName: tt.byName}).ResolveVolume(t.Context(), "us-east-1", fs.FileSystemID, tt.ap, "")
+			m, rerr := (&ecsEFS{byName: tt.byName}).ResolveVolume(t.Context(), "us-east-1", fs.FileSystemID, tt.ap, "")
 			if tt.wantErr {
-				require.Error(t, err)
+				require.Error(t, rerr)
 
 				return
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, rerr)
 			assert.True(t, m.HasPosixUser)
 			assert.EqualValues(t, 10, m.UID)
 			assert.NotEmpty(t, m.HostDir)
