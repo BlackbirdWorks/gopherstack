@@ -286,7 +286,7 @@ func (p *parser) parseOrderBy(st *selectStmt) *APIError {
 }
 
 func (p *parser) nonNegInt(what string) (int64, *APIError) {
-	n, err := strconv.ParseInt(p.next().text, 10, 64)
+	n, err := strconv.ParseInt(p.next().text, 10, 32)
 	if err != nil || n < 0 {
 		return 0, errParam("syntax error: " + what + " must be a non-negative integer")
 	}

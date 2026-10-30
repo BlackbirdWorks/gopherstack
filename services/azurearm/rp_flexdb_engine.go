@@ -285,14 +285,11 @@ func (m *mysqlInstance) EnsureAdmin(ctx context.Context, user, password string) 
 }
 
 func (m *mysqlInstance) CreateDatabase(ctx context.Context, name, charset, collation string) error {
-	return m.s.Exec(
-		ctx,
-		"CREATE DATABASE IF NOT EXISTS `"+name+"` CHARACTER SET "+charset+" COLLATE "+collation,
-	) //nolint:wrapcheck // as above
+	return m.s.CreateDatabase(ctx, name, charset, collation) //nolint:wrapcheck // as above
 }
 
 func (m *mysqlInstance) DropDatabase(ctx context.Context, name string) error {
-	return m.s.Exec(ctx, "DROP DATABASE IF EXISTS `"+name+"`") //nolint:wrapcheck // as above
+	return m.s.DropDatabase(ctx, name) //nolint:wrapcheck // as above
 }
 
 func (m *mysqlInstance) Stop(ctx context.Context) error  { return m.s.Stop(ctx) }

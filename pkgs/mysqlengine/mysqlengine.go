@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -292,8 +293,8 @@ func (s *Server) ping(ctx context.Context) error {
 	return db.PingContext(pctx)
 }
 
-// Exec runs statements in order as root. Placeholders are interpolated client-side, so account DDL accepts them.
-func (s *Server) Exec(ctx context.Context, stmt string, args ...any) error {
+// exec runs one statement as root. Placeholders are interpolated client-side, so account DDL accepts them.
+func (s *Server) exec(ctx context.Context, stmt string, args ...any) error {
 	db, err := s.open("")
 	if err != nil {
 		return err
@@ -357,17 +358,63 @@ func (s *Server) EnsureAdmin(ctx context.Context, user, password string) error {
 		"CREATE USER IF NOT EXISTS ?@'%' IDENTIFIED BY ?",
 		"ALTER USER ?@'%' IDENTIFIED BY ?",
 	} {
-		if err := s.Exec(ctx, stmt, user, password); err != nil {
+		if err := s.exec(ctx, stmt, user, password); err != nil {
 			return err
 		}
 	}
 
-	return s.Exec(ctx, "GRANT ALL PRIVILEGES ON *.* TO ?@'%' WITH GRANT OPTION", user)
+	return s.exec(ctx, "GRANT ALL PRIVILEGES ON *.* TO ?@'%' WITH GRANT OPTION", user)
+}
+
+var (
+	// ErrInvalidIdentifier reports a database name, charset or collation outside the allowed character set.
+	ErrInvalidIdentifier = errors.New("mysqlengine: invalid identifier")
+
+	dbNameRE  = regexp.MustCompile(`^[A-Za-z0-9_$-]{1,64}$`)
+	charsetRE = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)
+)
+
+// CreateDatabaseSQL builds CREATE DATABASE after validating every part against a strict allow-list.
+func CreateDatabaseSQL(name, charset, collation string) (string, error) {
+	if !dbNameRE.MatchString(name) || !charsetRE.MatchString(charset) || !charsetRE.MatchString(collation) {
+		return "", ErrInvalidIdentifier
+	}
+
+	return "CREATE DATABASE IF NOT EXISTS `" + name + "` CHARACTER SET " + charset + " COLLATE " + collation, nil
+}
+
+// DropDatabaseSQL builds DROP DATABASE after validating the name against a strict allow-list.
+func DropDatabaseSQL(name string) (string, error) {
+	if !dbNameRE.MatchString(name) {
+		return "", ErrInvalidIdentifier
+	}
+
+	return "DROP DATABASE IF EXISTS `" + name + "`", nil
+}
+
+// CreateDatabase creates a database with the given charset and collation.
+func (s *Server) CreateDatabase(ctx context.Context, name, charset, collation string) error {
+	stmt, err := CreateDatabaseSQL(name, charset, collation)
+	if err != nil {
+		return err
+	}
+
+	return s.exec(ctx, stmt)
+}
+
+// DropDatabase removes a database; a missing one is not an error.
+func (s *Server) DropDatabase(ctx context.Context, name string) error {
+	stmt, err := DropDatabaseSQL(name)
+	if err != nil {
+		return err
+	}
+
+	return s.exec(ctx, stmt)
 }
 
 // DropUser removes an account; a missing one is not an error.
 func (s *Server) DropUser(ctx context.Context, user string) error {
-	return s.Exec(ctx, "DROP USER IF EXISTS ?@'%'", user)
+	return s.exec(ctx, "DROP USER IF EXISTS ?@'%'", user)
 }
 
 // Stop stops the container, keeping its data and published port.
