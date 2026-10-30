@@ -72,3 +72,12 @@ func (b *InMemoryBackend) deliveryTargets() (S3Writer, SNSPublisher) {
 
 	return b.s3Writer, b.snsPublisher
 }
+
+// BackendForAccount returns the backend serving account in region; the home account and unknown accounts map to the home set.
+func (h *Handler) BackendForAccount(account, region string) *InMemoryBackend {
+	if a := h.accounts.get(account); a != nil {
+		return a.BackendFor(region)
+	}
+
+	return h.BackendFor(region)
+}

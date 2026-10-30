@@ -164,6 +164,7 @@ func asBackend[B any](v any, home B) B {
 // regionalTagSpec describes one region-isolated service's tagging surface.
 type regionalTagSpec[B any] struct {
 	backendFor     func(region string) B
+	backendForCtx  func(ctx context.Context, region string) B
 	list           func(B) []taggedARNEntry
 	tag            func(B, context.Context, string, map[string]string) error
 	untag          func(B, context.Context, string, []string) error
@@ -171,12 +172,21 @@ type regionalTagSpec[B any] struct {
 	arnService     string
 }
 
+// resolve picks the backend for region, scoped to the caller's account when the service is per-account.
+func (s regionalTagSpec[B]) resolve(ctx context.Context, region string) B {
+	if s.backendForCtx != nil {
+		return s.backendForCtx(ctx, region)
+	}
+
+	return s.backendFor(region)
+}
+
 // wireRegionalTagging lists the request region's resources and tags or untags in the ARN's region.
 func wireRegionalTagging[B any](bk resourcegroupstaggingapibackend.StorageBackend, spec regionalTagSpec[B]) {
 	registerTaggingService(
 		bk,
 		func(ctx context.Context) []resourcegroupstaggingapibackend.TaggedResource {
-			items := spec.list(spec.backendFor(awsmeta.Region(ctx)))
+			items := spec.list(spec.resolve(ctx, awsmeta.Region(ctx)))
 			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
 
 			for _, item := range items {
@@ -189,10 +199,10 @@ func wireRegionalTagging[B any](bk resourcegroupstaggingapibackend.StorageBacken
 		},
 		spec.arnService,
 		func(ctx context.Context, arn string, newTags map[string]string) error {
-			return spec.tag(spec.backendFor(originRegion(ctx, arn)), ctx, arn, newTags)
+			return spec.tag(spec.resolve(ctx, originRegion(ctx, arn)), ctx, arn, newTags)
 		},
 		func(ctx context.Context, arn string, keys []string) error {
-			return spec.untag(spec.backendFor(originRegion(ctx, arn)), ctx, arn, keys)
+			return spec.untag(spec.resolve(ctx, originRegion(ctx, arn)), ctx, arn, keys)
 		},
 	)
 }
