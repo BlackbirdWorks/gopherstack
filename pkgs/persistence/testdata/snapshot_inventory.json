@@ -3175,6 +3175,7 @@
       "acrRecord.ResourceGroup string `json:\"resourceGroup\"`",
       "acrRecord.SKU string `json:\"sku,omitempty\"`",
       "acrRecord.Tags map[string]string `json:\"tags,omitempty\"`",
+      "apimSnapshot.Operations json.RawMessage `json:\"operations,omitempty\"`",
       "apimSnapshot.Services json.RawMessage `json:\"services,omitempty\"`",
       "appConfigDeletedRecord.DeletedAt time.Time `json:\"deletedAt\"`",
       "appConfigDeletedRecord.Location string `json:\"location\"`",
