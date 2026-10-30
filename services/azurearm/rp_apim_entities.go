@@ -21,7 +21,6 @@ const (
 	apimMaxPath       = 400
 	apimMaxOpMethod   = 20
 	apimMaxOpTemplate = 1000
-	apimMaxOps        = 1000
 	apimMaxKeyLen     = 256
 	apimKeyBytes      = 16
 	apimHeaderSub     = "Ocp-Apim-Subscription-Key"
@@ -143,6 +142,12 @@ func normAPI(s *apimService, _, id string, in map[string]any, _ *apimEntity) (ma
 	}
 
 	if len(imported) > 0 {
+		if len(s.Ops)+len(imported) > apimLimitsFor(s.SKU).ops {
+			return nil, apimErr(http.StatusConflict, apimCodeConflict,
+				"Importing the definition would exceed the %d API operations allowed for the sku.",
+				apimLimitsFor(s.SKU).ops)
+		}
+
 		s.importOps(id, imported)
 	}
 
@@ -331,7 +336,7 @@ func opParams(in map[string]any, tpl string) ([]any, error) {
 	return params, nil
 }
 
-func normOperation(s *apimService, parent, id string, in map[string]any, _ *apimEntity) (map[string]any, error) {
+func normOperation(s *apimService, parent, id string, in map[string]any, prev *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
 	delete(out, apimCPolicies)
 
@@ -362,8 +367,10 @@ func normOperation(s *apimService, parent, id string, in map[string]any, _ *apim
 		}
 	}
 
-	if countOps(s, parent) >= apimMaxOps {
-		return nil, apimErr(http.StatusConflict, apimCodeConflict, "Too many operations in the API.")
+	if prev == nil {
+		if err = apimOverLimit(len(s.Ops), apimLimitsFor(s.SKU).ops, "API operations"); err != nil {
+			return nil, err
+		}
 	}
 
 	params, err := opParams(out, tpl)
@@ -376,26 +383,20 @@ func normOperation(s *apimService, parent, id string, in map[string]any, _ *apim
 	return out, nil
 }
 
-func countOps(s *apimService, api string) int {
-	n := 0
-
-	for _, o := range s.Ops {
-		if strings.EqualFold(o.Parent, api) {
-			n++
-		}
-	}
-
-	return n
-}
-
 func delOperation(s *apimService, parent, id string, _ url.Values) error {
 	delete(s.Policies, entKey("apis/"+strings.ToLower(parent)+"/operations/"+id, apimPolicyID))
 
 	return nil
 }
 
-func normProduct(_ *apimService, _, _ string, in map[string]any, _ *apimEntity) (map[string]any, error) {
+func normProduct(s *apimService, _, _ string, in map[string]any, prev *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
+
+	if prev == nil {
+		if err := apimOverLimit(len(s.Products), apimLimitsFor(s.SKU).products, "products"); err != nil {
+			return nil, err
+		}
+	}
 
 	if _, err := optString(out, apimCDisplayName, 1, apimMaxName, true, "product displayName"); err != nil {
 		return nil, err
@@ -498,6 +499,12 @@ func (s *apimService) normScope(scope string) (string, error) {
 func normSubscription(s *apimService, _, _ string, in map[string]any, prev *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
 
+	if prev == nil {
+		if err := apimOverLimit(len(s.Subs), apimLimitsFor(s.SKU).subs, "subscriptions"); err != nil {
+			return nil, err
+		}
+	}
+
 	if _, err := optString(out, apimCDisplayName, 1, apimMaxSubName, true, "subscription displayName"); err != nil {
 		return nil, err
 	}
@@ -579,8 +586,14 @@ func viewSubscription(props map[string]any) map[string]any {
 	return out
 }
 
-func normNamedValue(s *apimService, _, id string, in map[string]any, _ *apimEntity) (map[string]any, error) {
+func normNamedValue(s *apimService, _, id string, in map[string]any, prev *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
+
+	if prev == nil {
+		if err := apimOverLimit(len(s.Named), apimLimitsFor(s.SKU).named, "named values"); err != nil {
+			return nil, err
+		}
+	}
 
 	name, err := optString(out, apimCDisplayName, 1, apimMaxNamedName, true, "named value displayName")
 	if err != nil {
@@ -654,11 +667,11 @@ func normBackend(_ *apimService, _, _ string, in map[string]any, _ *apimEntity) 
 		return nil, apimInvalid("The backend protocol must be http or soap.")
 	}
 
-	if _, err = optString(out, "title", 0, apimMaxName, false, "backend title"); err != nil {
+	if _, err = optString(out, "title", 1, apimMaxName, false, "backend title"); err != nil {
 		return nil, err
 	}
 
-	if _, err = optString(out, webDescription, 0, apimMaxURL, false, "backend description"); err != nil {
+	if _, err = optString(out, webDescription, 1, apimMaxURL, false, "backend description"); err != nil {
 		return nil, err
 	}
 

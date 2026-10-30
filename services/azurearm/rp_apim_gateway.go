@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"syscall"
 	"time"
@@ -19,10 +18,12 @@ const (
 	apimMaxRequestBody = 8 << 20
 	apimDialKeepAlive  = 30 * time.Second
 	apimDialTimeout    = 10 * time.Second
-	apimForwardTimeout = 60 * time.Second
+	apimForwardTimeout = 300 * time.Second
 	apimMsgNotFound    = "Resource not found"
+	apimMsgNoOperation = "Unable to match incoming request to an operation."
+	apimMsgRateLimit   = "Rate limit is exceeded"
 	apimMsgMissingKey  = "Access denied due to missing subscription key. " +
-		"Make sure to include subscription key when making requests to an API."
+		"Make sure to include subscription key when making requests to this API."
 	apimMsgInvalidKey = "Access denied due to invalid subscription key. " +
 		"Make sure to provide a valid key for an active subscription."
 	apimMsgNotActive    = "The API Management service is not active."
@@ -36,52 +37,50 @@ var ErrAPIMDestinationNotPermitted = errors.New(
 	"azurearm: apim backend is outside loopback and external backends are not allowed",
 )
 
-type apimWindow struct {
-	end   time.Time
-	count int
-}
-
 type apimLimiter struct {
 	mu  *lockmetrics.RWMutex
-	win map[string]*apimWindow
+	win map[string][]time.Time
 }
 
 func newAPIMLimiter() *apimLimiter {
-	return &apimLimiter{mu: lockmetrics.New("azurearm.apim.limiter"), win: map[string]*apimWindow{}}
+	return &apimLimiter{mu: lockmetrics.New("azurearm.apim.limiter"), win: map[string][]time.Time{}}
 }
 
 func (l *apimLimiter) reset() {
 	l.mu.Lock("reset")
-	l.win = map[string]*apimWindow{}
+	l.win = map[string][]time.Time{}
 	l.mu.Unlock()
 }
 
-// take counts one call; it reports whether the call is allowed, the calls left and the time until renewal.
+// take counts one call in a sliding window of period; it reports whether the call is allowed, the calls left and,
+// when denied, the time until the oldest counted call leaves the window.
 func (l *apimLimiter) take(key string, calls int, period time.Duration, now time.Time) (bool, int, time.Duration) {
 	l.mu.Lock("take")
 	defer l.mu.Unlock()
 
 	if len(l.win) > apimLimiterSweepAt {
 		for k, w := range l.win {
-			if !now.Before(w.end) {
+			if len(w) == 0 || !now.Before(w[len(w)-1].Add(period)) {
 				delete(l.win, k)
 			}
 		}
 	}
 
 	w := l.win[key]
-	if w == nil || !now.Before(w.end) {
-		w = &apimWindow{end: now.Add(period)}
+	for len(w) > 0 && !now.Before(w[0].Add(period)) {
+		w = w[1:]
+	}
+
+	if len(w) >= calls {
 		l.win[key] = w
+
+		return false, 0, w[len(w)-calls].Add(period).Sub(now)
 	}
 
-	if w.count >= calls {
-		return false, 0, w.end.Sub(now)
-	}
+	w = append(w, now)
+	l.win[key] = w
 
-	w.count++
-
-	return true, calls - w.count, w.end.Sub(now)
+	return true, calls - len(w), 0
 }
 
 func (p *APIMProvider) newBackendClient() *http.Client {
@@ -211,7 +210,7 @@ func (p *APIMProvider) resolveGateway(name, path string, r *http.Request) (*gwPl
 
 	api, suffix := s.matchAPI(path)
 	if api == nil || !apiAllowsScheme(api.Props, r.TLS != nil) {
-		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNotFound}
+		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNoOperation}
 	}
 
 	plan := &gwPlan{
@@ -235,7 +234,7 @@ func (p *APIMProvider) resolveGateway(name, path string, r *http.Request) (*gwPl
 
 	op, params, opID := s.matchOperation(api.ID, r.Method, suffix)
 	if op == nil {
-		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNotFound}
+		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNoOperation}
 	}
 
 	plan.op, plan.params = op, params
@@ -399,9 +398,10 @@ func matchTemplate(tpl, segs []string) (map[string]string, int, bool) {
 	return params, score, len(segs) == len(tpl)
 }
 
-// checkKey enforces the subscription requirement of the matched API.
+// checkKey applies the subscription rules of api-management-subscriptions: a key for an API that does not require
+// a subscription is ignored, and an invalid or missing key falls back to an open product when one includes the API.
 func (p *APIMProvider) checkKey(s *apimService, api *apimEntity, plan *gwPlan, r *http.Request) *gwFail {
-	if req, _ := api.Props[apimCSubscriptionRequired].(bool); !req || s.apiInOpenProduct(api.ID) {
+	if req, _ := api.Props[apimCSubscriptionRequired].(bool); !req {
 		return nil
 	}
 
@@ -412,10 +412,25 @@ func (p *APIMProvider) checkKey(s *apimService, api *apimEntity, plan *gwPlan, r
 		key = r.URL.Query().Get(firstNonEmpty(strOf(names, apimCQuery), apimQuerySub))
 	}
 
-	if key == "" {
+	if key != "" {
+		if sub := s.activeSubscription(key, api.ID); sub != nil {
+			plan.subID = sub.ID
+
+			return nil
+		}
+	}
+
+	switch {
+	case s.apiInOpenProduct(api.ID):
+		return nil
+	case key == "":
 		return &gwFail{status: http.StatusUnauthorized, msg: apimMsgMissingKey}
 	}
 
+	return &gwFail{status: http.StatusUnauthorized, msg: apimMsgInvalidKey}
+}
+
+func (s *apimService) activeSubscription(key, apiID string) *apimEntity {
 	for _, sub := range s.Subs {
 		if strOf(sub.Props, sqlPropState) != apimStateActive {
 			continue
@@ -426,14 +441,12 @@ func (p *APIMProvider) checkKey(s *apimService, api *apimEntity, plan *gwPlan, r
 			continue
 		}
 
-		if s.scopeCovers(strOf(sub.Props, acrPropScope), api.ID) {
-			plan.subID = sub.ID
-
-			return nil
+		if s.scopeCovers(strOf(sub.Props, acrPropScope), apiID) {
+			return sub
 		}
 	}
 
-	return &gwFail{status: http.StatusUnauthorized, msg: apimMsgInvalidKey}
+	return nil
 }
 
 func (s *apimService) scopeCovers(scope, apiID string) bool {
@@ -475,22 +488,4 @@ func hostOnly(addr string) string {
 	}
 
 	return h
-}
-
-func cleanQuery(q url.Values, names ...string) url.Values {
-	out := url.Values{}
-
-	for k, v := range q {
-		out[k] = append([]string(nil), v...)
-	}
-
-	for _, n := range names {
-		for k := range out {
-			if strings.EqualFold(k, n) {
-				delete(out, k)
-			}
-		}
-	}
-
-	return out
 }

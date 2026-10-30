@@ -17,6 +17,7 @@ const (
 	apimOpPolicyLen    = 5
 	apimAPIChildIdx    = 2
 	apimOpPolicyIdx    = 4
+	apimMaxShortID     = 80
 )
 
 // apimReq is one control-plane request below Microsoft.ApiManagement/service/{name}.
@@ -46,6 +47,10 @@ type apimKind struct {
 	del   func(s *apimService, parent, id string, q url.Values) error
 	store func(s *apimService) map[string]*apimEntity
 	typ   string
+}
+
+func apimIDCapped(typ string) bool {
+	return typ == apimCBackends || typ == "apis/operations"
 }
 
 func entKey(parent, id string) string {
@@ -101,7 +106,7 @@ func namedKind() apimKind {
 
 func backendKind() apimKind {
 	return apimKind{
-		typ: "backends", norm: normBackend, view: viewBackend,
+		typ: apimCBackends, norm: normBackend, view: viewBackend,
 		store: func(s *apimService) map[string]*apimEntity { return s.Backends },
 	}
 }
@@ -158,12 +163,13 @@ func (p *APIMProvider) doService(req apimReq) (apimResp, error) {
 			return apimResp{}, err
 		}
 
-		status := http.StatusOK
 		if created {
-			status = http.StatusCreated
+			return apimResp{
+				Status: http.StatusCreated, Body: s.createdBody(p.now()), Etag: apimEtag(s.Etag), Retry: true,
+			}, nil
 		}
 
-		return apimResp{Status: status, Body: s.body(p.now()), Etag: apimEtag(s.Etag), Retry: true}, nil
+		return apimResp{Status: http.StatusOK, Body: s.body(p.now()), Etag: apimEtag(s.Etag), Retry: true}, nil
 	case http.MethodDelete:
 		if _, ok := p.svcs[key]; !ok {
 			return apimResp{Status: http.StatusNoContent}, nil
@@ -195,7 +201,7 @@ func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 		return p.collection(s, req, subKind(), "", 0)
 	case "namedvalues":
 		return p.collection(s, req, namedKind(), "", 0)
-	case "backends":
+	case apimCBackends:
 		return p.collection(s, req, backendKind(), "", 0)
 	}
 
@@ -353,7 +359,7 @@ func checkIfMatch(have, want string) error {
 func (p *APIMProvider) item(
 	s *apimService, req apimReq, k apimKind, parent, id, path string,
 ) (apimResp, error) {
-	if !apimChildIDRE.MatchString(id) {
+	if !apimChildIDRE.MatchString(id) || (apimIDCapped(k.typ) && len(id) > apimMaxShortID) {
 		return apimResp{}, apimInvalid("The identifier %q is not valid.", id)
 	}
 
@@ -388,6 +394,11 @@ func (p *APIMProvider) deleteItem(s *apimService, req apimReq, k apimKind, paren
 	prev := store[key]
 	if prev == nil {
 		return apimResp{Status: http.StatusNoContent}, nil
+	}
+
+	if req.IfMatch == "" {
+		return apimResp{}, apimErr(http.StatusPreconditionFailed, apimCodePrecondition,
+			"The If-Match header is required to delete this entity; use If-Match: * to match any ETag.")
 	}
 
 	if err := checkIfMatch(apimEtag(prev.Etag), req.IfMatch); err != nil {
@@ -465,7 +476,7 @@ func (p *APIMProvider) action(s *apimService, req apimReq, k apimKind, id, verb 
 
 	switch {
 	case k.typ == sbSubscriptionsType && strings.EqualFold(verb, "listSecrets"):
-		return apimResp{Status: http.StatusOK, Body: map[string]any{
+		return apimResp{Status: http.StatusOK, Etag: apimEtag(ent.Etag), Body: map[string]any{
 			redisPropPrimaryKey:   ent.Props[redisPropPrimaryKey],
 			redisPropSecondaryKey: ent.Props[redisPropSecondaryKey],
 		}}, nil
@@ -480,7 +491,9 @@ func (p *APIMProvider) action(s *apimService, req apimReq, k apimKind, id, verb 
 
 		return apimResp{Status: http.StatusNoContent}, nil
 	case k.typ == "namedValues" && strings.EqualFold(verb, "listValue"):
-		return apimResp{Status: http.StatusOK, Body: map[string]any{fieldValue: ent.Props[fieldValue]}}, nil
+		return apimResp{
+			Status: http.StatusOK, Etag: apimEtag(ent.Etag), Body: map[string]any{fieldValue: ent.Props[fieldValue]},
+		}, nil
 	}
 
 	return apimResp{}, apimNotFound(cosmosFieldResource)

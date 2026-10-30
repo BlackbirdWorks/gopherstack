@@ -162,9 +162,7 @@ func (g *gwState) run() {
 
 	g.extra = http.Header{}
 	g.header = g.r.Header.Clone()
-	keyNames := mapOf(g.plan.api[apimCSubscriptionKeyParameterNames])
-	g.header.Del(firstNonEmpty(strOf(keyNames, apimCHeader), apimHeaderSub))
-	g.query = cleanQuery(g.r.URL.Query(), firstNonEmpty(strOf(keyNames, apimCQuery), apimQuerySub))
+	g.query = g.r.URL.Query()
 
 	if su := strOf(g.plan.api, apimCServiceURL); su != "" {
 		g.target, _ = url.Parse(su)
@@ -259,6 +257,8 @@ func (g *gwState) execResponse(n *polNode) {
 		)
 	case apimCReturnResponse:
 		g.returnResponse(n)
+	case apimCMockResponse:
+		g.mockResponse(n)
 	case apimCCors:
 		if g.cors == nil {
 			g.cors = n
@@ -390,21 +390,22 @@ func (g *gwState) rateLimit(n *polNode) {
 	key := fmt.Sprintf("%s|%d:%d|%s", n.Scope, n.Line, n.Col, who)
 
 	ok, left, retry := g.p.limiter.take(key, calls, time.Duration(period)*time.Second, g.plan.now())
-	if !ok {
-		secs := int(math.Ceil(retry.Seconds()))
-		g.fail(http.StatusTooManyRequests, fmt.Sprintf("Rate limit is exceeded. Try again in %d seconds.", secs))
-		g.respHeader.Set(apimCRetryAfter, strconv.Itoa(secs))
 
-		if h := n.Attrs["retry-after-header-name"]; h != "" {
-			g.respHeader.Set(h, strconv.Itoa(secs))
-		}
-
-		return
+	if h := n.Attrs["total-calls-header-name"]; h != "" {
+		g.extra.Set(h, strconv.Itoa(calls))
 	}
 
 	if h := n.Attrs["remaining-calls-header-name"]; h != "" {
 		g.extra.Set(h, strconv.Itoa(left))
 	}
+
+	if ok {
+		return
+	}
+
+	secs := strconv.Itoa(int(math.Ceil(retry.Seconds())))
+	g.fail(http.StatusTooManyRequests, apimMsgRateLimit)
+	g.respHeader.Set(firstNonEmpty(n.Attrs["retry-after-header-name"], apimCRetryAfter), secs)
 }
 
 func (g *gwState) checkHeader(n *polNode) {
@@ -488,8 +489,12 @@ func (g *gwState) forward(n *polNode) {
 	}
 
 	timeout := apimForwardTimeout
-	if t, convErr := strconv.Atoi(n.Attrs[apimCTimeout]); convErr == nil && t > 0 {
+	if t, convErr := strconv.Atoi(strings.TrimSpace(n.Attrs[apimCTimeout])); convErr == nil {
 		timeout = time.Duration(t) * time.Second
+	}
+
+	if t, convErr := strconv.Atoi(strings.TrimSpace(n.Attrs["timeout-ms"])); convErr == nil {
+		timeout = time.Duration(t) * time.Millisecond
 	}
 
 	body, err := io.ReadAll(g.r.Body)
@@ -649,6 +654,10 @@ func (g *gwState) preflight(docs []*polNode) {
 
 func corsList(n *polNode, kind, requested string) string {
 	if n == nil {
+		if kind == apimCMethod {
+			return "GET, POST"
+		}
+
 		return ""
 	}
 

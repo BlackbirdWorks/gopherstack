@@ -11,6 +11,7 @@ const (
 	apimCApis                          = "apis"
 	apimCAuthorization                 = "authorization"
 	apimCAuthorizationX                = "Authorization"
+	apimCBackends                      = "backends"
 	apimCBackendID                     = "backend-id"
 	apimCBaseURL                       = "base-url"
 	apimCCalls                         = "calls"

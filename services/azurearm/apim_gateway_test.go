@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,11 @@ func policyDoc(inbound, backend, outbound string) string {
 		"</backend><outbound><base />" + outbound + "</outbound><on-error><base /></on-error></policies>"
 }
 
+func (r echoReply) keyForwarded(key string) bool {
+	return slices.Contains(r.Header["Ocp-Apim-Subscription-Key"], key) ||
+		strings.Contains(r.Query, "subscription-key="+key)
+}
+
 func decodeEcho(t *testing.T, body string) echoReply {
 	t.Helper()
 
@@ -127,6 +133,8 @@ func decodeEcho(t *testing.T, body string) echoReply {
 
 	return r
 }
+
+const noOperation = "Unable to match incoming request to an operation."
 
 func TestAPIMGateway_SubscriptionKey(t *testing.T) {
 	t.Parallel()
@@ -138,11 +146,12 @@ func TestAPIMGateway_SubscriptionKey(t *testing.T) {
 		hdr        map[string]string
 		wantMsg    string
 		wantStatus int
+		wantFwd    bool
 	}{
-		{name: "valid header", method: "GET", path: "/echo/items/7", wantStatus: 200},
+		{name: "valid header", method: "GET", path: "/echo/items/7", wantStatus: 200, wantFwd: true},
 		{
 			name: "valid query", method: "GET", path: "/echo/items/7?subscription-key=KEY",
-			hdr: map[string]string{"Ocp-Apim-Subscription-Key": ""}, wantStatus: 200,
+			hdr: map[string]string{"Ocp-Apim-Subscription-Key": ""}, wantStatus: 200, wantFwd: true,
 		},
 		{
 			name:       "missing",
@@ -160,11 +169,11 @@ func TestAPIMGateway_SubscriptionKey(t *testing.T) {
 			wantStatus: 401,
 			wantMsg:    "Access denied due to invalid subscription key",
 		},
-		{name: "unknown api", method: "GET", path: "/nothing/items/7", wantStatus: 404, wantMsg: "Resource not found"},
-		{name: "unknown operation", method: "GET", path: "/echo/other", wantStatus: 404, wantMsg: "Resource not found"},
-		{name: "wrong method", method: "DELETE", path: "/echo/items/7", wantStatus: 404, wantMsg: "Resource not found"},
-		{name: "post item", method: "POST", path: "/echo/items", wantStatus: 200},
-		{name: "case insensitive path", method: "GET", path: "/ECHO/Items/9", wantStatus: 200},
+		{name: "unknown api", method: "GET", path: "/nothing/items/7", wantStatus: 404, wantMsg: noOperation},
+		{name: "unknown operation", method: "GET", path: "/echo/other", wantStatus: 404, wantMsg: noOperation},
+		{name: "wrong method", method: "DELETE", path: "/echo/items/7", wantStatus: 404, wantMsg: noOperation},
+		{name: "post item", method: "POST", path: "/echo/items", wantStatus: 200, wantFwd: true},
+		{name: "case insensitive path", method: "GET", path: "/ECHO/Items/9", wantStatus: 200, wantFwd: true},
 	}
 
 	for _, tc := range tests {
@@ -188,8 +197,7 @@ func TestAPIMGateway_SubscriptionKey(t *testing.T) {
 				got := decodeEcho(t, body)
 				assert.Equal(t, tc.method, got.Method)
 				assert.Equal(t, "yes", hdr.Get("X-Backend"))
-				assert.NotContains(t, got.Header, "Ocp-Apim-Subscription-Key")
-				assert.NotContains(t, got.Query, "subscription-key")
+				assert.Equal(t, tc.wantFwd, got.keyForwarded(e.key))
 			}
 		})
 	}

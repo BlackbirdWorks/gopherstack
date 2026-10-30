@@ -26,6 +26,9 @@ const (
 	apimARMType            = namespaceMicrosoftAPIM + "/" + apimServiceType
 	apimStateActivating    = "Activating"
 	apimStateUpdating      = "Updating"
+	apimStateCreated       = "Created"
+	apimPlatformStv2       = "stv2"
+	apimPlatformMtv1       = "mtv1"
 	apimGatewaySuffix      = ".azure-api.net"
 	apimDefaultNotifyMail  = "apimgmt-noreply@mail.windowsazure.com"
 	apimActivateFast       = time.Second
@@ -239,6 +242,69 @@ func apimSKURange(name string) (int, int, bool) {
 	return 0, 0, false
 }
 
+// apimLimits are the per-instance resource limits of one sku (azure-subscription-service-limits, "API Management
+// limits"); zero means the table lists no limit.
+type apimLimits struct {
+	ops, named, products, subs, policyBytes int
+}
+
+const (
+	apimMaxOps          = 75000
+	limOpsLow           = 3000
+	limOpsBasic         = 10000
+	limOpsStd           = 50000
+	limNamedLow         = 5000
+	limNamedStd         = 10000
+	limNamedPrem        = 18000
+	limProdLow          = 100
+	limProdBasic        = 200
+	limProdStd          = 500
+	limProdPrem         = 2000
+	limSubsDev          = 10000
+	limSubsBasic        = 15000
+	limSubsStd          = 25000
+	limSubsPrem         = 75000
+	apimKiB             = 1024
+	apimPolicyBytes     = 512 * apimKiB
+	apimPolicyBytesCons = 16 * apimKiB
+)
+
+func apimLimitsFor(sku string) apimLimits {
+	switch sku {
+	case apimSKUConsumption:
+		return apimLimits{ops: limOpsLow, named: limNamedLow, products: limProdLow, policyBytes: apimPolicyBytesCons}
+	case "Developer":
+		return apimLimits{
+			ops: limOpsLow, named: limNamedLow, products: limProdLow, subs: limSubsDev, policyBytes: apimPolicyBytes,
+		}
+	case skuBasic:
+		return apimLimits{
+			ops:         limOpsBasic,
+			named:       limNamedLow,
+			products:    limProdBasic,
+			subs:        limSubsBasic,
+			policyBytes: apimPolicyBytes,
+		}
+	case skuTierStandard:
+		return apimLimits{
+			ops: limOpsStd, named: limNamedStd, products: limProdStd, subs: limSubsStd, policyBytes: apimPolicyBytes,
+		}
+	}
+
+	return apimLimits{
+		ops: apimMaxOps, named: limNamedPrem, products: limProdPrem, subs: limSubsPrem, policyBytes: apimPolicyBytes,
+	}
+}
+
+func apimOverLimit(have, limit int, what string) error {
+	if limit > 0 && have >= limit {
+		return apimErr(http.StatusConflict, apimCodeConflict,
+			"The service already has the maximum of %d %s for its sku.", limit, what)
+	}
+
+	return nil
+}
+
 func apimOwnedServiceProps() []string {
 	return []string{
 		apimCPublisherEmail, apimCPublisherName, apimCNotificationSenderEmail, sqlPropPublic, apimCProvisioningState,
@@ -381,19 +447,51 @@ func newAPIMService(sub, rg, name string, now time.Time) *apimService {
 func gatewayHost(name string) string { return name + apimGatewaySuffix }
 
 func (s *apimService) body(now time.Time) map[string]any {
+	return s.bodyAs(now, "")
+}
+
+// createdBody is the 201 answer of the PUT that created the service: provisioningState Created heading for
+// Activating.
+func (s *apimService) createdBody(now time.Time) map[string]any {
+	return s.bodyAs(now, apimStateCreated)
+}
+
+func (s *apimService) regionalURL() string {
+	slug := strings.ToLower(strings.ReplaceAll(s.Location, " ", ""))
+
+	return "https://" + s.Name + "-" + slug + "-01.regional.azure-api.net"
+}
+
+func (s *apimService) bodyAs(now time.Time, override string) map[string]any {
 	state := s.state(now)
 	props := cloneAnyMap(s.Extra)
 	host := gatewayHost(s.Name)
+	pending := state == apimStateActivating || override != ""
 
 	props[apimCProvisioningState] = state
+	props["targetProvisioningState"] = ""
+
+	if override != "" {
+		props[apimCProvisioningState], props["targetProvisioningState"] = override, apimStateActivating
+	} else if state != provisioningStateSucceeded {
+		props["targetProvisioningState"] = state
+	}
+
 	props[apimCPublisherEmail], props[apimCPublisherName] = s.PublisherEm, s.PublisherNm
 	props[apimCNotificationSenderEmail], props[sqlPropPublic] = s.NotifyEmail, s.PublicAcc
 	props["createdAtUtc"] = s.CreatedAt.UTC().Format(time.RFC3339)
-	props["gatewayUrl"], props["gatewayRegionalUrl"] = "https://"+host, "https://"+host
-	props["portalUrl"] = "https://" + s.Name + ".portal.azure-api.net"
-	props["developerPortalUrl"] = "https://" + s.Name + ".developer.azure-api.net"
-	props["managementApiUrl"] = "https://" + s.Name + ".management.azure-api.net"
-	props["scmUrl"] = "https://" + s.Name + ".scm.azure-api.net"
+	props["gatewayUrl"] = "https://" + host
+	props["platformVersion"] = apimPlatformStv2
+
+	if s.SKU == apimSKUConsumption {
+		props["platformVersion"] = apimPlatformMtv1
+	} else if !pending {
+		props["gatewayRegionalUrl"] = s.regionalURL()
+		props["portalUrl"] = "https://" + s.Name + ".portal.azure-api.net"
+		props["developerPortalUrl"] = "https://" + s.Name + ".developer.azure-api.net"
+		props["managementApiUrl"] = "https://" + s.Name + ".management.azure-api.net"
+		props["scmUrl"] = "https://" + s.Name + ".scm.azure-api.net"
+	}
 
 	if _, has := props["virtualNetworkType"]; !has {
 		props["virtualNetworkType"] = apimVNetNone
@@ -517,9 +615,13 @@ func (p *APIMProvider) Put(_ context.Context, id ResourceID, body map[string]any
 	p.mu.Lock(apimCPut)
 	defer p.mu.Unlock()
 
-	s, _, err := p.writeService(id.SubscriptionID, id.ResourceGroup, id.LeafName(), body, false)
+	s, created, err := p.writeService(id.SubscriptionID, id.ResourceGroup, id.LeafName(), body, false)
 	if err != nil {
 		return nil, err
+	}
+
+	if created {
+		return s.createdBody(p.now()), nil
 	}
 
 	return s.body(p.now()), nil
