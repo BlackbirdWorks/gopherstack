@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"regexp"
+	"slices"
 	"strconv"
 	"time"
 
@@ -19,12 +20,13 @@ import (
 )
 
 const (
-	defaultHost   = "127.0.0.1"
-	startTimeout  = 5 * time.Minute
-	probeInterval = time.Second
-	probeTimeout  = 5 * time.Second
-	stopTimeout   = 30 * time.Second
-	minTokenLen   = 16
+	defaultHost    = "127.0.0.1"
+	startTimeout   = 5 * time.Minute
+	probeInterval  = time.Second
+	probeTimeout   = 5 * time.Second
+	stopTimeout    = 30 * time.Second
+	minTokenLen    = 16
+	caPollInterval = 500 * time.Millisecond
 )
 
 var (
@@ -34,6 +36,10 @@ var (
 	ErrDefaultTokenExposed = errors.New("a cluster token must be set when the cluster host is not loopback")
 	// ErrSuperseded is returned by Launch when the caller's record callback declined the new container.
 	ErrSuperseded = errors.New("cluster was superseded while starting")
+	// ErrNotAdoptable is returned when a leftover container cannot be taken over.
+	ErrNotAdoptable = errors.New("container cannot be adopted")
+	// ErrRotateFailed is returned when the node could not drop its certificates.
+	ErrRotateFailed = errors.New("certificate rotation failed")
 	// ErrStopUnsupported is returned by Stop and Start when the runtime cannot keep a stopped container.
 	ErrStopUnsupported = errors.New("container runtime cannot stop and restart a container in place")
 
@@ -197,8 +203,14 @@ type Node struct {
 	Name      string
 	Image     string
 	JoinToken string
-	Mounts    []string
-	LBPorts   []int
+	// Resource is the owning service's key for the cluster: a restarted gopherstack can adopt the container by it.
+	Resource string
+	// Volume names a data volume mounted on DataDir, so cluster state outlives the container.
+	Volume string
+	// NodeName pins the Kubernetes node name; empty keeps the container hostname.
+	NodeName string
+	Mounts   []string
+	LBPorts  []int
 }
 
 // Instance is a started k3s container.
@@ -209,7 +221,7 @@ type Instance struct {
 	Port        int
 }
 
-func (e *Engine) spec(n Node, port int, lbHost []int, ca *CA) container.Spec {
+func (e *Engine) spec(n Node, port int, lbHost []int, ca *CA, vol bool) container.Spec {
 	bind := container.BindHostFor(e.cfg.Host)
 	ports := make([]string, 0, 1+len(n.LBPorts))
 	ports = append(ports, container.PortSpec(bind, strconv.Itoa(port), strconv.Itoa(APIPort)))
@@ -218,17 +230,32 @@ func (e *Engine) spec(n Node, port int, lbHost []int, ca *CA) container.Spec {
 		ports = append(ports, container.PortSpec(bind, strconv.Itoa(lbHost[i]), strconv.Itoa(p)))
 	}
 
+	labels := container.ServiceLabels("k3s-" + e.cfg.Prefix)
+	if n.Resource != "" {
+		labels = container.ResourceLabels("k3s-"+e.cfg.Prefix, n.Resource)
+	}
+
+	env := []string{
+		envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host, "K3S_TOKEN=" + n.JoinToken,
+		envCACert + "=" + string(ca.CertPEM), envCAKey + "=" + string(ca.KeyPEM),
+	}
+	if n.NodeName != "" {
+		env = append(env, envNodeName+"="+n.NodeName)
+	}
+
+	mounts := n.Mounts
+	if vol {
+		mounts = append(slices.Clone(mounts), n.Volume+":"+DataDir)
+	}
+
 	return container.Spec{
 		Name:       "gopherstack-" + e.cfg.Prefix + "-" + n.Name + "-" + uuid.NewString()[:8],
-		Labels:     container.ServiceLabels("k3s-" + e.cfg.Prefix),
+		Labels:     labels,
 		Image:      n.Image,
 		Entrypoint: []string{"/bin/sh", "-c", Script(len(n.LBPorts) > 0)},
-		Env: []string{
-			envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host, "K3S_TOKEN=" + n.JoinToken,
-			envCACert + "=" + string(ca.CertPEM), envCAKey + "=" + string(ca.KeyPEM),
-		},
+		Env:        env,
 		Ports:      ports,
-		Mounts:     n.Mounts,
+		Mounts:     mounts,
 		Tmpfs:      []string{"/run", "/var/run"},
 		Privileged: true,
 	}
@@ -238,6 +265,11 @@ func (e *Engine) spec(n Node, port int, lbHost []int, ca *CA) container.Spec {
 // longer wants it, in which case the container is removed and ErrSuperseded returned.
 func (e *Engine) Launch(ctx context.Context, n Node, record func(*Instance) bool) (*Instance, error) {
 	ca, err := NewCA("gopherstack-" + e.cfg.Prefix + "-" + n.Name + "-ca")
+	if err != nil {
+		return nil, err
+	}
+
+	vol, err := e.ensureVolume(ctx, n.Volume)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +300,7 @@ func (e *Engine) Launch(ctx context.Context, n Node, record func(*Instance) bool
 				lbHost = append(lbHost, hp)
 			}
 
-			return e.spec(n, p, lbHost, ca), nil
+			return e.spec(n, p, lbHost, ca, vol), nil
 		},
 		func() { e.ReleaseAll(port, lbHost) })
 	if err != nil {
@@ -317,4 +349,138 @@ func (e *Engine) AwaitReady(ctx context.Context, addr string, ca []byte) ([]byte
 		case <-ticker.C:
 		}
 	}
+}
+
+// VolumeLabel marks the data volumes the engine creates.
+const VolumeLabel = "gopherstack.k3s-volume"
+
+func (e *Engine) volumes() (container.VolumeRuntime, bool) {
+	vr, ok := e.cfg.Runtime.(container.VolumeRuntime)
+
+	return vr, ok
+}
+
+// ensureVolume creates the named data volume; it reports false when there is no volume to mount (no name, or a
+// runtime without volume support, which keeps state in the container only).
+func (e *Engine) ensureVolume(ctx context.Context, name string) (bool, error) {
+	if name == "" {
+		return false, nil
+	}
+
+	vr, ok := e.volumes()
+	if !ok {
+		return false, nil
+	}
+
+	if err := vr.CreateVolume(ctx, name, map[string]string{VolumeLabel: e.cfg.Prefix}); err != nil {
+		return false, fmt.Errorf("create data volume %s: %w", name, err)
+	}
+
+	return true, nil
+}
+
+// RemoveVolume deletes a data volume; runtimes without volume support have nothing to delete.
+func (e *Engine) RemoveVolume(ctx context.Context, name string) error {
+	vr, ok := e.volumes()
+	if !ok || name == "" {
+		return nil
+	}
+
+	if err := vr.RemoveVolume(ctx, name); err != nil {
+		return fmt.Errorf("remove data volume %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// UnusedVolumes lists the engine's data volumes no container references.
+func (e *Engine) UnusedVolumes(ctx context.Context) ([]string, error) {
+	vr, ok := e.volumes()
+	if !ok {
+		return nil, nil
+	}
+
+	names, err := vr.ListUnusedVolumes(ctx, VolumeLabel+"="+e.cfg.Prefix, 0)
+	if err != nil {
+		return nil, fmt.Errorf("list data volumes: %w", err)
+	}
+
+	return names, nil
+}
+
+// Exec runs cmd in a running node; env entries are set on the process, never in argv.
+func (e *Engine) Exec(ctx context.Context, containerID string, cmd, env []string) (container.ExecResult, error) {
+	x, ok := e.cfg.Runtime.(container.Execer)
+	if !ok {
+		return container.ExecResult{}, container.ErrExecUnsupported
+	}
+
+	res, err := container.ExecWithEnv(ctx, x, containerID, cmd, env)
+	if err != nil {
+		return container.ExecResult{}, fmt.Errorf("exec in cluster node: %w", err)
+	}
+
+	return res, nil
+}
+
+// ServingCA reads the node's serving CA certificate, which differs from the one generated for a launch when a
+// reused data volume already held a CA. It waits for the node to write it.
+func (e *Engine) ServingCA(ctx context.Context, containerID string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, e.cfg.StartTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(caPollInterval)
+	defer ticker.Stop()
+
+	for {
+		res, err := e.Exec(ctx, containerID, []string{"cat", CACertFile}, nil)
+		if errors.Is(err, container.ErrExecUnsupported) {
+			return nil, err
+		}
+
+		if err == nil && res.ExitCode == 0 && res.Stdout != "" {
+			return []byte(res.Stdout), nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("read cluster CA: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// Adopt takes over a running node container an earlier gopherstack left behind. The caller owns it afterwards.
+func (e *Engine) Adopt(oc container.ManagedContainer) (*Instance, error) {
+	port := oc.Ports[APIPort]
+	if port == 0 {
+		return nil, fmt.Errorf("%w: container %s publishes no API port", ErrNotAdoptable, oc.ID)
+	}
+
+	if e.cfg.Ports != nil {
+		if err := e.cfg.Ports.Reserve(port, e.cfg.Prefix+"-adopted"); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrNotAdoptable, err)
+		}
+	}
+
+	return &Instance{ContainerID: oc.ID, Port: port}, nil
+}
+
+// RotateCertificates drops the node's generated certificates and restarts it, so k3s issues fresh ones signed by
+// the same CA. It returns the serving CA.
+func (e *Engine) RotateCertificates(ctx context.Context, containerID, addr string, ca []byte) ([]byte, error) {
+	res, err := e.Exec(ctx, containerID, []string{"/bin/k3s", "certificate", "rotate"}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if res.ExitCode != 0 {
+		return nil, fmt.Errorf("%w: k3s certificate rotate exited %d: %s", ErrRotateFailed, res.ExitCode, res.Stderr)
+	}
+
+	if err = e.Stop(ctx, containerID); err != nil {
+		return nil, err
+	}
+
+	return e.Start(ctx, containerID, addr, ca)
 }

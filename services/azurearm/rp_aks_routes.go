@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -21,11 +22,15 @@ const (
 	aksActionStart       = "start"
 	aksActionStop        = "stop"
 	aksActionRunCommand  = "runcommand"
+	aksActionAbort       = "abort"
+	aksActionRotate      = "rotateclustercertificates"
+	aksActionResetAAD    = "resetaadprofile"
+	aksActionResetSP     = "resetserviceprincipalprofile"
+	aksCmdResultsType    = "commandResults"
 	aksActionUserCred    = "listclusterusercredential"
 	aksActionAdminCred   = "listclusteradmincredential"
 	aksActionMonitorCred = "listclustermonitoringusercredential"
 	aksActionUpgradeNode = "upgradenodeimageversion"
-	aksCodeNotSupported  = "NotImplemented"
 )
 
 func isAKSScope(segs []string, n int) bool {
@@ -72,13 +77,32 @@ var containerServiceRoutes = []armRoute{
 
 			switch aksLast(segs) {
 			case aksActionStart, aksActionStop, aksActionRunCommand, aksActionUserCred, aksActionAdminCred,
-				aksActionMonitorCred:
+				aksActionMonitorCred, aksActionAbort, aksActionRotate, aksActionResetAAD, aksActionResetSP:
 				return true
 			}
 
 			return false
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAKSClusterAction(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodGet && isAKSSubLocation(segs, "trustedAccessRoles")
+		},
+		handle: func(h *Handler, c *echo.Context, _ []string) error {
+			if !h.checkAKSAPIVersion(c) {
+				return nil
+			}
+
+			return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: aksTrustedRoles()})
+		},
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodGet && isAKSScope(segs, aksClusterProfSegs) &&
+				segAt(segs, aksClusterProfSegs-aksProfOffset, aksCmdResultsType)
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAKSCommandResult(c, segs) },
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
@@ -167,8 +191,9 @@ func (h *Handler) handleAKSClusterAction(c *echo.Context, segs []string) error {
 
 		return c.NoContent(http.StatusAccepted)
 	case aksActionRunCommand:
-		return h.writeError(c, http.StatusNotImplemented, aksCodeNotSupported,
-			"runCommand is not supported: the emulator does not schedule pods to run commands in.")
+		return h.handleAKSRunCommand(c, id, p)
+	case aksActionAbort, aksActionRotate, aksActionResetAAD, aksActionResetSP:
+		return h.handleAKSOperation(c, id, p, act)
 	default:
 		role := aksCredUser
 
@@ -235,6 +260,82 @@ func (h *Handler) handleAKSProfile(c *echo.Context, segs []string) error {
 
 	if err != nil {
 		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, out)
+}
+
+func (h *Handler) handleAKSOperation(c *echo.Context, id ResourceID, p *ContainerServiceProvider, act string) error {
+	var err error
+
+	switch act {
+	case aksActionAbort:
+		err = p.abortLatest(c.Request().Context(), id)
+	case aksActionRotate:
+		err = p.rotateCertificates(c.Request().Context(), id)
+	default:
+		body, derr := decodeJSONBody(c.Request())
+		if derr != nil {
+			return h.writeAPIError(c, derr)
+		}
+
+		if act == aksActionResetAAD {
+			err = p.resetAADProfile(id, body)
+		} else {
+			err = p.resetServicePrincipalProfile(id, body)
+		}
+	}
+
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	h.setNSOperation(c, id, true)
+
+	return c.NoContent(http.StatusAccepted)
+}
+
+func (h *Handler) commandLocation(c *echo.Context, id ResourceID, cmdID string) string {
+	return h.baseURLFor(c.Request()) + id.ARMID() + "/" + aksCmdResultsType + "/" + cmdID + "?api-version=" +
+		url.QueryEscape(c.QueryParam(nsAPIVersionKey))
+}
+
+func (h *Handler) handleAKSRunCommand(c *echo.Context, id ResourceID, p *ContainerServiceProvider) error {
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	req, err := aksParseRunCommand(body)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	cmdID, err := p.runCommand(id, req)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	c.Response().Header().Set("Location", h.commandLocation(c, id, cmdID))
+
+	return c.NoContent(http.StatusAccepted)
+}
+
+func (h *Handler) handleAKSCommandResult(c *echo.Context, segs []string) error {
+	p, id, ok := h.aksFor(c, segs, aksClusterInstSegs)
+	if !ok {
+		return nil
+	}
+
+	out, done, err := p.commandResult(id, segs[len(segs)-1])
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	if !done {
+		c.Response().Header().Set("Location", h.commandLocation(c, id, segs[len(segs)-1]))
+
+		return c.NoContent(http.StatusAccepted)
 	}
 
 	return h.writeJSON(c, http.StatusOK, out)

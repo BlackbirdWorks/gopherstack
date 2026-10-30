@@ -912,22 +912,6 @@ func TestAKSCredentials(t *testing.T) {
 	assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
 }
 
-func TestAKSRunCommandUnsupported(t *testing.T) {
-	t.Parallel()
-
-	s := newAKSStack(t)
-	s.mustPut(t, "run", nil)
-
-	_, err := s.factory.NewManagedClustersClient().BeginRunCommand(t.Context(), aksRG, "run",
-		armcontainerservice.RunCommandRequest{Command: new("kubectl get ns")}, nil)
-
-	var re *azcore.ResponseError
-
-	require.ErrorAs(t, err, &re)
-	assert.Equal(t, http.StatusNotImplemented, re.StatusCode)
-	assert.Equal(t, "NotImplemented", re.ErrorCode)
-}
-
 func TestAKSEtag(t *testing.T) {
 	t.Parallel()
 

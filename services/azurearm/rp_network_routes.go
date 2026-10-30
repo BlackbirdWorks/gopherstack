@@ -317,6 +317,10 @@ func isSyncType(id ResourceID) bool {
 		return true
 	}
 
+	if strings.EqualFold(id.Namespace, namespaceMicrosoftContainerService) && aksTargetOf(id).kind == aksKindMaint {
+		return true
+	}
+
 	if len(id.Types) == 2 && strings.EqualFold(id.Types[0], netZones) {
 		return !strings.EqualFold(id.Types[1], netLinks)
 	}

@@ -36,7 +36,7 @@ At startup, before services restore:
 - Another owner's containers are removed only when `gopherstack.ephemeral=true` and the recorded process (pid and
   start time) is dead. Live processes, other owners and unlabelled containers are never touched.
 
-Adopting services: Cloud SQL (gcpsql), EC2 docker instances and ECS docker tasks.
+Adopting services: Cloud SQL (gcpsql), EC2 docker instances, ECS docker tasks and AKS clusters.
 
 - EC2: a restored pending or running instance claims its container by instance id; it is adopted when the container
   is the recorded one, runs the same AMI and is running, and the recorded address is refreshed from it. Not adopted
@@ -50,7 +50,12 @@ Adopting services: Cloud SQL (gcpsql), EC2 docker instances and ECS docker tasks
 - Batch: containers carry the identity and service labels but no resource key. A job lost to a crash is failed
   ("Container execution was interrupted") and its container removed at the next startup.
 
-RDS and the k3s clusters label the service and are cleaned up at startup, then relaunch as before.
+- AKS: a restored running cluster claims its k3s node by `<resource group>/<cluster>` (lower case). The node's CA
+  is read back from the container and its API server must answer before it is used; otherwise it is removed and a
+  fresh node starts on the cluster's data volume (`gopherstack-aks-<hash>`), which keeps the Kubernetes state. The
+  volume is removed with the cluster, and at restore when no restored cluster owns it.
+
+RDS, EKS, GKE and OKE label the service and are cleaned up at startup, then relaunch as before.
 
 ## Not covered
 

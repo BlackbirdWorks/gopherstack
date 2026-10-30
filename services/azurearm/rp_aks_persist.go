@@ -43,11 +43,23 @@ func (p *ContainerServiceProvider) restore(snap *containerServiceSnapshot) {
 				c.Pools = map[string]*storedAKSPool{}
 			}
 
+			c.interruptCommands(p.now().UTC())
+
+			if c.ProvState != aksStateCanceled {
+				c.ProvState = ""
+			}
+
 			p.clusters[k] = c
 		}
 	}
 
+	known := make([]string, 0, len(p.clusters))
+	for k := range p.clusters {
+		known = append(known, k)
+	}
+
 	p.mu.Unlock()
 
+	p.eng.sweepVolumes(known)
 	p.relaunchAll()
 }

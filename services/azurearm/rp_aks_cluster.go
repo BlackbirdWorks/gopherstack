@@ -88,7 +88,7 @@ func (p *ContainerServiceProvider) putClusterLocked(
 	p.mu.Unlock()
 
 	if !rec.Stopped {
-		if err = p.ensureNode(ctx, rec); err != nil {
+		if err = p.bringUp(ctx, rec, prev == nil); err != nil {
 			if prev == nil {
 				return nil, p.detachCluster(ctx, rec), err
 			}
@@ -103,6 +103,27 @@ func (p *ContainerServiceProvider) putClusterLocked(
 	return p.clusterBody(rec), nil, nil
 }
 
+// bringUp starts the cluster's node as a cancellable operation; an aborted start leaves the cluster Canceled.
+func (p *ContainerServiceProvider) bringUp(ctx context.Context, rec *storedAKSCluster, created bool) error {
+	if !p.eng.enabled() {
+		return nil
+	}
+
+	state := aksStateUpdating
+	if created {
+		state = aksStateCreating
+	}
+
+	opCtx, end := p.beginOp(ctx, rec, state)
+	err := p.ensureNode(opCtx, rec, created)
+
+	if end() {
+		return nil
+	}
+
+	return err
+}
+
 // detachCluster forgets a cluster and stops its node; the returned cleanup drops the node resource group and must
 // run without opMu held.
 func (p *ContainerServiceProvider) detachCluster(ctx context.Context, c *storedAKSCluster) func() {
@@ -111,7 +132,7 @@ func (p *ContainerServiceProvider) detachCluster(ctx context.Context, c *storedA
 	cascade := p.cascade
 	p.mu.Unlock()
 
-	p.eng.removeKeys([]string{aksKey(c.ResourceGroup, c.Name)})
+	p.eng.purge([]string{aksKey(c.ResourceGroup, c.Name)})
 
 	return func() { p.dropResourceGroup(ctx, cascade, c.NodeRG) }
 }
@@ -151,6 +172,7 @@ func (p *ContainerServiceProvider) buildCluster(
 
 		rec.Created, rec.Location, rec.Token, rec.CACert = prev.Created, prev.Location, prev.Token, prev.CACert
 		rec.NextSeq, prevIdentity = prev.NextSeq, prev.Identity
+		rec.Maint, rec.Bindings, rec.Commands = prev.Maint, prev.Bindings, prev.Commands
 	}
 
 	props := acaClone(mapOf(body[fieldProperties]))
@@ -487,8 +509,17 @@ func (p *ContainerServiceProvider) setPower(ctx context.Context, id ResourceID, 
 		if err := p.eng.pause(ctx, aksKey(c.ResourceGroup, c.Name)); err != nil {
 			return err
 		}
-	} else if err := p.ensureNode(ctx, c); err != nil {
-		return err
+	} else {
+		opCtx, end := p.beginOp(ctx, c, aksStateStarting)
+		err := p.ensureNode(opCtx, c, false)
+
+		if end() {
+			return nil
+		}
+
+		if err != nil {
+			return err
+		}
 	}
 
 	p.mu.Lock("setPower")
@@ -518,6 +549,10 @@ func (p *ContainerServiceProvider) clusterBody(c *storedAKSCluster) map[string]a
 		delete(sp, "secret")
 	}
 
+	if ap := mapOf(props["aadProfile"]); ap != nil {
+		delete(ap, "serverAppSecret")
+	}
+
 	if wp := mapOf(props["windowsProfile"]); wp != nil {
 		delete(wp, "adminPassword")
 	}
@@ -525,7 +560,7 @@ func (p *ContainerServiceProvider) clusterBody(c *storedAKSCluster) map[string]a
 	props[aksFieldPools] = pools
 	props[aksFieldK8sVersion] = c.Requested
 	props["currentKubernetesVersion"] = c.Current
-	props[fieldProvisioningState] = provisioningStateSucceeded
+	props[fieldProvisioningState] = aksProvisioning(c)
 	props["powerState"] = map[string]any{aksFieldCode: power}
 	props[aksFieldNodeRG] = c.NodeRG
 	props["maxAgentPools"] = aksMaxAgentPools
@@ -558,6 +593,14 @@ func (p *ContainerServiceProvider) clusterBody(c *storedAKSCluster) map[string]a
 	}
 
 	return out
+}
+
+func aksProvisioning(c *storedAKSCluster) string {
+	if c.ProvState != "" {
+		return c.ProvState
+	}
+
+	return provisioningStateSucceeded
 }
 
 func (p *ContainerServiceProvider) poolBody(c *storedAKSCluster, pool *storedAKSPool) map[string]any {

@@ -21,15 +21,21 @@ const (
 	envHost         = "GOPHERSTACK_EKS_HOST"
 	envCACert       = "GOPHERSTACK_EKS_CA_CERT"
 	envCAKey        = "GOPHERSTACK_EKS_CA_KEY"
+	envNodeName     = "GOPHERSTACK_NODE_NAME"
 	tlsDir          = "/var/lib/rancher/k3s/server/tls"
+	// DataDir is the k3s state directory a persistent volume is mounted on.
+	DataDir = "/var/lib/rancher/k3s"
+	// CACertFile is where the node keeps the serving CA certificate.
+	CACertFile = tlsDir + "/server-ca.crt"
 )
 
 const scriptHead = `printf '%s,admin,admin,"system:masters"\n' "$` + envAdminAuth + `" > ` + tokenFileName +
 	` && umask 077 && mkdir -p ` + tlsDir +
-	` && printf '%s\n' "$` + envCACert + `" > ` + tlsDir + `/server-ca.crt` +
-	` && printf '%s\n' "$` + envCAKey + `" > ` + tlsDir + `/server-ca.key` +
+	` && { [ -s ` + tlsDir + `/server-ca.crt ] && [ -s ` + tlsDir + `/server-ca.key ] || {` +
+	` printf '%s\n' "$` + envCACert + `" > ` + tlsDir + `/server-ca.crt` +
+	` && printf '%s\n' "$` + envCAKey + `" > ` + tlsDir + `/server-ca.key; }; }` +
 	` && unset ` + envCAKey + ` && exec /bin/k3s server --tls-san "$` + envHost + `"` +
-	` --disable traefik`
+	` --disable traefik${` + envNodeName + `:+ --node-name "$` + envNodeName + `"}`
 
 const scriptTail = ` --disable metrics-server --kube-apiserver-arg=token-auth-file=` + tokenFileName
 
