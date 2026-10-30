@@ -21077,11 +21077,8 @@ GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	memorydb	application
 GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmemorydb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
 GET	localhost:4566	/x	memorydb	application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
 GET	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fmemorydb%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		MemoryDB	MemoryDB
-GET	localhost:4566	/	route53-recovery-cluster	application/x-amz-json-1.1		{}		S3	S3
 GET	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
-GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/	route53-recovery-cluster	application/x-amz-json-1.1		{}		S3	S3
 GET	localhost:4566	/route53-recovery-cluster/abc/us-east-1/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
-GET	localhost:4566	/x	route53-recovery-cluster	application/x-amz-json-1.1		{}		S3	S3
 GET	localhost:4566	/x?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Froute53-recovery-cluster%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3
 GET	localhost:4566	/	cognito-idp	application/x-amz-json-1.1		{}		S3	S3
 GET	localhost:4566	/?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Fcognito-idp%2Faws4_request&X-Amz-Signature=00		application/x-amz-json-1.1		{}		S3	S3

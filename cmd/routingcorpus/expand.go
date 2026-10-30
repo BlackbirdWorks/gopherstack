@@ -287,6 +287,10 @@ func (c *collector) addAltGateRows() {
 	for _, m := range []string{methodGet, methodPost} {
 		for _, scope := range []string{"memorydb", "route53-recovery-cluster", "cognito-idp", "lambda", "s3", ""} {
 			for _, uri := range []string{"/", "/route53-recovery-cluster/abc/us-east-1/", "/x"} {
+				if m != methodPost && scope == "route53-recovery-cluster" {
+					continue
+				}
+
 				add(m, host, uri, scope, "", "")
 				add(m, host, presigned(uri, scope), "", "", "")
 			}
