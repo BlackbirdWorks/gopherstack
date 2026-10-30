@@ -149,6 +149,16 @@ func (c *CLI) GetOCILoggingHandler() service.Registerable { return c.ociLoggingH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOCIMonitoringHandler() service.Registerable { return c.ociMonitoringHandler }
 
+// GetOCINoSQLHandler returns the OCINoSQL handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCINoSQLHandler() service.Registerable { return c.ociNoSQLHandler }
+
+// GetOCIAPIGatewayHandler returns the OCIAPIGateway handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIAPIGatewayHandler() service.Registerable { return c.ociAPIGatewayHandler }
+
 // GetGCPIdentityToolkitHandler returns the GCPIdentityToolkit handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface

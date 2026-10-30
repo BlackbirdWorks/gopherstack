@@ -241,6 +241,8 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerOCIMySQLRoutes()
 	h.registerOCILoggingRoutes()
 	h.registerOCIMonitoringRoutes()
+	h.registerOCINoSQLRoutes()
+	h.registerOCIAPIGatewayRoutes()
 	h.registerGCPIdentityToolkitRoutes()
 	h.registerAzureFlexDBRoutes()
 }

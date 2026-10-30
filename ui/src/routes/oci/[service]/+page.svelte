@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { ociServiceById } from '#lib/cloud.ts';
+	import APIGatewayDashboard from '#lib/components/oci/APIGatewayDashboard.svelte';
 	import ContainerEngineDashboard from '#lib/components/oci/ContainerEngineDashboard.svelte';
 	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
@@ -9,6 +10,7 @@
 	import LoggingDashboard from '#lib/components/oci/LoggingDashboard.svelte';
 	import MonitoringDashboard from '#lib/components/oci/MonitoringDashboard.svelte';
 	import MySQLDashboard from '#lib/components/oci/MySQLDashboard.svelte';
+	import NoSQLDashboard from '#lib/components/oci/NoSQLDashboard.svelte';
 	import NotificationsDashboard from '#lib/components/oci/NotificationsDashboard.svelte';
 	import ObjectStorageDashboard from '#lib/components/oci/ObjectStorageDashboard.svelte';
 	import QueueDashboard from '#lib/components/oci/QueueDashboard.svelte';
@@ -50,6 +52,10 @@
 	<LoggingDashboard />
 {:else if service?.id === 'monitoring'}
 	<MonitoringDashboard />
+{:else if service?.id === 'nosql'}
+	<NoSQLDashboard />
+{:else if service?.id === 'apigateway'}
+	<APIGatewayDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}
