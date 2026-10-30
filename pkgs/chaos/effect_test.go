@@ -29,11 +29,19 @@ func TestFaultRule_Validate(t *testing.T) {
 		{name: "unknown effect", rule: chaos.FaultRule{Effect: "dynamodb:nope"}, wantErr: true},
 		{name: "target without effect", rule: chaos.FaultRule{Target: &chaos.EffectTarget{Table: "t"}}, wantErr: true},
 		{name: "hold without effect", rule: chaos.FaultRule{HoldMs: 5}, wantErr: true},
-		{name: "wrong service", rule: chaos.FaultRule{Effect: chaos.EffectDynamoDBTransactionConflict, Service: "s3"}, wantErr: true},
+		{
+			name:    "wrong service",
+			rule:    chaos.FaultRule{Effect: chaos.EffectDynamoDBTransactionConflict, Service: "s3"},
+			wantErr: true,
+		},
 		{name: "effect with error", rule: chaos.FaultRule{
 			Effect: chaos.EffectDynamoDBTransactionConflict, Error: &chaos.FaultError{Code: "X", StatusCode: 500},
 		}, wantErr: true},
-		{name: "negative hold", rule: chaos.FaultRule{Effect: chaos.EffectDynamoDBTransactionConflict, HoldOps: -1}, wantErr: true},
+		{
+			name:    "negative hold",
+			rule:    chaos.FaultRule{Effect: chaos.EffectDynamoDBTransactionConflict, HoldOps: -1},
+			wantErr: true,
+		},
 		{name: "key without table", rule: chaos.FaultRule{
 			Effect: chaos.EffectDynamoDBTransactionConflict, Target: &chaos.EffectTarget{Key: map[string]string{"pk": "a"}},
 		}, wantErr: true},
@@ -58,7 +66,11 @@ func TestFaultRule_Validate(t *testing.T) {
 func TestFaultStore_EffectRulesAreNotHTTPFaults(t *testing.T) {
 	t.Parallel()
 
-	effect := chaos.FaultRule{Effect: chaos.EffectDynamoDBTransactionConflict, Service: "dynamodb", Target: &chaos.EffectTarget{Table: "t"}}
+	effect := chaos.FaultRule{
+		Effect:  chaos.EffectDynamoDBTransactionConflict,
+		Service: "dynamodb",
+		Target:  &chaos.EffectTarget{Table: "t"},
+	}
 	plain := chaos.FaultRule{Service: "dynamodb"}
 
 	store := chaos.NewFaultStore()

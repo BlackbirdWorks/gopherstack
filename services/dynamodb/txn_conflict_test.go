@@ -3,8 +3,8 @@ package dynamodb
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -81,7 +81,9 @@ func (f *conflictFixture) t() testing.TB { return f.tb }
 
 func s(v string) types.AttributeValue { return &types.AttributeValueMemberS{Value: v} }
 
-func key(pk string) map[string]types.AttributeValue { return map[string]types.AttributeValue{"pk": s(pk)} }
+func key(pk string) map[string]types.AttributeValue {
+	return map[string]types.AttributeValue{"pk": s(pk)}
+}
 
 func item(pk, v string) map[string]types.AttributeValue {
 	return map[string]types.AttributeValue{"pk": s(pk), "v": s(v)}
@@ -122,10 +124,14 @@ func newConflictFixture(t *testing.T, retryer func() aws.Retryer) *conflictFixtu
 
 	for _, name := range []string{"tbl", "other"} {
 		_, err = f.client.CreateTable(t.Context(), &sdk.CreateTableInput{
-			TableName:            aws.String(name),
-			KeySchema:            []types.KeySchemaElement{{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash}},
-			AttributeDefinitions: []types.AttributeDefinition{{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS}},
-			BillingMode:          types.BillingModePayPerRequest,
+			TableName: aws.String(name),
+			KeySchema: []types.KeySchemaElement{
+				{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+			},
+			AttributeDefinitions: []types.AttributeDefinition{
+				{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+			},
+			BillingMode: types.BillingModePayPerRequest,
 		})
 		require.NoError(t, err)
 	}
@@ -202,7 +208,10 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "put on held item is rejected",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.PutItem(t.Context(), &sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "x")})
+				_, err := f.client.PutItem(
+					t.Context(),
+					&sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "x")},
+				)
 				var conflict *types.TransactionConflictException
 				require.ErrorAs(t, err, &conflict)
 				assert.Equal(t, 1, f.metrics.count("TransactionConflict/tbl"))
@@ -224,7 +233,10 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "delete on held item is rejected",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.DeleteItem(t.Context(), &sdk.DeleteItemInput{TableName: aws.String("tbl"), Key: key("a")})
+				_, err := f.client.DeleteItem(
+					t.Context(),
+					&sdk.DeleteItemInput{TableName: aws.String("tbl"), Key: key("a")},
+				)
 				var conflict *types.TransactionConflictException
 				require.ErrorAs(t, err, &conflict)
 			},
@@ -232,7 +244,10 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "put on another item succeeds",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.PutItem(t.Context(), &sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("b", "x")})
+				_, err := f.client.PutItem(
+					t.Context(),
+					&sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("b", "x")},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, 0, f.metrics.count("TransactionConflict/tbl"))
 			},
@@ -240,21 +255,35 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "same key in another table succeeds",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.PutItem(t.Context(), &sdk.PutItemInput{TableName: aws.String("other"), Item: item("a", "x")})
+				_, err := f.client.PutItem(
+					t.Context(),
+					&sdk.PutItemInput{TableName: aws.String("other"), Item: item("a", "x")},
+				)
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "overlapping write transaction is canceled per item",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("tbl", "b", "x"), putAction("tbl", "a", "x")))
+				_, err := f.client.TransactWriteItems(
+					t.Context(),
+					f.twi(putAction("tbl", "b", "x"), putAction("tbl", "a", "x")),
+				)
 				assert.Equal(t, []string{"None", "TransactionConflict"}, reasonCodes(t, err))
 				assert.Contains(t, err.Error(), "[None, TransactionConflict]")
 				assert.Equal(t, 1, f.metrics.count("TransactionConflict/tbl"))
 
-				got, getErr := f.client.GetItem(t.Context(), &sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("b")})
+				got, getErr := f.client.GetItem(
+					t.Context(),
+					&sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("b")},
+				)
 				require.NoError(t, getErr)
-				assert.Equal(t, "old", got.Item["v"].(*types.AttributeValueMemberS).Value, "canceled transaction must not write")
+				assert.Equal(
+					t,
+					"old",
+					got.Item["v"].(*types.AttributeValueMemberS).Value,
+					"canceled transaction must not write",
+				)
 			},
 		},
 		{
@@ -282,9 +311,16 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.Len(t, out.UnprocessedItems["tbl"], 1)
-				assert.Equal(t, "a", out.UnprocessedItems["tbl"][0].PutRequest.Item["pk"].(*types.AttributeValueMemberS).Value)
+				assert.Equal(
+					t,
+					"a",
+					out.UnprocessedItems["tbl"][0].PutRequest.Item["pk"].(*types.AttributeValueMemberS).Value,
+				)
 
-				got, getErr := f.client.GetItem(t.Context(), &sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("b")})
+				got, getErr := f.client.GetItem(
+					t.Context(),
+					&sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("b")},
+				)
 				require.NoError(t, getErr)
 				assert.Equal(t, "x", got.Item["v"].(*types.AttributeValueMemberS).Value)
 				assert.Equal(t, 1, f.metrics.count("TransactionConflict/tbl"))
@@ -293,7 +329,10 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 		{
 			name: "get item reads committed state and is not blocked",
 			probe: func(t *testing.T, f *conflictFixture) {
-				got, err := f.client.GetItem(t.Context(), &sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("a"), ConsistentRead: aws.Bool(true)})
+				got, err := f.client.GetItem(
+					t.Context(),
+					&sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("a"), ConsistentRead: aws.Bool(true)},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, "old", got.Item["v"].(*types.AttributeValueMemberS).Value)
 			},
@@ -303,7 +342,7 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 			probe: func(t *testing.T, f *conflictFixture) {
 				_, err := f.client.ExecuteTransaction(t.Context(), &sdk.ExecuteTransactionInput{
 					TransactStatements: []types.ParameterizedStatement{{
-						Statement:  aws.String(`UPDATE "tbl" SET v = 'x' WHERE pk = 'a'`),
+						Statement: aws.String(`UPDATE "tbl" SET v = 'x' WHERE pk = 'a'`),
 					}},
 				})
 				assert.Equal(t, []string{"TransactionConflict"}, reasonCodes(t, err))
@@ -331,7 +370,10 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 			done := make(chan error, 1)
 
 			go func() {
-				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("tbl", "a", "held"), putAction("tbl", "c", "held")))
+				_, err := f.client.TransactWriteItems(
+					t.Context(),
+					f.twi(putAction("tbl", "a", "held"), putAction("tbl", "c", "held")),
+				)
 				done <- err
 			}()
 
@@ -340,11 +382,17 @@ func TestTransactionConflict_InFlightWrite(t *testing.T) {
 			close(g.release)
 			require.NoError(t, <-done)
 
-			got, err := f.client.GetItem(t.Context(), &sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("a"), ConsistentRead: aws.Bool(true)})
+			got, err := f.client.GetItem(
+				t.Context(),
+				&sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("a"), ConsistentRead: aws.Bool(true)},
+			)
 			require.NoError(t, err)
 			assert.Equal(t, "held", got.Item["v"].(*types.AttributeValueMemberS).Value)
 
-			_, err = f.client.PutItem(t.Context(), &sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "after")})
+			_, err = f.client.PutItem(
+				t.Context(),
+				&sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "after")},
+			)
 			require.NoError(t, err, "item must be free once the transaction finishes")
 			assert.Zero(t, f.db.txn.live.Load())
 		})
@@ -368,7 +416,10 @@ func TestTransactionConflict_InFlightRead(t *testing.T) {
 		{
 			name: "single put is not blocked",
 			probe: func(t *testing.T, f *conflictFixture) {
-				_, err := f.client.PutItem(t.Context(), &sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "x")})
+				_, err := f.client.PutItem(
+					t.Context(),
+					&sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "x")},
+				)
 				require.NoError(t, err)
 			},
 		},
@@ -490,7 +541,10 @@ func TestTransactionConflict_SDKRetryBehaviour(t *testing.T) {
 		{
 			name: "TransactionConflictException is not retried",
 			probe: func(f *conflictFixture) error {
-				_, err := f.client.PutItem(f.tb.Context(), &sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "x")})
+				_, err := f.client.PutItem(
+					f.tb.Context(),
+					&sdk.PutItemInput{TableName: aws.String("tbl"), Item: item("a", "x")},
+				)
 
 				return err
 			},
@@ -605,7 +659,17 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "key target conflicts only that item",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
-				fs.SetRules([]chaos.FaultRule{effectRule("PutItem", &chaos.EffectTarget{Table: "tbl", Key: map[string]string{"pk": "a"}}, 1, 0, 0)})
+				fs.SetRules(
+					[]chaos.FaultRule{
+						effectRule(
+							"PutItem",
+							&chaos.EffectTarget{Table: "tbl", Key: map[string]string{"pk": "a"}},
+							1,
+							0,
+							0,
+						),
+					},
+				)
 
 				var conflict *types.TransactionConflictException
 				require.ErrorAs(t, put(f, "tbl", "a"), &conflict)
@@ -619,7 +683,10 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 
 				require.NoError(t, put(f, "tbl", "a"))
 
-				_, err := f.client.DeleteItem(t.Context(), &sdk.DeleteItemInput{TableName: aws.String("tbl"), Key: key("a")})
+				_, err := f.client.DeleteItem(
+					t.Context(),
+					&sdk.DeleteItemInput{TableName: aws.String("tbl"), Key: key("a")},
+				)
 				var conflict *types.TransactionConflictException
 				require.ErrorAs(t, err, &conflict)
 			},
@@ -635,16 +702,31 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "write transaction is canceled for targeted entries",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
-				fs.SetRules([]chaos.FaultRule{effectRule("TransactWriteItems", &chaos.EffectTarget{Table: "tbl", Key: map[string]string{"pk": "b"}}, 1, 0, 0)})
+				fs.SetRules(
+					[]chaos.FaultRule{
+						effectRule(
+							"TransactWriteItems",
+							&chaos.EffectTarget{Table: "tbl", Key: map[string]string{"pk": "b"}},
+							1,
+							0,
+							0,
+						),
+					},
+				)
 
-				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("tbl", "a", "x"), putAction("tbl", "b", "x")))
+				_, err := f.client.TransactWriteItems(
+					t.Context(),
+					f.twi(putAction("tbl", "a", "x"), putAction("tbl", "b", "x")),
+				)
 				assert.Equal(t, []string{"None", "TransactionConflict"}, reasonCodes(t, err))
 			},
 		},
 		{
 			name: "transact get is canceled",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
-				fs.SetRules([]chaos.FaultRule{effectRule("TransactGetItems", &chaos.EffectTarget{Table: "tbl"}, 1, 0, 0)})
+				fs.SetRules(
+					[]chaos.FaultRule{effectRule("TransactGetItems", &chaos.EffectTarget{Table: "tbl"}, 1, 0, 0)},
+				)
 
 				_, err := f.client.TransactGetItems(t.Context(), tgi("a"))
 				assert.Equal(t, []string{"TransactionConflict"}, reasonCodes(t, err))
@@ -653,7 +735,17 @@ func TestTransactionConflict_ChaosEffect(t *testing.T) {
 		{
 			name: "batch write returns targeted writes as unprocessed",
 			run: func(t *testing.T, f *conflictFixture, fs *chaos.FaultStore) {
-				fs.SetRules([]chaos.FaultRule{effectRule("BatchWriteItem", &chaos.EffectTarget{Table: "tbl", Key: map[string]string{"pk": "a"}}, 1, 0, 0)})
+				fs.SetRules(
+					[]chaos.FaultRule{
+						effectRule(
+							"BatchWriteItem",
+							&chaos.EffectTarget{Table: "tbl", Key: map[string]string{"pk": "a"}},
+							1,
+							0,
+							0,
+						),
+					},
+				)
 
 				out, err := f.client.BatchWriteItem(t.Context(), &sdk.BatchWriteItemInput{
 					RequestItems: map[string][]types.WriteRequest{"tbl": {
@@ -744,7 +836,10 @@ func TestTransactionConflict_ConcurrentWritersStayAtomic(t *testing.T) {
 	for i := range writers {
 		wg.Go(func() {
 			v := string(rune('A' + i))
-			_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("tbl", "a", v), putAction("tbl", "b", v)))
+			_, err := f.client.TransactWriteItems(
+				t.Context(),
+				f.twi(putAction("tbl", "a", v), putAction("tbl", "b", v)),
+			)
 
 			var cancelErr *types.TransactionCanceledException
 
@@ -762,10 +857,16 @@ func TestTransactionConflict_ConcurrentWritersStayAtomic(t *testing.T) {
 	assert.Equal(t, int64(writers), succeeded.Load()+canceled.Load())
 	assert.Positive(t, succeeded.Load())
 
-	a, err := f.client.GetItem(t.Context(), &sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("a"), ConsistentRead: aws.Bool(true)})
+	a, err := f.client.GetItem(
+		t.Context(),
+		&sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("a"), ConsistentRead: aws.Bool(true)},
+	)
 	require.NoError(t, err)
 
-	b, err := f.client.GetItem(t.Context(), &sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("b"), ConsistentRead: aws.Bool(true)})
+	b, err := f.client.GetItem(
+		t.Context(),
+		&sdk.GetItemInput{TableName: aws.String("tbl"), Key: key("b"), ConsistentRead: aws.Bool(true)},
+	)
 	require.NoError(t, err)
 
 	assert.Equal(t, a.Item["v"], b.Item["v"], "transactions are all-or-nothing and serializable")
@@ -788,7 +889,12 @@ func TestTransactionConflict_ChaosFaultAPI(t *testing.T) {
 	hc := testclient.New(t)
 
 	post := func(body string) int {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+"/_gopherstack/chaos/faults", strings.NewReader(body))
+		req, err := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodPost,
+			srv.URL+"/_gopherstack/chaos/faults",
+			strings.NewReader(body),
+		)
 		require.NoError(t, err)
 
 		resp, err := hc.Do(req)
@@ -799,7 +905,11 @@ func TestTransactionConflict_ChaosFaultAPI(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusBadRequest, post(`[{"effect":"dynamodb:no-such-effect"}]`))
-	assert.Equal(t, http.StatusBadRequest, post(`[{"effect":"dynamodb:transaction-conflict","error":{"code":"X","statusCode":500}}]`))
+	assert.Equal(
+		t,
+		http.StatusBadRequest,
+		post(`[{"effect":"dynamodb:transaction-conflict","error":{"code":"X","statusCode":500}}]`),
+	)
 	assert.Equal(t, http.StatusOK, post(
 		`[{"effect":"dynamodb:transaction-conflict","service":"dynamodb","operation":"PutItem",`+
 			`"target":{"table":"tbl","key":{"pk":"a"}},"probability":1,"holdOps":1}]`))

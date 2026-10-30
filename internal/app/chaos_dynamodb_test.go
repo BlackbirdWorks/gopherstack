@@ -43,10 +43,14 @@ func TestWireDynamoDBFaultStore(t *testing.T) {
 			}
 
 			_, err := db.CreateTable(t.Context(), &sdk.CreateTableInput{
-				TableName:            aws.String("tbl"),
-				KeySchema:            []types.KeySchemaElement{{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash}},
-				AttributeDefinitions: []types.AttributeDefinition{{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS}},
-				BillingMode:          types.BillingModePayPerRequest,
+				TableName: aws.String("tbl"),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+				},
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				BillingMode: types.BillingModePayPerRequest,
 			})
 			require.NoError(t, err)
 
