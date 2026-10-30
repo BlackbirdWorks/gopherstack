@@ -16,7 +16,18 @@ import (
 // the full contract. Mirrors services/azuretable/entity_ops.go's identical
 // (Handler-bound) encodeEntity wrapper.
 func (h *Handler) encodeTableEntity(info odatatable.EntityInfo, table, level, selectParam, host string) map[string]any {
-	return odatatable.EncodeEntity(info, table, level, selectParam, tableServiceEndpoint(host), tableAPIAccountName)
+	m := odatatable.EncodeEntity(info, table, level, selectParam, tableServiceEndpoint(host), tableAPIAccountName)
+
+	if selected := odatatable.SelectSet(selectParam); selected != nil {
+		keys := [...]string{odatatable.PartitionKeyProperty, odatatable.RowKeyProperty, odatatable.TimestampProperty}
+		for _, key := range keys {
+			if !selected[key] {
+				delete(m, key)
+			}
+		}
+	}
+
+	return m
 }
 
 func (h *Handler) insertEntity(c *echo.Context, table string) error {
@@ -100,8 +111,7 @@ func (h *Handler) queryEntities(c *echo.Context, table string) error {
 
 // Table service continuation headers and query parameters (Query Entities, "Response headers").
 const (
-	headerNextPartitionKey = "x-ms-continuation-NextPartitionKey"
-	headerNextRowKey       = "x-ms-continuation-NextRowKey"
+	headerNextTableName = "X-Ms-Continuation-Nexttablename"
 )
 
 // entityFeed answers an entity-collection query (the $top, $filter and $select of q) as one page of the OData feed
@@ -146,7 +156,8 @@ func (h *Handler) entityFeed(
 
 	var next [][2]string
 	if page.HasMore {
-		next = [][2]string{{headerNextPartitionKey, page.NextPartitionKey}, {headerNextRowKey, page.NextRowKey}}
+		next = [][2]string{{"x-ms-continuation-NextPartitionKey", page.NextPartitionKey},
+			{"x-ms-continuation-NextRowKey", page.NextRowKey}}
 	}
 
 	return map[string]any{"value": values}, next, nil

@@ -95,3 +95,36 @@ func TestTableBatch_SecondChangesetRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Equal(t, http.StatusNotFound, getEntityStatus(t, h, "a"), "nothing from the batch is applied")
 }
+
+func TestTableAPI_ListTablesPagesAndSelect(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"ta", "tb", "tc"} {
+		body := `{"TableName":"` + name + `"}`
+		require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, "/Tables", nil, []byte(body)).Code)
+	}
+
+	first := doRequest(t, h, http.MethodGet, "/Tables?$top=2", nil, nil)
+	require.Equal(t, http.StatusOK, first.Code)
+	assert.Len(t, decodeBody(t, first)["value"], 2)
+	assert.Equal(t, "tc", first.Header().Get("X-Ms-Continuation-Nexttablename"))
+
+	rest := doRequest(t, h, http.MethodGet, "/Tables?NextTableName=tc", nil, nil)
+	assert.Len(t, decodeBody(t, rest)["value"], 1)
+	assert.Empty(t, rest.Header().Get("X-Ms-Continuation-Nexttablename"))
+
+	require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, "/ta", nil,
+		[]byte(`{"PartitionKey":"p","RowKey":"r","A":"x","B":"y"}`)).Code)
+
+	sel := doRequest(t, h, http.MethodGet, "/ta()?$select=A", nil, nil)
+	require.Equal(t, http.StatusOK, sel.Code)
+
+	row, ok := decodeBody(t, sel)["value"].([]any)[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "x", row["A"])
+	assert.NotContains(t, row, "PartitionKey")
+	assert.NotContains(t, row, "RowKey")
+	assert.NotContains(t, row, "B")
+}
