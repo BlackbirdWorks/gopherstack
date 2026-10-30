@@ -158,6 +158,11 @@ var _ ResourceProvider = (*APIMProvider)(nil)
 func (p *APIMProvider) SetClock(now func() time.Time) {
 	p.mu.Lock("SetClock")
 	p.now = now
+
+	for _, s := range p.svcs {
+		s.now = now
+	}
+
 	p.mu.Unlock()
 }
 
