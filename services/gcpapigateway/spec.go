@@ -2,6 +2,7 @@ package gcpapigateway
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -166,6 +167,10 @@ func compileSpec(raw []byte) (*compiledSpec, []diagnostic) {
 	root := c.rootBackend()
 	routes := c.paths(root)
 
+	if c.allowCors() {
+		routes = withCORSRoutes(routes)
+	}
+
 	if len(c.diags) > 0 {
 		return nil, c.diags
 	}
@@ -215,6 +220,56 @@ func (c *compiler) basePath() string {
 	}
 
 	return strings.TrimRight(base, "/")
+}
+
+// allowCors reads x-google-endpoints (2.0, the entry named after the host) or the servers x-google-endpoint (3.x).
+func (c *compiler) allowCors() bool {
+	if c.v3 {
+		for _, sv := range asList(c.doc["servers"]) {
+			if b, _ := asMap(asMap(sv)["x-google-endpoint"])["allowCors"].(bool); b {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	host := str(c.doc, "host")
+
+	for _, e := range asList(c.doc["x-google-endpoints"]) {
+		em := asMap(e)
+		if b, _ := em["allowCors"].(bool); b && str(em, "name") == host {
+			return true
+		}
+	}
+
+	return false
+}
+
+// withCORSRoutes adds, as ESPv2 does for allowCors, an OPTIONS route proxied to the backend of the first operation
+// of every path template without one; these routes carry no security or quota.
+func withCORSRoutes(routes []*route) []*route {
+	hasOptions := map[string]bool{}
+
+	for _, r := range routes {
+		if r.Method == http.MethodOptions {
+			hasOptions[normalised(r.Segs)] = true
+		}
+	}
+
+	out := routes
+
+	for _, r := range routes {
+		key := normalised(r.Segs)
+		if r.Method == http.MethodOptions || hasOptions[key] || r.Segs == nil {
+			continue
+		}
+
+		hasOptions[key] = true
+		out = append(out, &route{Backend: r.Backend, Method: http.MethodOptions, Template: r.Template, Segs: r.Segs})
+	}
+
+	return out
 }
 
 func (c *compiler) securityDefs() {
