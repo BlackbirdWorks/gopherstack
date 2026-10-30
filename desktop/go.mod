@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	cloud.google.com/go/apigateway v1.17.0 // indirect
 	cloud.google.com/go/artifactregistry v1.27.0 // indirect
 	cloud.google.com/go/auth v0.24.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
