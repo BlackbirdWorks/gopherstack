@@ -24,10 +24,11 @@ import (
 const maxQueryDepth = 100
 
 type sqlParser struct {
-	lx    *sqlLexer
-	agg   *bool
-	cur   sqlToken
-	depth int
+	lx          *sqlLexer
+	agg         *bool
+	cur         sqlToken
+	depth       int
+	anonSources int
 }
 
 func newSQLParser(s string) *sqlParser {
@@ -117,14 +118,14 @@ func (p *sqlParser) parseSelectStmt(sub bool) (*sqlSelectStmt, error) {
 		return nil, err
 	}
 
-	if p.cur.typ == sqlTokFrom || !sub {
-		if _, err := p.expect(sqlTokFrom, "FROM"); err != nil {
-			return nil, err
-		}
+	if p.cur.typ == sqlTokFrom {
+		p.advance()
 
 		if err := p.parseFromClause(stmt, sub); err != nil {
 			return nil, err
 		}
+	} else if stmt.isStar {
+		return nil, p.errorf("SELECT * is only valid when a FROM clause names a source")
 	}
 
 	if err := p.parseClauses(stmt); err != nil {
@@ -355,6 +356,12 @@ func (p *sqlParser) parseSubSource() (sqlSource, error) {
 
 	alias := deriveName(x)
 
+	if sq, isSub := x.(*exprSubquery); isSub && sq.kind == subScalar {
+		sq.kind = subArray
+		p.anonSources++
+		alias = "$sub" + strconv.Itoa(p.anonSources)
+	}
+
 	switch p.cur.typ {
 	case sqlTokAs:
 		p.advance()
@@ -433,7 +440,15 @@ func (p *sqlParser) parseGroupBy(stmt *sqlSelectStmt) error {
 	}
 }
 
+// msgOrderByWithGroupBy is the service's text for the unsupported combination (the gocosmos known-issues list quotes
+// it from the gateway).
+const msgOrderByWithGroupBy = "'ORDER BY' is not supported in presence of GROUP BY."
+
 func (p *sqlParser) parseOrderBy(stmt *sqlSelectStmt) error {
+	if len(stmt.groupBy) > 0 {
+		return p.errorf("%s", msgOrderByWithGroupBy)
+	}
+
 	p.advance()
 
 	if _, err := p.expect(sqlTokBy, "BY"); err != nil {

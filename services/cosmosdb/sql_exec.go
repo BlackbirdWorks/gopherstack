@@ -154,6 +154,7 @@ func executeStatementWith(
 	}
 
 	if coll != nil {
+		ec.geometry = coll.geometry
 		coll.rows, ec.coll = rs, coll
 		if err := coll.checkStmt(ec, stmt); err != nil {
 			return QueryResult{}, err
@@ -174,6 +175,9 @@ func executeStatementWith(
 	}
 
 	res := QueryResult{Rows: rows, Scanned: rs.count()}
+	if len(stmt.sources) == 0 {
+		res.Scanned = 0
+	}
 	if ec.stats != nil {
 		res.Visited, res.Matched = docSet(ec.stats.visited), docSet(ec.stats.matched)
 	}
@@ -316,6 +320,7 @@ func (ec *evalCtx) runStmt(stmt *sqlSelectStmt, outer []any, rows queryRows) ([]
 	}
 
 	st := &runState{ec: ec, stmt: stmt, lim: lim, nsrc: len(stmt.sources)}
+	rows = sourceRows(stmt, rows)
 	if stmt.distinct {
 		st.seen = make(map[string]struct{})
 	}
@@ -538,4 +543,13 @@ func (ec *evalCtx) project(stmt *sqlSelectStmt, env []any, nsrc int) any {
 
 		return obj
 	}
+}
+
+// sourceRows is the container row source of stmt: none for a statement without a FROM clause.
+func sourceRows(stmt *sqlSelectStmt, rows queryRows) queryRows {
+	if len(stmt.sources) == 0 {
+		return nil
+	}
+
+	return rows
 }
