@@ -574,6 +574,7 @@ families:
     field is 'returnValue', not 'return' (deserializers.go confirmed)."}
 gaps: []
 items_still_open:
+  - "Snapshot and AMI sharing is caller-aware only for resources created or copied by an explicit-account caller (OwnerID = that account); resources owned by the backend account stay visible to every caller, and instances, volumes and other resources are not account-scoped (gopherstack-tnqy.6)."
   - "RunInstances (in-memory provider) accepts any syntactically valid InstanceType and any ami-prefixed ImageId: the instance-type catalog is partial and many in-repo callers launch synthetic AMIs, so unknown-but-well-formed values are not rejected. The docker provider rejects an unknown ImageId with InvalidAMIID.NotFound."
   - "Docker provider AMI binding: Windows and Bottlerocket seeded AMIs have no Linux container equivalent and run the configured default image; AMI Architecture does not select a platform-specific image (the host platform decides); deregistering an AMI does not remove its committed docker image; CreateImage snapshots the container filesystem only, not attached non-root EBS volumes or EBS snapshots."
   - "Docker provider EBS volumes (opt-in): AttachVolume on a running instance copies data in and DetachVolume/terminate copy it back (Docker cannot add a mount to a live container), so runtime-attached data reaches the Docker volume at detach or terminate rather than continuously, the copy-sync registry is in memory (lost on restart), and a volume mounted at launch stays mounted after DetachVolume; the root volume has no Docker volume, so DeleteOnTermination=false on the root device does not retain it; Docker volumes of EBS volumes deleted by fleet or shutdown-behavior termination are reaped on the next Terminate or DeleteVolume call."
@@ -6354,3 +6355,7 @@ Docker-provider mode only; the in-memory provider is unchanged. Conventions are 
 - `GOPHERSTACK_EC2_DOCKER_FLAGS` is parsed into HostConfig fields (no shell); unsupported flags fail startup.
 - `GOPHERSTACK_EC2_DOCKER_EBS_VOLUMES=true` maps each EBS volume to a labelled Docker named volume mounted at
   `/mnt/ebs/<device>`; launch mappings are real mounts, runtime attach/detach copy data in and out.
+
+## 2026-10-30 snapshot / AMI sharing by caller (gopherstack-tnqy.6)
+
+createVolumePermission / launchPermission grants (already stored per grantee) now gate callers with an explicit account: DescribeSnapshots and DescribeImages list owned, shared and public resources only, and honour OwnerIds, RestorableByUserIds and ExecutableUsers (`self`, account ids, `all`); CreateVolume, CopySnapshot, RunInstances and CopyImage on an unshared foreign resource fail with InvalidSnapshotID.NotFound / InvalidAMIID.NotFound; a resource merely shared with the caller yields UnauthorizedOperation (403) on Modify/Describe/ResetSnapshotAttribute and Modify/Describe/ResetImageAttribute.
