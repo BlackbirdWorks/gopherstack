@@ -75,3 +75,6 @@ ARCZonalShift	// /autoshift /configuration /managedresources /practiceruns /zona
 BedrockAgentCore	// /browsers /code-interpreters /identities /memories /runtimes
 Route53RecoveryControlConfig	// /cluster /controlpanel /resourcePolicy /routingcontrol /safetyrule /tags
 Route53RecoveryReadiness	// /cellreadiness /cells /crossaccountauthorizations /readinesschecks /recoverygroup /resourcesets /rules /tags
+MGN	// /A /C /D /F /G /I /L /M /P /R /S /T /U /network-migration /tags
+OAM	// /Create /Delete /Get /List /Put /Update /tags
+ResilienceHub	// /accept- /add- /batch- /create- /delete- /describe- /import- /list- /publish- /put- /reject- /remove- /resolve- /start- /tags /update-

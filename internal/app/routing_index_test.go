@@ -397,6 +397,7 @@ func TestRoutingIndexLeadingSlashes(t *testing.T) {
 
 	trimmed := []string{
 		"ARCZonalShift", "BedrockAgentCore", "Route53RecoveryControlConfig", "Route53RecoveryReadiness",
+		"MGN", "OAM", "ResilienceHub",
 	}
 
 	for _, name := range trimmed {
