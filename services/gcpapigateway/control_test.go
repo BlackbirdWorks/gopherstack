@@ -349,19 +349,6 @@ func TestOpenAPIValidation(t *testing.T) {
 	}
 }
 
-func TestOpenAPI3Accepted(t *testing.T) {
-	t.Parallel()
-
-	doc := "openapi: 3.0.4\ninfo:\n  title: t\n  version: \"1\"\nx-google-backend:\n  address: https://b.example\n" +
-		"paths:\n  /hello:\n    get:\n      responses:\n        \"200\":\n          description: ok\n"
-
-	e := newEnv(t)
-	e.createAPI(t, apiID)
-
-	cfg := e.createConfig(t, "v3", doc)
-	assert.Equal(t, apigatewaypb.ApiConfig_ACTIVE, cfg.GetState())
-}
-
 func TestGatewayLifecycle(t *testing.T) {
 	t.Parallel()
 

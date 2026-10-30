@@ -50,6 +50,13 @@ type secDef struct {
 	Issuer    string
 	JWKSURI   string
 	Audiences []string
+	Locations []jwtLocation
+}
+
+type jwtLocation struct {
+	Header string
+	Query  string
+	Prefix string
 }
 
 type quotaLimit struct {
@@ -69,6 +76,7 @@ type route struct {
 
 type compiledSpec struct {
 	Defs     map[string]*secDef
+	Metrics  map[string]bool
 	Limits   map[string]quotaLimit
 	BasePath string
 	Routes   []*route
@@ -81,6 +89,7 @@ type compiler struct {
 	limits  map[string]quotaLimit
 	diags   []diagnostic
 	rootSec [][]string
+	rootQ   map[string]int64
 	v3      bool
 }
 
@@ -131,16 +140,6 @@ func num(v any) (float64, bool) {
 	}
 }
 
-func first(m map[string]any, keys ...string) (any, bool) {
-	for _, k := range keys {
-		if v, ok := m[k]; ok {
-			return v, true
-		}
-	}
-
-	return nil, false
-}
-
 func (c *compiler) failf(loc, format string, a ...any) {
 	c.diags = append(c.diags, diagnostic{Location: loc, Message: fmt.Sprintf(format, a...)})
 }
@@ -162,6 +161,7 @@ func compileSpec(raw []byte) (*compiledSpec, []diagnostic) {
 	c.securityDefs()
 	c.management()
 	c.rootSecurity()
+	c.rootQuota()
 
 	root := c.rootBackend()
 	routes := c.paths(root)
@@ -170,7 +170,7 @@ func compileSpec(raw []byte) (*compiledSpec, []diagnostic) {
 		return nil, c.diags
 	}
 
-	return &compiledSpec{Defs: c.defs, Limits: c.limits, BasePath: base, Routes: routes}, nil
+	return &compiledSpec{Defs: c.defs, Metrics: c.metrics, Limits: c.limits, BasePath: base, Routes: routes}, nil
 }
 
 func (c *compiler) version() bool {
@@ -237,7 +237,9 @@ func (c *compiler) securityDefs() {
 			if d.KeyName == "" || (d.KeyIn != inQuery && d.KeyIn != inHeader) {
 				c.failf(loc, "apiKey security definition %q needs a name and 'in' of query or header.", name)
 			}
-		case str(m, "x-google-issuer") != "":
+		case c.v3 && asMap(m["x-google-auth"]) != nil:
+			c.authScheme(loc, d, asMap(m["x-google-auth"]), issuers)
+		case !c.v3 && str(m, "x-google-issuer") != "":
 			d.Kind, d.Issuer, d.JWKSURI = kindJWT, str(m, "x-google-issuer"), str(m, "x-google-jwks_uri")
 			d.Audiences = audiences(m["x-google-audiences"])
 
@@ -250,6 +252,38 @@ func (c *compiler) securityDefs() {
 			}
 
 			issuers[d.Issuer] = name
+		}
+	}
+}
+
+// authScheme reads an OpenAPI 3.x x-google-auth extension of a security scheme.
+func (c *compiler) authScheme(loc string, d *secDef, m map[string]any, issuers map[string]string) {
+	d.Kind, d.Issuer, d.JWKSURI = kindJWT, str(m, "issuer"), str(m, "jwksUri")
+	d.Audiences = audiences(m["audiences"])
+
+	if !httpURL(d.JWKSURI) {
+		c.failf(loc, "x-google-auth.jwksUri is required and must be an http or https URL.")
+	}
+
+	if d.Issuer != "" {
+		if prev, dup := issuers[d.Issuer]; dup {
+			c.failf(loc, "x-google-auth.issuer %q is already used by security scheme %q.", d.Issuer, prev)
+		}
+
+		issuers[d.Issuer] = d.Name
+	}
+
+	for i, e := range asList(m["jwtLocations"]) {
+		em := asMap(e)
+		l := jwtLocation{Header: str(em, "header"), Query: str(em, "query"), Prefix: str(em, "valuePrefix")}
+
+		switch {
+		case (l.Header == "") == (l.Query == ""):
+			c.failf(fmt.Sprintf("%s.jwtLocations[%d]", loc, i), "Exactly one of header and query is required.")
+		case l.Prefix != "" && l.Header == "":
+			c.failf(fmt.Sprintf("%s.jwtLocations[%d]", loc, i), "valuePrefix is only valid with header.")
+		default:
+			d.Locations = append(d.Locations, l)
 		}
 	}
 }
@@ -296,7 +330,13 @@ func sortedKeys(m map[string]any) []string {
 }
 
 func (c *compiler) management() {
-	mg, ok := first(c.doc, "x-google-management", "x-google-api-management")
+	if c.v3 {
+		c.management3()
+
+		return
+	}
+
+	mg, ok := c.doc["x-google-management"]
 	if !ok {
 		return
 	}
@@ -328,6 +368,50 @@ func (c *compiler) management() {
 	}
 }
 
+// management3 reads x-google-api-management: metrics and quota limits keyed by name, and the named backends.
+func (c *compiler) management3() {
+	const loc = "x-google-api-management"
+
+	m := asMap(c.doc[loc])
+	if m == nil {
+		c.failf(loc, "x-google-api-management is required for OpenAPI 3.x documents.")
+
+		return
+	}
+
+	if len(asMap(m["backends"])) == 0 {
+		c.failf(loc+".backends", "x-google-api-management.backends is required.")
+	}
+
+	for _, name := range sortedKeys(asMap(m["metrics"])) {
+		if len(str(asMap(asMap(m["metrics"])[name]), "displayName")) > maxMetricName {
+			c.failf(loc+".metrics."+name, "Metric displayName must be at most %d characters.", maxMetricName)
+
+			continue
+		}
+
+		c.metrics[name] = true
+	}
+
+	limits := asMap(asMap(m["quota"])["limits"])
+	for _, name := range sortedKeys(limits) {
+		lm := asMap(limits[name])
+		metric := str(lm, "metric")
+		lloc := loc + ".quota.limits." + name
+
+		n, ok := num(lm["values"])
+
+		switch {
+		case !c.metrics[metric]:
+			c.failf(lloc, "Quota limit %q refers to undefined metric %q.", name, metric)
+		case !ok || n < 0 || n != float64(int64(n)):
+			c.failf(lloc, "Quota limit %q: values must be a non-negative integer.", name)
+		default:
+			c.limits[metric] = quotaLimit{Name: name, Metric: metric, PerMin: int64(n)}
+		}
+	}
+}
+
 func (c *compiler) limit(loc string, m map[string]any) {
 	name, metric := str(m, "name"), str(m, "metric")
 
@@ -354,6 +438,34 @@ func (c *compiler) limit(loc string, m map[string]any) {
 	}
 
 	c.limits[metric] = quotaLimit{Name: name, Metric: metric, PerMin: int64(n)}
+}
+
+// rootQuota reads the top-level OpenAPI 3.x x-google-quota, which operations may override.
+func (c *compiler) rootQuota() {
+	if q, ok := c.doc["x-google-quota"]; ok && c.v3 {
+		c.rootQ = c.costs("x-google-quota", q)
+	}
+}
+
+// costs reads an OpenAPI 3.x x-google-quota map of metric to per-request cost.
+func (c *compiler) costs(loc string, q any) map[string]int64 {
+	out := map[string]int64{}
+	m := asMap(q)
+
+	for _, metric := range sortedKeys(m) {
+		n, isNum := num(m[metric])
+
+		switch {
+		case !c.metrics[metric]:
+			c.failf(loc, "x-google-quota refers to undefined metric %q.", metric)
+		case !isNum || n < 0 || n != float64(int64(n)):
+			c.failf(loc, "x-google-quota[%q] must be a non-negative integer.", metric)
+		default:
+			out[metric] = int64(n)
+		}
+	}
+
+	return out
 }
 
 func (c *compiler) rootSecurity() {
@@ -405,7 +517,14 @@ func (c *compiler) rootBackend() *backendCfg {
 func (c *compiler) backend(loc string, v any, defTranslation string) *backendCfg {
 	m := asMap(v)
 
-	if name, ok := v.(string); ok && c.v3 {
+	if c.v3 {
+		name, ok := v.(string)
+		if !ok {
+			c.failf(loc, "x-google-backend must name a backend defined in x-google-api-management.backends.")
+
+			return nil
+		}
+
 		m = asMap(asMap(asMap(c.doc["x-google-api-management"])["backends"])[name])
 		if m == nil {
 			c.failf(loc, "Backend %q is not defined in x-google-api-management.backends.", name)
@@ -426,7 +545,7 @@ func (c *compiler) backend(loc string, v any, defTranslation string) *backendCfg
 		c.failf(loc, "x-google-backend.address is required and must be an http or https URL.")
 	}
 
-	if t := str(m, "path_translation", "pathTranslation"); t != "" {
+	if t := str(m, c.field("path_translation", "pathTranslation")); t != "" {
 		if t != translateAppend && t != translateConstant {
 			c.failf(loc, "Unsupported path_translation %q: use %s or %s.", t, translateAppend, translateConstant)
 		}
@@ -437,6 +556,15 @@ func (c *compiler) backend(loc string, v any, defTranslation string) *backendCfg
 	c.backendLimits(loc, m, b)
 
 	return b
+}
+
+// field picks the OpenAPI 2.0 (snake_case) or 3.x (camelCase) spelling of an extension field.
+func (c *compiler) field(snake, camel string) string {
+	if c.v3 {
+		return camel
+	}
+
+	return snake
 }
 
 func (c *compiler) backendLimits(loc string, m map[string]any, b *backendCfg) {
@@ -453,10 +581,9 @@ func (c *compiler) backendLimits(loc string, m map[string]any, b *backendCfg) {
 		c.failf(loc, "Unsupported x-google-backend.protocol %q: use http/1.1 or h2.", p)
 	}
 
-	disable, _ := first(m, "disable_auth", "disableAuth")
-	b.DisableAuth, _ = disable.(bool)
+	b.DisableAuth, _ = m[c.field("disable_auth", "disableAuth")].(bool)
 
-	if _, aud := first(m, "jwt_audience", "jwtAudience"); aud && b.DisableAuth {
+	if _, aud := m[c.field("jwt_audience", "jwtAudience")]; aud && b.DisableAuth {
 		c.failf(loc, "Only one of jwt_audience and disable_auth may be set.")
 	}
 }
@@ -525,6 +652,15 @@ func (c *compiler) operation(loc string, op map[string]any, root *backendCfg) *r
 		r.Security = c.requirements(loc+".security", sec)
 	}
 
+	if c.v3 {
+		r.Costs = c.rootQ
+		if q, ok := op["x-google-quota"]; ok {
+			r.Costs = c.costs(loc+".x-google-quota", q)
+		}
+
+		return r
+	}
+
 	if q, ok := op["x-google-quota"]; ok {
 		r.Costs = map[string]int64{}
 		costs := asMap(asMap(q)["metricCosts"])
@@ -585,11 +721,12 @@ func normalised(segs []seg) string {
 	return strings.Join(parts, "/")
 }
 
-// match finds the route for a request method and path, with the path template variables.
-func (s *compiledSpec) match(method, p string) (*route, map[string]string) {
+// match finds the route for a request method and path, with the path template variables. When the path fits a
+// template but no operation has the method, it returns that template (BasePath included) for the 405 text.
+func (s *compiledSpec) match(method, p string) (*route, map[string]string, string) {
 	rest, ok := strings.CutPrefix(p, s.BasePath)
 	if !ok || (rest != "" && !strings.HasPrefix(rest, "/")) {
-		return nil, nil
+		return nil, nil, ""
 	}
 
 	parts := strings.Split(strings.Trim(rest, "/"), "/")
@@ -598,6 +735,7 @@ func (s *compiledSpec) match(method, p string) (*route, map[string]string) {
 		best     *route
 		bestVars map[string]string
 		bestLits = -1
+		other    string
 	)
 
 	for _, r := range s.Routes {
@@ -606,12 +744,24 @@ func (s *compiledSpec) match(method, p string) (*route, map[string]string) {
 			continue
 		}
 
-		if r.Method == method && lits > bestLits {
+		if r.Method != method {
+			if other == "" {
+				other = s.BasePath + r.Template
+			}
+
+			continue
+		}
+
+		if lits > bestLits {
 			best, bestVars, bestLits = r, vars, lits
 		}
 	}
 
-	return best, bestVars
+	if best != nil {
+		other = ""
+	}
+
+	return best, bestVars, other
 }
 
 func (r *route) fit(parts []string) (map[string]string, int, bool) {

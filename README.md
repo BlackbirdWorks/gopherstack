@@ -944,7 +944,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [API Gateway](services/gcpapigateway/README.md) | B | 25 | 10 gaps |
+| [API Gateway](services/gcpapigateway/README.md) | B | 25 | 8 gaps |
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 40 | 13 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 43 | 8 gaps |

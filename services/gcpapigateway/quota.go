@@ -15,11 +15,20 @@ type quotaDenial struct {
 	limit  string
 }
 
-// consume charges a request's metric costs against the per-minute project limits, all or nothing.
-func (b *InMemoryBackend) consume(project string, spec *compiledSpec, rt *route) *quotaDenial {
+// consume charges a request's metric costs against the per-minute project limits, all or nothing. missing reports
+// a cost metric the API's latest config no longer declares.
+func (b *InMemoryBackend) consume(sv *served, rt *route) (denial *quotaDenial, missing bool) {
 	if len(rt.Costs) == 0 {
-		return nil
+		return nil, false
 	}
+
+	for m := range rt.Costs {
+		if !sv.metrics[m] {
+			return nil, true
+		}
+	}
+
+	project := sv.project
 
 	b.mu.Lock("consume")
 	defer b.mu.Unlock()
@@ -28,7 +37,7 @@ func (b *InMemoryBackend) consume(project string, spec *compiledSpec, rt *route)
 
 	metrics := make([]string, 0, len(rt.Costs))
 	for m := range rt.Costs {
-		if _, limited := spec.Limits[m]; limited {
+		if _, limited := sv.limits[m]; limited {
 			metrics = append(metrics, m)
 		}
 	}
@@ -48,8 +57,8 @@ func (b *InMemoryBackend) consume(project string, spec *compiledSpec, rt *route)
 	}
 
 	for _, m := range metrics {
-		if counter(m).Used+rt.Costs[m] > spec.Limits[m].PerMin {
-			return &quotaDenial{metric: m, limit: spec.Limits[m].Name}
+		if counter(m).Used+rt.Costs[m] > sv.limits[m].PerMin {
+			return &quotaDenial{metric: m, limit: sv.limits[m].Name}, false
 		}
 	}
 
@@ -57,5 +66,5 @@ func (b *InMemoryBackend) consume(project string, spec *compiledSpec, rt *route)
 		counter(m).Used += rt.Costs[m]
 	}
 
-	return nil
+	return nil, false
 }

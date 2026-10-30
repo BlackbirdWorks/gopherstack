@@ -30,6 +30,11 @@ const (
 	jwksTTL        = 5 * time.Minute
 	bearerPrefix   = "Bearer "
 	msgJWTFails    = "Jwt verification fails"
+	msgJWTFormat   = "Jwt is not in the form of Header.Payload.Signature with two dots and 3 sections"
+	msgJWKSFetch   = "Jwks remote fetch is failed"
+	msgJWKSNoKeys  = "Jwks doesn't have any valid public key"
+	iapHeader      = "X-Goog-Iap-Jwt-Assertion"
+	jwtParts       = 3
 )
 
 var (
@@ -255,12 +260,51 @@ func checkKeyAlg(k crypto.PublicKey, t *jwt.Token) (crypto.PublicKey, error) {
 	return nil, errKeyFormat
 }
 
-func tokenOf(r *http.Request) string {
+// tokenOf reads the JWT from the definitions' jwtLocations; a definition without any uses the defaults
+// (Authorization Bearer, X-Goog-Iap-Jwt-Assertion, access_token).
+func tokenOf(r *http.Request, defs []*secDef) string {
+	for _, d := range defs {
+		if len(d.Locations) == 0 {
+			if t := defaultToken(r); t != "" {
+				return t
+			}
+
+			continue
+		}
+
+		for _, l := range d.Locations {
+			if t := locationToken(r, l); t != "" {
+				return t
+			}
+		}
+	}
+
+	return ""
+}
+
+func defaultToken(r *http.Request) string {
 	if v, ok := strings.CutPrefix(r.Header.Get("Authorization"), bearerPrefix); ok {
 		return strings.TrimSpace(v)
 	}
 
+	if v := r.Header.Get(iapHeader); v != "" {
+		return v
+	}
+
 	return r.URL.Query().Get("access_token")
+}
+
+func locationToken(r *http.Request, l jwtLocation) string {
+	if l.Query != "" {
+		return r.URL.Query().Get(l.Query)
+	}
+
+	v, ok := strings.CutPrefix(r.Header.Get(l.Header), l.Prefix)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(v)
 }
 
 func apiKeyOf(r *http.Request, d *secDef) string {
@@ -314,12 +358,20 @@ func (b *InMemoryBackend) verifyJWT(
 
 	unverified := jwt.MapClaims{}
 	if _, _, err := jwt.NewParser().ParseUnverified(token, unverified); err != nil {
-		return nil, &authError{status: http.StatusUnauthorized, msg: msgJWTFails}
+		msg := msgJWTFails
+		if strings.Count(token, ".") != jwtParts-1 {
+			msg = msgJWTFormat
+		}
+
+		return nil, &authError{status: http.StatusUnauthorized, msg: msg}
 	}
 
 	iss, _ := unverified["iss"].(string)
 
 	idx := slices.IndexFunc(defs, func(d *secDef) bool { return d.Issuer == iss })
+	if idx < 0 {
+		idx = slices.IndexFunc(defs, func(d *secDef) bool { return d.Issuer == "" })
+	}
 	if idx < 0 {
 		return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt issuer is not configured"}
 	}
@@ -328,14 +380,21 @@ func (b *InMemoryBackend) verifyJWT(
 
 	keys, err := b.fetchKeys(ctx, def.JWKSURI)
 	if err != nil {
-		return nil, &authError{status: http.StatusUnauthorized, msg: msgJWTFails}
+		return nil, &authError{status: http.StatusUnauthorized, msg: msgJWKSFetch}
+	}
+
+	if len(keys) == 0 {
+		return nil, &authError{status: http.StatusUnauthorized, msg: msgJWKSNoKeys}
 	}
 
 	claims := jwt.MapClaims{}
-	parser := jwt.NewParser(
-		jwt.WithValidMethods(allowedAlgs), jwt.WithTimeFunc(b.now), jwt.WithExpirationRequired(),
-		jwt.WithIssuer(def.Issuer),
-	)
+	opts := []jwt.ParserOption{jwt.WithValidMethods(allowedAlgs), jwt.WithTimeFunc(b.now), jwt.WithExpirationRequired()}
+
+	if def.Issuer != "" {
+		opts = append(opts, jwt.WithIssuer(def.Issuer))
+	}
+
+	parser := jwt.NewParser(opts...)
 
 	_, err = parser.ParseWithClaims(token, claims, func(t *jwt.Token) (any, error) {
 		kid, _ := t.Header["kid"].(string)
@@ -356,6 +415,10 @@ func (b *InMemoryBackend) verifyJWT(
 			return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt is expired"}
 		}
 
+		if errors.Is(err, jwt.ErrTokenNotValidYet) {
+			return nil, &authError{status: http.StatusUnauthorized, msg: "Jwt not yet valid"}
+		}
+
 		return nil, &authError{status: http.StatusUnauthorized, msg: msgJWTFails}
 	}
 
@@ -371,7 +434,7 @@ func (b *InMemoryBackend) verifyJWT(
 	return claims, nil
 }
 
-const missingKeyMsg = "UNAUTHENTICATED:Method doesn't allow unregistered callers (callers without established " +
+const missingKeyMsg = "UNAUTHENTICATED: Method doesn't allow unregistered callers (callers without established " +
 	"identity). Please use API Key or other form of API consumer identity to call this API."
 
 // checkRequirement verifies every definition of one security requirement.
@@ -400,7 +463,7 @@ func (b *InMemoryBackend) checkRequirement(
 	if len(jwtDefs) > 0 {
 		var aerr *authError
 
-		claims, aerr = b.verifyJWT(r.Context(), jwtDefs, sv.managed, tokenOf(r))
+		claims, aerr = b.verifyJWT(r.Context(), jwtDefs, sv.managed, tokenOf(r, jwtDefs))
 		if aerr != nil {
 			return nil, aerr
 		}

@@ -8,22 +8,20 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 25 (15 ok, 10 partial) |
-| Feature families | 11 (4 ok, 7 partial) |
-| Known gaps | 10 |
+| Feature families | 11 (5 ok, 5 partial, 1 gap) |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - The Cloud Run / Functions gateway-to-backend identity token (Authorization: Bearer ID token, jwt_audience) is not minted: the original Authorization header is moved to X-Forwarded-Authorization and the backend gets none.
-- API keys are not validated against any project or key store (no API Keys emulator); any non-empty key passes.
-- gRPC API configs (grpc_services, managed_service_configs), more than one OpenAPI document per config, h2 and WebSocket backends, x-google-allow, x-google-endpoints and x-google-jwt-locations are not supported.
-- OpenAPI 3.x documents are accepted with the 2.0 extension spellings (x-google-issuer and friends, x-google-management) plus x-google-api-management backends with camelCase fields; the exact 3.x extension grammar (x-google-auth, jwtLocations) was not verified and is not enforced.
-- Error bodies of the data plane (401 Jwt..., 404 Method does not exist., 429 Quota exceeded...) and the unmatched-method status (404, not 405) are recalled from ESPv2, not verified against the product.
-- Only the most recent config's quota limits should apply API-wide; each gateway here uses its own config's limits.
-- Control-plane error codes and texts (AlreadyExists, FAILED_PRECONDITION for in-use resources, id charset, the global-only rule for APIs and configs, the single CREATING config rule beyond the quickstart note) were chosen without a production reference.
-- Gateway default hostname hash and the short region codes other than uc are derived, not observed.
-- Operation durations are fixed emulator defaults (create 2 s, update and delete 1 s); there is no failure injection beyond document validation.
+- API keys are not validated against any project or key store (no API Keys or Service Usage emulator); any non-empty key passes, so the 400 invalid-key and 403 API-not-enabled answers cannot occur.
+- gRPC API configs (grpc_services, managed_service_configs), more than one OpenAPI document per config, h2 and WebSocket backends, x-google-allow, x-google-endpoints / x-google-endpoint allowCors (CORS), x-google-parameter, x-google-model-router, x-google-mcp-tool, AI and MCP blocks, and the 2.0 jwt locations extension are not supported.
+- Whether OpenAPI 2.0 documents without any x-google-backend are rejected at config creation is undocumented (oasv2 page: only address is Required inside the block); the emulator rejects them as it does 3.x. The 3.x docs example gives address without a scheme (myapp.run.app), the emulator requires http(s). The 3.x quota limit unit is undocumented; limits are taken as per project per minute.
+- Data-plane texts not in a primary source: the detail after 429 RESOURCE_EXHAUSTED (from Service Control), 502 for refused destinations (emulator-only), the Gateway-not-found and not-ready answers, and the Envoy JWT messages for header/payload parse failures (jwt_verify_lib has distinct strings; only the three-section case is distinguished).
+- Control-plane error codes and texts (AlreadyExists, FAILED_PRECONDITION for in-use resources, id charset, the global-only rule for APIs and configs, the single CREATING config rule) have no primary text: googleapis apigateway.proto only says ids 'must be unique within scope of the parent resource'.
+- Gateway default hostname: the docs example is https://my-gateway-687541448612.us-central1.run.app, the emulator uses {gateway}-{hash}.{region code}.gateway.dev; the short region codes other than uc are derived.
 - No dashboard page or proxy.
 
 ## More
