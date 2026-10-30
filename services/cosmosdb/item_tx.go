@@ -29,11 +29,20 @@ type containerTx struct {
 	replicating bool
 }
 
+// beginTx starts a write transaction; the caller holds the backend write lock.
 func (b *InMemoryBackend) beginTx(dbID, collID string) (*containerTx, error) {
-	return b.beginTxAt(dbID, collID, false)
+	tx, err := b.beginTxAt(dbID, collID, false)
+	if err != nil {
+		return nil, err
+	}
+
+	tx.c.keep = b.changeRetention()
+
+	return tx, nil
 }
 
 // beginTxAt starts a transaction on the container of the current request's region; read adds the session check.
+// It never mutates the container, so it is safe under the read lock.
 func (b *InMemoryBackend) beginTxAt(dbID, collID string, read bool) (*containerTx, error) {
 	c, err := b.findDataContainer(dbID, collID, read)
 	if err != nil {
@@ -41,7 +50,6 @@ func (b *InMemoryBackend) beginTxAt(dbID, collID string, read bool) (*containerT
 	}
 
 	tx := &containerTx{b: b, c: c, dbID: dbID, collID: collID, now: b.now(), seq0: c.ChangeSeq}
-	c.keep = b.changeRetention()
 	b.attachRepl(tx)
 
 	return tx, nil
