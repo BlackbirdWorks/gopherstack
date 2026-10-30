@@ -17,12 +17,12 @@ func TestStart(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		holdFirst   bool
-		wantPickups int
+		name       string
+		holdFirst  bool
+		minPickups int
 	}{
-		{name: "free_port", wantPickups: 1},
-		{name: "first_tcp_port_taken", holdFirst: true, wantPickups: 2},
+		{name: "free_port", minPickups: 1},
+		{name: "first_tcp_port_taken", holdFirst: true, minPickups: 2},
 	}
 
 	for _, tt := range tests {
@@ -53,7 +53,9 @@ func TestStart(t *testing.T) {
 			}
 
 			srv, addr, _ := dnstest.StartWith(t, gopherDNS.Config{ResolveIP: "127.0.0.1"}, pick)
-			assert.Equal(t, tt.wantPickups, pickups)
+			// Another process can steal a later free port, so only the injected
+			// collision is exact: at least one retry per held port.
+			assert.GreaterOrEqual(t, pickups, tt.minPickups)
 
 			srv.RegisterRecord("x.test", "A", []string{"1.2.3.4"})
 
