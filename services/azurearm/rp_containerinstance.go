@@ -494,7 +494,6 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 	view, live := p.engine.View(aciKey(rec.ResourceGroup, rec.Name))
 	pp := rec.Props
 
-
 	conts := make([]map[string]any, 0, len(pp.Containers))
 
 	for i, c := range pp.Containers {

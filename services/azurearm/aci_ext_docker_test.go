@@ -35,7 +35,7 @@ func TestACIDocker_InitContainersRunBeforeApps(t *testing.T) {
 
 	s := newACIDockerStack(t)
 
-	g, err := s.createWith(t, "init", aciOpts{
+	_, err := s.createWith(t, "init", aciOpts{
 		image:   "alpine:3.21",
 		policy:  armcontainerinstance.ContainerGroupRestartPolicyNever,
 		command: []string{"sh", "-c", "cat /work/msg; echo app-done"},
@@ -53,7 +53,7 @@ func TestACIDocker_InitContainersRunBeforeApps(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	g = s.waitState(t, "rg", "init", "Succeeded")
+	g := s.waitState(t, "rg", "init", "Succeeded")
 
 	logs, err := s.factory.NewContainersClient().ListLogs(t.Context(), "rg", "init", "main", nil)
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestACIDocker_LivenessProbeRestartsContainer(t *testing.T) {
 		return *iv.RestartCount >= 1
 	}, dockerWait, 200*time.Millisecond)
 
-	var names []string
+	names := make([]string, 0)
 
 	for _, e := range s.get(t, "rg", "live").Properties.Containers[0].Properties.InstanceView.Events {
 		names = append(names, *e.Name)
@@ -103,7 +103,11 @@ func TestACIDocker_ReadinessProbeGatesTraffic(t *testing.T) {
 		name  string
 	}{
 		{&armcontainerinstance.ContainerProbe{
-			HTTPGet: &armcontainerinstance.ContainerHTTPGet{Port: new(int32(8080)), Path: new("/")}, PeriodSeconds: new(int32(1)),
+			HTTPGet: &armcontainerinstance.ContainerHTTPGet{
+				Port: new(int32(8080)),
+				Path: new("/"),
+			},
+			PeriodSeconds: new(int32(1)),
 		}, "http"},
 		{&armcontainerinstance.ContainerProbe{
 			Exec: execCmd("cat", "/tmp/ready"), PeriodSeconds: new(int32(1)),
@@ -163,7 +167,9 @@ func TestACIDocker_ReadinessProbeGatesTraffic(t *testing.T) {
 func dockerRun(t *testing.T, args ...string) string {
 	t.Helper()
 
-	out, err := exec.CommandContext(t.Context(), "docker", args...).CombinedOutput() //nolint:gosec // test helper, fixed binary
+	out, err := exec.CommandContext(t.Context(), "docker", args...).
+		CombinedOutput()
+		//nolint:gosec // test helper, fixed binary
 	require.NoError(t, err, string(out))
 
 	return strings.TrimSpace(string(out))
@@ -191,7 +197,7 @@ chmod -R a+rwX /repos`
 	dockerRun(t, "run", "-d", "--rm", "--name", name, "-v", repos+":/repos:ro", "busybox:1.36",
 		"httpd", "-f", "-p", "80", "-h", "/repos")
 	t.Cleanup(func() {
-		_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", name).Run() //nolint:gosec // fixed binary
+		_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", name).Run()
 	})
 
 	ip := dockerRun(t, "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", name)

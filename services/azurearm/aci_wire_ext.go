@@ -77,11 +77,11 @@ type aciDNSWire struct {
 }
 
 type aciLogAnalyticsWire struct {
+	Metadata            map[string]string `json:"metadata,omitempty"`
 	WorkspaceID         string            `json:"workspaceId"`
 	WorkspaceKey        string            `json:"workspaceKey,omitempty"`
 	LogType             string            `json:"logType,omitempty"`
 	WorkspaceResourceID string            `json:"workspaceResourceId,omitempty"`
-	Metadata            map[string]string `json:"metadata,omitempty"`
 }
 
 type aciDiagnosticsWire struct {
@@ -104,23 +104,8 @@ func (p *aciProbeWire) normalize(owner, kind string) error {
 	}
 
 	if g := p.HTTPGet; g != nil {
-		if g.Port < 1 || g.Port > aciMaxPort {
-			return aciBad("container %q %s httpGet port %d is out of range", owner, kind, g.Port)
-		}
-
-		switch strings.ToLower(g.Scheme) {
-		case "", "http":
-			g.Scheme = "http"
-		case "https":
-			g.Scheme = "https"
-		default:
-			return aciBad("container %q %s httpGet scheme %q must be http or https", owner, kind, g.Scheme)
-		}
-
-		for _, h := range g.HTTPHeaders {
-			if h.Name == "" {
-				return aciBad("container %q %s httpGet headers need a name", owner, kind)
-			}
+		if err := g.normalize(owner, kind); err != nil {
+			return err
 		}
 	}
 
@@ -128,6 +113,29 @@ func (p *aciProbeWire) normalize(owner, kind string) error {
 	p.FailureThreshold = defaultInt(p.FailureThreshold, aciProbeDefFailure)
 	p.SuccessThreshold = defaultInt(p.SuccessThreshold, aciProbeDefSuccess)
 	p.TimeoutSeconds = defaultInt(p.TimeoutSeconds, aciProbeDefTimeout)
+
+	return nil
+}
+
+func (g *aciHTTPGetWire) normalize(owner, kind string) error {
+	if g.Port < 1 || g.Port > aciMaxPort {
+		return aciBad("container %q %s httpGet port %d is out of range", owner, kind, g.Port)
+	}
+
+	switch strings.ToLower(g.Scheme) {
+	case "", acaScaleHTTP:
+		g.Scheme = acaScaleHTTP
+	case acaSchemeHTTPS:
+		g.Scheme = acaSchemeHTTPS
+	default:
+		return aciBad("container %q %s httpGet scheme %q must be http or https", owner, kind, g.Scheme)
+	}
+
+	for _, h := range g.HTTPHeaders {
+		if h.Name == "" {
+			return aciBad("container %q %s httpGet headers need a name", owner, kind)
+		}
+	}
 
 	return nil
 }

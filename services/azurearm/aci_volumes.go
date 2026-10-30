@@ -148,32 +148,40 @@ func (e *ACIEngine) preparePorts(run *aciRun, cfg aciConfig, pool ACIPortPool) s
 
 	if ip := cfg.Props.IPAddress; ip != nil {
 		for _, pt := range ip.Ports {
-			front, err := e.acquire(run, pool)
-			if err != nil {
-				return fmt.Sprintf("allocate host port for %d: %v", pt.Port, err)
+			if reason := e.publishPort(run, pool, pt.Port, gate); reason != "" {
+				return reason
 			}
-
-			back := front
-
-			if gate {
-				if back, err = e.acquire(run, pool); err == nil {
-					err = e.startGate(run, front, back)
-				}
-
-				if err != nil {
-					return fmt.Sprintf("readiness gate for port %d: %v", pt.Port, err)
-				}
-			}
-
-			e.mu.Lock("preparePorts")
-			run.hostPorts[pt.Port], run.backPorts[pt.Port] = front, back
-			e.record(&run.events, aciEventNormal, "PortPublished",
-				fmt.Sprintf("port %d/TCP is published on 127.0.0.1:%d", pt.Port, front))
-			e.mu.Unlock()
 		}
 	}
 
 	return e.prepareProbePorts(run, cfg, pool)
+}
+
+func (e *ACIEngine) publishPort(run *aciRun, pool ACIPortPool, port int, gate bool) string {
+	front, err := e.acquire(run, pool)
+	if err != nil {
+		return fmt.Sprintf("allocate host port for %d: %v", port, err)
+	}
+
+	back := front
+
+	if gate {
+		if back, err = e.acquire(run, pool); err == nil {
+			err = e.startGate(run, front, back)
+		}
+
+		if err != nil {
+			return fmt.Sprintf("readiness gate for port %d: %v", port, err)
+		}
+	}
+
+	e.mu.Lock("publishPort")
+	run.hostPorts[port], run.backPorts[port] = front, back
+	e.record(&run.events, aciEventNormal, "PortPublished",
+		fmt.Sprintf("port %d/TCP is published on 127.0.0.1:%d", port, front))
+	e.mu.Unlock()
+
+	return ""
 }
 
 func (e *ACIEngine) prepareProbePorts(run *aciRun, cfg aciConfig, pool ACIPortPool) string {

@@ -137,8 +137,16 @@ func TestACISDK_ExtValidation(t *testing.T) {
 				Port: new(int32(80)), Scheme: new(armcontainerinstance.Scheme("ftp")),
 			}
 		}), "probe-scheme", "scheme"},
-		{probe(func(p *armcontainerinstance.ContainerProbe) { p.PeriodSeconds = new(int32(-1)) }), "probe-negative", "negative"},
-		{probe(func(p *armcontainerinstance.ContainerProbe) { p.Exec = execCmd() }), "probe-no-command", "needs a command"},
+		{
+			probe(func(p *armcontainerinstance.ContainerProbe) { p.PeriodSeconds = new(int32(-1)) }),
+			"probe-negative",
+			"negative",
+		},
+		{
+			probe(func(p *armcontainerinstance.ContainerProbe) { p.Exec = execCmd() }),
+			"probe-no-command",
+			"needs a command",
+		},
 		{func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.InitContainers = []*armcontainerinstance.InitContainerDefinition{initWith("main", "busybox:1")}
 		}, "init-dup-name", "duplicate"},
@@ -152,8 +160,16 @@ func TestACISDK_ExtValidation(t *testing.T) {
 			}
 			g.Properties.InitContainers = []*armcontainerinstance.InitContainerDefinition{ic}
 		}, "init-bad-mount", "unknown volume"},
-		{func(g *armcontainerinstance.ContainerGroup) { g.Zones = toPtrs([]string{"1", "2"}) }, "zones-two", "only one"},
-		{func(g *armcontainerinstance.ContainerGroup) { g.Zones = toPtrs([]string{"4"}) }, "zone-value", "must be 1, 2 or 3"},
+		{
+			func(g *armcontainerinstance.ContainerGroup) { g.Zones = toPtrs([]string{"1", "2"}) },
+			"zones-two",
+			"only one",
+		},
+		{
+			func(g *armcontainerinstance.ContainerGroup) { g.Zones = toPtrs([]string{"4"}) },
+			"zone-value",
+			"must be 1, 2 or 3",
+		},
 		{func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.DNSConfig = &armcontainerinstance.DNSConfiguration{NameServers: toPtrs([]string{"not-an-ip"})}
 		}, "dns-bad-ip", "not an IP"},
@@ -174,7 +190,9 @@ func TestACISDK_ExtValidation(t *testing.T) {
 			}
 		}, "diag-log-type", "logType"},
 		{func(g *armcontainerinstance.ContainerGroup) {
-			g.Properties.Volumes = []*armcontainerinstance.Volume{{Name: new("g"), GitRepo: &armcontainerinstance.GitRepoVolume{}}}
+			g.Properties.Volumes = []*armcontainerinstance.Volume{
+				{Name: new("g"), GitRepo: &armcontainerinstance.GitRepoVolume{}},
+			}
 		}, "git-no-repo", "needs a repository"},
 		{func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.Volumes = []*armcontainerinstance.Volume{{
@@ -184,8 +202,10 @@ func TestACISDK_ExtValidation(t *testing.T) {
 			}}
 		}, "git-dir", "directory"},
 		{func(g *armcontainerinstance.ContainerGroup) {
-			g.Properties.SubnetIDs = []*armcontainerinstance.ContainerGroupSubnetID{{ID: new("/subscriptions/" + aciSub +
-				"/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/none/subnets/s")}}
+			g.Properties.SubnetIDs = []*armcontainerinstance.ContainerGroupSubnetID{
+				{ID: new("/subscriptions/" + aciSub +
+					"/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/none/subnets/s")},
+			}
 			g.Properties.IPAddress = &armcontainerinstance.IPAddress{
 				Type:  new(armcontainerinstance.ContainerGroupIPAddressTypePrivate),
 				Ports: []*armcontainerinstance.Port{{Port: new(int32(80))}},
@@ -206,7 +226,12 @@ func TestACISDK_ExtValidation(t *testing.T) {
 
 			s := newACIStack(t)
 
-			_, err := s.createWith(t, "v", aciOpts{ports: []*armcontainerinstance.ContainerPort{{Port: new(int32(80))}}}, tc.mutate)
+			_, err := s.createWith(
+				t,
+				"v",
+				aciOpts{ports: []*armcontainerinstance.ContainerPort{{Port: new(int32(80))}}},
+				tc.mutate,
+			)
 
 			var re *azcore.ResponseError
 
@@ -225,10 +250,17 @@ func TestACISDK_SubnetDelegation(t *testing.T) {
 	s := newACIStack(t)
 	vnet := "/subscriptions/" + aciSub + "/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vn"
 	s.putRaw(t, "/subscriptions/"+aciSub+"/resourcegroups/rg?api-version=2021-04-01", `{"location":"local"}`)
-	s.putRaw(t, vnet+"?api-version=2024-05-01", `{"location":"local","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]}}}`)
+	s.putRaw(
+		t,
+		vnet+"?api-version=2024-05-01",
+		`{"location":"local","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/16"]}}}`,
+	)
 	s.putRaw(t, vnet+"/subnets/plain?api-version=2024-05-01", `{"properties":{"addressPrefix":"10.0.1.0/24"}}`)
-	s.putRaw(t, vnet+"/subnets/aci?api-version=2024-05-01",
-		`{"properties":{"addressPrefix":"10.0.2.0/24","delegations":[{"name":"d","properties":{"serviceName":"Microsoft.ContainerInstance/containerGroups"}}]}}`)
+	s.putRaw(
+		t,
+		vnet+"/subnets/aci?api-version=2024-05-01",
+		`{"properties":{"addressPrefix":"10.0.2.0/24","delegations":[{"name":"d","properties":{"serviceName":"Microsoft.ContainerInstance/containerGroups"}}]}}`,
+	)
 
 	private := &armcontainerinstance.IPAddress{
 		Type:  new(armcontainerinstance.ContainerGroupIPAddressTypePrivate),
@@ -237,7 +269,9 @@ func TestACISDK_SubnetDelegation(t *testing.T) {
 	withSubnet := func(sub string) func(*armcontainerinstance.ContainerGroup) {
 		return func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.IPAddress = private
-			g.Properties.SubnetIDs = []*armcontainerinstance.ContainerGroupSubnetID{{ID: new(vnet + "/subnets/" + sub), Name: new(sub)}}
+			g.Properties.SubnetIDs = []*armcontainerinstance.ContainerGroupSubnetID{
+				{ID: new(vnet + "/subnets/" + sub), Name: new(sub)},
+			}
 		}
 	}
 	opts := aciOpts{ports: []*armcontainerinstance.ContainerPort{{Port: new(int32(80))}}}
@@ -267,7 +301,11 @@ func TestACISDK_ExtRoundTripKeepsSecretsWriteOnly(t *testing.T) {
 		func(g *armcontainerinstance.ContainerGroup) {
 			g.Zones = toPtrs([]string{"2"})
 			g.Properties.DNSConfig = &armcontainerinstance.DNSConfiguration{
-				NameServers: toPtrs([]string{"10.0.0.10", "10.0.0.11"}), Options: new("ndots:2"), SearchDomains: new("corp.local svc.local"),
+				NameServers: toPtrs(
+					[]string{"10.0.0.10", "10.0.0.11"},
+				),
+				Options:       new("ndots:2"),
+				SearchDomains: new("corp.local svc.local"),
 			}
 			g.Properties.Diagnostics = &armcontainerinstance.ContainerGroupDiagnostics{
 				LogAnalytics: &armcontainerinstance.LogAnalytics{
@@ -290,12 +328,17 @@ func TestACISDK_ExtRoundTripKeepsSecretsWriteOnly(t *testing.T) {
 				},
 			}}
 			setProbe(
-				&armcontainerinstance.ContainerProbe{Exec: execCmd("cat", "/tmp/ok"), InitialDelaySeconds: new(int32(3))},
+				&armcontainerinstance.ContainerProbe{
+					Exec:                execCmd("cat", "/tmp/ok"),
+					InitialDelaySeconds: new(int32(3)),
+				},
 				&armcontainerinstance.ContainerProbe{HTTPGet: &armcontainerinstance.ContainerHTTPGet{
 					Port: new(int32(8080)), Path: new("/ready"),
 					HTTPHeaders: []*armcontainerinstance.HTTPHeader{{Name: new("X-A"), Value: new("b")}},
 				}},
-			)(g)
+			)(
+				g,
+			)
 		})
 	require.NoError(t, err)
 
@@ -351,15 +394,22 @@ func TestACISDK_InitContainersRunInOrderBeforeApps(t *testing.T) {
 	s.rt.scripts["init-a"] = []int{0}
 	s.rt.scripts["init-b"] = []int{0}
 
-	g, err := s.createWith(t, "init", aciOpts{image: "app-img", policy: armcontainerinstance.ContainerGroupRestartPolicyAlways},
+	g, err := s.createWith(
+		t,
+		"init",
+		aciOpts{image: "app-img", policy: armcontainerinstance.ContainerGroupRestartPolicyAlways},
 		func(g *armcontainerinstance.ContainerGroup) {
 			for _, n := range []string{"init-a", "init-b"} {
-				g.Properties.InitContainers = append(g.Properties.InitContainers, &armcontainerinstance.InitContainerDefinition{
-					Name:       new(n),
-					Properties: &armcontainerinstance.InitContainerPropertiesDefinition{Image: new(n)},
-				})
+				g.Properties.InitContainers = append(
+					g.Properties.InitContainers,
+					&armcontainerinstance.InitContainerDefinition{
+						Name:       new(n),
+						Properties: &armcontainerinstance.InitContainerPropertiesDefinition{Image: new(n)},
+					},
+				)
 			}
-		})
+		},
+	)
 	require.NoError(t, err)
 
 	images := make([]string, 0, 3)
@@ -416,7 +466,11 @@ func TestACISDK_InitContainerFailure(t *testing.T) {
 				assert.Equal(t, "Failed", *got.Properties.ProvisioningState)
 				assert.Equal(t, "Failed", *got.Properties.InstanceView.State)
 				assert.Contains(t, *got.Properties.InstanceView.Events[0].Message, "init container x")
-				assert.Contains(t, *got.Properties.InstanceView.Events[0].Message, "exited unsuccessfully with exit code 3")
+				assert.Contains(
+					t,
+					*got.Properties.InstanceView.Events[0].Message,
+					"exited unsuccessfully with exit code 3",
+				)
 
 				cs := got.Properties.InitContainers[0].Properties.InstanceView.CurrentState
 				assert.Equal(t, int32(3), *cs.ExitCode)
@@ -467,7 +521,11 @@ func TestACISDK_DNSConfigMountsResolvConf(t *testing.T) {
 	_, err := s.createWith(t, "dns", aciOpts{policy: armcontainerinstance.ContainerGroupRestartPolicyAlways},
 		func(g *armcontainerinstance.ContainerGroup) {
 			g.Properties.DNSConfig = &armcontainerinstance.DNSConfiguration{
-				NameServers: toPtrs([]string{"10.1.1.1"}), Options: new("ndots:3"), SearchDomains: new("a.local b.local"),
+				NameServers: toPtrs(
+					[]string{"10.1.1.1"},
+				),
+				Options:       new("ndots:3"),
+				SearchDomains: new("a.local b.local"),
 			}
 		})
 	require.NoError(t, err)
@@ -509,8 +567,15 @@ func TestACISDK_LivenessProbe(t *testing.T) {
 				return 1
 			}
 
-			_, err := s.createWith(t, "live", aciOpts{policy: tc.policy},
-				setProbe(&armcontainerinstance.ContainerProbe{Exec: execCmd("check"), FailureThreshold: new(int32(3))}, nil))
+			_, err := s.createWith(
+				t,
+				"live",
+				aciOpts{policy: tc.policy},
+				setProbe(
+					&armcontainerinstance.ContainerProbe{Exec: execCmd("check"), FailureThreshold: new(int32(3))},
+					nil,
+				),
+			)
 			require.NoError(t, err)
 
 			tick(t)
@@ -535,7 +600,7 @@ func TestACISDK_LivenessProbe(t *testing.T) {
 				assert.Zero(t, restarts(), "restartPolicy supersedes liveness restarts")
 			}
 
-			var names []string
+			names := make([]string, 0)
 
 			for _, e := range s.get(t, "rg", "live").Properties.Containers[0].Properties.InstanceView.Events {
 				names = append(names, *e.Name)
@@ -669,9 +734,9 @@ func TestACISDK_GitRepoVolume(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		exit      []int
 		wantFail  string
 		directory string
+		exit      []int
 	}{
 		{name: "clones-into-volume", exit: []int{0}, directory: "code"},
 		{name: "clone-failure-scrubs-credentials", exit: []int{128}, wantFail: "git exited with code 128"},
@@ -704,8 +769,8 @@ func TestACISDK_GitRepoVolume(t *testing.T) {
 
 			repo := "https://user:tok3n@example.invalid/r.git"
 			g, err := s.createWith(t, "git", aciOpts{
-				policy:  armcontainerinstance.ContainerGroupRestartPolicyAlways,
-				mounts:  []*armcontainerinstance.VolumeMount{{Name: new("src"), MountPath: new("/src")}},
+				policy: armcontainerinstance.ContainerGroupRestartPolicyAlways,
+				mounts: []*armcontainerinstance.VolumeMount{{Name: new("src"), MountPath: new("/src")}},
 				volumes: []*armcontainerinstance.Volume{{
 					Name: new("src"),
 					GitRepo: &armcontainerinstance.GitRepoVolume{

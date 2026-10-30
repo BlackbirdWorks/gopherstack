@@ -106,20 +106,20 @@ type aciVolumeWire struct {
 
 // aciPropsWire is the supported subset of containerGroups properties; unknown properties are rejected.
 type aciPropsWire struct {
-	OSType                   string             `json:"osType,omitempty"`
-	RestartPolicy            string             `json:"restartPolicy,omitempty"`
-	SKU                      string             `json:"sku,omitempty"`
-	Priority                 string             `json:"priority,omitempty"`
-	IPAddress                *aciIPWire         `json:"ipAddress,omitempty"`
-	ProvisioningState        string             `json:"provisioningState,omitempty"`
-	InstanceView             json.RawMessage    `json:"instanceView,omitempty"`
-	Containers               []aciContainerWire `json:"containers"`
-	ImageRegistryCredentials []aciCredWire      `json:"imageRegistryCredentials,omitempty"`
-	Volumes                  []aciVolumeWire    `json:"volumes,omitempty"`
-	InitContainers           []aciInitWire      `json:"initContainers,omitempty"`
-	SubnetIDs                []aciSubnetWire    `json:"subnetIds,omitempty"`
-	DNSConfig                *aciDNSWire        `json:"dnsConfig,omitempty"`
+	DNSConfig                *aciDNSWire         `json:"dnsConfig,omitempty"`
+	IPAddress                *aciIPWire          `json:"ipAddress,omitempty"`
 	Diagnostics              *aciDiagnosticsWire `json:"diagnostics,omitempty"`
+	RestartPolicy            string              `json:"restartPolicy,omitempty"`
+	SKU                      string              `json:"sku,omitempty"`
+	Priority                 string              `json:"priority,omitempty"`
+	ProvisioningState        string              `json:"provisioningState,omitempty"`
+	OSType                   string              `json:"osType,omitempty"`
+	InstanceView             json.RawMessage     `json:"instanceView,omitempty"`
+	Volumes                  []aciVolumeWire     `json:"volumes,omitempty"`
+	InitContainers           []aciInitWire       `json:"initContainers,omitempty"`
+	SubnetIDs                []aciSubnetWire     `json:"subnetIds,omitempty"`
+	ImageRegistryCredentials []aciCredWire       `json:"imageRegistryCredentials,omitempty"`
+	Containers               []aciContainerWire  `json:"containers"`
 }
 
 func aciUnsupported(what string) error {

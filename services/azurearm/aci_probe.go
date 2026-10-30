@@ -19,6 +19,8 @@ const (
 	aciEventUnhealthy     = "Unhealthy"
 	aciEventKilling       = "Killing"
 	aciKilledExit         = 137
+	aciProbeBodyMax       = 1 << 16
+	aciGateCopies         = 2
 )
 
 // ACIHTTPProbe is one HTTP probe request the engine asks its prober to make.
@@ -53,7 +55,9 @@ func (e *ACIEngine) SetProbeHooks(
 
 func defaultACIHTTPProbe(ctx context.Context, p ACIHTTPProbe) (int, error) {
 	tr := httpclient.NewTransport()
-	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // probes ignore certificates, like kubelet
+	tr.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	} //nolint:gosec // probes ignore certificates, like kubelet
 
 	client := &http.Client{Transport: tr, Timeout: p.Timeout}
 	defer tr.CloseIdleConnections()
@@ -71,7 +75,7 @@ func defaultACIHTTPProbe(ctx context.Context, p ACIHTTPProbe) (int, error) {
 	}
 
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, aciProbeBodyMax))
 
 	return resp.StatusCode, nil
 }
@@ -100,7 +104,7 @@ func (e *ACIEngine) probeLoop(
 	okRun, failRun := 0, 0
 
 	for {
-		ok, detail := e.probeOnce(ctx, run, c, id, p)
+		ok, detail := e.probeOnce(ctx, run, id, p)
 		if ctx.Err() != nil {
 			return
 		}
@@ -171,7 +175,7 @@ func (e *ACIEngine) applyProbe(
 	return kill
 }
 
-func (e *ACIEngine) probeOnce(ctx context.Context, run *aciRun, c *aciCont, id string, p *aciProbeWire) (bool, string) {
+func (e *ACIEngine) probeOnce(ctx context.Context, run *aciRun, id string, p *aciProbeWire) (bool, string) {
 	timeout := time.Duration(p.TimeoutSeconds) * time.Second
 	pctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -196,7 +200,12 @@ func (e *ACIEngine) probeOnce(ctx context.Context, run *aciRun, c *aciCont, id s
 	return e.probeHTTPGet(pctx, run, p, timeout)
 }
 
-func (e *ACIEngine) probeHTTPGet(ctx context.Context, run *aciRun, p *aciProbeWire, timeout time.Duration) (bool, string) {
+func (e *ACIEngine) probeHTTPGet(
+	ctx context.Context,
+	run *aciRun,
+	p *aciProbeWire,
+	timeout time.Duration,
+) (bool, string) {
 	g := p.HTTPGet
 
 	e.mu.RLock("probeHTTPGet")
@@ -303,7 +312,7 @@ func (e *ACIEngine) forward(run *aciRun, conn net.Conn, back int) {
 	run.gateConns = append(run.gateConns, conn, up)
 	e.mu.Unlock()
 
-	done := make(chan struct{}, 2)
+	done := make(chan struct{}, aciGateCopies)
 
 	go func() { _, _ = io.Copy(up, conn); done <- struct{}{} }()
 	go func() { _, _ = io.Copy(conn, up); done <- struct{}{} }()

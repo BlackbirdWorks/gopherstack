@@ -86,10 +86,10 @@ type ACIView struct {
 }
 
 type aciConfig struct {
+	Props    aciPropsWire
 	Provider *ContainerInstanceProvider
 	Key      string
 	Name     string
-	Props    aciPropsWire
 }
 
 type aciCont struct {
@@ -113,45 +113,45 @@ type shareMount struct {
 }
 
 type aciRun struct {
-	ctx       context.Context //nolint:containedctx // lifetime of the group's containers
-	cancel    context.CancelFunc
 	rt        ACIRuntime
+	ctx       context.Context
+	initRetry chan struct{}
+	cancel    context.CancelFunc
 	hostPorts map[int]int
 	scratch   map[string]string
+	backPorts map[int]int
 	resolv    string
 	failure   string
-	backPorts map[int]int
 	conts     []*aciCont
 	inits     []*aciCont
-	initRetry chan struct{}
-	retryOnce sync.Once
 	gateConns []net.Conn
 	owned     []int
 	events    []ACIEvent
 	shares    []shareMount
 	allDirs   []string
 	wg        sync.WaitGroup
+	retryOnce sync.Once
 	stopped   bool
 }
 
 // ACIEngine runs container groups in the container runtime.
 type ACIEngine struct {
-	ports    ACIPortPool
-	ctx      context.Context
-	shares   ACIFileShares
-	backoff  func(restarts int) time.Duration
-	runtime  func() (ACIRuntime, error)
-	now      func() time.Time
-	cancel   context.CancelFunc
-	mu       *lockmetrics.RWMutex
-	runs     map[string]*aciRun
-	onClose  func()
-	pause    func(ctx context.Context, d time.Duration) bool
+	ports     ACIPortPool
+	ctx       context.Context
+	shares    ACIFileShares
+	backoff   func(restarts int) time.Duration
+	runtime   func() (ACIRuntime, error)
+	now       func() time.Time
+	cancel    context.CancelFunc
+	mu        *lockmetrics.RWMutex
+	runs      map[string]*aciRun
+	onClose   func()
+	pause     func(ctx context.Context, d time.Duration) bool
 	httpProbe func(ctx context.Context, p ACIHTTPProbe) (int, error)
-	disabled string
-	nonce    string
-	startup  time.Duration
-	seq      atomic.Uint64
+	disabled  string
+	nonce     string
+	startup   time.Duration
+	seq       atomic.Uint64
 }
 
 // NewACIEngine creates an engine; runtime nil makes every group fail with disabledReason (or a default reason).
@@ -614,7 +614,7 @@ func (e *ACIEngine) afterExit(run *aciRun, cfg aciConfig, c *aciCont, code int, 
 	e.mu.Lock("afterExit")
 	prev := c.cur
 	prev.State, prev.FinishTime, prev.ExitCode = aciStateTerminated, &now, &code
-	prev.Detail = "Completed"
+	prev.Detail = cmpStateCompleted
 
 	if code != 0 {
 		prev.Detail = "Error"

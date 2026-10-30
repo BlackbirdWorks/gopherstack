@@ -82,7 +82,7 @@ func (e *ACIEngine) afterInitExit(run *aciRun, cfg aciConfig, c *aciCont, code i
 	e.mu.Lock("afterInitExit")
 	defer e.mu.Unlock()
 
-	done := ACIState{State: aciStateTerminated, FinishTime: &now, ExitCode: &code, Detail: "Completed"}
+	done := ACIState{State: aciStateTerminated, FinishTime: &now, ExitCode: &code, Detail: cmpStateCompleted}
 	if c.cur.StartTime != nil {
 		done.StartTime = c.cur.StartTime
 	}

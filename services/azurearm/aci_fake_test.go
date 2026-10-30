@@ -40,7 +40,10 @@ type fakeACIRuntime struct {
 
 func newFakeACIRuntime() *fakeACIRuntime {
 	return &fakeACIRuntime{
-		boxes: map[string]*fakeBox{}, scripts: map[string][]int{}, logs: map[string]string{}, creds: map[string]*azurearm.ACICredential{},
+		boxes:   map[string]*fakeBox{},
+		scripts: map[string][]int{},
+		logs:    map[string]string{},
+		creds:   map[string]*azurearm.ACICredential{},
 	}
 }
 

@@ -62,11 +62,11 @@ func (r *acaReplica) waitReady() error {
 // acaRevSpec is everything needed to run replicas of one revision, captured when its pool is created so that new
 // secret values apply only after a restart.
 type acaRevSpec struct {
+	Props      aciPropsWire
 	Key        string
 	App        string
 	Revision   string
 	Domain     string
-	Props      aciPropsWire
 	Cooldown   time.Duration
 	TargetPort int
 	Min        int
