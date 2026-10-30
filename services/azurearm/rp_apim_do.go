@@ -36,8 +36,8 @@ type apimReq struct {
 type apimResp struct {
 	Body    any
 	Etag    string
-	Status  int
 	OpID    string
+	Status  int
 	Retry   bool
 	OpAsync bool
 }

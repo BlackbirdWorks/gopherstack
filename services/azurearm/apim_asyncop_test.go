@@ -37,14 +37,12 @@ func (s *apimStack) countingFactory(t *testing.T) (*armapimanagement.ServiceClie
 	cnt := &opCounter{}
 
 	f, err := armapimanagement.NewClientFactory(aciSub, aciCred{}, &arm.ClientOptions{
-		ClientOptions: policy.ClientOptions{
-			Cloud: cloud.Configuration{Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
-				cloud.ResourceManager: {Endpoint: s.url, Audience: "https://management.core.windows.net/"},
-			}},
-			Transport:       s.hc,
-			Retry:           policy.RetryOptions{MaxRetries: -1},
-			PerCallPolicies: []policy.Policy{cnt},
-		},
+		Cloud: cloud.Configuration{Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
+			cloud.ResourceManager: {Endpoint: s.url, Audience: "https://management.core.windows.net/"},
+		}},
+		Transport:       s.hc,
+		Retry:           policy.RetryOptions{MaxRetries: -1},
+		PerCallPolicies: []policy.Policy{cnt},
 	})
 	require.NoError(t, err)
 
