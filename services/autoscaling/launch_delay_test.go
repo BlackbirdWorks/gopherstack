@@ -1,9 +1,11 @@
 package autoscaling_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -35,6 +37,36 @@ func newClientWithBackend(t *testing.T) (*assdk.Client, *autoscaling.InMemoryBac
 	require.NoError(t, err)
 
 	return assdk.NewFromConfig(cfg, func(o *assdk.Options) { o.BaseEndpoint = aws.String(srv.URL) }), backend
+}
+
+type handlerTransport struct{ h http.Handler }
+
+func (ht handlerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	rec := httptest.NewRecorder()
+	ht.h.ServeHTTP(rec, r)
+
+	return rec.Result(), nil
+}
+
+// newInMemClientWithBackend serves the handler through an in-memory transport so the client can
+// run inside a synctest bubble (no real network).
+func newInMemClientWithBackend(t *testing.T) (*assdk.Client, *autoscaling.InMemoryBackend) {
+	t.Helper()
+
+	backend := autoscaling.NewInMemoryBackend()
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(autoscaling.NewHandler(backend)))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	cfg := aws.Config{
+		Region:       "us-east-1",
+		BaseEndpoint: aws.String("http://autoscaling.invalid"),
+		HTTPClient:   &http.Client{Transport: handlerTransport{h: e}},
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
+	}
+
+	return assdk.NewFromConfig(cfg), backend
 }
 
 func instanceStates(t *testing.T, c *assdk.Client) (int, int) {
@@ -83,7 +115,7 @@ func TestLaunchDelay_PendingThenInService(t *testing.T) {
 		wantPending   int
 		wantInService int
 	}{
-		{name: "delayed", delay: time.Second, wantPending: 3},
+		{name: "delayed", delay: time.Minute, wantPending: 3},
 		{name: "instant", delay: 0, wantInService: 3},
 	}
 
@@ -91,32 +123,36 @@ func TestLaunchDelay_PendingThenInService(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			c, backend := newClientWithBackend(t)
-			backend.SetLaunchDelay(tt.delay)
-			seedGroup(t, c, "g", 3, 5)
+			synctest.Test(t, func(t *testing.T) {
+				c, backend := newInMemClientWithBackend(t)
+				backend.SetLaunchDelay(tt.delay)
+				seedGroup(t, c, "g", 3, 5)
 
-			inService, pending := instanceStates(t, c)
-			assert.Equal(t, tt.wantPending, pending)
-			assert.Equal(t, tt.wantInService, inService)
+				inService, pending := instanceStates(t, c)
+				assert.Equal(t, tt.wantPending, pending)
+				assert.Equal(t, tt.wantInService, inService)
 
-			if tt.delay == 0 {
-				assert.Zero(t, inProgressLaunches(t, c))
+				if tt.delay == 0 {
+					assert.Zero(t, inProgressLaunches(t, c))
 
-				return
-			}
+					return
+				}
 
-			assert.Positive(t, inProgressLaunches(t, c))
+				assert.Positive(t, inProgressLaunches(t, c))
 
-			_, err := c.SetDesiredCapacity(t.Context(), &assdk.SetDesiredCapacityInput{
-				AutoScalingGroupName: aws.String("g"), DesiredCapacity: aws.Int32(5),
-			})
-			require.NoError(t, err)
+				_, err := c.SetDesiredCapacity(t.Context(), &assdk.SetDesiredCapacityInput{
+					AutoScalingGroupName: aws.String("g"), DesiredCapacity: aws.Int32(5),
+				})
+				require.NoError(t, err)
 
-			require.Eventually(t, func() bool {
+				time.Sleep(tt.delay)
+				synctest.Wait()
+
 				inSvc, pend := instanceStates(t, c)
-
-				return inSvc == 5 && pend == 0 && inProgressLaunches(t, c) == 0
-			}, 5*time.Second, 5*time.Millisecond)
+				assert.Equal(t, 5, inSvc)
+				assert.Zero(t, pend)
+				assert.Zero(t, inProgressLaunches(t, c))
+			})
 		})
 	}
 }
