@@ -123,7 +123,13 @@ func (b *InMemoryBackend) DescribeDBSnapshotsAs(q SnapshotQuery) ([]DBSnapshot, 
 		if q.ParentID != "" && !idEqual(snap.DBInstanceIdentifier, q.ParentID) {
 			continue
 		}
-		if !b.snapshotListedLocked(q, snapKindInstance, snap.DBSnapshotIdentifier, snap.OwnerAccountID, snap.SnapshotType) {
+		if !b.snapshotListedLocked(
+			q,
+			snapKindInstance,
+			snap.DBSnapshotIdentifier,
+			snap.OwnerAccountID,
+			snap.SnapshotType,
+		) {
 			continue
 		}
 		snaps = append(snaps, *snap)

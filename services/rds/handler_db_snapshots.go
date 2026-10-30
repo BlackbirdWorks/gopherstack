@@ -177,9 +177,9 @@ func (h *Handler) handleCopyDBSnapshot(vals url.Values) (any, error) {
 	targetSnapshotID := vals.Get("TargetDBSnapshotIdentifier")
 
 	opts := CopyDBSnapshotOptions{
-		KmsKeyID:     vals.Get("KmsKeyId"),
-		SourceRegion: vals.Get("SourceRegion"),
-		CopyTags:     vals.Get("CopyTags") == formTrue,
+		KmsKeyID:      vals.Get("KmsKeyId"),
+		SourceRegion:  vals.Get("SourceRegion"),
+		CopyTags:      vals.Get("CopyTags") == formTrue,
 		CallerAccount: vals.Get(callerAccountParam),
 	}
 

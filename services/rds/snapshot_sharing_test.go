@@ -122,9 +122,9 @@ func TestDescribeDBSnapshotsSharing(t *testing.T) {
 		name          string
 		caller        string
 		snapshotType  string
+		want          []string
 		includeShared bool
 		includePublic bool
-		want          []string
 	}{
 		{name: "owner default", caller: shareOwner, want: []string{"snap-private", "snap-public", "snap-shared"}},
 		{
@@ -179,7 +179,12 @@ func TestSharedDBSnapshotAccess(t *testing.T) {
 		snapshot string
 		wantCode string
 	}{
-		{name: "describe shared by arn", op: "describe", caller: shareGuest, snapshot: snapshotARN(shareOwner, "snap-shared")},
+		{
+			name:     "describe shared by arn",
+			op:       "describe",
+			caller:   shareGuest,
+			snapshot: snapshotARN(shareOwner, "snap-shared"),
+		},
 		{
 			name: "describe shared by name", op: "describe", caller: shareGuest, snapshot: "snap-shared",
 			wantCode: "DBSnapshotNotFound",
@@ -188,7 +193,12 @@ func TestSharedDBSnapshotAccess(t *testing.T) {
 			name: "describe private by arn", op: "describe", caller: shareGuest,
 			snapshot: snapshotARN(shareOwner, "snap-private"), wantCode: "DBSnapshotNotFound",
 		},
-		{name: "describe public by arn", op: "describe", caller: shareOther, snapshot: snapshotARN(shareOwner, "snap-public")},
+		{
+			name:     "describe public by arn",
+			op:       "describe",
+			caller:   shareOther,
+			snapshot: snapshotARN(shareOwner, "snap-public"),
+		},
 		{
 			name: "describe shared by third party", op: "describe", caller: shareOther,
 			snapshot: snapshotARN(shareOwner, "snap-shared"), wantCode: "DBSnapshotNotFound",
@@ -221,7 +231,13 @@ func TestSharedDBSnapshotAccess(t *testing.T) {
 			name: "describe attributes as guest", op: "attrs", caller: shareGuest, snapshot: "snap-shared",
 			wantCode: "DBSnapshotNotFound",
 		},
-		{name: "delete as guest", op: "delete", caller: shareGuest, snapshot: "snap-shared", wantCode: "DBSnapshotNotFound"},
+		{
+			name:     "delete as guest",
+			op:       "delete",
+			caller:   shareGuest,
+			snapshot: "snap-shared",
+			wantCode: "DBSnapshotNotFound",
+		},
 		{name: "delete as owner", op: "delete", caller: shareOwner, snapshot: "snap-shared"},
 	}
 
@@ -258,7 +274,10 @@ func TestSharedDBSnapshotAccess(t *testing.T) {
 					DBSnapshotIdentifier: aws.String(tt.snapshot),
 				})
 			default:
-				_, err = c.DeleteDBSnapshot(t.Context(), &rdssdk.DeleteDBSnapshotInput{DBSnapshotIdentifier: aws.String(tt.snapshot)})
+				_, err = c.DeleteDBSnapshot(
+					t.Context(),
+					&rdssdk.DeleteDBSnapshotInput{DBSnapshotIdentifier: aws.String(tt.snapshot)},
+				)
 			}
 
 			if tt.wantCode != "" {
@@ -322,7 +341,9 @@ func TestSharedDBClusterSnapshots(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := owner.CreateDBCluster(ctx, &rdssdk.CreateDBClusterInput{
-		DBClusterIdentifier: aws.String("csrc"), Engine: aws.String("aurora-mysql"), MasterUsername: aws.String("admin"),
+		DBClusterIdentifier: aws.String(
+			"csrc",
+		), Engine: aws.String("aurora-mysql"), MasterUsername: aws.String("admin"),
 		MasterUserPassword: aws.String("Passw0rd!x"),
 	})
 	require.NoError(t, err)
@@ -346,7 +367,10 @@ func TestSharedDBClusterSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, def.DBClusterSnapshots)
 
-	shared, err := guest.DescribeDBClusterSnapshots(ctx, &rdssdk.DescribeDBClusterSnapshotsInput{IncludeShared: aws.Bool(true)})
+	shared, err := guest.DescribeDBClusterSnapshots(
+		ctx,
+		&rdssdk.DescribeDBClusterSnapshotsInput{IncludeShared: aws.Bool(true)},
+	)
 	require.NoError(t, err)
 	require.Len(t, shared.DBClusterSnapshots, 1)
 	assert.Equal(t, "csnap-shared", aws.ToString(shared.DBClusterSnapshots[0].DBClusterSnapshotIdentifier))

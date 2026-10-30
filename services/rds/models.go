@@ -202,7 +202,7 @@ type PendingModifiedValues struct {
 // DBSnapshot represents an RDS database snapshot.
 type DBSnapshot struct {
 	SnapshotCreateTime   time.Time `json:"snapshotCreateTime"`
-	DBSnapshotIdentifier string    `json:"dbSnapshotIdentifier"`
+	KmsKeyID             string    `json:"kmsKeyID,omitempty"`
 	DBSnapshotArn        string    `json:"dbSnapshotArn,omitempty"`
 	DBInstanceIdentifier string    `json:"dbInstanceIdentifier"`
 	DbiResourceID        string    `json:"dbiResourceId,omitempty"`
@@ -210,20 +210,18 @@ type DBSnapshot struct {
 	EngineVersion        string    `json:"engineVersion"`
 	Status               string    `json:"status"`
 	StorageType          string    `json:"storageType"`
+	DBSnapshotIdentifier string    `json:"dbSnapshotIdentifier"`
 	OptionGroupName      string    `json:"optionGroupName"`
-	KmsKeyID             string    `json:"kmsKeyID,omitempty"`
-	SourceRegion         string    `json:"sourceRegion,omitempty"`
-	SnapshotType         string    `json:"snapshotType,omitempty"`
 	MasterUsername       string    `json:"masterUsername,omitempty"`
+	SnapshotType         string    `json:"snapshotType,omitempty"`
+	SourceRegion         string    `json:"sourceRegion,omitempty"`
 	DBInstanceClass      string    `json:"dbInstanceClass,omitempty"`
-	AllocatedStorage     int       `json:"allocatedStorage"`
+	OwnerAccountID       string    `json:"ownerAccountID,omitempty"`
 	Port                 int       `json:"port"`
 	PercentProgress      int       `json:"percentProgress"`
+	AllocatedStorage     int       `json:"allocatedStorage"`
 	StorageEncrypted     bool      `json:"storageEncrypted"`
 	CopyTagsToSnapshot   bool      `json:"copyTagsToSnapshot,omitempty"`
-	// OwnerAccountID is the creating caller's account; empty means unowned
-	// (visible to every caller).
-	OwnerAccountID string `json:"ownerAccountID,omitempty"`
 }
 
 // DBSubnetGroup represents an RDS DB subnet group.
@@ -369,27 +367,27 @@ type DBCluster struct {
 type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
 	ClusterCreateTime           time.Time `json:"clusterCreateTime,omitzero"`
-	Status                      string    `json:"status"`
-	MasterUsername              string    `json:"masterUsername,omitempty"`
+	DBClusterSnapshotArn        string    `json:"dbClusterSnapshotArn,omitempty"`
+	Engine                      string    `json:"engine"`
 	SourceDBClusterSnapshotArn  string    `json:"sourceDBClusterSnapshotArn,omitempty"`
 	KmsKeyID                    string    `json:"kmsKeyId,omitempty"`
 	SnapshotType                string    `json:"snapshotType,omitempty"`
 	StorageType                 string    `json:"storageType,omitempty"`
 	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
 	EngineVersion               string    `json:"engineVersion,omitempty"`
-	DBClusterSnapshotArn        string    `json:"dbClusterSnapshotArn,omitempty"`
+	Status                      string    `json:"status"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
 	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
-	Engine                      string    `json:"engine"`
-	BackupRetentionPeriod       int       `json:"backupRetentionPeriod,omitempty"`
+	MasterUsername              string    `json:"masterUsername,omitempty"`
+	OwnerAccountID              string    `json:"ownerAccountID,omitempty"`
 	Iops                        int       `json:"iops,omitempty"`
 	AllocatedStorage            int       `json:"allocatedStorage,omitempty"`
 	Port                        int       `json:"port,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
+	BackupRetentionPeriod       int       `json:"backupRetentionPeriod,omitempty"`
 	IAMDatabaseAuthEnabled      bool      `json:"iamDatabaseAuthenticationEnabled,omitempty"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 	CopyTagsToSnapshot          bool      `json:"copyTagsToSnapshot,omitempty"`
-	OwnerAccountID              string    `json:"ownerAccountID,omitempty"`
 }
 
 // DBClusterEndpoint represents a custom endpoint for an RDS cluster.
@@ -809,9 +807,9 @@ type DBInstanceOptions struct {
 // CopyDBSnapshotOptions holds optional fields for CopyDBSnapshot.
 type CopyDBSnapshotOptions struct {
 	CallerAccount string
-	KmsKeyID     string
-	SourceRegion string
-	CopyTags     bool
+	KmsKeyID      string
+	SourceRegion  string
+	CopyTags      bool
 }
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
