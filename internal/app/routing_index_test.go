@@ -415,5 +415,5 @@ func TestRoutingIndexLeadingSlashes(t *testing.T) {
 		}
 	}
 
-	assert.Empty(t, diffs, "indexed Lookup diverged from the ungated scan on leading-slash paths for services whose gate admits \"//\"")
+	assert.Empty(t, diffs, "indexed Lookup diverged from the ungated scan on leading-slash paths")
 }
