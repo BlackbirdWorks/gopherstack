@@ -527,6 +527,14 @@ export const OCI_SERVICES: readonly OciService[] = [
     portLabel: "ociapigateway",
     defaultPort: 8163,
   },
+  {
+    id: "events",
+    label: "Events",
+    description: "Oracle Cloud Events rules, actions and the delivery log",
+    healthName: "OCIEvents",
+    portLabel: "ocievents",
+    defaultPort: 8164,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {

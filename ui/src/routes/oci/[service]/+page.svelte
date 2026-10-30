@@ -5,6 +5,7 @@
 	import APIGatewayDashboard from '#lib/components/oci/APIGatewayDashboard.svelte';
 	import ContainerEngineDashboard from '#lib/components/oci/ContainerEngineDashboard.svelte';
 	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
+	import EventsDashboard from '#lib/components/oci/EventsDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
 	import LoggingDashboard from '#lib/components/oci/LoggingDashboard.svelte';
@@ -56,6 +57,8 @@
 	<NoSQLDashboard />
 {:else if service?.id === 'apigateway'}
 	<APIGatewayDashboard />
+{:else if service?.id === 'events'}
+	<EventsDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}
