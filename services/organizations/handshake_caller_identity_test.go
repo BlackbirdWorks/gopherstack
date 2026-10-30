@@ -33,10 +33,18 @@ func newHandshakeStack(t *testing.T) *hsStack {
 	t.Helper()
 
 	principals := map[string]*awsmeta.Principal{
-		"mgmt":     {Kind: awsmeta.PrincipalKindUser, AccountID: hsMgmtAcct, Arn: "arn:aws:iam::000000000000:user/m"},
-		"invitee":  {Kind: awsmeta.PrincipalKindUser, AccountID: hsInviteeAcct, Arn: "arn:aws:iam::111111111111:user/i"},
-		"stranger": {Kind: awsmeta.PrincipalKindUser, AccountID: hsStrangerAcct, Arn: "arn:aws:iam::333333333333:user/s"},
-		"anon":     nil,
+		"mgmt": {Kind: awsmeta.PrincipalKindUser, AccountID: hsMgmtAcct, Arn: "arn:aws:iam::000000000000:user/m"},
+		"invitee": {
+			Kind:      awsmeta.PrincipalKindUser,
+			AccountID: hsInviteeAcct,
+			Arn:       "arn:aws:iam::111111111111:user/i",
+		},
+		"stranger": {
+			Kind:      awsmeta.PrincipalKindUser,
+			AccountID: hsStrangerAcct,
+			Arn:       "arn:aws:iam::333333333333:user/s",
+		},
+		"anon": nil,
 	}
 
 	e := echo.New()
@@ -56,7 +64,10 @@ func newHandshakeStack(t *testing.T) *hsStack {
 	})
 
 	registry := service.NewRegistry()
-	require.NoError(t, registry.Register(organizations.NewHandler(organizations.NewInMemoryBackend(hsMgmtAcct, tagsRTRegion))))
+	require.NoError(
+		t,
+		registry.Register(organizations.NewHandler(organizations.NewInMemoryBackend(hsMgmtAcct, tagsRTRegion))),
+	)
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
 	srv := httptest.NewServer(e)
@@ -85,9 +96,15 @@ func newHandshakeStack(t *testing.T) *hsStack {
 func (s *hsStack) invite(t *testing.T) string {
 	t.Helper()
 
-	out, err := s.clients["mgmt"].InviteAccountToOrganization(t.Context(), &organizationssdk.InviteAccountToOrganizationInput{
-		Target: &organizationstypes.HandshakeParty{Id: aws.String(hsInviteeAcct), Type: organizationstypes.HandshakePartyTypeAccount},
-	})
+	out, err := s.clients["mgmt"].InviteAccountToOrganization(
+		t.Context(),
+		&organizationssdk.InviteAccountToOrganizationInput{
+			Target: &organizationstypes.HandshakeParty{
+				Id:   aws.String(hsInviteeAcct),
+				Type: organizationstypes.HandshakePartyTypeAccount,
+			},
+		},
+	)
 	require.NoError(t, err)
 
 	return aws.ToString(out.Handshake.Id)
@@ -109,11 +126,20 @@ func (s *hsStack) respond(t *testing.T, op, caller, id string) error {
 
 	switch op {
 	case "accept":
-		_, err = s.clients[caller].AcceptHandshake(t.Context(), &organizationssdk.AcceptHandshakeInput{HandshakeId: aws.String(id)})
+		_, err = s.clients[caller].AcceptHandshake(
+			t.Context(),
+			&organizationssdk.AcceptHandshakeInput{HandshakeId: aws.String(id)},
+		)
 	case "decline":
-		_, err = s.clients[caller].DeclineHandshake(t.Context(), &organizationssdk.DeclineHandshakeInput{HandshakeId: aws.String(id)})
+		_, err = s.clients[caller].DeclineHandshake(
+			t.Context(),
+			&organizationssdk.DeclineHandshakeInput{HandshakeId: aws.String(id)},
+		)
 	default:
-		_, err = s.clients[caller].CancelHandshake(t.Context(), &organizationssdk.CancelHandshakeInput{HandshakeId: aws.String(id)})
+		_, err = s.clients[caller].CancelHandshake(
+			t.Context(),
+			&organizationssdk.CancelHandshakeInput{HandshakeId: aws.String(id)},
+		)
 	}
 
 	return err
@@ -151,7 +177,10 @@ func TestHandshakeCallerIdentity(t *testing.T) {
 			if tt.wantCode != "" {
 				requireAPIErrorCode(t, err, tt.wantCode)
 
-				got, derr := s.clients["mgmt"].DescribeHandshake(t.Context(), &organizationssdk.DescribeHandshakeInput{HandshakeId: aws.String(id)})
+				got, derr := s.clients["mgmt"].DescribeHandshake(
+					t.Context(),
+					&organizationssdk.DescribeHandshakeInput{HandshakeId: aws.String(id)},
+				)
 				require.NoError(t, derr)
 				assert.Equal(t, organizationstypes.HandshakeStateOpen, got.Handshake.State)
 
@@ -195,7 +224,13 @@ func TestHandshakeTransitionErrors(t *testing.T) {
 			name: "cancel twice", firstOp: "cancel", firstBy: "mgmt", secondOp: "cancel", secondBy: "mgmt",
 			wantCode: "HandshakeAlreadyInStateException",
 		},
-		{name: "unknown handshake", secondOp: "accept", secondBy: "invitee", wantCode: "HandshakeNotFoundException", unknownID: true},
+		{
+			name:      "unknown handshake",
+			secondOp:  "accept",
+			secondBy:  "invitee",
+			wantCode:  "HandshakeNotFoundException",
+			unknownID: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -398,7 +398,12 @@ func TestCallerAccount(t *testing.T) {
 	}{
 		{name: "no metadata", meta: nil},
 		{name: "default account", meta: &awsmeta.Metadata{Account: awsmeta.DefaultAccount}},
-		{name: "explicit account", meta: &awsmeta.Metadata{Account: "111111111111"}, want: "111111111111", wantOK: true},
+		{
+			name:   "explicit account",
+			meta:   &awsmeta.Metadata{Account: "111111111111"},
+			want:   "111111111111",
+			wantOK: true,
+		},
 		{
 			name: "principal wins",
 			meta: &awsmeta.Metadata{
