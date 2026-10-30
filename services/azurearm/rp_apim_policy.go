@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 )
 
 const (
-	apimMaxPolicyBytes = 256 << 10
 	apimMaxPolicyDepth = 16
 	polInbound         = "inbound"
 	polBackend         = "backend"
@@ -21,7 +21,7 @@ const (
 	apimMinStatus      = 100
 	apimMaxStatus      = 599
 	apimMaxRenewalSecs = 300
-	apimMaxTimeoutSecs = 3600
+	apimMaxTimeoutSecs = 1<<31 - 1
 )
 
 var apimNamedRefRE = regexp.MustCompile(`\{\{([^{}]+)\}\}`)
@@ -169,7 +169,9 @@ func polSpecOf(name string) (polSpec, bool) {
 			sections: allSections(),
 		}, true
 	case apimCMockResponse:
-		return polSpec{attrs: []string{apimCStatusCodeX, "content-type"}, sections: []string{polInbound}}, true
+		return polSpec{
+			attrs: []string{apimCStatusCodeX, "content-type"}, sections: []string{polInbound, polOutbound},
+		}, true
 	case apimCRateLimit:
 		return polSpec{
 			attrs: []string{
@@ -177,6 +179,7 @@ func polSpecOf(name string) (polSpec, bool) {
 				apimCRenewalPeriod,
 				"retry-after-header-name",
 				"remaining-calls-header-name",
+				"total-calls-header-name",
 			},
 			required: []string{apimCCalls, apimCRenewalPeriod},
 			sections: []string{polInbound},
@@ -184,7 +187,8 @@ func polSpecOf(name string) (polSpec, bool) {
 	case apimCCheckHeader:
 		return polSpec{
 			attrs:    []string{fieldName, apimCFailedCheckHttpcode, "failed-check-error-message", "ignore-case"},
-			required: []string{fieldName, apimCFailedCheckHttpcode}, kids: []string{fieldValue},
+			required: []string{fieldName, apimCFailedCheckHttpcode, "failed-check-error-message", "ignore-case"},
+			kids:     []string{fieldValue},
 			sections: []string{polInbound},
 		}, true
 	case apimCCors:
@@ -196,7 +200,9 @@ func polSpecOf(name string) (polSpec, bool) {
 	case apimCSetBackendService:
 		return polSpec{attrs: []string{apimCBaseURL, apimCBackendID}, sections: []string{polInbound, polBackend}}, true
 	case apimCForwardRequest:
-		return polSpec{attrs: []string{apimCTimeout, "follow-redirects"}, sections: []string{polBackend}}, true
+		return polSpec{
+			attrs: []string{apimCTimeout, "timeout-ms", "follow-redirects"}, sections: []string{polBackend},
+		}, true
 	}
 
 	return polSpec{}, false
@@ -207,7 +213,9 @@ func polNestedSpec(name string) (polSpec, bool) {
 	case fieldValue, apimCSetBody, apimCOrigin, apimCMethod, apimCHeader:
 		return polSpec{}, true
 	case apimCSetStatus:
-		return polSpec{attrs: []string{aksFieldCode, acFieldReason}, required: []string{aksFieldCode}}, true
+		return polSpec{
+			attrs: []string{aksFieldCode, acFieldReason}, required: []string{aksFieldCode, acFieldReason},
+		}, true
 	case apimCSetHeader:
 		return polSpec{
 			attrs:    []string{fieldName, apimCExistsAction},
@@ -228,8 +236,8 @@ func polNestedSpec(name string) (polSpec, bool) {
 // validatePolicy checks a policy document against the supported subset and the service's named values and
 // backends.
 func validatePolicy(s *apimService, doc, scope string) error {
-	if len(doc) > apimMaxPolicyBytes {
-		return apimInvalid("The policy document is larger than %d bytes.", apimMaxPolicyBytes)
+	if limit := apimLimitsFor(s.SKU).policyBytes; len(doc) > limit {
+		return apimInvalid("The policy document is larger than %d bytes, the limit of the %s sku.", limit, s.SKU)
 	}
 
 	root, err := parsePolicy(doc, scope)
@@ -272,6 +280,14 @@ func validateStatement(s *apimService, n *polNode, section string) error {
 
 	if !slices.Contains(spec.sections, section) {
 		return polErr(n, "The policy element is not allowed in the %s section.", section)
+	}
+
+	if section == polOnError && n.Name != polBase {
+		return polErr(n, "Policies in the on-error section are not executed by this API Management gateway.")
+	}
+
+	if n.Name == apimCRateLimit && n.Scope == "svc|" {
+		return polErr(n, "The rate-limit policy can be used at the product, API and operation scopes only.")
 	}
 
 	return validateElement(s, n, spec)
@@ -385,8 +401,8 @@ func validateSemantics(s *apimService, n *polNode) error {
 			return err
 		}
 
-		if len(n.values(fieldValue)) == 0 {
-			return polErr(n, "At least one <value> is required.")
+		if v := n.Attrs["ignore-case"]; v != cmpTrue && v != apimCFalse {
+			return polErr(n, "The attribute 'ignore-case' must be true or false.")
 		}
 	case apimCSetStatus:
 		return posInt(n, aksFieldCode, apimMinStatus, apimMaxStatus)
@@ -397,7 +413,19 @@ func validateSemantics(s *apimService, n *polNode) error {
 			return polErr(n, "Following redirects is not supported; only follow-redirects=\"false\" is accepted.")
 		}
 
-		return posInt(n, apimCTimeout, 1, apimMaxTimeoutSecs)
+		if _, both := n.Attrs[apimCTimeout]; both {
+			if _, ms := n.Attrs["timeout-ms"]; ms {
+				return polErr(n, "Specify either timeout or timeout-ms, not both.")
+			}
+		}
+
+		if err := posInt(n, "timeout-ms", 0, math.MaxInt32); err != nil {
+			return err
+		}
+
+		return posInt(n, apimCTimeout, 0, apimMaxTimeoutSecs)
+	case apimCCors:
+		return validateCORS(n)
 	case apimCSetBackendService:
 		return validateBackendTarget(s, n)
 	}
@@ -449,7 +477,7 @@ func normPolicy(s *apimService, parent, _ string, in map[string]any, _ *apimEnti
 		return nil, apimInvalid("The policy format must be xml or rawxml.")
 	}
 
-	doc, err := optString(in, fieldValue, 1, apimMaxPolicyBytes, true, "policy value")
+	doc, err := optString(in, fieldValue, 1, apimPolicyBytes, true, "policy value")
 	if err != nil {
 		return nil, err
 	}
@@ -459,4 +487,31 @@ func normPolicy(s *apimService, parent, _ string, in map[string]any, _ *apimEnti
 	}
 
 	return map[string]any{apimCFormat: format, fieldValue: doc}, nil
+}
+
+func validateCORS(n *polNode) error {
+	origins := n.kid(apimCAllowedOrigins)
+	if origins == nil || len(origins.values(apimCOrigin)) == 0 {
+		return polErr(n, "The allowed-origins element with at least one origin is required.")
+	}
+
+	for _, o := range origins.values(apimCOrigin) {
+		if o != "*" && !validAbsURL(o, acaScaleHTTP, acaSchemeHTTPS) {
+			return polErr(origins, "The origin '%s' must be * or a URI with a scheme and a host.", o)
+		}
+	}
+
+	for _, c := range []struct{ elem, child string }{
+		{apimCAllowedMethods, apimCMethod}, {apimCAllowedHeaders, apimCHeader}, {apimCExposeHeaders, apimCHeader},
+	} {
+		if e := n.kid(c.elem); e != nil && len(e.values(c.child)) == 0 {
+			return polErr(e, "At least one <%s> element is required.", c.child)
+		}
+	}
+
+	if n.kid(apimCAllowedHeaders) == nil {
+		return polErr(n, "The allowed-headers element is required.")
+	}
+
+	return nil
 }

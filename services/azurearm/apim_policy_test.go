@@ -16,7 +16,7 @@ import (
 func TestAPIMPolicy_Validation(t *testing.T) {
 	t.Parallel()
 
-	long := "<policies><inbound>" + strings.Repeat("<base />", 40000) + "</inbound></policies>"
+	long := "<policies><inbound>" + strings.Repeat("<base />", 70000) + "</inbound></policies>"
 
 	tests := []struct {
 		name    string
@@ -124,7 +124,7 @@ func TestAPIMPolicy_Validation(t *testing.T) {
 		{name: "too large", doc: long, wantErr: "characters long"},
 		{
 			name:    "bad status code",
-			doc:     policyDoc(`<return-response><set-status code="99" /></return-response>`, "", ""),
+			doc:     policyDoc(`<return-response><set-status code="99" reason="x" /></return-response>`, "", ""),
 			wantErr: "'code'",
 		},
 	}
@@ -135,6 +135,7 @@ func TestAPIMPolicy_Validation(t *testing.T) {
 
 			s := newAPIMStack(t)
 			s.devService(t)
+			s.putAPI(t, "echo", "echo", "")
 
 			format := tc.format
 			if format == "" {
@@ -144,7 +145,7 @@ func TestAPIMPolicy_Validation(t *testing.T) {
 			b, err := json.Marshal(map[string]any{"properties": map[string]any{"format": format, "value": tc.doc}})
 			require.NoError(t, err)
 
-			status, body, _ := s.raw(t, http.MethodPut, s.armPath("/policies/policy"), string(b), nil)
+			status, body, _ := s.raw(t, http.MethodPut, s.armPath("/apis/echo/policies/policy"), string(b), nil)
 
 			if tc.wantErr == "" {
 				assert.Equal(t, http.StatusCreated, status, body)
@@ -604,7 +605,8 @@ func TestAPIMGateway_Policies(t *testing.T) {
 				"Origin":                        "https://evil.example",
 				"Access-Control-Request-Method": "GET",
 			},
-			inbound: `<cors><allowed-origins><origin>https://app.example</origin></allowed-origins></cors>`,
+			inbound: `<cors><allowed-origins><origin>https://app.example</origin></allowed-origins>
+				<allowed-headers><header>*</header></allowed-headers></cors>`,
 			check: func(t *testing.T, _ *gwEnv, status int, _ string, hdr http.Header) {
 				t.Helper()
 
@@ -618,6 +620,7 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			path:   "/echo/items/1",
 			hdr:    map[string]string{"Origin": "https://any.example"},
 			inbound: `<cors><allowed-origins><origin>*</origin></allowed-origins>
+				<allowed-headers><header>*</header></allowed-headers>
 				<expose-headers><header>X-Backend</header></expose-headers></cors>`,
 			check: func(t *testing.T, _ *gwEnv, status int, _ string, hdr http.Header) {
 				t.Helper()
@@ -675,7 +678,7 @@ func TestAPIMGateway_RateLimit(t *testing.T) {
 
 	status, body, hdr := e.call(t, "GET", "/echo/items/1", "", nil)
 	assert.Equal(t, http.StatusTooManyRequests, status)
-	assert.Contains(t, body, "Rate limit is exceeded. Try again in 40 seconds.")
+	assert.Contains(t, body, `"message":"Rate limit is exceeded"`)
 	assert.Equal(t, "40", hdr.Get("Retry-After"))
 
 	_, err := e.f.NewSubscriptionClient().CreateOrUpdate(t.Context(), apimRG, apimSvc, "k2",
