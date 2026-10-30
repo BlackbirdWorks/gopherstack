@@ -99,7 +99,7 @@ func (c *collector) addCognitoRows(add altAdder) {
 	}
 
 	for _, uri := range paths {
-		for _, m := range []string{methodGet, methodPost, "OPTIONS"} {
+		for _, m := range []string{methodGet, methodPost, methodOptions} {
 			add(m, host, uri, "", "", "")
 			add(m, host, uri, "cognito-idp", "", "")
 			add(m, "auth.localhost:4566", uri, "", "", "")

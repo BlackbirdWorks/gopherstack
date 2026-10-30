@@ -18,6 +18,7 @@ const (
 	methodPut           = "PUT"
 	methodHead          = "HEAD"
 	methodDelete        = "DELETE"
+	methodOptions       = "OPTIONS"
 	json10              = "application/x-amz-json-1.0"
 	json11              = "application/x-amz-json-1.1"
 	scopeExecuteAPI     = "execute-api"
