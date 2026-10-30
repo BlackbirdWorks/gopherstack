@@ -41,7 +41,7 @@ func (b *InMemoryBackend) trySprocOptimistic(
 ) (ScriptOutput, bool, error) {
 	b.mu.RLock("ExecuteSproc")
 
-	tx, err := b.beginTx(dbID, collID)
+	tx, err := b.beginTxAt(dbID, collID, false)
 	if err != nil {
 		b.mu.RUnlock()
 
@@ -64,6 +64,7 @@ func (b *InMemoryBackend) trySprocOptimistic(
 	script := *s
 	live := tx.c
 	shadow := tx.c.shadowCopy()
+	shadow.keep = b.changeRetention()
 	b.mu.RUnlock()
 
 	stx := &containerTx{b: b, c: shadow, dbID: dbID, collID: collID, now: tx.now, seq0: tx.seq0}
