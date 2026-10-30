@@ -367,3 +367,53 @@ func TestRoutingRPCv2CBORGates(t *testing.T) {
 		})
 	}
 }
+
+func TestRoutingIndexLeadingSlashes(t *testing.T) {
+	t.Parallel()
+
+	reg, entries := routingFixture(t)
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
+		WithPathGates(routegates.PathGates())
+
+	var cases []routingCase
+
+	for _, rc := range loadRoutingCorpus(t) {
+		path, query := splitURI(rc.uri)
+
+		for _, extra := range []string{"/", "//"} {
+			v := rc
+			v.uri = extra + path + query
+			cases = append(cases, v)
+		}
+	}
+
+	if testing.Short() {
+		cases = strideSample(cases, indexShortStride)
+	}
+
+	var diffs []string
+
+	trimmed := []string{
+		"ARCZonalShift", "BedrockAgentCore", "Route53RecoveryControlConfig", "Route53RecoveryReadiness",
+		"MGN", "OAM", "ResilienceHub",
+	}
+
+	for _, name := range trimmed {
+		assert.Contains(t, routegates.PathGates()[name], "//", "%s trims leading slashes before matching", name)
+	}
+
+	for _, rc := range cases {
+		scan := scanSelect(entries, echo.NewContext(rc.request(t), httptest.NewRecorder()))
+		got := entryName(router.Lookup(echo.NewContext(rc.request(t), httptest.NewRecorder())))
+
+		involved := slices.Contains(trimmed, scan) || slices.Contains(trimmed, got)
+
+		if got != scan && involved && len(diffs) < routingMaxDiffs {
+			diffs = append(diffs, rc.method+" "+rc.host+rc.uri+": got "+got+" want "+scan)
+		}
+	}
+
+	assert.Empty(t, diffs, "indexed Lookup diverged from the ungated scan on leading-slash paths")
+}
