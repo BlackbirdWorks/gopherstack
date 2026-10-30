@@ -285,6 +285,19 @@ describe("new GCP console pages", () => {
     expect(ociServiceById("monitoring")?.healthName).toBe("OCIMonitoring");
   });
 
+  it("registers NoSQL Database and API Gateway", () => {
+    expect(availableOciServices(["OCINoSQL", "OCIAPIGateway"]).map((s) => s.id)).toEqual([
+      "nosql",
+      "apigateway",
+    ]);
+    expect(ociServiceById("nosql")).toMatchObject({ portLabel: "ocinosql", defaultPort: 8162 });
+    expect(ociServiceById("apigateway")).toMatchObject({
+      portLabel: "ociapigateway",
+      defaultPort: 8163,
+      healthName: "OCIAPIGateway",
+    });
+  });
+
   it("registers Identity Platform and Flexible Server", () => {
     expect(gcpServiceById("identitytoolkit")).toMatchObject({
       portLabel: "gcpidentitytoolkit",

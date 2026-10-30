@@ -36,10 +36,11 @@ async function ociGet(
   }
   if (!res.ok) {
     const b = rec(body);
+    const proxy = rec(b.error);
     throw new GcpRestError(
       res.status,
-      str(b.code),
-      str(b.message) || res.statusText || `HTTP ${res.status}`,
+      str(proxy.status) || str(b.code),
+      str(proxy.message) || str(b.message) || res.statusText || `HTTP ${res.status}`,
     );
   }
   return { body, next: res.headers.get("opc-next-page") ?? "" };

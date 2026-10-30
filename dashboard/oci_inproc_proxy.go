@@ -60,6 +60,11 @@ func ociDecodeBody(c *echo.Context, v any) bool {
 	return json.NewDecoder(http.MaxBytesReader(c.Response(), r.Body, ociInprocMaxBody)).Decode(v) == nil
 }
 
+// ociDecodeBodyN is ociDecodeBody with an explicit size cap.
+func ociDecodeBodyN(c *echo.Context, v any, limit int64) bool {
+	return json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, limit)).Decode(v) == nil
+}
+
 // ociInvalid answers 400 for a request outside the proxy's allow-list.
 func ociInvalid(c *echo.Context, what string) error {
 	return cloudJSONFail(c, http.StatusBadRequest, "InvalidParameter", what)

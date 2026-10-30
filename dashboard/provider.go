@@ -72,6 +72,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -79,6 +80,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ocilogging"
 	"github.com/blackbirdworks/gopherstack/services/ocimonitoring"
 	"github.com/blackbirdworks/gopherstack/services/ocimysql"
+	"github.com/blackbirdworks/gopherstack/services/ocinosql"
 	"github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	"github.com/blackbirdworks/gopherstack/services/ociqueue"
@@ -440,5 +442,13 @@ func linkOCIObservabilityExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetOCIMonitoringHandler() service.Registerable }); ok {
 		conf.OCIMonitoringOps, _ = getHandler[*ocimonitoring.Handler](p.GetOCIMonitoringHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCINoSQLHandler() service.Registerable }); ok {
+		conf.OCINoSQLOps, _ = getHandler[*ocinosql.Handler](p.GetOCINoSQLHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIAPIGatewayHandler() service.Registerable }); ok {
+		conf.OCIAPIGatewayOps, _ = getHandler[*ociapigateway.Handler](p.GetOCIAPIGatewayHandler())
 	}
 }

@@ -145,6 +145,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	ociapigatewaybackend "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	ocicontainerenginebackend "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -152,6 +153,7 @@ import (
 	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
 	ocimonitoring "github.com/blackbirdworks/gopherstack/services/ocimonitoring"
 	ocimysqlbackend "github.com/blackbirdworks/gopherstack/services/ocimysql"
+	ocinosqlbackend "github.com/blackbirdworks/gopherstack/services/ocinosql"
 	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
 	ociqueuebackend "github.com/blackbirdworks/gopherstack/services/ociqueue"
@@ -604,6 +606,9 @@ type Config struct {
 	OCIMySQLOps      *ocimysqlbackend.Handler
 	OCILoggingOps    *ocilogging.Handler
 	OCIMonitoringOps *ocimonitoring.Handler
+	// OCINoSQLOps and OCIAPIGatewayOps are dispatched in-process by their proxies.
+	OCINoSQLOps      *ocinosqlbackend.Handler
+	OCIAPIGatewayOps *ociapigatewaybackend.Handler
 	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
 	AzureFileOps *azurefilebackend.Handler
 	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.

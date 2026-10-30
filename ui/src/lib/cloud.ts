@@ -511,6 +511,22 @@ export const OCI_SERVICES: readonly OciService[] = [
     portLabel: "ocimonitoring",
     defaultPort: 8161,
   },
+  {
+    id: "nosql",
+    label: "NoSQL Database",
+    description: "Oracle NoSQL Database Cloud tables, indexes, rows and SQL queries",
+    healthName: "OCINoSQL",
+    portLabel: "ocinosql",
+    defaultPort: 8162,
+  },
+  {
+    id: "apigateway",
+    label: "API Gateway",
+    description: "Oracle Cloud API Gateway gateways, deployments and certificates",
+    healthName: "OCIAPIGateway",
+    portLabel: "ociapigateway",
+    defaultPort: 8163,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {
