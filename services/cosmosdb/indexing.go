@@ -39,6 +39,7 @@ type indexingPolicy struct {
 	FullTextIndexes []struct {
 		Path string `json:"path"`
 	} `json:"fullTextIndexes"`
+	SpatialIndexes   []spatialIndex `json:"spatialIndexes"`
 	CompositeIndexes [][]struct {
 		Path  string `json:"path"`
 		Order string `json:"order"`

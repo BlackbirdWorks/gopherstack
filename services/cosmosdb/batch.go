@@ -197,7 +197,11 @@ func (tx *containerTx) runBatchOp(pk string, op batchOp) (BatchResult, error) {
 
 // statusForError maps a backend error to the HTTP status a batch result reports.
 func statusForError(err error) int {
+	var indexErr *queryIndexError
+
 	switch {
+	case errors.As(err, &indexErr):
+		return http.StatusBadRequest
 	case errors.Is(err, ErrDocumentNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, ErrDocumentAlreadyExists), errors.Is(err, ErrUniqueKeyViolation):

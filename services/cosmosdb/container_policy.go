@@ -95,6 +95,10 @@ func validateSearchIndexes(indexing json.RawMessage, p ContainerPolicies) error 
 		return fmt.Errorf("%w: %s", ErrInvalidContainerPolicy, msgLazyIndexing)
 	}
 
+	if spErr := validateSpatialIndexes(pol.SpatialIndexes, geospatialType(p.GeospatialConfig)); spErr != nil {
+		return spErr
+	}
+
 	vp, err := parseVectorPolicy(p.VectorEmbeddingPolicy)
 	if err != nil {
 		return err
@@ -121,6 +125,10 @@ func (c *storedContainer) checkReplaceIndexes(spec ContainerSpec) error {
 
 	if eff.FullTextPolicy == nil {
 		eff.FullTextPolicy = c.FullTextPolicy
+	}
+
+	if eff.GeospatialConfig == nil {
+		eff.GeospatialConfig = c.GeospatialConfig
 	}
 
 	indexing := spec.IndexingPolicy
