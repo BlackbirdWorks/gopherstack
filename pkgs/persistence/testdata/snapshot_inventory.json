@@ -25143,6 +25143,37 @@
     ],
     "version": 1
   },
+  "ocievents": {
+    "fields": [
+      "Action.ActionType string `json:\"actionType\"`",
+      "Action.Description string `json:\"description,omitempty\"`",
+      "Action.FunctionID string `json:\"functionId,omitempty\"`",
+      "Action.ID string `json:\"id\"`",
+      "Action.IsEnabled bool `json:\"isEnabled\"`",
+      "Action.Message string `json:\"lifecycleMessage\"`",
+      "Action.State string `json:\"lifecycleState\"`",
+      "Action.StreamID string `json:\"streamId,omitempty\"`",
+      "Action.TopicID string `json:\"topicId,omitempty\"`",
+      "Rule.Actions []*Action `json:\"actions\"`",
+      "Rule.CompartmentID string `json:\"compartmentId\"`",
+      "Rule.Condition string `json:\"condition\"`",
+      "Rule.Description string `json:\"description,omitempty\"`",
+      "Rule.DisplayName string `json:\"displayName\"`",
+      "Rule.Etag string `json:\"etag\"`",
+      "Rule.ID string `json:\"id\"`",
+      "Rule.IsEnabled bool `json:\"isEnabled\"`",
+      "Rule.Seq int64 `json:\"seq\"`",
+      "Rule.State string `json:\"state\"`",
+      "Rule.Tags Tags `json:\"tags\"`",
+      "Rule.TimeCreated time.Time `json:\"timeCreated\"`",
+      "Tags.DefinedTags map[string]map[string]any `json:\"definedTags,omitempty\"`",
+      "Tags.FreeformTags map[string]string `json:\"freeformTags,omitempty\"`",
+      "backendSnapshot.Auth []ociauth.KeyRecord `json:\"authKeys\"`",
+      "backendSnapshot.Rules map[string]*Rule `json:\"rules\"`",
+      "backendSnapshot.Seq int64 `json:\"seq\"`"
+    ],
+    "version": 1
+  },
   "ocifunctions": {
     "fields": [
       "Application.CompartmentID string `json:\"compartmentId\"`",

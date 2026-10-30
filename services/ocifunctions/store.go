@@ -36,6 +36,8 @@ type InMemoryBackend struct {
 	Auth       *ociauth.Registry
 	exec       *executor
 	transition time.Duration
+	sink       func(ResourceEvent)
+	pending    []ResourceEvent
 	seq        int64
 }
 

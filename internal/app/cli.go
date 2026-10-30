@@ -238,6 +238,7 @@ import (
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
+	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -722,6 +723,7 @@ type CLI struct {
 	OCIMonitoring                 ocimonitoring.Settings            `embed:"" prefix:"oci-monitoring-"`
 	OCINoSQL                      ocinosql.Settings                 `embed:"" prefix:"oci-nosql-"`
 	OCIAPIGateway                 ociapigateway.Settings            `embed:"" prefix:"oci-apigateway-"`
+	OCIEvents                     ocievents.Settings                `embed:"" prefix:"oci-events-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -2724,6 +2726,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIMySQL", "ocimysql", cli.OCIMySQL.Port},
 		{"OCINoSQL", "ocinosql", cli.OCINoSQL.Port},
 		{"OCIAPIGateway", "ociapigateway", cli.OCIAPIGateway.Port},
+		{"OCIEvents", "ocievents", cli.OCIEvents.Port},
 	}
 }
 
@@ -3728,6 +3731,7 @@ func wireCrossServiceDependencies(
 	wireOCIMySQL(byName)
 	wireOCINoSQL(byName)
 	wireOCIAPIGateway(byName)
+	wireOCIEvents(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -5226,6 +5230,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocimysqlbackend.Provider{},
 		&ocinosql.Provider{},
 		&ociapigateway.Provider{},
+		&ocievents.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},

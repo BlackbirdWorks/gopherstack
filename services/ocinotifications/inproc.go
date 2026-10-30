@@ -26,3 +26,13 @@ func (b *InMemoryBackend) Compartments() []string {
 
 	return out
 }
+
+// TopicActive reports whether id is an ACTIVE topic.
+func (b *InMemoryBackend) TopicActive(id string) bool {
+	b.mu.Lock("TopicActive")
+	defer b.mu.Unlock()
+
+	_, aerr := b.activeTopic(id)
+
+	return aerr == nil
+}
