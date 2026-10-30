@@ -133,6 +133,7 @@ type APIMProvider struct {
 	now           func() time.Time
 	mu            *lockmetrics.RWMutex
 	svcs          map[string]*apimService
+	ops           map[string]*apimOp
 	limiter       *apimLimiter
 	client        *http.Client
 	fastActivate  time.Duration
@@ -143,7 +144,7 @@ type APIMProvider struct {
 // NewAPIMProvider creates an APIMProvider.
 func NewAPIMProvider() *APIMProvider {
 	p := &APIMProvider{
-		now: time.Now, mu: lockmetrics.New("azurearm.apim"), svcs: map[string]*apimService{},
+		now: time.Now, mu: lockmetrics.New("azurearm.apim"), svcs: map[string]*apimService{}, ops: map[string]*apimOp{},
 		limiter: newAPIMLimiter(), fastActivate: apimActivateFast, classicActive: apimActivateClassic,
 	}
 	p.client = p.newBackendClient()
@@ -688,6 +689,7 @@ func (p *APIMProvider) ListKeys(context.Context, ResourceID) (map[string]any, er
 func (p *APIMProvider) Reset() {
 	p.mu.Lock(apimCReset)
 	p.svcs = map[string]*apimService{}
+	p.ops = map[string]*apimOp{}
 	p.mu.Unlock()
 	p.limiter.reset()
 }

@@ -82,6 +82,10 @@ func (h *Handler) handleAPIM(c *echo.Context, segs []string) error {
 		hdr.Set("ETag", resp.Etag)
 	}
 
+	if resp.OpID != "" {
+		h.setAPIMOperation(c, segs, resp)
+	}
+
 	if resp.Retry {
 		hdr.Set(apimCRetryAfter, "1")
 	}

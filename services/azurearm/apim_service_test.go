@@ -182,6 +182,8 @@ func TestAPIMService_Lifecycle(t *testing.T) {
 	del, err := svcs.BeginDelete(ctx, apimRG, "life1", nil)
 	require.NoError(t, err)
 
+	s.clock.Advance(time.Hour)
+
 	_, err = del.PollUntilDone(ctx, &runtime.PollUntilDoneOptions{Frequency: 5 * time.Millisecond})
 	require.NoError(t, err)
 

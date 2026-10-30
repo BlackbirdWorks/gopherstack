@@ -34,10 +34,12 @@ type apimReq struct {
 
 // apimResp is the answer: Body nil means an empty body.
 type apimResp struct {
-	Body   any
-	Etag   string
-	Status int
-	Retry  bool
+	Body    any
+	Etag    string
+	OpID    string
+	Status  int
+	Retry   bool
+	OpAsync bool
 }
 
 // apimKind describes one family of child entities.
@@ -132,6 +134,10 @@ func (p *APIMProvider) Do(req apimReq) (apimResp, error) {
 		return p.doService(req)
 	}
 
+	if isAPIMOperationResult(req.Rest) && req.Method == http.MethodGet {
+		return p.operationResult(req)
+	}
+
 	s, ok := p.svcs[apimKey(req.Sub, req.RG, req.Svc)]
 	if !ok {
 		return apimResp{}, apimNotFound("API Management service")
@@ -163,21 +169,23 @@ func (p *APIMProvider) doService(req apimReq) (apimResp, error) {
 			return apimResp{}, err
 		}
 
-		if created {
-			return apimResp{
-				Status: http.StatusCreated, Body: s.createdBody(p.now()), Etag: apimEtag(s.Etag), Retry: true,
-			}, nil
+		if created || req.Method == http.MethodPatch {
+			return p.asyncWrite(s, req.Method, created), nil
 		}
 
 		return apimResp{Status: http.StatusOK, Body: s.body(p.now()), Etag: apimEtag(s.Etag), Retry: true}, nil
 	case http.MethodDelete:
-		if _, ok := p.svcs[key]; !ok {
+		s, ok := p.svcs[key]
+		if !ok {
 			return apimResp{Status: http.StatusNoContent}, nil
 		}
 
 		delete(p.svcs, key)
 
-		return apimResp{Status: http.StatusOK}, nil
+		return apimResp{
+			Status: http.StatusAccepted, Retry: true,
+			OpID: p.startOp(key, http.MethodDelete, s.Location, p.now().Add(p.fastActivate)),
+		}, nil
 	}
 
 	return apimResp{}, apimErr(http.StatusMethodNotAllowed, apimCMethodNotAllowed, "Method not allowed.")
