@@ -266,8 +266,16 @@ func (h *Handler) readChangeFeed(c *echo.Context, dbID, collID string) error {
 
 	setPageHeaders(c, len(values), "")
 
-	return h.writeJSONCharged(c, http.StatusOK,
-		map[string]any{sysPropRID: pg.RID, listDocumentsKey: values, sysPropCount: len(values)}, readCharge)
+	return h.writeJSONCharged(
+		c,
+		http.StatusOK,
+		map[string]any{
+			sysPropRID:       pg.RID,
+			listDocumentsKey: values,
+			sysPropCount:     len(values),
+		},
+		h.feedCharger(c, values),
+	)
 }
 
 // writeVersionFeed renders the all-versions-and-deletes page: {current, previous, metadata} per entry.
@@ -280,8 +288,16 @@ func (h *Handler) writeVersionFeed(c *echo.Context, pg changeFeedPage) error {
 
 	setPageHeaders(c, len(values), "")
 
-	return h.writeJSONCharged(c, http.StatusOK,
-		map[string]any{sysPropRID: pg.RID, listDocumentsKey: values, sysPropCount: len(values)}, readCharge)
+	return h.writeJSONCharged(
+		c,
+		http.StatusOK,
+		map[string]any{
+			sysPropRID:       pg.RID,
+			listDocumentsKey: values,
+			sysPropCount:     len(values),
+		},
+		h.feedCharger(c, values),
+	)
 }
 
 func (h *Handler) encodeVersion(v ChangeVersion) map[string]any {

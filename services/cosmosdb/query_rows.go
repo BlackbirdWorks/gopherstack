@@ -212,5 +212,25 @@ func (b *InMemoryBackend) queryLocked(
 	udf := b.newUDFRuntime(c.UDFs)
 	defer udf.close()
 
-	return executeStatementWith(stmt, params, rows, udf, b.newQueryColl(c))
+	res, err := executeStatementWith(stmt, params, rows, udf, b.newQueryColl(c))
+	res.Loaded = loadedCharge(stmt, c.IndexingPolicy, res)
+
+	return res, err
+}
+
+// loadedCharge sums the read cost of the documents the query had to retrieve: those its filter kept when the
+// indexing policy can serve the filter, every examined document otherwise (or when there is no filter).
+func loadedCharge(stmt *sqlSelectStmt, indexing json.RawMessage, res QueryResult) float64 {
+	docs := res.Matched
+	if stmt.where == nil || parseIndexingPolicy(indexing).needsScan(stmt.where) {
+		docs = res.Visited
+	}
+
+	var total float64
+
+	for _, d := range docs {
+		total += readCharge(int(docBytes(d)))
+	}
+
+	return total
 }

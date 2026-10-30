@@ -115,8 +115,8 @@ func TestPartitions_HotKeyThrottlesWhileTotalUnderBudget(t *testing.T) {
 			require.Less(t, admitted, 500, "hot partition must throttle")
 			require.Positive(t, admitted)
 
-			// Each admitted write costs ~78 RU, so the hot partition spent about half the 10100 RU/s offer.
-			assert.Less(t, float64(admitted)*78, 10100.0)
+			// Each admitted write costs ~56 RU, so the hot partition spent about half the 10100 RU/s offer.
+			assert.Less(t, float64(admitted)*56, 10100.0)
 
 			tt.check(s, hot, cold)
 		})
@@ -135,7 +135,7 @@ func TestPartitions_BurstCapacity(t *testing.T) {
 	}{
 		{name: "burst off", burst: false, idle: 100 * time.Second, minimum: 5, maximum: 20},
 		{name: "burst on without idle time", burst: true, minimum: 5, maximum: 20},
-		{name: "burst on after idle", burst: true, idle: 100 * time.Second, minimum: 30, maximum: 50},
+		{name: "burst on after idle", burst: true, idle: 100 * time.Second, minimum: 40, maximum: 70},
 	}
 
 	for _, tt := range tests {

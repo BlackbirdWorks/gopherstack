@@ -170,6 +170,34 @@ func isMetered(kind resourceKind) bool {
 	return kind == resourceDocuments || kind == resourceDocumentItem
 }
 
+// metadataRUs is the throughput an account has for metadata operations; it cannot be raised (Learn, "Service
+// quotas and default limits": maximum throughput supported by an account for metadata operations, 240 RU/s).
+const metadataRUs = 240.0
+
+// isMetadata reports whether a resource kind is served from the account's metadata partition: databases,
+// containers, offers, users, permissions, scripts and the partition key ranges.
+func isMetadata(kind resourceKind) bool {
+	return kind != resourceInvalid && kind != resourceAccountRoot && !isMetered(kind)
+}
+
+// serveMetadata runs next unless the metadata partition is overdrawn, then charges what the response reports.
+func (h *Handler) serveMetadata(c *echo.Context, next func() error) error {
+	var epoch int64
+	if tb, ok := h.Backend.(ThroughputBackend); ok {
+		epoch = tb.ThroughputBudget("", "").Epoch
+	}
+
+	slots := []meterSlot{{key: "#metadata", rate: metadataRUs, weight: 1}}
+	if wait := h.meter.admit(epoch, h.now(), slots); wait > 0 {
+		return h.writeThrottled(c, wait)
+	}
+
+	err := next()
+	h.meter.charge(epoch, h.now(), slots, chargeOf(c))
+
+	return err
+}
+
 func chargeOf(c *echo.Context) float64 {
 	ru, err := strconv.ParseFloat(c.Response().Header().Get(headerRequestCharge), 64)
 	if err != nil {

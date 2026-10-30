@@ -157,6 +157,8 @@ func (tx *containerTx) runBatchOp(pk string, op batchOp) (BatchResult, error) {
 		charge = replaceCharge
 	)
 
+	readPrice := func(size, _ int) float64 { return readCharge(size) }
+
 	switch op.kind {
 	case batchCreate:
 		info, _, err = tx.createDoc(pk, op.body, false)
@@ -172,7 +174,7 @@ func (tx *containerTx) runBatchOp(pk string, op batchOp) (BatchResult, error) {
 		}
 	case batchRead:
 		info, err = tx.readDoc(pk, op.id)
-		charge = readCharge
+		charge = readPrice
 	case batchReplace:
 		info, err = tx.replaceDoc(pk, op.id, op.body, op.ifMatch)
 	case batchPatch:
@@ -191,7 +193,8 @@ func (tx *containerTx) runBatchOp(pk string, op batchOp) (BatchResult, error) {
 	size, _ := json.Marshal(body)
 
 	return BatchResult{
-		StatusCode: status, ETag: info.ETag, Body: body, RequestCharge: charge(len(size)),
+		StatusCode: status, ETag: info.ETag, Body: body,
+		RequestCharge: charge(len(size), countIndexedPaths(parseIndexingPolicy(tx.c.IndexingPolicy), info.Body)),
 	}, nil
 }
 

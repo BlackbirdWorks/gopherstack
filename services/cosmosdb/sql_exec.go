@@ -71,7 +71,45 @@ func triNot(a sqlTriState) sqlTriState {
 // QueryResult is the output of one query execution; Scanned counts container rows examined.
 type QueryResult struct {
 	Rows    []any
+	Visited []*storedDocument
+	Matched []*storedDocument
 	Scanned int
+	Loaded  float64
+}
+
+// retrievalStats records which stored documents a query touched, for the request charge.
+type retrievalStats struct {
+	visited map[*storedDocument]struct{}
+	matched map[*storedDocument]struct{}
+}
+
+func newRetrievalStats() *retrievalStats {
+	return &retrievalStats{visited: map[*storedDocument]struct{}{}, matched: map[*storedDocument]struct{}{}}
+}
+
+func (s *retrievalStats) visit(r *sqlRow) {
+	if s != nil && r.doc != nil {
+		s.visited[r.doc] = struct{}{}
+	}
+}
+
+func (s *retrievalStats) match(env []any) {
+	if s == nil || len(env) == 0 {
+		return
+	}
+
+	if r, ok := env[0].(*sqlRow); ok && r.doc != nil {
+		s.matched[r.doc] = struct{}{}
+	}
+}
+
+func docSet(m map[*storedDocument]struct{}) []*storedDocument {
+	out := make([]*storedDocument, 0, len(m))
+	for d := range m {
+		out = append(out, d)
+	}
+
+	return out
 }
 
 // ExecuteQuery parses and runs query against docs. It never panics.
@@ -122,6 +160,10 @@ func executeStatementWith(
 		}
 	}
 
+	if _, stored := rs.(storedRows); stored {
+		ec.stats = newRetrievalStats()
+	}
+
 	rows, err := ec.runStmt(stmt, nil, rs)
 	if err != nil {
 		return QueryResult{}, err
@@ -131,7 +173,12 @@ func executeStatementWith(
 		return QueryResult{}, ec.udf.err
 	}
 
-	return QueryResult{Rows: rows, Scanned: rs.count()}, nil
+	res := QueryResult{Rows: rows, Scanned: rs.count()}
+	if ec.stats != nil {
+		res.Visited, res.Matched = docSet(ec.stats.visited), docSet(ec.stats.matched)
+	}
+
+	return res, nil
 }
 
 type outRow struct {
@@ -291,6 +338,8 @@ func (ec *evalCtx) runStmt(stmt *sqlSelectStmt, outer []any, rows queryRows) ([]
 				return true
 			}
 
+			ec.stats.match(e)
+
 			return st.emit(e)
 		})
 	}
@@ -329,6 +378,8 @@ func (ec *evalCtx) runGrouped(st *runState, env []any, rows queryRows) {
 		if stmt.where != nil && ec.truth(stmt.where, e) != sqlTrue {
 			return true
 		}
+
+		ec.stats.match(e)
 
 		key := ec.groupKey(stmt.groupBy, e)
 
@@ -425,6 +476,7 @@ func (ec *evalCtx) forEachTuple(stmt *sqlSelectStmt, env []any, rows queryRows, 
 
 	for i := range rows.count() {
 		*row = rows.row(i)
+		ec.stats.visit(row)
 
 		if !ec.expandSources(stmt, 1, env, fn) {
 			return

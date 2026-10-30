@@ -12,17 +12,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
-func multiWrite(lagMs int) cosmosdb.AccountRegions {
+func multiWrite() cosmosdb.AccountRegions {
+	const lagMs = 5000
+
 	return cosmosdb.AccountRegions{MultiWrite: true, Regions: []cosmosdb.AccountRegion{
 		{Name: eastUS, FailoverPriority: 0, ReplicationLagMs: lagMs},
 		{Name: westUS, FailoverPriority: 1, ReplicationLagMs: lagMs},
 	}}
 }
 
-func (e *regionEnv) newColl(id, policy string) {
+func (e *regionEnv) newColl(policy string) {
 	e.t.Helper()
 
-	body := `{"id":"` + id + `","partitionKey":{"paths":["/pk"],"kind":"Hash"}`
+	body := `{"id":"p","partitionKey":{"paths":["/pk"],"kind":"Hash"}`
 	if policy != "" {
 		body += `,"conflictResolutionPolicy":` + policy
 	}
@@ -99,8 +101,8 @@ func TestConflicts_LastWriterWins(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newRegionEnv(t, multiWrite(5000))
-			e.newColl("p", tt.policy)
+			e := newRegionEnv(t, multiWrite())
+			e.newColl(tt.policy)
 
 			requireWritten(t, e.putIn(eastUS, tt.eastDoc))
 			e.clock.advance(2 * time.Second)
@@ -135,8 +137,8 @@ func jsonRank(t *testing.T, doc string) float64 {
 func TestConflicts_DeleteWins(t *testing.T) {
 	t.Parallel()
 
-	e := newRegionEnv(t, multiWrite(5000))
-	e.newColl("p", `{"mode":"LastWriterWins","conflictResolutionPath":"/rank"}`)
+	e := newRegionEnv(t, multiWrite())
+	e.newColl(`{"mode":"LastWriterWins","conflictResolutionPath":"/rank"}`)
 
 	requireWritten(t, e.putIn(eastUS, `{"id":"x","pk":"a","rank":1}`))
 	e.clock.advance(10 * time.Second)
@@ -200,8 +202,8 @@ func TestConflicts_CustomResolution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newRegionEnv(t, multiWrite(5000))
-			e.newColl("p", tt.policy)
+			e := newRegionEnv(t, multiWrite())
+			e.newColl(tt.policy)
 
 			if tt.sproc != "" {
 				require.Equal(t, http.StatusCreated, e.do(http.MethodPost, "/dbs/d/colls/p/sprocs", nil,
@@ -441,8 +443,8 @@ func TestRegions_DefaultAccountUnchanged(t *testing.T) {
 func TestRegions_SnapshotKeepsTopologyAndConflicts(t *testing.T) {
 	t.Parallel()
 
-	e := newRegionEnv(t, multiWrite(5000))
-	e.newColl("p", `{"mode":"Custom"}`)
+	e := newRegionEnv(t, multiWrite())
+	e.newColl(`{"mode":"Custom"}`)
 
 	requireWritten(t, e.putIn(eastUS, `{"id":"x","pk":"a","rank":3}`))
 	e.clock.advance(time.Second)

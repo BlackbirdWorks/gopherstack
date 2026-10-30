@@ -260,7 +260,10 @@ func TestPartitionCharge_CrossPartitionFollowsWork(t *testing.T) {
 	throttled := false
 
 	for range 100 {
-		if s.query("").status == http.StatusTooManyRequests {
+		count := s.do(http.MethodPost, "/dbs/d/colls/c/docs",
+			map[string]string{"X-Ms-Documentdb-Isquery": "true", "Content-Type": "application/query+json"},
+			`{"query":"SELECT VALUE COUNT(1) FROM c"}`)
+		if count.status == http.StatusTooManyRequests {
 			throttled = true
 
 			break

@@ -428,5 +428,5 @@ func (h *Handler) runWithTriggers(c *echo.Context, dbID, collID string, op docOp
 		payload = res.body
 	}
 
-	return h.writeJSONCharged(c, status, payload, replaceCharge)
+	return h.writeJSONCharged(c, status, payload, h.writeCharger(dbID, collID, res.info.Body, true))
 }

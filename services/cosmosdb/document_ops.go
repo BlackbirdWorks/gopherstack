@@ -183,7 +183,8 @@ func (h *Handler) createDocument(c *echo.Context, dbID, collID string) error {
 
 	c.Response().Header().Set("ETag", info.ETag)
 
-	return h.writeJSONCharged(c, http.StatusCreated, h.encodeDocument(info), createCharge)
+	return h.writeJSONCharged(c, http.StatusCreated, h.encodeDocument(info),
+		h.writeCharger(dbID, collID, info.Body, false))
 }
 
 func (h *Handler) getDocument(c *echo.Context, dbID, collID, docID string) error {
@@ -199,7 +200,7 @@ func (h *Handler) getDocument(c *echo.Context, dbID, collID, docID string) error
 
 	c.Response().Header().Set("ETag", info.ETag)
 
-	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info), readCharge)
+	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info), h.readCharger(c))
 }
 
 func (h *Handler) replaceDocument(c *echo.Context, dbID, collID, docID string) error {
@@ -234,7 +235,8 @@ func (h *Handler) replaceDocument(c *echo.Context, dbID, collID, docID string) e
 
 	c.Response().Header().Set("ETag", info.ETag)
 
-	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info), replaceCharge)
+	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info),
+		h.writeCharger(dbID, collID, info.Body, true))
 }
 
 func (h *Handler) patchDocument(c *echo.Context, dbID, collID, docID string) error {
@@ -269,7 +271,8 @@ func (h *Handler) patchDocument(c *echo.Context, dbID, collID, docID string) err
 
 	c.Response().Header().Set("ETag", info.ETag)
 
-	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info), replaceCharge)
+	return h.writeJSONCharged(c, http.StatusOK, h.encodeDocument(info),
+		h.writeCharger(dbID, collID, info.Body, true))
 }
 
 func (h *Handler) deleteDocument(c *echo.Context, dbID, collID, docID string) error {
@@ -330,7 +333,7 @@ func (h *Handler) listDocuments(c *echo.Context, dbID, collID string) error {
 	setPageHeaders(c, len(values), pg.Next)
 
 	return h.writeJSONCharged(c, http.StatusOK,
-		map[string]any{sysPropRID: "", listDocumentsKey: values, sysPropCount: len(values)}, readCharge)
+		map[string]any{sysPropRID: "", listDocumentsKey: values, sysPropCount: len(values)}, h.feedCharger(c, values))
 }
 
 // queryRequestBody is the request body shape for a SQL query POST:
@@ -377,9 +380,14 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 
 	payload := map[string]any{sysPropRID: "", listDocumentsKey: pg.Data, sysPropCount: len(pg.Data)}
 
-	return h.writeJSONCharged(c, http.StatusOK, payload, func(size int) float64 {
-		return queryCharge(res.Scanned, size)
-	})
+	share := 1.0
+	if len(res.Rows) > 0 {
+		share = float64(len(pg.Data)) / float64(len(res.Rows))
+	}
+
+	charge := h.readFactor(c) * queryCharge(res.Loaded*share, h.queryPartitions(dbID, collID, scope))
+
+	return h.writeJSONCharged(c, http.StatusOK, payload, func(int) float64 { return charge })
 }
 
 // queryOptions reads the scan switch; azcosmos sends x-ms-documentdb-force-query-scan, the REST docs
@@ -458,7 +466,13 @@ func (h *Handler) runQuery(
 
 	rows, execErr := ExecuteQuery(req.Query, req.Parameters, infos)
 
-	return QueryResult{Rows: rows, Scanned: len(infos)}, execErr
+	res := QueryResult{Rows: rows, Scanned: len(infos)}
+	for _, info := range infos {
+		raw, _ := jsonMarshal(info.Body)
+		res.Loaded += readCharge(len(raw))
+	}
+
+	return res, execErr
 }
 
 // isRoutingError reports an error that depends on where the request ran: a split partition, a lagging region.

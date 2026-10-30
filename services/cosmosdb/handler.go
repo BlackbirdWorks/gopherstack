@@ -246,6 +246,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.serveMetered(c, dbID, collID, func() error { return h.dispatch(c, kind, dbID, collID, docID) })
 		}
 
+		if h.EnforceThroughput && isMetadata(kind) {
+			return h.serveMetadata(c, func() error { return h.dispatch(c, kind, dbID, collID, docID) })
+		}
+
 		return h.dispatch(c, kind, dbID, collID, docID)
 	}
 }

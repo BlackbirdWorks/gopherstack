@@ -599,3 +599,26 @@ func TestThroughput_MinimumFollowsDocumentedFormula(t *testing.T) {
 		})
 	}
 }
+
+func TestThroughput_MetadataOperationsShareTheFixedAccountBudget(t *testing.T) {
+	t.Parallel()
+
+	s := newThroughputServer(t, true, false)
+	s.mustCreate("/dbs", `{"id":"d"}`, nil)
+
+	throttled := -1
+
+	for i := range 400 {
+		if s.do(http.MethodGet, "/dbs/d", nil, "").status == http.StatusTooManyRequests {
+			throttled = i
+
+			break
+		}
+	}
+
+	require.Positive(t, throttled, "metadata reads draw on the 240 RU/s account budget")
+	assert.InDelta(t, 240, throttled, 5)
+
+	s.clock.advance(time.Second)
+	assert.Equal(t, http.StatusOK, s.do(http.MethodGet, "/dbs/d", nil, "").status)
+}
