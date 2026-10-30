@@ -6,8 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 )
 
 const (
@@ -16,6 +17,7 @@ const (
 	apimOpStatusDone     = "Succeeded"
 	apimOpKeep           = time.Hour
 	apimOpPathLen        = 2
+	apimOpStartTime      = "startTime"
 )
 
 // apimOp is one long-running service operation served at .../service/{name}/operationresults/{id}.
@@ -60,7 +62,7 @@ func (p *APIMProvider) operationResult(req apimReq) (apimResp, error) {
 	if !o.done(now) {
 		return apimResp{
 			Status: http.StatusAccepted, Retry: true,
-			Body: map[string]any{fieldName: id, acrPropStatus: apimOpStatusRunning, "startTime": started},
+			Body: map[string]any{fieldName: id, acrPropStatus: apimOpStatusRunning, apimOpStartTime: started},
 		}, nil
 	}
 
@@ -71,7 +73,7 @@ func (p *APIMProvider) operationResult(req apimReq) (apimResp, error) {
 
 	body := s.body(now)
 	body[acrPropStatus] = apimOpStatusDone
-	body["startTime"] = started
+	body[apimOpStartTime] = started
 	body["endTime"] = o.ReadyAt.UTC().Format(time.RFC3339Nano)
 
 	return apimResp{Status: http.StatusOK, Body: body, Etag: apimEtag(s.Etag)}, nil

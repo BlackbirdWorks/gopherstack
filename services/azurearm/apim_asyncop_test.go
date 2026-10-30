@@ -70,7 +70,7 @@ func TestAPIMService_OperationResultsHeaders(t *testing.T) {
 	require.Equal(t, http.StatusCreated, code)
 
 	loc := hdr.Get("Location")
-	assert.Equal(t, loc, hdr.Get("Azure-AsyncOperation"))
+	assert.Equal(t, loc, hdr.Get("Azure-Asyncoperation"))
 	assert.Contains(t, loc, "/providers/Microsoft.ApiManagement/service/"+apimSvc+"/operationresults/")
 	assert.True(t, strings.HasSuffix(loc, "?api-version=2022-08-01&asyncResponse"), loc)
 	assert.Equal(t, "1", hdr.Get("Retry-After"))
@@ -97,12 +97,12 @@ func TestAPIMService_OperationResultsHeaders(t *testing.T) {
 
 	code, _, hdr = s.raw(t, http.MethodPatch, path, `{"tags":{"a":"b"}}`, nil)
 	assert.Equal(t, http.StatusAccepted, code)
-	assert.NotEmpty(t, hdr.Get("Azure-AsyncOperation"))
+	assert.NotEmpty(t, hdr.Get("Azure-Asyncoperation"))
 	assert.Contains(t, hdr.Get("Location"), "/operationresults/")
 
 	code, _, hdr = s.raw(t, http.MethodDelete, path, "", nil)
 	require.Equal(t, http.StatusAccepted, code)
-	assert.Empty(t, hdr.Get("Azure-AsyncOperation"))
+	assert.Empty(t, hdr.Get("Azure-Asyncoperation"))
 	assert.NotContains(t, hdr.Get("Location"), "asyncResponse")
 
 	u, err = url.Parse(hdr.Get("Location"))
