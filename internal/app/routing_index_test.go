@@ -162,7 +162,8 @@ func TestRoutingIndexMatchesLinearScan(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	all := make([]routingCase, 0, len(cases)*(1+indexVariantsPerCase)+indexCrossCases)
 
@@ -250,7 +251,8 @@ func TestRoutingPathGatedAlternatives(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	tests := []struct {
 		name, method, uri, target, want string
@@ -301,7 +303,8 @@ func TestRoutingLambdaFunctionURLHost(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	tests := []struct {
 		name, method, host, uri string
@@ -332,7 +335,8 @@ func TestRoutingRPCv2CBORGates(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	tests := []struct {
 		name, uri, want, notWant string
@@ -394,7 +398,8 @@ func TestRoutingIndexLeadingSlashes(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	var cases []routingCase
 

@@ -13269,6 +13269,7 @@ func setupRegistry(
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates()).
 		WithInterceptor(interceptor)
 	e.Use(router.RouteHandler())
 
