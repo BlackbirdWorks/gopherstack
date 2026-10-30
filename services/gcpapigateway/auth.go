@@ -231,7 +231,7 @@ func (k jwk) ecKey() (crypto.PublicKey, error) {
 	}
 
 	point := make([]byte, 1+2*size)
-	point[0] = 4 //nolint:mnd // uncompressed point marker
+	point[0] = 4
 	x.FillBytes(point[1 : 1+size])
 	y.FillBytes(point[1+size:])
 

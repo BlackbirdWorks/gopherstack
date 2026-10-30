@@ -51,61 +51,61 @@ func (s *apiGatewayServer) ListApis(
 	return s.b.ListApis(in)
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) GetApi(_ context.Context, in *apigatewaypb.GetApiRequest) (*apigatewaypb.Api, error) {
 	return s.b.GetAPI(in.GetName())
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) CreateApi(
 	_ context.Context, in *apigatewaypb.CreateApiRequest,
 ) (*longrunningpb.Operation, error) {
 	return s.b.CreateAPI(in)
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) UpdateApi(
 	_ context.Context, in *apigatewaypb.UpdateApiRequest,
 ) (*longrunningpb.Operation, error) {
 	return s.b.UpdateAPI(in)
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) DeleteApi(
 	_ context.Context, in *apigatewaypb.DeleteApiRequest,
 ) (*longrunningpb.Operation, error) {
 	return s.b.DeleteAPI(in)
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) ListApiConfigs(
 	_ context.Context, in *apigatewaypb.ListApiConfigsRequest,
 ) (*apigatewaypb.ListApiConfigsResponse, error) {
 	return s.b.ListAPIConfigs(in)
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) GetApiConfig(
 	_ context.Context, in *apigatewaypb.GetApiConfigRequest,
 ) (*apigatewaypb.ApiConfig, error) {
 	return s.b.GetAPIConfig(in)
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) CreateApiConfig(
 	_ context.Context, in *apigatewaypb.CreateApiConfigRequest,
 ) (*longrunningpb.Operation, error) {
 	return s.b.CreateAPIConfig(in)
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) UpdateApiConfig(
 	_ context.Context, in *apigatewaypb.UpdateApiConfigRequest,
 ) (*longrunningpb.Operation, error) {
 	return s.b.UpdateAPIConfig(in)
 }
 
-//nolint:revive,nolintlint // method name fixed by the generated gRPC interface
+//nolint:revive,staticcheck,nolintlint // method name fixed by the generated gRPC interface
 func (s *apiGatewayServer) DeleteApiConfig(
 	_ context.Context, in *apigatewaypb.DeleteApiConfigRequest,
 ) (*longrunningpb.Operation, error) {

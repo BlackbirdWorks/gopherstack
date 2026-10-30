@@ -116,7 +116,7 @@ func (b *InMemoryBackend) CreateGateway(in *apigatewaypb.CreateGatewayRequest) (
 
 // GetGateway returns one gateway.
 func (b *InMemoryBackend) GetGateway(name string) (*apigatewaypb.Gateway, error) {
-	if _, _, _, err := parseGatewayName(name); err != nil {
+	if _, _, err := parseGatewayName(name); err != nil {
 		return nil, err
 	}
 
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) ListGateways(in *apigatewaypb.ListGatewaysRequest) (
 	var all []*apigatewaypb.Gateway
 
 	for _, r := range b.gateways {
-		p, l, _, _ := parseGatewayName(r.pb.GetName())
+		p, l, _ := parseGatewayName(r.pb.GetName())
 		if p == project && (location == "-" || l == location) && !r.life.gone(b.now()) {
 			all = append(all, b.gatewayViewLocked(r))
 		}
@@ -171,7 +171,7 @@ func (b *InMemoryBackend) ListGateways(in *apigatewaypb.ListGatewaysRequest) (
 func (b *InMemoryBackend) UpdateGateway(in *apigatewaypb.UpdateGatewayRequest) (*longrunningpb.Operation, error) {
 	src := in.GetGateway()
 
-	project, region, _, err := parseGatewayName(src.GetName())
+	project, region, err := parseGatewayName(src.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +232,7 @@ func (b *InMemoryBackend) UpdateGateway(in *apigatewaypb.UpdateGatewayRequest) (
 
 // DeleteGateway deletes a gateway.
 func (b *InMemoryBackend) DeleteGateway(in *apigatewaypb.DeleteGatewayRequest) (*longrunningpb.Operation, error) {
-	project, region, _, err := parseGatewayName(in.GetName())
+	project, region, err := parseGatewayName(in.GetName())
 	if err != nil {
 		return nil, err
 	}

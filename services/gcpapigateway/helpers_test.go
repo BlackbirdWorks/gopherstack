@@ -89,9 +89,9 @@ func (e *env) createAPI(t *testing.T, id string) *apigatewaypb.Api {
 	return api
 }
 
-func configRequest(api, id, doc string) *apigatewaypb.CreateApiConfigRequest {
+func configRequest(id, doc string) *apigatewaypb.CreateApiConfigRequest {
 	return &apigatewaypb.CreateApiConfigRequest{
-		Parent: parent + "/apis/" + api, ApiConfigId: id,
+		Parent: parent + "/apis/" + apiID, ApiConfigId: id,
 		ApiConfig: &apigatewaypb.ApiConfig{OpenapiDocuments: []*apigatewaypb.ApiConfig_OpenApiDocument{{
 			Document: &apigatewaypb.ApiConfig_File{Path: "openapi.yaml", Contents: []byte(doc)},
 		}}},
@@ -101,7 +101,7 @@ func configRequest(api, id, doc string) *apigatewaypb.CreateApiConfigRequest {
 func (e *env) createConfig(t *testing.T, id, doc string) *apigatewaypb.ApiConfig {
 	t.Helper()
 
-	op, err := e.client.CreateApiConfig(t.Context(), configRequest(apiID, id, doc))
+	op, err := e.client.CreateApiConfig(t.Context(), configRequest(id, doc))
 	require.NoError(t, err)
 
 	cfg, err := op.Wait(t.Context())

@@ -37,7 +37,7 @@ func (b *InMemoryBackend) policySlot(resource string) (**iampb.Policy, error) {
 
 		return &rec.policy, nil
 	case strings.Contains(resource, "/"+kindGateways+"/"):
-		if _, _, _, err := parseGatewayName(resource); err != nil {
+		if _, _, err := parseGatewayName(resource); err != nil {
 			return nil, err
 		}
 

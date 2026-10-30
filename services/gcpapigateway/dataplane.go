@@ -106,7 +106,7 @@ func (b *InMemoryBackend) resolve(r *http.Request) (*served, *authError) {
 		return nil, &authError{status: http.StatusServiceUnavailable, msg: "Gateway API config is not available."}
 	}
 
-	project, _, _, _ := parseGatewayName(g.pb.GetName())
+	project, _, _ := parseGatewayName(g.pb.GetName())
 	managed := ""
 
 	if api, found := b.apis[apiOfConfig(c.pb.GetName())]; found {

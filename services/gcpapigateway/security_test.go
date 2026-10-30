@@ -218,7 +218,8 @@ func TestJWTSecurity(t *testing.T) {
 			build: func(*testing.T, *signer, string) (map[string]string, string) { return nil, "/hello" },
 		},
 		{
-			name: "garbage token", want: 401, msg: "Jwt verification fails",
+			name: "garbage token", want: 401,
+			msg:   "Jwt verification fails",
 			build: func(*testing.T, *signer, string) (map[string]string, string) { return bearer("not.a.jwt"), "/hello" },
 		},
 		{

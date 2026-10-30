@@ -46,7 +46,8 @@ func TestRESTFlow(t *testing.T) {
 			Status: 200, Contains: []string{`"openapiDocuments"`, spec},
 		},
 		{
-			Name: "patch gateway", Method: http.MethodPatch, Path: gwPath + "?updateMask=labels", Body: `{"labels":{"a":"b"}}`,
+			Name: "patch gateway", Method: http.MethodPatch, Path: gwPath + "?updateMask=labels",
+			Body:   `{"labels":{"a":"b"}}`,
 			Status: 200, Contains: []string{`"done":true`, `"a":"b"`},
 		},
 		{

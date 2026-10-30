@@ -64,15 +64,15 @@ func parseParent(name string) (string, string, error) {
 	return ids[0], ids[1], nil
 }
 
-// parseGatewayName returns the project, location and id of "projects/{p}/locations/{l}/gateways/{id}".
-func parseGatewayName(name string) (string, string, string, error) {
+// parseGatewayName returns the project and location of "projects/{p}/locations/{l}/gateways/{id}".
+func parseGatewayName(name string) (string, string, error) {
 	ids, ok := parseRes(name, "projects", "locations", kindGateways)
 	if !ok {
-		return "", "", "", errInvalid(
+		return "", "", errInvalid(
 			"Invalid name %q: want projects/{project}/locations/{location}/gateways/{id}.", name)
 	}
 
-	return ids[0], ids[1], ids[2], nil
+	return ids[0], ids[1], nil
 }
 
 // parseConfigName returns the project of an API config name.

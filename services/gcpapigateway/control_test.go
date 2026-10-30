@@ -184,8 +184,8 @@ func TestConfigInputErrors(t *testing.T) {
 			codes.InvalidArgument,
 		},
 		{func(r *apigatewaypb.CreateApiConfigRequest) {
-			docs := r.GetApiConfig().GetOpenapiDocuments()
-			r.ApiConfig.OpenapiDocuments = append(docs, docs[0])
+			doc := r.GetApiConfig().GetOpenapiDocuments()[0]
+			r.ApiConfig.OpenapiDocuments = []*apigatewaypb.ApiConfig_OpenApiDocument{doc, doc}
 		}, "two documents", codes.InvalidArgument},
 		{
 			func(r *apigatewaypb.CreateApiConfigRequest) { r.ApiConfig.GatewayServiceAccount = "nope" },
@@ -210,7 +210,7 @@ func TestConfigInputErrors(t *testing.T) {
 			e := newEnv(t)
 			e.createAPI(t, apiID)
 
-			req := configRequest(apiID, "cfg", helloSpec("https://backend.example"))
+			req := configRequest("cfg", helloSpec("https://backend.example"))
 			tt.mut(req)
 
 			_, err := e.client.CreateApiConfig(t.Context(), req)
@@ -224,7 +224,7 @@ func TestConfigInputErrors(t *testing.T) {
 		e := newEnv(t)
 		e.createAPI(t, apiID)
 
-		req := configRequest(apiID, "cfg", helloSpec("https://backend.example"))
+		req := configRequest("cfg", helloSpec("https://backend.example"))
 		req.ApiConfig.GatewayServiceAccount = "gw@" + project + ".iam.gserviceaccount.com"
 
 		op, err := e.client.CreateApiConfig(t.Context(), req)
@@ -325,7 +325,7 @@ func TestOpenAPIValidation(t *testing.T) {
 			e := newEnv(t)
 			e.createAPI(t, apiID)
 
-			op, err := e.client.CreateApiConfig(t.Context(), configRequest(apiID, "bad", tt.doc))
+			op, err := e.client.CreateApiConfig(t.Context(), configRequest("bad", tt.doc))
 			require.NoError(t, err)
 
 			_, err = op.Wait(t.Context())

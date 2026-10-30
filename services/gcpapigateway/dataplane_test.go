@@ -33,7 +33,8 @@ func TestRoutingAndPathTranslation(t *testing.T) {
 			method: "GET", target: "/hello/world?x=1", wantPath: "/base/hello/world", wantQuery: "x=1", wantCode: 200,
 		},
 		{
-			name: "constant address moves path params to the query", root: "BE/fn\n  path_translation: CONSTANT_ADDRESS",
+			name:   "constant address moves path params to the query",
+			root:   "BE/fn\n  path_translation: CONSTANT_ADDRESS",
 			paths:  "  /hello/{name}:\n" + op("get", ""),
 			method: "GET", target: "/hello/world", wantPath: "/fn", wantQuery: "name=world", wantCode: 200,
 		},
