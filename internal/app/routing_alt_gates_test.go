@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -17,7 +18,6 @@ import (
 
 const (
 	altLambdaHost  = "abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws"
-	altShortStride = 4
 	altRowStride   = 16
 	altFormCT      = "application/x-www-form-urlencoded"
 	altMaxASCII    = 0x7f
@@ -143,24 +143,41 @@ func TestRoutingAltGatedLookupMatchesScan(t *testing.T) {
 
 	cases := loadRoutingCorpus(t)
 	if testing.Short() {
-		cases = strideSample(cases, altShortStride)
+		cases = strideSample(cases, altRowStride)
 	}
 
 	gates := routegates.AltGates()
-	names := make([]string, 0, len(gates))
 
-	for n := range gates {
-		names = append(names, n)
-	}
+	// Lookup and the scan consider every service, so the per-service variant sets are
+	// unioned and deduplicated; each distinct request is checked exactly once.
+	chunk := (len(cases) + holdChunks - 1) / holdChunks
 
-	slices.Sort(names)
+	var done sync.Map
 
-	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
+	for i := range holdChunks {
+		part := cases[min(i*chunk, len(cases)):min((i+1)*chunk, len(cases))]
+
+		t.Run("chunk", func(t *testing.T) {
 			t.Parallel()
 
-			for _, rc := range cases {
-				for _, v := range append([]routingCase{rc}, altVariants(rc, gates[name])...) {
+			for _, rc := range part {
+				seen := map[routingCase]bool{rc: true}
+				all := []routingCase{rc}
+
+				for _, g := range gates {
+					for _, v := range altVariants(rc, g) {
+						if !seen[v] {
+							seen[v] = true
+							all = append(all, v)
+						}
+					}
+				}
+
+				for _, v := range all {
+					if _, dup := done.LoadOrStore(v, struct{}{}); dup {
+						continue
+					}
+
 					scan := scanSelect(entries, echo.NewContext(v.request(t), httptest.NewRecorder()))
 					got := entryName(router.Lookup(echo.NewContext(v.request(t), httptest.NewRecorder())))
 					require.Equal(t, scan, got, "%s %s%s target=%q auth=%q headers=%q",
