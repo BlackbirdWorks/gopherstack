@@ -124,3 +124,43 @@ func TestDatabaseSQL(t *testing.T) {
 		})
 	}
 }
+
+func TestDatabaseSQLRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678_$-"
+
+	tests := []struct {
+		name  string
+		input string
+		bad   bool
+	}{
+		{name: "alphabet", input: alphabet},
+		{name: "single", input: "a"},
+		{name: "max len", input: strings.Repeat("Z", 64)},
+		{name: "dollar dash", input: "my-db$1"},
+		{name: "space", input: "a b", bad: true},
+		{name: "backtick", input: "a`b", bad: true},
+		{name: "quote", input: "a'b", bad: true},
+		{name: "unicode", input: "café", bad: true},
+		{name: "nul", input: "a\x00b", bad: true},
+		{name: "too long", input: strings.Repeat("a", 65), bad: true},
+		{name: "empty", input: "", bad: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			drop, err := mysqlengine.DropDatabaseSQL(tt.input)
+			if tt.bad {
+				require.ErrorIs(t, err, mysqlengine.ErrInvalidIdentifier)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, "DROP DATABASE IF EXISTS `"+tt.input+"`", drop)
+		})
+	}
+}
