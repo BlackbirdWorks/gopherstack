@@ -115,8 +115,10 @@ func (p *ComputeProvider) vmOSDisk(
 	}
 
 	out := map[string]any{
-		cmpKeyOSType: osType, cmpFieldCreateOpt: opt, "caching": firstNonEmpty(strOf(osd, "caching"), "ReadWrite"),
-		cmpFieldDelOpt: del,
+		cmpKeyOSType:      osType,
+		cmpFieldCreateOpt: opt,
+		cmpFieldCaching:   firstNonEmpty(strOf(osd, cmpFieldCaching), cmpCachingRW),
+		cmpFieldDelOpt:    del,
 	}
 
 	if v, set := osd["writeAcceleratorEnabled"]; set {
@@ -227,8 +229,8 @@ func (p *ComputeProvider) updateOSDisk(
 ) (map[string]any, error) {
 	out := cloneProps(oldOS)
 
-	if c := strOf(osd, "caching"); c != "" {
-		out["caching"] = c
+	if c := strOf(osd, cmpFieldCaching); c != "" {
+		out[cmpFieldCaching] = c
 	}
 
 	if _, set := osd[cmpFieldDelOpt]; set {
@@ -397,8 +399,10 @@ func (p *ComputeProvider) planDataDisk(
 	mdID := strOf(md, cmpFieldID)
 
 	entry := map[string]any{
-		cmpFieldLun: q.lun, "caching": firstNonEmpty(strOf(q.raw, "caching"), "None"), cmpFieldDelOpt: del,
-		"toBeDetached": false,
+		cmpFieldLun:     q.lun,
+		cmpFieldCaching: firstNonEmpty(strOf(q.raw, cmpFieldCaching), cmpCachingNone),
+		cmpFieldDelOpt:  del,
+		"toBeDetached":  false,
 	}
 
 	if v, set := q.raw["writeAcceleratorEnabled"]; set {

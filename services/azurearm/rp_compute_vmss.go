@@ -25,6 +25,7 @@ const (
 	auxModel          = "model"
 	auxNextInstance   = "nextInstance"
 	vmssMaxCapacity   = 1000
+	vmssMaxZones      = 3
 	vmssMaxLinuxPfx   = 58
 	vmssMaxWinPfx     = 9
 	base36            = 36
@@ -55,13 +56,18 @@ func (p *ComputeProvider) putVMSS(id ResourceID, body map[string]any) (*cmpRes, 
 		return nil, err
 	}
 
-	if r.Zones, err = parseZones(body, old); err != nil {
+	if r.Zones, err = parseZones(body, old, vmssMaxZones); err != nil {
 		return nil, err
 	}
 
 	r.Extra = extraFields(body, "plan", "extendedLocation")
 
-	capacity, err := vmssSKU(r, body, old)
+	mode, err := vmssModeOf(body, old)
+	if err != nil {
+		return nil, err
+	}
+
+	capacity, err := vmssSKU(r, body, old, mode == modeFlexible)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +76,10 @@ func (p *ComputeProvider) putVMSS(id ResourceID, body map[string]any) (*cmpRes, 
 	delete(props, "uniqueId")
 	delete(props, fieldProvisioningState)
 	delete(props, cmpFieldTimeMade)
+
+	if mode == modeFlexible {
+		return p.putFlexVMSS(r, old, props, capacity)
+	}
 
 	if err = p.vmssNormalize(r, old, props); err != nil {
 		return nil, err
@@ -82,10 +92,37 @@ func (p *ComputeProvider) putVMSS(id ResourceID, body map[string]any) (*cmpRes, 
 	return r, nil
 }
 
-func vmssSKU(r *cmpRes, body map[string]any, old *cmpRes) (int, error) {
+func (p *ComputeProvider) putFlexVMSS(r, old *cmpRes, props map[string]any, capacity int) (*cmpRes, error) {
+	if err := p.flexNormalize(r, old, props, capacity); err != nil {
+		return nil, err
+	}
+
+	key := cmpKey(cmpVMSS, r.RG, r.Name)
+	r.Props = props
+	r.Aux[auxModel] = "1"
+	p.items[key] = r
+
+	if err := p.flexReconcile(r, capacity); err != nil {
+		if old != nil {
+			p.items[key] = old
+		} else {
+			delete(p.items, key)
+		}
+
+		return nil, err
+	}
+
+	return r, nil
+}
+
+func vmssSKU(r *cmpRes, body map[string]any, old *cmpRes, flexible bool) (int, error) {
 	sku := mapOf(body[cmpFieldSKU])
 	if len(sku) == 0 && old != nil {
 		sku = old.SKU
+	}
+
+	if flexible && len(sku) == 0 {
+		return 0, nil
 	}
 
 	size, ok := findVMSize(strOf(sku, fieldName))
@@ -113,15 +150,6 @@ func vmssSKU(r *cmpRes, body map[string]any, old *cmpRes) (int, error) {
 }
 
 func (p *ComputeProvider) vmssNormalize(r, old *cmpRes, props map[string]any) error {
-	mode := firstNonEmpty(strOf(props, cmpFieldOrchMode), modeUniform)
-	if !strings.EqualFold(mode, modeUniform) {
-		return cmpInvalid("orchestrationMode '%s' is not supported; only 'Uniform' scale sets are modelled.", mode)
-	}
-
-	if old != nil && !strings.EqualFold(strOf(old.Props, cmpFieldOrchMode), mode) {
-		return cmpChanged(cmpFieldOrchMode)
-	}
-
 	props[cmpFieldOrchMode] = modeUniform
 
 	up := cloneProps(mapOf(props[cmpFieldUpgrade]))
@@ -201,6 +229,8 @@ func (p *ComputeProvider) vmssProfile(r, old *cmpRes, profile map[string]any) er
 	delete(osp, "secrets")
 	osp["computerNamePrefix"] = pfx
 	profile[cmpFieldOSProfile] = osp
+
+	stripProfileSecrets(profile)
 
 	sp := cloneProps(mapOf(profile[cmpFieldStorage]))
 	if ref := mapOf(sp[cmpFieldImageRef]); len(ref) > 0 {
@@ -370,6 +400,16 @@ func (r *cmpRes) instance(id string) (*cmpInstance, int) {
 }
 
 func (p *ComputeProvider) vmssInstanceGet(r *cmpRes, id ResourceID) (map[string]any, error) {
+	if isFlexible(r) {
+		for _, vm := range p.vmssMembers(r) {
+			if len(id.Names) == vmssInstanceNames && strings.EqualFold(vm.Name, id.Names[1]) {
+				return p.flexInstanceBody(r, vm), nil
+			}
+		}
+
+		return nil, ErrResourceNotFound
+	}
+
 	in, _ := r.instance(id.Names[len(id.Names)-1])
 	if in == nil || len(id.Names) != vmssInstanceNames {
 		return nil, ErrResourceNotFound
@@ -379,6 +419,10 @@ func (p *ComputeProvider) vmssInstanceGet(r *cmpRes, id ResourceID) (map[string]
 }
 
 func (p *ComputeProvider) vmssInstanceList(r *cmpRes, _ ResourceID) []map[string]any {
+	if isFlexible(r) {
+		return p.flexInstanceList(r)
+	}
+
 	out := make([]map[string]any, 0, len(r.Instances))
 	for _, in := range r.Instances {
 		out = append(out, p.vmssInstanceBody(r, in))
@@ -388,6 +432,11 @@ func (p *ComputeProvider) vmssInstanceList(r *cmpRes, _ ResourceID) []map[string
 }
 
 func (p *ComputeProvider) vmssInstanceDelete(r *cmpRes, id ResourceID) error {
+	if isFlexible(r) {
+		return cmpNotAllowed("Instances of the Flexible scale set %s are virtual machines; delete the virtual "+
+			"machine with the virtual machines API.", r.Name)
+	}
+
 	if len(id.Names) != vmssInstanceNames {
 		return ErrResourceNotFound
 	}
@@ -412,6 +461,10 @@ func (p *ComputeProvider) VMSSAction(id ResourceID, action string, ids []string)
 	r, ok := p.top(cmpVMSS, id.ResourceGroup, id.Names[0])
 	if !ok {
 		return ErrResourceNotFound
+	}
+
+	if isFlexible(r) {
+		return p.flexAction(r, action, ids)
 	}
 
 	targets := r.Instances

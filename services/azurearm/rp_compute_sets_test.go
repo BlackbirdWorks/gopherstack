@@ -356,13 +356,6 @@ func TestComputeSDK_ScaleSetPowerAndValidation(t *testing.T) {
 			v.SKU.Capacity = new(int64(-1))
 		}},
 		{
-			name:     "flexible unsupported",
-			wantCode: "InvalidParameter",
-			mutate: func(v *armcompute.VirtualMachineScaleSet) {
-				v.Properties.OrchestrationMode = new(armcompute.OrchestrationModeFlexible)
-			},
-		},
-		{
 			name:     "missing subnet",
 			wantCode: "InvalidResourceReference",
 			mutate: func(v *armcompute.VirtualMachineScaleSet) {
