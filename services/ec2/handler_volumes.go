@@ -839,6 +839,10 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	if err = h.requireSnapshotUsable(vals, snapshotID); err != nil {
+		return nil, err
+	}
+
 	vol, err := h.Backend.CreateVolume(az, volType, size, snapshotID, initRate)
 	if err != nil {
 		return nil, err

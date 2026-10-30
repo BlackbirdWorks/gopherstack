@@ -69,9 +69,9 @@ type StorageBackend interface {
 	ListDelegatedAdministrators(servicePrincipal string) ([]*DelegatedAdmin, error)
 
 	// Handshake operations
-	AcceptHandshake(handshakeID string) (*Handshake, error)
-	CancelHandshake(handshakeID string) (*Handshake, error)
-	DeclineHandshake(handshakeID string) (*Handshake, error)
+	AcceptHandshake(ctx context.Context, handshakeID string) (*Handshake, error)
+	CancelHandshake(ctx context.Context, handshakeID string) (*Handshake, error)
+	DeclineHandshake(ctx context.Context, handshakeID string) (*Handshake, error)
 	DescribeHandshake(handshakeID string) (*Handshake, error)
 	DescribeResponsibilityTransfer(transferID string) (*ResponsibilityTransfer, error)
 	EnableAllFeatures() (*Handshake, error)

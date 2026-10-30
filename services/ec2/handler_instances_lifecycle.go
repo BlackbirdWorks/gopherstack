@@ -331,7 +331,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	if err := h.requireLaunchableImage(h.svcCtx, imageID); err != nil {
+	if err := h.requireLaunchableImageFor(vals, imageID); err != nil {
 		return nil, err
 	}
 

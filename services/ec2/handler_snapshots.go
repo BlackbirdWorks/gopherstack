@@ -91,10 +91,16 @@ func (h *Handler) handleCopySnapshot(vals url.Values, reqID string) (any, error)
 	encrypted := vals.Get("Encrypted") == ec2BooleanTrue
 	kmsKeyID := vals.Get("KmsKeyId")
 
+	if err := h.requireSnapshotUsable(vals, sourceID); err != nil {
+		return nil, err
+	}
+
 	snap, err := h.Backend.CopySnapshot(sourceID, description, encrypted, kmsKeyID)
 	if err != nil {
 		return nil, err
 	}
+
+	h.claimSnapshots(callerOf(vals), snap)
 
 	tags := parseTagSpecification(vals, resourceTypeSnapshot)
 	if len(tags) > 0 {
@@ -126,6 +132,8 @@ func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, err
 	if err != nil {
 		return nil, err
 	}
+
+	h.claimSnapshots(callerOf(vals), snaps...)
 
 	tags := parseTagSpecification(vals, resourceTypeSnapshot)
 
@@ -264,6 +272,10 @@ func (h *Handler) handleModifySnapshotTier(vals url.Values, reqID string) (any, 
 
 func (h *Handler) handleResetSnapshotAttribute(vals url.Values, reqID string) (any, error) {
 	snapshotID := vals.Get("SnapshotId")
+	if err := h.requireSnapshotOwner(vals, snapshotID); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.ResetSnapshotAttribute(snapshotID); err != nil {
 		return nil, err
 	}
@@ -687,6 +699,8 @@ func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
+	h.claimSnapshots(callerOf(vals), snap)
+
 	tags := parseTagSpecification(vals, resourceTypeSnapshot)
 	if len(tags) > 0 {
 		if err = h.Backend.CreateTags([]string{snap.SnapshotID}, tags); err != nil {
@@ -717,6 +731,18 @@ func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, e
 	snaps, err := h.Backend.DescribeSnapshots(ids)
 	if err != nil {
 		return nil, err
+	}
+
+	if sb := h.sharing(); sb != nil {
+		snaps = sb.VisibleSnapshots(callerOf(vals), snaps)
+
+		if err = firstMissingSnapshot(ids, snaps); err != nil {
+			return nil, err
+		}
+
+		snaps = sb.NarrowSnapshots(
+			callerOf(vals), snaps, parseMemberList(vals, "Owner"), parseMemberList(vals, "RestorableBy"),
+		)
 	}
 
 	filters := parseEC2Filters(vals)
@@ -911,6 +937,10 @@ func (h *Handler) handleDescribeSnapshotAttribute(vals url.Values, reqID string)
 		return nil, fmt.Errorf("%w: Attribute is required", ErrInvalidParameter)
 	}
 
+	if err := h.requireSnapshotOwner(vals, snapshotID); err != nil {
+		return nil, err
+	}
+
 	resp := &describeSnapshotAttributeResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
@@ -940,6 +970,10 @@ func (h *Handler) handleModifySnapshotAttribute(vals url.Values, reqID string) (
 	snapshotID := vals.Get("SnapshotId")
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: SnapshotId is required", ErrInvalidParameter)
+	}
+
+	if err := h.requireSnapshotOwner(vals, snapshotID); err != nil {
+		return nil, err
 	}
 
 	addIDs, addPublic := parseLaunchPermissionList(vals, "CreateVolumePermission.Add")

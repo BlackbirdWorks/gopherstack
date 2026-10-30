@@ -282,7 +282,7 @@ func (h *Handler) handleAcceptHandshake(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
 	}
 
-	hs, err := h.Backend.AcceptHandshake(req.HandshakeID)
+	hs, err := h.Backend.AcceptHandshake(c.Request().Context(), req.HandshakeID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -300,7 +300,7 @@ func (h *Handler) handleCancelHandshake(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
 	}
 
-	hs, err := h.Backend.CancelHandshake(req.HandshakeID)
+	hs, err := h.Backend.CancelHandshake(c.Request().Context(), req.HandshakeID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -318,7 +318,7 @@ func (h *Handler) handleDeclineHandshake(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
 	}
 
-	hs, err := h.Backend.DeclineHandshake(req.HandshakeID)
+	hs, err := h.Backend.DeclineHandshake(c.Request().Context(), req.HandshakeID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

@@ -386,3 +386,41 @@ func TestAccountFromAccessKey(t *testing.T) {
 		})
 	}
 }
+
+func TestCallerAccount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		meta   *awsmeta.Metadata
+		name   string
+		want   string
+		wantOK bool
+	}{
+		{name: "no metadata", meta: nil},
+		{name: "default account", meta: &awsmeta.Metadata{Account: awsmeta.DefaultAccount}},
+		{
+			name:   "explicit account",
+			meta:   &awsmeta.Metadata{Account: "111111111111"},
+			want:   "111111111111",
+			wantOK: true,
+		},
+		{
+			name: "principal wins",
+			meta: &awsmeta.Metadata{
+				Account:   awsmeta.DefaultAccount,
+				Principal: &awsmeta.Principal{AccountID: "222222222222"},
+			},
+			want: "222222222222", wantOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := awsmeta.CallerAccount(awsmeta.Set(t.Context(), tt.meta))
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantOK, ok)
+		})
+	}
+}

@@ -77,6 +77,8 @@ func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) 
 		return nil, err
 	}
 
+	h.claimImage(callerOf(vals), image)
+
 	if err = h.commitImageFor(h.svcCtx, vals.Get("InstanceId"), image); err != nil {
 		_ = h.Backend.DeregisterImage(image.ImageID)
 

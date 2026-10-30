@@ -94,6 +94,21 @@ var (
 		"HandshakeConstraintViolationException: handshake is not in a valid state for this transition",
 		awserr.ErrConflict,
 	)
+	// ErrHandshakeAlreadyInState is returned when the handshake is already in the requested state.
+	ErrHandshakeAlreadyInState = awserr.New(
+		"HandshakeAlreadyInStateException: handshake is already in the requested state",
+		awserr.ErrConflict,
+	)
+	// ErrInvalidHandshakeTransition is returned when the handshake's current state forbids the operation.
+	ErrInvalidHandshakeTransition = awserr.New(
+		"InvalidHandshakeTransitionException: handshake cannot make this transition from its current state",
+		awserr.ErrConflict,
+	)
+	// ErrAccessDeniedHandshake is returned when the caller is not the party allowed to respond to a handshake.
+	ErrAccessDeniedHandshake = awserr.New(
+		"AccessDeniedException: caller is not permitted to act on this handshake",
+		awserr.ErrConflict,
+	)
 	// ErrResourcePolicyNotFound is returned when no resource policy exists.
 	ErrResourcePolicyNotFound = awserr.New(
 		"ResourcePolicyNotFoundException: resource policy not found",

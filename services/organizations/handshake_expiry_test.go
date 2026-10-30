@@ -35,7 +35,7 @@ func TestCancelHandshake_EvictedAfterRetention(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		_, err = b.CancelHandshake(h.ID)
+		_, err = b.CancelHandshake(t.Context(), h.ID)
 		require.NoError(t, err)
 
 		require.Equal(t, 1, organizations.HandshakeCount(b),
@@ -70,7 +70,7 @@ func TestCancelHandshake_KeptWithinRetention(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		_, err = b.CancelHandshake(h.ID)
+		_, err = b.CancelHandshake(t.Context(), h.ID)
 		require.NoError(t, err)
 
 		time.Sleep(30*24*time.Hour - time.Second)

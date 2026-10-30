@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // isValidGrantOperation reports whether op is a grant operation permitted by AWS KMS.
@@ -131,6 +133,10 @@ func (b *InMemoryBackend) CreateGrant(
 	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport ||
 		key.KeyState == KeyStatePendingReplicaDeletion {
 		return nil, keyStateError(key)
+	}
+
+	if err = b.authorizeKeyAction(ctx, region, keyID, "CreateGrant"); err != nil {
+		return nil, err
 	}
 
 	grantsForKey := b.grantsRegion(region)
@@ -372,6 +378,10 @@ func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInp
 		return ErrGrantNotFound
 	}
 
+	if err = b.authorizeKeyAction(ctx, region, key.KeyID, "RevokeGrant"); err != nil {
+		return err
+	}
+
 	if input.DryRun {
 		return ErrDryRun
 	}
@@ -389,7 +399,7 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 	defer b.mu.Unlock()
 
 	if input.GrantToken != "" {
-		return b.retireGrantByToken(input.GrantToken, input.DryRun)
+		return b.retireGrantByToken(ctx, input.GrantToken, input.DryRun)
 	}
 
 	if input.GrantID == "" {
@@ -404,16 +414,20 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 		return b.retireGrantByKeyID(ctx, input.KeyID, input.GrantID, input.DryRun)
 	}
 
-	return b.retireGrantByIDOnly(input.GrantID, input.DryRun)
+	return b.retireGrantByIDOnly(ctx, input.GrantID, input.DryRun)
 }
 
 // retireGrantByToken searches all regions for a grant token and retires the matching grant.
 // Must be called with the write lock held.
-func (b *InMemoryBackend) retireGrantByToken(grantToken string, dryRun bool) error {
+func (b *InMemoryBackend) retireGrantByToken(ctx context.Context, grantToken string, dryRun bool) error {
 	for _, gs := range b.grants {
 		matches := gs.byToken.Get(grantToken)
 		if len(matches) == 0 {
 			continue
+		}
+
+		if err := authorizeGrantRetire(ctx, matches[0]); err != nil {
+			return err
 		}
 
 		if dryRun {
@@ -441,6 +455,10 @@ func (b *InMemoryBackend) retireGrantByKeyID(ctx context.Context, keyID, grantID
 		return ErrGrantNotFound
 	}
 
+	if err = authorizeGrantRetire(ctx, grant); err != nil {
+		return err
+	}
+
 	if dryRun {
 		return ErrDryRun
 	}
@@ -452,9 +470,13 @@ func (b *InMemoryBackend) retireGrantByKeyID(ctx context.Context, keyID, grantID
 
 // retireGrantByIDOnly searches all regions for a grant ID (no KeyId region hint) and retires it.
 // Must be called with the write lock held.
-func (b *InMemoryBackend) retireGrantByIDOnly(grantID string, dryRun bool) error {
+func (b *InMemoryBackend) retireGrantByIDOnly(ctx context.Context, grantID string, dryRun bool) error {
 	for _, gs := range b.grants {
-		if _, ok := gs.table.Get(grantID); ok {
+		if g, ok := gs.table.Get(grantID); ok {
+			if err := authorizeGrantRetire(ctx, g); err != nil {
+				return err
+			}
+
 			if dryRun {
 				return ErrDryRun
 			}
@@ -481,6 +503,13 @@ func (b *InMemoryBackend) ListRetirableGrants(
 		return nil, fmt.Errorf(
 			"%w: you must specify either RetiringPrincipal or RetiringServicePrincipal, but not both",
 			ErrValidation,
+		)
+	}
+
+	if p := awsmeta.GetPrincipal(ctx); p != nil && input.RetiringPrincipal != "" &&
+		arnAccount(input.RetiringPrincipal) != callerAccount(ctx, p) {
+		return nil, fmt.Errorf(
+			"%w: RetiringPrincipal must be a principal in the caller's account", ErrAccessDenied,
 		)
 	}
 
