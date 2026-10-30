@@ -296,8 +296,9 @@ func (b *InMemoryBackend) NarrowImagesByExecutable(caller string, imgs []*AMIStu
 				return a.OwnerID == self || b.imageLaunchPermissions[a.ImageID][self]
 			}
 
-			return (u == permissionGroupAll && (b.imageLaunchPermissionPublic[a.ImageID] || knownImageOwnerAliases[a.OwnerID])) ||
-				b.imageLaunchPermissions[a.ImageID][u]
+			public := b.imageLaunchPermissionPublic[a.ImageID] || knownImageOwnerAliases[a.OwnerID]
+
+			return (u == permissionGroupAll && public) || b.imageLaunchPermissions[a.ImageID][u]
 		})
 	})
 }

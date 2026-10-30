@@ -419,7 +419,8 @@ func TestSharedImageAccess(t *testing.T) {
 				_, err = c.DescribeImages(t.Context(), &ec2sdk.DescribeImagesInput{ImageIds: []string{*id}})
 			case "run":
 				_, err = c.RunInstances(t.Context(), &ec2sdk.RunInstancesInput{
-					ImageId: id, InstanceType: types.InstanceTypeT3Micro, MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
+					ImageId: id, InstanceType: types.InstanceTypeT3Micro,
+					MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
 				})
 			case "copy":
 				_, err = c.CopyImage(t.Context(), &ec2sdk.CopyImageInput{
