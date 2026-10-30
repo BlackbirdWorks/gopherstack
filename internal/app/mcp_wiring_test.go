@@ -40,7 +40,7 @@ func newMCPStack(t *testing.T, mcpCfg MCPConfig) *mcpStack {
 	cli.faultStore = chaos.NewFaultStore()
 	_ = cli.IAMPolicyStream()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: log, Config: &cli, JanitorCtx: t.Context(), PortAlloc: cli.portAlloc,
 	})
 	require.NoError(t, err)

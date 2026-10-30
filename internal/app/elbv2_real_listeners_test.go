@@ -47,7 +47,7 @@ func TestInitializeServices_ELBv2RealListenersTerminateACMCert(t *testing.T) {
 			cli := &CLI{AccountID: "000000000000", ELBv2: ELBv2Settings{Listeners: tt.mode}}
 			cli.faultStore = chaos.NewFaultStore()
 
-			services, err := initializeServices(&service.AppContext{
+			services, err := initializeServicesT(t, &service.AppContext{
 				Logger: slog.Default(), Config: cli, JanitorCtx: t.Context(),
 			})
 			require.NoError(t, err)

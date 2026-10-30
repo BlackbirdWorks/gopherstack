@@ -39,7 +39,7 @@ func arcStack(t *testing.T) aws.Config {
 	cli := &CLI{AccountID: "000000000000", Region: regionA, Port: ":" + strconv.Itoa(port)}
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(
+	services, err := initializeServicesT(t,
 		&service.AppContext{Logger: slog.Default(), Config: cli, JanitorCtx: t.Context()},
 	)
 	require.NoError(t, err)

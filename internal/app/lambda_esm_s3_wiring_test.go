@@ -35,7 +35,7 @@ func TestLambdaESMS3Destination(t *testing.T) {
 			cli.portAlloc = setupPortAllocatorWithReservations(t.Context(), log, cli)
 			cli.faultStore = chaos.NewFaultStore()
 
-			services, err := initializeServices(&service.AppContext{
+			services, err := initializeServicesT(t, &service.AppContext{
 				Logger: log, Config: &cli, JanitorCtx: t.Context(), PortAlloc: cli.portAlloc,
 			})
 			require.NoError(t, err)

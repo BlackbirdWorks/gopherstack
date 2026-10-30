@@ -56,7 +56,7 @@ func newSSOStack(t *testing.T) ssoStack {
 	cli.portAlloc = setupPortAllocatorWithReservations(t.Context(), log, cli)
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: log, Config: &cli, JanitorCtx: t.Context(), PortAlloc: cli.portAlloc,
 	})
 	require.NoError(t, err)

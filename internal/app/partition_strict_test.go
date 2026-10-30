@@ -42,7 +42,7 @@ func partitionServer(t *testing.T) *echo.Echo {
 		cli.portAlloc = setupPortAllocatorWithReservations(ctx, log, cli)
 		cli.faultStore = chaos.NewFaultStore()
 
-		services, err := initializeServices(&service.AppContext{
+		services, err := initializeServicesT(t, &service.AppContext{
 			Logger: log, Config: &cli, JanitorCtx: ctx, PortAlloc: cli.portAlloc,
 		})
 		if err != nil {

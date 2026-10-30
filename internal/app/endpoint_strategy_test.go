@@ -40,7 +40,7 @@ func strategyServer(t *testing.T, mutate func(*CLI)) *echo.Echo {
 	cli.portAlloc = setupPortAllocatorWithReservations(ctx, log, cli)
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: log, Config: &cli, JanitorCtx: ctx, PortAlloc: cli.portAlloc,
 	})
 	require.NoError(t, err)

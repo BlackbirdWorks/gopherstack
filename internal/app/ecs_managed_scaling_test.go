@@ -27,7 +27,7 @@ func TestWireECSManagedScaling_ScalesGroupAndPlacesTasks(t *testing.T) {
 	cli := &CLI{AccountID: "000000000000"}
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(
+	services, err := initializeServicesT(t,
 		&service.AppContext{Logger: slog.Default(), Config: cli, JanitorCtx: t.Context()},
 	)
 	require.NoError(t, err)

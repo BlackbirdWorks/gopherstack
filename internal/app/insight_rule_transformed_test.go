@@ -48,7 +48,7 @@ func TestInitializeServices_InsightRuleTransformedLogs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			services, err := initializeServices(newTestAppContext(t, 20000, 20100))
+			services, err := initializeServicesT(t, newTestAppContext(t, 20000, 20100))
 			require.NoError(t, err)
 
 			byName := serviceByName(services)

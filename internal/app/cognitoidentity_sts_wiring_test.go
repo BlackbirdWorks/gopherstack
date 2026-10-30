@@ -41,7 +41,7 @@ func TestInitializeServices_CognitoIdentityCredentialsAcceptedBySTS(t *testing.T
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1"}
 	cli.faultStore = chaos.NewFaultStore()
-	services, err := initializeServices(
+	services, err := initializeServicesT(t,
 		&service.AppContext{Logger: slog.Default(), Config: cli, JanitorCtx: t.Context()},
 	)
 	require.NoError(t, err)
@@ -191,7 +191,7 @@ func TestInitializeServices_CognitoIdentityCustomRoleAndPrincipalTags(t *testing
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1"}
 	cli.faultStore = chaos.NewFaultStore()
-	services, err := initializeServices(
+	services, err := initializeServicesT(t,
 		&service.AppContext{Logger: slog.Default(), Config: cli, JanitorCtx: t.Context()},
 	)
 	require.NoError(t, err)

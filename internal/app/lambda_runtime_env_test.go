@@ -72,7 +72,7 @@ func newWiredServices(t *testing.T, cli *CLI) map[string]service.Registerable {
 	portAlloc := portalloctest.New(t, 50)
 
 	cli.faultStore = chaos.NewFaultStore()
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: slog.Default(), Config: cli, JanitorCtx: t.Context(), PortAlloc: portAlloc,
 	})
 	require.NoError(t, err)
