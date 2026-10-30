@@ -116,6 +116,10 @@ func (b *InMemoryBackend) readChangeFeed(dbID, collID string, req changeFeedRequ
 		return changeFeedPage{}, err
 	}
 
+	if req.AllVersions && b.changeRetention() < 0 {
+		return changeFeedPage{}, ErrChangeFeedBackup
+	}
+
 	if req.FromNow {
 		return changeFeedPage{RID: rid, Seq: c.ChangeSeq}, nil
 	}
@@ -146,8 +150,12 @@ func (b *InMemoryBackend) readChangeFeed(dbID, collID string, req changeFeedRequ
 func (b *InMemoryBackend) readVersionFeed(
 	dbID, collID string, c *storedContainer, rid string, req changeFeedRequest,
 ) (changeFeedPage, error) {
-	if !req.Started {
+	if !req.Started || !req.Since.IsZero() {
 		return changeFeedPage{}, ErrChangeFeedStart
+	}
+
+	if req.AfterSeq < c.ChangeFloor {
+		return changeFeedPage{}, ErrChangeFeedRetention
 	}
 
 	recs := c.changedVersions(req)
@@ -315,10 +323,6 @@ func (h *Handler) encodeVersion(v ChangeVersion) map[string]any {
 		cur := h.encodeDocument(*v.Current)
 		cur["_lsn"] = v.Current.Seq
 		out["current"] = cur
-	}
-
-	if v.Previous != nil {
-		out["previous"] = h.encodeDocument(*v.Previous)
 	}
 
 	if v.Op == opDelete {

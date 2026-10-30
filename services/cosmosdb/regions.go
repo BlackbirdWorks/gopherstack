@@ -334,3 +334,25 @@ func (b *InMemoryBackend) SetAccountPolicies(p AccountPolicies) {
 	b.mu.Unlock()
 	b.notifyRegions()
 }
+
+// Backup modes an account reports (ARM backupPolicy): periodic backup keeps no change history, the continuous tiers
+// keep it for 7 or 30 days.
+const (
+	backupPeriodic    = "Periodic"
+	backupContinuous7 = "Continuous7Days"
+	backupContinuous  = "Continuous30Days"
+)
+
+// changeRetention is how long the all-versions-and-deletes change feed keeps versions: the continuous backup window
+// (Learn, "Change feed modes"). Periodic backup keeps none; a standalone emulator without an ARM account defaults to
+// the 7-day tier.
+func (b *InMemoryBackend) changeRetention() time.Duration {
+	switch b.regions.Backup {
+	case backupPeriodic:
+		return noChangeLog
+	case backupContinuous:
+		return continuous30Retention
+	}
+
+	return defaultChangeRetention
+}

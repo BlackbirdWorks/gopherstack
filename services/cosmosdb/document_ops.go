@@ -134,7 +134,7 @@ func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
 			"Operation cannot be performed because one of the specified precondition is not met.")
 	case errors.Is(err, ErrInvalidDocument), errors.Is(err, ErrPartitionKeyMismatch), errors.Is(err, ErrInvalidPatch),
 		errors.Is(err, ErrBatchTooLarge), errors.Is(err, ErrInvalidTrigger), errors.Is(err, ErrInvalidPKRange),
-		errors.Is(err, ErrChangeFeedStart):
+		errors.Is(err, ErrChangeFeedStart), errors.Is(err, ErrChangeFeedBackup), errors.Is(err, ErrChangeFeedRetention):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
 	case isRoutingError(err):
 		return h.writeRoutingError(c, err)
@@ -255,6 +255,18 @@ func (h *Handler) patchDocument(c *echo.Context, dbID, collID, docID string) err
 	req, parseErr := parsePatchRequest(body)
 	if parseErr != nil {
 		return h.writeDocumentError(c, parseErr)
+	}
+
+	if trig := triggerRequest(r); trig.requested() {
+		patchBody, decErr := decodeJSONObject(body)
+		if decErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
+		}
+
+		return h.runWithTriggers(c, dbID, collID, docOp{
+			kind: batchPatch, body: patchBody, pk: pk, id: docID, ifMatch: r.Header.Get("If-Match"),
+			pre: trig.pre, post: trig.post,
+		})
 	}
 
 	patcher, ok := h.be(c).(interface {

@@ -59,6 +59,7 @@ func copyConfig(dst, src *storedContainer) {
 		src.VectorEmbeddingPolicy, src.FullTextPolicy
 	dst.ComputedProperties = src.ComputedProperties
 	dst.repl = src.repl
+	dst.keep = src.keep
 }
 
 // shadowStore is a region's copy of the container, seeded from the home store.

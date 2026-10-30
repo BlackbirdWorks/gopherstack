@@ -41,6 +41,7 @@ func (b *InMemoryBackend) beginTxAt(dbID, collID string, read bool) (*containerT
 	}
 
 	tx := &containerTx{b: b, c: c, dbID: dbID, collID: collID, now: b.now(), seq0: c.ChangeSeq}
+	c.keep = b.changeRetention()
 	b.attachRepl(tx)
 
 	return tx, nil
@@ -62,7 +63,7 @@ func (tx *containerTx) put(key documentCompositeKey, doc *storedDocument) {
 		if tx.c.alive(prev, tx.now) {
 			rec.Op, rec.Previous, rec.PrevSeq = opReplace, prev, prev.Seq
 		} else {
-			tx.c.recordExpired(prev)
+			tx.c.recordExpired(prev, tx.now)
 		}
 	}
 
@@ -74,7 +75,7 @@ func (tx *containerTx) put(key documentCompositeKey, doc *storedDocument) {
 
 	tx.c.ChangeSeq++
 	doc.Seq, rec.Seq = tx.c.ChangeSeq, tx.c.ChangeSeq
-	tx.c.appendChange(rec)
+	tx.c.appendChange(rec, tx.now)
 	tx.c.Documents[key] = doc
 	tx.c.sorted.Store(nil)
 }
@@ -91,7 +92,7 @@ func (tx *containerTx) remove(key documentCompositeKey) {
 	tx.c.appendChange(&changeRecord{
 		Time: tx.now, Previous: prev, Op: opDelete, ID: prev.ID, PartitionKeyJSON: prev.PartitionKeyJSON,
 		Seq: tx.c.ChangeSeq, PrevSeq: prev.Seq,
-	})
+	}, tx.now)
 	delete(tx.c.Documents, key)
 	tx.c.sorted.Store(nil)
 }

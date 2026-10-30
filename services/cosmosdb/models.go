@@ -156,29 +156,31 @@ type storedDatabase struct {
 
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
-	Modified                 time.Time         `json:"Modified"`
-	PKLayout                 *pkLayout         `json:"PKLayout,omitempty"`
-	Conflicts                []*conflictRecord `json:"Conflicts,omitempty"`
-	repl                     *replState
-	Offer                    *storedOffer             `json:"Offer,omitempty"`
+	Modified                 time.Time                `json:"Modified"`
+	DefaultTTL               *int                     `json:"DefaultTTL,omitempty"`
 	Triggers                 map[string]*storedScript `json:"Triggers,omitempty"`
+	repl                     *replState
+	UDFs                     map[string]*storedScript `json:"UDFs,omitempty"`
+	Documents                map[documentCompositeKey]*storedDocument
+	Offer                    *storedOffer `json:"Offer,omitempty"`
+	PKLayout                 *pkLayout    `json:"PKLayout,omitempty"`
 	sorted                   atomic.Pointer[[]*storedDocument]
 	Sprocs                   map[string]*storedScript `json:"Sprocs,omitempty"`
-	Documents                map[documentCompositeKey]*storedDocument
-	UDFs                     map[string]*storedScript `json:"UDFs,omitempty"`
-	DefaultTTL               *int                     `json:"DefaultTTL,omitempty"`
-	ID                       string
 	PartitionKeyPath         string
-	ConflictResolutionPolicy json.RawMessage `json:"ConflictResolutionPolicy,omitempty"`
-	PartitionKeyPaths        []string        `json:"PartitionKeyPaths,omitempty"`
-	UniqueKeyPolicy          json.RawMessage `json:"UniqueKeyPolicy,omitempty"`
-	GeospatialConfig         json.RawMessage `json:"GeospatialConfig,omitempty"`
-	VectorEmbeddingPolicy    json.RawMessage `json:"VectorEmbeddingPolicy,omitempty"`
-	FullTextPolicy           json.RawMessage `json:"FullTextPolicy,omitempty"`
-	ComputedProperties       json.RawMessage `json:"ComputedProperties,omitempty"`
-	ChangeLog                []*changeRecord `json:"ChangeLog,omitempty"`
-	IndexingPolicy           json.RawMessage `json:"IndexingPolicy,omitempty"`
-	ChangeSeq                int64           `json:"ChangeSeq,omitempty"`
+	ID                       string
+	GeospatialConfig         json.RawMessage   `json:"GeospatialConfig,omitempty"`
+	UniqueKeyPolicy          json.RawMessage   `json:"UniqueKeyPolicy,omitempty"`
+	ConflictResolutionPolicy json.RawMessage   `json:"ConflictResolutionPolicy,omitempty"`
+	Conflicts                []*conflictRecord `json:"Conflicts,omitempty"`
+	PartitionKeyPaths        []string          `json:"PartitionKeyPaths,omitempty"`
+	VectorEmbeddingPolicy    json.RawMessage   `json:"VectorEmbeddingPolicy,omitempty"`
+	FullTextPolicy           json.RawMessage   `json:"FullTextPolicy,omitempty"`
+	ComputedProperties       json.RawMessage   `json:"ComputedProperties,omitempty"`
+	ChangeLog                []*changeRecord   `json:"ChangeLog,omitempty"`
+	IndexingPolicy           json.RawMessage   `json:"IndexingPolicy,omitempty"`
+	keep                     time.Duration
+	ChangeFloor              int64 `json:"ChangeFloor,omitempty"`
+	ChangeSeq                int64 `json:"ChangeSeq,omitempty"`
 }
 
 // storedDocument is the backend's internal representation of a document.

@@ -86,6 +86,7 @@ func (b *InMemoryBackend) trySprocOptimistic(
 	}
 
 	live.Documents, live.ChangeLog, live.ChangeSeq = shadow.Documents, shadow.ChangeLog, shadow.ChangeSeq
+	live.ChangeFloor = shadow.ChangeFloor
 	live.sorted.Store(nil)
 
 	return out, true, nil
@@ -101,6 +102,7 @@ func (c *storedContainer) shadowCopy() *storedContainer {
 		UniqueKeyPolicy: c.UniqueKeyPolicy, GeospatialConfig: c.GeospatialConfig,
 		VectorEmbeddingPolicy: c.VectorEmbeddingPolicy, FullTextPolicy: c.FullTextPolicy,
 		ComputedProperties: c.ComputedProperties, ChangeLog: slices.Clip(c.ChangeLog), ChangeSeq: c.ChangeSeq,
+		ChangeFloor: c.ChangeFloor, keep: c.keep,
 	}
 }
 
