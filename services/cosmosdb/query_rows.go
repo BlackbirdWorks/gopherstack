@@ -47,12 +47,13 @@ func (r sqlRow) lookup(seg string) (any, bool) {
 		}
 	}
 
-	v, ok := r.m[seg]
-	if !ok && r.src != nil {
+	if r.src != nil {
 		if expr, isComputed := r.src.computed[seg]; isComputed {
 			return r.computedValue(expr), true
 		}
 	}
+
+	v, ok := r.m[seg]
 
 	if i, isInt := v.(int64); isInt {
 		return json.Number(strconv.FormatInt(i, 10)), true
@@ -176,7 +177,7 @@ func (b *InMemoryBackend) RunQueryOpts(
 		return QueryResult{}, err
 	}
 
-	if idxErr := checkQueryIndexing(stmt, c.IndexingPolicy, opts); idxErr != nil {
+	if idxErr := checkQueryIndexing(stmt, c.IndexingPolicy, opts, b.computedExprs(c)); idxErr != nil {
 		return QueryResult{}, idxErr
 	}
 

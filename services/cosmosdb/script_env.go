@@ -292,7 +292,7 @@ func (e *scriptEnv) queryDocuments(args []goja.Value) (any, error) {
 	}
 
 	scan := QueryOptions{AllowScan: opts.enableScan}
-	if idxErr := checkQueryIndexing(stmt, e.tx.c.IndexingPolicy, scan); idxErr != nil {
+	if idxErr := checkQueryIndexing(stmt, e.tx.c.IndexingPolicy, scan, e.tx.b.computedExprs(e.tx.c)); idxErr != nil {
 		return nil, idxErr
 	}
 

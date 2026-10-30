@@ -1,6 +1,7 @@
 package cosmosdb_test
 
 import (
+	"maps"
 	"net/http"
 	"testing"
 	"time"
@@ -110,9 +111,7 @@ func TestPatch_RunsPreAndPostTriggers(t *testing.T) {
 
 	patch := func(headers map[string]string) rawResponse {
 		h := map[string]string{pkHeader: `["a"]`}
-		for k, v := range headers {
-			h[k] = v
-		}
+		maps.Copy(h, headers)
 
 		return s.do(http.MethodPatch, "/dbs/d/colls/c/docs/p", h,
 			`{"operations":[{"op":"incr","path":"/n","value":1}]}`)
