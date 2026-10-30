@@ -234,7 +234,10 @@ func TestAccountScoping_OtherResources(t *testing.T) {
 		require.NoError(t, aggErr)
 		assert.Empty(t, aggs.ConfigurationAggregators)
 
-		ret, retErr := other.DescribeRetentionConfigurations(ctx, &configservicesdk.DescribeRetentionConfigurationsInput{})
+		ret, retErr := other.DescribeRetentionConfigurations(
+			ctx,
+			&configservicesdk.DescribeRetentionConfigurationsInput{},
+		)
 		require.NoError(t, retErr)
 		assert.Empty(t, ret.RetentionConfigurations)
 	}
