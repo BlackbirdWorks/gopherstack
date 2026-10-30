@@ -17,16 +17,19 @@ import (
 // InMemoryBackend implements StorageBackend using an in-memory map guarded
 // by a single RWMutex. Shaped after services/azuretable's InMemoryBackend.
 type InMemoryBackend struct {
-	tableAPI      tableSnapshotter
-	mu            *lockmetrics.RWMutex
-	databases     map[string]*storedDatabase
-	nowFunc       func() time.Time
-	etagFunc      func(time.Time) string
-	parsed        *safemap.Map[string, *sqlSelectStmt]
-	regions       AccountRegions
-	scriptTimeout time.Duration
-	budgetEpoch   int64
-	serverless    bool
+	nextSplitDue      time.Time
+	tableAPI          tableSnapshotter
+	mu                *lockmetrics.RWMutex
+	databases         map[string]*storedDatabase
+	nowFunc           func() time.Time
+	etagFunc          func(time.Time) string
+	parsed            *safemap.Map[string, *sqlSelectStmt]
+	regions           AccountRegions
+	budgetEpoch       int64
+	partitionMaxBytes int64
+	scriptTimeout     time.Duration
+	splitDelay        time.Duration
+	serverless        bool
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.

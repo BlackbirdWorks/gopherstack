@@ -19,8 +19,10 @@ const padKB = 100
 func quoted(pk string) string { return strconv.Quote(pk) }
 
 // pkInRange finds a partition key value owned by range idx of n.
-func pkInRange(t *testing.T, idx, n int) string {
+func pkInRange(t *testing.T, idx int) string {
 	t.Helper()
+
+	const n = 2
 
 	for i := range 1000 {
 		pk := fmt.Sprintf("k%d", i)
@@ -57,7 +59,7 @@ func (s *throughputServer) spike(coll, pk string, limit int) int {
 	return limit
 }
 
-func (s *throughputServer) query(coll, pk string) rawResponse {
+func (s *throughputServer) query(pk string) rawResponse {
 	s.t.Helper()
 
 	h := map[string]string{"X-Ms-Documentdb-Isquery": "true", "Content-Type": "application/query+json"}
@@ -65,7 +67,7 @@ func (s *throughputServer) query(coll, pk string) rawResponse {
 		h["X-Ms-Documentdb-Partitionkey"] = "[" + quoted(pk) + "]"
 	}
 
-	return s.do(http.MethodPost, "/dbs/d/colls/"+coll+"/docs", h, `{"query":"SELECT * FROM c"}`)
+	return s.do(http.MethodPost, "/dbs/d/colls/c/docs", h, `{"query":"SELECT * FROM c"}`)
 }
 
 func TestPartitions_HotKeyThrottlesWhileTotalUnderBudget(t *testing.T) {
@@ -90,13 +92,13 @@ func TestPartitions_HotKeyThrottlesWhileTotalUnderBudget(t *testing.T) {
 			assert.Equal(s.t, http.StatusCreated, s.putPK("c", hot, padKB).status)
 		}},
 		{name: "cross partition query touches hot", check: func(s *throughputServer, _, _ string) {
-			assert.Equal(s.t, http.StatusTooManyRequests, s.query("c", "").status)
+			assert.Equal(s.t, http.StatusTooManyRequests, s.query("").status)
 		}},
 		{name: "scoped query on cold passes", check: func(s *throughputServer, _, cold string) {
-			assert.Equal(s.t, http.StatusOK, s.query("c", cold).status)
+			assert.Equal(s.t, http.StatusOK, s.query(cold).status)
 		}},
 		{name: "scoped query on hot throttles", check: func(s *throughputServer, hot, _ string) {
-			assert.Equal(s.t, http.StatusTooManyRequests, s.query("c", hot).status)
+			assert.Equal(s.t, http.StatusTooManyRequests, s.query(hot).status)
 		}},
 	}
 
@@ -108,7 +110,7 @@ func TestPartitions_HotKeyThrottlesWhileTotalUnderBudget(t *testing.T) {
 			s.mustCreate("/dbs", `{"id":"d"}`, nil)
 			s.container("c", manualHeader(10100))
 
-			hot, cold := pkInRange(t, 0, 2), pkInRange(t, 1, 2)
+			hot, cold := pkInRange(t, 0), pkInRange(t, 1)
 			admitted := s.spike("c", hot, 500)
 			require.Less(t, admitted, 500, "hot partition must throttle")
 			require.Positive(t, admitted)
@@ -193,9 +195,8 @@ func assertRangesTile(t *testing.T, s *throughputServer, want int) {
 
 	prevMax := ""
 
-	for i, r := range ranges {
+	for _, r := range ranges {
 		m := rowObj(t, r)
-		assert.Equal(t, strconv.Itoa(i), m["id"])
 		assert.Equal(t, prevMax, m["minInclusive"])
 
 		prevMax, _ = m["maxExclusive"].(string)

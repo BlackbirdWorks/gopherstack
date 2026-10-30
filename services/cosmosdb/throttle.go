@@ -16,10 +16,12 @@ const (
 	headerRetryAfterMS = "X-Ms-Retry-After-Ms"
 	headerSubStatus    = "X-Ms-Substatus"
 	subStatusThrottled = "3200"
-	burstCeilingRUs    = 3000.0
-	burstWindowSeconds = 300.0
-	msPerSecond        = 1000.0
-	throttledMessage   = "Request rate is large. More Request Units may be needed, so no changes were made. " +
+	// subStatusPKRangeGone is Microsoft.Azure.Cosmos SubStatusCodes.PartitionKeyRangeGone.
+	subStatusPKRangeGone = "1002"
+	burstCeilingRUs      = 3000.0
+	burstWindowSeconds   = 300.0
+	msPerSecond          = 1000.0
+	throttledMessage     = "Request rate is large. More Request Units may be needed, so no changes were made. " +
 		"Please retry after %d ms."
 )
 
@@ -36,9 +38,10 @@ type ruBucket struct {
 
 // meterSlot addresses the bucket of one physical partition.
 type meterSlot struct {
-	key   string
-	rate  float64
-	burst bool
+	key    string
+	rate   float64
+	weight float64
+	burst  bool
 }
 
 // ruMeter meters request units per physical partition on an injected clock.
@@ -136,15 +139,24 @@ func (m *ruMeter) admit(epoch int64, now time.Time, slots []meterSlot) time.Dura
 	return wait
 }
 
-// charge splits ru evenly across the partitions the request touched.
+// charge splits ru across the partitions the request touched, by the work each did.
 func (m *ruMeter) charge(epoch int64, now time.Time, slots []meterSlot, ru float64) {
 	m.mu.Lock("charge")
 	defer m.mu.Unlock()
 
 	m.sync(epoch)
 
-	share := ru / float64(len(slots))
+	var total float64
 	for _, s := range slots {
+		total += s.weight
+	}
+
+	for _, s := range slots {
+		share := ru / float64(len(slots))
+		if total > 0 {
+			share = ru * s.weight / total
+		}
+
 		m.bucket(s, now).spend(share, s.burst)
 	}
 }
@@ -185,6 +197,15 @@ func (h *Handler) serveMetered(c *echo.Context, dbID, collID string, next func()
 	}
 
 	err := next()
+
+	if len(slots) > 1 {
+		if shares := tb.RangeShares(dbID, collID); len(shares) == len(slots) {
+			for i := range slots {
+				slots[i].weight = shares[i]
+			}
+		}
+	}
+
 	h.meter.charge(bud.Epoch, h.now(), slots, chargeOf(c))
 
 	return err

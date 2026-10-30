@@ -136,6 +136,10 @@ func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
 		errors.Is(err, ErrBatchTooLarge), errors.Is(err, ErrInvalidTrigger), errors.Is(err, ErrInvalidPKRange),
 		errors.Is(err, ErrChangeFeedStart):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
+	case errors.Is(err, ErrPKRangeGone):
+		c.Response().Header().Set(headerSubStatus, subStatusPKRangeGone)
+
+		return h.writeError(c, http.StatusGone, "Gone", err.Error())
 	case errors.Is(err, ErrScriptNotFound):
 		return h.writeError(c, http.StatusNotFound, "NotFound", "Resource Not Found")
 	case errors.Is(err, ErrScriptTimeout):

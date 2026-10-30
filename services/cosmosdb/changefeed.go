@@ -29,8 +29,7 @@ type changeFeedRequest struct {
 	Since        time.Time
 	PartitionKey string
 	RangeID      string
-	rangeIdx     int
-	rangeCount   int
+	hashes       hashRange
 	AfterSeq     int64
 	Limit        int
 	FromNow      bool
@@ -174,14 +173,23 @@ func (b *InMemoryBackend) resolveRange(dbID, collID string, req *changeFeedReque
 		return nil
 	}
 
-	n := b.budgetOf(b.databases[dbID], collID).Partitions
+	l := b.layoutView(b.databases[dbID], b.databases[dbID].Containers[collID])
 
-	idx, err := strconv.Atoi(req.RangeID)
-	if err != nil || idx < 0 || idx >= n {
+	id, err := strconv.Atoi(req.RangeID)
+	if err != nil || id < 0 {
 		return fmt.Errorf("%w: %q", ErrInvalidPKRange, req.RangeID)
 	}
 
-	req.rangeIdx, req.rangeCount = idx, n
+	idx, active := l.byID(id)
+	if !active {
+		if l.gone(id) {
+			return fmt.Errorf("%w: %q", ErrPKRangeGone, req.RangeID)
+		}
+
+		return fmt.Errorf("%w: %q", ErrInvalidPKRange, req.RangeID)
+	}
+
+	req.hashes = l.rangeOf(idx)
 
 	return nil
 }
@@ -202,7 +210,7 @@ func changedDocs(live []*storedDocument, req changeFeedRequest) []*storedDocumen
 			continue
 		}
 
-		if req.rangeCount > 0 && rangeIndex(d.PartitionKeyJSON, req.rangeCount) != req.rangeIdx {
+		if !req.hashes.contains(d.PartitionKeyJSON) {
 			continue
 		}
 
@@ -310,17 +318,12 @@ func (h *Handler) handlePKRanges(c *echo.Context, dbID, collID string) error {
 			"The resource doesn't support the specified HTTP verb.")
 	}
 
-	info, err := h.Backend.GetContainer(dbID, collID)
+	pr, err := h.partitionRanges(dbID, collID)
 	if err != nil {
 		return h.writeDocumentError(c, err)
 	}
 
-	n := 1
-	if tb, ok := h.Backend.(ThroughputBackend); ok {
-		n = max(1, tb.ThroughputBudget(dbID, collID).Partitions)
-	}
-
-	etag := pkRangeETagFor(n)
+	etag := pr.Layout.etag()
 	c.Response().Header().Set("ETag", etag)
 
 	if strings.TrimSpace(c.Request().Header.Get(headerIfNoneMatch)) == etag {
@@ -329,13 +332,31 @@ func (h *Handler) handlePKRanges(c *echo.Context, dbID, collID string) error {
 
 	setCharge(c, ruMetadata)
 
+	n := len(pr.Layout.Spans)
 	ranges := make([]map[string]any, n)
+
 	for i := range ranges {
-		ranges[i] = pkRangeBody(info.RID, dbID, collID, i, n)
+		ranges[i] = pr.Layout.pkRangeBody(pr.RID, dbID, collID, i)
 		ranges[i][sysPropTS] = time.Now().Unix()
 	}
 
 	return h.writeJSON(c, http.StatusOK, map[string]any{
-		sysPropRID: info.RID, "PartitionKeyRanges": ranges, sysPropCount: n,
+		sysPropRID: pr.RID, "PartitionKeyRanges": ranges, sysPropCount: n,
 	})
+}
+
+// partitionRanges reads the container's current partition layout.
+func (h *Handler) partitionRanges(dbID, collID string) (PartitionKeyRanges, error) {
+	if pb, ok := h.Backend.(interface {
+		partitionRanges(db, coll string) (PartitionKeyRanges, error)
+	}); ok {
+		return pb.partitionRanges(dbID, collID)
+	}
+
+	info, err := h.Backend.GetContainer(dbID, collID)
+	if err != nil {
+		return PartitionKeyRanges{}, err
+	}
+
+	return PartitionKeyRanges{Layout: evenLayout(1), RID: info.RID}, nil
 }

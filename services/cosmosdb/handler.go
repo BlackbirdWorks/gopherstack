@@ -704,6 +704,15 @@ func (h *Handler) startJanitor(ctx context.Context) *worker.Group {
 		}
 	})
 
+	if sp, spOK := h.Backend.(interface{ SweepPartitions() int }); spOK {
+		g.Ticker("PartitionSplitter", interval, 0, func(sweepCtx context.Context) {
+			if n := sp.SweepPartitions(); n > 0 {
+				telemetry.RecordWorkerItems("cosmosdb", "PartitionSplitter", n)
+				logger.Load(sweepCtx).DebugContext(sweepCtx, "cosmosdb: physical partitions split", "count", n)
+			}
+		})
+	}
+
 	return g
 }
 

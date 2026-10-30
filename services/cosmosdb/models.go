@@ -157,6 +157,7 @@ type storedDatabase struct {
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
 	Modified                 time.Time                `json:"Modified"`
+	PKLayout                 *pkLayout                `json:"PKLayout,omitempty"`
 	Offer                    *storedOffer             `json:"Offer,omitempty"`
 	Triggers                 map[string]*storedScript `json:"Triggers,omitempty"`
 	sorted                   atomic.Pointer[[]*storedDocument]
@@ -167,7 +168,6 @@ type storedContainer struct {
 	ID                       string
 	PartitionKeyPath         string
 	ConflictResolutionPolicy json.RawMessage `json:"ConflictResolutionPolicy,omitempty"`
-	IndexingPolicy           json.RawMessage `json:"IndexingPolicy,omitempty"`
 	PartitionKeyPaths        []string        `json:"PartitionKeyPaths,omitempty"`
 	UniqueKeyPolicy          json.RawMessage `json:"UniqueKeyPolicy,omitempty"`
 	GeospatialConfig         json.RawMessage `json:"GeospatialConfig,omitempty"`
@@ -175,6 +175,7 @@ type storedContainer struct {
 	FullTextPolicy           json.RawMessage `json:"FullTextPolicy,omitempty"`
 	ComputedProperties       json.RawMessage `json:"ComputedProperties,omitempty"`
 	ChangeLog                []*changeRecord `json:"ChangeLog,omitempty"`
+	IndexingPolicy           json.RawMessage `json:"IndexingPolicy,omitempty"`
 	ChangeSeq                int64           `json:"ChangeSeq,omitempty"`
 }
 

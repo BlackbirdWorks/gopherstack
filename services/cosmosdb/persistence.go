@@ -92,6 +92,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.databases = snap.Databases
+	b.recomputeNextDue()
 	b.regions = AccountRegions{}
 
 	if snap.Regions != nil {

@@ -97,6 +97,7 @@ var (
 	ErrScriptTimeout        = errors.New("cosmosdb: script execution timed out")
 	ErrInvalidTrigger       = errors.New("cosmosdb: trigger not usable for this operation")
 	ErrInvalidPKRange       = errors.New("cosmosdb: unknown partition key range")
+	ErrPKRangeGone          = errors.New("cosmosdb: partition key range was split")
 	// ErrChangeFeedStart is returned when an all-versions-and-deletes read names no start.
 	ErrChangeFeedStart = errors.New("cosmosdb: all versions and deletes change feed cannot start from the beginning")
 )

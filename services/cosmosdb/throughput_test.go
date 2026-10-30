@@ -522,3 +522,80 @@ func TestSDK_ThroughputWithAuthValidation(t *testing.T) {
 	v, _ := got.ThroughputProperties.ManualThroughput()
 	assert.EqualValues(t, 800, v)
 }
+
+func TestThroughput_MinimumFollowsDocumentedFormula(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setup   func(b *cosmosdb.InMemoryBackend)
+		target  string
+		spec    cosmosdb.ThroughputSpec
+		wantMin int
+	}{
+		{
+			name: "manual: highest ever provisioned divided by 100", target: "c",
+			setup: func(b *cosmosdb.InMemoryBackend) {
+				_, err := b.SetThroughput("d", "c", cosmosdb.ThroughputSpec{Manual: 50_000})
+				require.NoError(t, err)
+			},
+			spec: cosmosdb.ThroughputSpec{Manual: 400}, wantMin: 500,
+		},
+		{
+			name: "autoscale: highest ever divided by 10 rounded up to 1000", target: "c",
+			setup: func(b *cosmosdb.InMemoryBackend) {
+				_, err := b.SetThroughput("d", "c", cosmosdb.ThroughputSpec{AutoscaleMax: 55_000})
+				require.NoError(t, err)
+			},
+			spec: cosmosdb.ThroughputSpec{AutoscaleMax: 1000}, wantMin: 6000,
+		},
+		{
+			name: "shared database: 100 RU/s per container past 25", target: "",
+			setup: func(b *cosmosdb.InMemoryBackend) {
+				for i := range 29 {
+					spec := cosmosdb.ContainerSpec{ID: fmt.Sprintf("x%d", i), PartitionKeyPath: "/pk"}
+					_, err := b.CreateContainer("d", spec)
+					require.NoError(t, err)
+				}
+			},
+			spec: cosmosdb.ThroughputSpec{Manual: 400}, wantMin: 900,
+		},
+		{
+			name: "shared autoscale database: 1000 per container past 25", target: "",
+			setup: func(b *cosmosdb.InMemoryBackend) {
+				for i := range 29 {
+					spec := cosmosdb.ContainerSpec{ID: fmt.Sprintf("x%d", i), PartitionKeyPath: "/pk"}
+					_, err := b.CreateContainer("d", spec)
+					require.NoError(t, err)
+				}
+			},
+			spec: cosmosdb.ThroughputSpec{AutoscaleMax: 1000}, wantMin: 6000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cosmosdb.NewInMemoryBackend()
+			_, err := b.CreateDatabase("d")
+			require.NoError(t, err)
+			_, err = b.CreateContainer("d", cosmosdb.ContainerSpec{ID: "c", PartitionKeyPath: "/pk"})
+			require.NoError(t, err)
+			tt.setup(b)
+
+			_, err = b.SetThroughput("d", tt.target, tt.spec)
+			require.ErrorIs(t, err, cosmosdb.ErrInvalidThroughput)
+
+			ok := tt.spec
+			if ok.AutoscaleMax > 0 {
+				ok.AutoscaleMax = tt.wantMin
+			} else {
+				ok.Manual = tt.wantMin
+			}
+
+			_, err = b.SetThroughput("d", tt.target, ok)
+			require.NoError(t, err)
+		})
+	}
+}

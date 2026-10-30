@@ -123,7 +123,7 @@ func (c *storedContainer) changedVersions(req changeFeedRequest) []*changeRecord
 		case r.Seq <= req.AfterSeq:
 		case !req.Since.IsZero() && r.Time.Unix() < req.Since.Unix():
 		case req.PartitionKey != "" && !partitionKeyMatches(r.PartitionKeyJSON, req.PartitionKey):
-		case req.rangeCount > 0 && rangeIndex(r.PartitionKeyJSON, req.rangeCount) != req.rangeIdx:
+		case !req.hashes.contains(r.PartitionKeyJSON):
 		default:
 			out = append(out, r)
 		}
