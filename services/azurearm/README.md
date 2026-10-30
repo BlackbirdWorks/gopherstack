@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
-| Feature families | 14 (14 ok) |
-| Known gaps | 45 |
+| Feature families | 16 (16 ok) |
+| Known gaps | 50 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -60,6 +60,11 @@
 - Compute: a virtual machine cannot be added to an availability set after creation (PropertyChangeNotAllowed) and an omitted availabilitySet, osProfile or storageProfile on update keeps the stored value. Network interfaces of a virtual machine in a removed resource group are released but a virtual machine whose NIC group is removed first keeps its dangling NIC reference.
 - Identity: container group zones are still rejected; managed-identity role assignments and token endpoints (IMDS) do not exist, so a system-assigned principal has no permissions to evaluate.
 - ManagedIdentity: listAssociatedResources, the identities/default scope and isolationScope are not implemented. Identity blocks (Compute, Web, Container Instances) resolve user-assigned identities by resource group and name, ignoring the subscription; deleting an identity that a resource still references is allowed and the reference then reports empty principalId/clientId.
+- API Management: not modelled - the built-in all-access (master) subscription and the starter/unlimited products, users, groups, tags, loggers, diagnostics, certificates, caches, identity providers, authorization servers, gateways (self-hosted), portal, schemas, API revisions/releases/version sets, wikis, issues, tenant settings, backup/restore, soft-delete/restore, custom hostnames, virtual networks, multi-region, private endpoints, v2 tiers (BasicV2, StandardV2) and the Isolated sku; they fall to 404 or are rejected. $filter, $top, $skip and nextLink paging are not implemented on the child lists.
+- API Management gateway: policies outside the subset (validate-jwt, quota, ip-filter, cache, choose, set-variable, send-request, authentication-*, policy expressions, product-scope policies, on-error execution, rate-limit nested api/operation) are refused at PUT; the backend section runs set-header/set-query-parameter/set-backend-service/forward-request in order and a chain with no forward-request answers an empty 200. rate-limit uses a fixed window; the real policy is a sliding window and is only applied to calls made with a subscription key (matched here).
+- API Management gateway: WebSocket and GraphQL APIs are served as plain HTTP passthrough (ws/wss serviceUrl answers 500); HTTP (non-TLS) calls are impossible because the ARM listener is HTTPS, so an API whose protocols exclude https answers 404; a request with an invalid key to an API reachable through an open product is denied instead of treated as keyless; the key is stripped before forwarding; the gateway has no client-certificate, IP or JWT checks; failed upstream calls answer 502 where the real gateway answers 500.
+- API Management (unverified, recalled only): error codes and statuses for name conflict (409 Conflict), child writes during provisioning (409 Conflict), product delete with subscriptions (409 Conflict), duplicate api path/operation/named-value (400 ValidationError), missing child entities (404 ResourceNotFound; the real service may use EntityNotFound), 412 PreconditionFailed; id patterns (no * # & + : < > ? /, 1-256 chars), field length caps (displayName 300/100/256, url 2000, path 400, urlTemplate 1000), the Premium maximum of 12 units, platformVersion/portalUrl/developerPortalUrl/scmUrl values, the Activating/Updating durations (1s Consumption, 5s others here; real classic tiers take tens of minutes), template parameters being required to appear in the urlTemplate, subscription state default submitted (from the SDK doc comment), and the default notificationSenderEmail.
+- API Management: no SDK-to-Terraform fixture yet (azurerm_api_management*); armapimanagement-driven tests are the only wire proof, and only the 2022-08-01 shapes were checked.
 
 ### Deferred
 
