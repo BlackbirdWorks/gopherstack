@@ -108,7 +108,7 @@ func normAPI(s *apimService, _, id string, in map[string]any, _ *apimEntity) (ma
 
 	var imported []apimImportedOp
 
-	if format := strOf(in, "format"); format != "" {
+	if format := strOf(in, apimCFormat); format != "" {
 		spec, err := parseAPISpec(format, strOf(in, fieldValue))
 		if err != nil {
 			return nil, err
@@ -119,7 +119,7 @@ func normAPI(s *apimService, _, id string, in map[string]any, _ *apimEntity) (ma
 	}
 
 	for _, k := range []string{
-		"format", fieldValue, "wsdlSelector", "soapApiType", "translateRequiredQueryParametersConduct", "isOnline",
+		apimCFormat, fieldValue, "wsdlSelector", "soapApiType", "translateRequiredQueryParametersConduct", "isOnline",
 		"sourceApiId", "apiType",
 	} {
 		delete(out, k)
@@ -150,24 +150,24 @@ func normAPI(s *apimService, _, id string, in map[string]any, _ *apimEntity) (ma
 }
 
 func apiFields(s *apimService, id string, in, out map[string]any) error {
-	if _, err := optString(out, "displayName", 1, apimMaxName, true, "API displayName"); err != nil {
+	if _, err := optString(out, apimCDisplayName, 1, apimMaxName, true, "API displayName"); err != nil {
 		return err
 	}
 
-	if _, has := out["path"]; !has {
+	if _, has := out[apimCPath]; !has {
 		return apimInvalid("The API path is required.")
 	}
 
-	path, err := optString(out, "path", 0, apimMaxPath, true, "API path")
+	path, err := optString(out, apimCPath, 0, apimMaxPath, true, "API path")
 	if err != nil {
 		return err
 	}
 
 	path = strings.Trim(path, "/")
-	out["path"] = path
+	out[apimCPath] = path
 
 	for _, other := range s.APIs {
-		if !strings.EqualFold(other.ID, id) && strings.EqualFold(strOf(other.Props, "path"), path) {
+		if !strings.EqualFold(other.ID, id) && strings.EqualFold(strOf(other.Props, apimCPath), path) {
 			return apimInvalid("The API path %q is already used by another API.", path)
 		}
 	}
@@ -176,27 +176,27 @@ func apiFields(s *apimService, id string, in, out map[string]any) error {
 		return err
 	}
 
-	if su, serr := optString(out, "serviceUrl", 0, apimMaxURL, false, "API serviceUrl"); serr != nil {
+	if su, serr := optString(out, apimCServiceURL, 0, apimMaxURL, false, "API serviceUrl"); serr != nil {
 		return serr
-	} else if su != "" && !validAbsURL(su, "http", "https", "ws", "wss") {
+	} else if su != "" && !validAbsURL(su, acaScaleHTTP, acaSchemeHTTPS, "ws", "wss") {
 		return apimInvalid("The API serviceUrl must be an absolute http, https, ws or wss URL.")
 	}
 
-	if _, err = optBool(out, "subscriptionRequired", true); err != nil {
+	if _, err = optBool(out, apimCSubscriptionRequired, true); err != nil {
 		return err
 	}
 
-	if _, has := out["subscriptionRequired"]; !has {
-		out["subscriptionRequired"] = true
+	if _, has := out[apimCSubscriptionRequired]; !has {
+		out[apimCSubscriptionRequired] = true
 	}
 
 	return apiKeyNamesAndType(in, out)
 }
 
 func apiProtocols(out map[string]any) error {
-	raw, has := out["protocols"]
+	raw, has := out[apimCProtocols]
 	if !has || raw == nil {
-		out["protocols"] = []any{"https"}
+		out[apimCProtocols] = []any{acaSchemeHTTPS}
 
 		return nil
 	}
@@ -207,7 +207,8 @@ func apiProtocols(out map[string]any) error {
 	}
 
 	for _, e := range arr {
-		if v, isStr := e.(string); !isStr || !slices.Contains([]string{"http", "https", "ws", "wss"}, strings.ToLower(v)) {
+		if v, isStr := e.(string); !isStr ||
+			!slices.Contains([]string{acaScaleHTTP, acaSchemeHTTPS, "ws", "wss"}, strings.ToLower(v)) {
 			return apimInvalid("The API protocols must be among http, https, ws and wss.")
 		}
 	}
@@ -216,10 +217,10 @@ func apiProtocols(out map[string]any) error {
 }
 
 func apiKeyNamesAndType(in, out map[string]any) error {
-	names := map[string]any{"header": apimHeaderSub, "query": apimQuerySub}
+	names := map[string]any{apimCHeader: apimHeaderSub, apimCQuery: apimQuerySub}
 
-	if given := mapOf(out["subscriptionKeyParameterNames"]); given != nil {
-		for _, k := range []string{"header", "query"} {
+	if given := mapOf(out[apimCSubscriptionKeyParameterNames]); given != nil {
+		for _, k := range []string{apimCHeader, apimCQuery} {
 			if v, has := given[k]; has {
 				str, ok := v.(string)
 				if !ok || str == "" {
@@ -231,22 +232,22 @@ func apiKeyNamesAndType(in, out map[string]any) error {
 		}
 	}
 
-	out["subscriptionKeyParameterNames"] = names
+	out[apimCSubscriptionKeyParameterNames] = names
 
 	typ := strOf(in, "apiType")
 	if typ == "" {
-		typ = strOf(in, "type")
+		typ = strOf(in, fieldType)
 	}
 
 	if typ == "" {
 		typ = "http"
 	}
 
-	if !slices.Contains([]string{"http", "soap", "websocket", "graphql"}, typ) {
+	if !slices.Contains([]string{acaScaleHTTP, "soap", "websocket", "graphql"}, typ) {
 		return apimInvalid("The API type must be http, soap, websocket or graphql.")
 	}
 
-	out["type"] = typ
+	out[fieldType] = typ
 
 	return nil
 }
@@ -270,7 +271,7 @@ func delAPI(s *apimService, _, id string, _ url.Values) error {
 	}
 
 	for k, sub := range s.Subs {
-		if strings.EqualFold(strOf(sub.Props, "scope"), s.armBase()+"/apis/"+id) {
+		if strings.EqualFold(strOf(sub.Props, acrPropScope), s.armBase()+"/apis/"+id) {
 			delete(s.Subs, k)
 		}
 	}
@@ -297,7 +298,7 @@ func opParams(in map[string]any, tpl string) ([]any, error) {
 
 	inTpl := templateParams(tpl)
 
-	if raw, has := in["templateParameters"]; has && raw != nil {
+	if raw, has := in[apimCTemplateParameters]; has && raw != nil {
 		arr, ok := raw.([]any)
 		if !ok {
 			return nil, apimInvalid("The templateParameters must be a list.")
@@ -332,29 +333,29 @@ func opParams(in map[string]any, tpl string) ([]any, error) {
 
 func normOperation(s *apimService, parent, id string, in map[string]any, _ *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
-	delete(out, "policies")
+	delete(out, apimCPolicies)
 
-	if _, err := optString(out, "displayName", 1, apimMaxName, true, "operation displayName"); err != nil {
+	if _, err := optString(out, apimCDisplayName, 1, apimMaxName, true, "operation displayName"); err != nil {
 		return nil, err
 	}
 
-	method, err := optString(out, "method", 1, apimMaxOpMethod, true, "operation method")
+	method, err := optString(out, apimCMethod, 1, apimMaxOpMethod, true, "operation method")
 	if err != nil {
 		return nil, err
 	}
 
 	method = strings.ToUpper(method)
-	out["method"] = method
+	out[apimCMethod] = method
 
-	tpl, err := optString(out, "urlTemplate", 1, apimMaxOpTemplate, true, "operation urlTemplate")
+	tpl, err := optString(out, apimCUrlTemplate, 1, apimMaxOpTemplate, true, "operation urlTemplate")
 	if err != nil {
 		return nil, err
 	}
 
 	for _, other := range s.Ops {
 		if strings.EqualFold(other.Parent, parent) && !strings.EqualFold(other.ID, id) &&
-			strOf(other.Props, "method") == method &&
-			canonicalTemplate(strOf(other.Props, "urlTemplate")) == canonicalTemplate(tpl) {
+			strOf(other.Props, apimCMethod) == method &&
+			canonicalTemplate(strOf(other.Props, apimCUrlTemplate)) == canonicalTemplate(tpl) {
 			return nil, apimInvalid(
 				"An operation with method %s and the same URL template already exists in this API.", method,
 			)
@@ -370,7 +371,7 @@ func normOperation(s *apimService, parent, id string, in map[string]any, _ *apim
 		return nil, err
 	}
 
-	out["templateParameters"] = params
+	out[apimCTemplateParameters] = params
 
 	return out, nil
 }
@@ -396,11 +397,11 @@ func delOperation(s *apimService, parent, id string, _ url.Values) error {
 func normProduct(_ *apimService, _, _ string, in map[string]any, _ *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
 
-	if _, err := optString(out, "displayName", 1, apimMaxName, true, "product displayName"); err != nil {
+	if _, err := optString(out, apimCDisplayName, 1, apimMaxName, true, "product displayName"); err != nil {
 		return nil, err
 	}
 
-	state := strOf(out, "state")
+	state := strOf(out, sqlPropState)
 	if state == "" {
 		state = "notPublished"
 	}
@@ -409,14 +410,14 @@ func normProduct(_ *apimService, _, _ string, in map[string]any, _ *apimEntity) 
 		return nil, apimInvalid("The product state must be published or notPublished.")
 	}
 
-	out["state"] = state
+	out[sqlPropState] = state
 
-	req, err := optBool(out, "subscriptionRequired", true)
+	req, err := optBool(out, apimCSubscriptionRequired, true)
 	if err != nil {
 		return nil, err
 	}
 
-	out["subscriptionRequired"] = req
+	out[apimCSubscriptionRequired] = req
 
 	if _, err = optBool(out, "approvalRequired", false); err != nil {
 		return nil, err
@@ -435,12 +436,12 @@ func delProduct(s *apimService, _, id string, q url.Values) error {
 	var subs []string
 
 	for k, sub := range s.Subs {
-		if strings.EqualFold(strOf(sub.Props, "scope"), scope) {
+		if strings.EqualFold(strOf(sub.Props, acrPropScope), scope) {
 			subs = append(subs, k)
 		}
 	}
 
-	if len(subs) > 0 && q.Get("deleteSubscriptions") != "true" {
+	if len(subs) > 0 && q.Get("deleteSubscriptions") != cmpTrue {
 		return apimErr(http.StatusConflict, apimCodeConflict,
 			"The product has subscriptions; delete them first or pass deleteSubscriptions=true.")
 	}
@@ -475,15 +476,15 @@ func (s *apimService) normScope(scope string) (string, error) {
 	switch {
 	case len(parts) == 0:
 		return base + "/", nil
-	case len(parts) == 1 && strings.EqualFold(parts[0], "apis"):
+	case len(parts) == 1 && strings.EqualFold(parts[0], apimCApis):
 		return base + "/apis", nil
-	case len(parts) == 2 && strings.EqualFold(parts[0], "apis"):
+	case len(parts) == 2 && strings.EqualFold(parts[0], apimCApis):
 		if e, ok := s.APIs[entKey("", parts[1])]; ok {
 			return base + "/apis/" + e.ID, nil
 		}
 
 		return "", apimInvalid("The scope refers to the API %q, which does not exist.", parts[1])
-	case len(parts) == 2 && strings.EqualFold(parts[0], "products"):
+	case len(parts) == 2 && strings.EqualFold(parts[0], apimCProducts):
 		if e, ok := s.Products[entKey("", parts[1])]; ok {
 			return base + "/products/" + e.ID, nil
 		}
@@ -497,31 +498,34 @@ func (s *apimService) normScope(scope string) (string, error) {
 func normSubscription(s *apimService, _, _ string, in map[string]any, prev *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
 
-	if _, err := optString(out, "displayName", 1, apimMaxSubName, true, "subscription displayName"); err != nil {
+	if _, err := optString(out, apimCDisplayName, 1, apimMaxSubName, true, "subscription displayName"); err != nil {
 		return nil, err
 	}
 
-	rawScope, err := optString(out, "scope", 1, apimMaxURL, true, "subscription scope")
+	rawScope, err := optString(out, acrPropScope, 1, apimMaxURL, true, "subscription scope")
 	if err != nil {
 		return nil, err
 	}
 
-	if out["scope"], err = s.normScope(rawScope); err != nil {
+	if out[acrPropScope], err = s.normScope(rawScope); err != nil {
 		return nil, err
 	}
 
-	state := strOf(out, "state")
+	state := strOf(out, sqlPropState)
 	if state == "" {
 		state = "submitted"
 	}
 
-	if !slices.Contains([]string{apimStateActive, "suspended", "submitted", "rejected", "cancelled", "expired"}, state) {
+	if !slices.Contains(
+		[]string{apimStateActive, "suspended", "submitted", "rejected", "cancelled", "expired"},
+		state,
+	) {
 		return nil, apimInvalid("The subscription state is not valid.")
 	}
 
-	out["state"] = state
+	out[sqlPropState] = state
 
-	for _, k := range []string{"primaryKey", "secondaryKey"} {
+	for _, k := range []string{redisPropPrimaryKey, redisPropSecondaryKey} {
 		v, kerr := optString(out, k, 1, apimMaxKeyLen, false, "subscription "+k)
 		if kerr != nil {
 			return nil, kerr
@@ -554,23 +558,23 @@ func stampSubscription(s *apimService, out map[string]any, prev *apimEntity) {
 	stamp := now.UTC().Format(time.RFC3339)
 
 	if prev != nil {
-		out["createdDate"] = prev.Props["createdDate"]
-		if v, ok := prev.Props["startDate"]; ok {
-			out["startDate"] = v
+		out[apimCCreatedDate] = prev.Props[apimCCreatedDate]
+		if v, ok := prev.Props[apimCStartDate]; ok {
+			out[apimCStartDate] = v
 		}
 	} else {
-		out["createdDate"] = stamp
+		out[apimCCreatedDate] = stamp
 	}
 
-	if _, has := out["startDate"]; !has && out["state"] == apimStateActive {
-		out["startDate"] = stamp
+	if _, has := out[apimCStartDate]; !has && out[sqlPropState] == apimStateActive {
+		out[apimCStartDate] = stamp
 	}
 }
 
 func viewSubscription(props map[string]any) map[string]any {
 	out := cloneAnyMap(props)
-	delete(out, "primaryKey")
-	delete(out, "secondaryKey")
+	delete(out, redisPropPrimaryKey)
+	delete(out, redisPropSecondaryKey)
 
 	return out
 }
@@ -578,17 +582,19 @@ func viewSubscription(props map[string]any) map[string]any {
 func normNamedValue(s *apimService, _, id string, in map[string]any, _ *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
 
-	name, err := optString(out, "displayName", 1, apimMaxNamedName, true, "named value displayName")
+	name, err := optString(out, apimCDisplayName, 1, apimMaxNamedName, true, "named value displayName")
 	if err != nil {
 		return nil, err
 	}
 
 	if !apimNamedNameRE.MatchString(name) {
-		return nil, apimInvalid("The named value displayName may contain only letters, digits, period, dash and underscore.")
+		return nil, apimInvalid(
+			"The named value displayName may contain only letters, digits, period, dash and underscore.",
+		)
 	}
 
 	for _, other := range s.Named {
-		if !strings.EqualFold(other.ID, id) && strings.EqualFold(strOf(other.Props, "displayName"), name) {
+		if !strings.EqualFold(other.ID, id) && strings.EqualFold(strOf(other.Props, apimCDisplayName), name) {
 			return nil, apimInvalid("A named value with the displayName %q already exists.", name)
 		}
 	}
@@ -612,12 +618,12 @@ func normNamedValue(s *apimService, _, id string, in map[string]any, _ *apimEnti
 		return nil, apimInvalid("Policy expressions in named values are not supported.")
 	}
 
-	if _, err = optBool(out, "secret", false); err != nil {
+	if _, err = optBool(out, apimCSecret, false); err != nil {
 		return nil, err
 	}
 
-	if _, has := out["secret"]; !has {
-		out["secret"] = false
+	if _, has := out[apimCSecret]; !has {
+		out[apimCSecret] = false
 	}
 
 	return out, nil
@@ -625,7 +631,7 @@ func normNamedValue(s *apimService, _, id string, in map[string]any, _ *apimEnti
 
 func viewNamedValue(props map[string]any) map[string]any {
 	out := cloneAnyMap(props)
-	if secret, _ := out["secret"].(bool); secret {
+	if secret, _ := out[apimCSecret].(bool); secret {
 		delete(out, fieldValue)
 	}
 
@@ -635,16 +641,16 @@ func viewNamedValue(props map[string]any) map[string]any {
 func normBackend(_ *apimService, _, _ string, in map[string]any, _ *apimEntity) (map[string]any, error) {
 	out := cloneAnyMap(in)
 
-	u, err := optString(out, "url", 1, apimMaxURL, true, "backend url")
+	u, err := optString(out, apimCUrl, 1, apimMaxURL, true, "backend url")
 	if err != nil {
 		return nil, err
 	}
 
-	if !validAbsURL(u, "http", "https") {
+	if !validAbsURL(u, acaScaleHTTP, acaSchemeHTTPS) {
 		return nil, apimInvalid("The backend url must be an absolute http or https URL.")
 	}
 
-	if proto := strOf(out, "protocol"); proto != "http" && proto != "soap" {
+	if proto := strOf(out, apimCProtocol); proto != acaScaleHTTP && proto != "soap" {
 		return nil, apimInvalid("The backend protocol must be http or soap.")
 	}
 
@@ -652,11 +658,11 @@ func normBackend(_ *apimService, _, _ string, in map[string]any, _ *apimEntity) 
 		return nil, err
 	}
 
-	if _, err = optString(out, "description", 0, apimMaxURL, false, "backend description"); err != nil {
+	if _, err = optString(out, webDescription, 0, apimMaxURL, false, "backend description"); err != nil {
 		return nil, err
 	}
 
-	if err = checkBackendCredentials(mapOf(out["credentials"])); err != nil {
+	if err = checkBackendCredentials(mapOf(out[apimCCredentials])); err != nil {
 		return nil, err
 	}
 
@@ -664,7 +670,7 @@ func normBackend(_ *apimService, _, _ string, in map[string]any, _ *apimEntity) 
 }
 
 func checkBackendCredentials(c map[string]any) error {
-	for _, k := range []string{"header", "query"} {
+	for _, k := range []string{apimCHeader, apimCQuery} {
 		for name, v := range mapOf(c[k]) {
 			vals, ok := v.([]any)
 			if !ok || name == "" {
@@ -679,7 +685,7 @@ func checkBackendCredentials(c map[string]any) error {
 		}
 	}
 
-	if a := mapOf(c["authorization"]); a != nil && (strOf(a, "scheme") == "" || strOf(a, "parameter") == "") {
+	if a := mapOf(c[apimCAuthorization]); a != nil && (strOf(a, "scheme") == "" || strOf(a, "parameter") == "") {
 		return apimInvalid("The backend authorization credentials need a scheme and a parameter.")
 	}
 
@@ -689,11 +695,11 @@ func checkBackendCredentials(c map[string]any) error {
 func viewBackend(props map[string]any) map[string]any {
 	out := cloneAnyMap(props)
 
-	if c := mapOf(out["credentials"]); c != nil {
+	if c := mapOf(out[apimCCredentials]); c != nil {
 		red := cloneAnyMap(c)
-		delete(red, "authorization")
+		delete(red, apimCAuthorization)
 
-		for _, k := range []string{"header", "query"} {
+		for _, k := range []string{apimCHeader, apimCQuery} {
 			names := map[string]any{}
 			for name := range mapOf(c[k]) {
 				names[name] = []any{}
@@ -704,7 +710,7 @@ func viewBackend(props map[string]any) map[string]any {
 			}
 		}
 
-		out["credentials"] = red
+		out[apimCCredentials] = red
 	}
 
 	if px := mapOf(out["proxy"]); px != nil {

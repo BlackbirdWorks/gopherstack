@@ -9,7 +9,7 @@ type apimSnapshot struct {
 }
 
 func (p *APIMProvider) snapshot() *apimSnapshot {
-	p.mu.RLock("snapshot")
+	p.mu.RLock(apimCSnapshot)
 	defer p.mu.RUnlock()
 
 	raw, err := json.Marshal(p.svcs)
@@ -22,7 +22,7 @@ func (p *APIMProvider) snapshot() *apimSnapshot {
 
 // restore replaces the provider's state; nil clears it.
 func (p *APIMProvider) restore(snap *apimSnapshot) {
-	p.mu.Lock("restore")
+	p.mu.Lock(apimCRestore)
 	defer p.mu.Unlock()
 
 	p.svcs = map[string]*apimService{}
@@ -45,7 +45,6 @@ func (p *APIMProvider) restore(snap *apimSnapshot) {
 		ensureAPIMMaps(s)
 		p.svcs[k] = s
 	}
-
 }
 
 func ensureAPIMMaps(s *apimService) {

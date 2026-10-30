@@ -148,49 +148,55 @@ func polSpecOf(name string) (polSpec, bool) {
 	switch name {
 	case polBase:
 		return polSpec{sections: allSections()}, true
-	case "set-header":
+	case apimCSetHeader:
 		return polSpec{
-			attrs: []string{"name", "exists-action"}, required: []string{"name"}, kids: []string{"value"},
+			attrs: []string{fieldName, apimCExistsAction}, required: []string{fieldName}, kids: []string{fieldValue},
 			sections: allSections(),
 		}, true
-	case "set-query-parameter":
+	case apimCSetQueryParameter:
 		return polSpec{
-			attrs: []string{"name", "exists-action"}, required: []string{"name"}, kids: []string{"value"},
+			attrs: []string{fieldName, apimCExistsAction}, required: []string{fieldName}, kids: []string{fieldValue},
 			sections: []string{polInbound, polBackend, polOnError},
 		}, true
 	case "rewrite-uri":
 		return polSpec{
-			attrs: []string{"template", "copy-unmatched-params"}, required: []string{"template"},
+			attrs: []string{fieldTemplate, "copy-unmatched-params"}, required: []string{fieldTemplate},
 			sections: []string{polInbound},
 		}, true
-	case "return-response":
+	case apimCReturnResponse:
 		return polSpec{
-			attrs: []string{"response-variable-name"}, kids: []string{"set-status", "set-header", "set-body"},
+			attrs: []string{"response-variable-name"}, kids: []string{apimCSetStatus, apimCSetHeader, apimCSetBody},
 			sections: allSections(),
 		}, true
-	case "mock-response":
-		return polSpec{attrs: []string{"status-code", "content-type"}, sections: []string{polInbound}}, true
-	case "rate-limit":
+	case apimCMockResponse:
+		return polSpec{attrs: []string{apimCStatusCodeX, "content-type"}, sections: []string{polInbound}}, true
+	case apimCRateLimit:
 		return polSpec{
-			attrs:    []string{"calls", "renewal-period", "retry-after-header-name", "remaining-calls-header-name"},
-			required: []string{"calls", "renewal-period"}, sections: []string{polInbound},
-		}, true
-	case "check-header":
-		return polSpec{
-			attrs: []string{"name", "failed-check-httpcode", "failed-check-error-message", "ignore-case"},
-			required: []string{"name", "failed-check-httpcode"}, kids: []string{"value"},
+			attrs: []string{
+				apimCCalls,
+				apimCRenewalPeriod,
+				"retry-after-header-name",
+				"remaining-calls-header-name",
+			},
+			required: []string{apimCCalls, apimCRenewalPeriod},
 			sections: []string{polInbound},
 		}, true
-	case "cors":
+	case apimCCheckHeader:
 		return polSpec{
-			attrs:    []string{"allow-credentials", "terminate-unmatched-request"},
-			kids:     []string{"allowed-origins", "allowed-methods", "allowed-headers", "expose-headers"},
+			attrs:    []string{fieldName, apimCFailedCheckHttpcode, "failed-check-error-message", "ignore-case"},
+			required: []string{fieldName, apimCFailedCheckHttpcode}, kids: []string{fieldValue},
 			sections: []string{polInbound},
 		}, true
-	case "set-backend-service":
-		return polSpec{attrs: []string{"base-url", "backend-id"}, sections: []string{polInbound, polBackend}}, true
-	case "forward-request":
-		return polSpec{attrs: []string{"timeout", "follow-redirects"}, sections: []string{polBackend}}, true
+	case apimCCors:
+		return polSpec{
+			attrs:    []string{apimCCorsAllow, "terminate-unmatched-request"},
+			kids:     []string{apimCAllowedOrigins, apimCAllowedMethods, apimCAllowedHeaders, apimCExposeHeaders},
+			sections: []string{polInbound},
+		}, true
+	case apimCSetBackendService:
+		return polSpec{attrs: []string{apimCBaseURL, apimCBackendID}, sections: []string{polInbound, polBackend}}, true
+	case apimCForwardRequest:
+		return polSpec{attrs: []string{apimCTimeout, "follow-redirects"}, sections: []string{polBackend}}, true
 	}
 
 	return polSpec{}, false
@@ -198,18 +204,22 @@ func polSpecOf(name string) (polSpec, bool) {
 
 func polNestedSpec(name string) (polSpec, bool) {
 	switch name {
-	case "value", "set-body", "origin", "method", "header":
+	case fieldValue, apimCSetBody, apimCOrigin, apimCMethod, apimCHeader:
 		return polSpec{}, true
-	case "set-status":
-		return polSpec{attrs: []string{"code", "reason"}, required: []string{"code"}}, true
-	case "set-header":
-		return polSpec{attrs: []string{"name", "exists-action"}, required: []string{"name"}, kids: []string{"value"}}, true
-	case "allowed-origins":
-		return polSpec{kids: []string{"origin"}}, true
-	case "allowed-methods":
-		return polSpec{attrs: []string{"preflight-result-max-age"}, kids: []string{"method"}}, true
-	case "allowed-headers", "expose-headers":
-		return polSpec{kids: []string{"header"}}, true
+	case apimCSetStatus:
+		return polSpec{attrs: []string{aksFieldCode, acFieldReason}, required: []string{aksFieldCode}}, true
+	case apimCSetHeader:
+		return polSpec{
+			attrs:    []string{fieldName, apimCExistsAction},
+			required: []string{fieldName},
+			kids:     []string{fieldValue},
+		}, true
+	case apimCAllowedOrigins:
+		return polSpec{kids: []string{apimCOrigin}}, true
+	case apimCAllowedMethods:
+		return polSpec{attrs: []string{apimCPreflightResultMaxAge}, kids: []string{apimCMethod}}, true
+	case apimCAllowedHeaders, apimCExposeHeaders:
+		return polSpec{kids: []string{apimCHeader}}, true
 	}
 
 	return polSpec{}, false
@@ -227,7 +237,7 @@ func validatePolicy(s *apimService, doc, scope string) error {
 		return err
 	}
 
-	if root.Name != "policies" {
+	if root.Name != apimCPolicies {
 		return polErr(root, "The root element of a policy document must be <policies>.")
 	}
 
@@ -338,7 +348,7 @@ func checkPolicyText(s *apimService, n *polNode, v string) error {
 
 func (s *apimService) namedByDisplay(name string) *apimEntity {
 	for _, e := range s.Named {
-		if strings.EqualFold(strOf(e.Props, "displayName"), name) {
+		if strings.EqualFold(strOf(e.Props, apimCDisplayName), name) {
 			return e
 		}
 	}
@@ -362,33 +372,33 @@ func posInt(n *polNode, attr string, lo, hi int) error {
 
 func validateSemantics(s *apimService, n *polNode) error {
 	switch n.Name {
-	case "set-header", "set-query-parameter":
+	case apimCSetHeader, apimCSetQueryParameter:
 		return validateSetValue(n)
-	case "rate-limit":
-		if err := posInt(n, "calls", 1, 1<<31-1); err != nil {
+	case apimCRateLimit:
+		if err := posInt(n, apimCCalls, 1, 1<<31-1); err != nil {
 			return err
 		}
 
-		return posInt(n, "renewal-period", 1, apimMaxRenewalSecs)
-	case "check-header":
-		if err := posInt(n, "failed-check-httpcode", apimMinStatus, apimMaxStatus); err != nil {
+		return posInt(n, apimCRenewalPeriod, 1, apimMaxRenewalSecs)
+	case apimCCheckHeader:
+		if err := posInt(n, apimCFailedCheckHttpcode, apimMinStatus, apimMaxStatus); err != nil {
 			return err
 		}
 
-		if len(n.values("value")) == 0 {
+		if len(n.values(fieldValue)) == 0 {
 			return polErr(n, "At least one <value> is required.")
 		}
-	case "set-status":
-		return posInt(n, "code", apimMinStatus, apimMaxStatus)
-	case "mock-response":
-		return posInt(n, "status-code", apimMinStatus, apimMaxStatus)
-	case "forward-request":
-		if v := n.Attrs["follow-redirects"]; v != "" && v != "false" {
+	case apimCSetStatus:
+		return posInt(n, aksFieldCode, apimMinStatus, apimMaxStatus)
+	case apimCMockResponse:
+		return posInt(n, apimCStatusCodeX, apimMinStatus, apimMaxStatus)
+	case apimCForwardRequest:
+		if v := n.Attrs["follow-redirects"]; v != "" && v != apimCFalse {
 			return polErr(n, "Following redirects is not supported; only follow-redirects=\"false\" is accepted.")
 		}
 
-		return posInt(n, "timeout", 1, apimMaxTimeoutSecs)
-	case "set-backend-service":
+		return posInt(n, apimCTimeout, 1, apimMaxTimeoutSecs)
+	case apimCSetBackendService:
 		return validateBackendTarget(s, n)
 	}
 
@@ -396,11 +406,12 @@ func validateSemantics(s *apimService, n *polNode) error {
 }
 
 func validateSetValue(n *polNode) error {
-	if v := n.Attrs["exists-action"]; v != "" && !slices.Contains([]string{"override", "skip", "append", "delete"}, v) {
+	if v := n.Attrs[apimCExistsAction]; v != "" &&
+		!slices.Contains([]string{"override", "skip", "append", apimCDelete}, v) {
 		return polErr(n, "The exists-action must be override, skip, append or delete.")
 	}
 
-	if n.Attrs["exists-action"] != "delete" && len(n.values("value")) == 0 {
+	if n.Attrs[apimCExistsAction] != apimCDelete && len(n.values(fieldValue)) == 0 {
 		return polErr(n, "At least one <value> is required.")
 	}
 
@@ -408,12 +419,12 @@ func validateSetValue(n *polNode) error {
 }
 
 func validateBackendTarget(s *apimService, n *polNode) error {
-	base, backend := n.Attrs["base-url"], n.Attrs["backend-id"]
+	base, backend := n.Attrs[apimCBaseURL], n.Attrs[apimCBackendID]
 	if (base == "") == (backend == "") {
 		return polErr(n, "Exactly one of base-url and backend-id is required.")
 	}
 
-	if base != "" && !strings.Contains(base, "{{") && !validAbsURL(base, "http", "https") {
+	if base != "" && !strings.Contains(base, "{{") && !validAbsURL(base, acaScaleHTTP, acaSchemeHTTPS) {
 		return polErr(n, "The base-url must be an absolute http or https URL.")
 	}
 
@@ -425,13 +436,13 @@ func validateBackendTarget(s *apimService, n *polNode) error {
 }
 
 func normPolicy(s *apimService, parent, _ string, in map[string]any, _ *apimEntity) (map[string]any, error) {
-	format := strOf(in, "format")
+	format := strOf(in, apimCFormat)
 	if format == "" {
 		format = "xml"
 	}
 
 	switch format {
-	case "xml", "rawxml":
+	case "xml", apimCRawxml:
 	case "xml-link", "rawxml-link":
 		return nil, apimInvalid("Policies cannot be imported from a link; supply the document inline.")
 	default:
@@ -447,5 +458,5 @@ func normPolicy(s *apimService, parent, _ string, in map[string]any, _ *apimEnti
 		return nil, err
 	}
 
-	return map[string]any{"format": format, fieldValue: doc}, nil
+	return map[string]any{apimCFormat: format, fieldValue: doc}, nil
 }

@@ -59,14 +59,14 @@ func entKey(parent, id string) string {
 func apimKinds() []apimKind {
 	return []apimKind{
 		apiKind(), opKind(), productKind(), subKind(), namedKind(), backendKind(),
-		policyKind("policies"), policyKind("apis/policies"), policyKind("apis/operations/policies"),
+		policyKind(apimCPolicies), policyKind("apis/policies"), policyKind("apis/operations/policies"),
 		{typ: "products/apis"},
 	}
 }
 
 func apiKind() apimKind {
 	return apimKind{
-		typ: "apis", norm: normAPI, del: delAPI,
+		typ: apimCApis, norm: normAPI, del: delAPI,
 		store: func(s *apimService) map[string]*apimEntity { return s.APIs },
 	}
 }
@@ -80,14 +80,14 @@ func opKind() apimKind {
 
 func productKind() apimKind {
 	return apimKind{
-		typ: "products", norm: normProduct, del: delProduct,
+		typ: apimCProducts, norm: normProduct, del: delProduct,
 		store: func(s *apimService) map[string]*apimEntity { return s.Products },
 	}
 }
 
 func subKind() apimKind {
 	return apimKind{
-		typ: "subscriptions", norm: normSubscription, view: viewSubscription,
+		typ: sbSubscriptionsType, norm: normSubscription, view: viewSubscription,
 		store: func(s *apimService) map[string]*apimEntity { return s.Subs },
 	}
 }
@@ -174,24 +174,24 @@ func (p *APIMProvider) doService(req apimReq) (apimResp, error) {
 		return apimResp{Status: http.StatusOK}, nil
 	}
 
-	return apimResp{}, apimErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
+	return apimResp{}, apimErr(http.StatusMethodNotAllowed, apimCMethodNotAllowed, "Method not allowed.")
 }
 
 func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 	r := req.Rest
 
 	switch strings.ToLower(r[0]) {
-	case "apis":
+	case apimCApis:
 		return p.routeAPI(s, req)
-	case "policies":
-		return p.scoped(s, req, policyKind("policies"), "", 0)
-	case "products":
-		if len(r) >= apimProductAPIsLen && strings.EqualFold(r[2], "apis") {
+	case apimCPolicies:
+		return p.scoped(s, req, policyKind(apimCPolicies), "", 0)
+	case apimCProducts:
+		if len(r) >= apimProductAPIsLen && strings.EqualFold(r[2], apimCApis) {
 			return p.productAPIs(s, req)
 		}
 
 		return p.collection(s, req, productKind(), "", 0)
-	case "subscriptions":
+	case sbSubscriptionsType:
 		return p.collection(s, req, subKind(), "", 0)
 	case "namedvalues":
 		return p.collection(s, req, namedKind(), "", 0)
@@ -199,7 +199,7 @@ func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 		return p.collection(s, req, backendKind(), "", 0)
 	}
 
-	return apimResp{}, apimNotFound("resource")
+	return apimResp{}, apimNotFound(cosmosFieldResource)
 }
 
 func (p *APIMProvider) routeAPI(s *apimService, req apimReq) (apimResp, error) {
@@ -209,11 +209,17 @@ func (p *APIMProvider) routeAPI(s *apimService, req apimReq) (apimResp, error) {
 	}
 
 	switch {
-	case strings.EqualFold(r[2], "operations") && len(r) >= apimOpPolicyLen && strings.EqualFold(r[4], "policies"):
-		return p.scoped(s, req, policyKind("apis/operations/policies"), "apis/"+r[1]+"/operations/"+r[3], apimOpPolicyIdx)
-	case strings.EqualFold(r[2], "operations"):
+	case strings.EqualFold(r[2], nsOperations) && len(r) >= apimOpPolicyLen && strings.EqualFold(r[4], apimCPolicies):
+		return p.scoped(
+			s,
+			req,
+			policyKind("apis/operations/policies"),
+			"apis/"+r[1]+"/operations/"+r[3],
+			apimOpPolicyIdx,
+		)
+	case strings.EqualFold(r[2], nsOperations):
 		return p.collection(s, req, opKind(), r[1], apimAPIChildIdx)
-	case strings.EqualFold(r[2], "policies"):
+	case strings.EqualFold(r[2], apimCPolicies):
 		return p.scoped(s, req, policyKind("apis/policies"), "apis/"+r[1], apimAPIChildIdx)
 	}
 
@@ -228,14 +234,14 @@ func (p *APIMProvider) collection(s *apimService, req apimReq, k apimKind, paren
 
 	if parent != "" {
 		if _, ok := s.APIs[entKey("", parent)]; !ok {
-			return apimResp{}, apimNotFound("API")
+			return apimResp{}, apimNotFound(apimCAPI)
 		}
 	}
 
 	switch len(r) - at {
 	case 1:
 		if req.Method != http.MethodGet {
-			return apimResp{}, apimErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
+			return apimResp{}, apimErr(http.StatusMethodNotAllowed, apimCMethodNotAllowed, "Method not allowed.")
 		}
 
 		return apimResp{Status: http.StatusOK, Body: map[string]any{fieldValue: p.listKind(s, k, parent, path)}}, nil
@@ -245,7 +251,7 @@ func (p *APIMProvider) collection(s *apimService, req apimReq, k apimKind, paren
 		return p.action(s, req, k, r[at+1], r[at+2])
 	}
 
-	return apimResp{}, apimNotFound("resource")
+	return apimResp{}, apimNotFound(cosmosFieldResource)
 }
 
 // scoped serves a policy document at the given scope; its collection and item segments follow the scope.
@@ -261,7 +267,7 @@ func (p *APIMProvider) scoped(s *apimService, req apimReq, k apimKind, scope str
 	switch len(r) - at {
 	case 1:
 		if req.Method != http.MethodGet {
-			return apimResp{}, apimErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
+			return apimResp{}, apimErr(http.StatusMethodNotAllowed, apimCMethodNotAllowed, "Method not allowed.")
 		}
 
 		var out []map[string]any
@@ -278,16 +284,16 @@ func (p *APIMProvider) scoped(s *apimService, req apimReq, k apimKind, scope str
 		return p.item(s, req, k, scope, apimPolicyID, path+"/"+apimPolicyID)
 	}
 
-	return apimResp{}, apimNotFound("resource")
+	return apimResp{}, apimNotFound(cosmosFieldResource)
 }
 
 func (p *APIMProvider) policyScopeExists(s *apimService, r []string) error {
-	if len(r) >= 2 && strings.EqualFold(r[0], "apis") {
+	if len(r) >= 2 && strings.EqualFold(r[0], apimCApis) {
 		if _, ok := s.APIs[entKey("", r[1])]; !ok {
-			return apimNotFound("API")
+			return apimNotFound(apimCAPI)
 		}
 
-		if len(r) >= 4 && strings.EqualFold(r[2], "operations") {
+		if len(r) >= 4 && strings.EqualFold(r[2], nsOperations) {
 			if _, ok := s.Ops[entKey(r[1], r[3])]; !ok {
 				return apimNotFound("operation")
 			}
@@ -322,13 +328,16 @@ func (s *apimService) entityBody(k apimKind, path string, e *apimEntity, q url.V
 		props = k.view(props)
 	}
 
-	if q != nil && q.Get("format") == "rawxml" && props != nil && k.view == nil {
+	if q != nil && q.Get(apimCFormat) == apimCRawxml && props != nil && k.view == nil {
 		props = cloneAnyMap(props)
-		props["format"] = "rawxml"
+		props[apimCFormat] = apimCRawxml
 	}
 
 	return map[string]any{
-		"id": s.armBase() + "/" + path, fieldName: e.ID, fieldType: apimARMType + "/" + k.typ, fieldProperties: props,
+		cosmosFieldID:   s.armBase() + "/" + path,
+		fieldName:       e.ID,
+		fieldType:       apimARMType + "/" + k.typ,
+		fieldProperties: props,
 	}
 }
 
@@ -355,17 +364,21 @@ func (p *APIMProvider) item(
 	switch req.Method {
 	case http.MethodGet, http.MethodHead:
 		if prev == nil {
-			return apimResp{}, apimNotFound("entity")
+			return apimResp{}, apimNotFound(apimCEntity)
 		}
 
-		return apimResp{Status: http.StatusOK, Body: s.entityBody(k, path, prev, req.Query), Etag: apimEtag(prev.Etag)}, nil
+		return apimResp{
+			Status: http.StatusOK,
+			Body:   s.entityBody(k, path, prev, req.Query),
+			Etag:   apimEtag(prev.Etag),
+		}, nil
 	case http.MethodDelete:
 		return p.deleteItem(s, req, k, parent, id)
 	case http.MethodPut, http.MethodPatch:
 		return p.writeItem(s, req, k, parent, id, path)
 	}
 
-	return apimResp{}, apimErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
+	return apimResp{}, apimErr(http.StatusMethodNotAllowed, apimCMethodNotAllowed, "Method not allowed.")
 }
 
 func (p *APIMProvider) deleteItem(s *apimService, req apimReq, k apimKind, parent, id string) (apimResp, error) {
@@ -400,7 +413,7 @@ func (p *APIMProvider) writeItem(s *apimService, req apimReq, k apimKind, parent
 	patch := req.Method == http.MethodPatch
 
 	if prev == nil && patch {
-		return apimResp{}, apimNotFound("entity")
+		return apimResp{}, apimNotFound(apimCEntity)
 	}
 
 	if prev != nil {
@@ -442,26 +455,27 @@ func (p *APIMProvider) writeItem(s *apimService, req apimReq, k apimKind, parent
 // (named values).
 func (p *APIMProvider) action(s *apimService, req apimReq, k apimKind, id, verb string) (apimResp, error) {
 	if req.Method != http.MethodPost {
-		return apimResp{}, apimErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
+		return apimResp{}, apimErr(http.StatusMethodNotAllowed, apimCMethodNotAllowed, "Method not allowed.")
 	}
 
 	ent := k.store(s)[entKey("", id)]
 	if ent == nil {
-		return apimResp{}, apimNotFound("entity")
+		return apimResp{}, apimNotFound(apimCEntity)
 	}
 
 	switch {
-	case k.typ == "subscriptions" && strings.EqualFold(verb, "listSecrets"):
+	case k.typ == sbSubscriptionsType && strings.EqualFold(verb, "listSecrets"):
 		return apimResp{Status: http.StatusOK, Body: map[string]any{
-			"primaryKey": ent.Props["primaryKey"], "secondaryKey": ent.Props["secondaryKey"],
+			redisPropPrimaryKey:   ent.Props[redisPropPrimaryKey],
+			redisPropSecondaryKey: ent.Props[redisPropSecondaryKey],
 		}}, nil
-	case k.typ == "subscriptions" && strings.EqualFold(verb, "regeneratePrimaryKey"):
-		ent.Props = withProp(ent.Props, "primaryKey", newAPIMKey())
+	case k.typ == sbSubscriptionsType && strings.EqualFold(verb, "regeneratePrimaryKey"):
+		ent.Props = withProp(ent.Props, redisPropPrimaryKey, newAPIMKey())
 		s.bump()
 
 		return apimResp{Status: http.StatusNoContent}, nil
-	case k.typ == "subscriptions" && strings.EqualFold(verb, "regenerateSecondaryKey"):
-		ent.Props = withProp(ent.Props, "secondaryKey", newAPIMKey())
+	case k.typ == sbSubscriptionsType && strings.EqualFold(verb, "regenerateSecondaryKey"):
+		ent.Props = withProp(ent.Props, redisPropSecondaryKey, newAPIMKey())
 		s.bump()
 
 		return apimResp{Status: http.StatusNoContent}, nil
@@ -469,7 +483,7 @@ func (p *APIMProvider) action(s *apimService, req apimReq, k apimKind, id, verb 
 		return apimResp{Status: http.StatusOK, Body: map[string]any{fieldValue: ent.Props[fieldValue]}}, nil
 	}
 
-	return apimResp{}, apimNotFound("resource")
+	return apimResp{}, apimNotFound(cosmosFieldResource)
 }
 
 func (p *APIMProvider) productAPIs(s *apimService, req apimReq) (apimResp, error) {
@@ -482,12 +496,12 @@ func (p *APIMProvider) productAPIs(s *apimService, req apimReq) (apimResp, error
 
 	if len(r) == apimProductAPIsLen {
 		if req.Method != http.MethodGet {
-			return apimResp{}, apimErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
+			return apimResp{}, apimErr(http.StatusMethodNotAllowed, apimCMethodNotAllowed, "Method not allowed.")
 		}
 
 		out := make([]map[string]any, 0)
 
-		for _, e := range p.listKind(s, apiKind(), "", "apis") {
+		for _, e := range p.listKind(s, apiKind(), "", apimCApis) {
 			if s.ProductAPIs[prefix+strings.ToLower(nameField(e))] {
 				out = append(out, e)
 			}
@@ -513,7 +527,7 @@ func (p *APIMProvider) productAPILink(s *apimService, req apimReq, prefix string
 		return apimResp{Status: http.StatusNoContent}, nil
 	case http.MethodPut:
 		if api == nil {
-			return apimResp{}, apimNotFound("API")
+			return apimResp{}, apimNotFound(apimCAPI)
 		}
 
 		status := http.StatusCreated
@@ -536,7 +550,7 @@ func (p *APIMProvider) productAPILink(s *apimService, req apimReq, prefix string
 		return apimResp{Status: http.StatusOK}, nil
 	}
 
-	return apimResp{}, apimErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
+	return apimResp{}, apimErr(http.StatusMethodNotAllowed, apimCMethodNotAllowed, "Method not allowed.")
 }
 
 func keysEqual(a, b string) bool {

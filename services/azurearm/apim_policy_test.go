@@ -351,6 +351,8 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			name: "set-header override", method: "GET", path: "/echo/items/1",
 			inbound: `<set-header name="X-Added" exists-action="override"><value>v1</value></set-header>`,
 			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 200, status)
 				assert.Equal(t, []string{"v1"}, decodeEcho(t, body).Header["X-Added"])
 			},
@@ -361,21 +363,27 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			path:    "/echo/items/1",
 			hdr:     map[string]string{"X-A": "orig"},
 			inbound: `<set-header name="X-A" exists-action="skip"><value>new</value></set-header>`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, []string{"orig"}, decodeEcho(t, body).Header["X-A"])
 			},
 		},
 		{
 			name: "set-header append", method: "GET", path: "/echo/items/1", hdr: map[string]string{"X-A": "orig"},
 			inbound: `<set-header name="X-A" exists-action="append"><value>new</value></set-header>`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, []string{"orig", "new"}, decodeEcho(t, body).Header["X-A"])
 			},
 		},
 		{
 			name: "set-header delete", method: "GET", path: "/echo/items/1", hdr: map[string]string{"X-A": "orig"},
 			inbound: `<set-header name="X-A" exists-action="delete" />`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.NotContains(t, decodeEcho(t, body).Header, "X-A")
 			},
 		},
@@ -383,14 +391,18 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			name: "set-query-parameter", method: "GET", path: "/echo/items/1?a=1&keep=k",
 			inbound: `<set-query-parameter name="a" exists-action="override"><value>9</value></set-query-parameter>
 				<set-query-parameter name="b"><value>2</value></set-query-parameter>`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, "a=9&b=2&keep=k", decodeEcho(t, body).Query)
 			},
 		},
 		{
 			name: "rewrite-uri", method: "GET", path: "/echo/items/5?keep=1",
 			inbound: `<rewrite-uri template="/rewritten/{id}/x" />`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				got := decodeEcho(t, body)
 				assert.Equal(t, "/base/rewritten/5/x", got.Path)
 				assert.Equal(t, "keep=1", got.Query)
@@ -399,7 +411,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "rewrite-uri drops unmatched params", method: "GET", path: "/echo/items/5?keep=1",
 			inbound: `<rewrite-uri template="/r/{id}?fixed=yes" copy-unmatched-params="false" />`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				got := decodeEcho(t, body)
 				assert.Equal(t, "/base/r/5", got.Path)
 				assert.Equal(t, "fixed=yes", got.Query)
@@ -411,6 +425,8 @@ func TestAPIMGateway_Policies(t *testing.T) {
 				<set-header name="X-Custom" exists-action="override"><value>c</value></set-header>
 				<set-body>short and stout</set-body></return-response>`,
 			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 418, status)
 				assert.Equal(t, "short and stout", body)
 				assert.Equal(t, "c", hdr.Get("X-Custom"))
@@ -425,6 +441,8 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			},
 			inbound: `<mock-response status-code="200" content-type="application/json" />`,
 			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 200, status)
 				assert.JSONEq(t, `{"mocked":true}`, body)
 				assert.Equal(t, "application/json", hdr.Get("Content-Type"))
@@ -434,7 +452,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "mock-response without sample", method: "GET", path: "/echo/static",
 			inbound: `<mock-response status-code="204" />`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 204, status)
 				assert.Empty(t, body)
 			},
@@ -443,7 +463,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			name: "outbound set-header", method: "GET", path: "/echo/items/1",
 			outbnd: `<set-header name="X-Out" exists-action="override"><value>o</value></set-header>
 				<set-header name="X-Backend" exists-action="delete" />`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, _ string, hdr http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 200, status)
 				assert.Equal(t, "o", hdr.Get("X-Out"))
 				assert.Empty(t, hdr.Get("X-Backend"))
@@ -455,7 +477,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			path:    "/echo/items/1",
 			hdr:     map[string]string{"X-Token": "ABC"},
 			inbound: checkHeader("X-Token", "403", "forbidden", "true", "abc"),
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, _ string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 200, status)
 			},
 		},
@@ -465,7 +489,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			path:    "/echo/items/1",
 			hdr:     map[string]string{"X-Token": "ABC"},
 			inbound: checkHeader("X-Token", "403", "forbidden", "false", "abc"),
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 403, status)
 				assert.Equal(t, "forbidden", body)
 			},
@@ -475,7 +501,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			method:  "GET",
 			path:    "/echo/items/1",
 			inbound: checkHeader("X-Token", "401", "need token", "true", "abc"),
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 401, status)
 				assert.Equal(t, "need token", body)
 			},
@@ -483,7 +511,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "set-backend-service base-url", method: "GET", path: "/echo/items/7",
 			inbound: `<set-backend-service base-url="BACKEND/alt" />`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, "/alt/items/7", decodeEcho(t, body).Path)
 			},
 		},
@@ -511,7 +541,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 				require.NoError(t, err)
 			},
 			inbound: `<set-backend-service backend-id="be1" />`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				got := decodeEcho(t, body)
 				assert.Equal(t, "/viabackend/items/7", got.Path)
 				assert.Equal(t, []string{"Bearer tok"}, got.Header["Authorization"])
@@ -536,7 +568,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 				require.NoError(t, err)
 			},
 			inbound: `<set-header name="X-Named"><value>pre-{{my-secret}}-post</value></set-header>`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, _ int, body string, _ http.Header) {
+				t.Helper()
+
 				assert.Equal(t, []string{"pre-shh-post"}, decodeEcho(t, body).Header["X-Named"])
 			},
 		},
@@ -553,7 +587,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			inbound: `<cors allow-credentials="false"><allowed-origins><origin>https://app.example</origin></allowed-origins>
 				<allowed-methods preflight-result-max-age="120"><method>GET</method><method>POST</method></allowed-methods>
 				<allowed-headers><header>*</header></allowed-headers></cors>`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, _ string, hdr http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 200, status)
 				assert.Equal(t, "https://app.example", hdr.Get("Access-Control-Allow-Origin"))
 				assert.Equal(t, "GET, POST", hdr.Get("Access-Control-Allow-Methods"))
@@ -569,7 +605,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 				"Access-Control-Request-Method": "GET",
 			},
 			inbound: `<cors><allowed-origins><origin>https://app.example</origin></allowed-origins></cors>`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, _ string, hdr http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 200, status)
 				assert.Empty(t, hdr.Get("Access-Control-Allow-Origin"))
 			},
@@ -581,7 +619,9 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			hdr:    map[string]string{"Origin": "https://any.example"},
 			inbound: `<cors><allowed-origins><origin>*</origin></allowed-origins>
 				<expose-headers><header>X-Backend</header></expose-headers></cors>`,
-			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, _ string, hdr http.Header) {
+				t.Helper()
+
 				assert.Equal(t, 200, status)
 				assert.Equal(t, "*", hdr.Get("Access-Control-Allow-Origin"))
 				assert.Equal(t, "X-Backend", hdr.Get("Access-Control-Expose-Headers"))

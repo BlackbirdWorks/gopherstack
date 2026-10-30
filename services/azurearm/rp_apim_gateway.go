@@ -15,15 +15,15 @@ import (
 )
 
 const (
-	apimGatewayPrefix   = "/_apim/"
-	apimMaxRequestBody  = 8 << 20
-	apimDialKeepAlive   = 30 * time.Second
-	apimDialTimeout     = 10 * time.Second
-	apimForwardTimeout  = 60 * time.Second
-	apimMsgNotFound     = "Resource not found"
-	apimMsgMissingKey   = "Access denied due to missing subscription key. " +
+	apimGatewayPrefix  = "/_apim/"
+	apimMaxRequestBody = 8 << 20
+	apimDialKeepAlive  = 30 * time.Second
+	apimDialTimeout    = 10 * time.Second
+	apimForwardTimeout = 60 * time.Second
+	apimMsgNotFound    = "Resource not found"
+	apimMsgMissingKey  = "Access denied due to missing subscription key. " +
 		"Make sure to include subscription key when making requests to an API."
-	apimMsgInvalidKey   = "Access denied due to invalid subscription key. " +
+	apimMsgInvalidKey = "Access denied due to invalid subscription key. " +
 		"Make sure to provide a valid key for an active subscription."
 	apimMsgNotActive    = "The API Management service is not active."
 	apimLimiterSweepAt  = 10000
@@ -115,8 +115,8 @@ func (p *APIMProvider) newBackendClient() *http.Client {
 }
 
 type gwFail struct {
-	status int
 	msg    string
+	status int
 }
 
 type gwBackend struct {
@@ -159,9 +159,9 @@ func gatewayTarget(r *http.Request) (string, string, bool) {
 }
 
 func writeGW(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(apimCContentType, "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"statusCode": status, "message": msg})
+	_ = json.NewEncoder(w).Encode(map[string]any{apimCStatusCode: status, fieldMessage: msg})
 }
 
 // ServeGateway answers a request addressed to a service's gateway (Host <name>.azure-api.net, or the path prefix
@@ -214,13 +214,21 @@ func (p *APIMProvider) resolveGateway(name, path string, r *http.Request) (*gwPl
 		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNotFound}
 	}
 
-	plan := &gwPlan{now: p.now, service: s.Name, api: api.Props, apiID: api.ID, suffix: suffix, named: s.namedMap(), backends: s.backendMap()}
+	plan := &gwPlan{
+		now:      p.now,
+		service:  s.Name,
+		api:      api.Props,
+		apiID:    api.ID,
+		suffix:   suffix,
+		named:    s.namedMap(),
+		backends: s.backendMap(),
+	}
 	plan.docs[0], plan.docs[1] = s.policyDoc(""), s.policyDoc("apis/"+api.ID)
 
-	if r.Method == http.MethodOptions && r.Header.Get("Origin") != "" &&
-		r.Header.Get("Access-Control-Request-Method") != "" {
+	if r.Method == http.MethodOptions && r.Header.Get(apimCOriginX) != "" &&
+		r.Header.Get(apimCAccessControlRequestMethod) != "" {
 		plan.preflght = true
-		plan.op, _, _ = s.matchOperation(api.ID, r.Header.Get("Access-Control-Request-Method"), suffix)
+		plan.op, _, _ = s.matchOperation(api.ID, r.Header.Get(apimCAccessControlRequestMethod), suffix)
 
 		return plan, nil
 	}
@@ -251,7 +259,7 @@ func (s *apimService) policyDoc(scope string) string {
 func (s *apimService) namedMap() map[string]string {
 	out := make(map[string]string, len(s.Named))
 	for _, e := range s.Named {
-		out[strings.ToLower(strOf(e.Props, "displayName"))] = strOf(e.Props, fieldValue)
+		out[strings.ToLower(strOf(e.Props, apimCDisplayName))] = strOf(e.Props, fieldValue)
 	}
 
 	return out
@@ -261,18 +269,18 @@ func (s *apimService) backendMap() map[string]gwBackend {
 	out := make(map[string]gwBackend, len(s.Backends))
 
 	for _, e := range s.Backends {
-		b := gwBackend{url: strOf(e.Props, "url"), header: map[string][]string{}, query: map[string][]string{}}
-		c := mapOf(e.Props["credentials"])
+		b := gwBackend{url: strOf(e.Props, apimCUrl), header: map[string][]string{}, query: map[string][]string{}}
+		c := mapOf(e.Props[apimCCredentials])
 
-		for k, v := range mapOf(c["header"]) {
+		for k, v := range mapOf(c[apimCHeader]) {
 			b.header[k] = strList(v)
 		}
 
-		for k, v := range mapOf(c["query"]) {
+		for k, v := range mapOf(c[apimCQuery]) {
 			b.query[k] = strList(v)
 		}
 
-		if a := mapOf(c["authorization"]); a != nil {
+		if a := mapOf(c[apimCAuthorization]); a != nil {
 			b.scheme, b.param = strOf(a, "scheme"), strOf(a, "parameter")
 		}
 
@@ -283,12 +291,12 @@ func (s *apimService) backendMap() map[string]gwBackend {
 }
 
 func apiAllowsScheme(props map[string]any, tls bool) bool {
-	want := "http"
+	want := acaScaleHTTP
 	if tls {
-		want = "https"
+		want = acaSchemeHTTPS
 	}
 
-	for _, v := range strList(props["protocols"]) {
+	for _, v := range strList(props[apimCProtocols]) {
 		if strings.EqualFold(v, want) {
 			return true
 		}
@@ -306,7 +314,7 @@ func (s *apimService) matchAPI(path string) (*apimEntity, string) {
 	)
 
 	for _, e := range s.APIs {
-		ap := strings.ToLower(strOf(e.Props, "path"))
+		ap := strings.ToLower(strOf(e.Props, apimCPath))
 		if len(norm) < len(ap) || !strings.EqualFold(norm[:len(ap)], ap) {
 			continue
 		}
@@ -339,11 +347,11 @@ func (s *apimService) matchOperation(apiID, method, suffix string) (map[string]a
 	segs := splitARMPath(suffix)
 
 	for _, e := range s.Ops {
-		if !strings.EqualFold(e.Parent, apiID) || !strings.EqualFold(strOf(e.Props, "method"), method) {
+		if !strings.EqualFold(e.Parent, apiID) || !strings.EqualFold(strOf(e.Props, apimCMethod), method) {
 			continue
 		}
 
-		tpl, _, _ := strings.Cut(strOf(e.Props, "urlTemplate"), "?")
+		tpl, _, _ := strings.Cut(strOf(e.Props, apimCUrlTemplate), "?")
 
 		params, score, ok := matchTemplate(splitARMPath(tpl), segs)
 		if ok && (score > bestScore || (score == bestScore && e.ID < bestID)) {
@@ -393,15 +401,15 @@ func matchTemplate(tpl, segs []string) (map[string]string, int, bool) {
 
 // checkKey enforces the subscription requirement of the matched API.
 func (p *APIMProvider) checkKey(s *apimService, api *apimEntity, plan *gwPlan, r *http.Request) *gwFail {
-	if req, _ := api.Props["subscriptionRequired"].(bool); !req || s.apiInOpenProduct(api.ID) {
+	if req, _ := api.Props[apimCSubscriptionRequired].(bool); !req || s.apiInOpenProduct(api.ID) {
 		return nil
 	}
 
-	names := mapOf(api.Props["subscriptionKeyParameterNames"])
+	names := mapOf(api.Props[apimCSubscriptionKeyParameterNames])
 
-	key := r.Header.Get(firstNonEmpty(strOf(names, "header"), apimHeaderSub))
+	key := r.Header.Get(firstNonEmpty(strOf(names, apimCHeader), apimHeaderSub))
 	if key == "" {
-		key = r.URL.Query().Get(firstNonEmpty(strOf(names, "query"), apimQuerySub))
+		key = r.URL.Query().Get(firstNonEmpty(strOf(names, apimCQuery), apimQuerySub))
 	}
 
 	if key == "" {
@@ -409,15 +417,16 @@ func (p *APIMProvider) checkKey(s *apimService, api *apimEntity, plan *gwPlan, r
 	}
 
 	for _, sub := range s.Subs {
-		if strOf(sub.Props, "state") != apimStateActive {
+		if strOf(sub.Props, sqlPropState) != apimStateActive {
 			continue
 		}
 
-		if !keysEqual(strOf(sub.Props, "primaryKey"), key) && !keysEqual(strOf(sub.Props, "secondaryKey"), key) {
+		if !keysEqual(strOf(sub.Props, redisPropPrimaryKey), key) &&
+			!keysEqual(strOf(sub.Props, redisPropSecondaryKey), key) {
 			continue
 		}
 
-		if s.scopeCovers(strOf(sub.Props, "scope"), api.ID) {
+		if s.scopeCovers(strOf(sub.Props, acrPropScope), api.ID) {
 			plan.subID = sub.ID
 
 			return nil
@@ -450,7 +459,7 @@ func (s *apimService) apiInOpenProduct(apiID string) bool {
 		}
 
 		if prod := s.Products[pid]; prod != nil {
-			if req, _ := prod.Props["subscriptionRequired"].(bool); !req {
+			if req, _ := prod.Props[apimCSubscriptionRequired].(bool); !req {
 				return true
 			}
 		}

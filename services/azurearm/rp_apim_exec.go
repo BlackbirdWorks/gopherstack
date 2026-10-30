@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +41,7 @@ type gwState struct {
 
 func existsAction(m map[string][]string, key, action string, vals []string) {
 	switch action {
-	case "delete":
+	case apimCDelete:
 		delete(m, key)
 	case "skip":
 		if len(m[key]) == 0 {
@@ -55,7 +57,7 @@ func existsAction(m map[string][]string, key, action string, vals []string) {
 func expandSection(docs []*polNode, section string) []*polNode {
 	if len(docs) == 0 {
 		if section == polBackend {
-			return []*polNode{{Name: "forward-request", Attrs: map[string]string{}}}
+			return []*polNode{{Name: apimCForwardRequest, Attrs: map[string]string{}}}
 		}
 
 		return nil
@@ -123,8 +125,8 @@ func (g *gwState) subAll(in []string) []string {
 }
 
 func (g *gwState) fail(status int, msg string) {
-	body, _ := json.Marshal(map[string]any{"statusCode": status, "message": msg})
-	g.setResponse(status, http.Header{"Content-Type": {"application/json"}}, body)
+	body, _ := json.Marshal(map[string]any{apimCStatusCode: status, fieldMessage: msg})
+	g.setResponse(status, http.Header{apimCContentType: {"application/json"}}, body)
 	g.short = true
 }
 
@@ -160,11 +162,11 @@ func (g *gwState) run() {
 
 	g.extra = http.Header{}
 	g.header = g.r.Header.Clone()
-	keyNames := mapOf(g.plan.api["subscriptionKeyParameterNames"])
-	g.header.Del(firstNonEmpty(strOf(keyNames, "header"), apimHeaderSub))
-	g.query = cleanQuery(g.r.URL.Query(), firstNonEmpty(strOf(keyNames, "query"), apimQuerySub))
+	keyNames := mapOf(g.plan.api[apimCSubscriptionKeyParameterNames])
+	g.header.Del(firstNonEmpty(strOf(keyNames, apimCHeader), apimHeaderSub))
+	g.query = cleanQuery(g.r.URL.Query(), firstNonEmpty(strOf(keyNames, apimCQuery), apimQuerySub))
 
-	if su := strOf(g.plan.api, "serviceUrl"); su != "" {
+	if su := strOf(g.plan.api, apimCServiceURL); su != "" {
 		g.target, _ = url.Parse(su)
 	}
 
@@ -216,44 +218,48 @@ func (g *gwState) finish() {
 
 func (g *gwState) execRequest(n *polNode) {
 	switch n.Name {
-	case "set-header":
-		existsAction(g.header, textproto.CanonicalMIMEHeaderKey(g.sub(n.Attrs["name"])), n.Attrs["exists-action"],
-			g.subAll(n.values("value")))
-	case "set-query-parameter":
-		existsAction(g.query, g.sub(n.Attrs["name"]), n.Attrs["exists-action"], g.subAll(n.values("value")))
+	case apimCSetHeader:
+		existsAction(g.header, textproto.CanonicalMIMEHeaderKey(g.sub(n.Attrs[fieldName])), n.Attrs[apimCExistsAction],
+			g.subAll(n.values(fieldValue)))
+	case apimCSetQueryParameter:
+		existsAction(g.query, g.sub(n.Attrs[fieldName]), n.Attrs[apimCExistsAction], g.subAll(n.values(fieldValue)))
 	case "rewrite-uri":
-		g.rewrite, g.noCopy = g.sub(n.Attrs["template"]), n.Attrs["copy-unmatched-params"] == "false"
-	case "set-backend-service":
+		g.rewrite, g.noCopy = g.sub(n.Attrs[fieldTemplate]), n.Attrs["copy-unmatched-params"] == apimCFalse
+	case apimCSetBackendService:
 		g.setBackend(n)
-	case "return-response":
+	case apimCReturnResponse:
 		g.returnResponse(n)
-	case "mock-response":
+	case apimCMockResponse:
 		g.mockResponse(n)
-	case "rate-limit":
+	case apimCRateLimit:
 		g.rateLimit(n)
-	case "check-header":
+	case apimCCheckHeader:
 		g.checkHeader(n)
-	case "cors":
+	case apimCCors:
 		if g.cors == nil {
 			g.cors = n
 		}
-	case "forward-request":
+	case apimCForwardRequest:
 		g.forward(n)
 	}
 }
 
 func (g *gwState) execResponse(n *polNode) {
 	switch n.Name {
-	case "set-header":
+	case apimCSetHeader:
 		if g.respHeader == nil {
 			g.respHeader = http.Header{}
 		}
 
-		existsAction(g.respHeader, textproto.CanonicalMIMEHeaderKey(g.sub(n.Attrs["name"])), n.Attrs["exists-action"],
-			g.subAll(n.values("value")))
-	case "return-response":
+		existsAction(
+			g.respHeader,
+			textproto.CanonicalMIMEHeaderKey(g.sub(n.Attrs[fieldName])),
+			n.Attrs[apimCExistsAction],
+			g.subAll(n.values(fieldValue)),
+		)
+	case apimCReturnResponse:
 		g.returnResponse(n)
-	case "cors":
+	case apimCCors:
 		if g.cors == nil {
 			g.cors = n
 		}
@@ -261,7 +267,7 @@ func (g *gwState) execResponse(n *polNode) {
 }
 
 func (g *gwState) setBackend(n *polNode) {
-	if id := n.Attrs["backend-id"]; id != "" {
+	if id := n.Attrs[apimCBackendID]; id != "" {
 		b, ok := g.plan.backends[strings.ToLower(id)]
 		if !ok {
 			g.fail(http.StatusInternalServerError, "The backend '"+id+"' no longer exists.")
@@ -275,8 +281,8 @@ func (g *gwState) setBackend(n *polNode) {
 		return
 	}
 
-	u, err := url.Parse(g.sub(n.Attrs["base-url"]))
-	if err != nil || !validAbsURL(u.String(), "http", "https") {
+	u, err := url.Parse(g.sub(n.Attrs[apimCBaseURL]))
+	if err != nil || !validAbsURL(u.String(), acaScaleHTTP, acaSchemeHTTPS) {
 		g.fail(http.StatusInternalServerError, "The set-backend-service base-url is not a valid URL.")
 
 		return
@@ -290,12 +296,12 @@ func (g *gwState) returnResponse(n *polNode) {
 
 	for _, k := range n.Kids {
 		switch k.Name {
-		case "set-status":
-			status, _ = strconv.Atoi(strings.TrimSpace(k.Attrs["code"]))
-		case "set-header":
-			existsAction(hdr, textproto.CanonicalMIMEHeaderKey(g.sub(k.Attrs["name"])), k.Attrs["exists-action"],
-				g.subAll(k.values("value")))
-		case "set-body":
+		case apimCSetStatus:
+			status, _ = strconv.Atoi(strings.TrimSpace(k.Attrs[aksFieldCode]))
+		case apimCSetHeader:
+			existsAction(hdr, textproto.CanonicalMIMEHeaderKey(g.sub(k.Attrs[fieldName])), k.Attrs[apimCExistsAction],
+				g.subAll(k.values(fieldValue)))
+		case apimCSetBody:
 			body = []byte(g.sub(strings.TrimSpace(k.Text)))
 		}
 	}
@@ -307,27 +313,27 @@ func (g *gwState) returnResponse(n *polNode) {
 func (g *gwState) mockResponse(n *polNode) {
 	code := 200
 
-	if v := n.Attrs["status-code"]; v != "" {
+	if v := n.Attrs[apimCStatusCodeX]; v != "" {
 		code, _ = strconv.Atoi(strings.TrimSpace(v))
 	}
 
 	want := n.Attrs["content-type"]
 	hdr, body := http.Header{}, []byte(nil)
 
-	for _, e := range anySlice(g.plan.op["responses"]) {
+	for _, e := range anySlice(g.plan.op[apimCResponses]) {
 		resp := mapOf(e)
-		if intOf(resp["statusCode"]) != code {
+		if intOf(resp[apimCStatusCode]) != code {
 			continue
 		}
 
 		for _, rp := range anySlice(resp["representations"]) {
 			rep := mapOf(rp)
-			if want != "" && !strings.EqualFold(strOf(rep, "contentType"), want) {
+			if want != "" && !strings.EqualFold(strOf(rep, apimCContentTypeX), want) {
 				continue
 			}
 
-			if b, ok := firstExample(mapOf(rep["examples"])); ok {
-				hdr.Set("Content-Type", strOf(rep, "contentType"))
+			if b, ok := firstExample(mapOf(rep[apimCExamples])); ok {
+				hdr.Set(apimCContentType, strOf(rep, apimCContentTypeX))
 				body = b
 			}
 
@@ -373,8 +379,8 @@ func firstExample(examples map[string]any) ([]byte, bool) {
 }
 
 func (g *gwState) rateLimit(n *polNode) {
-	calls, _ := strconv.Atoi(strings.TrimSpace(n.Attrs["calls"]))
-	period, _ := strconv.Atoi(strings.TrimSpace(n.Attrs["renewal-period"]))
+	calls, _ := strconv.Atoi(strings.TrimSpace(n.Attrs[apimCCalls]))
+	period, _ := strconv.Atoi(strings.TrimSpace(n.Attrs[apimCRenewalPeriod]))
 	who := g.plan.subID
 
 	if who == "" {
@@ -387,7 +393,7 @@ func (g *gwState) rateLimit(n *polNode) {
 	if !ok {
 		secs := int(math.Ceil(retry.Seconds()))
 		g.fail(http.StatusTooManyRequests, fmt.Sprintf("Rate limit is exceeded. Try again in %d seconds.", secs))
-		g.respHeader.Set("Retry-After", strconv.Itoa(secs))
+		g.respHeader.Set(apimCRetryAfter, strconv.Itoa(secs))
 
 		if h := n.Attrs["retry-after-header-name"]; h != "" {
 			g.respHeader.Set(h, strconv.Itoa(secs))
@@ -402,20 +408,24 @@ func (g *gwState) rateLimit(n *polNode) {
 }
 
 func (g *gwState) checkHeader(n *polNode) {
-	name := g.sub(n.Attrs["name"])
+	name := g.sub(n.Attrs[fieldName])
 	have := g.header.Values(name)
-	fold := n.Attrs["ignore-case"] == "true"
+	fold := n.Attrs["ignore-case"] == cmpTrue
 
 	for _, h := range have {
-		for _, want := range n.values("value") {
+		for _, want := range n.values(fieldValue) {
 			if h == want || (fold && strings.EqualFold(h, want)) {
 				return
 			}
 		}
 	}
 
-	code, _ := strconv.Atoi(strings.TrimSpace(n.Attrs["failed-check-httpcode"]))
-	g.setResponse(code, http.Header{"Content-Type": {"text/plain"}}, []byte(g.sub(n.Attrs["failed-check-error-message"])))
+	code, _ := strconv.Atoi(strings.TrimSpace(n.Attrs[apimCFailedCheckHttpcode]))
+	g.setResponse(
+		code,
+		http.Header{apimCContentType: {"text/plain"}},
+		[]byte(g.sub(n.Attrs["failed-check-error-message"])),
+	)
 	g.short = true
 }
 
@@ -424,7 +434,7 @@ func (g *gwState) buildURL() (*url.URL, error) {
 		return nil, errNoAPIMBackend
 	}
 
-	if g.target.Scheme != "http" && g.target.Scheme != "https" {
+	if g.target.Scheme != acaScaleHTTP && g.target.Scheme != acaSchemeHTTPS {
 		return nil, errAPIMWebSocket
 	}
 
@@ -440,9 +450,7 @@ func (g *gwState) buildURL() (*url.URL, error) {
 
 		if rawQ != "" {
 			extra, _ := url.ParseQuery(fillTemplate(rawQ, g.plan.params))
-			for k, v := range extra {
-				query[k] = v
-			}
+			maps.Copy(query, extra)
 		}
 	}
 
@@ -451,9 +459,7 @@ func (g *gwState) buildURL() (*url.URL, error) {
 	u.RawPath = ""
 
 	merged := g.target.Query()
-	for k, v := range query {
-		merged[k] = v
-	}
+	maps.Copy(merged, query)
 
 	u.RawQuery = merged.Encode()
 
@@ -482,7 +488,7 @@ func (g *gwState) forward(n *polNode) {
 	}
 
 	timeout := apimForwardTimeout
-	if t, convErr := strconv.Atoi(n.Attrs["timeout"]); convErr == nil && t > 0 {
+	if t, convErr := strconv.Atoi(n.Attrs[apimCTimeout]); convErr == nil && t > 0 {
 		timeout = time.Duration(t) * time.Second
 	}
 
@@ -521,8 +527,10 @@ func (g *gwState) forward(n *polNode) {
 
 func (g *gwState) upstreamError(err error) {
 	if errors.Is(err, ErrAPIMDestinationNotPermitted) {
-		g.fail(http.StatusBadGateway,
-			"The backend host is outside loopback and external backends are not allowed (--azure-arm-apim-allow-external).")
+		g.fail(
+			http.StatusBadGateway,
+			"The backend host is outside loopback and external backends are not allowed (--azure-arm-apim-allow-external).",
+		)
 
 		return
 	}
@@ -549,7 +557,7 @@ func (g *gwState) applyCredentials(req *http.Request) {
 	}
 
 	if g.backend.scheme != "" {
-		req.Header.Set("Authorization", g.backend.scheme+" "+g.backend.param)
+		req.Header.Set(apimCAuthorizationX, g.backend.scheme+" "+g.backend.param)
 	}
 }
 
@@ -570,12 +578,12 @@ func (g *gwState) corsAllowed(origin string) bool {
 		return false
 	}
 
-	allowed := g.cors.kid("allowed-origins")
+	allowed := g.cors.kid(apimCAllowedOrigins)
 	if allowed == nil {
 		return false
 	}
 
-	for _, o := range allowed.values("origin") {
+	for _, o := range allowed.values(apimCOrigin) {
 		if o == "*" || o == origin {
 			return true
 		}
@@ -585,11 +593,9 @@ func (g *gwState) corsAllowed(origin string) bool {
 }
 
 func (g *gwState) corsOrigin(origin string) string {
-	if g.cors.Attrs["allow-credentials"] != "true" {
-		for _, o := range g.cors.kid("allowed-origins").values("origin") {
-			if o == "*" {
-				return "*"
-			}
+	if g.cors.Attrs[apimCCorsAllow] != cmpTrue {
+		if slices.Contains(g.cors.kid(apimCAllowedOrigins).values(apimCOrigin), "*") {
+			return "*"
 		}
 	}
 
@@ -597,26 +603,26 @@ func (g *gwState) corsOrigin(origin string) string {
 }
 
 func (g *gwState) applyCORS(h http.Header) {
-	origin := g.r.Header.Get("Origin")
+	origin := g.r.Header.Get(apimCOriginX)
 	if !g.corsAllowed(origin) {
 		return
 	}
 
 	h.Set(apimHeaderAllowOrig, g.corsOrigin(origin))
-	h.Add("Vary", "Origin")
+	h.Add("Vary", apimCOriginX)
 
-	if g.cors.Attrs["allow-credentials"] == "true" {
-		h.Set("Access-Control-Allow-Credentials", "true")
+	if g.cors.Attrs[apimCCorsAllow] == cmpTrue {
+		h.Set("Access-Control-Allow-Credentials", cmpTrue)
 	}
 
-	if ex := g.cors.kid("expose-headers"); ex != nil && len(ex.values("header")) > 0 {
-		h.Set("Access-Control-Expose-Headers", strings.Join(ex.values("header"), ", "))
+	if ex := g.cors.kid(apimCExposeHeaders); ex != nil && len(ex.values(apimCHeader)) > 0 {
+		h.Set("Access-Control-Expose-Headers", strings.Join(ex.values(apimCHeader), ", "))
 	}
 }
 
 func (g *gwState) preflight(docs []*polNode) {
 	for _, n := range expandSection(docs, polInbound) {
-		if n.Name == "cors" {
+		if n.Name == apimCCors {
 			g.cors = n
 
 			break
@@ -624,17 +630,17 @@ func (g *gwState) preflight(docs []*polNode) {
 	}
 
 	h := g.w.Header()
-	origin := g.r.Header.Get("Origin")
+	origin := g.r.Header.Get(apimCOriginX)
 
 	if g.corsAllowed(origin) {
 		g.applyCORS(h)
-		h.Set("Access-Control-Allow-Methods", corsList(g.cors.kid("allowed-methods"), "method",
-			g.r.Header.Get("Access-Control-Request-Method")))
-		h.Set("Access-Control-Allow-Headers", corsList(g.cors.kid("allowed-headers"), "header",
+		h.Set("Access-Control-Allow-Methods", corsList(g.cors.kid(apimCAllowedMethods), apimCMethod,
+			g.r.Header.Get(apimCAccessControlRequestMethod)))
+		h.Set("Access-Control-Allow-Headers", corsList(g.cors.kid(apimCAllowedHeaders), apimCHeader,
 			g.r.Header.Get("Access-Control-Request-Headers")))
 
-		if am := g.cors.kid("allowed-methods"); am != nil && am.Attrs["preflight-result-max-age"] != "" {
-			h.Set("Access-Control-Max-Age", am.Attrs["preflight-result-max-age"])
+		if am := g.cors.kid(apimCAllowedMethods); am != nil && am.Attrs[apimCPreflightResultMaxAge] != "" {
+			h.Set("Access-Control-Max-Age", am.Attrs[apimCPreflightResultMaxAge])
 		}
 	}
 
@@ -647,10 +653,8 @@ func corsList(n *polNode, kind, requested string) string {
 	}
 
 	vals := n.values(kind)
-	for _, v := range vals {
-		if v == "*" {
-			return requested
-		}
+	if slices.Contains(vals, "*") {
+		return requested
 	}
 
 	return strings.Join(vals, ", ")

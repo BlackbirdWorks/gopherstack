@@ -28,16 +28,16 @@ type apimAPISpec struct {
 }
 
 func (sp *apimAPISpec) fillDefaults(out map[string]any) {
-	if _, has := out["displayName"]; !has && sp.title != "" {
-		out["displayName"] = sp.title
+	if _, has := out[apimCDisplayName]; !has && sp.title != "" {
+		out[apimCDisplayName] = sp.title
 	}
 
-	if _, has := out["description"]; !has && sp.desc != "" {
-		out["description"] = sp.desc
+	if _, has := out[webDescription]; !has && sp.desc != "" {
+		out[webDescription] = sp.desc
 	}
 
-	if _, has := out["serviceUrl"]; !has && sp.serviceURL != "" {
-		out["serviceUrl"] = sp.serviceURL
+	if _, has := out[apimCServiceURL]; !has && sp.serviceURL != "" {
+		out[apimCServiceURL] = sp.serviceURL
 	}
 }
 
@@ -61,12 +61,12 @@ func parseAPISpec(format, value string) (*apimAPISpec, error) {
 	}
 
 	isV3 := strings.HasPrefix(strOf(doc, "openapi"), "3.")
-	if !isV3 && strOf(doc, "swagger") != "2.0" {
+	if !isV3 && strOf(doc, "swagger") != apimOpenAPI2 {
 		return nil, apimInvalid("The API definition must declare openapi 3.x or swagger 2.0.")
 	}
 
 	info := mapOf(doc["info"])
-	sp := &apimAPISpec{title: strOf(info, "title"), desc: strOf(info, "description")}
+	sp := &apimAPISpec{title: strOf(info, "title"), desc: strOf(info, webDescription)}
 	sp.serviceURL = specServiceURL(doc, isV3)
 
 	paths := mapOf(doc["paths"])
@@ -83,7 +83,7 @@ func parseAPISpec(format, value string) (*apimAPISpec, error) {
 	for _, path := range keys {
 		item := mapOf(paths[path])
 
-		for _, method := range []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"} {
+		for _, method := range []string{"get", "put", "post", apimCDelete, "options", "head", "patch", "trace"} {
 			op := mapOf(item[method])
 			if op == nil {
 				continue
@@ -103,7 +103,7 @@ func parseAPISpec(format, value string) (*apimAPISpec, error) {
 func specServiceURL(doc map[string]any, isV3 bool) string {
 	if isV3 {
 		if servers, ok := doc["servers"].([]any); ok && len(servers) > 0 {
-			if u := strOf(mapOf(servers[0]), "url"); validAbsURL(u, "http", "https") {
+			if u := strOf(mapOf(servers[0]), apimCUrl); validAbsURL(u, acaScaleHTTP, acaSchemeHTTPS) {
 				return strings.TrimRight(u, "/")
 			}
 		}
@@ -116,7 +116,7 @@ func specServiceURL(doc map[string]any, isV3 bool) string {
 		return ""
 	}
 
-	scheme := "https"
+	scheme := acaSchemeHTTPS
 	if schemes, ok := doc["schemes"].([]any); ok && len(schemes) > 0 {
 		if s, isStr := schemes[0].(string); isStr {
 			scheme = s
@@ -149,11 +149,11 @@ func buildImportedOp(method, path string, op map[string]any, used map[string]boo
 	}
 
 	props := map[string]any{
-		"displayName": truncate(display, apimMaxName), "method": strings.ToUpper(method), "urlTemplate": path,
+		apimCDisplayName: truncate(display, apimMaxName), apimCMethod: strings.ToUpper(method), apimCUrlTemplate: path,
 	}
 
-	if d := strOf(op, "description"); d != "" {
-		props["description"] = d
+	if d := strOf(op, webDescription); d != "" {
+		props[webDescription] = d
 	}
 
 	names := templateParams(path)
@@ -163,10 +163,10 @@ func buildImportedOp(method, path string, op map[string]any, used map[string]boo
 		params = append(params, map[string]any{fieldName: name, "required": true, fieldType: "string"})
 	}
 
-	props["templateParameters"] = params
+	props[apimCTemplateParameters] = params
 
-	if resp := importedResponses(mapOf(op["responses"]), isV3); len(resp) > 0 {
-		props["responses"] = resp
+	if resp := importedResponses(mapOf(op[apimCResponses]), isV3); len(resp) > 0 {
+		props[apimCResponses] = resp
 	}
 
 	return apimImportedOp{id: id, props: props}
@@ -196,10 +196,10 @@ func importedResponses(responses map[string]any, isV3 bool) []any {
 	for _, c := range codes {
 		r := mapOf(responses[c])
 		code, _ := strconv.Atoi(c)
-		entry := map[string]any{"statusCode": code}
+		entry := map[string]any{apimCStatusCode: code}
 
-		if d := strOf(r, "description"); d != "" {
-			entry["description"] = d
+		if d := strOf(r, webDescription); d != "" {
+			entry[webDescription] = d
 		}
 
 		if isV3 {
@@ -227,22 +227,22 @@ func importedRepresentations(content map[string]any) []any {
 
 	for _, t := range types {
 		media := mapOf(content[t])
-		rep := map[string]any{"contentType": t}
+		rep := map[string]any{apimCContentTypeX: t}
 
 		switch {
 		case media["example"] != nil:
-			rep["examples"] = map[string]any{"default": map[string]any{fieldValue: media["example"]}}
-		case mapOf(media["examples"]) != nil:
+			rep[apimCExamples] = map[string]any{aksDefaultName: map[string]any{fieldValue: media["example"]}}
+		case mapOf(media[apimCExamples]) != nil:
 			ex := map[string]any{}
 
-			for name, e := range mapOf(media["examples"]) {
+			for name, e := range mapOf(media[apimCExamples]) {
 				if v, has := mapOf(e)[fieldValue]; has {
 					ex[name] = map[string]any{fieldValue: v}
 				}
 			}
 
 			if len(ex) > 0 {
-				rep["examples"] = ex
+				rep[apimCExamples] = ex
 			}
 		}
 

@@ -25,7 +25,7 @@ func isAPIMCheckName(segs []string, r *http.Request) bool {
 	return r.Method == http.MethodPost && len(segs) == apimCheckLen && isSubscriptionScoped(segs) &&
 		segAt(segs, providersOrResourceGroupsIdx, providersSegment) &&
 		segAt(segs, providerNamespaceActionIdx-1, namespaceMicrosoftAPIM) &&
-		segAt(segs, apimCheckLen-1, "checkNameAvailability")
+		segAt(segs, apimCheckLen-1, acrActionCheckName)
 }
 
 //nolint:gochecknoglobals // static route table, read-only after init
@@ -83,7 +83,7 @@ func (h *Handler) handleAPIM(c *echo.Context, segs []string) error {
 	}
 
 	if resp.Retry {
-		hdr.Set("Retry-After", "1")
+		hdr.Set(apimCRetryAfter, "1")
 	}
 
 	if resp.Body == nil || r.Method == http.MethodHead {

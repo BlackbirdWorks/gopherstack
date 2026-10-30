@@ -96,33 +96,33 @@ type apimEntity struct {
 
 // apimService is the state of one API Management service instance.
 type apimService struct {
-	CreatedAt   time.Time                `json:"createdAt"`
-	ReadyAt     time.Time                `json:"readyAt"`
-	Tags        map[string]string        `json:"tags,omitempty"`
-	Identity    map[string]any           `json:"identity,omitempty"`
-	Extra       map[string]any           `json:"extra,omitempty"`
-	APIs        map[string]*apimEntity   `json:"apis,omitempty"`
-	Ops         map[string]*apimEntity   `json:"operations,omitempty"`
-	Products    map[string]*apimEntity   `json:"products,omitempty"`
-	Subs        map[string]*apimEntity   `json:"subscriptions,omitempty"`
-	Named       map[string]*apimEntity   `json:"namedValues,omitempty"`
-	Backends    map[string]*apimEntity   `json:"backends,omitempty"`
-	Policies    map[string]*apimEntity   `json:"policies,omitempty"`
-	ProductAPIs map[string]bool          `json:"productApis,omitempty"`
-	Zones       []any                    `json:"zones,omitempty"`
-	Name        string                   `json:"name"`
-	ResourceGrp string                   `json:"resourceGroup"`
-	SubID       string                   `json:"subscriptionId"`
-	Location    string                   `json:"location"`
-	SKU         string                   `json:"sku"`
-	PublisherEm string                   `json:"publisherEmail"`
-	PublisherNm string                   `json:"publisherName"`
-	NotifyEmail string                   `json:"notificationSenderEmail"`
-	PublicAcc   string                   `json:"publicNetworkAccess"`
-	Transition  string                   `json:"transition,omitempty"`
-	Capacity    int                      `json:"capacity"`
-	Etag        uint64                   `json:"etag"`
+	CreatedAt   time.Time              `json:"createdAt"`
+	ReadyAt     time.Time              `json:"readyAt"`
+	ProductAPIs map[string]bool        `json:"productApis,omitempty"`
+	Identity    map[string]any         `json:"identity,omitempty"`
+	Extra       map[string]any         `json:"extra,omitempty"`
+	APIs        map[string]*apimEntity `json:"apis,omitempty"`
+	Ops         map[string]*apimEntity `json:"operations,omitempty"`
+	Products    map[string]*apimEntity `json:"products,omitempty"`
+	Subs        map[string]*apimEntity `json:"subscriptions,omitempty"`
+	Named       map[string]*apimEntity `json:"namedValues,omitempty"`
+	Backends    map[string]*apimEntity `json:"backends,omitempty"`
+	Policies    map[string]*apimEntity `json:"policies,omitempty"`
+	Tags        map[string]string      `json:"tags,omitempty"`
 	now         func() time.Time
+	Transition  string `json:"transition,omitempty"`
+	SubID       string `json:"subscriptionId"`
+	Name        string `json:"name"`
+	Location    string `json:"location"`
+	SKU         string `json:"sku"`
+	PublisherEm string `json:"publisherEmail"`
+	PublisherNm string `json:"publisherName"`
+	NotifyEmail string `json:"notificationSenderEmail"`
+	PublicAcc   string `json:"publicNetworkAccess"`
+	ResourceGrp string `json:"resourceGroup"`
+	Zones       []any  `json:"zones,omitempty"`
+	Capacity    int    `json:"capacity"`
+	Etag        uint64 `json:"etag"`
 }
 
 // APIMProvider implements ResourceProvider for Microsoft.ApiManagement/service and serves the gateway data plane.
@@ -179,7 +179,7 @@ func (p *APIMProvider) ResourceTypes() []ResourceTypeDef {
 		out = append(out, ResourceTypeDef{Type: apimServiceType + "/" + k.typ, APIVersions: v})
 	}
 
-	return append(out, ResourceTypeDef{Type: "checkNameAvailability", APIVersions: v})
+	return append(out, ResourceTypeDef{Type: acrActionCheckName, APIVersions: v})
 }
 
 func apimKey(sub, rg, name string) string {
@@ -241,15 +241,15 @@ func apimSKURange(name string) (int, int, bool) {
 
 func apimOwnedServiceProps() []string {
 	return []string{
-		"publisherEmail", "publisherName", "notificationSenderEmail", "publicNetworkAccess", "provisioningState",
+		apimCPublisherEmail, apimCPublisherName, apimCNotificationSenderEmail, sqlPropPublic, apimCProvisioningState,
 		"targetProvisioningState", "createdAtUtc", "gatewayUrl", "gatewayRegionalUrl", "portalUrl",
 		"developerPortalUrl", "managementApiUrl", "scmUrl", "platformVersion", "publicIPAddresses",
-		"privateIPAddresses", "outboundPublicIPAddresses", "restore",
+		"privateIPAddresses", "outboundPublicIPAddresses", apimCRestore,
 	}
 }
 
 func (s *apimService) applyBody(body map[string]any, prev *apimService) error {
-	if sku := mapOf(body["sku"]); sku != nil {
+	if sku := mapOf(body[aksFieldSKU]); sku != nil {
 		s.SKU, s.Capacity = strOf(sku, fieldName), intOf(sku[apimCapacity])
 	}
 
@@ -259,7 +259,7 @@ func (s *apimService) applyBody(body map[string]any, prev *apimService) error {
 
 	props := propsOf(body)
 
-	if _, has := props["restore"]; has {
+	if _, has := props[apimCRestore]; has {
 		return apimInvalid("Restoring a soft-deleted service is not supported.")
 	}
 
@@ -267,12 +267,12 @@ func (s *apimService) applyBody(body map[string]any, prev *apimService) error {
 		return err
 	}
 
-	if v, has := props["notificationSenderEmail"].(string); has {
+	if v, has := props[apimCNotificationSenderEmail].(string); has {
 		s.NotifyEmail = v
 	}
 
-	if v, has := props["publicNetworkAccess"].(string); has {
-		if v != "Enabled" && v != apimDisabled {
+	if v, has := props[sqlPropPublic].(string); has {
+		if v != sqlDefaultPublic && v != apimDisabled {
 			return apimInvalid("The publicNetworkAccess must be Enabled or Disabled.")
 		}
 
@@ -302,11 +302,11 @@ func (s *apimService) checkSKU(prev *apimService) error {
 }
 
 func (s *apimService) applyPublisher(props map[string]any) error {
-	if v, has := props["publisherEmail"].(string); has {
+	if v, has := props[apimCPublisherEmail].(string); has {
 		s.PublisherEm = v
 	}
 
-	if v, has := props["publisherName"].(string); has {
+	if v, has := props[apimCPublisherName].(string); has {
 		s.PublisherNm = v
 	}
 
@@ -332,15 +332,16 @@ func (s *apimService) applyEnvelope(body map[string]any) {
 		s.Tags = stringTags(body[fieldTags])
 	}
 
-	if z, ok := body["zones"].([]any); ok {
+	if z, ok := body[cmpFieldZones].([]any); ok {
 		s.Zones = z
 	}
 
-	if id := mapOf(body["identity"]); id != nil {
-		s.Identity = map[string]any{"type": strOf(id, "type")}
-		if t := strOf(id, "type"); strings.Contains(t, "SystemAssigned") {
-			s.Identity["principalId"] = uuid.NewSHA1(uuid.NameSpaceURL, []byte(strings.ToLower(s.armBase()))).String()
-			s.Identity["tenantId"] = DefaultTenantID
+	if id := mapOf(body[fieldIdentitySet]); id != nil {
+		s.Identity = map[string]any{fieldType: strOf(id, fieldType)}
+		if t := strOf(id, fieldType); strings.Contains(t, "SystemAssigned") {
+			s.Identity[fieldPrincipalID] = uuid.NewSHA1(uuid.NameSpaceURL, []byte(strings.ToLower(s.armBase()))).
+				String()
+			s.Identity[kvFieldTenantID] = DefaultTenantID
 		}
 
 		if ua, has := id["userAssignedIdentities"]; has {
@@ -370,7 +371,7 @@ func (s *apimService) clone() *apimService {
 func newAPIMService(sub, rg, name string, now time.Time) *apimService {
 	return &apimService{
 		Name: name, ResourceGrp: rg, SubID: sub, Location: DefaultLocation, CreatedAt: now.UTC(),
-		NotifyEmail: apimDefaultNotifyMail, PublicAcc: "Enabled", Extra: map[string]any{},
+		NotifyEmail: apimDefaultNotifyMail, PublicAcc: sqlDefaultPublic, Extra: map[string]any{},
 		APIs: map[string]*apimEntity{}, Ops: map[string]*apimEntity{}, Products: map[string]*apimEntity{},
 		Subs: map[string]*apimEntity{}, Named: map[string]*apimEntity{}, Backends: map[string]*apimEntity{},
 		Policies: map[string]*apimEntity{}, ProductAPIs: map[string]bool{},
@@ -384,9 +385,9 @@ func (s *apimService) body(now time.Time) map[string]any {
 	props := cloneAnyMap(s.Extra)
 	host := gatewayHost(s.Name)
 
-	props["provisioningState"] = state
-	props["publisherEmail"], props["publisherName"] = s.PublisherEm, s.PublisherNm
-	props["notificationSenderEmail"], props["publicNetworkAccess"] = s.NotifyEmail, s.PublicAcc
+	props[apimCProvisioningState] = state
+	props[apimCPublisherEmail], props[apimCPublisherName] = s.PublisherEm, s.PublisherNm
+	props[apimCNotificationSenderEmail], props[sqlPropPublic] = s.NotifyEmail, s.PublicAcc
 	props["createdAtUtc"] = s.CreatedAt.UTC().Format(time.RFC3339)
 	props["gatewayUrl"], props["gatewayRegionalUrl"] = "https://"+host, "https://"+host
 	props["portalUrl"] = "https://" + s.Name + ".portal.azure-api.net"
@@ -400,15 +401,15 @@ func (s *apimService) body(now time.Time) map[string]any {
 
 	if _, has := props["hostnameConfigurations"]; !has {
 		props["hostnameConfigurations"] = []any{map[string]any{
-			"type": "Proxy", "hostName": host, "negotiateClientCertificate": false, "defaultSslBinding": true,
+			fieldType: "Proxy", apimCHostName: host, "negotiateClientCertificate": false, "defaultSslBinding": true,
 			"certificateSource": "BuiltIn",
 		}}
 	}
 
 	out := map[string]any{
-		"id": s.armBase(), fieldName: s.Name, fieldType: apimARMType, fieldLocation: s.Location,
-		"sku":  map[string]any{fieldName: s.SKU, apimCapacity: s.Capacity},
-		"etag": apimEtag(s.Etag), fieldProperties: props,
+		cosmosFieldID: s.armBase(), fieldName: s.Name, fieldType: apimARMType, fieldLocation: s.Location,
+		aksFieldSKU: map[string]any{fieldName: s.SKU, apimCapacity: s.Capacity},
+		"etag":      apimEtag(s.Etag), fieldProperties: props,
 	}
 
 	if s.Tags != nil {
@@ -416,11 +417,11 @@ func (s *apimService) body(now time.Time) map[string]any {
 	}
 
 	if s.Identity != nil {
-		out["identity"] = s.Identity
+		out[fieldIdentitySet] = s.Identity
 	}
 
 	if len(s.Zones) > 0 {
-		out["zones"] = s.Zones
+		out[cmpFieldZones] = s.Zones
 	}
 
 	return out
@@ -439,7 +440,7 @@ func (p *APIMProvider) nameTaken(sub, rg, name string) bool {
 func apimServiceNameError(name string) error {
 	if !apimServiceNameRE.MatchString(name) {
 		return apimInvalid(
-			"The service name must be 1 to 50 characters: letters, digits and hyphens, "+
+			"The service name must be 1 to 50 characters: letters, digits and hyphens, " +
 				"starting with a letter and ending with a letter or digit.",
 		)
 	}
@@ -513,7 +514,7 @@ func apimBusy() error {
 
 // Put implements ResourceProvider.
 func (p *APIMProvider) Put(_ context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
-	p.mu.Lock("Put")
+	p.mu.Lock(apimCPut)
 	defer p.mu.Unlock()
 
 	s, _, err := p.writeService(id.SubscriptionID, id.ResourceGroup, id.LeafName(), body, false)
@@ -526,7 +527,7 @@ func (p *APIMProvider) Put(_ context.Context, id ResourceID, body map[string]any
 
 // Get implements ResourceProvider.
 func (p *APIMProvider) Get(_ context.Context, id ResourceID) (map[string]any, error) {
-	p.mu.RLock("Get")
+	p.mu.RLock(apimCGet)
 	defer p.mu.RUnlock()
 
 	s, ok := p.svcs[apimKey(id.SubscriptionID, id.ResourceGroup, id.LeafName())]
@@ -539,7 +540,7 @@ func (p *APIMProvider) Get(_ context.Context, id ResourceID) (map[string]any, er
 
 // Delete implements ResourceProvider.
 func (p *APIMProvider) Delete(_ context.Context, id ResourceID) error {
-	p.mu.Lock("Delete")
+	p.mu.Lock(ehCleanupDelete)
 	defer p.mu.Unlock()
 
 	key := apimKey(id.SubscriptionID, id.ResourceGroup, id.LeafName())
@@ -554,7 +555,7 @@ func (p *APIMProvider) Delete(_ context.Context, id ResourceID) error {
 
 // List implements ResourceProvider.
 func (p *APIMProvider) List(_ context.Context, id ResourceID) ([]map[string]any, error) {
-	p.mu.RLock("List")
+	p.mu.RLock(apimCList)
 	defer p.mu.RUnlock()
 
 	var out []map[string]any
@@ -583,7 +584,7 @@ func (p *APIMProvider) ListKeys(context.Context, ResourceID) (map[string]any, er
 
 // Reset implements ResourceProvider.
 func (p *APIMProvider) Reset() {
-	p.mu.Lock("Reset")
+	p.mu.Lock(apimCReset)
 	p.svcs = map[string]*apimService{}
 	p.mu.Unlock()
 	p.limiter.reset()
@@ -591,7 +592,7 @@ func (p *APIMProvider) Reset() {
 
 // DeleteResourcesInGroup implements ResourceProvider.
 func (p *APIMProvider) DeleteResourcesInGroup(_ context.Context, resourceGroup string) {
-	p.mu.Lock("DeleteResourcesInGroup")
+	p.mu.Lock(apimCDeleteResourcesInGroup)
 	defer p.mu.Unlock()
 
 	for key, s := range p.svcs {
@@ -603,21 +604,25 @@ func (p *APIMProvider) DeleteResourcesInGroup(_ context.Context, resourceGroup s
 
 // CheckName answers checkNameAvailability for a service name.
 func (p *APIMProvider) CheckName(sub, name string) map[string]any {
-	p.mu.RLock("CheckName")
+	p.mu.RLock(apimCCheckName)
 	defer p.mu.RUnlock()
 
 	if err := apimServiceNameError(name); err != nil {
-		return map[string]any{"nameAvailable": false, "reason": apimReasonInvalid, "message": apimMessage(err)}
+		return map[string]any{
+			kvFieldNameAvailable: false,
+			acFieldReason:        apimReasonInvalid,
+			fieldMessage:         apimMessage(err),
+		}
 	}
 
 	if p.nameTaken(sub, "", name) {
 		return map[string]any{
-			"nameAvailable": false, "reason": apimReasonExists,
-			"message": fmt.Sprintf("The service name %q is already in use.", name),
+			kvFieldNameAvailable: false, acFieldReason: apimReasonExists,
+			fieldMessage: fmt.Sprintf("The service name %q is already in use.", name),
 		}
 	}
 
-	return map[string]any{"nameAvailable": true, "reason": "Valid", "message": ""}
+	return map[string]any{kvFieldNameAvailable: true, acFieldReason: "Valid", fieldMessage: ""}
 }
 
 func apimMessage(err error) string {
