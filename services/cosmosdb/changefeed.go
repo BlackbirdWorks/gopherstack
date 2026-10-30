@@ -105,7 +105,7 @@ func (b *InMemoryBackend) readChangeFeed(dbID, collID string, req changeFeedRequ
 	b.mu.RLock("readChangeFeed")
 	defer b.mu.RUnlock()
 
-	c, err := b.findContainer(dbID, collID)
+	c, err := b.findDataContainer(dbID, collID, true)
 	if err != nil {
 		return changeFeedPage{}, err
 	}
@@ -234,7 +234,7 @@ func (h *Handler) readChangeFeed(c *echo.Context, dbID, collID string) error {
 		return h.writeDocumentError(c, reqErr)
 	}
 
-	reader, ok := h.Backend.(changeFeedReader)
+	reader, ok := h.be(c).(changeFeedReader)
 	if !ok {
 		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowed", "The backend has no change feed.")
 	}

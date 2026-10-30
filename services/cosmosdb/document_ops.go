@@ -136,10 +136,8 @@ func (h *Handler) writeDocumentError(c *echo.Context, err error) error {
 		errors.Is(err, ErrBatchTooLarge), errors.Is(err, ErrInvalidTrigger), errors.Is(err, ErrInvalidPKRange),
 		errors.Is(err, ErrChangeFeedStart):
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", err.Error())
-	case errors.Is(err, ErrPKRangeGone):
-		c.Response().Header().Set(headerSubStatus, subStatusPKRangeGone)
-
-		return h.writeError(c, http.StatusGone, "Gone", err.Error())
+	case isRoutingError(err):
+		return h.writeRoutingError(c, err)
 	case errors.Is(err, ErrScriptNotFound):
 		return h.writeError(c, http.StatusNotFound, "NotFound", "Resource Not Found")
 	case errors.Is(err, ErrScriptTimeout):
@@ -178,7 +176,7 @@ func (h *Handler) createDocument(c *echo.Context, dbID, collID string) error {
 		return h.runWithTriggers(c, dbID, collID, docOp{kind: kind, body: doc, pre: trig.pre, post: trig.post})
 	}
 
-	info, createErr := h.Backend.CreateDocument(dbID, collID, doc, upsert)
+	info, createErr := h.be(c).CreateDocument(dbID, collID, doc, upsert)
 	if createErr != nil {
 		return h.writeDocumentError(c, createErr)
 	}
@@ -194,7 +192,7 @@ func (h *Handler) getDocument(c *echo.Context, dbID, collID, docID string) error
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", pkErr.Error())
 	}
 
-	info, err := h.Backend.GetDocument(dbID, collID, pk, docID)
+	info, err := h.be(c).GetDocument(dbID, collID, pk, docID)
 	if err != nil {
 		return h.writeDocumentError(c, err)
 	}
@@ -229,7 +227,7 @@ func (h *Handler) replaceDocument(c *echo.Context, dbID, collID, docID string) e
 		})
 	}
 
-	info, replaceErr := h.Backend.ReplaceDocument(dbID, collID, pk, docID, doc, r.Header.Get("If-Match"))
+	info, replaceErr := h.be(c).ReplaceDocument(dbID, collID, pk, docID, doc, r.Header.Get("If-Match"))
 	if replaceErr != nil {
 		return h.writeDocumentError(c, replaceErr)
 	}
@@ -257,7 +255,7 @@ func (h *Handler) patchDocument(c *echo.Context, dbID, collID, docID string) err
 		return h.writeDocumentError(c, parseErr)
 	}
 
-	patcher, ok := h.Backend.(interface {
+	patcher, ok := h.be(c).(interface {
 		PatchDocument(dbID, containerID, partitionKey, id string, req patchRequest, ifMatch string) (DocumentInfo, error)
 	})
 	if !ok {
@@ -288,7 +286,7 @@ func (h *Handler) deleteDocument(c *echo.Context, dbID, collID, docID string) er
 		})
 	}
 
-	if err := h.Backend.DeleteDocument(dbID, collID, pk, docID, r.Header.Get("If-Match")); err != nil {
+	if err := h.be(c).DeleteDocument(dbID, collID, pk, docID, r.Header.Get("If-Match")); err != nil {
 		return h.writeDocumentError(c, err)
 	}
 
@@ -310,13 +308,13 @@ func (h *Handler) listDocuments(c *echo.Context, dbID, collID string) error {
 
 	var pg page.Page[DocumentInfo]
 
-	if lister, ok := h.Backend.(pagedDocumentLister); ok {
+	if lister, ok := h.be(c).(pagedDocumentLister); ok {
 		var err error
 		if pg, err = lister.ListDocumentsPaged(dbID, collID, token, limit); err != nil {
 			return h.writeDocumentError(c, err)
 		}
 	} else {
-		infos, err := h.Backend.ListDocuments(dbID, collID)
+		infos, err := h.be(c).ListDocuments(dbID, collID)
 		if err != nil {
 			return h.writeDocumentError(c, err)
 		}
@@ -369,7 +367,7 @@ func (h *Handler) queryDocuments(c *echo.Context, dbID, collID string) error {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", scopeErr.Error())
 	}
 
-	res, execErr := h.runQuery(dbID, collID, req, scope, queryOptions(r))
+	res, execErr := h.runQuery(h.be(c), dbID, collID, req, scope, queryOptions(r))
 	if execErr != nil {
 		return h.writeDocumentError(c, execErr)
 	}
@@ -431,17 +429,17 @@ type indexedQuerier interface {
 
 // runQuery uses the backend's direct query path when it has one, otherwise ListDocuments plus ExecuteQuery.
 func (h *Handler) runQuery(
-	dbID, collID string, req queryRequestBody, partitionKey string, opts QueryOptions,
+	be StorageBackend, dbID, collID string, req queryRequestBody, partitionKey string, opts QueryOptions,
 ) (QueryResult, error) {
-	if q, ok := h.Backend.(indexedQuerier); ok {
+	if q, ok := be.(indexedQuerier); ok {
 		return q.RunQueryOpts(dbID, collID, req.Query, req.Parameters, partitionKey, opts)
 	}
 
-	if q, ok := h.Backend.(partitionQuerier); ok {
+	if q, ok := be.(partitionQuerier); ok {
 		return q.RunQuery(dbID, collID, req.Query, req.Parameters, partitionKey)
 	}
 
-	infos, err := h.Backend.ListDocuments(dbID, collID)
+	infos, err := be.ListDocuments(dbID, collID)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -461,4 +459,25 @@ func (h *Handler) runQuery(
 	rows, execErr := ExecuteQuery(req.Query, req.Parameters, infos)
 
 	return QueryResult{Rows: rows, Scanned: len(infos)}, execErr
+}
+
+// isRoutingError reports an error that depends on where the request ran: a split partition, a lagging region.
+func isRoutingError(err error) bool {
+	return errors.Is(err, ErrReadSessionNotAvailable) || errors.Is(err, ErrConflictNotFound) ||
+		errors.Is(err, ErrPKRangeGone)
+}
+
+func (h *Handler) writeRoutingError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrReadSessionNotAvailable):
+		c.Response().Header().Set(headerSubStatus, subStatusSessionGone)
+
+		return h.writeError(c, http.StatusNotFound, "NotFound", err.Error())
+	case errors.Is(err, ErrPKRangeGone):
+		c.Response().Header().Set(headerSubStatus, subStatusPKRangeGone)
+
+		return h.writeError(c, http.StatusGone, "Gone", err.Error())
+	}
+
+	return h.writeError(c, http.StatusNotFound, "NotFound", "Resource Not Found")
 }

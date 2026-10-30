@@ -152,7 +152,7 @@ func (h *Handler) methodNotAllowed(c *echo.Context) error {
 }
 
 func (h *Handler) handleScripts(c *echo.Context, kind scriptKind, isItem bool, dbID, collID, id string) error {
-	sb, ok := h.Backend.(scriptBackend)
+	sb, ok := h.be(c).(scriptBackend)
 	if !ok {
 		return h.writeError(
 			c,
@@ -396,7 +396,7 @@ type triggerRunner interface {
 
 // runWithTriggers executes a document write with its pre/post triggers and writes the response.
 func (h *Handler) runWithTriggers(c *echo.Context, dbID, collID string, op docOp) error {
-	runner, ok := h.Backend.(triggerRunner)
+	runner, ok := h.be(c).(triggerRunner)
 	if !ok {
 		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowed", "The backend has no triggers.")
 	}

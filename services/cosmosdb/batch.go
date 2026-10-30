@@ -238,7 +238,7 @@ func (h *Handler) executeBatch(c *echo.Context, dbID, collID string) error {
 		return h.writeDocumentError(c, parseErr)
 	}
 
-	exec, ok := h.Backend.(batchExecutor)
+	exec, ok := h.be(c).(batchExecutor)
 	if !ok {
 		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowed", "The backend cannot run batches.")
 	}

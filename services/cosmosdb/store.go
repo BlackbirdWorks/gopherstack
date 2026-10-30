@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -19,11 +20,14 @@ import (
 type InMemoryBackend struct {
 	nextSplitDue      time.Time
 	tableAPI          tableSnapshotter
+	regionsChanged    func()
 	mu                *lockmetrics.RWMutex
 	databases         map[string]*storedDatabase
 	nowFunc           func() time.Time
 	etagFunc          func(time.Time) string
 	parsed            *safemap.Map[string, *sqlSelectStmt]
+	cur               atomic.Pointer[regionCall]
+	regionGate        *lockmetrics.RWMutex
 	regions           AccountRegions
 	budgetEpoch       int64
 	partitionMaxBytes int64
@@ -35,11 +39,12 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new empty InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:        lockmetrics.New("cosmosdb"),
-		databases: make(map[string]*storedDatabase),
-		nowFunc:   time.Now,
-		etagFunc:  etagFor,
-		parsed:    safemap.New[string, *sqlSelectStmt]("cosmosdb-sql"),
+		mu:         lockmetrics.New("cosmosdb"),
+		regionGate: lockmetrics.New("cosmosdb.region"),
+		databases:  make(map[string]*storedDatabase),
+		nowFunc:    time.Now,
+		etagFunc:   etagFor,
+		parsed:     safemap.New[string, *sqlSelectStmt]("cosmosdb-sql"),
 	}
 }
 
@@ -173,6 +178,10 @@ func (b *InMemoryBackend) CreateContainer(dbID string, spec ContainerSpec) (Cont
 		return ContainerInfo{}, polErr
 	}
 
+	if crErr := validateConflictPolicy(spec.ConflictResolutionPolicy); crErr != nil {
+		return ContainerInfo{}, crErr
+	}
+
 	if idxErr := validateSearchIndexes(spec.IndexingPolicy, spec.ContainerPolicies.stored()); idxErr != nil {
 		return ContainerInfo{}, idxErr
 	}
@@ -241,6 +250,15 @@ func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (Con
 		return ContainerInfo{}, idxErr
 	}
 
+	if crErr := validateConflictPolicy(spec.ConflictResolutionPolicy); crErr != nil {
+		return ContainerInfo{}, crErr
+	}
+
+	if conflictPolicyChanged(c.ConflictResolutionPolicy, spec.ConflictResolutionPolicy) {
+		return ContainerInfo{}, fmt.Errorf("%w: conflictResolutionPolicy can only be set when the container is created",
+			ErrInvalidContainerPolicy)
+	}
+
 	if polErr := c.applyPolicies(spec.ContainerPolicies, true); polErr != nil {
 		return ContainerInfo{}, polErr
 	}
@@ -248,10 +266,6 @@ func (b *InMemoryBackend) ReplaceContainer(dbID string, spec ContainerSpec) (Con
 	c.DefaultTTL = spec.DefaultTTL
 	if len(spec.IndexingPolicy) > 0 {
 		c.IndexingPolicy = spec.IndexingPolicy
-	}
-
-	if len(spec.ConflictResolutionPolicy) > 0 {
-		c.ConflictResolutionPolicy = spec.ConflictResolutionPolicy
 	}
 
 	c.touch(b.now())
@@ -472,7 +486,7 @@ func (b *InMemoryBackend) GetDocument(dbID, containerID, partitionKey, id string
 	b.mu.RLock("GetDocument")
 	defer b.mu.RUnlock()
 
-	tx, err := b.beginTx(dbID, containerID)
+	tx, err := b.beginTxAt(dbID, containerID, true)
 	if err != nil {
 		return DocumentInfo{}, err
 	}
@@ -546,7 +560,7 @@ func (b *InMemoryBackend) ListDocuments(dbID, containerID string) ([]DocumentInf
 	b.mu.RLock("ListDocuments")
 	defer b.mu.RUnlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	c, err := b.findDataContainer(dbID, containerID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +583,7 @@ func (b *InMemoryBackend) ListDocumentsPaged(
 	b.mu.RLock("ListDocumentsPaged")
 	defer b.mu.RUnlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	c, err := b.findDataContainer(dbID, containerID, true)
 	if err != nil {
 		return page.Page[DocumentInfo]{}, err
 	}
@@ -587,11 +601,14 @@ func (b *InMemoryBackend) ListDocumentsPaged(
 
 // Reset clears all in-memory state.
 func (b *InMemoryBackend) Reset() {
+	defer b.notifyRegions()
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.databases = make(map[string]*storedDatabase)
 	b.regions = AccountRegions{}
+	b.budgetEpoch++
 }
 
 type tableSnapshotter interface {

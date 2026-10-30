@@ -19,7 +19,10 @@ type azureCosmosAdapter struct {
 	handler *cosmosdb.Handler
 }
 
-var _ azurearm.CosmosResources = (*azureCosmosAdapter)(nil)
+var (
+	_ azurearm.CosmosResources       = (*azureCosmosAdapter)(nil)
+	_ azurearm.CosmosPolicyResources = (*azureCosmosAdapter)(nil)
+)
 
 func (a *azureCosmosAdapter) Endpoint() (int, bool) { return a.handler.Port, a.handler.TLS }
 func (a *azureCosmosAdapter) MasterKey() string     { return a.handler.MasterKey }
@@ -38,6 +41,17 @@ func (a *azureCosmosAdapter) SetRegions(regions []azurearm.CosmosRegion, multiWr
 	}
 
 	setter.SetAccountRegions(out)
+}
+
+func (a *azureCosmosAdapter) SetAccountPolicies(p azurearm.CosmosAccountPolicies) {
+	setter, ok := a.handler.Backend.(interface {
+		SetAccountPolicies(cosmosdb.AccountPolicies)
+	})
+	if !ok {
+		return
+	}
+
+	setter.SetAccountPolicies(cosmosdb.AccountPolicies(p))
 }
 
 func cosmosErr(err error) error {

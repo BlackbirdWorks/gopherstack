@@ -156,8 +156,10 @@ type storedDatabase struct {
 
 // storedContainer is the backend's internal representation of a container.
 type storedContainer struct {
-	Modified                 time.Time                `json:"Modified"`
-	PKLayout                 *pkLayout                `json:"PKLayout,omitempty"`
+	Modified                 time.Time         `json:"Modified"`
+	PKLayout                 *pkLayout         `json:"PKLayout,omitempty"`
+	Conflicts                []*conflictRecord `json:"Conflicts,omitempty"`
+	repl                     *replState
 	Offer                    *storedOffer             `json:"Offer,omitempty"`
 	Triggers                 map[string]*storedScript `json:"Triggers,omitempty"`
 	sorted                   atomic.Pointer[[]*storedDocument]
@@ -185,7 +187,9 @@ type storedDocument struct {
 	Body             map[string]any
 	ID               string
 	PartitionKeyJSON string
+	Origin           string
 	Seq              int64
+	GLSN             int64
 }
 
 // storedDocumentWire is storedDocument's on-disk (persistence snapshot)
@@ -200,8 +204,10 @@ type storedDocumentWire struct {
 	Timestamp        time.Time       `json:"Timestamp"`
 	ID               string          `json:"ID"`
 	PartitionKeyJSON string          `json:"PartitionKeyJSON"`
+	Origin           string          `json:"Origin,omitempty"`
 	Body             json.RawMessage `json:"Body"`
 	Seq              int64           `json:"Seq,omitempty"`
+	GLSN             int64           `json:"GLSN,omitempty"`
 }
 
 // MarshalJSON implements json.Marshaler for persistence snapshots.
@@ -213,6 +219,7 @@ func (d *storedDocument) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal(storedDocumentWire{
 		Body: bodyBytes, Timestamp: d.Timestamp, ID: d.ID, PartitionKeyJSON: d.PartitionKeyJSON, Seq: d.Seq,
+		GLSN: d.GLSN, Origin: d.Origin,
 	})
 }
 
@@ -247,6 +254,7 @@ func (d *storedDocument) UnmarshalJSON(data []byte) error {
 	}
 
 	d.Body, d.Timestamp, d.ID, d.PartitionKeyJSON, d.Seq = body, wire.Timestamp, wire.ID, wire.PartitionKeyJSON, wire.Seq
+	d.GLSN, d.Origin = wire.GLSN, wire.Origin
 
 	return nil
 }

@@ -74,7 +74,7 @@ const (
 )
 
 // coreOpsCapacity is the number of Core/SQL operations GetSupportedOperations lists.
-const coreOpsCapacity = 57
+const coreOpsCapacity = 61
 
 // defaultRequestCharge is reported by routes without a size-based charge (see ru.go).
 const defaultRequestCharge = "1"
@@ -82,30 +82,35 @@ const defaultRequestCharge = "1"
 // Handler is the Echo HTTP handler for Azure Cosmos DB (Core/SQL API)
 // operations.
 type Handler struct {
-	Backend       StorageBackend
-	TableBackend  *odatatable.InMemoryBackend
-	srvMu         *lockmetrics.RWMutex
-	keysMu        *lockmetrics.RWMutex
-	extraKeys     map[string]struct{}
-	srv           *http.Server
-	janitor       *worker.Group
-	clock         func() time.Time
-	meter         *ruMeter
-	MasterKey     string
-	certPEM       []byte
-	TLSHosts      []string
-	Port          int
-	SweepInterval time.Duration
-	ValidateAuth  bool
-	TLS           bool
-	// EnforceThroughput rejects requests with 429 once a container's provisioned RU/s budget is overdrawn.
+	workerCtx         context.Context
+	Backend           StorageBackend
+	janitor           *worker.Group
+	keysMu            *lockmetrics.RWMutex
+	extraKeys         map[string]struct{}
+	srv               *http.Server
+	srvMu             *lockmetrics.RWMutex
+	clock             func() time.Time
+	meter             *ruMeter
+	TableBackend      *odatatable.InMemoryBackend
+	tlsCert           *tls.Certificate
+	regionSrvs        map[string]*regionListener
+	MasterKey         string
+	certPEM           []byte
+	TLSHosts          []string
+	RegionPortBase    int
+	Port              int
+	SweepInterval     time.Duration
+	ValidateAuth      bool
+	TLS               bool
 	EnforceThroughput bool
-	// BurstCapacity lets a partition spend up to 300 s of idle RU/s, at up to 3000 RU/s, before throttling.
-	BurstCapacity bool
+	BurstCapacity     bool
 }
 
 // defaultSweepInterval is the TTL janitor period; reads already hide expired documents.
-const defaultSweepInterval = 10 * time.Second
+const (
+	defaultSweepInterval    = 10 * time.Second
+	replicationPumpInterval = time.Second
+)
 
 // tableAPIBackendLockMetricsLabel is the lockmetrics label for TableBackend,
 // distinguishing its lock-contention metrics from services/azuretable's own
@@ -130,6 +135,11 @@ func NewHandler(backend StorageBackend) *Handler {
 		keysMu:       lockmetrics.New("cosmosdb.keys"),
 		extraKeys:    make(map[string]struct{}),
 		meter:        newRUMeter(),
+		regionSrvs:   map[string]*regionListener{},
+	}
+
+	if mem, ok := backend.(*InMemoryBackend); ok {
+		mem.regionsChanged = h.syncRegionListeners
 	}
 
 	if a, ok := backend.(interface{ AttachTableAPI(t tableSnapshotter) }); ok {
@@ -160,6 +170,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opPatchDocument, opExecuteBatch, opReadChangeFeed, opReadPKRanges,
 		opListOffers, opQueryOffers, opGetOffer, opReplaceOffer,
 	)
+	coreOps = append(coreOps, conflictSupportedOperations()...)
 	coreOps = append(coreOps, userSupportedOperations()...)
 	coreOps = append(coreOps, scriptSupportedOperations()...)
 	tableOps := tableAPISupportedOperations()
@@ -209,6 +220,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		h.setCommonHeaders(c)
 
+		if strings.HasPrefix(r.URL.Path, adminPrefix) {
+			return h.handleAdmin(c)
+		}
+
 		if authErr := h.authorize(r); authErr != nil {
 			logger.Load(r.Context()).WarnContext(r.Context(), "cosmosdb: request rejected", "error", authErr)
 
@@ -219,6 +234,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		if isTableAPIPath(r.URL.Path) {
 			return h.handleTableAPI(c, strings.Trim(r.URL.Path, "/"))
+		}
+
+		if handled, err := h.guardRegion(c); handled {
+			return err
 		}
 
 		kind, dbID, collID, docID := parseResourcePath(r.URL.Path)
@@ -255,6 +274,10 @@ func (h *Handler) dispatch(c *echo.Context, kind resourceKind, dbID, collID, doc
 		return h.handleOfferItem(c, dbID)
 	default:
 		if handled, err := h.dispatchUsers(c, kind, dbID, collID, docID); handled {
+			return err
+		}
+
+		if handled, err := h.dispatchConflicts(c, kind, dbID, collID, docID); handled {
 			return err
 		}
 
@@ -327,6 +350,8 @@ const (
 	resourcePKRanges
 	resourceOffers
 	resourceOfferItem
+	resourceConflicts
+	resourceConflictItem
 	resourceUsers
 	resourceUserItem
 	resourcePermissions
@@ -430,6 +455,8 @@ func collectionKindsFor(segment string) ([2]resourceKind, bool) {
 		return [2]resourceKind{resourceTriggers, resourceTriggerItem}, true
 	case "udfs":
 		return [2]resourceKind{resourceUDFs, resourceUDFItem}, true
+	case conflictsSegment:
+		return [2]resourceKind{resourceConflicts, resourceConflictItem}, true
 	default:
 		return [2]resourceKind{}, false
 	}
@@ -509,6 +536,10 @@ func operationFor(r *http.Request) string {
 	case resourcePKRanges:
 		return opReadPKRanges
 	default:
+		if op, ok := conflictOperationFor(kind, r); ok {
+			return op
+		}
+
 		return offerOrScriptOperationFor(kind, r)
 	}
 }
@@ -638,8 +669,11 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	h.srvMu.Lock("StartWorker")
 	h.srv = srv
+	h.workerCtx = ctx
 	h.janitor = h.startJanitor(ctx)
 	h.srvMu.Unlock()
+
+	h.syncRegionListeners()
 
 	log.InfoContext(workerCtx, "cosmosdb: starting dedicated listener", "port", h.Port, "tls", h.TLS)
 
@@ -666,6 +700,7 @@ func (h *Handler) wrapTLS(listener net.Listener) (net.Listener, error) {
 
 	h.srvMu.Lock("wrapTLS")
 	h.certPEM = certPEM
+	h.tlsCert = &cert
 	h.srvMu.Unlock()
 
 	return tls.NewListener(listener, &tls.Config{
@@ -703,6 +738,14 @@ func (h *Handler) startJanitor(ctx context.Context) *worker.Group {
 			logger.Load(sweepCtx).DebugContext(sweepCtx, "cosmosdb: expired documents removed", "count", n)
 		}
 	})
+
+	if rp, rpOK := h.Backend.(interface{ SweepReplication() int }); rpOK {
+		g.Ticker("ReplicationPump", replicationPumpInterval, 0, func(context.Context) {
+			if n := rp.SweepReplication(); n > 0 {
+				telemetry.RecordWorkerItems("cosmosdb", "ReplicationPump", n)
+			}
+		})
+	}
 
 	if sp, spOK := h.Backend.(interface{ SweepPartitions() int }); spOK {
 		g.Ticker("PartitionSplitter", interval, 0, func(sweepCtx context.Context) {
@@ -742,6 +785,8 @@ const (
 
 // Shutdown stops the dedicated Cosmos DB listener.
 func (h *Handler) Shutdown(ctx context.Context) {
+	h.stopRegionListeners()
+
 	h.srvMu.Lock("Shutdown")
 	srv, janitor := h.srv, h.janitor
 	h.srv, h.janitor = nil, nil

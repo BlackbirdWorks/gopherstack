@@ -22,6 +22,10 @@ const sprocOptimisticTries = 4
 // failure, not at all. The script runs on a private copy of the container without holding the backend lock and is
 // committed only if the container was not written meanwhile; after repeated conflicts it runs under the lock.
 func (b *InMemoryBackend) ExecuteSproc(dbID, collID, id, partitionKey string, args []any) (ScriptOutput, error) {
+	if b.cur.Load() != nil {
+		return b.executeSprocLocked(dbID, collID, id, partitionKey, args)
+	}
+
 	for range sprocOptimisticTries {
 		out, done, err := b.trySprocOptimistic(dbID, collID, id, partitionKey, args)
 		if done {
@@ -68,7 +72,12 @@ func (b *InMemoryBackend) trySprocOptimistic(
 	b.mu.Lock("ExecuteSproc")
 	defer b.mu.Unlock()
 
-	if cur, findErr := b.findContainer(dbID, collID); findErr != nil || cur != live || live.ChangeSeq != tx.seq0 {
+	if cur, findErr := b.findDataContainer(
+		dbID,
+		collID,
+		false,
+	); findErr != nil || cur != live ||
+		live.ChangeSeq != tx.seq0 {
 		return ScriptOutput{}, false, nil
 	}
 

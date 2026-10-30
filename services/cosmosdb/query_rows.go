@@ -151,7 +151,7 @@ func (b *InMemoryBackend) RunQuery(
 	b.mu.RLock("QueryDocuments")
 	defer b.mu.RUnlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	c, err := b.findDataContainer(dbID, containerID, true)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) RunQueryOpts(
 	b.mu.RLock("QueryDocuments")
 	defer b.mu.RUnlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	c, err := b.findDataContainer(dbID, containerID, true)
 	if err != nil {
 		return QueryResult{}, err
 	}

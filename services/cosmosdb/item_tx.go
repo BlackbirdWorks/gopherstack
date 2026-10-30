@@ -11,24 +11,39 @@ type undoEntry struct {
 }
 
 // containerTx is a write transaction over one container. The caller holds the backend write lock for its whole
-// life; rollback restores every document and the change-feed sequence touched since begin.
+// life; rollback restores every document and the change-feed sequence touched since begin. replicating marks the
+// application of a write that came from another region: it keeps the write's identity and emits nothing.
 type containerTx struct {
-	now    time.Time
-	b      *InMemoryBackend
-	c      *storedContainer
-	dbID   string
-	collID string
-	undo   []undoEntry
-	seq0   int64
+	now         time.Time
+	repl        *replState
+	b           *InMemoryBackend
+	c           *storedContainer
+	region      string
+	collID      string
+	dbID        string
+	undo        []undoEntry
+	regs        AccountRegions
+	seq0        int64
+	lsn0        int64
+	evLen       int
+	replicating bool
 }
 
 func (b *InMemoryBackend) beginTx(dbID, collID string) (*containerTx, error) {
-	c, err := b.findContainer(dbID, collID)
+	return b.beginTxAt(dbID, collID, false)
+}
+
+// beginTxAt starts a transaction on the container of the current request's region; read adds the session check.
+func (b *InMemoryBackend) beginTxAt(dbID, collID string, read bool) (*containerTx, error) {
+	c, err := b.findDataContainer(dbID, collID, read)
 	if err != nil {
 		return nil, err
 	}
 
-	return &containerTx{b: b, c: c, dbID: dbID, collID: collID, now: b.now(), seq0: c.ChangeSeq}, nil
+	tx := &containerTx{b: b, c: c, dbID: dbID, collID: collID, now: b.now(), seq0: c.ChangeSeq}
+	b.attachRepl(tx)
+
+	return tx, nil
 }
 
 func (tx *containerTx) put(key documentCompositeKey, doc *storedDocument) {
@@ -51,6 +66,12 @@ func (tx *containerTx) put(key documentCompositeKey, doc *storedDocument) {
 		}
 	}
 
+	if prev != nil && !tx.c.alive(prev, tx.now) {
+		prev = nil
+	}
+
+	tx.emit(key, doc, prev, rec.Op)
+
 	tx.c.ChangeSeq++
 	doc.Seq, rec.Seq = tx.c.ChangeSeq, tx.c.ChangeSeq
 	tx.c.appendChange(rec)
@@ -65,6 +86,7 @@ func (tx *containerTx) remove(key documentCompositeKey) {
 	}
 
 	tx.undo = append(tx.undo, undoEntry{key: key, prev: prev})
+	tx.emit(key, nil, prev, opDelete)
 	tx.c.ChangeSeq++
 	tx.c.appendChange(&changeRecord{
 		Time: tx.now, Previous: prev, Op: opDelete, ID: prev.ID, PartitionKeyJSON: prev.PartitionKeyJSON,
@@ -87,6 +109,7 @@ func (tx *containerTx) rollback() {
 	tx.c.ChangeSeq = tx.seq0
 	tx.c.truncateChangeLog(tx.seq0)
 	tx.c.sorted.Store(nil)
+	tx.rollbackRepl()
 }
 
 func (tx *containerTx) info(d *storedDocument) DocumentInfo {
