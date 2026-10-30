@@ -2,6 +2,7 @@ package k3sengine_test
 
 import (
 	"context"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -99,4 +100,37 @@ func TestEngineStopStart(t *testing.T) {
 			assert.Equal(t, "served-ca", string(ca))
 		})
 	}
+}
+
+type exitedRuntime struct {
+	*stoppableRuntime
+}
+
+func (r *exitedRuntime) WaitExit(context.Context, string) (int, error) { return 7, nil }
+
+func (r *exitedRuntime) ReadLogs(_ context.Context, _, tail string, _ bool, stdout, _ io.Writer) error {
+	_, err := io.WriteString(stdout, "boom from k3s tail="+tail)
+
+	return err
+}
+
+func TestEngineStartFailsFastWhenNodeExits(t *testing.T) {
+	t.Parallel()
+
+	rt := &exitedRuntime{stoppableRuntime: &stoppableRuntime{runtime: &runtime{}}}
+
+	e, _ := newEngine(t, nil, func(c *k3sengine.Config) {
+		c.Runtime = rt
+		c.StartTimeout = time.Hour
+		c.Probe = func(ctx context.Context, _, _ string) ([]byte, error) {
+			<-ctx.Done()
+
+			return nil, ctx.Err()
+		}
+	})
+
+	_, err := e.Start(t.Context(), "c1", "127.0.0.1:1", []byte("ca"))
+	require.ErrorIs(t, err, k3sengine.ErrNodeExited)
+	assert.Contains(t, err.Error(), "code 7")
+	assert.Contains(t, err.Error(), "boom from k3s")
 }
