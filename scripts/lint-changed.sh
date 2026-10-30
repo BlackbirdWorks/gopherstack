@@ -211,6 +211,19 @@ run_one() {
   if [[ $rc -eq 124 ]] || grep -q 'context deadline exceeded' "$out"; then
     echo "lint-changed: TIMEOUT (LINT_TIMEOUT=$LINT_TIMEOUT) in $desc -- raise LINT_TIMEOUT or lower LINT_BATCH" >&2
   fi
+  runs_total=$((runs_total + 1))
+  if [[ $rc -ne 0 ]]; then
+    runs_failed=$((runs_failed + 1))
+    local n
+    n=$(sed -nE 's/^([0-9]+) issues?[.:]?$/\1/p' "$out" | tail -1)
+    issues_total=$((issues_total + ${n:-0}))
+    if [[ -z "$n" || "$n" -eq 0 ]]; then
+      # Non-zero exit with no findings (e.g. systemd scope/OOM kill, exit 201):
+      # a tool failure, never a clean lint.
+      tool_failures=$((tool_failures + 1))
+      echo "lint-changed: $desc exited $rc but reported no findings -- tool failure (OOM kill / scope / crash), NOT a clean run; re-run it" >&2
+    fi
+  fi
   rm -f "$out"
   return "$rc"
 }
@@ -246,6 +259,7 @@ run_batched() {
 }
 
 overall=0
+runs_total=0 runs_failed=0 issues_total=0 tool_failures=0
 mulint_bin=""
 mulint_bin=$(go tool -n mulint-vet 2>/dev/null) || mulint_bin=""
 group_keys=("")
@@ -258,5 +272,11 @@ for tags in "${group_keys[@]}"; do
     run_batched "mulint-vet" "$tags" -tags go vet -vettool="$mulint_bin" || overall=1
   fi
 done
+
+if [[ $overall -ne 0 ]]; then
+  echo "lint-changed: SUMMARY: FAILED -- $issues_total issue(s) across $runs_failed failing run(s) of $runs_total ($tool_failures tool failure(s))"
+else
+  echo "lint-changed: SUMMARY: OK -- 0 issues across $runs_total run(s)"
+fi
 
 exit $overall
