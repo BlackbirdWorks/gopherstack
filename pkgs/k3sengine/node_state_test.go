@@ -72,6 +72,8 @@ func TestScriptKeepsExistingCA(t *testing.T) {
 	for _, lb := range []bool{false, true} {
 		s := k3sengine.Script(lb)
 		assert.Contains(t, s, "[ -s /var/lib/rancher/k3s/server/tls/server-ca.crt ]", "a CA already on the volume wins")
+		assert.Contains(t, s, "rm -f /var/lib/rancher/k3s/server/tls/.gopherstack-rotated /var/lib/rancher/k3s/server/tls/dynamic-cert.json",
+			"a rotated node starts without its cached serving certificate")
 		assert.Contains(t, s, `${GOPHERSTACK_NODE_NAME:+ --node-name "$GOPHERSTACK_NODE_NAME"}`)
 	}
 }
@@ -284,6 +286,8 @@ func TestRotateCertificates(t *testing.T) {
 			assert.Equal(t, "/bin/sh", sr.execCmds[0][0])
 			assert.Contains(t, sr.execCmds[0][2], "/bin/k3s certificate rotate-ca --path=")
 			assert.NotContains(t, sr.execCmds[0][2], "PRIVATE KEY", "key material must stay out of argv")
+			assert.Contains(t, sr.execCmds[0][2], "touch /var/lib/rancher/k3s/server/tls/.gopherstack-rotated",
+				"the next start must drop the cached serving certificate")
 			require.Len(t, sr.execEnvs, 1)
 			assert.Len(t, sr.execEnvs[0], 10, "a cert and key for each of the five CAs travel in the environment")
 			assert.Equal(t, tt.wantCalls, sr.calls)

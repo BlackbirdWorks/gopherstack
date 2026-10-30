@@ -27,10 +27,14 @@ const (
 	DataDir = "/var/lib/rancher/k3s"
 	// CACertFile is where the node keeps the serving CA certificate.
 	CACertFile = tlsDir + "/server-ca.crt"
+
+	// rotatedMarker is left by a CA rotation so the next start drops the cached serving certificate.
+	rotatedMarker = tlsDir + "/.gopherstack-rotated"
 )
 
 const scriptHead = `printf '%s,admin,admin,"system:masters"\n' "$` + envAdminAuth + `" > ` + tokenFileName +
 	` && umask 077 && mkdir -p ` + tlsDir +
+	` && { [ ! -e ` + rotatedMarker + ` ] || rm -f ` + rotatedMarker + ` ` + tlsDir + `/dynamic-cert.json; }` +
 	` && { [ -s ` + tlsDir + `/server-ca.crt ] && [ -s ` + tlsDir + `/server-ca.key ] || {` +
 	` printf '%s\n' "$` + envCACert + `" > ` + tlsDir + `/server-ca.crt` +
 	` && printf '%s\n' "$` + envCAKey + `" > ` + tlsDir + `/server-ca.key; }; }` +

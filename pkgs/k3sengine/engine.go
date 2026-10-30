@@ -1,6 +1,7 @@
 package k3sengine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +29,8 @@ const (
 	stopTimeout    = 30 * time.Second
 	minTokenLen    = 16
 	caPollInterval = 500 * time.Millisecond
+	logTailTimeout = 5 * time.Second
+	logTailLines   = "40"
 )
 
 var (
@@ -39,6 +42,8 @@ var (
 	ErrSuperseded = errors.New("cluster was superseded while starting")
 	// ErrNotAdoptable is returned when a leftover container cannot be taken over.
 	ErrNotAdoptable = errors.New("container cannot be adopted")
+	// ErrNodeExited is returned when the node container stops while the engine waits for its API server.
+	ErrNodeExited = errors.New("node container exited")
 	// ErrRotateFailed is returned when the node could not drop its certificates.
 	ErrRotateFailed = errors.New("certificate rotation failed")
 	// ErrStopUnsupported is returned by Stop and Start when the runtime cannot keep a stopped container.
@@ -189,7 +194,51 @@ func (e *Engine) Start(ctx context.Context, containerID, addr string, ca []byte)
 		return nil, fmt.Errorf("start cluster container: %w", err)
 	}
 
-	return e.AwaitReady(ctx, addr, ca)
+	return e.awaitStarted(ctx, containerID, addr, ca)
+}
+
+// awaitStarted waits for the restarted node's API server; it gives up as soon as the container exits and attaches
+// the node's log tail to any failure.
+func (e *Engine) awaitStarted(ctx context.Context, containerID, addr string, ca []byte) ([]byte, error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	if w, ok := e.cfg.Runtime.(container.ExitWaiter); ok {
+		go func() {
+			if code, err := w.WaitExit(ctx, containerID); err == nil {
+				cancel(fmt.Errorf("%w with code %d", ErrNodeExited, code))
+			}
+		}()
+	}
+
+	got, err := e.AwaitReady(ctx, addr, ca)
+	if err == nil {
+		return got, nil
+	}
+
+	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.DeadlineExceeded) {
+		err = fmt.Errorf("%w: %w", cause, err)
+	}
+
+	return nil, fmt.Errorf("%w; node log tail:\n%s", err, e.logTail(containerID))
+}
+
+func (e *Engine) logTail(containerID string) string {
+	lr, ok := e.cfg.Runtime.(container.LogReader)
+	if !ok {
+		return "(runtime cannot read logs)"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), logTailTimeout)
+	defer cancel()
+
+	var out bytes.Buffer
+
+	if err := lr.ReadLogs(ctx, containerID, logTailLines, false, &out, &out); err != nil {
+		return "(log read failed: " + err.Error() + ")"
+	}
+
+	return out.String()
 }
 
 // Close closes the runtime when it supports it.
@@ -480,10 +529,11 @@ func rotateCAScript() string {
 
 const rotateCAScriptHead = `d=$(mktemp -d) && umask 077 && mkdir -p "$d/tls/etcd" && ` +
 	`cp ` + tlsDir + `/service.key "$d/tls/" && i=0 && for n in `
+
 const rotateCAScriptTail = `; do ` +
 	`eval "c=\$GOPHERSTACK_ROTATE_CERT_$i k=\$GOPHERSTACK_ROTATE_KEY_$i" && ` +
 	`printf '%s\n' "$c" > "$d/tls/$n.crt" && printf '%s\n' "$k" > "$d/tls/$n.key" && i=$((i+1)); done && ` +
-	`/bin/k3s certificate rotate-ca --path="$d" --force; rc=$?; rm -rf "$d"; exit $rc`
+	`/bin/k3s certificate rotate-ca --path="$d" --force && touch ` + rotatedMarker + `; rc=$?; rm -rf "$d"; exit $rc`
 
 // RotateCertificates replaces the node's cluster CAs with freshly generated ones (k3s certificate rotate-ca) and
 // restarts it, so k3s reissues every certificate under them. It returns the new serving CA.
