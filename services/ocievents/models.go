@@ -54,7 +54,6 @@ type ActionList struct {
 type Rule struct {
 	TimeCreated   time.Time `json:"timeCreated"`
 	Tags          Tags      `json:"tags"`
-	Actions       []*Action `json:"actions"`
 	ID            string    `json:"id"`
 	DisplayName   string    `json:"displayName"`
 	Description   string    `json:"description,omitempty"`
@@ -62,6 +61,7 @@ type Rule struct {
 	CompartmentID string    `json:"compartmentId"`
 	State         string    `json:"state"`
 	Etag          string    `json:"etag"`
+	Actions       []*Action `json:"actions"`
 	Seq           int64     `json:"seq"`
 	IsEnabled     bool      `json:"isEnabled"`
 }
@@ -71,7 +71,6 @@ type RuleWire struct {
 	TimeCreated      time.Time                 `json:"timeCreated"`
 	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags     map[string]string         `json:"freeformTags,omitempty"`
-	Actions          ActionList                `json:"actions"`
 	ID               string                    `json:"id"`
 	DisplayName      string                    `json:"displayName"`
 	Description      string                    `json:"description,omitempty"`
@@ -79,6 +78,7 @@ type RuleWire struct {
 	CompartmentID    string                    `json:"compartmentId"`
 	LifecycleState   string                    `json:"lifecycleState"`
 	LifecycleMessage string                    `json:"lifecycleMessage"`
+	Actions          ActionList                `json:"actions"`
 	IsEnabled        bool                      `json:"isEnabled"`
 }
 

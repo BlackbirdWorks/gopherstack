@@ -373,4 +373,3 @@ func (b *InMemoryBackend) ChangeRuleCompartment(id, ifMatch string, in changeCom
 
 	return nil
 }
-

@@ -72,9 +72,9 @@ type Delivery struct {
 
 type job struct {
 	rec    *Delivery
+	ruleID string
 	action Action
 	body   []byte
-	ruleID string
 }
 
 func buildEnvelope(ev Event, id string) ([]byte, map[string]any, error) {

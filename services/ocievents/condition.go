@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -44,7 +45,9 @@ func validateNode(path string, v any) *APIError {
 	case map[string]any:
 		for k, child := range t {
 			if strings.Contains(k, "*") {
-				return errParam(fmt.Sprintf("%s: wildcards are allowed in values only, not in the field name %q", path, k))
+				return errParam(
+					fmt.Sprintf("%s: wildcards are allowed in values only, not in the field name %q", path, k),
+				)
 			}
 
 			if err := validateNode(path+"."+k, child); err != nil {
@@ -130,13 +133,7 @@ func matchValue(c, e any) bool {
 }
 
 func slicesAny(list []any, fn func(any) bool) bool {
-	for _, el := range list {
-		if fn(el) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(list, fn)
 }
 
 // wildcardMatch matches s against pattern where * stands for any run of characters (including none).

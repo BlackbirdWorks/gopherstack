@@ -27,7 +27,7 @@ func (h *Handler) createRule(q *req) error {
 }
 
 func (h *Handler) getRule(q *req) error {
-	w, etag, err := h.Backend.GetRule(q.param("ruleId"))
+	w, etag, err := h.Backend.GetRule(q.ruleID())
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (h *Handler) updateRule(q *req) error {
 		return err
 	}
 
-	w, etag, err := h.Backend.UpdateRule(q.param("ruleId"), q.ifMatch(), in)
+	w, etag, err := h.Backend.UpdateRule(q.ruleID(), q.ifMatch(), in)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (h *Handler) updateRule(q *req) error {
 }
 
 func (h *Handler) deleteRule(q *req) error {
-	if err := h.Backend.DeleteRule(q.param("ruleId"), q.ifMatch()); err != nil {
+	if err := h.Backend.DeleteRule(q.ruleID(), q.ifMatch()); err != nil {
 		return err
 	}
 
@@ -77,7 +77,7 @@ func (h *Handler) changeRuleCompartment(q *req) error {
 		return err
 	}
 
-	if err := h.Backend.ChangeRuleCompartment(q.param("ruleId"), q.ifMatch(), in); err != nil {
+	if err := h.Backend.ChangeRuleCompartment(q.ruleID(), q.ifMatch(), in); err != nil {
 		return err
 	}
 

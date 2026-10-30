@@ -1,6 +1,7 @@
 package ocievents_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -35,10 +36,8 @@ func TestRuleLifecycle(t *testing.T) {
 
 	upd, err := e.client.UpdateRule(t.Context(), events.UpdateRuleRequest{
 		RuleId: id, IfMatch: created.Etag,
-		UpdateRuleDetails: events.UpdateRuleDetails{
-			IsEnabled: new(false), DisplayName: new("r2"), Actions: &events.ActionDetailsList{
-				Actions: []events.ActionDetails{faasAction()},
-			},
+		IsEnabled: new(false), DisplayName: new("r2"), Actions: &events.ActionDetailsList{
+			Actions: []events.ActionDetails{faasAction()},
 		},
 	})
 	require.NoError(t, err)
@@ -47,12 +46,12 @@ func TestRuleLifecycle(t *testing.T) {
 	assert.Len(t, upd.Actions.Actions, 1)
 
 	_, err = e.client.UpdateRule(t.Context(), events.UpdateRuleRequest{
-		RuleId: id, IfMatch: created.Etag, UpdateRuleDetails: events.UpdateRuleDetails{Description: new("x")},
+		RuleId: id, IfMatch: created.Etag, Description: new("x"),
 	})
 	assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.client.ChangeRuleCompartment(t.Context(), events.ChangeRuleCompartmentRequest{
-		RuleId: id, ChangeRuleCompartmentDetails: events.ChangeRuleCompartmentDetails{CompartmentId: new(otherCompart)},
+		RuleId: id, CompartmentId: new(otherCompart),
 	})
 	require.NoError(t, err)
 
@@ -115,7 +114,10 @@ func TestListRules(t *testing.T) {
 		})
 	}
 
-	first, err := e.client.ListRules(t.Context(), events.ListRulesRequest{CompartmentId: new(testCompartment), Limit: new(2)})
+	first, err := e.client.ListRules(
+		t.Context(),
+		events.ListRulesRequest{CompartmentId: new(testCompartment), Limit: new(2)},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, first.OpcNextPage)
 
@@ -162,11 +164,10 @@ func TestConditionValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := e.client.CreateRule(t.Context(), events.CreateRuleRequest{CreateRuleDetails: events.CreateRuleDetails{
+			_, err := e.client.CreateRule(t.Context(), events.CreateRuleRequest{
 				DisplayName: new("c"), IsEnabled: new(true), Condition: new(tt.condition),
 				CompartmentId: new(testCompartment),
-				Actions:       &events.ActionDetailsList{Actions: []events.ActionDetails{onsAction()}},
-			}})
+				Actions:       &events.ActionDetailsList{Actions: []events.ActionDetails{onsAction()}}})
 			if tt.wantCode == "" {
 				require.NoError(t, err)
 
@@ -180,32 +181,61 @@ func TestConditionValidation(t *testing.T) {
 	}
 }
 
+func validRuleBody() map[string]any {
+	return map[string]any{
+		"displayName": "n", "isEnabled": true, "condition": "{}", "compartmentId": "c",
+		"actions": map[string]any{"actions": []any{
+			map[string]any{"actionType": "ONS", "isEnabled": true, "topicId": "t"},
+		}},
+	}
+}
+
+func setActions(m map[string]any, acts ...map[string]any) {
+	list := make([]any, 0, len(acts))
+	for _, a := range acts {
+		list = append(list, a)
+	}
+
+	m["actions"] = map[string]any{"actions": list}
+}
+
 func TestCreateRuleValidation(t *testing.T) {
 	t.Parallel()
 
-	many := ""
-	for range 11 {
-		many += `{"actionType":"ONS","isEnabled":true,"topicId":"t"},`
-	}
-
 	tests := []struct {
+		mutate   func(m map[string]any)
 		name     string
-		body     string
 		wantCode string
 	}{
-		{"no actions", `{"displayName":"n","isEnabled":true,"condition":"{}","compartmentId":"c","actions":{"actions":[]}}`, "MissingParameter"},
-		{"actions absent", `{"displayName":"n","isEnabled":true,"condition":"{}","compartmentId":"c"}`, "MissingParameter"},
-		{"eleven actions", `{"displayName":"n","isEnabled":true,"condition":"{}","compartmentId":"c","actions":{"actions":[` +
-			many[:len(many)-1] + `]}}`, "LimitExceeded"},
-		{"bad type", `{"displayName":"n","isEnabled":true,"condition":"{}","compartmentId":"c","actions":{"actions":[{"actionType":"SMS","isEnabled":true}]}}`, "InvalidParameter"},
-		{"ons without topic", `{"displayName":"n","isEnabled":true,"condition":"{}","compartmentId":"c","actions":{"actions":[{"actionType":"ONS","isEnabled":true}]}}`, "MissingParameter"},
-		{"oss without stream", `{"displayName":"n","isEnabled":true,"condition":"{}","compartmentId":"c","actions":{"actions":[{"actionType":"OSS","isEnabled":true}]}}`, "MissingParameter"},
-		{"faas without function", `{"displayName":"n","isEnabled":true,"condition":"{}","compartmentId":"c","actions":{"actions":[{"actionType":"FAAS","isEnabled":true}]}}`, "MissingParameter"},
-		{"action without isEnabled", `{"displayName":"n","isEnabled":true,"condition":"{}","compartmentId":"c","actions":{"actions":[{"actionType":"ONS","topicId":"t"}]}}`, "MissingParameter"},
-		{"no name", `{"isEnabled":true,"condition":"{}","compartmentId":"c","actions":{"actions":[{"actionType":"ONS","isEnabled":true,"topicId":"t"}]}}`, "MissingParameter"},
-		{"no isEnabled", `{"displayName":"n","condition":"{}","compartmentId":"c","actions":{"actions":[{"actionType":"ONS","isEnabled":true,"topicId":"t"}]}}`, "MissingParameter"},
-		{"no compartment", `{"displayName":"n","isEnabled":true,"condition":"{}","actions":{"actions":[{"actionType":"ONS","isEnabled":true,"topicId":"t"}]}}`, "MissingParameter"},
-		{"not json", `nope`, "CannotParseRequest"},
+		{func(m map[string]any) { setActions(m) }, "no actions", "MissingParameter"},
+		{func(m map[string]any) { delete(m, "actions") }, "actions absent", "MissingParameter"},
+		{func(m map[string]any) {
+			acts := make([]map[string]any, 11)
+			for i := range acts {
+				acts[i] = map[string]any{"actionType": "ONS", "isEnabled": true, "topicId": "t"}
+			}
+
+			setActions(m, acts...)
+		}, "eleven actions", "LimitExceeded"},
+		{func(m map[string]any) {
+			setActions(m, map[string]any{"actionType": "SMS", "isEnabled": true})
+		}, "bad type", "InvalidParameter"},
+		{func(m map[string]any) {
+			setActions(m, map[string]any{"actionType": "ONS", "isEnabled": true})
+		}, "ons without topic", "MissingParameter"},
+		{func(m map[string]any) {
+			setActions(m, map[string]any{"actionType": "OSS", "isEnabled": true})
+		}, "oss without stream", "MissingParameter"},
+		{func(m map[string]any) {
+			setActions(m, map[string]any{"actionType": "FAAS", "isEnabled": true})
+		}, "faas without function", "MissingParameter"},
+		{func(m map[string]any) {
+			setActions(m, map[string]any{"actionType": "ONS", "topicId": "t"})
+		}, "action without isEnabled", "MissingParameter"},
+		{func(m map[string]any) { delete(m, "displayName") }, "no name", "MissingParameter"},
+		{func(m map[string]any) { delete(m, "isEnabled") }, "no isEnabled", "MissingParameter"},
+		{func(m map[string]any) { delete(m, "compartmentId") }, "no compartment", "MissingParameter"},
+		{func(m map[string]any) { m["condition"] = "" }, "blank condition", "MissingParameter"},
 	}
 
 	e := newEnv(t, envOpts{})
@@ -214,11 +244,21 @@ func TestCreateRuleValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			status, body := rawDo(t, http.MethodPost, e.base+"/20181201/rules", tt.body)
+			m := validRuleBody()
+			tt.mutate(m)
+
+			raw, err := json.Marshal(m)
+			require.NoError(t, err)
+
+			status, body := rawDo(t, http.MethodPost, e.base+"/20181201/rules", string(raw))
 			assert.Equal(t, http.StatusBadRequest, status, body)
 			assert.Contains(t, body, fmt.Sprintf("%q", tt.wantCode))
 		})
 	}
+
+	status, body := rawDo(t, http.MethodPost, e.base+"/20181201/rules", "nope")
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Contains(t, body, "CannotParseRequest")
 }
 
 func TestRuleLimit(t *testing.T) {
@@ -229,10 +269,9 @@ func TestRuleLimit(t *testing.T) {
 		e.createRule(t, fmt.Sprintf("r%d", i), matchAll, onsAction())
 	}
 
-	_, err := e.client.CreateRule(t.Context(), events.CreateRuleRequest{CreateRuleDetails: events.CreateRuleDetails{
+	_, err := e.client.CreateRule(t.Context(), events.CreateRuleRequest{
 		DisplayName: new("extra"), IsEnabled: new(true), Condition: new(matchAll), CompartmentId: new(testCompartment),
-		Actions: &events.ActionDetailsList{Actions: []events.ActionDetails{onsAction()}},
-	}})
+		Actions: &events.ActionDetailsList{Actions: []events.ActionDetails{onsAction()}}})
 	assert.Equal(t, "LimitExceeded", svcErr(t, err).GetCode())
 }
 

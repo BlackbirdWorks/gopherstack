@@ -35,9 +35,9 @@ type InMemoryBackend struct {
 	workReqs   map[string]*WorkRequest
 	Auth       *ociauth.Registry
 	exec       *executor
-	transition time.Duration
 	sink       func(ResourceEvent)
 	pending    []ResourceEvent
+	transition time.Duration
 	seq        int64
 }
 

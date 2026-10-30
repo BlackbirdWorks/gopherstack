@@ -50,7 +50,11 @@ func wireOCIAPIGateway(byName map[string]service.Registerable) {
 	}
 
 	if coreH, found := byName["OCICore"].(*ocicorebackend.Handler); found {
-		gwH.Backend.SetSubnetChecker(func(id string) bool { _, live := coreH.Backend.LookupSubnet(id); return live })
+		gwH.Backend.SetSubnetChecker(func(id string) bool {
+			_, live := coreH.Backend.LookupSubnet(id)
+
+			return live
+		})
 	}
 
 	if fnH, found := byName["OCIFunctions"].(*ocifunctions.Handler); found {

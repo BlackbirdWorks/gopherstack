@@ -14,13 +14,19 @@ func TestCompartmentWithin(t *testing.T) {
 
 	b := oci.NewInMemoryBackend()
 
-	parent, _, err := b.CreateCompartment(oci.CreateCompartmentIn{CompartmentID: oci.TenancyID, Name: "parent", Description: "d"})
+	parent, _, err := b.CreateCompartment(
+		oci.CreateCompartmentIn{CompartmentID: oci.TenancyID, Name: "parent", Description: "d"},
+	)
 	require.NoError(t, err)
 
-	child, _, err := b.CreateCompartment(oci.CreateCompartmentIn{CompartmentID: parent.ID, Name: "child", Description: "d"})
+	child, _, err := b.CreateCompartment(
+		oci.CreateCompartmentIn{CompartmentID: parent.ID, Name: "child", Description: "d"},
+	)
 	require.NoError(t, err)
 
-	other, _, err := b.CreateCompartment(oci.CreateCompartmentIn{CompartmentID: oci.TenancyID, Name: "other", Description: "d"})
+	other, _, err := b.CreateCompartment(
+		oci.CreateCompartmentIn{CompartmentID: oci.TenancyID, Name: "other", Description: "d"},
+	)
 	require.NoError(t, err)
 
 	tests := []struct {

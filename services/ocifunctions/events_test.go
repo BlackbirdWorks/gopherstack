@@ -40,7 +40,12 @@ func TestResourceEvents(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	wantTypes := []string{oci.EventCreateApplication, oci.EventCreateFunction, oci.EventDeleteFunction, oci.EventDeleteApplication}
+	wantTypes := []string{
+		oci.EventCreateApplication,
+		oci.EventCreateFunction,
+		oci.EventDeleteFunction,
+		oci.EventDeleteApplication,
+	}
 	wantNames := []string{"evapp", "evfn", "evfn", "evapp"}
 	wantIDs := []string{*app.Id, *fn.Id, *fn.Id, *app.Id}
 

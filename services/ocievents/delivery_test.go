@@ -17,7 +17,9 @@ import (
 	ocistreaming "github.com/blackbirdworks/gopherstack/services/ocistreaming"
 )
 
-type notifier struct{ b *ocinotifications.InMemoryBackend }
+type notifier struct {
+	b *ocinotifications.InMemoryBackend
+}
 
 func (n notifier) TopicActive(id string) bool { return n.b.TopicActive(id) }
 
@@ -31,12 +33,21 @@ type streamer struct{ b *ocistreaming.InMemoryBackend }
 
 func (s streamer) StreamActive(id string) bool { return s.b.StreamActive(id) }
 
-func (s streamer) AppendMessage(id string, key, value []byte) error { return s.b.AppendMessage(id, key, value) }
+func (s streamer) AppendMessage(id string, key, value []byte) error {
+	return s.b.AppendMessage(id, key, value)
+}
 
 func eventAt(compartment, eventType, name string) ocievents.Event {
 	return ocievents.Event{
-		EventType: eventType, Source: "objectstorage", CompartmentID: compartment, ResourceName: name,
-		AdditionalDetails: map[string]any{"bucketName": "my_bucket", "publicAccessType": "NoPublicAccess", "archivalState": nil},
+		EventType:     eventType,
+		Source:        "objectstorage",
+		CompartmentID: compartment,
+		ResourceName:  name,
+		AdditionalDetails: map[string]any{
+			"bucketName":       "my_bucket",
+			"publicAccessType": "NoPublicAccess",
+			"archivalState":    nil,
+		},
 	}
 }
 
@@ -53,24 +64,84 @@ func TestFilterMatching(t *testing.T) {
 	}{
 		{"empty matches all", `{}`, eventAt(testCompartment, create, "b"), true},
 		{"exact type", `{"eventType":"` + create + `"}`, eventAt(testCompartment, create, "b"), true},
-		{"other type", `{"eventType":"com.oraclecloud.objectstorage.deletebucket"}`, eventAt(testCompartment, create, "b"), false},
+		{
+			"other type",
+			`{"eventType":"com.oraclecloud.objectstorage.deletebucket"}`,
+			eventAt(testCompartment, create, "b"),
+			false,
+		},
 		{"type list", `{"eventType":["x.y","` + create + `"]}`, eventAt(testCompartment, create, "b"), true},
 		{"type list miss", `{"eventType":["x.y","z.w"]}`, eventAt(testCompartment, create, "b"), false},
-		{"mid wildcard", `{"eventType":"com.oraclecloud.objectstorage.*bucket"}`, eventAt(testCompartment, create, "b"), true},
+		{
+			"mid wildcard",
+			`{"eventType":"com.oraclecloud.objectstorage.*bucket"}`,
+			eventAt(testCompartment, create, "b"),
+			true,
+		},
 		{"suffix wildcard", `{"eventType":"com.oraclecloud.*"}`, eventAt(testCompartment, create, "b"), true},
 		{"prefix wildcard", `{"eventType":"*.createbucket"}`, eventAt(testCompartment, create, "b"), true},
-		{"wildcard miss", `{"eventType":"com.oraclecloud.objectstorage.*object"}`, eventAt(testCompartment, create, "b"), false},
-		{"data resourceName", `{"data":{"resourceName":"my_bucket"}}`, eventAt(testCompartment, create, "my_bucket"), true},
-		{"data resourceName prefix", `{"data":{"resourceName":"my_bucket*"}}`, eventAt(testCompartment, create, "my_bucket_2"), true},
-		{"data resourceName miss", `{"data":{"resourceName":"my_bucket"}}`, eventAt(testCompartment, create, "other"), false},
+		{
+			"wildcard miss",
+			`{"eventType":"com.oraclecloud.objectstorage.*object"}`,
+			eventAt(testCompartment, create, "b"),
+			false,
+		},
+		{
+			"data resourceName",
+			`{"data":{"resourceName":"my_bucket"}}`,
+			eventAt(testCompartment, create, "my_bucket"),
+			true,
+		},
+		{
+			"data resourceName prefix",
+			`{"data":{"resourceName":"my_bucket*"}}`,
+			eventAt(testCompartment, create, "my_bucket_2"),
+			true,
+		},
+		{
+			"data resourceName miss",
+			`{"data":{"resourceName":"my_bucket"}}`,
+			eventAt(testCompartment, create, "other"),
+			false,
+		},
 		{"data list", `{"data":{"resourceName":["a","b","c"]}}`, eventAt(testCompartment, create, "b"), true},
-		{"nested detail", `{"data":{"additionalDetails":{"publicAccessType":"NoPublicAccess"}}}`, eventAt(testCompartment, create, "b"), true},
-		{"nested detail miss", `{"data":{"additionalDetails":{"publicAccessType":"PublicAccess"}}}`, eventAt(testCompartment, create, "b"), false},
-		{"star matches value", `{"data":{"additionalDetails":{"publicAccessType":"*"}}}`, eventAt(testCompartment, create, "b"), true},
-		{"star does not match null", `{"data":{"additionalDetails":{"archivalState":"*"}}}`, eventAt(testCompartment, create, "b"), false},
+		{
+			"nested detail",
+			`{"data":{"additionalDetails":{"publicAccessType":"NoPublicAccess"}}}`,
+			eventAt(testCompartment, create, "b"),
+			true,
+		},
+		{
+			"nested detail miss",
+			`{"data":{"additionalDetails":{"publicAccessType":"PublicAccess"}}}`,
+			eventAt(testCompartment, create, "b"),
+			false,
+		},
+		{
+			"star matches value",
+			`{"data":{"additionalDetails":{"publicAccessType":"*"}}}`,
+			eventAt(testCompartment, create, "b"),
+			true,
+		},
+		{
+			"star does not match null",
+			`{"data":{"additionalDetails":{"archivalState":"*"}}}`,
+			eventAt(testCompartment, create, "b"),
+			false,
+		},
 		{"missing field", `{"data":{"additionalDetails":{"nope":"*"}}}`, eventAt(testCompartment, create, "b"), false},
-		{"wrong nesting", `{"additionalDetails":{"publicAccessType":"NoPublicAccess"}}`, eventAt(testCompartment, create, "b"), false},
-		{"and across fields", `{"eventType":"` + create + `","data":{"resourceName":"zzz"}}`, eventAt(testCompartment, create, "b"), false},
+		{
+			"wrong nesting",
+			`{"additionalDetails":{"publicAccessType":"NoPublicAccess"}}`,
+			eventAt(testCompartment, create, "b"),
+			false,
+		},
+		{
+			"and across fields",
+			`{"eventType":"` + create + `","data":{"resourceName":"zzz"}}`,
+			eventAt(testCompartment, create, "b"),
+			false,
+		},
 		{"envelope source", `{"source":"objectstorage"}`, eventAt(testCompartment, create, "b"), true},
 		{"other compartment", `{}`, eventAt(otherCompart, create, "b"), false},
 	}
@@ -113,7 +184,9 @@ func TestCompartmentScope(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	fn := &fakeFunctions{}
 	e.backend.SetFunctionInvoker(fn)
-	e.backend.SetCompartmentTree(func(id, ancestor string) bool { return id == "ocid1.compartment.oc1..child" && ancestor == testCompartment })
+	e.backend.SetCompartmentTree(func(id, ancestor string) bool {
+		return id == "ocid1.compartment.oc1..child" && ancestor == testCompartment
+	})
 	e.createRule(t, "r", matchAll, faasAction())
 
 	e.backend.Emit(eventAt("ocid1.compartment.oc1..child", "a.b", "x"))
@@ -137,7 +210,7 @@ func TestDisabledNotDelivered(t *testing.T) {
 	assert.Len(t, fn.invoked(), 1, "only the enabled action of the first rule")
 
 	_, err := e.client.UpdateRule(t.Context(), events.UpdateRuleRequest{
-		RuleId: rule.Id, UpdateRuleDetails: events.UpdateRuleDetails{IsEnabled: new(false)},
+		RuleId: rule.Id, IsEnabled: new(false),
 	})
 	require.NoError(t, err)
 
@@ -145,7 +218,7 @@ func TestDisabledNotDelivered(t *testing.T) {
 	assert.Len(t, fn.invoked(), 1, "disabled rule")
 
 	_, err = e.client.UpdateRule(t.Context(), events.UpdateRuleRequest{
-		RuleId: rule.Id, UpdateRuleDetails: events.UpdateRuleDetails{IsEnabled: new(true)},
+		RuleId: rule.Id, IsEnabled: new(true),
 	})
 	require.NoError(t, err)
 
@@ -204,9 +277,9 @@ type pipeline struct {
 	ons     *ocinotifications.InMemoryBackend
 	streams *ocistreaming.InMemoryBackend
 	fn      *fakeFunctions
+	sink    chan string
 	topic   string
 	stream  string
-	sink    chan string
 }
 
 func newPipeline(t *testing.T) *pipeline {
@@ -233,7 +306,7 @@ func newPipeline(t *testing.T) *pipeline {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buf := make([]byte, 1<<16)
 		n, _ := r.Body.Read(buf)
-		p.sink <- r.Header.Get("X-OCI-NS-MessageType") + "|" + string(buf[:n])
+		p.sink <- r.Header.Get("X-Oci-Ns-Messagetype") + "|" + string(buf[:n])
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -321,10 +394,14 @@ func TestObjectEventsDelivered(t *testing.T) {
 	p.bucket(t, "on", new(true))
 	p.bucket(t, "off", nil)
 
-	p.createRule(t, "all", `{"eventType":"com.oraclecloud.objectstorage.*object","data":{"additionalDetails":{"bucketName":"on"}}}`,
+	p.createRule(
+		t,
+		"all",
+		`{"eventType":"com.oraclecloud.objectstorage.*object","data":{"additionalDetails":{"bucketName":"on"}}}`,
 		events.CreateNotificationServiceActionDetails{IsEnabled: new(true), TopicId: &p.topic},
 		events.CreateStreamingServiceActionDetails{IsEnabled: new(true), StreamId: &p.stream},
-		faasAction())
+		faasAction(),
+	)
 
 	p.put(t, "off", "ignored")
 	assert.Empty(t, p.backend.Deliveries(), "bucket without objectEventsEnabled emits nothing")
@@ -371,7 +448,7 @@ func TestObjectEventsDelivered(t *testing.T) {
 
 	p.ons.DeliverDue(t.Context(), func(fn func()) { fn() })
 
-	var got []string
+	got := make([]string, 0, 3)
 	for range 3 {
 		got = append(got, <-p.sink)
 	}
@@ -388,21 +465,38 @@ func TestActionTargetMustExist(t *testing.T) {
 	p := newPipeline(t)
 
 	tests := []struct {
-		name   string
 		action events.ActionDetails
+		name   string
 	}{
-		{"topic", events.CreateNotificationServiceActionDetails{IsEnabled: new(true), TopicId: new("ocid1.onstopic.oc1..nope")}},
-		{"stream", events.CreateStreamingServiceActionDetails{IsEnabled: new(true), StreamId: new("ocid1.stream.oc1..nope")}},
+		{
+			name: "topic",
+			action: events.CreateNotificationServiceActionDetails{
+				IsEnabled: new(true),
+				TopicId:   new("ocid1.onstopic.oc1..nope"),
+			},
+		},
+		{
+			name: "stream",
+			action: events.CreateStreamingServiceActionDetails{
+				IsEnabled: new(true),
+				StreamId:  new("ocid1.stream.oc1..nope"),
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := p.client.CreateRule(t.Context(), events.CreateRuleRequest{CreateRuleDetails: events.CreateRuleDetails{
-				DisplayName: new("x"), IsEnabled: new(true), Condition: new(matchAll), CompartmentId: new(testCompartment),
-				Actions: &events.ActionDetailsList{Actions: []events.ActionDetails{tt.action}},
-			}})
+			_, err := p.client.CreateRule(t.Context(), events.CreateRuleRequest{
+				DisplayName: new(
+					"x",
+				),
+				IsEnabled:     new(true),
+				Condition:     new(matchAll),
+				CompartmentId: new(testCompartment),
+				Actions:       &events.ActionDetailsList{Actions: []events.ActionDetails{tt.action}},
+			})
 			assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 		})
 	}
@@ -428,7 +522,7 @@ func TestSnapshotRestore(t *testing.T) {
 	got, _, err := other.GetRule(*created.Id)
 	require.NoError(t, err)
 	assert.Equal(t, "persist", got.DisplayName)
-	assert.Equal(t, `{"eventType":"a.b"}`, got.Condition)
+	assert.JSONEq(t, `{"eventType":"a.b"}`, got.Condition)
 
 	other.Emit(eventAt(testCompartment, "a.b", "x"))
 	assert.Len(t, fn.invoked(), 1)

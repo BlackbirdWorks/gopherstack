@@ -23,36 +23,52 @@ func TestObjectEvents(t *testing.T) {
 		want    []string
 	}{
 		{"put create then update", new(true), func(t *testing.T, b *oci.InMemoryBackend) {
+			t.Helper()
+
 			_, err := b.PutObject(ns, "bk", "o", []byte("1"), meta, pre, "")
 			require.NoError(t, err)
 			_, err = b.PutObject(ns, "bk", "o", []byte("2"), meta, pre, "")
 			require.NoError(t, err)
 		}, []string{oci.EventCreateObject, oci.EventUpdateObject}},
 		{"delete", new(true), func(t *testing.T, b *oci.InMemoryBackend) {
+			t.Helper()
+
 			_, err := b.PutObject(ns, "bk", "o", []byte("1"), meta, pre, "")
 			require.NoError(t, err)
 			_, err = b.DeleteObject(ns, "bk", "o", "", "")
 			require.NoError(t, err)
 		}, []string{oci.EventCreateObject, oci.EventDeleteObject}},
 		{"failed delete emits nothing", new(true), func(t *testing.T, b *oci.InMemoryBackend) {
+			t.Helper()
+
 			_, err := b.DeleteObject(ns, "bk", "missing", "", "")
 			require.Error(t, err)
 		}, nil},
 		{"batch delete", new(true), func(t *testing.T, b *oci.InMemoryBackend) {
+			t.Helper()
+
 			_, err := b.PutObject(ns, "bk", "o", []byte("1"), meta, pre, "")
 			require.NoError(t, err)
 			_, _, err = b.BatchDelete(ns, "bk", []oci.BatchItem{{ObjectName: "o"}, {ObjectName: "nope"}})
 			require.NoError(t, err)
 		}, []string{oci.EventCreateObject, oci.EventDeleteObject}},
 		{"copy", new(true), func(t *testing.T, b *oci.InMemoryBackend) {
+			t.Helper()
+
 			_, err := b.PutObject(ns, "bk", "o", []byte("1"), meta, pre, "")
 			require.NoError(t, err)
 			_, err = b.CopyObject(ns, "bk", oci.CopyInput{
-				SourceObjectName: "o", DestinationRegion: oci.Region, DestinationNS: ns, DestinationBucket: "bk", DestinationObject: "c",
+				SourceObjectName:  "o",
+				DestinationRegion: oci.Region,
+				DestinationNS:     ns,
+				DestinationBucket: "bk",
+				DestinationObject: "c",
 			})
 			require.NoError(t, err)
 		}, []string{oci.EventCreateObject, oci.EventCreateObject}},
 		{"multipart commit", new(true), func(t *testing.T, b *oci.InMemoryBackend) {
+			t.Helper()
+
 			u, err := b.CreateUpload(ns, "bk", oci.CreateUploadInput{Object: "big"}, pre)
 			require.NoError(t, err)
 			etag, _, err := b.UploadPart(ns, "bk", "big", u.ID, 1, []byte("x"), "")
@@ -63,6 +79,8 @@ func TestObjectEvents(t *testing.T) {
 			require.NoError(t, err)
 		}, []string{oci.EventCreateObject}},
 		{"flag off", nil, func(t *testing.T, b *oci.InMemoryBackend) {
+			t.Helper()
+
 			_, err := b.PutObject(ns, "bk", "o", []byte("1"), meta, pre, "")
 			require.NoError(t, err)
 		}, nil},

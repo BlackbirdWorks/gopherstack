@@ -48,17 +48,17 @@ type FunctionInvoker interface {
 
 // InMemoryBackend holds every rule under one lock.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	now         func() time.Time
-	rules       map[string]*Rule
-	deliveries  []*Delivery
+	notifier    Notifier
+	invoker     FunctionInvoker
+	streamer    Streamer
+	within      func(id, ancestor string) bool
 	Auth        *ociauth.Registry
 	compartment func(string) bool
-	within      func(id, ancestor string) bool
-	notifier    Notifier
-	streamer    Streamer
-	invoker     FunctionInvoker
+	mu          *lockmetrics.RWMutex
+	rules       map[string]*Rule
+	now         func() time.Time
 	spawn       func(func())
+	deliveries  []*Delivery
 	wg          sync.WaitGroup
 	seq         int64
 }

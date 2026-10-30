@@ -16,12 +16,16 @@ import (
 
 const eventSourceObjectStorage = "objectstorage"
 
+const eventContentType = "application/json"
+
 var errEventFunctionStatus = errors.New("function invocation failed")
 
 // GetOCIEventsSettings returns OCI Events settings (ocievents.ConfigProvider).
 func (c *CLI) GetOCIEventsSettings() ocievents.Settings { return c.OCIEvents }
 
-type ociEventsNotifier struct{ b *ocinotifications.InMemoryBackend }
+type ociEventsNotifier struct {
+	b *ocinotifications.InMemoryBackend
+}
 
 func (n ociEventsNotifier) TopicActive(id string) bool { return n.b.TopicActive(id) }
 
@@ -31,7 +35,9 @@ func (n ociEventsNotifier) PublishEvent(topicID, body string) error {
 	return err
 }
 
-type ociEventsStreamer struct{ b *ocistreaming.InMemoryBackend }
+type ociEventsStreamer struct {
+	b *ocistreaming.InMemoryBackend
+}
 
 func (s ociEventsStreamer) StreamActive(id string) bool { return s.b.StreamActive(id) }
 
@@ -39,13 +45,15 @@ func (s ociEventsStreamer) AppendMessage(streamID string, key, value []byte) err
 	return s.b.AppendMessage(streamID, key, value)
 }
 
-type ociEventsFunctions struct{ b *ocifunctions.InMemoryBackend }
+type ociEventsFunctions struct {
+	b *ocifunctions.InMemoryBackend
+}
 
 func (f ociEventsFunctions) FunctionActive(id string) bool { return f.b.FunctionActive(id) }
 
 func (f ociEventsFunctions) InvokeFunction(ctx context.Context, functionID string, body []byte) error {
 	out, err := f.b.Invoke(ctx, functionID, ocifunctions.InvokeIn{
-		Header: http.Header{"Content-Type": {"application/json"}}, URL: "/", Body: body,
+		Header: http.Header{"Content-Type": {eventContentType}}, URL: "/", Body: body,
 	})
 	if err != nil {
 		return err

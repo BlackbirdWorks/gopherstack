@@ -178,10 +178,9 @@ func faasAction() events.CreateFaaSActionDetails {
 func (e *env) createRule(t *testing.T, name, condition string, acts ...events.ActionDetails) events.CreateRuleResponse {
 	t.Helper()
 
-	resp, err := e.client.CreateRule(t.Context(), events.CreateRuleRequest{CreateRuleDetails: events.CreateRuleDetails{
+	resp, err := e.client.CreateRule(t.Context(), events.CreateRuleRequest{
 		DisplayName: new(name), IsEnabled: new(true), Condition: new(condition), CompartmentId: new(testCompartment),
-		Actions: &events.ActionDetailsList{Actions: acts},
-	}})
+		Actions: &events.ActionDetailsList{Actions: acts}})
 	require.NoError(t, err)
 
 	return resp
@@ -189,9 +188,9 @@ func (e *env) createRule(t *testing.T, name, condition string, acts ...events.Ac
 
 // fakeFunctions records invocations and fails them on demand.
 type fakeFunctions struct {
-	mu     sync.Mutex
-	bodies []string
 	err    error
+	bodies []string
+	mu     sync.Mutex
 }
 
 func (f *fakeFunctions) FunctionActive(string) bool { return true }
