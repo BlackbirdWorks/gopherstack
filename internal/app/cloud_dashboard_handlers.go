@@ -168,3 +168,8 @@ func (c *CLI) GetOCIEventsHandler() service.Registerable { return c.ociEventsHan
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPIdentityToolkitHandler() service.Registerable { return c.gcpIdentityToolkitHandler }
+
+// GetGCPAPIGatewayHandler returns the GCPAPIGateway handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPAPIGatewayHandler() service.Registerable { return c.gcpAPIGatewayHandler }

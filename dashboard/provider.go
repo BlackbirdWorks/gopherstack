@@ -41,6 +41,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigtable"
@@ -418,6 +419,10 @@ func linkContainerQueueExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetGCPIdentityToolkitHandler() service.Registerable }); ok {
 		conf.GCPIdentityToolkitOps, _ = getHandler[*gcpidentitytoolkit.Handler](p.GetGCPIdentityToolkitHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPAPIGatewayHandler() service.Registerable }); ok {
+		conf.GCPAPIGatewayOps, _ = getHandler[*gcpapigateway.Handler](p.GetGCPAPIGatewayHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetOCIContainerEngineHandler() service.Registerable }); ok {

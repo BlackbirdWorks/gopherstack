@@ -38,6 +38,7 @@ var armPxSecretKeys = []string{ //nolint:gochecknoglobals // immutable allowlist
 type armProxy struct {
 	allowed   func(method string, p []string) bool
 	body      func(method string, p []string, in []byte) ([]byte, bool)
+	view      func(doc any)
 	name      string
 	prefix    string
 	queryKeys []string
@@ -90,7 +91,7 @@ func (h *DashboardHandler) registerARMProxy(px armProxy) {
 		rec := httptest.NewRecorder()
 		inner.ServeHTTP(rec, fwd)
 
-		return armProxyRelay(c, rec)
+		return armProxyRelay(c, rec, px.view)
 	}
 
 	for _, m := range px.methods {
@@ -136,23 +137,36 @@ func armProxyPath(method, raw string, allowed func(string, []string) bool) (stri
 }
 
 // armProxyRelay copies the ARM response, removing secret-bearing properties before they reach the browser.
-func armProxyRelay(c *echo.Context, rec *httptest.ResponseRecorder) error {
+func armProxyRelay(c *echo.Context, rec *httptest.ResponseRecorder, view func(any)) error {
 	body := rec.Body.Bytes()
 
 	if rec.Code < http.StatusMultipleChoices && len(body) > 0 {
-		var doc any
-		if err := json.Unmarshal(body, &doc); err == nil {
-			armScrub(doc)
-
-			if out, merr := json.Marshal(doc); merr == nil {
-				body = out
-			}
-		}
+		body = armScrubBody(body, view)
 	}
 
 	c.Response().Header().Set("Content-Type", "application/json")
 
 	return c.JSONBlob(rec.Code, body)
+}
+
+// armScrubBody applies the optional view and the generic scrub to a JSON body; anything else is returned as is.
+func armScrubBody(body []byte, view func(any)) []byte {
+	var doc any
+	if json.Unmarshal(body, &doc) != nil {
+		return body
+	}
+
+	if view != nil {
+		view(doc)
+	}
+
+	armScrub(doc)
+
+	if out, err := json.Marshal(doc); err == nil {
+		return out
+	}
+
+	return body
 }
 
 func armScrub(v any) {

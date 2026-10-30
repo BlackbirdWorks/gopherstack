@@ -477,6 +477,7 @@ type CLI struct {
 	ociCoreHandler                service.Registerable
 	gcpContainerHandler           service.Registerable
 	gcpIdentityToolkitHandler     service.Registerable
+	gcpAPIGatewayHandler          service.Registerable
 	ociQueueHandler               service.Registerable
 	ociNotificationsHandler       service.Registerable
 	ociContainerEngineHandler     service.Registerable
@@ -3601,6 +3602,7 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mqHandler = byName["MQ"]
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
+	cli.gcpAPIGatewayHandler = byName["GCPAPIGateway"]
 	storeCLINewestHandlers(cli, byName)
 }
 
