@@ -31,7 +31,6 @@ func TestSDK_CreateReportsCreatingUntilDelay(t *testing.T) {
 			t.Parallel()
 
 			synctest.Test(t, func(t *testing.T) {
-
 				backend := neptune.NewInMemoryBackend("123456789012", "us-east-1")
 				backend.SetLifecycleDelay(tt.delay)
 				client := newTestNeptuneClient(t, neptune.NewHandler(backend))

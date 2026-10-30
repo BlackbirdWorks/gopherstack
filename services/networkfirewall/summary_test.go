@@ -118,7 +118,6 @@ func TestSetLifecycleDelay(t *testing.T) {
 			t.Parallel()
 
 			synctest.Test(t, func(t *testing.T) {
-
 				b := nf.NewInMemoryBackend(testAccount, testRegion)
 				b.SetLifecycleDelay(tt.delay)
 

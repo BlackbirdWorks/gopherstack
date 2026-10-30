@@ -42,7 +42,6 @@ func TestClusterUpdate_UpdatingThenActive(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		c := newLifecycleClient(t, lifecycleTestDelay)
 		createTestCluster(t, c, "upd")
 		waitClusterStatus(t, c, "upd", ekstypes.ClusterStatusActive)
@@ -77,7 +76,6 @@ func TestDeletes_DwellInDeletingWhenDelayed(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		c := newLifecycleClient(t, lifecycleTestDelay)
 		createTestCluster(t, c, "del")
 		waitClusterStatus(t, c, "del", ekstypes.ClusterStatusActive)

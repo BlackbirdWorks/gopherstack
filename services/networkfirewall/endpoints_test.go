@@ -292,7 +292,6 @@ func TestFlowOperations(t *testing.T) {
 			t.Parallel()
 
 			synctest.Test(t, func(t *testing.T) {
-
 				f := newFixture(t)
 				pol := f.policy(t, "pol")
 				fw := f.firewall(t, "fw", aws.ToString(pol.FirewallPolicyResponse.FirewallPolicyArn))

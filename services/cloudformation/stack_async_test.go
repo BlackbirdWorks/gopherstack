@@ -170,7 +170,6 @@ func TestAsyncProvisioning_WaiterCompletes(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		b, client := newTestHandlerAndClientWithBackend(t)
 		b.SetProvisioningDelay(time.Millisecond)
 		t.Cleanup(b.WaitForStackProvisioning)

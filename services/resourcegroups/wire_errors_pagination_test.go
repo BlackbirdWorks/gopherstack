@@ -279,7 +279,6 @@ func TestSDK_ConfigurationStatusCompletes(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
 		b.SetLifecycleDelay(20 * time.Millisecond)
 		c := newTestResourceGroupsClient(t, resourcegroups.NewHandler(b))

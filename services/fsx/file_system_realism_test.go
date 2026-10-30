@@ -276,7 +276,6 @@ func TestLifecycleDelay_CreatingThenAvailable(t *testing.T) {
 			t.Parallel()
 
 			synctest.Test(t, func(t *testing.T) {
-
 				b, client := newRealismClient(t)
 				b.SetLifecycleDelay(tt.delay)
 

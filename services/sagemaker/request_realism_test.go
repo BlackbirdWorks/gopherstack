@@ -169,7 +169,6 @@ func TestRequestRealism_TrainingSecondaryStatusProgression(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		h := newTestHandler(t)
 		h.Backend.SetLifecycleDelay(20 * time.Millisecond)
 
@@ -207,7 +206,6 @@ func TestRequestRealism_StopCompletedTrainingJobIsNoop(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		h := newTestHandler(t)
 		h.Backend.SetLifecycleDelay(time.Millisecond)
 
@@ -238,7 +236,6 @@ func TestRequestRealism_StopFinishedProcessingJobKeepsStatus(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		h := newTestHandler(t)
 		h.Backend.SetLifecycleDelay(time.Millisecond)
 

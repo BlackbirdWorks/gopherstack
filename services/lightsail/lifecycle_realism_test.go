@@ -47,7 +47,6 @@ func TestInstanceStopStartTransitions(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		c := newDelayedClient(t, time.Hour)
 		createInstance(t, c, "web-1")
 		assert.Equal(t, "pending", instanceStateName(t, c, "web-1"))
@@ -73,7 +72,6 @@ func TestStopShowsStoppingFirst(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		backend := lightsail.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
 		t.Cleanup(backend.Close)
 		backend.SetTransitionDelay(time.Millisecond)

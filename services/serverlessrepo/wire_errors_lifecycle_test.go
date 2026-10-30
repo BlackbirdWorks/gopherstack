@@ -299,7 +299,6 @@ func TestSDK_TemplateStatusCompletes(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		b := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
 		b.SetTemplatePrepareDelay(20 * time.Millisecond)
 		client := newSARFixture(t, b)

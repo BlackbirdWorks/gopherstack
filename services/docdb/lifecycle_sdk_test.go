@@ -31,7 +31,6 @@ func TestSDK_CreateReportsCreatingUntilDelay(t *testing.T) {
 			t.Parallel()
 
 			synctest.Test(t, func(t *testing.T) {
-
 				backend := docdb.NewInMemoryBackend("123456789012", "us-east-1")
 				backend.SetLifecycleDelay(tt.delay)
 				client := newTestDocDBClient(t, docdb.NewHandler(backend))
@@ -51,10 +50,13 @@ func TestSDK_CreateReportsCreatingUntilDelay(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantFirst, aws.ToString(inst.DBInstance.DBInstanceStatus))
 
-				waiter := docdbsdk.NewDBInstanceAvailableWaiter(client, func(o *docdbsdk.DBInstanceAvailableWaiterOptions) {
-					o.MinDelay = 20 * time.Millisecond
-					o.MaxDelay = 50 * time.Millisecond
-				})
+				waiter := docdbsdk.NewDBInstanceAvailableWaiter(
+					client,
+					func(o *docdbsdk.DBInstanceAvailableWaiterOptions) {
+						o.MinDelay = 20 * time.Millisecond
+						o.MaxDelay = 50 * time.Millisecond
+					},
+				)
 				require.NoError(t, waiter.Wait(ctx, &docdbsdk.DescribeDBInstancesInput{
 					DBInstanceIdentifier: aws.String("i-1"),
 				}, 10*time.Second))

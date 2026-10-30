@@ -120,7 +120,6 @@ func TestSDK_StatusCompletes(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		client, b := newCSCFixture(t)
 		b.SetConnectionHandshakeDelay(20 * time.Millisecond)
 		b.SetHostSetupDelay(20 * time.Millisecond)
@@ -138,7 +137,10 @@ func TestSDK_StatusCompletes(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
-			got, getErr := client.GetConnection(t.Context(), &cscsdk.GetConnectionInput{ConnectionArn: conn.ConnectionArn})
+			got, getErr := client.GetConnection(
+				t.Context(),
+				&cscsdk.GetConnectionInput{ConnectionArn: conn.ConnectionArn},
+			)
 			gotHost, hostErr := client.GetHost(t.Context(), &cscsdk.GetHostInput{HostArn: host.HostArn})
 
 			return getErr == nil && hostErr == nil &&

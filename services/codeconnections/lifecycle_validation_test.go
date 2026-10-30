@@ -214,7 +214,6 @@ func TestSDK_StatusCompletes(t *testing.T) {
 	t.Parallel()
 
 	synctest.Test(t, func(t *testing.T) {
-
 		client, b := newCCFixture(t)
 		b.SetConnectionHandshakeDelay(20 * time.Millisecond)
 
@@ -224,7 +223,10 @@ func TestSDK_StatusCompletes(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
-			got, getErr := client.GetConnection(t.Context(), &ccsdk.GetConnectionInput{ConnectionArn: conn.ConnectionArn})
+			got, getErr := client.GetConnection(
+				t.Context(),
+				&ccsdk.GetConnectionInput{ConnectionArn: conn.ConnectionArn},
+			)
 
 			return getErr == nil && got.Connection.ConnectionStatus == cctypes.ConnectionStatusAvailable
 		}, 5*time.Second, 10*time.Millisecond)
