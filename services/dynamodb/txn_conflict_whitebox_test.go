@@ -418,11 +418,11 @@ func TestTransactionConflict_InFlightRead(t *testing.T) {
 		name  string
 	}{
 		{
-			name: "write transaction is canceled",
+			name: "write transaction on the same item proceeds",
 			probe: func(t *testing.T, f *conflictFixture) {
 				t.Helper()
 				_, err := f.client.TransactWriteItems(t.Context(), f.twi(putAction("a", "x")))
-				assert.Equal(t, []string{"TransactionConflict"}, reasonCodes(t, err))
+				require.NoError(t, err)
 			},
 		},
 		{

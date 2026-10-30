@@ -21,18 +21,6 @@ const (
 	chaosServiceName           = "dynamodb"
 )
 
-// txnAccess is how an operation touches an item for conflict purposes.
-type txnAccess uint8
-
-const (
-	// accessSingleWrite is PutItem/UpdateItem/DeleteItem/BatchWriteItem: conflicts with an in-flight write transaction.
-	accessSingleWrite txnAccess = iota
-	// accessTxnWrite is TransactWriteItems/ExecuteTransaction: conflicts with any other in-flight transaction.
-	accessTxnWrite
-	// accessTxnRead is TransactGetItems: conflicts with an in-flight write transaction.
-	accessTxnRead
-)
-
 type itemRef struct {
 	region string
 	table  string
@@ -41,8 +29,7 @@ type itemRef struct {
 
 // inflightItem is guarded by InMemoryDB.mu.
 type inflightItem struct {
-	writer  *txnHandle
-	readers map[*txnHandle]struct{}
+	writer *txnHandle
 }
 
 // txnTarget is one item an operation touches; attrs holds at least its key attributes.
@@ -151,9 +138,7 @@ func (h *txnHandle) release() {
 			e.writer = nil
 		}
 
-		delete(e.readers, h)
-
-		if e.writer == nil && len(e.readers) == 0 {
+		if e.writer == nil {
 			delete(db.txn.inflight, ref)
 		}
 	}
@@ -197,27 +182,13 @@ func newTxnTarget(region, tableName string, table *Table, attrs map[string]types
 }
 
 // conflictsLocked reports a genuine overlap with an in-flight transaction. Caller holds db.mu.
-func (db *InMemoryDB) conflictsLocked(ref itemRef, access txnAccess, self *txnHandle) bool {
+func (db *InMemoryDB) conflictsLocked(ref itemRef, self *txnHandle) bool {
 	e := db.txn.inflight[ref]
 	if e == nil {
 		return false
 	}
 
-	if e.writer != nil && e.writer != self {
-		return true
-	}
-
-	if access != accessTxnWrite {
-		return false
-	}
-
-	for r := range e.readers {
-		if r != self {
-			return true
-		}
-	}
-
-	return false
+	return e.writer != nil && e.writer != self
 }
 
 func chaosTargetMatches(t *chaos.EffectTarget, tg txnTarget) bool {
@@ -326,7 +297,7 @@ func (db *InMemoryDB) consumeHoldLocked(hk chaosHoldKey) bool {
 
 // beginTxn atomically checks targets for conflicts and, when none conflict, marks them in flight.
 // It returns the indices of the conflicting targets; on conflict nothing is registered.
-func (db *InMemoryDB) beginTxn(h *txnHandle, access txnAccess, targets []txnTarget) []int {
+func (db *InMemoryDB) beginTxn(h *txnHandle, hold bool, targets []txnTarget) []int {
 	db.mu.Lock("txn.begin")
 	defer db.mu.Unlock()
 
@@ -334,7 +305,7 @@ func (db *InMemoryDB) beginTxn(h *txnHandle, access txnAccess, targets []txnTarg
 
 	for _, tg := range targets {
 		forced := db.forcedConflictLocked(h.op, tg)
-		if forced || db.conflictsLocked(tg.ref, access, h) {
+		if forced || db.conflictsLocked(tg.ref, h) {
 			conflicts = append(conflicts, tg.idx)
 		}
 	}
@@ -343,12 +314,14 @@ func (db *InMemoryDB) beginTxn(h *txnHandle, access txnAccess, targets []txnTarg
 		return conflicts
 	}
 
-	db.markLocked(h, access, targets)
+	if hold {
+		db.markLocked(h, targets)
+	}
 
 	return nil
 }
 
-func (db *InMemoryDB) markLocked(h *txnHandle, access txnAccess, targets []txnTarget) {
+func (db *InMemoryDB) markLocked(h *txnHandle, targets []txnTarget) {
 	for _, tg := range targets {
 		e := db.txn.inflight[tg.ref]
 		if e == nil {
@@ -356,23 +329,11 @@ func (db *InMemoryDB) markLocked(h *txnHandle, access txnAccess, targets []txnTa
 			db.txn.inflight[tg.ref] = e
 		}
 
-		if access == accessTxnRead {
-			if e.readers == nil {
-				e.readers = make(map[*txnHandle]struct{})
-			}
-
-			if _, held := e.readers[h]; held {
-				continue
-			}
-
-			e.readers[h] = struct{}{}
-		} else {
-			if e.writer == h {
-				continue
-			}
-
-			e.writer = h
+		if e.writer == h {
+			continue
 		}
+
+		e.writer = h
 
 		h.refs = append(h.refs, tg.ref)
 		db.txn.live.Add(1)
@@ -381,7 +342,7 @@ func (db *InMemoryDB) markLocked(h *txnHandle, access txnAccess, targets []txnTa
 
 // checkSingleWrite rejects a PutItem/UpdateItem/DeleteItem that overlaps an in-flight write transaction
 // with TransactionConflictException. Inside an ExecuteTransaction (ctx carries its handle) the statement
-// is a transaction write: it may conflict with readers too, and the item is then held by that transaction.
+// is a transaction write and the item is then held by that transaction.
 func (db *InMemoryDB) checkSingleWrite(
 	ctx context.Context,
 	op, tableName string,
@@ -400,16 +361,16 @@ func (db *InMemoryDB) checkSingleWrite(
 		return nil
 	}
 
-	access, opName := accessSingleWrite, op
+	opName := op
 	if owner != nil {
-		access, opName = accessTxnWrite, owner.op
+		opName = owner.op
 	}
 
 	db.mu.Lock("txn.checkSingle")
-	conflict := db.forcedConflictLocked(opName, tg) || db.conflictsLocked(tg.ref, access, owner)
+	conflict := db.forcedConflictLocked(opName, tg) || db.conflictsLocked(tg.ref, owner)
 
 	if !conflict && owner != nil {
-		db.markLocked(owner, access, []txnTarget{tg})
+		db.markLocked(owner, []txnTarget{tg})
 	}
 	db.mu.Unlock()
 
@@ -451,7 +412,7 @@ func (db *InMemoryDB) filterBatchConflicts(
 
 	for i, req := range requests {
 		if valid[i] && (db.forcedConflictLocked(opBatchWriteItem, targets[i]) ||
-			db.conflictsLocked(targets[i].ref, accessSingleWrite, nil)) {
+			db.conflictsLocked(targets[i].ref, nil)) {
 			conflicted = append(conflicted, req)
 
 			continue
@@ -517,7 +478,7 @@ func (db *InMemoryDB) beginTransactWrite(
 	}
 
 	h := db.newTxnHandle(opTransactWriteItems)
-	if conflicts := db.beginTxn(h, accessTxnWrite, targets); len(conflicts) > 0 {
+	if conflicts := db.beginTxn(h, true, targets); len(conflicts) > 0 {
 		for _, i := range conflicts {
 			db.emitTransactionConflict(region, transactWriteItemTableName(items[i]), 1)
 		}
@@ -543,7 +504,7 @@ func transactWriteItemKey(ti types.TransactWriteItem) (string, map[string]types.
 	return "", nil
 }
 
-// beginTransactRead marks a TransactGetItems' items in flight; the caller must release the handle.
+// beginTransactRead checks a TransactGetItems' items for conflicts; it holds nothing (caller still releases).
 func (db *InMemoryDB) beginTransactRead(
 	ctx context.Context,
 	items []types.TransactGetItem,
@@ -572,7 +533,7 @@ func (db *InMemoryDB) beginTransactRead(
 	}
 
 	h := db.newTxnHandle(opTransactGetItems)
-	if conflicts := db.beginTxn(h, accessTxnRead, targets); len(conflicts) > 0 {
+	if conflicts := db.beginTxn(h, false, targets); len(conflicts) > 0 {
 		for _, i := range conflicts {
 			db.emitTransactionConflict(region, aws.ToString(items[i].Get.TableName), 1)
 		}
