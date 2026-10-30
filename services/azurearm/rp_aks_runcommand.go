@@ -14,19 +14,17 @@ import (
 )
 
 const (
-	aksCmdRunning     = "running"
-	aksCmdSucceeded   = "succeeded"
-	aksCmdFailed      = "failed"
-	aksCmdTimeout     = 10 * time.Minute
-	aksCmdLogMax      = 1 << 20
-	aksCmdContextMax  = 96 << 10
-	aksCmdKeep        = 50
-	aksCmdEnvCommand  = "GOPHERSTACK_RUN_COMMAND"
-	aksCmdEnvContext  = "GOPHERSTACK_RUN_CONTEXT"
-	aksCmdKubeconfig  = "/etc/rancher/k3s/k3s.yaml"
-	aksCmdInterrupted = "Interrupted: the emulator restarted while the command was running."
-	aksCmdNoNodes     = "Unschedulable: the emulated cluster has no nodes to run the command pod on; " +
-		"start gopherstack with the AKS docker engine (AKS_ENGINE=docker) to run commands."
+	aksCmdRunning      = "running"
+	aksCmdSucceeded    = "succeeded"
+	aksCmdFailed       = "failed"
+	aksCmdTimeout      = 10 * time.Minute
+	aksCmdLogMax       = 1 << 20
+	aksCmdContextMax   = 96 << 10
+	aksCmdKeep         = 50
+	aksCmdEnvCommand   = "GOPHERSTACK_RUN_COMMAND"
+	aksCmdEnvContext   = "GOPHERSTACK_RUN_CONTEXT"
+	aksCmdKubeconfig   = "/etc/rancher/k3s/k3s.yaml"
+	aksCmdInterrupted  = "Interrupted: the emulator restarted while the command was running."
 	aksCmdZipLocal     = "PK\x03\x04"
 	aksCmdZipEmpty     = "PK\x05\x06"
 	aksCmdMinZipLength = 4
@@ -102,8 +100,8 @@ func (c *storedAKSCommand) body() map[string]any {
 	return map[string]any{"id": c.ID, fieldProperties: props}
 }
 
-// runCommand records a command and runs it on the cluster's node when the engine is on; without one there is no
-// node to schedule the command pod on, so the command ends failed the way an unschedulable pod does.
+// runCommand records a command and runs it on the cluster's node when the engine is on; without one no node can
+// schedule the command pod, so it ends failed with the documented KubernetesPerformanceError message.
 func (p *ContainerServiceProvider) runCommand(id ResourceID, req aksRunRequest) (string, error) {
 	key := aksKey(id.ResourceGroup, id.LeafName())
 
@@ -126,7 +124,7 @@ func (p *ContainerServiceProvider) runCommand(id ResourceID, req aksRunRequest) 
 	}
 
 	if !p.eng.enabled() {
-		cmd.finish(p.now().UTC(), nil, "", aksCmdNoNodes)
+		cmd.finish(p.now().UTC(), nil, "", aksCmdNotStarted(cmd.ID))
 	} else {
 		core, node, ready := p.eng.target(key)
 		if !ready {
@@ -174,6 +172,13 @@ func (c *storedAKSCommand) finish(at time.Time, code *int, logs, reason string) 
 	}
 }
 
+// aksCmdNotStarted is the message Learn documents for a command pod that no node could schedule.
+func aksCmdNotStarted(id string) string {
+	return "(KubernetesPerformanceError) Failed to run command due to cluster perf issue, container command-" + id +
+		" in aks-command namespace did not start within 30s on your cluster, retry may helps. If issue persist, " +
+		"you may need to tune your cluster with better performance (larger node/paid tier)."
+}
+
 func (p *ContainerServiceProvider) execCommand(
 	cmd *storedAKSCommand, core aksExecutor, node string, req aksRunRequest,
 ) {
@@ -190,7 +195,7 @@ func (p *ContainerServiceProvider) execCommand(
 
 	switch {
 	case errors.Is(err, container.ErrExecUnsupported):
-		reason = "Unschedulable: the container runtime cannot run commands in the cluster node."
+		reason = aksCmdNotStarted(cmd.ID)
 	case err != nil:
 		reason = "Failed: " + err.Error()
 	default:

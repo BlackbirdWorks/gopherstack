@@ -164,6 +164,22 @@ func tlsSerial(t *testing.T, server string) string {
 	return tc.ConnectionState().PeerCertificates[0].SerialNumber.String()
 }
 
+func tlsVerify(t *testing.T, server string, caPEM []byte) error {
+	t.Helper()
+
+	pool := x509.NewCertPool()
+	require.True(t, pool.AppendCertsFromPEM(caPEM))
+
+	cfg := &tls.Config{RootCAs: pool, ServerName: "kubernetes", MinVersion: tls.VersionTLS12}
+
+	conn, err := (&tls.Dialer{Config: cfg}).DialContext(t.Context(), "tcp", server)
+	if err != nil {
+		return err
+	}
+
+	return conn.Close()
+}
+
 func TestAKSDockerRotateCertificates(t *testing.T) {
 	t.Parallel()
 
@@ -188,7 +204,9 @@ func TestAKSDockerRotateCertificates(t *testing.T) {
 
 	doc2, caAfter, err := s.userKubeconfig(t, "rot")
 	require.NoError(t, err)
-	assert.Equal(t, string(caBefore), string(caAfter), "the node certificates are reissued under the same CA")
+	assert.NotEqual(t, string(caBefore), string(caAfter), "rotation replaces the cluster CA")
+	require.Error(t, tlsVerify(t, server, caBefore), "the old kubeconfig CA no longer verifies the API server")
+	require.NoError(t, tlsVerify(t, server, caAfter), "the new kubeconfig CA verifies the API server")
 
 	res := s.kubectl(t, "rot", "kubectl get nodes", nil)
 	assert.EqualValues(t, 0, *res.Properties.ExitCode)

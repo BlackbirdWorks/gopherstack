@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -466,21 +467,58 @@ func (e *Engine) Adopt(oc container.ManagedContainer) (*Instance, error) {
 	return &Instance{ContainerID: oc.ID, Port: port}, nil
 }
 
-// RotateCertificates drops the node's generated certificates and restarts it, so k3s issues fresh ones signed by
-// the same CA. It returns the serving CA.
-func (e *Engine) RotateCertificates(ctx context.Context, containerID, addr string, ca []byte) ([]byte, error) {
-	res, err := e.Exec(ctx, containerID, []string{"/bin/k3s", "certificate", "rotate"}, nil)
+const rotateCAEnvPerCA = 2
+
+// rotateCANames are the CAs `k3s certificate rotate-ca` replaces, as the file names it stages.
+func rotateCANames() []string {
+	return []string{"server-ca", "client-ca", "request-header-ca", "etcd/peer-ca", "etcd/server-ca"}
+}
+
+func rotateCAScript() string {
+	return rotateCAScriptHead + strings.Join(rotateCANames(), " ") + rotateCAScriptTail
+}
+
+const rotateCAScriptHead = `d=$(mktemp -d) && umask 077 && mkdir -p "$d/tls/etcd" && ` +
+	`cp ` + tlsDir + `/service.key "$d/tls/" && i=0 && for n in `
+const rotateCAScriptTail = `; do ` +
+	`eval "c=\$GOPHERSTACK_ROTATE_CERT_$i k=\$GOPHERSTACK_ROTATE_KEY_$i" && ` +
+	`printf '%s\n' "$c" > "$d/tls/$n.crt" && printf '%s\n' "$k" > "$d/tls/$n.key" && i=$((i+1)); done && ` +
+	`/bin/k3s certificate rotate-ca --path="$d" --force; rc=$?; rm -rf "$d"; exit $rc`
+
+// RotateCertificates replaces the node's cluster CAs with freshly generated ones (k3s certificate rotate-ca) and
+// restarts it, so k3s reissues every certificate under them. It returns the new serving CA.
+func (e *Engine) RotateCertificates(ctx context.Context, containerID, addr string) ([]byte, error) {
+	env := make([]string, 0, len(rotateCANames())*rotateCAEnvPerCA)
+
+	var serving []byte
+
+	for i, name := range rotateCANames() {
+		ca, err := NewCA("gopherstack-" + e.cfg.Prefix + "-" + name)
+		if err != nil {
+			return nil, err
+		}
+
+		if i == 0 {
+			serving = ca.CertPEM
+		}
+
+		env = append(env,
+			fmt.Sprintf("GOPHERSTACK_ROTATE_CERT_%d=%s", i, ca.CertPEM),
+			fmt.Sprintf("GOPHERSTACK_ROTATE_KEY_%d=%s", i, ca.KeyPEM))
+	}
+
+	res, err := e.Exec(ctx, containerID, []string{"/bin/sh", "-c", rotateCAScript()}, env)
 	if err != nil {
 		return nil, err
 	}
 
 	if res.ExitCode != 0 {
-		return nil, fmt.Errorf("%w: k3s certificate rotate exited %d: %s", ErrRotateFailed, res.ExitCode, res.Stderr)
+		return nil, fmt.Errorf("%w: k3s certificate rotate-ca exited %d: %s", ErrRotateFailed, res.ExitCode, res.Stderr)
 	}
 
 	if err = e.Stop(ctx, containerID); err != nil {
 		return nil, err
 	}
 
-	return e.Start(ctx, containerID, addr, ca)
+	return e.Start(ctx, containerID, addr, serving)
 }
