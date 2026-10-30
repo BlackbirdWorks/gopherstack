@@ -293,6 +293,12 @@ func getErrorTable() map[error]awserr.APIError {
 		ErrDelegatedAdminAlreadyExists: {Code: "AccountAlreadyRegisteredException", HTTPStatus: http.StatusBadRequest},
 		ErrPolicyLimitExceeded:         {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
 		ErrHandshakeNotFound:           {Code: "HandshakeNotFoundException", HTTPStatus: http.StatusBadRequest},
+		ErrHandshakeAlreadyInState: {Code: "HandshakeAlreadyInStateException", HTTPStatus: http.StatusBadRequest},
+		ErrInvalidHandshakeTransition: {
+			Code:       "InvalidHandshakeTransitionException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrAccessDeniedHandshake: {Code: "AccessDeniedException", HTTPStatus: http.StatusBadRequest},
 		ErrHandshakeConstraintViolation: {
 			Code:       "HandshakeConstraintViolationException",
 			HTTPStatus: http.StatusBadRequest,

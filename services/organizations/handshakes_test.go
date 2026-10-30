@@ -104,7 +104,7 @@ func TestAcceptHandshake_InviteAddsAccount(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "OPEN", hs.State)
 
-			accepted, err := b.AcceptHandshake(hs.ID)
+			accepted, err := b.AcceptHandshake(t.Context(), hs.ID)
 			require.NoError(t, err)
 			assert.Equal(t, "ACCEPTED", accepted.State)
 
@@ -180,11 +180,11 @@ func TestAcceptHandshake_StateTransitions(t *testing.T) {
 
 			switch tt.transition {
 			case "accept":
-				result, transErr = b.AcceptHandshake(hsID)
+				result, transErr = b.AcceptHandshake(t.Context(), hsID)
 			case "cancel":
-				result, transErr = b.CancelHandshake(hsID)
+				result, transErr = b.CancelHandshake(t.Context(), hsID)
 			case "decline":
-				result, transErr = b.DeclineHandshake(hsID)
+				result, transErr = b.DeclineHandshake(t.Context(), hsID)
 			}
 
 			if tt.wantErr {
@@ -344,11 +344,11 @@ func TestInviteHandshake_StateMachine(t *testing.T) {
 
 			switch tt.action {
 			case "accept":
-				result, transErr = b.AcceptHandshake(hs.ID)
+				result, transErr = b.AcceptHandshake(t.Context(), hs.ID)
 			case "decline":
-				result, transErr = b.DeclineHandshake(hs.ID)
+				result, transErr = b.DeclineHandshake(t.Context(), hs.ID)
 			case "cancel":
-				result, transErr = b.CancelHandshake(hs.ID)
+				result, transErr = b.CancelHandshake(t.Context(), hs.ID)
 			}
 
 			require.NoError(t, transErr)
@@ -463,15 +463,15 @@ func TestInviteHandshake_DuplicateAcceptFails(t *testing.T) {
 			applyOp := func(op, hsID string) error {
 				switch op {
 				case "accept":
-					_, e := b.AcceptHandshake(hsID)
+					_, e := b.AcceptHandshake(t.Context(), hsID)
 
 					return e
 				case "decline":
-					_, e := b.DeclineHandshake(hsID)
+					_, e := b.DeclineHandshake(t.Context(), hsID)
 
 					return e
 				case "cancel":
-					_, e := b.CancelHandshake(hsID)
+					_, e := b.CancelHandshake(t.Context(), hsID)
 
 					return e
 				}
@@ -722,7 +722,7 @@ func TestInviteAccount_AfterCancel_OK(t *testing.T) {
 	h1, err := b.InviteAccountToOrganization(target, "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CancelHandshake(h1.ID)
+	_, err = b.CancelHandshake(t.Context(), h1.ID)
 	require.NoError(t, err)
 
 	_, err = b.InviteAccountToOrganization(target, "re-invite after cancel", nil)
@@ -845,11 +845,11 @@ func TestBackend_HandshakeOperations(t *testing.T) {
 			case "DescribeHandshake":
 				result, err = b.DescribeHandshake(tt.id)
 			case "AcceptHandshake":
-				result, err = b.AcceptHandshake(tt.id)
+				result, err = b.AcceptHandshake(t.Context(), tt.id)
 			case "CancelHandshake":
-				result, err = b.CancelHandshake(tt.id)
+				result, err = b.CancelHandshake(t.Context(), tt.id)
 			case "DeclineHandshake":
-				result, err = b.DeclineHandshake(tt.id)
+				result, err = b.DeclineHandshake(t.Context(), tt.id)
 			}
 
 			if tt.wantErr {
@@ -1009,7 +1009,7 @@ func TestBackend_ResponsibilityTransfer_Lifecycle(t *testing.T) {
 		require.Len(t, outbound, 1)
 		assert.Equal(t, "REQUESTED", outbound[0].Status)
 
-		_, err = b.AcceptHandshake(hs.ID)
+		_, err = b.AcceptHandshake(t.Context(), hs.ID)
 		require.NoError(t, err)
 
 		result, err := b.DescribeResponsibilityTransfer(outbound[0].ID)
