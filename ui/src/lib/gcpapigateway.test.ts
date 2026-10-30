@@ -198,20 +198,18 @@ describe("requests", () => {
   });
 
   it("surfaces proxy errors", async () => {
-    const f = vi
-      .fn()
-      .mockResolvedValue(
-        json(
-          {
-            error: {
-              code: 400,
-              message: "Gateway is in state CREATING",
-              status: "FAILED_PRECONDITION",
-            },
+    const f = vi.fn().mockResolvedValue(
+      json(
+        {
+          error: {
+            code: 400,
+            message: "Gateway is in state CREATING",
+            status: "FAILED_PRECONDITION",
           },
-          400,
-        ),
-      );
+        },
+        400,
+      ),
+    );
     await expect(
       tryGateway(
         gwName,
