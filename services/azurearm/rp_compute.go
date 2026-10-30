@@ -47,6 +47,13 @@ const (
 	cmpKeyCaps         = "capabilities"
 	cmpKeyLevel        = "level"
 	cmpTrue            = "true"
+	cmpFieldPrimary    = "primary"
+	cmpFieldCaching    = "caching"
+	cmpCachingNone     = "None"
+	cmpCachingRW       = "ReadWrite"
+	cmpStateCompleted  = "Completed"
+	cmpFieldMemory     = "memory"
+	cmpVersion10       = "1.0"
 	cmpSKUPremium      = "Premium_LRS"
 )
 
@@ -73,22 +80,23 @@ func cmpChanged(prop string) error {
 
 // cmpRes is the stored form of any Microsoft.Compute resource.
 type cmpRes struct {
-	Created   time.Time         `json:"created"`
-	Tags      map[string]string `json:"tags,omitempty"`
-	Props     map[string]any    `json:"props,omitempty"`
-	Extra     map[string]any    `json:"extra,omitempty"`
-	SKU       map[string]any    `json:"sku,omitempty"`
-	Aux       map[string]string `json:"aux,omitempty"`
-	Name      string            `json:"name"`
-	Type      string            `json:"type"`
-	RG        string            `json:"rg"`
-	Sub       string            `json:"sub"`
-	Location  string            `json:"location"`
-	Etag      string            `json:"etag"`
-	UID       string            `json:"uid"`
-	Identity  resourceIdentity  `json:"identity"`
-	Instances []*cmpInstance    `json:"instances,omitempty"`
-	Zones     []string          `json:"zones,omitempty"`
+	Created   time.Time          `json:"created"`
+	Tags      map[string]string  `json:"tags,omitempty"`
+	Props     map[string]any     `json:"props,omitempty"`
+	Extra     map[string]any     `json:"extra,omitempty"`
+	SKU       map[string]any     `json:"sku,omitempty"`
+	Aux       map[string]string  `json:"aux,omitempty"`
+	Name      string             `json:"name"`
+	Type      string             `json:"type"`
+	RG        string             `json:"rg"`
+	Sub       string             `json:"sub"`
+	Location  string             `json:"location"`
+	Etag      string             `json:"etag"`
+	UID       string             `json:"uid"`
+	Identity  resourceIdentity   `json:"identity"`
+	Instances []*cmpInstance     `json:"instances,omitempty"`
+	Kids      map[string]*cmpKid `json:"kids,omitempty"`
+	Zones     []string           `json:"zones,omitempty"`
 }
 
 func (r *cmpRes) id() ResourceID {
@@ -137,6 +145,13 @@ func (p *ComputeProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: cmpAvSets, APIVersions: v},
 		{Type: cmpVMSS, APIVersions: v, HasChildren: true},
 		{Type: cmpVMSS + "/" + cmpVMs, APIVersions: v},
+		{Type: cmpVMs + "/" + kidExtensions, APIVersions: v},
+		{Type: cmpVMs + "/" + kidRunCommands, APIVersions: v},
+		{Type: cmpVMSS + "/" + kidExtensions, APIVersions: v},
+		{Type: cmpImages, APIVersions: v},
+		{Type: cmpGalleries, APIVersions: v, HasChildren: true},
+		{Type: cmpGalleries + "/" + kidImages, APIVersions: v, HasChildren: true},
+		{Type: cmpGalleries + "/" + kidVersions, APIVersions: v},
 	}
 }
 
@@ -216,7 +231,7 @@ func isVMSSInstanceID(id ResourceID) bool {
 }
 
 func canonicalCmpType(typ string) string {
-	for _, t := range []string{cmpVMs, cmpDisks, cmpSnaps, cmpAvSets, cmpVMSS} {
+	for _, t := range []string{cmpVMs, cmpDisks, cmpSnaps, cmpAvSets, cmpVMSS, cmpImages, cmpGalleries} {
 		if strings.EqualFold(t, typ) {
 			return t
 		}
@@ -267,8 +282,8 @@ func (p *ComputeProvider) getLocked(id ResourceID, expand bool) (map[string]any,
 		return p.vmssInstanceGet(r, id)
 	}
 
-	if len(id.Types) != 1 {
-		return nil, ErrResourceNotFound
+	if len(id.Types) > 1 {
+		return p.kidGet(id, "")
 	}
 
 	return p.render(r, expand), nil
@@ -286,6 +301,10 @@ func (p *ComputeProvider) render(r *cmpRes, expand bool) map[string]any {
 		props = p.snapshotProps(r)
 	case cmpAvSets:
 		props = p.avSetProps(r)
+	case cmpImages:
+		props = p.imageProps(r)
+	case cmpGalleries:
+		props = p.galleryProps(r)
 	default:
 		props = p.vmssProps(r)
 	}
@@ -309,6 +328,10 @@ func (p *ComputeProvider) render(r *cmpRes, expand bool) map[string]any {
 
 	if mb := r.Aux[auxManagedBy]; mb != "" {
 		out[cmpFieldManagedBy] = mb
+	}
+
+	if res := p.vmResources(r); len(res) > 0 {
+		out["resources"] = res
 	}
 
 	for k, v := range r.Extra {
@@ -352,11 +375,11 @@ func (p *ComputeProvider) list(id ResourceID, statusOnly bool) ([]map[string]any
 
 	if len(id.Names) > 0 {
 		r, ok := p.top(typ, id.ResourceGroup, id.Names[0])
-		if !ok || !isVMSSInstanceID(id) {
-			return nil, ErrResourceNotFound
+		if ok && isVMSSInstanceID(id) {
+			return p.vmssInstanceList(r, id), nil
 		}
 
-		return p.vmssInstanceList(r, id), nil
+		return p.kidList(id)
 	}
 
 	out := []map[string]any{}
@@ -375,7 +398,7 @@ func (p *ComputeProvider) list(id ResourceID, statusOnly bool) ([]map[string]any
 // Put implements ResourceProvider.
 func (p *ComputeProvider) Put(_ context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
 	typ := canonicalCmpType(firstType(id))
-	if typ == "" || len(id.Types) != 1 || len(id.Names) != 1 {
+	if typ == "" || len(id.Names) < 1 || (len(id.Types) == 1 && len(id.Names) != 1) {
 		return nil, ErrResourceNotFound
 	}
 
@@ -385,6 +408,10 @@ func (p *ComputeProvider) Put(_ context.Context, id ResourceID, body map[string]
 
 	p.mu.Lock("Put")
 	defer p.mu.Unlock()
+
+	if len(id.Types) > 1 {
+		return p.putKid(id, body)
+	}
 
 	var (
 		res *cmpRes
@@ -400,6 +427,10 @@ func (p *ComputeProvider) Put(_ context.Context, id ResourceID, body map[string]
 		res, err = p.putDisk(id, body, true)
 	case cmpAvSets:
 		res, err = p.putAvSet(id, body)
+	case cmpImages:
+		res, err = p.putImage(id, body)
+	case cmpGalleries:
+		res, err = p.putGallery(id, body)
 	default:
 		res, err = p.putVMSS(id, body)
 	}
@@ -430,13 +461,19 @@ func (p *ComputeProvider) Delete(_ context.Context, id ResourceID) error {
 		return p.vmssInstanceDelete(r, id)
 	}
 
-	if len(id.Types) != 1 {
-		return ErrResourceNotFound
+	if len(id.Types) > 1 {
+		return p.deleteKid(id)
 	}
 
 	switch typ {
 	case cmpVMs:
 		p.deleteVM(r)
+	case cmpVMSS:
+		p.deleteVMSSMembers(r)
+	case cmpGalleries:
+		if len(r.Kids) > 0 {
+			return cannotDeleteNested()
+		}
 	case cmpDisks:
 		if err := p.checkDiskDelete(r); err != nil {
 			return err
@@ -455,7 +492,15 @@ func (p *ComputeProvider) Delete(_ context.Context, id ResourceID) error {
 // PatchResource applies an Update (PATCH): tags, identity and properties replace what the body names.
 func (p *ComputeProvider) PatchResource(id ResourceID, body map[string]any) (map[string]any, error) {
 	typ := canonicalCmpType(firstType(id))
-	if typ == "" || len(id.Types) != 1 || len(id.Names) != 1 {
+	if typ == "" || len(id.Names) < 1 {
+		return nil, ErrResourceNotFound
+	}
+
+	if len(id.Types) > 1 {
+		return p.patchKid(id, body)
+	}
+
+	if len(id.Types) != 1 || len(id.Names) != 1 {
 		return nil, ErrResourceNotFound
 	}
 
@@ -516,7 +561,7 @@ func (p *ComputeProvider) upsert(typ string, id ResourceID, body map[string]any)
 	}
 
 	r.Created, r.UID = old.Created, old.UID
-	r.Aux, r.Instances = old.Aux, old.Instances
+	r.Aux, r.Instances, r.Kids = old.Aux, old.Instances, old.Kids
 
 	if loc == "" {
 		r.Location = old.Location
@@ -597,4 +642,20 @@ func cloneProps(m map[string]any) map[string]any {
 
 func cmpNotImplemented(what string) error {
 	return netErr(http.StatusNotImplemented, "NotImplemented", "%s is not implemented by the emulator.", what)
+}
+
+// vmResources lists the extension children a virtual machine reports as resources[].
+func (p *ComputeProvider) vmResources(r *cmpRes) []any {
+	if r.Type != cmpVMs {
+		return nil
+	}
+
+	exts := kidsOf(r, kidExtensions)
+	res := make([]any, 0, len(exts))
+
+	for _, k := range exts {
+		res = append(res, renderExtension(p, r, k, ""))
+	}
+
+	return res
 }

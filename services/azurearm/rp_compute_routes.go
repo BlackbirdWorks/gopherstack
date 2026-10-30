@@ -55,6 +55,10 @@ func (h *Handler) handleCompute(c *echo.Context, segs []string) error {
 		return nil
 	}
 
+	if handled, err := h.computeCatalogScope(c, segs); handled {
+		return err
+	}
+
 	if handled, err := h.computeSpecial(c, cp, segs); handled {
 		return err
 	}
@@ -91,7 +95,7 @@ func (h *Handler) computeSpecial(c *echo.Context, cp *ComputeProvider, segs []st
 		return true, h.computeStatusOnly(c, cp, segs)
 	}
 
-	return false, nil
+	return h.computeChildScope(c, cp, segs)
 }
 
 func (h *Handler) computeSubscriptionScope(c *echo.Context, segs []string) (bool, error) {
@@ -214,7 +218,7 @@ func (h *Handler) computeAction(c *echo.Context, cp *ComputeProvider, segs []str
 
 	switch strings.ToLower(firstType(id)) {
 	case strings.ToLower(cmpVMs):
-		actErr = cp.VMAction(id, action)
+		actErr = h.vmAction(c, cp, id, action)
 	case strings.ToLower(cmpVMSS):
 		actErr = h.vmssAction(c, cp, id, action)
 	default:

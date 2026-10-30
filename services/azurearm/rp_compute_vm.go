@@ -12,6 +12,7 @@ const (
 	auxGeneralized = "generalized"
 	auxManagedBy   = "managedBy"
 	auxUpload      = "upload"
+	auxSpecialized = "specialized"
 
 	powerRunning     = "running"
 	powerStopped     = "stopped"
@@ -63,7 +64,7 @@ type diskPlan struct {
 	resize []diskResize
 }
 
-func parseZones(body map[string]any, old *cmpRes) ([]string, error) {
+func parseZones(body map[string]any, old *cmpRes, limit int) ([]string, error) {
 	raw, present := body[cmpFieldZones]
 	zones := strList(raw)
 
@@ -71,8 +72,8 @@ func parseZones(body map[string]any, old *cmpRes) ([]string, error) {
 		return old.Zones, nil
 	}
 
-	if len(zones) > 1 {
-		return nil, cmpInvalid("A virtual machine can be placed in only one availability zone.")
+	if len(zones) > limit {
+		return nil, cmpInvalid("A %s can be placed in at most %d availability zone(s).", cmpZoneOwner(limit), limit)
 	}
 
 	for _, z := range zones {
@@ -86,6 +87,14 @@ func parseZones(body map[string]any, old *cmpRes) ([]string, error) {
 	}
 
 	return zones, nil
+}
+
+func cmpZoneOwner(limit int) string {
+	if limit > 1 {
+		return "virtual machine scale set"
+	}
+
+	return "virtual machine"
 }
 
 func parseVMSize(props map[string]any) (vmSizeDef, map[string]any, error) {
@@ -108,6 +117,8 @@ func parseVMSize(props map[string]any) (vmSizeDef, map[string]any, error) {
 }
 
 func (p *ComputeProvider) putVM(id ResourceID, body map[string]any) (*cmpRes, error) {
+	trusted, _ := body[vmTrustedKey].(bool)
+
 	if err := validCmpName(id.Names[0], cmpMaxVMNameLen); err != nil {
 		return nil, err
 	}
@@ -121,7 +132,7 @@ func (p *ComputeProvider) putVM(id ResourceID, body map[string]any) (*cmpRes, er
 		return nil, err
 	}
 
-	if r.Zones, err = parseZones(body, old); err != nil {
+	if r.Zones, err = parseZones(body, old, 1); err != nil {
 		return nil, err
 	}
 
@@ -144,14 +155,22 @@ func (p *ComputeProvider) putVM(id ResourceID, body map[string]any) (*cmpRes, er
 		return nil, err
 	}
 
+	if err = p.vmScaleSetRef(r, props, newProps); err != nil {
+		return nil, err
+	}
+
 	osType := vmOSType(mergeStored(props, old))
+
+	if osType, err = p.vmImageOS(r, old, props, osType); err != nil {
+		return nil, err
+	}
 
 	plan, err := p.vmStorage(r, old, props, newProps, size, osType)
 	if err != nil {
 		return nil, err
 	}
 
-	if err = vmOSProfile(r, old, props, newProps, osType); err != nil {
+	if err = vmOSProfile(r, old, props, newProps, osType, trusted); err != nil {
 		return nil, err
 	}
 
@@ -227,10 +246,61 @@ func (p *ComputeProvider) vmAvailabilitySet(r, old *cmpRes, props, newProps map[
 	return nil
 }
 
-func vmOSProfile(r, old *cmpRes, props, newProps map[string]any, osType string) error {
+// vmImageOS resolves an image id reference on a new machine and returns the operating system it implies.
+func (p *ComputeProvider) vmImageOS(r, old *cmpRes, props map[string]any, osType string) (string, error) {
+	if old != nil {
+		return osType, nil
+	}
+
+	info, err := p.vmImage(r, mapOf(mapOf(props[cmpFieldStorage])[cmpFieldImageRef]))
+	if err != nil || info == nil {
+		return osType, err
+	}
+
+	if explicit := explicitOS(props); explicit != "" && !strings.EqualFold(explicit, info.osType) {
+		return "", cmpInvalid("The resource with id '%s' has a different OS type ['%s'] than the parent gallery image "+
+			"OS type generation ['%s']", strOf(mapOf(mapOf(props[cmpFieldStorage])[cmpFieldImageRef]), cmpFieldID),
+			explicit, info.osType)
+	}
+
+	if strings.EqualFold(info.osState, osStateSpec) {
+		r.Aux[auxSpecialized] = cmpTrue
+	}
+
+	return info.osType, nil
+}
+
+func explicitOS(props map[string]any) string {
+	osp := mapOf(props[cmpFieldOSProfile])
+
+	switch {
+	case osp[cmpFieldLinuxCfg] != nil:
+		return osLinux
+	case osp[cmpFieldWinCfg] != nil:
+		return osWindows
+	}
+
+	return strOf(mapOf(mapOf(props[cmpFieldStorage])[cmpFieldOSDisk]), cmpKeyOSType)
+}
+
+func specializedOSProfile(newProps, osp map[string]any) error {
+	if len(osp) > 0 {
+		return cmpInvalid("Parameter 'osProfile' is not allowed.")
+	}
+
+	delete(newProps, cmpFieldOSProfile)
+
+	return nil
+}
+
+func vmOSProfile(r, old *cmpRes, props, newProps map[string]any, osType string, trusted bool) error {
 	osp := mapOf(props[cmpFieldOSProfile])
 	osDisk := mapOf(mapOf(newProps[cmpFieldStorage])[cmpFieldOSDisk])
 	attach := strings.EqualFold(strOf(osDisk, cmpFieldCreateOpt), "Attach")
+
+	if r.Aux[auxSpecialized] == cmpTrue {
+		return specializedOSProfile(newProps, osp)
+	}
 
 	switch {
 	case attach && len(osp) > 0:
@@ -248,6 +318,10 @@ func vmOSProfile(r, old *cmpRes, props, newProps map[string]any, osType string) 
 	}
 
 	var existing map[string]any
+	if trusted {
+		existing = map[string]any{}
+	}
+
 	if old != nil {
 		existing = mapOf(old.Props[cmpFieldOSProfile])
 
@@ -318,7 +392,7 @@ func parseNICRefs(raw []any) ([]nicAttachment, []any, error) {
 		}
 
 		mp := mapOf(m[fieldProperties])
-		primary, _ := mp["primary"].(bool)
+		primary, _ := mp[cmpFieldPrimary].(bool)
 
 		opt, err := validDeleteOption(mp)
 		if err != nil {
@@ -331,14 +405,14 @@ func parseNICRefs(raw []any) ([]nicAttachment, []any, error) {
 
 		refs = append(refs, nicAttachment{id: nicID, primary: primary})
 		stored = append(stored, map[string]any{
-			cmpFieldID: nicID, fieldProperties: map[string]any{"primary": primary, cmpFieldDelOpt: opt},
+			cmpFieldID: nicID, fieldProperties: map[string]any{cmpFieldPrimary: primary, cmpFieldDelOpt: opt},
 		})
 	}
 
 	switch {
 	case len(raw) == 1:
 		refs[0].primary = true
-		mapOf(mapOf(stored[0])[fieldProperties])["primary"] = true
+		mapOf(mapOf(stored[0])[fieldProperties])[cmpFieldPrimary] = true
 	case primaries != 1:
 		return nil, nil, cmpInvalid("A virtual machine with more than one network interface must have exactly one " +
 			"primary network interface.")

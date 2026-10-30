@@ -30,17 +30,21 @@ func vmNotAllowed(action, vm, why string) error {
 
 // VMAction runs start, powerOff, restart, deallocate, redeploy or generalize against a stored virtual machine.
 func (p *ComputeProvider) VMAction(id ResourceID, action string) error {
-	name, ok := canonicalIn(vmActionNames, action)
-	if !ok {
-		return cmpNotImplemented("virtualMachines/" + action)
-	}
-
 	p.mu.Lock("VMAction")
 	defer p.mu.Unlock()
 
 	r, found := p.top(cmpVMs, id.ResourceGroup, id.Names[0])
 	if !found {
 		return ErrResourceNotFound
+	}
+
+	return p.vmActionLocked(r, action)
+}
+
+func (p *ComputeProvider) vmActionLocked(r *cmpRes, action string) error {
+	name, ok := canonicalIn(vmActionNames, action)
+	if !ok {
+		return cmpNotImplemented("virtualMachines/" + action)
 	}
 
 	power := r.Aux[auxPower]
@@ -150,6 +154,10 @@ func (p *ComputeProvider) vmInstanceView(r *cmpRes) map[string]any {
 	}
 
 	out := map[string]any{"disks": disks, cmpKeyStatuses: statuses}
+
+	if exts := vmExtensionViews(r); len(exts) > 0 {
+		out["extensions"] = exts
+	}
 
 	if name := strOf(mapOf(r.Props[cmpFieldOSProfile]), cmpFieldComputer); name != "" {
 		out[cmpFieldComputer] = name
