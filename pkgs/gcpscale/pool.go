@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -26,6 +27,9 @@ var ErrSaturated = errors.New("no instance became available: the request timed o
 // ErrClosed means the pool was shut down.
 var ErrClosed = errors.New("instance pool is closed")
 
+// ErrRetired means the instance was drained or removed before it finished starting.
+var ErrRetired = errors.New("instance was retired while starting")
+
 // Limits are the scaling settings read afresh on every decision. Zero Max means DefaultMaxInstances, zero
 // Concurrency means 1.
 type Limits struct {
@@ -34,11 +38,13 @@ type Limits struct {
 	Concurrency int
 }
 
-// Config wires a Pool to the thing it scales.
+// Config wires a Pool to the thing it scales. Start gets a context cancelled once its instance is retired (after
+// Stop for a started one). Limits and Idle run under the pool lock and must not call back into the pool.
 type Config[T any] struct {
 	Start       func(ctx context.Context) (T, error)
 	Stop        func(T)
 	Limits      func() Limits
+	Idle        func() time.Duration
 	Clock       Clock
 	Base        context.Context //nolint:containedctx // lifetime of the instances, set by the worker
 	IdleTimeout time.Duration
@@ -47,6 +53,7 @@ type Config[T any] struct {
 type slot[T any] struct {
 	err      error
 	idle     Timer
+	cancel   context.CancelFunc
 	ready    chan struct{}
 	val      T
 	inflight int
@@ -117,14 +124,25 @@ func (p *Pool[T]) Live() int {
 }
 
 func (p *Pool[T]) growLocked() *slot[T] {
-	s := &slot[T]{ready: make(chan struct{})}
+	ctx, cancel := context.WithCancel(p.cfg.Base)
+	s := &slot[T]{ready: make(chan struct{}), cancel: cancel}
 	p.slots = append(p.slots, s)
 
 	p.wg.Go(func() {
 		began := p.cfg.Clock.Now()
-		val, err := p.cfg.Start(p.cfg.Base)
+		val, err := p.cfg.Start(ctx)
 
 		p.mu.Lock("started")
+
+		discard := err == nil && s.dead
+
+		switch {
+		case s.dead && p.closed:
+			err = errors.Join(ErrClosed, err)
+		case s.dead:
+			err = errors.Join(ErrRetired, err)
+		}
+
 		s.val, s.err = val, err
 
 		if err != nil {
@@ -139,17 +157,16 @@ func (p *Pool[T]) growLocked() *slot[T] {
 			}
 		}
 
-		discard := err == nil && p.closed
-		if discard {
-			s.dead = true
-		}
-
 		close(s.ready)
 		p.notifyLocked()
 		p.mu.Unlock()
 
 		if discard {
 			p.cfg.Stop(val)
+		}
+
+		if err != nil {
+			cancel()
 		}
 	})
 
@@ -185,6 +202,16 @@ func (p *Pool[T]) pickLocked(conc int) *slot[T] {
 	}
 
 	return starting
+}
+
+func (p *Pool[T]) idleFor() time.Duration {
+	if p.cfg.Idle != nil {
+		if d := p.cfg.Idle(); d > 0 {
+			return d
+		}
+	}
+
+	return p.cfg.IdleTimeout
 }
 
 func (p *Pool[T]) queueTimeout() time.Duration {
@@ -293,7 +320,7 @@ func (p *Pool[T]) armIdleLocked(s *slot[T]) {
 		return
 	}
 
-	s.idle = p.cfg.Clock.AfterFunc(p.cfg.IdleTimeout, func() { p.idleExpired(s) })
+	s.idle = p.cfg.Clock.AfterFunc(p.idleFor(), func() { p.idleExpired(s) })
 }
 
 func (p *Pool[T]) idleExpired(s *slot[T]) {
@@ -312,7 +339,86 @@ func (p *Pool[T]) idleExpired(s *slot[T]) {
 	p.notifyLocked()
 	p.mu.Unlock()
 
+	p.stop(s)
+}
+
+func (p *Pool[T]) stop(s *slot[T]) {
 	p.cfg.Stop(s.val)
+	s.cancel()
+}
+
+// retireLocked marks s dead and unlinks it; a slot still starting has its start cancelled. It returns whether s
+// is a started instance the caller must stop.
+func (p *Pool[T]) retireLocked(s *slot[T]) bool {
+	started := false
+
+	select {
+	case <-s.ready:
+		started = !s.dead && s.err == nil
+	default:
+		s.cancel()
+	}
+
+	s.dead = true
+	stopIdle(s)
+
+	return started
+}
+
+// Drain retires every instance but keeps the pool open: later requests start fresh ones.
+func (p *Pool[T]) Drain() {
+	p.mu.Lock("Drain")
+
+	var live []*slot[T]
+
+	for _, s := range p.slots {
+		if p.retireLocked(s) {
+			live = append(live, s)
+		}
+	}
+
+	p.slots = nil
+	p.notifyLocked()
+	p.mu.Unlock()
+
+	for _, s := range live {
+		p.stop(s)
+	}
+}
+
+// Remove retires and stops the started instances match selects (a failed liveness probe, say); the pool starts a
+// replacement on demand. It reports whether any instance was removed.
+func (p *Pool[T]) Remove(match func(T) bool) bool {
+	p.mu.Lock("Remove")
+
+	var gone []*slot[T]
+
+	for _, s := range slices.Clone(p.slots) {
+		select {
+		case <-s.ready:
+		default:
+			continue
+		}
+
+		if s.dead || s.err != nil || !match(s.val) {
+			continue
+		}
+
+		p.retireLocked(s)
+		p.removeLocked(s)
+		gone = append(gone, s)
+	}
+
+	if len(gone) > 0 {
+		p.notifyLocked()
+	}
+	p.mu.Unlock()
+
+	for _, s := range gone {
+		p.stop(s)
+	}
+
+	return len(gone) > 0
 }
 
 // Ensure brings the pool to at least n instances (capped at the maximum) and waits until they are ready.
@@ -360,24 +466,17 @@ func (p *Pool[T]) Ensure(ctx context.Context, n int) error {
 	return nil
 }
 
-// Close stops every instance and rejects further requests. Starts in flight are stopped as they finish.
+// Close stops every instance and rejects further requests. Starts in flight are cancelled and stopped as they finish.
 func (p *Pool[T]) Close() {
 	p.mu.Lock("Close")
 	p.closed = true
-	live := make([]*slot[T], 0, len(p.slots))
+
+	var live []*slot[T]
 
 	for _, s := range p.slots {
-		stopIdle(s)
-
-		select {
-		case <-s.ready:
-			if !s.dead && s.err == nil {
-				live = append(live, s)
-			}
-		default:
+		if p.retireLocked(s) {
+			live = append(live, s)
 		}
-
-		s.dead = true
 	}
 
 	p.slots = nil
@@ -385,7 +484,7 @@ func (p *Pool[T]) Close() {
 	p.mu.Unlock()
 
 	for _, s := range live {
-		p.cfg.Stop(s.val)
+		p.stop(s)
 	}
 
 	p.wg.Wait()

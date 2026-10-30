@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -45,10 +46,8 @@ type svcRec struct {
 
 type revRec struct {
 	pb       *runpb.Revision
-	changed  chan struct{}
+	pool     *gcpscale.Pool[*inst]
 	startErr string
-	insts    []*inst
-	avgStart time.Duration
 	seq      int
 }
 

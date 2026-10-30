@@ -10,6 +10,8 @@ import (
 	"cloud.google.com/go/run/apiv2/runpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 )
 
 func serviceMutable() []string {
@@ -223,8 +225,8 @@ func (b *InMemoryBackend) deploy(op, svcName, revName string) {
 	idle := b.reapIdleLocked(rec)
 	b.mu.Unlock()
 
-	for _, in := range idle {
-		b.teardownInst(in)
+	for _, p := range idle {
+		p.Drain()
 	}
 
 	b.warmServing(svcName)
@@ -286,8 +288,9 @@ func (b *InMemoryBackend) settleLocked(rec *svcRec, rev *revRec, err error) stri
 	return failure
 }
 
-// reapIdleLocked detaches the instances of revisions that receive no traffic; they restart on demand.
-func (b *InMemoryBackend) reapIdleLocked(rec *svcRec) []*inst {
+// reapIdleLocked returns the pools of revisions that receive no traffic; drain them outside the lock, they
+// restart on demand.
+func (b *InMemoryBackend) reapIdleLocked(rec *svcRec) []*gcpscale.Pool[*inst] {
 	serving := map[string]bool{}
 	for _, st := range rec.pb.GetTrafficStatuses() {
 		if st.GetPercent() > 0 || st.GetTag() != "" {
@@ -295,34 +298,17 @@ func (b *InMemoryBackend) reapIdleLocked(rec *svcRec) []*inst {
 		}
 	}
 
-	var idle []*inst
+	var idle []*gcpscale.Pool[*inst]
 
 	for name, r := range b.revisions {
-		if r.pb.GetService() != rec.pb.GetName() || serving[lastSegment(name)] {
+		if r.pb.GetService() != rec.pb.GetName() || serving[lastSegment(name)] || r.pool == nil {
 			continue
 		}
 
-		idle = append(idle, b.detachAllLocked(r)...)
+		idle = append(idle, r.pool)
 	}
 
 	return idle
-}
-
-// detachAllLocked removes every instance from r's pool and returns them for teardown.
-func (b *InMemoryBackend) detachAllLocked(r *revRec) []*inst {
-	out := r.insts
-	r.insts = nil
-
-	for _, in := range out {
-		in.dead = true
-		stopTimer(in)
-	}
-
-	if len(out) > 0 {
-		r.notifyLocked()
-	}
-
-	return out
 }
 
 // GetService returns the named service.
@@ -472,14 +458,14 @@ func (b *InMemoryBackend) commitUpdateLocked(
 	b.refreshLocked(rec)
 	view := b.viewLocked(rec)
 
-	var idle []*inst
+	var idle []*gcpscale.Pool[*inst]
 	if rev == nil {
 		idle = b.reapIdleLocked(rec)
 	}
 	b.mu.Unlock()
 
-	for _, in := range idle {
-		b.teardownInst(in)
+	for _, p := range idle {
+		p.Drain()
 	}
 
 	if rev == nil {
