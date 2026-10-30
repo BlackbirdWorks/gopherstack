@@ -71,3 +71,7 @@ SSOOIDC	/client /device_authorization /token
 SSOPortal	/assignment /federation /logout
 VPCLattice	/accesslogsubscriptions /authpolicy /domainverifications /resourceconfigurations /resourceendpointassociations /resourcegateways /resourcepolicy /servicenetworkresourceassociations /servicenetworks /servicenetworkvpcassociations /servicenetworkvpcendpointassociations /services /tags /targetgroups
 Xray	/CancelTraceRetrieval /CreateGroup /CreateSamplingRule /DeleteGroup /DeleteResourcePolicy /DeleteSamplingRule /EncryptionConfig /GetGroup /GetIndexingRules /GetRetrievedTracesGraph /GetSamplingRules /GetTraceSegmentDestination /Groups /Insight /ListResourcePolicies /ListRetrievedTraces /ListTagsForResource /PutEncryptionConfig /PutResourcePolicy /SamplingStatisticSummaries /SamplingTargets /ServiceGraph /StartTraceRetrieval /TagResource /TelemetryRecords /TimeSeriesServiceStatistics /TraceGraph /TraceSegments /TraceSummaries /Traces /UntagResource /UpdateGroup /UpdateIndexingRule /UpdateSamplingRule /UpdateTraceSegmentDestination
+ARCZonalShift	// /autoshift /configuration /managedresources /practiceruns /zonalshifts
+BedrockAgentCore	// /browsers /code-interpreters /identities /memories /runtimes
+Route53RecoveryControlConfig	// /cluster /controlpanel /resourcePolicy /routingcontrol /safetyrule /tags
+Route53RecoveryReadiness	// /cellreadiness /cells /crossaccountauthorizations /readinesschecks /recoverygroup /resourcesets /rules /tags
