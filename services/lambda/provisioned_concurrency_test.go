@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -593,26 +594,30 @@ func TestProvisionedConcurrency_List_IncludesAllQualifiers(t *testing.T) {
 func TestLambda_ProvisionedConcurrencyLifecycle(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-	closeBackend(t, backend)
+	synctest.Test(t, func(t *testing.T) {
+		backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+		closeBackend(t, backend)
 
-	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{
-		FunctionName: "pc-fn",
-		FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:pc-fn",
-	}))
+		require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{
+			FunctionName: "pc-fn",
+			FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:pc-fn",
+		}))
 
-	backend.SetProvisionedConcurrencyDelay(200 * time.Millisecond)
+		backend.SetProvisionedConcurrencyDelay(200 * time.Millisecond)
 
-	cfg, err := backend.PutProvisionedConcurrencyConfig("pc-fn", "1", 5)
-	require.NoError(t, err)
-	assert.Equal(t, "IN_PROGRESS", cfg.Status)
-	assert.Equal(t, 0, cfg.AvailableProvisionedConcurrentExecutions)
+		cfg, err := backend.PutProvisionedConcurrencyConfig("pc-fn", "1", 5)
+		require.NoError(t, err)
+		assert.Equal(t, "IN_PROGRESS", cfg.Status)
+		assert.Equal(t, 0, cfg.AvailableProvisionedConcurrentExecutions)
 
-	require.Eventually(t, func() bool {
-		got, getErr := backend.GetProvisionedConcurrencyConfig("pc-fn", "1")
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
 
-		return getErr == nil && got.Status == "READY" && got.AvailableProvisionedConcurrentExecutions == 5
-	}, 3*time.Second, 20*time.Millisecond)
+		got, err := backend.GetProvisionedConcurrencyConfig("pc-fn", "1")
+		require.NoError(t, err)
+		assert.Equal(t, "READY", got.Status)
+		assert.Equal(t, 5, got.AvailableProvisionedConcurrentExecutions)
+	})
 }
 
 func TestLambda_ProvisionedConcurrency_NoDelayReadyImmediately(t *testing.T) {
