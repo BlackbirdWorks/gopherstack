@@ -207,31 +207,33 @@ func TestAccountScoping_OtherResources(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, other := range []*configservicesdk.Client{b, c} {
-		ch, err := other.DescribeDeliveryChannels(ctx, &configservicesdk.DescribeDeliveryChannelsInput{})
-		require.NoError(t, err)
+		ch, chErr := other.DescribeDeliveryChannels(ctx, &configservicesdk.DescribeDeliveryChannelsInput{})
+		require.NoError(t, chErr)
 		assert.Empty(t, ch.DeliveryChannels)
 
-		rules, err := other.DescribeConfigRules(ctx, &configservicesdk.DescribeConfigRulesInput{})
-		require.NoError(t, err)
+		rules, rulesErr := other.DescribeConfigRules(ctx, &configservicesdk.DescribeConfigRulesInput{})
+		require.NoError(t, rulesErr)
 		assert.Empty(t, rules.ConfigRules)
 
-		cmp, err := other.DescribeComplianceByConfigRule(ctx, &configservicesdk.DescribeComplianceByConfigRuleInput{})
-		require.NoError(t, err)
+		cmp, cmpErr := other.DescribeComplianceByConfigRule(ctx, &configservicesdk.DescribeComplianceByConfigRuleInput{})
+		require.NoError(t, cmpErr)
 		assert.Empty(t, cmp.ComplianceByConfigRules)
 
-		det, err := other.GetComplianceDetailsByConfigRule(ctx, &configservicesdk.GetComplianceDetailsByConfigRuleInput{
+		det, detErr := other.GetComplianceDetailsByConfigRule(ctx, &configservicesdk.GetComplianceDetailsByConfigRuleInput{
 			ConfigRuleName: aws.String("rule"),
 		})
-		if err == nil {
+		if detErr == nil {
 			assert.Empty(t, det.EvaluationResults)
 		}
 
-		aggs, err := other.DescribeConfigurationAggregators(ctx, &configservicesdk.DescribeConfigurationAggregatorsInput{})
-		require.NoError(t, err)
+		aggs, aggErr := other.DescribeConfigurationAggregators(
+			ctx, &configservicesdk.DescribeConfigurationAggregatorsInput{},
+		)
+		require.NoError(t, aggErr)
 		assert.Empty(t, aggs.ConfigurationAggregators)
 
-		ret, err := other.DescribeRetentionConfigurations(ctx, &configservicesdk.DescribeRetentionConfigurationsInput{})
-		require.NoError(t, err)
+		ret, retErr := other.DescribeRetentionConfigurations(ctx, &configservicesdk.DescribeRetentionConfigurationsInput{})
+		require.NoError(t, retErr)
 		assert.Empty(t, ret.RetentionConfigurations)
 	}
 

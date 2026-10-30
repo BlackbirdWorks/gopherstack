@@ -14,7 +14,7 @@ const (
 	maxAccountPeers     = 64
 )
 
-var accountIDPattern = regexp.MustCompile(`^[0-9]{12}$`) //nolint:gochecknoglobals // compiled once
+var accountIDPattern = regexp.MustCompile(`^[0-9]{12}$`)
 
 // accountSet holds the per-account sibling handlers of one home handler; each
 // sibling owns its own account-scoped backend and region peers.
