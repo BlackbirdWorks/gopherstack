@@ -2,7 +2,6 @@ package gcpapigateway_test
 
 import (
 	"net/http"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -29,8 +28,8 @@ func TestAllowCorsOpenAPI2(t *testing.T) {
 		paths      string
 		method     string
 		target     string
-		wantStatus int
 		wantMethod string
+		wantStatus int
 	}{
 		{
 			name: "allowCors proxies preflight to the backend", top: corsTop("True"), paths: locked,
@@ -49,9 +48,10 @@ func TestAllowCorsOpenAPI2(t *testing.T) {
 			method: http.MethodOptions, target: "/items/7", wantStatus: 405,
 		},
 		{
-			name: "endpoint name that is not the host does not enable CORS",
-			top:  "host: " + corsHost + "\nx-google-endpoints:\n- name: other.cloud.goog\n  allowCors: true\n",
-			paths: locked, method: http.MethodOptions, target: "/items/7", wantStatus: 405,
+			name:   "endpoint name that is not the host does not enable CORS",
+			top:    "host: " + corsHost + "\nx-google-endpoints:\n- name: other.cloud.goog\n  allowCors: true\n",
+			paths:  locked,
+			method: http.MethodOptions, target: "/items/7", wantStatus: 405,
 		},
 		{
 			name: "undefined path stays 404", top: corsTop("true"), paths: locked,
@@ -93,14 +93,16 @@ func TestAllowCorsOpenAPI2(t *testing.T) {
 func TestAllowCorsOpenAPI3(t *testing.T) {
 	t.Parallel()
 
+	const server = "servers:\n- url: https://api.example.com\n  x-google-endpoint:"
+
 	tests := []struct {
 		name       string
 		servers    string
 		wantStatus int
 	}{
-		{"allowCors true", "servers:\n- url: https://api.example.com\n  x-google-endpoint:\n    allowCors: true\n", 200},
-		{"allowCors false", "servers:\n- url: https://api.example.com\n  x-google-endpoint:\n    allowCors: false\n", 405},
-		{"default is false", "servers:\n- url: https://api.example.com\n  x-google-endpoint: {}\n", 405},
+		{"allowCors true", server + "\n    allowCors: true\n", 200},
+		{"allowCors false", server + "\n    allowCors: false\n", 405},
+		{"default is false", server + " {}\n", 405},
 		{"no servers entry", "", 405},
 	}
 
@@ -129,5 +131,5 @@ func TestDefaultHostnameShape(t *testing.T) {
 	e := newEnv(t)
 	gw := e.deploy(t, opSpec("http://127.0.0.1:1", "", "  /h:\n"+op("get", "")))
 
-	assert.Regexp(t, regexp.MustCompile(`^my-gw-[a-z0-9]{18}\.uc\.gateway\.dev$`), gw.GetDefaultHostname())
+	assert.Regexp(t, `^my-gw-[a-z0-9]{18}\.uc\.gateway\.dev$`, gw.GetDefaultHostname())
 }
