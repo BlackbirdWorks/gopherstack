@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/internal/routegates"
 )
 
 const (
@@ -64,6 +67,7 @@ func expandRows(sdk []row) []row {
 
 	c.addSpecials()
 	c.addAppStream(groups["appstream"])
+	c.addS3Lookalikes()
 
 	return c.out
 }
@@ -209,5 +213,45 @@ func (c *collector) addAppStream(rows []row) {
 			methodPost, host, "/", "appstream", json11,
 			"PhotonAdminProxyService." + op, "{}", "", "appstream:" + op,
 		})
+	}
+}
+
+// lookalikeBuckets are bucket names that collide with other services' first path segments.
+var lookalikeBuckets = []string{
+	"tags", "2015-03-31", "restapis", "functions", "model", "things", "policies", "proxy", "api", "_admin",
+	"apikeys", "domainnames", "usageplans", "clientcertificates", "vpclinks", "sdktypes", "rules", "cluster",
+	"controlpanel", "routingcontrol", "safetyrule", "zonalshifts", "cells", "identities", "invocations", "mcp",
+	"memories", "runtimes", "target-policies", "layers", "event-source-mappings", "2018-10-31", "2020-04-22",
+}
+
+// addS3Lookalikes adds S3 object requests whose bucket name equals another service's path prefix.
+func (c *collector) addS3Lookalikes() {
+	names := map[string]bool{}
+
+	for _, b := range lookalikeBuckets {
+		names[b] = true
+	}
+
+	for _, prefixes := range routegates.PathGates() {
+		for _, p := range prefixes {
+			if seg := strings.Trim(p, "/"); seg != "" && !strings.Contains(seg, "/") {
+				names[seg] = true
+			}
+		}
+	}
+
+	sorted := make([]string, 0, len(names))
+	for n := range names {
+		sorted = append(sorted, n)
+	}
+
+	sort.Strings(sorted)
+
+	for _, b := range sorted {
+		obj := "/" + b + "/key.txt"
+		c.add(row{methodGet, host, obj, "s3", "", "", "", "", "special:s3lookalike"})
+		c.add(row{"PUT", host, obj, "s3", "application/octet-stream", "", "body", "", "special:s3lookalike"})
+		c.add(row{methodGet, host, obj, "", "", "", "", fmt.Sprintf(uaFmt, "s3"), "special:s3lookalike"})
+		c.add(row{"HEAD", host, "/" + b, "s3", "", "", "", "", "special:s3lookalike"})
 	}
 }
