@@ -148,8 +148,6 @@ func (s *apimStack) devService(t *testing.T) {
 	s.createService(t, apimSvc, armapimanagement.SKUTypeDeveloper, 1)
 }
 
-func (s *apimStack) gwURL(path string) string { return s.url + "/_apim/" + apimSvc + path }
-
 func (s *apimStack) gw(t *testing.T, method, path, body string, hdr map[string]string) (int, string, http.Header) {
 	t.Helper()
 

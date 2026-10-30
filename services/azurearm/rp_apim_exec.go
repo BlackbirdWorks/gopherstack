@@ -507,7 +507,7 @@ func (g *gwState) forward(n *polNode) {
 	req.Header.Set(apimHeaderXForward, hostOnly(g.r.RemoteAddr))
 	g.applyCredentials(req)
 
-	resp, err := g.p.client.Do(req) //nolint:gosec,bodyclose // G704: dialer refuses non-loopback peers by default; closed in close()
+	resp, err := g.p.client.Do(req) //nolint:bodyclose // closed in close()
 	if err != nil {
 		g.upstreamError(err)
 

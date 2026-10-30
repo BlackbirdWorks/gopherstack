@@ -27,16 +27,20 @@ func TestAPIMPolicy_Validation(t *testing.T) {
 		{name: "minimal", doc: "<policies><inbound /><backend /><outbound /><on-error /></policies>"},
 		{
 			name: "every supported element",
-			doc: policyDoc(`<set-header name="a" exists-action="skip"><value>1</value></set-header>
+			doc: policyDoc(
+				`<set-header name="a" exists-action="skip"><value>1</value></set-header>
 				<set-query-parameter name="q"><value>1</value></set-query-parameter>
 				<rewrite-uri template="/x/{id}" copy-unmatched-params="false" />
-				<check-header name="h" failed-check-httpcode="401" failed-check-error-message="no" ignore-case="true"><value>v</value></check-header>
+				`+checkHeader("h", "401", "no", "true", "v")+`
 				<rate-limit calls="5" renewal-period="10" />
 				<cors allow-credentials="false"><allowed-origins><origin>*</origin></allowed-origins>
 				<allowed-methods preflight-result-max-age="60"><method>*</method></allowed-methods>
 				<allowed-headers><header>*</header></allowed-headers></cors>
-				<return-response><set-status code="200" reason="OK" /><set-header name="x"><value>y</value></set-header><set-body>hi</set-body></return-response>`,
-				`<forward-request timeout="30" follow-redirects="false" />`, `<set-header name="o" exists-action="delete" />`),
+				<return-response><set-status code="200" reason="OK" />
+				<set-header name="x"><value>y</value></set-header><set-body>hi</set-body></return-response>`,
+				`<forward-request timeout="30" follow-redirects="false" />`,
+				`<set-header name="o" exists-action="delete" />`,
+			),
 		},
 		{name: "not well formed", doc: "<policies><inbound></policies>", wantErr: "not well-formed"},
 		{name: "empty", doc: "   ", wantErr: "empty"},
@@ -47,26 +51,82 @@ func TestAPIMPolicy_Validation(t *testing.T) {
 			name: "unsupported policy", doc: policyDoc(`<validate-jwt header-name="Authorization" />`, "", ""),
 			wantErr: "Error in element 'validate-jwt' on line 1",
 		},
-		{name: "unsupported nested", doc: policyDoc(`<rate-limit calls="1" renewal-period="1"><api name="a" /></rate-limit>`, "", ""), wantErr: "'api'"},
-		{name: "unknown attribute", doc: policyDoc(`<set-header name="a" bogus="1"><value>1</value></set-header>`, "", ""), wantErr: "attribute 'bogus'"},
-		{name: "missing attribute", doc: policyDoc(`<set-header><value>1</value></set-header>`, "", ""), wantErr: "'name' is required"},
+		{
+			name:    "unsupported nested",
+			doc:     policyDoc(`<rate-limit calls="1" renewal-period="1"><api name="a" /></rate-limit>`, "", ""),
+			wantErr: "'api'",
+		},
+		{
+			name:    "unknown attribute",
+			doc:     policyDoc(`<set-header name="a" bogus="1"><value>1</value></set-header>`, "", ""),
+			wantErr: "attribute 'bogus'",
+		},
+		{
+			name:    "missing attribute",
+			doc:     policyDoc(`<set-header><value>1</value></set-header>`, "", ""),
+			wantErr: "'name' is required",
+		},
 		{name: "missing value", doc: policyDoc(`<set-header name="a" />`, "", ""), wantErr: "value"},
-		{name: "bad exists action", doc: policyDoc(`<set-header name="a" exists-action="merge"><value>1</value></set-header>`, "", ""), wantErr: "exists-action"},
-		{name: "expression attribute", doc: policyDoc(`<set-header name="a"><value>@(context.Request.Url)</value></set-header>`, "", ""), wantErr: "expressions"},
+		{
+			name:    "bad exists action",
+			doc:     policyDoc(`<set-header name="a" exists-action="merge"><value>1</value></set-header>`, "", ""),
+			wantErr: "exists-action",
+		},
+		{
+			name:    "expression attribute",
+			doc:     policyDoc(`<set-header name="a"><value>@(context.Request.Url)</value></set-header>`, "", ""),
+			wantErr: "expressions",
+		},
 		{name: "rate zero", doc: policyDoc(`<rate-limit calls="0" renewal-period="10" />`, "", ""), wantErr: "'calls'"},
-		{name: "rate period over 300", doc: policyDoc(`<rate-limit calls="1" renewal-period="301" />`, "", ""), wantErr: "'renewal-period'"},
+		{
+			name:    "rate period over 300",
+			doc:     policyDoc(`<rate-limit calls="1" renewal-period="301" />`, "", ""),
+			wantErr: "'renewal-period'",
+		},
 		{name: "rate text", doc: policyDoc(`<rate-limit calls="x" renewal-period="10" />`, "", ""), wantErr: "'calls'"},
-		{name: "forward in inbound", doc: policyDoc(`<forward-request />`, "", ""), wantErr: "not allowed in the inbound"},
-		{name: "rewrite in outbound", doc: policyDoc("", "", `<rewrite-uri template="/x" />`), wantErr: "not allowed in the outbound"},
-		{name: "follow redirects", doc: policyDoc("", `<forward-request follow-redirects="true" />`, ""), wantErr: "follow-redirects"},
-		{name: "backend both", doc: policyDoc(`<set-backend-service base-url="http://a" backend-id="b" />`, "", ""), wantErr: "Exactly one"},
-		{name: "backend missing", doc: policyDoc(`<set-backend-service backend-id="ghost" />`, "", ""), wantErr: "'ghost'"},
-		{name: "backend bad url", doc: policyDoc(`<set-backend-service base-url="ftp://a" />`, "", ""), wantErr: "base-url"},
-		{name: "unknown named value", doc: policyDoc(`<set-header name="a"><value>{{nope}}</value></set-header>`, "", ""), wantErr: "'nope'"},
+		{
+			name:    "forward in inbound",
+			doc:     policyDoc(`<forward-request />`, "", ""),
+			wantErr: "not allowed in the inbound",
+		},
+		{
+			name:    "rewrite in outbound",
+			doc:     policyDoc("", "", `<rewrite-uri template="/x" />`),
+			wantErr: "not allowed in the outbound",
+		},
+		{
+			name:    "follow redirects",
+			doc:     policyDoc("", `<forward-request follow-redirects="true" />`, ""),
+			wantErr: "follow-redirects",
+		},
+		{
+			name:    "backend both",
+			doc:     policyDoc(`<set-backend-service base-url="http://a" backend-id="b" />`, "", ""),
+			wantErr: "Exactly one",
+		},
+		{
+			name:    "backend missing",
+			doc:     policyDoc(`<set-backend-service backend-id="ghost" />`, "", ""),
+			wantErr: "'ghost'",
+		},
+		{
+			name:    "backend bad url",
+			doc:     policyDoc(`<set-backend-service base-url="ftp://a" />`, "", ""),
+			wantErr: "base-url",
+		},
+		{
+			name:    "unknown named value",
+			doc:     policyDoc(`<set-header name="a"><value>{{nope}}</value></set-header>`, "", ""),
+			wantErr: "'nope'",
+		},
 		{name: "doctype", doc: `<!DOCTYPE policies [<!ENTITY x "y">]><policies />`, wantErr: "DOCTYPE"},
 		{name: "link format", doc: "<policies />", format: "xml-link", wantErr: "link"},
 		{name: "too large", doc: long, wantErr: "characters long"},
-		{name: "bad status code", doc: policyDoc(`<return-response><set-status code="99" /></return-response>`, "", ""), wantErr: "'code'"},
+		{
+			name:    "bad status code",
+			doc:     policyDoc(`<return-response><set-status code="99" /></return-response>`, "", ""),
+			wantErr: "'code'",
+		},
 	}
 
 	for _, tc := range tests {
@@ -111,16 +171,17 @@ func TestAPIMPolicy_CRUDAtEveryScope(t *testing.T) {
 	}}
 
 	tests := []struct {
-		name   string
 		put    func() error
 		get    func() (string, error)
 		delete func() error
 		list   func() (int, error)
+		name   string
 	}{
 		{
 			name: "service",
 			put: func() error {
-				_, err := e.f.NewPolicyClient().CreateOrUpdate(ctx, apimRG, apimSvc, armapimanagement.PolicyIDNamePolicy, contract, nil)
+				_, err := e.f.NewPolicyClient().
+					CreateOrUpdate(ctx, apimRG, apimSvc, armapimanagement.PolicyIDNamePolicy, contract, nil)
 
 				return err
 			},
@@ -133,7 +194,8 @@ func TestAPIMPolicy_CRUDAtEveryScope(t *testing.T) {
 				return *r.Properties.Value, nil
 			},
 			delete: func() error {
-				_, err := e.f.NewPolicyClient().Delete(ctx, apimRG, apimSvc, armapimanagement.PolicyIDNamePolicy, "*", nil)
+				_, err := e.f.NewPolicyClient().
+					Delete(ctx, apimRG, apimSvc, armapimanagement.PolicyIDNamePolicy, "*", nil)
 
 				return err
 			},
@@ -146,12 +208,14 @@ func TestAPIMPolicy_CRUDAtEveryScope(t *testing.T) {
 		{
 			name: "api",
 			put: func() error {
-				_, err := e.f.NewAPIPolicyClient().CreateOrUpdate(ctx, apimRG, apimSvc, "echo", armapimanagement.PolicyIDNamePolicy, contract, nil)
+				_, err := e.f.NewAPIPolicyClient().
+					CreateOrUpdate(ctx, apimRG, apimSvc, "echo", armapimanagement.PolicyIDNamePolicy, contract, nil)
 
 				return err
 			},
 			get: func() (string, error) {
-				r, err := e.f.NewAPIPolicyClient().Get(ctx, apimRG, apimSvc, "echo", armapimanagement.PolicyIDNamePolicy, nil)
+				r, err := e.f.NewAPIPolicyClient().
+					Get(ctx, apimRG, apimSvc, "echo", armapimanagement.PolicyIDNamePolicy, nil)
 				if err != nil {
 					return "", err
 				}
@@ -159,7 +223,8 @@ func TestAPIMPolicy_CRUDAtEveryScope(t *testing.T) {
 				return *r.Properties.Value, nil
 			},
 			delete: func() error {
-				_, err := e.f.NewAPIPolicyClient().Delete(ctx, apimRG, apimSvc, "echo", armapimanagement.PolicyIDNamePolicy, "*", nil)
+				_, err := e.f.NewAPIPolicyClient().
+					Delete(ctx, apimRG, apimSvc, "echo", armapimanagement.PolicyIDNamePolicy, "*", nil)
 
 				return err
 			},
@@ -230,7 +295,13 @@ func TestAPIMPolicy_CRUDAtEveryScope(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, "ResourceNotFound", sdkErrCode(err))
 
-	status, _, _ := e.raw(t, http.MethodPut, e.armPath("/policies/other"), `{"properties":{"value":"<policies />"}}`, nil)
+	status, _, _ := e.raw(
+		t,
+		http.MethodPut,
+		e.armPath("/policies/other"),
+		`{"properties":{"value":"<policies />"}}`,
+		nil,
+	)
 	assert.Equal(t, http.StatusBadRequest, status)
 
 	require.NoError(t, tests[1].put())
@@ -279,29 +350,32 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "set-header override", method: "GET", path: "/echo/items/1",
 			inbound: `<set-header name="X-Added" exists-action="override"><value>v1</value></set-header>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
 				assert.Equal(t, 200, status)
 				assert.Equal(t, []string{"v1"}, decodeEcho(t, body).Header["X-Added"])
 			},
 		},
 		{
-			name: "set-header skip keeps client value", method: "GET", path: "/echo/items/1", hdr: map[string]string{"X-A": "orig"},
+			name:    "set-header skip keeps client value",
+			method:  "GET",
+			path:    "/echo/items/1",
+			hdr:     map[string]string{"X-A": "orig"},
 			inbound: `<set-header name="X-A" exists-action="skip"><value>new</value></set-header>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
 				assert.Equal(t, []string{"orig"}, decodeEcho(t, body).Header["X-A"])
 			},
 		},
 		{
 			name: "set-header append", method: "GET", path: "/echo/items/1", hdr: map[string]string{"X-A": "orig"},
 			inbound: `<set-header name="X-A" exists-action="append"><value>new</value></set-header>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
 				assert.Equal(t, []string{"orig", "new"}, decodeEcho(t, body).Header["X-A"])
 			},
 		},
 		{
 			name: "set-header delete", method: "GET", path: "/echo/items/1", hdr: map[string]string{"X-A": "orig"},
 			inbound: `<set-header name="X-A" exists-action="delete" />`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
 				assert.NotContains(t, decodeEcho(t, body).Header, "X-A")
 			},
 		},
@@ -309,14 +383,14 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			name: "set-query-parameter", method: "GET", path: "/echo/items/1?a=1&keep=k",
 			inbound: `<set-query-parameter name="a" exists-action="override"><value>9</value></set-query-parameter>
 				<set-query-parameter name="b"><value>2</value></set-query-parameter>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
 				assert.Equal(t, "a=9&b=2&keep=k", decodeEcho(t, body).Query)
 			},
 		},
 		{
 			name: "rewrite-uri", method: "GET", path: "/echo/items/5?keep=1",
 			inbound: `<rewrite-uri template="/rewritten/{id}/x" />`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
 				got := decodeEcho(t, body)
 				assert.Equal(t, "/base/rewritten/5/x", got.Path)
 				assert.Equal(t, "keep=1", got.Query)
@@ -325,7 +399,7 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "rewrite-uri drops unmatched params", method: "GET", path: "/echo/items/5?keep=1",
 			inbound: `<rewrite-uri template="/r/{id}?fixed=yes" copy-unmatched-params="false" />`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, _ http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, _ http.Header) {
 				got := decodeEcho(t, body)
 				assert.Equal(t, "/base/r/5", got.Path)
 				assert.Equal(t, "fixed=yes", got.Query)
@@ -336,7 +410,7 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			inbound: `<return-response><set-status code="418" reason="teapot" />
 				<set-header name="X-Custom" exists-action="override"><value>c</value></set-header>
 				<set-body>short and stout</set-body></return-response>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 418, status)
 				assert.Equal(t, "short and stout", body)
 				assert.Equal(t, "c", hdr.Get("X-Custom"))
@@ -345,9 +419,12 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		},
 		{
 			name: "mock-response", method: "GET", path: "/echo/static",
-			setup:   func(t *testing.T, e *gwEnv) { e.mockOperation(t) },
+			setup: func(t *testing.T, e *gwEnv) {
+				t.Helper()
+				e.mockOperation(t)
+			},
 			inbound: `<mock-response status-code="200" content-type="application/json" />`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 200, status)
 				assert.JSONEq(t, `{"mocked":true}`, body)
 				assert.Equal(t, "application/json", hdr.Get("Content-Type"))
@@ -357,7 +434,7 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "mock-response without sample", method: "GET", path: "/echo/static",
 			inbound: `<mock-response status-code="204" />`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 204, status)
 				assert.Empty(t, body)
 			},
@@ -366,31 +443,39 @@ func TestAPIMGateway_Policies(t *testing.T) {
 			name: "outbound set-header", method: "GET", path: "/echo/items/1",
 			outbnd: `<set-header name="X-Out" exists-action="override"><value>o</value></set-header>
 				<set-header name="X-Backend" exists-action="delete" />`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 200, status)
 				assert.Equal(t, "o", hdr.Get("X-Out"))
 				assert.Empty(t, hdr.Get("X-Backend"))
 			},
 		},
 		{
-			name: "check-header pass", method: "GET", path: "/echo/items/1", hdr: map[string]string{"X-Token": "ABC"},
-			inbound: `<check-header name="X-Token" failed-check-httpcode="403" failed-check-error-message="forbidden" ignore-case="true"><value>abc</value></check-header>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			name:    "check-header pass",
+			method:  "GET",
+			path:    "/echo/items/1",
+			hdr:     map[string]string{"X-Token": "ABC"},
+			inbound: checkHeader("X-Token", "403", "forbidden", "true", "abc"),
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 200, status)
 			},
 		},
 		{
-			name: "check-header case sensitive fail", method: "GET", path: "/echo/items/1", hdr: map[string]string{"X-Token": "ABC"},
-			inbound: `<check-header name="X-Token" failed-check-httpcode="403" failed-check-error-message="forbidden" ignore-case="false"><value>abc</value></check-header>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			name:    "check-header case sensitive fail",
+			method:  "GET",
+			path:    "/echo/items/1",
+			hdr:     map[string]string{"X-Token": "ABC"},
+			inbound: checkHeader("X-Token", "403", "forbidden", "false", "abc"),
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 403, status)
 				assert.Equal(t, "forbidden", body)
 			},
 		},
 		{
-			name: "check-header missing", method: "GET", path: "/echo/items/1",
-			inbound: `<check-header name="X-Token" failed-check-httpcode="401" failed-check-error-message="need token" ignore-case="true"><value>abc</value></check-header>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			name:    "check-header missing",
+			method:  "GET",
+			path:    "/echo/items/1",
+			inbound: checkHeader("X-Token", "401", "need token", "true", "abc"),
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 401, status)
 				assert.Equal(t, "need token", body)
 			},
@@ -398,29 +483,35 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "set-backend-service base-url", method: "GET", path: "/echo/items/7",
 			inbound: `<set-backend-service base-url="BACKEND/alt" />`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, "/alt/items/7", decodeEcho(t, body).Path)
 			},
 		},
 		{
 			name: "set-backend-service entity with credentials", method: "GET", path: "/echo/items/7",
 			setup: func(t *testing.T, e *gwEnv) {
-				_, err := e.f.NewBackendClient().CreateOrUpdate(t.Context(), apimRG, apimSvc, "be1", armapimanagement.BackendContract{
-					Properties: &armapimanagement.BackendContractProperties{
-						URL: new(e.backend.URL + "/viabackend"), Protocol: new(armapimanagement.BackendProtocolHTTP),
-						Credentials: &armapimanagement.BackendCredentialsContract{
-							Authorization: &armapimanagement.BackendAuthorizationHeaderCredentials{
-								Scheme: new("Bearer"), Parameter: new("tok"),
+				t.Helper()
+
+				_, err := e.f.NewBackendClient().
+					CreateOrUpdate(t.Context(), apimRG, apimSvc, "be1", armapimanagement.BackendContract{
+						Properties: &armapimanagement.BackendContractProperties{
+							URL: new(
+								e.backend.URL + "/viabackend",
+							),
+							Protocol: new(armapimanagement.BackendProtocolHTTP),
+							Credentials: &armapimanagement.BackendCredentialsContract{
+								Authorization: &armapimanagement.BackendAuthorizationHeaderCredentials{
+									Scheme: new("Bearer"), Parameter: new("tok"),
+								},
+								Header: map[string][]*string{"X-Be-Key": {new("bk")}},
+								Query:  map[string][]*string{"code": {new("qc")}},
 							},
-							Header: map[string][]*string{"X-Be-Key": {new("bk")}},
-							Query:  map[string][]*string{"code": {new("qc")}},
 						},
-					},
-				}, nil)
+					}, nil)
 				require.NoError(t, err)
 			},
 			inbound: `<set-backend-service backend-id="be1" />`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				got := decodeEcho(t, body)
 				assert.Equal(t, "/viabackend/items/7", got.Path)
 				assert.Equal(t, []string{"Bearer tok"}, got.Header["Authorization"])
@@ -431,31 +522,38 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "named value substitution", method: "GET", path: "/echo/items/1",
 			setup: func(t *testing.T, e *gwEnv) {
-				p, err := e.f.NewNamedValueClient().BeginCreateOrUpdate(t.Context(), apimRG, apimSvc, "nv", armapimanagement.NamedValueCreateContract{
-					Properties: &armapimanagement.NamedValueCreateContractProperties{
-						DisplayName: new("my-secret"), Value: new("shh"), Secret: new(true),
-					},
-				}, nil)
+				t.Helper()
+
+				p, err := e.f.NewNamedValueClient().
+					BeginCreateOrUpdate(t.Context(), apimRG, apimSvc, "nv", armapimanagement.NamedValueCreateContract{
+						Properties: &armapimanagement.NamedValueCreateContractProperties{
+							DisplayName: new("my-secret"), Value: new("shh"), Secret: new(true),
+						},
+					}, nil)
 				require.NoError(t, err)
 
 				_, err = p.PollUntilDone(t.Context(), &runtime.PollUntilDoneOptions{Frequency: 5})
 				require.NoError(t, err)
 			},
 			inbound: `<set-header name="X-Named"><value>pre-{{my-secret}}-post</value></set-header>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, []string{"pre-shh-post"}, decodeEcho(t, body).Header["X-Named"])
 			},
 		},
 		{
-			name: "cors preflight allowed", method: "OPTIONS", path: "/echo/items/1",
+			name:   "cors preflight allowed",
+			method: "OPTIONS",
+			path:   "/echo/items/1",
 			hdr: map[string]string{
-				"Ocp-Apim-Subscription-Key": "", "Origin": "https://app.example", "Access-Control-Request-Method": "GET",
+				"Ocp-Apim-Subscription-Key":      "",
+				"Origin":                         "https://app.example",
+				"Access-Control-Request-Method":  "GET",
 				"Access-Control-Request-Headers": "x-custom",
 			},
 			inbound: `<cors allow-credentials="false"><allowed-origins><origin>https://app.example</origin></allowed-origins>
 				<allowed-methods preflight-result-max-age="120"><method>GET</method><method>POST</method></allowed-methods>
 				<allowed-headers><header>*</header></allowed-headers></cors>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 200, status)
 				assert.Equal(t, "https://app.example", hdr.Get("Access-Control-Allow-Origin"))
 				assert.Equal(t, "GET, POST", hdr.Get("Access-Control-Allow-Methods"))
@@ -466,18 +564,24 @@ func TestAPIMGateway_Policies(t *testing.T) {
 		{
 			name: "cors preflight origin not allowed", method: "OPTIONS", path: "/echo/items/1",
 			hdr: map[string]string{
-				"Ocp-Apim-Subscription-Key": "", "Origin": "https://evil.example", "Access-Control-Request-Method": "GET",
+				"Ocp-Apim-Subscription-Key":     "",
+				"Origin":                        "https://evil.example",
+				"Access-Control-Request-Method": "GET",
 			},
 			inbound: `<cors><allowed-origins><origin>https://app.example</origin></allowed-origins></cors>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 200, status)
 				assert.Empty(t, hdr.Get("Access-Control-Allow-Origin"))
 			},
 		},
 		{
-			name: "cors actual request", method: "GET", path: "/echo/items/1", hdr: map[string]string{"Origin": "https://any.example"},
-			inbound: `<cors><allowed-origins><origin>*</origin></allowed-origins><expose-headers><header>X-Backend</header></expose-headers></cors>`,
-			check: func(t *testing.T, e *gwEnv, status int, body string, hdr http.Header) {
+			name:   "cors actual request",
+			method: "GET",
+			path:   "/echo/items/1",
+			hdr:    map[string]string{"Origin": "https://any.example"},
+			inbound: `<cors><allowed-origins><origin>*</origin></allowed-origins>
+				<expose-headers><header>X-Backend</header></expose-headers></cors>`,
+			check: func(t *testing.T, _ *gwEnv, status int, body string, hdr http.Header) {
 				assert.Equal(t, 200, status)
 				assert.Equal(t, "*", hdr.Get("Access-Control-Allow-Origin"))
 				assert.Equal(t, "X-Backend", hdr.Get("Access-Control-Expose-Headers"))
@@ -513,8 +617,12 @@ func TestAPIMGateway_RateLimit(t *testing.T) {
 	t.Parallel()
 
 	e := newGWEnv(t)
-	e.policy(t, "/apis/echo", policyDoc(`<rate-limit calls="2" renewal-period="60" remaining-calls-header-name="X-Left" />`, "", ""),
-		http.StatusCreated)
+	e.policy(
+		t,
+		"/apis/echo",
+		policyDoc(`<rate-limit calls="2" renewal-period="60" remaining-calls-header-name="X-Left" />`, "", ""),
+		http.StatusCreated,
+	)
 
 	status, _, hdr := e.call(t, "GET", "/echo/items/1", "", nil)
 	assert.Equal(t, 200, status)
@@ -531,15 +639,23 @@ func TestAPIMGateway_RateLimit(t *testing.T) {
 	assert.Equal(t, "40", hdr.Get("Retry-After"))
 
 	_, err := e.f.NewSubscriptionClient().CreateOrUpdate(t.Context(), apimRG, apimSvc, "k2",
-		armapimanagement.SubscriptionCreateParameters{Properties: &armapimanagement.SubscriptionCreateParameterProperties{
-			DisplayName: new("k2"), Scope: new("/apis"), State: new(armapimanagement.SubscriptionStateActive),
-		}}, nil)
+		armapimanagement.SubscriptionCreateParameters{
+			Properties: &armapimanagement.SubscriptionCreateParameterProperties{
+				DisplayName: new("k2"), Scope: new("/apis"), State: new(armapimanagement.SubscriptionStateActive),
+			},
+		}, nil)
 	require.NoError(t, err)
 
 	sec, err := e.f.NewSubscriptionClient().ListSecrets(t.Context(), apimRG, apimSvc, "k2", nil)
 	require.NoError(t, err)
 
-	status, _, _ = e.call(t, "GET", "/echo/items/1", "", map[string]string{"Ocp-Apim-Subscription-Key": *sec.PrimaryKey})
+	status, _, _ = e.call(
+		t,
+		"GET",
+		"/echo/items/1",
+		"",
+		map[string]string{"Ocp-Apim-Subscription-Key": *sec.PrimaryKey},
+	)
 	assert.Equal(t, 200, status, "limits are per subscription")
 
 	e.clock.Advance(41 * time.Second)
@@ -561,14 +677,19 @@ func TestAPIMGateway_PolicyInheritance(t *testing.T) {
 	require.Equal(t, http.StatusCreated, status, body)
 
 	headers := func(path string) map[string][]string {
-		_, body, _ := e.call(t, "GET", path, "", nil)
+		_, echoed, _ := e.call(t, "GET", path, "", nil)
 
-		return decodeEcho(t, body).Header
+		return decodeEcho(t, echoed).Header
 	}
 
 	assert.Equal(t, []string{"s"}, headers("/echo/items/1")["X-Svc"])
 
-	e.policy(t, "/apis/echo", policyDoc(`<set-header name="X-Api"><value>a</value></set-header>`, "", ""), http.StatusCreated)
+	e.policy(
+		t,
+		"/apis/echo",
+		policyDoc(`<set-header name="X-Api"><value>a</value></set-header>`, "", ""),
+		http.StatusCreated,
+	)
 
 	got := headers("/echo/items/1")
 	assert.Equal(t, []string{"s"}, got["X-Svc"])
@@ -581,8 +702,12 @@ func TestAPIMGateway_PolicyInheritance(t *testing.T) {
 	assert.NotContains(t, got, "X-Svc", "an inbound section without <base /> drops the parent's statements")
 	assert.Equal(t, []string{"a"}, got["X-Api"])
 
-	e.policy(t, "/apis/echo/operations/get-item", policyDoc(`<set-header name="X-Op"><value>o</value></set-header>`, "", ""),
-		http.StatusCreated)
+	e.policy(
+		t,
+		"/apis/echo/operations/get-item",
+		policyDoc(`<set-header name="X-Op"><value>o</value></set-header>`, "", ""),
+		http.StatusCreated,
+	)
 
 	got = headers("/echo/items/1")
 	assert.Equal(t, []string{"o"}, got["X-Op"])
@@ -590,4 +715,9 @@ func TestAPIMGateway_PolicyInheritance(t *testing.T) {
 
 	got = headers("/echo/static")
 	assert.NotContains(t, got, "X-Op")
+}
+
+func checkHeader(name, code, msg, ignoreCase, value string) string {
+	return `<check-header name="` + name + `" failed-check-httpcode="` + code + `" failed-check-error-message="` + msg +
+		`" ignore-case="` + ignoreCase + `"><value>` + value + `</value></check-header>`
 }

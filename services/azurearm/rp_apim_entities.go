@@ -3,6 +3,7 @@ package azurearm
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -361,7 +362,7 @@ func normOperation(s *apimService, parent, id string, in map[string]any, _ *apim
 	}
 
 	if countOps(s, parent) >= apimMaxOps {
-		return nil, apimErr(409, apimCodeConflict, "Too many operations in the API.")
+		return nil, apimErr(http.StatusConflict, apimCodeConflict, "Too many operations in the API.")
 	}
 
 	params, err := opParams(out, tpl)
@@ -440,7 +441,7 @@ func delProduct(s *apimService, _, id string, q url.Values) error {
 	}
 
 	if len(subs) > 0 && q.Get("deleteSubscriptions") != "true" {
-		return apimErr(409, apimCodeConflict,
+		return apimErr(http.StatusConflict, apimCodeConflict,
 			"The product has subscriptions; delete them first or pass deleteSubscriptions=true.")
 	}
 

@@ -36,9 +36,20 @@ const (
 	apimCodePrecondition   = "PreconditionFailed"
 	apimSKUConsumption     = "Consumption"
 	apimPolicyID           = "policy"
+	apimSKUPremium         = "Premium"
+	apimBasicMax           = 2
+	apimStandardMax        = 4
+	apimPremiumMax         = 12
+	apimVersionLatest      = "2024-05-01"
+	apimDisabled           = "Disabled"
+	apimReasonInvalid      = "Invalid"
+	apimReasonExists       = "AlreadyExists"
+	apimCapacity           = "capacity"
+	apimMaxPublisher       = 100
+	apimVNetNone           = "None"
 )
 
-func apimAPIVersions() []string { return []string{"2024-05-01", "2022-08-01"} }
+func apimAPIVersions() []string { return []string{apimVersionLatest, "2022-08-01"} }
 
 var (
 	apimServiceNameRE = regexp.MustCompile(`^[A-Za-z]([A-Za-z0-9-]{0,48}[A-Za-z0-9])?$`)
@@ -218,11 +229,11 @@ func apimSKURange(name string) (int, int, bool) {
 	case "Developer":
 		return 1, 1, true
 	case "Basic":
-		return 1, 2, true
+		return 1, apimBasicMax, true
 	case skuTierStandard:
-		return 1, 4, true
-	case "Premium":
-		return 1, 12, true
+		return 1, apimStandardMax, true
+	case apimSKUPremium:
+		return 1, apimPremiumMax, true
 	}
 
 	return 0, 0, false
@@ -238,12 +249,42 @@ func apimOwnedServiceProps() []string {
 }
 
 func (s *apimService) applyBody(body map[string]any, prev *apimService) error {
-	props := propsOf(body)
-
 	if sku := mapOf(body["sku"]); sku != nil {
-		s.SKU, s.Capacity = strOf(sku, fieldName), intOf(sku["capacity"])
+		s.SKU, s.Capacity = strOf(sku, fieldName), intOf(sku[apimCapacity])
 	}
 
+	if err := s.checkSKU(prev); err != nil {
+		return err
+	}
+
+	props := propsOf(body)
+
+	if _, has := props["restore"]; has {
+		return apimInvalid("Restoring a soft-deleted service is not supported.")
+	}
+
+	if err := s.applyPublisher(props); err != nil {
+		return err
+	}
+
+	if v, has := props["notificationSenderEmail"].(string); has {
+		s.NotifyEmail = v
+	}
+
+	if v, has := props["publicNetworkAccess"].(string); has {
+		if v != "Enabled" && v != apimDisabled {
+			return apimInvalid("The publicNetworkAccess must be Enabled or Disabled.")
+		}
+
+		s.PublicAcc = v
+	}
+
+	maps.Copy(s.Extra, takeProps(body, apimOwnedServiceProps()...))
+
+	return nil
+}
+
+func (s *apimService) checkSKU(prev *apimService) error {
 	lo, hi, ok := apimSKURange(s.SKU)
 	if !ok {
 		return apimInvalid("The sku name must be one of Consumption, Developer, Basic, Standard or Premium.")
@@ -257,6 +298,10 @@ func (s *apimService) applyBody(body map[string]any, prev *apimService) error {
 		return apimInvalid("The service cannot be converted to or from the Consumption sku.")
 	}
 
+	return nil
+}
+
+func (s *apimService) applyPublisher(props map[string]any) error {
 	if v, has := props["publisherEmail"].(string); has {
 		s.PublisherEm = v
 	}
@@ -265,31 +310,15 @@ func (s *apimService) applyBody(body map[string]any, prev *apimService) error {
 		s.PublisherNm = v
 	}
 
-	if _, err := mail.ParseAddress(s.PublisherEm); err != nil || len(s.PublisherEm) > 100 {
-		return apimInvalid("The publisherEmail is required and must be a valid email address of at most 100 characters.")
+	if _, err := mail.ParseAddress(s.PublisherEm); err != nil || len(s.PublisherEm) > apimMaxPublisher {
+		return apimInvalid(
+			"The publisherEmail is required and must be a valid email address of at most 100 characters.",
+		)
 	}
 
-	if s.PublisherNm == "" || len(s.PublisherNm) > 100 {
+	if s.PublisherNm == "" || len(s.PublisherNm) > apimMaxPublisher {
 		return apimInvalid("The publisherName is required and must be 1 to 100 characters long.")
 	}
-
-	if v, has := props["notificationSenderEmail"].(string); has {
-		s.NotifyEmail = v
-	}
-
-	if v, has := props["publicNetworkAccess"].(string); has {
-		if v != "Enabled" && v != "Disabled" {
-			return apimInvalid("The publicNetworkAccess must be Enabled or Disabled.")
-		}
-
-		s.PublicAcc = v
-	}
-
-	if _, has := props["restore"]; has {
-		return apimInvalid("Restoring a soft-deleted service is not supported.")
-	}
-
-	maps.Copy(s.Extra, takeProps(body, apimOwnedServiceProps()...))
 
 	return nil
 }
@@ -366,7 +395,7 @@ func (s *apimService) body(now time.Time) map[string]any {
 	props["scmUrl"] = "https://" + s.Name + ".scm.azure-api.net"
 
 	if _, has := props["virtualNetworkType"]; !has {
-		props["virtualNetworkType"] = "None"
+		props["virtualNetworkType"] = apimVNetNone
 	}
 
 	if _, has := props["hostnameConfigurations"]; !has {
@@ -378,7 +407,7 @@ func (s *apimService) body(now time.Time) map[string]any {
 
 	out := map[string]any{
 		"id": s.armBase(), fieldName: s.Name, fieldType: apimARMType, fieldLocation: s.Location,
-		"sku":  map[string]any{fieldName: s.SKU, "capacity": s.Capacity},
+		"sku":  map[string]any{fieldName: s.SKU, apimCapacity: s.Capacity},
 		"etag": apimEtag(s.Etag), fieldProperties: props,
 	}
 
@@ -410,7 +439,8 @@ func (p *APIMProvider) nameTaken(sub, rg, name string) bool {
 func apimServiceNameError(name string) error {
 	if !apimServiceNameRE.MatchString(name) {
 		return apimInvalid(
-			"The service name must be 1 to 50 characters: letters, digits and hyphens, starting with a letter and ending with a letter or digit.",
+			"The service name must be 1 to 50 characters: letters, digits and hyphens, "+
+				"starting with a letter and ending with a letter or digit.",
 		)
 	}
 
@@ -419,7 +449,9 @@ func apimServiceNameError(name string) error {
 
 // writeService creates or updates a service from a PUT (patch false) or PATCH (patch true) body. The caller holds
 // the write lock.
-func (p *APIMProvider) writeService(sub, rg, name string, body map[string]any, patch bool) (*apimService, bool, error) {
+func (p *APIMProvider) writeService(
+	sub, rg, name string, body map[string]any, patch bool,
+) (*apimService, bool, error) {
 	key := apimKey(sub, rg, name)
 	prev := p.svcs[key]
 	now := p.now()
@@ -575,12 +607,12 @@ func (p *APIMProvider) CheckName(sub, name string) map[string]any {
 	defer p.mu.RUnlock()
 
 	if err := apimServiceNameError(name); err != nil {
-		return map[string]any{"nameAvailable": false, "reason": "Invalid", "message": apimMessage(err)}
+		return map[string]any{"nameAvailable": false, "reason": apimReasonInvalid, "message": apimMessage(err)}
 	}
 
 	if p.nameTaken(sub, "", name) {
 		return map[string]any{
-			"nameAvailable": false, "reason": "AlreadyExists",
+			"nameAvailable": false, "reason": apimReasonExists,
 			"message": fmt.Sprintf("The service name %q is already in use.", name),
 		}
 	}

@@ -18,6 +18,8 @@ const (
 	polOutbound        = "outbound"
 	polOnError         = "on-error"
 	polBase            = "base"
+	apimMinStatus      = 100
+	apimMaxStatus      = 599
 	apimMaxRenewalSecs = 300
 	apimMaxTimeoutSecs = 3600
 )
@@ -63,13 +65,42 @@ func polErr(n *polNode, format string, args ...any) error {
 	return apimInvalid("Error in element '%s' on line %d, column %d: %s", n.Name, n.Line, n.Col, msg)
 }
 
+type polParser struct {
+	root  *polNode
+	scope string
+	stack []*polNode
+}
+
+func (pp *polParser) start(d *xml.Decoder, t xml.StartElement) error {
+	line, col := d.InputPos()
+	n := &polNode{Name: t.Name.Local, Attrs: map[string]string{}, Line: line, Col: col, Scope: pp.scope}
+
+	for _, a := range t.Attr {
+		if a.Name.Space != "xmlns" && a.Name.Local != "xmlns" {
+			n.Attrs[a.Name.Local] = a.Value
+		}
+	}
+
+	switch {
+	case len(pp.stack) > 0:
+		top := pp.stack[len(pp.stack)-1]
+		top.Kids = append(top.Kids, n)
+	case pp.root != nil:
+		return apimInvalid("The policy document must have a single root element <policies>.")
+	default:
+		pp.root = n
+	}
+
+	if pp.stack = append(pp.stack, n); len(pp.stack) > apimMaxPolicyDepth {
+		return polErr(n, "The policy document is nested too deeply.")
+	}
+
+	return nil
+}
+
 func parsePolicy(doc, scope string) (*polNode, error) {
 	d := xml.NewDecoder(strings.NewReader(doc))
-
-	var (
-		root  *polNode
-		stack []*polNode
-	)
+	pp := &polParser{scope: scope}
 
 	for {
 		tok, err := d.Token()
@@ -83,46 +114,25 @@ func parsePolicy(doc, scope string) (*polNode, error) {
 
 		switch t := tok.(type) {
 		case xml.StartElement:
-			line, col := d.InputPos()
-			n := &polNode{Name: t.Name.Local, Attrs: map[string]string{}, Line: line, Col: col, Scope: scope}
-
-			for _, a := range t.Attr {
-				if a.Name.Space == "xmlns" || a.Name.Local == "xmlns" {
-					continue
-				}
-
-				n.Attrs[a.Name.Local] = a.Value
-			}
-
-			if len(stack) == 0 {
-				if root != nil {
-					return nil, apimInvalid("The policy document must have a single root element <policies>.")
-				}
-
-				root = n
-			} else {
-				stack[len(stack)-1].Kids = append(stack[len(stack)-1].Kids, n)
-			}
-
-			if stack = append(stack, n); len(stack) > apimMaxPolicyDepth {
-				return nil, polErr(n, "The policy document is nested too deeply.")
+			if err = pp.start(d, t); err != nil {
+				return nil, err
 			}
 		case xml.EndElement:
-			stack = stack[:len(stack)-1]
+			pp.stack = pp.stack[:len(pp.stack)-1]
 		case xml.CharData:
-			if len(stack) > 0 {
-				stack[len(stack)-1].Text += string(t)
+			if len(pp.stack) > 0 {
+				pp.stack[len(pp.stack)-1].Text += string(t)
 			}
 		case xml.Directive:
 			return nil, apimInvalid("The policy document must not contain a DOCTYPE or other directives.")
 		}
 	}
 
-	if root == nil {
+	if pp.root == nil {
 		return nil, apimInvalid("The policy document is empty.")
 	}
 
-	return root, nil
+	return pp.root, nil
 }
 
 type polSpec struct {
@@ -361,7 +371,7 @@ func validateSemantics(s *apimService, n *polNode) error {
 
 		return posInt(n, "renewal-period", 1, apimMaxRenewalSecs)
 	case "check-header":
-		if err := posInt(n, "failed-check-httpcode", 100, 599); err != nil {
+		if err := posInt(n, "failed-check-httpcode", apimMinStatus, apimMaxStatus); err != nil {
 			return err
 		}
 
@@ -369,9 +379,9 @@ func validateSemantics(s *apimService, n *polNode) error {
 			return polErr(n, "At least one <value> is required.")
 		}
 	case "set-status":
-		return posInt(n, "code", 100, 599)
+		return posInt(n, "code", apimMinStatus, apimMaxStatus)
 	case "mock-response":
-		return posInt(n, "status-code", 100, 599)
+		return posInt(n, "status-code", apimMinStatus, apimMaxStatus)
 	case "forward-request":
 		if v := n.Attrs["follow-redirects"]; v != "" && v != "false" {
 			return polErr(n, "Following redirects is not supported; only follow-redirects=\"false\" is accepted.")

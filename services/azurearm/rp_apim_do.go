@@ -2,10 +2,21 @@ package azurearm
 
 import (
 	"crypto/subtle"
+	"maps"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+)
+
+const (
+	apimItemDepth      = 2
+	apimActionDepth    = 3
+	apimProductAPIsLen = 3
+	apimAPIChildLen    = 3
+	apimOpPolicyLen    = 5
+	apimAPIChildIdx    = 2
+	apimOpPolicyIdx    = 4
 )
 
 // apimReq is one control-plane request below Microsoft.ApiManagement/service/{name}.
@@ -168,33 +179,45 @@ func (p *APIMProvider) doService(req apimReq) (apimResp, error) {
 
 func (p *APIMProvider) route(s *apimService, req apimReq) (apimResp, error) {
 	r := req.Rest
-	n := len(r)
-	lc := func(i int) string { return strings.ToLower(r[i]) }
 
-	switch {
-	case lc(0) == "apis" && n >= 3 && lc(2) == "operations" && n >= 5 && lc(4) == "policies":
-		return p.scoped(s, req, policyKind("apis/operations/policies"), "apis/"+r[1]+"/operations/"+r[3], 4)
-	case lc(0) == "apis" && n >= 3 && lc(2) == "operations":
-		return p.collection(s, req, opKind(), r[1], 2)
-	case lc(0) == "apis" && n >= 3 && lc(2) == "policies":
-		return p.scoped(s, req, policyKind("apis/policies"), "apis/"+r[1], 2)
-	case lc(0) == "apis":
-		return p.collection(s, req, apiKind(), "", 0)
-	case lc(0) == "policies":
+	switch strings.ToLower(r[0]) {
+	case "apis":
+		return p.routeAPI(s, req)
+	case "policies":
 		return p.scoped(s, req, policyKind("policies"), "", 0)
-	case lc(0) == "products" && n >= 3 && lc(2) == "apis":
-		return p.productAPIs(s, req)
-	case lc(0) == "products":
+	case "products":
+		if len(r) >= apimProductAPIsLen && strings.EqualFold(r[2], "apis") {
+			return p.productAPIs(s, req)
+		}
+
 		return p.collection(s, req, productKind(), "", 0)
-	case lc(0) == "subscriptions":
+	case "subscriptions":
 		return p.collection(s, req, subKind(), "", 0)
-	case lc(0) == "namedvalues":
+	case "namedvalues":
 		return p.collection(s, req, namedKind(), "", 0)
-	case lc(0) == "backends":
+	case "backends":
 		return p.collection(s, req, backendKind(), "", 0)
 	}
 
 	return apimResp{}, apimNotFound("resource")
+}
+
+func (p *APIMProvider) routeAPI(s *apimService, req apimReq) (apimResp, error) {
+	r := req.Rest
+	if len(r) < apimAPIChildLen {
+		return p.collection(s, req, apiKind(), "", 0)
+	}
+
+	switch {
+	case strings.EqualFold(r[2], "operations") && len(r) >= apimOpPolicyLen && strings.EqualFold(r[4], "policies"):
+		return p.scoped(s, req, policyKind("apis/operations/policies"), "apis/"+r[1]+"/operations/"+r[3], apimOpPolicyIdx)
+	case strings.EqualFold(r[2], "operations"):
+		return p.collection(s, req, opKind(), r[1], apimAPIChildIdx)
+	case strings.EqualFold(r[2], "policies"):
+		return p.scoped(s, req, policyKind("apis/policies"), "apis/"+r[1], apimAPIChildIdx)
+	}
+
+	return p.collection(s, req, apiKind(), "", 0)
 }
 
 // collection serves the list and item operations of a kind whose collection segment sits at index at (the
@@ -216,9 +239,9 @@ func (p *APIMProvider) collection(s *apimService, req apimReq, k apimKind, paren
 		}
 
 		return apimResp{Status: http.StatusOK, Body: map[string]any{fieldValue: p.listKind(s, k, parent, path)}}, nil
-	case 2:
+	case apimItemDepth:
 		return p.item(s, req, k, parent, r[at+1], path+"/"+r[at+1])
-	case 3:
+	case apimActionDepth:
 		return p.action(s, req, k, r[at+1], r[at+2])
 	}
 
@@ -247,7 +270,7 @@ func (p *APIMProvider) scoped(s *apimService, req apimReq, k apimKind, scope str
 		}
 
 		return apimResp{Status: http.StatusOK, Body: map[string]any{fieldValue: out}}, nil
-	case 2:
+	case apimItemDepth:
 		if !strings.EqualFold(r[at+1], apimPolicyID) {
 			return apimResp{}, apimInvalid("The policy identifier must be %q.", apimPolicyID)
 		}
@@ -389,9 +412,7 @@ func (p *APIMProvider) writeItem(s *apimService, req apimReq, k apimKind, parent
 	in := cloneAnyMap(propsOf(req.Body))
 	if patch {
 		merged := cloneAnyMap(prev.Props)
-		for name, v := range in {
-			merged[name] = v
-		}
+		maps.Copy(merged, in)
 
 		in = merged
 	}
@@ -459,7 +480,7 @@ func (p *APIMProvider) productAPIs(s *apimService, req apimReq) (apimResp, error
 
 	prefix := strings.ToLower(r[1]) + "/"
 
-	if len(r) == 3 {
+	if len(r) == apimProductAPIsLen {
 		if req.Method != http.MethodGet {
 			return apimResp{}, apimErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
 		}

@@ -37,9 +37,23 @@ func TestAPIMService_Validation(t *testing.T) {
 		wantCode string
 		capacity int32
 	}{
-		{name: "ok developer", svc: "okdev", sku: armapimanagement.SKUTypeDeveloper, capacity: 1, email: "a@b.io", pub: "P"},
+		{
+			name:     "ok developer",
+			svc:      "okdev",
+			sku:      armapimanagement.SKUTypeDeveloper,
+			capacity: 1,
+			email:    "a@b.io",
+			pub:      "P",
+		},
 		{name: "ok consumption", svc: "okcons", sku: armapimanagement.SKUTypeConsumption, email: "a@b.io", pub: "P"},
-		{name: "ok premium", svc: "okprem", sku: armapimanagement.SKUTypePremium, capacity: 12, email: "a@b.io", pub: "P"},
+		{
+			name:     "ok premium",
+			svc:      "okprem",
+			sku:      armapimanagement.SKUTypePremium,
+			capacity: 12,
+			email:    "a@b.io",
+			pub:      "P",
+		},
 		{
 			name: "consumption capacity", svc: "c1", sku: armapimanagement.SKUTypeConsumption, capacity: 1,
 			email: "a@b.io", pub: "P", wantCode: "ValidationError",

@@ -1,6 +1,7 @@
 package azurearm_test
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -15,7 +16,11 @@ func (s *apimStack) putAPI(t *testing.T, id, path, serviceURL string) {
 	t.Helper()
 
 	props := &armapimanagement.APICreateOrUpdateProperties{
-		DisplayName: new(id), Path: new(path), Protocols: []*armapimanagement.Protocol{new(armapimanagement.ProtocolHTTPS)},
+		DisplayName: new(
+			id,
+		),
+		Path:      new(path),
+		Protocols: []*armapimanagement.Protocol{new(armapimanagement.ProtocolHTTPS)},
 	}
 	if serviceURL != "" {
 		props.ServiceURL = &serviceURL
@@ -77,7 +82,11 @@ func TestAPIMAPI_CRUDAndValidation(t *testing.T) {
 		{
 			name: "bad protocol", id: "a6", wantCode: "ValidationError",
 			props: armapimanagement.APICreateOrUpdateProperties{
-				DisplayName: new("A6"), Path: new("a6"), Protocols: []*armapimanagement.Protocol{new(armapimanagement.Protocol("ftp"))},
+				DisplayName: new(
+					"A6",
+				),
+				Path:      new("a6"),
+				Protocols: []*armapimanagement.Protocol{new(armapimanagement.Protocol("ftp"))},
 			},
 		},
 	}
@@ -158,14 +167,21 @@ func TestAPIMOperation_CRUDAndValidation(t *testing.T) {
 		method   string
 		tpl      string
 		display  string
-		params   []*armapimanagement.ParameterContract
 		wantCode string
+		params   []*armapimanagement.ParameterContract
 		wantN    int
 	}{
 		{name: "ok derives params", id: "o1", method: "get", tpl: "/c/{cid}/o/{oid}", display: "o1", wantN: 2},
 		{name: "no display", id: "o2", method: "get", tpl: "/x", wantCode: "ValidationError"},
 		{name: "no template", id: "o3", method: "get", display: "o3", wantCode: "ValidationError"},
-		{name: "duplicate", id: "o4", method: "GET", tpl: "/seed/{p}/x/{q}", display: "o4", wantCode: "ValidationError"},
+		{
+			name:     "duplicate",
+			id:       "o4",
+			method:   "GET",
+			tpl:      "/seed/{p}/x/{q}",
+			display:  "o4",
+			wantCode: "ValidationError",
+		},
 		{
 			name: "declared not in template", id: "o5", method: "get", tpl: "/y", display: "o5",
 			params:   []*armapimanagement.ParameterContract{{Name: new("zz"), Type: new("string")}},
@@ -182,31 +198,35 @@ func TestAPIMOperation_CRUDAndValidation(t *testing.T) {
 	s.putAPI(t, "api1", "api1", "")
 	s.putOp(t, "api1", "seed", "get", "/seed/{a}/x/{b}")
 
-	t.Run("cases", func(t *testing.T) {
-		for _, tc := range tests {
-			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
+	t.Cleanup(func() {
+		n := 0
 
-				s.opCase(t, tc.id, tc.method, tc.tpl, tc.display, tc.params, tc.wantCode, tc.wantN)
-			})
+		pager := s.f.NewAPIOperationClient().NewListByAPIPager(apimRG, apimSvc, "api1", nil)
+		for pager.More() {
+			page, err := pager.NextPage(context.Background())
+			require.NoError(t, err)
+
+			n += len(page.Value)
 		}
+
+		assert.Equal(t, 3, n)
 	})
 
-	n := 0
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	pager := s.f.NewAPIOperationClient().NewListByAPIPager(apimRG, apimSvc, "api1", nil)
-	for pager.More() {
-		page, err := pager.NextPage(t.Context())
-		require.NoError(t, err)
-
-		n += len(page.Value)
+			s.opCase(t, tc.id, tc.method, tc.tpl, tc.display, tc.params, tc.wantCode, tc.wantN)
+		})
 	}
-
-	assert.Equal(t, 3, n)
 }
 
 func (s *apimStack) opCase(
-	t *testing.T, id, method, tpl, display string, params []*armapimanagement.ParameterContract, wantCode string, wantN int,
+	t *testing.T,
+	id, method, tpl, display string,
+	params []*armapimanagement.ParameterContract,
+	wantCode string,
+	wantN int,
 ) {
 	t.Helper()
 
@@ -359,7 +379,14 @@ func TestAPIMProduct_LinkAndDelete(t *testing.T) {
 			props.State = &tc.state
 		}
 
-		got, err := prods.CreateOrUpdate(ctx, apimRG, apimSvc, tc.id, armapimanagement.ProductContract{Properties: props}, nil)
+		got, err := prods.CreateOrUpdate(
+			ctx,
+			apimRG,
+			apimSvc,
+			tc.id,
+			armapimanagement.ProductContract{Properties: props},
+			nil,
+		)
 		if tc.wantCode != "" {
 			require.Error(t, err, tc.name)
 			assert.Equal(t, tc.wantCode, sdkErrCode(err), tc.name)
@@ -401,9 +428,15 @@ func TestAPIMProduct_LinkAndDelete(t *testing.T) {
 	assert.Equal(t, 1, linked)
 
 	_, err = s.f.NewSubscriptionClient().CreateOrUpdate(ctx, apimRG, apimSvc, "sub-p1",
-		armapimanagement.SubscriptionCreateParameters{Properties: &armapimanagement.SubscriptionCreateParameterProperties{
-			DisplayName: new("sp1"), Scope: new("/products/p1"), State: new(armapimanagement.SubscriptionStateActive),
-		}}, nil)
+		armapimanagement.SubscriptionCreateParameters{
+			Properties: &armapimanagement.SubscriptionCreateParameterProperties{
+				DisplayName: new(
+					"sp1",
+				),
+				Scope: new("/products/p1"),
+				State: new(armapimanagement.SubscriptionStateActive),
+			},
+		}, nil)
 	require.NoError(t, err)
 
 	_, err = prods.Delete(ctx, apimRG, apimSvc, "p1", "*", nil)
@@ -457,7 +490,9 @@ func TestAPIMSubscription_SecretsAndKeys(t *testing.T) {
 				"/providers/Microsoft.ApiManagement/service/" + apimSvc + "/apis/API1"
 		}
 
-		props := &armapimanagement.SubscriptionCreateParameterProperties{State: new(armapimanagement.SubscriptionStateActive)}
+		props := &armapimanagement.SubscriptionCreateParameterProperties{
+			State: new(armapimanagement.SubscriptionStateActive),
+		}
 		if scope != "" {
 			props.Scope = &scope
 		}
@@ -466,7 +501,14 @@ func TestAPIMSubscription_SecretsAndKeys(t *testing.T) {
 			props.DisplayName = &tc.display
 		}
 
-		got, err := subs.CreateOrUpdate(ctx, apimRG, apimSvc, tc.id, armapimanagement.SubscriptionCreateParameters{Properties: props}, nil)
+		got, err := subs.CreateOrUpdate(
+			ctx,
+			apimRG,
+			apimSvc,
+			tc.id,
+			armapimanagement.SubscriptionCreateParameters{Properties: props},
+			nil,
+		)
 		if tc.wantCode != "" {
 			require.Error(t, err, tc.name)
 			assert.Equal(t, tc.wantCode, sdkErrCode(err), tc.name)
@@ -508,7 +550,9 @@ func TestAPIMSubscription_SecretsAndKeys(t *testing.T) {
 	assert.NotEqual(t, *after.SecondaryKey, *again.SecondaryKey)
 
 	upd, err := subs.Update(ctx, apimRG, apimSvc, "s1", "*", armapimanagement.SubscriptionUpdateParameters{
-		Properties: &armapimanagement.SubscriptionUpdateParameterProperties{State: new(armapimanagement.SubscriptionStateSuspended)},
+		Properties: &armapimanagement.SubscriptionUpdateParameterProperties{
+			State: new(armapimanagement.SubscriptionStateSuspended),
+		},
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, armapimanagement.SubscriptionStateSuspended, *upd.Properties.State)
@@ -548,8 +592,8 @@ func TestAPIMNamedValue_SecretWriteOnly(t *testing.T) {
 		id       string
 		display  string
 		value    string
-		secret   bool
 		wantCode string
+		secret   bool
 	}{
 		{name: "plain", id: "n1", display: "plain-v", value: "hello"},
 		{name: "secret", id: "n2", display: "secret.v", value: "s3cr3t", secret: true},

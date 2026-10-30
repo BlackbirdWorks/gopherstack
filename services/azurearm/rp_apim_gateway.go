@@ -21,8 +21,10 @@ const (
 	apimDialTimeout     = 10 * time.Second
 	apimForwardTimeout  = 60 * time.Second
 	apimMsgNotFound     = "Resource not found"
-	apimMsgMissingKey   = "Access denied due to missing subscription key. Make sure to include subscription key when making requests to an API."
-	apimMsgInvalidKey   = "Access denied due to invalid subscription key. Make sure to provide a valid key for an active subscription."
+	apimMsgMissingKey   = "Access denied due to missing subscription key. " +
+		"Make sure to include subscription key when making requests to an API."
+	apimMsgInvalidKey   = "Access denied due to invalid subscription key. " +
+		"Make sure to provide a valid key for an active subscription."
 	apimMsgNotActive    = "The API Management service is not active."
 	apimLimiterSweepAt  = 10000
 	apimHeaderXForward  = "X-Forwarded-For"
@@ -200,16 +202,16 @@ func (p *APIMProvider) resolveGateway(name, path string, r *http.Request) (*gwPl
 
 	s := p.findService(name)
 	if s == nil {
-		return nil, &gwFail{http.StatusNotFound, apimMsgNotFound}
+		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNotFound}
 	}
 
 	if s.state(p.now()) != provisioningStateSucceeded {
-		return nil, &gwFail{http.StatusServiceUnavailable, apimMsgNotActive}
+		return nil, &gwFail{status: http.StatusServiceUnavailable, msg: apimMsgNotActive}
 	}
 
 	api, suffix := s.matchAPI(path)
 	if api == nil || !apiAllowsScheme(api.Props, r.TLS != nil) {
-		return nil, &gwFail{http.StatusNotFound, apimMsgNotFound}
+		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNotFound}
 	}
 
 	plan := &gwPlan{now: p.now, service: s.Name, api: api.Props, apiID: api.ID, suffix: suffix, named: s.namedMap(), backends: s.backendMap()}
@@ -225,7 +227,7 @@ func (p *APIMProvider) resolveGateway(name, path string, r *http.Request) (*gwPl
 
 	op, params, opID := s.matchOperation(api.ID, r.Method, suffix)
 	if op == nil {
-		return nil, &gwFail{http.StatusNotFound, apimMsgNotFound}
+		return nil, &gwFail{status: http.StatusNotFound, msg: apimMsgNotFound}
 	}
 
 	plan.op, plan.params = op, params
@@ -403,7 +405,7 @@ func (p *APIMProvider) checkKey(s *apimService, api *apimEntity, plan *gwPlan, r
 	}
 
 	if key == "" {
-		return &gwFail{http.StatusUnauthorized, apimMsgMissingKey}
+		return &gwFail{status: http.StatusUnauthorized, msg: apimMsgMissingKey}
 	}
 
 	for _, sub := range s.Subs {
@@ -422,7 +424,7 @@ func (p *APIMProvider) checkKey(s *apimService, api *apimEntity, plan *gwPlan, r
 		}
 	}
 
-	return &gwFail{http.StatusUnauthorized, apimMsgInvalidKey}
+	return &gwFail{status: http.StatusUnauthorized, msg: apimMsgInvalidKey}
 }
 
 func (s *apimService) scopeCovers(scope, apiID string) bool {

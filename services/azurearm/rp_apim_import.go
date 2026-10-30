@@ -8,7 +8,10 @@ import (
 	"strings"
 )
 
-const apimMaxSpecSize = 4 << 20
+const (
+	apimMaxSpecSize = 4 << 20
+	apimMaxOpIDBase = 76
+)
 
 var apimOpIDCleanRE = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
@@ -129,8 +132,8 @@ func buildImportedOp(method, path string, op map[string]any, used map[string]boo
 		id = method + "-" + strings.Trim(apimOpIDCleanRE.ReplaceAllString(path, "-"), "-")
 	}
 
-	if len(id) > 76 {
-		id = id[:76]
+	if len(id) > apimMaxOpIDBase {
+		id = id[:apimMaxOpIDBase]
 	}
 
 	base := id
@@ -153,9 +156,10 @@ func buildImportedOp(method, path string, op map[string]any, used map[string]boo
 		props["description"] = d
 	}
 
-	params := []any{}
+	names := templateParams(path)
+	params := make([]any, 0, len(names))
 
-	for _, name := range templateParams(path) {
+	for _, name := range names {
 		params = append(params, map[string]any{fieldName: name, "required": true, fieldType: "string"})
 	}
 

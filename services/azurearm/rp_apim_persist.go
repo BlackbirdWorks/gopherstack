@@ -49,7 +49,9 @@ func (p *APIMProvider) restore(snap *apimSnapshot) {
 }
 
 func ensureAPIMMaps(s *apimService) {
-	for _, m := range []*map[string]*apimEntity{&s.APIs, &s.Ops, &s.Products, &s.Subs, &s.Named, &s.Backends, &s.Policies} {
+	all := []*map[string]*apimEntity{&s.APIs, &s.Ops, &s.Products, &s.Subs, &s.Named, &s.Backends, &s.Policies}
+
+	for _, m := range all {
 		if *m == nil {
 			*m = map[string]*apimEntity{}
 		}

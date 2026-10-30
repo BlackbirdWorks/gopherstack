@@ -33,7 +33,12 @@ func newEchoBackend(t *testing.T) *httptest.Server {
 		w.Header().Set("X-Backend", "yes")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(echoReply{
-			Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Header: r.Header, Body: string(b), BodyLen: len(b),
+			Method:  r.Method,
+			Path:    r.URL.Path,
+			Query:   r.URL.RawQuery,
+			Header:  r.Header,
+			Body:    string(b),
+			BodyLen: len(b),
 		})
 	}))
 	t.Cleanup(srv.Close)
@@ -62,9 +67,11 @@ func newGWEnv(t *testing.T) *gwEnv {
 	s.putOp(t, "echo", "static", "get", "/static")
 
 	_, err := s.f.NewSubscriptionClient().CreateOrUpdate(t.Context(), apimRG, apimSvc, "k1",
-		armapimanagement.SubscriptionCreateParameters{Properties: &armapimanagement.SubscriptionCreateParameterProperties{
-			DisplayName: new("k1"), Scope: new("/apis"), State: new(armapimanagement.SubscriptionStateActive),
-		}}, nil)
+		armapimanagement.SubscriptionCreateParameters{
+			Properties: &armapimanagement.SubscriptionCreateParameterProperties{
+				DisplayName: new("k1"), Scope: new("/apis"), State: new(armapimanagement.SubscriptionStateActive),
+			},
+		}, nil)
 	require.NoError(t, err)
 
 	sec, err := s.f.NewSubscriptionClient().ListSecrets(t.Context(), apimRG, apimSvc, "k1", nil)
@@ -138,12 +145,20 @@ func TestAPIMGateway_SubscriptionKey(t *testing.T) {
 			hdr: map[string]string{"Ocp-Apim-Subscription-Key": ""}, wantStatus: 200,
 		},
 		{
-			name: "missing", method: "GET", path: "/echo/items/7", hdr: map[string]string{"Ocp-Apim-Subscription-Key": ""},
-			wantStatus: 401, wantMsg: "Access denied due to missing subscription key",
+			name:       "missing",
+			method:     "GET",
+			path:       "/echo/items/7",
+			hdr:        map[string]string{"Ocp-Apim-Subscription-Key": ""},
+			wantStatus: 401,
+			wantMsg:    "Access denied due to missing subscription key",
 		},
 		{
-			name: "invalid", method: "GET", path: "/echo/items/7", hdr: map[string]string{"Ocp-Apim-Subscription-Key": "nope"},
-			wantStatus: 401, wantMsg: "Access denied due to invalid subscription key",
+			name:       "invalid",
+			method:     "GET",
+			path:       "/echo/items/7",
+			hdr:        map[string]string{"Ocp-Apim-Subscription-Key": "nope"},
+			wantStatus: 401,
+			wantMsg:    "Access denied due to invalid subscription key",
 		},
 		{name: "unknown api", method: "GET", path: "/nothing/items/7", wantStatus: 404, wantMsg: "Resource not found"},
 		{name: "unknown operation", method: "GET", path: "/echo/other", wantStatus: 404, wantMsg: "Resource not found"},
@@ -251,9 +266,10 @@ func TestAPIMGateway_SubscriptionScopes(t *testing.T) {
 			e := newGWEnv(t)
 			e.putAPI(t, "other", "other", "")
 
-			_, err := e.f.NewProductClient().CreateOrUpdate(t.Context(), apimRG, apimSvc, "prod", armapimanagement.ProductContract{
-				Properties: &armapimanagement.ProductContractProperties{DisplayName: new("Prod")},
-			}, nil)
+			_, err := e.f.NewProductClient().
+				CreateOrUpdate(t.Context(), apimRG, apimSvc, "prod", armapimanagement.ProductContract{
+					Properties: &armapimanagement.ProductContractProperties{DisplayName: new("Prod")},
+				}, nil)
 			require.NoError(t, err)
 
 			if tc.link {
@@ -300,11 +316,12 @@ func TestAPIMGateway_NoSubscriptionRequired(t *testing.T) {
 	e.putAPI(t, "closed", "closed", e.backend.URL)
 	e.putOp(t, "closed", "root", "get", "/")
 
-	_, err = e.f.NewProductClient().CreateOrUpdate(t.Context(), apimRG, apimSvc, "open", armapimanagement.ProductContract{
-		Properties: &armapimanagement.ProductContractProperties{
-			DisplayName: new("Open"), SubscriptionRequired: new(false),
-		},
-	}, nil)
+	_, err = e.f.NewProductClient().
+		CreateOrUpdate(t.Context(), apimRG, apimSvc, "open", armapimanagement.ProductContract{
+			Properties: &armapimanagement.ProductContractProperties{
+				DisplayName: new("Open"), SubscriptionRequired: new(false),
+			},
+		}, nil)
 	require.NoError(t, err)
 
 	status, _, _ = e.call(t, "GET", "/closed", "", map[string]string{"Ocp-Apim-Subscription-Key": ""})
@@ -382,11 +399,12 @@ func TestAPIMGateway_ExternalBackendRefused(t *testing.T) {
 
 		e := newGWEnv(t)
 
-		_, err := e.f.NewBackendClient().CreateOrUpdate(t.Context(), apimRG, apimSvc, "ext", armapimanagement.BackendContract{
-			Properties: &armapimanagement.BackendContractProperties{
-				URL: new("http://192.0.2.7"), Protocol: new(armapimanagement.BackendProtocolHTTP),
-			},
-		}, nil)
+		_, err := e.f.NewBackendClient().
+			CreateOrUpdate(t.Context(), apimRG, apimSvc, "ext", armapimanagement.BackendContract{
+				Properties: &armapimanagement.BackendContractProperties{
+					URL: new("http://192.0.2.7"), Protocol: new(armapimanagement.BackendProtocolHTTP),
+				},
+			}, nil)
 		require.NoError(t, err)
 
 		e.policy(t, "/apis/echo", policyDoc(`<set-backend-service backend-id="ext" />`, "", ""), http.StatusCreated)
@@ -449,8 +467,12 @@ func TestAPIMGateway_Persistence(t *testing.T) {
 	t.Parallel()
 
 	e := newGWEnv(t)
-	e.policy(t, "/apis/echo", policyDoc(`<set-header name="X-Persisted" exists-action="override"><value>yes</value></set-header>`, "", ""),
-		http.StatusCreated)
+	e.policy(
+		t,
+		"/apis/echo",
+		policyDoc(`<set-header name="X-Persisted" exists-action="override"><value>yes</value></set-header>`, "", ""),
+		http.StatusCreated,
+	)
 
 	data := e.handler.Snapshot(context.Background())
 	require.NotEmpty(t, data)
