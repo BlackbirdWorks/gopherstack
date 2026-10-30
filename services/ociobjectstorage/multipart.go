@@ -130,6 +130,8 @@ func (b *InMemoryBackend) CommitUpload(
 		return ObjectInfo{}, errMissing("partsToCommit must list at least one part")
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("CommitUpload")
 	defer b.mu.Unlock()
 
@@ -193,6 +195,7 @@ func (b *InMemoryBackend) CommitUpload(
 	}
 
 	delete(bk.Uploads, id)
+	b.recordEvent(bk, writeEventType(cur != nil), object, o.Etag)
 
 	return b.info(o), nil
 }
