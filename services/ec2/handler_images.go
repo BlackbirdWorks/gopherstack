@@ -1441,7 +1441,7 @@ func filterImagesByOwner(idFiltered []*AMIStub, owners []string, accountID strin
 
 	want := make(map[string]struct{}, len(owners))
 	for _, o := range owners {
-		if o == "self" {
+		if o == sharingSelf {
 			o = accountID
 		}
 		want[o] = struct{}{}

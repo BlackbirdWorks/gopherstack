@@ -76,7 +76,10 @@ func (s *sharingStack) seed(t *testing.T) {
 	owner := s.clients[shOwner]
 	ctx := t.Context()
 
-	vol, err := owner.CreateVolume(ctx, &ec2sdk.CreateVolumeInput{AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(8)})
+	vol, err := owner.CreateVolume(
+		ctx,
+		&ec2sdk.CreateVolumeInput{AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(8)},
+	)
 	require.NoError(t, err)
 
 	for _, name := range []string{"shared", "public", "private"} {
@@ -211,7 +214,13 @@ func TestSharedSnapshotAccess(t *testing.T) {
 		{name: "modify as guest", op: "modify", caller: shGuest, snapshot: "shared", wantCode: "UnauthorizedOperation"},
 		{name: "modify as other", op: "modify", caller: shOther, snapshot: "shared", wantCode: "NotFound"},
 		{name: "modify as owner", op: "modify", caller: shOwner, snapshot: "shared"},
-		{name: "attribute as guest", op: "attribute", caller: shGuest, snapshot: "shared", wantCode: "UnauthorizedOperation"},
+		{
+			name:     "attribute as guest",
+			op:       "attribute",
+			caller:   shGuest,
+			snapshot: "shared",
+			wantCode: "UnauthorizedOperation",
+		},
 		{name: "attribute as owner", op: "attribute", caller: shOwner, snapshot: "shared"},
 	}
 
@@ -306,7 +315,12 @@ func TestDescribeImagesSharing(t *testing.T) {
 		executable []string
 		want       []string
 	}{
-		{name: "owner by self", caller: shOwner, owners: []string{"self"}, want: []string{"private", "public", "shared"}},
+		{
+			name:   "owner by self",
+			caller: shOwner,
+			owners: []string{"self"},
+			want:   []string{"private", "public", "shared"},
+		},
 		{name: "guest by owner", caller: shGuest, owners: []string{shOwner}, want: []string{"public", "shared"}},
 		{name: "other by owner", caller: shOther, owners: []string{shOwner}, want: []string{"public"}},
 		{name: "guest self", caller: shGuest, owners: []string{"self"}, want: []string{}},
@@ -356,8 +370,20 @@ func TestSharedImageAccess(t *testing.T) {
 		wantCode string
 	}{
 		{name: "describe shared as guest", op: "describe", caller: shGuest, image: "shared"},
-		{name: "describe private as guest", op: "describe", caller: shGuest, image: "private", wantCode: "InvalidAMIID.NotFound"},
-		{name: "describe shared as other", op: "describe", caller: shOther, image: "shared", wantCode: "InvalidAMIID.NotFound"},
+		{
+			name:     "describe private as guest",
+			op:       "describe",
+			caller:   shGuest,
+			image:    "private",
+			wantCode: "InvalidAMIID.NotFound",
+		},
+		{
+			name:     "describe shared as other",
+			op:       "describe",
+			caller:   shOther,
+			image:    "shared",
+			wantCode: "InvalidAMIID.NotFound",
+		},
 		{name: "run shared", op: "run", caller: shGuest, image: "shared"},
 		{name: "run public", op: "run", caller: shOther, image: "public"},
 		{name: "run private", op: "run", caller: shGuest, image: "private", wantCode: "InvalidAMIID.NotFound"},
@@ -368,7 +394,13 @@ func TestSharedImageAccess(t *testing.T) {
 		{name: "modify as guest", op: "modify", caller: shGuest, image: "shared", wantCode: "UnauthorizedOperation"},
 		{name: "modify as other", op: "modify", caller: shOther, image: "shared", wantCode: "InvalidAMIID.NotFound"},
 		{name: "modify as owner", op: "modify", caller: shOwner, image: "shared"},
-		{name: "attribute as guest", op: "attribute", caller: shGuest, image: "shared", wantCode: "UnauthorizedOperation"},
+		{
+			name:     "attribute as guest",
+			op:       "attribute",
+			caller:   shGuest,
+			image:    "shared",
+			wantCode: "UnauthorizedOperation",
+		},
 		{name: "attribute as owner", op: "attribute", caller: shOwner, image: "shared"},
 	}
 

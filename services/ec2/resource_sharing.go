@@ -7,6 +7,10 @@ import (
 	"slices"
 )
 
+const (
+	sharingSelf = "self"
+)
+
 const callerAccountParam = "X-Gopherstack-Caller-Account"
 
 // ErrUnauthorizedOperation is returned when a caller that can see a snapshot
@@ -223,8 +227,8 @@ func (b *InMemoryBackend) VisibleSnapshots(caller string, snaps []*Snapshot) []*
 	return slices.DeleteFunc(slices.Clone(snaps), func(s *Snapshot) bool { return !b.snapshotUsableLocked(caller, s) })
 }
 
-// NarrowSnapshots applies DescribeSnapshots' OwnerIds ("self", account ids)
-// and RestorableByUserIds ("self", account ids, "all") request members.
+// NarrowSnapshots applies DescribeSnapshots' OwnerIds (sharingSelf, account ids)
+// and RestorableByUserIds (sharingSelf, account ids, "all") request members.
 func (b *InMemoryBackend) NarrowSnapshots(
 	caller string, snaps []*Snapshot, owners, restorableBy []string,
 ) []*Snapshot {
@@ -242,13 +246,14 @@ func (b *InMemoryBackend) NarrowSnapshots(
 
 	return slices.DeleteFunc(slices.Clone(snaps), func(s *Snapshot) bool {
 		if len(owners) > 0 && !slices.ContainsFunc(owners, func(o string) bool {
-			return o == s.OwnerID || (o == "self" && (s.OwnerID == self || (caller == "" && s.OwnerID == b.AccountID)))
+			return o == s.OwnerID ||
+				(o == sharingSelf && (s.OwnerID == self || (caller == "" && s.OwnerID == b.AccountID)))
 		}) {
 			return true
 		}
 
 		return len(restorableBy) > 0 && !slices.ContainsFunc(restorableBy, func(u string) bool {
-			if u == "self" {
+			if u == sharingSelf {
 				u = self
 			}
 
@@ -270,7 +275,7 @@ func (b *InMemoryBackend) VisibleImages(caller string, imgs []*AMIStub) []*AMISt
 	return slices.DeleteFunc(slices.Clone(imgs), func(a *AMIStub) bool { return !b.imageUsableLocked(caller, a) })
 }
 
-// NarrowImagesByExecutable applies DescribeImages' ExecutableUsers ("self",
+// NarrowImagesByExecutable applies DescribeImages' ExecutableUsers (sharingSelf,
 // account ids, "all") request member.
 func (b *InMemoryBackend) NarrowImagesByExecutable(caller string, imgs []*AMIStub, executableBy []string) []*AMIStub {
 	if len(executableBy) == 0 {
@@ -287,7 +292,7 @@ func (b *InMemoryBackend) NarrowImagesByExecutable(caller string, imgs []*AMIStu
 
 	return slices.DeleteFunc(slices.Clone(imgs), func(a *AMIStub) bool {
 		return !slices.ContainsFunc(executableBy, func(u string) bool {
-			if u == "self" {
+			if u == sharingSelf {
 				return a.OwnerID == self || b.imageLaunchPermissions[a.ImageID][self]
 			}
 
@@ -306,4 +311,12 @@ func firstMissingSnapshot(ids []string, visible []*Snapshot) error {
 	}
 
 	return nil
+}
+
+func (h *Handler) requireLaunchableImageFor(vals url.Values, imageID string) error {
+	if err := h.requireImageUsable(vals, imageID); err != nil {
+		return err
+	}
+
+	return h.requireLaunchableImage(h.svcCtx, imageID)
 }
