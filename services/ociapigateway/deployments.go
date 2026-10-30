@@ -2,7 +2,6 @@ package ociapigateway
 
 import (
 	"encoding/json"
-	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -11,12 +10,12 @@ import (
 
 type createDeploymentIn struct {
 	Tags
-	Locks         json.RawMessage `json:"locks"`
-	Specification json.RawMessage `json:"specification"`
 	GatewayID     string          `json:"gatewayId"`
 	CompartmentID string          `json:"compartmentId"`
 	PathPrefix    string          `json:"pathPrefix"`
 	DisplayName   string          `json:"displayName"`
+	Locks         json.RawMessage `json:"locks"`
+	Specification json.RawMessage `json:"specification"`
 }
 
 type updateDeploymentIn struct {
@@ -31,8 +30,6 @@ type DeploymentWire struct {
 	TimeUpdated    time.Time                 `json:"timeUpdated"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
-	Specification  json.RawMessage           `json:"specification,omitempty"`
-	Locks          json.RawMessage           `json:"locks,omitempty"`
 	ID             string                    `json:"id"`
 	GatewayID      string                    `json:"gatewayId"`
 	CompartmentID  string                    `json:"compartmentId"`
@@ -40,6 +37,8 @@ type DeploymentWire struct {
 	Endpoint       string                    `json:"endpoint"`
 	DisplayName    string                    `json:"displayName"`
 	LifecycleState string                    `json:"lifecycleState"`
+	Locks          json.RawMessage           `json:"locks,omitempty"`
+	Specification  json.RawMessage           `json:"specification,omitempty"`
 }
 
 func (b *InMemoryBackend) deploymentView(d *Deployment, full bool) DeploymentWire {
@@ -105,7 +104,9 @@ func (b *InMemoryBackend) CreateDeployment(in createDeploymentIn) (DeploymentWir
 	}
 
 	if b.prefixTaken(g.ID, in.PathPrefix, "") {
-		return DeploymentWire{}, "", "", errConflict("pathPrefix " + in.PathPrefix + " conflicts with another deployment on this gateway")
+		return DeploymentWire{}, "", "", errConflict(
+			"pathPrefix " + in.PathPrefix + " conflicts with another deployment on this gateway",
+		)
 	}
 
 	now := b.nowUTC()
@@ -254,11 +255,7 @@ func (b *InMemoryBackend) ChangeDeploymentCompartment(id, ifMatch string, in cha
 		return "", err
 	}
 
-	if err = checkEtag(d.Etag, ifMatch); err != nil {
-		return "", err
-	}
-
-	if err = b.checkCompartment(in.CompartmentID); err != nil {
+	if err = b.checkMove(d.Etag, ifMatch, in.CompartmentID); err != nil {
 		return "", err
 	}
 
@@ -268,20 +265,7 @@ func (b *InMemoryBackend) ChangeDeploymentCompartment(id, ifMatch string, in cha
 }
 
 func (h *Handler) createDeployment(q *req) error {
-	var in createDeploymentIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	w, wr, etag, err := h.Backend.CreateDeployment(in)
-	if err != nil {
-		return err
-	}
-
-	q.header("opc-work-request-id", wr)
-	q.header("location", base+"/deployments/"+w.ID)
-
-	return q.json(http.StatusAccepted, w, etag)
+	return created(q, "/deployments/", func(w DeploymentWire) string { return w.ID }, h.Backend.CreateDeployment)
 }
 
 func (h *Handler) getDeployment(q *req) error {
@@ -298,14 +282,9 @@ func (h *Handler) listDeployments(q *req) error {
 }
 
 func (h *Handler) updateDeployment(q *req) error {
-	var in updateDeploymentIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	wr, err := h.Backend.UpdateDeployment(q.param("deploymentId"), q.ifMatch(), in)
-
-	return acceptedWR(q, wr, err)
+	return withBody(q, func(in updateDeploymentIn) (string, error) {
+		return h.Backend.UpdateDeployment(q.param("deploymentId"), q.ifMatch(), in)
+	})
 }
 
 func (h *Handler) deleteDeployment(q *req) error {
@@ -315,12 +294,7 @@ func (h *Handler) deleteDeployment(q *req) error {
 }
 
 func (h *Handler) changeDeploymentCompartment(q *req) error {
-	var in changeCompartmentIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	wr, err := h.Backend.ChangeDeploymentCompartment(q.param("deploymentId"), q.ifMatch(), in)
-
-	return acceptedWR(q, wr, err)
+	return withBody(q, func(in changeCompartmentIn) (string, error) {
+		return h.Backend.ChangeDeploymentCompartment(q.param("deploymentId"), q.ifMatch(), in)
+	})
 }

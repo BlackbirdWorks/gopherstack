@@ -134,8 +134,6 @@ func (q *req) json(status int, v any, etag string) error {
 
 func (q *req) query(k string) string { return q.r.URL.Query().Get(k) }
 
-func (q *req) flag(k string) bool { return q.query(k) == "true" }
-
 func (q *req) param(k string) string { return q.rt.params[k] }
 
 func (q *req) ifMatch() string { return q.r.Header.Get("If-Match") }

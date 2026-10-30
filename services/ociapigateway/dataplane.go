@@ -3,6 +3,7 @@ package ociapigateway
 import (
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,50 +30,27 @@ func writeGWError(w http.ResponseWriter, status int, msg string) {
 	_, _ = w.Write(out)
 }
 
-// resolveTarget maps a request to a deployment by gateway hostname (Host header) or by /_apigw/<gatewayId>/ path.
+// resolveTarget maps a request to a deployment by gateway hostname (Host header) or by /_apigw/<gatewayId> path.
 func (b *InMemoryBackend) resolveTarget(r *http.Request) (target, bool) {
 	path := r.URL.Path
 	gwRef, byID := "", false
 
-	if strings.HasPrefix(path, dataPathPrefix) {
-		rest := strings.TrimPrefix(path, dataPathPrefix)
-		gwRef, path, _ = strings.Cut(rest, "/")
-		path, byID = "/"+path, true
+	if rest, ok := strings.CutPrefix(path, dataPathPrefix); ok {
+		var tail string
+
+		gwRef, tail, _ = strings.Cut(rest, "/")
+		path, byID = "/"+tail, true
 	}
 
 	b.mu.RLock("resolveTarget")
 	defer b.mu.RUnlock()
 
-	var gwID string
-
-	for _, g := range b.gateways {
-		if g.State != stateActive && g.State != stateUpdating {
-			continue
-		}
-
-		if (byID && g.ID == gwRef) || (!byID && strs.Equal(g.Hostname, stripPort(r.Host))) {
-			gwID = g.ID
-
-			break
-		}
-	}
-
+	gwID := b.findGateway(gwRef, stripPort(r.Host), byID)
 	if gwID == "" {
 		return target{}, false
 	}
 
-	var best *Deployment
-
-	for _, d := range b.deployments {
-		if d.GatewayID != gwID || (d.State != stateActive && d.State != stateUpdating) {
-			continue
-		}
-
-		if prefixMatches(d.PathPrefix, path) && (best == nil || len(d.PathPrefix) > len(best.PathPrefix)) {
-			best = d
-		}
-	}
-
+	best := b.findDeployment(gwID, path)
 	if best == nil || b.specs[best.ID] == nil {
 		return target{}, false
 	}
@@ -83,6 +61,39 @@ func (b *InMemoryBackend) resolveTarget(r *http.Request) (target, bool) {
 	}
 
 	return target{spec: b.specs[best.ID], depID: best.ID, rel: rel, gateway: gwID}, true
+}
+
+func servable(state string) bool { return state == stateActive || state == stateUpdating }
+
+func (b *InMemoryBackend) findGateway(ref, host string, byID bool) string {
+	for _, g := range b.gateways {
+		if !servable(g.State) {
+			continue
+		}
+
+		if (byID && g.ID == ref) || (!byID && strs.Equal(g.Hostname, host)) {
+			return g.ID
+		}
+	}
+
+	return ""
+}
+
+// findDeployment returns the servable deployment with the longest pathPrefix matching the path.
+func (b *InMemoryBackend) findDeployment(gwID, path string) *Deployment {
+	var best *Deployment
+
+	for _, d := range b.deployments {
+		if d.GatewayID != gwID || !servable(d.State) || !prefixMatches(d.PathPrefix, path) {
+			continue
+		}
+
+		if best == nil || len(d.PathPrefix) > len(best.PathPrefix) {
+			best = d
+		}
+	}
+
+	return best
 }
 
 func prefixMatches(prefix, path string) bool {
@@ -167,13 +178,13 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 
 	rv := &reqView{params: m.params, query: cloneValues(r.URL.Query()), header: r.Header.Clone()}
 
-	if status, www, msg := b.authorize(r, rp, m.route, rv); status != 0 {
-		if www != "" {
-			w.Header().Set("WWW-Authenticate", www)
+	if d := b.authorize(r, rp, m.route, rv); d.status != 0 {
+		if d.www != "" {
+			w.Header().Set("WWW-Authenticate", d.www)
 		}
 
 		corsHeaders(w.Header(), cors, origin)
-		writeGWError(w, status, msg)
+		writeGWError(w, d.status, d.msg)
 
 		return
 	}
@@ -199,9 +210,7 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 
 	corsHeaders(res.header, cors, origin)
 
-	for k, vs := range res.header {
-		w.Header()[k] = vs
-	}
+	maps.Copy(w.Header(), res.header)
 
 	w.WriteHeader(res.status)
 
@@ -219,39 +228,38 @@ func cloneValues(v url.Values) url.Values {
 	return out
 }
 
-// authorize applies deployment authentication and route authorization; a zero status means the request may proceed.
-func (b *InMemoryBackend) authorize(
-	r *http.Request, rp *requestPolicies, route *compiledRoute, rv *reqView,
-) (status int, www, msg string) {
+// denial is an authentication or authorization refusal; a zero status means the request may proceed.
+type denial struct {
+	www    string
+	msg    string
+	status int
+}
+
+func (b *InMemoryBackend) authorize(r *http.Request, rp *requestPolicies, route *compiledRoute, rv *reqView) denial {
 	if rp == nil || rp.Authentication == nil {
-		return 0, "", ""
+		return denial{}
 	}
 
-	var authz *struct {
-		Type         string   `json:"type"`
-		AllowedScope []string `json:"allowedScope"`
-	}
+	var authz *authzDoc
 
 	if route.doc.RequestPolicies != nil {
 		authz = route.doc.RequestPolicies.Authorization
 	}
 
-	if authz != nil && authz.Type == "ANONYMOUS" {
-		return 0, "", ""
+	if authz != nil && authz.Type == authzAnonymous {
+		return denial{}
 	}
 
 	res, anonymous := b.authenticate(r.Context(), rp.Authentication, r, rv)
 	if !res.ok {
-		return http.StatusUnauthorized, res.wwwAuth, "Unauthorized"
+		return denial{status: http.StatusUnauthorized, www: res.wwwAuth, msg: "Unauthorized"}
 	}
 
-	if authz != nil && authz.Type == "ANY_OF" {
-		if anonymous || !hasAnyScope(res.scopes, authz.AllowedScope) {
-			return http.StatusForbidden, "", "Forbidden"
-		}
+	if authz != nil && authz.Type == anyOf && (anonymous || !hasAnyScope(res.scopes, authz.AllowedScope)) {
+		return denial{status: http.StatusForbidden, msg: "Forbidden"}
 	}
 
-	return 0, "", ""
+	return denial{}
 }
 
 func hasAnyScope(have, allowed []string) bool {

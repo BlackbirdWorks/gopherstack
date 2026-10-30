@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 
@@ -37,24 +36,27 @@ func TestRoutePrecedence(t *testing.T) {
 		stock("/any", `"ANY"`, "any")+`]}`)
 
 	tests := []struct {
-		name, method, path string
-		status             int
-		body, allow        string
+		name   string
+		method string
+		path   string
+		body   string
+		allow  string
+		status int
 	}{
-		{"literal beats param", "GET", "/api/users/me", 200, "literal", ""},
-		{"param", "GET", "/api/users/42", 200, "param", ""},
-		{"param other method", "DELETE", "/api/users/42", 200, "param-delete", ""},
-		{"method not allowed", "POST", "/api/users/42", 405, "", "DELETE, GET"},
-		{"two params", "PUT", "/api/users/1/posts/2", 200, "two-params", ""},
-		{"wildcard multi segment", "GET", "/api/files/a/b/c", 200, "wild", ""},
-		{"wildcard zero segments", "GET", "/api/files", 200, "wild", ""},
-		{"exact beats wildcard", "GET", "/api/files/readme", 200, "exact-file", ""},
-		{"root", "GET", "/api", 200, "root", ""},
-		{"root slash", "GET", "/api/", 200, "root", ""},
-		{"any method", "PATCH", "/api/any", 200, "any", ""},
-		{"no route", "GET", "/api/nothing/here", 404, "", ""},
-		{"outside prefix", "GET", "/other/users/me", 404, "", ""},
-		{"prefix is segment bounded", "GET", "/apiary/users/me", 404, "", ""},
+		{"literal beats param", "GET", "/api/users/me", "literal", "", 200},
+		{"param", "GET", "/api/users/42", "param", "", 200},
+		{"param other method", "DELETE", "/api/users/42", "param-delete", "", 200},
+		{"method not allowed", "POST", "/api/users/42", "", "DELETE, GET", 405},
+		{"two params", "PUT", "/api/users/1/posts/2", "two-params", "", 200},
+		{"wildcard multi segment", "GET", "/api/files/a/b/c", "wild", "", 200},
+		{"wildcard zero segments", "GET", "/api/files", "wild", "", 200},
+		{"exact beats wildcard", "GET", "/api/files/readme", "exact-file", "", 200},
+		{"root", "GET", "/api", "root", "", 200},
+		{"root slash", "GET", "/api/", "root", "", 200},
+		{"any method", "PATCH", "/api/any", "any", "", 200},
+		{"no route", "GET", "/api/nothing/here", "", "", 404},
+		{"outside prefix", "GET", "/other/users/me", "", "", 404},
+		{"prefix is segment bounded", "GET", "/apiary/users/me", "", "", 404},
 	}
 
 	for _, tt := range tests {
@@ -86,7 +88,14 @@ func TestHostHeaderRouting(t *testing.T) {
 	assert.Equal(t, 200, r.status)
 	assert.Equal(t, "by-host", r.body)
 
-	r = e.callURL(t, e.base+"/v1/hi", "unknown123.apigateway.us-ashburn-1.oci.customer-oci.com", http.MethodGet, nil, "")
+	r = e.callURL(
+		t,
+		e.base+"/v1/hi",
+		"unknown123.apigateway.us-ashburn-1.oci.customer-oci.com",
+		http.MethodGet,
+		nil,
+		"",
+	)
 	assert.Equal(t, 404, r.status)
 
 	r = e.call(t, "ocid1.apigateway.oc1..missing", http.MethodGet, "/v1/hi", nil, "")
@@ -168,10 +177,12 @@ func TestHTTPBackend(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, blocked.status, "non-loopback destinations are refused by default")
 }
 
+var errBoom = errors.New("boom")
+
 type fakeInvoker struct {
 	fn   func(id string, in ociapigateway.FunctionRequest) (ociapigateway.FunctionResponse, error)
-	mu   sync.Mutex
 	logs []string
+	mu   sync.Mutex
 }
 
 func (f *fakeInvoker) InvokeFunction(
@@ -190,7 +201,7 @@ func TestFunctionsBackend(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	inv := &fakeInvoker{fn: func(id string, in ociapigateway.FunctionRequest) (ociapigateway.FunctionResponse, error) {
 		if id == "ocid1.fnfunc.oc1.iad.broken" {
-			return ociapigateway.FunctionResponse{}, errors.New("boom")
+			return ociapigateway.FunctionResponse{}, errBoom
 		}
 
 		return ociapigateway.FunctionResponse{
@@ -217,7 +228,12 @@ func TestFunctionsBackendUnwired(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	gw := e.mkGateway(t, "nofn")
-	e.mkDeployment(t, *gw.Id, "/f", `{"routes":[{"path":"/run","backend":{"type":"ORACLE_FUNCTIONS_BACKEND","functionId":"`+testFunction+`"}}]}`)
+	e.mkDeployment(
+		t,
+		*gw.Id,
+		"/f",
+		`{"routes":[{"path":"/run","backend":{"type":"ORACLE_FUNCTIONS_BACKEND","functionId":"`+testFunction+`"}}]}`,
+	)
 
 	assert.Equal(t, http.StatusBadGateway, e.call(t, *gw.Id, http.MethodGet, "/f/run", nil, "").status)
 }
@@ -256,7 +272,14 @@ func TestCORS(t *testing.T) {
 	other := e.call(t, *gw.Id, http.MethodGet, "/c/r", map[string]string{"Origin": "https://evil.example.test"}, "")
 	assert.Empty(t, other.header.Get("Access-Control-Allow-Origin"))
 
-	open := e.call(t, *gw.Id, http.MethodGet, "/c/open", map[string]string{"Origin": "https://anything.example.test"}, "")
+	open := e.call(
+		t,
+		*gw.Id,
+		http.MethodGet,
+		"/c/open",
+		map[string]string{"Origin": "https://anything.example.test"},
+		"",
+	)
 	assert.Equal(t, "*", open.header.Get("Access-Control-Allow-Origin"), "route policy overrides the deployment policy")
 }
 
@@ -280,7 +303,7 @@ func TestRateLimiting(t *testing.T) {
 			e.mkDeployment(t, *gw.Id, "/r", `{"requestPolicies":{"rateLimiting":{"rateKey":"`+tt.key+
 				`","rateInRequestsPerSecond":2}},"routes":[`+stock("/x", `"GET"`, "ok")+`]}`)
 
-			var codes []int
+			codes := make([]int, 0, 3)
 			for range 3 {
 				codes = append(codes, e.call(t, *gw.Id, http.MethodGet, "/r/x", nil, "").status)
 			}
@@ -292,7 +315,12 @@ func TestRateLimiting(t *testing.T) {
 			assert.Equal(t, "1", limited.header.Get("Retry-After"))
 
 			e.clock.Advance(time1s)
-			assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, "/r/x", nil, "").status, "tokens refill on the clock")
+			assert.Equal(
+				t,
+				200,
+				e.call(t, *gw.Id, http.MethodGet, "/r/x", nil, "").status,
+				"tokens refill on the clock",
+			)
 		})
 	}
 }
@@ -301,9 +329,9 @@ func TestTransformations(t *testing.T) {
 	t.Parallel()
 
 	var got struct {
-		sync.Mutex
-		uri string
 		h   http.Header
+		uri string
+		sync.Mutex
 	}
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -418,5 +446,5 @@ func TestSpecRoundTrip(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal([]byte(body), &out))
 	assert.Equal(t, "STOCK_RESPONSE_BACKEND", out.Specification.Routes[0].Backend.Type)
-	assert.False(t, strings.Contains(body, "StubResponse"))
+	assert.NotContains(t, body, "StubResponse")
 }

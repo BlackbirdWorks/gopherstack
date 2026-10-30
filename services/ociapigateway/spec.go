@@ -33,6 +33,10 @@ const (
 	rateKeyClient  = "CLIENT_IP"
 	rateKeyTotal   = "TOTAL"
 	selectorSingle = "SINGLE"
+	anyOf          = "ANY_OF"
+	wildcardKey    = "WILDCARD"
+	authzAnonymous = "ANONYMOUS"
+	jsonNull       = "null"
 )
 
 type headerSpec struct {
@@ -123,20 +127,20 @@ type publicKeysDoc struct {
 }
 
 type authDoc struct {
-	IsAnonymousAllowed *bool             `json:"isAnonymousAccessAllowed"`
-	MaxClockSkew       *float64          `json:"maxClockSkewInSeconds"`
+	PublicKeys         *publicKeysDoc    `json:"publicKeys"`
 	TokenHeader        *string           `json:"tokenHeader"`
 	TokenQueryParam    *string           `json:"tokenQueryParam"`
 	TokenAuthScheme    *string           `json:"tokenAuthScheme"`
 	ValidationPolicy   *validationDoc    `json:"validationPolicy"`
-	PublicKeys         *publicKeysDoc    `json:"publicKeys"`
+	IsAnonymousAllowed *bool             `json:"isAnonymousAccessAllowed"`
+	MaxClockSkew       *float64          `json:"maxClockSkewInSeconds"`
+	Parameters         map[string]string `json:"parameters"`
 	Type               string            `json:"type"`
 	FunctionID         string            `json:"functionId"`
-	Issuers            []string          `json:"issuers"`
-	Audiences          []string          `json:"audiences"`
-	VerifyClaims       []claimDoc        `json:"verifyClaims"`
 	CacheKey           []string          `json:"cacheKey"`
-	Parameters         map[string]string `json:"parameters"`
+	VerifyClaims       []claimDoc        `json:"verifyClaims"`
+	Audiences          []string          `json:"audiences"`
+	Issuers            []string          `json:"issuers"`
 }
 
 type requestPolicies struct {
@@ -186,11 +190,13 @@ type transformDoc struct {
 	} `json:"filterQueryParameters"`
 }
 
+type authzDoc struct {
+	Type         string   `json:"type"`
+	AllowedScope []string `json:"allowedScope"`
+}
+
 type routeRequestPolicies struct {
-	Authorization *struct {
-		Type         string   `json:"type"`
-		AllowedScope []string `json:"allowedScope"`
-	} `json:"authorization"`
+	Authorization *authzDoc `json:"authorization"`
 	Cors                *corsDoc        `json:"cors"`
 	HeaderTransform     *transformDoc   `json:"headerTransformations"`
 	QueryTransform      *transformDoc   `json:"queryParameterTransformations"`
@@ -226,7 +232,7 @@ var (
 )
 
 func isPresent(raw json.RawMessage) bool {
-	return len(raw) > 0 && !bytes.Equal(raw, []byte("null"))
+	return len(raw) > 0 && !bytes.Equal(raw, []byte(jsonNull))
 }
 
 // validatePathPrefix applies the deployment pathPrefix rules documented by Oracle.
@@ -243,13 +249,15 @@ func validatePathPrefix(p string) *APIError {
 		return errParam("pathPrefix must not end with a forward slash")
 	}
 
-	for _, seg := range strings.Split(p[1:], "/") {
+	for seg := range strings.SplitSeq(p[1:], "/") {
 		if seg == "" {
 			return errParam("pathPrefix must not contain adjacent forward slashes")
 		}
 
 		if !prefixCharRe.MatchString(seg) {
-			return errParam("pathPrefix contains characters that are not allowed (parameters and wildcards are not permitted)")
+			return errParam(
+				"pathPrefix contains characters that are not allowed (parameters and wildcards are not permitted)",
+			)
 		}
 	}
 
@@ -407,7 +415,7 @@ func validateKeySource(kind, uri string, keys []staticKeyDoc) *APIError {
 		return nil
 	case keysRemote:
 		u, err := url.Parse(uri)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		if err != nil || !httpURL(u) {
 			return errParam("remote JWKS uri must be an http or https URL")
 		}
 
@@ -434,16 +442,7 @@ func validateBackend(b *backendDoc, depth int) *APIError {
 
 	switch b.Type {
 	case backendHTTP:
-		if b.URL == nil {
-			return errMissing("HTTP_BACKEND requires url")
-		}
-
-		u, err := url.Parse(substituteStub(*b.URL))
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return errParam("HTTP_BACKEND url must be an http or https URL")
-		}
-
-		return nil
+		return validateHTTPBackend(b)
 	case backendFn:
 		if !strings.HasPrefix(b.FunctionID, fnOCIDPrefix) {
 			return errParam("ORACLE_FUNCTIONS_BACKEND functionId must be a function OCID")
@@ -468,6 +467,19 @@ var varRe = regexp.MustCompile(`\$\{[^}]*\}`)
 // substituteStub replaces ${...} variables so a templated URL can be parsed at validation time.
 func substituteStub(s string) string { return varRe.ReplaceAllString(s, "x") }
 
+func validateHTTPBackend(b *backendDoc) *APIError {
+	if b.URL == nil {
+		return errMissing("HTTP_BACKEND requires url")
+	}
+
+	u, err := url.Parse(substituteStub(*b.URL))
+	if err != nil || !httpURL(u) {
+		return errParam("HTTP_BACKEND url must be an http or https URL")
+	}
+
+	return nil
+}
+
 func validateDynamic(b *backendDoc, depth int) *APIError {
 	if depth >= maxSpecDepth {
 		return errParam("dynamic routing backends cannot be nested")
@@ -491,11 +503,12 @@ func validateDynamic(b *backendDoc, depth int) *APIError {
 			return errParam("routing backend key name is required")
 		}
 
-		if rb.Key.Type != "ANY_OF" && rb.Key.Type != "WILDCARD" {
+		if rb.Key.Type != anyOf && rb.Key.Type != wildcardKey {
 			return errParam("routing backend key type must be ANY_OF or WILDCARD")
 		}
 
-		if rb.Key.Type == "WILDCARD" && strings.Count(rb.Key.Expression, "*")+strings.Count(rb.Key.Expression, "+") > 1 {
+		if rb.Key.Type == wildcardKey &&
+			strings.Count(rb.Key.Expression, "*")+strings.Count(rb.Key.Expression, "+") > 1 {
 			return errParam("a wildcard key expression can only contain one wildcard")
 		}
 
@@ -523,8 +536,8 @@ func validateRouteRequestPolicies(p *routeRequestPolicies) *APIError {
 
 	if a := p.Authorization; a != nil {
 		switch a.Type {
-		case "ANONYMOUS", "AUTHENTICATION_ONLY":
-		case "ANY_OF":
+		case authzAnonymous, "AUTHENTICATION_ONLY":
+		case anyOf:
 			if len(a.AllowedScope) == 0 {
 				return errParam("ANY_OF authorization requires allowedScope")
 			}
@@ -542,10 +555,14 @@ func checkAnonymousRoutes(doc *specDoc) *APIError {
 
 	for i := range doc.Routes {
 		p := doc.Routes[i].RequestPolicies
-		if p != nil && p.Authorization != nil && p.Authorization.Type == "ANONYMOUS" && !anonymousOK {
+		if p != nil && p.Authorization != nil && p.Authorization.Type == authzAnonymous && !anonymousOK {
 			return errParam("ANONYMOUS route authorization requires authentication.isAnonymousAccessAllowed to be true")
 		}
 	}
 
 	return nil
+}
+
+func httpURL(u *url.URL) bool {
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }

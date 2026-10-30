@@ -2,10 +2,17 @@ package ociapigateway
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+)
+
+var (
+	errPathParam    = errors.New("not a valid path parameter")
+	errWildcardLast = errors.New("the wildcard parameter must be the last segment")
+	errPathChars    = errors.New("path contains characters that are not allowed")
 )
 
 type segKind int
@@ -92,12 +99,12 @@ func compileSegment(p string, last bool) (segment, error) {
 	if strings.ContainsAny(p, "{}") {
 		m := paramRe.FindStringSubmatch(p)
 		if m == nil {
-			return segment{}, fmt.Errorf("%q is not a valid path parameter (use {name} or {name*})", p)
+			return segment{}, fmt.Errorf("%w: %q (use {name} or {name*})", errPathParam, p)
 		}
 
 		if m[2] == "*" {
 			if !last {
-				return segment{}, fmt.Errorf("the wildcard parameter %q must be the last segment", p)
+				return segment{}, fmt.Errorf("%w: %q", errWildcardLast, p)
 			}
 
 			return segment{kind: segWild, name: m[1]}, nil
@@ -107,7 +114,7 @@ func compileSegment(p string, last bool) (segment, error) {
 	}
 
 	if !pathCharsRe.MatchString(p) {
-		return segment{}, fmt.Errorf("%q contains characters that are not allowed", p)
+		return segment{}, fmt.Errorf("%w: %q", errPathChars, p)
 	}
 
 	return segment{kind: segLiteral, lit: p}, nil

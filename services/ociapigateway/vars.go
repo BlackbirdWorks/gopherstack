@@ -20,7 +20,7 @@ var (
 )
 
 // parseVariable splits request.path[x], request.query[x] or request.headers[x].
-func parseVariable(expr string) (kind, name string, ok bool) {
+func parseVariable(expr string) (string, string, bool) {
 	m := varExprRe.FindStringSubmatch(expr)
 	if m == nil {
 		return "", "", false

@@ -57,4 +57,3 @@ func wireOCIAPIGateway(byName map[string]service.Registerable) {
 		gwH.Backend.SetFunctionInvoker(ociAPIGatewayFunctions{fn: fnH.Backend})
 	}
 }
-

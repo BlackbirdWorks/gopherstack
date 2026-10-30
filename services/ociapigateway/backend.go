@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -22,8 +23,15 @@ const (
 	dialerKeepAlive   = 30 * time.Second
 )
 
+var (
+	errBackendURL = errors.New("invalid backend url")
+	errNoFunctions = errors.New("OCI Functions is not available")
+)
+
 // ErrDestinationNotPermitted is returned when a backend resolves outside the permitted network range.
-var ErrDestinationNotPermitted = errors.New("ociapigateway: destination is outside loopback and external backends are not allowed")
+var ErrDestinationNotPermitted = errors.New(
+	"ociapigateway: destination is outside loopback and external backends are not allowed",
+)
 
 // FunctionRequest is the request an API gateway hands to OCI Functions.
 type FunctionRequest struct {
@@ -86,9 +94,9 @@ var hopHeaders = map[string]bool{ //nolint:gochecknoglobals // immutable
 // backendResponse is what a route backend produced.
 type backendResponse struct {
 	body   io.ReadCloser
+	err    error
 	header http.Header
 	status int
-	err    error
 }
 
 func (b *InMemoryBackend) runBackend(
@@ -135,17 +143,11 @@ func (b *InMemoryBackend) httpBackend(
 	target := rv.interpolate(*be.URL, escapePath)
 
 	u, err := url.Parse(target)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return backendResponse{err: fmt.Errorf("invalid backend url %q", target)}
+	if err != nil || !httpURL(u) {
+		return backendResponse{err: fmt.Errorf("%w: %q", errBackendURL, target)}
 	}
 
-	if q := rv.query.Encode(); q != "" {
-		if u.RawQuery != "" {
-			u.RawQuery += "&"
-		}
-
-		u.RawQuery += q
-	}
+	appendQuery(u, rv.query.Encode())
 
 	total := seconds(be.ConnectTimeout, defaultConnectSec) + seconds(be.ReadTimeout, defaultReadSec) +
 		seconds(be.SendTimeout, defaultSendSec)
@@ -159,17 +161,10 @@ func (b *InMemoryBackend) httpBackend(
 		return backendResponse{err: err}
 	}
 
-	for k, vs := range rv.header {
-		if hopHeaders[k] || k == "Host" || k == "Content-Length" || strings.HasPrefix(k, "X-Forwarded-") {
-			continue
-		}
-
-		out.Header[k] = vs
-	}
-
+	copyRequestHeaders(out.Header, rv.header)
 	out.Header.Set("X-Forwarded-For", clientKey(r))
 
-	resp, err := b.client.Do(out)
+	resp, err := b.client.Do(out) //nolint:gosec // G704: the client dials only loopback unless external backends are enabled
 	if err != nil {
 		cancel()
 
@@ -185,6 +180,28 @@ func (b *InMemoryBackend) httpBackend(
 	}
 
 	return backendResponse{status: resp.StatusCode, header: h, body: &cancelBody{ReadCloser: resp.Body, cancel: cancel}}
+}
+
+func appendQuery(u *url.URL, q string) {
+	if q == "" {
+		return
+	}
+
+	if u.RawQuery != "" {
+		u.RawQuery += "&"
+	}
+
+	u.RawQuery += q
+}
+
+func copyRequestHeaders(dst, src http.Header) {
+	for k, vs := range src {
+		if hopHeaders[k] || k == "Host" || k == "Content-Length" || strings.HasPrefix(k, "X-Forwarded-") {
+			continue
+		}
+
+		dst[k] = vs
+	}
 }
 
 type cancelBody struct {
@@ -207,7 +224,7 @@ func (b *InMemoryBackend) functionBackend(
 	b.mu.RUnlock()
 
 	if inv == nil {
-		return backendResponse{err: errors.New("OCI Functions is not available")}
+		return backendResponse{err: errNoFunctions}
 	}
 
 	out, err := inv.InvokeFunction(ctx, be.FunctionID, FunctionRequest{
@@ -231,14 +248,14 @@ func selectDynamic(be *backendDoc, rv *reqView) *backendDoc {
 
 	for i := range be.RoutingBackends {
 		k := &be.RoutingBackends[i].Key
-		if k.Type == "ANY_OF" && containsStr(k.Values, val) {
+		if k.Type == anyOf && containsStr(k.Values, val) {
 			return be.RoutingBackends[i].Backend
 		}
 	}
 
 	for i := range be.RoutingBackends {
 		k := &be.RoutingBackends[i].Key
-		if k.Type == "WILDCARD" && wildcardMatch(k.Expression, val) {
+		if k.Type == wildcardKey && wildcardMatch(k.Expression, val) {
 			return be.RoutingBackends[i].Backend
 		}
 	}
@@ -253,13 +270,7 @@ func selectDynamic(be *backendDoc, rv *reqView) *backendDoc {
 }
 
 func containsStr(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(list, s)
 }
 
 // wildcardMatch matches a selection key with one '*' (zero or more characters) or '+' (one or more) at its start or end.

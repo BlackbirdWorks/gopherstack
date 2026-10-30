@@ -179,10 +179,8 @@ func (e *env) createGateway(t *testing.T, name string) apigateway.CreateGatewayR
 	t.Helper()
 
 	resp, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
-		CreateGatewayDetails: apigateway.CreateGatewayDetails{
-			CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
-			SubnetId: new(testSubnet), DisplayName: new(name),
-		},
+		CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+		SubnetId: new(testSubnet), DisplayName: new(name),
 	})
 	require.NoError(t, err)
 
@@ -218,9 +216,7 @@ func (e *env) createDeployment(
 	t.Helper()
 
 	return e.dep.CreateDeployment(t.Context(), apigateway.CreateDeploymentRequest{
-		CreateDeploymentDetails: apigateway.CreateDeploymentDetails{
-			GatewayId: &gwID, CompartmentId: new(testCompartment), PathPrefix: &prefix, Specification: spec,
-		},
+		GatewayId: &gwID, CompartmentId: new(testCompartment), PathPrefix: &prefix, Specification: spec,
 	})
 }
 
@@ -278,8 +274,11 @@ func (e *env) callURL(t *testing.T, url, host, method string, headers map[string
 }
 
 func stockSpec(status int, body string) string {
-	return fmt.Sprintf(`{"routes":[{"path":"/hi","methods":["GET"],"backend":{"type":"STOCK_RESPONSE_BACKEND","status":%d,"body":%q}}]}`,
-		status, body)
+	return fmt.Sprintf(
+		`{"routes":[{"path":"/hi","methods":["GET"],"backend":{"type":"STOCK_RESPONSE_BACKEND","status":%d,"body":%q}}]}`,
+		status,
+		body,
+	)
 }
 
 const time1s = time.Second

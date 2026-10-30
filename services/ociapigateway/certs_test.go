@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func selfSigned(t *testing.T, cn string) (certPEM, keyPEM string) {
+func selfSigned(t *testing.T, cn string) (string, string) {
 	t.Helper()
 
 	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -45,9 +45,7 @@ func TestCertificateLifecycle(t *testing.T) {
 	certPEM, keyPEM := selfSigned(t, "api.example.test")
 
 	created, err := e.api.CreateCertificate(t.Context(), apigateway.CreateCertificateRequest{
-		CreateCertificateDetails: apigateway.CreateCertificateDetails{
-			CompartmentId: new(testCompartment), Certificate: &certPEM, PrivateKey: &keyPEM, DisplayName: new("c1"),
-		},
+		CompartmentId: new(testCompartment), Certificate: &certPEM, PrivateKey: &keyPEM, DisplayName: new("c1"),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, created.OpcWorkRequestId)
@@ -61,15 +59,16 @@ func TestCertificateLifecycle(t *testing.T) {
 	assert.Equal(t, apigateway.CertificateLifecycleStateActive, got.LifecycleState)
 	assert.Equal(t, certPEM, *got.Certificate.Certificate)
 
-	list, err := e.api.ListCertificates(t.Context(), apigateway.ListCertificatesRequest{CompartmentId: new(testCompartment)})
+	list, err := e.api.ListCertificates(
+		t.Context(),
+		apigateway.ListCertificatesRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 
 	gw, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
-		CreateGatewayDetails: apigateway.CreateGatewayDetails{
-			CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
-			SubnetId: new(testSubnet), CertificateId: created.Id,
-		},
+		CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+		SubnetId: new(testSubnet), CertificateId: created.Id,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, *created.Id, *gw.CertificateId)
@@ -78,8 +77,8 @@ func TestCertificateLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "certificate in use")
 
 	_, err = e.api.UpdateCertificate(t.Context(), apigateway.UpdateCertificateRequest{
-		CertificateId:            created.Id,
-		UpdateCertificateDetails: apigateway.UpdateCertificateDetails{DisplayName: new("c2")},
+		CertificateId: created.Id,
+		DisplayName:   new("c2"),
 	})
 	require.NoError(t, err)
 
@@ -87,9 +86,7 @@ func TestCertificateLifecycle(t *testing.T) {
 
 	_, err = e.api.ChangeCertificateCompartment(t.Context(), apigateway.ChangeCertificateCompartmentRequest{
 		CertificateId: created.Id,
-		ChangeCertificateCompartmentDetails: apigateway.ChangeCertificateCompartmentDetails{
-			CompartmentId: new(otherCompart),
-		},
+		CompartmentId: new(otherCompart),
 	})
 	require.NoError(t, err)
 }
@@ -119,10 +116,8 @@ func TestCertificateValidation(t *testing.T) {
 			t.Parallel()
 
 			_, err := e.api.CreateCertificate(t.Context(), apigateway.CreateCertificateRequest{
-				CreateCertificateDetails: apigateway.CreateCertificateDetails{
-					CompartmentId: new(testCompartment), Certificate: &tt.cert, PrivateKey: &tt.key,
-					IntermediateCertificates: &tt.intermediate, DisplayName: new(tt.name),
-				},
+				CompartmentId: new(testCompartment), Certificate: &tt.cert, PrivateKey: &tt.key,
+				IntermediateCertificates: &tt.intermediate, DisplayName: new(tt.name),
 			})
 			if tt.status == 202 {
 				require.NoError(t, err)

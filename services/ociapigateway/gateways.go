@@ -2,7 +2,6 @@ package ociapigateway
 
 import (
 	"encoding/json"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -111,7 +110,7 @@ func (b *InMemoryBackend) validateGateway(in *createGatewayIn) *APIError {
 		return errParam("ipMode must be IPV4, IPV6 or DUAL_STACK")
 	}
 
-	if len(in.ResponseCache) > 0 && string(in.ResponseCache) != "null" && !jsonIsNoCache(in.ResponseCache) {
+	if len(in.ResponseCache) > 0 && string(in.ResponseCache) != jsonNull && !jsonIsNoCache(in.ResponseCache) {
 		return errUnsupported("responseCacheDetails other than type NONE")
 	}
 
@@ -128,7 +127,8 @@ func jsonIsNoCache(raw json.RawMessage) bool {
 
 func (b *InMemoryBackend) gatewayNameTaken(compartment, name, except string) bool {
 	for _, g := range b.gateways {
-		if g.ID != except && g.CompartmentID == compartment && g.State != stateDeleted && strs.Equal(g.DisplayName, name) {
+		if g.ID != except && g.CompartmentID == compartment && g.State != stateDeleted &&
+			strs.Equal(g.DisplayName, name) {
 			return true
 		}
 	}
@@ -170,7 +170,7 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 }
 
 func nullRaw(r json.RawMessage) json.RawMessage {
-	if string(r) == "null" {
+	if string(r) == jsonNull {
 		return nil
 	}
 
@@ -274,7 +274,7 @@ func (b *InMemoryBackend) UpdateGateway(id, ifMatch string, in updateGatewayIn) 
 		g.CaBundles = nullRaw(in.CaBundles)
 	}
 
-	if len(in.ResponseCache) > 0 && !jsonIsNoCache(in.ResponseCache) && string(in.ResponseCache) != "null" {
+	if len(in.ResponseCache) > 0 && !jsonIsNoCache(in.ResponseCache) && string(in.ResponseCache) != jsonNull {
 		return "", errUnsupported("responseCacheDetails other than type NONE")
 	}
 
@@ -330,11 +330,7 @@ func (b *InMemoryBackend) ChangeGatewayCompartment(id, ifMatch string, in change
 		return "", err
 	}
 
-	if err = checkEtag(g.Etag, ifMatch); err != nil {
-		return "", err
-	}
-
-	if err = b.checkCompartment(in.CompartmentID); err != nil {
+	if err = b.checkMove(g.Etag, ifMatch, in.CompartmentID); err != nil {
 		return "", err
 	}
 
@@ -344,24 +340,18 @@ func (b *InMemoryBackend) ChangeGatewayCompartment(id, ifMatch string, in change
 
 	g.CompartmentID, g.TimeUpdated, g.Etag = in.CompartmentID, b.nowUTC(), newEtag()
 
-	return b.newWR(wrUpdateGateway, g.CompartmentID, entityGateway, id, actionUpdated, b.nowUTC().Add(b.transition)), nil
+	return b.newWR(
+		wrUpdateGateway,
+		g.CompartmentID,
+		entityGateway,
+		id,
+		actionUpdated,
+		b.nowUTC().Add(b.transition),
+	), nil
 }
 
 func (h *Handler) createGateway(q *req) error {
-	var in createGatewayIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	w, wr, etag, err := h.Backend.CreateGateway(in)
-	if err != nil {
-		return err
-	}
-
-	q.header("opc-work-request-id", wr)
-	q.header("location", base+"/gateways/"+w.ID)
-
-	return q.json(http.StatusAccepted, w, etag)
+	return created(q, "/gateways/", func(w GatewayWire) string { return w.ID }, h.Backend.CreateGateway)
 }
 
 func (h *Handler) getGateway(q *req) error {
@@ -378,14 +368,9 @@ func (h *Handler) listGateways(q *req) error {
 }
 
 func (h *Handler) updateGateway(q *req) error {
-	var in updateGatewayIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	wr, err := h.Backend.UpdateGateway(q.param("gatewayId"), q.ifMatch(), in)
-
-	return acceptedWR(q, wr, err)
+	return withBody(q, func(in updateGatewayIn) (string, error) {
+		return h.Backend.UpdateGateway(q.param("gatewayId"), q.ifMatch(), in)
+	})
 }
 
 func (h *Handler) deleteGateway(q *req) error {
@@ -395,12 +380,7 @@ func (h *Handler) deleteGateway(q *req) error {
 }
 
 func (h *Handler) changeGatewayCompartment(q *req) error {
-	var in changeCompartmentIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	wr, err := h.Backend.ChangeGatewayCompartment(q.param("gatewayId"), q.ifMatch(), in)
-
-	return acceptedWR(q, wr, err)
+	return withBody(q, func(in changeCompartmentIn) (string, error) {
+		return h.Backend.ChangeGatewayCompartment(q.param("gatewayId"), q.ifMatch(), in)
+	})
 }

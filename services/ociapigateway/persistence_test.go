@@ -49,7 +49,11 @@ func TestRestoreRejectsBadSnapshots(t *testing.T) {
 		wantErr bool
 	}{
 		{"null gateway", `{"version":1,"gateways":{"a":null}}`, true},
-		{"unparseable spec", `{"version":1,"deployments":{"d":{"id":"d","state":"ACTIVE","specification":{"routes":[{"path":"x"}]}}}}`, true},
+		{
+			"unparseable spec",
+			`{"version":1,"deployments":{"d":{"id":"d","state":"ACTIVE","specification":{"routes":[{"path":"x"}]}}}}`,
+			true,
+		},
 		{"old version starts empty", `{"version":0,"gateways":{"a":null}}`, false},
 	}
 

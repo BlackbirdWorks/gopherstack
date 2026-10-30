@@ -35,6 +35,7 @@ var (
 	errNoKey     = errors.New("no matching signing key")
 	errClaim     = errors.New("claim validation failed")
 	errKeyFormat = errors.New("unsupported key")
+	errJWKSStatus = errors.New("jwks endpoint answered")
 )
 
 // authResult is the outcome of authenticating a data-plane request.
@@ -157,7 +158,7 @@ func (b *InMemoryBackend) remoteKeys(ctx context.Context, uri string, hours *int
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jwks endpoint answered %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w: %d", errJWKSStatus, resp.StatusCode)
 	}
 
 	var doc struct {
@@ -193,11 +194,12 @@ func (b *InMemoryBackend) remoteKeys(ctx context.Context, uri string, hours *int
 
 // signingKeys resolves the key set of a JWT or token policy.
 func (b *InMemoryBackend) signingKeys(ctx context.Context, a *authDoc) (map[string]crypto.PublicKey, error) {
-	kind, uri, hours, static := keySource(a)
-
-	if kind == keysRemote {
-		return b.remoteKeys(ctx, uri, hours)
+	ks := keySource(a)
+	if ks.kind == keysRemote {
+		return b.remoteKeys(ctx, ks.uri, ks.hours)
 	}
+
+	static := ks.keys
 
 	keys := map[string]crypto.PublicKey{}
 
@@ -213,30 +215,36 @@ func (b *InMemoryBackend) signingKeys(ctx context.Context, a *authDoc) (map[stri
 	return keys, nil
 }
 
-func keySource(a *authDoc) (kind, uri string, hours *int, keys []staticKeyDoc) {
+type keySet struct {
+	hours *int
+	kind  string
+	uri   string
+	keys  []staticKeyDoc
+}
+
+func keySource(a *authDoc) keySet {
 	if a.PublicKeys != nil {
-		return a.PublicKeys.Type, a.PublicKeys.URI, a.PublicKeys.MaxCacheHours, a.PublicKeys.Keys
+		k := a.PublicKeys
+
+		return keySet{kind: k.Type, uri: k.URI, hours: k.MaxCacheHours, keys: k.Keys}
 	}
 
 	if a.ValidationPolicy != nil {
 		v := a.ValidationPolicy
 
-		return v.Type, v.URI, v.MaxCacheHours, v.Keys
+		return keySet{kind: v.Type, uri: v.URI, hours: v.MaxCacheHours, keys: v.Keys}
 	}
 
-	return "", "", nil, nil
+	return keySet{}
 }
 
 // effectiveChecks returns the issuers, audiences and claims the token must satisfy.
-func effectiveChecks(a *authDoc) (issuers, audiences []string, claims []claimDoc) {
-	issuers, audiences, claims = a.Issuers, a.Audiences, a.VerifyClaims
-
+func effectiveChecks(a *authDoc) additionalDoc {
 	if a.ValidationPolicy != nil && a.ValidationPolicy.Additional != nil {
-		ad := a.ValidationPolicy.Additional
-		issuers, audiences, claims = ad.Issuers, ad.Audiences, ad.VerifyClaims
+		return *a.ValidationPolicy.Additional
 	}
 
-	return issuers, audiences, claims
+	return additionalDoc{Issuers: a.Issuers, Audiences: a.Audiences, VerifyClaims: a.VerifyClaims}
 }
 
 // tokenOf reads the bearer token from the configured header (after the scheme) or query parameter.
@@ -317,8 +325,7 @@ func (b *InMemoryBackend) verifyJWT(ctx context.Context, a *authDoc, token strin
 		return authResult{}
 	}
 
-	issuers, audiences, extra := effectiveChecks(a)
-	if checkClaims(claims, issuers, audiences, extra) != nil {
+	if checkClaims(claims, effectiveChecks(a)) != nil {
 		return authResult{}
 	}
 
@@ -362,7 +369,9 @@ func claimStrings(v any) []string {
 	}
 }
 
-func checkClaims(claims jwt.MapClaims, issuers, audiences []string, extra []claimDoc) error {
+func checkClaims(claims jwt.MapClaims, want additionalDoc) error {
+	issuers, audiences, extra := want.Issuers, want.Audiences, want.VerifyClaims
+
 	if len(issuers) > 0 {
 		iss, _ := claims["iss"].(string)
 		if !slices.Contains(issuers, iss) {
@@ -389,7 +398,8 @@ func checkClaims(claims jwt.MapClaims, issuers, audiences []string, extra []clai
 			continue
 		}
 
-		if len(c.Values) > 0 && !slices.ContainsFunc(claimStrings(v), func(s string) bool { return slices.Contains(c.Values, s) }) {
+		if len(c.Values) > 0 &&
+			!slices.ContainsFunc(claimStrings(v), func(s string) bool { return slices.Contains(c.Values, s) }) {
 			return errClaim
 		}
 	}
@@ -412,7 +422,7 @@ func scopesOf(claims jwt.MapClaims) []string {
 // authenticate runs the deployment authentication policy; anonymous reports a request that carried no token.
 func (b *InMemoryBackend) authenticate(
 	ctx context.Context, a *authDoc, r *http.Request, rv *reqView,
-) (res authResult, anonymous bool) {
+) (authResult, bool) {
 	token := tokenOf(a, r)
 	if token == "" {
 		if a.IsAnonymousAllowed != nil && *a.IsAnonymousAllowed {

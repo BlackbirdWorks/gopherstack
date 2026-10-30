@@ -171,6 +171,15 @@ func checkEtag(current, ifMatch string) *APIError {
 	return nil
 }
 
+// checkMove validates the etag and the target compartment of a ChangeCompartment call.
+func (b *InMemoryBackend) checkMove(current, ifMatch, target string) *APIError {
+	if err := checkEtag(current, ifMatch); err != nil {
+		return err
+	}
+
+	return b.checkCompartment(target)
+}
+
 func (b *InMemoryBackend) transitionAt() *time.Time {
 	t := b.nowUTC().Add(b.transition)
 

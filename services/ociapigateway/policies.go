@@ -29,34 +29,36 @@ func preflight(w http.ResponseWriter, r *http.Request, c *corsDoc) {
 	h.Add("Vary", "Origin")
 
 	if originAllowed(c, origin) {
-		h.Set("Access-Control-Allow-Origin", allowOriginValue(c, origin))
-
-		methods := strings.Join(c.AllowedMethods, ", ")
-		if methods == "" || slices.Contains(c.AllowedMethods, "*") {
-			methods = r.Header.Get("Access-Control-Request-Method")
-		}
-
-		h.Set("Access-Control-Allow-Methods", methods)
-
-		headers := strings.Join(c.AllowedHeaders, ", ")
-		if headers == "" || slices.Contains(c.AllowedHeaders, "*") {
-			headers = r.Header.Get("Access-Control-Request-Headers")
-		}
-
-		if headers != "" {
-			h.Set("Access-Control-Allow-Headers", headers)
-		}
-
-		if credentialed(c) {
-			h.Set("Access-Control-Allow-Credentials", "true")
-		}
-
-		if c.MaxAge != nil && *c.MaxAge > 0 {
-			h.Set("Access-Control-Max-Age", strconv.Itoa(*c.MaxAge))
-		}
+		preflightHeaders(h, r, c, origin)
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func preflightHeaders(h http.Header, r *http.Request, c *corsDoc, origin string) {
+	h.Set("Access-Control-Allow-Origin", allowOriginValue(c, origin))
+	h.Set("Access-Control-Allow-Methods", listOrEcho(c.AllowedMethods, r.Header.Get("Access-Control-Request-Method")))
+
+	if headers := listOrEcho(c.AllowedHeaders, r.Header.Get("Access-Control-Request-Headers")); headers != "" {
+		h.Set("Access-Control-Allow-Headers", headers)
+	}
+
+	if credentialed(c) {
+		h.Set("Access-Control-Allow-Credentials", "true")
+	}
+
+	if c.MaxAge != nil && *c.MaxAge > 0 {
+		h.Set("Access-Control-Max-Age", strconv.Itoa(*c.MaxAge))
+	}
+}
+
+// listOrEcho joins the configured list, or echoes the requested value for an empty list or '*'.
+func listOrEcho(list []string, requested string) string {
+	if len(list) == 0 || slices.Contains(list, "*") {
+		return requested
+	}
+
+	return strings.Join(list, ", ")
 }
 
 // corsHeaders decorates an actual (non-preflight) response.
@@ -94,8 +96,7 @@ func transformHeaders(h http.Header, t *transformDoc, rv *reqView) {
 
 	if f := t.FilterHeaders; f != nil {
 		for k := range h {
-			listed := hasName(f.Items, k)
-			if (f.Type == "ALLOW" && !listed) || (f.Type == "BLOCK" && listed) {
+			if filtered(f.Type, hasName(f.Items, k)) {
 				delete(h, k)
 			}
 		}
@@ -103,8 +104,9 @@ func transformHeaders(h http.Header, t *transformDoc, rv *reqView) {
 
 	if t.RenameHeaders != nil {
 		for _, it := range t.RenameHeaders.Items {
-			if vs, ok := h[http.CanonicalHeaderKey(it.From)]; ok {
-				delete(h, http.CanonicalHeaderKey(it.From))
+			from := http.CanonicalHeaderKey(it.From)
+			if vs, ok := h[from]; ok {
+				delete(h, from)
 				h[http.CanonicalHeaderKey(it.To)] = vs
 			}
 		}
@@ -113,21 +115,34 @@ func transformHeaders(h http.Header, t *transformDoc, rv *reqView) {
 	if t.SetHeaders != nil {
 		for _, it := range t.SetHeaders.Items {
 			key := http.CanonicalHeaderKey(it.Name)
-			_, exists := h[key]
-
-			switch {
-			case exists && it.IfExists == "SKIP":
-				continue
-			case exists && it.IfExists == "APPEND":
-			default:
-				delete(h, key)
-			}
-
-			for _, v := range it.Values {
-				h.Add(key, rv.interpolate(v, nil))
+			if prepareSet(h, key, it.IfExists) {
+				for _, v := range it.Values {
+					h.Add(key, rv.interpolate(v, nil))
+				}
 			}
 		}
 	}
+}
+
+// filtered reports whether an ALLOW/BLOCK filter removes an entry.
+func filtered(kind string, listed bool) bool {
+	return (kind == "ALLOW" && !listed) || (kind == "BLOCK" && listed)
+}
+
+// prepareSet applies the ifExists mode to an existing key and reports whether new values should be added.
+func prepareSet(h map[string][]string, key, ifExists string) bool {
+	if _, exists := h[key]; exists {
+		switch ifExists {
+		case "SKIP":
+			return false
+		case "APPEND":
+			return true
+		}
+
+		delete(h, key)
+	}
+
+	return true
 }
 
 // transformQuery applies filter, then rename, then set to query parameters.
@@ -138,8 +153,7 @@ func transformQuery(q url.Values, t *transformDoc, rv *reqView) {
 
 	if f := t.FilterQuery; f != nil {
 		for k := range q {
-			listed := slices.ContainsFunc(f.Items, func(i nameItem) bool { return i.Name == k })
-			if (f.Type == "ALLOW" && !listed) || (f.Type == "BLOCK" && listed) {
+			if filtered(f.Type, slices.ContainsFunc(f.Items, func(i nameItem) bool { return i.Name == k })) {
 				delete(q, k)
 			}
 		}
@@ -156,18 +170,10 @@ func transformQuery(q url.Values, t *transformDoc, rv *reqView) {
 
 	if t.SetQuery != nil {
 		for _, it := range t.SetQuery.Items {
-			_, exists := q[it.Name]
-
-			switch {
-			case exists && it.IfExists == "SKIP":
-				continue
-			case exists && it.IfExists == "APPEND":
-			default:
-				q.Del(it.Name)
-			}
-
-			for _, v := range it.Values {
-				q.Add(it.Name, rv.interpolate(v, nil))
+			if prepareSet(q, it.Name, it.IfExists) {
+				for _, v := range it.Values {
+					q.Add(it.Name, rv.interpolate(v, nil))
+				}
 			}
 		}
 	}

@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
-	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -14,12 +13,12 @@ import (
 
 type createCertificateIn struct {
 	Tags
-	Locks         json.RawMessage `json:"locks"`
 	CompartmentID string          `json:"compartmentId"`
 	DisplayName   string          `json:"displayName"`
 	PrivateKey    string          `json:"privateKey"`
 	Certificate   string          `json:"certificate"`
 	Intermediate  string          `json:"intermediateCertificates"`
+	Locks         json.RawMessage `json:"locks"`
 }
 
 type updateCertificateIn struct {
@@ -117,7 +116,8 @@ func subjectNames(c *x509.Certificate) []string {
 
 func (b *InMemoryBackend) certNameTaken(compartment, name, except string) bool {
 	for _, c := range b.certificates {
-		if c.ID != except && c.CompartmentID == compartment && c.State != stateDeleted && strs.Equal(c.DisplayName, name) {
+		if c.ID != except && c.CompartmentID == compartment && c.State != stateDeleted &&
+			strs.Equal(c.DisplayName, name) {
 			return true
 		}
 	}
@@ -147,7 +147,9 @@ func (b *InMemoryBackend) CreateCertificate(in createCertificateIn) (Certificate
 	}
 
 	if b.certNameTaken(in.CompartmentID, name, "") {
-		return CertificateWire{}, "", "", errConflict("a certificate named " + name + " already exists in this compartment")
+		return CertificateWire{}, "", "", errConflict(
+			"a certificate named " + name + " already exists in this compartment",
+		)
 	}
 
 	c := &Certificate{
@@ -290,11 +292,7 @@ func (b *InMemoryBackend) ChangeCertificateCompartment(id, ifMatch string, in ch
 		return "", err
 	}
 
-	if err = checkEtag(c.Etag, ifMatch); err != nil {
-		return "", err
-	}
-
-	if err = b.checkCompartment(in.CompartmentID); err != nil {
+	if err = b.checkMove(c.Etag, ifMatch, in.CompartmentID); err != nil {
 		return "", err
 	}
 
@@ -308,20 +306,7 @@ func (b *InMemoryBackend) ChangeCertificateCompartment(id, ifMatch string, in ch
 }
 
 func (h *Handler) createCertificate(q *req) error {
-	var in createCertificateIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	w, wr, etag, err := h.Backend.CreateCertificate(in)
-	if err != nil {
-		return err
-	}
-
-	q.header("opc-work-request-id", wr)
-	q.header("location", base+"/certificates/"+w.ID)
-
-	return q.json(http.StatusAccepted, w, etag)
+	return created(q, "/certificates/", func(w CertificateWire) string { return w.ID }, h.Backend.CreateCertificate)
 }
 
 func (h *Handler) getCertificate(q *req) error {
@@ -338,14 +323,9 @@ func (h *Handler) listCertificates(q *req) error {
 }
 
 func (h *Handler) updateCertificate(q *req) error {
-	var in updateCertificateIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	wr, err := h.Backend.UpdateCertificate(q.param("certificateId"), q.ifMatch(), in)
-
-	return acceptedWR(q, wr, err)
+	return withBody(q, func(in updateCertificateIn) (string, error) {
+		return h.Backend.UpdateCertificate(q.param("certificateId"), q.ifMatch(), in)
+	})
 }
 
 func (h *Handler) deleteCertificate(q *req) error {
@@ -355,12 +335,7 @@ func (h *Handler) deleteCertificate(q *req) error {
 }
 
 func (h *Handler) changeCertificateCompartment(q *req) error {
-	var in changeCompartmentIn
-	if err := q.decode(&in); err != nil {
-		return err
-	}
-
-	wr, err := h.Backend.ChangeCertificateCompartment(q.param("certificateId"), q.ifMatch(), in)
-
-	return acceptedWR(q, wr, err)
+	return withBody(q, func(in changeCompartmentIn) (string, error) {
+		return h.Backend.ChangeCertificateCompartment(q.param("certificateId"), q.ifMatch(), in)
+	})
 }

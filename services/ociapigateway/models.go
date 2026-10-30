@@ -64,8 +64,6 @@ type Deployment struct {
 	TimeUpdated   time.Time       `json:"timeUpdated"`
 	Tags          Tags            `json:"tags"`
 	TransitionAt  *time.Time      `json:"transitionAt,omitempty"`
-	Spec          json.RawMessage `json:"specification"`
-	Locks         json.RawMessage `json:"locks,omitempty"`
 	ID            string          `json:"id"`
 	GatewayID     string          `json:"gatewayId"`
 	CompartmentID string          `json:"compartmentId"`
@@ -73,6 +71,8 @@ type Deployment struct {
 	DisplayName   string          `json:"displayName"`
 	State         string          `json:"state"`
 	Etag          string          `json:"etag"`
+	Locks         json.RawMessage `json:"locks,omitempty"`
+	Spec          json.RawMessage `json:"specification"`
 }
 
 // Certificate is a TLS certificate usable by a gateway.

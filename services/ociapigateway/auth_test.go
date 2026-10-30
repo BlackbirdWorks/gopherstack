@@ -102,7 +102,12 @@ func TestJWTStaticKeys(t *testing.T) {
 
 			e := newEnv(t, envOpts{})
 			gw := e.mkGateway(t, "jwt")
-			e.mkDeployment(t, *gw.Id, "/j", authSpec(keys, `"isAnonymousAccessAllowed":true,"maxClockSkewInSeconds":30,`))
+			e.mkDeployment(
+				t,
+				*gw.Id,
+				"/j",
+				authSpec(keys, `"isAnonymousAccessAllowed":true,"maxClockSkewInSeconds":30,`),
+			)
 			now := e.clock.Now()
 
 			bad := func(mod func(jwt.MapClaims)) string {
@@ -115,7 +120,8 @@ func TestJWTStaticKeys(t *testing.T) {
 			hs, err := jwt.NewWithClaims(jwt.SigningMethodHS256, goodClaims(now)).SignedString([]byte("secret"))
 			require.NoError(t, err)
 
-			none, err := jwt.NewWithClaims(jwt.SigningMethodNone, goodClaims(now)).SignedString(jwt.UnsafeAllowNoneSignatureType)
+			none, err := jwt.NewWithClaims(jwt.SigningMethodNone, goodClaims(now)).
+				SignedString(jwt.UnsafeAllowNoneSignatureType)
 			require.NoError(t, err)
 
 			tests := []struct {
@@ -126,10 +132,25 @@ func TestJWTStaticKeys(t *testing.T) {
 				{"valid no kid match single key", "/j/secure", signToken(t, good, "", goodClaims(now)), 200},
 				{"wrong issuer", "/j/secure", bad(func(c jwt.MapClaims) { c["iss"] = "https://evil" }), 401},
 				{"wrong audience", "/j/secure", bad(func(c jwt.MapClaims) { c["aud"] = "other" }), 401},
-				{"audience list", "/j/secure", bad(func(c jwt.MapClaims) { c["aud"] = []string{"x", jwtAudience} }), 200},
+				{
+					"audience list",
+					"/j/secure",
+					bad(func(c jwt.MapClaims) { c["aud"] = []string{"x", jwtAudience} }),
+					200,
+				},
 				{"expired", "/j/secure", bad(func(c jwt.MapClaims) { c["exp"] = now.Add(-time.Hour).Unix() }), 401},
-				{"expired within skew", "/j/secure", bad(func(c jwt.MapClaims) { c["exp"] = now.Add(-10 * time.Second).Unix() }), 200},
-				{"not yet valid", "/j/secure", bad(func(c jwt.MapClaims) { c["nbf"] = now.Add(time.Hour).Unix() }), 401},
+				{
+					"expired within skew",
+					"/j/secure",
+					bad(func(c jwt.MapClaims) { c["exp"] = now.Add(-10 * time.Second).Unix() }),
+					200,
+				},
+				{
+					"not yet valid",
+					"/j/secure",
+					bad(func(c jwt.MapClaims) { c["nbf"] = now.Add(time.Hour).Unix() }),
+					401,
+				},
 				{"missing exp", "/j/secure", bad(func(c jwt.MapClaims) { delete(c, "exp") }), 401},
 				{"wrong signing key", "/j/secure", signToken(t, other, "k1", goodClaims(now)), 401},
 				{"unknown kid", "/j/secure", signToken(t, good, "zzz", goodClaims(now)), 401},
@@ -165,9 +186,14 @@ func TestJWTRequiredWhenAnonymousDisallowed(t *testing.T) {
 	k := rsaKey(t)
 	e := newEnv(t, envOpts{})
 	gw := e.mkGateway(t, "jwt2")
-	e.mkDeployment(t, *gw.Id, "/j", `{"requestPolicies":{"authentication":{"type":"JWT_AUTHENTICATION","issuers":["`+jwtIssuer+
-		`"],"audiences":["`+jwtAudience+`"],"tokenQueryParam":"access_token","publicKeys":{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+
-		`]}}},"routes":[`+stock("/x", `"GET"`, "ok")+`]}`)
+	e.mkDeployment(
+		t,
+		*gw.Id,
+		"/j",
+		`{"requestPolicies":{"authentication":{"type":"JWT_AUTHENTICATION","issuers":["`+jwtIssuer+
+			`"],"audiences":["`+jwtAudience+`"],"tokenQueryParam":"access_token","publicKeys":{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+
+			`]}}},"routes":[`+stock("/x", `"GET"`, "ok")+`]}`,
+	)
 
 	assert.Equal(t, 401, e.call(t, *gw.Id, http.MethodGet, "/j/x", nil, "").status)
 
@@ -175,7 +201,12 @@ func TestJWTRequiredWhenAnonymousDisallowed(t *testing.T) {
 	assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, "/j/x?access_token="+tok, nil, "").status)
 
 	e.clock.Advance(2 * time.Hour)
-	assert.Equal(t, 401, e.call(t, *gw.Id, http.MethodGet, "/j/x?access_token="+tok, nil, "").status, "expiry follows the injected clock")
+	assert.Equal(
+		t,
+		401,
+		e.call(t, *gw.Id, http.MethodGet, "/j/x?access_token="+tok, nil, "").status,
+		"expiry follows the injected clock",
+	)
 }
 
 func TestJWTVerifyClaims(t *testing.T) {
@@ -184,20 +215,22 @@ func TestJWTVerifyClaims(t *testing.T) {
 	k := rsaKey(t)
 	e := newEnv(t, envOpts{})
 	gw := e.mkGateway(t, "claims")
-	e.mkDeployment(t, *gw.Id, "/c", authSpec(`{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+`]}`,
-		`"isAnonymousAccessAllowed":true,"verifyClaims":[{"key":"tier","values":["gold","silver"]},{"key":"dept","isRequired":false,"values":["eng"]}],`))
+	e.mkDeployment(t, *gw.Id, "/c", authSpec(
+		`{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+`]}`,
+		`"isAnonymousAccessAllowed":true,"verifyClaims":[{"key":"tier","values":["gold","silver"]},{"key":"dept","isRequired":false,"values":["eng"]}],`,
+	))
 	now := e.clock.Now()
 
 	tests := []struct {
-		name   string
 		mod    func(jwt.MapClaims)
+		name   string
 		status int
 	}{
-		{"claim matches", func(jwt.MapClaims) {}, 200},
-		{"required claim wrong value", func(c jwt.MapClaims) { c["tier"] = "bronze" }, 401},
-		{"required claim missing", func(c jwt.MapClaims) { delete(c, "tier") }, 401},
-		{"optional claim wrong value", func(c jwt.MapClaims) { c["dept"] = "ops" }, 401},
-		{"optional claim right value", func(c jwt.MapClaims) { c["dept"] = "eng" }, 200},
+		{func(jwt.MapClaims) {}, "claim matches", 200},
+		{func(c jwt.MapClaims) { c["tier"] = "bronze" }, "required claim wrong value", 401},
+		{func(c jwt.MapClaims) { delete(c, "tier") }, "required claim missing", 401},
+		{func(c jwt.MapClaims) { c["dept"] = "ops" }, "optional claim wrong value", 401},
+		{func(c jwt.MapClaims) { c["dept"] = "eng" }, "optional claim right value", 200},
 	}
 
 	for _, tt := range tests {
@@ -234,7 +267,15 @@ func TestJWTRemoteJWKS(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	gw := e.mkGateway(t, "remote")
-	e.mkDeployment(t, *gw.Id, "/r", authSpec(`{"type":"REMOTE_JWKS","uri":"`+jwks.URL+`","maxCacheDurationInHours":2}`, `"isAnonymousAccessAllowed":true,`))
+	e.mkDeployment(
+		t,
+		*gw.Id,
+		"/r",
+		authSpec(
+			`{"type":"REMOTE_JWKS","uri":"`+jwks.URL+`","maxCacheDurationInHours":2}`,
+			`"isAnonymousAccessAllowed":true,`,
+		),
+	)
 
 	hdr := func() map[string]string {
 		return map[string]string{"Authorization": "Bearer " + signToken(t, k, "r1", goodClaims(e.clock.Now()))}
@@ -254,7 +295,12 @@ func TestJWTRemoteJWKSBlockedOffLoopback(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	gw := e.mkGateway(t, "ssrf")
-	e.mkDeployment(t, *gw.Id, "/r", authSpec(`{"type":"REMOTE_JWKS","uri":"http://192.0.2.7:9/jwks"}`, `"isAnonymousAccessAllowed":true,`))
+	e.mkDeployment(
+		t,
+		*gw.Id,
+		"/r",
+		authSpec(`{"type":"REMOTE_JWKS","uri":"http://192.0.2.7:9/jwks"}`, `"isAnonymousAccessAllowed":true,`),
+	)
 
 	r := e.call(t, *gw.Id, http.MethodGet, "/r/secure", map[string]string{"Authorization": "Bearer abc.def.ghi"}, "")
 	assert.Equal(t, 401, r.status, "unreachable JWKS fails closed")
@@ -266,16 +312,29 @@ func TestTokenAuthenticationAdditionalPolicy(t *testing.T) {
 	k := rsaKey(t)
 	e := newEnv(t, envOpts{})
 	gw := e.mkGateway(t, "tokenauth")
-	e.mkDeployment(t, *gw.Id, "/t", `{"requestPolicies":{"authentication":{"type":"TOKEN_AUTHENTICATION","tokenHeader":"X-Token",
+	e.mkDeployment(
+		t,
+		*gw.Id,
+		"/t",
+		`{"requestPolicies":{"authentication":{"type":"TOKEN_AUTHENTICATION","tokenHeader":"X-Token",
 		"tokenAuthScheme":"Bearer","validationPolicy":{"type":"STATIC_KEYS","keys":[`+jwkOf(k, "k1")+`],
 		"additionalValidationPolicy":{"issuers":["`+jwtIssuer+`"],"audiences":["`+jwtAudience+`"]}}}},
-		"routes":[`+stock("/x", `"GET"`, "ok")+`]}`)
+		"routes":[`+stock("/x", `"GET"`, "ok")+`]}`,
+	)
 
 	now := e.clock.Now()
 	tok := signToken(t, k, "k1", goodClaims(now))
 
-	assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, "/t/x", map[string]string{"X-Token": "Bearer " + tok}, "").status)
-	assert.Equal(t, 401, e.call(t, *gw.Id, http.MethodGet, "/t/x", map[string]string{"Authorization": "Bearer " + tok}, "").status)
+	assert.Equal(
+		t,
+		200,
+		e.call(t, *gw.Id, http.MethodGet, "/t/x", map[string]string{"X-Token": "Bearer " + tok}, "").status,
+	)
+	assert.Equal(
+		t,
+		401,
+		e.call(t, *gw.Id, http.MethodGet, "/t/x", map[string]string{"Authorization": "Bearer " + tok}, "").status,
+	)
 
 	c := goodClaims(now)
 	c["iss"] = "x"
@@ -287,11 +346,11 @@ func TestCustomAuthenticator(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOpts{})
-	inv := &fakeInvoker{fn: func(id string, in ociapigateway.FunctionRequest) (ociapigateway.FunctionResponse, error) {
+	inv := &fakeInvoker{fn: func(_ string, in ociapigateway.FunctionRequest) (ociapigateway.FunctionResponse, error) {
 		var p struct {
+			Data  map[string]string `json:"data"`
 			Type  string            `json:"type"`
 			Token string            `json:"token"`
-			Data  map[string]string `json:"data"`
 		}
 
 		_ = json.Unmarshal(in.Body, &p)
@@ -312,23 +371,49 @@ func TestCustomAuthenticator(t *testing.T) {
 	e.backend.SetFunctionInvoker(inv)
 
 	gw := e.mkGateway(t, "custom")
-	e.mkDeployment(t, *gw.Id, "/a", `{"requestPolicies":{"authentication":{"type":"CUSTOM_AUTHENTICATION","functionId":"`+testFunction+
-		`","tokenHeader":"Authorization"}},"routes":[`+stock("/x", `"GET"`, "ok")+`,
+	e.mkDeployment(
+		t,
+		*gw.Id,
+		"/a",
+		`{"requestPolicies":{"authentication":{"type":"CUSTOM_AUTHENTICATION","functionId":"`+testFunction+
+			`","tokenHeader":"Authorization"}},"routes":[`+stock("/x", `"GET"`, "ok")+`,
 		{"path":"/scoped","methods":["GET"],"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200},
-		 "requestPolicies":{"authorization":{"type":"ANY_OF","allowedScope":["admin"]}}}]}`)
+		 "requestPolicies":{"authorization":{"type":"ANY_OF","allowedScope":["admin"]}}}]}`,
+	)
 
-	assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, "/a/x", map[string]string{"Authorization": "good"}, "").status)
+	assert.Equal(
+		t,
+		200,
+		e.call(t, *gw.Id, http.MethodGet, "/a/x", map[string]string{"Authorization": "good"}, "").status,
+	)
 
 	denied := e.call(t, *gw.Id, http.MethodGet, "/a/x", map[string]string{"Authorization": "bad"}, "")
 	assert.Equal(t, 401, denied.status)
 	assert.Equal(t, `Bearer realm="orders"`, denied.header.Get("WWW-Authenticate"))
 
 	assert.Equal(t, 401, e.call(t, *gw.Id, http.MethodGet, "/a/x", nil, "").status)
-	assert.Equal(t, 403, e.call(t, *gw.Id, http.MethodGet, "/a/scoped", map[string]string{"Authorization": "good"}, "").status)
+	assert.Equal(
+		t,
+		403,
+		e.call(t, *gw.Id, http.MethodGet, "/a/scoped", map[string]string{"Authorization": "good"}, "").status,
+	)
 
-	e.mkDeployment(t, *gw.Id, "/b", `{"requestPolicies":{"authentication":{"type":"CUSTOM_AUTHENTICATION","functionId":"`+testFunction+
-		`","tokenHeader":"X-Auth","parameters":{"key":"request.headers[X-Key]"}}},"routes":[`+stock("/x", `"GET"`, "ok")+`]}`)
+	e.mkDeployment(
+		t,
+		*gw.Id,
+		"/b",
+		`{"requestPolicies":{"authentication":{"type":"CUSTOM_AUTHENTICATION","functionId":"`+testFunction+
+			`","tokenHeader":"X-Auth","parameters":{"key":"request.headers[X-Key]"}}},"routes":[`+stock("/x", `"GET"`, "ok")+`]}`,
+	)
 
-	assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, "/b/x", map[string]string{"X-Auth": "t", "X-Key": "letmein"}, "").status)
-	assert.Equal(t, 401, e.call(t, *gw.Id, http.MethodGet, "/b/x", map[string]string{"X-Auth": "t", "X-Key": "no"}, "").status)
+	assert.Equal(
+		t,
+		200,
+		e.call(t, *gw.Id, http.MethodGet, "/b/x", map[string]string{"X-Auth": "t", "X-Key": "letmein"}, "").status,
+	)
+	assert.Equal(
+		t,
+		401,
+		e.call(t, *gw.Id, http.MethodGet, "/b/x", map[string]string{"X-Auth": "t", "X-Key": "no"}, "").status,
+	)
 }

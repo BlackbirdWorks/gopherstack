@@ -9,8 +9,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
+	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 )
 
 func TestReserveFixedServicePorts_OCIAPIGateway(t *testing.T) {

@@ -32,6 +32,36 @@ func reply[T any](q *req, w T, etag string, err error) error {
 	return q.json(http.StatusOK, w, etag)
 }
 
+// withBody decodes the request body, runs the operation and answers 202 with its work request.
+func withBody[I any](q *req, fn func(in I) (string, error)) error {
+	var in I
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	wr, err := fn(in)
+
+	return acceptedWR(q, wr, err)
+}
+
+// created answers 202 with the new resource, its etag, location and work request.
+func created[I, W any](q *req, path string, id func(W) string, fn func(I) (W, string, string, error)) error {
+	var in I
+	if err := q.decode(&in); err != nil {
+		return err
+	}
+
+	w, wr, etag, err := fn(in)
+	if err != nil {
+		return err
+	}
+
+	q.header("opc-work-request-id", wr)
+	q.header("location", base+path+id(w))
+
+	return q.json(http.StatusAccepted, w, etag)
+}
+
 func acceptedWR(q *req, wr string, err error) error {
 	if err != nil {
 		return err

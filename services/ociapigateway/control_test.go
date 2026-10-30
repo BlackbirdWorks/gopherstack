@@ -20,14 +20,20 @@ func TestGatewayLifecycle(t *testing.T) {
 	assert.Equal(t, apigateway.GatewayLifecycleStateCreating, created.LifecycleState)
 	assert.Regexp(t, `^[0-9a-f]{26}\.apigateway\.us-ashburn-1\.oci\.customer-oci\.com$`, *created.Hostname)
 
-	wr, err := e.wr.GetWorkRequest(t.Context(), apigateway.GetWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId})
+	wr, err := e.wr.GetWorkRequest(
+		t.Context(),
+		apigateway.GetWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, apigateway.WorkRequestStatusInProgress, wr.Status)
 	assert.Equal(t, apigateway.WorkRequestOperationTypeCreateGateway, wr.OperationType)
 
 	e.settle()
 
-	wr, err = e.wr.GetWorkRequest(t.Context(), apigateway.GetWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId})
+	wr, err = e.wr.GetWorkRequest(
+		t.Context(),
+		apigateway.GetWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, apigateway.WorkRequestStatusSucceeded, wr.Status)
 
@@ -38,15 +44,13 @@ func TestGatewayLifecycle(t *testing.T) {
 
 	upd, err := e.gw.UpdateGateway(t.Context(), apigateway.UpdateGatewayRequest{
 		GatewayId: created.Id, IfMatch: got.Etag,
-		UpdateGatewayDetails: apigateway.UpdateGatewayDetails{
-			DisplayName: new("renamed"), FreeformTags: map[string]string{"k": "v"},
-		},
+		DisplayName: new("renamed"), FreeformTags: map[string]string{"k": "v"},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, upd.OpcWorkRequestId)
 
 	_, err = e.gw.UpdateGateway(t.Context(), apigateway.UpdateGatewayRequest{
-		GatewayId: created.Id, UpdateGatewayDetails: apigateway.UpdateGatewayDetails{DisplayName: new("again")},
+		GatewayId: created.Id, DisplayName: new("again"),
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "UPDATING gateway rejects updates")
 
@@ -59,7 +63,7 @@ func TestGatewayLifecycle(t *testing.T) {
 
 	_, err = e.gw.UpdateGateway(t.Context(), apigateway.UpdateGatewayRequest{
 		GatewayId: created.Id, IfMatch: new("stale"),
-		UpdateGatewayDetails: apigateway.UpdateGatewayDetails{DisplayName: new("x")},
+		DisplayName: new("x"),
 	})
 	assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 
@@ -101,7 +105,11 @@ func TestCreateGatewayValidation(t *testing.T) {
 		name   string
 		status int
 	}{
-		{func(d *apigateway.CreateGatewayDetails) { d.SubnetId = new("ocid1.subnet.oc1..nope") }, "unknown subnet", 404},
+		{
+			func(d *apigateway.CreateGatewayDetails) { d.SubnetId = new("ocid1.subnet.oc1..nope") },
+			"unknown subnet",
+			404,
+		},
 		{func(d *apigateway.CreateGatewayDetails) { d.CompartmentId = new(otherCompart) }, "unknown compartment", 404},
 		{func(d *apigateway.CreateGatewayDetails) { d.CertificateId = new("ocid1.cert") }, "unknown certificate", 404},
 	}
@@ -127,10 +135,8 @@ func TestCreateGatewayValidation(t *testing.T) {
 		e.createGateway(t, "dup")
 
 		_, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
-			CreateGatewayDetails: apigateway.CreateGatewayDetails{
-				CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
-				SubnetId: new(testSubnet), DisplayName: new("DUP"),
-			},
+			CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+			SubnetId: new(testSubnet), DisplayName: new("DUP"),
 		})
 		assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 	})
@@ -143,8 +149,8 @@ func TestChangeGatewayCompartment(t *testing.T) {
 	gw := e.mkGateway(t, "mv")
 
 	resp, err := e.gw.ChangeGatewayCompartment(t.Context(), apigateway.ChangeGatewayCompartmentRequest{
-		GatewayId:                       gw.Id,
-		ChangeGatewayCompartmentDetails: apigateway.ChangeGatewayCompartmentDetails{CompartmentId: new(otherCompart)},
+		GatewayId:     gw.Id,
+		CompartmentId: new(otherCompart),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, resp.OpcWorkRequestId)
@@ -192,7 +198,7 @@ func TestUnknownRoute(t *testing.T) {
 	status, body, hdr := rawDo(t, http.MethodGet, e.base+"/20190501/nothing", "")
 	assert.Equal(t, http.StatusNotFound, status)
 	assert.Contains(t, body, `"code":"NotFound"`)
-	assert.NotEmpty(t, hdr.Get("opc-request-id"))
+	assert.NotEmpty(t, hdr.Get("Opc-Request-Id"))
 }
 
 func TestDeploymentValidation(t *testing.T) {
@@ -232,15 +238,48 @@ func TestDeploymentValidation(t *testing.T) {
 		{"missing backend", mk("/v1", `{"routes":[{"path":"/a"}]}`), 400},
 		{"duplicate routes", mk("/v1", `{"routes":[{"path":"/a/{x}","methods":["GET"],"backend":`+stock+
 			`},{"path":"/a/{y}","methods":["GET"],"backend":`+stock+`}]}`), 400},
-		{"usage plans unsupported", mk("/v1", `{"requestPolicies":{"usagePlans":{"tokenLocations":["request.headers[t]"]}},"routes":[]}`), 400},
-		{"rate limit zero", mk("/v1", `{"requestPolicies":{"rateLimiting":{"rateKey":"TOTAL","rateInRequestsPerSecond":0}},"routes":[]}`), 400},
+		{
+			"usage plans unsupported",
+			mk("/v1", `{"requestPolicies":{"usagePlans":{"tokenLocations":["request.headers[t]"]}},"routes":[]}`),
+			400,
+		},
+		{
+			"rate limit zero",
+			mk(
+				"/v1",
+				`{"requestPolicies":{"rateLimiting":{"rateKey":"TOTAL","rateInRequestsPerSecond":0}},"routes":[]}`,
+			),
+			400,
+		},
 		{"cors no origins", mk("/v1", `{"requestPolicies":{"cors":{"allowedOrigins":[]}},"routes":[]}`), 400},
-		{"jwt without keys", mk("/v1", `{"requestPolicies":{"authentication":{"type":"JWT_AUTHENTICATION","issuers":["i"],"audiences":["a"]}},"routes":[]}`), 400},
-		{"remote discovery unsupported", mk("/v1", `{"requestPolicies":{"authentication":{"type":"TOKEN_AUTHENTICATION","tokenHeader":"Authorization","tokenAuthScheme":"Bearer","validationPolicy":{"type":"REMOTE_DISCOVERY"}}},"routes":[]}`), 400},
+		{
+			"jwt without keys",
+			mk(
+				"/v1",
+				`{"requestPolicies":{"authentication":{"type":"JWT_AUTHENTICATION","issuers":["i"],"audiences":["a"]}},"routes":[]}`,
+			),
+			400,
+		},
+		{
+			"remote discovery unsupported",
+			mk(
+				"/v1",
+				`{"requestPolicies":{"authentication":{"type":"TOKEN_AUTHENTICATION","tokenHeader":"Authorization","tokenAuthScheme":"Bearer","validationPolicy":{"type":"REMOTE_DISCOVERY"}}},"routes":[]}`,
+			),
+			400,
+		},
 		{"anonymous route needs anonymous access", mk("/v1", `{"routes":[{"path":"/a","backend":`+stock+
 			`,"requestPolicies":{"authorization":{"type":"ANONYMOUS"}}}]}`), 400},
-		{"unknown gateway", strings.Replace(mk("/v1", route("/a", stock)), *gw.Id, "ocid1.apigateway.oc1..none", 1), 404},
-		{"missing spec", `{"gatewayId":"` + *gw.Id + `","compartmentId":"` + testCompartment + `","pathPrefix":"/v1"}`, 400},
+		{
+			"unknown gateway",
+			strings.Replace(mk("/v1", route("/a", stock)), *gw.Id, "ocid1.apigateway.oc1..none", 1),
+			404,
+		},
+		{
+			"missing spec",
+			`{"gatewayId":"` + *gw.Id + `","compartmentId":"` + testCompartment + `","pathPrefix":"/v1"}`,
+			400,
+		},
 		{"ok", mk("/ok", route("/a/{x}", stock)), 202},
 	}
 
@@ -280,9 +319,7 @@ func TestDeploymentCRUD(t *testing.T) {
 
 	_, err = e.dep.UpdateDeployment(t.Context(), apigateway.UpdateDeploymentRequest{
 		DeploymentId: resp.Id, IfMatch: got.Etag,
-		UpdateDeploymentDetails: apigateway.UpdateDeploymentDetails{
-			DisplayName: new("renamed"), Specification: specFromJSON(t, stockSpec(201, "two")),
-		},
+		DisplayName: new("renamed"), Specification: specFromJSON(t, stockSpec(201, "two")),
 	})
 	require.NoError(t, err)
 
@@ -298,10 +335,8 @@ func TestDeploymentCRUD(t *testing.T) {
 	assert.Equal(t, "renamed", *list.Items[0].DisplayName)
 
 	_, err = e.dep.ChangeDeploymentCompartment(t.Context(), apigateway.ChangeDeploymentCompartmentRequest{
-		DeploymentId: resp.Id,
-		ChangeDeploymentCompartmentDetails: apigateway.ChangeDeploymentCompartmentDetails{
-			CompartmentId: new(otherCompart),
-		},
+		DeploymentId:  resp.Id,
+		CompartmentId: new(otherCompart),
 	})
 	require.NoError(t, err)
 
@@ -322,11 +357,20 @@ func TestCreateGatewayRawValidation(t *testing.T) {
 	tests := []struct {
 		name, body string
 	}{
-		{"bad endpoint type", `{"compartmentId":"` + testCompartment + `","endpointType":"WEIRD","subnetId":"` + testSubnet + `"}`},
-		{"bad ip mode", `{"compartmentId":"` + testCompartment + `","endpointType":"PUBLIC","subnetId":"` + testSubnet + `","ipMode":"X"}`},
+		{
+			"bad endpoint type",
+			`{"compartmentId":"` + testCompartment + `","endpointType":"WEIRD","subnetId":"` + testSubnet + `"}`,
+		},
+		{
+			"bad ip mode",
+			`{"compartmentId":"` + testCompartment + `","endpointType":"PUBLIC","subnetId":"` + testSubnet + `","ipMode":"X"}`,
+		},
 		{"missing subnet", `{"compartmentId":"` + testCompartment + `","endpointType":"PUBLIC"}`},
-		{"response cache unsupported", `{"compartmentId":"` + testCompartment + `","endpointType":"PUBLIC","subnetId":"` + testSubnet +
-			`","responseCacheDetails":{"type":"EXTERNAL_RESP_CACHE"}}`},
+		{
+			"response cache unsupported",
+			`{"compartmentId":"` + testCompartment + `","endpointType":"PUBLIC","subnetId":"` + testSubnet +
+				`","responseCacheDetails":{"type":"EXTERNAL_RESP_CACHE"}}`,
+		},
 		{"not json", `{`},
 	}
 
