@@ -246,4 +246,6 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerOCIEventsRoutes()
 	h.registerGCPIdentityToolkitRoutes()
 	h.registerAzureFlexDBRoutes()
+	h.registerGCPAPIGatewayRoutes()
+	h.registerAzureAPIMRoutes()
 }

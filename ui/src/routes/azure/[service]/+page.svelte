@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { azureServiceById } from '#lib/cloud.ts';
+	import ApiManagementDashboard from '#lib/components/azure/ApiManagementDashboard.svelte';
 	import AppServiceDashboard from '#lib/components/azure/AppServiceDashboard.svelte';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
 	import FlexibleServerDashboard from '#lib/components/azure/FlexibleServerDashboard.svelte';
@@ -71,6 +72,8 @@
 	<KubernetesServiceDashboard />
 {:else if service?.id === 'flexdb'}
 	<FlexibleServerDashboard />
+{:else if service?.id === 'apim'}
+	<ApiManagementDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

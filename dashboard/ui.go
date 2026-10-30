@@ -96,6 +96,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcpapigatewaybackend "github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
@@ -601,6 +602,8 @@ type Config struct {
 	OCINotificationsOps *ocinotificationsbackend.Handler
 	// GCPIdentityToolkitOps is dispatched in-process by the /dashboard/api/v1/gcp/identitytoolkit proxy.
 	GCPIdentityToolkitOps *gcpidtkbackend.Handler
+	// GCPAPIGatewayOps is called in-process by the /dashboard/api/v1/gcp/apigateway proxy.
+	GCPAPIGatewayOps *gcpapigatewaybackend.Handler
 	// OCIContainerEngineOps is dispatched in-process by the /dashboard/api/v1/oci/containerengine proxy.
 	OCIContainerEngineOps *ocicontainerenginebackend.Handler
 	// OCIMySQLOps, OCILoggingOps and OCIMonitoringOps are dispatched in-process by their proxies.

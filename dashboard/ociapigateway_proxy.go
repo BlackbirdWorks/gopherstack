@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
@@ -115,12 +116,8 @@ func ociAPIGWTryIt(c *echo.Context, inner *echo.Echo, state func(string) (string
 	}
 
 	rel, ok := ociAPIGWTryPath(in)
-	if !ok || !slices.Contains(
-		[]string{
-			http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
-			http.MethodHead, http.MethodOptions,
-		}, in.Method,
-	) || len(in.Headers) > ociAPIGWMaxHeaders || len(in.Body) > ociAPIGWMaxReqBody {
+	if !ok || !ociAPIGWMethodOK(in.Method) || len(in.Headers) > ociAPIGWMaxHeaders ||
+		len(in.Body) > ociAPIGWMaxReqBody {
 		return ociInvalid(c, "invalid API Gateway try-it request")
 	}
 
@@ -147,6 +144,13 @@ func ociAPIGWTryIt(c *echo.Context, inner *echo.Echo, state func(string) (string
 	inner.ServeHTTP(rec, req)
 
 	return c.JSON(http.StatusOK, ociAPIGWTryOut(rec))
+}
+
+func ociAPIGWMethodOK(m string) bool {
+	return slices.Contains([]string{
+		http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
+		http.MethodHead, http.MethodOptions,
+	}, m)
 }
 
 // ociAPIGWTryPath validates the path and query and returns "/path?query" relative to the gateway.
@@ -184,16 +188,17 @@ func ociAPIGWHeaderOK(name string) bool {
 	return !slices.ContainsFunc(ociAPIGWHopByHop, func(h string) bool { return strings.EqualFold(h, name) })
 }
 
-func ociAPIGWTryOut(rec *httptest.ResponseRecorder) map[string]any {
+// ociAPIGWTryOut renders a data-plane response for the browser; every occurrence of a secret is masked.
+func ociAPIGWTryOut(rec *httptest.ResponseRecorder, secrets ...string) map[string]any {
 	headers := map[string]string{}
 
 	for k, v := range rec.Header() {
 		if ociAPIGWHeaderOK(k) {
-			headers[k] = strings.Join(v, ", ")
+			headers[k] = ociAPIGWMask(strings.Join(v, ", "), secrets)
 		}
 	}
 
-	raw := rec.Body.Bytes()[:min(rec.Body.Len(), ociAPIGWMaxRespBody)]
+	raw := ociAPIGWMaskBytes(rec.Body.Bytes()[:min(rec.Body.Len(), ociAPIGWMaxRespBody)], secrets)
 	out := map[string]any{
 		"status": rec.Code, "headers": headers, "truncated": rec.Body.Len() > ociAPIGWMaxRespBody,
 	}
@@ -205,4 +210,24 @@ func ociAPIGWTryOut(rec *httptest.ResponseRecorder) map[string]any {
 	}
 
 	return out
+}
+
+func ociAPIGWMask(s string, secrets []string) string {
+	for _, sec := range secrets {
+		if sec != "" {
+			s = strings.ReplaceAll(s, sec, "[redacted]")
+		}
+	}
+
+	return s
+}
+
+func ociAPIGWMaskBytes(b []byte, secrets []string) []byte {
+	for _, sec := range secrets {
+		if sec != "" {
+			b = bytes.ReplaceAll(b, []byte(sec), []byte("[redacted]"))
+		}
+	}
+
+	return b
 }

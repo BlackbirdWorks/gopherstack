@@ -179,6 +179,15 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azurearm",
     defaultPort: 10006,
   },
+  {
+    id: "apim",
+    label: "API Management",
+    description:
+      "Azure API Management services, APIs, products and subscriptions (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
 ];
 
 export type GcpService = {
@@ -400,6 +409,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     healthName: "GCPIdentityToolkit",
     portLabel: "gcpidentitytoolkit",
     defaultPort: 8145,
+  },
+  {
+    id: "apigateway",
+    label: "API Gateway",
+    description: "Google Cloud API Gateway APIs, configs and gateways",
+    healthName: "GCPAPIGateway",
+    portLabel: "gcpapigateway",
+    defaultPort: 8146,
   },
 ];
 

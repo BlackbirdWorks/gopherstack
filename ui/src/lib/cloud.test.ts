@@ -242,6 +242,7 @@ describe("new GCP console pages", () => {
       "vm",
       "aks",
       "flexdb",
+      "apim",
     ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
@@ -314,5 +315,14 @@ describe("new GCP console pages", () => {
       healthName: "GCPIdentityToolkit",
     });
     expect(azureServiceById("flexdb")?.portLabel).toBe("azurearm");
+  });
+
+  it("registers API Gateway and API Management", () => {
+    expect(gcpServiceById("apigateway")).toMatchObject({
+      portLabel: "gcpapigateway",
+      defaultPort: 8146,
+      healthName: "GCPAPIGateway",
+    });
+    expect(azureServiceById("apim")?.portLabel).toBe("azurearm");
   });
 });
