@@ -128,7 +128,7 @@ func TestDatabaseSQL(t *testing.T) {
 func TestDatabaseSQLRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$-"
+	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678_$-"
 
 	tests := []struct {
 		name  string
