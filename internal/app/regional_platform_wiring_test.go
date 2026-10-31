@@ -118,7 +118,10 @@ func TestInitializeServices_CodePipelineActionsRunInPipelineRegion(t *testing.T)
 }
 
 const cfnPlatformTemplate = `{"Resources":{
-"P":{"Type":"AWS::CodeBuild::Project","Properties":{"Name":"cfn-proj"}},
+"P":{"Type":"AWS::CodeBuild::Project","Properties":{"Name":"cfn-proj",
+"ServiceRole":"arn:aws:iam::000000000000:role/cb","Artifacts":{"Type":"NO_ARTIFACTS"},
+"Environment":{"Type":"LINUX_CONTAINER","ComputeType":"BUILD_GENERAL1_SMALL","Image":"aws/codebuild/standard:7.0"},
+"Source":{"Type":"NO_SOURCE","BuildSpec":"version: 0.2"}}},
 "D":{"Type":"AWS::GuardDuty::Detector","Properties":{"Enable":true}}}}`
 
 func TestInitializeServices_CloudFormationProvisionsPlatformServicesInStackRegion(t *testing.T) {
