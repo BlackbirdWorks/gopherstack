@@ -16,6 +16,7 @@ const (
 	reasonPermissionBoundary = iampolicystream.ReasonPermissionBound
 	reasonImplicitDeny       = iampolicystream.ReasonImplicitDeny
 	reasonUnresolvedCaller   = iampolicystream.ReasonUnresolvedCaller
+	reasonServiceControlPolicy = iampolicystream.ReasonServiceControl
 )
 
 // requestDecision is the outcome of evaluating one request. For a deny, reason

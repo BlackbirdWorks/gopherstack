@@ -725,6 +725,7 @@ type CLI struct {
 	EnforceSecurityGroups         bool                              `                                       name:"enforce-security-groups" env:"GOPHERSTACK_ENFORCE_SECURITY_GROUPS" default:"false"         help:"Enforce EC2 security-group ingress on container-backed endpoints (RDS, EC2, DocDB, MSK, caches, MQ, Neptune, ECS); ingress only. Default off."`                                                //nolint:lll // config struct tags are intentionally verbose
 	EnforceServiceQuotas          bool                              `                                       name:"enforce-service-quotas"  env:"GOPHERSTACK_ENFORCE_SERVICE_QUOTAS"  default:"false"         help:"Make S3, EC2, IAM and DynamoDB reject creates beyond the Service Quotas applied limit. Default off."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	IAMAudit                      bool                              `                                       name:"iam-audit"               env:"GOPHERSTACK_IAM_AUDIT,IAM_SOFT_MODE" default:"false"         help:"IAM audit (soft) mode: evaluate and record every request in the IAM Policy Stream but never deny."`                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	IAMEnforceSCPs                bool                              `                                       name:"iam-enforce-scps"        env:"GOPHERSTACK_IAM_ENFORCE_SCPS" default:"true"         help:"With IAM enforcement on, also evaluate Organizations service control policies for member-account principals. Set false to skip SCPs."`                                                                  //nolint:lll // config struct tags are intentionally verbose
 	LocalstackCompat              bool                              `                                       name:"localstack-compat"       env:"GOPHERSTACK_LOCALSTACK_COMPAT"       default:"false"         help:"LocalStack drop-in mode: also listen on 4566 (auto-enabled when LOCALSTACK_*, GATEWAY_LISTEN, LS_LOG or PERSISTENCE is set)."`                                                                 //nolint:lll // config struct tags are intentionally verbose
 	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                             default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
 	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                                default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
@@ -13165,6 +13166,7 @@ func setupChaosAndRegistry(
 		cli.Compression != compressionOff,
 		cli.IAMAudit,
 		cli.IAMPolicyStream(),
+		scpProviderFor(cli.IAMEnforceSCPs, services),
 		chainInterceptors(cli.serviceGateInterceptor(), cli.extensionInterceptor()),
 	)
 	if err != nil {
@@ -13264,6 +13266,7 @@ func setupRegistry(
 	compression bool,
 	iamAudit bool,
 	iamRecorder *iampolicystream.Recorder,
+	scps iambackend.SCPProvider,
 	interceptor service.Interceptor,
 ) (*service.Registry, error) {
 	registry := service.NewRegistry()
@@ -13307,6 +13310,7 @@ func setupRegistry(
 				ActionExtractors:  buildActionExtractors(services),
 				Recorder:          iamRecorder,
 				Audit:             iamAudit,
+				SCPs:              scps,
 			}
 
 			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))

@@ -114,6 +114,7 @@ func (b *InMemoryBackend) AcceptHandshake(ctx context.Context, handshakeID strin
 					b.accounts.Put(acct)
 					b.accountParent[acctID] = b.root.ID
 					b.addAccountChild(b.root.ID, acctID)
+					b.attachDefaultSCPLocked(acctID)
 					b.setTagsLocked(acctID, h.PendingTags)
 				}
 
