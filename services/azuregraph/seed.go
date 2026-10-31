@@ -58,6 +58,15 @@ func (b *Backend) seed() {
 	}
 	sp.normalize()
 	b.sps.put(sp.ID, sp)
+
+	dev := &ServicePrincipal{
+		ID: devClientSPID, AppID: lc(b.cfg.DevClientID), DisplayName: "gopherstack-dev-client",
+		AppDisplayName: "gopherstack-dev-client", AppOwnerOrganizationID: b.cfg.TenantID,
+		ServicePrincipalType: "Application", SignInAudience: "AzureADMyOrg", AccountEnabled: true,
+		ServicePrincipalNames: []string{lc(b.cfg.DevClientID)}, CreatedDateTime: b.stamp(),
+	}
+	dev.normalize()
+	b.sps.put(dev.ID, dev)
 }
 
-func isBuiltin(id string) bool { return lc(id) == microsoftGraphSPID }
+func isBuiltin(id string) bool { return lc(id) == microsoftGraphSPID || lc(id) == devClientSPID }

@@ -98,7 +98,7 @@ func TestUsers(t *testing.T) {
 			"jobTitle": "Engineer", "accountEnabled": false, "passwordProfile": map[string]any{"password": "An0ther-pass!"},
 		}).status)
 
-		got := e.req(t, http.MethodGet, path, nil).body
+		got := e.req(t, http.MethodGet, path+"?$select=jobTitle,accountEnabled", nil).body
 		assert.Equal(t, "Engineer", str(got, "jobTitle"))
 		assert.Equal(t, false, got["accountEnabled"])
 
@@ -320,4 +320,55 @@ func TestDirectoryObjects(t *testing.T) {
 	assertErr(t, e.req(t, http.MethodGet, "/v1.0/directoryObjects/"+newID0(), nil), http.StatusNotFound, "Request_ResourceNotFound")
 	require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/directoryObjects/"+str(doomed, "id"), nil).status)
 	assertErr(t, e.req(t, http.MethodGet, "/v1.0/groups/"+str(doomed, "id"), nil), http.StatusNotFound, "Request_ResourceNotFound")
+}
+
+func TestUserDefaultProperties(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	u := newUser(t, e, "defaults"+upnDomain)
+
+	got := e.req(t, http.MethodGet, "/v1.0/users/"+str(u, "id"), nil).body
+	assert.ElementsMatch(t, []string{
+		"@odata.context", "id", "businessPhones", "displayName", "givenName", "jobTitle", "mail", "mobilePhone",
+		"officeLocation", "preferredLanguage", "surname", "userPrincipalName",
+	}, keysWithContext(got))
+	assert.Nil(t, got["jobTitle"], "unset properties are explicit nulls")
+
+	sel := e.req(t, http.MethodGet, "/v1.0/users/"+str(u, "id")+"?$select=accountEnabled,userType", nil).body
+	assert.Equal(t, true, sel["accountEnabled"])
+	assert.Equal(t, "Member", str(sel, "userType"))
+}
+
+func keysWithContext(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+
+	return out
+}
+
+func TestOwnersBindOnCreate(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	owner := newUser(t, e, "binder"+upnDomain)
+	ref := "https://graph.microsoft.com/v1.0/directoryObjects/" + str(owner, "id")
+
+	app := e.mustCreate(t, "/v1.0/applications", map[string]any{"displayName": "Bound", "owners@odata.bind": []string{ref}})
+	assert.Len(t, e.req(t, http.MethodGet, "/v1.0/applications/"+str(app, "id")+"/owners", nil).body["value"], 1)
+
+	sp := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{
+		"appId": str(app, "appId"), "owners@odata.bind": []string{ref},
+	})
+	assert.Len(t, e.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+str(sp, "id")+"/owners", nil).body["value"], 1)
+
+	group := newGroup(t, e, "NotAnOwner")
+	assertErr(t, e.req(t, http.MethodPost, "/v1.0/applications", map[string]any{
+		"displayName": "Bad", "owners@odata.bind": []string{"https://graph.microsoft.com/v1.0/directoryObjects/" + str(group, "id")},
+	}), http.StatusBadRequest, "Request_BadRequest")
+	assertErr(t, e.req(t, http.MethodPost, "/v1.0/applications", map[string]any{
+		"displayName": "Bad", "owners@odata.bind": []string{"https://graph.microsoft.com/v1.0/directoryObjects/" + newID0()},
+	}), http.StatusNotFound, "Request_ResourceNotFound")
 }

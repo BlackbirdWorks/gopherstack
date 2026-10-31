@@ -41,6 +41,16 @@ func toMap(v any) map[string]any {
 	out := map[string]any{}
 	_ = json.Unmarshal(raw, &out)
 
+	if t := reflect.TypeOf(v); t.Kind() == reflect.Struct {
+		for name := range jsonFields(t) {
+			if _, ok := out[name]; !ok {
+				out[name] = nil
+			}
+		}
+	}
+
+	delete(out, "passwordProfile")
+
 	return out
 }
 

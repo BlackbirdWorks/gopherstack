@@ -279,6 +279,10 @@ func (b *Backend) AuthenticateClient(clientID, secret string) (objectID string, 
 	b.mu.RLock("AuthenticateClient")
 	defer b.mu.RUnlock()
 
+	if strings.EqualFold(clientID, b.cfg.DevClientID) {
+		return devClientSPID, true, nil
+	}
+
 	var sp *ServicePrincipal
 
 	for _, s := range b.sps.all() {

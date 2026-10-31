@@ -16,6 +16,9 @@ const MicrosoftGraphAppID = "00000003-0000-0000-c000-000000000000"
 // microsoftGraphSPID is the fixed object ID of the seeded Microsoft Graph service principal.
 const microsoftGraphSPID = "7f0b5d3e-3c1f-4e6a-9d2b-5a8c1e4f6b20"
 
+// devClientSPID is the fixed object ID of the seeded dev client service principal.
+const devClientSPID = "5d7f0000-0000-4000-8000-000000000001"
+
 // Backend is the in-memory directory shared by the Graph listener and the ARM token endpoint.
 type Backend struct {
 	mu      *lockmetrics.RWMutex
@@ -43,6 +46,10 @@ func WithClock(now func() time.Time) Option { return func(b *Backend) { b.now = 
 func NewBackend(cfg Settings, opts ...Option) *Backend {
 	if cfg.TenantID == "" {
 		cfg.TenantID = DefaultTenantID
+	}
+
+	if cfg.DevClientID == "" {
+		cfg.DevClientID = DefaultTenantID
 	}
 
 	if cfg.DefaultDomain == "" {

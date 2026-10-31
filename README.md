@@ -940,6 +940,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure SQL Database](services/azuresql/README.md) | B | 14 | 11 gaps |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 14 | 4 gaps; 3 deferred |
+| [Microsoft Graph](services/azuregraph/README.md) | B | 28 | 10 gaps |
 
 ### GCP
 

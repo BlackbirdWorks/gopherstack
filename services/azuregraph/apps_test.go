@@ -80,8 +80,7 @@ func TestApplications(t *testing.T) {
 
 		e.req(t, http.MethodPatch, "/v1.0/applications/"+oid, map[string]any{"description": nil})
 		got = e.req(t, http.MethodGet, "/v1.0/applications/"+oid, nil).body
-		_, has := got["description"]
-		assert.False(t, has)
+		assert.Nil(t, got["description"])
 	})
 
 	t.Run("body validation", func(t *testing.T) {

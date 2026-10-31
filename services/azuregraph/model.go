@@ -107,6 +107,11 @@ type KeyCredential struct {
 
 // Application is an application registration.
 type Application struct {
+	AddIns                     json.RawMessage          `json:"addIns,omitempty"`
+	DisabledByMicrosoftStatus  json.RawMessage          `json:"disabledByMicrosoftStatus,omitempty"`
+	VerifiedPublisher          json.RawMessage          `json:"verifiedPublisher,omitempty"`
+	AuthenticationBehaviors    json.RawMessage          `json:"authenticationBehaviors,omitempty"`
+	ApplicationTemplateID      string                   `json:"applicationTemplateId,omitempty"`
 	CreatedDateTime            time.Time                `json:"createdDateTime"`
 	OptionalClaims             json.RawMessage          `json:"optionalClaims,omitempty"`
 	Info                       json.RawMessage          `json:"info,omitempty"`
@@ -142,6 +147,14 @@ type Application struct {
 
 // ServicePrincipal is the local instance of an application in the tenant.
 type ServicePrincipal struct {
+	AddIns                        json.RawMessage      `json:"addIns,omitempty"`
+	DisabledByMicrosoftStatus     json.RawMessage      `json:"disabledByMicrosoftStatus,omitempty"`
+	ResourceSpecificPermissions   json.RawMessage      `json:"resourceSpecificApplicationPermissions,omitempty"`
+	PasswordSSOSettings           json.RawMessage      `json:"passwordSingleSignOnSettings,omitempty"`
+	PreferredKeyEndDateTime       json.RawMessage      `json:"preferredTokenSigningKeyEndDateTime,omitempty"`
+	CustomSecurityAttributes      json.RawMessage      `json:"customSecurityAttributes,omitempty"`
+	SAMLMetadataURL               string               `json:"samlMetadataUrl,omitempty"`
+	ApplicationTemplateID         string               `json:"applicationTemplateId,omitempty"`
 	CreatedDateTime               time.Time            `json:"createdDateTime"`
 	Info                          json.RawMessage      `json:"info,omitempty"`
 	VerifiedPublisher             json.RawMessage      `json:"verifiedPublisher,omitempty"`

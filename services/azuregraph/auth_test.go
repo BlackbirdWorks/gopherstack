@@ -190,3 +190,56 @@ func upper(s string) string {
 
 	return string(b)
 }
+
+func TestDevClientAndCreatorOwnership(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+
+	oid, known, err := e.h.Backend.AuthenticateClient(azuregraph.DefaultTenantID, "any secret at all")
+	require.NoError(t, err)
+	assert.True(t, known)
+
+	dev := e.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+oid, nil)
+	require.Equal(t, http.StatusOK, dev.status)
+	assert.Equal(t, azuregraph.DefaultTenantID, str(dev.body, "appId"))
+	assertErr(t, e.req(t, http.MethodDelete, "/v1.0/servicePrincipals/"+oid, nil), http.StatusForbidden, "Authorization_RequestDenied")
+
+	user := newUser(t, e, "creator"+upnDomain)
+
+	tests := []struct {
+		name      string
+		oid       string
+		path      string
+		body      map[string]any
+		wantOwner bool
+	}{
+		{"service principal creates application", oid, "/v1.0/applications", map[string]any{"displayName": "A"}, true},
+		{"user creates group", str(user, "id"), "/v1.0/groups",
+			map[string]any{"displayName": "G", "mailEnabled": false, "mailNickname": "g", "securityEnabled": true}, true},
+		{"non-directory caller", newID0(), "/v1.0/applications", map[string]any{"displayName": "B"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := *e
+			c.token = e.tokenFor(tt.oid, graphAudience)
+
+			created := c.mustCreate(t, tt.path, tt.body)
+			owners := c.req(t, http.MethodGet, tt.path+"/"+str(created, "id")+"/owners", nil)
+			require.Equal(t, http.StatusOK, owners.status, owners.raw)
+
+			if !tt.wantOwner {
+				assert.Empty(t, owners.body["value"])
+
+				return
+			}
+
+			list, _ := owners.body["value"].([]any)
+			require.Len(t, list, 1)
+			assert.Equal(t, tt.oid, str(list[0].(map[string]any), "id")) //nolint:forcetypeassert,errcheck // owners are objects
+		})
+	}
+}

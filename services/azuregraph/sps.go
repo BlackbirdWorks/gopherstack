@@ -68,7 +68,14 @@ func (b *Backend) CreateServicePrincipal(body map[string]json.RawMessage) (Servi
 	sp.AppID, sp.DisplayName, sp.AppDisplayName = app.AppID, orDefault(sp.DisplayName, app.DisplayName), app.DisplayName
 	sp.AppRoles, sp.OAuth2PermissionScopes, sp.SignInAudience = app.AppRoles, app.API.OAuth2PermissionScopes, app.SignInAudience
 	sp.ServicePrincipalNames = append([]string{app.AppID}, app.IdentifierURIs...)
+
+	owners, err := b.ownerBinds(body)
+	if err != nil {
+		return ServicePrincipal{}, err
+	}
+
 	b.sps.put(sp.ID, sp)
+	b.owners[sp.ID] = owners
 
 	return *sp, nil
 }

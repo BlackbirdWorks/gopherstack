@@ -99,10 +99,10 @@ func (h *Handler) dispatch(c *echo.Context, segs []string, claims jwt.MapClaims)
 		return h.writeErr(c, segmentErr(segs[0]))
 	}
 
-	return h.handleCollection(c, coll, key, segs)
+	return h.handleCollection(c, coll, key, segs, claims)
 }
 
-func (h *Handler) handleCollection(c *echo.Context, coll *collection, key Ref, segs []string) error {
+func (h *Handler) handleCollection(c *echo.Context, coll *collection, key Ref, segs []string, claims jwt.MapClaims) error {
 	r := c.Request()
 	b := h.Backend
 
@@ -111,7 +111,7 @@ func (h *Handler) handleCollection(c *echo.Context, coll *collection, key Ref, s
 		case http.MethodGet:
 			return h.list(c, coll.name, coll.resource, coll.fields, coll.list(b))
 		case http.MethodPost:
-			return h.createObject(c, coll)
+			return h.createObject(c, coll, claims)
 		}
 
 		return h.methodNotAllowed(c)
@@ -170,7 +170,7 @@ func (h *Handler) methodNotAllowed(c *echo.Context) error {
 		"The HTTP verb '%s' is not supported for this resource.", c.Request().Method))
 }
 
-func (h *Handler) createObject(c *echo.Context, coll *collection) error {
+func (h *Handler) createObject(c *echo.Context, coll *collection, claims jwt.MapClaims) error {
 	body, err := readJSON(c)
 	if err != nil {
 		return h.writeErr(c, err)
@@ -179,6 +179,16 @@ func (h *Handler) createObject(c *echo.Context, coll *collection) error {
 	m, err := coll.create(h.Backend, body)
 	if err != nil {
 		return h.writeErr(c, err)
+	}
+
+	if _, bound := body["owners@odata.bind"]; bound {
+		return h.entity(c, http.StatusCreated, coll.name, m)
+	}
+
+	if oid, _ := claims["oid"].(string); coll.kind != kindUser && oid != "" {
+		if id, _ := m["id"].(string); id != "" {
+			_ = h.Backend.AddOwner(id, oid)
+		}
 	}
 
 	return h.entity(c, http.StatusCreated, coll.name, m)
@@ -201,7 +211,7 @@ func (h *Handler) handleMe(c *echo.Context, segs []string, claims jwt.MapClaims)
 
 	switch {
 	case ok && kind == kindUser:
-		return h.handleCollection(c, h.colls["users"], Ref{}, append([]string{"users", oid}, segs[1:]...))
+		return h.handleCollection(c, h.colls["users"], Ref{}, append([]string{"users", oid}, segs[1:]...), claims)
 	case ok:
 		return h.writeErr(c, newErr(http.StatusBadRequest, codeBadSegment,
 			"/me request is only valid with delegated authentication flow."))

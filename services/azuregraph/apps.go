@@ -135,7 +135,13 @@ func (b *Backend) CreateApplication(body map[string]json.RawMessage) (Applicatio
 		return Application{}, err
 	}
 
+	owners, err := b.ownerBinds(body)
+	if err != nil {
+		return Application{}, err
+	}
+
 	b.apps.put(a.ID, a)
+	b.owners[a.ID] = owners
 
 	return *a, nil
 }

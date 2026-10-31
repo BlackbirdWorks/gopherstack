@@ -75,7 +75,7 @@ func (b *Backend) CreateGroup(body map[string]json.RawMessage) (Group, error) {
 		return Group{}, err
 	}
 
-	owners, err := b.bindTargets(body["owners@odata.bind"])
+	owners, err := b.ownerBinds(body)
 	if err != nil {
 		return Group{}, err
 	}

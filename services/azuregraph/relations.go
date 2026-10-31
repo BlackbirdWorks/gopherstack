@@ -81,6 +81,22 @@ func (b *Backend) bindTargets(raw json.RawMessage) ([]string, error) {
 	return out, nil
 }
 
+// ownerBinds resolves owners@odata.bind; owners must be users or service principals.
+func (b *Backend) ownerBinds(body map[string]json.RawMessage) ([]string, error) {
+	ids, err := b.bindTargets(body["owners@odata.bind"])
+	if err != nil {
+		return nil, err
+	}
+
+	for _, id := range ids {
+		if o, _ := b.lookup(id); o.objKind() != kindUser && o.objKind() != kindServicePrincipal {
+			return nil, badRequest("Invalid object type for the owners relationship.")
+		}
+	}
+
+	return ids, nil
+}
+
 func ownable(kind string) bool {
 	return kind == kindApplication || kind == kindServicePrincipal || kind == kindGroup
 }

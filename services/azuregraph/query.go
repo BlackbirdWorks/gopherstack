@@ -52,6 +52,10 @@ func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*
 		q.top = n
 	}
 
+	if resource == "User" && vals.Get("$select") == "" {
+		q.selects = userDefaultSelect()
+	}
+
 	if s := vals.Get("$select"); s != "" {
 		for _, f := range strings.Split(s, ",") {
 			f = strings.TrimSpace(f)
@@ -86,6 +90,14 @@ func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*
 	}
 
 	return q, q.parseSearch(r, vals.Get("$search"))
+}
+
+// userDefaultSelect is the property set Graph returns for a user when $select is absent.
+func userDefaultSelect() []string {
+	return []string{
+		"businessPhones", "displayName", "givenName", "jobTitle", "mail", "mobilePhone", "officeLocation",
+		"preferredLanguage", "surname", "userPrincipalName",
+	}
 }
 
 func lowerFirst(s string) string {
