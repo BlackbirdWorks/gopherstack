@@ -43,12 +43,14 @@ func suError(code codes.Code, msg, reason string, md map[string]string) error {
 	return withInfo.Err()
 }
 
-func errConsumer(parent string) error {
+func errConsumer(parent string) error { return errConsumerFor(parent, serviceUsageName) }
+
+func errConsumerFor(parent, service string) error {
 	return suError(
 		codes.PermissionDenied,
 		"Permission denied on resource project "+strings.TrimPrefix(parent, kindProjects+"/")+".",
 		reasonConsumer,
-		map[string]string{"consumer": parent, mdService: serviceUsageName},
+		map[string]string{"consumer": parent, mdService: service},
 	)
 }
 
@@ -419,7 +421,7 @@ func (b *InMemoryBackend) CheckServiceEnabled(project, service string) error {
 
 	p, ok := b.findProjectLocked(project)
 	if !ok || p.requested() {
-		return errConsumer(kindProjects + "/" + strings.TrimPrefix(project, kindProjects+"/"))
+		return errConsumerFor(kindProjects+"/"+strings.TrimPrefix(project, kindProjects+"/"), service)
 	}
 
 	e, known := lookupService(service)

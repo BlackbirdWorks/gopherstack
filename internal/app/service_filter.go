@@ -18,6 +18,12 @@ import (
 
 var errUnknownService = errors.New("unknown service")
 
+const gcpResourceManagerName = "GCPResourceManager"
+
+var errEnforceNeedsResourceManager = errors.New(
+	"--gcp-enforce-projects and --gcp-enforce-service-enablement need the GCPResourceManager service, " +
+		"which --services / --disable-services excludes")
+
 const (
 	errCodeServiceNotEnabled = "ServiceNotEnabled"
 	alwaysOnDashboard        = "dashboard"
@@ -163,9 +169,16 @@ func parseServiceList(in []string, valid map[string]bool) (map[string]bool, []st
 
 // Validate is invoked by kong after parsing; it rejects unknown service names at startup.
 func (c *CLI) Validate() error {
-	_, err := newServiceFilter(c.ServiceFilter)
+	f, err := newServiceFilter(c.ServiceFilter)
+	if err != nil {
+		return err
+	}
 
-	return err
+	if c.GCPEnforce.Enabled() && !f.enabled(gcpResourceManagerName) {
+		return errEnforceNeedsResourceManager
+	}
+
+	return nil
 }
 
 // serviceGateInterceptor answers requests for disabled services with a protocol-correct error.

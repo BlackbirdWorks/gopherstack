@@ -58,6 +58,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
@@ -729,6 +730,7 @@ type CLI struct {
 	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                                 default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
 	TransferSFTP                  bool                              `                                       name:"transfer-sftp"           env:"TRANSFER_SFTP"                       default:"false"         help:"Serve a real SFTP listener per Transfer Family server."`                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
+	GCPEnforce                    gcpenforce.Settings               `embed:"" prefix:"gcp-enforce-"`
 	CloudFormation                CloudFormationSettings            `embed:"" prefix:"cloudformation-"`
 	SQS                           sqsbackend.Settings               `embed:"" prefix:"sqs-"`
 	EventBridge                   ebbackend.Settings                `embed:"" prefix:"eventbridge-"`
@@ -897,6 +899,9 @@ func (c *CLI) GetGCPBatchSettings() gcpbatchbackend.Settings { return c.GCPBatch
 
 // GetGCPResourceManagerSettings returns Resource Manager and Service Usage settings (gcprm.ConfigProvider).
 func (c *CLI) GetGCPResourceManagerSettings() gcprmbackend.Settings { return c.GCPResourceManager }
+
+// GetGCPEnforceSettings returns the opt-in GCP project and API-enablement enforcement switches.
+func (c *CLI) GetGCPEnforceSettings() gcpenforce.Settings { return c.GCPEnforce }
 
 // GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).
 func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings { return c.GCPContainer }
@@ -5494,6 +5499,7 @@ func purgeAllServices(
 // startBackgroundWorkers starts all background workers from services.
 func startBackgroundWorkers(ctx context.Context, services []service.Registerable) {
 	log := logger.Load(ctx)
+	ctx = gcpenforce.WithGateFrom(ctx, services)
 
 	for _, svc := range services {
 		if worker, ok := svc.(service.BackgroundWorker); ok {
