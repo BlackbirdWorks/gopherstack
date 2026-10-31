@@ -326,6 +326,17 @@ describe("new GCP console pages", () => {
     });
   });
 
+  it("registers Container Instances", () => {
+    expect(availableOciServices(["OCIContainerInstances"]).map((s) => s.id)).toEqual([
+      "containerinstances",
+    ]);
+    expect(ociServiceById("containerinstances")).toMatchObject({
+      portLabel: "ocicontainerinstances",
+      defaultPort: 8167,
+      healthName: "OCIContainerInstances",
+    });
+  });
+
   it("registers Identity Platform and Flexible Server", () => {
     expect(gcpServiceById("identitytoolkit")).toMatchObject({
       portLabel: "gcpidentitytoolkit",

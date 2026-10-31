@@ -38,3 +38,10 @@ func wireOCIContainerInstances(byName map[string]service.Registerable) {
 		h.Backend.SetSecretReader(vaultH.Backend.SecretContent)
 	}
 }
+
+// GetOCIContainerInstancesHandler returns the OCIContainerInstances handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIContainerInstancesHandler() service.Registerable {
+	return c.ociContainerInstancesHandler
+}

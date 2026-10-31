@@ -164,6 +164,7 @@ export const ICON_IDS: ReadonlySet<string> = new Set([
   "oci-apigateway",
   "oci-artifacts",
   "oci-containerengine",
+  "oci-containerinstances",
   "oci-core",
   "oci-events",
   "oci-functions",
