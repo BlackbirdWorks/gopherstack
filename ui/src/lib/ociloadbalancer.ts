@@ -251,7 +251,9 @@ export const listCompartments = (fetchFn: FetchFn = fetch) =>
   ociCompartments(LB_PROXY_BASE, fetchFn);
 
 export async function getLoadBalancer(id: string, fetchFn: FetchFn = fetch): Promise<LoadBalancer> {
-  return parseLoadBalancer(await ociGetOne(LB_PROXY_BASE, `/api/loadBalancers/${enc(id)}`, fetchFn));
+  return parseLoadBalancer(
+    await ociGetOne(LB_PROXY_BASE, `/api/loadBalancers/${enc(id)}`, fetchFn),
+  );
 }
 
 /** Load balancers of one compartment with listeners and backend sets (the list answer omits them, so each is fetched). */
@@ -295,7 +297,10 @@ export async function getBackendSetHealth(
 ): Promise<LbHealth> {
   const h = await ociGetOne(LB_PROXY_BASE, `${setPath(lbId, set)}/health`, fetchFn);
   const bad = strs(h.criticalStateBackendNames).length + strs(h.warningStateBackendNames).length;
-  return { status: str(h.status) || "UNKNOWN", detail: `${num(h.totalBackendCount)} backends, ${bad} unhealthy` };
+  return {
+    status: str(h.status) || "UNKNOWN",
+    detail: `${num(h.totalBackendCount)} backends, ${bad} unhealthy`,
+  };
 }
 
 export async function getBackendHealth(
@@ -314,7 +319,10 @@ export async function getLoadBalancerHealth(
   fetchFn: FetchFn = fetch,
 ): Promise<LbHealth> {
   const h = await ociGetOne(LB_PROXY_BASE, `/api/loadBalancers/${enc(lbId)}/health`, fetchFn);
-  return { status: str(h.status) || "UNKNOWN", detail: `${num(h.totalBackendSetCount)} backend sets` };
+  return {
+    status: str(h.status) || "UNKNOWN",
+    detail: `${num(h.totalBackendSetCount)} backend sets`,
+  };
 }
 
 export const backendKey = (set: string, backend: string): string => `${set}\u0000${backend}`;
@@ -405,7 +413,8 @@ export async function deleteLoadBalancer(id: string, fetchFn: FetchFn = fetch): 
   await restCall(LB_PROXY_BASE, "DELETE", `/api/loadBalancers/${enc(id)}`, undefined, fetchFn);
 }
 
-export const validPort = (v: string): boolean => /^\d+$/.test(v.trim()) && Number(v) >= 1 && Number(v) <= 65535;
+export const validPort = (v: string): boolean =>
+  /^\d+$/.test(v.trim()) && Number(v) >= 1 && Number(v) <= 65535;
 export const validWeight = (v: string): boolean => /^\d+$/.test(v.trim()) && Number(v) >= 1;
 export const validBandwidth = (v: string): boolean =>
   /^\d+$/.test(v.trim()) && Number(v) >= LB_MIN_MBPS && Number(v) <= LB_MAX_MBPS;
@@ -461,7 +470,8 @@ export function prettyBody(r: Pick<TryResponse, "body" | "encoding">): string {
 export const isServing = (lb: Pick<LoadBalancer, "state">): boolean => lb.state === "ACTIVE";
 
 /** A listener the try-it panel can reach: serving, plain text. */
-export const canTry = (l: Pick<LbListener, "address" | "tls">): boolean => l.address !== "" && !l.tls;
+export const canTry = (l: Pick<LbListener, "address" | "tls">): boolean =>
+  l.address !== "" && !l.tls;
 
 export type HealthTone = "ok" | "warn" | "bad" | "unknown";
 

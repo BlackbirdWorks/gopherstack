@@ -78,49 +78,89 @@ const lbRaw = {
       },
       backends: [
         { name: "127.0.0.1:9001", ipAddress: "127.0.0.1", port: 9001, weight: 2, offline: true },
-        { name: "127.0.0.1:9002", ipAddress: "127.0.0.1", port: 9002, weight: 1, maxConnections: 5 },
+        {
+          name: "127.0.0.1:9002",
+          ipAddress: "127.0.0.1",
+          port: 9002,
+          weight: 1,
+          maxConnections: 5,
+        },
       ],
     },
   },
   pathRouteSets: {
     p: {
       name: "p",
-      pathRoutes: [{ path: "/a", pathMatchType: { matchType: "PREFIX_MATCH" }, backendSetName: "web" }],
+      pathRoutes: [
+        { path: "/a", pathMatchType: { matchType: "PREFIX_MATCH" }, backendSetName: "web" },
+      ],
     },
   },
   routingPolicies: {
     r: {
       name: "r",
-      rules: [{ name: "r1", condition: "all(http.request.url.path eq '/x')", actions: [{ backendSetName: "web" }] }],
+      rules: [
+        {
+          name: "r1",
+          condition: "all(http.request.url.path eq '/x')",
+          actions: [{ backendSetName: "web" }],
+        },
+      ],
     },
   },
   ruleSets: { rs: { name: "rs", items: [{ action: "ADD_HTTP_REQUEST_HEADER", header: "X-A" }] } },
   certificates: {
-    c: { certificateName: "c", subjectNames: ["lb.example"], issuer: "ca", notAfter: "2030-01-01T00:00:00Z" },
+    c: {
+      certificateName: "c",
+      subjectNames: ["lb.example"],
+      issuer: "ca",
+      notAfter: "2030-01-01T00:00:00Z",
+    },
   },
 };
 
 describe("parsing", () => {
   it("parses a load balancer with all sub-resources", () => {
     const lb = parseLoadBalancer(lbRaw);
-    expect(lb).toMatchObject({ id: "lb1", name: "edge", state: "ACTIVE", shape: "flexible 10-100 Mbps" });
+    expect(lb).toMatchObject({
+      id: "lb1",
+      name: "edge",
+      state: "ACTIVE",
+      shape: "flexible 10-100 Mbps",
+    });
     expect(lb.ips).toEqual([{ address: "198.18.0.4", isPublic: true }]);
     expect(lb.listeners.map((l) => [l.name, l.address, l.tls])).toEqual([
       ["http", "127.0.0.1:40001", false],
       ["tls", "127.0.0.1:40002", true],
     ]);
     expect(lb.listeners[0]?.hostnames).toEqual(["h1"]);
-    expect(lb.backendSets[0]?.healthChecker).toMatchObject({ protocol: "HTTP", intervalMillis: 1000 });
-    expect(lb.backendSets[0]?.backends[0]).toMatchObject({ offline: true, drain: false, maxConnections: null });
+    expect(lb.backendSets[0]?.healthChecker).toMatchObject({
+      protocol: "HTTP",
+      intervalMillis: 1000,
+    });
+    expect(lb.backendSets[0]?.backends[0]).toMatchObject({
+      offline: true,
+      drain: false,
+      maxConnections: null,
+    });
     expect(lb.backendSets[0]?.backends[1]?.maxConnections).toBe(5);
-    expect(lb.pathRouteSets[0]?.routes[0]).toEqual({ path: "/a", matchType: "PREFIX_MATCH", backendSet: "web" });
+    expect(lb.pathRouteSets[0]?.routes[0]).toEqual({
+      path: "/a",
+      matchType: "PREFIX_MATCH",
+      backendSet: "web",
+    });
     expect(lb.routingPolicies[0]?.rules[0]?.backendSets).toEqual(["web"]);
     expect(lb.ruleSets[0]?.items).toEqual(["ADD_HTTP_REQUEST_HEADER X-A"]);
     expect(lb.certificates[0]?.subjects).toEqual(["lb.example"]);
   });
 
   it("copes with an empty load balancer", () => {
-    expect(parseLoadBalancer({ id: "x" })).toMatchObject({ name: "x", listeners: [], backendSets: [], ips: [] });
+    expect(parseLoadBalancer({ id: "x" })).toMatchObject({
+      name: "x",
+      listeners: [],
+      backendSets: [],
+      ips: [],
+    });
   });
 
   it("parses certificates without key material", () => {
@@ -197,7 +237,11 @@ describe("client", () => {
   it("reads one load balancer and its work requests", async () => {
     const fetchFn = vi.fn((url: string) =>
       Promise.resolve(
-        json(url.endsWith("/workRequests") ? [{ id: "w", type: "CreateLoadBalancer", lifecycleState: "SUCCEEDED" }] : lbRaw),
+        json(
+          url.endsWith("/workRequests")
+            ? [{ id: "w", type: "CreateLoadBalancer", lifecycleState: "SUCCEEDED" }]
+            : lbRaw,
+        ),
       ),
     );
     expect((await getLoadBalancer("lb1", asFetch(fetchFn))).name).toBe("edge");
@@ -211,7 +255,12 @@ describe("client", () => {
         json(
           url.endsWith("/health") && url.includes("/backends/")
             ? { status: "OK", healthCheckResults: [{ healthCheckStatus: "OK" }] }
-            : { status: "WARNING", totalBackendCount: 2, warningStateBackendNames: ["a"], criticalStateBackendNames: [] },
+            : {
+                status: "WARNING",
+                totalBackendCount: 2,
+                warningStateBackendNames: ["a"],
+                criticalStateBackendNames: [],
+              },
         ),
       ),
     );
@@ -237,8 +286,15 @@ describe("client", () => {
 
   it("adds, updates and removes backends", async () => {
     const fetchFn = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve(json({})));
-    await addBackend("lb1", "web", { ipAddress: "127.0.0.1", port: 9003, weight: 1 }, asFetch(fetchFn));
-    expect(fetchFn.mock.calls[0]?.[0]).toBe(`${LB_PROXY_BASE}/api/loadBalancers/lb1/backendSets/web/backends`);
+    await addBackend(
+      "lb1",
+      "web",
+      { ipAddress: "127.0.0.1", port: 9003, weight: 1 },
+      asFetch(fetchFn),
+    );
+    expect(fetchFn.mock.calls[0]?.[0]).toBe(
+      `${LB_PROXY_BASE}/api/loadBalancers/lb1/backendSets/web/backends`,
+    );
     expect(fetchFn.mock.calls[0]?.[1]?.method).toBe("POST");
 
     const be = parseLoadBalancer(lbRaw).backendSets[0]!.backends[1]!;
@@ -270,7 +326,9 @@ describe("client", () => {
     await createLoadBalancer({ ...base, listenerPort: null }, asFetch(fetchFn));
     expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body))).not.toHaveProperty("listenerPort");
     await createLoadBalancer({ ...base, listenerPort: 80 }, asFetch(fetchFn));
-    expect(JSON.parse(String(fetchFn.mock.calls[1]?.[1]?.body))).toMatchObject({ listenerPort: 80 });
+    expect(JSON.parse(String(fetchFn.mock.calls[1]?.[1]?.body))).toMatchObject({
+      listenerPort: 80,
+    });
     await deleteLoadBalancer("lb1", asFetch(fetchFn));
     expect(fetchFn.mock.calls[2]?.[1]?.method).toBe("DELETE");
   });
@@ -278,7 +336,13 @@ describe("client", () => {
   it("sends a try-it request to the selected listener only", async () => {
     const fetchFn = vi.fn((_url: string, _init?: RequestInit) =>
       Promise.resolve(
-        json({ status: 200, headers: { "X-Backend": "alpha" }, body: "hi", encoding: "utf8", truncated: false }),
+        json({
+          status: 200,
+          headers: { "X-Backend": "alpha" },
+          body: "hi",
+          encoding: "utf8",
+          truncated: false,
+        }),
       ),
     );
     const res = await tryIt(
@@ -298,7 +362,9 @@ describe("client", () => {
       asFetch(fetchFn),
     );
     expect(res).toMatchObject({ status: 200, body: "hi", headers: { "X-Backend": "alpha" } });
-    expect(fetchFn.mock.calls[0]?.[0]).toBe(`${LB_PROXY_BASE}/api/loadBalancers/lb1/listeners/http/invoke`);
+    expect(fetchFn.mock.calls[0]?.[0]).toBe(
+      `${LB_PROXY_BASE}/api/loadBalancers/lb1/listeners/http/invoke`,
+    );
     expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body))).toEqual({
       method: "GET",
       path: "/x",
@@ -311,10 +377,20 @@ describe("client", () => {
 
   it("surfaces proxy errors", async () => {
     const fetchFn = vi.fn(() =>
-      Promise.resolve(json({ error: { status: "IncorrectState", message: "Load balancer is in state CREATING" } }, 409)),
+      Promise.resolve(
+        json(
+          { error: { status: "IncorrectState", message: "Load balancer is in state CREATING" } },
+          409,
+        ),
+      ),
     );
     await expect(
-      tryIt("lb1", "http", { method: "GET", path: "/", query: "", body: "", virtualHost: "", headers: [] }, asFetch(fetchFn)),
+      tryIt(
+        "lb1",
+        "http",
+        { method: "GET", path: "/", query: "", body: "", virtualHost: "", headers: [] },
+        asFetch(fetchFn),
+      ),
     ).rejects.toThrow(/CREATING/);
   });
 });
