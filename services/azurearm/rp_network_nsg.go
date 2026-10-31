@@ -175,6 +175,8 @@ func normalizeRule(name string, props map[string]any, prev *netObj) (*netObj, er
 		return nil, err
 	}
 
+	normRuleASGs(out)
+
 	o := &netObj{Name: name, Etag: newEtag(), GUID: uuid.NewString(), Props: out}
 	if prev != nil {
 		o.GUID = prev.GUID
@@ -183,14 +185,34 @@ func normalizeRule(name string, props map[string]any, prev *netObj) (*netObj, er
 	return o, nil
 }
 
+// ruleBuilder normalizes a rule and checks the application security groups it names.
+func (p *NetworkProvider) ruleBuilder(loc string) func(string, map[string]any, *netObj) (*netObj, error) {
+	return func(name string, props map[string]any, prev *netObj) (*netObj, error) {
+		o, err := normalizeRule(name, props, prev)
+		if err != nil {
+			return nil, err
+		}
+
+		if err = p.checkRuleASGs(loc, o.Props); err != nil {
+			return nil, err
+		}
+
+		return o, nil
+	}
+}
+
 func ruleEndpoint(name string, props map[string]any, side, prefix, prefixes, port, ports string) error {
 	one, many := strOf(props, prefix), strList(props[prefixes])
+	hasASG := len(anyList(props[side+"ApplicationSecurityGroups"])) > 0
 
 	switch {
 	case one != "" && len(many) > 0:
 		return netErr(http.StatusBadRequest, "SecurityRuleParameterContainsConflictingValues",
 			"Security rule %s specifies both %s and %s.", name, prefix, prefixes)
-	case one == "" && len(many) == 0:
+	case hasASG && (one != "" || len(many) > 0):
+		return netErr(http.StatusBadRequest, "SecurityRuleParameterContainsConflictingValues",
+			"Security rule %s specifies both %sApplicationSecurityGroups and an address prefix.", name, side)
+	case !hasASG && one == "" && len(many) == 0:
 		return netBad("Security rule %s must specify %s or %s.", name, prefix, prefixes)
 	}
 
@@ -201,6 +223,10 @@ func ruleEndpoint(name string, props map[string]any, side, prefix, prefixes, por
 		}
 	}
 
+	return rulePorts(name, props, side, port, ports)
+}
+
+func rulePorts(name string, props map[string]any, side, port, ports string) error {
 	p1, pn := strOf(props, port), strList(props[ports])
 
 	switch {
@@ -297,7 +323,12 @@ func (p *NetworkProvider) inlineKids(
 func (p *NetworkProvider) putNSG(id ResourceID, body map[string]any) (map[string]any, bool, error) {
 	old, _ := p.top(netNSGs, id.ResourceGroup, id.Names[0])
 
-	rules, err := p.inlineKids(body, netRules, netRules, old, normalizeRule)
+	loc := normLocation(strOf(body, fieldLocation))
+	if loc == "" && old != nil {
+		loc = old.Obj.Location
+	}
+
+	rules, err := p.inlineKids(body, netRules, netRules, old, p.ruleBuilder(loc))
 	if err != nil {
 		return nil, false, err
 	}
@@ -373,7 +404,7 @@ func (p *NetworkProvider) bodyRule(id ResourceID, r *netObj) map[string]any {
 func (p *NetworkProvider) writeRule(nsg *netParent, name string, body map[string]any) (bool, error) {
 	prev, idx := nsg.kid(netRules, name)
 
-	r, err := normalizeRule(name, propsOf(body), prev)
+	r, err := p.ruleBuilder(nsg.Obj.Location)(name, propsOf(body), prev)
 	if err != nil {
 		return false, err
 	}

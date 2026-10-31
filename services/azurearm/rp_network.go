@@ -144,6 +144,7 @@ type NetworkProvider struct {
 	mu      *lockmetrics.RWMutex
 	backend *InMemoryBackend
 	items   map[string]*netParent
+	lookup  func(context.Context, ResourceID) (map[string]any, error)
 }
 
 var _ ResourceProvider = (*NetworkProvider)(nil)
@@ -161,7 +162,7 @@ func (p *NetworkProvider) Namespace() string { return namespaceMicrosoftNetwork 
 // ResourceTypes implements ResourceProvider.
 func (p *NetworkProvider) ResourceTypes() []ResourceTypeDef {
 	v := networkAPIVersions()
-	defs := make([]ResourceTypeDef, 0, 13+len(dnsRecordTypes)) //nolint:mnd // modelled type count
+	defs := make([]ResourceTypeDef, 0, 27+len(dnsRecordTypes)) //nolint:mnd // modelled type count
 
 	for _, t := range []string{
 		netVNets, netVNets + "/" + netSubnets, netVNets + "/" + netPeerings,
@@ -169,6 +170,9 @@ func (p *NetworkProvider) ResourceTypes() []ResourceTypeDef {
 		netPIPs, netNICs, netNICs + "/" + netIPConfigs,
 		netRTs, netRTs + "/" + netRoutes,
 		netZones, netZones + "/" + netLinks,
+		netLBs, netLBs + "/" + lbFrontends, netLBs + "/" + lbPools, netLBs + "/" + lbProbes, netLBs + "/" + lbRules,
+		netLBs + "/" + lbNATRules, netLBs + "/" + lbNATPools, netLBs + "/" + lbOutbound, netLBs + "/" + lbNICs,
+		netNATs, netPrefixes, netASGs, netPEs, netPEs + "/" + peZoneGroups, netNICs + "/" + nicLBs,
 	} {
 		defs = append(defs, ResourceTypeDef{Type: t, APIVersions: v, HasChildren: !strings.Contains(t, "/")})
 	}
@@ -378,7 +382,8 @@ func (p *NetworkProvider) List(_ context.Context, id ResourceID) ([]map[string]a
 func (p *NetworkProvider) modeled(typ string) bool {
 	switch strings.ToLower(typ) {
 	case strings.ToLower(netVNets), strings.ToLower(netNSGs), strings.ToLower(netPIPs), strings.ToLower(netNICs),
-		strings.ToLower(netRTs), strings.ToLower(netZones):
+		strings.ToLower(netRTs), strings.ToLower(netZones), strings.ToLower(netLBs), strings.ToLower(netNATs),
+		strings.ToLower(netPrefixes), strings.ToLower(netASGs), strings.ToLower(netPEs):
 		return true
 	}
 
@@ -386,7 +391,9 @@ func (p *NetworkProvider) modeled(typ string) bool {
 }
 
 func canonicalTop(typ string) string {
-	for _, t := range []string{netVNets, netNSGs, netPIPs, netNICs, netRTs, netZones} {
+	for _, t := range []string{
+		netVNets, netNSGs, netPIPs, netNICs, netRTs, netZones, netLBs, netNATs, netPrefixes, netASGs, netPEs,
+	} {
 		if strings.EqualFold(t, typ) {
 			return t
 		}
@@ -397,7 +404,8 @@ func canonicalTop(typ string) string {
 
 func canonicalKid(parent, typ string) string {
 	cands := map[string][]string{
-		netVNets: {netSubnets, netPeerings}, netNSGs: {netRules, netDefRules}, netNICs: {netIPConfigs},
+		netVNets: {netSubnets, netPeerings}, netNSGs: {netRules, netDefRules}, netNICs: {netIPConfigs, nicLBs},
+		netLBs: append(append([]string{}, lbKidTypes...), lbNICs), netPEs: {peZoneGroups},
 		netRTs: {netRoutes}, netZones: append([]string{netLinks}, dnsRecordTypes...),
 	}
 
@@ -557,6 +565,16 @@ func (p *NetworkProvider) putTop(top string, id ResourceID, body map[string]any)
 		return p.putNIC(id, body)
 	case netRTs:
 		return p.putRT(id, body)
+	case netLBs:
+		return p.putLB(id, body)
+	case netNATs:
+		return p.putNAT(id, body)
+	case netPrefixes:
+		return p.putPrefix(id, body)
+	case netASGs:
+		return p.putASG(id, body)
+	case netPEs:
+		return p.putPE(id, body)
 	default:
 		return p.putZone(id, body)
 	}
@@ -638,6 +656,16 @@ func (p *NetworkProvider) bodyTop(id ResourceID, it *netParent) map[string]any {
 		return p.bodyNIC(id, it)
 	case netRTs:
 		return p.bodyRT(id, it)
+	case netLBs:
+		return p.bodyLB(id, it)
+	case netNATs:
+		return p.bodyNAT(id, it)
+	case netPrefixes:
+		return p.bodyPrefix(id, it)
+	case netASGs:
+		return p.bodyASG(id, it)
+	case netPEs:
+		return p.bodyPE(id, it)
 	default:
 		return p.bodyZone(id, it)
 	}
@@ -653,6 +681,34 @@ func (p *NetworkProvider) putKid(top, kt string, id ResourceID, body map[string]
 		return nil, false, err
 	}
 
+	var (
+		created bool
+		err     error
+	)
+
+	switch {
+	case top == netLBs && kt == lbNICs, top == netNICs && kt == nicLBs:
+		err = ErrResourceNotFound
+	case top == netLBs:
+		created, err = p.writeLBKid(parent, kt, id.Names[1], body)
+	case top == netPEs:
+		created, err = p.writeZoneGroup(parent, id.Names[1], body)
+	default:
+		created, err = p.writeKidClassic(parent, top, kt, id, body)
+	}
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	out, getErr := p.getKid(parent, kt, id)
+
+	return out, created, getErr
+}
+
+func (p *NetworkProvider) writeKidClassic(
+	parent *netParent, _, kt string, id ResourceID, body map[string]any,
+) (bool, error) {
 	var (
 		created bool
 		err     error
@@ -675,13 +731,7 @@ func (p *NetworkProvider) putKid(top, kt string, id ResourceID, body map[string]
 		created, err = p.writeRecord(parent, kt, id.Names[1], body)
 	}
 
-	if err != nil {
-		return nil, false, err
-	}
-
-	out, getErr := p.getKid(parent, kt, id)
-
-	return out, created, getErr
+	return created, err
 }
 
 func (p *NetworkProvider) removeKid(top, kt string, id ResourceID) error {
@@ -690,7 +740,7 @@ func (p *NetworkProvider) removeKid(top, kt string, id ResourceID) error {
 		return ErrResourceNotFound
 	}
 
-	_, idx := parent.kid(kt, id.Names[1])
+	removed, idx := parent.kid(kt, id.Names[1])
 	if idx < 0 {
 		return ErrResourceNotFound
 	}
@@ -700,7 +750,7 @@ func (p *NetworkProvider) removeKid(top, kt string, id ResourceID) error {
 	}
 
 	parent.Kids[kt] = append(parent.Kids[kt][:idx], parent.Kids[kt][idx+1:]...)
-	p.afterKidRemoved(parent, kt, id)
+	p.afterKidRemoved(parent, kt, removed)
 	p.touch(parent)
 
 	return nil
@@ -741,6 +791,10 @@ func (p *NetworkProvider) listKids(parent *netParent, kt string, id ResourceID) 
 		return append(out, defaultRulesFor(parent)...)
 	case netIPConfigs:
 		return p.listIPConfigs(parent)
+	case lbNICs:
+		return p.listLBNICs(parent, id)
+	case nicLBs:
+		return p.listNICLBs(parent, id)
 	}
 
 	for _, k := range parent.Kids[kt] {
@@ -765,7 +819,13 @@ func (p *NetworkProvider) bodyKid(parent *netParent, kt string, id ResourceID, k
 		return p.bodyRoute(id, k)
 	case netLinks:
 		return p.bodyLink(parent, id, k)
+	case peZoneGroups:
+		return p.bodyZoneGroup(parent, id, k)
 	default:
+		if parent.Type == netLBs {
+			return p.bodyLBKid(parent, kt, id, k)
+		}
+
 		return p.bodyRecord(parent, kt, id, k)
 	}
 }

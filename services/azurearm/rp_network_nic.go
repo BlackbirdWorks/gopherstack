@@ -48,6 +48,14 @@ func (p *NetworkProvider) usedPIPAddrs() map[string]bool {
 		}
 	}
 
+	for _, pf := range p.ofType(netPrefixes) {
+		if r, ok := p.prefixRange(pf); ok {
+			for a := r.Addr(); r.Contains(a); a = a.Next() {
+				used[a.String()] = true
+			}
+		}
+	}
+
 	return used
 }
 
@@ -129,6 +137,7 @@ func (p *NetworkProvider) putPIP(id ResourceID, body map[string]any) (map[string
 	}
 
 	skuName, tier, method, version, idle := st.skuName, st.tier, st.method, st.version, st.idle
+	prefID := subID(props, propPrefixRef)
 
 	loc := normLocation(strOf(body, fieldLocation))
 	old, existed := p.top(netPIPs, id.ResourceGroup, id.Names[0])
@@ -147,6 +156,12 @@ func (p *NetworkProvider) putPIP(id ResourceID, body map[string]any) (map[string
 		ip = old.Obj.Aux[auxIP]
 	}
 
+	if prefID != "" {
+		if ip, err = p.bindPIPPrefix(id, st, loc, strOf(props, "ipAddress"), props); err != nil {
+			return nil, false, err
+		}
+	}
+
 	if method == methodStatic && ip == "" {
 		if ip, err = p.allocPIP(version); err != nil {
 			return nil, false, err
@@ -155,7 +170,12 @@ func (p *NetworkProvider) putPIP(id ResourceID, body map[string]any) (map[string
 
 	it, obj, created := p.upsertTop(netPIPs, id, body)
 	obj.Props = takeProps(body, "ipAddress", "ipConfiguration", fieldProvisioningState, netFieldResourceGUID,
-		"linkedPublicIPAddress", "servicePublicIPAddress")
+		"linkedPublicIPAddress", "servicePublicIPAddress", propNATGateway, propPrefixRef)
+
+	if prefID != "" {
+		obj.Props[propPrefixRef] = idRef(prefID)
+	}
+
 	obj.Props["publicIPAllocationMethod"], obj.Props["publicIPAddressVersion"] = method, version
 	obj.Props["idleTimeoutInMinutes"] = idle
 	obj.Extra = map[string]any{netFieldSKU: map[string]any{fieldName: skuName, netFieldTier: tier}}
@@ -231,6 +251,10 @@ func (p *NetworkProvider) bodyPIP(id ResourceID, it *netParent) map[string]any {
 		props["ipConfiguration"] = map[string]any{netFieldID: user}
 	}
 
+	if nat := p.natOfPIP(it.armID()); nat != "" {
+		props[propNATGateway] = idRef(nat)
+	}
+
 	props[fieldProvisioningState] = netStatusSucceeded
 	props[netFieldResourceGUID] = it.Obj.GUID
 
@@ -246,6 +270,10 @@ func (p *NetworkProvider) pipUser(pipID string) string {
 				return n.armID() + "/" + netIPConfigs + "/" + strOf(m, fieldName)
 			}
 		}
+	}
+
+	if f := p.lbFrontendUsers("publicIPAddress", pipID); len(f) > 0 {
+		return f[0]
 	}
 
 	return ""
@@ -272,7 +300,31 @@ func (p *NetworkProvider) subnetByID(subnetID string) (*netParent, *netObj, bool
 
 // usedAddrs maps a lowercase subnet id to the private addresses its NIC IP configurations hold, skipping skipNIC.
 func (p *NetworkProvider) usedAddrs(skipNIC string) map[string]map[string]string {
+	return p.usedAddrsSkip(skipNIC, "")
+}
+
+// usedAddrsSkip also counts load balancer frontend addresses, skipping skipLB.
+func (p *NetworkProvider) usedAddrsSkip(skipNIC, skipLB string) map[string]map[string]string {
 	used := map[string]map[string]string{}
+
+	for _, lb := range p.ofType(netLBs) {
+		if strings.EqualFold(lb.armID(), skipLB) {
+			continue
+		}
+
+		for _, f := range lb.Kids[lbFrontends] {
+			key := strings.ToLower(subID(f.Props, netFieldSubnet))
+			if key == "" {
+				continue
+			}
+
+			if used[key] == nil {
+				used[key] = map[string]string{}
+			}
+
+			used[key][strOf(f.Props, "privateIPAddress")] = lb.armID() + "/" + lbFrontends + "/" + f.Name
+		}
+	}
 
 	for _, n := range p.ofType(netNICs) {
 		if strings.EqualFold(n.armID(), skipNIC) {
@@ -306,6 +358,8 @@ func (p *NetworkProvider) subnetUsers(subnetID string) []string {
 			}
 		}
 	}
+
+	out = append(out, p.lbFrontendUsers(netFieldSubnet, subnetID)...)
 
 	return out
 }
@@ -413,6 +467,10 @@ func (p *NetworkProvider) putNIC(id ResourceID, body map[string]any) (map[string
 		Types: []string{netNICs}, Names: []string{id.Names[0]},
 	}.ARMID()
 	old, existed := p.top(netNICs, id.ResourceGroup, id.Names[0])
+	if existed && old.Obj.Aux["pe"] != "" {
+		return nil, false, nicInUse(nicID, old.Obj.Aux["pe"])
+	}
+
 	used := p.usedAddrs(nicID)
 
 	cfgs, err := p.normalizeIPConfigs(nicID, old, rawCfgs, used)
@@ -424,6 +482,15 @@ func (p *NetworkProvider) putNIC(id ResourceID, body map[string]any) (map[string
 		if _, ok := p.netRef(nsg, netNSGs); !ok {
 			return nil, false, refMissing(nsg)
 		}
+	}
+
+	loc := normLocation(strOf(body, fieldLocation))
+	if loc == "" && existed {
+		loc = old.Obj.Location
+	}
+
+	if err = p.checkNICRefs(nicID, loc, cfgs); err != nil {
+		return nil, false, err
 	}
 
 	it, obj, created := p.upsertTop(netNICs, id, body)
@@ -566,6 +633,21 @@ func (p *NetworkProvider) normalizeIPConfig(
 		return nil, err
 	}
 
+	for _, key := range []string{propNICPools, propNICNATs, propNICASGs} {
+		if list := anyList(cp[key]); len(list) > 0 {
+			ids := make([]string, 0, len(list))
+			for _, e := range list {
+				ids = append(ids, refIDOf(e))
+			}
+
+			out[key] = idRefs(ids)
+		} else {
+			delete(out, key)
+		}
+	}
+
+	delete(out, "privateLinkConnectionProperties")
+
 	return out, nil
 }
 
@@ -581,7 +663,7 @@ func (p *NetworkProvider) bindPublicIP(cfgID string, cp, out map[string]any) err
 		return refMissing(pid)
 	}
 
-	if user := p.pipUser(pip.armID()); user != "" && !sameNIC(user, cfgID) {
+	if user := p.pipHolder(pip.armID()); user != "" && !sameNIC(user, cfgID) {
 		return netErr(http.StatusBadRequest, "PublicIPAddressInUse",
 			"Public IP address %s is already allocated to resource %s.", pid, user)
 	}
@@ -746,6 +828,10 @@ func (p *NetworkProvider) checkTopDelete(it *netParent, _ ResourceID) error {
 		if vm := it.Obj.Aux[auxVM]; vm != "" {
 			return nicInUse(it.armID(), vm)
 		}
+
+		if pe := it.Obj.Aux["pe"]; pe != "" {
+			return nicInUse(it.armID(), pe)
+		}
 	case netRTs:
 		if users := p.rtSubnets(it.armID()); len(users) > 0 {
 			return netErr(http.StatusBadRequest, "InUseRouteTableCannotBeDeleted",
@@ -753,11 +839,13 @@ func (p *NetworkProvider) checkTopDelete(it *netParent, _ ResourceID) error {
 					"association first.", it.Obj.Name, strings.Join(users, ", "))
 		}
 	case netPIPs:
-		if user := p.pipUser(it.armID()); user != "" {
+		if user := p.pipHolder(it.armID()); user != "" {
 			return netErr(http.StatusBadRequest, "PublicIPAddressCannotBeDeleted",
 				"Public IP address %s can not be deleted since it is still allocated to resource %s.",
 				it.armID(), user)
 		}
+	default:
+		return p.checkNewTopDelete(it)
 	}
 
 	return nil
@@ -769,9 +857,13 @@ func (p *NetworkProvider) checkKidDelete(parent *netParent, kt string, id Resour
 		if users := p.subnetUsers(subnetIDOf(parent, id.Names[1])); len(users) > 0 {
 			return inUseSubnet(id.Names[1], users[0])
 		}
-	case netDefRules, netIPConfigs:
+	case netDefRules, netIPConfigs, lbNICs, nicLBs:
 		return ErrResourceNotFound
 	default:
+		if parent.Type == netLBs {
+			return p.checkLBKidDelete(parent, kt, id)
+		}
+
 		if parent.Type == netZones && kt == "SOA" {
 			return netErr(http.StatusBadRequest, "BadRequest", "The SOA record set cannot be deleted.")
 		}
@@ -780,9 +872,17 @@ func (p *NetworkProvider) checkKidDelete(parent *netParent, kt string, id Resour
 	return nil
 }
 
-func (p *NetworkProvider) afterKidRemoved(*netParent, string, ResourceID) {}
+func (p *NetworkProvider) afterKidRemoved(parent *netParent, kt string, removed *netObj) {
+	if parent.Type == netPEs && kt == peZoneGroups {
+		p.removeZoneRecords(parent, removed)
+	}
+}
 
-func (p *NetworkProvider) afterTopRemoved(*netParent, ResourceID) {}
+func (p *NetworkProvider) afterTopRemoved(it *netParent, _ ResourceID) {
+	if it.Type == netPEs {
+		p.afterPERemoved(it)
+	}
+}
 
 // reconcileLocked recomputes derived state after any mutation: peering states and dynamic public IP assignment.
 func (p *NetworkProvider) reconcileLocked() {
@@ -809,6 +909,7 @@ func (p *NetworkProvider) pruneDanglingLocked() {
 		for _, s := range v.Kids[netSubnets] {
 			p.dropMissingRef(s.Props, propSubnetNSG, netNSGs)
 			p.dropMissingRef(s.Props, propSubnetRT, netRTs)
+			p.dropMissingRef(s.Props, propNATGateway, netNATs)
 		}
 	}
 
@@ -818,8 +919,11 @@ func (p *NetworkProvider) pruneDanglingLocked() {
 		for _, c := range anyList(n.Obj.Props[netIPConfigs]) {
 			m, _ := c.(map[string]any)
 			p.dropMissingRef(propsOf(m), "publicIPAddress", netPIPs)
+			p.dropMissingListRefs(propsOf(m))
 		}
 	}
+
+	p.pruneNewTypesLocked()
 
 	for _, z := range p.ofType(netZones) {
 		z.Kids[netLinks] = slices.DeleteFunc(z.Kids[netLinks], func(l *netObj) bool {

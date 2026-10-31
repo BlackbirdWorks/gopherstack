@@ -350,6 +350,14 @@ func (p *NetworkProvider) subnetRefs(props map[string]any) error {
 		props[propSubnetNSG] = map[string]any{netFieldID: id}
 	}
 
+	if id := subID(props, propNATGateway); id != "" {
+		if _, ok := p.netRef(id, netNATs); !ok {
+			return refMissing(id)
+		}
+
+		props[propNATGateway] = map[string]any{netFieldID: id}
+	}
+
 	if id := subID(props, propSubnetRT); id != "" {
 		if _, ok := p.netRef(id, netRTs); !ok {
 			return refMissing(id)
@@ -551,6 +559,10 @@ func (p *NetworkProvider) bodySubnet(id ResourceID, s *netObj) map[string]any {
 		}
 
 		props["ipConfigurations"] = cfgs
+	}
+
+	if pes := p.peOnSubnet(id.ARMID()); len(pes) > 0 {
+		props["privateEndpoints"] = idRefs(pes)
 	}
 
 	props[fieldProvisioningState] = netStatusSucceeded
