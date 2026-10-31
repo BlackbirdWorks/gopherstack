@@ -28,6 +28,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
       - name: Keep Go temp files and build cache off the /tmp tmpfs
         run: |
           if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
