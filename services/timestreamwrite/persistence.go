@@ -168,6 +168,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		for tblName, recs := range tblRecs {
 			idx := make(map[string]int, len(recs))
 			for i, r := range recs {
+				recs[i].InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
 				idx[recordKey(r)] = i
 			}
 

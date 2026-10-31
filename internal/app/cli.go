@@ -8418,7 +8418,7 @@ func wireTimestreamQueryTags(tsqReg, tswReg service.Registerable) {
 
 	if tswH, tswOk := tswReg.(*timestreamwritebackend.Handler); tswOk {
 		tsqBk.SetTagWriteBackend(&timestreamTagWriter{handler: tswH})
-		tsqBk.SetCatalog(&timestreamCatalog{handler: tswH})
+		tsqBk.SetRecordSource(newTimestreamRecordSource(tswH))
 	}
 }
 

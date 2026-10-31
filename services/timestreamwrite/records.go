@@ -111,7 +111,7 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 		slot.recordIndex = make(map[string]int)
 	}
 
-	rejected, memoryInserted, magneticInserted := writeRecordsIntoSlot(slot, records, tbl, time.Now().UTC())
+	rejected, memoryInserted, magneticInserted := writeRecordsIntoSlot(slot, records, tbl, b.now().UTC())
 
 	if len(rejected) > 0 {
 		return nil, &RejectedRecordsError{RejectedRecords: rejected}
@@ -265,7 +265,7 @@ func (b *InMemoryBackend) SweepRetention(ctx context.Context) {
 	b.mu.Lock("SweepRetention")
 	defer b.mu.Unlock()
 
-	now := time.Now().UTC()
+	now := b.now().UTC()
 	totalPruned := 0
 
 	for _, tbl := range b.tables.All() {
@@ -280,11 +280,26 @@ func (b *InMemoryBackend) SweepRetention(ctx context.Context) {
 	telemetry.RecordWorkerTask("timestreamwrite", "RetentionSweeper", "success")
 }
 
-// pruneTableRecords drops records older than the table's memory-store retention
-// window. Returns the number of records removed. Caller must hold b.mu in write
-// mode. Returns 0 (no-op) when the table has no retention configured or no slot.
+// magneticCutoff returns the instant before which records have aged out of the
+// magnetic store, or false when the table keeps records indefinitely.
+func magneticCutoff(tbl *Table, now time.Time) (time.Time, bool) {
+	if tbl == nil || tbl.RetentionProperties == nil || tbl.RetentionProperties.MagneticStoreRetentionPeriodInDays == 0 {
+		return time.Time{}, false
+	}
+
+	days := time.Duration(tbl.RetentionProperties.MagneticStoreRetentionPeriodInDays)
+
+	return now.Add(-days * hoursPerDay * time.Hour), true
+}
+
+const hoursPerDay = 24
+
+// pruneTableRecords drops records older than the table's magnetic-store
+// retention (records past the memory window move to the magnetic store and are
+// only deleted once that ages out). Caller must hold b.mu in write mode.
 func (b *InMemoryBackend) pruneTableRecords(dbName, tblName string, tbl *Table, now time.Time) int {
-	if tbl.RetentionProperties == nil || tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours == 0 {
+	cutoff, ok := magneticCutoff(tbl, now)
+	if !ok {
 		return 0
 	}
 
@@ -292,9 +307,6 @@ func (b *InMemoryBackend) pruneTableRecords(dbName, tblName string, tbl *Table, 
 	if slot == nil {
 		return 0
 	}
-
-	retention := time.Duration(tbl.RetentionProperties.MemoryStoreRetentionPeriodInHours) * time.Hour
-	cutoff := now.Add(-retention)
 
 	newRecords := make([]Record, 0, len(slot.records))
 	for _, r := range slot.records {
@@ -306,7 +318,6 @@ func (b *InMemoryBackend) pruneTableRecords(dbName, tblName string, tbl *Table, 
 	pruned := len(slot.records) - len(newRecords)
 	if pruned > 0 {
 		slot.records = newRecords
-		// Rebuild the dedup index after pruning to keep offsets consistent.
 		slot.recordIndex = make(map[string]int, len(newRecords))
 		for i, r := range slot.records {
 			slot.recordIndex[recordKey(r)] = i
@@ -314,6 +325,51 @@ func (b *InMemoryBackend) pruneTableRecords(dbName, tblName string, tbl *Table, 
 	}
 
 	return pruned
+}
+
+// TableData is a point-in-time copy of a table's queryable records.
+type TableData struct {
+	Table   Table
+	Records []Record
+}
+
+// TableData returns the records of a table that have not aged out of the magnetic
+// store at now; memory-store and magnetic-store records are both queryable.
+func (b *InMemoryBackend) TableData(dbName, tblName string, now time.Time) (*TableData, error) {
+	b.mu.RLock("TableData")
+	defer b.mu.RUnlock()
+
+	if !b.databases.Has(dbName) {
+		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
+	}
+
+	tbl, ok := b.tables.Get(tableKey(dbName, tblName))
+	slot := b.records[dbName][tblName]
+
+	if !ok || slot == nil {
+		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
+	}
+
+	cutoff, bounded := magneticCutoff(tbl, now)
+
+	slot.mu.RLock("TableData")
+	defer slot.mu.RUnlock()
+
+	out := &TableData{Table: *tbl, Records: make([]Record, 0, len(slot.records))}
+
+	for _, r := range slot.records {
+		if bounded && !r.InternalTimestamp.After(cutoff) {
+			continue
+		}
+
+		if r.InternalTimestamp.IsZero() {
+			r.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
+		}
+
+		out.Records = append(out.Records, r)
+	}
+
+	return out, nil
 }
 
 // missingRequiredPartitionKey returns the name of the first REQUIRED dimension partition key absent from r.

@@ -34,7 +34,7 @@ func TestCatalogTableReferences(t *testing.T) {
 		wired   bool
 	}{
 		{name: "existing", query: "SELECT * FROM db.tbl", wired: true},
-		{name: "quoted existing", query: `SELECT * FROM "db"."tbl" WHERE x = 1`, wired: true},
+		{name: "quoted existing", query: `SELECT * FROM "db"."tbl" WHERE measure_name = 'x'`, wired: true},
 		{name: "missing table", query: "SELECT * FROM db.nope", wantErr: "Table 'db.nope' does not exist", wired: true},
 		{
 			name:    "missing database",

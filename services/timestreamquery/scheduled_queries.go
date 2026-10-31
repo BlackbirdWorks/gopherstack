@@ -192,22 +192,6 @@ func (b *InMemoryBackend) UpdateScheduledQuery(_ context.Context, arnStr, state 
 	return nil
 }
 
-// ExecuteScheduledQuery marks a scheduled query as executed at the given invocation time.
-// The ARN self-encodes the region, so no separate region resolution is needed.
-func (b *InMemoryBackend) ExecuteScheduledQuery(_ context.Context, arnStr string, invocationTime time.Time) error {
-	b.mu.Lock("ExecuteScheduledQuery")
-	defer b.mu.Unlock()
-
-	sq, err := b.lookupByARN(arnStr)
-	if err != nil {
-		return err
-	}
-
-	sq.LastRunTime = invocationTime
-
-	return nil
-}
-
 // lookupByARN finds a scheduled query by its (globally unique) ARN.
 // Must be called with the lock held.
 func (b *InMemoryBackend) lookupByARN(arnStr string) (*ScheduledQuery, error) {
@@ -401,12 +385,6 @@ const (
 	runStatusManualTriggerSuccess = "MANUAL_TRIGGER_SUCCESS"
 )
 
-// Numeric constants used to simulate a scheduled query execution.
-const (
-	simExecTimeMs      = 500 // simulated execution time in milliseconds
-	simRecordsIngested = 10  // simulated records ingested per execution
-)
-
 // buildScheduledQueryListEntry converts a ScheduledQuery to an enriched list entry.
 func buildScheduledQueryListEntry(sq *ScheduledQuery) ScheduledQueryListEntry {
 	entry := ScheduledQueryListEntry{
@@ -425,7 +403,10 @@ func buildScheduledQueryListEntry(sq *ScheduledQuery) ScheduledQueryListEntry {
 	}
 	now := time.Now()
 	if !sq.LastRunTime.IsZero() {
-		entry.LastRunStatus = runStatusManualTriggerSuccess
+		entry.LastRunStatus = sq.LastRunStatus
+		if entry.LastRunStatus == "" {
+			entry.LastRunStatus = runStatusManualTriggerSuccess
+		}
 		entry.PreviousInvocationTime = epochSeconds(sq.LastRunTime)
 	} else if sq.ScheduleExpression != "" {
 		entry.PreviousInvocationTime = epochSeconds(previousInvocationTime(sq.ScheduleExpression, now))
@@ -435,21 +416,28 @@ func buildScheduledQueryListEntry(sq *ScheduledQuery) ScheduledQueryListEntry {
 	return entry
 }
 
-// buildLastRunSummary constructs a full LastRunSummary for a ScheduledQuery.
+// buildLastRunSummary constructs the LastRunSummary from the recorded outcome of the latest run.
 func buildLastRunSummary(sq *ScheduledQuery) *LastRunSummary {
 	if sq.LastRunTime.IsZero() {
 		return nil
 	}
-	triggerTime := sq.LastRunTime.Add(-time.Second)
+
+	status := sq.LastRunStatus
+	if status == "" {
+		status = runStatusManualTriggerSuccess
+	}
+
+	stats := ExecutionStats{}
+	if sq.LastRunStats != nil {
+		stats = *sq.LastRunStats
+	}
 
 	return &LastRunSummary{
-		RunStatus:      runStatusManualTriggerSuccess,
+		RunStatus:      status,
+		FailureReason:  sq.LastRunFailure,
 		InvocationTime: epochSeconds(sq.LastRunTime),
-		TriggerTime:    epochSeconds(triggerTime),
-		ExecutionStats: &ExecutionStats{
-			ExecutionTimeInMillis: simExecTimeMs,
-			RecordsIngested:       simRecordsIngested,
-		},
+		TriggerTime:    epochSeconds(sq.LastRunTime.Add(-time.Second)),
+		ExecutionStats: &stats,
 	}
 }
 

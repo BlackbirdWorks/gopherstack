@@ -12,13 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Numeric constants for estimation heuristics.
-const (
-	bytesPerCell          = 32               // avg bytes per scalar cell for scan estimate
-	minScanBytes          = 10 * 1024 * 1024 // 10 MB minimum Timestream billing unit
-	tokenParts            = 2                // NextToken format: "queryID:offset"
-	queryProgressComplete = 100.0
-)
+const queryProgressComplete = 100.0
 
 // maxRetainedQueries bounds the queries map so a long-running instance cannot
 // leak memory through repeated Query calls: once at the cap, an arbitrarily
@@ -37,24 +31,18 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		return nil, err
 	}
 
-	// Continuation page from NextToken.
 	if opts.NextToken != "" {
-		queryID, rows, cols, nextTok, resolveErr := b.pageStore.resolve(opts.NextToken, maxRows)
+		pg, resolveErr := b.pageStore.resolve(opts.NextToken, maxRows, b.clock())
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
-		scanned := estimateBytesScanned(len(rows), len(cols))
 
 		return &QueryPage{
-			QueryID: queryID,
-			Rows:    rows,
-			Columns: cols,
-			QueryStatus: QueryStatusDetail{
-				ProgressPercentage:     queryProgressComplete,
-				CumulativeBytesScanned: scanned,
-				CumulativeBytesMetered: estimateBytesMetered(scanned),
-			},
-			NextToken: nextTok,
+			QueryID:     pg.queryID,
+			Rows:        pg.rows,
+			Columns:     pg.cols,
+			QueryStatus: pg.status,
+			NextToken:   pg.next,
 		}, nil
 	}
 
@@ -66,36 +54,32 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		return nil, err
 	}
 
-	// ClientToken idempotency check.
 	if opts.ClientToken != "" {
 		b.clientTokens.sweep()
 		if cachedID := b.clientTokens.get(opts.ClientToken); cachedID != "" {
-			// Return the first page of the cached result.
-			page, nextTok, resumeErr := b.resumeFirstPage(cachedID, maxRows)
+			pg, resumeErr := b.pageStore.restart(cachedID, maxRows, b.clock())
 			if resumeErr == nil {
-				return &QueryPage{QueryID: cachedID, Rows: page, NextToken: nextTok}, nil
+				return &QueryPage{
+					QueryID: cachedID, Rows: pg.rows, Columns: pg.cols, QueryStatus: pg.status, NextToken: pg.next,
+				}, nil
 			}
-			// If cached result is gone, fall through and re-execute.
 		}
 	}
 
-	// New query execution — infer schema from SQL.
-	cols, _ := inferColumnsFromSQL(opts.QueryString)
-	rows := []Row{} // Simulator: always empty (no live Timestream Write data available).
+	rs, err := b.execute(ctx, opts.QueryString, nil)
+	if err != nil {
+		return nil, err
+	}
 
 	queryID := newQueryID()
-	scanned := estimateBytesScanned(len(rows), len(cols))
+	status := statusFor(rs)
 
 	result := &QueryResult{
-		QueryID: queryID,
-		QueryStatus: QueryStatusDetail{
-			ProgressPercentage:     queryProgressComplete,
-			CumulativeBytesScanned: scanned,
-			CumulativeBytesMetered: estimateBytesMetered(scanned),
-		},
-		Rows:     rows,
-		Columns:  cols,
-		Insights: buildQueryInsightsResponse(rows, cols),
+		QueryID:     queryID,
+		QueryStatus: status,
+		Rows:        rs.rows,
+		Columns:     rs.cols,
+		Insights:    buildQueryInsightsResponse(rs),
 	}
 
 	b.mu.Lock("QueryWithOptions")
@@ -107,7 +91,7 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		b.clientTokens.set(opts.ClientToken, queryID)
 	}
 
-	page, nextTok := b.pageStore.store(queryID, rows, cols, maxRows)
+	pg := b.pageStore.store(queryID, rs.rows, rs.cols, status, maxRows, b.clock())
 
 	var insights *QueryInsightsResponse
 	if opts.InsightsMode != "DISABLED" {
@@ -117,46 +101,30 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 
 	return &QueryPage{
 		QueryID:     queryID,
-		Rows:        page,
-		Columns:     cols,
-		QueryStatus: result.QueryStatus,
+		Rows:        pg.rows,
+		Columns:     rs.cols,
+		QueryStatus: status,
 		Insights:    insights,
-		NextToken:   nextTok,
+		NextToken:   pg.next,
 	}, nil
 }
 
-// resumeFirstPage retrieves the first page of a previously-stored query result.
-func (b *InMemoryBackend) resumeFirstPage(queryID string, maxRows int) ([]Row, string, error) {
-	b.pageStore.mu.Lock()
-	defer b.pageStore.mu.Unlock()
-	r, ok := b.pageStore.results[queryID]
-	if !ok {
-		return nil, "", fmt.Errorf("%w: query %q not found in page store", ErrNotFound, queryID)
+// Query runs a query and returns its full result (legacy path); a failing query yields an empty result.
+func (b *InMemoryBackend) Query(ctx context.Context, queryString string) *QueryResult {
+	rs, err := b.execute(ctx, queryString, nil)
+	if err != nil {
+		rs = &resultSet{rows: []Row{}}
 	}
-	r.offset = 0
-	page, next := r.nextPage(maxRows)
 
-	return page, next, nil
-}
+	result := &QueryResult{
+		QueryID:     newQueryID(),
+		QueryStatus: statusFor(rs),
+		Rows:        rs.rows,
+		Columns:     rs.cols,
+	}
 
-// Query runs a query and returns a result (legacy path, calls QueryWithOptions).
-// ctx is accepted for interface consistency; query results are not region-isolated.
-func (b *InMemoryBackend) Query(_ context.Context, queryString string) *QueryResult {
 	b.mu.Lock("Query")
 	defer b.mu.Unlock()
-
-	queryID := newQueryID()
-	cols, _ := inferColumnsFromSQL(queryString)
-	result := &QueryResult{
-		QueryID: queryID,
-		QueryStatus: QueryStatusDetail{
-			ProgressPercentage:     queryProgressComplete,
-			CumulativeBytesScanned: 0,
-			CumulativeBytesMetered: 0,
-		},
-		Rows:    []Row{},
-		Columns: cols,
-	}
 
 	evictOldestQueryLocked(b)
 	b.queries.Put(result)
@@ -181,6 +149,7 @@ func (b *InMemoryBackend) CancelQuery(_ context.Context, queryID string) error {
 	}
 
 	qr.Cancelled = true
+	b.pageStore.cancel(queryID)
 
 	return nil
 }
@@ -274,35 +243,27 @@ func NullDatum() Datum {
 	return Datum{NullValue: &t}
 }
 
-// estimateBytesScanned returns a rough byte estimate for n rows with c columns.
-// Assumes ~32 bytes per cell (average scalar value) as a sim heuristic.
-func estimateBytesScanned(rows int, cols int) int64 {
-	if rows == 0 || cols == 0 {
-		return 0
-	}
-	estimated := int64(rows) * int64(cols) * bytesPerCell
-	// Timestream bills a 10 MB minimum per query scan.
-	// minScanBytes used from package-level constant
-	if estimated < minScanBytes {
-		return minScanBytes
+// statusFor reports the completed-query status: bytes scanned is the stored size of every
+// record in the referenced tables; metered applies Timestream's 10 MB per-query minimum
+// whenever a table was read.
+func statusFor(rs *resultSet) QueryStatusDetail {
+	metered := rs.scanned
+	if rs.tables > 0 && metered < minMeteredBytes {
+		metered = minMeteredBytes
 	}
 
-	return estimated
+	return QueryStatusDetail{
+		ProgressPercentage:     queryProgressComplete,
+		CumulativeBytesScanned: rs.scanned,
+		CumulativeBytesMetered: metered,
+	}
 }
 
-// estimateBytesMetered returns the billing unit. For BYTES_SCANNED model,
-// it mirrors bytes scanned; for COMPUTE_UNITS, it is a fixed minimum.
-func estimateBytesMetered(scanned int64) int64 {
-	return scanned
-}
-
-// buildQueryInsightsResponse builds a QueryInsightsResponse for a completed query.
-func buildQueryInsightsResponse(rows []Row, cols []ColumnInfo) QueryInsightsResponse {
-	bytesOut := estimateBytesScanned(len(rows), len(cols))
-
+// buildQueryInsightsResponse builds the insights payload for a completed query.
+func buildQueryInsightsResponse(rs *resultSet) QueryInsightsResponse {
 	return QueryInsightsResponse{
-		OutputRows:  int64(len(rows)),
-		OutputBytes: bytesOut,
+		OutputRows:  int64(len(rs.rows)),
+		OutputBytes: rs.outBytes(),
 	}
 }
 
@@ -371,29 +332,45 @@ func (c *clientTokenCache) sweep() {
 }
 
 // ---------------------------------------------------------------------------
-// Paginated query result store (gap #7)
+// Paginated query result store
 // ---------------------------------------------------------------------------
+
+const (
+	// pageTokenTTL and pageTokenMaxUses follow the Query API doc: "A pagination token can be
+	// used for up to five Query invocations, OR for a duration of up to 1 hour".
+	pageTokenTTL     = time.Hour
+	pageTokenMaxUses = 5
+)
 
 // pagedQueryResult stores the full result set for a query awaiting paging.
 type pagedQueryResult struct {
 	createdAt time.Time
+	uses      map[int]int
 	queryID   string
 	rows      []Row
 	columns   []ColumnInfo
-	offset    int
+	status    QueryStatusDetail
+	cancelled bool
 }
 
-// nextPage slices up to maxRows rows starting at result.offset and advances the cursor.
-// It returns the page slice and a NextToken if more rows remain; empty string means last page.
-func (r *pagedQueryResult) nextPage(maxRows int) ([]Row, string) {
-	end := min(r.offset+maxRows, len(r.rows))
-	page := r.rows[r.offset:end]
-	r.offset = end
-	if r.offset < len(r.rows) {
-		return page, r.queryID + ":" + strconv.Itoa(r.offset)
+// pageOut is one served page.
+type pageOut struct {
+	queryID string
+	next    string
+	rows    []Row
+	cols    []ColumnInfo
+	status  QueryStatusDetail
+}
+
+func (r *pagedQueryResult) slice(offset, maxRows int) pageOut {
+	end := min(offset+maxRows, len(r.rows))
+	out := pageOut{queryID: r.queryID, rows: r.rows[offset:end], cols: r.columns, status: r.status}
+
+	if end < len(r.rows) {
+		out.next = r.queryID + ":" + strconv.Itoa(end)
 	}
 
-	return page, ""
+	return out
 }
 
 // nextTokenStore manages paged query results.
@@ -406,48 +383,84 @@ func newNextTokenStore() *nextTokenStore {
 	return &nextTokenStore{results: make(map[string]*pagedQueryResult)}
 }
 
-// store saves a paged result and returns the initial NextToken if rows > maxRows.
-func (s *nextTokenStore) store(queryID string, rows []Row, cols []ColumnInfo, maxRows int) ([]Row, string) {
+func (s *nextTokenStore) sweepLocked(now time.Time) {
+	for id, r := range s.results {
+		if now.Sub(r.createdAt) > pageTokenTTL {
+			delete(s.results, id)
+		}
+	}
+}
+
+// store saves a materialised result and returns its first page.
+func (s *nextTokenStore) store(
+	queryID string, rows []Row, cols []ColumnInfo, status QueryStatusDetail, maxRows int, now time.Time,
+) pageOut {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.sweepLocked(now)
+
 	r := &pagedQueryResult{
-		queryID:   queryID,
-		rows:      rows,
-		columns:   cols,
-		offset:    0,
-		createdAt: time.Now(),
+		queryID: queryID, rows: rows, columns: cols, status: status, createdAt: now, uses: map[int]int{},
 	}
 	s.results[queryID] = r
 
-	return r.nextPage(maxRows)
+	return r.slice(0, maxRows)
 }
 
-// resolve retrieves the next page for a continuation token.
-// Token format: "queryID:offset".
-func (s *nextTokenStore) resolve(token string, maxRows int) (string, []Row, []ColumnInfo, string, error) {
+// restart returns the first page of a stored result (ClientToken replay).
+func (s *nextTokenStore) restart(queryID string, maxRows int, now time.Time) (pageOut, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	parts := strings.SplitN(token, ":", tokenParts)
-	if len(parts) != tokenParts {
-		return "", nil, nil, "", fmt.Errorf("%w: invalid NextToken", ErrValidation)
+	r, ok := s.results[queryID]
+	if !ok || now.Sub(r.createdAt) > pageTokenTTL {
+		return pageOut{}, fmt.Errorf("%w: query %q not found in page store", ErrNotFound, queryID)
 	}
-	queryID := parts[0]
-	offset, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return "", nil, nil, "", fmt.Errorf("%w: invalid NextToken offset", ErrValidation)
+
+	return r.slice(0, maxRows), nil
+}
+
+// cancel invalidates further paging of queryID.
+func (s *nextTokenStore) cancel(queryID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if r, ok := s.results[queryID]; ok {
+		r.cancelled = true
+	}
+}
+
+// resolve serves the page named by a continuation token ("queryID:offset").
+func (s *nextTokenStore) resolve(token string, maxRows int, now time.Time) (pageOut, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	queryID, offStr, ok := strings.Cut(token, ":")
+	if !ok {
+		return pageOut{}, fmt.Errorf("%w: Invalid pagination token", ErrValidation)
+	}
+
+	offset, err := strconv.Atoi(offStr)
+	if err != nil || offset < 0 {
+		return pageOut{}, fmt.Errorf("%w: Invalid pagination token", ErrValidation)
 	}
 
 	r, ok := s.results[queryID]
-	if !ok {
-		return "", nil, nil, "", fmt.Errorf("%w: NextToken refers to expired or unknown query", ErrValidation)
+	if !ok || now.Sub(r.createdAt) > pageTokenTTL || offset > len(r.rows) {
+		return pageOut{}, fmt.Errorf("%w: Invalid pagination token", ErrValidation)
 	}
 
-	r.offset = offset
-	page, nextToken := r.nextPage(maxRows)
+	if r.cancelled {
+		return pageOut{}, fmt.Errorf("%w: Unable to poll results for a cancelled query", ErrAlreadyExists)
+	}
 
-	return queryID, page, r.columns, nextToken, nil
+	r.uses[offset]++
+	if r.uses[offset] > pageTokenMaxUses {
+		return pageOut{}, fmt.Errorf("%w: Invalid pagination token", ErrValidation)
+	}
+
+	return r.slice(offset, maxRows), nil
 }
 
 // newQueryID returns a new unique query ID.

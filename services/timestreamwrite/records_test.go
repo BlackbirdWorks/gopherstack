@@ -904,3 +904,107 @@ func TestInMemoryBackend_RecordCountNonexistentTable(t *testing.T) {
 	count := timestreamwrite.RecordCount(b, "ghost-db", "ghost-tbl")
 	assert.Equal(t, 0, count, "non-existent table should return zero records")
 }
+
+func TestTableData_RetentionAndRestore(t *testing.T) {
+	t.Parallel()
+
+	t0 := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	ms := func(d time.Duration) string { return strconv.FormatInt(t0.Add(-d).UnixMilli(), 10) }
+
+	tests := []struct {
+		name    string
+		advance time.Duration
+		want    []string
+	}{
+		{"memory aged record still queryable", 0, []string{"recent", "memoryaged"}},
+		{"magnetic expiry drops older", 10 * time.Hour, []string{"recent"}},
+		{"recent ages into magnetic", 40 * time.Hour, []string{"recent"}},
+		{"everything expired", 50 * time.Hour, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := timestreamwrite.NewInMemoryBackend()
+			b.SetClock(func() time.Time { return t0 })
+
+			_, err := b.CreateDatabase("db", "", nil)
+			require.NoError(t, err)
+
+			_, err = b.CreateTable("db", "tbl", nil, &timestreamwrite.CreateTableInput{
+				RetentionProperties: &timestreamwrite.RetentionProperties{
+					MemoryStoreRetentionPeriodInHours: 24, MagneticStoreRetentionPeriodInDays: 2,
+				},
+				MagneticStoreWriteProperties: &timestreamwrite.MagneticStoreWriteProperties{EnableMagneticStoreWrites: true},
+			})
+			require.NoError(t, err)
+
+			dim := func(v string) []timestreamwrite.Dimension { return []timestreamwrite.Dimension{{Name: "d", Value: v}} }
+			_, err = b.WriteRecords("db", "tbl", []timestreamwrite.Record{
+				{MeasureName: "m", MeasureValue: "1", MeasureValueType: "DOUBLE", Time: ms(time.Hour), TimeUnit: "MILLISECONDS", Dimensions: dim("recent")},
+				{MeasureName: "m", MeasureValue: "1", MeasureValueType: "DOUBLE", Time: ms(40 * time.Hour), TimeUnit: "MILLISECONDS", Dimensions: dim("memoryaged")},
+				{MeasureName: "m", MeasureValue: "1", MeasureValueType: "DOUBLE", Time: ms(60 * time.Hour), TimeUnit: "MILLISECONDS", Dimensions: dim("old")},
+			})
+			require.NoError(t, err)
+
+			snap, err := b.Snapshot()
+			require.NoError(t, err)
+
+			restored := timestreamwrite.NewInMemoryBackend()
+			require.NoError(t, restored.Restore(t.Context(), snap))
+
+			for _, backend := range []*timestreamwrite.InMemoryBackend{b, restored} {
+				data, dErr := backend.TableData("db", "tbl", t0.Add(tt.advance))
+				require.NoError(t, dErr)
+
+				var got []string
+				for _, r := range data.Records {
+					got = append(got, r.Dimensions[0].Value)
+				}
+
+				assert.ElementsMatch(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestSweepRetention_UsesMagneticWindow(t *testing.T) {
+	t.Parallel()
+
+	t0 := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	now := t0
+
+	b := timestreamwrite.NewInMemoryBackend()
+	b.SetClock(func() time.Time { return now })
+
+	_, err := b.CreateDatabase("db", "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateTable("db", "tbl", nil, &timestreamwrite.CreateTableInput{
+		RetentionProperties: &timestreamwrite.RetentionProperties{
+			MemoryStoreRetentionPeriodInHours: 1, MagneticStoreRetentionPeriodInDays: 1,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = b.WriteRecords("db", "tbl", []timestreamwrite.Record{{
+		MeasureName: "m", MeasureValue: "1", MeasureValueType: "DOUBLE",
+		Time: strconv.FormatInt(t0.UnixMilli(), 10), TimeUnit: "MILLISECONDS",
+	}})
+	require.NoError(t, err)
+
+	now = t0.Add(5 * time.Hour)
+	b.SweepRetention(t.Context())
+
+	data, err := b.TableData("db", "tbl", now)
+	require.NoError(t, err)
+	assert.Len(t, data.Records, 1, "past memory retention but within magnetic: kept")
+
+	now = t0.Add(26 * time.Hour)
+	b.SweepRetention(t.Context())
+
+	data, err = b.TableData("db", "tbl", now)
+	require.NoError(t, err)
+	assert.Empty(t, data.Records)
+}
