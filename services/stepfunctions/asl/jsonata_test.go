@@ -132,3 +132,45 @@ func TestJSONata_ChoiceRuleAssignMergesWithStateAssign(t *testing.T) {
 	require.False(t, res.Failed)
 	assert.Equal(t, map[string]any{"a": float64(1), "b": float64(2)}, res.Output)
 }
+
+func TestJSONata_DocumentedEvaluationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		output    string
+		wantCause string
+	}{
+		{
+			name:      "stack_overflow",
+			output:    `($f := function($n){1 + $f($n+1)}; $f(0))`,
+			wantCause: "Stack overflow error",
+		},
+		{
+			name:      "memory_limit",
+			output:    `$count([1..20000000])`,
+			wantCause: "Expression evaluation memory limit exceeded",
+		},
+		{
+			name:      "timeout",
+			output:    `$count([1..9000000].($ * 2).($ + 1).($ - 1).($ * 3))`,
+			wantCause: "Expression evaluation timeout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm, err := asl.Parse(`{"QueryLanguage":"JSONata","StartAt":"P","States":{
+				"P":{"Type":"Pass","End":true,"Output":"{% ` + tt.output + ` %}"}}}`)
+			require.NoError(t, err)
+
+			res, err := asl.NewExecutor(sm, nil, nil).Execute(t.Context(), "arn", `{}`)
+			require.NoError(t, err)
+			require.True(t, res.Failed)
+			assert.Equal(t, "States.QueryEvaluationError", res.Error)
+			assert.Equal(t, tt.wantCause, res.Cause)
+		})
+	}
+}

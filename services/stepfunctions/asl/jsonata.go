@@ -72,7 +72,25 @@ func malformedJSONata(s string) bool {
 }
 
 func queryEvalError(err error) error {
-	return &FailError{ErrCode: errCodeStatesQueryEvaluation, Cause: err.Error()}
+	return &FailError{ErrCode: errCodeStatesQueryEvaluation, Cause: evalErrorCause(err)}
+}
+
+// evalErrorCause maps gnata's guardrail codes to the messages AWS documents
+// under "Handling expression errors"; the memory limit is approximated by
+// gnata's sequence-size caps.
+func evalErrorCause(err error) string {
+	msg := err.Error()
+
+	switch {
+	case strings.Contains(msg, "D1012"):
+		return "Expression evaluation timeout"
+	case strings.Contains(msg, "D1011"), strings.Contains(msg, "U1001"):
+		return "Stack overflow error"
+	case strings.Contains(msg, "D2014"), strings.Contains(msg, "D2015"):
+		return "Expression evaluation memory limit exceeded"
+	}
+
+	return msg
 }
 
 // eval runs the expression with the given variable bindings ($states and
@@ -231,7 +249,11 @@ func (s *jxScope) withMapItem(idx int, item any) *jxScope {
 		maps.Copy(ctx, cur)
 	}
 
-	ctx["Map"] = mapItemContext(idx, item)
+	if p, ok := item.(mapPair); ok {
+		ctx["Map"] = mapPairContext(idx, p)
+	} else {
+		ctx["Map"] = mapItemContext(idx, item)
+	}
 
 	states := maps.Clone(s.states)
 	states["context"] = ctx
