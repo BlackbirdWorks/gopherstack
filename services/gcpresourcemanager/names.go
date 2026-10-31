@@ -3,6 +3,7 @@ package gcpresourcemanager
 import (
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -24,8 +25,10 @@ var (
 	projectNameRE = regexp.MustCompile(`^[A-Za-z0-9'" !-]+$`)
 	labelKeyRE    = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
 	labelValueRE  = regexp.MustCompile(`^([a-z]([-a-z0-9]*[a-z0-9])?)?$`)
-	folderNameRE  = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_\- ]{1,28}[\p{L}\p{N}]$`)
-	tagNameRE     = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.-]*[a-zA-Z0-9])?$`)
+	folderNameRE  = sync.OnceValue(func() *regexp.Regexp { //nolint:gochecknoglobals // lazy: eager compile costs MBs
+		return regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_\- ]{1,28}[\p{L}\p{N}]$`)
+	})
+	tagNameRE = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.-]*[a-zA-Z0-9])?$`)
 )
 
 // splitName splits "kind/id" and checks the kind.
@@ -86,7 +89,7 @@ func validateLabels(labels map[string]string) error {
 }
 
 func validateFolderName(name string) error {
-	if !folderNameRE.MatchString(name) {
+	if !folderNameRE().MatchString(name) {
 		return errInvalid("Invalid folder display name %q: it must start and end with a letter or digit, "+
 			"contain letters, digits, spaces, hyphens and underscores and be 3 to 30 characters.", name)
 	}

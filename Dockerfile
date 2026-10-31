@@ -17,18 +17,18 @@ RUN go mod download
 COPY . .
 
 # Build dashboard2 frontend assets before embedding in Go binary
-# Build dashboard2 frontend assets before embedding in Go binary
 # If the SPA was pre-built (e.g. via `task ui-build` before `task demo`), skip the npm build
 # to avoid OOM inside the container. Fall back to building in-container if assets are absent.
-RUN if [ ! -f dashboard/static/spa/index.html ]; then \
+RUN if [ ! -f dashboard/static/spa/index.html.gz ] && [ ! -f dashboard/static/spa/index.html ]; then \
         npm --prefix ui ci --include=optional && \
         NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run build; \
     fi
 
 # Build the Go app
-RUN go build \
+RUN CGO_ENABLED=0 go build \
     -tags 'netgo osusergo static_build' \
     -trimpath \
+    -buildvcs=false \
     -ldflags="-w -s -extldflags '-static -fno-PIC'" \
     -o gopherstack
 

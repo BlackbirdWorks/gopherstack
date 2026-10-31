@@ -381,7 +381,7 @@ func (e *mysqlEngine) ApplyRecovery(ctx context.Context, rec Recovery) error {
 
 // mysqlQuoteIdent has the MySQL server quote s, so no client-built string reaches the DDL statement.
 func mysqlQuoteIdent(ctx context.Context, q rowQuerier, s string) (string, error) {
-	if !identRe.MatchString(s) {
+	if !identRe().MatchString(s) {
 		return "", errInvalid("identifier %q is invalid", s)
 	}
 
