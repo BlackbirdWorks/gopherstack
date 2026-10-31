@@ -38,11 +38,22 @@ func TestGCPResourceManagerProxy(t *testing.T) {
 
 		runGCPSteps(t, h, []gcpStep{
 			{http.MethodGet, rmBase + "/organizations", "", rmOrg, 200},
-			{http.MethodPost, rmBase + "/folders", `{"parent":"` + rmOrg + `","displayName":"Team Alpha","name":"folders/9"}`,
-				"operations/", 200},
+			{
+				http.MethodPost,
+				rmBase + "/folders",
+				`{"parent":"` + rmOrg + `","displayName":"Team Alpha","name":"folders/9"}`,
+				"operations/",
+				200,
+			},
 			{http.MethodGet, rmBase + "/folders?parent=" + rmOrg, "", "Team Alpha", 200},
-			{http.MethodPost, rmBase + "/projects", `{"projectId":"alpha-proj","displayName":"Alpha","parent":"` + rmOrg + `",` +
-				`"labels":{"env":"dev"},"state":"DELETE_REQUESTED"}`, "operations/", 200},
+			{
+				http.MethodPost,
+				rmBase + "/projects",
+				`{"projectId":"alpha-proj","displayName":"Alpha","parent":"` + rmOrg + `",` +
+					`"labels":{"env":"dev"},"state":"DELETE_REQUESTED"}`,
+				"operations/",
+				200,
+			},
 			{http.MethodGet, rmBase + "/projects?parent=" + rmOrg, "", `"env":"dev"`, 200},
 			{http.MethodGet, rmBase + "/projects/alpha-proj", "", `"state":"ACTIVE"`, 200},
 			{http.MethodDelete, rmBase + "/projects/alpha-proj", "", "operations/", 200},
@@ -116,8 +127,13 @@ func TestGCPResourceManagerProxy(t *testing.T) {
 		del := `{"role":"roles/viewer","member":"user:a@example.com","etag":"` + cur.Etag + `"}`
 		runGCPSteps(t, h, []gcpStep{
 			{http.MethodPost, res + ":removeMember", del, `"etag"`, 200},
-			{http.MethodPost, res + ":removeMember", `{"role":"roles/viewer","member":"user:a@example.com","etag":"eA=="}`,
-				"changed by another", 409},
+			{
+				http.MethodPost,
+				res + ":removeMember",
+				`{"role":"roles/viewer","member":"user:a@example.com","etag":"eA=="}`,
+				"changed by another",
+				409,
+			},
 		})
 	})
 
@@ -138,7 +154,13 @@ func TestGCPResourceManagerProxy(t *testing.T) {
 		t.Parallel()
 
 		runGCPSteps(t, newRMDashboard(t, gcpenforce.Settings{}), []gcpStep{
-			{http.MethodPost, rmBase + "/folders", `{"parent":"projects/x","displayName":"abc"}`, "parent must be", 400},
+			{
+				http.MethodPost,
+				rmBase + "/folders",
+				`{"parent":"projects/x","displayName":"abc"}`,
+				"parent must be",
+				400,
+			},
 			{http.MethodPost, rmBase + "/projects", `{"projectId":"abcdef","parent":"bad"}`, "parent must be", 400},
 			{http.MethodPost, rmBase + "/projects", `nope`, "invalid", 400},
 			{http.MethodGet, rmBase + "/projects?parent=projects/x", "", "unsupported", 404},
@@ -152,10 +174,20 @@ func TestGCPResourceManagerProxy(t *testing.T) {
 			{http.MethodGet, rmBase + "/projects/gopherstack-test/services/a%2Fb", "", "unsupported", 404},
 			{http.MethodGet, rmBase + "/projects/gopherstack-test/billingInfo", "", "unsupported", 404},
 			{http.MethodPost, rmBase + "/projects/gopherstack-test:setIamPolicy", `{}`, "unsupported", 404},
-			{http.MethodPost, rmBase + "/projects/gopherstack-test:addMember", `{"role":"admin","member":"user:a","etag":"e"}`,
-				"role must be", 400},
-			{http.MethodPost, rmBase + "/projects/gopherstack-test:addMember", `{"role":"roles/viewer","member":"user:a"}`,
-				"etag is required", 400},
+			{
+				http.MethodPost,
+				rmBase + "/projects/gopherstack-test:addMember",
+				`{"role":"admin","member":"user:a","etag":"e"}`,
+				"role must be",
+				400,
+			},
+			{
+				http.MethodPost,
+				rmBase + "/projects/gopherstack-test:addMember",
+				`{"role":"roles/viewer","member":"user:a"}`,
+				"etag is required",
+				400,
+			},
 			{http.MethodPost, rmBase + "/projects/gopherstack-test:move", `{"destinationParent":"projects/x"}`,
 				"destinationParent", 400},
 		})
@@ -167,10 +199,21 @@ func TestGCPResourceManagerProxy(t *testing.T) {
 		h := newRMDashboard(t, gcpenforce.Settings{})
 
 		runGCPSteps(t, h, []gcpStep{
-			{http.MethodPost, rmBase + "/folders", `{"parent":"` + rmOrg + `","displayName":"Dest"}`, "operations/", 200},
+			{
+				http.MethodPost,
+				rmBase + "/folders",
+				`{"parent":"` + rmOrg + `","displayName":"Dest"}`,
+				"operations/",
+				200,
+			},
 			{http.MethodGet, rmBase + "/tagKeys?parent=" + rmOrg, "", "", 200},
-			{http.MethodGet, rmBase + "/tagBindings?parent=//cloudresourcemanager.googleapis.com/projects/gopherstack-test",
-				"", "", 200},
+			{
+				http.MethodGet,
+				rmBase + "/tagBindings?parent=//cloudresourcemanager.googleapis.com/projects/gopherstack-test",
+				"",
+				"",
+				200,
+			},
 			{http.MethodPost, rmBase + "/projects/gopherstack-test:move", `{"destinationParent":"` + rmOrg + `"}`,
 				"operations/", 200},
 		})

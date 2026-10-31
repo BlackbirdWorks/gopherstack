@@ -2,8 +2,8 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/base64"
 	"context"
+	"encoding/base64"
 	"net/http"
 	"regexp"
 	"slices"
@@ -47,10 +47,14 @@ var (
 	gcpRMParentRE  = regexp.MustCompile(`^(organizations|folders)/[A-Za-z0-9]{1,64}$`)
 	gcpRMKeyRE     = regexp.MustCompile(`^(organizations|projects)/[A-Za-z0-9-]{1,64}$`)
 	gcpRMValueRE   = regexp.MustCompile(`^tagKeys/[0-9]{1,32}$`)
-	gcpRMBindingRE = regexp.MustCompile(`^//cloudresourcemanager\.googleapis\.com/(projects|folders|organizations)/[A-Za-z0-9-]{1,64}$`)
+	gcpRMBindingRE = regexp.MustCompile(
+		`^//cloudresourcemanager\.googleapis\.com/(projects|folders|organizations)/[A-Za-z0-9-]{1,64}$`,
+	)
 	gcpRMServiceRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	gcpRMRoleRE    = regexp.MustCompile(`^(roles/[A-Za-z0-9_.]{1,128}|(projects|organizations)/[A-Za-z0-9_-]{1,64}/roles/[A-Za-z0-9_.]{1,128})$`)
-	gcpRMStateRE   = regexp.MustCompile(`^(ENABLED|DISABLED)$`)
+	gcpRMRoleRE    = regexp.MustCompile(
+		`^(roles/[A-Za-z0-9_.]{1,128}|(projects|organizations)/[A-Za-z0-9_-]{1,64}/roles/[A-Za-z0-9_.]{1,128})$`,
+	)
+	gcpRMStateRE = regexp.MustCompile(`^(ENABLED|DISABLED)$`)
 )
 
 // registerGCPResourceManagerRoutes serves the Resource Manager page by calling the control plane in-process. Reads
@@ -328,9 +332,11 @@ func gcpRMRemoveMember(pol *iampb.Policy, role, member string) error {
 			continue
 		}
 
-		b.Members = slices.DeleteFunc(b.Members, func(m string) bool { return m == member })
-		if len(b.Members) == 0 {
-			pol.Bindings = slices.Delete(pol.Bindings, i, i+1)
+		left := slices.DeleteFunc(b.GetMembers(), func(m string) bool { return m == member })
+		if len(left) == 0 {
+			pol.Bindings = slices.Delete(pol.GetBindings(), i, i+1)
+		} else {
+			b.Members = left
 		}
 
 		return nil
