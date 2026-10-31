@@ -546,10 +546,14 @@ const ephemeralBindAttempts = 32
 // is 0, keeping both open so nothing can take them before the servers start. Other addrs return nils.
 func bindEphemeral(ctx context.Context, addr string) (net.Listener, net.PacketConn, error) {
 	host, port, err := net.SplitHostPort(addr)
-	if err != nil || port != "0" {
-		return nil, nil, nil
+	if err == nil && port == "0" {
+		return bindPair(ctx, host, addr)
 	}
 
+	return nil, nil, nil
+}
+
+func bindPair(ctx context.Context, host, addr string) (net.Listener, net.PacketConn, error) {
 	var lc net.ListenConfig
 
 	for range ephemeralBindAttempts {
