@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -14,7 +15,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const holdChunks = 8
+const (
+	holdChunks      = 8
+	holdShortStride = 4
+)
 
 // holdGate is one gate under proof: covered reports whether the gate admits the request;
 // entry's matcher must return false for every request it does not admit.
@@ -31,6 +35,8 @@ func sweepHolds(t *testing.T, gates []holdGate, cases []routingCase, variants fu
 
 	chunk := (len(cases) + holdChunks - 1) / holdChunks
 
+	var seen sync.Map
+
 	for i := range holdChunks {
 		part := cases[min(i*chunk, len(cases)):min((i+1)*chunk, len(cases))]
 
@@ -39,6 +45,10 @@ func sweepHolds(t *testing.T, gates []holdGate, cases []routingCase, variants fu
 
 			for _, rc := range part {
 				for _, v := range variants(rc) {
+					if _, dup := seen.LoadOrStore(v, struct{}{}); dup {
+						continue
+					}
+
 					req := v.request(t)
 
 					for _, g := range gates {
@@ -90,7 +100,24 @@ func TestRoutePathGatesHold(t *testing.T) {
 		)
 	}
 
-	sweepHolds(t, gates, loadRoutingCorpus(t), func(rc routingCase) []routingCase {
+	cases := loadRoutingCorpus(t)
+	arnRows := make(map[routingCase]bool, len(cases))
+
+	for _, rc := range cases {
+		arnRows[rc] = !testing.Short()
+	}
+
+	if testing.Short() {
+		for _, rc := range strideSample(cases, holdShortStride) {
+			arnRows[rc] = true
+		}
+	}
+
+	sweepHolds(t, gates, cases, func(rc routingCase) []routingCase {
+		if !arnRows[rc] {
+			return slices.Concat([]routingCase{rc}, pathVariants(rc))
+		}
+
 		return slices.Concat([]routingCase{rc}, pathVariants(rc), arnVariants(rc))
 	})
 }
