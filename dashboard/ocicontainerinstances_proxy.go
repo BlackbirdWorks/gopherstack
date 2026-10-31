@@ -39,30 +39,44 @@ const (
 	ociCIItemSegs     = 2
 	ociCIActionSegs   = 4
 	ociCISubSegs      = 3
-	ociCIKeyInstance   = "containerInstanceId"
+	ociCIKeyInstance  = "containerInstanceId"
 	ociCIKeyOcpus     = "ocpus"
 	ociCIKeyMemory    = "memoryInGBs"
 	ociCIKeyEnv       = "environmentVariables"
 	ociCIKeyEnvNames  = "environmentVariableNames"
 	ociCIKeyDisplay   = "displayName"
 	ociCIKeyIsPrev    = "isPrevious"
+	ociCIKeyState     = "lifecycleState"
+	ociCIKeyItems     = "items"
+	ociCIKeyName      = "name"
+	ociCIKeyLimit     = "limit"
+	ociCIKeyPage      = "page"
+	ociCIKeyStatus    = "status"
 )
 
 var (
-	ociCIIDRe     = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
-	ociCIEnvNmRe  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,127}$`)
-	ociCIRestarts = []string{"", "ALWAYS", "NEVER", "ON_FAILURE"}
+	ociCIIDRe    = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
+	ociCIEnvNmRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,127}$`)
 )
+
+func ociCIRestartOK(p string) bool {
+	switch p {
+	case "", "ALWAYS", "NEVER", "ON_FAILURE":
+		return true
+	}
+
+	return false
+}
 
 // ociCIQueryKeys are the only query parameters each listing forwards; everything else is dropped.
 //
 //nolint:gochecknoglobals // immutable allow-list
 var ociCIQueryKeys = map[string][]string{
-	ociCIInstances:  {ociKeyCompartment, "lifecycleState", ociCIKeyDisplay, "limit", "page"},
-	ociCIShapes:     {ociKeyCompartment, "limit", "page"},
-	ociCIContainers: {ociKeyCompartment, ociCIKeyInstance, "lifecycleState", "limit", "page"},
-	ociCIWorkReqs:   {ociKeyCompartment, "resourceId", "status", "limit", "page"},
-	ociCIErrors:     {"limit", "page"},
+	ociCIInstances:  {ociKeyCompartment, ociCIKeyState, ociCIKeyDisplay, ociCIKeyLimit, ociCIKeyPage},
+	ociCIShapes:     {ociKeyCompartment, ociCIKeyLimit, ociCIKeyPage},
+	ociCIContainers: {ociKeyCompartment, ociCIKeyInstance, ociCIKeyState, ociCIKeyLimit, ociCIKeyPage},
+	ociCIWorkReqs:   {ociKeyCompartment, "resourceId", ociCIKeyStatus, ociCIKeyLimit, ociCIKeyPage},
+	ociCIErrors:     {ociCIKeyLimit, ociCIKeyPage},
 	ociCIRetrieveLogs: {
 		ociCIKeyIsPrev,
 	},
@@ -161,7 +175,7 @@ func ociCIQuery(call ociCICall, in url.Values) string {
 
 // ociCIResolve maps a proxy request to its emulator call; false means the request is outside the allow-list.
 func ociCIResolve(method string, parts []string) (ociCICall, bool) {
-	if len(parts) > ociCIActionSegs || (len(parts) >= ociCIItemSegs && !ociCIIDRe.MatchString(unescapedPath(parts[1]))) {
+	if len(parts) > ociCIActionSegs || (len(parts) >= ociCIItemSegs && !ociCIIDOK(parts[1])) {
 		return ociCICall{}, false
 	}
 
@@ -207,7 +221,7 @@ func ociCIInstanceCall(method string, parts []string) (ociCICall, bool) {
 			return ociCICall{path: item, body: ociCIUpdateBody}, true
 		}
 	case len(parts) == ociCISubSegs+1 && method == http.MethodPost && parts[2] == ociCIActions &&
-		slices.Contains([]string{"start", "stop", "restart"}, parts[3]):
+		ociCIActionOK(parts[3]):
 		return ociCICall{path: "/containerInstances/" + parts[1] + "/actions/" + parts[3]}, true
 	}
 
@@ -244,6 +258,10 @@ func ociCIWorkReqCall(method string, parts []string) (ociCICall, bool) {
 
 	return ociCICall{}, false
 }
+
+func ociCIIDOK(seg string) bool { return ociCIIDRe.MatchString(unescapedPath(seg)) }
+
+func ociCIActionOK(a string) bool { return a == aciPxStart || a == aciPxStop || a == "restart" }
 
 func ociCIName(s string) bool { return s != "" && len(s) <= ociCIMaxName }
 
@@ -284,58 +302,77 @@ func (in ociCIContainerIn) build() (map[string]any, bool) {
 	}
 
 	if len(in.Env) > 0 {
-		for k, v := range in.Env {
-			if !ociCIEnvNmRe.MatchString(k) || len(v) > ociCIMaxEnvValue {
-				return nil, false
-			}
+		if !ociCIEnvOK(in.Env) {
+			return nil, false
 		}
 
 		out[ociCIKeyEnv] = in.Env
 	}
 
-	if in.Resource != nil {
-		rc := map[string]any{}
-		if in.Resource.Vcpus != nil {
-			rc["vcpusLimit"] = *in.Resource.Vcpus
-		}
-
-		if in.Resource.Mem != nil {
-			rc["memoryLimitInGBs"] = *in.Resource.Mem
-		}
-
-		if len(rc) > 0 {
-			out["resourceConfig"] = rc
-		}
+	if rc := in.resource(); rc != nil {
+		out["resourceConfig"] = rc
 	}
 
 	return out, true
 }
 
-func ociCICreateBody(c *echo.Context) ([]byte, bool) {
-	var in struct {
-		ShapeConfig *struct {
-			Ocpus  *float64 `json:"ocpus"`
-			Memory *float64 `json:"memoryInGBs"`
-		} `json:"shapeConfig"`
-		Graceful    *int64             `json:"gracefulShutdownTimeoutInSeconds"`
-		Compartment string             `json:"compartmentId"`
-		AD          string             `json:"availabilityDomain"`
-		DisplayName string             `json:"displayName"`
-		Shape       string             `json:"shape"`
-		Restart     string             `json:"containerRestartPolicy"`
-		Containers  []ociCIContainerIn `json:"containers"`
-		Vnics       []struct {
-			SubnetID string `json:"subnetId"`
-		} `json:"vnics"`
+func (in ociCIContainerIn) resource() map[string]any {
+	if in.Resource == nil {
+		return nil
 	}
 
-	if !ociDecodeBodyN(c, &in, ociCIMaxBody) || !ociCIName(in.Compartment) || !ociCIName(in.Shape) ||
-		!ociCIName(in.AD) || len(in.DisplayName) > ociCIMaxName || !slices.Contains(ociCIRestarts, in.Restart) ||
-		in.ShapeConfig == nil || in.ShapeConfig.Ocpus == nil || len(in.Containers) == 0 ||
-		len(in.Containers) > ociCIMaxContainer || len(in.Vnics) != 1 || !ociCIName(in.Vnics[0].SubnetID) {
-		return nil, false
+	rc := map[string]any{}
+	if in.Resource.Vcpus != nil {
+		rc["vcpusLimit"] = *in.Resource.Vcpus
 	}
 
+	if in.Resource.Mem != nil {
+		rc["memoryLimitInGBs"] = *in.Resource.Mem
+	}
+
+	if len(rc) == 0 {
+		return nil
+	}
+
+	return rc
+}
+
+func ociCIEnvOK(env map[string]string) bool {
+	for k, v := range env {
+		if !ociCIEnvNmRe.MatchString(k) || len(v) > ociCIMaxEnvValue {
+			return false
+		}
+	}
+
+	return true
+}
+
+type ociCICreateIn struct {
+	ShapeConfig *struct {
+		Ocpus  *float64 `json:"ocpus"`
+		Memory *float64 `json:"memoryInGBs"`
+	} `json:"shapeConfig"`
+	Graceful    *int64             `json:"gracefulShutdownTimeoutInSeconds"`
+	Compartment string             `json:"compartmentId"`
+	AD          string             `json:"availabilityDomain"`
+	DisplayName string             `json:"displayName"`
+	Shape       string             `json:"shape"`
+	Restart     string             `json:"containerRestartPolicy"`
+	Containers  []ociCIContainerIn `json:"containers"`
+	Vnics       []struct {
+		SubnetID string `json:"subnetId"`
+	} `json:"vnics"`
+}
+
+func (in *ociCICreateIn) valid() bool {
+	return ociCIName(in.Compartment) && ociCIName(in.Shape) && ociCIName(in.AD) &&
+		len(in.DisplayName) <= ociCIMaxName && ociCIRestartOK(in.Restart) &&
+		in.ShapeConfig != nil && in.ShapeConfig.Ocpus != nil &&
+		len(in.Containers) > 0 && len(in.Containers) <= ociCIMaxContainer &&
+		len(in.Vnics) == 1 && ociCIName(in.Vnics[0].SubnetID)
+}
+
+func (in *ociCICreateIn) build() (map[string]any, bool) {
 	sc := map[string]any{ociCIKeyOcpus: *in.ShapeConfig.Ocpus}
 	if in.ShapeConfig.Memory != nil {
 		sc[ociCIKeyMemory] = *in.ShapeConfig.Memory
@@ -367,6 +404,21 @@ func ociCICreateBody(c *echo.Context) ([]byte, bool) {
 
 	if in.Graceful != nil && *in.Graceful >= 0 {
 		out["gracefulShutdownTimeoutInSeconds"] = *in.Graceful
+	}
+
+	return out, true
+}
+
+func ociCICreateBody(c *echo.Context) ([]byte, bool) {
+	var in ociCICreateIn
+
+	if !ociDecodeBodyN(c, &in, ociCIMaxBody) || !in.valid() {
+		return nil, false
+	}
+
+	out, ok := in.build()
+	if !ok {
+		return nil, false
 	}
 
 	return ociArtMarshal(out)
@@ -446,7 +498,7 @@ func ociCIScrubMap(m map[string]any) {
 	if hs, ok := m["headers"].([]any); ok {
 		for i, f := range hs {
 			fm, _ := f.(map[string]any)
-			hs[i] = map[string]any{"name": fm["name"]}
+			hs[i] = map[string]any{ociCIKeyName: fm[ociCIKeyName]}
 		}
 	}
 
@@ -523,11 +575,11 @@ func (h *DashboardHandler) ociCIAvailabilityDomains(c *echo.Context) error {
 		}
 
 		for _, ad := range ads {
-			items = append(items, map[string]any{"name": ad.Name})
+			items = append(items, map[string]any{ociCIKeyName: ad.Name})
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": items})
+	return c.JSON(http.StatusOK, map[string]any{ociCIKeyItems: items})
 }
 
 // ociCISubnets lists the subnets of one compartment from OCI Core, read only, reduced to what a picker needs.
@@ -536,7 +588,7 @@ func (h *DashboardHandler) ociCISubnets(c *echo.Context) error {
 	comp := c.QueryParam(ociKeyCompartment)
 
 	if ops == nil || !ociCIName(comp) {
-		return c.JSON(http.StatusOK, map[string]any{"items": []any{}})
+		return c.JSON(http.StatusOK, map[string]any{ociCIKeyItems: []any{}})
 	}
 
 	inner := echo.New()
@@ -545,7 +597,7 @@ func (h *DashboardHandler) ociCISubnets(c *echo.Context) error {
 	r := c.Request()
 	fwd := r.Clone(r.Context())
 	fwd.URL.Path, fwd.URL.RawPath = ociCICoreAPI+"/subnets", ""
-	fwd.URL.RawQuery = url.Values{ociKeyCompartment: {comp}, "limit": {"1000"}}.Encode()
+	fwd.URL.RawQuery = url.Values{ociKeyCompartment: {comp}, ociCIKeyLimit: {"1000"}}.Encode()
 	fwd.RequestURI, fwd.Method, fwd.Body, fwd.ContentLength = "", http.MethodGet, http.NoBody, 0
 	fwd.Header = fwd.Header.Clone()
 	fwd.Header.Del("Authorization")
@@ -554,12 +606,12 @@ func (h *DashboardHandler) ociCISubnets(c *echo.Context) error {
 	inner.ServeHTTP(rec, fwd)
 
 	if rec.Code != http.StatusOK {
-		return c.JSON(http.StatusOK, map[string]any{"items": []any{}})
+		return c.JSON(http.StatusOK, map[string]any{ociCIKeyItems: []any{}})
 	}
 
 	var subnets []map[string]any
 	if json.Unmarshal(rec.Body.Bytes(), &subnets) != nil {
-		return c.JSON(http.StatusOK, map[string]any{"items": []any{}})
+		return c.JSON(http.StatusOK, map[string]any{ociCIKeyItems: []any{}})
 	}
 
 	items := make([]any, 0, len(subnets))
@@ -567,9 +619,9 @@ func (h *DashboardHandler) ociCISubnets(c *echo.Context) error {
 	for _, s := range subnets {
 		items = append(items, map[string]any{
 			"id": s["id"], ociCIKeyDisplay: s[ociCIKeyDisplay], "cidrBlock": s["cidrBlock"],
-			"vcnId": s["vcnId"], "lifecycleState": s["lifecycleState"],
+			"vcnId": s["vcnId"], ociCIKeyState: s[ociCIKeyState],
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": items})
+	return c.JSON(http.StatusOK, map[string]any{ociCIKeyItems: items})
 }

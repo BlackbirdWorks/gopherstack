@@ -49,8 +49,8 @@ func (r ciFakeRuntime) Wait(ctx context.Context, _ string) (int, error) {
 }
 
 func (r ciFakeRuntime) Logs(context.Context, string) (string, error) { return r.logs, nil }
-func (r ciFakeRuntime) Kill(context.Context, string) error            { return nil }
-func (r ciFakeRuntime) Remove(context.Context, string) error          { return nil }
+func (r ciFakeRuntime) Kill(context.Context, string) error           { return nil }
+func (r ciFakeRuntime) Remove(context.Context, string) error         { return nil }
 
 type ciFixture struct {
 	h   *dashboard.DashboardHandler
@@ -74,7 +74,8 @@ func newCIDashboard(t *testing.T, mutate func(*ocicontainerinstances.InMemoryBac
 
 	return ciFixture{
 		h: dashboard.NewHandler(dashboard.Config{
-			OCIContainerInstancesOps: ops, OCICoreOps: core, OCIIdentityOps: ociidentity.NewHandler(ociidentity.NewInMemoryBackend()),
+			OCIContainerInstancesOps: ops, OCICoreOps: core,
+			OCIIdentityOps: ociidentity.NewHandler(ociidentity.NewInMemoryBackend()),
 		}),
 		ops: ops,
 	}
@@ -126,7 +127,8 @@ const ciSecretsCreate = `{
 	`","password":"` + ciPassword + `"}],
  "containers":[{"imageUrl":"alpine:3.20","displayName":"main","environmentVariables":{"TOKEN":"` + ciEnvValue + `"},
   "volumeMounts":[{"volumeName":"cfg","mountPath":"/etc/app"}],
-  "healthChecks":[{"healthCheckType":"HTTP","port":8080,"path":"/","headers":[{"name":"X-Auth","value":"` + ciHeaderVal + `"}]}]}]}`
+  "healthChecks":[{"healthCheckType":"HTTP","port":8080,"path":"/",
+   "headers":[{"name":"X-Auth","value":"` + ciHeaderVal + `"}]}]}]}`
 
 func ciCreateDirect(t *testing.T, f ciFixture) string {
 	t.Helper()
@@ -166,18 +168,30 @@ func TestOCIContainerInstancesProxyScrubbing(t *testing.T) {
 	require.Len(t, ctrList.Items, 1)
 
 	rawCtr := f.direct(t, http.MethodGet, "/20210415/containers/"+ctrList.Items[0].ID, "")
-	require.Contains(t, rawCtr.Body.String(), ciEnvValue, "fixture must hold the secret for the scrub to prove anything")
+	require.Contains(
+		t,
+		rawCtr.Body.String(),
+		ciEnvValue,
+		"fixture must hold the secret for the scrub to prove anything",
+	)
 
 	tests := []struct {
 		name string
 		path string
 		want []string
 	}{
-		{"instance", ciAPI + "/containerInstances/" + id,
-			[]string{`"secretType":"BASIC"`, `"registryEndpoint":"registry.example.com"`, `"sizeInBytes":27`, `"fileName":"app.conf"`}},
+		{
+			"instance", ciAPI + "/containerInstances/" + id,
+			[]string{
+				`"secretType":"BASIC"`, `"registryEndpoint":"registry.example.com"`, `"sizeInBytes":27`,
+				`"fileName":"app.conf"`,
+			},
+		},
 		{"instance list", ciAPI + "/containerInstances?compartmentId=" + ciComp, []string{`"displayName":"secrets"`}},
-		{"container", ciAPI + "/containers/" + ctrList.Items[0].ID,
-			[]string{`"environmentVariableNames":["TOKEN"]`, `"name":"X-Auth"`}},
+		{
+			"container", ciAPI + "/containers/" + ctrList.Items[0].ID,
+			[]string{`"environmentVariableNames":["TOKEN"]`, `"name":"X-Auth"`},
+		},
 		{"container list", ciAPI + "/containers?compartmentId=" + ciComp, []string{`"displayName":"main"`}},
 		{"work requests", ciAPI + "/workRequests?compartmentId=" + ciComp + "&resourceId=" + id, []string{`"status"`}},
 	}
@@ -186,10 +200,10 @@ func TestOCIContainerInstancesProxyScrubbing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rec := f.proxy(t, http.MethodGet, tt.path, "")
-			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			got := f.proxy(t, http.MethodGet, tt.path, "")
+			require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 
-			body := rec.Body.String()
+			body := got.Body.String()
 			for _, w := range tt.want {
 				assert.Contains(t, body, w)
 			}
@@ -253,10 +267,26 @@ func TestOCIContainerInstancesProxyBadWrites(t *testing.T) {
 		{"not json", `nope`},
 		{"no container", strings.Replace(good, `"containers":[{"imageUrl":"alpine"}]`, `"containers":[]`, 1) + "}"},
 		{"no image", strings.Replace(good, `"imageUrl":"alpine"`, `"imageUrl":""`, 1) + "}"},
-		{"two vnics", strings.Replace(good, `"vnics":[{"subnetId":"`+ciSubnet+`"}]`, `"vnics":[{"subnetId":"a"},{"subnetId":"b"}]`, 1) + "}"},
+		{
+			"two vnics",
+			strings.Replace(
+				good,
+				`"vnics":[{"subnetId":"`+ciSubnet+`"}]`,
+				`"vnics":[{"subnetId":"a"},{"subnetId":"b"}]`,
+				1,
+			) + "}",
+		},
 		{"no ocpus", strings.Replace(good, `"shapeConfig":{"ocpus":1}`, `"shapeConfig":{}`, 1) + "}"},
 		{"bad restart", good + `,"containerRestartPolicy":"SOMETIMES"}`},
-		{"bad env name", strings.Replace(good, `{"imageUrl":"alpine"}`, `{"imageUrl":"alpine","environmentVariables":{"a b":"1"}}`, 1) + "}"},
+		{
+			"bad env name",
+			strings.Replace(
+				good,
+				`{"imageUrl":"alpine"}`,
+				`{"imageUrl":"alpine","environmentVariables":{"a b":"1"}}`,
+				1,
+			) + "}",
+		},
 		{"long env value", strings.Replace(good, `{"imageUrl":"alpine"}`,
 			`{"imageUrl":"alpine","environmentVariables":{"A":"`+strings.Repeat("x", 5000)+`"}}`, 1) + "}"},
 		{"too many containers", strings.Replace(good, `[{"imageUrl":"alpine"}]`,
@@ -339,7 +369,7 @@ func TestOCIContainerInstancesProxyLifecycle(t *testing.T) {
 
 	rec := f.proxy(t, http.MethodPost, inst+"/actions/stop", "")
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-	assert.NotEmpty(t, rec.Header().Get("opc-work-request-id"))
+	assert.NotEmpty(t, rec.Header().Get("Opc-Work-Request-Id"))
 	f.settle(t, id, "INACTIVE")
 
 	rec = f.proxy(t, http.MethodPost, inst+"/actions/start", "")
@@ -426,8 +456,11 @@ func TestOCIContainerInstancesProxyLogsDockerEngine(t *testing.T) {
 	assert.Positive(t, rec.Body.Len())
 	assert.Greater(t, len(logs), 256<<10)
 	assert.True(t, strings.HasSuffix(rec.Body.String(), "last line"), "the tail is kept")
-	assert.True(t, strings.HasPrefix(rec.Body.String(), "0123456789é\n") || strings.HasPrefix(rec.Body.String(), "é\n") ||
-		strings.Contains(rec.Body.String()[:20], "\n"))
+	assert.True(
+		t,
+		strings.HasPrefix(rec.Body.String(), "0123456789é\n") || strings.HasPrefix(rec.Body.String(), "é\n") ||
+			strings.Contains(rec.Body.String()[:20], "\n"),
+	)
 }
 
 func TestOCIContainerInstancesProxyHelpers(t *testing.T) {
@@ -458,7 +491,9 @@ func TestOCIContainerInstancesProxySubnets(t *testing.T) {
 	be := ocicore.NewInMemoryBackend()
 	core := ocicore.NewHandler(be)
 
-	vcn, _, aerr := be.CreateVcn(ocicore.CreateVcnIn{CompartmentID: ciComp, DisplayName: "vcn", CidrBlock: "10.0.0.0/16"})
+	vcn, _, aerr := be.CreateVcn(
+		ocicore.CreateVcnIn{CompartmentID: ciComp, DisplayName: "vcn", CidrBlock: "10.0.0.0/16"},
+	)
 	require.Nil(t, aerr)
 
 	vcnJSON, err := json.Marshal(vcn)
