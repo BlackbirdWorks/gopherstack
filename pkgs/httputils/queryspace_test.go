@@ -2,9 +2,11 @@ package httputils_test
 
 import (
 	"bufio"
+	"crypto/tls"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -229,4 +231,192 @@ func TestEncodeQuerySpaces(t *testing.T) {
 	got := httputils.EncodeQuerySpaces([]byte("GET /p?a  b HTTP/1.0\r\n"))
 	assert.Equal(t, []byte("GET /p?a%20%20b HTTP/1.0\r\n"), got)
 	assert.Equal(t, []byte("GET /p?a HTTP/1.1\r\n"), httputils.EncodeQuerySpaces([]byte("GET /p?a HTTP/1.1\r\n")))
+}
+
+type errConn struct {
+	net.Conn
+
+	data []byte
+	errs []error
+}
+
+func (c *errConn) Read(p []byte) (int, error) {
+	if len(c.errs) == 0 {
+		return 0, io.EOF
+	}
+
+	err := c.errs[0]
+	c.errs = c.errs[1:]
+	n := copy(p, c.data)
+	c.data = nil
+
+	return n, err
+}
+
+func TestQuerySpaceConnReadSemantics(t *testing.T) {
+	t.Parallel()
+
+	errBoom := io.ErrUnexpectedEOF
+
+	tests := []struct {
+		wantErr error
+		name    string
+		data    string
+		zeroBuf bool
+	}{
+		{name: "error with data is surfaced", data: "GET /p HTTP/1.1\r\n\r\n", wantErr: errBoom},
+		{name: "error with partial line is surfaced", data: "GET /p?a b", wantErr: errBoom},
+		{name: "zero length read returns", zeroBuf: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, server := net.Pipe()
+			t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+
+			pln := &pipeListener{ch: make(chan net.Conn, 1)}
+			pln.ch <- &errConn{Conn: server, data: []byte(tt.data), errs: []error{errBoom}}
+
+			c, err := httputils.NewQuerySpaceListener(pln).Accept()
+			require.NoError(t, err)
+
+			done := make(chan error, 1)
+
+			go func() {
+				if tt.zeroBuf {
+					_, rerr := c.Read(nil)
+					done <- rerr
+
+					return
+				}
+
+				var got []byte
+
+				buf := make([]byte, 64)
+
+				for {
+					n, rerr := c.Read(buf)
+					got = append(got, buf[:n]...)
+
+					if rerr != nil {
+						assert.Equal(t, tt.data, string(got))
+						done <- rerr
+
+						return
+					}
+				}
+			}()
+
+			select {
+			case rerr := <-done:
+				if tt.wantErr == nil {
+					require.NoError(t, rerr)
+				} else {
+					require.ErrorIs(t, rerr, tt.wantErr)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("read did not return")
+			}
+		})
+	}
+}
+
+func TestQuerySpaceConnCloseWrite(t *testing.T) {
+	t.Parallel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		c, derr := net.Dial("tcp", ln.Addr().String())
+		if derr == nil {
+			defer c.Close()
+			_, _ = io.Copy(io.Discard, c)
+		}
+	}()
+
+	c, err := httputils.NewQuerySpaceListener(ln).Accept()
+	require.NoError(t, err)
+
+	defer c.Close()
+
+	cw, ok := c.(interface{ CloseWrite() error })
+	require.True(t, ok, "wrapped conn must expose CloseWrite")
+	require.NoError(t, cw.CloseWrite())
+}
+
+func TestQuerySpaceTLS(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(ts.Close)
+
+	rawLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	tlsLn := tls.NewListener(rawLn, &tls.Config{Certificates: ts.TLS.Certificates, MinVersion: tls.VersionTLS12})
+
+	srv := &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
+		ConnContext:       httputils.QuerySpaceConnContext,
+		Handler: httputils.QuerySpaceTLS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, strconv.FormatBool(r.TLS != nil && r.TLS.HandshakeComplete)+"|"+
+				r.URL.Query().Get("f")+"|"+r.Method)
+		})),
+	}
+
+	go func() { _ = srv.Serve(httputils.NewQuerySpaceListener(tlsLn)) }()
+
+	t.Cleanup(func() { _ = srv.Close() })
+
+	chunkedThenGet := "POST /a?f=1 HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n" +
+		"GET /b?f=2 HTTP/1.1\r\nHost: h\r\n\r\n"
+
+	tests := []struct {
+		name string
+		send string
+		want []string
+	}{
+		{
+			name: "keep-alive requests all see tls",
+			send: "GET /a?f=x y HTTP/1.1\r\nHost: h\r\n\r\nGET /a?f=p q HTTP/1.1\r\nHost: h\r\n\r\n",
+			want: []string{"true|x y|GET", "true|p q|GET"},
+		},
+		{name: "after passthrough still tls", send: chunkedThenGet, want: []string{"true|1|POST", "true|2|GET"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, derr := tls.Dial("tcp", rawLn.Addr().String(), &tls.Config{
+				InsecureSkipVerify: true,
+				NextProtos:         []string{"h2", "http/1.1"},
+			})
+			require.NoError(t, derr)
+
+			defer c.Close()
+
+			assert.NotEqual(t, "h2", c.ConnectionState().NegotiatedProtocol)
+
+			_, werr := io.WriteString(c, tt.send)
+			require.NoError(t, werr)
+
+			br := bufio.NewReader(c)
+
+			for _, want := range tt.want {
+				resp, rerr := http.ReadResponse(br, nil)
+				require.NoError(t, rerr)
+
+				b, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+
+				assert.Equal(t, want, string(b))
+			}
+		})
+	}
 }

@@ -91,7 +91,11 @@ type qsConn struct {
 }
 
 func (c *qsConn) Read(p []byte) (int, error) {
-	if c.state == qsPassthrough && len(c.out) == 0 {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	if c.state == qsPassthrough && len(c.out) == 0 && c.readErr == nil {
 		return c.Conn.Read(p)
 	}
 
@@ -99,22 +103,17 @@ func (c *qsConn) Read(p []byte) (int, error) {
 		c.buf = make([]byte, len(p))
 	}
 
-	for len(c.out) == 0 {
+	for len(c.out) == 0 && c.readErr == nil {
 		n, err := c.Conn.Read(c.buf[:len(p)])
 		if n > 0 {
 			c.feed(c.buf[:n])
 		}
 
-		if len(c.out) > 0 {
-			break
-		}
-
 		if err != nil {
-			if len(c.line) == 0 {
-				return 0, err
+			if len(c.line) > 0 {
+				c.passthrough()
 			}
 
-			c.passthrough()
 			c.readErr = err
 		}
 	}
@@ -123,10 +122,23 @@ func (c *qsConn) Read(p []byte) (int, error) {
 	c.out = c.out[n:]
 
 	if len(c.out) == 0 && c.readErr != nil {
-		return n, c.readErr
+		err := c.readErr
+		c.readErr = nil
+
+		return n, err
 	}
 
 	return n, nil
+}
+
+// CloseWrite lets net/http half-close before Close so a pending response is
+// not lost to an RST; the embedded net.Conn interface would hide it.
+func (c *qsConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+
+	return nil
 }
 
 func (c *qsConn) feed(data []byte) {
