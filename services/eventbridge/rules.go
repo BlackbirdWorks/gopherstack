@@ -50,13 +50,6 @@ func validatePutRuleInput(input PutRuleInput) error {
 		)
 	}
 
-	if input.EventPattern != "" && input.ScheduleExpression != "" {
-		return fmt.Errorf(
-			"%w: ScheduleExpression and EventPattern are mutually exclusive",
-			ErrInvalidParameter,
-		)
-	}
-
 	if input.EventPattern == "" && input.ScheduleExpression == "" {
 		return fmt.Errorf(
 			"%w: either EventPattern or ScheduleExpression must be provided",

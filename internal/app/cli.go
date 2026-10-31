@@ -717,6 +717,7 @@ type CLI struct {
 	TransferSFTP                  bool                              `                                       name:"transfer-sftp"           env:"TRANSFER_SFTP"                       default:"false"         help:"Serve a real SFTP listener per Transfer Family server."`                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
 	SQS                           sqsbackend.Settings               `embed:"" prefix:"sqs-"`
+	EventBridge                   ebbackend.Settings                `embed:"" prefix:"eventbridge-"`
 	Localstack                    LocalstackSettings                `embed:"" prefix:"localstack-"`
 	OCIVault                      ocivaultbackend.Settings          `embed:"" prefix:"oci-vault-"`
 	OCIStreaming                  ocistreamingbackend.Settings      `embed:"" prefix:"oci-streaming-"`
@@ -1064,6 +1065,11 @@ func (c *CLI) GetEndpoint() string {
 // EndpointStrategies returns the *_ENDPOINT_STRATEGY selections (endpointstrategy.Provider).
 func (c *CLI) EndpointStrategies() endpointstrategy.Config {
 	return c.Endpoints.Config(c.GetS3Endpoint())
+}
+
+// GetEventBridgeSettings returns EventBridge settings (eventbridge.ConfigProvider).
+func (c *CLI) GetEventBridgeSettings() ebbackend.Settings {
+	return c.EventBridge
 }
 
 // GetSQSSettings returns SQS settings (sqs.SettingsProvider).

@@ -11,6 +11,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/eventpattern"
 )
 
+const anythingButMixedMsg = "Inside anything but list, either all values are number or string, mixed type is not supported"
+
 type compiledPattern struct {
 	pattern               map[string]any
 	sourceExactValues     []string
@@ -63,6 +65,10 @@ func validatePatternObject(pattern map[string]any) error {
 
 		switch v := val.(type) {
 		case map[string]any:
+			if len(v) == 0 {
+				return fmt.Errorf("%w: Empty objects are not allowed", ErrInvalidParameter)
+			}
+
 			if err := validatePatternObject(v); err != nil {
 				return err
 			}
@@ -82,13 +88,17 @@ func validatePatternObject(pattern map[string]any) error {
 func validateOrCombinator(val any) error {
 	alts, ok := val.([]any)
 	if !ok {
-		return fmt.Errorf("%w: $or must be an array", ErrInvalidParameter)
+		return fmt.Errorf("%w: It must be an Array followed with $or.", ErrInvalidParameter)
+	}
+
+	if len(alts) < 2 {
+		return fmt.Errorf("%w: There must have at least 2 Objects in $or relationship.", ErrInvalidParameter)
 	}
 
 	for _, alt := range alts {
 		subPat, isMap := alt.(map[string]any)
 		if !isMap {
-			return fmt.Errorf("%w: $or elements must be objects", ErrInvalidParameter)
+			return fmt.Errorf("%w: Only JSON object is allowed in array of $or relationship.", ErrInvalidParameter)
 		}
 
 		if err := validatePatternObject(subPat); err != nil {
@@ -101,6 +111,10 @@ func validateOrCombinator(val any) error {
 
 // validateMatcherArray validates a pattern array for a single field.
 func validateMatcherArray(field string, matchers []any) error {
+	if len(matchers) == 0 {
+		return fmt.Errorf("%w: Empty arrays are not allowed", ErrInvalidParameter)
+	}
+
 	for _, m := range matchers {
 		switch mv := m.(type) {
 		case string, float64, bool, nil:
@@ -110,7 +124,7 @@ func validateMatcherArray(field string, matchers []any) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("%w: matcher for field %q has unsupported type", ErrInvalidParameter, field)
+			return fmt.Errorf("%w: Match value must be String, number, true, false, or null", ErrInvalidParameter)
 		}
 	}
 
@@ -154,22 +168,28 @@ func validateAnythingButValue(field string, v any) error {
 	case map[string]any:
 		return validateAnythingButObject(field, ab)
 	case []any:
+		var strs, nums int
+
 		for _, elem := range ab {
 			switch elem.(type) {
-			case string, float64:
+			case string:
+				strs++
+			case float64:
+				nums++
 			default:
-				return fmt.Errorf(
-					"%w: anything-but list for field %q must contain only strings or only numbers",
-					ErrInvalidParameter, field,
-				)
+				return fmt.Errorf("%w: %s", ErrInvalidParameter, anythingButMixedMsg)
 			}
+		}
+
+		if strs > 0 && nums > 0 {
+			return fmt.Errorf("%w: %s", ErrInvalidParameter, anythingButMixedMsg)
 		}
 
 		return nil
 	default:
 		return fmt.Errorf(
-			"%w: anything-but value for field %q must be a string, number, list, or matcher object",
-			ErrInvalidParameter, field,
+			"%w: Value of anything-but must be an array or single string/number value.",
+			ErrInvalidParameter,
 		)
 	}
 }
@@ -184,7 +204,7 @@ func validateAnythingButObject(field string, ab map[string]any) error {
 			continue
 		}
 
-		return fmt.Errorf("%w: unknown anything-but matcher %q for field %q", ErrInvalidParameter, key, field)
+		return fmt.Errorf("%w: Unsupported anything-but pattern: %s", ErrInvalidParameter, key)
 	}
 
 	return nil

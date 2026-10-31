@@ -16,8 +16,8 @@
 
 ### Known gaps
 
-- Kept lenient: ScheduleExpression on a custom event bus (real AWS allows it only on the default bus; test/terraform/fixtures/eventbridge/success.tf relies on it) and CreateConnection AuthParameters that do not match AuthorizationType (the SDK names no error for it).
-- Invalid-pattern Reason strings other than scalar-value, unknown matcher type and Filter-is-not-an-object (e.g. the exact wording for malformed JSON) are modeled from memory of real AWS, not pinned by the SDK.
+- Kept lenient: CreateConnection AuthParameters that do not match AuthorizationType (the SDK names no error for it).
+- Invalid-pattern Reason strings now follow aws/event-ruler JsonRuleCompiler.java (barf() calls, e.g. :195 Filter is not an object, :254/:300 Empty objects, :338/:352/:357 $or, :417 Match value, :421 Empty arrays, :521 anything-but, :532, :681, :909 exists). Still unverified: the malformed-JSON reason (emulator says 'Invalid JSON'; real AWS surfaces Jackson parser text plus a source/line location suffix that event-ruler itself does not define), and the exact ScheduleExpression-on-custom-bus message 'ScheduleExpression is supported only on the default event bus.' (restriction is documented in the terraform-provider-aws cloudwatch_event_rule docs, wording found in no primary source). A root-level empty pattern {} is still accepted.
 
 ### Structural gaps
 
