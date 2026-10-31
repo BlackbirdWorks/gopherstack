@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	mdns "github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
@@ -99,13 +100,13 @@ func TestServer_EphemeralPort(t *testing.T) {
 	t.Cleanup(func() { _ = s.Stop() })
 	require.NotZero(t, s.Port())
 
-	var d net.Dialer
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.Port()))
 
-	conn, err := d.DialContext(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(s.Port())))
-	require.NoError(t, err)
-	require.NoError(t, conn.Close())
+	for _, network := range []string{"tcp", "udp"} {
+		m := new(mdns.Msg)
+		m.SetQuestion("example.test.", mdns.TypeA)
 
-	udp, err := d.DialContext(t.Context(), "udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(s.Port())))
-	require.NoError(t, err)
-	require.NoError(t, udp.Close())
+		_, _, err = (&mdns.Client{Net: network}).ExchangeContext(t.Context(), m, addr)
+		require.NoError(t, err, network)
+	}
 }

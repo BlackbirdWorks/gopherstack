@@ -294,7 +294,12 @@ type serveRun struct {
 func (r *serveRun) serve(errCh chan<- error) {
 	defer close(r.done)
 
-	if err := r.srv.ListenAndServe(); err != nil {
+	serve := r.srv.ListenAndServe
+	if r.srv.Listener != nil || r.srv.PacketConn != nil {
+		serve = r.srv.ActivateAndServe // pre-bound sockets: ListenAndServe would rebind Addr
+	}
+
+	if err := serve(); err != nil {
 		if !errors.Is(err, net.ErrClosed) && !isServerClosed(err) {
 			errCh <- err
 		}
