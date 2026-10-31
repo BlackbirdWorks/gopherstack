@@ -287,9 +287,9 @@ func magneticCutoff(tbl *Table, now time.Time) (time.Time, bool) {
 		return time.Time{}, false
 	}
 
-	days := time.Duration(tbl.RetentionProperties.MagneticStoreRetentionPeriodInDays)
+	hours := tbl.RetentionProperties.MagneticStoreRetentionPeriodInDays * hoursPerDay
 
-	return now.Add(-days * hoursPerDay * time.Hour), true
+	return now.Add(-time.Duration(hours) * time.Hour), true
 }
 
 const hoursPerDay = 24

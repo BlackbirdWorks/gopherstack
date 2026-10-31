@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -225,12 +226,20 @@ func TestTimestreamQuery_SDK_QueriesWrittenRecords(t *testing.T) {
 			name: "multi measure with null dimension",
 			query: `SELECT host, region, cpu_pct, mem, ok, measure_name FROM ` + tbl +
 				` WHERE measure_name = 'metrics'`,
-			wantRows:  [][]string{{"c", "<null>", "73.5", "2048", "true", "metrics"}},
-			wantTypes: []string{"host:VARCHAR", "region:VARCHAR", "cpu_pct:DOUBLE", "mem:BIGINT", "ok:BOOLEAN", "measure_name:VARCHAR"},
+			wantRows: [][]string{{"c", "<null>", "73.5", "2048", "true", "metrics"}},
+			wantTypes: []string{
+				"host:VARCHAR",
+				"region:VARCHAR",
+				"cpu_pct:DOUBLE",
+				"mem:BIGINT",
+				"ok:BOOLEAN",
+				"measure_name:VARCHAR",
+			},
 		},
 		{
-			name:      "bigint and varchar measures",
-			query:     `SELECT measure_value::bigint, measure_value::varchar FROM ` + tbl + ` WHERE measure_name IN ('reqs','state') ORDER BY time`,
+			name: "bigint and varchar measures",
+			query: `SELECT measure_value::bigint, measure_value::varchar FROM ` + tbl +
+				` WHERE measure_name IN ('reqs','state') ORDER BY time`,
 			wantRows:  [][]string{{"5", "<null>"}, {"<null>", "up"}},
 			wantTypes: []string{"measure_value::bigint:BIGINT", "measure_value::varchar:VARCHAR"},
 		},
@@ -242,9 +251,10 @@ func TestTimestreamQuery_SDK_QueriesWrittenRecords(t *testing.T) {
 			wantTypes: []string{"time:TIMESTAMP"},
 		},
 		{
-			name:  "approx_percentile",
-			query: `SELECT approx_percentile(measure_value::double, 0.5) FROM ` + tbl + ` WHERE measure_name = 'cpu' AND host = 'b'`,
-			wantRows: [][]string{{"50.5"}},
+			name: "approx_percentile",
+			query: `SELECT approx_percentile(measure_value::double, 0.5) FROM ` + tbl +
+				` WHERE measure_name = 'cpu' AND host = 'b'`,
+			wantRows:  [][]string{{"50.5"}},
 			wantTypes: []string{"_col0:DOUBLE"},
 		},
 		{
@@ -257,10 +267,22 @@ func TestTimestreamQuery_SDK_QueriesWrittenRecords(t *testing.T) {
 			name:  "show measures",
 			query: `SHOW MEASURES FROM ` + tbl,
 			wantRows: [][]string{
-				{"cpu", "double", `[{"data_type":"varchar","dimension_name":"host"},{"data_type":"varchar","dimension_name":"region"}]`},
+				{
+					"cpu",
+					"double",
+					`[{"data_type":"varchar","dimension_name":"host"},{"data_type":"varchar","dimension_name":"region"}]`,
+				},
 				{"metrics", "multi", `[{"data_type":"varchar","dimension_name":"host"}]`},
-				{"reqs", "bigint", `[{"data_type":"varchar","dimension_name":"host"},{"data_type":"varchar","dimension_name":"region"}]`},
-				{"state", "varchar", `[{"data_type":"varchar","dimension_name":"host"},{"data_type":"varchar","dimension_name":"region"}]`},
+				{
+					"reqs",
+					"bigint",
+					`[{"data_type":"varchar","dimension_name":"host"},{"data_type":"varchar","dimension_name":"region"}]`,
+				},
+				{
+					"state",
+					"varchar",
+					`[{"data_type":"varchar","dimension_name":"host"},{"data_type":"varchar","dimension_name":"region"}]`,
+				},
 			},
 			wantTypes: []string{"measure_name:VARCHAR", "data_type:VARCHAR", "Dimensions:VARCHAR"},
 		},
@@ -307,7 +329,11 @@ func TestTimestreamQuery_SDK_Errors(t *testing.T) {
 		query   string
 		wantErr string
 	}{
-		{"unsupported function", `SELECT create_time_series(time, measure_value::double) FROM sensors.readings`, "create_time_series"},
+		{
+			"unsupported function",
+			`SELECT create_time_series(time, measure_value::double) FROM sensors.readings`,
+			"create_time_series",
+		},
 		{"unknown column", `SELECT nope FROM sensors.readings`, "Column 'nope' does not exist"},
 		{"unknown table", `SELECT * FROM sensors.missing`, "Table 'sensors.missing' does not exist"},
 		{"unknown database", `SELECT * FROM nodb.readings`, "Database 'nodb' does not exist"},
@@ -344,7 +370,10 @@ func TestTimestreamQuery_SDK_PagingAndCancel(t *testing.T) {
 	pages := 1
 
 	for token != nil {
-		next, pErr := env.query.Query(t.Context(), &tqsdk.QueryInput{QueryString: aws.String(q), NextToken: token, MaxRows: aws.Int32(4)})
+		next, pErr := env.query.Query(
+			t.Context(),
+			&tqsdk.QueryInput{QueryString: aws.String(q), NextToken: token, MaxRows: aws.Int32(4)},
+		)
 		require.NoError(t, pErr)
 		assert.Equal(t, aws.ToString(first.QueryId), aws.ToString(next.QueryId))
 		assert.Len(t, next.ColumnInfo, 2)
@@ -360,7 +389,10 @@ func TestTimestreamQuery_SDK_PagingAndCancel(t *testing.T) {
 
 	// a token is good for five uses (one already spent paging above)
 	for range 4 {
-		_, rErr := env.query.Query(t.Context(), &tqsdk.QueryInput{QueryString: aws.String(q), NextToken: first.NextToken})
+		_, rErr := env.query.Query(
+			t.Context(),
+			&tqsdk.QueryInput{QueryString: aws.String(q), NextToken: first.NextToken},
+		)
 		require.NoError(t, rErr)
 	}
 
@@ -410,7 +442,7 @@ func TestTimestreamQuery_SDK_StatusAndInsights(t *testing.T) {
 		QueryInsights: &tqtypes.QueryInsights{Mode: tqtypes.QueryInsightsModeEnabledWithRateControl},
 	})
 	require.NoError(t, err)
-	assert.EqualValues(t, 100, out.QueryStatus.ProgressPercentage)
+	assert.InDelta(t, 100.0, out.QueryStatus.ProgressPercentage, 0.001)
 	assert.Positive(t, out.QueryStatus.CumulativeBytesScanned)
 	assert.Less(t, out.QueryStatus.CumulativeBytesScanned, int64(10*1024*1024))
 	assert.EqualValues(t, 10*1024*1024, out.QueryStatus.CumulativeBytesMetered)
@@ -439,7 +471,10 @@ func TestTimestreamQuery_SDK_RetentionFollowsClock(t *testing.T) {
 	)
 
 	count := func() string {
-		out, err := env.query.Query(t.Context(), &tqsdk.QueryInput{QueryString: aws.String(`SELECT d FROM ret.t ORDER BY d`)})
+		out, err := env.query.Query(
+			t.Context(),
+			&tqsdk.QueryInput{QueryString: aws.String(`SELECT d FROM ret.t ORDER BY d`)},
+		)
 		require.NoError(t, err)
 
 		return fmtRows(rowsOf(out))
@@ -458,17 +493,12 @@ func TestTimestreamQuery_SDK_RetentionFollowsClock(t *testing.T) {
 }
 
 func fmtRows(rows [][]string) string {
-	s := ""
-
-	for i, r := range rows {
-		if i > 0 {
-			s += ","
-		}
-
-		s += r[0]
+	firsts := make([]string, 0, len(rows))
+	for _, r := range rows {
+		firsts = append(firsts, r[0])
 	}
 
-	return s
+	return strings.Join(firsts, ",")
 }
 
 func TestTimestreamQuery_SDK_ScheduledQueryWritesTarget(t *testing.T) {
@@ -495,8 +525,12 @@ func TestTimestreamQuery_SDK_ScheduledQueryWritesTarget(t *testing.T) {
 			S3Configuration: &tqtypes.S3Configuration{BucketName: aws.String("errs")},
 		},
 		TargetConfiguration: &tqtypes.TargetConfiguration{TimestreamConfiguration: &tqtypes.TimestreamConfiguration{
-			DatabaseName: aws.String("sensors"), TableName: aws.String("rollup"), TimeColumn: aws.String("t"),
-			DimensionMappings: []tqtypes.DimensionMapping{{Name: aws.String("host"), DimensionValueType: tqtypes.DimensionValueTypeVarchar}},
+			DatabaseName: aws.String("sensors"),
+			TableName:    aws.String("rollup"),
+			TimeColumn:   aws.String("t"),
+			DimensionMappings: []tqtypes.DimensionMapping{
+				{Name: aws.String("host"), DimensionValueType: tqtypes.DimensionValueTypeVarchar},
+			},
 			MultiMeasureMappings: &tqtypes.MultiMeasureMappings{
 				TargetMultiMeasureName: aws.String("cpu_stats"),
 				MultiMeasureAttributeMappings: []tqtypes.MultiMeasureAttributeMapping{{
@@ -521,7 +555,10 @@ func TestTimestreamQuery_SDK_ScheduledQueryWritesTarget(t *testing.T) {
 		{"b", "cpu_stats", "60.25", "2026-10-31 11:00:00.000000000"},
 	}, rowsOf(out))
 
-	desc, err := env.query.DescribeScheduledQuery(t.Context(), &tqsdk.DescribeScheduledQueryInput{ScheduledQueryArn: created.Arn})
+	desc, err := env.query.DescribeScheduledQuery(
+		t.Context(),
+		&tqsdk.DescribeScheduledQueryInput{ScheduledQueryArn: created.Arn},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, desc.ScheduledQuery.LastRunSummary)
 	assert.Equal(t, tqtypes.ScheduledQueryRunStatusManualTriggerSuccess, desc.ScheduledQuery.LastRunSummary.RunStatus)

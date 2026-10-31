@@ -14,13 +14,16 @@ var (
 	reDuration    = regexp.MustCompile(
 		`(?i)\b(\d+)(nanoseconds?|ns|microseconds?|us|milliseconds?|ms|seconds?|s|minutes?|m|hours?|h|days?|d)\b`)
 	reSignedDur = regexp.MustCompile(
-		`(?i)([+\-])\s*(\d+)(nanoseconds?|ns|microseconds?|us|milliseconds?|ms|seconds?|s|minutes?|m|hours?|h|days?|d)\b`)
+		`(?i)([+\-])\s*(\d+)(nanoseconds?|ns|microseconds?|us|milliseconds?|ms|seconds?|s|minutes?|m|hours?|h|days?|d)\b`,
+	)
 	reAgo      = regexp.MustCompile(`(?i)\bago\(`)
 	reBin      = regexp.MustCompile(`(?i)\bbin\(`)
 	reNow      = regexp.MustCompile(`(?i)\bnow\(\s*\)|\bcurrent_timestamp\b(\s*\(\s*\))?|\blocaltimestamp\b`)
 	reDate     = regexp.MustCompile(`(?i)\bcurrent_date\b`)
 	reTimezone = regexp.MustCompile(`(?i)\bcurrent_timezone\(\s*\)`)
 )
+
+const hoursPerDayDur = 24
 
 func unitNanos(unit string) int64 {
 	u := strings.ToLower(unit)
@@ -39,7 +42,7 @@ func unitNanos(unit string) int64 {
 	case u == "h" || strings.HasPrefix(u, "hour"):
 		return int64(time.Hour)
 	default:
-		return int64(24 * time.Hour)
+		return int64(hoursPerDayDur * time.Hour)
 	}
 }
 
@@ -87,7 +90,7 @@ func rewriteTimestream(q string, now time.Time, vars map[string]string) string {
 	return b.String()
 }
 
-// closingQuote returns the index just past the quoted run starting at q[i] ('' and "" escape).
+// closingQuote returns the index just past the quoted run starting at q[i] (” and "" escape).
 func closingQuote(q string, i int) int {
 	quote := q[i]
 

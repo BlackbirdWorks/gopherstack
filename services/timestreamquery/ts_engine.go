@@ -25,13 +25,8 @@ var (
 	reSQLiteTag  = regexp.MustCompile(`^SQL logic error: |\s\(\d+\)$`)
 )
 
-type loadedTable struct {
-	sqlName string
-	schema  tableSchema
-}
-
 func validationf(format string, args ...any) error {
-	return fmt.Errorf("%w: "+format, append([]any{ErrValidation}, args...)...)
+	return fmt.Errorf("%w: %s", ErrValidation, fmt.Sprintf(format, args...))
 }
 
 func tableKey(db, table string) string { return db + "\x00" + table }
@@ -88,7 +83,8 @@ func firstWord(q string) string {
 }
 
 type tableData struct {
-	loadedTable
+	sqlName string
+	schema  tableSchema
 	records []SourceRecord
 }
 
@@ -125,8 +121,7 @@ func loadSourceTables(
 		}
 
 		set[key] = &tableData{
-			loadedTable: loadedTable{sqlName: engineTablePrefix + strconv.Itoa(len(set)), schema: deriveSchema(recs)},
-			records:     recs,
+			sqlName: engineTablePrefix + strconv.Itoa(len(set)), schema: deriveSchema(recs), records: recs,
 		}
 	}
 
@@ -214,7 +209,8 @@ func loadTable(ctx context.Context, conn *sql.Conn, t *tableData) error {
 	}
 
 	target := quoteIdent("main") + "." + quoteIdent(t.sqlName)
-	if _, err := conn.ExecContext(ctx, "CREATE TABLE "+target+" ("+strings.Join(decls, ", ")+")"); err != nil {
+	ddl := "CREATE TABLE " + target + " (" + strings.Join(decls, ", ") + ")" //nolint:gosec // quoted identifiers
+	if _, err := conn.ExecContext(ctx, ddl); err != nil {
 		return err
 	}
 
@@ -223,25 +219,31 @@ func loadTable(ctx context.Context, conn *sql.Conn, t *tableData) error {
 		return err
 	}
 
-	stmt, err := tx.PrepareContext(ctx, "INSERT INTO "+target+" VALUES ("+strings.Join(marks, ",")+")")
-	if err != nil {
+	if err = insertRecords(ctx, tx, target, strings.Join(marks, ","), t); err != nil {
 		_ = tx.Rollback()
 
 		return err
 	}
 
+	return tx.Commit()
+}
+
+func insertRecords(ctx context.Context, tx *sql.Tx, target, marks string, t *tableData) error {
+	insert := "INSERT INTO " + target + " VALUES (" + marks + ")" //nolint:gosec // quoted identifiers
+
+	stmt, err := tx.PrepareContext(ctx, insert)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
 	for _, r := range t.records {
 		if _, err = stmt.ExecContext(ctx, t.schema.rowValues(r)...); err != nil {
-			_ = stmt.Close()
-			_ = tx.Rollback()
-
 			return err
 		}
 	}
 
-	_ = stmt.Close()
-
-	return tx.Commit()
+	return nil
 }
 
 // mapEngineError turns SQLite failures into Timestream-style ValidationExceptions.

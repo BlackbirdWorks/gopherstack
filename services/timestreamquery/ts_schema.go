@@ -1,6 +1,7 @@
 package timestreamquery
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,12 @@ const (
 	declBigint      = "BIGINT"
 	declDouble      = "DOUBLE"
 	declBoolean     = "BOOLEAN"
+	typBigint       = "bigint"
+	typBoolean      = "boolean"
+	typDouble       = "double"
+	typTimestamp    = "timestamp"
+	typVarchar      = "varchar"
+	typMulti        = "multi"
 	attrDimension   = "DIMENSION"
 	attrMeasureName = "MEASURE_NAME"
 	attrTimestamp   = "TIMESTAMP"
@@ -46,98 +53,115 @@ type tableSchema struct {
 func scalarTypeOf(measureType string) string {
 	switch strings.ToUpper(measureType) {
 	case measureTypeBigint:
-		return "bigint"
+		return typBigint
 	case measureTypeBoolean:
-		return "boolean"
+		return typBoolean
 	case measureTypeTimestamp:
-		return "timestamp"
+		return typTimestamp
 	case measureTypeVarchar:
-		return "varchar"
+		return typVarchar
 	default:
-		return "double"
+		return typDouble
 	}
 }
 
 func isMulti(r SourceRecord) bool { return strings.EqualFold(r.MeasureValueType, measureTypeMulti) }
 
-var singleColumnOrder = []string{"bigint", "boolean", "double", "timestamp", "varchar"}
+func singleColumnOrder() []string {
+	return []string{typBigint, typBoolean, typDouble, typTimestamp, typVarchar}
+}
+
+type schemaBuilder struct {
+	seenDim   map[string]bool
+	multiType map[string]string
+	single    map[string]bool
+	minfo     map[string]*measureInfo
+	dims      []string
+	multiName []string
+	order     []string
+}
+
+func (sb *schemaBuilder) measure(name string) *measureInfo {
+	mi := sb.minfo[name]
+	if mi == nil {
+		mi = &measureInfo{name: name}
+		sb.minfo[name] = mi
+		sb.order = append(sb.order, name)
+	}
+
+	return mi
+}
+
+func (sb *schemaBuilder) add(r SourceRecord) {
+	mi := sb.measure(r.MeasureName)
+
+	for _, d := range r.Dimensions {
+		if !sb.seenDim[d.Name] {
+			sb.seenDim[d.Name] = true
+			sb.dims = append(sb.dims, d.Name)
+		}
+
+		if !slices.Contains(mi.dims, d.Name) {
+			mi.dims = append(mi.dims, d.Name)
+		}
+	}
+
+	if !isMulti(r) {
+		t := scalarTypeOf(r.MeasureValueType)
+		sb.single[t] = true
+		mi.typ = t
+
+		return
+	}
+
+	mi.typ = typMulti
+
+	for _, m := range r.Measures {
+		if _, ok := sb.multiType[m.Name]; !ok {
+			sb.multiType[m.Name] = scalarTypeOf(m.Type)
+			sb.multiName = append(sb.multiName, m.Name)
+		}
+	}
+}
 
 // deriveSchema builds the table schema from its records: dimensions in order of
 // first appearance, then measure_name, time, then one measure_value::T column per
 // single-measure type seen and one column per MULTI attribute.
 func deriveSchema(records []SourceRecord) tableSchema {
-	var dims, multiNames []string
-
-	seenDim := map[string]bool{}
-	multiType := map[string]string{}
-	single := map[string]bool{}
-	minfo := map[string]*measureInfo{}
-
-	var order []string
-
+	sb := &schemaBuilder{
+		seenDim: map[string]bool{}, multiType: map[string]string{},
+		single: map[string]bool{}, minfo: map[string]*measureInfo{},
+	}
 	for _, r := range records {
-		mi := minfo[r.MeasureName]
-		if mi == nil {
-			mi = &measureInfo{name: r.MeasureName}
-			minfo[r.MeasureName] = mi
-			order = append(order, r.MeasureName)
-		}
-
-		for _, d := range r.Dimensions {
-			if !seenDim[d.Name] {
-				seenDim[d.Name] = true
-				dims = append(dims, d.Name)
-			}
-
-			if !containsStr(mi.dims, d.Name) {
-				mi.dims = append(mi.dims, d.Name)
-			}
-		}
-
-		if isMulti(r) {
-			mi.typ = "multi"
-
-			for _, m := range r.Measures {
-				if _, ok := multiType[m.Name]; !ok {
-					multiType[m.Name] = scalarTypeOf(m.Type)
-					multiNames = append(multiNames, m.Name)
-				}
-			}
-
-			continue
-		}
-
-		t := scalarTypeOf(r.MeasureValueType)
-		single[t] = true
-		mi.typ = t
+		sb.add(r)
 	}
 
 	s := tableSchema{}
-	for _, d := range dims {
-		s.cols = append(s.cols, tsColumn{name: d, typ: "varchar", attr: attrDimension})
+	for _, d := range sb.dims {
+		s.cols = append(s.cols, tsColumn{name: d, typ: typVarchar, attr: attrDimension})
 	}
 
 	s.cols = append(s.cols,
-		tsColumn{name: colMeasureName, typ: "varchar", attr: attrMeasureName},
-		tsColumn{name: colTime, typ: "timestamp", attr: attrTimestamp},
+		tsColumn{name: colMeasureName, typ: typVarchar, attr: attrMeasureName},
+		tsColumn{name: colTime, typ: typTimestamp, attr: attrTimestamp},
 	)
 
-	for _, t := range singleColumnOrder {
-		if single[t] {
+	for _, t := range singleColumnOrder() {
+		if sb.single[t] {
 			s.cols = append(s.cols, tsColumn{name: colMeasurePfx + t, typ: t, attr: attrMeasureVal})
 		}
 	}
 
-	for _, n := range multiNames {
-		if seenDim[n] || n == colTime || n == colMeasureName {
+	for _, n := range sb.multiName {
+		if sb.seenDim[n] || n == colTime || n == colMeasureName {
 			continue
 		}
 
-		s.cols = append(s.cols, tsColumn{name: n, typ: multiType[n], attr: attrMulti})
+		s.cols = append(s.cols, tsColumn{name: n, typ: sb.multiType[n], attr: attrMulti})
 	}
 
-	for _, n := range order {
-		s.measures = append(s.measures, *minfo[n])
+	for _, n := range sb.order {
+		s.measures = append(s.measures, *sb.minfo[n])
 	}
 
 	sort.Slice(s.measures, func(i, j int) bool { return s.measures[i].name < s.measures[j].name })
@@ -145,25 +169,15 @@ func deriveSchema(records []SourceRecord) tableSchema {
 	return s
 }
 
-func containsStr(xs []string, x string) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-
-	return false
-}
-
 func declOf(typ string) string {
 	switch typ {
-	case "bigint":
+	case typBigint:
 		return declBigint
-	case "boolean":
+	case typBoolean:
 		return declBoolean
-	case "timestamp":
+	case typTimestamp:
 		return declTimestamp
-	case "varchar":
+	case typVarchar:
 		return declVarchar
 	default:
 		return declDouble
@@ -175,20 +189,20 @@ func formatTS(t time.Time) string { return t.UTC().Format(tsLayout) }
 // sqlValue converts a stored measure string into the value bound to its SQLite column.
 func sqlValue(typ, v string) any {
 	switch typ {
-	case "bigint":
+	case typBigint:
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return nil
 		}
 
 		return n
-	case "boolean":
+	case typBoolean:
 		if strings.EqualFold(v, "true") {
 			return int64(1)
 		}
 
 		return int64(0)
-	case "double":
+	case typDouble:
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
 			return nil

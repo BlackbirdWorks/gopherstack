@@ -913,13 +913,13 @@ func TestTableData_RetentionAndRestore(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		advance time.Duration
 		want    []string
+		advance time.Duration
 	}{
-		{"memory aged record still queryable", 0, []string{"recent", "memoryaged"}},
-		{"magnetic expiry drops older", 10 * time.Hour, []string{"recent"}},
-		{"recent ages into magnetic", 40 * time.Hour, []string{"recent"}},
-		{"everything expired", 50 * time.Hour, nil},
+		{"memory aged record still queryable", []string{"recent", "memoryaged"}, 0},
+		{"magnetic expiry drops older", []string{"recent"}, 10 * time.Hour},
+		{"recent ages into magnetic", []string{"recent"}, 40 * time.Hour},
+		{"everything expired", nil, 50 * time.Hour},
 	}
 
 	for _, tt := range tests {
@@ -936,15 +936,38 @@ func TestTableData_RetentionAndRestore(t *testing.T) {
 				RetentionProperties: &timestreamwrite.RetentionProperties{
 					MemoryStoreRetentionPeriodInHours: 24, MagneticStoreRetentionPeriodInDays: 2,
 				},
-				MagneticStoreWriteProperties: &timestreamwrite.MagneticStoreWriteProperties{EnableMagneticStoreWrites: true},
+				MagneticStoreWriteProperties: &timestreamwrite.MagneticStoreWriteProperties{
+					EnableMagneticStoreWrites: true,
+				},
 			})
 			require.NoError(t, err)
 
 			dim := func(v string) []timestreamwrite.Dimension { return []timestreamwrite.Dimension{{Name: "d", Value: v}} }
 			_, err = b.WriteRecords("db", "tbl", []timestreamwrite.Record{
-				{MeasureName: "m", MeasureValue: "1", MeasureValueType: "DOUBLE", Time: ms(time.Hour), TimeUnit: "MILLISECONDS", Dimensions: dim("recent")},
-				{MeasureName: "m", MeasureValue: "1", MeasureValueType: "DOUBLE", Time: ms(40 * time.Hour), TimeUnit: "MILLISECONDS", Dimensions: dim("memoryaged")},
-				{MeasureName: "m", MeasureValue: "1", MeasureValueType: "DOUBLE", Time: ms(60 * time.Hour), TimeUnit: "MILLISECONDS", Dimensions: dim("old")},
+				{
+					MeasureName:      "m",
+					MeasureValue:     "1",
+					MeasureValueType: "DOUBLE",
+					Time:             ms(time.Hour),
+					TimeUnit:         "MILLISECONDS",
+					Dimensions:       dim("recent"),
+				},
+				{
+					MeasureName:      "m",
+					MeasureValue:     "1",
+					MeasureValueType: "DOUBLE",
+					Time:             ms(40 * time.Hour),
+					TimeUnit:         "MILLISECONDS",
+					Dimensions:       dim("memoryaged"),
+				},
+				{
+					MeasureName:      "m",
+					MeasureValue:     "1",
+					MeasureValueType: "DOUBLE",
+					Time:             ms(60 * time.Hour),
+					TimeUnit:         "MILLISECONDS",
+					Dimensions:       dim("old"),
+				},
 			})
 			require.NoError(t, err)
 

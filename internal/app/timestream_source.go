@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	tsNanoLayout   = "2006-01-02 15:04:05.000000000"
-	tsMeasureTime  = "TIMESTAMP"
-	tsNanosUnit    = "NANOSECONDS"
-	tsVarchar      = "VARCHAR"
+	tsNanoLayout  = "2006-01-02 15:04:05.000000000"
+	tsMeasureTime = "TIMESTAMP"
+	tsNanosUnit   = "NANOSECONDS"
+	tsVarchar     = "VARCHAR"
 )
 
 // timestreamRecordSource exposes Timestream Write's tables and records to Timestream Query.

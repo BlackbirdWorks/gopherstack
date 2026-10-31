@@ -2,12 +2,18 @@ package timestreamquery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
 
 const runStatusManualTriggerFailure = "MANUAL_TRIGGER_FAILURE"
+
+var (
+	errTargetColumn = errors.New("column named in the target configuration is not in the query result")
+	errTimeColumn   = errors.New("time column value is not a timestamp")
+)
 
 // ExecuteScheduledQuery runs the scheduled query once for invocationTime ("@scheduled_runtime")
 // and ingests its result rows into the target table, recording the run outcome.
@@ -33,7 +39,7 @@ func (b *InMemoryBackend) ExecuteScheduledQuery(ctx context.Context, arnStr stri
 
 	cur, lookupErr := b.lookupByARN(arnStr)
 	if lookupErr != nil {
-		return nil //nolint:nilerr // deleted while running: the run result has nowhere to go
+		return nil
 	}
 
 	cur.LastRunTime = invocationTime
@@ -114,7 +120,7 @@ func scheduledRecords(rs *resultSet, td *ScheduledQueryTargetDetail, version tim
 
 	for _, need := range append([]string{td.TimeColumn, td.MeasureNameColumn}, dimensionColumns(td)...) {
 		if _, ok := idx[need]; need != "" && !ok {
-			return nil, fmt.Errorf("column '%s' named in the target configuration is not in the query result", need)
+			return nil, fmt.Errorf("%w: '%s'", errTargetColumn, need)
 		}
 	}
 
@@ -130,7 +136,7 @@ func scheduledRecords(rs *resultSet, td *ScheduledQueryTargetDetail, version tim
 
 		t, ok := parseTSValue(raw)
 		if !ok {
-			return nil, fmt.Errorf("time column '%s' value '%s' is not a timestamp", td.TimeColumn, raw)
+			return nil, fmt.Errorf("%w: '%s' = '%s'", errTimeColumn, td.TimeColumn, raw)
 		}
 
 		base := SourceRecord{Time: t, Version: version.UnixMilli(), Dimensions: dimensionsOf(v, td)}

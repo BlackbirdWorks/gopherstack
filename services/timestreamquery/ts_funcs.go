@@ -16,8 +16,10 @@ var errBadArg = errors.New("invalid argument")
 
 const argsTwo = 2
 
-var tsParseLayouts = []string{
-	"2006-01-02 15:04:05.999999999", "2006-01-02T15:04:05.999999999", "2006-01-02T15:04:05Z07:00", "2006-01-02",
+func tsParseLayouts() []string {
+	return []string{
+		"2006-01-02 15:04:05.999999999", "2006-01-02T15:04:05.999999999", "2006-01-02T15:04:05Z07:00", "2006-01-02",
+	}
 }
 
 func parseTSValue(v driver.Value) (time.Time, bool) {
@@ -32,7 +34,7 @@ func parseTSValue(v driver.Value) (time.Time, bool) {
 		return time.Time{}, false
 	}
 
-	for _, l := range tsParseLayouts {
+	for _, l := range tsParseLayouts() {
 		if t, err := time.Parse(l, s); err == nil {
 			return t.UTC(), true
 		}
@@ -76,7 +78,7 @@ func udfBin(_ *sqlitedriver.FunctionContext, args []driver.Value) (driver.Value,
 			return nil, errBadArg
 		}
 
-		return float64(int64(f)-floorMod(int64(f), step)), nil
+		return float64(int64(f) - floorMod(int64(f), step)), nil
 	}
 
 	return x - floorMod(x, step), nil
@@ -106,7 +108,7 @@ func udfAgo(_ *sqlitedriver.FunctionContext, args []driver.Value) (driver.Value,
 func unitFunc(toTime func(int64) time.Time) func(*sqlitedriver.FunctionContext, []driver.Value) (driver.Value, error) {
 	return func(_ *sqlitedriver.FunctionContext, args []driver.Value) (driver.Value, error) {
 		if args[0] == nil {
-			return nil, nil //nolint:nilnil // SQL NULL
+			return nil, nil
 		}
 
 		n, ok := intArg(args[0])
@@ -121,7 +123,7 @@ func unitFunc(toTime func(int64) time.Time) func(*sqlitedriver.FunctionContext, 
 func toUnit(per func(time.Time) int64) func(*sqlitedriver.FunctionContext, []driver.Value) (driver.Value, error) {
 	return func(_ *sqlitedriver.FunctionContext, args []driver.Value) (driver.Value, error) {
 		if args[0] == nil {
-			return nil, nil //nolint:nilnil // SQL NULL
+			return nil, nil
 		}
 
 		t, ok := parseTSValue(args[0])

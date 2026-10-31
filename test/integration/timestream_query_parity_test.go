@@ -33,15 +33,25 @@ func TestIntegration_TimestreamQuery_ReadsWrittenRecords(t *testing.T) {
 	now := time.Now()
 	rec := func(host, val string, ago time.Duration) twtypes.Record {
 		return twtypes.Record{
-			MeasureName: aws.String("cpu"), MeasureValue: aws.String(val), MeasureValueType: twtypes.MeasureValueTypeDouble,
-			Time: aws.String(strconv.FormatInt(now.Add(-ago).UnixMilli(), 10)), TimeUnit: twtypes.TimeUnitMilliseconds,
-			Dimensions: []twtypes.Dimension{{Name: aws.String("host"), Value: aws.String(host)}},
+			MeasureName: aws.String(
+				"cpu",
+			),
+			MeasureValue:     aws.String(val),
+			MeasureValueType: twtypes.MeasureValueTypeDouble,
+			Time:             aws.String(strconv.FormatInt(now.Add(-ago).UnixMilli(), 10)),
+			TimeUnit:         twtypes.TimeUnitMilliseconds,
+			Dimensions:       []twtypes.Dimension{{Name: aws.String("host"), Value: aws.String(host)}},
 		}
 	}
 
 	_, err = write.WriteRecords(ctx, &twsdk.WriteRecordsInput{
-		DatabaseName: aws.String(db), TableName: aws.String("cpu"),
-		Records: []twtypes.Record{rec("a", "10", 3*time.Minute), rec("a", "30", 2*time.Minute), rec("b", "5", time.Minute)},
+		DatabaseName: aws.String(db),
+		TableName:    aws.String("cpu"),
+		Records: []twtypes.Record{
+			rec("a", "10", 3*time.Minute),
+			rec("a", "30", 2*time.Minute),
+			rec("b", "5", time.Minute),
+		},
 	})
 	require.NoError(t, err)
 

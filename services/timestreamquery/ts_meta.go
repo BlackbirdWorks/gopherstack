@@ -35,30 +35,30 @@ func afterKeyword(q, kw string) (string, bool) {
 	return q[i+len(kw):], true
 }
 
-func (b *InMemoryBackend) tableSchemaFor(region, ref string, src RecordSource) (tableRef, tableSchema, error) {
+func (b *InMemoryBackend) tableSchemaFor(region, ref string, src RecordSource) (tableSchema, error) {
 	r, ok := parseRefAfter(ref, 0)
 	if !ok {
-		return tableRef{}, tableSchema{}, validationf("line 1:1: expected database.table")
+		return tableSchema{}, validationf("line 1:1: expected database.table")
 	}
 
 	if src == nil {
-		return r, deriveSchema(nil), nil
+		return deriveSchema(nil), nil
 	}
 
 	if !src.DatabaseExists(region, r.database) {
-		return r, tableSchema{}, validationf("line 1:1: Database '%s' does not exist", r.database)
+		return tableSchema{}, validationf("line 1:1: Database '%s' does not exist", r.database)
 	}
 
 	recs, err := src.TableRecords(region, r.database, r.table, b.clock())
 	if err != nil {
-		return r, tableSchema{}, validationf("line 1:1: Table '%s.%s' does not exist", r.database, r.table)
+		return tableSchema{}, validationf("line 1:1: Table '%s.%s' does not exist", r.database, r.table)
 	}
 
-	return r, deriveSchema(recs), nil
+	return deriveSchema(recs), nil
 }
 
 func (b *InMemoryBackend) describe(region, q string) (*resultSet, error) {
-	_, schema, err := b.tableSchemaFor(region, strings.TrimSpace(q[len("DESCRIBE"):]), b.recordSource())
+	schema, err := b.tableSchemaFor(region, strings.TrimSpace(q[len("DESCRIBE"):]), b.recordSource())
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) showMeasures(region, q string, src RecordSource) (*res
 		return nil, validationf("line 1:14: mismatched input '<EOF>'. Expecting: 'FROM'")
 	}
 
-	_, schema, err := b.tableSchemaFor(region, strings.TrimSpace(rest), src)
+	schema, err := b.tableSchemaFor(region, strings.TrimSpace(rest), src)
 	if err != nil {
 		return nil, err
 	}
@@ -194,4 +194,3 @@ func (b *InMemoryBackend) showMeasures(region, q string, src RecordSource) (*res
 
 	return varcharResult([]string{"measure_name", "data_type", "Dimensions"}, rows), nil
 }
-
