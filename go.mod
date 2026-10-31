@@ -23,9 +23,11 @@ require (
 	cloud.google.com/go/monitoring v1.31.0
 	cloud.google.com/go/pubsub/v2 v2.7.0
 	cloud.google.com/go/redis v1.26.0
+	cloud.google.com/go/resourcemanager v1.18.1
 	cloud.google.com/go/run v1.23.0
 	cloud.google.com/go/scheduler v1.17.0
 	cloud.google.com/go/secretmanager v1.22.0
+	cloud.google.com/go/serviceusage v1.16.1
 	cloud.google.com/go/spanner v1.96.1
 	cloud.google.com/go/storage v1.69.0
 	cloud.google.com/go/workflows v1.21.0
