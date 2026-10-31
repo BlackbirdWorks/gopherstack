@@ -74,6 +74,10 @@ func NewRegistry(backend *InMemoryBackend) *Registry {
 // pass-through).
 func (r *Registry) Register(p ResourceProvider) {
 	r.providers[strings.ToLower(p.Namespace())] = p
+
+	if np, ok := p.(*NetworkProvider); ok {
+		np.SetLookup(r.getRaw)
+	}
 }
 
 // Providers returns the namespaces of every registered dedicated
@@ -252,6 +256,12 @@ func (r *Registry) SetCosmosResources(c CosmosResources) {
 
 // Put creates or updates the resource identified by id.
 func (r *Registry) Put(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, bool, error) {
+	if np := r.peRoute(id); np != nil {
+		out, err := np.targetPut(ctx, id, body, r.parentCheck(id))
+
+		return out, false, err
+	}
+
 	if p := r.providerFor(id); p != nil {
 		_, getErr := p.Get(ctx, id)
 		created := getErr != nil
@@ -266,8 +276,17 @@ func (r *Registry) Put(ctx context.Context, id ResourceID, body map[string]any) 
 
 // Get returns the resource identified by id.
 func (r *Registry) Get(ctx context.Context, id ResourceID) (map[string]any, error) {
+	if np := r.peRoute(id); np != nil {
+		return np.targetGet(ctx, id, r.parentCheck(id))
+	}
+
 	if p := r.providerFor(id); p != nil {
-		return p.Get(ctx, id)
+		body, err := p.Get(ctx, id)
+		if err != nil || len(id.Types) != 1 || strings.EqualFold(id.Namespace, namespaceMicrosoftNetwork) {
+			return body, err
+		}
+
+		return r.enrichTarget(body), nil
 	}
 
 	return r.backend.getGenericResource(id)
@@ -275,6 +294,10 @@ func (r *Registry) Get(ctx context.Context, id ResourceID) (map[string]any, erro
 
 // Delete removes the resource identified by id.
 func (r *Registry) Delete(ctx context.Context, id ResourceID) error {
+	if np := r.peRoute(id); np != nil {
+		return np.targetDelete(ctx, id, r.parentCheck(id))
+	}
+
 	if p := r.providerFor(id); p != nil {
 		return p.Delete(ctx, id)
 	}
@@ -284,8 +307,22 @@ func (r *Registry) Delete(ctx context.Context, id ResourceID) error {
 
 // List returns every resource of id's LeafType, scoped per id.ResourceGroup.
 func (r *Registry) List(ctx context.Context, id ResourceID) ([]map[string]any, error) {
+	if np := r.peRoute(id); np != nil {
+		return np.targetList(ctx, id, r.parentCheck(id))
+	}
+
 	if p := r.providerFor(id); p != nil {
-		return p.List(ctx, id)
+		list, err := p.List(ctx, id)
+		if err != nil || len(id.Types) != 1 || strings.EqualFold(id.Namespace, namespaceMicrosoftNetwork) {
+			return list, err
+		}
+
+		out := make([]map[string]any, len(list))
+		for i, b := range list {
+			out[i] = r.enrichTarget(b)
+		}
+
+		return out, nil
 	}
 
 	return r.backend.listGenericResources(id), nil
@@ -437,4 +474,27 @@ func nameField(body map[string]any) string {
 	s, _ := body[fieldName].(string)
 
 	return s
+}
+
+// parentCheck returns a probe that the target resource of a private endpoint child path exists.
+func (r *Registry) parentCheck(id ResourceID) func(context.Context) error {
+	parent := ResourceID{
+		SubscriptionID: id.SubscriptionID, ResourceGroup: id.ResourceGroup, Namespace: id.Namespace,
+		Types: id.Types[:1], Names: id.Names[:1],
+	}
+
+	return func(ctx context.Context) error {
+		_, err := r.Get(ctx, parent)
+
+		return err
+	}
+}
+
+// getRaw is Get without the private endpoint connection enrichment; the network provider calls it under its lock.
+func (r *Registry) getRaw(ctx context.Context, id ResourceID) (map[string]any, error) {
+	if p := r.providerFor(id); p != nil {
+		return p.Get(ctx, id)
+	}
+
+	return r.backend.getGenericResource(id)
 }
