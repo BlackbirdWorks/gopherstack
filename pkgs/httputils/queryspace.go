@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	maxRequestLine  = 8 << 10
-	maxHeaderLine   = 64 << 10
-	maxContentLenDg = 18
-	encodedSpace    = "%20"
-	versionLen      = len("HTTP/1.1")
-	maxMethodLen    = 16
+	maxRequestLine       = 8 << 10
+	maxHeaderLine        = 64 << 10
+	maxContentLenDg      = 18
+	encodedSpace         = "%20"
+	versionLen           = len("HTTP/1.1")
+	maxMethodLen         = 16
+	maxRequestLineSpaces = 2
 )
 
 type qsState uint8
@@ -77,14 +78,13 @@ func QuerySpaceTLS(next http.Handler) http.Handler {
 type qsConn struct {
 	net.Conn
 
-	line     []byte
-	buf      []byte
-	readErr  error
-	out      []byte
-	bodyLeft int64
-	state    qsState
-
+	readErr    error
+	line       []byte
+	buf        []byte
+	out        []byte
+	bodyLeft   int64
 	contentLen int64
+	state      qsState
 	clSeen     bool
 	connect    bool
 	special    bool
@@ -137,10 +137,7 @@ func (c *qsConn) feed(data []byte) {
 
 			return
 		case qsBody:
-			n := int64(len(data))
-			if n > c.bodyLeft {
-				n = c.bodyLeft
-			}
+			n := min(int64(len(data)), c.bodyLeft)
 
 			c.out = append(c.out, data[:n]...)
 			data = data[n:]
@@ -294,7 +291,7 @@ func EncodeQuerySpaces(line []byte) []byte {
 	body := bytes.TrimSuffix(line, []byte("\n"))
 	body = bytes.TrimSuffix(body, []byte("\r"))
 
-	if bytes.Count(body, []byte(" ")) <= 2 {
+	if bytes.Count(body, []byte(" ")) <= maxRequestLineSpaces {
 		return line
 	}
 

@@ -69,6 +69,14 @@ func wire(t *testing.T, chunks ...string) string {
 	}
 }
 
+type connCase struct {
+	name   string
+	want   string
+	chunks []string
+}
+
+func same(name, in string) connCase { return connCase{name: name, chunks: []string{in}, want: in} }
+
 func TestQuerySpaceConn(t *testing.T) {
 	t.Parallel()
 
@@ -79,28 +87,28 @@ func TestQuerySpaceConn(t *testing.T) {
 	inner := "GET /body?x y HTTP/1.1\r\nHost: z\r\n\r\n"
 	cl := strconv.Itoa(len(inner))
 
-	tests := []struct {
-		name   string
-		want   string
-		chunks []string
-	}{
+	tests := []connCase{
 		{name: "query spaces", chunks: []string{req}, want: enc},
-		{name: "no spaces untouched", chunks: []string{"GET /p?a=1 HTTP/1.1\r\n\r\n"}, want: "GET /p?a=1 HTTP/1.1\r\n\r\n"},
+		same("no spaces untouched", "GET /p?a=1 HTTP/1.1\r\n\r\n"),
 		{name: "bare lf", chunks: []string{"GET /p?a b HTTP/1.1\n\n"}, want: "GET /p?a%20b HTTP/1.1\n\n"},
-		{name: "split writes", chunks: []string{"GET /p?$fil", "ter=a eq", " 'b' HTTP/1.1\r\nHo", "st: x\r\n\r\n"}, want: enc},
+		{
+			name:   "split writes",
+			chunks: []string{"GET /p?$fil", "ter=a eq", " 'b' HTTP/1.1\r\nHo", "st: x\r\n\r\n"},
+			want:   enc,
+		},
 		{
 			name:   "space in path untouched",
 			chunks: []string{"GET /a b?c d HTTP/1.1\r\n\r\n"},
 			want:   "GET /a b?c d HTTP/1.1\r\n\r\n",
 		},
-		{name: "no query untouched", chunks: []string{"GET /a b HTTP/1.1\r\n\r\n"}, want: "GET /a b HTTP/1.1\r\n\r\n"},
-		{name: "bad version untouched", chunks: []string{"GET /p?a b HTTP/2.0\r\n\r\n"}, want: "GET /p?a b HTTP/2.0\r\n\r\n"},
-		{name: "bad method untouched", chunks: []string{"get /p?a b HTTP/1.1\r\n\r\n"}, want: "get /p?a b HTTP/1.1\r\n\r\n"},
-		{name: "cr injection untouched", chunks: []string{"GET /p?a\rb c HTTP/1.1\r\n\r\n"}, want: "GET /p?a\rb c HTTP/1.1\r\n\r\n"},
-		{name: "tab untouched", chunks: []string{"GET /p?a\tb c HTTP/1.1\r\n\r\n"}, want: "GET /p?a\tb c HTTP/1.1\r\n\r\n"},
-		{name: "nul untouched", chunks: []string{"GET /p?a\x00b c HTTP/1.1\r\n\r\n"}, want: "GET /p?a\x00b c HTTP/1.1\r\n\r\n"},
-		{name: "absolute form untouched", chunks: []string{"GET http://h/p?a b HTTP/1.1\r\n\r\n"}, want: "GET http://h/p?a b HTTP/1.1\r\n\r\n"},
-		{name: "trailing space untouched", chunks: []string{"GET /p?a b HTTP/1.1 \r\n\r\n"}, want: "GET /p?a b HTTP/1.1 \r\n\r\n"},
+		same("no query untouched", "GET /a b HTTP/1.1\r\n\r\n"),
+		same("bad version untouched", "GET /p?a b HTTP/2.0\r\n\r\n"),
+		same("bad method untouched", "get /p?a b HTTP/1.1\r\n\r\n"),
+		same("cr injection untouched", "GET /p?a\rb c HTTP/1.1\r\n\r\n"),
+		same("tab untouched", "GET /p?a\tb c HTTP/1.1\r\n\r\n"),
+		same("nul untouched", "GET /p?a\x00b c HTTP/1.1\r\n\r\n"),
+		same("absolute form untouched", "GET http://h/p?a b HTTP/1.1\r\n\r\n"),
+		same("trailing space untouched", "GET /p?a b HTTP/1.1 \r\n\r\n"),
 		{
 			name:   "path not altered by header injection attempt",
 			chunks: []string{"GET /p?a HTTP/1.1\r\nX: GET /q?a b HTTP/1.1\r\n\r\n"},
@@ -173,8 +181,9 @@ func TestQuerySpaceServer(t *testing.T) {
 		wantCode []int
 	}{
 		{
-			name:     "filter decoded, keep-alive",
-			send:     "GET /s?$filter=principalId eq 'x' HTTP/1.1\r\nHost: h\r\n\r\nGET /t?$filter=a b HTTP/1.1\r\nHost: h\r\n\r\n",
+			name: "filter decoded, keep-alive",
+			send: "GET /s?$filter=principalId eq 'x' HTTP/1.1\r\nHost: h\r\n\r\n" +
+				"GET /t?$filter=a b HTTP/1.1\r\nHost: h\r\n\r\n",
 			wantCode: []int{200, 200},
 			wantBody: []string{"principalId eq 'x'|/s", "a b|/t"},
 		},
@@ -217,6 +226,7 @@ func TestQuerySpaceServer(t *testing.T) {
 func TestEncodeQuerySpaces(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, []byte("GET /p?a%20%20b HTTP/1.0\r\n"), httputils.EncodeQuerySpaces([]byte("GET /p?a  b HTTP/1.0\r\n")))
+	got := httputils.EncodeQuerySpaces([]byte("GET /p?a  b HTTP/1.0\r\n"))
+	assert.Equal(t, []byte("GET /p?a%20%20b HTTP/1.0\r\n"), got)
 	assert.Equal(t, []byte("GET /p?a HTTP/1.1\r\n"), httputils.EncodeQuerySpaces([]byte("GET /p?a HTTP/1.1\r\n")))
 }
