@@ -265,13 +265,17 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 
 	var lambdaInvoker asl.LambdaInvoker
 
+	rejectObjectItems := false
+
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
 		bk.mu.RLock("TestState")
 		lambdaInvoker = bk.lambdaInvoker
+		rejectObjectItems = !bk.settings.JSONataMapObjectItems
 		bk.mu.RUnlock()
 	}
 
 	executor := asl.NewExecutor(sm, lambdaInvoker, nil)
+	executor.SetRejectMapObjectItems(rejectObjectItems)
 	executor.EnableInspection()
 	executor.EnableSingleState()
 

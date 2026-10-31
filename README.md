@@ -427,6 +427,7 @@ commonly set via env var:
 | `SFN_EXECUTION_RETENTION` | `24h` | How long Step Functions execution history is retained. |
 | `SFN_JANITOR_INTERVAL` | `1m` | Step Functions janitor tick interval. |
 | `SFN_TASK_TOKEN_TTL` | `1h` | Max lifetime of an unreceived Step Functions task token. |
+| `SFN_JSONATA_MAP_OBJECT_ITEMS` | `true` | Accept an object as a JSONata Map `Items` value (the Inline Map docs say array only). |
 | `SSM_JANITOR_INTERVAL` | `30s` | SSM janitor tick interval. |
 | `SSM_COMMAND_TTL` | `1h` | TTL for SendCommand results (matches AWS's 1h default). |
 | `STS_JANITOR_INTERVAL` | `30s` | STS janitor tick interval. |
