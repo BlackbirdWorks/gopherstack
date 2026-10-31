@@ -58,6 +58,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
@@ -662,6 +663,7 @@ type CLI struct {
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPBatch                      gcpbatchbackend.Settings          `embed:"" prefix:"gcp-batch-"`
 	GCPResourceManager            gcprmbackend.Settings             `embed:"" prefix:"gcp-resourcemanager-"`
+	GCPEnforce                    gcpenforce.Settings               `embed:"" prefix:"gcp-enforce-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
@@ -895,6 +897,9 @@ func (c *CLI) GetGCPBatchSettings() gcpbatchbackend.Settings { return c.GCPBatch
 
 // GetGCPResourceManagerSettings returns Resource Manager and Service Usage settings (gcprm.ConfigProvider).
 func (c *CLI) GetGCPResourceManagerSettings() gcprmbackend.Settings { return c.GCPResourceManager }
+
+// GetGCPEnforceSettings returns the opt-in GCP project and API-enablement enforcement switches.
+func (c *CLI) GetGCPEnforceSettings() gcpenforce.Settings { return c.GCPEnforce }
 
 // GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).
 func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings { return c.GCPContainer }
@@ -5489,6 +5494,7 @@ func purgeAllServices(
 // startBackgroundWorkers starts all background workers from services.
 func startBackgroundWorkers(ctx context.Context, services []service.Registerable) {
 	log := logger.Load(ctx)
+	ctx = gcpenforce.WithGateFrom(ctx, services)
 
 	for _, svc := range services {
 		if worker, ok := svc.(service.BackgroundWorker); ok {

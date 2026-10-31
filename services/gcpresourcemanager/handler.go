@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -32,6 +33,7 @@ type Handler struct {
 	srv     *grpc.Server
 	wg      *sync.WaitGroup
 	addr    string
+	enforce gcpenforce.Settings
 	Port    int
 }
 

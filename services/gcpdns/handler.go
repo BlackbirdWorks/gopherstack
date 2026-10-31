@@ -16,6 +16,7 @@ import (
 	dnsapi "google.golang.org/api/dns/v1"
 
 	pkgdns "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -484,6 +485,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(log))
+	e.Use(gcpenforce.EchoMiddleware(ctx, gcpenforce.Target{Host: "dns.googleapis.com"}))
 	e.Any("/*", telemetry.WrapEchoHandler("GCPDNS", h.Handler(), h))
 
 	srv := &http.Server{

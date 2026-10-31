@@ -3,6 +3,7 @@ package gcpresourcemanager
 import (
 	"errors"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -12,6 +13,11 @@ var ErrNilAppContext = errors.New("gcpresourcemanager: nil app context")
 // ConfigProvider extracts Resource Manager configuration from the AppContext Config.
 type ConfigProvider interface {
 	GetGCPResourceManagerSettings() Settings
+}
+
+// EnforceConfigProvider extracts the opt-in GCP enforcement switches from the AppContext Config.
+type EnforceConfigProvider interface {
+	GetGCPEnforceSettings() gcpenforce.Settings
 }
 
 // Provider implements service.Provider for Resource Manager and Service Usage. It serves gRPC and REST on its own
@@ -36,6 +42,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	handler := NewHandler(NewBackend(settings))
 	handler.Port = settings.Port
+
+	if ep, ok := ctx.Config.(EnforceConfigProvider); ok {
+		handler.SetEnforcement(ep.GetGCPEnforceSettings())
+	}
 
 	return handler, nil
 }

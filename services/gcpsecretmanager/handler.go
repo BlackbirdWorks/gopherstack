@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -124,7 +125,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpsecretmanager", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(logInterceptor(log), regionalInterceptor))
+	srv := gcpenforce.NewServer(ctx, "secretmanager.googleapis.com", grpc.ChainUnaryInterceptor(logInterceptor(log), regionalInterceptor))
 	secretmanagerpb.RegisterSecretManagerServiceServer(srv, &server{b: h.Backend})
 
 	sweepCtx, cancel := context.WithCancel(context.WithoutCancel(workerCtx))
