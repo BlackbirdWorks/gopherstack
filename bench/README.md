@@ -114,6 +114,10 @@ Profile findings (cpu, alloc_space, alloc_objects, server side of the SDK round 
   (`item[attr]`, then `{"N": ...}` unwrap); no allocation to remove.
 - `list_prefix_*`, `batchget_100`, `delete_objects_1000`: server frames are under 10% of CPU;
   the allocations counted belong to the SDK response decoder.
+- `ServerPathMixed` / `ServerPathMixedParallel` round-robin DynamoDB, STS, SNS, SQS, EC2, S3 and API Gateway requests
+  (serial and `b.RunParallel`). `TestLeakAbortedRequests` covers cancelled, half-read and half-sent requests.
+- Sharing one form parse across partition scan and SNS/EC2 `Extract*` (`ReadBody`+`ParseFormBody`): -2 to -7
+  allocs/op on query services, ns/op unchanged, B/op +3% (presized body buffer); reverted.
 - Allocation-free apigateway custom-domain Host check was tried: -3 allocs/op on the server
   path, not measurable in ns/op (below the 5% bar) and reverted.
 
