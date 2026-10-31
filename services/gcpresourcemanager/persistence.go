@@ -23,8 +23,8 @@ type backendSnapshot struct {
 	TagValues map[string]*tagValueRec         `json:"tagValues"`
 	Bindings  map[string]*bindingRec          `json:"tagBindings"`
 	Enabled   map[string]map[string]time.Time `json:"enabledServices"`
-	Policies  map[string]json.RawMessage        `json:"policies"`
-	Ops       map[string]json.RawMessage        `json:"operations"`
+	Policies  map[string]json.RawMessage      `json:"policies"`
+	Ops       map[string]json.RawMessage      `json:"operations"`
 	Seed      string                          `json:"seed"`
 	Version   int                             `json:"version"`
 	PolicySeq uint64                          `json:"policySeq"`
@@ -60,8 +60,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	if snap.Version != snapshotVersion {
-		logger.Load(ctx).WarnContext(ctx, "gcpresourcemanager: discarding incompatible snapshot version, starting empty",
-			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
+		logger.Load(ctx).
+			WarnContext(ctx, "gcpresourcemanager: discarding incompatible snapshot version, starting empty",
+				"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 		b.Reset()
 
 		return nil

@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -143,10 +144,14 @@ func (b *InMemoryBackend) CreateTagKey(in *resourcemanagerpb.CreateTagKeyRequest
 
 	now := b.now()
 	k := &tagKeyRec{
-		ID:     uniqueDigits(tagIDDigits, func(n string) bool { _, ok := b.tagKeys[n]; return ok }),
+		ID: uniqueDigits(tagIDDigits, func(n string) bool {
+			_, ok := b.tagKeys[n]
+
+			return ok
+		}),
 		Parent: parent, ShortName: tk.GetShortName(), Description: tk.GetDescription(),
 		Purpose: int32(tk.GetPurpose()), PurposeData: tk.GetPurposeData(),
-		lifecycle: lifecycle{Created: now, Updated: now},
+		Created: now, Updated: now,
 	}
 
 	if !in.GetValidateOnly() {
@@ -224,17 +229,11 @@ func (b *InMemoryBackend) ListTagKeys(in *resourcemanagerpb.ListTagKeysRequest) 
 }
 
 // UpdateTagKey changes a tag key's description.
+//
+//nolint:dupl // UpdateTagKey and UpdateTagValue mirror each other over different record types
 func (b *InMemoryBackend) UpdateTagKey(in *resourcemanagerpb.UpdateTagKeyRequest) (*longrunningpb.Operation, error) {
 	tk := in.GetTagKey()
-	if tk == nil || tk.GetName() == "" {
-		return nil, errInvalid("tag_key.name must be specified.")
-	}
-
-	if err := checkMask(in.GetUpdateMask(), "description"); err != nil {
-		return nil, err
-	}
-
-	if err := validateDescription(tk.GetDescription()); err != nil {
+	if err := validateTagUpdate(tk.GetName(), in.GetUpdateMask(), tk.GetDescription()); err != nil {
 		return nil, err
 	}
 
@@ -246,8 +245,8 @@ func (b *InMemoryBackend) UpdateTagKey(in *resourcemanagerpb.UpdateTagKeyRequest
 		return nil, err
 	}
 
-	if et := tk.GetEtag(); et != "" && et != k.view("").GetEtag() {
-		return nil, errAborted("The tag key %s was modified since it was read (etag mismatch).", tk.GetName())
+	if err = checkEtag(tk.GetName(), tk.GetEtag(), k.view("").GetEtag()); err != nil {
+		return nil, err
 	}
 
 	if !in.GetValidateOnly() {
@@ -257,7 +256,31 @@ func (b *InMemoryBackend) UpdateTagKey(in *resourcemanagerpb.UpdateTagKeyRequest
 	return b.opLocked("uk", &resourcemanagerpb.UpdateTagKeyMetadata{}, k.view(b.keyNamespaceLocked(k)))
 }
 
+// validateTagUpdate checks the parts of a tag key or value update that need no state.
+func validateTagUpdate(name string, mask *fieldmaskpb.FieldMask, description string) error {
+	if name == "" {
+		return errInvalid("the tag's name must be specified.")
+	}
+
+	if err := checkMask(mask, "description"); err != nil {
+		return err
+	}
+
+	return validateDescription(description)
+}
+
+// checkEtag fails with ABORTED when a supplied etag is stale.
+func checkEtag(name, supplied, current string) error {
+	if supplied != "" && supplied != current {
+		return errAborted("%s was modified since it was read (etag mismatch).", name)
+	}
+
+	return nil
+}
+
 // DeleteTagKey deletes a tag key that has no tag values.
+//
+//nolint:dupl // DeleteTagKey and DeleteTagValue mirror each other over different record types
 func (b *InMemoryBackend) DeleteTagKey(in *resourcemanagerpb.DeleteTagKeyRequest) (*longrunningpb.Operation, error) {
 	b.mu.Lock("DeleteTagKey")
 	defer b.mu.Unlock()
@@ -267,8 +290,8 @@ func (b *InMemoryBackend) DeleteTagKey(in *resourcemanagerpb.DeleteTagKeyRequest
 		return nil, err
 	}
 
-	if et := in.GetEtag(); et != "" && et != k.view("").GetEtag() {
-		return nil, errAborted("The tag key %s was modified since it was read (etag mismatch).", in.GetName())
+	if err = checkEtag(in.GetName(), in.GetEtag(), k.view("").GetEtag()); err != nil {
+		return nil, err
 	}
 
 	for _, v := range b.tagValues {
@@ -314,15 +337,23 @@ func (b *InMemoryBackend) CreateTagValue(in *resourcemanagerpb.CreateTagValueReq
 
 	for _, v := range b.tagValues {
 		if v.Parent == tv.GetParent() && v.ShortName == tv.GetShortName() {
-			return nil, errExists("Requested entity already exists: tag value %s under %s.", tv.GetShortName(), tv.GetParent())
+			return nil, errExists(
+				"Requested entity already exists: tag value %s under %s.",
+				tv.GetShortName(),
+				tv.GetParent(),
+			)
 		}
 	}
 
 	now := b.now()
 	v := &tagValueRec{
-		ID:     uniqueDigits(tagIDDigits, func(n string) bool { _, ok := b.tagValues[n]; return ok }),
+		ID: uniqueDigits(tagIDDigits, func(n string) bool {
+			_, ok := b.tagValues[n]
+
+			return ok
+		}),
 		Parent: kindTagKeys + "/" + k.ID, ShortName: tv.GetShortName(), Description: tv.GetDescription(),
-		lifecycle: lifecycle{Created: now, Updated: now},
+		Created: now, Updated: now,
 	}
 
 	if !in.GetValidateOnly() {
@@ -398,19 +429,13 @@ func (b *InMemoryBackend) ListTagValues(in *resourcemanagerpb.ListTagValuesReque
 }
 
 // UpdateTagValue changes a tag value's description.
+//
+//nolint:dupl // UpdateTagValue and UpdateTagKey mirror each other over different record types
 func (b *InMemoryBackend) UpdateTagValue(in *resourcemanagerpb.UpdateTagValueRequest) (
 	*longrunningpb.Operation, error,
 ) {
 	tv := in.GetTagValue()
-	if tv == nil || tv.GetName() == "" {
-		return nil, errInvalid("tag_value.name must be specified.")
-	}
-
-	if err := checkMask(in.GetUpdateMask(), "description"); err != nil {
-		return nil, err
-	}
-
-	if err := validateDescription(tv.GetDescription()); err != nil {
+	if err := validateTagUpdate(tv.GetName(), in.GetUpdateMask(), tv.GetDescription()); err != nil {
 		return nil, err
 	}
 
@@ -422,8 +447,8 @@ func (b *InMemoryBackend) UpdateTagValue(in *resourcemanagerpb.UpdateTagValueReq
 		return nil, err
 	}
 
-	if et := tv.GetEtag(); et != "" && et != v.view("").GetEtag() {
-		return nil, errAborted("The tag value %s was modified since it was read (etag mismatch).", tv.GetName())
+	if err = checkEtag(tv.GetName(), tv.GetEtag(), v.view("").GetEtag()); err != nil {
+		return nil, err
 	}
 
 	if !in.GetValidateOnly() {
@@ -434,6 +459,8 @@ func (b *InMemoryBackend) UpdateTagValue(in *resourcemanagerpb.UpdateTagValueReq
 }
 
 // DeleteTagValue deletes a tag value that is not bound to any resource.
+//
+//nolint:dupl // DeleteTagValue and DeleteTagKey mirror each other over different record types
 func (b *InMemoryBackend) DeleteTagValue(in *resourcemanagerpb.DeleteTagValueRequest) (
 	*longrunningpb.Operation, error,
 ) {
@@ -445,13 +472,16 @@ func (b *InMemoryBackend) DeleteTagValue(in *resourcemanagerpb.DeleteTagValueReq
 		return nil, err
 	}
 
-	if et := in.GetEtag(); et != "" && et != v.view("").GetEtag() {
-		return nil, errAborted("The tag value %s was modified since it was read (etag mismatch).", in.GetName())
+	if err = checkEtag(in.GetName(), in.GetEtag(), v.view("").GetEtag()); err != nil {
+		return nil, err
 	}
 
 	for _, bd := range b.bindings {
 		if bd.TagValue == in.GetName() {
-			return nil, errPrecondition("Tag value %s is bound to a resource; delete the tag binding first.", in.GetName())
+			return nil, errPrecondition(
+				"Tag value %s is bound to a resource; delete the tag binding first.",
+				in.GetName(),
+			)
 		}
 	}
 
@@ -529,7 +559,8 @@ func (b *InMemoryBackend) CreateTagBinding(in *resourcemanagerpb.CreateTagBindin
 	}
 
 	for _, other := range b.bindings {
-		if other.Parent == tb.GetParent() && b.tagValues[strings.TrimPrefix(other.TagValue, kindTagValues+"/")].Parent == value.rec.Parent {
+		if other.Parent == tb.GetParent() &&
+			b.tagValues[strings.TrimPrefix(other.TagValue, kindTagValues+"/")].Parent == value.rec.Parent {
 			return nil, errPrecondition("%s already has a value of tag key %s.", tb.GetParent(), value.rec.Parent)
 		}
 	}
@@ -613,7 +644,10 @@ func (b *InMemoryBackend) ListTagBindings(in *resourcemanagerpb.ListTagBindingsR
 
 	for _, n := range names {
 		r := b.bindings[n]
-		out = append(out, r.view(n, b.valueNamespaceLocked(b.tagValues[strings.TrimPrefix(r.TagValue, kindTagValues+"/")])))
+		out = append(
+			out,
+			r.view(n, b.valueNamespaceLocked(b.tagValues[strings.TrimPrefix(r.TagValue, kindTagValues+"/")])),
+		)
 	}
 
 	b.mu.RUnlock()

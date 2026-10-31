@@ -24,7 +24,7 @@ func TestSnapshotRestore(t *testing.T) {
 
 	folder := c.createFolder(t, orgName, "Persisted")
 	proj := c.createProject(t, "persisted-proj", folder.GetName())
-	key := mustTagKey(t, c, orgName, "persist")
+	key := mustTagKey(t, c, "persist")
 	val := mustTagValue(t, c, key.GetName(), "yes")
 
 	bind, err := c.bindings.CreateTagBinding(t.Context(), &resourcemanagerpb.CreateTagBindingRequest{
@@ -39,7 +39,9 @@ func TestSnapshotRestore(t *testing.T) {
 
 	pol, err := c.projects.SetIamPolicy(t.Context(), &iampb.SetIamPolicyRequest{
 		Resource: proj.GetName(),
-		Policy:   &iampb.Policy{Bindings: []*iampb.Binding{{Role: "roles/viewer", Members: []string{"user:a@example.com"}}}},
+		Policy: &iampb.Policy{
+			Bindings: []*iampb.Binding{{Role: "roles/viewer", Members: []string{"user:a@example.com"}}},
+		},
 	})
 	require.NoError(t, err)
 
@@ -85,7 +87,10 @@ func TestSnapshotRestore(t *testing.T) {
 	})
 	assert.Equal(t, codes.FailedPrecondition, codeOf(err), "restored project is DELETE_REQUESTED")
 
-	nsKey, err := d.tagKeys.GetNamespacedTagKey(t.Context(), &resourcemanagerpb.GetNamespacedTagKeyRequest{Name: "123456789012/persist"})
+	nsKey, err := d.tagKeys.GetNamespacedTagKey(
+		t.Context(),
+		&resourcemanagerpb.GetNamespacedTagKeyRequest{Name: "123456789012/persist"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, key.GetName(), nsKey.GetName())
 
@@ -104,7 +109,10 @@ func TestSnapshotRestore(t *testing.T) {
 	_, err = un.Wait(t.Context())
 	require.NoError(t, err)
 
-	svc, err := d.usage.GetService(t.Context(), &serviceusagepb.GetServiceRequest{Name: svcName(proj.GetProjectId(), "run.googleapis.com")})
+	svc, err := d.usage.GetService(
+		t.Context(),
+		&serviceusagepb.GetServiceRequest{Name: svcName(proj.GetProjectId(), "run.googleapis.com")},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, serviceusagepb.State_ENABLED, svc.GetState(), "enabled services survive")
 }

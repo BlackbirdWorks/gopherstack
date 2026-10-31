@@ -24,6 +24,10 @@ const (
 	v1Organizations = "/v1/organizations"
 	maxBody         = 1 << 20
 	v1Page          = 500
+	decimalBase     = 10
+	verbGetIam      = ":getIamPolicy"
+	verbSetIam      = ":setIamPolicy"
+	verbTestIam     = ":testIamPermissions"
 )
 
 // v1JSON is the v1 Project resource, which the Terraform provider still uses for projects and project IAM.
@@ -107,7 +111,9 @@ func writeV1Error(w http.ResponseWriter, err error) {
 	}
 
 	writeV1JSON(w, httpCode, map[string]any{"error": map[string]any{
-		"code": httpCode, "message": st.Message(), "status": strings.ToUpper(strings.ReplaceAll(codeName(st.Code()), " ", "_")),
+		"code":    httpCode,
+		"message": st.Message(),
+		"status":  strings.ToUpper(strings.ReplaceAll(codeName(st.Code()), " ", "_")),
 		"details": details,
 	}})
 }
@@ -147,7 +153,7 @@ func writeV1JSON(w http.ResponseWriter, code int, v any) {
 func writeV1Raw(w http.ResponseWriter, code int, raw []byte) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(code)
-	_, _ = w.Write(raw) //nolint:gosec // JSON from encoding/json or protojson
+	_, _ = w.Write(raw)
 }
 
 func writeV1Proto(w http.ResponseWriter, m proto.Message) {
@@ -234,11 +240,31 @@ func methodNotAllowed(r *http.Request) error {
 
 func (h v1Handler) projects(w http.ResponseWriter, r *http.Request, id, verb string) error {
 	switch {
-	case id == "" && verb == "" && r.Method == http.MethodPost:
+	case verb != "" && r.Method == http.MethodPost:
+		return h.projectVerb(w, r, id, verb)
+	case verb != "":
+		return methodNotAllowed(r)
+	case id == "":
+		return h.projectCollection(w, r)
+	default:
+		return h.projectItem(w, r, id)
+	}
+}
+
+func (h v1Handler) projectCollection(w http.ResponseWriter, r *http.Request) error {
+	switch r.Method {
+	case http.MethodPost:
 		return h.createProject(w, r)
-	case id == "" && verb == "" && r.Method == http.MethodGet:
+	case http.MethodGet:
 		return h.listProjects(w, r)
-	case id != "" && verb == "" && r.Method == http.MethodGet:
+	default:
+		return methodNotAllowed(r)
+	}
+}
+
+func (h v1Handler) projectItem(w http.ResponseWriter, r *http.Request, id string) error {
+	switch r.Method {
+	case http.MethodGet:
 		p, err := h.b.GetProject(id)
 		if err != nil {
 			return err
@@ -247,9 +273,9 @@ func (h v1Handler) projects(w http.ResponseWriter, r *http.Request, id, verb str
 		writeV1JSON(w, http.StatusOK, toV1Project(p))
 
 		return nil
-	case id != "" && verb == "" && r.Method == http.MethodPut:
+	case http.MethodPut:
 		return h.updateProject(w, r, id)
-	case id != "" && verb == "" && r.Method == http.MethodDelete:
+	case http.MethodDelete:
 		if _, err := h.b.DeleteProject(&resourcemanagerpb.DeleteProjectRequest{Name: id}); err != nil {
 			return err
 		}
@@ -257,11 +283,9 @@ func (h v1Handler) projects(w http.ResponseWriter, r *http.Request, id, verb str
 		writeV1Raw(w, http.StatusOK, []byte("{}"))
 
 		return nil
-	case r.Method != http.MethodPost:
+	default:
 		return methodNotAllowed(r)
 	}
-
-	return h.projectVerb(w, r, id, verb)
 }
 
 func (h v1Handler) projectVerb(w http.ResponseWriter, r *http.Request, id, verb string) error {
@@ -276,7 +300,7 @@ func (h v1Handler) projectVerb(w http.ResponseWriter, r *http.Request, id, verb 
 		return nil
 	case ":getAncestry":
 		return h.ancestry(w, id)
-	case ":getIamPolicy", ":setIamPolicy", ":testIamPermissions":
+	case verbGetIam, verbSetIam, verbTestIam:
 		return h.iam(w, r, "projects/"+id, verb)
 	default:
 		return methodNotAllowed(r)
@@ -321,7 +345,9 @@ func (h v1Handler) updateProject(w http.ResponseWriter, r *http.Request, id stri
 			return errInvalid("The parent of a project cannot be cleared.")
 		}
 
-		if _, err = h.b.MoveProject(&resourcemanagerpb.MoveProjectRequest{Name: id, DestinationParent: parent}); err != nil {
+		if _, err = h.b.MoveProject(
+			&resourcemanagerpb.MoveProjectRequest{Name: id, DestinationParent: parent},
+		); err != nil {
 			return err
 		}
 	}
@@ -439,42 +465,11 @@ func (h v1Handler) ancestry(w http.ResponseWriter, id string) error {
 
 func (h v1Handler) organizations(w http.ResponseWriter, r *http.Request, id, verb string) error {
 	switch {
-	case id == "" && verb == ":search" && r.Method == http.MethodPost:
-		var in struct {
-			Filter    string `json:"filter"`
-			PageToken string `json:"pageToken"`
-			PageSize  int32  `json:"pageSize"`
-		}
-
-		if err := readBody(r, &in); err != nil {
-			return err
-		}
-
-		resp, err := h.b.SearchOrganizations(&resourcemanagerpb.SearchOrganizationsRequest{
-			Query: in.Filter, PageToken: in.PageToken, PageSize: in.PageSize,
-		})
-		if err != nil {
-			return err
-		}
-
-		orgs := make([]v1Organization, 0, len(resp.GetOrganizations()))
-		for _, o := range resp.GetOrganizations() {
-			orgs = append(orgs, toV1Org(o))
-		}
-
-		out := map[string]any{}
-		if len(orgs) > 0 {
-			out["organizations"] = orgs
-		}
-
-		if resp.GetNextPageToken() != "" {
-			out["nextPageToken"] = resp.GetNextPageToken()
-		}
-
-		writeV1JSON(w, http.StatusOK, out)
-
-		return nil
-	case id != "" && verb == "" && r.Method == http.MethodGet:
+	case r.Method == http.MethodPost && id == "" && verb == ":search":
+		return h.searchOrganizations(w, r)
+	case r.Method == http.MethodPost && id != "" && (verb == verbGetIam || verb == verbSetIam || verb == verbTestIam):
+		return h.iam(w, r, "organizations/"+id, verb)
+	case r.Method == http.MethodGet && id != "" && verb == "":
 		o, err := h.b.GetOrganization("organizations/" + id)
 		if err != nil {
 			return err
@@ -483,12 +478,46 @@ func (h v1Handler) organizations(w http.ResponseWriter, r *http.Request, id, ver
 		writeV1JSON(w, http.StatusOK, toV1Org(o))
 
 		return nil
-	case id != "" && r.Method == http.MethodPost &&
-		(verb == ":getIamPolicy" || verb == ":setIamPolicy" || verb == ":testIamPermissions"):
-		return h.iam(w, r, "organizations/"+id, verb)
 	default:
 		return methodNotAllowed(r)
 	}
+}
+
+func (h v1Handler) searchOrganizations(w http.ResponseWriter, r *http.Request) error {
+	var in struct {
+		Filter    string `json:"filter"`
+		PageToken string `json:"pageToken"`
+		PageSize  int32  `json:"pageSize"`
+	}
+
+	if err := readBody(r, &in); err != nil {
+		return err
+	}
+
+	resp, err := h.b.SearchOrganizations(&resourcemanagerpb.SearchOrganizationsRequest{
+		Query: in.Filter, PageToken: in.PageToken, PageSize: in.PageSize,
+	})
+	if err != nil {
+		return err
+	}
+
+	orgs := make([]v1Organization, 0, len(resp.GetOrganizations()))
+	for _, o := range resp.GetOrganizations() {
+		orgs = append(orgs, toV1Org(o))
+	}
+
+	out := map[string]any{}
+	if len(orgs) > 0 {
+		out["organizations"] = orgs
+	}
+
+	if resp.GetNextPageToken() != "" {
+		out["nextPageToken"] = resp.GetNextPageToken()
+	}
+
+	writeV1JSON(w, http.StatusOK, out)
+
+	return nil
 }
 
 func toV1Org(o *resourcemanagerpb.Organization) v1Organization {
@@ -506,7 +535,7 @@ func toV1Org(o *resourcemanagerpb.Organization) v1Organization {
 
 func (h v1Handler) iam(w http.ResponseWriter, r *http.Request, resource, verb string) error {
 	switch verb {
-	case ":getIamPolicy":
+	case verbGetIam:
 		var in struct {
 			Options struct {
 				RequestedPolicyVersion int32 `json:"requestedPolicyVersion"`
@@ -518,14 +547,15 @@ func (h v1Handler) iam(w http.ResponseWriter, r *http.Request, resource, verb st
 		}
 
 		p, err := h.b.GetIamPolicy(&iampb.GetIamPolicyRequest{
-			Resource: resource, Options: &iampb.GetPolicyOptions{RequestedPolicyVersion: in.Options.RequestedPolicyVersion},
+			Resource: resource,
+			Options:  &iampb.GetPolicyOptions{RequestedPolicyVersion: in.Options.RequestedPolicyVersion},
 		})
 		if err != nil {
 			return err
 		}
 
 		writeV1Proto(w, p)
-	case ":setIamPolicy":
+	case verbSetIam:
 		req := &iampb.SetIamPolicyRequest{}
 		if err := readProtoBody(r, req); err != nil {
 			return err
@@ -566,7 +596,7 @@ func parseInt(s string) (int, error) {
 			return 0, errInvalid("invalid integer %q", s)
 		}
 
-		n = n*10 + int(c-'0')
+		n = n*decimalBase + int(c-'0')
 	}
 
 	return n, nil

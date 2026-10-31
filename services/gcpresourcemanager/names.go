@@ -7,17 +7,16 @@ import (
 )
 
 const (
-	projectIDMin     = 6
-	projectIDMax     = 30
-	projectNameMin   = 4
-	projectNameMax   = 30
-	maxLabels        = 64
-	maxLabelLen      = 63
-	maxFolderDepth   = 10
-	maxFolderFanout  = 300
-	maxTagDescLen    = 256
-	maxTagShortName  = 63
-	
+	projectIDMin    = 6
+	projectIDMax    = 30
+	projectNameMin  = 4
+	projectNameMax  = 30
+	maxLabels       = 64
+	maxLabelLen     = 63
+	maxFolderDepth  = 10
+	maxFolderFanout = 300
+	maxTagDescLen   = 256
+	maxTagShortName = 63
 )
 
 var (
@@ -27,7 +26,6 @@ var (
 	labelValueRE  = regexp.MustCompile(`^([a-z]([-a-z0-9]*[a-z0-9])?)?$`)
 	folderNameRE  = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_\- ]{1,28}[\p{L}\p{N}]$`)
 	tagNameRE     = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.-]*[a-zA-Z0-9])?$`)
-	restricted    = []string{"google", "ssl"}
 )
 
 // splitName splits "kind/id" and checks the kind.
@@ -46,7 +44,7 @@ func validateProjectID(id string) error {
 			"start with a letter and not end with a hyphen.", id)
 	}
 
-	for _, r := range restricted {
+	for _, r := range []string{"google", "ssl"} {
 		if strings.Contains(id, r) {
 			return errInvalid("Invalid project id %q: it must not contain the restricted string %q.", id, r)
 		}

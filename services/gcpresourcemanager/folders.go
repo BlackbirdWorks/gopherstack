@@ -16,7 +16,6 @@ import (
 const (
 	permFolderGet  = "resourcemanager.folders.get"
 	permFolderList = "resourcemanager.folders.list"
-	violationType  = "FOLDER_OPERATION"
 )
 
 func (b *InMemoryBackend) folderLocked(name, perm string) (*folderRec, error) {
@@ -78,7 +77,11 @@ func (b *InMemoryBackend) heightLocked(id string) int {
 	return height
 }
 
-func (b *InMemoryBackend) activeChildrenLocked(parent string) (folders []*folderRec, projects int) {
+func (b *InMemoryBackend) activeChildrenLocked(parent string) ([]*folderRec, int) {
+	var folders []*folderRec
+
+	projects := 0
+
 	for _, f := range b.folders {
 		if f.Parent == parent && !f.requested() {
 			folders = append(folders, f)
@@ -98,18 +101,22 @@ func (b *InMemoryBackend) activeChildrenLocked(parent string) (folders []*folder
 func (b *InMemoryBackend) placeLocked(parent, name, self string, height int) error {
 	siblings, _ := b.activeChildrenLocked(parent)
 
-	if len(siblings) >= maxFolderFanout && !slices.ContainsFunc(siblings, func(f *folderRec) bool { return f.ID == self }) {
-		return preconditionFailure("Folder fanout limit reached.", violationType, parent,
+	if len(siblings) >= maxFolderFanout &&
+		!slices.ContainsFunc(siblings, func(f *folderRec) bool { return f.ID == self }) {
+		return preconditionFailure("Folder fanout limit reached.", parent,
 			"A parent can hold at most 300 folders.")
 	}
 
-	if slices.ContainsFunc(siblings, func(f *folderRec) bool { return f.ID != self && strs.Equal(f.DisplayName, name) }) {
-		return preconditionFailure("Folder display name is not unique under its parent.", violationType, parent,
+	if slices.ContainsFunc(
+		siblings,
+		func(f *folderRec) bool { return f.ID != self && strs.Equal(f.DisplayName, name) },
+	) {
+		return preconditionFailure("Folder display name is not unique under its parent.", parent,
 			"The display name "+name+" is already used by a sibling folder.")
 	}
 
 	if b.depthLocked(parent)+height > maxFolderDepth {
-		return preconditionFailure("Folder height limit exceeded.", violationType, parent,
+		return preconditionFailure("Folder height limit exceeded.", parent,
 			"The active folder hierarchy cannot exceed a height of 10.")
 	}
 
@@ -145,10 +152,14 @@ func (b *InMemoryBackend) CreateFolder(in *resourcemanagerpb.CreateFolderRequest
 	}
 
 	now := b.now()
-	id := uniqueDigits(numberDigits, func(n string) bool { _, ok := b.folders[n]; return ok })
+	id := uniqueDigits(numberDigits, func(n string) bool {
+		_, ok := b.folders[n]
+
+		return ok
+	})
 	f := &folderRec{
 		ID: id, Parent: fo.GetParent(), DisplayName: fo.GetDisplayName(),
-		lifecycle: lifecycle{Created: now, Updated: now},
+		Created: now, Updated: now,
 	}
 	b.folders[id] = f
 
@@ -224,11 +235,11 @@ func (b *InMemoryBackend) ListFolders(in *resourcemanagerpb.ListFoldersRequest) 
 
 func (f *folderRec) fields(name string) ([]string, bool) {
 	switch name {
-	case "displayname":
+	case fieldDisplayName:
 		return []string{f.DisplayName}, true
 	case "parent":
 		return []string{f.Parent}, true
-	case "state":
+	case fieldState:
 		if f.requested() {
 			return []string{stateRequested}, true
 		}
@@ -236,7 +247,7 @@ func (f *folderRec) fields(name string) ([]string, bool) {
 		return []string{stateActive}, true
 	case "id":
 		return []string{f.ID}, true
-	case "labels":
+	case fieldLabels:
 		return nil, true
 	default:
 		return nil, false
@@ -317,7 +328,10 @@ func (b *InMemoryBackend) UpdateFolder(in *resourcemanagerpb.UpdateFolderRequest
 	}
 
 	if et := fo.GetEtag(); et != "" && et != f.view().GetEtag() {
-		return nil, errAborted("The folder %s was modified since it was read; re-read it and retry (etag mismatch).", fo.GetName())
+		return nil, errAborted(
+			"The folder %s was modified since it was read; re-read it and retry (etag mismatch).",
+			fo.GetName(),
+		)
 	}
 
 	if maskHas(in.GetUpdateMask(), "display_name") && fo.GetDisplayName() != "" {
@@ -406,7 +420,7 @@ func (b *InMemoryBackend) DeleteFolder(in *resourcemanagerpb.DeleteFolderRequest
 	if !f.requested() {
 		folders, projects := b.activeChildrenLocked(in.GetName())
 		if len(folders) > 0 || projects > 0 {
-			return nil, preconditionFailure("Folder is not empty.", violationType, in.GetName(),
+			return nil, preconditionFailure("Folder is not empty.", in.GetName(),
 				"A folder can be deleted only when it holds no ACTIVE folders or projects.")
 		}
 

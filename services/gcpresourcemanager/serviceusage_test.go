@@ -29,10 +29,10 @@ func listServices(t *testing.T, c *clients, parent, filter string) []*serviceusa
 	return out
 }
 
-func stateOf(t *testing.T, c *clients, project, svc string) serviceusagepb.State {
+func stateOf(t *testing.T, c *clients, svc string) serviceusagepb.State {
 	t.Helper()
 
-	s, err := c.usage.GetService(t.Context(), &serviceusagepb.GetServiceRequest{Name: svcName(project, svc)})
+	s, err := c.usage.GetService(t.Context(), &serviceusagepb.GetServiceRequest{Name: svcName(seedID, svc)})
 	require.NoError(t, err)
 
 	return s.GetState()
@@ -42,6 +42,8 @@ func TestServiceUsageListAndGet(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		all := listServices(t, c, "projects/"+seedID, "")
 		assert.Len(t, all, len(gcpresourcemanager.CatalogServices()))
 
@@ -70,16 +72,30 @@ func TestServiceUsageListAndGet(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, serviceusagepb.State_ENABLED, got.GetState())
 		assert.Equal(t, "Cloud Storage API", got.GetConfig().GetTitle())
-		assert.Regexp(t, `^projects/\d{12}/services/storage\.googleapis\.com$`, got.GetName(), "name carries the project number")
+		assert.Regexp(
+			t,
+			`^projects/\d{12}/services/storage\.googleapis\.com$`,
+			got.GetName(),
+			"name carries the project number",
+		)
 		assert.Regexp(t, `^projects/\d{12}$`, got.GetParent())
 
-		_, err = c.usage.GetService(t.Context(), &serviceusagepb.GetServiceRequest{Name: svcName(seedID, "bogus.googleapis.com")})
+		_, err = c.usage.GetService(
+			t.Context(),
+			&serviceusagepb.GetServiceRequest{Name: svcName(seedID, "bogus.googleapis.com")},
+		)
 		assert.Equal(t, codes.PermissionDenied, codeOf(err))
 
-		_, err = c.usage.GetService(t.Context(), &serviceusagepb.GetServiceRequest{Name: svcName("nope-project", "storage.googleapis.com")})
+		_, err = c.usage.GetService(
+			t.Context(),
+			&serviceusagepb.GetServiceRequest{Name: svcName("nope-project", "storage.googleapis.com")},
+		)
 		assert.Equal(t, codes.PermissionDenied, codeOf(err))
 
-		it := c.usage.ListServices(t.Context(), &serviceusagepb.ListServicesRequest{Parent: "projects/" + seedID, Filter: "state:BOGUS"})
+		it := c.usage.ListServices(
+			t.Context(),
+			&serviceusagepb.ListServicesRequest{Parent: "projects/" + seedID, Filter: "state:BOGUS"},
+		)
 		_, err = it.Next()
 		assert.Equal(t, codes.InvalidArgument, codeOf(err))
 	})
@@ -89,9 +105,11 @@ func TestServiceUsageEnableDisable(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		const svc = "pubsub.googleapis.com"
 
-		assert.Equal(t, serviceusagepb.State_DISABLED, stateOf(t, c, seedID, svc))
+		assert.Equal(t, serviceusagepb.State_DISABLED, stateOf(t, c, svc))
 
 		op, err := c.usage.EnableService(t.Context(), &serviceusagepb.EnableServiceRequest{Name: svcName(seedID, svc)})
 		require.NoError(t, err)
@@ -99,15 +117,21 @@ func TestServiceUsageEnableDisable(t *testing.T) {
 		resp, err := op.Wait(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, serviceusagepb.State_ENABLED, resp.GetService().GetState())
-		assert.Equal(t, serviceusagepb.State_ENABLED, stateOf(t, c, seedID, svc))
+		assert.Equal(t, serviceusagepb.State_ENABLED, stateOf(t, c, svc))
 
-		again, err := c.usage.EnableService(t.Context(), &serviceusagepb.EnableServiceRequest{Name: svcName(seedID, svc)})
+		again, err := c.usage.EnableService(
+			t.Context(),
+			&serviceusagepb.EnableServiceRequest{Name: svcName(seedID, svc)},
+		)
 		require.NoError(t, err, "enabling an enabled service succeeds")
 
 		_, err = again.Wait(t.Context())
 		require.NoError(t, err)
 
-		off, err := c.usage.DisableService(t.Context(), &serviceusagepb.DisableServiceRequest{Name: svcName(seedID, svc)})
+		off, err := c.usage.DisableService(
+			t.Context(),
+			&serviceusagepb.DisableServiceRequest{Name: svcName(seedID, svc)},
+		)
 		require.NoError(t, err)
 
 		dis, err := off.Wait(t.Context())
@@ -117,7 +141,10 @@ func TestServiceUsageEnableDisable(t *testing.T) {
 		_, err = c.usage.DisableService(t.Context(), &serviceusagepb.DisableServiceRequest{Name: svcName(seedID, svc)})
 		assert.Equal(t, codes.FailedPrecondition, codeOf(err), "disabling a disabled service")
 
-		_, err = c.usage.EnableService(t.Context(), &serviceusagepb.EnableServiceRequest{Name: svcName(seedID, "bogus.googleapis.com")})
+		_, err = c.usage.EnableService(
+			t.Context(),
+			&serviceusagepb.EnableServiceRequest{Name: svcName(seedID, "bogus.googleapis.com")},
+		)
 		assert.Equal(t, codes.PermissionDenied, codeOf(err))
 
 		_, err = c.usage.EnableService(t.Context(), &serviceusagepb.EnableServiceRequest{Name: "folders/1/services/x"})
@@ -129,6 +156,8 @@ func TestServiceUsageDependencies(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		en, err := c.usage.EnableService(t.Context(), &serviceusagepb.EnableServiceRequest{
 			Name: svcName(seedID, "container.googleapis.com"),
 		})
@@ -136,11 +165,19 @@ func TestServiceUsageDependencies(t *testing.T) {
 
 		_, err = en.Wait(t.Context())
 		require.NoError(t, err)
-		assert.Equal(t, serviceusagepb.State_ENABLED, stateOf(t, c, seedID, "compute.googleapis.com"), "dependency enabled with it")
+		assert.Equal(
+			t,
+			serviceusagepb.State_ENABLED,
+			stateOf(t, c, "compute.googleapis.com"),
+			"dependency enabled with it",
+		)
 
-		_, err = c.usage.DisableService(t.Context(), &serviceusagepb.DisableServiceRequest{Name: svcName(seedID, "compute.googleapis.com")})
+		_, err = c.usage.DisableService(
+			t.Context(),
+			&serviceusagepb.DisableServiceRequest{Name: svcName(seedID, "compute.googleapis.com")},
+		)
 		assert.Equal(t, codes.FailedPrecondition, codeOf(err), "an enabled service depends on it")
-		assert.Equal(t, serviceusagepb.State_ENABLED, stateOf(t, c, seedID, "compute.googleapis.com"))
+		assert.Equal(t, serviceusagepb.State_ENABLED, stateOf(t, c, "compute.googleapis.com"))
 
 		off, err := c.usage.DisableService(t.Context(), &serviceusagepb.DisableServiceRequest{
 			Name: svcName(seedID, "compute.googleapis.com"), DisableDependentServices: true,
@@ -150,8 +187,13 @@ func TestServiceUsageDependencies(t *testing.T) {
 
 		_, err = off.Wait(t.Context())
 		require.NoError(t, err)
-		assert.Equal(t, serviceusagepb.State_DISABLED, stateOf(t, c, seedID, "compute.googleapis.com"))
-		assert.Equal(t, serviceusagepb.State_DISABLED, stateOf(t, c, seedID, "container.googleapis.com"), "dependent disabled too")
+		assert.Equal(t, serviceusagepb.State_DISABLED, stateOf(t, c, "compute.googleapis.com"))
+		assert.Equal(
+			t,
+			serviceusagepb.State_DISABLED,
+			stateOf(t, c, "container.googleapis.com"),
+			"dependent disabled too",
+		)
 	})
 }
 
@@ -159,6 +201,8 @@ func TestServiceUsageBatch(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		parent := "projects/" + seedID
 
 		op, err := c.usage.BatchEnableServices(t.Context(), &serviceusagepb.BatchEnableServicesRequest{
@@ -174,21 +218,30 @@ func TestServiceUsageBatch(t *testing.T) {
 			Parent: parent, ServiceIds: []string{"dns.googleapis.com", "bogus.googleapis.com"},
 		})
 		assert.Equal(t, codes.PermissionDenied, codeOf(err))
-		assert.Equal(t, serviceusagepb.State_DISABLED, stateOf(t, c, seedID, "dns.googleapis.com"), "the batch is atomic")
+		assert.Equal(
+			t,
+			serviceusagepb.State_DISABLED,
+			stateOf(t, c, "dns.googleapis.com"),
+			"the batch is atomic",
+		)
 
 		tooMany := make([]string, 21)
 		for i := range tooMany {
 			tooMany[i] = "dns.googleapis.com"
 		}
 
-		_, err = c.usage.BatchEnableServices(t.Context(), &serviceusagepb.BatchEnableServicesRequest{Parent: parent, ServiceIds: tooMany})
+		_, err = c.usage.BatchEnableServices(
+			t.Context(),
+			&serviceusagepb.BatchEnableServicesRequest{Parent: parent, ServiceIds: tooMany},
+		)
 		assert.Equal(t, codes.InvalidArgument, codeOf(err))
 
 		_, err = c.usage.BatchEnableServices(t.Context(), &serviceusagepb.BatchEnableServicesRequest{Parent: parent})
 		assert.Equal(t, codes.InvalidArgument, codeOf(err))
 
 		got, err := c.usage.BatchGetServices(t.Context(), &serviceusagepb.BatchGetServicesRequest{
-			Parent: parent, Names: []string{svcName(seedID, "run.googleapis.com"), svcName(seedID, "dns.googleapis.com")},
+			Parent: parent,
+			Names:  []string{svcName(seedID, "run.googleapis.com"), svcName(seedID, "dns.googleapis.com")},
 		})
 		require.NoError(t, err)
 		require.Len(t, got.GetServices(), 2)
@@ -206,6 +259,8 @@ func TestServiceUsageDeletedProject(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		p := c.createProject(t, "su-deleted", "")
 		name := p.GetName() + "/services/storage.googleapis.com"
 

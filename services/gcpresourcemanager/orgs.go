@@ -10,11 +10,11 @@ import (
 
 func (b *InMemoryBackend) orgFields(f string) ([]string, bool) {
 	switch f {
-	case "domain", "displayname":
+	case "domain", fieldDisplayName:
 		return []string{b.org.Domain}, true
 	case "directorycustomerid", "owner.directorycustomerid":
 		return []string{"C" + b.org.ID}, true
-	case "state":
+	case fieldState:
 		return []string{stateActive}, true
 	default:
 		return nil, false

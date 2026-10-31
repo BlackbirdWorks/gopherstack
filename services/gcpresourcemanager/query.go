@@ -7,6 +7,14 @@ import (
 )
 
 // fieldFunc returns the values of a searchable field; ok is false for an unknown field.
+const (
+	fieldDisplayName = "displayname"
+	fieldState       = "state"
+	fieldLabels      = "labels"
+	kwAnd            = "AND"
+	kwOr             = "OR"
+)
+
 type fieldFunc func(field string) (vals []string, ok bool)
 
 type query struct {
@@ -29,7 +37,7 @@ type (
 
 func (t termNode) eval(fields fieldFunc) (bool, error) {
 	if t.field == "" {
-		for _, f := range []string{"displayname", "id", "labels"} {
+		for _, f := range []string{fieldDisplayName, "id", fieldLabels} {
 			vals, _ := fields(f)
 			if slices.ContainsFunc(vals, func(v string) bool { return strings.Contains(strings.ToLower(v), t.value) }) {
 				return true, nil
@@ -172,8 +180,8 @@ func (p *parser) parseOr() (node, error) {
 	}
 
 	for p.pos < len(p.toks) {
-		explicit := p.peek() == "OR"
-		if !explicit && (p.implicitAnd || p.peek() == "AND") {
+		explicit := p.peek() == kwOr
+		if !explicit && (p.implicitAnd || p.peek() == kwAnd) {
 			break
 		}
 
@@ -181,9 +189,9 @@ func (p *parser) parseOr() (node, error) {
 			p.pos++
 		}
 
-		r, err := p.parseAnd()
-		if err != nil {
-			return nil, err
+		r, rErr := p.parseAnd()
+		if rErr != nil {
+			return nil, rErr
 		}
 
 		l = binNode{l: l, r: r}
@@ -199,8 +207,8 @@ func (p *parser) parseAnd() (node, error) {
 	}
 
 	for p.pos < len(p.toks) {
-		explicit := p.peek() == "AND"
-		if !explicit && (!p.implicitAnd || p.peek() == "OR") {
+		explicit := p.peek() == kwAnd
+		if !explicit && (!p.implicitAnd || p.peek() == kwOr) {
 			break
 		}
 
@@ -208,9 +216,9 @@ func (p *parser) parseAnd() (node, error) {
 			p.pos++
 		}
 
-		r, err := p.parseNot()
-		if err != nil {
-			return nil, err
+		r, rErr := p.parseNot()
+		if rErr != nil {
+			return nil, rErr
 		}
 
 		l = binNode{l: l, r: r, and: true}
@@ -232,7 +240,7 @@ func (p *parser) parseNot() (node, error) {
 	}
 
 	tok := p.peek()
-	if tok == "" || tok == "AND" || tok == "OR" {
+	if tok == "" || tok == kwAnd || tok == kwOr {
 		return nil, errInvalid("Invalid query: expected a term.")
 	}
 
@@ -244,9 +252,9 @@ func (p *parser) parseNot() (node, error) {
 		field, value = strings.ToLower(tok[:i]), tok[i+1:]
 	}
 
-	if field == "state" || field == "lifecyclestate" {
+	if field == fieldState || field == "lifecyclestate" {
 		p.hasState = true
-		field = "state"
+		field = fieldState
 	}
 
 	return termNode{field: field, value: strings.ToLower(value)}, nil

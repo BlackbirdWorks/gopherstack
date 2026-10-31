@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	apiHost      = "cloudresourcemanager.googleapis.com"
-	reasonDenied = "IAM_PERMISSION_DENIED"
-	domainIAM    = "iam.googleapis.com"
+	apiHost       = "cloudresourcemanager.googleapis.com"
+	reasonDenied  = "IAM_PERMISSION_DENIED"
+	domainIAM     = "iam.googleapis.com"
+	violationType = "FOLDER_OPERATION"
 )
 
 func errInvalid(format string, a ...any) error {
@@ -24,10 +25,6 @@ func errPrecondition(format string, a ...any) error {
 
 func errExists(format string, a ...any) error {
 	return status.Error(codes.AlreadyExists, fmt.Sprintf(format, a...))
-}
-
-func errNotFound(format string, a ...any) error {
-	return status.Error(codes.NotFound, fmt.Sprintf(format, a...))
 }
 
 func errAborted(format string, a ...any) error {
@@ -50,11 +47,13 @@ func errDenied(permission, resource string) error {
 	return withInfo.Err()
 }
 
-func preconditionFailure(msg, typ, subject, desc string) error {
+func preconditionFailure(msg, subject, desc string) error {
 	st := status.New(codes.FailedPrecondition, msg)
 
 	withDetail, err := st.WithDetails(&errdetails.PreconditionFailure{
-		Violations: []*errdetails.PreconditionFailure_Violation{{Type: typ, Subject: subject, Description: desc}},
+		Violations: []*errdetails.PreconditionFailure_Violation{
+			{Type: violationType, Subject: subject, Description: desc},
+		},
 	})
 	if err != nil {
 		return st.Err()

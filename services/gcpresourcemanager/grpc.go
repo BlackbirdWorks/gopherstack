@@ -12,15 +12,25 @@ import (
 type iamMethods struct{ b *InMemoryBackend }
 
 // Unimplemented bases sit one level deeper than iamMethods so its IAM methods win the selector.
-type unimplementedProjects struct{ resourcemanagerpb.UnimplementedProjectsServer }
+type unimplementedProjects struct {
+	resourcemanagerpb.UnimplementedProjectsServer
+}
 
-type unimplementedFolders struct{ resourcemanagerpb.UnimplementedFoldersServer }
+type unimplementedFolders struct {
+	resourcemanagerpb.UnimplementedFoldersServer
+}
 
-type unimplementedOrganizations struct{ resourcemanagerpb.UnimplementedOrganizationsServer }
+type unimplementedOrganizations struct {
+	resourcemanagerpb.UnimplementedOrganizationsServer
+}
 
-type unimplementedTagKeys struct{ resourcemanagerpb.UnimplementedTagKeysServer }
+type unimplementedTagKeys struct {
+	resourcemanagerpb.UnimplementedTagKeysServer
+}
 
-type unimplementedTagValues struct{ resourcemanagerpb.UnimplementedTagValuesServer }
+type unimplementedTagValues struct {
+	resourcemanagerpb.UnimplementedTagValuesServer
+}
 
 func (m iamMethods) GetIamPolicy(_ context.Context, in *iampb.GetIamPolicyRequest) (*iampb.Policy, error) {
 	return m.b.GetIamPolicy(in)
@@ -37,8 +47,8 @@ func (m iamMethods) TestIamPermissions(
 }
 
 type projectsServer struct {
-	iamMethods
 	unimplementedProjects
+	iamMethods
 }
 
 func (s projectsServer) GetProject(_ context.Context, in *resourcemanagerpb.GetProjectRequest) (
@@ -90,8 +100,8 @@ func (s projectsServer) UndeleteProject(_ context.Context, in *resourcemanagerpb
 }
 
 type foldersServer struct {
-	iamMethods
 	unimplementedFolders
+	iamMethods
 }
 
 func (s foldersServer) GetFolder(_ context.Context, in *resourcemanagerpb.GetFolderRequest) (
@@ -143,8 +153,8 @@ func (s foldersServer) UndeleteFolder(_ context.Context, in *resourcemanagerpb.U
 }
 
 type organizationsServer struct {
-	iamMethods
 	unimplementedOrganizations
+	iamMethods
 }
 
 func (s organizationsServer) GetOrganization(_ context.Context, in *resourcemanagerpb.GetOrganizationRequest) (
@@ -160,8 +170,8 @@ func (s organizationsServer) SearchOrganizations(
 }
 
 type tagKeysServer struct {
-	iamMethods
 	unimplementedTagKeys
+	iamMethods
 }
 
 func (s tagKeysServer) ListTagKeys(_ context.Context, in *resourcemanagerpb.ListTagKeysRequest) (
@@ -201,8 +211,8 @@ func (s tagKeysServer) DeleteTagKey(_ context.Context, in *resourcemanagerpb.Del
 }
 
 type tagValuesServer struct {
-	iamMethods
 	unimplementedTagValues
+	iamMethods
 }
 
 func (s tagValuesServer) ListTagValues(_ context.Context, in *resourcemanagerpb.ListTagValuesRequest) (

@@ -29,6 +29,7 @@ const (
 	filterEnabled    = "state:ENABLED"
 	filterDisabled   = "state:DISABLED"
 	serviceUsageName = "serviceusage.googleapis.com"
+	mdService        = "service"
 )
 
 func suError(code codes.Code, msg, reason string, md map[string]string) error {
@@ -43,13 +44,21 @@ func suError(code codes.Code, msg, reason string, md map[string]string) error {
 }
 
 func errConsumer(parent string) error {
-	return suError(codes.PermissionDenied, "Permission denied on resource project "+strings.TrimPrefix(parent, kindProjects+"/")+".",
-		reasonConsumer, map[string]string{"consumer": parent, "service": serviceUsageName})
+	return suError(
+		codes.PermissionDenied,
+		"Permission denied on resource project "+strings.TrimPrefix(parent, kindProjects+"/")+".",
+		reasonConsumer,
+		map[string]string{"consumer": parent, mdService: serviceUsageName},
+	)
 }
 
 func errNoService(name string) error {
-	return suError(codes.PermissionDenied, "Permission denied to access service ["+name+"]; it was not found or you lack permission.",
-		reasonNoService, map[string]string{"service": name})
+	return suError(
+		codes.PermissionDenied,
+		"Permission denied to access service ["+name+"]; it was not found or you lack permission.",
+		reasonNoService,
+		map[string]string{mdService: name},
+	)
 }
 
 func (b *InMemoryBackend) enableDefaultsLocked(number string) {
@@ -103,7 +112,7 @@ func (b *InMemoryBackend) consumerLocked(parent string) (*projectRec, error) {
 	return p, nil
 }
 
-func splitServiceName(name string) (parent, service string, err error) {
+func splitServiceName(name string) (string, string, error) {
 	parent, service, ok := strings.Cut(name, "/services/")
 	if !ok || parent == "" || service == "" || strings.Contains(service, "/") || strings.Contains(parent, "/services") {
 		return "", "", errInvalid("Invalid service name %q: use projects/PROJECT/services/SERVICE.", name)
@@ -119,7 +128,9 @@ func (b *InMemoryBackend) serviceView(p *projectRec, e catalogEntry) *serviceusa
 	}
 
 	return &serviceusagepb.Service{
-		Name: kindProjects + "/" + p.Number + "/services/" + e.name, Parent: kindProjects + "/" + p.Number, State: state,
+		Name:   kindProjects + "/" + p.Number + "/services/" + e.name,
+		Parent: kindProjects + "/" + p.Number,
+		State:  state,
 		Config: &serviceusagepb.ServiceConfig{
 			Name: e.name, Title: e.title,
 			Documentation: &serviceconfig.Documentation{Summary: e.summary},
@@ -227,7 +238,12 @@ func (b *InMemoryBackend) ListServices(in *serviceusagepb.ListServicesRequest) (
 
 	filter := strings.TrimSpace(in.GetFilter())
 	if filter != "" && filter != filterEnabled && filter != filterDisabled {
-		return nil, errInvalid("Invalid filter %q: the allowed filters are %s and %s.", filter, filterEnabled, filterDisabled)
+		return nil, errInvalid(
+			"Invalid filter %q: the allowed filters are %s and %s.",
+			filter,
+			filterEnabled,
+			filterDisabled,
+		)
 	}
 
 	b.mu.Lock("ListServices")
@@ -319,7 +335,7 @@ func (b *InMemoryBackend) BatchEnableServices(in *serviceusagepb.BatchEnableServ
 	if len(unknown) > 0 {
 		return nil, suError(codes.PermissionDenied,
 			"Not found or permission denied for service(s): "+strings.Join(unknown, ", ")+".",
-			reasonNoService, map[string]string{"service": strings.Join(unknown, ",")})
+			reasonNoService, map[string]string{mdService: strings.Join(unknown, ",")})
 	}
 
 	out := make([]*serviceusagepb.Service, 0, len(ids))
@@ -412,17 +428,23 @@ func (b *InMemoryBackend) CheckServiceEnabled(project, service string) error {
 	}
 
 	url := fmt.Sprintf("https://console.developers.google.com/apis/api/%s/overview?project=%s", service, p.Number)
-	msg := fmt.Sprintf("%s has not been used in project %s before or it is disabled. Enable it by visiting %s then retry. "+
-		"If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.",
-		e.title, p.Number, url)
+	msg := fmt.Sprintf(
+		"%s has not been used in project %s before or it is disabled. Enable it by visiting %s then retry. "+
+			"If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.",
+		e.title,
+		p.Number,
+		url,
+	)
 	st := status.New(codes.PermissionDenied, msg)
 
 	withDetails, err := st.WithDetails(
 		&errdetails.ErrorInfo{Reason: reasonDisabled, Domain: suDomain, Metadata: map[string]string{
-			"containerInfo": p.Number, "consumer": kindProjects + "/" + p.Number, "service": service,
+			"containerInfo": p.Number, "consumer": kindProjects + "/" + p.Number, mdService: service,
 			"serviceTitle": e.title, "activationUrl": url,
 		}},
-		&errdetails.Help{Links: []*errdetails.Help_Link{{Description: "Google developers console API activation", Url: url}}},
+		&errdetails.Help{
+			Links: []*errdetails.Help_Link{{Description: "Google developers console API activation", Url: url}},
+		},
 	)
 	if err != nil {
 		return st.Err()

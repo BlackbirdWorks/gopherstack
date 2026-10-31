@@ -16,8 +16,8 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
@@ -55,9 +55,9 @@ type clients struct {
 type env struct {
 	backend *gcpresourcemanager.InMemoryBackend
 	clock   *fakeClock
-	addr    string
 	grpc    *clients
 	rest    *clients
+	addr    string
 }
 
 type envOption func(*gcpresourcemanager.Settings)
@@ -90,7 +90,11 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 
 	grpcOpts := []option.ClientOption{option.WithGRPCConn(conn)}
 	restOpts := []option.ClientOption{
-		option.WithEndpoint("http://" + h.Addr()), option.WithoutAuthentication(), option.WithHTTPClient(testclient.New(t)),
+		option.WithEndpoint(
+			"http://" + h.Addr(),
+		),
+		option.WithoutAuthentication(),
+		option.WithHTTPClient(testclient.New(t)),
 	}
 
 	return &env{
@@ -187,8 +191,7 @@ func codeOf(err error) codes.Code {
 		return codes.OK
 	}
 
-	var ge *googleapi.Error
-	if errors.As(err, &ge) {
+	if ge, ok := errors.AsType[*googleapi.Error](err); ok {
 		var body struct {
 			Error struct {
 				Status string `json:"status"`
@@ -206,14 +209,14 @@ func codeOf(err error) codes.Code {
 }
 
 // eachTransport runs fn once per transport, each against its own backend.
-func eachTransport(t *testing.T, fn func(t *testing.T, e *env, c *clients), opts ...envOption) {
+func eachTransport(t *testing.T, fn func(t *testing.T, e *env, c *clients)) {
 	t.Helper()
 
 	for _, tp := range []string{"grpc", "rest"} {
 		t.Run(tp, func(t *testing.T) {
 			t.Parallel()
 
-			e := newEnv(t, opts...)
+			e := newEnv(t)
 			c := e.grpc
 
 			if tp == "rest" {

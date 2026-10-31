@@ -10,11 +10,11 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-func mustTagKey(t *testing.T, c *clients, parent, short string) *resourcemanagerpb.TagKey {
+func mustTagKey(t *testing.T, c *clients, short string) *resourcemanagerpb.TagKey {
 	t.Helper()
 
 	op, err := c.tagKeys.CreateTagKey(t.Context(), &resourcemanagerpb.CreateTagKeyRequest{
-		TagKey: &resourcemanagerpb.TagKey{Parent: parent, ShortName: short, Description: "d"},
+		TagKey: &resourcemanagerpb.TagKey{Parent: orgName, ShortName: short, Description: "d"},
 	})
 	require.NoError(t, err)
 
@@ -42,28 +42,54 @@ func TestTagKeyValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		key  *resourcemanagerpb.TagKey
+		name string
 		code codes.Code
 	}{
-		{"valid", &resourcemanagerpb.TagKey{Parent: orgName, ShortName: "env"}, codes.OK},
-		{"project parent", &resourcemanagerpb.TagKey{Parent: "projects/" + seedID, ShortName: "env"}, codes.OK},
-		{"dots and dashes", &resourcemanagerpb.TagKey{Parent: orgName, ShortName: "a.b-c_d"}, codes.OK},
-		{"empty name", &resourcemanagerpb.TagKey{Parent: orgName}, codes.InvalidArgument},
-		{"leading dash", &resourcemanagerpb.TagKey{Parent: orgName, ShortName: "-a"}, codes.InvalidArgument},
-		{"too long", &resourcemanagerpb.TagKey{Parent: orgName, ShortName: strings.Repeat("a", 64)}, codes.InvalidArgument},
-		{"long description", &resourcemanagerpb.TagKey{Parent: orgName, ShortName: "ld", Description: strings.Repeat("d", 257)}, codes.InvalidArgument},
-		{"folder parent", &resourcemanagerpb.TagKey{Parent: "folders/1", ShortName: "f"}, codes.InvalidArgument},
-		{"firewall needs network", &resourcemanagerpb.TagKey{
+		{&resourcemanagerpb.TagKey{Parent: orgName, ShortName: "env"}, "valid", codes.OK},
+		{
+			&resourcemanagerpb.TagKey{Parent: "projects/" + seedID, ShortName: "env"},
+			"project parent",
+			codes.OK,
+		},
+		{
+			&resourcemanagerpb.TagKey{Parent: orgName, ShortName: "a.b-c_d"},
+			"dots and dashes",
+			codes.OK,
+		},
+		{&resourcemanagerpb.TagKey{Parent: orgName}, "empty name", codes.InvalidArgument},
+		{
+			&resourcemanagerpb.TagKey{Parent: orgName, ShortName: "-a"},
+			"leading dash",
+			codes.InvalidArgument,
+		},
+		{
+			&resourcemanagerpb.TagKey{Parent: orgName, ShortName: strings.Repeat("a", 64)},
+			"too long",
+			codes.InvalidArgument,
+		},
+		{
+			&resourcemanagerpb.TagKey{Parent: orgName, ShortName: "ld", Description: strings.Repeat("d", 257)},
+			"long description",
+			codes.InvalidArgument,
+		},
+		{
+			&resourcemanagerpb.TagKey{Parent: "folders/1", ShortName: "f"},
+			"folder parent",
+			codes.InvalidArgument,
+		},
+		{&resourcemanagerpb.TagKey{
 			Parent: orgName, ShortName: "fw", Purpose: resourcemanagerpb.Purpose_GCE_FIREWALL,
-		}, codes.InvalidArgument},
-		{"firewall with network", &resourcemanagerpb.TagKey{
+		}, "firewall needs network", codes.InvalidArgument},
+		{&resourcemanagerpb.TagKey{
 			Parent: orgName, ShortName: "fw2", Purpose: resourcemanagerpb.Purpose_GCE_FIREWALL,
 			PurposeData: map[string]string{"network": "p/n"},
-		}, codes.OK},
+		}, "firewall with network", codes.OK},
 	}
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
@@ -83,7 +109,9 @@ func TestTagLifecycle(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
-		key := mustTagKey(t, c, orgName, "env")
+		t.Helper()
+
+		key := mustTagKey(t, c, "env")
 		assert.Equal(t, "123456789012/env", key.GetNamespacedName())
 		assert.Regexp(t, `^tagKeys/\d{15}$`, key.GetName())
 
@@ -92,14 +120,20 @@ func TestTagLifecycle(t *testing.T) {
 		})
 		assert.Equal(t, codes.AlreadyExists, codeOf(err))
 
-		byNS, err := c.tagKeys.GetNamespacedTagKey(t.Context(), &resourcemanagerpb.GetNamespacedTagKeyRequest{Name: "123456789012/env"})
+		byNS, err := c.tagKeys.GetNamespacedTagKey(
+			t.Context(),
+			&resourcemanagerpb.GetNamespacedTagKeyRequest{Name: "123456789012/env"},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, key.GetName(), byNS.GetName())
 
 		val := mustTagValue(t, c, key.GetName(), "prod")
 		assert.Equal(t, "123456789012/env/prod", val.GetNamespacedName())
 
-		nsVal, err := c.tagVals.GetNamespacedTagValue(t.Context(), &resourcemanagerpb.GetNamespacedTagValueRequest{Name: val.GetNamespacedName()})
+		nsVal, err := c.tagVals.GetNamespacedTagValue(
+			t.Context(),
+			&resourcemanagerpb.GetNamespacedTagValueRequest{Name: val.GetNamespacedName()},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, val.GetName(), nsVal.GetName())
 
@@ -139,7 +173,10 @@ func TestTagLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, binding.GetName(), listed.GetName())
 
-		del, err := c.bindings.DeleteTagBinding(t.Context(), &resourcemanagerpb.DeleteTagBindingRequest{Name: binding.GetName()})
+		del, err := c.bindings.DeleteTagBinding(
+			t.Context(),
+			&resourcemanagerpb.DeleteTagBindingRequest{Name: binding.GetName()},
+		)
 		require.NoError(t, err)
 		require.NoError(t, del.Wait(t.Context()))
 
@@ -166,7 +203,9 @@ func TestTagKeyUpdateAndEtag(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
-		key := mustTagKey(t, c, orgName, "upd")
+		t.Helper()
+
+		key := mustTagKey(t, c, "upd")
 
 		_, err := c.tagKeys.UpdateTagKey(t.Context(), &resourcemanagerpb.UpdateTagKeyRequest{
 			TagKey: &resourcemanagerpb.TagKey{Name: key.GetName(), Description: "new", Etag: "stale"},
@@ -182,7 +221,10 @@ func TestTagKeyUpdateAndEtag(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "new", got.GetDescription())
 
-		_, err = c.tagKeys.DeleteTagKey(t.Context(), &resourcemanagerpb.DeleteTagKeyRequest{Name: key.GetName(), Etag: key.GetEtag()})
+		_, err = c.tagKeys.DeleteTagKey(
+			t.Context(),
+			&resourcemanagerpb.DeleteTagKeyRequest{Name: key.GetName(), Etag: key.GetEtag()},
+		)
 		assert.Equal(t, codes.Aborted, codeOf(err), "the etag changed with the update")
 	})
 }

@@ -30,7 +30,10 @@ func (b *InMemoryBackend) BillingInfo(ref string) (billingInfo, error) {
 // are not modelled, so any well-formed name is accepted.
 func (b *InMemoryBackend) SetBillingAccount(ref, account string) (billingInfo, error) {
 	if account != "" && !billingAccountRE.MatchString(account) {
-		return billingInfo{}, errInvalid("Invalid billing account %q: use billingAccounts/XXXXXX-XXXXXX-XXXXXX.", account)
+		return billingInfo{}, errInvalid(
+			"Invalid billing account %q: use billingAccounts/XXXXXX-XXXXXX-XXXXXX.",
+			account,
+		)
 	}
 
 	b.mu.Lock("SetBillingAccount")

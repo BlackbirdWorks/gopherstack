@@ -9,7 +9,7 @@ import (
 
 // ProjectsAPI returns the Projects server for in-process callers.
 func (h *Handler) ProjectsAPI() resourcemanagerpb.ProjectsServer {
-	return projectsServer{iamMethods: iamMethods{b: h.Backend}}
+	return projectsServer{b: h.Backend}
 }
 
 // ServiceUsageAPI returns the Service Usage server for in-process callers.

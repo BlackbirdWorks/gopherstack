@@ -35,6 +35,8 @@ func TestFolderNameValidation(t *testing.T) {
 	}
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
@@ -56,6 +58,8 @@ func TestFolderLifecycle(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		f := c.createFolder(t, orgName, "Platform")
 		assert.Regexp(t, `^folders/\d{12}$`, f.GetName())
 		assert.Equal(t, resourcemanagerpb.Folder_ACTIVE, f.GetState())
@@ -103,7 +107,10 @@ func TestFolderLifecycle(t *testing.T) {
 
 		assert.Equal(t, []string{"Other", "Platform 2"}, names)
 
-		search := c.folders.SearchFolders(t.Context(), &resourcemanagerpb.SearchFoldersRequest{Query: "displayName=Plat*"})
+		search := c.folders.SearchFolders(
+			t.Context(),
+			&resourcemanagerpb.SearchFoldersRequest{Query: "displayName=Plat*"},
+		)
 		hit, err := search.Next()
 		require.NoError(t, err)
 		assert.Equal(t, f.GetName(), hit.GetName())
@@ -114,6 +121,8 @@ func TestFolderDeleteUndelete(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		parent := c.createFolder(t, orgName, "Parent")
 		child := c.createFolder(t, parent.GetName(), "Child")
 		proj := c.createProject(t, "in-folder", child.GetName())
@@ -172,6 +181,8 @@ func TestFolderDepthAndMove(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		parent := orgName
 		chain := make([]string, 0, 10)
 
@@ -188,7 +199,10 @@ func TestFolderDepthAndMove(t *testing.T) {
 
 		side := c.createFolder(t, orgName, "Side")
 		mv := func(name, dest string) error {
-			op, merr := c.folders.MoveFolder(t.Context(), &resourcemanagerpb.MoveFolderRequest{Name: name, DestinationParent: dest})
+			op, merr := c.folders.MoveFolder(
+				t.Context(),
+				&resourcemanagerpb.MoveFolderRequest{Name: name, DestinationParent: dest},
+			)
 			if merr != nil {
 				return merr
 			}
@@ -207,7 +221,12 @@ func TestFolderDepthAndMove(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, chain[7], moved.GetParent())
 
-		assert.Equal(t, codes.FailedPrecondition, codeOf(mv(chain[1], chain[7])), "subtree of 9 under depth 8 is too tall")
+		assert.Equal(
+			t,
+			codes.FailedPrecondition,
+			codeOf(mv(chain[1], chain[7])),
+			"subtree of 9 under depth 8 is too tall",
+		)
 		assert.Equal(t, codes.InvalidArgument, codeOf(mv(side.GetName(), "projects/1")))
 		assert.Equal(t, codes.PermissionDenied, codeOf(mv(side.GetName(), "folders/1")))
 	})
@@ -239,6 +258,8 @@ func TestOperationsAcrossTransports(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		op, err := c.folders.CreateFolder(t.Context(), &resourcemanagerpb.CreateFolderRequest{
 			Folder: &resourcemanagerpb.Folder{Parent: orgName, DisplayName: "Op folder"},
 		})
@@ -258,6 +279,8 @@ func TestOrganization(t *testing.T) {
 	t.Parallel()
 
 	eachTransport(t, func(t *testing.T, _ *env, c *clients) {
+		t.Helper()
+
 		org, err := c.orgs.GetOrganization(t.Context(), &resourcemanagerpb.GetOrganizationRequest{Name: orgName})
 		require.NoError(t, err)
 		assert.Equal(t, "gopherstack.local", org.GetDisplayName())
@@ -279,7 +302,10 @@ func TestOrganization(t *testing.T) {
 		}
 
 		for _, tt := range tests {
-			it := c.orgs.SearchOrganizations(t.Context(), &resourcemanagerpb.SearchOrganizationsRequest{Query: tt.query})
+			it := c.orgs.SearchOrganizations(
+				t.Context(),
+				&resourcemanagerpb.SearchOrganizationsRequest{Query: tt.query},
+			)
 			n := 0
 
 			for _, ierr := it.Next(); ierr == nil; _, ierr = it.Next() {

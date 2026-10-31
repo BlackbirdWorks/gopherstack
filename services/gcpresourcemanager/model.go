@@ -1,6 +1,7 @@
 package gcpresourcemanager
 
 import (
+	"maps"
 	"time"
 
 	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
@@ -25,44 +26,44 @@ type lifecycle struct {
 func (l lifecycle) requested() bool { return !l.Deleted.IsZero() }
 
 type projectRec struct {
+	lifecycle
 	Labels      map[string]string `json:"labels,omitempty"`
 	Number      string            `json:"number"`
 	ID          string            `json:"id"`
 	DisplayName string            `json:"displayName"`
 	Parent      string            `json:"parent,omitempty"`
 	Billing     string            `json:"billing,omitempty"`
-	lifecycle
 }
 
 type folderRec struct {
+	lifecycle
 	ID          string `json:"id"`
 	Parent      string `json:"parent"`
 	DisplayName string `json:"displayName"`
-	lifecycle
 }
 
 type orgRec struct {
+	Created time.Time
 	ID      string
 	Domain  string
-	Created time.Time
 }
 
 type tagKeyRec struct {
+	lifecycle
 	PurposeData map[string]string `json:"purposeData,omitempty"`
 	ID          string            `json:"id"`
 	Parent      string            `json:"parent"`
 	ShortName   string            `json:"shortName"`
 	Description string            `json:"description,omitempty"`
 	Purpose     int32             `json:"purpose,omitempty"`
-	lifecycle
 }
 
 type tagValueRec struct {
+	lifecycle
 	ID          string `json:"id"`
 	Parent      string `json:"parent"`
 	ShortName   string `json:"shortName"`
 	Description string `json:"description,omitempty"`
-	lifecycle
 }
 
 type bindingRec struct {
@@ -87,9 +88,7 @@ func (p *projectRec) view() *resourcemanagerpb.Project {
 	labels := map[string]string(nil)
 	if len(p.Labels) > 0 {
 		labels = make(map[string]string, len(p.Labels))
-		for k, v := range p.Labels {
-			labels[k] = v
-		}
+		maps.Copy(labels, p.Labels)
 	}
 
 	return &resourcemanagerpb.Project{

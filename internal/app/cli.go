@@ -173,7 +173,6 @@ import (
 	gcpapigatewaybackend "github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbatchbackend "github.com/blackbirdworks/gopherstack/services/gcpbatch"
-	gcprmbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
@@ -192,6 +191,7 @@ import (
 	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpredisbackend "github.com/blackbirdworks/gopherstack/services/gcpredis"
+	gcprmbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -891,7 +891,7 @@ func (c *CLI) GetGCPAPIGatewaySettings() gcpapigatewaybackend.Settings { return 
 // GetGCPBatchSettings returns Batch settings (gcpbatch.ConfigProvider).
 func (c *CLI) GetGCPBatchSettings() gcpbatchbackend.Settings { return c.GCPBatch }
 
-// GetGCPResourceManagerSettings returns Resource Manager and Service Usage settings (gcpresourcemanager.ConfigProvider).
+// GetGCPResourceManagerSettings returns Resource Manager and Service Usage settings (gcprm.ConfigProvider).
 func (c *CLI) GetGCPResourceManagerSettings() gcprmbackend.Settings { return c.GCPResourceManager }
 
 // GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).

@@ -89,10 +89,14 @@ func (b *InMemoryBackend) parentLocked(parent, perm string) error {
 
 func (b *InMemoryBackend) createProjectLocked(id, display, parent string, labels map[string]string) *projectRec {
 	now := b.now()
-	number := uniqueDigits(numberDigits, func(n string) bool { _, ok := b.projects[n]; return ok })
+	number := uniqueDigits(numberDigits, func(n string) bool {
+		_, ok := b.projects[n]
+
+		return ok
+	})
 	p := &projectRec{
 		Number: number, ID: id, DisplayName: display, Parent: parent, Labels: maps.Clone(labels),
-		lifecycle: lifecycle{Created: now, Updated: now},
+		Created: now, Updated: now,
 	}
 	b.projects[number] = p
 	b.enableDefaultsLocked(number)
@@ -214,42 +218,51 @@ func viewsOf(ps []*projectRec) []*resourcemanagerpb.Project {
 }
 
 func (p *projectRec) fields(f string) ([]string, bool) {
-	switch {
-	case f == "displayname" || f == "name":
+	switch f {
+	case fieldDisplayName, "name":
 		return []string{p.DisplayName}, true
-	case f == "id" || f == "projectid":
+	case "id", "projectid":
 		return []string{p.ID}, true
-	case f == "state":
+	case fieldState:
 		if p.requested() {
 			return []string{stateRequested}, true
 		}
 
 		return []string{stateActive}, true
-	case f == "parent":
+	case "parent":
 		return []string{p.Parent}, true
-	case f == "parent.type" || f == "parent.id":
+	case "parent.type", "parent.id":
 		kind, id, _ := strings.Cut(p.Parent, "/")
 		if f == "parent.id" {
 			return []string{id}, true
 		}
 
 		return []string{strings.TrimSuffix(kind, "s")}, true
-	case f == "labels":
-		vals := make([]string, 0, 2*len(p.Labels))
+	default:
+		return p.labelFields(f)
+	}
+}
+
+func (p *projectRec) labelFields(f string) ([]string, bool) {
+	if f == fieldLabels {
+		vals := make([]string, 0, 2*len(p.Labels)) //nolint:mnd // key and value
 		for k, v := range p.Labels {
 			vals = append(vals, k, v)
 		}
 
 		return vals, true
-	case strings.HasPrefix(f, "labels."):
-		if v, ok := p.Labels[strings.TrimPrefix(f, "labels.")]; ok {
-			return []string{v}, true
-		}
+	}
 
-		return nil, true
-	default:
+	key, ok := strings.CutPrefix(f, fieldLabels+".")
+	if !ok {
 		return nil, false
 	}
+
+	if v, found := p.Labels[key]; found {
+		return []string{v}, true
+	}
+
+	return nil, true
 }
 
 // SearchProjects returns the projects matching any term of the query; ACTIVE ones unless the query names a state.
@@ -304,7 +317,8 @@ func maskHas(mask *fieldmaskpb.FieldMask, field string) bool {
 
 func checkMask(mask *fieldmaskpb.FieldMask, allowed ...string) error {
 	for _, p := range mask.GetPaths() {
-		if p != "*" && !slices.ContainsFunc(allowed, func(a string) bool { return p == a || strings.HasPrefix(p, a+".") }) {
+		if p != "*" &&
+			!slices.ContainsFunc(allowed, func(a string) bool { return p == a || strings.HasPrefix(p, a+".") }) {
 			return errInvalid("update_mask path %q cannot be updated; allowed: %s.", p, strings.Join(allowed, ", "))
 		}
 	}
@@ -342,7 +356,10 @@ func (b *InMemoryBackend) UpdateProject(in *resourcemanagerpb.UpdateProjectReque
 	}
 
 	if et := pr.GetEtag(); et != "" && et != p.view().GetEtag() {
-		return nil, errAborted("The project %s was modified since it was read; re-read it and retry (etag mismatch).", p.ID)
+		return nil, errAborted(
+			"The project %s was modified since it was read; re-read it and retry (etag mismatch).",
+			p.ID,
+		)
 	}
 
 	if maskHas(in.GetUpdateMask(), "display_name") && pr.GetDisplayName() != "" {

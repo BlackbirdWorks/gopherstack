@@ -24,44 +24,58 @@ func (b *InMemoryBackend) policyKeyLocked(resource string, write bool) (string, 
 			return "", errDenied("resourcemanager.organizations.getIamPolicy", resource)
 		}
 	case kindFolders:
-		f, err := b.folderLocked(resource, permFolderGet)
-		if err != nil {
-			return "", err
-		}
-
-		if write && f.requested() {
-			return "", errPrecondition("Folder %s is in the DELETE_REQUESTED state.", resource)
-		}
+		return resource, b.folderPolicyLocked(resource, write)
 	case kindProjects:
-		var (
-			p   *projectRec
-			err error
-		)
-
-		if write {
-			p, err = b.activeProjectLocked(resource, "resourcemanager.projects.setIamPolicy")
-		} else {
-			p, err = b.projectLocked(resource, "resourcemanager.projects.getIamPolicy")
-		}
-
-		if err != nil {
-			return "", err
-		}
-
-		return kindProjects + "/" + p.Number, nil
+		return b.projectPolicyKeyLocked(resource, write)
 	case kindTagKeys:
-		if _, ok := b.tagKeys[id]; !ok {
+		if _, found := b.tagKeys[id]; !found {
 			return "", errDenied("resourcemanager.tagKeys.getIamPolicy", resource)
 		}
 	case kindTagValues:
-		if _, ok := b.tagValues[id]; !ok {
+		if _, found := b.tagValues[id]; !found {
 			return "", errDenied("resourcemanager.tagValues.getIamPolicy", resource)
 		}
 	default:
-		return "", errInvalid("IAM policies are available for organizations, folders, projects, tagKeys and tagValues, not %q.", resource)
+		return "", errInvalid(
+			"IAM policies are available for organizations, folders, projects, tagKeys and tagValues, "+
+				"not %q.",
+			resource,
+		)
 	}
 
 	return resource, nil
+}
+
+func (b *InMemoryBackend) folderPolicyLocked(resource string, write bool) error {
+	f, err := b.folderLocked(resource, permFolderGet)
+	if err != nil {
+		return err
+	}
+
+	if write && f.requested() {
+		return errPrecondition("Folder %s is in the DELETE_REQUESTED state.", resource)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) projectPolicyKeyLocked(resource string, write bool) (string, error) {
+	var (
+		p   *projectRec
+		err error
+	)
+
+	if write {
+		p, err = b.activeProjectLocked(resource, "resourcemanager.projects.setIamPolicy")
+	} else {
+		p, err = b.projectLocked(resource, "resourcemanager.projects.getIamPolicy")
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	return kindProjects + "/" + p.Number, nil
 }
 
 // GetIamPolicy returns the policy of a resource at the requested version.
@@ -81,7 +95,10 @@ func (b *InMemoryBackend) GetIamPolicy(in *iampb.GetIamPolicyRequest) (*iampb.Po
 
 func rejectPublicMembers(p *iampb.Policy) error {
 	for _, bd := range p.GetBindings() {
-		if slices.ContainsFunc(bd.GetMembers(), func(m string) bool { return m == publicMemberAllUsers || m == publicMemberAllAuth }) {
+		if slices.ContainsFunc(
+			bd.GetMembers(),
+			func(m string) bool { return m == publicMemberAllUsers || m == publicMemberAllAuth },
+		) {
 			return errInvalid("Invalid IAM policy: %s and %s cannot be granted a role on a project.",
 				publicMemberAllUsers, publicMemberAllAuth)
 		}

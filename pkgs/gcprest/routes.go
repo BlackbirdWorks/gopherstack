@@ -112,7 +112,12 @@ func scopedOperationRules(r *annotations.HttpRule) []*annotations.HttpRule {
 	for _, scope := range append([]string{""}, operationScopes...) {
 		scoped := strings.Replace(path, "/v1/{name=operations/**}", "/*/{name="+scope+"/operations/*}", 1)
 		if scope == "" {
-			if scoped = strings.Replace(path, "/v1/{name=operations/**}", "/*/{name=operations/**}", 1); scoped == path {
+			if scoped = strings.Replace(
+				path,
+				"/v1/{name=operations/**}",
+				"/*/{name=operations/**}",
+				1,
+			); scoped == path {
 				continue
 			}
 		} else if scoped == path {
