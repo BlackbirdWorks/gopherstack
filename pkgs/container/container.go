@@ -81,6 +81,12 @@ type Spec struct {
 	MemoryBytes int64
 	// NanoCPUs caps CPU in billionths of a CPU; zero is unlimited.
 	NanoCPUs int64
+	// ExtraHosts are "host:ip" entries appended to the container's /etc/hosts.
+	ExtraHosts []string
+	// DNS lists resolver IP addresses for the container.
+	DNS []string
+	// Platform selects the image platform, e.g. "linux/arm64"; empty uses the daemon default.
+	Platform string
 }
 
 // ExecResult is the outcome of a command run inside a container.

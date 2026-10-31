@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
+	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
@@ -153,6 +154,7 @@ func registerLocalstackDevEndpoints(e *echo.Echo, services []service.Registerabl
 	e.GET("/_aws/ses", buildSESRetrospectionGet(services))
 	e.DELETE("/_aws/ses", buildSESRetrospectionDelete(services))
 	e.POST("/_localstack/state/reset", buildResetHandler(services))
+	e.GET("/_aws/lambda/runtimes", serveLambdaRuntimes)
 
 	for _, svc := range services {
 		if r, ok := svc.(interface{ RegisterInspectionRoutes(*echo.Echo) }); ok {
@@ -168,4 +170,14 @@ func registerLocalstackDevEndpoints(e *echo.Echo, services []service.Registerabl
 			e.GET("/_aws/cloudwatch/metrics/raw", h.ServeRawMetrics)
 		}
 	}
+}
+
+// serveLambdaRuntimes serves GET /_aws/lambda/runtimes?filter=supported|deprecated|all.
+func serveLambdaRuntimes(c *echo.Context) error {
+	runtimes, err := lambdabackend.RuntimeIdentifiers(c.QueryParam("filter"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string][]string{"Runtimes": runtimes})
 }

@@ -360,3 +360,54 @@ func TestLocalstackStateResetAlias(t *testing.T) {
 		})
 	}
 }
+
+func TestLambdaRuntimesEndpoint(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := devEndpointsServer(t)
+
+	tests := []struct {
+		name       string
+		query      string
+		has        string
+		hasNot     string
+		wantStatus int
+	}{
+		{name: "default", query: "", has: "python3.12", hasNot: "python3.7", wantStatus: http.StatusOK},
+		{name: "supported", query: "?filter=supported", has: "nodejs22.x", hasNot: "nodejs12.x", wantStatus: http.StatusOK},
+		{name: "deprecated", query: "?filter=deprecated", has: "nodejs12.x", hasNot: "python3.12", wantStatus: http.StatusOK},
+		{name: "all", query: "?filter=all", has: "python3.7", wantStatus: http.StatusOK},
+		{name: "invalid", query: "?filter=nope", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/_aws/lambda/runtimes"+tt.query, nil)
+			require.NoError(t, err)
+
+			resp, err := testclient.New(t).Do(req)
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			require.Equal(t, tt.wantStatus, resp.StatusCode)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var out struct {
+				Runtimes []string `json:"Runtimes"`
+			}
+
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			assert.Contains(t, out.Runtimes, tt.has)
+
+			if tt.hasNot != "" {
+				assert.NotContains(t, out.Runtimes, tt.hasNot)
+			}
+		})
+	}
+}
