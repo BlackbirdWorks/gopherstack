@@ -203,7 +203,7 @@ func TestEngineStreamingReplicaContainers(t *testing.T) {
 			}
 
 			if tt.engine == "postgres" {
-				assert.Contains(t, src.Cmd, "wal_level=replica")
+				assert.Contains(t, src.Cmd, "wal_level=logical")
 				assert.Contains(t, src.Cmd, "max_wal_senders=10")
 				require.GreaterOrEqual(t, len(rep.Entrypoint), 5)
 				assert.Contains(t, rep.Entrypoint[2], "pg_basebackup")

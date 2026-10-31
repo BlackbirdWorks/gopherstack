@@ -220,8 +220,9 @@ func (b *InMemoryBackend) replicaPlan(ctx context.Context, lb *liveDB) (replPlan
 	return plan, nil
 }
 
+// logical (not RDS's replica default) lets DMS read changes with pg_logical_slot_get_changes.
 func pgServerFlags() []string {
-	return []string{"-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"}
+	return []string{"-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"}
 }
 
 func mysqlServerFlags(lb *liveDB) []string {
