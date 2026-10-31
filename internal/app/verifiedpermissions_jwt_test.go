@@ -90,7 +90,10 @@ func (e *vpJWTEnv) addPolicy(t *testing.T, statement string) {
 	require.NoError(t, err)
 }
 
-func (e *vpJWTEnv) isAuthorized(t *testing.T, action, idToken, accessToken string) (*vpsdk.IsAuthorizedWithTokenOutput, error) {
+func (e *vpJWTEnv) isAuthorized(
+	t *testing.T,
+	action, idToken, accessToken string,
+) (*vpsdk.IsAuthorizedWithTokenOutput, error) {
 	t.Helper()
 
 	in := &vpsdk.IsAuthorizedWithTokenInput{
@@ -174,8 +177,7 @@ func tamperSignature(tok string) string {
 }
 
 func errorCode(err error) string {
-	var ae smithy.APIError
-	if errors.As(err, &ae) {
+	if ae, ok := errors.AsType[smithy.APIError](err); ok {
 		return ae.ErrorCode()
 	}
 
@@ -186,13 +188,13 @@ func TestVerifiedPermissions_CognitoTokenVerification(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		clock      func() time.Time
+		name       string
+		action     string
 		useAccess  bool
 		tamper     bool
 		wrongApp   bool
 		disable    bool
-		action     string
 		wantDeny   bool
 		wantErrors bool
 	}{
@@ -240,15 +242,15 @@ func TestVerifiedPermissions_CognitoTokenVerification(t *testing.T) {
 				idTok, accTok = tamperIf(idTok), tamperIf(accTok)
 			}
 
-			out, err := env.isAuthorized(t, tt.action, idTok, accTok)
+			out, aerr := env.isAuthorized(t, tt.action, idTok, accTok)
 			if tt.wantErrors {
-				require.Error(t, err)
-				assert.Equal(t, "ValidationException", errorCode(err))
+				require.Error(t, aerr)
+				assert.Equal(t, "ValidationException", errorCode(aerr))
 
 				return
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, aerr)
 
 			want := vptypes.DecisionAllow
 			if tt.wantDeny {
@@ -336,13 +338,12 @@ func TestVerifiedPermissions_OIDCTokenVerification(t *testing.T) {
 	tests := []struct {
 		name     string
 		action   string
-		useOther bool
 		audience string
 		exp      time.Duration
 		nbf      time.Duration
+		useOther bool
 		asID     bool
 		wantErr  bool
-		wantDeny bool
 	}{
 		{name: "allow", action: "read", audience: "api", exp: time.Hour},
 		{name: "group_permit", action: "write", audience: "api", exp: time.Hour},
@@ -350,7 +351,10 @@ func TestVerifiedPermissions_OIDCTokenVerification(t *testing.T) {
 		{name: "wrong_audience", action: "read", audience: "other", exp: time.Hour, wantErr: true},
 		{name: "expired", action: "read", audience: "api", exp: -time.Hour, wantErr: true},
 		{name: "not_yet_valid", action: "read", audience: "api", exp: 2 * time.Hour, nbf: time.Hour, wantErr: true},
-		{name: "identity_token_for_access_source", action: "read", audience: "api", exp: time.Hour, asID: true, wantErr: true},
+		{
+			name: "identity_token_for_access_source", action: "read", audience: "api",
+			exp: time.Hour, asID: true, wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -361,7 +365,7 @@ func TestVerifiedPermissions_OIDCTokenVerification(t *testing.T) {
 			o := newOIDCServer(t)
 			trustOIDCServer(env, o)
 
-			_, err := env.client.CreateIdentitySource(t.Context(), &vpsdk.CreateIdentitySourceInput{
+			_, cerr := env.client.CreateIdentitySource(t.Context(), &vpsdk.CreateIdentitySourceInput{
 				PolicyStoreId:       aws.String(env.storeID),
 				PrincipalEntityType: aws.String("App::User"),
 				Configuration: &vptypes.ConfigurationMemberOpenIdConnectConfiguration{
@@ -381,10 +385,11 @@ func TestVerifiedPermissions_OIDCTokenVerification(t *testing.T) {
 					},
 				},
 			})
-			require.NoError(t, err)
+			require.NoError(t, cerr)
 
 			env.addPolicy(t, `permit(principal == App::User::"corp|bob", action == App::Action::"read", resource);`)
-			env.addPolicy(t, `permit(principal in App::Group::"corp|editors", action == App::Action::"write", resource);`)
+			env.addPolicy(t,
+				`permit(principal in App::Group::"corp|editors", action == App::Action::"write", resource);`)
 
 			signer := o.key
 			if tt.useOther {
@@ -401,15 +406,15 @@ func TestVerifiedPermissions_OIDCTokenVerification(t *testing.T) {
 				idTok, accTok = tok, ""
 			}
 
-			out, err := env.isAuthorized(t, tt.action, idTok, accTok)
+			out, aerr := env.isAuthorized(t, tt.action, idTok, accTok)
 			if tt.wantErr {
-				require.Error(t, err)
-				assert.Equal(t, "ValidationException", errorCode(err))
+				require.Error(t, aerr)
+				assert.Equal(t, "ValidationException", errorCode(aerr))
 
 				return
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, aerr)
 			assert.Equal(t, vptypes.DecisionAllow, out.Decision)
 			assert.Equal(t, "corp|bob", aws.ToString(out.Principal.EntityId))
 		})

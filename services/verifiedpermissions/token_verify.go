@@ -17,8 +17,10 @@ import (
 
 // Settings configures JWT verification for IsAuthorizedWithToken.
 type Settings struct {
-	DisableJWTVerification bool   `json:"disable_jwt_verification" env:"VERIFIEDPERMISSIONS_DISABLE_JWT_VERIFICATION" help:"Skip JWT signature, expiry and issuer checks in IsAuthorizedWithToken (claims are still parsed)."`   //nolint:lll // Kong struct tag
-	OIDCCAFile             string `json:"oidc_ca_file"            env:"GOPHERSTACK_VERIFIEDPERMISSIONS_OIDC_CA_FILE"      help:"PEM bundle of extra CAs trusted when fetching OIDC discovery/JWKS (self-signed local issuers)."` //nolint:lll // Kong struct tag
+	//nolint:lll // Kong struct tag
+	OIDCCAFile string `json:"oidc_ca_file" env:"GOPHERSTACK_VERIFIEDPERMISSIONS_OIDC_CA_FILE" help:"PEM bundle of extra CAs trusted for OIDC discovery/JWKS (self-signed issuers)."`
+	//nolint:lll // Kong struct tag
+	DisableJWTVerification bool `json:"disable_jwt_verification" env:"VERIFIEDPERMISSIONS_DISABLE_JWT_VERIFICATION" help:"Skip JWT signature/expiry/issuer checks in IsAuthorizedWithToken (claims still parsed)."`
 }
 
 // ConfigProvider extracts Settings from the abstract AppContext config.
@@ -92,7 +94,7 @@ func (v *TokenVerifier) now() time.Time {
 }
 
 func tokenErr(format string, args ...any) error {
-	return fmt.Errorf("%w: "+format, append([]any{ErrTokenInvalid}, args...)...)
+	return fmt.Errorf("%w: %s", ErrTokenInvalid, fmt.Sprintf(format, args...))
 }
 
 // Verify validates token against identity source is and returns its claims.

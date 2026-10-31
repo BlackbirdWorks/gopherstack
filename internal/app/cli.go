@@ -643,6 +643,7 @@ type CLI struct {
 	GCPScheduler                  gcpschedulerbackend.Settings        `embed:"" prefix:"gcp-scheduler-"`
 	GCPRun                        gcprunbackend.Settings              `embed:"" prefix:"gcp-run-"`
 	GCPFunctions                  gcpfunctionsbackend.Settings        `embed:"" prefix:"gcp-functions-"`
+	VerifiedPermissions           verifiedpermissionsbackend.Settings `embed:"" prefix:"verifiedpermissions-"`
 	Transparent                   TransparentSettings                 `embed:"" prefix:"transparent-"`
 	AzureEventGrid                azureeventgridbackend.Settings      `embed:"" prefix:"azure-eventgrid-"`
 	AzureMonitor                  azuremonitorbackend.Settings        `embed:"" prefix:"azure-monitor-"`
@@ -680,7 +681,6 @@ type CLI struct {
 	SSM                           ssmbackend.Settings                 `embed:"" prefix:"ssm-"`
 	XRay                          xraybackend.Settings                `embed:"" prefix:"xray-"`
 	FIS                           fisbackend.Settings                 `embed:"" prefix:"fis-"`
-	VerifiedPermissions           verifiedpermissionsbackend.Settings `embed:"" prefix:"verifiedpermissions-"`
 	EMR                           emrbackend.Settings                 `embed:"" prefix:"emr-"`
 	Athena                        athenabackend.Settings              `embed:"" prefix:"athena-"`
 	CloudWatchLogs                cwlogsbackend.Settings              `embed:"" prefix:"cloudwatchlogs-"`

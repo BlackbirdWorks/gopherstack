@@ -76,7 +76,7 @@ func (v *TokenVerifier) oidcKey(issuer, kid string) (*rsa.PublicKey, error) {
 
 func (v *TokenVerifier) getJSON(rawURL string, out any) error {
 	u, err := url.Parse(rawURL)
-	if err != nil || (u.Scheme != "https" && !(u.Scheme == "http" && isLoopbackHost(u.Hostname()))) {
+	if err != nil || !allowedIssuerURL(u) {
 		return fmt.Errorf("%w: %q", errBadIssuerURL, rawURL)
 	}
 
@@ -95,7 +95,7 @@ func (v *TokenVerifier) getJSON(rawURL string, out any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("fetch %s: status %d", rawURL, resp.StatusCode)
+		return fmt.Errorf("%w: fetch %s: status %d", errBadDiscoveryDoc, rawURL, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxOIDCBody))
@@ -187,4 +187,8 @@ func oidcHTTPClient(caFile string) (*http.Client, error) {
 	c.Transport = tr
 
 	return c, nil
+}
+
+func allowedIssuerURL(u *url.URL) bool {
+	return u.Scheme == "https" || (u.Scheme == "http" && isLoopbackHost(u.Hostname()))
 }

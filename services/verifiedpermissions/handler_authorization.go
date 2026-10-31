@@ -433,10 +433,14 @@ type tokenPrincipal struct {
 // TokenVerifier is installed, and derives the principal and group parents.
 // Without a verifier only the legacy claim checks run and failures fail closed
 // to an empty principal.
-func (h *Handler) resolveTokenPrincipal(policyStoreID string, isAccessToken bool, token string) (tokenPrincipal, error) {
-	sources, _, err := h.Backend.ListIdentitySources(policyStoreID, "", 0, nil)
-	if err != nil || len(sources) == 0 {
-		return tokenPrincipal{}, nil
+func (h *Handler) resolveTokenPrincipal(
+	policyStoreID string,
+	isAccessToken bool,
+	token string,
+) (tokenPrincipal, error) {
+	sources, _, listErr := h.Backend.ListIdentitySources(policyStoreID, "", 0, nil)
+	if listErr != nil || len(sources) == 0 {
+		return tokenPrincipal{}, nil //nolint:nilerr // no identity source: fail closed to an empty principal
 	}
 
 	claims, err := parseJWTClaims(token)
