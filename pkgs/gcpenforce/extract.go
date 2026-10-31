@@ -10,6 +10,8 @@ import (
 )
 
 const (
+	fieldProject    = "project"
+	fieldProjectID  = "project_id"
 	projectsSegment = "projects/"
 	wildcardProject = "-"
 	maxDepth        = 2
@@ -22,12 +24,12 @@ var projectRE = regexp.MustCompile(`(?:^|/)projects/([^/\s:?]+)`)
 //
 //nolint:gochecknoglobals // immutable lookup table
 var priority = []string{
-	"project", "project_id", "project_number", "parent", "name", "resource", "database", "instance", "session",
+	fieldProject, fieldProjectID, "project_number", "parent", "name", "resource", "database", "instance", "session",
 	"table_name", "topic", "subscription", "key_ring", "crypto_key", "secret", "location",
 }
 
 //nolint:gochecknoglobals // immutable lookup table
-var bareProjectFields = map[string]bool{"project": true, "project_id": true, "project_number": true}
+var bareProjectFields = map[string]bool{fieldProject: true, fieldProjectID: true, "project_number": true}
 
 // FromMessage extracts the project a request targets. paths are per-method override field paths (dotted proto
 // field names, such as "topic.name") tried first. It returns "" when the request names no project.
@@ -142,8 +144,10 @@ func clean(p string) string {
 }
 
 func lastSegment(path string) string {
-	if i := strings.LastIndexByte(path, '.'); i >= 0 {
-		return path[i+1:]
+	_, last, found := strings.Cut(path, ".")
+	for found {
+		path = last
+		_, last, found = strings.Cut(path, ".")
 	}
 
 	return path
@@ -184,7 +188,7 @@ func FromRequest(r *http.Request, queryOnly bool) string {
 	}
 
 	q := r.URL.Query()
-	for _, k := range []string{"project", "projectId", "project_id"} {
+	for _, k := range []string{fieldProject, "projectId", fieldProjectID} {
 		if v := q.Get(k); v != "" {
 			return clean(strings.TrimPrefix(v, projectsSegment))
 		}

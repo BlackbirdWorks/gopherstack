@@ -9,10 +9,10 @@ import (
 
 // Target describes the API one gRPC server or HTTP listener serves.
 type Target struct {
-	// Host is the API host used for services without a default_host option, and for REST.
-	Host string
 	// ProjectFields maps a gRPC full method to field paths holding the project when the generic scan is wrong.
 	ProjectFields map[string][]string
+	// Host is the API host used for services without a default_host option, and for REST.
+	Host string
 	// QueryOnly takes the REST project from the query string only.
 	QueryOnly bool
 }
@@ -79,8 +79,8 @@ type checkedStream struct {
 	grpc.ServerStream
 
 	g       *Gate
-	t       Target
 	method  string
+	t       Target
 	checked bool
 }
 

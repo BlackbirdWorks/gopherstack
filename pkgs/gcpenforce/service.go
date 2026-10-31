@@ -49,15 +49,8 @@ func Exempt(fullMethod string) bool {
 func ServiceForMethod(fullMethod, fallback string) string {
 	svc, _ := splitMethod(fullMethod)
 
-	d, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(svc))
-	if err == nil {
-		if sd, ok := d.(protoreflect.ServiceDescriptor); ok {
-			if opts, ok := sd.Options().(*descriptorpb.ServiceOptions); ok && opts != nil {
-				if host, _ := proto.GetExtension(opts, annotations.E_DefaultHost).(string); host != "" && host != metaHost {
-					return trimPort(host)
-				}
-			}
-		}
+	if host := defaultHost(svc); host != "" {
+		return host
 	}
 
 	return fallback
@@ -75,4 +68,28 @@ func exemptHost(host string) bool { return host == hostResourceManager || host =
 // OperationsPath reports whether an HTTP path addresses long-running operations.
 func OperationsPath(path string) bool {
 	return strings.HasSuffix(path, "/operations") || strings.Contains(path, "/operations/")
+}
+
+func defaultHost(service string) string {
+	d, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(service))
+	if err != nil {
+		return ""
+	}
+
+	sd, isService := d.(protoreflect.ServiceDescriptor)
+	if !isService {
+		return ""
+	}
+
+	opts, hasOpts := sd.Options().(*descriptorpb.ServiceOptions)
+	if !hasOpts || opts == nil {
+		return ""
+	}
+
+	host, _ := proto.GetExtension(opts, annotations.E_DefaultHost).(string)
+	if host == metaHost {
+		return ""
+	}
+
+	return trimPort(host)
 }

@@ -147,7 +147,11 @@ func TestMiddlewareWritesJSONEnvelope(t *testing.T) {
 		&gcpenforce.Gate{Enforcer: f, Settings: gcpenforce.Settings{ServiceEnablement: true}})
 
 	reached := false
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { reached = true; w.WriteHeader(http.StatusOK) })
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+
+		w.WriteHeader(http.StatusOK)
+	})
 	h := gcpenforce.Middleware(ctx, gcpenforce.Target{Host: "compute.googleapis.com"}, next)
 
 	tests := []struct {
@@ -188,5 +192,4 @@ func TestMiddlewareWritesJSONEnvelope(t *testing.T) {
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/compute/v1/none", nil))
 	assert.Equal(t, http.StatusNoContent, rec.Code)
-
 }

@@ -43,19 +43,31 @@ func TestFromMessage(t *testing.T) {
 			name: "regional parent", want: "p5",
 			msg: &secretmanagerpb.ListSecretsRequest{Parent: "projects/p5/locations/us-east1"},
 		},
-		{name: "kms name", msg: &kmspb.GetCryptoKeyRequest{Name: "projects/p6/locations/g/keyRings/k/cryptoKeys/c"}, want: "p6"},
+		{
+			name: "kms name", want: "p6",
+			msg: &kmspb.GetCryptoKeyRequest{Name: "projects/p6/locations/g/keyRings/k/cryptoKeys/c"},
+		},
 		{name: "iam resource", msg: &iampb.GetIamPolicyRequest{Resource: "projects/p7/topics/t"}, want: "p7"},
 		{
 			name: "full resource name", want: "p8",
 			msg: &iampb.GetIamPolicyRequest{Resource: "//pubsub.googleapis.com/projects/p8/topics/t"},
 		},
-		{name: "spanner database", msg: &spannerpb.CreateSessionRequest{Database: "projects/p9/instances/i/databases/d"}, want: "p9"},
+		{
+			name: "spanner database", want: "p9",
+			msg: &spannerpb.CreateSessionRequest{Database: "projects/p9/instances/i/databases/d"},
+		},
 		{
 			name: "bigtable table", want: "p10",
 			msg: &btpb.ReadRowsRequest{TableName: "projects/p10/instances/i/tables/t"},
 		},
-		{name: "firestore database", msg: &firestorepb.GetDocumentRequest{Name: "projects/p11/databases/(default)/documents/c/d"}, want: "p11"},
-		{name: "tasks parent", msg: &cloudtaskspb.ListTasksRequest{Parent: "projects/p12/locations/l/queues/q"}, want: "p12"},
+		{
+			name: "firestore database", want: "p11",
+			msg: &firestorepb.GetDocumentRequest{Name: "projects/p11/databases/(default)/documents/c/d"},
+		},
+		{
+			name: "tasks parent", want: "p12",
+			msg: &cloudtaskspb.ListTasksRequest{Parent: "projects/p12/locations/l/queues/q"},
+		},
 		{name: "wildcard is no project", msg: &secretmanagerpb.ListSecretsRequest{Parent: "projects/-"}, want: ""},
 		{name: "no project field", msg: &secretmanagerpb.ListSecretsRequest{}, want: ""},
 		{name: "non project parent", msg: &secretmanagerpb.ListSecretsRequest{Parent: "folders/1"}, want: ""},
@@ -66,7 +78,10 @@ func TestFromMessage(t *testing.T) {
 				UpdateMask: nil,
 			},
 		},
-		{name: "override missing falls back", msg: &pubsubpb.Topic{Name: "projects/p13/topics/t"}, paths: []string{"nope"}, want: "p13"},
+		{
+			name: "override missing falls back", want: "p13", paths: []string{"nope"},
+			msg: &pubsubpb.Topic{Name: "projects/p13/topics/t"},
+		},
 		{name: "nil message", msg: nil, want: ""},
 	}
 
@@ -116,12 +131,18 @@ func TestServiceForMethod(t *testing.T) {
 	}{
 		{"pubsub", "/google.pubsub.v1.Publisher/Publish", "", "pubsub.googleapis.com"},
 		{"subscriber", "/google.pubsub.v1.Subscriber/Pull", "", "pubsub.googleapis.com"},
-		{"secretmanager", "/google.cloud.secretmanager.v1.SecretManagerService/CreateSecret", "", "secretmanager.googleapis.com"},
+		{
+			"secretmanager", "/google.cloud.secretmanager.v1.SecretManagerService/CreateSecret", "",
+			"secretmanager.googleapis.com",
+		},
 		{"kms", "/google.cloud.kms.v1.KeyManagementService/GetCryptoKey", "", "cloudkms.googleapis.com"},
 		{"spanner", "/google.spanner.v1.Spanner/CreateSession", "", "spanner.googleapis.com"},
 		{"firestore", "/google.firestore.v1.Firestore/GetDocument", "", "firestore.googleapis.com"},
 		{"tasks", "/google.cloud.tasks.v2.CloudTasks/ListTasks", "", "cloudtasks.googleapis.com"},
-		{"iam policy falls back", "/google.iam.v1.IAMPolicy/GetIamPolicy", "pubsub.googleapis.com", "pubsub.googleapis.com"},
+		{
+			"iam policy falls back", "/google.iam.v1.IAMPolicy/GetIamPolicy",
+			"pubsub.googleapis.com", "pubsub.googleapis.com",
+		},
 		{"unknown falls back", "/nope.Service/Do", "x.googleapis.com", "x.googleapis.com"},
 	}
 

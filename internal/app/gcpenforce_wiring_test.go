@@ -49,8 +49,12 @@ func startEnforceEnv(t *testing.T, enf gcpenforce.Settings) *enforceEnv {
 	t.Helper()
 
 	cli := &CLI{
-		AccountID: "000000000000", Region: "us-east-1", GCPEnforce: enf,
-		GCPResourceManager: gcprmbackend.Settings{Domain: "x.test", DeleteRetention: gcprmbackend.DefaultDeleteRetention},
+		AccountID:  "000000000000",
+		Region:     "us-east-1",
+		GCPEnforce: enf,
+		GCPResourceManager: gcprmbackend.Settings{
+			Domain: "x.test", DeleteRetention: gcprmbackend.DefaultDeleteRetention,
+		},
 	}
 	portAlloc, err := portalloc.New(19700, 19800)
 	require.NoError(t, err)
@@ -204,10 +208,10 @@ type restEnvelope struct {
 		Status  string `json:"status"`
 		Message string `json:"message"`
 		Details []struct {
+			Metadata map[string]string `json:"metadata"`
 			Type     string            `json:"@type"`
 			Reason   string            `json:"reason"`
 			Domain   string            `json:"domain"`
-			Metadata map[string]string `json:"metadata"`
 		} `json:"details"`
 		Code int `json:"code"`
 	} `json:"error"`
@@ -246,12 +250,20 @@ func TestGCPEnforcementREST(t *testing.T) {
 		path    string
 		service string
 	}{
-		{"gcprest transcoded secretmanager", "http://" + env.secrets.Addr(), "/v1/projects/" + enfProject + "/secrets", enfSecrets},
-		{"http handler compute", "http://" + env.compute.Addr(), "/compute/v1/projects/" + enfProject + "/zones", enfCompute},
+		{
+			"gcprest transcoded secretmanager",
+			"http://" + env.secrets.Addr(), "/v1/projects/" + enfProject + "/secrets", enfSecrets,
+		},
+		{
+			"http handler compute",
+			"http://" + env.compute.Addr(), "/compute/v1/projects/" + enfProject + "/zones", enfCompute,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			code, body := getREST(t, tt.base+tt.path)
 			assert.Equal(t, http.StatusForbidden, code)
 			assert.Equal(t, "PERMISSION_DENIED", body.Error.Status)
@@ -289,7 +301,9 @@ func TestCLIValidateRejectsEnforcementWithoutResourceManager(t *testing.T) {
 		cli     CLI
 		wantErr bool
 	}{
-		{"off and filtered", CLI{ServiceFilter: ServiceFilterSettings{DisableServices: []string{"GCPResourceManager"}}}, false},
+		{"off and filtered", CLI{
+			ServiceFilter: ServiceFilterSettings{DisableServices: []string{"GCPResourceManager"}},
+		}, false},
 		{"projects on, rm filtered out", CLI{
 			GCPEnforce:    gcpenforce.Settings{Projects: true},
 			ServiceFilter: ServiceFilterSettings{DisableServices: []string{"GCPResourceManager"}},

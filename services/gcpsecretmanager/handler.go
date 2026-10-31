@@ -125,7 +125,9 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpsecretmanager", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := gcpenforce.NewServer(ctx, "secretmanager.googleapis.com", grpc.ChainUnaryInterceptor(logInterceptor(log), regionalInterceptor))
+	srv := gcpenforce.NewServer(
+		ctx, "secretmanager.googleapis.com", grpc.ChainUnaryInterceptor(logInterceptor(log), regionalInterceptor),
+	)
 	secretmanagerpb.RegisterSecretManagerServiceServer(srv, &server{b: h.Backend})
 
 	sweepCtx, cancel := context.WithCancel(context.WithoutCancel(workerCtx))

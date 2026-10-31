@@ -663,7 +663,6 @@ type CLI struct {
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPBatch                      gcpbatchbackend.Settings          `embed:"" prefix:"gcp-batch-"`
 	GCPResourceManager            gcprmbackend.Settings             `embed:"" prefix:"gcp-resourcemanager-"`
-	GCPEnforce                    gcpenforce.Settings               `embed:"" prefix:"gcp-enforce-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
@@ -729,6 +728,7 @@ type CLI struct {
 	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                                 default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
 	TransferSFTP                  bool                              `                                       name:"transfer-sftp"           env:"TRANSFER_SFTP"                       default:"false"         help:"Serve a real SFTP listener per Transfer Family server."`                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
 	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
+	GCPEnforce                    gcpenforce.Settings               `embed:"" prefix:"gcp-enforce-"`
 	CloudFormation                CloudFormationSettings            `embed:"" prefix:"cloudformation-"`
 	SQS                           sqsbackend.Settings               `embed:"" prefix:"sqs-"`
 	EventBridge                   ebbackend.Settings                `embed:"" prefix:"eventbridge-"`
