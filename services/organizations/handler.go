@@ -341,6 +341,7 @@ func baseErrorTable() map[error]awserr.APIError {
 		ErrOrganizationNotEmpty: {Code: "OrganizationNotEmptyException", HTTPStatus: http.StatusBadRequest},
 		ErrDuplicateHandshake:   {Code: "DuplicateHandshakeException", HTTPStatus: http.StatusBadRequest},
 		ErrPolicyTypeAttached:   {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrMinPolicyAttachment:  {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
 		ErrMalformedPolicyDocument: {
 			Code:       "MalformedPolicyDocumentException",
 			HTTPStatus: http.StatusBadRequest,

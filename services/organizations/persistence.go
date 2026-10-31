@@ -221,6 +221,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.accountCounter = snap.AccountCounter
 	b.statusCounter = snap.StatusCounter
 	b.failInterruptedCreatesLocked(time.Now())
+	b.attachMissingDefaultSCPsLocked()
 
 	return nil
 }

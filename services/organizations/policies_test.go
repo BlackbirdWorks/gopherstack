@@ -729,10 +729,6 @@ func TestDisablePolicyType_AfterDetach_OK(t *testing.T) {
 	require.NoError(t, b.AttachPolicy(p.PolicySummary.ID, rootID))
 	require.NoError(t, b.DetachPolicy(p.PolicySummary.ID, rootID))
 
-	// The default FullAWSAccess SCP is also attached to root; detach it too
-	// so disabling isn't rejected by the still-attached guard.
-	require.NoError(t, b.DetachPolicy("p-FullAWSAccess", rootID))
-
 	_, err = b.DisablePolicyType(rootID, "SERVICE_CONTROL_POLICY")
 	require.NoError(t, err)
 }
@@ -836,14 +832,6 @@ func TestHandler_DisablePolicyType(t *testing.T) {
 				"RootId":     rootID,
 				"PolicyType": "SERVICE_CONTROL_POLICY",
 			})
-
-			// The default FullAWSAccess SCP is attached to root; detach it so
-			// disabling isn't rejected by the still-attached guard.
-			detachRec := doRequest(t, h, "DetachPolicy", map[string]any{
-				"PolicyId": "p-FullAWSAccess",
-				"TargetId": rootID,
-			})
-			require.Equal(t, http.StatusOK, detachRec.Code)
 
 			rec := doRequest(t, h, "DisablePolicyType", map[string]any{
 				"RootId":     rootID,

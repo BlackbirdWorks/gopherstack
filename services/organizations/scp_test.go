@@ -1,11 +1,14 @@
 package organizations_test
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -113,5 +116,77 @@ func TestSCPsForAccountReenableAttachesDefault(t *testing.T) {
 
 	for _, lvl := range levels {
 		assert.Len(t, lvl.Policies, 1, lvl.TargetID)
+	}
+}
+
+func TestRestoreMigratesMissingDefaultSCPs(t *testing.T) {
+	t.Parallel()
+
+	o := newSCPOrg(t)
+
+	var snap map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(o.b.Snapshot(context.Background()), &snap))
+
+	oldShape := func(key string, v any) {
+		raw, err := json.Marshal(v)
+		require.NoError(t, err)
+
+		snap[key] = raw
+	}
+
+	oldShape("targetPolicies", map[string][]string{o.rootID: {"p-FullAWSAccess"}})
+	oldShape("policyTargets", map[string][]string{"p-FullAWSAccess": {o.rootID}})
+
+	data, err := json.Marshal(snap)
+	require.NoError(t, err)
+
+	restored := organizations.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, restored.Restore(context.Background(), data))
+
+	levels, ok := restored.SCPsForAccount(o.acctID)
+	require.True(t, ok)
+	require.Len(t, levels, 4)
+
+	for _, lvl := range levels {
+		require.Len(t, lvl.Policies, 1, lvl.TargetID)
+		assert.Equal(t, iam.EvalAllow,
+			iam.EvaluatePolicies([]string{lvl.Policies[0].Document}, "s3:DeleteBucket", "*", iam.ConditionContext{}))
+	}
+}
+
+func TestDetachLastSCPRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		replace bool
+		wantErr bool
+	}{
+		{name: "last_scp_rejected", wantErr: true},
+		{name: "replaced_first_allowed", replace: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			o := newSCPOrg(t)
+
+			if tt.replace {
+				p, err := o.b.CreatePolicy("allow-s3", "", `{"Version":"2012-10-17","Statement":[`+
+					`{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`, "SERVICE_CONTROL_POLICY", nil)
+				require.NoError(t, err)
+				require.NoError(t, o.b.AttachPolicy(p.PolicySummary.ID, o.ouID))
+			}
+
+			err := o.b.DetachPolicy("p-FullAWSAccess", o.ouID)
+			if tt.wantErr {
+				require.ErrorIs(t, err, organizations.ErrMinPolicyAttachment)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
 	}
 }

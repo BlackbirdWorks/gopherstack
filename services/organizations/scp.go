@@ -99,3 +99,51 @@ func (b *InMemoryBackend) detachAllSCPsLocked() {
 		b.policyTargets[p.PolicySummary.ID] = []string{}
 	}
 }
+
+// scpCountLocked counts the SCPs attached to targetID.
+func (b *InMemoryBackend) scpCountLocked(targetID string) int {
+	n := 0
+
+	for _, pid := range b.targetPolicies[targetID] {
+		if p, ok := b.policies.Get(pid); ok && p.PolicySummary.Type == policyTypeSCP {
+			n++
+		}
+	}
+
+	return n
+}
+
+// lastSCPLocked reports whether detaching policyID from targetID would leave an
+// enabled-SCP target with none (DetachPolicy API reference: every root, OU and
+// account must have at least one SCP; reason MIN_POLICY_TYPE_ATTACHMENT_LIMIT_EXCEEDED).
+func (b *InMemoryBackend) lastSCPLocked(policyID, targetID string) bool {
+	p, ok := b.policies.Get(policyID)
+	if !ok || p.PolicySummary.Type != policyTypeSCP || b.root == nil || !b.scpEnabledLocked() {
+		return false
+	}
+
+	return b.scpCountLocked(targetID) <= 1
+}
+
+// attachMissingDefaultSCPsLocked repairs restored state in which an entity has
+// no SCP while the SCP type is enabled, which would deny everything under enforcement.
+func (b *InMemoryBackend) attachMissingDefaultSCPsLocked() {
+	if b.root == nil || !b.scpEnabledLocked() {
+		return
+	}
+
+	targets := []string{b.root.ID}
+	for _, ou := range b.ous.All() {
+		targets = append(targets, ou.ID)
+	}
+
+	for _, a := range b.accounts.All() {
+		targets = append(targets, a.ID)
+	}
+
+	for _, t := range targets {
+		if b.scpCountLocked(t) == 0 {
+			b.attachDefaultSCPLocked(t)
+		}
+	}
+}
