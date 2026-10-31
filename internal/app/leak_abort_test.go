@@ -78,7 +78,8 @@ func TestLeakAbortedRequests(t *testing.T) {
 			defer cancel()
 
 			pr, pw := io.Pipe()
-			req, rerr := http.NewRequestWithContext(rctx, http.MethodPut, endpoint+"/leak-abort/up"+strconv.Itoa(i%4), pr)
+			upURL := endpoint + "/leak-abort/up" + strconv.Itoa(i%4)
+			req, rerr := http.NewRequestWithContext(rctx, http.MethodPut, upURL, pr)
 			require.NoError(t, rerr)
 
 			req.ContentLength = int64(len(big))
