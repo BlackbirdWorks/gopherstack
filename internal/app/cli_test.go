@@ -114,20 +114,30 @@ import (
 // when shutdown itself completes on time (gopherstack-becu).
 const shutdownWaitTimeout = shutdownTimeout + 3*time.Second
 
-// waitForServerReady polls the health endpoint instead of a fixed sleep,
-// since startup time varies under load.
+// waitForServerReady polls health until 200, bounded by the test deadline rather
+// than a wall-clock budget: startup time grows with every service and CI load.
 func waitForServerReady(t *testing.T, port int) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		resp, err := testclient.New(t).Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
+	url := fmt.Sprintf("http://localhost:%d/_gopherstack/health", port)
+	client := testclient.New(t)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
 
-		return resp.StatusCode == http.StatusOK
-	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
+	for {
+		if resp, err := client.Get(url); err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+
+		select {
+		case <-t.Context().Done():
+			t.Fatalf("server did not become ready: %v", t.Context().Err())
+		case <-tick.C:
+		}
+	}
 }
 
 // parseCLI parses the given args (key=value env pairs) into a CLI value
