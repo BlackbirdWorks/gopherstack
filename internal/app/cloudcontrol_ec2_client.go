@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -13,29 +14,37 @@ import (
 
 // ccEC2Client calls the in-process EC2 handler over the ec2Query wire without the generated SDK client.
 type ccEC2Client struct {
-	svc *sdkwire.Service
+	svc func() (*sdkwire.Service, error)
 	tgt sdkwire.Target
 }
 
-func newCCEC2Client(handler http.Handler, cfg aws.Config) (*ccEC2Client, error) {
-	svc, ok := sdkwire.Lookup("ec2")
-	if !ok {
-		return nil, fmt.Errorf("%w: ec2", sdkwire.ErrUnknownOp)
-	}
-
+// newCCEC2Client defers building the EC2 schema (~5 MB) to the first call.
+func newCCEC2Client(handler http.Handler, cfg aws.Config) *ccEC2Client {
 	return &ccEC2Client{
-		svc: svc,
+		svc: sync.OnceValues(func() (*sdkwire.Service, error) {
+			svc, ok := sdkwire.Lookup("ec2")
+			if !ok {
+				return nil, fmt.Errorf("%w: ec2", sdkwire.ErrUnknownOp)
+			}
+
+			return svc, nil
+		}),
 		tgt: sdkwire.Target{
 			Handler:     handler,
 			Credentials: cfg.Credentials,
 			Endpoint:    aws.ToString(cfg.BaseEndpoint),
 			Region:      cfg.Region,
 		},
-	}, nil
+	}
 }
 
 func (c *ccEC2Client) call(ctx context.Context, op string, params map[string]any) (map[string]any, error) {
-	out, err := c.svc.Call(ctx, c.tgt, op, params)
+	svc, err := c.svc()
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := svc.Call(ctx, c.tgt, op, params)
 	if err != nil {
 		return nil, err
 	}
