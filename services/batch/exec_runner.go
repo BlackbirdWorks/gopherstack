@@ -232,18 +232,20 @@ func (r *dockerContainerRunner) pullImage(ctx context.Context, image string) err
 func (r *dockerContainerRunner) awaitExit(ctx context.Context, id string) (int, error) {
 	res := r.cli.ContainerWait(ctx, id, dockertypes.WaitOptions{})
 
-	select {
-	case w := <-res.Result:
-		if w.Error != nil {
-			return 0, fmt.Errorf("%w: %s", errContainerWait, w.Error.Message)
+	w, err := container.AwaitWait(ctx, res)
+	if err != nil {
+		if ctx.Err() != nil {
+			return 0, fmt.Errorf("container cancelled: %w", ctx.Err())
 		}
 
-		return int(w.StatusCode), nil
-	case err := <-res.Error:
 		return 0, fmt.Errorf("%w: %w", errContainerWait, err)
-	case <-ctx.Done():
-		return 0, fmt.Errorf("container cancelled: %w", ctx.Err())
 	}
+
+	if w.Error != nil {
+		return 0, fmt.Errorf("%w: %s", errContainerWait, w.Error.Message)
+	}
+
+	return int(w.StatusCode), nil
 }
 
 func (r *dockerContainerRunner) streamLogs(ctx context.Context, id string, onLog func([]string)) <-chan struct{} {

@@ -46,16 +46,36 @@ func (r *DockerRuntime) WaitExit(ctx context.Context, containerID string) (int, 
 
 	res := api.ContainerWait(ctx, containerID, dockercontainer.WaitOptions{})
 
-	select {
-	case <-ctx.Done():
-		return 0, fmt.Errorf("container wait %q: %w", containerID, ctx.Err())
-	case err := <-res.Error:
+	resp, err := AwaitWait(ctx, res)
+	if err != nil {
 		return 0, fmt.Errorf("container wait %q: %w", containerID, err)
-	case resp := <-res.Result:
-		if resp.Error != nil {
-			return int(resp.StatusCode), fmt.Errorf("%w %q: %s", ErrWaitFailed, containerID, resp.Error.Message)
-		}
+	}
 
-		return int(resp.StatusCode), nil
+	if resp.Error != nil {
+		return int(resp.StatusCode), fmt.Errorf("%w %q: %s", ErrWaitFailed, containerID, resp.Error.Message)
+	}
+
+	return int(resp.StatusCode), nil
+}
+
+// AwaitWait blocks for the first of res.Result, res.Error or ctx cancellation.
+// Moby's resultC is unbuffered and its sender never selects on ctx, so on early
+// return a drainer receives from res to let that goroutine exit: it either sends
+// the result or, once ctx is cancelled, fails the body read into buffered errC.
+func AwaitWait(ctx context.Context, res dockercontainer.WaitResult) (dockercontainer.WaitResponse, error) {
+	select {
+	case resp := <-res.Result:
+		return resp, nil
+	case err := <-res.Error:
+		return dockercontainer.WaitResponse{}, err
+	case <-ctx.Done():
+		go func() {
+			select {
+			case <-res.Result:
+			case <-res.Error:
+			}
+		}()
+
+		return dockercontainer.WaitResponse{}, ctx.Err()
 	}
 }

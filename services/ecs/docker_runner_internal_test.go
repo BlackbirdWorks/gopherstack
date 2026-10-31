@@ -229,6 +229,7 @@ func (f *fakeDockerClient) ContainerWait(
 		if ch == nil {
 			<-ctx.Done()
 			f.waitCanceled.Store(true)
+			errC <- ctx.Err()
 
 			return
 		}
@@ -238,6 +239,7 @@ func (f *fakeDockerClient) ContainerWait(
 			resultC <- res
 		case <-ctx.Done():
 			f.waitCanceled.Store(true)
+			errC <- ctx.Err()
 		}
 	}()
 

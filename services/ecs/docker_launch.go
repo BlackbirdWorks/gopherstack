@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -806,8 +807,9 @@ func (r *realDockerRunner) watchContainerExit(
 		for {
 			result := r.cli.ContainerWait(ctx, containerID, dockertypes.WaitOptions{})
 
-			select {
-			case res := <-result.Result:
+			res, err := container.AwaitWait(ctx, result)
+			switch {
+			case err == nil:
 				code := int(res.StatusCode)
 				if r.restartContainer(ctx, containerID, cd, code, startedAt) {
 					startedAt = r.now()
@@ -816,11 +818,8 @@ func (r *realDockerRunner) watchContainerExit(
 				}
 
 				r.finishContainer(ctx, handler, taskArn, containerID, cd.Name, ex, code)
-			case err := <-result.Error:
-				if err != nil && ctx.Err() == nil {
-					logger.Load(ctx).WarnContext(ctx, "container wait failed", "containerID", containerID, "error", err)
-				}
-			case <-ctx.Done():
+			case ctx.Err() == nil:
+				logger.Load(ctx).WarnContext(ctx, "container wait failed", "containerID", containerID, "error", err)
 			}
 
 			return
