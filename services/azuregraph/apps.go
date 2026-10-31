@@ -7,15 +7,6 @@ import (
 	"strings"
 )
 
-var (
-	signInAudiences = []string{ //nolint:gochecknoglobals // fixed enum
-		"AzureADMyOrg", "AzureADMultipleOrgs", "AzureADandPersonalMicrosoftAccount", "PersonalMicrosoftAccount",
-	}
-	appReadOnly = []string{ //nolint:gochecknoglobals // fixed list
-		"id", "appId", "createdDateTime", "passwordCredentials", "keyCredentials", "publisherDomain", "certification",
-	}
-)
-
 // Ref addresses an object by ID or by an alternate key such as applications(appId='...').
 type Ref struct {
 	ID    string
@@ -35,9 +26,9 @@ func (b *Backend) findApp(r Ref) (*Application, error) {
 		}
 
 		return nil, notFound(r.ID)
-	case "appId", "uniqueName":
+	case propAppID, "uniqueName":
 		for _, a := range b.apps.all() {
-			if (r.Field == "appId" && strings.EqualFold(a.AppID, r.Value)) ||
+			if (r.Field == propAppID && strings.EqualFold(a.AppID, r.Value)) ||
 				(r.Field == "uniqueName" && a.UniqueName != "" && strings.EqualFold(a.UniqueName, r.Value)) {
 				return a, nil
 			}
@@ -54,7 +45,7 @@ func (b *Backend) validateApp(a *Application, self string) error {
 		return badRequest("A value is required for property 'displayName' of resource 'Application'.")
 	}
 
-	if !slices.Contains(signInAudiences, a.SignInAudience) {
+	if !slices.Contains(signInAudiences(), a.SignInAudience) {
 		return badRequest("Invalid value specified for property 'signInAudience' of resource 'Application'.")
 	}
 
@@ -94,7 +85,7 @@ func validateAppRoles(roles []AppRole, scopes []PermissionScope) error {
 		seen[lc(r.ID)] = true
 
 		for _, t := range r.AllowedMemberTypes {
-			if t != "User" && t != "Application" {
+			if t != typeUser && t != typeApplication {
 				return badRequest("Invalid value specified for property 'allowedMemberTypes' of resource 'AppRole'.")
 			}
 		}
@@ -107,7 +98,7 @@ func validateAppRoles(roles []AppRole, scopes []PermissionScope) error {
 
 		seen[lc(s.ID)] = true
 
-		if s.Type != "" && s.Type != "User" && s.Type != "Admin" {
+		if s.Type != "" && s.Type != typeUser && s.Type != "Admin" {
 			return badRequest("Invalid value specified for property 'type' of resource 'PermissionScope'.")
 		}
 	}
@@ -121,12 +112,12 @@ func (b *Backend) CreateApplication(body map[string]json.RawMessage) (Applicatio
 	defer b.mu.Unlock()
 
 	seed := &Application{
-		ID: newID(), AppID: newID(), CreatedDateTime: b.stamp(), SignInAudience: "AzureADMyOrg",
+		ID: newID(), AppID: newID(), CreatedDateTime: b.stamp(), SignInAudience: audienceMyOrg,
 		PublisherDomain: b.domains[0].Name,
 	}
 	seed.normalize()
 
-	a, err := applyBody(seed, body, appReadOnly...)
+	a, err := applyBody(seed, body, appReadOnly()...)
 	if err != nil {
 		return Application{}, err
 	}
@@ -177,7 +168,7 @@ func (b *Backend) UpdateApplication(r Ref, body map[string]json.RawMessage) erro
 		return err
 	}
 
-	next, err := applyBody(cur, body, appReadOnly...)
+	next, err := applyBody(cur, body, appReadOnly()...)
 	if err != nil {
 		return err
 	}

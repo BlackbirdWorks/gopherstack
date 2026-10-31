@@ -12,9 +12,9 @@ import (
 )
 
 func values(r resp) []string {
-	var out []string
-
 	list, _ := r.body["value"].([]any)
+	out := make([]string, 0, len(list))
+
 	for _, v := range list {
 		m, _ := v.(map[string]any)
 		out = append(out, str(m, "displayName"))
@@ -29,7 +29,11 @@ func TestFilters(t *testing.T) {
 	e := newEnv(t)
 
 	for _, n := range []string{"Alpha Web", "Alpha API", "Beta Web", "Gamma"} {
-		e.mustCreate(t, "/v1.0/applications", map[string]any{"displayName": n, "tags": []string{"t-" + strings.Fields(n)[0]}})
+		e.mustCreate(
+			t,
+			"/v1.0/applications",
+			map[string]any{"displayName": n, "tags": []string{"t-" + strings.Fields(n)[0]}},
+		)
 	}
 
 	const eventualHdr = "ConsistencyLevel"
@@ -44,24 +48,66 @@ func TestFilters(t *testing.T) {
 		{"eq", "$filter=displayName eq 'Gamma'", nil, []string{"Gamma"}, 200},
 		{"eq case insensitive", "$filter=displayName eq 'gamma'", nil, []string{"Gamma"}, 200},
 		{"startswith", "$filter=startswith(displayName,'alpha')", nil, []string{"Alpha Web", "Alpha API"}, 200},
-		{"and", "$filter=startswith(displayName,'Alpha') and displayName eq 'Alpha API'", nil, []string{"Alpha API"}, 200},
+		{
+			"and",
+			"$filter=startswith(displayName,'Alpha') and displayName eq 'Alpha API'",
+			nil,
+			[]string{"Alpha API"},
+			200,
+		},
 		{"or", "$filter=displayName eq 'Gamma' or displayName eq 'Beta Web'", nil, []string{"Beta Web", "Gamma"}, 200},
-		{"parens", "$filter=(displayName eq 'Gamma' or displayName eq 'Beta Web') and startswith(displayName,'B')", nil, []string{"Beta Web"}, 200},
+		{
+			"parens",
+			"$filter=(displayName eq 'Gamma' or displayName eq 'Beta Web') and startswith(displayName,'B')",
+			nil,
+			[]string{"Beta Web"},
+			200,
+		},
 		{"any", "$filter=tags/any(t:t eq 't-Beta')", nil, []string{"Beta Web"}, 200},
 		{"escaped quote", "$filter=displayName eq 'it''s'", nil, nil, 200},
 		{"null", "$filter=description eq null", nil, []string{"Alpha Web", "Alpha API", "Beta Web", "Gamma"}, 200},
 		{"ne without header", "$filter=displayName ne 'Gamma'", nil, nil, 400},
-		{"ne with header", "$filter=displayName ne 'Gamma'&$count=true", []string{eventualHdr, "eventual"}, []string{"Alpha Web", "Alpha API", "Beta Web"}, 200},
+		{
+			"ne with header",
+			"$filter=displayName ne 'Gamma'&$count=true",
+			[]string{eventualHdr, "eventual"},
+			[]string{"Alpha Web", "Alpha API", "Beta Web"},
+			200,
+		},
 		{"endswith needs advanced", "$filter=endswith(displayName,'Web')", nil, nil, 400},
-		{"endswith advanced", "$filter=endswith(displayName,'Web')&$count=true", []string{eventualHdr, "eventual"}, []string{"Alpha Web", "Beta Web"}, 200},
-		{"not advanced", "$filter=not(displayName eq 'Gamma')&$count=true", []string{eventualHdr, "eventual"}, []string{"Alpha Web", "Alpha API", "Beta Web"}, 200},
+		{
+			"endswith advanced",
+			"$filter=endswith(displayName,'Web')&$count=true",
+			[]string{eventualHdr, "eventual"},
+			[]string{"Alpha Web", "Beta Web"},
+			200,
+		},
+		{
+			"not advanced",
+			"$filter=not(displayName eq 'Gamma')&$count=true",
+			[]string{eventualHdr, "eventual"},
+			[]string{"Alpha Web", "Alpha API", "Beta Web"},
+			200,
+		},
 		{"unknown property", "$filter=bogus eq 'x'", nil, nil, 400},
 		{"syntax error", "$filter=displayName eq", nil, nil, 400},
 		{"unterminated string", "$filter=displayName eq 'x", nil, nil, 400},
 		{"orderby", "$orderby=displayName desc", nil, []string{"Gamma", "Beta Web", "Alpha Web", "Alpha API"}, 200},
 		{"orderby unknown", "$orderby=bogus", nil, nil, 400},
-		{"search", `$search="displayName:alpha"`, []string{eventualHdr, "eventual"}, []string{"Alpha Web", "Alpha API"}, 200},
-		{"search or", `$search="displayName:gamma" OR "displayName:beta"`, []string{eventualHdr, "eventual"}, []string{"Beta Web", "Gamma"}, 200},
+		{
+			"search",
+			`$search="displayName:alpha"`,
+			[]string{eventualHdr, "eventual"},
+			[]string{"Alpha Web", "Alpha API"},
+			200,
+		},
+		{
+			"search or",
+			`$search="displayName:gamma" OR "displayName:beta"`,
+			[]string{eventualHdr, "eventual"},
+			[]string{"Beta Web", "Gamma"},
+			200,
+		},
 		{"search needs header", `$search="displayName:alpha"`, nil, nil, 400},
 		{"expand unsupported", "$expand=owners", nil, nil, 400},
 	}
@@ -70,7 +116,12 @@ func TestFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := e.req(t, http.MethodGet, "/v1.0/applications?"+strings.ReplaceAll(url.PathEscape(tt.query), "%3D", "="), nil, tt.hdr...)
+			r := e.req(
+				t,
+				http.MethodGet,
+				"/v1.0/applications?"+strings.ReplaceAll(url.PathEscape(tt.query), "%3D", "="),
+				nil,
+				tt.hdr...)
 			require.Equal(t, tt.status, r.status, r.raw)
 
 			if tt.status == http.StatusOK {
@@ -134,7 +185,12 @@ func TestQueryOptions(t *testing.T) {
 		item, _ := r.body["value"].([]any)[0].(map[string]any)
 		assert.ElementsMatch(t, []string{"id", "displayName", "appId"}, keys(item))
 
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/applications?$select=bogus", nil), http.StatusBadRequest, "Request_BadRequest")
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/applications?$select=bogus", nil),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 
 		single := e.req(t, http.MethodGet, "/v1.0/applications/"+str(item, "id")+"?$select=displayName", nil)
 		assert.Contains(t, keys(single.body), "displayName")
@@ -149,19 +205,34 @@ func TestQueryOptions(t *testing.T) {
 		assert.EqualValues(t, 7, r.body["@odata.count"])
 		assert.Len(t, r.body["value"], 2)
 
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/applications?$count=true", nil), http.StatusBadRequest, "Request_BadRequest")
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/applications?$count=true", nil),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 
 		raw := e.req(t, http.MethodGet, "/v1.0/applications/$count", nil, "ConsistencyLevel", "eventual")
 		assert.Equal(t, http.StatusOK, raw.status)
 		assert.Equal(t, "7", raw.raw)
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/applications/$count", nil), http.StatusBadRequest, "Request_BadRequest")
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/applications/$count", nil),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 	})
 
 	t.Run("bad top", func(t *testing.T) {
 		t.Parallel()
 
 		for _, top := range []string{"0", "1000", "x", "-1"} {
-			assertErr(t, e.req(t, http.MethodGet, "/v1.0/applications?$top="+top, nil), http.StatusBadRequest, "Request_BadRequest")
+			assertErr(
+				t,
+				e.req(t, http.MethodGet, "/v1.0/applications?$top="+top, nil),
+				http.StatusBadRequest,
+				"Request_BadRequest",
+			)
 		}
 	})
 
@@ -171,7 +242,12 @@ func TestQueryOptions(t *testing.T) {
 		big := newEnv(t)
 		for i := range 101 {
 			big.mustCreate(t, "/v1.0/groups", map[string]any{
-				"displayName": "G" + strconv.Itoa(i), "mailEnabled": false, "mailNickname": "g" + strconv.Itoa(i), "securityEnabled": true,
+				"displayName": "G" + strconv.Itoa(
+					i,
+				),
+				"mailEnabled":     false,
+				"mailNickname":    "g" + strconv.Itoa(i),
+				"securityEnabled": true,
 			})
 		}
 

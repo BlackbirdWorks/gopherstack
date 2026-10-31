@@ -117,7 +117,8 @@ func (b *Backend) edit(op, ownerID, refID, relation string, relations map[string
 		return notFound(refID)
 	}
 
-	if relation == "owners" && (!ownable(parent.objKind()) || (child.objKind() != kindUser && child.objKind() != kindServicePrincipal)) {
+	if relation == "owners" &&
+		(!ownable(parent.objKind()) || (child.objKind() != kindUser && child.objKind() != kindServicePrincipal)) {
 		return badRequest("Invalid object type for the owners relationship.")
 	}
 
@@ -128,7 +129,10 @@ func (b *Backend) edit(op, ownerID, refID, relation string, relations map[string
 	cur := relations[ownerID]
 	if add {
 		if slices.Contains(cur, refID) {
-			return badRequest("One or more added object references already exist for the following modified properties: '%s'.", relation)
+			return badRequest(
+				"One or more added object references already exist for the following modified properties: '%s'.",
+				relation,
+			)
 		}
 
 		relations[ownerID] = append(slices.Clone(cur), refID)

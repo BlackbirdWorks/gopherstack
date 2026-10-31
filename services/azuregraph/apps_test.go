@@ -55,8 +55,18 @@ func TestApplications(t *testing.T) {
 			assert.Equal(t, id, str(r.body, "id"), path)
 		}
 
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/applications(appId='"+newID0()+"')", nil), http.StatusNotFound, "Request_ResourceNotFound")
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/applications/not-a-guid", nil), http.StatusBadRequest, "Request_BadRequest")
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/applications(appId='"+newID0()+"')", nil),
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/applications/not-a-guid", nil),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 	})
 
 	t.Run("patch merges nested facets", func(t *testing.T) {
@@ -69,7 +79,12 @@ func TestApplications(t *testing.T) {
 		})
 		require.Equal(t, http.StatusNoContent, r.status, r.raw)
 
-		r = e.req(t, http.MethodPatch, "/v1.0/applications/"+oid, map[string]any{"web": map[string]any{"homePageUrl": "https://h.example"}})
+		r = e.req(
+			t,
+			http.MethodPatch,
+			"/v1.0/applications/"+oid,
+			map[string]any{"web": map[string]any{"homePageUrl": "https://h.example"}},
+		)
 		require.Equal(t, http.StatusNoContent, r.status)
 
 		got := e.req(t, http.MethodGet, "/v1.0/applications/"+oid, nil).body
@@ -86,7 +101,7 @@ func TestApplications(t *testing.T) {
 	t.Run("body validation", func(t *testing.T) {
 		t.Parallel()
 
-		tests := []struct {
+		tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 			name   string
 			method string
 			path   string
@@ -95,12 +110,42 @@ func TestApplications(t *testing.T) {
 			{"missing displayName", http.MethodPost, "/v1.0/applications", map[string]any{}},
 			{"unknown property", http.MethodPost, "/v1.0/applications", map[string]any{"displayName": "x", "nope": 1}},
 			{"read only appId", http.MethodPatch, "/v1.0/applications/" + id, map[string]any{"appId": "x"}},
-			{"password via patch", http.MethodPatch, "/v1.0/applications/" + id, map[string]any{"passwordCredentials": []any{}}},
-			{"bad audience", http.MethodPost, "/v1.0/applications", map[string]any{"displayName": "x", "signInAudience": "Nope"}},
-			{"dup identifierUri", http.MethodPost, "/v1.0/applications", map[string]any{"displayName": "x", "identifierUris": []string{"api://my-app"}}},
-			{"dup uniqueName", http.MethodPost, "/v1.0/applications", map[string]any{"displayName": "x", "uniqueName": "my-app"}},
-			{"bad identifierUri", http.MethodPost, "/v1.0/applications", map[string]any{"displayName": "x", "identifierUris": []string{"nope"}}},
-			{"bad role id", http.MethodPost, "/v1.0/applications", map[string]any{"displayName": "x", "appRoles": []map[string]any{{"id": "x"}}}},
+			{
+				"password via patch",
+				http.MethodPatch,
+				"/v1.0/applications/" + id,
+				map[string]any{"passwordCredentials": []any{}},
+			},
+			{
+				"bad audience",
+				http.MethodPost,
+				"/v1.0/applications",
+				map[string]any{"displayName": "x", "signInAudience": "Nope"},
+			},
+			{
+				"dup identifierUri",
+				http.MethodPost,
+				"/v1.0/applications",
+				map[string]any{"displayName": "x", "identifierUris": []string{"api://my-app"}},
+			},
+			{
+				"dup uniqueName",
+				http.MethodPost,
+				"/v1.0/applications",
+				map[string]any{"displayName": "x", "uniqueName": "my-app"},
+			},
+			{
+				"bad identifierUri",
+				http.MethodPost,
+				"/v1.0/applications",
+				map[string]any{"displayName": "x", "identifierUris": []string{"nope"}},
+			},
+			{
+				"bad role id",
+				http.MethodPost,
+				"/v1.0/applications",
+				map[string]any{"displayName": "x", "appRoles": []map[string]any{{"id": "x"}}},
+			},
 			{"malformed json", http.MethodPost, "/v1.0/applications", "{"},
 		}
 
@@ -179,9 +224,24 @@ func TestPasswordCredentials(t *testing.T) {
 			"passwordCredential": map[string]any{"endDateTime": "2020-01-01T00:00:00Z"},
 		})
 		assertErr(t, past, http.StatusBadRequest, "Request_BadRequest")
-		assertErr(t, e.req(t, http.MethodPost, base+"/removePassword", map[string]any{"keyId": newID0()}), http.StatusBadRequest, "Request_BadRequest")
-		assertErr(t, e.req(t, http.MethodPost, base+"/removePassword", map[string]any{}), http.StatusBadRequest, "Request_BadRequest")
-		assertErr(t, e.req(t, http.MethodPost, "/v1.0/applications/"+newID0()+"/addPassword", map[string]any{}), http.StatusNotFound, "Request_ResourceNotFound")
+		assertErr(
+			t,
+			e.req(t, http.MethodPost, base+"/removePassword", map[string]any{"keyId": newID0()}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodPost, base+"/removePassword", map[string]any{}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodPost, "/v1.0/applications/"+newID0()+"/addPassword", map[string]any{}),
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		)
 	})
 
 	t.Run("remove", func(t *testing.T) {
@@ -206,16 +266,22 @@ func TestKeyCredentials(t *testing.T) {
 	app := newApp(t, e, "Keys")
 	base := "/v1.0/applications/" + str(app, "id")
 
-	good := map[string]any{"keyCredential": map[string]any{"type": "AsymmetricX509Cert", "usage": "Verify", "key": "AAEC"}}
+	good := map[string]any{
+		"keyCredential": map[string]any{"type": "AsymmetricX509Cert", "usage": "Verify", "key": "AAEC"},
+	}
 	add := e.req(t, http.MethodPost, base+"/addKey", good)
 	require.Equal(t, http.StatusOK, add.status, add.raw)
 	assert.Nil(t, add.body["key"], "key material is not returned")
 
 	for name, body := range map[string]any{
-		"bad type":  map[string]any{"keyCredential": map[string]any{"type": "x", "usage": "Verify", "key": "AAEC"}},
-		"bad usage": map[string]any{"keyCredential": map[string]any{"type": "AsymmetricX509Cert", "usage": "x", "key": "AAEC"}},
-		"bad key":   map[string]any{"keyCredential": map[string]any{"type": "AsymmetricX509Cert", "usage": "Verify", "key": "%%"}},
-		"no key":    map[string]any{"keyCredential": map[string]any{"type": "AsymmetricX509Cert", "usage": "Verify"}},
+		"bad type": map[string]any{"keyCredential": map[string]any{"type": "x", "usage": "Verify", "key": "AAEC"}},
+		"bad usage": map[string]any{"keyCredential": map[string]any{
+			"type": "AsymmetricX509Cert", "usage": "x", "key": "AAEC",
+		}},
+		"bad key": map[string]any{"keyCredential": map[string]any{
+			"type": "AsymmetricX509Cert", "usage": "Verify", "key": "%%",
+		}},
+		"no key": map[string]any{"keyCredential": map[string]any{"type": "AsymmetricX509Cert", "usage": "Verify"}},
 	} {
 		assertErr(t, e.req(t, http.MethodPost, base+"/addKey", body), http.StatusBadRequest, "Request_BadRequest")
 		_ = name

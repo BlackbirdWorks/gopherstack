@@ -2,6 +2,7 @@ package azuregraph_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func TestAuthentication(t *testing.T) {
 	}, 0)
 	require.NoError(t, err)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 		name     string
 		validate bool
 		token    func(*env) string
@@ -31,11 +32,26 @@ func TestAuthentication(t *testing.T) {
 	}{
 		{"no token", false, func(*env) string { return "" }, http.StatusUnauthorized},
 		{"garbage token", false, func(*env) string { return "abc" }, http.StatusUnauthorized},
-		{"any jwt accepted by default", false, func(e *env) string { return foreign }, http.StatusOK},
+		{"any jwt accepted by default", false, func(*env) string { return foreign }, http.StatusOK},
 		{"validated ok", true, func(e *env) string { return e.tokenFor(newID0(), graphAudience) }, http.StatusOK},
-		{"validated trailing slash audience", true, func(e *env) string { return e.tokenFor(newID0(), graphAudience+"/") }, http.StatusOK},
-		{"validated app id audience", true, func(e *env) string { return e.tokenFor(newID0(), "00000003-0000-0000-c000-000000000000") }, http.StatusOK},
-		{"validated wrong audience", true, func(e *env) string { return e.tokenFor(newID0(), "https://management.azure.com/") }, http.StatusUnauthorized},
+		{
+			"validated trailing slash audience",
+			true,
+			func(e *env) string { return e.tokenFor(newID0(), graphAudience+"/") },
+			http.StatusOK,
+		},
+		{
+			"validated app id audience",
+			true,
+			func(e *env) string { return e.tokenFor(newID0(), "00000003-0000-0000-c000-000000000000") },
+			http.StatusOK,
+		},
+		{
+			"validated wrong audience",
+			true,
+			func(e *env) string { return e.tokenFor(newID0(), "https://management.azure.com/") },
+			http.StatusUnauthorized,
+		},
 		{"validated foreign signature", true, func(*env) string { return foreign }, http.StatusUnauthorized},
 		{"validated garbage", true, func(*env) string { return "abc" }, http.StatusUnauthorized},
 	}
@@ -66,7 +82,7 @@ func TestMe(t *testing.T) {
 	app := newApp(t, e, "MeApp")
 	sp := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{"appId": str(app, "appId")})
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 		name   string
 		oid    string
 		path   string
@@ -105,56 +121,56 @@ func TestMe(t *testing.T) {
 func TestAuthenticateClient(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t)
-	app := newApp(t, e, "Daemon")
-	appID := str(app, "appId")
-	pw := e.req(t, http.MethodPost, "/v1.0/applications/"+str(app, "id")+"/addPassword", map[string]any{})
-	secret := str(pw.body, "secretText")
-
-	noSP := newApp(t, e, "NoSP")
-
-	b := e.h.Backend
-
-	t.Run("app without service principal", func(t *testing.T) {
-		_, known, err := b.AuthenticateClient(str(noSP, "appId"), "x")
-		assert.True(t, known)
-
-		var ce *azuregraph.ClientAuthError
-
-		require.ErrorAs(t, err, &ce)
-		assert.Equal(t, 7000229, ce.Code)
-	})
-
-	sp := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{"appId": appID})
-
-	tests := []struct {
-		name     string
-		clientID string
-		secret   string
-		advance  int
-		known    bool
-		code     int
+	tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
+		name      string
+		clientID  func(appID string) string
+		secret    func(secret string) string
+		setup     func(t *testing.T, e *env, spID string)
+		advance   time.Duration
+		known     bool
+		code      int
+		wantMatch bool
 	}{
-		{"valid", appID, secret, 0, true, 0},
-		{"valid mixed case", "" + upper(appID), secret, 0, true, 0},
-		{"wrong secret", appID, "nope", 0, true, 7000215},
-		{"empty secret", appID, "", 0, true, 7000215},
-		{"unknown client", newID0(), "x", 0, false, 0},
-		{"expired", appID, secret, 3 * 365 * 24, true, 7000215},
+		{"valid", same, same, nil, 0, true, 0, true},
+		{"valid mixed case", strings.ToUpper, same, nil, 0, true, 0, true},
+		{"wrong secret", same, func(string) string { return "nope" }, nil, 0, true, aadsInvalidSecret, false},
+		{"empty secret", same, func(string) string { return "" }, nil, 0, true, aadsInvalidSecret, false},
+		{"unknown client", func(string) string { return newID0() }, same, nil, 0, false, 0, false},
+		{"expired", same, same, nil, 3 * 365 * 24 * time.Hour, true, aadsInvalidSecret, false},
+		{"disabled service principal", same, same, func(t *testing.T, e *env, spID string) {
+			t.Helper()
+
+			r := e.req(t, http.MethodPatch, "/v1.0/servicePrincipals/"+spID, map[string]any{"accountEnabled": false})
+			require.Equal(t, http.StatusNoContent, r.status)
+		}, 0, true, aadsAppDisabled, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// not parallel: the expired case advances the shared clock
-			e.clock.advance(time.Duration(tt.advance) * time.Hour)
+			t.Parallel()
 
-			oid, known, err := b.AuthenticateClient(tt.clientID, tt.secret)
+			e := newEnv(t)
+			app := newApp(t, e, "Daemon")
+			appID := str(app, "appId")
+			secret := str(
+				e.req(t, http.MethodPost, "/v1.0/applications/"+str(app, "id")+"/addPassword", map[string]any{}).body,
+				"secretText",
+			)
+			sp := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{"appId": appID})
+
+			if tt.setup != nil {
+				tt.setup(t, e, str(sp, "id"))
+			}
+
+			e.clock.advance(tt.advance)
+
+			oid, known, err := e.h.Backend.AuthenticateClient(tt.clientID(appID), tt.secret(secret))
 			assert.Equal(t, tt.known, known)
 
 			if tt.code == 0 {
 				require.NoError(t, err)
 
-				if known {
+				if tt.wantMatch {
 					assert.Equal(t, str(sp, "id"), oid)
 				}
 
@@ -169,27 +185,23 @@ func TestAuthenticateClient(t *testing.T) {
 		})
 	}
 
-	_ = e.req(t, http.MethodPatch, "/v1.0/servicePrincipals/"+str(sp, "id"), map[string]any{"accountEnabled": false})
+	t.Run("application without service principal", func(t *testing.T) {
+		t.Parallel()
 
-	e.clock.advance(0)
-	_, _, err := b.AuthenticateClient(appID, secret)
+		e := newEnv(t)
+		noSP := newApp(t, e, "NoSP")
 
-	var ce *azuregraph.ClientAuthError
+		_, known, err := e.h.Backend.AuthenticateClient(str(noSP, "appId"), "x")
+		assert.True(t, known)
 
-	require.ErrorAs(t, err, &ce)
-	assert.Equal(t, 7000112, ce.Code)
+		var ce *azuregraph.ClientAuthError
+
+		require.ErrorAs(t, err, &ce)
+		assert.Equal(t, aadsNoServicePrincipal, ce.Code)
+	})
 }
 
-func upper(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if c >= 'a' && c <= 'z' {
-			b[i] = c - 32
-		}
-	}
-
-	return string(b)
-}
+func same(s string) string { return s }
 
 func TestDevClientAndCreatorOwnership(t *testing.T) {
 	t.Parallel()
@@ -203,11 +215,16 @@ func TestDevClientAndCreatorOwnership(t *testing.T) {
 	dev := e.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+oid, nil)
 	require.Equal(t, http.StatusOK, dev.status)
 	assert.Equal(t, azuregraph.DefaultTenantID, str(dev.body, "appId"))
-	assertErr(t, e.req(t, http.MethodDelete, "/v1.0/servicePrincipals/"+oid, nil), http.StatusForbidden, "Authorization_RequestDenied")
+	assertErr(
+		t,
+		e.req(t, http.MethodDelete, "/v1.0/servicePrincipals/"+oid, nil),
+		http.StatusForbidden,
+		"Authorization_RequestDenied",
+	)
 
 	user := newUser(t, e, "creator"+upnDomain)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 		name      string
 		oid       string
 		path      string
@@ -215,8 +232,18 @@ func TestDevClientAndCreatorOwnership(t *testing.T) {
 		wantOwner bool
 	}{
 		{"service principal creates application", oid, "/v1.0/applications", map[string]any{"displayName": "A"}, true},
-		{"user creates group", str(user, "id"), "/v1.0/groups",
-			map[string]any{"displayName": "G", "mailEnabled": false, "mailNickname": "g", "securityEnabled": true}, true},
+		{
+			"user creates group",
+			str(user, "id"),
+			"/v1.0/groups",
+			map[string]any{
+				"displayName":     "G",
+				"mailEnabled":     false,
+				"mailNickname":    "g",
+				"securityEnabled": true,
+			},
+			true,
+		},
 		{"non-directory caller", newID0(), "/v1.0/applications", map[string]any{"displayName": "B"}, false},
 	}
 
@@ -239,7 +266,17 @@ func TestDevClientAndCreatorOwnership(t *testing.T) {
 
 			list, _ := owners.body["value"].([]any)
 			require.Len(t, list, 1)
-			assert.Equal(t, tt.oid, str(list[0].(map[string]any), "id")) //nolint:forcetypeassert,errcheck // owners are objects
+			assert.Equal(
+				t,
+				tt.oid,
+				str(list[0].(map[string]any), "id"),
+			) //nolint:forcetypeassert // owners are objects
 		})
 	}
 }
+
+const (
+	aadsNoServicePrincipal = 7000229
+	aadsAppDisabled        = 7000112
+	aadsInvalidSecret      = 7000215
+)

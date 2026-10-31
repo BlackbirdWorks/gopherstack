@@ -84,64 +84,64 @@ type RedirectFacet struct {
 
 // PasswordCredential is a client secret; SecretText is only set in the addPassword response.
 type PasswordCredential struct {
+	StartDateTime       time.Time `json:"startDateTime"`
+	EndDateTime         time.Time `json:"endDateTime"`
 	SecretText          *string   `json:"secretText"`
 	CustomKeyIdentifier *string   `json:"customKeyIdentifier"`
 	DisplayName         *string   `json:"displayName"`
 	Hint                *string   `json:"hint"`
 	KeyID               string    `json:"keyId"`
-	StartDateTime       time.Time `json:"startDateTime"`
-	EndDateTime         time.Time `json:"endDateTime"`
 }
 
 // KeyCredential is a certificate or key credential; the key material is never returned.
 type KeyCredential struct {
+	StartDateTime       time.Time `json:"startDateTime"`
+	EndDateTime         time.Time `json:"endDateTime"`
 	Key                 *string   `json:"key"`
 	CustomKeyIdentifier *string   `json:"customKeyIdentifier"`
 	DisplayName         *string   `json:"displayName"`
 	KeyID               string    `json:"keyId"`
 	Type                string    `json:"type"`
 	Usage               string    `json:"usage"`
-	StartDateTime       time.Time `json:"startDateTime"`
-	EndDateTime         time.Time `json:"endDateTime"`
 }
 
 // Application is an application registration.
 type Application struct {
-	AddIns                     json.RawMessage          `json:"addIns,omitempty"`
-	DisabledByMicrosoftStatus  json.RawMessage          `json:"disabledByMicrosoftStatus,omitempty"`
-	VerifiedPublisher          json.RawMessage          `json:"verifiedPublisher,omitempty"`
-	AuthenticationBehaviors    json.RawMessage          `json:"authenticationBehaviors,omitempty"`
-	ApplicationTemplateID      string                   `json:"applicationTemplateId,omitempty"`
 	CreatedDateTime            time.Time                `json:"createdDateTime"`
-	OptionalClaims             json.RawMessage          `json:"optionalClaims,omitempty"`
-	Info                       json.RawMessage          `json:"info,omitempty"`
-	ParentalControlSettings    json.RawMessage          `json:"parentalControlSettings,omitempty"`
-	Certification              json.RawMessage          `json:"certification,omitempty"`
-	API                        APIApplication           `json:"api"`
-	Web                        WebApplication           `json:"web"`
-	SPA                        RedirectFacet            `json:"spa"`
-	PublicClient               RedirectFacet            `json:"publicClient"`
+	IsDeviceOnlyAuthSupported  *bool                    `json:"isDeviceOnlyAuthSupported"`
+	ServiceManagementReference string                   `json:"serviceManagementReference,omitempty"`
+	Notes                      string                   `json:"notes,omitempty"`
+	ApplicationTemplateID      string                   `json:"applicationTemplateId,omitempty"`
+	PublisherDomain            string                   `json:"publisherDomain"`
+	SAMLMetadataURL            string                   `json:"samlMetadataUrl,omitempty"`
+	DefaultRedirectURI         string                   `json:"defaultRedirectUri,omitempty"`
+	AppID                      string                   `json:"appId"`
+	TokenEncryptionKeyID       string                   `json:"tokenEncryptionKeyId,omitempty"`
+	ID                         string                   `json:"id"`
+	GroupMembershipClaims      string                   `json:"groupMembershipClaims,omitempty"`
+	SignInAudience             string                   `json:"signInAudience"`
+	UniqueName                 string                   `json:"uniqueName,omitempty"`
 	DisplayName                string                   `json:"displayName"`
 	Description                string                   `json:"description,omitempty"`
-	ID                         string                   `json:"id"`
-	AppID                      string                   `json:"appId"`
-	UniqueName                 string                   `json:"uniqueName,omitempty"`
-	SignInAudience             string                   `json:"signInAudience"`
-	GroupMembershipClaims      string                   `json:"groupMembershipClaims,omitempty"`
-	Notes                      string                   `json:"notes,omitempty"`
-	ServiceManagementReference string                   `json:"serviceManagementReference,omitempty"`
-	DefaultRedirectURI         string                   `json:"defaultRedirectUri,omitempty"`
-	SAMLMetadataURL            string                   `json:"samlMetadataUrl,omitempty"`
-	TokenEncryptionKeyID       string                   `json:"tokenEncryptionKeyId,omitempty"`
-	PublisherDomain            string                   `json:"publisherDomain"`
+	API                        APIApplication           `json:"api"`
+	Certification              json.RawMessage          `json:"certification,omitempty"`
+	VerifiedPublisher          json.RawMessage          `json:"verifiedPublisher,omitempty"`
+	SPA                        RedirectFacet            `json:"spa"`
+	DisabledByMicrosoftStatus  json.RawMessage          `json:"disabledByMicrosoftStatus,omitempty"`
+	AddIns                     json.RawMessage          `json:"addIns,omitempty"`
+	ParentalControlSettings    json.RawMessage          `json:"parentalControlSettings,omitempty"`
+	Info                       json.RawMessage          `json:"info,omitempty"`
+	OptionalClaims             json.RawMessage          `json:"optionalClaims,omitempty"`
+	AuthenticationBehaviors    json.RawMessage          `json:"authenticationBehaviors,omitempty"`
+	PublicClient               RedirectFacet            `json:"publicClient"`
 	IdentifierURIs             []string                 `json:"identifierUris"`
 	Tags                       []string                 `json:"tags"`
 	AppRoles                   []AppRole                `json:"appRoles"`
 	RequiredResourceAccess     []RequiredResourceAccess `json:"requiredResourceAccess"`
 	PasswordCredentials        []PasswordCredential     `json:"passwordCredentials"`
 	KeyCredentials             []KeyCredential          `json:"keyCredentials"`
+	Web                        WebApplication           `json:"web"`
 	IsFallbackPublicClient     bool                     `json:"isFallbackPublicClient"`
-	IsDeviceOnlyAuthSupported  *bool                    `json:"isDeviceOnlyAuthSupported"`
 	OAuth2RequirePostResponse  bool                     `json:"oauth2RequirePostResponse"`
 }
 
@@ -230,22 +230,22 @@ type User struct {
 // Group is a security, Microsoft 365 or distribution group.
 type Group struct {
 	CreatedDateTime               time.Time `json:"createdDateTime"`
-	ID                            string    `json:"id"`
-	DisplayName                   string    `json:"displayName"`
-	Description                   string    `json:"description,omitempty"`
+	IsAssignableToRole            *bool     `json:"isAssignableToRole"`
+	MembershipRule                string    `json:"membershipRule,omitempty"`
+	MembershipRuleProcessingState string    `json:"membershipRuleProcessingState,omitempty"`
 	MailNickname                  string    `json:"mailNickname"`
 	Mail                          string    `json:"mail,omitempty"`
 	Visibility                    string    `json:"visibility,omitempty"`
 	Classification                string    `json:"classification,omitempty"`
-	MembershipRule                string    `json:"membershipRule,omitempty"`
-	MembershipRuleProcessingState string    `json:"membershipRuleProcessingState,omitempty"`
+	DisplayName                   string    `json:"displayName"`
+	Description                   string    `json:"description,omitempty"`
 	PreferredDataLocation         string    `json:"preferredDataLocation,omitempty"`
-	GroupTypes                    []string  `json:"groupTypes"`
+	ID                            string    `json:"id"`
 	ResourceBehaviorOptions       []string  `json:"resourceBehaviorOptions"`
 	ResourceProvisioningOptions   []string  `json:"resourceProvisioningOptions"`
+	GroupTypes                    []string  `json:"groupTypes"`
 	MailEnabled                   bool      `json:"mailEnabled"`
 	SecurityEnabled               bool      `json:"securityEnabled"`
-	IsAssignableToRole            *bool     `json:"isAssignableToRole"`
 }
 
 // AppRoleAssignment grants an app role of a resource service principal to a principal.

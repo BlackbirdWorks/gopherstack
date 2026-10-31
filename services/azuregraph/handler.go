@@ -29,8 +29,9 @@ const (
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 60 * time.Second
 	idleTimeout       = 120 * time.Second
-	graphContentType  = "application/json;odata.metadata=minimal;odata.streaming=true;IEEE754Compatible=false;charset=utf-8"
-	odataDateLayout   = "2006-01-02T15:04:05"
+	graphContentType  = "application/json;odata.metadata=minimal;odata.streaming=true;" +
+		"IEEE754Compatible=false;charset=utf-8"
+	odataDateLayout = "2006-01-02T15:04:05"
 )
 
 var (
@@ -46,6 +47,7 @@ type Handler struct {
 	srvMu  *lockmetrics.RWMutex
 	srv    *http.Server
 	colls  map[string]*collection
+	subs   map[string]subRoute
 	// Settings holds the listener configuration.
 	Settings Settings
 	// Port is the fixed TCP port StartWorker binds.
@@ -65,10 +67,13 @@ func NewHandler(backend *Backend, settings Settings) *Handler {
 		issuer, _ = aadauth.NewIssuer()
 	}
 
-	return &Handler{
+	h := &Handler{
 		Backend: backend, Issuer: issuer, Settings: settings, Port: settings.Port,
 		srvMu: lockmetrics.New("azuregraph.server"), colls: buildCollections(),
 	}
+	h.subs = h.subRoutes()
+
+	return h
 }
 
 // Name returns the service name.
@@ -90,7 +95,9 @@ func (h *Handler) ExtractResource(c *echo.Context) string { return c.Request().U
 func (h *Handler) GetSupportedOperations() []string {
 	ops := []string{"GetMe", "GetOrganization", "ListDomains", "GetDomain", "GetByIds", "GetDirectoryObject"}
 
-	for _, name := range []string{"applications", "servicePrincipals", "users", "groups", "oauth2PermissionGrants"} {
+	collections := []string{collApplications, collServicePrincipals, collUsers, collGroups, "oauth2PermissionGrants"}
+
+	for _, name := range collections {
 		for _, verb := range []string{"List", "Create", "Get", "Update", "Delete", "Count"} {
 			ops = append(ops, verb+upperFirst(name))
 		}
@@ -151,9 +158,9 @@ func subOperation(method, last string, segs []string) string {
 		return "AddKey"
 	case strings.EqualFold(last, "removeKey"):
 		return "RemoveKey"
-	case last == "$ref" && method == http.MethodPost:
+	case last == segRef && method == http.MethodPost:
 		return "AddReference"
-	case last == "$ref":
+	case last == segRef:
 		return "RemoveReference"
 	case len(segs) > 2 && strings.HasPrefix(segs[2], "appRoleAssign") && method == http.MethodPost:
 		return "CreateAppRoleAssignment"
@@ -195,8 +202,8 @@ func (h *Handler) writeErr(c *echo.Context, err error) error {
 		Code: ge.Code, Message: ge.Message,
 		InnerError: innerError{
 			Date:            time.Now().UTC().Format(odataDateLayout),
-			RequestID:       w.Header().Get("request-id"),
-			ClientRequestID: w.Header().Get("client-request-id"),
+			RequestID:       w.Header().Get("Request-Id"),
+			ClientRequestID: w.Header().Get("Client-Request-Id"),
 		},
 	}})
 }
@@ -212,14 +219,22 @@ func (h *Handler) claimsOf(r *http.Request) (jwt.MapClaims, error) {
 
 	if !h.Settings.ValidateTokens {
 		if _, _, err := jwt.NewParser().ParseUnverified(token, claims); err != nil {
-			return nil, newErr(http.StatusUnauthorized, codeInvalidAuth, "CompactToken parsing failed with error code: 80049217")
+			return nil, newErr(
+				http.StatusUnauthorized,
+				codeInvalidAuth,
+				"CompactToken parsing failed with error code: 80049217",
+			)
 		}
 
 		return claims, nil
 	}
 
 	if h.Issuer == nil {
-		return nil, newErr(http.StatusUnauthorized, codeInvalidAuth, "Access token validation failure. Invalid signature.")
+		return nil, newErr(
+			http.StatusUnauthorized,
+			codeInvalidAuth,
+			"Access token validation failure. Invalid signature.",
+		)
 	}
 
 	claims, err := h.Issuer.Parse(token)
@@ -233,7 +248,11 @@ func (h *Handler) claimsOf(r *http.Request) (jwt.MapClaims, error) {
 	}
 
 	if aud, audErr := claims.GetAudience(); audErr != nil || !slices.ContainsFunc(aud, h.audienceAllowed(r)) {
-		return nil, newErr(http.StatusUnauthorized, codeInvalidAuth, "Access token validation failure. Invalid audience.")
+		return nil, newErr(
+			http.StatusUnauthorized,
+			codeInvalidAuth,
+			"Access token validation failure. Invalid audience.",
+		)
 	}
 
 	return claims, nil
@@ -255,8 +274,8 @@ func (h *Handler) audienceAllowed(r *http.Request) func(string) bool {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r, w := c.Request(), c.Response()
-		w.Header().Set("request-id", uuid.NewString())
-		w.Header().Set("client-request-id", orDefault(r.Header.Get("client-request-id"), uuid.NewString()))
+		w.Header().Set("Request-Id", uuid.NewString())
+		w.Header().Set("Client-Request-Id", orDefault(r.Header.Get("Client-Request-Id"), uuid.NewString()))
 		w.Header().Set("Cache-Control", "no-cache")
 
 		claims, err := h.claimsOf(r)
@@ -268,7 +287,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		segs := graphSegments(r)
 		if len(segs) == 0 {
-			return h.writeErr(c, newErr(http.StatusBadRequest, codeBadSegment, "Invalid version: '%s'.", strings.TrimPrefix(r.URL.Path, "/")))
+			return h.writeErr(
+				c,
+				newErr(
+					http.StatusBadRequest,
+					codeBadSegment,
+					"Invalid version: '%s'.",
+					strings.TrimPrefix(r.URL.Path, "/"),
+				),
+			)
 		}
 
 		return h.dispatch(c, segs, claims)

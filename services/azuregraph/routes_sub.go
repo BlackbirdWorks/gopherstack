@@ -11,6 +11,80 @@ import (
 
 func supports(kind string, allowed ...string) bool { return slices.Contains(allowed, kind) }
 
+// subRoute serves one sub-resource segment of an application, service principal, user or group.
+type subRoute struct {
+	serve func(h *Handler, c *echo.Context, id string, tail []string) error
+	kinds []string
+}
+
+func appOrSPKinds() []string { return []string{kindApplication, kindServicePrincipal} }
+
+func memberOfKinds() []string { return []string{kindUser, kindGroup, kindServicePrincipal} }
+
+func leaf(fn func(h *Handler, c *echo.Context, id string) error) func(*Handler, *echo.Context, string, []string) error {
+	return func(h *Handler, c *echo.Context, id string, tail []string) error {
+		if len(tail) != 0 {
+			return h.writeErr(c, segmentErr(strings.Join(tail, "/")))
+		}
+
+		return fn(h, c, id)
+	}
+}
+
+func (h *Handler) relationLoader(load func(id string) ([]Object, error)) func(*Handler, *echo.Context, string) error {
+	return func(h *Handler, c *echo.Context, id string) error {
+		return h.relation(c, func() ([]Object, error) { return load(id) })
+	}
+}
+
+// subRoutes maps lower-cased sub-resource segments to their handlers.
+func (h *Handler) subRoutes() map[string]subRoute {
+	b := h.Backend
+
+	return map[string]subRoute{
+		"addpassword": {kinds: appOrSPKinds(), serve: leaf((*Handler).addPassword)},
+		"removepassword": {kinds: appOrSPKinds(), serve: leaf(func(h *Handler, c *echo.Context, id string) error {
+			return h.removeCred(c, id, b.RemovePassword)
+		})},
+		"addkey": {kinds: appOrSPKinds(), serve: leaf((*Handler).addKey)},
+		"removekey": {kinds: appOrSPKinds(), serve: leaf(func(h *Handler, c *echo.Context, id string) error {
+			return h.removeCred(c, id, b.RemoveKey)
+		})},
+		"owners": {
+			kinds: []string{kindApplication, kindServicePrincipal, kindGroup},
+			serve: func(h *Handler, c *echo.Context, id string, tail []string) error {
+				return h.refs(c, id, tail, refOps{add: b.AddOwner, remove: b.RemoveOwner, load: b.Owners})
+			},
+		},
+		"members": {
+			kinds: []string{kindGroup},
+			serve: func(h *Handler, c *echo.Context, id string, tail []string) error {
+				return h.refs(c, id, tail, refOps{add: b.AddMember, remove: b.RemoveMember, load: b.Members})
+			},
+		},
+		"transitivemembers": {kinds: []string{kindGroup}, serve: leaf(h.relationLoader(b.TransitiveMembers))},
+		"memberof": {kinds: memberOfKinds(), serve: leaf(h.relationLoader(func(id string) ([]Object, error) {
+			return b.MemberOf(id, false)
+		}))},
+		"transitivememberof": {kinds: memberOfKinds(), serve: leaf(h.relationLoader(func(id string) ([]Object, error) {
+			return b.MemberOf(id, true)
+		}))},
+		"approleassignments": {
+			kinds: []string{kindServicePrincipal, kindUser, kindGroup},
+			serve: func(h *Handler, c *echo.Context, id string, tail []string) error {
+				return h.assignments(c, id, false, tail)
+			},
+		},
+		"approleassignedto": {
+			kinds: []string{kindServicePrincipal},
+			serve: func(h *Handler, c *echo.Context, id string, tail []string) error {
+				return h.assignments(c, id, true, tail)
+			},
+		},
+		"oauth2permissiongrants": {kinds: []string{kindServicePrincipal}, serve: leaf((*Handler).clientGrants)},
+	}
+}
+
 func (h *Handler) handleSub(c *echo.Context, coll *collection, ref Ref, rest []string) error {
 	m, err := coll.get(h.Backend, ref)
 	if err != nil {
@@ -18,40 +92,13 @@ func (h *Handler) handleSub(c *echo.Context, coll *collection, ref Ref, rest []s
 	}
 
 	id, _ := m["id"].(string)
-	seg, tail := strings.ToLower(rest[0]), rest[1:]
-	k := coll.kind
-	appOrSP := supports(k, kindApplication, kindServicePrincipal)
 
-	switch {
-	case seg == "addpassword" && appOrSP && len(tail) == 0:
-		return h.addPassword(c, id)
-	case seg == "removepassword" && appOrSP && len(tail) == 0:
-		return h.removeCred(c, id, h.Backend.RemovePassword)
-	case seg == "addkey" && appOrSP && len(tail) == 0:
-		return h.addKey(c, id)
-	case seg == "removekey" && appOrSP && len(tail) == 0:
-		return h.removeCred(c, id, h.Backend.RemoveKey)
-	case seg == "owners" && supports(k, kindApplication, kindServicePrincipal, kindGroup):
-		return h.refs(c, id, tail, h.Backend.AddOwner, h.Backend.RemoveOwner,
-			func() ([]Object, error) { return h.Backend.Owners(id) })
-	case seg == "members" && k == kindGroup:
-		return h.refs(c, id, tail, h.Backend.AddMember, h.Backend.RemoveMember,
-			func() ([]Object, error) { return h.Backend.Members(id) })
-	case seg == "transitivemembers" && k == kindGroup && len(tail) == 0:
-		return h.relation(c, func() ([]Object, error) { return h.Backend.TransitiveMembers(id) })
-	case seg == "memberof" && supports(k, kindUser, kindGroup, kindServicePrincipal) && len(tail) == 0:
-		return h.relation(c, func() ([]Object, error) { return h.Backend.MemberOf(id, false) })
-	case seg == "transitivememberof" && supports(k, kindUser, kindGroup, kindServicePrincipal) && len(tail) == 0:
-		return h.relation(c, func() ([]Object, error) { return h.Backend.MemberOf(id, true) })
-	case seg == "approleassignments" && supports(k, kindServicePrincipal, kindUser, kindGroup):
-		return h.assignments(c, id, false, tail)
-	case seg == "approleassignedto" && k == kindServicePrincipal:
-		return h.assignments(c, id, true, tail)
-	case seg == "oauth2permissiongrants" && k == kindServicePrincipal && len(tail) == 0:
-		return h.clientGrants(c, id)
+	route, ok := h.subs[strings.ToLower(rest[0])]
+	if !ok || !supports(coll.kind, route.kinds...) {
+		return h.writeErr(c, segmentErr(rest[0]))
 	}
 
-	return h.writeErr(c, segmentErr(rest[0]))
+	return route.serve(h, c, id, rest[1:])
 }
 
 func (h *Handler) addPassword(c *echo.Context, id string) error {
@@ -65,7 +112,7 @@ func (h *Handler) addPassword(c *echo.Context, id string) error {
 	}
 
 	var in PasswordCredential
-	if raw := body["passwordCredential"]; len(raw) > 0 && string(raw) != "null" {
+	if raw := body["passwordCredential"]; len(raw) > 0 && string(raw) != jsonNull {
 		if err = json.Unmarshal(raw, &in); err != nil {
 			return h.writeErr(c, badRequest("Invalid value specified for property 'passwordCredential'."))
 		}
@@ -152,47 +199,25 @@ func odataRefTarget(body map[string]json.RawMessage) (string, bool) {
 	return idFromRef(ref), true
 }
 
-// refs serves owners and members: GET list, POST /$ref add, DELETE /{id}/$ref remove, and type-cast lists.
-func (h *Handler) refs(
-	c *echo.Context, id string, tail []string,
-	add, remove func(id, ref string) error, load func() ([]Object, error),
-) error {
+// refOps are the backend operations behind an owners or members relationship.
+type refOps struct {
+	add    func(id, ref string) error
+	remove func(id, ref string) error
+	load   func(id string) ([]Object, error)
+}
+
+// refs serves owners and members: GET list, POST /$ref add, GET /$ref, DELETE /{id}/$ref remove, and type casts.
+func (h *Handler) refs(c *echo.Context, id string, tail []string, ops refOps) error {
 	r := c.Request()
+	load := func() ([]Object, error) { return ops.load(id) }
 
 	switch {
 	case len(tail) == 0 && r.Method == http.MethodGet:
 		return h.relation(c, load)
-	case len(tail) == 1 && tail[0] == "$ref" && r.Method == http.MethodPost:
-		body, err := readJSON(c)
-		if err != nil {
-			return h.writeErr(c, err)
-		}
-
-		target, ok := odataRefTarget(body)
-		if !ok {
-			return h.writeErr(c, badRequest("A value is required for property '@odata.id'."))
-		}
-
-		if err = add(id, target); err != nil {
-			return h.writeErr(c, err)
-		}
-
-		return c.NoContent(http.StatusNoContent)
-	case len(tail) == 1 && tail[0] == "$ref" && r.Method == http.MethodGet:
-		objs, err := load()
-		if err != nil {
-			return h.writeErr(c, err)
-		}
-
-		refs := make([]map[string]any, 0, len(objs))
-		for _, o := range objs {
-			oid, _ := toMap(o.Entity)["id"].(string)
-			refs = append(refs, map[string]any{"@odata.id": odataBase(r) + "/directoryObjects/" + oid})
-		}
-
-		return h.json(c, http.StatusOK, map[string]any{"value": refs})
-	case len(tail) == 2 && tail[1] == "$ref" && r.Method == http.MethodDelete:
-		if err := remove(id, tail[0]); err != nil {
+	case len(tail) == 1 && tail[0] == segRef:
+		return h.refCollection(c, id, ops)
+	case len(tail) == 2 && tail[1] == segRef && r.Method == http.MethodDelete:
+		if err := ops.remove(id, tail[0]); err != nil {
 			return h.writeErr(c, err)
 		}
 
@@ -208,6 +233,46 @@ func (h *Handler) refs(
 	}
 
 	return h.writeErr(c, segmentErr(strings.Join(tail, "/")))
+}
+
+// refCollection serves POST and GET on <relationship>/$ref.
+func (h *Handler) refCollection(c *echo.Context, id string, ops refOps) error {
+	r := c.Request()
+
+	switch r.Method {
+	case http.MethodPost:
+		body, err := readJSON(c)
+		if err != nil {
+			return h.writeErr(c, err)
+		}
+
+		target, ok := odataRefTarget(body)
+		if !ok {
+			return h.writeErr(c, badRequest("A value is required for property '@odata.id'."))
+		}
+
+		if err = ops.add(id, target); err != nil {
+			return h.writeErr(c, err)
+		}
+
+		return c.NoContent(http.StatusNoContent)
+	case http.MethodGet:
+		objs, err := ops.load(id)
+		if err != nil {
+			return h.writeErr(c, err)
+		}
+
+		refs := make([]map[string]any, 0, len(objs))
+
+		for _, o := range objs {
+			oid, _ := toMap(o.Entity)["id"].(string)
+			refs = append(refs, map[string]any{"@odata.id": odataBase(r) + "/directoryObjects/" + oid})
+		}
+
+		return h.json(c, http.StatusOK, map[string]any{propValue: refs})
+	}
+
+	return h.methodNotAllowed(c)
 }
 
 func (h *Handler) assignments(c *echo.Context, id string, asResource bool, tail []string) error {

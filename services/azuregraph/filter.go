@@ -1,6 +1,8 @@
 package azuregraph
 
 import (
+	"cmp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -25,61 +27,74 @@ type token struct {
 	kind tokKind
 }
 
+func punctuationKind(c byte) (tokKind, bool) {
+	switch c {
+	case '(':
+		return tokLParen, true
+	case ')':
+		return tokRParen, true
+	case ',':
+		return tokComma, true
+	case ':':
+		return tokColon, true
+	}
+
+	return tokEOF, false
+}
+
+// lexString reads a quoted literal starting after the opening quote; two quotes in a row are one literal quote.
+func lexString(s string, i int) (string, int, bool) {
+	var sb strings.Builder
+
+	for i < len(s) {
+		if s[i] != '\'' {
+			sb.WriteByte(s[i])
+
+			i++
+
+			continue
+		}
+
+		if i+1 < len(s) && s[i+1] == '\'' {
+			sb.WriteByte('\'')
+
+			i += 2
+
+			continue
+		}
+
+		return sb.String(), i + 1, true
+	}
+
+	return "", i, false
+}
+
 func lexFilter(s string) ([]token, bool) {
 	var out []token
 
 	for i := 0; i < len(s); {
 		c := s[i]
 
-		switch {
-		case c == ' ' || c == '\t':
+		if kind, ok := punctuationKind(c); ok {
+			out, i = append(out, token{string(c), kind}), i+1
+
+			continue
+		}
+
+		switch c {
+		case ' ', '\t':
 			i++
-		case c == '(':
-			out, i = append(out, token{"(", tokLParen}), i+1
-		case c == ')':
-			out, i = append(out, token{")", tokRParen}), i+1
-		case c == ',':
-			out, i = append(out, token{",", tokComma}), i+1
-		case c == ':':
-			out, i = append(out, token{":", tokColon}), i+1
-		case c == '\'':
-			var sb strings.Builder
-
-			i++
-
-			for {
-				if i >= len(s) {
-					return nil, false
-				}
-
-				if s[i] == '\'' {
-					if i+1 < len(s) && s[i+1] == '\'' {
-						sb.WriteByte('\'')
-
-						i += 2
-
-						continue
-					}
-
-					i++
-
-					break
-				}
-
-				sb.WriteByte(s[i])
-
-				i++
+		case '\'':
+			text, next, ok := lexString(s, i+1)
+			if !ok {
+				return nil, false
 			}
 
-			out = append(out, token{sb.String(), tokString})
+			out, i = append(out, token{text, tokString}), next
 		default:
 			j := i
 			for j < len(s) && !strings.ContainsRune(" \t(),:'", rune(s[j])) {
 				j++
-			}
-
-			if j == i {
-				return nil, false
 			}
 
 			out, i = append(out, token{s[i:j], tokIdent}), j
@@ -95,11 +110,11 @@ type filterNode func(obj map[string]any, scope map[string]any) bool
 type filterParser struct {
 	err      *Error
 	resource string
+	advanced string
 	toks     []token
 	props    []string
 	vars     []string
 	pos      int
-	advanced string
 }
 
 // compiledFilter is a parsed $filter plus whether it needs advanced-query support.
@@ -129,8 +144,11 @@ func compileFilter(expr, resource string, fields map[string]bool) (*compiledFilt
 
 	for _, prop := range p.props {
 		if !fields[prop] {
-			return nil, unsupported("Unsupported or invalid query filter clause specified for property '%s' of resource '%s'.",
-				prop, resource)
+			return nil, unsupported(
+				"Unsupported or invalid query filter clause specified for property '%s' of resource '%s'.",
+				prop,
+				resource,
+			)
 		}
 	}
 
@@ -216,13 +234,7 @@ func (p *filterParser) parseUnary() filterNode {
 func (p *filterParser) isVar(path string) bool {
 	head, _, _ := strings.Cut(path, "/")
 
-	for _, v := range p.vars {
-		if v == head {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(p.vars, head)
 }
 
 func (p *filterParser) parsePrimary() filterNode {
@@ -231,7 +243,10 @@ func (p *filterParser) parsePrimary() filterNode {
 		return p.fail()
 	}
 
-	if fn := strings.ToLower(t.text); (fn == "startswith" || fn == "endswith" || fn == "contains") && p.cur().kind == tokLParen {
+	if fn := strings.ToLower(
+		t.text,
+	); (fn == "startswith" || fn == fnEndsWith || fn == "contains") &&
+		p.cur().kind == tokLParen {
 		return p.parseFunc(fn)
 	}
 
@@ -247,7 +262,7 @@ func (p *filterParser) parsePrimary() filterNode {
 	}
 
 	op := strings.ToLower(p.next().text)
-	if !slicesContainsStr([]string{"eq", "ne", "gt", "ge", "lt", "le"}, op) {
+	if !slices.Contains([]string{"eq", "ne", "gt", "ge", "lt", "le"}, op) {
 		return p.fail()
 	}
 
@@ -263,16 +278,6 @@ func (p *filterParser) parsePrimary() filterNode {
 	return func(o, s map[string]any) bool { return compareValues(resolve(path, isv, o, s), op, lit) }
 }
 
-func slicesContainsStr(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-
-	return false
-}
-
 func resolve(path string, isVar bool, obj, scope map[string]any) any {
 	root := obj
 	if isVar {
@@ -285,7 +290,7 @@ func resolve(path string, isVar bool, obj, scope map[string]any) any {
 func lookupPath(root map[string]any, path string) any {
 	var cur any = root
 
-	for _, seg := range strings.Split(path, "/") {
+	for seg := range strings.SplitSeq(path, "/") {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil
@@ -312,27 +317,28 @@ func lookupPath(root map[string]any, path string) any {
 func (p *filterParser) parseLiteral() (any, bool) {
 	t := p.next()
 
-	switch t.kind {
-	case tokString:
-		return t.text, true
-	case tokIdent:
-		switch strings.ToLower(t.text) {
-		case "true":
-			return true, true
-		case "false":
-			return false, true
-		case "null":
-			return nil, true
-		}
-
-		if f, err := strconv.ParseFloat(t.text, 64); err == nil {
-			return f, true
-		}
-
+	if t.kind == tokString {
 		return t.text, true
 	}
 
-	return nil, false
+	if t.kind != tokIdent {
+		return nil, false
+	}
+
+	switch strings.ToLower(t.text) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	case jsonNull:
+		return nil, true
+	}
+
+	if f, err := strconv.ParseFloat(t.text, 64); err == nil {
+		return f, true
+	}
+
+	return t.text, true
 }
 
 func (p *filterParser) parseFunc(fn string) filterNode {
@@ -348,7 +354,7 @@ func (p *filterParser) parseFunc(fn string) filterNode {
 		return p.fail()
 	}
 
-	if fn == "endswith" || fn == "contains" {
+	if fn == fnEndsWith || fn == "contains" {
 		p.advanced = fn
 	}
 
@@ -371,7 +377,7 @@ func (p *filterParser) parseFunc(fn string) filterNode {
 		switch fn {
 		case "startswith":
 			return strings.HasPrefix(g, w)
-		case "endswith":
+		case fnEndsWith:
 			return strings.HasSuffix(g, w)
 		}
 
@@ -397,7 +403,7 @@ func (p *filterParser) parseAny(path string) filterNode {
 		return p.fail()
 	}
 
-	return func(o, s map[string]any) bool {
+	return func(o, _ map[string]any) bool {
 		list, _ := lookupPath(o, path).([]any)
 
 		for _, item := range list {
@@ -408,6 +414,29 @@ func (p *filterParser) parseAny(path string) filterNode {
 
 		return false
 	}
+}
+
+// compareOperands orders got against want; ok is false when the types differ.
+func compareOperands(got, want any) (int, bool) {
+	switch w := want.(type) {
+	case string:
+		g, ok := got.(string)
+
+		return strings.Compare(strings.ToLower(g), strings.ToLower(w)), ok
+	case bool:
+		g, ok := got.(bool)
+		if g != w {
+			return 1, ok
+		}
+
+		return 0, ok
+	case float64:
+		g, ok := got.(float64)
+
+		return cmp.Compare(g, w), ok
+	}
+
+	return 0, false
 }
 
 func compareValues(got any, op string, want any) bool {
@@ -421,37 +450,9 @@ func compareValues(got any, op string, want any) bool {
 		return op == "ne"
 	}
 
-	var c int
-
-	switch w := want.(type) {
-	case string:
-		g, ok := got.(string)
-		if !ok {
-			return op == "ne"
-		}
-
-		c = strings.Compare(strings.ToLower(g), strings.ToLower(w))
-	case bool:
-		g, ok := got.(bool)
-		if !ok {
-			return op == "ne"
-		}
-
-		if g != w {
-			c = 1
-		}
-	case float64:
-		g, ok := got.(float64)
-		if !ok {
-			return op == "ne"
-		}
-
-		switch {
-		case g < w:
-			c = -1
-		case g > w:
-			c = 1
-		}
+	c, ok := compareOperands(got, want)
+	if !ok {
+		return op == "ne"
 	}
 
 	switch op {

@@ -20,7 +20,10 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	app := newApp(t, e, "Persisted")
 	appID := str(app, "appId")
 	sp := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{"appId": appID})
-	secret := str(e.req(t, http.MethodPost, "/v1.0/applications/"+str(app, "id")+"/addPassword", map[string]any{}).body, "secretText")
+	secret := str(
+		e.req(t, http.MethodPost, "/v1.0/applications/"+str(app, "id")+"/addPassword", map[string]any{}).body,
+		"secretText",
+	)
 	user := newUser(t, e, "persist"+upnDomain)
 	group := newGroup(t, e, "Persisted Group")
 
@@ -28,8 +31,16 @@ func TestPersistenceRoundTrip(t *testing.T) {
 		return map[string]any{"@odata.id": "https://graph.microsoft.com/v1.0/directoryObjects/" + str(o, "id")}
 	}
 
-	require.Equal(t, http.StatusNoContent, e.req(t, http.MethodPost, "/v1.0/groups/"+str(group, "id")+"/members/$ref", ref(user)).status)
-	require.Equal(t, http.StatusNoContent, e.req(t, http.MethodPost, "/v1.0/applications/"+str(app, "id")+"/owners/$ref", ref(user)).status)
+	require.Equal(
+		t,
+		http.StatusNoContent,
+		e.req(t, http.MethodPost, "/v1.0/groups/"+str(group, "id")+"/members/$ref", ref(user)).status,
+	)
+	require.Equal(
+		t,
+		http.StatusNoContent,
+		e.req(t, http.MethodPost, "/v1.0/applications/"+str(app, "id")+"/owners/$ref", ref(user)).status,
+	)
 	e.mustCreate(t, "/v1.0/servicePrincipals/"+str(sp, "id")+"/appRoleAssignments", map[string]any{
 		"principalId": str(sp, "id"), "resourceId": graphSP, "appRoleId": appReadAll,
 	})
@@ -54,7 +65,11 @@ func TestPersistenceRoundTrip(t *testing.T) {
 
 	assert.Len(t, fresh.req(t, http.MethodGet, "/v1.0/groups/"+str(group, "id")+"/members", nil).body["value"], 1)
 	assert.Len(t, fresh.req(t, http.MethodGet, "/v1.0/applications/"+str(app, "id")+"/owners", nil).body["value"], 1)
-	assert.Len(t, fresh.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+str(sp, "id")+"/appRoleAssignments", nil).body["value"], 1)
+	assert.Len(
+		t,
+		fresh.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+str(sp, "id")+"/appRoleAssignments", nil).body["value"],
+		1,
+	)
 
 	oid, known, err := fresh.h.Backend.AuthenticateClient(appID, secret)
 	require.NoError(t, err)
@@ -62,19 +77,31 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, str(sp, "id"), oid)
 
 	t.Run("reset re-seeds the built-in principal", func(t *testing.T) {
-		fresh.h.Reset()
-		assert.Equal(t, http.StatusOK, fresh.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+graphSP, nil).status)
-		assert.Equal(t, http.StatusNotFound, fresh.req(t, http.MethodGet, "/v1.0/applications/"+str(app, "id"), nil).status)
+		t.Parallel()
+
+		other := newEnv(t)
+		require.NoError(t, other.h.Restore(t.Context(), snap))
+		other.h.Reset()
+		assert.Equal(t, http.StatusOK, other.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+graphSP, nil).status)
+		assert.Equal(
+			t,
+			http.StatusNotFound,
+			other.req(t, http.MethodGet, "/v1.0/applications/"+str(app, "id"), nil).status,
+		)
 	})
 
 	t.Run("incompatible snapshot starts empty", func(t *testing.T) {
+		t.Parallel()
+
 		other := newEnv(t)
 		require.NoError(t, other.h.Restore(t.Context(), []byte(`{"version":99}`)))
 		assert.Equal(t, http.StatusOK, other.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+graphSP, nil).status)
 	})
 
 	t.Run("corrupt snapshot", func(t *testing.T) {
-		assert.Error(t, newEnv(t).h.Restore(t.Context(), []byte("not json")))
+		t.Parallel()
+
+		require.Error(t, newEnv(t).h.Restore(t.Context(), []byte("not json")))
 	})
 }
 
@@ -97,13 +124,27 @@ func TestOrganizationAndDomains(t *testing.T) {
 	assert.Equal(t, true, d0["isInitial"])
 	assert.Equal(t, "gopherstack.onmicrosoft.com", str(d0, "name"))
 
-	assert.Equal(t, http.StatusOK, e.req(t, http.MethodGet, "/v1.0/organization/"+azuregraph.DefaultTenantID, nil).status)
-	assertErr(t, e.req(t, http.MethodGet, "/v1.0/organization/"+newID0(), nil), http.StatusNotFound, "Request_ResourceNotFound")
+	assert.Equal(
+		t,
+		http.StatusOK,
+		e.req(t, http.MethodGet, "/v1.0/organization/"+azuregraph.DefaultTenantID, nil).status,
+	)
+	assertErr(
+		t,
+		e.req(t, http.MethodGet, "/v1.0/organization/"+newID0(), nil),
+		http.StatusNotFound,
+		"Request_ResourceNotFound",
+	)
 
 	list := e.req(t, http.MethodGet, "/v1.0/domains", nil)
 	assert.Len(t, list.body["value"], 3)
 	assert.Equal(t, http.StatusOK, e.req(t, http.MethodGet, "/v1.0/domains/other.example", nil).status)
-	assertErr(t, e.req(t, http.MethodGet, "/v1.0/domains/nope.example", nil), http.StatusNotFound, "Request_ResourceNotFound")
+	assertErr(
+		t,
+		e.req(t, http.MethodGet, "/v1.0/domains/nope.example", nil),
+		http.StatusNotFound,
+		"Request_ResourceNotFound",
+	)
 }
 
 func TestRoutingErrors(t *testing.T) {
@@ -111,7 +152,7 @@ func TestRoutingErrors(t *testing.T) {
 
 	e := newEnv(t)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 		name   string
 		method string
 		path   string
@@ -120,7 +161,13 @@ func TestRoutingErrors(t *testing.T) {
 	}{
 		{"no version", http.MethodGet, "/applications", http.StatusBadRequest, "BadRequest"},
 		{"unknown collection", http.MethodGet, "/v1.0/widgets", http.StatusBadRequest, "BadRequest"},
-		{"unknown subresource", http.MethodGet, "/v1.0/users/" + newID0() + "/widgets", http.StatusNotFound, "Request_ResourceNotFound"},
+		{
+			"unknown subresource",
+			http.MethodGet,
+			"/v1.0/users/" + newID0() + "/widgets",
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		},
 		{"method not allowed", http.MethodPut, "/v1.0/applications", http.StatusMethodNotAllowed, "Request_BadRequest"},
 		{"beta works", http.MethodGet, "/beta/applications", http.StatusOK, ""},
 		{"root", http.MethodGet, "/", http.StatusBadRequest, "BadRequest"},
@@ -143,11 +190,11 @@ func TestRoutingErrors(t *testing.T) {
 	}
 
 	r := e.req(t, http.MethodGet, "/v1.0/applications", nil)
-	assert.NotEmpty(t, r.header.Get("request-id"))
-	assert.NotEmpty(t, r.header.Get("client-request-id"))
+	assert.NotEmpty(t, r.header.Get("Request-Id"))
+	assert.NotEmpty(t, r.header.Get("Client-Request-Id"))
 
-	echoed := e.req(t, http.MethodGet, "/v1.0/applications", nil, "client-request-id", "abc-123")
-	assert.Equal(t, "abc-123", echoed.header.Get("client-request-id"))
+	echoed := e.req(t, http.MethodGet, "/v1.0/applications", nil, "Client-Request-Id", "abc-123")
+	assert.Equal(t, "abc-123", echoed.header.Get("Client-Request-Id"))
 	assert.Contains(t, echoed.header.Get("Content-Type"), "odata.metadata=minimal")
 }
 
@@ -172,7 +219,11 @@ func TestProviderAndSettings(t *testing.T) {
 
 	cfg := azuregraph.DefaultSettings()
 	cfg.TLSCertFile = "cert.pem"
-	assert.Error(t, azuregraph.NewHandler(azuregraph.NewBackend(cfg), cfg).StartWorker(t.Context()), "cert without key must fail before serving")
+	assert.Error(
+		t,
+		azuregraph.NewHandler(azuregraph.NewBackend(cfg), cfg).StartWorker(t.Context()),
+		"cert without key must fail before serving",
+	)
 }
 
 func TestOperationNames(t *testing.T) {

@@ -3,12 +3,16 @@ package azurearm
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
+
+// codeInvalidClientSecret is the AADSTS error code for a wrong or expired client secret.
+const codeInvalidClientSecret = 7000215
 
 // ClientAuthenticator checks client-credentials requests against a directory of registered applications.
 // known is false for a client the directory does not know, which keeps the permissive dev-client behaviour.
@@ -76,18 +80,28 @@ func (p *AuthorizationProvider) directoryType(id string) (string, bool) {
 func (h *Handler) writeClientAuthError(c *echo.Context, err *ClientAuthError) error {
 	stamp := time.Now().UTC().Format("2006-01-02 15:04:05Z")
 	trace, corr := uuid.NewString(), uuid.NewString()
-	desc := fmt.Sprintf("%s\r\nTrace ID: %s\r\nCorrelation ID: %s\r\nTimestamp: %s", err.Description, trace, corr, stamp)
+	desc := fmt.Sprintf(
+		"%s\r\nTrace ID: %s\r\nCorrelation ID: %s\r\nTimestamp: %s",
+		err.Description,
+		trace,
+		corr,
+		stamp,
+	)
 
 	return h.writeJSON(c, err.Status, map[string]any{
 		"error": err.Name, "error_description": desc, "error_codes": []int{err.Code}, "timestamp": stamp,
 		"trace_id": trace, "correlation_id": corr,
-		"error_uri": "https://login.microsoftonline.com/error?code=" + fmt.Sprint(err.Code),
+		"error_uri": "https://login.microsoftonline.com/error?code=" + strconv.Itoa(err.Code),
 	})
 }
 
 // authenticateClient checks the request's client credentials. objectID is the token's oid claim, empty when the
 // client is not in the directory.
-func (h *Handler) authenticateClient(r *http.Request, clientID string, form map[string][]string) (string, *ClientAuthError) {
+func (h *Handler) authenticateClient(
+	r *http.Request,
+	clientID string,
+	form map[string][]string,
+) (string, *ClientAuthError) {
 	if h.clients == nil || clientID == "" {
 		return "", nil
 	}
@@ -108,5 +122,10 @@ func (h *Handler) authenticateClient(r *http.Request, clientID string, form map[
 		return "", ce
 	}
 
-	return "", &ClientAuthError{Status: http.StatusUnauthorized, Name: "invalid_client", Code: 7000215, Description: strings.TrimSpace(err.Error())}
+	return "", &ClientAuthError{
+		Status:      http.StatusUnauthorized,
+		Name:        "invalid_client",
+		Code:        codeInvalidClientSecret,
+		Description: strings.TrimSpace(err.Error()),
+	}
 }

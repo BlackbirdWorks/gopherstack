@@ -165,8 +165,11 @@ func newUser(t *testing.T, e *env, upn string) map[string]any {
 	t.Helper()
 
 	return e.mustCreate(t, "/v1.0/users", map[string]any{
-		"accountEnabled": true, "displayName": "User " + upn, "mailNickname": strings.Split(upn, "@")[0],
-		"userPrincipalName": upn, "passwordProfile": map[string]any{"password": "Sup3r-secret!", "forceChangePasswordNextSignIn": false},
+		"accountEnabled":    true,
+		"displayName":       "User " + upn,
+		"mailNickname":      strings.Split(upn, "@")[0],
+		"userPrincipalName": upn,
+		"passwordProfile":   map[string]any{"password": "Sup3r-secret!", "forceChangePasswordNextSignIn": false},
 	})
 }
 
@@ -180,7 +183,10 @@ func newGroup(t *testing.T, e *env, name string) map[string]any {
 	t.Helper()
 
 	return e.mustCreate(t, "/v1.0/groups", map[string]any{
-		"displayName": name, "mailEnabled": false, "mailNickname": strings.ReplaceAll(name, " ", ""), "securityEnabled": true,
+		"displayName":     name,
+		"mailEnabled":     false,
+		"mailNickname":    strings.ReplaceAll(name, " ", ""),
+		"securityEnabled": true,
 	})
 }
 

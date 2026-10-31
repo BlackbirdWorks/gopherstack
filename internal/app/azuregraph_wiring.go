@@ -43,8 +43,7 @@ type graphClientAuth struct {
 func (a *graphClientAuth) AuthenticateClient(clientID, secret string) (string, bool, error) {
 	oid, known, err := a.backend.AuthenticateClient(clientID, secret)
 
-	var ce *azuregraph.ClientAuthError
-	if errors.As(err, &ce) {
+	if ce, ok := errors.AsType[*azuregraph.ClientAuthError](err); ok {
 		return "", known, &azurearm.ClientAuthError{
 			Name: ce.Name, Description: ce.Description, Status: ce.Status, Code: ce.Code,
 		}

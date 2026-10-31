@@ -21,24 +21,26 @@ import (
 type fakeClients struct{}
 
 func (fakeClients) AuthenticateClient(clientID, secret string) (string, bool, error) {
-	switch clientID {
-	case "registered":
-		if secret == "right" {
-			return "oid-registered", true, nil
-		}
-
-		return "", true, &azurearm.ClientAuthError{
-			Name: "invalid_client", Status: http.StatusUnauthorized, Code: 7000215, Description: "AADSTS7000215: bad secret",
-		}
+	if clientID != "registered" {
+		return "", false, nil
 	}
 
-	return "", false, nil
+	if secret == "right" {
+		return "oid-registered", true, nil
+	}
+
+	return "", true, &azurearm.ClientAuthError{
+		Name:        "invalid_client",
+		Status:      http.StatusUnauthorized,
+		Code:        7000215,
+		Description: "AADSTS7000215: bad secret",
+	}
 }
 
 func TestTokenEndpointClientAuthentication(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 		name      string
 		form      url.Values
 		basicUser string
@@ -47,11 +49,35 @@ func TestTokenEndpointClientAuthentication(t *testing.T) {
 		wantOID   string
 		wantCode  int
 	}{
-		{"registered ok", url.Values{"client_id": {"registered"}, "client_secret": {"right"}}, "", "", 200, "oid-registered", 0},
+		{
+			"registered ok",
+			url.Values{"client_id": {"registered"}, "client_secret": {"right"}},
+			"",
+			"",
+			200,
+			"oid-registered",
+			0,
+		},
 		{"registered basic auth", url.Values{}, "registered", "right", 200, "oid-registered", 0},
-		{"registered wrong secret", url.Values{"client_id": {"registered"}, "client_secret": {"wrong"}}, "", "", 401, "", 7000215},
+		{
+			"registered wrong secret",
+			url.Values{"client_id": {"registered"}, "client_secret": {"wrong"}},
+			"",
+			"",
+			401,
+			"",
+			7000215,
+		},
 		{"registered no secret", url.Values{"client_id": {"registered"}}, "", "", 401, "", 7000215},
-		{"unregistered stays permissive", url.Values{"client_id": {"someone"}, "client_secret": {"x"}}, "", "", 200, "someone", 0},
+		{
+			"unregistered stays permissive",
+			url.Values{"client_id": {"someone"}, "client_secret": {"x"}},
+			"",
+			"",
+			200,
+			"someone",
+			0,
+		},
 		{"no client id uses dev client", url.Values{}, "", "", 200, azurearm.DefaultClientID, 0},
 	}
 
@@ -65,7 +91,11 @@ func TestTokenEndpointClientAuthentication(t *testing.T) {
 			tt.form.Set("grant_type", "client_credentials")
 			tt.form.Set("scope", "https://graph.microsoft.com/.default")
 
-			req := httptest.NewRequest(http.MethodPost, "/tenant/oauth2/v2.0/token", strings.NewReader(tt.form.Encode()))
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/tenant/oauth2/v2.0/token",
+				strings.NewReader(tt.form.Encode()),
+			)
 			req.Host = "host:10006"
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -89,7 +119,9 @@ func TestTokenEndpointClientAuthentication(t *testing.T) {
 				return
 			}
 
-			claims, err := h.Issuer.Parse(body["access_token"].(string)) //nolint:forcetypeassert,errcheck // asserted by the status check
+			claims, err := h.Issuer.Parse(
+				body["access_token"].(string),
+			) //nolint:forcetypeassert // asserted by the status check
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantOID, claims["oid"])
 			assert.Equal(t, "https://graph.microsoft.com/", claims["aud"])
@@ -117,7 +149,7 @@ func (c validatingConfig) GetAzureARMSettings() azurearm.Settings {
 func TestRoleAssignmentPrincipalDirectory(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 		name      string
 		validate  bool
 		principal string
@@ -149,11 +181,15 @@ func TestRoleAssignmentPrincipalDirectory(t *testing.T) {
 			srv := httptest.NewTLSServer(e)
 			t.Cleanup(srv.Close)
 
-			body := `{"properties":{"roleDefinitionId":"` + authSubScope + `/providers/Microsoft.Authorization/roleDefinitions/` +
-				roleReader + `","principalId":"` + tt.principal + `"}}`
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodPut,
-				srv.URL+authSubScope+"/providers/Microsoft.Authorization/roleAssignments/55555555-5555-5555-5555-555555555555?api-version=2022-04-01",
-				strings.NewReader(body))
+			body := `{"properties":{"roleDefinitionId":"` + authSubScope +
+				`/providers/Microsoft.Authorization/roleDefinitions/` + roleReader + `","principalId":"` + tt.principal + `"}}`
+			req, err := http.NewRequestWithContext(
+				t.Context(),
+				http.MethodPut,
+				srv.URL+authSubScope+"/providers/Microsoft.Authorization/roleAssignments/"+
+					"55555555-5555-5555-5555-555555555555?api-version=2022-04-01",
+				strings.NewReader(body),
+			)
 			require.NoError(t, err)
 
 			req.Header.Set("Content-Type", "application/json")

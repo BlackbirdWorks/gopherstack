@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-var spReadOnly = []string{"id", "createdDateTime", "passwordCredentials", "keyCredentials"} //nolint:gochecknoglobals // fixed list
-
 func (b *Backend) findSP(r Ref) (*ServicePrincipal, error) {
 	switch r.Field {
 	case "":
@@ -19,7 +17,7 @@ func (b *Backend) findSP(r Ref) (*ServicePrincipal, error) {
 		}
 
 		return nil, notFound(r.ID)
-	case "appId":
+	case propAppID:
 		for _, s := range b.sps.all() {
 			if strings.EqualFold(s.AppID, r.Value) {
 				return s, nil
@@ -38,18 +36,20 @@ func (b *Backend) CreateServicePrincipal(body map[string]json.RawMessage) (Servi
 	defer b.mu.Unlock()
 
 	sp := &ServicePrincipal{
-		ID: newID(), CreatedDateTime: b.stamp(), AccountEnabled: true, ServicePrincipalType: "Application",
-		AppOwnerOrganizationID: b.cfg.TenantID, SignInAudience: "AzureADMyOrg",
+		ID: newID(), CreatedDateTime: b.stamp(), AccountEnabled: true, ServicePrincipalType: typeApplication,
+		AppOwnerOrganizationID: b.cfg.TenantID, SignInAudience: audienceMyOrg,
 	}
 	sp.normalize()
 
-	sp, err := applyBody(sp, body, spReadOnly...)
+	sp, err := applyBody(sp, body, spReadOnly()...)
 	if err != nil {
 		return ServicePrincipal{}, err
 	}
 
 	if sp.AppID == "" {
-		return ServicePrincipal{}, badRequest("A value is required for property 'appId' of resource 'ServicePrincipal'.")
+		return ServicePrincipal{}, badRequest(
+			"A value is required for property 'appId' of resource 'ServicePrincipal'.",
+		)
 	}
 
 	for _, o := range b.sps.all() {
@@ -59,14 +59,15 @@ func (b *Backend) CreateServicePrincipal(body map[string]json.RawMessage) (Servi
 		}
 	}
 
-	app, err := b.findApp(Ref{Field: "appId", Value: sp.AppID})
+	app, err := b.findApp(Ref{Field: propAppID, Value: sp.AppID})
 	if err != nil {
 		return ServicePrincipal{}, badRequest(
 			"The appId '%s' of the service principal does not reference a valid application object.", sp.AppID)
 	}
 
 	sp.AppID, sp.DisplayName, sp.AppDisplayName = app.AppID, orDefault(sp.DisplayName, app.DisplayName), app.DisplayName
-	sp.AppRoles, sp.OAuth2PermissionScopes, sp.SignInAudience = app.AppRoles, app.API.OAuth2PermissionScopes, app.SignInAudience
+	sp.AppRoles, sp.OAuth2PermissionScopes = app.AppRoles, app.API.OAuth2PermissionScopes
+	sp.SignInAudience = app.SignInAudience
 	sp.ServicePrincipalNames = append([]string{app.AppID}, app.IdentifierURIs...)
 
 	owners, err := b.ownerBinds(body)
@@ -123,7 +124,7 @@ func (b *Backend) UpdateServicePrincipal(r Ref, body map[string]json.RawMessage)
 		return denied()
 	}
 
-	next, err := applyBody(cur, body, append([]string{"appId", "appOwnerOrganizationId"}, spReadOnly...)...)
+	next, err := applyBody(cur, body, append([]string{propAppID, "appOwnerOrganizationId"}, spReadOnly()...)...)
 	if err != nil {
 		return err
 	}

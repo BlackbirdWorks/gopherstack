@@ -1,6 +1,7 @@
 package azuregraph_test
 
 import (
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -31,7 +32,12 @@ func TestUsers(t *testing.T) {
 			assert.NotContains(t, r.raw, "Sup3r-secret!")
 		}
 
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/users/nobody"+upnDomain, nil), http.StatusNotFound, "Request_ResourceNotFound")
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/users/nobody"+upnDomain, nil),
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		)
 	})
 
 	t.Run("create validation", func(t *testing.T) {
@@ -43,10 +49,7 @@ func TestUsers(t *testing.T) {
 		}
 
 		with := func(k string, v any) map[string]any {
-			m := map[string]any{}
-			for kk, vv := range ok {
-				m[kk] = vv
-			}
+			m := maps.Clone(ok)
 
 			if v == nil {
 				delete(m, k)
@@ -85,7 +88,12 @@ func TestUsers(t *testing.T) {
 
 		extra := with("userPrincipalName", "bob@example.com")
 		extra["mailNickname"] = "bob"
-		assert.Equal(t, http.StatusCreated, e.req(t, http.MethodPost, "/v1.0/users", extra).status, "extra verified domains are case-insensitive")
+		assert.Equal(
+			t,
+			http.StatusCreated,
+			e.req(t, http.MethodPost, "/v1.0/users", extra).status,
+			"extra verified domains are case-insensitive",
+		)
 	})
 
 	t.Run("patch and delete", func(t *testing.T) {
@@ -95,15 +103,27 @@ func TestUsers(t *testing.T) {
 		path := "/v1.0/users/" + str(v, "id")
 
 		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodPatch, path, map[string]any{
-			"jobTitle": "Engineer", "accountEnabled": false, "passwordProfile": map[string]any{"password": "An0ther-pass!"},
+			"jobTitle":        "Engineer",
+			"accountEnabled":  false,
+			"passwordProfile": map[string]any{"password": "An0ther-pass!"},
 		}).status)
 
 		got := e.req(t, http.MethodGet, path+"?$select=jobTitle,accountEnabled", nil).body
 		assert.Equal(t, "Engineer", str(got, "jobTitle"))
 		assert.Equal(t, false, got["accountEnabled"])
 
-		assertErr(t, e.req(t, http.MethodPatch, path, map[string]any{"userPrincipalName": "carol@contoso.com"}), http.StatusBadRequest, "Request_BadRequest")
-		assertErr(t, e.req(t, http.MethodPatch, path, map[string]any{"passwordProfile": map[string]any{"password": "x"}}), http.StatusBadRequest, "Request_BadRequest")
+		assertErr(
+			t,
+			e.req(t, http.MethodPatch, path, map[string]any{"userPrincipalName": "carol@contoso.com"}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodPatch, path, map[string]any{"passwordProfile": map[string]any{"password": "x"}}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 
 		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, path, nil).status)
 		assertErr(t, e.req(t, http.MethodGet, path, nil), http.StatusNotFound, "Request_ResourceNotFound")
@@ -123,18 +143,71 @@ func TestGroups(t *testing.T) {
 	t.Run("create validation", func(t *testing.T) {
 		t.Parallel()
 
-		tests := []struct {
+		tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 			name string
 			body map[string]any
 			code int
 		}{
-			{"m365", map[string]any{"displayName": "Team", "mailEnabled": true, "mailNickname": "team", "securityEnabled": false, "groupTypes": []string{"Unified"}}, http.StatusCreated},
-			{"missing nickname", map[string]any{"displayName": "x", "mailEnabled": false, "securityEnabled": true}, http.StatusBadRequest},
-			{"neither flag", map[string]any{"displayName": "x", "mailEnabled": false, "mailNickname": "x", "securityEnabled": false}, http.StatusBadRequest},
-			{"mail enabled non-unified", map[string]any{"displayName": "x", "mailEnabled": true, "mailNickname": "x", "securityEnabled": true}, http.StatusBadRequest},
-			{"bad group type", map[string]any{"displayName": "x", "mailEnabled": false, "mailNickname": "x", "securityEnabled": true, "groupTypes": []string{"Nope"}}, http.StatusBadRequest},
-			{"role assignable needs security", map[string]any{"displayName": "x", "mailEnabled": true, "mailNickname": "x", "securityEnabled": false, "groupTypes": []string{"Unified"}, "isAssignableToRole": true}, http.StatusBadRequest},
-			{"role assignable", map[string]any{"displayName": "x", "mailEnabled": false, "mailNickname": "x", "securityEnabled": true, "isAssignableToRole": true}, http.StatusCreated},
+			{
+				"m365",
+				map[string]any{
+					"displayName":     "Team",
+					"mailEnabled":     true,
+					"mailNickname":    "team",
+					"securityEnabled": false,
+					"groupTypes":      []string{"Unified"},
+				},
+				http.StatusCreated,
+			},
+			{
+				"missing nickname",
+				map[string]any{"displayName": "x", "mailEnabled": false, "securityEnabled": true},
+				http.StatusBadRequest,
+			},
+			{
+				"neither flag",
+				map[string]any{"displayName": "x", "mailEnabled": false, "mailNickname": "x", "securityEnabled": false},
+				http.StatusBadRequest,
+			},
+			{
+				"mail enabled non-unified",
+				map[string]any{"displayName": "x", "mailEnabled": true, "mailNickname": "x", "securityEnabled": true},
+				http.StatusBadRequest,
+			},
+			{
+				"bad group type",
+				map[string]any{
+					"displayName":     "x",
+					"mailEnabled":     false,
+					"mailNickname":    "x",
+					"securityEnabled": true,
+					"groupTypes":      []string{"Nope"},
+				},
+				http.StatusBadRequest,
+			},
+			{
+				"role assignable needs security",
+				map[string]any{
+					"displayName":        "x",
+					"mailEnabled":        true,
+					"mailNickname":       "x",
+					"securityEnabled":    false,
+					"groupTypes":         []string{"Unified"},
+					"isAssignableToRole": true,
+				},
+				http.StatusBadRequest,
+			},
+			{
+				"role assignable",
+				map[string]any{
+					"displayName":        "x",
+					"mailEnabled":        false,
+					"mailNickname":       "x",
+					"securityEnabled":    true,
+					"isAssignableToRole": true,
+				},
+				http.StatusCreated,
+			},
 		}
 
 		for _, tt := range tests {
@@ -159,12 +232,41 @@ func TestGroups(t *testing.T) {
 		mid := str(member, "id")
 		ref := map[string]any{"@odata.id": "https://graph.microsoft.com/v1.0/directoryObjects/" + mid}
 
-		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", ref).status)
-		assertErr(t, e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", ref), http.StatusBadRequest, "Request_BadRequest")
+		require.Equal(
+			t,
+			http.StatusNoContent,
+			e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", ref).status,
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", ref),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 		assert.Contains(t, e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", ref).raw, "already exist")
-		assertErr(t, e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", map[string]any{}), http.StatusBadRequest, "Request_BadRequest")
-		assertErr(t, e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", map[string]any{"@odata.id": "x/" + newID0()}), http.StatusNotFound, "Request_ResourceNotFound")
-		assertErr(t, e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", map[string]any{"@odata.id": "x/" + gid}), http.StatusBadRequest, "Request_BadRequest")
+		assertErr(
+			t,
+			e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", map[string]any{}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
+		assertErr(
+			t,
+			e.req(
+				t,
+				http.MethodPost,
+				"/v1.0/groups/"+gid+"/members/$ref",
+				map[string]any{"@odata.id": "x/" + newID0()},
+			),
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/members/$ref", map[string]any{"@odata.id": "x/" + gid}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 
 		members := e.req(t, http.MethodGet, "/v1.0/groups/"+gid+"/members", nil)
 		require.Len(t, members.body["value"], 1)
@@ -182,8 +284,17 @@ func TestGroups(t *testing.T) {
 		of := e.req(t, http.MethodGet, "/v1.0/users/"+mid+"/memberOf", nil)
 		require.Len(t, of.body["value"], 1)
 
-		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/groups/"+gid+"/members/"+mid+"/$ref", nil).status)
-		assertErr(t, e.req(t, http.MethodDelete, "/v1.0/groups/"+gid+"/members/"+mid+"/$ref", nil), http.StatusNotFound, "Request_ResourceNotFound")
+		require.Equal(
+			t,
+			http.StatusNoContent,
+			e.req(t, http.MethodDelete, "/v1.0/groups/"+gid+"/members/"+mid+"/$ref", nil).status,
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodDelete, "/v1.0/groups/"+gid+"/members/"+mid+"/$ref", nil),
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		)
 	})
 
 	t.Run("transitive membership", func(t *testing.T) {
@@ -222,17 +333,31 @@ func TestGroups(t *testing.T) {
 
 		for _, base := range []string{"/v1.0/groups/" + gid, "/v1.0/applications/" + str(app, "id")} {
 			require.Equal(t, http.StatusNoContent, e.req(t, http.MethodPost, base+"/owners/$ref", ref).status, base)
-			assertErr(t, e.req(t, http.MethodPost, base+"/owners/$ref", ref), http.StatusBadRequest, "Request_BadRequest")
+			assertErr(
+				t,
+				e.req(t, http.MethodPost, base+"/owners/$ref", ref),
+				http.StatusBadRequest,
+				"Request_BadRequest",
+			)
 
 			list := e.req(t, http.MethodGet, base+"/owners", nil)
 			require.Len(t, list.body["value"], 1, base)
-			require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, base+"/owners/"+str(owner, "id")+"/$ref", nil).status)
+			require.Equal(
+				t,
+				http.StatusNoContent,
+				e.req(t, http.MethodDelete, base+"/owners/"+str(owner, "id")+"/$ref", nil).status,
+			)
 			assert.Empty(t, e.req(t, http.MethodGet, base+"/owners", nil).body["value"])
 		}
 
 		assertErr(t, e.req(t, http.MethodPost, "/v1.0/groups/"+gid+"/owners/$ref",
 			map[string]any{"@odata.id": "x/" + gid}), http.StatusBadRequest, "Request_BadRequest")
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/users/"+str(owner, "id")+"/owners", nil), http.StatusBadRequest, "BadRequest")
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/users/"+str(owner, "id")+"/owners", nil),
+			http.StatusBadRequest,
+			"BadRequest",
+		)
 	})
 
 	t.Run("bind on create", func(t *testing.T) {
@@ -261,9 +386,23 @@ func TestGroups(t *testing.T) {
 		x := newGroup(t, e, "Temp")
 		path := "/v1.0/groups/" + str(x, "id")
 
-		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodPatch, path, map[string]any{"description": "d"}).status)
-		assertErr(t, e.req(t, http.MethodPatch, path, map[string]any{"isAssignableToRole": true}), http.StatusBadRequest, "Request_BadRequest")
-		assertErr(t, e.req(t, http.MethodPatch, path, map[string]any{"mail": "x@y"}), http.StatusBadRequest, "Request_BadRequest")
+		require.Equal(
+			t,
+			http.StatusNoContent,
+			e.req(t, http.MethodPatch, path, map[string]any{"description": "d"}).status,
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodPatch, path, map[string]any{"isAssignableToRole": true}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodPatch, path, map[string]any{"mail": "x@y"}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, path, nil).status)
 		assertErr(t, e.req(t, http.MethodGet, path, nil), http.StatusNotFound, "Request_ResourceNotFound")
 	})
@@ -309,17 +448,41 @@ func TestDirectoryObjects(t *testing.T) {
 		})
 	}
 
-	assertErr(t, e.req(t, http.MethodPost, "/v1.0/directoryObjects/getByIds", map[string]any{"ids": []string{"x"}}), http.StatusBadRequest, "Request_BadRequest")
-	assertErr(t, e.req(t, http.MethodPost, "/v1.0/directoryObjects/getByIds", map[string]any{}), http.StatusBadRequest, "Request_BadRequest")
+	assertErr(
+		t,
+		e.req(t, http.MethodPost, "/v1.0/directoryObjects/getByIds", map[string]any{"ids": []string{"x"}}),
+		http.StatusBadRequest,
+		"Request_BadRequest",
+	)
+	assertErr(
+		t,
+		e.req(t, http.MethodPost, "/v1.0/directoryObjects/getByIds", map[string]any{}),
+		http.StatusBadRequest,
+		"Request_BadRequest",
+	)
 
 	doomed := newGroup(t, e, "Doomed")
 	one := e.req(t, http.MethodGet, "/v1.0/directoryObjects/"+str(doomed, "id"), nil)
 	require.Equal(t, http.StatusOK, one.status)
 	assert.Equal(t, "#microsoft.graph.group", str(one.body, "@odata.type"))
 
-	assertErr(t, e.req(t, http.MethodGet, "/v1.0/directoryObjects/"+newID0(), nil), http.StatusNotFound, "Request_ResourceNotFound")
-	require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/directoryObjects/"+str(doomed, "id"), nil).status)
-	assertErr(t, e.req(t, http.MethodGet, "/v1.0/groups/"+str(doomed, "id"), nil), http.StatusNotFound, "Request_ResourceNotFound")
+	assertErr(
+		t,
+		e.req(t, http.MethodGet, "/v1.0/directoryObjects/"+newID0(), nil),
+		http.StatusNotFound,
+		"Request_ResourceNotFound",
+	)
+	require.Equal(
+		t,
+		http.StatusNoContent,
+		e.req(t, http.MethodDelete, "/v1.0/directoryObjects/"+str(doomed, "id"), nil).status,
+	)
+	assertErr(
+		t,
+		e.req(t, http.MethodGet, "/v1.0/groups/"+str(doomed, "id"), nil),
+		http.StatusNotFound,
+		"Request_ResourceNotFound",
+	)
 }
 
 func TestUserDefaultProperties(t *testing.T) {
@@ -356,7 +519,11 @@ func TestOwnersBindOnCreate(t *testing.T) {
 	owner := newUser(t, e, "binder"+upnDomain)
 	ref := "https://graph.microsoft.com/v1.0/directoryObjects/" + str(owner, "id")
 
-	app := e.mustCreate(t, "/v1.0/applications", map[string]any{"displayName": "Bound", "owners@odata.bind": []string{ref}})
+	app := e.mustCreate(
+		t,
+		"/v1.0/applications",
+		map[string]any{"displayName": "Bound", "owners@odata.bind": []string{ref}},
+	)
 	assert.Len(t, e.req(t, http.MethodGet, "/v1.0/applications/"+str(app, "id")+"/owners", nil).body["value"], 1)
 
 	sp := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{
@@ -366,9 +533,11 @@ func TestOwnersBindOnCreate(t *testing.T) {
 
 	group := newGroup(t, e, "NotAnOwner")
 	assertErr(t, e.req(t, http.MethodPost, "/v1.0/applications", map[string]any{
-		"displayName": "Bad", "owners@odata.bind": []string{"https://graph.microsoft.com/v1.0/directoryObjects/" + str(group, "id")},
+		"displayName":       "Bad",
+		"owners@odata.bind": []string{"https://graph.microsoft.com/v1.0/directoryObjects/" + str(group, "id")},
 	}), http.StatusBadRequest, "Request_BadRequest")
 	assertErr(t, e.req(t, http.MethodPost, "/v1.0/applications", map[string]any{
-		"displayName": "Bad", "owners@odata.bind": []string{"https://graph.microsoft.com/v1.0/directoryObjects/" + newID0()},
+		"displayName":       "Bad",
+		"owners@odata.bind": []string{"https://graph.microsoft.com/v1.0/directoryObjects/" + newID0()},
 	}), http.StatusNotFound, "Request_ResourceNotFound")
 }

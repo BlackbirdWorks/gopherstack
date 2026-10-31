@@ -17,13 +17,16 @@ import (
 )
 
 const (
-	secretLen            = 40
-	secretHintLen        = 3
-	secretMarker         = "8Q~"
-	secretAlphabet       = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
-	pbkdf2Iterations     = 10000
-	saltLen              = 16
-	defaultLifetimeYears = 2
+	aadsNoServicePrincipal = 7000229
+	aadsAppDisabled        = 7000112
+	aadsInvalidSecret      = 7000215
+	secretLen              = 40
+	secretHintLen          = 3
+	secretMarker           = "8Q~"
+	secretAlphabet         = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
+	pbkdf2Iterations       = 10000
+	saltLen                = 16
+	defaultLifetimeYears   = 2
 )
 
 var errNoRand = errors.New("azuregraph: entropy source failed")
@@ -137,7 +140,9 @@ func (b *Backend) credWindow(start, end time.Time) (time.Time, time.Time, error)
 	}
 
 	if !end.After(start) || !end.After(b.now()) {
-		return start, end, badRequest("Invalid value specified for property 'endDateTime' of resource 'PasswordCredential'.")
+		return start, end, badRequest(
+			"Invalid value specified for property 'endDateTime' of resource 'PasswordCredential'.",
+		)
 	}
 
 	return start.UTC().Truncate(time.Second), end.UTC().Truncate(time.Second), nil
@@ -275,7 +280,7 @@ func (e *ClientAuthError) Error() string { return e.Name + ": " + e.Description 
 // AuthenticateClient checks a client-credentials request against the registered applications. known is false for
 // a client ID no application or service principal uses, leaving the caller free to apply its own policy. On
 // success objectID is the service principal's object ID, the token's oid claim.
-func (b *Backend) AuthenticateClient(clientID, secret string) (objectID string, known bool, err error) {
+func (b *Backend) AuthenticateClient(clientID, secret string) (string, bool, error) {
 	b.mu.RLock("AuthenticateClient")
 	defer b.mu.RUnlock()
 
@@ -309,15 +314,20 @@ func (b *Backend) AuthenticateClient(clientID, secret string) (objectID string, 
 
 	if sp == nil {
 		return "", true, &ClientAuthError{
-			Status: http.StatusBadRequest, Code: 7000229, Name: "invalid_client",
-			Description: fmt.Sprintf("AADSTS7000229: The client application %s is missing service principal in the tenant %s.",
-				clientID, b.cfg.TenantID),
+			Status: http.StatusBadRequest,
+			Code:   aadsNoServicePrincipal,
+			Name:   "invalid_client",
+			Description: fmt.Sprintf(
+				"AADSTS7000229: The client application %s is missing service principal in the tenant %s.",
+				clientID,
+				b.cfg.TenantID,
+			),
 		}
 	}
 
 	if !sp.AccountEnabled {
 		return "", true, &ClientAuthError{
-			Status: http.StatusBadRequest, Code: 7000112, Name: "unauthorized_client",
+			Status: http.StatusBadRequest, Code: aadsAppDisabled, Name: "unauthorized_client",
 			Description: fmt.Sprintf("AADSTS7000112: Application '%s' is disabled.", clientID),
 		}
 	}
@@ -340,7 +350,7 @@ func (b *Backend) AuthenticateClient(clientID, secret string) (objectID string, 
 	}
 
 	return "", true, &ClientAuthError{
-		Status: http.StatusUnauthorized, Code: 7000215, Name: "invalid_client",
+		Status: http.StatusUnauthorized, Code: aadsInvalidSecret, Name: "invalid_client",
 		Description: fmt.Sprintf("AADSTS7000215: Invalid client secret provided. Ensure the secret being sent in the "+
 			"request is the client secret value, not the client secret ID, for a secret added to app '%s'.", clientID),
 	}

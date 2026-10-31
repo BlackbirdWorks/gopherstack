@@ -134,14 +134,6 @@ func (b *Backend) lookup(id string) (dirObject, bool) {
 	return nil, false
 }
 
-func (b *Backend) displayName(id string) string {
-	if o, ok := b.lookup(id); ok {
-		return o.objName()
-	}
-
-	return ""
-}
-
 type domain struct {
 	Name      string
 	IsDefault bool
@@ -149,9 +141,15 @@ type domain struct {
 }
 
 func buildDomains(cfg Settings) []domain {
-	out := []domain{{Name: lc(cfg.DefaultDomain), IsDefault: true, IsInitial: strings.HasSuffix(lc(cfg.DefaultDomain), ".onmicrosoft.com")}}
+	out := []domain{
+		{
+			Name:      lc(cfg.DefaultDomain),
+			IsDefault: true,
+			IsInitial: strings.HasSuffix(lc(cfg.DefaultDomain), ".onmicrosoft.com"),
+		},
+	}
 
-	for _, d := range strings.Split(cfg.ExtraDomains, ",") {
+	for d := range strings.SplitSeq(cfg.ExtraDomains, ",") {
 		if d = lc(strings.TrimSpace(d)); d != "" && d != out[0].Name {
 			out = append(out, domain{Name: d})
 		}

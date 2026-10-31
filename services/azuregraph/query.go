@@ -21,20 +21,20 @@ const (
 type listQuery struct {
 	filter  *compiledFilter
 	search  func(map[string]any) bool
-	selects []string
 	order   string
 	token   string
+	selects []string
 	top     int
 	desc    bool
 	count   bool
 }
 
 func eventual(r *http.Request) bool {
-	return strings.EqualFold(r.Header.Get("ConsistencyLevel"), "eventual")
+	return strings.EqualFold(r.Header.Get("Consistencylevel"), "eventual")
 }
 
 // parseListQuery validates the OData system query options. fields is the set of declared properties of the
-// resource (nil skips property validation); resource and odataType name it in error messages.
+// resource (nil skips property validation); resource names it in error messages.
 func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*listQuery, error) {
 	vals := r.URL.Query()
 	q := &listQuery{top: defaultPageSize, token: vals.Get("$skiptoken")}
@@ -43,28 +43,12 @@ func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*
 		return nil, err
 	}
 
-	if t := vals.Get("$top"); t != "" {
-		n, err := strconv.Atoi(t)
-		if err != nil || n < 1 || n > maxPageSize {
-			return nil, badRequest("Invalid page size specified: '%s'. Must be between 1 and %d inclusive.", t, maxPageSize)
-		}
-
-		q.top = n
+	if err := q.parsePaging(vals.Get("$top")); err != nil {
+		return nil, err
 	}
 
-	if resource == "User" && vals.Get("$select") == "" {
-		q.selects = userDefaultSelect()
-	}
-
-	if s := vals.Get("$select"); s != "" {
-		for _, f := range strings.Split(s, ",") {
-			f = strings.TrimSpace(f)
-			if fields != nil && !fields[f] {
-				return nil, badRequest("Could not find a property named '%s' on type 'microsoft.graph.%s'.", f, lowerFirst(resource))
-			}
-
-			q.selects = append(q.selects, f)
-		}
+	if err := q.parseSelect(vals.Get("$select"), resource, fields); err != nil {
+		return nil, err
 	}
 
 	if vals.Get("$expand") != "" {
@@ -75,21 +59,71 @@ func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*
 		return nil, err
 	}
 
-	if f := vals.Get("$filter"); f != "" {
-		cf, err := compileFilter(f, resource, fieldsOrAny(fields, f))
-		if err != nil {
-			return nil, err
-		}
-
-		if cf.advanced != "" && !(eventual(r) && q.count) {
-			return nil, unsupported("Operator '%s' is not supported because the required parameters might be missing. %s",
-				cf.advanced, advancedHint)
-		}
-
-		q.filter = cf
+	if err := q.parseFilter(r, vals.Get("$filter"), resource, fields); err != nil {
+		return nil, err
 	}
 
 	return q, q.parseSearch(r, vals.Get("$search"))
+}
+
+func (q *listQuery) parsePaging(top string) error {
+	if top == "" {
+		return nil
+	}
+
+	n, err := strconv.Atoi(top)
+	if err != nil || n < 1 || n > maxPageSize {
+		return badRequest("Invalid page size specified: '%s'. Must be between 1 and %d inclusive.", top, maxPageSize)
+	}
+
+	q.top = n
+
+	return nil
+}
+
+func (q *listQuery) parseSelect(spec, resource string, fields map[string]bool) error {
+	if spec == "" {
+		if resource == typeUser {
+			q.selects = userDefaultSelect()
+		}
+
+		return nil
+	}
+
+	for f := range strings.SplitSeq(spec, ",") {
+		f = strings.TrimSpace(f)
+		if fields != nil && !fields[f] {
+			return badRequest(
+				"Could not find a property named '%s' on type 'microsoft.graph.%s'.",
+				f,
+				lowerFirst(resource),
+			)
+		}
+
+		q.selects = append(q.selects, f)
+	}
+
+	return nil
+}
+
+func (q *listQuery) parseFilter(r *http.Request, expr, resource string, fields map[string]bool) error {
+	if expr == "" {
+		return nil
+	}
+
+	cf, err := compileFilter(expr, resource, fieldsOrAny(fields, expr))
+	if err != nil {
+		return err
+	}
+
+	if cf.advanced != "" && (!eventual(r) || !q.count) {
+		return unsupported("Operator '%s' is not supported because the required parameters might be missing. %s",
+			cf.advanced, advancedHint)
+	}
+
+	q.filter = cf
+
+	return nil
 }
 
 // userDefaultSelect is the property set Graph returns for a user when $select is absent.
@@ -144,7 +178,11 @@ func (q *listQuery) parseOrder(spec, resource string, fields map[string]bool) er
 
 	name, dir, _ := strings.Cut(strings.TrimSpace(spec), " ")
 	if fields != nil && !fields[name] {
-		return unsupported("Unsupported or invalid query filter clause specified for property '%s' of resource '%s'.", name, resource)
+		return unsupported(
+			"Unsupported or invalid query filter clause specified for property '%s' of resource '%s'.",
+			name,
+			resource,
+		)
 	}
 
 	q.order, q.desc = name, strings.EqualFold(strings.TrimSpace(dir), "desc")
@@ -159,7 +197,9 @@ func (q *listQuery) parseSearch(r *http.Request, spec string) error {
 
 	if !eventual(r) {
 		return unsupported(
-			"Request with $search query parameter only works through MSGraph with a special request header: 'ConsistencyLevel: eventual'")
+			"Request with $search query parameter only works through MSGraph with a special request header: " +
+				"'ConsistencyLevel: eventual'",
+		)
 	}
 
 	spec = strings.Trim(spec, `"`)

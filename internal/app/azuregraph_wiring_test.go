@@ -58,7 +58,12 @@ func newGraphStack(t *testing.T) *graphStack {
 	return s
 }
 
-func do(t *testing.T, srv *httptest.Server, method, path, contentType, body string, headers ...string) (int, map[string]any) {
+func do(
+	t *testing.T,
+	srv *httptest.Server,
+	method, path, contentType, body string,
+	headers ...string,
+) (int, map[string]any) {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), method, srv.URL+path, strings.NewReader(body))
@@ -124,7 +129,13 @@ func TestAzureGraphClientCredentialsAndPrincipals(t *testing.T) {
 
 	spID, _ := sp["id"].(string)
 
-	status, pw := s.call(t, admin, http.MethodPost, "/v1.0/applications/"+app["id"].(string)+"/addPassword", `{}`) //nolint:forcetypeassert,errcheck // created above
+	status, pw := s.call(
+		t,
+		admin,
+		http.MethodPost,
+		"/v1.0/applications/"+app["id"].(string)+"/addPassword",
+		`{}`,
+	) //nolint:forcetypeassert // created above
 	require.Equal(t, http.StatusOK, status)
 
 	secret, _ := pw["secretText"].(string)
@@ -132,34 +143,42 @@ func TestAzureGraphClientCredentialsAndPrincipals(t *testing.T) {
 	t.Run("token endpoint verifies registered client secrets", func(t *testing.T) {
 		t.Parallel()
 
-		status, body := s.token(t, appID, "wrong")
-		assert.Equal(t, http.StatusUnauthorized, status)
+		code, body := s.token(t, appID, "wrong")
+		assert.Equal(t, http.StatusUnauthorized, code)
 		assert.Equal(t, "invalid_client", body["error"])
 		assert.Equal(t, []any{float64(7000215)}, body["error_codes"])
 
-		status, body = s.token(t, appID, secret)
-		require.Equal(t, http.StatusOK, status)
+		code, body = s.token(t, appID, secret)
+		require.Equal(t, http.StatusOK, code)
 
 		tok, _ := body["access_token"].(string)
-		status, got := s.call(t, tok, http.MethodGet, "/v1.0/servicePrincipals(appId='"+appID+"')", "")
-		require.Equal(t, http.StatusOK, status)
+		code, got := s.call(t, tok, http.MethodGet, "/v1.0/servicePrincipals(appId='"+appID+"')", "")
+		require.Equal(t, http.StatusOK, code)
 		assert.Equal(t, spID, got["id"])
 
-		status, got = s.call(t, tok, http.MethodGet, "/v1.0/me", "")
-		assert.Equal(t, http.StatusBadRequest, status)
-		assert.Equal(t, "BadRequest", got["error"].(map[string]any)["code"]) //nolint:forcetypeassert,errcheck // error envelope
+		code, got = s.call(t, tok, http.MethodGet, "/v1.0/me", "")
+		assert.Equal(t, http.StatusBadRequest, code)
+		assert.Equal(
+			t,
+			"BadRequest",
+			got["error"].(map[string]any)["code"],
+		) //nolint:forcetypeassert // error envelope
 	})
 
 	t.Run("graph rejects tokens for another audience", func(t *testing.T) {
 		t.Parallel()
 
-		form := url.Values{"client_id": {appID}, "client_secret": {secret}, "scope": {"https://management.azure.com/.default"}}
+		form := url.Values{
+			"client_id":     {appID},
+			"client_secret": {secret},
+			"scope":         {"https://management.azure.com/.default"},
+		}
 		_, body := do(t, s.arm, http.MethodPost, "/"+azuregraph.DefaultTenantID+"/oauth2/v2.0/token",
 			"application/x-www-form-urlencoded", form.Encode())
 
 		arm, _ := body["access_token"].(string)
-		status, _ := s.call(t, arm, http.MethodGet, "/v1.0/applications", "")
-		assert.Equal(t, http.StatusUnauthorized, status)
+		code, _ := s.call(t, arm, http.MethodGet, "/v1.0/applications", "")
+		assert.Equal(t, http.StatusUnauthorized, code)
 	})
 
 	t.Run("role assignments resolve principals in the directory", func(t *testing.T) {
@@ -174,20 +193,28 @@ func TestAzureGraphClientCredentialsAndPrincipals(t *testing.T) {
 				`{"properties":{"roleDefinitionId":"`+role+`","principalId":"`+principal+`"}}`)
 		}
 
-		status, body := put("66666666-6666-6666-6666-666666666666", spID)
-		require.Equal(t, http.StatusCreated, status, body)
-		assert.Equal(t, "ServicePrincipal", body["properties"].(map[string]any)["principalType"]) //nolint:forcetypeassert,errcheck // ARM envelope
+		code, body := put("66666666-6666-6666-6666-666666666666", spID)
+		require.Equal(t, http.StatusCreated, code, body)
+		assert.Equal(
+			t,
+			"ServicePrincipal",
+			body["properties"].(map[string]any)["principalType"],
+		) //nolint:forcetypeassert // ARM envelope
 
-		status, body = put("77777777-7777-7777-7777-777777777777", "99999999-9999-9999-9999-999999999999")
-		assert.Equal(t, http.StatusBadRequest, status)
-		assert.Equal(t, "PrincipalNotFound", body["error"].(map[string]any)["code"]) //nolint:forcetypeassert,errcheck // ARM envelope
+		code, body = put("77777777-7777-7777-7777-777777777777", "99999999-9999-9999-9999-999999999999")
+		assert.Equal(t, http.StatusBadRequest, code)
+		assert.Equal(
+			t,
+			"PrincipalNotFound",
+			body["error"].(map[string]any)["code"],
+		) //nolint:forcetypeassert // ARM envelope
 	})
 
 	t.Run("environment metadata points at the graph listener", func(t *testing.T) {
 		t.Parallel()
 
-		status, meta := do(t, s.arm, http.MethodGet, "/metadata/endpoints?api-version=2022-09-01", "", "")
-		require.Equal(t, http.StatusOK, status)
+		code, meta := do(t, s.arm, http.MethodGet, "/metadata/endpoints?api-version=2022-09-01", "", "")
+		require.Equal(t, http.StatusOK, code)
 
 		res, _ := meta["microsoftGraphResourceId"].(string)
 		assert.True(t, strings.HasSuffix(res, ":10014"), res)

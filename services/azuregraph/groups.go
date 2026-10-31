@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-var groupReadOnly = []string{"id", "createdDateTime", "mail"} //nolint:gochecknoglobals // fixed list
-
 const groupTypeUnified = "Unified"
 
 func (b *Backend) findGroup(r Ref) (*Group, error) {
@@ -44,7 +42,9 @@ func validateGroup(g *Group) error {
 	}
 
 	if g.MailEnabled && !unified {
-		return badRequest("Mail-enabled groups other than Microsoft 365 groups cannot be created through Microsoft Graph.")
+		return badRequest(
+			"Mail-enabled groups other than Microsoft 365 groups cannot be created through Microsoft Graph.",
+		)
 	}
 
 	if g.IsAssignableToRole != nil && *g.IsAssignableToRole && !g.SecurityEnabled {
@@ -66,7 +66,7 @@ func (b *Backend) CreateGroup(body map[string]json.RawMessage) (Group, error) {
 	seed := &Group{ID: newID(), CreatedDateTime: b.stamp()}
 	seed.normalize()
 
-	g, err := applyBody(seed, body, groupReadOnly...)
+	g, err := applyBody(seed, body, groupReadOnly()...)
 	if err != nil {
 		return Group{}, err
 	}
@@ -128,7 +128,7 @@ func (b *Backend) UpdateGroup(r Ref, body map[string]json.RawMessage) error {
 		return err
 	}
 
-	next, err := applyBody(cur, body, append([]string{"isAssignableToRole"}, groupReadOnly...)...)
+	next, err := applyBody(cur, body, append([]string{"isAssignableToRole"}, groupReadOnly()...)...)
 	if err != nil {
 		return err
 	}

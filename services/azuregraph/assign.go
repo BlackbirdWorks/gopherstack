@@ -8,15 +8,10 @@ import (
 
 const defaultAccessRole = "00000000-0000-0000-0000-000000000000"
 
-var (
-	assignReadOnly = []string{"id", "createdDateTime", "principalDisplayName", "principalType", "resourceDisplayName"} //nolint:gochecknoglobals // fixed list
-	grantReadOnly  = []string{"id"}                                                                                    //nolint:gochecknoglobals // fixed list
-)
-
 func principalType(kind string) string {
 	switch kind {
 	case kindUser:
-		return "User"
+		return typeUser
 	case kindGroup:
 		return "Group"
 	case kindServicePrincipal:
@@ -38,7 +33,7 @@ func (b *Backend) CreateAppRoleAssignment(
 	b.mu.Lock("CreateAppRoleAssignment")
 	defer b.mu.Unlock()
 
-	in, err := applyBody(&AppRoleAssignment{}, body, assignReadOnly...)
+	in, err := applyBody(&AppRoleAssignment{}, body, assignReadOnly()...)
 	if err != nil {
 		return AppRoleAssignment{}, err
 	}
@@ -92,9 +87,9 @@ func checkRole(res *ServicePrincipal, principalKind, roleID string) error {
 		return badRequest("Permission being assigned was not found on application '%s'.", res.AppID)
 	}
 
-	want := "User"
+	want := typeUser
 	if principalKind == kindServicePrincipal {
-		want = "Application"
+		want = typeApplication
 	}
 
 	if !slices.Contains(res.AppRoles[i].AllowedMemberTypes, want) {
@@ -148,17 +143,21 @@ func (b *Backend) CreateGrant(body map[string]json.RawMessage) (OAuth2Permission
 	b.mu.Lock("CreateGrant")
 	defer b.mu.Unlock()
 
-	g, err := applyBody(&OAuth2PermissionGrant{}, body, grantReadOnly...)
+	g, err := applyBody(&OAuth2PermissionGrant{}, body, grantReadOnly()...)
 	if err != nil {
 		return OAuth2PermissionGrant{}, err
 	}
 
 	if g.ConsentType != "AllPrincipals" && g.ConsentType != "Principal" {
-		return OAuth2PermissionGrant{}, badRequest("Invalid value specified for property 'consentType' of resource 'OAuth2PermissionGrant'.")
+		return OAuth2PermissionGrant{}, badRequest(
+			"Invalid value specified for property 'consentType' of resource 'OAuth2PermissionGrant'.",
+		)
 	}
 
 	if g.ConsentType == "Principal" && g.PrincipalID == "" {
-		return OAuth2PermissionGrant{}, badRequest("A value is required for property 'principalId' of resource 'OAuth2PermissionGrant'.")
+		return OAuth2PermissionGrant{}, badRequest(
+			"A value is required for property 'principalId' of resource 'OAuth2PermissionGrant'.",
+		)
 	}
 
 	for _, id := range []string{g.ClientID, g.ResourceID} {

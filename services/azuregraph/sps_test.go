@@ -22,14 +22,30 @@ func TestServicePrincipals(t *testing.T) {
 	e := newEnv(t)
 	app := e.mustCreate(t, "/v1.0/applications", map[string]any{
 		"displayName": "Svc", "identifierUris": []string{"api://svc"},
-		"appRoles": []map[string]any{{
-			"id": roleID, "value": "Reader", "displayName": "Reader", "allowedMemberTypes": []string{"Application", "User"}, "isEnabled": true,
-		}},
+		"appRoles": []map[string]any{
+			{
+				"id":                 roleID,
+				"value":              "Reader",
+				"displayName":        "Reader",
+				"allowedMemberTypes": []string{"Application", "User"},
+				"isEnabled":          true,
+			},
+		},
 	})
 	appID := str(app, "appId")
 
-	assertErr(t, e.req(t, http.MethodPost, "/v1.0/servicePrincipals", map[string]any{"appId": newID0()}), http.StatusBadRequest, "Request_BadRequest")
-	assertErr(t, e.req(t, http.MethodPost, "/v1.0/servicePrincipals", map[string]any{}), http.StatusBadRequest, "Request_BadRequest")
+	assertErr(
+		t,
+		e.req(t, http.MethodPost, "/v1.0/servicePrincipals", map[string]any{"appId": newID0()}),
+		http.StatusBadRequest,
+		"Request_BadRequest",
+	)
+	assertErr(
+		t,
+		e.req(t, http.MethodPost, "/v1.0/servicePrincipals", map[string]any{}),
+		http.StatusBadRequest,
+		"Request_BadRequest",
+	)
 
 	sp := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{"appId": appID})
 	spID := str(sp, "id")
@@ -41,7 +57,12 @@ func TestServicePrincipals(t *testing.T) {
 	assert.ElementsMatch(t, []any{appID, "api://svc"}, sp["servicePrincipalNames"])
 	require.Len(t, sp["appRoles"], 1)
 
-	assertErr(t, e.req(t, http.MethodPost, "/v1.0/servicePrincipals", map[string]any{"appId": appID}), http.StatusBadRequest, "Request_BadRequest")
+	assertErr(
+		t,
+		e.req(t, http.MethodPost, "/v1.0/servicePrincipals", map[string]any{"appId": appID}),
+		http.StatusBadRequest,
+		"Request_BadRequest",
+	)
 
 	t.Run("alternate key and patch", func(t *testing.T) {
 		t.Parallel()
@@ -61,19 +82,37 @@ func TestServicePrincipals(t *testing.T) {
 
 		a2 := e.mustCreate(t, "/v1.0/applications", map[string]any{"displayName": "Sync"})
 		s2 := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{"appId": str(a2, "appId")})
-		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodPatch, "/v1.0/applications/"+str(a2, "id"), map[string]any{
-			"identifierUris": []string{"api://sync"},
-			"appRoles": []map[string]any{{
-				"id": "1d6c5d3a-9b2c-4d8e-8f10-2a3b4c5d6e7f", "value": "R", "allowedMemberTypes": []string{"Application"}, "isEnabled": true,
-			}},
-		}).status)
+		require.Equal(
+			t,
+			http.StatusNoContent,
+			e.req(t, http.MethodPatch, "/v1.0/applications/"+str(a2, "id"), map[string]any{
+				"identifierUris": []string{"api://sync"},
+				"appRoles": []map[string]any{
+					{
+						"id":                 "1d6c5d3a-9b2c-4d8e-8f10-2a3b4c5d6e7f",
+						"value":              "R",
+						"allowedMemberTypes": []string{"Application"},
+						"isEnabled":          true,
+					},
+				},
+			}).status,
+		)
 
 		got := e.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+str(s2, "id"), nil).body
 		assert.Len(t, got["appRoles"], 1)
 		assert.Contains(t, got["servicePrincipalNames"], "api://sync")
 
-		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/applications/"+str(a2, "id"), nil).status)
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+str(s2, "id"), nil), http.StatusNotFound, "Request_ResourceNotFound")
+		require.Equal(
+			t,
+			http.StatusNoContent,
+			e.req(t, http.MethodDelete, "/v1.0/applications/"+str(a2, "id"), nil).status,
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+str(s2, "id"), nil),
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		)
 	})
 
 	t.Run("built-in Microsoft Graph service principal", func(t *testing.T) {
@@ -87,7 +126,12 @@ func TestServicePrincipals(t *testing.T) {
 
 		assertErr(t, e.req(t, http.MethodPatch, "/v1.0/servicePrincipals/"+graphSP, map[string]any{"notes": "x"}),
 			http.StatusForbidden, "Authorization_RequestDenied")
-		assertErr(t, e.req(t, http.MethodDelete, "/v1.0/servicePrincipals/"+graphSP, nil), http.StatusForbidden, "Authorization_RequestDenied")
+		assertErr(
+			t,
+			e.req(t, http.MethodDelete, "/v1.0/servicePrincipals/"+graphSP, nil),
+			http.StatusForbidden,
+			"Authorization_RequestDenied",
+		)
 		assertErr(t, e.req(t, http.MethodPost, "/v1.0/servicePrincipals/"+graphSP+"/addPassword", map[string]any{}),
 			http.StatusForbidden, "Authorization_RequestDenied")
 	})
@@ -95,33 +139,97 @@ func TestServicePrincipals(t *testing.T) {
 	t.Run("app role assignments", func(t *testing.T) {
 		t.Parallel()
 
-		client := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{"appId": str(newApp(t, e, "Client"), "appId")})
+		client := e.mustCreate(
+			t,
+			"/v1.0/servicePrincipals",
+			map[string]any{"appId": str(newApp(t, e, "Client"), "appId")},
+		)
 		cid := str(client, "id")
 		user := newUser(t, e, "assign@gopherstack.onmicrosoft.com")
 
-		tests := []struct {
+		tests := []struct { //nolint:govet // test-only struct; layout not performance-critical
 			name   string
 			path   string
 			body   map[string]any
 			status int
 			code   string
 		}{
-			{"sp gets graph role", "/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
-				map[string]any{"principalId": cid, "resourceId": graphSP, "appRoleId": appReadAll}, http.StatusCreated, ""},
-			{"duplicate", "/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
-				map[string]any{"principalId": cid, "resourceId": graphSP, "appRoleId": appReadAll}, http.StatusBadRequest, "Request_BadRequest"},
-			{"unknown role", "/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
-				map[string]any{"principalId": cid, "resourceId": graphSP, "appRoleId": newID0()}, http.StatusBadRequest, "Request_BadRequest"},
-			{"path mismatch", "/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
-				map[string]any{"principalId": newID0(), "resourceId": graphSP, "appRoleId": appReadAll}, http.StatusBadRequest, "Request_BadRequest"},
-			{"role not for users", "/v1.0/servicePrincipals/" + graphSP + "/appRoleAssignedTo",
-				map[string]any{"principalId": str(user, "id"), "resourceId": graphSP, "appRoleId": appReadAll}, http.StatusBadRequest, "Request_BadRequest"},
-			{"user gets custom role", "/v1.0/servicePrincipals/" + spID + "/appRoleAssignedTo",
-				map[string]any{"principalId": str(user, "id"), "resourceId": spID, "appRoleId": roleID}, http.StatusCreated, ""},
+			{
+				"sp gets graph role",
+				"/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
+				map[string]any{
+					"principalId": cid,
+					"resourceId":  graphSP,
+					"appRoleId":   appReadAll,
+				},
+				http.StatusCreated,
+				"",
+			},
+			{
+				"duplicate",
+				"/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
+				map[string]any{
+					"principalId": cid,
+					"resourceId":  graphSP,
+					"appRoleId":   appReadAll,
+				},
+				http.StatusBadRequest,
+				"Request_BadRequest",
+			},
+			{
+				"unknown role",
+				"/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
+				map[string]any{
+					"principalId": cid,
+					"resourceId":  graphSP,
+					"appRoleId":   newID0(),
+				},
+				http.StatusBadRequest,
+				"Request_BadRequest",
+			},
+			{
+				"path mismatch",
+				"/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
+				map[string]any{
+					"principalId": newID0(),
+					"resourceId":  graphSP,
+					"appRoleId":   appReadAll,
+				},
+				http.StatusBadRequest,
+				"Request_BadRequest",
+			},
+			{
+				"role not for users",
+				"/v1.0/servicePrincipals/" + graphSP + "/appRoleAssignedTo",
+				map[string]any{
+					"principalId": str(user, "id"),
+					"resourceId":  graphSP,
+					"appRoleId":   appReadAll,
+				},
+				http.StatusBadRequest,
+				"Request_BadRequest",
+			},
+			{
+				"user gets custom role",
+				"/v1.0/servicePrincipals/" + spID + "/appRoleAssignedTo",
+				map[string]any{
+					"principalId": str(user, "id"),
+					"resourceId":  spID,
+					"appRoleId":   roleID,
+				},
+				http.StatusCreated,
+				"",
+			},
 			{"default access", "/v1.0/servicePrincipals/" + spID + "/appRoleAssignedTo",
 				map[string]any{"principalId": str(newGroup(t, e, "Assignees"), "id"), "resourceId": spID,
 					"appRoleId": "00000000-0000-0000-0000-000000000000"}, http.StatusCreated, ""},
-			{"missing property", "/v1.0/servicePrincipals/" + cid + "/appRoleAssignments", map[string]any{}, http.StatusBadRequest, "Request_BadRequest"},
+			{
+				"missing property",
+				"/v1.0/servicePrincipals/" + cid + "/appRoleAssignments",
+				map[string]any{},
+				http.StatusBadRequest,
+				"Request_BadRequest",
+			},
 		}
 
 		var first map[string]any
@@ -150,16 +258,32 @@ func TestServicePrincipals(t *testing.T) {
 		to := e.req(t, http.MethodGet, "/v1.0/servicePrincipals/"+graphSP+"/appRoleAssignedTo", nil)
 		assert.Len(t, to.body["value"], 1)
 
-		require.Equal(t, http.StatusNoContent,
-			e.req(t, http.MethodDelete, "/v1.0/servicePrincipals/"+cid+"/appRoleAssignments/"+str(first, "id"), nil).status)
-		assertErr(t, e.req(t, http.MethodDelete, "/v1.0/servicePrincipals/"+cid+"/appRoleAssignments/"+str(first, "id"), nil),
-			http.StatusNotFound, "Request_ResourceNotFound")
+		require.Equal(
+			t,
+			http.StatusNoContent,
+			e.req(
+				t,
+				http.MethodDelete,
+				"/v1.0/servicePrincipals/"+cid+"/appRoleAssignments/"+str(first, "id"),
+				nil,
+			).status,
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodDelete, "/v1.0/servicePrincipals/"+cid+"/appRoleAssignments/"+str(first, "id"), nil),
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		)
 	})
 
 	t.Run("oauth2 permission grants", func(t *testing.T) {
 		t.Parallel()
 
-		client := e.mustCreate(t, "/v1.0/servicePrincipals", map[string]any{"appId": str(newApp(t, e, "Granter"), "appId")})
+		client := e.mustCreate(
+			t,
+			"/v1.0/servicePrincipals",
+			map[string]any{"appId": str(newApp(t, e, "Granter"), "appId")},
+		)
 		cid := str(client, "id")
 
 		grant := e.mustCreate(t, "/v1.0/oauth2PermissionGrants", map[string]any{
@@ -168,12 +292,34 @@ func TestServicePrincipals(t *testing.T) {
 		gid := str(grant, "id")
 
 		assertErr(t, e.req(t, http.MethodPost, "/v1.0/oauth2PermissionGrants", map[string]any{
-			"clientId": cid, "consentType": "Principal", "resourceId": graphSP, "scope": "x"}), http.StatusBadRequest, "Request_BadRequest")
+			"clientId":    cid,
+			"consentType": "Principal",
+			"resourceId":  graphSP,
+			"scope":       "x",
+		}), http.StatusBadRequest, "Request_BadRequest")
 		assertErr(t, e.req(t, http.MethodPost, "/v1.0/oauth2PermissionGrants", map[string]any{
-			"clientId": newID0(), "consentType": "AllPrincipals", "resourceId": graphSP, "scope": "x"}), http.StatusNotFound, "Request_ResourceNotFound")
+			"clientId":    newID0(),
+			"consentType": "AllPrincipals",
+			"resourceId":  graphSP,
+			"scope":       "x",
+		}), http.StatusNotFound, "Request_ResourceNotFound")
 
-		assert.Equal(t, http.StatusNoContent, e.req(t, http.MethodPatch, "/v1.0/oauth2PermissionGrants/"+gid, map[string]any{"scope": "User.Read openid"}).status)
-		assertErr(t, e.req(t, http.MethodPatch, "/v1.0/oauth2PermissionGrants/"+gid, map[string]any{"clientId": cid}), http.StatusBadRequest, "Request_BadRequest")
+		assert.Equal(
+			t,
+			http.StatusNoContent,
+			e.req(
+				t,
+				http.MethodPatch,
+				"/v1.0/oauth2PermissionGrants/"+gid,
+				map[string]any{"scope": "User.Read openid"},
+			).status,
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodPatch, "/v1.0/oauth2PermissionGrants/"+gid, map[string]any{"clientId": cid}),
+			http.StatusBadRequest,
+			"Request_BadRequest",
+		)
 
 		got := e.req(t, http.MethodGet, "/v1.0/oauth2PermissionGrants/"+gid, nil)
 		assert.Equal(t, "User.Read openid", str(got.body, "scope"))
@@ -184,7 +330,16 @@ func TestServicePrincipals(t *testing.T) {
 		filtered := e.req(t, http.MethodGet, "/v1.0/oauth2PermissionGrants?$filter=clientId%20eq%20'"+cid+"'", nil)
 		assert.Len(t, filtered.body["value"], 1)
 
-		require.Equal(t, http.StatusNoContent, e.req(t, http.MethodDelete, "/v1.0/oauth2PermissionGrants/"+gid, nil).status)
-		assertErr(t, e.req(t, http.MethodGet, "/v1.0/oauth2PermissionGrants/"+gid, nil), http.StatusNotFound, "Request_ResourceNotFound")
+		require.Equal(
+			t,
+			http.StatusNoContent,
+			e.req(t, http.MethodDelete, "/v1.0/oauth2PermissionGrants/"+gid, nil).status,
+		)
+		assertErr(
+			t,
+			e.req(t, http.MethodGet, "/v1.0/oauth2PermissionGrants/"+gid, nil),
+			http.StatusNotFound,
+			"Request_ResourceNotFound",
+		)
 	})
 }

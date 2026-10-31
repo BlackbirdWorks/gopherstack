@@ -118,7 +118,12 @@ func checkGraphPort(cfg any, settings Settings) error {
 	}
 
 	if actual := gp.GetAzureGraphPort(); actual != 0 && actual != settings.GraphPort {
-		return fmt.Errorf("%w: azure-arm-graph-port=%d, azure-graph-port=%d", ErrGraphPortMismatch, settings.GraphPort, actual)
+		return fmt.Errorf(
+			"%w: azure-arm-graph-port=%d, azure-graph-port=%d",
+			ErrGraphPortMismatch,
+			settings.GraphPort,
+			actual,
+		)
 	}
 
 	return nil

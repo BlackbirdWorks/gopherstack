@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -16,8 +17,8 @@ type normalizer[T any] interface {
 func jsonFields(t reflect.Type) map[string]bool {
 	out := map[string]bool{}
 
-	for i := range t.NumField() {
-		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+	for f := range t.Fields() {
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if name != "" && name != "-" {
 			out[name] = true
 		}
@@ -29,7 +30,7 @@ func jsonFields(t reflect.Type) map[string]bool {
 // mergeJSON overlays patch onto base: objects merge recursively, null deletes, anything else replaces.
 func mergeJSON(base, patch map[string]json.RawMessage) {
 	for k, v := range patch {
-		if bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+		if bytes.Equal(bytes.TrimSpace(v), []byte(jsonNull)) {
 			delete(base, k)
 
 			continue
@@ -65,10 +66,8 @@ func applyBody[T any, P normalizer[T]](cur *T, body map[string]json.RawMessage, 
 			return nil, badRequest("Property '%s' does not exist as a declared property or extension property.", k)
 		}
 
-		for _, ro := range readOnly {
-			if k == ro {
-				return nil, badRequest("Property '%s' is read-only and cannot be set.", k)
-			}
+		if slices.Contains(readOnly, k) {
+			return nil, badRequest("Property '%s' is read-only and cannot be set.", k)
 		}
 
 		patch[k] = v
@@ -94,7 +93,8 @@ func applyBody[T any, P normalizer[T]](cur *T, body map[string]json.RawMessage, 
 	out := new(T)
 	if err = json.Unmarshal(merged, out); err != nil {
 		return nil, badRequest(
-			"Unable to read JSON request payload. Please ensure Content-Type header is set and payload is of valid JSON format.")
+			"Unable to read JSON request payload. Please ensure Content-Type header is set and payload is of valid JSON format.",
+		)
 	}
 
 	P(out).normalize()

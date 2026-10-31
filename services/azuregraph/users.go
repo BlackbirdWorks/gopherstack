@@ -6,8 +6,6 @@ import (
 	"unicode"
 )
 
-var userReadOnly = []string{"id", "createdDateTime"} //nolint:gochecknoglobals // fixed list
-
 const minPasswordLen = 8
 
 func (b *Backend) findUser(r Ref) (*User, error) {
@@ -84,7 +82,7 @@ func (b *Backend) validateUser(u *User, self string) error {
 
 func requireProps(kind string, body map[string]json.RawMessage, props ...string) error {
 	for _, p := range props {
-		if v, ok := body[p]; !ok || string(v) == "null" {
+		if v, ok := body[p]; !ok || string(v) == jsonNull {
 			return badRequest("A value is required for property '%s' of resource '%s'.", p, kind)
 		}
 	}
@@ -94,7 +92,7 @@ func requireProps(kind string, body map[string]json.RawMessage, props ...string)
 
 // CreateUser creates a user. passwordProfile is validated and discarded.
 func (b *Backend) CreateUser(body map[string]json.RawMessage) (User, error) {
-	if err := requireProps("User", body,
+	if err := requireProps(typeUser, body,
 		"accountEnabled", "displayName", "mailNickname", "passwordProfile", "userPrincipalName"); err != nil {
 		return User{}, err
 	}
@@ -105,14 +103,15 @@ func (b *Backend) CreateUser(body map[string]json.RawMessage) (User, error) {
 	seed := &User{ID: newID(), CreatedDateTime: b.stamp(), UserType: "Member"}
 	seed.normalize()
 
-	u, err := applyBody(seed, body, userReadOnly...)
+	u, err := applyBody(seed, body, userReadOnly()...)
 	if err != nil {
 		return User{}, err
 	}
 
 	if u.PasswordProfile == nil || !passwordComplex(u.PasswordProfile.Password) {
 		return User{}, badRequest(
-			"The specified password does not comply with password complexity requirements. Please provide a different password.")
+			"The specified password does not comply with password complexity requirements. Please provide a different password.",
+		)
 	}
 
 	u.PasswordProfile = nil
@@ -157,14 +156,16 @@ func (b *Backend) UpdateUser(r Ref, body map[string]json.RawMessage) error {
 		return err
 	}
 
-	next, err := applyBody(cur, body, userReadOnly...)
+	next, err := applyBody(cur, body, userReadOnly()...)
 	if err != nil {
 		return err
 	}
 
-	if next.PasswordProfile != nil && next.PasswordProfile.Password != "" && !passwordComplex(next.PasswordProfile.Password) {
+	if next.PasswordProfile != nil && next.PasswordProfile.Password != "" &&
+		!passwordComplex(next.PasswordProfile.Password) {
 		return badRequest(
-			"The specified password does not comply with password complexity requirements. Please provide a different password.")
+			"The specified password does not comply with password complexity requirements. Please provide a different password.",
+		)
 	}
 
 	next.PasswordProfile = nil

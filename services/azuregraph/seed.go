@@ -26,7 +26,11 @@ func graphScopes() []seedRole {
 		{"37f7f235-527c-4136-accd-4a02d197296e", "openid", "Sign users in"},
 		{"14dad69e-099b-42c9-810b-d002981feec1", "profile", "View users' basic profile"},
 		{"64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0", "email", "View users' email address"},
-		{"7427e0e9-2fba-42fe-b0c0-848c9e6a8182", "offline_access", "Maintain access to data you have given it access to"},
+		{
+			"7427e0e9-2fba-42fe-b0c0-848c9e6a8182",
+			"offline_access",
+			"Maintain access to data you have given it access to",
+		},
 	}
 }
 
@@ -37,7 +41,7 @@ func (b *Backend) seed() {
 	for _, r := range graphRoles() {
 		roles = append(roles, AppRole{
 			ID: r.id, Value: r.value, DisplayName: r.name, Description: r.name,
-			AllowedMemberTypes: []string{"Application"}, IsEnabled: true, Origin: "Application",
+			AllowedMemberTypes: []string{typeApplication}, IsEnabled: true, Origin: typeApplication,
 		})
 	}
 
@@ -45,14 +49,14 @@ func (b *Backend) seed() {
 	for _, s := range graphScopes() {
 		scopes = append(scopes, PermissionScope{
 			ID: s.id, Value: s.value, AdminConsentDisplayName: s.name, AdminConsentDescription: s.name,
-			Type: "User", IsEnabled: true,
+			Type: typeUser, IsEnabled: true,
 		})
 	}
 
 	sp := &ServicePrincipal{
 		ID: microsoftGraphSPID, AppID: MicrosoftGraphAppID, DisplayName: "Microsoft Graph",
 		AppDisplayName: "Microsoft Graph", AppOwnerOrganizationID: microsoftServicesTenantID,
-		ServicePrincipalType: "Application", SignInAudience: "AzureADMultipleOrgs", AccountEnabled: true,
+		ServicePrincipalType: typeApplication, SignInAudience: "AzureADMultipleOrgs", AccountEnabled: true,
 		ServicePrincipalNames: []string{MicrosoftGraphAppID, "https://graph.microsoft.com"},
 		AppRoles:              roles, OAuth2PermissionScopes: scopes, CreatedDateTime: b.stamp(),
 	}
@@ -62,7 +66,7 @@ func (b *Backend) seed() {
 	dev := &ServicePrincipal{
 		ID: devClientSPID, AppID: lc(b.cfg.DevClientID), DisplayName: "gopherstack-dev-client",
 		AppDisplayName: "gopherstack-dev-client", AppOwnerOrganizationID: b.cfg.TenantID,
-		ServicePrincipalType: "Application", SignInAudience: "AzureADMyOrg", AccountEnabled: true,
+		ServicePrincipalType: typeApplication, SignInAudience: audienceMyOrg, AccountEnabled: true,
 		ServicePrincipalNames: []string{lc(b.cfg.DevClientID)}, CreatedDateTime: b.stamp(),
 	}
 	dev.normalize()

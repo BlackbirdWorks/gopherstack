@@ -80,44 +80,35 @@ func one[T any](v T, err error) (map[string]any, error) {
 
 func fieldsOf[T any]() map[string]bool { return jsonFields(reflect.TypeFor[T]()) }
 
+func newCollection[T any](
+	name, resource, kind string,
+	list func(*Backend) []T,
+	get func(*Backend, Ref) (T, error),
+	create func(*Backend, map[string]json.RawMessage) (T, error),
+	patch func(*Backend, Ref, map[string]json.RawMessage) error,
+	del func(*Backend, Ref) error,
+) *collection {
+	return &collection{
+		name: name, resource: resource, kind: kind, fields: fieldsOf[T](), patch: patch, del: del,
+		list:   func(b *Backend) []map[string]any { return mapAll(list(b)) },
+		get:    func(b *Backend, r Ref) (map[string]any, error) { return one(get(b, r)) },
+		create: func(b *Backend, m map[string]json.RawMessage) (map[string]any, error) { return one(create(b, m)) },
+	}
+}
+
 func buildCollections() map[string]*collection {
 	return map[string]*collection{
-		"applications": {
-			name: "applications", resource: "Application", kind: kindApplication, fields: fieldsOf[Application](),
-			list: func(b *Backend) []map[string]any { return mapAll(b.ListApplications()) },
-			get:  func(b *Backend, r Ref) (map[string]any, error) { return one(b.GetApplication(r)) },
-			create: func(b *Backend, m map[string]json.RawMessage) (map[string]any, error) {
-				return one(b.CreateApplication(m))
-			},
-			patch: func(b *Backend, r Ref, m map[string]json.RawMessage) error { return b.UpdateApplication(r, m) },
-			del:   func(b *Backend, r Ref) error { return b.DeleteApplication(r) },
-		},
-		"servicePrincipals": {
-			name: "servicePrincipals", resource: "ServicePrincipal", kind: kindServicePrincipal,
-			fields: fieldsOf[ServicePrincipal](),
-			list:   func(b *Backend) []map[string]any { return mapAll(b.ListServicePrincipals()) },
-			get:    func(b *Backend, r Ref) (map[string]any, error) { return one(b.GetServicePrincipal(r)) },
-			create: func(b *Backend, m map[string]json.RawMessage) (map[string]any, error) {
-				return one(b.CreateServicePrincipal(m))
-			},
-			patch: func(b *Backend, r Ref, m map[string]json.RawMessage) error { return b.UpdateServicePrincipal(r, m) },
-			del:   func(b *Backend, r Ref) error { return b.DeleteServicePrincipal(r) },
-		},
-		"users": {
-			name: "users", resource: "User", kind: kindUser, fields: fieldsOf[User](),
-			list:   func(b *Backend) []map[string]any { return mapAll(b.ListUsers()) },
-			get:    func(b *Backend, r Ref) (map[string]any, error) { return one(b.GetUser(r)) },
-			create: func(b *Backend, m map[string]json.RawMessage) (map[string]any, error) { return one(b.CreateUser(m)) },
-			patch:  func(b *Backend, r Ref, m map[string]json.RawMessage) error { return b.UpdateUser(r, m) },
-			del:    func(b *Backend, r Ref) error { return b.DeleteUser(r) },
-		},
-		"groups": {
-			name: "groups", resource: "Group", kind: kindGroup, fields: fieldsOf[Group](),
-			list:   func(b *Backend) []map[string]any { return mapAll(b.ListGroups()) },
-			get:    func(b *Backend, r Ref) (map[string]any, error) { return one(b.GetGroup(r)) },
-			create: func(b *Backend, m map[string]json.RawMessage) (map[string]any, error) { return one(b.CreateGroup(m)) },
-			patch:  func(b *Backend, r Ref, m map[string]json.RawMessage) error { return b.UpdateGroup(r, m) },
-			del:    func(b *Backend, r Ref) error { return b.DeleteGroup(r) },
-		},
+		collApplications: newCollection(collApplications, typeApplication, kindApplication,
+			(*Backend).ListApplications, (*Backend).GetApplication, (*Backend).CreateApplication,
+			(*Backend).UpdateApplication, (*Backend).DeleteApplication),
+		collServicePrincipals: newCollection(collServicePrincipals, "ServicePrincipal", kindServicePrincipal,
+			(*Backend).ListServicePrincipals, (*Backend).GetServicePrincipal, (*Backend).CreateServicePrincipal,
+			(*Backend).UpdateServicePrincipal, (*Backend).DeleteServicePrincipal),
+		collUsers: newCollection(collUsers, typeUser, kindUser,
+			(*Backend).ListUsers, (*Backend).GetUser, (*Backend).CreateUser,
+			(*Backend).UpdateUser, (*Backend).DeleteUser),
+		collGroups: newCollection(collGroups, "Group", kindGroup,
+			(*Backend).ListGroups, (*Backend).GetGroup, (*Backend).CreateGroup,
+			(*Backend).UpdateGroup, (*Backend).DeleteGroup),
 	}
 }
