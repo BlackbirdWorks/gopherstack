@@ -816,7 +816,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 1 structural gap; 2 deferred |
 | [Security Hub](services/securityhub/README.md) | A | 120 | 4 gaps; 4 structural gaps |
 | [Shield](services/shield/README.md) | A | 36 | 1 structural gap; 1 deferred |
-| [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 2 gaps; 1 structural gap |
+| [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 2 gaps |
 | [WAF](services/waf/README.md) | A | 4 | 3 structural gaps |
 | [WAFv2](services/wafv2/README.md) | A | 59 | 2 gaps; 2 structural gaps |
 

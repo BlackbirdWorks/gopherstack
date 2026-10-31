@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
+
+	cedar "github.com/cedar-policy/cedar-go"
 )
 
 type entityIdentifierJSON struct {
@@ -277,12 +280,19 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 		token = in.IdentityToken
 	}
 
-	principalType, principalID := h.principalFromToken(resolvedID, isAccessToken, token)
+	principal, err := h.resolveTokenPrincipal(resolvedID, isAccessToken, token)
+	if err != nil {
+		return nil, err
+	}
+
+	principalType, principalID := principal.Type, principal.ID
 
 	entities, err := entitiesToCedar(in.Entities)
 	if err != nil {
 		return nil, err
 	}
+
+	entities = withPrincipalGroups(entities, principal)
 
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
 
@@ -411,35 +421,49 @@ func parseJWTClaims(token string) (map[string]any, error) {
 	return claims, nil
 }
 
-// principalFromToken resolves PrincipalEntityType and PrincipalEntityID from
-// a JWT token, using the identity source in the policy store whose issuer
-// matches the token's "iss" claim (falling back to the first identity source
-// when no "iss" claim is present or none match, since a policy store
-// typically has exactly one identity source anyway), then validating the
-// token's aud/client_id claim against that source's configured client
-// IDs/audiences (see matchesConfiguredAudience). isAccessToken selects which
-// claim real AWS checks: "client_id"/"aud" for access tokens vs "aud" for ID
-// tokens. Returns ("", "") when no principal can be resolved -- the caller's
-// response omits the (optional, per the real SDK) principal field and the
-// request evaluates with no principal, i.e. fails closed to DENY.
-func (h *Handler) principalFromToken(policyStoreID string, isAccessToken bool, token string) (string, string) {
+// tokenPrincipal is the principal (and group parents) a token resolves to.
+type tokenPrincipal struct {
+	Type   string
+	ID     string
+	Groups []cedar.EntityUID
+}
+
+// resolveTokenPrincipal picks the identity source matching the token's issuer,
+// verifies the token (signature, expiry, issuer, token_use, audience) when a
+// TokenVerifier is installed, and derives the principal and group parents.
+// Without a verifier only the legacy claim checks run and failures fail closed
+// to an empty principal.
+func (h *Handler) resolveTokenPrincipal(policyStoreID string, isAccessToken bool, token string) (tokenPrincipal, error) {
 	sources, _, err := h.Backend.ListIdentitySources(policyStoreID, "", 0, nil)
 	if err != nil || len(sources) == 0 {
-		return "", ""
+		return tokenPrincipal{}, nil
 	}
 
 	claims, err := parseJWTClaims(token)
 	if err != nil {
-		return "", ""
+		if h.verifier != nil {
+			return tokenPrincipal{}, fmt.Errorf("%w: %w", ErrTokenInvalid, err)
+		}
+
+		return tokenPrincipal{}, nil
 	}
 
-	iss, _ := claims["iss"].(string)
+	iss, _ := claims[claimIss].(string)
 
 	is, ok := matchIdentitySource(sources, iss, claims, isAccessToken)
-	if !ok {
-		return "", ""
+
+	if h.verifier != nil {
+		if claims, err = h.verifier.Verify(is, token, isAccessToken); err != nil {
+			return tokenPrincipal{}, err
+		}
+	} else if !ok {
+		return tokenPrincipal{}, nil
 	}
 
+	return principalFromClaims(is, claims), nil
+}
+
+func principalFromClaims(is IdentitySource, claims map[string]any) tokenPrincipal {
 	claimName := "sub"
 
 	if is.OIDCTokenSelection != nil && is.OIDCTokenSelection.PrincipalIDClaim != "" {
@@ -448,7 +472,83 @@ func (h *Handler) principalFromToken(policyStoreID string, isAccessToken bool, t
 
 	claimVal, _ := claims[claimName].(string)
 
-	return is.PrincipalEntityType, claimVal
+	prefix := is.EntityIDPrefix
+	if is.UserPoolArn != "" {
+		prefix = cognitoPoolID(is.UserPoolArn)
+	}
+
+	idOf := func(v string) string {
+		if prefix == "" {
+			return v
+		}
+
+		return prefix + "|" + v
+	}
+
+	out := tokenPrincipal{Type: is.PrincipalEntityType, ID: idOf(claimVal)}
+
+	var groupType, groupClaim string
+
+	switch {
+	case is.UserPoolArn != "" && is.CognitoGroupConfig != nil:
+		groupType, groupClaim = is.CognitoGroupConfig.GroupEntityType, "cognito:groups"
+	case is.OIDCGroupConfig != nil:
+		groupType, groupClaim = is.OIDCGroupConfig.GroupEntityType, is.OIDCGroupConfig.GroupClaim
+	}
+
+	if groupType == "" || groupClaim == "" {
+		return out
+	}
+
+	for _, g := range claimStrings(claims[groupClaim]) {
+		out.Groups = append(out.Groups, cedar.NewEntityUID(cedar.EntityType(groupType), cedar.String(idOf(g))))
+	}
+
+	return out
+}
+
+// claimStrings reads a claim holding a string or an array of strings.
+func claimStrings(v any) []string {
+	switch vv := v.(type) {
+	case string:
+		if vv == "" {
+			return nil
+		}
+
+		return []string{vv}
+	case []any:
+		out := make([]string, 0, len(vv))
+
+		for _, item := range vv {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+
+		return out
+	}
+
+	return nil
+}
+
+// withPrincipalGroups returns entities with the principal made a member of the token's groups.
+func withPrincipalGroups(entities cedar.EntityMap, p tokenPrincipal) cedar.EntityMap {
+	if p.Type == "" || len(p.Groups) == 0 {
+		return entities
+	}
+
+	uid := cedar.NewEntityUID(cedar.EntityType(p.Type), cedar.String(p.ID))
+	out := make(cedar.EntityMap, len(entities)+1)
+	maps.Copy(out, entities)
+
+	ent := out[uid]
+	ent.UID = uid
+
+	parents := slices.Collect(ent.Parents.All())
+	ent.Parents = cedar.NewEntityUIDSet(append(parents, p.Groups...)...)
+	out[uid] = ent
+
+	return out
 }
 
 // matchIdentitySource returns the identity source in sources whose OIDC
@@ -467,7 +567,8 @@ func matchIdentitySource(
 	if issuer != "" {
 		for _, is := range sources {
 			switch {
-			case is.UserPoolArn != "" && cognitoIssuerFromUserPoolArn(is.UserPoolArn) == issuer:
+			case is.UserPoolArn != "" && (cognitoIssuerFromUserPoolArn(is.UserPoolArn) == issuer ||
+				strings.HasSuffix(issuer, "/"+cognitoPoolID(is.UserPoolArn))):
 				return is, matchesConfiguredAudience(is, claims, isAccessToken)
 			case is.OpenIDIssuer != "" && is.OpenIDIssuer == issuer:
 				return is, matchesConfiguredAudience(is, claims, isAccessToken)
@@ -616,7 +717,12 @@ func (h *Handler) handleIsAuthorizedWithToken(
 		req.ResourceEntityID = in.Resource.EntityID
 	}
 
-	req.PrincipalEntityType, req.PrincipalEntityID = h.principalFromToken(resolvedID, isAccessToken, token)
+	principal, err := h.resolveTokenPrincipal(resolvedID, isAccessToken, token)
+	if err != nil {
+		return nil, err
+	}
+
+	req.PrincipalEntityType, req.PrincipalEntityID = principal.Type, principal.ID
 
 	req.Context, err = contextToCedar(in.Context)
 	if err != nil {
@@ -627,6 +733,8 @@ func (h *Handler) handleIsAuthorizedWithToken(
 	if err != nil {
 		return nil, err
 	}
+
+	entities = withPrincipalGroups(entities, principal)
 
 	decision, err := h.Backend.IsAuthorizedWithToken(resolvedID, req, entities)
 	if err != nil {
