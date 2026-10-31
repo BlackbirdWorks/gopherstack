@@ -27,16 +27,18 @@ const (
 
 	fieldSeconds = "Seconds"
 	fieldItems   = "Items"
+	fieldKey     = "Key"
+	fieldValue   = "Value"
 )
 
 // mapItemContext is the `$$.Map` / `$states.context.Map` object for one item.
 func mapItemContext(idx int, value any) map[string]any {
-	return map[string]any{"Item": map[string]any{"Index": float64(idx), "Value": value}}
+	return map[string]any{"Item": map[string]any{"Index": float64(idx), fieldValue: value}}
 }
 
 // mapPairContext is the `$states.context.Map` object for an object-Items pair.
 func mapPairContext(idx int, p mapPair) map[string]any {
-	return map[string]any{"Item": map[string]any{"Index": float64(idx), "Key": p.Key, "Value": p.Value}}
+	return map[string]any{"Item": map[string]any{"Index": float64(idx), fieldKey: p.Key, fieldValue: p.Value}}
 }
 
 // ProcessorConfig specifies configuration for an ItemProcessor.
@@ -64,24 +66,22 @@ type StateMachine struct {
 type ItemBatcher struct {
 	MaxItemsPerBatchPath      string `json:"MaxItemsPerBatchPath,omitempty"`
 	MaxInputBytesPerBatchPath string `json:"MaxInputBytesPerBatchPath,omitempty"`
-	// BatchInput is fixed JSON merged into every batch's iteration input
-	// alongside Items (AWS docs: input-output-itembatcher.html, "Batch input").
-	BatchInput json.RawMessage `json:"BatchInput,omitempty"`
-	// MaxItemsPerBatch is the maximum number of items per batch. Zero means no limit.
-	MaxItemsPerBatch int `json:"MaxItemsPerBatch,omitempty"`
-	// MaxInputBytesPerBatch is the max total JSON bytes per batch. Zero means no limit.
-	MaxInputBytesPerBatch int `json:"MaxInputBytesPerBatch,omitempty"`
-	// maxItemsExpr/maxBytesExpr hold "{% %}" strings given for the two limits (JSONata states only).
+	// maxItemsExpr/maxBytesExpr hold "{% %}" limits (JSONata states only).
 	maxItemsExpr string
 	maxBytesExpr string
+	// BatchInput is fixed JSON merged into every batch (input-output-itembatcher.html).
+	BatchInput json.RawMessage `json:"BatchInput,omitempty"`
+	// MaxItemsPerBatch and MaxInputBytesPerBatch: zero means no limit.
+	MaxItemsPerBatch      int `json:"MaxItemsPerBatch,omitempty"`
+	MaxInputBytesPerBatch int `json:"MaxInputBytesPerBatch,omitempty"`
 }
 
 type itemBatcherWire struct {
+	MaxItemsPerBatchPath      string          `json:"MaxItemsPerBatchPath,omitempty"`
+	MaxInputBytesPerBatchPath string          `json:"MaxInputBytesPerBatchPath,omitempty"`
 	MaxItemsPerBatch          json.RawMessage `json:"MaxItemsPerBatch,omitempty"`
 	MaxInputBytesPerBatch     json.RawMessage `json:"MaxInputBytesPerBatch,omitempty"`
 	BatchInput                json.RawMessage `json:"BatchInput,omitempty"`
-	MaxItemsPerBatchPath      string          `json:"MaxItemsPerBatchPath,omitempty"`
-	MaxInputBytesPerBatchPath string          `json:"MaxInputBytesPerBatchPath,omitempty"`
 }
 
 // decodeBatchLimit reads an integer limit, or a JSONata string into expr.
@@ -151,9 +151,9 @@ func encodeBatchLimit(n int, expr string) (json.RawMessage, error) {
 // ItemReader configures reading items from S3 for a Map state's Distributed Map.
 type ItemReader struct {
 	Parameters   map[string]any  `json:"Parameters,omitempty"`
-	Arguments    json.RawMessage `json:"Arguments,omitempty"`
 	ReaderConfig *ReaderConfig   `json:"ReaderConfig,omitempty"`
 	Resource     string          `json:"Resource,omitempty"`
+	Arguments    json.RawMessage `json:"Arguments,omitempty"`
 }
 
 // ReaderConfig describes how the ItemReader should interpret S3 object data.
@@ -194,9 +194,9 @@ type ReaderConfig struct {
 // Executor.exportMapResults.
 type ResultWriter struct {
 	Parameters   map[string]any      `json:"Parameters,omitempty"`
-	Arguments    json.RawMessage     `json:"Arguments,omitempty"`
 	WriterConfig *ResultWriterConfig `json:"WriterConfig,omitempty"`
 	Resource     string              `json:"Resource,omitempty"`
+	Arguments    json.RawMessage     `json:"Arguments,omitempty"`
 }
 
 // ResultWriterConfig is ResultWriter.WriterConfig: Transformation

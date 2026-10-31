@@ -263,16 +263,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 	}
 
-	var lambdaInvoker asl.LambdaInvoker
-
-	rejectObjectItems := false
-
-	if bk, ok := h.Backend.(*InMemoryBackend); ok {
-		bk.mu.RLock("TestState")
-		lambdaInvoker = bk.lambdaInvoker
-		rejectObjectItems = !bk.settings.JSONataMapObjectItems
-		bk.mu.RUnlock()
-	}
+	lambdaInvoker, rejectObjectItems := h.testStateBackendConfig()
 
 	executor := asl.NewExecutor(sm, lambdaInvoker, nil)
 	executor.SetRejectMapObjectItems(rejectObjectItems)
@@ -371,4 +362,16 @@ func configureTestStateExecutor(
 	executor.SetMockRun(run)
 
 	return nil
+}
+
+func (h *Handler) testStateBackendConfig() (asl.LambdaInvoker, bool) {
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return nil, false
+	}
+
+	bk.mu.RLock("TestState")
+	defer bk.mu.RUnlock()
+
+	return bk.lambdaInvoker, !bk.settings.JSONataMapObjectItems
 }

@@ -445,7 +445,7 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	inspection           map[string]any
+	activity             ActivityInvoker
 	lambda               LambdaInvoker
 	mapItemValue         any
 	callback             TaskTokenCallbackInvoker
@@ -464,30 +464,30 @@ type Executor struct {
 	distributedMapRunner DistributedMapRunner
 	s3w                  S3Writer
 	s3                   S3Reader
-	activity             ActivityInvoker
-	matchedRule          *ChoiceRule
-	jsonPathCache        *jsonPathCache
 	sm                   *StateMachine
+	contextOverride      map[string]any
+	jsonPathCache        *jsonPathCache
+	inspection           map[string]any
 	jx                   *jxScope
 	jxMapCfg             *jxMapConfig
-	rejectObjectItems    bool
+	matchedRule          *ChoiceRule
 	mock                 *MockRun
 	outerVars            map[string]any
 	execSem              *semaphore.Weighted
 	jxNums               map[string]int
 	vars                 map[string]any
 	varSizes             map[string]int
-	contextOverride      map[string]any
 	execMeta             executionMeta
+	caughtCause          string
 	branchName           string
 	currentMapState      string
 	lastNext             string
 	caughtErr            string
-	caughtCause          string
-	jxPct                float64
 	mapItemIdx           int
+	jxPct                float64
 	retrierRetryCount    int
 	outerVarBytes        int
+	rejectObjectItems    bool
 	jxPctSet             bool
 	inMapItem            bool
 	caught               bool
@@ -2788,7 +2788,7 @@ func (e *Executor) resolveItemsFromS3GetObject(ctx context.Context, reader *Item
 	}
 
 	bucket, _ := reader.Parameters["Bucket"].(string)
-	key, _ := reader.Parameters["Key"].(string)
+	key, _ := reader.Parameters[fieldKey].(string)
 
 	data, err := e.getS3Object(ctx, bucket, key)
 	if err != nil {
@@ -2838,7 +2838,7 @@ func (e *Executor) resolveItemsFromS3List(ctx context.Context, reader *ItemReade
 	for i, o := range objs {
 		items[i] = map[string]any{
 			"Etag":         o.ETag,
-			"Key":          o.Key,
+			fieldKey:       o.Key,
 			"LastModified": awstime.Epoch(o.LastModified),
 			"Size":         o.Size,
 			"StorageClass": o.StorageClass,

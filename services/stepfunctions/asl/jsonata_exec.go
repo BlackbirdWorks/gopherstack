@@ -366,7 +366,7 @@ func objectPairs(m map[string]any) []any {
 func unwrapMapPairs(items []any) []any {
 	for i, it := range items {
 		if p, ok := it.(mapPair); ok {
-			items[i] = map[string]any{"Key": p.Key, "Value": p.Value}
+			items[i] = map[string]any{fieldKey: p.Key, fieldValue: p.Value}
 		}
 	}
 
@@ -414,28 +414,40 @@ func (e *Executor) jxResolveMapConfig(state *State, scope *jxScope) error {
 		return err
 	}
 
-	if b := state.ItemBatcher; b != nil {
-		if cfg.maxItems, err = scope.evalBatchLimit(b.maxItemsExpr, b.MaxItemsPerBatch, "MaxItemsPerBatch"); err != nil {
+	if state.ItemBatcher != nil {
+		if err = scope.resolveBatcher(state.ItemBatcher, cfg); err != nil {
 			return err
-		}
-
-		if cfg.maxBytes, err = scope.evalBatchLimit(b.maxBytesExpr, b.MaxInputBytesPerBatch, "MaxInputBytesPerBatch"); err != nil {
-			return err
-		}
-
-		if st.hasBatchIn {
-			v, evalErr := scope.evalValue(st.batchInput)
-			if evalErr != nil {
-				return evalErr
-			}
-
-			if cfg.batchInput, err = json.Marshal(v); err != nil {
-				return queryEvalError(err)
-			}
 		}
 	}
 
 	e.jxMapCfg = cfg
+
+	return nil
+}
+
+func (s *jxScope) resolveBatcher(b *ItemBatcher, cfg *jxMapConfig) error {
+	var err error
+	if cfg.maxItems, err = s.evalBatchLimit(b.maxItemsExpr, b.MaxItemsPerBatch, "MaxItemsPerBatch"); err != nil {
+		return err
+	}
+
+	limit := s.evalBatchLimit
+	if cfg.maxBytes, err = limit(b.maxBytesExpr, b.MaxInputBytesPerBatch, "MaxInputBytesPerBatch"); err != nil {
+		return err
+	}
+
+	if !s.st.hasBatchIn {
+		return nil
+	}
+
+	v, err := s.evalValue(s.st.batchInput)
+	if err != nil {
+		return err
+	}
+
+	if cfg.batchInput, err = json.Marshal(v); err != nil {
+		return queryEvalError(err)
+	}
 
 	return nil
 }
