@@ -21,7 +21,7 @@
 - Repositories and images have no DELETING window: deletes are immediate (images soft-delete to DELETED until restored; repositories vanish). OCI's deletion retention, repository quotas and per-image limits are not modelled, and blobs of deleted images are not garbage collected.
 - createdBy on images and versions is the registry login user name rather than a user OCID; signatures and repositories created through the API use the signing user OCID.
 - pullCount counts GET manifest requests only, including ones the registry then rejects; blob pulls and HEAD requests do not count. Image scanning, vulnerability reports and replication are not provided.
-- opc-retry-token idempotency and compartmentIdInSubtree outside OCI Identity are not applied; systemTags are always empty. The dashboard has no OCI Artifacts page.
+- opc-retry-token idempotency and compartmentIdInSubtree outside OCI Identity are not applied; systemTags are always empty.
 
 ## More
 

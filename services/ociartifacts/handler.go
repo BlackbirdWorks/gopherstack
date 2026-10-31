@@ -199,7 +199,12 @@ func (h *Handler) fail(q *req, err error) {
 }
 
 // Handler returns the Echo handler for all OCIArtifacts requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+func (h *Handler) Handler() echo.HandlerFunc { return h.handle(true) }
+
+// Trusted returns a handler that skips request-signature verification, for the in-process dashboard proxy.
+func (h *Handler) Trusted() echo.HandlerFunc { return h.handle(false) }
+
+func (h *Handler) handle(verify bool) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		q := &req{w: c.Response(), r: c.Request(), rt: parseRoute(c.Request())}
 		q.header("opc-request-id", strings.ToUpper(uuid.NewString()))
@@ -212,7 +217,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case opGetAccessToken:
 			h.serveToken(q.w, q.r)
 		default:
-			if err := h.serve(q); err != nil {
+			if err := h.serve(q, verify); err != nil {
 				h.fail(q, err)
 			}
 		}
@@ -221,7 +226,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) serve(q *req) error {
+func (h *Handler) serve(q *req, verify bool) error {
 	fn, ok := h.ops[q.rt.op]
 	if !ok {
 		return errNoRoute()
@@ -240,7 +245,7 @@ func (h *Handler) serve(q *req) error {
 	q.body = body
 
 	if q.principal, err = ociauth.Verify(q.r, q.body, ociauth.Options{
-		Registry: h.Backend.Auth, Now: h.Backend.nowUTC, Enforce: h.EnforceAuth,
+		Registry: h.Backend.Auth, Now: h.Backend.nowUTC, Enforce: h.EnforceAuth && verify,
 	}); err != nil {
 		return errAuth("The required information to complete authentication was not provided or was incorrect.")
 	}

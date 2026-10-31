@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/rand"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -318,4 +319,22 @@ func str(p *string) string {
 	}
 
 	return *p
+}
+
+// Compartments lists the tenancy root and every compartment that holds a repository.
+func (b *InMemoryBackend) Compartments() []string {
+	b.mu.RLock("Compartments")
+	defer b.mu.RUnlock()
+
+	seen := map[string]struct{}{b.tenancy: {}}
+
+	for _, r := range b.repos {
+		seen[r.CompartmentID] = struct{}{}
+	}
+
+	for _, g := range b.gens {
+		seen[g.CompartmentID] = struct{}{}
+	}
+
+	return slices.Sorted(maps.Keys(seen))
 }
