@@ -19,6 +19,7 @@ const (
 	apiVersion      = "v1"
 	verbDelete      = "delete"
 	verbCancel      = "cancel"
+	defaultStart    = 2 * time.Second
 )
 
 // Runtime is the slice of the container runtime a task needs. The runtime must also implement
@@ -52,7 +53,7 @@ type Timing struct {
 // DefaultTiming returns the durations used unless a test overrides them.
 func DefaultTiming() Timing {
 	return Timing{
-		Schedule: time.Second, Start: 2 * time.Second, TaskRun: 2 * time.Second,
+		Schedule: time.Second, Start: defaultStart, TaskRun: defaultStart,
 		Cancel: time.Second, Delete: time.Second,
 	}
 }

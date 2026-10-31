@@ -27,24 +27,24 @@ const (
 
 // execEnv is what a job runner needs, captured when the job starts.
 type execEnv struct {
-	rt      Runtime
-	svc     Services
-	script  string
-	scratch string
-	hosts   string
-	job     string
-	project string
+	rt       Runtime
+	svc      Services
+	script   string
+	scratch  string
+	hosts    string
+	job      string
+	project  string
 	location string
-	vols    []string
-	logs    bool
-	count   int
+	vols     []string
+	logs     bool
+	count    int
 }
 
 func (b *InMemoryBackend) startRunnerLocked(r *jobRec) {
 	ctx, cancel := context.WithCancel(b.ctx)
 	b.cancels[r.pb.GetName()] = cancel
 
-	project, location, _, _ := parseJobName(r.pb.GetName())
+	project, location, _ := parseJobName(r.pb.GetName())
 	ex := &execEnv{
 		rt: b.rt, svc: b.svc, script: b.script, job: r.pb.GetName(), project: project, location: location,
 		count: len(r.Tasks), logs: r.pb.GetLogsPolicy().GetDestination() == batchpb.LogsPolicy_CLOUD_LOGGING,
@@ -184,7 +184,7 @@ func (b *InMemoryBackend) prepare(ex *execEnv, g *batchpb.TaskGroup) error {
 			return fmt.Errorf("create volume dir: %w", err)
 		}
 
-		if err = os.Chmod(p, scratchMode|0o022); err != nil { //nolint:gosec // shared scratch must be writable by any container user
+		if err = os.Chmod(p, scratchMode|0o022); err != nil {
 			return fmt.Errorf("chmod volume dir: %w", err)
 		}
 
@@ -294,6 +294,14 @@ func (b *InMemoryBackend) deadline(
 	return ctx2, cancel
 }
 
+// attemptState tracks one attempt across its runnables.
+type attemptState struct {
+	note   string
+	bg     []*proc
+	exit   int
+	failed bool
+}
+
 // runAttempt runs the task's runnables once. aborted means the job was cancelled, deleted or shut down.
 func (b *InMemoryBackend) runAttempt(
 	ctx context.Context, ex *execEnv, g *batchpb.TaskGroup, i int,
@@ -303,57 +311,59 @@ func (b *InMemoryBackend) runAttempt(
 	actx, cancel := b.deadline(ctx, g.GetTaskSpec().GetMaxRunDuration().AsDuration(), &timedOut)
 	defer cancel()
 
-	var (
-		exit   int
-		note   string
-		failed bool
-		bg     []*proc
-	)
-
-	defer func() { stopAll(bg) }()
+	st := &attemptState{}
+	defer func() { stopAll(st.bg) }()
 
 	for n, r := range g.GetTaskSpec().GetRunnables() {
-		if _, isBarrier := r.GetExecutable().(*batchpb.Runnable_Barrier_); isBarrier {
-			continue
-		}
-
-		if (failed || actx.Err() != nil) && !r.GetAlwaysRun() {
-			continue
-		}
-
-		p, code, msg := b.launch(actx, ex, g, i, n, r)
-		if p != nil && r.GetBackground() {
-			bg = append(bg, p)
-
-			continue
-		}
-
-		if p != nil {
-			code, msg = p.wait(actx)
-		}
-
 		if ctx.Err() != nil {
 			return 0, "", true
 		}
 
-		if timedOut.Load() && code != 0 {
-			code, msg = exitMaxRuntime, "task or runnable exceeded its time limit"
+		if _, isBarrier := r.GetExecutable().(*batchpb.Runnable_Barrier_); isBarrier {
+			continue
 		}
 
-		if code != 0 && !r.GetIgnoreExitStatus() && !failed {
-			exit, note, failed = code, msg, true
+		if (st.failed || actx.Err() != nil) && !r.GetAlwaysRun() {
+			continue
 		}
+
+		b.step(actx, ex, g, i, n, r, &timedOut, st)
 	}
 
 	if ctx.Err() != nil {
 		return 0, "", true
 	}
 
-	if timedOut.Load() && !failed {
+	if timedOut.Load() && !st.failed {
 		return exitMaxRuntime, "task exceeded max_run_duration", false
 	}
 
-	return exit, note, false
+	return st.exit, st.note, false
+}
+
+// step runs one runnable and folds its outcome into the attempt.
+func (b *InMemoryBackend) step(
+	ctx context.Context, ex *execEnv, g *batchpb.TaskGroup, i, n int, r *batchpb.Runnable,
+	timedOut *atomic.Bool, st *attemptState,
+) {
+	p, code, msg := b.launch(ctx, ex, g, i, n, r)
+	if p != nil && r.GetBackground() {
+		st.bg = append(st.bg, p)
+
+		return
+	}
+
+	if p != nil {
+		code, msg = p.wait(ctx)
+	}
+
+	if timedOut.Load() && code != 0 {
+		code, msg = exitMaxRuntime, "task or runnable exceeded its time limit"
+	}
+
+	if code != 0 && !r.GetIgnoreExitStatus() && !st.failed {
+		st.exit, st.note, st.failed = code, msg, true
+	}
 }
 
 // proc is a started runnable container.
@@ -482,7 +492,11 @@ func (p *proc) streamLogs(ctx context.Context, ex *execEnv, task int) {
 	_ = gcpserve.StreamLogs(ctx, p.rt, p.id, target, sink)
 }
 
-func (b *InMemoryBackend) runnableSpec(ex *execEnv, r *batchpb.Runnable, vars map[string]string) (container.Spec, error) {
+func (b *InMemoryBackend) runnableSpec(
+	ex *execEnv,
+	r *batchpb.Runnable,
+	vars map[string]string,
+) (container.Spec, error) {
 	mounts := append([]string(nil), ex.vols...)
 	if ex.hosts != "" {
 		mounts = append(mounts, ex.hosts+":"+HostsFilePath+":ro")

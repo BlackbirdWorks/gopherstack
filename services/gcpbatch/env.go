@@ -24,7 +24,8 @@ var errNoSecrets = errors.New("secret manager is not available to this job")
 // own task_environments entry, then the runnable's.
 func envLayers(g *batchpb.TaskGroup, i int, r *batchpb.Runnable) []*batchpb.Environment {
 	spec := g.GetTaskSpec()
-	layers := []*batchpb.Environment{{Variables: spec.GetEnvironments()}, spec.GetEnvironment()}
+	deprecated := spec.GetEnvironments() //nolint:staticcheck // still honoured, below task_spec.environment
+	layers := []*batchpb.Environment{{Variables: deprecated}, spec.GetEnvironment()}
 
 	if envs := g.GetTaskEnvironments(); i < len(envs) {
 		layers = append(layers, envs[i])

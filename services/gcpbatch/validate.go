@@ -57,7 +57,11 @@ func validateEnv(where string, e *batchpb.Environment) error {
 		}
 
 		if !secretRe.MatchString(v) {
-			return errInvalid("%s: secret variable %q must name projects/{project}/secrets/{secret}/versions/{version}.", where, k)
+			return errInvalid(
+				"%s: secret variable %q must name projects/{project}/secrets/{secret}/versions/{version}.",
+				where,
+				k,
+			)
 		}
 	}
 
@@ -202,7 +206,10 @@ func validateAllocation(a *batchpb.AllocationPolicy) error {
 
 	for _, l := range a.GetLocation().GetAllowedLocations() {
 		if !strings.HasPrefix(l, "regions/") && !strings.HasPrefix(l, "zones/") {
-			return errInvalid("allocation_policy.location.allowed_locations entry %q must be regions/... or zones/....", l)
+			return errInvalid(
+				"allocation_policy.location.allowed_locations entry %q must be regions/... or zones/....",
+				l,
+			)
 		}
 	}
 

@@ -49,18 +49,18 @@ func (t *taskRec) terminal() bool {
 
 // jobRec is a job with its materialised status. Planned times drive state-only progression.
 type jobRec struct {
+	EndedAt     time.Time `json:"endedAt"`
+	CancelDone  time.Time `json:"cancelDone"`
+	DeleteDone  time.Time `json:"deleteDone"`
+	ScheduledAt time.Time `json:"scheduledAt"`
+	RunningAt   time.Time `json:"runningAt"`
+	StartedAt   time.Time `json:"startedAt"`
 	pb          *batchpb.Job
 	Events      []eventRec `json:"events"`
 	Tasks       []*taskRec `json:"tasks"`
-	ScheduledAt time.Time  `json:"scheduledAt"`
-	RunningAt   time.Time  `json:"runningAt"`
-	StartedAt   time.Time  `json:"startedAt"`
-	EndedAt     time.Time  `json:"endedAt"`
-	CancelDone  time.Time  `json:"cancelDone"`
-	DeleteDone  time.Time  `json:"deleteDone"`
 	TaskRun     int64      `json:"taskRun"`
-	Phase       int32      `json:"phase"`
 	Parallel    int64      `json:"parallel"`
+	Phase       int32      `json:"phase"`
 	Engine      bool       `json:"engine"`
 	Cancelled   bool       `json:"cancelled"`
 	Deleting    bool       `json:"deleting"`

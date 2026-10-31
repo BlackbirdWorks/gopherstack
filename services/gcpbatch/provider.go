@@ -56,7 +56,11 @@ func enableEngine(ctx *service.AppContext, backend *InMemoryBackend, settings Se
 
 	rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
 	if err != nil {
-		ctx.Logger.Warn("gcpbatch: container runtime unavailable; jobs progress on the clock without running", "error", err)
+		ctx.Logger.Warn(
+			"gcpbatch: container runtime unavailable; jobs progress on the clock without running",
+			"error",
+			err,
+		)
 
 		return
 	}

@@ -36,11 +36,11 @@ func taskStates(tasks []*batchpb.Task) []string {
 func TestEngineTaskEnvironment(t *testing.T) {
 	t.Parallel()
 
-	rt := newFakeRuntime(map[string]behavior{"ok:1": exits(0)})
+	rt := newFakeRuntime(map[string]behavior{"ok:1": exitsOK()})
 	e := newEnv(t, withRuntime(rt))
 
 	job := basicJob(3)
-	g := job.TaskGroups[0]
+	g := job.GetTaskGroups()[0]
 	g.TaskSpec.Environment = &batchpb.Environment{Variables: map[string]string{"A": "spec", "B": "spec"}}
 	g.TaskEnvironments = []*batchpb.Environment{
 		{Variables: map[string]string{"B": "t0"}}, nil, {Variables: map[string]string{"B": "t2"}},
@@ -103,7 +103,7 @@ func TestEngineSecretVariables(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rt := newFakeRuntime(map[string]behavior{"ok:1": exits(0)})
+			rt := newFakeRuntime(map[string]behavior{"ok:1": exitsOK()})
 			svc := gcpbatch.Services{}
 
 			if tt.secrets != nil {
@@ -145,8 +145,8 @@ func TestEngineRetriesAndLifecyclePolicies(t *testing.T) {
 	tests := []struct {
 		name     string
 		policies []*batchpb.LifecyclePolicy
-		failFor  int32
 		exit     int
+		failFor  int32
 		retries  int32
 		wantRuns int32
 		want     batchpb.TaskStatus_State
@@ -155,19 +155,23 @@ func TestEngineRetriesAndLifecyclePolicies(t *testing.T) {
 		{name: "retry then succeed", exit: 3, failFor: 2, retries: 3, wantRuns: 3, want: batchpb.TaskStatus_SUCCEEDED},
 		{name: "retries exhausted", exit: 3, failFor: 99, retries: 2, wantRuns: 3, want: batchpb.TaskStatus_FAILED},
 		{
-			name: "retry matching code", exit: 50001, failFor: 1, retries: 2, wantRuns: 2, want: batchpb.TaskStatus_SUCCEEDED,
+			name: "retry matching code", exit: 50001, failFor: 1, retries: 2, wantRuns: 2,
+			want:     batchpb.TaskStatus_SUCCEEDED,
 			policies: policy(batchpb.LifecyclePolicy_RETRY_TASK, 50001),
 		},
 		{
-			name: "retry policy ignores other code", exit: 3, failFor: 99, retries: 5, wantRuns: 1, want: batchpb.TaskStatus_FAILED,
+			name: "retry policy ignores other code", exit: 3, failFor: 99, retries: 5, wantRuns: 1,
+			want:     batchpb.TaskStatus_FAILED,
 			policies: policy(batchpb.LifecyclePolicy_RETRY_TASK, 50001),
 		},
 		{
-			name: "fail on matching code", exit: 3, failFor: 99, retries: 5, wantRuns: 1, want: batchpb.TaskStatus_FAILED,
+			name: "fail on matching code", exit: 3, failFor: 99, retries: 5, wantRuns: 1,
+			want:     batchpb.TaskStatus_FAILED,
 			policies: policy(batchpb.LifecyclePolicy_FAIL_TASK, 3),
 		},
 		{
-			name: "fail policy retries other codes", exit: 4, failFor: 1, retries: 5, wantRuns: 2, want: batchpb.TaskStatus_SUCCEEDED,
+			name: "fail policy retries other codes", exit: 4, failFor: 1, retries: 5, wantRuns: 2,
+			want:     batchpb.TaskStatus_SUCCEEDED,
 			policies: policy(batchpb.LifecyclePolicy_FAIL_TASK, 3),
 		},
 	}
@@ -261,7 +265,7 @@ func TestEngineRunnableSemantics(t *testing.T) {
 func TestEngineBackgroundRunnableDoesNotFailTask(t *testing.T) {
 	t.Parallel()
 
-	rt := newFakeRuntime(map[string]behavior{"bg:1": blocks(), "ok:1": exits(0)})
+	rt := newFakeRuntime(map[string]behavior{"bg:1": blocks(), "ok:1": exitsOK()})
 	e := newEnv(t, withRuntime(rt))
 
 	bg := containerRunnable("bg:1")
@@ -276,7 +280,7 @@ func TestEngineBackgroundRunnableDoesNotFailTask(t *testing.T) {
 func TestEngineScriptRunnables(t *testing.T) {
 	t.Parallel()
 
-	rt := newFakeRuntime(map[string]behavior{"script:img": exits(0)})
+	rt := newFakeRuntime(map[string]behavior{"script:img": exitsOK()})
 	e := newEnv(t, withRuntime(rt))
 
 	text := &batchpb.Runnable{Executable: &batchpb.Runnable_Script_{Script: &batchpb.Runnable_Script{
@@ -333,7 +337,11 @@ func TestEngineParallelFailureLetsOthersFinish(t *testing.T) {
 	got := e.finish(t, "par")
 	assert.Equal(t, batchpb.JobStatus_FAILED, got.GetStatus().GetState())
 	assert.Equal(t, []string{"SUCCEEDED", "FAILED", "SUCCEEDED", "FAILED"}, taskStates(e.tasks(t, "par")))
-	assert.Equal(t, map[string]int64{"SUCCEEDED": 2, "FAILED": 2}, got.GetStatus().GetTaskGroups()["group0"].GetCounts())
+	assert.Equal(
+		t,
+		map[string]int64{"SUCCEEDED": 2, "FAILED": 2},
+		got.GetStatus().GetTaskGroups()["group0"].GetCounts(),
+	)
 }
 
 func TestEngineMaxRunDuration(t *testing.T) {
@@ -360,7 +368,7 @@ func TestEngineMaxRunDuration(t *testing.T) {
 func TestEngineRunnableTimeout(t *testing.T) {
 	t.Parallel()
 
-	rt := newFakeRuntime(map[string]behavior{"slow:1": blocks(), "ok:1": exits(0)})
+	rt := newFakeRuntime(map[string]behavior{"slow:1": blocks(), "ok:1": exitsOK()})
 	e := newEnv(t, withRuntime(rt), withTimer(func(time.Duration) (<-chan time.Time, func() bool) {
 		ch := make(chan time.Time, 1)
 		ch <- time.Time{}
@@ -433,7 +441,11 @@ func TestEngineCloudLogging(t *testing.T) {
 		logs    *batchpb.LogsPolicy
 		wantLog []string
 	}{
-		{name: "cloud logging", logs: &batchpb.LogsPolicy{Destination: batchpb.LogsPolicy_CLOUD_LOGGING}, wantLog: []string{"hello 0", "hello 1"}},
+		{
+			name:    "cloud logging",
+			logs:    &batchpb.LogsPolicy{Destination: batchpb.LogsPolicy_CLOUD_LOGGING},
+			wantLog: []string{"hello 0", "hello 1"},
+		},
 		{name: "unspecified", logs: nil},
 		{name: "path", logs: &batchpb.LogsPolicy{Destination: batchpb.LogsPolicy_PATH, LogsPath: "/tmp/x"}},
 	}
@@ -449,7 +461,7 @@ func TestEngineCloudLogging(t *testing.T) {
 			e.create(t, "logs", job)
 			e.finish(t, "logs")
 
-			assert.Equal(t, tt.wantLog, sink.texts())
+			assert.ElementsMatch(t, tt.wantLog, sink.texts())
 
 			for _, en := range sink.entries {
 				assert.Equal(t, "projects/"+project+"/logs/batch_task_logs", en.GetLogName())

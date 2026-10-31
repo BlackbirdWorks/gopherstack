@@ -22,7 +22,7 @@ type clause struct{ field, value string }
 func parseFilter(f string) ([]clause, error) {
 	var out []clause
 
-	for _, raw := range strings.Split(f, " AND ") {
+	for raw := range strings.SplitSeq(f, " AND ") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue

@@ -652,6 +652,7 @@ type CLI struct {
 	OCIMySQL                      ocimysqlbackend.Settings          `embed:"" prefix:"oci-mysql-"`
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
+	GCPBatch                      gcpbatchbackend.Settings          `embed:"" prefix:"gcp-batch-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
@@ -697,7 +698,6 @@ type CLI struct {
 	GCPCompute                    gcpcomputebackend.Settings        `embed:"" prefix:"gcp-compute-"`
 	GCPContainer                  gcpcontainerbackend.Settings      `embed:"" prefix:"gcp-container-"`
 	GCPAPIGateway                 gcpapigatewaybackend.Settings     `embed:"" prefix:"gcp-apigateway-"`
-	GCPBatch                      gcpbatchbackend.Settings          `embed:"" prefix:"gcp-batch-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose

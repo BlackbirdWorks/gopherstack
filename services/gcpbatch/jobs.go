@@ -15,6 +15,7 @@ import (
 const (
 	maxTaskCount = 100000
 	idHexLen     = 8
+	zeroUUID     = "00000000-0000-0000-0000-000000000000"
 )
 
 func (r *jobRec) setPhase(to int32, at time.Time) {
@@ -35,11 +36,11 @@ func (r *jobRec) setPhase(to int32, at time.Time) {
 	}
 }
 
-// setTask moves a task to a new state unless it already finished; it reports whether it moved.
-func (r *jobRec) setTask(i int, to int32, at time.Time, exit *int32, note string) bool {
+// setTask moves a task to a new state unless it already finished.
+func (r *jobRec) setTask(i int, to int32, at time.Time, exit *int32, note string) {
 	t := r.Tasks[i]
 	if t.terminal() {
-		return false
+		return
 	}
 
 	desc := "Task state is updated from " + taskStateName(t.State) + " to " + taskStateName(to)
@@ -49,8 +50,6 @@ func (r *jobRec) setTask(i int, to int32, at time.Time, exit *int32, note string
 
 	t.State = to
 	t.Events = append(t.Events, eventRec{Time: at, Type: eventStatusChanged, Desc: desc, Exit: exit})
-
-	return true
 }
 
 // interrupt ends every unfinished task because the job was cancelled or deleted.
@@ -135,7 +134,7 @@ func (b *InMemoryBackend) advanceLocked() {
 }
 
 func (b *InMemoryBackend) liveJobLocked(name string) (*jobRec, error) {
-	if _, _, _, err := parseJobName(name); err != nil {
+	if _, _, err := parseJobName(name); err != nil {
 		return nil, err
 	}
 
@@ -190,34 +189,44 @@ func (b *InMemoryBackend) buildJobLocked(name string, src *batchpb.Job) *jobRec 
 	return r
 }
 
-// CreateJob validates and records a job. It returns the job without a long-running operation, as the API does.
-func (b *InMemoryBackend) CreateJob(in *batchpb.CreateJobRequest) (*batchpb.Job, error) {
+// validateCreate checks a CreateJobRequest and returns the project, location and (possibly generated) id.
+func validateCreate(in *batchpb.CreateJobRequest) (string, string, string, error) {
 	project, location, err := parseParent(in.GetParent())
 	if err != nil {
-		return nil, err
+		return "", "", "", err
 	}
 
 	if location == anyLocation {
-		return nil, errInvalid("Invalid parent %q: a concrete location is required.", in.GetParent())
+		return "", "", "", errInvalid("Invalid parent %q: a concrete location is required.", in.GetParent())
 	}
 
 	id := in.GetJobId()
 	if id == "" {
 		id = newJobID()
 	} else if !jobIDRe.MatchString(id) {
-		return nil, errInvalid("Invalid job_id %q: must match %s.", id, jobIDRe.String())
+		return "", "", "", errInvalid("Invalid job_id %q: must match %s.", id, jobIDRe.String())
 	}
 
-	if rid := in.GetRequestId(); rid != "" && (!requestRe.MatchString(rid) || rid == "00000000-0000-0000-0000-000000000000") {
-		return nil, errInvalid("request_id must be a valid non-zero UUID.")
+	if rid := in.GetRequestId(); rid != "" && (!requestRe.MatchString(rid) || rid == zeroUUID) {
+		return "", "", "", errInvalid("request_id must be a valid non-zero UUID.")
 	}
 
 	if err = validateJob(in.GetJob()); err != nil {
-		return nil, err
+		return "", "", "", err
 	}
 
 	if in.GetJob().GetTaskGroups()[0].GetTaskCount() > maxTaskCount {
-		return nil, errInvalid("task_count must be at most %d.", maxTaskCount)
+		return "", "", "", errInvalid("task_count must be at most %d.", maxTaskCount)
+	}
+
+	return project, location, id, nil
+}
+
+// CreateJob validates and records a job. It returns the job without a long-running operation, as the API does.
+func (b *InMemoryBackend) CreateJob(in *batchpb.CreateJobRequest) (*batchpb.Job, error) {
+	project, location, id, err := validateCreate(in)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateJob")
@@ -229,10 +238,8 @@ func (b *InMemoryBackend) CreateJob(in *batchpb.CreateJobRequest) (*batchpb.Job,
 	reqKey := in.GetParent() + "|" + in.GetRequestId()
 
 	if in.GetRequestId() != "" {
-		if prev, ok := b.requests[reqKey]; ok {
-			if r, live := b.jobs[prev]; live {
-				return r.view(b.now()), nil
-			}
+		if r, live := b.jobs[b.requests[reqKey]]; live {
+			return r.view(b.now()), nil
 		}
 	}
 
@@ -294,7 +301,7 @@ func (b *InMemoryBackend) DeleteJob(in *batchpb.DeleteJobRequest) (*longrunningp
 	r.DeleteDone = now.Add(b.timing.Delete)
 	r.setPhase(jobDeleting, now)
 
-	project, location, _, _ := parseJobName(in.GetName())
+	project, location, _ := parseJobName(in.GetName())
 
 	return b.newOpLocked(opSpec{
 		project: project, location: location, target: in.GetName(), verb: verbDelete,
@@ -325,7 +332,7 @@ func (b *InMemoryBackend) CancelJob(in *batchpb.CancelJobRequest) (*longrunningp
 	r.CancelDone = now.Add(b.timing.Cancel)
 	r.setPhase(jobCancelling, now)
 
-	project, location, _, _ := parseJobName(in.GetName())
+	project, location, _ := parseJobName(in.GetName())
 
 	return b.newOpLocked(opSpec{
 		project: project, location: location, target: in.GetName(), verb: verbCancel,

@@ -17,8 +17,8 @@ import (
 const snapshotVersion = 1
 
 type jobSnap struct {
-	Job json.RawMessage `json:"job"`
 	Rec *jobRec         `json:"rec"`
+	Job json.RawMessage `json:"job"`
 }
 
 type backendSnapshot struct {

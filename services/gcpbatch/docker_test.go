@@ -48,9 +48,13 @@ func TestDockerTwoTaskJob(t *testing.T) {
 		withServices(gcpbatch.Services{Logs: sink, Secrets: fakeSecrets{"projects/p/secrets/s/versions/1": "s3cret"}}))
 
 	script := &batchpb.Runnable{Executable: &batchpb.Runnable_Script_{Script: &batchpb.Runnable_Script{
-		Command: &batchpb.Runnable_Script_Text{Text: "#!/bin/sh\necho \"script $BATCH_TASK_INDEX/$BATCH_TASK_COUNT secret=${SECRET}\"\n"},
+		Command: &batchpb.Runnable_Script_Text{
+			Text: "#!/bin/sh\necho \"script $BATCH_TASK_INDEX/$BATCH_TASK_COUNT secret=${SECRET}\"\n",
+		},
 	}}}
-	script.Environment = &batchpb.Environment{SecretVariables: map[string]string{"SECRET": "projects/p/secrets/s/versions/1"}}
+	script.Environment = &batchpb.Environment{
+		SecretVariables: map[string]string{"SECRET": "projects/p/secrets/s/versions/1"},
+	}
 
 	job := basicJob(2,
 		containerRunnable(dockerImage, "sh", "-c", `echo "task $BATCH_TASK_INDEX of $BATCH_TASK_COUNT"`),

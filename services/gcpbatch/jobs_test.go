@@ -29,18 +29,23 @@ func TestCreateJobValidation(t *testing.T) {
 		job   *batchpb.Job
 		name  string
 		id    string
-		want  codes.Code
 		extra string
+		want  codes.Code
 	}{
 		{name: "valid", job: basicJob(2), id: "ok-1", want: codes.OK},
 		{name: "no task group", job: &batchpb.Job{}, id: "a", want: codes.InvalidArgument},
 		{name: "two task groups", job: mod(func(j *batchpb.Job) {
-			j.TaskGroups = append(j.TaskGroups, j.TaskGroups[0])
+			j.TaskGroups = append(j.GetTaskGroups(), j.GetTaskGroups()[0])
 		}), id: "a", want: codes.InvalidArgument, extra: "Only one TaskGroup"},
 		{name: "no runnables", job: mod(func(j *batchpb.Job) {
 			j.TaskGroups[0].TaskSpec.Runnables = nil
 		}), id: "a", want: codes.InvalidArgument},
-		{name: "container without image", job: basicJob(1, containerRunnable("")), id: "a", want: codes.InvalidArgument},
+		{
+			name: "container without image",
+			job:  basicJob(1, containerRunnable("")),
+			id:   "a",
+			want: codes.InvalidArgument,
+		},
 		{name: "empty script", job: basicJob(1, &batchpb.Runnable{Executable: &batchpb.Runnable_Script_{
 			Script: &batchpb.Runnable_Script{},
 		}}), id: "a", want: codes.InvalidArgument},
@@ -80,7 +85,10 @@ func TestCreateJobValidation(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			_, err := e.client.CreateJob(t.Context(), &batchpb.CreateJobRequest{Parent: parent, JobId: tt.id, Job: tt.job})
+			_, err := e.client.CreateJob(
+				t.Context(),
+				&batchpb.CreateJobRequest{Parent: parent, JobId: tt.id, Job: tt.job},
+			)
 			assert.Equal(t, tt.want, status.Code(err))
 
 			if tt.extra != "" {
@@ -111,7 +119,10 @@ func TestCreateJobDefaultsAndIdentity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, gen.GetName(), parent+"/jobs/job-")
 
-	_, err = e.client.CreateJob(t.Context(), &batchpb.CreateJobRequest{Parent: parent, JobId: "defaults", Job: basicJob(1)})
+	_, err = e.client.CreateJob(
+		t.Context(),
+		&batchpb.CreateJobRequest{Parent: parent, JobId: "defaults", Job: basicJob(1)},
+	)
 	assert.Equal(t, codes.AlreadyExists, status.Code(err))
 
 	_, err = e.client.GetJob(t.Context(), &batchpb.GetJobRequest{Name: parent + "/jobs/missing"})
@@ -162,8 +173,16 @@ func TestStateOnlyProgression(t *testing.T) {
 	}{
 		{state: batchpb.JobStatus_QUEUED, counts: map[string]int64{"PENDING": 3}},
 		{state: batchpb.JobStatus_SCHEDULED, after: 10 * time.Second, counts: map[string]int64{"PENDING": 3}},
-		{state: batchpb.JobStatus_RUNNING, after: 20 * time.Second, counts: map[string]int64{"RUNNING": 2, "PENDING": 1}},
-		{state: batchpb.JobStatus_RUNNING, after: 30 * time.Second, counts: map[string]int64{"SUCCEEDED": 2, "RUNNING": 1}},
+		{
+			state:  batchpb.JobStatus_RUNNING,
+			after:  20 * time.Second,
+			counts: map[string]int64{"RUNNING": 2, "PENDING": 1},
+		},
+		{
+			state:  batchpb.JobStatus_RUNNING,
+			after:  30 * time.Second,
+			counts: map[string]int64{"SUCCEEDED": 2, "RUNNING": 1},
+		},
 		{state: batchpb.JobStatus_SUCCEEDED, after: 30 * time.Second, counts: map[string]int64{"SUCCEEDED": 3}},
 	}
 
@@ -178,7 +197,7 @@ func TestStateOnlyProgression(t *testing.T) {
 	final := e.get(t, "prog")
 	assert.Equal(t, 60*time.Second, final.GetStatus().GetRunDuration().AsDuration())
 
-	var changes []string
+	changes := make([]string, 0, len(final.GetStatus().GetStatusEvents()))
 	for _, ev := range final.GetStatus().GetStatusEvents() {
 		assert.Equal(t, "STATUS_CHANGED", ev.GetType())
 		changes = append(changes, ev.GetDescription())
@@ -255,7 +274,9 @@ func TestTasksListAndGet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, batchpb.TaskStatus_RUNNING, task.GetStatus().GetState())
 
-	for _, name := range []string{group + "/tasks/9", group + "/tasks/x", parent + "/jobs/none/taskGroups/group0/tasks/0"} {
+	missing := []string{group + "/tasks/9", group + "/tasks/x", parent + "/jobs/none/taskGroups/group0/tasks/0"}
+
+	for _, name := range missing {
 		_, err = e.client.GetTask(t.Context(), &batchpb.GetTaskRequest{Name: name})
 		assert.Equal(t, codes.NotFound, status.Code(err), name)
 	}
@@ -309,9 +330,21 @@ func TestListJobsFilterOrderPage(t *testing.T) {
 		code codes.Code
 	}{
 		{name: "by name", req: &batchpb.ListJobsRequest{}, want: []string{"a-job", "b-job", "c-job"}},
-		{name: "create time desc", req: &batchpb.ListJobsRequest{OrderBy: "create_time desc"}, want: []string{"b-job", "a-job", "c-job"}},
-		{name: "label filter", req: &batchpb.ListJobsRequest{Filter: "labels.env=prod"}, want: []string{"a-job", "c-job"}},
-		{name: "state filter", req: &batchpb.ListJobsRequest{Filter: `status.state="QUEUED" AND labels.env=dev`}, want: []string{"b-job"}},
+		{
+			name: "create time desc",
+			req:  &batchpb.ListJobsRequest{OrderBy: "create_time desc"},
+			want: []string{"b-job", "a-job", "c-job"},
+		},
+		{
+			name: "label filter",
+			req:  &batchpb.ListJobsRequest{Filter: "labels.env=prod"},
+			want: []string{"a-job", "c-job"},
+		},
+		{
+			name: "state filter",
+			req:  &batchpb.ListJobsRequest{Filter: `status.state="QUEUED" AND labels.env=dev`},
+			want: []string{"b-job"},
+		},
 		{name: "no match", req: &batchpb.ListJobsRequest{Filter: `status.state="RUNNING"`}, want: nil},
 		{name: "bad filter", req: &batchpb.ListJobsRequest{Filter: "bogus"}, code: codes.InvalidArgument},
 		{name: "bad state", req: &batchpb.ListJobsRequest{Filter: "status.state=NOPE"}, code: codes.InvalidArgument},
@@ -335,11 +368,11 @@ func TestListJobsFilterOrderPage(t *testing.T) {
 		})
 	}
 
-	any := e.client.ListJobs(t.Context(), &batchpb.ListJobsRequest{Parent: "projects/" + project + "/locations/-"})
+	every := e.client.ListJobs(t.Context(), &batchpb.ListJobsRequest{Parent: "projects/" + project + "/locations/-"})
 	n := 0
 
 	for {
-		if _, err := any.Next(); err != nil {
+		if _, err := every.Next(); err != nil {
 			break
 		}
 
@@ -372,7 +405,11 @@ func TestCancelJob(t *testing.T) {
 	assert.Equal(t, batchpb.JobStatus_CANCELLED, got.GetStatus().GetState())
 
 	for _, task := range e.tasks(t, "cx") {
-		assert.Contains(t, []batchpb.TaskStatus_State{batchpb.TaskStatus_FAILED, batchpb.TaskStatus_UNEXECUTED}, task.GetStatus().GetState())
+		assert.Contains(
+			t,
+			[]batchpb.TaskStatus_State{batchpb.TaskStatus_FAILED, batchpb.TaskStatus_UNEXECUTED},
+			task.GetStatus().GetState(),
+		)
 	}
 
 	resp, err := op.Wait(t.Context())

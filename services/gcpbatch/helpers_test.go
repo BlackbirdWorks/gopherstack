@@ -134,7 +134,10 @@ func (e *env) get(t *testing.T, id string) *batchpb.Job {
 func (e *env) tasks(t *testing.T, id string) []*batchpb.Task {
 	t.Helper()
 
-	it := e.client.ListTasks(t.Context(), &batchpb.ListTasksRequest{Parent: parent + "/jobs/" + id + "/taskGroups/group0"})
+	it := e.client.ListTasks(
+		t.Context(),
+		&batchpb.ListTasksRequest{Parent: parent + "/jobs/" + id + "/taskGroups/group0"},
+	)
 
 	var out []*batchpb.Task
 
@@ -271,8 +274,8 @@ func envOf(spec container.Spec, key string) string {
 	return ""
 }
 
-func exits(code int) behavior {
-	return func(context.Context, container.Spec, io.Writer) int { return code }
+func exitsOK() behavior {
+	return func(context.Context, container.Spec, io.Writer) int { return 0 }
 }
 
 func blocks() behavior {
@@ -295,8 +298,8 @@ func (f fakeSecrets) AccessSecret(name string) ([]byte, error) {
 }
 
 type fakeLogs struct {
-	mu      sync.Mutex
 	entries []*loggingpb.LogEntry
+	mu      sync.Mutex
 }
 
 func (l *fakeLogs) WriteLogEntries(_ context.Context, req *loggingpb.WriteLogEntriesRequest) error {
@@ -312,7 +315,7 @@ func (l *fakeLogs) texts() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	var out []string
+	out := make([]string, 0, len(l.entries))
 	for _, e := range l.entries {
 		out = append(out, e.GetTextPayload())
 	}

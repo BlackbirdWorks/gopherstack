@@ -66,13 +66,13 @@ func parseParent(name string) (string, string, error) {
 	return ids[0], ids[1], nil
 }
 
-func parseJobName(name string) (string, string, string, error) {
+func parseJobName(name string) (string, string, error) {
 	ids, ok := parseRes(name, "projects", "locations", kindJobs)
 	if !ok {
-		return "", "", "", errInvalid("Invalid name %q: want projects/{project}/locations/{location}/jobs/{job}.", name)
+		return "", "", errInvalid("Invalid name %q: want projects/{project}/locations/{location}/jobs/{job}.", name)
 	}
 
-	return ids[0], ids[1], ids[2], nil
+	return ids[0], ids[1], nil
 }
 
 // parseGroupName returns the job name of "{job}/taskGroups/{group}" and the group id.
@@ -83,7 +83,7 @@ func parseGroupName(name string) (string, string, error) {
 	}
 
 	job, group := name[:i], name[i+len(kindGroups)+2:]
-	if _, _, _, err := parseJobName(job); err != nil || group == "" || strings.Contains(group, "/") {
+	if _, _, err := parseJobName(job); err != nil || group == "" || strings.Contains(group, "/") {
 		return "", "", errInvalid("Invalid parent %q: want {job}/taskGroups/{task_group}.", name)
 	}
 
