@@ -35,7 +35,7 @@ AZURE_PORTS = {
     "cosmosdb": 8081,
 }
 
-OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155, "queue": 8156, "notifications": 8157, "containerengine": 8158, "mysql": 8159, "logging": 8160, "monitoring": 8161, "nosql": 8162, "apigateway": 8163, "events": 8164, "loadbalancer": 8165}
+OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155, "queue": 8156, "notifications": 8157, "containerengine": 8158, "mysql": 8159, "logging": 8160, "monitoring": 8161, "nosql": 8162, "apigateway": 8163, "events": 8164, "loadbalancer": 8165, "artifacts": 8166}
 
 GCP_PORTS = {
     "storage": 4443,

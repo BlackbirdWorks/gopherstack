@@ -50,6 +50,7 @@ const (
 	slugOCIAPIGateway   = "ociapigateway"
 	slugOCIEvents       = "ocievents"
 	slugOCILoadBalancer = "ociloadbalancer"
+	slugOCIArtifacts    = "ociartifacts"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
 	slugGCPKMS          = "gcpkms"
@@ -91,7 +92,7 @@ func ociSlugs() []string {
 	return []string{
 		slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions, slugOCICore,
 		slugOCIQueue, slugOCINotify, slugOCIContainerEng, slugOCIMySQL, slugOCILogging, slugOCIMonitoring,
-		slugOCINoSQL, slugOCIAPIGateway, slugOCIEvents, slugOCILoadBalancer,
+		slugOCINoSQL, slugOCIAPIGateway, slugOCIEvents, slugOCILoadBalancer, slugOCIArtifacts,
 	}
 }
 
@@ -317,6 +318,7 @@ func displayNamesB() map[string]string {
 		slugOCIAPIGateway:   "OCI API Gateway",
 		slugOCIEvents:       "OCI Events",
 		slugOCILoadBalancer: "OCI Load Balancer",
+		slugOCIArtifacts:    "OCI Artifacts and Container Registry",
 		slugGCPPubSub:       "Google Cloud Pub/Sub",
 		slugGCPSecretMgr:    "Google Secret Manager",
 		slugGCPKMS:          "Google Cloud KMS",
