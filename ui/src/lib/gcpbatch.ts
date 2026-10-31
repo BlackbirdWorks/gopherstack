@@ -28,7 +28,12 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export type BatchEvent = { type: string; description: string; time: string; exitCode: number | null };
+export type BatchEvent = {
+  type: string;
+  description: string;
+  time: string;
+  exitCode: number | null;
+};
 
 export type BatchRunnable = {
   kind: "container" | "script" | "barrier";

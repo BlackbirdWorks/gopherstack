@@ -203,7 +203,9 @@ describe("calls", () => {
   });
 
   it("surfaces proxy errors", async () => {
-    const f = vi.fn().mockResolvedValue(json({ error: { message: "nope", status: "NOT_FOUND" } }, 404));
+    const f = vi
+      .fn()
+      .mockResolvedValue(json({ error: { message: "nope", status: "NOT_FOUND" } }, 404));
     await expect(deleteJob(jobName, asFetch(f))).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

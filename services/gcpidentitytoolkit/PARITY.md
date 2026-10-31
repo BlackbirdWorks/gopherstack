@@ -1,6 +1,6 @@
 ---
 service: gcpidentitytoolkit
-sdk_module: google.golang.org/api@v0.302.0
+sdk_module: google.golang.org/api@v0.304.0
 last_audit_commit: 185f8a81e
 last_audit_date: 2026-10-29
 overall: B
