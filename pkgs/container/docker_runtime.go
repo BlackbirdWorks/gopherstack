@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -126,10 +129,30 @@ func (r *realDockerClient) ContainerCreate(
 	cfg *dockercontainer.Config,
 	hostConfig *dockercontainer.HostConfig,
 	_ any,
-	_ any,
+	platform any,
 	containerName string,
 ) (dockercontainer.CreateResponse, error) {
-	return r.c.ContainerCreate(ctx, cfg, hostConfig, nil, nil, containerName)
+	p, _ := platform.(*ocispec.Platform)
+
+	return r.c.ContainerCreate(ctx, cfg, hostConfig, nil, p, containerName)
+}
+
+// platformOSArch is the number of mandatory "os/arch" platform segments.
+const platformOSArch = 2
+
+// parsePlatform turns "os/arch[/variant]" into an OCI platform; nil when empty or malformed.
+func parsePlatform(s string) *ocispec.Platform {
+	parts := strings.Split(s, "/")
+	if len(parts) < platformOSArch || parts[0] == "" || parts[1] == "" {
+		return nil
+	}
+
+	p := &ocispec.Platform{OS: parts[0], Architecture: parts[1]}
+	if len(parts) > platformOSArch {
+		p.Variant = parts[2]
+	}
+
+	return p
 }
 
 func (r *realDockerClient) ContainerStart(
@@ -402,6 +425,13 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	}
 	hostCfg.Memory = spec.MemoryBytes
 	hostCfg.NanoCPUs = spec.NanoCPUs
+	hostCfg.ExtraHosts = spec.ExtraHosts
+
+	for _, d := range spec.DNS {
+		if addr, perr := netip.ParseAddr(d); perr == nil {
+			hostCfg.DNS = append(hostCfg.DNS, addr)
+		}
+	}
 
 	if spec.Network != "" {
 		hostCfg.NetworkMode = dockercontainer.NetworkMode(spec.Network)
@@ -429,7 +459,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		}
 	}
 
-	resp, err := r.docker.ContainerCreate(ctx, cfg, hostCfg, nil, nil, spec.Name)
+	resp, err := r.docker.ContainerCreate(ctx, cfg, hostCfg, nil, parsePlatform(spec.Platform), spec.Name)
 	if err != nil {
 		return "", fmt.Errorf("container create %q: %w", spec.Image, err)
 	}

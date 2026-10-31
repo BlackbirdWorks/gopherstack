@@ -55,32 +55,27 @@ type Config struct {
 
 // Spec holds the specification for creating a container.
 type Spec struct {
-	Image   string
-	Name    string
-	Network string
-	// WorkingDir overrides the image's working directory; empty keeps it.
-	WorkingDir string
-	// User runs the container process as uid[:gid]; empty keeps the image's user.
-	User string
-	// GroupAdd lists supplementary group IDs for the container process.
-	GroupAdd []string
-	// OCIRuntime selects the daemon-registered OCI runtime (e.g. runsc); empty uses the daemon default.
-	OCIRuntime string
-	// Labels are extra container labels; see ResourceLabels. Identity labels are added by the runtime.
-	Labels     map[string]string
-	Env        []string
-	Mounts     []string
-	Cmd        []string
-	Entrypoint []string
-	Ports      []string
-	Tmpfs      []string
-	Privileged bool
-	// Unmanaged skips the identity labels, for containers that must outlive this gopherstack (e.g. `start`).
-	Unmanaged bool
-	// MemoryBytes caps container memory; zero is unlimited.
+	Labels      map[string]string
+	Image       string
+	Name        string
+	Network     string
+	WorkingDir  string
+	User        string
+	Platform    string
+	OCIRuntime  string
+	Cmd         []string
+	Mounts      []string
+	Env         []string
+	Entrypoint  []string
+	Ports       []string
+	Tmpfs       []string
+	ExtraHosts  []string
+	DNS         []string
+	GroupAdd    []string
 	MemoryBytes int64
-	// NanoCPUs caps CPU in billionths of a CPU; zero is unlimited.
-	NanoCPUs int64
+	NanoCPUs    int64
+	Privileged  bool
+	Unmanaged   bool
 }
 
 // ExecResult is the outcome of a command run inside a container.

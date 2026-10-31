@@ -180,8 +180,8 @@ func TestCreateAndStartLabels(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantKeys  []string
 		name      string
+		wantKeys  []string
 		spec      container.Spec
 		unmanaged bool
 	}{
