@@ -41,10 +41,11 @@ provider "google" {
 
   artifact_registry_custom_endpoint = %q
   cloud_build_custom_endpoint       = %q
+  compute_custom_endpoint           = %q
 }
 `, googleProviderVersion, storageEndpoint, bigQueryEndpoint, pubSubEndpoint, secretsEndpoint, kmsEndpoint,
 		tasksEndpoint, schedulerEndpoint, sqlEndpoint, loggingEndpoint, redisEndpoint, monitoringEndpoint,
-		spannerEndpoint, artifactEndpoint, cloudBuildEndpoint)
+		spannerEndpoint, artifactEndpoint, cloudBuildEndpoint, computeEndpoint)
 }
 
 type tofuRunner struct {
