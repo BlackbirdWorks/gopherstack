@@ -30,38 +30,30 @@ const (
 	redirectRecaptch = "GOOGLE_RECAPTCHA"
 )
 
-var ( //nolint:gochecknoglobals // read-only lookup tables
-	denyActionRE   = regexp.MustCompile(`^deny\((403|404|502)\)$`)
-	exceedDenyRE   = regexp.MustCompile(`^deny\((403|404|429|502)\)$`)
-	secPolicyTypes = map[string]bool{
-		spTypeArmor:   true,
-		spTypeEdge:    true,
-		spTypeNetwork: true,
-	}
-	jsonParsings = map[string]bool{
-		"DISABLED":              true,
-		"STANDARD":              true,
-		"STANDARD_WITH_GRAPHQL": true,
-	}
-	logLevels = map[string]bool{
-		"NORMAL":  true,
-		"VERBOSE": true,
-	}
-	enforceKeys = map[string]bool{
-		keyAll:                true,
-		"ASN":                 true,
-		keyHTTPCookie:         true,
-		keyHTTPHeader:         true,
-		"HTTP_PATH":           true,
-		"IP":                  true,
-		"REGION_CODE":         true,
-		"SNI":                 true,
-		"TLS_JA3_FINGERPRINT": true,
-		"TLS_JA4_FINGERPRINT": true,
-		"USER_IP":             true,
-		"XFF_IP":              true,
-	}
+var (
+	denyActionRE = regexp.MustCompile(`^deny\((403|404|502)\)$`)
+	exceedDenyRE = regexp.MustCompile(`^deny\((403|404|429|502)\)$`)
 )
+
+func validSecPolicyType(v string) bool {
+	return v == spTypeArmor || v == spTypeEdge || v == spTypeNetwork
+}
+
+func validJSONParsing(v string) bool {
+	return v == "DISABLED" || v == "STANDARD" || v == "STANDARD_WITH_GRAPHQL"
+}
+
+func validLogLevel(v string) bool { return v == "NORMAL" || v == "VERBOSE" }
+
+func validEnforceKeyName(v string) bool {
+	switch v {
+	case keyAll, "ASN", keyHTTPCookie, keyHTTPHeader, "HTTP_PATH", "IP", "REGION_CODE", "SNI",
+		"TLS_JA3_FINGERPRINT", "TLS_JA4_FINGERPRINT", "USER_IP", "XFF_IP":
+		return true
+	}
+
+	return false
+}
 
 func secPolicySpec() lbSpec[computeapi.SecurityPolicy] {
 	return lbSpec[computeapi.SecurityPolicy]{
@@ -103,7 +95,7 @@ func prepSecurityPolicy(_ *InMemoryBackend, _ lbCtx, in *computeapi.SecurityPoli
 		in.Type = spTypeArmor
 	}
 
-	if !secPolicyTypes[in.Type] {
+	if !validSecPolicyType(in.Type) {
 		return errField("resource.type", in.Type, "Must be CLOUD_ARMOR, CLOUD_ARMOR_EDGE or CLOUD_ARMOR_NETWORK.")
 	}
 
@@ -159,11 +151,11 @@ func prepSecurityPolicy(_ *InMemoryBackend, _ lbCtx, in *computeapi.SecurityPoli
 
 func validSecurityPolicyOptions(in *computeapi.SecurityPolicy) *APIError {
 	if o := in.AdvancedOptionsConfig; o != nil {
-		if o.JsonParsing != "" && !jsonParsings[o.JsonParsing] {
+		if o.JsonParsing != "" && !validJSONParsing(o.JsonParsing) {
 			return errField("resource.advancedOptionsConfig.jsonParsing", o.JsonParsing, "")
 		}
 
-		if o.LogLevel != "" && !logLevels[o.LogLevel] {
+		if o.LogLevel != "" && !validLogLevel(o.LogLevel) {
 			return errField("resource.advancedOptionsConfig.logLevel", o.LogLevel, "")
 		}
 
@@ -322,7 +314,7 @@ func validEnforceKey(o *computeapi.SecurityPolicyRuleRateLimitOptions, field str
 		return errField(field+".enforceOnKeyConfigs", "", "At most 3 configs are allowed.")
 	}
 
-	if o.EnforceOnKey != "" && !enforceKeys[o.EnforceOnKey] {
+	if o.EnforceOnKey != "" && !validEnforceKeyName(o.EnforceOnKey) {
 		return errField(field+".enforceOnKey", o.EnforceOnKey, "")
 	}
 

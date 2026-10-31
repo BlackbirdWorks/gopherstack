@@ -52,7 +52,9 @@ func TestSubnetRoutesFollowSubnetworkLifecycle(t *testing.T) {
 
 	op, err := e.subnets(t).ExpandIpCidrRange(t.Context(), &computepb.ExpandIpCidrRangeSubnetworkRequest{
 		Project: project, Region: region, Subnetwork: "sub",
-		SubnetworksExpandIpCidrRangeRequestResource: &computepb.SubnetworksExpandIpCidrRangeRequest{IpCidrRange: s("10.10.0.0/23")},
+		SubnetworksExpandIpCidrRangeRequestResource: &computepb.SubnetworksExpandIpCidrRangeRequest{
+			IpCidrRange: s("10.10.0.0/23"),
+		},
 	})
 	e.done(t, op, err)
 
@@ -63,7 +65,9 @@ func TestSubnetRoutesFollowSubnetworkLifecycle(t *testing.T) {
 
 	op, err = e.subnets(t).Patch(t.Context(), &computepb.PatchSubnetworkRequest{
 		Project: project, Region: region, Subnetwork: "sub", SubnetworkResource: &computepb.Subnetwork{
-			SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{{RangeName: s("pods"), IpCidrRange: s("192.168.0.0/24")}},
+			SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
+				{RangeName: s("pods"), IpCidrRange: s("192.168.0.0/24")},
+			},
 		},
 	})
 	e.done(t, op, err)
@@ -75,7 +79,8 @@ func TestSubnetRoutesFollowSubnetworkLifecycle(t *testing.T) {
 	_, err = e.routes(t).Delete(t.Context(), &computepb.DeleteRouteRequest{Project: project, Route: name})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
-	op, err = e.subnets(t).Delete(t.Context(), &computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "sub"})
+	op, err = e.subnets(t).
+		Delete(t.Context(), &computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "sub"})
 	e.done(t, op, err)
 
 	routes = e.routeList(t)

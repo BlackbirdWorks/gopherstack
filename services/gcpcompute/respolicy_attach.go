@@ -6,17 +6,13 @@ import (
 	computeapi "google.golang.org/api/compute/v1"
 )
 
-var ( //nolint:gochecknoglobals // read-only lookup tables
-	diskPolicyKinds = []string{
-		"snapshotSchedulePolicy",
-		"diskConsistencyGroupPolicy",
-	}
-	instancePolicyKinds = []string{
-		"instanceSchedulePolicy",
-		"groupPlacementPolicy",
-		"workloadPolicy",
-	}
-)
+func diskPolicyKinds() []string {
+	return []string{"snapshotSchedulePolicy", "diskConsistencyGroupPolicy"}
+}
+
+func instancePolicyKinds() []string {
+	return []string{"instanceSchedulePolicy", "groupPlacementPolicy", "workloadPolicy"}
+}
 
 type resPoliciesRequest struct {
 	ResourcePolicies []string `json:"resourcePolicies"`
@@ -126,7 +122,7 @@ func (b *InMemoryBackend) changeDiskPolicies(
 	)
 
 	if verb == verbAddResPols {
-		next, err = b.addResPoliciesLocked(project, regionOfZone(zone), d.ResourcePolicies, refs, diskPolicyKinds)
+		next, err = b.addResPoliciesLocked(project, regionOfZone(zone), d.ResourcePolicies, refs, diskPolicyKinds())
 	} else {
 		next, err = b.removeResPoliciesLocked(project, regionOfZone(zone), d.ResourcePolicies, refs)
 	}
@@ -162,7 +158,7 @@ func (b *InMemoryBackend) changeInstancePolicies(
 			regionOfZone(zone),
 			r.Inst.ResourcePolicies,
 			refs,
-			instancePolicyKinds,
+			instancePolicyKinds(),
 		)
 	} else {
 		next, err = b.removeResPoliciesLocked(project, regionOfZone(zone), r.Inst.ResourcePolicies, refs)

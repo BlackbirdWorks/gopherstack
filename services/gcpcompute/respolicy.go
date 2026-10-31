@@ -2,7 +2,6 @@ package gcpcompute
 
 import (
 	"regexp"
-	"slices"
 	"strconv"
 	"time"
 
@@ -17,30 +16,33 @@ const (
 	hoursPerDay    = 24
 )
 
-var ( //nolint:gochecknoglobals // read-only lookup tables
-	hhmmRE        = regexp.MustCompile(`^(\d{2}):(\d{2})(?:([+-]\d{1,2}))?$`)
-	cronFieldRE   = regexp.MustCompile(`^[0-9A-Za-z*,/\-?]+$`)
-	snapStartHour = map[int]bool{
-		0:  true,
-		4:  true,
-		8:  true,
-		12: true,
-		16: true,
-		20: true,
-	}
-	weekDays = []string{
-		"MONDAY",
-		"TUESDAY",
-		"WEDNESDAY",
-		"THURSDAY",
-		"FRIDAY",
-		"SATURDAY",
-		"SUNDAY",
-	}
-	onDiskDelete = map[string]bool{
-		"APPLY_RETENTION_POLICY": true, keepSnapshots: true, "UNSPECIFIED_ON_SOURCE_DISK_DELETE": true,
-	}
+var (
+	hhmmRE      = regexp.MustCompile(`^(\d{2}):(\d{2})(?:([+-]\d{1,2}))?$`)
+	cronFieldRE = regexp.MustCompile(`^[0-9A-Za-z*,/\-?]+$`)
 )
+
+const (
+	snapStartStep = 4
+	daysPerWeek   = 7
+)
+
+func validWeekday(d string) bool {
+	switch d {
+	case "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY":
+		return true
+	}
+
+	return false
+}
+
+func validOnDiskDelete(v string) bool {
+	switch v {
+	case "APPLY_RETENTION_POLICY", keepSnapshots, "UNSPECIFIED_ON_SOURCE_DISK_DELETE":
+		return true
+	}
+
+	return false
+}
 
 func resPolicySpec() lbSpec[computeapi.ResourcePolicy] {
 	return lbSpec[computeapi.ResourcePolicy]{
@@ -132,7 +134,7 @@ func normSnapshotStart(field string, start *string) *APIError {
 		return err
 	}
 
-	if !snapStartHour[h] || mi != 0 {
+	if h%snapStartStep != 0 || mi != 0 {
 		return errField(field, *start, "Must resolve to one of 00:00, 04:00, 08:00, 12:00, 16:00 or 20:00 UTC.")
 	}
 
@@ -186,7 +188,7 @@ func validSnapshotPolicy(sp *computeapi.ResourcePolicySnapshotSchedulePolicy) *A
 			r.OnSourceDiskDelete = keepSnapshots
 		}
 
-		if !onDiskDelete[r.OnSourceDiskDelete] {
+		if !validOnDiskDelete(r.OnSourceDiskDelete) {
 			return errField(f+".retentionPolicy.onSourceDiskDelete", r.OnSourceDiskDelete, "")
 		}
 	}
@@ -240,14 +242,14 @@ func validCycle(sc *computeapi.ResourcePolicySnapshotSchedulePolicySchedule, f s
 }
 
 func validWeekly(w *computeapi.ResourcePolicyWeeklyCycle, f string) *APIError {
-	if len(w.DayOfWeeks) < 1 || len(w.DayOfWeeks) > len(weekDays) {
+	if len(w.DayOfWeeks) < 1 || len(w.DayOfWeeks) > daysPerWeek {
 		return errField(f+".dayOfWeeks", "", "Between 1 and 7 days are required.")
 	}
 
 	seen := map[string]bool{}
 
 	for _, d := range w.DayOfWeeks {
-		if !slices.Contains(weekDays, d.Day) || seen[d.Day] {
+		if !validWeekday(d.Day) || seen[d.Day] {
 			return errField(f+".dayOfWeeks.day", d.Day, "Must be a unique day from MONDAY to SUNDAY.")
 		}
 

@@ -408,5 +408,5 @@ func (b *InMemoryBackend) diskLabelsAndPoliciesLocked(project, zone string, in *
 	}
 
 	return b.resolveResPoliciesLocked(
-		project, regionOfZone(zone), in.ResourcePolicies, "resource.resourcePolicies", diskPolicyKinds)
+		project, regionOfZone(zone), in.ResourcePolicies, "resource.resourcePolicies", diskPolicyKinds())
 }

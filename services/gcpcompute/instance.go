@@ -765,7 +765,7 @@ func (b *InMemoryBackend) insertInstanceLocked(
 	}
 
 	policies, err := b.resolveResPoliciesLocked(
-		project, regionOfZone(zone), in.ResourcePolicies, "resource.resourcePolicies", instancePolicyKinds)
+		project, regionOfZone(zone), in.ResourcePolicies, "resource.resourcePolicies", instancePolicyKinds())
 	if err != nil {
 		return nil, err
 	}
