@@ -118,8 +118,12 @@ func (b *InMemoryBackend) ListWorkRequests(f WorkRequestFilter, o ListOpts) (pag
 		all = append(all, wr)
 	}
 
-	pg := paginate(all, ListOpts{Page: o.Page, Limit: o.Limit, Order: o.Order},
-		func(w *WorkRequest) string { return w.ID }, func(w *WorkRequest) (time.Time, int64) { return w.Accepted, w.Seq })
+	pg := paginate(
+		all,
+		ListOpts{Page: o.Page, Limit: o.Limit, Order: o.Order},
+		func(w *WorkRequest) string { return w.ID },
+		func(w *WorkRequest) (time.Time, int64) { return w.Accepted, w.Seq },
+	)
 
 	out := make([]WorkRequestWire, 0, len(pg.Data))
 	for _, wr := range pg.Data {

@@ -289,7 +289,7 @@ func (b *InMemoryBackend) UpdateInstance(id, ifMatch string, u updateIn) (string
 	now := b.nowUTC()
 	in.Updated, in.Etag = &now, newEtag()
 
-	return b.newWR(in, wrUpdate, "UPDATED", b.finishAt()).ID, nil
+	return b.newWR(in, wrUpdate, actionUpdated, b.finishAt()).ID, nil
 }
 
 func applyTags(free *map[string]string, defined *map[string]any, u updateIn) {
@@ -328,7 +328,7 @@ func (b *InMemoryBackend) ChangeCompartment(id, ifMatch, compartment string) (st
 	now := b.nowUTC()
 	in.Updated = &now
 
-	return b.newWR(in, wrMove, "UPDATED", b.finishAt()).ID, nil
+	return b.newWR(in, wrMove, actionUpdated, b.finishAt()).ID, nil
 }
 
 type transition struct {
@@ -339,33 +339,48 @@ type transition struct {
 	allowed []string
 }
 
-var (
-	transStop    = transition{wrStop, "UPDATED", stateUpdating, stateInactive, []string{stateActive}}
-	transStart   = transition{wrStart, "UPDATED", stateUpdating, stateActive, []string{stateInactive}}
-	transRestart = transition{wrRestart, "UPDATED", stateUpdating, stateActive, []string{stateActive}}
-	transDelete  = transition{
-		wrDelete, "DELETED", stateDeleting, stateDeleted, []string{stateActive, stateInactive, stateFailed},
+const actionUpdated = "UPDATED"
+
+func transStop() transition {
+	return transition{wrStop, actionUpdated, stateUpdating, stateInactive, []string{stateActive}}
+}
+
+func transStart() transition {
+	return transition{wrStart, actionUpdated, stateUpdating, stateActive, []string{stateInactive}}
+}
+
+func transRestart() transition {
+	return transition{wrRestart, actionUpdated, stateUpdating, stateActive, []string{stateActive}}
+}
+
+func transDelete() transition {
+	return transition{
+		wrDelete,
+		"DELETED",
+		stateDeleting,
+		stateDeleted,
+		[]string{stateActive, stateInactive, stateFailed},
 	}
-)
+}
 
 // Stop stops a running container instance.
 func (b *InMemoryBackend) Stop(id, ifMatch string) (string, error) {
-	return b.transitionInstance(id, ifMatch, transStop)
+	return b.transitionInstance(id, ifMatch, transStop())
 }
 
 // Start starts a stopped container instance.
 func (b *InMemoryBackend) Start(id, ifMatch string) (string, error) {
-	return b.transitionInstance(id, ifMatch, transStart)
+	return b.transitionInstance(id, ifMatch, transStart())
 }
 
 // Restart restarts a running container instance.
 func (b *InMemoryBackend) Restart(id, ifMatch string) (string, error) {
-	return b.transitionInstance(id, ifMatch, transRestart)
+	return b.transitionInstance(id, ifMatch, transRestart())
 }
 
 // DeleteInstance deletes a container instance.
 func (b *InMemoryBackend) DeleteInstance(id, ifMatch string) (string, error) {
-	return b.transitionInstance(id, ifMatch, transDelete)
+	return b.transitionInstance(id, ifMatch, transDelete())
 }
 
 func (b *InMemoryBackend) transitionInstance(id, ifMatch string, t transition) (string, error) {
@@ -377,7 +392,9 @@ func (b *InMemoryBackend) transitionInstance(id, ifMatch string, t transition) (
 	}
 
 	if aerr == nil && !slices.Contains(t.allowed, in.State) {
-		aerr = errState("container instance " + id + " is " + in.State + "; it must be " + strings.Join(t.allowed, " or "))
+		aerr = errState(
+			"container instance " + id + " is " + in.State + "; it must be " + strings.Join(t.allowed, " or "),
+		)
 	}
 
 	if aerr != nil {
@@ -532,7 +549,7 @@ func (b *InMemoryBackend) UpdateContainer(id, ifMatch string, u updateIn) (strin
 	now := b.nowUTC()
 	c.Updated = &now
 
-	wr := b.newWR(in, wrUpdCtr, "UPDATED", b.finishAt())
+	wr := b.newWR(in, wrUpdCtr, actionUpdated, b.finishAt())
 	wr.ResourceID, wr.ResourceType = c.ID, "container"
 
 	return wr.ID, nil

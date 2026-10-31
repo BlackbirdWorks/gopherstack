@@ -1,6 +1,7 @@
 package ocicontainerinstances
 
 import (
+	"cmp"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -327,6 +328,10 @@ func buildContainer(inst *Instance, in createContainerIn, idx int) (*Container, 
 		return nil, aerr
 	}
 
+	if aerr := checkResources(inst, in.ResourceConfig); aerr != nil {
+		return nil, aerr
+	}
+
 	name := in.DisplayName
 	if name == "" {
 		name = fmt.Sprintf("%s-container-%d", inst.DisplayName, idx+1)
@@ -336,19 +341,7 @@ func buildContainer(inst *Instance, in createContainerIn, idx int) (*Container, 
 		ID: newOCID("computecontainer"), DisplayName: name, ImageURL: in.ImageURL, State: stateCreating,
 		Created: inst.Created, Command: in.Command, Args: in.Arguments, WorkingDir: in.WorkingDir, Env: in.Env,
 		Freeform: in.Freeform, Defined: in.Defined, Security: in.SecurityCtx, Mounts: in.VolumeMounts,
-	}
-
-	if in.NoResourcePrn != nil {
-		c.NoResourcePrn = *in.NoResourcePrn
-	}
-
-	if rc := in.ResourceConfig; rc != nil {
-		if (rc.VcpusLimit != nil && (*rc.VcpusLimit <= 0 || *rc.VcpusLimit > inst.ShapeConfig.Ocpus)) ||
-			(rc.MemoryLimitInGBs != nil && (*rc.MemoryLimitInGBs <= 0 || *rc.MemoryLimitInGBs > inst.ShapeConfig.Memory)) {
-			return nil, errParam("containers.resourceConfig limits must be positive and within the instance shapeConfig")
-		}
-
-		c.Resource = rc
+		Resource: in.ResourceConfig, NoResourcePrn: in.NoResourcePrn != nil && *in.NoResourcePrn,
 	}
 
 	if aerr := checkMounts(inst, c.Mounts); aerr != nil {
@@ -365,6 +358,22 @@ func buildContainer(inst *Instance, in createContainerIn, idx int) (*Container, 
 	}
 
 	return c, nil
+}
+
+func checkResources(inst *Instance, rc *ResourceConfig) *APIError {
+	if rc == nil {
+		return nil
+	}
+
+	if rc.VcpusLimit != nil && (*rc.VcpusLimit <= 0 || *rc.VcpusLimit > inst.ShapeConfig.Ocpus) {
+		return errParam("containers.resourceConfig.vcpusLimit must be positive and within the instance ocpus")
+	}
+
+	if rc.MemoryLimitInGBs != nil && (*rc.MemoryLimitInGBs <= 0 || *rc.MemoryLimitInGBs > inst.ShapeConfig.Memory) {
+		return errParam("containers.resourceConfig.memoryLimitInGBs must be positive and within the instance memory")
+	}
+
+	return nil
 }
 
 func checkMounts(inst *Instance, mounts []VolumeMount) *APIError {
@@ -404,24 +413,28 @@ func buildCheck(h createCheckIn) (*HealthCheck, *APIError) {
 
 	hc := &HealthCheck{
 		Name: h.Name, Type: h.Type, Port: *h.Port, Path: h.Path, Headers: h.Headers, Status: healthUnknown,
-		FailureAction: h.FailureAction, Interval: orDefault(h.Interval, defInterval),
+		FailureAction: cmp.Or(h.FailureAction, actionKill), Interval: orDefault(h.Interval, defInterval),
 		FailureThresh: orDefault(h.FailureThresh, defFailure), SuccessThresh: orDefault(h.SuccessThresh, defSuccess),
 		Timeout: orDefault(h.Timeout, defTimeout), InitialDelay: orDefault(h.InitialDelay, 0),
 	}
 
-	if hc.FailureAction == "" {
-		hc.FailureAction = actionKill
-	}
-
-	if hc.FailureAction != actionKill && hc.FailureAction != actionNone {
-		return nil, errParam("healthChecks.failureAction must be KILL or NONE")
-	}
-
-	if hc.Interval < 1 || hc.Timeout < 1 || hc.FailureThresh < 1 || hc.SuccessThresh < 1 || hc.InitialDelay < 0 {
-		return nil, errParam("healthChecks intervals, timeout and thresholds must be positive")
+	if aerr := checkCheckBounds(hc); aerr != nil {
+		return nil, aerr
 	}
 
 	return hc, nil
+}
+
+func checkCheckBounds(hc *HealthCheck) *APIError {
+	if hc.FailureAction != actionKill && hc.FailureAction != actionNone {
+		return errParam("healthChecks.failureAction must be KILL or NONE")
+	}
+
+	if hc.Interval < 1 || hc.Timeout < 1 || hc.FailureThresh < 1 || hc.SuccessThresh < 1 || hc.InitialDelay < 0 {
+		return errParam("healthChecks intervals, timeout and thresholds must be positive")
+	}
+
+	return nil
 }
 
 func orDefault(p *int, def int) int {

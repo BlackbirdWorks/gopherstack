@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
 	ci "github.com/oracle/oci-go-sdk/v65/containerinstances"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,9 +21,16 @@ import (
 
 const waitFor = 10 * time.Second
 
+var (
+	errManifest = errors.New("manifest unknown")
+	errBoom     = errors.New("boom")
+	errRefused  = errors.New("refused")
+	errGone     = errors.New("gone")
+)
+
 type pullCall struct {
-	ref  string
 	cred *svc.Credential
+	ref  string
 }
 
 // fakeRuntime is a scripted container runtime: containers run until the test (or Kill) ends them.
@@ -32,10 +38,10 @@ type fakeRuntime struct {
 	pullErr error
 	exits   map[string]chan int
 	logs    map[string]string
-	mu      sync.Mutex
 	pulls   []pullCall
 	specs   []container.Spec
 	removed []string
+	mu      sync.Mutex
 }
 
 func newFakeRuntime() *fakeRuntime {
@@ -46,7 +52,7 @@ func (f *fakeRuntime) Pull(_ context.Context, ref string, cred *svc.Credential) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.pulls = append(f.pulls, pullCall{ref, cred})
+	f.pulls = append(f.pulls, pullCall{ref: ref, cred: cred})
 
 	return f.pullErr
 }
@@ -195,7 +201,7 @@ func (d *dockerEnv) container(t *testing.T, instID *string) ci.Container {
 	t.Helper()
 
 	list, err := d.client.ListContainers(t.Context(), ci.ListContainersRequest{
-		CompartmentId: common.String(testCompartment), ContainerInstanceId: instID,
+		CompartmentId: new(testCompartment), ContainerInstanceId: instID,
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, list.Items)
@@ -211,27 +217,33 @@ func TestEngineEngineStartsContainers(t *testing.T) {
 
 	d := newDockerEnv(t, nil)
 	resp := d.mustCreate(t, createOpts{mutate: func(c *ci.CreateContainerInstanceDetails) {
-		c.Containers[0].ImageUrl = common.String("localhost:8166/ns/app:1")
+		c.Containers[0].ImageUrl = new("localhost:8166/ns/app:1")
 		c.Containers[0].Command = []string{"/bin/app"}
 		c.Containers[0].Arguments = []string{"--flag"}
 		c.Containers[0].EnvironmentVariables = map[string]string{"GREETING": "hi"}
-		c.Containers[0].WorkingDirectory = common.String("/srv")
-		c.Containers[0].ResourceConfig = &ci.CreateContainerResourceConfigDetails{VcpusLimit: f32(1.5), MemoryLimitInGBs: f32(2)}
+		c.Containers[0].WorkingDirectory = new("/srv")
+		c.Containers[0].ResourceConfig = &ci.CreateContainerResourceConfigDetails{
+			VcpusLimit:       new(float32(1.5)),
+			MemoryLimitInGBs: new(float32(2)),
+		}
 		c.Containers[0].VolumeMounts = []ci.CreateVolumeMountDetails{
-			{MountPath: common.String("/etc/app"), VolumeName: common.String("cfg"), IsReadOnly: common.Bool(true)},
-			{MountPath: common.String("/scratch"), VolumeName: common.String("tmp")},
+			{MountPath: new("/etc/app"), VolumeName: new("cfg"), IsReadOnly: new(true)},
+			{MountPath: new("/scratch"), VolumeName: new("tmp")},
 		}
 		c.Volumes = []ci.CreateContainerVolumeDetails{
-			ci.CreateContainerConfigFileVolumeDetails{Name: common.String("cfg"), Configs: []ci.ContainerConfigFile{
-				{FileName: common.String("app.conf"), Data: []byte("mode=test")},
-				{FileName: common.String("nested.conf"), Path: common.String("sub/dir"), Data: []byte("deep")},
+			ci.CreateContainerConfigFileVolumeDetails{Name: new("cfg"), Configs: []ci.ContainerConfigFile{
+				{FileName: new("app.conf"), Data: []byte("mode=test")},
+				{FileName: new("nested.conf"), Path: new("sub/dir"), Data: []byte("deep")},
 			}},
-			ci.CreateContainerEmptyDirVolumeDetails{Name: common.String("tmp")},
+			ci.CreateContainerEmptyDirVolumeDetails{Name: new("tmp")},
 		}
 		c.ImagePullSecrets = []ci.CreateImagePullSecretDetails{ci.CreateBasicImagePullSecretDetails{
-			RegistryEndpoint: common.String("localhost:8166"), Username: common.String("ns/user"), Password: common.String("tok"),
+			RegistryEndpoint: new("localhost:8166"), Username: new("ns/user"), Password: new("tok"),
 		}}
-		c.DnsConfig = &ci.CreateContainerDnsConfigDetails{Nameservers: []string{"10.0.0.2"}, Searches: []string{"corp.example"}}
+		c.DnsConfig = &ci.CreateContainerDnsConfigDetails{
+			Nameservers: []string{"10.0.0.2"},
+			Searches:    []string{"corp.example"},
+		}
 	}})
 
 	got := d.await(t, resp.Id, ci.ContainerInstanceLifecycleStateActive)
@@ -293,10 +305,13 @@ func TestEngineEngineStartsContainers(t *testing.T) {
 	n, _ := logs.Content.Read(body)
 	assert.Equal(t, "output of c1", string(body[:n]))
 
-	_, err = d.client.RetrieveLogs(t.Context(), ci.RetrieveLogsRequest{ContainerId: ctr.Id, IsPrevious: common.Bool(true)})
+	_, err = d.client.RetrieveLogs(t.Context(), ci.RetrieveLogsRequest{ContainerId: ctr.Id, IsPrevious: new(true)})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
-	_, err = d.client.DeleteContainerInstance(t.Context(), ci.DeleteContainerInstanceRequest{ContainerInstanceId: resp.Id})
+	_, err = d.client.DeleteContainerInstance(
+		t.Context(),
+		ci.DeleteContainerInstanceRequest{ContainerInstanceId: resp.Id},
+	)
 	require.NoError(t, err)
 	d.await(t, resp.Id, ci.ContainerInstanceLifecycleStateDeleted)
 
@@ -311,18 +326,24 @@ func TestEngineEngineStartsContainers(t *testing.T) {
 func TestEngineRestartPolicy(t *testing.T) {
 	t.Parallel()
 
+	never := ci.ContainerInstanceContainerRestartPolicyNever
+	onFailure := ci.ContainerInstanceContainerRestartPolicyOnFailure
+	always := ci.ContainerInstanceContainerRestartPolicyAlways
+	inactive := ci.ContainerInstanceLifecycleStateInactive
+	active := ci.ContainerInstanceLifecycleStateActive
+
 	tests := []struct {
 		name         string
 		policy       ci.ContainerInstanceContainerRestartPolicyEnum
+		wantInstance ci.ContainerInstanceLifecycleStateEnum
 		exit         int
 		wantRestart  bool
-		wantInstance ci.ContainerInstanceLifecycleStateEnum
 	}{
-		{"never-success", ci.ContainerInstanceContainerRestartPolicyNever, 0, false, ci.ContainerInstanceLifecycleStateInactive},
-		{"never-failure", ci.ContainerInstanceContainerRestartPolicyNever, 3, false, ci.ContainerInstanceLifecycleStateInactive},
-		{"on-failure-success", ci.ContainerInstanceContainerRestartPolicyOnFailure, 0, false, ci.ContainerInstanceLifecycleStateInactive},
-		{"on-failure-failure", ci.ContainerInstanceContainerRestartPolicyOnFailure, 3, true, ci.ContainerInstanceLifecycleStateActive},
-		{"always-success", ci.ContainerInstanceContainerRestartPolicyAlways, 0, true, ci.ContainerInstanceLifecycleStateActive},
+		{name: "never-success", policy: never, exit: 0, wantInstance: inactive},
+		{name: "never-failure", policy: never, exit: 3, wantInstance: inactive},
+		{name: "on-failure-success", policy: onFailure, exit: 0, wantInstance: inactive},
+		{name: "on-failure-failure", policy: onFailure, exit: 3, wantRestart: true, wantInstance: active},
+		{name: "always-success", policy: always, exit: 0, wantRestart: true, wantInstance: active},
 	}
 
 	for _, tc := range tests {
@@ -348,7 +369,7 @@ func TestEngineRestartPolicy(t *testing.T) {
 				assert.Equal(t, tc.wantInstance, d.get(t, resp.Id).LifecycleState)
 
 				prev, err := d.client.RetrieveLogs(t.Context(), ci.RetrieveLogsRequest{
-					ContainerId: d.container(t, resp.Id).Id, IsPrevious: common.Bool(true),
+					ContainerId: d.container(t, resp.Id).Id, IsPrevious: new(true),
 				})
 				require.NoError(t, err)
 
@@ -382,7 +403,7 @@ func TestEngineStartFailure(t *testing.T) {
 	t.Parallel()
 
 	d := newDockerEnv(t, nil)
-	d.rt.pullErr = errors.New("manifest unknown")
+	d.rt.pullErr = errManifest
 
 	resp := d.mustCreate(t, createOpts{})
 	got := d.await(t, resp.Id, ci.ContainerInstanceLifecycleStateFailed)
@@ -391,14 +412,20 @@ func TestEngineStartFailure(t *testing.T) {
 	wr := d.wr(t, resp.OpcWorkRequestId)
 	assert.Equal(t, ci.OperationStatusFailed, wr.Status)
 
-	errs, err := d.client.ListWorkRequestErrors(t.Context(), ci.ListWorkRequestErrorsRequest{WorkRequestId: resp.OpcWorkRequestId})
+	errs, err := d.client.ListWorkRequestErrors(
+		t.Context(),
+		ci.ListWorkRequestErrorsRequest{WorkRequestId: resp.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	require.Len(t, errs.Items, 1)
 	assert.Contains(t, *errs.Items[0].Message, "manifest unknown")
 
 	assert.Equal(t, ci.ContainerLifecycleStateFailed, d.container(t, resp.Id).LifecycleState)
 
-	_, err = d.client.DeleteContainerInstance(t.Context(), ci.DeleteContainerInstanceRequest{ContainerInstanceId: resp.Id})
+	_, err = d.client.DeleteContainerInstance(
+		t.Context(),
+		ci.DeleteContainerInstanceRequest{ContainerInstanceId: resp.Id},
+	)
 	require.NoError(t, err)
 	d.await(t, resp.Id, ci.ContainerInstanceLifecycleStateDeleted)
 }
@@ -420,12 +447,18 @@ func TestEngineStopStartRestart(t *testing.T) {
 	require.NoError(t, err, "last logs stay readable after a stop")
 	_ = logs.Content.Close()
 
-	_, err = d.client.StartContainerInstance(t.Context(), ci.StartContainerInstanceRequest{ContainerInstanceId: resp.Id})
+	_, err = d.client.StartContainerInstance(
+		t.Context(),
+		ci.StartContainerInstanceRequest{ContainerInstanceId: resp.Id},
+	)
 	require.NoError(t, err)
 	d.await(t, resp.Id, ci.ContainerInstanceLifecycleStateActive)
 	d.rt.started(t, 2)
 
-	_, err = d.client.RestartContainerInstance(t.Context(), ci.RestartContainerInstanceRequest{ContainerInstanceId: resp.Id})
+	_, err = d.client.RestartContainerInstance(
+		t.Context(),
+		ci.RestartContainerInstanceRequest{ContainerInstanceId: resp.Id},
+	)
 	require.NoError(t, err)
 	d.rt.started(t, 3)
 	d.await(t, resp.Id, ci.ContainerInstanceLifecycleStateActive)
@@ -442,8 +475,8 @@ func TestEngineHealthChecks(t *testing.T) {
 	resp := d.mustCreate(t, createOpts{mutate: func(c *ci.CreateContainerInstanceDetails) {
 		c.Containers[0].HealthChecks = []ci.CreateContainerHealthCheckDetails{
 			ci.CreateContainerHttpHealthCheckDetails{
-				Port: common.Int(8080), Path: common.String("/healthz"), FailureThreshold: common.Int(2), SuccessThreshold: common.Int(1),
-				Name: common.String("web"),
+				Port: new(8080), Path: new("/healthz"), FailureThreshold: new(2), SuccessThreshold: new(1),
+				Name: new("web"),
 			},
 		}
 	}})
@@ -465,11 +498,16 @@ func TestEngineHealthChecks(t *testing.T) {
 
 	d.probes <- nil
 
-	require.Eventually(t, func() bool { return status() == ci.ContainerHealthCheckStatusHealthy }, waitFor, time.Millisecond)
+	require.Eventually(
+		t,
+		func() bool { return status() == ci.ContainerHealthCheckStatusHealthy },
+		waitFor,
+		time.Millisecond,
+	)
 
-	d.probes <- errors.New("boom")
+	d.probes <- errBoom
 
-	d.probes <- errors.New("boom")
+	d.probes <- errBoom
 
 	d.rt.started(t, 2)
 
@@ -491,14 +529,14 @@ func TestEngineHealthCheckActionNone(t *testing.T) {
 	resp := d.mustCreate(t, createOpts{mutate: func(c *ci.CreateContainerInstanceDetails) {
 		c.Containers[0].HealthChecks = []ci.CreateContainerHealthCheckDetails{
 			ci.CreateContainerTcpHealthCheckDetails{
-				Port: common.Int(9000), FailureThreshold: common.Int(1), FailureAction: ci.ContainerHealthCheckFailureActionNone,
+				Port: new(9000), FailureThreshold: new(1), FailureAction: ci.ContainerHealthCheckFailureActionNone,
 			},
 		}
 	}})
 	d.await(t, resp.Id, ci.ContainerInstanceLifecycleStateActive)
 	d.rt.started(t, 1)
 
-	d.probes <- errors.New("refused")
+	d.probes <- errRefused
 
 	require.Eventually(t, func() bool {
 		hc := d.container(t, resp.Id).HealthChecks
@@ -519,12 +557,19 @@ func TestEngineVaultPullSecret(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		read     svc.SecretReader
+		name     string
 		wantHTTP int
 	}{
-		{"valid", func(string) (string, error) { return `{"username":"u","password":"p"}`, nil }, 0},
-		{"unreadable-secret", func(string) (string, error) { return "", errors.New("gone") }, http.StatusNotFound},
+		{
+			name: "valid",
+			read: func(string) (string, error) { return `{"username":"u","password":"p"}`, nil },
+		},
+		{
+			name:     "unreadable-secret",
+			read:     func(string) (string, error) { return "", errGone },
+			wantHTTP: http.StatusNotFound,
+		},
 	}
 
 	for _, tc := range tests {
@@ -535,7 +580,7 @@ func TestEngineVaultPullSecret(t *testing.T) {
 
 			resp, err := d.create(t, createOpts{mutate: func(c *ci.CreateContainerInstanceDetails) {
 				c.ImagePullSecrets = []ci.CreateImagePullSecretDetails{ci.CreateVaultImagePullSecretDetails{
-					RegistryEndpoint: common.String("docker.io"), SecretId: common.String("ocid1.vaultsecret.oc1..s"),
+					RegistryEndpoint: new("docker.io"), SecretId: new("ocid1.vaultsecret.oc1..s"),
 				}}
 			}})
 			if tc.wantHTTP != 0 {
@@ -574,7 +619,10 @@ func TestEngineRestoreLeavesInstancesInactive(t *testing.T) {
 	assert.Contains(t, *got.LifecycleDetails, "Restored from a snapshot")
 	assert.Equal(t, ci.ContainerLifecycleStateInactive, dst.container(t, resp.Id).LifecycleState)
 
-	_, err := dst.client.StartContainerInstance(t.Context(), ci.StartContainerInstanceRequest{ContainerInstanceId: resp.Id})
+	_, err := dst.client.StartContainerInstance(
+		t.Context(),
+		ci.StartContainerInstanceRequest{ContainerInstanceId: resp.Id},
+	)
 	require.NoError(t, err)
 	dst.await(t, resp.Id, ci.ContainerInstanceLifecycleStateActive)
 	dst.rt.started(t, 1)

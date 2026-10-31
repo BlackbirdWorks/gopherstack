@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
 	ci "github.com/oracle/oci-go-sdk/v65/containerinstances"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +20,7 @@ func TestCreateValidation(t *testing.T) {
 	manyContainers := func(d *ci.CreateContainerInstanceDetails) {
 		d.Containers = nil
 		for range 33 {
-			d.Containers = append(d.Containers, ci.CreateContainerDetails{ImageUrl: common.String("alpine")})
+			d.Containers = append(d.Containers, ci.CreateContainerDetails{ImageUrl: new("alpine")})
 		}
 	}
 
@@ -31,63 +30,109 @@ func TestCreateValidation(t *testing.T) {
 		wantCode string
 		wantHTTP int
 	}{
-		{func(d *ci.CreateContainerInstanceDetails) { d.Shape = common.String("CI.Nope") }, "bad-shape", "InvalidParameter", 400},
-		{func(d *ci.CreateContainerInstanceDetails) { d.ShapeConfig.Ocpus = f32(65) }, "ocpus-high", "InvalidParameter", 400},
-		{func(d *ci.CreateContainerInstanceDetails) { d.ShapeConfig.Ocpus = f32(0) }, "ocpus-low", "InvalidParameter", 400},
-		{func(d *ci.CreateContainerInstanceDetails) { d.ShapeConfig.MemoryInGBs = f32(1) }, "memory-low", "InvalidParameter", 400},
-		{func(d *ci.CreateContainerInstanceDetails) { d.ShapeConfig.MemoryInGBs = f32(2000) }, "memory-high", "InvalidParameter", 400},
+		{func(d *ci.CreateContainerInstanceDetails) { d.Shape = new("CI.Nope") }, "bad-shape", "InvalidParameter", 400},
+		{
+			func(d *ci.CreateContainerInstanceDetails) { d.ShapeConfig.Ocpus = new(float32(65)) },
+			"ocpus-high",
+			"InvalidParameter",
+			400,
+		},
+		{
+			func(d *ci.CreateContainerInstanceDetails) { d.ShapeConfig.Ocpus = new(float32(0)) },
+			"ocpus-low",
+			"InvalidParameter",
+			400,
+		},
+		{
+			func(d *ci.CreateContainerInstanceDetails) { d.ShapeConfig.MemoryInGBs = new(float32(1)) },
+			"memory-low",
+			"InvalidParameter",
+			400,
+		},
+		{
+			func(d *ci.CreateContainerInstanceDetails) { d.ShapeConfig.MemoryInGBs = new(float32(2000)) },
+			"memory-high",
+			"InvalidParameter",
+			400,
+		},
 		{func(d *ci.CreateContainerInstanceDetails) {
-			d.Shape = common.String("CI.Standard.A1.Flex")
-			d.ShapeConfig.Ocpus = f32(77)
+			d.Shape = new("CI.Standard.A1.Flex")
+			d.ShapeConfig.Ocpus = new(float32(77))
 		}, "a1-ocpus-high", "InvalidParameter", 400},
-		{func(d *ci.CreateContainerInstanceDetails) { d.Containers = []ci.CreateContainerDetails{} }, "no-containers", "MissingParameter", 400},
+		{
+			func(d *ci.CreateContainerInstanceDetails) { d.Containers = []ci.CreateContainerDetails{} },
+			"no-containers",
+			"MissingParameter",
+			400,
+		},
 		{manyContainers, "too-many-containers", "InvalidParameter", 400},
-		{func(d *ci.CreateContainerInstanceDetails) { d.Containers[0].ImageUrl = common.String("") }, "no-image", "MissingParameter", 400},
-		{func(d *ci.CreateContainerInstanceDetails) { d.Vnics = []ci.CreateContainerVnicDetails{} }, "no-vnics", "MissingParameter", 400},
+		{
+			func(d *ci.CreateContainerInstanceDetails) { d.Containers[0].ImageUrl = new("") },
+			"no-image",
+			"MissingParameter",
+			400,
+		},
+		{
+			func(d *ci.CreateContainerInstanceDetails) { d.Vnics = []ci.CreateContainerVnicDetails{} },
+			"no-vnics",
+			"MissingParameter",
+			400,
+		},
 		{func(d *ci.CreateContainerInstanceDetails) {
-			d.Vnics = append(d.Vnics, ci.CreateContainerVnicDetails{SubnetId: common.String(testSubnet)})
+			d.Vnics = append(d.Vnics, ci.CreateContainerVnicDetails{SubnetId: new(testSubnet)})
 		}, "two-vnics", "InvalidParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
-			d.Vnics[0].SubnetId = common.String("ocid1.subnet.oc1..gone")
+			d.Vnics[0].SubnetId = new("ocid1.subnet.oc1..gone")
 		}, "unknown-subnet", "NotAuthorizedOrNotFound", 404},
 		{func(d *ci.CreateContainerInstanceDetails) {
-			d.CompartmentId = common.String("ocid1.compartment.oc1..gone")
+			d.CompartmentId = new("ocid1.compartment.oc1..gone")
 		}, "unknown-compartment", "NotAuthorizedOrNotFound", 404},
 		{func(d *ci.CreateContainerInstanceDetails) {
-			d.Containers[0].VolumeMounts = []ci.CreateVolumeMountDetails{{MountPath: common.String("/x"), VolumeName: common.String("none")}}
+			d.Containers[0].VolumeMounts = []ci.CreateVolumeMountDetails{
+				{MountPath: new("/x"), VolumeName: new("none")},
+			}
 		}, "mount-missing-volume", "InvalidParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
 			d.Volumes = []ci.CreateContainerVolumeDetails{
-				ci.CreateContainerEmptyDirVolumeDetails{Name: common.String("v")},
-				ci.CreateContainerEmptyDirVolumeDetails{Name: common.String("v")},
+				ci.CreateContainerEmptyDirVolumeDetails{Name: new("v")},
+				ci.CreateContainerEmptyDirVolumeDetails{Name: new("v")},
 			}
 		}, "duplicate-volume", "InvalidParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
 			d.Volumes = []ci.CreateContainerVolumeDetails{ci.CreateContainerConfigFileVolumeDetails{
-				Name: common.String("cfg"), Configs: []ci.ContainerConfigFile{{FileName: common.String("../x"), Data: []byte("a")}},
+				Name: new("cfg"), Configs: []ci.ContainerConfigFile{{FileName: new("../x"), Data: []byte("a")}},
 			}}
 		}, "configfile-traversal", "InvalidParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
-			d.Volumes = []ci.CreateContainerVolumeDetails{ci.CreateContainerConfigFileVolumeDetails{
-				Name: common.String("cfg"), Configs: []ci.ContainerConfigFile{{FileName: common.String("a"), Path: common.String("../up"), Data: []byte("a")}},
-			}}
+			d.Volumes = []ci.CreateContainerVolumeDetails{
+				ci.CreateContainerConfigFileVolumeDetails{
+					Name: new(
+						"cfg",
+					),
+					Configs: []ci.ContainerConfigFile{{FileName: new("a"), Path: new("../up"), Data: []byte("a")}},
+				},
+			}
 		}, "configfile-path-traversal", "InvalidParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
 			d.Containers[0].HealthChecks = []ci.CreateContainerHealthCheckDetails{
-				ci.CreateContainerTcpHealthCheckDetails{Port: common.Int(0)},
+				ci.CreateContainerTcpHealthCheckDetails{Port: new(0)},
 			}
 		}, "healthcheck-port", "InvalidParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
 			d.Containers[0].HealthChecks = []ci.CreateContainerHealthCheckDetails{
-				ci.CreateContainerHttpHealthCheckDetails{Port: common.Int(80), Path: common.String("health")},
+				ci.CreateContainerHttpHealthCheckDetails{Port: new(80), Path: new("health")},
 			}
 		}, "healthcheck-path", "InvalidParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
-			d.Containers[0].ResourceConfig = &ci.CreateContainerResourceConfigDetails{VcpusLimit: f32(3)}
+			d.Containers[0].ResourceConfig = &ci.CreateContainerResourceConfigDetails{VcpusLimit: new(float32(3))}
 		}, "container-vcpus-over-shape", "InvalidParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
 			d.ImagePullSecrets = []ci.CreateImagePullSecretDetails{
-				ci.CreateBasicImagePullSecretDetails{RegistryEndpoint: common.String("r.io"), Username: common.String("u"), Password: common.String("")},
+				ci.CreateBasicImagePullSecretDetails{
+					RegistryEndpoint: new("r.io"),
+					Username:         new("u"),
+					Password:         new(""),
+				},
 			}
 		}, "basic-secret-no-password", "MissingParameter", 400},
 		{func(d *ci.CreateContainerInstanceDetails) {
@@ -119,11 +164,11 @@ func TestCreateAndStateMachine(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	resp := e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
 		d.FreeformTags = map[string]string{"env": "dev"}
-		d.Containers[0].DisplayName = common.String("app")
+		d.Containers[0].DisplayName = new("app")
 		d.Containers[0].EnvironmentVariables = map[string]string{"A": "1"}
 		d.Containers[0].Command = []string{"sh"}
 		d.Containers[0].Arguments = []string{"-c", "true"}
-		d.Containers[0].WorkingDirectory = common.String("/tmp")
+		d.Containers[0].WorkingDirectory = new("/tmp")
 	}})
 
 	require.NotNil(t, resp.OpcWorkRequestId)
@@ -157,7 +202,7 @@ func TestCreateAndStateMachine(t *testing.T) {
 	assert.Equal(t, ci.OperationStatusSucceeded, e.wr(t, resp.OpcWorkRequestId).Status)
 
 	ctrs, err := e.client.ListContainers(t.Context(), ci.ListContainersRequest{
-		CompartmentId: common.String(testCompartment), ContainerInstanceId: id,
+		CompartmentId: new(testCompartment), ContainerInstanceId: id,
 	})
 	require.NoError(t, err)
 	require.Len(t, ctrs.Items, 1)
@@ -196,7 +241,10 @@ func TestCreateAndStateMachine(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
 	step("start", func() (*string, error) {
-		r, serr := e.client.StartContainerInstance(t.Context(), ci.StartContainerInstanceRequest{ContainerInstanceId: id})
+		r, serr := e.client.StartContainerInstance(
+			t.Context(),
+			ci.StartContainerInstanceRequest{ContainerInstanceId: id},
+		)
 
 		return r.OpcWorkRequestId, serr
 	}, ci.ContainerInstanceLifecycleStateUpdating, ci.ContainerInstanceLifecycleStateActive)
@@ -205,19 +253,25 @@ func TestCreateAndStateMachine(t *testing.T) {
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
 
 	step("restart", func() (*string, error) {
-		r, serr := e.client.RestartContainerInstance(t.Context(), ci.RestartContainerInstanceRequest{ContainerInstanceId: id})
+		r, serr := e.client.RestartContainerInstance(
+			t.Context(),
+			ci.RestartContainerInstanceRequest{ContainerInstanceId: id},
+		)
 
 		return r.OpcWorkRequestId, serr
 	}, ci.ContainerInstanceLifecycleStateUpdating, ci.ContainerInstanceLifecycleStateActive)
 
 	step("delete", func() (*string, error) {
-		r, serr := e.client.DeleteContainerInstance(t.Context(), ci.DeleteContainerInstanceRequest{ContainerInstanceId: id})
+		r, serr := e.client.DeleteContainerInstance(
+			t.Context(),
+			ci.DeleteContainerInstanceRequest{ContainerInstanceId: id},
+		)
 
 		return r.OpcWorkRequestId, serr
 	}, ci.ContainerInstanceLifecycleStateDeleting, ci.ContainerInstanceLifecycleStateDeleted)
 
 	_, err = e.client.UpdateContainerInstance(t.Context(), ci.UpdateContainerInstanceRequest{
-		ContainerInstanceId: id, UpdateContainerInstanceDetails: ci.UpdateContainerInstanceDetails{DisplayName: common.String("x")},
+		ContainerInstanceId: id, DisplayName: new("x"),
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 }
@@ -236,16 +290,14 @@ func TestUpdateMoveAndIfMatch(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = e.client.UpdateContainerInstance(t.Context(), ci.UpdateContainerInstanceRequest{
-		ContainerInstanceId: id, IfMatch: common.String("stale"),
-		UpdateContainerInstanceDetails: ci.UpdateContainerInstanceDetails{DisplayName: common.String("n")},
+		ContainerInstanceId: id, IfMatch: new("stale"),
+		DisplayName: new("n"),
 	})
 	assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 
 	upd, err := e.client.UpdateContainerInstance(t.Context(), ci.UpdateContainerInstanceRequest{
 		ContainerInstanceId: id, IfMatch: cur.Etag,
-		UpdateContainerInstanceDetails: ci.UpdateContainerInstanceDetails{
-			DisplayName: common.String("renamed"), FreeformTags: map[string]string{"k": "v"},
-		},
+		DisplayName: new("renamed"), FreeformTags: map[string]string{"k": "v"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, ci.OperationTypeUpdateContainerInstance, e.wr(t, upd.OpcWorkRequestId).OperationType)
@@ -256,20 +308,23 @@ func TestUpdateMoveAndIfMatch(t *testing.T) {
 	assert.NotNil(t, after.TimeUpdated)
 
 	mv, err := e.client.ChangeContainerInstanceCompartment(t.Context(), ci.ChangeContainerInstanceCompartmentRequest{
-		ContainerInstanceId:                       id,
-		ChangeContainerInstanceCompartmentDetails: ci.ChangeContainerInstanceCompartmentDetails{CompartmentId: common.String(otherCompart)},
+		ContainerInstanceId: id,
+		CompartmentId:       new(otherCompart),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, ci.OperationTypeMoveContainerInstance, e.wr(t, mv.OpcWorkRequestId).OperationType)
 	assert.Equal(t, otherCompart, *e.get(t, id).CompartmentId)
 
 	_, err = e.client.ChangeContainerInstanceCompartment(t.Context(), ci.ChangeContainerInstanceCompartmentRequest{
-		ContainerInstanceId:                       id,
-		ChangeContainerInstanceCompartmentDetails: ci.ChangeContainerInstanceCompartmentDetails{CompartmentId: common.String("ocid1.compartment.oc1..gone")},
+		ContainerInstanceId: id,
+		CompartmentId:       new("ocid1.compartment.oc1..gone"),
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
-	_, err = e.client.GetContainerInstance(t.Context(), ci.GetContainerInstanceRequest{ContainerInstanceId: common.String("ocid1.x.oc1..none")})
+	_, err = e.client.GetContainerInstance(
+		t.Context(),
+		ci.GetContainerInstanceRequest{ContainerInstanceId: new("ocid1.x.oc1..none")},
+	)
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
 
@@ -279,16 +334,19 @@ func TestListFiltersAndPaging(t *testing.T) {
 	e := newEnv(t, envOpts{})
 
 	for _, n := range []string{"b", "a", "c"} {
-		e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) { d.DisplayName = common.String(n) }})
+		e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) { d.DisplayName = new(n) }})
 	}
 
 	e.settle()
 
 	other := e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
-		d.CompartmentId = common.String(otherCompart)
+		d.CompartmentId = new(otherCompart)
 	}})
 	e.settle()
-	_, err := e.client.StopContainerInstance(t.Context(), ci.StopContainerInstanceRequest{ContainerInstanceId: other.Id})
+	_, err := e.client.StopContainerInstance(
+		t.Context(),
+		ci.StopContainerInstanceRequest{ContainerInstanceId: other.Id},
+	)
 	require.NoError(t, err)
 	e.settle()
 
@@ -296,7 +354,7 @@ func TestListFiltersAndPaging(t *testing.T) {
 		t.Helper()
 
 		if r.CompartmentId == nil {
-			r.CompartmentId = common.String(testCompartment)
+			r.CompartmentId = new(testCompartment)
 		}
 
 		out, lerr := e.client.ListContainerInstances(t.Context(), r)
@@ -306,10 +364,13 @@ func TestListFiltersAndPaging(t *testing.T) {
 	}
 
 	assert.Len(t, list(ci.ListContainerInstancesRequest{}).Items, 3)
-	assert.Len(t, list(ci.ListContainerInstancesRequest{DisplayName: common.String("a")}).Items, 1)
-	assert.Len(t, list(ci.ListContainerInstancesRequest{LifecycleState: ci.ContainerInstanceLifecycleStateInactive}).Items, 0)
+	assert.Len(t, list(ci.ListContainerInstancesRequest{DisplayName: new("a")}).Items, 1)
+	assert.Empty(
+		t,
+		list(ci.ListContainerInstancesRequest{LifecycleState: ci.ContainerInstanceLifecycleStateInactive}).Items,
+	)
 	assert.Len(t, list(ci.ListContainerInstancesRequest{
-		CompartmentId: common.String(otherCompart), LifecycleState: ci.ContainerInstanceLifecycleStateInactive,
+		CompartmentId: new(otherCompart), LifecycleState: ci.ContainerInstanceLifecycleStateInactive,
 	}).Items, 1)
 
 	var names []string
@@ -318,7 +379,7 @@ func TestListFiltersAndPaging(t *testing.T) {
 
 	for {
 		out := list(ci.ListContainerInstancesRequest{
-			Limit: common.Int(2), Page: pageTok, SortBy: ci.ListContainerInstancesSortByDisplayname,
+			Limit: new(2), Page: pageTok, SortBy: ci.ListContainerInstancesSortByDisplayname,
 			SortOrder: ci.ListContainerInstancesSortOrderAsc,
 		})
 		for _, it := range out.Items {
@@ -358,13 +419,13 @@ func TestContainersUpdateAndNames(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	resp := e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
 		d.Containers = []ci.CreateContainerDetails{
-			{ImageUrl: common.String("alpine"), DisplayName: common.String("one")},
-			{ImageUrl: common.String("alpine")},
+			{ImageUrl: new("alpine"), DisplayName: new("one")},
+			{ImageUrl: new("alpine")},
 		}
 	}})
 	e.settle()
 
-	list, err := e.client.ListContainers(t.Context(), ci.ListContainersRequest{CompartmentId: common.String(testCompartment)})
+	list, err := e.client.ListContainers(t.Context(), ci.ListContainersRequest{CompartmentId: new(testCompartment)})
 	require.NoError(t, err)
 	require.Len(t, list.Items, 2)
 
@@ -382,16 +443,14 @@ func TestContainersUpdateAndNames(t *testing.T) {
 	assert.Equal(t, *resp.Id, *two.ContainerInstanceId)
 
 	_, err = e.client.UpdateContainer(t.Context(), ci.UpdateContainerRequest{
-		ContainerId:            two.Id,
-		UpdateContainerDetails: ci.UpdateContainerDetails{DisplayName: common.String("ONE")},
+		ContainerId: two.Id,
+		DisplayName: new("ONE"),
 	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 
 	upd, err := e.client.UpdateContainer(t.Context(), ci.UpdateContainerRequest{
 		ContainerId: one.Id,
-		UpdateContainerDetails: ci.UpdateContainerDetails{
-			DisplayName: common.String("uno"), FreeformTags: map[string]string{"t": "1"},
-		},
+		DisplayName: new("uno"), FreeformTags: map[string]string{"t": "1"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, ci.OperationTypeUpdateContainer, e.wr(t, upd.OpcWorkRequestId).OperationType)
@@ -408,7 +467,7 @@ func TestShapesCatalog(t *testing.T) {
 	e := newEnv(t, envOpts{})
 
 	out, err := e.client.ListContainerInstanceShapes(t.Context(), ci.ListContainerInstanceShapesRequest{
-		CompartmentId: common.String(testCompartment),
+		CompartmentId: new(testCompartment),
 	})
 	require.NoError(t, err)
 
@@ -435,7 +494,7 @@ func TestMemoryDefaultsFromShape(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	resp := e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
-		d.ShapeConfig = &ci.CreateContainerInstanceShapeConfigDetails{Ocpus: f32(4)}
+		d.ShapeConfig = &ci.CreateContainerInstanceShapeConfigDetails{Ocpus: new(float32(4))}
 	}})
 
 	assert.InDelta(t, 64, *resp.ShapeConfig.MemoryInGBs, 0)
@@ -448,8 +507,8 @@ func TestImagePullSecretsNeverReturned(t *testing.T) {
 	resp := e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
 		d.ImagePullSecrets = []ci.CreateImagePullSecretDetails{
 			ci.CreateBasicImagePullSecretDetails{
-				RegistryEndpoint: common.String("localhost:8166"), Username: common.String("ns/user"),
-				Password: common.String("s3cr3t-token"),
+				RegistryEndpoint: new("localhost:8166"), Username: new("ns/user"),
+				Password: new("s3cr3t-token"),
 			},
 		}
 	}})
@@ -476,19 +535,19 @@ func TestWorkRequestListErrorsAndLogs(t *testing.T) {
 	_, err := e.client.StopContainerInstance(t.Context(), ci.StopContainerInstanceRequest{ContainerInstanceId: a.Id})
 	require.NoError(t, err)
 
-	list, err := e.client.ListWorkRequests(t.Context(), ci.ListWorkRequestsRequest{CompartmentId: common.String(testCompartment)})
+	list, err := e.client.ListWorkRequests(t.Context(), ci.ListWorkRequestsRequest{CompartmentId: new(testCompartment)})
 	require.NoError(t, err)
 	require.Len(t, list.Items, 2)
 	assert.Equal(t, ci.OperationTypeStopContainerInstance, list.Items[0].OperationType)
 
 	inProgress, err := e.client.ListWorkRequests(t.Context(), ci.ListWorkRequestsRequest{
-		CompartmentId: common.String(testCompartment), Status: ci.ListWorkRequestsStatusInProgress,
+		CompartmentId: new(testCompartment), Status: ci.ListWorkRequestsStatusInProgress,
 	})
 	require.NoError(t, err)
 	assert.Len(t, inProgress.Items, 1)
 
 	byRes, err := e.client.ListWorkRequests(t.Context(), ci.ListWorkRequestsRequest{
-		CompartmentId: common.String(testCompartment), ResourceId: a.Id, Limit: common.Int(1),
+		CompartmentId: new(testCompartment), ResourceId: a.Id, Limit: new(1),
 	})
 	require.NoError(t, err)
 	assert.Len(t, byRes.Items, 1)
@@ -496,15 +555,21 @@ func TestWorkRequestListErrorsAndLogs(t *testing.T) {
 
 	e.settle()
 
-	logs, err := e.client.ListWorkRequestLogs(t.Context(), ci.ListWorkRequestLogsRequest{WorkRequestId: a.OpcWorkRequestId})
+	logs, err := e.client.ListWorkRequestLogs(
+		t.Context(),
+		ci.ListWorkRequestLogsRequest{WorkRequestId: a.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(logs.Items), 2)
 
-	errs, err := e.client.ListWorkRequestErrors(t.Context(), ci.ListWorkRequestErrorsRequest{WorkRequestId: a.OpcWorkRequestId})
+	errs, err := e.client.ListWorkRequestErrors(
+		t.Context(),
+		ci.ListWorkRequestErrorsRequest{WorkRequestId: a.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, errs.Items)
 
-	_, err = e.client.GetWorkRequest(t.Context(), ci.GetWorkRequestRequest{WorkRequestId: common.String("ocid1.x.oc1..none")})
+	_, err = e.client.GetWorkRequest(t.Context(), ci.GetWorkRequestRequest{WorkRequestId: new("ocid1.x.oc1..none")})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
 
@@ -515,14 +580,14 @@ func TestRetrieveLogsNeedsDockerEngine(t *testing.T) {
 	e.mustCreate(t, createOpts{})
 	e.settle()
 
-	list, err := e.client.ListContainers(t.Context(), ci.ListContainersRequest{CompartmentId: common.String(testCompartment)})
+	list, err := e.client.ListContainers(t.Context(), ci.ListContainersRequest{CompartmentId: new(testCompartment)})
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 
 	_, err = e.client.RetrieveLogs(t.Context(), ci.RetrieveLogsRequest{ContainerId: list.Items[0].Id})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
-	_, err = e.client.RetrieveLogs(t.Context(), ci.RetrieveLogsRequest{ContainerId: common.String("ocid1.x.oc1..none")})
+	_, err = e.client.RetrieveLogs(t.Context(), ci.RetrieveLogsRequest{ContainerId: new("ocid1.x.oc1..none")})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 }
 
@@ -535,7 +600,10 @@ func TestSignatureEnforcement(t *testing.T) {
 	require.NoError(t, err)
 
 	other := e.newClient(t, newKeyPair(t))
-	_, err = other.ListContainerInstances(t.Context(), ci.ListContainerInstancesRequest{CompartmentId: common.String(testCompartment)})
+	_, err = other.ListContainerInstances(
+		t.Context(),
+		ci.ListContainerInstancesRequest{CompartmentId: new(testCompartment)},
+	)
 	assert.Equal(t, http.StatusUnauthorized, svcErr(t, err).GetHTTPStatusCode())
 
 	code, _ := rawGet(t, e.base+"/20210415/containerInstances?compartmentId="+testCompartment)
@@ -548,9 +616,9 @@ func TestSnapshotRestore(t *testing.T) {
 	src := newEnv(t, envOpts{})
 	created := src.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
 		d.Volumes = []ci.CreateContainerVolumeDetails{ci.CreateContainerConfigFileVolumeDetails{
-			Name: common.String("cfg"), Configs: []ci.ContainerConfigFile{{FileName: common.String("a.txt"), Data: []byte("hello")}},
+			Name: new("cfg"), Configs: []ci.ContainerConfigFile{{FileName: new("a.txt"), Data: []byte("hello")}},
 		}}
-		d.Containers[0].VolumeMounts = []ci.CreateVolumeMountDetails{{MountPath: common.String("/cfg"), VolumeName: common.String("cfg")}}
+		d.Containers[0].VolumeMounts = []ci.CreateVolumeMountDetails{{MountPath: new("/cfg"), VolumeName: new("cfg")}}
 	}})
 	src.settle()
 
@@ -566,7 +634,7 @@ func TestSnapshotRestore(t *testing.T) {
 	assert.Equal(t, "web", *got.DisplayName)
 	assert.Equal(t, ci.OperationStatusSucceeded, dst.wr(t, created.OpcWorkRequestId).Status)
 
-	ctrs, err := dst.client.ListContainers(t.Context(), ci.ListContainersRequest{CompartmentId: common.String(testCompartment)})
+	ctrs, err := dst.client.ListContainers(t.Context(), ci.ListContainersRequest{CompartmentId: new(testCompartment)})
 	require.NoError(t, err)
 	assert.Len(t, ctrs.Items, 1)
 
@@ -580,7 +648,10 @@ func TestResetClearsState(t *testing.T) {
 	e.mustCreate(t, createOpts{})
 	e.backend.Reset()
 
-	out, err := e.client.ListContainerInstances(t.Context(), ci.ListContainerInstancesRequest{CompartmentId: common.String(testCompartment)})
+	out, err := e.client.ListContainerInstances(
+		t.Context(),
+		ci.ListContainerInstancesRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, out.Items)
 }
@@ -593,7 +664,12 @@ func TestRawRequestErrors(t *testing.T) {
 		body     string
 		wantCode string
 	}{
-		{"bad-restart-policy", `{"compartmentId":"c","availabilityDomain":"ad","shape":"CI.Standard.E4.Flex","shapeConfig":{"ocpus":1},"containerRestartPolicy":"SOMETIMES","containers":[{"imageUrl":"a"}],"vnics":[{"subnetId":"s"}]}`, "InvalidParameter"},
+		{
+			"bad-restart-policy",
+			`{"compartmentId":"c","availabilityDomain":"ad","shape":"CI.Standard.E4.Flex","shapeConfig":{"ocpus":1},` +
+				`"containerRestartPolicy":"SOMETIMES","containers":[{"imageUrl":"a"}],"vnics":[{"subnetId":"s"}]}`,
+			"InvalidParameter",
+		},
 		{"not-json", `{`, "CannotParseRequest"},
 		{"empty-body", ``, "MissingParameter"},
 	}
@@ -619,7 +695,7 @@ func TestRawRequestErrors(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 			assert.Contains(t, string(out), tc.wantCode)
-			assert.NotEmpty(t, resp.Header.Get("opc-request-id"))
+			assert.NotEmpty(t, resp.Header.Get("Opc-Request-Id"))
 		})
 	}
 }

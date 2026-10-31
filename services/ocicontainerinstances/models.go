@@ -57,11 +57,11 @@ type Volume struct {
 
 // VolumeMount mounts a volume into a container.
 type VolumeMount struct {
+	ReadOnly   *bool  `json:"isReadOnly,omitempty"`
+	Partition  *int   `json:"partition,omitempty"`
 	MountPath  string `json:"mountPath"`
 	VolumeName string `json:"volumeName"`
 	SubPath    string `json:"subPath,omitempty"`
-	ReadOnly   *bool  `json:"isReadOnly,omitempty"`
-	Partition  *int   `json:"partition,omitempty"`
 }
 
 // HealthHeader is an HTTP health check header.
@@ -158,24 +158,24 @@ type Instance struct {
 	DNS          *DNSConfig        `json:"dnsConfig,omitempty"`
 	Freeform     map[string]string `json:"freeformTags,omitempty"`
 	Defined      map[string]any    `json:"definedTags,omitempty"`
-	Security     json.RawMessage   `json:"securityContext,omitempty"`
-	ID           string            `json:"id"`
+	FaultDomain  string            `json:"faultDomain,omitempty"`
+	RetryToken   string            `json:"retryToken,omitempty"`
 	DisplayName  string            `json:"displayName"`
 	Compartment  string            `json:"compartmentId"`
 	AD           string            `json:"availabilityDomain"`
-	FaultDomain  string            `json:"faultDomain,omitempty"`
+	ID           string            `json:"id"`
 	State        string            `json:"lifecycleState"`
 	Details      string            `json:"lifecycleDetails,omitempty"`
 	Shape        string            `json:"shape"`
 	Restart      string            `json:"containerRestartPolicy"`
 	Etag         string            `json:"etag"`
 	Target       string            `json:"target,omitempty"`
-	RetryToken   string            `json:"retryToken,omitempty"`
-	ShapeConfig  ShapeConfig       `json:"shapeConfig"`
+	Security     json.RawMessage   `json:"securityContext,omitempty"`
 	Containers   []*Container      `json:"containers"`
 	Volumes      []Volume          `json:"volumes,omitempty"`
 	Vnics        []Vnic            `json:"vnics"`
 	PullSecrets  []PullSecret      `json:"imagePullSecrets,omitempty"`
+	ShapeConfig  ShapeConfig       `json:"shapeConfig"`
 }
 
 // WorkRequest is an asynchronous operation record.

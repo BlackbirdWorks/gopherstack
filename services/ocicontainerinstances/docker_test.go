@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
 	ci "github.com/oracle/oci-go-sdk/v65/containerinstances"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,7 +40,8 @@ func newRealEnv(t *testing.T) *env {
 		t.Skipf("container runtime unavailable: %v", err)
 	}
 
-	if out, err := exec.CommandContext(t.Context(), "docker", "image", "inspect", testImage).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(t.Context(), "docker", "image", "inspect", testImage).
+		CombinedOutput(); err != nil {
 		t.Skipf("%s is not present locally: %s", testImage, out)
 	}
 
@@ -79,7 +79,7 @@ func (e *env) firstContainer(t *testing.T, instID *string) ci.Container {
 	t.Helper()
 
 	list, err := e.client.ListContainers(t.Context(), ci.ListContainersRequest{
-		CompartmentId: common.String(testCompartment), ContainerInstanceId: instID,
+		CompartmentId: new(testCompartment), ContainerInstanceId: instID,
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, list.Items)
@@ -106,7 +106,7 @@ func (e *env) logsOf(t *testing.T, ctrID *string) string {
 
 func shell(script string) func(*ci.CreateContainerInstanceDetails) {
 	return func(d *ci.CreateContainerInstanceDetails) {
-		d.Containers[0].ImageUrl = common.String(testImage)
+		d.Containers[0].ImageUrl = new(testImage)
 		d.Containers[0].Command = []string{"sh", "-c", script}
 	}
 }
@@ -118,8 +118,8 @@ func TestDockerRunToCompletion(t *testing.T) {
 		name     string
 		script   string
 		policy   ci.ContainerInstanceContainerRestartPolicyEnum
-		wantExit int
 		wantLogs []string
+		wantExit int
 	}{
 		{
 			name: "never-success", script: "echo hello-$GREETING; echo oops >&2", wantExit: 0,
@@ -175,7 +175,10 @@ func TestDockerOnFailureRestarts(t *testing.T) {
 
 	assert.Equal(t, ci.ContainerInstanceLifecycleStateActive, e.get(t, resp.Id).LifecycleState)
 
-	_, err := e.client.DeleteContainerInstance(t.Context(), ci.DeleteContainerInstanceRequest{ContainerInstanceId: resp.Id})
+	_, err := e.client.DeleteContainerInstance(
+		t.Context(),
+		ci.DeleteContainerInstanceRequest{ContainerInstanceId: resp.Id},
+	)
 	require.NoError(t, err)
 	e.awaitState(t, resp.Id, ci.ContainerInstanceLifecycleStateDeleted)
 }
@@ -189,19 +192,25 @@ func TestDockerVolumesAndLimits(t *testing.T) {
 			"(cat /sys/fs/cgroup/memory.max || cat /sys/fs/cgroup/memory/memory.limit_in_bytes) 2>/dev/null; " +
 			"cat /etc/resolv.conf; echo done")(d)
 		d.ContainerRestartPolicy = ci.ContainerInstanceContainerRestartPolicyNever
-		d.Containers[0].ResourceConfig = &ci.CreateContainerResourceConfigDetails{VcpusLimit: f32(0.5), MemoryLimitInGBs: f32(0.25)}
+		d.Containers[0].ResourceConfig = &ci.CreateContainerResourceConfigDetails{
+			VcpusLimit:       new(float32(0.5)),
+			MemoryLimitInGBs: new(float32(0.25)),
+		}
 		d.Containers[0].VolumeMounts = []ci.CreateVolumeMountDetails{
-			{MountPath: common.String("/etc/app"), VolumeName: common.String("cfg"), IsReadOnly: common.Bool(true)},
-			{MountPath: common.String("/scratch"), VolumeName: common.String("tmp")},
+			{MountPath: new("/etc/app"), VolumeName: new("cfg"), IsReadOnly: new(true)},
+			{MountPath: new("/scratch"), VolumeName: new("tmp")},
 		}
 		d.Volumes = []ci.CreateContainerVolumeDetails{
-			ci.CreateContainerConfigFileVolumeDetails{Name: common.String("cfg"), Configs: []ci.ContainerConfigFile{
-				{FileName: common.String("app.conf"), Data: []byte("mode=docker-test\n")},
-				{FileName: common.String("n.conf"), Path: common.String("sub"), Data: []byte("nested-ok\n")},
+			ci.CreateContainerConfigFileVolumeDetails{Name: new("cfg"), Configs: []ci.ContainerConfigFile{
+				{FileName: new("app.conf"), Data: []byte("mode=docker-test\n")},
+				{FileName: new("n.conf"), Path: new("sub"), Data: []byte("nested-ok\n")},
 			}},
-			ci.CreateContainerEmptyDirVolumeDetails{Name: common.String("tmp")},
+			ci.CreateContainerEmptyDirVolumeDetails{Name: new("tmp")},
 		}
-		d.DnsConfig = &ci.CreateContainerDnsConfigDetails{Nameservers: []string{"10.20.30.40"}, Searches: []string{"ci.example"}}
+		d.DnsConfig = &ci.CreateContainerDnsConfigDetails{
+			Nameservers: []string{"10.20.30.40"},
+			Searches:    []string{"ci.example"},
+		}
 	}})
 
 	e.awaitState(t, resp.Id, ci.ContainerInstanceLifecycleStateInactive)
@@ -218,7 +227,8 @@ func TestDockerVolumesAndLimits(t *testing.T) {
 	}
 }
 
-const httpServer = `while true; do printf "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nok\n" | nc -l -p 8080; done`
+const httpServer = `while true; do ` +
+	`printf "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nok\n" | nc -l -p 8080; done`
 
 func TestDockerHealthChecks(t *testing.T) {
 	t.Parallel()
@@ -232,21 +242,21 @@ func TestDockerHealthChecks(t *testing.T) {
 		{
 			name: "http-healthy", script: httpServer, want: ci.ContainerHealthCheckStatusHealthy,
 			check: ci.CreateContainerHttpHealthCheckDetails{
-				Port: common.Int(8080), Path: common.String("/"), IntervalInSeconds: common.Int(1),
-				TimeoutInSeconds: common.Int(2),
+				Port: new(8080), Path: new("/"), IntervalInSeconds: new(1),
+				TimeoutInSeconds: new(2),
 			},
 		},
 		{
 			name: "tcp-healthy", script: httpServer, want: ci.ContainerHealthCheckStatusHealthy,
 			check: ci.CreateContainerTcpHealthCheckDetails{
-				Port: common.Int(8080), IntervalInSeconds: common.Int(1), TimeoutInSeconds: common.Int(2),
+				Port: new(8080), IntervalInSeconds: new(1), TimeoutInSeconds: new(2),
 			},
 		},
 		{
 			name: "http-unhealthy", script: "sleep 600", want: ci.ContainerHealthCheckStatusUnhealthy,
 			check: ci.CreateContainerHttpHealthCheckDetails{
-				Port: common.Int(8080), Path: common.String("/"), IntervalInSeconds: common.Int(1), TimeoutInSeconds: common.Int(1),
-				FailureThreshold: common.Int(1), FailureAction: ci.ContainerHealthCheckFailureActionNone,
+				Port: new(8080), Path: new("/"), IntervalInSeconds: new(1), TimeoutInSeconds: new(1),
+				FailureThreshold: new(1), FailureAction: ci.ContainerHealthCheckFailureActionNone,
 			},
 		},
 	}
@@ -280,8 +290,8 @@ func TestDockerUnhealthyContainerIsKilledAndRestarted(t *testing.T) {
 		d.ContainerRestartPolicy = ci.ContainerInstanceContainerRestartPolicyAlways
 		d.Containers[0].HealthChecks = []ci.CreateContainerHealthCheckDetails{
 			ci.CreateContainerTcpHealthCheckDetails{
-				Port: common.Int(9999), IntervalInSeconds: common.Int(1), TimeoutInSeconds: common.Int(1),
-				FailureThreshold: common.Int(1),
+				Port: new(9999), IntervalInSeconds: new(1), TimeoutInSeconds: new(1),
+				FailureThreshold: new(1),
 			},
 		}
 	}})
@@ -332,11 +342,11 @@ func TestDockerPullsFromEmulatorRegistry(t *testing.T) {
 
 	pullWith := func(login string) ci.CreateContainerInstanceResponse {
 		return e.mustCreate(t, createOpts{mutate: func(d *ci.CreateContainerInstanceDetails) {
-			d.Containers[0].ImageUrl = common.String(ref)
+			d.Containers[0].ImageUrl = new(ref)
 			d.Containers[0].Command = []string{"sh", "-c", "echo pulled-from-registry"}
 			d.ContainerRestartPolicy = ci.ContainerInstanceContainerRestartPolicyNever
 			d.ImagePullSecrets = []ci.CreateImagePullSecretDetails{ci.CreateBasicImagePullSecretDetails{
-				RegistryEndpoint: common.String(endpoint), Username: common.String(login), Password: common.String(registryTok),
+				RegistryEndpoint: new(endpoint), Username: new(login), Password: new(registryTok),
 			}}
 		}})
 	}

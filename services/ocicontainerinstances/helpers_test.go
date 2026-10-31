@@ -174,8 +174,6 @@ func rawGet(t *testing.T, url string) (int, string) {
 	return resp.StatusCode, string(out)
 }
 
-func f32(v float32) *float32 { return &v }
-
 type createOpts struct {
 	mutate func(*ci.CreateContainerInstanceDetails)
 	token  string
@@ -183,13 +181,16 @@ type createOpts struct {
 
 func baseDetails() ci.CreateContainerInstanceDetails {
 	return ci.CreateContainerInstanceDetails{
-		CompartmentId:      common.String(testCompartment),
-		AvailabilityDomain: common.String(testAD),
-		Shape:              common.String("CI.Standard.E4.Flex"),
-		DisplayName:        common.String("web"),
-		ShapeConfig:        &ci.CreateContainerInstanceShapeConfigDetails{Ocpus: f32(2), MemoryInGBs: f32(8)},
-		Containers:         []ci.CreateContainerDetails{{ImageUrl: common.String("docker.io/library/alpine:3.21")}},
-		Vnics:              []ci.CreateContainerVnicDetails{{SubnetId: common.String(testSubnet)}},
+		CompartmentId:      new(testCompartment),
+		AvailabilityDomain: new(testAD),
+		Shape:              new("CI.Standard.E4.Flex"),
+		DisplayName:        new("web"),
+		ShapeConfig: &ci.CreateContainerInstanceShapeConfigDetails{
+			Ocpus:       new(float32(2)),
+			MemoryInGBs: new(float32(8)),
+		},
+		Containers: []ci.CreateContainerDetails{{ImageUrl: new("docker.io/library/alpine:3.21")}},
+		Vnics:      []ci.CreateContainerVnicDetails{{SubnetId: new(testSubnet)}},
 	}
 }
 
@@ -203,7 +204,7 @@ func (e *env) create(t *testing.T, o createOpts) (ci.CreateContainerInstanceResp
 
 	req := ci.CreateContainerInstanceRequest{CreateContainerInstanceDetails: d}
 	if o.token != "" {
-		req.OpcRetryToken = common.String(o.token)
+		req.OpcRetryToken = new(o.token)
 	}
 
 	return e.client.CreateContainerInstance(t.Context(), req)

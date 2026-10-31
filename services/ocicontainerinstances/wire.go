@@ -28,17 +28,17 @@ type (
 		SecretID   string `json:"secretId"`
 	}
 	createCheckIn struct {
-		Name          string         `json:"name"`
-		Type          string         `json:"healthCheckType"`
-		Path          string         `json:"path"`
-		FailureAction string         `json:"failureAction"`
-		Headers       []HealthHeader `json:"headers"`
 		Port          *int           `json:"port"`
 		InitialDelay  *int           `json:"initialDelayInSeconds"`
 		Interval      *int           `json:"intervalInSeconds"`
 		FailureThresh *int           `json:"failureThreshold"`
 		SuccessThresh *int           `json:"successThreshold"`
 		Timeout       *int           `json:"timeoutInSeconds"`
+		Name          string         `json:"name"`
+		Type          string         `json:"healthCheckType"`
+		Path          string         `json:"path"`
+		FailureAction string         `json:"failureAction"`
+		Headers       []HealthHeader `json:"headers"`
 	}
 	createContainerIn struct {
 		ResourceConfig *ResourceConfig   `json:"resourceConfig"`
@@ -101,14 +101,12 @@ type shapeConfigWire struct {
 
 type instanceSummaryWire struct {
 	TimeCreated time.Time         `json:"timeCreated"`
+	Defined     map[string]any    `json:"definedTags,omitempty"`
 	TimeUpdated *time.Time        `json:"timeUpdated,omitempty"`
-	ShapeConfig shapeConfigWire   `json:"shapeConfig"`
 	Graceful    *int64            `json:"gracefulShutdownTimeoutInSeconds,omitempty"`
 	Freeform    map[string]string `json:"freeformTags,omitempty"`
-	Defined     map[string]any    `json:"definedTags,omitempty"`
-	Security    json.RawMessage   `json:"securityContext,omitempty"`
-	ID          string            `json:"id"`
 	DisplayName string            `json:"displayName"`
+	ID          string            `json:"id"`
 	Compartment string            `json:"compartmentId"`
 	AD          string            `json:"availabilityDomain"`
 	FaultDomain string            `json:"faultDomain,omitempty"`
@@ -116,6 +114,8 @@ type instanceSummaryWire struct {
 	Details     string            `json:"lifecycleDetails,omitempty"`
 	Shape       string            `json:"shape"`
 	Restart     string            `json:"containerRestartPolicy"`
+	Security    json.RawMessage   `json:"securityContext,omitempty"`
+	ShapeConfig shapeConfigWire   `json:"shapeConfig"`
 	Count       int               `json:"containerCount"`
 	VolumeCount int               `json:"volumeCount"`
 }
@@ -209,16 +209,16 @@ type containerSummaryWire struct {
 	Resource    *ResourceConfig   `json:"resourceConfig,omitempty"`
 	Freeform    map[string]string `json:"freeformTags,omitempty"`
 	Defined     map[string]any    `json:"definedTags,omitempty"`
-	Security    json.RawMessage   `json:"securityContext,omitempty"`
+	Compartment string            `json:"compartmentId"`
 	ID          string            `json:"id"`
 	DisplayName string            `json:"displayName"`
-	Compartment string            `json:"compartmentId"`
 	AD          string            `json:"availabilityDomain"`
 	FaultDomain string            `json:"faultDomain,omitempty"`
 	State       string            `json:"lifecycleState"`
 	Details     string            `json:"lifecycleDetails,omitempty"`
 	InstanceID  string            `json:"containerInstanceId"`
 	ImageURL    string            `json:"imageUrl"`
+	Security    json.RawMessage   `json:"securityContext,omitempty"`
 	NoResource  bool              `json:"isResourcePrincipalDisabled"`
 }
 
@@ -231,8 +231,8 @@ type containerWire struct {
 	Arguments      []string          `json:"arguments,omitempty"`
 	VolumeMounts   []VolumeMount     `json:"volumeMounts,omitempty"`
 	HealthChecks   []checkWire       `json:"healthChecks,omitempty"`
-	RestartCount   int               `json:"containerRestartAttemptCount"`
 	containerSummaryWire
+	RestartCount int `json:"containerRestartAttemptCount"`
 }
 
 func containerSummaryOf(i *Instance, c *Container) containerSummaryWire {

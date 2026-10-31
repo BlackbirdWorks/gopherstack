@@ -39,7 +39,7 @@ func (h *Handler) createInstance(q *req) error {
 		return err
 	}
 
-	view, wr, etag, err := h.Backend.CreateInstance(in, q.r.Header.Get("opc-retry-token"))
+	view, wr, etag, err := h.Backend.CreateInstance(in, q.r.Header.Get("Opc-Retry-Token"))
 	if err != nil {
 		return err
 	}

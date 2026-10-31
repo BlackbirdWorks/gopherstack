@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,12 @@ const (
 	httpOKMax       = 399
 )
 
+var (
+	errEngineDisabled = errors.New("the container engine is disabled")
+	errNoPreviousRun  = errors.New("the container has not been restarted, so there is no previous run")
+	errStartTimeout   = errors.New("containers did not start in time")
+)
+
 var errNoLogsYet = errors.New("the container has no logs: it never started, or its instance was deleted")
 
 // Sink is the backend side the engine reports container state to.
@@ -54,17 +61,17 @@ func realTimer(d time.Duration) (<-chan time.Time, func()) {
 }
 
 type run struct {
-	ctx       context.Context //nolint:containedctx // lifetime of the instance's containers
-	cancel    context.CancelFunc
+	ctx       context.Context
 	rt        Runtime
+	cancel    context.CancelFunc
 	scratch   *scratch
 	hostPorts map[string]int
 	docker    map[string]string
 	prev      map[string]string
 	killed    map[string]bool
+	inst      *Instance
 	creds     []Credential
 	wg        sync.WaitGroup
-	inst      *Instance
 }
 
 // Engine runs container instances in the container runtime.
@@ -159,7 +166,7 @@ func (e *Engine) start(inst *Instance, credsFn func([]PullSecret) ([]Credential,
 	e.mu.RUnlock()
 
 	if source == nil {
-		return errors.New("the container engine is disabled")
+		return errEngineDisabled
 	}
 
 	rt, err := source()
@@ -199,7 +206,7 @@ func (e *Engine) start(inst *Instance, credsFn func([]PullSecret) ([]Credential,
 		select {
 		case err = <-results:
 		case <-timeout:
-			err = fmt.Errorf("containers did not start within %s", e.startup)
+			err = fmt.Errorf("%w (%s)", errStartTimeout, e.startup)
 		case <-r.ctx.Done():
 			return r.ctx.Err()
 		}
@@ -509,7 +516,8 @@ func (e *Engine) removeContainer(r *run, c *Container, id string) {
 	e.mu.Unlock()
 
 	if err := r.rt.Remove(ctx, id); err != nil {
-		logger.Load(ctx).WarnContext(ctx, "ocicontainerinstances: container removal failed", "container", id, "error", err)
+		logger.Load(ctx).
+			WarnContext(ctx, "ocicontainerinstances: container removal failed", "container", id, "error", err)
 	}
 }
 
@@ -540,9 +548,7 @@ func (e *Engine) halt(instID string) {
 
 	e.mu.Lock("halt")
 	ids := make(map[string]string, len(r.docker))
-	for k, v := range r.docker {
-		ids[k] = v
-	}
+	maps.Copy(ids, r.docker)
 	e.mu.Unlock()
 
 	for ctr, id := range ids {
@@ -626,7 +632,7 @@ func (e *Engine) Logs(instID, ctrID string, previous bool) (string, error) {
 	case previous && ok:
 		return prev, nil
 	case previous:
-		return "", errors.New("the container has not been restarted, so there is no previous run")
+		return "", errNoPreviousRun
 	case id != "" && rt != nil:
 		ctx, cancel := context.WithTimeout(e.ctx, teardownTimeout)
 		defer cancel()

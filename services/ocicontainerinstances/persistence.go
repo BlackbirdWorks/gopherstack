@@ -41,8 +41,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	if snap.Version != snapshotVersion {
-		logger.Load(ctx).WarnContext(ctx, "ocicontainerinstances: discarding incompatible snapshot version, starting empty",
-			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
+		logger.Load(ctx).
+			WarnContext(ctx, "ocicontainerinstances: discarding incompatible snapshot version, starting empty",
+				"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 		b.Reset()
 
 		return nil
