@@ -42,7 +42,7 @@ func (p *AuthorizationProvider) builtinRoleBody(scope string, b *builtinRole) ma
 		fieldType: namespaceMicrosoftAuthorization + "/" + authRoleDefinitions,
 		fieldProperties: map[string]any{
 			authFieldRoleName: b.RoleName, fieldType: authTypeBuiltIn, authFieldDescription: b.Description,
-			"assignableScopes": []string{"/"}, "permissions": b.permissions(),
+			"assignableScopes": []string{"/"}, authFieldPermissions: b.permissions(),
 		},
 	}
 }
@@ -53,7 +53,9 @@ func (p *AuthorizationProvider) customRoleBody(d *storedRoleDef) map[string]any 
 		fieldType: namespaceMicrosoftAuthorization + "/" + authRoleDefinitions,
 		fieldProperties: map[string]any{
 			authFieldRoleName: d.RoleName, fieldType: authTypeCustom, authFieldDescription: d.Description,
-			"assignableScopes": nonNilStrings(d.AssignableScopes), "permissions": nonNilPermissions(d.Permissions),
+			"assignableScopes": nonNilStrings(
+				d.AssignableScopes,
+			), authFieldPermissions: nonNilPermissions(d.Permissions),
 			authFieldCreatedOn: authStamp(d.CreatedOn), authFieldUpdatedOn: authStamp(d.UpdatedOn),
 		},
 	}
@@ -273,7 +275,7 @@ func parseRoleDefinitionBody(body map[string]any) (roleDefSpec, error) {
 
 	spec.AssignableScopes = scopes
 
-	rawPerms, _ := props["permissions"].([]any)
+	rawPerms, _ := props[authFieldPermissions].([]any)
 	if len(rawPerms) == 0 {
 		return spec, authBad("The property 'properties.permissions' must contain at least one permission block.")
 	}
@@ -324,8 +326,10 @@ func parsePermission(m map[string]any, idx int) (authPermission, error) {
 		dst  *[]string
 		name string
 	}{
-		{&out.Actions, "actions"}, {&out.NotActions, "notActions"},
-		{&out.DataActions, "dataActions"}, {&out.NotDataActions, "notDataActions"},
+		{&out.Actions, "actions"},
+		{&out.NotActions, "notActions"},
+		{&out.DataActions, "dataActions"},
+		{&out.NotDataActions, "notDataActions"},
 	} {
 		list, err := stringList(m[f.name], "properties.permissions["+strconv.Itoa(idx)+"]."+f.name)
 		if err != nil {

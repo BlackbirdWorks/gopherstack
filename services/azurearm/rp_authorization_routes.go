@@ -86,7 +86,7 @@ func parseAuthPath(segs []string) (authPath, bool) {
 
 // parseAuthScope classifies scope segments; ok is false for a shape that is no ARM scope.
 func parseAuthScope(segs []string) (authScope, bool) {
-	out := authScope{id: ""}
+	out := authScope{}
 	if len(segs) > 0 {
 		out.id = "/" + joinSegs(segs)
 	}
@@ -94,8 +94,7 @@ func parseAuthScope(segs []string) (authScope, bool) {
 	switch {
 	case len(segs) == 0:
 		return out, true
-	case len(segs) == authMgmtGroupSegs && strings.EqualFold(segs[0], providersSegment) &&
-		strings.EqualFold(segs[1], "Microsoft.Management") && strings.EqualFold(segs[2], "managementGroups"):
+	case isManagementGroupScope(segs):
 		out.kind = authScopeManagementGroup
 
 		return out, true
@@ -105,22 +104,32 @@ func parseAuthScope(segs []string) (authScope, bool) {
 
 	out.sub = segs[1]
 
+	kind, rg, ok := classifySubscriptionScope(segs)
+	out.kind, out.rg = kind, rg
+
+	return out, ok
+}
+
+func isManagementGroupScope(segs []string) bool {
+	return len(segs) == authMgmtGroupSegs && strings.EqualFold(segs[0], providersSegment) &&
+		strings.EqualFold(segs[1], "Microsoft.Management") && strings.EqualFold(segs[2], "managementGroups")
+}
+
+func classifySubscriptionScope(segs []string) (authScopeKind, string, bool) {
 	switch {
 	case len(segs) == minResourceSegs:
-		out.kind = authScopeSubscription
+		return authScopeSubscription, "", true
 	case len(segs) == rgPathSegs && strings.EqualFold(segs[2], resourceGroupsSegment):
-		out.kind, out.rg = authScopeResourceGroup, segs[3]
+		return authScopeResourceGroup, segs[3], true
 	case len(segs) >= authSubResourceMin && strings.EqualFold(segs[2], providersSegment) &&
 		(len(segs)-rgPathSegs)%typeNamePairWidth == 0:
-		out.kind = authScopeResource
+		return authScopeResource, "", true
 	case len(segs) >= authRGResourceMin && strings.EqualFold(segs[2], resourceGroupsSegment) &&
 		strings.EqualFold(segs[4], providersSegment) && (len(segs)-authSubResourceMin)%typeNamePairWidth == 0:
-		out.kind, out.rg = authScopeResource, segs[3]
-	default:
-		return out, false
+		return authScopeResource, segs[3], true
 	}
 
-	return out, true
+	return authScopeSubscription, "", false
 }
 
 //nolint:gochecknoglobals // static route table, read-only after init
@@ -239,7 +248,7 @@ func (h *Handler) enforceLocks(c *echo.Context, segs []string) (bool, error) {
 	case http.MethodDelete:
 		verb = "delete"
 	case http.MethodPost:
-		verb = "action"
+		verb = authVerbAction
 		if len(segs) <= rgPathSegs || !strings.EqualFold(segs[2], resourceGroupsSegment) {
 			return false, nil
 		}

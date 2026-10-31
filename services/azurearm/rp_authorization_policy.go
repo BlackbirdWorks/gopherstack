@@ -492,7 +492,8 @@ func (p *AuthorizationProvider) putPolicyAssignment(req authReq) (authResp, erro
 		return authResp{}, authBad("The property 'properties.policyDefinitionId' is required.")
 	}
 
-	if mode := strOf(props, "enforcementMode"); mode != "" && mode != policyEnforceDefault && mode != policyEnforceNone {
+	if mode := strOf(props, "enforcementMode"); mode != "" && mode != policyEnforceDefault &&
+		mode != policyEnforceNone {
 		return authResp{}, authBad("The enforcementMode '%s' is invalid. Allowed values are Default and DoNotEnforce.",
 			mode)
 	}

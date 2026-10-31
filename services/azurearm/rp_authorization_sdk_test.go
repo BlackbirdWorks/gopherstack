@@ -91,9 +91,14 @@ func newAuthStack(t *testing.T) *authStack {
 	require.NoError(t, err)
 
 	s := &authStack{
-		handler: h, hc: srv.Client(), url: srv.URL, roles: af.NewRoleDefinitionsClient(),
-		assigns: af.NewRoleAssignmentsClient(), locks: lf.NewManagementLocksClient(), defs: pf.NewDefinitionsClient(),
-		sets: pf.NewSetDefinitionsClient(), pAssign: pf.NewAssignmentsClient(), msi: mf.NewUserAssignedIdentitiesClient(),
+		handler: h, hc: srv.Client(), url: srv.URL,
+		roles:   af.NewRoleDefinitionsClient(),
+		assigns: af.NewRoleAssignmentsClient(),
+		locks:   lf.NewManagementLocksClient(),
+		defs:    pf.NewDefinitionsClient(),
+		sets:    pf.NewSetDefinitionsClient(),
+		pAssign: pf.NewAssignmentsClient(),
+		msi:     mf.NewUserAssignedIdentitiesClient(),
 	}
 
 	status, _ := s.raw(t, http.MethodPut, "/subscriptions/"+aciSub+"/resourcegroups/"+authRG, `{"location":"westus"}`)
@@ -144,13 +149,21 @@ func roleID(guid string) string {
 	return authSubScope + "/providers/Microsoft.Authorization/roleDefinitions/" + guid
 }
 
-func assignParams(role, principal string, ptype *armauthorization.PrincipalType) armauthorization.RoleAssignmentCreateParameters {
+func assignParams(
+	role, principal string,
+	ptype *armauthorization.PrincipalType,
+) armauthorization.RoleAssignmentCreateParameters {
 	return armauthorization.RoleAssignmentCreateParameters{Properties: &armauthorization.RoleAssignmentProperties{
 		RoleDefinitionID: new(roleID(role)), PrincipalID: new(principal), PrincipalType: ptype,
 	}}
 }
 
-func listRoles(t *testing.T, c *armauthorization.RoleDefinitionsClient, scope string, filter *string) []*armauthorization.RoleDefinition {
+func listRoles(
+	t *testing.T,
+	c *armauthorization.RoleDefinitionsClient,
+	scope string,
+	filter *string,
+) []*armauthorization.RoleDefinition {
 	t.Helper()
 
 	var out []*armauthorization.RoleDefinition
@@ -263,14 +276,49 @@ func TestAuthorizationSDK_CustomRoleDefinitions(t *testing.T) {
 		wantCode string
 	}{
 		{name: "ok", guid: guidA, role: customRole("Storage Reader X", []string{authSubScope}, read)},
-		{name: "bad guid", guid: "not-a-guid", role: customRole("Y", []string{authSubScope}, read), wantCode: "InvalidRequestContent"},
-		{name: "no name", guid: guidB, role: customRole("", []string{authSubScope}, read), wantCode: "InvalidRequestContent"},
+		{
+			name:     "bad guid",
+			guid:     "not-a-guid",
+			role:     customRole("Y", []string{authSubScope}, read),
+			wantCode: "InvalidRequestContent",
+		},
+		{
+			name:     "no name",
+			guid:     guidB,
+			role:     customRole("", []string{authSubScope}, read),
+			wantCode: "InvalidRequestContent",
+		},
 		{name: "no scopes", guid: guidB, role: customRole("Z", nil, read), wantCode: "InvalidRequestContent"},
-		{name: "bad scope", guid: guidB, role: customRole("Z", []string{"/nonsense"}, read), wantCode: "InvalidRequestContent"},
-		{name: "root scope", guid: guidB, role: customRole("Z", []string{"/"}, read), wantCode: "InvalidRequestContent"},
-		{name: "builtin name", guid: guidB, role: customRole("Reader", []string{authSubScope}, read), wantCode: "RoleDefinitionWithSameNameExists"},
-		{name: "dup name", guid: guidB, role: customRole("storage reader x", []string{authSubScope}, read), wantCode: "RoleDefinitionWithSameNameExists"},
-		{name: "builtin guid", guid: roleOwner, role: customRole("Q", []string{authSubScope}, read), wantCode: "InvalidRequestContent"},
+		{
+			name:     "bad scope",
+			guid:     guidB,
+			role:     customRole("Z", []string{"/nonsense"}, read),
+			wantCode: "InvalidRequestContent",
+		},
+		{
+			name:     "root scope",
+			guid:     guidB,
+			role:     customRole("Z", []string{"/"}, read),
+			wantCode: "InvalidRequestContent",
+		},
+		{
+			name:     "builtin name",
+			guid:     guidB,
+			role:     customRole("Reader", []string{authSubScope}, read),
+			wantCode: "RoleDefinitionWithSameNameExists",
+		},
+		{
+			name:     "dup name",
+			guid:     guidB,
+			role:     customRole("storage reader x", []string{authSubScope}, read),
+			wantCode: "RoleDefinitionWithSameNameExists",
+		},
+		{
+			name:     "builtin guid",
+			guid:     roleOwner,
+			role:     customRole("Q", []string{authSubScope}, read),
+			wantCode: "InvalidRequestContent",
+		},
 		{
 			name: "mgmt group data actions", guid: guidB, wantCode: "InvalidRequestContent",
 			role: customRole("MG", []string{"/providers/Microsoft.Management/managementGroups/mg1"},
@@ -348,25 +396,79 @@ func TestAuthorizationSDK_RoleAssignments(t *testing.T) {
 		{name: "subscription", scope: authSubScope, guid: guidA, params: assignParams(roleReader, guidD, &user)},
 		{name: "resource group", scope: authRGScope, guid: guidB, params: assignParams(roleContrib, guidD, nil)},
 		{name: "resource", scope: authAcctScope, guid: guidC, params: assignParams(roleBlobOwner, guidD, nil)},
-		{name: "duplicate triple", scope: authRGScope, guid: "55555555-5555-5555-5555-555555555555", params: assignParams(roleContrib, guidD, nil), wantCode: "RoleAssignmentExists"},
-		{name: "name used elsewhere", scope: authRGScope, guid: guidA, params: assignParams(roleOwner, guidD, nil), wantCode: "RoleAssignmentExists"},
-		{name: "changed principal", scope: authRGScope, guid: guidB, params: assignParams(roleContrib, guidC, nil), wantCode: "RoleAssignmentUpdateNotPermitted"},
-		{name: "changed role", scope: authRGScope, guid: guidB, params: assignParams(roleOwner, guidD, nil), wantCode: "RoleAssignmentUpdateNotPermitted"},
-		{name: "bad name", scope: authRGScope, guid: "nope", params: assignParams(roleOwner, guidD, nil), wantCode: "InvalidRoleAssignmentId"},
-		{name: "unknown role", scope: authRGScope, guid: "66666666-6666-6666-6666-666666666666", params: assignParams(guidB, guidD, nil), wantCode: "RoleDefinitionDoesNotExist"},
-		{name: "bad principal", scope: authRGScope, guid: "77777777-7777-7777-7777-777777777777", params: assignParams(roleOwner, "x", nil), wantCode: "PrincipalNotFound"},
 		{
-			name: "no role", scope: authRGScope, guid: "88888888-8888-8888-8888-888888888888", wantCode: "InvalidRequestContent",
-			params: armauthorization.RoleAssignmentCreateParameters{Properties: &armauthorization.RoleAssignmentProperties{PrincipalID: new(guidD)}},
+			name:     "duplicate triple",
+			scope:    authRGScope,
+			guid:     "55555555-5555-5555-5555-555555555555",
+			params:   assignParams(roleContrib, guidD, nil),
+			wantCode: "RoleAssignmentExists",
 		},
 		{
-			name: "bad principal type", scope: authRGScope, guid: "99999999-9999-9999-9999-999999999999", wantCode: "InvalidRequestContent",
+			name:     "name used elsewhere",
+			scope:    authRGScope,
+			guid:     guidA,
+			params:   assignParams(roleOwner, guidD, nil),
+			wantCode: "RoleAssignmentExists",
+		},
+		{
+			name:     "changed principal",
+			scope:    authRGScope,
+			guid:     guidB,
+			params:   assignParams(roleContrib, guidC, nil),
+			wantCode: "RoleAssignmentUpdateNotPermitted",
+		},
+		{
+			name:     "changed role",
+			scope:    authRGScope,
+			guid:     guidB,
+			params:   assignParams(roleOwner, guidD, nil),
+			wantCode: "RoleAssignmentUpdateNotPermitted",
+		},
+		{
+			name:     "bad name",
+			scope:    authRGScope,
+			guid:     "nope",
+			params:   assignParams(roleOwner, guidD, nil),
+			wantCode: "InvalidRoleAssignmentId",
+		},
+		{
+			name:     "unknown role",
+			scope:    authRGScope,
+			guid:     "66666666-6666-6666-6666-666666666666",
+			params:   assignParams(guidB, guidD, nil),
+			wantCode: "RoleDefinitionDoesNotExist",
+		},
+		{
+			name:     "bad principal",
+			scope:    authRGScope,
+			guid:     "77777777-7777-7777-7777-777777777777",
+			params:   assignParams(roleOwner, "x", nil),
+			wantCode: "PrincipalNotFound",
+		},
+		{
+			name: "no role", scope: authRGScope, wantCode: "InvalidRequestContent",
+			guid: "88888888-8888-8888-8888-888888888888",
+			params: armauthorization.RoleAssignmentCreateParameters{
+				Properties: &armauthorization.RoleAssignmentProperties{PrincipalID: new(guidD)},
+			},
+		},
+		{
+			name: "bad principal type", scope: authRGScope, wantCode: "InvalidRequestContent",
+			guid:   "99999999-9999-9999-9999-999999999999",
 			params: assignParams(roleOwner, guidD, new(armauthorization.PrincipalType("Robot"))),
 		},
-		{name: "missing rg", scope: authSubScope + "/resourceGroups/ghost", guid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", params: assignParams(roleOwner, guidD, nil), wantCode: "ResourceGroupNotFound"},
+		{
+			name:     "missing rg",
+			scope:    authSubScope + "/resourceGroups/ghost",
+			guid:     "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			params:   assignParams(roleOwner, guidD, nil),
+			wantCode: "ResourceGroupNotFound",
+		},
 		{
 			name: "missing resource", scope: authRGScope + "/providers/Microsoft.Storage/storageAccounts/ghost",
-			guid: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", params: assignParams(roleOwner, guidD, nil), wantCode: "ResourceNotFound",
+			guid:     "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+			params:   assignParams(roleOwner, guidD, nil),
+			wantCode: "ResourceNotFound",
 		},
 	}
 
@@ -386,8 +488,14 @@ func TestAuthorizationSDK_RoleAssignments(t *testing.T) {
 		assert.NotNil(t, got.Properties.CreatedOn, tt.name)
 	}
 
-	status, _ := s.raw(t, http.MethodPut, authRGScope+"/providers/Microsoft.Authorization/roleAssignments/"+guidB+"?api-version=2022-04-01",
-		`{"properties":{"roleDefinitionId":"`+roleID(roleContrib)+`","principalId":"`+guidD+`","description":"updated"}}`)
+	status, _ := s.raw(
+		t,
+		http.MethodPut,
+		authRGScope+"/providers/Microsoft.Authorization/roleAssignments/"+guidB+"?api-version=2022-04-01",
+		`{"properties":{"roleDefinitionId":"`+roleID(
+			roleContrib,
+		)+`","principalId":"`+guidD+`","description":"updated"}}`,
+	)
 	assert.Equal(t, http.StatusOK, status, "re-PUT of the same assignment updates it")
 
 	got, err := s.assigns.Get(ctx, authRGScope, guidB, nil)
@@ -415,15 +523,19 @@ func TestAuthorizationSDK_RoleAssignments(t *testing.T) {
 	}
 
 	assert.ElementsMatch(t, []string{guidB, guidC}, ids(nil, authRGScope), "default: at and below")
-	assert.ElementsMatch(t, []string{guidA, guidB}, ids(&armauthorization.RoleAssignmentsClientListForScopeOptions{Filter: new("atScope()")}, authRGScope))
+	assert.ElementsMatch(
+		t,
+		[]string{guidA, guidB},
+		ids(&armauthorization.RoleAssignmentsClientListForScopeOptions{Filter: new("atScope()")}, authRGScope),
+	)
 	// The SDK sends $filter unencoded (spaces included), which a Go server rejects; query the wire directly.
 	rawNames := func(principal string) []string {
 		_, body := s.raw(t, http.MethodGet, authRGScope+"/providers/Microsoft.Authorization/roleAssignments?"+
 			"api-version=2022-04-01&$filter=principalId%20eq%20%27"+principal+"%27", "")
 
-		var out []string
-
 		vals, _ := body["value"].([]any)
+		out := make([]string, 0, len(vals))
+
 		for _, v := range vals {
 			out = append(out, v.(map[string]any)["name"].(string)) //nolint:forcetypeassert // test shape
 		}
@@ -433,7 +545,14 @@ func TestAuthorizationSDK_RoleAssignments(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{guidA, guidB, guidC}, rawNames(guidD))
 	assert.Empty(t, rawNames(guidC))
-	assert.ElementsMatch(t, []string{guidA, guidB}, ids(&armauthorization.RoleAssignmentsClientListForScopeOptions{Filter: new("assignedTo('" + guidD + "')")}, authRGScope))
+	assert.ElementsMatch(
+		t,
+		[]string{guidA, guidB},
+		ids(
+			&armauthorization.RoleAssignmentsClientListForScopeOptions{Filter: new("assignedTo('" + guidD + "')")},
+			authRGScope,
+		),
+	)
 	assert.ElementsMatch(t, []string{guidA, guidB, guidC}, ids(nil, authSubScope))
 
 	var rgCount int
@@ -472,7 +591,13 @@ func TestAuthorizationSDK_PrincipalTypeFromManagedIdentity(t *testing.T) {
 	id, err := s.msi.CreateOrUpdate(ctx, authRG, "id-app", armmsi.Identity{Location: new("westus")}, nil)
 	require.NoError(t, err)
 
-	got, err := s.assigns.Create(ctx, authRGScope, guidA, assignParams(roleReader, *id.Properties.PrincipalID, nil), nil)
+	got, err := s.assigns.Create(
+		ctx,
+		authRGScope,
+		guidA,
+		assignParams(roleReader, *id.Properties.PrincipalID, nil),
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, armauthorization.PrincipalTypeServicePrincipal, *got.Properties.PrincipalType)
 
@@ -489,7 +614,9 @@ func TestAuthorizationSDK_Locks(t *testing.T) {
 	s.putAccount(t)
 
 	lock := func(level armlocks.LockLevel) armlocks.ManagementLockObject {
-		return armlocks.ManagementLockObject{Properties: &armlocks.ManagementLockProperties{Level: &level, Notes: new("n")}}
+		return armlocks.ManagementLockObject{
+			Properties: &armlocks.ManagementLockProperties{Level: &level, Notes: new("n")},
+		}
 	}
 
 	tests := []struct {
@@ -503,9 +630,27 @@ func TestAuthorizationSDK_Locks(t *testing.T) {
 		{name: "resource group", scope: authRGScope, lname: "rglock", obj: lock(armlocks.LockLevelReadOnly)},
 		{name: "resource", scope: authAcctScope, lname: "acctlock", obj: lock(armlocks.LockLevelCanNotDelete)},
 		{name: "bad level", scope: authRGScope, lname: "bad", obj: lock("Other"), wantCode: "InvalidRequestContent"},
-		{name: "bad name", scope: authRGScope, lname: "a+b", obj: lock(armlocks.LockLevelReadOnly), wantCode: "InvalidLockName"},
-		{name: "missing rg", scope: authSubScope + "/resourceGroups/ghost", lname: "x", obj: lock(armlocks.LockLevelReadOnly), wantCode: "ResourceGroupNotFound"},
-		{name: "missing resource", scope: authRGScope + "/providers/Microsoft.Storage/storageAccounts/ghost", lname: "x", obj: lock(armlocks.LockLevelReadOnly), wantCode: "ResourceNotFound"},
+		{
+			name:     "bad name",
+			scope:    authRGScope,
+			lname:    "a+b",
+			obj:      lock(armlocks.LockLevelReadOnly),
+			wantCode: "InvalidLockName",
+		},
+		{
+			name:     "missing rg",
+			scope:    authSubScope + "/resourceGroups/ghost",
+			lname:    "x",
+			obj:      lock(armlocks.LockLevelReadOnly),
+			wantCode: "ResourceGroupNotFound",
+		},
+		{
+			name:     "missing resource",
+			scope:    authRGScope + "/providers/Microsoft.Storage/storageAccounts/ghost",
+			lname:    "x",
+			obj:      lock(armlocks.LockLevelReadOnly),
+			wantCode: "ResourceNotFound",
+		},
 	}
 
 	for _, tt := range tests {
@@ -529,17 +674,34 @@ func TestAuthorizationSDK_Locks(t *testing.T) {
 	_, err = s.locks.GetByScope(ctx, authRGScope, "ghost", nil)
 	assert.Equal(t, "LockNotFound", sdkErrCode(err))
 
-	_, err = s.locks.CreateOrUpdateAtResourceGroupLevel(ctx, authRG, "rglock", lock(armlocks.LockLevelCanNotDelete), nil)
+	_, err = s.locks.CreateOrUpdateAtResourceGroupLevel(
+		ctx,
+		authRG,
+		"rglock",
+		lock(armlocks.LockLevelCanNotDelete),
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = s.locks.CreateOrUpdateAtResourceLevel(ctx, authRG, "Microsoft.Storage", "", "storageAccounts", "acctauth", "rl2",
-		lock(armlocks.LockLevelCanNotDelete), nil)
+	_, err = s.locks.CreateOrUpdateAtResourceLevel(
+		ctx,
+		authRG,
+		"Microsoft.Storage",
+		"",
+		"storageAccounts",
+		"acctauth",
+		"rl2",
+		lock(armlocks.LockLevelCanNotDelete),
+		nil,
+	)
 	require.NoError(t, err)
 
 	names := func(scope string, filter *string) []string {
 		var out []string
 
-		for pg := s.locks.NewListByScopePager(scope, &armlocks.ManagementLocksClientListByScopeOptions{Filter: filter}); pg.More(); {
+		opts := &armlocks.ManagementLocksClientListByScopeOptions{Filter: filter}
+
+		for pg := s.locks.NewListByScopePager(scope, opts); pg.More(); {
 			page, perr := pg.NextPage(ctx)
 			require.NoError(t, perr)
 
@@ -587,25 +749,156 @@ func TestAuthorizationSDK_LockEnforcement(t *testing.T) {
 		method     string
 		path       string
 		body       string
-		wantStatus int
 		wantVerb   string
+		wantStatus int
 	}{
-		{name: "delete rg cannotdelete", lockScope: authRGScope, level: "CanNotDelete", method: http.MethodDelete, path: rgPath, wantStatus: http.StatusConflict, wantVerb: "delete"},
-		{name: "delete rg readonly", lockScope: authRGScope, level: "ReadOnly", method: http.MethodDelete, path: rgPath, wantStatus: http.StatusConflict, wantVerb: "delete"},
-		{name: "delete rg with locked resource", lockScope: authAcctScope, level: "CanNotDelete", method: http.MethodDelete, path: rgPath, wantStatus: http.StatusConflict, wantVerb: "delete"},
-		{name: "delete rg with sub lock", lockScope: authSubScope, level: "CanNotDelete", method: http.MethodDelete, path: rgPath, wantStatus: http.StatusConflict, wantVerb: "delete"},
-		{name: "delete account cannotdelete", lockScope: authAcctScope, level: "CanNotDelete", method: http.MethodDelete, path: acctPath, wantStatus: http.StatusConflict, wantVerb: "delete"},
-		{name: "delete account via rg lock", lockScope: authRGScope, level: "CanNotDelete", method: http.MethodDelete, path: acctPath, wantStatus: http.StatusConflict, wantVerb: "delete"},
-		{name: "update account cannotdelete ok", lockScope: authAcctScope, level: "CanNotDelete", method: http.MethodPut, path: acctPath, body: storageBody, wantStatus: http.StatusOK},
-		{name: "update account readonly", lockScope: authAcctScope, level: "ReadOnly", method: http.MethodPut, path: acctPath, body: storageBody, wantStatus: http.StatusConflict, wantVerb: "write"},
-		{name: "patch account readonly", lockScope: authAcctScope, level: "ReadOnly", method: http.MethodPatch, path: acctPath, body: `{"tags":{"a":"b"}}`, wantStatus: http.StatusConflict, wantVerb: "write"},
-		{name: "list keys readonly", lockScope: authAcctScope, level: "ReadOnly", method: http.MethodPost, path: authAcctScope + "/listKeys?api-version=2023-01-01", wantStatus: http.StatusConflict, wantVerb: "action"},
-		{name: "create in readonly rg", lockScope: authRGScope, level: "ReadOnly", method: http.MethodPut, path: otherPath, body: storageBody, wantStatus: http.StatusConflict, wantVerb: "write"},
-		{name: "create in cannotdelete rg", lockScope: authRGScope, level: "CanNotDelete", method: http.MethodPut, path: otherPath, body: storageBody, wantStatus: http.StatusOK},
-		{name: "update locked rg readonly", lockScope: authRGScope, level: "ReadOnly", method: http.MethodPut, path: rgPath, body: `{"location":"westus"}`, wantStatus: http.StatusConflict, wantVerb: "write"},
-		{name: "readonly child does not block parent write", lockScope: authAcctScope, level: "ReadOnly", method: http.MethodPut, path: rgPath, body: `{"location":"westus"}`, wantStatus: http.StatusOK},
-		{name: "get under readonly", lockScope: authRGScope, level: "ReadOnly", method: http.MethodGet, path: acctPath, wantStatus: http.StatusOK},
-		{name: "sibling unaffected", lockScope: authAcctScope, level: "ReadOnly", method: http.MethodPut, path: otherPath, body: storageBody, wantStatus: http.StatusOK},
+		{
+			name:       "delete rg cannotdelete",
+			lockScope:  authRGScope,
+			level:      "CanNotDelete",
+			method:     http.MethodDelete,
+			path:       rgPath,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "delete",
+		},
+		{
+			name:       "delete rg readonly",
+			lockScope:  authRGScope,
+			level:      "ReadOnly",
+			method:     http.MethodDelete,
+			path:       rgPath,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "delete",
+		},
+		{
+			name:       "delete rg with locked resource",
+			lockScope:  authAcctScope,
+			level:      "CanNotDelete",
+			method:     http.MethodDelete,
+			path:       rgPath,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "delete",
+		},
+		{
+			name:       "delete rg with sub lock",
+			lockScope:  authSubScope,
+			level:      "CanNotDelete",
+			method:     http.MethodDelete,
+			path:       rgPath,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "delete",
+		},
+		{
+			name:       "delete account cannotdelete",
+			lockScope:  authAcctScope,
+			level:      "CanNotDelete",
+			method:     http.MethodDelete,
+			path:       acctPath,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "delete",
+		},
+		{
+			name:       "delete account via rg lock",
+			lockScope:  authRGScope,
+			level:      "CanNotDelete",
+			method:     http.MethodDelete,
+			path:       acctPath,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "delete",
+		},
+		{
+			name:       "update account cannotdelete ok",
+			lockScope:  authAcctScope,
+			level:      "CanNotDelete",
+			method:     http.MethodPut,
+			path:       acctPath,
+			body:       storageBody,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update account readonly",
+			lockScope:  authAcctScope,
+			level:      "ReadOnly",
+			method:     http.MethodPut,
+			path:       acctPath,
+			body:       storageBody,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "write",
+		},
+		{
+			name:       "patch account readonly",
+			lockScope:  authAcctScope,
+			level:      "ReadOnly",
+			method:     http.MethodPatch,
+			path:       acctPath,
+			body:       `{"tags":{"a":"b"}}`,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "write",
+		},
+		{
+			name:       "list keys readonly",
+			lockScope:  authAcctScope,
+			level:      "ReadOnly",
+			method:     http.MethodPost,
+			path:       authAcctScope + "/listKeys?api-version=2023-01-01",
+			wantStatus: http.StatusConflict,
+			wantVerb:   "action",
+		},
+		{
+			name:       "create in readonly rg",
+			lockScope:  authRGScope,
+			level:      "ReadOnly",
+			method:     http.MethodPut,
+			path:       otherPath,
+			body:       storageBody,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "write",
+		},
+		{
+			name:       "create in cannotdelete rg",
+			lockScope:  authRGScope,
+			level:      "CanNotDelete",
+			method:     http.MethodPut,
+			path:       otherPath,
+			body:       storageBody,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update locked rg readonly",
+			lockScope:  authRGScope,
+			level:      "ReadOnly",
+			method:     http.MethodPut,
+			path:       rgPath,
+			body:       `{"location":"westus"}`,
+			wantStatus: http.StatusConflict,
+			wantVerb:   "write",
+		},
+		{
+			name:       "readonly child does not block parent write",
+			lockScope:  authAcctScope,
+			level:      "ReadOnly",
+			method:     http.MethodPut,
+			path:       rgPath,
+			body:       `{"location":"westus"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "get under readonly",
+			lockScope:  authRGScope,
+			level:      "ReadOnly",
+			method:     http.MethodGet,
+			path:       acctPath,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "sibling unaffected",
+			lockScope:  authAcctScope,
+			level:      "ReadOnly",
+			method:     http.MethodPut,
+			path:       otherPath,
+			body:       storageBody,
+			wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -629,7 +922,11 @@ func TestAuthorizationSDK_LockEnforcement(t *testing.T) {
 			assert.Equal(t, "ScopeLocked", authErrCode(t, body))
 
 			msg, _ := body["error"].(map[string]any)["message"].(string)
-			assert.Contains(t, msg, "cannot perform "+tt.wantVerb+" operation because following scope(s) are locked: '"+tt.lockScope+"'")
+			assert.Contains(
+				t,
+				msg,
+				"cannot perform "+tt.wantVerb+" operation because following scope(s) are locked: '"+tt.lockScope+"'",
+			)
 			assert.True(t, strings.HasSuffix(msg, "Please remove the lock and try again."))
 
 			status, _ = s.raw(t, http.MethodGet, authRGScope+"?api-version=2021-04-01", "")
@@ -757,7 +1054,9 @@ func TestAuthorizationSDK_PolicyDefinitions(t *testing.T) {
 		},
 		{
 			name: "no effect", pname: "noeffect", wantCode: "InvalidPolicyRule",
-			def: armpolicy.Definition{Properties: &armpolicy.DefinitionProperties{PolicyRule: map[string]any{"if": map[string]any{}}}},
+			def: armpolicy.Definition{
+				Properties: &armpolicy.DefinitionProperties{PolicyRule: map[string]any{"if": map[string]any{}}},
+			},
 		},
 	}
 
@@ -773,13 +1072,13 @@ func TestAuthorizationSDK_PolicyDefinitions(t *testing.T) {
 		require.NoError(t, cerr, tt.name)
 		assert.Equal(t, armpolicy.PolicyTypeCustom, *got.Properties.PolicyType)
 		assert.Equal(t, authSubScope+"/providers/Microsoft.Authorization/policyDefinitions/"+tt.pname, *got.ID)
-		assert.Equal(t, "All", string(*got.Properties.Mode))
+		assert.Equal(t, "All", *got.Properties.Mode)
 	}
 
 	def2 := armpolicy.Definition{Properties: &armpolicy.DefinitionProperties{PolicyRule: rule}}
 	got, err := s.defs.CreateOrUpdate(ctx, "default-mode", def2, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "Indexed", string(*got.Properties.Mode))
+	assert.Equal(t, "Indexed", *got.Properties.Mode)
 
 	read, err := s.defs.Get(ctx, "audit-storage", nil)
 	require.NoError(t, err)
@@ -790,7 +1089,9 @@ func TestAuthorizationSDK_PolicyDefinitions(t *testing.T) {
 
 	customOnly := 0
 
-	for pg := s.defs.NewListPager(&armpolicy.DefinitionsClientListOptions{Filter: new("policyType eq 'Custom'")}); pg.More(); {
+	customFilter := &armpolicy.DefinitionsClientListOptions{Filter: new("policyType eq 'Custom'")}
+
+	for pg := s.defs.NewListPager(customFilter); pg.More(); {
 		page, perr := pg.NextPage(ctx)
 		require.NoError(t, perr)
 
@@ -841,14 +1142,19 @@ func TestAuthorizationSDK_PolicySetsAndAssignments(t *testing.T) {
 
 	setTests := []struct {
 		name     string
-		refs     []*armpolicy.DefinitionReference
 		wantCode string
+		refs     []*armpolicy.DefinitionReference
 	}{
-		{name: "ok", refs: []*armpolicy.DefinitionReference{{PolicyDefinitionID: &defID}, {PolicyDefinitionID: &builtinID}}},
+		{
+			name: "ok",
+			refs: []*armpolicy.DefinitionReference{{PolicyDefinitionID: &defID}, {PolicyDefinitionID: &builtinID}},
+		},
 		{name: "empty", refs: nil, wantCode: "InvalidRequestContent"},
 		{
 			name: "missing ref", wantCode: "PolicyDefinitionNotFound",
-			refs: []*armpolicy.DefinitionReference{{PolicyDefinitionID: new(authSubScope + "/providers/Microsoft.Authorization/policyDefinitions/ghost")}},
+			refs: []*armpolicy.DefinitionReference{
+				{PolicyDefinitionID: new(authSubScope + "/providers/Microsoft.Authorization/policyDefinitions/ghost")},
+			},
 		},
 	}
 
@@ -886,11 +1192,29 @@ func TestAuthorizationSDK_PolicySetsAndAssignments(t *testing.T) {
 		wantCode string
 	}{
 		{name: "custom def at sub", scope: authSubScope, aname: "a1", defID: defID},
-		{name: "builtin at rg", scope: authRGScope, aname: "a2", defID: builtinID, mode: new(armpolicy.EnforcementModeDoNotEnforce)},
+		{
+			name:  "builtin at rg",
+			scope: authRGScope,
+			aname: "a2",
+			defID: builtinID,
+			mode:  new(armpolicy.EnforcementModeDoNotEnforce),
+		},
 		{name: "set at resource", scope: authAcctScope, aname: "a3", defID: setID},
-		{name: "missing def", scope: authSubScope, aname: "a4", defID: authSubScope + "/providers/Microsoft.Authorization/policyDefinitions/ghost", wantCode: "PolicyDefinitionNotFound"},
+		{
+			name:     "missing def",
+			scope:    authSubScope,
+			aname:    "a4",
+			defID:    authSubScope + "/providers/Microsoft.Authorization/policyDefinitions/ghost",
+			wantCode: "PolicyDefinitionNotFound",
+		},
 		{name: "no def", scope: authSubScope, aname: "a5", defID: "", wantCode: "InvalidRequestContent"},
-		{name: "missing rg", scope: authSubScope + "/resourceGroups/ghost", aname: "a6", defID: defID, wantCode: "ResourceGroupNotFound"},
+		{
+			name:     "missing rg",
+			scope:    authSubScope + "/resourceGroups/ghost",
+			aname:    "a6",
+			defID:    defID,
+			wantCode: "ResourceGroupNotFound",
+		},
 	}
 
 	for _, tt := range assignTests {
@@ -939,7 +1263,9 @@ func TestAuthorizationSDK_PolicySetsAndAssignments(t *testing.T) {
 		return names(func() ([]*armpolicy.Assignment, error) {
 			var all []*armpolicy.Assignment
 
-			for pg := s.pAssign.NewListForResourceGroupPager(authRG, &armpolicy.AssignmentsClientListForResourceGroupOptions{Filter: filter}); pg.More(); {
+			opts := &armpolicy.AssignmentsClientListForResourceGroupOptions{Filter: filter}
+
+			for pg := s.pAssign.NewListForResourceGroupPager(authRG, opts); pg.More(); {
 				page, perr := pg.NextPage(ctx)
 				if perr != nil {
 					return nil, perr
@@ -1006,7 +1332,12 @@ func TestAuthorizationSDK_ProviderRegistered(t *testing.T) {
 
 	s := newAuthStack(t)
 
-	status, body := s.raw(t, http.MethodGet, "/subscriptions/"+aciSub+"/providers/Microsoft.Authorization?api-version=2021-04-01", "")
+	status, body := s.raw(
+		t,
+		http.MethodGet,
+		"/subscriptions/"+aciSub+"/providers/Microsoft.Authorization?api-version=2021-04-01",
+		"",
+	)
 	require.Equal(t, http.StatusOK, status)
 
 	types, _ := body["resourceTypes"].([]any)
@@ -1041,8 +1372,16 @@ func TestAuthorizationSDK_PersistenceAndReset(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	rule := map[string]any{"if": map[string]any{"field": "type", "equals": "x"}, "then": map[string]any{"effect": "audit"}}
-	_, err = s.defs.CreateOrUpdate(ctx, "pd", armpolicy.Definition{Properties: &armpolicy.DefinitionProperties{PolicyRule: rule}}, nil)
+	rule := map[string]any{
+		"if":   map[string]any{"field": "type", "equals": "x"},
+		"then": map[string]any{"effect": "audit"},
+	}
+	_, err = s.defs.CreateOrUpdate(
+		ctx,
+		"pd",
+		armpolicy.Definition{Properties: &armpolicy.DefinitionProperties{PolicyRule: rule}},
+		nil,
+	)
 	require.NoError(t, err)
 
 	pdID := authSubScope + "/providers/Microsoft.Authorization/policyDefinitions/pd"
@@ -1051,7 +1390,13 @@ func TestAuthorizationSDK_PersistenceAndReset(t *testing.T) {
 	}}, nil)
 	require.NoError(t, err)
 
-	_, err = s.pAssign.Create(ctx, authRGScope, "pa", armpolicy.Assignment{Properties: &armpolicy.AssignmentProperties{PolicyDefinitionID: &pdID}}, nil)
+	_, err = s.pAssign.Create(
+		ctx,
+		authRGScope,
+		"pa",
+		armpolicy.Assignment{Properties: &armpolicy.AssignmentProperties{PolicyDefinitionID: &pdID}},
+		nil,
+	)
 	require.NoError(t, err)
 
 	snap := s.handler.Snapshot(ctx)

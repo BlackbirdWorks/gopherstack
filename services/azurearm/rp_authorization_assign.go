@@ -17,7 +17,9 @@ const (
 	principalSP           = "ServicePrincipal"
 )
 
-var principalTypes = []string{principalUser, "Group", principalSP, "ForeignGroup", "Device"}
+func principalTypes() []string {
+	return []string{principalUser, "Group", principalSP, "ForeignGroup", "Device"}
+}
 
 // roleRef is a role definition resolved for an assignment.
 type roleRef struct {
@@ -143,7 +145,8 @@ func (p *AuthorizationProvider) resolveRole(roleDefID string) (roleRef, bool) {
 	}
 
 	n := len(segs)
-	if !strings.EqualFold(segs[n-2], authRoleDefinitions) || !strings.EqualFold(segs[n-3], namespaceMicrosoftAuthorization) ||
+	if !strings.EqualFold(segs[n-2], authRoleDefinitions) ||
+		!strings.EqualFold(segs[n-3], namespaceMicrosoftAuthorization) ||
 		!isGUID(segs[n-1]) {
 		return roleRef{}, false
 	}
@@ -206,9 +209,10 @@ func (p *AuthorizationProvider) putRoleAssignment(req authReq) (authResp, error)
 	}
 
 	ptype := strOf(props, "principalType")
-	if ptype != "" && !slices.ContainsFunc(principalTypes, func(t string) bool { return strings.EqualFold(t, ptype) }) {
+	if ptype != "" &&
+		!slices.ContainsFunc(principalTypes(), func(t string) bool { return strings.EqualFold(t, ptype) }) {
 		return authResp{}, authBad("The principalType '%s' is not valid. Allowed values are: %s.", ptype,
-			strings.Join(principalTypes, ", "))
+			strings.Join(principalTypes(), ", "))
 	}
 
 	p.mu.Lock("putRoleAssignment")

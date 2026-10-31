@@ -26,7 +26,11 @@ resource "azurerm_role_assignment" "reader" {
 
 resource "azurerm_role_assignment" "blob" {
   scope                            = azurerm_storage_account.auth.id
-  role_definition_id               = "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Authorization/roleDefinitions/ba92f5b4-2d11-453d-a403-e96b0029c9fe"
+  role_definition_id = format(
+    "%s/providers/Microsoft.Authorization/roleDefinitions/%s",
+    "/subscriptions/00000000-0000-0000-0000-000000000000",
+    "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+  )
   principal_id                     = "11111111-1111-1111-1111-111111111111"
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true

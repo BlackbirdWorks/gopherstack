@@ -127,7 +127,10 @@ func (p *AuthorizationProvider) putLock(req authReq) (authResp, error) {
 	case strings.EqualFold(level, lockReadOnly):
 		level = lockReadOnly
 	default:
-		return authResp{}, authBad("The lock level '%s' is invalid. Allowed values are CanNotDelete and ReadOnly.", level)
+		return authResp{}, authBad(
+			"The lock level '%s' is invalid. Allowed values are CanNotDelete and ReadOnly.",
+			level,
+		)
 	}
 
 	rec := &storedLock{Name: req.Name, Scope: req.Scope.id, Level: level, Notes: strOf(props, "notes")}

@@ -45,6 +45,8 @@ const (
 	authFieldCreatedOn              = "createdOn"
 	authFieldUpdatedOn              = "updatedOn"
 	authFieldPrincipalID            = "principalId"
+	authFieldPermissions            = "permissions"
+	authVerbAction                  = "action"
 	authFieldPolicyDefinitionID     = "policyDefinitionId"
 	authTypeBuiltIn                 = "BuiltInRole"
 	authTypeCustom                  = "CustomRole"
@@ -303,10 +305,10 @@ func (p *AuthorizationProvider) removeWhere(match func(scope string) bool) {
 type authReq struct {
 	Query  url.Values
 	Body   map[string]any
-	Scope  authScope
 	Type   string
 	Name   string
 	Method string
+	Scope  authScope
 }
 
 // authResp is a provider reply; a nil Body means an empty response.
@@ -431,4 +433,3 @@ func parseAuthFilter(raw string, eqProps, fns []string) (authFilter, error) {
 
 	return f, nil
 }
-
