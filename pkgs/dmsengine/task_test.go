@@ -482,7 +482,7 @@ func TestTaskSourceFailure(t *testing.T) {
 	src := &failingSource{fakeSource: *twoTables()}
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: newFakeTarget(), MigrationType: dmsengine.MigrationFullLoad,
-		Settings: defaultSettings(t), SourceFamily: dmsengine.FamilyMySQL,
+		Settings: defaultSettings(t), SourceFamily: dmsengine.FamilyMySQL, PingBackoff: time.Millisecond,
 	})
 
 	res := task.Run(t.Context())

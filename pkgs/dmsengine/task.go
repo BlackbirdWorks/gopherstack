@@ -81,8 +81,9 @@ type TaskConfig struct {
 	CDCStart      string
 	CDCStop       string
 	Resume        string
-	Mappings      Mappings
 	Settings      TaskSettings
+	Mappings      Mappings
+	PingBackoff   time.Duration
 	SourceFamily  Family
 }
 
@@ -97,8 +98,8 @@ type planned struct {
 type Task struct {
 	plans   map[string]*planned
 	order   []*planned
-	cfg     TaskConfig
 	prog    Progress
+	cfg     TaskConfig
 	applyMu sync.Mutex
 	pmu     sync.Mutex
 }
@@ -193,11 +194,11 @@ func (t *Task) finish(ctx context.Context, err error) Result {
 }
 
 func (t *Task) setup(ctx context.Context) error {
-	if err := t.cfg.Source.Ping(ctx); err != nil {
+	if err := pingWithRetry(ctx, t.cfg.Source.Ping, t.cfg.PingBackoff); err != nil {
 		return fmt.Errorf("source endpoint: %w", err)
 	}
 
-	if err := t.cfg.Target.Ping(ctx); err != nil {
+	if err := pingWithRetry(ctx, t.cfg.Target.Ping, t.cfg.PingBackoff); err != nil {
 		return fmt.Errorf("target endpoint: %w", err)
 	}
 
@@ -510,4 +511,36 @@ func (t *Task) Has(r TableRef) bool {
 	_, ok := t.plans[r.Schema+"."+r.Name]
 
 	return ok
+}
+
+const (
+	pingAttempts = 5
+	pingBackoff  = 500 * time.Millisecond
+)
+
+// pingWithRetry rides out a database that is still restarting after it reported ready.
+func pingWithRetry(ctx context.Context, ping func(context.Context) error, backoff time.Duration) error {
+	var err error
+
+	if backoff <= 0 {
+		backoff = pingBackoff
+	}
+
+	for attempt := range pingAttempts {
+		if err = ping(ctx); err == nil {
+			return nil
+		}
+
+		if attempt == pingAttempts-1 {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+
+	return err
 }
