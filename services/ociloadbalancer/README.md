@@ -9,12 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 61 (57 ok, 4 partial) |
 | Feature families | 16 (5 ok, 11 partial) |
-| Known gaps | 8 |
+| Known gaps | 9 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
+- Cipher suites ECDHE-RSA-AES128-SHA256 and ECDHE-ECDSA-AES128-SHA256 are accepted and stored by the control plane but not served by the data plane: Go classes them as insecure (tls.InsecureCipherSuites).
 - Not routed: CancelWorkRequest and tag/lock APIs; the shape catalogue is static. reservedIps, ipv6SubnetCidr and ipMode other than IPV4 are rejected.
 - Rejected with 400: IP_BASED_MAX_CONNECTIONS, SOURCE_VCN_ID and SOURCE_VCN_IP_ADDRESS conditions, areInvalidCharactersAllowed, backendTcpProxyProtocolVersion/Options, certificateIds and trustedCertificateAuthorityIds (OCI Certificates service), passphrase-protected private keys, TLS protocols below 1.2.
 - verifyPeerCertificate=false on a backend set does not turn verification off (repo rule: no InsecureSkipVerify); backends with self-signed certificates need their certificate uploaded as the bundle.
