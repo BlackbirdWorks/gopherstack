@@ -245,27 +245,27 @@ func (h *Handler) handleDeleteReplicationTask(
 }
 
 type replicationTaskJSON struct {
-	ReplicationTaskIdentifier string `json:"ReplicationTaskIdentifier"`
-	ReplicationTaskArn        string `json:"ReplicationTaskArn"`
-	SourceEndpointArn         string `json:"SourceEndpointArn"`
-	TargetEndpointArn         string `json:"TargetEndpointArn"`
-	ReplicationInstanceArn    string `json:"ReplicationInstanceArn"`
-	MigrationType             string `json:"MigrationType"`
-	TableMappings             string `json:"TableMappings,omitempty"`
-	ReplicationTaskSettings   string `json:"ReplicationTaskSettings,omitempty"`
-	Status                    string `json:"Status"`
-	CdcStartPosition          string `json:"CdcStartPosition,omitempty"`
-	CdcStopPosition           string `json:"CdcStopPosition,omitempty"`
-	TaskData                  string `json:"TaskData,omitempty"`
-	StopReason                string `json:"StopReason,omitempty"`
-	LastFailureMessage        string `json:"LastFailureMessage,omitempty"`
-	RecoveryCheckpoint        string `json:"RecoveryCheckpoint,omitempty"`
-	// ReplicationTaskCreationDate is wire-encoded as epoch seconds
-	// (awsjson1.1 unixTimestamp format) -- see pkgs/awstime.Epoch.
-	ReplicationTaskCreationDate float64                   `json:"ReplicationTaskCreationDate,omitempty"`
-	ReplicationTaskStartDate    float64                   `json:"ReplicationTaskStartDate,omitempty"`
 	ReplicationTaskStats        *replicationTaskStatsJSON `json:"ReplicationTaskStats,omitempty"`
+	Status                      string                    `json:"Status"`
+	CdcStopPosition             string                    `json:"CdcStopPosition,omitempty"`
+	TargetEndpointArn           string                    `json:"TargetEndpointArn"`
+	ReplicationInstanceArn      string                    `json:"ReplicationInstanceArn"`
+	MigrationType               string                    `json:"MigrationType"`
+	TableMappings               string                    `json:"TableMappings,omitempty"`
+	ReplicationTaskSettings     string                    `json:"ReplicationTaskSettings,omitempty"`
+	ReplicationTaskIdentifier   string                    `json:"ReplicationTaskIdentifier"`
+	SourceEndpointArn           string                    `json:"SourceEndpointArn"`
+	TaskData                    string                    `json:"TaskData,omitempty"`
+	CdcStartPosition            string                    `json:"CdcStartPosition,omitempty"`
+	StopReason                  string                    `json:"StopReason,omitempty"`
+	LastFailureMessage          string                    `json:"LastFailureMessage,omitempty"`
+	RecoveryCheckpoint          string                    `json:"RecoveryCheckpoint,omitempty"`
+	ReplicationTaskArn          string                    `json:"ReplicationTaskArn"`
+	ReplicationTaskStartDate    float64                   `json:"ReplicationTaskStartDate,omitempty"`
+	ReplicationTaskCreationDate float64                   `json:"ReplicationTaskCreationDate,omitempty"`
 }
+
+const percentComplete = 100
 
 // replicationTaskStatsJSON mirrors types.ReplicationTaskStats; dates are epoch seconds.
 type replicationTaskStatsJSON struct {
@@ -288,9 +288,14 @@ func taskStats(rt *ReplicationTask) *replicationTaskStatsJSON {
 	}
 
 	st := &replicationTaskStatsJSON{
-		ElapsedTimeMillis: rt.ElapsedTimeMillis, FreshStartDate: awstime.Epoch(rt.StartDate),
-		FullLoadStartDate: awstime.Epoch(rt.FullLoadStartDate), FullLoadFinishDate: awstime.Epoch(rt.FullLoadFinishDate),
-		StartDate: awstime.Epoch(rt.StartDate), StopDate: awstime.Epoch(rt.StopDate),
+		ElapsedTimeMillis: rt.ElapsedTimeMillis,
+		FreshStartDate:    awstime.Epoch(rt.StartDate),
+		FullLoadStartDate: awstime.Epoch(
+			rt.FullLoadStartDate,
+		),
+		FullLoadFinishDate: awstime.Epoch(rt.FullLoadFinishDate),
+		StartDate:          awstime.Epoch(rt.StartDate),
+		StopDate:           awstime.Epoch(rt.StopDate),
 	}
 
 	for _, ts := range rt.TableStats {
@@ -306,11 +311,11 @@ func taskStats(rt *ReplicationTask) *replicationTaskStatsJSON {
 		}
 	}
 
-	switch total := int32(len(rt.TableStats)); {
+	switch total := len(rt.TableStats); {
 	case !rt.FullLoadFinishDate.IsZero():
-		st.FullLoadProgressPercent = 100
+		st.FullLoadProgressPercent = percentComplete
 	case total > 0:
-		st.FullLoadProgressPercent = st.TablesLoaded * 100 / total
+		st.FullLoadProgressPercent = int32(int(st.TablesLoaded) * percentComplete / total) //nolint:gosec // 0..100
 	}
 
 	return st

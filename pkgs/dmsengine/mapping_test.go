@@ -1,6 +1,7 @@
 package dmsengine_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,15 +38,19 @@ func TestMappingsSelect(t *testing.T) {
 		{
 			name: "exclude by wildcard after include",
 			doc: `{"rules":[
-				{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app","table-name":"%"},"rule-action":"include"},
-				{"rule-type":"selection","rule-id":"2","rule-name":"2","object-locator":{"schema-name":"app","table-name":"tmp%"},"rule-action":"exclude"}]}`,
+				{"rule-type":"selection","rule-id":"1","rule-name":"1",
+					"object-locator":{"schema-name":"app","table-name":"%"},"rule-action":"include"},
+				{"rule-type":"selection","rule-id":"2","rule-name":"2",
+					"object-locator":{"schema-name":"app","table-name":"tmp%"},"rule-action":"exclude"}]}`,
 			wants: []string{"app.items", "app.orders"},
 		},
 		{
 			name: "rules apply in rule-id order not document order",
 			doc: `{"rules":[
-				{"rule-type":"selection","rule-id":"2","rule-name":"2","object-locator":{"schema-name":"app","table-name":"tmp%"},"rule-action":"exclude"},
-				{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app","table-name":"%"},"rule-action":"include"}]}`,
+				{"rule-type":"selection","rule-id":"2","rule-name":"2",
+					"object-locator":{"schema-name":"app","table-name":"tmp%"},"rule-action":"exclude"},
+				{"rule-type":"selection","rule-id":"1","rule-name":"1",
+					"object-locator":{"schema-name":"app","table-name":"%"},"rule-action":"include"}]}`,
 			wants: []string{"app.items", "app.orders"},
 		},
 		{
@@ -92,7 +97,13 @@ func TestMappingsPlan(t *testing.T) {
 		wantCols   []string
 		wantPK     []string
 	}{
-		{name: "no rules", wantSchema: "app", wantTable: "items", wantCols: []string{"id", "Name", "secret"}, wantPK: []string{"id"}},
+		{
+			name:       "no rules",
+			wantSchema: "app",
+			wantTable:  "items",
+			wantCols:   []string{"id", "Name", "secret"},
+			wantPK:     []string{"id"},
+		},
 		{
 			name: "rename schema and table", rules: []string{
 				rule("1", "schema", "rename", "app", "%", "", "dst", ""),
@@ -101,12 +112,16 @@ func TestMappingsPlan(t *testing.T) {
 			wantSchema: "dst", wantTable: "things", wantCols: []string{"id", "Name", "secret"}, wantPK: []string{"id"},
 		},
 		{
-			name: "table prefix and suffix then lowercase", rules: []string{
+			name: "table prefix and suffix then lowercase",
+			rules: []string{
 				rule("1", "table", "add-prefix", "app", "items", "", "pre_", ""),
 				rule("2", "table", "add-suffix", "app", "items", "", "_SUF", ""),
 				rule("3", "table", "convert-lowercase", "app", "items", "", "", ""),
 			},
-			wantSchema: "app", wantTable: "pre_items_suf", wantCols: []string{"id", "Name", "secret"}, wantPK: []string{"id"},
+			wantSchema: "app",
+			wantTable:  "pre_items_suf",
+			wantCols:   []string{"id", "Name", "secret"},
+			wantPK:     []string{"id"},
 		},
 		{
 			name: "replace and remove prefix", rules: []string{
@@ -129,9 +144,13 @@ func TestMappingsPlan(t *testing.T) {
 			wantSchema: "app", wantTable: "items", wantCols: []string{"id", "Name", "secret"}, wantPK: []string{"id"},
 		},
 		{
-			name: "TargetSchema override wins", rules: []string{rule("1", "schema", "rename", "app", "%", "", "dst", "")},
-			override: "forced", wantSchema: "forced", wantTable: "items", wantCols: []string{"id", "Name", "secret"},
-			wantPK: []string{"id"},
+			name:       "TargetSchema override wins",
+			rules:      []string{rule("1", "schema", "rename", "app", "%", "", "dst", "")},
+			override:   "forced",
+			wantSchema: "forced",
+			wantTable:  "items",
+			wantCols:   []string{"id", "Name", "secret"},
+			wantPK:     []string{"id"},
 		},
 	}
 
@@ -158,19 +177,7 @@ func TestMappingsPlan(t *testing.T) {
 	}
 }
 
-func join(parts []string) string {
-	out := ""
-
-	for i, p := range parts {
-		if i > 0 {
-			out += ","
-		}
-
-		out += p
-	}
-
-	return out
-}
+func join(parts []string) string { return strings.Join(parts, ",") }
 
 func TestParseMappingsRejects(t *testing.T) {
 	t.Parallel()
@@ -181,9 +188,18 @@ func TestParseMappingsRejects(t *testing.T) {
 	}{
 		{name: "bad json", doc: `{`},
 		{name: "unknown rule type", doc: `{"rules":[{"rule-type":"nope","rule-id":"1"}]}`},
-		{name: "unknown selection action", doc: `{"rules":[{"rule-type":"selection","rule-id":"1","rule-action":"drop"}]}`},
-		{name: "remove-column on table", doc: `{"rules":[{"rule-type":"transformation","rule-id":"1","rule-target":"table","rule-action":"remove-column"}]}`},
-		{name: "bad target", doc: `{"rules":[{"rule-type":"transformation","rule-id":"1","rule-target":"db","rule-action":"rename"}]}`},
+		{
+			name: "unknown selection action",
+			doc:  `{"rules":[{"rule-type":"selection","rule-id":"1","rule-action":"drop"}]}`,
+		},
+		{
+			name: "remove-column on table",
+			doc:  `{"rules":[{"rule-type":"transformation","rule-id":"1","rule-target":"table","rule-action":"remove-column"}]}`,
+		},
+		{
+			name: "bad target",
+			doc:  `{"rules":[{"rule-type":"transformation","rule-id":"1","rule-target":"db","rule-action":"rename"}]}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -212,8 +228,10 @@ func TestParseTaskSettings(t *testing.T) {
 			mode: dmsengine.PrepTruncateBefore,
 		},
 		{
-			name: "do nothing with schema", doc: `{"TargetMetadata":{"TargetSchema":"x"},"FullLoadSettings":{"TargetTablePrepMode":"DO_NOTHING"}}`,
-			mode: dmsengine.PrepDoNothing, schema: "x",
+			name:   "do nothing with schema",
+			doc:    `{"TargetMetadata":{"TargetSchema":"x"},"FullLoadSettings":{"TargetTablePrepMode":"DO_NOTHING"}}`,
+			mode:   dmsengine.PrepDoNothing,
+			schema: "x",
 		},
 		{name: "bad mode", doc: `{"FullLoadSettings":{"TargetTablePrepMode":"NOPE"}}`, wantErr: true},
 		{name: "bad json", doc: `{`, wantErr: true},
@@ -241,23 +259,96 @@ func TestTargetType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		src, dst dmsengine.Family
-		native   string
-		want     string
+		name   string
+		native string
+		want   string
+		src    dmsengine.Family
+		dst    dmsengine.Family
 	}{
-		{name: "same family keeps native", src: dmsengine.FamilyMySQL, dst: dmsengine.FamilyMySQL, native: "int unsigned", want: "int unsigned"},
-		{name: "mysql int to pg", src: dmsengine.FamilyMySQL, dst: dmsengine.FamilyPostgres, native: "int", want: "integer"},
-		{name: "mysql unsigned int to pg", src: dmsengine.FamilyMySQL, dst: dmsengine.FamilyPostgres, native: "int unsigned", want: "bigint"},
-		{name: "mysql varchar to pg", src: dmsengine.FamilyMySQL, dst: dmsengine.FamilyPostgres, native: "varchar(20)", want: "varchar(20)"},
-		{name: "mysql decimal to pg", src: dmsengine.FamilyMySQL, dst: dmsengine.FamilyPostgres, native: "decimal(10,2)", want: "numeric(10,2)"},
-		{name: "mysql datetime to pg", src: dmsengine.FamilyMySQL, dst: dmsengine.FamilyPostgres, native: "datetime", want: "timestamp"},
-		{name: "mysql longtext to pg", src: dmsengine.FamilyMySQL, dst: dmsengine.FamilyPostgres, native: "longtext", want: "text"},
-		{name: "mysql blob to pg", src: dmsengine.FamilyMySQL, dst: dmsengine.FamilyPostgres, native: "blob", want: "bytea"},
-		{name: "pg text to mysql", src: dmsengine.FamilyPostgres, dst: dmsengine.FamilyMySQL, native: "text", want: "longtext"},
-		{name: "pg boolean to mysql", src: dmsengine.FamilyPostgres, dst: dmsengine.FamilyMySQL, native: "boolean", want: "tinyint(1)"},
-		{name: "pg varchar to mysql", src: dmsengine.FamilyPostgres, dst: dmsengine.FamilyMySQL, native: "character varying(40)", want: "varchar(40)"},
-		{name: "pg timestamptz to mysql", src: dmsengine.FamilyPostgres, dst: dmsengine.FamilyMySQL, native: "timestamp with time zone", want: "datetime(6)"},
+		{
+			name:   "same family keeps native",
+			src:    dmsengine.FamilyMySQL,
+			dst:    dmsengine.FamilyMySQL,
+			native: "int unsigned",
+			want:   "int unsigned",
+		},
+		{
+			name:   "mysql int to pg",
+			src:    dmsengine.FamilyMySQL,
+			dst:    dmsengine.FamilyPostgres,
+			native: "int",
+			want:   "integer",
+		},
+		{
+			name:   "mysql unsigned int to pg",
+			src:    dmsengine.FamilyMySQL,
+			dst:    dmsengine.FamilyPostgres,
+			native: "int unsigned",
+			want:   "bigint",
+		},
+		{
+			name:   "mysql varchar to pg",
+			src:    dmsengine.FamilyMySQL,
+			dst:    dmsengine.FamilyPostgres,
+			native: "varchar(20)",
+			want:   "varchar(20)",
+		},
+		{
+			name:   "mysql decimal to pg",
+			src:    dmsengine.FamilyMySQL,
+			dst:    dmsengine.FamilyPostgres,
+			native: "decimal(10,2)",
+			want:   "numeric(10,2)",
+		},
+		{
+			name:   "mysql datetime to pg",
+			src:    dmsengine.FamilyMySQL,
+			dst:    dmsengine.FamilyPostgres,
+			native: "datetime",
+			want:   "timestamp",
+		},
+		{
+			name:   "mysql longtext to pg",
+			src:    dmsengine.FamilyMySQL,
+			dst:    dmsengine.FamilyPostgres,
+			native: "longtext",
+			want:   "text",
+		},
+		{
+			name:   "mysql blob to pg",
+			src:    dmsengine.FamilyMySQL,
+			dst:    dmsengine.FamilyPostgres,
+			native: "blob",
+			want:   "bytea",
+		},
+		{
+			name:   "pg text to mysql",
+			src:    dmsengine.FamilyPostgres,
+			dst:    dmsengine.FamilyMySQL,
+			native: "text",
+			want:   "longtext",
+		},
+		{
+			name:   "pg boolean to mysql",
+			src:    dmsengine.FamilyPostgres,
+			dst:    dmsengine.FamilyMySQL,
+			native: "boolean",
+			want:   "tinyint(1)",
+		},
+		{
+			name:   "pg varchar to mysql",
+			src:    dmsengine.FamilyPostgres,
+			dst:    dmsengine.FamilyMySQL,
+			native: "character varying(40)",
+			want:   "varchar(40)",
+		},
+		{
+			name:   "pg timestamptz to mysql",
+			src:    dmsengine.FamilyPostgres,
+			dst:    dmsengine.FamilyMySQL,
+			native: "timestamp with time zone",
+			want:   "datetime(6)",
+		},
 	}
 
 	for _, tt := range tests {

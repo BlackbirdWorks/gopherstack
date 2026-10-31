@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,7 +17,13 @@ import (
 
 var errLogical = errors.New("logical decoding unavailable")
 
-const defaultPGPoll = 250 * time.Millisecond
+const (
+	defaultPGPoll = 250 * time.Millisecond
+	hexPairWidth  = 2
+
+	pgChangesSQL = "SELECT lsn::text, data FROM pg_logical_slot_get_changes($1, NULL, NULL, " +
+		"'include-timestamp', '1', 'skip-empty-xacts', '1')"
+)
 
 type pgSource struct {
 	db  *sql.DB
@@ -29,13 +36,15 @@ func pgDB(ep EndpointConfig) (*sql.DB, error) {
 		mode = "require"
 	}
 
-	c, err := pgx.ParseConfig("sslmode=" + mode + " connect_timeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())))
+	c, err := pgx.ParseConfig(
+		"sslmode=" + mode + " connect_timeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())),
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	c.Host, c.User, c.Password, c.Database = ep.Server, ep.User, ep.Password, ep.Database
-	if ep.Port != 0 {
+	if ep.Port > 0 && ep.Port <= math.MaxUint16 {
 		c.Port = uint16(ep.Port)
 	}
 
@@ -135,8 +144,8 @@ func (s *pgSource) Scan(ctx context.Context, t Table, fn func(Row) error) error 
 		names[i] = q
 	}
 
-	q := "SELECT " + strings.Join(names, ", ") + " FROM " + QuoteIdent(FamilyPostgres, t.Schema) + "." +
-		QuoteIdent(FamilyPostgres, t.Name)
+	q := stmt("SELECT ", strings.Join(names, ", "), " FROM ", QuoteIdent(FamilyPostgres, t.Schema), ".",
+		QuoteIdent(FamilyPostgres, t.Name))
 
 	rows, err := s.db.QueryContext(ctx, q)
 	if err != nil {
@@ -168,7 +177,11 @@ func (s *pgSource) Position(ctx context.Context) (string, error) {
 	}
 
 	if !exists {
-		if _, err = s.db.ExecContext(ctx, "SELECT pg_create_logical_replication_slot($1, 'test_decoding')", s.slot()); err != nil {
+		if _, err = s.db.ExecContext(
+			ctx,
+			"SELECT pg_create_logical_replication_slot($1, 'test_decoding')",
+			s.slot(),
+		); err != nil {
 			return "", err
 		}
 	}
@@ -225,9 +238,7 @@ func (s *pgSource) Stream(
 func (s *pgSource) drain(
 	ctx context.Context, start StreamStart, tables func(string, string) (Table, bool), fn func(Change) error,
 ) error {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT lsn::text, data FROM pg_logical_slot_get_changes($1, NULL, NULL, 'include-timestamp', '1', 'skip-empty-xacts', '1')",
-		s.slot())
+	rows, err := s.db.QueryContext(ctx, pgChangesSQL, s.slot())
 	if err != nil {
 		return err
 	}
@@ -270,8 +281,8 @@ func (s *pgSource) drain(
 
 type decoded struct {
 	when   time.Time
-	change Change
 	lsn    string
+	change Change
 	commit bool
 }
 
@@ -474,10 +485,10 @@ func decodeBytea(s string) any {
 		return []byte(s)
 	}
 
-	out := make([]byte, 0, len(h)/2)
+	out := make([]byte, 0, len(h)/hexPairWidth)
 
-	for i := 0; i+1 < len(h); i += 2 {
-		n, err := strconv.ParseUint(h[i:i+2], 16, 8)
+	for i := 0; i+1 < len(h); i += hexPairWidth {
+		n, err := strconv.ParseUint(h[i:i+hexPairWidth], 16, 8)
 		if err != nil {
 			return []byte(s)
 		}

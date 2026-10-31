@@ -19,8 +19,8 @@ type fakeSource struct {
 	rows    map[string][]dmsengine.Row
 	changes chan dmsengine.Change
 	scanned map[string]int
-	tables  []dmsengine.Table
 	startAt dmsengine.StreamStart
+	tables  []dmsengine.Table
 	mu      sync.Mutex
 }
 
@@ -78,8 +78,8 @@ func (s *fakeSource) Stream(
 type fakeTarget struct {
 	prepared map[string]dmsengine.PrepMode
 	loaded   map[string][]dmsengine.Row
-	applied  []dmsengine.Change
 	failPrep map[string]error
+	applied  []dmsengine.Change
 	commits  int
 	mu       sync.Mutex
 }
@@ -239,7 +239,9 @@ func TestTaskFullLoadOnly(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			src, tgt, clk, log := twoTables(), newFakeTarget(), &fakeClock{t: time.Unix(1_700_000_000, 0)}, newProgressLog()
+			src, tgt, clk, log := twoTables(), newFakeTarget(), &fakeClock{
+				t: time.Unix(1_700_000_000, 0),
+			}, newProgressLog()
 			mappings, err := dmsengine.ParseMappings(selectAll)
 			require.NoError(t, err)
 
@@ -276,7 +278,8 @@ func TestTaskTransformsReachTarget(t *testing.T) {
 
 	src, tgt := twoTables(), newFakeTarget()
 	mappings, err := dmsengine.ParseMappings(`{"rules":[
-		{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include"},
+		{"rule-type":"selection","rule-id":"1","rule-name":"1",
+			"object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include"},
 		{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-target":"table","rule-action":"rename",
 			"object-locator":{"schema-name":"app","table-name":"items"},"value":"items_copy"},
 		{"rule-type":"transformation","rule-id":"3","rule-name":"3","rule-target":"column","rule-action":"remove-column",
@@ -285,7 +288,7 @@ func TestTaskTransformsReachTarget(t *testing.T) {
 
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: tgt, MigrationType: dmsengine.MigrationFullLoad, Mappings: mappings,
-		Settings: mustSettings(t, ""), SourceFamily: dmsengine.FamilyMySQL,
+		Settings: defaultSettings(t), SourceFamily: dmsengine.FamilyMySQL,
 	})
 
 	require.NoError(t, task.Run(t.Context()).Err)
@@ -293,10 +296,10 @@ func TestTaskTransformsReachTarget(t *testing.T) {
 	assert.NotContains(t, tgt.prepared, "app.orders")
 }
 
-func mustSettings(t *testing.T, doc string) dmsengine.TaskSettings {
+func defaultSettings(t *testing.T) dmsengine.TaskSettings {
 	t.Helper()
 
-	s, err := dmsengine.ParseTaskSettings(doc)
+	s, err := dmsengine.ParseTaskSettings("")
 	require.NoError(t, err)
 
 	return s
@@ -314,7 +317,7 @@ func TestTaskTableErrorDoesNotStopOthers(t *testing.T) {
 
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: tgt, MigrationType: dmsengine.MigrationFullLoad, Mappings: mappings,
-		Settings: mustSettings(t, ""), SourceFamily: dmsengine.FamilyMySQL,
+		Settings: defaultSettings(t), SourceFamily: dmsengine.FamilyMySQL,
 		OnProgress: func(p dmsengine.Progress) { last = p; log.push(p) },
 	})
 
@@ -335,7 +338,7 @@ func TestTaskFullLoadAndCDC(t *testing.T) {
 
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: tgt, MigrationType: dmsengine.MigrationFullLoadAndCDC, Mappings: mappings,
-		Settings: mustSettings(t, ""), SourceFamily: dmsengine.FamilyMySQL, OnProgress: log.push,
+		Settings: defaultSettings(t), SourceFamily: dmsengine.FamilyMySQL, OnProgress: log.push,
 	})
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -345,12 +348,16 @@ func TestTaskFullLoadAndCDC(t *testing.T) {
 
 	log.waitFor(t, func(p dmsengine.Progress) bool { return stat(p, "app.orders").State == "Table completed" })
 
-	src.changes <- dmsengine.Change{Schema: "app", Table: "items", Op: dmsengine.OpInsert, After: dmsengine.Row{"3", "gamma"}}
+	src.changes <- dmsengine.Change{
+		Schema: "app", Table: "items", Op: dmsengine.OpInsert, After: dmsengine.Row{"3", "gamma"},
+	}
 	src.changes <- dmsengine.Change{
 		Schema: "app", Table: "items", Op: dmsengine.OpUpdate,
 		Before: dmsengine.Row{"3", "gamma"}, After: dmsengine.Row{"3", "delta"},
 	}
-	src.changes <- dmsengine.Change{Schema: "app", Table: "items", Op: dmsengine.OpDelete, Before: dmsengine.Row{"1", "alpha"}}
+	src.changes <- dmsengine.Change{
+		Schema: "app", Table: "items", Op: dmsengine.OpDelete, Before: dmsengine.Row{"1", "alpha"},
+	}
 	src.changes <- dmsengine.Change{Schema: "app", Table: "ignored", Op: dmsengine.OpInsert, After: dmsengine.Row{"1"}}
 	src.changes <- dmsengine.Change{Commit: true, Position: "bin.000001:900"}
 
@@ -382,7 +389,7 @@ func TestTaskCDCOnlyDoesNotLoad(t *testing.T) {
 
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: tgt, MigrationType: dmsengine.MigrationCDC, Mappings: mappings,
-		CDCStart: "2024-03-08T12:12:12", Settings: mustSettings(t, ""), SourceFamily: dmsengine.FamilyMySQL,
+		CDCStart: "2024-03-08T12:12:12", Settings: defaultSettings(t), SourceFamily: dmsengine.FamilyMySQL,
 		OnProgress: log.push,
 	})
 
@@ -411,13 +418,18 @@ func TestTaskStopsAtCommitTime(t *testing.T) {
 
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: tgt, MigrationType: dmsengine.MigrationCDC, Mappings: mappings,
-		CDCStop: "commit_time:2024-01-01T00:00:10", Settings: mustSettings(t, ""),
+		CDCStop: "commit_time:2024-01-01T00:00:10", Settings: defaultSettings(t),
 		SourceFamily: dmsengine.FamilyMySQL, OnProgress: log.push,
 	})
 
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	src.changes <- dmsengine.Change{Time: base, Schema: "app", Table: "orders", Op: dmsengine.OpInsert, After: dmsengine.Row{"1"}}
-	src.changes <- dmsengine.Change{Time: base.Add(10 * time.Second), Schema: "app", Table: "orders", Op: dmsengine.OpInsert, After: dmsengine.Row{"2"}}
+	src.changes <- dmsengine.Change{
+		Time: base, Schema: "app", Table: "orders", Op: dmsengine.OpInsert, After: dmsengine.Row{"1"},
+	}
+	src.changes <- dmsengine.Change{
+		Time: base.Add(10 * time.Second), Schema: "app", Table: "orders", Op: dmsengine.OpInsert,
+		After: dmsengine.Row{"2"},
+	}
 
 	res := task.Run(t.Context())
 
@@ -435,7 +447,7 @@ func TestTaskReload(t *testing.T) {
 
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: tgt, MigrationType: dmsengine.MigrationFullLoadAndCDC, Mappings: mappings,
-		Settings: mustSettings(t, ""), SourceFamily: dmsengine.FamilyMySQL, OnProgress: log.push,
+		Settings: defaultSettings(t), SourceFamily: dmsengine.FamilyMySQL, OnProgress: log.push,
 	})
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -444,7 +456,11 @@ func TestTaskReload(t *testing.T) {
 	go func() { done <- task.Run(ctx) }()
 
 	log.waitFor(t, func(p dmsengine.Progress) bool { return stat(p, "app.items").State == "Table completed" })
-	require.ErrorIs(t, task.Reload(ctx, []dmsengine.TableRef{{Schema: "app", Name: "missing"}}), dmsengine.ErrTableNotInTask)
+	require.ErrorIs(
+		t,
+		task.Reload(ctx, []dmsengine.TableRef{{Schema: "app", Name: "missing"}}),
+		dmsengine.ErrTableNotInTask,
+	)
 	require.NoError(t, task.Reload(ctx, []dmsengine.TableRef{{Schema: "app", Name: "items"}}))
 
 	got := log.waitFor(t, func(p dmsengine.Progress) bool {
@@ -466,7 +482,7 @@ func TestTaskSourceFailure(t *testing.T) {
 	src := &failingSource{fakeSource: *twoTables()}
 	task := dmsengine.NewTask(dmsengine.TaskConfig{
 		Source: src, Target: newFakeTarget(), MigrationType: dmsengine.MigrationFullLoad,
-		Settings: mustSettings(t, ""), SourceFamily: dmsengine.FamilyMySQL,
+		Settings: defaultSettings(t), SourceFamily: dmsengine.FamilyMySQL,
 	})
 
 	res := task.Run(t.Context())

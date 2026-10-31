@@ -3,12 +3,20 @@ package dmsengine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
 
-const maxBindParams = 30000
+const (
+	maxBindParams    = 30000
+	updateArgsFactor = 2
+	varcharKey       = "varchar(255)"
+)
+
+var errNoRowImage = errors.New("delete has no row image")
 
 type sqlTarget struct {
 	db  *sql.DB
@@ -56,22 +64,14 @@ func (t *sqlTarget) ph(n int) string {
 func (t *sqlTarget) columnType(tt TargetTable, c TargetColumn) string {
 	typ := TargetType(tt.SourceFamily, t.fam, c.Native)
 
-	if t.fam == FamilyMySQL && (typ == "longtext" || typ == "text") && slicesContain(tt.PK, c.Name) {
-		return "varchar(255)"
+	if t.fam == FamilyMySQL && (typ == tLongtext || typ == tText) && slicesContain(tt.PK, c.Name) {
+		return varcharKey
 	}
 
 	return typ
 }
 
-func slicesContain(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-
-	return false
-}
+func slicesContain(list []string, s string) bool { return slices.Contains(list, s) }
 
 func (t *sqlTarget) createSQL(tt TargetTable) string {
 	defs := make([]string, 0, len(tt.Columns)+1)
@@ -102,9 +102,9 @@ func (t *sqlTarget) quoteAll(names []string) string {
 }
 
 func (t *sqlTarget) Prepare(ctx context.Context, tt TargetTable, mode PrepMode) error {
-	create := "CREATE SCHEMA IF NOT EXISTS " + t.q(tt.Schema)
+	create := stmt("CREATE SCHEMA IF NOT EXISTS ", t.q(tt.Schema))
 	if t.fam == FamilyMySQL {
-		create = "CREATE DATABASE IF NOT EXISTS " + t.q(tt.Schema)
+		create = stmt("CREATE DATABASE IF NOT EXISTS ", t.q(tt.Schema))
 	}
 
 	if _, err := t.db.ExecContext(ctx, create); err != nil {
@@ -112,7 +112,7 @@ func (t *sqlTarget) Prepare(ctx context.Context, tt TargetTable, mode PrepMode) 
 	}
 
 	if mode == PrepDropAndCreate {
-		if _, err := t.db.ExecContext(ctx, "DROP TABLE IF EXISTS "+t.qualified(tt)); err != nil {
+		if _, err := t.db.ExecContext(ctx, stmt("DROP TABLE IF EXISTS ", t.qualified(tt))); err != nil {
 			return err
 		}
 	}
@@ -122,7 +122,7 @@ func (t *sqlTarget) Prepare(ctx context.Context, tt TargetTable, mode PrepMode) 
 	}
 
 	if mode == PrepTruncateBefore {
-		_, err := t.db.ExecContext(ctx, "TRUNCATE TABLE "+t.qualified(tt))
+		_, err := t.db.ExecContext(ctx, stmt("TRUNCATE TABLE ", t.qualified(tt)))
 
 		return err
 	}
@@ -158,7 +158,7 @@ func (t *sqlTarget) Load(ctx context.Context, tt TargetTable, rows []Row) error 
 			groups[i] = "(" + strings.Join(ph, ", ") + ")"
 		}
 
-		q := "INSERT INTO " + t.qualified(tt) + " (" + cols + ") VALUES " + strings.Join(groups, ", ")
+		q := stmt("INSERT INTO ", t.qualified(tt), " (", cols, ") VALUES ", strings.Join(groups, ", "))
 		if _, err := t.db.ExecContext(ctx, q, args...); err != nil {
 			return err
 		}
@@ -197,7 +197,7 @@ func (t *sqlTarget) upsert(ctx context.Context, tt TargetTable, row Row) error {
 		ph[i] = t.ph(i + 1)
 	}
 
-	q := "INSERT INTO " + t.qualified(tt) + " (" + cols + ") VALUES (" + strings.Join(ph, ", ") + ")"
+	q := stmt("INSERT INTO ", t.qualified(tt), " (", cols, ") VALUES (", strings.Join(ph, ", "), ")")
 
 	var sets []string
 
@@ -262,11 +262,11 @@ func (t *sqlTarget) where(tt TargetTable, image Row, start int) (string, []any) 
 
 func (t *sqlTarget) deleteRow(ctx context.Context, tt TargetTable, before Row) error {
 	if before == nil {
-		return fmt.Errorf("delete on %s has no row image", tt.Key())
+		return fmt.Errorf("%w: %s", errNoRowImage, tt.Key())
 	}
 
 	w, args := t.where(tt, before, 0)
-	_, err := t.db.ExecContext(ctx, "DELETE FROM "+t.qualified(tt)+" WHERE "+w, args...)
+	_, err := t.db.ExecContext(ctx, stmt("DELETE FROM ", t.qualified(tt), " WHERE ", w), args...)
 
 	return err
 }
@@ -278,7 +278,7 @@ func (t *sqlTarget) update(ctx context.Context, tt TargetTable, c Change) error 
 	}
 
 	sets := make([]string, len(tt.Columns))
-	args := make([]any, 0, len(tt.Columns)*2)
+	args := make([]any, 0, len(tt.Columns)*updateArgsFactor)
 
 	for i, col := range tt.Columns {
 		sets[i] = t.q(col.Name) + " = " + t.ph(i+1)
@@ -288,7 +288,11 @@ func (t *sqlTarget) update(ctx context.Context, tt TargetTable, c Change) error 
 	w, wargs := t.where(tt, image, len(tt.Columns))
 	args = append(args, wargs...)
 
-	res, err := t.db.ExecContext(ctx, "UPDATE "+t.qualified(tt)+" SET "+strings.Join(sets, ", ")+" WHERE "+w, args...)
+	update := stmt("UPDATE ", t.qualified(tt), " SET ", strings.Join(sets, ", "), " WHERE ", w)
+	res, err := t.db.ExecContext(
+		ctx,
+		update,
+		args...)
 	if err != nil {
 		return err
 	}
@@ -313,3 +317,6 @@ func keyComplete(tt TargetTable, image Row) bool {
 
 	return true
 }
+
+// stmt joins SQL fragments whose identifiers were already quoted with QuoteIdent.
+func stmt(parts ...string) string { return strings.Join(parts, "") }

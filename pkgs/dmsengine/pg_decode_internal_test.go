@@ -11,7 +11,13 @@ func TestParseDecoded(t *testing.T) {
 	t.Parallel()
 
 	table := Table{Schema: "public", Name: "items", Columns: []Column{
-		{Name: "id", Native: "integer", Kind: KindInt}, {Name: "name", Native: "text"}, {Name: "blob", Native: "bytea", Kind: KindBytes},
+		{
+			Name:   "id",
+			Native: "integer",
+			Kind:   KindInt,
+		},
+		{Name: "name", Native: "text"},
+		{Name: "blob", Native: "bytea", Kind: KindBytes},
 	}}
 	lookup := func(s, n string) (Table, bool) { return table, s == "public" && n == "items" }
 
@@ -24,11 +30,25 @@ func TestParseDecoded(t *testing.T) {
 		commit bool
 		skip   bool
 	}{
-		{name: "insert", data: `table public.items: INSERT: id[integer]:1 name[text]:'it''s alpha' blob[bytea]:'\x0102'`,
-			op: OpInsert, after: Row{"1", "it's alpha", []byte{1, 2}}},
-		{name: "insert null", data: `table public.items: INSERT: id[integer]:2 name[text]:null`, op: OpInsert, after: Row{"2", nil, nil}},
-		{name: "update with old key", data: `table public.items: UPDATE: old-key: id[integer]:1 new-tuple: id[integer]:5 name[text]:'x'`,
-			op: OpUpdate, before: Row{"1", nil, nil}, after: Row{"5", "x", nil}},
+		{
+			name:  "insert",
+			data:  `table public.items: INSERT: id[integer]:1 name[text]:'it''s alpha' blob[bytea]:'\x0102'`,
+			op:    OpInsert,
+			after: Row{"1", "it's alpha", []byte{1, 2}},
+		},
+		{
+			name:  "insert null",
+			data:  `table public.items: INSERT: id[integer]:2 name[text]:null`,
+			op:    OpInsert,
+			after: Row{"2", nil, nil},
+		},
+		{
+			name:   "update with old key",
+			data:   `table public.items: UPDATE: old-key: id[integer]:1 new-tuple: id[integer]:5 name[text]:'x'`,
+			op:     OpUpdate,
+			before: Row{"1", nil, nil},
+			after:  Row{"5", "x", nil},
+		},
 		{name: "update without old key", data: `table public.items: UPDATE: id[integer]:1 name[text]:'y'`,
 			op: OpUpdate, after: Row{"1", "y", nil}},
 		{name: "delete", data: `table public.items: DELETE: id[integer]:1`, op: OpDelete, before: Row{"1", nil, nil}},
@@ -75,10 +95,10 @@ func TestBinlogValue(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		in   any
-		col  Column
 		want any
+		name string
+		col  Column
 	}{
 		{name: "signed tinyint", in: int8(-3), col: Column{Native: "tinyint"}, want: "-3"},
 		{name: "unsigned tinyint wraps", in: int8(-1), col: Column{Native: "tinyint unsigned"}, want: "255"},

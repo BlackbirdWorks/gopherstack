@@ -27,142 +27,187 @@ func parseNative(native string) parsedType {
 	return parsedType{base: strings.TrimSpace(m[1]), args: m[2], unsigned: m[3] != ""}
 }
 
+const (
+	tBigint     = "bigint"
+	tInt        = "int"
+	tInteger    = "integer"
+	tSmallint   = "smallint"
+	tTinyint    = "tinyint"
+	tDecimal    = "decimal"
+	tNumeric    = "numeric"
+	tDouble     = "double"
+	tDoublePrec = "double precision"
+	tBoolean    = "boolean"
+	tDate       = "date"
+	tDatetime   = "datetime"
+	tTimestamp  = "timestamp"
+	tTime       = "time"
+	tBytea      = "bytea"
+	tJSON       = "json"
+	tLongtext   = "longtext"
+	tText       = "text"
+	tChar       = "char"
+	tVarchar    = "varchar"
+	tString     = "string"
+	tReal       = "real"
+	tFloat      = "float"
+	tTimestampN = "timestamp without time zone"
+	tTimestampZ = "timestamp with time zone"
+	tMediumint  = "mediumint"
+	tLongblob   = "longblob"
+	tJSONB      = "jsonb"
+	tDatetime6  = "datetime(6)"
+)
+
+func kindByBase() map[string]Kind {
+	return map[string]Kind{
+		tTinyint:                 KindInt,
+		tSmallint:                KindInt,
+		tMediumint:               KindInt,
+		tInt:                     KindInt,
+		tInteger:                 KindInt,
+		tBigint:                  KindInt,
+		"year":                   KindInt,
+		"serial":                 KindInt,
+		"bigserial":              KindInt,
+		"smallserial":            KindInt,
+		"int2":                   KindInt,
+		"int4":                   KindInt,
+		"int8":                   KindInt,
+		tDecimal:                 KindDecimal,
+		tNumeric:                 KindDecimal,
+		"dec":                    KindDecimal,
+		"fixed":                  KindDecimal,
+		"money":                  KindDecimal,
+		tFloat:                   KindFloat,
+		tDouble:                  KindFloat,
+		tDoublePrec:              KindFloat,
+		tReal:                    KindFloat,
+		"float4":                 KindFloat,
+		"float8":                 KindFloat,
+		tBoolean:                 KindBool,
+		"bool":                   KindBool,
+		tDate:                    KindTime,
+		tDatetime:                KindTime,
+		tTimestamp:               KindTime,
+		tTime:                    KindTime,
+		tTimestampN:              KindTime,
+		tTimestampZ:              KindTime,
+		"time without time zone": KindTime,
+		"time with time zone":    KindTime,
+		"timestamptz":            KindTime,
+		"timetz":                 KindTime,
+		"binary":                 KindBytes,
+		"varbinary":              KindBytes,
+		"tinyblob":               KindBytes,
+		"blob":                   KindBytes,
+		"mediumblob":             KindBytes,
+		tLongblob:                KindBytes,
+		tBytea:                   KindBytes,
+		"bit":                    KindBytes,
+		"geometry":               KindBytes,
+		tJSON:                    KindJSON,
+		tJSONB:                   KindJSON,
+	}
+}
+
 // KindOf classifies an engine-native type.
 func KindOf(native string) Kind {
-	p := parseNative(native)
+	return kindByBase()[parseNative(native).base]
+}
 
-	switch p.base {
-	case "tinyint", "smallint", "mediumint", "int", "integer", "bigint", "year", "serial", "bigserial", "smallserial",
-		"int2", "int4", "int8":
-		return KindInt
-	case "decimal", "numeric", "dec", "fixed", "money":
-		return KindDecimal
-	case "float", "double", "double precision", "real", "float4", "float8":
-		return KindFloat
-	case "boolean", "bool":
-		return KindBool
-	case "date", "datetime", "timestamp", "time", "timestamp without time zone", "timestamp with time zone",
-		"time without time zone", "time with time zone", "timestamptz", "timetz":
-		return KindTime
-	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob", "bytea", "bit", "geometry":
-		return KindBytes
-	case "json", "jsonb":
-		return KindJSON
-	default:
-		return KindString
+func mysqlToPGBase() map[string]string {
+	return map[string]string{
+		tTinyint: tSmallint, tMediumint: tInteger, "year": tSmallint, tFloat: tReal, tDouble: tDoublePrec,
+		tDoublePrec: tDoublePrec, tDatetime: tTimestamp, tTimestamp: tTimestamp, tDate: tDate, tTime: tTime,
+		"binary": tBytea, "varbinary": tBytea, "tinyblob": tBytea, "blob": tBytea, "mediumblob": tBytea,
+		tLongblob: tBytea, "bit": tBytea, "geometry": tBytea, tJSON: tJSONB,
 	}
 }
 
 func mysqlToPG(p parsedType) string {
 	switch p.base {
-	case "tinyint", "smallint":
-		if p.unsigned && p.base == "smallint" {
-			return "integer"
-		}
-
-		return "smallint"
-	case "mediumint":
-		return "integer"
-	case "int", "integer":
+	case tSmallint:
 		if p.unsigned {
-			return "bigint"
+			return tInteger
 		}
 
-		return "integer"
-	case "bigint":
+		return tSmallint
+	case tInt, tInteger:
+		if p.unsigned {
+			return tBigint
+		}
+
+		return tInteger
+	case tBigint:
 		if p.unsigned {
 			return "numeric(20)"
 		}
 
-		return "bigint"
-	case "year":
-		return "smallint"
-	case "varchar", "char":
+		return tBigint
+	case tVarchar, tChar:
 		if p.args == "" {
-			return "text"
+			return tText
 		}
 
-		return map[string]string{"varchar": "varchar", "char": "char"}[p.base] + "(" + p.args + ")"
-	case "decimal", "numeric", "dec", "fixed":
+		return p.base + "(" + p.args + ")"
+	case tDecimal, tNumeric, "dec", "fixed":
 		return numericWithArgs(p.args)
-	case "float":
-		return "real"
-	case "double", "double precision":
-		return "double precision"
-	case "datetime", "timestamp":
-		return "timestamp"
-	case "date":
-		return "date"
-	case "time":
-		return "time"
-	case "binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob":
-		return "bytea"
-	case "json":
-		return "jsonb"
-	case "bit", "geometry":
-		return "bytea"
-	default:
-		return "text"
 	}
+
+	if v, ok := mysqlToPGBase()[p.base]; ok {
+		return v
+	}
+
+	return tText
 }
 
 func numericWithArgs(args string) string {
 	if args == "" {
-		return "numeric"
+		return tNumeric
 	}
 
 	return "numeric(" + args + ")"
 }
 
+func pgToMySQLBase() map[string]string {
+	return map[string]string{
+		tSmallint: tSmallint, "int2": tSmallint, "smallserial": tSmallint, tInteger: tInt, tInt: tInt, "int4": tInt,
+		"serial": tInt, tBigint: tBigint, "int8": tBigint, "bigserial": tBigint, tBoolean: "tinyint(1)",
+		"bool": "tinyint(1)", "money": "decimal(19,2)", tReal: tFloat, "float4": tFloat, tDoublePrec: tDouble,
+		"float8": tDouble, tTimestampN: tDatetime6, tTimestampZ: tDatetime6, tTimestamp: tDatetime6,
+		"timestamptz": tDatetime6, tDate: tDate, "time without time zone": tTime, "time with time zone": tTime,
+		tTime: tTime, "timetz": tTime, tBytea: tLongblob, tJSON: tJSON, tJSONB: tJSON, "uuid": "char(36)",
+	}
+}
+
 func pgToMySQL(p parsedType) string {
 	switch p.base {
-	case "smallint", "int2", "smallserial":
-		return "smallint"
-	case "integer", "int", "int4", "serial":
-		return "int"
-	case "bigint", "int8", "bigserial":
-		return "bigint"
-	case "boolean", "bool":
-		return "tinyint(1)"
-	case "character varying", "varchar":
+	case "character varying", tVarchar:
 		if p.args == "" {
-			return "longtext"
+			return tLongtext
 		}
 
 		return "varchar(" + p.args + ")"
-	case "character", "char", "bpchar":
+	case "character", tChar, "bpchar":
 		if p.args == "" {
 			return "char(1)"
 		}
 
 		return "char(" + p.args + ")"
-	case "numeric", "decimal":
+	case tNumeric, tDecimal:
 		if p.args == "" {
 			return "decimal(65,30)"
 		}
 
 		return "decimal(" + p.args + ")"
-	case "money":
-		return "decimal(19,2)"
-	case "real", "float4":
-		return "float"
-	case "double precision", "float8":
-		return "double"
-	case "timestamp without time zone", "timestamp with time zone", "timestamp", "timestamptz":
-		return "datetime(6)"
-	case "date":
-		return "date"
-	case "time without time zone", "time with time zone", "time", "timetz":
-		return "time"
-	case "bytea":
-		return "longblob"
-	case "json", "jsonb":
-		return "json"
-	case "uuid":
-		return "char(36)"
-	default:
-		return "longtext"
 	}
+
+	if v, ok := pgToMySQLBase()[p.base]; ok {
+		return v
+	}
+
+	return tLongtext
 }
 
 // TargetType renders the column type to use on a target of family dst when the source is src.

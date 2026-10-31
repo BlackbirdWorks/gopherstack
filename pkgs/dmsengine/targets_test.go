@@ -93,8 +93,8 @@ func itemsTarget() dmsengine.TargetTable {
 	return dmsengine.TargetTable{
 		SourceFamily: dmsengine.FamilyMySQL, Schema: "app", Name: "items", PK: []string{"id"},
 		Columns: []dmsengine.TargetColumn{
-			{Column: dmsengine.Column{Name: "id", Native: "int", Kind: dmsengine.KindInt}, Source: 0},
-			{Column: dmsengine.Column{Name: "name", Native: "varchar(10)", Nullable: true}, Source: 1},
+			{Name: "id", Native: "int", Kind: dmsengine.KindInt, Source: 0},
+			{Name: "name", Native: "varchar(10)", Nullable: true, Source: 1},
 		},
 	}
 }
@@ -103,9 +103,9 @@ func TestS3TargetCSV(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		want     map[string]string
 		name     string
 		settings string
-		want     map[string]string
 	}{
 		{
 			name:     "defaults",
@@ -116,8 +116,9 @@ func TestS3TargetCSV(t *testing.T) {
 			},
 		},
 		{
-			name:     "custom delimiters header op and null",
-			settings: `{"BucketName":"b","CsvDelimiter":"|","CsvRowDelimiter":"\r\n","CsvNullValue":"\\N","AddColumnName":true,"IncludeOpForFullLoad":true}`,
+			name: "custom delimiters header op and null",
+			settings: `{"BucketName":"b","CsvDelimiter":"|","CsvRowDelimiter":"\r\n","CsvNullValue":"\\N",` +
+				`"AddColumnName":true,"IncludeOpForFullLoad":true}`,
 			want: map[string]string{
 				"b/app/items/LOAD00000001.csv": "Op|id|name\r\nI|1|alpha\r\nI|2|\\N\r\nI|3|x,y\r\n",
 				"b/app/items/cdc":              "Op|id|name\r\nI|4|new\r\nU|1|ALPHA\r\nD|2|\\N\r\n",
@@ -146,11 +147,17 @@ func TestS3TargetCSV(t *testing.T) {
 			require.NoError(t, tgt.Prepare(t.Context(), tab, dmsengine.PrepDropAndCreate))
 			require.NoError(t, tgt.Load(t.Context(), tab, []dmsengine.Row{{"1", "alpha"}, {"2", nil}, {"3", "x,y"}}))
 			require.NoError(t, tgt.EndLoad(t.Context(), tab))
-			require.NoError(t, tgt.Apply(t.Context(), tab, dmsengine.Change{Op: dmsengine.OpInsert, After: dmsengine.Row{"4", "new"}}))
+			require.NoError(
+				t,
+				tgt.Apply(t.Context(), tab, dmsengine.Change{Op: dmsengine.OpInsert, After: dmsengine.Row{"4", "new"}}),
+			)
 			require.NoError(t, tgt.Apply(t.Context(), tab, dmsengine.Change{
 				Op: dmsengine.OpUpdate, Before: dmsengine.Row{"1", "alpha"}, After: dmsengine.Row{"1", "ALPHA"},
 			}))
-			require.NoError(t, tgt.Apply(t.Context(), tab, dmsengine.Change{Op: dmsengine.OpDelete, Before: dmsengine.Row{"2", nil}}))
+			require.NoError(
+				t,
+				tgt.Apply(t.Context(), tab, dmsengine.Change{Op: dmsengine.OpDelete, Before: dmsengine.Row{"2", nil}}),
+			)
 			require.NoError(t, tgt.Commit(t.Context()))
 
 			got := map[string]string{}
@@ -173,9 +180,9 @@ func TestS3TargetRejects(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		stores   dmsengine.Stores
 		name     string
 		settings string
-		stores   dmsengine.Stores
 	}{
 		{name: "no bucket", settings: `{}`, stores: dmsengine.Stores{Objects: &memObjects{}}},
 		{name: "bad json", settings: `{`, stores: dmsengine.Stores{Objects: &memObjects{}}},
@@ -221,7 +228,9 @@ func TestKinesisTargetRecords(t *testing.T) {
 	tab := itemsTarget()
 	require.NoError(t, tgt.Load(t.Context(), tab, []dmsengine.Row{{"1", "alpha"}, {"2", nil}}))
 	require.NoError(t, tgt.Apply(t.Context(), tab, dmsengine.Change{
-		Op: dmsengine.OpDelete, Before: dmsengine.Row{"1", "alpha"}, Time: time.Date(2024, 1, 2, 3, 4, 5, 123456000, time.UTC),
+		Op:     dmsengine.OpDelete,
+		Before: dmsengine.Row{"1", "alpha"},
+		Time:   time.Date(2024, 1, 2, 3, 4, 5, 123456000, time.UTC),
 	}))
 
 	require.Len(t, store.recs, 3)
@@ -247,8 +256,9 @@ func TestKinesisTargetControlRecordAndNulls(t *testing.T) {
 
 	store := &memStream{}
 	tgt, err := dmsengine.NewOpener(dmsengine.Stores{Streams: store}).OpenTarget(t.Context(), dmsengine.EndpointConfig{
-		Engine:          "kinesis",
-		KinesisSettings: `{"StreamArn":"arn:aws:kinesis:us-east-1:000000000000:stream/s","IncludeControlDetails":true,"IncludeNullAndEmpty":true}`,
+		Engine: "kinesis",
+		KinesisSettings: `{"StreamArn":"arn:aws:kinesis:us-east-1:000000000000:stream/s",` +
+			`"IncludeControlDetails":true,"IncludeNullAndEmpty":true}`,
 	}, dmsengine.FamilyMySQL)
 	require.NoError(t, err)
 
@@ -267,8 +277,8 @@ func TestDynamoTarget(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		pk          []string
 		mode        dmsengine.PrepMode
+		pk          []string
 		wantErr     bool
 		wantDropped bool
 	}{
@@ -310,7 +320,10 @@ func TestDynamoTarget(t *testing.T) {
 			}))
 			assert.Equal(t, "beta", store.items["items|1"]["name"].S)
 
-			require.NoError(t, tgt.Apply(t.Context(), tab, dmsengine.Change{Op: dmsengine.OpDelete, Before: dmsengine.Row{"2", nil}}))
+			require.NoError(
+				t,
+				tgt.Apply(t.Context(), tab, dmsengine.Change{Op: dmsengine.OpDelete, Before: dmsengine.Row{"2", nil}}),
+			)
 
 			keys := make([]string, 0, len(store.items))
 			for k := range store.items {
@@ -336,7 +349,10 @@ func TestS3TargetParquet(t *testing.T) {
 	require.NoError(t, tgt.Prepare(t.Context(), tab, dmsengine.PrepDropAndCreate))
 	require.NoError(t, tgt.Load(t.Context(), tab, []dmsengine.Row{{"1", "alpha"}, {"2", nil}}))
 	require.NoError(t, tgt.EndLoad(t.Context(), tab))
-	require.NoError(t, tgt.Apply(t.Context(), tab, dmsengine.Change{Op: dmsengine.OpInsert, After: dmsengine.Row{"3", "new"}}))
+	require.NoError(
+		t,
+		tgt.Apply(t.Context(), tab, dmsengine.Change{Op: dmsengine.OpInsert, After: dmsengine.Row{"3", "new"}}),
+	)
 	require.NoError(t, tgt.Commit(t.Context()))
 
 	var load, cdc string

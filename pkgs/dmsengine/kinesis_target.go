@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+var errNoStreamARN = errors.New("KinesisSettings.StreamArn is required")
+
 type kinesisOptions struct {
 	StreamArn                   string `json:"StreamArn"`
 	MessageFormat               string `json:"MessageFormat"`
@@ -22,9 +24,9 @@ type kinesisOptions struct {
 
 type kinesisTarget struct {
 	store  StreamStore
-	opts   kinesisOptions
-	stream string
 	now    func() time.Time
+	stream string
+	opts   kinesisOptions
 }
 
 func newKinesisTarget(ep EndpointConfig, store StreamStore) (Target, error) {
@@ -40,7 +42,7 @@ func newKinesisTarget(ep EndpointConfig, store StreamStore) (Target, error) {
 	}
 
 	if o.StreamArn == "" {
-		return nil, errors.New("KinesisSettings.StreamArn is required")
+		return nil, errNoStreamARN
 	}
 
 	name := o.StreamArn[strings.LastIndex(o.StreamArn, "/")+1:]
@@ -72,23 +74,26 @@ func (t *kinesisTarget) Prepare(ctx context.Context, tt TargetTable, _ PrepMode)
 }
 
 func (t *kinesisTarget) value(v any, k Kind) any {
-	switch x := v.(type) {
-	case []byte:
-		return fmt.Sprintf("%X", x)
-	case string:
-		switch k {
-		case KindInt, KindFloat, KindDecimal:
-			if _, err := strconv.ParseFloat(x, 64); err == nil {
-				return json.Number(x)
-			}
-		case KindBool:
-			return x == "1" || x == "t" || strings.EqualFold(x, "true")
-		}
-
-		return x
+	if b, ok := v.([]byte); ok {
+		return fmt.Sprintf("%X", b)
 	}
 
-	return v
+	x, ok := v.(string)
+	if !ok {
+		return v
+	}
+
+	if isNumeric(k) {
+		if _, err := strconv.ParseFloat(x, 64); err == nil {
+			return json.Number(x)
+		}
+	}
+
+	if k == KindBool {
+		return x == "1" || x == "t" || strings.EqualFold(x, "true")
+	}
+
+	return x
 }
 
 func (t *kinesisTarget) dataOf(tt TargetTable, row Row) map[string]any {
@@ -134,7 +139,7 @@ func (t *kinesisTarget) send(
 
 	pk := tt.Schema + "." + tt.Name
 	meta := map[string]any{
-		"timestamp":          ts.UTC().Format("2006-01-02T15:04:05.000000Z"),
+		tTimestamp:           ts.UTC().Format("2006-01-02T15:04:05.000000Z"),
 		"record-type":        recType,
 		"operation":          op,
 		"partition-key-type": "schema-table",

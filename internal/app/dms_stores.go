@@ -19,6 +19,12 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
+// wireRDSIntegrations connects the RDS Data API and DMS to the services they read and write.
+func wireRDSIntegrations(byName map[string]service.Registerable) {
+	wireRDSData(byName["RDSData"], byName["RDS"], byName["SecretsManager"])
+	wireDMSStores(byName)
+}
+
 // wireDMSStores lets DMS replication tasks write into the in-process S3, Kinesis and DynamoDB backends.
 func wireDMSStores(byName map[string]service.Registerable) {
 	dmsH, ok := byName["DMS"].(*dmsbackend.Handler)
@@ -65,7 +71,9 @@ func (o *dmsObjects) CheckBucket(ctx context.Context, bucket string) error {
 	return err
 }
 
-type dmsStreams struct{ bk *kinesisbackend.InMemoryBackend }
+type dmsStreams struct {
+	bk *kinesisbackend.InMemoryBackend
+}
 
 func (s *dmsStreams) PutRecord(ctx context.Context, stream, partitionKey string, data []byte) error {
 	_, err := s.bk.PutRecord(ctx, &kinesisbackend.PutRecordInput{

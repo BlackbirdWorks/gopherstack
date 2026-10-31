@@ -45,7 +45,11 @@ type stubSource struct {
 
 func newStubSource() *stubSource {
 	return &stubSource{
-		hold: make(chan struct{}), changes: make(chan dmsengine.Change, 8), startAts: make(chan dmsengine.StreamStart, 8),
+		hold: make(
+			chan struct{},
+		),
+		changes:  make(chan dmsengine.Change, 8),
+		startAts: make(chan dmsengine.StreamStart, 8),
 		tables: []dmsengine.Table{{Schema: "app", Name: "items", PK: []string{"id"}, Columns: []dmsengine.Column{
 			{Name: "id", Native: "int"}, {Name: "name", Native: "text"},
 		}}},
@@ -369,8 +373,8 @@ func TestEngineFallbackIsStateOnly(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		engineOn  bool
 		srcEngine string
+		engineOn  bool
 	}{
 		{name: "engine disabled", engineOn: false, srcEngine: "mysql"},
 		{name: "unsupported source engine", engineOn: true, srcEngine: "oracle"},
@@ -408,10 +412,34 @@ func rebuildWithoutEngine(t *testing.T, b *dms.InMemoryBackend) *engineEnv {
 		dms.ReplicationInstanceSettings{})
 	require.NoError(t, err)
 
-	src, err := b.CreateEndpoint(ctx, "src", "source", "mysql", "127.0.0.1", "app", "u", "p", 3306, nil, dms.EndpointConnectionSettings{})
+	src, err := b.CreateEndpoint(
+		ctx,
+		"src",
+		"source",
+		"mysql",
+		"127.0.0.1",
+		"app",
+		"u",
+		"p",
+		3306,
+		nil,
+		dms.EndpointConnectionSettings{},
+	)
 	require.NoError(t, err)
 
-	tgt, err := b.CreateEndpoint(ctx, "tgt", "target", "postgres", "127.0.0.1", "app", "u", "p", 5432, nil, dms.EndpointConnectionSettings{})
+	tgt, err := b.CreateEndpoint(
+		ctx,
+		"tgt",
+		"target",
+		"postgres",
+		"127.0.0.1",
+		"app",
+		"u",
+		"p",
+		5432,
+		nil,
+		dms.EndpointConnectionSettings{},
+	)
 	require.NoError(t, err)
 
 	task, err := b.CreateReplicationTask(ctx, "task", src.EndpointArn, tgt.EndpointArn, ri.ReplicationInstanceArn,

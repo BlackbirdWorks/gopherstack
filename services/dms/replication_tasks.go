@@ -115,6 +115,7 @@ func (b *InMemoryBackend) CreateReplicationTask(
 		b.tasksByEndpointARN[targetEndpointArn] = make(map[string]struct{})
 	}
 	b.tasksByEndpointARN[targetEndpointArn][taskARN] = struct{}{}
+
 	return b.viewTask(rt), nil
 }
 
@@ -443,7 +444,13 @@ func (b *InMemoryBackend) ReloadTables(
 	if run, ok := b.eng.runsFor(rt.ReplicationTaskArn); ok && run.task != nil {
 		for _, ref := range refs {
 			if !run.task.Has(ref) {
-				return nil, fmt.Errorf("%w: table %s.%s is not part of task %s", ErrNotFound, ref.Schema, ref.Name, arnOrID)
+				return nil, fmt.Errorf(
+					"%w: table %s.%s is not part of task %s",
+					ErrNotFound,
+					ref.Schema,
+					ref.Name,
+					arnOrID,
+				)
 			}
 		}
 

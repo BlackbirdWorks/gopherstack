@@ -2,12 +2,12 @@ package dmsengine
 
 import (
 	"context"
-	"crypto/tls"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +18,13 @@ import (
 )
 
 var errBinlog = errors.New("binary log capture unavailable")
+
+const (
+	positionColumns = 2
+	binlogStartPos  = 4
+	serverIDBase    = 2_000_000
+	serverIDSpan    = 1_000_000
+)
 
 type mysqlSource struct {
 	db  *sql.DB
@@ -32,7 +39,7 @@ func mysqlDB(ep EndpointConfig, clientFound bool) (*sql.DB, error) {
 	c.Loc = time.UTC
 
 	if tlsRequired(ep.SSLMode) {
-		c.TLS = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} //nolint:gosec // local emulator CA
+		c.TLS = skipVerifyTLS()
 	}
 
 	conn, err := sqldriver.NewConnector(c)
@@ -65,7 +72,8 @@ const mysqlColumnsSQL = "SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.C
 	"ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION"
 
 const mysqlKeysSQL = "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE " +
-	"WHERE CONSTRAINT_NAME = 'PRIMARY' AND TABLE_SCHEMA NOT IN ('mysql','information_schema','performance_schema','sys') " +
+	"WHERE CONSTRAINT_NAME = 'PRIMARY' " +
+	"AND TABLE_SCHEMA NOT IN ('mysql','information_schema','performance_schema','sys') " +
 	"ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION"
 
 func (s *mysqlSource) Tables(ctx context.Context) ([]Table, error) {
@@ -99,7 +107,10 @@ func (s *mysqlSource) Tables(ctx context.Context) ([]Table, error) {
 			out = append(out, Table{Schema: schema, Name: table})
 		}
 
-		out[i].Columns = append(out[i].Columns, Column{Name: col, Native: typ, Kind: KindOf(typ), Nullable: nullable == "YES"})
+		out[i].Columns = append(
+			out[i].Columns,
+			Column{Name: col, Native: typ, Kind: KindOf(typ), Nullable: nullable == "YES"},
+		)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -136,8 +147,8 @@ func (s *mysqlSource) Scan(ctx context.Context, t Table, fn func(Row) error) err
 		names[i] = QuoteIdent(FamilyMySQL, c.Name)
 	}
 
-	q := "SELECT " + strings.Join(names, ", ") + " FROM " + QuoteIdent(FamilyMySQL, t.Schema) + "." +
-		QuoteIdent(FamilyMySQL, t.Name)
+	q := stmt("SELECT ", strings.Join(names, ", "), " FROM ", QuoteIdent(FamilyMySQL, t.Schema), ".",
+		QuoteIdent(FamilyMySQL, t.Name))
 
 	rows, err := s.db.QueryContext(ctx, q)
 	if err != nil {
@@ -244,7 +255,7 @@ func (s *mysqlSource) Position(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	if len(row) < 2 {
+	if len(row) < positionColumns {
 		return "", fmt.Errorf("%w: binary logging is not enabled on the source", errBinlog)
 	}
 
@@ -284,7 +295,7 @@ func (s *mysqlSource) startPosition(ctx context.Context, start StreamStart) (mys
 			return mysql.Position{}, fmt.Errorf("%w: cannot list binary logs", errBinlog)
 		}
 
-		return mysql.Position{Name: anyText(row[0]), Pos: 4}, nil
+		return mysql.Position{Name: anyText(row[0]), Pos: binlogStartPos}, nil
 	}
 
 	cur, err := s.Position(ctx)
@@ -300,7 +311,8 @@ func (s *mysqlSource) startPosition(ctx context.Context, start StreamStart) (mys
 func (s *mysqlSource) isMariaDB(ctx context.Context) bool {
 	var v string
 
-	return s.db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&v) == nil && strings.Contains(strings.ToLower(v), "mariadb")
+	return s.db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&v) == nil &&
+		strings.Contains(strings.ToLower(v), "mariadb")
 }
 
 func (s *mysqlSource) syncerConfig(ctx context.Context) (replication.BinlogSyncerConfig, error) {
@@ -317,13 +329,13 @@ func (s *mysqlSource) syncerConfig(ctx context.Context) (replication.BinlogSynce
 	}
 
 	cfg := replication.BinlogSyncerConfig{
-		ServerID: 2_000_000 + rand.Uint32N(1_000_000), //nolint:gosec // replica ids need uniqueness, not secrecy
+		ServerID: serverIDBase + rand.Uint32N(serverIDSpan), //nolint:gosec // replica ids need uniqueness, not secrecy
 		Flavor:   flavor, Host: host, Port: uint16(port), User: s.cfg.User, Password: s.cfg.Password,
 		UseDecimal: true, TimestampStringLocation: time.UTC,
 	}
 
 	if tlsRequired(s.cfg.SSLMode) {
-		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} //nolint:gosec // local emulator CA
+		cfg.TLSConfig = skipVerifyTLS()
 	}
 
 	return cfg, nil
@@ -356,35 +368,38 @@ func (s *mysqlSource) Stream(
 		ev, gerr := streamer.GetEvent(ctx)
 		if gerr != nil {
 			if ctx.Err() != nil {
-				return nil //nolint:nilerr // cancellation is the normal stop
+				return nil
 			}
 
 			return gerr
 		}
 
-		ts := time.Unix(int64(ev.Header.Timestamp), 0).UTC()
-
-		switch e := ev.Event.(type) {
-		case *replication.RotateEvent:
-			file = string(e.NextLogName)
-		case *replication.XIDEvent:
-			if ts.Before(start.Time) {
-				continue
-			}
-
-			if err = fn(Change{Time: ts, Commit: true, Position: binlogPos(file, ev.Header.LogPos)}); err != nil {
-				return err
-			}
-		case *replication.RowsEvent:
-			if ts.Before(start.Time) {
-				continue
-			}
-
-			if err = s.emitRows(ev, e, file, ts, tables, fn); err != nil {
-				return err
-			}
+		if err = s.handleEvent(ev, &file, start.Time, tables, fn); err != nil {
+			return err
 		}
 	}
+}
+
+func (s *mysqlSource) handleEvent(
+	ev *replication.BinlogEvent, file *string, since time.Time, tables func(string, string) (Table, bool),
+	fn func(Change) error,
+) error {
+	ts := time.Unix(int64(ev.Header.Timestamp), 0).UTC()
+
+	switch e := ev.Event.(type) {
+	case *replication.RotateEvent:
+		*file = string(e.NextLogName)
+	case *replication.XIDEvent:
+		if !ts.Before(since) {
+			return fn(Change{Time: ts, Commit: true, Position: binlogPos(*file, ev.Header.LogPos)})
+		}
+	case *replication.RowsEvent:
+		if !ts.Before(since) {
+			return s.emitRows(ev, e, *file, ts, tables, fn)
+		}
+	}
+
+	return nil
 }
 
 func binlogPos(file string, pos uint32) string { return fmt.Sprintf("%s:%d", file, pos) }
@@ -401,9 +416,8 @@ func (s *mysqlSource) emitRows(
 	base := Change{Time: ts, Schema: t.Schema, Table: t.Name, Position: binlogPos(file, ev.Header.LogPos)}
 	conv := func(r []any) Row { return binlogRow(r, t) }
 
-	switch ev.Header.EventType {
-	case replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2,
-		replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
+	switch rowsKind(ev.Header.EventType) {
+	case OpInsert:
 		for _, r := range e.Rows {
 			c := base
 			c.Op, c.After = OpInsert, conv(r)
@@ -412,8 +426,7 @@ func (s *mysqlSource) emitRows(
 				return err
 			}
 		}
-	case replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2,
-		replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
+	case OpDelete:
 		for _, r := range e.Rows {
 			c := base
 			c.Op, c.Before = OpDelete, conv(r)
@@ -422,8 +435,7 @@ func (s *mysqlSource) emitRows(
 				return err
 			}
 		}
-	case replication.UPDATE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2,
-		replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
+	case OpUpdate:
 		for i := 0; i+1 < len(e.Rows); i += 2 {
 			c := base
 			c.Op, c.Before, c.After = OpUpdate, conv(e.Rows[i]), conv(e.Rows[i+1])
@@ -435,6 +447,33 @@ func (s *mysqlSource) emitRows(
 	}
 
 	return nil
+}
+
+// rowsKind maps a rows-event type to the change operation it carries, or "" for other events.
+func rowsKind(t replication.EventType) Op {
+	writes := []replication.EventType{
+		replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2,
+		replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1,
+	}
+	deletes := []replication.EventType{
+		replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2,
+		replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1,
+	}
+	updates := []replication.EventType{
+		replication.UPDATE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2,
+		replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1,
+	}
+
+	switch {
+	case slices.Contains(writes, t):
+		return OpInsert
+	case slices.Contains(deletes, t):
+		return OpDelete
+	case slices.Contains(updates, t):
+		return OpUpdate
+	}
+
+	return ""
 }
 
 func binlogRow(vals []any, t Table) Row {
@@ -461,15 +500,15 @@ func binlogValue(v any, col Column) any {
 	case []byte:
 		return textForm(x, col.Kind)
 	case int8:
-		return intText(int64(x), 8, col)
+		return intText(int64(x), col)
 	case int16:
-		return intText(int64(x), 16, col)
+		return intText(int64(x), col)
 	case int32:
-		return intText(int64(x), 32, col)
+		return intText(int64(x), col)
 	case int:
-		return intText(int64(x), 32, col)
+		return intText(int64(x), col)
 	case int64:
-		return intText(x, 64, col)
+		return intText(x, col)
 	case uint64:
 		return strconv.FormatUint(x, 10)
 	case float32:
@@ -483,9 +522,22 @@ func binlogValue(v any, col Column) any {
 	}
 }
 
-var unsignedBits = map[string]uint{"tinyint": 8, "smallint": 16, "mediumint": 24, "int": 32, "integer": 32, "bigint": 64}
+const (
+	bitsTiny   = 8
+	bitsSmall  = 16
+	bitsMedium = 24
+	bitsInt    = 32
+	bitsBig    = 64
+)
 
-func intText(v int64, width uint, col Column) string {
+func unsignedBits(base string) uint {
+	return map[string]uint{
+		tTinyint: bitsTiny, tSmallint: bitsSmall, tMediumint: bitsMedium, tInt: bitsInt, tInteger: bitsInt,
+		tBigint: bitsBig,
+	}[base]
+}
+
+func intText(v int64, col Column) string {
 	p := parseNative(col.Native)
 
 	switch p.base {
@@ -496,13 +548,9 @@ func intText(v int64, width uint, col Column) string {
 	}
 
 	if p.unsigned && v < 0 {
-		bits := unsignedBits[p.base]
-		if bits == 0 {
-			bits = width
-		}
-
-		if bits >= 64 {
-			return strconv.FormatUint(uint64(v), 10)
+		bits := unsignedBits(p.base)
+		if bits == 0 || bits >= bitsBig {
+			return strconv.FormatUint(uint64(v), 10) //nolint:gosec // reinterpreting a signed binlog value as unsigned
 		}
 
 		return strconv.FormatInt(v+(int64(1)<<bits), 10)
@@ -512,10 +560,11 @@ func intText(v int64, width uint, col Column) string {
 }
 
 func enumMembers(args string) []string {
-	var out []string
+	parts := strings.Split(args, "','")
+	out := make([]string, len(parts))
 
-	for _, m := range strings.Split(args, "','") {
-		out = append(out, strings.Trim(m, "'"))
+	for i, m := range parts {
+		out[i] = strings.Trim(m, "'")
 	}
 
 	return out

@@ -28,6 +28,7 @@ const (
 	tableCompleted      = "Table completed"
 	tableError          = "Table error"
 	tableBeingReloaded  = "Table is being reloaded"
+	loadBatchRows       = 1000
 	cdcStopServerPrefix = "server_time:"
 	cdcStopCommitPrefix = "commit_time:"
 )
@@ -94,12 +95,12 @@ type planned struct {
 
 // Task runs one replication from start to finish.
 type Task struct {
-	cfg     TaskConfig
-	applyMu sync.Mutex
-	pmu     sync.Mutex
 	plans   map[string]*planned
 	order   []*planned
+	cfg     TaskConfig
 	prog    Progress
+	applyMu sync.Mutex
+	pmu     sync.Mutex
 }
 
 // NewTask builds a task; call Run once.
@@ -177,7 +178,7 @@ func (t *Task) Run(ctx context.Context) Result {
 }
 
 func (t *Task) finish(ctx context.Context, err error) Result {
-	var stop *stopSignal
+	var stop *stopError
 
 	switch {
 	case errors.As(err, &stop):
@@ -274,7 +275,7 @@ func (t *Task) copyTable(ctx context.Context, pl *planned, mode PrepMode, reload
 		return fmt.Errorf("prepare target table %s: %w", pl.target.Key(), err)
 	}
 
-	batch := make([]Row, 0, min(t.cfg.Settings.CommitRate, 1000))
+	batch := make([]Row, 0, min(t.cfg.Settings.CommitRate, loadBatchRows))
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
@@ -345,9 +346,9 @@ func (t *Task) Reload(ctx context.Context, refs []TableRef) error {
 	return nil
 }
 
-type stopSignal struct{ reason string }
+type stopError struct{ reason string }
 
-func (s *stopSignal) Error() string { return s.reason }
+func (s *stopError) Error() string { return s.reason }
 
 func parseStopTime(spec string) (time.Time, string, bool) {
 	var reason string
@@ -366,9 +367,13 @@ func parseStopTime(spec string) (time.Time, string, bool) {
 	return ts, reason, ok
 }
 
+func cdcTimeLayouts() []string {
+	return []string{time.RFC3339Nano, "2006-01-02T15:04:05", "2006-01-02 15:04:05", "2006-01-02T15:04:05Z0700"}
+}
+
 // ParseCDCTime reads the timestamp forms CdcStartPosition and CdcStopPosition accept.
 func ParseCDCTime(s string) (time.Time, bool) {
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05", "2006-01-02 15:04:05", "2006-01-02T15:04:05Z0700"} {
+	for _, layout := range cdcTimeLayouts() {
 		if ts, err := time.ParseInLocation(layout, strings.TrimSpace(s), time.UTC); err == nil {
 			return ts.UTC(), true
 		}
@@ -419,11 +424,11 @@ func (t *Task) cdc(ctx context.Context, captured string) error {
 		}
 
 		if hasStop && stopReason == StopAtCommitTime && !c.Time.Before(stopAt) {
-			return &stopSignal{reason: stopReason}
+			return &stopError{reason: stopReason}
 		}
 
 		if hasStop && stopReason == StopAtServerTime && !t.cfg.Now().Before(stopAt) {
-			return &stopSignal{reason: stopReason}
+			return &stopError{reason: stopReason}
 		}
 
 		return t.apply(ctx, c)
@@ -479,7 +484,11 @@ func (t *Task) apply(ctx context.Context, c Change) error {
 func rowWidth(src Table, c Change) string {
 	for _, r := range []Row{c.Before, c.After} {
 		if r != nil && len(r) != len(src.Columns) {
-			return fmt.Sprintf("source table definition changed: row has %d columns, expected %d", len(r), len(src.Columns))
+			return fmt.Sprintf(
+				"source table definition changed: row has %d columns, expected %d",
+				len(r),
+				len(src.Columns),
+			)
 		}
 	}
 

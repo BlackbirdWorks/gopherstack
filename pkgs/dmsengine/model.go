@@ -89,16 +89,14 @@ const (
 
 // Change is one captured row change; Before is set for updates and deletes when the source logs it.
 type Change struct {
-	Time   time.Time
-	Schema string
-	Table  string
-	Op     Op
-	Before Row
-	After  Row
-	// Position is the source position just after this change.
+	Time     time.Time
+	Schema   string
+	Table    string
+	Op       Op
 	Position string
-	// Commit marks a transaction boundary instead of a row change.
-	Commit bool
+	Before   Row
+	After    Row
+	Commit   bool
 }
 
 // StreamStart says where change capture begins.
@@ -115,7 +113,12 @@ type Source interface {
 	// Position captures the current change position; for PostgreSQL it also creates the replication slot.
 	Position(ctx context.Context) (string, error)
 	// Stream delivers changes from start until ctx is done or fn fails. Rows are in the table's column order.
-	Stream(ctx context.Context, start StreamStart, tables func(schema, table string) (Table, bool), fn func(Change) error) error
+	Stream(
+		ctx context.Context,
+		start StreamStart,
+		tables func(schema, table string) (Table, bool),
+		fn func(Change) error,
+	) error
 	// Release drops source-side resources such as replication slots.
 	Release(ctx context.Context) error
 	Close() error
@@ -139,13 +142,13 @@ type TargetColumn struct {
 
 // TargetTable is a source table after mapping rules.
 type TargetTable struct {
-	SourceFamily Family
 	Schema       string
 	Name         string
 	SourceSchema string
 	SourceName   string
 	Columns      []TargetColumn
 	PK           []string
+	SourceFamily Family
 }
 
 // Key is "schema.table" on the target.

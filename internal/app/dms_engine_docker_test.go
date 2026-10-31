@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http/httptest"
@@ -53,9 +54,9 @@ func requireDMSDocker(t *testing.T, images ...string) {
 }
 
 type dmsHarness struct {
-	cfg aws.Config
 	rds *rds.Client
 	dms *databasemigrationservice.Client
+	cfg aws.Config
 }
 
 func newDMSHarness(t *testing.T) *dmsHarness {
@@ -110,7 +111,10 @@ func (h *dmsHarness) createDB(t *testing.T, id, engine, version string) dbEndpoi
 			DBInstanceIdentifier: aws.String(id), SkipFinalSnapshot: aws.Bool(true),
 		})
 		require.Eventually(t, func() bool {
-			_, derr := h.rds.DescribeDBInstances(bg, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(id)})
+			_, derr := h.rds.DescribeDBInstances(
+				bg,
+				&rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(id)},
+			)
 
 			return derr != nil
 		}, time.Minute, dmsPoll)
@@ -218,15 +222,23 @@ func (h *dmsHarness) task(t *testing.T, id, src, tgt, ri, migration, mappings st
 	t.Helper()
 
 	out, err := h.dms.CreateReplicationTask(t.Context(), &databasemigrationservice.CreateReplicationTaskInput{
-		ReplicationTaskIdentifier: aws.String(id), SourceEndpointArn: aws.String(src), TargetEndpointArn: aws.String(tgt),
-		ReplicationInstanceArn: aws.String(ri), MigrationType: dmstypes.MigrationTypeValue(migration),
-		TableMappings: aws.String(mappings),
+		ReplicationTaskIdentifier: aws.String(
+			id,
+		),
+		SourceEndpointArn:      aws.String(src),
+		TargetEndpointArn:      aws.String(tgt),
+		ReplicationInstanceArn: aws.String(ri),
+		MigrationType:          dmstypes.MigrationTypeValue(migration),
+		TableMappings:          aws.String(mappings),
 	})
 	require.NoError(t, err)
 
 	arn := aws.ToString(out.ReplicationTask.ReplicationTaskArn)
 	_, err = h.dms.StartReplicationTask(t.Context(), &databasemigrationservice.StartReplicationTaskInput{
-		ReplicationTaskArn: aws.String(arn), StartReplicationTaskType: dmstypes.StartReplicationTaskTypeValueStartReplication,
+		ReplicationTaskArn: aws.String(
+			arn,
+		),
+		StartReplicationTaskType: dmstypes.StartReplicationTaskTypeValueStartReplication,
 	})
 	require.NoError(t, err)
 
@@ -260,6 +272,16 @@ func (h *dmsHarness) awaitStatus(t *testing.T, arn, want string) dmstypes.Replic
 	}, dmsDockerWait, dmsPoll)
 
 	return got
+}
+
+func (h *dmsHarness) stop(t *testing.T, arn string) {
+	t.Helper()
+
+	_, err := h.dms.StopReplicationTask(t.Context(), &databasemigrationservice.StopReplicationTaskInput{
+		ReplicationTaskArn: aws.String(arn),
+	})
+	require.NoError(t, err)
+	h.awaitStatus(t, arn, "stopped")
 }
 
 func (h *dmsHarness) tableStats(t *testing.T, arn string) map[string]dmstypes.TableStatistics {
@@ -311,6 +333,10 @@ func queryRows(t *testing.T, db *sql.DB, q string) [][]string {
 		out = append(out, r)
 	}
 
+	if rows.Err() != nil {
+		return nil
+	}
+
 	return out
 }
 
@@ -326,18 +352,31 @@ func awaitRows(t *testing.T, db *sql.DB, q string, want [][]string) {
 	}, dmsDockerWait, dmsPoll, "query %q want %v last %v", q, want, got)
 }
 
-const itemsMapping = `{"rules":[
- {"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"appdb","table-name":"items"},"rule-action":"include"}]}`
+const (
+	schemaRename = `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-target":"schema",` +
+		`"rule-action":"rename","object-locator":{"schema-name":"%s"},"value":"%s"}`
+	selectItems = `{"rule-type":"selection","rule-id":"1","rule-name":"1","rule-action":"include",` +
+		`"object-locator":{"schema-name":"%s","table-name":"items"}}`
+)
 
-const renameMapping = `{"rules":[
- {"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"appdb","table-name":"items"},"rule-action":"include"},
- {"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-target":"schema","rule-action":"rename","object-locator":{"schema-name":"appdb"},"value":"dst"},
- {"rule-type":"transformation","rule-id":"3","rule-name":"3","rule-target":"table","rule-action":"rename","object-locator":{"schema-name":"appdb","table-name":"items"},"value":"items_copy"}]}`
+func mappingRules(rules ...string) string { return `{"rules":[` + strings.Join(rules, ",") + `]}` }
 
-const pgRenameMapping = `{"rules":[
- {"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"public","table-name":"items"},"rule-action":"include"},
- {"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-target":"schema","rule-action":"rename","object-locator":{"schema-name":"public"},"value":"appdb"},
- {"rule-type":"transformation","rule-id":"3","rule-name":"3","rule-target":"column","rule-action":"remove-column","object-locator":{"schema-name":"public","table-name":"items","column-name":"note"}}]}`
+func renameMapping() string {
+	return mappingRules(
+		fmt.Sprintf(selectItems, "appdb"),
+		fmt.Sprintf(schemaRename, "appdb", "dst"),
+		`{"rule-type":"transformation","rule-id":"3","rule-name":"3","rule-target":"table","rule-action":"rename",`+
+			`"object-locator":{"schema-name":"appdb","table-name":"items"},"value":"items_copy"}`)
+}
+
+func pgRenameMapping() string {
+	return mappingRules(
+		fmt.Sprintf(selectItems, "public"),
+		fmt.Sprintf(schemaRename, "public", "appdb"),
+		`{"rule-type":"transformation","rule-id":"3","rule-name":"3","rule-target":"column",`+
+			`"rule-action":"remove-column","object-locator":{"schema-name":"public","table-name":"items",`+
+			`"column-name":"note"}}`)
+}
 
 func TestDMSDockerMySQLToPostgres(t *testing.T) {
 	t.Parallel()
@@ -375,7 +414,7 @@ func TestDMSDockerMySQLToPostgres(t *testing.T) {
 	assert.Contains(t, aws.ToString(conn.Connection.LastFailureMessage), "connect")
 	assert.NotContains(t, aws.ToString(conn.Connection.LastFailureMessage), dmsMasterPass)
 
-	taskARN := h.task(t, "mysql-to-pg", srcARN, tgtARN, ri, "full-load-and-cdc", renameMapping)
+	taskARN := h.task(t, "mysql-to-pg", srcARN, tgtARN, ri, "full-load-and-cdc", renameMapping())
 
 	running := h.awaitStatus(t, taskARN, "running")
 	require.NotNil(t, running.ReplicationTaskStats)
@@ -438,13 +477,14 @@ func TestDMSDockerPostgresToMySQL(t *testing.T) {
 	ri := h.instance(t)
 	srcARN := h.endpoint(t, "src-ep", dmstypes.ReplicationEndpointTypeValueSource, "postgres", &srcEP, nil)
 	tgtARN := h.endpoint(t, "tgt-ep", dmstypes.ReplicationEndpointTypeValueTarget, "mysql", &tgtEP, nil)
-	taskARN := h.task(t, "pg-to-mysql", srcARN, tgtARN, ri, "full-load-and-cdc", pgRenameMapping)
+	taskARN := h.task(t, "pg-to-mysql", srcARN, tgtARN, ri, "full-load-and-cdc", pgRenameMapping())
 
 	h.awaitStatus(t, taskARN, "running")
 	q := "SELECT id, name, price, seen FROM appdb.items ORDER BY id"
 	awaitRows(t, tgt, q, [][]string{{"1", "alpha", "1.50", "2024-01-02 03:04:05.000000"}})
 
-	cols := queryRows(t, tgt, "SELECT column_name FROM information_schema.columns WHERE table_schema='appdb' AND table_name='items' ORDER BY ordinal_position")
+	cols := queryRows(t, tgt, "SELECT column_name FROM information_schema.columns "+
+		"WHERE table_schema='appdb' AND table_name='items' ORDER BY ordinal_position")
 	assert.Equal(t, [][]string{{"id"}, {"name"}, {"price"}, {"seen"}}, cols)
 
 	mustExec(t, src,
@@ -474,6 +514,11 @@ func TestDMSDockerPostgresToMySQL(t *testing.T) {
 	}, time.Minute, dmsPoll)
 }
 
+func tableMapping(table string) string {
+	return `{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1",` +
+		`"object-locator":{"schema-name":"appdb","table-name":"` + table + `"},"rule-action":"include"}]}`
+}
+
 func TestDMSDockerMySQLToInProcessTargets(t *testing.T) {
 	t.Parallel()
 	requireDMSDocker(t, "mysql:8.4")
@@ -481,17 +526,23 @@ func TestDMSDockerMySQLToInProcessTargets(t *testing.T) {
 	h := newDMSHarness(t)
 	srcEP := h.createDB(t, "src", "mysql", "8.4")
 	src := openDB(t, "mysql", srcEP)
-	mustExec(t, src,
-		"CREATE TABLE items (id INT PRIMARY KEY, name VARCHAR(40))",
-		"INSERT INTO items VALUES (1,'alpha'),(2,'be,ta')")
+
+	for _, tbl := range []string{"s3_full", "s3_cdc", "kin", "ddb"} {
+		mustExec(t, src,
+			"CREATE TABLE "+tbl+" (id INT PRIMARY KEY, name VARCHAR(40))",
+			"INSERT INTO "+tbl+" VALUES (1,'alpha'),(2,'be,ta')")
+	}
 
 	ri := h.instance(t)
 	srcARN := h.endpoint(t, "src-ep", dmstypes.ReplicationEndpointTypeValueSource, "mysql", &srcEP, nil)
 
 	s3c := s3.NewFromConfig(h.cfg, func(o *s3.Options) { o.UsePathStyle = true })
+	_, err := s3c.CreateBucket(t.Context(), &s3.CreateBucketInput{Bucket: aws.String("dms-out")})
+	require.NoError(t, err)
+
 	getObject := func(key string) (string, bool) {
-		out, err := s3c.GetObject(t.Context(), &s3.GetObjectInput{Bucket: aws.String("dms-out"), Key: aws.String(key)})
-		if err != nil {
+		out, gerr := s3c.GetObject(t.Context(), &s3.GetObjectInput{Bucket: aws.String("dms-out"), Key: aws.String(key)})
+		if gerr != nil {
 			return "", false
 		}
 		defer out.Body.Close()
@@ -501,84 +552,79 @@ func TestDMSDockerMySQLToInProcessTargets(t *testing.T) {
 		return string(b), true
 	}
 
-	t.Run("s3 csv", func(t *testing.T) {
-		_, err := s3c.CreateBucket(t.Context(), &s3.CreateBucketInput{Bucket: aws.String("dms-out")})
-		require.NoError(t, err)
-
-		tgt := h.endpoint(t, "s3-ep", dmstypes.ReplicationEndpointTypeValueTarget, "s3", nil,
+	s3Endpoint := func(id, folder string) string {
+		return h.endpoint(t, id, dmstypes.ReplicationEndpointTypeValueTarget, "s3", nil,
 			func(in *databasemigrationservice.CreateEndpointInput) {
 				in.S3Settings = &dmstypes.S3Settings{
-					BucketName: aws.String("dms-out"), BucketFolder: aws.String("full"),
+					BucketName: aws.String("dms-out"), BucketFolder: aws.String(folder),
 					ServiceAccessRoleArn: aws.String(dmsRoleARN),
 				}
 			})
-		arn := h.task(t, "to-s3", srcARN, tgt, ri, "full-load", itemsMapping)
+	}
+
+	t.Run("s3 csv", func(t *testing.T) {
+		t.Parallel()
+
+		arn := h.task(t, "to-s3", srcARN, s3Endpoint("s3-ep", "full"), ri, "full-load", tableMapping("s3_full"))
 
 		done := h.awaitStatus(t, arn, "stopped")
 		assert.Equal(t, "Stop Reason FULL_LOAD_ONLY_FINISHED", aws.ToString(done.StopReason))
 
-		body, ok := getObject("full/appdb/items/LOAD00000001.csv")
+		body, ok := getObject("full/appdb/s3_full/LOAD00000001.csv")
 		require.True(t, ok)
 		assert.Equal(t, "1,alpha\n2,\"be,ta\"\n", body)
-		assert.EqualValues(t, 2, h.tableStats(t, arn)["appdb.items"].FullLoadRows)
+		assert.EqualValues(t, 2, h.tableStats(t, arn)["appdb.s3_full"].FullLoadRows)
 	})
 
 	t.Run("s3 cdc csv", func(t *testing.T) {
-		tgt := h.endpoint(t, "s3-cdc-ep", dmstypes.ReplicationEndpointTypeValueTarget, "s3", nil,
-			func(in *databasemigrationservice.CreateEndpointInput) {
-				in.S3Settings = &dmstypes.S3Settings{
-					BucketName: aws.String("dms-out"), BucketFolder: aws.String("cdc"),
-					ServiceAccessRoleArn: aws.String(dmsRoleARN),
-				}
-			})
-		arn := h.task(t, "to-s3-cdc", srcARN, tgt, ri, "full-load-and-cdc", itemsMapping)
+		t.Parallel()
+
+		arn := h.task(t, "to-s3-cdc", srcARN, s3Endpoint("s3-cdc-ep", "cdc"), ri, "full-load-and-cdc",
+			tableMapping("s3_cdc"))
 		h.awaitStatus(t, arn, "running")
 		require.Eventually(t, func() bool {
-			_, ok := getObject("cdc/appdb/items/LOAD00000001.csv")
+			_, ok := getObject("cdc/appdb/s3_cdc/LOAD00000001.csv")
 
 			return ok
 		}, dmsDockerWait, dmsPoll)
 
-		mustExec(t, src, "INSERT INTO items VALUES (3,'gamma')", "DELETE FROM items WHERE id=1")
+		mustExec(t, src, "INSERT INTO s3_cdc VALUES (3,'gamma')", "DELETE FROM s3_cdc WHERE id=1")
 
-		list := func() []string {
-			out, err := s3c.ListObjectsV2(t.Context(), &s3.ListObjectsV2Input{
-				Bucket: aws.String("dms-out"), Prefix: aws.String("cdc/appdb/items/"),
+		collect := func() string {
+			out, lerr := s3c.ListObjectsV2(t.Context(), &s3.ListObjectsV2Input{
+				Bucket: aws.String("dms-out"), Prefix: aws.String("cdc/appdb/s3_cdc/"),
 			})
-			require.NoError(t, err)
+			require.NoError(t, lerr)
 
-			var keys []string
+			var all strings.Builder
 
 			for _, o := range out.Contents {
 				if !strings.Contains(aws.ToString(o.Key), "LOAD") {
-					keys = append(keys, aws.ToString(o.Key))
+					b, _ := getObject(aws.ToString(o.Key))
+					all.WriteString(b)
 				}
 			}
 
-			return keys
+			return all.String()
 		}
 
-		var all string
-
 		require.Eventually(t, func() bool {
-			all = ""
-			for _, k := range list() {
-				b, _ := getObject(k)
-				all += b
-			}
+			all := collect()
 
 			return strings.Contains(all, "I,3,gamma\n") && strings.Contains(all, "D,1,alpha\n")
-		}, dmsDockerWait, dmsPoll, "cdc files: %q", all)
+		}, dmsDockerWait, dmsPoll)
 
-		_, err := h.dms.StopReplicationTask(t.Context(), &databasemigrationservice.StopReplicationTaskInput{ReplicationTaskArn: aws.String(arn)})
-		require.NoError(t, err)
-		h.awaitStatus(t, arn, "stopped")
+		h.stop(t, arn)
 	})
 
 	t.Run("kinesis json", func(t *testing.T) {
+		t.Parallel()
+
 		kc := kinesis.NewFromConfig(h.cfg)
-		_, err := kc.CreateStream(t.Context(), &kinesis.CreateStreamInput{StreamName: aws.String("dms-stream"), ShardCount: aws.Int32(1)})
-		require.NoError(t, err)
+		_, kerr := kc.CreateStream(t.Context(), &kinesis.CreateStreamInput{
+			StreamName: aws.String("dms-stream"), ShardCount: aws.Int32(1),
+		})
+		require.NoError(t, kerr)
 
 		var desc *kinesis.DescribeStreamSummaryOutput
 
@@ -599,15 +645,15 @@ func TestDMSDockerMySQLToInProcessTargets(t *testing.T) {
 					MessageFormat: dmstypes.MessageFormatValueJsonUnformatted,
 				}
 			})
-		arn := h.task(t, "to-kinesis", srcARN, tgt, ri, "full-load-and-cdc", itemsMapping)
+		arn := h.task(t, "to-kinesis", srcARN, tgt, ri, "full-load-and-cdc", tableMapping("kin"))
 		h.awaitStatus(t, arn, "running")
-		mustExec(t, src, "INSERT INTO items VALUES (9,'omega')")
+		mustExec(t, src, "INSERT INTO kin VALUES (9,'omega')")
 
-		it, err := kc.GetShardIterator(t.Context(), &kinesis.GetShardIteratorInput{
+		it, kerr := kc.GetShardIterator(t.Context(), &kinesis.GetShardIteratorInput{
 			StreamName: aws.String("dms-stream"), ShardId: aws.String("shardId-000000000000"),
 			ShardIteratorType: "TRIM_HORIZON",
 		})
-		require.NoError(t, err)
+		require.NoError(t, kerr)
 
 		var got []dmsKinesisRec
 
@@ -632,7 +678,7 @@ func TestDMSDockerMySQLToInProcessTargets(t *testing.T) {
 		for _, r := range got {
 			assert.Equal(t, "data", r.Metadata["record-type"])
 			assert.Equal(t, "appdb", r.Metadata["schema-name"])
-			assert.Equal(t, "items", r.Metadata["table-name"])
+			assert.Equal(t, "kin", r.Metadata["table-name"])
 			ops[r.Metadata["operation"].(string)]++
 		}
 
@@ -640,24 +686,22 @@ func TestDMSDockerMySQLToInProcessTargets(t *testing.T) {
 		assert.Equal(t, 1, ops["insert"])
 		assert.EqualValues(t, 9, lastWithOp(got, "insert").Data["id"])
 
-		_, err = h.dms.StopReplicationTask(t.Context(), &databasemigrationservice.StopReplicationTaskInput{ReplicationTaskArn: aws.String(arn)})
-		require.NoError(t, err)
-		h.awaitStatus(t, arn, "stopped")
+		h.stop(t, arn)
 	})
 
 	t.Run("dynamodb", func(t *testing.T) {
+		t.Parallel()
+
 		tgt := h.endpoint(t, "ddb-ep", dmstypes.ReplicationEndpointTypeValueTarget, "dynamodb", nil,
 			func(in *databasemigrationservice.CreateEndpointInput) {
 				in.DynamoDbSettings = &dmstypes.DynamoDbSettings{ServiceAccessRoleArn: aws.String(dmsRoleARN)}
 			})
-		arn := h.task(t, "to-ddb", srcARN, tgt, ri, "full-load", itemsMapping)
+		arn := h.task(t, "to-ddb", srcARN, tgt, ri, "full-load", tableMapping("ddb"))
 		h.awaitStatus(t, arn, "stopped")
 
-		ddb := dynamodb.NewFromConfig(h.cfg)
-		out, err := ddb.Scan(t.Context(), &dynamodb.ScanInput{TableName: aws.String("items")})
-		require.NoError(t, err)
-		assert.NotEmpty(t, out.Items)
-		assert.Equal(t, int32(len(out.Items)), out.Count)
+		out, derr := dynamodb.NewFromConfig(h.cfg).Scan(t.Context(), &dynamodb.ScanInput{TableName: aws.String("ddb")})
+		require.NoError(t, derr)
+		assert.Equal(t, int32(2), out.Count)
 	})
 }
 

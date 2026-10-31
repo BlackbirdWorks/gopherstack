@@ -90,10 +90,12 @@ func ParseMappings(doc string) (Mappings, error) {
 	return m, nil
 }
 
+const unorderedRule = 1 << 30
+
 func ruleOrder(r Rule) int {
 	n, err := strconv.Atoi(string(r.ID))
 	if err != nil {
-		return 1 << 30
+		return unorderedRule
 	}
 
 	return n
@@ -162,16 +164,16 @@ func applyNameAction(action, name, value, old string) string {
 	case "remove-prefix":
 		return strings.TrimPrefix(name, value)
 	case "replace-prefix":
-		if strings.HasPrefix(name, old) {
-			return value + strings.TrimPrefix(name, old)
+		if rest, ok := strings.CutPrefix(name, old); ok {
+			return value + rest
 		}
 	case "add-suffix":
 		return name + value
 	case "remove-suffix":
 		return strings.TrimSuffix(name, value)
 	case "replace-suffix":
-		if strings.HasSuffix(name, old) {
-			return strings.TrimSuffix(name, old) + value
+		if rest, ok := strings.CutSuffix(name, old); ok {
+			return rest + value
 		}
 	case "convert-lowercase":
 		return strings.ToLower(name)

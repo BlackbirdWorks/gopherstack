@@ -918,7 +918,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 2 gaps; 3 structural gaps; 1 deferred |
-| [Database Migration Service](services/dms/README.md) | A | 97 | 3 gaps; 3 structural gaps |
+| [Database Migration Service](services/dms/README.md) | A | 97 | 8 gaps; 3 structural gaps |
 | [Transfer Family](services/transfer/README.md) | A | — | 20 families; 4 structural gaps |
 
 ### Azure

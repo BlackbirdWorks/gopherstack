@@ -12,38 +12,51 @@ import (
 	"time"
 )
 
+var (
+	errBucketRequired = errors.New("S3Settings.BucketName is required")
+	errNotPrepared    = errors.New("table was not prepared")
+)
+
+const (
+	extraColumns     = 2
+	defaultMaxFileKB = 1048576
+	bytesPerKB       = 1024
+	seqModulo        = 1000
+)
+
 // s3Options mirrors the S3Settings members the writer honours (types.S3Settings).
 type s3Options struct {
+	Rfc4180              *bool  `json:"Rfc4180"`
+	CsvNullValue         string `json:"CsvNullValue"`
+	delimiter            string
+	CsvRowDelimiter      string `json:"CsvRowDelimiter"`
 	BucketName           string `json:"BucketName"`
+	DataFormat           string `json:"DataFormat"`
+	nullValue            string
+	rowDelim             string
 	BucketFolder         string `json:"BucketFolder"`
 	CsvDelimiter         string `json:"CsvDelimiter"`
-	CsvRowDelimiter      string `json:"CsvRowDelimiter"`
-	CsvNullValue         string `json:"CsvNullValue"`
-	DataFormat           string `json:"DataFormat"`
-	AddColumnName        bool   `json:"AddColumnName"`
-	IncludeOpForFullLoad bool   `json:"IncludeOpForFullLoad"`
-	CdcInsertsOnly       bool   `json:"CdcInsertsOnly"`
-	CdcInsertsAndUpdates bool   `json:"CdcInsertsAndUpdates"`
 	TimestampColumnName  string `json:"TimestampColumnName"`
 	MaxFileSize          int    `json:"MaxFileSize"`
-	Rfc4180              *bool  `json:"Rfc4180"`
-	quote                bool
-	delimiter, rowDelim  string
-	nullValue            string
 	maxBytes             int
+	CdcInsertsAndUpdates bool `json:"CdcInsertsAndUpdates"`
+	CdcInsertsOnly       bool `json:"CdcInsertsOnly"`
+	quote                bool
+	IncludeOpForFullLoad bool `json:"IncludeOpForFullLoad"`
+	AddColumnName        bool `json:"AddColumnName"`
 }
 
 type s3Target struct {
 	store   ObjectStore
-	opts    s3Options
 	now     func() time.Time
 	load    map[string]*loadFile
 	cdc     map[string]*bytes.Buffer
 	pqLoad  map[string]*pqBuf
 	pqCDC   map[string]*pqBuf
-	parquet bool
+	opts    s3Options
 	seq     int
 	mu      sync.Mutex
+	parquet bool
 }
 
 type loadFile struct {
@@ -64,7 +77,7 @@ func newS3Target(ep EndpointConfig, store ObjectStore) (Target, error) {
 	}
 
 	if o.BucketName == "" {
-		return nil, errors.New("S3Settings.BucketName is required")
+		return nil, errBucketRequired
 	}
 
 	o.delimiter, o.rowDelim, o.nullValue = o.CsvDelimiter, o.CsvRowDelimiter, o.CsvNullValue
@@ -81,10 +94,10 @@ func newS3Target(ep EndpointConfig, store ObjectStore) (Target, error) {
 	}
 
 	o.quote = o.Rfc4180 == nil || *o.Rfc4180
-	o.maxBytes = 1048576 * 1024
+	o.maxBytes = defaultMaxFileKB * bytesPerKB
 
 	if o.MaxFileSize > 0 {
-		o.maxBytes = o.MaxFileSize * 1024
+		o.maxBytes = o.MaxFileSize * bytesPerKB
 	}
 
 	return &s3Target{
@@ -140,7 +153,7 @@ func (t *s3Target) field(v any) string {
 }
 
 func (t *s3Target) line(opCode string, row Row, stamp string) string {
-	fields := make([]string, 0, len(row)+2)
+	fields := make([]string, 0, len(row)+extraColumns)
 	if opCode != "" {
 		fields = append(fields, opCode)
 	}
@@ -161,7 +174,7 @@ func (t *s3Target) header(tt TargetTable, withOp bool) string {
 		return ""
 	}
 
-	names := make([]string, 0, len(tt.Columns)+2)
+	names := make([]string, 0, len(tt.Columns)+extraColumns)
 	if withOp {
 		names = append(names, "Op")
 	}
@@ -186,7 +199,7 @@ func (t *s3Target) Load(ctx context.Context, tt TargetTable, rows []Row) error {
 	}
 
 	if lf == nil {
-		return fmt.Errorf("table %s was not prepared", tt.Key())
+		return fmt.Errorf("%w: %s", errNotPrepared, tt.Key())
 	}
 
 	stamp := ""
@@ -269,6 +282,7 @@ func (t *s3Target) Apply(_ context.Context, tt TargetTable, c Change) error {
 	row, code := c.After, "I"
 
 	switch c.Op {
+	case OpInsert:
 	case OpUpdate:
 		code = "U"
 	case OpDelete:
@@ -320,7 +334,7 @@ func (t *s3Target) Commit(ctx context.Context) error {
 	t.mu.Unlock()
 
 	if t.parquet {
-		name := t.now().UTC().Format("20060102-150405") + fmt.Sprintf("%03d", seq%1000) + ".parquet"
+		name := t.now().UTC().Format("20060102-150405") + fmt.Sprintf("%03d", seq%seqModulo) + ".parquet"
 
 		for _, b := range pendingPQ {
 			if err := t.writeParquet(ctx, b, name); err != nil {
@@ -331,7 +345,7 @@ func (t *s3Target) Commit(ctx context.Context) error {
 		return nil
 	}
 
-	name := t.now().UTC().Format("20060102-150405") + fmt.Sprintf("%03d", seq%1000) + ".csv"
+	name := t.now().UTC().Format("20060102-150405") + fmt.Sprintf("%03d", seq%seqModulo) + ".csv"
 
 	for key, buf := range pending {
 		if buf.Len() == 0 {

@@ -57,9 +57,9 @@ type runParams struct {
 	cdcStart     string
 	cdcStop      string
 	resume       string
+	sourceEngine string
 	source       dmsengine.EndpointConfig
 	target       dmsengine.EndpointConfig
-	sourceEngine string
 }
 
 // EnableEngine switches the backend to real replication; call before serving requests.
@@ -133,15 +133,16 @@ func endpointConfig(ep *Endpoint) dmsengine.EndpointConfig {
 		}
 
 		var s struct {
-			ServerName   string
-			DatabaseName string
-			Username     string
-			Password     string
-			Port         int
+			ServerName   string `json:"ServerName"`
+			DatabaseName string `json:"DatabaseName"`
+			Username     string `json:"Username"`
+			Password     string `json:"Password"`
+			Port         int    `json:"Port"`
 		}
 
 		if json.Unmarshal([]byte(raw), &s) == nil && s.ServerName != "" {
-			cfg.Server, cfg.Port, cfg.Database, cfg.User, cfg.Password = s.ServerName, s.Port, s.DatabaseName, s.Username, s.Password
+			cfg.Server, cfg.Port, cfg.Database = s.ServerName, s.Port, s.DatabaseName
+			cfg.User, cfg.Password = s.Username, s.Password
 
 			break
 		}

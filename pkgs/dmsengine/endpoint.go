@@ -2,6 +2,7 @@ package dmsengine
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"strings"
@@ -176,4 +177,12 @@ func tlsRequired(mode string) bool {
 	m := strings.ToLower(mode)
 
 	return m == "require" || m == "verify-ca" || m == "verify-full"
+}
+
+// skipVerifyTLS encrypts without verifying the server, as the emulator's database certificates are self-signed.
+func skipVerifyTLS() *tls.Config {
+	return &tls.Config{
+		InsecureSkipVerify: true, //nolint:gosec // local emulator CA
+		MinVersion:         tls.VersionTLS12,
+	}
 }

@@ -2,9 +2,13 @@ package dmsengine
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// ErrInvalidSettings reports an unusable ReplicationTaskSettings document.
+var ErrInvalidSettings = errors.New("invalid ReplicationTaskSettings")
 
 // TaskSettings is the subset of ReplicationTaskSettings the engine honours.
 type TaskSettings struct {
@@ -21,15 +25,17 @@ func ParseTaskSettings(doc string) (TaskSettings, error) {
 	}
 
 	var raw struct {
-		TargetMetadata   struct{ TargetSchema string }
+		TargetMetadata struct {
+			TargetSchema string `json:"TargetSchema"`
+		} `json:"TargetMetadata"`
 		FullLoadSettings struct {
-			TargetTablePrepMode string
-			CommitRate          int
-		}
+			TargetTablePrepMode string `json:"TargetTablePrepMode"`
+			CommitRate          int    `json:"CommitRate"`
+		} `json:"FullLoadSettings"`
 	}
 
 	if err := json.Unmarshal([]byte(doc), &raw); err != nil {
-		return ts, fmt.Errorf("invalid ReplicationTaskSettings: %w", err)
+		return ts, fmt.Errorf("%w: %w", ErrInvalidSettings, err)
 	}
 
 	ts.TargetSchema = raw.TargetMetadata.TargetSchema
@@ -43,7 +49,7 @@ func ParseTaskSettings(doc string) (TaskSettings, error) {
 	case PrepDropAndCreate, PrepTruncateBefore, PrepDoNothing:
 		ts.PrepMode = m
 	default:
-		return ts, fmt.Errorf("invalid FullLoadSettings.TargetTablePrepMode %q", m)
+		return ts, fmt.Errorf("%w: FullLoadSettings.TargetTablePrepMode %q", ErrInvalidSettings, m)
 	}
 
 	return ts, nil

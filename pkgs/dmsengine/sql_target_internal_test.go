@@ -13,14 +13,14 @@ func TestSQLTargetCreate(t *testing.T) {
 		return TargetTable{SourceFamily: src, Schema: "s", Name: "t", PK: pk, Columns: cols}
 	}
 	col := func(name, native string, nullable bool) TargetColumn {
-		return TargetColumn{Column: Column{Name: name, Native: native, Nullable: nullable}}
+		return TargetColumn{Name: name, Native: native, Nullable: nullable}
 	}
 
 	tests := []struct {
 		name string
-		fam  Family
-		tab  TargetTable
 		want string
+		tab  TargetTable
+		fam  Family
 	}{
 		{
 			name: "mysql to mysql keeps native types",
@@ -31,8 +31,15 @@ func TestSQLTargetCreate(t *testing.T) {
 		{
 			name: "mysql to postgres maps types and quotes",
 			fam:  FamilyPostgres,
-			tab:  tab(FamilyMySQL, []string{"id"}, col("id", "int", false), col("When", "datetime", true), col("p", "decimal(8,2)", true)),
-			want: `CREATE TABLE IF NOT EXISTS "s"."t" ("id" integer NOT NULL, "When" timestamp, "p" numeric(8,2), PRIMARY KEY ("id"))`,
+			tab: tab(
+				FamilyMySQL,
+				[]string{"id"},
+				col("id", "int", false),
+				col("When", "datetime", true),
+				col("p", "decimal(8,2)", true),
+			),
+			want: `CREATE TABLE IF NOT EXISTS "s"."t" ("id" integer NOT NULL, "When" timestamp, "p" numeric(8,2), ` +
+				`PRIMARY KEY ("id"))`,
 		},
 		{
 			name: "postgres text pk becomes varchar on mysql",
@@ -62,7 +69,7 @@ func TestSQLTargetWhere(t *testing.T) {
 	t.Parallel()
 
 	tab := TargetTable{PK: []string{"id"}, Columns: []TargetColumn{
-		{Column: Column{Name: "id"}}, {Column: Column{Name: "n"}},
+		{Name: "id"}, {Name: "n"},
 	}}
 	keyless := TargetTable{Columns: tab.Columns}
 
