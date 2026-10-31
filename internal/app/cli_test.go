@@ -3083,15 +3083,7 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	require.Eventually(t, func() bool {
-		resp, err := testclient.New(t).Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
-
-		return resp.StatusCode == http.StatusOK
-	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
+	waitForServerReady(t, port)
 
 	resp, err := testclient.New(t).Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 	require.NoError(t, err)
@@ -3135,17 +3127,9 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
+	waitForServerReady(t, port)
+
 	client := &http.Client{Timeout: 2 * time.Second}
-
-	require.Eventually(t, func() bool {
-		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
-
-		return resp.StatusCode == http.StatusOK
-	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
 
 	tests := []struct {
 		validate func(t *testing.T, body map[string]any)
