@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -196,4 +197,21 @@ func verifyBodyContentMD5(r *http.Request) error {
 	}
 
 	return nil
+}
+
+var copyBufPool = sync.Pool{ //nolint:gochecknoglobals // sync.Pool requires package-level allocation
+	New: func() any {
+		b := make([]byte, 32*1024)
+
+		return &b
+	},
+}
+
+// copyPooled is io.Copy with a pooled scratch buffer, avoiding the 32KiB
+// allocation io.Copy makes when neither side implements WriterTo/ReaderFrom.
+func copyPooled(dst io.Writer, src io.Reader) (int64, error) {
+	bp, _ := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(bp)
+
+	return io.CopyBuffer(dst, src, *bp)
 }

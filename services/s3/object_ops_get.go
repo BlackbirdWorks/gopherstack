@@ -102,7 +102,7 @@ func (h *S3Handler) getObject(
 
 	w.WriteHeader(http.StatusOK)
 
-	written, copyErr := io.Copy(w, ver.Body)
+	written, copyErr := copyPooled(w, ver.Body)
 	if copyErr != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to write object data", "error", copyErr)
 	}

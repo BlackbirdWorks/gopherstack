@@ -180,7 +180,7 @@ func (b *InMemoryBackend) UploadPart(
 	}
 
 	tr := io.TeeReader(input.Body, io.MultiWriter(writers...))
-	originalSize, err := io.Copy(io.Discard, tr)
+	originalSize, err := copyPooled(io.Discard, tr)
 	if err != nil {
 		return nil, err
 	}
