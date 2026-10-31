@@ -13,7 +13,7 @@ const (
 
 var (
 	// Brackets are admitted so the "[fail]" job-name failure marker stays usable.
-	jobNameRe = sync.OnceValue(func() *regexp.Regexp {
+	jobNameRe = sync.OnceValue(func() *regexp.Regexp { //nolint:gochecknoglobals // lazy: eager compile costs MBs
 		return regexp.MustCompile(`^[\p{L}\p{Z}\p{N}_.:/=+\-%@\[\]]{1,256}$`)
 	})
 	codePrefixRe = regexp.MustCompile(`^[A-Za-z]+Exception: `)

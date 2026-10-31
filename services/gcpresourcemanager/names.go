@@ -25,7 +25,7 @@ var (
 	projectNameRE = regexp.MustCompile(`^[A-Za-z0-9'" !-]+$`)
 	labelKeyRE    = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
 	labelValueRE  = regexp.MustCompile(`^([a-z]([-a-z0-9]*[a-z0-9])?)?$`)
-	folderNameRE  = sync.OnceValue(func() *regexp.Regexp {
+	folderNameRE  = sync.OnceValue(func() *regexp.Regexp { //nolint:gochecknoglobals // lazy: eager compile costs MBs
 		return regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N}_\- ]{1,28}[\p{L}\p{N}]$`)
 	})
 	tagNameRE = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9_.-]*[a-zA-Z0-9])?$`)

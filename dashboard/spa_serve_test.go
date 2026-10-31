@@ -1,4 +1,4 @@
-package dashboard
+package dashboard //nolint:testpackage // covers unexported SPA serving helpers
 
 import (
 	"bytes"
@@ -46,11 +46,23 @@ func TestServeSPAFile(t *testing.T) {
 		wantEncoding string
 		wantServed   bool
 	}{
-		{name: "gzip client gets raw gz", rel: "app.js", acceptEnc: "gzip, br", method: http.MethodGet, wantEncoding: "gzip", wantServed: true},
-		{name: "no encoding inflated", rel: "app.js", acceptEnc: "", method: http.MethodGet, wantBody: body, wantServed: true},
-		{name: "gzip q0 inflated", rel: "app.js", acceptEnc: "gzip;q=0", method: http.MethodGet, wantBody: body, wantServed: true},
-		{name: "head has no body", rel: "app.js", acceptEnc: "", method: http.MethodHead, wantBody: "", wantServed: true},
-		{name: "plain file", rel: "plain.css", acceptEnc: "gzip", method: http.MethodGet, wantBody: "a{}", wantServed: true},
+		{
+			name: "gzip client gets raw gz", rel: "app.js", acceptEnc: "gzip, br",
+			method: http.MethodGet, wantEncoding: "gzip", wantServed: true,
+		},
+		{
+			name: "no encoding inflated", rel: "app.js", acceptEnc: "",
+			method: http.MethodGet, wantBody: body, wantServed: true,
+		},
+		{
+			name: "gzip q0 inflated", rel: "app.js", acceptEnc: "gzip;q=0",
+			method: http.MethodGet, wantBody: body, wantServed: true,
+		},
+		{name: "head has no body", rel: "app.js", method: http.MethodHead, wantServed: true},
+		{
+			name: "plain file", rel: "plain.css", acceptEnc: "gzip",
+			method: http.MethodGet, wantBody: "a{}", wantServed: true,
+		},
 		{name: "missing", rel: "nope.js", method: http.MethodGet, wantServed: false},
 	}
 

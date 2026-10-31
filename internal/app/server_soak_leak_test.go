@@ -217,7 +217,9 @@ func soakSQS(ctx context.Context, c *sqs.Client, n string) error {
 		return err
 	}
 
-	if _, err = c.SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: q.QueueUrl, MessageBody: aws.String("m")}); err != nil {
+	if _, err = c.SendMessage(ctx, &sqs.SendMessageInput{
+		QueueUrl: q.QueueUrl, MessageBody: aws.String("m"),
+	}); err != nil {
 		return err
 	}
 
@@ -528,8 +530,8 @@ func TestServerSoak_BoundedGrowth(t *testing.T) {
 	var runErr error
 
 	op := func(i int) {
-		if err := soakTraffic(t.Context(), clients, i); err != nil && runErr == nil {
-			runErr = fmt.Errorf("iteration %d: %w", i, err)
+		if opErr := soakTraffic(t.Context(), clients, i); opErr != nil && runErr == nil {
+			runErr = fmt.Errorf("iteration %d: %w", i, opErr)
 		}
 	}
 

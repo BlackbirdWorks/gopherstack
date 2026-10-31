@@ -18,7 +18,7 @@ const connectTimeout = 5 * time.Second
 
 var (
 	errBadValue = errors.New("value contains a NUL byte")
-	identRe     = sync.OnceValue(func() *regexp.Regexp {
+	identRe     = sync.OnceValue(func() *regexp.Regexp { //nolint:gochecknoglobals // lazy: eager compile costs MBs
 		return regexp.MustCompile(`^[\p{L}\p{N}_ $.@#-]{1,128}$`)
 	})
 )
