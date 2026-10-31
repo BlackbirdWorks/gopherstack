@@ -495,8 +495,25 @@ func applyCiphers(cfg *tls.Config, lb *LoadBalancer, suite string) {
 	}
 
 	for _, c := range cs.Ciphers {
-		cfg.CipherSuites = append(cfg.CipherSuites, cipherIDs[c])
+		id, ok := secureSuiteID(cipherIDs[c])
+		if !ok {
+			logger.Load(context.Background()).Debug("ociloadbalancer: insecure cipher not served", "cipher", c)
+
+			continue
+		}
+
+		cfg.CipherSuites = append(cfg.CipherSuites, id)
 	}
+}
+
+func secureSuiteID(id uint16) (uint16, bool) {
+	for _, s := range tls.CipherSuites() {
+		if s.ID == id {
+			return s.ID, true
+		}
+	}
+
+	return 0, false
 }
 
 // frontTLS returns the per-handshake TLS configuration of a listener port: the listener is chosen by SNI and

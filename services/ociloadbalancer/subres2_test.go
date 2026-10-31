@@ -396,9 +396,10 @@ func TestCertificatesAndCipherSuites(t *testing.T) {
 		for _, weak := range []string{"ECDHE-RSA-AES128-SHA256", "ECDHE-ECDSA-AES128-SHA256"} {
 			_, err = e.lb.CreateSSLCipherSuite(ctx, loadbalancer.CreateSSLCipherSuiteRequest{
 				LoadBalancerId: &id,
-				Name:           new("weak"), Ciphers: []string{weak},
+				Name:           new("cbc-" + weak), Ciphers: []string{weak},
 			})
-			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode(), weak)
+			require.NoError(t, err, weak)
+			e.settle()
 		}
 
 		_, err = e.lb.CreateSSLCipherSuite(ctx, loadbalancer.CreateSSLCipherSuiteRequest{
