@@ -46,6 +46,12 @@ func (r *instRec) status(now time.Time, t Timing) string {
 		}
 
 		return stTerminated
+	case phaseSuspend:
+		if el < t.Stop {
+			return stSuspending
+		}
+
+		return stSuspended
 	}
 
 	return stRunning
@@ -758,6 +764,12 @@ func (b *InMemoryBackend) insertInstanceLocked(
 		return nil, err
 	}
 
+	policies, err := b.resolveResPoliciesLocked(
+		project, regionOfZone(zone), in.ResourcePolicies, "resource.resourcePolicies", instancePolicyKinds)
+	if err != nil {
+		return nil, err
+	}
+
 	nics, err := b.buildNICsLocked(project, zone, in)
 	if err != nil {
 		return nil, err
@@ -773,6 +785,7 @@ func (b *InMemoryBackend) insertInstanceLocked(
 	}
 
 	inst := b.assembleInstanceLocked(project, zone, in, machine, sched, nics, disks)
+	inst.ResourcePolicies = policies
 	b.instances[key(project, zone, in.Name)] = &instRec{Inst: inst, Phase: phaseStart, Since: b.now().UTC()}
 
 	return inst, nil
@@ -930,6 +943,11 @@ func (b *InMemoryBackend) startInstance(project, zone, name string) (*computeapi
 	r, err := b.getInstLocked(project, zone, name)
 	if err != nil {
 		return nil, err
+	}
+
+	if st := r.status(b.now().UTC(), b.timing); st == stSuspended || st == stSuspending {
+		return nil, errNotReady(relPath(project, scopeZone, zone, "instances", name),
+			"the instance is suspended; use instances.resume")
 	}
 
 	if r.status(b.now().UTC(), b.timing) != stTerminated {

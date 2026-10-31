@@ -108,6 +108,8 @@ type InMemoryBackend struct {
 	fwdRules       map[string]*computeapi.ForwardingRule
 	negs           map[string]*computeapi.NetworkEndpointGroup
 	negEndpoints   map[string][]*computeapi.NetworkEndpoint
+	secPolicies    map[string]*computeapi.SecurityPolicy
+	resPolicies    map[string]*computeapi.ResourcePolicy
 	ops            map[string]*opRec
 	projects       map[string]*computeapi.Metadata
 	timing         Timing
@@ -177,6 +179,8 @@ func (b *InMemoryBackend) resetMaps() {
 	b.fwdRules = map[string]*computeapi.ForwardingRule{}
 	b.negs = map[string]*computeapi.NetworkEndpointGroup{}
 	b.negEndpoints = map[string][]*computeapi.NetworkEndpoint{}
+	b.secPolicies = map[string]*computeapi.SecurityPolicy{}
+	b.resPolicies = map[string]*computeapi.ResourcePolicy{}
 	b.ops = map[string]*opRec{}
 	b.projects = map[string]*computeapi.Metadata{}
 }

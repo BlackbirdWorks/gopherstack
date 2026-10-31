@@ -64,6 +64,8 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	h.registerInstanceOps()
 	h.registerCatalogOps()
 	h.registerGroupOps()
+	h.registerSecurityOps()
+	h.registerResourcePolicyOps()
 
 	return h
 }
@@ -127,10 +129,13 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 var readVerbs = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 	verbList: true, verbAggList: true, verbGet: true, "getRouterStatus": true, "getFromFamily": true,
+	"listPeeringRoutes": true, "getRule": true, "serialPort": true, "getGuestAttributes": true,
 }
 
 var verbMethods = map[string]string{ //nolint:gochecknoglobals // read-only lookup table
 	verbInsert: http.MethodPost, verbDelete: http.MethodDelete, verbPatch: http.MethodPatch, verbUpdate: http.MethodPut,
+	"updatePeering": http.MethodPatch, "updateShieldedInstanceConfig": http.MethodPatch,
+	"setShieldedInstanceIntegrityPolicy": http.MethodPatch,
 }
 
 func methodFor(verb string) string {

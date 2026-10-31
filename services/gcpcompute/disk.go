@@ -126,6 +126,12 @@ func (b *InMemoryBackend) createDiskLocked(project, zone string, in *computeapi.
 		return nil, apiErr
 	}
 
+	policies, apiErr := b.resolveResPoliciesLocked(
+		project, regionOfZone(zone), in.ResourcePolicies, "resource.resourcePolicies", diskPolicyKinds)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
 	src, err := b.resolveDiskSourceLocked(project, in)
 	if err != nil {
 		return nil, err
@@ -162,6 +168,7 @@ func (b *InMemoryBackend) createDiskLocked(project, zone string, in *computeapi.
 		LabelFingerprint:       labelFP(in.Labels),
 		PhysicalBlockSizeBytes: physBlockBytes,
 		Architecture:           archX86,
+		ResourcePolicies:       policies,
 	}
 
 	if src.image != nil {
