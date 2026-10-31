@@ -169,6 +169,25 @@ func (b *InMemoryBackend) GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey
 	return nil, ErrJWTIssuerUnknown
 }
 
+// UserPoolSigningKey returns the RSA public key with the given kid for userPoolID and the
+// issuer URL the pool stamps into its tokens.
+func (b *InMemoryBackend) UserPoolSigningKey(userPoolID, kid string) (*rsa.PublicKey, string, error) {
+	b.mu.RLock("UserPoolSigningKey")
+	defer b.mu.RUnlock()
+
+	pool, ok := b.pools.Get(userPoolID)
+	if !ok || pool.issuer == nil {
+		return nil, "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	key, ok := pool.issuer.PublicKeyForKID(kid)
+	if !ok {
+		return nil, "", fmt.Errorf("%w: %q for pool %q", ErrJWTKeyNotFound, kid, userPoolID)
+	}
+
+	return key, pool.issuer.issuerURL, nil
+}
+
 // resolveClientTokenSettings looks up clientID and returns its token issuance
 // settings, falling back to AWS defaults (no custom scopes, default token
 // lifetimes, defaultRefreshTokenTTL) when the client is not found -- token
