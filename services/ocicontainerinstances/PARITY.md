@@ -40,4 +40,4 @@ items_still_open:
   - "gracefulShutdownTimeoutInSeconds is not enforced: docker stops use the runtime's fixed timeout. Memory-backed EMPTYDIR volumes use a directory under /dev/shm rather than a per-instance tmpfs."
   - "VAULT image pull secrets expect the secret content to be JSON {\"username\":...,\"password\":...}; Oracle's exact secret format is unverified. Pull secrets only apply to the registry endpoint they name."
   - "Containers are re-created from their image on every start and restart, so a restart policy restart loses the container's filesystem; only the previous run's logs are kept. Docker log files are not rotated per Oracle's 20 MB retention."
-  - "Compute shape quotas, availability-domain and fault-domain validation, tenancy limits, IAM policies, systemTags and the definedTags namespace check are not applied; the dashboard and desktop UI have no Container Instances page."
+  - "Compute shape quotas, availability-domain and fault-domain validation, tenancy limits, IAM policies, systemTags and the definedTags namespace check are not applied."

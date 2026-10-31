@@ -150,6 +150,7 @@ import (
 	ociapigatewaybackend "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	ociartifactsbackend "github.com/blackbirdworks/gopherstack/services/ociartifacts"
 	ocicontainerenginebackend "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
+	ocicontainerinstancesbackend "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocieventsbackend "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -624,6 +625,8 @@ type Config struct {
 	OCILoadBalancerOps *ociloadbalancerbackend.Handler
 	// OCIArtifactsOps is dispatched in-process by its proxy.
 	OCIArtifactsOps *ociartifactsbackend.Handler
+	// OCIContainerInstancesOps is dispatched in-process by its proxy.
+	OCIContainerInstancesOps *ocicontainerinstancesbackend.Handler
 	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
 	AzureFileOps *azurefilebackend.Handler
 	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.
