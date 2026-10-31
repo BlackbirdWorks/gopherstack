@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	altLambdaHost  = "abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws"
-	altRowStride   = 16
-	altFormCT      = "application/x-www-form-urlencoded"
-	altMaxASCII    = 0x7f
+	altLambdaHost = "abcdef0123456789abcdef0123456789.lambda-url.us-east-1.on.aws"
+	altRowStride  = 16
+	altFormCT     = "application/x-www-form-urlencoded"
+	altMaxASCII   = 0x7f
 )
 
 // altAdmits is an independent reference for service.AltGate semantics.
