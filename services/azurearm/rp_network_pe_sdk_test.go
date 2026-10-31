@@ -50,7 +50,15 @@ func newPEEnv(t *testing.T) *peEnv {
 		`{"location":"westus","kind":"StorageV2","sku":{"name":"Standard_LRS"}}`)
 	require.Less(t, code, 300)
 
-	return &peEnv{netStack: s, subnetID: *v.Properties.Subnets[0].ID, zoneID: *zone.ID, storageID: st}
+	var subnetID string
+	for _, sn := range v.Properties.Subnets {
+		if *sn.Name == "pe" {
+			subnetID = *sn.ID
+		}
+	}
+	require.NotEmpty(t, subnetID)
+
+	return &peEnv{netStack: s, subnetID: subnetID, zoneID: *zone.ID, storageID: st}
 }
 
 func (e *peEnv) endpoint(
@@ -321,8 +329,10 @@ func TestNetworkSDK_PrivateEndpointValidation(t *testing.T) {
 			name: "unsupported type", target: netProv("Microsoft.Foo", "things", "x"), group: "x",
 			wantCode: "InvalidRequestFormat",
 		},
-		{name: "delegated subnet", target: e.storageID, group: "blob", subnet: *deleg.ID,
-			wantCode: "PrivateEndpointCreationNotAllowedAsSubnetIsDelegated"},
+		{
+			name: "delegated subnet", target: e.storageID, group: "blob", subnet: *deleg.ID,
+			wantCode: "PrivateEndpointCreationNotAllowedAsSubnetIsDelegated",
+		},
 		{
 			name:     "missing subnet",
 			target:   e.storageID,

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -116,9 +118,9 @@ func (s *netStack) vnet(
 		v.Properties.AddressSpace.AddressPrefixes = append(v.Properties.AddressSpace.AddressPrefixes, new(p))
 	}
 
-	for n, p := range subnets {
+	for _, n := range slices.Sorted(maps.Keys(subnets)) {
 		v.Properties.Subnets = append(v.Properties.Subnets, &armnetwork.Subnet{
-			Name: new(n), Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: new(p)},
+			Name: new(n), Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: new(subnets[n])},
 		})
 	}
 
@@ -180,8 +182,10 @@ func TestNetworkSDK_VNetSubnetValidation(t *testing.T) {
 		},
 		{name: "empty space", prefixes: nil, wantCode: "InvalidRequestFormat"},
 		{name: "bad cidr", prefixes: []string{"10.0.0.5/16"}, wantCode: "InvalidCIDRNotation"},
-		{name: "overlapping space", prefixes: []string{"10.0.0.0/16", "10.0.1.0/24"},
-			wantCode: "AddressSpaceOverlap"},
+		{
+			name: "overlapping space", prefixes: []string{"10.0.0.0/16", "10.0.1.0/24"},
+			wantCode: "AddressSpaceOverlap",
+		},
 		{
 			name: "subnet outside space", prefixes: []string{"10.0.0.0/16"},
 			subnets: map[string]string{"a": "10.1.0.0/24"}, wantCode: "NetcfgInvalidSubnet",
@@ -192,8 +196,10 @@ func TestNetworkSDK_VNetSubnetValidation(t *testing.T) {
 		},
 		{
 			name: "subnets overlap", prefixes: []string{"10.0.0.0/16"},
-			subnets: map[string]string{"a": "10.0.0.0/24",
-				"b": "10.0.0.128/25"}, wantCode: "NetcfgSubnetRangesOverlap",
+			subnets: map[string]string{
+				"a": "10.0.0.0/24",
+				"b": "10.0.0.128/25",
+			}, wantCode: "NetcfgSubnetRangesOverlap",
 		},
 	}
 
@@ -404,7 +410,8 @@ func TestNetworkSDK_PublicIP(t *testing.T) {
 	pc := s.net.NewPublicIPAddressesClient()
 
 	create := func(name string, sku armnetwork.PublicIPAddressSKUName,
-		m armnetwork.IPAllocationMethod) (armnetwork.PublicIPAddress, error) {
+		m armnetwork.IPAllocationMethod,
+	) (armnetwork.PublicIPAddress, error) {
 		p, err := pc.BeginCreateOrUpdate(t.Context(), netRG, name, armnetwork.PublicIPAddress{
 			Location: new("westus"),
 			SKU:      &armnetwork.PublicIPAddressSKU{Name: new(sku)},
