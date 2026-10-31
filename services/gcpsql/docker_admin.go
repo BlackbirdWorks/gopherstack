@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,7 +18,9 @@ const connectTimeout = 5 * time.Second
 
 var (
 	errBadValue = errors.New("value contains a NUL byte")
-	identRe     = regexp.MustCompile(`^[\p{L}\p{N}_ $.@#-]{1,128}$`)
+	identRe     = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^[\p{L}\p{N}_ $.@#-]{1,128}$`)
+	})
 )
 
 func (e *dockerEngine) open(db string) (*sql.DB, error) {
@@ -69,7 +72,7 @@ type rowQuerier interface {
 
 // quoteIdent has the server quote s, so no client-built string reaches the DDL statement.
 func (e *dockerEngine) quoteIdent(ctx context.Context, q rowQuerier, s string) (string, error) {
-	if !identRe.MatchString(s) {
+	if !identRe().MatchString(s) {
 		return "", errInvalid("identifier %q is invalid", s)
 	}
 
