@@ -778,7 +778,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SNS](services/sns/README.md) | A | 34 | 1 structural gap; 1 deferred |
 | [SQS](services/sqs/README.md) | A | 20 | 2 gaps; 1 structural gap |
 | [SWF](services/swf/README.md) | A | 39 | clean |
-| [Step Functions](services/stepfunctions/README.md) | A | 37 | 4 gaps; 3 structural gaps |
+| [Step Functions](services/stepfunctions/README.md) | A | 37 | 5 gaps; 1 structural gap |
 | [WorkMail](services/workmail/README.md) | A | 92 | 2 gaps; 3 structural gaps |
 
 ### Analytics

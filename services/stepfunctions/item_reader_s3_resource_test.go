@@ -386,24 +386,6 @@ func TestItemReader_S3GetObject_Errors(t *testing.T) {
 		assert.Contains(t, cause, "NoSuchKey")
 	})
 
-	t.Run("PARQUET InputType is a recorded gap", func(t *testing.T) {
-		t.Parallel()
-
-		const bucket = "parquet-bucket"
-		s3Bk := newBucketBackedS3(t, bucket)
-		putS3Object(t, s3Bk, bucket, "data.parquet", []byte("not really parquet"))
-
-		itemReader := `{
-			"Resource": "arn:aws:states:::s3:getObject",
-			"ReaderConfig": {"InputType": "PARQUET"},
-			"Parameters": {"Bucket": "` + bucket + `", "Key": "data.parquet"}
-		}`
-
-		status, _, errCode, cause := runItemReaderExecution(t, s3Bk, itemReader)
-		assert.Equal(t, sfntypes.ExecutionStatusFailed, status)
-		assert.Equal(t, "States.ItemReaderFailed", errCode)
-		assert.Contains(t, cause, "PARQUET")
-	})
 }
 
 // TestItemReader_ItemsPointer covers ReaderConfig.ItemsPointer, the RFC 6901

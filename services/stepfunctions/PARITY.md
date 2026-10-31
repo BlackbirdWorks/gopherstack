@@ -516,9 +516,8 @@ filter_semantics: {status: ok, note: "gopherstack-uox6 (value-semantics sweep, 2
 gaps: []
 structural_gaps:
   - "ExecutionThrottled is never emitted: the emulator applies no account-level StartExecution throttling."
-  - "ItemReader InputType=PARQUET (asl.ErrParquetUnsupported) fails with a sentinel error: no pure-Go Parquet reader is in go.mod."
-  - "TestState RevealSecrets has no effect and TRACE adds no HTTP request/response: the executor runs without SDK integrations, so HTTP Tasks and EventBridge connection secrets are unavailable."
 items_still_open:
+  - "ItemReader InputType PARQUET and TestState HTTP/TRACE are implemented from the Step Functions developer guide (input-output-itemreader, test-state-isolation) but several details are undocumented and unverified: the JSON form of Parquet timestamp/date/decimal values (rendered as Athena prints them, e.g. '2024-03-05 10:20:30.000'), the string encoding of InspectionData request/response headers (a JSON object of name to joined value here), the exact redaction form when revealSecrets is false (auth headers dropped, other secret values replaced with ***), the VersionId rejection for PARQUET (not enforced), and the 100,000,000 MaxItems cap (not enforced). states:RevealSecrets is not authorized separately under --enforce-iam: the enforcement middleware evaluates one action per request (states:TestState)."
   - "TestState StateConfiguration.ErrorCausedByState/MapIterationFailureCount/MapItemReaderData are accepted but unused (the pinned SDK documents the fields but not their observable effect), and MockInput.fieldValidationMode is enum-checked but mocks are not validated against service API models (no per-service response schemas). The pinned SDK models no StateConfiguration.Variables."
   - "JSONata (gopherstack-iisrz) still open: (1) the per-pair iteration input for an object-valued Map Items is not specified in the docs checked (input-output-itemspath says only 'passing the pair to the iteration'; the context-object page documents $states.context.Map.Item.Key/Value, 'Key only valid for JSON objects'), so the default input is {\"Key\",\"Value\"} and pairs iterate in sorted-key order (JSON object order is not kept); an ItemReader JSON file holding an object (docs: 'must contain an array or JSON object') is still rejected. (2) The Expression evaluation memory limit has no documented numeric threshold: gnata's sequence-size caps (D2014/D2015) stand in for it. (3) The AWS wording of JSONPath-field-in-JSONata validation errors is undocumented (ValidateStateMachineDefinitionDiagnostic documents codes, SCHEMA_VALIDATION_FAILED among them, and states that wording must not be relied on), so a plain InvalidDefinition message is used. (4) What a JSONata Task with omitted Arguments sends is undocumented (state-task: Arguments is 'Optional'); the state input is passed, unverified. (5) ReaderConfig.MaxItems as a JSONata expression is undocumented (docs only offer MaxItemsPath, JSONPath only) and is not accepted."
   - "Service integrations not implemented (bd gopherstack-wdw): bedrock optimized integrations other than invokeModel (createModelCustomizationJob.sync etc.; only InvokeModel is served by bedrockruntime), eks:call against a cluster without the Docker EKS engine (fails the task: the synthetic endpoint is not reachable), and aws-sdk integrations for services outside the 55-service table in sdk_services.go. Not documented by AWS and unverified: States.Http.StatusCode.<n> Cause format, SQS/SNS/StepFunctions/Bedrock optimized error prefixes, ECS/Glue/EKS .sync output (Glue keeps GetJobRun {JobRun}; EKS returns DescribeCluster/DescribeNodegroup, deletes return the delete response)."
@@ -1582,3 +1581,23 @@ Sources (docs.aws.amazon.com/step-functions/latest/dg): transforming-data, state
 - ItemReader/ResultWriter `Arguments` (replacing `Parameters`) and ItemBatcher `MaxItemsPerBatch`/`MaxInputBytesPerBatch`/`BatchInput` are evaluated as JSONata at Map entry; batch limits must be positive integers (`States.QueryEvaluationError` otherwise). JSONPath-only fields (`Parameters`, `*Path`) are rejected in JSONata states and `Arguments`/expressions in JSONPath states.
 - Retry has no Output/Assign in the docs (retrier fields: ErrorEquals, IntervalSeconds, MaxAttempts, BackoffRate, MaxDelaySeconds, JitterStrategy); Catch Output/Assign were already implemented. Nothing to add.
 - Documented evaluation errors map to `States.QueryEvaluationError` with Cause `Expression evaluation timeout` (1s), `Stack overflow error` and `Expression evaluation memory limit exceeded`.
+
+## 2026-10-31 -- Parquet ItemReader and TestState HTTP TRACE (gopherstack-49qct.84)
+
+Sources: developer guide "ItemReader (Map)" (InputType PARQUET: 256MB row
+groups, 5MB footers, GZIP/ZSTD/Snappy internal compression, VersionId
+unsupported; ATHENA_DATA with CSV/JSONL/PARQUET; LOAD_AND_FLATTEN) and
+"TestState API" (TRACE only for an HTTP Task, otherwise an error; revealSecrets
+needs states:RevealSecrets and cannot combine with a mock); SDK
+types.InspectionDataRequest/Response (protocol, method, url, headers, body /
+protocol, statusCode, statusMessage, headers, body).
+
+- `asl.decodeParquetItems` reads Parquet via `pkgs/parquetio`, one JSON object
+  per row; the size limits and unreadable files fail as `States.ItemReaderFailed`
+  (`TestItemReader_Parquet`, `TestItemReader_ParquetFlattenAndAthena`,
+  `TestDecodeReaderItems_ParquetLimits`). `ErrParquetUnsupported` is gone.
+- TestState runs an `http:invoke` Task against the real connection (backend SDK
+  integration) when no mock is given; TRACE returns inspectionData.request and
+  .response; secrets are redacted unless revealSecrets
+  (`TestStepFunctionsTestStateHTTPTrace`, internal/app). TRACE on a non-HTTP
+  state and revealSecrets with a mock are ValidationException.

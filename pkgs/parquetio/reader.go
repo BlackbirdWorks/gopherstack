@@ -52,6 +52,17 @@ func Open(data []byte) (*File, error) {
 // NumRows is the total row count from the footer.
 func (f *File) NumRows() int64 { return f.pf.NumRows() }
 
+// MaxRowGroupBytes is the largest uncompressed row-group size in the footer.
+func (f *File) MaxRowGroupBytes() int64 {
+	var most int64
+
+	for _, rg := range f.pf.Metadata().RowGroups {
+		most = max(most, rg.TotalByteSize)
+	}
+
+	return most
+}
+
 // Columns lists the top-level column names in file order.
 func (f *File) Columns() []string {
 	fields := f.pf.Schema().Fields()

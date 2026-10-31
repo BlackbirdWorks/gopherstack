@@ -3,6 +3,7 @@ package stepfunctions
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
@@ -98,6 +99,7 @@ type testStateInput struct {
 	Input              string                  `json:"input"`
 	RoleArn            string                  `json:"roleArn,omitempty"`
 	InspectionLevel    string                  `json:"inspectionLevel,omitempty"`
+	RevealSecrets      bool                    `json:"revealSecrets,omitempty"`
 }
 
 type testStateMock struct {
@@ -162,22 +164,32 @@ func testStateMockRun(m *testStateMock, stateName string) (*asl.MockRun, error) 
 }
 
 type testStateOutput struct {
-	InspectionData map[string]string `json:"inspectionData,omitempty"`
-	Output         string            `json:"output,omitempty"`
-	Error          string            `json:"error,omitempty"`
-	Cause          string            `json:"cause,omitempty"`
-	Status         string            `json:"status"`
-	NextState      string            `json:"nextState,omitempty"`
+	InspectionData map[string]any `json:"inspectionData,omitempty"`
+	Output         string         `json:"output,omitempty"`
+	Error          string         `json:"error,omitempty"`
+	Cause          string         `json:"cause,omitempty"`
+	Status         string         `json:"status"`
+	NextState      string         `json:"nextState,omitempty"`
 }
 
 // inspectionDataFor renders the executor's recorded stage data as the
 // JSON-string members of types.InspectionData. INFO (the default) returns none.
-func inspectionDataFor(level string, executor *asl.Executor) map[string]string {
+func inspectionDataFor(level string, executor *asl.Executor, trace *httpTrace) map[string]any {
 	if level == "" || level == "INFO" {
 		return nil
 	}
 
-	out := map[string]string{}
+	out := map[string]any{}
+
+	if trace != nil && level == "TRACE" {
+		if trace.request != nil {
+			out["request"] = trace.request
+		}
+
+		if trace.response != nil {
+			out["response"] = trace.response
+		}
+	}
 
 	for key, value := range executor.Inspection() {
 		if raw, err := json.Marshal(value); err == nil {
@@ -263,6 +275,10 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 	}
 
+	if vErr := validateTestStateTrace(&input, states[stateName]); vErr != nil {
+		return nil, vErr
+	}
+
 	lambdaInvoker, rejectObjectItems := h.testStateBackendConfig()
 
 	executor := asl.NewExecutor(sm, lambdaInvoker, nil)
@@ -279,12 +295,17 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		stateInput = "{}"
 	}
 
-	result, execErr := executor.Execute(h.svcCtx, "test-state", stateInput)
+	execCtx, trace := withHTTPTrace(h.svcCtx, input.RevealSecrets)
+	if input.Mock == nil && isHTTPTaskState(states[stateName]) {
+		executor.SetSDKIntegration(h.testStateSDKIntegration())
+	}
+
+	result, execErr := executor.Execute(execCtx, "test-state", stateInput)
 	if execErr != nil {
 		out := &testStateOutput{
 			Status:         "FAILED",
 			Error:          execErr.Error(),
-			InspectionData: inspectionDataFor(input.InspectionLevel, executor),
+			InspectionData: inspectionDataFor(input.InspectionLevel, executor, trace),
 		}
 
 		return out, nil //nolint:nilerr // execution errors are encoded in the response body
@@ -298,7 +319,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 
 		return &testStateOutput{
 			Status: status, Error: result.Error, Cause: result.Cause,
-			InspectionData: inspectionDataFor(input.InspectionLevel, executor),
+			InspectionData: inspectionDataFor(input.InspectionLevel, executor, trace),
 		}, nil
 	}
 
@@ -308,7 +329,7 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		Status:         "SUCCEEDED",
 		Output:         string(outputBytes),
 		NextState:      nextStateName,
-		InspectionData: inspectionDataFor(input.InspectionLevel, executor),
+		InspectionData: inspectionDataFor(input.InspectionLevel, executor, trace),
 	}
 
 	if result.Caught {
@@ -362,6 +383,44 @@ func configureTestStateExecutor(
 	executor.SetMockRun(run)
 
 	return nil
+}
+
+// isHTTPTaskState reports whether raw is a Task state calling http:invoke.
+func isHTTPTaskState(raw json.RawMessage) bool {
+	var st struct {
+		Type     string `json:"Type"`
+		Resource string `json:"Resource"`
+	}
+
+	_ = json.Unmarshal(raw, &st)
+
+	return st.Type == stateTypeTask && strings.HasSuffix(st.Resource, ":::http:invoke")
+}
+
+// validateTestStateTrace rejects the TRACE and revealSecrets combinations AWS
+// rejects (test-state-isolation.html, "TRACE inspectionLevel").
+func validateTestStateTrace(input *testStateInput, raw json.RawMessage) error {
+	if input.InspectionLevel == "TRACE" && !isHTTPTaskState(raw) {
+		return fmt.Errorf("%w: inspectionLevel TRACE is only applicable to an HTTP Task state", ErrValidation)
+	}
+
+	if input.RevealSecrets && input.Mock != nil {
+		return fmt.Errorf("%w: revealSecrets cannot be used together with a mock", ErrValidation)
+	}
+
+	return nil
+}
+
+func (h *Handler) testStateSDKIntegration() asl.SDKIntegration {
+	bk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	bk.mu.RLock("TestStateSDK")
+	defer bk.mu.RUnlock()
+
+	return bk.sdkIntegration
 }
 
 func (h *Handler) testStateBackendConfig() (asl.LambdaInvoker, bool) {
