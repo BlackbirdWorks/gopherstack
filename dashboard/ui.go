@@ -2305,7 +2305,9 @@ func (h *DashboardHandler) spaFallbackHandler() echo.HandlerFunc {
 		}
 
 		// Fallback to index.html for client-side routing
-		http.ServeFileFS(c.Response(), c.Request(), spaSubFS, "index.html")
+		if !serveSPAFile(c, spaSubFS, "index.html") {
+			http.NotFound(c.Response(), c.Request())
+		}
 
 		return nil
 	}
@@ -2320,21 +2322,11 @@ func trySPAAsset(c *echo.Context, spaFS fs.FS, reqPath string) bool {
 
 	relPath := strings.TrimPrefix(path.Clean(cleanPath), "/")
 
-	file, openErr := spaFS.Open(relPath)
-	if openErr != nil {
+	if !spaStat(spaFS, relPath) {
 		return false
 	}
 
-	stat, statErr := file.Stat()
-	_ = file.Close()
-
-	if statErr != nil || stat.IsDir() {
-		return false
-	}
-
-	http.ServeFileFS(c.Response(), c.Request(), spaFS, relPath)
-
-	return true
+	return serveSPAFile(c, spaFS, relPath)
 }
 
 // RouteMatcher returns a function that determines if the request should be routed to this service.
