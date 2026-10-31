@@ -18,6 +18,8 @@ type Options struct {
 	Doer    Doer
 	BaseURL string
 	Version string
+	// ReadOnly omits every tool that can change state.
+	ReadOnly bool
 }
 
 // New builds an MCP server whose tools call the admin API reachable through opts.Doer.
@@ -31,7 +33,7 @@ func New(opts Options) *mcp.Server {
 	)
 	b := &backend{doer: opts.Doer, base: opts.BaseURL}
 
-	addTools(s, b)
+	addTools(s, b, opts.ReadOnly)
 	s.AddResource(&mcp.Resource{
 		URI:         infoURI,
 		Name:        "info",

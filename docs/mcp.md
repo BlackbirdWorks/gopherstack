@@ -64,8 +64,16 @@ The stdio transport inherits the trust of whoever launches it.
 | `query_traces` | read-only | `GET /_gopherstack/requests` |
 | `iam_denials` | read-only | `GET /_gopherstack/iam/policy-stream?decision=deny` |
 | `init_hooks_list` | read-only | `GET /_localstack/init` |
+| `init_hooks_run` | destructive | `POST /_gopherstack/init/run` (loopback peers only) |
 
-Init hooks run once at startup, so there is no tool to run them on demand.
+`init_hooks_run` runs a whole stage or one script (`stage`, optional `script` file name)
+that is already present in the configured stage directories; names are matched against
+discovered scripts, so paths, traversal and inline content are rejected. It returns each
+script's exit code and at most 16 KiB of output.
+
+`--mcp-read-only` (`GOPHERSTACK_MCP_READ_ONLY`, and `gopherstack mcp --read-only`)
+registers only the read-only tools, hiding every snapshot/reset/chaos/init-run tool.
+
 `query_traces` returns method, path, service, operation, status, duration and error
 details only; headers, bodies and signature query parameters are dropped. The
 resource `gopherstack://info` returns version, uptime and enabled services.

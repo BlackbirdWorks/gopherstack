@@ -318,6 +318,18 @@ func validateRequiredProperties(tmpl *Template) error {
 	return nil
 }
 
+// SetPropertyValidation toggles the required-key and unknown/wrong-type
+// property checks at stack operations (on by default).
+func (b *InMemoryBackend) SetPropertyValidation(enabled bool) { b.propertyChecksOff.Store(!enabled) }
+
+func (b *InMemoryBackend) validateProperties(tmpl *Template) error {
+	if b.propertyChecksOff.Load() {
+		return nil
+	}
+
+	return validateTemplateProperties(tmpl)
+}
+
 // validateTemplateProperties runs the required-key and vendored-schema checks.
 func validateTemplateProperties(tmpl *Template) error {
 	if err := validateRequiredProperties(tmpl); err != nil {

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,15 +21,17 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
+	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 type mcpStack struct {
-	srv *httptest.Server
-	cli *CLI
-	cfg aws.Config
+	srv      *httptest.Server
+	cli      *CLI
+	cfg      aws.Config
+	initRoot string
 }
 
 func newMCPStack(t *testing.T, mcpCfg MCPConfig) *mcpStack {
@@ -38,6 +42,9 @@ func newMCPStack(t *testing.T, mcpCfg MCPConfig) *mcpStack {
 	cli.Pods.Dir = t.TempDir()
 	cli.portAlloc = setupPortAllocatorWithReservations(t.Context(), log, cli)
 	cli.faultStore = chaos.NewFaultStore()
+	cli.localstackInit = newLocalstackInitState()
+	initRoot := t.TempDir()
+	cli.localstackInit.setManager(inithooks.NewManager(inithooks.ManagerConfig{Roots: []string{initRoot}}))
 	_ = cli.IAMPolicyStream()
 
 	services, err := initializeServicesT(t, &service.AppContext{
@@ -62,7 +69,7 @@ func newMCPStack(t *testing.T, mcpCfg MCPConfig) *mcpStack {
 	)
 	require.NoError(t, err)
 
-	return &mcpStack{srv: srv, cfg: cfg, cli: &cli}
+	return &mcpStack{srv: srv, cfg: cfg, cli: &cli, initRoot: initRoot}
 }
 
 func (s *mcpStack) httpSession(t *testing.T) *mcp.ClientSession {
@@ -143,6 +150,7 @@ func mcpExpectedTools() map[string]string {
 		"query_traces":       "readOnly",
 		"iam_denials":        "readOnly",
 		"init_hooks_list":    "readOnly",
+		"init_hooks_run":     "destructive",
 	}
 }
 
@@ -425,6 +433,105 @@ func TestMCPNeverLeaksSecrets(t *testing.T) {
 			_, raw := callTool(t, cs, tt.tool, tt.args)
 			for _, banned := range []string{secret, "sigvalue123", "credvalue456", "tokvalue789", "headertoken", "headersig"} {
 				assert.NotContains(t, raw, banned)
+			}
+		})
+	}
+}
+
+func TestMCPInitHooksRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		args     map[string]any
+		name     string
+		wantOut  string
+		wantErr  bool
+		wantExit float64
+	}{
+		{name: "named_ok", args: map[string]any{"stage": "ready", "script": "ok.sh"}, wantOut: "hello"},
+		{name: "named_fail", args: map[string]any{"stage": "READY", "script": "fail.sh"}, wantOut: "boom", wantExit: 3},
+		{name: "whole_stage", args: map[string]any{"stage": "READY"}, wantOut: "hello"},
+		{name: "unknown_script", args: map[string]any{"stage": "READY", "script": "nope.sh"}, wantErr: true},
+		{name: "traversal", args: map[string]any{"stage": "READY", "script": "../ready.d/ok.sh"}, wantErr: true},
+		{name: "absolute", args: map[string]any{"stage": "READY", "script": "/bin/true"}, wantErr: true},
+		{name: "bad_stage", args: map[string]any{"stage": "NOPE"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		for _, stdio := range []bool{false, true} {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				s := newMCPStack(t, MCPConfig{Enabled: true})
+				dir := filepath.Join(s.initRoot, "ready.d")
+				require.NoError(t, os.MkdirAll(dir, 0o750))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "ok.sh"), []byte("echo hello\n"), 0o600))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "fail.sh"), []byte("echo boom\nexit 3\n"), 0o600))
+
+				cs := s.session(t, stdio)
+
+				if tt.wantErr {
+					res, err := cs.CallTool(
+						t.Context(),
+						&mcp.CallToolParams{Name: "init_hooks_run", Arguments: tt.args},
+					)
+					require.NoError(t, err)
+					assert.True(t, res.IsError)
+
+					return
+				}
+
+				out, raw := callTool(t, cs, "init_hooks_run", tt.args)
+				assert.Contains(t, raw, tt.wantOut)
+
+				data, _ := out["data"].(map[string]any)
+				results, _ := data["results"].([]any)
+				require.NotEmpty(t, results)
+
+				if tt.name != "whole_stage" {
+					first, _ := results[0].(map[string]any)
+					assert.InDelta(t, tt.wantExit, first["exit_code"], 0)
+				}
+			})
+		}
+	}
+}
+
+func TestMCPReadOnlyHidesMutatingTools(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		stdio bool
+	}{{name: "http"}, {name: "stdio", stdio: true}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newMCPStack(t, MCPConfig{Enabled: true, ReadOnly: true})
+			cs := s.httpSession(t)
+
+			if tt.stdio {
+				cmd := &McpCmd{ReadOnly: true}
+				cmd.Endpoint = s.srv.URL
+				ct, st := mcp.NewInMemoryTransports()
+
+				go func() { _ = cmd.serve(t.Context(), testclient.New(t), st) }()
+
+				c := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil)
+				var err error
+				cs, err = c.Connect(t.Context(), ct, nil)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = cs.Close() })
+			}
+
+			res, err := cs.ListTools(t.Context(), nil)
+			require.NoError(t, err)
+			require.NotEmpty(t, res.Tools)
+
+			for _, tool := range res.Tools {
+				assert.True(t, tool.Annotations.ReadOnlyHint, tool.Name)
 			}
 		})
 	}
