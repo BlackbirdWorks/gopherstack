@@ -17,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -796,14 +797,15 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}
-	tlsListener := tls.NewListener(listener, tlsConfig)
+	tlsListener := httputils.NewQuerySpaceListener(tls.NewListener(listener, tlsConfig))
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(logger.Load(ctx)))
 	e.Any("/*", telemetry.WrapEchoHandler("AzureARM", h.Handler(), h))
 
 	srv := &http.Server{
-		Handler:           e,
+		Handler:           httputils.QuerySpaceTLS(e),
+		ConnContext:       httputils.QuerySpaceConnContext,
 		ReadHeaderTimeout: azureARMReadHeaderTimeout,
 		ReadTimeout:       azureARMReadTimeout,
 		IdleTimeout:       azureARMIdleTimeout,

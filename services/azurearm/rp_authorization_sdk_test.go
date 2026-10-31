@@ -3,11 +3,13 @@ package azurearm_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
@@ -1439,4 +1441,65 @@ func TestAuthorizationSDK_PersistenceAndReset(t *testing.T) {
 
 	_, err = s.pAssign.Get(ctx, authRGScope, "pa", nil)
 	assert.Equal(t, "PolicyAssignmentNotFound", sdkErrCode(err))
+}
+
+func TestAuthorizationSDK_ListForScopeUnencodedFilter(t *testing.T) {
+	t.Parallel()
+
+	svc, err := (&azurearm.Provider{}).Init(&service.AppContext{})
+	require.NoError(t, err)
+
+	h, ok := svc.(*azurearm.Handler)
+	require.True(t, ok)
+
+	port := freeEphemeralPort(t)
+	h.Port = port
+
+	require.NoError(t, h.StartWorker(t.Context()))
+	t.Cleanup(func() { h.Shutdown(context.Background()) })
+
+	opts := &arm.ClientOptions{
+		Cloud: cloud.Configuration{Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
+			cloud.ResourceManager: {
+				Endpoint: fmt.Sprintf("https://127.0.0.1:%d", port),
+				Audience: "https://management.core.windows.net/",
+			},
+		}},
+		Transport: &http.Client{Transport: insecureTLSTransport()},
+		Retry:     policy.RetryOptions{MaxRetries: -1},
+	}
+
+	af, err := armauthorization.NewClientFactory(aciSub, aciCred{}, opts)
+	require.NoError(t, err)
+
+	client := af.NewRoleAssignmentsClient()
+	ctx := t.Context()
+
+	require.Eventually(t, func() bool {
+		_, perr := client.NewListForScopePager(authSubScope, nil).NextPage(ctx)
+
+		return perr == nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	for guid, principal := range map[string]string{guidA: guidC, guidB: guidD} {
+		_, err = client.Create(ctx, authSubScope, guid, assignParams(roleReader, principal, nil), nil)
+		require.NoError(t, err)
+	}
+
+	var names []string
+
+	filter := "principalId eq '" + guidD + "'"
+
+	for pg := client.NewListForScopePager(authSubScope, &armauthorization.RoleAssignmentsClientListForScopeOptions{
+		Filter: &filter,
+	}); pg.More(); {
+		page, perr := pg.NextPage(ctx)
+		require.NoError(t, perr)
+
+		for _, a := range page.Value {
+			names = append(names, *a.Name)
+		}
+	}
+
+	assert.Equal(t, []string{guidB}, names)
 }
