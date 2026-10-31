@@ -7,8 +7,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -66,7 +66,7 @@ func aciProbeTLSConfig(rawURL string) *tls.Config {
 	}
 
 	if ip, perr := netip.ParseAddr(u.Hostname()); perr == nil && ip.IsLoopback() {
-		cfg.InsecureSkipVerify = true //nolint:gosec // loopback emulator containers only
+		cfg.InsecureSkipVerify = true
 	}
 
 	return cfg

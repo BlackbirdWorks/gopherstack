@@ -147,8 +147,9 @@ func (m *Manager) setScript(stage Stage, idx int, st State, errMsg string) {
 func listScripts(root, sub string) []string {
 	base := filepath.Clean(root)
 	dir := filepath.Join(base, sub)
+	prefix := strings.TrimSuffix(base, string(filepath.Separator)) + string(filepath.Separator)
 
-	if dir != base && !strings.HasPrefix(dir, strings.TrimSuffix(base, string(filepath.Separator))+string(filepath.Separator)) {
+	if dir != base && !strings.HasPrefix(dir, prefix) {
 		return nil
 	}
 
