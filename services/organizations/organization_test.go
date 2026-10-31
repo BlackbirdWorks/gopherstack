@@ -453,10 +453,6 @@ func TestDescribeOrganization_AllTypesAfterEnableDisable(t *testing.T) {
 	_, err := b.EnablePolicyType(rootID, "TAG_POLICY")
 	require.NoError(t, err)
 
-	// The default FullAWSAccess SCP is attached to root; detach it so
-	// disabling SCP isn't rejected by the still-attached guard.
-	require.NoError(t, b.DetachPolicy("p-FullAWSAccess", rootID))
-
 	// Disable one.
 	_, err = b.DisablePolicyType(rootID, "SERVICE_CONTROL_POLICY")
 	require.NoError(t, err)

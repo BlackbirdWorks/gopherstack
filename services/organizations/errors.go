@@ -84,6 +84,11 @@ var (
 		"ConstraintViolationException: maximum policies per target exceeded",
 		awserr.ErrConflict,
 	)
+	// ErrMinPolicyAttachment is returned when detaching would leave a target without any SCP.
+	ErrMinPolicyAttachment = awserr.New(
+		"ConstraintViolationException: minimum policies per target",
+		awserr.ErrConflict,
+	)
 	// ErrHandshakeNotFound is returned when a handshake does not exist.
 	ErrHandshakeNotFound = awserr.New(
 		"HandshakeNotFoundException: handshake not found",

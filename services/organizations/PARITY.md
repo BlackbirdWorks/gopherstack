@@ -652,3 +652,11 @@ FIXED: UpdatePolicy Description is a pointer end to end. "If provided, the new d
 ## 2026-10-05 (undeclared response members)
 
 Account drops RoleName/IamUserAccessToBilling and EffectivePolicy drops PolicyId; all three are request-only or absent from the pinned SDK output types. State is kept in the backend.
+
+## 2026-10-31 SCP enforcement support
+
+- FullAWSAccess is now attached to every OU and account created while SCPs are enabled, and to the root, every OU and every account when the SCP type is (re-)enabled; the User Guide "Service control policies (SCPs)" / "SCP evaluation" pages state it is attached to every root, OU and account.
+- DisablePolicyType(SERVICE_CONTROL_POLICY) detaches all SCPs instead of failing with PolicyTypeAttached ("SCP effects on permissions": disabling detaches all SCPs automatically). Other policy types keep the attached check (unverified for them).
+- `SCPsForAccount` (scp.go) feeds services/iam enforcement; tests `scp_test.go`.
+- DetachPolicy refuses to remove the last SCP from a root/OU/account while SCPs are enabled: ConstraintViolationException, reason MIN_POLICY_TYPE_ATTACHMENT_LIMIT_EXCEEDED (DetachPolicy API reference: "Every root, OU, and account must have at least one SCP attached"; the reason code appears in its ConstraintViolationException list).
+- Restore attaches FullAWSAccess to any root/OU/account with no SCP when SCPs are enabled, repairing snapshots from before default attachment (`TestRestoreMigratesMissingDefaultSCPs`).

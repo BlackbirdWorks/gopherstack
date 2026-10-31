@@ -827,7 +827,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 gap; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 71 | 6 gaps; 3 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
-| [IAM](services/iam/README.md) | A | 38 | 2 gaps; 4 structural gaps |
+| [IAM](services/iam/README.md) | A | 38 | 4 gaps; 4 structural gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 1 gap; 5 structural gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 1 gap |
 | [IAM Identity Center OIDC](services/ssooidc/README.md) | B | 4 | 1 gap; 1 structural gap |

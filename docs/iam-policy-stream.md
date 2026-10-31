@@ -12,9 +12,12 @@ Allow statement that would have permitted the request.
 - `--iam-audit` (`GOPHERSTACK_IAM_AUDIT` or `IAM_SOFT_MODE`): evaluate and record
   but never deny; denials are logged as `IAM audit: request would be denied`.
   Works without `--enforce-iam`.
+- `--iam-enforce-scps` (`GOPHERSTACK_IAM_ENFORCE_SCPS`, default true): with enforcement on,
+  also evaluate Organizations SCPs for member-account principals (management account and
+  service-linked roles exempt).
 
 Deny log lines carry `reason` (`identity-policy`, `resource-policy`,
-`permission-boundary`, `implicit-deny`, `unresolved-principal`) and `matchedSid`.
+`permission-boundary`, `service-control-policy`, `implicit-deny`, `unresolved-principal`) and `matchedSid`.
 
 ## Endpoints
 

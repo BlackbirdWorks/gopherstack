@@ -115,6 +115,10 @@ func constraintErrorDetails() map[error]errorDetail {
 		ErrDuplicateHandshake: {
 			message: "A handshake for the specified account is already in progress.",
 		},
+		ErrMinPolicyAttachment: {
+			message: "You can't detach the last service control policy from a root, OU, or account.",
+			reason:  "MIN_POLICY_TYPE_ATTACHMENT_LIMIT_EXCEEDED",
+		},
 		ErrPolicyTypeAttached: {
 			message: "You can't disable a policy type while policies of that type are attached to targets.",
 			reason:  "MIN_POLICY_TYPE_ATTACHMENT_LIMIT_EXCEEDED",
