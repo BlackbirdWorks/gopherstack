@@ -167,6 +167,7 @@ export const ICON_IDS: ReadonlySet<string> = new Set([
   "oci-events",
   "oci-functions",
   "oci-identity",
+  "oci-loadbalancer",
   "oci-logging",
   "oci-monitoring",
   "oci-mysql",

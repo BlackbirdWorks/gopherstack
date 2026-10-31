@@ -91,5 +91,5 @@ items_still_open:
   - "Addresses: public and private load balancers get an address from the emulator pool 198.18.0.0/15 (public) or the OCI Core subnet CIDR when wired; no real address is reachable, the data plane is on loopback ephemeral ports only. In containers those ports are not published; use the endpoints admin route from inside the container."
   - "Health state is not persisted; backend maxConnections and balancing cursors are per process. No PROXY protocol, no SNI-based backend selection, no OCSP or session-ticket handling, no per-listener access logging."
   - "opc-retry-token idempotency, IAM policy checks, resource principals and instance principals are not applied; only API-key signatures are verified. Private keys of certificates are not persisted, so TLS listeners need the certificate recreated after a restore."
-  - "The dashboard has no OCI Load Balancer page and ociapigateway still carries its own copy of the loopback dial guard instead of pkgs/httpclient.LoopbackDialer."
+  - "ociapigateway still carries its own copy of the loopback dial guard instead of pkgs/httpclient.LoopbackDialer."
 ---

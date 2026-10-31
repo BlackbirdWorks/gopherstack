@@ -560,6 +560,14 @@ export const OCI_SERVICES: readonly OciService[] = [
     portLabel: "ocievents",
     defaultPort: 8164,
   },
+  {
+    id: "loadbalancer",
+    label: "Load Balancer",
+    description: "Oracle Cloud Load Balancer listeners, backend sets and backend health",
+    healthName: "OCILoadBalancer",
+    portLabel: "ociloadbalancer",
+    defaultPort: 8165,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {

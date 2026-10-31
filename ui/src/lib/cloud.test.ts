@@ -308,6 +308,15 @@ describe("new GCP console pages", () => {
     });
   });
 
+  it("registers Load Balancer", () => {
+    expect(availableOciServices(["OCILoadBalancer"]).map((s) => s.id)).toEqual(["loadbalancer"]);
+    expect(ociServiceById("loadbalancer")).toMatchObject({
+      portLabel: "ociloadbalancer",
+      defaultPort: 8165,
+      healthName: "OCILoadBalancer",
+    });
+  });
+
   it("registers Identity Platform and Flexible Server", () => {
     expect(gcpServiceById("identitytoolkit")).toMatchObject({
       portLabel: "gcpidentitytoolkit",

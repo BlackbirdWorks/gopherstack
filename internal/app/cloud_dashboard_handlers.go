@@ -159,6 +159,11 @@ func (c *CLI) GetOCINoSQLHandler() service.Registerable { return c.ociNoSQLHandl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOCIAPIGatewayHandler() service.Registerable { return c.ociAPIGatewayHandler }
 
+// GetOCILoadBalancerHandler returns the OCILoadBalancer handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCILoadBalancerHandler() service.Registerable { return c.ociLoadBalancerHandler }
+
 // GetOCIEventsHandler returns the OCIEvents handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface

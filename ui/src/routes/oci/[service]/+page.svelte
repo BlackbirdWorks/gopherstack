@@ -8,6 +8,7 @@
 	import EventsDashboard from '#lib/components/oci/EventsDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
+	import LoadBalancerDashboard from '#lib/components/oci/LoadBalancerDashboard.svelte';
 	import LoggingDashboard from '#lib/components/oci/LoggingDashboard.svelte';
 	import MonitoringDashboard from '#lib/components/oci/MonitoringDashboard.svelte';
 	import MySQLDashboard from '#lib/components/oci/MySQLDashboard.svelte';
@@ -59,6 +60,8 @@
 	<APIGatewayDashboard />
 {:else if service?.id === 'events'}
 	<EventsDashboard />
+{:else if service?.id === 'loadbalancer'}
+	<LoadBalancerDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}
