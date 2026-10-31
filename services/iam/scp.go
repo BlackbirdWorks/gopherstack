@@ -94,6 +94,22 @@ func (cfg EnforcementConfig) scpDecision(
 	return v, v.denied
 }
 
+// applySCPs turns an allow into an SCP deny when the caller account's SCPs do not permit the request.
+func (cfg EnforcementConfig) applySCPs(
+	dec requestDecision, action, resource string, condCtx ConditionContext,
+) (requestDecision, string) {
+	if !dec.allow {
+		return dec, ""
+	}
+
+	v, denied := cfg.scpDecision(action, resource, condCtx)
+	if !denied {
+		return dec, ""
+	}
+
+	return v.toDecision(), scpDeniedMessage(condCtx.PrincipalARN, action, v)
+}
+
 // scpDeniedMessage is the AccessDenied text AWS documents for SCP denials
 // (IAM User Guide, "Troubleshoot access denied error messages").
 func scpDeniedMessage(principalArn, action string, v scpVerdict) string {
@@ -123,4 +139,3 @@ func (v scpVerdict) toDecision() requestDecision {
 
 	return d
 }
-

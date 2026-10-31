@@ -53,6 +53,8 @@ type EnforcementConfig struct {
 	Global *config.GlobalConfig `json:"global,omitempty"`
 	// Recorder, when non-nil, receives one event per evaluated request.
 	Recorder *iampolicystream.Recorder `json:"-"`
+	// SCPs, when non-nil, gates otherwise-allowed requests on the caller account's service control policies.
+	SCPs SCPProvider `json:"-"`
 	// ResourceProviders is a list of backends that can return resource-based
 	// policies (e.g. S3 bucket policies, SQS queue policies).
 	ResourceProviders []ResourcePolicyProvider `json:"resourceProviders,omitempty"`
@@ -60,8 +62,6 @@ type EnforcementConfig struct {
 	// when the global ExtractIAMAction function cannot determine the IAM action
 	// (e.g. for REST-based services that bypass the standard mappers).
 	ActionExtractors []ActionExtractor `json:"actionExtractors,omitempty"`
-	// SCPs, when non-nil, gates otherwise-allowed requests on the caller account's service control policies.
-	SCPs SCPProvider `json:"-"`
 	// Audit evaluates and records but never denies.
 	Audit bool `json:"audit,omitempty"`
 }
@@ -464,13 +464,7 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 
 	dec := decideScoped(policyDocs, boundaryDocs, resourceDocs, action, matchResource, condCtx, scope)
 
-	var scpMsg string
-
-	if dec.allow {
-		if v, denied := cfg.scpDecision(action, matchResource, condCtx); denied {
-			dec, scpMsg = v.toDecision(), scpDeniedMessage(condCtx.PrincipalARN, action, v)
-		}
-	}
+	dec, scpMsg := cfg.applySCPs(dec, action, matchResource, condCtx)
 
 	if cfg.Recorder != nil {
 		dec = dec.attribute(backend, attribution{
@@ -479,6 +473,17 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	}
 
 	cfg.record(c, dec, action, matchResource, condCtx.PrincipalARN, callerName)
+
+	return cfg.finish(c, next, dec, scope, scpMsg, callerName, action, matchResource)
+}
+
+// finish lets an allowed (or audited) request through and otherwise writes the denial.
+func (cfg EnforcementConfig) finish(
+	c *echo.Context, next echo.HandlerFunc, dec requestDecision, scope RequestScope,
+	scpMsg, callerName, action, matchResource string,
+) error {
+	ctx := c.Request().Context()
+	log := logger.Load(ctx)
 
 	if dec.allow {
 		return next(c)

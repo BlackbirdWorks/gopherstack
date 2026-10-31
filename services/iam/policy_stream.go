@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	reasonIdentityPolicy     = iampolicystream.ReasonIdentityPolicy
-	reasonResourcePolicy     = iampolicystream.ReasonResourcePolicy
-	reasonPermissionBoundary = iampolicystream.ReasonPermissionBound
-	reasonImplicitDeny       = iampolicystream.ReasonImplicitDeny
-	reasonUnresolvedCaller   = iampolicystream.ReasonUnresolvedCaller
+	reasonIdentityPolicy       = iampolicystream.ReasonIdentityPolicy
+	reasonResourcePolicy       = iampolicystream.ReasonResourcePolicy
+	reasonPermissionBoundary   = iampolicystream.ReasonPermissionBound
+	reasonImplicitDeny         = iampolicystream.ReasonImplicitDeny
+	reasonUnresolvedCaller     = iampolicystream.ReasonUnresolvedCaller
 	reasonServiceControlPolicy = iampolicystream.ReasonServiceControl
 )
 

@@ -115,7 +115,11 @@ func newSCPFixture(t *testing.T, enforceSCPs bool) *scpFixture {
 	require.NotEmpty(t, f.accountID)
 
 	_, err = orgs.MoveAccount(t.Context(), &organizations.MoveAccountInput{
-		AccountId: aws.String(f.accountID), SourceParentId: aws.String(f.rootID), DestinationParentId: aws.String(f.ouID),
+		AccountId: aws.String(
+			f.accountID,
+		),
+		SourceParentId:      aws.String(f.rootID),
+		DestinationParentId: aws.String(f.ouID),
 	})
 	require.NoError(t, err)
 
@@ -289,11 +293,15 @@ func TestSCPEnforcement(t *testing.T) {
 					`{"aws:RequestedRegion":"us-east-1"}}}]}`)
 				f.attach(t, pid, f.rootID)
 
-				east := sqs.NewFromConfig(scpConfig(t, f.srv.URL, member.key, member.secret, "us-east-1", member.account))
+				east := sqs.NewFromConfig(
+					scpConfig(t, f.srv.URL, member.key, member.secret, "us-east-1", member.account),
+				)
 				_, err := east.ListQueues(t.Context(), &sqs.ListQueuesInput{})
 				require.NoError(t, err)
 
-				west := sqs.NewFromConfig(scpConfig(t, f.srv.URL, member.key, member.secret, "us-west-2", member.account))
+				west := sqs.NewFromConfig(
+					scpConfig(t, f.srv.URL, member.key, member.secret, "us-west-2", member.account),
+				)
 				_, err = west.ListQueues(t.Context(), &sqs.ListQueuesInput{})
 				require.Error(t, err)
 				assert.Contains(t, accessDeniedMessage(t, err), "explicit deny in a service control policy")

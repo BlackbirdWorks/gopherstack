@@ -47,7 +47,7 @@ func TestSCPsForAccount(t *testing.T) {
 		wantOK     bool
 	}{
 		{
-			name: "member_path_root_first",
+			name:   "member_path_root_first",
 			mutate: func(_ *testing.T, o scpOrg) string { return o.acctID },
 			wantOK: true,
 		},

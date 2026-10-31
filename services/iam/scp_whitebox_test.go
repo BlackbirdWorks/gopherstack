@@ -8,8 +8,9 @@ import (
 
 func scpDoc(effect, action string) SCPPolicy {
 	return SCPPolicy{
-		ARN:      "arn:aws:organizations::1:policy/o-x/service_control_policy/p-" + effect,
-		Document: `{"Version":"2012-10-17","Statement":[{"Effect":"` + effect + `","Action":"` + action + `","Resource":"*"}]}`,
+		ARN: "arn:aws:organizations::1:policy/o-x/service_control_policy/p-" + effect,
+		Document: `{"Version":"2012-10-17","Statement":[{"Effect":"` + effect +
+			`","Action":"` + action + `","Resource":"*"}]}`,
 	}
 }
 
@@ -20,20 +21,26 @@ func TestEvaluateSCPs(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		wantArn      string
 		levels       []SCPLevel
 		wantDenied   bool
 		wantExplicit bool
-		wantArn      string
 	}{
-		{name: "all_levels_allow", levels: []SCPLevel{{Policies: []SCPPolicy{allowAll}}, {Policies: []SCPPolicy{allowAll}}}},
+		{
+			name:   "all_levels_allow",
+			levels: []SCPLevel{{Policies: []SCPPolicy{allowAll}}, {Policies: []SCPPolicy{allowAll}}},
+		},
 		{
 			name:       "level_without_allow_denies",
 			levels:     []SCPLevel{{Policies: []SCPPolicy{allowAll}}, {}},
 			wantDenied: true,
 		},
 		{
-			name:       "level_allow_for_other_action_denies",
-			levels:     []SCPLevel{{Policies: []SCPPolicy{allowAll}}, {Policies: []SCPPolicy{scpDoc("Allow", "ec2:*")}}},
+			name: "level_allow_for_other_action_denies",
+			levels: []SCPLevel{
+				{Policies: []SCPPolicy{allowAll}},
+				{Policies: []SCPPolicy{scpDoc("Allow", "ec2:*")}},
+			},
 			wantDenied: true,
 		},
 		{
@@ -42,7 +49,9 @@ func TestEvaluateSCPs(t *testing.T) {
 				{Policies: []SCPPolicy{allowAll, scpDoc("Deny", "s3:DeleteBucket")}},
 				{Policies: []SCPPolicy{allowAll}},
 			},
-			wantDenied: true, wantExplicit: true, wantArn: "arn:aws:organizations::1:policy/o-x/service_control_policy/p-Deny",
+			wantDenied:   true,
+			wantExplicit: true,
+			wantArn:      "arn:aws:organizations::1:policy/o-x/service_control_policy/p-Deny",
 		},
 		{
 			name:   "union_of_allows_within_level",
