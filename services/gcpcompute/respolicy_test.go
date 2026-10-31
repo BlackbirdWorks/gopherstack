@@ -224,7 +224,9 @@ func (e *env) changeDisk(t *testing.T, disk string, add bool, refs ...string) er
 	} else {
 		op, err = e.disks(t).RemoveResourcePolicies(t.Context(), &computepb.RemoveResourcePoliciesDiskRequest{
 			Project: project, Zone: zone, Disk: disk,
-			DisksRemoveResourcePoliciesRequestResource: &computepb.DisksRemoveResourcePoliciesRequest{ResourcePolicies: refs},
+			DisksRemoveResourcePoliciesRequestResource: &computepb.DisksRemoveResourcePoliciesRequest{
+				ResourcePolicies: refs,
+			},
 		})
 	}
 

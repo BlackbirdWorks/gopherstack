@@ -335,7 +335,10 @@ func TestInstanceUpdate(t *testing.T) {
 	}{
 		{
 			name: "description no effect", res: &computepb.Instance{Description: s("new")}, status: stRunning,
-			verify: func(t *testing.T, i *computepb.Instance) { t.Helper(); assert.Equal(t, "new", i.GetDescription()) },
+			verify: func(t *testing.T, i *computepb.Instance) {
+				t.Helper()
+				assert.Equal(t, "new", i.GetDescription())
+			},
 		},
 		{
 			name: "deletion protection", res: &computepb.Instance{DeletionProtection: new(true)}, status: stRunning,
