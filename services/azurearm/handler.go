@@ -58,6 +58,7 @@ type Handler struct {
 	srvMu    *lockmetrics.RWMutex
 	srv      *http.Server
 	observer ResourceObserver
+	clients  ClientAuthenticator
 	Settings Settings
 	Port     int
 }

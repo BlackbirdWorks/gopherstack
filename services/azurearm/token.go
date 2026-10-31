@@ -39,6 +39,13 @@ func audienceFromScope(scopeOrResource string) string {
 // IssueToken issues a client-credentials access token for tenant, using
 // issuer, returning the wire response body.
 func IssueToken(issuer *aadauth.Issuer, baseURL, tenant, clientID, scopeOrResource string) (TokenResponse, error) {
+	return IssueTokenForObject(issuer, baseURL, tenant, clientID, "", scopeOrResource)
+}
+
+// IssueTokenForObject is IssueToken with an explicit oid/sub claim, the client's service principal object ID.
+func IssueTokenForObject(
+	issuer *aadauth.Issuer, baseURL, tenant, clientID, objectID, scopeOrResource string,
+) (TokenResponse, error) {
 	audience := audienceFromScope(scopeOrResource)
 
 	claims := aadauth.ClientCredentialsClaims{
@@ -46,6 +53,7 @@ func IssueToken(issuer *aadauth.Issuer, baseURL, tenant, clientID, scopeOrResour
 		Audience: audience,
 		TenantID: tenant,
 		ClientID: clientID,
+		ObjectID: objectID,
 	}
 
 	tokenString, err := issuer.IssueClientCredentialsToken(claims, aadauth.DefaultTokenExpirySeconds)

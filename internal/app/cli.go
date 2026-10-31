@@ -98,6 +98,7 @@ import (
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
 	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
+	azuregraphbackend "github.com/blackbirdworks/gopherstack/services/azuregraph"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
@@ -640,6 +641,7 @@ type CLI struct {
 	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
 	AzureEventGrid                azureeventgridbackend.Settings    `embed:"" prefix:"azure-eventgrid-"`
 	AzureMonitor                  azuremonitorbackend.Settings      `embed:"" prefix:"azure-monitor-"`
+	AzureGraph                    azuregraphbackend.Settings        `embed:"" prefix:"azure-graph-"`
 	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
 	Glue                          gluebackend.Settings              `embed:"" prefix:"glue-"`
 	GCPIdentityToolkit            gcpidtkbackend.Settings           `embed:"" prefix:"gcp-identitytoolkit-"`
@@ -2744,6 +2746,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureContainerRegistry", "azurecontainerregistry", cli.AzureACR.Port},
 		{"AzureFunctions", "azurefunctions", cli.AzureFunctions.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
+		{"AzureGraph", "azuregraph", cli.AzureGraph.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 		{"OCIObjectStorage", "ociobjectstorage", cli.OCIObjectStorage.Port},
 		{"OCIVault", "ocivault", cli.OCIVault.Port},
@@ -5247,6 +5250,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&azurequeuebackend.Provider{},
 		&azurefilebackend.Provider{},
 		&azuremonitorbackend.Provider{},
+		&azuregraphbackend.Provider{},
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
 		&azureeventhubsbackend.Provider{},

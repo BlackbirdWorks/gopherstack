@@ -53,6 +53,7 @@ const (
 	AzureAppConfig    = "10008"
 	AzureFile         = "10009"
 	AzureMonitor      = "10013"
+	AzureGraph        = "10014"
 	AzureACR          = "10011"
 	AzureStorageVHost = "10010"
 	AzureCosmosDB     = "8081"
@@ -99,7 +100,7 @@ func gcpPorts() map[string]string {
 func azurePorts() []string {
 	return []string{
 		AzureBlobPort, AzureQueuePort, AzureTablePort, AzureServiceBus, AzureKeyVault,
-		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureFile, AzureMonitor, AzureACR, AzureStorageVHost,
+		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureFile, AzureMonitor, AzureGraph, AzureACR, AzureStorageVHost,
 		AzureCosmosDB,
 	}
 }
@@ -279,12 +280,12 @@ func (c *Container) AWSConfig(ctx context.Context) (aws.Config, error) {
 
 // AzureEndpoints returns the base URL (http://host:port, no account path) of
 // every Azure listener, keyed by "blob", "queue", "table", "servicebus",
-// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "file", "monitor", "acr", "storagevhost", "cosmosdb".
+// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "file", "monitor", "graph", "acr", "storagevhost", "cosmosdb".
 func (c *Container) AzureEndpoints(ctx context.Context) (map[string]string, error) {
 	named := map[string]string{
 		"blob": AzureBlobPort, "queue": AzureQueuePort, "table": AzureTablePort,
 		"servicebus": AzureServiceBus, "keyvault": AzureKeyVault, "eventhubs": AzureEventHubs,
-		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "file": AzureFile, "monitor": AzureMonitor, "acr": AzureACR,
+		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "file": AzureFile, "monitor": AzureMonitor, "graph": AzureGraph, "acr": AzureACR,
 		"storagevhost": AzureStorageVHost, "cosmosdb": AzureCosmosDB,
 	}
 	out := make(map[string]string, len(named))

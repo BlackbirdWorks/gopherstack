@@ -182,6 +182,10 @@ func (p *AuthorizationProvider) principalTypeFor(given, principalID string) stri
 		return given
 	}
 
+	if t, ok := p.directoryType(principalID); ok {
+		return t
+	}
+
 	if p.msi != nil && p.msi.hasPrincipal(principalID) {
 		return principalSP
 	}
@@ -217,6 +221,12 @@ func (p *AuthorizationProvider) putRoleAssignment(req authReq) (authResp, error)
 
 	p.mu.Lock("putRoleAssignment")
 	defer p.mu.Unlock()
+
+	if p.validatePrincipals && !p.principalKnown(principalID) {
+		return authResp{}, authErr(http.StatusBadRequest, assignCodePrincipal,
+			"Principal %s does not exist in the directory %s. Check that you have the correct principal ID.",
+			principalID, p.tenantID)
+	}
 
 	role, ok := p.resolveRole(roleDefID)
 	if !ok {

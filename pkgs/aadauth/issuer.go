@@ -80,7 +80,8 @@ type ClientCredentialsClaims struct {
 	Issuer   string // https://<host>/<tenant>/v2.0
 	Audience string // requested scope's resource, e.g. https://management.azure.com
 	TenantID string
-	ClientID string // becomes both "appid" and "oid"/"sub" (a service principal has no separate user)
+	ClientID string // the "appid" claim; also "oid"/"sub" when ObjectID is empty
+	ObjectID string // optional "oid"/"sub": the service principal's or user's directory object ID
 }
 
 // IssueClientCredentialsToken signs and returns an AAD-shaped access token
@@ -94,13 +95,18 @@ func (iss *Issuer) IssueClientCredentialsToken(claims ClientCredentialsClaims, e
 	now := time.Now().Unix()
 	expiry := int64(expirySeconds)
 
+	oid := claims.ObjectID
+	if oid == "" {
+		oid = claims.ClientID
+	}
+
 	jwtClaims := jwt.MapClaims{
 		"iss":   claims.Issuer,
 		"aud":   claims.Audience,
 		"tid":   claims.TenantID,
 		"appid": claims.ClientID,
-		"oid":   claims.ClientID,
-		"sub":   claims.ClientID,
+		"oid":   oid,
+		"sub":   oid,
 		"ver":   aadVersion,
 		"iat":   now,
 		"nbf":   now,
