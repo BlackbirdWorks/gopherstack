@@ -88,6 +88,8 @@ func (h *Handler) utilActions() map[string]actionFn {
 	}
 }
 
+const inspectionTrace = "TRACE"
+
 // bareStateName names the state when TestState is given a bare state definition.
 const bareStateName = "TestStateName"
 
@@ -181,7 +183,7 @@ func inspectionDataFor(level string, executor *asl.Executor, trace *httpTrace) m
 
 	out := map[string]any{}
 
-	if trace != nil && level == "TRACE" {
+	if trace != nil && level == inspectionTrace {
 		if trace.request != nil {
 			out["request"] = trace.request
 		}
@@ -201,7 +203,7 @@ func inspectionDataFor(level string, executor *asl.Executor, trace *httpTrace) m
 }
 
 func validInspectionLevel(level string) bool {
-	return level == "" || level == "INFO" || level == "DEBUG" || level == "TRACE"
+	return level == "" || level == "INFO" || level == "DEBUG" || level == inspectionTrace
 }
 
 // detachNext swaps Next for End:true so TestState can run a non-terminal
@@ -301,14 +303,16 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 	}
 
 	result, execErr := executor.Execute(execCtx, "test-state", stateInput)
-	if execErr != nil {
-		out := &testStateOutput{
-			Status:         "FAILED",
-			Error:          execErr.Error(),
-			InspectionData: inspectionDataFor(input.InspectionLevel, executor, trace),
-		}
+	inspection := inspectionDataFor(input.InspectionLevel, executor, trace)
 
-		return out, nil //nolint:nilerr // execution errors are encoded in the response body
+	return testStateResult(result, execErr, nextStateName, inspection), nil
+}
+
+func testStateResult(
+	result *asl.ExecutionResult, execErr error, nextState string, inspection map[string]any,
+) *testStateOutput {
+	if execErr != nil {
+		return &testStateOutput{Status: "FAILED", Error: execErr.Error(), InspectionData: inspection}
 	}
 
 	if result.Failed {
@@ -318,25 +322,21 @@ func (h *Handler) handleTestState(body []byte) (any, error) {
 		}
 
 		return &testStateOutput{
-			Status: status, Error: result.Error, Cause: result.Cause,
-			InspectionData: inspectionDataFor(input.InspectionLevel, executor, trace),
-		}, nil
+			Status: status, Error: result.Error, Cause: result.Cause, InspectionData: inspection,
+		}
 	}
 
 	outputBytes, _ := json.Marshal(result.Output)
 
 	out := &testStateOutput{
-		Status:         "SUCCEEDED",
-		Output:         string(outputBytes),
-		NextState:      nextStateName,
-		InspectionData: inspectionDataFor(input.InspectionLevel, executor, trace),
+		Status: "SUCCEEDED", Output: string(outputBytes), NextState: nextState, InspectionData: inspection,
 	}
 
 	if result.Caught {
 		out.Status, out.Error, out.Cause, out.NextState = "CAUGHT_ERROR", result.Error, result.Cause, result.NextState
 	}
 
-	return out, nil
+	return out
 }
 
 // configureTestStateExecutor applies the request's mock, context and
@@ -400,7 +400,7 @@ func isHTTPTaskState(raw json.RawMessage) bool {
 // validateTestStateTrace rejects the TRACE and revealSecrets combinations AWS
 // rejects (test-state-isolation.html, "TRACE inspectionLevel").
 func validateTestStateTrace(input *testStateInput, raw json.RawMessage) error {
-	if input.InspectionLevel == "TRACE" && !isHTTPTaskState(raw) {
+	if input.InspectionLevel == inspectionTrace && !isHTTPTaskState(raw) {
 		return fmt.Errorf("%w: inspectionLevel TRACE is only applicable to an HTTP Task state", ErrValidation)
 	}
 

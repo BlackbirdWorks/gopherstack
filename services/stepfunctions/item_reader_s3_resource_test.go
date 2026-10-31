@@ -385,7 +385,6 @@ func TestItemReader_S3GetObject_Errors(t *testing.T) {
 		assert.Equal(t, "States.ItemReaderFailed", errCode)
 		assert.Contains(t, cause, "NoSuchKey")
 	})
-
 }
 
 // TestItemReader_ItemsPointer covers ReaderConfig.ItemsPointer, the RFC 6901

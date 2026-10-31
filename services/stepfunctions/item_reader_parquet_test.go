@@ -48,33 +48,33 @@ func TestItemReader_Parquet(t *testing.T) {
 	tests := []struct {
 		name        string
 		config      string
-		data        func(t *testing.T) []byte
+		compression string
 		want        string
 		wantErrCode string
 		wantCause   string
 	}{
 		{
-			name:   "snappy_rows_become_objects",
-			config: `{"InputType":"PARQUET"}`,
-			data:   func(t *testing.T) []byte { t.Helper(); return parquetFixture(t, "SNAPPY") },
-			want:   wantAll,
+			name:        "snappy_rows_become_objects",
+			config:      `{"InputType":"PARQUET"}`,
+			compression: "SNAPPY",
+			want:        wantAll,
 		},
 		{
-			name:   "zstd",
-			config: `{"InputType":"PARQUET"}`,
-			data:   func(t *testing.T) []byte { t.Helper(); return parquetFixture(t, "ZSTD") },
-			want:   wantAll,
+			name:        "zstd",
+			config:      `{"InputType":"PARQUET"}`,
+			compression: "ZSTD",
+			want:        wantAll,
 		},
 		{
-			name:   "gzip",
-			config: `{"InputType":"parquet"}`,
-			data:   func(t *testing.T) []byte { t.Helper(); return parquetFixture(t, "GZIP") },
-			want:   wantAll,
+			name:        "gzip",
+			config:      `{"InputType":"parquet"}`,
+			compression: "GZIP",
+			want:        wantAll,
 		},
 		{
-			name:   "max_items",
-			config: `{"InputType":"PARQUET","MaxItems":2}`,
-			data:   func(t *testing.T) []byte { t.Helper(); return parquetFixture(t, "SNAPPY") },
+			name:        "max_items",
+			config:      `{"InputType":"PARQUET","MaxItems":2}`,
+			compression: "SNAPPY",
 			want: `[
 				{"id":1,"score":1.5,"name":"alpha","active":true,"seen":"2024-03-05 10:20:30.000","note":null},
 				{"id":2,"score":2.25,"name":"beta","active":false,"seen":"2024-03-06 00:00:00.000","note":"x"}
@@ -83,7 +83,7 @@ func TestItemReader_Parquet(t *testing.T) {
 		{
 			name:        "corrupt_file",
 			config:      `{"InputType":"PARQUET"}`,
-			data:        func(*testing.T) []byte { return []byte("this is not parquet") },
+			compression: "CORRUPT",
 			wantErrCode: "States.ItemReaderFailed",
 			wantCause:   "unable to read Parquet file",
 		},
@@ -96,7 +96,12 @@ func TestItemReader_Parquet(t *testing.T) {
 			const bucket = "parquet-bucket"
 
 			s3Bk := newBucketBackedS3(t, bucket)
-			putS3Object(t, s3Bk, bucket, "data/rows.parquet", tc.data(t))
+			data := []byte("this is not parquet")
+			if tc.compression != "CORRUPT" {
+				data = parquetFixture(t, tc.compression)
+			}
+
+			putS3Object(t, s3Bk, bucket, "data/rows.parquet", data)
 
 			itemReader := `{
 				"Resource": "arn:aws:states:::s3:getObject",

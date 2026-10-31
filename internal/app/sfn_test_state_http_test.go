@@ -37,7 +37,13 @@ func TestStepFunctionsTestStateHTTPTrace(t *testing.T) {
 		wantRequest bool
 	}{
 		{name: "trace_redacted", level: sfntypes.InspectionLevelTrace, wantRequest: true},
-		{name: "trace_revealed", level: sfntypes.InspectionLevelTrace, reveal: true, wantSecret: true, wantRequest: true},
+		{
+			name:        "trace_revealed",
+			level:       sfntypes.InspectionLevelTrace,
+			reveal:      true,
+			wantSecret:  true,
+			wantRequest: true,
+		},
 		{name: "debug_has_no_http_data", level: sfntypes.InspectionLevelDebug},
 		{name: "info_has_no_inspection", level: sfntypes.InspectionLevelInfo},
 	}
