@@ -42,6 +42,10 @@ const (
 func requireDMSDocker(t *testing.T, images ...string) {
 	t.Helper()
 
+	if testing.Short() {
+		t.Skip("real database containers are skipped in -short runs")
+	}
+
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker CLI not found")
 	}
